@@ -19,6 +19,11 @@ class AIMemory(Document):
 		``days <= 0`` (the default configured in hooks) means retain
 		indefinitely, so nothing is deleted until an administrator sets a
 		positive retention in Log Settings.
+
+		A ``user_directed`` memory (the user explicitly asked the agent to
+		remember it) is never swept here — a global retention setting turned
+		on for cleanup elsewhere must not silently delete a standing
+		convention nobody asked to expire.
 		"""
 		days = cint(days)
 		if days <= 0:
@@ -27,7 +32,8 @@ class AIMemory(Document):
 		# frappe.delete_doc (not a raw frappe.db.delete) so each pruned row still
 		# gets its automatic Deleted Document audit record — a raw SQL delete
 		# bypasses that entirely.
-		for name in frappe.get_all("AI Memory", filters={"modified": ("<", cutoff)}, pluck="name"):
+		filters = {"modified": ("<", cutoff), "user_directed": 0}
+		for name in frappe.get_all("AI Memory", filters=filters, pluck="name"):
 			frappe.delete_doc("AI Memory", name, ignore_permissions=True)
 
 	def validate(self):

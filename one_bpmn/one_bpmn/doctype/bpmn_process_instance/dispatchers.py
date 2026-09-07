@@ -67,6 +67,31 @@ def _is_small_talk(message: str) -> bool:
 	return all(w in _SMALL_TALK_WORDS for w in words)
 
 
+# A user stating a standing convention ("remember that...", "from now on...")
+# is asking for something categorically different from a fact the agent
+# might incidentally produce: it must survive verbatim (the distiller's
+# salience prompt is licensed to drop instance-specific wording) and it must
+# be recalled on every later turn regardless of that turn's vocabulary (a
+# keyword/FULLTEXT match on THIS turn's words can't be expected to find a
+# convention stated in unrelated words weeks ago). Detected here, cheaply and
+# deterministically, rather than left to the distiller's own judgment.
+_REMEMBER_PHRASES = (
+	r"\bremember (?:that|this|to|for)\b",
+	r"\bfrom now on\b",
+	r"\bgoing forward\b",
+	r"\bmake a note (?:that|to)\b",
+	r"\bkeep in mind (?:that)?\b",
+	r"\bfor every .+ (?:we|you) build\b",
+)
+_REMEMBER_RE = re.compile("|".join(_REMEMBER_PHRASES), re.IGNORECASE)
+
+
+def _is_remember_directive(message: str) -> bool:
+	"""True when *message* explicitly asks the agent to remember a standing
+	convention, rather than just answer the current request."""
+	return bool(_REMEMBER_RE.search(message or ""))
+
+
 def _cfg_truthy(value) -> bool:
 	"""Interpret a BPMN config value as a boolean (checkbox or string)."""
 	if isinstance(value, bool):
@@ -1389,12 +1414,25 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			# injecting an unrelated fact into "hi".
 			if memory_target and query and not _is_small_talk(query):
 				recall_query = query
-				from one_bpmn.agents.memory.tools import memory_search
+				from one_bpmn.agents.memory.tools import memory_list_user_directed, memory_search
 				scope, scope_key = memory_target
 				limit = int(task_cfg.get("aiMemoryLimit", 5) or 5)
-				memories = memory_search(
+				# Standing conventions the user asked to be remembered are
+				# fetched unconditionally, ahead of the keyword-matched results
+				# below — they won't share this turn's vocabulary, so relying
+				# on memory_search's FULLTEXT/like matching would silently
+				# drop them (the MEM-1 recall gap). Listed first and deduped
+				# by name so _bound_memories_to_budget (which keeps input
+				# order and drops the tail) can't truncate them away in favor
+				# of a lower-priority keyword match.
+				user_directed = memory_list_user_directed(
+					scope, scope_key, limit=3, ignore_permissions=True
+				)
+				matched = memory_search(
 					scope, scope_key, query, limit=limit, ignore_permissions=True
 				)
+				seen_names = {m.get("name") for m in user_directed}
+				memories = user_directed + [m for m in matched if m.get("name") not in seen_names]
 				if memories:
 					token_budget = int(
 						task_cfg.get("aiMemoryTokenBudget") or DEFAULT_MEMORY_TOKEN_BUDGET
@@ -1904,7 +1942,34 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 					memory_process_model = (
 						getattr(instance, "process_model", None) if scope == "Agent" else None
 					)
-					if write_mode == "raw":
+					if user_message and _is_remember_directive(user_message):
+						# An explicit "remember that..." names a standing
+						# convention, not an incidental fact the agent's
+						# output happened to produce — write it verbatim and
+						# skip the raw/distilled branches below entirely.
+						# Neither raw-dumping result.output nor running it
+						# through the salience distiller (licensed to drop
+						# instance-specific wording — see distill.py's system
+						# prompt) is what the user asked for. Still gated on
+						# write_mode != "off" above: an agent with memory
+						# writes disabled stays disabled, no separate bypass.
+						from one_bpmn.agents.memory.tools import memory_write
+						memory_write(
+							scope,
+							scope_key,
+							user_message,
+							source_run=src,
+							ignore_permissions=True,
+							reconcile=True,
+							reconcile_ctx={
+								"provider_name": config.provider_name,
+								"backend": config.backend,
+								"model": config.model,
+							},
+							process_model=memory_process_model,
+							user_directed=True,
+						)
+					elif write_mode == "raw":
 						content = _extract_memory_content(result.output, task_cfg.get("aiMemoryContentField", ""))
 						if content:
 							from one_bpmn.agents.memory.tools import memory_write
