@@ -145,7 +145,7 @@ def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_de
 		run.insert(ignore_permissions=True)
 	except Exception:
 		frappe.log_error(
-			title=f"Dev Agent Sandbox: {action} could not create a tracking row",
+			title=f"Agent Sandbox: {action} could not create a tracking row",
 			message=frappe.get_traceback(),
 		)
 		run = None
