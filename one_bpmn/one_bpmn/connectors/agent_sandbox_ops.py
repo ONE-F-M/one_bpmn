@@ -199,7 +199,7 @@ def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_de
 			run.db_set({"state": "completed", "result": frappe.as_json(data)}, update_modified=False)
 		return {"ok": True, "response": data}
 	except Exception as exc:
-		frappe.log_error(title=f"Dev Agent Sandbox: {action} call failed", message=frappe.get_traceback())
+		frappe.log_error(title=f"Agent Sandbox: {action} call failed", message=frappe.get_traceback())
 		error = f"The sandbox rejected the call: {exc}"
 		if run:
 			run.db_set({"state": "failed", "error_message": error[:500]}, update_modified=False)
