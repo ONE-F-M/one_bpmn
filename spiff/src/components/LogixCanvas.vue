@@ -221,7 +221,7 @@
 							</div>
 						</template>
 					</div>
-			</div>
+			</fieldset>
 
 			<!-- Security-lint banner: what's wrong with the script, live -->
 			<div v-if="lintViolations.length" class="lc-lint-banner">
