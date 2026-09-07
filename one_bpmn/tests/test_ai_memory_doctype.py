@@ -6,6 +6,9 @@ from __future__ import annotations
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import add_to_date, now_datetime
+
+from one_bpmn.one_bpmn.doctype.ai_memory.ai_memory import AIMemory
 
 
 def _memory(**kw):
@@ -133,3 +136,23 @@ class TestAIMemoryDoctype(FrappeTestCase):
 		frappe.set_user(user)
 		with self.assertRaises(frappe.PermissionError):
 			frappe.delete_doc("AI Memory", m.name)
+
+	# ── clear_old_logs (Log Settings retention) exempts user_directed rows ──
+	def test_clear_old_logs_exempts_user_directed(self):
+		stale = add_to_date(now_datetime(), days=-400)
+		directed = _memory(memory_scope="Agent", agent_element="C", content="a convention", user_directed=1)
+		incidental = _memory(memory_scope="Agent", agent_element="C", content="an incidental fact")
+		frappe.db.set_value("AI Memory", directed.name, "modified", stale, update_modified=False)
+		frappe.db.set_value("AI Memory", incidental.name, "modified", stale, update_modified=False)
+
+		AIMemory.clear_old_logs(days=30)
+
+		self.assertTrue(frappe.db.exists("AI Memory", directed.name))
+		self.assertFalse(frappe.db.exists("AI Memory", incidental.name))
+
+	def test_clear_old_logs_noop_when_days_not_positive(self):
+		stale = add_to_date(now_datetime(), days=-400)
+		m = _memory(memory_scope="Agent", agent_element="C", content="an incidental fact")
+		frappe.db.set_value("AI Memory", m.name, "modified", stale, update_modified=False)
+		AIMemory.clear_old_logs(days=0)
+		self.assertTrue(frappe.db.exists("AI Memory", m.name))

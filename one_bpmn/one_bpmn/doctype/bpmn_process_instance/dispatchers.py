@@ -67,6 +67,31 @@ def _is_small_talk(message: str) -> bool:
 	return all(w in _SMALL_TALK_WORDS for w in words)
 
 
+# A user stating a standing convention ("remember that...", "from now on...")
+# is asking for something categorically different from a fact the agent
+# might incidentally produce: it must survive verbatim (the distiller's
+# salience prompt is licensed to drop instance-specific wording) and it must
+# be recalled on every later turn regardless of that turn's vocabulary (a
+# keyword/FULLTEXT match on THIS turn's words can't be expected to find a
+# convention stated in unrelated words weeks ago). Detected here, cheaply and
+# deterministically, rather than left to the distiller's own judgment.
+_REMEMBER_PHRASES = (
+	r"\bremember (?:that|this|to|for)\b",
+	r"\bfrom now on\b",
+	r"\bgoing forward\b",
+	r"\bmake a note (?:that|to)\b",
+	r"\bkeep in mind (?:that)?\b",
+	r"\bfor every .+ (?:we|you) build\b",
+)
+_REMEMBER_RE = re.compile("|".join(_REMEMBER_PHRASES), re.IGNORECASE)
+
+
+def _is_remember_directive(message: str) -> bool:
+	"""True when *message* explicitly asks the agent to remember a standing
+	convention, rather than just answer the current request."""
+	return bool(_REMEMBER_RE.search(message or ""))
+
+
 def _cfg_truthy(value) -> bool:
 	"""Interpret a BPMN config value as a boolean (checkbox or string)."""
 	if isinstance(value, bool):
@@ -292,23 +317,13 @@ def _memory_model(task_cfg: dict, key: str, fallback: str | None) -> str | None:
 
 	Resolution happens here, on the dispatch thread, because the distiller runs
 	in a background RQ worker that must be handed the model as a job argument
-	rather than looking it up itself.
+	rather than looking it up itself. The precedence chain itself lives in
+	``model_resolution.resolve_memory_model`` (WI-002168), shared with the
+	config-time "effective model" preview so the two can never disagree.
 	"""
-	model = (task_cfg.get(key) or "").strip() if isinstance(task_cfg.get(key), str) else task_cfg.get(key)
-	if model:
-		return model
+	from one_bpmn.agents.memory.model_resolution import resolve_memory_model
 
-	setting = _MEMORY_MODEL_SETTINGS.get(key)
-	if setting:
-		try:
-			default = frappe.db.get_single_value("Processa Settings", setting)
-			if default:
-				return default
-		except Exception:
-			# A missing/unreadable setting must never break a memory write.
-			pass
-
-	return fallback or None
+	return resolve_memory_model(task_cfg.get(key), _MEMORY_MODEL_SETTINGS.get(key), fallback)
 
 
 # Shape attribute -> the Processa Settings field holding its site-wide default.
@@ -1389,12 +1404,25 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			# injecting an unrelated fact into "hi".
 			if memory_target and query and not _is_small_talk(query):
 				recall_query = query
-				from one_bpmn.agents.memory.tools import memory_search
+				from one_bpmn.agents.memory.tools import memory_list_user_directed, memory_search
 				scope, scope_key = memory_target
 				limit = int(task_cfg.get("aiMemoryLimit", 5) or 5)
-				memories = memory_search(
+				# Standing conventions the user asked to be remembered are
+				# fetched unconditionally, ahead of the keyword-matched results
+				# below — they won't share this turn's vocabulary, so relying
+				# on memory_search's FULLTEXT/like matching would silently
+				# drop them (the MEM-1 recall gap). Listed first and deduped
+				# by name so _bound_memories_to_budget (which keeps input
+				# order and drops the tail) can't truncate them away in favor
+				# of a lower-priority keyword match.
+				user_directed = memory_list_user_directed(
+					scope, scope_key, limit=3, ignore_permissions=True
+				)
+				matched = memory_search(
 					scope, scope_key, query, limit=limit, ignore_permissions=True
 				)
+				seen_names = {m.get("name") for m in user_directed}
+				memories = user_directed + [m for m in matched if m.get("name") not in seen_names]
 				if memories:
 					token_budget = int(
 						task_cfg.get("aiMemoryTokenBudget") or DEFAULT_MEMORY_TOKEN_BUDGET
@@ -1904,7 +1932,34 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 					memory_process_model = (
 						getattr(instance, "process_model", None) if scope == "Agent" else None
 					)
-					if write_mode == "raw":
+					if user_message and _is_remember_directive(user_message):
+						# An explicit "remember that..." names a standing
+						# convention, not an incidental fact the agent's
+						# output happened to produce — write it verbatim and
+						# skip the raw/distilled branches below entirely.
+						# Neither raw-dumping result.output nor running it
+						# through the salience distiller (licensed to drop
+						# instance-specific wording — see distill.py's system
+						# prompt) is what the user asked for. Still gated on
+						# write_mode != "off" above: an agent with memory
+						# writes disabled stays disabled, no separate bypass.
+						from one_bpmn.agents.memory.tools import memory_write
+						memory_write(
+							scope,
+							scope_key,
+							user_message,
+							source_run=src,
+							ignore_permissions=True,
+							reconcile=True,
+							reconcile_ctx={
+								"provider_name": config.provider_name,
+								"backend": config.backend,
+								"model": config.model,
+							},
+							process_model=memory_process_model,
+							user_directed=True,
+						)
+					elif write_mode == "raw":
 						content = _extract_memory_content(result.output, task_cfg.get("aiMemoryContentField", ""))
 						if content:
 							from one_bpmn.agents.memory.tools import memory_write
@@ -1925,20 +1980,37 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 						# the task so the extraction call is always valid.
 						# Tool-protocol agents leave result.output empty (their
 						# answer lives in tool arguments/results) — distill the
-						# interaction instead: the user message (where standing
-						# rules are stated) plus the trace's tool activity. The
-						# user part leads so a durable rule survives the
-						# distiller's input cap even when the tool payloads are
-						# long; without any tool activity there was no agent
-						# interaction, so memory is skipped as before.
+						# interaction instead: the person's own words plus the
+						# trace's tool activity. The user part leads so a
+						# durable rule survives the distiller's input cap even
+						# when the tool payloads are long; without any tool
+						# activity there was no agent interaction, so memory is
+						# skipped as before.
+						#
+						# WI-002165: the person's own words, via
+						# _turn_user_message — NOT ``user_prompt``, which by
+						# this point is the fully assembled dynamic prompt
+						# (driving template + injected memory + the person's
+						# message, per build_dynamic_preamble above). For a
+						# pipeline-driven agent like Logix, that template IS
+						# the operator-authored "HARD PIPELINE RULES" text, so
+						# splicing it in here labelled "[User message]" fed the
+						# distiller an instruction dressed up as something the
+						# person said — how jrrd68247k/joal5ugdks (paraphrases
+						# of those rules) ended up stored as "learned facts".
+						# _turn_user_message is empty for a map that renders
+						# its own copy (Logix) or a Background agent, in which
+						# case only the tool trace is distilled.
 						memory_src = result.output
 						if not str(memory_src or "").strip():
 							trace_text = _memory_output_from_trace(result.trace)
 							if trace_text:
-								memory_src = (
-									f"[User message]\n{str(user_prompt or '')[:3000]}\n\n"
-									f"[Agent tool activity]\n{trace_text}"
-								)
+								_user_text = _turn_user_message(instance, task)
+								parts = []
+								if _user_text:
+									parts.append(f"[User message]\n{_user_text[:3000]}")
+								parts.append(f"[Agent tool activity]\n{trace_text}")
+								memory_src = "\n\n".join(parts)
 						_distill_model = _memory_model(
 							task_cfg, "aiMemoryDistillModel", config.model
 						)
@@ -1965,6 +2037,18 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 							),
 							source_run=src,
 							process_model=memory_process_model,
+							# WI-002165: the agent's own instructions for this run
+							# (the static system prompt) plus the memory block
+							# recalled and injected into the dynamic layer (WI-001639
+							# put it in user_prompt, not system_prompt — so it isn't
+							# already covered by system_prompt alone), so the
+							# distiller can reject a fact that just restates what the
+							# agent was told rather than something it learned.
+							# Belt-and-suspenders alongside the _turn_user_message
+							# fix above, which stops the one observed leak path;
+							# this covers the agent's own output restating its
+							# instructions in prose too.
+							exclude_context="\n\n".join(filter(None, [system_prompt, memory_block])),
 						)
 			except Exception:
 				frappe.log_error(

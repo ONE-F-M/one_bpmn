@@ -174,6 +174,85 @@ class TestDispatcherMemory(FrappeTestCase):
 		self.assertEqual(kwargs["source_run"], "RUN-FAKE")
 		self.assertEqual(kwargs["backend"], "faketest")
 
+	def test_distilled_write_mode_passes_exclude_context(self):
+		# WI-002165: the dispatch-thread system prompt (the agent's own
+		# instructions for this run) is handed to the distiller so it can
+		# reject a fact that just restates them.
+		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
+			"one_bpmn.agents.memory.tools.memory_write"
+		):
+			D.dispatch_ai_agent(
+				_instance(),
+				_task("Act_X"),
+				{
+					"aiBackend": "faketest",
+					"aiMemoryWriteMode": "distilled",
+					"aiMemoryScope": "Agent",
+					"aiSystemPrompt": "HARD PIPELINE RULES: always call classify_intent first.",
+					"aiUserPrompt": "q",
+				},
+				"Act_X",
+			)
+		kwargs = dw.call_args.kwargs
+		self.assertIn("HARD PIPELINE RULES", kwargs["exclude_context"])
+
+	def test_distilled_tool_protocol_fallback_uses_plain_user_text_not_driving_prompt(self):
+		# WI-002165 regression: a tool-protocol agent (empty result.output,
+		# answer lives in the trace) used to splice the FULLY ASSEMBLED
+		# user_prompt — the operator-authored driving template, e.g. Logix's
+		# "HARD PIPELINE RULES" — into distillation labelled "[User message]".
+		# That produced jrrd68247k/joal5ugdks: the driving template re-stored
+		# as if it were something the person said. The fallback must use only
+		# the person's own words (_turn_user_message), never the template.
+		instance = SimpleNamespace(
+			name="INST-T",
+			context_doctype="Chat Conversation",
+			context_docname="CONV-1",
+			process_model="",
+			initiated_by="Administrator",
+		)
+		task = SimpleNamespace(
+			data={"user_text": "please handle my request"},
+			task_spec=SimpleNamespace(bpmn_id="Act_T", name="Act_T"),
+		)
+
+		class _ToolProtocolExecutor(Executor):
+			def run(self, config, context):
+				_CAPTURED["config"] = config
+				return ExecutorResult(
+					output="",  # tool-protocol agent: nothing outside tool calls
+					token_usage=TokenUsage(1, 2, 3),
+					error_code=ErrorCode.SUCCESS,
+					trace=[{"tool_calls": [{"name": "finalize", "arguments": {}, "result": "done"}]}],
+				)
+
+		register_executor("toolprotocoltest", _ToolProtocolExecutor)
+
+		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
+			"one_bpmn.agents.memory.tools.memory_write"
+		):
+			D.dispatch_ai_agent(
+				instance,
+				task,
+				{
+					"aiBackend": "toolprotocoltest",
+					"aiMemoryWriteMode": "distilled",
+					"aiMemoryScope": "Agent",
+					# Static driving template (never contains the real per-turn
+					# message — that's appended separately below by
+					# build_dynamic_preamble, same as the real Logix map).
+					"aiUserPrompt": (
+						"HARD PIPELINE RULES: (1) ALWAYS call classify_intent first. "
+						"(2) Every turn MUST end by calling finalize."
+					),
+				},
+				"Act_T",
+			)
+		agent_output = dw.call_args.kwargs["agent_output"]
+		self.assertIn("please handle my request", agent_output)
+		self.assertNotIn("HARD PIPELINE RULES", agent_output)
+		self.assertNotIn("classify_intent", agent_output)
+
 	def test_legacy_autowrite_defaults_to_distilled(self):
 		# Back-compat: an existing element with aiMemoryAutoWrite on and no mode
 		# now distils rather than dumping the reply verbatim.
@@ -208,6 +287,118 @@ class TestDispatcherMemory(FrappeTestCase):
 			)
 		dw.assert_not_called()
 		mw.assert_not_called()
+
+
+def _chat_task(bpmn="Act_R", user_text="q"):
+	return SimpleNamespace(
+		data={"user_text": user_text}, task_spec=SimpleNamespace(bpmn_id=bpmn, name=bpmn)
+	)
+
+
+class TestRememberDirectiveWrite(FrappeTestCase):
+	"""An explicit "remember that..." must be stored verbatim, tagged
+	user_directed, bypassing the raw/distilled branches entirely — and only
+	when memory writes aren't disabled outright (no separate bypass for a
+	write_mode="off" agent)."""
+
+	def setUp(self):
+		_CAPTURED.clear()
+		patches = [
+			patch(
+				"one_bpmn.agents.observability.create_ai_run",
+				return_value=SimpleNamespace(name="RUN-FAKE", stub=False),
+			),
+			patch("one_bpmn.agents.observability.record_ai_step"),
+			patch("one_bpmn.agents.observability.finalize_ai_run"),
+			patch("one_bpmn.agents.observability.finalize_ai_run_on_exception"),
+			patch("one_bpmn.one_bpmn.engine.get_task_display_name", return_value="AI Task"),
+			patch("frappe.db.commit"),
+		]
+		for p in patches:
+			p.start()
+			self.addCleanup(p.stop)
+
+	def test_remember_directive_writes_verbatim_and_skips_distill(self):
+		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
+			"one_bpmn.agents.memory.tools.memory_write"
+		) as mw:
+			D.dispatch_ai_agent(
+				_chat_instance("CONV-R1"),
+				_chat_task("Act_R", "Remember that every form we build needs a Site link field."),
+				{
+					"aiBackend": "faketest",
+					"aiMemoryWriteMode": "distilled",
+					"aiMemoryScope": "Agent",
+					"aiUserPrompt": "q",
+				},
+				"Act_R",
+			)
+		dw.assert_not_called()
+		mw.assert_called_once()
+		args, kwargs = mw.call_args
+		self.assertEqual(args[0], "Agent")
+		self.assertEqual(args[1], "Act_R")
+		self.assertEqual(args[2], "Remember that every form we build needs a Site link field.")
+		self.assertEqual(kwargs.get("source_run"), "RUN-FAKE")
+		self.assertTrue(kwargs.get("user_directed"))
+
+	def test_remember_directive_still_bypasses_raw_mode(self):
+		# The directive text is stored, not the agent's raw output.
+		with patch("one_bpmn.agents.memory.tools.memory_write") as mw:
+			D.dispatch_ai_agent(
+				_chat_instance("CONV-R2"),
+				_chat_task("Act_R2", "From now on, always cc compliance on GRD emails."),
+				{
+					"aiBackend": "faketest",
+					"aiMemoryWriteMode": "raw",
+					"aiMemoryScope": "Agent",
+					"aiUserPrompt": "q",
+				},
+				"Act_R2",
+			)
+		args, kwargs = mw.call_args
+		self.assertEqual(args[2], "From now on, always cc compliance on GRD emails.")
+		self.assertTrue(kwargs.get("user_directed"))
+
+	def test_remember_directive_writes_nothing_when_memory_disabled(self):
+		# Memory disabled means disabled — no separate bypass for an explicit
+		# directive when aiMemoryWriteMode is "off".
+		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
+			"one_bpmn.agents.memory.tools.memory_write"
+		) as mw:
+			D.dispatch_ai_agent(
+				_chat_instance("CONV-R3"),
+				_chat_task("Act_R3", "Remember that every form we build needs a Site link field."),
+				{
+					"aiBackend": "faketest",
+					"aiMemoryWriteMode": "off",
+					"aiMemoryScope": "Agent",
+					"aiUserPrompt": "q",
+				},
+				"Act_R3",
+			)
+		dw.assert_not_called()
+		mw.assert_not_called()
+
+	def test_non_directive_message_still_uses_distilled_path(self):
+		# Regression: a present, non-remember user_message must not accidentally
+		# trip the new branch.
+		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
+			"one_bpmn.agents.memory.tools.memory_write"
+		) as mw:
+			D.dispatch_ai_agent(
+				_chat_instance("CONV-R4"),
+				_chat_task("Act_R4", "Add a status field to the leave request form."),
+				{
+					"aiBackend": "faketest",
+					"aiMemoryWriteMode": "distilled",
+					"aiMemoryScope": "Agent",
+					"aiUserPrompt": "q",
+				},
+				"Act_R4",
+			)
+		mw.assert_not_called()
+		dw.assert_called_once()
 
 
 class TestExecutorMessagesSlot(FrappeTestCase):

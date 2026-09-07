@@ -83,6 +83,24 @@ def resolve_target(agent: str):
 	return target
 
 
+def request_payload(
+	instruction: str,
+	work_item: str | None = None,
+	pull_request: str | None = None,
+	extra: dict | None = None,
+) -> dict:
+	"""What the specialist receives. The instruction is the delegator's framing;
+	the Work Item and pull request references let it read the record itself, and
+	``extra`` carries structured values the delegator knows authoritatively
+	(target_app, git_branch) so the worker never re-derives them from prose."""
+	payload = {"instruction": instruction, **(extra or {})}
+	if work_item:
+		payload["work_item"] = work_item
+	if pull_request:
+		payload["pull_request"] = pull_request
+	return payload
+
+
 def delegate(
 	delegating_agent: str,
 	target: str,
@@ -97,6 +115,8 @@ def delegate(
 	deadline_minutes: int | None = None,
 	required_capability: str | None = None,
 	extra_payload: dict | None = None,
+	work_item: str | None = None,
+	pull_request: str | None = None,
 ):
 	"""Hand a task to a local agent. Returns the A2A Task row.
 
@@ -177,7 +197,7 @@ def delegate(
 			"caller_instance": caller_instance,
 			"caller_wf_task_id": caller_wf_task_id,
 			"bpmn_id": bpmn_id,
-			"request_payload": frappe.as_json({"instruction": instruction, **(extra_payload or {})}),
+			"request_payload": frappe.as_json(request_payload(instruction, work_item, pull_request, extra_payload)),
 			"task_execution_id": counters.get("task_execution_id"),
 			"delegation_depth": counters.get("delegation_depth"),
 			"handoff_count": counters.get("handoff_count"),

@@ -56,6 +56,9 @@ WHICH APP THE CHANGE BELONGS IN — decide this before you write anything
   Ours — one_fm, one_bpmn, onefm_mcp, frappe_agile, onefm_sso. Change the file that already renders the screen.
   Not ours — frappe, erpnext, hrms, helpdesk, payments, lending, wiki. NEVER target these: our work would sit in someone else's review queue and the next upgrade would wipe it. Write the behaviour as a script in one_fm and register it in that app's hooks.py instead. one_fm already customises around fifty ERPNext and HRMS DocTypes this way, so you are following a path this codebase has already worn.
 
+YOUR WORK ITEM
+Your task names the Work Item it comes from and, for a change request, the pull request. Call read_work_item to read the record yourself - the reporter's notes, the comments, the acceptance criteria - rather than relying only on the instruction, which is the Orchestrator's framing. When a pull request is named this is a change request: call read_pull_request, then fix only what the review comments ask for, on the same branch, so the same pull request is updated. Do not redo work the reviewer did not question.
+
 WORK IN THIS ORDER
 1. locate_ui with the DocType or route named in the work order. Frappe's front end is scattered: one screen can be shaped by a file, a hook that registers it, a Client Script row and a pile of Property Setters. It tells you which app owns the screen and which of the two routes above to take. If it says the target does not exist, say so and stop — do not invent a plausible file.
 2. search_frontend to find a name when you do not know which file holds it; list_files to see what is in the branch. Use search_frontend to locate, then read the real file in the sandbox.

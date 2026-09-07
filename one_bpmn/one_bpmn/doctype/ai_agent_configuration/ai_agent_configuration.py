@@ -46,6 +46,55 @@ class AIAgentConfiguration(Document):
 		self.validate_agent_creation_grant()
 		self.validate_a2a_exposure()
 		self.validate_delegation_grant()
+		self.validate_memory_config()
+
+	def validate_memory_config(self):
+		"""WI-002168: an Enabled config with no resolvable model silently drops
+		half the memory pipeline — distillation skips, or reconciliation
+		degrades — with nothing on the form to say so (see model_resolution.py
+		for the shared chain this checks against the dispatch path).
+
+		Only fires when Long-Term Memory is explicitly Enabled; blank (inherit
+		the diagram's value) is untouched, same as every other memory field.
+		"""
+		if self.long_term_memory != "Enabled":
+			return
+
+		if not self.memory_scope:
+			frappe.throw(
+				_("Memory Scope is required when Long-Term Memory is Enabled."),
+				title=_("Memory Configuration"),
+			)
+		if not self.memory_write_mode:
+			frappe.throw(
+				_("Memory Write Mode is required when Long-Term Memory is Enabled."),
+				title=_("Memory Configuration"),
+			)
+		if self.memory_write_mode != "distilled":
+			return
+
+		from one_bpmn.agents.memory.model_resolution import resolve_memory_model
+
+		distill = resolve_memory_model(
+			self.memory_distill_model, "default_memory_distill_model", self.ai_model
+		)
+		if not distill:
+			frappe.throw(
+				_(
+					"No Distillation Model is resolvable for this agent — set one here, "
+					"a site-wide default in Processa Settings, or link an AI Model above."
+				),
+				title=_("Memory Configuration"),
+			)
+
+		reconcile = resolve_memory_model(
+			self.memory_reconcile_model, "default_memory_reconcile_model", distill
+		)
+		if not reconcile:
+			frappe.throw(
+				_("No Reconciliation Model is resolvable for this agent."),
+				title=_("Memory Configuration"),
+			)
 
 	def validate_delegation_grant(self):
 		"""Say so when the list is inert.
@@ -397,6 +446,21 @@ class AIAgentConfiguration(Document):
 				self.add_comment("Comment", _("Needs Attention: {0}").format(reason))
 			except Exception:
 				pass
+
+
+@frappe.whitelist()
+def get_effective_memory_models(memory_distill_model=None, memory_reconcile_model=None, ai_model=None):
+	"""WI-002168: what the dispatch path would actually resolve, computed against
+	the form's CURRENT (possibly unsaved) values so an admin can see the effect
+	of a field before saving. Mirrors ``validate_memory_config`` and dispatch's
+	``_memory_model`` — same shared chain, so this can never show one answer
+	while the agent runs another.
+	"""
+	from one_bpmn.agents.memory.model_resolution import resolve_memory_model
+
+	distill = resolve_memory_model(memory_distill_model, "default_memory_distill_model", ai_model)
+	reconcile = resolve_memory_model(memory_reconcile_model, "default_memory_reconcile_model", distill)
+	return {"distill_model": distill, "reconcile_model": reconcile}
 
 
 def get_agent_config(agent_id: str) -> dict | None:

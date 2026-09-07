@@ -106,9 +106,12 @@ class TestSeedPromptsMatchTheirMaps(FrappeTestCase):
 		("one_bpmn.one_bpmn.patches.v1_0.seed_frontend_agent_config", "Frontend Agent"),
 		("one_bpmn.one_bpmn.patches.v1_0.seed_dev_agent_config", "Dev Agent"),
 		("one_bpmn.one_bpmn.patches.v1_0.seed_mobile_app_agent_config", "Mobile App Agent"),
+		("one_bpmn.one_bpmn.patches.v1_0.seed_connector_agent_config", "Connector Agent"),
 	)
 	RETIRED = ("dispatch_to_sandbox", "draft_change", "review_change", "propose_pull_request",
-	           "stage_change", "read_repo_map", "register_hook", "finalize")
+	           "stage_change", "read_repo_map", "register_hook")
+	# The sandbox trio gave finalize up with the rest; the Connector Agent still ends on it.
+	SANDBOX_RETIRED = RETIRED + ("finalize",)
 
 	def _live_tool_ids(self, model):
 		spec = frappe.db.get_value("BPMN Process Model", model, "serialized_spec")
@@ -120,10 +123,11 @@ class TestSeedPromptsMatchTheirMaps(FrappeTestCase):
 		return ids
 
 	def test_no_seed_names_a_retired_tool(self):
-		for module, _model in self.SEEDS:
+		for module, model in self.SEEDS:
 			prompt = frappe.get_attr(module + "._SYSTEM_PROMPT")
 			called = {m.lower() for m in comp._TOOL_CALL_RE.findall(prompt)}
-			self.assertEqual(sorted(called & set(self.RETIRED)), [], module)
+			retired = self.RETIRED if model == "Connector Agent" else self.SANDBOX_RETIRED
+			self.assertEqual(sorted(called & set(retired)), [], module)
 
 	def test_every_tool_a_seed_calls_exists_on_the_live_map(self):
 		for module, model in self.SEEDS:
