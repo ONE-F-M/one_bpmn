@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""The Dev Agent Sandbox connector's operations: sandbox_dispatch (the bare
+"""The agent sandbox connector's operations: sandbox_dispatch (the bare
 HTTP primitive for the fast, synchronous file-op tools) and dispatch_action
 (one generic handler serving every slow, parked operation — currently
 run_tests and open_pull_request).
