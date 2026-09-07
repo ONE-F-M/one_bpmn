@@ -432,6 +432,58 @@ def record_ai_step(
 		return None
 
 
+def record_failed_attempts(run, result: ExecutorResult) -> int:
+	"""Write one AI Agent Step per failed attempt (WI-002190).
+
+	The executor already builds an AttemptRecord for every try that failed,
+	carrying the error, its tokens and its latency, and ``finalize_ai_run``
+	then used the list for one thing: ``len()`` as retry_count. So a run knew
+	how many times it failed and never what went wrong, which is why zero of
+	roughly 3,000 steps carried an error while the fields to hold one had
+	existed all along.
+
+	Recorded BEFORE the rollups in finalize_ai_run on purpose: a failed
+	attempt burned real tokens and real seconds, and ``_sum_step_metrics``
+	reads the steps. Leaving these out did not only lose the error, it
+	undercounted the cost of every run that had to retry.
+
+	Returns the number of Steps written.
+	"""
+	if run is None or getattr(run, "stub", False):
+		return 0
+	attempts = getattr(result, "attempts", None) or []
+	if not attempts:
+		return 0
+
+	try:
+		start_index = frappe.db.count("AI Agent Step", {"run": run.name}) + 1
+	except Exception:
+		start_index = 1
+
+	written = 0
+	for offset, attempt in enumerate(attempts):
+		usage = getattr(attempt, "token_usage", None)
+		step = record_ai_step(
+			run,
+			start_index + offset,
+			# The attempt IS the model's reply, it just did not survive
+			# validation or the call itself failed. "assistant" keeps it in
+			# the same lane as the try that eventually worked.
+			"assistant",
+			getattr(attempt, "content", "") or "",
+			prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+			completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
+			cache_read_tokens=getattr(usage, "cache_read_tokens", 0) or 0,
+			cache_write_tokens=getattr(usage, "cache_write_tokens", 0) or 0,
+			latency_ms=getattr(attempt, "latency_ms", 0) or 0,
+			error_code=getattr(attempt, "error_code", "") or None,
+			error_message=getattr(attempt, "error_message", "") or None,
+		)
+		if step is not None:
+			written += 1
+	return written
+
+
 def finalize_ai_run(run, result: ExecutorResult, goal_key: str | None = None) -> None:
 	"""Finalize an AI Agent Run after executor completion.
 
@@ -456,6 +508,10 @@ def finalize_ai_run(run, result: ExecutorResult, goal_key: str | None = None) ->
 		duration = (ended - started).total_seconds() * 1000
 	else:
 		duration = 0
+
+	# Failed attempts become Steps FIRST, so the rollups below see the tokens
+	# and the time they really cost (WI-002190).
+	record_failed_attempts(run, result)
 
 	# Cost + agent-latency rollups come from the recorded Steps either way — a
 	# failed run still consumed tokens and still spent real time.
