@@ -1,4 +1,4 @@
-"""The delegate operation gains work_item and pull_request.
+"""The delegate operation gains work_item, pull_request, target_app and git_branch.
 
 seed_a2a_connector carries them for a fresh install; this adds them to sites
 where that patch has already run, because the importer does not overwrite an
@@ -25,6 +25,20 @@ FIELDS = [
 		"field_type": "String",
 		"required": 0,
 		"help_text": "Optional. The pull request to fix or review, normally {{ doc.pr_link }}.",
+	},
+	{
+		"field_name": "target_app",
+		"field_label": "Target app",
+		"field_type": "String",
+		"required": 0,
+		"help_text": "Optional. The app the work targets, normally {{ doc.target_app }} — a GitHub repository name such as one_bpmn.",
+	},
+	{
+		"field_name": "git_branch",
+		"field_label": "Branch",
+		"field_type": "String",
+		"required": 0,
+		"help_text": "Optional. The branch the work starts from and the pull request targets, normally {{ doc.git_branch }}.",
 	},
 ]
 

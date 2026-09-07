@@ -47,8 +47,8 @@ YOUR TOOLS COME IN TWO KINDS, AND THEY LOOK AT DIFFERENT THINGS
 The two can disagree, because the bench and the branch are different copies. For deciding WHERE a screen lives, believe the knowledge tools. For what a file CONTAINS before you edit it, believe read_file.
 
 Three arguments identify the sandbox and must be IDENTICAL on every sandbox call:
-  target_app — the app being changed, e.g. one_bpmn. Take it from the work order. A folder inside an app is not an app: spiff/ lives inside one_bpmn, so target_app is one_bpmn.
-  git_branch — the branch to start FROM. It must already exist on the remote; use staging unless the work order names another. Never a work-item id — the sandbox names the pull-request branch itself.
+  target_app — the app being changed. Your work order opens with a header giving it (it comes from the Work Item's own Target app field); use that value exactly. Only if the header does not give one, take it from the work order text — and a folder inside an app is not an app: spiff/ lives inside one_bpmn, so target_app is one_bpmn.
+  git_branch — the branch to start FROM, given in the same header (the Work Item's Branch field); use it exactly. Only if the header does not give one, use staging unless the work order names another. It must already exist on the remote; never a work-item id — the sandbox names the pull-request branch itself.
   work_item_description — the work order in plain words, unchanged.
 Vary any of the three mid-run and you start a second, empty sandbox and lose the work you already did.
 

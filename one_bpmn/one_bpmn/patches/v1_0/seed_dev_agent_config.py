@@ -37,8 +37,8 @@ HOW YOUR TOOLS WORK
 Your code never runs on the live site. Every file tool operates inside an isolated, disposable sandbox — a fresh clone of the target app with its own database, thrown away after the run. A failed attempt costs nothing but the sandbox that tried it.
 
 Three arguments identify that sandbox and must be IDENTICAL on every single call:
-  target_app — the app being changed, e.g. one_bpmn. Take it from the work order; a folder inside an app is not an app.
-  git_branch — the branch to start FROM, and it must already exist on the remote. Use staging unless the work order names another. Never a work-item id: the sandbox names the pull-request branch itself.
+  target_app — the app being changed. Your work order opens with a header giving it (from the Work Item's own Target app field); use that value exactly. Only if the header does not give one, take it from the work order text; a folder inside an app is not an app.
+  git_branch — the branch to start FROM, given in the same header (the Work Item's Branch field); use it exactly. Only if the header does not give one, use staging unless the work order names another. It must already exist on the remote; never a work-item id: the sandbox names the pull-request branch itself.
   work_item_description — the work order in plain words, unchanged.
 Vary any of the three mid-run and you start a second, empty sandbox and lose the work you already did.
 

@@ -36,19 +36,29 @@ def local_agent_choices() -> list[str]:
 	return local.local_agent_choices()
 
 
-def _work_item_refs(instance, params: dict) -> tuple:
-	"""The Work Item, and its pull request, this delegation is about.
+def _work_item_refs(instance, params: dict) -> dict:
+	"""What this delegation is about: the Work Item, its pull request, and the
+	app and branch the work targets.
 
 	Taken from the caller's own context document whenever that is a Work Item,
-	so the model cannot point a specialist at the wrong one; the shape's params
-	only stand in when there is no such document. (A param like
-	``{{ doc.pr_link }}`` renders an empty field as the string "None".)"""
+	so the model cannot point a specialist at the wrong record, app or branch;
+	the shape's params only stand in when there is no such document. A param
+	like ``{{ doc.pr_link }}`` renders an empty field as the string "None", which
+	is one more reason to read the record. target_app and git_branch are only
+	client-mandatory on the Work Item, so either may still be empty here — an
+	empty one is left out and the specialist falls back to its own rules."""
+	refs = {k: (params.get(k) or "").strip() or None for k in ("work_item", "pull_request", "target_app", "git_branch")}
 	if getattr(instance, "context_doctype", None) == "Work Item" and getattr(instance, "context_docname", None):
-		work_item = instance.context_docname
-		return work_item, frappe.db.get_value("Work Item", work_item, "pr_link") or None
-	work_item = (params.get("work_item") or "").strip() or None
-	pull_request = (params.get("pull_request") or "").strip() or None
-	return work_item, pull_request
+		row = frappe.db.get_value(
+			"Work Item", instance.context_docname, ["pr_link", "target_app", "git_branch"], as_dict=True
+		) or {}
+		refs = {
+			"work_item": instance.context_docname,
+			"pull_request": row.get("pr_link") or None,
+			"target_app": (row.get("target_app") or "").strip() or None,
+			"git_branch": (row.get("git_branch") or "").strip() or None,
+		}
+	return refs
 
 
 def delegate_to_local_agent(params: dict, ctx: dict) -> dict | None:
@@ -71,7 +81,7 @@ def delegate_to_local_agent(params: dict, ctx: dict) -> dict | None:
 	target = params.get("agent") or params.get("remote_agent")
 	if not target:
 		raise a2a_client.A2AClientError("delegate_to_local_agent needs an agent to hand work to.")
-	work_item, pull_request = _work_item_refs(instance, params)
+	refs = _work_item_refs(instance, params)
 
 	# ── Refuse to start work this turn cannot collect ────────────────────────
 	# The agent loop tracks ONE pause per turn (step_loop: the first
@@ -100,20 +110,12 @@ def delegate_to_local_agent(params: dict, ctx: dict) -> dict | None:
 			),
 		}
 
-	# Structured extras a delegating map can supply alongside the free-text
-	# instruction — e.g. target_app/git_branch resolved from a Work Item's
-	# own fields (WI: Work Item app/branch selects), so the worker reads an
-	# authoritative value instead of re-deriving it from prose. Only carried
-	# when actually set, so a delegation that never passes them keeps the
-	# exact request_payload shape every existing caller already gets.
-	extra_payload = {
-		k: v
-		for k, v in {
-			"target_app": (params.get("target_app") or "").strip(),
-			"git_branch": (params.get("git_branch") or "").strip(),
-		}.items()
-		if v
-	}
+	# Structured extras beside the free-text instruction: the app and branch the
+	# work targets, read from the Work Item's own fields when the caller has one,
+	# so the worker uses an authoritative value instead of re-deriving it from
+	# prose. Only carried when set, so a delegation without them keeps the exact
+	# request_payload shape every existing caller already gets.
+	extra_payload = {k: refs[k] for k in ("target_app", "git_branch") if refs.get(k)}
 
 	try:
 		a2a_task = local.delegate(
@@ -131,8 +133,8 @@ def delegate_to_local_agent(params: dict, ctx: dict) -> dict | None:
 			# later, in an answer that does not fit the question.
 			required_capability=(params.get("required_capability") or "").strip() or None,
 			extra_payload=extra_payload or None,
-			work_item=work_item,
-			pull_request=pull_request,
+			work_item=refs["work_item"],
+			pull_request=refs["pull_request"],
 		)
 	except guardrails.DelegationRefused as refusal:
 		# Tell the MODEL why, rather than letting this reach dispatch_connector's
