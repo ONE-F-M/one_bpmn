@@ -138,7 +138,7 @@
 			<div v-if="showDoctypeDropdown || showModuleDropdown || showScriptBrowser" class="lc-dropdown-backdrop" @click="showDoctypeDropdown = false; showModuleDropdown = false; showScriptBrowser = false"></div>
 
 			<!-- Script Settings Panel -->
-			<div class="lc-settings-panel">
+			<fieldset class="lc-settings-panel" :disabled="readonly">
 					<div class="lc-settings-grid">
 						<!-- Script Type -->
 						<div class="lc-settings-field">
