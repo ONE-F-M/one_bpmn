@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import re
+from difflib import SequenceMatcher
 
 import frappe
 
@@ -26,6 +27,28 @@ _MAX_FACTS = 5
 _MAX_CONTENT_LEN = 1000
 # Bound the input we hand the curator so a huge reply can't blow up the call.
 _MAX_INPUT_LEN = 6000
+# Bound the exclusion context (system prompt + injected memory block) handed to
+# the curator — same rationale as _MAX_INPUT_LEN, applied to the other side of
+# the prompt.
+_MAX_EXCLUDE_LEN = 3000
+
+# A fact is rejected as an echo once some sentence of it matches some sentence
+# of the exclusion context at or above this ratio (SequenceMatcher, 0-1).
+# Deliberately conservative — a backstop for the clear cases, not a substitute
+# for the curator prompt's own judgment. Tuned against the confirmed echo rows
+# in cleanup_ai_memory_store.py: jrrd68247k (a loose paraphrase of
+# harden_logix_pipeline_driver.NEW_USER_PROMPT) scores ~0.91; a genuine
+# domain-relevant fact that merely shares vocabulary with an unrelated prompt
+# section (e.g. "Use exclusive gateways for yes/no decisions." against
+# ProsAlly's gateway rules) scores ~0.49-0.54 — comfortably below this. A
+# lower threshold would catch more paraphrases (some confirmed echoes score in
+# the 0.5s) at the cost of flagging genuine facts; the prompt instruction is
+# the first line of defense for those, this is only the backstop.
+_ECHO_SIMILARITY_THRESHOLD = 0.65
+# Chunks of the exclusion context shorter than this carry too little signal
+# to compare against (a lone heading or bullet marker) and would either never
+# match or match everything.
+_ECHO_CHUNK_MIN_CHARS = 20
 
 _DISTILL_SCHEMA = json.dumps(
 	{
@@ -61,6 +84,9 @@ Do NOT store (return nothing for) any of the following:
 - clarifying questions or requests for more information
 - apologies, error messages, or status updates
 - details specific to a single one-off document or entity
+- anything already present, even paraphrased, in the agent's own instructions
+  or recalled memory context shown below — that is the agent being told
+  something, not the agent learning something
 
 For each qualifying fact give a short lowercase "topic" (2-4 words) and concise
 "content" (one or two generalized sentences — no instance-specific IDs or names).
@@ -73,10 +99,68 @@ _USER_PROMPT = """The agent just produced this output:
 ---
 Extract durable memories as JSON."""
 
+_EXCLUDE_SUFFIX = """
+
+The agent's own instructions and recalled memory context for this run were:
+---
+{exclude_context}
+---
+Do not extract anything above that merely restates this — only extract what
+the agent said or did beyond it."""
+
 
 def _slug(text: str) -> str:
 	s = re.sub(r"[^a-z0-9]+", "-", (text or "").strip().lower()).strip("-")
 	return s or "note"
+
+
+def _normalise(text: str) -> str:
+	"""Whitespace- and case-insensitive form, so re-indentation or a capital
+	letter doesn't hide a paraphrase."""
+	return " ".join((text or "").split()).lower()
+
+
+def _sentences(text: str) -> list[str]:
+	"""Split into normalised, comparably-sized chunks for pairwise matching.
+
+	Sentence-level on both sides of the comparison, not whole-content-against-
+	chunk: comparing a multi-sentence fact against one short prompt line dilutes
+	SequenceMatcher's ratio through sheer length mismatch and misses real
+	echoes. Chunks shorter than ``_ECHO_CHUNK_MIN_CHARS`` (a heading, a bullet
+	marker) are dropped — too little signal to compare meaningfully.
+	"""
+	out = []
+	for chunk in re.split(r"(?<=[.!?])\s+|[\n;]+", text or ""):
+		candidate = _normalise(chunk)
+		if len(candidate) >= _ECHO_CHUNK_MIN_CHARS:
+			out.append(candidate)
+	return out
+
+
+def _is_echo(content: str, exclude_context: str) -> bool:
+	"""True when *content* is substantially the same text as some sentence of
+	*exclude_context* (the agent's own system prompt / injected memory block) —
+	an instruction or recalled fact echoed back, not something the agent learned.
+
+	Verbatim containment first (cheap, catches an exact or near-exact copy);
+	otherwise the best sentence-vs-sentence similarity ratio, since the curator
+	LLM paraphrases rather than quotes (WI-002165 — jrrd68247k's "Always call
+	classify_intent first..." is a loose rewrite of the driving prompt, not a
+	substring of it).
+	"""
+	if not content or not exclude_context:
+		return False
+	needle = _normalise(content)
+	haystack = _normalise(exclude_context)
+	if len(needle) >= _ECHO_CHUNK_MIN_CHARS and needle in haystack:
+		return True
+	content_sentences = _sentences(content) or [needle]
+	context_sentences = _sentences(exclude_context)
+	for cs in content_sentences:
+		for hs in context_sentences:
+			if SequenceMatcher(None, cs, hs).ratio() >= _ECHO_SIMILARITY_THRESHOLD:
+				return True
+	return False
 
 
 def _coerce_memories(output) -> list:
@@ -105,6 +189,7 @@ def distill_memories(
 	backend: str = "direct_api",
 	model: str | None = None,
 	conversation=None,
+	exclude_context: str | None = None,
 ) -> list[dict]:
 	"""Extract 0..N durable facts from one interaction.
 
@@ -115,6 +200,14 @@ def distill_memories(
 	``scope``/``scope_key``/``conversation`` are accepted for forward
 	compatibility with semantic consolidation; v1 uses only ``agent`` to
 	namespace the dedup key.
+
+	``exclude_context`` (WI-002165) is the agent's own system prompt plus its
+	injected memory block for this run. The curator is told not to extract
+	anything already present there, and every returned fact is additionally
+	checked against it with ``_is_echo`` — a deterministic backstop, since the
+	prompt instruction alone left confirmed echo rows in the store (see
+	cleanup_ai_memory_store.py). Passing nothing here (the previous behaviour)
+	just skips both checks.
 	"""
 	text = agent_output if isinstance(agent_output, str) else str(agent_output or "")
 	if not text.strip():
@@ -130,6 +223,11 @@ def distill_memories(
 		)
 		return []
 
+	exclude_text = str(exclude_context or "").strip()[:_MAX_EXCLUDE_LEN]
+	user_prompt = _USER_PROMPT.format(output=text[:_MAX_INPUT_LEN])
+	if exclude_text:
+		user_prompt += _EXCLUDE_SUFFIX.format(exclude_context=exclude_text)
+
 	try:
 		from one_bpmn.agents.executor import (
 			ErrorCode,
@@ -144,7 +242,7 @@ def distill_memories(
 			provider_name=provider_name,
 			model=model,
 			system_prompt=_SYSTEM_PROMPT.format(agent=agent),
-			user_prompt=_USER_PROMPT.format(output=text[:_MAX_INPUT_LEN]),
+			user_prompt=user_prompt,
 			temperature=0.0,
 			max_tokens=800,
 			response_format="json",
@@ -165,6 +263,12 @@ def distill_memories(
 			continue
 		content = str(m.get("content") or "").strip()[:_MAX_CONTENT_LEN]
 		if not content:
+			continue
+		if exclude_text and _is_echo(content, exclude_text):
+			frappe.logger("one_bpmn").info(
+				f"AI Memory: distillation rejected echo — agent={agent} "
+				f"content={content[:120]!r}"
+			)
 			continue
 		topic = _slug(m.get("topic") or content[:40])
 		dedup_key = f"{agent}:{topic}"

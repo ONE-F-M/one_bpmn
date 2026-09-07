@@ -1915,20 +1915,37 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 						# the task so the extraction call is always valid.
 						# Tool-protocol agents leave result.output empty (their
 						# answer lives in tool arguments/results) — distill the
-						# interaction instead: the user message (where standing
-						# rules are stated) plus the trace's tool activity. The
-						# user part leads so a durable rule survives the
-						# distiller's input cap even when the tool payloads are
-						# long; without any tool activity there was no agent
-						# interaction, so memory is skipped as before.
+						# interaction instead: the person's own words plus the
+						# trace's tool activity. The user part leads so a
+						# durable rule survives the distiller's input cap even
+						# when the tool payloads are long; without any tool
+						# activity there was no agent interaction, so memory is
+						# skipped as before.
+						#
+						# WI-002165: the person's own words, via
+						# _turn_user_message — NOT ``user_prompt``, which by
+						# this point is the fully assembled dynamic prompt
+						# (driving template + injected memory + the person's
+						# message, per build_dynamic_preamble above). For a
+						# pipeline-driven agent like Logix, that template IS
+						# the operator-authored "HARD PIPELINE RULES" text, so
+						# splicing it in here labelled "[User message]" fed the
+						# distiller an instruction dressed up as something the
+						# person said — how jrrd68247k/joal5ugdks (paraphrases
+						# of those rules) ended up stored as "learned facts".
+						# _turn_user_message is empty for a map that renders
+						# its own copy (Logix) or a Background agent, in which
+						# case only the tool trace is distilled.
 						memory_src = result.output
 						if not str(memory_src or "").strip():
 							trace_text = _memory_output_from_trace(result.trace)
 							if trace_text:
-								memory_src = (
-									f"[User message]\n{str(user_prompt or '')[:3000]}\n\n"
-									f"[Agent tool activity]\n{trace_text}"
-								)
+								_user_text = _turn_user_message(instance, task)
+								parts = []
+								if _user_text:
+									parts.append(f"[User message]\n{_user_text[:3000]}")
+								parts.append(f"[Agent tool activity]\n{trace_text}")
+								memory_src = "\n\n".join(parts)
 						_distill_model = _memory_model(
 							task_cfg, "aiMemoryDistillModel", config.model
 						)
@@ -1955,6 +1972,18 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 							),
 							source_run=src,
 							process_model=memory_process_model,
+							# WI-002165: the agent's own instructions for this run
+							# (the static system prompt) plus the memory block
+							# recalled and injected into the dynamic layer (WI-001639
+							# put it in user_prompt, not system_prompt — so it isn't
+							# already covered by system_prompt alone), so the
+							# distiller can reject a fact that just restates what the
+							# agent was told rather than something it learned.
+							# Belt-and-suspenders alongside the _turn_user_message
+							# fix above, which stops the one observed leak path;
+							# this covers the agent's own output restating its
+							# instructions in prose too.
+							exclude_context="\n\n".join(filter(None, [system_prompt, memory_block])),
 						)
 			except Exception:
 				frappe.log_error(
