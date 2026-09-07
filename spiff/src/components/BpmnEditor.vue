@@ -1129,7 +1129,7 @@ const messageDialog = ref({
 	elementId: "",
 	_eventBus: null,
 });
-const aiAgentModal = ref({ show: false, element: null, mode: "agent" });
+const aiAgentModal = ref({ show: false, element: null, mode: "agent", readonly: false });
 // Docu (AI DocType builder) panel state. `_eventBus` is the properties-panel
 // eventBus that launched us — we fire "docu.doctype.update" back through it so
 // the Launch Docu button writes the applied DocType name onto the shape.
