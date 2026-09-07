@@ -1,8 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""The agent sandbox connector's operations: sandbox_dispatch (the bare HTTP
-primitive for the fast, synchronous file-op tools) and dispatch_action (one
-generic handler serving every slow, parked operation the sandbox exposes).
+"""The agent sandbox connector's operations.
 
 Mirrors a2a_client_ops.delegate_to_local_agent's parking shape (WI-001933),
 but the "remote" here is not another local agent or an A2A-protocol remote —
