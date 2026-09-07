@@ -241,6 +241,7 @@
 				<CodeMirrorEditor
 					v-model="canvasCode"
 					language="python"
+					:read-only="readonly"
 					placeholder="# Script will appear here after chatting with Logix or loading an existing script..."
 					@change="onCodeInput"
 				/>
