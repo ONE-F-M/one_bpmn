@@ -328,6 +328,10 @@ const props = defineProps({
 	currentScript:  { type: String,  default: "" },
 	eventBus:       { type: Object,  default: null },
 	processContext: { type: Object,  default: null },
+	// True when the map that launched this canvas is read-only — the script
+	// is shown (in CodeMirror and the settings panel) but cannot be edited
+	// or saved, and closing leaves the map completely unchanged.
+	readonly:       { type: Boolean, default: false },
 });
 
 const emit = defineEmits(["close", "script-saved", "back"]);
