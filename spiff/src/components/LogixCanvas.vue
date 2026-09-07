@@ -540,6 +540,9 @@ const logixTurnContext = computed(() => ({
 }));
 
 async function onLogixCardAction({ name, action, value, payload }) {
+	// Read-only viewers never apply a change — the apply-targets prop above
+	// already hides the affordance, but guard the handler too.
+	if (props.readonly) return;
 	if (name === "onefm.test_cases" && action === "run-test") {
 		await runTestCase(payload);
 		return;
