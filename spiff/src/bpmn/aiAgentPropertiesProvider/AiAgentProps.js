@@ -144,7 +144,12 @@ function LaunchEditorButton(props) {
 	const bo        = getBusinessObject(element);
 
 	return HeaderButton({
-		className: "spiffworkflow-properties-panel-button",
+		// WI-003245: this button only OPENS the config modal (which itself
+		// enforces read-only when the map is read-only) — it never edits
+		// the diagram directly, so it stays clickable under
+		// .properties-panel--readonly. See BpmnEditor.vue's CSS exemption
+		// for .spiffworkflow-launch-readonly-ok.
+		className: "spiffworkflow-properties-panel-button spiffworkflow-launch-readonly-ok",
 		onClick: () => eventBus.fire("launch-ai-agent-editor", { element }),
 		children: isConfigured(bo)
 			? translate("Edit AI Task Configuration")
