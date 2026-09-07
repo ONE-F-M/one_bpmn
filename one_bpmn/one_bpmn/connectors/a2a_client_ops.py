@@ -84,6 +84,21 @@ def delegate_to_local_agent(params: dict, ctx: dict) -> dict | None:
 			),
 		}
 
+	# Structured extras a delegating map can supply alongside the free-text
+	# instruction — e.g. target_app/git_branch resolved from a Work Item's
+	# own fields (WI: Work Item app/branch selects), so the worker reads an
+	# authoritative value instead of re-deriving it from prose. Only carried
+	# when actually set, so a delegation that never passes them keeps the
+	# exact request_payload shape every existing caller already gets.
+	extra_payload = {
+		k: v
+		for k, v in {
+			"target_app": (params.get("target_app") or "").strip(),
+			"git_branch": (params.get("git_branch") or "").strip(),
+		}.items()
+		if v
+	}
+
 	try:
 		a2a_task = local.delegate(
 			_delegating_agent(instance, params),
@@ -99,6 +114,7 @@ def delegate_to_local_agent(params: dict, ctx: dict) -> dict | None:
 			# do this kind of work is refused rather than delegated and discovered
 			# later, in an answer that does not fit the question.
 			required_capability=(params.get("required_capability") or "").strip() or None,
+			extra_payload=extra_payload or None,
 		)
 	except guardrails.DelegationRefused as refusal:
 		# Tell the MODEL why, rather than letting this reach dispatch_connector's
