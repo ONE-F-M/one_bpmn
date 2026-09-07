@@ -774,6 +774,9 @@ async function ensureUniqueName() {
 
 // ── Save script ───────────────────────────────────────────────────────
 async function saveScript() {
+	// The map that launched this canvas is read-only — never commit a save
+	// from here. Closing the dialog must leave the map completely unchanged.
+	if (props.readonly) return;
 	const name = canvasScriptName.value.trim();
 	if (!name) return; // silently wait — user hasn't named the script yet
 
