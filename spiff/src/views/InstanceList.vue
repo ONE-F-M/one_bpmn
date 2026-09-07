@@ -45,7 +45,7 @@
 									v-if="activeContext.doctype || activeContext.docname"
 									type="button"
 									class="p-1 hover:bg-gray-300 rounded-full transition-colors"
-									aria-label="Clear context filter"
+									aria-label="Clear context"
 									@click.stop="resetContext"
 								>
 									<FeatherIcon name="x-circle" class="w-3 h-3 text-gray-500" />
