@@ -9,6 +9,7 @@
 		     onLogixCardAction. DISAMBIGUATE rides the shared onefm.choice. -->
 		<div class="lc-chat-panel">
 			<AgentChatPanel
+				v-if="!readonly"
 				agent-id="logix_agent"
 				variant="docked"
 				layout="conversation"
@@ -17,6 +18,11 @@
 				:cards="cardRegistry"
 				@card-action="onLogixCardAction"
 			/>
+			<!-- Read-only launch: the assistant can propose and apply script
+			     changes, so it is not offered here — only the script is shown. -->
+			<div v-else class="lc-chat-disabled">
+				Viewing this script read-only. Open the map for editing to use Logix.
+			</div>
 		</div>
 
 		<!-- ── CENTER: Code Editor Panel ────────────────────────────── -->
