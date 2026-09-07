@@ -2491,6 +2491,26 @@ onBeforeUnmount(() => {
 	}
 });
 
+// WI-003245: read-only Script Task viewer. Fetches the linked server
+// script's current content and shows it in CodeMirrorEditor with
+// read-only=true — no save action, closing it never touches the map.
+async function openScriptViewer(scriptName) {
+	scriptViewerModal.value = { show: true, scriptName, script: "", loading: !!scriptName };
+	if (!scriptName) return;
+	try {
+		const doc = await frappeRequest({
+			url: "/api/method/frappe.client.get",
+			params: { doctype: "Server Script", name: scriptName },
+		});
+		scriptViewerModal.value.script = doc?.script || "";
+	} catch (e) {
+		console.warn("[BpmnEditor] Could not load script for read-only viewer:", e);
+		scriptViewerModal.value.script = "";
+	} finally {
+		scriptViewerModal.value.loading = false;
+	}
+}
+
 function onMessageDialogSave(close) {
 	const { name, elementId, _eventBus } = messageDialog.value;
 	const trimmedName = name?.trim();
