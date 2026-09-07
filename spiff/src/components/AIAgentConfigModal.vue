@@ -1,13 +1,21 @@
 <template>
   <div class="ai-agent-modal-overlay" @click.self="$emit('close')">
-    <div class="ai-agent-modal">
+    <div class="ai-agent-modal" :class="{ 'ai-agent-modal--readonly': readonly }">
       <!-- ============ LEFT: configuration form ============ -->
       <div class="modal-main">
         <div class="modal-header">
-          <h3>{{ isSelector ? "Configure AI Task Selector" : "Configure AI Agent Task" }}</h3>
+          <h3>
+            {{ isSelector ? "Configure AI Task Selector" : "Configure AI Agent Task" }}
+            <span v-if="readonly" class="readonly-badge">View only</span>
+          </h3>
           <button class="close-btn" @click="$emit('close')">✕</button>
         </div>
 
+        <!-- Read-only: shows the linked configuration's current values, but every
+             field is non-interactive and no save action is offered. The launch
+             button that opened this stayed clickable while the rest of a
+             read-only properties panel was disabled; the viewer it opens must
+             not hand back an editable form. -->
         <div class="modal-body">
           <!-- Linked AI Agent Configuration (WI-001637 live link). Selecting
                one shows its current values in the fields below; at run time
