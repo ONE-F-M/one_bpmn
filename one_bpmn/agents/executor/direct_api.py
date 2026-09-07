@@ -156,22 +156,42 @@ class DirectApiExecutor(Executor):
         config.system_prompt = system_prompt
         # -------------------------------
         
-        try:
-            provider = frappe.get_doc("AI Provider", config.provider_name)
-        except frappe.DoesNotExistError:
+        if not frappe.db.exists("AI Provider", config.provider_name):
             return ExecutorResult(
                 error_code=ErrorCode.PROVIDER_NOT_FOUND,
                 error_message=f"AI Provider '{config.provider_name}' not found.",
             )
 
-        if not provider.enabled:
+        # AI Provider holds a name and nothing else, so the name is the dialect.
+        provider_type = self._DIALECTS.get(
+            (config.provider_name or "").strip().lower()
+        )
+        if not provider_type:
+            return ExecutorResult(
+                error_code=ErrorCode.PROVIDER_NOT_FOUND,
+                error_message=(
+                    f"AI Provider '{config.provider_name}' is not the name of a "
+                    f"dialect this executor can speak. Name the record for what "
+                    f"it speaks — Anthropic, OpenAI or Google."
+                ),
+            )
+
+        # The connection lives on the model now: its own key, its own endpoint,
+        # and enable_model as the only on/off switch.
+        model_row = frappe.db.get_value(
+            "AI Model", config.model, ["enable_model", "api_endpoint"], as_dict=True
+        ) if config.model else None
+
+        if model_row and not model_row.enable_model:
             return ExecutorResult(
                 error_code=ErrorCode.PROVIDER_DISABLED,
-                error_message=f"AI Provider '{config.provider_name}' is disabled.",
+                error_message=f"AI Model '{config.model}' is disabled.",
             )
 
         try:
-            api_key = frappe.utils.password.get_decrypted_password("AI Provider", config.provider_name, "api_key") or ""
+            api_key = frappe.utils.password.get_decrypted_password(
+                "AI Model", config.model, "api_key", raise_exception=False
+            ) or "" if config.model else ""
         except Exception:
             api_key = ""
 
@@ -184,13 +204,12 @@ class DirectApiExecutor(Executor):
             return ExecutorResult(
                 error_code=ErrorCode.PROVIDER_DISABLED,
                 error_message=(
-                    f"AI Provider '{config.provider_name}' has no API key set. "
-                    f"Open that record and enter the {provider.provider_type or 'provider'} API key."
+                    f"AI Model '{config.model}' has no API key set. "
+                    f"Open that record and enter the {provider_type} API key."
                 ),
             )
 
-        provider_type = provider.provider_type or "OpenAI"
-        endpoint = (provider.api_endpoint or "").rstrip("/")
+        endpoint = ((model_row.api_endpoint if model_row else "") or "").rstrip("/")
         if not endpoint:
             endpoint = self._DEFAULT_ENDPOINTS.get(provider_type, "")
 
@@ -337,10 +356,20 @@ class DirectApiExecutor(Executor):
     # Request builders
     # ------------------------------------------------------------------
 
-    # Map AI Provider.provider_type values to agents/llm_provider factory
-    # keys. Absence means no adapter exists for that provider type — with
-    # tools requested that is an explicit error, never a silent fallback to
-    # the tool-less raw HTTP path.
+    # The AI Provider record's NAME, lowercased, to the dialect this executor
+    # builds requests for. Aliases included because people name the record for
+    # the vendor as often as for the API.
+    _DIALECTS: ClassVar[dict] = {
+        "openai": "OpenAI",
+        "anthropic": "Anthropic",
+        "claude": "Anthropic",
+        "google": "Google",
+        "gemini": "Google",
+    }
+
+    # Map dialects to agents/llm_provider factory keys. Absence means no adapter
+    # exists for that dialect — with tools requested that is an explicit error,
+    # never a silent fallback to the tool-less raw HTTP path.
     _ADAPTER_PROVIDERS: ClassVar[dict] = {
         "OpenAI": "openai",
         "Anthropic": "anthropic",
