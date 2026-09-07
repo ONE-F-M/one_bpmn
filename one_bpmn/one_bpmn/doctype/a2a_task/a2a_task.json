@@ -112,7 +112,8 @@
    "fieldname": "completed_at",
    "fieldtype": "Datetime",
    "label": "Completed At",
-   "read_only": 1
+   "read_only": 1,
+   "in_list_view": 1
   },
   {
    "fieldname": "section_parties",
@@ -120,7 +121,7 @@
    "label": "Parties"
   },
   {
-   "description": "The approved caller (Inbound only) — who asked.",
+   "description": "The approved caller (Inbound only) \u2014 who asked.",
    "fieldname": "client",
    "fieldtype": "Link",
    "label": "A2A Client",
@@ -139,7 +140,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "The local agent that handed this work over (Internal only) — who asked.",
+   "description": "The local agent that handed this work over (Internal only) \u2014 who asked.",
    "fieldname": "delegated_by",
    "fieldtype": "Link",
    "label": "Delegated By",
@@ -148,7 +149,7 @@
    "in_standard_filter": 1
   },
   {
-   "description": "The remote agent this task was delegated to (Outbound only) — who was asked.",
+   "description": "The remote agent this task was delegated to (Outbound only) \u2014 who was asked.",
    "fieldname": "remote_agent",
    "fieldtype": "Link",
    "in_standard_filter": 1,
@@ -192,7 +193,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "The instance WAITING on this task — the one whose step parked. Distinct from `instance`, which is the instance DOING the work; for a same-site delegation those are two different processes.",
+   "description": "The instance WAITING on this task \u2014 the one whose step parked. Distinct from `instance`, which is the instance DOING the work; for a same-site delegation those are two different processes.",
    "fieldname": "caller_instance",
    "fieldtype": "Link",
    "label": "Caller Instance",
@@ -210,7 +211,7 @@
    "label": "Caller Agent Run",
    "options": "AI Agent Run",
    "read_only": 1,
-   "description": "The suspended agent run WAITING on this task — set when an agent delegated from inside a tool call, so there is no parked Service Task to resume. Distinct from `agent_run`, which is the run DOING the work and is what derives this task's state."
+   "description": "The suspended agent run WAITING on this task \u2014 set when an agent delegated from inside a tool call, so there is no parked Service Task to resume. Distinct from `agent_run`, which is the run DOING the work and is what derives this task's state."
   },
   {
    "description": "Spiff task UUID of the parked Service Task (Outbound only).",
@@ -246,7 +247,7 @@
   },
   {
    "default": "0",
-   "description": "How deep this task is nested (A → B → C = 3). Enforced locally against the agent's max_recursion_depth.",
+   "description": "How deep this task is nested (A \u2192 B \u2192 C = 3). Enforced locally against the agent's max_recursion_depth.",
    "fieldname": "delegation_depth",
    "fieldtype": "Int",
    "label": "Delegation Depth"
