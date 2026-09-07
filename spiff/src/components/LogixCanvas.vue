@@ -329,6 +329,9 @@ const props = defineProps({
 	currentScript:  { type: String,  default: "" },
 	eventBus:       { type: Object,  default: null },
 	processContext: { type: Object,  default: null },
+	// The map that launched this canvas is read-only \u2014 the script must open
+	// readable but not editable, and no save/apply path may run.
+	readonly:       { type: Boolean, default: false },
 });
 
 const emit = defineEmits(["close", "script-saved", "back"]);
