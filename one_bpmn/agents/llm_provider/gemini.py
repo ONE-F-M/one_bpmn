@@ -166,11 +166,16 @@ class GeminiAdapter(BaseLLMAdapter):
                 turn.tool_calls.append(
                     ToolCallRecord(name=fc.name, arguments=args, result=result)
                 )
+                # Same marking as the other adapters, so the
+                # guard rail means the same thing whichever provider an agent
+                # happens to run on.
+                from one_bpmn.security.provenance import wrap_tool_result
+
                 result_parts.append(
                     types.Part(
                         function_response=types.FunctionResponse(
                             name=fc.name,
-                            response={"output": result},
+                            response={"output": wrap_tool_result(result, fc.name, args)},
                         )
                     )
                 )

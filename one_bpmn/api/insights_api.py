@@ -758,7 +758,7 @@ def _period_totals(from_d, to_d) -> dict:
 
 
 def _models_missing_pricing(from_d, to_d) -> list:
-	"""Models used in the period that have no active AI Model Pricing row, so
+	"""Models used in the period that have no rate card on their AI Model, so
 	their spend silently counts as 0 — finance needs to know."""
 	from one_bpmn.agents.pricing import get_model_pricing
 

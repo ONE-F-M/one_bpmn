@@ -25,7 +25,10 @@ PATTERNS = [
 		"ignore-previous-instructions",
 		"Instruction Override",
 		"High",
-		r"\bignore\s+(?:all\s+|any\s+)?(?:previous|prior|earlier|above)\s+(?:instruction|instructions|prompt|prompts|direction|directions)\b",
+		# Determiners are a repeated optional group, not a fixed pair: allowing
+		# only "all" and "any" meant "ignore YOUR previous instructions" — one
+		# word different — walked straight through the flagship rule of the pack.
+		r"\b(?:ignore|disregard|forget|override)\s+(?:all\s+|any\s+|the\s+|your\s+|my\s+)*(?:previous|prior|earlier|above|preceding)\s+(?:instruction|instructions|prompt|prompts|direction|directions|rule|rules)\b",
 		"regex",
 		"any",
 		"Flag",

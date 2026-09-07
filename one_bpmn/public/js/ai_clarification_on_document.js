@@ -1,0 +1,204 @@
+// Copyright (c) 2026, one-fm and contributors
+// For license information, please see license.txt
+//
+// WI-002050: an agent's question, on the document it is about — whatever that is.
+//
+// The pending question is technically a task on a process instance, but the
+// person who can settle it is the one who owns the document — and asking them to
+// open a process instance to unblock their own work means asking them to learn
+// the machinery first. So the question is shown on the document, and answered
+// there.
+//
+// Bound to every form rather than to Work Item alone. The record was always
+// generic — it names a doctype and a document — and an agent is not only ever
+// asked to work on a story: the moment one is pointed at a Sales Order or a
+// Purchase Requisition, a question about it has to surface on the thing itself.
+// A per-doctype script would have meant remembering to add one every time.
+//
+// The obvious cost of a global hook is a server call on every form a person
+// opens. So the list of doctypes that have EVER had a question asked about them
+// is fetched once per page and consulted first — a form of a doctype nobody has
+// ever asked about costs nothing at all.
+//
+// Answering routes through the endpoint that routes through the normal task
+// completion, so nothing about permissions or resuming the agent behaves
+// differently from answering it anywhere else.
+
+let _doctypes_with_questions = null;
+let _fetching = null;
+
+function doctypes_with_questions() {
+	if (_doctypes_with_questions) return Promise.resolve(_doctypes_with_questions);
+	if (_fetching) return _fetching;
+	_fetching = frappe
+		.call({ method: "one_bpmn.api.clarification_api.doctypes_with_questions" })
+		.then((r) => {
+			_doctypes_with_questions = ((r && r.message) || {}).doctypes || [];
+			return _doctypes_with_questions;
+		})
+		.catch(() => {
+			// A screen that cannot tell which doctypes are relevant should not
+			// silently stop showing questions: fall back to asking for this one.
+			_doctypes_with_questions = null;
+			return null;
+		});
+	return _fetching;
+}
+
+$(document).on("form-refresh", (event, frm) => {
+	if (!frm || !frm.doc || frm.is_new()) return;
+	// A pending question is not something to surface on the AI Clarification
+	// record itself — that IS the question.
+	if (frm.doc.doctype === "AI Clarification") return;
+
+	doctypes_with_questions().then((known) => {
+		if (known && !known.includes(frm.doc.doctype)) return;
+		load_clarifications(frm);
+	});
+});
+
+function load_clarifications(frm) {
+	frappe.call({
+		method: "one_bpmn.api.clarification_api.pending_for_document",
+		args: { reference_doctype: frm.doc.doctype, reference_name: frm.doc.name },
+		callback: (r) => {
+			const data = (r && r.message) || {};
+			render(frm, data.pending, data.history || []);
+		},
+	});
+}
+
+function render(frm, pending, history) {
+	if (!pending && !history.length) return;
+
+	if (pending) {
+		// Deliberately loud. An agent that has stopped and is waiting is not a
+		// background detail — nothing moves on this story until it is answered,
+		// and the commonest failure of this whole pattern is a question nobody
+		// notices.
+		const waiting = pending.escalated_at
+			? __("This has been escalated — it is still waiting.")
+			: pending.reminded_at
+			? __("A reminder has already gone out.")
+			: "";
+
+		frm.dashboard.clear_headline();
+		frm.dashboard.set_headline(
+			`<b>${frappe.utils.escape_html(pending.agent_configuration || __("An agent"))} ${__(
+				"is waiting on you"
+			)}</b> &nbsp; ${frappe.utils.escape_html(waiting)}`,
+			"orange"
+		);
+
+		// ONE button, inside the question card, next to the question it answers.
+		//
+		// It was the form's primary action first and never appeared at all: Work
+		// Item has a workflow, so that slot already belongs to Actions and setting
+		// it again is silently ignored. The fix added a toolbar button as well,
+		// which gave two — and a second button for one action is just a question
+		// about which one is the real one. Beside the question is where it belongs:
+		// a person reading the question does not want to go looking in a toolbar
+		// for the reply.
+		const section = frm.dashboard.add_section(
+			`<div style="padding:4px 0">
+				<div style="white-space:pre-wrap">${frappe.utils.escape_html(pending.question || "")}</div>
+				${
+					pending.interpretations
+						? `<div style="margin-top:6px;color:var(--text-muted)"><i>${__(
+								"Choosing between"
+						  )}:</i> ${frappe.utils.escape_html(pending.interpretations)}</div>`
+						: ""
+				}
+				<div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+					${
+						pending.can_answer
+							? `<button class="btn btn-primary btn-sm answer-the-agent">${__(
+									"Answer the agent"
+							  )}</button>`
+							: `<span style="color:var(--text-muted)">${__(
+									"Only {0} can answer this — answering on someone's behalf would defeat the point of asking them.",
+									[frappe.utils.escape_html(pending.owner_asked || __("the document owner"))]
+							  )}</span>`
+					}
+					<span style="color:var(--text-muted);font-size:11px">
+						${__("Round {0} · asked {1}", [
+							pending.round || 1,
+							frappe.datetime.comment_when(pending.asked_at),
+						])}
+					</span>
+				</div>
+			</div>`,
+			__("A question about this document")
+		);
+
+		if (pending.can_answer && section) {
+			$(section)
+				.find(".answer-the-agent")
+				.on("click", () => answer(frm, pending));
+		}
+
+	}
+
+	if (history.length) {
+		const rows = history
+			.map(
+				(h) => `<div style="margin-bottom:8px">
+					<div><b>${__("Asked")}:</b> ${frappe.utils.escape_html(h.question || "")}</div>
+					<div><b>${__("Answered")}:</b> ${frappe.utils.escape_html(h.answer || "—")}</div>
+					<div style="color:var(--text-muted);font-size:11px">
+						${frappe.utils.escape_html(h.answered_by || "")}
+						${h.answered_at ? "· " + frappe.datetime.str_to_user(h.answered_at) : ""}
+					</div>
+				</div>`
+			)
+			.join("");
+		frm.dashboard.add_section(rows, __("Questions already answered"));
+	}
+}
+
+function answer(frm, pending) {
+	const dialog = new frappe.ui.Dialog({
+		title: __("Answer the agent"),
+		fields: [
+			{
+				fieldtype: "HTML",
+				options: `<div style="margin-bottom:8px;white-space:pre-wrap">${frappe.utils.escape_html(
+					pending.question || ""
+				)}</div>${
+					pending.interpretations
+						? `<div style="color:var(--text-muted)"><i>${__(
+								"Choosing between"
+						  )}:</i> ${frappe.utils.escape_html(pending.interpretations)}</div>`
+						: ""
+				}`,
+			},
+			{
+				fieldtype: "Small Text",
+				fieldname: "text",
+				label: __("Your answer"),
+				reqd: 1,
+				description: __(
+					"Say which reading is right, or give the missing detail. If this does not settle it the agent will ask again rather than guess."
+				),
+			},
+		],
+		primary_action_label: __("Send and let it continue"),
+		primary_action: (values) => {
+			dialog.hide();
+			frappe.call({
+				method: "one_bpmn.api.clarification_api.answer",
+				args: { name: pending.name, text: values.text },
+				freeze: true,
+				freeze_message: __("Sending your answer…"),
+				callback: () => {
+					frappe.show_alert({
+						message: __("Answered — the agent has picked up from where it paused."),
+						indicator: "green",
+					});
+					frm.reload_doc();
+				},
+			});
+		},
+	});
+	dialog.show();
+}

@@ -37,6 +37,126 @@ _STEP_METRIC_KEYS = (
 )
 
 
+# Guardrail for what a tool call may carry inline. Anything longer is written
+# to a private File attached to the Run instead — the record stays complete
+# without a single generated script turning every list query into a table scan.
+_MAX_INLINE_CHARS = 20 * 1024
+
+# Artifacts stashed by the tool that produced them, drained when the call's row
+# is written. A list per tool: one turn can call the same tool twice, and the
+# second artifact must not overwrite the first.
+_ARTIFACT_FLAG = "bpmn_tool_artifacts"
+
+
+def record_tool_artifact(tool_name: str, artifact: str, preview_chars: int = 400) -> str:
+	"""Hand the full work product of *tool_name* to the audit record, and return
+	the preview to show the model.
+
+	A tool that generates something — a script, a DocType schema, a process IR —
+	shows the model a short preview, because the whole artifact costs more context
+	than it is worth. That preview was then all the run record kept, so the agent's
+	actual output could not be reviewed afterwards. Returning the preview from the
+	same call is deliberate: a tool cannot show one without recording the other.
+
+	The preview ends on a word boundary — a mid-word cut left both the reviewer
+	and the model reading its own transcript looking at half a token.
+
+	Called from the tool Server Scripts on the maps, which arrive by export and
+	import: Docu's write schema, Logix's write script and write agent tool, and
+	ProsAlly's generate and modify process. A map imported without them records
+	nothing, silently.
+	"""
+	if not (tool_name and (artifact or "").strip()):
+		return ""
+	artifact = str(artifact)
+	stash = frappe.flags.get(_ARTIFACT_FLAG)
+	if not isinstance(stash, dict):
+		stash = {}
+		frappe.flags[_ARTIFACT_FLAG] = stash
+	stash.setdefault(tool_name, []).append(artifact)
+	return _preview(artifact, preview_chars)
+
+
+def _preview(text: str, limit: int) -> str:
+	"""*text* up to *limit* chars, ending on a word boundary."""
+	if limit <= 0 or len(text) <= limit:
+		return text
+	head = text[:limit]
+	cut = max(head.rfind(" "), head.rfind("\n"))
+	if cut > limit // 2:
+		head = head[:cut]
+	return head.rstrip() + "\u2026"
+
+
+def pop_tool_artifact(tool_name: str) -> str:
+	"""Take the oldest artifact stashed for *tool_name*, or "" if there is none."""
+	stash = frappe.flags.get(_ARTIFACT_FLAG)
+	if not isinstance(stash, dict):
+		return ""
+	queue = stash.get(tool_name) or []
+	return queue.pop(0) if queue else ""
+
+
+def clear_tool_artifacts() -> None:
+	"""Drop anything left over, so an artifact never lands on a later run."""
+	frappe.flags[_ARTIFACT_FLAG] = {}
+
+
+def _offload(run, tool_name: str, kind: str, text: str) -> str:
+	"""Write *text* to a private File attached to *run*; return the File name.
+
+	Returns "" when the file cannot be written — an unrecorded artifact is a
+	gap in the audit trail, never a failed agent run.
+	"""
+	try:
+		stamp = now_datetime().strftime("%Y%m%d-%H%M%S")
+		file_doc = frappe.get_doc({
+			"doctype": "File",
+			"file_name": f"{frappe.scrub(tool_name or 'tool')}-{kind}-{stamp}.txt",
+			"content": text,
+			"is_private": 1,
+			"attached_to_doctype": "AI Agent Run",
+			"attached_to_name": getattr(run, "name", None),
+		}).insert(ignore_permissions=True)
+		return file_doc.name
+	except Exception:
+		frappe.log_error(
+			title=f"AI Observability: {kind} offload failed ({tool_name})",
+			message=frappe.get_traceback(),
+		)
+		return ""
+
+
+def _fit_arguments(run, tool_name: str, args) -> Any:
+	"""The arguments as stored: always something, never silently dropped.
+
+	``{}`` is a real answer — the shape tools on the chat maps declare no
+	parameters, so the model sends nothing — and recording it says so, where a
+	blank cell reads as "we did not capture this".
+	"""
+	if args is None:
+		args = {}
+	if not isinstance(args, (dict, list)):
+		args = {"value": args}
+	try:
+		serialized = frappe.as_json(args)
+	except Exception:
+		serialized = str(args)
+	if len(serialized) <= _MAX_INLINE_CHARS:
+		return args
+	file_name = _offload(run, tool_name, "arguments", serialized)
+	return {"offloaded": True, "chars": len(serialized), "file": file_name}
+
+
+def _fit_artifact(run, tool_name: str, artifact: str) -> tuple:
+	"""(inline artifact, File name) under the size guardrail."""
+	if not artifact:
+		return "", None
+	if len(artifact) <= _MAX_INLINE_CHARS:
+		return artifact, None
+	return "", _offload(run, tool_name, "artifact", artifact) or None
+
+
 def _sum_step_metrics(run_name: str) -> Dict[str, Any]:
 	"""Sum every per-step metric of *run_name* in one query.
 
@@ -103,6 +223,8 @@ def create_ai_run(
 	config: ExecutorConfig,
 	bpmn_label: str = "",
 	process_model: str = "",
+	recall_query: str = "",
+	memory_injected_tokens: int = 0,
 ) -> "frappe.Document":
 	"""Create an AI Agent Run record with status="Running".
 
@@ -113,6 +235,15 @@ def create_ai_run(
 	    config: ExecutorConfig from the dispatcher
 	    bpmn_label: Human-readable element name from the BPMN diagram
 	    process_model: Name of the BPMN Process Model
+	    recall_query: The text long-term memory was searched with this run, if
+	        any — the user's actual message, not the driving prompt template.
+	        Blank when memory is off, the query was small talk, or nothing was
+	        searched. Recorded here (rather than only visible baked into the
+	        rendered user step) because a transcript alone can't tell "searched
+	        with X, found nothing" apart from "never searched".
+	    memory_injected_tokens: Estimated size of the recalled memory block
+	        actually injected, after aiMemoryTokenBudget truncation. 0 when
+	        nothing was injected.
 
 	Returns:
 	    The created AI Agent Run document.
@@ -120,17 +251,23 @@ def create_ai_run(
 	import frappe
 
 	# WI-001636/WI-001608: attribute the run to its AI Agent Configuration.
-	# Primary source: the shape's own aiAgentConfig link (every AI shape
-	# carries one since WI-001650) — covers task AND selector runs. Fallback:
-	# the configuration that owns this process model (chat maps provisioned
-	# before the live link). Runs nobody owns carry none.
+	# Primary: config.agent_config_name, the aiAgentConfig actually resolved for
+	# THIS dispatch — covers a Script Task's internal execute_shape call too,
+	# unlike the _service_task_extensions fallback below it.
 	agent_configuration = None
 	try:
-		shape_cfg = (getattr(instance, "_service_task_extensions", {}) or {}).get(bpmn_id, {}).get("aiAgentConfig")
-		if shape_cfg and frappe.db.exists("AI Agent Configuration", shape_cfg):
-			agent_configuration = shape_cfg
+		cfg_name = getattr(config, "agent_config_name", "") or ""
+		if cfg_name and frappe.db.exists("AI Agent Configuration", cfg_name):
+			agent_configuration = cfg_name
 	except Exception:
 		agent_configuration = None
+	if not agent_configuration:
+		try:
+			shape_cfg = (getattr(instance, "_service_task_extensions", {}) or {}).get(bpmn_id, {}).get("aiAgentConfig")
+			if shape_cfg and frappe.db.exists("AI Agent Configuration", shape_cfg):
+				agent_configuration = shape_cfg
+		except Exception:
+			agent_configuration = None
 	owning_model = process_model or getattr(instance, "process_model", "") or ""
 	if not agent_configuration and owning_model:
 		try:
@@ -169,6 +306,8 @@ def create_ai_run(
 		"status": "Running",
 		"started_at": now_datetime(),
 		"max_retries": config.max_retries,
+		"recall_query": recall_query or "",
+		"memory_injected_tokens": memory_injected_tokens or 0,
 		# WI-001967: reuse the turn's correlation id when one was minted upstream,
 		# so a security event recorded before this run existed can be joined to it.
 		# Falls back to a fresh id for runs that start outside a screened turn.
@@ -262,13 +401,21 @@ def record_ai_step(
 	# tool_name/tool_args/tool_result fields were removed 2026-07-04 —
 	# the child table is the sole record of tool calls.)
 	for call in tool_calls or []:
+		name = call.get("name") or call.get("tool_name") or ""
+		args = call.get("arguments")
+		if args is None:
+			args = call.get("tool_args")
+		args = _fit_arguments(run, name, args)
+		artifact, artifact_file = _fit_artifact(run, name, pop_tool_artifact(name))
 		step.append(
 			"tool_calls",
 			{
-				"tool_name": call.get("name") or call.get("tool_name") or "",
+				"tool_name": name,
 				"tool_source": call.get("tool_source") or "",
-				"tool_args": call.get("arguments") or call.get("tool_args") or None,
+				"tool_args": args,
 				"tool_result": call.get("result") or call.get("tool_result") or "",
+				"tool_artifact": artifact,
+				"artifact_file": artifact_file,
 				"status": call.get("status") or "Success",
 			},
 		)
@@ -438,6 +585,21 @@ def get_or_create_selector_run(instance, bpmn_id: str, config, bpmn_label: str =
 	)
 
 
+def _tool_call_status(result) -> str:
+	"""Classify a tool result string into a Tool Call status.
+
+	Three outcomes, not two: a call the policy interceptor refused (WI-001645)
+	never executed, so calling it "Error" would conflate a blocked action with
+	a broken tool and make policy activity impossible to query.
+	"""
+	text = str(result or "")
+	if text.startswith("Blocked by policy:"):
+		return "Denied"
+	if text.startswith(("Error calling", "Unknown tool:")):
+		return "Error"
+	return "Success"
+
+
 def record_selector_turns(run, trace: list, source_map: dict | None = None) -> int:
 	"""Append one AI Agent Step per turn of an executor trace to *run*.
 
@@ -465,9 +627,10 @@ def record_selector_turns(run, trace: list, source_map: dict | None = None) -> i
 				"tool_source": source_map.get(call.get("name", ""), ""),
 				"arguments": call.get("arguments") or {},
 				"result": call.get("result", ""),
-				"status": "Error" if str(call.get("result", "")).startswith(
-					("Error calling", "Unknown tool:")
-				) else "Success",
+				# WI-001645: a policy refusal is neither a success nor a tool
+				# error — the tool never ran. Recording it distinctly is what
+				# makes "what has the policy blocked this week" answerable.
+				"status": _tool_call_status(call.get("result", "")),
 			}
 			for call in turn.get("tool_calls") or []
 		]

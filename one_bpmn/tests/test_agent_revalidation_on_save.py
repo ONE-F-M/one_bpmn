@@ -18,21 +18,44 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 	def setUp(self):
 		frappe.flags.test_agent_revalidation = True
 		suffix = frappe.generate_hash(length=6)
-		self.creds = frappe.get_doc({
-			"doctype": "AI Provider Credentials",
-			"provider_name": f"Reval Test Creds {suffix}",
-			"provider_type": "Anthropic",
-			"api_key": "test-key-not-real",
-			"enabled": 1,
-		}).insert(ignore_permissions=True)
+		self.agents = []
+		# A provider is a name and the name IS the dialect, so this one is
+		# shared and canonical rather than per-test — a "Reval Test Creds abc123"
+		# routes nowhere, and every leaked one broke the next run's resolution.
+		if not frappe.db.exists("AI Provider", "Anthropic"):
+			frappe.get_doc({"doctype": "AI Provider", "provider": "Anthropic"}).insert(
+				ignore_permissions=True
+			)
+		self.creds = frappe.get_doc("AI Provider", "Anthropic")
+		# The model carries the connection, so the key goes here.
 		self.model = frappe.get_doc({
 			"doctype": "AI Model",
+			"enable_model": 1,
 			"model_name": f"reval-test-model-{suffix}",
-			"ai_provider_credentials": self.creds.name,
+			"provider": "Anthropic",
+			"api_key": "test-key-not-real",
 		}).insert(ignore_permissions=True)
 
 	def tearDown(self):
 		frappe.flags.test_agent_revalidation = False
+		# Inserting an AI Agent Configuration fires the agent-creation map, which
+		# COMMITS, so these survive the rollback. The shared provider stays.
+		frappe.flags.in_migrate = True
+		try:
+			for name in self.agents:
+				for inst in frappe.get_all("BPMN Process Instance",
+				                           filters={"context_docname": name}, pluck="name"):
+					frappe.delete_doc("BPMN Process Instance", inst, force=True,
+					                  ignore_permissions=True, delete_permanently=True)
+				frappe.delete_doc("AI Agent Configuration", name, force=True,
+				                  ignore_permissions=True, delete_permanently=True)
+			frappe.delete_doc("AI Model", self.model.name, force=True,
+			                  ignore_permissions=True, delete_permanently=True)
+			frappe.db.commit()
+		except Exception:
+			frappe.db.rollback()
+		finally:
+			frappe.flags.in_migrate = False
 
 	def _make_agent(self, **overrides):
 		suffix = frappe.generate_hash(length=6)
@@ -51,6 +74,7 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 		# Insert with a passing provider so setup state is deterministic.
 		with patch(TEST_CALL, return_value=(True, "OK")):
 			doc = frappe.get_doc(values).insert(ignore_permissions=True)
+		self.agents.append(doc.name)
 		# Background agents used to be stamped Live by a controller
 		# hook on save. Go-live is the Agent Creation Process's decision now, so
 		# the starting state is set here rather than assumed — and set straight to

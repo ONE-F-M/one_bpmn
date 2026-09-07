@@ -21,21 +21,38 @@ payload that gets persisted to the database (story 2).
 """
 from __future__ import annotations
 
+import asyncio
+import random
 from dataclasses import dataclass, field
 import time
 
+import frappe
+
+from one_bpmn.security.provenance import wrap_tool_result
 from one_bpmn.agents.llm_provider.base import (
 	CompletionResult,
 	ToolCallRecord,
 	ToolSpec,
 	TurnRecord,
 )
+from one_bpmn.agents.observability import clear_tool_artifacts
+from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG, ToolDeferred
+from one_bpmn.agents.turn_state import TURN_ANSWERED_FLAG
+from one_bpmn.security.tool_policy import PolicyViolation
 
 # Tool result handed to the model when it requests a second human tool in the
 # same turn — v1 supports one human pause at a time.
 _SECOND_HUMAN_RESULT = (
 	"A human task from this turn is already pending; only one human task can "
 	"run at a time. Call this tool again after the pending human task completes."
+)
+
+# Same shape, different cause, and it needs its own words: a second tool in this
+# turn parked while a pause is already held. The model used to be told a *human*
+# task was pending, which for an agent-to-agent delegation is untrue.
+_SECOND_PAUSE_RESULT = (
+	"Another step from this turn is already waiting for its answer, and only one "
+	"can be tracked at a time. Call this tool again once the pending one is back."
 )
 
 
@@ -64,10 +81,16 @@ class AgentSuspension:
 	cache_read_tokens / cache_write_tokens — the part of prompt_tokens billed at
 	                    the cache rates rather than the full input rate
 	                    (WI-001643). Inclusive of prompt_tokens, not extra.
+	deferred_wait      — set only when the pause is NOT a person: the waiting
+	                    marker of a tool that handed work outside this turn
+	                    (WI-001933, an agent delegating to another agent). The
+	                    dispatcher reads it to decide who is being waited on —
+	                    empty means a human tool, as before.
 	"""
 	transcript: list = field(default_factory=list)
 	pending_call: dict = field(default_factory=dict)
 	deferred_results: list = field(default_factory=list)
+	deferred_wait: dict = field(default_factory=dict)
 	trace: list = field(default_factory=list)
 	turns_used: int = 0
 	prompt_tokens: int = 0
@@ -85,6 +108,9 @@ async def run_agent_loop(
 	max_tokens: int = 16384,
 	max_turns: int = 10,
 	resume: dict | None = None,
+	timeout_seconds: float | None = None,
+	max_retries: int = 0,
+	retry_backoff_ms: int = 1000,
 ) -> tuple:
 	"""Drive the tool loop. Returns (CompletionResult, None) when the model
 	produces a final answer or hits the turn cap, or (None, AgentSuspension)
@@ -97,6 +123,14 @@ async def run_agent_loop(
 	"turns_used", "human_result"} — the persisted AgentSuspension fields plus
 	the human's output. The loop injects the human result as the pending
 	call's tool result, completes the suspended turn, and continues.
+
+	``timeout_seconds``/``max_retries``/``retry_backoff_ms`` mirror
+	ExecutorConfig's own fields (dispatch_ai_agent's aiTimeout/aiMaxRetries)
+	and bound EACH per-turn adapter.step() call — a tool-calling loop can take
+	many turns, so applying these once for the whole loop would let one early
+	slow turn eat the entire budget. Defaults (None timeout, 0 retries) keep
+	every other caller of this function — including every existing test —
+	byte-for-byte unchanged.
 	"""
 	tool_map = {t.name: t for t in (tools or [])}
 
@@ -106,10 +140,18 @@ async def run_agent_loop(
 		turns_used = int(resume.get("turns_used") or 0)
 		pending = resume.get("pending_call") or {}
 		results = list(resume.get("deferred_results") or [])
+		# Marked like any other tool result. A human task's answer is still
+		# content from outside the platform arriving on the tool channel — a
+		# reviewer can paste anything into it — and it was the one path that
+		# reached the model unmarked.
 		results.append({
 			"id": pending.get("id") or "",
 			"name": pending.get("name") or "",
-			"content": str(resume.get("human_result") or ""),
+			"content": wrap_tool_result(
+				str(resume.get("human_result") or ""),
+				pending.get("name") or "human task",
+				pending.get("arguments"),
+			),
 		})
 		transcript.append({"role": "tool_results", "results": results})
 	else:
@@ -117,10 +159,73 @@ async def run_agent_loop(
 
 	trace: list = []
 
+	# Anything a previous loop stashed and nobody recorded is stale: draining it
+	# here is what stops one run's script showing up on the next run's tool call.
+	clear_tool_artifacts()
+
+	try:
+		return await _run_turns(
+			adapter, system=system, tools=tools, tool_map=tool_map,
+			transcript=transcript, trace=trace, turns_used=turns_used,
+			max_tokens=max_tokens, max_turns=max_turns,
+			timeout_seconds=timeout_seconds, max_retries=max_retries,
+			retry_backoff_ms=retry_backoff_ms,
+		)
+	finally:
+		# Cleared on EVERY exit — final answer, turn cap, suspension, exception.
+		# The flag only means "a pause is held in the turn running right now", and
+		# frappe.flags outlives this call: a suspension used to leave it True, so
+		# the next delegation handled by the same worker was refused as though a
+		# pause were still open. Observed live — an orchestrator's delegation
+		# returned "not-started" and created no A2A Task at all.
+		frappe.flags[PAUSE_HELD_FLAG] = False
+		frappe.flags[TURN_ANSWERED_FLAG] = False
+
+
+async def _step_with_retries(
+	adapter, system, transcript, tools, max_tokens, *, timeout_seconds=None, max_retries=0, retry_backoff_ms=1000
+):
+	"""One turn's model call, bounded by timeout_seconds and retried up to
+	max_retries times — mirrors DirectApiExecutor._run_request's own
+	retry/backoff shape for the non-tool path (direct_api.py), since
+	adapter.step() previously had neither: aiTimeout/aiMaxRetries were read
+	into ExecutorConfig but silently had no effect the moment a call used
+	tools, so a hung turn could run for however long the provider SDK's own
+	default is (confirmed: the Anthropic adapter passes no timeout to the
+	SDK at all) instead of the configured aiTimeout.
+
+	timeout_seconds=None (the default) means unbounded, matching every
+	caller from before this existed."""
+	for attempt in range(max_retries + 1):
+		try:
+			call = adapter.step(system, transcript, tools=tools or None, max_tokens=max_tokens)
+			if timeout_seconds:
+				return await asyncio.wait_for(call, timeout=timeout_seconds)
+			return await call
+		except Exception:
+			if attempt >= max_retries:
+				raise
+			base_s = (retry_backoff_ms / 1000.0) * (2 ** attempt)
+			await asyncio.sleep(base_s + random.uniform(0, 0.1))
+
+
+async def _run_turns(
+	adapter, *, system, tools, tool_map, transcript, trace, turns_used, max_tokens, max_turns,
+	timeout_seconds=None, max_retries=0, retry_backoff_ms=1000,
+):
+	"""The turn loop itself. Split out only so run_agent_loop can guarantee the
+	pause flag is cleared however this returns."""
 	while turns_used < max_turns:
+		# No pause is held yet this turn. Cleared here, at the very top, rather
+		# than just before the tool loop: the flag must never outlive the turn
+		# that set it, and a turn can also end at the final-answer return below.
+		frappe.flags[PAUSE_HELD_FLAG] = False
+		# Same reason, same place: a turn that answered must not end the NEXT one.
+		frappe.flags[TURN_ANSWERED_FLAG] = False
 		_turn_t0 = time.perf_counter()
-		step = await adapter.step(
-			system, transcript, tools=tools or None, max_tokens=max_tokens
+		step = await _step_with_retries(
+			adapter, system, transcript, tools, max_tokens,
+			timeout_seconds=timeout_seconds, max_retries=max_retries, retry_backoff_ms=retry_backoff_ms,
 		)
 		turns_used += 1
 
@@ -160,6 +265,7 @@ async def run_agent_loop(
 		)
 		results = []
 		pending_call = None
+		deferred_wait: dict = {}
 		for call in step.tool_calls:
 			tool = tool_map.get(call.name)
 			if tool is not None and tool.human:
@@ -169,6 +275,7 @@ async def run_agent_loop(
 					pending_call = {
 						"id": call.id, "name": call.name, "arguments": call.arguments
 					}
+					frappe.flags[PAUSE_HELD_FLAG] = True
 					continue
 				result = _SECOND_HUMAN_RESULT
 			elif tool is None:
@@ -176,13 +283,44 @@ async def run_agent_loop(
 			else:
 				try:
 					result = str(tool.fn(**call.arguments))
+				except ToolDeferred as deferred:
+					# The tool ran, but its work outlives this turn. Same pause
+					# as a human tool — the answer arrives from elsewhere — so
+					# it takes the same slot, and the marker rides along so the
+					# dispatcher knows what is being waited on.
+					if pending_call is None:
+						pending_call = {
+							"id": call.id, "name": call.name, "arguments": call.arguments
+						}
+						deferred_wait = deferred.marker or {}
+						frappe.flags[PAUSE_HELD_FLAG] = True
+						continue
+					# A second pause in the same turn. Reaching here means the
+					# tool got past the connector's own guard and parked anyway,
+					# so its work IS running and this turn cannot collect it —
+					# say so rather than blaming a human task.
+					result = _SECOND_PAUSE_RESULT
+				except PolicyViolation as violation:
+					# The interceptor refused the call BEFORE the tool ran
+					# (WI-001645). Handed back as an ordinary tool result, so the
+					# model is told why and can take a different approach —
+					# exactly how every loop already treats a tool that failed.
+					result = violation.decision.as_tool_result()
 				except Exception as exc:
 					result = f"Error calling {call.name}: {exc}"
 
 			turn_record.tool_calls.append(
 				ToolCallRecord(name=call.name, arguments=call.arguments, result=result)
 			)
-			results.append({"id": call.id, "name": call.name, "content": result})
+			# What the model sees is marked with the tool that
+			# produced it, so the guard rail in its frozen instructions has
+			# something to refer to. The ToolCallRecord above keeps the raw
+			# result — markers are for the model, not for the audit trail.
+			results.append({
+				"id": call.id,
+				"name": call.name,
+				"content": wrap_tool_result(result, call.name, call.arguments),
+			})
 
 		turn_record.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
 		trace.append(turn_record)
@@ -194,6 +332,7 @@ async def run_agent_loop(
 				transcript=transcript,
 				pending_call=pending_call,
 				deferred_results=results,
+				deferred_wait=deferred_wait,
 				trace=[asdict(t) for t in trace],
 				turns_used=turns_used,
 				prompt_tokens=sum(t.prompt_tokens for t in trace),
@@ -201,6 +340,22 @@ async def run_agent_loop(
 				cache_read_tokens=sum(t.cache_read_tokens for t in trace),
 				cache_write_tokens=sum(t.cache_write_tokens for t in trace),
 			)
+
+		# ── The turn is already answered: stop here ──────────────────────
+		# A stage tool that writes the turn's output (finalize, and clarify when
+		# it ends the turn) IS the reply — the surface reads it from the turn
+		# store, not from the model's prose. Feeding the results back for one
+		# more model call bought nothing: measured on Logix run om8mj9cenv, that
+		# closing call returned 0 characters and 2 completion tokens for
+		# $0.00287 — 20% of the whole $0.01425 turn — and on LuCrusher it re-sent
+		# a 37k-token transcript to be told nothing. The model's own narration
+		# from this turn carries out as the text, exactly as the turn cap does.
+		if frappe.flags.get(TURN_ANSWERED_FLAG):
+			frappe.flags[TURN_ANSWERED_FLAG] = False
+			_said = next(
+				(t.content for t in reversed(trace) if (t.content or "").strip()), ""
+			)
+			return CompletionResult(text=_said, trace=trace), None
 
 		transcript.append({"role": "tool_results", "results": results})
 

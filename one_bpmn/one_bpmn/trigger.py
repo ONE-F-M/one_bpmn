@@ -245,6 +245,110 @@ def _maybe_send_message(doc, message_suffix: str):
 			)
 
 
+# The message a deployment announces. Follows the {DocType}{Action}_Action
+# convention the diagrams already use (ChatConversation_Message_Action,
+# AIAgentConfiguration_Edit_Action), so a designer adding the catch event does
+# not have to learn a second naming scheme for this one event.
+PROCESS_MODEL_DEPLOYED_MESSAGE = "BPMNProcessModel_Deployed_Action"
+
+
+def send_process_model_deployed_message(model) -> list:
+	"""
+	Tell the engine that a process model has been deployed.
+
+	A process owner finishes their model and deploys it. The Process
+	Implementation that commissioned that work is waiting to hear so it can
+	conclude — and until now the only way it learned was a person confirming
+	something the engine already knew.
+
+	Delivered to the Active instance(s) of the model's own
+	``process_implementation``, so a deployment only ever answers the
+	implementation that asked for it.
+
+	**Why this is called explicitly from the deploy path** rather than arriving
+	through ``on_doc_event`` like every other message: ``BPMN Process Model`` is
+	in ``_INTERNAL_DOCTYPES``, so document events on it never reach the
+	universal trigger. That exclusion is deliberate — it stops the engine
+	recursing while it saves its own models — which leaves deployment with no
+	way to announce itself except to say so directly.
+
+	Best-effort by design: a deploy must never fail because nothing was
+	listening. An instance with no matching catch event is normal (the
+	implementation map only grows one when its designer wants to react), and is
+	skipped silently exactly as ``_maybe_send_message`` does.
+
+	Args:
+	    model: the deployed BPMN Process Model document, already saved.
+
+	Returns:
+	    list of instance names that accepted the message (empty is a normal
+	    outcome, not a failure).
+	"""
+	implementation = (model.get("process_implementation") or "").strip()
+	if not implementation:
+		# No implementation commissioned this model — nothing is waiting.
+		return []
+
+	try:
+		waiting = frappe.get_all(
+			"BPMN Process Instance",
+			filters={
+				"context_doctype": "Process Implementation",
+				"context_docname": implementation,
+				"status": "Active",
+			},
+			pluck="name",
+		)
+	except Exception:
+		# A lookup failure must not turn a good deploy into a failed one.
+		frappe.log_error(
+			title="BPMN deployed-message lookup failed",
+			message=frappe.get_traceback(),
+		)
+		return []
+
+	if not waiting:
+		return []
+
+	# What the implementation map can branch on once the message lands.
+	payload = {
+		"process_model": model.name,
+		"process_name": model.get("process_name"),
+		"process_implementation": implementation,
+		"version": model.get("version"),
+		"deployed_by": model.get("deployed_by") or frappe.session.user,
+		"deployed_at": str(model.get("deployed_at") or now_datetime()),
+	}
+
+	delivered = []
+	for instance_name in waiting:
+		try:
+			instance = frappe.get_doc("BPMN Process Instance", instance_name)
+			instance.receive_message(
+				message_name=PROCESS_MODEL_DEPLOYED_MESSAGE,
+				payload=payload,
+			)
+			# An uncaught message does NOT raise — receive_message logs it and
+			# returns the unchanged task list — so the flag is the only way to
+			# tell "the implementation reacted" from "nothing was listening".
+			if instance.flags.get("bpmn_message_caught"):
+				delivered.append(instance_name)
+		except frappe.ValidationError:
+			# The instance finished or was cancelled between the query and the
+			# delivery. Nothing to answer; not a problem.
+			pass
+		except Exception:
+			frappe.log_error(
+				title=(
+					f"BPMN message delivery failed: "
+					f"{PROCESS_MODEL_DEPLOYED_MESSAGE} → {instance_name}"
+				),
+				message=frappe.get_traceback(),
+			)
+
+	return delivered
+
+
 def _find_matching_models(doctype: str, trigger_event: str) -> list:
 	"""
 	Return names of all active BPMN Process Models whose trigger matches
@@ -326,12 +430,11 @@ def _maybe_start_instance(doc, model_name: str):
 	# evaluate falls through to spawning so legitimate triggers are never dropped.
 	start_condition = _get_conditional_start_condition(model.bpmn_xml)
 	if start_condition and start_condition.strip().lower() not in ("true", "1", ""):
-		eval_locals = {}
-		for _f in doc.meta.fields:
-			_v = doc.get(_f.fieldname)
-			if isinstance(_v, (str, int, float, bool)) or _v is None:
-				eval_locals[_f.fieldname] = _v
-		eval_locals["docstatus"] = getattr(doc, "docstatus", 0)
+		from one_bpmn.one_bpmn.engine import json_safe_doc_fields
+
+		# The same fields, converted the same way, that the instance will see once it
+		# starts — so a start condition and a gateway cannot disagree about the document.
+		eval_locals = json_safe_doc_fields(doc)
 		try:
 			if not frappe.safe_eval(start_condition, eval_locals=eval_locals):
 				return  # condition not met — do not spawn
@@ -697,8 +800,11 @@ def delete_linked_bpmn_instances(doc, method: str):
 	On document trash:
 	  1. Try to deliver a Delete message to active instances so the BPMN
 	     delete flow can run (e.g. delete the linked Google Task).
-	  2. Cancel all active instances and unlink them so Frappe can
-	     proceed with the document deletion.
+	  2. An instance that caught that message owns the delete story, so it is
+	     kept for the record: cancelled and unlinked, history intact.
+	  3. Every other instance is removed outright, along with its BPMN
+	     Activity Log rows, so deleting a document does not leave the
+	     process instance behind (WI-001990).
 	"""
 	if doc.doctype in _INTERNAL_DOCTYPES:
 		return
@@ -725,6 +831,7 @@ def delete_linked_bpmn_instances(doc, method: str):
 		# Step 1: Try to deliver Delete message to active instances
 		# so the BPMN delete flow can execute (e.g. delete Google Task)
 		delete_message = f"{doc.doctype.replace(' ', '')}_Delete_Action"
+		handled = set()
 		for inst in instances:
 			if inst.status == "Active":
 				try:
@@ -737,32 +844,44 @@ def delete_linked_bpmn_instances(doc, method: str):
 							"deleted_docname": doc.name,
 						},
 					)
+					# The diagram has a delete catch event and it fired — this
+					# instance ran its own delete flow, so keep it.
+					handled.add(inst.name)
 				except frappe.ValidationError:
 					# No task waiting for this message - diagram has no delete
-					# catch event. That is fine, fall through to cancel.
+					# catch event. That is fine, fall through to deletion.
 					pass
 				except Exception:
+					# Delivery blew up for a reason we don't understand, so we
+					# don't know what state the instance is in. Keep it rather
+					# than destroy it — an orphan is recoverable, a delete isn't.
+					handled.add(inst.name)
 					frappe.log_error(
 						title=f"BPMN delete message failed for {inst.name}",
 						message=frappe.get_traceback(),
 					)
 
-		# Step 2: Cancel active instances, their waiting tasks, and unlink.
+		# Step 2: Instances that handled the delete message are kept.
+		# Cancel them so nothing tries to advance them once the context
+		# document is gone, and unlink so Frappe's link check lets the
+		# document deletion through.
 		# Re-fetch status from DB since receive_message() in Step 1 may
 		# have advanced/completed the instance.
-		for inst in instances:
+		for inst_name in handled:
 			try:
 				current_status = frappe.db.get_value(
-					"BPMN Process Instance", inst.name, "status"
+					"BPMN Process Instance", inst_name, "status"
 				)
 				updates = {"context_doctype": None, "context_docname": None}
+				# Leave a terminal status (Completed/Errored) alone — the delete
+				# flow already finished and that outcome is worth keeping.
 				if current_status == "Active":
 					updates["status"] = "Cancelled"
 					# Cancel orphan BPMN Active Task rows so they don't
 					# surface in get_active_tasks_summary / list_process_instances
 					waiting_tasks = frappe.get_all(
 						"BPMN Active Task",
-						filters={"parent": inst.name, "status": "Waiting"},
+						filters={"parent": inst_name, "status": "Waiting"},
 						pluck="name",
 					)
 					for task_name in waiting_tasks:
@@ -772,15 +891,48 @@ def delete_linked_bpmn_instances(doc, method: str):
 							update_modified=False,
 						)
 				frappe.db.set_value(
-					"BPMN Process Instance", inst.name,
+					"BPMN Process Instance", inst_name,
 					updates,
 					update_modified=False,
 				)
 			except Exception:
 				frappe.log_error(
-					title=f"Failed to unlink BPMN instance {inst.name}",
+					title=f"Failed to unlink BPMN instance {inst_name}",
 					message=frappe.get_traceback(),
 				)
+
+		# Step 3: Everything else goes with the document — instances whose
+		# diagram has no delete catch event, plus any that were already
+		# Completed/Errored/Cancelled before the document was trashed.
+		doomed = [i.name for i in instances if i.name not in handled]
+		if not doomed:
+			return
+
+		# BPMN Activity Log points at the instance with a Link field, so the
+		# rows have to go first or Frappe's link check blocks the delete.
+		# BPMN Active Task is a child table and goes with the parent.
+		frappe.db.delete("BPMN Activity Log", {"instance": ["in", doomed]})
+
+		for inst_name in doomed:
+			# ignore_permissions: this is a system cascade behind the trash of a
+			# document the user was already allowed to delete. Failing the
+			# cascade on a BPMN Process Instance permission would leave exactly
+			# the orphan this hook exists to prevent.
+			try:
+				frappe.delete_doc(
+					"BPMN Process Instance", inst_name, ignore_permissions=True
+				)
+			except Exception:
+				try:
+					frappe.delete_doc(
+						"BPMN Process Instance", inst_name,
+						ignore_permissions=True, force=True,
+					)
+				except Exception:
+					frappe.log_error(
+						title=f"Failed to delete BPMN instance {inst_name} linked to deleted {doc.doctype} {doc.name}",
+						message=frappe.get_traceback(),
+					)
 	finally:
 		frappe.flags.bpmn_engine_action = previous_flag
 

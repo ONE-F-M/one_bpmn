@@ -33,8 +33,8 @@ class TestStarterAssertion(FrappeTestCase):
     # ── fixtures ────────────────────────────────────────────────────────────
     def _make_credentials(self):
         doc = frappe.get_doc({
-            "doctype": "AI Provider Credentials",
-            "provider_name": f"_Test Judge Creds {frappe.generate_hash(length=6)}",
+            "doctype": "AI Provider",
+            "provider": f"_Test Judge Creds {frappe.generate_hash(length=6)}",
             "provider_type": "Anthropic",
             "api_key": "sk-test-not-a-real-key",
             "enabled": 1,
@@ -45,8 +45,9 @@ class TestStarterAssertion(FrappeTestCase):
     def _make_model(self):
         doc = frappe.get_doc({
             "doctype": "AI Model",
+            "enable_model": 1,
             "model_name": f"_test-judge-{frappe.generate_hash(length=6)}",
-            "ai_provider_credentials": self.credentials,
+            "provider": self.credentials,
         })
         doc.flags.ignore_mandatory = True
         doc.flags.ignore_links = True
@@ -54,7 +55,7 @@ class TestStarterAssertion(FrappeTestCase):
 
     def _suite_for(self, **agent_kwargs):
         agent = make_agent_configuration(
-            ai_provider_credentials=self.credentials, **agent_kwargs
+            ai_provider=self.credentials, **agent_kwargs
         )
         return make_eval_suite(agent_configuration=agent.name).name
 

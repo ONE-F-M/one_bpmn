@@ -11,6 +11,8 @@
   "status",
   "tool_args",
   "tool_result",
+  "tool_artifact",
+  "artifact_file",
   "outcome"
  ],
  "fields": [
@@ -30,11 +32,12 @@
   },
   {
    "default": "Success",
+   "description": "Denied means the tool policy refused the call before it ran — the tool never executed.",
    "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Success\nError"
+   "options": "Success\nError\nDenied"
   },
   {
    "fieldname": "tool_args",
@@ -45,6 +48,21 @@
    "fieldname": "tool_result",
    "fieldtype": "Long Text",
    "label": "Result"
+  },
+  {
+   "description": "What the tool produced in full \u2014 the script, schema or IR behind a short result. Empty when the artifact was too large to inline, in which case artifact_file holds it.",
+   "fieldname": "tool_artifact",
+   "fieldtype": "Long Text",
+   "label": "Tool Artifact",
+   "read_only": 1
+  },
+  {
+   "description": "Where an oversized artifact or argument blob was written instead of being inlined.",
+   "fieldname": "artifact_file",
+   "fieldtype": "Link",
+   "label": "Artifact File",
+   "options": "File",
+   "read_only": 1
   },
   {
    "description": "What the activated diagram task actually produced once it ran (recorded after completion). tool_result stays the transcript of what the model was told at call time.",

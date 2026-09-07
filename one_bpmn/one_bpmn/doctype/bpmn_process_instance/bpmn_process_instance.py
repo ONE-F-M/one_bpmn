@@ -5,6 +5,8 @@ import json
 import uuid
 
 import frappe
+
+from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime
@@ -13,6 +15,7 @@ from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
 from SpiffWorkflow.util.task import TaskState
 
 from one_bpmn.one_bpmn import engine as bpmn_engine
+from one_bpmn.one_bpmn.engine import json_safe_doc_fields as _json_safe_doc_fields
 from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import dispatch_ai_agent
 
 from .dispatchers import (
@@ -25,6 +28,7 @@ from .dispatchers import (
 )
 from .assignment import (
 	add_frappe_assignment,
+	notify_task_assignee,
 	remove_frappe_assignment,
 	resolve_assignment,
 	split_users,
@@ -98,14 +102,7 @@ class BPMNProcessInstance(Document):
 		if self.context_doctype and self.context_docname:
 			try:
 				_ctx = frappe.get_doc(self.context_doctype, self.context_docname)
-				for _field in _ctx.meta.fields:
-					_val = _ctx.get(_field.fieldname)
-					# Only inject JSON-safe scalar values — skip child tables,
-					# attachments, and any non-primitive types.
-					if isinstance(_val, (str, int, float, bool)) or _val is None:
-						data[_field.fieldname] = _val
-				# Always include docstatus explicitly (it's not in meta.fields)
-				data["docstatus"] = _ctx.docstatus
+				data.update(_json_safe_doc_fields(_ctx))
 			except Exception:
 				# If the doc can't be loaded for any reason, carry on.
 				# The condition will simply fail and users will see the instance
@@ -135,6 +132,7 @@ class BPMNProcessInstance(Document):
 			context_docname=self.context_docname,
 			script_task_extensions=self._script_task_extensions,
 			initiated_by=self.initiated_by or frappe.session.user,
+			instance=self,
 		)
 
 		frappe.flags.bpmn_engine_action = True
@@ -151,6 +149,7 @@ class BPMNProcessInstance(Document):
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
 		self.serialized_spec = model.serialized_spec  # snapshot of spec at start time
+		self._sync_call_activity_rows(wf)
 		self.status = "Active"
 		self.started_at = now_datetime()
 		self.initiated_by = frappe.session.user
@@ -176,6 +175,28 @@ class BPMNProcessInstance(Document):
 		self.db_update()
 		self.update_children()
 		self.run_method("on_update")
+
+	def _refresh_task_data_from_context(self, task) -> None:
+		"""Copy the context document's current field values into ``task.data``.
+
+		SpiffWorkflow hands a task's data down to its children, so writing here
+		is what makes a downstream gateway test the document as it is now rather
+		than as it was when the instance started.
+
+		Same field selection as the initial snapshot in ``start()`` — both go
+		through ``_json_safe_doc_fields`` so the two cannot drift. Never raises:
+		a failed refresh must not strand a task that has otherwise completed.
+		"""
+		if not (self.context_doctype and self.context_docname):
+			return
+		try:
+			ctx = frappe.get_doc(self.context_doctype, self.context_docname)
+			task.data.update(_json_safe_doc_fields(ctx))
+		except Exception:
+			frappe.log_error(
+				title="BPMN: failed to refresh doc fields into task data",
+				message=frappe.get_traceback(),
+			)
 
 	def advance(self, task_id: str, data: dict = None) -> list:
 		"""
@@ -207,6 +228,8 @@ class BPMNProcessInstance(Document):
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
 		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
+		# Also refresh on the instance itself — not just fed to the script engine.
+		self._script_task_extensions = _script_exts
 		self._refresh_user_task_extensions_from_model()
 
 		wf = bpmn_engine.restore_workflow(
@@ -215,6 +238,7 @@ class BPMNProcessInstance(Document):
 			context_docname=self.context_docname,
 			script_task_extensions=_script_exts,
 			initiated_by=self.initiated_by or "Administrator",
+			instance=self,
 		)
 
 		# Always refresh the context doc so conditional events see latest data
@@ -235,16 +259,29 @@ class BPMNProcessInstance(Document):
 				)
 			)
 
-		# Push refreshed doc fields into the completing task's data.
-		# SpiffWorkflow copies task.data into child tasks on completion,
-		# so downstream gateways will see the latest doc values.
-		# We do this BEFORE user data injection so user-submitted values
-		# take precedence over doc field values.
+		# Seed the completing task's data, then put the context document's CURRENT
+		# values on top, so a gateway downstream tests the document as it is now.
+		#
+		# The root ``wf.task_tree.data`` goes in first because it carries keys that
+		# are not document fields (``context_doctype``, ``process_model`` and the
+		# like). What it must NOT be trusted for is the document itself: it is the
+		# snapshot taken when the instance started and is never updated. Copying it
+		# alone — which is what this did — re-stamped start-time values over
+		# anything newer on every pass, so a Service Task that had moved the
+		# document on changed the DOCUMENT and never this copy. The next gateway
+		# then compared against the stale value and took the wrong branch, or, where
+		# it had no default flow, halted the process with "No conditions satisfied".
+		#
+		# Reproduced on a freshly created Visa Request: the document read
+		# "Pending by GRD Operator" while the workflow data still held "Draft" from
+		# creation, and ``Gateway_1ylwknv`` — whose only exit tests exactly that
+		# state — could never be satisfied.
 		if self.context_doctype and self.context_docname:
 			task.data.update({
 				k: v for k, v in wf.task_tree.data.items()
 				if k not in ("doc",)  # skip non-serializable keys
 			})
+			self._refresh_task_data_from_context(task)
 
 		# Inject user data into task (highest priority — overrides doc fields)
 		if data:
@@ -291,6 +328,7 @@ class BPMNProcessInstance(Document):
 		# Strip non-serializable Frappe doc objects before persisting state
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
+		self._sync_call_activity_rows(wf)
 
 		# Rebuild active tasks
 		self._sync_active_tasks(wf, prev_assigned=prev_assigned)
@@ -386,19 +424,25 @@ class BPMNProcessInstance(Document):
 		Record the failure (halt + deep log) then raise a sanitized, Reference-ID
 		error for the caller. Never returns. Call from inside an ``except`` block.
 		"""
-		# A rate limit or a conversation freeze is a DECISION the platform made,
-		# not a fault in the process. Two things go wrong if it is treated as one:
-		# the instance is marked Errored, so the conversation stays broken even
-		# after a reviewer releases the lock; and an explainable refusal is
-		# replaced by "quote this reference id", which the user can do nothing
-		# with. Let it through untouched — the chat surface knows how to say it.
+		# A refusal by a security control — a rate limit, a conversation freeze, a
+		# blocked injection attempt — is a DECISION the platform made, not a fault
+		# in the process. Two things go wrong if it is treated as one: the instance
+		# is marked Errored, so the conversation stays broken even after a reviewer
+		# releases the lock; and an explainable refusal is replaced by "quote this
+		# reference id", which the user can do nothing with. Let it through
+		# untouched — the chat surface knows how to say it.
+		#
+		# Matched on the AgentRefusal CATEGORY, not on each control's
+		# own class. Naming them one by one put the security module's class list
+		# inside the engine, and guaranteed the next control would forget to
+		# register itself and silently start halting instances again.
 		import sys
 
 		in_flight = sys.exc_info()[1]
 		if in_flight is not None:
-			from one_bpmn.security.rate_limit import RateLimited
+			from one_bpmn.security.refusal import AgentRefusal
 
-			if isinstance(in_flight, RateLimited):
+			if isinstance(in_flight, AgentRefusal):
 				raise in_flight
 
 		ref_id = self._record_runtime_failure(phase)
@@ -440,8 +484,18 @@ class BPMNProcessInstance(Document):
 		Returns:
 		    list of dicts describing the next active tasks
 
+		Also sets ``self.flags.bpmn_message_caught`` — True when a waiting task
+		actually took the message, False when nothing was listening. Callers that
+		need to know the difference must read the flag: an uncaught message is
+		NOT an error here (see below), so the return value looks identical either
+		way.
+
 		Raises:
-		    frappe.ValidationError: if instance is not Active or message not caught
+		    frappe.ValidationError: if the instance is already Completed or
+		        Cancelled, or the message name is missing. Note that a message
+		        nothing is waiting for does NOT raise — it is logged and
+		        ignored, because a document event firing while an instance sits
+		        elsewhere is normal.
 		"""
 		if self.status in ("Completed", "Cancelled"):
 			frappe.throw(
@@ -461,6 +515,8 @@ class BPMNProcessInstance(Document):
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
 		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
+		# Also refresh on the instance itself — not just fed to the script engine.
+		self._script_task_extensions = _script_exts
 		self._refresh_user_task_extensions_from_model()
 
 		wf = bpmn_engine.restore_workflow(
@@ -469,6 +525,7 @@ class BPMNProcessInstance(Document):
 			context_docname=self.context_docname,
 			script_task_extensions=_script_exts,
 			initiated_by=self.initiated_by or "Administrator",
+			instance=self,
 		)
 
 		# Refresh context doc so downstream conditions see latest data
@@ -483,6 +540,9 @@ class BPMNProcessInstance(Document):
 
 		# ── Deliver the message ──────────────────────────────────────────────
 		caught = bpmn_engine.send_message(wf, message_name, payload=payload)
+		# Whether anything took it. Uncaught is benign and does not raise, so a
+		# caller cannot tell from the return value alone.
+		self.flags.bpmn_message_caught = bool(caught)
 
 		if not caught:
 			# No task is waiting for this message (e.g. a document event fired
@@ -514,6 +574,7 @@ class BPMNProcessInstance(Document):
 		# ── Persist (same as advance) ────────────────────────────────────────
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
+		self._sync_call_activity_rows(wf)
 
 		self._sync_active_tasks(wf, prev_assigned=prev_assigned)
 		self._check_completion(wf)
@@ -539,6 +600,11 @@ class BPMNProcessInstance(Document):
 		    whose AI Task Selector decision was parked: re-run the engine with
 		    the resume target set so the decider executes exactly ONE LLM
 		    decision inline; the next decision parks again (one job per turn).
+		kind == "agent_sandbox_result" — task_id is the SpiffWorkflow UUID
+		    of a parked Service Task waiting on the external Cloud Run sandbox
+		    (agent_sandbox_ops.run_tests / open_pull_request): apply the Agent
+		    Sandbox Run's outcome and complete it. A still-running sandbox
+		    leaves it parked.
 
 		Downstream non-AI tasks reached after the AI completes run in this
 		worker pass — there is no open request to return them to. Further AI
@@ -554,6 +620,8 @@ class BPMNProcessInstance(Document):
 		_script_exts = _spec_snap.get("script_task_extensions", {})
 		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
 		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
+		# Also refresh on the instance itself — not just fed to the script engine.
+		self._script_task_extensions = _script_exts
 		self._refresh_user_task_extensions_from_model()
 
 		wf = bpmn_engine.restore_workflow(
@@ -562,6 +630,7 @@ class BPMNProcessInstance(Document):
 			context_docname=self.context_docname,
 			script_task_extensions=_script_exts,
 			initiated_by=self.initiated_by or "Administrator",
+			instance=self,
 		)
 
 		if self.context_doctype and self.context_docname:
@@ -575,7 +644,44 @@ class BPMNProcessInstance(Document):
 
 		frappe.flags.bpmn_engine_action = True
 		try:
-			if kind in ("service_task", "human_resume"):
+			if kind == "a2a_result":
+				# WI-001933: a delegated task reached a terminal state. Apply
+				# the remote's answer to the parked Service Task and carry on;
+				# a still-running delegation leaves the task parked.
+				try:
+					task = wf.get_task_from_id(uuid.UUID(task_id))
+				except Exception:
+					task = None
+				if task is None or task.state != TaskState.STARTED:
+					return  # already resolved elsewhere — idempotent no-op
+				marker = self._task_waiting_a2a(task)
+				if not marker:
+					return
+				if not self._apply_a2a_result(task, marker):
+					return  # not terminal yet — stay parked
+				self.waiting_for_ai = 0
+				self._on_engine_task_complete(task)
+				task.complete()
+			elif kind == "agent_sandbox_result":
+				# A dispatch to the external Cloud Run sandbox reached a
+				# terminal state. Same shape as a2a_result: apply the run's
+				# outcome to the parked Service Task and carry on; a still-
+				# running sandbox leaves the task parked.
+				try:
+					task = wf.get_task_from_id(uuid.UUID(task_id))
+				except Exception:
+					task = None
+				if task is None or task.state != TaskState.STARTED:
+					return  # already resolved elsewhere — idempotent no-op
+				marker = self._task_waiting_agent_sandbox(task)
+				if not marker:
+					return
+				if not self._apply_agent_sandbox_result(task, marker):
+					return  # not terminal yet — stay parked
+				self.waiting_for_ai = 0
+				self._on_engine_task_complete(task)
+				task.complete()
+			elif kind in ("service_task", "human_resume"):
 				try:
 					task = wf.get_task_from_id(uuid.UUID(task_id))
 				except Exception:
@@ -627,6 +733,7 @@ class BPMNProcessInstance(Document):
 		# ── Persist (same as advance) ────────────────────────────────────────
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
+		self._sync_call_activity_rows(wf)
 
 		self._sync_active_tasks(wf, prev_assigned=prev_assigned)
 		self._check_completion(wf)
@@ -823,6 +930,45 @@ class BPMNProcessInstance(Document):
 	# their ids carry this prefix so completion routes to the resume path.
 	AI_HUMAN_PREFIX = "aihuman::"
 
+	# WI-001933: a Service Task that delegated to a remote A2A agent and is
+	# waiting for the answer. Deliberately NOT the AI human marker: that one
+	# means "a person must act" and is bound to AI Agent Run checkpoints,
+	# while this task is waiting on a machine somewhere else. Rows spawned
+	# when the REMOTE asks a question carry the a2ahuman:: prefix.
+	A2A_WAITING_KEY = "_bpmn_a2a_waiting"
+	A2A_HUMAN_PREFIX = "a2ahuman::"
+
+	# The Dev Agent sandbox connector's own waiting marker — a Service Task
+	# that dispatched development work to the external Cloud Run sandbox and
+	# is waiting for its signed callback. Deliberately distinct from
+	# A2A_WAITING_KEY: this is not a delegation to another agent, it is a
+	# call to a bespoke external service with no A2A protocol involved.
+	AGENT_SANDBOX_WAITING_KEY = "_bpmn_agent_sandbox_waiting"
+
+	@staticmethod
+	def _task_waiting_a2a(task) -> dict | None:
+		"""The waiting-for-delegate marker delegate_task left on task.data,
+		or None. A marked task must not be re-dispatched or completed — it
+		leaves this state only through the a2a_result resume path."""
+		data = getattr(task, "data", None)
+		if not isinstance(data, dict):
+			return None
+		marker = data.get(BPMNProcessInstance.A2A_WAITING_KEY)
+		return marker if isinstance(marker, dict) else None
+
+	@staticmethod
+	def _task_waiting_agent_sandbox(task) -> dict | None:
+		"""The waiting-for-sandbox marker agent_sandbox_ops's
+		_dispatch_single_action (run_tests/open_pull_request) left
+		on task.data, or None. A marked task must not be re-dispatched or
+		completed — it leaves this state only through the
+		agent_sandbox_result resume path."""
+		data = getattr(task, "data", None)
+		if not isinstance(data, dict):
+			return None
+		marker = data.get(BPMNProcessInstance.AGENT_SANDBOX_WAITING_KEY)
+		return marker if isinstance(marker, dict) else None
+
 	@staticmethod
 	def _task_waiting_human(task) -> dict | None:
 		"""The waiting-for-human marker a suspended ai_agent dispatch left on
@@ -901,7 +1047,7 @@ class BPMNProcessInstance(Document):
 				# AI-only jobs — the rest of the pass already ran inline
 				# (WI-001494/WI-001495).
 				queue="bpmn_ai_agent",
-				timeout=600,
+				timeout=AI_AGENT_JOB_TIMEOUT,
 				enqueue_after_commit=True,
 				job_id=f"bpmn-ai-{self.name}-{ident}",
 				deduplicate=True,
@@ -923,6 +1069,21 @@ class BPMNProcessInstance(Document):
 		run_name = marker.get("run") or ""
 		arguments = marker.get("arguments") or {}
 
+		# WI-001933: the pause may be on another AGENT rather than a person.
+		# Nothing to assign and nobody to notify — the delegated task is the
+		# thing being waited on, so bind it to the run and let the reconciler
+		# wake this one when it answers.
+		if marker.get("waits_on") == "a2a":
+			self._bind_a2a_wait(task, marker)
+			return
+
+		# Mirrors the "waits_on" == "a2a" case exactly, for a connector that
+		# parks the caller instead of delegating to another local agent —
+		# agent_sandbox_ops.run_tests/open_pull_request, called as ai_agent tools.
+		if marker.get("waits_on") == "agent_sandbox":
+			self._bind_agent_sandbox_wait(task, marker)
+			return
+
 		# The human shape's designer config (assignment mode, actions, label)
 		# comes from the same user_task_extensions every real User Task uses.
 		if not hasattr(self, "_user_task_extensions"):
@@ -930,7 +1091,17 @@ class BPMNProcessInstance(Document):
 			self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
 		self._refresh_user_task_extensions_from_model()
 		shape_cfg = getattr(self, "_user_task_extensions", {}).get(shape_id, {}) or {}
-		label = marker.get("label") or shape_cfg.get("label") or shape_id
+		# The shape's DRAWN NAME, not its id. Falling straight through to the id
+		# put "ask_story_owner" in front of a person — in the Actions menu on their
+		# work item, and as the task's name everywhere it is listed. The label is
+		# already extracted for every human tool at compile time, so it only had to
+		# be looked up.
+		label = (
+			marker.get("label")
+			or shape_cfg.get("label")
+			or self._human_tool_label(task, shape_id)
+			or shape_id
+		)
 
 		row_id = f"{self.AI_HUMAN_PREFIX}{frappe.generate_hash(length=10)}"
 
@@ -974,6 +1145,9 @@ class BPMNProcessInstance(Document):
 					title=f"AI HITL: assignment creation failed ({shape_id})",
 					message=frappe.get_traceback(),
 				)
+			# This path builds its own row rather than going through
+			# _sync_active_tasks, so it asks for the notification itself.
+			notify_task_assignee(self, u, label, shape_cfg)
 
 		self._log_task(
 			task_id=row_id,
@@ -1007,6 +1181,47 @@ class BPMNProcessInstance(Document):
 					message=frappe.get_traceback(),
 				)
 		self.waiting_for_human = label
+
+		# WI-002050: write the question down. The suspension alone leaves it only
+		# in the run's transcript, so "what was it unsure about, and what did we
+		# tell it" has no answer once the conversation is gone.
+		from one_bpmn.agents import clarification
+
+		# Which agent asked, read off the AI task that suspended — the same place
+		# the guardrails read it from, so the name on the record is the name the
+		# limits are enforced against.
+		_ai_bpmn_id = getattr(task.task_spec, "bpmn_id", None) or task.task_spec.name
+		_ai_cfg = (getattr(self, "_service_task_extensions", {}) or {}).get(_ai_bpmn_id) or {}
+
+		clarification.record_question(
+			instance=self,
+			human_task_id=row_id,
+			agent_configuration=_ai_cfg.get("aiAgentConfig"),
+			agent_run=run_name,
+			arguments=arguments,
+			label=label,
+			assigned_user=assigned_user,
+		)
+
+	def _human_tool_label(self, task, shape_id: str) -> str:
+		"""The name drawn on a human tool shape, off the AI task that offered it.
+
+		compile_process_model already records it — every human descriptor in
+		aiToolShapes carries the shape's ``name`` as ``label`` — so this reads what
+		is there rather than parsing the diagram again.
+		"""
+		try:
+			bpmn_id = getattr(task.task_spec, "bpmn_id", None) or task.task_spec.name
+			cfg = (getattr(self, "_service_task_extensions", {}) or {}).get(bpmn_id) or {}
+			shapes = cfg.get("aiToolShapes") or "[]"
+			if isinstance(shapes, str):
+				shapes = json.loads(shapes)
+			for shape in shapes:
+				if isinstance(shape, dict) and shape.get("bpmn_id") == shape_id:
+					return (shape.get("label") or "").strip()
+		except Exception:
+			pass
+		return ""
 
 	def complete_ai_human_task(self, task_id: str, data: dict = None) -> None:
 		"""Complete a pending AI human task and hand its output to the
@@ -1062,6 +1277,14 @@ class BPMNProcessInstance(Document):
 		for user in prev_assigned - still_assigned:
 			remove_frappe_assignment(self, user, status="Closed")
 
+		# WI-002050: close the record before the agent gets the answer, so the
+		# pair is on the document whatever the agent then decides to do with it —
+		# including deciding it still does not resolve the ambiguity and asking
+		# again.
+		from one_bpmn.agents import clarification
+
+		clarification.record_answer(instance=self, human_task_id=task_id, data=data)
+
 		# The human's output becomes the pending tool call's result.
 		_checkpoint.store_human_result(run_name, data)
 
@@ -1079,7 +1302,7 @@ class BPMNProcessInstance(Document):
 			"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 			".bpmn_process_instance.run_parked_ai_task",
 			queue="bpmn_ai_agent",
-			timeout=600,
+			timeout=AI_AGENT_JOB_TIMEOUT,
 			enqueue_after_commit=True,
 			job_id=f"bpmn-ai-{self.name}-hr-{task_id}",
 			deduplicate=True,
@@ -1088,6 +1311,370 @@ class BPMNProcessInstance(Document):
 			task_id=payload.get("wf_task_id") or "",
 			run_as_user=frappe.session.user,
 		)
+
+	def _bind_a2a_wait(self, task, marker: dict) -> None:
+		"""Bind a suspended agent to the delegation it is waiting on.
+
+		The agent's run holds the checkpoint; the A2A Task row is what will go
+		terminal. Linking them (``agent_run`` on the row, ``wf_task_id`` so the
+		resume knows which step to wake) is what lets the local reconciler
+		finish the job — without it the answer arrives with nobody waiting,
+		which is exactly the bug this closes.
+		"""
+		a2a_task = marker.get("a2a_task")
+		run_name = marker.get("run") or ""
+		if not a2a_task:
+			return
+		try:
+			frappe.db.set_value(
+				"A2A Task",
+				a2a_task,
+				{
+					# caller_agent_run, NOT agent_run: that one is the run DOING
+					# the work and is what derives this task's state, so writing
+					# the waiting caller there made a finished delegation report
+					# the CALLER's suspension back as "input-required" and it
+					# never looked terminal. Same trap as instance vs
+					# caller_instance, one field along.
+					"caller_agent_run": run_name or None,
+					"caller_instance": self.name,
+					# Deliberately NOT caller_wf_task_id: that field means "a
+					# parked Service Task with this SpiffWorkflow id", and the
+					# reconciler resumes it directly. Here the waiting thing is
+					# an agent mid-turn, which resumes through its checkpoint.
+					"wf_task_id": str(getattr(task, "id", "") or ""),
+					"resume_enqueued": 0,
+				},
+				update_modified=False,
+			)
+		except Exception:
+			frappe.log_error(
+				title=f"A2A: could not bind the delegation to its waiting agent ({a2a_task})",
+				message=frappe.get_traceback(),
+			)
+		# Deliberately NOT waiting_for_human: nobody is being asked for anything.
+		# That field drives the "AI agent waiting for a human task" banner, and
+		# setting it here had a delegation to another AGENT telling the viewer a
+		# person was holding it up — sending someone to look for a task that
+		# does not exist. A banner of its own needs a field of its own; until
+		# then, saying nothing beats saying something false.
+		self._log_task(
+			# Its own prefix: a2ahuman:: means "a person must answer a remote's
+			# question" and is an active-task row; this is only an audit entry
+			# for an agent waiting on another agent.
+			task_id=f"a2await::{a2a_task}",
+			task_name=marker.get("label") or marker.get("tool") or "",
+			action="Started",
+			data={
+				"source": "ai_agent_a2a_tool",
+				"agent_bpmn_id": getattr(task.task_spec, "bpmn_id", None) or task.task_spec.name,
+				"a2a_task": a2a_task,
+				"arguments": marker.get("arguments") or {},
+			},
+		)
+
+	def _bind_agent_sandbox_wait(self, task, marker: dict) -> None:
+		"""Bind a suspended agent to the Agent Sandbox Run it is waiting on.
+
+		Mirrors _bind_a2a_wait exactly, for the same reason: this AI Agent
+		Run holds the checkpoint; the Agent Sandbox Run row is what will
+		go terminal. agent_callback.py's _enqueue_resume() checks
+		caller_agent_run to know to wake this suspended run (via the
+		checkpoint/human_resume path) instead of resuming a plain parked
+		Service Task (the kind="agent_sandbox_result" path
+		_apply_agent_sandbox_result already handles).
+
+		caller_wf_task_id is reused here for a second purpose (this
+		suspended task's own id, a fallback if the checkpoint payload lacks
+		one) rather than a separate field, since the two purposes are
+		mutually exclusive: _enqueue_resume branches on caller_agent_run
+		BEFORE ever reading caller_wf_task_id, so there is no ambiguity
+		about which meaning applies.
+		"""
+		run_name = marker.get("agent_sandbox_run")
+		agent_run_name = marker.get("run") or ""
+		if not run_name:
+			return
+		try:
+			frappe.db.set_value(
+				"Agent Sandbox Run",
+				run_name,
+				{
+					"caller_agent_run": agent_run_name or None,
+					"caller_instance": self.name,
+					"caller_wf_task_id": str(getattr(task, "id", "") or ""),
+				},
+				update_modified=False,
+			)
+		except Exception:
+			frappe.log_error(
+				title=f"Dev Agent Sandbox: could not bind the run to its waiting agent ({run_name})",
+				message=frappe.get_traceback(),
+			)
+		self._log_task(
+			task_id=f"devagentwait::{run_name}",
+			task_name=marker.get("label") or marker.get("tool") or "",
+			action="Started",
+			data={
+				"source": "ai_agent_agent_sandbox_tool",
+				"agent_bpmn_id": getattr(task.task_spec, "bpmn_id", None) or task.task_spec.name,
+				"agent_sandbox_run": run_name,
+				"arguments": marker.get("arguments") or {},
+			},
+		)
+
+	# ── WI-001933: delegated-task results and remote questions ───────────────
+
+	def _apply_a2a_result(self, task, marker: dict) -> bool:
+		"""Apply a delegated task's outcome to its parked Service Task.
+
+		Returns True when the task may now complete, False while the
+		delegation is still running (it stays parked). A terminal failure
+		with failOnError raises, so it lands on the existing bounded-retry →
+		Errored path rather than a new failure mechanism.
+		"""
+		from one_bpmn.one_bpmn.connectors.a2a_client_ops import A2A_WAITING_KEY
+		from one_bpmn.one_bpmn.integrations.a2a_client import A2ARemoteError
+
+		a2a_task_name = marker.get("a2a_task")
+		row = (
+			frappe.db.get_value(
+				"A2A Task",
+				a2a_task_name,
+				["state", "result", "error_message", "bpmn_id"],
+				as_dict=True,
+			)
+			if a2a_task_name
+			else None
+		)
+		if not row:
+			return False
+
+		terminal = {"completed", "failed", "canceled", "rejected", "timed-out"}
+		if row.state not in terminal:
+			return False
+
+		bpmn_id = getattr(task.task_spec, "bpmn_id", None) or task.task_spec.name
+		task_cfg = getattr(self, "_service_task_extensions", {}).get(bpmn_id) or {}
+		result_var = task_cfg.get("resultVariable")
+		fail_on_error = str(task_cfg.get("failOnError") or "").lower() in ("1", "true", "yes")
+
+		task.data.pop(A2A_WAITING_KEY, None)
+
+		if row.state == "completed":
+			payload = frappe.parse_json(row.result or "{}") or {}
+			if result_var:
+				task.data[result_var] = payload
+			return True
+
+		if fail_on_error:
+			raise A2ARemoteError(
+				row.state, row.error_message or f"delegated task {row.state}"
+			)
+		if result_var:
+			task.data[result_var] = {
+				"a2a_state": row.state,
+				"a2a_error": row.error_message or "",
+			}
+		return True
+
+	def _apply_agent_sandbox_result(self, task, marker: dict) -> bool:
+		"""Apply a Agent Sandbox Run's outcome to its parked Service Task.
+
+		Returns True when the task may now complete, False while the sandbox
+		run is still going (it stays parked). Mirrors _apply_a2a_result's
+		shape exactly — the row IS the record; nothing here trusts task.data
+		beyond the run name to look it up."""
+		from one_bpmn.one_bpmn.connectors.agent_sandbox_ops import (
+			AGENT_SANDBOX_WAITING_KEY,
+		)
+
+		run_name = marker.get("run")
+		row = (
+			frappe.db.get_value(
+				"Agent Sandbox Run",
+				run_name,
+				["state", "pr_url", "error_message", "bpmn_id"],
+				as_dict=True,
+			)
+			if run_name
+			else None
+		)
+		if not row:
+			return False
+
+		if row.state not in ("completed", "failed"):
+			return False  # still running — stay parked
+
+		bpmn_id = getattr(task.task_spec, "bpmn_id", None) or task.task_spec.name
+		task_cfg = getattr(self, "_service_task_extensions", {}).get(bpmn_id) or {}
+		result_var = task_cfg.get("resultVariable")
+		fail_on_error = str(task_cfg.get("failOnError") or "").lower() in ("1", "true", "yes")
+
+		task.data.pop(AGENT_SANDBOX_WAITING_KEY, None)
+
+		if row.state == "completed":
+			if result_var:
+				task.data[result_var] = {"pr_url": row.pr_url or ""}
+			return True
+
+		if fail_on_error:
+			raise frappe.ValidationError(row.error_message or "dev agent sandbox run failed")
+		if result_var:
+			task.data[result_var] = {
+				"dev_agent_state": row.state,
+				"dev_agent_error": row.error_message or "",
+			}
+		return True
+
+	def _on_a2a_input_required(self, a2a_task_name: str, prompt: str) -> None:
+		"""The REMOTE agent asked a question. Spawn a human task to answer it.
+
+		A simpler sibling of _on_ai_agent_suspended on purpose: that one is
+		bound to a shape's user_task_extensions and an AI Agent Run
+		checkpoint, while this pause lives entirely on the A2A Task row.
+		"""
+		row_data = frappe.db.get_value(
+			"A2A Task",
+			a2a_task_name,
+			["input_assignee", "input_role", "remote_agent", "instance"],
+			as_dict=True,
+		)
+		if not row_data:
+			return
+		label = f"Answer {row_data.remote_agent}: {(prompt or '').strip()[:80]}"
+		row_id = f"{self.A2A_HUMAN_PREFIX}{frappe.generate_hash(length=10)}"
+		assigned_user = row_data.input_assignee or self.initiated_by or ""
+
+		self.append(
+			"active_tasks",
+			{
+				"task_id": row_id,
+				"task_name": label,
+				"task_type": "A2A Human Task",
+				"status": "Waiting",
+				"started_at": now_datetime(),
+				"assigned_user": assigned_user,
+				"assigned_role": row_data.input_role or "",
+				"target_doctype": self.context_doctype,
+				"target_docname": self.context_docname,
+			},
+		)
+		for user in split_users(assigned_user):
+			try:
+				add_frappe_assignment(self, user, label, a2a_task_name, task_id=row_id)
+			except Exception:
+				frappe.log_error(
+					title=f"A2A HITL: assignment creation failed ({a2a_task_name})",
+					message=frappe.get_traceback(),
+				)
+		self._log_task(
+			task_id=row_id,
+			task_name=label,
+			action="Started",
+			data={"source": "a2a_input_required", "a2a_task": a2a_task_name},
+		)
+		frappe.db.set_value(
+			"A2A Task", a2a_task_name, "pending_human_task", row_id, update_modified=False
+		)
+		self.waiting_for_human = label
+		self.modified = frappe.utils.now()
+		self.db_update()
+		self.update_children()
+
+	def complete_a2a_human_task(self, task_id: str, data: dict = None) -> None:
+		"""Send a person's answer back to the remote agent that asked.
+
+		Mirror of complete_ai_human_task: the caller (instance_api.
+		complete_task) has already validated assignment and permissions.
+		"""
+		from one_bpmn.one_bpmn.integrations import a2a_client
+
+		data = data or {}
+		row = next((r for r in self.active_tasks if r.task_id == task_id), None)
+		if row is None or row.status != "Waiting":
+			frappe.throw(_("Task '{0}' is not waiting for completion.").format(task_id))
+
+		a2a_task_name = frappe.db.get_value(
+			"A2A Task", {"pending_human_task": task_id, "state": "input-required"}, "name"
+		)
+		if not a2a_task_name:
+			frappe.throw(_("No delegated task is waiting on '{0}'.").format(task_id))
+		a2a_task = frappe.get_doc("A2A Task", a2a_task_name)
+
+		answer = data.get("response") or data.get("answer") or ""
+		_completed_at = now_datetime()
+		prev_assigned = {
+			u
+			for r in self.active_tasks
+			if r.status == "Waiting" and r.assigned_user
+			for u in split_users(r.assigned_user)
+		}
+		row.status = "Completed"
+		row.end_time = _completed_at
+		if row.started_at:
+			row.timer_duration = int(
+				frappe.utils.time_diff_in_seconds(_completed_at, row.started_at)
+			)
+		self._log_task(task_id=task_id, task_name=row.task_name, action="Completed", data=data)
+
+		still_assigned = {
+			u
+			for r in self.active_tasks
+			if r.status == "Waiting" and r.assigned_user
+			for u in split_users(r.assigned_user)
+		}
+		for user in prev_assigned - still_assigned:
+			remove_frappe_assignment(self, user, status="Closed")
+
+		self.waiting_for_human = ""
+		self.modified = frappe.utils.now()
+		self.modified_by = frappe.session.user
+		self.db_update()
+		self.update_children()
+
+		try:
+			result = a2a_client.message_send(
+				a2a_task.remote_agent,
+				answer,
+				task_id=a2a_task.remote_task_id,
+				context_id=a2a_task.context_id,
+			)
+		except Exception as exc:  # noqa: BLE001 — a dead remote fails the task
+			a2a_task.db_set(
+				{"state": "failed", "error_message": str(exc)[:500], "pending_human_task": ""},
+				update_modified=True,
+			)
+			_enqueue_a2a_resume(self.name, a2a_task.wf_task_id, a2a_task.name)
+			return
+
+		state = a2a_client.remote_state(result) or "working"
+		updates = {"pending_human_task": "", "state": state}
+		if state == "completed":
+			text = a2a_client.remote_text(result)
+			updates.update(
+				{
+					"result": frappe.as_json({"text": text}),
+					"status_message": text[:500],
+					"completed_at": now_datetime(),
+				}
+			)
+		a2a_task.db_set(updates, update_modified=True)
+
+		if state in ("completed", "failed", "canceled", "rejected", "timed-out"):
+			_enqueue_a2a_resume(self.name, a2a_task.wf_task_id, a2a_task.name)
+		else:
+			# Back to waiting: reset the backoff so the next poll is prompt.
+			remote = frappe.get_doc("A2A Remote Agent", a2a_task.remote_agent)
+			a2a_task.db_set(
+				{
+					"poll_attempts": 0,
+					"next_poll_at": frappe.utils.add_to_date(
+						now_datetime(), seconds=frappe.utils.cint(remote.poll_base_interval) or 60
+					),
+				},
+				update_modified=False,
+			)
 
 	def _log_adhoc_activation(self, sp, task):
 		"""WI-001359: 'Ad-Hoc Task Activated' audit entry. The existing
@@ -1146,6 +1733,8 @@ class BPMNProcessInstance(Document):
 				if not getattr(t.task_spec, "manual", False)
 				and not isinstance(t.task_spec, SubWorkflowTask)
 				and not self._task_waiting_human(t)
+				and not self._task_waiting_a2a(t)
+				and not self._task_waiting_agent_sandbox(t)
 			]
 
 			# WI-001495: AI service tasks never dispatch inline — leave them
@@ -1171,6 +1760,19 @@ class BPMNProcessInstance(Document):
 				# STARTED. The next pass excludes it via the marker.
 				if self._task_waiting_human(task):
 					self._on_ai_agent_suspended(task)
+					continue
+				# WI-001933: the dispatch delegated to a remote agent that has
+				# not answered yet. Leave the task STARTED; the poller resumes
+				# it through kind="a2a_result".
+				if self._task_waiting_a2a(task):
+					self.waiting_for_ai = 1
+					continue
+				# The dispatch handed the work to the external Cloud Run
+				# sandbox and has not heard back yet. Leave this task STARTED;
+				# the sandbox's callback resumes it through
+				# kind="agent_sandbox_result" (agent_callback.py).
+				if self._task_waiting_agent_sandbox(task):
+					self.waiting_for_ai = 1
 					continue
 				self._on_engine_task_complete(task)
 				task.complete()
@@ -1317,7 +1919,7 @@ class BPMNProcessInstance(Document):
 			data=dict(task.data),
 		)
 
-	def _dispatch_service_task(self, task):
+	def _dispatch_service_task(self, task, task_cfg_override: dict | None = None):
 		"""
 		Execute the real-world action for a STARTED ServiceTask before
 		marking it complete.
@@ -1325,6 +1927,14 @@ class BPMNProcessInstance(Document):
 		Reads the ``service_task_extensions`` dict that was embedded into the
 		serialized spec at compile time and dispatches to the appropriate
 		handler based on ``serviceType``.
+
+		``task_cfg_override``: used only by ``shape_tools.execute_shape`` for an
+		ad-hoc "AI agent call" that has no corresponding real Service Task shape
+		in the diagram — e.g. a Script Task tool routing its own inline LLM call
+		through the tracked ``dispatch_ai_agent`` path (WI: Logix sub-prompt
+		observability) instead of hand-rolling one. Every normal engine call
+		site passes only ``task``, so ``bpmn_id`` lookup into the compiled
+		extensions dict stays the sole source of config there, unchanged.
 
 		Returns:
 		    True  — task was handled; caller should mark it complete.
@@ -1335,9 +1945,12 @@ class BPMNProcessInstance(Document):
 		    apply_workflow — Apply a Frappe Workflow state transition to the
 		                     context document, with full permission checking.
 		"""
-		extensions = getattr(self, "_service_task_extensions", {})
 		bpmn_id = getattr(task.task_spec, "bpmn_id", None) or ""
-		task_cfg = extensions.get(bpmn_id, {})
+		if task_cfg_override is not None:
+			task_cfg = task_cfg_override
+		else:
+			extensions = getattr(self, "_service_task_extensions", {})
+			task_cfg = extensions.get(bpmn_id, {})
 
 		service_type = task_cfg.get("serviceType", "")
 
@@ -1385,6 +1998,22 @@ class BPMNProcessInstance(Document):
 			except Exception:
 				raise  # bubble up so the instance can be marked Errored
 
+			# The document has just moved. Put its new values into THIS task's
+			# data so the rest of this engine pass sees them.
+			#
+			# Without this, a gateway a few steps downstream still tests the
+			# snapshot taken when the instance started, and routes on a state the
+			# document left behind. On the Visa process that was fatal rather than
+			# merely wrong: "Set Workflow State to Pending by GRD Operator" moved
+			# the request, then Gateway_1ylwknv — whose only exit tests exactly
+			# that state, with no default flow — compared against "Draft" from
+			# creation time and halted with "No conditions satisfied".
+			#
+			# Refreshing when the user task completes is not enough. The service
+			# task runs mid-pass, AFTER that refresh, so the write has to happen
+			# here, where the change is made.
+			self._refresh_task_data_from_context(task)
+
 		elif service_type == "send_email":
 			try:
 				dispatch_email(self, task, task_cfg,
@@ -1425,23 +2054,26 @@ class BPMNProcessInstance(Document):
 		elif service_type == "ai_agent":
 			dispatch_ai_agent(self, task, task_cfg, bpmn_id)
 
-		elif service_type == "langgraph_node":
-			from one_bpmn.one_bpmn import bpmn_bridge
-
-			agent_node = task_cfg.get("agentNode", "")
-			try:
-				if agent_node == "tools":
-					bpmn_bridge.run_tools(self, task)
-				else:
-					bpmn_bridge.run_node(self, task, agent_node)
-			except Exception:
-				frappe.log_error(
-					title=f"BPMN ServiceTask: langgraph_node failed for task {bpmn_id}",
-					message=frappe.get_traceback(),
-				)
-				raise  # bubble up so the instance can be marked Errored
-
 		return True  # default: complete the task
+
+	def _sync_call_activity_rows(self, wf) -> None:
+		"""Keep a visible Process Instance row for each Call Activity this run makes.
+
+		A called process executes as a subworkflow of this instance, so without
+		this it has no run of its own to open — Software Development had produced
+		1,913 runs and one single Orchestrator Agent instance. The row is a
+		projection of state this instance has just persisted, so it adds a record
+		and never a second execution.
+
+		Called after the state assignment rather than folded into it, because in
+		``start()`` the row copies ``serialized_spec`` and that is assigned on the
+		following line.
+		"""
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.call_activity_instances import (
+			sync_call_activity_instances,
+		)
+
+		sync_call_activity_instances(self, wf)
 
 	def _sync_active_tasks(self, wf, prev_assigned=None):
 		"""
@@ -1490,6 +2122,8 @@ class BPMNProcessInstance(Document):
 		# Map of user → (task_name, task_cfg) for newly created rows
 		# Used to pass notification settings to add_frappe_assignment
 		new_user_task_cfgs = {}
+		# Every (user, task) pair opened this pass — the basis for notifications.
+		newly_opened = []
 
 		for task in ready_user_tasks:
 			tid = str(task.id)
@@ -1539,6 +2173,10 @@ class BPMNProcessInstance(Document):
 			# every one of those users gets the same task_cfg for notifications.
 			for u in split_users(assigned_user):
 				new_user_task_cfgs[u] = (task_name, task_cfg)
+				# Keyed by user, the map above keeps only the LAST task when one
+				# person opens two at once. Notifications are per task, so they
+				# are collected as a list instead of overwriting.
+				newly_opened.append((u, task_name, task_cfg))
 
 			self._log_task(
 				task_id=tid,
@@ -1596,6 +2234,14 @@ class BPMNProcessInstance(Document):
 					task_id=info.get("task_id", ""),
 					task_cfg=task_name_cfg[1] if isinstance(task_name_cfg, tuple) else {},
 				)
+
+		# Notify for every task that just opened — NOT only for the users who
+		# gained a ToDo above. Someone who already held one (the common case
+		# when consecutive tasks belong to one person) is skipped by that diff
+		# by design, and while the email lived inside it they were silently
+		# skipped too.
+		for user, task_name, task_cfg in newly_opened:
+			notify_task_assignee(self, user, task_name, task_cfg)
 
 	def _check_completion(self, wf):
 		"""
@@ -1754,6 +2400,60 @@ def _job_retry_cap(instance, kind: str, task_id: str) -> int:
 		return 2
 
 
+def _enqueue_a2a_resume(instance_name: str, wf_task_id: str, a2a_task_name: str) -> None:
+	"""WI-001933: resume a parked delegation through the SAME worker path AI
+	tasks use — row lock, engine_in_progress gate, bounded retries and
+	Errored-on-exhaustion all come for free."""
+	if not (instance_name and wf_task_id):
+		return
+	# Record that this task's step has been handed a resume job. The local
+	# reconciler uses it to tell "finished and already woken" from "finished
+	# between two checks and still parked" — without it, an agent that
+	# completes in the gap leaves its caller parked forever.
+	if a2a_task_name and frappe.db.exists("A2A Task", a2a_task_name):
+		frappe.db.set_value("A2A Task", a2a_task_name, "resume_enqueued", 1, update_modified=False)
+	frappe.enqueue(
+		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
+		".bpmn_process_instance.run_parked_ai_task",
+		queue="bpmn_ai_agent",
+		timeout=AI_AGENT_JOB_TIMEOUT,
+		enqueue_after_commit=True,
+		job_id=f"bpmn-ai-{instance_name}-a2a-{a2a_task_name}",
+		deduplicate=True,
+		instance_name=instance_name,
+		kind="a2a_result",
+		task_id=wf_task_id,
+		run_as_user=frappe.session.user,
+	)
+
+
+def _enqueue_agent_sandbox_resume(instance_name: str, wf_task_id: str, run_name: str) -> None:
+	"""Resume a parked Dev Agent Sandbox dispatch through the SAME worker
+	path AI tasks use — row lock, engine_in_progress gate, bounded retries
+	and Errored-on-exhaustion all come for free. Mirrors _enqueue_a2a_resume
+	exactly; the only difference is the doctype the resume_enqueued guard
+	lives on."""
+	if not (instance_name and wf_task_id):
+		return
+	if run_name and frappe.db.exists("Agent Sandbox Run", run_name):
+		frappe.db.set_value(
+			"Agent Sandbox Run", run_name, "resume_enqueued", 1, update_modified=False
+		)
+	frappe.enqueue(
+		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
+		".bpmn_process_instance.run_parked_ai_task",
+		queue="bpmn_ai_agent",
+		timeout=AI_AGENT_JOB_TIMEOUT,
+		enqueue_after_commit=True,
+		job_id=f"bpmn-ai-{instance_name}-agent-sandbox-{run_name}",
+		deduplicate=True,
+		instance_name=instance_name,
+		kind="agent_sandbox_result",
+		task_id=wf_task_id,
+		run_as_user=frappe.session.user,
+	)
+
+
 def run_parked_ai_task(
 	instance_name: str, kind: str, task_id: str, run_as_user: str = None, attempt: int = 0
 ):
@@ -1807,7 +2507,7 @@ def run_parked_ai_task(
 				"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 				".bpmn_process_instance.run_parked_ai_task",
 				queue="bpmn_ai_agent",
-				timeout=600,
+				timeout=AI_AGENT_JOB_TIMEOUT,
 				enqueue_after_commit=True,
 				job_id=f"bpmn-ai-{instance_name}-{task_id}-r{attempt + 1}",
 				deduplicate=True,

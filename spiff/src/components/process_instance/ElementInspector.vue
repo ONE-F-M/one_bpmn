@@ -160,6 +160,13 @@
 											<div class="text-[10px] uppercase tracking-wide text-gray-400">Result <span class="normal-case">(what the model was told)</span></div>
 											<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-32 overflow-y-auto bg-white rounded p-1.5 border border-gray-100">{{ tc.tool_result }}</pre>
 										</div>
+										<div v-if="tc.tool_artifact" class="mt-1">
+											<div class="text-[10px] uppercase tracking-wide text-gray-400">Artifact <span class="normal-case">(what the tool produced, in full)</span></div>
+											<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto bg-white rounded p-1.5 border border-gray-100">{{ tc.tool_artifact }}</pre>
+										</div>
+										<div v-else-if="tc.artifact_file" class="mt-1 text-[11px]">
+											<a :href="`/app/file/${tc.artifact_file}`" target="_blank" class="text-purple-700 underline">Artifact too large to show here — open the file</a>
+										</div>
 										<div v-if="tc.outcome" class="mt-1">
 											<div class="text-[10px] uppercase tracking-wide text-green-600">Outcome <span class="normal-case">(what actually happened)</span></div>
 											<pre class="text-[11px] text-green-800 font-mono whitespace-pre-wrap max-h-32 overflow-y-auto bg-green-50 rounded p-1.5 border border-green-100">{{ tc.outcome }}</pre>
@@ -247,7 +254,7 @@
 						</tr>
 						<tr>
 							<td class="py-1.5 pr-3 text-gray-500 font-medium whitespace-nowrap align-top">BPMN ID</td>
-							<td class="py-1.5 text-gray-600 font-mono text-[11px]">{{ selectedNode.bpmnId }}</td>
+							<td class="py-1.5 text-gray-600 font-mono text-[11px]">{{ selectedNode.bpmnId || selectedNode.toolBpmnId || "—" }}</td>
 						</tr>
 						<tr>
 							<td class="py-1.5 pr-3 text-gray-500 font-medium whitespace-nowrap align-top">State</td>
@@ -443,7 +450,9 @@ function formatDateTime(d) {
 // keyed by instance + bpmn_id either way.
 const isAiAgent = computed(() => {
 	const serviceType = props.selectedNode?.extensions?.serviceType
-	return serviceType === "ai_agent" || serviceType === "ai_task_selector"
+	if (serviceType === "ai_agent" || serviceType === "ai_task_selector") return true
+	// A Script Task that dispatches its own tracked LLM call has a real aiRunName too.
+	return Boolean(props.selectedNode?.isAiToolCall && props.selectedNode?.aiRunName)
 })
 
 // Friendly type label — AI Agent Tasks serialize as a bare "ServiceTask",
@@ -452,6 +461,9 @@ const displayType = computed(() => {
 	const serviceType = props.selectedNode?.extensions?.serviceType
 	if (serviceType === "ai_task_selector") return "AI Task Selector"
 	if (serviceType === "ai_agent") return "AI Agent Task"
+	if (props.selectedNode?.isAiToolCall) {
+		return props.selectedNode?.aiRunName ? "AI Tool Call (tracked)" : "AI Tool Call"
+	}
 	return props.selectedNode?.typename || "—"
 })
 
@@ -539,7 +551,7 @@ async function fetchSteps() {
 					params: {
 						doctype: "AI Agent Tool Call",
 						parent: "AI Agent Step",
-						fields: JSON.stringify(["parent", "tool_name", "tool_source", "status", "tool_args", "tool_result", "outcome"]),
+						fields: JSON.stringify(["parent", "tool_name", "tool_source", "status", "tool_args", "tool_result", "tool_artifact", "artifact_file", "outcome"]),
 						filters: JSON.stringify([
 							["parenttype", "=", "AI Agent Step"],
 							["parent", "in", steps.map((s) => s.name)],

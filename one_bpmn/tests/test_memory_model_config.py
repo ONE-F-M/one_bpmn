@@ -27,13 +27,13 @@ class TestMemoryModelConfig(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		cls.credentials = frappe.db.get_value("AI Provider Credentials", {}, "name")
+		cls.credentials = frappe.db.get_value("AI Provider", {}, "name")
 
 	def setUp(self):
 		self._cleanup()
 		for model in (MODEL_CHAT, MODEL_DISTILL, MODEL_RECONCILE, MODEL_GLOBAL):
 			frappe.get_doc(
-				{"doctype": "AI Model", "model_name": model, "ai_provider_credentials": self.credentials}
+				{"doctype": "AI Model", "model_name": model, "provider": self.credentials}
 			).insert(ignore_permissions=True)
 		self.agent = frappe.get_doc(
 			{
@@ -332,3 +332,231 @@ class TestMemoryModelConfig(FrappeTestCase):
 			)
 
 		self.assertEqual(captured["ctx"]["model"], MODEL_DISTILL)
+
+
+class TestMemoryConfigValidation(FrappeTestCase):
+	"""WI-002168: an Enabled config must be able to actually run.
+
+	Reuses TestMemoryModelConfig's fixtures (models, Processa Settings globals)
+	since this is the config-time half of the same precedence chain WI-001793
+	built at dispatch time — the two must agree, so the tests are siblings.
+	"""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		cls.credentials = frappe.db.get_value("AI Provider", {}, "name")
+
+	def setUp(self):
+		self._cleanup()
+		for model in (MODEL_CHAT, MODEL_DISTILL, MODEL_RECONCILE, MODEL_GLOBAL):
+			frappe.get_doc(
+				{"doctype": "AI Model", "model_name": model, "provider": self.credentials}
+			).insert(ignore_permissions=True)
+		self._set_globals(None, None)
+
+	def tearDown(self):
+		self._set_globals(None, None)
+		self._cleanup()
+		frappe.db.commit()
+
+	def _cleanup(self):
+		frappe.db.delete("AI Agent Configuration", {"agent_name": AGENT})
+		frappe.db.delete("AI Model", {"model_name": ("like", "ZZ-wi1793-%")})
+
+	def _set_globals(self, distill, reconcile):
+		frappe.db.set_single_value("Processa Settings", "default_memory_distill_model", distill)
+		frappe.db.set_single_value("Processa Settings", "default_memory_reconcile_model", reconcile)
+		frappe.clear_document_cache("Processa Settings", "Processa Settings")
+
+	def _make_agent(self, **fields):
+		doc = frappe.get_doc(
+			{
+				"doctype": "AI Agent Configuration",
+				"agent_name": AGENT,
+				"agent_id": "zz_wi1793_memory_agent",
+				"agent_type": "Background",
+				"agent_framework": "Direct API",
+				"enabled": 1,
+				**fields,
+			}
+		)
+		return doc
+
+	def test_disabled_needs_nothing(self):
+		"""Blank/Disabled configs are untouched — this ticket only governs Enabled."""
+		doc = self._make_agent(long_term_memory="Disabled")
+		doc.insert(ignore_permissions=True)
+		self.assertTrue(frappe.db.exists("AI Agent Configuration", doc.name))
+
+	def test_blank_long_term_memory_needs_nothing(self):
+		"""Blank means 'inherit the diagram's value' — distinct from Disabled,
+		and equally out of scope for this validation."""
+		doc = self._make_agent()
+		doc.insert(ignore_permissions=True)
+		self.assertTrue(frappe.db.exists("AI Agent Configuration", doc.name))
+
+	def test_enabled_without_scope_blocks(self):
+		doc = self._make_agent(long_term_memory="Enabled", memory_write_mode="off")
+		with self.assertRaises(frappe.ValidationError):
+			doc.insert(ignore_permissions=True)
+
+	def test_enabled_without_write_mode_blocks(self):
+		doc = self._make_agent(long_term_memory="Enabled", memory_scope="Agent")
+		with self.assertRaises(frappe.ValidationError):
+			doc.insert(ignore_permissions=True)
+
+	def test_enabled_off_mode_needs_no_model(self):
+		"""Off is recall-only — no distill/reconcile model is ever consulted."""
+		doc = self._make_agent(
+			long_term_memory="Enabled", memory_scope="Agent", memory_write_mode="off"
+		)
+		doc.insert(ignore_permissions=True)
+		self.assertTrue(frappe.db.exists("AI Agent Configuration", doc.name))
+
+	def test_distilled_resolves_via_own_ai_model_passes(self):
+		"""No distill/reconcile field set, but ai_model covers the fallback."""
+		doc = self._make_agent(
+			long_term_memory="Enabled",
+			memory_scope="Agent",
+			memory_write_mode="distilled",
+			ai_model=MODEL_CHAT,
+		)
+		doc.insert(ignore_permissions=True)
+		self.assertTrue(frappe.db.exists("AI Agent Configuration", doc.name))
+
+	def test_distilled_with_no_model_anywhere_blocks(self):
+		"""The pathological case: Enabled + distilled, nothing resolvable at all."""
+		doc = self._make_agent(
+			long_term_memory="Enabled", memory_scope="Agent", memory_write_mode="distilled"
+		)
+		with self.assertRaises(frappe.ValidationError):
+			doc.insert(ignore_permissions=True)
+
+	def test_distilled_resolves_via_processa_settings_default(self):
+		self._set_globals(MODEL_GLOBAL, MODEL_GLOBAL)
+		doc = self._make_agent(
+			long_term_memory="Enabled", memory_scope="Agent", memory_write_mode="distilled"
+		)
+		doc.insert(ignore_permissions=True)
+		self.assertTrue(frappe.db.exists("AI Agent Configuration", doc.name))
+
+	def test_reconcile_falls_back_to_distill_not_ai_model(self):
+		"""Mirrors writeback.py: an explicit reconcile model beats the distill
+		model, but with none set reconcile falls back to distill, not straight
+		to ai_model — matches distill_and_write's ``reconcile_model or model``."""
+		doc = self._make_agent(
+			long_term_memory="Enabled",
+			memory_scope="Agent",
+			memory_write_mode="distilled",
+			memory_distill_model=MODEL_DISTILL,
+			ai_model=MODEL_CHAT,
+		)
+		doc.insert(ignore_permissions=True)
+		self.assertTrue(frappe.db.exists("AI Agent Configuration", doc.name))
+
+	def test_effective_models_endpoint_matches_validation(self):
+		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import (
+			get_effective_memory_models,
+		)
+
+		self._set_globals(None, None)
+		result = get_effective_memory_models(
+			memory_distill_model=None, memory_reconcile_model=None, ai_model=MODEL_CHAT
+		)
+		self.assertEqual(result, {"distill_model": MODEL_CHAT, "reconcile_model": MODEL_CHAT})
+
+	def test_effective_models_endpoint_reports_unresolvable_as_none(self):
+		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import (
+			get_effective_memory_models,
+		)
+
+		self._set_globals(None, None)
+		result = get_effective_memory_models(
+			memory_distill_model=None, memory_reconcile_model=None, ai_model=None
+		)
+		self.assertIsNone(result["distill_model"])
+		self.assertIsNone(result["reconcile_model"])
+
+
+class TestTheMemoryModelBringsItsOwnProvider(FrappeTestCase):
+	"""An agent said "I'll remember that" and nothing was ever written.
+
+	The dispatcher sent the AGENT's provider with whatever memory model was
+	configured, on the stated assumption that "the provider/backend still come
+	from the task so the extraction call is always valid". That holds only while
+	the memory model belongs to the same provider as the agent's own.
+
+	Observed live: Lumina runs gpt-5-nano on an OpenAI provider with its distill
+	model set to claude-haiku-4-5. The extraction call asked the OpenAI endpoint
+	for an Anthropic model, got nothing usable back, and distillation returned an
+	empty list — silently, because a memory failure must never break a turn.
+	Agents whose memory model happened to match their provider wrote memories
+	perfectly, which is what made it look agent-specific rather than structural.
+	"""
+
+	MODEL = "zz-probe-model"
+
+	def setUp(self):
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
+			_provider_for_model,
+		)
+
+		self.resolve = _provider_for_model
+		# An existing provider rather than a fabricated one: AI Provider
+		# Credentials carries mandatory connection fields, and this test is about
+		# which provider a MODEL points at, not about credentials.
+		self.provider = frappe.db.get_value("AI Provider", {}, "name")
+		if not self.provider:
+			self.skipTest("no AI Provider on this site")
+		if not frappe.db.exists("AI Model", self.MODEL):
+			frappe.get_doc({
+				"doctype": "AI Model",
+				"enable_model": 1,
+				"model_name": self.MODEL,
+				"provider": self.provider,
+			}).insert(ignore_permissions=True)
+			frappe.db.commit()
+		self.addCleanup(self._purge)
+
+	def _purge(self):
+		if frappe.db.exists("AI Model", self.MODEL):
+			frappe.delete_doc("AI Model", self.MODEL, force=True)
+		frappe.db.commit()
+
+	def test_a_model_from_another_provider_resolves_to_that_provider(self):
+		"""The whole bug in one assertion."""
+		self.assertEqual(self.resolve(self.MODEL, "zz-some-other-provider"), self.provider)
+
+	def test_the_agents_own_provider_is_kept_when_the_model_is_unknown(self):
+		"""Old behaviour, and right for a model the agent already runs."""
+		self.assertEqual(self.resolve("zz-no-such-model", "agent-provider"), "agent-provider")
+
+	def test_no_model_means_no_change(self):
+		self.assertEqual(self.resolve(None, "agent-provider"), "agent-provider")
+		self.assertEqual(self.resolve("", "agent-provider"), "agent-provider")
+
+	def test_a_lookup_failure_does_not_lose_the_write(self):
+		"""Memory must degrade, never explode."""
+		with patch("frappe.db.get_value", side_effect=RuntimeError("db down")):
+			self.assertEqual(self.resolve(self.MODEL, "agent-provider"), "agent-provider")
+
+	def test_the_reconciler_gets_its_own_provider_too(self):
+		"""Same trap one step later: reconcile_model can come from a third
+		provider, and it used to inherit distillation's credentials."""
+		import inspect
+
+		from one_bpmn.agents.memory import writeback
+
+		self.assertIn("reconcile_provider", inspect.signature(writeback.distill_and_write).parameters)
+		src = inspect.getsource(writeback.distill_and_write)
+		self.assertIn('"provider_name": reconcile_provider or provider_name', src)
+
+	def test_the_dispatcher_resolves_both(self):
+		import inspect
+
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+
+		src = inspect.getsource(dispatchers)
+		self.assertIn("provider_name=_provider_for_model(", src)
+		self.assertIn("reconcile_provider=_provider_for_model(", src)

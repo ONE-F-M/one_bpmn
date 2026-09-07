@@ -2,12 +2,34 @@
  "actions": [],
  "allow_rename": 1,
  "autoname": "field:model_name",
- "creation": "2026-03-08 10:16:54.000000",
+ "creation": "2026-03-08 10:16:54",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
+  "enable_model",
+  "provider",
   "model_name",
-  "ai_provider_credentials"
+  "api_details_section",
+  "api_endpoint",
+  "column_break_hujr",
+  "api_key",
+  "model_api_name",
+  "token_pricing_per_1m_tokens_section",
+  "currency",
+  "column_break_fzbn",
+  "input_cost",
+  "column_break_uiaa",
+  "output_cost",
+  "context_management_section",
+  "context_window",
+  "column_break_hiqs",
+  "max_output_tokens",
+  "features_section",
+  "support_chat",
+  "support_vision",
+  "column_break_wsfx",
+  "support_tool_calling",
+  "support_structured_output"
  ],
  "fields": [
   {
@@ -19,21 +41,139 @@
    "unique": 1
   },
   {
-   "description": "The connection this model is callable through. Agents pick a model; the provider follows from this link.",
-   "fieldname": "ai_provider_credentials",
+   "fieldname": "provider",
    "fieldtype": "Link",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "AI Provider Credentials",
-   "options": "AI Provider Credentials"
+   "label": "Provider",
+   "options": "AI Provider"
+  },
+  {
+   "fieldname": "token_pricing_per_1m_tokens_section",
+   "fieldtype": "Section Break",
+   "label": "Token Pricing (per 1M tokens)"
+  },
+  {
+   "fieldname": "input_cost",
+   "fieldtype": "Currency",
+   "label": "Input Cost per 1M Tokens",
+   "mandatory_depends_on": "eval:doc.enable_model",
+   "precision": "6"
+  },
+  {
+   "fieldname": "column_break_fzbn",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "output_cost",
+   "fieldtype": "Currency",
+   "label": "Output Cost per 1M Tokens",
+   "mandatory_depends_on": "eval:doc.enable_model",
+   "precision": "6"
+  },
+  {
+   "fieldname": "api_key",
+   "fieldtype": "Password",
+   "label": "API Key",
+   "mandatory_depends_on": "eval:doc.enable_model"
+  },
+  {
+   "description": "e.g. gpt-4o, claude-sonnet-4-20250514",
+   "fieldname": "model_api_name",
+   "fieldtype": "Data",
+   "label": "Model API Name",
+   "mandatory_depends_on": "eval:doc.enable_model"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_model",
+   "fieldtype": "Check",
+   "label": "Enable Model"
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency"
+  },
+  {
+   "fieldname": "column_break_uiaa",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "context_management_section",
+   "fieldtype": "Section Break",
+   "label": "Context Management"
+  },
+  {
+   "description": "Tokens",
+   "fieldname": "context_window",
+   "fieldtype": "Int",
+   "label": "Context Window"
+  },
+  {
+   "fieldname": "column_break_hiqs",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "max_output_tokens",
+   "fieldtype": "Int",
+   "label": "Max Output Tokens"
+  },
+  {
+   "fieldname": "features_section",
+   "fieldtype": "Section Break",
+   "label": "Features"
+  },
+  {
+   "default": "0",
+   "fieldname": "support_chat",
+   "fieldtype": "Check",
+   "label": "Support Chat"
+  },
+  {
+   "default": "0",
+   "fieldname": "support_vision",
+   "fieldtype": "Check",
+   "label": "Support Vision"
+  },
+  {
+   "fieldname": "column_break_wsfx",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "support_tool_calling",
+   "fieldtype": "Check",
+   "label": "Support Tool Calling"
+  },
+  {
+   "default": "0",
+   "fieldname": "support_structured_output",
+   "fieldtype": "Check",
+   "label": "Support Structured Output"
+  },
+  {
+   "fieldname": "api_details_section",
+   "fieldtype": "Section Break",
+   "label": "API Details"
+  },
+  {
+   "description": "Base URL for the provider API, e.g. https://api.openai.com/v1",
+   "fieldname": "api_endpoint",
+   "fieldtype": "Data",
+   "label": "API Endpoint"
+  },
+  {
+   "fieldname": "column_break_hujr",
+   "fieldtype": "Column Break"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-19 20:00:00.000000",
+ "modified": "2026-07-23 10:50:18.207823",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Model",
+ "naming_rule": "By fieldname",
  "owner": "Administrator",
  "permissions": [
   {
@@ -49,6 +189,7 @@
    "write": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": []

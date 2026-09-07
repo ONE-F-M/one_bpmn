@@ -23,15 +23,25 @@ from one_bpmn.agents.llm_provider.base import (
 )
 
 
-def _provider(name, provider_type):
-	if not frappe.db.exists("AI Provider Credentials", name):
+def _provider(name):
+	"""A provider is a name and nothing else, and the name IS the dialect."""
+	if not frappe.db.exists("AI Provider", name):
+		frappe.get_doc({"doctype": "AI Provider", "provider": name}).insert(
+			ignore_permissions=True
+		)
+	return name
+
+
+def _model(name, provider):
+	"""A model carries the connection: the key, the endpoint and the switch."""
+	if not frappe.db.exists("AI Model", name):
 		frappe.get_doc(
 			{
-				"doctype": "AI Provider Credentials",
-				"provider_name": name,
-				"provider_type": provider_type,
+				"doctype": "AI Model",
+				"model_name": name,
+				"provider": provider,
+				"enable_model": 1,
 				"api_key": "test-key-not-real",
-				"enabled": 1,
 			}
 		).insert(ignore_permissions=True)
 	return name
@@ -74,8 +84,11 @@ class TestExecutorToolBridge(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		cls.openai_provider = _provider("Bridge OpenAI Provider Credentials", "OpenAI")
-		cls.unsupported_provider = _provider("Bridge Bedrock Provider", "Bedrock")
+		cls.openai_provider = _provider("OpenAI")
+		# Bedrock has no adapter, and under name routing a provider named for it
+		# cannot resolve a dialect either — same outcome, one step earlier.
+		cls.unsupported_provider = _provider("Bedrock")
+		cls.model = _model("test-model", cls.openai_provider)
 
 	def _run(self, provider, tools, steps=None, max_tool_calls=None):
 		config = ExecutorConfig(
@@ -153,7 +166,7 @@ class TestExecutorToolBridge(FrappeTestCase):
 	def test_unsupported_provider_type_errors(self):
 		result, _, factory = self._run(self.unsupported_provider, [_tool()])
 		self.assertEqual(result.error_code, ErrorCode.PROVIDER_NOT_FOUND)
-		self.assertIn("no agents/llm_provider adapter", result.error_message)
+		self.assertIn("dialect", result.error_message)
 		factory.assert_not_called()
 
 	# ── Scenario 1: tools=None default keeps the raw HTTP path ──

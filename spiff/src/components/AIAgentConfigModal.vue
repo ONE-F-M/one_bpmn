@@ -21,6 +21,11 @@
             </label>
             <select v-model="form.aiAgentConfig" @change="onAgentConfigSelect">
               <option value="">-- None --</option>
+              <option
+                v-if="form.aiAgentConfig && form.aiAgentConfig !== '__create__'
+                      && !agentConfigs.some(c => c.name === form.aiAgentConfig)"
+                :value="form.aiAgentConfig"
+              >{{ form.aiAgentConfig }}</option>
               <option v-for="c in agentConfigs" :key="c.name" :value="c.name">
                 {{ c.name }}
               </option>
@@ -76,7 +81,7 @@
                 <select v-model="newAgent.ai_model">
                   <option value="">-- Pick a Model --</option>
                   <option v-for="m in catalogModels" :key="m.name" :value="m.name">
-                    {{ m.name }} — via {{ m.ai_provider_credentials }}
+                    {{ modelLabel(m) }}
                   </option>
                 </select>
               </div>
@@ -100,6 +105,24 @@
                 + Add sample prompt
               </button>
             </div>
+            <div class="field-row">
+              <label>Skills <span class="hint">(optional)</span></label>
+              <div v-for="(s, i) in newAgent.ai_skills" :key="'newsk-' + i" class="static-row">
+                <div class="static-row-head">
+                  <span class="static-row-inline-label">Skill</span>
+                  <select v-model="s.skill" class="static-row-cat">
+                    <option v-for="c in availableSkills" :key="c.name" :value="c.name">{{ c.name }}</option>
+                  </select>
+                  <span class="static-row-inline-label">Version pin</span>
+                  <input v-model="s.version_pin" type="text" placeholder="e.g. 1.0.0 (optional)" class="static-row-cat" />
+                  <button type="button" class="close-btn" title="Remove" @click="newAgent.ai_skills.splice(i, 1)">✕</button>
+                </div>
+              </div>
+              <button type="button" class="btn-cancel" @click="newAgent.ai_skills.push({ skill: '', version_pin: '' })">
+                + Add skill
+              </button>
+            </div>
+
             <div class="field-row two-col">
               <div>
                 <label>PII Input Screening</label>
@@ -146,14 +169,9 @@
 
           <!-- AI Provider — read-only since WI-001650: the provider is an
                agent property, resolved from the linked configuration. -->
-          <div class="field-row">
+          <div class="field-row" v-if="form.aiProvider">
             <label>AI Provider <span class="hint">(from the linked configuration)</span></label>
-            <select v-model="form.aiProvider" disabled>
-              <option value="">-- Link an agent configuration --</option>
-              <option v-for="p in providers" :key="p.name" :value="p.name">
-                {{ p.provider_name }}
-              </option>
-            </select>
+            <div class="derived-value">{{ form.aiProvider }}</div>
           </div>
 
           <!-- Model — the agent's catalog pick (WI-001655): editable here and
@@ -167,7 +185,7 @@
                 {{ form.aiModel }} (not in catalog)
               </option>
               <option v-for="m in catalogModels" :key="m.name" :value="m.name">
-                {{ m.name }} — via {{ m.ai_provider_credentials }}
+                {{ modelLabel(m) }}
               </option>
             </select>
           </div>
@@ -327,6 +345,54 @@
               Examples and guard rails are stored on the linked AI Agent Configuration, not on
               this diagram, and apply to every task that links it.
             </p>
+            <div class="field-row">
+              <label>Skills <span class="hint">(optional)</span></label>
+              <span class="field-hint">
+                Skills enabled for this agent.
+              </span>
+              <div v-for="(s, i) in form.aiSkills" :key="'sk-' + i" class="static-row">
+                <div class="static-row-head">
+                  <span class="static-row-inline-label">Skill</span>
+                  <select v-model="s.skill" class="static-row-cat">
+                    <option v-for="c in availableSkills" :key="c.name" :value="c.name">{{ c.name }}</option>
+                  </select>
+                  <span class="static-row-inline-label">Version pin</span>
+                  <input v-model="s.version_pin" type="text" placeholder="e.g. 1.0.0 (optional)" class="static-row-cat" />
+                  <button type="button" class="close-btn" title="Remove" @click="form.aiSkills.splice(i, 1)">✕</button>
+                </div>
+              </div>
+              <button type="button" class="btn-cancel" @click="addSkill">+ Add skill</button>
+            </div>
+
+            <!-- What the agent is PERMITTED to do. An agent acts as its own user
+                 and is allowed or refused by the roles that user holds, so this
+                 list is the whole answer to "may this agent do that" — add one to
+                 grant, remove one to revoke, nothing to deploy either way. -->
+            <div class="field-row">
+              <label>Permissions <span class="hint">(roles the agent holds)</span></label>
+              <span class="field-hint">
+                The agent acts as its own user, <strong>{{ agentUserLabel }}</strong>, and every
+                write it makes is allowed or refused by these roles. An empty list means it can
+                read and change nothing. Removing a role revokes it immediately — the next thing
+                the agent tries is refused, and it is told why.
+              </span>
+              <div v-for="(r, i) in form.aiAgentRoles" :key="'role-' + i" class="static-row">
+                <div class="static-row-head">
+                  <span class="static-row-inline-label">Role</span>
+                  <select v-model="r.role" class="static-row-cat">
+                    <option value="">Pick a role…</option>
+                    <option v-for="name in roleOptions" :key="name" :value="name">{{ name }}</option>
+                  </select>
+                  <button type="button" class="close-btn" title="Revoke" @click="form.aiAgentRoles.splice(i, 1)">✕</button>
+                </div>
+              </div>
+              <button type="button" class="btn-cancel" @click="addAgentRole">+ Grant a role</button>
+              <span v-if="!rolesUnrestricted" class="field-hint">
+                You can grant only roles you hold yourself — an agent acts with what it is given,
+                so granting one you do not have would be a way around your own permissions.
+              </span>
+            </div>
+
           </template>
 
           <!-- ============ Screening ============ -->
@@ -346,7 +412,11 @@
                  under "Screening" would misdescribe it. -->
             <template v-for="g in controlGroups" :key="g.name">
               <div class="field-group-title">{{ g.name }}</div>
-              <div class="field-row" v-for="c in g.controls" :key="c.fieldname">
+              <!-- Hidden when the control it hangs off is unticked, matching the
+                   desk form. Otherwise the two forms disagree about what is in
+                   effect: the freeze thresholds stayed visible here with rate
+                   limiting off, reading as settings that do something. -->
+              <div class="field-row" v-for="c in visibleIn(g)" :key="c.fieldname">
                 <label>{{ c.label }}</label>
                 <select v-if="c.fieldtype === 'Select'" v-model="c.value">
                   <option v-for="o in c.options" :key="o" :value="o">{{ o }}</option>
@@ -354,6 +424,28 @@
                 <input v-else-if="c.fieldtype === 'Check'" type="checkbox" class="checkbox-input"
                        :checked="c.value == 1" @change="c.value = $event.target.checked ? 1 : 0" />
                 <input v-else-if="c.fieldtype === 'Int'" type="number" min="0" v-model.number="c.value" />
+                <!-- The allow-list. A child table on the doctype, so it arrives as
+                     plain names with the set of agents that could legitimately be
+                     picked, and goes back the same way. Tick boxes rather than a
+                     multi-select: the list is short, and seeing who is NOT on it
+                     matters as much as seeing who is. -->
+                <div v-else-if="c.fieldtype === 'Agent List'" class="agent-allow-list">
+                  <label v-for="choice in (c.choices || [])" :key="choice" class="agent-allow-row">
+                    <input
+                      type="checkbox"
+                      class="checkbox-input"
+                      :checked="(c.value || []).includes(choice)"
+                      @change="toggleAllowed(c, choice, $event.target.checked)"
+                    />
+                    <span>{{ choice }}</span>
+                  </label>
+                  <span v-if="!(c.choices || []).length" class="field-hint">
+                    No other agent is exposed over A2A yet, so there is nobody to allow.
+                  </span>
+                  <span v-else-if="!(c.value || []).length" class="field-hint">
+                    Nobody is on the list, so this agent may not delegate to anyone.
+                  </span>
+                </div>
                 <input v-else type="text" v-model="c.value" />
                 <span class="field-hint" v-if="c.description">{{ c.description }}</span>
               </div>
@@ -407,6 +499,20 @@
             </span>
           </div>
 
+          <!-- Recall token budget (only when long-term memory is on). Governs
+               what gets INJECTED, independent of write mode — recall runs
+               whenever memory is on, whatever the write mode is set to. -->
+          <div class="field-row" v-if="!isSelector && form.aiLongTermMemory">
+            <label>Memory Token Budget</label>
+            <input type="number" min="0" step="100" v-model.number="form.aiMemoryTokenBudget" />
+            <span class="field-hint">
+              Caps the injected recall block by estimated token size, truncating the lowest-ranked
+              memories first. 0 or blank uses the default (800) — there is no way to disable the
+              cap here, unlike Context Token Budget below: an unbounded block is the defect this
+              field exists to close.
+            </span>
+          </div>
+
           <!-- Memory write mode (only when long-term memory is on) -->
           <div class="field-row" v-if="!isSelector && form.aiLongTermMemory">
             <label>Memory Write Mode</label>
@@ -430,7 +536,7 @@
           >
             <label>Distillation Model <span class="hint">(optional)</span></label>
             <select v-model="form.aiMemoryDistillModel">
-              <option value="">-- Use the default --</option>
+              <option value="">{{ inheritLabel("distill") }}</option>
               <option
                 v-if="form.aiMemoryDistillModel && !catalogModels.some(m => m.name === form.aiMemoryDistillModel)"
                 :value="form.aiMemoryDistillModel"
@@ -438,7 +544,7 @@
                 {{ form.aiMemoryDistillModel }} (not in catalog)
               </option>
               <option v-for="m in catalogModels" :key="'distill-' + m.name" :value="m.name">
-                {{ m.name }} — via {{ m.ai_provider_credentials }}
+                {{ modelLabel(m) }}
               </option>
             </select>
             <span class="field-hint">
@@ -453,7 +559,7 @@
           >
             <label>Reconciliation Model <span class="hint">(optional)</span></label>
             <select v-model="form.aiMemoryReconcileModel">
-              <option value="">-- Use the default --</option>
+              <option value="">{{ inheritLabel("reconcile") }}</option>
               <option
                 v-if="form.aiMemoryReconcileModel && !catalogModels.some(m => m.name === form.aiMemoryReconcileModel)"
                 :value="form.aiMemoryReconcileModel"
@@ -461,7 +567,7 @@
                 {{ form.aiMemoryReconcileModel }} (not in catalog)
               </option>
               <option v-for="m in catalogModels" :key="'reconcile-' + m.name" :value="m.name">
-                {{ m.name }} — via {{ m.ai_provider_credentials }}
+                {{ modelLabel(m) }}
               </option>
             </select>
             <span class="field-hint">
@@ -469,8 +575,92 @@
             </span>
           </div>
 
+          <!-- Conversation compaction: replace old turns with a summary rather
+               than letting them fall off the end of the window. Agent-level for
+               the same reason memory is — a conversation belongs to the agent,
+               not to whichever task happened to call it. -->
+          <div class="field-row" v-if="!isSelector">
+            <label>Context Token Budget <span class="hint">(0 = no size limit)</span></label>
+            <input type="number" min="0" step="500" v-model.number="form.aiContextTokenBudget" />
+            <span class="field-hint">
+              Caps the history by estimated SIZE as well as by message count — both apply, whichever
+              bites first. Message count is blind to size: twenty one-line turns and twenty huge tool
+              results both read as twenty, and only the second kind blows the context window.
+              Left at 0 this falls back to the site default in Processa Settings.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector">
+            <label>
+              <input type="checkbox" v-model="form.aiCompactionEnabled" />
+              Compact long conversations
+            </label>
+            <span class="field-hint">
+              Summarises the early turns once and sends the summary plus the recent turns
+              word-for-word, so a long conversation keeps its beginning without re-sending it
+              every time. The summary is always written in the background — a turn never waits for it.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector && form.aiCompactionEnabled">
+            <label>Keep Recent Messages</label>
+            <input type="number" min="2" v-model.number="form.aiCompactionKeepTail" />
+            <span class="field-hint">
+              How many of the most recent messages stay word-for-word. Everything older is what
+              the summary replaces.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector && form.aiCompactionEnabled">
+            <label>Compaction Model <span class="hint">(optional)</span></label>
+            <select v-model="form.aiCompactionModel">
+              <option value="">{{ inheritLabel("compaction") }}</option>
+              <option
+                v-if="form.aiCompactionModel && !catalogModels.some(m => m.name === form.aiCompactionModel)"
+                :value="form.aiCompactionModel"
+              >
+                {{ form.aiCompactionModel }} (not in catalog)
+              </option>
+              <option v-for="m in catalogModels" :key="'compaction-' + m.name" :value="m.name">
+                {{ modelLabel(m) }}
+              </option>
+            </select>
+            <span class="field-hint">
+              Writes the summary. This is high-volume, low-stakes work, so a cheap model belongs here.
+              Left blank it falls back to the site default in Processa Settings.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector && form.aiCompactionEnabled">
+            <label>Token Threshold <span class="hint">(0 = off)</span></label>
+            <input type="number" min="0" v-model.number="form.aiCompactionTokenThreshold" />
+            <span class="field-hint">
+              Compact once the history being sent is estimated to pass this many tokens.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector && form.aiCompactionEnabled">
+            <label>Idle Minutes <span class="hint">(0 = off)</span></label>
+            <input type="number" min="0" v-model.number="form.aiCompactionIdleMinutes" />
+            <span class="field-hint">
+              Compact a conversation nobody has touched for this long. Checked hourly.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector && form.aiCompactionEnabled">
+            <label>
+              <input type="checkbox" v-model="form.aiCompactionOnTaskBoundary" />
+              Compact at the end of every turn
+            </label>
+            <span class="field-hint">
+              Runs once the agent has replied, so it never happens part-way through a turn.
+              Set any combination of the three — whichever fires first does the work.
+            </span>
+          </div>
+
           <p class="field-hint" style="margin-top: 10px;" v-if="!isSelector">
-            Memory settings are stored on the linked AI Agent Configuration, not on this diagram.
+            Memory and compaction settings are stored on the linked AI Agent Configuration,
+            not on this diagram.
           </p>
         </div>
 
@@ -482,246 +672,38 @@
 
       <!-- ============ RIGHT: assistant chat panel ============ -->
       <div class="assistant-panel">
-        <!-- WI-001674 mockup parity: in agent mode the panel's own titlebar
-             (avatar + name + config-driven badge) is the header; the legacy
-             purple header remains for selector mode only. "runs on its own
-             credentials" now comes from chat_description (WI-001996). -->
-        <div v-if="isSelector" class="assistant-header">
-          <span class="assistant-title">✦ AI Assistant</span>
-          <span class="assistant-sub">runs on its own credentials</span>
-        </div>
-
-        <!-- WI-001650: the assistant is always available — with no linked
-             configuration yet it runs on its own credentials (WI-001623), so
-             you can ask it to create the agent this task will link.
-             (No wrapper <template> here: a bare template element is native
-             HTML and Vue does not render its children.) -->
-        <!-- Context controls -->
-        <!-- WI-001674 follow-up: the assistant's toolbox includes schema and
-             record lookups, so the manual Context DocType / Sample Record
-             grounding is redundant in agent mode — it asks the platform
-             itself. Selector mode still uses the manual grounding. -->
-        <div v-if="isSelector" class="assistant-context">
-            <div class="ctx-row">
-              <label>Context DocType <span class="hint">(optional)</span></label>
-              <div class="ctx-autocomplete">
-                <input
-                  type="text"
-                  v-model="contextDoctype"
-                  placeholder="e.g. Employee"
-                  autocomplete="off"
-                  @input="onDoctypeInput"
-                  @focus="onDoctypeFocus"
-                  @blur="onDoctypeBlur"
-                />
-                <ul v-if="showDoctypeDropdown && filteredDoctypes.length" class="ctx-dropdown">
-                  <li
-                    v-for="dt in filteredDoctypes"
-                    :key="dt"
-                    @mousedown.prevent="selectDoctype(dt)"
-                  >
-                    {{ dt }}
-                  </li>
-                </ul>
-              </div>
-            </div>
-            <div class="ctx-row">
-              <label>Sample Record <span class="hint">(optional)</span></label>
-              <div class="ctx-autocomplete">
-                <input
-                  type="text"
-                  v-model="contextDocname"
-                  :placeholder="docnamePlaceholder"
-                  :disabled="!doctypeResolved"
-                  autocomplete="off"
-                  @input="onDocnameInput"
-                  @focus="onDocnameFocus"
-                  @blur="onDocnameBlur"
-                />
-                <ul v-if="showDocnameDropdown && recordOptions.length" class="ctx-dropdown">
-                  <li
-                    v-for="r in recordOptions"
-                    :key="r"
-                    @mousedown.prevent="selectDocname(r)"
-                  >
-                    {{ r }}
-                  </li>
-                </ul>
-                <div
-                  v-else-if="showDocnameDropdown && recordLoading"
-                  class="ctx-dropdown-status"
-                >
-                  Searching…
-                </div>
-              </div>
-            </div>
-            <div class="ctx-hint">
-              The assistant reads this DocType's schema and one sample record (your
-              permissions apply) to tailor the prompts.
-            </div>
-          </div>
-
-          <!-- WI-001674: agent mode rides the shared AgentChatPanel — one
-               transport (the AG-UI endpoint), typed events, cards from the
-               registry. Replies can never render as raw JSON: the assistant's
-               reply shaper parses the contract server-side. The legacy
-               transcript below now serves ONLY selector mode, whose direct
-               LLM path never went through invoke_agent. -->
+        <!-- WI-001679: ONE chat for both ways into this dialog. An AI Agent
+             Task and an AI Task Selector now open the same panel, on the same
+             agent, over the same endpoint — the mode only changes what the
+             turn is grounded with (server-side) and which fields the reply may
+             recommend. The panel's own titlebar (avatar + name + config-driven
+             badge) is the header in both; the legacy purple header, the manual
+             Context DocType / Sample Record controls and the selector-only
+             transcript are gone. The assistant is always available: with no
+             linked configuration yet it runs on its own credentials
+             (WI-001623), so you can ask it to create the agent this task will
+             link. -->
+          <!-- The shared AgentChatPanel — one transport (the AG-UI endpoint),
+               typed events, cards from the registry. Replies can never render
+               as raw JSON: the assistant's reply shaper parses the contract
+               server-side. A selector turn declares only apply-fields: it
+               configures a SHAPE, so there is no agent record to create and no
+               confirm-create card to honour. -->
           <AgentChatPanel
-            v-if="!isSelector"
             ref="chatPanel"
             class="assistant-agui-panel"
             :agent-id="'ai_agent_assistant'"
             :conversation="assistantConversation"
             :context="assistantTurnContext"
+            :context-provider="isSelector ? selectorTurnContext : null"
             :cards="cardRegistry"
-            :apply-targets="['apply-fields', 'confirm-create']"
+            :apply-targets="isSelector ? ['apply-fields'] : ['apply-fields', 'confirm-create']"
             variant="docked"
             @conversation="(c) => (assistantConversation = c)"
             @card-action="onAssistantCardAction"
             @agent-event="onAssistantAgentEvent"
           />
 
-          <!-- Messages (selector mode only) -->
-          <div v-if="isSelector" ref="messagesEl" class="assistant-messages">
-            <div v-if="!messages.length" class="assistant-empty">
-              <template v-if="isSelector">
-                Describe the flow like you'd brief a new colleague — no technical
-                terms needed, the diagram supplies those. I'll recommend prompts
-                you can apply one by one.
-              </template>
-              <template v-else>
-                Describe what this AI Agent Task should do, and I'll recommend field
-                values you can apply one by one.
-              </template>
-            </div>
-
-            <div
-              v-for="m in messages"
-              :key="m.id"
-              :class="['msg', m.role === 'user' ? 'msg-user' : 'msg-assistant']"
-            >
-              <div v-if="m.content" class="msg-text">{{ m.content }}</div>
-
-              <!-- Recommendation cards -->
-              <div v-if="m.recommendations && Object.keys(m.recommendations).length" class="recs">
-                <div
-                  v-for="(value, key) in m.recommendations"
-                  :key="key"
-                  class="rec"
-                >
-                  <div class="rec-head">
-                    <span class="rec-field">{{ fieldLabel(key) }}</span>
-                    <button
-                      class="rec-apply"
-                      :disabled="isApplied(m.id, key)"
-                      @click="applyRecommendation(m.id, key, value)"
-                    >
-                      {{ isApplied(m.id, key) ? "Applied ✓" : "Apply" }}
-                    </button>
-                  </div>
-                  <div class="rec-value">{{ valuePreview(value) }}</div>
-                </div>
-              </div>
-
-              <!-- New-agent proposal card (WI-001649). The assistant PROPOSES;
-                   the designer confirms; only then is the record created (via
-                   the same endpoint as the manual "+ Create new…" panel) and
-                   the creation process takes it to Live. -->
-              <div v-if="m.proposal" class="proposal">
-                <div class="proposal-title">Create this agent?</div>
-                <table class="proposal-fields">
-                  <tbody>
-                    <tr v-for="(value, key) in proposalRows(m.proposal)" :key="key">
-                      <td class="proposal-key">{{ key }}</td>
-                      <td class="proposal-value">{{ valuePreview(value) }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-                <div v-if="m.proposalState === 'created'" class="proposal-done">
-                  ✓ Created and linked{{ m.proposalResult?.creation_instance ? ` — creation process running (${m.proposalResult.creation_instance})` : "" }}
-                </div>
-                <div v-else-if="m.proposalState === 'dismissed'" class="proposal-done">Dismissed — nothing was created.</div>
-                <div v-else class="proposal-actions">
-                  <button class="btn-cancel" :disabled="m.proposalState === 'creating'" @click="m.proposalState = 'dismissed'">Dismiss</button>
-                  <button class="btn-save" :disabled="m.proposalState === 'creating'" @click="createProposedAgent(m)">
-                    {{ m.proposalState === "creating" ? "Creating…" : "Create & link" }}
-                  </button>
-                </div>
-              </div>
-
-              <!-- Update-existing-agent proposal card (WI-001649 amendment).
-                   Confirming calls the WI-001637 write-back endpoint — the
-                   assistant itself never writes. -->
-              <div v-if="m.update" class="proposal">
-                <div class="proposal-title">Apply this change to {{ m.update.config_name }}?</div>
-                <table class="proposal-fields">
-                  <tbody>
-                    <tr v-for="(value, key) in m.update.fields" :key="key">
-                      <td class="proposal-key">{{ fieldLabel(key) }}</td>
-                      <td class="proposal-value">{{ valuePreview(value) }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-                <div v-if="m.updateState === 'applied'" class="proposal-done">
-                  ✓ Applied — {{ (m.updateResult?.updated || []).join(", ") || "no fields changed" }}{{ m.updateResult?.reprovisioned ? " — the agent is re-provisioning (validate → Live)" : "" }}
-                </div>
-                <div v-else-if="m.updateState === 'dismissed'" class="proposal-done">Dismissed — nothing was changed.</div>
-                <div v-else class="proposal-actions">
-                  <button class="btn-cancel" :disabled="m.updateState === 'applying'" @click="m.updateState = 'dismissed'">Dismiss</button>
-                  <button class="btn-save" :disabled="m.updateState === 'applying'" @click="applyProposedUpdate(m)">
-                    {{ m.updateState === "applying" ? "Applying…" : "Apply & save" }}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div v-if="loading" class="msg msg-assistant">
-              <div class="msg-text typing">Thinking…</div>
-            </div>
-          </div>
-
-          <!-- Input (selector mode only — the panel owns the agent-mode composer) -->
-          <div v-if="isSelector" class="assistant-input-wrap">
-            <!-- Tips popover, toggled by the bulb below -->
-            <div v-if="showTips" class="assistant-tips assistant-tips-popover">
-              <div class="assistant-tips-title">
-                💡 {{ isSelector ? "Tips for a good description" : "Tips for a good prompt" }}
-                <button class="assistant-tips-close" title="Close" @click="showTips = false">✕</button>
-              </div>
-              <ul v-if="isSelector">
-                <li><strong>What to check first</strong> — e.g. "first see if the ticket mentions one of their orders"</li>
-                <li><strong>How to decide between paths</strong> — e.g. "if it's about an order… otherwise…"</li>
-                <li><strong>Who handles each path</strong> — e.g. "the order team handles it, or normal support"</li>
-                <li><strong>What "finished" looks like</strong> — e.g. "the customer got a reply and the ticket is closed"</li>
-              </ul>
-              <ul v-else>
-                <li><strong>What it should read</strong> — which parts of the document matter</li>
-                <li><strong>What it should produce</strong> — a summary, a decision, a value for a field</li>
-                <li><strong>What format</strong> — plain text, or structured data for a gateway to route on</li>
-              </ul>
-            </div>
-            <div class="assistant-input">
-              <button
-                class="assistant-tips-toggle"
-                :class="{ active: showTips }"
-                :title="isSelector ? 'Tips for a good description' : 'Tips for a good prompt'"
-                @click="showTips = !showTips"
-              >💡</button>
-              <textarea
-                v-model="input"
-                rows="2"
-                :placeholder="isSelector
-                  ? 'e.g. First check if the ticket is about an order. If it is, the order team handles it; otherwise support does. Either way the customer gets a reply, then close the ticket.'
-                  : 'e.g. Summarise the employee\'s leave history and flag any policy breaches'"
-                :disabled="loading"
-                @keydown.enter.exact.prevent="sendMessage"
-              />
-              <button class="assistant-send" :disabled="loading || !input.trim()" @click="sendMessage">
-                Send
-              </button>
-            </div>
-          </div>
       </div>
     </div>
 
@@ -735,12 +717,66 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick, toRaw } from "vue";
+import { ref, computed, onMounted, onUnmounted, toRaw } from "vue";
 import { Dialog, frappeRequest } from "frappe-ui";
 import { frappeGet } from "@/bpmn/shared/frappeResource";
 // WI-001674: agent mode chats through the shared panel + card registry.
 import { AgentChatPanel } from "@/components/chat";
 import { cardRegistry } from "@/components/chat/cards/registry";
+const availableSkills = ref([]);
+function addSkill() { form.value.aiSkills.push({ skill: '', version_pin: '' }); }
+
+// WI-002054: what this agent is permitted to do. The picker offers only what the
+// CURRENT user may grant, and the backend enforces the same list — an option that
+// cannot be saved should never be offered.
+const grantableRoles = ref([]);
+const rolesUnrestricted = ref(false);
+const agentUserEmail = ref("");
+function addAgentRole() { form.value.aiAgentRoles.push({ role: '' }); }
+
+const agentUserLabel = computed(
+  () => agentUserEmail.value || "its own user, created when the agent is first saved",
+);
+
+// What the picker offers: everything this user may grant, PLUS whatever the
+// agent already holds. The second half matters — an agent may legitimately hold
+// a role its editor cannot grant, and a <select> whose value is not among its
+// options renders BLANK. Without this, a role the agent really has looks like an
+// empty row, which reads as "no role" and invites someone to overwrite it.
+const roleOptions = computed(() => {
+  const held = (form.value.aiAgentRoles || []).map((r) => r && r.role).filter(Boolean);
+  return Array.from(new Set([...grantableRoles.value, ...held])).sort();
+});
+
+// The picker's options arrive on the same response as the rest of the agent, via
+// applyGrantableRoles below. They used to come from a call of their own, which
+// kept returning nothing in the browser while answering curl perfectly — and an
+// empty picker looks exactly like "you may grant nothing", which is a real
+// answer the escalation guard also gives. One response, one failure mode.
+function applyGrantableRoles(fields) {
+  grantableRoles.value = Array.isArray(fields?.aiGrantableRoles) ? fields.aiGrantableRoles : [];
+  rolesUnrestricted.value = !!fields?.aiRolesUnrestricted;
+}
+
+async function loadAgentUser(configName) {
+  agentUserEmail.value = "";
+  if (!configName) return;
+  try {
+    const res = await frappeRequest({
+      url: "/api/method/frappe.client.get_value",
+      method: "GET",
+      params: {
+        doctype: "AI Agent Configuration",
+        filters: JSON.stringify({ name: configName }),
+        fieldname: JSON.stringify(["agent_user"]),
+      },
+    });
+    agentUserEmail.value = res?.agent_user || "";
+  } catch (e) {
+    agentUserEmail.value = "";
+  }
+}
+
 
 // bpmn-js elements must never be touched as Vue reactive proxies — the renderer
 // reads non-configurable properties (e.g. labels) that a Proxy cannot return,
@@ -761,22 +797,31 @@ const props = defineProps({
 
 const isSelector = computed(() => props.mode === "selector");
 
-// Fields the selector dispatch actually consumes (ai_task_selector.py) —
-// assistant recommendations outside this set are dropped in selector mode.
-const SELECTOR_FIELDS = [
-  "aiProvider",
-  "aiModel",
-  "aiSystemPrompt",
-  "aiUserPrompt",
-  "aiMaxTokens",
-  "aiTimeout",
-];
-
 const emit = defineEmits(["close"]);
 
 const providers = ref([]);
 const agentConfigs = ref([]);
 const catalogModels = ref([]); // AI Model catalog (WI-001655)
+// Site-wide model defaults from Processa Settings. A blank model picker means
+// "inherit", and until now the option said "-- Use the default --" without
+// saying what the default IS — so an unset field was indistinguishable from a
+// broken one. Best-effort: a designer who cannot read Processa Settings still
+// gets the plain label.
+const siteDefaults = ref({ compaction: "", distill: "", reconcile: "" });
+// What an option reads as. A model whose provider is missing or disabled is
+// still listed — hiding it is what produced an empty picker — but it says why
+// it may not work rather than looking identical to a usable one.
+function modelLabel(m) {
+  if (!m.provider) return `${m.name} — no provider linked`;
+  return m.has_credentials === false
+    ? `${m.name} — via ${m.provider} (no API key on the model)`
+    : `${m.name} — via ${m.provider}`;
+}
+
+function inheritLabel(which) {
+  const name = siteDefaults.value[which];
+  return name ? `-- Use the site default (${name}) --` : "-- Use the default --";
+}
 
 
 // ── Create-new-agent panel state (WI-001648) ──
@@ -791,6 +836,7 @@ const emptyNewAgent = () => ({
   system_prompt: "",
   description: "",
   sample_prompts: [],
+  ai_skills: [],
   // WI-001644: chosen at creation rather than left to a later visit to the desk
   // form. Blank means "take the doctype default", so the panel never has to
   // restate what that default is.
@@ -840,6 +886,28 @@ const rerunning = ref(false);
 // The list comes from the server, which reads the doctype's real fields, so this
 // component never has to know which screening stories have shipped.
 const screeningControls = ref([]);
+
+// A control is hidden when the control it depends on is off. The server sends a
+// plain fieldname rather than the doctype's "eval:" expression, so nothing here
+// has to evaluate anything — and a dependency we could not reduce arrives as
+// null and the control simply renders, which is the safe direction.
+function isOn(fieldname) {
+  const dep = screeningControls.value.find((c) => c.fieldname === fieldname);
+  if (!dep) return true;
+  return !(dep.value === 0 || dep.value === "0" || dep.value === false || dep.value == null);
+}
+// Kept as a plain list of names, which is what the server sends and expects
+// back. Sorted so the saved order does not churn on every tick.
+function toggleAllowed(control, choice, on) {
+  const current = new Set(control.value || []);
+  if (on) current.add(choice);
+  else current.delete(choice);
+  control.value = [...current].sort();
+}
+
+function visibleIn(group) {
+  return group.controls.filter((c) => !c.depends_on_field || isOn(c.depends_on_field));
+}
 
 // Rendered group by group, in the order the server sent them. Grouping comes
 // from the server rather than a list here, for the same reason the controls
@@ -926,6 +994,7 @@ async function rerunChecks() {
 
 // Form state — defaults
 const form = ref({
+  aiSkills: [],
   aiAgentConfig: "",
   aiBackend: "direct_api",
   aiProvider: "",
@@ -947,13 +1016,27 @@ const form = ref({
   aiLongTermMemory: false,
   aiMemoryScope: "Agent",
   aiMemoryWriteMode: "off",
+  // WI-002163: caps the injected recall block's estimated size. See the
+  // field-hint in the template for why 0 isn't offered as "no cap" here.
+  aiMemoryTokenBudget: 800,
   // WI-001793: blank means "inherit" — site default, then the agent's own model.
   aiMemoryDistillModel: "",
   aiMemoryReconcileModel: "",
+  // Conversation compaction. Off by default: a site that has not asked for it
+  // must see no change in what its agents send.
+  aiContextTokenBudget: 0,
+  aiCompactionEnabled: false,
+  aiCompactionKeepTail: 10,
+  aiCompactionModel: "",
+  aiCompactionTokenThreshold: 0,
+  aiCompactionIdleMinutes: 0,
+  aiCompactionOnTaskBoundary: false,
   // WI-001639: the agent's frozen static context. Always arrays — they are
-  // replaced wholesale by loadStaticContextFromConfig once the agent is read.
+  // replaced wholesale by loadLinkedAgent once the agent is read.
   aiExamples: [],
   aiGuardrails: [],
+  // WI-002054: the roles the agent's own user holds — what it is permitted to do.
+  aiAgentRoles: [],
 });
 
 // Mirrors the AI Agent Guard Rail Select options; the backend rejects anything
@@ -984,7 +1067,35 @@ function addGuardrail() {
 // Overlay the linked agent's static-context tables onto the form. Called on
 // open and whenever the linked agent changes, so what is on screen is what the
 // agent will actually be primed with.
-async function loadStaticContextFromConfig() {
+// Everything the modal shows about a linked agent comes from here, whether the
+// panel just opened or the designer picked a different agent from the dropdown.
+//
+// These were two separate paths and they drifted: opening the panel applied only
+// the MEMORY keys, while picking an agent applied all of them. So a task whose
+// agent was already linked opened showing the DIAGRAM's stale prompt, model,
+// temperature and token cap — none of which is what dispatch actually uses — and
+// the designer had to re-pick the agent it was already linked to before the real
+// values appeared. One loader for both paths is the fix, and it is also what
+// stops the two drifting apart again.
+//
+// Applying every field is safe: config_field_map omits blank values, so an unset
+// field on the agent falls through to the shape's own copy — the same fallback
+// dispatch performs.
+async function applyLinkedAgentFields(fields) {
+  if (!fields) return;
+  applyConfigFields(fields);
+  form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
+  form.value.aiSkills = Array.isArray(fields?.aiSkills) ? fields.aiSkills : [];
+  form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
+  form.value.aiAgentRoles = Array.isArray(fields?.aiAgentRoles) ? fields.aiAgentRoles : [];
+  applyGrantableRoles(fields);
+  staticContextLoaded.value = true;
+}
+
+// One round trip. This used to be three identical POSTs on open (memory, static
+// context, and the picker's own), which is most of why the panel took a moment
+// to fill in.
+async function loadLinkedAgent() {
   staticContextLoaded.value = false;
   if (!form.value.aiAgentConfig) return;
   try {
@@ -993,12 +1104,14 @@ async function loadStaticContextFromConfig() {
       method: "POST",
       params: { config_name: form.value.aiAgentConfig },
     });
-    form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
-    form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
-    staticContextLoaded.value = true;
+    await applyLinkedAgentFields(fields);
   } catch (e) {
-    // Unreadable agent — the sections stay empty and Save leaves them alone.
+    // Unreadable agent — the shape's own values stay on screen, which is also
+    // what dispatch falls back to, and Save leaves the agent's tables alone.
+    return;
   }
+  await loadAgentUser(form.value.aiAgentConfig);
+  await loadScreening();
 }
 
 // ── Notices ───────────────────────────────────────────────────────────────
@@ -1017,30 +1130,62 @@ function serverMessage(e) {
 }
 
 // ── Assistant state ───────────────────────────────────────────────────────
-const messages = ref([]);
-const assistantConversation = ref(""); // Chat Conversation driving the dialog (WI-001623)          // { id, role, content, recommendations? }
+const assistantConversation = ref(""); // Chat Conversation driving the dialog (WI-001623)
 const chatPanel = ref(null);
 
 // WI-001674: the modal sends RAW grounding refs; the server-side context
 // builder (ai_assistant.build_assistant_turn_context) assembles the map's
 // dialog_context from them — schema/sample reads stay permission-checked
-// server-side, exactly as the legacy path did.
+// server-side, exactly as the legacy path did. WI-001679 added `mode`: the
+// builder branches on it to ground a selector turn with the selector's runtime
+// rules and the sub-process digest instead of the agent-creation capability.
 const assistantTurnContext = computed(() => ({
   assistant_dialog: {
+    mode: props.mode === "selector" ? "selector" : "agent",
     linked_config: form.value.aiAgentConfig || "",
     // The EXACT open BPMN Process Model record name — the assistant needs it
     // verbatim for proposed_config.process_model (the human-facing process
     // title is a different string and fails the WI-001997 creation gate).
     process_model: window.__ONE_BPMN_CURRENT_MODEL__ || "",
-    current_config: JSON.stringify({
-      aiModel: form.value.aiModel,
-      aiSystemPrompt: form.value.aiSystemPrompt,
-      aiUserPrompt: form.value.aiUserPrompt,
-      aiOutputVariable: form.value.aiOutputVariable,
-      aiResponseFormat: form.value.aiResponseFormat,
-    }),
+    current_config: JSON.stringify(
+      props.mode === "selector"
+        ? {
+            aiModel: form.value.aiModel,
+            aiSystemPrompt: form.value.aiSystemPrompt,
+            aiUserPrompt: form.value.aiUserPrompt,
+          }
+        : {
+            aiModel: form.value.aiModel,
+            aiSystemPrompt: form.value.aiSystemPrompt,
+            aiUserPrompt: form.value.aiUserPrompt,
+            aiOutputVariable: form.value.aiOutputVariable,
+            aiResponseFormat: form.value.aiResponseFormat,
+          }
+    ),
   },
 }));
+
+// Selector turns need the LIVE canvas, not the saved model: the designer is
+// usually mid-edit, and the digest names the very task ids the recommended
+// prompts must reference. Serializing XML is async, so it rides the panel's
+// per-turn contextProvider hook (the seam ProsAlly opened in WI-001675) rather
+// than the computed above, and merges over it.
+async function selectorTurnContext() {
+  const dialog = {
+    ...assistantTurnContext.value.assistant_dialog,
+    element_id: rawElement().businessObject?.id || rawElement().id || "",
+    context_doctype: triggerDoctype.value || "",
+  };
+  try {
+    const { xml } = await toRaw(props.modeler).saveXML({ format: false });
+    dialog.bpmn_xml = xml;
+  } catch (e) {
+    // No digest this turn — the assistant works blind rather than not at all,
+    // exactly as it did when the legacy path failed to serialize.
+    console.warn("[AI assistant] could not serialize diagram:", e);
+  }
+  return { assistant_dialog: dialog };
+}
 
 // WI-001674: cards render and request — the HOST applies. The panel re-emits
 // card actions here; each maps onto the SAME handlers/endpoints the legacy
@@ -1048,7 +1193,7 @@ const assistantTurnContext = computed(() => ({
 async function onAssistantCardAction({ name, action, value, payload, fail }) {
   if (action === "dismiss") return;
   if (action === "confirm-create" && name === "onefm.proposed_config") {
-    await createProposedAgent({ proposal: value.proposal, proposalState: null }, fail);
+    await createProposedAgent(fail);
     return;
   }
   if (action === "apply-fields" && name === "onefm.proposed_update") {
@@ -1062,7 +1207,7 @@ async function onAssistantCardAction({ name, action, value, payload, fail }) {
       await applyProposedUpdate({ update: fields, updateState: null }, fail);
     } else {
       for (const [key, val] of Object.entries(fields)) {
-        applyRecommendation(null, key, val);
+        applyRecommendation(key, val);
       }
     }
   }
@@ -1085,135 +1230,13 @@ function endAssistantConversation() {
 // The modal is v-if mounted per open (BpmnEditor), so unmount fires on every
 // close path: ✕, Cancel, overlay click, apply-then-close, and parent teardown.
 onUnmounted(endAssistantConversation);
-const input = ref("");
-const showTips = ref(false);
-const loading = ref(false);
-const contextDoctype = ref("");
-const contextDocname = ref("");
-const messagesEl = ref(null);
-
-// ── DocType / Sample Record autocomplete ─────────────────────────────────────
-const doctypeOptions = ref([]);          // all DocType names (loaded on mount)
-const showDoctypeDropdown = ref(false);
-const recordOptions = ref([]);           // matching record names for chosen DocType
-const showDocnameDropdown = ref(false);
-const recordLoading = ref(false);
-let recordSearchTimer = null;
-let recordSearchSeq = 0;
-
-// Dropdown only lists matches once the user has typed something.
-const filteredDoctypes = computed(() => {
-  const q = contextDoctype.value.trim().toLowerCase();
-  if (!q) return [];
-  return doctypeOptions.value.filter((dt) => dt.toLowerCase().includes(q)).slice(0, 50);
-});
-
-// Sample Record search is only meaningful once the typed DocType is a real one.
-const doctypeResolved = computed(() =>
-  doctypeOptions.value.includes(contextDoctype.value.trim())
-);
-
-const docnamePlaceholder = computed(() =>
-  doctypeResolved.value ? "latest record if blank" : "select a DocType first"
-);
-
-function onDoctypeInput() {
-  showDoctypeDropdown.value = true;
-  // The DocType changed, so any previously chosen Sample Record no longer applies.
-  contextDocname.value = "";
-  recordOptions.value = [];
-  showDocnameDropdown.value = false;
-}
-function onDoctypeFocus() {
-  // Show again only if there's already typed text (never on an empty field).
-  if (contextDoctype.value.trim()) showDoctypeDropdown.value = true;
-}
-function onDoctypeBlur() {
-  // Delay so a mousedown on an option registers before the list hides.
-  setTimeout(() => {
-    showDoctypeDropdown.value = false;
-  }, 150);
-}
-function selectDoctype(dt) {
-  contextDoctype.value = dt;
-  showDoctypeDropdown.value = false;
-  contextDocname.value = "";
-  recordOptions.value = [];
-}
-
-function onDocnameInput() {
-  if (!doctypeResolved.value) return;
-  showDocnameDropdown.value = true;
-  queueRecordSearch();
-}
-function onDocnameFocus() {
-  if (doctypeResolved.value) {
-    showDocnameDropdown.value = true;
-    queueRecordSearch();
-  }
-}
-function onDocnameBlur() {
-  setTimeout(() => {
-    showDocnameDropdown.value = false;
-  }, 150);
-}
-function selectDocname(name) {
-  contextDocname.value = name;
-  showDocnameDropdown.value = false;
-}
-
-function queueRecordSearch() {
-  clearTimeout(recordSearchTimer);
-  recordSearchTimer = setTimeout(runRecordSearch, 250);
-}
-
-// Query records of the currently selected DocType, filtered by the typed text.
-async function runRecordSearch() {
-  const dt = contextDoctype.value.trim();
-  if (!doctypeOptions.value.includes(dt)) {
-    recordOptions.value = [];
-    return;
-  }
-  const q = contextDocname.value.trim();
-  const seq = ++recordSearchSeq;
-  recordLoading.value = true;
-  try {
-    const rows = await frappeRequest({
-      url: "/api/method/frappe.client.get_list",
-      params: {
-        doctype: dt,
-        fields: JSON.stringify(["name"]),
-        filters: q ? JSON.stringify([["name", "like", `%${q}%`]]) : undefined,
-        limit_page_length: 20,
-        order_by: "modified desc",
-      },
-    });
-    if (seq !== recordSearchSeq) return; // a newer search superseded this one
-    recordOptions.value = Array.isArray(rows) ? rows.map((r) => r.name) : [];
-  } catch (e) {
-    if (seq === recordSearchSeq) recordOptions.value = [];
-  } finally {
-    if (seq === recordSearchSeq) recordLoading.value = false;
-  }
-}
-const appliedKeys = ref(new Set()); // "<msgId>:<field>"
-
-// Human-readable labels for recommendation fields (keys match form keys).
-const FIELD_LABELS = {
-  aiProvider: "AI Provider",
-  aiBackend: "Backend",
-  aiModel: "Model",
-  aiOutputVariable: "Output Variable",
-  aiSystemPrompt: "System Prompt",
-  aiUserPrompt: "User Prompt",
-  aiResponseFormat: "Response Format",
-  aiResponseSchema: "Response Schema",
-  aiTemperature: "Temperature",
-  aiTopP: "Top P",
-  aiMaxTokens: "Max Tokens",
-  aiTimeout: "Timeout (s)",
-  aiMaxRetries: "Max Retries",
-};
+// Grounding the designer never types: the DocType the process is triggered on.
+// The manual Context DocType / Sample Record inputs retired with the legacy
+// transcript (WI-001679) — the assistant looks schemas up with its own tools —
+// but a selector turn still ships this one automatically, because its evidence
+// template is written in {{ doc.<field> }} terms and guessing them is exactly
+// what the digest cannot do for it.
+const triggerDoctype = ref("");
 
 const NUMERIC_FIELDS = ["aiTemperature", "aiTopP", "aiMaxTokens", "aiTimeout", "aiMaxRetries"];
 
@@ -1226,176 +1249,74 @@ const providerLabel = computed(() => {
 // Default Model into the Model field. Removed rather than rewritten — the
 // direction it encoded is now backwards. The MODEL is the agent's pick and the
 // provider is derived from that model's credentials link, so a provider can no
-// longer choose a model for you. AI Provider Credentials.default_model was
+// longer choose a model for you. The provider-level default_model was
 // deleted with the same change, the provider select is disabled, and nothing
 // called this function; it read a field that no longer exists.
 
-function makeId() {
-  return Date.now() + "_" + Math.random().toString(36).slice(2, 8);
-}
-
-function fieldLabel(key) {
-  return FIELD_LABELS[key] || key;
-}
-
-function valuePreview(value) {
-  let str = typeof value === "string" ? value : JSON.stringify(value);
-  str = (str || "").trim();
-  return str.length > 240 ? str.slice(0, 240) + "…" : str;
-}
-
-function isApplied(msgId, key) {
-  return appliedKeys.value.has(`${msgId}:${key}`);
-}
-
-function scrollBottom() {
-  nextTick(() => {
-    if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight;
-  });
-}
-
-function applyRecommendation(msgId, key, value) {
+// Apply one recommended value onto the open form. The card (or the tray's
+// per-field Apply) is the only caller now — the legacy transcript tracked
+// which suggestions had been applied itself; the shared cards own that state.
+function applyRecommendation(key, value) {
   if (NUMERIC_FIELDS.includes(key)) {
     const n = Number(value);
     if (Number.isFinite(n)) form.value[key] = n;
   } else {
     form.value[key] = String(value);
   }
-  // Switch the format toggle on so a JSON schema suggestion is visible.
-  appliedKeys.value = new Set(appliedKeys.value).add(`${msgId}:${key}`);
-}
-
-async function sendMessage() {
-  const requirement = input.value.trim();
-  // WI-001650: no provider requirement — with nothing linked yet the server
-  // falls back to the assistant's own credentials (WI-001623), so the chat
-  // can be used to create the very first configuration for this task.
-  if (!requirement || loading.value) return;
-
-  // History = the conversation so far (before this turn).
-  const history = messages.value
-    .filter((m) => m.content)
-    .map((m) => ({ role: m.role, content: m.content }));
-
-  messages.value.push({ id: makeId(), role: "user", content: requirement });
-  input.value = "";
-  loading.value = true;
-  scrollBottom();
-
-  // Selector mode: ship the LIVE diagram (the saved model may be stale while
-  // the designer edits) plus the current drafts so the assistant proposes
-  // prompts that reference real shapes and refines instead of restarting.
-  let diagramPayload = {};
-  if (isSelector.value) {
-    try {
-      const { xml } = await toRaw(props.modeler).saveXML({ format: false });
-      diagramPayload = {
-        mode: "selector",
-        bpmn_xml: xml,
-        element_id: rawElement().businessObject?.id || rawElement().id || "",
-        process_model: window.__ONE_BPMN_CURRENT_MODEL__ || "",
-        current_config: JSON.stringify({
-          aiModel: form.value.aiModel,
-          aiSystemPrompt: form.value.aiSystemPrompt,
-          aiUserPrompt: form.value.aiUserPrompt,
-        }),
-      };
-    } catch (e) {
-      console.warn("[AI assistant] could not serialize diagram:", e);
-    }
-  }
-
-  try {
-    const res = await frappeRequest({
-      url: "/api/method/one_bpmn.api.ai_assistant.recommend_ai_task_config",
-      method: "POST",
-      params: {
-        provider: form.value.aiProvider,
-        backend: form.value.aiBackend || "direct_api",
-        requirement,
-        context_doctype: contextDoctype.value.trim(),
-        context_docname: contextDocname.value.trim(),
-        history: JSON.stringify(history),
-        // WI-001649 amendment: the linked config is the default target for
-        // "change this agent…" requests — no interrogation needed.
-        linked_config: form.value.aiAgentConfig || "",
-        // WI-001623: the dialog IS a chat-platform conversation — first send
-        // creates it; later sends continue it (history lives server-side).
-        conversation: assistantConversation.value || "",
-        ...diagramPayload,
-      },
-    });
-
-    if (res && res.ok) {
-      if (res.conversation) assistantConversation.value = res.conversation;
-      let recommendations = res.recommendations || {};
-      if (isSelector.value) {
-        // Drop suggestions for fields the selector doesn't have
-        // (response schema, output variable, sampling params, …).
-        recommendations = Object.fromEntries(
-          Object.entries(recommendations).filter(([key]) => SELECTOR_FIELDS.includes(key))
-        );
-      }
-      messages.value.push({
-        id: makeId(),
-        role: "assistant",
-        content: res.message || "Here are my recommendations.",
-        recommendations,
-        // WI-001649: a complete new-agent proposal the designer can confirm.
-        proposal: !isSelector.value && res.proposed_config ? res.proposed_config : null,
-        proposalState: null, // null | "creating" | "created" | "dismissed"
-        proposalResult: null,
-        // WI-001649 amendment: a proposed change to an EXISTING agent.
-        update: !isSelector.value && res.proposed_update ? res.proposed_update : null,
-        updateState: null, // null | "applying" | "applied" | "dismissed"
-        updateResult: null,
-      });
-    } else {
-      const err = (res && (res.message || res.error_code)) || "The assistant request failed.";
-      messages.value.push({ id: makeId(), role: "assistant", content: `⚠️ ${err}` });
-    }
-  } catch (e) {
-    messages.value.push({
-      id: makeId(),
-      role: "assistant",
-      content: "⚠️ Could not reach the assistant. Check your connection and try again.",
-    });
-  } finally {
-    loading.value = false;
-    scrollBottom();
-  }
 }
 
 // ── Load providers + existing element config ────────────────────────────────
 onMounted(async () => {
   try {
-    const data = await frappeGet("/api/resource/AI Provider Credentials", {
-      fields: JSON.stringify(["name", "provider_name"]),
-      filters: JSON.stringify([["enabled", "=", 1]]),
-      limit_page_length: 100,
+    const skills = await frappeGet("/api/resource/AI Skill", { 
+      fields: JSON.stringify(["name"]),
+      filters: JSON.stringify([["status", "in", ["Active", "Published"]]]), 
+      limit_page_length: 100 
     });
-    providers.value = Array.isArray(data) ? data : [];
+    availableSkills.value = skills || [];
   } catch (e) {
+    console.error("Failed to load skills", e);
+  }
+
+
+  // The catalogue answers for itself. This used to be two requests that had to
+  // agree — the AI Model list, plus a list of AI Providers filtered on
+  // `enabled` — and a model was labelled "credentials disabled" when its
+  // provider was missing from the second. That comparison stopped meaning
+  // anything when the connection moved onto AI Model: AI Provider has one field
+  // now, so the filter referenced a column that no longer exists, the request
+  // failed into its catch, and EVERY model was labelled disabled. The key is a
+  // Password and cannot be read here, so the server answers the only question
+  // the editor actually has.
+  try {
+    const rows = await frappeRequest({
+      url: "/api/method/one_bpmn.agents.agent_config_resolver.model_catalogue",
+      method: "POST",
+    });
+    catalogModels.value = Array.isArray(rows) ? rows : [];
+    providers.value = Array.from(
+      new Set(catalogModels.value.map((m) => m.provider).filter(Boolean)),
+    ).map((name) => ({ name, provider_name: name }));
+  } catch (e) {
+    catalogModels.value = [];
     providers.value = [];
   }
 
-  // WI-001655: the AI Model catalog — picking a model implies its
-  // credentials. Only USABLE models are offered: linked to credentials
-  // that are enabled (same rule as the assistant's grounding); unlinked
-  // catalog rows are managed in the desk until someone links them.
   try {
-    const models = await frappeGet("/api/resource/AI Model", {
-      fields: JSON.stringify(["name", "ai_provider_credentials"]),
-      filters: JSON.stringify([["ai_provider_credentials", "is", "set"]]),
-      limit_page_length: 100,
-      order_by: "name asc",
-    });
-    const enabledCreds = new Set(providers.value.map((p) => p.name));
-    catalogModels.value = (Array.isArray(models) ? models : []).filter(
-      (m) => enabledCreds.has(m.ai_provider_credentials)
+    const settings = await frappeGet(
+      "/api/resource/Processa Settings/Processa Settings",
+      { fields: JSON.stringify([
+        "default_compaction_model", "default_memory_distill_model",
+        "default_memory_reconcile_model",
+      ]) },
     );
+    siteDefaults.value = {
+      compaction: settings?.default_compaction_model || "",
+      distill: settings?.default_memory_distill_model || "",
+      reconcile: settings?.default_memory_reconcile_model || "",
+    };
   } catch (e) {
-    catalogModels.value = [];
+    siteDefaults.value = { compaction: "", distill: "", reconcile: "" };
   }
 
   // Load selectable AI Agent Configurations for the seed dropdown.
@@ -1409,22 +1330,6 @@ onMounted(async () => {
     agentConfigs.value = Array.isArray(cfgs) ? cfgs : [];
   } catch (e) {
     agentConfigs.value = [];
-  }
-
-  // Load DocType names for the Context DocType autocomplete.
-  try {
-    const rows = await frappeRequest({
-      url: "/api/method/frappe.client.get_list",
-      params: {
-        doctype: "DocType",
-        fields: JSON.stringify(["name"]),
-        limit_page_length: 0,
-        order_by: "name asc",
-      },
-    });
-    doctypeOptions.value = Array.isArray(rows) ? rows.map((r) => r.name) : [];
-  } catch (e) {
-    doctypeOptions.value = [];
   }
 
   // Read existing attrs from element
@@ -1464,37 +1369,51 @@ onMounted(async () => {
     aiMemoryWriteMode:
       get("aiMemoryWriteMode") ||
       (get("aiMemoryAutoWrite") === "true" ? "distilled" : "off"),
+    // WI-002163: same reasoning as the two below it — must exist on the form
+    // object for the same wholesale-replace reason.
+    aiMemoryTokenBudget: numOr("aiMemoryTokenBudget", 800, parseInt),
     // WI-001793: these two live on the agent, but seed them from the diagram so
     // a map whose agent has not been migrated still shows its real setting.
-    // They must exist on the form object — loadMemoryFromConfig only overlays
+    // They must exist on the form object — the linked-agent load only overlays
     // keys already present, and this assignment replaces form.value wholesale.
     aiMemoryDistillModel: get("aiMemoryDistillModel") || "",
     aiMemoryReconcileModel: get("aiMemoryReconcileModel") || "",
+    // Compaction is agent-owned like the two above, but the keys must exist
+    // here: this assignment replaces form.value wholesale, and the overlay
+    // below only fills keys that are already present.
+    aiContextTokenBudget: numOr("aiContextTokenBudget", 0, parseInt),
+    aiCompactionEnabled: get("aiCompactionEnabled") === "true",
+    aiCompactionKeepTail: numOr("aiCompactionKeepTail", 10, parseInt),
+    aiCompactionModel: get("aiCompactionModel") || "",
+    aiCompactionTokenThreshold: numOr("aiCompactionTokenThreshold", 0, parseInt),
+    aiCompactionIdleMinutes: numOr("aiCompactionIdleMinutes", 0, parseInt),
+    aiCompactionOnTaskBoundary: get("aiCompactionOnTaskBoundary") === "true",
     // WI-001639: agent-owned, with no diagram fallback — this assignment
     // replaces form.value wholesale, so the keys must exist here or
-    // loadStaticContextFromConfig has nothing to fill and the template binds
+    // loadLinkedAgent has nothing to fill and the template binds
     // to undefined.
     aiExamples: [],
     aiGuardrails: [],
+    aiAgentRoles: [],
   };
 
-  // Pre-fill the assistant's context DocType from the diagram's start-event
-  // trigger — the process context the prompts will run against.
-  if (!contextDoctype.value) {
+  // Read the diagram's start-event trigger DocType — the process context the
+  // prompts will run against — and ground selector turns with it.
+  if (!triggerDoctype.value) {
     try {
       const defs = toRaw(props.modeler).getDefinitions();
       for (const rootEl of defs.rootElements || []) {
         for (const flowEl of rootEl.flowElements || []) {
           if (flowEl.$type !== "bpmn:StartEvent") continue;
-          const triggerDoctype =
+          const trigger =
             flowEl.get?.("spiffworkflow:triggerDoctype") ||
             flowEl.$attrs?.["spiffworkflow:triggerDoctype"];
-          if (triggerDoctype) {
-            contextDoctype.value = triggerDoctype;
+          if (trigger) {
+            triggerDoctype.value = trigger;
             break;
           }
         }
-        if (contextDoctype.value) break;
+        if (triggerDoctype.value) break;
       }
     } catch (e) { /* best effort */ }
   }
@@ -1503,37 +1422,23 @@ onMounted(async () => {
   // is visible before the compile error says it.
   refreshLinkedAgentStatus();
 
-  // WI-001793: the agent owns the memory settings — show its values, not the
-  // diagram's stale copies, so Save can't write yesterday's config back.
-  await loadMemoryFromConfig();
-
-  // WI-001639: the agent owns examples and guard rails — show its rows, not an
-  // empty pair of sections, so Save can't write a blank static context back.
-  await loadStaticContextFromConfig();
-  await loadScreening();
+  // The linked agent is the source of truth for the prompt, model, sampling,
+  // memory, compaction, examples, guard rails, skills and permissions — so its
+  // values are what the panel opens showing. Anything blank on the agent falls
+  // through to the shape's own copy, exactly as dispatch does.
+  await loadLinkedAgent();
 });
 
 // Pull the linked configuration's current values into the form (WI-001637
 // live link). The resolver returns shape-attribute keys (aiSystemPrompt,
 // aiProvider, aiModel, aiTemperature, aiMaxTokens) that map directly onto our
-// form fields. At run time the configuration is authoritative for these
-// fields; editing them here and saving writes the changes back to it.
-// WI-001793: memory settings are stored on the agent, not the diagram, so a
-// linked configuration is the source of truth for them. The resolver hands back
-// shape-attribute keys; only the toggle needs translating, because the doctype
-// models it as Enabled / Disabled / blank (blank = inherit the diagram's older
-// value) while the modal binds a checkbox.
-const MEMORY_FORM_KEYS = [
-  "aiConversationStore",
-  "aiContextMaxMessages",
-  "aiLongTermMemory",
-  "aiMemoryScope",
-  "aiMemoryWriteMode",
-  "aiMemoryDistillModel",
-  "aiMemoryReconcileModel",
-];
+
+const BOOLEAN_FORM_KEYS = ["aiCompactionEnabled", "aiCompactionOnTaskBoundary"];
 
 function configValueToForm(key, val) {
+  if (BOOLEAN_FORM_KEYS.includes(key)) {
+    return val === true || val === 1 || ["true", "1"].includes(String(val).toLowerCase());
+  }
   if (key !== "aiLongTermMemory") return val;
   return val === true || val === 1 || ["enabled", "true", "1"].includes(String(val).toLowerCase());
 }
@@ -1548,21 +1453,6 @@ function applyConfigFields(fields, onlyKeys = null) {
 // On open, overlay the linked agent's memory settings so the panel shows what
 // will actually run. Scoped to memory on purpose: the other agent-level fields
 // keep their existing "shape copy is the editing view" behaviour.
-async function loadMemoryFromConfig() {
-  if (!form.value.aiAgentConfig) return;
-  try {
-    const fields = await frappeRequest({
-      url: "/api/method/one_bpmn.agents.agent_config_resolver.get_agent_config_for_shape",
-      method: "POST",
-      params: { config_name: form.value.aiAgentConfig },
-    });
-    applyConfigFields(fields, MEMORY_FORM_KEYS);
-  } catch (e) {
-    // Unreadable config — the shape's older values stay on screen, which is
-    // also what dispatch will fall back to.
-  }
-}
-
 async function onAgentConfigSelect() {
   const value = form.value.aiAgentConfig;
   if (value === "__create__") {
@@ -1584,54 +1474,9 @@ async function onAgentConfigSelect() {
   // create flow) makes a still-open manual create panel stale — close it.
   if (value) showCreateAgent.value = false;
   if (!value) return;
-  try {
-    const fields = await frappeRequest({
-      url: "/api/method/one_bpmn.agents.agent_config_resolver.get_agent_config_for_shape",
-      method: "POST",
-      params: { config_name: value },
-    });
-    applyConfigFields(fields);
-    // WI-001639: the same read carries the static-context tables, so the
-    // sections follow the newly linked agent rather than keeping the old
-    // agent's rows on screen.
-    form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
-    form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
-    staticContextLoaded.value = true;
-    await loadScreening();
-  } catch (e) {
-    /* leave the current field values as-is if the seed lookup fails */
-  }
-}
-
-// WI-001649: human-readable rows for the proposal card.
-const PROPOSAL_LABELS = {
-  agent_name: "Name",
-  agent_id: "Agent ID",
-  chat_mode_label: "Chat mode label",
-  ai_model: "Model (provider follows)",
-  system_prompt: "System prompt",
-  description: "Description",
-};
-function proposalRows(proposal) {
-  const rows = {};
-  for (const [key, label] of Object.entries(PROPOSAL_LABELS)) {
-    if (proposal[key]) rows[label] = proposal[key];
-  }
-  if (Array.isArray(proposal.sample_prompts) && proposal.sample_prompts.length) {
-    rows["Sample prompts"] = proposal.sample_prompts.map((sp) => sp.prompt).join(" • ");
-  }
-  // WI-001639: examples and guard rails become part of the agent's frozen
-  // static context, so the designer must SEE them before confirming — a
-  // proposal card that hides them would create rules nobody agreed to.
-  if (Array.isArray(proposal.examples) && proposal.examples.length) {
-    rows["Examples"] = proposal.examples.map((ex) => ex.input).join(" • ");
-  }
-  if (Array.isArray(proposal.guardrails) && proposal.guardrails.length) {
-    rows["Guard rails"] = proposal.guardrails
-      .map((g) => (g.category ? `[${g.category}] ${g.guardrail}` : g.guardrail))
-      .join(" • ");
-  }
-  return rows;
+  // Same loader the panel opens with, so picking an agent and opening a task
+  // already linked to it put identical values on screen.
+  await loadLinkedAgent();
 }
 
 // The designer's confirm no longer creates anything itself: it relays the
@@ -1640,21 +1485,15 @@ function proposalRows(proposal) {
 // call on its AI Agent Run, and a chat approval typed in plain words works
 // exactly the same way. The onefm.created_config event that follows a
 // verified creation links the new agent on this shape (onAssistantAgentEvent).
-async function createProposedAgent(m, onFail) {
+async function createProposedAgent(onFail) {
   const panel = chatPanel.value;
   if (!panel) {
     const text =
       "⚠️ The assistant chat is not open — approve the proposal by replying in the chat instead.";
-    if (onFail) {
-      onFail(text);
-    } else {
-      messages.value.push({ id: makeId(), role: "assistant", content: text });
-      scrollBottom();
-    }
+    if (onFail) onFail(text);
+    else showNotice("Assistant chat not open", text);
     return;
   }
-  // Legacy transcript path only — the shared panel's card retires itself.
-  if (m && m.proposalState !== undefined) m.proposalState = "created";
   panel.send("Approved — create the agent exactly as proposed.");
 }
 
@@ -1697,12 +1536,8 @@ async function applyProposedUpdate(m, onFail) {
     const text =
       "⚠️ Could not apply the change: " +
       ((e?.messages && e.messages.length && e.messages.join("\n")) || e?.message || e);
-    if (onFail) {
-      onFail(text);
-    } else {
-      messages.value.push({ id: makeId(), role: "assistant", content: text });
-      scrollBottom();
-    }
+    if (onFail) onFail(text);
+    else showNotice("Changes not applied to the agent", text);
   }
 }
 
@@ -1721,6 +1556,7 @@ async function createAgent() {
       ...newAgent.value,
       agent_id: newAgent.value.agent_id.trim() || scrubbedAgentId.value,
       sample_prompts: newAgent.value.sample_prompts.filter((sp) => (sp.prompt || "").trim()),
+      enabled_skills: newAgent.value.ai_skills.filter((sk) => (sk.skill || "").trim()),
     };
     const res = await frappeRequest({
       url: "/api/method/one_bpmn.agents.agent_config_resolver.create_agent_configuration",
@@ -1778,15 +1614,39 @@ async function writeBackToConfig() {
     fields.aiLongTermMemory = form.value.aiLongTermMemory ? "Enabled" : "Disabled";
     fields.aiMemoryScope = form.value.aiLongTermMemory ? form.value.aiMemoryScope : "";
     fields.aiMemoryWriteMode = form.value.aiLongTermMemory ? form.value.aiMemoryWriteMode : "";
+    // Recall runs whenever memory is on, independent of write mode — sent
+    // unconditionally (like aiCompactionKeepTail below), never zeroed when
+    // memory is off, since a stray 0 would just fall back to the default.
+    fields.aiMemoryTokenBudget = form.value.aiMemoryTokenBudget || 800;
     fields.aiMemoryDistillModel = form.value.aiMemoryDistillModel || "";
     fields.aiMemoryReconcileModel = form.value.aiMemoryReconcileModel || "";
+    // Compaction. The thresholds are only meaningful while it is enabled, so
+    // they are zeroed when it is off rather than left to fire on a re-enable
+    // with settings the user has since forgotten about.
+    fields.aiContextTokenBudget = form.value.aiContextTokenBudget || 0;
+    fields.aiCompactionEnabled = form.value.aiCompactionEnabled ? 1 : 0;
+    fields.aiCompactionKeepTail = form.value.aiCompactionKeepTail || 10;
+    fields.aiCompactionModel = form.value.aiCompactionEnabled
+      ? form.value.aiCompactionModel || ""
+      : "";
+    fields.aiCompactionTokenThreshold = form.value.aiCompactionEnabled
+      ? form.value.aiCompactionTokenThreshold || 0
+      : 0;
+    fields.aiCompactionIdleMinutes = form.value.aiCompactionEnabled
+      ? form.value.aiCompactionIdleMinutes || 0
+      : 0;
+    fields.aiCompactionOnTaskBoundary =
+      form.value.aiCompactionEnabled && form.value.aiCompactionOnTaskBoundary ? 1 : 0;
   }
   // WI-001639: examples and guard rails are agent-level, so they persist here
   // rather than onto the BPMN XML. Sent whole (the backend replaces the tables)
   // and only when they were read first — omitting the keys means "leave them".
   if (staticContextLoaded.value) {
+    fields.aiSkills = form.value.aiSkills;
     fields.aiExamples = form.value.aiExamples;
     fields.aiGuardrails = form.value.aiGuardrails;
+    // Blank rows are the ones the user added and never picked a role for.
+    fields.aiAgentRoles = form.value.aiAgentRoles.filter((r) => r && r.role);
   }
   // Screening goes through security_api, which accepts ONLY screening fields —
   // keeping this endpoint from becoming a general writer for the whole agent.
@@ -1893,6 +1753,20 @@ async function save() {
 </script>
 
 <style scoped>
+.agent-allow-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.agent-allow-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 400;
+}
+
 .ai-agent-modal-overlay {
   position: fixed;
   inset: 0;
@@ -1963,6 +1837,16 @@ async function save() {
   border-radius: 4px;
   font-size: 0.85rem;
   font-family: inherit;
+}
+/* A value the agent owns, shown rather than offered. Deliberately not styled as
+   an input: a disabled <select> still reads as a control someone should fill. */
+.derived-value {
+  padding: 6px 8px;
+  font-size: 0.85rem;
+  color: #111827;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
 }
 .checkbox-row {
   display: flex;
@@ -2037,16 +1921,6 @@ async function save() {
   max-height: 90vh;
 }
 
-.assistant-header {
-  padding: 16px 18px;
-  border-bottom: 1px solid #e2e2e2;
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-.assistant-title { font-size: 0.92rem; font-weight: 600; color: #383838; }
-.assistant-sub { font-size: 0.72rem; color: #999999; }
-
 .assistant-disabled {
   padding: 24px 18px;
   font-size: 0.82rem;
@@ -2054,224 +1928,11 @@ async function save() {
   line-height: 1.5;
 }
 
-.assistant-context {
-  padding: 12px 16px;
-  border-bottom: 1px solid #eef2f7;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.ctx-row { display: flex; flex-direction: column; gap: 3px; }
-.ctx-row label { font-size: 0.72rem; font-weight: 500; color: #525252; }
-.ctx-row .hint { font-weight: 400; color: #9ca3af; }
-.ctx-row input {
-  padding: 5px 7px;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  font-size: 0.8rem;
-  font-family: inherit;
-}
-.ctx-hint { font-size: 0.68rem; color: #999999; line-height: 1.4; }
-
-.ctx-autocomplete { position: relative; }
-.ctx-autocomplete input { width: 100%; box-sizing: border-box; }
-.ctx-autocomplete input:disabled {
-  background: #f3f3f3;
-  color: #999999;
-  cursor: not-allowed;
-}
-.ctx-dropdown {
-  position: absolute;
-  top: calc(100% + 2px);
-  left: 0;
-  right: 0;
-  margin: 0;
-  padding: 4px 0;
-  list-style: none;
-  background: #fff;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  max-height: 200px;
-  overflow-y: auto;
-  z-index: 10;
-}
-.ctx-dropdown li {
-  padding: 5px 9px;
-  font-size: 0.8rem;
-  color: #383838;
-  cursor: pointer;
-}
-.ctx-dropdown li:hover { background: #f3f3f3; color: #383838; }
-.ctx-dropdown-status {
-  position: absolute;
-  top: calc(100% + 2px);
-  left: 0;
-  right: 0;
-  padding: 6px 9px;
-  font-size: 0.78rem;
-  color: #999999;
-  background: #fff;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  z-index: 10;
-}
-
 .assistant-agui-panel {
   flex: 1;
   min-height: 0;
   border-left: none; /* the pane already draws the divider */
 }
-.assistant-messages {
-  flex: 1;
-  overflow-y: auto;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.assistant-empty { font-size: 0.8rem; color: #999999; line-height: 1.5; }
-
-/* "Tips for a good prompt" callout — opened from the 💡 toggle by the input */
-.assistant-tips {
-  padding: 10px 12px;
-  background: #f8f8f8;
-  border: 1px solid #e2e2e2;
-  border-radius: 8px;
-  color: #7c7c7c;
-  font-size: 0.8rem;
-  line-height: 1.5;
-}
-.assistant-input-wrap { position: relative; }
-.assistant-tips-popover {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  right: 0;
-  background: #ffffff;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
-  z-index: 10;
-}
-.assistant-tips-close {
-  float: right;
-  border: none;
-  background: transparent;
-  color: #999999;
-  cursor: pointer;
-  font-size: 0.75rem;
-  padding: 0 2px;
-}
-.assistant-tips-close:hover { color: #525252; }
-.assistant-tips-toggle {
-  align-self: flex-end;
-  border: 1px solid #e2e2e2;
-  background: #f8f8f8;
-  border-radius: 8px;
-  padding: 6px 8px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  line-height: 1;
-}
-.assistant-tips-toggle:hover { background: #f3f3f3; }
-.assistant-tips-toggle.active { background: #ede9fe; border-color: #c4b5fd; }
-.assistant-tips-title {
-  font-weight: 600;
-  color: #525252;
-  margin-bottom: 6px;
-}
-.assistant-tips ul {
-  margin: 0;
-  padding-left: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.assistant-tips li strong { color: #525252; }
-
-.msg { max-width: 100%; }
-.msg-text {
-  font-size: 0.82rem;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.msg-user .msg-text {
-  background: #171717;
-  color: #fff;
-  padding: 8px 10px;
-  border-radius: 8px 8px 2px 8px;
-  align-self: flex-end;
-  margin-left: auto;
-  width: fit-content;
-  max-width: 90%;
-}
-.msg-assistant .msg-text {
-  background: #fff;
-  color: #1f2937;
-  padding: 8px 10px;
-  border: 1px solid #e2e2e2;
-  border-radius: 8px 8px 8px 2px;
-  width: fit-content;
-  max-width: 95%;
-}
-.msg-text.typing { color: #999999; font-style: italic; }
-
-.recs { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
-.rec {
-  background: #fff;
-  border: 1px solid #e2e2e2;
-  border-radius: 6px;
-  padding: 7px 9px;
-}
-.rec-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.rec-field { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: #171717; }
-.rec-apply {
-  border: none;
-  background: #171717;
-  color: #fff;
-  font-size: 0.72rem;
-  padding: 3px 10px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-.rec-apply:hover { background: #171717; }
-.rec-apply:disabled { background: #c7c7c7; cursor: default; }
-.rec-value {
-  font-size: 0.78rem;
-  color: #383838;
-  margin-top: 4px;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.assistant-input {
-  border-top: 1px solid #e2e2e2;
-  padding: 10px 12px;
-  display: flex;
-  gap: 8px;
-  align-items: flex-end;
-}
-.assistant-input textarea {
-  flex: 1;
-  resize: none;
-  padding: 6px 8px;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  font-size: 0.82rem;
-  font-family: inherit;
-}
-.assistant-input textarea:focus { outline: none; border-color: #171717; }
-.assistant-send {
-  border: none;
-  background: #171717;
-  color: #fff;
-  padding: 8px 14px;
-  border-radius: 5px;
-  font-size: 0.82rem;
-  cursor: pointer;
-}
-.assistant-send:hover { background: #171717; }
-.assistant-send:disabled { background: #c7c7c7; cursor: default; }
 
 .agent-rerun {
   margin-left: 6px;
@@ -2302,50 +1963,6 @@ async function save() {
 .agent-status-live { color: #15803d; background: #dcfce7; }
 .agent-status-bad { color: #b91c1c; background: #fee2e2; }
 .agent-status-pending { color: #92400e; background: #fef3c7; }
-
-/* ── Assistant new-agent proposal card (WI-001649) ── */
-.proposal {
-  margin-top: 8px;
-  padding: 10px;
-  border: 1px solid #c7d2fe;
-  border-radius: 8px;
-  background: #f3f3f3;
-}
-.proposal-title {
-  font-weight: 600;
-  font-size: 13px;
-  color: #3730a3;
-  margin-bottom: 6px;
-}
-.proposal-fields {
-  width: 100%;
-  font-size: 12px;
-  border-collapse: collapse;
-}
-.proposal-key {
-  color: #171717;
-  font-weight: 600;
-  padding: 2px 8px 2px 0;
-  white-space: nowrap;
-  vertical-align: top;
-}
-.proposal-value {
-  color: #1e293b;
-  padding: 2px 0;
-  word-break: break-word;
-}
-.proposal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 8px;
-}
-.proposal-done {
-  margin-top: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #15803d;
-}
 
 /* ── Create-new-agent panel (WI-001648) ── */
 .create-agent-panel {

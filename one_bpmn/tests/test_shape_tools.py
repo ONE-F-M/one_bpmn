@@ -102,3 +102,22 @@ class TestExecuteShape(FrappeTestCase):
 		name = self._script("Shape Boom Script", 'raise ValueError("boom")')
 		out = execute_shape(_fake_instance(), "task_z", {"serverScript": name}, {})
 		self.assertIn("error", json.loads(out))
+
+	def test_top_level_def_can_call_another_top_level_def_and_use_a_top_level_import(self):
+		"""_run_server_script used to exec() with separate globals/locals dicts —
+		a top-level `def`'s own __globals__ was the (near-empty) globals dict, so
+		it could not see another top-level function or a top-level import in the
+		SAME script, and died with NameError the instant one was actually called.
+		One merged namespace (mirrors engine.py's own exec()) fixes this."""
+		name = self._script(
+			"Shape Namespace Script",
+			"import json as _json\n"
+			"def _format(value):\n"
+			"    return _json.dumps({'value': value})\n"
+			"def _build():\n"
+			"    return _format(name)\n"
+			"result['out'] = _build()\n",
+		)
+		out = execute_shape(_fake_instance(), "task_ns", {"serverScript": name}, {"name": "World"})
+		payload = json.loads(out)
+		self.assertEqual(payload["out"], '{"value": "World"}')

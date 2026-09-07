@@ -1,0 +1,43 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-08-13 17:05:36.841041",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "skill",
+  "version_pin"
+ ],
+ "fields": [
+  {
+   "fieldname": "skill",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "AI Skill",
+   "options": "AI Skill",
+   "reqd": 1
+  },
+  {
+   "description": "Leave empty for latest",
+   "fieldname": "version_pin",
+   "fieldtype": "Data",
+   "label": "Version Pin"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-13 17:05:36.841041",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "AI Agent Enabled Skill",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

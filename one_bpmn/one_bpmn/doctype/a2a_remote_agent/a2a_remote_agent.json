@@ -1,0 +1,223 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:agent_name",
+ "creation": "2026-08-13 21:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_identity",
+  "agent_name",
+  "endpoint_url",
+  "enabled",
+  "column_break_identity",
+  "approval_status",
+  "approved_by",
+  "approved_on",
+  "section_card",
+  "card_name",
+  "card_description",
+  "card_fetched_at",
+  "agent_card",
+  "section_auth",
+  "auth_scheme",
+  "auth_header_name",
+  "credential",
+  "column_break_auth",
+  "allow_internal_hosts",
+  "request_timeout",
+  "section_timing",
+  "default_task_timeout_minutes",
+  "column_break_timing",
+  "poll_base_interval",
+  "poll_max_interval"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_identity",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "fieldname": "agent_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Agent Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "description": "Base URL of the remote A2A agent. Changing it sends this entry back to Draft — the new endpoint has to be reviewed on its own merits.",
+   "fieldname": "endpoint_url",
+   "fieldtype": "Data",
+   "label": "Endpoint URL",
+   "options": "URL",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "column_break_identity",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Draft",
+   "description": "Only Approved endpoints can be delegated to. Fetch the card first — the card is what you are approving.",
+   "fieldname": "approval_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Approval Status",
+   "options": "Draft\nApproved\nRevoked"
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Approved By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_on",
+   "fieldtype": "Datetime",
+   "label": "Approved On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_card",
+   "fieldtype": "Section Break",
+   "label": "Agent Card"
+  },
+  {
+   "fieldname": "card_name",
+   "fieldtype": "Data",
+   "label": "Card Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "card_description",
+   "fieldtype": "Small Text",
+   "label": "Card Description",
+   "read_only": 1
+  },
+  {
+   "fieldname": "card_fetched_at",
+   "fieldtype": "Datetime",
+   "label": "Card Fetched At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "agent_card",
+   "fieldtype": "Code",
+   "label": "Cached Card",
+   "options": "JSON",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_auth",
+   "fieldtype": "Section Break",
+   "label": "Authentication"
+  },
+  {
+   "default": "None",
+   "fieldname": "auth_scheme",
+   "fieldtype": "Select",
+   "label": "Auth Scheme",
+   "options": "None\nBearer\nAPI Key Header"
+  },
+  {
+   "default": "Authorization",
+   "depends_on": "eval:doc.auth_scheme=='API Key Header'",
+   "fieldname": "auth_header_name",
+   "fieldtype": "Data",
+   "label": "Auth Header Name"
+  },
+  {
+   "depends_on": "eval:doc.auth_scheme!='None'",
+   "description": "Stored encrypted, decrypted at call time only.",
+   "fieldname": "credential",
+   "fieldtype": "Password",
+   "label": "Credential"
+  },
+  {
+   "fieldname": "column_break_auth",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "Allow private/loopback hosts. Needed only for the loopback test against our own site.",
+   "fieldname": "allow_internal_hosts",
+   "fieldtype": "Check",
+   "label": "Allow Internal Hosts"
+  },
+  {
+   "default": "30",
+   "description": "Timeout for a single HTTP call, in seconds — not for the whole delegated task.",
+   "fieldname": "request_timeout",
+   "fieldtype": "Int",
+   "label": "Request Timeout (s)",
+   "non_negative": 1
+  },
+  {
+   "fieldname": "section_timing",
+   "fieldtype": "Section Break",
+   "label": "Waiting and Polling"
+  },
+  {
+   "default": "240",
+   "description": "How long a delegated task may run before it is timed out and fails through the normal error path.",
+   "fieldname": "default_task_timeout_minutes",
+   "fieldtype": "Int",
+   "label": "Task Deadline (minutes)",
+   "non_negative": 1
+  },
+  {
+   "fieldname": "column_break_timing",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "60",
+   "fieldname": "poll_base_interval",
+   "fieldtype": "Int",
+   "label": "Poll Base Interval (s)",
+   "non_negative": 1
+  },
+  {
+   "default": "900",
+   "fieldname": "poll_max_interval",
+   "fieldtype": "Int",
+   "label": "Poll Max Interval (s)",
+   "non_negative": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-08-13 21:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "A2A Remote Agent",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "agent_name",
+ "track_changes": 1
+}

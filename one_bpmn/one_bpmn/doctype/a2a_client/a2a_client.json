@@ -1,0 +1,120 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:client_name",
+ "creation": "2026-08-13 21:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "client_name",
+  "enabled",
+  "column_break_identity",
+  "approval_status",
+  "approved_by",
+  "approved_on",
+  "section_identity",
+  "user",
+  "description",
+  "section_allowed_agents",
+  "allowed_agents"
+ ],
+ "fields": [
+  {
+   "fieldname": "client_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Client Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "column_break_identity",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Draft",
+   "description": "Approving issues the client its own service user and API key. Revoking disables the user immediately.",
+   "fieldname": "approval_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Approval Status",
+   "options": "Draft\nApproved\nRevoked"
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Approved By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_on",
+   "fieldtype": "Datetime",
+   "label": "Approved On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_identity",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "description": "The service user this caller authenticates as. Created automatically on approval; never edit by hand.",
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "label": "Service User",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "section_allowed_agents",
+   "fieldtype": "Section Break",
+   "label": "Allowed Agents"
+  },
+  {
+   "description": "The only agents this client may invoke. An empty list means the client can call nothing.",
+   "fieldname": "allowed_agents",
+   "fieldtype": "Table",
+   "label": "Allowed Agents",
+   "options": "A2A Client Allowed Agent"
+  }
+ ],
+ "links": [],
+ "modified": "2026-08-13 21:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "A2A Client",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "client_name",
+ "track_changes": 1
+}

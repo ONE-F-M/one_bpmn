@@ -86,9 +86,18 @@ def _validate_icon(cid, icon):
 
 
 def _validate_executability(cid, ov):
-    """An operation must resolve to exactly one executor."""
+    """An operation must resolve to exactly one executor.
+
+    ``allow_disabled`` matches this validator's own intent: it loads manifests
+    with ``include_disabled=True`` so a site can inspect a connector it has
+    switched off. Without it, every operation of a disabled connector reported
+    "appears in the manifest but has no execution configuration" — which is what
+    a *broken* operation looks like. That became routine once the Connector Agent
+    started writing connectors disabled on purpose, so Validate
+    Configuration was telling people a perfectly good draft was broken.
+    """
     try:
-        spec = get_execution_spec(cid, ov)
+        spec = get_execution_spec(cid, ov, allow_disabled=True)
     except Exception as e:
         return [f"{cid}/{ov}: execution config could not be read ({e})"]
 

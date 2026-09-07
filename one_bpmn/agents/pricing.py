@@ -5,10 +5,15 @@ Provides:
   - get_model_pricing()  — the rate card for a model (with cache rates resolved)
   - compute_token_cost() — cost of one interaction, split by billing rate
 
-Looks up pricing from the AI Model Pricing DocType by model_name.
-Handles version-suffixed model names (e.g. "claude-haiku-4-5-20251001")
-by falling back to the base name ("claude-haiku-4-5") when an exact
-match is not found.
+Looks up pricing from the AI Model catalog, whose record name IS the model
+name. Handles version-suffixed model names (e.g. "claude-haiku-4-5-20251001")
+by falling back to the base name ("claude-haiku-4-5") when an exact match is not
+found, and to model_api_name for a model the provider calls something else.
+
+Rates are stored on the model per MILLION tokens, which is how providers publish
+them. This module works in per-1k throughout — every caller and every test does
+— so the conversion happens once, here at the lookup, rather than at each of the
+four places a rate is multiplied out.
 
 Prompt caching (WI-001643): cached input tokens are not billed at the input
 rate, so cost cannot be derived from a single input figure. Every provider we
@@ -29,8 +34,13 @@ import frappe
 # Matches a trailing date-like segment: -YYYYMMDD or -YYYY-MM-DD
 _DATE_SUFFIX_RE = re.compile(r"-\d{4}-?\d{2}-?\d{2}$")
 
-# Fallbacks when AI Model Pricing leaves the cache rates blank. Anthropic bills
-# cache reads at 0.1x and 5-minute cache writes at 1.25x the base input rate.
+# Per 1M (how the catalog stores it) → per 1k (how this module reasons).
+_PER_1M_TO_PER_1K = 1000.0
+
+# Cache rates are always derived rather than configured: nothing ever set them,
+# and every provider we bill either follows these ratios or reports no cache
+# tokens at all. Anthropic bills cache reads at 0.1x and 5-minute cache writes
+# at 1.25x the base input rate.
 CACHE_READ_MULTIPLIER = 0.10
 CACHE_WRITE_MULTIPLIER = 1.25
 
@@ -52,6 +62,14 @@ def get_model_pricing(model: str) -> Optional[Dict]:
 		if result:
 			return result
 
+		# What the provider's API calls it, when that differs from the catalog
+		# name. Runs report the name they sent, which may be either.
+		by_api_name = frappe.db.get_value("AI Model", {"model_api_name": model}, "name")
+		if by_api_name:
+			result = _lookup(by_api_name)
+			if result:
+				return result
+
 		# Strip trailing date suffix and retry
 		base = _DATE_SUFFIX_RE.sub("", model)
 		if base != model:
@@ -67,25 +85,30 @@ def get_model_pricing(model: str) -> Optional[Dict]:
 
 
 def _lookup(model_name: str) -> Optional[Dict]:
-	"""Exact model_name lookup against AI Model Pricing.
+	"""Exact lookup against the AI Model catalog.
+
+	A model with no rate returns None rather than a row of zeros, so an
+	unpriced model reports unknown cost instead of free — the same distinction
+	the old rate card made by simply having no row.
 
 	Cache rates are resolved here rather than by callers so every consumer of
 	get_model_pricing() gets the same derived defaults.
 	"""
-	row = frappe.db.get_value(
-		"AI Model Pricing",
-		filters={"model_name": model_name, "is_active": 1},
-		fieldname=[
-			"input_cost_per_1k",
-			"output_cost_per_1k",
-			"cache_read_cost_per_1k",
-			"cache_write_cost_per_1k",
-		],
-		order_by="effective_from desc",
-		as_dict=True,
+	rates = frappe.db.get_value(
+		"AI Model", model_name, ["input_cost", "output_cost"], as_dict=True
 	)
-	if row:
-		_apply_cache_rate_defaults(row)
+	if not rates:
+		return None
+	if not (_flt(rates.get("input_cost")) or _flt(rates.get("output_cost"))):
+		return None
+
+	row = {
+		"input_cost_per_1k": _flt(rates.get("input_cost")) / _PER_1M_TO_PER_1K,
+		"output_cost_per_1k": _flt(rates.get("output_cost")) / _PER_1M_TO_PER_1K,
+		"cache_read_cost_per_1k": 0.0,
+		"cache_write_cost_per_1k": 0.0,
+	}
+	_apply_cache_rate_defaults(row)
 	return row
 
 

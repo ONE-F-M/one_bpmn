@@ -43,10 +43,11 @@
 			<span v-if="saved" class="arf-ack" role="status">{{ __("Thanks") }}</span>
 		</div>
 
-		<!-- Reasons appear only after a thumbs down, and every part of this is
-		     skippable — the rating was already recorded by the click above. -->
+		<!-- Reasons appear only after a thumbs down. Unlike the old flow, nothing
+		     here has been saved yet — a Negative rating needs a comment before it
+		     records anything at all. -->
 		<div v-if="panelOpen" ref="panelEl" class="arf-panel" @keydown.esc.stop="closePanel">
-			<div class="arf-panel-head">{{ __("What was wrong? (optional)") }}</div>
+			<div class="arf-panel-head">{{ __("What was wrong? (required)") }}</div>
 			<div class="arf-chips" role="group" :aria-label="__('Reasons')">
 				<button
 					v-for="option in REASONS"
@@ -64,17 +65,23 @@
 			<textarea
 				v-model="comment"
 				class="arf-comment"
+				:class="{ 'arf-comment--error': commentError }"
 				rows="2"
 				:maxlength="2000"
-				:placeholder="__('Anything else? (optional)')"
-				:aria-label="__('Additional comment')"
+				:placeholder="__('What went wrong?')"
+				:aria-label="__('What went wrong?')"
+				:aria-required="true"
+				@input="commentError = false"
 			/>
+			<div v-if="commentError" class="arf-comment-error" role="alert">
+				{{ __("A comment is required for a poor rating.") }}
+			</div>
 			<div class="arf-panel-foot">
-				<button type="button" class="arf-send" :disabled="busy" @click="submitDetail">
+				<button type="button" class="arf-send" :disabled="busy" @click="submitNegative">
 					{{ __("Send") }}
 				</button>
 				<button type="button" class="arf-skip" :disabled="busy" @click="closePanel">
-					{{ __("Skip") }}
+					{{ __("Cancel") }}
 				</button>
 			</div>
 		</div>
@@ -89,11 +96,17 @@
 // id — a reply with no `message` gets no control, because there would be nothing
 // to attach the answer to.
 //
-// Two deliberate choices:
+// Deliberate choices:
 //
-//  * The thumb POSTS immediately. Reasons are a second, optional layer, so a
-//    single click is already a complete rating — which matters because most
-//    people will click and nothing more.
+//  * A Positive thumb POSTS immediately — a single click is already a
+//    complete rating, and there is nothing to require from it.
+//  * A Negative thumb does NOT post on click. It only opens the panel: a
+//    poor rating requires a comment (a Process Owner gets assigned and
+//    notified from this record, and an empty complaint tells them nothing),
+//    so nothing is recorded until the panel is submitted with one.
+//  * Withdrawing an existing rating (clicking the thumb already chosen)
+//    always clears immediately, on either thumb — no comment needed to
+//    take back a rating.
 //  * The state shown is the user's OWN rating, not a tally. This is a way to
 //    tell us something, not a score to compare yourself against.
 import { nextTick, ref, watch } from "vue";
@@ -122,6 +135,7 @@ const panelOpen = ref(false);
 const busy = ref(false);
 const saved = ref(false);
 const panelEl = ref(null);
+const commentError = ref(false);
 
 // A resumed conversation learns its ratings after the bubbles are drawn.
 watch(
@@ -151,38 +165,54 @@ async function choose(next) {
 
 	// Clicking the thumb you already chose withdraws it. An unrated reply has no
 	// record at all, which is what keeps "nobody said anything" different from
-	// "somebody disliked it" — so this really does clear.
-	const clearing = rating.value === next;
-	const previous = rating.value;
-	rating.value = clearing ? "" : next;
-	panelOpen.value = !clearing && next === "Negative";
-	if (clearing || next === "Positive") {
+	// "somebody disliked it" — so this really does clear, and needs no comment
+	// to do it, on either thumb.
+	if (rating.value === next) {
+		const previous = rating.value;
+		rating.value = "";
+		panelOpen.value = false;
 		reasons.value = [];
 		comment.value = "";
+		commentError.value = false;
+
+		busy.value = true;
+		try {
+			await call("clear_response_rating", {});
+			acknowledge();
+			emit("rated", { message: props.message, rating: "" });
+		} catch (e) {
+			rating.value = previous;
+		} finally {
+			busy.value = false;
+		}
+		return;
 	}
 
+	if (next === "Negative") {
+		// Nothing saves on this click. A Negative rating requires a comment, so
+		// the record is only created once the panel below is submitted with one.
+		reasons.value = [];
+		comment.value = "";
+		commentError.value = false;
+		panelOpen.value = true;
+		await nextTick();
+		panelEl.value?.querySelector("button")?.focus();
+		return;
+	}
+
+	// Positive still saves instantly — a single click is already a complete
+	// rating, and there is nothing to require from it.
+	const previous = rating.value;
+	rating.value = next;
 	busy.value = true;
 	try {
-		if (clearing) {
-			await call("clear_response_rating", {});
-		} else {
-			await call("rate_response", { rating: next });
-		}
+		await call("rate_response", { rating: next });
 		acknowledge();
 		emit("rated", { message: props.message, rating: rating.value });
 	} catch (e) {
-		// Put the control back where it was. A rating that silently failed is
-		// worse than one that visibly did not take: the user would believe they
-		// had told us something.
 		rating.value = previous;
-		panelOpen.value = false;
 	} finally {
 		busy.value = false;
-	}
-
-	if (panelOpen.value) {
-		await nextTick();
-		panelEl.value?.querySelector("button")?.focus();
 	}
 }
 
@@ -192,21 +222,29 @@ function toggleReason(option) {
 	else reasons.value.splice(at, 1);
 }
 
-async function submitDetail() {
+async function submitNegative() {
 	if (busy.value) return;
+	if (!comment.value.trim()) {
+		commentError.value = true;
+		return;
+	}
+	commentError.value = false;
 	busy.value = true;
 	try {
 		await call("rate_response", {
 			rating: "Negative",
 			reasons: JSON.stringify(reasons.value),
-			comment: comment.value || "",
+			comment: comment.value,
 		});
+		rating.value = "Negative";
 		acknowledge();
+		emit("rated", { message: props.message, rating: "Negative" });
+		panelOpen.value = false;
 	} catch (e) {
-		/* the rating itself is already recorded; the detail is a bonus */
+		// Keep the panel open — whatever was typed is not lost, and the rating
+		// was never recorded, so there is nothing to roll back.
 	} finally {
 		busy.value = false;
-		panelOpen.value = false;
 	}
 }
 
@@ -329,6 +367,14 @@ function closePanel() {
 	border-radius: 4px;
 	resize: vertical;
 	box-sizing: border-box;
+}
+.arf-comment--error {
+	border-color: var(--red-500, #e0473f);
+}
+.arf-comment-error {
+	margin-top: 4px;
+	font-size: 11px;
+	color: var(--red-600, #d1483b);
 }
 .arf-panel-foot {
 	display: flex;

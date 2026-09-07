@@ -123,10 +123,14 @@ class TestCrossAgentConformance(FrappeTestCase):
 		# their contract names at the relay boundary.
 		def reply(stream):
 			def child():
+				# The producers' REAL shape: `event` rather than `name`, with
+				# the payload flat on the event (lumina.py). The double used
+				# to speak the contract already, which hid the missing fold
+				# for three weeks (WI-001678).
 				yield {"type": "RUN_STARTED", "run_id": "child"}
 				yield {"type": "TEXT_MESSAGE_CONTENT", "delta": "token "}
-				yield {"type": "CUSTOM", "name": "MODE_TRANSITION", "value": {"new_mode": "Planning"}}
-				yield {"type": "CUSTOM", "name": "HEARTBEAT", "value": {}}
+				yield {"type": "CUSTOM", "event": "MODE_TRANSITION", "new_mode": "Planning"}
+				yield {"type": "CUSTOM", "event": "HEARTBEAT"}
 				yield {"type": "RUN_FINISHED", "run_id": "child"}
 			return child()
 
@@ -136,6 +140,7 @@ class TestCrossAgentConformance(FrappeTestCase):
 		self.assertIn("onefm.mode_transition", joined)
 		self.assertNotIn("MODE_TRANSITION", joined.replace("onefm.mode_transition", ""))
 		self.assertNotIn("HEARTBEAT", joined, "keep-alives are transport, never events")
+		self.assertIn('"new_mode": "Planning"', joined, "the payload must reach the client under value")
 
 
 class TestPureConfigurationAgent(FrappeTestCase):

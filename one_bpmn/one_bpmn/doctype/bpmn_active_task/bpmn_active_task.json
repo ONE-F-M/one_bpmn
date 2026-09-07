@@ -40,7 +40,8 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Task Type",
-   "options": "User Task\nScript Task\nService Task\nSend Task\nManual Task"
+   "options": "User Task\nScript Task\nService Task\nSend Task\nManual Task\nAI Human Task",
+   "description": "AI Human Task is a question an agent asked a person \u2014 written by the durable-HITL path since WI-001643 but missing from these options, so the value the code stores was one the form said was invalid."
   },
   {
    "fieldname": "status",
@@ -60,9 +61,9 @@
    "label": "End Time"
   },
   {
-   "description": "Comma-separated action labels configured on this User Task (e.g. 'Approve,Reject'). The selected action is submitted as the 'action' variable and drives gateway routing.",
+   "description": "The actions configured on this User Task, stored as a JSON array of objects carrying the label and its per-action flags \u2014 e.g. [{\"action\":\"Approve\",\"confirmTransition\":\"true\"}]. A legacy comma-separated list is still read. The selected action is submitted as the 'action' variable and drives gateway routing. Small Text rather than Data because this is a document, not a label: two actions with flags already run to ~110 characters, so a third overflowed the old varchar(140) and failed the whole task completion.",
    "fieldname": "task_actions",
-   "fieldtype": "Data",
+   "fieldtype": "Small Text",
    "label": "Task Actions"
   },
   {

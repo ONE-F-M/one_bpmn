@@ -14,6 +14,7 @@
 import frappe
 
 from one_bpmn.one_bpmn import engine as bpmn_engine
+from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import _provider_for_model
 
 
 def make_adhoc_decider(instance, wf):
@@ -141,7 +142,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		except Exception:
 			return text
 
-	pool = resolve_tool_pool(sp, task_cfg, instance.process_model or "")
+	pool = resolve_tool_pool(sp, task_cfg, instance.process_model or "", instance)
 
 	# Runtime availability: the pool is spec-derived (every candidate on the
 	# diagram), but at a decision point only PARKED heads can actually be
@@ -237,12 +238,16 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 
 	config = ExecutorConfig(
 		backend="direct_api",
-		provider_name=task_cfg.get("aiProvider", ""),
+		# The provider a model is served by lives on the model's own record,
+		# so naming just the model is enough.
+		provider_name=task_cfg.get("aiProvider", "")
+		or _provider_for_model(task_cfg.get("aiModel", ""), ""),
 		model=task_cfg.get("aiModel", ""),
 		system_prompt=build_static_context(
 			system_prompt=render(task_cfg.get("aiSystemPrompt", "")),
 			examples=behaviour.get("examples"),
 			guardrails=behaviour.get("guardrails"),
+			skills=behaviour.get("enabled_skills"),
 		),
 		user_prompt=user_prompt,
 		# cint first — a shape attribute is a string and "0" is truthy.
@@ -273,6 +278,11 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 			message=frappe.get_traceback(),
 		)
 
+	# WI-001645: the selector runs tools too — publish the agent so its tool
+	# grant applies here as well, not only on AI Agent Tasks.
+	from one_bpmn.security.tool_policy import reset_current_agent, set_current_agent
+
+	_policy_token = set_current_agent(task_cfg.get("aiAgentConfig"))
 	try:
 		executor_cls = get_executor(config.backend)
 		result = executor_cls().run(config, context)
@@ -284,6 +294,8 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		sp.data[f"{bpmn_id}_error_code"] = "UNEXPECTED_ERROR"
 		sp.data[f"{bpmn_id}_error_message"] = "See Frappe Error Log for details."
 		return ("error", None, None)
+	finally:
+		reset_current_agent(_policy_token)
 
 	# One Step per LLM turn, one Tool Call row per call within a turn.
 	try:

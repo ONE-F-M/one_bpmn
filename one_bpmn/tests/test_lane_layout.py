@@ -50,12 +50,16 @@ pytestmark = pytest.mark.skipif(
 # Crossings are the one metric a lane layout cannot drive to zero: a re-check
 # loop back to an early step has to cross every lane-changing flow it spans, and
 # this process has four join gateways collecting such loops. The ceiling locks in
-# what the channel router achieved (228) with room for graph-shape noise; the
+# what the router achieves today (172, down from 228 when edges could only leave
+# a shape sideways and loops had only the band beneath the lane to run in); the
 # other metrics below are absolute.
-MAX_CROSSINGS = 250
-# Short shared approach segments where two arrows reach the same node row. Each
-# is a few tens of pixels at the point of entry, not a line drawn along another.
-MAX_COLLINEAR = 10
+MAX_CROSSINGS = 180
+# Collinear pairs were short shared approach segments where two arrows reached
+# the same node row. There are none left: an edge that arrives vertically now
+# docks on the face it is heading for instead of stubbing along the target's row,
+# so there is no shared approach to collide on. Held at zero deliberately — a
+# pair reappearing means an arrival stub came back.
+MAX_COLLINEAR = 0
 
 
 def run_pipeline(ir: dict) -> str:

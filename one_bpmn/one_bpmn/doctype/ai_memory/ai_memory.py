@@ -19,12 +19,22 @@ class AIMemory(Document):
 		``days <= 0`` (the default configured in hooks) means retain
 		indefinitely, so nothing is deleted until an administrator sets a
 		positive retention in Log Settings.
+
+		A ``user_directed`` memory (the user explicitly asked the agent to
+		remember it) is never swept here — a global retention setting turned
+		on for cleanup elsewhere must not silently delete a standing
+		convention nobody asked to expire.
 		"""
 		days = cint(days)
 		if days <= 0:
 			return
 		cutoff = add_to_date(now_datetime(), days=-days)
-		frappe.db.delete("AI Memory", {"modified": ("<", cutoff)})
+		# frappe.delete_doc (not a raw frappe.db.delete) so each pruned row still
+		# gets its automatic Deleted Document audit record — a raw SQL delete
+		# bypasses that entirely.
+		filters = {"modified": ("<", cutoff), "user_directed": 0}
+		for name in frappe.get_all("AI Memory", filters=filters, pluck="name"):
+			frappe.delete_doc("AI Memory", name, ignore_permissions=True)
 
 	def validate(self):
 		self._normalize_scope_keys()
@@ -36,11 +46,15 @@ class AIMemory(Document):
 		enforce that the key(s) required by ``memory_scope`` are present.
 
 		Clearing irrelevant keys keeps records clean and makes dedup matching
-		precise even when a record's scope changes.
+		precise even when a record's scope changes. ``process_model`` is the one
+		exception: on an Agent-scoped row it isn't a scope key (the row is still
+		looked up by ``agent_element`` alone) but optional provenance — which
+		process run produced this fact — so it is only cleared for Entity scope,
+		where a memory isn't tied to a single process run.
 		"""
 		if self.memory_scope != "Agent":
 			self.agent_element = None
-		if self.memory_scope != "Process":
+		if self.memory_scope == "Entity":
 			self.process_model = None
 		if self.memory_scope != "Entity":
 			self.reference_doctype = None
@@ -82,12 +96,15 @@ class AIMemory(Document):
 		for name in frappe.get_all("AI Memory", filters=filters, pluck="name"):
 			if name == self.name:
 				continue
+			# ignore_permissions + force (skip the link-checker), but NOT
+			# delete_permanently: leaving that off lets Frappe's normal delete
+			# path capture the superseded row in the Deleted Document table
+			# before removing it, so an overwrite still leaves an audit trail.
 			frappe.delete_doc(
 				"AI Memory",
 				name,
 				ignore_permissions=True,
 				force=True,
-				delete_permanently=True,
 			)
 
 

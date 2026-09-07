@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import frappe
@@ -64,6 +65,37 @@ class TestResolveToolPool(FrappeTestCase):
 		names_default = {c.spec.name for c in resolve_tool_pool(sp, {})}
 		names_registry = {c.spec.name for c in resolve_tool_pool(sp, {"aiToolSources": "registry"}, "M")}
 		self.assertEqual(names_default, names_registry)
+
+	# ── the model must be able to pass arguments to the step it activates ──
+
+	def test_arguments_come_from_compiled_tool_shapes(self):
+		"""Without this the selector could say WHICH step to run but not what
+		to run it on, and any {{ task_data.<arg> }} connector input rendered
+		as an unresolved placeholder."""
+		sp = _adhoc_subworkflow()
+		task_cfg = {
+			"aiToolShapes": json.dumps(
+				[
+					{
+						"bpmn_id": "task_a",
+						"parameters": {"instruction": {"type": "string"}},
+						"required": ["instruction"],
+					}
+				]
+			)
+		}
+		by_name = {c.spec.name: c for c in resolve_tool_pool(sp, task_cfg)}
+		self.assertEqual(by_name["task_a"].spec.parameters, {"instruction": {"type": "string"}})
+		self.assertEqual(by_name["task_a"].spec.required, ["instruction"])
+		# A shape with no declared arguments stays a no-argument tool.
+		self.assertEqual(by_name["task_b"].spec.parameters, {})
+		self.assertEqual(by_name["task_b"].spec.required, [])
+
+	def test_malformed_tool_shapes_fall_back_to_no_arguments(self):
+		sp = _adhoc_subworkflow()
+		for broken in ("not json", "{}", None, 42):
+			pool = resolve_tool_pool(sp, {"aiToolShapes": broken})
+			self.assertTrue(all(c.spec.parameters == {} for c in pool))
 
 
 class TestSelectorPoolCompileValidation(FrappeTestCase):

@@ -55,7 +55,7 @@ class TestObservability(FrappeTestCase):
 		return instance.name
 
 	def _make_provider(self):
-		"""An enabled AI Provider Credentials record to hang pricing off.
+		"""An enabled AI Provider record to hang pricing off.
 
 		Created per test rather than assuming a fixture name exists — these
 		tests previously hard-coded provider="openai", which does not exist on
@@ -63,28 +63,35 @@ class TestObservability(FrappeTestCase):
 		"""
 		name = f"test-provider-{frappe.generate_hash(length=8)}"
 		frappe.get_doc({
-			"doctype": "AI Provider Credentials",
-			"provider_name": name,
+			"doctype": "AI Provider",
+			"provider": name,
 			"provider_type": "OpenAI",
 			"api_key": "test-key-not-used",
 			"enabled": 1,
 		}).insert(ignore_permissions=True)
 		return name
 
-	def _make_pricing(self, model, input_cost_per_1k, output_cost_per_1k, **cache_rates):
-		"""Create an active AI Model Pricing record for *model*."""
-		row = {
-			"doctype": "AI Model Pricing",
-			"model_name": model,
-			"provider": self._make_provider(),
-			"input_cost_per_1k": input_cost_per_1k,
-			"output_cost_per_1k": output_cost_per_1k,
-			"effective_from": "2025-01-01",
-			"is_active": 1,
-		}
-		row.update(cache_rates)
-		doc = frappe.get_doc(row)
-		doc.insert(ignore_permissions=True)
+	def _make_pricing(self, model, input_cost_per_1k, output_cost_per_1k, **_ignored):
+		"""Price *model* in the catalog (WI-002134 — the rate card moved onto it).
+
+		Rates arrive per 1k, as the callers of compute_token_cost reason, and are
+		stored per 1M, as the catalog holds them. ``_ignored`` absorbs the cache
+		rates callers used to pass: they are always derived from the input rate
+		now, so setting them is no longer possible.
+		"""
+		if frappe.db.exists("AI Model", model):
+			doc = frappe.get_doc("AI Model", model)
+		else:
+			doc = frappe.get_doc({
+				"doctype": "AI Model",
+				"model_name": model,
+				"provider": self._make_provider(),
+				"enable_model": 1,
+			})
+		doc.input_cost = input_cost_per_1k * 1000
+		doc.output_cost = output_cost_per_1k * 1000
+		doc.flags.ignore_permissions = True
+		doc.save(ignore_permissions=True) if not doc.is_new() else doc.insert(ignore_permissions=True)
 		return doc
 
 	def test_create_ai_run_creates_record(self):
@@ -116,7 +123,7 @@ class TestObservability(FrappeTestCase):
 		self.assertEqual(step.run, run.name)
 
 	def test_record_ai_step_computes_cost(self):
-		"""record_ai_step() computes cost from AI Model Pricing for the run's model."""
+		"""record_ai_step() computes cost from the model's rate card."""
 		from one_bpmn.agents.observability import create_ai_run, record_ai_step
 
 		model = f"priced-{frappe.generate_hash(length=6)}"
@@ -227,7 +234,7 @@ class TestObservability(FrappeTestCase):
 		self.assertIn("Something went wrong", run.error_message)
 
 	def test_cost_zero_when_no_pricing(self):
-		"""No AI Model Pricing → step cost 0 and run estimated_cost 0 (no error)."""
+		"""No rate on the model → step cost 0 and run estimated_cost 0 (no error)."""
 		from one_bpmn.agents.observability import (
 			create_ai_run,
 			record_ai_step,

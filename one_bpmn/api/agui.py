@@ -76,14 +76,23 @@ def conversation_history(conversation: str, limit: int = 30) -> list:
 @frappe.whitelist()
 def list_conversations(limit: int = 30) -> list:
 	"""The current user's chat conversations for the one-ai history sidebar
-	(WI-001678), newest first. Owner-scoped by construction."""
+	(WI-001678), newest first. Owner-scoped by construction.
+
+	Restricted to the page's own agents. A chat belonging to another surface
+	— Logix, ProsAlly, Docu, anything registered later — is not browsable
+	here: the page cannot resume it, and the legacy Lumina sidebar excluded
+	exactly the same conversations (_registry_only_agent_modes in lumina.py,
+	written after 154 Docu chats leaked into it).
+	"""
 	from frappe.utils import cint
+
+	from one_bpmn.api.agent_invocation import one_ai_conversation_modes
 
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Authentication required"))
 	return frappe.get_all(
 		"Chat Conversation",
-		filters={"owner": frappe.session.user},
+		filters={"owner": frappe.session.user, "agent_mode": ["in", one_ai_conversation_modes()]},
 		fields=["name", "title", "agent_mode", "last_updated", "status"],
 		order_by="last_updated desc",
 		limit=min(cint(limit) or 30, 100),

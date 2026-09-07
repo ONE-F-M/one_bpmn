@@ -33,27 +33,73 @@ class ToolSpec:
     human: bool = False
 
     def __post_init__(self):
-        """Restore redacted PII at the tool boundary (WI-001644).
+        """Wrap ``fn`` with the two controls every tool call passes through.
 
-        Input screening replaced the user's Civil ID with ``[CIVIL_ID_1]``
-        before the model saw it, so the model calls tools with the TOKEN. The
-        lookup has to run against the real value, and every tool — whether it
-        came from a shape, the tool pool, or a Server Script body — is built as
-        a ToolSpec, so wrapping here is the only place that covers all of them.
+        Both were added at this same point, independently, and both are needed:
+        PII restoration (WI-001644) turns tokenised arguments back into real
+        values, and the policy interceptor (WI-001645) refuses a call whose
+        arguments cross a hard limit.
 
-        Human tools are skipped: they are never executed by the loop, and a
-        person completing the task should see the token, not the raw value.
+        ORDER IS A SECURITY PROPERTY. Restoration is the OUTER wrapper and the
+        interceptor the INNER one, so a call runs
+
+            restore PII  ->  evaluate policy  ->  the tool
+
+        and the policy sees the real values the tool will actually receive.
+        Checking the tokenised form instead would let a limit be bypassed by
+        whatever the redactor happened to mask: a rule on an id the redactor had
+        replaced with ``[CIVIL_ID_1]`` would compare against the placeholder and
+        wave the call through.
+
+        Guarding at construction rather than in an execution loop is deliberate:
+        tools run in FOUR loops (the step loop plus the Anthropic/OpenAI/Gemini
+        adapters' own), and some ToolSpecs are built inside Server Script bodies
+        rather than by compile_shape_tools. Construction is the single point all
+        of them pass through, so a new loop — or a new in-script tool — is
+        covered without anyone remembering to add a check.
+
+        Human tools are skipped by both: their fn is a stub the loop never
+        executes (it suspends instead), and a person completing the task should
+        see the token, not the raw value.
         """
-        if self.human or getattr(self.fn, "__pii_wrapped__", None) is not None:
+        if self.human:
             return
-        try:
-            from one_bpmn.security.pii import wrap_tool
 
-            object.__setattr__(self, "fn", wrap_tool(self.fn))
-        except Exception:
-            # A broken import here must not take the whole agent down; the
-            # cost is that a tokenised argument reaches the tool unresolved.
-            pass
+        # Both markers are looked for along the WHOLE wrapper chain, not just on
+        # the outermost callable. With two wrappers each hides the other's
+        # marker, so an already-wrapped fn passed through ToolSpec again would be
+        # wrapped a second time — evaluating the policy twice and restoring PII
+        # over already-restored values.
+        def already(marker):
+            fn, hops = self.fn, 0
+            while fn is not None and hops < 10:
+                if getattr(fn, marker, None) is not None:
+                    return True
+                fn = getattr(fn, "__policy_guarded__", None) or getattr(fn, "__pii_wrapped__", None)
+                hops += 1
+            return False
+
+        # Innermost first: the policy check must run against restored values.
+        if not already("__policy_guarded__"):
+            try:
+                from one_bpmn.security.tool_policy import guard
+
+                object.__setattr__(self, "fn", guard(self.fn, self.name))
+            except Exception:
+                # A broken interceptor must not make every agent
+                # unconstructable. guard() logs its own failures loudly; this
+                # only protects the dataclass from an import-time problem.
+                pass
+
+        if not already("__pii_wrapped__"):
+            try:
+                from one_bpmn.security.pii import wrap_tool
+
+                object.__setattr__(self, "fn", wrap_tool(self.fn))
+            except Exception:
+                # A broken import here must not take the whole agent down; the
+                # cost is that a tokenised argument reaches the tool unresolved.
+                pass
 
 
 def build_parameter_schema(tool: "ToolSpec") -> dict:

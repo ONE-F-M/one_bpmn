@@ -17,7 +17,7 @@ class TestCreateAgentFromProcessa(FrappeTestCase):
 
 	def _model(self):
 		# WI-001655: agents pick a model; the provider follows its link.
-		return frappe.db.get_value("AI Model", {"ai_provider_credentials": ("is", "set")}, "name")
+		return frappe.db.get_value("AI Model", {"provider": ("is", "set")}, "name")
 
 	def _payload(self, **overrides):
 		payload = {

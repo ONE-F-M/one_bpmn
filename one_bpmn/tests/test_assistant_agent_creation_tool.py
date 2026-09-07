@@ -86,7 +86,7 @@ class TestAssistantAgentCreationTool(FrappeTestCase):
 		ai_model empty and fail validation, landing the agent in Needs Attention."""
 		shape = _extract_tool_shapes(_adhoc(), BPMN_NS, SPIFF_NS)[0]
 		self.assertIn("ai_model", shape["parameters"])
-		self.assertNotIn("ai_provider_credentials", shape["parameters"])
+		self.assertNotIn("ai_provider", shape["parameters"])
 		self.assertNotIn("aiProvider", shape["parameters"])
 		self.assertEqual(
 			shape["parameters"]["agent_framework"]["enum"],
@@ -153,8 +153,8 @@ class TestAssistantAgentCreationTool(FrappeTestCase):
 		self.assertIn("chat_mode_label", shape["parameters"])
 		self.assertNotIn("chat_mode_label", shape["required"])
 		# The provider is derived, never supplied.
-		self.assertIn("ai_provider_credentials", rule_fields)
-		self.assertNotIn("ai_provider_credentials", shape["parameters"])
+		self.assertIn("ai_provider", rule_fields)
+		self.assertNotIn("ai_provider", shape["parameters"])
 
 	def test_prompt_section_contains_no_stale_phrase(self):
 		"""The repair map exists because an early draft pointed the model at the

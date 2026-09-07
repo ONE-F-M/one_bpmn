@@ -19,8 +19,9 @@ REGISTRY = CHAT_DIR / "cards" / "registry.js"
 
 # Panel chrome — deliberately not cards, so not in the registry.
 CHROME_EVENTS = {"onefm.choice", "onefm.conversation_title", "onefm.mode_transition"}
-# Owned by the one-ai surface, not the generic registry.
-SURFACE_EVENTS = {"onefm.lucrusher_result"}
+# Consumed by the HOST rather than rendered: the surface links the new record
+# (AIAgentConfigModal), so there is no card to register.
+HOST_EVENTS = {"onefm.created_config"}
 
 
 class TestCardFixtures(FrappeTestCase):
@@ -44,7 +45,7 @@ class TestCardFixtures(FrappeTestCase):
 	def test_registry_covers_every_card_event(self):
 		registry_src = REGISTRY.read_text()
 		registered = set(re.findall(r'"(onefm\.[a-z_]+)"', registry_src))
-		expected = set(agui_contract.list_events()) - CHROME_EVENTS - SURFACE_EVENTS
+		expected = set(agui_contract.list_events()) - CHROME_EVENTS - HOST_EVENTS
 		self.assertEqual(
 			registered,
 			expected,

@@ -33,6 +33,7 @@ from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
 from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import (
 	_send_assignee_notification,
 	add_frappe_assignment,
+	notify_task_assignee,
 	get_reliever_if_on_leave,
 	remove_frappe_assignment,
 	resolve_assignment,
@@ -72,6 +73,10 @@ def call_add_assignment(inst, user, task_name="", task_cfg=None):
 
 def call_send_assignee_notification(inst, user, task_name, task_cfg):
 	return _send_assignee_notification(inst, user, task_name, task_cfg)
+
+
+def call_notify_task_assignee(inst, user, task_name, task_cfg):
+	return notify_task_assignee(inst, user, task_name, task_cfg)
 
 
 def call_remove_assignment(inst, user):
@@ -398,6 +403,114 @@ class TestResolveAssignment(BaseBPMNHelperTest):
 		self.assertEqual(call_resolve_assignment(inst, FakeTask("task_1")), "")
 
 
+class TestResolveAssignmentTableField(BaseBPMNHelperTest):
+	"""Table Field mode: every user in a child table may action the task.
+
+	The resolved value is a comma-joined list, and every caller that reads
+	``assigned_user`` as a set of people goes through ``split_users``.
+	"""
+
+	def _instance(self, **cfg):
+		task_cfg = {
+			"assigneeMode": "Table Field",
+			"targetDoctype": "Task",
+			"assigneeTableField": "custom_assigned_to",
+		}
+		task_cfg.update(cfg)
+		return make_instance(
+			context_doctype="Task",
+			context_docname="TASK-1",
+			user_task_extensions={"task_1": task_cfg},
+		)
+
+	def _doc(self, table_field, rows):
+		doc = frappe._dict({table_field: [frappe._dict(r) for r in rows]})
+		return doc
+
+	def test_every_row_is_assigned(self):
+		inst = self._instance()
+		doc = self._doc("custom_assigned_to", [{"user": "a@x.com"}, {"user": "b@x.com"}])
+
+		with patch.object(frappe, "get_doc", return_value=doc), patch.object(
+			frappe.db, "get_value", return_value=None
+		):
+			result = call_resolve_assignment(inst, FakeTask("task_1"))
+
+		self.assertEqual(result, "a@x.com,b@x.com")
+
+	def test_the_row_user_field_is_configurable(self):
+		"""Department's approver tables call the column `approver`, not `user`."""
+		inst = self._instance(
+			targetDoctype="Department",
+			assigneeTableField="leave_approvers",
+			assigneeTableUserField="approver",
+		)
+		doc = self._doc("leave_approvers", [{"approver": "c@x.com"}])
+
+		with patch.object(frappe, "get_doc", return_value=doc), patch.object(
+			frappe.db, "get_value", return_value=None
+		):
+			self.assertEqual(call_resolve_assignment(inst, FakeTask("task_1")), "c@x.com")
+
+	def test_repeats_and_blanks_are_dropped(self):
+		"""The same person twice must not become two assignees — the list is a
+		membership test at completion time, not a queue."""
+		inst = self._instance()
+		doc = self._doc(
+			"custom_assigned_to",
+			[{"user": "a@x.com"}, {"user": ""}, {"user": "a@x.com"}, {"user": "b@x.com"}],
+		)
+
+		with patch.object(frappe, "get_doc", return_value=doc), patch.object(
+			frappe.db, "get_value", return_value=None
+		):
+			self.assertEqual(call_resolve_assignment(inst, FakeTask("task_1")), "a@x.com,b@x.com")
+
+	def test_an_empty_table_assigns_nobody(self):
+		inst = self._instance()
+		doc = self._doc("custom_assigned_to", [])
+
+		with patch.object(frappe, "get_doc", return_value=doc), patch.object(
+			frappe.db, "get_value", return_value=None
+		):
+			self.assertEqual(call_resolve_assignment(inst, FakeTask("task_1")), "")
+
+	def test_an_unconfigured_table_field_assigns_nobody(self):
+		"""Mode picked, field never chosen — the state a map is in while it is
+		being drawn. It must resolve to nobody rather than raise."""
+		inst = self._instance(assigneeTableField="")
+		self.assertEqual(call_resolve_assignment(inst, FakeTask("task_1")), "")
+
+	def test_a_user_on_leave_is_replaced_by_their_reliever(self):
+		inst = self._instance()
+		doc = self._doc("custom_assigned_to", [{"user": "a@x.com"}, {"user": "b@x.com"}])
+
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import assignment
+
+		with patch.object(frappe, "get_doc", return_value=doc), patch.object(
+			assignment, "get_reliever_if_on_leave",
+			side_effect=lambda u: "stand-in@x.com" if u == "a@x.com" else u,
+		):
+			result = call_resolve_assignment(inst, FakeTask("task_1"))
+
+		self.assertEqual(result, "stand-in@x.com,b@x.com")
+
+	def test_the_resolved_list_reads_back_as_its_members(self):
+		"""What every consumer does with it: permission checks, the pending-task
+		query and ToDo creation all split the field rather than compare it."""
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import split_users
+
+		inst = self._instance()
+		doc = self._doc("custom_assigned_to", [{"user": "a@x.com"}, {"user": "b@x.com"}])
+
+		with patch.object(frappe, "get_doc", return_value=doc), patch.object(
+			frappe.db, "get_value", return_value=None
+		):
+			result = call_resolve_assignment(inst, FakeTask("task_1"))
+
+		self.assertEqual(split_users(result), ["a@x.com", "b@x.com"])
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Frappe assignment (ToDo) management
 # ──────────────────────────────────────────────────────────────────────────────
@@ -535,8 +648,15 @@ class TestAssigneeNotification(BaseBPMNHelperTest):
 		# ToDo was created but no email sent (notifyAssignee not set)
 		self.assertFalse(sendemail.called)
 
-	def test_add_assignment_sends_notification_when_configured(self):
-		"""Full flow: add_frappe_assignment triggers email when notifyAssignee=true."""
+	def test_notify_task_assignee_sends_when_configured(self):
+		"""The notification is the notifier's job, not the ToDo's.
+
+		This asserted that ``add_frappe_assignment`` sent the email. That
+		coupling was the defect: a ToDo is created once per person per instance
+		and deliberately not recreated while they still hold work, so every task
+		after a user's first stopped notifying. The email now has its own entry
+		point and this covers that one.
+		"""
 		cfg = {
 			"notifyAssignee": "true",
 			"notifyAssigneeBody": "<p>You have a task on {{ instance.name }}</p>",
@@ -562,7 +682,7 @@ class TestAssigneeNotification(BaseBPMNHelperTest):
 			patch.object(frappe, "get_doc", side_effect=get_doc_side), \
 			patch.object(frappe, "has_permission", return_value=True), \
 			patch.object(frappe, "get_system_settings", return_value=False):
-			call_add_assignment(inst, "bob@x.com", "Approve PR", task_cfg=cfg)
+			call_notify_task_assignee(inst, "bob@x.com", "Approve PR", cfg)
 
 		# Notification email was sent
 		self.assertTrue(sendemail.called)

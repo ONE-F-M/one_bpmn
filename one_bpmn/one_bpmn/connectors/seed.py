@@ -73,6 +73,7 @@ def import_manifest(manifest, overwrite=False):
         conn.icon_svg_path = icon.get("path")
         conn.icon_color = icon.get("color") or "#14b8a6"
         conn.icon_label = icon.get("label")
+        conn.icon_stroke = 1 if icon.get("stroke") else 0
     # A string icon is a legacy name-only hint (pre-configurable icons) — the
     # renderer falls back to the default plug, so store nothing.
 
@@ -253,6 +254,8 @@ def export_manifest(connector_id):
             "color": conn.icon_color or "#14b8a6",
             "label": conn.icon_label or conn.label,
         }
+        if conn.icon_stroke:
+            manifest["icon"]["stroke"] = True
     api = {
         k: v
         for k, v in (

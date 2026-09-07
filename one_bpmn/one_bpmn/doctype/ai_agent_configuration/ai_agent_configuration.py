@@ -44,6 +44,85 @@ class AIAgentConfiguration(Document):
 		self.validate_unique_chat_mode_label()
 		self.validate_chat_label_against_map()
 		self.validate_agent_creation_grant()
+		self.validate_a2a_exposure()
+		self.validate_delegation_grant()
+		self.validate_memory_config()
+
+	def validate_memory_config(self):
+		"""WI-002168: an Enabled config with no resolvable model silently drops
+		half the memory pipeline — distillation skips, or reconciliation
+		degrades — with nothing on the form to say so (see model_resolution.py
+		for the shared chain this checks against the dispatch path).
+
+		Only fires when Long-Term Memory is explicitly Enabled; blank (inherit
+		the diagram's value) is untouched, same as every other memory field.
+		"""
+		if self.long_term_memory != "Enabled":
+			return
+
+		if not self.memory_scope:
+			frappe.throw(
+				_("Memory Scope is required when Long-Term Memory is Enabled."),
+				title=_("Memory Configuration"),
+			)
+		if not self.memory_write_mode:
+			frappe.throw(
+				_("Memory Write Mode is required when Long-Term Memory is Enabled."),
+				title=_("Memory Configuration"),
+			)
+		if self.memory_write_mode != "distilled":
+			return
+
+		from one_bpmn.agents.memory.model_resolution import resolve_memory_model
+
+		distill = resolve_memory_model(
+			self.memory_distill_model, "default_memory_distill_model", self.ai_model
+		)
+		if not distill:
+			frappe.throw(
+				_(
+					"No Distillation Model is resolvable for this agent — set one here, "
+					"a site-wide default in Processa Settings, or link an AI Model above."
+				),
+				title=_("Memory Configuration"),
+			)
+
+		reconcile = resolve_memory_model(
+			self.memory_reconcile_model, "default_memory_reconcile_model", distill
+		)
+		if not reconcile:
+			frappe.throw(
+				_("No Reconciliation Model is resolvable for this agent."),
+				title=_("Memory Configuration"),
+			)
+
+	def validate_delegation_grant(self):
+		"""Say so when the list is inert.
+
+		Exposure is what grants an agent delegated work; this list only
+		narrows the set, and only while the restriction is on. Rows sitting
+		under an unticked restriction do nothing — which is easy to
+		misread as "delegation is locked down" when it is not.
+		"""
+		if self.allowed_delegates and not self.restrict_delegates:
+			frappe.msgprint(
+				_(
+					"This list is ignored while 'Restrict Delegation to Specific Agents' is off — "
+					"the agent may currently hand work to any agent exposed over A2A."
+				),
+				alert=True,
+				indicator="orange",
+			)
+
+	def validate_a2a_exposure(self):
+		"""WI-001931: exposure is an admin grant on an operating agent. A
+		disabled agent cannot be exposed — the card and the A2A door both
+		additionally require Live, so the flag may be set pre-Live harmlessly."""
+		if self.a2a_exposed and not self.enabled:
+			frappe.throw(
+				_("This agent is disabled. Enable it before exposing it over A2A."),
+				title=_("A2A Exposure"),
+			)
 
 	def validate_chat_label_against_map(self):
 		"""WI-001997: a chat mode label promises the agent appears in chat,
@@ -170,14 +249,14 @@ class AIAgentConfiguration(Document):
 
 	def derive_provider_from_model(self):
 		"""WI-001655: the model is the pick, the provider is derived. When an
-		AI Model is linked, ai_provider_credentials follows its credentials
-		link — one choice, no model/provider mismatch possible. An agent with
-		no model keeps whatever credentials it has (legacy records)."""
+		AI Model is linked, ai_provider follows the model's own provider — one
+		choice, no model/provider mismatch possible. An agent with no model
+		keeps whatever provider it has (legacy records)."""
 		if not self.ai_model:
 			return
-		creds = frappe.db.get_value("AI Model", self.ai_model, "ai_provider_credentials")
-		if creds:
-			self.ai_provider_credentials = creds
+		provider = frappe.db.get_value("AI Model", self.ai_model, "provider")
+		if provider:
+			self.ai_provider = provider
 
 	def validate_unique_chat_mode_label(self):
 		"""Two enabled chat agents must never claim the same conversation mode —
@@ -273,6 +352,13 @@ class AIAgentConfiguration(Document):
 				pass
 		self.revalidate_credentials_on_save()
 
+		# The agent's identity is NOT provisioned here. It is a step in the Agent
+		# creation process ("Provision Agent User"), because minting a User as a
+		# side effect of saving a configuration hides a real action inside a
+		# database write — and the process is where this system keeps behaviour.
+		# The map runs it on the edited-config loop as well as the first pass, so
+		# a change to the roles still reaches the agent's user.
+
 	def revalidate_credentials_on_save(self):
 		"""Re-prove the agent on EVERY save — assume nothing (user ruling,
 		2026-07-21): credentials that validated at creation may since have
@@ -362,12 +448,27 @@ class AIAgentConfiguration(Document):
 				pass
 
 
+@frappe.whitelist()
+def get_effective_memory_models(memory_distill_model=None, memory_reconcile_model=None, ai_model=None):
+	"""WI-002168: what the dispatch path would actually resolve, computed against
+	the form's CURRENT (possibly unsaved) values so an admin can see the effect
+	of a field before saving. Mirrors ``validate_memory_config`` and dispatch's
+	``_memory_model`` — same shared chain, so this can never show one answer
+	while the agent runs another.
+	"""
+	from one_bpmn.agents.memory.model_resolution import resolve_memory_model
+
+	distill = resolve_memory_model(memory_distill_model, "default_memory_distill_model", ai_model)
+	reconcile = resolve_memory_model(memory_reconcile_model, "default_memory_reconcile_model", distill)
+	return {"distill_model": distill, "reconcile_model": reconcile}
+
+
 def get_agent_config(agent_id: str) -> dict | None:
 	"""
 	Load agent configuration from AI Agent Configuration DocType.
 
 	Returns a dict with: system_prompt, temperature, max_tokens,
-	ai_provider_credentials, langsmith_project, sub_prompts,
+	ai_provider, langsmith_project, sub_prompts,
 	constants, and — for the frozen static context layer (WI-001639) —
 	examples and guardrails. There is no per-agent override mechanism (WI-001615):
 	provider, key and model come from the linked AI Provider
@@ -389,7 +490,7 @@ def get_agent_config(agent_id: str) -> dict | None:
 		{"agent_id": agent_id, "enabled": 1},
 		[
 			"name", "agent_id", "system_prompt", "temperature", "max_tokens",
-			"ai_model", "ai_provider_credentials", "langsmith_project",
+			"ai_model", "ai_provider", "langsmith_project",
 			"agent_framework", "process_model", "chat_mode_label",
 			"lifecycle_status", "agent_type", "pii_screening",
 		],
@@ -430,6 +531,22 @@ def get_agent_config(agent_id: str) -> dict | None:
 		order_by="idx asc",
 	)
 
+	
+	# Load enabled skills
+	enabled_skills = []
+	for skill in frappe.get_all(
+		"AI Agent Enabled Skill",
+		filters={"parent": config.name, "parenttype": "AI Agent Configuration"},
+		fields=["skill"],
+		order_by="idx asc",
+	):
+		skill_doc = frappe.db.get_value("AI Skill", skill.skill, ["skill_name", "description", "status"], as_dict=True)
+		if skill_doc and skill_doc.status != "Draft":
+			enabled_skills.append({
+				"name": skill_doc.skill_name,
+				"description": skill_doc.description,
+			})
+
 	# Load constants keyed by constant_name, cast to proper types
 	constants = {}
 	for c in frappe.get_all(
@@ -444,7 +561,12 @@ def get_agent_config(agent_id: str) -> dict | None:
 		"system_prompt": config.system_prompt,
 		"temperature": config.temperature,
 		"max_tokens": config.max_tokens,
-		"ai_provider_credentials": config.ai_provider_credentials,
+		"ai_provider": config.ai_provider,
+		# The agent's own catalog pick, and the record that carries the API key.
+		# Queried above but previously dropped here, so every caller that resolved
+		# an adapter through this dict fell back to a default model name that is
+		# not an AI Model record — leaving the adapter with no key at all.
+		"ai_model": config.ai_model,
 		"langsmith_project": config.langsmith_project,
 		"agent_framework": config.agent_framework,
 		"process_model": config.process_model,
@@ -455,6 +577,7 @@ def get_agent_config(agent_id: str) -> dict | None:
 		"constants": constants,
 		"examples": examples,
 		"guardrails": guardrails,
+		"enabled_skills": enabled_skills,
 	}
 
 	frappe.cache.set_value(cache_key, result)
@@ -470,3 +593,26 @@ def _cast_constant(value: str, const_type: str):
 	elif const_type == "Boolean":
 		return value.lower() in ("1", "true", "yes")
 	return value
+
+
+def _load_json_constant(config: dict, key: str, default: list) -> list:
+	"""Read a JSON-array constant off a resolved agent config, or *default*.
+
+	Constants are stored as strings, so a list-valued one (keyword sets, tool
+	exclusions, trigger phrases) has to be parsed. Every failure mode — no
+	config, no such constant, unparseable JSON, or JSON that is not a list —
+	returns *default*, because a configuration typo must degrade the agent's
+	behaviour to its built-in defaults rather than break the turn.
+	"""
+	import json
+
+	if not config:
+		return default
+	val = (config.get("constants") or {}).get(key)
+	if not val:
+		return default
+	try:
+		parsed = json.loads(val) if isinstance(val, str) else val
+	except (json.JSONDecodeError, TypeError, ValueError):
+		return default
+	return parsed if isinstance(parsed, list) else default

@@ -234,3 +234,43 @@ def _typed_artifact(result: dict):
 			name="onefm.proposed_update",
 			value={"fields": content, **({"summary": summary} if summary else {})},
 		)
+
+
+# LuCrusher's own phase vocabulary, from its finalize tool's `intent` enum.
+# Gating on it keeps other agents' intents (Logix CREATE/MODIFY, ProsAlly's
+# action intents) from ever being mistaken for a migration result.
+_LUCRUSHER_INTENTS = frozenset({
+	"EXACT_MATCH_FOUND", "MULTIPLE_MATCHES", "NO_MATCH", "CONFIRMED", "CLARIFY",
+	"LUCIDCHART_PARSED", "LUCIDCHART_ERROR", "LUCIDCHART_METADATA_ONLY",
+	"CODEBASE_SCAN_RESULT", "CODEBASE_SCAN_ERROR",
+	"TOPOLOGY_PROPOSAL", "TOPOLOGY_CONFIRMED",
+	"MIGRATION_TASKS_DRAFT", "MIGRATION_TASKS_CONFIRMED",
+	"PROSALLY_PROMPT_DRAFT", "PROSALLY_PROMPT_CONFIRMED",
+})
+_LUCRUSHER_PAYLOAD_KEYS = (
+	"matches", "confirmed_process", "document", "codebase_scan",
+	"topology", "migration_tasks", "prosally_prompts",
+)
+
+
+@register_extension_translator
+def _lucrusher_result(result: dict):
+	"""LuCrusher: the migration phase result behind its panels (WI-001678).
+
+	Map-driven turns never emit the legacy LUCRUSHER_RESULT event — the
+	finalize tool persists its structured payload as Chat Message metadata,
+	and _delegate_to_bpmn_instance hands that ``agent_result`` back as the
+	reply dict. Verified live on the bench 2026-08-16: a search turn came
+	back as EXACT_MATCH_FOUND with `matches`, and rendered as plain markdown
+	because nothing turned it into an event. This is that bridge; the legacy
+	streaming path stays covered by the relay's rename+fold.
+	"""
+	intent = (result.get("intent") or "").upper()
+	if intent not in _LUCRUSHER_INTENTS:
+		return
+	payload = {"intent": intent}
+	for key in _LUCRUSHER_PAYLOAD_KEYS:
+		value = result.get(key)
+		if value:
+			payload[key] = value
+	yield CustomEvent(name="onefm.lucrusher_result", value=payload)

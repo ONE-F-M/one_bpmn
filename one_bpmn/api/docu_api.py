@@ -3,7 +3,11 @@
 """
 Docu API — the whitelisted surface the DocuCanvas Vue panel calls.
 
-- ``docu_chat``           one chat turn → the generic agent path → structured result dict
+Chat is NOT here: Docu talks through the shared AG-UI endpoint like every other
+agent (WI-001676), and WI-001679 deleted the docu_chat / docu_chat_async /
+docu_chat_status trio that preceded it. What remains is the DocType work the
+panel does with the agent's answer.
+
 - ``get_doctype_schema``  read an existing DocType into the Docu IR (form builder)
 - ``check_doctype_exists``{exists, custom}
 - ``apply_doctype``       create / update a real (custom) DocType from a Docu IR
@@ -18,7 +22,6 @@ import json
 
 import frappe
 
-from one_bpmn.security.rate_limit import RateLimited
 from frappe import _
 
 from one_bpmn.tools.tool_for_server_scripts import (
@@ -54,256 +57,6 @@ def _parse(value, fallback):
 		return json.loads(value)
 	except (json.JSONDecodeError, TypeError, ValueError):
 		return fallback
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Chat
-# ═══════════════════════════════════════════════════════════════════════════
-
-@frappe.whitelist()
-def docu_chat(
-	message: str,
-	session_id: str = "",
-	conversation_name: str = None,
-	chat_history: str = None,
-	doctype: str = "",
-	target_module: str = "",
-	process_context=None,   # unannotated on purpose: _parse() accepts a native dict,
-	                        # a JSON string, or None — so Frappe's type coercion can
-	                        # never reject the wire format (avoids FrappeTypeError).
-) -> dict:
-	"""Run one Docu chat turn through the generic agent path (WI-001539).
-
-	Docu chat is no longer orchestrated here: this endpoint is a thin alias that
-	opens the conversation with ``create_agent_conversation`` and hands the turn to
-	``invoke_agent("docu_agent", …)``, exactly like every other configured agent
-	(and like ``process_logix_message`` / ``prosally_chat``). Its only remaining job
-	is the DocuCanvas panel's request/response contract — the editor state it sends
-	and the ``{intent, response, conversation_name, doctype_ir, diff, …}`` reply it
-	consumes. Because the ``docu_agent`` configuration links the Docu process map,
-	``invoke_agent`` selects the ``bpmn_map`` runner and the map still performs all
-	the work (Save User Message → Run Docu Agent → Save Response), so behavior is
-	unchanged. The schema helpers below (preview/apply/read) are untouched.
-
-	This synchronous variant is retained for parity; DocuCanvas uses the async
-	``docu_chat_async``/``docu_chat_status`` pair because a Docu turn runs 25–50s.
-	"""
-	if frappe.session.user == "Guest":
-		frappe.throw(_("Please sign in to use Docu."), frappe.PermissionError)
-	if not (message or "").strip():
-		frappe.throw(_("Message is required"))
-
-	try:
-		from one_bpmn.api.agent_invocation import invoke_agent
-		from one_bpmn.utils.chat_persistence import create_agent_conversation
-
-		# First turn → open the conversation (stamped with the agent's chat mode
-		# label "Docu"), which arms the process map's conditional start trigger and
-		# spawns the orchestrating instance. Created here (rather than letting
-		# invoke_agent create it) to preserve the "Docu: <label>" title.
-		if not conversation_name:
-			label = doctype or "DocType"
-			conversation_name = create_agent_conversation(
-				"docu_agent", title=f"Docu: {label}", user=frappe.session.user
-			)
-
-		try:
-			result = invoke_agent(
-				"docu_agent",
-				message,
-				conversation=conversation_name,
-				context={
-					"doctype": doctype or "",
-					"target_module": target_module or "",
-					"process_context": _parse(process_context, {}),
-				},
-			)
-		except RateLimited as exc:
-			# WI-001968: a throttle or a conversation freeze is a real, explainable
-			# refusal — not a dead instance. RateLimited subclasses ValidationError,
-			# so without this branch the handler below rewrites it as "orchestration
-			# isn't running" and the user is told to reopen a chat that is working
-			# perfectly. Surface what actually happened, in the chat bubble.
-			return {
-				"intent": "BLOCKED",
-				"response": str(exc),
-				"conversation_name": conversation_name,
-				"doctype_ir": None, "diff": None, "options": None, "suggested_name": None,
-			}
-		except frappe.ValidationError:
-			# No instance is driving this conversation (map never armed or the
-			# instance died) — the generic runner throws; surface the same reopen
-			# guidance the panel showed before, over a 200 response.
-			return {
-				"intent": "ERROR",
-				"response": "The Docu process orchestration isn't running for this conversation. Please reopen the chat.",
-				"conversation_name": conversation_name,
-				"doctype_ir": None, "diff": None, "options": None, "suggested_name": None,
-			}
-
-		# The panel keys on ``conversation_name``; invoke_agent returns ``conversation``.
-		result["conversation_name"] = result.get("conversation") or conversation_name
-		result["session_id"] = session_id
-		return result
-
-	except Exception:
-		frappe.log_error(title="Docu chat failed", message=frappe.get_traceback())
-		return {
-			"intent": "ERROR",
-			"response": _(
-				"Something went wrong while designing the form. Please try again or rephrase your request."
-			),
-			"doctype_ir": None, "diff": None, "options": None, "suggested_name": None,
-		}
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Chat — asynchronous (enqueue + poll)
-# ═══════════════════════════════════════════════════════════════════════════
-#
-# A single Docu turn runs the whole multi-stage agent pipeline (classify →
-# write → review → validate, plus repair loops) — a dozen+ sequential LLM
-# calls that take 25–50s. Holding one HTTP request open that long makes the
-# browser request time out (the generic "Something went wrong"). Instead we
-# create the conversation synchronously (fast), enqueue the slow turn on a
-# worker, and let the client poll ``docu_chat_status`` for the result.
-#
-# This is a thin async wrapper over the generic ``invoke_agent`` entry point
-# (WI-001539): the enqueued worker (``_run_docu_turn``) is the only thing that
-# calls it, so the enqueue-and-poll shape wraps cleanly around the same path
-# every other agent uses. The conversation is still opened here (fast) via
-# ``create_agent_conversation`` so the client gets ``conversation_name`` at once.
-
-_TURN_TTL_SEC = 900  # keep a finished turn's result retrievable for 15 min
-
-
-def _turn_key(turn_id: str) -> str:
-	return f"docu_turn::{turn_id}"
-
-
-@frappe.whitelist()
-def docu_chat_async(
-	message: str,
-	session_id: str = "",
-	conversation_name: str = None,
-	chat_history: str = None,
-	doctype: str = "",
-	target_module: str = "",
-	process_context=None,   # unannotated on purpose: _parse() accepts a native dict,
-	                        # a JSON string, or None — so Frappe's type coercion can
-	                        # never reject the wire format (avoids FrappeTypeError).
-) -> dict:
-	"""Kick off one Docu turn in the background and return a ``turn_id`` to poll.
-
-	The conversation is created here (fast, so the client gets ``conversation_name``
-	immediately) via ``create_agent_conversation``, which stamps the agent's chat
-	mode label and arms the Docu process map; the slow turn runs through
-	``invoke_agent`` in ``_run_docu_turn`` on a worker. ``chat_history`` is accepted
-	for client parity but, as in ``docu_chat``, is not forwarded — the BPMN instance
-	carries the conversation's own history.
-	"""
-	if frappe.session.user == "Guest":
-		frappe.throw(_("Please sign in to use Docu."), frappe.PermissionError)
-	if not (message or "").strip():
-		frappe.throw(_("Message is required"))
-
-	from one_bpmn.utils.chat_persistence import create_agent_conversation
-
-	if not conversation_name:
-		label = doctype or "DocType"
-		conversation_name = create_agent_conversation(
-			"docu_agent", title=f"Docu: {label}", user=frappe.session.user
-		)
-
-	turn_id = frappe.generate_hash(length=14)
-	frappe.cache().set_value(_turn_key(turn_id), {"status": "pending"}, expires_in_sec=_TURN_TTL_SEC)
-
-	# enqueue_after_commit → the worker (separate process) only runs once this
-	# request's conversation/instance rows are committed and visible to it.
-	# at_front → an interactive Docu turn jumps ahead of batch/background jobs
-	# already queued (e.g. memory distillation, engine jobs) so a user waiting on
-	# the chat isn't stuck behind them on a shared worker.
-	frappe.enqueue(
-		"one_bpmn.api.docu_api._run_docu_turn",
-		queue="default",
-		timeout=600,
-		at_front=True,
-		enqueue_after_commit=True,
-		turn_id=turn_id,
-		conversation_name=conversation_name,
-		message=message,
-		context={
-			"doctype": doctype or "",
-			"target_module": target_module or "",
-			"process_context": _parse(process_context, {}),
-		},
-		user=frappe.session.user,
-	)
-
-	return {"conversation_name": conversation_name, "turn_id": turn_id, "status": "pending"}
-
-
-def _run_docu_turn(turn_id: str, conversation_name: str, message: str, context: dict, user: str) -> None:
-	"""Background worker: run the slow turn through the generic agent path and
-	cache the result for polling.
-
-	This is where the async wrapper meets the generic entry point: it calls
-	``invoke_agent("docu_agent", …)`` (which, because the config links the Docu
-	map, drives the same Save User Message → Run Docu Agent → Save Response
-	pipeline) rather than delegating to the BPMN instance directly.
-	"""
-	key = _turn_key(turn_id)
-	try:
-		frappe.set_user(user)
-		from one_bpmn.api.agent_invocation import invoke_agent
-
-		try:
-			result = invoke_agent("docu_agent", message, conversation=conversation_name, context=context)
-			result["conversation_name"] = result.get("conversation") or conversation_name
-		except RateLimited as exc:
-			# WI-001968: a throttle or a conversation freeze is a real, explainable
-			# refusal — not a dead instance. RateLimited subclasses ValidationError,
-			# so without this branch the handler below rewrites it as "orchestration
-			# isn't running" and the user is told to reopen a chat that is working
-			# perfectly. Surface what actually happened, in the chat bubble.
-			result = {
-				"intent": "BLOCKED",
-				"response": str(exc),
-				"conversation_name": conversation_name,
-				"doctype_ir": None, "diff": None, "options": None, "suggested_name": None,
-			}
-		except frappe.ValidationError:
-			result = {
-				"intent": "ERROR",
-				"response": _("The Docu process orchestration isn't running for this conversation. Please reopen the chat."),
-				"conversation_name": conversation_name,
-				"doctype_ir": None, "diff": None, "options": None, "suggested_name": None,
-			}
-
-		frappe.cache().set_value(key, {"status": "done", "result": result}, expires_in_sec=_TURN_TTL_SEC)
-	except Exception:
-		frappe.log_error(title="Docu async turn failed", message=frappe.get_traceback())
-		frappe.cache().set_value(
-			key,
-			{"status": "error", "error": _("Something went wrong while designing the form. Please try again or rephrase your request.")},
-			expires_in_sec=_TURN_TTL_SEC,
-		)
-
-
-@frappe.whitelist()
-def docu_chat_status(turn_id: str) -> dict:
-	"""Poll a turn started by ``docu_chat_async``.
-
-	Returns ``{status: 'pending'|'done'|'error'|'unknown'}``; ``done`` carries the
-	agent ``result`` dict, ``error`` an ``error`` message. ``unknown`` means the
-	turn id is not (or no longer) known — expired, or never started.
-	"""
-	if frappe.session.user == "Guest":
-		frappe.throw(_("Please sign in to use Docu."), frappe.PermissionError)
-	if not (turn_id or "").strip():
-		return {"status": "unknown"}
-	data = frappe.cache().get_value(_turn_key(turn_id))
-	return data or {"status": "unknown"}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -505,7 +258,7 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 		if not frappe.db.exists("DocType", name):
 			action = _create_custom_doctype(name, module, is_child, autoname, fields, settings)
 		elif frappe.db.get_value("DocType", name, "custom"):
-			action = _reconcile_custom_doctype(name, is_child, autoname, fields, settings)
+			action = _reconcile_custom_doctype(name, is_child, autoname, fields, settings, module)
 		else:
 			action = _customize_standard_doctype(name, fields)
 		frappe.db.commit()
@@ -638,19 +391,44 @@ def _ensure_child_doctypes(parent: str, module: str, fields: list) -> list:
 	for f in fields:
 		if not isinstance(f, dict) or f.get("fieldtype") not in _TABLE_FIELDTYPES:
 			continue
+		opt = (f.get("options") or "").strip()
+		# A child table follows its parent's module, whether or not this IR
+		# defines its rows inline. An IR read back from a live schema carries only
+		# `options` — no child_fields — so checking those first skipped the move
+		# entirely, and "Site Inspection Report Inspection Items Item" stayed in
+		# One Fm while its parent went to Operations.
+		if opt and frappe.db.exists("DocType", opt):
+			_move_custom_doctype(opt, module)
+
 		child_fields = f.get("child_fields")
 		if not (isinstance(child_fields, list) and child_fields):
 			continue
-		opt = (f.get("options") or "").strip()
-		# An existing target DocType wins — don't clobber it.
+		# An existing target DocType wins — don't clobber its fields.
 		if opt and frappe.db.exists("DocType", opt):
 			continue
 		child_name = opt or _child_doctype_name(parent, f)
 		if not frappe.db.exists("DocType", child_name):
 			_create_custom_doctype(child_name, module, 1, "", child_fields)
 			created.append(child_name)
+		else:
+			_move_custom_doctype(child_name, module)
 		f["options"] = child_name
 	return created
+
+
+def _move_custom_doctype(name: str, module: str) -> None:
+	"""Put a CUSTOM DocType in ``module`` if it is not there already.
+
+	Only custom DocTypes: a standard one is backed by files in its app, and
+	changing the field without moving those would leave the two disagreeing.
+	Silent when there is nothing to do.
+	"""
+	if not (name and module):
+		return
+	current, custom = frappe.db.get_value("DocType", name, ["module", "custom"]) or (None, 0)
+	if not custom or current == module:
+		return
+	frappe.db.set_value("DocType", name, "module", module)
 
 
 def _create_custom_doctype(name: str, module: str, is_child: int, autoname: str, fields: list, settings: dict = None) -> str:
@@ -677,15 +455,24 @@ def _create_custom_doctype(name: str, module: str, is_child: int, autoname: str,
 	return "created"
 
 
-def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: list, settings: dict = None) -> str:
+def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: list,
+                              settings: dict = None, module: str = None) -> str:
 	"""Bring a custom DocType's fields in line with the IR (add / update / remove).
 
 	The IR (seeded from the live schema and echoed back by the writer) is the
 	complete desired field set, so we rebuild the child table from it via
 	``doc.set`` — Frappe adds/updates/drops the DB columns on save. Only ever
 	called for custom DocTypes; standard types go through ``_customize_standard_doctype``.
+
+	``module`` moves an existing DocType. It used not to be passed at all, so the
+	module was honoured on CREATE and silently ignored on every update — a user
+	who asked to move a form to another module saw the panel update, saw the
+	agent agree, and found the DocType exactly where it was. Safe for a custom
+	DocType: its module is a field, not a directory of files on disk.
 	"""
 	doc = frappe.get_doc("DocType", name)
+	if module and doc.module != module:
+		doc.module = module
 	payloads = []
 	idx = 0
 	for f in _uniquify_fieldnames(fields):

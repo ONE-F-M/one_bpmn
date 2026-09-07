@@ -179,3 +179,60 @@ class TestPerAgentSwitch(FrappeTestCase):
 		surface = self._surface()
 		for key in ("agent_id", "label", "greeting", "composer_placeholder", "surface_type", "artifact_type"):
 			self.assertIn(key, surface)
+
+
+class TestFeedbackIsEditableFromProcessa(FrappeTestCase):
+	"""collect_feedback drove the chat panel and could only be changed from the
+	desk form. It is the other thing about an agent an operator changes without
+	touching its diagram, so it belongs beside the screens and the throttle."""
+
+	AGENT = "Lumina General Chat"
+
+	def setUp(self):
+		if not frappe.db.exists("AI Agent Configuration", self.AGENT):
+			self.skipTest("no Lumina agent on this site")
+		self.original = frappe.db.get_value(
+			"AI Agent Configuration", self.AGENT, "collect_feedback"
+		)
+		self.addCleanup(
+			lambda: frappe.db.set_value(
+				"AI Agent Configuration", self.AGENT, "collect_feedback", self.original
+			)
+		)
+
+	def test_the_modal_is_offered_the_control(self):
+		from one_bpmn.api.security_api import agent_screening
+
+		control = next(
+			(c for c in agent_screening(self.AGENT)["controls"]
+			 if c["fieldname"] == "collect_feedback"),
+			None,
+		)
+		self.assertIsNotNone(control, "Processa cannot edit what it is not offered")
+		self.assertEqual(control["fieldtype"], "Check")
+		self.assertTrue(control["label"], "the label comes from the doctype, not the Vue")
+
+	def test_it_is_its_own_group_not_filed_under_screening(self):
+		"""Grouping is what the modal renders headings from. Feedback is neither
+		a screen nor a throttle, and saying it is would misdescribe it."""
+		from one_bpmn.api.security_api import agent_screening
+
+		groups = {
+			c["fieldname"]: c["group"] for c in agent_screening(self.AGENT)["controls"]
+		}
+		self.assertEqual(groups["collect_feedback"], "Feedback")
+
+	def test_saving_it_from_processa_changes_what_the_panel_renders(self):
+		"""The whole point — the two ends have to agree."""
+		import json
+
+		from one_bpmn.api.agent_invocation import get_agent_surface
+		from one_bpmn.api.security_api import save_agent_screening
+
+		for value, expected in ((0, False), (1, True)):
+			with self.subTest(value=value):
+				save_agent_screening(self.AGENT, json.dumps({"collect_feedback": value}))
+				frappe.clear_cache()
+				self.assertIs(
+					get_agent_surface("lumina_general_chat")["collect_feedback"], expected
+				)

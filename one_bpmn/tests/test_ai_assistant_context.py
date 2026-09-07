@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import json
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -15,6 +17,8 @@ from one_bpmn.api.ai_assistant import (
 	_catalog_for_mode,
 	_lint_recommended_prompts,
 	_server_script_result_keys,
+	build_assistant_turn_context,
+	shape_assistant_reply,
 )
 
 # Mirror of the real support-triage shape: 7 selectable heads, two of which
@@ -162,6 +166,103 @@ class TestModeCatalog(FrappeTestCase):
 		)
 		self.assertIn("aiSystemPrompt", block)
 		self.assertNotIn("aiOutputVariable", block)
+
+class TestOneDialogTwoModes(FrappeTestCase):
+	"""WI-001679: one chat, one agent, one interface — mode is grounding only.
+
+	The selector dialog used to be a second transport (its own endpoint, its own
+	system prompt, its own direct LLM call). Now both ways into the config
+	dialog reach the same agent through the same stream, and the ONLY thing that
+	differs is what the builder grounds the turn with and what the shaper lets
+	back out.
+	"""
+
+	def selector_context(self, **over):
+		grounding = {
+			"mode": "selector",
+			"bpmn_xml": TRIAGE_XML,
+			"element_id": "Triage",
+			"current_config": '{"aiSystemPrompt": "draft", "aiOutputVariable": "x"}',
+		}
+		grounding.update(over)
+		return build_assistant_turn_context({"assistant_dialog": grounding})
+
+	def test_selector_turn_is_grounded_with_rules_and_digest(self):
+		context = self.selector_context()
+		block = context["dialog_context"]
+		self.assertIn("AI TASK SELECTOR", block)
+		# the digest names the real candidates the prompts must reference
+		self.assertIn("look_up_order", block)
+		# and the emission rules land last, where recency keeps them in force
+		self.assertTrue(block.rstrip().endswith("not an agent record."))
+
+	def test_selector_turn_carries_no_agent_creation_capability(self):
+		"""A selector configures a SHAPE. Offering to create an agent record
+		mid-turn is how the old selector chat would have started proposing
+		things its dialog has no card to render."""
+		block = self.selector_context()["dialog_context"]
+		self.assertNotIn("create_agent_configuration", block)
+		self.assertNotIn("proposed_config", block.split("FINAL OUTPUT RULES")[0])
+		# selector-only fields, so a stale agent-mode draft cannot leak in
+		self.assertIn("aiSystemPrompt", block)
+		self.assertNotIn("aiOutputVariable", block)
+
+	def test_agent_turn_is_unchanged(self):
+		context = build_assistant_turn_context({
+			"assistant_dialog": {"mode": "agent", "current_config": '{"aiOutputVariable": "ai_result"}'},
+		})
+		block = context["dialog_context"]
+		self.assertIn("aiOutputVariable", block)
+		self.assertNotIn("AI TASK SELECTOR", block)
+
+	def test_a_missing_mode_still_means_agent(self):
+		block = build_assistant_turn_context({"assistant_dialog": {}})["dialog_context"]
+		self.assertNotIn("AI TASK SELECTOR", block)
+
+	def test_selector_reply_is_filtered_to_selector_fields(self):
+		self.selector_context()
+		shaped = shape_assistant_reply({
+			"response": json.dumps({
+				"message": "Here you go.",
+				"recommendations": {
+					"aiSystemPrompt": "look_up_order, then Activity_0q9helm, then resolve (via Gateway_1).",
+					"aiOutputVariable": "not_a_selector_field",
+				},
+				"proposed_config": {"agent_name": "ZZ Should Not Survive"},
+			}),
+		})
+		self.assertIn("aiSystemPrompt", shaped["recommendations"])
+		self.assertNotIn("aiOutputVariable", shaped["recommendations"])
+		self.assertNotIn("proposed_config", shaped)
+		self.assertEqual(shaped["response"], "Here you go.")
+
+	def test_selector_reply_keeps_its_diagram_post_check(self):
+		"""The lint that catches invented task ids has to survive the move —
+		it is the one check standing between a plausible-looking procedure and
+		a selector that references shapes which do not exist."""
+		self.selector_context()
+		shaped = shape_assistant_reply({
+			"response": json.dumps({
+				"message": "Try this.",
+				"recommendations": {"aiSystemPrompt": "Activate Activity_deadbeef first."},
+			}),
+		})
+		self.assertIn("Activity_deadbeef", shaped["response"])
+
+	def test_an_agent_turn_after_a_selector_turn_is_not_contaminated(self):
+		"""The mode is handed builder → shaper on the request. If it were left
+		behind, the next agent turn in the same request would silently lose its
+		proposal card."""
+		self.selector_context()
+		build_assistant_turn_context({"assistant_dialog": {"mode": "agent"}})
+		shaped = shape_assistant_reply({
+			"response": json.dumps({
+				"message": "ok",
+				"recommendations": {"aiOutputVariable": "ai_result"},
+			}),
+		})
+		self.assertIn("aiOutputVariable", shaped["recommendations"])
+
 
 # TestRegistryToolsInDigest was removed with the AI Agent Tool registry
 # (WI-001423): a selector's tools are its ad-hoc sub-process shapes, which the

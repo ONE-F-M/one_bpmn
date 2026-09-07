@@ -98,11 +98,11 @@ def _suite(owner=None):
 
 def _provider():
 	name = "Factory Test Provider"
-	if not frappe.db.exists("AI Provider Credentials", name):
+	if not frappe.db.exists("AI Provider", name):
 		frappe.get_doc(
 			{
-				"doctype": "AI Provider Credentials",
-				"provider_name": name,
+				"doctype": "AI Provider",
+				"provider": name,
 				"provider_type": "OpenAI",
 				"api_key": "x",
 				"enabled": 1,

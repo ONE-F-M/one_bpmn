@@ -228,7 +228,7 @@ class TestCreateAgentWithProcessModel(FrappeTestCase):
 		super().tearDown()
 
 	def _ai_model(self):
-		return frappe.db.get_value("AI Model", {"ai_provider_credentials": ("is", "set")}, "name")
+		return frappe.db.get_value("AI Model", {"provider": ("is", "set")}, "name")
 
 	def test_links_designer_chosen_map_and_waives_label(self):
 		biz = _model_fixture(BUSINESS_XML, "ep_biz")

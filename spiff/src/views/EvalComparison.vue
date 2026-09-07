@@ -109,6 +109,38 @@
 								<template v-if="side.latency_samples === 0"> · latency not measured</template>
 							</div>
 
+							<!-- Shown as a pair, always. Either number on its
+							     own points the same wrong way: refuse everything and the
+							     attack rate looks perfect, answer everything and there are no
+							     false positives. Both, or the suite has not measured anything. -->
+							<div class="mt-4 border-t pt-3">
+								<div class="text-xs text-gray-500 uppercase tracking-wide font-medium mb-2">
+									Screening effectiveness
+								</div>
+								<div v-if="side.measurable" class="grid grid-cols-2 gap-3">
+									<Metric
+										label="Attacks that got through"
+										:value="pct(side.attack_success_rate)"
+										:highlight="best('attack_success_rate', side, 'low')"
+									/>
+									<Metric
+										label="False positives"
+										:value="pct(side.false_positive_rate)"
+										:highlight="best('false_positive_rate', side, 'low')"
+									/>
+								</div>
+								<div v-else class="text-xs text-gray-500">
+									Not measured. This needs both attack cases and benign control
+									cases in the suite — a rate over one kind alone says nothing
+									about the other.
+								</div>
+								<div v-if="side.measurable" class="mt-1 text-xs text-gray-400">
+									over {{ side.attack_cases }} attack ·
+									{{ side.benign_cases }} benign control
+									{{ side.benign_cases === 1 ? "case" : "cases" }}
+								</div>
+							</div>
+
 							<!-- Cost split. The cache columns are the point: an agent can
 							     look cheap only because it is reading a warm cache. -->
 							<div class="mt-4 border-t pt-3">

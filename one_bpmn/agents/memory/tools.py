@@ -201,23 +201,95 @@ def memory_search(scope: str, scope_key, query: str, limit: int = 5, *, ignore_p
 	return [_row_dict(r) for r in valid[:page_length]]
 
 
-def _reconcile_and_invalidate(scope, scope_key, content, ctx, *, ignore_permissions) -> str | None:
+def memory_list_user_directed(scope: str, scope_key, limit: int = 3, *, ignore_permissions: bool = False) -> list[dict]:
+	"""Currently-valid user-directed memories for exactly one scope key, most
+	recent first — unconditionally, with no keyword/relevance filter.
+
+	A standing convention the user asked to be remembered ("remember that...")
+	won't share vocabulary with whatever the current turn happens to be about,
+	so ``memory_search``'s FULLTEXT/``like`` matching can't be relied on to
+	surface it — that is the recall gap this exists to close. Called alongside
+	``memory_search``, not instead of it; the caller merges both result sets.
+	"""
+	filters = dict(_resolve_scope(scope, scope_key), user_directed=1)
+	page_length = limit if isinstance(limit, int) and limit > 0 else _DEFAULT_LIMIT
+	rows = frappe.get_list(
+		"AI Memory",
+		filters=filters,
+		fields=["name", "content", "metadata", "expires_on"],
+		order_by="modified desc",
+		limit_page_length=page_length + _EXPIRY_HEADROOM,
+		ignore_permissions=ignore_permissions,
+	)
+	cutoff = now_datetime()
+	valid = [r for r in rows if not r.get("expires_on") or get_datetime(r["expires_on"]) > cutoff]
+	return [_row_dict(r) for r in valid[:page_length]]
+
+
+def _valid_rows(rows: list) -> list:
+	"""Drop expired/superseded rows from a raw ``frappe.get_all`` result — the
+	same currently-valid guard ``memory_search`` applies, exposed separately so a
+	direct field lookup (not a keyword search) can reuse it."""
+	cutoff = now_datetime()
+	return [r for r in rows if not r.get("expires_on") or get_datetime(r["expires_on"]) > cutoff]
+
+
+def _keyed_candidates(keys: dict, dedup_key: str | None) -> list[dict]:
+	"""Currently-valid rows in scope sharing ``dedup_key`` — fetched by direct
+	field lookup so they reach the reconciler (and the exact-duplicate check)
+	even when their wording shares no tokens with the new content, which a
+	keyword/FULLTEXT ``memory_search`` would otherwise miss entirely."""
+	if not dedup_key:
+		return []
+	rows = frappe.get_all(
+		"AI Memory",
+		filters=dict(keys, dedup_key=dedup_key),
+		fields=["name", "content", "metadata", "expires_on"],
+		ignore_permissions=True,
+	)
+	return [_row_dict(r) for r in _valid_rows(rows)]
+
+
+def _reconcile_and_invalidate(scope, scope_key, content, dedup_key, ctx, *, ignore_permissions) -> str | None:
 	"""Reconcile ``content`` against the most similar currently-valid memories in
 	the same scope and invalidate any it supersedes.
 
-	Retrieves conflict candidates with the existing scoped ``memory_search``
-	(currently-valid only, after the expires_on guard), asks the configured chat
-	model to decide add/update/replace, and for each superseded memory sets
-	``expires_on = now`` via ``doc.save`` — NOT ``db.set_value`` — so the change is
-	captured as a Frappe ``Version`` (free history; the row stays in the table).
+	Candidates are the union of (a) currently-valid rows sharing ``dedup_key`` —
+	fetched directly, not by keyword match, so a same-topic restatement worded
+	differently still surfaces — and (b) the existing scoped ``memory_search``
+	keyword/FULLTEXT results, filling up to ``_RECONCILE_K`` after the ``dedup_key``
+	rows are pinned first. Before any of that, an exact ``content`` match among the
+	``dedup_key`` rows short-circuits the whole call: no LLM is invoked, so a
+	reconciler failure can never let that specific duplicate through — the one
+	case that used to guarantee an unwanted insert.
 
-	Returns the reconciler action ("add"/"update"/"replace"), or ``None`` when
+	Asks the configured chat model to decide add/update/replace for whatever
+	wasn't short-circuited, and for each superseded memory sets ``expires_on =
+	now`` via ``doc.save`` — NOT ``db.set_value`` — so the change is captured as a
+	Frappe ``Version`` (free history; the row stays in the table).
+
+	Returns the reconciler action ("add"/"update"/"replace"), the sentinel
+	``"skipped_exact_duplicate"`` (caller must insert nothing), or ``None`` when
 	there is nothing to reconcile against. Never raises — the caller treats any
 	problem as a plain insert.
 	"""
 	from one_bpmn.agents.memory.reconcile import reconcile as _reconcile
 
-	candidates = memory_search(scope, scope_key, content, limit=_RECONCILE_K, ignore_permissions=True)
+	keys = _resolve_scope(scope, scope_key)
+	keyed = _keyed_candidates(keys, dedup_key)
+
+	text = (content or "").strip()
+	if any((c.get("content") or "").strip() == text for c in keyed):
+		return "skipped_exact_duplicate"
+
+	searched = memory_search(scope, scope_key, content, limit=_RECONCILE_K, ignore_permissions=True)
+	seen = {c["name"] for c in keyed}
+	candidates = list(keyed)
+	for c in searched:
+		if c["name"] not in seen and len(candidates) < _RECONCILE_K:
+			seen.add(c["name"])
+			candidates.append(c)
+
 	if not candidates:
 		return None
 
@@ -228,6 +300,23 @@ def _reconcile_and_invalidate(scope, scope_key, content, ctx, *, ignore_permissi
 		backend=(ctx or {}).get("backend") or "direct_api",
 		model=(ctx or {}).get("model"),
 	)
+
+	degraded = decision.get("degraded")
+	if degraded:
+		# The LLM didn't genuinely decide — no model, no output, or a failed
+		# call — so this "add" (or whatever action came back) is a fallback, not
+		# a judgment. Surfaced two ways: an error log (this app's existing
+		# visibility mechanism) and a running counter an admin can check without
+		# combing logs.
+		frappe.log_error(
+			title="AI Memory: reconciliation degraded",
+			message=f"reason={degraded} scope={scope} scope_key={scope_key}",
+		)
+		try:
+			frappe.cache().hincrby("ai_memory:reconcile_degraded", degraded, 1)
+		except Exception:
+			pass
+
 	stamp = now_datetime()
 	for name in decision.get("supersedes", []):
 		try:
@@ -246,6 +335,44 @@ def _reconcile_and_invalidate(scope, scope_key, content, ctx, *, ignore_permissi
 	return decision.get("action")
 
 
+def _screen_memory_content(content: str, scope: str, keys_source=None) -> str | None:
+	"""Screen a memory before it is stored. ``None`` means do not store it.
+
+	Screened against the site default rather than a specific agent's setting:
+	this layer is reached from the distiller, the memory tool and direct server
+	calls, and only some of those know which agent configuration is in play.
+	Erring towards the default is the safe direction — the default is Flag, so
+	the fact is still stored, minus the payload.
+
+	Never raises. A screening fault must not lose a memory that would otherwise
+	have been written.
+	"""
+	try:
+		from one_bpmn.security.injection import screen_input
+
+		result = screen_input(
+			content,
+			None,
+			boundary="memory-write",
+			raise_on_block=False,
+		)
+		if result.fired and result.action == "Block":
+			frappe.logger("injection").warning(
+				f"memory write dropped for scope={scope}: {result.summary()}"
+			)
+			return None
+		return result.text
+	except Exception:
+		try:
+			frappe.log_error(
+				title="Memory write screening failed — memory stored unscreened",
+				message=frappe.get_traceback(),
+			)
+		except Exception:
+			pass
+		return content
+
+
 def memory_write(
 	scope: str,
 	scope_key,
@@ -257,6 +384,8 @@ def memory_write(
 	ignore_permissions: bool = False,
 	reconcile: bool = False,
 	reconcile_ctx: dict | None = None,
+	process_model: str | None = None,
+	user_directed: bool = False,
 ) -> dict:
 	"""Save a memory for a scope key.
 
@@ -264,45 +393,87 @@ def memory_write(
 	existing record's content/metadata (and source_run) are overwritten in
 	place instead of inserting a duplicate; without a ``dedup_key`` a new record
 	is inserted. ``source_run`` records provenance (the AI Agent Run that wrote
-	the memory).
+	the memory). ``process_model`` records which process run produced the fact —
+	it is NOT a scope key (Agent scope still keys strictly on ``agent_element``),
+	just optional provenance carried alongside, the same way ``source_run`` is.
 
-	``reconcile=True`` (the background note-taker path) replaces string dedup with
-	write-time semantic reconciliation: before inserting, the most similar
-	currently-valid memories in scope are retrieved and the configured chat model
-	(``reconcile_ctx={provider_name, backend, model}``) decides add/update/replace.
-	Superseded memories are invalidated (``expires_on = now``, kept for history)
-	and the new fact is always inserted fresh (``dedup_key`` is ignored). If
-	reconciliation can't run (no model, no candidates, any error) it degrades to a
-	plain insert — it never raises and never blocks the turn.
+	``reconcile=True`` (the background note-taker path) layers write-time semantic
+	reconciliation on top of ``dedup_key`` rather than replacing it: a
+	``dedup_key``/exact-content match short-circuits straight to "insert nothing"
+	(no LLM call, so a reconciler failure can't let that duplicate through
+	either); otherwise the most similar currently-valid memories in scope
+	(``dedup_key`` matches pinned first, then keyword/FULLTEXT search) are handed
+	to the configured chat model (``reconcile_ctx={provider_name, backend,
+	model}``), which decides add/update/replace. Superseded memories are
+	invalidated (``expires_on = now``, kept for history) and a surviving new fact
+	is inserted fresh, carrying ``dedup_key`` forward (the old overwrite-in-place
+	lookup below is skipped when reconciling — invalidate-and-insert is the only
+	semantics here). If reconciliation can't run (no model, no candidates, any
+	error) it degrades to a plain insert — it never raises and never blocks the
+	turn.
 
 	Permissions: this writes as the caller's context. ``ignore_permissions=True``
 	is the documented escape hatch for TRUSTED server-side dispatch only (the
 	agent runs under a system context) — it must NEVER be passed from a
 	whitelisted / HTTP-reachable method.
 
+	``user_directed=True`` marks a memory the user explicitly asked to be
+	remembered (e.g. "remember that..."), as opposed to one an agent's output
+	happened to produce. It is exempt from Log Settings auto-cleanup
+	(``AIMemory.clear_old_logs``) and is recalled unconditionally by
+	``memory_list_user_directed`` regardless of a later turn's keywords.
+
 	Returns the resulting record as ``{name, content, metadata}``.
 	"""
+	# ── Injection screening before persistence ───────────────────────────
+	# A memory is re-read on every later turn for its scope, so a payload that
+	# reaches this function stops being a one-off message and becomes a standing
+	# instruction — the one carrier where a single success buys the attacker
+	# persistence. Screened here rather than in the distiller because THIS is the
+	# function every write path goes through, including the memory tool.
+	#
+	# Nobody is waiting on a background writeback, so a Block drops the write
+	# instead of raising: refusing here would surface as a failed job, not as an
+	# answer to a person. Flag stores the fact with the payload cut out, because
+	# a distilled memory usually carries something worth keeping alongside it.
+	content = _screen_memory_content(content, scope, keys_source=scope_key)
+	if content is None:
+		return {}
+
 	keys = _resolve_scope(scope, scope_key)
 
-	# Write-time reconciliation supersedes the string-dedup mechanism: it never
-	# uses dedup_key, and conflicts are resolved by invalidating the old fact.
+	# Write-time reconciliation layers on top of dedup_key (see docstring): a
+	# dedup_key/exact-content match short-circuits before any LLM call, and
+	# whatever survives is always inserted fresh, carrying dedup_key forward.
 	reconcile_action = None
 	if reconcile:
-		dedup_key = None
 		try:
 			reconcile_action = _reconcile_and_invalidate(
-				scope, scope_key, content, reconcile_ctx, ignore_permissions=ignore_permissions
+				scope, scope_key, content, dedup_key, reconcile_ctx, ignore_permissions=ignore_permissions
 			)
 		except Exception:
 			frappe.log_error(title="AI Memory: reconcile_and_invalidate failed", message=frappe.get_traceback())
 			reconcile_action = None  # degrade: plain insert
 
+		if reconcile_action == "skipped_exact_duplicate":
+			# The dedup_key/content match already holds this fact — inserting
+			# again would recreate the exact duplication reconciliation exists to
+			# prevent. The LLM was never on the critical path for this decision.
+			found = frappe.get_all(
+				"AI Memory", filters=dict(keys, dedup_key=dedup_key), fields=["name", "content", "metadata"], limit=1
+			)
+			row = found[0] if found else {}
+			return {"name": row.get("name"), "content": row.get("content"), "metadata": _json_loads(row.get("metadata"))}
+
 	if reconcile_action:
 		metadata = dict(metadata or {}, reconcile_action=reconcile_action)
 	metadata_json = json.dumps(metadata) if metadata is not None else None
 
+	# The overwrite-by-dedup_key lookup below is the plain-write semantics
+	# (mutate in place); reconciliation's semantics are invalidate-and-insert-
+	# fresh, so the two must stay mutually exclusive on this DocType.
 	existing = None
-	if dedup_key:
+	if dedup_key and not reconcile:
 		lookup = dict(keys, dedup_key=dedup_key)
 		found = frappe.get_all("AI Memory", filters=lookup, pluck="name", limit=1)
 		existing = found[0] if found else None
@@ -313,18 +484,27 @@ def memory_write(
 		doc.metadata = metadata_json
 		if source_run is not None:
 			doc.source_run = source_run
+		if process_model is not None:
+			doc.process_model = process_model
+		if user_directed:
+			doc.user_directed = 1
 		doc.save(ignore_permissions=ignore_permissions)
 	else:
-		doc = frappe.get_doc(
-			{
-				"doctype": "AI Memory",
-				**keys,
-				"content": content,
-				"dedup_key": dedup_key,
-				"metadata": metadata_json,
-				"source_run": source_run,
-			}
-		)
+		# **keys already carries process_model for Process scope (it's the scope
+		# key there); only add the kwarg on top when it's actually passed, so an
+		# omitted process_model (the common case) can't clobber that with None.
+		doc_fields = {
+			"doctype": "AI Memory",
+			**keys,
+			"content": content,
+			"dedup_key": dedup_key,
+			"metadata": metadata_json,
+			"source_run": source_run,
+			"user_directed": 1 if user_directed else 0,
+		}
+		if process_model is not None:
+			doc_fields["process_model"] = process_model
+		doc = frappe.get_doc(doc_fields)
 		doc.insert(ignore_permissions=ignore_permissions)
 
 	return {"name": doc.name, "content": doc.content, "metadata": _json_loads(doc.metadata)}

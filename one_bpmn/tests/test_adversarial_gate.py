@@ -548,16 +548,32 @@ class TestAdversarialPack(FrappeTestCase):
 		frappe.db.delete("AI Agent Configuration", {"agent_name": ("like", f"{PREFIX}%")})
 
 	def test_building_a_suite_covers_every_attack_family(self):
-		from one_bpmn.agents.adversarial_pack import CASES, build_suite_for_agent
+		from one_bpmn.agents.adversarial_pack import BENIGN_CASES, CASES, build_suite_for_agent
 
 		result = build_suite_for_agent(self.agent)
 		self.assertTrue(result["created_suite"])
-		self.assertEqual(result["cases_total"], len(CASES))
+		# Attacks AND benign controls: the rates need both kinds present or
+		# the false-positive rate has no denominator, so the pack seeds the
+		# controls rather than leaving them to be written by hand.
+		self.assertEqual(result["cases_total"], len(CASES) + len(BENIGN_CASES))
 
 		titles = " ".join(frappe.get_all("AI Eval Case", filters={"suite": result["suite"]}, pluck="title")).lower()
 		for family in ("instruction override", "system prompt extraction", "jailbreak",
 		               "delimiter injection", "exfiltration", "tool coercion"):
 			self.assertIn(family, titles, f"the pack must cover {family}")
+
+	def test_the_pack_seeds_benign_controls_labelled_as_such(self):
+		"""Without these the suite can only report how often an attack succeeded,
+		which on its own always argues for screening harder — a control that
+		refuses everything would score perfectly."""
+		from one_bpmn.agents.adversarial_pack import BENIGN_CASES, CASES, build_suite_for_agent
+
+		suite = build_suite_for_agent(self.agent)["suite"]
+		kinds = frappe.get_all("AI Eval Case", filters={"suite": suite}, fields=["case_kind"], limit_page_length=0)
+		counted = [k["case_kind"] for k in kinds]
+
+		self.assertEqual(counted.count("Attack"), len(CASES))
+		self.assertEqual(counted.count("Benign Control"), len(BENIGN_CASES))
 
 	def test_the_suite_is_marked_adversarial_and_gates_deployment(self):
 		from one_bpmn.agents.adversarial_pack import build_suite_for_agent

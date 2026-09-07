@@ -26,12 +26,30 @@ from . import (
     TokenUsage,
     register_executor,
 )
+from one_bpmn.agents.context_assembler import build_static_context, build_dynamic_preamble
 
 
 class AntigravityExecutor(Executor):
     """Single-call Google Antigravity SDK executor."""
 
     def run(self, config: ExecutorConfig, context: ExecutorContext) -> ExecutorResult:
+        # ── Context Assembler logic ────────────────────────────────
+        static_ctx = ""
+        dynamic_pre = ""
+        
+        if config.agent_config_name:
+            static_ctx = build_static_context(config.agent_config_name)
+        if config.active_skill_name:
+            dynamic_pre = build_dynamic_preamble(config.active_skill_name)
+            
+        system_prompt = config.system_prompt
+        if dynamic_pre:
+            system_prompt = f"{dynamic_pre}\n\n{system_prompt}"
+        if static_ctx:
+            system_prompt = f"{system_prompt}\n\n{static_ctx}"
+            
+        config.system_prompt = system_prompt
+        
         # ── Feature-detect the SDK ──────────────────────────────────
         # NOTE: Python ships a stdlib module named "antigravity", so a bare
         # `import antigravity` always succeeds. Verify the real SDK API

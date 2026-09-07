@@ -38,7 +38,7 @@ class _Instance:
 		self.context_doctype = ""
 		self.context_docname = ""
 
-	def _dispatch_service_task(self, task):
+	def _dispatch_service_task(self, task, task_cfg_override=None):
 		self.behaviour(task)
 
 
@@ -123,6 +123,18 @@ class TestNotPermittedIsNotTheSameAsNoData(FrappeTestCase):
 			res = _run(CONNECTOR_CFG, lambda task: task.data.update({"connector_result": {"id": "x"}}))
 
 		self.assertEqual(res, {"connector_result": {"id": "x"}})
+
+
+class TestAParkedConnectorStillSuspends(FrappeTestCase):
+	def test_the_waiting_marker_wins_over_the_outcome_report(self):
+		"""A delegation connector answers later, from elsewhere. Reporting its
+		empty result as "did not complete" would end the turn the model was
+		supposed to wait out — the loop must still see the pause."""
+		from one_bpmn.agents.shape_tools import ToolDeferred
+		from one_bpmn.one_bpmn.connectors.a2a_client_ops import A2A_WAITING_KEY
+
+		with self.assertRaises(ToolDeferred):
+			_run(CONNECTOR_CFG, lambda task: task.data.update({A2A_WAITING_KEY: {"task": "A2A-1"}}))
 
 
 class TestTheEndpointStaysReachable(FrappeTestCase):

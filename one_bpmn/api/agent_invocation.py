@@ -30,13 +30,13 @@ def _runner_for(config: dict) -> str:
 	if config.get("process_model"):
 		return "bpmn_map"
 	framework = (config.get("agent_framework") or "").strip().lower()
-	# "anthropic" has no legacy runner left: every Anthropic-framework agent
-	# (Docu, Logix, ProsAlly, LuCrusher) is map-driven and takes the branch
-	# above, so a config claiming Anthropic without a map is a misconfiguration
-	# and falls through to the single-shot path rather than a dead import.
+	# Neither "anthropic" nor "langgraph" has a legacy runner left: every agent
+	# on either framework (Docu, Logix, ProsAlly, LuCrusher, and now the BA
+	# Agent) is map-driven and takes the branch above, so a config claiming one
+	# of them without a map is a misconfiguration and falls through to the
+	# single-shot path rather than a dead import.
 	return {
 		"google adk": "adk_stage_agent",
-		"langgraph": "langgraph",
 		"direct api": "direct_api",
 	}.get(framework, "direct_api")
 
@@ -48,18 +48,91 @@ def _resolve_config(agent_id: str) -> dict:
 	return config
 
 
+def allowed_roles_for(config_name: str) -> set:
+	"""The roles allowed to use an agent. Empty means everyone.
+
+	Empty-means-everyone is the EXISTING contract, not a new choice: every Live
+	agent on the platform currently leaves the table empty, so reading empty as
+	"nobody" would take the whole fleet offline the moment this is enforced.
+	Restricting an agent is an opt-in act.
+	"""
+	try:
+		return set(
+			frappe.get_all(
+				"AI Agent Allowed Role",
+				filters={"parent": config_name, "parenttype": "AI Agent Configuration"},
+				pluck="role",
+			)
+		)
+	except Exception:
+		# Unreadable table: fall back to unrestricted rather than locking every
+		# user out of every agent on a transient read failure.
+		#
+		# The log write is wrapped separately because it can fail for the very
+		# reason the read did — a database that cannot answer a query cannot
+		# record that it could not answer a query, and an exception raised in
+		# here would turn a degraded read into a hard failure for the user.
+		try:
+			frappe.log_error(
+				title=f"Could not read allowed roles for {config_name} — treated as unrestricted",
+				message=frappe.get_traceback(),
+			)
+		except Exception:
+			pass
+		return set()
+
+
+def user_may_use_agent(config_name: str, user: str = None) -> bool:
+	"""Whether ``user`` may invoke the agent named ``config_name``.
+
+	THE ONE definition, deliberately. Before this existed, the chat picker
+	filtered on allowed_roles and the invocation endpoint did not — so the field
+	decided what a user was OFFERED while placing no limit on what they could
+	CALL, and naming an agent directly walked straight past it. Two readings of
+	one rule is how that happens, so both callers now go through here.
+
+	System Manager is always allowed: it can edit the agent's roles anyway, so
+	refusing it would be appearance rather than control.
+	"""
+	user = user or frappe.session.user
+	allowed = allowed_roles_for(config_name)
+	if not allowed:
+		return True
+	roles = set(frappe.get_roles(user))
+	return bool(roles & allowed) or "System Manager" in roles
+
+
 def _authorize(config: dict, conversation_name: str = None):
-	"""A Draft (non-Live) agent is invocable only by its author/owner or a
-	System Manager — for validation before go-live — and never surfaces to
-	end users. Live agents are gated by allowed_roles elsewhere (WI-001618)."""
-	lifecycle = config.get("lifecycle_status") or "Draft"
-	if lifecycle == "Live":
-		return
+	"""Decide whether this user may run this agent at all.
+
+	Two gates, and every agent passes through one of them:
+
+	- **Not yet Live** — its author or a System Manager only, so an agent can be
+	  exercised before go-live without being reachable by end users.
+	- **Live** — the agent's allowed_roles, enforced HERE and not merely in the
+	  picker. ``invoke_agent`` is whitelisted, so anything reachable
+	  from a browser can name an agent_id directly; a filter applied only to the
+	  dropdown decided what was offered and stopped nothing.
+	"""
 	user = frappe.session.user
+	lifecycle = config.get("lifecycle_status") or "Draft"
+	config_name = frappe.db.get_value(
+		"AI Agent Configuration", {"agent_id": config["agent_id"]}, ["name", "owner"], as_dict=True
+	) or frappe._dict()
+
+	if lifecycle == "Live":
+		if config_name.name and not user_may_use_agent(config_name.name, user):
+			frappe.throw(
+				_("You do not have a role that is allowed to use the '{0}' agent.").format(
+					config.get("chat_mode_label") or config["agent_id"]
+				),
+				frappe.PermissionError,
+			)
+		return
+
 	if "System Manager" in frappe.get_roles(user):
 		return
-	owner = frappe.db.get_value("AI Agent Configuration", {"agent_id": config["agent_id"]}, "owner")
-	if user != owner:
+	if user != config_name.owner:
 		frappe.throw(
 			_("Agent '{0}' is not yet Live and can only be exercised by its author.").format(config["agent_id"]),
 			frappe.PermissionError,
@@ -72,14 +145,14 @@ def list_available_agents(include_legacy: int = 1) -> list:
 
 	The list is a query over enabled, Live, Chat-type AI Agent
 	Configurations, filtered by each agent's allowed_roles (empty = all
-	logged-in users). During the transition — until the legacy Lumina-page
-	agents (General Chat, BA Agent) are migrated to Live configs — the
+	logged-in users). During the transition — until the last legacy Lumina-page
+	agent (General Chat) is migrated to a Live config — the
 	hardcoded set is unioned in so the chat dropdown never empties. LuCrusher
-	left that set in WI-001634: it is a Live, map-driven config now and is
-	listed from the query like every other migrated agent.
+	and the BA Agent have both left that set: they are Live, map-driven configs
+	and are listed from the query like every other migrated agent, leaving
+	General Chat as the last legacy entry.
 	Each entry: {value (chat mode label), label, icon, agent_id}.
 	"""
-	user_roles = set(frappe.get_roles(frappe.session.user))
 	agents, seen = [], set()
 
 	configs = frappe.get_all(
@@ -97,6 +170,72 @@ def list_available_agents(include_legacy: int = 1) -> list:
 			"BPMN Process Model", cfg.process_model, "is_active"
 		):
 			continue
+		# Same rule the invocation gate applies, read from the same function —
+		# a picker that shows what cannot be called, or hides what can, is worse
+		# than no filter at all.
+		if not user_may_use_agent(cfg.name):
+			continue
+		agents.append({
+			"value": cfg.chat_mode_label,
+			"label": cfg.chat_mode_label,
+			"icon": cfg.icon or "🤖",
+			"agent_id": cfg.agent_id,
+		})
+		seen.add(cfg.chat_mode_label)
+
+	if int(include_legacy or 0):
+		for label, icon in (("General Chat", "💬"),):
+			if label not in seen:
+				agents.append({"value": label, "label": label, "icon": icon, "agent_id": None, "legacy": True})
+
+	return agents
+
+
+# The ONE AI page is the Lumina page's successor, so it offers the Lumina
+# page's own modes and nothing else — LUMINA_NATIVE_MODES in onefm_mcp's
+# lumina.py, expressed here as agent ids. Order is the picker's order.
+# ``ba_architect`` and not "ba_agent": the id here was a guess at what the BA
+# Agent's configuration would be called, no such record ever existed, and the
+# lookup below silently dropped the agent from the page. The record's real id is
+# ``ba_architect`` — "BA Agent" is its chat_mode_label, which is the same
+# label-versus-id trap LuCrusher hit.
+ONE_AI_AGENT_IDS = ("lumina_general_chat", "ba_architect", "lucrusher_agent")
+
+
+@frappe.whitelist()
+def list_one_ai_agents() -> list:
+	"""The fixed agent list for the ONE AI page (WI-001678).
+
+	Every field the picker shows comes from the agent's own AI Agent
+	Configuration — never from a copy kept here. That is WI-001634's lesson
+	the hard way: LuCrusher's label IS its map's start trigger, the record
+	said "lucrusher" while a hardcoded list said "LuCrusher", and no
+	conversation ever spawned a process instance. An agent that is missing,
+	disabled or not Live on this site is simply not offered.
+
+	Returns:
+	    list of {value (chat mode label), label, icon, agent_id}, in
+	    ONE_AI_AGENT_IDS order.
+	"""
+	user_roles = set(frappe.get_roles(frappe.session.user))
+	agents = []
+
+	for agent_id in ONE_AI_AGENT_IDS:
+		cfg = frappe.db.get_value(
+			"AI Agent Configuration",
+			{"agent_id": agent_id, "enabled": 1, "agent_type": "Chat", "lifecycle_status": "Live"},
+			["name", "agent_id", "chat_mode_label", "icon", "process_model"],
+			as_dict=True,
+		)
+		if not cfg or not cfg.chat_mode_label:
+			continue
+		# The deployed-diagram gate applies only to map-driven agents: a mode
+		# may still run on the direct-api runner, which needs no diagram at all
+		# (see _runner_for).
+		if cfg.process_model and not frappe.db.get_value(
+			"BPMN Process Model", cfg.process_model, "is_active"
+		):
+			continue
 		allowed = frappe.get_all(
 			"AI Agent Allowed Role",
 			filters={"parent": cfg.name, "parenttype": "AI Agent Configuration"},
@@ -110,14 +249,26 @@ def list_available_agents(include_legacy: int = 1) -> list:
 			"icon": cfg.icon or "🤖",
 			"agent_id": cfg.agent_id,
 		})
-		seen.add(cfg.chat_mode_label)
-
-	if int(include_legacy or 0):
-		for label, icon in (("General Chat", "💬"), ("BA Agent", "📋")):
-			if label not in seen:
-				agents.append({"value": label, "label": label, "icon": icon, "agent_id": None, "legacy": True})
 
 	return agents
+
+
+def one_ai_conversation_modes() -> list:
+	"""agent_mode values that belong to the ONE AI page's own conversations.
+
+	Conversations record either the chat label or the bare agent id, so both
+	are returned. Used to keep other surfaces' chats (Logix, ProsAlly, Docu,
+	every future agent) out of the page's history sidebar — the same rule
+	Lumina applies with _registry_only_agent_modes.
+	"""
+	modes = list(ONE_AI_AGENT_IDS)
+	labels = frappe.get_all(
+		"AI Agent Configuration",
+		filters={"agent_id": ["in", ONE_AI_AGENT_IDS]},
+		pluck="chat_mode_label",
+	)
+	modes.extend(label for label in labels if label)
+	return modes
 
 
 @frappe.whitelist()
@@ -157,6 +308,22 @@ def invoke_agent(
 			)
 	if isinstance(context, str):
 		context = frappe.parse_json(context)
+
+	# Some chat clients submit HTML-escaped text (e.g. a rich-text/
+	# contenteditable input serializing its content before it reaches this
+	# endpoint) even though ``message`` is meant to be plain text — observed
+	# live as an escaped ``&lt;PROJECT&gt;``-style placeholder surviving all
+	# the way into a durable AI Memory row. Decoding entities here, before
+	# anything else touches the message, means every downstream consumer
+	# (PII/injection screening, the rendered prompt, chat history, long-term
+	# memory) sees the plain text. Entity-decoding only (not full
+	# ``strip_html``): unlike markup tags, a plain chat message can
+	# legitimately contain a literal ``<...>``-shaped placeholder, and this
+	# must not corrupt that.
+	from one_bpmn.agents.memory.text_clean import unescape_entities
+
+	message = unescape_entities(message)
+
 	config = _resolve_config(agent_id)
 	_authorize(config, conversation)
 
@@ -197,20 +364,28 @@ def invoke_agent(
 	message = screened.text
 	_pii_turn = _pii.begin_turn(screened, enabled=screened.enabled)
 
-	# ── Injection screening (WI-001967) ──────────────────────────────────
-	# Record-only: every rule in the pack that matches becomes an AI Security
-	# Event, but nothing is altered and nothing is stopped — choosing what a
-	# match should DO is 15.1. Hooked here rather than on Chat Message so it
-	# runs exactly once per turn, with the agent and conversation to hand.
-	# Never raises; a failure leaves the turn untouched.
-	from one_bpmn.security.injection import screen_for_injection
+	# ── Injection screening: detect, then act ────────────────────────────
+	# Hooked here rather than on Chat Message so it runs exactly once per turn,
+	# with the agent and conversation to hand. What a match DOES is the agent's
+	# own setting: Log passes through, Flag removes the matched phrase and lets
+	# the rest of the request stand, Block refuses the turn.
+	#
+	# Runs AFTER PII redaction on purpose. The rules match on instruction-shaped
+	# phrasing, not on personal data, so they are unaffected by tokenisation —
+	# while screening first would put the raw Civil ID into the security event's
+	# hash input and undo the point of redacting it.
+	#
+	# Only a Block raises, and it raises an AgentRefusal so the caller reports
+	# it as a decision. Every other failure path leaves the turn untouched.
+	from one_bpmn.security.injection import screen_input as _screen_injection
 
-	screen_for_injection(
+	_injection = _screen_injection(
 		message,
+		config,
 		boundary="input",
-		agent_configuration=_pii._config_name(config),
 		conversation=conversation,
 	)
+	message = _injection.text
 
 	if not conversation:
 		from one_bpmn.utils.chat_persistence import create_agent_conversation
@@ -361,24 +536,6 @@ def _run_adk_stage_agent(config, conversation, message, context, stream=False):
 	)
 
 
-def _run_langgraph(config, conversation, message, context, stream=False):
-	"""BA Agent. Its graph runner lives in onefm_mcp; call through when present.
-
-	WI-001670: the ``stream`` flag now passes through instead of being forced
-	to False. That hard-coded False made this runner unable to run the BA
-	agent at all — ``send_message_with_agent`` throws "BA Agent only supports
-	streaming mode" on non-streaming calls. With stream=True the runner hands
-	back the agent's event generator for the shared AG-UI stream to relay."""
-	try:
-		from onefm_mcp.onefm_mcp.page.lumina.lumina import send_message_with_agent
-	except Exception:
-		frappe.throw(_("The LangGraph runner for '{0}' is unavailable.").format(config["agent_id"]))
-	resp = send_message_with_agent(conversation, message, stream=stream)
-	if _is_stream(resp):
-		return resp
-	return resp if isinstance(resp, dict) else {"response": str(resp or "")}
-
-
 def _run_direct_api(config, conversation, message, context, stream=False):
 	"""Single-shot / general chat. Persists the turn and calls the adapter's
 	own (async) tool-calling loop for one exchange."""
@@ -398,7 +555,6 @@ def _run_direct_api(config, conversation, message, context, stream=False):
 _RUNNERS = {
 	"bpmn_map": _run_bpmn_map,
 	"adk_stage_agent": _run_adk_stage_agent,
-	"langgraph": _run_langgraph,
 	"direct_api": _run_direct_api,
 }
 

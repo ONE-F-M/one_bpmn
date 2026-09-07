@@ -25,7 +25,7 @@ VALIDATION_RULES = (
 	{"field": "agent_id", "rule": "required"},
 	{"field": "system_prompt", "rule": "must be non-empty (or a description provided so the creation process can generate one)"},
 	{"field": "ai_model", "rule": "must link an AI Model catalog record — the provider is derived from the model's credentials link (WI-001655)"},
-	{"field": "ai_provider_credentials", "rule": "derived from the model; the derived record must exist and be ENABLED; a live test call is made against it"},
+	{"field": "ai_provider", "rule": "derived from the model; the derived provider must exist and be ENABLED; a live test call is made against it"},
 	{"field": "chat_mode_label", "rule": "required for Chat agents unless the agent is mapped to a non-chat process map (WI-001997); must be unique across agents"},
 )
 
@@ -49,6 +49,21 @@ def is_chat_startable_map(model_name: str) -> bool | None:
 	if not xml:
 		return None
 	return 'triggerDoctype="Chat Conversation"' in xml
+
+
+def is_a2a_startable_map(model_name: str) -> bool | None:
+	"""Whether a BPMN Process Model can be started by an inbound A2A task
+	(WI-001932): a start event whose conditionalEventDefinition triggers on
+	A2A Task insert (``spiffworkflow:triggerDoctype="A2A Task"``). This is
+	the Background-agent door — the A2A Task row is the trigger document
+	and the instance's context, no Chat Conversation involved. Same
+	substring test and same None semantics as is_chat_startable_map."""
+	if not model_name:
+		return None
+	xml = frappe.db.get_value("BPMN Process Model", model_name, "bpmn_xml")
+	if not xml:
+		return None
+	return 'triggerDoctype="A2A Task"' in xml
 
 
 def validate_agent_config(config_name: str, test_provider: bool = True, require_prompt: bool = True) -> dict:
@@ -84,14 +99,20 @@ def validate_agent_config(config_name: str, test_provider: bool = True, require_
 	# 3. Model + derived credentials (WI-001655: the model is the pick)
 	if not cfg.get("ai_model"):
 		errors.append(_("No AI Model is linked — pick one from the catalog."))
-	if not cfg.ai_provider_credentials:
+	if not cfg.ai_provider:
 		errors.append(
-			_("The linked AI Model has no AI Provider Credentials link.")
+			_("The linked AI Model names no AI Provider.")
 			if cfg.get("ai_model")
-			else _("No AI Provider Credentials could be derived.")
+			else _("No AI Provider could be derived.")
 		)
-	elif not frappe.db.get_value("AI Provider Credentials", cfg.ai_provider_credentials, "enabled"):
-		errors.append(_("The linked AI Provider Credentials record is disabled."))
+	elif not frappe.db.exists("AI Provider", cfg.ai_provider):
+		errors.append(_("The linked AI Provider does not exist."))
+	elif cfg.get("ai_model") and not frappe.db.get_value(
+		"AI Model", cfg.get("ai_model"), "enable_model"
+	):
+		# A provider is a name now and cannot be switched off. enable_model is
+		# the only switch left, and it is the one that carries the connection.
+		errors.append(_("The linked AI Model is disabled."))
 
 	# 4. Chat-type essentials — a label, unless the agent is mapped to a
 	# non-chat process map (WI-001997: a process-embedded agent never appears
@@ -101,7 +122,7 @@ def validate_agent_config(config_name: str, test_provider: bool = True, require_
 			errors.append(_("Chat agents need a chat mode label."))
 
 	# 5. Live provider test call
-	if test_provider and cfg.ai_provider_credentials and not errors:
+	if test_provider and cfg.ai_provider and not errors:
 		ok, detail = _provider_test_call(cfg)
 		if not ok:
 			errors.append(_("Provider test call failed: {0}").format(detail))
@@ -305,7 +326,14 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 	)
 	if existing:
 		suite = frappe.get_doc("AI Eval Suite", existing[0])
-		for case in frappe.get_all("AI Eval Case", filters={"suite": suite.name}, pluck="name"):
+		# Only the cases this generator wrote (it names them "<suite> — <n>").
+		# A baseline suite is also where hand-authored regression cases live, and
+		# refreshing the sample prompts must not silently delete those.
+		for case in frappe.get_all(
+			"AI Eval Case",
+			filters={"suite": suite.name, "title": ["like", f"{suite_title} — %"]},
+			pluck="name",
+		):
 			frappe.delete_doc("AI Eval Case", case, force=True, ignore_permissions=True)
 	else:
 		suite = frappe.get_doc({
@@ -323,9 +351,9 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 	# assertions — provider/model/system prompt come from the suite's agent.
 	# llm_judge still needs a judge model, and since WI-001655 that is the
 	# agent's own catalog pick: an AI Model record name, which is exactly what
-	# the judge_model Link wants. (AI Provider Credentials.default_model, which
-	# this used to read, no longer exists.)
-	judge_provider = cfg.ai_provider_credentials
+	# the judge_model Link wants. (The provider-level default_model this used to
+	# read no longer exists.)
+	judge_provider = cfg.ai_provider
 	judge_model = cfg.get("ai_model") or ""
 	for i, sample in enumerate(samples, start=1):
 		case = frappe.get_doc({

@@ -669,6 +669,7 @@ _system = (_subs.get("process_generator") or {}).get("prompt") or ""
 # ── generate + validate repair loop (inline; role = process_generator) ──
 best_xml = ""
 problems = []
+topology_note = ""
 ir_dict = None
 repair_hints = []
 for attempt in range(_MAX_FIX_PASSES + 1):
@@ -747,6 +748,19 @@ for attempt in range(_MAX_FIX_PASSES + 1):
     _res = compile_ir(ir_dict)
     xml = _res.get("xml") or ""
     _pipe_probs = _res.get("problems") or []
+    # The compiler now says whether the graph can be drawn flat at all, and how
+    # the drawing measured up. Neither is a reason to retry: a non-planar graph
+    # is a fact for the user, and avoidable crossings are our compiler's fault.
+    _topo = _res.get("topology") or {}
+    _layout = _res.get("layout") or {}
+    if _topo.get("planar") is False:
+        _names = {}
+        for _n in (ir_dict.get("nodes") or []):
+            _names[_n.get("id")] = _n.get("name") or _n.get("id")
+        _who = ", ".join([_names.get(_x, _x) for _x in (_topo.get("obstruction") or [])[:5]])
+        topology_note = " One crossing line is unavoidable: the paths through " + _who + " cannot all be laid flat."
+    if _res.get("ok") and _layout.get("crossings", 0) > _topo.get("min_crossings", 0):
+        frappe.log_error(title="ProsAlly layout: avoidable crossings", message=json.dumps(_layout)[:2000])
     _norm = _res.get("normalizedIR")
     if _norm:
         ir_dict = _norm
@@ -774,7 +788,7 @@ for attempt in range(_MAX_FIX_PASSES + 1):
     if attempt == _MAX_FIX_PASSES:
         break
 
-note = (" (" + str(len(problems)) + " issue(s) remain — review the canvas.)") if problems else ""
+note = ((" (" + str(len(problems)) + " issue(s) remain — review the canvas.)") if problems else "") + topology_note
 xml_name = extract_process_name(best_xml) or process_name or "process"
 output = {
     "intent": "BPMN_GENERATED",
@@ -1136,6 +1150,7 @@ _system = (_subs.get("modifier") or {}).get("prompt") or ""
 # ── generate + validate repair loop (inline; role = modifier, NO lane enforcement) ──
 best_xml = ""
 problems = []
+topology_note = ""
 ir_dict = None
 repair_hints = []
 for attempt in range(_MAX_FIX_PASSES + 1):
@@ -1192,6 +1207,19 @@ for attempt in range(_MAX_FIX_PASSES + 1):
     _res = compile_ir(ir_dict)
     xml = _res.get("xml") or ""
     _pipe_probs = _res.get("problems") or []
+    # The compiler now says whether the graph can be drawn flat at all, and how
+    # the drawing measured up. Neither is a reason to retry: a non-planar graph
+    # is a fact for the user, and avoidable crossings are our compiler's fault.
+    _topo = _res.get("topology") or {}
+    _layout = _res.get("layout") or {}
+    if _topo.get("planar") is False:
+        _names = {}
+        for _n in (ir_dict.get("nodes") or []):
+            _names[_n.get("id")] = _n.get("name") or _n.get("id")
+        _who = ", ".join([_names.get(_x, _x) for _x in (_topo.get("obstruction") or [])[:5]])
+        topology_note = " One crossing line is unavoidable: the paths through " + _who + " cannot all be laid flat."
+    if _res.get("ok") and _layout.get("crossings", 0) > _topo.get("min_crossings", 0):
+        frappe.log_error(title="ProsAlly layout: avoidable crossings", message=json.dumps(_layout)[:2000])
     _norm = _res.get("normalizedIR")
     if _norm:
         ir_dict = _norm
@@ -1219,7 +1247,7 @@ for attempt in range(_MAX_FIX_PASSES + 1):
     if attempt == _MAX_FIX_PASSES:
         break
 
-note = (" (" + str(len(problems)) + " issue(s) remain — review the canvas.)") if problems else ""
+note = ((" (" + str(len(problems)) + " issue(s) remain — review the canvas.)") if problems else "") + topology_note
 
 # ── preserve configured properties from the old diagram onto the new one ──
 merged_xml, removed_elements = _prosally_preserver("transfer", current_xml, best_xml)

@@ -89,8 +89,8 @@ class TestAiTaskSelectorConfig(FrappeTestCase):
 	def test_valid_provider_passes_lint(self):
 		provider = frappe.get_doc(
 			{
-				"doctype": "AI Provider Credentials",
-				"provider_name": "Selector Lint Test Provider",
+				"doctype": "AI Provider",
+				"provider": "Selector Lint Test Provider",
 				"provider_type": "OpenAI",
 				"api_key": "test-key-not-real",
 				"enabled": 1,

@@ -186,7 +186,7 @@ def _starter_judge_assertion(
 	# WI-001655: judge_model is a Link into the AI Model catalog, and the agent's
 	# own pick is a catalog record name — exactly what the field wants.
 	judge_provider, judge_model = frappe.db.get_value(
-		"AI Agent Configuration", agent, ["ai_provider_credentials", "ai_model"]
+		"AI Agent Configuration", agent, ["ai_provider", "ai_model"]
 	) or (None, None)
 	if not judge_model and judge_provider:
 		# A legacy agent predating WI-001655 has no ai_model, and those are
@@ -194,7 +194,7 @@ def _starter_judge_assertion(
 		# not have to be the agent's own model — any usable one will score a
 		# reply — so fall back the same way DirectApiExecutor does.
 		judge_model = frappe.db.get_value(
-			"AI Model", {"ai_provider_credentials": judge_provider}, "name"
+			"AI Model", {"provider": judge_provider, "enable_model": 1}, "name"
 		)
 	if not judge_model:
 		return None

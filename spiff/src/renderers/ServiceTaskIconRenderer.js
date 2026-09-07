@@ -158,7 +158,18 @@ export default class ServiceTaskIconRenderer extends BaseRenderer {
 
 			const path = document.createElementNS(SVG_NS, "path");
 			path.setAttribute("d", iconDef.path);
-			path.setAttribute("fill", iconDef.color);
+			// An outline icon is a set of LINES, so filling it produces slivers
+			// instead of a glyph. lucide's whole set is drawn this way; Material
+			// Design's is solid. The connector says which it is.
+			if (iconDef.stroke) {
+				path.setAttribute("fill", "none");
+				path.setAttribute("stroke", iconDef.color);
+				path.setAttribute("stroke-width", "2");
+				path.setAttribute("stroke-linecap", "round");
+				path.setAttribute("stroke-linejoin", "round");
+			} else {
+				path.setAttribute("fill", iconDef.color);
+			}
 			group.appendChild(path);
 
 			const title = document.createElementNS(SVG_NS, "title");

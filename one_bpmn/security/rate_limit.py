@@ -39,6 +39,8 @@ import time
 import frappe
 from frappe import _
 
+from one_bpmn.security.refusal import AgentRefusal
+
 # The one genuinely site-wide setting left: WHO may release a frozen
 # conversation. That is a statement about roles on this site and means nothing
 # per agent — everything else about how hard an agent pushes back is the
@@ -59,8 +61,13 @@ _AGENT_DEFAULTS = {
 }
 
 
-class RateLimited(frappe.ValidationError):
-	"""Raised when a turn is refused. Carries why, so the caller can say so."""
+class RateLimited(AgentRefusal):
+	"""Raised when a turn is refused. Carries why, so the caller can say so.
+
+	Derives from AgentRefusal so the engine's "a refusal is not a
+	fault" rule covers every control by category rather than by name. Still a
+	ValidationError, so existing handlers are unaffected.
+	"""
 
 
 def settings() -> dict:
@@ -250,9 +257,20 @@ def blocked_attempts(user: str, agent: str | None, window_seconds: int) -> int:
 
 	What counts as "blocked": an event whose action is Block — a refusal that
 	actually happened — or a High/Critical injection match. The second is
-	included deliberately: injection screening is record-only until 15.1, so
-	without it a determined prober would never accumulate a single strike, and
-	the freeze in this story would be unreachable in practice.
+	included deliberately: a defused attempt is still an attempt, and with the
+	default action set to Flag a determined prober would otherwise never
+	accumulate a single strike.
+
+	Counted as ATTEMPTS, not as events. One message can match several rules and
+	each match writes its own AI Security Event — so counting rows made a single
+	message worth two or three strikes and burn the whole budget at once. The
+	setting is called "Freeze After N Blocked Attempts" and it now means that:
+	events are collapsed by correlation id, which is one per turn.
+
+	Observed live: one message matched ignore-previous-instructions
+	AND reveal-system-prompt, scored 2 against a threshold of 2, and froze the
+	conversation on the user's FIRST attempt — with the message itself allowed
+	through, because the action was only Flag.
 	"""
 	from frappe.utils import add_to_date, now_datetime
 
@@ -267,12 +285,22 @@ def blocked_attempts(user: str, agent: str | None, window_seconds: int) -> int:
 		if agent:
 			filters["agent_configuration"] = agent
 
-		blocks = frappe.db.count("AI Security Event", {**filters, "action": "Block"})
-		serious = frappe.db.count(
+		rows = frappe.get_all(
 			"AI Security Event",
-			{**filters, "stage": "injection", "severity": ("in", ["High", "Critical"])},
+			or_filters=[
+				{"action": "Block"},
+				{"stage": "injection", "severity": ("in", ["High", "Critical"])},
+			],
+			filters=filters,
+			fields=["name", "correlation_id"],
+			limit_page_length=0,
 		)
-		return blocks + serious
+		# Collapse by turn. An event with no correlation id predates the turn id or
+		# was written outside a turn; each of those counts once on its own rather
+		# than all collapsing into a single phantom attempt.
+		turns = {r["correlation_id"] for r in rows if r["correlation_id"]}
+		loose = sum(1 for r in rows if not r["correlation_id"])
+		return len(turns) + loose
 	except Exception:
 		frappe.log_error(
 			title="AI rate limit: blocked-attempt count failed — no freeze raised",
@@ -313,6 +341,18 @@ def raise_lock(
 		doc.trigger_event = trigger_event
 		doc.detail = detail
 		doc.insert(ignore_permissions=True)
+		# COMMIT before returning. The caller's next act is frappe.throw, which
+		# rolls the whole request back — so without this the freeze was told to
+		# the user and then undone: "a reviewer needs to release it" with no lock
+		# for anyone to release, and the very next message going straight
+		# through. Observed live.
+		#
+		# Same rule the streamed refusal already follows: a refusal is a
+		# DECISION, and the record of it has to outlive the exception that
+		# carries it. in_test is excepted because FrappeTestCase rolls back
+		# deliberately and a commit here would leak fixtures between tests.
+		if not frappe.flags.in_test:
+			frappe.db.commit()
 		return doc.name
 	except Exception:
 		frappe.log_error(
@@ -355,6 +395,11 @@ def enforce(
 			severity="High", classifier="locked",
 			detail=f"refused: conversation frozen by lock {lock}",
 		)
+		# Same reason as raise_lock: the throw below rolls this back otherwise,
+		# and a refusal nobody can see afterwards is indistinguishable from one
+		# that never happened.
+		if not frappe.flags.in_test:
+			frappe.db.commit()
 		frappe.throw(
 			_(
 				"This conversation has been frozen after repeated blocked attempts. "
@@ -369,17 +414,22 @@ def enforce(
 
 	# 2. Throttle — the agent's own allowance.
 	if not int(limits.get("rate_limit_enabled") or 0):
-		# The freeze still applies. Exempting an agent from the throttle says
-		# "this one is chatty", not "stop containing people who probe it".
-		if _maybe_freeze(user, agent, conversation, limits):
-			frappe.throw(
-				_(
-					"This conversation has been frozen after repeated blocked attempts. "
-					"A reviewer needs to release it before you can continue."
-				),
-				RateLimited,
-				title=_("Conversation Frozen"),
-			)
+		# Off means OFF: no throttle and no freeze.
+		#
+		# This was the other way round — the freeze survived the switch, on the
+		# reasoning that exempting a chatty agent from the throttle should not
+		# stop it containing a prober. In practice that made the control
+		# unpredictable: an operator who had unticked "Enable Rate Limiting" had
+		# every reason to believe the section was off, and conversations froze
+		# anyway with nothing on the form to explain it. A control whose
+		# behaviour contradicts its own switch gets distrusted, and a distrusted
+		# control gets disabled entirely.
+		#
+		# One switch now governs the whole "how hard does this agent push back"
+		# section, which is what the form has always looked like it meant. An
+		# agent that needs containment without a throttle keeps rate limiting on
+		# and sets Messages Per Window to 0 — that disables the allowance while
+		# leaving the freeze armed.
 		return
 
 	limit = int(limits.get("rate_limit_messages") or 0)

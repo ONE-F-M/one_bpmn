@@ -131,6 +131,31 @@ def _resolve_run_and_agent(msg) -> tuple[str | None, str | None]:
 	return run, agent
 
 
+def _resolve_preceding_user_message(msg) -> str:
+	"""The text of the user turn this reply answered, if any.
+
+	``Chat Message.linked_message`` looks like the obvious way to find this,
+	but nothing in the codebase ever sets or reads it — so this resolves it
+	the same way ``_resolve_run_and_agent`` finds the nearest run: the most
+	recent User message in the same conversation at or before this reply.
+	Empty for a proactive/system-initiated reply with no preceding question.
+	"""
+	if not msg.conversation:
+		return ""
+	rows = frappe.get_all(
+		"Chat Message",
+		filters={
+			"conversation": msg.conversation,
+			"message_type": "User",
+			"creation": ["<=", msg.creation],
+		},
+		fields=["text"],
+		order_by="creation desc",
+		limit=1,
+	)
+	return (rows[0].text or "") if rows else ""
+
+
 def _clean_comment(text, agent_config, conversation=None, run=None) -> str:
 	"""A comment is user-entered text arriving over an API, so it is screened
 	exactly like anything typed into the composer — same PII redaction, same
@@ -199,6 +224,12 @@ def rate_response(message: str, rating: str, reasons=None, comment: str = "") ->
 	reasons = _normalise_reasons(reasons, rating)
 	comment = _clean_comment(comment, agent, conversation=msg.conversation, run=run)
 
+	# A negative rating with no comment tells nobody anything actionable — the
+	# frontend already blocks this before it calls here, but the API is the
+	# actual boundary; never trust the client alone.
+	if rating == "Negative" and not comment.strip():
+		frappe.throw(_("A comment is required when rating a reply Negative."))
+
 	existing = frappe.db.get_value(
 		"AI Response Feedback",
 		{"dedup_key": f"{msg.name}|{frappe.session.user}"},
@@ -217,6 +248,8 @@ def rate_response(message: str, rating: str, reasons=None, comment: str = "") ->
 	doc.rated_by = frappe.session.user
 	doc.rating = rating
 	doc.comment = comment
+	doc.output = msg.text or ""
+	doc.user_message = _resolve_preceding_user_message(msg)
 	doc.rated_on = frappe.utils.now_datetime()
 	doc.set("reasons", [{"reason": r} for r in reasons])
 	# A re-rating is new information: whatever a reviewer concluded about the old
@@ -284,18 +317,62 @@ def set_feedback_status(feedback: str, status: str) -> dict:
 
 	Converted is not settable by hand: it is what creating the case does, and
 	letting it be typed would leave rows claiming a test that does not exist.
+
+	Fixed is normally reached by completing the "Investigate & Fix" task in the
+	AI Response Feedback Handling BPMN process; this is the manual-override path
+	for a Process Owner acting on the desk record directly instead. Guarded the
+	same way that process guards it: only a rating with an issue to fix.
 	"""
-	if status not in ("New", "Reviewed", "Dismissed"):
-		frappe.throw(_("Status must be New, Reviewed or Dismissed."))
+	if status not in ("New", "Reviewed", "Dismissed", "Fixed"):
+		frappe.throw(_("Status must be New, Reviewed, Dismissed or Fixed."))
 
 	doc = frappe.get_doc("AI Response Feedback", feedback)
 	doc.check_permission("write")
 	if doc.status == "Converted":
 		frappe.throw(_("This feedback already produced an eval case; its status is settled."))
+	if status == "Fixed" and doc.rating != "Negative":
+		frappe.throw(_("Only Negative feedback has an issue to mark fixed."))
 
+	was_fixed = doc.status == "Fixed"
 	doc.db_set("status", status)
+	if status == "Fixed":
+		doc.db_set("fixed_on", frappe.utils.now_datetime())
+		if not was_fixed:
+			_notify_feedback_fixed(doc)
 	frappe.db.commit()
 	return {"feedback": doc.name, "status": status}
+
+
+def _notify_feedback_fixed(doc) -> None:
+	"""Tell the original rater their negative feedback has been addressed.
+
+	Links to the Chat Conversation, not the AI Response Feedback record: a
+	rater typically holds neither System Manager nor Process Owner, so they
+	cannot open the feedback record itself, but they were a participant in
+	the conversation and can open that.
+	"""
+	if not doc.rated_by:
+		return
+	try:
+		from frappe.desk.doctype.notification_log.notification_log import enqueue_create_notification
+
+		enqueue_create_notification(
+			[doc.rated_by],
+			{
+				"type": "Alert",
+				"document_type": "Chat Conversation",
+				"document_name": doc.conversation,
+				"subject": _("Your feedback has been resolved"),
+				"from_user": frappe.session.user,
+				"email_content": _(
+					"Your feedback regarding the AI response has been reviewed and the "
+					"issue has been resolved. Thank you for helping us improve the AI "
+					"service."
+				),
+			},
+		)
+	except Exception:
+		frappe.log_error(title="AI Response Feedback: fixed-notification failed", message=frappe.get_traceback())
 
 
 def _resolve_regression_suite(agent_configuration: str) -> str:

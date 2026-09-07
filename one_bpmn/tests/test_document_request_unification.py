@@ -24,7 +24,22 @@ import unittest
 
 import frappe
 
-MODEL = "Document Request"
+PROCESS = "Document Request"
+
+
+def _active_model():
+	"""The active model for the process, not a hard-coded model name.
+
+	Model names carry a version suffix — the live one is "Document Request (1)" —
+	so reading one by the process name returned nothing and every assertion here
+	ran against an empty string, failing with a JSONDecodeError that said nothing
+	about the real problem.
+	"""
+	return frappe.db.get_value(
+		"BPMN Process Model", {"process_name": PROCESS, "is_active": 1}, "name"
+	)
+
+
 DOCUMENT_TYPES = ("SOP", "Policy", "Manual", "Guideline")
 
 # Retired by patch deprecate_document_generation_processes.
@@ -45,7 +60,7 @@ def _template_expression() -> str:
 	COPIES the template instead, and fetch_template is gone; the lookup itself is
 	unchanged, and so is what these tests are checking.
 	"""
-	xml = frappe.db.get_value("BPMN Process Model", MODEL, "bpmn_xml") or ""
+	xml = frappe.db.get_value("BPMN Process Model", _active_model(), "bpmn_xml") or ""
 	match = re.search(r'id="create_file".*?connectorParams="([^"]*)"', xml, re.S)
 	return html.unescape(match.group(1)) if match else ""
 
@@ -64,7 +79,7 @@ class TestUnifiedMapIsTheOnlyOne(unittest.TestCase):
 		)
 		self.assertEqual(
 			sorted(set(triggers)),
-			[MODEL],
+			[_active_model()],
 			"a second map triggering on Document Request means the fork is back",
 		)
 
@@ -81,7 +96,7 @@ class TestUnifiedMapIsTheOnlyOne(unittest.TestCase):
 			)
 
 	def test_the_unified_map_is_active_and_compiled(self):
-		model = frappe.get_doc("BPMN Process Model", MODEL)
+		model = frappe.get_doc("BPMN Process Model", _active_model())
 		self.assertTrue(model.is_active, "the one remaining map must be active")
 		self.assertTrue(model.serialized_spec, "an uncompiled map never starts")
 
@@ -96,7 +111,7 @@ class TestDocumentTypeIsAParameter(unittest.TestCase):
 		conditional start event with no condition child, and ``true`` would
 		NameError if Spiff ever evaluated it.
 		"""
-		xml = frappe.db.get_value("BPMN Process Model", MODEL, "bpmn_xml") or ""
+		xml = frappe.db.get_value("BPMN Process Model", _active_model(), "bpmn_xml") or ""
 		# Scope to the conditional start event first: a bare <bpmn:condition
 		# prefix also matches <bpmn:conditionExpression on every gateway flow.
 		definition = re.search(
@@ -190,7 +205,7 @@ class TestDocumentTypeIsAParameter(unittest.TestCase):
 
 class TestOneAgentServesEveryType(unittest.TestCase):
 	def test_the_draft_task_points_at_the_shared_agent(self):
-		xml = frappe.db.get_value("BPMN Process Model", MODEL, "bpmn_xml") or ""
+		xml = frappe.db.get_value("BPMN Process Model", _active_model(), "bpmn_xml") or ""
 		match = re.search(r'id="draft_task"[^>]*aiAgentConfig="([^"]*)"', xml)
 		self.assertIsNotNone(match, "the drafting task must name an agent")
 		self.assertEqual(match.group(1), "Document Request Agent")
@@ -228,7 +243,7 @@ class TestDeprecatedProcessMasters(unittest.TestCase):
 
 	def test_the_replacement_master_exists(self):
 		self.assertTrue(
-			frappe.db.exists("Process", MODEL),
+			frappe.db.exists("Process", PROCESS),
 			"the taxonomy must still describe document generation, via one entry",
 		)
 
@@ -237,9 +252,11 @@ class TestEveryTypeStartsTheSameProcess(unittest.TestCase):
 	"""The end-to-end proof, run through the real doc-event trigger."""
 
 	def setUp(self):
-		self.requester = frappe.db.get_value("Employee", {"status": "Active"}, "name")
+		self.requester = frappe.db.get_value(
+			"Employee", {"status": "Active", "reports_to": ["is", "set"]}, "name"
+		)
 		if not self.requester:
-			self.skipTest("no active Employee to raise a request as")
+			self.skipTest("no active Employee with a line manager to raise a request as")
 
 	def tearDown(self):
 		frappe.db.rollback()
@@ -269,12 +286,25 @@ class TestEveryTypeStartsTheSameProcess(unittest.TestCase):
 			with self.subTest(document_type=document_type):
 				instance = self._instance_for(self._raise_request(document_type))
 				self.assertIsNotNone(instance, "no process started for this type")
-				self.assertEqual(instance.process_model, MODEL)
+				self.assertEqual(instance.process_model, _active_model())
 				self.assertEqual(instance.status, "Active")
 
 	def test_a_request_parks_for_human_approval_before_touching_drive(self):
 		"""Nothing reaches Google Drive or the model until a person approves —
-		which is what makes the first leg safe to exercise on a live site."""
+		which is what makes the first leg safe to exercise on a live site.
+
+		The state is read from the database rather than the in-memory document:
+		the process applies it after insert returns, so the object in hand still
+		predates it. It used to assert a `status` field, which the map never
+		wrote — every request carried its default, so the assertion passed
+		without ever describing where the request had got to.
+		"""
 		doc = self._raise_request("SOP")
-		self.assertEqual(doc.status, "Pending Request Approval")
-		self.assertIsNotNone(self._instance_for(doc))
+		instance = self._instance_for(doc)
+		self.assertIsNotNone(instance, "no process started")
+		self.assertEqual(instance.status, "Active", "the run should be parked, not finished")
+		self.assertIn(
+			frappe.db.get_value("Document Request", doc.name, "workflow_state"),
+			("Draft", "Pending Approval"),
+			"a new request should be waiting on a person, not past them",
+		)

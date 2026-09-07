@@ -495,7 +495,20 @@ _cfg.setdefault("agent_id", "logix_agent")
 _subs = _cfg.get("sub_prompts") or {}
 _adapter = get_llm_adapter_from_settings(_cfg)
 
-draft = turn.get("draft", "")
+draft = turn.get("draft", "") or ""
+# The writer is an AI Agent Task now, so its draft arrives as the shape's own
+# result — `draft` is a key nothing has written since that migration. Reviewing
+# the empty string made every turn look like a question, and the reviewer's
+# "please provide the draft" reached the user as the answer.
+if not draft:
+    _wsr = turn.get("write_script_result") or turn.get("write_agent_tool_result") or {}
+    if isinstance(_wsr, dict):
+        draft = (_wsr.get("write_script_output") or _wsr.get("write_agent_tool_output")
+                 or _wsr.get("output") or "")
+    elif isinstance(_wsr, str):
+        draft = _wsr
+if not isinstance(draft, str):
+    draft = str(draft or "")
 shape_kind = turn.get("shape_kind") or (turn.get("process_context") or {}).get("shape_kind") or "script_task"
 _system = (_subs.get("script_reviewer") or {}).get("prompt") or ""
 review_raw = run_sync(_adapter.complete(system=_system, user="Shape kind: " + shape_kind + "\n\n" + draft)).text
@@ -673,8 +686,34 @@ turn = get_turn(context_docname)
 if turn.get("done"):  # clarify already produced the output
     result["finalized"] = True
 else:
-    intent = turn.get("intent", "CREATE")
-    if not turn.get("script_safe"):
+    intent = turn.get("intent") or ""
+    # Same migration: the classifier is an AI Agent Task, so its answer lives in
+    # the shape's result. Reading the old key made every turn a CREATE, which
+    # silently dropped the diff and the original code on a MODIFY.
+    if not intent:
+        _cir = turn.get("classify_intent_result") or {}
+        _cio = _cir.get("classify_intent_output") if isinstance(_cir, dict) else None
+        if isinstance(_cio, dict):
+            intent = _cio.get("intent") or ""
+    intent = intent or "CREATE"
+    _final_text = (turn.get("final") or "").strip()
+    if not _final_text:
+        # The writer is an AI Agent Task, so its text arrives as the shape's own
+        # result. Reaching for it here is what lets a turn that answered in prose
+        # — a greeting, a question back to the user — keep its reply.
+        _wsr = turn.get("write_script_result") or turn.get("write_agent_tool_result") or {}
+        if isinstance(_wsr, dict):
+            _final_text = (_wsr.get("write_script_output") or _wsr.get("write_agent_tool_output")
+                           or _wsr.get("output") or "")
+        elif isinstance(_wsr, str):
+            _final_text = _wsr
+        _final_text = (_final_text or "").strip()
+    # The refusal belongs to a script that was written and could not be made
+    # safe. Prose has a perfectly good reply, and "unable to generate a safe
+    # script" was both wrong and alarming as an answer to "hi". Code that never
+    # reached the reviewer still refuses — the security gate lives there, so an
+    # unvalidated script must never be published just because prose may pass.
+    if not turn.get("script_safe") and (not _final_text or "```python" in _final_text):
         update_turn(context_docname, output={
             "intent": intent, "response": _REFUSAL, "diff": None,
             "original_script": None, "modified_script": None,
@@ -683,7 +722,7 @@ else:
         result["finalized"] = True
         result["safe"] = False
     else:
-        final = turn.get("final", "")
+        final = _final_text or turn.get("final", "")
         code = turn.get("modified_code", "")
         if turn.get("is_question") or not code:
             # Question passthrough (reviewer returned no code block)

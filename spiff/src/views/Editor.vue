@@ -1008,6 +1008,7 @@
 								class="flex items-center gap-2 text-blue-600 hover:underline">
 								<Icon icon="lucide:git-pull-request" class="w-4 h-4" />
 								{{ pr.repository }} — {{ (pr.doctypes || []).join(', ') }}
+								<span v-if="pr.files && pr.files.length" class="text-gray-500 text-sm">({{ pr.files.length }} files)</span>
 							</a>
 						</div>
 						<div v-for="(s, i) in (reviewResult && reviewResult.skipped) || []" :key="'s' + i"

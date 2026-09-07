@@ -56,6 +56,118 @@ def get_assignee_docfields(doctype: str) -> list:
 	return res
 
 
+# Fieldtypes that can plausibly hold an email address as free text. Link is
+# deliberately absent: a Link holds a key, not an address, and the only Link
+# worth offering is one pointing at User — handled separately below.
+_EMAIL_TEXT_FIELDTYPES = ("Data", "Small Text", "Read Only", "Text", "Long Text")
+
+
+def _looks_like_an_email_field(df) -> bool:
+	"""True when a text field's NAME says it holds an email.
+
+	Frappe marks a proper email field with ``options="Email"``, but that is a
+	validation opt-in and plenty of real fields never set it — a doctype that
+	stores ``personal_email`` as a bare Data field is ordinary, not broken.
+	Excluding those would leave a genuine recipient field unpickable, which is the
+	complaint this endpoint exists to fix, so the name is treated as evidence too.
+
+	The cost of a false positive here is one extra row in a picker; the cost of a
+	false negative is a field the user cannot select at all. So this leans
+	inclusive — but only among field types that could hold an address at all.
+	"""
+	# Only short field types. A field that MENTIONS email but holds prose — a
+	# signature, a template body, an alert subject — is Small Text or Text, and
+	# reading its name as an address is how "email_signature" ends up offered as a
+	# recipient. An actual address is Data (or Read Only when it is derived).
+	if df.fieldtype not in ("Data", "Read Only"):
+		return False
+	for text in (df.fieldname or "", df.label or ""):
+		if "email" in text.lower() or "e-mail" in text.lower():
+			return True
+	return False
+
+
+@frappe.whitelist()
+def get_recipient_docfields(doctype: str, search_text: str = "") -> list:
+	"""Return the fields of *doctype* that can name an email recipient.
+
+	The notification service task used to populate this picker from
+	``get_doctype_fields`` filtered only by fieldtype, which was wrong in both
+	directions. It offered every Data and Link field — on Visa Request that is 36
+	fields including Place of Birth and Passport Number, none of which can hold an
+	address — while omitting the two that matter: ``owner`` and ``modified_by`` are
+	real columns on every table but are absent from ``meta.fields``, so a picker
+	built from the schema can never show them. On a doctype with no user or email
+	field of its own, ``owner`` is the ONLY possible recipient, so the one thing
+	you needed was the one thing missing.
+
+	Two kinds of field qualify, and the caller is told which is which because they
+	behave differently at send time:
+
+	  * ``user``  — ``owner``, ``modified_by``, and any Link to User. Holds a user
+	                id, which the dispatcher resolves to that user's email.
+	  * ``email`` — a text field holding an address directly.
+
+	Reads through ``frappe.get_meta`` rather than querying ``DocField``, so Custom
+	Fields are included. The old query saw only the standard schema, which meant a
+	custom email field added to a doctype was invisible here.
+	"""
+	if not doctype:
+		return []
+
+	try:
+		meta = frappe.get_meta(doctype)
+	except frappe.DoesNotExistError:
+		return []
+
+	# Every table has these, and on many doctypes they are the only recipient
+	# available. Listed first so the common choice is the obvious one.
+	results = [
+		{
+			"fieldname": "owner",
+			"label": _("Owner (created by)"),
+			"fieldtype": "Link",
+			"options": "User",
+			"kind": "user",
+		},
+		{
+			"fieldname": "modified_by",
+			"label": _("Last Modified By"),
+			"fieldtype": "Link",
+			"options": "User",
+			"kind": "user",
+		},
+	]
+
+	for df in meta.get("fields") or []:
+		if df.fieldtype == "Link" and df.options == "User":
+			kind = "user"
+		elif df.fieldtype in _EMAIL_TEXT_FIELDTYPES and (
+			(df.options or "") == "Email" or _looks_like_an_email_field(df)
+		):
+			kind = "email"
+		else:
+			continue
+
+		results.append({
+			"fieldname": df.fieldname,
+			"label": df.label or df.fieldname,
+			"fieldtype": df.fieldtype,
+			"options": df.options or "",
+			"kind": kind,
+		})
+
+	if search_text:
+		needle = str(search_text).strip().lower()
+		if needle:
+			results = [
+				r for r in results
+				if needle in r["fieldname"].lower() or needle in (r["label"] or "").lower()
+			]
+
+	return results
+
+
 @frappe.whitelist()
 def get_workflow_states_for_doctype(doctype: str) -> list:
 	"""
@@ -180,6 +292,13 @@ def get_doctype_fields(
 	Used by the BPMN properties panel to populate field autocompletes.
 	Bypasses the parent-permission restriction on the DocField REST API.
 
+	Read through ``frappe.get_meta``, the same way ``get_recipient_docfields``
+	does, so Custom Fields are included. Querying DocField alone made every
+	picker blind to them — a field this site added to someone else's doctype is a
+	Custom Field, so a User Task could not be pointed at Task's assignee table or
+	Department's approver tables, which is where multi-assignee lists actually
+	live here.
+
 	Args:
 		doctype: The DocType to fetch fields from.
 		search_text: Optional search filter on fieldname.
@@ -187,47 +306,51 @@ def get_doctype_fields(
 		fieldtype_not_in: JSON array of fieldtypes to exclude.
 		include_options: If true, also return the ``options`` column.
 	"""
-	from frappe.query_builder import DocType as QBDocType
+	if not doctype:
+		return []
 
-	DocField = QBDocType("DocField")
-
-	select_cols = [DocField.fieldname, DocField.label, DocField.fieldtype]
-	if include_options:
-		select_cols.append(DocField.options)
-
-	query = (
-		frappe.qb.from_(DocField)
-		.select(*select_cols)
-		.where(DocField.parent == doctype)
-		.where(DocField.parenttype == "DocType")
-		.orderby(DocField.idx)
-		.limit(100)
-	)
-
+	include = exclude = None
 	if fieldtype_in:
 		try:
-			parsed = json.loads(fieldtype_in)
+			include = json.loads(fieldtype_in)
 		except (json.JSONDecodeError, TypeError, ValueError):
 			frappe.throw(_("Invalid JSON for fieldtype_in filter"))
-		query = query.where(DocField.fieldtype.isin(parsed))
 	elif fieldtype_not_in:
 		try:
-			parsed = json.loads(fieldtype_not_in)
+			exclude = json.loads(fieldtype_not_in)
 		except (json.JSONDecodeError, TypeError, ValueError):
 			frappe.throw(_("Invalid JSON for fieldtype_not_in filter"))
-		query = query.where(DocField.fieldtype.notin(parsed))
 	else:
 		# Default: exclude layout fields
-		query = query.where(
-			DocField.fieldtype.notin(
-				("Section Break", "Column Break", "Tab Break", "Table")
-			)
-		)
+		exclude = ["Section Break", "Column Break", "Tab Break", "Table"]
 
-	if search_text:
-		query = query.where(DocField.fieldname.like(f"%{search_text}%"))
+	try:
+		meta = frappe.get_meta(doctype)
+	except frappe.DoesNotExistError:
+		return []
 
-	return query.run(as_dict=True)
+	needle = (search_text or "").strip().lower()
+	fields = []
+	for df in meta.get("fields") or []:
+		if include is not None:
+			if df.fieldtype not in include:
+				continue
+		elif df.fieldtype in exclude:
+			continue
+		if needle and needle not in (df.fieldname or "").lower():
+			continue
+		field = {
+			"fieldname": df.fieldname,
+			"label": df.label or df.fieldname,
+			"fieldtype": df.fieldtype,
+		}
+		if include_options:
+			field["options"] = df.options or ""
+		fields.append(field)
+		if len(fields) == 100:
+			break
+
+	return fields
 
 
 @frappe.whitelist()
