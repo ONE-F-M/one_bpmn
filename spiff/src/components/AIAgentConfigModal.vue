@@ -706,7 +706,7 @@
             :context="assistantTurnContext"
             :context-provider="isSelector ? selectorTurnContext : null"
             :cards="cardRegistry"
-            :apply-targets="isSelector ? ['apply-fields'] : ['apply-fields', 'confirm-create']"
+            :apply-targets="readonly ? [] : (isSelector ? ['apply-fields'] : ['apply-fields', 'confirm-create'])"
             variant="docked"
             @conversation="(c) => (assistantConversation = c)"
             @card-action="onAssistantCardAction"
