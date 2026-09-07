@@ -547,6 +547,12 @@ def _resolve_connector_handler(connector_id: str, operation: str):
 	return None
 
 
+# Where dispatch_connector records what happened, read by the tool loop and
+# stripped from what the model sees. Same convention as the connectors' own
+# waiting markers on task.data.
+CONNECTOR_OUTCOME_KEY = "_bpmn_connector_outcome"
+
+
 def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	"""
 	Execute a Service Task with serviceType='connector'.
@@ -575,6 +581,16 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	result_var = (task_cfg.get("resultVariable") or "").strip()
 	fail_on_error = _cfg_truthy(task_cfg.get("failOnError"))
 
+	# What happened, for whoever reads this task afterwards. Failures below are
+	# logged and swallowed unless failOnError is set, which is right for a
+	# process step and invisible to an agent calling this shape as a tool: the
+	# model was being told a failed call had succeeded. Recording the outcome
+	# changes nothing about how the connector runs.
+	def outcome(status, **detail):
+		task.data[CONNECTOR_OUTCOME_KEY] = {
+			"connector": f"{connector_id}/{operation}".strip("/"), "status": status, **detail
+		}
+
 	# Role gate. Hiding a restricted connector in the modeler is convenience;
 	# this is the control. A diagram authored before the restriction — or by
 	# someone who had the role and has since lost it — must not still run it.
@@ -588,6 +604,7 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 				f"{connector_id!r} (operation {operation!r})."
 			),
 		)
+		outcome("not_permitted")
 		if fail_on_error:
 			frappe.throw(f"Not permitted to use connector {connector_id}")
 		return
@@ -602,6 +619,7 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 				f"row names neither an HTTP request nor a Handler Path."
 			),
 		)
+		outcome("not_run", reason="unknown or disabled connector operation")
 		if fail_on_error:
 			frappe.throw(f"Unknown connector {connector_id}/{operation}")
 		return
@@ -616,6 +634,7 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 			title=f"BPMN ServiceTask: connector params invalid ({bpmn_id})",
 			message=f"connectorParams is not a JSON object: {raw_params!r}",
 		)
+		outcome("not_run", reason="connectorParams is not a JSON object")
 		if fail_on_error:
 			raise
 		return
@@ -662,13 +681,18 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	output = None
 	try:
 		output = handler(resolved, ctx)
-	except Exception:
+	except Exception as exc:
 		frappe.log_error(
 			title=f"BPMN ServiceTask: connector {connector_id}/{operation} failed ({bpmn_id})",
 			message=frappe.get_traceback(),
 		)
+		outcome("failed", error=str(exc)[:200])
 		if fail_on_error:
 			raise
+	else:
+		# "returned" is what tells a tool call apart from a fire-and-forget
+		# step: data came back but had no Result Variable to land in.
+		outcome("ok", returned=output is not None, stored=bool(result_var))
 
 	if result_var:
 		task.data[result_var] = output
