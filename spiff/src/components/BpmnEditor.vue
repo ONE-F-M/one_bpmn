@@ -1159,6 +1159,9 @@ const messageDialog = ref({
 	_eventBus: null,
 });
 const aiAgentModal = ref({ show: false, element: null, mode: "agent" });
+// Read-only Script Task viewer (WI-003245) — used instead of the editable
+// Logix flow whenever the map itself is read-only.
+const scriptViewerModal = ref({ show: false, scriptName: "", script: "", loading: false });
 // Docu (AI DocType builder) panel state. `_eventBus` is the properties-panel
 // eventBus that launched us — we fire "docu.doctype.update" back through it so
 // the Launch Docu button writes the applied DocType name onto the shape.
