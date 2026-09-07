@@ -793,6 +793,10 @@ const props = defineProps({
   // reads (backend, output variable, response format/schema, sampling,
   // retries) and writes only the selector attribute set on save.
   mode: { type: String, default: "agent" },
+  // The map that launched this modal is read-only \u2014 the configuration must
+  // open showing its current values, with every field non-editable and no
+  // save action available. Closing the modal must leave the map unchanged.
+  readonly: { type: Boolean, default: false },
 });
 
 const isSelector = computed(() => props.mode === "selector");
