@@ -690,6 +690,7 @@
                configures a SHAPE, so there is no agent record to create and no
                confirm-create card to honour. -->
           <AgentChatPanel
+            v-if="!readonly"
             ref="chatPanel"
             class="assistant-agui-panel"
             :agent-id="'ai_agent_assistant'"
@@ -703,6 +704,12 @@
             @card-action="onAssistantCardAction"
             @agent-event="onAssistantAgentEvent"
           />
+          <!-- Read-only launch: the assistant can write changes back to the
+               linked configuration independently of the Save button, so it
+               is not offered here — only the current values are shown. -->
+          <div v-else class="assistant-disabled">
+            Viewing this configuration read-only. Open the map for editing to use the AI assistant.
+          </div>
 
       </div>
     </div>
