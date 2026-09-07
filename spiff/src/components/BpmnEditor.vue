@@ -1021,6 +1021,7 @@ import FormattingToolbar from "@/components/FormattingToolbar.vue";
 import ProsAllyPanel from "@/components/ProsAllyPanel.vue";
 import AIAgentConfigModal from "@/components/AIAgentConfigModal.vue";
 import DocuCanvas from "@/components/DocuCanvas.vue";
+import CodeMirrorEditor from "@/components/CodeMirrorEditor.vue";
 import { layoutBpmnXml } from "@/utils/bpmnLayout.js";
 import { initModeler } from "@/composables/useModelerInit";
 import { useBpmnContextMenu } from "@/composables/useBpmnContextMenu";
