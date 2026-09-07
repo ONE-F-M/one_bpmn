@@ -12,7 +12,7 @@
 				agent-id="logix_agent"
 				variant="docked"
 				layout="conversation"
-				:apply-targets="['apply-script', 'run-test']"
+				:apply-targets="readonly ? [] : ['apply-script', 'run-test']"
 				:context="logixTurnContext"
 				:cards="cardRegistry"
 				@card-action="onLogixCardAction"
