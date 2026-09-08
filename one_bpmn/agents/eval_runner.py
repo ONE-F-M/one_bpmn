@@ -209,7 +209,7 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
         queue="bpmn_ai_agent",
         run_name=run.name,
         case_names=case_names,
-        timeout=1800,
+        timeout=EVAL_QUEUE_TIMEOUT_SECONDS,
     )
     return run.name
 
