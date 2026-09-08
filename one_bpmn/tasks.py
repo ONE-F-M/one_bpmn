@@ -587,7 +587,9 @@ def _escalate_deadline(task_name: str, agent_configuration=None, caller_instance
 				)
 			ran_for = max(0, int((now_datetime() - started).total_seconds() // 60))
 	except Exception:
-		pass
+		frappe.log_error(
+			title=f"A2A deadline escalation failed: {task_name}", message=frappe.get_traceback()
+		)
 	delegation.stopped_at_limit(
 		a2a_task=task_name,
 		reason="delegation_deadline_minutes",
