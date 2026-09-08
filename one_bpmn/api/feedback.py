@@ -375,6 +375,51 @@ def _notify_feedback_fixed(doc) -> None:
 		frappe.log_error(title="AI Response Feedback: fixed-notification failed", message=frappe.get_traceback())
 
 
+@frappe.whitelist()
+def get_my_pending_task(feedback: str) -> dict | None:
+	"""The BPMN task on this feedback's process instance waiting for the
+	current user, if any.
+
+	Lets the desk form complete the actual running task directly, instead of
+	sending a reviewer to find which BPMN Process Instance belongs to this
+	record on a generic instance list. Returns None when there is no active
+	instance (e.g. no Process Owner was resolved for the reply's agent) or
+	its active task belongs to someone else — the form falls back to the
+	plain manual status-set path in either case.
+	"""
+	if not feedback or not frappe.db.exists("AI Response Feedback", feedback):
+		return None
+
+	instance_name = frappe.db.get_value(
+		"BPMN Process Instance",
+		{"context_doctype": "AI Response Feedback", "context_docname": feedback, "status": "Active"},
+		"name",
+		order_by="creation desc",
+	)
+	if not instance_name:
+		return None
+
+	instance = frappe.get_doc("BPMN Process Instance", instance_name)
+	for row in instance.active_tasks:
+		if row.status == "Completed" or row.assigned_user != frappe.session.user:
+			continue
+		actions = []
+		if row.task_actions:
+			try:
+				actions = [a.get("action") for a in json.loads(row.task_actions) if a.get("action")]
+			except Exception:
+				actions = []
+		if not actions:
+			continue
+		return {
+			"instance": instance.name,
+			"task_id": row.task_id,
+			"task_name": row.task_name,
+			"actions": actions,
+		}
+	return None
+
+
 def _resolve_regression_suite(agent_configuration: str) -> str:
 	"""The agent's regression suite, created on first use.
 
