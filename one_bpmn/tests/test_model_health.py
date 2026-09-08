@@ -439,6 +439,21 @@ class TestAlerting(HealthCase):
 		self.assertIn("reachable again", subjects[-1])
 		self.assertEqual(self._health(name, "health_alerted_problem"), "")
 
+	def test_alert_and_recovery_link_to_the_model_record(self):
+		"""The reader fixes the key on the AI Model form, so both messages carry
+		a link to it rather than telling the reader to go and find it."""
+		name = self._model()
+		record_failure(name, "INVALID_KEY", "rejected")
+		sent = []
+		with patch("one_bpmn.agents.model_health._send_email", side_effect=lambda r, s, b: sent.append(b)):
+			with patch("one_bpmn.agents.model_health.alert_recipients", return_value=["Administrator"]):
+				alert_unhealthy_models()
+			record_success(name, source="Probe")
+		link = frappe.utils.get_url_to_form("AI Model", name)
+		self.assertEqual(len(sent), 2)
+		self.assertIn(f'href="{link}"', sent[0])
+		self.assertIn(f'href="{link}"', sent[1])
+
 	def test_healthy_models_are_never_alerted(self):
 		name = self._model()
 		with patch("one_bpmn.agents.model_health._deliver") as deliver:
