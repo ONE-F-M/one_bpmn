@@ -399,6 +399,7 @@ class DirectApiExecutor(Executor):
                     timeout_seconds=config.timeout_seconds,
                     max_retries=config.max_retries,
                     retry_backoff_ms=config.retry_backoff_ms,
+                    tool_result_max_chars=config.tool_result_max_chars,
                 )
             )
         except asyncio.TimeoutError:
