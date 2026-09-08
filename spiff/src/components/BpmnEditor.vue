@@ -2125,6 +2125,7 @@ onMounted(async () => {
 				scriptType: event.scriptType,
 				script: event.script || "",
 				eventBus: event.eventBus,
+				readonly: props.readonly,
 			});
 		});
 
