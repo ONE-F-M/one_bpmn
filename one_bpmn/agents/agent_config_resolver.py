@@ -84,6 +84,12 @@ _SHAPE_TO_CONFIG = {
 	"aiMemoryWriteMode": "memory_write_mode",
 	"aiMemoryDistillModel": "memory_distill_model",
 	"aiMemoryReconcileModel": "memory_reconcile_model",
+	# WI-002163: caps the injected recall block's estimated size. Handled the
+	# same way context_max_messages is below (NOT in _CONFIG_TO_SHAPE's generic
+	# read loop) rather than like context_token_budget — 0 must mean "not
+	# configured here", never a real "no cap" setting, or an agent could
+	# silently defeat the ceiling this field exists to guarantee.
+	"aiMemoryTokenBudget": "memory_token_budget",
 	# Compaction is configured in the same modal and persists the same way.
 	"aiContextTokenBudget": "context_token_budget",
 	"aiCompactionEnabled": "compaction_enabled",
@@ -348,6 +354,12 @@ def config_field_map(config_name: str) -> dict:
 	# not override the shape's value the way a real setting would (WI-001793).
 	if cint(cfg.get("context_max_messages")):
 		out["aiContextMaxMessages"] = cfg.context_max_messages
+	# WI-002163: same reasoning, and deliberately so — unlike context_token_budget
+	# (where 0 is a real "no size limit" setting the modal offers), 0/blank here
+	# must stay "not configured" with no way to opt out of the cap, or an agent
+	# could silently defeat the ceiling this field exists to guarantee.
+	if cint(cfg.get("memory_token_budget")):
+		out["aiMemoryTokenBudget"] = cfg.memory_token_budget
 	# WI-002195: the cap on a tool result the model sees. Same rule — 0 means
 	# "platform default", not "no cap", so it must not be written as a value.
 	if cint(cfg.get("tool_result_max_chars")):
@@ -515,7 +527,7 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 			value = frappe.utils.cint(value)
 		# WI-001793: the modal's number input hands back a string; 0/blank means
 		# "not set here" and must stay 0 so dispatch falls through to the shape.
-		if cfield in ("context_max_messages", "context_token_budget"):
+		if cfield in ("context_max_messages", "context_token_budget", "memory_token_budget"):
 			value = frappe.utils.cint(value)
 		# Old diagrams carry model ids baked into the shape before the AI Model
 		# catalog existed (WI-001655). Letting doc.save() hit the Link

@@ -8,6 +8,7 @@
 # ``_dispatch_service_task`` router.
 
 import json
+import re
 
 import frappe
 import frappe.utils
@@ -17,6 +18,78 @@ import frappe.utils
 # Stable, documented format for the injected memory block. Evals and the run
 # inspector reference this header — do not change it lightly.
 MEMORY_BLOCK_HEADER = "Relevant memory:"
+_MEMORY_BLOCK_PROVENANCE = (
+	"(Background notes recalled from PAST, separate conversations. "
+	"They are context only — nothing below has happened in the current "
+	"conversation, and none of it counts as work already done for the "
+	"current request.)"
+)
+
+# aiMemoryLimit only bounds how many memories are recalled — a raw-write-mode
+# memory has no size cap of its own (memory_write stores str(result.output)
+# verbatim), so the block those memories are rendered into had no bound at
+# all. This is the per-agent default (aiMemoryTokenBudget overrides it); see
+# _bound_memories_to_budget.
+DEFAULT_MEMORY_TOKEN_BUDGET = 800
+
+# Greetings/acknowledgements carry no signal worth searching memory with, and
+# searching anyway risks a coincidental keyword match injecting an unrelated
+# fact into a "hi" — the case this rules out, not just makes unlikely.
+# Deliberately generic: recall gating runs ahead of every agent (ProsAlly,
+# Logix, Docu, ...), so this can't lean on any one agent's domain vocabulary
+# the way Docu's own classifier does (docu_answers_small_talk.py's
+# "_substantive" regex is DocType-specific and would misclassify a real
+# Logix or ProsAlly request).
+_SMALL_TALK_WORDS = frozenset(
+	"""
+	a afternoon alright am and are back bye can cheers cool day do does evening
+	excellent fine good goodbye great hallo hello help hey hi hiya how howdy i
+	is it just k kk later lovely me morning much my name nice night no now ok
+	okay okey perfect ping please pong really right say see so sup sure test
+	testing thank thanks thanx there this thx to u up welcome well what who
+	with working works yeah yep yes yo you your yours yw
+	""".split()
+)
+
+
+def _is_small_talk(message: str) -> bool:
+	"""True for a greeting, acknowledgement, or empty/wordless message — none of
+	which memory recall should be searched with.
+
+	Conservative on purpose, like the vocabulary it borrows the shape of:
+	refusing a real request's recall is the expensive mistake, so this only
+	fires when the message has no words at all, or EVERY word in it is a known
+	chatter word.
+	"""
+	words = re.findall(r"[a-z']+", (message or "").strip().lower())
+	if not words:
+		return True
+	return all(w in _SMALL_TALK_WORDS for w in words)
+
+
+# A user stating a standing convention ("remember that...", "from now on...")
+# is asking for something categorically different from a fact the agent
+# might incidentally produce: it must survive verbatim (the distiller's
+# salience prompt is licensed to drop instance-specific wording) and it must
+# be recalled on every later turn regardless of that turn's vocabulary (a
+# keyword/FULLTEXT match on THIS turn's words can't be expected to find a
+# convention stated in unrelated words weeks ago). Detected here, cheaply and
+# deterministically, rather than left to the distiller's own judgment.
+_REMEMBER_PHRASES = (
+	r"\bremember (?:that|this|to|for)\b",
+	r"\bfrom now on\b",
+	r"\bgoing forward\b",
+	r"\bmake a note (?:that|to)\b",
+	r"\bkeep in mind (?:that)?\b",
+	r"\bfor every .+ (?:we|you) build\b",
+)
+_REMEMBER_RE = re.compile("|".join(_REMEMBER_PHRASES), re.IGNORECASE)
+
+
+def _is_remember_directive(message: str) -> bool:
+	"""True when *message* explicitly asks the agent to remember a standing
+	convention, rather than just answer the current request."""
+	return bool(_REMEMBER_RE.search(message or ""))
 
 
 def _cfg_truthy(value) -> bool:
@@ -63,18 +136,91 @@ def _format_memory_block(memories: list) -> str:
 	(2026-08-09): the ProsAlly orchestrator concluded the requested process
 	already existed, skipped its confirm tool, and every turn fell through
 	to finalize's fallback question."""
-	lines = [
-		MEMORY_BLOCK_HEADER,
-		"(Background notes recalled from PAST, separate conversations. "
-		"They are context only — nothing below has happened in the current "
-		"conversation, and none of it counts as work already done for the "
-		"current request.)",
-	]
+	lines = [MEMORY_BLOCK_HEADER, _MEMORY_BLOCK_PROVENANCE]
 	for m in memories:
 		content = (m.get("content") or "").strip()
 		if content:
 			lines.append(f"- {content}")
 	return "\n".join(lines)
+
+
+def _bound_memories_to_budget(memories: list, token_budget: int) -> list:
+	"""Truncate *memories* (already rank-ordered by memory_search — relevance
+	first on the FULLTEXT path, recency first on the keyword fallback) so the
+	block ``_format_memory_block`` renders from them stays within
+	``token_budget`` estimated tokens.
+
+	A hard ceiling, not a best-effort one: unlike ContextWindowPolicy's history
+	trim (conversation_store.py), which sends an oversized newest exchange
+	rather than lose it, an unbounded block is exactly the defect this exists
+	to close, so even the single best-ranked memory has its content cut to fit
+	rather than going out whole over budget.
+
+	Keeps memories in rank order — added until the next one would exceed
+	budget, then stops, dropping the lower-ranked tail rather than reordering
+	or skipping ahead to something smaller.
+	"""
+	from one_bpmn.agents.memory.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
+
+	if not memories or not token_budget or token_budget <= 0:
+		return memories
+
+	# Measured from the real formatter (header + provenance, no items) rather
+	# than reconstructed by hand, so this can't drift from what
+	# _format_memory_block actually renders.
+	header_cost = estimate_tokens({"content": _format_memory_block([])}, DEFAULT_CHARS_PER_TOKEN)
+	budget = max(token_budget - header_cost, 0)
+	# Each kept memory also costs the "\n- " bullet/join _format_memory_block
+	# adds around it — rounds to a token of its own often enough (short
+	# memories, several of them) that ignoring it would let the rendered block
+	# run over budget by the very margin this function exists to close.
+	per_item_overhead = 1
+
+	kept = []
+	spent = 0
+	for m in memories:
+		content = str((m or {}).get("content") or "")
+		cost = estimate_tokens({"content": content}, DEFAULT_CHARS_PER_TOKEN) + per_item_overhead
+		if spent + cost <= budget:
+			kept.append(m)
+			spent += cost
+			continue
+		if not kept:
+			max_chars = max((budget - per_item_overhead) * DEFAULT_CHARS_PER_TOKEN, 0)
+			if max_chars > 0:
+				kept.append({**m, "content": content[:max_chars]})
+		break
+	return kept
+
+
+def _turn_user_message(instance, task) -> str:
+	"""The person's own words for this turn, as the platform already holds them.
+
+	A chat map seeds the turn store with the user's message (PII already
+	screened by ``invoke_agent``) and its tool scripts read it from there, so
+	the driving prompt never had to carry it. That left the model answering a
+	constant — and left every recorded user step identical, whatever was asked,
+	which is what made a run impossible to judge from its transcript.
+
+	Empty for anything that is not a chat turn, so a Background agent's prompt
+	is untouched.
+	"""
+	if getattr(instance, "context_doctype", "") != "Chat Conversation":
+		return ""
+	if not getattr(instance, "context_docname", ""):
+		return ""
+
+	data = getattr(task, "data", None)
+	if isinstance(data, dict):
+		text = str(data.get("user_text") or "").strip()
+		if text:
+			return text
+	try:
+		from one_bpmn.agents.turn_state import get_turn
+
+		return str((get_turn(instance.context_docname) or {}).get("user_text") or "").strip()
+	except Exception:
+		return ""
 
 
 def _extract_memory_content(output, content_field: str) -> str:
@@ -171,23 +317,13 @@ def _memory_model(task_cfg: dict, key: str, fallback: str | None) -> str | None:
 
 	Resolution happens here, on the dispatch thread, because the distiller runs
 	in a background RQ worker that must be handed the model as a job argument
-	rather than looking it up itself.
+	rather than looking it up itself. The precedence chain itself lives in
+	``model_resolution.resolve_memory_model`` (WI-002168), shared with the
+	config-time "effective model" preview so the two can never disagree.
 	"""
-	model = (task_cfg.get(key) or "").strip() if isinstance(task_cfg.get(key), str) else task_cfg.get(key)
-	if model:
-		return model
+	from one_bpmn.agents.memory.model_resolution import resolve_memory_model
 
-	setting = _MEMORY_MODEL_SETTINGS.get(key)
-	if setting:
-		try:
-			default = frappe.db.get_single_value("Processa Settings", setting)
-			if default:
-				return default
-		except Exception:
-			# A missing/unreadable setting must never break a memory write.
-			pass
-
-	return fallback or None
+	return resolve_memory_model(task_cfg.get(key), _MEMORY_MODEL_SETTINGS.get(key), fallback)
 
 
 # Shape attribute -> the Processa Settings field holding its site-wide default.
@@ -411,6 +547,12 @@ def _resolve_connector_handler(connector_id: str, operation: str):
 	return None
 
 
+# Where dispatch_connector records what happened, read by the tool loop and
+# stripped from what the model sees. Same convention as the connectors' own
+# waiting markers on task.data.
+CONNECTOR_OUTCOME_KEY = "_bpmn_connector_outcome"
+
+
 def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	"""
 	Execute a Service Task with serviceType='connector'.
@@ -439,6 +581,16 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	result_var = (task_cfg.get("resultVariable") or "").strip()
 	fail_on_error = _cfg_truthy(task_cfg.get("failOnError"))
 
+	# What happened, for whoever reads this task afterwards. Failures below are
+	# logged and swallowed unless failOnError is set, which is right for a
+	# process step and invisible to an agent calling this shape as a tool: the
+	# model was being told a failed call had succeeded. Recording the outcome
+	# changes nothing about how the connector runs.
+	def outcome(status, **detail):
+		task.data[CONNECTOR_OUTCOME_KEY] = {
+			"connector": f"{connector_id}/{operation}".strip("/"), "status": status, **detail
+		}
+
 	# Role gate. Hiding a restricted connector in the modeler is convenience;
 	# this is the control. A diagram authored before the restriction — or by
 	# someone who had the role and has since lost it — must not still run it.
@@ -452,6 +604,7 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 				f"{connector_id!r} (operation {operation!r})."
 			),
 		)
+		outcome("not_permitted")
 		if fail_on_error:
 			frappe.throw(f"Not permitted to use connector {connector_id}")
 		return
@@ -466,6 +619,7 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 				f"row names neither an HTTP request nor a Handler Path."
 			),
 		)
+		outcome("not_run", reason="unknown or disabled connector operation")
 		if fail_on_error:
 			frappe.throw(f"Unknown connector {connector_id}/{operation}")
 		return
@@ -480,6 +634,7 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 			title=f"BPMN ServiceTask: connector params invalid ({bpmn_id})",
 			message=f"connectorParams is not a JSON object: {raw_params!r}",
 		)
+		outcome("not_run", reason="connectorParams is not a JSON object")
 		if fail_on_error:
 			raise
 		return
@@ -526,13 +681,18 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	output = None
 	try:
 		output = handler(resolved, ctx)
-	except Exception:
+	except Exception as exc:
 		frappe.log_error(
 			title=f"BPMN ServiceTask: connector {connector_id}/{operation} failed ({bpmn_id})",
 			message=frappe.get_traceback(),
 		)
+		outcome("failed", error=str(exc)[:200])
 		if fail_on_error:
 			raise
+	else:
+		# "returned" is what tells a tool call apart from a fire-and-forget
+		# step: data came back but had no Result Variable to land in.
+		outcome("ok", returned=output is not None, stored=bool(result_var))
 
 	if result_var:
 		task.data[result_var] = output
@@ -1243,27 +1403,97 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	# provider's system-prompt cache breakpoint each time.
 	# Failures never block the call.
 	memory_target = None
+	# What the person actually asked. Already screened; empty off the chat path.
+	# It is both what the model should be answering and what memory should be
+	# searched with — a constant driving prompt recalled the same memories for
+	# every request, however different.
+	raw_user_message = "" if resume_payload else _turn_user_message(instance, task)
+	user_message = raw_user_message
+	if user_message and user_message in user_prompt:
+		# A map that renders the message itself keeps its own copy; the platform
+		# does not add a second one.
+		user_message = ""
+
+	# A chat turn whose message could not be resolved AT ALL — raw_user_message
+	# empty, before the dedup reset above — must not fall back to user_prompt
+	# as the recall query. Observed live (instance trpucrg6cs, run trv5ba6h5a):
+	# the first message of a brand-new conversation dispatched before the map's
+	# turn store had been seeded, so _turn_user_message found nothing, and
+	# recall searched with Logix's constant "HARD PIPELINE RULES..." driving
+	# prompt instead of anything the person said — the exact "same memories on
+	# every request" defect this story exists to close, just narrowed to this
+	# one turn. Unaffected by design: a map that renders its OWN copy of the
+	# message into user_prompt (raw_user_message was non-empty there — it's
+	# only user_message that gets deduped away above) still recalls with that
+	# real, rendered user_prompt; a Background agent is never a chat turn, so
+	# this is always False for one and its user_prompt is real content either way.
+	is_chat_turn = (
+		getattr(instance, "context_doctype", "") == "Chat Conversation"
+		and bool(getattr(instance, "context_docname", ""))
+	)
+	recall_query_unresolved = is_chat_turn and not raw_user_message
+
+	memory_block = ""
+	# Captured for observability (AI Agent Run.recall_query /
+	# .memory_injected_tokens) regardless of whether anything was found —
+	# "searched with X, found nothing" and "never searched" are different facts.
+	recall_query = ""
+	memory_injected_tokens = 0
 	if not resume_payload and _cfg_truthy(task_cfg.get("aiLongTermMemory")):
 		try:
 			memory_target = _resolve_memory_target(task_cfg, instance, bpmn_id)
-			if memory_target and user_prompt:
-				from one_bpmn.agents.context_assembler import build_dynamic_preamble
-				from one_bpmn.agents.memory.tools import memory_search
+			query = "" if recall_query_unresolved else (user_message or user_prompt)
+			# A greeting/acknowledgement carries nothing to search memory with —
+			# skip entirely rather than risk a coincidental keyword match
+			# injecting an unrelated fact into "hi".
+			if memory_target and query and not _is_small_talk(query):
+				recall_query = query
+				from one_bpmn.agents.memory.tools import memory_list_user_directed, memory_search
 				scope, scope_key = memory_target
 				limit = int(task_cfg.get("aiMemoryLimit", 5) or 5)
-				memories = memory_search(
-					scope, scope_key, user_prompt, limit=limit, ignore_permissions=True
+				# Standing conventions the user asked to be remembered are
+				# fetched unconditionally, ahead of the keyword-matched results
+				# below — they won't share this turn's vocabulary, so relying
+				# on memory_search's FULLTEXT/like matching would silently
+				# drop them (the MEM-1 recall gap). Listed first and deduped
+				# by name so _bound_memories_to_budget (which keeps input
+				# order and drops the tail) can't truncate them away in favor
+				# of a lower-priority keyword match.
+				user_directed = memory_list_user_directed(
+					scope, scope_key, limit=3, ignore_permissions=True
 				)
+				matched = memory_search(
+					scope, scope_key, query, limit=limit, ignore_permissions=True
+				)
+				seen_names = {m.get("name") for m in user_directed}
+				memories = user_directed + [m for m in matched if m.get("name") not in seen_names]
 				if memories:
-					user_prompt = build_dynamic_preamble(
-						memory_block=_format_memory_block(memories),
-						user_prompt=user_prompt,
+					token_budget = int(
+						task_cfg.get("aiMemoryTokenBudget") or DEFAULT_MEMORY_TOKEN_BUDGET
+					)
+					memories = _bound_memories_to_budget(memories, token_budget)
+					memory_block = _format_memory_block(memories)
+					from one_bpmn.agents.memory.conversation_store import (
+						DEFAULT_CHARS_PER_TOKEN,
+						estimate_tokens,
+					)
+					memory_injected_tokens = estimate_tokens(
+						{"content": memory_block}, DEFAULT_CHARS_PER_TOKEN
 					)
 		except Exception:
 			frappe.log_error(
 				title=f"BPMN AI Agent Task: memory_search failed ({bpmn_id})",
 				message=frappe.get_traceback(),
 			)
+
+	if memory_block or user_message:
+		from one_bpmn.agents.context_assembler import build_dynamic_preamble
+
+		user_prompt = build_dynamic_preamble(
+			memory_block=memory_block,
+			instructions=user_prompt,
+			user_prompt=user_message,
+		)
 
 	# ── Tools: the shapes of the referenced ad-hoc sub-process (Camunda "tools
 	# are the shapes"). aiToolShapes was embedded at compile time (WI-001421);
@@ -1444,6 +1674,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				instance, bpmn_id, "task", config,
 				bpmn_label=_get_label(task),
 				process_model=instance.process_model or "",
+				recall_query=recall_query,
+				memory_injected_tokens=memory_injected_tokens,
 			)
 		except Exception:
 			frappe.log_error(
@@ -1739,7 +1971,42 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				if write_target:
 					scope, scope_key = write_target
 					src = run.name if run and not getattr(run, "stub", False) else None
-					if write_mode == "raw":
+					# Provenance only, not a scope key: an Agent-scoped memory still
+					# keys strictly on agent_element, but the instance already knows
+					# which process produced it -- carry that along the same way
+					# source_run already is. Process scope's scope_key IS the process
+					# model, so nothing to add there.
+					memory_process_model = (
+						getattr(instance, "process_model", None) if scope == "Agent" else None
+					)
+					if user_message and _is_remember_directive(user_message):
+						# An explicit "remember that..." names a standing
+						# convention, not an incidental fact the agent's
+						# output happened to produce — write it verbatim and
+						# skip the raw/distilled branches below entirely.
+						# Neither raw-dumping result.output nor running it
+						# through the salience distiller (licensed to drop
+						# instance-specific wording — see distill.py's system
+						# prompt) is what the user asked for. Still gated on
+						# write_mode != "off" above: an agent with memory
+						# writes disabled stays disabled, no separate bypass.
+						from one_bpmn.agents.memory.tools import memory_write
+						memory_write(
+							scope,
+							scope_key,
+							user_message,
+							source_run=src,
+							ignore_permissions=True,
+							reconcile=True,
+							reconcile_ctx={
+								"provider_name": config.provider_name,
+								"backend": config.backend,
+								"model": config.model,
+							},
+							process_model=memory_process_model,
+							user_directed=True,
+						)
+					elif write_mode == "raw":
 						content = _extract_memory_content(result.output, task_cfg.get("aiMemoryContentField", ""))
 						if content:
 							from one_bpmn.agents.memory.tools import memory_write
@@ -1750,6 +2017,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 								dedup_key=(task_cfg.get("aiMemoryDedupKey") or None),
 								source_run=src,
 								ignore_permissions=True,
+								process_model=memory_process_model,
 							)
 					else:  # distilled
 						# Distill and reconcile with the models the admin chose
@@ -1759,20 +2027,37 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 						# the task so the extraction call is always valid.
 						# Tool-protocol agents leave result.output empty (their
 						# answer lives in tool arguments/results) — distill the
-						# interaction instead: the user message (where standing
-						# rules are stated) plus the trace's tool activity. The
-						# user part leads so a durable rule survives the
-						# distiller's input cap even when the tool payloads are
-						# long; without any tool activity there was no agent
-						# interaction, so memory is skipped as before.
+						# interaction instead: the person's own words plus the
+						# trace's tool activity. The user part leads so a
+						# durable rule survives the distiller's input cap even
+						# when the tool payloads are long; without any tool
+						# activity there was no agent interaction, so memory is
+						# skipped as before.
+						#
+						# WI-002165: the person's own words, via
+						# _turn_user_message — NOT ``user_prompt``, which by
+						# this point is the fully assembled dynamic prompt
+						# (driving template + injected memory + the person's
+						# message, per build_dynamic_preamble above). For a
+						# pipeline-driven agent like Logix, that template IS
+						# the operator-authored "HARD PIPELINE RULES" text, so
+						# splicing it in here labelled "[User message]" fed the
+						# distiller an instruction dressed up as something the
+						# person said — how jrrd68247k/joal5ugdks (paraphrases
+						# of those rules) ended up stored as "learned facts".
+						# _turn_user_message is empty for a map that renders
+						# its own copy (Logix) or a Background agent, in which
+						# case only the tool trace is distilled.
 						memory_src = result.output
 						if not str(memory_src or "").strip():
 							trace_text = _memory_output_from_trace(result.trace)
 							if trace_text:
-								memory_src = (
-									f"[User message]\n{str(user_prompt or '')[:3000]}\n\n"
-									f"[Agent tool activity]\n{trace_text}"
-								)
+								_user_text = _turn_user_message(instance, task)
+								parts = []
+								if _user_text:
+									parts.append(f"[User message]\n{_user_text[:3000]}")
+								parts.append(f"[Agent tool activity]\n{trace_text}")
+								memory_src = "\n\n".join(parts)
 						_distill_model = _memory_model(
 							task_cfg, "aiMemoryDistillModel", config.model
 						)
@@ -1798,6 +2083,19 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 								_reconcile_model, config.provider_name
 							),
 							source_run=src,
+							process_model=memory_process_model,
+							# WI-002165: the agent's own instructions for this run
+							# (the static system prompt) plus the memory block
+							# recalled and injected into the dynamic layer (WI-001639
+							# put it in user_prompt, not system_prompt — so it isn't
+							# already covered by system_prompt alone), so the
+							# distiller can reject a fact that just restates what the
+							# agent was told rather than something it learned.
+							# Belt-and-suspenders alongside the _turn_user_message
+							# fix above, which stops the one observed leak path;
+							# this covers the agent's own output restating its
+							# instructions in prose too.
+							exclude_context="\n\n".join(filter(None, [system_prompt, memory_block])),
 						)
 			except Exception:
 				frappe.log_error(

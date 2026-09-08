@@ -76,3 +76,45 @@ class TestStepLoopTurnCap(FrappeTestCase):
 		)
 		self.assertFalse(completion.hit_turn_cap)
 		self.assertEqual(completion.text, "all done")
+
+	def test_resumed_trace_is_not_dropped_on_a_second_turn_cap(self):
+		"""Confirmed live (2026-09-07): a run that suspended after 7 turns, was
+		resumed, and hit the cap one turn later reported "(1 turns recorded)"
+		— the resumed segment's own fresh trace, with the 7 turns already spent
+		silently gone. turns_used carried forward correctly (the cap fired at
+		the right turn); only the reported trace was wrong."""
+		prior_trace = [
+			{
+				"role": "tool", "content": "", "tool_calls": [],
+				"prompt_tokens": 100, "completion_tokens": 10,
+				"cache_read_tokens": 0, "cache_write_tokens": 0, "latency_ms": 5,
+			}
+			for _ in range(7)
+		]
+		adapter = _AlwaysCallsTools("still working")
+		completion, _ = asyncio.run(
+			run_agent_loop(
+				adapter, system="s", tools=[_tool()], max_turns=8,
+				resume={
+					"transcript": [{"role": "user", "content": "u"}],
+					"turns_used": 7,
+					"trace": prior_trace,
+				},
+			)
+		)
+		self.assertTrue(completion.hit_turn_cap)
+		# The prior 7 turns plus this segment's own 1 — not just the 1.
+		self.assertEqual(len(completion.trace), 8)
+
+	def test_resume_without_a_trace_key_still_works(self):
+		"""Older checkpoints (before this field existed) have no "trace" key —
+		must degrade to an empty prior trace, not KeyError."""
+		adapter = _AlwaysCallsTools("working")
+		completion, _ = asyncio.run(
+			run_agent_loop(
+				adapter, system="s", tools=[_tool()], max_turns=1,
+				resume={"transcript": [{"role": "user", "content": "u"}], "turns_used": 0},
+			)
+		)
+		self.assertTrue(completion.hit_turn_cap)
+		self.assertEqual(len(completion.trace), 1)

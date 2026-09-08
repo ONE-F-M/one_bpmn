@@ -71,7 +71,19 @@ class TestRecipientFieldPicker(FrappeTestCase):
 		simply be given a better filter: it read the DocField table, where
 		Custom Fields do not live. A site that adds an email field by
 		customisation could never pick it."""
-		field = frappe.get_doc({
+		# A Custom Field insert commits, so a failed run leaves it behind and the
+		# next one cannot insert it: clear it going in as well as coming out.
+		def drop():
+			if frappe.db.exists("Custom Field", "ToDo-custom_test_notify_email"):
+				frappe.delete_doc(
+					"Custom Field", "ToDo-custom_test_notify_email",
+					force=True, ignore_permissions=True,
+				)
+				frappe.db.commit()
+			frappe.clear_cache(doctype="ToDo")
+
+		drop()
+		frappe.get_doc({
 			"doctype": "Custom Field",
 			"dt": "ToDo",
 			"fieldname": "custom_test_notify_email",
@@ -79,9 +91,7 @@ class TestRecipientFieldPicker(FrappeTestCase):
 			"fieldtype": "Data",
 			"options": "Email",
 		}).insert(ignore_permissions=True)
-		self.addCleanup(lambda: frappe.delete_doc(
-			"Custom Field", field.name, force=True, ignore_permissions=True
-		))
+		self.addCleanup(drop)
 		frappe.clear_cache(doctype="ToDo")
 
 		self.assertIn("custom_test_notify_email", self._names("ToDo"))

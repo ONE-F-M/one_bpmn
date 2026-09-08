@@ -499,6 +499,20 @@
             </span>
           </div>
 
+          <!-- Recall token budget (only when long-term memory is on). Governs
+               what gets INJECTED, independent of write mode — recall runs
+               whenever memory is on, whatever the write mode is set to. -->
+          <div class="field-row" v-if="!isSelector && form.aiLongTermMemory">
+            <label>Memory Token Budget</label>
+            <input type="number" min="0" step="100" v-model.number="form.aiMemoryTokenBudget" />
+            <span class="field-hint">
+              Caps the injected recall block by estimated token size, truncating the lowest-ranked
+              memories first. 0 or blank uses the default (800) — there is no way to disable the
+              cap here, unlike Context Token Budget below: an unbounded block is the defect this
+              field exists to close.
+            </span>
+          </div>
+
           <!-- Memory write mode (only when long-term memory is on) -->
           <div class="field-row" v-if="!isSelector && form.aiLongTermMemory">
             <label>Memory Write Mode</label>
@@ -1002,6 +1016,9 @@ const form = ref({
   aiLongTermMemory: false,
   aiMemoryScope: "Agent",
   aiMemoryWriteMode: "off",
+  // WI-002163: caps the injected recall block's estimated size. See the
+  // field-hint in the template for why 0 isn't offered as "no cap" here.
+  aiMemoryTokenBudget: 800,
   // WI-001793: blank means "inherit" — site default, then the agent's own model.
   aiMemoryDistillModel: "",
   aiMemoryReconcileModel: "",
@@ -1352,6 +1369,9 @@ onMounted(async () => {
     aiMemoryWriteMode:
       get("aiMemoryWriteMode") ||
       (get("aiMemoryAutoWrite") === "true" ? "distilled" : "off"),
+    // WI-002163: same reasoning as the two below it — must exist on the form
+    // object for the same wholesale-replace reason.
+    aiMemoryTokenBudget: numOr("aiMemoryTokenBudget", 800, parseInt),
     // WI-001793: these two live on the agent, but seed them from the diagram so
     // a map whose agent has not been migrated still shows its real setting.
     // They must exist on the form object — the linked-agent load only overlays
@@ -1594,6 +1614,10 @@ async function writeBackToConfig() {
     fields.aiLongTermMemory = form.value.aiLongTermMemory ? "Enabled" : "Disabled";
     fields.aiMemoryScope = form.value.aiLongTermMemory ? form.value.aiMemoryScope : "";
     fields.aiMemoryWriteMode = form.value.aiLongTermMemory ? form.value.aiMemoryWriteMode : "";
+    // Recall runs whenever memory is on, independent of write mode — sent
+    // unconditionally (like aiCompactionKeepTail below), never zeroed when
+    // memory is off, since a stray 0 would just fall back to the default.
+    fields.aiMemoryTokenBudget = form.value.aiMemoryTokenBudget || 800;
     fields.aiMemoryDistillModel = form.value.aiMemoryDistillModel || "";
     fields.aiMemoryReconcileModel = form.value.aiMemoryReconcileModel || "";
     // Compaction. The thresholds are only meaningful while it is enabled, so

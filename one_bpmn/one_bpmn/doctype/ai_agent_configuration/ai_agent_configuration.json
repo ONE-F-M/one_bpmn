@@ -57,10 +57,12 @@
   "long_term_memory",
   "memory_scope",
   "memory_write_mode",
+  "memory_token_budget",
   "memory_models_section",
   "memory_distill_model",
   "column_break_memory_models",
   "memory_reconcile_model",
+  "memory_resolution_preview_html",
   "context_token_budget",
   "compaction_section",
   "compaction_enabled",
@@ -569,6 +571,13 @@
    "options": "\noff\ndistilled\nraw"
   },
   {
+   "depends_on": "eval:doc.long_term_memory=='Enabled'",
+   "description": "Caps the injected recall block by estimated token size, truncating lowest-ranked memories first (and the top match's own content if even it alone exceeds the cap). 0 or blank uses the default (800) — there is no way to disable the cap here, unlike Context Token Budget, since an unbounded block is the defect this field exists to close.",
+   "fieldname": "memory_token_budget",
+   "fieldtype": "Int",
+   "label": "Memory Token Budget"
+  },
+  {
    "depends_on": "eval:doc.long_term_memory=='Enabled' && doc.memory_write_mode=='distilled'",
    "description": "Which model does the memory writes. Falls back to the Processa Settings default, then to this agent's own AI Model \u2014 so leaving both blank keeps today's behaviour.",
    "fieldname": "memory_models_section",
@@ -595,6 +604,13 @@
    "fieldtype": "Link",
    "label": "Reconciliation Model",
    "options": "AI Model"
+  },
+  {
+   "depends_on": "eval:doc.long_term_memory=='Enabled' && doc.memory_write_mode=='distilled'",
+   "description": "What dispatch will actually resolve for this agent, after the fallback above \u2014 computed live from the fields on this form (WI-002168).",
+   "fieldname": "memory_resolution_preview_html",
+   "fieldtype": "HTML",
+   "label": "Effective Models"
   },
   {
    "description": "Cap the assembled history by estimated SIZE as well as message count \u2014 both apply, whichever bites first. Message count is blind to size: twenty one-line turns and twenty huge tool results both read as twenty. 0 inherits the site default from Processa Settings; with both blank there is no size limit.",

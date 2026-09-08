@@ -15,6 +15,7 @@
   "content",
   "dedup_key",
   "metadata",
+  "user_directed",
   "section_break_provenance",
   "source_run",
   "expires_on"
@@ -40,13 +41,13 @@
    "description": "The BPMN element id (e.g. Activity_1a2b3c). Required for Agent scope."
   },
   {
-   "depends_on": "eval:doc.memory_scope=='Process'",
+   "depends_on": "eval:doc.memory_scope=='Process' || doc.memory_scope=='Agent'",
    "fieldname": "process_model",
    "fieldtype": "Link",
    "label": "Process",
    "mandatory_depends_on": "eval:doc.memory_scope=='Process'",
    "options": "BPMN Process Model",
-   "description": "The process model this memory is scoped to. Required for Process scope."
+   "description": "The process model this memory is scoped to (required for Process scope) or, for Agent scope, the process the writing run belonged to (optional provenance, not a scope key)."
   },
   {
    "depends_on": "eval:doc.memory_scope=='Entity'",
@@ -74,10 +75,11 @@
   {
    "fieldname": "content",
    "fieldtype": "Long Text",
+   "ignore_xss_filter": 1,
    "in_global_search": 1,
    "label": "Content",
    "reqd": 1,
-   "description": "The memory text — the single source of truth for v1 keyword search."
+   "description": "The memory text — the single source of truth for v1 keyword search. ignore_xss_filter is required here: without it, Frappe's core save-time sanitizer (Document._sanitize_content, bleach-based) treats any '<...>'-shaped substring as an unrecognized HTML tag and HTML-escapes it (observed live: a '<PROJECT>-<YEAR>-<SEQ>' naming convention was stored as '&lt;PROJECT&gt;-...' verbatim) — this field holds arbitrary plain text, not markup, and must round-trip unchanged."
   },
   {
    "fieldname": "dedup_key",
@@ -91,6 +93,15 @@
    "label": "Metadata",
    "options": "JSON",
    "description": "Arbitrary structured data (JSON)."
+  },
+  {
+   "default": "0",
+   "fieldname": "user_directed",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "User Directed",
+   "no_copy": 1,
+   "description": "Set when a user explicitly asked the agent to remember this (e.g. \"remember that...\"). Written verbatim, bypassing the salience distiller, and exempt from Log Settings auto-cleanup and keyword-only recall."
   },
   {
    "fieldname": "section_break_provenance",
@@ -118,7 +129,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-07-05 00:00:00.000000",
+ "modified": "2026-09-07 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Memory",

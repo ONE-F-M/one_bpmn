@@ -94,6 +94,15 @@ class TestCheckpointPersistence(_CheckpointTestBase):
 		self.assertEqual(json.loads(state["human_result"]), {"action": "Approve", "note": "ok"})
 		self.assertEqual(len(state["transcript"]), 4)
 		self.assertEqual(state["deferred_results"][0]["name"], "lookup")
+		# Without this, the segment before this resume vanishes from the
+		# reported turn count on a later hit_turn_cap (confirmed live).
+		self.assertEqual(len(state["trace"]), 1)
+		self.assertEqual(state["trace"][0]["prompt_tokens"], 40)
+
+	def test_build_resume_state_without_a_trace_key_degrades_to_empty(self):
+		"""A checkpoint saved before this field existed has no "trace" key."""
+		state = checkpoint.build_resume_state({"suspension": _suspension(trace=None)})
+		self.assertEqual(state["trace"], [])
 
 	def test_claim_is_exactly_once(self):
 		run = checkpoint.save_checkpoint(

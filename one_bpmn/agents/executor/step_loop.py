@@ -36,6 +36,7 @@ from one_bpmn.agents.llm_provider.base import (
 	ToolSpec,
 	TurnRecord,
 )
+from one_bpmn.agents.observability import clear_tool_artifacts
 from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG, ToolDeferred
 from one_bpmn.agents.turn_state import TURN_ANSWERED_FLAG
 from one_bpmn.security.tool_policy import PolicyViolation
@@ -54,6 +55,14 @@ _SECOND_PAUSE_RESULT = (
 	"Another step from this turn is already waiting for its answer, and only one "
 	"can be tracked at a time. Call this tool again once the pending one is back."
 )
+
+# TurnRecord's own fields, so a resumed trace (a list of plain dicts, from
+# asdict() at suspension time) can be turned back into TurnRecord instances
+# without tripping over an unrelated key a future field adds to the dict.
+_TURN_RECORD_FIELDS = {
+	"role", "content", "tool_calls", "prompt_tokens", "completion_tokens",
+	"cache_read_tokens", "cache_write_tokens", "latency_ms",
+}
 
 
 @dataclass
@@ -121,9 +130,13 @@ async def run_agent_loop(
 	as a single user entry.
 
 	Resume: pass ``resume`` = {"transcript", "pending_call", "deferred_results",
-	"turns_used", "human_result"} — the persisted AgentSuspension fields plus
-	the human's output. The loop injects the human result as the pending
-	call's tool result, completes the suspended turn, and continues.
+	"turns_used", "trace", "human_result"} — the persisted AgentSuspension
+	fields plus the human's output. The loop injects the human result as the
+	pending call's tool result, completes the suspended turn, and continues.
+	``trace`` seeds the turn-record log so the segment before this resume
+	is not silently dropped from ``hit_turn_cap``'s reported turn count;
+	omitting it (older callers) degrades to the pre-fix behaviour, not an
+	error.
 
 	``timeout_seconds``/``max_retries``/``retry_backoff_ms`` mirror
 	ExecutorConfig's own fields (dispatch_ai_agent's aiTimeout/aiMaxRetries)
@@ -136,9 +149,18 @@ async def run_agent_loop(
 	tool_map = {t.name: t for t in (tools or [])}
 
 	turns_used = 0
+	trace: list = []
 	if resume:
 		transcript = list(resume.get("transcript") or [])
 		turns_used = int(resume.get("turns_used") or 0)
+		# Without this, a resumed segment's own trace starts from zero and the
+		# turns spent before the suspension vanish from the reported total —
+		# confirmed live: "hit the turn cap (1 turns recorded)" when turns_used
+		# was really 8, because only the one post-resume turn ever got counted.
+		trace = [
+			TurnRecord(**{k: v for k, v in t.items() if k in _TURN_RECORD_FIELDS})
+			for t in (resume.get("trace") or [])
+		]
 		pending = resume.get("pending_call") or {}
 		results = list(resume.get("deferred_results") or [])
 		# Marked like any other tool result. A human task's answer is still
@@ -158,7 +180,9 @@ async def run_agent_loop(
 	else:
 		transcript = [{"role": "user", "content": user}]
 
-	trace: list = []
+	# Anything a previous loop stashed and nobody recorded is stale: draining it
+	# here is what stops one run's script showing up on the next run's tool call.
+	clear_tool_artifacts()
 
 	try:
 		return await _run_turns(
