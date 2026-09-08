@@ -776,6 +776,7 @@ async function ensureUniqueName() {
 
 // ── Save script ───────────────────────────────────────────────────────
 async function saveScript() {
+	if (props.readonly) return; // view-only: never persist edits
 	const name = canvasScriptName.value.trim();
 	if (!name) return; // silently wait — user hasn't named the script yet
 
