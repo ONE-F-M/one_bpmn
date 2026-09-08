@@ -1824,12 +1824,34 @@ async function save() {
 .close-btn:hover { color: #171717; }
 
 .modal-body {
+  /* The read-only view renders this element as a <fieldset> so the browser
+     enforces "nothing inside is editable" for free — reset its default
+     border/margin/min-width so it still looks like the plain panel below. */
+  border: none;
+  margin: 0;
+  min-width: 0;
   padding: 20px;
   overflow-y: auto;
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.modal-body:disabled,
+.modal-body[disabled] {
+  opacity: 1; /* keep values legible — only pointer/keyboard input is blocked */
+}
+
+.readonly-badge {
+  margin-left: 8px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #92400e;
+  background: #fef3c7;
+  border-radius: 10px;
+  vertical-align: middle;
 }
 
 .field-row { display: flex; flex-direction: column; gap: 4px; }
