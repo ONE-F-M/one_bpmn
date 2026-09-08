@@ -1678,6 +1678,9 @@ const logixScriptType = ref("bpmn:script");
 const logixCurrentScript = ref("");
 const logixEventBus = ref(null);
 const logixProcessContext = ref(null);
+// True when the script was launched from a read-only map — the editor and
+// chat both open in view-only mode so a locked map can't be edited via Logix.
+const logixReadonly = ref(false);
 
 function extractProcessContext(element) {
 	if (!element?.businessObject) return null;
