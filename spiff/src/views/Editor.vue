@@ -966,6 +966,11 @@
 									<td class="px-3 py-2 text-gray-800 font-medium">
 										{{ c.name }}
 										<span v-if="c.doctype && c.doctype !== c.name" class="text-gray-400">· {{ c.doctype }}</span>
+										<!-- We own this DocType, so Sync edits its own JSON rather than
+										     minting an override — name the file it lands in. -->
+										<div v-if="c.destination" class="text-[11px] text-gray-400 font-normal font-mono">
+											{{ c.destination }}
+										</div>
 									</td>
 									<td class="px-3 py-2">
 										<span :class="c.action === 'Create' ? 'text-green-600' : 'text-amber-600'">{{ c.action }}</span>

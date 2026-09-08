@@ -808,14 +808,13 @@ const catalogModels = ref([]); // AI Model catalog (WI-001655)
 // broken one. Best-effort: a designer who cannot read Processa Settings still
 // gets the plain label.
 const siteDefaults = ref({ compaction: "", distill: "", reconcile: "" });
-// What an option reads as. A model whose provider is missing or disabled is
-// still listed — hiding it is what produced an empty picker — but it says why
-// it may not work rather than looking identical to a usable one.
+// What an option reads as: the model, and nothing else when it is usable. The
+// provider is derived from the model and repeating it on every row said nothing
+// a designer picking a model needed. A model that will NOT work is still listed
+// — hiding it is what produced an empty picker — and still says why.
 function modelLabel(m) {
   if (!m.provider) return `${m.name} — no provider linked`;
-  return m.has_credentials === false
-    ? `${m.name} — via ${m.provider} (no API key on the model)`
-    : `${m.name} — via ${m.provider}`;
+  return m.has_credentials === false ? `${m.name} — no API key` : m.name;
 }
 
 function inheritLabel(which) {
