@@ -370,7 +370,8 @@
    "description": "The text long-term memory was searched with this run \u2014 the user's actual message, not the driving prompt template. Blank when memory was off, the message was small talk, or nothing was searched.",
    "fieldname": "recall_query",
    "fieldtype": "Small Text",
-   "label": "Recall Query"
+   "label": "Recall Query",
+   "ignore_xss_filter": 1
   },
   {
    "description": "Estimated size of the recalled memory block actually injected, after aiMemoryTokenBudget truncation. 0 when nothing was injected.",
