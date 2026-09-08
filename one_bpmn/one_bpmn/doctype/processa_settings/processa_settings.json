@@ -373,7 +373,7 @@
    "label": "AI Credential Health"
   },
   {
-   "description": "Who is told when an AI Model's credentials stop working (WI-002191): user ids or email addresses, comma-separated. Left blank, the alert goes to whoever last edited the model, or failing that to every System Manager.",
+   "description": "Who is told when an AI Model's credentials stop working: user ids or email addresses, comma-separated. Left blank, the alert goes to whoever last edited the model, or failing that to every System Manager.",
    "fieldname": "ai_health_alert_recipients",
    "fieldtype": "Small Text",
    "label": "Credential Alert Recipients"
