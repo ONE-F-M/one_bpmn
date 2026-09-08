@@ -50,7 +50,6 @@ from one_bpmn.agents.pricing import get_model_pricing
 EVAL_RUN_DIRECT = "direct-eval"
 EVAL_RUN_JUDGE = "eval-judge"
 
-# Timeout (seconds) for the background job that executes an eval suite/run.
 EVAL_QUEUE_TIMEOUT_SECONDS = 1800
 
 JUDGE_PROMPT_TEMPLATE = """You are an evaluation judge. Score the following AI response based on the given rubric.
