@@ -3098,6 +3098,7 @@ function onLaunchScriptEditor(event) {
 	logixCurrentScript.value = event.script || "";
 	logixEventBus.value = event.eventBus;
 	logixProcessContext.value = extractProcessContext(event.element);
+	logixReadonly.value = !!event.readonly;
 
 	// Prep dialog state so it's ready if the user goes back from Logix
 	const typeLabels = {
