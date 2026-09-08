@@ -150,6 +150,28 @@ def store_caller_config(task, config: dict) -> None:
 	task.reload()
 
 
+def _log_push_abandoned(task) -> None:
+	"""Record, exactly once, that delivery to this task's callback has been
+	permanently abandoned. Keyed in cache per task so the repeated
+	short-circuit on every later call does not produce repeated records.
+	Never raises — this must be as safe as the callers it stands next to."""
+	key = f"a2a_push_abandoned:{task.name}"
+	try:
+		if frappe.cache.get_value(key):
+			return
+		frappe.cache.set_value(key, 1)
+		frappe.log_error(
+			title=f"A2A push delivery abandoned ({task.name})",
+			message=(
+				f"Task {task.name}: delivery to its callback has been permanently "
+				f"stopped after reaching {MAX_PUSH_FAILURES} consecutive failures. "
+				"No further push attempts will be made; the caller must fall back to polling."
+			),
+		)
+	except Exception:
+		pass
+
+
 def notify_caller(task) -> None:
 	"""Inbound: POST the task to the caller's callback. Best-effort — the
 	caller can always poll, so nothing here may raise into the agent's work."""
@@ -158,6 +180,7 @@ def notify_caller(task) -> None:
 	if task.state not in NOTIFY_STATES:
 		return
 	if frappe.utils.cint(task.push_failures) >= MAX_PUSH_FAILURES:
+		_log_push_abandoned(task)
 		return
 
 	from one_bpmn.agents.a2a.protocol import task_to_wire
