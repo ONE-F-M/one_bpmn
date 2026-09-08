@@ -674,7 +674,11 @@
       </div>
 
       <!-- ============ RIGHT: assistant chat panel ============ -->
-      <div class="assistant-panel">
+      <!-- Hidden in read-only mode: the assistant can apply changes onto
+           the form via card actions, which would bypass the fieldset's
+           disabled state (that only blocks native form controls). A
+           locked map must not be editable through this side door either. -->
+      <div v-if="!readonly" class="assistant-panel">
         <!-- WI-001679: ONE chat for both ways into this dialog. An AI Agent
              Task and an AI Task Selector now open the same panel, on the same
              agent, over the same endpoint — the mode only changes what the
