@@ -1,14 +1,18 @@
 <template>
   <div class="ai-agent-modal-overlay" @click.self="$emit('close')">
-    <div class="ai-agent-modal">
+    <div :class="['ai-agent-modal', { 'ai-agent-modal--readonly': readonly }]">
       <!-- ============ LEFT: configuration form ============ -->
       <div class="modal-main">
         <div class="modal-header">
-          <h3>{{ isSelector ? "Configure AI Task Selector" : "Configure AI Agent Task" }}</h3>
+          <h3>
+            {{ isSelector ? "Configure AI Task Selector" : "Configure AI Agent Task" }}
+            <span v-if="readonly" class="readonly-badge">View only</span>
+          </h3>
           <button class="close-btn" @click="$emit('close')">✕</button>
         </div>
 
         <div class="modal-body">
+        <fieldset class="field-gate" :disabled="readonly">
           <!-- Linked AI Agent Configuration (WI-001637 live link). Selecting
                one shows its current values in the fields below; at run time
                the configuration is authoritative for agent-level fields, and
@@ -662,16 +666,21 @@
             Memory and compaction settings are stored on the linked AI Agent Configuration,
             not on this diagram.
           </p>
+        </fieldset>
         </div>
 
         <div class="modal-footer">
-          <button class="btn-cancel" @click="$emit('close')">Cancel</button>
-          <button class="btn-save" @click="save">Save</button>
+          <button class="btn-cancel" @click="$emit('close')">{{ readonly ? "Close" : "Cancel" }}</button>
+          <button v-if="!readonly" class="btn-save" @click="save">Save</button>
         </div>
       </div>
 
       <!-- ============ RIGHT: assistant chat panel ============ -->
-      <div class="assistant-panel">
+      <!-- Hidden in read-only mode: the assistant can apply changes onto
+           the form via card actions, which would bypass the fieldset's
+           disabled state (that only blocks native form controls). A
+           locked map must not be editable through this side door either. -->
+      <div v-if="!readonly" class="assistant-panel">
         <!-- WI-001679: ONE chat for both ways into this dialog. An AI Agent
              Task and an AI Task Selector now open the same panel, on the same
              agent, over the same endpoint — the mode only changes what the
@@ -793,6 +802,11 @@ const props = defineProps({
   // reads (backend, output variable, response format/schema, sampling,
   // retries) and writes only the selector attribute set on save.
   mode: { type: String, default: "agent" },
+  // True when the map is open read-only: the form shows current values with
+  // every field disabled (the <fieldset disabled> above), no Save button,
+  // and the assistant chat (which can also apply edits onto the form) is
+  // hidden entirely.
+  readonly: { type: Boolean, default: false },
 });
 
 const isSelector = computed(() => props.mode === "selector");
@@ -1776,6 +1790,9 @@ async function save() {
   justify-content: center;
 }
 
+/* Read-only withholds the chat pane, so the dialog is just the form's width. */
+.ai-agent-modal--readonly { width: 560px; }
+
 .ai-agent-modal {
   background: white;
   border-radius: 8px;
@@ -1817,6 +1834,32 @@ async function save() {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* The gate sits INSIDE the scroll container, never around it: a disabled
+   <fieldset> is inert, so making the scrolling element the fieldset stopped
+   the body scrolling and left most of the config unreachable. */
+.field-gate {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.field-gate:disabled,
+.field-gate[disabled] {
+  opacity: 1; /* keep values legible — only pointer/keyboard input is blocked */
+}
+
+.readonly-badge {
+  margin-left: 8px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #92400e;
+  background: #fef3c7;
+  border-radius: 10px;
+  vertical-align: middle;
 }
 
 .field-row { display: flex; flex-direction: column; gap: 4px; }

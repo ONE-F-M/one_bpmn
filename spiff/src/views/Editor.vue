@@ -794,6 +794,7 @@
 					:current-script="logixCurrentScript"
 					:event-bus="logixEventBus"
 					:process-context="logixProcessContext"
+					:readonly="logixReadonly"
 					@close="showLogixCanvas = false"
 					@script-saved="onLogixScriptSaved"
 					@back="onLogixBack"
@@ -1682,6 +1683,9 @@ const logixScriptType = ref("bpmn:script");
 const logixCurrentScript = ref("");
 const logixEventBus = ref(null);
 const logixProcessContext = ref(null);
+// True when the script was launched from a read-only map — the editor and
+// chat both open in view-only mode so a locked map can't be edited via Logix.
+const logixReadonly = ref(false);
 
 function extractProcessContext(element) {
 	if (!element?.businessObject) return null;
@@ -3099,6 +3103,7 @@ function onLaunchScriptEditor(event) {
 	logixCurrentScript.value = event.script || "";
 	logixEventBus.value = event.eventBus;
 	logixProcessContext.value = extractProcessContext(event.element);
+	logixReadonly.value = !!event.readonly;
 
 	// Prep dialog state so it's ready if the user goes back from Logix
 	const typeLabels = {

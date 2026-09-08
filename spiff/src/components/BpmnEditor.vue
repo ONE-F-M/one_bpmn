@@ -960,6 +960,7 @@
 			:element="aiAgentModal.element"
 			:modeler="modeler"
 			:mode="aiAgentModal.mode"
+			:readonly="readonly"
 			@close="aiAgentModal.show = false"
 		/>
 
@@ -2124,6 +2125,7 @@ onMounted(async () => {
 				scriptType: event.scriptType,
 				script: event.script || "",
 				eventBus: event.eventBus,
+				readonly: props.readonly,
 			});
 		});
 
@@ -3795,6 +3797,17 @@ function getAvatarColor(userName) {
 .properties-panel--reassign [data-entry-id^="spiffworkflow-assignee"] input,
 .properties-panel--reassign [data-entry-id^="spiffworkflow-assignee"] select,
 .properties-panel--reassign [data-entry-id^="spiffworkflow-assignee"] button {
+	pointer-events: auto !important;
+	opacity: 1;
+}
+
+/* Read-only "launch a viewer" buttons — the Script Task "Launch Logix"
+   button and the AI Agent Task header button don't mutate the model
+   themselves, they open a viewer (a read-only CodeMirror editor / a
+   read-only AI Agent Config modal) that the launch handlers put into
+   view-only mode when the map is read-only. Exempt them from the
+   blanket disable above so they stay clickable. */
+.properties-panel--readonly .spiffworkflow-properties-panel-button {
 	pointer-events: auto !important;
 	opacity: 1;
 }
