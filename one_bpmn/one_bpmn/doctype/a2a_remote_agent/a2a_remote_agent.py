@@ -58,7 +58,7 @@ class A2ARemoteAgent(Document):
 		if "System Manager" not in frappe.get_roles():
 			frappe.throw(_("Only System Managers may fetch remote agent cards."), frappe.PermissionError)
 
-		from one_bpmn.integrations.a2a_client import fetch_agent_card
+		from one_bpmn.one_bpmn.integrations.a2a_client import fetch_agent_card
 
 		card = fetch_agent_card(self)
 		self.db_set(
