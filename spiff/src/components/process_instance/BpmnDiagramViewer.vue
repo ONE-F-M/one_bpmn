@@ -335,6 +335,16 @@ function onElementClick(e) {
 // shape instead of floating it off the corner.
 const COUNT_BADGE_SIZE = 20
 
+// A ×N badge's colour says how often a shape ran, so every shape has to be on
+// the same scale. A tool the agent called twice was drawn green with an indigo
+// badge while an engine task traversed twice was yellow — the colour was
+// reporting where the shape sits, not how often it ran.
+function heatFor(count, maxFreq) {
+	const ratio = maxFreq > 1 ? (count - 1) / (maxFreq - 1) : 0
+	const level = Math.min(4, Math.max(1, Math.ceil(ratio * 4)))
+	return { level, badgeClass: `heatmap-badge ${level >= 4 ? "hot" : level >= 3 ? "warm" : ""}`.trimEnd() }
+}
+
 function countBadgePosition(element) {
 	// A gateway's diamond leaves its bbox corners empty, so a corner anchor
 	// would hang in the void — aim at the midpoint of the top-right slant edge.
@@ -425,18 +435,21 @@ function applyHighlights() {
 		activeBpmnIds.forEach((id) => completedBpmnIds.delete(id))
 		waitingBpmnIds.forEach((id) => completedBpmnIds.delete(id))
 
-		const maxFreq = Math.max(1, ...Object.values(frequencyMap))
+		// Tool calls count toward the same maximum: two scales would give the
+		// same ×2 a different colour on either side of the Tools box.
+		const toolCounts = Object.values(props.aiCalledTools || {})
+			.map((info) => (typeof info === "object" && info?.count) || 0)
+		const maxFreq = Math.max(1, ...Object.values(frequencyMap), ...toolCounts)
 
 		// Apply markers to completed tasks
 		completedBpmnIds.forEach((bpmnId) => {
 			try {
 				const count = frequencyMap[bpmnId] || 1
 				if (count > 1 && maxFreq > 1) {
-					const ratio = (count - 1) / (maxFreq - 1)
-					const level = Math.min(4, Math.max(1, Math.ceil(ratio * 4)))
+					const { level, badgeClass } = heatFor(count, maxFreq)
 					canvas.addMarker(bpmnId, `heatmap-${level}`)
 					const badge = document.createElement("div")
-					badge.className = `heatmap-badge ${level >= 4 ? "hot" : level >= 3 ? "warm" : ""}`
+					badge.className = badgeClass
 					badge.textContent = `×${count}`
 					overlays.add(bpmnId, "heatmap-badge", { position: countBadgePosition(elementRegistry.get(bpmnId)), html: badge })
 				} else {
@@ -479,10 +492,18 @@ function applyHighlights() {
 			try {
 				const status = typeof info === "string" ? info : info?.status
 				const count = (typeof info === "object" && info?.count) || 0
-				canvas.addMarker(bpmnId, status === "Error" ? "highlight-ai-error" : "highlight-ai-called")
+				const repeated = count > 1 && maxFreq > 1 && status !== "Error"
+				if (status === "Error") {
+					// An error stays red: what went wrong outranks how often it ran.
+					canvas.addMarker(bpmnId, "highlight-ai-error")
+				} else if (repeated) {
+					canvas.addMarker(bpmnId, `heatmap-${heatFor(count, maxFreq).level}`)
+				} else {
+					canvas.addMarker(bpmnId, "highlight-ai-called")
+				}
 				if (count > 1) {
 					const badge = document.createElement("div")
-					badge.className = "ai-call-badge"
+					badge.className = repeated ? heatFor(count, maxFreq).badgeClass : "ai-call-badge"
 					badge.textContent = `×${count}`
 					badge.title = `The agent called this tool ${count} times`
 					overlays.add(bpmnId, "ai-call-badge", { position: countBadgePosition(elementRegistry.get(bpmnId)), html: badge })
@@ -562,11 +583,10 @@ function applyHighlights() {
 						const freq = frequencyMap[gw.id] || 0
 						if (completedBpmnIds.has(gw.id)) {
 							if (freq > 1 && maxFreq > 1) {
-								const ratio = (freq - 1) / (maxFreq - 1)
-								const level = Math.min(4, Math.max(1, Math.ceil(ratio * 4)))
+								const { level, badgeClass } = heatFor(freq, maxFreq)
 								canvas.addMarker(gw.id, `heatmap-${level}`)
 								const badge = document.createElement("div")
-								badge.className = `heatmap-badge ${level >= 4 ? "hot" : level >= 3 ? "warm" : ""}`
+								badge.className = badgeClass
 								badge.textContent = `×${freq}`
 								overlays.add(gw.id, "heatmap-badge", { position: countBadgePosition(gw), html: badge })
 							} else {
