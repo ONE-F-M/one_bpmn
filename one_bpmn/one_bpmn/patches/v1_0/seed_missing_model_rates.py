@@ -2,10 +2,15 @@
 # For license information, please see license.txt
 """Give the models that have no rate one, so their traffic stops costing nothing.
 
-Five enabled models carried no rate. That is not new — they had no rate-card row
+Six enabled models carried no rate. That is not new — they had no rate-card row
 before either — but it meant 4.36 million tokens, about a fifth of all traffic on
-this site, were reported as free. Two of the five run Live chat agents, so the
+this site, were reported as free, and several of them run Live chat agents, so the
 under-reporting was continuous rather than historical.
+
+The sixth was found only after the first pass: a dated model id is its own catalog
+record, so `claude-haiku-4-5-20251001` sat unpriced beside a priced
+`claude-haiku-4-5`, and it is the model Logix and ProsAlly actually run on. Because
+this only ever fills what is empty, adding it and running again is safe.
 
 Rates are the providers' published list prices per 1,000,000 tokens, confirmed
 before being written.
@@ -34,6 +39,10 @@ RATES = {
 	"gpt-4.1": (2.00, 8.00),
 	"gpt-4.1-mini": (0.40, 1.60),
 	"o4-mini": (1.10, 4.40),
+	# The dated Haiku 4.5 row is a separate catalog entry from the undated one,
+	# so it was missed the first time round and kept costing nothing while two
+	# Live chat agents ran on it.
+	"claude-haiku-4-5-20251001": (1.00, 5.00),
 }
 
 # Every rate here and every rate already on the site is a USD list price, and
