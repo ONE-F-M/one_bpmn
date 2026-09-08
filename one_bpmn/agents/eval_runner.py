@@ -319,7 +319,7 @@ def run_eval_comparison(
             queue="bpmn_ai_agent",
             run_name=run_name,
             case_names=case_names,
-            timeout=1800,
+            timeout=EVAL_QUEUE_TIMEOUT_SECONDS,
         )
 
     return {
