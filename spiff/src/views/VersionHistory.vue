@@ -23,7 +23,7 @@
 		>
 			<Icon icon="lucide:alert-circle" class="w-4 h-4 shrink-0" />
 			<span class="flex-1">{{ errorMessage }}</span>
-			<button class="text-red-500 hover:text-red-700" @click="errorMessage = ''">
+			<button class="text-red-500 hover:text-red-700" @click="errorMessage = ''" aria-label="Dismiss notification">
 				<Icon icon="lucide:x" class="w-4 h-4" />
 			</button>
 		</div>
