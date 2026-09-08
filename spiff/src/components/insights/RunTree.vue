@@ -17,7 +17,22 @@
 			<span class="text-gray-500">${{ (node.run.estimated_cost ?? 0).toFixed(4) }}</span>
 		</div>
 
-		<table class="w-full">
+		<!--
+			Every level uses the same fixed column widths; only the first column
+			(Step) is left to absorb the remainder. A nested table is narrower by
+			exactly its indent, so the Step column shrinks by that much and every
+			other column lines up with the level above.
+		-->
+		<table class="w-full table-fixed">
+			<colgroup>
+				<col />
+				<col class="w-24" />
+				<col class="w-72" />
+				<col class="w-36" />
+				<col class="w-24" />
+				<col class="w-24" />
+				<col class="w-24" />
+			</colgroup>
 			<thead v-if="depth === 0">
 				<tr class="border-b border-gray-200">
 					<th class="text-left text-xs text-gray-400 font-medium py-1 px-2">Step</th>
@@ -37,7 +52,7 @@
 							{{ step.role }}
 							<span v-if="step.sub_call" class="ml-1 text-indigo-600">sub-call</span>
 						</td>
-						<td class="py-1.5 px-2 text-xs text-gray-600 font-mono">
+						<td class="py-1.5 px-2 text-xs text-gray-600 font-mono break-words">
 							<template v-if="step.sub_call">
 								{{ step.sub_call.tool }}
 								<span class="text-gray-400 font-sans">via {{ step.sub_call.model }}</span>
