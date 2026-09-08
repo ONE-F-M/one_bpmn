@@ -743,6 +743,9 @@ async function restoreVersion(version) {
 // ── Auto-save scheduler ───────────────────────────────────────────────
 function scheduleAutoSave() {
 	if (isInitializing) return;
+	// Read-only viewing (locked map): never persist edits, even if the
+	// CodeMirror's own readOnly state is briefly out of sync.
+	if (props.readonly) return;
 	if (autoSaveTimer) clearTimeout(autoSaveTimer);
 	autoSaveTimer = setTimeout(() => { saveScript(); }, 1500);
 }
