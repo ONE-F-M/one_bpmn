@@ -288,25 +288,58 @@ def _build_doctype_snapshot(doctypes: list) -> dict:
 	return snap
 
 
+def _sync_destination(dt: str) -> str:
+	"""Where Sync will actually write this DocType's changes.
+
+	The review used to name the object it FOUND on this site — a Property
+	Setter — which for a DocType we own is the one thing Sync no longer writes:
+	it folds the change into the DocType's own JSON instead. So the preview
+	announced an override that was never going to be created.
+	"""
+	from one_bpmn.api import doctype_source_sync as source
+
+	if source.owned_in_source(dt):
+		return source.source_json_path(dt) or ""
+	return ""
+
+
 def _diff_doctypes(local: dict, remote: dict) -> list:
-	"""Granular BA → Production diff over DocTypes / Custom Fields / Property Setters."""
+	"""Granular BA → Production diff over DocTypes / Custom Fields / Property Setters.
+
+	Every change carries the file Sync will write it into when we own the
+	DocType, so the dialog can say "this lands in a2a_task.json" rather than
+	naming a Property Setter that will not exist.
+	"""
 	changes = []
 	for dt, lsnap in local.items():
 		rsnap = (remote or {}).get(dt) or {}
+		destination = _sync_destination(dt)
 		if lsnap.get("exists") and not rsnap.get("exists"):
 			changes.append({"object_type": "DocType", "name": dt, "doctype": dt,
-			                "action": "Create", "detail": _("Missing on Production")})
+			                "action": "Create", "detail": _("Missing on Production"),
+			                "destination": destination})
 		for section, otype in (("custom_fields", "Custom Field"), ("property_setters", "Property Setter")):
 			lrecs = lsnap.get(section) or {}
 			rrecs = rsnap.get(section) or {}
 			for name, lrec in lrecs.items():
 				rrec = rrecs.get(name)
-				if rrec is None:
-					changes.append({"object_type": otype, "name": name, "doctype": dt, "action": "Create", "detail": ""})
-				elif rrec != lrec:
-					diffk = [k for k in lrec if lrec.get(k) != (rrec or {}).get(k)]
-					changes.append({"object_type": otype, "name": name, "doctype": dt,
-					                "action": "Update", "detail": ", ".join(diffk[:6])})
+				if rrec is None or rrec != lrec:
+					row = {
+						"object_type": otype, "name": name, "doctype": dt,
+						"action": "Create" if rrec is None else "Update",
+						"detail": "" if rrec is None else ", ".join(
+							[k for k in lrec if lrec.get(k) != (rrec or {}).get(k)][:6]
+						),
+						"destination": destination,
+					}
+					if destination:
+						# Ours: the change is a field's property, and it goes into
+						# the JSON — say that, rather than naming the override.
+						field = (lrec.get("field_name") or lrec.get("fieldname") or "").strip()
+						row["object_type"] = _("Field")
+						row["name"] = f"{dt} → {field}" if field else dt
+						row["detail"] = (lrec.get("property") or row["detail"] or "").strip()
+					changes.append(row)
 
 		# DocField drift — a standard DocType edited directly rather than through
 		# Customize Form. Only compared when Production actually reports the key:
@@ -317,13 +350,16 @@ def _diff_doctypes(local: dict, remote: dict) -> list:
 			rfields = rsnap.get("docfields") or {}
 			for fieldname, lrec in lfields.items():
 				rrec = rfields.get(fieldname)
-				if rrec is None:
-					changes.append({"object_type": "DocField", "name": f"{dt}-{fieldname}", "doctype": dt,
-					                "action": "Create", "detail": _("Field is not on Production")})
-				elif rrec != lrec:
-					diffk = [k for k in lrec if lrec.get(k) != rrec.get(k)]
-					changes.append({"object_type": "DocField", "name": f"{dt}-{fieldname}", "doctype": dt,
-					                "action": "Update", "detail": ", ".join(diffk[:6])})
+				if rrec is None or rrec != lrec:
+					changes.append({
+						"object_type": _("Field") if destination else "DocField",
+						"name": f"{dt} → {fieldname}" if destination else f"{dt}-{fieldname}",
+						"doctype": dt,
+						"action": "Create" if rrec is None else "Update",
+						"detail": _("Field is not on Production") if rrec is None
+						else ", ".join([k for k in lrec if lrec.get(k) != rrec.get(k)][:6]),
+						"destination": destination,
+					})
 	return changes
 
 
