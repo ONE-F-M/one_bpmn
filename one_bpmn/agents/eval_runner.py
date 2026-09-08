@@ -121,7 +121,7 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
         # compete with production business jobs for the default workers.
         queue="bpmn_ai_agent",
         run_name=run.name,
-        timeout=1800,
+        timeout=EVAL_QUEUE_TIMEOUT_SECONDS,
     )
 
     return run.name
