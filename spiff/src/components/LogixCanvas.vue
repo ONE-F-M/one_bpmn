@@ -329,6 +329,9 @@ const props = defineProps({
 	currentScript:  { type: String,  default: "" },
 	eventBus:       { type: Object,  default: null },
 	processContext: { type: Object,  default: null },
+	// True when launched from a read-only process map — the script shows in
+	// a read-only CodeMirror editor and no edits are saved.
+	readonly:       { type: Boolean, default: false },
 });
 
 const emit = defineEmits(["close", "script-saved", "back"]);
