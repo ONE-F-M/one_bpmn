@@ -3784,6 +3784,13 @@ function getAvatarColor(userName) {
 	opacity: 1;
 }
 
+.properties-panel--readonly [data-entry-id="ai-agent-launch"] button,
+.properties-panel--readonly [data-entry-id="spiffworkflow-launchEditor"] button {
+	pointer-events: auto !important;
+	opacity: 1 !important;
+	cursor: pointer !important;
+}
+
 .properties-panel--readonly .bio-properties-panel-header {
 	pointer-events: auto !important;
 	opacity: 1;
