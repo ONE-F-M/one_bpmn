@@ -201,3 +201,5 @@ def notify_caller(task) -> None:
 			title=f"A2A push delivery failed ({task.name}, attempt {failures})",
 			message=frappe.get_traceback(),
 		)
+		if failures == MAX_PUSH_FAILURES:
+			_log_push_abandoned(task)
