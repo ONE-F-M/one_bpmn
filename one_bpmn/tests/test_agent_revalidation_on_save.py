@@ -158,3 +158,61 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 			self.assertEqual(agent.lifecycle_status, "Live")
 		finally:
 			frappe.flags.test_agent_revalidation = True
+
+
+class TestProviderTestCall(FrappeTestCase):
+	"""The live test call proves the credentials and the model, not the model's
+	brevity. On 2026-09-08 every save of a Live agent on Claude Sonnet 5 parked
+	it because the reply ran past a 16-token ceiling and the adapter raised."""
+
+	def _call(self, adapter_behaviour):
+		from types import SimpleNamespace
+
+		from one_bpmn.agents import agent_provisioning
+
+		class Adapter:
+			async def complete(self, **kwargs):
+				self.kwargs = kwargs
+				return adapter_behaviour(kwargs)
+
+		adapter = Adapter()
+		cfg = SimpleNamespace(agent_id="probe")
+		with patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter), \
+			patch(
+				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
+				return_value={},
+			):
+			return agent_provisioning._provider_test_call(cfg), adapter
+
+	def test_a_truncated_reply_still_passes(self):
+		from one_bpmn.agents.llm_provider.base import LLMTruncatedError
+
+		def truncated(kwargs):
+			raise LLMTruncatedError("The model hit its 64-token output limit before finishing.")
+
+		(ok, detail), _adapter = self._call(truncated)
+		self.assertTrue(ok)
+		self.assertIn("provider answered", detail)
+
+	def test_a_normal_reply_passes_with_the_text(self):
+		from types import SimpleNamespace
+
+		(ok, detail), adapter = self._call(lambda kw: SimpleNamespace(text="OK"))
+		self.assertTrue(ok)
+		self.assertEqual(detail, "OK")
+		self.assertGreaterEqual(adapter.kwargs["max_tokens"], 64)
+
+	def test_a_rejected_key_still_fails(self):
+		def rejected(kwargs):
+			raise RuntimeError("401 Client Error: Unauthorized")
+
+		(ok, detail), _adapter = self._call(rejected)
+		self.assertFalse(ok)
+		self.assertIn("401", detail)
+
+	def test_an_empty_reply_still_fails(self):
+		from types import SimpleNamespace
+
+		(ok, detail), _adapter = self._call(lambda kw: SimpleNamespace(text="   "))
+		self.assertFalse(ok)
+		self.assertEqual(detail, "empty response")

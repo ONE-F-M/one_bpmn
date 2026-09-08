@@ -377,17 +377,36 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 	return suite.name
 
 
+# Room for a model that answers "ping" with a sentence. The Anthropic adapter
+# raises when a reply stops at the token ceiling, and at 16 tokens Claude
+# Sonnet 5 stopped there on every save of a Live agent on staging (2026-09-08),
+# parking the AI Agent Assistant with "hit its 16-token output limit". The test
+# proves the credentials and the model, not the model's brevity.
+_TEST_CALL_MAX_TOKENS = 64
+
+
 def _provider_test_call(cfg) -> tuple[bool, str]:
-	"""Make a minimal live call through the agent's resolved adapter."""
+	"""Make a minimal live call through the agent's resolved adapter.
+
+	Passes when the provider answered at all. A reply cut off at the output
+	ceiling still means the key was accepted and the model exists, which is the
+	whole question here — so truncation counts as a pass, with a note.
+	"""
 	try:
 		from one_bpmn.agents.executor.direct_api import _run_coro_blocking
 		from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
+		from one_bpmn.agents.llm_provider.base import LLMTruncatedError
 		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 
 		adapter = get_llm_adapter_from_settings(get_agent_config(cfg.agent_id))
-		completion = _run_coro_blocking(
-			adapter.complete(system="Reply with the single word: OK.", user="ping", max_tokens=16)
-		)
+		try:
+			completion = _run_coro_blocking(
+				adapter.complete(
+					system="Reply with the single word: OK.", user="ping", max_tokens=_TEST_CALL_MAX_TOKENS
+				)
+			)
+		except LLMTruncatedError:
+			return (True, "provider answered; the reply ran past the test's token ceiling")
 		text = getattr(completion, "text", str(completion or ""))
 		return (bool(text and text.strip()), text.strip()[:80] or "empty response")
 	except Exception as exc:
