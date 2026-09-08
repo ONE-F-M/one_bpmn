@@ -800,6 +800,11 @@ const props = defineProps({
   // reads (backend, output variable, response format/schema, sampling,
   // retries) and writes only the selector attribute set on save.
   mode: { type: String, default: "agent" },
+  // True when the map is open read-only: the form shows current values with
+  // every field disabled (the <fieldset disabled> above), no Save button,
+  // and the assistant chat (which can also apply edits onto the form) is
+  // hidden entirely.
+  readonly: { type: Boolean, default: false },
 });
 
 const isSelector = computed(() => props.mode === "selector");
