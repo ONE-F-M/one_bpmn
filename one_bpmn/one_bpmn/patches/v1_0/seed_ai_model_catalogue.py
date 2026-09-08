@@ -116,19 +116,26 @@ def apply_due_rates() -> list:
 
 	applied = []
 	for model, start, new_in, new_out, old_in, old_out in SCHEDULED_RATES:
-		if getdate(nowdate()) < getdate(start):
+		try:
+			if getdate(nowdate()) < getdate(start):
+				continue
+			if not frappe.db.exists("AI Model", model):
+				continue
+			row = frappe.db.get_value("AI Model", model, ["input_cost", "output_cost"], as_dict=True)
+			# Only a site still on the exact superseded published rate. Anything else
+			# is somebody's own number and is not ours to overwrite.
+			if flt(row.input_cost) != old_in or flt(row.output_cost) != old_out:
+				continue
+			frappe.db.set_value("AI Model", model, {"input_cost": new_in, "output_cost": new_out},
+			                    update_modified=False)
+			frappe.db.commit()
+			applied.append(f"{model} {old_in}/{old_out} -> {new_in}/{new_out} (due {start})")
+		except Exception:
+			frappe.log_error(
+				title=f"Model rate update failed for model {model}",
+				message=frappe.get_traceback(),
+			)
 			continue
-		if not frappe.db.exists("AI Model", model):
-			continue
-		row = frappe.db.get_value("AI Model", model, ["input_cost", "output_cost"], as_dict=True)
-		# Only a site still on the exact superseded published rate. Anything else
-		# is somebody's own number and is not ours to overwrite.
-		if flt(row.input_cost) != old_in or flt(row.output_cost) != old_out:
-			continue
-		frappe.db.set_value("AI Model", model, {"input_cost": new_in, "output_cost": new_out},
-		                    update_modified=False)
-		frappe.db.commit()
-		applied.append(f"{model} {old_in}/{old_out} -> {new_in}/{new_out} (due {start})")
 	return applied
 
 
