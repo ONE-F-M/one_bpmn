@@ -3791,6 +3791,15 @@ function getAvatarColor(userName) {
 	cursor: pointer !important;
 }
 
+/* Script Task "Launch Logix" and AI Agent Task "Configure/Edit AI Task
+   Configuration" header buttons stay clickable while readonly, so the
+   underlying script / agent configuration can still be opened for viewing
+   (WI-000342). Same exemption pattern as the rule below. */
+.properties-panel--readonly [data-entry-id="spiffworkflow-launchEditor"] button,
+.properties-panel--readonly [data-entry-id="ai-agent-launch"] button {
+	pointer-events: auto !important;
+}
+
 .properties-panel--readonly .bio-properties-panel-header {
 	pointer-events: auto !important;
 	opacity: 1;
