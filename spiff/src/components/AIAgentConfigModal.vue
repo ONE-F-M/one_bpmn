@@ -1,6 +1,6 @@
 <template>
   <div class="ai-agent-modal-overlay" @click.self="$emit('close')">
-    <div class="ai-agent-modal">
+    <div :class="['ai-agent-modal', { 'ai-agent-modal--readonly': readonly }]">
       <!-- ============ LEFT: configuration form ============ -->
       <div class="modal-main">
         <div class="modal-header">
@@ -11,7 +11,8 @@
           <button class="close-btn" @click="$emit('close')">✕</button>
         </div>
 
-        <fieldset class="modal-body" :disabled="readonly">
+        <div class="modal-body">
+        <fieldset class="field-gate" :disabled="readonly">
           <!-- Linked AI Agent Configuration (WI-001637 live link). Selecting
                one shows its current values in the fields below; at run time
                the configuration is authoritative for agent-level fields, and
@@ -666,6 +667,7 @@
             not on this diagram.
           </p>
         </fieldset>
+        </div>
 
         <div class="modal-footer">
           <button class="btn-cancel" @click="$emit('close')">{{ readonly ? "Close" : "Cancel" }}</button>
@@ -1789,6 +1791,9 @@ async function save() {
   justify-content: center;
 }
 
+/* Read-only withholds the chat pane, so the dialog is just the form's width. */
+.ai-agent-modal--readonly { width: 560px; }
+
 .ai-agent-modal {
   background: white;
   border-radius: 8px;
@@ -1824,12 +1829,6 @@ async function save() {
 .close-btn:hover { color: #171717; }
 
 .modal-body {
-  /* The read-only view renders this element as a <fieldset> so the browser
-     enforces "nothing inside is editable" for free — reset its default
-     border/margin/min-width so it still looks like the plain panel below. */
-  border: none;
-  margin: 0;
-  min-width: 0;
   padding: 20px;
   overflow-y: auto;
   flex: 1;
@@ -1838,8 +1837,18 @@ async function save() {
   gap: 12px;
 }
 
-.modal-body:disabled,
-.modal-body[disabled] {
+/* The gate sits INSIDE the scroll container, never around it: a disabled
+   <fieldset> is inert, so making the scrolling element the fieldset stopped
+   the body scrolling and left most of the config unreachable. */
+.field-gate {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.field-gate:disabled,
+.field-gate[disabled] {
   opacity: 1; /* keep values legible — only pointer/keyboard input is blocked */
 }
 
