@@ -373,10 +373,11 @@
    "label": "AI Credential Health"
   },
   {
-   "description": "Who is told when an AI Model's credentials stop working: user ids or email addresses, comma-separated. Left blank, the alert goes to whoever last edited the model, or failing that to every System Manager.",
+   "description": "The users told when an AI Model's credentials stop working. Left empty, the alert goes to whoever last edited the model, or failing that to every System Manager.",
    "fieldname": "ai_health_alert_recipients",
-   "fieldtype": "Small Text",
-   "label": "Credential Alert Recipients"
+   "fieldtype": "Table MultiSelect",
+   "label": "Credential Alert Recipients",
+   "options": "User Group Member"
   },
   {
    "description": "Migrated from onefm_mcp's AI Chat Settings doctype (retired). Global fallback provider/tuning for an agent configuration that has no linked AI Provider yet — once every agent config links a provider directly, this stops being consulted.",
