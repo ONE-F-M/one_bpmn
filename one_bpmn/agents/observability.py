@@ -11,6 +11,8 @@ Three core functions that sit between the dispatcher and the executor:
 
 from __future__ import annotations
 
+import hashlib
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -218,6 +220,49 @@ def _turn_correlation_id():
 		return None
 
 
+def snapshot_prompt(system_prompt: str, agent_configuration: str | None = None) -> str:
+	"""Fingerprint a system prompt, storing the text once (WI-002190).
+
+	Returns the hash to stamp on the run, or "" when there is no prompt.
+
+	The prompt was recorded nowhere before this: no Step is ever written with
+	role "system", and AI Agent Run held the model and the configuration but
+	never the text. So when a prompt changed, nothing said which runs used
+	which version, and the results either side could not be compared.
+
+	Content addressed, so an unchanged prompt costs one row no matter how many
+	thousand runs use it, and "compare these two versions" is a group-by on a
+	short string instead of on several kilobytes of text.
+	"""
+	text = (system_prompt or "").strip()
+	if not text:
+		return ""
+	digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:32]
+
+	try:
+		if not frappe.db.exists("AI Prompt Snapshot", digest):
+			frappe.get_doc({
+				"doctype": "AI Prompt Snapshot",
+				"prompt_hash": digest,
+				"system_prompt": text,
+				"char_count": len(text),
+				"agent_configuration": agent_configuration or None,
+				"first_seen_at": now_datetime(),
+			}).insert(ignore_permissions=True)
+	except frappe.DuplicateEntryError:
+		# Two runs starting at once is the normal case, not an error: they
+		# agree on the text, so whichever landed first is the row we want.
+		pass
+	except Exception:
+		# A prompt we could not store is still a prompt we can identify. The
+		# hash goes on the run either way; only the text is lost.
+		frappe.log_error(
+			title="AI Observability: prompt snapshot not stored",
+			message=frappe.get_traceback(),
+		)
+	return digest
+
+
 def create_ai_run(
 	instance,
 	bpmn_id: str,
@@ -314,6 +359,12 @@ def create_ai_run(
 		# so a security event recorded before this run existed can be joined to it.
 		# Falls back to a fresh id for runs that start outside a screened turn.
 		"correlation_id": _turn_correlation_id() or frappe.generate_hash(length=16),
+		# WI-002190: which text ran, and what started this run. A run begun by
+		# a tool inside another run used to share only a correlation_id with
+		# its parent, which made a turn a flat list of runs that happened near
+		# each other instead of the tree it actually is.
+		"prompt_hash": snapshot_prompt(getattr(config, "system_prompt", ""), agent_configuration),
+		"parent_run": current_run_name(),
 	})
 	try:
 		run.insert(ignore_permissions=True)
@@ -324,6 +375,12 @@ def create_ai_run(
 		)
 		# Return a lightweight stub so callers don't need to null-check
 		run.stub = True
+	else:
+		# WI-002190: the tool scripts that call the model have no handle on the
+		# run they belong to, and the step loop that does never sees them. This
+		# is where both ends can be joined, so a sub-call knows what to attach
+		# itself to. Cleared by finalize_ai_run.
+		frappe.flags[_CURRENT_RUN_FLAG] = run.name
 	return run
 
 
@@ -432,6 +489,141 @@ def record_ai_step(
 		return None
 
 
+# ── Sub-calls made from inside tool scripts (WI-002190) ──────────────────────
+#
+# ProsAlly, Docu and Logix all call the model from Server Scripts through
+# get_llm_adapter_from_settings().complete(). Those calls never reached the
+# step writer, so the cost dashboard metered the orchestrator's cheap Haiku
+# turns and missed the Sonnet turns doing the actual work.
+#
+# The scope below is what makes metering them safe. It is opened ONLY around a
+# tool script, so the executor's own turns — which go through adapter.step()
+# and are already recorded — can never be counted twice. No scope, no step.
+_SUB_CALL_FLAG = "bpmn_ai_sub_call"
+_CURRENT_RUN_FLAG = "bpmn_ai_current_run"
+
+
+def current_run_name() -> str | None:
+	"""The AI Agent Run this request is executing, if any."""
+	return frappe.flags.get(_CURRENT_RUN_FLAG) or None
+
+
+@contextmanager
+def sub_call_scope(run, tool_name: str):
+	"""Meter model calls made by *tool_name*'s script against *run*.
+
+	Nested scopes keep the innermost tool, because that is the one making the
+	call. The previous scope is restored on exit, so a tool that runs another
+	tool does not lose its own attribution.
+	"""
+	previous = frappe.flags.get(_SUB_CALL_FLAG)
+	run_name = getattr(run, "name", None) or (run if isinstance(run, str) else None)
+	frappe.flags[_SUB_CALL_FLAG] = {"run": run_name, "tool": tool_name} if run_name else None
+	try:
+		yield
+	finally:
+		frappe.flags[_SUB_CALL_FLAG] = previous
+
+
+def current_sub_call():
+	"""The open sub-call scope, or None when we are not inside a tool script."""
+	return frappe.flags.get(_SUB_CALL_FLAG) or None
+
+
+def record_sub_call(model: str, result, latency_ms: int = 0) -> frappe.Document | None:
+	"""Record one model call made from inside a tool script as a Step.
+
+	Returns None outside a sub-call scope, which is what keeps this off every
+	other path. The step is tagged with the calling tool and the model, so a
+	turn that looks like one orchestrator call can be read as what it really
+	was: an orchestrator call plus the sub-calls its tools made.
+	"""
+	scope = current_sub_call()
+	if not scope:
+		return None
+	try:
+		run = frappe.get_doc("AI Agent Run", scope["run"])
+	except Exception:
+		return None
+
+	try:
+		step_index = frappe.db.count("AI Agent Step", {"run": run.name}) + 1
+	except Exception:
+		step_index = 1
+
+	# The sub-call's own model, not the run's: the whole point is that a run
+	# on Haiku can be spending most of its money on Sonnet.
+	run_model = getattr(run, "model", None)
+	try:
+		run.model = model or run_model
+		return record_ai_step(
+			run,
+			step_index,
+			"assistant",
+			f"[sub-call: {scope.get('tool') or 'tool'} via {model}]\n"
+			+ (getattr(result, "text", "") or ""),
+			prompt_tokens=getattr(result, "prompt_tokens", 0) or 0,
+			completion_tokens=getattr(result, "completion_tokens", 0) or 0,
+			cache_read_tokens=getattr(result, "cache_read_tokens", 0) or 0,
+			cache_write_tokens=getattr(result, "cache_write_tokens", 0) or 0,
+			latency_ms=latency_ms,
+		)
+	finally:
+		run.model = run_model
+
+
+def record_failed_attempts(run, result: ExecutorResult) -> int:
+	"""Write one AI Agent Step per failed attempt (WI-002190).
+
+	The executor already builds an AttemptRecord for every try that failed,
+	carrying the error, its tokens and its latency, and ``finalize_ai_run``
+	then used the list for one thing: ``len()`` as retry_count. So a run knew
+	how many times it failed and never what went wrong, which is why zero of
+	roughly 3,000 steps carried an error while the fields to hold one had
+	existed all along.
+
+	Recorded BEFORE the rollups in finalize_ai_run on purpose: a failed
+	attempt burned real tokens and real seconds, and ``_sum_step_metrics``
+	reads the steps. Leaving these out did not only lose the error, it
+	undercounted the cost of every run that had to retry.
+
+	Returns the number of Steps written.
+	"""
+	if run is None or getattr(run, "stub", False):
+		return 0
+	attempts = getattr(result, "attempts", None) or []
+	if not attempts:
+		return 0
+
+	try:
+		start_index = frappe.db.count("AI Agent Step", {"run": run.name}) + 1
+	except Exception:
+		start_index = 1
+
+	written = 0
+	for offset, attempt in enumerate(attempts):
+		usage = getattr(attempt, "token_usage", None)
+		step = record_ai_step(
+			run,
+			start_index + offset,
+			# The attempt IS the model's reply, it just did not survive
+			# validation or the call itself failed. "assistant" keeps it in
+			# the same lane as the try that eventually worked.
+			"assistant",
+			getattr(attempt, "content", "") or "",
+			prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+			completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
+			cache_read_tokens=getattr(usage, "cache_read_tokens", 0) or 0,
+			cache_write_tokens=getattr(usage, "cache_write_tokens", 0) or 0,
+			latency_ms=getattr(attempt, "latency_ms", 0) or 0,
+			error_code=getattr(attempt, "error_code", "") or None,
+			error_message=getattr(attempt, "error_message", "") or None,
+		)
+		if step is not None:
+			written += 1
+	return written
+
+
 def finalize_ai_run(run, result: ExecutorResult, goal_key: str | None = None) -> None:
 	"""Finalize an AI Agent Run after executor completion.
 
@@ -456,6 +648,10 @@ def finalize_ai_run(run, result: ExecutorResult, goal_key: str | None = None) ->
 		duration = (ended - started).total_seconds() * 1000
 	else:
 		duration = 0
+
+	# Failed attempts become Steps FIRST, so the rollups below see the tokens
+	# and the time they really cost (WI-002190).
+	record_failed_attempts(run, result)
 
 	# Cost + agent-latency rollups come from the recorded Steps either way — a
 	# failed run still consumed tokens and still spent real time.
@@ -503,6 +699,11 @@ def finalize_ai_run(run, result: ExecutorResult, goal_key: str | None = None) ->
 		update["total_cache_write_tokens"] = getattr(result.token_usage, "cache_write_tokens", 0) or 0
 
 	run.db_set(update)
+	# The run is over, so restore its PARENT as the current one. Clearing to
+	# None instead would orphan the rest of the parent's work: a tool that
+	# started a nested run would silently stop metering everything it did
+	# afterwards.
+	frappe.flags[_CURRENT_RUN_FLAG] = getattr(run, "parent_run", None) or None
 
 	# WI-002191: a run that died for a credential reason marks its model
 	# Unhealthy, which is what stops the next message from producing another
