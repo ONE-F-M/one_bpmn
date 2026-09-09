@@ -1083,9 +1083,10 @@ const props = defineProps({
 		type: Boolean,
 		default: false
 	},
-	// "Reassign User Task" mode — while readonly, selectively re-enables the
-	// Assignment Configuration fields of User Tasks (Assignment Mode, User,
-	// DocField, Users, Table Field). All other editing stays blocked.
+	// "Release Property Panel" mode — while readonly, re-enables the properties
+	// panel for flow objects, minus script tasks, AI Agent tasks, sequence flows
+	// and the attributes that would break the map. Structural editing (moving,
+	// deleting, connecting) stays blocked.
 	reassignMode: {
 		type: Boolean,
 		default: false
@@ -2362,25 +2363,34 @@ onMounted(async () => {
 				// Intercept commandStack to prevent any model mutations
 				const originalExecute = commandStack.execute.bind(commandStack);
 
-				// "Reassign User Task" mode: the ONLY mutation allowed while
-				// readonly is updating the whitelisted assignment attributes
-				// of a User Task from the properties panel.
-				const REASSIGN_ATTRS = [
-					"spiffworkflow:assigneeMode",
-					"spiffworkflow:assigneeUser",
-					"spiffworkflow:assigneeDocfield",
-					"spiffworkflow:assigneeUsers",
-					"spiffworkflow:assigneeTableField",
-					"spiffworkflow:assigneeTableUserField",
-				];
-				const isReassignCommand = (command, context) => {
+				// "Release Property Panel" mode: while readonly, the properties
+				// panel may edit flow objects — but only what a step DOES, never
+				// what the map IS. The carve-outs below mirror
+				// one_bpmn/api/property_panel.py, which enforces them again on
+				// save; that module's header explains each one.
+				const LOCKED_TYPES = ["bpmn:ScriptTask", "bpmn:SequenceFlow"];
+				const LOCKED_ATTRS = ["id", "serviceType", "calledElement", "default"];
+				const isLockedElement = (bo) => {
+					if (!bo) return true;
+					if (LOCKED_TYPES.includes(bo.$type)) return true;
+					// An AI Agent Task is a Service Task wearing a serviceType.
+					return (
+						bo.$type === "bpmn:ServiceTask" &&
+						bo.get("spiffworkflow:serviceType") === "ai_agent"
+					);
+				};
+				const isEditableProperty = (key) => {
+					const name = String(key).split(":").pop();
+					return !LOCKED_ATTRS.includes(name) && !name.toLowerCase().includes("script");
+				};
+				const isPropertyCommand = (command, context) => {
 					if (!props.reassignMode) return false;
 					if (command !== "element.updateModdleProperties") return false;
 					const bo = context?.element?.businessObject;
-					if (!bo || bo.$type !== "bpmn:UserTask") return false;
+					if (isLockedElement(bo)) return false;
 					if (context.moddleElement !== bo) return false;
 					const keys = Object.keys(context.properties || {});
-					return keys.length > 0 && keys.every((k) => REASSIGN_ATTRS.includes(k));
+					return keys.length > 0 && keys.every(isEditableProperty);
 				};
 
 				commandStack.execute = (command, context) => {
@@ -2389,14 +2399,16 @@ onMounted(async () => {
 					if (allowedCommands.includes(command)) {
 						return originalExecute(command, context);
 					}
-					if (isReassignCommand(command, context)) {
+					if (isPropertyCommand(command, context)) {
 						const result = originalExecute(command, context);
 						const bo = context.element.businessObject;
-						const assignment = {};
-						REASSIGN_ATTRS.forEach((attr) => {
-							assignment[attr.split(":")[1]] = bo.get(attr) || "";
+						// Send back exactly the keys this command touched, so a
+						// property the panel did not change is never rewritten.
+						const properties = {};
+						Object.keys(context.properties || {}).forEach((key) => {
+							properties[String(key).split(":").pop()] = bo.get(key) || "";
 						});
-						emit("reassign-changed", { taskId: bo.id, assignment });
+						emit("reassign-changed", { taskId: bo.id, assignment: properties });
 						return result;
 					}
 					// Silently ignore all other commands
