@@ -8,10 +8,60 @@ import frappe
 
 from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
 from frappe import _
-from frappe.utils import add_to_date, now_datetime
+from frappe.utils import add_to_date, get_system_timezone, now_datetime
 
 
 # 1. Timer Start Events — create new instances on schedule
+
+
+def timer_start_is_due(expression: str, now) -> bool:
+	"""Does a Timer Start Event's cycle fall in the minute ``now`` sits in?
+
+	A modeller writes one of two things into ``<bpmn:timeCycle>``: a cron
+	expression, or the BPMN-standard ISO 8601 repeating interval
+	(``R[n]/<start>/<period>``). Both are accepted here; anything else raises,
+	which is what the deploy-time check reports.
+	"""
+	from croniter import croniter
+
+	expression = (expression or "").strip()
+	if not expression:
+		return False
+
+	if expression.upper().startswith("R"):
+		return _iso_cycle_is_due(expression, now)
+
+	return croniter.match(expression, now)
+
+
+def _iso_cycle_is_due(expression: str, now) -> bool:
+	"""Match an ISO 8601 repeating interval against the current minute.
+
+	Occurrences are ``start + n × period``; the sweep runs once a minute, so an
+	occurrence counts as due when it lands in the same minute as ``now``.
+	"""
+	from datetime import timezone
+	from zoneinfo import ZoneInfo
+
+	from SpiffWorkflow.bpmn.specs.event_definitions.timer import TimerEventDefinition
+
+	cycles, start, period = TimerEventDefinition.parse_iso_recurring_interval(expression)
+	seconds = period.total_seconds()
+	if seconds < 60:
+		# The scheduler itself only runs every minute; deploy rejects these.
+		return False
+
+	now_utc = now.replace(tzinfo=ZoneInfo(get_system_timezone())).astimezone(timezone.utc)
+	elapsed = (now_utc - start).total_seconds()
+	if elapsed < 0:
+		return False
+
+	n = int(elapsed // seconds)
+	if cycles >= 0 and n >= cycles:
+		return False
+
+	occurrence = start + n * period
+	return occurrence.replace(second=0, microsecond=0) == now_utc.replace(second=0, microsecond=0)
 
 
 def process_timer_start_events():
@@ -22,17 +72,15 @@ def process_timer_start_events():
 	Called every minute by the Frappe scheduler.
 
 	For each active BPMN Process Model with a Timer start event:
-	  1. Read the cron_expression from the BPMN Start Event Config row
-	  2. Check if the current minute matches the cron expression
+	  1. Read the cycle from the BPMN Start Event Config row
+	  2. Check whether it falls due in the current minute
 	  3. If yes, create and start a new BPMN Process Instance (unless
 	     a duplicate-prevention check fails)
 
 	Timer Start Events with timeDuration or timeDate are not supported
 	(those only make sense for intermediate catch events, not start events).
-	Only timeCycle (cron expressions) trigger repeated process instances.
+	Only timeCycle triggers repeated process instances.
 	"""
-	from croniter import croniter
-
 	now = now_datetime()
 
 	# New-style rows: trigger_type explicitly set to "Scheduler Event".
@@ -94,12 +142,7 @@ def process_timer_start_events():
 
 	for cfg in timer_configs:
 		try:
-			cron_expr = cfg.cron_expression.strip()
-			if not cron_expr:
-				continue
-
-			# croniter.match() checks if the given datetime matches the pattern.
-			if not croniter.match(cron_expr, now):
+			if not timer_start_is_due(cfg["cron_expression"], now):
 				continue
 
 			# Duplicate prevention: don't start if an Active instance already
@@ -110,7 +153,7 @@ def process_timer_start_events():
 			existing = frappe.db.exists(
 				"BPMN Process Instance",
 				{
-					"process_model": cfg.model_name,
+					"process_model": cfg["model_name"],
 					"status": "Active",
 					"started_at": (">=", recent_cutoff),
 				},
@@ -118,11 +161,14 @@ def process_timer_start_events():
 			if existing:
 				continue
 
-			_start_timer_instance(cfg.model_name)
+			_start_timer_instance(cfg["model_name"])
 
 		except Exception:
+			# One unschedulable model must not cost the others their turn: an
+			# exception escaping here fails the whole scheduled job, and the
+			# rollback that follows takes every instance this sweep started.
 			frappe.log_error(
-				title=f"BPMN Timer Start: failed for model {cfg.model_name}",
+				title=f"BPMN Timer Start: failed for model {cfg['model_name']}",
 				message=frappe.get_traceback(),
 			)
 
