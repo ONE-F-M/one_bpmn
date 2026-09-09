@@ -975,3 +975,12 @@ def check_ai_model_credentials():
 
 	model_health.probe_enabled_models()
 	model_health.alert_unhealthy_models()
+
+
+def check_ai_memory_volume():
+	"""Daily. Tells the platform team when AI Memory has grown past the point
+	where exact (index-free) semantic ranking should be reconsidered. The
+	thresholds live on Processa Settings, AI Memory section."""
+	from one_bpmn.agents.memory.volume_alert import check_volume
+
+	check_volume()
