@@ -426,11 +426,10 @@ def _sentence(text: str | None) -> str:
 
 
 def alert_recipients(model: str) -> list[str]:
-	"""Who is told. The configured list first; else whoever last edited the
-	model, because they know where its key came from; else every enabled
-	System Manager."""
-	configured = frappe.db.get_single_value("Processa Settings", "ai_health_alert_recipients") or ""
-	users = _dedupe(u.strip() for u in re.split(r"[,;\n]", configured) if u.strip())
+	"""Who is told. The users picked on Processa Settings first; else whoever
+	last edited the model, because they know where its key came from; else
+	every enabled System Manager."""
+	users = _dedupe(configured_recipients())
 	if users:
 		return users
 
@@ -443,6 +442,20 @@ def alert_recipients(model: str) -> list[str]:
 		"Has Role", filters={"role": "System Manager", "parenttype": "User"}, pluck="parent"
 	)
 	return _dedupe(u for u in managers if _is_real_user(u))
+
+
+def configured_recipients() -> list[str]:
+	"""The Credential Alert Recipients rows on Processa Settings, in order."""
+	return frappe.get_all(
+		"User Group Member",
+		filters={
+			"parenttype": "Processa Settings",
+			"parent": "Processa Settings",
+			"parentfield": "ai_health_alert_recipients",
+		},
+		pluck="user",
+		order_by="idx asc",
+	)
 
 
 def _is_real_user(user: str | None) -> bool:
