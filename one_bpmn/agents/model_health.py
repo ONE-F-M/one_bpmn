@@ -517,9 +517,15 @@ def alert_unhealthy_models() -> list[str]:
 	return alerted
 
 
+def _model_link(model: str) -> str:
+	"""The AI Model record as a link the reader can click from the email."""
+	url = frappe.utils.get_url_to_form("AI Model", model)
+	return f'<a href="{url}">{frappe.utils.escape_html(model)}</a>'
+
+
 def _alert_body(row) -> str:
 	lines = [
-		_("Every run on <b>{0}</b> is failing for a credential reason.").format(row.name),
+		_("Every run on <b>{0}</b> is failing for a credential reason.").format(_model_link(row.name)),
 		"",
 		_("What the provider said: {0}").format(frappe.utils.escape_html(row.health_error_message or "")),
 		_("Seen by: {0} · consecutive failures: {1} · runs refused so far: {2}").format(
@@ -527,9 +533,9 @@ def _alert_body(row) -> str:
 		),
 		"",
 		_(
-			"Open the AI Model record, enter or replace its API key, and save. The save "
+			"Open the AI Model record {0}, enter or replace its API key, and save. The save "
 			"checks the key with the provider; once it passes, runs resume on their own."
-		),
+		).format(_model_link(row.name)),
 	]
 	return "<br>".join(lines)
 
@@ -575,8 +581,8 @@ def _notify_recovery(model: str, previous: dict) -> None:
 		return
 	subject = _("AI Model '{0}' is reachable again").format(model)
 	body = _(
-		"Its credentials passed the check at {0}. Runs on this model have resumed."
-	).format(frappe.utils.format_datetime(now_datetime()))
+		"The credentials of {0} passed the check at {1}. Runs on this model have resumed."
+	).format(_model_link(model), frappe.utils.format_datetime(now_datetime()))
 	_deliver(users, subject, body, model)
 
 

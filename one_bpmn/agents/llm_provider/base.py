@@ -181,6 +181,11 @@ class TurnRecord:
     # tool executions. Decision latency — NOT the runtime of an activated
     # diagram task (that happens later in the engine).
     latency_ms: int = 0
+    # 1-based position of this turn in the loop (WI-002190). A model call made
+    # from inside one of this turn's tools is tagged with the same number, which
+    # is how the step writer places that sub-call after the turn that made it
+    # instead of giving both the same step index.
+    turn_no: int = 0
 
 
 @dataclass

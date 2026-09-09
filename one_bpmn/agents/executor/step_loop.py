@@ -36,7 +36,7 @@ from one_bpmn.agents.llm_provider.base import (
 	ToolSpec,
 	TurnRecord,
 )
-from one_bpmn.agents.observability import clear_tool_artifacts
+from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG, clear_tool_artifacts
 from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG, ToolDeferred
 from one_bpmn.agents.turn_state import TURN_ANSWERED_FLAG
 from one_bpmn.security.tool_policy import PolicyViolation
@@ -61,7 +61,7 @@ _SECOND_PAUSE_RESULT = (
 # without tripping over an unrelated key a future field adds to the dict.
 _TURN_RECORD_FIELDS = {
 	"role", "content", "tool_calls", "prompt_tokens", "completion_tokens",
-	"cache_read_tokens", "cache_write_tokens", "latency_ms",
+	"cache_read_tokens", "cache_write_tokens", "latency_ms", "turn_no",
 }
 
 
@@ -202,6 +202,7 @@ async def run_agent_loop(
 		# returned "not-started" and created no A2A Task at all.
 		frappe.flags[PAUSE_HELD_FLAG] = False
 		frappe.flags[TURN_ANSWERED_FLAG] = False
+		frappe.flags[SUB_CALL_TURN_FLAG] = None
 
 
 async def _step_with_retries(
@@ -262,6 +263,7 @@ async def _run_turns(
 					cache_read_tokens=getattr(step, "cache_read_tokens", 0) or 0,
 					cache_write_tokens=getattr(step, "cache_write_tokens", 0) or 0,
 					latency_ms=int((time.perf_counter() - _turn_t0) * 1000),
+					turn_no=turns_used,
 				)
 			)
 			return CompletionResult(text=step.content, trace=trace), None
@@ -284,7 +286,12 @@ async def _run_turns(
 			completion_tokens=step.completion_tokens,
 			cache_read_tokens=getattr(step, "cache_read_tokens", 0) or 0,
 			cache_write_tokens=getattr(step, "cache_write_tokens", 0) or 0,
+			turn_no=turns_used,
 		)
+		# WI-002190: a model call made from inside one of this turn's tools is
+		# recorded as a step tagged with this turn number, so the step writer
+		# can place it after the turn instead of colliding with it.
+		frappe.flags[SUB_CALL_TURN_FLAG] = turns_used
 		results = []
 		pending_call = None
 		deferred_wait: dict = {}
