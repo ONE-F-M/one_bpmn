@@ -223,3 +223,32 @@ class TestIrResolution(ConfigCase):
 		problems = resolve_ir_config(ir)
 		self.assertTrue(problems)
 		self.assertNotIn("attrs", ir["nodes"][0])
+
+
+class TestStartEventTrigger(ConfigCase):
+	def _start(self, config):
+		return {"id": "start", "type": "startEvent", "name": "Raised", "config": config}
+
+	def test_the_trigger_is_written(self):
+		attrs, problems = resolve_node_attrs(self._start({
+			"triggerDoctype": "Visa Request", "triggerType": "After Insert",
+		}))
+		self.assertEqual(problems, [])
+		self.assertEqual(attrs, {"triggerDoctype": "Visa Request", "triggerType": "After Insert"})
+
+	def test_an_unknown_trigger_type_is_refused_not_written(self):
+		"""A trigger type the panel has no option for looks configured and
+		matches nothing, so it must not reach the canvas."""
+		attrs, problems = resolve_node_attrs(self._start({
+			"triggerDoctype": "Visa Request", "triggerType": "On Submit",
+		}))
+		self.assertNotIn("triggerType", attrs)
+		self.assertTrue(any("After Insert" in p["message"] for p in problems))
+
+	def test_a_trigger_without_a_doctype_is_reported(self):
+		_, problems = resolve_node_attrs(self._start({"triggerType": "After Insert"}))
+		self.assertTrue(any("triggerDoctype" in p["message"] for p in problems))
+
+	def test_a_manually_started_process_needs_no_trigger(self):
+		attrs, problems = resolve_node_attrs(self._start({}))
+		self.assertEqual((attrs, problems), ({}, []))

@@ -9,8 +9,9 @@ Request to Pending GRD Manager Approval") — but the IR had nowhere to put it a
 the compiler emitted only id and name.
 
 This module is the contract between the two. It takes the ``config`` object the
-generator writes on a node and returns the exact ``spiffworkflow:*`` attributes
-the properties panel reads back, so a generated task and a hand-built one are
+generator writes on a node — a start event's trigger, a Service Task's operation,
+a User Task's assignment — and returns the exact ``spiffworkflow:*`` attributes
+the properties panel reads back, so a generated diagram and a hand-built one are
 indistinguishable in the XML.
 
 WHY THE KEYS ARE THE PANEL'S OWN NAMES
@@ -61,6 +62,12 @@ USER_TASK_KEYS: tuple[str, ...] = (
 	"notifyAssignee", "notifyAssigneeAccount", "notifyAssigneeSubject",
 	"notifyAssigneeBody", "notifyAssigneeTemplate",
 )
+
+# What starts the process. The trigger is the one setting that decides whether a
+# generated diagram ever runs on its own, so it is worth the model filling in.
+START_EVENT_KEYS: tuple[str, ...] = ("triggerDoctype", "triggerType")
+
+TRIGGER_TYPES = ("After Insert",)
 
 ASSIGNEE_MODES = ("User", "DocField", "Round Robin", "Load Balancing", "Table Field")
 
@@ -232,10 +239,14 @@ def resolve_node_attrs(node: dict) -> tuple[dict, list[dict]]:
 	elif node_type == "userTask":
 		allowed = USER_TASK_KEYS
 		attrs = {}
+	elif node_type == "startEvent":
+		allowed = START_EVENT_KEYS
+		attrs = {}
 	else:
 		problems.append(_problem(
 			element_id,
-			f"'config' is only read on serviceTask and userTask, not {node_type}.",
+			"'config' is only read on startEvent, serviceTask and userTask, "
+			f"not {node_type}.",
 		))
 		return {}, problems
 
@@ -267,6 +278,21 @@ def resolve_node_attrs(node: dict) -> tuple[dict, list[dict]]:
 
 	if node_type == "serviceTask" and attrs.get("serviceType") == "apply_workflow":
 		_resolve_apply_workflow(attrs, element_id, problems)
+
+	if node_type == "startEvent":
+		trigger = attrs.get("triggerType")
+		if trigger and trigger not in TRIGGER_TYPES:
+			problems.append(_problem(
+				element_id,
+				f"'{trigger}' is not a Trigger Type. Use one of: " + ", ".join(TRIGGER_TYPES),
+			))
+			attrs.pop("triggerType")
+		# A trigger with no DocType starts on nothing, which looks configured
+		# in the panel and never fires.
+		if attrs.get("triggerType") and not attrs.get("triggerDoctype"):
+			problems.append(_problem(
+				element_id, "A start trigger also needs triggerDoctype."
+			))
 
 	if node_type == "userTask":
 		mode = attrs.get("assigneeMode")

@@ -72,27 +72,42 @@ OLD_SCHEMA = """      "lane": "lane_id — REQUIRED on every node when lanes are
     }"""
 
 NEW_SCHEMA = """      "lane": "lane_id — REQUIRED on every node when lanes are present",
-      "config": { "…": "serviceTask / userTask settings — see TASK CONFIGURATION" }
+      "config": { "…": "startEvent / serviceTask / userTask settings — see TASK CONFIGURATION" }
     }"""
 
 OLD_CHECK = """  ✓ No node type is "task\""""
 
 NEW_CHECK = """  ✓ No node type is "task"
+  ✓ The startEvent has a "config" trigger when a record starts the process
   ✓ Every serviceTask has a "config" with a valid "serviceType"
   ✓ Every state-change step is a serviceTask (apply_workflow), never a scriptTask
   ✓ Every userTask the request describes an assignee or buttons for has a "config\""""
 
 LANE_STEP_MARKER = "=== STEP 2 — ASSIGN EVERY NODE TO A LANE ==="
 
+START_SECTION = """--- startEvent config ---
+  A process that is started by a record needs its trigger, or it never runs on
+  its own. Set it whenever the request says what kicks the process off.
+  "triggerDoctype"   the DocType whose creation starts this, e.g. "Visa Request"
+  "triggerType"      "After Insert"
+
+"""
+
 CONFIG_BLOCK = """=== TASK CONFIGURATION — FILL IT IN, DO NOT LEAVE IT FOR THE HUMAN ===
 
-A serviceTask or userTask may carry a "config" object. Everything in the
+A startEvent, serviceTask or userTask may carry a "config" object. Everything in the
 person's request that names a DocType, a workflow state, an assignee or an
 action belongs in it. A task generated without config has to be configured by
 hand afterwards, which is the thing this is here to prevent.
 
 Use the key names exactly as written below. Only include a key when the request
 actually tells you its value — invent nothing.
+
+--- startEvent config ---
+  A process that is started by a record needs its trigger, or it never runs on
+  its own. Set it whenever the request says what kicks the process off.
+  "triggerDoctype"   the DocType whose creation starts this, e.g. "Visa Request"
+  "triggerType"      "After Insert"
 
 --- serviceTask config ---
 "serviceType" is required and is exactly one of:
@@ -138,8 +153,13 @@ actually tells you its value — invent nothing.
                      Use the confirm and signature flags on approvals,
                      rejections, and anything else irreversible.
 
-EXAMPLE — a configured pair:
+EXAMPLE — a configured start event and pair:
 
+  {
+    "id": "start", "type": "startEvent", "name": "Visa Request Raised",
+    "lane": "recruiter",
+    "config": { "triggerDoctype": "Visa Request", "triggerType": "After Insert" }
+  },
   {
     "id": "task_grd_review", "type": "userTask", "name": "Review Visa Request",
     "lane": "grd_manager",
@@ -195,6 +215,11 @@ def execute():
 
 	if "=== TASK CONFIGURATION" not in text and LANE_STEP_MARKER in text:
 		text = text.replace(LANE_STEP_MARKER, CONFIG_BLOCK + LANE_STEP_MARKER, 1)
+	elif "--- startEvent config ---" not in text and "--- serviceTask config ---" in text:
+		# The block landed before start events were covered.
+		text = text.replace(
+			"--- serviceTask config ---", START_SECTION + "--- serviceTask config ---", 1
+		)
 
 	if text == before:
 		print(f"{AGENT_ID}: {SUB_AGENT} already current")
