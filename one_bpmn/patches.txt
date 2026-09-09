@@ -9,6 +9,7 @@ one_bpmn.one_bpmn.patches.v1_0.move_agent_chat_doctypes_to_one_bpmn #16-07-2026
 one_bpmn.one_bpmn.patches.v1_0.move_threat_intel_doctypes_to_one_bpmn #09-09-2026 WI-002203 Threat Source discovery doctypes move from onefm_mcp
 one_bpmn.one_bpmn.patches.v1_0.rename_allowed_sub_agents_to_delegates #13-08-2026 WI-002010 entries are independent agents, not sub-agents
 one_bpmn.one_bpmn.patches.v1_0.drop_delegates_to_agents_flag #13-08-2026 WI-002010 exposure grants delegation; the list only narrows it
+one_bpmn.one_bpmn.patches.v1_0.move_threat_feed_doctypes_to_one_bpmn #09-09-2026 WI-002202 Threat Feed / Threat Feed Keyword move from onefm_mcp alongside the sibling Threat Source/Keyword move (WI-002203)
 [post_model_sync]
 one_bpmn.one_bpmn.patches.v1_0.seed_threat_sources #09-09-2026 WI-002203 moved from onefm_mcp with the Threat Source doctype
 one_bpmn.one_bpmn.patches.v1_0.seed_threat_keywords #09-09-2026 WI-002203 moved from onefm_mcp with the Threat Keyword doctype
