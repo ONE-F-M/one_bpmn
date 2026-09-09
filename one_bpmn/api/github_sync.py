@@ -143,13 +143,15 @@ def open_customization_pr(
 	ref = _request("GET", f"{_API}/repos/{repo}/git/ref/heads/{base_branch}", token)
 	base_sha = ref["object"]["sha"]
 
-	# 1.5) Refuse to proceed if the head branch already exists: creating it is
-	# idempotent (see ok=(201, 422) below) but silently reusing an existing
-	# branch could mix this PR's commits with whatever is already on it.
+	# 1.5) A head branch left behind by an earlier, partially-failed run must
+	# not be silently reused (its commits could mix with this run's), but
+	# refusing the run outright turns every retry into a manual-cleanup dead
+	# end. Instead, derive a fresh, unique branch name and proceed with it for
+	# everything below: branch creation, file commits, and the PR itself.
 	if branch_exists(token=token, repo=repo, branch=head_branch):
-		frappe.throw(
-			_("Branch '{0}' already exists on repository '{1}'.").format(head_branch, repo)
-		)
+		import time
+
+		head_branch = f"{head_branch}-{int(time.time())}"
 
 	# 2) Create the head branch from base (ignore "already exists").
 	_request(
