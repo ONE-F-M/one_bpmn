@@ -62,7 +62,11 @@
 								/>
 							</div>
 						</div>
-						<Button variant="ghost" @click="removeFilter(i)">
+						<Button
+							variant="ghost"
+							:aria-label="`Remove filter: ${fieldDefs[f.field]?.label || f.field}`"
+							@click="removeFilter(i)"
+						>
 							<Icon icon="lucide:x" class="h-4 w-4" />
 						</Button>
 					</div>
