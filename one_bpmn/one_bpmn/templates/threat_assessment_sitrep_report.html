@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:ital,wght@0,400;0,700;0,800;1,400;1,700;1,800&family=Alexandria:ital,wght@0,300;0,400;0,700;1,300;1,400;1,700&family=Readex+Pro:wght@300;400;700&family=Noto+Naskh+Arabic:wght@400;700&display=swap">
+    <style>
+
+        body {
+            /* NOTE: Body font is set to Readex Pro, Light (300 weight) as requested */
+            font-family: 'Readex Pro', 'Noto Naskh', sans-serif;
+            margin: 20px;
+            color: #000000;
+            line-height: 1.6;
+            font-size: 15px;
+            font-weight: 300; /* Light */
+        }
+
+        .header {
+            /* FIX: Align logo to the left */
+            text-align: left;
+            border-bottom: none;
+            padding-bottom: 20px;
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            /* FIX: Keep title centered on its own line */
+            text-align: center;
+            /* NOTE: Title font is Cairo, Bold (800), and Italic as requested */
+            font-family: 'Cairo', sans-serif;
+            font-size: 36px;
+            color: #000000;
+            font-weight: 800; /* Bold */
+            font-style: italic;
+            margin: 0;
+        }
+
+        .meta-info {
+            font-family: 'Cairo', sans-serif;
+            font-size: 13px;
+            color: #666666; /* Dark Gray 3 */
+            font-style: italic;
+            text-align: center;
+            margin-bottom: 30px;
+            margin-top: -40px;
+        }
+
+        .section {
+            margin-bottom: 20px;
+            /* FIX: Removed page-break-inside to prevent sections from shifting unnecessarily */
+        }
+
+        .section h2 {
+            font-family: 'Alexandria', 'Readex Pro', sans-serif;
+            font-size: 25px;
+            color: #000000;
+            font-style: italic;
+            font-weight: 400; /* Normal */
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 8px;
+            margin-bottom: 15px;
+        }
+
+        .section p {
+            margin: 10px 0;
+            line-height: 1.7;
+        }
+
+        .stats-box {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+
+        .stats-box table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .stats-box td {
+            padding: 8px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .stats-box strong {
+            color: #666666;
+        }
+
+        .threat-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            font-size: 13px;
+            page-break-inside: avoid;
+        }
+
+        .threat-table th {
+            background: #666666;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: bold;
+        }
+
+        .threat-table td {
+            border: 1px solid #ddd;
+            padding: 10px 12px;
+        }
+
+        .threat-table tr:nth-child(even) {
+            background: #f9f9f9;
+        }
+
+        .threat-high {
+            background-color: #ffcccc;
+            color: #cc0000;
+            font-weight: bold;
+        }
+
+        .threat-medium {
+            background-color: #fff3cc;
+            color: #cc6600;
+            font-weight: bold;
+        }
+
+        .threat-low {
+            background-color: #ccf0ff;
+            color: #0066cc;
+            font-weight: bold;
+        }
+
+        .insights-list {
+            margin: 15px 0;
+            padding-left: 25px;
+        }
+
+        .insights-list li {
+            margin: 8px 0;
+            line-height: 1.6;
+        }
+
+        .analysis-list {
+            margin: 15px 0;
+            padding-left: 25px;
+        }
+
+        .analysis-list li {
+            margin: 6px 0;
+        }
+
+        .footer {
+            margin-top: 50px;
+            text-align: center;
+            color: #999;
+            font-size: 11px;
+            border-top: 1px solid #e0e0e0;
+            padding-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <img src="https://one-fm.com/files/ONEFM_Identity.png" alt="one-fm" style="width: 150px; margin-bottom: 10px;" />
+        <h1>Daily Threat Assessment Report</h1>
+    </div>
+    <div class="meta-info">
+        <p>
+            <strong>Report Date:&nbsp;</strong> {{ report_date }} | 
+            <strong>Data Period:&nbsp;</strong> {{ data_period_start }} to {{ data_period_end }}
+        </p>
+    </div>
+
+    <div class="section">
+        <h2>Executive Summary</h2>
+        <p>{{ executive_summary }}</p>
+    </div>
+
+    <div class="section">
+        <h2>Threat Statistics</h2>
+        <div class="stats-box">
+            <table>
+                <tr>
+                    <td><strong>Total Threats:</strong></td>
+                    <td>{{ total_threats }}</td>
+                    <td style="padding-left: 40px;"><strong>Security Threats:</strong></td>
+                    <td>{{ security_threats_count }}</td>
+                    <td style="padding-left: 40px;"><strong>Environmental Threats:</strong></td>
+                    <td>{{ environmental_threats_count }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Security Threats Analysis</h2>
+
+        {% if security_threats %}
+            {% if security_insights %}
+                <ul class="insights-list">
+                {% for insight in security_insights %}
+                    <li>{{ insight }}</li>
+                {% endfor %}
+                </ul>
+            {% endif %}
+
+            <p><strong>Threat Breakdown by Severity:</strong></p>
+            <table class="threat-table">
+                <thead>
+                    <tr>
+                        <th>Severity Level</th>
+                        <th>Locations Affected</th>
+                        <th>Count</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% set high_threats = security_threats|selectattr("threat_level", "equalto", "High")|list %}
+                    {% if high_threats %}
+                    <tr>
+                        <td class="threat-high">HIGH</td>
+                        <td>
+                        {% for threat in high_threats %}
+                            {% if loop.index > 1 %}<br>{% endif %}
+                            • {{ threat.location }}
+                        {% endfor %}
+                        </td>
+                        <td style="text-align: center;">{{ high_threats|length }}</td>
+                    </tr>
+                    {% endif %}
+
+                    {% set medium_threats = security_threats|selectattr("threat_level", "equalto", "Medium")|list %}
+                    {% if medium_threats %}
+                    <tr>
+                        <td class="threat-medium">MEDIUM</td>
+                        <td>
+                        {% for threat in medium_threats %}
+                            {% if loop.index > 1 %}<br>{% endif %}
+                            • {{ threat.location }}
+                        {% endfor %}
+                        </td>
+                        <td style="text-align: center;">{{ medium_threats|length }}</td>
+                    </tr>
+                    {% endif %}
+
+                    {% set low_threats = security_threats|selectattr("threat_level", "equalto", "Low")|list %}
+                    {% if low_threats %}
+                    <tr>
+                        <td class="threat-low">LOW</td>
+                        <td>
+                        {% for threat in low_threats %}
+                            {% if loop.index > 1 %}<br>{% endif %}
+                            • {{ threat.location }}
+                        {% endfor %}
+                        </td>
+                        <td style="text-align: center;">{{ low_threats|length }}</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        {% else %}
+            <p>No security threats reported.</p>
+        {% endif %}
+    </div>
+
+    <div class="section">
+        <h2>Environmental Threats Analysis</h2>
+        {% if environmental_threats %}
+            {% if environmental_insights %}
+                <ul class="insights-list">
+                {% for insight in environmental_insights %}
+                    <li>{{ insight }}</li>
+                {% endfor %}
+                </ul>
+            {% endif %}
+
+            <p><strong>Threat Breakdown by Severity:</strong></p>
+            <table class="threat-table">
+                <thead>
+                    <tr>
+                        <th>Severity Level</th>
+                        <th>Locations Affected</th>
+                        <th>Count</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% set env_high_threats = environmental_threats|selectattr("threat_level", "equalto", "High")|list %}
+                    {% if env_high_threats %}
+                    <tr>
+                        <td class="threat-high">HIGH</td>
+                        <td>
+                        {% for threat in env_high_threats %}
+                            {% if loop.index > 1 %}<br>{% endif %}
+                            • {{ threat.location }}
+                        {% endfor %}
+                        </td>
+                        <td style="text-align: center;">{{ env_high_threats|length }}</td>
+                    </tr>
+                    {% endif %}
+
+                    {% set env_medium_threats = environmental_threats|selectattr("threat_level", "equalto", "Medium")|list %}
+                    {% if env_medium_threats %}
+                    <tr>
+                        <td class="threat-medium">MEDIUM</td>
+                        <td>
+                        {% for threat in env_medium_threats %}
+                            {% if loop.index > 1 %}<br>{% endif %}
+                            • {{ threat.location }}
+                        {% endfor %}
+                        </td>
+                        <td style="text-align: center;">{{ env_medium_threats|length }}</td>
+                    </tr>
+                    {% endif %}
+
+                    {% set env_low_threats = environmental_threats|selectattr("threat_level", "equalto", "Low")|list %}
+                    {% if env_low_threats %}
+                    <tr>
+                        <td class="threat-low">LOW</td>
+                        <td>
+                        {% for threat in env_low_threats %}
+                            {% if loop.index > 1 %}<br>{% endif %}
+                            • {{ threat.location }}
+                        {% endfor %}
+                        </td>
+                        <td style="text-align: center;">{{ env_low_threats|length }}</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        {% else %}
+            <p>No environmental threats reported.</p>
+        {% endif %}
+    </div>
+
+    <div class="section">
+        <h2>Geographic Analysis</h2>
+        {% if geographic_analysis %}
+            <ul class="analysis-list">
+            {% for area in geographic_analysis %}
+                <li>{{ area }}</li>
+            {% endfor %}
+            </ul>
+        {% else %}
+            <p>No significant geographic concentrations identified.</p>
+        {% endif %}
+    </div>
+
+    <div class="section">
+        <h2>Trend Analysis</h2>
+        {% if trend_analysis %}
+            <ul class="analysis-list">
+            {% for trend in trend_analysis %}
+                <li>{{ trend }}</li>
+            {% endfor %}
+            </ul>
+        {% else %}
+            <p>No significant trends identified.</p>
+        {% endif %}
+    </div>
+
+    <div class="footer">
+        <p>Generated by Daily Brief Agent - Threat Assessment System on {{ generation_time }}</p>
+    </div>
+</body>
+</html>
