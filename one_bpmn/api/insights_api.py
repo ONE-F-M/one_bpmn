@@ -664,11 +664,10 @@ def _run_node(run: dict, depth: int) -> dict:
 	unplaced = list(child_nodes)
 	for step in steps:
 		for tool_name in step["tool_names"]:
-			for node in unplaced:
-				if node["run"].get("bpmn_id") == tool_name:
-					step["child_runs"].append(node)
-					unplaced.remove(node)
-					break
+			match = next((n for n in unplaced if n["run"].get("bpmn_id") == tool_name), None)
+			if match is not None:
+				step["child_runs"].append(match)
+				unplaced.remove(match)
 
 	return {
 		"run": run,
