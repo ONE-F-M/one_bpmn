@@ -1,0 +1,147 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-09-10 20:10:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "label",
+  "subject_type",
+  "agent_configuration",
+  "target_skill",
+  "column_break_meta",
+  "version",
+  "case_count",
+  "taken_at",
+  "section_break_breakdown",
+  "type_breakdown",
+  "notes",
+  "section_break_cases",
+  "cases"
+ ],
+ "fields": [
+  {
+   "fieldname": "label",
+   "fieldtype": "Data",
+   "label": "Label",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "subject_type",
+   "fieldtype": "Select",
+   "label": "Subject",
+   "options": "Agent\nSkill",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "depends_on": "eval:doc.subject_type=='Agent'",
+   "fieldname": "agent_configuration",
+   "fieldtype": "Link",
+   "label": "Agent Configuration",
+   "options": "AI Agent Configuration",
+   "in_list_view": 1
+  },
+  {
+   "depends_on": "eval:doc.subject_type=='Skill'",
+   "fieldname": "target_skill",
+   "fieldtype": "Link",
+   "label": "Skill",
+   "options": "AI Skill"
+  },
+  {
+   "fieldname": "column_break_meta",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Counts up per subject, so v3 of one agent is unrelated to v3 of another.",
+   "fieldname": "version",
+   "fieldtype": "Int",
+   "label": "Version",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "case_count",
+   "fieldtype": "Int",
+   "label": "Cases",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "taken_at",
+   "fieldtype": "Datetime",
+   "label": "Taken At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_breakdown",
+   "fieldtype": "Section Break"
+  },
+  {
+   "description": "How many cases of each type this version holds.",
+   "fieldname": "type_breakdown",
+   "fieldtype": "Small Text",
+   "label": "Type Breakdown",
+   "read_only": 1
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "section_break_cases",
+   "fieldtype": "Section Break",
+   "label": "Snapshot"
+  },
+  {
+   "description": "The cases as they stood, with their assertions and expected tool calls. Read-only: a version is evidence, not a workspace.",
+   "fieldname": "cases",
+   "fieldtype": "JSON",
+   "label": "Cases",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-10 20:10:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "AI Golden Dataset Version",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Process Owner",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "label",
+ "track_changes": 1
+}

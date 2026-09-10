@@ -69,9 +69,13 @@ class AISkill(Document):
 				"Trigger Negative eval case."
 			).format(self.tier))
 
+		# A finished run is Passed or Failed. There is no "Completed" status on
+		# AI Eval Run, so the old filter matched nothing and no skill could ever
+		# leave Draft-Only. Error is excluded: it means the run did not produce a
+		# result to judge.
 		runs = frappe.get_all(
 			"AI Eval Run",
-			filters={"suite": ["in", suites], "status": "Completed"},
+			filters={"suite": ["in", suites], "status": ["in", ("Passed", "Failed")]},
 			fields=["name", "passed_cases", "total_cases"],
 			order_by="creation desc",
 			limit=5,
