@@ -136,10 +136,14 @@ jobs:
     #
     # A fresh site has no agents — no maps, no configurations, no fixtures — so
     # this job can only ever run suites that need none of those. The live suites
-    # that matter (Connector, Orchestrator) live on a real site, which means the
-    # useful version of this job is the same command on a cron on that host, or
-    # a self-hosted runner with access to it. Until then --skip-if-none keeps it
-    # honest: it reports that nothing was tagged rather than going red.
+    # that matter (Connector, Orchestrator) live on a real site, and that is
+    # where the nightly sweep actually runs: the "AI Eval Nightly" process model,
+    # started by its own timer start event at 02:30, reading its grading model
+    # and spend ceiling from Processa Settings.
+    #
+    # This job stays as the manual handle (Actions → Run workflow) and as the
+    # wiring for the day CI gets a key of its own. --skip-if-none keeps it
+    # honest meanwhile: it reports that nothing was tagged rather than going red.
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.role == 'Nightly')
     name: Nightly evals (live)
     runs-on: ubuntu-latest
