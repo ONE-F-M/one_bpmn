@@ -272,6 +272,10 @@ scheduler_events = {
 			# A published rate change has a date but the catalogue has no date
 			# field, so something has to notice the day arriving.
 			"one_bpmn.tasks.apply_due_model_rates",
+			# Soft-retires memories that decayed, were never corroborated, or
+			# are minor and old. Sets expires_on with the reason in metadata;
+			# deletes nothing.
+			"one_bpmn.tasks.prune_ai_memory",
 		],
 		"* * * * *": [
 			"one_bpmn.tasks.process_timer_start_events",
