@@ -20,21 +20,33 @@ Two things the original LangGraph pipeline did are deliberately dropped, not por
       <bpmn:incoming>f2</bpmn:incoming>
       <bpmn:outgoing>f3</bpmn:outgoing>
     </bpmn:scriptTask>
-    <bpmn:serviceTask id="expand_sources" name="AI Agent Task: Expand Source List" spiffworkflow:serviceType="ai_agent" spiffworkflow:aiAgentConfig="Threat Source Expander" spiffworkflow:aiStopOnError="false" spiffworkflow:aiOutputVariable="expansion_result" spiffworkflow:aiResponseFormat="json" spiffworkflow:aiUserPrompt="Current approved threat monitoring sources ({{ existing_sources | length }} total, showing up to 15):&#10;&#10;{% for s in (existing_sources or [])[:15] %}- {{ s.source_name }} ({{ s.source_type }}): {{ s.source_url }}&#10;{% endfor %}&#10;Suggest 5 NEW and real sources (websites, news pages, or social media channels) relevant to security, crime or public-safety news in Kuwait, in English or Arabic. Do not repeat anything in the list above, and do not invent or guess a URL.&#10;&#10;Return a JSON object with exactly one key, &quot;suggestions&quot;: a list of up to 5 objects, each with &quot;name&quot;, &quot;type&quot; (one of News Website, Forum, Blog, Reddit, Twitter, Telegram, Facebook, Medium, Quora, Other), &quot;url&quot;, and &quot;reason&quot;." spiffworkflow:aiResponseSchema="{&quot;type&quot;: &quot;object&quot;, &quot;required&quot;: [&quot;suggestions&quot;], &quot;properties&quot;: {&quot;suggestions&quot;: {&quot;type&quot;: &quot;array&quot;, &quot;items&quot;: {&quot;type&quot;: &quot;object&quot;, &quot;required&quot;: [&quot;name&quot;, &quot;type&quot;, &quot;url&quot;, &quot;reason&quot;], &quot;properties&quot;: {&quot;name&quot;: {&quot;type&quot;: &quot;string&quot;}, &quot;type&quot;: {&quot;type&quot;: &quot;string&quot;}, &quot;url&quot;: {&quot;type&quot;: &quot;string&quot;}, &quot;reason&quot;: {&quot;type&quot;: &quot;string&quot;}}}}}}">
-      <bpmn:documentation>Prompt/provider/model/temperature come from the linked "Threat Source Expander" AI Agent Configuration (already seeded in one_bpmn — see promote_threat_agents_to_bpmn patch, which also strips the config's old str.format-style {source_list} placeholder now that the source list is supplied here as Jinja instead). aiStopOnError=false so a bad LLM response degrades to no suggestions this run rather than failing the whole pipeline, matching the original LangGraph node's try/except behaviour.</bpmn:documentation>
+    <bpmn:serviceTask id="expand_sources" name="AI Agent Task: Expand Source List" spiffworkflow:serviceType="ai_agent" spiffworkflow:aiAgentConfig="Threat Source Expander" spiffworkflow:aiStopOnError="false" spiffworkflow:aiOutputVariable="expand_sources_output" spiffworkflow:aiMaxToolCalls="1" spiffworkflow:aiToolsAdhoc="expand_sources_tools" spiffworkflow:aiUserPrompt="Current approved threat monitoring sources ({{ existing_sources | length }} total, showing up to 15):&#10;&#10;{% for s in (existing_sources or [])[:15] %}- {{ s.source_name }} ({{ s.source_type }}): {{ s.source_url }}&#10;{% endfor %}&#10;Suggest 5 NEW and real sources (websites, news pages, or social media channels) relevant to security, crime or public-safety news in Kuwait, in English or Arabic. Do not repeat anything in the list above, and do not invent or guess a URL. Call submit_source_suggestions exactly once with your suggestions.">
+      <bpmn:documentation>Prompt/provider/model/temperature come from the linked "Threat Source Expander" AI Agent Configuration (already seeded in one_bpmn — see promote_threat_agents_to_bpmn patch, which also strips the config's old str.format-style {source_list} placeholder now that the source list is supplied here as Jinja instead). aiStopOnError=false so a bad/missing tool call degrades to no suggestions this run rather than failing the whole pipeline (checked by Check Duplicates), matching the original LangGraph node's try/except behaviour. Tool-calling shape (aiToolsAdhoc/expand_sources_tools), same pattern as Daily Threat SITREP's sitrep_agent_task/sitrep_tools, in place of a plain aiResponseSchema call.</bpmn:documentation>
       <bpmn:incoming>f3</bpmn:incoming>
       <bpmn:outgoing>f4</bpmn:outgoing>
     </bpmn:serviceTask>
+    <bpmn:adHocSubProcess id="expand_sources_tools" name="Source Expansion Tools">
+      <bpmn:documentation>Disconnected from the sequence flow by design (no incoming/outgoing) — referenced by expand_sources's aiToolsAdhoc. The single tool the agent may call.</bpmn:documentation>
+      <bpmn:scriptTask id="submit_source_suggestions" name="Submit Source Suggestions" spiffworkflow:serverScript="Threat Discovery — Submit Source Suggestions" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Threat Discovery — Submit Source Suggestions" spiffworkflow:aiToolParams="{&quot;type&quot;: &quot;object&quot;, &quot;required&quot;: [&quot;suggestions&quot;], &quot;properties&quot;: {&quot;suggestions&quot;: {&quot;type&quot;: &quot;array&quot;, &quot;items&quot;: {&quot;type&quot;: &quot;object&quot;, &quot;required&quot;: [&quot;name&quot;, &quot;type&quot;, &quot;url&quot;, &quot;reason&quot;], &quot;properties&quot;: {&quot;name&quot;: {&quot;type&quot;: &quot;string&quot;}, &quot;type&quot;: {&quot;type&quot;: &quot;string&quot;}, &quot;url&quot;: {&quot;type&quot;: &quot;string&quot;}, &quot;reason&quot;: {&quot;type&quot;: &quot;string&quot;}}}}}}">
+        <bpmn:documentation>Copies its own call arguments into result so the full suggestion list surfaces as submit_source_suggestions_toolCallResult on expand_sources's data.</bpmn:documentation>
+      </bpmn:scriptTask>
+    </bpmn:adHocSubProcess>
     <bpmn:scriptTask id="check_duplicates" name="Check Duplicates" spiffworkflow:serverScript="Threat Discovery — Check Duplicates" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Threat Discovery — Check Duplicates">
       <bpmn:documentation>Drops suggestions whose normalized URL already exists on a Threat Source. Writes extracted_sources. (No reachability check — see the process-level documentation.)</bpmn:documentation>
       <bpmn:incoming>f4</bpmn:incoming>
       <bpmn:outgoing>f5</bpmn:outgoing>
     </bpmn:scriptTask>
-    <bpmn:serviceTask id="generate_keywords" name="AI Agent Task: Generate New Keywords" spiffworkflow:serviceType="ai_agent" spiffworkflow:aiAgentConfig="Threat Keyword Generator" spiffworkflow:aiStopOnError="false" spiffworkflow:aiOutputVariable="keyword_result" spiffworkflow:aiResponseFormat="json" spiffworkflow:aiUserPrompt="Existing active keywords: {{ (active_keywords or []) | map(attribute='keyword') | join(', ') }}&#10;&#10;Suggest 10 NEW related keywords (English and Arabic) that would help discover security threat information in Kuwait — crime, security incidents, public safety, emergencies. Do not repeat anything in the list above.&#10;&#10;Return a JSON object with exactly one key, &quot;keywords&quot;: a list of objects, each with &quot;keyword&quot; and &quot;language&quot; (&quot;English&quot; or &quot;Arabic&quot;)." spiffworkflow:aiResponseSchema="{&quot;type&quot;: &quot;object&quot;, &quot;required&quot;: [&quot;keywords&quot;], &quot;properties&quot;: {&quot;keywords&quot;: {&quot;type&quot;: &quot;array&quot;, &quot;items&quot;: {&quot;type&quot;: &quot;object&quot;, &quot;required&quot;: [&quot;keyword&quot;, &quot;language&quot;], &quot;properties&quot;: {&quot;keyword&quot;: {&quot;type&quot;: &quot;string&quot;}, &quot;language&quot;: {&quot;type&quot;: &quot;string&quot;}}}}}}">
-      <bpmn:documentation>Prompt/provider/model come from the linked "Threat Keyword Generator" AI Agent Configuration, same treatment as the expander above.</bpmn:documentation>
+    <bpmn:serviceTask id="generate_keywords" name="AI Agent Task: Generate New Keywords" spiffworkflow:serviceType="ai_agent" spiffworkflow:aiAgentConfig="Threat Keyword Generator" spiffworkflow:aiStopOnError="false" spiffworkflow:aiOutputVariable="generate_keywords_output" spiffworkflow:aiMaxToolCalls="1" spiffworkflow:aiToolsAdhoc="generate_keywords_tools" spiffworkflow:aiUserPrompt="Existing active keywords: {{ (active_keywords or []) | map(attribute='keyword') | join(', ') }}&#10;&#10;Suggest 10 NEW related keywords (English and Arabic) that would help discover security threat information in Kuwait — crime, security incidents, public safety, emergencies. Do not repeat anything in the list above. Call submit_keyword_suggestions exactly once with your suggestions.">
+      <bpmn:documentation>Prompt/provider/model come from the linked "Threat Keyword Generator" AI Agent Configuration, same treatment as the expander above. Tool-calling shape (aiToolsAdhoc/generate_keywords_tools), same pattern as Daily Threat SITREP's sitrep_agent_task/sitrep_tools.</bpmn:documentation>
       <bpmn:incoming>f5</bpmn:incoming>
       <bpmn:outgoing>f6</bpmn:outgoing>
     </bpmn:serviceTask>
+    <bpmn:adHocSubProcess id="generate_keywords_tools" name="Keyword Generation Tools">
+      <bpmn:documentation>Disconnected from the sequence flow by design (no incoming/outgoing) — referenced by generate_keywords's aiToolsAdhoc. The single tool the agent may call.</bpmn:documentation>
+      <bpmn:scriptTask id="submit_keyword_suggestions" name="Submit Keyword Suggestions" spiffworkflow:serverScript="Threat Discovery — Submit Keyword Suggestions" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Threat Discovery — Submit Keyword Suggestions" spiffworkflow:aiToolParams="{&quot;type&quot;: &quot;object&quot;, &quot;required&quot;: [&quot;keywords&quot;], &quot;properties&quot;: {&quot;keywords&quot;: {&quot;type&quot;: &quot;array&quot;, &quot;items&quot;: {&quot;type&quot;: &quot;object&quot;, &quot;required&quot;: [&quot;keyword&quot;, &quot;language&quot;], &quot;properties&quot;: {&quot;keyword&quot;: {&quot;type&quot;: &quot;string&quot;}, &quot;language&quot;: {&quot;type&quot;: &quot;string&quot;}}}}}}">
+        <bpmn:documentation>Copies its own call arguments into result so the full keyword list surfaces as submit_keyword_suggestions_toolCallResult on generate_keywords's data.</bpmn:documentation>
+      </bpmn:scriptTask>
+    </bpmn:adHocSubProcess>
     <bpmn:scriptTask id="save_to_erp" name="Save to ERP" spiffworkflow:serverScript="Threat Discovery — Save to ERP" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Threat Discovery — Save to ERP">
       <bpmn:documentation>Terminal write step. Creates Threat Keyword (source_type=AI Generated) for each new keyword not already present, and Threat Source (status=Pending) for each extracted source, then commits — identical output contract to the retired LangGraph pipeline's erp_saver node.</bpmn:documentation>
       <bpmn:incoming>f6</bpmn:incoming>
@@ -68,11 +80,23 @@ Two things the original LangGraph pipeline did are deliberately dropped, not por
       <bpmndi:BPMNShape id="expand_sources_di" bpmnElement="expand_sources">
         <dc:Bounds x="500" y="180" width="140" height="80" />
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="expand_sources_tools_di" bpmnElement="expand_sources_tools" isExpanded="true">
+        <dc:Bounds x="450" y="580" width="550" height="240" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="submit_source_suggestions_di" bpmnElement="submit_source_suggestions">
+        <dc:Bounds x="485" y="660" width="100" height="80" />
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="check_duplicates_di" bpmnElement="check_duplicates">
         <dc:Bounds x="720" y="180" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="generate_keywords_di" bpmnElement="generate_keywords">
         <dc:Bounds x="900" y="180" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="generate_keywords_tools_di" bpmnElement="generate_keywords_tools" isExpanded="true">
+        <dc:Bounds x="850" y="580" width="550" height="240" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="submit_keyword_suggestions_di" bpmnElement="submit_keyword_suggestions">
+        <dc:Bounds x="885" y="660" width="100" height="80" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="save_to_erp_di" bpmnElement="save_to_erp">
         <dc:Bounds x="1120" y="180" width="100" height="80" />
