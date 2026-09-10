@@ -1,11 +1,14 @@
 # Copyright (c) 2026, one-fm and contributors
-"""The overnight live run: its ceiling, its grader, and what it reports.
+"""What the overnight live run needs from the app: a ceiling, and a grader.
 
-Two of these are about money. A ceiling that cuts off the case in flight wastes
-the call it already paid for, and a ceiling that lets a second suite start after
-the budget is gone is not a ceiling. The rest are about the report an alert is
-built from: "we ran out of budget" and "the agent got worse" must never arrive
-looking the same.
+Both are about money. A ceiling that cuts off the case in flight wastes the call
+it already paid for, and one that lets a second suite start after the budget is
+gone is not a ceiling.
+
+How a night is judged — which suites, how the budget is shared between them,
+what counts as needing a person in the morning — lives in the map's "Run Nightly
+Eval Suites" Server Script, so it can be changed in Processa without a deploy.
+It is covered by running the process, not from here.
 """
 
 from __future__ import annotations
@@ -17,12 +20,9 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents._eval_test_factories import make_eval_case, make_eval_suite
 from one_bpmn.agents.eval_ci import run_suite
-from one_bpmn.agents.eval_nightly import run_nightly
 from one_bpmn.agents.eval_runner import _execute_eval_suite, _judge_model_for
 
 CASE_EXEC = "one_bpmn.agents.eval_runner._execute_case"
-SELECT = "one_bpmn.agents.eval_nightly.select_suites"
-RUN_SUITE = "one_bpmn.agents.eval_nightly.run_suite"
 
 
 def _priced(cost):
@@ -125,121 +125,6 @@ class TestGradingModel(FrappeTestCase):
 		"""The judge call itself reports the failure; resolution must not raise."""
 		self._setting("")
 		self.assertEqual(_judge_model_for(frappe._dict(judge_model="", judge_provider="")), ("", ""))
-
-
-def _summary(suite, rate=100.0, cost=0.0, stopped="", failures=None):
-	return {"suite": suite, "run": "r-" + suite, "status": "Passed", "cases": 2, "checked": 2,
-			"passed": 2, "skipped": 0, "rate": rate, "cost": cost, "stopped": stopped,
-			"failures": failures or []}
-
-
-class TestNightlySelection(FrappeTestCase):
-	def setUp(self):
-		frappe.set_user("Administrator")
-		self.tagged = make_eval_suite(title="_Test nightly A " + frappe.generate_hash(length=6), ci_role="Nightly")
-		self.smoke = make_eval_suite(title="_Test smoke A " + frappe.generate_hash(length=6), ci_role="Smoke")
-		self.untagged = make_eval_suite(title="_Test plain A " + frappe.generate_hash(length=6))
-
-	def test_it_runs_the_nightly_ones_and_leaves_the_others_alone(self):
-		seen = []
-
-		def stub(suite, backend, spend_cap=0):
-			seen.append(suite["name"])
-			return _summary(suite["title"])
-
-		with patch(RUN_SUITE, side_effect=stub):
-			run_nightly()
-
-		self.assertIn(self.tagged.name, seen)
-		self.assertNotIn(self.smoke.name, seen)
-		self.assertNotIn(self.untagged.name, seen)
-
-
-class TestNightlyReport(FrappeTestCase):
-	"""What an alert would be built from."""
-
-	def setUp(self):
-		frappe.set_user("Administrator")
-		self.two = [{"name": "s1", "title": "First", "ci_role": "Nightly"},
-					{"name": "s2", "title": "Second", "ci_role": "Nightly"}]
-
-	def test_nothing_tagged_is_not_a_failure(self):
-		with patch(SELECT, return_value=[]):
-			out = run_nightly()
-		self.assertTrue(out["ok"])
-		self.assertIn("No eval suite is tagged Nightly", out["summary_line"])
-
-	def test_a_suite_below_the_bar_is_named_with_its_rate(self):
-		with patch(SELECT, return_value=self.two), \
-			 patch(RUN_SUITE, side_effect=[_summary("First", rate=100.0), _summary("Second", rate=62.5)]):
-			out = run_nightly(min_pass=90)
-		self.assertFalse(out["ok"])
-		self.assertEqual([b["suite"] for b in out["below_minimum"]], ["Second"])
-		self.assertIn("Second at 62.5%", out["summary_line"])
-
-	def test_a_suite_that_checked_nothing_is_reported_separately(self):
-		with patch(SELECT, return_value=self.two[:1]), \
-			 patch(RUN_SUITE, side_effect=[_summary("First", rate=None)]):
-			out = run_nightly()
-		self.assertEqual(out["checked_nothing"], ["First"])
-		self.assertFalse(out["ok"])
-
-	def test_all_above_the_bar_says_so(self):
-		with patch(SELECT, return_value=self.two), \
-			 patch(RUN_SUITE, side_effect=[_summary("First"), _summary("Second")]):
-			out = run_nightly(min_pass=90)
-		self.assertTrue(out["ok"])
-		self.assertIn("all above the bar", out["summary_line"])
-
-	def test_the_ceiling_is_shared_across_the_night_not_given_to_each_suite(self):
-		frappe.db.set_single_value("Processa Settings", "nightly_eval_spend_cap", 3)
-		given = []
-
-		def stub(suite, backend, spend_cap=0):
-			given.append(spend_cap)
-			return _summary(suite["title"], cost=1.25)
-
-		with patch(SELECT, return_value=self.two), patch(RUN_SUITE, side_effect=stub):
-			out = run_nightly()
-
-		self.assertEqual(given[0], 3)
-		self.assertEqual(given[1], 1.75, "the second suite gets what the first left")
-		self.assertEqual(out["spent"], 2.5)
-
-	def test_a_suite_is_not_started_once_the_budget_is_gone(self):
-		frappe.db.set_single_value("Processa Settings", "nightly_eval_spend_cap", 2)
-		started = []
-
-		def stub(suite, backend, spend_cap=0):
-			started.append(suite["title"])
-			return _summary(suite["title"], cost=2.0)
-
-		with patch(SELECT, return_value=self.two), patch(RUN_SUITE, side_effect=stub):
-			out = run_nightly()
-
-		self.assertEqual(started, ["First"])
-		self.assertEqual(out["suites_not_run"], ["Second"])
-		self.assertFalse(out["ok"], "a night that could not finish is not a clean night")
-		self.assertIn("1 not run on budget", out["summary_line"])
-
-	def test_running_out_of_budget_does_not_read_as_the_agents_getting_worse(self):
-		with patch(SELECT, return_value=self.two[:1]), \
-			 patch(RUN_SUITE, side_effect=[_summary("First", stopped="Stopped on budget: spent 2 of 2.")]):
-			out = run_nightly()
-		self.assertEqual(out["stopped_on_budget"], ["First"])
-		self.assertEqual(out["below_minimum"], [], "its rate was fine as far as it got")
-
-	def test_no_ceiling_means_no_ceiling(self):
-		frappe.db.set_single_value("Processa Settings", "nightly_eval_spend_cap", 0)
-		given = []
-
-		def stub(suite, backend, spend_cap=0):
-			given.append(spend_cap)
-			return _summary(suite["title"], cost=99.0)
-
-		with patch(SELECT, return_value=self.two), patch(RUN_SUITE, side_effect=stub):
-			run_nightly()
-		self.assertEqual(given, [0, 0])
 
 
 class TestRunSuiteCarriesTheCeiling(FrappeTestCase):
