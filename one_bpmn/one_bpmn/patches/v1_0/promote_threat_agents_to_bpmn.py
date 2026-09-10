@@ -47,9 +47,25 @@ This patch deliberately does not touch process_model — the map is moved
 between environments by hand through the app's own Import/Export feature,
 not tracked in this repo, so there is nothing here for this patch to link
 the configuration to. Set that link manually after importing, if needed.
+
+3. lifecycle_status is taken through validate_agent_config (identity,
+   prompt, model + credentials, and — since Background agents have no chat
+   label — a live provider test call), landing on Live only on a clean
+   pass and Needs Attention with the reason recorded otherwise. Neither
+   onefm_mcp seed patch ever promoted these past Draft, and
+   compile_process_model refuses to deploy an AI Agent Task whose linked
+   configuration isn't Live — confirmed live on the BA site: both configs
+   stuck at Draft blocked "Threat Source Discovery" from deploying even
+   after fixes 0-2 above, the same failure fix 0's docstring already
+   describes but this patch previously never actually resolved.
 """
 
 import frappe
+
+_AGENT_IDS = {
+	"Threat Source Expander": "threat_source_expander",
+	"Threat Keyword Generator": "threat_keyword_generator",
+}
 
 _CONFIGS = {
 	"Threat Source Expander": (
@@ -77,30 +93,60 @@ _CONFIGS = {
 
 
 def execute():
-	for name, static_prompt in _CONFIGS.items():
-		if not frappe.db.exists("AI Agent Configuration", name):
-			continue  # onefm_mcp's seed patch hasn't run on this site — nothing to promote yet
+	original_user = frappe.session.user
+	try:
+		frappe.set_user("Administrator")
 
-		doc = frappe.get_doc("AI Agent Configuration", name)
-		changed = False
+		for name, static_prompt in _CONFIGS.items():
+			if not frappe.db.exists("AI Agent Configuration", name):
+				continue  # onefm_mcp's seed patch hasn't run on this site — nothing to promote yet
 
-		if doc.agent_type != "Background":
-			doc.agent_type = "Background"
-			changed = True
+			agent_id = _AGENT_IDS[name]
+			doc = frappe.get_doc("AI Agent Configuration", name)
+			changed = False
 
-		if doc.system_prompt != static_prompt:
-			doc.system_prompt = static_prompt
-			changed = True
+			if doc.agent_type != "Background":
+				doc.agent_type = "Background"
+				changed = True
 
-		if (doc.get("required_variables") or "[]") != "[]":
-			doc.required_variables = "[]"
-			changed = True
+			if doc.system_prompt != static_prompt:
+				doc.system_prompt = static_prompt
+				changed = True
 
-		if not doc.get("ai_model") and frappe.db.exists("AI Model", "claude-haiku-4-5-20251001"):
-			doc.ai_model = "claude-haiku-4-5-20251001"
-			changed = True
+			if (doc.get("required_variables") or "[]") != "[]":
+				doc.required_variables = "[]"
+				changed = True
 
-		if changed:
-			doc.save(ignore_permissions=True)
+			if not doc.get("ai_model") and frappe.db.exists("AI Model", "claude-haiku-4-5-20251001"):
+				doc.ai_model = "claude-haiku-4-5-20251001"
+				changed = True
 
-	frappe.db.commit()
+			if changed:
+				doc.save(ignore_permissions=True)
+				frappe.cache.delete_value(f"agent_config:{agent_id}")
+
+			try:
+				from one_bpmn.agents.agent_provisioning import validate_agent_config
+
+				result = validate_agent_config(name, test_provider=True)
+			except Exception:
+				frappe.log_error(
+					title=f"{name} migration: validation raised",
+					message=frappe.get_traceback(),
+				)
+				continue
+
+			status = "Live" if result.get("ok") else "Needs Attention"
+			frappe.db.set_value(
+				"AI Agent Configuration", name, "lifecycle_status", status, update_modified=False
+			)
+			frappe.cache.delete_value(f"agent_config:{agent_id}")
+			frappe.db.commit()
+
+			if status != "Live":
+				frappe.log_error(
+					title=f"{name} migration: not promoted to Live ({agent_id})",
+					message="\n".join(result.get("errors", [])) or "validate_agent_config returned not-ok",
+				)
+	finally:
+		frappe.set_user(original_user)
