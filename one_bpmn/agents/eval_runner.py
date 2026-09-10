@@ -381,7 +381,7 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
         # rather than per case, so every case in a run is judged against the
         # same agent even if the suite is reassigned mid-run.
         agent_cfg = run.get("agent_configuration") or None
-        for case_name in case_names:
+        for index, case_name in enumerate(case_names):
             case = frappe.get_doc("AI Eval Case", case_name)
             if run.backend == "replay":
                 result_row = _execute_case_replay(run, case)
@@ -406,6 +406,27 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
                 failed += 1
             total_cost += flt(result_row.get("cost", 0))
             total_tokens += (result_row.get("tokens_used") or 0)
+
+            # A ceiling stops the NEXT case, never the one in flight, so a
+            # scheduled live run ends on budget instead of being cut off
+            # mid-answer. The cases left over are recorded as not run: a case
+            # nobody asked is not evidence either way, and calling them
+            # failures would read as the agent getting worse.
+            cap = flt(run.get("spend_cap") or 0)
+            remaining = case_names[index + 1:]
+            if cap and total_cost >= cap and remaining:
+                run.stop_reason = (
+                    f"Stopped on budget: spent {total_cost:.4f} of a {cap:.4f} ceiling after "
+                    f"{index + 1} case(s); {len(remaining)} not run."
+                )
+                for pending in remaining:
+                    run.append("results", {
+                        "eval_case": pending,
+                        "status": "Skipped",
+                        "error_message": "Not run \u2014 the run reached its spend ceiling.",
+                    })
+                    skipped += 1
+                break
 
         run.total_cases = len(case_names)
         run.passed_cases = passed
@@ -1420,6 +1441,22 @@ def _tool_calls_for(case, eval_run: str = None) -> List[str]:
     )
 
 
+def _judge_model_for(assertion) -> tuple[str, str]:
+    """The model that grades an answer, and its provider.
+
+    The assertion's own choice wins; failing that, Processa Settings names the
+    grading model for scheduled runs. ``resolve_memory_model`` already
+    implements that precedence, so it is reused rather than copied.
+    """
+    from one_bpmn.agents.memory.model_resolution import resolve_memory_model
+
+    model = resolve_memory_model(assertion.judge_model, "nightly_eval_grading_model", None) or ""
+    provider = (assertion.judge_provider or "").strip()
+    if model and not provider:
+        provider = frappe.db.get_value("AI Model", model, "provider") or ""
+    return model, provider
+
+
 def _evaluate_llm_judge(assertion, output: Any) -> dict:
     """
     Call a judge LLM to score *output* against the rubric in *assertion.value*.
@@ -1436,10 +1473,15 @@ def _evaluate_llm_judge(assertion, output: Any) -> dict:
         actual_output=_stringify(output),
     )
 
+    # An assertion may name its own grader; when it does not, the site's
+    # nightly grading model stands in, so a scheduled run does not depend on
+    # every assertion carrying a model of its own.
+    judge_model, judge_provider = _judge_model_for(assertion)
+
     judge_config = ExecutorConfig(
         backend="direct_api",
-        provider_name=assertion.judge_provider or "",
-        model=assertion.judge_model or "",
+        provider_name=judge_provider,
+        model=judge_model,
         system_prompt="",
         user_prompt=judge_prompt,
         response_format="json",

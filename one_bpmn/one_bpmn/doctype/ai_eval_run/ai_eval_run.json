@@ -27,6 +27,8 @@
   "total_tokens",
   "column_break_usage",
   "total_cost",
+  "spend_cap",
+  "stop_reason",
   "section_break_results",
   "results"
  ],
@@ -46,7 +48,7 @@
    "options": "AI Agent Configuration",
    "in_list_view": 1,
    "read_only": 1,
-   "description": "Which agent produced this run's results. Normally the suite's own agent; an A/B comparison run nominates a different one WITHOUT rebinding the suite. Empty on runs recorded before this was tracked \u2014 those used the suite's agent at the time, which may since have changed."
+   "description": "Which agent produced this run's results. Normally the suite's own agent; an A/B comparison run nominates a different one WITHOUT rebinding the suite. Empty on runs recorded before this was tracked — those used the suite's agent at the time, which may since have changed."
   },
   {
    "fieldname": "prompt_hash",
@@ -155,6 +157,20 @@
    "in_list_view": 1,
    "label": "Total Cost",
    "precision": "6"
+  },
+  {
+   "description": "Ceiling this run was given; 0 means none. The runner stops between cases once it is reached.",
+   "fieldname": "spend_cap",
+   "fieldtype": "Currency",
+   "label": "Spend Ceiling",
+   "read_only": 1
+  },
+  {
+   "depends_on": "stop_reason",
+   "fieldname": "stop_reason",
+   "fieldtype": "Small Text",
+   "label": "Stopped Because",
+   "read_only": 1
   },
   {
    "fieldname": "section_break_results",

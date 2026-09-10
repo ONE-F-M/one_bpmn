@@ -50,6 +50,10 @@
   "archive_action",
   "section_break_ai_health",
   "ai_health_alert_recipients",
+  "section_break_nightly_evals",
+  "nightly_eval_grading_model",
+  "column_break_nightly_evals",
+  "nightly_eval_spend_cap",
   "llm_defaults_tab",
   "default_llm_provider",
   "openai_search_context",
@@ -172,21 +176,21 @@
    "label": "GitHub Integration"
   },
   {
-   "description": "Personal (or fine-grained) access token able to push branches and open pull requests. Used by \"Review Doctypes\" \u2192 \"Sync\" to raise a PR with the DocType schema changes. The PR targets the repository of the app named in \"Customization Owner App\" below (or the DocType's own app when that app owns it), on that repository's default branch.",
+   "description": "Personal (or fine-grained) access token able to push branches and open pull requests. Used by \"Review Doctypes\" → \"Sync\" to raise a PR with the DocType schema changes. The PR targets the repository of the app named in \"Customization Owner App\" below (or the DocType's own app when that app owns it), on that repository's default branch.",
    "fieldname": "github_token",
    "fieldtype": "Password",
    "label": "GitHub Access Token"
   },
   {
    "default": "one_fm",
-   "description": "App whose source carries customizations made to <i>other</i> apps' DocTypes. A Custom Field on Employee belongs to this app, not to erpnext \u2014 so \"Sync\" writes it here, following this app's own convention (a data module under <code>custom/custom_field/</code> plus <code>custom/property_setter/</code>, registered in <code>setup/</code>, applied by a patch). A DocType owned by an app that is itself a ONE-F-M repo is written to that app instead. Leave blank to fall back to the DocType's owning app.",
+   "description": "App whose source carries customizations made to <i>other</i> apps' DocTypes. A Custom Field on Employee belongs to this app, not to erpnext — so \"Sync\" writes it here, following this app's own convention (a data module under <code>custom/custom_field/</code> plus <code>custom/property_setter/</code>, registered in <code>setup/</code>, applied by a patch). A DocType owned by an app that is itself a ONE-F-M repo is written to that app instead. Leave blank to fall back to the DocType's owning app.",
    "fieldname": "customization_app",
    "fieldtype": "Data",
    "label": "Customization Owner App"
   },
   {
    "default": "one_bpmn",
-   "description": "App whose repository receives the pull request when the Connector Agent writes a Python handler for a connector operation. Most connectors need no code at all \u2014 an operation is normally a declarative HTTP request \u2014 but a signed request, walked pagination, or a call sequence needs a real function, and that function is delivered as a pull request rather than written into this site. Handlers land in <code>connectors/generated/</code> in the named app, one module per connector, and the operation's Handler Path points at them. Defaults to the app that owns the connector layer. Leave blank to disable handler authoring entirely.",
+   "description": "App whose repository receives the pull request when the Connector Agent writes a Python handler for a connector operation. Most connectors need no code at all — an operation is normally a declarative HTTP request — but a signed request, walked pagination, or a call sequence needs a real function, and that function is delivered as a pull request rather than written into this site. Handlers land in <code>connectors/generated/</code> in the named app, one module per connector, and the operation's Handler Path points at them. Defaults to the app that owns the connector layer. Leave blank to disable handler authoring entirely.",
    "fieldname": "connector_handler_app",
    "fieldtype": "Data",
    "label": "Connector Handler App"
@@ -328,7 +332,7 @@
    "options": "AI Model"
   },
   {
-   "description": "Used when nothing else names a model for summarising the early part of a conversation. Summarising is high-volume and low-stakes, so this should be the cheap model \u2014 left blank, compaction uses whatever the caller passes and, failing that, does nothing rather than bill the agent's own reasoning model for it.",
+   "description": "Used when nothing else names a model for summarising the early part of a conversation. Summarising is high-volume and low-stakes, so this should be the cheap model — left blank, compaction uses whatever the caller passes and, failing that, does nothing rather than bill the agent's own reasoning model for it.",
    "fieldname": "default_compaction_model",
    "fieldtype": "Link",
    "label": "Default Compaction Model",
@@ -342,14 +346,14 @@
   },
   {
    "collapsible": 1,
-   "description": "What happens to chat conversations nobody has touched for a while. Idle is measured from the newest message in the conversation, not from when the record was last written \u2014 a status change or a title edit is not activity. An agent's own memory threads are never swept: they are a running agent's working state, not a conversation somebody had.",
+   "description": "What happens to chat conversations nobody has touched for a while. Idle is measured from the newest message in the conversation, not from when the record was last written — a status change or a title edit is not activity. An agent's own memory threads are never swept: they are a running agent's working state, not a conversation somebody had.",
    "fieldname": "section_break_conversation_retention",
    "fieldtype": "Section Break",
    "label": "Conversation Retention"
   },
   {
    "default": "0",
-   "description": "Days a conversation may sit idle before the daily sweep acts on it. 0 disables retention entirely \u2014 nothing is archived or deleted.",
+   "description": "Days a conversation may sit idle before the daily sweep acts on it. 0 disables retention entirely — nothing is archived or deleted.",
    "fieldname": "conversation_ttl_days",
    "fieldtype": "Int",
    "label": "Conversation TTL (days)"
@@ -361,7 +365,7 @@
   {
    "default": "Archive",
    "depends_on": "eval:doc.conversation_ttl_days > 0",
-   "description": "Archive marks the conversation and leaves everything in place, so it can be read and restored. Delete removes the conversation and its messages permanently \u2014 that is the point of a retention policy, and it cannot be undone. Both are logged with counts.",
+   "description": "Archive marks the conversation and leaves everything in place, so it can be read and restored. Delete removes the conversation and its messages permanently — that is the point of a retention policy, and it cannot be undone. Both are logged with counts.",
    "fieldname": "archive_action",
    "fieldtype": "Select",
    "label": "Action on Expiry",
@@ -378,6 +382,28 @@
    "fieldtype": "Table MultiSelect",
    "label": "Credential Alert Recipients",
    "options": "User Group Member"
+  },
+  {
+   "fieldname": "section_break_nightly_evals",
+   "fieldtype": "Section Break",
+   "label": "Nightly Evals"
+  },
+  {
+   "description": "Model used to grade nightly eval answers when an assertion names none of its own.",
+   "fieldname": "nightly_eval_grading_model",
+   "fieldtype": "Link",
+   "label": "Nightly Eval Grading Model",
+   "options": "AI Model"
+  },
+  {
+   "fieldname": "column_break_nightly_evals",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Most one night's sweep may spend, shared across the suites tagged Nightly. 0 means no ceiling.",
+   "fieldname": "nightly_eval_spend_cap",
+   "fieldtype": "Currency",
+   "label": "Nightly Eval Spend Ceiling"
   },
   {
    "description": "Migrated from onefm_mcp's AI Chat Settings doctype (retired). Global fallback provider/tuning for an agent configuration that has no linked AI Provider yet — once every agent config links a provider directly, this stops being consulted.",

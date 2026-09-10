@@ -23,92 +23,8 @@ import click
 import frappe
 from frappe.commands import get_site, pass_context
 
-from one_bpmn.agents.eval_runner import EVAL_BACKENDS, _execute_eval_suite
-
-
-def _suites(role: str, suite: str) -> list[dict]:
-	filters = {}
-	if suite:
-		filters["name" if frappe.db.exists("AI Eval Suite", suite) else "title"] = suite
-	if role:
-		filters["ci_role"] = role
-	return frappe.get_all(
-		"AI Eval Suite",
-		filters=filters,
-		fields=["name", "title", "ci_role"],
-		order_by="title asc",
-	)
-
-
-def _run_one(suite: dict, backend: str) -> dict:
-	"""Execute one suite here and now — no queue, so the exit code can wait for it."""
-	run = frappe.get_doc({
-		"doctype": "AI Eval Run",
-		"suite": suite["name"],
-		"status": "Running",
-		"backend": backend,
-		"scope": "Suite",
-		"started_at": frappe.utils.now_datetime(),
-		"agent_configuration": frappe.db.get_value(
-			"AI Eval Suite", suite["name"], "agent_configuration"
-		),
-	})
-	run.flags.ignore_mandatory = True
-	run.insert(ignore_permissions=True)
-	frappe.db.commit()
-
-	_execute_eval_suite(run.name)
-	frappe.db.commit()
-	run.reload()
-
-	checked = [r for r in run.results if r.status != "Skipped"]
-	passed = [r for r in checked if r.status == "Passed"]
-	titles = {
-		c.name: c.title
-		for c in frappe.get_all("AI Eval Case", filters={"suite": suite["name"]}, fields=["name", "title"])
-	}
-	return {
-		"suite": suite["title"] or suite["name"],
-		"run": run.name,
-		"status": run.status,
-		"cases": len(run.results or []),
-		"checked": len(checked),
-		"passed": len(passed),
-		"skipped": len(run.results or []) - len(checked),
-		# The rate is over what was actually CHECKED. Counting a skipped case as
-		# a pass would let a suite whose assertions all need a model report 100%
-		# from a run that verified nothing.
-		"rate": (len(passed) / len(checked) * 100) if checked else None,
-		"failures": [
-			{
-				"case": titles.get(r.eval_case) or r.eval_case,
-				"status": r.status,
-				# The assertion that actually failed, not the row's summary note:
-				# a CI log is read once, in a hurry, by someone who did not write
-				# the case.
-				"why": _why(r),
-			}
-			for r in run.results if r.status in ("Failed", "Error")
-		],
-	}
-
-
-def _why(result) -> str:
-	"""What to print for a failed case: the assertions that did not hold."""
-	try:
-		assertions = json.loads(result.assertion_results or "[]")
-	except Exception:
-		assertions = []
-
-	broken = [a for a in assertions if not a.get("passed")]
-	if broken:
-		return "; ".join(
-			f"{a.get('assertion_type')}"
-			+ (f" [{str(a.get('value'))[:60]}]" if a.get("value") else "")
-			+ (f": {a.get('message') or a.get('explanation') or ''}".rstrip(": ") if (a.get("message") or a.get("explanation")) else "")
-			for a in broken
-		)[:400]
-	return (result.error_message or "").strip()[:400] or "no detail recorded"
+from one_bpmn.agents.eval_ci import run_suite, select_suites
+from one_bpmn.agents.eval_runner import EVAL_BACKENDS
 
 
 @click.command("run-ai-evals")
@@ -136,7 +52,7 @@ def run_ai_evals(context, suite, role, backend, min_pass, skip_if_none, allow_un
 		if not suite and not role:
 			raise click.UsageError("Name a --suite or a --role; running every suite on the site is never what you want.")
 
-		selected = _suites(role, suite)
+		selected = select_suites(role, suite)
 		if not selected:
 			what = f"role {role!r}" if role else f"suite {suite!r}"
 			if skip_if_none:
@@ -147,7 +63,7 @@ def run_ai_evals(context, suite, role, backend, min_pass, skip_if_none, allow_un
 			click.echo(f"No eval suite matches {what} on {site}.", err=True)
 			raise SystemExit(1)
 
-		summaries = [_run_one(s, backend) for s in selected]
+		summaries = [run_suite(s, backend) for s in selected]
 
 		if as_json:
 			click.echo(json.dumps({"site": site, "backend": backend, "min_pass": min_pass,
@@ -168,6 +84,8 @@ def _report(summaries: list[dict], backend: str, min_pass: float) -> None:
 		click.echo(f"  {s['suite']}")
 		click.echo(f"    {s['passed']}/{s['checked']} checked cases passed ({rate})"
 				   + (f", {s['skipped']} skipped" if s["skipped"] else ""))
+		if s.get("stopped"):
+			click.echo(f"    {s['stopped']}")
 		for failure in s["failures"]:
 			click.echo(f"      {failure['status']}: {failure['case']} — {failure['why'] or 'no detail'}")
 	click.echo("")

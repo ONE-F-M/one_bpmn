@@ -25,7 +25,8 @@ from one_bpmn.agents.eval_runner import (
 	_execute_case_deterministic,
 	_execute_eval_suite,
 )
-from one_bpmn.commands.evals import _verdict, _why
+from one_bpmn.agents.eval_ci import _why
+from one_bpmn.commands.evals import _verdict
 
 JUDGE = "one_bpmn.agents.eval_runner._evaluate_llm_judge"
 
