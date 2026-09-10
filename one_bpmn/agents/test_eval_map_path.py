@@ -303,6 +303,82 @@ class TestRunMapEval(FrappeTestCase):
             "Cancelled",
         )
 
+    def test_a_delegated_workers_answer_beats_its_last_message(self):
+        """A worker's final model message is narration; its answer is the one it
+        wrote back to the A2A Task that asked for the work. The first Connector
+        Agent suite scored "now let me finalize" and failed a run that had in
+        fact delivered a written, disabled connector."""
+        task = frappe.get_doc({
+            "doctype": "A2A Task",
+            "direction": "Internal",
+            "state": "submitted",
+            "principal": frappe.session.user,
+        }).insert(ignore_permissions=True)
+
+        cfg, case, model = self._agent_and_case(
+            input_context=json.dumps(
+                {"context_doctype": "A2A Task", "context_docname": task.name}
+            )
+        )
+
+        def fake_start(self, initial_data=None):
+            frappe.db.set_value(
+                "A2A Task", task.name,
+                {"result": '{"connector": "frankfurter", "enabled": false}'},
+                update_modified=False,
+            )
+            run = frappe.get_doc({
+                "doctype": "AI Agent Run",
+                "instance": self.name,
+                "process_model": model.name,
+                "agent_configuration": cfg.name,
+                "bpmn_id": "ai_agent_task",
+                "element_type": "task",
+                "origin": "eval",
+                "status": "Success",
+                "final_output": "Perfect! The test passed. Now let me finalize.",
+                "total_tokens": 10,
+            })
+            run.flags.ignore_mandatory = True
+            run.flags.ignore_links = True
+            run.insert(ignore_permissions=True)
+
+        with patch(INSTANCE_START, new=fake_start):
+            output, _usage = _run_map_eval(cfg, case)
+
+        self.assertIn("frankfurter", output)
+        self.assertNotIn("let me finalize", output)
+
+    def test_a_context_document_that_is_not_a_task_keeps_the_run_output(self):
+        todo = self._todo()
+        cfg, case, model = self._agent_and_case(
+            input_context=json.dumps(
+                {"context_doctype": "ToDo", "context_docname": todo.name}
+            )
+        )
+
+        def fake_start(self, initial_data=None):
+            run = frappe.get_doc({
+                "doctype": "AI Agent Run",
+                "instance": self.name,
+                "process_model": model.name,
+                "agent_configuration": cfg.name,
+                "bpmn_id": "ai_agent_task",
+                "element_type": "task",
+                "origin": "eval",
+                "status": "Success",
+                "final_output": "2 net days.",
+                "total_tokens": 10,
+            })
+            run.flags.ignore_mandatory = True
+            run.flags.ignore_links = True
+            run.insert(ignore_permissions=True)
+
+        with patch(INSTANCE_START, new=fake_start):
+            output, _usage = _run_map_eval(cfg, case)
+
+        self.assertEqual(output, "2 net days.")
+
 
 class TestAgentEvalRouting(FrappeTestCase):
     def test_background_agent_routes_to_map_path(self):
