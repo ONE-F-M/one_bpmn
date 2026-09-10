@@ -302,7 +302,7 @@
 										Review Workflow Objects
 									</button>
 								</template>
-								<!-- Reassign User Task (only on a Production instance) -->
+								<!-- Release Property Panel (only on a Production instance) -->
 								<template v-if="isProductionInstance">
 									<div class="border-t border-gray-100 my-1"></div>
 									<button
@@ -314,8 +314,8 @@
 											{ 'opacity-40 cursor-not-allowed': !activeDiagramName }
 										]"
 									>
-										<Icon icon="lucide:user-cog" class="w-4 h-4" />
-										{{ reassignMode ? 'Exit Reassign Mode' : 'Reassign User Task' }}
+										<Icon :icon="reassignMode ? 'lucide:lock' : 'lucide:lock-open'" class="w-4 h-4" />
+										{{ reassignMode ? 'Lock Property Panel' : 'Release Property Panel' }}
 									</button>
 								</template>
 							</div>
@@ -388,8 +388,8 @@
 										{ 'opacity-40 cursor-not-allowed': !activeDiagramName }
 									]"
 								>
-									<Icon icon="lucide:user-cog" class="w-4 h-4" />
-									{{ reassignMode ? 'Exit Reassign Mode' : 'Reassign User Task' }}
+									<Icon :icon="reassignMode ? 'lucide:lock' : 'lucide:lock-open'" class="w-4 h-4" />
+									{{ reassignMode ? 'Lock Property Panel' : 'Release Property Panel' }}
 								</button>
 							</template>
 						</template>
@@ -1177,7 +1177,7 @@ const showActionsMenu = ref(false);
 const connectToProduction = ref(false);
 // Processa Settings → Instance Type. Gates the environment-specific Actions:
 //   "Review Doctypes" / "Review Workflow Objects" → BA instance only
-//   "Reassign User Task"                          → Production instance only
+//   "Release Property Panel"                      → Production instance only
 const instanceType = ref("");
 const isBaInstance = computed(() => instanceType.value === "BA");
 const isProductionInstance = computed(() => instanceType.value === "Production");
@@ -1278,12 +1278,13 @@ async function runSync() {
 	}
 }
 
-// --- Reassign User Task (only on a Production instance) ---
-// While enabled, the Assignment Configuration fields of User Tasks become
-// editable on an otherwise read-only canvas. Each change is persisted (and
-// logged) through a dedicated attribute-scoped endpoint (the normal save path
-// is blocked on locked models). The map is recompiled ONCE — a single Deploy —
-// when reassign mode is exited, rather than once per edited task.
+// --- Release Property Panel (only on a Production instance) ---
+// While released, the properties panel can edit flow objects on an otherwise
+// read-only canvas — everything except script tasks, AI Agent tasks, sequence
+// flows and the attributes that would break the map (see
+// one_bpmn/api/property_panel.py). Each change is persisted through that
+// endpoint, because the normal save path is blocked on locked models. The map
+// is recompiled ONCE — a single Deploy — when the panel is locked again.
 const reassignMode = ref(false);
 const pendingReassignments = new Map(); // taskId → { modelName, assignment }
 let reassignSaveTimer = null;
@@ -1296,14 +1297,14 @@ function toggleReassignMode() {
 	if (reassignMode.value) {
 		// Turning OFF → persist anything pending, then deploy once.
 		reassignMode.value = false;
-		showNotification("Reassign mode disabled", "Assignment fields are read-only again.", "gray");
+		showNotification("Property panel locked", "All locked in, we're back to read-only mode.", "gray");
 		finalizeReassignments();
 	} else {
 		reassignMode.value = true;
 		touchedReassignModels.clear();
 		showNotification(
-			"Reassign mode enabled",
-			"Assignment Configuration fields (Assignment Mode, User, DocField, Users, Table Field, Row User Field) on User Tasks are now editable. Changes are saved as you make them and recorded in the map's version history, and the map is redeployed once when you exit reassign mode.",
+			"Property panel released",
+			"Properties of flow objects can now be modified, except for script tasks and AI Agent tasks.",
 			"blue"
 		);
 	}
@@ -1341,12 +1342,12 @@ async function flushReassignments() {
 	for (const [taskId, { modelName, assignment }] of entries) {
 		try {
 			const res = await frappeRequest({
-				url: "/api/method/one_bpmn.api.reassignment.reassign_user_task",
+				url: "/api/method/one_bpmn.api.property_panel.update_element_properties",
 				method: "POST",
 				params: {
 					model_name: modelName,
-					task_id: taskId,
-					assignment: JSON.stringify(assignment),
+					element_id: taskId,
+					properties: JSON.stringify(assignment),
 				},
 			});
 			if (res && res.updated) touchedReassignModels.add(modelName);
@@ -1354,8 +1355,8 @@ async function flushReassignments() {
 			const msg =
 				err.messages && err.messages.length
 					? err.messages.join("\n")
-					: err.message || "Failed to save the reassignment.";
-			showNotification("Reassignment failed", msg, "red", true);
+					: err.message || "Failed to save the property change.";
+			showNotification("Property change failed", msg, "red", true);
 		}
 	}
 }
@@ -1372,7 +1373,7 @@ async function finalizeReassignments() {
 	for (const modelName of models) {
 		try {
 			const res = await frappeRequest({
-				url: "/api/method/one_bpmn.api.reassignment.deploy_reassignments",
+				url: "/api/method/one_bpmn.api.property_panel.deploy_property_changes",
 				method: "POST",
 				params: { model_name: modelName },
 			});
@@ -1384,15 +1385,15 @@ async function finalizeReassignments() {
 
 	if (deployFailed) {
 		showNotification(
-			"Reassignments saved — redeploy pending",
-			"Assignment changes were saved and recorded in the version history, but automatic redeploy failed. Click Deploy to apply them to new instances.",
+			"Changes saved — redeploy pending",
+			"Property changes were saved and recorded in the version history, but automatic redeploy failed. Click Deploy to apply them to new instances.",
 			"red",
 			true
 		);
 	} else {
 		showNotification(
-			"Reassignments saved & redeployed",
-			"All assignment changes were saved to the map's version history and the map was redeployed once. New process instances use the new assignment; already-running tasks keep their current assignee.",
+			"Changes saved & redeployed",
+			"All property changes were saved to the map's version history and the map was redeployed once. New process instances use them; already-running instances keep the map they started with.",
 			"green"
 		);
 	}

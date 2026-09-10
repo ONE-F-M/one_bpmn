@@ -308,7 +308,7 @@
 							: !isMobile ? 'w-full md:w-96 overflow-auto' : '',
 						{
 							'properties-panel--readonly': readonly,
-							'properties-panel--reassign': readonly && reassignMode
+							'properties-panel--released': panelReleased
 						}
 					]"
 					:style="isDragging ? { transform: `translateY(${dragOffset}px)`, transition: 'none', willChange: 'transform' } : {}"
@@ -1050,6 +1050,12 @@ import lanePropertiesProviderModule from "@/bpmn/lanePropertiesProvider";
 import propertiesPanelFilterModule from "@/bpmn/propertiesPanelFilter";
 import commentContextPadModule from "@/bpmn/commentContextPad";
 import { encodeHtmlAttr, decodeHtmlAttr } from "@/bpmn/shared/htmlAttrCodec";
+import {
+	PROPERTY_COMMANDS,
+	isLockedElement as isPanelLockedElement,
+	isEditableProperty as isPanelEditableProperty,
+	panelElement,
+} from "@/bpmn/shared/releasedPanel";
 
 // bpmnlint — diagram validation
 import lintModule from "bpmn-js-bpmnlint";
@@ -1083,9 +1089,10 @@ const props = defineProps({
 		type: Boolean,
 		default: false
 	},
-	// "Reassign User Task" mode — while readonly, selectively re-enables the
-	// Assignment Configuration fields of User Tasks (Assignment Mode, User,
-	// DocField, Users, Table Field). All other editing stays blocked.
+	// "Release Property Panel" mode — while readonly, re-enables the properties
+	// panel for flow objects, minus script tasks, AI Agent tasks, sequence flows
+	// and the attributes that would break the map. Structural editing (moving,
+	// deleting, connecting) stays blocked.
 	reassignMode: {
 		type: Boolean,
 		default: false
@@ -1463,6 +1470,15 @@ const isImporting = ref(false);
 // const showMinimap = ref(true); // DISABLED
 const selectedElements = shallowRef([]);
 const modelerInstance = shallowRef(null);
+
+// Is the panel in front of us actually editable? Released mode is per element:
+// a script task, an AI Agent task or a sequence flow keeps its read-only panel
+// even while the rest of the map's properties are open for editing.
+const panelReleased = computed(() => {
+	if (!props.readonly || !props.reassignMode) return false;
+	const element = panelElement(selectedElements.value);
+	return !!element && !isPanelLockedElement(element.businessObject);
+});
 
 // Mobile responsiveness
 const { isMobile } = useWindowSize();
@@ -2362,25 +2378,25 @@ onMounted(async () => {
 				// Intercept commandStack to prevent any model mutations
 				const originalExecute = commandStack.execute.bind(commandStack);
 
-				// "Reassign User Task" mode: the ONLY mutation allowed while
-				// readonly is updating the whitelisted assignment attributes
-				// of a User Task from the properties panel.
-				const REASSIGN_ATTRS = [
-					"spiffworkflow:assigneeMode",
-					"spiffworkflow:assigneeUser",
-					"spiffworkflow:assigneeDocfield",
-					"spiffworkflow:assigneeUsers",
-					"spiffworkflow:assigneeTableField",
-					"spiffworkflow:assigneeTableUserField",
-				];
-				const isReassignCommand = (command, context) => {
+				// "Release Property Panel" mode: while readonly, the properties
+				// panel may edit flow objects — but only what a step DOES, never
+				// what the map IS. The carve-outs live in
+				// @/bpmn/shared/releasedPanel and mirror
+				// one_bpmn/api/property_panel.py, which enforces them again on
+				// save; that module's header explains each one.
+				const isPropertyCommand = (command, context) => {
 					if (!props.reassignMode) return false;
-					if (command !== "element.updateModdleProperties") return false;
+					if (!PROPERTY_COMMANDS.includes(command)) return false;
 					const bo = context?.element?.businessObject;
-					if (!bo || bo.$type !== "bpmn:UserTask") return false;
-					if (context.moddleElement !== bo) return false;
+					if (isPanelLockedElement(bo)) return false;
+					// A moddle update may target a nested element (an extension
+					// element, a timer definition); only the shape's own
+					// properties are saved by the endpoint.
+					if (command === "element.updateModdleProperties" && context.moddleElement !== bo) {
+						return false;
+					}
 					const keys = Object.keys(context.properties || {});
-					return keys.length > 0 && keys.every((k) => REASSIGN_ATTRS.includes(k));
+					return keys.length > 0 && keys.every(isPanelEditableProperty);
 				};
 
 				commandStack.execute = (command, context) => {
@@ -2389,14 +2405,16 @@ onMounted(async () => {
 					if (allowedCommands.includes(command)) {
 						return originalExecute(command, context);
 					}
-					if (isReassignCommand(command, context)) {
+					if (isPropertyCommand(command, context)) {
 						const result = originalExecute(command, context);
 						const bo = context.element.businessObject;
-						const assignment = {};
-						REASSIGN_ATTRS.forEach((attr) => {
-							assignment[attr.split(":")[1]] = bo.get(attr) || "";
+						// Send back exactly the keys this command touched, so a
+						// property the panel did not change is never rewritten.
+						const properties = {};
+						Object.keys(context.properties || {}).forEach((key) => {
+							properties[String(key).split(":").pop()] = bo.get(key) || "";
 						});
-						emit("reassign-changed", { taskId: bo.id, assignment });
+						emit("reassign-changed", { taskId: bo.id, assignment: properties });
 						return result;
 					}
 					// Silently ignore all other commands
@@ -3791,14 +3809,34 @@ function getAvatarColor(userName) {
 	opacity: 1;
 }
 
-/* ── Reassign User Task Mode ────────────────────────
-   While readonly, re-enable ONLY the User Task Assignment Configuration
-   fields (Assignment Mode, User, DocField, Users, Table Field). */
-.properties-panel--reassign [data-entry-id^="spiffworkflow-assignee"] input,
-.properties-panel--reassign [data-entry-id^="spiffworkflow-assignee"] select,
-.properties-panel--reassign [data-entry-id^="spiffworkflow-assignee"] button {
+/* ── Release Property Panel ─────────────────────────
+   The class is only on the panel of an element whose properties may be edited
+   (see panelReleased), so every field in it comes back to life… */
+.properties-panel--released input,
+.properties-panel--released textarea,
+.properties-panel--released select,
+.properties-panel--released button {
 	pointer-events: auto !important;
 	opacity: 1;
+}
+
+/* …except the attributes that stay locked everywhere. The command-stack guard
+   and property_panel.py both refuse these; leaving them lit would invite an
+   edit that is silently dropped. Entry ids are "id" for the plain BPMN
+   attribute, "spiffworkflow-<attr>" for the rest — hence the two spellings of
+   script: "spiffworkflow-preScript" and bpmn-js's own "scriptFormat". */
+.properties-panel--released [data-entry-id="id"] input,
+.properties-panel--released [data-entry-id$="serviceType"] input,
+.properties-panel--released [data-entry-id$="serviceType"] select,
+.properties-panel--released [data-entry-id$="calledElement"] input,
+.properties-panel--released [data-entry-id*="Script"] input,
+.properties-panel--released [data-entry-id*="Script"] textarea,
+.properties-panel--released [data-entry-id*="Script"] select,
+.properties-panel--released [data-entry-id^="script"] input,
+.properties-panel--released [data-entry-id^="script"] textarea,
+.properties-panel--released [data-entry-id^="script"] select {
+	pointer-events: none !important;
+	opacity: 0.7;
 }
 
 /* Read-only "launch a viewer" buttons — the Script Task "Launch Logix"
