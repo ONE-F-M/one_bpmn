@@ -6,6 +6,10 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_to_date, cint, now_datetime
 
+# Size of the embedding VECTOR column. Must match the embedding model
+# (one_bpmn.agents.llm_provider.embedding); all-MiniLM-L6-v2 is 384.
+EMBEDDING_DIMENSIONS = 384
+
 
 class AIMemory(Document):
 	@staticmethod
@@ -118,6 +122,7 @@ def on_doctype_update():
 	frappe.db.add_index("AI Memory", ["memory_scope", "agent_element"])
 	frappe.db.add_index("AI Memory", ["reference_doctype", "reference_name"])
 	_add_content_fulltext_index()
+	add_embedding_column()
 
 
 def _add_content_fulltext_index():
@@ -137,4 +142,31 @@ def _add_content_fulltext_index():
 		frappe.logger("one_bpmn").warning(
 			f"AI Memory: could not create FULLTEXT index on content; "
 			f"keyword search will use `like` filters. {e}"
+		)
+
+
+def add_embedding_column():
+	"""Add the ``embedding`` VECTOR column on MariaDB 11.7+.
+
+	The column is deliberately NOT declared in ``ai_memory.json``: Frappe has no
+	VECTOR fieldtype and would rewrite the column type on every migrate. Frappe
+	ignores table columns it does not know about (``Meta.get_valid_columns``),
+	so the column is invisible to ``get_doc``/``as_dict`` and only the raw SQL in
+	``agents.memory.tools`` touches it.
+
+	On an older MariaDB the ALTER fails, the warning is logged and semantic
+	search stays off; keyword retrieval is unaffected. Idempotent, so the
+	backfill job can call it too.
+	"""
+	table = "tabAI Memory"
+	try:
+		if not frappe.db.has_column("AI Memory", "embedding"):
+			frappe.db.sql_ddl(f"ALTER TABLE `{table}` ADD COLUMN `embedding` VECTOR({EMBEDDING_DIMENSIONS}) NULL")
+			# has_column reads a cached column list; drop it so the new column
+			# is seen by the next search or write without waiting for a restart.
+			frappe.cache.hdel("table_columns", table)
+	except Exception as e:
+		frappe.logger("one_bpmn").warning(
+			f"AI Memory: could not add the embedding VECTOR column (MariaDB 11.7+ required); "
+			f"semantic search is off, keyword search continues. {e}"
 		)

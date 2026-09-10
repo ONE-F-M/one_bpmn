@@ -44,6 +44,8 @@
   "default_memory_reconcile_model",
   "default_compaction_model",
   "default_context_token_budget",
+  "memory_embedding_model",
+  "memory_semantic_weight",
   "section_break_conversation_retention",
   "conversation_ttl_days",
   "column_break_conversation_retention",
@@ -580,11 +582,25 @@
    "fieldtype": "Data",
    "label": "Copilot Enterprise Slug",
    "mandatory_depends_on": "eval:doc.mcp_tools_enabled"
+  },
+  {
+   "default": "sentence-transformers/all-MiniLM-L6-v2",
+   "description": "fastembed model used for semantic memory search. It must produce 384 dimensions. Blank uses the default.",
+   "fieldname": "memory_embedding_model",
+   "fieldtype": "Data",
+   "label": "Embedding Model"
+  },
+  {
+   "default": "0.6",
+   "description": "Share of the memory search score that comes from meaning, from 0 to 1. The rest comes from keyword match. 1 ranks by meaning only, 0 by keywords only.",
+   "fieldname": "memory_semantic_weight",
+   "fieldtype": "Float",
+   "label": "Semantic Weight"
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-08-24 12:00:00.000000",
+ "modified": "2026-09-09 20:00:00.000000",
  "modified_by": "s.shariff@one-fm.com",
  "module": "ONE BPMN",
  "name": "Processa Settings",

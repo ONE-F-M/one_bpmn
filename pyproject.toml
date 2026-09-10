@@ -27,6 +27,9 @@ dependencies = [
     # they drop it, the A2A door would fail on import. Declared here because
     # this app imports it directly.
     "jsonschema>=4.20",
+    # Local ONNX sentence embeddings for AI Memory semantic search. No PyTorch;
+    # the model files are fetched once per bench into sites/.fastembed.
+    "fastembed>=0.8",
 ]
 
 
