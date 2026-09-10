@@ -11,6 +11,7 @@
   "process_model",
   "reference_doctype",
   "reference_name",
+  "user",
   "section_break_content",
   "content",
   "importance",
@@ -71,6 +72,15 @@
    "mandatory_depends_on": "eval:doc.memory_scope=='Entity'",
    "options": "reference_doctype",
    "description": "The specific business document this memory is about. Required for Entity scope."
+  },
+  {
+   "description": "Set when the memory belongs to one person. Recall for that person returns their own memories plus the shared ones (no user); nobody else ever sees them. Empty means shared within the scope.",
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "User",
+   "options": "User"
   },
   {
    "fieldname": "section_break_content",
@@ -173,7 +183,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-09-10 11:00:00.000000",
+ "modified": "2026-09-10 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Memory",

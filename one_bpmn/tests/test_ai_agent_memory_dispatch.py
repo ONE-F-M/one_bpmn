@@ -885,3 +885,33 @@ class TestRecallObservability(FrappeTestCase):
 			)
 		kwargs = self.create_ai_run_mock.call_args.kwargs
 		self.assertEqual(kwargs["memory_injected_tokens"], 0)
+
+
+class TestMemoryTargetUserScope(FrappeTestCase):
+	"""_resolve_memory_target: User scopes carry the requesting user, the blank
+	default follows the agent type, and Agent-only never carries a user."""
+
+	def _target(self, scope, agent_type="Chat", user="alice@example.com"):
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers as D
+
+		instance = SimpleNamespace(process_model="PM-1", context_doctype="Employee", context_docname="EMP-1")
+		cfg = {"aiMemoryScope": scope, "aiAgentConfig": "CFG-1"}
+		with patch("frappe.db.get_value", return_value=agent_type), patch.object(D, "_requesting_user", return_value=user):
+			return D._resolve_memory_target(cfg, instance, "Act_1")
+
+	def test_blank_scope_defaults_by_agent_type(self):
+		self.assertEqual(self._target("", "Chat"), ("Agent", {"agent_element": "Act_1", "user": "alice@example.com"}))
+		self.assertEqual(self._target("", "Background"), ("Agent", "Act_1"))
+
+	def test_agent_only_carries_no_user(self):
+		self.assertEqual(self._target("Agent"), ("Agent", "Act_1"))
+
+	def test_user_variants(self):
+		self.assertEqual(self._target("User and Process"), ("Process", {"process": "PM-1", "user": "alice@example.com"}))
+		self.assertEqual(
+			self._target("User and Entity"),
+			("Entity", {"reference_doctype": "Employee", "reference_name": "EMP-1", "user": "alice@example.com"}),
+		)
+
+	def test_guest_falls_back_to_shared(self):
+		self.assertEqual(self._target("User and Agent", user=None), ("Agent", "Act_1"))
