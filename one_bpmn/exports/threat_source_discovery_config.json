@@ -3,7 +3,7 @@
     "source_site": "manual-authoring",
     "export_date": "2026-09-09 00:00:00",
     "exported_by": "Administrator",
-    "version": "1.0"
+    "version": "1.1"
   },
   "server_scripts": [
     {
@@ -20,11 +20,11 @@
       "disabled": 0
     },
     {
-      "name": "Threat Discovery — Validate Existing Sources",
+      "name": "Threat Discovery — Load Existing Approved Sources",
       "script_type": "API",
       "reference_doctype": "",
       "doctype_event": "Before Insert",
-      "script": "import requests\n\nsources = frappe.get_all(\n\t\"Threat Source\",\n\tfilters={\"status\": \"Approved\"},\n\tfields=[\"name\", \"source_name\", \"source_url\", \"source_type\"],\n)\n\nvalidation_results = {}\nfor source in sources:\n\ttry:\n\t\tresponse = requests.head(source.source_url, timeout=20, allow_redirects=True)\n\t\tvalidation_results[source.name] = response.status_code < 400\n\texcept Exception:\n\t\tvalidation_results[source.name] = False\n\nresult[\"existing_sources\"] = sources\nresult[\"validation_results\"] = validation_results\n",
+      "script": "result[\"existing_sources\"] = frappe.get_all(\n\t\"Threat Source\",\n\tfilters={\"status\": \"Approved\"},\n\tfields=[\"name\", \"source_name\", \"source_url\", \"source_type\"],\n)\n",
       "api_method": "",
       "allow_guest": 0,
       "event_frequency": "All",
@@ -33,11 +33,11 @@
       "disabled": 0
     },
     {
-      "name": "Threat Discovery — Check Duplicates & Reachability",
+      "name": "Threat Discovery — Check Duplicates",
       "script_type": "API",
       "reference_doctype": "",
       "doctype_event": "Before Insert",
-      "script": "from urllib.parse import urlparse\n\nimport requests\n\n\ndef _normalize_url(url):\n\tif not url:\n\t\treturn \"\"\n\tparsed = urlparse(url.lower())\n\thostname = parsed.hostname.replace(\"www.\", \"\") if parsed.hostname else \"\"\n\tpath = parsed.path.rstrip(\"/\")\n\treturn f\"{hostname}{path}\"\n\n\ndef _is_url_reachable(url):\n\ttry:\n\t\tresponse = requests.head(url, timeout=5, allow_redirects=True)\n\t\tif response.status_code < 400:\n\t\t\treturn True\n\t\tresponse = requests.get(url, timeout=5, allow_redirects=True)\n\t\treturn response.status_code < 400\n\texcept Exception:\n\t\treturn False\n\n\nsuggestions = (task_data.get(\"expansion_result\") or {}).get(\"suggestions\") or []\nreachable = [s for s in suggestions if _is_url_reachable((s.get(\"url\") or \"\").strip())]\n\nexisting_urls_docs = frappe.get_all(\"Threat Source\", fields=[\"source_url\"])\nnormalized_existing_urls = {\n\t_normalize_url(d.source_url) for d in existing_urls_docs if d.source_url\n}\n\nunique_sources = []\nfor suggestion in reachable:\n\tsource_url = (suggestion.get(\"url\") or \"\").strip()\n\tif not source_url:\n\t\tcontinue\n\tnormalized = _normalize_url(source_url)\n\tif normalized not in normalized_existing_urls:\n\t\tunique_sources.append({\n\t\t\t\"source_name\": suggestion.get(\"name\"),\n\t\t\t\"source_type\": suggestion.get(\"type\", \"Other\"),\n\t\t\t\"source_url\": source_url,\n\t\t\t\"discovery_context\": suggestion.get(\"reason\"),\n\t\t\t\"language\": \"English\",\n\t\t})\n\t\tnormalized_existing_urls.add(normalized)\n\nresult[\"extracted_sources\"] = unique_sources\n",
+      "script": "def _normalize_url(url):\n\t# Plain-string normalization (no urllib — BPMN script tasks may not import\n\t# it). Strips scheme/www/trailing slash; unlike urlparse this does not\n\t# separate out query strings, so two URLs differing only by a tracking\n\t# param would not be caught as duplicates here — acceptable since every\n\t# source this pipeline creates lands as status=Pending for human review\n\t# anyway.\n\tif not url:\n\t\treturn \"\"\n\tu = url.strip().lower()\n\tfor prefix in (\"https://\", \"http://\"):\n\t\tif u.startswith(prefix):\n\t\t\tu = u[len(prefix):]\n\t\t\tbreak\n\tif u.startswith(\"www.\"):\n\t\tu = u[4:]\n\treturn u.rstrip(\"/\")\n\n\nsuggestions = (task_data.get(\"expansion_result\") or {}).get(\"suggestions\") or []\n\nexisting_urls_docs = frappe.get_all(\"Threat Source\", fields=[\"source_url\"])\nnormalized_existing_urls = {\n\t_normalize_url(d.source_url) for d in existing_urls_docs if d.source_url\n}\n\nunique_sources = []\nfor suggestion in suggestions:\n\tsource_url = (suggestion.get(\"url\") or \"\").strip()\n\tif not source_url:\n\t\tcontinue\n\tnormalized = _normalize_url(source_url)\n\tif normalized not in normalized_existing_urls:\n\t\tunique_sources.append({\n\t\t\t\"source_name\": suggestion.get(\"name\"),\n\t\t\t\"source_type\": suggestion.get(\"type\", \"Other\"),\n\t\t\t\"source_url\": source_url,\n\t\t\t\"discovery_context\": suggestion.get(\"reason\"),\n\t\t\t\"language\": \"English\",\n\t\t})\n\t\tnormalized_existing_urls.add(normalized)\n\nresult[\"extracted_sources\"] = unique_sources\n",
       "api_method": "",
       "allow_guest": 0,
       "event_frequency": "All",
@@ -50,7 +50,7 @@
       "script_type": "API",
       "reference_doctype": "",
       "doctype_event": "Before Insert",
-      "script": "saved_sources = []\nsaved_keywords = []\n\nfor kw in (task_data.get(\"keyword_result\") or {}).get(\"keywords\") or []:\n\tkeyword_name = (kw.get(\"keyword\") or \"\").strip()\n\tif not keyword_name or frappe.db.exists(\"Threat Keyword\", {\"keyword\": keyword_name}):\n\t\tcontinue\n\tkeyword_doc = frappe.get_doc({\n\t\t\"doctype\": \"Threat Keyword\",\n\t\t\"keyword\": keyword_name,\n\t\t\"language\": kw.get(\"language\", \"English\"),\n\t\t\"source_type\": \"AI Generated\",\n\t\t\"is_active\": 1,\n\t\t\"date_added\": frappe.utils.today(),\n\t})\n\tkeyword_doc.insert(ignore_permissions=True)\n\tsaved_keywords.append(keyword_doc.name)\n\nfor source in task_data.get(\"extracted_sources\") or []:\n\tsource_doc = frappe.get_doc({\n\t\t\"doctype\": \"Threat Source\",\n\t\t\"source_name\": source.get(\"source_name\"),\n\t\t\"source_type\": source.get(\"source_type\", \"Other\"),\n\t\t\"source_url\": source.get(\"source_url\"),\n\t\t\"language\": source.get(\"language\", \"English\"),\n\t\t\"discovery_context\": source.get(\"discovery_context\"),\n\t\t\"status\": \"Pending\",\n\t\t\"discovered_date\": frappe.utils.now(),\n\t})\n\tsource_doc.insert(ignore_permissions=True)\n\tsaved_sources.append(source_doc.name)\n\nfrappe.db.commit()\n\nresult[\"saved_sources\"] = saved_sources\nresult[\"saved_keywords\"] = saved_keywords\n",
+      "script": "saved_sources = []\nsaved_keywords = []\n\nfor kw in (task_data.get(\"keyword_result\") or {}).get(\"keywords\") or []:\n\tkeyword_name = (kw.get(\"keyword\") or \"\").strip()\n\tif not keyword_name or frappe.db.exists(\"Threat Keyword\", {\"keyword\": keyword_name}):\n\t\tcontinue\n\tkeyword_doc = frappe.get_doc({\n\t\t\"doctype\": \"Threat Keyword\",\n\t\t\"keyword\": keyword_name,\n\t\t\"language\": kw.get(\"language\", \"English\"),\n\t\t\"source_type\": \"AI Generated\",\n\t\t\"is_active\": 1,\n\t\t\"date_added\": frappe.utils.today(),\n\t})\n\tkeyword_doc.insert()\n\tsaved_keywords.append(keyword_doc.name)\n\nfor source in task_data.get(\"extracted_sources\") or []:\n\tsource_doc = frappe.get_doc({\n\t\t\"doctype\": \"Threat Source\",\n\t\t\"source_name\": source.get(\"source_name\"),\n\t\t\"source_type\": source.get(\"source_type\", \"Other\"),\n\t\t\"source_url\": source.get(\"source_url\"),\n\t\t\"language\": source.get(\"language\", \"English\"),\n\t\t\"discovery_context\": source.get(\"discovery_context\"),\n\t\t\"status\": \"Pending\",\n\t\t\"discovered_date\": frappe.utils.now(),\n\t})\n\tsource_doc.insert()\n\tsaved_sources.append(source_doc.name)\n\nfrappe.db.commit()\n\nresult[\"saved_sources\"] = saved_sources\nresult[\"saved_keywords\"] = saved_keywords\n",
       "api_method": "",
       "allow_guest": 0,
       "event_frequency": "All",

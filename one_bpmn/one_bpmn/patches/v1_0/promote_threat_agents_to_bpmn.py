@@ -4,7 +4,18 @@ WI-002203: Promote the two Threat Intelligence AI Agent Configurations
 retired LangGraph pipeline onto the new "Threat Source Discovery" BPMN
 Process Model.
 
-Two things need fixing, both safe to run before the map is imported:
+Four things need fixing, all safe to run before the map is imported:
+
+0. agent_type. Neither onefm_mcp seed patch (seed_threat_source_expander_config,
+   seed_threat_keyword_generator_config) ever set it, so both configs sat on the
+   doctype's default, "Chat" — despite neither having a chat surface; this
+   pipeline calls them purely as LLM steps inside a batch process. Left on
+   "Chat" they never reach lifecycle_status=Live (BackgroundLifecycle's
+   auto-promotion in apply_background_lifecycle only runs for agent_type=
+   "Background"), and compile_process_model refuses to deploy any AI Agent
+   Task whose linked configuration isn't Live. Confirmed live: this migrate
+   run hit exactly that ("AI Agent Configuration 'Threat Source Expander' is
+   Draft") before agent_type was corrected here.
 
 1. Their system_prompt still carries the old pipeline's str.format-style
    placeholders ({source_list}, {existing_keywords}, {max_keywords}) — that
@@ -12,11 +23,28 @@ Two things need fixing, both safe to run before the map is imported:
    BPMN engine's Jinja renderer, so it would now leak into the LLM call as
    literal text. The per-run data has moved to the "Threat Source Discovery"
    map's aiUserPrompt (Jinja) on the two AI Agent Task shapes, so the
-   configuration's system_prompt only needs the static analyst framing.
+   configuration's system_prompt only needs the static analyst framing —
+   and required_variables (which validate_required_variables() checks
+   against system_prompt on every save) has to be cleared alongside it, or
+   save() throws "required variables are missing" the moment the
+   placeholder it's expecting is gone. Confirmed live: this migrate run
+   hit exactly that on Threat Source Expander before required_variables
+   was cleared here too.
 
 2. process_model links the configuration to the map so agent_framework
    (LangGraph, a legacy-runner label) stops mattering — "ignored the moment
    a Process Model is linked" per the doctype's own field description.
+
+3. ai_model was never set by either onefm_mcp seed patch either — the old
+   pipeline called its own get_llm() rather than the AI Model catalog, so
+   there was nothing to migrate. validate_agent_config() (the check this
+   platform's go-live flow runs, WI-001621) hard-fails on a blank ai_model
+   ("No AI Model is linked"), so without this these configs can never pass
+   validation at all, let alone reach Live. Points at claude-sonnet-5 to
+   match what these agents were specified for; if that catalog entry has
+   no working credentials on a given site, that's a site config gap for
+   whoever administers it, not something this patch should route around
+   by silently picking a different, cheaper model.
 
 The map itself ships as exports/threat_source_discovery.bpmn +
 _config.json, imported by hand through the /spiff editor per environment
@@ -66,8 +94,20 @@ def execute():
 		doc = frappe.get_doc("AI Agent Configuration", name)
 		changed = False
 
+		if doc.agent_type != "Background":
+			doc.agent_type = "Background"
+			changed = True
+
 		if doc.system_prompt != static_prompt:
 			doc.system_prompt = static_prompt
+			changed = True
+
+		if (doc.get("required_variables") or "[]") != "[]":
+			doc.required_variables = "[]"
+			changed = True
+
+		if not doc.get("ai_model") and frappe.db.exists("AI Model", "claude-sonnet-5"):
+			doc.ai_model = "claude-sonnet-5"
 			changed = True
 
 		if model_exists and doc.get("process_model") != _PROCESS_MODEL:

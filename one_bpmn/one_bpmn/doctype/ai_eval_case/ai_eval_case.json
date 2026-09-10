@@ -20,7 +20,8 @@
   "input_user_prompt",
   "input_context",
   "expected_output",
-  "assertions"
+  "assertions",
+  "expected_tool_calls"
  ],
  "fields": [
   {
@@ -117,6 +118,13 @@
    "label": "Source Feedback",
    "options": "AI Response Feedback",
    "read_only": 1
+  },
+  {
+   "description": "The calls a tool_calls assertion checks the run's trace against. Rows sharing a Call number describe the same call.",
+   "fieldname": "expected_tool_calls",
+   "fieldtype": "Table",
+   "label": "Expected Tool Calls",
+   "options": "AI Eval Expected Tool Call"
   }
  ],
  "index_web_pages_for_search": 1,
