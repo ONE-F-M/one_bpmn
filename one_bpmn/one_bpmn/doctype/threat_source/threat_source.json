@@ -1,0 +1,169 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:TS-{####}",
+ "creation": "2025-10-23 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "source_name",
+  "source_type",
+  "column_break_1",
+  "source_url",
+  "language",
+  "discovery_context",
+  "section_break_1",
+  "keywords_matched",
+  "section_break_2",
+  "status",
+  "discovered_date",
+  "column_break_2",
+  "reviewed_by",
+  "reviewed_date",
+  "rejection_reason",
+  "section_break_3",
+  "last_scraped",
+  "column_break_3",
+  "scrape_frequency"
+ ],
+ "fields": [
+  {
+   "fieldname": "source_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Source Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "source_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Source Type",
+   "options": "News Website\nForum\nBlog\nReddit\nQuora\nMedium\nTelegram\nTwitter\nxAI Agentic Search\nOther",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "source_url",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Source URL",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "language",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Language",
+   "options": "English\nArabic\nBoth",
+   "reqd": 1
+  },
+  {
+   "fieldname": "discovery_context",
+   "fieldtype": "Long Text",
+   "label": "Discovery Context"
+  },
+  {
+   "fieldname": "section_break_1",
+   "fieldtype": "Section Break",
+   "label": "Keywords Matched"
+  },
+  {
+   "fieldname": "keywords_matched",
+   "fieldtype": "Table",
+   "label": "Keywords Matched",
+   "options": "Threat Source Keyword"
+  },
+  {
+   "fieldname": "section_break_2",
+   "fieldtype": "Section Break",
+   "label": "Approval Status"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Pending\nApproved\nRejected",
+   "reqd": 1
+  },
+  {
+   "fieldname": "discovered_date",
+   "fieldtype": "Datetime",
+   "label": "Discovered Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reviewed_by",
+   "fieldtype": "Link",
+   "label": "Reviewed By",
+   "options": "User"
+  },
+  {
+   "fieldname": "reviewed_date",
+   "fieldtype": "Datetime",
+   "label": "Reviewed Date"
+  },
+  {
+   "fieldname": "rejection_reason",
+   "fieldtype": "Small Text",
+   "label": "Rejection Reason"
+  },
+  {
+   "fieldname": "section_break_3",
+   "fieldtype": "Section Break",
+   "label": "Additional Info"
+  },
+  {
+   "fieldname": "last_scraped",
+   "fieldtype": "Datetime",
+   "label": "Last Scraped"
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "2",
+   "fieldname": "scrape_frequency",
+   "fieldtype": "Int",
+   "label": "Scrape Frequency"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-10-28 19:18:26.961877",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "Threat Source",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "search_fields": "source_name, source_url",
+ "show_title_field_in_link": 1,
+ "sort_field": "discovered_date",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "source_name",
+ "track_changes": 1
+}

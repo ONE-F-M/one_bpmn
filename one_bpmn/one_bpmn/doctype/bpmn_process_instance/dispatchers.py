@@ -1727,6 +1727,24 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	# allow-list were both quietly absent on exactly the production path.
 	_prev_delegating_agent = getattr(instance, "_a2a_delegating_agent", None)
 	instance._a2a_delegating_agent = task_cfg.get("aiAgentConfig")
+
+	# WI-002190: on a tool-calling run the system and user steps are written
+	# BEFORE the loop starts. A model call made from inside a tool script is
+	# recorded as a step while the loop runs, numbered after whatever steps
+	# exist at that moment; writing these two afterwards handed them the same
+	# indexes (seen live: two steps numbered 1 on run jt89pn9jur). A resume
+	# recorded them at first dispatch and appends only the resumed turns.
+	if run and not getattr(run, "stub", False) and tool_specs and not resume_payload:
+		try:
+			from one_bpmn.agents.observability import record_ai_step as _record_prompt_step
+
+			_record_prompt_step(run, 1, "system", system_prompt)
+			_record_prompt_step(run, 2, "user", user_prompt)
+		except Exception:
+			frappe.log_error(
+				title=f"AI Observability: prompt step recording failed ({bpmn_id})",
+				message=frappe.get_traceback(),
+			)
 	try:
 		executor_cls = get_executor(config.backend)
 		result = executor_cls().run(config, context)
@@ -1780,12 +1798,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				# carries one turn per LLM call. Record it with the shared
 				# recorder — one Step per turn, one ai_agent_tool_call row per
 				# call, tool_source = diagram_task (the shapes are the tools).
-				# On resume, system/user steps were recorded at dispatch time —
-				# only the resumed segment's turns are appended.
+				# The system and user steps were written before the loop ran
+				# (see above), on first dispatch and on resume alike; only the
+				# turns are appended here.
 				from one_bpmn.agents.observability import record_selector_turns
-				if not resume_payload:
-					record_ai_step(run, 1, "system", system_prompt)
-					record_ai_step(run, 2, "user", user_prompt)
 				source_map = {t.name: "diagram_task" for t in tool_specs}
 				record_selector_turns(run, result.trace or [], source_map)
 			else:

@@ -124,3 +124,38 @@ test('unrelated nodes still take their own column (no pile-up in one cell)', () 
   const xs = [...r.xml.matchAll(/bpmnElement="(?:a|b|c|d|e1|f)">\s*<dc:Bounds x="(\d+)"/g)].map(m => +m[1]);
   assert.equal(new Set(xs).size, 6, 'six distinct columns');
 });
+
+test('resolved task attributes reach the XML, namespaced', () => {
+  // attrs are what bpmn_task_config.py produces; the compiler writes them as-is.
+  const r = run({
+    name: 'Visa', lanes,
+    nodes: [node('s', 'startEvent'),
+      { id: 'u1', type: 'userTask', name: 'Review', lane: 'a',
+        attrs: { targetDoctype: 'Visa Request', assigneeMode: 'DocField',
+                 taskActions: '[{"action":"Approve","confirmTransition":"true"}]' } },
+      { id: 'v1', type: 'serviceTask', name: 'Send for approval', lane: 'a',
+        attrs: { serviceType: 'apply_workflow', serviceTargetDoctype: 'Visa Request',
+                 workflowState: 'Pending GRD Manager Approval', docStatus: '0' } },
+      node('e', 'endEvent')],
+    flows: [{ from: 's', to: 'u1' }, { from: 'u1', to: 'v1' }, { from: 'v1', to: 'e' }],
+  });
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+  assert.match(r.xml, /xmlns:spiffworkflow="http:\/\/spiffworkflow\.org\/bpmn\/schema\/1\.0\/core"/);
+  assert.match(r.xml, /spiffworkflow:serviceType="apply_workflow"/);
+  assert.match(r.xml, /spiffworkflow:workflowState="Pending GRD Manager Approval"/);
+  assert.match(r.xml, /spiffworkflow:assigneeMode="DocField"/);
+  // JSON survives attribute escaping and comes back parseable.
+  const raw = /spiffworkflow:taskActions="([^"]*)"/.exec(r.xml)[1].replace(/&#34;/g, '"');
+  assert.equal(JSON.parse(raw)[0].action, 'Approve');
+});
+
+test('a diagram with no configured task declares no spiffworkflow namespace', () => {
+  // Every diagram generated before configuration existed must be unchanged.
+  const r = run({
+    name: 'Plain', lanes,
+    nodes: [node('s', 'startEvent'), node('t1'), node('e', 'endEvent')],
+    flows: [{ from: 's', to: 't1' }, { from: 't1', to: 'e' }],
+  });
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+  assert.equal(r.xml.includes('spiffworkflow'), false);
+});

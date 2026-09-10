@@ -17,9 +17,10 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 import json
+import re
 
 import frappe
-from frappe.utils import flt, now_datetime
+from frappe.utils import cint, flt, now_datetime
 
 from one_bpmn.agents.executor import ErrorCode, ExecutorConfig, ExecutorResult
 from one_bpmn.agents.pricing import compute_token_cost
@@ -501,6 +502,32 @@ def record_ai_step(
 # and are already recorded — can never be counted twice. No scope, no step.
 _SUB_CALL_FLAG = "bpmn_ai_sub_call"
 _CURRENT_RUN_FLAG = "bpmn_ai_current_run"
+# The 1-based number of the loop turn whose tools are running right now. Set by
+# the step loop before it executes a turn's tool calls; read here so a sub-call
+# step records which turn made it. None outside a tool loop.
+SUB_CALL_TURN_FLAG = "bpmn_ai_sub_call_turn"
+
+_SUB_CALL_TAG = re.compile(r"^\[sub-call: (?P<tool>.+?) via (?P<model>[^;\]]*?)(?:; turn (?P<turn>\d+))?\]")
+
+
+def sub_call_tag(tool: str, model: str, turn_no: int | None = None) -> str:
+	"""The first line of a sub-call step: which tool spent this, on which
+	model, and (when known) during which turn of the loop."""
+	suffix = f"; turn {int(turn_no)}" if turn_no else ""
+	return f"[sub-call: {tool or 'tool'} via {model}{suffix}]"
+
+
+def parse_sub_call(content: str) -> dict | None:
+	"""Read a sub-call step's tag back. None for an ordinary step."""
+	match = _SUB_CALL_TAG.match(content or "")
+	if not match:
+		return None
+	turn = match.group("turn")
+	return {
+		"tool": match.group("tool"),
+		"model": match.group("model").strip(),
+		"turn_no": int(turn) if turn else None,
+	}
 
 
 def current_run_name() -> str | None:
@@ -560,7 +587,8 @@ def record_sub_call(model: str, result, latency_ms: int = 0) -> frappe.Document 
 			run,
 			step_index,
 			"assistant",
-			f"[sub-call: {scope.get('tool') or 'tool'} via {model}]\n"
+			sub_call_tag(scope.get("tool") or "tool", model, frappe.flags.get(SUB_CALL_TURN_FLAG))
+			+ "\n"
 			+ (getattr(result, "text", "") or ""),
 			prompt_tokens=getattr(result, "prompt_tokens", 0) or 0,
 			completion_tokens=getattr(result, "completion_tokens", 0) or 0,
@@ -809,6 +837,10 @@ def _tool_call_status(result) -> str:
 		return "Denied"
 	if text.startswith(("Error calling", "Unknown tool:")):
 		return "Error"
+	# WI-002195 argument validation refuses the call before the script runs;
+	# WI-002190 wants that failure on the step, so it has to classify as one.
+	if text.startswith(("Missing required argument", "Argument '", "Invalid argument for tool", "Arguments for tool")):
+		return "Error"
 	# Shape tools answer in JSON, and a connector that failed, did not run or
 	# was refused says so under "error" — a row reading Success above a body
 	# reading connector_failed is the telemetry version of the problem the
@@ -821,6 +853,40 @@ def _tool_call_status(result) -> str:
 		if isinstance(body, dict) and body.get("error"):
 			return "Denied" if body.get("error") == "not_permitted" else "Error"
 	return "Success"
+
+
+def _existing_steps(run_name: str) -> list:
+	"""The steps already on a run, oldest first, each with its parsed
+	sub-call tag (None for an ordinary step)."""
+	try:
+		rows = frappe.get_all(
+			"AI Agent Step",
+			filters={"run": run_name},
+			fields=["name", "step_index", "content", "creation"],
+			order_by="creation asc, name asc",
+		)
+	except Exception:
+		return []
+	for row in rows:
+		row.sub_call = parse_sub_call(row.content)
+	return rows
+
+
+_TOOL_ERROR_MESSAGE_CHARS = 2000
+
+
+def _tool_failure(tool_calls: list) -> tuple:
+	"""(error_code, error_message) for a turn whose tool calls include a
+	failure, or (None, None). A refused call outranks nothing: an Error is
+	reported as TOOL_ERROR even when another call in the turn was Denied."""
+	failed = [c for c in tool_calls or [] if c.get("status") in ("Error", "Denied")]
+	if not failed:
+		return None, None
+	code = "TOOL_ERROR" if any(c.get("status") == "Error" for c in failed) else "TOOL_DENIED"
+	message = "; ".join(
+		f"{c.get('name') or 'tool'}: {str(c.get('result') or '').strip()}" for c in failed
+	)
+	return code, message[:_TOOL_ERROR_MESSAGE_CHARS]
 
 
 def record_selector_turns(run, trace: list, source_map: dict | None = None) -> int:
@@ -836,14 +902,31 @@ def record_selector_turns(run, trace: list, source_map: dict | None = None) -> i
 	if getattr(run, "stub", False):
 		return 0
 	source_map = source_map or {}
-	# step_index is 1-based: with N steps already recorded, the next is N+1.
-	try:
-		start_index = frappe.db.count("AI Agent Step", {"run": run.name}) + 1
-	except Exception:
-		start_index = 1
+
+	# Numbering (WI-002190). Sub-call steps are written WHILE the loop runs,
+	# each taking "count + 1" at that moment; the loop's own turns are written
+	# here, afterwards. Numbering these from count + 1 too gave a sub-call and
+	# a turn the same index (seen live: two steps numbered 1 on run
+	# jt89pn9jur). The turns are numbered after every ordinary step already
+	# on the run, and each sub-call step is moved to sit right after the turn
+	# that made it, so the run reads in the order it happened.
+	existing = _existing_steps(run.name)
+	sub_calls = [s for s in existing if s.sub_call]
+	ordinary = [s for s in existing if not s.sub_call]
+	next_index = (max((s.step_index for s in ordinary), default=0) or 0) + 1
+	next_index = max(next_index, len(ordinary) + 1)
+	placed: set = set()
+
+	def _place(step_name: str) -> None:
+		nonlocal next_index
+		frappe.db.set_value(
+			"AI Agent Step", step_name, "step_index", next_index, update_modified=False
+		)
+		placed.add(step_name)
+		next_index += 1
 
 	recorded = 0
-	for offset, turn in enumerate(trace or []):
+	for turn in trace or []:
 		tool_calls = [
 			{
 				"name": call.get("name", ""),
@@ -857,9 +940,12 @@ def record_selector_turns(run, trace: list, source_map: dict | None = None) -> i
 			}
 			for call in turn.get("tool_calls") or []
 		]
+		# A tool that failed, was refused, or was never known is a failure of
+		# this step (WI-002190): the fields existed, nothing wrote them.
+		error_code, error_message = _tool_failure(tool_calls)
 		step = record_ai_step(
 			run,
-			start_index + offset,
+			next_index,
 			turn.get("role") or ("tool" if tool_calls else "assistant"),
 			turn.get("content") or "",
 			prompt_tokens=turn.get("prompt_tokens", 0),
@@ -868,9 +954,24 @@ def record_selector_turns(run, trace: list, source_map: dict | None = None) -> i
 			cache_write_tokens=turn.get("cache_write_tokens", 0),
 			latency_ms=turn.get("latency_ms", 0),
 			tool_calls=tool_calls,
+			error_code=error_code,
+			error_message=error_message,
 		)
+		next_index += 1
 		if step is not None:
 			recorded += 1
+		# The sub-calls this turn's tools made come straight after it.
+		turn_no = cint(turn.get("turn_no"))
+		if turn_no:
+			for sub in sub_calls:
+				if sub.name not in placed and sub.sub_call.get("turn_no") == turn_no:
+					_place(sub.name)
+
+	# Sub-calls that named no turn (older data, or a call made outside the
+	# loop) keep their order and follow the turns.
+	for sub in sub_calls:
+		if sub.name not in placed:
+			_place(sub.name)
 
 	# Selector runs stay "Running" for the whole subprocess — roll the
 	# totals up after every decision so the instance page shows live

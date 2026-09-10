@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:spiffworkflow="http://spiffworkflow.org/bpmn/schema/1.0/core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Definitions_ThreatFeedCollection" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="threat_feed_collection_process" name="Threat Feed Collection" isExecutable="true">
+    <bpmn:documentation>Twice-daily scrape of every Approved Threat Source for content matching an active Threat Keyword (WI-002202). Replaces onefm_mcp's LangGraph "Agent 2" (threat_feed_collection_agent): load approved sources and active keywords, scrape each source with the type-specific method it used (web/forum/blog, Reddit via PRAW, Twitter via nitter mirrors, Medium via RSS + full-page fetch, public Telegram channel previews, Quora question links), keep only feeds matching a keyword, then write everything to Threat Feed (deduped by url+source) and bump each matched Threat Keyword's usage_count. No human step and no LLM call — this is a pure background batch pipeline, so there is a single unnamed lane, same as the sibling Threat Source Discovery map (WI-002203).</bpmn:documentation>
+    <bpmn:startEvent id="timer_start" name="Twice-Daily Schedule">
+      <bpmn:outgoing>f1</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerEventDefinition_TwiceDaily">
+        <bpmn:timeCycle xsi:type="bpmn:tFormalExpression">0 8,20 * * *</bpmn:timeCycle>
+      </bpmn:timerEventDefinition>
+    </bpmn:startEvent>
+    <bpmn:scriptTask id="load_sources" name="Load Approved Sources" spiffworkflow:serverScript="Threat Feed Collection — Load Approved Sources" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Threat Feed Collection — Load Approved Sources">
+      <bpmn:documentation>Reads every Threat Source with status=Approved into approved_sources.</bpmn:documentation>
+      <bpmn:incoming>f1</bpmn:incoming>
+      <bpmn:outgoing>f2</bpmn:outgoing>
+    </bpmn:scriptTask>
+    <bpmn:scriptTask id="load_keywords" name="Load Active Keywords" spiffworkflow:serverScript="Threat Feed Collection — Load Active Keywords" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Threat Feed Collection — Load Active Keywords">
+      <bpmn:documentation>Reads every Threat Keyword with is_active=1 into keywords.</bpmn:documentation>
+      <bpmn:incoming>f2</bpmn:incoming>
+      <bpmn:outgoing>f3</bpmn:outgoing>
+    </bpmn:scriptTask>
+    <bpmn:scriptTask id="fetch_content" name="Fetch Content From Sources" spiffworkflow:serverScript="Threat Feed Collection — Fetch Content From Sources" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Threat Feed Collection — Fetch Content From Sources">
+      <bpmn:documentation>For every approved_sources entry, dispatches to the type-specific scraper (web/forum/blog, Reddit/PRAW, Twitter/nitter, Medium/RSS, Telegram, Quora — 1:1 port of the retired scrapers/ package, inlined here since Server Scripts run via plain exec() with the real frappe module, same house convention the sibling Threat Source Discovery map used instead of inventing new BPMN Connector infrastructure for an HTTP call). One source failing does not stop the batch. Updates each scraped Threat Source's last_scraped. Writes collected_feeds.</bpmn:documentation>
+      <bpmn:incoming>f3</bpmn:incoming>
+      <bpmn:outgoing>f4</bpmn:outgoing>
+    </bpmn:scriptTask>
+    <bpmn:scriptTask id="match_keywords" name="Match Keywords In Feeds" spiffworkflow:serverScript="Threat Feed Collection — Match Keywords In Feeds" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Threat Feed Collection — Match Keywords In Feeds">
+      <bpmn:documentation>Language-aware lowercase substring match of each feed's title/content against keywords (global + the feed's own language). Drops feeds with zero matches; identical logic to the retired keyword_matcher.py node.</bpmn:documentation>
+      <bpmn:incoming>f4</bpmn:incoming>
+      <bpmn:outgoing>f5</bpmn:outgoing>
+    </bpmn:scriptTask>
+    <bpmn:scriptTask id="save_feeds" name="Save Feeds To ERP" spiffworkflow:serverScript="Threat Feed Collection — Save Feeds To ERP" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="Threat Feed Collection — Save Feeds To ERP">
+      <bpmn:documentation>Terminal write step. Dedupes on (url, source), creates Threat Feed + keywords_found child rows per surviving feed, commits per feed for resilience, and bulk-increments matched Threat Keyword.usage_count — identical output contract to the retired feed_saver.py node.</bpmn:documentation>
+      <bpmn:incoming>f5</bpmn:incoming>
+      <bpmn:outgoing>f6</bpmn:outgoing>
+    </bpmn:scriptTask>
+    <bpmn:endEvent id="end_collection" name="Collection Complete">
+      <bpmn:incoming>f6</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="f1" sourceRef="timer_start" targetRef="load_sources" />
+    <bpmn:sequenceFlow id="f2" sourceRef="load_sources" targetRef="load_keywords" />
+    <bpmn:sequenceFlow id="f3" sourceRef="load_keywords" targetRef="fetch_content" />
+    <bpmn:sequenceFlow id="f4" sourceRef="fetch_content" targetRef="match_keywords" />
+    <bpmn:sequenceFlow id="f5" sourceRef="match_keywords" targetRef="save_feeds" />
+    <bpmn:sequenceFlow id="f6" sourceRef="save_feeds" targetRef="end_collection" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="Diagram_1">
+    <bpmndi:BPMNPlane id="Plane_1" bpmnElement="threat_feed_collection_process">
+      <bpmndi:BPMNShape id="timer_start_di" bpmnElement="timer_start">
+        <dc:Bounds x="40" y="202" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="14" y="245" width="88" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="load_sources_di" bpmnElement="load_sources">
+        <dc:Bounds x="140" y="180" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="load_keywords_di" bpmnElement="load_keywords">
+        <dc:Bounds x="320" y="180" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="fetch_content_di" bpmnElement="fetch_content">
+        <dc:Bounds x="500" y="180" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="match_keywords_di" bpmnElement="match_keywords">
+        <dc:Bounds x="680" y="180" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="save_feeds_di" bpmnElement="save_feeds">
+        <dc:Bounds x="860" y="180" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="end_collection_di" bpmnElement="end_collection">
+        <dc:Bounds x="1040" y="202" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1016" y="245" width="84" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="f1_di" bpmnElement="f1">
+        <di:waypoint x="76" y="220" />
+        <di:waypoint x="140" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f2_di" bpmnElement="f2">
+        <di:waypoint x="240" y="220" />
+        <di:waypoint x="320" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f3_di" bpmnElement="f3">
+        <di:waypoint x="420" y="220" />
+        <di:waypoint x="500" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f4_di" bpmnElement="f4">
+        <di:waypoint x="600" y="220" />
+        <di:waypoint x="680" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f5_di" bpmnElement="f5">
+        <di:waypoint x="780" y="220" />
+        <di:waypoint x="860" y="220" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f6_di" bpmnElement="f6">
+        <di:waypoint x="960" y="220" />
+        <di:waypoint x="1040" y="220" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
