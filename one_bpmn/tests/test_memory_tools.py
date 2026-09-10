@@ -600,3 +600,108 @@ class TestDistillerImportance(FrappeTestCase):
 		from one_bpmn.agents.memory.distill import _importance
 
 		self.assertEqual([_importance(v) for v in (5, "4", 0, 9, None, "high")], [5, 4, 1, 5, 3, 3])
+
+
+def _decide(action, supersedes):
+	def fake(new_content, candidates, **kwargs):
+		names = [c["name"] for c in candidates][: len(supersedes)] if supersedes == "all" else supersedes
+		return {"action": action, "supersedes": names, "degraded": None}
+
+	return fake
+
+
+_TRUST_CTX = {"provider_name": "p", "backend": "direct_api", "model": "m"}
+
+
+class TestProvenanceTrust(FrappeTestCase):
+	"""Source type, trust hierarchy, confidence and corroboration in memory_write."""
+
+	@property
+	def _CTX(self):
+		return dict(_TRUST_CTX)
+
+	def _write(self, agent, content, **kw):
+		return T.memory_write("Agent", agent, content, ignore_permissions=True, **kw)
+
+	def _row(self, name):
+		return frappe.db.get_value(
+			"AI Memory", name, ["source_type", "confidence", "corroboration_count", "last_corroborated", "expires_on"], as_dict=True
+		)
+
+	def test_defaults_follow_the_source_type(self):
+		agent = f"P_{frappe.generate_hash(length=8)}"
+		plain = self._row(self._write(agent, "agent worked this out")["name"])
+		user = self._row(self._write(agent, "the user said so", user_directed=True)["name"])
+		tool = self._row(self._write(agent, "a report returned this", source_type="Tool Output")["name"])
+		self.assertEqual((plain.source_type, plain.confidence), ("Agent Inference", 0.6))
+		self.assertEqual((user.source_type, user.confidence), ("User Statement", 0.9))
+		self.assertEqual((tool.source_type, tool.confidence), ("Tool Output", 0.4))
+		self.assertEqual(self._row(self._write(agent, "bad type", source_type="Rumour")["name"]).source_type, "Agent Inference")
+
+	def test_user_statement_beats_tool_output_in_a_contradiction(self):
+		agent = f"P_{frappe.generate_hash(length=8)}"
+		stated = self._write(agent, "invoices are approved by the finance lead", user_directed=True)
+		with patch("one_bpmn.agents.memory.reconcile.reconcile", _decide("replace", "all")):
+			result = self._write(
+				agent, "invoices are approved by the warehouse", source_type="Tool Output", reconcile=True, reconcile_ctx=self._CTX
+			)
+		# the standing memory is returned, still valid, and nothing new was written
+		self.assertEqual(result["name"], stated["name"])
+		self.assertIsNone(self._row(stated["name"]).expires_on)
+		self.assertEqual(frappe.db.count("AI Memory", {"agent_element": agent}), 1)
+
+	def test_user_statement_replaces_tool_output(self):
+		agent = f"P_{frappe.generate_hash(length=8)}"
+		inferred = self._write(agent, "invoices are approved by the warehouse", source_type="Tool Output")
+		with patch("one_bpmn.agents.memory.reconcile.reconcile", _decide("replace", "all")):
+			new = self._write(
+				agent, "invoices are approved by the finance lead", user_directed=True, reconcile=True, reconcile_ctx=self._CTX
+			)
+		self.assertNotEqual(new["name"], inferred["name"])
+		self.assertIsNotNone(self._row(inferred["name"]).expires_on)
+		self.assertEqual((new["metadata"] or {}).get("reconcile_action"), "replace")
+
+	def test_equal_trust_falls_back_to_effective_confidence(self):
+		agent = f"P_{frappe.generate_hash(length=8)}"
+		confident = self._write(agent, "the fiscal year starts in April", confidence=0.95)
+		with patch("one_bpmn.agents.memory.reconcile.reconcile", _decide("replace", "all")):
+			result = self._write(agent, "the fiscal year starts in January", confidence=0.5, reconcile=True, reconcile_ctx=self._CTX)
+		self.assertEqual(result["name"], confident["name"])
+
+	def test_restatement_corroborates(self):
+		agent = f"P_{frappe.generate_hash(length=8)}"
+		first = self._write(agent, "ship via DHL for exports")
+		with patch("one_bpmn.agents.memory.reconcile.reconcile", _decide("update", "all")):
+			second = self._write(agent, "exports always go by DHL", reconcile=True, reconcile_ctx=self._CTX)
+		row = self._row(second["name"])
+		self.assertEqual(row.corroboration_count, 1)
+		self.assertIsNotNone(row.last_corroborated)
+		self.assertAlmostEqual(row.confidence, 0.7, places=2)
+		self.assertIsNotNone(self._row(first["name"]).expires_on)
+
+	def test_confidence_decays_with_age(self):
+		now = now_datetime()
+		fresh = {"confidence": 0.8, "modified": now}
+		aged = {"confidence": 0.8, "last_corroborated": add_to_date(now, days=-90)}
+		self.assertAlmostEqual(T.effective_confidence(fresh, now), 0.8)
+		self.assertAlmostEqual(T.effective_confidence(aged, now), 0.4, places=3)
+
+	def test_trust_hierarchy_is_configurable(self):
+		original = frappe.db.get_single_value("Processa Settings", "memory_trust_hierarchy")
+		# set_single_value is not rolled back between tests in a class
+		self.addCleanup(frappe.db.set_single_value, "Processa Settings", "memory_trust_hierarchy", original)
+		frappe.db.set_single_value("Processa Settings", "memory_trust_hierarchy", None)
+		self.assertEqual(T.trust_hierarchy(), ["User Statement", "Agent Inference", "Tool Output"])
+		frappe.db.set_single_value("Processa Settings", "memory_trust_hierarchy", "Tool Output\nUser Statement")
+		order = T.trust_hierarchy()
+		self.assertEqual(order, ["Tool Output", "User Statement"])
+		self.assertGreater(T._trust_rank("Tool Output", order), T._trust_rank("User Statement", order))
+		self.assertEqual(T._trust_rank("Agent Inference", order), 0)
+
+
+class TestDistillerSourceType(FrappeTestCase):
+	def test_source_type_is_normalised(self):
+		from one_bpmn.agents.memory.distill import _source_type
+
+		self.assertEqual([_source_type(v) for v in ("User Statement", "Tool Output", "guess", None)],
+			["User Statement", "Tool Output", "Agent Inference", "Agent Inference"])

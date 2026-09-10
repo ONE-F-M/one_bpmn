@@ -63,8 +63,9 @@ _DISTILL_SCHEMA = json.dumps(
 						"content": {"type": "string"},
 						"topic": {"type": "string"},
 						"importance": {"type": "integer", "minimum": 1, "maximum": 5},
+						"source_type": {"type": "string", "enum": ["User Statement", "Agent Inference", "Tool Output"]},
 					},
-					"required": ["content", "topic", "importance"],
+					"required": ["content", "topic", "importance", "source_type"],
 				},
 			},
 		},
@@ -96,6 +97,9 @@ and an "importance" from 1 to 5: 5 for a rule that changes what the agent must
 do on most future runs (a hard constraint, a standing instruction from the
 user), 3 for a useful preference or pattern, 1 for a minor detail that rarely
 matters. Most facts are 2 or 3.
+Give each fact a "source_type": "User Statement" when the fact is something the
+user said, asked for or decided; "Tool Output" when it is read off data a tool
+or system returned; otherwise "Agent Inference" (the agent's own conclusion).
 If nothing qualifies, return {{"memories": []}}. Prefer returning nothing over
 storing noise."""
 
@@ -169,6 +173,11 @@ def _is_echo(content: str, exclude_context: str) -> bool:
 	return False
 
 
+def _source_type(value) -> str:
+	"""One of the three source types; anything else is an agent inference."""
+	return value if value in ("User Statement", "Agent Inference", "Tool Output") else "Agent Inference"
+
+
 def _importance(value) -> int:
 	"""Clamp the curator's importance to 1..5; anything unusable is the default."""
 	try:
@@ -207,7 +216,7 @@ def distill_memories(
 ) -> list[dict]:
 	"""Extract 0..N durable facts from one interaction.
 
-	Returns a list of ``{content, topic, dedup_key, importance}``; ``[]`` when nothing is
+	Returns a list of ``{content, topic, dedup_key, importance, source_type}``; ``[]`` when nothing is
 	worth remembering. Never raises — any failure yields ``[]`` so the caller
 	(dispatcher / background job) is never blocked.
 
@@ -290,6 +299,12 @@ def distill_memories(
 			continue
 		seen.add(dedup_key)
 		facts.append(
-			{"content": content, "topic": topic, "dedup_key": dedup_key, "importance": _importance(m.get("importance"))}
+			{
+				"content": content,
+				"topic": topic,
+				"dedup_key": dedup_key,
+				"importance": _importance(m.get("importance")),
+				"source_type": _source_type(m.get("source_type")),
+			}
 		)
 	return facts

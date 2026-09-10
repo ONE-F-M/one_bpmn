@@ -149,6 +149,7 @@ def distill_and_write(
 				},
 				source_run=source_run,
 				importance=f.get("importance"),
+				source_type=f.get("source_type"),
 				ignore_permissions=True,
 				reconcile=True,
 				reconcile_ctx=reconcile_ctx,
