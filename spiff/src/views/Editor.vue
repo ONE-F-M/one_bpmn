@@ -302,7 +302,7 @@
 										Review Workflow Objects
 									</button>
 								</template>
-								<!-- Reassign User Task (only on a Production instance) -->
+								<!-- Release Property Panel (only on a Production instance) -->
 								<template v-if="isProductionInstance">
 									<div class="border-t border-gray-100 my-1"></div>
 									<button
@@ -314,7 +314,7 @@
 											{ 'opacity-40 cursor-not-allowed': !activeDiagramName }
 										]"
 									>
-										<Icon icon="lucide:user-cog" class="w-4 h-4" />
+										<Icon :icon="reassignMode ? 'lucide:lock' : 'lucide:lock-open'" class="w-4 h-4" />
 										{{ reassignMode ? 'Lock Property Panel' : 'Release Property Panel' }}
 									</button>
 								</template>
@@ -388,7 +388,7 @@
 										{ 'opacity-40 cursor-not-allowed': !activeDiagramName }
 									]"
 								>
-									<Icon icon="lucide:user-cog" class="w-4 h-4" />
+									<Icon :icon="reassignMode ? 'lucide:lock' : 'lucide:lock-open'" class="w-4 h-4" />
 									{{ reassignMode ? 'Lock Property Panel' : 'Release Property Panel' }}
 								</button>
 							</template>
@@ -1177,7 +1177,7 @@ const showActionsMenu = ref(false);
 const connectToProduction = ref(false);
 // Processa Settings → Instance Type. Gates the environment-specific Actions:
 //   "Review Doctypes" / "Review Workflow Objects" → BA instance only
-//   "Reassign User Task"                          → Production instance only
+//   "Release Property Panel"                      → Production instance only
 const instanceType = ref("");
 const isBaInstance = computed(() => instanceType.value === "BA");
 const isProductionInstance = computed(() => instanceType.value === "Production");
