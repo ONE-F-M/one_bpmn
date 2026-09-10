@@ -34,6 +34,75 @@ class AIEvalCase(Document):
 
     def validate(self):
         self._validate_assertions()
+        self._validate_tool_call_assertions()
+
+    def _validate_tool_call_assertions(self):
+        """A tool_calls assertion needs a mode, expected calls, and — where the
+        agent can act on the world — an order to check.
+
+        ANY_ORDER says nothing about sequence, which is fine for a read-only
+        lookup and not fine for a skill that is allowed to act: reviewing after
+        writing is not the same as reviewing before it, and only the order shows
+        which happened.
+        """
+        from one_bpmn.agents.eval_runner import TOOL_CALL_MODES
+
+        rows = [r for r in self.assertions if r.assertion_type == "tool_calls"]
+        if not rows:
+            return
+
+        for idx, row in enumerate(rows, start=1):
+            mode = (row.value or "").strip().upper()
+            if mode not in TOOL_CALL_MODES:
+                frappe.throw(
+                    _("tool_calls assertion {0}: the value must be one of {1}.").format(
+                        idx, ", ".join(TOOL_CALL_MODES)
+                    ),
+                    title=_("Invalid Tool Call Mode"),
+                )
+            if not self.expected_tool_calls:
+                frappe.throw(
+                    _("tool_calls assertion {0} has nothing to check — add Expected Tool Calls.").format(idx),
+                    title=_("No Expected Tool Calls"),
+                )
+            if mode == "ANY_ORDER" and self._acts_on_the_world():
+                frappe.throw(
+                    _(
+                        "This case tests something that is allowed to act, so its tool calls must be "
+                        "checked in order. Use EXACT or IN_ORDER."
+                    ),
+                    title=_("Order Required"),
+                )
+
+        for idx, row in enumerate(self.expected_tool_calls, start=1):
+            if (row.argument or "").strip() and not (row.expected_value or "").strip():
+                frappe.throw(
+                    _("Expected call {0}: argument {1} has no value to match against.").format(
+                        idx, row.argument
+                    ),
+                    title=_("Missing Expected Value"),
+                )
+
+    def _acts_on_the_world(self) -> bool:
+        """Is this case testing an Action-Allowed skill, or an agent that has one?"""
+        if self.target_skill:
+            if frappe.db.get_value("AI Skill", self.target_skill, "tier") == "Action-Allowed":
+                return True
+
+        agent = frappe.db.get_value("AI Eval Suite", self.suite, "agent_configuration") if self.suite else None
+        if not agent:
+            return False
+
+        enabled = frappe.get_all(
+            "AI Agent Enabled Skill",
+            filters={"parent": agent, "parenttype": "AI Agent Configuration"},
+            pluck="skill",
+        )
+        if not enabled:
+            return False
+        return bool(
+            frappe.db.exists("AI Skill", {"name": ["in", enabled], "tier": "Action-Allowed"})
+        )
 
     def _validate_assertions(self):
         """Validate assertion rules — llm_judge assertions need judge config."""

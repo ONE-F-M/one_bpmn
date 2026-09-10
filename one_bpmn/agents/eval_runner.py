@@ -1035,6 +1035,9 @@ def _evaluate_assertion(assertion, output: Any, facts: dict = None) -> dict:
         if a_type == "no_tool_call":
             return {**base, **_evaluate_no_tool_call(value, facts)}
 
+        if a_type == "tool_calls":
+            return {**base, **_evaluate_tool_calls(value, facts)}
+
         if a_type == "llm_judge":
             return _evaluate_llm_judge(assertion, output)
 
@@ -1112,12 +1115,184 @@ def _evaluate_no_tool_call(value: str, facts: dict) -> dict:
             "message": "" if not called else "Called " + ", ".join(called) + "."}
 
 
+TOOL_CALL_MODES = ("EXACT", "IN_ORDER", "ANY_ORDER")
+
+
+def _expected_tool_calls(case) -> List[dict]:
+    """The case's expected calls, one entry per call, matchers grouped onto it.
+
+    Rows are authored flat — a row per argument to check — so several rows share
+    a Call number when a call has more than one matcher. Order is the Call
+    number, not the row order: the grid is a spreadsheet, and re-sorting it must
+    not change what the case means.
+    """
+    grouped: dict = {}
+    for row in case.get("expected_tool_calls") or []:
+        if not (row.tool_name or "").strip():
+            continue
+        entry = grouped.setdefault(
+            cint(row.call_order), {"order": cint(row.call_order), "tool": row.tool_name.strip(), "matchers": []}
+        )
+        if (row.argument or "").strip():
+            entry["matchers"].append({
+                "argument": row.argument.strip(),
+                "matcher": (row.matcher or "equals").strip(),
+                "expected": row.expected_value or "",
+            })
+    return [grouped[k] for k in sorted(grouped)]
+
+
+def _argument_matches(matcher: dict, args: dict) -> tuple:
+    """Does one argument matcher hold against a call's arguments?
+
+    Returns (passed, why-not). A missing argument fails rather than passing
+    vacuously — a call that never received the argument did not satisfy a
+    constraint on it.
+    """
+    name = matcher["argument"]
+    if name not in (args or {}):
+        return False, f"no argument {name!r}"
+
+    actual = args.get(name)
+    actual = actual if isinstance(actual, str) else json.dumps(actual, default=str, sort_keys=True)
+    expected = matcher["expected"] or ""
+    kind = matcher["matcher"]
+
+    if kind == "equals":
+        return actual.strip() == expected.strip(), f"{name}={actual!r} != {expected!r}"
+    if kind == "contains":
+        return expected.strip().lower() in actual.lower(), f"{name}={actual!r} lacks {expected!r}"
+    if kind == "regex":
+        return bool(re.search(expected, actual)), f"{name}={actual!r} does not match /{expected}/"
+    return False, f"unknown matcher {kind!r}"
+
+
+def _call_matches(expected: dict, actual: dict) -> tuple:
+    """Does one actual call satisfy one expected call — tool and every matcher?"""
+    if actual.get("tool") != expected["tool"]:
+        return False, f"called {actual.get('tool')!r}"
+    for matcher in expected["matchers"]:
+        passed, why = _argument_matches(matcher, actual.get("args") or {})
+        if not passed:
+            return False, why
+    return True, ""
+
+
+def _evaluate_tool_calls(value: str, facts: dict) -> dict:
+    """Score the run's tool-call trace against the case's expected calls.
+
+    A right answer reached the wrong way is the failure this catches: the text
+    reads fine, and only the trace shows that the agent guessed instead of
+    looking, or wrote before it reviewed.
+
+    Three modes, and the difference between them is what they allow:
+      EXACT      the trace IS the expected sequence — same calls, same order,
+                 nothing extra.
+      IN_ORDER   every expected call appears, in the expected order; other
+                 calls may happen in between.
+      ANY_ORDER  every expected call appears somewhere; order is not checked.
+    """
+    if facts is None:
+        return {"passed": False, "error": True,
+                "message": "Tool calls are only observed on a live run, not a replay."}
+
+    mode = (value or "").strip().upper()
+    if mode not in TOOL_CALL_MODES:
+        return {"passed": False, "error": True,
+                "message": f"tool_calls needs one of {', '.join(TOOL_CALL_MODES)}, not {value!r}."}
+
+    expected = facts.get("expected_tool_calls") or []
+    if not expected:
+        return {"passed": False, "error": True,
+                "message": "tool_calls needs Expected Tool Calls on the case."}
+
+    trace = facts.get("tool_trace") or []
+    called = ", ".join(c.get("tool") or "?" for c in trace) or "nothing"
+
+    if mode == "EXACT":
+        if len(trace) != len(expected):
+            return {"passed": False,
+                    "message": f"Expected {len(expected)} call(s), the run made {len(trace)}: {called}."}
+        for position, (want, got) in enumerate(zip(expected, trace), start=1):
+            passed, why = _call_matches(want, got)
+            if not passed:
+                return {"passed": False, "message": f"Call {position} expected {want['tool']}: {why}."}
+        return {"passed": True, "message": ""}
+
+    if mode == "IN_ORDER":
+        cursor = 0
+        for want in expected:
+            while cursor < len(trace) and not _call_matches(want, trace[cursor])[0]:
+                cursor += 1
+            if cursor == len(trace):
+                return {"passed": False,
+                        "message": f"No call to {want['tool']} after the previous expected one. Called: {called}."}
+            cursor += 1
+        return {"passed": True, "message": ""}
+
+    unmatched = []
+    remaining = list(trace)
+    for want in expected:
+        hit = next((i for i, got in enumerate(remaining) if _call_matches(want, got)[0]), None)
+        if hit is None:
+            unmatched.append(want["tool"])
+        else:
+            remaining.pop(hit)
+    return {"passed": not unmatched,
+            "message": "" if not unmatched else f"Never called: {', '.join(unmatched)}. Called: {called}."}
+
+
 def _execution_facts(case, eval_run: str, usage: dict) -> dict:
     """What the assertions may know about the execution itself, not its text."""
+    trace = _tool_trace_for(case, eval_run)
     return {
         "tokens": cint(usage.get("tokens")),
-        "tool_calls": _tool_calls_for(case, eval_run),
+        "tool_calls": [c["tool"] for c in trace],
+        "tool_trace": trace,
+        "expected_tool_calls": _expected_tool_calls(case),
     }
+
+
+def _tool_trace_for(case, eval_run: str = None) -> List[dict]:
+    """The calls this case made, in the order it made them, with their arguments.
+
+    Order is the step's ``step_index`` and then the row's position within that
+    step, which is the order the model asked for them. Reading the child rows
+    without that ordering returns them in whatever order the database offers,
+    which is exactly what an IN_ORDER assertion must not depend on.
+    """
+    filters = {"eval_case": case.name}
+    if eval_run:
+        filters["eval_run"] = eval_run
+    runs = frappe.get_all("AI Agent Run", filters=filters, pluck="name", order_by="creation asc")
+    if not runs:
+        return []
+    steps = frappe.get_all(
+        "AI Agent Step", filters={"run": ["in", runs]}, pluck="name", order_by="step_index asc, creation asc"
+    )
+    if not steps:
+        return []
+
+    rows = frappe.get_all(
+        "AI Agent Tool Call",
+        filters={"parenttype": "AI Agent Step", "parent": ["in", steps]},
+        fields=["parent", "idx", "tool_name", "tool_args", "status"],
+    )
+    position = {name: index for index, name in enumerate(steps)}
+    rows.sort(key=lambda r: (position.get(r["parent"], 0), cint(r["idx"])))
+
+    trace = []
+    for row in rows:
+        try:
+            args = frappe.parse_json(row["tool_args"]) if row["tool_args"] else {}
+        except Exception:
+            args = {}
+        trace.append({
+            "tool": row["tool_name"],
+            "args": args if isinstance(args, dict) else {"": args},
+            "status": row["status"],
+        })
+    return trace
 
 
 def _tool_calls_for(case, eval_run: str = None) -> List[str]:
