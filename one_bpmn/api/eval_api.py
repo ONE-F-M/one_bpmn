@@ -363,10 +363,18 @@ def create_eval_case(
 	expected_output: str = "",
 	assertions=None,
 	expected_tool_calls=None,
+	case_type: str = None,
+	target_skill: str = None,
 ) -> str:
 	"""Create a manual AI Eval Case in ``suite`` with optional assertions
 	(WI-001746). Provider/model/system prompt come from the suite's agent
-	(WI-001751). The current user must be able to write the suite (owner / SM)."""
+	(WI-001751). The current user must be able to write the suite (owner / SM).
+
+	``case_type`` says what the case measures and ``target_skill`` which skill it
+	belongs to, so a golden dataset can be authored here rather than in the desk
+	form. Provenance (source run, feedback, security event) is not settable: it
+	is written by whatever promoted the case, and a hand-authored case has none.
+	"""
 	suite_doc = frappe.get_doc("AI Eval Suite", suite)
 	suite_doc.check_permission("write")
 
@@ -377,11 +385,36 @@ def create_eval_case(
 		"process_model": suite_doc.process_model or None,
 		"input_user_prompt": input_user_prompt,
 		"expected_output": expected_output,
+		"case_type": _valid_case_type(case_type) or "Output",
+		"target_skill": _valid_skill(target_skill),
 	})
 	_set_assertions(case, assertions)
 	_set_expected_tool_calls(case, expected_tool_calls)
 	case.insert()
 	return case.name
+
+
+CASE_TYPES = ("Output", "Trajectory", "Trigger Positive", "Trigger Negative",
+			  "Adversarial", "Co-Load Budget", "Memory")
+
+
+def _valid_case_type(value) -> str:
+	"""A case type, or "" for not given. An unknown one is refused rather than
+	stored: a typo would put the case in a category nothing reports on."""
+	value = (value or "").strip()
+	if value and value not in CASE_TYPES:
+		frappe.throw(_("'{0}' is not a case type. Choose one of: {1}.").format(
+			value, ", ".join(CASE_TYPES)))
+	return value
+
+
+def _valid_skill(value) -> str | None:
+	value = (value or "").strip()
+	if not value:
+		return None
+	if not frappe.db.exists("AI Skill", value):
+		frappe.throw(_("No AI Skill named '{0}'.").format(value))
+	return value
 
 
 @frappe.whitelist()
@@ -394,6 +427,13 @@ def get_eval_case(name: str) -> dict:
 		"title": case.title,
 		"input_user_prompt": case.input_user_prompt,
 		"expected_output": case.expected_output,
+		"case_type": case.case_type or "Output",
+		"target_skill": case.target_skill or "",
+		# Where the case came from. Read-only: it is what produced the case, not
+		# something an author chooses.
+		"source_feedback": case.source_feedback or "",
+		"source_security_event": case.source_security_event or "",
+		"source_run": case.source_run or "",
 		"assertions": [{k: a.get(k) for k in _ASSERTION_FIELDS} for a in case.assertions],
 		"expected_tool_calls": [
 			{k: c.get(k) for k in _EXPECTED_CALL_FIELDS} for c in case.expected_tool_calls
@@ -409,6 +449,8 @@ def update_eval_case(
 	expected_output: str = None,
 	assertions=None,
 	expected_tool_calls=None,
+	case_type: str = None,
+	target_skill: str = None,
 ) -> str:
 	"""Edit an existing case, including its assertions (WI-001746). Gated by the
 	suite's write permission."""
@@ -422,6 +464,12 @@ def update_eval_case(
 	):
 		if val is not None:
 			case.set(field, val)
+	if case_type is not None:
+		case.case_type = _valid_case_type(case_type) or case.case_type
+	if target_skill is not None:
+		# An empty string clears the link — the caller means "no skill", which
+		# is different from not mentioning the field at all.
+		case.target_skill = _valid_skill(target_skill)
 	if assertions is not None:
 		_set_assertions(case, assertions)
 	if expected_tool_calls is not None:
