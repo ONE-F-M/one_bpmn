@@ -46,6 +46,112 @@ def _origin_condition(Run, origin: str):
 
 
 # ---------------------------------------------------------------------------
+# Work item cost rollup (WI-000346)
+# ---------------------------------------------------------------------------
+
+# Guards a cyclical delegation chain from recursing forever, the same way
+# get_run_tree bounds its own walk of the run tree.
+_MAX_DELEGATION_DEPTH = 20
+
+
+def _collect_delegated_instances(instance_name: str, depth: int, seen: set) -> None:
+	"""Add *instance_name* to *seen*, then follow every A2A Task it delegated
+	out to, recursively (WI-000346).
+
+	A delegation row has ``caller_instance`` = the instance that parked
+	waiting, and ``instance`` = the instance that actually did the work
+	(same-site delegations only \u2014 an Outbound task to a remote site has no
+	local `instance` to follow, so it is simply not walked further). Guarded
+	both by a depth cap and by *seen* itself, so a cycle in the chain cannot
+	recurse forever \u2014 the same double protection get_run_tree uses walking
+	child runs.
+	"""
+	if depth > _MAX_DELEGATION_DEPTH or not instance_name or instance_name in seen:
+		return
+	seen.add(instance_name)
+
+	Task = DocType("A2A Task")
+	children = (
+		frappe.qb.from_(Task)
+		.select(Task.instance)
+		.where(Task.caller_instance == instance_name)
+		.where(Task.instance.notnull())
+		.run(as_dict=True)
+	)
+	for row in children:
+		child_instance = row.get("instance")
+		if child_instance and child_instance not in seen:
+			_collect_delegated_instances(child_instance, depth + 1, seen)
+
+
+@frappe.whitelist()
+def get_work_item_cost(work_item: str) -> dict:
+	"""Total AI cost for one Work Item, across every run any delegation
+	chain produced on its behalf (WI-000346).
+
+	Starts from the Work Item's own BPMN Process Instances (``context_doctype``
+	= \"Work Item\", ``context_docname`` = *work_item*), then follows every A2A
+	Task delegation out of each instance (``caller_instance`` \u2192 ``instance``),
+	recursively, so a specialist that itself delegated further is included too.
+	Every AI Agent Run recorded against any instance discovered this way is
+	rolled up. A work item with no runs returns zero totals and an empty
+	breakdown, not an error.
+	"""
+	frappe.only_for("System Manager")
+
+	seed_instances = frappe.get_all(
+		"BPMN Process Instance",
+		filters={"context_doctype": "Work Item", "context_docname": work_item},
+		pluck="name",
+	)
+
+	seen: set = set()
+	for name in seed_instances:
+		_collect_delegated_instances(name, 0, seen)
+
+	if not seen:
+		return {"total_cost": 0.0, "total_tokens": 0, "runs": []}
+
+	Run = DocType("AI Agent Run")
+	rows = (
+		frappe.qb.from_(Run)
+		.select(
+			Run.name,
+			Run.instance,
+			Run.agent_configuration,
+			Run.model,
+			Run.estimated_cost,
+			Run.total_tokens,
+		)
+		.where(Run.instance.isin(list(seen)))
+		.run(as_dict=True)
+	)
+
+	runs = []
+	total_cost = 0.0
+	total_tokens = 0
+	for r in rows:
+		cost = flt(r.get("estimated_cost"), 6)
+		tokens = cint(r.get("total_tokens"))
+		total_cost += cost
+		total_tokens += tokens
+		runs.append({
+			"name": r.get("name"),
+			"instance": cstr(r.get("instance")),
+			"agent_configuration": cstr(r.get("agent_configuration")),
+			"model": cstr(r.get("model")),
+			"cost": cost,
+			"tokens": tokens,
+		})
+
+	return {
+		"total_cost": flt(total_cost, 6),
+		"total_tokens": total_tokens,
+		"runs": runs,
+	}
+
+
+# ---------------------------------------------------------------------------
 # 1. Overview cards
 # ---------------------------------------------------------------------------
 
