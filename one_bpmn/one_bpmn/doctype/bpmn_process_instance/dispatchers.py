@@ -101,6 +101,21 @@ def _cfg_truthy(value) -> bool:
 	return str(value or "").strip().lower() in ("1", "true", "yes", "on", "enabled")
 
 
+def _default_memory_scope(task_cfg: dict) -> str:
+	"""Scope when the configuration leaves it blank: a Chat agent keeps memory
+	per person (User and Agent), a Background agent shares it (Agent)."""
+	config_name = task_cfg.get("aiAgentConfig")
+	agent_type = frappe.db.get_value("AI Agent Configuration", config_name, "agent_type") if config_name else None
+	return "Agent" if agent_type == "Background" else "User and Agent"
+
+
+def _requesting_user() -> str | None:
+	"""The person whose memory this run reads and writes. A background job runs
+	as the user who queued it, so this holds on the dispatch path too."""
+	user = frappe.session.user
+	return None if not user or user == "Guest" else user
+
+
 def _resolve_memory_target(task_cfg: dict, instance, bpmn_id: str):
 	"""Resolve (scope, scope_key) for memory search/write from task config and
 	the instance context. Returns None when the scope key can't be built (e.g.
@@ -109,21 +124,44 @@ def _resolve_memory_target(task_cfg: dict, instance, bpmn_id: str):
 	Agent   -> agent_element (defaults to the task's bpmn_id)
 	Process -> the instance's process_model
 	Entity  -> {reference_doctype, reference_name} from the instance context doc
+
+	The "User and X" scopes key on X plus the requesting user: recall returns
+	that person's memories plus the shared ones, writes are theirs alone. With
+	no requesting user (Guest) they fall back to the shared X scope. Blank is
+	decided by the agent type (``_default_memory_scope``).
 	"""
-	scope = (task_cfg.get("aiMemoryScope") or "Agent").strip() or "Agent"
+	scope = (task_cfg.get("aiMemoryScope") or "").strip() or _default_memory_scope(task_cfg)
+	user = None
+	if scope.startswith("User and "):
+		scope = scope[len("User and ") :]
+		user = _requesting_user()
+
 	if scope == "Agent":
 		agent_element = task_cfg.get("aiMemoryAgentElement") or bpmn_id
-		return ("Agent", agent_element) if agent_element else None
-	if scope == "Process":
+		if not agent_element:
+			return None
+		key = {"agent_element": agent_element}
+	elif scope == "Process":
 		process_model = getattr(instance, "process_model", None)
-		return ("Process", process_model) if process_model else None
-	if scope == "Entity":
+		if not process_model:
+			return None
+		key = {"process": process_model}
+	elif scope == "Entity":
 		reference_doctype = getattr(instance, "context_doctype", None)
 		reference_name = getattr(instance, "context_docname", None)
-		if reference_doctype and reference_name:
-			return ("Entity", {"reference_doctype": reference_doctype, "reference_name": reference_name})
+		if not (reference_doctype and reference_name):
+			return None
+		key = {"reference_doctype": reference_doctype, "reference_name": reference_name}
+	else:
 		return None
-	return None
+
+	if user:
+		key["user"] = user
+	elif scope == "Agent":
+		return (scope, key["agent_element"])  # the shape every existing caller and test expects
+	elif scope == "Process":
+		return (scope, key["process"])
+	return (scope, key)
 
 
 def _format_memory_block(memories: list) -> str:

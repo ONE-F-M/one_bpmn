@@ -88,7 +88,10 @@ class AIMemory(Document):
 		# Only the keys relevant to this scope are populated (the rest were
 		# cleared in _normalize_scope_keys), so matching on scope + the relevant
 		# key(s) + dedup_key is both correct and avoids NULL-filter pitfalls.
-		filters = {"memory_scope": self.memory_scope, "dedup_key": self.dedup_key}
+		# A person's memory only ever replaces that same person's; a shared
+		# memory (no user) only replaces a shared one. Frappe turns "" into
+		# ifnull(user, '') = '' so NULL and empty both read as shared.
+		filters = {"memory_scope": self.memory_scope, "dedup_key": self.dedup_key, "user": self.user or ""}
 		if self.memory_scope == "Agent":
 			filters["agent_element"] = self.agent_element
 		elif self.memory_scope == "Process":
@@ -121,6 +124,7 @@ def on_doctype_update():
 	"""
 	frappe.db.add_index("AI Memory", ["memory_scope", "agent_element"])
 	frappe.db.add_index("AI Memory", ["reference_doctype", "reference_name"])
+	frappe.db.add_index("AI Memory", ["user", "memory_scope"])
 	_add_content_fulltext_index()
 	add_embedding_column()
 

@@ -13,6 +13,11 @@ Scope key shapes (the ``scope_key`` argument):
     - "Agent"  -> agent_element (str) or {"agent_element": str}
     - "Process"-> process (str) or {"process": str}
     - "Entity" -> {"reference_doctype": str, "reference_name": str}
+
+Any dict form may add ``"user": <User name>`` to make the memory personal: a
+write stores it for that person only, and a read returns that person's memories
+plus the shared ones (rows with no user). Without ``user`` a read sees shared
+rows only and a write is shared. Nobody ever reads another person's rows.
 """
 
 from __future__ import annotations
@@ -157,7 +162,38 @@ def _resolve_scope(scope: str, scope_key) -> dict:
 		keys["reference_doctype"] = reference_doctype
 		keys["reference_name"] = reference_name
 
+	# The person dimension rides on top of every scope. Exact for writes and
+	# dedup; _read_filters widens it to "mine or shared" for recall.
+	keys["user"] = (scope_key.get("user") or "") if isinstance(scope_key, dict) else ""
 	return keys
+
+
+def _read_filters(keys: dict) -> dict:
+	"""Recall filters for ``keys``: the person's own rows plus the shared ones,
+	or shared only when no user is set. Frappe and ``_sql_conditions`` both turn
+	the empty string into ``ifnull(user, '') = ''`` so NULL reads as shared."""
+	filters = dict(keys)
+	user = keys.get("user") or ""
+	filters["user"] = ("in", [user, ""] if user else [""])
+	return filters
+
+
+def _sql_conditions(filters: dict) -> tuple[str, dict]:
+	"""WHERE fragment and params for the raw-SQL search paths. Plain values are
+	equality; a ``("in", [...])`` value becomes ``IFNULL(col,'') IN (...)``."""
+	conds, params = [], {}
+	for col, value in filters.items():
+		if isinstance(value, tuple) and value[0] == "in":
+			names = []
+			for i, v in enumerate(value[1]):
+				key = f"{col}_{i}"
+				params[key] = v
+				names.append(f"%({key})s")
+			conds.append(f"IFNULL(`{col}`, '') IN ({', '.join(names)})")
+		else:
+			params[col] = value
+			conds.append(f"`{col}` = %({col})s")
+	return " AND ".join(conds), params
 
 
 # ── Tools ─────────────────────────────────────────────────────────────────
@@ -175,8 +211,8 @@ def _fulltext_search(filters: dict, query: str, limit: int):
 	"fall back" — it covers the InnoDB case where rows written in the current
 	uncommitted transaction are not yet visible to the FULLTEXT cache.
 	"""
-	conds = " AND ".join(f"`{col}` = %({col})s" for col in filters)
-	params = dict(filters, _q=query, _lim=int(limit), _now=now())
+	conds, params = _sql_conditions(filters)
+	params.update(_q=query, _lim=int(limit), _now=now())
 	# Only currently-valid memories: exclude superseded (expires_on set to now on
 	# reconcile) and naturally-expired rows, so the most-recent fact wins.
 	sql = f"""
@@ -293,8 +329,8 @@ def _semantic_search(filters: dict, query: str, limit: int):
 		vectors = embed([query])
 		if not vectors:
 			return None
-		conds = " AND ".join(f"`{col}` = %({col})s" for col in filters)
-		params = dict(filters, _vec=json.dumps(vectors[0]), _q=query, _lim=_SEMANTIC_CANDIDATES, _now=now())
+		conds, params = _sql_conditions(filters)
+		params.update(_vec=json.dumps(vectors[0]), _q=query, _lim=_SEMANTIC_CANDIDATES, _now=now())
 		sql = f"""
 			SELECT name, content, metadata, modified, importance,
 			       VEC_DISTANCE_COSINE(embedding, VEC_FromText(%(_vec)s)) AS _dist,
@@ -360,7 +396,7 @@ def memory_search(scope: str, scope_key, query: str, limit: int = 5, *, ignore_p
 	dispatch ONLY (see ``memory_write``) — never expose it via a whitelisted
 	method.
 	"""
-	filters = _resolve_scope(scope, scope_key)
+	filters = _read_filters(_resolve_scope(scope, scope_key))
 	page_length = limit if isinstance(limit, int) and limit > 0 else _DEFAULT_LIMIT
 	tokens = _query_tokens(query) if query else []
 
@@ -409,7 +445,7 @@ def memory_list_user_directed(scope: str, scope_key, limit: int = 3, *, ignore_p
 	surface it — that is the recall gap this exists to close. Called alongside
 	``memory_search``, not instead of it; the caller merges both result sets.
 	"""
-	filters = dict(_resolve_scope(scope, scope_key), user_directed=1)
+	filters = dict(_read_filters(_resolve_scope(scope, scope_key)), user_directed=1)
 	page_length = limit if isinstance(limit, int) and limit > 0 else _DEFAULT_LIMIT
 	rows = frappe.get_list(
 		"AI Memory",
@@ -559,6 +595,16 @@ def _reconcile_and_invalidate(
 		return "skipped_exact_duplicate", {}
 
 	searched = memory_search(scope, scope_key, content, limit=_RECONCILE_K, ignore_permissions=True)
+	if keys.get("user") and searched:
+		# Recall widens to "mine or shared"; reconciliation must not. One
+		# person's statement may only supersede that person's own memories, so
+		# a shared row is never invalidated by what one user said.
+		owners = dict(
+			frappe.get_all(
+				"AI Memory", filters={"name": ("in", [c["name"] for c in searched])}, fields=["name", "user"], as_list=True
+			)
+		)
+		searched = [c for c in searched if (owners.get(c["name"]) or "") == keys["user"]]
 	seen = {c["name"] for c in keyed}
 	candidates = list(keyed)
 	for c in searched:
@@ -859,6 +905,7 @@ _SCOPE_KEY_SCHEMA = {
 		"process": {"type": "string", "description": "BPMN Process Model (Process scope)."},
 		"reference_doctype": {"type": "string", "description": "Reference doctype (Entity scope)."},
 		"reference_name": {"type": "string", "description": "Reference document name (Entity scope)."},
+		"user": {"type": "string", "description": "Optional; the person the memory belongs to. Reads return theirs plus shared, writes are theirs alone."},
 	},
 	"additionalProperties": False,
 }
