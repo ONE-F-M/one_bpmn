@@ -6,9 +6,14 @@ one_bpmn.one_bpmn.patches.v1_0.create_process_designer_role
 
 one_bpmn.one_bpmn.patches.v1_0.rename_ai_provider_to_ai_provider_credentials #16-07-2026
 one_bpmn.one_bpmn.patches.v1_0.move_agent_chat_doctypes_to_one_bpmn #16-07-2026
+one_bpmn.one_bpmn.patches.v1_0.move_threat_intel_doctypes_to_one_bpmn #09-09-2026 WI-002203 Threat Source discovery doctypes move from onefm_mcp
 one_bpmn.one_bpmn.patches.v1_0.rename_allowed_sub_agents_to_delegates #13-08-2026 WI-002010 entries are independent agents, not sub-agents
 one_bpmn.one_bpmn.patches.v1_0.drop_delegates_to_agents_flag #13-08-2026 WI-002010 exposure grants delegation; the list only narrows it
+one_bpmn.one_bpmn.patches.v1_0.move_threat_assessment_doctypes_to_one_bpmn #09-09-2026 WI-002201 Threat Assessment Report doctypes move from onefm_mcp
+one_bpmn.one_bpmn.patches.v1_0.move_threat_feed_doctypes_to_one_bpmn #09-09-2026 WI-002202 Threat Feed / Threat Feed Keyword move from onefm_mcp alongside the sibling Threat Source/Keyword move (WI-002203)
 [post_model_sync]
+one_bpmn.one_bpmn.patches.v1_0.seed_threat_sources #09-09-2026 WI-002203 moved from onefm_mcp with the Threat Source doctype
+one_bpmn.one_bpmn.patches.v1_0.seed_threat_keywords #09-09-2026 WI-002203 moved from onefm_mcp with the Threat Keyword doctype
 one_bpmn.one_bpmn.patches.v1_0.create_process_owner_role
 one_bpmn.one_bpmn.patches.v1_0.set_existing_models_inactive
 one_bpmn.one_bpmn.patches.v1_0.migrate_processa_comments
@@ -129,3 +134,7 @@ one_bpmn.one_bpmn.patches.v1_0.align_agent_prompts_with_their_maps #08-09-2026 a
 one_bpmn.one_bpmn.patches.v1_0.fix_classify_intent_prose_fallback #08-09-2026 Logix answered "hi" and a bare fact with the script-safety refusal — classify_intent had no fallback for a prose reply that failed JSON extraction and silently defaulted to CREATE, discarding a reply the model had already reasoned correctly; also re-captures the live execute_shape-based script (an untracked hand-edit) as this repo's source of truth
 one_bpmn.one_bpmn.patches.v1_0.prosally_configures_the_tasks_it_draws #09-09-2026 a generated Service Task arrived with a name and nothing else because the generator prompt defined serviceTask as an outside third-party call and gave record writes to scriptTask; it now describes the platform's six Service Types and the User Task assignment block, with the attribute names the properties panel reads
 one_bpmn.one_bpmn.patches.v1_0.detach_timer_start_event_definitions #09-09-2026 a deployed map's compiled start event still carried its timer, and SpiffWorkflow evaluates a cycle as Python — so every timer-started instance errored on its first step; the scheduler alone decides when these processes begin
+one_bpmn.one_bpmn.patches.v1_0.promote_threat_sitrep_agent_to_bpmn #09-09-2026 WI-002201 Threat SITREP Agent: agent_type Background, tool-calling prompt, model/token sizing, and a lifecycle validation pass, once the Daily Threat SITREP map is imported
+one_bpmn.one_bpmn.patches.v1_0.promote_threat_agents_to_bpmn #09-09-2026 WI-002203 Threat Source Expander / Threat Keyword Generator move off onefm_mcp's LangGraph runner onto the Threat Source Discovery map
+one_bpmn.one_bpmn.patches.v1_0.ai_health_recipients_to_users #08-09-2026 Credential Alert Recipients becomes a User multiselect: each text entry that names a User becomes a row, the rest are logged, and the old text value is cleared
+one_bpmn.one_bpmn.patches.v1_0.lucrusher_confirmations_carry_no_draft #08-09-2026 WI-002195 LuCrusher's seeded phase tables still told it to send the approved topology, tasks or prompts back with a confirmation, contradicting the confirmation section added on 06-09; the three lines now say a confirmation carries intent and response only

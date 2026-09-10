@@ -1,0 +1,241 @@
+{
+  "doctype": "DocType",
+  "name": "Threat Assessment Report",
+  "module": "ONE BPMN",
+  "naming_rule": "Expression",
+  "autoname": "format:TAR-{YYYY}-{MM}-{DD}",
+  "title_field": "report_date",
+  "engine": "InnoDB",
+  "track_changes": 1,
+  "allow_rename": 1,
+  "index_web_pages_for_search": 1,
+
+  "field_order": [
+    "section_break_details",
+    "report_date",
+    "report_time",
+    "column_break_1",
+    "data_period_start",
+    "data_period_end",
+    "section_break_stats",
+    "total_threats",
+    "column_break_2",
+    "security_threats_count",
+    "environmental_threats_count",
+    "executive_summary_section",
+    "executive_summary",
+    "security_insights_section",
+    "security_insights",
+    "environmental_insights_section",
+    "environmental_insights",
+    "geographic_analysis_section",
+    "geographic_analysis",
+    "trend_analysis_section",
+    "trend_analysis",
+    "sb_threat_tables",
+    "security_threats",
+    "environmental_threats",
+    "section_break_output",
+    "generation_status",
+    "report_pdf",
+    "llm_tokens_used",
+    "error_log"
+  ],
+
+  "fields": [
+    {
+      "fieldname": "section_break_details",
+      "fieldtype": "Section Break",
+      "label": "Report Details"
+    },
+    {
+      "fieldname": "report_date",
+      "fieldtype": "Date",
+      "label": "Report Date",
+      "reqd": 1,
+      "in_list_view": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "report_time",
+      "fieldtype": "Time",
+      "label": "Report Time",
+      "default": "12:00:00",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "data_period_start",
+      "fieldtype": "Datetime",
+      "label": "Data Period Start",
+      "reqd": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "data_period_end",
+      "fieldtype": "Datetime",
+      "label": "Data Period End",
+      "reqd": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "section_break_stats",
+      "fieldtype": "Section Break",
+      "label": "Threat Statistics"
+    },
+    {
+      "fieldname": "total_threats",
+      "fieldtype": "Int",
+      "label": "Total Threats",
+      "default": 0,
+      "in_list_view": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_2",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "security_threats_count",
+      "fieldtype": "Int",
+      "label": "Security Threats",
+      "default": 0,
+      "read_only": 1
+    },
+    {
+      "fieldname": "environmental_threats_count",
+      "fieldtype": "Int",
+      "label": "Environmental Threats",
+      "default": 0,
+      "read_only": 1
+    },
+    {
+      "fieldname": "executive_summary_section",
+      "fieldtype": "Section Break",
+      "label": "Executive Summary"
+    },
+    {
+      "fieldname": "executive_summary",
+      "fieldtype": "Long Text",
+      "label": "",
+      "read_only": 1
+    },
+    {
+      "fieldname": "security_insights_section",
+      "fieldtype": "Section Break",
+      "label": "Security Insights"
+    },
+    {
+      "fieldname": "security_insights",
+      "fieldtype": "Long Text",
+      "label": "",
+      "read_only": 1
+    },
+    {
+      "fieldname": "environmental_insights_section",
+      "fieldtype": "Section Break",
+      "label": "Environmental Insights"
+    },
+    {
+      "fieldname": "environmental_insights",
+      "fieldtype": "Long Text",
+      "label": "",
+      "read_only": 1
+    },
+    {
+      "fieldname": "geographic_analysis_section",
+      "fieldtype": "Section Break",
+      "label": "Geographic Analysis"
+    },
+    {
+      "fieldname": "geographic_analysis",
+      "fieldtype": "Long Text",
+      "label": "",
+      "read_only": 1
+    },
+    {
+      "fieldname": "trend_analysis_section",
+      "fieldtype": "Section Break",
+      "label": "Trend Analysis"
+    },
+    {
+      "fieldname": "trend_analysis",
+      "fieldtype": "Long Text",
+      "label": "",
+      "read_only": 1
+    },
+    {
+      "fieldname": "sb_threat_tables",
+      "fieldtype": "Section Break",
+      "label": "LLM Identified Threats"
+    },
+    {
+      "fieldname": "security_threats",
+      "fieldtype": "Table",
+      "label": "Security Threats",
+      "options": "Threat Assessment Security Threat"
+    },
+    {
+      "fieldname": "environmental_threats",
+      "fieldtype": "Table",
+      "label": "Environmental Threats",
+      "options": "Threat Assessment Environmental Threat"
+    },
+    {
+      "fieldname": "section_break_output",
+      "fieldtype": "Section Break",
+      "label": "Generated Output"
+    },
+    {
+      "fieldname": "generation_status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Draft\nGenerated\nFailed",
+      "default": "Draft"
+    },
+    {
+      "fieldname": "report_pdf",
+      "fieldtype": "Attach",
+      "label": "Report PDF"
+    },
+    {
+      "fieldname": "llm_tokens_used",
+      "fieldtype": "Int",
+      "label": "LLM Tokens Used",
+      "default": 0,
+      "read_only": 1
+    },
+    {
+      "fieldname": "error_log",
+      "fieldtype": "Long Text",
+      "label": "Error Log",
+      "read_only": 1
+    }
+  ],
+
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "delete": 1,
+      "print": 1,
+      "email": 1,
+      "share": 1
+    },
+    {
+      "role": "MCP Threat Analyst",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "print": 1
+    }
+  ],
+
+  "sort_field": "report_date",
+  "sort_order": "DESC"
+}

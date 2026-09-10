@@ -147,7 +147,7 @@ STEPS: Group shapes into clusters by R1-R4 → for each process: name, type (Use
 Intent mapping:
   • Proposal → intent "TOPOLOGY_PROPOSAL", topology={recommendation, total_processes, processes:[{process_name,type,reason,shapes}], summary}.
     response (≤2500 chars, markdown): doc summary, numbered process list, recommendation, invite to approve.
-  • User approves → intent "TOPOLOGY_CONFIRMED", topology=<approved unchanged>.
+  • User approves → intent "TOPOLOGY_CONFIRMED" with intent and response only; the platform keeps the approved topology, so do not send it again.
   • User wants changes → intent "TOPOLOGY_PROPOSAL" with revised topology.
   • User declines → intent "CLARIFY".
 
@@ -179,7 +179,7 @@ RULES: Imperative titles. Cross-reference the codebase scan. Exact serviceType s
 Intent mapping:
   • Generated → intent "MIGRATION_TASKS_DRAFT", response ≤300 chars (counts only).
     migration_tasks={processes:[{process_name, tasks:[{category, task, detail, references, is_new}]}]}
-  • User approves → intent "MIGRATION_TASKS_CONFIRMED", migration_tasks=<approved>.
+  • User approves → intent "MIGRATION_TASKS_CONFIRMED" with intent and response only; the platform keeps the approved tasks, so do not send them again.
   • User wants changes → intent "MIGRATION_TASKS_DRAFT" with revised tasks.
 
 ═══ PHASE 6 — PROSALLY PROMPT GENERATION ═══
@@ -202,7 +202,7 @@ COMPACT OUTPUT: Use dense formatting for C/D/E to stay within the output token l
 Intent mapping:
   • Generated → intent "PROSALLY_PROMPT_DRAFT", response ≤300 chars.
     prosally_prompts={processes:[{process_name, process_id, lane_count, element_count, prompt_block}]}
-  • User approves → intent "PROSALLY_PROMPT_CONFIRMED", prosally_prompts=<approved>.
+  • User approves → intent "PROSALLY_PROMPT_CONFIRMED" with intent and response only; the platform keeps the approved prompts, so do not send them again.
   • User wants changes → intent "PROSALLY_PROMPT_DRAFT" with revised prompts.
 
 ═══ OUTPUT RULES (all turns) ═══

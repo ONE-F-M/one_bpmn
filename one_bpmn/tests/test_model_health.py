@@ -381,14 +381,23 @@ class TestHealthState(HealthCase):
 			note_run_outcome("whatever", "PROVIDER_DISABLED", "x")  # must not raise
 
 
+def _set_recipients(users):
+	"""Replace the Credential Alert Recipients rows on Processa Settings."""
+	settings = frappe.get_doc("Processa Settings")
+	settings.set("ai_health_alert_recipients", [])
+	for user in users:
+		settings.append("ai_health_alert_recipients", {"user": user})
+	settings.save(ignore_permissions=True)
+
+
 class TestAlerting(HealthCase):
 	def setUp(self):
 		super().setUp()
-		self._saved_recipients = frappe.db.get_single_value("Processa Settings", "ai_health_alert_recipients")
-		frappe.db.set_single_value("Processa Settings", "ai_health_alert_recipients", "")
+		self._saved_recipients = model_health.configured_recipients()
+		_set_recipients([])
 
 	def tearDown(self):
-		frappe.db.set_single_value("Processa Settings", "ai_health_alert_recipients", self._saved_recipients or "")
+		_set_recipients(self._saved_recipients)
 		super().tearDown()
 
 	def _notes(self, model):
@@ -439,6 +448,21 @@ class TestAlerting(HealthCase):
 		self.assertIn("reachable again", subjects[-1])
 		self.assertEqual(self._health(name, "health_alerted_problem"), "")
 
+	def test_alert_and_recovery_link_to_the_model_record(self):
+		"""The reader fixes the key on the AI Model form, so both messages carry
+		a link to it rather than telling the reader to go and find it."""
+		name = self._model()
+		record_failure(name, "INVALID_KEY", "rejected")
+		sent = []
+		with patch("one_bpmn.agents.model_health._send_email", side_effect=lambda r, s, b: sent.append(b)):
+			with patch("one_bpmn.agents.model_health.alert_recipients", return_value=["Administrator"]):
+				alert_unhealthy_models()
+			record_success(name, source="Probe")
+		link = frappe.utils.get_url_to_form("AI Model", name)
+		self.assertEqual(len(sent), 2)
+		self.assertIn(f'href="{link}"', sent[0])
+		self.assertIn(f'href="{link}"', sent[1])
+
 	def test_healthy_models_are_never_alerted(self):
 		name = self._model()
 		with patch("one_bpmn.agents.model_health._deliver") as deliver:
@@ -448,17 +472,30 @@ class TestAlerting(HealthCase):
 
 	def test_configured_recipients_win(self):
 		name = self._model()
-		frappe.db.set_single_value(
-			"Processa Settings", "ai_health_alert_recipients", "a@example.com, b@example.com;a@example.com"
-		)
-		self.assertEqual(model_health.alert_recipients(name), ["a@example.com", "b@example.com"])
+		_set_recipients(["Guest", "Administrator"])
+		self.assertEqual(model_health.alert_recipients(name), ["Guest", "Administrator"])
 
 	def test_fallback_skips_administrator_and_lands_on_a_real_user(self):
 		name = self._model()
 		# Owner and modified_by are Administrator here, which is not a person.
-		with patch("one_bpmn.agents.model_health._is_real_user", side_effect=lambda u: u == "someone@example.com"):
-			with patch("frappe.get_all", return_value=["Administrator", "someone@example.com"]):
-				self.assertEqual(model_health.alert_recipients(name), ["someone@example.com"])
+		with patch("one_bpmn.agents.model_health.configured_recipients", return_value=[]), \
+			patch("one_bpmn.agents.model_health._is_real_user", side_effect=lambda u: u == "someone@example.com"), \
+			patch("frappe.get_all", return_value=["Administrator", "someone@example.com"]):
+			self.assertEqual(model_health.alert_recipients(name), ["someone@example.com"])
+
+	def test_old_text_value_is_migrated_to_rows(self):
+		"""The field used to be free text. The patch turns each entry that names a
+		User into a row and logs the rest, then clears the old value."""
+		from one_bpmn.one_bpmn.patches.v1_0.ai_health_recipients_to_users import execute, migrate_text
+
+		_set_recipients([])
+		rows, unmatched = migrate_text("Administrator, nobody@example.invalid; Guest")
+		self.assertEqual(rows, ["Administrator", "Guest"])
+		self.assertEqual(unmatched, ["nobody@example.invalid"])
+		self.assertEqual(model_health.configured_recipients(), ["Administrator", "Guest"])
+		# Nothing left to migrate: a second run changes nothing.
+		execute()
+		self.assertEqual(model_health.configured_recipients(), ["Administrator", "Guest"])
 
 
 # ---------------------------------------------------------------------------

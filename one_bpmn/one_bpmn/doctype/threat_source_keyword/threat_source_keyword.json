@@ -1,0 +1,54 @@
+{
+  "actions": [],
+  "allow_rename": 1,
+  "creation": "2025-10-23 00:00:00",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "istable": 1,
+  "field_order": [
+    "keyword",
+    "language",
+    "source_type",
+    "is_active"
+  ],
+  "fields": [
+    {
+      "fieldname": "keyword",
+      "fieldtype": "Link",
+      "label": "Keyword",
+      "options": "Threat Keyword",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "language",
+      "fieldtype": "Data",
+      "label": "Language",
+      "read_only": 1,
+      "fetch_from": "keyword.language",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "source_type",
+      "fieldtype": "Data",
+      "label": "Source Type",
+      "read_only": 1,
+      "fetch_from": "keyword.source_type",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "is_active",
+      "fieldtype": "Check",
+      "label": "Is Active",
+      "read_only": 1,
+      "fetch_from": "keyword.is_active",
+      "in_list_view": 1
+    }
+  ],
+  "module": "ONE BPMN",
+  "name": "Threat Source Keyword",
+  "owner": "Administrator",
+  "permissions": [],
+  "row_format": "Dynamic",
+  "track_changes": 1
+}
