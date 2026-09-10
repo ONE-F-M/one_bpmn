@@ -46,6 +46,8 @@
   "default_context_token_budget",
   "memory_embedding_model",
   "memory_semantic_weight",
+  "memory_recency_weight",
+  "memory_importance_weight",
   "section_break_conversation_retention",
   "conversation_ttl_days",
   "column_break_conversation_retention",
@@ -596,11 +598,25 @@
    "fieldname": "memory_semantic_weight",
    "fieldtype": "Float",
    "label": "Semantic Weight"
+  },
+  {
+   "default": "0.2",
+   "description": "Share of the memory search score that comes from how recent the memory is, from 0 to 1. Recency halves every 30 days. What is left after recency and importance goes to relevance.",
+   "fieldname": "memory_recency_weight",
+   "fieldtype": "Float",
+   "label": "Recency Weight"
+  },
+  {
+   "default": "0.2",
+   "description": "Share of the memory search score that comes from the memory's Importance (1 to 5), from 0 to 1. What is left after recency and importance goes to relevance.",
+   "fieldname": "memory_importance_weight",
+   "fieldtype": "Float",
+   "label": "Importance Weight"
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-09-09 20:00:00.000000",
+ "modified": "2026-09-10 09:00:00.000000",
  "modified_by": "s.shariff@one-fm.com",
  "module": "ONE BPMN",
  "name": "Processa Settings",
