@@ -13,6 +13,9 @@
   "actual_output",
   "assertion_results",
   "error_message",
+  "runs",
+  "passes",
+  "consistency_rate",
   "section_break_tokens",
   "prompt_tokens",
   "completion_tokens",
@@ -98,6 +101,25 @@
    "in_list_view": 1,
    "label": "Cost",
    "precision": "6"
+  },
+  {
+   "fieldname": "runs",
+   "fieldtype": "Int",
+   "label": "Runs",
+   "description": "How many times this case executed in this run. Empty on rows written before a case could run more than once \u2014 those were one execution each."
+  },
+  {
+   "fieldname": "passes",
+   "fieldtype": "Int",
+   "label": "Passes",
+   "description": "How many of those executions passed every assertion."
+  },
+  {
+   "fieldname": "consistency_rate",
+   "fieldtype": "Percent",
+   "label": "Consistency",
+   "description": "Passes out of runs. Below 100% the case is flaky: same input, different behaviour.",
+   "in_list_view": 1
   }
  ],
  "index_web_pages_for_search": 1,

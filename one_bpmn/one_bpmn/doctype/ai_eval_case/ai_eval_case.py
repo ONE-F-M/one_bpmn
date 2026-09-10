@@ -74,11 +74,15 @@ class AIEvalCase(Document):
                     title=_("Order Required"),
                 )
 
+        # Rows reach here as child Documents from a save, and as plain dicts
+        # from a caller that assigned the table directly. `.get` reads both;
+        # attribute access reads only the first, and blows up on the second.
         for idx, row in enumerate(self.expected_tool_calls, start=1):
-            if (row.argument or "").strip() and not (row.expected_value or "").strip():
+            argument = (row.get("argument") or "").strip()
+            if argument and not (row.get("expected_value") or "").strip():
                 frappe.throw(
                     _("Expected call {0}: argument {1} has no value to match against.").format(
-                        idx, row.argument
+                        idx, argument
                     ),
                     title=_("Missing Expected Value"),
                 )

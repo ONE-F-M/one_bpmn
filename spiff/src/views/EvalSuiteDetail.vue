@@ -29,6 +29,19 @@
 						>{{ suite.agent_name || suite.agent_configuration || "no agent" }}</button>
 						<span v-else>{{ suite.agent_name || suite.agent_configuration || "no agent" }}</span>
 						<span>· {{ suite.process_model || "no process" }}</span>
+						<span>·</span>
+						<button
+							class="text-blue-600 hover:underline"
+							title="How many times each case runs, and the pass rate this suite must clear"
+							@click="openThresholds"
+						>{{ suite.pass_k > 1 ? `${suite.pass_k} runs per case` : "1 run per case" }}<span
+							v-if="suite.min_pass_rate"
+						>, needs {{ suite.min_pass_rate }}%</span></button>
+						<span
+							v-if="suite.gate_deployment"
+							class="inline-block px-2 py-0.5 rounded-full text-xs bg-amber-50 text-amber-700"
+							:title="`Deploying ${suite.process_model || 'this suite\'s map'} is refused while this suite is below its minimum`"
+						>gates deploy</span>
 					</div>
 				</div>
 				<div class="flex items-center gap-2">
@@ -90,9 +103,66 @@
 					<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">Cost (latest)</div>
 					<div class="text-2xl font-bold text-gray-900">{{ fmtCost(metrics.latest_cost ?? 0) }}</div>
 				</div>
+				<div class="bg-white rounded-lg shadow-sm p-4 border-l-4 border-rose-500">
+					<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">Pass rate (latest)</div>
+					<div class="text-2xl font-bold" :class="rateColour">
+						{{ metrics.latest?.executions ? `${round1(metrics.latest.pass_rate)}%` : "—" }}
+					</div>
+					<div v-if="metrics.latest?.executions" class="text-xs text-gray-500">
+						{{ metrics.latest.executions }} execution(s)<span v-if="suite.min_pass_rate">, needs {{ suite.min_pass_rate }}%</span>
+					</div>
+				</div>
 				<div class="bg-white rounded-lg shadow-sm p-4 border-l-4 border-cyan-500">
 					<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">Assertion coverage</div>
 					<div class="text-2xl font-bold text-gray-900">{{ metrics.assertion_coverage?.with_assertions ?? 0 }} / {{ metrics.assertion_coverage?.total ?? 0 }}</div>
+				</div>
+			</div>
+
+			<!-- Consistency — which cases disagree with themselves over time -->
+			<div class="bg-white rounded-lg shadow-sm mb-6">
+				<div class="border-b px-6 py-3 flex items-center justify-between">
+					<span class="text-sm font-semibold text-gray-700">
+						Consistency
+						<span class="text-gray-400 font-normal">(last {{ consistency.runs?.length || 0 }} run(s))</span>
+					</span>
+					<Button variant="subtle" icon-left="activity" :loading="loadingConsistency" @click="loadConsistency">
+						{{ consistency.cases ? "Refresh" : "Show" }}
+					</Button>
+				</div>
+				<div v-if="consistency.cases && !consistency.cases.length" class="p-6 text-sm text-gray-500">
+					No results recorded yet — run the suite once.
+				</div>
+				<div v-else-if="consistency.cases" class="p-4">
+					<p v-if="!flakyCases.length" class="text-sm text-green-700">
+						Every case has agreed with itself across these runs.
+					</p>
+					<table v-else class="w-full text-sm">
+						<thead>
+							<tr class="text-left text-xs uppercase tracking-wide text-gray-500 border-b">
+								<th class="px-3 py-2 font-medium">Case</th>
+								<th class="px-3 py-2 font-medium text-right">Consistency</th>
+								<th class="px-3 py-2 font-medium">History (oldest → newest)</th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr v-for="c in flakyCases" :key="c.case" class="border-b border-gray-100">
+								<td class="px-3 py-2 font-medium text-gray-900">{{ c.title }}</td>
+								<td class="px-3 py-2 text-right" :class="c.consistency_rate < 100 ? 'text-amber-700' : 'text-gray-600'">
+									{{ round1(c.consistency_rate) }}%
+									<span class="text-xs text-gray-400">({{ c.passes }}/{{ c.executions }})</span>
+								</td>
+								<td class="px-3 py-2">
+									<span
+										v-for="h in c.history"
+										:key="h.run"
+										class="inline-block w-6 h-6 mr-1 rounded text-center text-xs leading-6"
+										:class="h.passes === h.runs ? 'bg-green-100 text-green-700' : (h.passes ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700')"
+										:title="`${h.run} — ${h.passes}/${h.runs} passed`"
+									>{{ h.passes }}/{{ h.runs }}</span>
+								</td>
+							</tr>
+						</tbody>
+					</table>
 				</div>
 			</div>
 
@@ -170,13 +240,59 @@
 							<td class="px-6 py-3">
 								<span class="inline-block px-2 py-0.5 rounded-full text-xs" :class="runPill(r.status)">{{ r.status }}</span>
 							</td>
-							<td class="px-6 py-3 text-gray-600">{{ r.passed_cases }}/{{ r.total_cases }} passed</td>
+							<td class="px-6 py-3 text-gray-600">
+								{{ r.passed_cases }}/{{ r.total_cases }} passed
+								<span v-if="r.total_executions > r.total_cases" class="text-xs text-gray-400">
+									· {{ round1(r.pass_rate) }}% of {{ r.total_executions }}
+								</span>
+							</td>
 							<td class="px-6 py-3 text-gray-400 text-xs">{{ r.started_at }}</td>
 						</tr>
 					</tbody>
 				</table>
 			</div>
 		</main>
+
+		<!-- How many times each case runs, and the bar the suite must clear -->
+		<Dialog v-model="showThresholds" :options="{ title: 'Runs, pass rate and the deploy gate' }">
+			<template #body-content>
+				<div class="space-y-3">
+					<FormControl
+						type="number"
+						label="Runs per case"
+						v-model="thresholdForm.pass_k"
+						description="Above 1, a case passes only when every one of its runs passes. Every run is a billed model call."
+					/>
+					<FormControl
+						type="number"
+						label="Minimum pass rate (%)"
+						v-model="thresholdForm.min_pass_rate"
+						description="The share of executions that must pass. Above 0, activating this suite's map is refused below it."
+					/>
+					<label class="flex items-start gap-2 text-sm text-gray-700">
+						<input type="checkbox" v-model="thresholdForm.gate_deployment" class="mt-1" />
+						<span>
+							<span class="font-medium">Block deployment below the rate</span>
+							<span class="block text-xs text-gray-500">
+								Deploying {{ suite.process_model || "this suite's map" }} is refused while this
+								suite is under its minimum. With the minimum at 0 it only warns.
+							</span>
+						</span>
+					</label>
+					<p v-if="thresholdError" class="text-sm text-red-600">{{ thresholdError }}</p>
+					<p v-if="thresholdForm.gate_deployment && !suite.process_model" class="text-sm text-amber-600">
+						This suite names no process map, so there is nothing for the gate to block.
+					</p>
+					<p v-if="Number(thresholdForm.pass_k) > 1 && cases.length" class="text-xs text-gray-500">
+						{{ cases.length }} case(s) × {{ thresholdForm.pass_k }} = {{ cases.length * Number(thresholdForm.pass_k) }}
+						executions per run of this suite.
+					</p>
+				</div>
+			</template>
+			<template #actions>
+				<Button variant="solid" :loading="savingThresholds" @click="saveThresholds">Save</Button>
+			</template>
+		</Dialog>
 
 		<!-- Case editor modal (new + edit) -->
 		<Dialog v-model="showCaseEditor" :options="{ title: caseMode === 'edit' ? 'Edit case' : 'New eval case', size: '3xl' }">
@@ -506,6 +622,8 @@ async function fetchDetail(silent = false) {
 		cases.value = res?.cases || []
 		runs.value = res?.runs || []
 		metrics.value = res?.metrics || {}
+		// Already-open report: a new run makes it stale the moment it lands.
+		if (consistency.value.cases) loadConsistency()
 	} catch (e) {
 		console.error("Failed to load suite:", e)
 		if (!silent) loadError.value = errorText(e, "Failed to load this suite.")
@@ -746,6 +864,74 @@ async function runCase(c) {
 		loadError.value = errorText(e, "Failed to start the run.")
 	} finally {
 		runningCase[c.name] = false
+	}
+}
+
+// ── Runs per case / minimum pass rate ───────────────────────────────────
+const showThresholds = ref(false)
+const savingThresholds = ref(false)
+const thresholdError = ref("")
+const thresholdForm = reactive({ pass_k: 1, min_pass_rate: 0, gate_deployment: false })
+
+function openThresholds() {
+	thresholdForm.pass_k = suite.value.pass_k || 1
+	thresholdForm.min_pass_rate = suite.value.min_pass_rate || 0
+	thresholdForm.gate_deployment = !!suite.value.gate_deployment
+	thresholdError.value = ""
+	showThresholds.value = true
+}
+async function saveThresholds() {
+	savingThresholds.value = true
+	thresholdError.value = ""
+	try {
+		await frappeRequest({
+			url: "/api/method/one_bpmn.api.eval_api.update_suite_thresholds",
+			method: "POST",
+			params: {
+				suite: suiteName,
+				pass_k: thresholdForm.pass_k,
+				min_pass_rate: thresholdForm.min_pass_rate,
+				gate_deployment: thresholdForm.gate_deployment ? 1 : 0,
+			},
+		})
+		showThresholds.value = false
+		await fetchDetail()
+	} catch (e) {
+		thresholdError.value = errorText(e, "Could not save.")
+	} finally {
+		savingThresholds.value = false
+	}
+}
+
+// ── Consistency over time ───────────────────────────────────────────────
+const consistency = ref({})
+const loadingConsistency = ref(false)
+// The report exists for the cases that disagree with themselves; a solid case
+// is not news.
+const flakyCases = computed(() =>
+	(consistency.value.cases || []).filter((c) => c.consistency_rate < 100 || c.flips)
+)
+const rateColour = computed(() => {
+	const m = metrics.value?.latest
+	if (!m?.executions) return "text-gray-900"
+	if (suite.value.min_pass_rate && m.pass_rate < suite.value.min_pass_rate) return "text-red-600"
+	return m.pass_rate === 100 ? "text-green-700" : "text-amber-600"
+})
+function round1(n) {
+	return Math.round((Number(n) || 0) * 10) / 10
+}
+async function loadConsistency() {
+	loadingConsistency.value = true
+	try {
+		consistency.value = await frappeRequest({
+			url: "/api/method/one_bpmn.api.eval_api.case_consistency",
+			method: "GET",
+			params: { suite: suiteName },
+		})
+	} catch (e) {
+		console.error("Failed to load the consistency report:", e)
+	} finally {
+		loadingConsistency.value = false
 	}
 }
 

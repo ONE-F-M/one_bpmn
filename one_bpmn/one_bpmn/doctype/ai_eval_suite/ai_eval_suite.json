@@ -12,6 +12,8 @@
   "agent_configuration",
   "eval_type",
   "suite_type",
+  "pass_k",
+  "min_pass_rate",
   "gate_deployment",
   "description"
  ],
@@ -73,6 +75,20 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "description": "Baseline checks the agent does its job. Adversarial checks it resists injection, jailbreak, exfiltration and tool coercion. A chat agent cannot go Live without a passing Adversarial suite. A suite marks itself Adversarial automatically when a case promoted from an AI Security Event is added to it."
+  },
+  {
+   "default": "1",
+   "description": "How many times each case runs. Above 1, a case passes only when every one of its runs passes \u2014 an agent that deviates two turns in five cannot graduate on a lucky pass.",
+   "fieldname": "pass_k",
+   "fieldtype": "Int",
+   "label": "Runs Per Case"
+  },
+  {
+   "default": "0",
+   "description": "The share of executions that must pass for the suite to pass. Left at 0 the suite keeps its old rule \u2014 every case passes \u2014 and blocks nothing.",
+   "fieldname": "min_pass_rate",
+   "fieldtype": "Percent",
+   "label": "Minimum Pass Rate"
   }
  ],
  "index_web_pages_for_search": 1,

@@ -20,7 +20,9 @@ recorded and the runner moves on.
 from __future__ import annotations
 
 import json
+import queue
 import re
+import threading
 from typing import Any, List
 
 import frappe
@@ -359,36 +361,63 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
         passed = failed = 0
         total_cost = 0.0
         total_tokens = 0
+        executions = passing_executions = 0
+        # How many times each case runs. A replay re-scores one stored answer,
+        # so repeating it would count the same execution k times and report a
+        # consistency the run never demonstrated.
+        pass_k = 1 if run.backend == "replay" else max(1, cint(
+            frappe.db.get_value("AI Eval Suite", run.suite, "pass_k")
+        ))
         # WI-001821: a run may nominate an agent other than the suite's, so an
         # A/B comparison never has to rebind the suite. Resolved once here
         # rather than per case, so every case in a run is judged against the
         # same agent even if the suite is reassigned mid-run.
         agent_cfg = run.get("agent_configuration") or None
+        rows = _execute_lanes(
+            case_names, run.name, run.backend, agent_cfg, pass_k, _eval_concurrency()
+        )
+
+        # Results are appended in the order the cases were asked for, never the
+        # order they came back in. Lanes finish out of order — a one-word reply
+        # lands long before a connector build — and a run's history has to read
+        # the same either way, or comparing two runs becomes guesswork.
         for case_name in case_names:
-            case = frappe.get_doc("AI Eval Case", case_name)
-            if run.backend == "replay":
-                result_row = _execute_case_replay(run, case)
-            else:
-                result_row = _execute_case(case, run.name, agent_cfg)
+            result_row = rows.get(case_name)
+            if result_row is None:
+                # A worker that died without recording anything would otherwise
+                # drop the case silently and shrink the denominator.
+                result_row = {
+                    "eval_case": case_name,
+                    "status": "Error",
+                    "error_message": "This case produced no result. See the Error Log.",
+                    "runs": 1, "passes": 0, "consistency_rate": 0,
+                }
             # Snapshot what was evaluated, so later edits to the case don't
             # rewrite this run's history. Set centrally so every path (live,
             # replay, error) records it.
-            result_row.setdefault("input_user_prompt", case.input_user_prompt or "")
-            result_row.setdefault("expected_output", case.expected_output or "")
+            snapshot = frappe.db.get_value(
+                "AI Eval Case", case_name, ["input_user_prompt", "expected_output"], as_dict=True
+            ) or {}
+            result_row.setdefault("input_user_prompt", snapshot.get("input_user_prompt") or "")
+            result_row.setdefault("expected_output", snapshot.get("expected_output") or "")
             run.append("results", result_row)
             if result_row["status"] == "Passed":
                 passed += 1
             else:
                 failed += 1
+            executions += cint(result_row.get("runs") or 1)
+            passing_executions += cint(result_row.get("passes") or 0)
             total_cost += flt(result_row.get("cost", 0))
             total_tokens += (result_row.get("tokens_used") or 0)
 
         run.total_cases = len(case_names)
         run.passed_cases = passed
         run.failed_cases = failed
+        run.total_executions = executions
+        run.pass_rate = (passing_executions / executions * 100) if executions else 0
         run.total_cost = total_cost
         run.total_tokens = total_tokens
-        run.status = "Passed" if failed == 0 else "Failed"
+        run.status = _suite_run_status(run, failed)
     except Exception:
         frappe.log_error(
             title=f"AI Eval: suite execution failed ({run_name})",
@@ -415,7 +444,245 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
     )
 
 
-def _execute_case_replay(run, case) -> dict:
+# ---------------------------------------------------------------------------
+# Running a suite's cases side by side
+# ---------------------------------------------------------------------------
+#
+# Nearly all of a suite's wall clock is spent waiting for a model to answer, so
+# the cases can overlap. What CANNOT overlap is two executions that share a
+# document: an agent's scratch notes live under the name of the document it is
+# working on, and its answer is written back onto that same record. Two
+# executions there would trample each other, and the consistency number would
+# be measuring the collision rather than the agent.
+#
+# So the unit of parallelism is a LANE, not a case: cases are grouped by the
+# document they run against, lanes run side by side, and cases inside one lane
+# run one after another. A case's own repetitions are serial for the same
+# reason — they share its document.
+
+# A hard ceiling regardless of configuration. Provider limits are per account,
+# so an eval suite competes with live agent traffic; and spend that used to
+# reveal itself slowly arrives all at once.
+MAX_EVAL_CONCURRENCY = 8
+
+
+def _eval_concurrency() -> int:
+    """How many lanes may be in flight. 1 — the default — is the old behaviour
+    exactly: no pool, no threads, the same single-file loop."""
+    try:
+        configured = cint(frappe.db.get_single_value("Processa Settings", "eval_concurrency"))
+    except Exception:
+        return 1
+    return max(1, min(configured or 1, MAX_EVAL_CONCURRENCY))
+
+
+def _lanes_for(case_names: List[str]) -> List[List[str]]:
+    """Group cases into lanes that may run side by side.
+
+    Two cases naming the same context document land in one lane, so they never
+    overlap. Everything else gets a lane of its own. Lane order follows the
+    order the cases were given, so a serial run and a parallel run schedule the
+    same work in the same sequence.
+    """
+    contexts = {}
+    if case_names:
+        for row in frappe.get_all(
+            "AI Eval Case",
+            filters={"name": ["in", case_names]},
+            fields=["name", "input_context"],
+        ):
+            docname = ""
+            try:
+                docname = (frappe.parse_json(row.input_context or "{}") or {}).get("context_docname") or ""
+            except Exception:
+                docname = ""
+            contexts[row.name] = docname
+
+    lanes: List[List[str]] = []
+    by_document: dict = {}
+    for case_name in case_names:
+        document = contexts.get(case_name) or ""
+        if not document:
+            lanes.append([case_name])
+            continue
+        lane = by_document.get(document)
+        if lane is None:
+            lane = []
+            by_document[document] = lane
+            lanes.append(lane)
+        lane.append(case_name)
+    return lanes
+
+
+def _run_lane(lane: List[str], run_name: str, backend: str, agent_cfg: str | None, pass_k: int) -> dict:
+    """Execute one lane's cases in order, returning {case: result row}.
+
+    A case that blows up is recorded as an Error and the lane carries on: one
+    bad case must not cost the others their turn, which is the same rule the
+    serial runner has always followed.
+    """
+    rows = {}
+    for case_name in lane:
+        try:
+            case = frappe.get_doc("AI Eval Case", case_name)
+            rows[case_name] = _execute_case_k_times(run_name, backend, case, agent_cfg, pass_k)
+        except Exception:
+            frappe.log_error(
+                title=f"AI Eval: case execution failed ({case_name})",
+                message=frappe.get_traceback(),
+            )
+            rows[case_name] = {
+                "eval_case": case_name,
+                "status": "Error",
+                "error_message": "This case could not be executed. See the Error Log.",
+                "runs": 1,
+                "passes": 0,
+                "consistency_rate": 0,
+            }
+    return rows
+
+
+def _lane_worker(site: str, lanes: "queue.Queue", results: dict, lock: "threading.Lock",
+                 run_name: str, backend: str, agent_cfg: str | None, pass_k: int) -> None:
+    """One worker: its own Frappe context, then lanes until the queue is empty.
+
+    The context is set up ONCE per worker rather than per lane — a connect is
+    far more expensive than a case — and it has to exist at all, because a
+    thread inherits none of it. Without it there is no database connection and,
+    worse, no eval-origin stamp on the runs the case produces, which is what
+    later attributes a tool-call trace to its case. That failure is silent: the
+    suite passes and the trace assertions quietly find nothing to look at.
+    """
+    frappe.init(site=site)
+    frappe.connect()
+    try:
+        while True:
+            try:
+                lane = lanes.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                rows = _run_lane(lane, run_name, backend, agent_cfg, pass_k)
+                # Each worker owns its own transaction, so its writes are its own
+                # to commit. Without this the case's AI Agent Runs — and every
+                # judge call recorded against them — roll back when the thread
+                # ends, while the row it returns still says it all happened.
+                frappe.db.commit()
+                with lock:
+                    results.update(rows)
+            finally:
+                lanes.task_done()
+    finally:
+        frappe.destroy()
+
+
+def _execute_lanes(case_names: List[str], run_name: str, backend: str,
+                   agent_cfg: str | None, pass_k: int, concurrency: int) -> dict:
+    """Run every case, side by side up to ``concurrency`` lanes, and return
+    {case: result row}.
+
+    At concurrency 1 this is the plain loop it has always been: no queue, no
+    threads, no per-worker connect. That is not an optimisation so much as a
+    guarantee — the default configuration runs the code path that has been in
+    production all along.
+    """
+    lanes = _lanes_for(case_names)
+    if concurrency <= 1 or len(lanes) <= 1:
+        rows = {}
+        for lane in lanes:
+            rows.update(_run_lane(lane, run_name, backend, agent_cfg, pass_k))
+        return rows
+
+    # Each worker reads through its OWN database connection, so it cannot see
+    # writes this transaction has not committed — every case would come back
+    # "not found". A background job has nothing pending worth protecting here,
+    # and the runner commits at the end anyway; skipped under test so the
+    # framework's rollback still cleans up fixtures.
+    if not frappe.flags.in_test:
+        frappe.db.commit()
+
+    pending: "queue.Queue" = queue.Queue()
+    for lane in lanes:
+        pending.put(lane)
+
+    results: dict = {}
+    lock = threading.Lock()
+    workers = [
+        threading.Thread(
+            target=_lane_worker,
+            args=(frappe.local.site, pending, results, lock, run_name, backend, agent_cfg, pass_k),
+            name=f"eval-{run_name}-{index}",
+            daemon=True,
+        )
+        for index in range(min(concurrency, len(lanes)))
+    ]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+    return results
+
+
+def _suite_run_status(run, failed: int) -> str:
+    """Passed needs both bars the suite declares.
+
+    Every case still has to pass — a single failing execution fails its case,
+    which is the point of running it k times. On top of that, a suite that
+    declares a minimum pass rate must meet it, and that rate is the number the
+    deployment gate quotes. The two overlap today because the per-case bar is
+    the stricter one; both are checked because the rate is what a reader is
+    shown and what a gate refuses on, and a suite whose per-case rule is later
+    relaxed must not silently open the gate.
+    """
+    if failed:
+        return "Failed"
+    minimum = flt(frappe.db.get_value("AI Eval Suite", run.suite, "min_pass_rate"))
+    if minimum and flt(run.pass_rate) < minimum:
+        return "Failed"
+    return "Passed"
+
+
+def _execute_case_k_times(run_name: str, backend: str, case, agent_cfg: str | None, pass_k: int) -> dict:
+    """Execute one case ``pass_k`` times and report how it behaved across them.
+
+    A case that passes three times out of four is not a passing case: the fourth
+    is what a user would have hit. So the row keeps the FAILING execution's
+    output and assertions when there is one — a reviewer needs to see what went
+    wrong, not the run that happened to go well — and reports the consistency
+    rate beside it.
+
+    Spend is summed over every execution, because every execution was billed.
+    """
+    attempts = []
+    for _attempt in range(pass_k):
+        if backend == "replay":
+            attempts.append(_execute_case_replay(run_name, case))
+        else:
+            attempts.append(_execute_case(case, run_name, agent_cfg))
+
+    passes = sum(1 for a in attempts if a.get("status") == "Passed")
+    # The first execution that went wrong is the one worth reading; failing that,
+    # the last good one.
+    row = dict(next((a for a in attempts if a.get("status") != "Passed"), attempts[-1]))
+    row["runs"] = len(attempts)
+    row["passes"] = passes
+    row["consistency_rate"] = passes / len(attempts) * 100
+    row["status"] = "Passed" if passes == len(attempts) else row.get("status", "Failed")
+    row["cost"] = sum(flt(a.get("cost")) for a in attempts)
+    row["tokens_used"] = sum(cint(a.get("tokens_used")) for a in attempts)
+    row["prompt_tokens"] = sum(cint(a.get("prompt_tokens")) for a in attempts)
+    row["completion_tokens"] = sum(cint(a.get("completion_tokens")) for a in attempts)
+
+    # A case that flipped says so on the row, so the failure reads as flakiness
+    # rather than as a plain wrong answer.
+    if 0 < passes < len(attempts):
+        note = _("Flaky: passed {0} of {1} runs.").format(passes, len(attempts))
+        row["error_message"] = f"{note}\n{row.get('error_message') or ''}".strip()
+
+    return row
+
+
+def _execute_case_replay(run_name: str, case) -> dict:
     """
     Replay one case (WI-001364): skip the executor entirely and re-run
     evaluate-assertion logic against the case's most recent prior
@@ -426,21 +693,21 @@ def _execute_case_replay(run, case) -> dict:
     # real tokens through _record_eval_run — stamp them with this case and run so
     # replay spend is attributable too.
     prev_origin = getattr(frappe.flags, "eval_origin", None)
-    frappe.flags.eval_origin = _eval_origin_flag(case, run.name)
+    frappe.flags.eval_origin = _eval_origin_flag(case, run_name)
     try:
-        return _execute_case_replay_inner(run, case)
+        return _execute_case_replay_inner(run_name, case)
     finally:
         frappe.flags.eval_origin = prev_origin
 
 
-def _execute_case_replay_inner(run, case) -> dict:
+def _execute_case_replay_inner(run_name: str, case) -> dict:
     """The body of ``_execute_case_replay``, with ``eval_origin`` already set."""
     prior = frappe.get_all(
         "AI Eval Result",
         filters={
             "eval_case": case.name,
             "parenttype": "AI Eval Run",
-            "parent": ["!=", run.name],
+            "parent": ["!=", run_name],
         },
         fields=["actual_output", "status"],
         order_by="creation desc",
@@ -1128,16 +1395,19 @@ def _expected_tool_calls(case) -> List[dict]:
     """
     grouped: dict = {}
     for row in case.get("expected_tool_calls") or []:
-        if not (row.tool_name or "").strip():
+        # `.get` so a row works whether it arrived as a child Document or as a
+        # plain dict from a caller that built the table by hand.
+        tool = (row.get("tool_name") or "").strip()
+        if not tool:
             continue
-        entry = grouped.setdefault(
-            cint(row.call_order), {"order": cint(row.call_order), "tool": row.tool_name.strip(), "matchers": []}
-        )
-        if (row.argument or "").strip():
+        order = cint(row.get("call_order"))
+        entry = grouped.setdefault(order, {"order": order, "tool": tool, "matchers": []})
+        argument = (row.get("argument") or "").strip()
+        if argument:
             entry["matchers"].append({
-                "argument": row.argument.strip(),
-                "matcher": (row.matcher or "equals").strip(),
-                "expected": row.expected_value or "",
+                "argument": argument,
+                "matcher": (row.get("matcher") or "equals").strip(),
+                "expected": row.get("expected_value") or "",
             })
     return [grouped[k] for k in sorted(grouped)]
 
