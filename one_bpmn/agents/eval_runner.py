@@ -50,6 +50,23 @@ from one_bpmn.agents.pricing import get_model_pricing
 EVAL_RUN_DIRECT = "direct-eval"
 EVAL_RUN_JUDGE = "eval-judge"
 
+# live       calls the model.
+# replay     re-scores each case's last stored answer — and still makes a judge
+#            call for every llm_judge assertion, so it is not free and not
+#            deterministic.
+# deterministic
+#            scores the answer recorded ON THE CASE and makes no model call at
+#            all. That is what continuous integration can run before anyone has
+#            decided whose provider key it may spend: it cannot tell you the
+#            agent still behaves, only that the assertions and the evaluators
+#            still do — which is exactly the regression a pull request
+#            introduces.
+EVAL_BACKENDS = ("live", "replay", "deterministic")
+
+# The assertion types that need a model call, and therefore cannot run in a
+# deterministic pass. Everything else is arithmetic or string matching.
+MODEL_BACKED_ASSERTIONS = frozenset({"llm_judge"})
+
 JUDGE_PROMPT_TEMPLATE = """You are an evaluation judge. Score the following AI response based on the given rubric.
 
 Rubric:
@@ -88,8 +105,8 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     """
     frappe.only_for("System Manager")
 
-    if backend not in ("live", "replay"):
-        frappe.throw(_("backend must be 'live' or 'replay', not '{0}'.").format(backend))
+    if backend not in EVAL_BACKENDS:
+        frappe.throw(_("backend must be one of {0}, not '{1}'.").format(", ".join(EVAL_BACKENDS), backend))
 
     if not frappe.db.exists("AI Eval Suite", suite_name):
         frappe.throw(_("AI Eval Suite '{0}' not found.").format(suite_name))
@@ -161,8 +178,8 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
     user who can read the suite — a process owner may run their own suites.
     The subset is validated to belong to the suite.
     """
-    if backend not in ("live", "replay"):
-        frappe.throw(_("backend must be 'live' or 'replay', not '{0}'.").format(backend))
+    if backend not in EVAL_BACKENDS:
+        frappe.throw(_("backend must be one of {0}, not '{1}'.").format(", ".join(EVAL_BACKENDS), backend))
 
     suite = frappe.get_doc("AI Eval Suite", suite_name)  # 404s if missing
     suite.check_permission("read")  # owner / System Manager gate
@@ -356,7 +373,7 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
                 order_by="creation asc",
             )
 
-        passed = failed = 0
+        passed = failed = skipped = 0
         total_cost = 0.0
         total_tokens = 0
         # WI-001821: a run may nominate an agent other than the suite's, so an
@@ -368,6 +385,8 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
             case = frappe.get_doc("AI Eval Case", case_name)
             if run.backend == "replay":
                 result_row = _execute_case_replay(run, case)
+            elif run.backend == "deterministic":
+                result_row = _execute_case_deterministic(case)
             else:
                 result_row = _execute_case(case, run.name, agent_cfg)
             # Snapshot what was evaluated, so later edits to the case don't
@@ -378,6 +397,11 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
             run.append("results", result_row)
             if result_row["status"] == "Passed":
                 passed += 1
+            elif result_row["status"] == "Skipped":
+                # Neither column: nothing was checked, so it is not evidence
+                # either way. The caller decides whether a suite that checked
+                # nothing is acceptable — see run_ai_evals.
+                skipped += 1
             else:
                 failed += 1
             total_cost += flt(result_row.get("cost", 0))
@@ -413,6 +437,89 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
         {"run_name": run.name, "status": run.status},
         user="all",
     )
+
+
+def _execute_case_deterministic(case) -> dict:
+    """Score a case's assertions against the answer recorded on the case.
+
+    No model is called, so this runs anywhere — a pull request check with no
+    provider key included. What it proves is narrow, and worth stating: the
+    assertions still hold against a known answer, so a change to an evaluator,
+    an assertion, or the contract a prompt promises is caught before merge. It
+    cannot prove the agent still produces that answer. That is the nightly live
+    run's job.
+
+    ``expected_output`` is the recorded answer. A case with none falls back to
+    its last stored actual output, so a suite captured from real runs works here
+    too.
+
+    Assertions needing a model are SKIPPED, not failed. Failing them would turn
+    "CI has no provider key" into a red check on every pull request; passing
+    them would be a lie. They are reported, counted in neither column, and a
+    case with nothing left to check is itself skipped.
+    """
+    answer = (case.expected_output or "").strip()
+    source = "the case's recorded answer"
+    borrowed = False
+    if not answer:
+        borrowed = True
+        prior = frappe.get_all(
+            "AI Eval Result",
+            filters={"eval_case": case.name, "parenttype": "AI Eval Run"},
+            fields=["actual_output"],
+            order_by="creation desc",
+            limit_page_length=1,
+        )
+        answer = (prior[0].actual_output or "").strip() if prior else ""
+        source = "the last stored answer"
+
+    assertions = case.assertions or []
+    checkable = [a for a in assertions if a.assertion_type not in MODEL_BACKED_ASSERTIONS]
+    needs_model = sorted({a.assertion_type for a in assertions if a.assertion_type in MODEL_BACKED_ASSERTIONS})
+
+    if not answer:
+        return {
+            "eval_case": case.name,
+            "status": "Skipped",
+            "error_message": (
+                "Nothing to score against: this case records no expected output and has never run. "
+                "Give it the answer a deterministic check should hold to, or leave its suite out of Smoke."
+            ),
+        }
+
+    if not checkable:
+        return {
+            "eval_case": case.name,
+            "status": "Skipped",
+            "actual_output": answer,
+            "error_message": (
+                "Every assertion here needs a model call (" + ", ".join(needs_model)
+                + "), so a deterministic pass has nothing to check."
+            ),
+        }
+
+    results = [_evaluate_assertion(assertion, answer) for assertion in checkable]
+    passed = all(r["passed"] for r in results)
+    errored = any(r.get("error") for r in results)
+
+    note = f"Scored against {source}, no model call."
+    if needs_model:
+        note += " Skipped " + ", ".join(needs_model) + " — needs a model."
+
+    # The note is kept on a PASSING row too when the answer was borrowed from a
+    # previous run: that a case has no recorded answer of its own is exactly the
+    # thing a reader would otherwise never learn from a green result.
+    worth_saying = errored or not passed or needs_model or borrowed
+
+    return {
+        "eval_case": case.name,
+        "status": "Error" if errored else ("Passed" if passed else "Failed"),
+        "actual_output": answer,
+        "assertion_results": json.dumps(results, default=str),
+        "error_message": note if worth_saying else "",
+        "cost": 0,
+        "tokens_used": 0,
+    }
 
 
 def _execute_case_replay(run, case) -> dict:

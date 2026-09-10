@@ -90,7 +90,8 @@
    "fieldname": "backend",
    "fieldtype": "Select",
    "label": "Backend",
-   "options": "live\nreplay"
+   "options": "live\nreplay\ndeterministic",
+   "description": "live calls the model; replay re-scores each case's last stored answer and still makes judge calls; deterministic scores the case's recorded answer and makes no model call at all, which is what CI can run without a provider key."
   },
   {
    "fieldname": "column_break_meta",
