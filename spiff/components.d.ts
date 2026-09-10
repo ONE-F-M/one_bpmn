@@ -62,6 +62,7 @@ declare module 'vue' {
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     Row: typeof import('./src/components/chat/primitives/Row.vue')['default']
+    RunTree: typeof import('./src/components/insights/RunTree.vue')['default']
     ScriptDiffCard: typeof import('./src/components/chat/cards/ScriptDiffCard.vue')['default']
     Stack: typeof import('./src/components/chat/primitives/Stack.vue')['default']
     TestCaseCard: typeof import('./src/components/chat/cards/TestCaseCard.vue')['default']
