@@ -37,11 +37,12 @@ has been imported yet:
    there was nothing to migrate. validate_agent_config() (the check this
    platform's go-live flow runs, WI-001621) hard-fails on a blank ai_model
    ("No AI Model is linked"), so without this these configs can never pass
-   validation at all, let alone reach Live. Points at claude-haiku-4-5-20251001
-   to match the model the Logix pipeline runs on; if that catalog entry has
-   no working credentials on a given site, that's a site config gap for
-   whoever administers it, not something this patch should route around
-   by silently picking a different model.
+   validation at all, let alone reach Live. Points at claude-sonnet-5 to
+   match Dev Agent, the other Background agent already Live on the BA
+   site; if that catalog entry has no working credentials on a given
+   site, that's a site config gap for whoever administers it, not
+   something this patch should route around by silently picking a
+   different model.
 
 This patch deliberately does not touch process_model — the map is moved
 between environments by hand through the app's own Import/Export feature,
@@ -117,8 +118,8 @@ def execute():
 				doc.required_variables = "[]"
 				changed = True
 
-			if not doc.get("ai_model") and frappe.db.exists("AI Model", "claude-haiku-4-5-20251001"):
-				doc.ai_model = "claude-haiku-4-5-20251001"
+			if not doc.get("ai_model") and frappe.db.exists("AI Model", "claude-sonnet-5"):
+				doc.ai_model = "claude-sonnet-5"
 				changed = True
 
 			if changed:

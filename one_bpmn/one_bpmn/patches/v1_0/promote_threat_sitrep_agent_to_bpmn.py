@@ -26,10 +26,10 @@ agent_type, no chosen ai_model. What changes here:
    cleared for the same reason BA Agent's was: the placeholders it declared
    don't exist in the new prompt.
 
-3. ai_model -> claude-haiku-4-5-20251001, matching the model the Logix
-   pipeline runs on, so the AI Provider Credentials link is
-   resolvable (validation requires a catalog model, and credentials follow
-   the model on save). max_tokens -> 8192: unset today (doctype default is
+3. ai_model -> claude-sonnet-5, matching Dev Agent, the other Background
+   agent already Live on the BA site, so the AI Provider Credentials link
+   is resolvable (validation requires a catalog model, and credentials
+   follow the model on save). max_tokens -> 8192: unset today (doctype default is
    0), and a reply carrying two threat lists plus five prose sections does
    not fit in whatever a 0/default cap would truncate it to.
 
@@ -58,7 +58,7 @@ import frappe
 
 AGENT_NAME = "Threat SITREP Agent"
 AGENT_ID = "threat_sitrep_agent"
-AI_MODEL = "claude-haiku-4-5-20251001"
+AI_MODEL = "claude-sonnet-5"
 MAX_TOKENS = 8192
 
 CLEAR_REQUIRED_VARIABLES = "[]"
