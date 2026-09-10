@@ -20,7 +20,11 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents._eval_test_factories import make_eval_case, make_eval_suite
 from one_bpmn.agents.eval_ci import run_suite
-from one_bpmn.agents.eval_runner import _execute_eval_suite, _judge_model_for
+from one_bpmn.agents.eval_runner import (
+	_execute_eval_suite,
+	_judge_model_for,
+	_run_lane,
+)
 
 CASE_EXEC = "one_bpmn.agents.eval_runner._execute_case"
 
@@ -143,3 +147,92 @@ class TestRunSuiteCarriesTheCeiling(FrappeTestCase):
 		self.assertEqual(summary["cost"], 2.0)
 		self.assertEqual(summary["skipped"], 1)
 		self.assertEqual(summary["rate"], 100.0, "the cases that did run all passed")
+
+
+class TestCeilingAndTheGateTogether(FrappeTestCase):
+	"""Where this story meets the deployment gate.
+
+	The gate refuses a deployment on a suite's pass rate. A case that never ran
+	— because nothing could be checked without a model, or because the budget
+	was gone — must therefore stay out of that rate, or a suite gets blocked for
+	having no provider key rather than for behaving badly.
+	"""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self.suite = make_eval_suite(title="_Test gate mix " + frappe.generate_hash(length=6))
+
+	def _case(self, answer, assertions):
+		case = make_eval_case(suite=self.suite.name, expected_output=answer)
+		case.reload()
+		case.set("assertions", assertions)
+		case.flags.ignore_mandatory = True
+		case.save(ignore_permissions=True)
+		return case
+
+	def test_a_skipped_case_stays_out_of_the_pass_rate(self):
+		self._case("ready", [{"assertion_type": "equals", "value": "ready"}])
+		self._case("anything", [{"assertion_type": "llm_judge", "value": "rubric",
+								 "judge_provider": "Anthropic", "judge_model": "claude-haiku-4-5-20251001"}])
+		run = frappe.get_doc({
+			"doctype": "AI Eval Run", "suite": self.suite.name, "status": "Running",
+			"backend": "deterministic", "scope": "Suite", "started_at": frappe.utils.now_datetime(),
+		})
+		run.flags.ignore_mandatory = True
+		run.flags.ignore_links = True
+		run.insert(ignore_permissions=True)
+		_execute_eval_suite(run.name)
+		run.reload()
+
+		self.assertEqual(run.total_executions, 1, "the skipped case never executed")
+		self.assertEqual(run.pass_rate, 100.0, "half of nothing is not a 50% agent")
+		self.assertEqual(run.status, "Passed")
+
+	def test_a_deterministic_run_is_not_repeated_k_times(self):
+		"""The answer is on the case, so k runs would be k copies of one fact."""
+		frappe.db.set_value("AI Eval Suite", self.suite.name, "pass_k", 4)
+		self._case("ready", [{"assertion_type": "equals", "value": "ready"}])
+		run = frappe.get_doc({
+			"doctype": "AI Eval Run", "suite": self.suite.name, "status": "Running",
+			"backend": "deterministic", "scope": "Suite", "started_at": frappe.utils.now_datetime(),
+		})
+		run.flags.ignore_mandatory = True
+		run.flags.ignore_links = True
+		run.insert(ignore_permissions=True)
+		_execute_eval_suite(run.name)
+		run.reload()
+		self.assertEqual(run.total_executions, 1)
+
+
+class TestCeilingInsideALane(FrappeTestCase):
+	"""The ceiling has to survive cases running side by side."""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self.suite = make_eval_suite(title="_Test lane cap " + frappe.generate_hash(length=6))
+		self.cases = [make_eval_case(suite=self.suite.name, expected_output="ok") for _ in range(4)]
+
+	def _budget(self, cap):
+		import threading
+		return {"cap": cap, "spent": 0.0, "not_run": 0, "lock": threading.Lock()}
+
+	def test_a_lane_stops_starting_cases_once_the_budget_is_gone(self):
+		budget = self._budget(2.5)
+		lane = [c.name for c in self.cases]
+		with patch(CASE_EXEC, side_effect=_priced(1.0)):
+			rows = _run_lane(lane, "no-run", "live", None, 1, budget)
+
+		ran = [n for n in lane if rows[n]["status"] == "Passed"]
+		not_run = [n for n in lane if rows[n]["status"] == "Skipped"]
+		self.assertEqual(len(ran), 3, "the third case is what crossed the line")
+		self.assertEqual(len(not_run), 1)
+		self.assertIn("spend ceiling", rows[not_run[0]]["error_message"])
+		self.assertEqual(budget["not_run"], 1)
+
+	def test_a_lane_with_no_ceiling_runs_the_whole_lane(self):
+		budget = self._budget(0)
+		lane = [c.name for c in self.cases]
+		with patch(CASE_EXEC, side_effect=_priced(9.0)):
+			rows = _run_lane(lane, "no-run", "live", None, 1, budget)
+		self.assertTrue(all(rows[n]["status"] == "Passed" for n in lane))
+		self.assertEqual(budget["not_run"], 0)

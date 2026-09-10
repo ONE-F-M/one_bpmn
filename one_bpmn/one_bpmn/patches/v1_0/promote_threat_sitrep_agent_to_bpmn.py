@@ -18,15 +18,16 @@ agent_type, no chosen ai_model. What changes here:
    "OUTPUT FORMAT (valid JSON only...)" describing a bare JSON blob a Python
    parser then stripped ```json fences off of. Under the map, the per-run
    data arrives as Jinja on the AI Agent Task's own aiUserPrompt, and the
-   answer is a single call to the finalize_sitrep tool (see
-   exports/threat_assessment_sitrep.bpmn) whose arguments are the answer —
+   answer is a single call to the finalize_sitrep tool (see the "Daily
+   Threat SITREP" map's AI Agent Task) whose arguments are the answer —
    there is no text output to parse. The domain content (Kuwait geofencing
    rule, the five report sections, the threat_level/location rules) carries
    over verbatim; only the delivery mechanism changes. required_variables is
    cleared for the same reason BA Agent's was: the placeholders it declared
    don't exist in the new prompt.
 
-3. ai_model -> claude-sonnet-5, so the AI Provider Credentials link is
+3. ai_model -> claude-haiku-4-5-20251001, matching the model the Logix
+   pipeline runs on, so the AI Provider Credentials link is
    resolvable (validation requires a catalog model, and credentials follow
    the model on save). max_tokens -> 8192: unset today (doctype default is
    0), and a reply carrying two threat lists plus five prose sections does
@@ -37,16 +38,7 @@ agent_type, no chosen ai_model. What changes here:
    the new prompt tells the model to use "Kuwait - Unspecified" directly,
    so no code is left to read a DocType constant for it.
 
-5. process_model -> "Daily Threat SITREP", once that map exists on this
-   site. Until then this step is a no-op, same safety property every
-   seed_*_agent_config patch in this app documents: the map and its Server
-   Scripts do not ship as patches. They live in
-   exports/threat_assessment_sitrep.bpmn + _config.json, imported by hand
-   through the /spiff editor per environment (Processa export/import) —
-   shipping them as a patch too would just create a second source of truth
-   to drift from the exported one.
-
-6. lifecycle_status is taken through validate_agent_config (identity,
+5. lifecycle_status is taken through validate_agent_config (identity,
    prompt, model + credentials, and — since this agent has no chat label to
    check — a live provider test call), landing on Live only on a clean pass
    and Needs Attention with the reason recorded otherwise, matching the BA
@@ -66,8 +58,7 @@ import frappe
 
 AGENT_NAME = "Threat SITREP Agent"
 AGENT_ID = "threat_sitrep_agent"
-PROCESS_MODEL = "Daily Threat SITREP"
-AI_MODEL = "claude-sonnet-5"
+AI_MODEL = "claude-haiku-4-5-20251001"
 MAX_TOKENS = 8192
 
 CLEAR_REQUIRED_VARIABLES = "[]"
@@ -125,10 +116,6 @@ def execute():
 
 		if not doc.max_tokens or int(doc.max_tokens) < MAX_TOKENS:
 			doc.max_tokens = MAX_TOKENS
-			changed = True
-
-		if frappe.db.exists("BPMN Process Model", PROCESS_MODEL) and doc.get("process_model") != PROCESS_MODEL:
-			doc.process_model = PROCESS_MODEL
 			changed = True
 
 		kept_constants = [r for r in doc.constants if r.constant_name not in DEAD_CONSTANTS]

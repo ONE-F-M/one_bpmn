@@ -23,6 +23,8 @@
   "passed_cases",
   "column_break_counts",
   "failed_cases",
+  "total_executions",
+  "pass_rate",
   "section_break_usage",
   "total_tokens",
   "column_break_usage",
@@ -182,6 +184,19 @@
    "fieldtype": "Table",
    "label": "Results",
    "options": "AI Eval Result"
+  },
+  {
+   "fieldname": "total_executions",
+   "fieldtype": "Int",
+   "label": "Executions",
+   "description": "Cases times runs per case \u2014 what the pass rate is out of."
+  },
+  {
+   "fieldname": "pass_rate",
+   "fieldtype": "Percent",
+   "label": "Pass Rate",
+   "description": "Passing executions out of all executions. This is the number the deployment gate reads.",
+   "in_list_view": 1
   }
  ],
  "index_web_pages_for_search": 1,
