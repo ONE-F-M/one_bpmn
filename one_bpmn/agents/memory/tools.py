@@ -76,6 +76,20 @@ _DEFAULT_IMPORTANCE_WEIGHT = 0.2
 # ponytail: fixed half-life, make it a setting if one agent needs a different clock
 _RECENCY_HALF_LIFE_DAYS = 30.0
 _DEFAULT_IMPORTANCE = 3
+
+# ── Provenance and trust ─────────────────────────────────────────────────────
+SOURCE_TYPES = ("User Statement", "Agent Inference", "Tool Output")
+_DEFAULT_SOURCE_TYPE = "Agent Inference"
+# Starting confidence by source. Tool output is discouraged by default: a fact
+# read off what a tool returned is one step further from anything a person
+# said, so it starts low and loses ties against the other two.
+# ponytail: fixed table, promote to settings if a site wants tool facts trusted more
+_INITIAL_CONFIDENCE = {"User Statement": 0.9, "Agent Inference": 0.6, "Tool Output": 0.4}
+# Added to confidence each time a later fact restates an existing one.
+_CORROBORATION_BOOST = 0.1
+# Effective confidence halves every this many days since the fact was last
+# written or corroborated, so an old uncorroborated fact loses a tie to a new one.
+_CONFIDENCE_HALF_LIFE_DAYS = 90.0
 # A row that shares no keyword with the query must be at least this similar in
 # meaning to be returned at all, or the semantic path would pad results with
 # unrelated facts. all-MiniLM-L6-v2: related pairs score above 0.35, unrelated
@@ -434,7 +448,79 @@ def _keyed_candidates(keys: dict, dedup_key: str | None) -> list[dict]:
 	return [_row_dict(r) for r in _valid_rows(rows)]
 
 
-def _reconcile_and_invalidate(scope, scope_key, content, dedup_key, ctx, *, ignore_permissions) -> str | None:
+def trust_hierarchy() -> list[str]:
+	"""Source types most trusted first: Processa Settings, else the code order."""
+	try:
+		text = frappe.db.get_single_value("Processa Settings", "memory_trust_hierarchy")
+	except Exception:
+		text = None
+	order = [line.strip() for line in (text or "").splitlines() if line.strip()]
+	return order or list(SOURCE_TYPES)
+
+
+def _trust_rank(source_type: str | None, order: list[str] | None = None) -> int:
+	"""Higher is more trusted; a source type not in the hierarchy ranks 0."""
+	order = order or trust_hierarchy()
+	if source_type in order:
+		return len(order) - order.index(source_type)
+	return 0
+
+
+def _normalise_source_type(source_type: str | None, user_directed: bool) -> str:
+	if source_type in SOURCE_TYPES:
+		return source_type
+	return "User Statement" if user_directed else _DEFAULT_SOURCE_TYPE
+
+
+def effective_confidence(row: dict, now=None) -> float:
+	"""Stored confidence decayed by age since the fact was last corroborated (or
+	written), halving every ``_CONFIDENCE_HALF_LIFE_DAYS``."""
+	now = now or now_datetime()
+	confidence = float(row.get("confidence") or 0.0)
+	anchor = row.get("last_corroborated") or row.get("modified")
+	if not anchor:
+		return confidence
+	age_days = max(0.0, (now - get_datetime(anchor)).total_seconds() / 86400.0)
+	return confidence * 0.5 ** (age_days / _CONFIDENCE_HALF_LIFE_DAYS)
+
+
+def _resolve_conflict(action: str | None, supersedes: list, source_type: str, confidence: float) -> tuple[str | None, dict]:
+	"""Apply the trust hierarchy to a reconciler decision.
+
+	``replace`` (the new fact contradicts existing ones): an existing memory
+	from a more trusted source, or an equally trusted one that is still more
+	confident, wins; the new fact is rejected and nothing is invalidated.
+	``update`` (the new fact restates existing ones): corroboration, so the
+	surviving new row inherits the count plus one and a raised confidence.
+	Returns ``(action, carry)``; ``carry`` holds field values for the new row."""
+	if not supersedes:
+		return action, {}
+	rows = frappe.get_all(
+		"AI Memory",
+		filters={"name": ("in", list(supersedes))},
+		fields=["name", "source_type", "confidence", "corroboration_count", "last_corroborated", "modified"],
+	)
+	if action == "replace":
+		order = trust_hierarchy()
+		new_rank = _trust_rank(source_type, order)
+		for r in rows:
+			old_rank = _trust_rank(r.get("source_type"), order)
+			if old_rank > new_rank or (old_rank == new_rank and effective_confidence(r) > confidence):
+				return "rejected_lower_trust", {"kept": r["name"]}
+		return action, {}
+	if action == "update":
+		best = max([confidence] + [effective_confidence(r) for r in rows])
+		return action, {
+			"confidence": min(1.0, best + _CORROBORATION_BOOST),
+			"corroboration_count": max([int(r.get("corroboration_count") or 0) for r in rows] + [0]) + 1,
+			"last_corroborated": now_datetime(),
+		}
+	return action, {}
+
+
+def _reconcile_and_invalidate(
+	scope, scope_key, content, dedup_key, ctx, *, ignore_permissions, source_type=_DEFAULT_SOURCE_TYPE, confidence=None
+) -> tuple[str | None, dict]:
 	"""Reconcile ``content`` against the most similar currently-valid memories in
 	the same scope and invalidate any it supersedes.
 
@@ -452,10 +538,16 @@ def _reconcile_and_invalidate(scope, scope_key, content, dedup_key, ctx, *, igno
 	now`` via ``doc.save`` — NOT ``db.set_value`` — so the change is captured as a
 	Frappe ``Version`` (free history; the row stays in the table).
 
-	Returns the reconciler action ("add"/"update"/"replace"), the sentinel
-	``"skipped_exact_duplicate"`` (caller must insert nothing), or ``None`` when
-	there is nothing to reconcile against. Never raises — the caller treats any
-	problem as a plain insert.
+	The trust hierarchy is applied to the decision (``_resolve_conflict``): a
+	contradiction is only allowed to invalidate memories from a source no more
+	trusted than the new fact's, and a restatement corroborates.
+
+	Returns ``(action, carry)``: the reconciler action ("add"/"update"/
+	"replace"), the sentinel ``"skipped_exact_duplicate"`` or
+	``"rejected_lower_trust"`` (caller must insert nothing; ``carry["kept"]``
+	names the memory that stood), or ``None`` when there is nothing to reconcile
+	against. ``carry`` holds field values the new row inherits (corroboration).
+	Never raises; the caller treats any problem as a plain insert.
 	"""
 	from one_bpmn.agents.memory.reconcile import reconcile as _reconcile
 
@@ -464,7 +556,7 @@ def _reconcile_and_invalidate(scope, scope_key, content, dedup_key, ctx, *, igno
 
 	text = (content or "").strip()
 	if any((c.get("content") or "").strip() == text for c in keyed):
-		return "skipped_exact_duplicate"
+		return "skipped_exact_duplicate", {}
 
 	searched = memory_search(scope, scope_key, content, limit=_RECONCILE_K, ignore_permissions=True)
 	seen = {c["name"] for c in keyed}
@@ -475,7 +567,7 @@ def _reconcile_and_invalidate(scope, scope_key, content, dedup_key, ctx, *, igno
 			candidates.append(c)
 
 	if not candidates:
-		return None
+		return None, {}
 
 	decision = _reconcile(
 		content,
@@ -501,6 +593,18 @@ def _reconcile_and_invalidate(scope, scope_key, content, dedup_key, ctx, *, igno
 		except Exception:
 			pass
 
+	action, carry = _resolve_conflict(
+		decision.get("action"),
+		decision.get("supersedes", []),
+		source_type,
+		_INITIAL_CONFIDENCE.get(source_type, 0.6) if confidence is None else confidence,
+	)
+	if action == "rejected_lower_trust":
+		frappe.logger("one_bpmn").info(
+			f"AI Memory: {source_type} fact rejected, contradicts a more trusted memory {carry.get('kept')} in {scope}"
+		)
+		return action, carry
+
 	stamp = now_datetime()
 	for name in decision.get("supersedes", []):
 		try:
@@ -516,7 +620,7 @@ def _reconcile_and_invalidate(scope, scope_key, content, dedup_key, ctx, *, igno
 				title="AI Memory: invalidate superseded failed",
 				message=frappe.get_traceback(),
 			)
-	return decision.get("action")
+	return action, carry
 
 
 def _screen_memory_content(content: str, scope: str, keys_source=None) -> str | None:
@@ -571,6 +675,8 @@ def memory_write(
 	process_model: str | None = None,
 	user_directed: bool = False,
 	importance: int | None = None,
+	source_type: str | None = None,
+	confidence: float | None = None,
 ) -> dict:
 	"""Save a memory for a scope key.
 
@@ -606,6 +712,14 @@ def memory_write(
 	recall; the distiller sets it, ranking reads it. Left ``None`` on an insert
 	the field default applies; on an overwrite the existing value is kept.
 
+	``source_type`` is where the fact came from (``SOURCE_TYPES``); a
+	``user_directed`` write defaults to "User Statement", anything else to
+	"Agent Inference". ``confidence`` (0..1) defaults from the source type.
+	Under ``reconcile=True`` the trust hierarchy decides a contradiction: a fact
+	from a less trusted source than the memory it contradicts is not written and
+	the standing memory is returned; a restatement corroborates, raising the
+	surviving row's confidence and count.
+
 	``user_directed=True`` marks a memory the user explicitly asked to be
 	remembered (e.g. "remember that..."), as opposed to one an agent's output
 	happened to produce. It is exempt from Log Settings auto-cleanup
@@ -630,19 +744,37 @@ def memory_write(
 		return {}
 
 	keys = _resolve_scope(scope, scope_key)
+	source_type = _normalise_source_type(source_type, user_directed)
+	if confidence is None:
+		confidence = _INITIAL_CONFIDENCE.get(source_type, 0.6)
+	confidence = min(1.0, max(0.0, float(confidence)))
 
 	# Write-time reconciliation layers on top of dedup_key (see docstring): a
 	# dedup_key/exact-content match short-circuits before any LLM call, and
 	# whatever survives is always inserted fresh, carrying dedup_key forward.
-	reconcile_action = None
+	reconcile_action, carry = None, {}
 	if reconcile:
 		try:
-			reconcile_action = _reconcile_and_invalidate(
-				scope, scope_key, content, dedup_key, reconcile_ctx, ignore_permissions=ignore_permissions
+			reconcile_action, carry = _reconcile_and_invalidate(
+				scope,
+				scope_key,
+				content,
+				dedup_key,
+				reconcile_ctx,
+				ignore_permissions=ignore_permissions,
+				source_type=source_type,
+				confidence=confidence,
 			)
 		except Exception:
 			frappe.log_error(title="AI Memory: reconcile_and_invalidate failed", message=frappe.get_traceback())
-			reconcile_action = None  # degrade: plain insert
+			reconcile_action, carry = None, {}  # degrade: plain insert
+
+		if reconcile_action == "rejected_lower_trust":
+			# A more trusted memory holds the opposite; it stands and the new
+			# fact is not written. Return the standing memory so the caller
+			# still gets a row back.
+			row = frappe.db.get_value("AI Memory", carry.get("kept"), ["name", "content", "metadata"], as_dict=True) or {}
+			return {"name": row.get("name"), "content": row.get("content"), "metadata": _json_loads(row.get("metadata"))}
 
 		if reconcile_action == "skipped_exact_duplicate":
 			# The dedup_key/content match already holds this fact — inserting
@@ -679,6 +811,8 @@ def memory_write(
 			doc.user_directed = 1
 		if importance is not None:
 			doc.importance = min(5, max(1, int(importance)))
+		doc.source_type = source_type
+		doc.confidence = confidence
 		doc.save(ignore_permissions=ignore_permissions)
 		store_embedding(doc.name, content)
 	else:
@@ -698,6 +832,11 @@ def memory_write(
 			doc_fields["process_model"] = process_model
 		if importance is not None:
 			doc_fields["importance"] = min(5, max(1, int(importance)))
+		doc_fields["source_type"] = source_type
+		doc_fields["confidence"] = carry.get("confidence", confidence)
+		if carry.get("corroboration_count"):
+			doc_fields["corroboration_count"] = carry["corroboration_count"]
+			doc_fields["last_corroborated"] = carry.get("last_corroborated")
 		doc = frappe.get_doc(doc_fields)
 		doc.insert(ignore_permissions=ignore_permissions)
 		store_embedding(doc.name, content)
@@ -746,6 +885,7 @@ MEMORY_WRITE_SCHEMA = {
 		"metadata": {"type": "object", "description": "Optional arbitrary structured data."},
 		"source_run": {"type": "string", "description": "Optional AI Agent Run name for provenance."},
 		"importance": {"type": "integer", "minimum": 1, "maximum": 5, "description": "Optional; how much the fact matters for recall, 1 minor to 5 critical."},
+		"source_type": {"type": "string", "enum": list(SOURCE_TYPES), "description": "Optional; where the fact came from. Defaults to Agent Inference."},
 	},
 	"required": ["scope", "scope_key", "content"],
 	"additionalProperties": False,

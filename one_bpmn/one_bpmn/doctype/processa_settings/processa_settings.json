@@ -48,6 +48,7 @@
   "memory_semantic_weight",
   "memory_recency_weight",
   "memory_importance_weight",
+  "memory_trust_hierarchy",
   "section_break_conversation_retention",
   "conversation_ttl_days",
   "column_break_conversation_retention",
@@ -612,11 +613,18 @@
    "fieldname": "memory_importance_weight",
    "fieldtype": "Float",
    "label": "Importance Weight"
+  },
+  {
+   "default": "User Statement\nAgent Inference\nTool Output",
+   "description": "One source type per line, most trusted first. When a new memory contradicts an existing one, the higher source type wins; on a tie the higher effective confidence wins. Source types not listed rank lowest.",
+   "fieldname": "memory_trust_hierarchy",
+   "fieldtype": "Small Text",
+   "label": "Trust Hierarchy"
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-09-10 09:00:00.000000",
+ "modified": "2026-09-10 11:00:00.000000",
  "modified_by": "s.shariff@one-fm.com",
  "module": "ONE BPMN",
  "name": "Processa Settings",
