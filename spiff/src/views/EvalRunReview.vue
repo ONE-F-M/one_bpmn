@@ -315,6 +315,9 @@ const ASSERTION_VALUE_LABELS = {
 	equals: "Expected output",
 	schema_valid: "Schema",
 	llm_judge: "Rubric",
+	max_tokens: "Token ceiling",
+	no_tool_call: "Forbidden tools",
+	tool_calls: "Order mode",
 }
 
 function assertionValueLabel(type) {

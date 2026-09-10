@@ -276,6 +276,8 @@ def get_suite_detail(suite: str) -> dict:
 
 _ASSERTION_FIELDS = ("assertion_type", "value", "judge_provider", "judge_model", "pass_threshold")
 
+_EXPECTED_CALL_FIELDS = ("call_order", "tool_name", "argument", "matcher", "expected_value")
+
 
 _ASSERTION_VALUE_LABEL = {
 	"llm_judge": _("a rubric describing what a correct answer must contain"),
@@ -284,6 +286,21 @@ _ASSERTION_VALUE_LABEL = {
 	"equals": _("the exact text the output must equal"),
 	"schema_valid": _("the JSON Schema the output must validate against"),
 }
+
+
+def _set_expected_tool_calls(case, expected) -> None:
+	"""Replace a case's expected tool calls from a list of dicts.
+
+	A row with no tool names no call, so it is dropped rather than saved as an
+	empty constraint that quietly passes.
+	"""
+	if isinstance(expected, str):
+		expected = frappe.parse_json(expected) or []
+	case.set("expected_tool_calls", [])
+	for row in expected or []:
+		if not str(row.get("tool_name") or "").strip():
+			continue
+		case.append("expected_tool_calls", {k: row.get(k) for k in _EXPECTED_CALL_FIELDS if row.get(k) not in (None, "")})
 
 
 def _set_assertions(case, assertions) -> None:
@@ -345,6 +362,7 @@ def create_eval_case(
 	input_user_prompt: str,
 	expected_output: str = "",
 	assertions=None,
+	expected_tool_calls=None,
 ) -> str:
 	"""Create a manual AI Eval Case in ``suite`` with optional assertions
 	(WI-001746). Provider/model/system prompt come from the suite's agent
@@ -361,6 +379,7 @@ def create_eval_case(
 		"expected_output": expected_output,
 	})
 	_set_assertions(case, assertions)
+	_set_expected_tool_calls(case, expected_tool_calls)
 	case.insert()
 	return case.name
 
@@ -376,6 +395,9 @@ def get_eval_case(name: str) -> dict:
 		"input_user_prompt": case.input_user_prompt,
 		"expected_output": case.expected_output,
 		"assertions": [{k: a.get(k) for k in _ASSERTION_FIELDS} for a in case.assertions],
+		"expected_tool_calls": [
+			{k: c.get(k) for k in _EXPECTED_CALL_FIELDS} for c in case.expected_tool_calls
+		],
 	}
 
 
@@ -386,6 +408,7 @@ def update_eval_case(
 	input_user_prompt: str = None,
 	expected_output: str = None,
 	assertions=None,
+	expected_tool_calls=None,
 ) -> str:
 	"""Edit an existing case, including its assertions (WI-001746). Gated by the
 	suite's write permission."""
@@ -401,6 +424,8 @@ def update_eval_case(
 			case.set(field, val)
 	if assertions is not None:
 		_set_assertions(case, assertions)
+	if expected_tool_calls is not None:
+		_set_expected_tool_calls(case, expected_tool_calls)
 
 	case.save()
 	return case.name

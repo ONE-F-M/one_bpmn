@@ -303,6 +303,14 @@
 								<Button variant="ghost" icon-left="trash-2" @click="removeAssertion(i)" />
 							</div>
 							<FormControl
+								v-if="a.assertion_type === 'tool_calls'"
+								type="select"
+								label="Order mode"
+								:options="TOOL_CALL_MODES"
+								v-model="a.value"
+							/>
+							<FormControl
+								v-else
 								type="textarea"
 								:label="VALUE_LABELS[a.assertion_type] || 'Expected value / pattern'"
 								v-model="a.value"
@@ -312,6 +320,34 @@
 								<FormControl type="select" label="Judge model" :options="aiModelOptions" v-model="a.judge_model" />
 								<FormControl type="number" label="Pass threshold (1–5)" v-model="a.pass_threshold" />
 							</div>
+						</div>
+					</div>
+
+					<!-- Expected tool calls — what a tool_calls assertion is checked against -->
+					<div v-if="wantsToolCalls" class="border-t pt-3">
+						<div class="flex items-center justify-between mb-2">
+							<span class="text-sm font-semibold text-gray-700">Expected tool calls</span>
+							<Button variant="subtle" icon-left="plus" @click="addExpectedCall">Add call</Button>
+						</div>
+						<p class="text-xs text-gray-500 mb-2">
+							One row per thing to check. Rows sharing a Call number describe the same call — give a
+							tool and, if the arguments matter, one row per argument. Leave the argument blank to
+							require only that the tool ran.
+						</p>
+						<p v-if="!caseForm.expected_tool_calls.length" class="text-xs text-amber-600 mb-2">
+							The tool_calls assertion has nothing to check until you add a call.
+						</p>
+						<div
+							v-for="(e, i) in caseForm.expected_tool_calls"
+							:key="i"
+							class="flex items-end gap-2 mb-2"
+						>
+							<FormControl type="number" label="Call" v-model="e.call_order" class="w-16" />
+							<FormControl label="Tool" v-model="e.tool_name" class="flex-1" />
+							<FormControl label="Argument" v-model="e.argument" class="flex-1" />
+							<FormControl type="select" label="Matcher" :options="MATCHER_OPTIONS" v-model="e.matcher" class="w-28" />
+							<FormControl label="Expected value" v-model="e.expected_value" class="flex-1" />
+							<Button variant="ghost" icon-left="trash-2" @click="removeExpectedCall(i)" />
 						</div>
 					</div>
 				</div>
@@ -444,13 +480,22 @@ const route = useRoute()
 const router = useRouter()
 const suiteName = route.params.suite
 
-const ASSERTION_TYPES = ["contains", "regex", "equals", "schema_valid", "llm_judge", "max_tokens", "no_tool_call"]
+const ASSERTION_TYPES = ["contains", "regex", "equals", "schema_valid", "llm_judge", "max_tokens", "no_tool_call", "tool_calls"]
 // What `value` means changes with the type, so the field says which.
 const VALUE_LABELS = {
 	llm_judge: "Rubric",
 	max_tokens: "Token ceiling",
 	no_tool_call: "Forbidden tool names",
+	tool_calls: "Order mode",
 }
+// tool_calls checks the run's trace against the Expected Tool Calls below; its
+// value is only which of the three modes to check in.
+const TOOL_CALL_MODES = [
+	{ label: "EXACT — these calls, this order, nothing else", value: "EXACT" },
+	{ label: "IN_ORDER — these calls in this order, others allowed between", value: "IN_ORDER" },
+	{ label: "ANY_ORDER — these calls happened, order not checked", value: "ANY_ORDER" },
+]
+const MATCHER_OPTIONS = ["equals", "regex", "contains"].map((m) => ({ label: m, value: m }))
 const assertionTypeOptions = ASSERTION_TYPES.map((t) => ({ label: t, value: t }))
 
 const loading = ref(true)
@@ -479,6 +524,7 @@ const incompleteAssertion = computed(() =>
 )
 const caseForm = reactive({
 	name: "", title: "", input_user_prompt: "", expected_output: "", assertions: [],
+	expected_tool_calls: [],
 })
 
 const showFromRun = ref(false)
@@ -867,7 +913,23 @@ async function loadConsistency() {
 
 // ── Case editor (new + edit) ─────────────────────────────────────────────
 function resetCaseForm() {
-	Object.assign(caseForm, { name: "", title: "", input_user_prompt: "", expected_output: "", assertions: [] })
+	Object.assign(caseForm, {
+		name: "", title: "", input_user_prompt: "", expected_output: "",
+		assertions: [], expected_tool_calls: [],
+	})
+}
+// The grid is only worth showing when something checks it.
+const wantsToolCalls = computed(() =>
+	caseForm.assertions.some((a) => a.assertion_type === "tool_calls")
+)
+function addExpectedCall() {
+	const next = caseForm.expected_tool_calls.length
+		? Math.max(...caseForm.expected_tool_calls.map((e) => Number(e.call_order) || 0)) + 1
+		: 1
+	caseForm.expected_tool_calls.push({ call_order: next, tool_name: "", argument: "", matcher: "equals", expected_value: "" })
+}
+function removeExpectedCall(i) {
+	caseForm.expected_tool_calls.splice(i, 1)
 }
 function addAssertion() {
 	caseForm.assertions.push({ assertion_type: "contains", value: "", judge_provider: "", judge_model: "", pass_threshold: 4 })
@@ -901,6 +963,11 @@ async function openEditCase(c) {
 				judge_provider: a.judge_provider || "", judge_model: a.judge_model || "",
 				pass_threshold: a.pass_threshold ?? 4,
 			})),
+			expected_tool_calls: (res.expected_tool_calls || []).map((e) => ({
+				call_order: e.call_order || 1, tool_name: e.tool_name || "",
+				argument: e.argument || "", matcher: e.matcher || "equals",
+				expected_value: e.expected_value || "",
+			})),
 		})
 	} catch (e) {
 		console.error("Failed to load case:", e)
@@ -913,6 +980,7 @@ async function saveCase() {
 		const payload = {
 			title: caseForm.title, input_user_prompt: caseForm.input_user_prompt,
 			expected_output: caseForm.expected_output, assertions: JSON.stringify(caseForm.assertions),
+			expected_tool_calls: JSON.stringify(caseForm.expected_tool_calls),
 		}
 		if (caseMode.value === "edit") {
 			await frappeRequest({ url: "/api/method/one_bpmn.api.eval_api.update_eval_case", method: "POST", params: { name: caseForm.name, ...payload } })
