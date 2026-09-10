@@ -49,6 +49,9 @@
   "memory_recency_weight",
   "memory_importance_weight",
   "memory_trust_hierarchy",
+  "memory_prune_min_confidence",
+  "memory_prune_uncorroborated_days",
+  "memory_prune_low_importance_days",
   "section_break_conversation_retention",
   "conversation_ttl_days",
   "column_break_conversation_retention",
@@ -620,11 +623,32 @@
    "fieldname": "memory_trust_hierarchy",
    "fieldtype": "Small Text",
    "label": "Trust Hierarchy"
+  },
+  {
+   "default": "0.2",
+   "description": "Nightly prune. A memory whose effective confidence (stored confidence halving every 90 days since it was last written or corroborated) falls under this is retired. 0 turns the rule off.",
+   "fieldname": "memory_prune_min_confidence",
+   "fieldtype": "Float",
+   "label": "Prune Below Confidence"
+  },
+  {
+   "default": "180",
+   "description": "Nightly prune. A memory nothing has corroborated in this many days is retired. 0 turns the rule off.",
+   "fieldname": "memory_prune_uncorroborated_days",
+   "fieldtype": "Int",
+   "label": "Prune Uncorroborated After Days"
+  },
+  {
+   "default": "90",
+   "description": "Nightly prune. A never-corroborated memory with Importance 1 older than this many days is retired. 0 turns the rule off. Retired memories keep their row with the reason in metadata; memories the user asked to remember are never pruned.",
+   "fieldname": "memory_prune_low_importance_days",
+   "fieldtype": "Int",
+   "label": "Prune Minor Facts After Days"
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-09-10 11:00:00.000000",
+ "modified": "2026-09-10 13:00:00.000000",
  "modified_by": "s.shariff@one-fm.com",
  "module": "ONE BPMN",
  "name": "Processa Settings",
