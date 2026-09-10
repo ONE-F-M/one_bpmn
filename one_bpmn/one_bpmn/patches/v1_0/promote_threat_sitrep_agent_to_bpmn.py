@@ -18,8 +18,8 @@ agent_type, no chosen ai_model. What changes here:
    "OUTPUT FORMAT (valid JSON only...)" describing a bare JSON blob a Python
    parser then stripped ```json fences off of. Under the map, the per-run
    data arrives as Jinja on the AI Agent Task's own aiUserPrompt, and the
-   answer is a single call to the finalize_sitrep tool (see
-   exports/threat_assessment_sitrep.bpmn) whose arguments are the answer —
+   answer is a single call to the finalize_sitrep tool (see the "Daily
+   Threat SITREP" map's AI Agent Task) whose arguments are the answer —
    there is no text output to parse. The domain content (Kuwait geofencing
    rule, the five report sections, the threat_level/location rules) carries
    over verbatim; only the delivery mechanism changes. required_variables is
