@@ -24,6 +24,7 @@ from difflib import SequenceMatcher
 import frappe
 
 _MAX_FACTS = 5
+_DEFAULT_IMPORTANCE = 3
 _MAX_CONTENT_LEN = 1000
 # Bound the input we hand the curator so a huge reply can't blow up the call.
 _MAX_INPUT_LEN = 6000
@@ -61,8 +62,9 @@ _DISTILL_SCHEMA = json.dumps(
 					"properties": {
 						"content": {"type": "string"},
 						"topic": {"type": "string"},
+						"importance": {"type": "integer", "minimum": 1, "maximum": 5},
 					},
-					"required": ["content", "topic"],
+					"required": ["content", "topic", "importance"],
 				},
 			},
 		},
@@ -88,8 +90,12 @@ Do NOT store (return nothing for) any of the following:
   or recalled memory context shown below — that is the agent being told
   something, not the agent learning something
 
-For each qualifying fact give a short lowercase "topic" (2-4 words) and concise
-"content" (one or two generalized sentences — no instance-specific IDs or names).
+For each qualifying fact give a short lowercase "topic" (2-4 words), concise
+"content" (one or two generalized sentences — no instance-specific IDs or names),
+and an "importance" from 1 to 5: 5 for a rule that changes what the agent must
+do on most future runs (a hard constraint, a standing instruction from the
+user), 3 for a useful preference or pattern, 1 for a minor detail that rarely
+matters. Most facts are 2 or 3.
 If nothing qualifies, return {{"memories": []}}. Prefer returning nothing over
 storing noise."""
 
@@ -163,6 +169,14 @@ def _is_echo(content: str, exclude_context: str) -> bool:
 	return False
 
 
+def _importance(value) -> int:
+	"""Clamp the curator's importance to 1..5; anything unusable is the default."""
+	try:
+		return min(5, max(1, int(value)))
+	except (TypeError, ValueError):
+		return _DEFAULT_IMPORTANCE
+
+
 def _coerce_memories(output) -> list:
 	"""The executor returns a parsed dict for response_format='json', but tolerate
 	a raw JSON string too. Anything else yields no memories."""
@@ -193,7 +207,7 @@ def distill_memories(
 ) -> list[dict]:
 	"""Extract 0..N durable facts from one interaction.
 
-	Returns a list of ``{content, topic, dedup_key}``; ``[]`` when nothing is
+	Returns a list of ``{content, topic, dedup_key, importance}``; ``[]`` when nothing is
 	worth remembering. Never raises — any failure yields ``[]`` so the caller
 	(dispatcher / background job) is never blocked.
 
@@ -275,5 +289,7 @@ def distill_memories(
 		if dedup_key in seen:
 			continue
 		seen.add(dedup_key)
-		facts.append({"content": content, "topic": topic, "dedup_key": dedup_key})
+		facts.append(
+			{"content": content, "topic": topic, "dedup_key": dedup_key, "importance": _importance(m.get("importance"))}
+		)
 	return facts

@@ -13,6 +13,7 @@
   "reference_name",
   "section_break_content",
   "content",
+  "importance",
   "dedup_key",
   "metadata",
   "user_directed",
@@ -82,6 +83,14 @@
    "description": "The memory text — the single source of truth for v1 keyword search. ignore_xss_filter is required here: without it, Frappe's core save-time sanitizer (Document._sanitize_content, bleach-based) treats any '<...>'-shaped substring as an unrecognized HTML tag and HTML-escapes it (observed live: a '<PROJECT>-<YEAR>-<SEQ>' naming convention was stored as '&lt;PROJECT&gt;-...' verbatim) — this field holds arbitrary plain text, not markup, and must round-trip unchanged."
   },
   {
+   "default": "3",
+   "description": "How much this fact matters when it competes for recall, 1 (minor) to 5 (critical). Set by the distiller; a higher value lifts the memory in ranking.",
+   "fieldname": "importance",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Importance"
+  },
+  {
    "fieldname": "dedup_key",
    "fieldtype": "Data",
    "label": "Dedup Key",
@@ -129,7 +138,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-09-09 20:00:00.000000",
+ "modified": "2026-09-10 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Memory",
