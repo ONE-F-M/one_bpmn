@@ -120,9 +120,13 @@
       <bpmn:incoming>f10</bpmn:incoming>
     </bpmn:endEvent>
 
-    <bpmn:endEvent id="end_failed" name="Generation Failed">
+    <bpmn:exclusiveGateway id="gw_join_failed" name="Failed">
       <bpmn:incoming>f_collect_failed</bpmn:incoming>
       <bpmn:incoming>f_apply_failed</bpmn:incoming>
+      <bpmn:outgoing>f_join_failed</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="end_failed" name="Generation Failed">
+      <bpmn:incoming>f_join_failed</bpmn:incoming>
     </bpmn:endEvent>
 
     <bpmn:sequenceFlow id="f1" sourceRef="timer_start" targetRef="compute_window_check_exists" />
@@ -134,7 +138,7 @@
     <bpmn:sequenceFlow id="f4" sourceRef="create_draft_report" targetRef="collect_and_classify" />
     <bpmn:sequenceFlow id="f5" sourceRef="collect_and_classify" targetRef="gw_collect_failed" />
     <bpmn:sequenceFlow id="f6" sourceRef="gw_collect_failed" targetRef="gw_zero_threats" />
-    <bpmn:sequenceFlow id="f_collect_failed" name="Yes" sourceRef="gw_collect_failed" targetRef="end_failed">
+    <bpmn:sequenceFlow id="f_collect_failed" name="Yes" sourceRef="gw_collect_failed" targetRef="gw_join_failed">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">generation_status == "Failed"</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
     <bpmn:sequenceFlow id="f7" sourceRef="gw_zero_threats" targetRef="sitrep_agent_task" />
@@ -145,9 +149,10 @@
     <bpmn:sequenceFlow id="f8" sourceRef="sitrep_agent_task" targetRef="apply_output_render_pdf" />
     <bpmn:sequenceFlow id="f9" sourceRef="apply_output_render_pdf" targetRef="gw_apply_failed" />
     <bpmn:sequenceFlow id="f10" sourceRef="gw_apply_failed" targetRef="end_success" />
-    <bpmn:sequenceFlow id="f_apply_failed" name="Yes" sourceRef="gw_apply_failed" targetRef="end_failed">
+    <bpmn:sequenceFlow id="f_apply_failed" name="Yes" sourceRef="gw_apply_failed" targetRef="gw_join_failed">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">generation_status == "Failed"</bpmn:conditionExpression>
     </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="f_join_failed" sourceRef="gw_join_failed" targetRef="end_failed" />
   </bpmn:process>
 
   <bpmndi:BPMNDiagram id="Diagram_1">
@@ -200,8 +205,11 @@
       <bpmndi:BPMNShape id="Shape_end_success" bpmnElement="end_success">
         <dc:Bounds x="1340" y="182" width="36" height="36" />
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_gw_join_failed" bpmnElement="gw_join_failed" isMarkerVisible="true">
+        <dc:Bounds x="985" y="433" width="50" height="50" />
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_end_failed" bpmnElement="end_failed">
-        <dc:Bounds x="1060" y="440" width="36" height="36" />
+        <dc:Bounds x="1075" y="440" width="36" height="36" />
       </bpmndi:BPMNShape>
 
       <bpmndi:BPMNEdge id="Edge_f1" bpmnElement="f1">
@@ -226,7 +234,7 @@
         <di:waypoint x="785" y="200" /><di:waypoint x="835" y="200" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_f_collect_failed" bpmnElement="f_collect_failed">
-        <di:waypoint x="760" y="225" /><di:waypoint x="760" y="380" /><di:waypoint x="1078" y="380" /><di:waypoint x="1078" y="440" />
+        <di:waypoint x="760" y="225" /><di:waypoint x="760" y="380" /><di:waypoint x="1010" y="380" /><di:waypoint x="1010" y="433" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_f7" bpmnElement="f7">
         <di:waypoint x="885" y="200" /><di:waypoint x="935" y="200" />
@@ -247,7 +255,10 @@
         <di:waypoint x="1290" y="200" /><di:waypoint x="1340" y="200" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_f_apply_failed" bpmnElement="f_apply_failed">
-        <di:waypoint x="1265" y="225" /><di:waypoint x="1265" y="380" /><di:waypoint x="1078" y="380" /><di:waypoint x="1078" y="440" />
+        <di:waypoint x="1265" y="225" /><di:waypoint x="1265" y="380" /><di:waypoint x="1010" y="380" /><di:waypoint x="1010" y="433" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_f_join_failed" bpmnElement="f_join_failed">
+        <di:waypoint x="1035" y="458" /><di:waypoint x="1075" y="458" />
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
