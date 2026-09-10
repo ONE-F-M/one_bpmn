@@ -6,7 +6,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import cint
+from frappe.utils import cint, flt
 
 
 def _sanitize_bpmn_xml(bpmn_xml: str) -> str:
@@ -1337,6 +1337,62 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 			)
 
 
+def _enforce_eval_pass_rate(model_name: str) -> None:
+	"""Refuse activation when a gating suite is below the rate it declares.
+
+	The advisory warnings below are the older, softer half of this: they tell a
+	deployer that a suite has never run or last failed, and deploy proceeds
+	anyway. A suite that names a ``min_pass_rate`` is making a stronger claim —
+	that going live below that rate is not allowed — so it is enforced here, by
+	the number the run actually measured rather than by its pass/fail label.
+
+	A suite that leaves ``min_pass_rate`` at 0 is unchanged: nothing blocks.
+	"""
+	suites = frappe.get_list(
+		"AI Eval Suite",
+		filters={"process_model": model_name, "gate_deployment": 1},
+		fields=["name", "title", "min_pass_rate"],
+		ignore_permissions=True,
+	)
+
+	refusals = []
+	for suite in suites:
+		minimum = flt(suite.min_pass_rate)
+		if not minimum:
+			continue
+
+		latest = frappe.get_list(
+			"AI Eval Run",
+			filters={"suite": suite.name},
+			fields=["name", "status", "pass_rate", "total_executions"],
+			order_by="started_at desc",
+			limit_page_length=1,
+			ignore_permissions=True,
+		)
+		title = suite.title or suite.name
+		if not latest:
+			refusals.append(
+				_("'{0}' requires a {1}% pass rate and has never been run.").format(title, minimum)
+			)
+			continue
+
+		run = latest[0]
+		rate = flt(run.pass_rate)
+		if rate < minimum:
+			refusals.append(
+				_("'{0}' is at {1}% over {2} execution(s) and requires {3}%.").format(
+					title, round(rate, 1), cint(run.total_executions), minimum
+				)
+			)
+
+	if refusals:
+		frappe.throw(
+			_("This map cannot be activated until its gating eval suites pass:<br><br>")
+			+ "<br>".join(f"• {r}" for r in refusals),
+			title=_("Eval Gate"),
+		)
+
+
 def _check_eval_suite_gating(model_name: str) -> list:
 	"""
 	Check linked AI Eval Suites with ``gate_deployment=True`` and return
@@ -1919,6 +1975,9 @@ def compile_process_model(model_name: str) -> dict:
 	# When the process uses a workflow-state trigger or apply_workflow service
 	# task, every referenced doctype must have the field — create it if absent.
 	_validate_workflow_state_field(model, service_extensions)
+
+	# ── Eval gate: a gating suite below its declared rate blocks activation ──
+	_enforce_eval_pass_rate(model_name)
 
 	# ── Activate this model and manage deployment lifecycle ───────────────
 	_activate_deployed_model(model, script_extensions)

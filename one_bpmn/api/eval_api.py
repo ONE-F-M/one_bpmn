@@ -212,6 +212,9 @@ def get_suite_detail(suite: str) -> dict:
 		filters={"suite": suite},
 		fields=["name", "status", "backend", "total_cases", "passed_cases",
 				"failed_cases", "started_at", "ended_at",
+				# How many executions the run actually made, and the rate the
+				# deployment gate reads (WI-001902).
+				"total_executions", "pass_rate",
 				# Needed by the dashboard's latest-run tokens/cost tiles.
 				"total_tokens", "total_cost",
 				# Which cases the run covered (WI-001746 follow-up).
@@ -243,6 +246,8 @@ def get_suite_detail(suite: str) -> dict:
 			"status": latest["status"],
 			"passed": latest.get("passed_cases") or 0,
 			"total": latest.get("total_cases") or 0,
+			"executions": cint(latest.get("total_executions")),
+			"pass_rate": flt(latest.get("pass_rate")),
 		} if latest else None,
 		"pass_rate": round(sum(spark) / len(spark)) if spark else None,
 		"latest_tokens": (latest.get("total_tokens") or 0) if latest else 0,
@@ -259,6 +264,9 @@ def get_suite_detail(suite: str) -> dict:
 			"agent_configuration": doc.agent_configuration,
 			"agent_name": agent_name,
 			"eval_type": doc.eval_type,
+			"gate_deployment": doc.gate_deployment,
+			"pass_k": cint(doc.pass_k) or 1,
+			"min_pass_rate": flt(doc.min_pass_rate),
 		},
 		"cases": cases,
 		"runs": runs,
@@ -713,6 +721,123 @@ def list_owned_processes() -> list:
 		m for m in models
 		if is_sm or owners.get(m["process_name"]) == user
 	]
+
+
+@frappe.whitelist()
+def case_consistency(suite: str, limit: int = 20) -> dict:
+	"""Per-case pass history for a suite, newest run first.
+
+	A single run says whether a case passed; only the history says whether it
+	AGREES with itself. A case at 80% over five runs is the one that will fail
+	the week after go-live, and it looks identical to a solid case in any one
+	run's results.
+
+	``limit`` bounds how many runs back the history reaches. Cases are ordered
+	worst first, because the point of the report is the flaky ones.
+	"""
+	frappe.get_doc("AI Eval Suite", suite).check_permission("read")
+
+	runs = frappe.get_all(
+		"AI Eval Run",
+		filters={"suite": suite},
+		fields=["name", "status", "backend", "started_at"],
+		order_by="started_at desc",
+		limit_page_length=cint(limit) or 20,
+	)
+	if not runs:
+		return {"suite": suite, "runs": [], "cases": []}
+
+	order = {r.name: idx for idx, r in enumerate(runs)}
+	rows = frappe.get_all(
+		"AI Eval Result",
+		filters={"parenttype": "AI Eval Run", "parent": ["in", [r.name for r in runs]]},
+		fields=["parent", "eval_case", "status", "runs", "passes", "consistency_rate"],
+	)
+
+	titles = {
+		c.name: c.title
+		for c in frappe.get_all("AI Eval Case", filters={"suite": suite}, fields=["name", "title"])
+	}
+
+	cases: dict = {}
+	for row in rows:
+		if not row.eval_case:
+			continue
+		entry = cases.setdefault(row.eval_case, {
+			"case": row.eval_case,
+			"title": titles.get(row.eval_case) or row.eval_case,
+			"executions": 0,
+			"passes": 0,
+			"history": [],
+		})
+		# A row written before cases ran more than once carries no runs count —
+		# and its passes field is 0 rather than empty, so `runs` is the only
+		# reliable marker. Such a row was one execution, and its status says how
+		# that execution went.
+		executions = cint(row.runs)
+		if executions:
+			passes = cint(row.passes)
+		else:
+			executions, passes = 1, (1 if row.status == "Passed" else 0)
+		entry["executions"] += executions
+		entry["passes"] += passes
+		entry["history"].append({
+			"run": row.parent,
+			"status": row.status,
+			"runs": executions,
+			"passes": passes,
+			"consistency_rate": flt(row.consistency_rate) if cint(row.runs) else passes / executions * 100,
+			"started_at": next((r.started_at for r in runs if r.name == row.parent), None),
+			"order": order.get(row.parent, 0),
+		})
+
+	out = []
+	for entry in cases.values():
+		# `runs` is newest-first, so a higher index is an OLDER run: the history
+		# reads left to right as time passing, which is how the report is read.
+		entry["history"].sort(key=lambda h: -h["order"])
+		entry["consistency_rate"] = (
+			entry["passes"] / entry["executions"] * 100 if entry["executions"] else 0
+		)
+		# "Flips" is what a reader is really looking for: a case that has both
+		# passed and failed over this window, rather than one that always fails.
+		statuses = {h["status"] for h in entry["history"]}
+		entry["flips"] = len(statuses) > 1 or any(
+			0 < h["passes"] < h["runs"] for h in entry["history"]
+		)
+		out.append(entry)
+
+	out.sort(key=lambda e: (e["consistency_rate"], e["title"]))
+	return {
+		"suite": suite,
+		"min_pass_rate": flt(frappe.db.get_value("AI Eval Suite", suite, "min_pass_rate")),
+		"pass_k": cint(frappe.db.get_value("AI Eval Suite", suite, "pass_k")) or 1,
+		"runs": runs,
+		"cases": out,
+	}
+
+
+@frappe.whitelist()
+def update_suite_thresholds(suite: str, pass_k=None, min_pass_rate=None) -> dict:
+	"""Set how many times each case runs and the rate the suite must clear."""
+	doc = frappe.get_doc("AI Eval Suite", suite)
+	doc.check_permission("write")
+
+	if pass_k is not None:
+		k = cint(pass_k)
+		if k < 1:
+			frappe.throw(_("Runs per case must be at least 1."))
+		if k > 20:
+			frappe.throw(_("Runs per case is capped at 20 — every run is a billed model call."))
+		doc.pass_k = k
+	if min_pass_rate is not None:
+		rate = flt(min_pass_rate)
+		if not 0 <= rate <= 100:
+			frappe.throw(_("Minimum pass rate must be between 0 and 100."))
+		doc.min_pass_rate = rate
+
+	doc.save()
+	return {"pass_k": doc.pass_k, "min_pass_rate": doc.min_pass_rate}
 
 
 @frappe.whitelist()

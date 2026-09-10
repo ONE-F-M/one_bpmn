@@ -359,6 +359,13 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
         passed = failed = 0
         total_cost = 0.0
         total_tokens = 0
+        executions = passing_executions = 0
+        # How many times each case runs. A replay re-scores one stored answer,
+        # so repeating it would count the same execution k times and report a
+        # consistency the run never demonstrated.
+        pass_k = 1 if run.backend == "replay" else max(1, cint(
+            frappe.db.get_value("AI Eval Suite", run.suite, "pass_k")
+        ))
         # WI-001821: a run may nominate an agent other than the suite's, so an
         # A/B comparison never has to rebind the suite. Resolved once here
         # rather than per case, so every case in a run is judged against the
@@ -366,10 +373,7 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
         agent_cfg = run.get("agent_configuration") or None
         for case_name in case_names:
             case = frappe.get_doc("AI Eval Case", case_name)
-            if run.backend == "replay":
-                result_row = _execute_case_replay(run, case)
-            else:
-                result_row = _execute_case(case, run.name, agent_cfg)
+            result_row = _execute_case_k_times(run, case, agent_cfg, pass_k)
             # Snapshot what was evaluated, so later edits to the case don't
             # rewrite this run's history. Set centrally so every path (live,
             # replay, error) records it.
@@ -380,15 +384,19 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
                 passed += 1
             else:
                 failed += 1
+            executions += cint(result_row.get("runs") or 1)
+            passing_executions += cint(result_row.get("passes") or 0)
             total_cost += flt(result_row.get("cost", 0))
             total_tokens += (result_row.get("tokens_used") or 0)
 
         run.total_cases = len(case_names)
         run.passed_cases = passed
         run.failed_cases = failed
+        run.total_executions = executions
+        run.pass_rate = (passing_executions / executions * 100) if executions else 0
         run.total_cost = total_cost
         run.total_tokens = total_tokens
-        run.status = "Passed" if failed == 0 else "Failed"
+        run.status = _suite_run_status(run, failed)
     except Exception:
         frappe.log_error(
             title=f"AI Eval: suite execution failed ({run_name})",
@@ -413,6 +421,65 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
         {"run_name": run.name, "status": run.status},
         user="all",
     )
+
+
+def _suite_run_status(run, failed: int) -> str:
+    """Passed needs both bars the suite declares.
+
+    Every case still has to pass — a single failing execution fails its case,
+    which is the point of running it k times. On top of that, a suite that
+    declares a minimum pass rate must meet it, and that rate is the number the
+    deployment gate quotes. The two overlap today because the per-case bar is
+    the stricter one; both are checked because the rate is what a reader is
+    shown and what a gate refuses on, and a suite whose per-case rule is later
+    relaxed must not silently open the gate.
+    """
+    if failed:
+        return "Failed"
+    minimum = flt(frappe.db.get_value("AI Eval Suite", run.suite, "min_pass_rate"))
+    if minimum and flt(run.pass_rate) < minimum:
+        return "Failed"
+    return "Passed"
+
+
+def _execute_case_k_times(run, case, agent_cfg: str | None, pass_k: int) -> dict:
+    """Execute one case ``pass_k`` times and report how it behaved across them.
+
+    A case that passes three times out of four is not a passing case: the fourth
+    is what a user would have hit. So the row keeps the FAILING execution's
+    output and assertions when there is one — a reviewer needs to see what went
+    wrong, not the run that happened to go well — and reports the consistency
+    rate beside it.
+
+    Spend is summed over every execution, because every execution was billed.
+    """
+    attempts = []
+    for _attempt in range(pass_k):
+        if run.backend == "replay":
+            attempts.append(_execute_case_replay(run, case))
+        else:
+            attempts.append(_execute_case(case, run.name, agent_cfg))
+
+    passes = sum(1 for a in attempts if a.get("status") == "Passed")
+    # The first execution that went wrong is the one worth reading; failing that,
+    # the last good one.
+    row = dict(next((a for a in attempts if a.get("status") != "Passed"), attempts[-1]))
+    row["runs"] = len(attempts)
+    row["passes"] = passes
+    row["consistency_rate"] = passes / len(attempts) * 100
+    row["status"] = "Passed" if passes == len(attempts) else row.get("status", "Failed")
+    row["cost"] = sum(flt(a.get("cost")) for a in attempts)
+    row["tokens_used"] = sum(cint(a.get("tokens_used")) for a in attempts)
+    row["prompt_tokens"] = sum(cint(a.get("prompt_tokens")) for a in attempts)
+    row["completion_tokens"] = sum(cint(a.get("completion_tokens")) for a in attempts)
+
+    # A case that flipped says so on the row, so the failure reads as flakiness
+    # rather than as a plain wrong answer.
+    if 0 < passes < len(attempts):
+        note = _("Flaky: passed {0} of {1} runs.").format(passes, len(attempts))
+        row["error_message"] = f"{note}\n{row.get('error_message') or ''}".strip()
+
+    return row
 
 
 def _execute_case_replay(run, case) -> dict:
