@@ -4,7 +4,8 @@ WI-002203: Promote the two Threat Intelligence AI Agent Configurations
 retired LangGraph pipeline onto the new "Threat Source Discovery" BPMN
 Process Model.
 
-Four things need fixing, all safe to run before the map is imported:
+Three things need fixing, all safe to run regardless of whether the map
+has been imported yet:
 
 0. agent_type. Neither onefm_mcp seed patch (seed_threat_source_expander_config,
    seed_threat_keyword_generator_config) ever set it, so both configs sat on the
@@ -31,33 +32,24 @@ Four things need fixing, all safe to run before the map is imported:
    hit exactly that on Threat Source Expander before required_variables
    was cleared here too.
 
-2. process_model links the configuration to the map so agent_framework
-   (LangGraph, a legacy-runner label) stops mattering — "ignored the moment
-   a Process Model is linked" per the doctype's own field description.
-
-3. ai_model was never set by either onefm_mcp seed patch either — the old
+2. ai_model was never set by either onefm_mcp seed patch either — the old
    pipeline called its own get_llm() rather than the AI Model catalog, so
    there was nothing to migrate. validate_agent_config() (the check this
    platform's go-live flow runs, WI-001621) hard-fails on a blank ai_model
    ("No AI Model is linked"), so without this these configs can never pass
-   validation at all, let alone reach Live. Points at claude-sonnet-5 to
-   match what these agents were specified for; if that catalog entry has
+   validation at all, let alone reach Live. Points at claude-haiku-4-5-20251001
+   to match the model the Logix pipeline runs on; if that catalog entry has
    no working credentials on a given site, that's a site config gap for
    whoever administers it, not something this patch should route around
-   by silently picking a different, cheaper model.
+   by silently picking a different model.
 
-The map itself ships as exports/threat_source_discovery.bpmn +
-_config.json, imported by hand through the /spiff editor per environment
-(same convention as every other process map export in this app — see
-seed_frontend_agent_config for why a patch does not also import the XML).
-So step 2 only takes effect once someone has done that import; until then
-it's a no-op, matching the safety property seed_frontend_agent_config
-documents for the same situation.
+This patch deliberately does not touch process_model — the map is moved
+between environments by hand through the app's own Import/Export feature,
+not tracked in this repo, so there is nothing here for this patch to link
+the configuration to. Set that link manually after importing, if needed.
 """
 
 import frappe
-
-_PROCESS_MODEL = "Threat Source Discovery"
 
 _CONFIGS = {
 	"Threat Source Expander": (
@@ -85,8 +77,6 @@ _CONFIGS = {
 
 
 def execute():
-	model_exists = frappe.db.exists("BPMN Process Model", _PROCESS_MODEL)
-
 	for name, static_prompt in _CONFIGS.items():
 		if not frappe.db.exists("AI Agent Configuration", name):
 			continue  # onefm_mcp's seed patch hasn't run on this site — nothing to promote yet
@@ -106,12 +96,8 @@ def execute():
 			doc.required_variables = "[]"
 			changed = True
 
-		if not doc.get("ai_model") and frappe.db.exists("AI Model", "claude-sonnet-5"):
-			doc.ai_model = "claude-sonnet-5"
-			changed = True
-
-		if model_exists and doc.get("process_model") != _PROCESS_MODEL:
-			doc.process_model = _PROCESS_MODEL
+		if not doc.get("ai_model") and frappe.db.exists("AI Model", "claude-haiku-4-5-20251001"):
+			doc.ai_model = "claude-haiku-4-5-20251001"
 			changed = True
 
 		if changed:
