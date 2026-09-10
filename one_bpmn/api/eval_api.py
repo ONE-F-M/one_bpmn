@@ -843,8 +843,14 @@ def case_consistency(suite: str, limit: int = 20) -> dict:
 
 
 @frappe.whitelist()
-def update_suite_thresholds(suite: str, pass_k=None, min_pass_rate=None) -> dict:
-	"""Set how many times each case runs and the rate the suite must clear."""
+def update_suite_thresholds(suite: str, pass_k=None, min_pass_rate=None, gate_deployment=None) -> dict:
+	"""Set how many times each case runs, the rate the suite must clear, and
+	whether falling below it blocks the linked map from being activated.
+
+	The three belong together: a rate nothing enforces is a note to self, and a
+	gate with no rate only warns. Setting them anywhere else meant the switch
+	lived in the desk while the bar lived here.
+	"""
 	doc = frappe.get_doc("AI Eval Suite", suite)
 	doc.check_permission("write")
 
@@ -860,9 +866,21 @@ def update_suite_thresholds(suite: str, pass_k=None, min_pass_rate=None) -> dict
 		if not 0 <= rate <= 100:
 			frappe.throw(_("Minimum pass rate must be between 0 and 100."))
 		doc.min_pass_rate = rate
+	if gate_deployment is not None:
+		doc.gate_deployment = cint(gate_deployment)
+
+	if doc.gate_deployment and not doc.process_model:
+		frappe.throw(
+			_("This suite gates a deployment but names no process map, so there is nothing for it "
+			  "to block. Set the map on the suite first.")
+		)
 
 	doc.save()
-	return {"pass_k": doc.pass_k, "min_pass_rate": doc.min_pass_rate}
+	return {
+		"pass_k": doc.pass_k,
+		"min_pass_rate": doc.min_pass_rate,
+		"gate_deployment": doc.gate_deployment,
+	}
 
 
 @frappe.whitelist()

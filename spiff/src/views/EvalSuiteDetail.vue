@@ -37,6 +37,11 @@
 						>{{ suite.pass_k > 1 ? `${suite.pass_k} runs per case` : "1 run per case" }}<span
 							v-if="suite.min_pass_rate"
 						>, needs {{ suite.min_pass_rate }}%</span></button>
+						<span
+							v-if="suite.gate_deployment"
+							class="inline-block px-2 py-0.5 rounded-full text-xs bg-amber-50 text-amber-700"
+							:title="`Deploying ${suite.process_model || 'this suite\'s map'} is refused while this suite is below its minimum`"
+						>gates deploy</span>
 					</div>
 				</div>
 				<div class="flex items-center gap-2">
@@ -249,7 +254,7 @@
 		</main>
 
 		<!-- How many times each case runs, and the bar the suite must clear -->
-		<Dialog v-model="showThresholds" :options="{ title: 'Runs and pass rate' }">
+		<Dialog v-model="showThresholds" :options="{ title: 'Runs, pass rate and the deploy gate' }">
 			<template #body-content>
 				<div class="space-y-3">
 					<FormControl
@@ -264,7 +269,20 @@
 						v-model="thresholdForm.min_pass_rate"
 						description="The share of executions that must pass. Above 0, activating this suite's map is refused below it."
 					/>
+					<label class="flex items-start gap-2 text-sm text-gray-700">
+						<input type="checkbox" v-model="thresholdForm.gate_deployment" class="mt-1" />
+						<span>
+							<span class="font-medium">Block deployment below the rate</span>
+							<span class="block text-xs text-gray-500">
+								Deploying {{ suite.process_model || "this suite's map" }} is refused while this
+								suite is under its minimum. With the minimum at 0 it only warns.
+							</span>
+						</span>
+					</label>
 					<p v-if="thresholdError" class="text-sm text-red-600">{{ thresholdError }}</p>
+					<p v-if="thresholdForm.gate_deployment && !suite.process_model" class="text-sm text-amber-600">
+						This suite names no process map, so there is nothing for the gate to block.
+					</p>
 					<p v-if="Number(thresholdForm.pass_k) > 1 && cases.length" class="text-xs text-gray-500">
 						{{ cases.length }} case(s) × {{ thresholdForm.pass_k }} = {{ cases.length * Number(thresholdForm.pass_k) }}
 						executions per run of this suite.
@@ -853,11 +871,12 @@ async function runCase(c) {
 const showThresholds = ref(false)
 const savingThresholds = ref(false)
 const thresholdError = ref("")
-const thresholdForm = reactive({ pass_k: 1, min_pass_rate: 0 })
+const thresholdForm = reactive({ pass_k: 1, min_pass_rate: 0, gate_deployment: false })
 
 function openThresholds() {
 	thresholdForm.pass_k = suite.value.pass_k || 1
 	thresholdForm.min_pass_rate = suite.value.min_pass_rate || 0
+	thresholdForm.gate_deployment = !!suite.value.gate_deployment
 	thresholdError.value = ""
 	showThresholds.value = true
 }
@@ -868,7 +887,12 @@ async function saveThresholds() {
 		await frappeRequest({
 			url: "/api/method/one_bpmn.api.eval_api.update_suite_thresholds",
 			method: "POST",
-			params: { suite: suiteName, pass_k: thresholdForm.pass_k, min_pass_rate: thresholdForm.min_pass_rate },
+			params: {
+				suite: suiteName,
+				pass_k: thresholdForm.pass_k,
+				min_pass_rate: thresholdForm.min_pass_rate,
+				gate_deployment: thresholdForm.gate_deployment ? 1 : 0,
+			},
 		})
 		showThresholds.value = false
 		await fetchDetail()
