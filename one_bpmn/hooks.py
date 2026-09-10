@@ -276,6 +276,10 @@ scheduler_events = {
 			# are minor and old. Sets expires_on with the reason in metadata;
 			# deletes nothing.
 			"one_bpmn.tasks.prune_ai_memory",
+			# Memory search ranks with an exact scan and no vector index, a
+			# decision bounded by row counts. Once a day is enough to notice a
+			# bound being approached; nothing here acts on it.
+			"one_bpmn.tasks.check_ai_memory_volume",
 		],
 		"* * * * *": [
 			"one_bpmn.tasks.process_timer_start_events",

@@ -984,3 +984,12 @@ def prune_ai_memory():
 	from one_bpmn.agents.memory.prune import prune_memories
 
 	prune_memories()
+
+
+def check_ai_memory_volume():
+	"""Daily. Tells the platform team when AI Memory has grown past the point
+	where exact (index-free) semantic ranking should be reconsidered. The
+	thresholds live on Processa Settings, AI Memory section."""
+	from one_bpmn.agents.memory.volume_alert import check_volume
+
+	check_volume()

@@ -52,6 +52,8 @@
   "memory_prune_min_confidence",
   "memory_prune_uncorroborated_days",
   "memory_prune_low_importance_days",
+  "memory_scope_row_alert",
+  "memory_total_row_alert",
   "section_break_conversation_retention",
   "conversation_ttl_days",
   "column_break_conversation_retention",
@@ -644,11 +646,25 @@
    "fieldname": "memory_prune_low_importance_days",
    "fieldtype": "Int",
    "label": "Prune Minor Facts After Days"
+  },
+  {
+   "default": "10000",
+   "description": "Daily check. When one scope key holds more memories than this, the Credential Alert Recipients (or every System Manager) are told that the exact-ranking search design needs review.",
+   "fieldname": "memory_scope_row_alert",
+   "fieldtype": "Int",
+   "label": "Alert When One Scope Exceeds"
+  },
+  {
+   "default": "500000",
+   "description": "Daily check. When the AI Memory table holds more rows than this in total, the same alert is sent.",
+   "fieldname": "memory_total_row_alert",
+   "fieldtype": "Int",
+   "label": "Alert When Total Rows Exceed"
   }
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-09-10 13:00:00.000000",
+ "modified": "2026-09-10 16:00:00.000000",
  "modified_by": "s.shariff@one-fm.com",
  "module": "ONE BPMN",
  "name": "Processa Settings",
