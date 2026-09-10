@@ -4,7 +4,7 @@ WI-002203: Promote the two Threat Intelligence AI Agent Configurations
 retired LangGraph pipeline onto the new "Threat Source Discovery" BPMN
 Process Model.
 
-Three things need fixing, all safe to run before the map is imported:
+Four things need fixing, all safe to run before the map is imported:
 
 0. agent_type. Neither onefm_mcp seed patch (seed_threat_source_expander_config,
    seed_threat_keyword_generator_config) ever set it, so both configs sat on the
@@ -34,6 +34,17 @@ Three things need fixing, all safe to run before the map is imported:
 2. process_model links the configuration to the map so agent_framework
    (LangGraph, a legacy-runner label) stops mattering — "ignored the moment
    a Process Model is linked" per the doctype's own field description.
+
+3. ai_model was never set by either onefm_mcp seed patch either — the old
+   pipeline called its own get_llm() rather than the AI Model catalog, so
+   there was nothing to migrate. validate_agent_config() (the check this
+   platform's go-live flow runs, WI-001621) hard-fails on a blank ai_model
+   ("No AI Model is linked"), so without this these configs can never pass
+   validation at all, let alone reach Live. Points at claude-sonnet-5 to
+   match what these agents were specified for; if that catalog entry has
+   no working credentials on a given site, that's a site config gap for
+   whoever administers it, not something this patch should route around
+   by silently picking a different, cheaper model.
 
 The map itself ships as exports/threat_source_discovery.bpmn +
 _config.json, imported by hand through the /spiff editor per environment
@@ -93,6 +104,10 @@ def execute():
 
 		if (doc.get("required_variables") or "[]") != "[]":
 			doc.required_variables = "[]"
+			changed = True
+
+		if not doc.get("ai_model") and frappe.db.exists("AI Model", "claude-sonnet-5"):
+			doc.ai_model = "claude-sonnet-5"
 			changed = True
 
 		if model_exists and doc.get("process_model") != _PROCESS_MODEL:

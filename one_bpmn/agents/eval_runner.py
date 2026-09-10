@@ -746,6 +746,22 @@ def _eval_context_document(case) -> tuple:
     return "", ""
 
 
+def _worker_answer(doctype: str, docname: str) -> str:
+    """What a delegated worker handed back to its caller, or "" if it is not one.
+
+    A tool-using worker's last model message is narration — "the test passed, now
+    let me finalize" — while the answer itself is assembled by the map's final
+    script and written onto the worker's own A2A Task. Judging the narration
+    scores the commentary and misses the work: the Connector Agent reported a
+    written, disabled connector on the task while its last message talked about
+    the test it had just run.
+    """
+    if doctype != "A2A Task" or not docname:
+        return ""
+    row = frappe.db.get_value("A2A Task", docname, ["result", "status_message"], as_dict=True) or {}
+    return (row.get("result") or "").strip() or (row.get("status_message") or "").strip()
+
+
 def _run_map_eval(cfg, case) -> tuple:
     """Agent eval for an agent whose map is not chat-startable.
 
@@ -834,7 +850,7 @@ def _run_map_eval(cfg, case) -> tuple:
 
     # The last run is the agent's answer; earlier ones (retries, other AI shapes)
     # still count toward spend.
-    output = runs[-1].get("final_output") or ""
+    output = _worker_answer(doctype, docname) or runs[-1].get("final_output") or ""
     usage = {
         "prompt_tokens": sum((r.get("total_prompt_tokens") or 0) for r in runs),
         "completion_tokens": sum((r.get("total_completion_tokens") or 0) for r in runs),
