@@ -40,6 +40,22 @@ TIMER_START_XML = """<?xml version="1.0" encoding="UTF-8"?>
 
 
 class TestTimerStartSweep(FrappeTestCase):
+	def setUp(self):
+		self.deployed = []
+
+	def tearDown(self):
+		# The sweep commits each instance it starts, so the test transaction's
+		# rollback cannot take these back — an active timer map left behind here
+		# would go on firing on the developer's own site every minute.
+		for model_name, process_name in reversed(self.deployed):
+			for instance in frappe.get_all(
+				"BPMN Process Instance", filters={"process_model": model_name}, pluck="name"
+			):
+				frappe.delete_doc("BPMN Process Instance", instance, force=True, ignore_permissions=True)
+			frappe.delete_doc("BPMN Process Model", model_name, force=True, ignore_permissions=True)
+			frappe.delete_doc("Process", process_name, force=True, ignore_permissions=True)
+		frappe.db.commit()
+
 	def _deploy(self, cycle: str):
 		suffix = frappe.generate_hash(length=6)
 		process = frappe.get_doc({
@@ -61,6 +77,8 @@ class TestTimerStartSweep(FrappeTestCase):
 		})
 		model.flags.skip_editability_check = True
 		model.insert(ignore_permissions=True)
+		# Registered before the compile, which is itself under test and may throw.
+		self.deployed.append((model.name, process.name))
 		compile_process_model(model.name)
 		model.reload()
 		model.db_set("is_active", 1)
