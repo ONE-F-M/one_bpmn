@@ -741,10 +741,16 @@ class TestBoundMemoriesToBudget(FrappeTestCase):
 	def test_lowest_ranked_memories_are_dropped_first(self):
 		# Rank order is memory_search's contract (relevance/recency); the
 		# budget must respect it, not reorder or skip ahead to something smaller.
-		# ~26 tokens each rendered (25 content + the "\n- " join); a header of
-		# ~56 tokens leaves room for one at a 90-token budget, not two.
+		# The budget is derived from the rendered header, not hardcoded, so
+		# rewording the provenance line cannot silently invalidate the
+		# arithmetic this asserts on.
+		from one_bpmn.agents.memory.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
+
 		memories = [{"content": "a" * 100}, {"content": "b" * 100}, {"content": "c" * 100}]
-		kept = D._bound_memories_to_budget(memories, 90)
+		one = estimate_tokens({"content": D._format_memory_block(memories[:1])}, DEFAULT_CHARS_PER_TOKEN)
+		two = estimate_tokens({"content": D._format_memory_block(memories[:2])}, DEFAULT_CHARS_PER_TOKEN)
+		self.assertLess(one, two)
+		kept = D._bound_memories_to_budget(memories, two - 1)
 		self.assertEqual(kept, [memories[0]])
 
 	def test_single_oversized_memory_is_truncated_not_dropped(self):
@@ -885,3 +891,30 @@ class TestRecallObservability(FrappeTestCase):
 			)
 		kwargs = self.create_ai_run_mock.call_args.kwargs
 		self.assertEqual(kwargs["memory_injected_tokens"], 0)
+
+
+class TestMemoryBlockProvenance(FrappeTestCase):
+	"""The line above the recalled memories has to do two opposing jobs at once,
+	and dropping either half has been observed to break a live agent."""
+
+	def test_the_notes_are_presented_as_facts_to_use(self):
+		block = D._format_memory_block([{"content": "invoices are approved by the finance lead"}])
+		self.assertIn("standing fact", block)
+		self.assertIn("use it when it answers the current request", block)
+		# "context only" told agents holding tools that the notes were not
+		# authoritative, and they answered from the tools instead.
+		self.assertNotIn("context only", block)
+
+	def test_the_notes_are_still_not_this_conversation(self):
+		# Without this half, a past final response reads as work already done in
+		# the current conversation (ProsAlly, 2026-08-09).
+		block = D._format_memory_block([{"content": "created the invoice process"}])
+		self.assertIn("PAST, separate conversations", block)
+		self.assertIn("Nothing below has happened in the current conversation", block)
+		self.assertIn("none of it counts as work already done", block)
+
+	def test_the_memories_follow_the_provenance_line(self):
+		block = D._format_memory_block([{"content": "ship by DHL"}, {"content": "net-30 terms"}])
+		lines = block.splitlines()
+		self.assertEqual(lines[0], D.MEMORY_BLOCK_HEADER)
+		self.assertEqual(lines[-2:], ["- ship by DHL", "- net-30 terms"])
