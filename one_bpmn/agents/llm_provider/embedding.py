@@ -22,6 +22,9 @@ import os
 import frappe
 
 DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+# Chosen in the Embedding Model setting to turn semantic search off and leave
+# keyword search, which is what a machine that cannot reach the model should do.
+SEMANTIC_DISABLED = "Disabled"
 
 _model = None
 _model_name = None
@@ -33,6 +36,20 @@ def model_name() -> str:
 		return frappe.db.get_single_value("Processa Settings", "memory_embedding_model") or DEFAULT_MODEL
 	except Exception:
 		return DEFAULT_MODEL
+
+
+def probe_model(name: str) -> int:
+	"""Load ``name`` and return how many numbers it produces per text.
+
+	Raises if the model cannot be loaded. Used by the Processa Settings save
+	check, which is the one place a slow first download is acceptable. Builds
+	its own instance instead of going through ``_get_model`` so probing a model
+	that is about to be rejected does not evict the working one from the cache.
+	"""
+	from fastembed import TextEmbedding
+
+	model = TextEmbedding(name, cache_dir=_cache_dir())
+	return len(next(iter(model.embed(["probe"]))))
 
 
 def _cache_dir() -> str:
@@ -57,9 +74,16 @@ def _vectors(texts: list[str]) -> list[list[float]]:
 
 def embed(texts: list[str]) -> list[list[float]] | None:
 	"""Embed ``texts`` in order. Returns one vector per text, or ``None`` when
-	embeddings are unavailable for any reason (logged once per failure)."""
+	embeddings are unavailable for any reason (logged once per failure).
+
+	``None`` is also what an administrator asked for by choosing Disabled: the
+	caller falls back to keyword search either way, so switching semantic search
+	off needs no separate branch anywhere else.
+	"""
 	if not texts:
 		return []
+	if model_name() == SEMANTIC_DISABLED:
+		return None
 	try:
 		return _vectors(texts)
 	except Exception:
