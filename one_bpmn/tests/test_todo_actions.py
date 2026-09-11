@@ -159,3 +159,18 @@ class TestHandleAmpAction(FrappeTestCase):
 
 		headers = frappe.local.response.headers
 		self.assertEqual(headers.get("AMP-Access-Control-Allow-Source-Origin"), "sender@one-fm.com")
+
+
+class TestAmpEmailSenderHeader(FrappeTestCase):
+	"""AMP-Email-Sender request header is echoed as AMP-Email-Allow-Sender."""
+
+	def test_sender_header_echoed(self):
+		_setup_request(method="OPTIONS")
+		frappe.local.request.headers["AMP-Email-Sender"] = "notifications@one-fm.com"
+
+		from one_bpmn.api.todo_actions import _set_amp_cors_headers
+		_set_amp_cors_headers()
+
+		extra = frappe.flags._amp_extra_headers
+		self.assertEqual(extra["AMP-Email-Allow-Sender"], "notifications@one-fm.com")
+		self.assertIn("AMP-Email-Allow-Sender", extra["Access-Control-Expose-Headers"])
