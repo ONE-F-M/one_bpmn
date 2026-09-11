@@ -132,6 +132,15 @@
       background: #e8ecf0;
       color: #171717;
     }
+    /* Inside the live-status list the list itself carries the top margin,
+       so both states fit the fixed height without clipping. */
+    .live-status {
+      margin-top: 24px;
+    }
+    .live-status .actions,
+    .live-status .completed-badge {
+      margin-top: 0;
+    }
     /* Hide buttons after successful submission (Calendar-invite behavior) */
     form.amp-form-submit-success > button,
     form.amp-form-submit-success > a {
@@ -348,8 +357,9 @@
          the task is waiting, a completed badge once anyone has actioned it. #}
       <amp-list src="{{ status_url }}"
                items="message.items"
+               class="live-status"
                layout="fixed-height"
-               height="140">
+               height="150">
         <template type="amp-mustache">
           {{'{{'}}#is_waiting{{'}}'}}
           {{ action_form(templated=false) }}
