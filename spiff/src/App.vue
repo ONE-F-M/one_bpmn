@@ -156,6 +156,29 @@
 					</span>
 				</router-link>
 
+				<!-- Unlike Sessions and Security, this one is open to everyone: the
+				     page shows you your own memories and the shared ones, and the
+				     permission hook decides the rest. Somebody wanting to see what an
+				     agent has learned about them should not need an admin role. -->
+				<router-link
+					to="/processa/memory"
+					class="flex items-center rounded-lg transition-all duration-200"
+					:class="[
+						collapsed ? 'justify-center p-2.5' : 'gap-3 px-4 py-2.5',
+						$route.path.startsWith('/processa/memory') ? 'bg-gray-900 text-white shadow-md' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+					]"
+					@click="isMobileMenuOpen = false"
+					:title="collapsed ? 'Memory' : ''"
+				>
+					<Icon icon="lucide:brain" class="w-5 h-5 shrink-0" />
+					<span
+						class="text-sm font-semibold whitespace-nowrap transition-opacity duration-200 overflow-hidden"
+						:class="collapsed ? 'opacity-0 w-0' : 'opacity-100 w-auto'"
+					>
+						Memory
+					</span>
+				</router-link>
+
 				<!-- WI-001970: the event stream shows which agents were attacked and
 				     how, so the entry is hidden from anyone who cannot read it rather
 				     than advertising a console they will be refused. -->
