@@ -25,15 +25,30 @@ from one_bpmn.agents.model_health import _dedupe, _is_real_user, _send_email, co
 _SCOPE_KEY_COLUMNS = ("memory_scope", "agent_element", "process_model", "reference_doctype", "reference_name")
 
 
+def _limit(fieldname: str, default: int) -> int:
+	"""One threshold, with the code default standing in for one nobody has set.
+
+	Blank, missing and 0 all mean "not set" here. Unlike the pruning rules, 0 is
+	not an off switch for an alert: a threshold of 0 is crossed by the first
+	memory ever written, so it would fire on every site every night. A field
+	added to an existing Single reads back as 0 until somebody chooses a value,
+	which is exactly the state that would produce that.
+	"""
+	try:
+		value = frappe.db.get_single_value("Processa Settings", fieldname)
+	except Exception:
+		return default
+	if value in (None, ""):
+		return default
+	return int(value) or default
+
+
 def thresholds() -> tuple[int, int]:
 	"""(per scope key, total). Processa Settings first, code defaults otherwise."""
-	scope_limit = total_limit = None
-	try:
-		scope_limit = frappe.db.get_single_value("Processa Settings", "memory_scope_row_alert")
-		total_limit = frappe.db.get_single_value("Processa Settings", "memory_total_row_alert")
-	except Exception:
-		pass
-	return int(scope_limit or REVISIT_SCOPE_ROWS), int(total_limit or REVISIT_TOTAL_ROWS)
+	return (
+		_limit("memory_scope_row_alert", REVISIT_SCOPE_ROWS),
+		_limit("memory_total_row_alert", REVISIT_TOTAL_ROWS),
+	)
 
 
 def measure() -> dict:
