@@ -169,6 +169,26 @@ class TestRenderedAmpValidation(FrappeTestCase):
 		html = render_amp(ACTION_CONTENT)
 		_validate_amp4email(html, label="action")
 
+	def test_token_actions_render_live_status_and_validate(self) -> None:
+		"""Token actions go inside an amp-list gated on live task status."""
+		from one_bpmn.email_builder.email_actions import build_email_actions
+		from one_bpmn.email_builder.renderer import render_amp
+
+		actions = build_email_actions(
+			"INST-VALID", "task-valid",
+			[{"label": "Start Work", "primary": True}],
+			"admin@test.com",
+		)
+		html = render_amp({**ACTION_CONTENT, "actions": actions})
+
+		assert 'items="message.items"' in html
+		assert "{{#is_waiting}}" in html and "{{#is_completed}}" in html
+		assert "{{ action_taken }}" in html and "{{ completed_by }}" in html
+		assert "}}d</div>" not in html
+		# Form and its buttons live inside the amp-list template
+		assert html.index("<amp-list") < html.index('name="token"') < html.index("</amp-list>")
+		_validate_amp4email(html, label="token_actions")
+
 	def test_comment_renders_valid_amp(self) -> None:
 		from one_bpmn.email_builder.renderer import render_amp
 
