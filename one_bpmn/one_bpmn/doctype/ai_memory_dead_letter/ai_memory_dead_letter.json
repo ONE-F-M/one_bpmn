@@ -1,0 +1,116 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-09-11 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "agent",
+  "memory_scope",
+  "scope_key",
+  "column_break_target",
+  "attempts",
+  "source_run",
+  "process_model",
+  "section_break_failure",
+  "error",
+  "section_break_payload",
+  "payload"
+ ],
+ "fields": [
+  {
+   "description": "The agent whose interaction was being distilled.",
+   "fieldname": "agent",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Agent"
+  },
+  {
+   "fieldname": "memory_scope",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Memory Scope"
+  },
+  {
+   "description": "What the memory would have been keyed on, as it was passed in.",
+   "fieldname": "scope_key",
+   "fieldtype": "Small Text",
+   "label": "Scope Key"
+  },
+  {
+   "fieldname": "column_break_target",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "How many times distillation was tried before it was given up on.",
+   "fieldname": "attempts",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Attempts"
+  },
+  {
+   "fieldname": "source_run",
+   "fieldtype": "Link",
+   "label": "Source Run",
+   "options": "AI Agent Run"
+  },
+  {
+   "fieldname": "process_model",
+   "fieldtype": "Link",
+   "label": "Process",
+   "options": "BPMN Process Model"
+  },
+  {
+   "fieldname": "section_break_failure",
+   "fieldtype": "Section Break",
+   "label": "Why It Failed"
+  },
+  {
+   "description": "The last error, with its traceback.",
+   "fieldname": "error",
+   "fieldtype": "Long Text",
+   "label": "Error"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_payload",
+   "fieldtype": "Section Break",
+   "label": "What Was Being Distilled"
+  },
+  {
+   "description": "The agent output that could not be turned into memories. Kept so the work can be retried or read once the cause is fixed.",
+   "fieldname": "payload",
+   "fieldtype": "Long Text",
+   "label": "Payload"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "AI Memory Dead Letter",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

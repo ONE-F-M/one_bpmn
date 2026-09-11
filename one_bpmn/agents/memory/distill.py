@@ -25,6 +25,15 @@ import frappe
 
 _MAX_FACTS = 5
 _DEFAULT_IMPORTANCE = 3
+
+
+class DistillationFailed(Exception):
+	"""The call did not work, as opposed to producing nothing worth keeping.
+
+	Only raised when the caller asks for it (``raise_on_failure``). Without this
+	the two outcomes were the same empty list, so a broken model looked exactly
+	like a quiet conversation and nothing was ever retried.
+	"""
 _MAX_CONTENT_LEN = 1000
 # Bound the input we hand the curator so a huge reply can't blow up the call.
 _MAX_INPUT_LEN = 6000
@@ -213,6 +222,7 @@ def distill_memories(
 	model: str | None = None,
 	conversation=None,
 	exclude_context: str | None = None,
+	raise_on_failure: bool = False,
 ) -> list[dict]:
 	"""Extract 0..N durable facts from one interaction.
 
@@ -231,6 +241,12 @@ def distill_memories(
 	prompt instruction alone left confirmed echo rows in the store (see
 	cleanup_ai_memory_store.py). Passing nothing here (the previous behaviour)
 	just skips both checks.
+
+	``raise_on_failure`` exists because "nothing was worth remembering" and "the
+	call did not work" both came back as ``[]``, so a caller could not tell a
+	quiet turn from a broken model and had nothing to retry. Left ``False`` the
+	contract is unchanged and this never raises. The writeback passes ``True``
+	so it can retry, and record what it gave up on.
 	"""
 	text = agent_output if isinstance(agent_output, str) else str(agent_output or "")
 	if not text.strip():
@@ -240,6 +256,8 @@ def distill_memories(
 	# resolved (the task's aiModel or an explicit aiMemoryDistillModel). Without
 	# one there is nothing valid to call, so skip — visibly.
 	if not model:
+		if raise_on_failure:
+			raise DistillationFailed("no model configured; pass the task's aiModel or set aiMemoryDistillModel")
 		frappe.log_error(
 			title="AI Memory: distillation skipped (no model configured)",
 			message=f"agent={agent} scope={scope} — pass the task's aiModel or set aiMemoryDistillModel.",
@@ -273,9 +291,15 @@ def distill_memories(
 		)
 		result = get_executor(config.backend)().run(config, ExecutorContext())
 		if result.error_code != ErrorCode.SUCCESS:
+			if raise_on_failure:
+				raise DistillationFailed(f"the model returned {result.error_code}: {getattr(result, 'error_message', '')}")
 			return []
 		raw = _coerce_memories(result.output)
+	except DistillationFailed:
+		raise
 	except Exception:
+		if raise_on_failure:
+			raise
 		frappe.log_error(title="AI Memory: distillation failed", message=frappe.get_traceback())
 		return []
 
