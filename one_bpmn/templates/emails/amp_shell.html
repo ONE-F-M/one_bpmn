@@ -287,30 +287,14 @@
       {# Action Buttons with live status check #}
       {% if has_actions and not is_comment %}
 
-      {% if status_url %}
-      {# amp-list checks task status on email open — shows completed badge if already actioned #}
-      <amp-list src="{{ status_url }}"
-               items="."
-               single-item
-               layout="fixed-height"
-               height="80">
-        <template type="amp-mustache">
-          {{'{{'}}#is_completed{{'}}'}}
-          <div class="completed-badge">
-            <div class="check-circle">✓</div>
-            <div class="action-name">Completed</div>
-            <div class="meta">{{'{{'}} completed_at {{'}}'}}</div>
-          </div>
-          {{'{{'}}/is_completed{{'}}'}}
-        </template>
-      </amp-list>
-      {% endif %}
-
-      {# Single form with multiple submit buttons — clicking any button
+      {# One form, one submit button per action. Clicking any button
          replaces the ENTIRE form (all buttons) with the success badge,
          just like Google Calendar invites. Each button carries its own
-         HMAC token as name="token" value="<token>". #}
-      {% if simple_actions %}
+         HMAC token as name="token" value="<token>".
+         `templated` controls the submit-success/submit-error content:
+         amp-mustache forbids nested <template>, so inside the amp-list
+         the badge is static. #}
+      {% macro action_form(templated) %}
       <form method="post"
             action-xhr="{{ action_endpoint or (site_url + '/api/method/one_bpmn.api.todo_actions.handle_amp_action') }}"
             class="actions">
@@ -331,20 +315,56 @@
         {% endif %}
         {% endfor %}
         <div submit-success>
+          {% if templated %}
           <template type="amp-mustache">
             <div class="completed-badge">
               <div class="check-circle">✓</div>
-              <div class="action-name">{{'{{'}} message.action {{'}}'}}d</div>
+              <div class="action-name">{{'{{'}} message.action {{'}}'}}</div>
               <div class="meta">{{'{{'}} message.message {{'}}'}}</div>
             </div>
           </template>
+          {% else %}
+          <div class="completed-badge">
+            <div class="check-circle">✓</div>
+            <div class="action-name">Done</div>
+            <div class="meta">Your response has been recorded.</div>
+          </div>
+          {% endif %}
         </div>
         <div submit-error>
+          {% if templated %}
           <template type="amp-mustache">
             <p class="submit-error">{{'{{'}} message.error {{'}}'}}</p>
           </template>
+          {% else %}
+          <p class="submit-error">Could not submit. Please try in ERPNext.</p>
+          {% endif %}
         </div>
       </form>
+      {% endmacro %}
+
+      {% if status_url %}
+      {# amp-list fetches the live task status on every open: buttons while
+         the task is waiting, a completed badge once anyone has actioned it. #}
+      <amp-list src="{{ status_url }}"
+               items="message.items"
+               layout="fixed-height"
+               height="140">
+        <template type="amp-mustache">
+          {{'{{'}}#is_waiting{{'}}'}}
+          {{ action_form(templated=false) }}
+          {{'{{'}}/is_waiting{{'}}'}}
+          {{'{{'}}#is_completed{{'}}'}}
+          <div class="completed-badge">
+            <div class="check-circle">✓</div>
+            <div class="action-name">{{'{{'}} action_taken {{'}}'}}</div>
+            <div class="meta">{{'{{'}} completed_by {{'}}'}} · {{'{{'}} completed_at {{'}}'}}</div>
+          </div>
+          {{'{{'}}/is_completed{{'}}'}}
+        </template>
+      </amp-list>
+      {% elif simple_actions %}
+      {{ action_form(templated=true) }}
       {% endif %}
 
       {# Actions that need extra input (e.g. a date range) get their own
