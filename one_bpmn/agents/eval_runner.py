@@ -52,6 +52,23 @@ from one_bpmn.agents.pricing import get_model_pricing
 EVAL_RUN_DIRECT = "direct-eval"
 EVAL_RUN_JUDGE = "eval-judge"
 
+# live       calls the model.
+# replay     re-scores each case's last stored answer — and still makes a judge
+#            call for every llm_judge assertion, so it is not free and not
+#            deterministic.
+# deterministic
+#            scores the answer recorded ON THE CASE and makes no model call at
+#            all. That is what continuous integration can run before anyone has
+#            decided whose provider key it may spend: it cannot tell you the
+#            agent still behaves, only that the assertions and the evaluators
+#            still do — which is exactly the regression a pull request
+#            introduces.
+EVAL_BACKENDS = ("live", "replay", "deterministic")
+
+# The assertion types that need a model call, and therefore cannot run in a
+# deterministic pass. Everything else is arithmetic or string matching.
+MODEL_BACKED_ASSERTIONS = frozenset({"llm_judge"})
+
 JUDGE_PROMPT_TEMPLATE = """You are an evaluation judge. Score the following AI response based on the given rubric.
 
 Rubric:
@@ -90,8 +107,8 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     """
     frappe.only_for("System Manager")
 
-    if backend not in ("live", "replay"):
-        frappe.throw(_("backend must be 'live' or 'replay', not '{0}'.").format(backend))
+    if backend not in EVAL_BACKENDS:
+        frappe.throw(_("backend must be one of {0}, not '{1}'.").format(", ".join(EVAL_BACKENDS), backend))
 
     if not frappe.db.exists("AI Eval Suite", suite_name):
         frappe.throw(_("AI Eval Suite '{0}' not found.").format(suite_name))
@@ -163,8 +180,8 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
     user who can read the suite — a process owner may run their own suites.
     The subset is validated to belong to the suite.
     """
-    if backend not in ("live", "replay"):
-        frappe.throw(_("backend must be 'live' or 'replay', not '{0}'.").format(backend))
+    if backend not in EVAL_BACKENDS:
+        frappe.throw(_("backend must be one of {0}, not '{1}'.").format(", ".join(EVAL_BACKENDS), backend))
 
     suite = frappe.get_doc("AI Eval Suite", suite_name)  # 404s if missing
     suite.check_permission("read")  # owner / System Manager gate
@@ -358,14 +375,14 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
                 order_by="creation asc",
             )
 
-        passed = failed = 0
+        passed = failed = skipped = 0
         total_cost = 0.0
         total_tokens = 0
         executions = passing_executions = 0
         # How many times each case runs. A replay re-scores one stored answer,
         # so repeating it would count the same execution k times and report a
         # consistency the run never demonstrated.
-        pass_k = 1 if run.backend == "replay" else max(1, cint(
+        pass_k = 1 if run.backend in ("replay", "deterministic") else max(1, cint(
             frappe.db.get_value("AI Eval Suite", run.suite, "pass_k")
         ))
         # WI-001821: a run may nominate an agent other than the suite's, so an
@@ -373,8 +390,15 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
         # rather than per case, so every case in a run is judged against the
         # same agent even if the suite is reassigned mid-run.
         agent_cfg = run.get("agent_configuration") or None
+        # One ceiling for the whole run, drawn on by every lane. 0 means none.
+        budget = {
+            "cap": flt(run.get("spend_cap") or 0),
+            "spent": 0.0,
+            "not_run": 0,
+            "lock": threading.Lock(),
+        }
         rows = _execute_lanes(
-            case_names, run.name, run.backend, agent_cfg, pass_k, _eval_concurrency()
+            case_names, run.name, run.backend, agent_cfg, pass_k, _eval_concurrency(), budget
         )
 
         # Results are appended in the order the cases were asked for, never the
@@ -403,12 +427,28 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
             run.append("results", result_row)
             if result_row["status"] == "Passed":
                 passed += 1
+            elif result_row["status"] == "Skipped":
+                # Neither column: nothing was checked, so it is not evidence
+                # either way. The caller decides whether a suite that checked
+                # nothing is acceptable — see run_ai_evals.
+                skipped += 1
             else:
                 failed += 1
-            executions += cint(result_row.get("runs") or 1)
-            passing_executions += cint(result_row.get("passes") or 0)
+            if result_row["status"] != "Skipped":
+                # Nothing ran, so it cannot be in the denominator. Counting it
+                # would drag pass_rate down — and that rate is what the deploy
+                # gate refuses on, so a suite would be blocked for having no
+                # provider key rather than for behaving badly.
+                executions += cint(result_row.get("runs") or 1)
+                passing_executions += cint(result_row.get("passes") or 0)
             total_cost += flt(result_row.get("cost", 0))
             total_tokens += (result_row.get("tokens_used") or 0)
+
+        if budget["not_run"]:
+            run.stop_reason = (
+                f"Stopped on budget: spent {budget['spent']:.4f} of a {budget['cap']:.4f} "
+                f"ceiling; {budget['not_run']} case(s) not run."
+            )
 
         run.total_cases = len(case_names)
         run.passed_cases = passed
@@ -442,6 +482,89 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
         {"run_name": run.name, "status": run.status},
         user="all",
     )
+
+
+def _execute_case_deterministic(case) -> dict:
+    """Score a case's assertions against the answer recorded on the case.
+
+    No model is called, so this runs anywhere — a pull request check with no
+    provider key included. What it proves is narrow, and worth stating: the
+    assertions still hold against a known answer, so a change to an evaluator,
+    an assertion, or the contract a prompt promises is caught before merge. It
+    cannot prove the agent still produces that answer. That is the nightly live
+    run's job.
+
+    ``expected_output`` is the recorded answer. A case with none falls back to
+    its last stored actual output, so a suite captured from real runs works here
+    too.
+
+    Assertions needing a model are SKIPPED, not failed. Failing them would turn
+    "CI has no provider key" into a red check on every pull request; passing
+    them would be a lie. They are reported, counted in neither column, and a
+    case with nothing left to check is itself skipped.
+    """
+    answer = (case.expected_output or "").strip()
+    source = "the case's recorded answer"
+    borrowed = False
+    if not answer:
+        borrowed = True
+        prior = frappe.get_all(
+            "AI Eval Result",
+            filters={"eval_case": case.name, "parenttype": "AI Eval Run"},
+            fields=["actual_output"],
+            order_by="creation desc",
+            limit_page_length=1,
+        )
+        answer = (prior[0].actual_output or "").strip() if prior else ""
+        source = "the last stored answer"
+
+    assertions = case.assertions or []
+    checkable = [a for a in assertions if a.assertion_type not in MODEL_BACKED_ASSERTIONS]
+    needs_model = sorted({a.assertion_type for a in assertions if a.assertion_type in MODEL_BACKED_ASSERTIONS})
+
+    if not answer:
+        return {
+            "eval_case": case.name,
+            "status": "Skipped",
+            "error_message": (
+                "Nothing to score against: this case records no expected output and has never run. "
+                "Give it the answer a deterministic check should hold to, or leave its suite out of Smoke."
+            ),
+        }
+
+    if not checkable:
+        return {
+            "eval_case": case.name,
+            "status": "Skipped",
+            "actual_output": answer,
+            "error_message": (
+                "Every assertion here needs a model call (" + ", ".join(needs_model)
+                + "), so a deterministic pass has nothing to check."
+            ),
+        }
+
+    results = [_evaluate_assertion(assertion, answer) for assertion in checkable]
+    passed = all(r["passed"] for r in results)
+    errored = any(r.get("error") for r in results)
+
+    note = f"Scored against {source}, no model call."
+    if needs_model:
+        note += " Skipped " + ", ".join(needs_model) + " — needs a model."
+
+    # The note is kept on a PASSING row too when the answer was borrowed from a
+    # previous run: that a case has no recorded answer of its own is exactly the
+    # thing a reader would otherwise never learn from a green result.
+    worth_saying = errored or not passed or needs_model or borrowed
+
+    return {
+        "eval_case": case.name,
+        "status": "Error" if errored else ("Passed" if passed else "Failed"),
+        "actual_output": answer,
+        "assertion_results": json.dumps(results, default=str),
+        "error_message": note if worth_saying else "",
+        "cost": 0,
+        "tokens_used": 0,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -514,15 +637,33 @@ def _lanes_for(case_names: List[str]) -> List[List[str]]:
     return lanes
 
 
-def _run_lane(lane: List[str], run_name: str, backend: str, agent_cfg: str | None, pass_k: int) -> dict:
+def _run_lane(lane: List[str], run_name: str, backend: str, agent_cfg: str | None, pass_k: int,
+              budget: dict | None = None) -> dict:
     """Execute one lane's cases in order, returning {case: result row}.
 
     A case that blows up is recorded as an Error and the lane carries on: one
     bad case must not cost the others their turn, which is the same rule the
     serial runner has always followed.
+
+    *budget* is the run's spend ceiling, shared with every other lane. It is
+    checked before each case and never mid-case: cutting off an answer already
+    being paid for wastes it. With lanes running side by side, up to one case
+    per lane may already be in flight when the ceiling is reached, so the run
+    can land a little over it — the alternative is refusing to start anything
+    until every lane reports, which is slower for no real protection.
     """
     rows = {}
     for case_name in lane:
+        if _budget_spent(budget):
+            rows[case_name] = {
+                "eval_case": case_name,
+                "status": "Skipped",
+                "error_message": "Not run \u2014 the run reached its spend ceiling.",
+                "runs": 0, "passes": 0, "consistency_rate": 0,
+            }
+            with budget["lock"]:
+                budget["not_run"] += 1
+            continue
         try:
             case = frappe.get_doc("AI Eval Case", case_name)
             rows[case_name] = _execute_case_k_times(run_name, backend, case, agent_cfg, pass_k)
@@ -539,11 +680,29 @@ def _run_lane(lane: List[str], run_name: str, backend: str, agent_cfg: str | Non
                 "passes": 0,
                 "consistency_rate": 0,
             }
+        _budget_draw(budget, rows[case_name].get("cost"))
     return rows
 
 
+def _budget_spent(budget: dict | None) -> bool:
+    """True once the run has spent what it was allowed."""
+    if not budget or not budget.get("cap"):
+        return False
+    with budget["lock"]:
+        return budget["spent"] >= budget["cap"]
+
+
+def _budget_draw(budget: dict | None, cost) -> None:
+    """Add what a case cost to the run's running total."""
+    if not budget or not budget.get("cap"):
+        return
+    with budget["lock"]:
+        budget["spent"] += flt(cost)
+
+
 def _lane_worker(site: str, lanes: "queue.Queue", results: dict, lock: "threading.Lock",
-                 run_name: str, backend: str, agent_cfg: str | None, pass_k: int) -> None:
+                 run_name: str, backend: str, agent_cfg: str | None, pass_k: int,
+                 budget: dict | None = None) -> None:
     """One worker: its own Frappe context, then lanes until the queue is empty.
 
     The context is set up ONCE per worker rather than per lane — a connect is
@@ -562,7 +721,7 @@ def _lane_worker(site: str, lanes: "queue.Queue", results: dict, lock: "threadin
             except queue.Empty:
                 return
             try:
-                rows = _run_lane(lane, run_name, backend, agent_cfg, pass_k)
+                rows = _run_lane(lane, run_name, backend, agent_cfg, pass_k, budget)
                 # Each worker owns its own transaction, so its writes are its own
                 # to commit. Without this the case's AI Agent Runs — and every
                 # judge call recorded against them — roll back when the thread
@@ -577,7 +736,8 @@ def _lane_worker(site: str, lanes: "queue.Queue", results: dict, lock: "threadin
 
 
 def _execute_lanes(case_names: List[str], run_name: str, backend: str,
-                   agent_cfg: str | None, pass_k: int, concurrency: int) -> dict:
+                   agent_cfg: str | None, pass_k: int, concurrency: int,
+                   budget: dict | None = None) -> dict:
     """Run every case, side by side up to ``concurrency`` lanes, and return
     {case: result row}.
 
@@ -590,7 +750,7 @@ def _execute_lanes(case_names: List[str], run_name: str, backend: str,
     if concurrency <= 1 or len(lanes) <= 1:
         rows = {}
         for lane in lanes:
-            rows.update(_run_lane(lane, run_name, backend, agent_cfg, pass_k))
+            rows.update(_run_lane(lane, run_name, backend, agent_cfg, pass_k, budget))
         return rows
 
     # Each worker reads through its OWN database connection, so it cannot see
@@ -610,7 +770,8 @@ def _execute_lanes(case_names: List[str], run_name: str, backend: str,
     workers = [
         threading.Thread(
             target=_lane_worker,
-            args=(frappe.local.site, pending, results, lock, run_name, backend, agent_cfg, pass_k),
+            args=(frappe.local.site, pending, results, lock, run_name, backend, agent_cfg,
+                  pass_k, budget),
             name=f"eval-{run_name}-{index}",
             daemon=True,
         )
@@ -657,6 +818,8 @@ def _execute_case_k_times(run_name: str, backend: str, case, agent_cfg: str | No
     for _attempt in range(pass_k):
         if backend == "replay":
             attempts.append(_execute_case_replay(run_name, case))
+        elif backend == "deterministic":
+            attempts.append(_execute_case_deterministic(case))
         else:
             attempts.append(_execute_case(case, run_name, agent_cfg))
 
@@ -1583,6 +1746,22 @@ def _tool_calls_for(case, eval_run: str = None) -> List[str]:
     )
 
 
+def _judge_model_for(assertion) -> tuple[str, str]:
+    """The model that grades an answer, and its provider.
+
+    The assertion's own choice wins; failing that, Processa Settings names the
+    grading model for scheduled runs. ``resolve_memory_model`` already
+    implements that precedence, so it is reused rather than copied.
+    """
+    from one_bpmn.agents.memory.model_resolution import resolve_memory_model
+
+    model = resolve_memory_model(assertion.judge_model, "nightly_eval_grading_model", None) or ""
+    provider = (assertion.judge_provider or "").strip()
+    if model and not provider:
+        provider = frappe.db.get_value("AI Model", model, "provider") or ""
+    return model, provider
+
+
 def _evaluate_llm_judge(assertion, output: Any) -> dict:
     """
     Call a judge LLM to score *output* against the rubric in *assertion.value*.
@@ -1599,10 +1778,15 @@ def _evaluate_llm_judge(assertion, output: Any) -> dict:
         actual_output=_stringify(output),
     )
 
+    # An assertion may name its own grader; when it does not, the site's
+    # nightly grading model stands in, so a scheduled run does not depend on
+    # every assertion carrying a model of its own.
+    judge_model, judge_provider = _judge_model_for(assertion)
+
     judge_config = ExecutorConfig(
         backend="direct_api",
-        provider_name=assertion.judge_provider or "",
-        model=assertion.judge_model or "",
+        provider_name=judge_provider,
+        model=judge_model,
         system_prompt="",
         user_prompt=judge_prompt,
         response_format="json",

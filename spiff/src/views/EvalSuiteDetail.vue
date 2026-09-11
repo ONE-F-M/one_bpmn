@@ -37,6 +37,12 @@
 						>{{ suite.pass_k > 1 ? `${suite.pass_k} runs per case` : "1 run per case" }}<span
 							v-if="suite.min_pass_rate"
 						>, needs {{ suite.min_pass_rate }}%</span></button>
+						<span>·</span>
+						<button
+							class="text-blue-600 hover:underline"
+							title="Which automated job runs this suite"
+							@click="openThresholds"
+						>{{ suite.ci_role ? `runs on ${suite.ci_role.toLowerCase()}` : "runs when asked" }}</button>
 						<span
 							v-if="suite.gate_deployment"
 							class="inline-block px-2 py-0.5 rounded-full text-xs bg-amber-50 text-amber-700"
@@ -254,9 +260,24 @@
 		</main>
 
 		<!-- How many times each case runs, and the bar the suite must clear -->
-		<Dialog v-model="showThresholds" :options="{ title: 'Runs, pass rate and the deploy gate' }">
+		<Dialog v-model="showThresholds" :options="{ title: 'When this suite runs, and the bar it must clear' }">
 			<template #body-content>
 				<div class="space-y-3">
+					<FormControl
+						type="select"
+						label="Run automatically as"
+						v-model="thresholdForm.ci_role"
+						:options="CI_ROLE_OPTIONS"
+						description="Smoke runs on every pull request touching agent code and makes no model call. Nightly is the live sweep on a schedule. Blank means it runs only when a person asks."
+					/>
+					<p v-if="thresholdForm.ci_role === 'Smoke' && smokeUncheckableCases.length" class="text-sm text-amber-600">
+						{{ smokeUncheckableCases.length }} of {{ cases.length }} case(s) here can only be judged by a
+						model, so a Smoke run would skip them. A suite where every case is skipped fails the check.
+					</p>
+					<p v-if="thresholdForm.ci_role === 'Nightly'" class="text-xs text-gray-500">
+						Nightly calls the agents for real. The ceiling on what one night may spend is in Processa
+						Settings.
+					</p>
 					<FormControl
 						type="number"
 						label="Runs per case"
@@ -871,12 +892,28 @@ async function runCase(c) {
 const showThresholds = ref(false)
 const savingThresholds = ref(false)
 const thresholdError = ref("")
-const thresholdForm = reactive({ pass_k: 1, min_pass_rate: 0, gate_deployment: false })
+const CI_ROLE_OPTIONS = [
+	{ label: "Only when asked", value: "" },
+	{ label: "Smoke — every pull request, no model call", value: "Smoke" },
+	{ label: "Nightly — the live sweep, on a schedule", value: "Nightly" },
+]
+const thresholdForm = reactive({ pass_k: 1, min_pass_rate: 0, gate_deployment: false, ci_role: "" })
+
+// Cases a deterministic pass could not score: everything they assert needs a
+// model. A Smoke suite made only of these reports a green check having
+// verified nothing, which the runner deliberately fails.
+const smokeUncheckableCases = computed(() =>
+	cases.value.filter((c) => {
+		const types = c.assertion_types || []
+		return types.length > 0 && types.every((t) => t === "llm_judge")
+	})
+)
 
 function openThresholds() {
 	thresholdForm.pass_k = suite.value.pass_k || 1
 	thresholdForm.min_pass_rate = suite.value.min_pass_rate || 0
 	thresholdForm.gate_deployment = !!suite.value.gate_deployment
+	thresholdForm.ci_role = suite.value.ci_role || ""
 	thresholdError.value = ""
 	showThresholds.value = true
 }
@@ -892,6 +929,7 @@ async function saveThresholds() {
 				pass_k: thresholdForm.pass_k,
 				min_pass_rate: thresholdForm.min_pass_rate,
 				gate_deployment: thresholdForm.gate_deployment ? 1 : 0,
+				ci_role: thresholdForm.ci_role || "",
 			},
 		})
 		showThresholds.value = false
