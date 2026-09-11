@@ -246,7 +246,7 @@ def get_amp_task_status(status_token: str = "") -> dict:
 		task_row = frappe.db.get_value(
 			"BPMN Active Task",
 			{"parent": instance_name, "task_id": task_id},
-			["status", "task_name", "assigned_user", "modified"],
+			["status", "task_name", "assigned_user", "end_time", "modified"],
 			as_dict=True,
 		)
 
@@ -260,7 +260,9 @@ def get_amp_task_status(status_token: str = "") -> dict:
 				"is_waiting": False,
 				"action_taken": task_row.task_name or "Action",
 				"completed_by": frappe.utils.get_fullname(task_row.assigned_user) if task_row.assigned_user else "",
-				"completed_at": frappe.utils.format_datetime(task_row.modified, "d MMM, h:mm a") if task_row.modified else "",
+				"completed_at": frappe.utils.format_datetime(
+					task_row.end_time or task_row.modified, "d MMM, h:mm a"
+				) if (task_row.end_time or task_row.modified) else "",
 			}]
 		}
 	except Exception:
