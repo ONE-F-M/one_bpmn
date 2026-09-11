@@ -153,12 +153,17 @@ permission_query_conditions = {
 	"AI Eval Suite": "one_bpmn.agents.eval_permissions.eval_suite_query_conditions",
 	"AI Eval Case": "one_bpmn.agents.eval_permissions.eval_case_query_conditions",
 	"AI Eval Run": "one_bpmn.agents.eval_permissions.eval_run_query_conditions",
+	# Your own memories plus the shared ones; a System Manager sees everybody's.
+	# Enforced here so it holds for the browser, the Desk list and any report,
+	# instead of being re-stated at each call site.
+	"AI Memory": "one_bpmn.agents.memory.permissions.ai_memory_query_conditions",
 }
 
 has_permission = {
 	"AI Eval Suite": "one_bpmn.agents.eval_permissions.eval_suite_has_permission",
 	"AI Eval Case": "one_bpmn.agents.eval_permissions.eval_case_has_permission",
 	"AI Eval Run": "one_bpmn.agents.eval_permissions.eval_run_has_permission",
+	"AI Memory": "one_bpmn.agents.memory.permissions.ai_memory_has_permission",
 }
 
 # DocType Class
