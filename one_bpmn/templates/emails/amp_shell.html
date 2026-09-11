@@ -367,8 +367,8 @@
           {{'{{'}}#is_completed{{'}}'}}
           <div class="completed-badge">
             <div class="check-circle">✓</div>
-            <div class="action-name">Already actioned</div>
-            <div class="meta">{{'{{'}} action_taken {{'}}'}} by {{'{{'}} completed_by {{'}}'}} on {{'{{'}} completed_at {{'}}'}}</div>
+            <div class="action-name">Already actioned: {{'{{'}} action_taken {{'}}'}}</div>
+            <div class="meta">by {{'{{'}} completed_by {{'}}'}} on {{'{{'}} completed_at {{'}}'}}{{'{{'}}#doc_state{{'}}'}} · {{'{{'}} doc_name {{'}}'}} is now <b>{{'{{'}} doc_state {{'}}'}}</b>{{'{{'}}/doc_state{{'}}'}}</div>
           </div>
           {{'{{'}}/is_completed{{'}}'}}
         </template>

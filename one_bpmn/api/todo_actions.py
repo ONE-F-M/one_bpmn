@@ -254,10 +254,13 @@ def get_amp_task_status(status_token: str = "") -> dict:
 			return {"items": [{"is_waiting": True}]}
 
 		# Task is completed
+		doc_name, doc_state = _get_context_doc_state(instance_name)
 		return {
 			"items": [{
 				"is_completed": True,
 				"is_waiting": False,
+				"doc_name": doc_name,
+				"doc_state": doc_state,
 				"action_taken": task_row.task_name or "Action",
 				"completed_by": frappe.utils.get_fullname(task_row.assigned_user) if task_row.assigned_user else "",
 				"completed_at": frappe.utils.format_datetime(
@@ -267,4 +270,28 @@ def get_amp_task_status(status_token: str = "") -> dict:
 		}
 	except Exception:
 		return {"items": [{"is_waiting": True}]}
+
+
+def _get_context_doc_state(instance_name: str) -> tuple[str, str]:
+	"""Return (docname, current state) of the instance's context document.
+
+	State is ``workflow_state`` when the DocType has one, else ``status``,
+	else empty. Empty strings when the instance has no context document.
+	"""
+	ctx = frappe.db.get_value(
+		"BPMN Process Instance",
+		instance_name,
+		["context_doctype", "context_docname"],
+		as_dict=True,
+	)
+	if not ctx or not ctx.context_doctype or not ctx.context_docname:
+		return "", ""
+
+	meta = frappe.get_meta(ctx.context_doctype)
+	field = next((f for f in ("workflow_state", "status") if meta.has_field(f)), None)
+	if not field:
+		return ctx.context_docname, ""
+
+	state = frappe.db.get_value(ctx.context_doctype, ctx.context_docname, field) or ""
+	return ctx.context_docname, str(state)
 

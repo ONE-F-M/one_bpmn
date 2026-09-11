@@ -184,6 +184,7 @@ class TestRenderedAmpValidation(FrappeTestCase):
 		assert 'items="message.items"' in html
 		assert "{{#is_waiting}}" in html and "{{#is_completed}}" in html
 		assert "{{ action_taken }}" in html and "{{ completed_by }}" in html
+		assert "{{#doc_state}}" in html and "{{ doc_state }}" in html
 		assert "}}d</div>" not in html
 		# Form and its buttons live inside the amp-list template
 		assert html.index("<amp-list") < html.index('name="token"') < html.index("</amp-list>")
