@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, now_datetime
@@ -91,3 +93,39 @@ class TestPruneSweep(FrappeTestCase):
 		self.addCleanup(frappe.db.set_single_value, "Processa Settings", "memory_prune_uncorroborated_days", original)
 		frappe.db.set_single_value("Processa Settings", "memory_prune_uncorroborated_days", 7)
 		self.assertEqual(P.prune_config()["uncorroborated_days"], 7)
+
+
+class TestThresholdDefaults(FrappeTestCase):
+	"""A number field added to an existing Single reads back as 0, and 0 switches
+	every one of these rules off. That is how nightly pruning came to do nothing
+	on a site where nobody had opened the settings."""
+
+	def _with(self, stored):
+		with patch("frappe.db.get_singles_dict", return_value=stored):
+			return P.prune_config()
+
+	def test_a_never_set_field_uses_the_code_default(self):
+		"""get_singles_dict returns an empty string for a field nobody has ever
+		written, and the old check was `is not None`, which an empty string
+		passes. Every threshold then read as 0, and 0 is off."""
+		for stored in ({}, {"memory_prune_min_confidence": ""}, {"memory_prune_min_confidence": None}):
+			self.assertEqual(self._with(stored)["min_confidence"], P._DEFAULTS["min_confidence"], stored)
+
+	def test_a_deliberate_zero_still_switches_a_rule_off(self):
+		"""0 is the documented way to switch a rule off, so it is never treated
+		as absent. A stored 0 that nobody chose is corrected by the
+		seed_memory_setting_defaults patch, not guessed at here."""
+		self.assertEqual(self._with({"memory_prune_min_confidence": 0})["min_confidence"], 0)
+
+	def test_all_three_fall_back_together(self):
+		config = self._with({})
+		self.assertEqual(config, dict(P._DEFAULTS))
+
+	def test_a_chosen_value_is_kept(self):
+		config = self._with({"memory_prune_min_confidence": 0.45, "memory_prune_uncorroborated_days": 30})
+		self.assertEqual(config["min_confidence"], 0.45)
+		self.assertEqual(config["uncorroborated_days"], 30)
+
+	def test_an_unreadable_settings_row_still_prunes(self):
+		with patch("frappe.db.get_singles_dict", side_effect=RuntimeError("no settings")):
+			self.assertEqual(P.prune_config(), dict(P._DEFAULTS))

@@ -33,6 +33,31 @@ _PAGE = 1000
 _DEFAULTS = {"min_confidence": 0.2, "uncorroborated_days": 180, "low_importance_days": 90}
 
 
+def _threshold(values: dict, fieldname: str, default):
+	"""One threshold, with the code default standing in for a value nobody has
+	set.
+
+	Blank and missing both mean "not set". 0 does not: 0 is how an administrator
+	switches a rule off, and that has to keep working.
+
+	The trap this closes is narrower. ``get_singles_dict`` hands back an empty
+	string for a field nobody has ever written, and the old test for it was
+	``is not None``, which an empty string passes. Every threshold then read as
+	0.0 and every rule was off, on a site where nobody had touched the settings.
+
+	A field added to an existing Single has a second version of the same
+	problem: the default printed in the DocType JSON applies only when a
+	document is first created, and Processa Settings long predates these fields,
+	so the first save of the form stores a real 0. No reader can tell that 0
+	from a chosen one, so it is corrected once by the
+	``seed_memory_setting_defaults`` patch instead of being guessed at here.
+	"""
+	value = values.get(fieldname)
+	if value in (None, ""):
+		return default
+	return value
+
+
 def prune_config() -> dict:
 	"""Thresholds from Processa Settings, code defaults when blank."""
 	try:
@@ -40,9 +65,9 @@ def prune_config() -> dict:
 	except Exception:
 		values = {}
 	return {
-		"min_confidence": flt(values.get("memory_prune_min_confidence"), 2) if values.get("memory_prune_min_confidence") is not None else _DEFAULTS["min_confidence"],
-		"uncorroborated_days": cint(values.get("memory_prune_uncorroborated_days")) if values.get("memory_prune_uncorroborated_days") is not None else _DEFAULTS["uncorroborated_days"],
-		"low_importance_days": cint(values.get("memory_prune_low_importance_days")) if values.get("memory_prune_low_importance_days") is not None else _DEFAULTS["low_importance_days"],
+		"min_confidence": flt(_threshold(values, "memory_prune_min_confidence", _DEFAULTS["min_confidence"]), 2),
+		"uncorroborated_days": cint(_threshold(values, "memory_prune_uncorroborated_days", _DEFAULTS["uncorroborated_days"])),
+		"low_importance_days": cint(_threshold(values, "memory_prune_low_importance_days", _DEFAULTS["low_importance_days"])),
 	}
 
 
