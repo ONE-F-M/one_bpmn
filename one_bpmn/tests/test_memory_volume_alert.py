@@ -54,3 +54,24 @@ class TestVolumeAlert(FrappeTestCase):
 		) as notify:
 			self.assertEqual(V.check_volume(), [])
 			notify.assert_not_called()
+
+
+class TestThresholdsAreNeverZero(FrappeTestCase):
+	"""A threshold of 0 is crossed by the first memory ever written, so it would
+	fire on every site every night. A number field added to an existing Single
+	reads back as 0 until somebody chooses a value, which is that exact state."""
+
+	def _with(self, stored):
+		with patch("frappe.db.get_single_value", return_value=stored):
+			return V.thresholds()
+
+	def test_zero_blank_and_missing_all_fall_back(self):
+		for stored in (0, "0", "", None):
+			self.assertEqual(self._with(stored), (T.REVISIT_SCOPE_ROWS, T.REVISIT_TOTAL_ROWS), stored)
+
+	def test_a_chosen_value_is_kept(self):
+		self.assertEqual(self._with(25), (25, 25))
+
+	def test_unreadable_settings_still_give_a_usable_threshold(self):
+		with patch("frappe.db.get_single_value", side_effect=RuntimeError("no settings")):
+			self.assertEqual(V.thresholds(), (T.REVISIT_SCOPE_ROWS, T.REVISIT_TOTAL_ROWS))
