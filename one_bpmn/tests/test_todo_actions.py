@@ -174,3 +174,28 @@ class TestAmpEmailSenderHeader(FrappeTestCase):
 		extra = frappe.flags._amp_extra_headers
 		self.assertEqual(extra["AMP-Email-Allow-Sender"], "notifications@one-fm.com")
 		self.assertIn("AMP-Email-Allow-Sender", extra["Access-Control-Expose-Headers"])
+
+
+class TestContextDocState(FrappeTestCase):
+	"""_get_context_doc_state reads workflow_state, else status, else nothing."""
+
+	def test_workflow_state_preferred(self):
+		from one_bpmn.api.todo_actions import _get_context_doc_state
+
+		meta = MagicMock()
+		meta.has_field.side_effect = lambda f: f in ("workflow_state", "status")
+		with patch.object(frappe, "get_meta", return_value=meta), patch.object(
+			frappe.db, "get_value"
+		) as gv:
+			gv.side_effect = [
+				frappe._dict(context_doctype="Work Item", context_docname="WI-1"),
+				"In Progress",
+			]
+			self.assertEqual(_get_context_doc_state("INST"), ("WI-1", "In Progress"))
+			self.assertEqual(gv.call_args.args[:3], ("Work Item", "WI-1", "workflow_state"))
+
+	def test_no_context_doc(self):
+		from one_bpmn.api.todo_actions import _get_context_doc_state
+
+		with patch.object(frappe.db, "get_value", return_value=frappe._dict()):
+			self.assertEqual(_get_context_doc_state("INST"), ("", ""))
