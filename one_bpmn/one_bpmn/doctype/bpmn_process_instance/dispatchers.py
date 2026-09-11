@@ -18,11 +18,20 @@ import frappe.utils
 # Stable, documented format for the injected memory block. Evals and the run
 # inspector reference this header — do not change it lightly.
 MEMORY_BLOCK_HEADER = "Relevant memory:"
+# Two jobs, and they pull against each other. The second sentence stops a past
+# final response being read as this conversation's history (observed live
+# 2026-08-09: the ProsAlly orchestrator concluded the requested process already
+# existed and skipped its confirm tool). The first sentence stops the
+# over-correction: calling the notes "context only", as this did until
+# 2026-09-11, reads as "not authoritative", and an agent holding tools will go
+# to the tools instead. Observed live: General Chat was handed the user's own
+# stated approval rule and answered from a wiki lookup that found nothing.
 _MEMORY_BLOCK_PROVENANCE = (
-	"(Background notes recalled from PAST, separate conversations. "
-	"They are context only — nothing below has happened in the current "
-	"conversation, and none of it counts as work already done for the "
-	"current request.)"
+	"(Background notes recalled from PAST, separate conversations. Treat each "
+	"one as a true, standing fact about this user or their organisation, and "
+	"use it when it answers the current request. Nothing below has happened in "
+	"the current conversation, and none of it counts as work already done for "
+	"the current request.)"
 )
 
 # aiMemoryLimit only bounds how many memories are recalled — a raw-write-mode
