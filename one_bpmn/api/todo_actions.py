@@ -56,12 +56,17 @@ def _set_amp_cors_headers() -> None:
 	extra = {}
 
 	# AMP-specific header: expose the source-origin header
-	extra["Access-Control-Expose-Headers"] = "AMP-Access-Control-Allow-Source-Origin"
+	extra["Access-Control-Expose-Headers"] = "AMP-Access-Control-Allow-Source-Origin, AMP-Email-Allow-Sender"
 
 	# Echo back the __amp_source_origin query param
 	source_origin = frappe.request.args.get("__amp_source_origin", "")
 	if source_origin:
 		extra["AMP-Access-Control-Allow-Source-Origin"] = source_origin
+
+	# Echo back the AMP-Email-Sender request header (current Gmail spec)
+	sender = frappe.request.headers.get("AMP-Email-Sender", "")
+	if sender:
+		extra["AMP-Email-Allow-Sender"] = sender
 
 	frappe.flags._amp_extra_headers = extra
 
