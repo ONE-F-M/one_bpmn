@@ -591,10 +591,11 @@
   },
   {
    "default": "sentence-transformers/all-MiniLM-L6-v2",
-   "description": "fastembed model used for semantic memory search. It must produce 384 dimensions. Blank uses the default.",
+   "description": "Model that turns a memory into the numbers semantic search compares. Only models producing 384 numbers are listed, because that is the width of the stored column. Disabled turns semantic search off and leaves keyword search, which is what a machine that cannot download the model should use.",
    "fieldname": "memory_embedding_model",
-   "fieldtype": "Data",
-   "label": "Embedding Model"
+   "fieldtype": "Select",
+   "label": "Embedding Model",
+   "options": "sentence-transformers/all-MiniLM-L6-v2\nBAAI/bge-small-en-v1.5\nsnowflake/snowflake-arctic-embed-xs\nsnowflake/snowflake-arctic-embed-s\nBAAI/bge-small-en\nsentence-transformers/paraphrase-multilingual-MiniLM-L12-v2\nDisabled"
   },
   {
    "default": "0.6",
@@ -648,7 +649,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-09-10 13:00:00.000000",
+ "modified": "2026-09-11 22:00:00.000000",
  "modified_by": "s.shariff@one-fm.com",
  "module": "ONE BPMN",
  "name": "Processa Settings",
