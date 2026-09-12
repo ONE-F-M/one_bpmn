@@ -2013,7 +2013,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 					memory_process_model = (
 						getattr(instance, "process_model", None) if scope == "Agent" else None
 					)
-					if user_message and _is_remember_directive(user_message):
+					if raw_user_message and _is_remember_directive(raw_user_message):
 						# An explicit "remember that..." names a standing
 						# convention, not an incidental fact the agent's
 						# output happened to produce — write it verbatim and
@@ -2024,11 +2024,21 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 						# prompt) is what the user asked for. Still gated on
 						# write_mode != "off" above: an agent with memory
 						# writes disabled stays disabled, no separate bypass.
+						#
+						# raw_user_message, NOT user_message: a map that renders
+						# the person's words into its own prompt has them blanked
+						# above (the platform does not add a second copy), and
+						# testing the blanked variable made this branch
+						# unreachable on every such map. Live on prod-backup
+						# 2026-09-12: all seven memories General Chat had written
+						# carried user_directed = 0 and metadata.distilled = true,
+						# so nothing anybody asked it to remember was ever stored
+						# as they said it, and nothing was protected from pruning.
 						from one_bpmn.agents.memory.tools import memory_write
 						memory_write(
 							scope,
 							scope_key,
-							user_message,
+							raw_user_message,
 							source_run=src,
 							ignore_permissions=True,
 							reconcile=True,
