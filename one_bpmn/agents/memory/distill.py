@@ -292,7 +292,11 @@ def distill_memories(
 		result = get_executor(config.backend)().run(config, ExecutorContext())
 		if result.error_code != ErrorCode.SUCCESS:
 			if raise_on_failure:
-				raise DistillationFailed(f"the model returned {result.error_code}: {getattr(result, 'error_message', '')}")
+				# .value, not the enum: this string is the Error field on an AI
+				# Memory Dead Letter, which somebody reads. On prod-backup it
+				# read "the model returned ErrorCode.PROVIDER_DISABLED".
+				code = getattr(result.error_code, "value", result.error_code)
+				raise DistillationFailed(f"the model returned {code}: {getattr(result, 'error_message', '')}")
 			return []
 		raw = _coerce_memories(result.output)
 	except DistillationFailed:

@@ -47,6 +47,36 @@ class TestDistillationReportsFailure(FrappeTestCase):
 			D.distill_memories("something", raise_on_failure=True, **kwargs)
 
 
+	def test_the_failure_names_the_code_not_the_enum(self):
+		"""The message becomes the Error field on an AI Memory Dead Letter, which
+		somebody reads. On prod-backup it read "ErrorCode.PROVIDER_DISABLED"."""
+		from types import SimpleNamespace
+
+		from one_bpmn.agents.executor import ErrorCode
+
+		refused = SimpleNamespace(
+			error_code=ErrorCode.PROVIDER_DISABLED,
+			error_message="AI Model 'x' has no API key set.",
+			output="",
+		)
+		with patch(
+			"one_bpmn.agents.executor.get_executor",
+			return_value=lambda: SimpleNamespace(run=lambda *a, **k: refused),
+		):
+			with self.assertRaises(D.DistillationFailed) as ctx:
+				D.distill_memories(
+					"something",
+					raise_on_failure=True,
+					agent="a",
+					scope="Agent",
+					scope_key="a",
+					provider_name="p",
+					model="m",
+				)
+		self.assertIn("PROVIDER_DISABLED", str(ctx.exception))
+		self.assertNotIn("ErrorCode.", str(ctx.exception))
+
+
 class TestRetry(FrappeTestCase):
 	def setUp(self):
 		self.agent = f"RT_{frappe.generate_hash(length=8)}"
