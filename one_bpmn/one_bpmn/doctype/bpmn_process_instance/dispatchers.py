@@ -1302,7 +1302,9 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 
 	from one_bpmn.agents.executor import (
 		DEFAULT_MAX_OUTPUT_TOKENS,
+		DEFAULT_TEMPERATURE,
 		DEFAULT_TIMEOUT_SECONDS,
+		DEFAULT_TOP_P,
 		ErrorCode,
 		ExecutorConfig,
 		ExecutorContext,
@@ -1607,8 +1609,11 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		model            = task_cfg.get("aiModel", ""),
 		system_prompt    = system_prompt,
 		user_prompt      = user_prompt,
-		temperature      = float(task_cfg.get("aiTemperature", 0.7) or 0.7),
-		top_p            = float(task_cfg.get("aiTopP", 1.0) or 1.0),
+		# Deferring to the shared defaults, not repeating numbers here:
+		# this line used to say 0.7 while the configuration form said 0.3, so
+		# the same agent behaved differently depending on which path ran it.
+		temperature      = float(task_cfg.get("aiTemperature") or DEFAULT_TEMPERATURE),
+		top_p            = float(task_cfg.get("aiTopP") or DEFAULT_TOP_P),
 		# cint FIRST, then fall back: a shape attribute arrives as a string, and
 		# "0" is truthy — `"0" or DEFAULT` would yield a zero budget. cint also
 		# absorbs "", "  " and junk, which int() would raise on.

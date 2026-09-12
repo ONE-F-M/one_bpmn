@@ -549,14 +549,22 @@ def _run_adk_stage_agent(config, conversation, message, context, stream=False):
 
 def _run_direct_api(config, conversation, message, context, stream=False):
 	"""Single-shot / general chat. Persists the turn and calls the adapter's
-	own (async) tool-calling loop for one exchange."""
+	own (async) tool-calling loop for one exchange.
+
+	The system prompt is composed the same way as on the two process paths.
+	This used to send ``config["system_prompt"]`` on its own, which quietly
+	dropped the agent's examples, its skills index and its guard rails: an
+	agent that refused something inside a process map would do it in a chat,
+	and the difference was invisible from the configuration.
+	"""
+	from one_bpmn.agents.context_assembler import build_static_context_from_config
 	from one_bpmn.agents.executor.direct_api import _run_coro_blocking
 	from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
 	from one_bpmn.utils.chat_persistence import save_bot_message, save_user_message
 
 	save_user_message(conversation, message)
 	adapter = get_llm_adapter_from_settings(config)
-	system_prompt = config.get("system_prompt") or ""
+	system_prompt = build_static_context_from_config(config)
 	completion = _run_coro_blocking(adapter.complete(system=system_prompt, user=message))
 	text = getattr(completion, "text", str(completion or ""))
 	save_bot_message(conversation, text)
