@@ -132,6 +132,15 @@
       background: #e8ecf0;
       color: #171717;
     }
+    /* Inside the live-status list the list itself carries the top margin,
+       so both states fit the fixed height without clipping. */
+    .live-status {
+      margin-top: 24px;
+    }
+    .live-status .actions,
+    .live-status .completed-badge {
+      margin-top: 0;
+    }
     /* Hide buttons after successful submission (Calendar-invite behavior) */
     form.amp-form-submit-success > button,
     form.amp-form-submit-success > a {
@@ -287,30 +296,14 @@
       {# Action Buttons with live status check #}
       {% if has_actions and not is_comment %}
 
-      {% if status_url %}
-      {# amp-list checks task status on email open — shows completed badge if already actioned #}
-      <amp-list src="{{ status_url }}"
-               items="."
-               single-item
-               layout="fixed-height"
-               height="80">
-        <template type="amp-mustache">
-          {{'{{'}}#is_completed{{'}}'}}
-          <div class="completed-badge">
-            <div class="check-circle">✓</div>
-            <div class="action-name">Completed</div>
-            <div class="meta">{{'{{'}} completed_at {{'}}'}}</div>
-          </div>
-          {{'{{'}}/is_completed{{'}}'}}
-        </template>
-      </amp-list>
-      {% endif %}
-
-      {# Single form with multiple submit buttons — clicking any button
+      {# One form, one submit button per action. Clicking any button
          replaces the ENTIRE form (all buttons) with the success badge,
          just like Google Calendar invites. Each button carries its own
-         HMAC token as name="token" value="<token>". #}
-      {% if simple_actions %}
+         HMAC token as name="token" value="<token>".
+         `templated` controls the submit-success/submit-error content:
+         amp-mustache forbids nested <template>, so inside the amp-list
+         the badge is static. #}
+      {% macro action_form(templated) %}
       <form method="post"
             action-xhr="{{ action_endpoint or (site_url + '/api/method/one_bpmn.api.todo_actions.handle_amp_action') }}"
             class="actions">
@@ -331,20 +324,57 @@
         {% endif %}
         {% endfor %}
         <div submit-success>
+          {% if templated %}
           <template type="amp-mustache">
             <div class="completed-badge">
               <div class="check-circle">✓</div>
-              <div class="action-name">{{'{{'}} message.action {{'}}'}}d</div>
+              <div class="action-name">{{'{{'}} message.action {{'}}'}}</div>
               <div class="meta">{{'{{'}} message.message {{'}}'}}</div>
             </div>
           </template>
+          {% else %}
+          <div class="completed-badge">
+            <div class="check-circle">✓</div>
+            <div class="action-name">Done</div>
+            <div class="meta">Your response has been recorded.</div>
+          </div>
+          {% endif %}
         </div>
         <div submit-error>
+          {% if templated %}
           <template type="amp-mustache">
             <p class="submit-error">{{'{{'}} message.error {{'}}'}}</p>
           </template>
+          {% else %}
+          <p class="submit-error">Could not submit. Please try in ERPNext.</p>
+          {% endif %}
         </div>
       </form>
+      {% endmacro %}
+
+      {% if status_url %}
+      {# amp-list fetches the live task status on every open: buttons while
+         the task is waiting, a completed badge once anyone has actioned it. #}
+      <amp-list src="{{ status_url }}"
+               items="message.items"
+               class="live-status"
+               layout="fixed-height"
+               height="150">
+        <template type="amp-mustache">
+          {{'{{'}}#is_waiting{{'}}'}}
+          {{ action_form(templated=false) }}
+          {{'{{'}}/is_waiting{{'}}'}}
+          {{'{{'}}#is_completed{{'}}'}}
+          <div class="completed-badge">
+            <div class="check-circle">✓</div>
+            <div class="action-name">Already actioned: {{'{{'}} action_taken {{'}}'}}</div>
+            <div class="meta">by {{'{{'}} completed_by {{'}}'}} on {{'{{'}} completed_at {{'}}'}}{{'{{'}}#doc_state{{'}}'}} · {{'{{'}} doc_name {{'}}'}} is now <b>{{'{{'}} doc_state {{'}}'}}</b>{{'{{'}}/doc_state{{'}}'}}</div>
+          </div>
+          {{'{{'}}/is_completed{{'}}'}}
+        </template>
+      </amp-list>
+      {% elif simple_actions %}
+      {{ action_form(templated=true) }}
       {% endif %}
 
       {# Actions that need extra input (e.g. a date range) get their own
