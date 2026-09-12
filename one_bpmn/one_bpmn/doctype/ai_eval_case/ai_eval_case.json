@@ -34,7 +34,7 @@
    "fieldname": "case_type",
    "fieldtype": "Select",
    "label": "Case Type",
-   "options": "Generation\nTrigger Positive\nTrigger Negative\nCo-Load Budget",
+   "options": "Generation\nTrigger Positive\nTrigger Negative\nCo-Load Budget\nMemory",
    "default": "Generation"
   },
   {
@@ -121,7 +121,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-17 11:45:00.000000",
+ "modified": "2026-09-12 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Eval Case",
