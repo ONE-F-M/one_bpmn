@@ -95,17 +95,12 @@ DELEGATION_FIELDS = (
 
 CLARIFICATION_FIELDS = ("max_clarification_rounds",)
 
-# WI-002195: how much of any one tool result the model is shown. Agent-owned
-# because the cost it bounds is the agent's context, whichever task calls it.
-TOOL_RESULT_FIELDS = ("tool_result_max_chars",)
-
 AGENT_CONTROL_GROUPS = (
 	("Screening", SCREENING_FIELDS),
 	("Rate limiting & freeze", RATE_LIMIT_FIELDS),
 	("Feedback", FEEDBACK_FIELDS),
 	("Delegation", DELEGATION_FIELDS),
 	("Clarification", CLARIFICATION_FIELDS),
-	("Tool results", TOOL_RESULT_FIELDS),
 )
 
 EVENT_FIELDS = (

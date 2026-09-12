@@ -1623,9 +1623,6 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		tools            = tool_specs,
 		# "Maximum model calls" (Camunda Limits); caps the tool-calling loop.
 		max_tool_calls   = int(task_cfg.get("aiMaxToolCalls", 10) or 10),
-		# WI-002195: the agent's cap on any one tool result the model sees;
-		# blank falls through to the platform default.
-		tool_result_max_chars = cint(task_cfg.get("aiToolResultMaxChars")) or None,
 		resume_state     = _checkpoint.build_resume_state(resume_payload) if resume_payload else None,
 	)
 

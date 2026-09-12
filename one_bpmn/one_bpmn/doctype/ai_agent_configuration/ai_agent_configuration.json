@@ -23,7 +23,6 @@
   "column_break_llm",
   "temperature",
   "max_tokens",
-  "tool_result_max_chars",
   "prompt_section",
   "required_variables",
   "required_variables_html",
@@ -204,13 +203,6 @@
    "fieldname": "max_tokens",
    "fieldtype": "Int",
    "label": "Max Tokens"
-  },
-  {
-   "default": "0",
-   "description": "Longest tool result the model is shown, in characters. 0 = platform default (20,000). Over the cap the result is cut with a note to ask more narrowly; the full result is still recorded on the run.",
-   "fieldname": "tool_result_max_chars",
-   "fieldtype": "Int",
-   "label": "Max Tool Result Chars"
   },
   {
    "fieldname": "prompt_section",
