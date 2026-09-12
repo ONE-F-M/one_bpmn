@@ -95,6 +95,37 @@ class TestPruneSweep(FrappeTestCase):
 		self.assertEqual(P.prune_config()["uncorroborated_days"], 7)
 
 
+class TestSeedDefaultsPatch(FrappeTestCase):
+	"""The patch that repairs a Processa Settings row written before these
+	fields existed."""
+
+	def _seed(self):
+		from one_bpmn.one_bpmn.patches.v1_0 import seed_memory_setting_defaults
+
+		seed_memory_setting_defaults.execute()
+
+	def test_a_blank_trust_hierarchy_is_seeded(self):
+		"""Blank ranked correctly, because trust_hierarchy() falls back to the
+		code order, but the form showed an empty box and nobody could reorder
+		what was not there."""
+		frappe.db.set_single_value("Processa Settings", "memory_trust_hierarchy", "")
+		self._seed()
+		self.assertEqual(
+			T.trust_hierarchy(),
+			["User Statement", "Agent Inference", "Tool Output"],
+		)
+		stored = frappe.db.get_single_value("Processa Settings", "memory_trust_hierarchy")
+		self.assertEqual(stored.splitlines(), ["User Statement", "Agent Inference", "Tool Output"])
+
+	def test_a_chosen_order_is_left_alone(self):
+		chosen = "Tool Output\nAgent Inference\nUser Statement"
+		frappe.db.set_single_value("Processa Settings", "memory_trust_hierarchy", chosen)
+		self._seed()
+		self.assertEqual(
+			frappe.db.get_single_value("Processa Settings", "memory_trust_hierarchy"), chosen
+		)
+
+
 class TestThresholdDefaults(FrappeTestCase):
 	"""A number field added to an existing Single reads back as 0, and 0 switches
 	every one of these rules off. That is how nightly pruning came to do nothing
