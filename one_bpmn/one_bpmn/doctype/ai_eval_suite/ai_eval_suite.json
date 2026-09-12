@@ -22,7 +22,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Eval Type",
-   "options": "Direct\nAgent",
+   "options": "Direct\nAgent\nMemory",
    "reqd": 1,
    "description": "Direct: a simple LLM call using the agent's provider/model/system prompt. Agent: invoke the full agent through its process map (needs a map)."
   },
@@ -77,7 +77,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-28 00:00:00.000000",
+ "modified": "2026-09-12 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Eval Suite",

@@ -527,6 +527,69 @@ def _execute_case(case, eval_run: str = None, agent_cfg: str = None) -> dict:
         frappe.flags.eval_origin = prev_origin
 
 
+def _memory_case_spec(case) -> dict:
+    """What a Memory case is asking for, read off the case.
+
+    ``input_context`` carries the scope and its key, how many results to look
+    at, and the agent output to distil when generation is being measured.
+    ``expected_output`` holds the golden memories, one per line, because that is
+    the field a person already edits when writing any other case.
+    """
+    spec = case.input_context
+    if isinstance(spec, str):
+        try:
+            spec = json.loads(spec or "{}")
+        except (ValueError, TypeError):
+            spec = {}
+    spec = dict(spec or {})
+    golden = [line.strip() for line in (case.expected_output or "").splitlines() if line.strip()]
+    spec.setdefault("golden_memories", golden)
+    spec.setdefault("expected_recall", golden)
+    spec.setdefault("query", case.input_user_prompt or "")
+    return spec
+
+
+def _execute_memory_case(case) -> dict:
+    """Measure the memory pipeline for one case.
+
+    Reports generation precision/recall/F1 when the case says what should have
+    been distilled, Recall@K and the retrieval latency when it asks a question,
+    and passes only when everything it measured came out right and retrieval
+    stayed inside its budget. Costs nothing: no agent is called, so tokens and
+    cost stay at zero and a memory suite can run as often as anyone likes.
+    """
+    from one_bpmn.agents.memory.evals import evaluate_memory_case
+
+    spec = _memory_case_spec(case)
+    scope = spec.get("scope") or "Agent"
+    scope_key = spec.get("scope_key")
+    if not scope_key:
+        return {
+            "eval_case": case.name,
+            "status": "Error",
+            "error_message": "A Memory case needs a scope_key in its Input Context, naming the memories to measure.",
+        }
+
+    report = evaluate_memory_case(
+        scope=scope,
+        scope_key=scope_key,
+        query=spec.get("query") or "",
+        golden_memories=spec.get("golden_memories"),
+        expected_recall=spec.get("expected_recall"),
+        produced_memories=spec.get("produced_memories"),
+        k=int(spec.get("k") or 5),
+    )
+    return {
+        "eval_case": case.name,
+        "status": "Passed" if report["passed"] else "Failed",
+        # The numbers are the result here, so they go where a reader already
+        # looks for what happened.
+        "actual_output": json.dumps(report, indent=2),
+        "tokens_used": 0,
+        "cost": 0.0,
+    }
+
+
 def _execute_case_inner(case, eval_run: str = None, agent_cfg: str = None) -> dict:
     """The body of ``_execute_case``, with ``frappe.flags.eval_origin`` already set.
 
@@ -534,6 +597,12 @@ def _execute_case_inner(case, eval_run: str = None, agent_cfg: str = None) -> di
     The suite is left untouched — the override lives on the AI Eval Run.
     """
     try:
+        # A memory case measures the memory pipeline, not the agent's answer, so
+        # it needs no provider, no model and no map. Handled before the agent is
+        # resolved for exactly that reason.
+        if (case.get("case_type") or "") == "Memory":
+            return _execute_memory_case(case)
+
         agent_cfg = agent_cfg or frappe.db.get_value(
             "AI Eval Suite", case.suite, "agent_configuration"
         )
