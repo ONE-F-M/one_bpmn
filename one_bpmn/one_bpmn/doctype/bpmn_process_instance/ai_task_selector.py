@@ -107,6 +107,8 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 
 	from one_bpmn.agents.executor import (
 		DEFAULT_MAX_OUTPUT_TOKENS,
+		DEFAULT_TEMPERATURE,
+		DEFAULT_TIMEOUT_SECONDS,
 		ErrorCode,
 		ExecutorConfig,
 		ExecutorContext,
@@ -252,7 +254,10 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		user_prompt=user_prompt,
 		# cint first — a shape attribute is a string and "0" is truthy.
 		max_tokens=cint(task_cfg.get("aiMaxTokens")) or DEFAULT_MAX_OUTPUT_TOKENS,
-		timeout_seconds=int(task_cfg.get("aiTimeout", 60) or 60),
+		temperature=float(task_cfg.get("aiTemperature") or DEFAULT_TEMPERATURE),
+		# This said 60 while the other two paths said 180, so the same agent
+		# had three times less to answer in depending on which shape ran it.
+		timeout_seconds=cint(task_cfg.get("aiTimeout")) or DEFAULT_TIMEOUT_SECONDS,
 		tools=tools,
 	)
 	context = ExecutorContext(
