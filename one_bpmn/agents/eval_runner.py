@@ -545,8 +545,39 @@ def _memory_case_spec(case) -> dict:
     golden = [line.strip() for line in (case.expected_output or "").splitlines() if line.strip()]
     spec.setdefault("golden_memories", golden)
     spec.setdefault("expected_recall", golden)
-    spec.setdefault("query", case.input_user_prompt or "")
+    # A generation case feeds the agent's own words to the distiller, so its
+    # Input User Prompt is that output, not a question. Reading it as a query
+    # would send the whole agent turn to memory search and measure nothing.
+    if not spec.get("agent_output"):
+        spec.setdefault("query", case.input_user_prompt or "")
+    else:
+        spec.setdefault("query", "")
     return spec
+
+
+def _distil_for_eval(case, spec, scope, scope_key) -> list:
+    """Run the distiller over the case's agent output and return what it kept.
+
+    Nothing is written to the store: the case is asking what the distiller
+    WOULD keep, and a suite that wrote memories every time it ran would change
+    the thing it is measuring. This is the one part of a memory case that calls
+    a model, so a generation case costs one distillation and a retrieval case
+    still costs nothing.
+    """
+    from one_bpmn.agents.memory.distill import distill_memories
+
+    agent_cfg = frappe.db.get_value("AI Eval Suite", case.suite, "agent_configuration")
+    cfg = frappe.get_cached_doc("AI Agent Configuration", agent_cfg) if agent_cfg else None
+    model = spec.get("model") or (cfg and (cfg.memory_distill_model or cfg.ai_model)) or ""
+    facts = distill_memories(
+        spec["agent_output"],
+        agent=str(scope_key),
+        scope=scope,
+        scope_key=scope_key,
+        provider_name=spec.get("provider_name") or (cfg and cfg.ai_provider) or "",
+        model=model,
+    )
+    return [f.get("content", "") for f in facts]
 
 
 def _execute_memory_case(case) -> dict:
@@ -570,13 +601,17 @@ def _execute_memory_case(case) -> dict:
             "error_message": "A Memory case needs a scope_key in its Input Context, naming the memories to measure.",
         }
 
+    produced = spec.get("produced_memories")
+    if produced is None and spec.get("agent_output"):
+        produced = _distil_for_eval(case, spec, scope, scope_key)
+
     report = evaluate_memory_case(
         scope=scope,
         scope_key=scope_key,
         query=spec.get("query") or "",
         golden_memories=spec.get("golden_memories"),
         expected_recall=spec.get("expected_recall"),
-        produced_memories=spec.get("produced_memories"),
+        produced_memories=produced,
         k=int(spec.get("k") or 5),
     )
     return {
