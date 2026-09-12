@@ -1,0 +1,225 @@
+name: AI Evals
+
+# Two jobs, because the two questions cost different amounts to answer.
+#
+# On a pull request that touches agent code, the Smoke suites run with the
+# deterministic backend: no model call, no provider key, no spend. What they
+# catch is a regression in the scoring layer — an evaluator that stops matching,
+# an assertion that changes meaning, a prompt that stops promising what its
+# suite asserts. That is the class of break a pull request introduces.
+#
+# Whether the agents themselves still behave needs live calls, which need
+# somebody's key and a budget. That decision is open (WI-001904 notes), so the
+# live half runs nightly and skips itself when no key is configured, rather than
+# putting a spend on every push.
+
+on:
+  pull_request:
+    branches: [staging, test-production, version-15]
+    paths:
+      # The agent layer itself
+      - 'one_bpmn/agents/**'
+      # Its records: agents, skills, evals, runs, steps, tool calls
+      - 'one_bpmn/one_bpmn/doctype/ai_*/**'
+      - 'one_bpmn/one_bpmn/doctype/bpmn_process_model/**'
+      # The endpoints and gates evals run through
+      - 'one_bpmn/api/eval_api.py'
+      - 'one_bpmn/api/compilation.py'
+      - 'one_bpmn/commands/**'
+      # Suites and cases arrive as patches
+      - 'one_bpmn/patches.txt'
+      - 'one_bpmn/one_bpmn/patches/**'
+      - '.github/workflows/ai-evals.yml'
+  schedule:
+    # 02:30 UTC, after the retention and rate jobs have run.
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+    inputs:
+      role:
+        description: 'Which suites to run'
+        type: choice
+        options: [Smoke, Nightly]
+        default: Smoke
+      backend:
+        description: 'deterministic makes no model call'
+        type: choice
+        options: [deterministic, replay, live]
+        default: deterministic
+      min_pass:
+        description: 'Minimum pass rate, percent'
+        default: '100'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-evals-${{ github.event_name }}-${{ github.event.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    # Pull requests, and a manual run asking for Smoke.
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.role == 'Smoke')
+    name: Smoke evals (no model call)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MARIADB_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: --health-cmd="mariadb-admin ping" --health-interval=5s --health-timeout=2s --health-retries=10
+      redis-cache:
+        image: redis:7-alpine
+        ports:
+          - 13000:6379
+      redis-queue:
+        image: redis:7-alpine
+        ports:
+          - 11000:6379
+      redis-socketio:
+        image: redis:7-alpine
+        ports:
+          - 12000:6379
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y redis-server mariadb-client libfontconfig
+      - name: Install bench
+        run: pip install frappe-bench
+      - name: Setup bench and site
+        run: |
+          bench init --skip-redis-config-generation --frappe-branch version-15 --python "$(which python)" ~/frappe-bench
+          cd ~/frappe-bench
+          bench set-mariadb-host 127.0.0.1
+          bench set-redis-cache-host 127.0.0.1:13000
+          bench set-redis-queue-host 127.0.0.1:11000
+          bench set-redis-socketio-host 127.0.0.1:12000
+          bench get-app one_bpmn "$GITHUB_WORKSPACE"
+          bench new-site --db-root-password root --admin-password admin --mariadb-root-password root test_site
+          bench --site test_site install-app one_bpmn
+          bench --site test_site set-config allow_tests true
+      - name: Seed the suites this check runs
+        # Installing an app records every patch as applied WITHOUT running it
+        # (frappe.installer.set_all_patches_as_completed), so a fresh site has
+        # no suites and the check would fail with "no suite matches" — red for
+        # the wrong reason. The seed is therefore explicit here.
+        run: |
+          cd ~/frappe-bench
+          bench --site test_site execute one_bpmn.one_bpmn.patches.v1_0.seed_ci_smoke_eval_suite.execute
+      - name: Run the Smoke suites
+        # Deterministic on purpose: this step must not need a provider key, and
+        # must not be able to spend money. --allow-unchecked is deliberately
+        # absent, so a suite whose cases all need a model fails the check rather
+        # than passing it having verified nothing.
+        run: |
+          cd ~/frappe-bench
+          bench --site test_site run-ai-evals \
+            --role Smoke \
+            --backend "${{ inputs.backend || 'deterministic' }}" \
+            --min-pass "${{ inputs.min_pass || '100' }}"
+
+  nightly:
+    # The live half. Runs on the schedule, or on a manual Nightly request.
+    #
+    # A fresh site has no agents — no maps, no configurations, no fixtures — so
+    # this job can only ever run suites that need none of those. The live suites
+    # that matter (Connector, Orchestrator) live on a real site, and that is
+    # where the nightly sweep actually runs: the "AI Eval Nightly" process model,
+    # started by its own timer start event at 02:30, reading its grading model
+    # and spend ceiling from Processa Settings.
+    #
+    # This job stays as the manual handle (Actions → Run workflow) and as the
+    # wiring for the day CI gets a key of its own. --skip-if-none keeps it
+    # honest meanwhile: it reports that nothing was tagged rather than going red.
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.role == 'Nightly')
+    name: Nightly evals (live)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    services:
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MARIADB_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: --health-cmd="mariadb-admin ping" --health-interval=5s --health-timeout=2s --health-retries=10
+      redis-cache:
+        image: redis:7-alpine
+        ports:
+          - 13000:6379
+      redis-queue:
+        image: redis:7-alpine
+        ports:
+          - 11000:6379
+      redis-socketio:
+        image: redis:7-alpine
+        ports:
+          - 12000:6379
+
+    steps:
+      - name: Check for a provider key
+        id: key
+        # No key, no live run — and said out loud rather than failing a nightly
+        # job for a decision nobody has taken yet.
+        run: |
+          if [ -n "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Nightly evals skipped::No ANTHROPIC_API_KEY secret is configured, so the live suites did not run. Set one, with a spend ceiling, to enable them."
+          fi
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.present == 'true'
+      - uses: actions/setup-python@v5
+        if: steps.key.outputs.present == 'true'
+        with:
+          python-version: '3.10'
+      - uses: actions/setup-node@v4
+        if: steps.key.outputs.present == 'true'
+        with:
+          node-version: 18
+      - name: Install system dependencies
+        if: steps.key.outputs.present == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y redis-server mariadb-client libfontconfig
+      - name: Install bench
+        if: steps.key.outputs.present == 'true'
+        run: pip install frappe-bench
+      - name: Setup bench and site
+        if: steps.key.outputs.present == 'true'
+        run: |
+          bench init --skip-redis-config-generation --frappe-branch version-15 --python "$(which python)" ~/frappe-bench
+          cd ~/frappe-bench
+          bench set-mariadb-host 127.0.0.1
+          bench set-redis-cache-host 127.0.0.1:13000
+          bench set-redis-queue-host 127.0.0.1:11000
+          bench set-redis-socketio-host 127.0.0.1:12000
+          bench get-app one_bpmn "$GITHUB_WORKSPACE"
+          bench new-site --db-root-password root --admin-password admin --mariadb-root-password root test_site
+          bench --site test_site install-app one_bpmn
+      - name: Run the Nightly suites
+        if: steps.key.outputs.present == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          cd ~/frappe-bench
+          bench --site test_site run-ai-evals \
+            --role Nightly \
+            --backend "${{ inputs.backend || 'live' }}" \
+            --min-pass "${{ inputs.min_pass || '90' }}" \
+            --skip-if-none
