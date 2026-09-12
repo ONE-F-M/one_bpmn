@@ -14,7 +14,6 @@ import json
 
 import frappe
 
-from one_bpmn.agents import observability
 from one_bpmn.agents.llm_provider.base import ToolSpec
 
 
@@ -559,11 +558,7 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 		# somebody else's permissions and told they are its own.
 		if agent_user:
 			frappe.flags.ignore_permissions = False
-		# WI-002190: model calls this script makes are metered against the run
-		# and tagged with this shape. ProsAlly, Docu and Logix all reach the
-		# model from here, and none of those calls was recorded anywhere.
-		with observability.sub_call_scope(observability.current_run_name(), bpmn_id):
-			exec(script_doc.script, exec_ns)  # noqa: S102
+		exec(script_doc.script, exec_ns)  # noqa: S102
 	except frappe.PermissionError as refused:
 		# The reason has to reach the MODEL. WI-002053 showed twice what happens
 		# when it does not: the agent reports the work as done, or blames
