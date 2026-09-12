@@ -560,6 +560,32 @@ class TestGates(HealthCase):
 		self.assertIn(name, str(ctx.exception))
 		self.assertEqual(self._health(name, "health_refused_runs"), 1)
 
+	def test_a_refused_chat_turn_survives_the_rollback(self):
+		"""invoke_agent raises the moment the gate refuses, and Frappe rolls a
+		request back on an unhandled exception, so the count went with it:
+		three refusals on prod-backup on 2026-09-12 left the counter at 16. The
+		chat gate asks for the write to be committed; the dispatch gate, which
+		carries on and commits its own work, does not."""
+		from one_bpmn.api import agent_invocation
+
+		name = self._model()
+		record_failure(name, "PROVIDER_DISABLED", f"AI Model '{name}' has no API key set.")
+		config = {"agent_id": "probe-agent", "ai_model": name, "agent_type": "Chat", "name": "Probe Agent"}
+		with patch.object(agent_invocation, "_resolve_config", return_value=config), \
+			patch.object(agent_invocation, "_authorize"), \
+			patch("one_bpmn.security.rate_limit.enforce"), \
+			patch("frappe.db.commit") as commit:
+			with self.assertRaises(ModelUnavailable):
+				agent_invocation.invoke_agent("probe-agent", "hello")
+		commit.assert_called()
+
+	def test_the_dispatch_gate_does_not_commit(self):
+		name = self._model()
+		record_failure(name, "PROVIDER_DISABLED", f"AI Model '{name}' has no API key set.")
+		with patch("frappe.db.commit") as commit:
+			self.assertIsNotNone(refuse_new_run(name))
+		commit.assert_not_called()
+
 	def test_model_unavailable_is_an_agent_refusal(self):
 		from one_bpmn.security.refusal import AgentRefusal
 
