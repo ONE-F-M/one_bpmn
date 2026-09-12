@@ -515,8 +515,6 @@ class TestTheMemoryModelBringsItsOwnProvider(FrappeTestCase):
 				"enable_model": 1,
 				"model_name": self.MODEL,
 				"provider": self.provider,
-				# WI-002191: an enabled model must carry a key.
-				"api_key": "test-key-not-real",
 			}).insert(ignore_permissions=True)
 			frappe.db.commit()
 		self.addCleanup(self._purge)

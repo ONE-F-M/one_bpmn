@@ -964,14 +964,3 @@ def chase_unanswered_clarifications():
 			title="AI Clarification: chasing unanswered questions failed",
 			message=frappe.get_traceback(),
 		)
-
-
-def check_ai_model_credentials():
-	"""WI-002191: every 15 minutes. Re-checks every enabled model's key — a
-	pass lifts the block on a model that was Unhealthy, a credential failure
-	marks one nobody has tried to run yet — then alerts once per model per
-	distinct problem. Probe first, so an alert describes the current state."""
-	from one_bpmn.agents import model_health
-
-	model_health.probe_enabled_models()
-	model_health.alert_unhealthy_models()

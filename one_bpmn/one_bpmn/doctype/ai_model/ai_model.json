@@ -29,23 +29,7 @@
   "support_vision",
   "column_break_wsfx",
   "support_tool_calling",
-  "support_structured_output",
-  "section_break_health",
-  "health_status",
-  "health_check_source",
-  "health_checked_at",
-  "health_ok_at",
-  "column_break_health",
-  "health_error_code",
-  "health_error_message",
-  "health_failures",
-  "health_refused_runs",
-  "section_break_health_alert",
-  "health_problem",
-  "health_alerted_problem",
-  "column_break_health_alert",
-  "health_alerted_at",
-  "health_alerted_to"
+  "support_structured_output"
  ],
  "fields": [
   {
@@ -181,117 +165,6 @@
   {
    "fieldname": "column_break_hujr",
    "fieldtype": "Column Break"
-  },
-  {
-   "collapsible": 1,
-   "depends_on": "eval:!doc.__islocal",
-   "fieldname": "section_break_health",
-   "fieldtype": "Section Break",
-   "label": "Credential Health"
-  },
-  {
-   "default": "Unknown",
-   "description": "Whether this model's API key last worked. Unhealthy pauses new runs until a check passes.",
-   "fieldname": "health_status",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Credential Health",
-   "no_copy": 1,
-   "options": "Unknown\nHealthy\nUnhealthy",
-   "read_only": 1
-  },
-  {
-   "fieldname": "health_check_source",
-   "fieldtype": "Select",
-   "label": "Last Checked By",
-   "no_copy": 1,
-   "options": "\nProbe\nRun\nSave",
-   "read_only": 1
-  },
-  {
-   "fieldname": "health_checked_at",
-   "fieldtype": "Datetime",
-   "label": "Last Checked At",
-   "no_copy": 1,
-   "read_only": 1
-  },
-  {
-   "fieldname": "health_ok_at",
-   "fieldtype": "Datetime",
-   "label": "Last Passed At",
-   "no_copy": 1,
-   "read_only": 1
-  },
-  {
-   "fieldname": "column_break_health",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "health_error_code",
-   "fieldtype": "Data",
-   "label": "Last Error Code",
-   "no_copy": 1,
-   "read_only": 1
-  },
-  {
-   "fieldname": "health_error_message",
-   "fieldtype": "Small Text",
-   "label": "What the Provider Said",
-   "no_copy": 1,
-   "read_only": 1
-  },
-  {
-   "fieldname": "health_failures",
-   "fieldtype": "Int",
-   "label": "Consecutive Failures",
-   "no_copy": 1,
-   "read_only": 1
-  },
-  {
-   "fieldname": "health_refused_runs",
-   "fieldtype": "Int",
-   "label": "Runs Refused",
-   "no_copy": 1,
-   "read_only": 1
-  },
-  {
-   "fieldname": "section_break_health_alert",
-   "fieldtype": "Section Break",
-   "label": "Alerting"
-  },
-  {
-   "description": "The kind of problem last seen; an alert goes out once per kind.",
-   "fieldname": "health_problem",
-   "fieldtype": "Data",
-   "label": "Problem",
-   "no_copy": 1,
-   "read_only": 1
-  },
-  {
-   "fieldname": "health_alerted_problem",
-   "fieldtype": "Data",
-   "label": "Problem Alerted",
-   "no_copy": 1,
-   "read_only": 1
-  },
-  {
-   "fieldname": "column_break_health_alert",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "health_alerted_at",
-   "fieldtype": "Datetime",
-   "label": "Last Alerted At",
-   "no_copy": 1,
-   "read_only": 1
-  },
-  {
-   "fieldname": "health_alerted_to",
-   "fieldtype": "Small Text",
-   "label": "Alerted",
-   "no_copy": 1,
-   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,

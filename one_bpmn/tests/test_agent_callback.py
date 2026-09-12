@@ -250,15 +250,10 @@ class TestSandboxAiAgentRun(CallbackCase):
 		super().tearDown()
 
 	def _make_model(self, name, *, input_cost=3.0, output_cost=15.0):
-		if not frappe.db.exists("AI Provider", "OpenAI"):
-			frappe.get_doc({"doctype": "AI Provider", "provider": "OpenAI"}).insert(ignore_permissions=True)
 		doc = frappe.get_doc({
 			"doctype": "AI Model",
 			"model_name": name,
-			"provider": "OpenAI",
 			"enable_model": 1,
-			# WI-002191: an enabled model must carry a provider and a key.
-			"api_key": "test-key-not-real",
 			"input_cost": input_cost,
 			"output_cost": output_cost,
 		}).insert(ignore_permissions=True)
