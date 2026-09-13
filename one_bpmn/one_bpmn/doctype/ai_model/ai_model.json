@@ -64,6 +64,13 @@
    "options": "AI Provider"
   },
   {
+   "description": "A readable name for this model, shown wherever the model is picked or listed. Optional \u2014 a model can be saved without one.",
+   "fieldname": "display_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Display Name"
+  },
+  {
    "fieldname": "token_pricing_per_1m_tokens_section",
    "fieldtype": "Section Break",
    "label": "Token Pricing (per 1M tokens)"
