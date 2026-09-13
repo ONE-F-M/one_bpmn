@@ -1486,9 +1486,9 @@ onMounted(async () => {
 
   // Pre-select the filter so the displayed model list matches what is
   // already chosen, rather than opening on "all providers" while a model
-  // from one specific provider sits selected below.
-  const currentModel = catalogModels.value.find((m) => m.name === form.value.aiModel);
-  if (currentModel?.provider) modelProviderFilter.value = currentModel.provider;
+  // from one specific provider sits selected below. loadLinkedAgent already
+  // does this when a configuration is linked; this covers the unlinked case.
+  syncModelProviderFilter();
 });
 
 // Pull the linked configuration's current values into the form (WI-001637
