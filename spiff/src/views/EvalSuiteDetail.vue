@@ -365,14 +365,44 @@
 						v-model="datasetNote"
 						description="Why you are recording the dataset here — read later beside the version number."
 					/>
+					<div v-if="importPreview" class="border border-blue-100 bg-blue-50 rounded-md p-3 text-sm space-y-1">
+						<p class="font-medium text-gray-800">
+							{{ importFileName }} holds {{ importPreview.created.length + importPreview.updated.length }}
+							case(s) for this suite.
+						</p>
+						<p v-if="importPreview.created.length">
+							<span class="font-medium">{{ importPreview.created.length }} new:</span>
+							{{ importPreview.created.slice(0, 4).join(", ") }}<span v-if="importPreview.created.length > 4">, …</span>
+						</p>
+						<p v-if="importPreview.updated.length">
+							<span class="font-medium">{{ importPreview.updated.length }} already here</span>, and will be
+							overwritten: {{ importPreview.updated.slice(0, 4).join(", ") }}<span v-if="importPreview.updated.length > 4">, …</span>
+						</p>
+						<p v-if="importPreview.left_alone.length" class="text-gray-600">
+							{{ importPreview.left_alone.length }} case(s) in this suite are not in the file and stay as they are.
+						</p>
+						<p v-if="importPreview.skipped.length" class="text-amber-700">
+							{{ importPreview.skipped.length }} entry(ies) have no title and will be ignored.
+						</p>
+					</div>
 					<p v-if="datasetMessage" class="text-sm text-green-700">{{ datasetMessage }}</p>
 					<p v-if="datasetError" class="text-sm text-red-600">{{ datasetError }}</p>
+					<input ref="importInput" type="file" accept="application/json,.json" class="hidden" @change="previewImport" />
 				</div>
 			</template>
 			<template #actions>
 				<div class="flex gap-2">
 					<Button :loading="datasetBusy" @click="downloadDataset">Export</Button>
-					<Button variant="solid" :loading="datasetBusy" @click="takeSnapshot">Take version</Button>
+					<Button v-if="!importPreview" :loading="datasetBusy" @click="chooseImportFile">Import…</Button>
+					<Button v-else :loading="datasetBusy" @click="cancelImport">Cancel import</Button>
+					<Button
+						v-if="importPreview"
+						variant="solid"
+						theme="blue"
+						:loading="datasetBusy"
+						@click="applyImport"
+					>Import {{ importPreview.created.length + importPreview.updated.length }} case(s)</Button>
+					<Button v-else variant="solid" :loading="datasetBusy" @click="takeSnapshot">Take version</Button>
 				</div>
 			</template>
 		</Dialog>
@@ -695,6 +725,7 @@ function openDataset() {
 	datasetMessage.value = ""
 	datasetError.value = ""
 	datasetNote.value = ""
+	cancelImport()
 	showDataset.value = true
 	loadReadiness()
 }
@@ -713,6 +744,73 @@ async function takeSnapshot() {
 		await loadReadiness()
 	} catch (e) {
 		datasetError.value = e.messages?.[0] || e.message || "Could not take a version."
+	} finally {
+		datasetBusy.value = false
+	}
+}
+
+const importInput = ref(null)
+const importPreview = ref(null)
+const importPayload = ref("")
+const importFileName = ref("")
+
+function chooseImportFile() {
+	datasetError.value = ""
+	datasetMessage.value = ""
+	importInput.value?.click()
+}
+
+function cancelImport() {
+	importPreview.value = null
+	importPayload.value = ""
+	importFileName.value = ""
+	if (importInput.value) importInput.value.value = ""
+}
+
+// Always previewed before it is applied: an import overwrites cases that share
+// a title, and which ones those are is not something to discover afterwards.
+async function previewImport(event) {
+	const file = event.target.files?.[0]
+	if (!file) return
+	datasetBusy.value = true
+	datasetError.value = ""
+	datasetMessage.value = ""
+	try {
+		const text = await file.text()
+		const res = await frappeRequest({
+			url: "/api/method/one_bpmn.api.golden_dataset.import_dataset",
+			method: "POST",
+			params: { payload: text, suite: suiteName, dry_run: 1 },
+		})
+		importPayload.value = text
+		importFileName.value = file.name
+		importPreview.value = res
+	} catch (e) {
+		cancelImport()
+		datasetError.value = e.messages?.[0] || e.message || "That file could not be read as a dataset."
+	} finally {
+		datasetBusy.value = false
+		if (importInput.value) importInput.value.value = ""
+	}
+}
+
+async function applyImport() {
+	datasetBusy.value = true
+	datasetError.value = ""
+	try {
+		const res = await frappeRequest({
+			url: "/api/method/one_bpmn.api.golden_dataset.import_dataset",
+			method: "POST",
+			params: { payload: importPayload.value, suite: suiteName, dry_run: 0 },
+		})
+		datasetMessage.value =
+			`Imported ${res.created.length} new and overwrote ${res.updated.length} case(s).` +
+			(res.left_alone.length ? ` ${res.left_alone.length} left as they were.` : "")
+		cancelImport()
+		await fetchDetail(true)
+		await loadReadiness()
+	} catch (e) {
+		datasetError.value = e.messages?.[0] || e.message || "Could not import."
 	} finally {
 		datasetBusy.value = false
 	}
