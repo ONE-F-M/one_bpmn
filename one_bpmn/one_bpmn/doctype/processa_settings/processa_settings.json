@@ -48,6 +48,8 @@
   "memory_semantic_weight",
   "memory_recency_weight",
   "memory_importance_weight",
+  "memory_scope_row_alert",
+  "memory_total_row_alert",
   "section_break_conversation_retention",
   "conversation_ttl_days",
   "column_break_conversation_retention",
@@ -380,6 +382,20 @@
    "fieldname": "memory_importance_weight",
    "fieldtype": "Float",
    "label": "Importance Weight"
+  },
+  {
+   "default": "10000",
+   "description": "Daily check. When one scope key holds more memories than this, the Credential Alert Recipients (or every System Manager) are told that the exact-ranking search design needs review.",
+   "fieldname": "memory_scope_row_alert",
+   "fieldtype": "Int",
+   "label": "Alert When One Scope Exceeds"
+  },
+  {
+   "default": "500000",
+   "description": "Daily check. When the AI Memory table holds more rows than this in total, the same alert is sent.",
+   "fieldname": "memory_total_row_alert",
+   "fieldtype": "Int",
+   "label": "Alert When Total Rows Exceed"
   },
   {
    "collapsible": 1,
