@@ -709,11 +709,17 @@ class TestRecallSkipsWhenTheTurnMessageIsUnresolved(TestTheUserMessageReachesThe
 		ms.assert_called_once()
 		self.assertEqual(ms.call_args[0][2], "handle order #4471")
 
-	def test_a_map_that_renders_its_own_copy_still_recalls_with_it(self):
-		"""Regression guard: when the map embeds the real message into
-		aiUserPrompt itself (raw_user_message found, then deduped away because
-		it's already in user_prompt), the new guard must not fire — user_prompt
-		here is a real, rendered message, not a template."""
+	def test_a_map_that_renders_its_own_copy_recalls_with_the_message_alone(self):
+		"""When the map embeds the message into aiUserPrompt itself, the platform
+		blanks its own copy so the model is not told twice — and recall then used
+		the whole rendered prompt as its query. Measured on prod-backup on
+		2026-09-12: run u343rlto5q searched with 150 characters of standing
+		instructions and a datetime wrapped around "Who takes our packages out to
+		customers?" and injected 0 memory tokens, while the same question one
+		turn later injected 109.
+
+		The unresolved guard must still not fire here: this is a real message,
+		not a template, so recall happens — with the question alone."""
 		with patch("one_bpmn.agents.memory.tools.memory_search", return_value=[]) as ms:
 			self._dispatch(
 				_chat_instance(),
@@ -723,7 +729,7 @@ class TestRecallSkipsWhenTheTurnMessageIsUnresolved(TestTheUserMessageReachesThe
 				aiUserPrompt="Latest user message: {{ user_text }}",
 			)
 		ms.assert_called_once()
-		self.assertEqual(ms.call_args[0][2], "Latest user message: add a status field")
+		self.assertEqual(ms.call_args[0][2], "add a status field")
 
 
 class TestIsSmallTalk(FrappeTestCase):
