@@ -1008,3 +1008,128 @@ def export_cost_allocation(
 	frappe.response["type"] = "binary"
 	frappe.response["filename"] = filename
 	frappe.response["filecontent"] = content
+
+
+# ---------------------------------------------------------------------------
+# 7. Work Item cost explain (WI-003328)
+# ---------------------------------------------------------------------------
+#
+# AI Agent Run.parent_run is only populated on a handful of rows (3 of 3,801
+# at the time this was written) \u2014 an Orchestrator-to-specialist delegation
+# happens over A2A, not by one run starting another directly, so parent_run
+# cannot be walked to roll up a Work Item's spend the way get_run_tree rolls
+# up a single run's tool-started children. The reliable link for THAT hop is
+# A2A Task.caller_instance (the instance that parked, waiting) and
+# A2A Task.instance (the instance actually doing the delegated work) \u2014 not
+# agent_run/caller_agent_run, which is not always set (e.g. a delegation whose
+# caller resumed from a parked Service Task rather than a suspended run).
+
+
+def _work_item_instances(work_item: str) -> set:
+	"""All BPMN Process Instances behind one Work Item: its own instances plus
+	every instance reached by following A2A delegation (WI-003328).
+
+	Expansion repeats \u2014 a specialist can itself delegate again (e.g. a
+	Frontend Agent run delegating further) \u2014 until no new instance is found,
+	guarded to the same depth get_run_tree already guards its own recursion
+	with, so a malformed chain cannot loop forever.
+	"""
+	own = {
+		row["name"]
+		for row in frappe.get_all(
+			"BPMN Process Instance",
+			filters={"context_doctype": "Work Item", "context_docname": work_item},
+			fields=["name"],
+		)
+	}
+
+	instances = set(own)
+	frontier = set(own)
+	Task = DocType("A2A Task")
+	for _level in range(_TREE_MAX_DEPTH):
+		if not frontier:
+			break
+		rows = (
+			frappe.qb.from_(Task)
+			.select(Task.instance)
+			.where(Task.caller_instance.isin(list(frontier)))
+			.where(Task.instance.notnull())
+			.where(Task.instance != "")
+		).run(as_dict=True)
+		discovered = {r["instance"] for r in rows if r.get("instance")} - instances
+		instances |= discovered
+		frontier = discovered
+	return instances
+
+
+@frappe.whitelist()
+def get_work_item_cost(work_item: str) -> dict:
+	"""Total AI cost and tokens behind one Work Item (WI-003328), explained
+	line by line rather than just displayed.
+
+	Rolls up AI Agent Run spend across the Work Item's own BPMN Process
+	Instances plus every instance reached by A2A delegation (Orchestrator to
+	specialist, and any further hand-off from there) \u2014 the chain
+	get_cost_allocation's process_owner/chat_user axes and get_run_tree's
+	parent_run walk cannot see. A Work Item that produced no instances or
+	runs returns zero totals and an empty breakdown; it never raises.
+	"""
+	frappe.only_for("System Manager")
+
+	instances = _work_item_instances(work_item)
+	if not instances:
+		return {
+			"work_item": work_item,
+			"total_cost": 0.0,
+			"total_tokens": 0,
+			"total_runs": 0,
+			"runs": [],
+		}
+
+	Run = DocType("AI Agent Run")
+	raw_rows = (
+		frappe.qb.from_(Run)
+		.select(
+			Run.name,
+			Run.instance,
+			Run.agent_configuration,
+			Run.model,
+			Run.bpmn_id,
+			Run.bpmn_label,
+			Run.status,
+			Run.started_at,
+			Run.total_tokens,
+			Run.estimated_cost,
+		)
+		.where(Run.instance.isin(list(instances)))
+		.orderby(Run.started_at)
+	).run(as_dict=True)
+
+	runs = []
+	total_cost = 0.0
+	total_tokens = 0
+	for r in raw_rows:
+		cost = flt(r.get("estimated_cost"), 6)
+		tokens = cint(r.get("total_tokens"))
+		total_cost += cost
+		total_tokens += tokens
+		runs.append({
+			"run": cstr(r.get("name")),
+			"instance": cstr(r.get("instance")),
+			"agent_configuration": cstr(r.get("agent_configuration")),
+			"model": cstr(r.get("model")),
+			"bpmn_id": cstr(r.get("bpmn_id")),
+			"bpmn_label": cstr(r.get("bpmn_label")) or cstr(r.get("bpmn_id")),
+			"status": cstr(r.get("status")),
+			"started_at": cstr(r.get("started_at")),
+			"total_tokens": tokens,
+			"cost": flt(cost, 4),
+		})
+
+	return {
+		"work_item": work_item,
+		"total_cost": flt(total_cost, 4),
+		"total_tokens": total_tokens,
+		"total_runs": len(runs),
+		"runs": runs,
+	}
