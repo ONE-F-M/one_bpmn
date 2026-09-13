@@ -82,17 +82,27 @@ jobs = frappe.get_all(
 	fields=["name", "job_name", "exc_info", "arguments"],
 )
 result["failed_jobs"] = jobs
+# The AI Agent Task's aiUserPrompt can only do plain Jinja variable
+# substitution here (no "tojson" filter available in this render path --
+# confirmed live: it left the literal "{{ ... | tojson }}" text unrendered
+# and the model correctly complained the data never arrived) -- so the JSON
+# text is built here instead of in the prompt.
+result["failed_jobs_json"] = frappe.as_json(jobs)
 """
 
 _FETCH_OPEN_TICKETS_SCRIPT = """unique_names = set((task_data.get("dedup_result") or {}).get("unique_names") or [])
 failed_jobs = task_data.get("failed_jobs") or []
-result["unique_failed_jobs"] = [j for j in failed_jobs if j.get("name") in unique_names]
+unique_failed_jobs = [j for j in failed_jobs if j.get("name") in unique_names]
+result["unique_failed_jobs"] = unique_failed_jobs
+result["unique_failed_jobs_json"] = frappe.as_json(unique_failed_jobs)
 
-result["open_tickets"] = frappe.get_all(
+open_tickets = frappe.get_all(
 	"HD Ticket",
 	filters={"status": ["not in", ["Resolved", "Closed"]], "custom_reference_doctype": "RQ Job"},
 	fields=["name", "subject", "description"],
 )
+result["open_tickets"] = open_tickets
+result["open_tickets_json"] = frappe.as_json(open_tickets)
 """
 
 _CREATE_TICKETS_SCRIPT = """MAX_SUBJECT_LENGTH = 140
