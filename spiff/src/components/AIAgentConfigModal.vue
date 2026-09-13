@@ -1470,6 +1470,12 @@ onMounted(async () => {
   // values are what the panel opens showing. Anything blank on the agent falls
   // through to the shape's own copy, exactly as dispatch does.
   await loadLinkedAgent();
+
+  // Pre-select the filter so the displayed model list matches what is
+  // already chosen, rather than opening on "all providers" while a model
+  // from one specific provider sits selected below.
+  const currentModel = catalogModels.value.find((m) => m.name === form.value.aiModel);
+  if (currentModel?.provider) modelProviderFilter.value = currentModel.provider;
 });
 
 // Pull the linked configuration's current values into the form (WI-001637
