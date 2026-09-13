@@ -1008,3 +1008,94 @@ def export_cost_allocation(
 	frappe.response["type"] = "binary"
 	frappe.response["filename"] = filename
 	frappe.response["filecontent"] = content
+
+
+# ---------------------------------------------------------------------------
+# 7. Work Item cost rollup (WI-003324)
+# ---------------------------------------------------------------------------
+#
+# A Work Item's AI spend is spread across several runs: the Orchestrator, once
+# per pass, plus a run for every specialist it delegates to \u2014 and a specialist
+# that itself delegates further adds its own runs too. AI Agent Run.parent_run
+# cannot be used to find any of this: it is populated on only 3 of 3,801 rows.
+# The reliable edge is on A2A Task, which records both the instance that
+# called it (caller_instance) and the instance that did the work (instance).
+# Walking Work Item -> its own BPMN Process Instances -> A2A Task rows whose
+# caller_instance is one of those instances -> those tasks' own instances,
+# repeated the same way get_run_tree/_descendant_rollups guard their walk
+# depth, finds every instance the work item is responsible for.
+
+_WORK_ITEM_WALK_MAX_DEPTH = _TREE_MAX_DEPTH
+
+
+def _work_item_instances(work_item: str) -> set:
+	"""Every BPMN Process Instance a Work Item is responsible for: its own
+	instances, plus every instance reached by repeatedly walking A2A Task's
+	caller_instance -> instance edge (WI-003324)."""
+	own = frappe.get_all(
+		"BPMN Process Instance",
+		filters={"context_doctype": "Work Item", "context_docname": work_item},
+		pluck="name",
+	)
+	known = set(own)
+	frontier = list(own)
+	for _level in range(_WORK_ITEM_WALK_MAX_DEPTH):
+		if not frontier:
+			break
+		tasks = frappe.get_all(
+			"A2A Task",
+			filters={"caller_instance": ["in", frontier]},
+			fields=["instance"],
+			limit_page_length=0,
+		)
+		next_frontier = []
+		for t in tasks:
+			if t.instance and t.instance not in known:
+				known.add(t.instance)
+				next_frontier.append(t.instance)
+		frontier = next_frontier
+	return known
+
+
+@frappe.whitelist()
+def get_work_item_cost(work_item: str) -> dict:
+	"""Total AI cost, total tokens, and the individual runs behind them for
+	one Work Item (WI-003324).
+
+	Found by walking the delegation chain via A2A Task \u2014 not AI Agent
+	Run.parent_run, which is set on only 3 of 3,801 rows \u2014 from the Work
+	Item's own BPMN Process Instances out through every specialist delegated
+	to, however many levels deep. A Work Item that has caused no runs
+	returns zero totals and an empty breakdown, not an error.
+	"""
+	frappe.only_for("System Manager")
+	if not work_item:
+		frappe.throw(_("work_item is required"))
+
+	instances = _work_item_instances(work_item)
+	if not instances:
+		return {"total_cost": 0.0, "total_tokens": 0, "runs": []}
+
+	rows = frappe.get_all(
+		"AI Agent Run",
+		filters={"instance": ["in", list(instances)]},
+		fields=["name", "agent_configuration", "model", "estimated_cost", "total_tokens"],
+		limit_page_length=0,
+	)
+
+	runs = [
+		{
+			"run": r.name,
+			"agent_configuration": r.agent_configuration,
+			"model": r.model,
+			"cost": flt(r.estimated_cost, 4),
+			"tokens": cint(r.total_tokens),
+		}
+		for r in rows
+	]
+
+	return {
+		"total_cost": flt(sum(r["cost"] for r in runs), 4),
+		"total_tokens": sum(r["tokens"] for r in runs),
+		"runs": runs,
+	}
