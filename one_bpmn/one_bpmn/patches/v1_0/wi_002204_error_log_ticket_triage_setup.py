@@ -2,20 +2,15 @@
 WI-002204: setup for the Error Log Ticket Triage process map, migrated off
 onefm_mcp's ErrorLogTicketAgent (Google ADK).
 
-Three things this map needs that don't come from importing the .bpmn export
-alone, because they are DB records rather than diagram content:
+Two things this map needs that don't come from importing the diagram alone,
+because they are DB records rather than diagram content:
 
 1. Error Log.hd_ticket — the agent has always written this field, but no
    fixture/patch for it exists anywhere in either app's history; it only
    exists today as an ad hoc Custom Field on one site's DB. Captured here so
    the migration is reproducible on a fresh site.
 
-2. The two Server Scripts the diagram's Script Tasks call by name
-   (spiffworkflow:serverScript). Diagrams are data, never code — the scripts
-   are the code, and belong in a patch like every other BPMN-invoked Server
-   Script in this app (see Drive — * for the pattern).
-
-3. AI Agent Configuration "Error Log Ticket Agent" (already seeded by
+2. AI Agent Configuration "Error Log Ticket Agent" (already seeded by
    onefm_mcp's old patch) is repointed to a real AI Model — it shipped with
    ai_provider=Anthropic but ai_model empty, which the AI Agent Task's dispatch
    needs a real model for — and its system_prompt is replaced with the merged
@@ -27,6 +22,20 @@ alone, because they are DB records rather than diagram content:
    (ticket_name), not just match/no_match — the old code always linked
    existing_tickets[0] regardless of what the model actually meant.
 
+The map's two Script Tasks (Triage, Apply AI Result) are NOT created here —
+they travel with the diagram itself, through the platform's own
+export_bpmn_config/import_bpmn_config (a companion _config.json alongside the
+.bpmn export, same as document_request_config.json). Duplicating them as
+string literals in this patch would drift the moment either is edited through
+that path instead.
+
+The AI Model isn't hardcoded either, for the same portability reason: which
+model is actually enabled with working credentials differs by site (this
+repo's own local dev site and the BA site do not necessarily agree on one).
+Instead this borrows whatever model an already-Live Logix Background agent is
+using on THIS site at patch-run time, since Logix is a proven-working
+reference wherever this patch actually runs.
+
 Idempotent throughout; safe to re-run.
 """
 
@@ -34,107 +43,11 @@ import frappe
 
 AGENT_CONFIG_NAME = "Error Log Ticket Agent"
 AGENT_ID = "error_log_ticket_agent"
-AI_MODEL = "claude-haiku-4-5-20251001"
 
-TRIAGE_SCRIPT_NAME = "Error Log Agent - Triage"
-APPLY_AI_RESULT_SCRIPT_NAME = "Error Log Agent - Apply AI Result"
-
-TRIAGE_SCRIPT = '''# Script Task: Triage: Kill Switch + Exact Dedup (error_log_ticket_triage_process)
-#
-# doc is the Error Log that started this instance. Writes:
-#   outcome = "disabled" | "linked_duplicate" | "needs_ai"
-#   on needs_ai: error_title, error_details, existing_tickets_json — the
-#   fields the AI Agent Task's prompt renders.
-import json
-
-enabled = frappe.db.get_value("AI Agent Configuration", {"agent_id": "error_log_ticket_agent"}, "enabled")
-
-if not enabled:
-    result["outcome"] = "disabled"
-else:
-    title = (doc.method or "").strip()
-    match_name = frappe.db.get_value(
-        "HD Ticket",
-        {"subject": title, "status": ["not in", ["Resolved", "Closed"]]},
-        "name",
-    )
-
-    if match_name:
-        frappe.db.set_value("Error Log", doc.name, "hd_ticket", match_name)
-        result["outcome"] = "linked_duplicate"
-        result["ticket_name"] = match_name
-    else:
-        # Cap what reaches the LLM. Confirmed live: this site has 424 open HD
-        # Tickets, and serializing all of them blew the prompt to ~628k tokens
-        # (Claude's limit is 200k) - the AI Agent Task failed on every single
-        # run with FAILED_MODEL_CALL, and Apply AI Result's fail-open default
-        # (no_match) silently created a fresh ticket every time instead of
-        # ever actually finding a similarity match. Recent tickets are the
-        # most likely duplicates anyway; descriptions are truncated too, since
-        # a handful carry full stack traces.
-        open_tickets = frappe.get_all(
-            "HD Ticket",
-            filters={"status": ["not in", ["Resolved", "Closed"]]},
-            fields=["name", "subject", "description"],
-            order_by="creation desc",
-            limit_page_length=50,
-        )
-        result["outcome"] = "needs_ai"
-        result["error_title"] = title
-        result["error_details"] = (doc.error or "")[:2000]
-        result["existing_tickets_json"] = json.dumps([
-            {"name": t.name, "subject": t.subject, "description": (t.description or "")[:500]}
-            for t in open_tickets
-        ])
-'''
-
-APPLY_AI_RESULT_SCRIPT = '''# Script Task: Apply AI Result (error_log_ticket_triage_process)
-#
-# Reads similarity_result (the AI Agent Task's structured {decision,
-# ticket_name} output) and either links the matched ticket or creates a new
-# one. custom_ticket_category is mandatory on the current HD Ticket schema;
-# custom_is_doctype_related no longer exists on it (both confirmed live,
-# 2026-09-09) — the old onefm_mcp code set the retired field and never set
-# the mandatory one.
-import json
-
-ai_result = task_data.get("similarity_result") or {}
-if isinstance(ai_result, str):
-    try:
-        ai_result = json.loads(ai_result)
-    except Exception:
-        ai_result = {}
-
-decision = (ai_result.get("decision") or "no_match").strip().lower()
-ticket_name = ai_result.get("ticket_name")
-
-if decision == "match" and ticket_name and frappe.db.exists("HD Ticket", ticket_name):
-    frappe.db.set_value("Error Log", doc.name, "hd_ticket", ticket_name)
-    result["outcome"] = "linked_ai"
-    result["ticket_name"] = ticket_name
-else:
-    admin_email = frappe.db.get_value("User", "Administrator", "email")
-    ticket = frappe.new_doc("HD Ticket")
-    ticket.subject = task_data.get("error_title") or "Error Log"
-    ticket.description = (
-        "Source -> Link of Error Log: " + frappe.utils.get_url() + "/app/error-log/" + doc.name
-        + "\\n\\n" + (task_data.get("error_details") or "")
-    )
-    ticket.status = "Draft"
-    ticket.custom_reference_doctype = "Error Log"
-    ticket.custom_ticket_category = "Process Issue"
-    ticket.raised_by = admin_email
-    # No ignore_permissions: the platform's script-security gate always blocks
-    # it. Unnecessary anyway - HD Ticket grants create to role "All", so any
-    # authenticated user's session (virtually every real error) can create
-    # this ticket; a Guest-triggered error instead hits the engine's own
-    # caught-exception path (BPMN queued start failed: ...), which the start
-    # condition's recursion guard already excludes.
-    ticket.insert()
-    frappe.db.set_value("Error Log", doc.name, "hd_ticket", ticket.name)
-    result["outcome"] = "created"
-    result["ticket_name"] = ticket.name
-'''
+# A known-Live Background Logix agent to borrow a working ai_model from,
+# rather than hardcoding a model name that may not exist/be enabled on every
+# site this patch runs on (confirmed: local and BA do not necessarily agree).
+_REFERENCE_AGENT_ID = "logix_script_writer"
 
 NEW_SYSTEM_PROMPT = """You are an error-log deduplication agent for ONE-FM's Helpdesk. You compare a newly logged error against a list of currently open HD Tickets and decide whether it is the same underlying issue as one of them.
 
@@ -163,20 +76,17 @@ def _ensure_hd_ticket_field() -> None:
 	)
 
 
-def _ensure_script(name: str, script: str) -> None:
-	if frappe.db.exists("Server Script", name):
-		doc = frappe.get_doc("Server Script", name)
-		if (doc.script or "").strip() != script.strip():
-			doc.script = script
-			doc.save(ignore_permissions=True)
-		return
-	frappe.get_doc({
-		"doctype": "Server Script",
-		"name": name,
-		"script_type": "API",
-		"script": script,
-		"disabled": 0,
-	}).insert(ignore_permissions=True)
+def _working_ai_model() -> str | None:
+	"""Whatever ai_model a known-Live Logix Background agent is actually using
+	on this site right now - portable across sites instead of a name that may
+	not exist/be enabled everywhere. None if Logix isn't Live here either (an
+	unlikely but real "nothing to borrow from" case, left for the caller to
+	log rather than silently guessing)."""
+	return frappe.db.get_value(
+		"AI Agent Configuration",
+		{"agent_id": _REFERENCE_AGENT_ID, "lifecycle_status": "Live"},
+		"ai_model",
+	)
 
 
 def _repoint_agent_config() -> None:
@@ -206,8 +116,16 @@ def _repoint_agent_config() -> None:
 	if doc.agent_type != "Background":
 		doc.agent_type = "Background"
 		changed = True
-	if doc.ai_model != AI_MODEL:
-		doc.ai_model = AI_MODEL
+	working_model = _working_ai_model()
+	if not working_model:
+		frappe.log_error(
+			title=f"{AGENT_CONFIG_NAME} migration: no reference model found",
+			message=f"'{_REFERENCE_AGENT_ID}' isn't Live on this site, so there's no "
+			"known-working ai_model to borrow. Set AI Agent Configuration "
+			f"'{AGENT_CONFIG_NAME}'.ai_model by hand, or get a Logix agent Live first.",
+		)
+	elif doc.ai_model != working_model:
+		doc.ai_model = working_model
 		changed = True
 	if (doc.system_prompt or "").strip() != NEW_SYSTEM_PROMPT.strip():
 		doc.system_prompt = NEW_SYSTEM_PROMPT
@@ -247,7 +165,5 @@ def _repoint_agent_config() -> None:
 
 def execute():
 	_ensure_hd_ticket_field()
-	_ensure_script(TRIAGE_SCRIPT_NAME, TRIAGE_SCRIPT)
-	_ensure_script(APPLY_AI_RESULT_SCRIPT_NAME, APPLY_AI_RESULT_SCRIPT)
 	_repoint_agent_config()
 	frappe.db.commit()
