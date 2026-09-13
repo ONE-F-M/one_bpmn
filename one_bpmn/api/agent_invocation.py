@@ -585,11 +585,23 @@ def _run_direct_api(config, conversation, message, context, stream=False):
 		raise
 
 	text = getattr(completion, "text", str(completion or ""))
-	trace = getattr(completion, "trace", None) or []
+	# The adapter hands back TurnRecord dataclasses; every recorder downstream
+	# reads dicts, which is why the executor converts before it records
+	# (direct_api.py: `trace = [asdict(turn) for turn in completion.trace]`).
+	# Passing the raw objects cost a run on staging: record_selector_turns
+	# raised AttributeError on turn.get, and the run sat at Running with no
+	# tokens because finalizing came after it in the same try.
+	trace = _as_dicts(getattr(completion, "trace", None) or [])
 	prompt_tokens = getattr(completion, "prompt_tokens", 0) or 0
 	completion_tokens = getattr(completion, "completion_tokens", 0) or 0
+
+	# Two guards, not one. Recording the turns is the nice-to-have; finalizing
+	# is what stops a finished run being reported as still running.
 	try:
 		observability.record_selector_turns(run, trace)
+	except Exception:
+		frappe.log_error(title="AI chat: turns not recorded", message=frappe.get_traceback())
+	try:
 		observability.finalize_ai_run(
 			run,
 			ExecutorResult(
@@ -609,6 +621,13 @@ def _run_direct_api(config, conversation, message, context, stream=False):
 
 	save_bot_message(conversation, text)
 	return {"response": text}
+
+
+def _as_dicts(trace: list) -> list:
+	"""Turn a trace of TurnRecord dataclasses into the dicts the recorders read."""
+	from dataclasses import asdict, is_dataclass
+
+	return [asdict(turn) if is_dataclass(turn) else turn for turn in trace]
 
 
 def _begin_direct_run(config: dict, system_prompt: str, message: str):

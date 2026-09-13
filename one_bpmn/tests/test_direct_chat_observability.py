@@ -23,8 +23,14 @@ PERSIST = "one_bpmn.utils.chat_persistence"
 ADAPTER = "one_bpmn.agents.llm_provider.get_llm_adapter_from_settings"
 
 
-def _completion(text="the answer"):
-	return SimpleNamespace(text=text, trace=[], prompt_tokens=1200, completion_tokens=48)
+def _completion(text="the answer", trace=None):
+	"""A completion shaped the way an adapter really returns one: its trace
+	carries TurnRecord dataclasses, not dicts."""
+	from one_bpmn.agents.llm_provider.base import TurnRecord
+
+	if trace is None:
+		trace = [TurnRecord(role="assistant", content=text, prompt_tokens=1200, completion_tokens=48)]
+	return SimpleNamespace(text=text, trace=trace, prompt_tokens=1200, completion_tokens=48)
 
 
 class _FakeAdapter:
@@ -112,6 +118,39 @@ class TestDirectChatIsRecorded(FrappeTestCase):
 				agent_invocation._run_direct_api(self.config, "CONV-2", "hello", {})
 
 		failed.assert_called_once()
+
+	def test_the_trace_reaches_the_recorder_as_dicts(self):
+		"""The adapter returns TurnRecord dataclasses and every recorder reads
+		dicts, which is why the executor converts before recording. Passing the
+		objects straight through cost a run on staging on 2026-09-13: the
+		recorder raised AttributeError on turn.get and the run stayed Running."""
+		with patch("one_bpmn.agents.observability.create_ai_run") as create, patch(
+			"one_bpmn.agents.observability.record_ai_step"
+		), patch("one_bpmn.agents.observability.record_selector_turns") as turns, patch(
+			"one_bpmn.agents.observability.finalize_ai_run"
+		):
+			create.return_value = SimpleNamespace(name="RUN-FAKE", stub=False)
+			self._run()
+
+		recorded = turns.call_args.args[1]
+		self.assertTrue(recorded, "the turn should have been recorded")
+		for turn in recorded:
+			self.assertIsInstance(turn, dict)
+			self.assertEqual(turn.get("role"), "assistant")
+
+	def test_a_failure_recording_turns_still_finalizes_the_run(self):
+		"""Recording the turns is the nice-to-have. Finalizing is what stops a
+		finished run being reported as still running."""
+		with patch("one_bpmn.agents.observability.create_ai_run") as create, patch(
+			"one_bpmn.agents.observability.record_ai_step"
+		), patch(
+			"one_bpmn.agents.observability.record_selector_turns", side_effect=RuntimeError("boom")
+		), patch("one_bpmn.agents.observability.finalize_ai_run") as finalize, patch("frappe.log_error"):
+			create.return_value = SimpleNamespace(name="RUN-FAKE", stub=False)
+			out = self._run()
+
+		finalize.assert_called_once()
+		self.assertEqual(out["response"], "the answer")
 
 	def test_recording_that_fails_does_not_cost_the_answer(self):
 		"""The person asked a question. Bookkeeping is not worth their turn."""
