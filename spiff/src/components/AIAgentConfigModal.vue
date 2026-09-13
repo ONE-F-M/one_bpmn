@@ -637,7 +637,7 @@
               >
                 {{ form.aiCompactionModel }} (not in catalog)
               </option>
-              <option v-for="m in catalogModels" :key="'compaction-' + m.name" :value="m.name">
+              <option v-for="m in filteredCatalogModels" :key="'compaction-' + m.name" :value="m.name">
                 {{ modelLabel(m) }}
               </option>
             </select>
