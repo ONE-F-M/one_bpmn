@@ -60,17 +60,54 @@ def stream_agent_turn(
 
 
 @frappe.whitelist()
-def conversation_history(conversation: str, limit: int = 30) -> list:
+def conversation_history(conversation: str, limit: int = 30, before: str = None) -> list:
 	"""Prior turns for the shared panel's resume-or-create lifecycle
 	(WI-001672). load_history already enforces owner-only access — an
-	unknown or foreign conversation reads as empty, never as an error."""
+	unknown or foreign conversation reads as empty, never as an error.
+
+	Each assistant turn carries the ``events`` it produced while streaming, so a
+	reopened conversation shows the cards and option buttons it showed the first
+	time. They are rebuilt here by replaying the same translators the live
+	stream uses over the stored result — one definition of what a reply renders
+	as, rather than a second one in the browser that drifts from it.
+
+	``before`` pages backwards: pass the oldest message already on screen and
+	the previous page comes back. A page shorter than ``limit`` is the end.
+	"""
 	from frappe.utils import cint
 
 	from one_bpmn.utils.chat_persistence import load_history
 
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Authentication required"))
-	return load_history(conversation, limit=min(cint(limit) or 30, 100))
+
+	messages = load_history(conversation, limit=min(cint(limit) or 30, 100), before=before)
+	for message in messages:
+		metadata = message.pop("metadata", None) or {}
+		message["events"] = _replayed_events(metadata) if message["role"] == "assistant" else []
+	return messages
+
+
+def _replayed_events(metadata: dict) -> list:
+	"""The custom events a stored turn would emit again, as {name, value}.
+
+	The result the turn produced is kept under ``agent_result`` — the same place
+	the live runner reads it back from. Anything else stored there is not a
+	reply and is ignored.
+	"""
+	result = metadata.get("agent_result")
+	if not isinstance(result, dict):
+		return []
+
+	from one_bpmn.agents.agui_stream import _extension_events
+
+	events = []
+	for event in _extension_events(result):
+		name = getattr(event, "name", "")
+		if not name:
+			continue
+		events.append({"name": name, "value": getattr(event, "value", None) or {}})
+	return events
 
 
 @frappe.whitelist()
