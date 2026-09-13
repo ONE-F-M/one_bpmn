@@ -199,8 +199,8 @@
             <label>Model <span class="hint">(the agent's catalog pick — saving writes it back; provider follows)</span></label>
             <select v-model="form.aiModel">
               <option value="">-- Pick a Model --</option>
-              <option v-if="form.aiModel && !catalogModels.some(m => m.name === form.aiModel)" :value="form.aiModel">
-                {{ form.aiModel }} (not in catalog)
+              <option v-if="unlistedModelLabel(form.aiModel)" :value="form.aiModel">
+                {{ unlistedModelLabel(form.aiModel) }}
               </option>
               <option v-for="m in filteredCatalogModels" :key="m.name" :value="m.name">
                 {{ modelLabel(m) }}
@@ -555,11 +555,8 @@
             <label>Distillation Model <span class="hint">(optional)</span></label>
             <select v-model="form.aiMemoryDistillModel">
               <option value="">{{ inheritLabel("distill") }}</option>
-              <option
-                v-if="form.aiMemoryDistillModel && !catalogModels.some(m => m.name === form.aiMemoryDistillModel)"
-                :value="form.aiMemoryDistillModel"
-              >
-                {{ form.aiMemoryDistillModel }} (not in catalog)
+              <option v-if="unlistedModelLabel(form.aiMemoryDistillModel)" :value="form.aiMemoryDistillModel">
+                {{ unlistedModelLabel(form.aiMemoryDistillModel) }}
               </option>
               <option v-for="m in filteredCatalogModels" :key="'distill-' + m.name" :value="m.name">
                 {{ modelLabel(m) }}
@@ -578,11 +575,8 @@
             <label>Reconciliation Model <span class="hint">(optional)</span></label>
             <select v-model="form.aiMemoryReconcileModel">
               <option value="">{{ inheritLabel("reconcile") }}</option>
-              <option
-                v-if="form.aiMemoryReconcileModel && !catalogModels.some(m => m.name === form.aiMemoryReconcileModel)"
-                :value="form.aiMemoryReconcileModel"
-              >
-                {{ form.aiMemoryReconcileModel }} (not in catalog)
+              <option v-if="unlistedModelLabel(form.aiMemoryReconcileModel)" :value="form.aiMemoryReconcileModel">
+                {{ unlistedModelLabel(form.aiMemoryReconcileModel) }}
               </option>
               <option v-for="m in filteredCatalogModels" :key="'reconcile-' + m.name" :value="m.name">
                 {{ modelLabel(m) }}
@@ -633,11 +627,8 @@
             <label>Compaction Model <span class="hint">(optional)</span></label>
             <select v-model="form.aiCompactionModel">
               <option value="">{{ inheritLabel("compaction") }}</option>
-              <option
-                v-if="form.aiCompactionModel && !catalogModels.some(m => m.name === form.aiCompactionModel)"
-                :value="form.aiCompactionModel"
-              >
-                {{ form.aiCompactionModel }} (not in catalog)
+              <option v-if="unlistedModelLabel(form.aiCompactionModel)" :value="form.aiCompactionModel">
+                {{ unlistedModelLabel(form.aiCompactionModel) }}
               </option>
               <option v-for="m in filteredCatalogModels" :key="'compaction-' + m.name" :value="m.name">
                 {{ modelLabel(m) }}
@@ -852,6 +843,20 @@ const filteredCatalogModels = computed(() => {
   if (!modelProviderFilter.value) return catalogModels.value;
   return catalogModels.value.filter((m) => m.provider === modelProviderFilter.value);
 });
+// A <select> whose bound value matches no option renders blank, which reads as
+// "nothing is set" for a field that IS set — and invites someone to correct it
+// by picking something else. So whenever the chosen model is not among the
+// options actually listed, the field carries one for it, saying why it is not
+// in the list: absent from the catalogue, or present but filtered out.
+function unlistedModelLabel(model) {
+  if (!model || filteredCatalogModels.value.some((m) => m.name === model)) return "";
+  const known = catalogModels.value.find((m) => m.name === model);
+  if (!known) return `${model} (not in catalog)`;
+  // Its own name, not modelLabel(): a model with no provider linked is exactly
+  // the one a provider filter always hides, and stacking both clauses reads as
+  // two separate faults instead of one.
+  return `${known.display_name || known.name} — hidden by the provider filter`;
+}
 // What an option reads as: the display name when the model has one, else the
 // raw API id, and nothing else when it is usable. The provider is derived
 // from the model and repeating it on every row said nothing a designer
