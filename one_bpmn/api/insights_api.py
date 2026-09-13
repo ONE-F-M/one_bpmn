@@ -791,6 +791,106 @@ def get_run_totals_crosscheck(run_name: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# 5b. Work Item AI cost (WI-003329)
+# ---------------------------------------------------------------------------
+#
+# AI Agent Run.parent_run only links a run to the run whose TOOL started it
+# (WI-002190) \u2014 it says nothing about cross-process/A2A delegation, and in
+# practice it is set on 3 of 3,801 rows. The real trail a Work Item's spend
+# leaves is in A2A Task: caller_instance is the instance that asked, instance
+# is the instance that did the work. Walking that \u2014 breadth-first, guarded to
+# the same depth as get_run_tree \u2014 finds every BPMN Process Instance the work
+# item's chain ever reached, including a specialist that itself delegated on.
+
+
+def _work_item_instances(work_item_name: str) -> set:
+	"""Every BPMN Process Instance reachable from *work_item_name*: the
+	instances attached to it directly, plus every instance an A2A Task
+	delegated to from one of those instances, transitively."""
+	instances = set(
+		frappe.get_all(
+			"BPMN Process Instance",
+			filters={"context_doctype": "Work Item", "context_docname": work_item_name},
+			pluck="name",
+		)
+	)
+
+	Task = DocType("A2A Task")
+	frontier = list(instances)
+	for _level in range(_TREE_MAX_DEPTH):
+		if not frontier:
+			break
+		children = (
+			frappe.qb.from_(Task)
+			.select(Task.instance)
+			.distinct()
+			.where(Task.caller_instance.isin(frontier))
+			.where(Task.instance.isnotnull())
+			.run(as_dict=True)
+		)
+		frontier = []
+		for row in children:
+			callee = row.get("instance")
+			if callee and callee not in instances:
+				instances.add(callee)
+				frontier.append(callee)
+
+	return instances
+
+
+@frappe.whitelist()
+def get_work_item_ai_cost(work_item_name: str) -> dict:
+	"""Total AI cost and tokens a Work Item caused, auditable down to the
+	individual AI Agent Run (WI-003329).
+
+	Walks the actual delegation chain \u2014 A2A Task's caller_instance/instance,
+	not AI Agent Run.parent_run \u2014 starting from the BPMN Process Instances
+	attached to the work item and following every delegation onward, so a
+	specialist that itself delegates further is included too. A work item
+	with no reachable instances or runs returns zero totals and an empty
+	breakdown rather than raising.
+	"""
+	frappe.only_for("System Manager")
+
+	instances = _work_item_instances(work_item_name)
+	if not instances:
+		return {
+			"work_item": work_item_name,
+			"runs": 0,
+			"total_tokens": 0,
+			"total_cost": 0.0,
+			"breakdown": [],
+		}
+
+	runs = frappe.get_all(
+		"AI Agent Run",
+		filters={"instance": ["in", list(instances)]},
+		fields=["name", "instance", "agent_configuration", "model", "total_tokens", "estimated_cost"],
+		order_by="started_at asc",
+	)
+
+	breakdown = [
+		{
+			"run": r.name,
+			"instance": r.instance,
+			"agent_configuration": r.agent_configuration,
+			"model": r.model,
+			"total_tokens": cint(r.total_tokens),
+			"estimated_cost": flt(r.estimated_cost, 6),
+		}
+		for r in runs
+	]
+
+	return {
+		"work_item": work_item_name,
+		"runs": len(breakdown),
+		"total_tokens": sum(b["total_tokens"] for b in breakdown),
+		"total_cost": flt(sum(b["estimated_cost"] for b in breakdown), 4),
+		"breakdown": breakdown,
+	}
+
+
+# ---------------------------------------------------------------------------
 # 6. Cost allocation (WI-001668)
 # ---------------------------------------------------------------------------
 #
