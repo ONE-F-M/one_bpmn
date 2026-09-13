@@ -58,6 +58,14 @@
    "unique": 1
   },
   {
+   "description": "A readable name for pickers and the catalogue \u2014 derived from the API id if left blank.",
+   "fieldname": "display_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Display Name",
+   "show_in_link_fields": 1
+  },
+  {
    "fieldname": "provider",
    "fieldtype": "Link",
    "label": "Provider",
