@@ -226,6 +226,11 @@ def _fake_reconcile_add(content, candidates, **kw):
 	return {"action": "add", "supersedes": [], "degraded": None}
 
 
+def _fake_reconcile_update(content, candidates, **kw):
+	"""The new fact restates the candidates: corroboration, not contradiction."""
+	return {"action": "update", "supersedes": [c["name"] for c in candidates], "degraded": None}
+
+
 def _fake_reconcile_boom(content, candidates, **kw):
 	raise RuntimeError("reconciler exploded")
 
@@ -295,6 +300,93 @@ class TestReconcileWrite(FrappeTestCase):
 		self.assertTrue(frappe.db.exists("AI Memory", new["name"]))
 		# Old memory untouched (not invalidated) because reconciliation blew up.
 		self.assertIsNone(frappe.db.get_value("AI Memory", old["name"], "expires_on"))
+
+	def test_corroboration_keeps_the_words_the_person_used(self):
+		"""Reconciliation invalidates and inserts fresh, so a restatement used to
+		replace "remember that ..." with the agent's later paraphrase of it."""
+		agent = f"R_{frappe.generate_hash(length=8)}"
+		asked = "remember that invoices for this client always go to accounts@acme.test"
+		old = T.memory_write("Agent", agent, asked, user_directed=True, ignore_permissions=True)
+
+		with patch("one_bpmn.agents.memory.reconcile.reconcile", _fake_reconcile_update):
+			new = T.memory_write(
+				"Agent", agent, "the client's invoices are sent to accounts@acme.test",
+				ignore_permissions=True, reconcile=True, reconcile_ctx=self._CTX,
+			)
+
+		self.assertNotEqual(new["name"], old["name"])
+		self.assertEqual(new["content"], asked)
+
+	def test_corroboration_keeps_the_flag_that_says_a_person_asked(self):
+		"""user_directed exempts a memory from the Log Settings cleanup and makes
+		memory_list_user_directed recall it whatever the turn is about. Losing it
+		turns the memory somebody asked for into an ordinary one."""
+		agent = f"R_{frappe.generate_hash(length=8)}"
+		old = T.memory_write(
+			"Agent", agent, "remember that the site visit is always on a Tuesday",
+			user_directed=True, ignore_permissions=True,
+		)
+		self.assertEqual(frappe.db.get_value("AI Memory", old["name"], "user_directed"), 1)
+
+		with patch("one_bpmn.agents.memory.reconcile.reconcile", _fake_reconcile_update):
+			new = T.memory_write(
+				"Agent", agent, "site visits happen on Tuesdays",
+				ignore_permissions=True, reconcile=True, reconcile_ctx=self._CTX,
+			)
+
+		row = frappe.db.get_value(
+			"AI Memory", new["name"], ["user_directed", "corroboration_count"], as_dict=True
+		)
+		self.assertEqual(row.user_directed, 1)
+		self.assertEqual(row.corroboration_count, 1)
+
+	def test_corroboration_keeps_the_importance_the_fact_already_earned(self):
+		"""The distiller scores a fact 1 to 5. A user-directed write is stored
+		verbatim without going through the distiller, so it carries no
+		judgement, and a restatement used to cost the fact the one it had. On
+		staging a rule scored 5 came back as 3 after being mentioned again."""
+		agent = f"R_{frappe.generate_hash(length=8)}"
+		old = T.memory_write(
+			"Agent", agent, "Never deploy to production on a Friday afternoon.",
+			importance=5, ignore_permissions=True,
+		)
+		self.assertEqual(frappe.db.get_value("AI Memory", old["name"], "importance"), 5)
+
+		with patch("one_bpmn.agents.memory.reconcile.reconcile", _fake_reconcile_update):
+			new = T.memory_write(
+				"Agent", agent, "We never release a build on a Friday afternoon.",
+				importance=3, ignore_permissions=True, reconcile=True, reconcile_ctx=self._CTX,
+			)
+
+		self.assertEqual(frappe.db.get_value("AI Memory", new["name"], "importance"), 5)
+
+	def test_a_restatement_can_raise_the_importance(self):
+		"""It travels both ways: the highest judgement any of them earned."""
+		agent = f"R_{frappe.generate_hash(length=8)}"
+		T.memory_write("Agent", agent, "The lift is inspected yearly.", importance=2, ignore_permissions=True)
+
+		with patch("one_bpmn.agents.memory.reconcile.reconcile", _fake_reconcile_update):
+			new = T.memory_write(
+				"Agent", agent, "The lift inspection is a yearly legal requirement.",
+				importance=5, ignore_permissions=True, reconcile=True, reconcile_ctx=self._CTX,
+			)
+
+		self.assertEqual(frappe.db.get_value("AI Memory", new["name"], "importance"), 5)
+
+	def test_corroboration_of_an_ordinary_memory_takes_the_new_wording(self):
+		"""Nobody asked for those words, so the newer phrasing stands."""
+		agent = f"R_{frappe.generate_hash(length=8)}"
+		T.memory_write("Agent", agent, "the report is produced monthly", ignore_permissions=True)
+
+		restated = "the report comes out once a month"
+		with patch("one_bpmn.agents.memory.reconcile.reconcile", _fake_reconcile_update):
+			new = T.memory_write(
+				"Agent", agent, restated,
+				ignore_permissions=True, reconcile=True, reconcile_ctx=self._CTX,
+			)
+
+		self.assertEqual(new["content"], restated)
+		self.assertEqual(frappe.db.get_value("AI Memory", new["name"], "user_directed"), 0)
 
 	def test_exact_duplicate_blocked_even_when_reconciler_raises(self):
 		# The one case that used to guarantee a duplicate: an exact restatement
