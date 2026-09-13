@@ -705,3 +705,67 @@ class TestDistillerSourceType(FrappeTestCase):
 
 		self.assertEqual([_source_type(v) for v in ("User Statement", "Tool Output", "guess", None)],
 			["User Statement", "Tool Output", "Agent Inference", "Agent Inference"])
+
+
+class TestUserScope(FrappeTestCase):
+	"""The person dimension: one user's memories never reach another; shared
+	memories reach everyone; an agent-only key sees and writes shared only."""
+
+	def setUp(self):
+		self.agent = f"U_{frappe.generate_hash(length=8)}"
+		self.alice = f"alice_{frappe.generate_hash(length=6)}@example.com"
+		self.bob = f"bob_{frappe.generate_hash(length=6)}@example.com"
+		for email in (self.alice, self.bob):
+			frappe.get_doc({"doctype": "User", "email": email, "first_name": email.split("_")[0]}).insert(ignore_permissions=True)
+		self.shared = T.memory_write("Agent", self.agent, "shared: exports ship via DHL", ignore_permissions=True)
+		self.mine = T.memory_write(
+			"Agent", {"agent_element": self.agent, "user": self.alice}, "alice: her invoices need a medical certificate attached", ignore_permissions=True
+		)
+
+	def _names(self, scope_key, query):
+		return {r["name"] for r in T.memory_search("Agent", scope_key, query, ignore_permissions=True)}
+
+	def test_write_records_the_user(self):
+		self.assertEqual(frappe.db.get_value("AI Memory", self.mine["name"], "user"), self.alice)
+		self.assertFalse(frappe.db.get_value("AI Memory", self.shared["name"], "user"))
+
+	def test_other_user_never_sees_a_personal_memory(self):
+		found = self._names({"agent_element": self.agent, "user": self.bob}, "invoices medical certificate")
+		self.assertNotIn(self.mine["name"], found)
+
+	def test_owner_sees_own_plus_shared(self):
+		found = self._names({"agent_element": self.agent, "user": self.alice}, "invoices certificate DHL exports")
+		self.assertIn(self.mine["name"], found)
+		self.assertIn(self.shared["name"], found)
+
+	def test_agent_only_key_sees_shared_only(self):
+		found = self._names(self.agent, "invoices certificate DHL exports")
+		self.assertIn(self.shared["name"], found)
+		self.assertNotIn(self.mine["name"], found)
+
+	def test_user_directed_list_is_isolated_too(self):
+		T.memory_write(
+			"Agent", {"agent_element": self.agent, "user": self.alice}, "remember: alice likes short answers",
+			user_directed=True, ignore_permissions=True,
+		)
+		bob_rows = [r["content"] for r in T.memory_list_user_directed("Agent", {"agent_element": self.agent, "user": self.bob}, ignore_permissions=True)]
+		self.assertNotIn("remember: alice likes short answers", bob_rows)
+		alice_rows = [r["content"] for r in T.memory_list_user_directed("Agent", {"agent_element": self.agent, "user": self.alice}, ignore_permissions=True)]
+		self.assertIn("remember: alice likes short answers", alice_rows)
+
+	def test_dedup_key_stays_within_the_user(self):
+		key_a = {"agent_element": self.agent, "user": self.alice}
+		key_b = {"agent_element": self.agent, "user": self.bob}
+		a = T.memory_write("Agent", key_a, "alice v1", dedup_key="pref", ignore_permissions=True)
+		b = T.memory_write("Agent", key_b, "bob v1", dedup_key="pref", ignore_permissions=True)
+		self.assertNotEqual(a["name"], b["name"])
+		self.assertTrue(frappe.db.exists("AI Memory", a["name"]))
+		self.assertTrue(frappe.db.exists("AI Memory", b["name"]))
+
+	def test_a_users_statement_cannot_invalidate_a_shared_memory(self):
+		with patch("one_bpmn.agents.memory.reconcile.reconcile", _decide("replace", "all")):
+			T.memory_write(
+				"Agent", {"agent_element": self.agent, "user": self.alice}, "exports ship via FedEx",
+				user_directed=True, reconcile=True, reconcile_ctx=_TRUST_CTX, ignore_permissions=True,
+			)
+		self.assertIsNone(frappe.db.get_value("AI Memory", self.shared["name"], "expires_on"))

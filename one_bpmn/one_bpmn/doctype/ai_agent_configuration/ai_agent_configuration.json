@@ -556,11 +556,11 @@
   },
   {
    "depends_on": "eval:doc.long_term_memory=='Enabled'",
-   "description": "Agent \u2014 this task; Process \u2014 this process model; Entity \u2014 the task's context document.",
+   "description": "What a memory is keyed on. Agent: this task, shared by everyone who uses it. Process: this process model. Entity: the task's context document. The User variants add the person asking: recall returns their own memories plus the shared ones, and new memories are written for them alone. Blank means User and Agent for a Chat agent and Agent for a Background agent.",
    "fieldname": "memory_scope",
    "fieldtype": "Select",
    "label": "Memory Scope",
-   "options": "\nAgent\nProcess\nEntity"
+   "options": "\nAgent\nProcess\nEntity\nUser and Agent\nUser and Process\nUser and Entity"
   },
   {
    "depends_on": "eval:doc.long_term_memory=='Enabled'",
@@ -790,7 +790,7 @@
    "link_fieldname": "agent_configuration"
   }
  ],
- "modified": "2026-08-17 18:30:00.000000",
+ "modified": "2026-09-10 15:00:00.000000",
  "modified_by": "c.akeru@one-fm.com",
  "module": "ONE BPMN",
  "name": "AI Agent Configuration",
