@@ -581,6 +581,7 @@ def _resolve_conflict(action: str | None, supersedes: list, source_type: str, co
 			"modified",
 			"user_directed",
 			"content",
+			"importance",
 		],
 	)
 	if action == "replace":
@@ -610,6 +611,16 @@ def _resolve_conflict(action: str | None, supersedes: list, source_type: str, co
 		if directed:
 			carry["user_directed"] = 1
 			carry["content"] = max(directed, key=lambda r: r.get("modified") or "").get("content")
+
+		# Importance travels the same way, for the same reason. The distiller
+		# judges it 1 to 5; a user-directed write is stored verbatim without
+		# going through the distiller, so it carries no judgement and lands on
+		# the field default. Restating a fact then costs it the judgement it
+		# already had. On staging on 2026-09-13 a rule the distiller had scored
+		# 5 was restated in passing and the survivor came out 3.
+		highest = max([cint(r.get("importance")) for r in rows] + [0])
+		if highest:
+			carry["importance"] = highest
 		return action, carry
 	return action, {}
 
@@ -1006,6 +1017,10 @@ def _memory_write(
 		if carry.get("content"):
 			content = carry["content"]
 			doc_fields["content"] = content
+		if carry.get("importance"):
+			# The highest any of these rows earned, so a restatement cannot cost
+			# a fact the importance it already had (see _resolve_conflict).
+			doc_fields["importance"] = max(cint(carry["importance"]), cint(doc_fields.get("importance")))
 		doc = frappe.get_doc(doc_fields)
 		doc.insert(ignore_permissions=ignore_permissions)
 		store_embedding(doc.name, content)

@@ -340,6 +340,39 @@ class TestReconcileWrite(FrappeTestCase):
 		self.assertEqual(row.user_directed, 1)
 		self.assertEqual(row.corroboration_count, 1)
 
+	def test_corroboration_keeps_the_importance_the_fact_already_earned(self):
+		"""The distiller scores a fact 1 to 5. A user-directed write is stored
+		verbatim without going through the distiller, so it carries no
+		judgement, and a restatement used to cost the fact the one it had. On
+		staging a rule scored 5 came back as 3 after being mentioned again."""
+		agent = f"R_{frappe.generate_hash(length=8)}"
+		old = T.memory_write(
+			"Agent", agent, "Never deploy to production on a Friday afternoon.",
+			importance=5, ignore_permissions=True,
+		)
+		self.assertEqual(frappe.db.get_value("AI Memory", old["name"], "importance"), 5)
+
+		with patch("one_bpmn.agents.memory.reconcile.reconcile", _fake_reconcile_update):
+			new = T.memory_write(
+				"Agent", agent, "We never release a build on a Friday afternoon.",
+				importance=3, ignore_permissions=True, reconcile=True, reconcile_ctx=self._CTX,
+			)
+
+		self.assertEqual(frappe.db.get_value("AI Memory", new["name"], "importance"), 5)
+
+	def test_a_restatement_can_raise_the_importance(self):
+		"""It travels both ways: the highest judgement any of them earned."""
+		agent = f"R_{frappe.generate_hash(length=8)}"
+		T.memory_write("Agent", agent, "The lift is inspected yearly.", importance=2, ignore_permissions=True)
+
+		with patch("one_bpmn.agents.memory.reconcile.reconcile", _fake_reconcile_update):
+			new = T.memory_write(
+				"Agent", agent, "The lift inspection is a yearly legal requirement.",
+				importance=5, ignore_permissions=True, reconcile=True, reconcile_ctx=self._CTX,
+			)
+
+		self.assertEqual(frappe.db.get_value("AI Memory", new["name"], "importance"), 5)
+
 	def test_corroboration_of_an_ordinary_memory_takes_the_new_wording(self):
 		"""Nobody asked for those words, so the newer phrasing stands."""
 		agent = f"R_{frappe.generate_hash(length=8)}"
