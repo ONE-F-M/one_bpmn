@@ -557,6 +557,14 @@ def get_agent_config(agent_id: str) -> dict | None:
 		constants[c.constant_name] = _cast_constant(c.constant_value, c.constant_type)
 
 	result = {
+		# The record's own name. Queried above and used for every child-table
+		# lookup in this function, then dropped from what callers got back, the
+		# same way ai_model was. The direct chat path pays for it: it builds its
+		# AI Agent Run from this dict, so every run on that path was left with
+		# no agent_configuration and could not be attributed to an agent in
+		# Insights or anywhere else. It has no BPMN instance and no process
+		# model either, so neither of create_ai_run's fallbacks could rescue it.
+		"name": config.name,
 		"agent_id": config.agent_id,
 		"system_prompt": config.system_prompt,
 		"temperature": config.temperature,
