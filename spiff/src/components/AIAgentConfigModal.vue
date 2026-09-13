@@ -741,7 +741,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, toRaw } from "vue";
-import { Dialog, frappeRequest } from "frappe-ui";
+import { Dialog, FormControl, frappeRequest } from "frappe-ui";
 import { frappeGet } from "@/bpmn/shared/frappeResource";
 // WI-001674: agent mode chats through the shared panel + card registry.
 import { AgentChatPanel } from "@/components/chat";
