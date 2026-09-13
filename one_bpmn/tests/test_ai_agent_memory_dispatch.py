@@ -380,6 +380,33 @@ class TestRememberDirectiveWrite(FrappeTestCase):
 		dw.assert_not_called()
 		mw.assert_not_called()
 
+	def test_remember_directive_fires_when_the_map_renders_the_message(self):
+		# The map that drives every chat agent renders the person's words into
+		# its own prompt, so dispatch blanks its copy to avoid sending them
+		# twice. Reading that blanked copy made this branch unreachable on
+		# exactly the agents it was written for: on prod-backup every memory
+		# General Chat had written was distilled, none user_directed.
+		said = "Remember that we always courier parcels with DHL."
+		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
+			"one_bpmn.agents.memory.tools.memory_write"
+		) as mw:
+			D.dispatch_ai_agent(
+				_chat_instance("CONV-R5"),
+				_chat_task("Act_R5", said),
+				{
+					"aiBackend": "faketest",
+					"aiMemoryWriteMode": "distilled",
+					"aiMemoryScope": "Agent",
+					"aiUserPrompt": f"Conversation so far:\nUser: {said}\n\nUser message: {said}",
+				},
+				"Act_R5",
+			)
+		dw.assert_not_called()
+		mw.assert_called_once()
+		args, kwargs = mw.call_args
+		self.assertEqual(args[2], said)
+		self.assertTrue(kwargs.get("user_directed"))
+
 	def test_non_directive_message_still_uses_distilled_path(self):
 		# Regression: a present, non-remember user_message must not accidentally
 		# trip the new branch.
@@ -682,11 +709,17 @@ class TestRecallSkipsWhenTheTurnMessageIsUnresolved(TestTheUserMessageReachesThe
 		ms.assert_called_once()
 		self.assertEqual(ms.call_args[0][2], "handle order #4471")
 
-	def test_a_map_that_renders_its_own_copy_still_recalls_with_it(self):
-		"""Regression guard: when the map embeds the real message into
-		aiUserPrompt itself (raw_user_message found, then deduped away because
-		it's already in user_prompt), the new guard must not fire — user_prompt
-		here is a real, rendered message, not a template."""
+	def test_a_map_that_renders_its_own_copy_recalls_with_the_message_alone(self):
+		"""When the map embeds the message into aiUserPrompt itself, the platform
+		blanks its own copy so the model is not told twice — and recall then used
+		the whole rendered prompt as its query. Measured on prod-backup on
+		2026-09-12: run u343rlto5q searched with 150 characters of standing
+		instructions and a datetime wrapped around "Who takes our packages out to
+		customers?" and injected 0 memory tokens, while the same question one
+		turn later injected 109.
+
+		The unresolved guard must still not fire here: this is a real message,
+		not a template, so recall happens — with the question alone."""
 		with patch("one_bpmn.agents.memory.tools.memory_search", return_value=[]) as ms:
 			self._dispatch(
 				_chat_instance(),
@@ -696,7 +729,7 @@ class TestRecallSkipsWhenTheTurnMessageIsUnresolved(TestTheUserMessageReachesThe
 				aiUserPrompt="Latest user message: {{ user_text }}",
 			)
 		ms.assert_called_once()
-		self.assertEqual(ms.call_args[0][2], "Latest user message: add a status field")
+		self.assertEqual(ms.call_args[0][2], "add a status field")
 
 
 class TestIsSmallTalk(FrappeTestCase):
@@ -741,10 +774,16 @@ class TestBoundMemoriesToBudget(FrappeTestCase):
 	def test_lowest_ranked_memories_are_dropped_first(self):
 		# Rank order is memory_search's contract (relevance/recency); the
 		# budget must respect it, not reorder or skip ahead to something smaller.
-		# ~26 tokens each rendered (25 content + the "\n- " join); a header of
-		# ~56 tokens leaves room for one at a 90-token budget, not two.
+		# The budget is derived from the rendered header, not hardcoded, so
+		# rewording the provenance line cannot silently invalidate the
+		# arithmetic this asserts on.
+		from one_bpmn.agents.memory.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
+
 		memories = [{"content": "a" * 100}, {"content": "b" * 100}, {"content": "c" * 100}]
-		kept = D._bound_memories_to_budget(memories, 90)
+		one = estimate_tokens({"content": D._format_memory_block(memories[:1])}, DEFAULT_CHARS_PER_TOKEN)
+		two = estimate_tokens({"content": D._format_memory_block(memories[:2])}, DEFAULT_CHARS_PER_TOKEN)
+		self.assertLess(one, two)
+		kept = D._bound_memories_to_budget(memories, two - 1)
 		self.assertEqual(kept, [memories[0]])
 
 	def test_single_oversized_memory_is_truncated_not_dropped(self):
@@ -885,3 +924,60 @@ class TestRecallObservability(FrappeTestCase):
 			)
 		kwargs = self.create_ai_run_mock.call_args.kwargs
 		self.assertEqual(kwargs["memory_injected_tokens"], 0)
+
+
+class TestMemoryTargetUserScope(FrappeTestCase):
+	"""_resolve_memory_target: User scopes carry the requesting user, the blank
+	default follows the agent type, and Agent-only never carries a user."""
+
+	def _target(self, scope, agent_type="Chat", user="alice@example.com"):
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers as D
+
+		instance = SimpleNamespace(process_model="PM-1", context_doctype="Employee", context_docname="EMP-1")
+		cfg = {"aiMemoryScope": scope, "aiAgentConfig": "CFG-1"}
+		with patch("frappe.db.get_value", return_value=agent_type), patch.object(D, "_requesting_user", return_value=user):
+			return D._resolve_memory_target(cfg, instance, "Act_1")
+
+	def test_blank_scope_defaults_by_agent_type(self):
+		self.assertEqual(self._target("", "Chat"), ("Agent", {"agent_element": "Act_1", "user": "alice@example.com"}))
+		self.assertEqual(self._target("", "Background"), ("Agent", "Act_1"))
+
+	def test_agent_only_carries_no_user(self):
+		self.assertEqual(self._target("Agent"), ("Agent", "Act_1"))
+
+	def test_user_variants(self):
+		self.assertEqual(self._target("User and Process"), ("Process", {"process": "PM-1", "user": "alice@example.com"}))
+		self.assertEqual(
+			self._target("User and Entity"),
+			("Entity", {"reference_doctype": "Employee", "reference_name": "EMP-1", "user": "alice@example.com"}),
+		)
+
+	def test_guest_falls_back_to_shared(self):
+		self.assertEqual(self._target("User and Agent", user=None), ("Agent", "Act_1"))
+
+
+class TestMemoryBlockProvenance(FrappeTestCase):
+	"""The line above the recalled memories has to do two opposing jobs at once,
+	and dropping either half has been observed to break a live agent."""
+
+	def test_the_notes_are_presented_as_facts_to_use(self):
+		block = D._format_memory_block([{"content": "invoices are approved by the finance lead"}])
+		self.assertIn("standing fact", block)
+		self.assertIn("use it when it answers the current request", block)
+		# "context only" told agents holding tools that the notes were not
+		# authoritative, and they answered from the tools instead.
+		self.assertNotIn("context only", block)
+
+	def test_the_notes_are_still_not_this_conversation(self):
+		# Without this half, a past final response reads as work already done in
+		# the current conversation (ProsAlly, 2026-08-09).
+		block = D._format_memory_block([{"content": "created the invoice process"}])
+		self.assertIn("PAST, separate conversations", block)
+		self.assertIn("Nothing below has happened in the current conversation", block)
+		self.assertIn("none of it counts as work already done", block)
+
+	def test_the_memories_follow_the_provenance_line(self):
+		block = D._format_memory_block([{"content": "ship by DHL"}, {"content": "net-30 terms"}])
+		lines = block.splitlines()
+		self.assertEqual(lines[0], D.MEMORY_BLOCK_HEADER)
+		self.assertEqual(lines[-2:], ["- ship by DHL", "- net-30 terms"])

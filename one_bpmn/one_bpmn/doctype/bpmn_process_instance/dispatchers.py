@@ -18,11 +18,20 @@ import frappe.utils
 # Stable, documented format for the injected memory block. Evals and the run
 # inspector reference this header — do not change it lightly.
 MEMORY_BLOCK_HEADER = "Relevant memory:"
+# Two jobs, and they pull against each other. The second sentence stops a past
+# final response being read as this conversation's history (observed live
+# 2026-08-09: the ProsAlly orchestrator concluded the requested process already
+# existed and skipped its confirm tool). The first sentence stops the
+# over-correction: calling the notes "context only", as this did until
+# 2026-09-11, reads as "not authoritative", and an agent holding tools will go
+# to the tools instead. Observed live: General Chat was handed the user's own
+# stated approval rule and answered from a wiki lookup that found nothing.
 _MEMORY_BLOCK_PROVENANCE = (
-	"(Background notes recalled from PAST, separate conversations. "
-	"They are context only — nothing below has happened in the current "
-	"conversation, and none of it counts as work already done for the "
-	"current request.)"
+	"(Background notes recalled from PAST, separate conversations. Treat each "
+	"one as a true, standing fact about this user or their organisation, and "
+	"use it when it answers the current request. Nothing below has happened in "
+	"the current conversation, and none of it counts as work already done for "
+	"the current request.)"
 )
 
 # aiMemoryLimit only bounds how many memories are recalled — a raw-write-mode
@@ -101,6 +110,21 @@ def _cfg_truthy(value) -> bool:
 	return str(value or "").strip().lower() in ("1", "true", "yes", "on", "enabled")
 
 
+def _default_memory_scope(task_cfg: dict) -> str:
+	"""Scope when the configuration leaves it blank: a Chat agent keeps memory
+	per person (User and Agent), a Background agent shares it (Agent)."""
+	config_name = task_cfg.get("aiAgentConfig")
+	agent_type = frappe.db.get_value("AI Agent Configuration", config_name, "agent_type") if config_name else None
+	return "Agent" if agent_type == "Background" else "User and Agent"
+
+
+def _requesting_user() -> str | None:
+	"""The person whose memory this run reads and writes. A background job runs
+	as the user who queued it, so this holds on the dispatch path too."""
+	user = frappe.session.user
+	return None if not user or user == "Guest" else user
+
+
 def _resolve_memory_target(task_cfg: dict, instance, bpmn_id: str):
 	"""Resolve (scope, scope_key) for memory search/write from task config and
 	the instance context. Returns None when the scope key can't be built (e.g.
@@ -109,21 +133,44 @@ def _resolve_memory_target(task_cfg: dict, instance, bpmn_id: str):
 	Agent   -> agent_element (defaults to the task's bpmn_id)
 	Process -> the instance's process_model
 	Entity  -> {reference_doctype, reference_name} from the instance context doc
+
+	The "User and X" scopes key on X plus the requesting user: recall returns
+	that person's memories plus the shared ones, writes are theirs alone. With
+	no requesting user (Guest) they fall back to the shared X scope. Blank is
+	decided by the agent type (``_default_memory_scope``).
 	"""
-	scope = (task_cfg.get("aiMemoryScope") or "Agent").strip() or "Agent"
+	scope = (task_cfg.get("aiMemoryScope") or "").strip() or _default_memory_scope(task_cfg)
+	user = None
+	if scope.startswith("User and "):
+		scope = scope[len("User and ") :]
+		user = _requesting_user()
+
 	if scope == "Agent":
 		agent_element = task_cfg.get("aiMemoryAgentElement") or bpmn_id
-		return ("Agent", agent_element) if agent_element else None
-	if scope == "Process":
+		if not agent_element:
+			return None
+		key = {"agent_element": agent_element}
+	elif scope == "Process":
 		process_model = getattr(instance, "process_model", None)
-		return ("Process", process_model) if process_model else None
-	if scope == "Entity":
+		if not process_model:
+			return None
+		key = {"process": process_model}
+	elif scope == "Entity":
 		reference_doctype = getattr(instance, "context_doctype", None)
 		reference_name = getattr(instance, "context_docname", None)
-		if reference_doctype and reference_name:
-			return ("Entity", {"reference_doctype": reference_doctype, "reference_name": reference_name})
+		if not (reference_doctype and reference_name):
+			return None
+		key = {"reference_doctype": reference_doctype, "reference_name": reference_name}
+	else:
 		return None
-	return None
+
+	if user:
+		key["user"] = user
+	elif scope == "Agent":
+		return (scope, key["agent_element"])  # the shape every existing caller and test expects
+	elif scope == "Process":
+		return (scope, key["process"])
+	return (scope, key)
 
 
 def _format_memory_block(memories: list) -> str:
@@ -698,6 +745,89 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		task.data[result_var] = output
 
 
+def _addresses_for(values) -> list:
+	"""Turn user ids and plain addresses into addresses, keeping order.
+
+	A User's id is usually its address but is not required to be, so each value
+	is looked up and falls back to itself — which is also what lets a literal
+	address configured by hand work unchanged.
+	"""
+	addresses, seen = [], set()
+	for raw in values:
+		value = str(raw or "").strip()
+		if not value:
+			continue
+		address = frappe.db.get_value("User", value, "email") or value
+		if address not in seen:
+			seen.add(address)
+			addresses.append(address)
+	return addresses
+
+
+def google_chat_recipients(instance, task_cfg: dict) -> tuple:
+	"""Who a direct message goes to, and what to say when that is nobody.
+
+	Three ways to name them, the same three a User Task offers for assignment:
+
+	    User        — ``gchatEmail``, one or more addresses or user ids
+	    DocField    — ``gchatDocField``, a field on the context document holding
+	                  an address or a link to a User (``owner`` included)
+	    Table Field — ``gchatTableField`` rows, each contributing the user named
+	                  by ``gchatTableUserField``
+
+	``gchatDoctype`` says whose fields were picked in the editor; the document
+	itself is always the instance's context. Returns (addresses, problem) where
+	problem is a sentence for the log, empty when there is nothing wrong.
+	"""
+	basis = (task_cfg.get("gchatRecipientBasis") or "User").strip()
+	doctype = (task_cfg.get("gchatDoctype") or "").strip() or (instance.context_doctype or "")
+	docname = instance.context_docname or ""
+
+	if basis == "User":
+		raw = (task_cfg.get("gchatEmail") or "").strip()
+		if not raw:
+			return [], "gchatRecipientBasis=User but gchatEmail is empty."
+		return _addresses_for(raw.split(",")), ""
+
+	if basis not in ("DocField", "Table Field"):
+		return [], f"gchatRecipientBasis={basis!r} is not User, DocField or Table Field."
+
+	if not (doctype and docname):
+		return [], (
+			f"gchatRecipientBasis={basis} needs a context document, and this instance has "
+			f"doctype={doctype!r} docname={docname!r}."
+		)
+
+	try:
+		doc = frappe.get_doc(doctype, docname)
+	except Exception:
+		return [], f"Could not read {doctype} {docname} to resolve the recipient."
+
+	if basis == "DocField":
+		field = (task_cfg.get("gchatDocField") or "").strip()
+		if not field:
+			return [], "gchatRecipientBasis=DocField but gchatDocField is empty."
+		value = doc.get(field)
+		if not value:
+			return [], f"{doctype} {docname} has nothing in {field!r}."
+		return _addresses_for([value]), ""
+
+	table_field = (task_cfg.get("gchatTableField") or "").strip()
+	# "user" is the conventional row field, and defaulting to it keeps a table
+	# whose rows are obvious from needing a second setting.
+	row_field = (task_cfg.get("gchatTableUserField") or "").strip() or "user"
+	if not table_field:
+		return [], "gchatRecipientBasis=Table Field but gchatTableField is empty."
+
+	rows = doc.get(table_field) or []
+	if not rows:
+		return [], f"{doctype} {docname} has no rows in {table_field!r}."
+	addresses = _addresses_for([row.get(row_field) for row in rows])
+	if not addresses:
+		return [], f"No row of {table_field!r} names a user in {row_field!r}."
+	return addresses, ""
+
+
 def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	"""
 	Send a Google Chat message from a Service Task with serviceType='google_chat'.
@@ -707,10 +837,16 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	    space      — post a message to a Google Chat space by space ID
 
 	Configuration keys (from BPMN XML):
-	    gchatType    — "individual" or "space"
-	    gchatEmail   — recipient email (individual mode)
-	    gchatSpaceId — space ID e.g. "spaces/XXXXXXX" (space mode)
-	    gchatMessage — message body; Jinja2 supported
+	    gchatType             — "individual" or "space"
+	    gchatRecipientBasis   — how a DM names its recipients: "User" (default),
+	                            "DocField" or "Table Field"
+	    gchatEmail            — addresses or user ids, comma separated (User)
+	    gchatDoctype          — whose fields were picked in the editor
+	    gchatDocField         — field on the context document (DocField)
+	    gchatTableField       — child table on the context document (Table Field)
+	    gchatTableUserField   — the row field naming the user, default "user"
+	    gchatSpaceId          — space ID e.g. "spaces/XXXXXXX" (space mode)
+	    gchatMessage          — message body; Jinja2 supported
 
 	Credentials: the site must have a Google service account JSON key stored in
 	site_config.json under "google_chat_service_account_json" (the full JSON content
@@ -720,7 +856,6 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	Failures are non-fatal: the workflow continues and the error is logged.
 	"""
 	gchat_type = task_cfg.get("gchatType", "").strip()
-	gchat_email = (task_cfg.get("gchatEmail") or "").strip()
 	gchat_space_id = (task_cfg.get("gchatSpaceId") or "").strip()
 	raw_message = (task_cfg.get("gchatMessage") or "").strip()
 
@@ -742,12 +877,15 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		)
 		return
 
-	if gchat_type == "individual" and not gchat_email:
-		frappe.log_error(
-			title=f"BPMN ServiceTask: google_chat misconfigured ({bpmn_id})",
-			message="gchatType=individual but gchatEmail is empty.",
-		)
-		return
+	recipients = []
+	if gchat_type == "individual":
+		recipients, problem = google_chat_recipients(instance, task_cfg)
+		if problem or not recipients:
+			frappe.log_error(
+				title=f"BPMN ServiceTask: google_chat has no recipient ({bpmn_id})",
+				message=problem or "No recipient resolved.",
+			)
+			return
 
 	if gchat_type == "space" and not gchat_space_id:
 		frappe.log_error(
@@ -802,33 +940,51 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		payload = {"text": raw_message}
 
 		if gchat_type == "individual":
-			# Create or find a DM space with the user, then post
-			dm_url = "https://chat.googleapis.com/v1/spaces:findDirectMessage"
-			params = {"name": f"users/{gchat_email}"}
-			dm_resp = requests.get(dm_url, headers=headers, params=params, timeout=10)
-			if dm_resp.status_code == 200:
-				space_name = dm_resp.json().get("name", "")
-			else:
-				# Fall back to setup DM space
-				setup_resp = requests.post(
-					"https://chat.googleapis.com/v1/spaces:setup",
-					headers=headers,
-					json={
-						"space": {"spaceType": "DIRECT_MESSAGE"},
-						"memberships": [{"member": {"name": f"users/{gchat_email}", "type": "HUMAN"}}],
-					},
-					timeout=10,
-				)
-				setup_resp.raise_for_status()
-				space_name = setup_resp.json().get("name", "")
+			# One recipient failing must not silence the others, so each is sent
+			# and logged on its own.
+			for address in recipients:
+				try:
+					dm_resp = requests.get(
+						"https://chat.googleapis.com/v1/spaces:findDirectMessage",
+						headers=headers,
+						params={"name": f"users/{address}"},
+						timeout=10,
+					)
+					if dm_resp.status_code == 200:
+						space_name = dm_resp.json().get("name", "")
+					else:
+						# Fall back to setup DM space
+						setup_resp = requests.post(
+							"https://chat.googleapis.com/v1/spaces:setup",
+							headers=headers,
+							json={
+								"space": {"spaceType": "DIRECT_MESSAGE"},
+								"memberships": [
+									{"member": {"name": f"users/{address}", "type": "HUMAN"}}
+								],
+							},
+							timeout=10,
+						)
+						setup_resp.raise_for_status()
+						space_name = setup_resp.json().get("name", "")
 
-			msg_url = f"https://chat.googleapis.com/v1/{space_name}/messages"
+					resp = requests.post(
+						f"https://chat.googleapis.com/v1/{space_name}/messages",
+						headers=headers, json=payload, timeout=10,
+					)
+					resp.raise_for_status()
+				except Exception:
+					frappe.log_error(
+						title=f"BPMN ServiceTask: google_chat DM failed for {address} ({bpmn_id})",
+						message=frappe.get_traceback(),
+					)
 		else:
 			space_name = gchat_space_id.strip().rstrip("/")
-			msg_url = f"https://chat.googleapis.com/v1/{space_name}/messages"
-
-		resp = requests.post(msg_url, headers=headers, json=payload, timeout=10)
-		resp.raise_for_status()
+			resp = requests.post(
+				f"https://chat.googleapis.com/v1/{space_name}/messages",
+				headers=headers, json=payload, timeout=10,
+			)
+			resp.raise_for_status()
 
 	except Exception:
 		frappe.log_error(
@@ -1444,7 +1600,18 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	if not resume_payload and _cfg_truthy(task_cfg.get("aiLongTermMemory")):
 		try:
 			memory_target = _resolve_memory_target(task_cfg, instance, bpmn_id)
-			query = "" if recall_query_unresolved else (user_message or user_prompt)
+			# raw_user_message, NOT user_message: the de-duplication above blanks
+			# the platform's copy whenever the map has already rendered the
+			# person's words into its own prompt, which every chat map does. The
+			# query then fell back to the whole rendered prompt — the standing
+			# instructions, the datetime, the conversation so far — and the
+			# person's question was a line inside it. Measured on prod-backup on
+			# 2026-09-12: run u343rlto5q searched with 150 characters of driving
+			# prompt wrapped around "Who takes our packages out to customers?"
+			# and recalled nothing; the same question on the next turn, run
+			# uo2qj6333g, recalled the fact and injected 109 tokens. The value
+			# before the reset is the question itself.
+			query = "" if recall_query_unresolved else (raw_user_message or user_prompt)
 			# A greeting/acknowledgement carries nothing to search memory with —
 			# skip entirely rather than risk a coincidental keyword match
 			# injecting an unrelated fact into "hi".
@@ -2018,7 +2185,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 					memory_process_model = (
 						getattr(instance, "process_model", None) if scope == "Agent" else None
 					)
-					if user_message and _is_remember_directive(user_message):
+					if raw_user_message and _is_remember_directive(raw_user_message):
 						# An explicit "remember that..." names a standing
 						# convention, not an incidental fact the agent's
 						# output happened to produce — write it verbatim and
@@ -2029,11 +2196,21 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 						# prompt) is what the user asked for. Still gated on
 						# write_mode != "off" above: an agent with memory
 						# writes disabled stays disabled, no separate bypass.
+						#
+						# raw_user_message, NOT user_message: a map that renders
+						# the person's words into its own prompt has them blanked
+						# above (the platform does not add a second copy), and
+						# testing the blanked variable made this branch
+						# unreachable on every such map. Live on prod-backup
+						# 2026-09-12: all seven memories General Chat had written
+						# carried user_directed = 0 and metadata.distilled = true,
+						# so nothing anybody asked it to remember was ever stored
+						# as they said it, and nothing was protected from pruning.
 						from one_bpmn.agents.memory.tools import memory_write
 						memory_write(
 							scope,
 							scope_key,
-							user_message,
+							raw_user_message,
 							source_run=src,
 							ignore_permissions=True,
 							reconcile=True,

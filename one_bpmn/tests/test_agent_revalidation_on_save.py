@@ -86,6 +86,41 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 		doc.reload()
 		return doc
 
+	def test_a_model_the_platform_knows_is_broken_is_not_called_again(self):
+		"""WI-002191 already marks a model whose credentials fail, alerts once and
+		refuses runs on it. Saving an agent on such a model used to make the live
+		call anyway and park the agent on the answer. On prod-backup on
+		2026-09-13 that parked ProsAlly twice, the second time while it was being
+		put back the way it was found."""
+		from one_bpmn.agents.model_health import record_failure
+
+		agent = self._make_agent()
+		record_failure(self.model.name, "INVALID_KEY", "OpenAI rejected the API key (HTTP 401).")
+
+		with patch(TEST_CALL) as call:
+			agent.save(ignore_permissions=True)
+
+		call.assert_not_called()
+		self.assertEqual(agent.lifecycle_status, "Live")
+
+	def test_a_missing_key_names_the_record_not_the_sdk(self):
+		"""What the person saving an agent read was the provider SDK's own words:
+		"Could not resolve authentication method. Expected one of api_key,
+		auth_token, or credentials to be set." The provider is never called: an
+		empty key is answered here, before an adapter is built."""
+		from one_bpmn.agents import agent_provisioning
+
+		agent = self._make_agent()
+		with patch("frappe.utils.password.get_decrypted_password", return_value=""), patch(
+			"one_bpmn.agents.llm_provider.get_llm_adapter_from_settings",
+			side_effect=AssertionError("the provider must not be called"),
+		):
+			ok, detail = agent_provisioning._provider_test_call(agent)
+
+		self.assertFalse(ok)
+		self.assertIn("has no API key set", detail)
+		self.assertIn(self.model.name, detail)
+
 	def test_live_agent_parks_when_provider_call_fails(self):
 		agent = self._make_agent()
 		self.assertEqual(agent.lifecycle_status, "Live")
@@ -158,3 +193,61 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 			self.assertEqual(agent.lifecycle_status, "Live")
 		finally:
 			frappe.flags.test_agent_revalidation = True
+
+
+class TestProviderTestCall(FrappeTestCase):
+	"""The live test call proves the credentials and the model, not the model's
+	brevity. On 2026-09-08 every save of a Live agent on Claude Sonnet 5 parked
+	it because the reply ran past a 16-token ceiling and the adapter raised."""
+
+	def _call(self, adapter_behaviour):
+		from types import SimpleNamespace
+
+		from one_bpmn.agents import agent_provisioning
+
+		class Adapter:
+			async def complete(self, **kwargs):
+				self.kwargs = kwargs
+				return adapter_behaviour(kwargs)
+
+		adapter = Adapter()
+		cfg = SimpleNamespace(agent_id="probe")
+		with patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter), \
+			patch(
+				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
+				return_value={},
+			):
+			return agent_provisioning._provider_test_call(cfg), adapter
+
+	def test_a_truncated_reply_still_passes(self):
+		from one_bpmn.agents.llm_provider.base import LLMTruncatedError
+
+		def truncated(kwargs):
+			raise LLMTruncatedError("The model hit its 64-token output limit before finishing.")
+
+		(ok, detail), _adapter = self._call(truncated)
+		self.assertTrue(ok)
+		self.assertIn("provider answered", detail)
+
+	def test_a_normal_reply_passes_with_the_text(self):
+		from types import SimpleNamespace
+
+		(ok, detail), adapter = self._call(lambda kw: SimpleNamespace(text="OK"))
+		self.assertTrue(ok)
+		self.assertEqual(detail, "OK")
+		self.assertGreaterEqual(adapter.kwargs["max_tokens"], 64)
+
+	def test_a_rejected_key_still_fails(self):
+		def rejected(kwargs):
+			raise RuntimeError("401 Client Error: Unauthorized")
+
+		(ok, detail), _adapter = self._call(rejected)
+		self.assertFalse(ok)
+		self.assertIn("401", detail)
+
+	def test_an_empty_reply_still_fails(self):
+		from types import SimpleNamespace
+
+		(ok, detail), _adapter = self._call(lambda kw: SimpleNamespace(text="   "))
+		self.assertFalse(ok)
+		self.assertEqual(detail, "empty response")

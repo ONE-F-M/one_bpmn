@@ -354,7 +354,7 @@ def invoke_agent(
 	# rather than "something went wrong".
 	from one_bpmn.agents import model_health as _model_health
 
-	_unavailable = _model_health.refuse_new_run(config.get("ai_model"))
+	_unavailable = _model_health.refuse_new_run(config.get("ai_model"), commit=True)
 	if _unavailable:
 		raise _model_health.ModelUnavailable(_unavailable)
 

@@ -122,10 +122,24 @@ def validate_agent_config(config_name: str, test_provider: bool = True, require_
 			errors.append(_("Chat agents need a chat mode label."))
 
 	# 5. Live provider test call
+	#
+	# Skipped when the platform already knows this model's credentials are
+	# broken (WI-002191 marks it, alerts once, and refuses runs on it). Calling
+	# anyway proved nothing and made every save of an affected agent park it:
+	# on prod-backup on 2026-09-13, saving ProsAlly onto a model whose OpenAI
+	# key is rejected parked it twice, the second time while the agent was being
+	# put back the way it was found. The model's own record is where that
+	# failure is reported and fixed.
 	if test_provider and cfg.ai_provider and not errors:
-		ok, detail = _provider_test_call(cfg)
-		if not ok:
-			errors.append(_("Provider test call failed: {0}").format(detail))
+		from one_bpmn.agents import model_health
+
+		blocked = model_health.blocked_reason(cfg.get("ai_model"))
+		if blocked:
+			warnings.append(_("Provider test call skipped: {0}").format(blocked))
+		else:
+			ok, detail = _provider_test_call(cfg)
+			if not ok:
+				errors.append(_("Provider test call failed: {0}").format(detail))
 
 	return {"ok": not errors, "errors": errors, "warnings": warnings}
 
@@ -377,17 +391,52 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 	return suite.name
 
 
+# Room for a model that answers "ping" with a sentence. The Anthropic adapter
+# raises when a reply stops at the token ceiling, and at 16 tokens Claude
+# Sonnet 5 stopped there on every save of a Live agent on staging (2026-09-08),
+# parking the AI Agent Assistant with "hit its 16-token output limit". The test
+# proves the credentials and the model, not the model's brevity.
+_TEST_CALL_MAX_TOKENS = 64
+
+
 def _provider_test_call(cfg) -> tuple[bool, str]:
-	"""Make a minimal live call through the agent's resolved adapter."""
+	"""Make a minimal live call through the agent's resolved adapter.
+
+	Passes when the provider answered at all. A reply cut off at the output
+	ceiling still means the key was accepted and the model exists, which is the
+	whole question here — so truncation counts as a pass, with a note.
+	"""
 	try:
 		from one_bpmn.agents.executor.direct_api import _run_coro_blocking
 		from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
+		from one_bpmn.agents.llm_provider.base import LLMTruncatedError
 		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 
+		# Say which record is empty. Without this the provider SDK answers for
+		# us, and what the person saving an agent read was "Could not resolve
+		# authentication method. Expected one of api_key, auth_token, or
+		# credentials to be set." The dispatch path has carried this guard since
+		# WI-002134; this path did not.
+		from frappe.utils.password import get_decrypted_password
+
+		model = cfg.get("ai_model") or ""
+		if model:
+			try:
+				key = get_decrypted_password("AI Model", model, "api_key", raise_exception=False)
+			except Exception:
+				key = None
+			if not key:
+				return (False, _("AI Model '{0}' has no API key set.").format(model))
+
 		adapter = get_llm_adapter_from_settings(get_agent_config(cfg.agent_id))
-		completion = _run_coro_blocking(
-			adapter.complete(system="Reply with the single word: OK.", user="ping", max_tokens=16)
-		)
+		try:
+			completion = _run_coro_blocking(
+				adapter.complete(
+					system="Reply with the single word: OK.", user="ping", max_tokens=_TEST_CALL_MAX_TOKENS
+				)
+			)
+		except LLMTruncatedError:
+			return (True, "provider answered; the reply ran past the test's token ceiling")
 		text = getattr(completion, "text", str(completion or ""))
 		return (bool(text and text.strip()), text.strip()[:80] or "empty response")
 	except Exception as exc:
