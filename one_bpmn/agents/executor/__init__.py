@@ -40,7 +40,24 @@ DEFAULT_MAX_OUTPUT_TOKENS = 16384
 # Exported so the BPMN dispatcher can defer to it. It used to hardcode its own
 # 30 instead, which meant raising the value below changed nothing for any AI
 # task in any process map — the fix was dead on arrival. See dispatch_ai_agent.
+#
+# The AI Task Selector hardcoded 60, so the same agent waited three times longer
+# on one path than the other for no reason anybody chose.
 DEFAULT_TIMEOUT_SECONDS = 180
+
+# How random the model is allowed to be when nothing says otherwise.
+#
+# This is the number the AI Agent Configuration form has always shown as its
+# default, so it is the one an administrator reading the form expects to be
+# running. The AI Agent Task path used its own 0.7, which meant the same agent
+# was measurably more inventive through a process map than through a chat, and
+# the form was quietly wrong about it either way.
+DEFAULT_TEMPERATURE = 0.3
+
+# Nucleus sampling. 1.0 means "do not narrow the choices", which leaves
+# temperature as the single dial; two dials doing overlapping jobs is how a
+# prompt becomes impossible to reason about.
+DEFAULT_TOP_P = 1.0
 
 
 # ---------------------------------------------------------------------------
