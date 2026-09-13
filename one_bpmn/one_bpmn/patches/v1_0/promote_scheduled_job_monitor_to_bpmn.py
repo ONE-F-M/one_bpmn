@@ -83,6 +83,9 @@ For each failed job in the batch:
 
 Make as many tool calls as the batch requires, then stop once every job has been handled.
 
+████ IF A TOOL CALL FAILS ████
+If `get_recent_hd_tickets` or `create_hd_ticket_from_error` returns an error, do not retry that same call and do not explain what went wrong in your final reply. Simply do not count that job as processed, move on to the rest of the batch, and always finish the same way you would on a clean run — the required JSON object (at minimum `{"processed": <int>}`), never plain-text prose, even when a tool call failed.
+
 ████ WHAT COUNTS AS A DUPLICATE ████
 Treat two failures as the same issue only when they share the same scheduled_job_type and the error is clearly the same underlying problem, not just superficially similar wording. When genuinely unsure, prefer creating a new ticket over silently dropping a real failure — a person can merge or close a false-positive duplicate, but a missed failure is invisible."""
 
