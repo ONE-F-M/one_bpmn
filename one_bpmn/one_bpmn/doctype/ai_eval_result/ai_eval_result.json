@@ -37,8 +37,9 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Passed\nFailed\nError",
-   "reqd": 1
+   "options": "Passed\nFailed\nError\nSkipped",
+   "reqd": 1,
+   "description": "Skipped means nothing could be checked \u2014 a deterministic pass met an assertion that needs a model, or a case with no recorded answer. It counts as neither a pass nor a failure."
   },
   {
    "fieldname": "input_user_prompt",

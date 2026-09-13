@@ -267,6 +267,7 @@ def get_suite_detail(suite: str) -> dict:
 			"gate_deployment": doc.gate_deployment,
 			"pass_k": cint(doc.pass_k) or 1,
 			"min_pass_rate": flt(doc.min_pass_rate),
+			"ci_role": doc.ci_role or "",
 		},
 		"cases": cases,
 		"runs": runs,
@@ -843,13 +844,16 @@ def case_consistency(suite: str, limit: int = 20) -> dict:
 
 
 @frappe.whitelist()
-def update_suite_thresholds(suite: str, pass_k=None, min_pass_rate=None, gate_deployment=None) -> dict:
-	"""Set how many times each case runs, the rate the suite must clear, and
-	whether falling below it blocks the linked map from being activated.
+def update_suite_thresholds(suite: str, pass_k=None, min_pass_rate=None, gate_deployment=None,
+							ci_role=None) -> dict:
+	"""Set how a suite behaves when nobody is driving it: which automated job
+	picks it up, how many times each case runs, the rate it must clear, and
+	whether falling below that rate blocks the linked map from being activated.
 
-	The three belong together: a rate nothing enforces is a note to self, and a
-	gate with no rate only warns. Setting them anywhere else meant the switch
-	lived in the desk while the bar lived here.
+	They belong together: a rate nothing enforces is a note to self, a gate with
+	no rate only warns, and a suite no job picks up never produces either.
+	Setting any of them anywhere else meant the switch lived in the desk while
+	the bar lived here.
 	"""
 	doc = frappe.get_doc("AI Eval Suite", suite)
 	doc.check_permission("write")
@@ -868,6 +872,11 @@ def update_suite_thresholds(suite: str, pass_k=None, min_pass_rate=None, gate_de
 		doc.min_pass_rate = rate
 	if gate_deployment is not None:
 		doc.gate_deployment = cint(gate_deployment)
+	if ci_role is not None:
+		role = (ci_role or "").strip()
+		if role not in ("", "Smoke", "Nightly"):
+			frappe.throw(_("CI Role must be Smoke, Nightly, or blank."))
+		doc.ci_role = role
 
 	if doc.gate_deployment and not doc.process_model:
 		frappe.throw(
@@ -880,6 +889,7 @@ def update_suite_thresholds(suite: str, pass_k=None, min_pass_rate=None, gate_de
 		"pass_k": doc.pass_k,
 		"min_pass_rate": doc.min_pass_rate,
 		"gate_deployment": doc.gate_deployment,
+		"ci_role": doc.ci_role or "",
 	}
 
 
