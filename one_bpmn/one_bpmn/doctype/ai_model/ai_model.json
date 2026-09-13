@@ -9,6 +9,7 @@
   "enable_model",
   "provider",
   "model_name",
+  "display_name",
   "api_details_section",
   "api_endpoint",
   "column_break_hujr",
