@@ -175,19 +175,14 @@
                to that provider's models. Read-only between WI-001650 and now;
                a provider that cannot be picked cannot narrow anything. -->
           <div class="field-row">
-            <FormControl
-              type="select"
-              label="AI Provider"
-              v-model="form.aiProvider"
-              :options="[
-                { label: '-- Any provider --', value: '' },
-                ...providers.map((p) => ({ label: p.provider_name || p.name, value: p.name })),
-              ]"
-              @change="onProviderChange"
-            />
-            <span class="field-hint">
-              Narrows the model lists below. Choosing a provider clears a model that belongs to a different one.
-            </span>
+            <label>AI Provider <span class="hint">(narrows the models below)</span></label>
+            <select v-model="form.aiProvider" @change="onProviderChange">
+              <option value="">-- Any provider --</option>
+              <option v-for="p in providers" :key="p.name" :value="p.name">
+                {{ p.provider_name || p.name }}
+              </option>
+            </select>
+            <span class="field-hint">Choosing a provider clears a model that belongs to a different one.</span>
           </div>
 
           <!-- Model — the agent's catalog pick (WI-001655): editable here and
@@ -730,7 +725,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, toRaw } from "vue";
-import { Dialog, FormControl, frappeRequest } from "frappe-ui";
+import { Dialog, frappeRequest } from "frappe-ui";
 import { frappeGet } from "@/bpmn/shared/frappeResource";
 // WI-001674: agent mode chats through the shared panel + card registry.
 import { AgentChatPanel } from "@/components/chat";
