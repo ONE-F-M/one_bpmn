@@ -29,7 +29,7 @@ from contextlib import ExitStack, nullcontext
 
 import frappe
 from frappe import _
-from frappe.utils import get_datetime, now, now_datetime
+from frappe.utils import cint, get_datetime, now, now_datetime
 
 VALID_SCOPES = ("Agent", "Process", "Entity")
 _DEFAULT_LIMIT = 5
@@ -572,7 +572,16 @@ def _resolve_conflict(action: str | None, supersedes: list, source_type: str, co
 	rows = frappe.get_all(
 		"AI Memory",
 		filters={"name": ("in", list(supersedes))},
-		fields=["name", "source_type", "confidence", "corroboration_count", "last_corroborated", "modified"],
+		fields=[
+			"name",
+			"source_type",
+			"confidence",
+			"corroboration_count",
+			"last_corroborated",
+			"modified",
+			"user_directed",
+			"content",
+		],
 	)
 	if action == "replace":
 		order = trust_hierarchy()
@@ -584,11 +593,24 @@ def _resolve_conflict(action: str | None, supersedes: list, source_type: str, co
 		return action, {}
 	if action == "update":
 		best = max([confidence] + [effective_confidence(r) for r in rows])
-		return action, {
+		carry = {
 			"confidence": min(1.0, best + _CORROBORATION_BOOST),
 			"corroboration_count": max([int(r.get("corroboration_count") or 0) for r in rows] + [0]) + 1,
 			"last_corroborated": now_datetime(),
 		}
+		# Corroboration invalidates the old rows and inserts a fresh one, so
+		# without this a person's "remember that ..." is replaced by the agent's
+		# later paraphrase of it: the words change and user_directed goes back to
+		# 0. That flag is what keeps a memory out of the Log Settings cleanup and
+		# what makes memory_list_user_directed recall it whatever the turn is
+		# about, so the memory the person asked for quietly becomes an ordinary
+		# one. A restatement raises the count and the confidence. It does not get
+		# to reword what somebody asked for.
+		directed = [r for r in rows if cint(r.get("user_directed"))]
+		if directed:
+			carry["user_directed"] = 1
+			carry["content"] = max(directed, key=lambda r: r.get("modified") or "").get("content")
+		return action, carry
 	return action, {}
 
 
@@ -977,6 +999,13 @@ def _memory_write(
 		if carry.get("corroboration_count"):
 			doc_fields["corroboration_count"] = carry["corroboration_count"]
 			doc_fields["last_corroborated"] = carry.get("last_corroborated")
+		if carry.get("user_directed"):
+			# A restatement of something a person asked to be remembered keeps
+			# both the flag and their wording (see _resolve_conflict).
+			doc_fields["user_directed"] = 1
+		if carry.get("content"):
+			content = carry["content"]
+			doc_fields["content"] = content
 		doc = frappe.get_doc(doc_fields)
 		doc.insert(ignore_permissions=ignore_permissions)
 		store_embedding(doc.name, content)
