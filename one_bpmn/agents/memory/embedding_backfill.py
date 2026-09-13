@@ -55,6 +55,17 @@ def backfill_embeddings(batch_size: int = BATCH_SIZE) -> dict:
 		frappe.db.commit()
 
 	frappe.logger("one_bpmn").info(f"AI Memory backfill: embedded={embedded} failed={failed}")
+	if failed:
+		# The per-row warnings above go to a log file nobody opens. The run as a
+		# whole is worth one record in the desk, where the person who ran the
+		# migration will find it.
+		from one_bpmn.agents.llm_provider.embedding import report_degraded
+
+		report_degraded(
+			"AI Memory backfill: rows left without an embedding",
+			f"embedded={embedded} failed={failed}. Those rows stay findable by keyword search. "
+			"Re-run one_bpmn.agents.memory.embedding_backfill.backfill_embeddings once the model loads.",
+		)
 	return {"embedded": embedded, "failed": failed}
 
 
