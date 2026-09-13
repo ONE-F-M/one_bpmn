@@ -559,7 +559,7 @@
               >
                 {{ form.aiMemoryDistillModel }} (not in catalog)
               </option>
-              <option v-for="m in catalogModels" :key="'distill-' + m.name" :value="m.name">
+              <option v-for="m in filteredCatalogModels" :key="'distill-' + m.name" :value="m.name">
                 {{ modelLabel(m) }}
               </option>
             </select>
