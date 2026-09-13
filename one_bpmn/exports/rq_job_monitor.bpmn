@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:spiffworkflow="http://spiffworkflow.org/bpmn/schema/1.0/core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Definitions_RQJobMonitor" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="rq_job_monitor_process" name="RQ Job Monitor" isExecutable="true">
+    <bpmn:documentation>Replaces onefm_mcp's google-adk RQ Job Monitoring Agent. Runs every 15/45 minutes: fetches recently failed RQ Jobs, deduplicates them via an AI Agent Task, matches survivors against open HD Tickets via a second AI Agent Task, and creates a new HD Ticket for anything unmatched. No context document — this is a bare Timer Start Event, same shape as the old Process Task cron.</bpmn:documentation>
+    <bpmn:startEvent id="start_timer" name="Every 15/45 min">
+      <bpmn:outgoing>f1</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="TimerEventDefinition_1" spiffworkflow:cronExpression="15,45 * * * *">
+        <bpmn:timeCycle xsi:type="bpmn:tFormalExpression">15,45 * * * *</bpmn:timeCycle>
+      </bpmn:timerEventDefinition>
+    </bpmn:startEvent>
+    <bpmn:scriptTask id="fetch_failed" name="Fetch Failed RQ Jobs" spiffworkflow:serverScript="RQ Job Monitor - Fetch Failed Jobs" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="RQ Job Monitor - Fetch Failed Jobs">
+      <bpmn:documentation>RQ Job where status=failed and ended_at is within the last 30 minutes. Writes failed_jobs (list of {name, job_name, exc_info, arguments}).</bpmn:documentation>
+      <bpmn:incoming>f1</bpmn:incoming>
+      <bpmn:outgoing>f2</bpmn:outgoing>
+    </bpmn:scriptTask>
+    <bpmn:exclusiveGateway id="gw_has_failures" name="Any Failed Jobs?" default="f4">
+      <bpmn:incoming>f2</bpmn:incoming>
+      <bpmn:outgoing>f3</bpmn:outgoing>
+      <bpmn:outgoing>f4</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="end_nothing" name="Nothing To Do">
+      <bpmn:incoming>f4</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="dedup_task" name="AI Agent Task: Deduplicate Failed Jobs" spiffworkflow:serviceType="ai_agent" spiffworkflow:aiStopOnError="true" spiffworkflow:aiAgentConfig="RQ Job Deduplicator" spiffworkflow:aiUserPrompt="Analyze these failed RQ Jobs and identify the unique failures. Each job has a name (unique id), job_name, exc_info and arguments.&#10;&#10;{{ failed_jobs | tojson }}&#10;&#10;Respond with the JSON object described in your instructions." spiffworkflow:aiResponseFormat="json" spiffworkflow:aiResponseSchema="{&quot;type&quot;:&quot;object&quot;,&quot;required&quot;:[&quot;unique_names&quot;],&quot;properties&quot;:{&quot;unique_names&quot;:{&quot;type&quot;:&quot;array&quot;,&quot;items&quot;:{&quot;type&quot;:&quot;string&quot;}}}}" spiffworkflow:aiOutputVariable="dedup_result">
+      <bpmn:documentation>System prompt (matching criteria) lives on the linked "RQ Job Deduplicator" AI Agent Configuration, not here. Returns {"unique_names": [job "name" values to keep]}.</bpmn:documentation>
+      <bpmn:incoming>f3</bpmn:incoming>
+      <bpmn:outgoing>f5</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="gw_has_unique" name="Any Unique Jobs?" default="f7">
+      <bpmn:incoming>f5</bpmn:incoming>
+      <bpmn:outgoing>f6</bpmn:outgoing>
+      <bpmn:outgoing>f7</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="end_all_duplicates" name="All Duplicates">
+      <bpmn:incoming>f7</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:scriptTask id="fetch_tickets" name="Fetch Open Tickets" spiffworkflow:serverScript="RQ Job Monitor - Fetch Open Tickets" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="RQ Job Monitor - Fetch Open Tickets">
+      <bpmn:documentation>Filters failed_jobs down to unique_failed_jobs using dedup_result.unique_names, and fetches open HD Tickets (status not in Resolved/Closed) with custom_reference_doctype=RQ Job.</bpmn:documentation>
+      <bpmn:incoming>f6</bpmn:incoming>
+      <bpmn:outgoing>f8</bpmn:outgoing>
+    </bpmn:scriptTask>
+    <bpmn:serviceTask id="match_task" name="AI Agent Task: Match Jobs To Tickets" spiffworkflow:serviceType="ai_agent" spiffworkflow:aiStopOnError="true" spiffworkflow:aiAgentConfig="RQ Job Ticket Matcher" spiffworkflow:aiUserPrompt="Failed jobs needing a ticket decision (name, job_name, exc_info, arguments):&#10;&#10;{{ unique_failed_jobs | tojson }}&#10;&#10;Existing open HD Tickets (name, subject, description):&#10;&#10;{{ open_tickets | tojson }}&#10;&#10;For EVERY job above, in the same order, decide whether it matches one of the tickets. Respond with the JSON object described in your instructions." spiffworkflow:aiResponseFormat="json" spiffworkflow:aiResponseSchema="{&quot;type&quot;:&quot;object&quot;,&quot;required&quot;:[&quot;decisions&quot;],&quot;properties&quot;:{&quot;decisions&quot;:{&quot;type&quot;:&quot;array&quot;,&quot;items&quot;:{&quot;type&quot;:&quot;object&quot;,&quot;required&quot;:[&quot;job_name&quot;],&quot;properties&quot;:{&quot;job_name&quot;:{&quot;type&quot;:&quot;string&quot;},&quot;ticket_name&quot;:{&quot;type&quot;:[&quot;string&quot;,&quot;null&quot;]}}}}}}" spiffworkflow:aiOutputVariable="match_result">
+      <bpmn:documentation>System prompt (matching criteria) lives on the linked "RQ Job Ticket Matcher" AI Agent Configuration. Returns {"decisions": [{"job_name": &lt;input job "name"&gt;, "ticket_name": &lt;matched HD Ticket "name" or null&gt;}, ...]} — the matched ticket's identity always travels through structured output, never inferred positionally.</bpmn:documentation>
+      <bpmn:incoming>f8</bpmn:incoming>
+      <bpmn:outgoing>f9</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:scriptTask id="create_tickets" name="Create Tickets For Unmatched Jobs" spiffworkflow:serverScript="RQ Job Monitor - Create Tickets" spiffworkflow:scriptType="Server Script" spiffworkflow:scriptName="RQ Job Monitor - Create Tickets">
+      <bpmn:documentation>For every decision in match_result.decisions with no ticket_name, creates an HD Ticket (subject truncated to 140 chars, description = RQ Job link + exception + arguments, custom_reference_doctype=RQ Job, custom_ticket_category=Process Issue, raised_by=Administrator).</bpmn:documentation>
+      <bpmn:incoming>f9</bpmn:incoming>
+      <bpmn:outgoing>f10</bpmn:outgoing>
+    </bpmn:scriptTask>
+    <bpmn:endEvent id="end_done" name="Done">
+      <bpmn:incoming>f10</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="f1" sourceRef="start_timer" targetRef="fetch_failed" />
+    <bpmn:sequenceFlow id="f2" sourceRef="fetch_failed" targetRef="gw_has_failures" />
+    <bpmn:sequenceFlow id="f3" name="Yes" sourceRef="gw_has_failures" targetRef="dedup_task">
+      <bpmn:conditionExpression>len(failed_jobs) &gt; 0</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="f4" name="No" sourceRef="gw_has_failures" targetRef="end_nothing" />
+    <bpmn:sequenceFlow id="f5" sourceRef="dedup_task" targetRef="gw_has_unique" />
+    <bpmn:sequenceFlow id="f6" name="Yes" sourceRef="gw_has_unique" targetRef="fetch_tickets">
+      <bpmn:conditionExpression>len((dedup_result or {}).get('unique_names') or []) &gt; 0</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="f7" name="No" sourceRef="gw_has_unique" targetRef="end_all_duplicates" />
+    <bpmn:sequenceFlow id="f8" sourceRef="fetch_tickets" targetRef="match_task" />
+    <bpmn:sequenceFlow id="f9" sourceRef="match_task" targetRef="create_tickets" />
+    <bpmn:sequenceFlow id="f10" sourceRef="create_tickets" targetRef="end_done" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="Diagram_1">
+    <bpmndi:BPMNPlane id="Plane_1" bpmnElement="rq_job_monitor_process">
+      <bpmndi:BPMNShape id="start_timer_di" bpmnElement="start_timer">
+        <dc:Bounds x="40" y="82" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="20" y="118" width="80" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="fetch_failed_di" bpmnElement="fetch_failed">
+        <dc:Bounds x="140" y="60" width="120" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="gw_has_failures_di" bpmnElement="gw_has_failures" isMarkerVisible="true">
+        <dc:Bounds x="320" y="75" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="300" y="45" width="90" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="end_nothing_di" bpmnElement="end_nothing">
+        <dc:Bounds x="327" y="222" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="305" y="258" width="80" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="dedup_task_di" bpmnElement="dedup_task">
+        <dc:Bounds x="430" y="60" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="gw_has_unique_di" bpmnElement="gw_has_unique" isMarkerVisible="true">
+        <dc:Bounds x="630" y="75" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="608" y="45" width="94" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="end_all_duplicates_di" bpmnElement="end_all_duplicates">
+        <dc:Bounds x="637" y="222" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="610" y="258" width="90" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="fetch_tickets_di" bpmnElement="fetch_tickets">
+        <dc:Bounds x="740" y="60" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="match_task_di" bpmnElement="match_task">
+        <dc:Bounds x="940" y="60" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="create_tickets_di" bpmnElement="create_tickets">
+        <dc:Bounds x="1140" y="60" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="end_done_di" bpmnElement="end_done">
+        <dc:Bounds x="1340" y="82" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1330" y="118" width="56" height="27" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="f1_di" bpmnElement="f1">
+        <di:waypoint x="76" y="100" />
+        <di:waypoint x="140" y="100" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f2_di" bpmnElement="f2">
+        <di:waypoint x="260" y="100" />
+        <di:waypoint x="320" y="100" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f3_di" bpmnElement="f3">
+        <di:waypoint x="370" y="100" />
+        <di:waypoint x="430" y="100" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f4_di" bpmnElement="f4">
+        <di:waypoint x="345" y="125" />
+        <di:waypoint x="345" y="222" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f5_di" bpmnElement="f5">
+        <di:waypoint x="570" y="100" />
+        <di:waypoint x="630" y="100" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f6_di" bpmnElement="f6">
+        <di:waypoint x="680" y="100" />
+        <di:waypoint x="740" y="100" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f7_di" bpmnElement="f7">
+        <di:waypoint x="655" y="125" />
+        <di:waypoint x="655" y="222" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f8_di" bpmnElement="f8">
+        <di:waypoint x="880" y="100" />
+        <di:waypoint x="940" y="100" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f9_di" bpmnElement="f9">
+        <di:waypoint x="1080" y="100" />
+        <di:waypoint x="1140" y="100" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f10_di" bpmnElement="f10">
+        <di:waypoint x="1280" y="100" />
+        <di:waypoint x="1340" y="100" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
