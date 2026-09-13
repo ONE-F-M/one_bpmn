@@ -5,6 +5,8 @@ import json
 import uuid
 
 import frappe
+
+from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime
@@ -600,8 +602,9 @@ class BPMNProcessInstance(Document):
 		    decision inline; the next decision parks again (one job per turn).
 		kind == "agent_sandbox_result" — task_id is the SpiffWorkflow UUID
 		    of a parked Service Task waiting on the external Cloud Run sandbox
-		    (agent_sandbox_ops.dispatch): apply the Agent Sandbox Run's
-		    outcome and complete it. A still-running sandbox leaves it parked.
+		    (agent_sandbox_ops.run_tests / open_pull_request): apply the Agent
+		    Sandbox Run's outcome and complete it. A still-running sandbox
+		    leaves it parked.
 
 		Downstream non-AI tasks reached after the AI completes run in this
 		worker pass — there is no open request to return them to. Further AI
@@ -955,7 +958,8 @@ class BPMNProcessInstance(Document):
 
 	@staticmethod
 	def _task_waiting_agent_sandbox(task) -> dict | None:
-		"""The waiting-for-sandbox marker agent_sandbox_ops.dispatch left
+		"""The waiting-for-sandbox marker agent_sandbox_ops's
+		_dispatch_single_action (run_tests/open_pull_request) left
 		on task.data, or None. A marked task must not be re-dispatched or
 		completed — it leaves this state only through the
 		agent_sandbox_result resume path."""
@@ -1043,7 +1047,7 @@ class BPMNProcessInstance(Document):
 				# AI-only jobs — the rest of the pass already ran inline
 				# (WI-001494/WI-001495).
 				queue="bpmn_ai_agent",
-				timeout=600,
+				timeout=AI_AGENT_JOB_TIMEOUT,
 				enqueue_after_commit=True,
 				job_id=f"bpmn-ai-{self.name}-{ident}",
 				deduplicate=True,
@@ -1075,7 +1079,7 @@ class BPMNProcessInstance(Document):
 
 		# Mirrors the "waits_on" == "a2a" case exactly, for a connector that
 		# parks the caller instead of delegating to another local agent —
-		# agent_sandbox_ops.dispatch(), called as an ai_agent tool.
+		# agent_sandbox_ops.run_tests/open_pull_request, called as ai_agent tools.
 		if marker.get("waits_on") == "agent_sandbox":
 			self._bind_agent_sandbox_wait(task, marker)
 			return
@@ -1298,7 +1302,7 @@ class BPMNProcessInstance(Document):
 			"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 			".bpmn_process_instance.run_parked_ai_task",
 			queue="bpmn_ai_agent",
-			timeout=600,
+			timeout=AI_AGENT_JOB_TIMEOUT,
 			enqueue_after_commit=True,
 			job_id=f"bpmn-ai-{self.name}-hr-{task_id}",
 			deduplicate=True,
@@ -2412,7 +2416,7 @@ def _enqueue_a2a_resume(instance_name: str, wf_task_id: str, a2a_task_name: str)
 		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 		".bpmn_process_instance.run_parked_ai_task",
 		queue="bpmn_ai_agent",
-		timeout=600,
+		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,
 		job_id=f"bpmn-ai-{instance_name}-a2a-{a2a_task_name}",
 		deduplicate=True,
@@ -2439,7 +2443,7 @@ def _enqueue_agent_sandbox_resume(instance_name: str, wf_task_id: str, run_name:
 		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 		".bpmn_process_instance.run_parked_ai_task",
 		queue="bpmn_ai_agent",
-		timeout=600,
+		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,
 		job_id=f"bpmn-ai-{instance_name}-agent-sandbox-{run_name}",
 		deduplicate=True,
@@ -2503,7 +2507,7 @@ def run_parked_ai_task(
 				"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 				".bpmn_process_instance.run_parked_ai_task",
 				queue="bpmn_ai_agent",
-				timeout=600,
+				timeout=AI_AGENT_JOB_TIMEOUT,
 				enqueue_after_commit=True,
 				job_id=f"bpmn-ai-{instance_name}-{task_id}-r{attempt + 1}",
 				deduplicate=True,

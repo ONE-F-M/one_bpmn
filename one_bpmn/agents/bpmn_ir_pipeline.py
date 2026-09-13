@@ -11,6 +11,8 @@ in gated script bodies. The ProsAlly agent's LLM/prompt/routing logic now lives
 inline in its BPMN tool scripts; these transforms are the shared seam those
 scripts import.
 
+    check_topology        is the flow graph planar (zero crossings possible)?
+    flow_pairs_from_xml   (source, target) pairs of an existing diagram
     compile_ir            IR JSON -> BPMN XML via spiff/pipeline.mjs (subprocess)
     extract_process_name  read the pool/process name out of BPMN XML
     extract_element_ids   the preserve-these-ids table for a modify turn
@@ -100,10 +102,18 @@ _RULE_HINTS: dict[str, str] = {
         "This node's visual position falls outside its lane band. The 'lane' field is likely wrong. "
         "Change the node's 'lane' to the correct lane id for the actor performing this step."
     ),
+    "non-planar": (
+        "The flow graph cannot be drawn without lines crossing; no layout can change that. "
+        "If a returning flow can join at an existing merge gateway with the same behaviour, join there. "
+        "Otherwise keep the IR as it is and tell the user one crossing is unavoidable. "
+        "Do not regenerate to chase a crossing-free drawing."
+    ),
 }
 
 # Rules whose problems are fixed by the compiler, not by LLM IR changes.
-_IR_IGNORABLE_RULES: frozenset[str] = frozenset({"no-bpmndi"})
+_IR_IGNORABLE_RULES: frozenset[str] = frozenset({
+    "no-bpmndi", "edge-crossing", "edge-through-shape", "collinear-overlap", "label-collision",
+})
 
 # Element types that are structural containers / DI / definitions — never part
 # of the "IDs the LLM must preserve" table.
@@ -162,24 +172,91 @@ def _pipeline_path() -> str:
     ))
 
 
+# ── Topology ─────────────────────────────────────────────────────────────────
+def _flow_pairs(flows) -> list[tuple[str, str]]:
+    """IR flow dicts or (from, to) tuples, minus self-loops and blanks."""
+    pairs = []
+    for f in flows or []:
+        a, b = (f.get("from"), f.get("to")) if isinstance(f, dict) else (f[0], f[1])
+        if a and b and a != b:
+            pairs.append((str(a), str(b)))
+    return pairs
+
+
+def flow_pairs_from_xml(xml: str) -> list[tuple[str, str]]:
+    """The (sourceRef, targetRef) of every sequence flow in a BPMN XML string."""
+    pairs = []
+    for m in re.finditer(r"<bpmn2?:sequenceFlow\b([^>]*)>", xml or ""):
+        s = re.search(r'sourceRef="([^"]+)"', m.group(1))
+        t = re.search(r'targetRef="([^"]+)"', m.group(1))
+        if s and t:
+            pairs.append((s.group(1), t.group(1)))
+    return pairs
+
+
+def check_topology(flows) -> dict:
+    """Can the flow graph be drawn with no crossing lines at all?
+
+    A non-planar graph forces a crossing in every layout, so ``planar`` fixes the
+    crossing count the layout audit holds the drawing to. ``obstruction`` names
+    the nodes of the Kuratowski subgraph — the part that cannot be flattened.
+    """
+    pairs = _flow_pairs(flows)
+    if not pairs:
+        return {"planar": True, "obstruction": [], "min_crossings": 0}
+    try:
+        import networkx as nx
+    except ImportError:  # pragma: no cover — networkx ships with the bench env
+        return {"planar": None, "obstruction": [], "min_crossings": 0}
+    graph = nx.Graph()
+    graph.add_edges_from(pairs)
+    planar, cert = nx.check_planarity(graph, counterexample=True)
+    obstruction = [] if planar else sorted(cert.nodes())
+    return {"planar": bool(planar), "obstruction": obstruction, "min_crossings": 0 if planar else 1}
+
+
+def _topology_problem(topo: dict, names: dict) -> dict:
+    who = ", ".join(names.get(n, n) for n in topo.get("obstruction", [])[:6])
+    return {
+        "kind": "topology", "rule": "non-planar", "elementId": "", "nodes": topo.get("obstruction", []),
+        "message": (
+            "This process cannot be drawn without a crossing line: the paths through "
+            f"{who} cannot all be laid flat. One crossing is the minimum."
+        ),
+    }
+
+
 def compile_ir(ir: dict) -> dict:
     """Compile an IR dict into BPMN XML via ``spiff/pipeline.mjs``.
 
-    Runs the Node pipeline (normalise → compile → layout) in a subprocess and
-    returns its raw JSON result:
+    Runs the Node pipeline (normalise → compile → layout → audit) in a
+    subprocess and returns its JSON result:
 
-        {"ok": bool, "xml": str, "problems": list, "normalizedIR": dict?}
+        {"ok": bool, "xml": str, "problems": list, "normalizedIR": dict?,
+         "layout": dict?, "topology": dict}
+
+    ``topology`` is computed here, before the subprocess, so it is present even
+    when the pipeline fails. A non-planar graph adds a ``topology`` problem
+    without turning ``ok`` off: the XML compiles, and the crossing is a fact
+    about the process rather than a failure. A drawing with more crossings than
+    the graph requires adds a ``layout`` problem — the compiler's defect, never
+    the IR's.
 
     Never raises — a missing node binary, empty output, timeout, or any other
     failure is returned as ``{"ok": False, "xml": "", "problems": [...]}`` so a
     tool-calling loop stays alive.
     """
+    try:
+        topo = check_topology((ir or {}).get("flows"))
+    except Exception:  # noqa: BLE001 — topology must never block compilation
+        topo = {"planar": None, "obstruction": [], "min_crossings": 0}
+
+    def fail(message):
+        return {"ok": False, "xml": "", "topology": topo, "problems": [{"kind": "fatal", "message": message}]}
+
     node = _find_node()
     if not node:
-        return {
-            "ok": False, "xml": "",
-            "problems": [{"kind": "fatal", "message": "node not found in PATH"}],
-        }
+        return fail("node not found in PATH")
     try:
         result = subprocess.run(
             [node, _pipeline_path()],
@@ -190,13 +267,28 @@ def compile_ir(ir: dict) -> dict:
         )
         stdout = result.stdout.strip()
         if not stdout:
-            stderr = result.stderr.strip() or "pipeline produced no output"
-            return {"ok": False, "xml": "", "problems": [{"kind": "fatal", "message": stderr}]}
-        return json.loads(stdout)
+            return fail(result.stderr.strip() or "pipeline produced no output")
+        out = json.loads(stdout)
     except subprocess.TimeoutExpired:
-        return {"ok": False, "xml": "", "problems": [{"kind": "fatal", "message": "pipeline timed out after 30 s"}]}
+        return fail("pipeline timed out after 30 s")
     except Exception as exc:  # noqa: BLE001 — must never propagate into the loop
-        return {"ok": False, "xml": "", "problems": [{"kind": "fatal", "message": str(exc)}]}
+        return fail(str(exc))
+
+    out["topology"] = topo
+    out.setdefault("problems", [])
+    if topo.get("planar") is False:
+        names = {n.get("id"): n.get("name") or n.get("id") for n in (ir or {}).get("nodes") or [] if n.get("id")}
+        out["problems"].append(_topology_problem(topo, names))
+    crossings = (out.get("layout") or {}).get("crossings", 0)
+    if out.get("ok") and crossings > topo.get("min_crossings", 0):
+        out["problems"].append({
+            "kind": "layout", "rule": "edge-crossing", "elementId": "",
+            "message": (
+                f"Drawing has {crossings} crossing(s); the flow graph needs {topo.get('min_crossings', 0)}. "
+                "Layout defect, not an IR change."
+            ),
+        })
+    return out
 
 
 # ── Diagram reading (pure string parsing) ────────────────────────────────────

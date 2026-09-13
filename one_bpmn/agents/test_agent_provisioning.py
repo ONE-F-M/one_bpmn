@@ -149,3 +149,23 @@ class TestGenerateEvalSuiteForAgent(FrappeTestCase):
 		# No third suite was created, and the duplicate is left untouched.
 		self.assertEqual(len(self._suites()), 2)
 		self.assertEqual(self._case_names(newest.name), set())
+
+	def test_a_hand_authored_case_survives_a_regeneration(self):
+		"""A baseline suite is also where regression cases are written by hand.
+
+		Refreshing from the sample prompts replaces what this generator wrote —
+		"<suite> — <n>" — and nothing else, or a check somebody added for a fixed
+		bug disappears the next time the agent is saved.
+		"""
+		self._make_agent(["one"])
+		suite = generate_eval_suite_for_agent(self.agent_name)
+		mine = frappe.get_doc({
+			"doctype": "AI Eval Case",
+			"title": "Greeting — no schema tool runs",
+			"suite": suite,
+			"input_user_prompt": "hi",
+		}).insert(ignore_permissions=True)
+
+		generate_eval_suite_for_agent(self.agent_name)
+
+		self.assertTrue(frappe.db.exists("AI Eval Case", mine.name))

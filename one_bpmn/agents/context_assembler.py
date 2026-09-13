@@ -203,7 +203,12 @@ def load_agent_behaviour(config_name: str) -> dict:
 	return get_agent_config(agent_id) or {}
 
 
-def build_dynamic_preamble(memory_block: str = "", user_prompt: str = "", active_skills: list[str] = None) -> str:
+def build_dynamic_preamble(
+	memory_block: str = "",
+	user_prompt: str = "",
+	active_skills: list[str] = None,
+	instructions: str = "",
+) -> str:
 	"""Compose the DYNAMIC layer's opening message.
 
 	Retrieved long-term memory is dynamic — it is searched with this turn's
@@ -215,11 +220,17 @@ def build_dynamic_preamble(memory_block: str = "", user_prompt: str = "", active
 	precedes a "User message:"-style marker) still has a stable prefix to
 	attach to.
 
+	``instructions`` is the turn's standing text — what the map tells the agent
+	to do — and it joins that cacheable prefix, leaving the marker immediately
+	before the part that actually varies: the person's own words. Passed alone
+	it is simply the message, so every existing caller composes as it did.
+
 	Returns the user prompt unchanged when there is no memory to inject, so
 	agents without long-term memory send exactly what they sent before.
 	"""
 	memory_block = str(memory_block or "").strip()
 	user_prompt = str(user_prompt or "")
+	instructions = str(instructions or "")
 	skills_block = ""
 	if active_skills:
 		skills_block = "\n\n".join(str(s).strip() for s in active_skills if s)
@@ -229,9 +240,17 @@ def build_dynamic_preamble(memory_block: str = "", user_prompt: str = "", active
 		parts.append(skills_block)
 	if memory_block:
 		parts.append(memory_block)
-	
+
+	# With both, the instructions are prefix and the message is what the marker
+	# announces. With only one of them, that one IS the message — which is what
+	# every caller sent before there was anything to tell them apart.
+	if instructions and user_prompt.strip():
+		parts.append(instructions)
+	else:
+		user_prompt = user_prompt or instructions
+
 	combined_prefix = _SECTION_GAP.join(parts)
-	
+
 	if not combined_prefix:
 		return user_prompt
 	if not user_prompt.strip():

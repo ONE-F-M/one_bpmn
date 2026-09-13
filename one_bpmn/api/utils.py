@@ -292,6 +292,13 @@ def get_doctype_fields(
 	Used by the BPMN properties panel to populate field autocompletes.
 	Bypasses the parent-permission restriction on the DocField REST API.
 
+	Read through ``frappe.get_meta``, the same way ``get_recipient_docfields``
+	does, so Custom Fields are included. Querying DocField alone made every
+	picker blind to them — a field this site added to someone else's doctype is a
+	Custom Field, so a User Task could not be pointed at Task's assignee table or
+	Department's approver tables, which is where multi-assignee lists actually
+	live here.
+
 	Args:
 		doctype: The DocType to fetch fields from.
 		search_text: Optional search filter on fieldname.
@@ -299,47 +306,51 @@ def get_doctype_fields(
 		fieldtype_not_in: JSON array of fieldtypes to exclude.
 		include_options: If true, also return the ``options`` column.
 	"""
-	from frappe.query_builder import DocType as QBDocType
+	if not doctype:
+		return []
 
-	DocField = QBDocType("DocField")
-
-	select_cols = [DocField.fieldname, DocField.label, DocField.fieldtype]
-	if include_options:
-		select_cols.append(DocField.options)
-
-	query = (
-		frappe.qb.from_(DocField)
-		.select(*select_cols)
-		.where(DocField.parent == doctype)
-		.where(DocField.parenttype == "DocType")
-		.orderby(DocField.idx)
-		.limit(100)
-	)
-
+	include = exclude = None
 	if fieldtype_in:
 		try:
-			parsed = json.loads(fieldtype_in)
+			include = json.loads(fieldtype_in)
 		except (json.JSONDecodeError, TypeError, ValueError):
 			frappe.throw(_("Invalid JSON for fieldtype_in filter"))
-		query = query.where(DocField.fieldtype.isin(parsed))
 	elif fieldtype_not_in:
 		try:
-			parsed = json.loads(fieldtype_not_in)
+			exclude = json.loads(fieldtype_not_in)
 		except (json.JSONDecodeError, TypeError, ValueError):
 			frappe.throw(_("Invalid JSON for fieldtype_not_in filter"))
-		query = query.where(DocField.fieldtype.notin(parsed))
 	else:
 		# Default: exclude layout fields
-		query = query.where(
-			DocField.fieldtype.notin(
-				("Section Break", "Column Break", "Tab Break", "Table")
-			)
-		)
+		exclude = ["Section Break", "Column Break", "Tab Break", "Table"]
 
-	if search_text:
-		query = query.where(DocField.fieldname.like(f"%{search_text}%"))
+	try:
+		meta = frappe.get_meta(doctype)
+	except frappe.DoesNotExistError:
+		return []
 
-	return query.run(as_dict=True)
+	needle = (search_text or "").strip().lower()
+	fields = []
+	for df in meta.get("fields") or []:
+		if include is not None:
+			if df.fieldtype not in include:
+				continue
+		elif df.fieldtype in exclude:
+			continue
+		if needle and needle not in (df.fieldname or "").lower():
+			continue
+		field = {
+			"fieldname": df.fieldname,
+			"label": df.label or df.fieldname,
+			"fieldtype": df.fieldtype,
+		}
+		if include_options:
+			field["options"] = df.options or ""
+		fields.append(field)
+		if len(fields) == 100:
+			break
+
+	return fields
 
 
 @frappe.whitelist()

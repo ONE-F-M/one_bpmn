@@ -88,6 +88,73 @@ class TestMemoryWrite(FrappeTestCase):
 		self.assertNotEqual(n1["name"], n2["name"])
 		self.assertEqual(frappe.db.count("AI Memory", {"agent_element": agent}), 2)
 
+	def test_dedup_overwrite_updates_in_place_no_delete(self):
+		# memory_write's own dedup_key lookup (as opposed to the AI Memory
+		# controller's separate _dedup_overwrite, exercised at the doctype level
+		# in test_ai_memory_doctype.py) finds the existing row and calls
+		# doc.save() on it — never a delete, so there is nothing to audit here;
+		# the row that comes back is the SAME row, just updated in place.
+		agent = f"D_{frappe.generate_hash(length=8)}"
+		d1 = T.memory_write("Agent", agent, "v1", dedup_key="k2", ignore_permissions=True)
+		d2 = T.memory_write("Agent", agent, "v2", dedup_key="k2", ignore_permissions=True)
+		self.assertEqual(d1["name"], d2["name"])
+		self.assertTrue(frappe.db.exists("AI Memory", d1["name"]))
+		self.assertEqual(frappe.db.get_value("AI Memory", d1["name"], "content"), "v2")
+
+	def test_agent_scope_carries_optional_process_model(self):
+		# process_model is provenance on an Agent-scoped row, not a scope key —
+		# writing it must not disturb the agent_element key it's actually looked
+		# up by.
+		pm = frappe.get_doc(
+			{
+				"doctype": "BPMN Process Model",
+				"title": f"Test PM {frappe.generate_hash(length=6)}",
+				"process_id": frappe.generate_hash(length=6),
+				"version": 1,
+			}
+		)
+		pm.insert(ignore_permissions=True)
+		agent = f"D_{frappe.generate_hash(length=8)}"
+		rec = T.memory_write("Agent", agent, "learned a fact", process_model=pm.name, ignore_permissions=True)
+		doc = frappe.get_doc("AI Memory", rec["name"])
+		self.assertEqual(doc.agent_element, agent)
+		self.assertEqual(doc.process_model, pm.name)
+
+	def test_content_round_trips_without_html_entity_escaping(self):
+		# Regression: a row was observed live with "&lt;PROJECT&gt;" stored
+		# verbatim instead of "<PROJECT>". memory_write/the AI Memory Long Text
+		# field must not introduce or preserve escaping of its own — whatever
+		# content is handed to it comes back out unchanged.
+		agent = f"D_{frappe.generate_hash(length=8)}"
+		content = "Use the pattern <PROJECT>-<YEAR>-<SEQ> for document names."
+		rec = T.memory_write("Agent", agent, content, ignore_permissions=True)
+		self.assertEqual(rec["content"], content)
+		self.assertEqual(frappe.db.get_value("AI Memory", rec["name"], "content"), content)
+
+
+class TestMemoryWriteUserDirected(FrappeTestCase):
+	def test_user_directed_flag_defaults_false(self):
+		agent = f"U_{frappe.generate_hash(length=8)}"
+		rec = T.memory_write("Agent", agent, "some agent-produced fact", ignore_permissions=True)
+		self.assertEqual(frappe.db.get_value("AI Memory", rec["name"], "user_directed"), 0)
+
+	def test_user_directed_flag_set_on_insert(self):
+		agent = f"U_{frappe.generate_hash(length=8)}"
+		rec = T.memory_write(
+			"Agent", agent, "remember that every form needs a Site link field",
+			ignore_permissions=True, user_directed=True,
+		)
+		self.assertEqual(frappe.db.get_value("AI Memory", rec["name"], "user_directed"), 1)
+
+	def test_user_directed_flag_set_on_dedup_overwrite(self):
+		agent = f"U_{frappe.generate_hash(length=8)}"
+		d1 = T.memory_write("Agent", agent, "v1", dedup_key="k", ignore_permissions=True)
+		d2 = T.memory_write(
+			"Agent", agent, "v2", dedup_key="k", ignore_permissions=True, user_directed=True,
+		)
+		self.assertEqual(d1["name"], d2["name"])
+		self.assertEqual(frappe.db.get_value("AI Memory", d1["name"], "user_directed"), 1)
+
 
 class TestValidOnlySearch(FrappeTestCase):
 	def test_expired_memory_is_hidden(self):
@@ -110,18 +177,65 @@ class TestValidOnlySearch(FrappeTestCase):
 		self.assertIn(rec["name"], [r["name"] for r in res])
 
 
+class TestMemoryListUserDirected(FrappeTestCase):
+	def test_returns_only_user_directed_in_scope(self):
+		agent = f"V_{frappe.generate_hash(length=8)}"
+		other = f"V_{frappe.generate_hash(length=8)}"
+		directed = T.memory_write(
+			"Agent", agent, "remember: always cc compliance on GRD emails",
+			ignore_permissions=True, user_directed=True,
+		)
+		T.memory_write("Agent", agent, "an incidental fact from a run", ignore_permissions=True)
+		T.memory_write(
+			"Agent", other, "remember: a different agent's convention",
+			ignore_permissions=True, user_directed=True,
+		)
+
+		res = T.memory_list_user_directed("Agent", agent, ignore_permissions=True)
+		names = [r["name"] for r in res]
+		self.assertEqual(names, [directed["name"]])
+
+	def test_no_keyword_required(self):
+		# The whole point: recall is unconditional, unlike memory_search, which
+		# needs the query to share vocabulary with stored content.
+		agent = f"V_{frappe.generate_hash(length=8)}"
+		directed = T.memory_write(
+			"Agent", agent, "always include a Site link field on every form we build",
+			ignore_permissions=True, user_directed=True,
+		)
+		res = T.memory_list_user_directed("Agent", agent, ignore_permissions=True)
+		self.assertEqual([r["name"] for r in res], [directed["name"]])
+
+	def test_expired_user_directed_memory_is_hidden(self):
+		agent = f"V_{frappe.generate_hash(length=8)}"
+		rec = T.memory_write(
+			"Agent", agent, "superseded convention", ignore_permissions=True, user_directed=True,
+		)
+		frappe.db.set_value("AI Memory", rec["name"], "expires_on", add_to_date(now_datetime(), days=-1))
+		res = T.memory_list_user_directed("Agent", agent, ignore_permissions=True)
+		self.assertNotIn(rec["name"], [r["name"] for r in res])
+
+
 # A fake reconciler that supersedes whatever candidates it is handed, so the test
 # doesn't depend on a live model. Patched in for `one_bpmn.agents.memory.reconcile.reconcile`.
 def _fake_reconcile_replace(content, candidates, **kw):
-	return {"action": "replace", "supersedes": [c["name"] for c in candidates]}
+	return {"action": "replace", "supersedes": [c["name"] for c in candidates], "degraded": None}
 
 
 def _fake_reconcile_add(content, candidates, **kw):
-	return {"action": "add", "supersedes": []}
+	return {"action": "add", "supersedes": [], "degraded": None}
 
 
 def _fake_reconcile_boom(content, candidates, **kw):
 	raise RuntimeError("reconciler exploded")
+
+
+# Mimics what the real reconcile() returns after catching its own internal
+# failure (never raises) — distinct from _fake_reconcile_boom, which simulates a
+# caller-side exception instead, so it never reaches reconcile()'s own "degraded"
+# translation.
+def _fake_reconcile_degraded(content, candidates, **kw):
+	return {"action": "add", "supersedes": [], "degraded": "exec_error"}
 
 
 class TestReconcileWrite(FrappeTestCase):
@@ -170,7 +284,10 @@ class TestReconcileWrite(FrappeTestCase):
 		agent = f"R_{frappe.generate_hash(length=8)}"
 		old = T.memory_write("Agent", agent, "customer prefers net-30 payment terms", ignore_permissions=True)
 		with patch("one_bpmn.agents.memory.reconcile.reconcile", _fake_reconcile_boom):
-			# Must not raise; falls back to a plain insert.
+			# Must not raise; falls back to a plain insert. No dedup_key/exact
+			# match exists here, so there's nothing for the deterministic
+			# short-circuit to catch — this really is "unrelated fact, LLM
+			# unavailable" and a plain insert is correct.
 			new = T.memory_write(
 				"Agent", agent, "customer wants net-15 payment terms",
 				ignore_permissions=True, reconcile=True, reconcile_ctx=self._CTX,
@@ -178,6 +295,79 @@ class TestReconcileWrite(FrappeTestCase):
 		self.assertTrue(frappe.db.exists("AI Memory", new["name"]))
 		# Old memory untouched (not invalidated) because reconciliation blew up.
 		self.assertIsNone(frappe.db.get_value("AI Memory", old["name"], "expires_on"))
+
+	def test_exact_duplicate_blocked_even_when_reconciler_raises(self):
+		# The one case that used to guarantee a duplicate: an exact restatement
+		# under the same dedup_key must never insert again, even if the LLM call
+		# itself blows up — the deterministic short-circuit means the LLM is
+		# never reached for this decision at all.
+		agent = f"R_{frappe.generate_hash(length=8)}"
+		content = "the agent cannot see the conversation directly"
+		old = T.memory_write(
+			"Agent", agent, content, dedup_key="logix:convo",
+			ignore_permissions=True, reconcile=True, reconcile_ctx=self._CTX,
+		)
+		with patch(
+			"one_bpmn.agents.memory.reconcile.reconcile", side_effect=_fake_reconcile_boom
+		) as mock_reconcile:
+			dup = T.memory_write(
+				"Agent", agent, content, dedup_key="logix:convo",
+				ignore_permissions=True, reconcile=True, reconcile_ctx=self._CTX,
+			)
+		mock_reconcile.assert_not_called()
+		self.assertEqual(old["name"], dup["name"])
+		self.assertEqual(frappe.db.count("AI Memory", {"agent_element": agent, "dedup_key": "logix:convo"}), 1)
+
+	def test_dedup_key_short_circuits_llm(self):
+		agent = f"R_{frappe.generate_hash(length=8)}"
+		content = "widgets ship via freight carrier alpha"
+		first = T.memory_write(
+			"Agent", agent, content, dedup_key="logix:shipping",
+			ignore_permissions=True, reconcile=True, reconcile_ctx=self._CTX,
+		)
+		with patch("one_bpmn.agents.memory.reconcile.reconcile") as mock_reconcile:
+			second = T.memory_write(
+				"Agent", agent, content, dedup_key="logix:shipping",
+				ignore_permissions=True, reconcile=True, reconcile_ctx=self._CTX,
+			)
+		mock_reconcile.assert_not_called()
+		self.assertEqual(first["name"], second["name"])
+		self.assertEqual(frappe.db.count("AI Memory", {"agent_element": agent, "dedup_key": "logix:shipping"}), 1)
+
+	def test_candidates_include_same_dedup_key_outside_keyword_match(self):
+		agent = f"R_{frappe.generate_hash(length=8)}"
+		# Wording shares no keyword tokens with the new content below, so
+		# memory_search's keyword/FULLTEXT path alone would never surface it —
+		# only the shared dedup_key does.
+		old = T.memory_write(
+			"Agent", agent, "widgets ship via freight carrier alpha",
+			dedup_key="logix:shipping", ignore_permissions=True,
+		)
+		seen = {}
+
+		def _capture(content, candidates, **kw):
+			seen["names"] = [c["name"] for c in candidates]
+			return {"action": "add", "supersedes": [], "degraded": None}
+
+		with patch("one_bpmn.agents.memory.reconcile.reconcile", _capture):
+			T.memory_write(
+				"Agent", agent, "gadgets are delivered by transport company beta",
+				dedup_key="logix:shipping", ignore_permissions=True,
+				reconcile=True, reconcile_ctx=self._CTX,
+			)
+		self.assertIn(old["name"], seen["names"])
+
+	def test_degraded_reason_logged(self):
+		agent = f"R_{frappe.generate_hash(length=8)}"
+		T.memory_write("Agent", agent, "customer prefers net-30 payment terms", ignore_permissions=True)
+		with patch("one_bpmn.agents.memory.reconcile.reconcile", _fake_reconcile_degraded), \
+				patch("frappe.log_error") as mock_log_error:
+			T.memory_write(
+				"Agent", agent, "customer wants net-15 payment terms",
+				ignore_permissions=True, reconcile=True, reconcile_ctx=self._CTX,
+			)
+		titles = [c.kwargs.get("title") for c in mock_log_error.call_args_list]
+		self.assertIn("AI Memory: reconciliation degraded", titles)
 
 	def test_reconcile_does_not_cross_scope(self):
 		# The candidate a reconciler sees must never come from another scope key,
@@ -218,12 +408,15 @@ class TestReconciler(FrappeTestCase):
 		from one_bpmn.agents.memory import reconcile as R
 		self.assertEqual(
 			R.reconcile("f", [{"name": "X", "content": "c"}], provider_name="p", model=None),
-			{"action": "add", "supersedes": []},
+			{"action": "add", "supersedes": [], "degraded": "no_model"},
 		)
 
 	def test_no_candidates_is_add(self):
 		from one_bpmn.agents.memory import reconcile as R
-		self.assertEqual(R.reconcile("f", [], provider_name="p", model="m"), {"action": "add", "supersedes": []})
+		self.assertEqual(
+			R.reconcile("f", [], provider_name="p", model="m"),
+			{"action": "add", "supersedes": [], "degraded": "no_candidates"},
+		)
 
 	def test_foreign_supersede_ids_are_dropped(self):
 		# The model returns a hallucinated id plus a real one; only the real
@@ -232,14 +425,14 @@ class TestReconciler(FrappeTestCase):
 			{"action": "replace", "supersedes": ["GHOST", "REAL"]},
 			[{"name": "REAL", "content": "c"}],
 		)
-		self.assertEqual(out, {"action": "replace", "supersedes": ["REAL"]})
+		self.assertEqual(out, {"action": "replace", "supersedes": ["REAL"], "degraded": None})
 
 	def test_update_with_no_real_supersede_becomes_add(self):
 		out = self._run_with_executor_output(
 			{"action": "update", "supersedes": ["GHOST"]},
 			[{"name": "REAL", "content": "c"}],
 		)
-		self.assertEqual(out, {"action": "add", "supersedes": []})
+		self.assertEqual(out, {"action": "add", "supersedes": [], "degraded": None})
 
 
 class TestMemoryToolRegistry(FrappeTestCase):

@@ -157,3 +157,87 @@ class TestAssertionEvaluators(FrappeTestCase):
 		self.assertEqual(row["completion_tokens"], 28)
 		self.assertEqual(row["tokens_used"], 168)
 		self.assertAlmostEqual(row["cost"], 0.002)
+
+
+class TestExecutionAssertions(FrappeTestCase):
+	"""max_tokens and no_tool_call judge the run, not the answer text.
+
+	A greeting that quietly ran the schema writer reads exactly like one that
+	did not — only the token count and the tool calls tell them apart, and
+	neither is in the output the other assertion types see.
+	"""
+
+	def test_token_ceiling(self):
+		facts = {"tokens": 480, "tool_calls": []}
+		self.assertTrue(_evaluate_assertion(_assertion("max_tokens", "500"), "hi", facts)["passed"])
+		over = _evaluate_assertion(_assertion("max_tokens", "300"), "hi", facts)
+		self.assertFalse(over["passed"])
+		self.assertIn("480", over["message"])
+
+	def test_token_ceiling_needs_a_number(self):
+		result = _evaluate_assertion(_assertion("max_tokens", "cheap"), "hi", {"tokens": 10})
+		self.assertTrue(result.get("error"))
+
+	def test_forbidden_tool_that_ran_fails_the_case(self):
+		facts = {"tokens": 10, "tool_calls": ["classify_intent", "write_schema"]}
+		result = _evaluate_assertion(_assertion("no_tool_call", "write_schema,review_schema"), "hi", facts)
+		self.assertFalse(result["passed"])
+		self.assertIn("write_schema", result["message"])
+
+	def test_other_tools_are_allowed(self):
+		"""Only the named tools are forbidden — the stage that recognises a
+		greeting has to run for the greeting to be recognised."""
+		facts = {"tokens": 10, "tool_calls": ["classify_intent"]}
+		self.assertTrue(
+			_evaluate_assertion(_assertion("no_tool_call", "write_schema"), "hi", facts)["passed"]
+		)
+
+	def test_forbidden_list_cannot_be_empty(self):
+		result = _evaluate_assertion(_assertion("no_tool_call", "  "), "hi", {"tool_calls": []})
+		self.assertTrue(result.get("error"))
+
+	def test_a_replay_says_it_cannot_measure_instead_of_passing(self):
+		"""Replay re-reads a stored answer, so there is no execution to measure.
+		Silently passing would make a re-check look like proof."""
+		for a_type, value in (("max_tokens", "500"), ("no_tool_call", "write_schema")):
+			result = _evaluate_assertion(_assertion(a_type, value), "hi")
+			self.assertFalse(result["passed"], a_type)
+			self.assertTrue(result.get("error"), a_type)
+
+	def test_tool_calls_are_read_off_the_runs_tagged_with_the_case(self):
+		"""Tool calls sit two levels down (Run -> Step -> Tool Call) and only the
+		eval_case/eval_run tags connect them to the case that paid for them."""
+		run = frappe.get_doc({
+			"doctype": "AI Agent Run",
+			"bpmn_id": "run_docu_agent",
+			"origin": "eval",
+			"eval_case": "greeting-case",
+			"eval_run": "greeting-run",
+			"status": "Success",
+			"started_at": frappe.utils.now_datetime(),
+			# The tags are Links; this run stands in for a case and run that a
+			# real eval would have created around it.
+		}).insert(ignore_permissions=True, ignore_links=True)
+		step = frappe.get_doc({
+			"doctype": "AI Agent Step",
+			"run": run.name,
+			"step_index": 1,
+			"role": "assistant",
+			"content": "",
+		})
+		step.append("tool_calls", {"tool_name": "write_schema", "status": "Success"})
+		step.insert(ignore_permissions=True)
+		self.addCleanup(frappe.delete_doc, "AI Agent Step", step.name, force=True)
+		self.addCleanup(frappe.delete_doc, "AI Agent Run", run.name, force=True)
+
+		case = SimpleNamespace(name="greeting-case")
+		self.assertEqual(eval_runner._tool_calls_for(case, "greeting-run"), ["write_schema"])
+		facts = eval_runner._execution_facts(case, "greeting-run", {"tokens": 1484})
+		self.assertEqual(facts["tokens"], 1484)
+		self.assertFalse(
+			_evaluate_assertion(_assertion("no_tool_call", "write_schema"), "hi", facts)["passed"]
+		)
+
+	def test_another_cases_tools_are_not_counted(self):
+		case = SimpleNamespace(name="a-case-that-never-ran")
+		self.assertEqual(eval_runner._tool_calls_for(case, "some-run"), [])

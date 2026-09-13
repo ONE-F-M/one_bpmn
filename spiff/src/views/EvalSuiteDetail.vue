@@ -206,7 +206,7 @@
 							</div>
 							<FormControl
 								type="textarea"
-								:label="a.assertion_type === 'llm_judge' ? 'Rubric' : 'Expected value / pattern'"
+								:label="VALUE_LABELS[a.assertion_type] || 'Expected value / pattern'"
 								v-model="a.value"
 							/>
 							<div v-if="a.assertion_type === 'llm_judge'" class="grid grid-cols-3 gap-2">
@@ -222,8 +222,8 @@
 				<div class="w-full space-y-2">
 					<p v-if="caseError" class="text-sm text-red-600">{{ caseError }}</p>
 					<p v-else-if="incompleteAssertion !== -1" class="text-sm text-amber-600">
-						Assertion {{ incompleteAssertion + 1 }} needs
-						{{ caseForm.assertions[incompleteAssertion].assertion_type === 'llm_judge' ? 'a rubric' : 'an expected value' }}.
+						Assertion {{ incompleteAssertion + 1 }} needs its
+						{{ (VALUE_LABELS[caseForm.assertions[incompleteAssertion].assertion_type] || 'expected value').toLowerCase() }}.
 					</p>
 					<Button
 						variant="solid"
@@ -346,7 +346,13 @@ const route = useRoute()
 const router = useRouter()
 const suiteName = route.params.suite
 
-const ASSERTION_TYPES = ["contains", "regex", "equals", "schema_valid", "llm_judge"]
+const ASSERTION_TYPES = ["contains", "regex", "equals", "schema_valid", "llm_judge", "max_tokens", "no_tool_call"]
+// What `value` means changes with the type, so the field says which.
+const VALUE_LABELS = {
+	llm_judge: "Rubric",
+	max_tokens: "Token ceiling",
+	no_tool_call: "Forbidden tool names",
+}
 const assertionTypeOptions = ASSERTION_TYPES.map((t) => ({ label: t, value: t }))
 
 const loading = ref(true)
