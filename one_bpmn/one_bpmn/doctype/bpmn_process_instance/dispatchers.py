@@ -1442,7 +1442,18 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	if not resume_payload and _cfg_truthy(task_cfg.get("aiLongTermMemory")):
 		try:
 			memory_target = _resolve_memory_target(task_cfg, instance, bpmn_id)
-			query = "" if recall_query_unresolved else (user_message or user_prompt)
+			# raw_user_message, NOT user_message: the de-duplication above blanks
+			# the platform's copy whenever the map has already rendered the
+			# person's words into its own prompt, which every chat map does. The
+			# query then fell back to the whole rendered prompt — the standing
+			# instructions, the datetime, the conversation so far — and the
+			# person's question was a line inside it. Measured on prod-backup on
+			# 2026-09-12: run u343rlto5q searched with 150 characters of driving
+			# prompt wrapped around "Who takes our packages out to customers?"
+			# and recalled nothing; the same question on the next turn, run
+			# uo2qj6333g, recalled the fact and injected 109 tokens. The value
+			# before the reset is the question itself.
+			query = "" if recall_query_unresolved else (raw_user_message or user_prompt)
 			# A greeting/acknowledgement carries nothing to search memory with —
 			# skip entirely rather than risk a coincidental keyword match
 			# injecting an unrelated fact into "hi".
