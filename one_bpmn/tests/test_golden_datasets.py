@@ -18,7 +18,9 @@ from one_bpmn.agents._eval_test_factories import make_eval_case, make_eval_suite
 from one_bpmn.api.eval_api import create_eval_case, get_eval_case, update_eval_case
 from one_bpmn.api.golden_dataset import (
 	CASE_TYPES,
-	DATASET_MINIMUM,
+	DEFAULT_MINIMUM,
+	DEFAULT_TARGET,
+	dataset_sizes,
 	dataset_readiness,
 	export_dataset,
 	import_dataset,
@@ -110,8 +112,8 @@ class TestReadiness(FrappeTestCase):
 			make_eval_case(suite=self.suite.name, title=f"case {index}")
 		out = dataset_readiness(agent=self.agent)
 		self.assertEqual(out["cases"], 3)
-		self.assertEqual(out["minimum"], DATASET_MINIMUM)
-		self.assertEqual(out["short_by"], DATASET_MINIMUM - 3)
+		self.assertEqual(out["minimum"], DEFAULT_MINIMUM)
+		self.assertEqual(out["short_by"], DEFAULT_MINIMUM - 3)
 
 	def test_it_says_which_types_are_absent(self):
 		make_eval_case(suite=self.suite.name, title="an output case")
@@ -318,3 +320,54 @@ class TestSkillGraduation(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError) as caught:
 			self.skill.save(ignore_permissions=True)
 		self.assertIn("20+", str(caught.exception))
+
+
+class TestDatasetSizesAreSettings(FrappeTestCase):
+	"""What counts as a representative dataset is a judgement about these
+	agents, so it belongs in Processa Settings rather than in the code."""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self.suite = make_eval_suite(process_model=None,
+									 title="_Test sizes " + frappe.generate_hash(length=6))
+
+	def _set(self, minimum, target):
+		frappe.db.set_single_value("Processa Settings", "golden_dataset_minimum", minimum)
+		frappe.db.set_single_value("Processa Settings", "golden_dataset_target", target)
+		frappe.clear_document_cache("Processa Settings", "Processa Settings")
+
+	def test_the_readings_follow_the_settings(self):
+		self._set(5, 8)
+		make_eval_case(suite=self.suite.name, title="one case")
+		out = dataset_readiness(agent=self.suite.agent_configuration)
+		self.assertEqual((out["minimum"], out["target"]), (5, 8))
+		self.assertEqual(out["short_by"], 4)
+
+	def test_unset_falls_back_to_the_shipped_numbers(self):
+		"""0 means nobody filled it in — treating that as "no minimum" would make
+		every dataset on the site read as complete."""
+		self._set(0, 0)
+		self.assertEqual(dataset_sizes(), (DEFAULT_MINIMUM, DEFAULT_TARGET))
+
+	def test_the_skill_gate_quotes_the_same_number(self):
+		"""The bar a skill must clear and the count shown beside it must not be
+		able to disagree."""
+		self._set(3, 5)
+		skill = _skill("sizes")
+		suite = make_eval_suite(process_model=None, title="_Test gate size " + frappe.generate_hash(length=6))
+		for case_type in ("Trigger Positive", "Trigger Negative"):
+			case = make_eval_case(suite=suite.name, title=f"{case_type} case")
+			frappe.db.set_value("AI Eval Case", case.name,
+								{"target_skill": skill.name, "case_type": case_type})
+		run = frappe.get_doc({
+			"doctype": "AI Eval Run", "suite": suite.name, "status": "Passed", "backend": "live",
+			"started_at": frappe.utils.now_datetime(), "passed_cases": 10, "total_cases": 10,
+		})
+		run.flags.ignore_mandatory = True
+		run.flags.ignore_links = True
+		run.insert(ignore_permissions=True)
+
+		skill.tier = "Action-Allowed"
+		with self.assertRaises(frappe.ValidationError) as caught:
+			skill.save(ignore_permissions=True)
+		self.assertIn("3+", str(caught.exception), "it quotes the configured minimum, not a hard-coded 20")

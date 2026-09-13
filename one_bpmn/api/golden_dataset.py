@@ -17,12 +17,26 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime
+from frappe.utils import cint, now_datetime
 
-# A dataset is representative at 20 and comfortable at 30 — the range the story
-# asks for. Both are reported: one is the bar, the other is the target.
-DATASET_MINIMUM = 20
-DATASET_TARGET = 30
+# Representative at 20, comfortable at 30 — the shipped defaults. Both are
+# settings, because what counts as a representative dataset is a judgement about
+# your agents rather than a property of the software.
+DEFAULT_MINIMUM = 20
+DEFAULT_TARGET = 30
+
+
+def dataset_sizes() -> tuple[int, int]:
+	"""The minimum and target case counts, from Processa Settings.
+
+	0 or blank means the setting was never filled in, so the default stands —
+	the alternative is a site where every dataset silently reads as complete.
+	"""
+	settings = frappe.get_cached_doc("Processa Settings")
+	return (
+		cint(settings.get("golden_dataset_minimum")) or DEFAULT_MINIMUM,
+		cint(settings.get("golden_dataset_target")) or DEFAULT_TARGET,
+	)
 
 CASE_TYPES = ("Output", "Trajectory", "Trigger Positive", "Trigger Negative",
 			  "Adversarial", "Co-Load Budget", "Memory")
@@ -100,6 +114,7 @@ def dataset_readiness(agent: str = None, skill: str = None) -> dict:
 	case_names = _case_names(subject_type, subject)
 	counts = _breakdown(case_names)
 	total = len(case_names)
+	minimum, target = dataset_sizes()
 
 	latest = frappe.get_all(
 		"AI Golden Dataset Version",
@@ -113,9 +128,9 @@ def dataset_readiness(agent: str = None, skill: str = None) -> dict:
 		"subject_type": subject_type,
 		"subject": subject,
 		"cases": total,
-		"minimum": DATASET_MINIMUM,
-		"target": DATASET_TARGET,
-		"short_by": max(0, DATASET_MINIMUM - total),
+		"minimum": minimum,
+		"target": target,
+		"short_by": max(0, minimum - total),
 		"by_type": counts,
 		"missing_types": [t for t, n in counts.items() if not n],
 		"latest_version": latest[0] if latest else None,

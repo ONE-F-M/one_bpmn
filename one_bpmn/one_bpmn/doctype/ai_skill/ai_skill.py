@@ -94,12 +94,17 @@ class AISkill(Document):
 				).format(round(accuracy * 100, 1)))
 
 		elif self.tier == "Action-Allowed":
+			# Same number the dataset readings quote, so the bar a skill must
+			# clear and the count shown beside it can never disagree.
+			from one_bpmn.api.golden_dataset import dataset_sizes
+
+			minimum = dataset_sizes()[0]
 			case_count = len({c.name for c in cases})
-			if case_count < 20:
+			if case_count < minimum:
 				frappe.throw(_(
-					"Cannot graduate to Action-Allowed: needs a golden dataset of 20+ eval "
-					"cases targeting this skill (found {0})."
-				).format(case_count))
+					"Cannot graduate to Action-Allowed: needs a golden dataset of {0}+ eval "
+					"cases targeting this skill (found {1})."
+				).format(minimum, case_count))
 
 			sustained = runs[:2]
 			if len(sustained) < 2 or any(
