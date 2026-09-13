@@ -111,6 +111,11 @@ import { computed } from "vue"
 import { Button, FormControl, NestedPopover, Tooltip } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 
+const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s, args) => {
+	if (!args) return s
+	return s.replace(/\{(\d+)\}/g, (_, i) => args[i])
+}
+
 const props = defineProps({
 	// Array of { field, operator, value }
 	modelValue: {
