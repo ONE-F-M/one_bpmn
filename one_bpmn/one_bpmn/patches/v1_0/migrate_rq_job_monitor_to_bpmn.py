@@ -127,7 +127,6 @@ for decision in decisions:
 	ticket.custom_reference_doctype = "RQ Job"
 	ticket.custom_ticket_category = "Process Issue"
 	ticket.raised_by = "Administrator"
-	ticket.flags.ignore_permissions = True
 	ticket.insert()
 	created.append(ticket.name)
 
@@ -141,9 +140,28 @@ def execute():
 		frappe.set_user("Administrator")
 
 		_create_server_scripts()
-		_import_process_model()
+		# Seed the configs BEFORE importing the map: compile_process_model's
+		# _lint_ai_provider_config throws "Referenced AI Agent Configuration not
+		# found" if an AI Agent Task's aiAgentConfig doesn't resolve yet, so the
+		# very first compile (triggered by import_bpmn) needs both configs to
+		# already exist. Confirmed live: without this ordering, the map imports
+		# but silently fails to compile/activate (import_bpmn swallows compile
+		# errors as non-fatal), leaving is_active=0 and no start_events.
 		_seed_config(_DEDUP_CONFIG, "rq_job_deduplicator", _DEDUP_SYSTEM_PROMPT)
 		_seed_config(_MATCHER_CONFIG, "rq_job_ticket_matcher", _MATCHER_SYSTEM_PROMPT)
+		_import_process_model()
+		# Re-run now that the map exists, to link process_model and (re-)validate
+		# lifecycle to Live -- the first pass above ran with no map yet, so
+		# _take_live's "no map yet" guard skipped promotion.
+		_seed_config(_DEDUP_CONFIG, "rq_job_deduplicator", _DEDUP_SYSTEM_PROMPT)
+		_seed_config(_MATCHER_CONFIG, "rq_job_ticket_matcher", _MATCHER_SYSTEM_PROMPT)
+		# import_bpmn's own compile ran while both configs were still Draft (they
+		# only reach Live in the _seed_config pass above, which needed the map to
+		# exist first), so that first compile threw "... is Draft ... Wait for it
+		# to reach Live" and left is_active=0 with no start_events. Recompile now
+		# that both configs are Live -- confirmed live: this is what actually
+		# activates the model and populates its Timer Start Event.
+		_recompile_process_model()
 	finally:
 		frappe.set_user(original_user)
 
@@ -189,11 +207,34 @@ def _import_process_model():
 	import_bpmn(xml_content=xml_content, title=_PROCESS_MODEL)
 
 
+def _recompile_process_model():
+	if not frappe.db.exists("BPMN Process Model", _PROCESS_MODEL):
+		return
+
+	from one_bpmn.api.compilation import compile_process_model
+
+	try:
+		compile_process_model(_PROCESS_MODEL)
+	except Exception:
+		# Same tolerance as import_bpmn's own compile step: a config still
+		# Draft/Needs Attention (e.g. no working AI Model credentials on this
+		# site) leaves the map uncompiled but imported -- an administrator can
+		# fix the config and recompile from the editor, same as any other map.
+		frappe.log_error(
+			title=f"{_PROCESS_MODEL}: recompile after config seed failed",
+			message=frappe.get_traceback(),
+		)
+
+
 def _seed_config(agent_name: str, agent_id: str, system_prompt: str):
 	config = {
 		"agent_name": agent_name,
 		"agent_id": agent_id,
 		"agent_type": "Background",
+		# Transitional field, still mandatory (reqd=1 regardless of process_model).
+		# The map's AI Agent Task carries the real backend (direct_api); this
+		# mirrors Docu, Connector Agent, and LuCrusher.
+		"agent_framework": "Anthropic",
 		"enabled": 1,
 		"system_prompt": system_prompt,
 		"required_variables": "[]",
