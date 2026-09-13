@@ -178,6 +178,18 @@
             <div class="derived-value">{{ form.aiProvider }}</div>
           </div>
 
+          <!-- Provider filter (UI-only): narrows every model dropdown below to
+               one provider's models. Never saved and never sent to the
+               server — the AI Provider field above stays derived from
+               whichever model ends up picked. -->
+          <div class="field-row">
+            <label>Filter Models by Provider <span class="hint">(narrows every model list below; not saved)</span></label>
+            <select v-model="modelProviderFilter">
+              <option value="">-- All providers --</option>
+              <option v-for="p in catalogProviders" :key="p" :value="p">{{ p }}</option>
+            </select>
+          </div>
+
           <!-- Model — the agent's catalog pick (WI-001655): editable here and
                written back to the linked configuration on Save; the provider
                follows the model automatically. -->
@@ -188,7 +200,7 @@
               <option v-if="form.aiModel && !catalogModels.some(m => m.name === form.aiModel)" :value="form.aiModel">
                 {{ form.aiModel }} (not in catalog)
               </option>
-              <option v-for="m in catalogModels" :key="m.name" :value="m.name">
+              <option v-for="m in filteredCatalogModels" :key="m.name" :value="m.name">
                 {{ modelLabel(m) }}
               </option>
             </select>
