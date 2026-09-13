@@ -69,9 +69,13 @@ class AISkill(Document):
 				"Trigger Negative eval case."
 			).format(self.tier))
 
+		# A finished run is Passed or Failed. There is no "Completed" status on
+		# AI Eval Run, so the old filter matched nothing and no skill could ever
+		# leave Draft-Only. Error is excluded: it means the run did not produce a
+		# result to judge.
 		runs = frappe.get_all(
 			"AI Eval Run",
-			filters={"suite": ["in", suites], "status": "Completed"},
+			filters={"suite": ["in", suites], "status": ["in", ("Passed", "Failed")]},
 			fields=["name", "passed_cases", "total_cases"],
 			order_by="creation desc",
 			limit=5,
@@ -90,12 +94,17 @@ class AISkill(Document):
 				).format(round(accuracy * 100, 1)))
 
 		elif self.tier == "Action-Allowed":
+			# Same number the dataset readings quote, so the bar a skill must
+			# clear and the count shown beside it can never disagree.
+			from one_bpmn.api.golden_dataset import dataset_sizes
+
+			minimum = dataset_sizes()[0]
 			case_count = len({c.name for c in cases})
-			if case_count < 20:
+			if case_count < minimum:
 				frappe.throw(_(
-					"Cannot graduate to Action-Allowed: needs a golden dataset of 20+ eval "
-					"cases targeting this skill (found {0})."
-				).format(case_count))
+					"Cannot graduate to Action-Allowed: needs a golden dataset of {0}+ eval "
+					"cases targeting this skill (found {1})."
+				).format(minimum, case_count))
 
 			sustained = runs[:2]
 			if len(sustained) < 2 or any(
