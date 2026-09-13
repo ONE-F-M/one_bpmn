@@ -1643,3 +1643,133 @@ def get_feedback_overview(from_date: str = None, to_date: str = None, agent: str
 		"converted": len([r for r in rated if r["status"] == "Converted"]),
 		"dismissed": len([r for r in rated if r["status"] == "Dismissed"]),
 	}
+
+
+@frappe.whitelist()
+def scheduled_results(days: int = 7, triggered_by: str = "", agent: str = "",
+					  failures_only: int = 0, limit: int = 60) -> dict:
+	"""Recent eval runs, newest first, with the first failure on the row.
+
+	The suites list answers "what have we set up". This answers "what happened",
+	which is a different question and needs the opposite ordering: by time,
+	across every suite, with the failure text in front of the reader. A page of
+	pass rates alone is a page of numbers that all need a click.
+
+	Scoped like every other eval screen: a process owner sees runs for the
+	agents whose process they own, a System Manager sees all.
+	"""
+	from frappe.utils import cint, flt
+
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+
+	is_sm = "System Manager" in frappe.get_roles(frappe.session.user)
+	filters = {"creation": [">=", frappe.utils.add_days(frappe.utils.nowdate(), -abs(cint(days) or 7))]}
+	if triggered_by:
+		filters["triggered_by"] = triggered_by
+
+	runs = frappe.get_all(
+		"AI Eval Run",
+		filters=filters,
+		fields=["name", "suite", "agent_configuration", "triggered_by", "scope", "backend",
+				"status", "total_cases", "passed_cases", "failed_cases", "total_cost",
+				"pass_rate", "stop_reason", "creation"],
+		order_by="creation desc",
+		limit_page_length=min(cint(limit) or 60, 200),
+	)
+	if not runs:
+		return {"runs": [], "is_system_manager": is_sm}
+
+	suites = {
+		s["name"]: s
+		for s in frappe.get_all("AI Eval Suite", filters={"name": ["in", list({r.suite for r in runs if r.suite})]},
+								fields=["name", "title", "agent_configuration", "process_model"])
+	}
+	visible = _runs_visible_to(runs, suites, is_sm)
+	if agent:
+		visible = [r for r in visible if (r.agent_configuration or "") == agent]
+
+	first_failures = _first_failure_per_run([r.name for r in visible])
+	rows = []
+	for run in visible:
+		suite = suites.get(run.suite) or {}
+		failure = first_failures.get(run.name) or {}
+		if cint(failures_only) and not failure:
+			continue
+		rows.append({
+			"run": run.name,
+			"when": str(run.creation),
+			"triggered_by": run.triggered_by or _inferred_trigger(run, suite),
+			"suite": suite.get("title") or run.suite or "",
+			"agent": run.agent_configuration or suite.get("agent_configuration") or "",
+			"status": run.status,
+			"passed": run.passed_cases or 0,
+			"total": run.total_cases or 0,
+			"rate": flt(run.pass_rate) if run.pass_rate is not None else None,
+			"cost": flt(run.total_cost),
+			"stopped": run.stop_reason or "",
+			# The whole point of the row: what went wrong, without a click.
+			"failure": failure.get("why") or "",
+			"failure_subject": failure.get("subject") or "",
+		})
+	return {"runs": rows, "is_system_manager": is_sm}
+
+
+def _runs_visible_to(runs, suites, is_sm) -> list:
+	"""A process owner sees their own agents' runs, mirroring list_owned_processes."""
+	if is_sm:
+		return runs
+	owners = {p["name"]: p["process_owner"] for p in frappe.get_all("Process", fields=["name", "process_owner"])}
+	models = {m["name"]: m["process_name"] for m in frappe.get_all("BPMN Process Model", fields=["name", "process_name"])}
+	mine = []
+	for run in runs:
+		model = (suites.get(run.suite) or {}).get("process_model")
+		if model and owners.get(models.get(model)) == frappe.session.user:
+			mine.append(run)
+	return mine
+
+
+def _inferred_trigger(run, suite) -> str:
+	"""What asked for a run made before the field existed. The patch labels the
+	rows that exist today; this covers anything that slips through."""
+	if run.scope == "Online":
+		return "Online sample"
+	if run.backend == "deterministic":
+		return "Pull request"
+	return "By hand"
+
+
+def _first_failure_per_run(run_names: list) -> dict:
+	"""One failing row per run — the first — as {run: {subject, why}}.
+
+	One query for the page rather than one per run: a week of nightly sweeps
+	across a dozen agents is a hundred rows, and a hundred round trips is a
+	page nobody opens twice.
+	"""
+	if not run_names:
+		return {}
+	# assertion_results too, not just error_message: a live run records the
+	# summary note on the row and the actual reason inside the assertions, so a
+	# page built on error_message alone showed "3/4" with a blank reason —
+	# exactly the click this page exists to avoid.
+	from one_bpmn.agents.eval_ci import _why
+
+	rows = frappe.get_all(
+		"AI Eval Result",
+		filters={"parent": ["in", run_names], "status": ["in", ["Failed", "Error"]]},
+		fields=["parent", "eval_case", "source_run", "error_message", "assertion_results", "idx"],
+		order_by="parent asc, idx asc",
+	)
+	out = {}
+	titles = {
+		c["name"]: c["title"]
+		for c in frappe.get_all("AI Eval Case",
+								filters={"name": ["in", [r.eval_case for r in rows if r.eval_case]]},
+								fields=["name", "title"])
+	} if any(r.eval_case for r in rows) else {}
+	for row in rows:
+		if row.parent in out:
+			continue
+		subject = titles.get(row.eval_case) or row.eval_case or row.source_run or ""
+		out[row.parent] = {"subject": subject, "why": _why(row)[:300]}
+	return out

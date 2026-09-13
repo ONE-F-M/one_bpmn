@@ -45,6 +45,13 @@ const routes = [
 		component: () => import("@/views/Insights.vue"),
 	},
 	{
+		// What the checks found, ordered by time — the read-only counterpart to
+		// the suites list, which is ordered by what you configure.
+		path: "/processa/evals/results",
+		name: "EvalResults",
+		component: () => import("@/views/EvalResults.vue"),
+	},
+	{
 		path: "/processa/evals",
 		name: "Evals",
 		component: () => import("@/views/Evals.vue"),
