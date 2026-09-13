@@ -12,6 +12,7 @@
   "agent_configuration",
   "eval_type",
   "suite_type",
+  "ci_role",
   "pass_k",
   "min_pass_rate",
   "gate_deployment",
@@ -49,8 +50,7 @@
    "in_list_view": 1,
    "label": "Agent Configuration",
    "options": "AI Agent Configuration",
-   "reqd": 1,
-   "description": "The agent this suite evaluates. Cases run against this agent's provider, model, system prompt, tools and orchestration."
+   "description": "The agent this suite evaluates. Cases run against its provider, model, system prompt, tools and orchestration. Only a deterministic run needs none — it scores answers already recorded on the cases."
   },
   {
    "default": "0",
@@ -77,15 +77,22 @@
    "description": "Baseline checks the agent does its job. Adversarial checks it resists injection, jailbreak, exfiltration and tool coercion. A chat agent cannot go Live without a passing Adversarial suite. A suite marks itself Adversarial automatically when a case promoted from an AI Security Event is added to it."
   },
   {
+   "description": "Which automated job runs this suite. Smoke suites run on every pull request that touches agent code and must make no model call; Nightly suites are the live ones, run on a schedule. Blank means neither — it runs when a person asks.",
+   "fieldname": "ci_role",
+   "fieldtype": "Select",
+   "label": "CI Role",
+   "options": "\nSmoke\nNightly"
+  },
+  {
    "default": "1",
-   "description": "How many times each case runs. Above 1, a case passes only when every one of its runs passes \u2014 an agent that deviates two turns in five cannot graduate on a lucky pass.",
+   "description": "How many times each case runs. Above 1, a case passes only when every one of its runs passes — an agent that deviates two turns in five cannot graduate on a lucky pass.",
    "fieldname": "pass_k",
    "fieldtype": "Int",
    "label": "Runs Per Case"
   },
   {
    "default": "0",
-   "description": "The share of executions that must pass for the suite to pass. Left at 0 the suite keeps its old rule \u2014 every case passes \u2014 and blocks nothing.",
+   "description": "The share of executions that must pass for the suite to pass. Left at 0 the suite keeps its old rule — every case passes — and blocks nothing.",
    "fieldname": "min_pass_rate",
    "fieldtype": "Percent",
    "label": "Minimum Pass Rate"
@@ -93,7 +100,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-28 00:00:00.000000",
+ "modified": "2026-09-10 19:30:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Eval Suite",
