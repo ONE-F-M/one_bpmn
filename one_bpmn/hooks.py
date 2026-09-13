@@ -36,6 +36,8 @@ website_route_rules = [
 
 # include js, css files in header of desk.html
 # app_include_css = "/assets/one_bpmn/css/one_bpmn.css"
+extend_bootinfo = "one_bpmn.boot.boot_session"
+
 app_include_js = [
 	"/assets/one_bpmn/js/bpmn_json_prettify.js",
 	# WI-001678: tiny stub defining window.oneAI.openAgentChat — surfaces like
