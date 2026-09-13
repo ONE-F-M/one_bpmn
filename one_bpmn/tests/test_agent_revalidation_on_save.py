@@ -86,6 +86,41 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 		doc.reload()
 		return doc
 
+	def test_a_model_the_platform_knows_is_broken_is_not_called_again(self):
+		"""WI-002191 already marks a model whose credentials fail, alerts once and
+		refuses runs on it. Saving an agent on such a model used to make the live
+		call anyway and park the agent on the answer. On prod-backup on
+		2026-09-13 that parked ProsAlly twice, the second time while it was being
+		put back the way it was found."""
+		from one_bpmn.agents.model_health import record_failure
+
+		agent = self._make_agent()
+		record_failure(self.model.name, "INVALID_KEY", "OpenAI rejected the API key (HTTP 401).")
+
+		with patch(TEST_CALL) as call:
+			agent.save(ignore_permissions=True)
+
+		call.assert_not_called()
+		self.assertEqual(agent.lifecycle_status, "Live")
+
+	def test_a_missing_key_names_the_record_not_the_sdk(self):
+		"""What the person saving an agent read was the provider SDK's own words:
+		"Could not resolve authentication method. Expected one of api_key,
+		auth_token, or credentials to be set." The provider is never called: an
+		empty key is answered here, before an adapter is built."""
+		from one_bpmn.agents import agent_provisioning
+
+		agent = self._make_agent()
+		with patch("frappe.utils.password.get_decrypted_password", return_value=""), patch(
+			"one_bpmn.agents.llm_provider.get_llm_adapter_from_settings",
+			side_effect=AssertionError("the provider must not be called"),
+		):
+			ok, detail = agent_provisioning._provider_test_call(agent)
+
+		self.assertFalse(ok)
+		self.assertIn("has no API key set", detail)
+		self.assertIn(self.model.name, detail)
+
 	def test_live_agent_parks_when_provider_call_fails(self):
 		agent = self._make_agent()
 		self.assertEqual(agent.lifecycle_status, "Live")
