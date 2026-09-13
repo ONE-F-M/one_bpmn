@@ -582,7 +582,7 @@
               >
                 {{ form.aiMemoryReconcileModel }} (not in catalog)
               </option>
-              <option v-for="m in catalogModels" :key="'reconcile-' + m.name" :value="m.name">
+              <option v-for="m in filteredCatalogModels" :key="'reconcile-' + m.name" :value="m.name">
                 {{ modelLabel(m) }}
               </option>
             </select>
