@@ -176,8 +176,11 @@ def _import_process_model():
 
 	import one_bpmn
 
-	app_root = os.path.dirname(os.path.dirname(os.path.abspath(one_bpmn.__file__)))
-	bpmn_path = os.path.join(app_root, "exports", "rq_job_monitor.bpmn")
+	# one_bpmn.__file__ is <bench>/apps/one_bpmn/one_bpmn/__init__.py, so its own
+	# directory IS the package the exports live in. Going up twice landed on the
+	# repository root and the patch died on every migrate.
+	package_root = os.path.dirname(os.path.abspath(one_bpmn.__file__))
+	bpmn_path = os.path.join(package_root, "exports", "rq_job_monitor.bpmn")
 	with open(bpmn_path, encoding="utf-8") as f:
 		xml_content = f.read()
 
