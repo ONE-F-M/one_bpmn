@@ -393,16 +393,24 @@ def blocked_reason(model: str | None) -> str | None:
 	).format(model, _sentence(row.health_error_message), told)
 
 
-def refuse_new_run(model: str | None) -> str | None:
+def refuse_new_run(model: str | None, *, commit: bool = False) -> str | None:
 	"""The dispatch-time gate. Returns the refusal text and counts the run it
-	prevented, or None when the model may be used."""
+	prevented, or None when the model may be used.
+
+	``commit`` is for a caller that raises as soon as this returns. Frappe rolls
+	a request back on an unhandled exception, and the count goes with it, so a
+	refused chat turn was never recorded: three refusals on prod-backup on
+	2026-09-12 left the counter where it started. The dispatch path carries on
+	and commits its own work, so it leaves this False rather than committing a
+	half-written workflow state.
+	"""
 	reason = blocked_reason(model)
 	if reason:
-		_count_suppressed(model)
+		_count_suppressed(model, commit=commit)
 	return reason
 
 
-def _count_suppressed(model: str) -> None:
+def _count_suppressed(model: str, *, commit: bool = False) -> None:
 	Model = DocType(MODEL_DOCTYPE)
 	try:
 		(
@@ -411,6 +419,8 @@ def _count_suppressed(model: str) -> None:
 			.where(Model.name == model)
 			.run()
 		)
+		if commit:
+			frappe.db.commit()
 	except Exception:
 		pass
 
