@@ -293,8 +293,15 @@ onMounted(load);
 .er-why-subject { color: #374151; margin-right: 6px; }
 .er-why--warn { color: #9a5b00; }
 
+/* Narrow: the reason is the last thing to go, never the first. It moves to its
+   own line under the run and wraps; the cost is what gets dropped. */
 @media (max-width: 900px) {
-	.er-row { grid-template-columns: 48px 100px 1fr; }
-	.er-cost, .er-why { display: none; }
+	.er-row { grid-template-columns: 48px 104px minmax(0, 1fr) 84px; }
+	.er-cost { display: none; }
+	.er-why {
+		grid-column: 1 / -1;
+		white-space: normal;
+		padding-top: 2px;
+	}
 }
 </style>
