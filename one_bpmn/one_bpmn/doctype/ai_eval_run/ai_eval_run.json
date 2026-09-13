@@ -12,6 +12,7 @@
   "prompt_hash",
   "comparison_group",
   "status",
+  "triggered_by",
   "scope",
   "requested_cases",
   "backend",
@@ -75,6 +76,14 @@
    "label": "Status",
    "options": "Running\nPassed\nFailed\nError",
    "reqd": 1
+  },
+  {
+   "description": "What asked for this run. Recorded rather than inferred from scope and backend, which reads a nightly suite run by hand as a nightly sweep.",
+   "fieldname": "triggered_by",
+   "fieldtype": "Select",
+   "label": "Triggered By",
+   "options": "\nBy hand\nNightly sweep\nOnline sample\nPull request",
+   "in_standard_filter": 1
   },
   {
    "fieldname": "scope",
@@ -201,7 +210,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-13 16:00:00.000000",
+ "modified": "2026-09-13 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Eval Run",

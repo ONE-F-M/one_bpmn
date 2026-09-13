@@ -31,7 +31,7 @@ def select_suites(role: str = "", suite: str = "") -> list[dict]:
 	)
 
 
-def run_suite(suite: dict, backend: str, spend_cap: float = 0) -> dict:
+def run_suite(suite: dict, backend: str, spend_cap: float = 0, triggered_by: str = "By hand") -> dict:
 	"""Execute one suite here and now, and describe what happened.
 
 	*spend_cap* is the most this run may spend; 0 means no ceiling. It is
@@ -44,6 +44,7 @@ def run_suite(suite: dict, backend: str, spend_cap: float = 0) -> dict:
 		"status": "Running",
 		"backend": backend,
 		"scope": "Suite",
+		"triggered_by": triggered_by,
 		"spend_cap": flt(spend_cap),
 		"started_at": frappe.utils.now_datetime(),
 		"agent_configuration": frappe.db.get_value(

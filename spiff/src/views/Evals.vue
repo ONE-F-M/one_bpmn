@@ -19,6 +19,9 @@
 				<Button icon-left="message-square" @click="$router.push('/processa/evals/feedback')">
 					Feedback
 				</Button>
+				<Button icon-left="list" @click="$router.push('/processa/evals/results')">
+					Results
+				</Button>
 				<Button icon-left="plus" @click="openNewSuite">New suite</Button>
 				<Button icon-left="refresh-cw" @click="refreshAll" :loading="loading">Refresh</Button>
 			</div>
