@@ -1672,7 +1672,12 @@ onMounted(async () => {
 						{ name: "updateFieldRows",      isAttr: true, type: "String" },
 						// Google Chat attrs
 						{ name: "gchatType",            isAttr: true, type: "String" },
+						{ name: "gchatRecipientBasis",  isAttr: true, type: "String" },
 						{ name: "gchatEmail",           isAttr: true, type: "String" },
+						{ name: "gchatDoctype",         isAttr: true, type: "String" },
+						{ name: "gchatDocField",        isAttr: true, type: "String" },
+						{ name: "gchatTableField",      isAttr: true, type: "String" },
+						{ name: "gchatTableUserField",  isAttr: true, type: "String" },
 						{ name: "gchatSpaceId",         isAttr: true, type: "String" },
 						{ name: "gchatMessage",         isAttr: true, type: "String" },
 						// Push Notification attrs
