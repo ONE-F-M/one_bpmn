@@ -80,7 +80,7 @@
    "fieldname": "scope",
    "fieldtype": "Select",
    "label": "Scope",
-   "options": "\nSuite\nSubset",
+   "options": "\nSuite\nSubset\nOnline",
    "description": "Whether the run was requested for the whole suite or a chosen subset of cases. Empty on runs recorded before this was tracked."
   },
   {
@@ -189,7 +189,7 @@
    "fieldname": "total_executions",
    "fieldtype": "Int",
    "label": "Executions",
-   "description": "Cases times runs per case \u2014 what the pass rate is out of."
+   "description": "Cases times runs per case — what the pass rate is out of."
   },
   {
    "fieldname": "pass_rate",
@@ -201,7 +201,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-30 06:50:00.000000",
+ "modified": "2026-09-13 16:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Eval Run",
