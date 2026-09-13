@@ -1155,8 +1155,19 @@ async function loadLinkedAgent() {
     // what dispatch falls back to, and Save leaves the agent's tables alone.
     return;
   }
+  // Re-derive the provider filter so the displayed model list matches
+  // whatever model this configuration just brought in.
+  syncModelProviderFilter();
   await loadAgentUser(form.value.aiAgentConfig);
   await loadScreening();
+}
+
+// Pre-select the provider filter from the currently-chosen model, so the
+// list a designer sees already matches what is picked rather than opening
+// on "all providers" beside a model from one specific one.
+function syncModelProviderFilter() {
+  const current = catalogModels.value.find((m) => m.name === form.value.aiModel);
+  if (current?.provider) modelProviderFilter.value = current.provider;
 }
 
 // ── Notices ───────────────────────────────────────────────────────────────
