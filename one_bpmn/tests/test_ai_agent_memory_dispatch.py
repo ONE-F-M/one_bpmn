@@ -380,6 +380,33 @@ class TestRememberDirectiveWrite(FrappeTestCase):
 		dw.assert_not_called()
 		mw.assert_not_called()
 
+	def test_remember_directive_fires_when_the_map_renders_the_message(self):
+		# The map that drives every chat agent renders the person's words into
+		# its own prompt, so dispatch blanks its copy to avoid sending them
+		# twice. Reading that blanked copy made this branch unreachable on
+		# exactly the agents it was written for: on prod-backup every memory
+		# General Chat had written was distilled, none user_directed.
+		said = "Remember that we always courier parcels with DHL."
+		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
+			"one_bpmn.agents.memory.tools.memory_write"
+		) as mw:
+			D.dispatch_ai_agent(
+				_chat_instance("CONV-R5"),
+				_chat_task("Act_R5", said),
+				{
+					"aiBackend": "faketest",
+					"aiMemoryWriteMode": "distilled",
+					"aiMemoryScope": "Agent",
+					"aiUserPrompt": f"Conversation so far:\nUser: {said}\n\nUser message: {said}",
+				},
+				"Act_R5",
+			)
+		dw.assert_not_called()
+		mw.assert_called_once()
+		args, kwargs = mw.call_args
+		self.assertEqual(args[2], said)
+		self.assertTrue(kwargs.get("user_directed"))
+
 	def test_non_directive_message_still_uses_distilled_path(self):
 		# Regression: a present, non-remember user_message must not accidentally
 		# trip the new branch.
