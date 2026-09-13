@@ -84,7 +84,7 @@
                 <label>AI Model <span class="hint">(provider follows the model)</span></label>
                 <select v-model="newAgent.ai_model">
                   <option value="">-- Pick a Model --</option>
-                  <option v-for="m in catalogModels" :key="m.name" :value="m.name">
+                  <option v-for="m in filteredCatalogModels" :key="m.name" :value="m.name">
                     {{ modelLabel(m) }}
                   </option>
                 </select>
