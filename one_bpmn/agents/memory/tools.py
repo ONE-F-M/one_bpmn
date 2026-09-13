@@ -22,8 +22,10 @@ rows only and a write is shared. Nobody ever reads another person's rows.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+from contextlib import ExitStack, nullcontext
 
 import frappe
 from frappe import _
@@ -117,6 +119,42 @@ def _query_tokens(query: str) -> list[str]:
 		if len(tokens) >= _MAX_QUERY_TOKENS:
 			break
 	return tokens
+
+
+# How long a writeback waits for another one on the same scope key. Distillation
+# is already off the request path, so waiting is cheaper than the duplicate or
+# the lost corroboration count that racing produces.
+_SCOPE_LOCK_TIMEOUT = 30
+
+
+def _scope_lock(keys: dict):
+	"""Serialise reconcile-and-write for one scope key.
+
+	Reconciliation reads the memories in scope, decides what the new fact
+	supersedes, and only then writes. Two writebacks for the same key that
+	interleave there both read the same candidates: both insert, or both raise
+	the corroboration count from the same starting number and one increment is
+	lost. Neither shows up as an error; the store just quietly drifts.
+
+	The lock is the framework's own file lock, named for the scope key rather
+	than the agent, so unrelated agents and different people never wait on each
+	other. A timeout here is not fatal: the caller writes anyway, because
+	losing the memory is worse than the duplicate that racing might produce.
+
+	ponytail: a file lock serialises the processes on one host, which is what a
+	Frappe bench is; a multi-server deployment sharing one database wants
+	GET_LOCK instead.
+	"""
+	from frappe.utils.synchronization import filelock
+
+	return filelock(scope_lock_name(keys), timeout=_SCOPE_LOCK_TIMEOUT)
+
+
+def scope_lock_name(keys: dict) -> str:
+	"""The lock's name for one scope key: a digest, because the key can hold a
+	document name or an email address and this becomes a filename."""
+	fingerprint = hashlib.sha1(json.dumps(keys, sort_keys=True, default=str).encode()).hexdigest()[:16]
+	return f"ai-memory-{fingerprint}"
 
 
 def _json_loads(value):
@@ -708,6 +746,62 @@ def _screen_memory_content(content: str, scope: str, keys_source=None) -> str | 
 
 
 def memory_write(
+	scope: str,
+	scope_key,
+	content: str,
+	dedup_key: str | None = None,
+	metadata: dict | None = None,
+	source_run: str | None = None,
+	*,
+	ignore_permissions: bool = False,
+	reconcile: bool = False,
+	reconcile_ctx: dict | None = None,
+	process_model: str | None = None,
+	user_directed: bool = False,
+	importance: int | None = None,
+	source_type: str | None = None,
+	confidence: float | None = None,
+) -> dict:
+	"""Save a memory for a scope key. See ``_memory_write`` for the full contract.
+
+	This wrapper exists for one reason: under ``reconcile=True`` the work below
+	is a read-modify-write over the memories in one scope, and two writebacks
+	for the same key that interleave there lose an update. It holds the scope
+	lock for the whole of it. A plain write has nothing to race with, reads
+	nothing, and takes no lock.
+
+	A lock that cannot be had in time is not allowed to cost the memory: the
+	write goes ahead unserialised and says so, because a duplicate is a smaller
+	problem than a fact nobody kept.
+	"""
+	passthrough = dict(
+		dedup_key=dedup_key,
+		metadata=metadata,
+		source_run=source_run,
+		ignore_permissions=ignore_permissions,
+		reconcile=reconcile,
+		reconcile_ctx=reconcile_ctx,
+		process_model=process_model,
+		user_directed=user_directed,
+		importance=importance,
+		source_type=source_type,
+		confidence=confidence,
+	)
+	if not reconcile:
+		return _memory_write(scope, scope_key, content, **passthrough)
+
+	with ExitStack() as stack:
+		try:
+			stack.enter_context(_scope_lock(_resolve_scope(scope, scope_key)))
+		except Exception:
+			stack.enter_context(nullcontext())
+			frappe.logger("one_bpmn").warning(
+				f"AI Memory: writing {scope} without the scope lock; another writeback held it too long."
+			)
+		return _memory_write(scope, scope_key, content, **passthrough)
+
+
+def _memory_write(
 	scope: str,
 	scope_key,
 	content: str,

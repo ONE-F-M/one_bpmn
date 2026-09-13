@@ -5,11 +5,28 @@ durable facts.
 Runs off the dispatch hot path (via ``frappe.enqueue``) so long-term memory
 never adds latency to an AI Agent Task. Like the distiller it feeds, it never
 raises — a background job must not surface failures into the workflow.
+
+Never raising used to mean never recording. A distillation that failed left no
+memory, no row and nothing to look at, so a broken model was invisible until
+somebody noticed recall had quietly stopped improving. Now the call is retried
+a few times with a growing pause, and what survives that is written to an AI
+Memory Dead Letter with its payload and its error. Still nothing reaches the
+caller; the difference is that the failure leaves a trace.
 """
 
 from __future__ import annotations
 
+import json
+import time
+
 import frappe
+
+# Three tries over about three seconds. Distillation is one model call, and the
+# failures worth retrying are the transient ones: a rate limit, a dropped
+# connection, a provider hiccup. A model that is genuinely misconfigured fails
+# all three just as fast.
+MAX_ATTEMPTS = 3
+_BACKOFF_SECONDS = (1, 2)
 
 
 def _reconcile_batch(facts: list[dict], reconcile_ctx: dict) -> list[dict]:
@@ -64,6 +81,63 @@ def _reconcile_batch(facts: list[dict], reconcile_ctx: dict) -> list[dict]:
 		return facts
 
 
+def _distill_with_retries(agent_output, *, source_run=None, process_model=None, **kwargs) -> list[dict]:
+	"""Distil, retrying a transient failure, and dead-letter what will not work.
+
+	Returns the facts, or ``[]`` when every attempt failed. ``[]`` is also what a
+	turn with nothing worth remembering returns, and that is fine here: the
+	difference between the two is recorded in the dead letter, not in the return
+	value, so every existing caller is unaffected.
+	"""
+	from one_bpmn.agents.memory.distill import DistillationFailed, distill_memories
+
+	last_error = ""
+	for attempt in range(1, MAX_ATTEMPTS + 1):
+		try:
+			return distill_memories(agent_output, raise_on_failure=True, **kwargs)
+		except DistillationFailed as e:
+			last_error = str(e)
+		except Exception:
+			last_error = frappe.get_traceback()
+		if attempt < MAX_ATTEMPTS:
+			# ponytail: sleeping in the worker, which is fine for one model call
+			# and three seconds; move to a delayed re-enqueue if this ever holds
+			# a queue up
+			time.sleep(_BACKOFF_SECONDS[attempt - 1])
+
+	_dead_letter(
+		agent_output,
+		error=last_error,
+		attempts=MAX_ATTEMPTS,
+		source_run=source_run,
+		process_model=process_model,
+		**kwargs,
+	)
+	return []
+
+
+def _dead_letter(agent_output, *, error, attempts, agent, scope, scope_key, source_run=None, process_model=None, **_) -> None:
+	"""Record a distillation nobody could complete. Never raises: this is the
+	last thing standing between a failure and silence, and it must not become
+	the failure itself."""
+	try:
+		frappe.get_doc(
+			{
+				"doctype": "AI Memory Dead Letter",
+				"agent": agent,
+				"memory_scope": scope,
+				"scope_key": scope_key if isinstance(scope_key, str) else json.dumps(scope_key, default=str),
+				"payload": agent_output if isinstance(agent_output, str) else str(agent_output),
+				"error": error,
+				"attempts": attempts,
+				"source_run": source_run,
+				"process_model": process_model,
+			}
+		).insert(ignore_permissions=True)
+	except Exception:
+		frappe.log_error(title="AI Memory: dead letter not recorded", message=frappe.get_traceback())
+
+
 def distill_and_write(
 	*,
 	agent_output,
@@ -107,10 +181,9 @@ def distill_and_write(
 	something it learned.
 	"""
 	try:
-		from one_bpmn.agents.memory.distill import distill_memories
 		from one_bpmn.agents.memory.tools import memory_write
 
-		facts = distill_memories(
+		facts = _distill_with_retries(
 			agent_output,
 			agent=agent,
 			scope=scope,
@@ -119,6 +192,8 @@ def distill_and_write(
 			backend=backend,
 			model=model,
 			exclude_context=exclude_context,
+			source_run=source_run,
+			process_model=process_model,
 		)
 		# The reconciler runs on its own model, so the two can be tuned apart —
 		# and therefore on its own provider, because a model only works against
