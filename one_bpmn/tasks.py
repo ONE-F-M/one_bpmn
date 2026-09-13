@@ -1023,6 +1023,13 @@ def check_ai_model_credentials():
 	model_health.alert_unhealthy_models()
 
 
+def prune_ai_memory():
+	"""Nightly. Retires decayed, never-corroborated and minor aged memories by
+	setting expires_on, with the reason in metadata. Thresholds live on
+	Processa Settings, AI Memory section; the rows stay for audit."""
+	from one_bpmn.agents.memory.prune import prune_memories
+
+	prune_memories()
 def check_ai_memory_volume():
 	"""Daily. Tells the platform team when AI Memory has grown past the point
 	where exact (index-free) semantic ranking should be reconsidered. The
