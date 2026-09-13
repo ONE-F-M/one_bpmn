@@ -15,9 +15,18 @@
 		<div class="acp-main">
 		<!-- ── transcript ─────────────────────────────────────────────── -->
 		<div ref="log" class="acp-log">
+			<!-- older messages live behind this; the transcript opens at the
+			     newest page (chat-history-paging scope) -->
+			<div v-if="hasOlder" class="acp-older">
+				<button class="acp-btn acp-btn--subtle" :disabled="loadingOlder" @click="loadOlder">
+					{{ loadingOlder ? __("Loading…") : __("Load older messages") }}
+				</button>
+			</div>
 			<template v-for="(item, i) in transcriptItems" :key="i">
 				<!-- plain text bubbles -->
-				<div v-if="item.kind === 'user'" class="acp-msg acp-msg--user">{{ item.text }}<span v-if="item.file" class="acp-filechip">📎 {{ item.file }}</span></div>
+				<div v-if="item.kind === 'user'" class="acp-msg acp-msg--user" :class="{ 'acp-msg--failed': item.failed }">{{ item.text }}<span v-if="item.file" class="acp-filechip">📎 {{ item.file }}</span>
+					<button v-if="item.failed" class="acp-retry" :disabled="busy" @click="retrySend(item)">{{ __("Not sent — Retry") }}</button>
+				</div>
 				<div v-else-if="item.kind === 'agent'" class="acp-agent-block">
 					<div class="acp-msg acp-msg--agent" v-html="renderMarkdown(item.text)" />
 					<!-- Rating lives on agent replies only, and only where the
@@ -37,7 +46,7 @@
 							v-for="opt in item.value.options"
 							:key="opt"
 							class="acp-btn acp-btn--subtle"
-							:disabled="busy || !!item.answered"
+							:disabled="busy || !!item.answered || item.restored"
 							:class="{ 'acp-btn--solid': item.answered === opt }"
 							@click="answerChoice(item, opt)"
 						>
@@ -440,16 +449,13 @@ onMounted(async () => {
 		try {
 			const history = await frappeRequest({
 				url: "/api/method/one_bpmn.api.agui.conversation_history",
-				params: { conversation: conversationName.value },
+				params: { conversation: conversationName.value, limit: HISTORY_PAGE },
 			}) || [];
-			for (const m of history) {
-				items.value.push({
-					kind: m.role === "user" ? "user" : "agent",
-					text: m.content,
-					message: m.message || "",
-					ts: m.timestamp,
-				});
-			}
+			items.value.push(...restoredItems(history, true));
+			oldestMessage.value = history.length ? history[0].message : "";
+			// A full page means there is probably another behind it. One short
+			// of the page is the end, and the control never appears.
+			hasOlder.value = history.length >= HISTORY_PAGE;
 			// A resumed conversation opens where the user left off — at the
 			// newest message. Without this it opened at the very first line of
 			// a months-old transcript and looked stuck (reported 2026-08-16).
@@ -541,7 +547,8 @@ async function send(text, extraContext = null) {
 	const message = (text ?? draft.value).trim();
 	if (!message || busy.value) return;
 	draft.value = "";
-	items.value.push({ kind: "user", text: message, ts: stampNow() });
+	const sent = { kind: "user", text: message, ts: stampNow() };
+	items.value.push(sent);
 	busy.value = true;
 	status.value = "streaming";
 	streamingText.value = "";
@@ -555,7 +562,7 @@ async function send(text, extraContext = null) {
 	let turnContext = { ...props.context, ...(extraContext || {}) };
 	if (pendingFile.value) {
 		turnContext.file = pendingFile.value.file_url;
-		items.value[items.value.length - 1].file = pendingFile.value.file_name;
+		sent.file = pendingFile.value.file_name;
 		pendingFile.value = null;
 	}
 	if (props.contextProvider) {
@@ -576,6 +583,12 @@ async function send(text, extraContext = null) {
 			status.value = "error";
 			errorMessage.value = msg;
 			errorOpen.value = true;
+			// The message is still on screen as though it had been delivered.
+			// Mark the one that failed and keep what it would take to send it
+			// again — a failed turn was otherwise indistinguishable from a
+			// slow one, and retyping was the only way forward.
+			sent.failed = true;
+			sent.retryContext = extraContext || null;
 		},
 		onDone: () => {
 			if (streamingText.value) {
@@ -651,6 +664,98 @@ function handleCustom(name, value) {
 	scrollDown();
 }
 
+// One page is what the endpoint will give us at most, and asking for the cap
+// means a reopened conversation opens with everything it can show.
+const HISTORY_PAGE = 100;
+const hasOlder = ref(false);
+const loadingOlder = ref(false);
+const oldestMessage = ref("");
+
+// Turn stored turns into transcript items: the words, then the cards and
+// option buttons the reply produced when it first streamed.
+//
+// Restored cards do not act. Nothing records whether an apply succeeded, and
+// re-applying a diagram or a schema is destructive — so a card that came back
+// from history is shown concluded. An unanswered question is different: the
+// only thing its buttons do is send a sentence, so the newest reply's options
+// stay live and the conversation can carry on where it stopped.
+function restoredItems(history, isNewestPage) {
+	const out = [];
+	history.forEach((m, index) => {
+		if (m.role === "user") {
+			out.push({ kind: "user", text: m.content, ts: m.timestamp });
+			return;
+		}
+		if (m.content) {
+			out.push({ kind: "agent", text: m.content, message: m.message || "", ts: m.timestamp });
+		}
+		const isLastOfPage = index === history.length - 1;
+		for (const event of m.events || []) {
+			const value = event.value || {};
+			if (event.name === "onefm.choice") {
+				out.push({
+					kind: "choice",
+					value,
+					// What the user said next, when it was one of the options —
+					// so a reopened conversation shows which way it went.
+					answered: answeredWith(history, index, value.options || []),
+					restored: !(isNewestPage && isLastOfPage),
+					ts: m.timestamp,
+				});
+			} else {
+				out.push({
+					kind: "custom",
+					name: event.name,
+					value,
+					doneAction: "restored",
+					restored: true,
+					ts: m.timestamp,
+				});
+			}
+		}
+	});
+	return out;
+}
+
+function answeredWith(history, index, options) {
+	const next = history[index + 1];
+	if (!next || next.role !== "user") return "";
+	const said = (next.content || "").trim();
+	return options.find((opt) => opt === said) || "";
+}
+
+async function loadOlder() {
+	if (loadingOlder.value || !oldestMessage.value) return;
+	loadingOlder.value = true;
+	try {
+		const older = await frappeRequest({
+			url: "/api/method/one_bpmn.api.agui.conversation_history",
+			params: {
+				conversation: conversationName.value,
+				limit: HISTORY_PAGE,
+				before: oldestMessage.value,
+			},
+		}) || [];
+		if (older.length) {
+			// Keep the reader where they are: measure the scroll height before
+			// the older messages go in, and restore the difference after.
+			const box = log.value;
+			const before = box ? box.scrollHeight - box.scrollTop : 0;
+			items.value.unshift(...restoredItems(older, false));
+			oldestMessage.value = older[0].message;
+			await nextTick();
+			if (box) box.scrollTop = box.scrollHeight - before;
+		}
+		hasOlder.value = older.length >= HISTORY_PAGE;
+	} catch (e) {
+		// Nothing older to show is not an error worth a dialog; the control
+		// simply stops offering.
+		hasOlder.value = false;
+	} finally {
+		loadingOlder.value = false;
+	}
+}
+
 async function answerChoice(item, option) {
 	item.answered = option;
 	// Emit BEFORE the send so the host can stage per-turn context (e.g.
@@ -670,6 +775,16 @@ async function answerChoice(item, option) {
 	// first by the confirm tools; "No, let me adjust" follows it).
 	const isApproval = item.value.action_intent && item.value.options[0] === option;
 	send(option, isApproval ? { confirmed_action: item.value.action_intent } : null);
+}
+
+async function retrySend(item) {
+	if (busy.value) return;
+	const index = items.value.indexOf(item);
+	if (index !== -1) items.value.splice(index, 1);
+	errorOpen.value = false;
+	errorMessage.value = "";
+	if (status.value === "error") status.value = "idle";
+	await send(item.text, item.retryContext || null);
 }
 
 function onCardAction(item, action, payload) {
@@ -765,6 +880,28 @@ defineExpose({ send, conversationName });
 .acp-ws-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; }
 .acp-ws-body > * { width: 100%; }
 .acp-ws-empty { color: var(--ig4); font-size: 12px; text-align: center; padding: 32px 12px; }
+.acp-older {
+	display: flex;
+	justify-content: center;
+	padding: 2px 0 8px;
+}
+.acp-msg--failed {
+	opacity: 0.75;
+	border: 1px dashed var(--acp-danger, #c0392b);
+}
+.acp-retry {
+	display: block;
+	margin-top: 6px;
+	padding: 2px 8px;
+	font: inherit;
+	font-size: 11px;
+	color: var(--acp-danger, #c0392b);
+	background: transparent;
+	border: 1px solid currentColor;
+	border-radius: 4px;
+	cursor: pointer;
+}
+.acp-retry[disabled] { opacity: 0.5; cursor: default; }
 .acp-routed { align-self: flex-start; color: var(--ig5); font-size: 11px; font-style: italic; }
 
 .acp-log { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column;

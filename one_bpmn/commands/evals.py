@@ -63,7 +63,10 @@ def run_ai_evals(context, suite, role, backend, min_pass, skip_if_none, allow_un
 			click.echo(f"No eval suite matches {what} on {site}.", err=True)
 			raise SystemExit(1)
 
-		summaries = [run_suite(s, backend) for s in selected]
+		# A deterministic sweep is the pull-request check; anything else run
+		# from the command line is a person asking.
+		triggered_by = "Pull request" if backend == "deterministic" else "By hand"
+		summaries = [run_suite(s, backend, triggered_by=triggered_by) for s in selected]
 
 		if as_json:
 			click.echo(json.dumps({"site": site, "backend": backend, "min_pass": min_pass,
