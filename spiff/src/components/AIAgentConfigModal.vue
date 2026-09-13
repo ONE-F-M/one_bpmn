@@ -834,13 +834,31 @@ const catalogModels = ref([]); // AI Model catalog (WI-001655)
 // broken one. Best-effort: a designer who cannot read Processa Settings still
 // gets the plain label.
 const siteDefaults = ref({ compaction: "", distill: "", reconcile: "" });
-// What an option reads as: the model, and nothing else when it is usable. The
-// provider is derived from the model and repeating it on every row said nothing
-// a designer picking a model needed. A model that will NOT work is still listed
-// — hiding it is what produced an empty picker — and still says why.
+// UI-only provider filter (not part of `form`, never saved, never sent to
+// the server): narrows every model dropdown to one provider's models. The
+// AI Provider field stays derived from whichever model is actually picked.
+const modelProviderFilter = ref("");
+// Every provider that appears on a catalog model, for the filter's options.
+const catalogProviders = computed(() =>
+  Array.from(new Set(catalogModels.value.map((m) => m.provider).filter(Boolean))).sort(),
+);
+// The catalog narrowed to the selected provider. A model with no provider
+// at all cannot match a specific filter, but must still surface when the
+// filter is blank ("all providers") so the "no provider linked" warning
+// stays visible rather than the model quietly disappearing.
+const filteredCatalogModels = computed(() => {
+  if (!modelProviderFilter.value) return catalogModels.value;
+  return catalogModels.value.filter((m) => m.provider === modelProviderFilter.value);
+});
+// What an option reads as: the display name when the model has one, else the
+// raw API id, and nothing else when it is usable. The provider is derived
+// from the model and repeating it on every row said nothing a designer
+// picking a model needed. A model that will NOT work is still listed —
+// hiding it is what produced an empty picker — and still says why.
 function modelLabel(m) {
-  if (!m.provider) return `${m.name} — no provider linked`;
-  return m.has_credentials === false ? `${m.name} — no API key` : m.name;
+  const label = m.display_name || m.name;
+  if (!m.provider) return `${label} — no provider linked`;
+  return m.has_credentials === false ? `${label} — no API key` : label;
 }
 
 function inheritLabel(which) {
