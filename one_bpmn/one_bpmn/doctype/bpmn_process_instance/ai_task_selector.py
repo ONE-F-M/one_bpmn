@@ -14,6 +14,7 @@
 import frappe
 
 from one_bpmn.one_bpmn import engine as bpmn_engine
+from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import _provider_for_model
 
 
 def make_adhoc_decider(instance, wf):
@@ -237,7 +238,10 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 
 	config = ExecutorConfig(
 		backend="direct_api",
-		provider_name=task_cfg.get("aiProvider", ""),
+		# The provider a model is served by lives on the model's own record,
+		# so naming just the model is enough.
+		provider_name=task_cfg.get("aiProvider", "")
+		or _provider_for_model(task_cfg.get("aiModel", ""), ""),
 		model=task_cfg.get("aiModel", ""),
 		system_prompt=build_static_context(
 			system_prompt=render(task_cfg.get("aiSystemPrompt", "")),

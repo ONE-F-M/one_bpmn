@@ -12,8 +12,9 @@ the candidates it supersedes.
 It uses ONLY the provider + chat model already configured for the task (the same
 executor stack as :mod:`one_bpmn.agents.memory.distill`); there is no embedding
 model and nothing hardcoded. Like the distiller, it NEVER raises: any failure
-degrades to ``{"action": "add", "supersedes": []}`` so the writer just inserts
-the new fact and touches nothing.
+degrades to ``{"action": "add", "supersedes": [], "degraded": <reason>}`` so the
+writer just inserts the new fact — the ``degraded`` reason is what lets a caller
+tell that apart from a model genuinely deciding "add".
 """
 
 from __future__ import annotations
@@ -69,29 +70,36 @@ EXISTING memories:
 Return the reconciliation decision as JSON."""
 
 
+def _bad_output() -> dict:
+	# "degraded" distinguishes "the model didn't genuinely decide" from a real
+	# "add" — both look identical downstream (plain insert) but only one means
+	# the reconciler actually did its job.
+	return {"action": "add", "supersedes": [], "degraded": "bad_output"}
+
+
 def _coerce_decision(output) -> dict:
 	"""Parse the model output into a safe decision dict. Tolerates a parsed dict
-	(response_format='json') or a raw JSON string; anything else -> safe 'add'."""
+	(response_format='json') or a raw JSON string; anything else -> degraded 'add'."""
 	if isinstance(output, dict):
 		data = output
 	elif isinstance(output, str):
 		try:
 			data = json.loads(output)
 		except (ValueError, TypeError):
-			return {"action": "add", "supersedes": []}
+			return _bad_output()
 	else:
-		return {"action": "add", "supersedes": []}
+		return _bad_output()
 
 	action = data.get("action") if isinstance(data, dict) else None
 	if action not in _VALID_ACTIONS:
-		return {"action": "add", "supersedes": []}
+		return _bad_output()
 
 	supersedes = data.get("supersedes")
 	names = [str(n) for n in supersedes if n] if isinstance(supersedes, list) else []
 	# "add" never supersedes anything, regardless of what the model returned.
 	if action == "add":
 		names = []
-	return {"action": action, "supersedes": names}
+	return {"action": action, "supersedes": names, "degraded": None}
 
 
 def reconcile(
@@ -106,18 +114,26 @@ def reconcile(
 
 	``candidates`` is the ``[{name, content, ...}]`` list returned by
 	``memory_search`` — only currently-valid, in-scope memories. Returns
-	``{"action": "add"|"update"|"replace", "supersedes": [candidate_name, ...]}``
-	where ``supersedes`` only ever contains ids present in ``candidates``.
+	``{"action": "add"|"update"|"replace", "supersedes": [candidate_name, ...],
+	"degraded": str | None}`` where ``supersedes`` only ever contains ids present
+	in ``candidates``. ``degraded`` is ``None`` when the model genuinely decided,
+	else a reason (``"no_candidates"``, ``"no_model"``, ``"exec_error"``,
+	``"bad_output"``) the caller can log/count — an "add" that happened because
+	nothing else could run looks identical to a real "add" unless this is checked.
 
-	Never raises. With no candidates, no model, or any failure it returns the
-	safe default ``{"action": "add", "supersedes": []}`` so the caller simply
-	inserts the new fact.
+	Never raises. With no candidates, no model, or any failure it returns a
+	degraded ``{"action": "add", "supersedes": [], "degraded": <reason>}`` so the
+	caller simply inserts the new fact.
 	"""
-	safe = {"action": "add", "supersedes": []}
+
+	def _safe(reason: str) -> dict:
+		return {"action": "add", "supersedes": [], "degraded": reason}
 
 	text = (new_content or "").strip()
-	if not text or not candidates or not model:
-		return safe
+	if not text or not candidates:
+		return _safe("no_candidates")
+	if not model:
+		return _safe("no_model")
 
 	# Map presentation ids back to real names so a hallucinated/foreign id can
 	# never invalidate the wrong record. We show real names too (they are opaque
@@ -132,7 +148,7 @@ def reconcile(
 		by_name[name] = True
 		lines.append(f"- id={name}: {content}")
 	if not lines:
-		return safe
+		return _safe("no_candidates")
 
 	try:
 		from one_bpmn.agents.executor import (
@@ -158,11 +174,11 @@ def reconcile(
 		)
 		result = get_executor(config.backend)().run(config, ExecutorContext())
 		if result.error_code != ErrorCode.SUCCESS:
-			return safe
+			return _safe("exec_error")
 		decision = _coerce_decision(result.output)
 	except Exception:
 		frappe.log_error(title="AI Memory: reconciliation failed", message=frappe.get_traceback())
-		return safe
+		return _safe("exec_error")
 
 	# Drop any superseded id the model invented or that isn't a real candidate.
 	decision["supersedes"] = [n for n in decision["supersedes"] if n in by_name]

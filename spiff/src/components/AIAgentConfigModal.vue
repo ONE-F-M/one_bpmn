@@ -1,14 +1,18 @@
 <template>
   <div class="ai-agent-modal-overlay" @click.self="$emit('close')">
-    <div class="ai-agent-modal">
+    <div :class="['ai-agent-modal', { 'ai-agent-modal--readonly': readonly }]">
       <!-- ============ LEFT: configuration form ============ -->
       <div class="modal-main">
         <div class="modal-header">
-          <h3>{{ isSelector ? "Configure AI Task Selector" : "Configure AI Agent Task" }}</h3>
+          <h3>
+            {{ isSelector ? "Configure AI Task Selector" : "Configure AI Agent Task" }}
+            <span v-if="readonly" class="readonly-badge">View only</span>
+          </h3>
           <button class="close-btn" @click="$emit('close')">✕</button>
         </div>
 
         <div class="modal-body">
+        <fieldset class="field-gate" :disabled="readonly">
           <!-- Linked AI Agent Configuration (WI-001637 live link). Selecting
                one shows its current values in the fields below; at run time
                the configuration is authoritative for agent-level fields, and
@@ -424,6 +428,28 @@
                 <input v-else-if="c.fieldtype === 'Check'" type="checkbox" class="checkbox-input"
                        :checked="c.value == 1" @change="c.value = $event.target.checked ? 1 : 0" />
                 <input v-else-if="c.fieldtype === 'Int'" type="number" min="0" v-model.number="c.value" />
+                <!-- The allow-list. A child table on the doctype, so it arrives as
+                     plain names with the set of agents that could legitimately be
+                     picked, and goes back the same way. Tick boxes rather than a
+                     multi-select: the list is short, and seeing who is NOT on it
+                     matters as much as seeing who is. -->
+                <div v-else-if="c.fieldtype === 'Agent List'" class="agent-allow-list">
+                  <label v-for="choice in (c.choices || [])" :key="choice" class="agent-allow-row">
+                    <input
+                      type="checkbox"
+                      class="checkbox-input"
+                      :checked="(c.value || []).includes(choice)"
+                      @change="toggleAllowed(c, choice, $event.target.checked)"
+                    />
+                    <span>{{ choice }}</span>
+                  </label>
+                  <span v-if="!(c.choices || []).length" class="field-hint">
+                    No other agent is exposed over A2A yet, so there is nobody to allow.
+                  </span>
+                  <span v-else-if="!(c.value || []).length" class="field-hint">
+                    Nobody is on the list, so this agent may not delegate to anyone.
+                  </span>
+                </div>
                 <input v-else type="text" v-model="c.value" />
                 <span class="field-hint" v-if="c.description">{{ c.description }}</span>
               </div>
@@ -474,6 +500,20 @@
             </select>
             <span class="field-hint" v-if="form.aiMemoryScope === 'Entity'">
               The entity is taken from the task's context document (context_doctype / context_docname) at runtime — no extra field needed.
+            </span>
+          </div>
+
+          <!-- Recall token budget (only when long-term memory is on). Governs
+               what gets INJECTED, independent of write mode — recall runs
+               whenever memory is on, whatever the write mode is set to. -->
+          <div class="field-row" v-if="!isSelector && form.aiLongTermMemory">
+            <label>Memory Token Budget</label>
+            <input type="number" min="0" step="100" v-model.number="form.aiMemoryTokenBudget" />
+            <span class="field-hint">
+              Caps the injected recall block by estimated token size, truncating the lowest-ranked
+              memories first. 0 or blank uses the default (800) — there is no way to disable the
+              cap here, unlike Context Token Budget below: an unbounded block is the defect this
+              field exists to close.
             </span>
           </div>
 
@@ -626,16 +666,21 @@
             Memory and compaction settings are stored on the linked AI Agent Configuration,
             not on this diagram.
           </p>
+        </fieldset>
         </div>
 
         <div class="modal-footer">
-          <button class="btn-cancel" @click="$emit('close')">Cancel</button>
-          <button class="btn-save" @click="save">Save</button>
+          <button class="btn-cancel" @click="$emit('close')">{{ readonly ? "Close" : "Cancel" }}</button>
+          <button v-if="!readonly" class="btn-save" @click="save">Save</button>
         </div>
       </div>
 
       <!-- ============ RIGHT: assistant chat panel ============ -->
-      <div class="assistant-panel">
+      <!-- Hidden in read-only mode: the assistant can apply changes onto
+           the form via card actions, which would bypass the fieldset's
+           disabled state (that only blocks native form controls). A
+           locked map must not be editable through this side door either. -->
+      <div v-if="!readonly" class="assistant-panel">
         <!-- WI-001679: ONE chat for both ways into this dialog. An AI Agent
              Task and an AI Task Selector now open the same panel, on the same
              agent, over the same endpoint — the mode only changes what the
@@ -757,6 +802,11 @@ const props = defineProps({
   // reads (backend, output variable, response format/schema, sampling,
   // retries) and writes only the selector attribute set on save.
   mode: { type: String, default: "agent" },
+  // True when the map is open read-only: the form shows current values with
+  // every field disabled (the <fieldset disabled> above), no Save button,
+  // and the assistant chat (which can also apply edits onto the form) is
+  // hidden entirely.
+  readonly: { type: Boolean, default: false },
 });
 
 const isSelector = computed(() => props.mode === "selector");
@@ -772,14 +822,13 @@ const catalogModels = ref([]); // AI Model catalog (WI-001655)
 // broken one. Best-effort: a designer who cannot read Processa Settings still
 // gets the plain label.
 const siteDefaults = ref({ compaction: "", distill: "", reconcile: "" });
-// What an option reads as. A model whose provider is missing or disabled is
-// still listed — hiding it is what produced an empty picker — but it says why
-// it may not work rather than looking identical to a usable one.
+// What an option reads as: the model, and nothing else when it is usable. The
+// provider is derived from the model and repeating it on every row said nothing
+// a designer picking a model needed. A model that will NOT work is still listed
+// — hiding it is what produced an empty picker — and still says why.
 function modelLabel(m) {
   if (!m.provider) return `${m.name} — no provider linked`;
-  return m.has_credentials === false
-    ? `${m.name} — via ${m.provider} (no API key on the model)`
-    : `${m.name} — via ${m.provider}`;
+  return m.has_credentials === false ? `${m.name} — no API key` : m.name;
 }
 
 function inheritLabel(which) {
@@ -860,6 +909,15 @@ function isOn(fieldname) {
   if (!dep) return true;
   return !(dep.value === 0 || dep.value === "0" || dep.value === false || dep.value == null);
 }
+// Kept as a plain list of names, which is what the server sends and expects
+// back. Sorted so the saved order does not churn on every tick.
+function toggleAllowed(control, choice, on) {
+  const current = new Set(control.value || []);
+  if (on) current.add(choice);
+  else current.delete(choice);
+  control.value = [...current].sort();
+}
+
 function visibleIn(group) {
   return group.controls.filter((c) => !c.depends_on_field || isOn(c.depends_on_field));
 }
@@ -971,6 +1029,9 @@ const form = ref({
   aiLongTermMemory: false,
   aiMemoryScope: "Agent",
   aiMemoryWriteMode: "off",
+  // WI-002163: caps the injected recall block's estimated size. See the
+  // field-hint in the template for why 0 isn't offered as "no cap" here.
+  aiMemoryTokenBudget: 800,
   // WI-001793: blank means "inherit" — site default, then the agent's own model.
   aiMemoryDistillModel: "",
   aiMemoryReconcileModel: "",
@@ -1321,6 +1382,9 @@ onMounted(async () => {
     aiMemoryWriteMode:
       get("aiMemoryWriteMode") ||
       (get("aiMemoryAutoWrite") === "true" ? "distilled" : "off"),
+    // WI-002163: same reasoning as the two below it — must exist on the form
+    // object for the same wholesale-replace reason.
+    aiMemoryTokenBudget: numOr("aiMemoryTokenBudget", 800, parseInt),
     // WI-001793: these two live on the agent, but seed them from the diagram so
     // a map whose agent has not been migrated still shows its real setting.
     // They must exist on the form object — the linked-agent load only overlays
@@ -1563,6 +1627,10 @@ async function writeBackToConfig() {
     fields.aiLongTermMemory = form.value.aiLongTermMemory ? "Enabled" : "Disabled";
     fields.aiMemoryScope = form.value.aiLongTermMemory ? form.value.aiMemoryScope : "";
     fields.aiMemoryWriteMode = form.value.aiLongTermMemory ? form.value.aiMemoryWriteMode : "";
+    // Recall runs whenever memory is on, independent of write mode — sent
+    // unconditionally (like aiCompactionKeepTail below), never zeroed when
+    // memory is off, since a stray 0 would just fall back to the default.
+    fields.aiMemoryTokenBudget = form.value.aiMemoryTokenBudget || 800;
     fields.aiMemoryDistillModel = form.value.aiMemoryDistillModel || "";
     fields.aiMemoryReconcileModel = form.value.aiMemoryReconcileModel || "";
     // Compaction. The thresholds are only meaningful while it is enabled, so
@@ -1698,6 +1766,20 @@ async function save() {
 </script>
 
 <style scoped>
+.agent-allow-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.agent-allow-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 400;
+}
+
 .ai-agent-modal-overlay {
   position: fixed;
   inset: 0;
@@ -1707,6 +1789,9 @@ async function save() {
   align-items: center;
   justify-content: center;
 }
+
+/* Read-only withholds the chat pane, so the dialog is just the form's width. */
+.ai-agent-modal--readonly { width: 560px; }
 
 .ai-agent-modal {
   background: white;
@@ -1749,6 +1834,32 @@ async function save() {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* The gate sits INSIDE the scroll container, never around it: a disabled
+   <fieldset> is inert, so making the scrolling element the fieldset stopped
+   the body scrolling and left most of the config unreachable. */
+.field-gate {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.field-gate:disabled,
+.field-gate[disabled] {
+  opacity: 1; /* keep values legible — only pointer/keyboard input is blocked */
+}
+
+.readonly-badge {
+  margin-left: 8px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #92400e;
+  background: #fef3c7;
+  border-radius: 10px;
+  vertical-align: middle;
 }
 
 .field-row { display: flex; flex-direction: column; gap: 4px; }

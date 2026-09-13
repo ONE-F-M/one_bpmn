@@ -31,10 +31,10 @@ older ones remain as an audit trail.
 
 from __future__ import annotations
 
-import re
-
 import frappe
 from frappe.utils import cint, now_datetime
+
+from one_bpmn.agents.memory.text_clean import strip_html
 
 SUMMARY_DOCTYPE = "Chat Conversation Summary"
 MESSAGE_DOCTYPE = "Chat Message"
@@ -112,21 +112,9 @@ _USER_PROMPT = """{previous}Conversation to compact:
 Write the combined summary now."""
 
 
-def _strip_html(text: str) -> str:
-	"""Chat Message text is stored with markup; a summariser should read prose.
-
-	Mirrors the cleaner already inlined in Lumina's Build Context rather than
-	inventing a second one.
-	"""
-	if not text:
-		return ""
-	clean = re.sub(r"<[^>]+>", " ", text)
-	for entity, char in (
-		("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"),
-		("&quot;", '"'), ("&#39;", "'"), ("&nbsp;", " "),
-	):
-		clean = clean.replace(entity, char)
-	return re.sub(r"\s+", " ", clean).strip()
+# Shared with api.agent_invocation.invoke_agent, which strips the same class
+# of markup contamination at message ingestion (WI: AI Memory cleanup).
+_strip_html = strip_html
 
 
 def _chars_per_token() -> int:

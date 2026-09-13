@@ -188,3 +188,40 @@ def open_customization_pr(
 		json={"title": pr_title, "head": head_branch, "base": base_branch, "body": pr_body},
 	)
 	return pr.get("html_url", "")
+
+
+def _list_org_repos(token: str, org: str) -> list[dict]:
+	"""Every repository in *org*, paginated (GitHub returns up to 100/page).
+	Unfiltered — forks and archived repos are included; the caller decides
+	whether to keep them."""
+	repos = []
+	page = 1
+	while True:
+		batch = _request(
+			"GET", f"{_API}/orgs/{org}/repos?per_page=100&page={page}", token
+		)
+		if not batch:
+			break
+		repos.extend(batch)
+		if len(batch) < 100:
+			break
+		page += 1
+	return [
+		{"name": r["name"], "description": r.get("description") or "", "html_url": r["html_url"]}
+		for r in repos
+	]
+
+
+@frappe.whitelist()
+def list_org_repos(org: str = "ONE-F-M") -> list[dict]:
+	"""Cross-app entry point: frappe_agile's own repo-picker sync (Work Item's
+	target_app Link field) has no GitHub credential of its own — this reuses
+	the one already configured on Processa Settings for the Dev Agent sandbox,
+	rather than a second token existing purely to duplicate it.
+
+	A plain Python call from another app on the same site (both apps share
+	one process), not an HTTP round trip to itself."""
+	token = frappe.get_cached_doc("Processa Settings").get_password("github_token", raise_exception=False) or ""
+	if not token:
+		frappe.throw(_("Processa Settings has no GitHub token configured."))
+	return _list_org_repos(token, org)

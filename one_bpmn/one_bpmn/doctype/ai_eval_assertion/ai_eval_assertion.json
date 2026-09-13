@@ -18,11 +18,11 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Assertion Type",
-   "options": "schema_valid\ncontains\nregex\nequals\nllm_judge",
+   "options": "schema_valid\ncontains\nregex\nequals\nllm_judge\nmax_tokens\nno_tool_call",
    "reqd": 1
   },
   {
-   "description": "The schema, substring, regex pattern, expected value, or rubric text.",
+   "description": "The schema, substring, regex pattern, rubric, token ceiling, or comma-separated tool names.",
    "fieldname": "value",
    "fieldtype": "Long Text",
    "in_list_view": 1,

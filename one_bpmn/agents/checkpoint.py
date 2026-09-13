@@ -143,6 +143,7 @@ def build_resume_state(payload: dict) -> dict:
 		"pending_call": suspension.get("pending_call") or {},
 		"deferred_results": suspension.get("deferred_results") or [],
 		"turns_used": int(suspension.get("turns_used") or 0),
+		"trace": suspension.get("trace") or [],
 		"human_result": _human_result_str(payload.get("pending_result")),
 	}
 

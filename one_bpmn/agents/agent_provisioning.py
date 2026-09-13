@@ -326,7 +326,14 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 	)
 	if existing:
 		suite = frappe.get_doc("AI Eval Suite", existing[0])
-		for case in frappe.get_all("AI Eval Case", filters={"suite": suite.name}, pluck="name"):
+		# Only the cases this generator wrote (it names them "<suite> — <n>").
+		# A baseline suite is also where hand-authored regression cases live, and
+		# refreshing the sample prompts must not silently delete those.
+		for case in frappe.get_all(
+			"AI Eval Case",
+			filters={"suite": suite.name, "title": ["like", f"{suite_title} — %"]},
+			pluck="name",
+		):
 			frappe.delete_doc("AI Eval Case", case, force=True, ignore_permissions=True)
 	else:
 		suite = frappe.get_doc({

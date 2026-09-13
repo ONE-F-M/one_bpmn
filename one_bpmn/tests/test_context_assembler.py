@@ -162,3 +162,28 @@ class TestDynamicPreamble(FrappeTestCase):
 
 	def test_memory_without_a_user_prompt_is_returned_alone(self):
 		self.assertEqual(build_dynamic_preamble("mem", ""), "mem")
+
+	def test_instructions_join_the_prefix_and_the_message_follows_the_marker(self):
+		"""The standing instructions repeat every turn and the message does not,
+		so the cache breakpoint belongs between them."""
+		out = build_dynamic_preamble(
+			memory_block="Relevant memory:\n- likes brevity",
+			instructions="Always call classify_intent first.",
+			user_prompt="add a status field",
+		)
+
+		self.assertLess(out.index("Relevant memory:"), out.index("Always call classify_intent"))
+		self.assertLess(out.index("Always call classify_intent"), out.index("User message:"))
+		self.assertTrue(out.endswith("User message: add a status field"))
+
+	def test_instructions_alone_are_the_message(self):
+		"""Every caller that predates the split sends one blob; it must come
+		back exactly as before, marker and all."""
+		self.assertEqual(
+			build_dynamic_preamble(instructions="Process the latest message."),
+			"Process the latest message.",
+		)
+		self.assertEqual(
+			build_dynamic_preamble(memory_block="mem", instructions="do the thing"),
+			"mem\n\nUser message: do the thing",
+		)
