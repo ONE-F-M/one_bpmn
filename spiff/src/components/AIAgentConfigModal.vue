@@ -183,11 +183,13 @@
                server — the AI Provider field above stays derived from
                whichever model ends up picked. -->
           <div class="field-row">
-            <label>Filter Models by Provider <span class="hint">(narrows every model list below; not saved)</span></label>
-            <select v-model="modelProviderFilter">
-              <option value="">-- All providers --</option>
-              <option v-for="p in catalogProviders" :key="p" :value="p">{{ p }}</option>
-            </select>
+            <FormControl
+              type="select"
+              label="Filter Models by Provider"
+              v-model="modelProviderFilter"
+              :options="[{ label: '-- All providers --', value: '' }, ...catalogProviders.map((p) => ({ label: p, value: p }))]"
+            />
+            <span class="field-hint">Narrows every model list below to one provider. Not saved.</span>
           </div>
 
           <!-- Model — the agent's catalog pick (WI-001655): editable here and
