@@ -43,6 +43,13 @@
 							title="Which automated job runs this suite"
 							@click="openThresholds"
 						>{{ suite.ci_role ? `runs on ${suite.ci_role.toLowerCase()}` : "runs when asked" }}</button>
+						<span v-if="readiness">·</span>
+						<button
+							v-if="readiness"
+							class="text-blue-600 hover:underline"
+							:title="`The golden dataset for ${readiness.subject}: ${readiness.cases} case(s), ${readiness.minimum} is the mark`"
+							@click="openDataset"
+						>dataset {{ readiness.cases }}/{{ readiness.minimum }}</button>
 						<span
 							v-if="suite.gate_deployment"
 							class="inline-block px-2 py-0.5 rounded-full text-xs bg-amber-50 text-amber-700"
@@ -315,6 +322,103 @@
 			</template>
 		</Dialog>
 
+		<!-- The golden dataset this suite's agent carries -->
+		<Dialog v-model="showDataset" :options="{ title: 'Golden dataset', size: '2xl' }">
+			<template #body-content>
+				<div v-if="readiness" class="space-y-4">
+					<FormControl
+						type="select"
+						label="Reading and versioning"
+						v-model="datasetScope"
+						:options="DATASET_SCOPES"
+						description="A version of this suite is what a run passed against. The agent's view spans every suite it has."
+						@change="loadReadiness"
+					/>
+					<p class="text-sm text-gray-700">
+						<span class="font-medium">{{ readiness.subject }}</span> carries
+						<span class="font-medium">{{ readiness.cases }}</span> case(s).
+						<span v-if="readiness.short_by">{{ readiness.short_by }} short of {{ readiness.minimum }};</span>
+						<span v-else>Past the {{ readiness.minimum }} mark;</span>
+						{{ readiness.target }} is comfortable.
+					</p>
+					<p class="text-xs text-gray-500">
+						A reading, not a gate. The one hard case-count bar is a skill graduating to Action-Allowed.
+					</p>
+
+					<div class="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+						<div v-for="(count, type) in readiness.by_type" :key="type" class="flex justify-between">
+							<span :class="count ? 'text-gray-700' : 'text-gray-400'">{{ type }}</span>
+							<span :class="count ? 'font-medium' : 'text-gray-400'">{{ count }}</span>
+						</div>
+					</div>
+
+					<p v-if="readiness.missing_types.length" class="text-sm text-amber-600">
+						Nothing yet for: {{ readiness.missing_types.join(", ") }}.
+					</p>
+
+					<div class="border-t border-gray-100 pt-3 text-sm">
+						<p v-if="readiness.latest_version">
+							Latest version <span class="font-medium">v{{ readiness.latest_version.version }}</span>,
+							{{ readiness.latest_version.case_count }} case(s), taken
+							{{ readiness.latest_version.taken_at }}.
+							<span v-if="readiness.drifted_from_version" class="text-amber-600">
+								The cases have changed since — take a new version to record where they are now.
+							</span>
+						</p>
+						<p v-else class="text-gray-500">No version taken yet.</p>
+					</div>
+
+					<FormControl
+						label="Note for this version (optional)"
+						v-model="datasetNote"
+						description="Why you are recording the dataset here — read later beside the version number."
+					/>
+					<div v-if="importPreview" class="border border-blue-100 bg-blue-50 rounded-md p-3 text-sm space-y-1">
+						<p class="font-medium text-gray-800">
+							{{ importFileName }} holds {{ importPreview.created.length + importPreview.updated.length }}
+							case(s) for this suite.
+						</p>
+						<p v-if="importPreview.created.length">
+							<span class="font-medium">{{ importPreview.created.length }} new:</span>
+							{{ importPreview.created.slice(0, 4).join(", ") }}<span v-if="importPreview.created.length > 4">, …</span>
+						</p>
+						<p v-if="importPreview.updated.length">
+							<span class="font-medium">{{ importPreview.updated.length }} already here</span>, and will be
+							overwritten: {{ importPreview.updated.slice(0, 4).join(", ") }}<span v-if="importPreview.updated.length > 4">, …</span>
+						</p>
+						<p v-if="importPreview.left_alone.length" class="text-gray-600">
+							{{ importPreview.left_alone.length }} case(s) in this suite are not in the file and stay as they are.
+						</p>
+						<p v-if="importPreview.merged_from.length" class="text-amber-700">
+							This file holds cases from {{ importPreview.merged_from.length }} suites
+							({{ importPreview.merged_from.join(", ") }}) and they will all land in this one.
+						</p>
+						<p v-if="importPreview.skipped.length" class="text-amber-700">
+							{{ importPreview.skipped.length }} entry(ies) have no title and will be ignored.
+						</p>
+					</div>
+					<p v-if="datasetMessage" class="text-sm text-green-700">{{ datasetMessage }}</p>
+					<p v-if="datasetError" class="text-sm text-red-600">{{ datasetError }}</p>
+					<input ref="importInput" type="file" accept="application/json,.json" class="hidden" @change="previewImport" />
+				</div>
+			</template>
+			<template #actions>
+				<div class="flex gap-2">
+					<Button :loading="datasetBusy" @click="downloadDataset">Export</Button>
+					<Button v-if="!importPreview" :loading="datasetBusy" @click="chooseImportFile">Import…</Button>
+					<Button v-else :loading="datasetBusy" @click="cancelImport">Cancel import</Button>
+					<Button
+						v-if="importPreview"
+						variant="solid"
+						theme="blue"
+						:loading="datasetBusy"
+						@click="applyImport"
+					>Import {{ importPreview.created.length + importPreview.updated.length }} case(s)</Button>
+					<Button v-else variant="solid" :loading="datasetBusy" @click="takeSnapshot">Take version</Button>
+				</div>
+			</template>
+		</Dialog>
+
 		<!-- Case editor modal (new + edit) -->
 		<Dialog v-model="showCaseEditor" :options="{ title: caseMode === 'edit' ? 'Edit case' : 'New eval case', size: '3xl' }">
 			<template #body-content>
@@ -324,6 +428,25 @@
 						— its provider, model and system prompt are used.
 					</div>
 					<FormControl label="Title" v-model="caseForm.title" />
+					<div class="grid grid-cols-2 gap-3">
+						<FormControl
+							type="select"
+							label="Case type"
+							v-model="caseForm.case_type"
+							:options="CASE_TYPE_OPTIONS"
+							description="What this case measures."
+						/>
+						<FormControl
+							type="select"
+							label="Target skill (optional)"
+							v-model="caseForm.target_skill"
+							:options="skillOptions"
+							description="A skill's golden dataset is the cases pointing at it."
+						/>
+					</div>
+					<p v-if="caseProvenance" class="text-xs text-gray-500">
+						Came from {{ caseProvenance }} — that link is set by whatever promoted this case, not here.
+					</p>
 					<FormControl type="textarea" label="User prompt" v-model="caseForm.input_user_prompt" />
 					<FormControl type="textarea" label="Expected output (optional)" v-model="caseForm.expected_output" />
 
@@ -561,8 +684,197 @@ const caseError = ref("")
 const incompleteAssertion = computed(() =>
 	caseForm.assertions.findIndex((a) => !(a.value || "").trim())
 )
+
+const CASE_TYPE_OPTIONS = [
+	"Output", "Trajectory", "Trigger Positive", "Trigger Negative",
+	"Adversarial", "Co-Load Budget", "Memory",
+].map((t) => ({ label: t, value: t }))
+
+const skillOptions = ref([{ label: "— none —", value: "" }])
+
+const DATASET_SCOPES = [
+	{ label: "This suite", value: "suite" },
+	{ label: "The whole agent", value: "agent" },
+]
+const datasetScope = ref("suite")
+const showDataset = ref(false)
+const readiness = ref(null)
+
+// What Export and Take version act on. A suite is the unit a run belongs to, so
+// it is the default; the agent's view is the wider one, across its suites.
+const datasetSubject = computed(() =>
+	datasetScope.value === "agent"
+		? { agent: suite.value.agent_configuration }
+		: { suite: suiteName }
+)
+const datasetNote = ref("")
+const datasetBusy = ref(false)
+const datasetMessage = ref("")
+const datasetError = ref("")
+
+// Read as soon as the suite loads so the count is visible without opening
+// anything. Best-effort: a suite with no agent has no dataset, and that must
+// not blank the page.
+async function loadReadiness() {
+	if (!suite.value.agent_configuration) {
+		readiness.value = null
+		return
+	}
+	try {
+		readiness.value = await frappeRequest({
+			url: "/api/method/one_bpmn.api.golden_dataset.dataset_readiness",
+			method: "GET",
+			params: datasetSubject.value,
+		})
+	} catch (e) {
+		readiness.value = null
+	}
+}
+
+async function loadSkills() {
+	try {
+		const res = await frappeRequest({
+			url: "/api/method/frappe.client.get_list",
+			method: "GET",
+			params: { doctype: "AI Skill", fields: JSON.stringify(["name"]), limit_page_length: 0 },
+		})
+		skillOptions.value = [{ label: "— none —", value: "" }].concat(
+			(res || []).map((sk) => ({ label: sk.name, value: sk.name }))
+		)
+	} catch (e) {
+		skillOptions.value = [{ label: "— none —", value: "" }]
+	}
+}
+
+function openDataset() {
+	datasetMessage.value = ""
+	datasetError.value = ""
+	datasetNote.value = ""
+	cancelImport()
+	showDataset.value = true
+	loadReadiness()
+}
+
+async function takeSnapshot() {
+	datasetBusy.value = true
+	datasetMessage.value = ""
+	datasetError.value = ""
+	try {
+		const res = await frappeRequest({
+			url: "/api/method/one_bpmn.api.golden_dataset.snapshot_dataset",
+			method: "POST",
+			params: { ...datasetSubject.value, notes: datasetNote.value },
+		})
+		datasetMessage.value = `Recorded ${res.label} — ${res.case_count} case(s).`
+		await loadReadiness()
+	} catch (e) {
+		datasetError.value = e.messages?.[0] || e.message || "Could not take a version."
+	} finally {
+		datasetBusy.value = false
+	}
+}
+
+const importInput = ref(null)
+const importPreview = ref(null)
+const importPayload = ref("")
+const importFileName = ref("")
+
+function chooseImportFile() {
+	datasetError.value = ""
+	datasetMessage.value = ""
+	importInput.value?.click()
+}
+
+function cancelImport() {
+	importPreview.value = null
+	importPayload.value = ""
+	importFileName.value = ""
+	if (importInput.value) importInput.value.value = ""
+}
+
+// Always previewed before it is applied: an import overwrites cases that share
+// a title, and which ones those are is not something to discover afterwards.
+async function previewImport(event) {
+	const file = event.target.files?.[0]
+	if (!file) return
+	datasetBusy.value = true
+	datasetError.value = ""
+	datasetMessage.value = ""
+	try {
+		const text = await file.text()
+		const res = await frappeRequest({
+			url: "/api/method/one_bpmn.api.golden_dataset.import_dataset",
+			method: "POST",
+			params: { payload: text, suite: suiteName, dry_run: 1 },
+		})
+		importPayload.value = text
+		importFileName.value = file.name
+		importPreview.value = res
+	} catch (e) {
+		cancelImport()
+		datasetError.value = e.messages?.[0] || e.message || "That file could not be read as a dataset."
+	} finally {
+		datasetBusy.value = false
+		if (importInput.value) importInput.value.value = ""
+	}
+}
+
+async function applyImport() {
+	datasetBusy.value = true
+	datasetError.value = ""
+	try {
+		const res = await frappeRequest({
+			url: "/api/method/one_bpmn.api.golden_dataset.import_dataset",
+			method: "POST",
+			params: { payload: importPayload.value, suite: suiteName, dry_run: 0 },
+		})
+		datasetMessage.value =
+			`Imported ${res.created.length} new and overwrote ${res.updated.length} case(s).` +
+			(res.left_alone.length ? ` ${res.left_alone.length} left as they were.` : "")
+		cancelImport()
+		await fetchDetail(true)
+		await loadReadiness()
+	} catch (e) {
+		datasetError.value = e.messages?.[0] || e.message || "Could not import."
+	} finally {
+		datasetBusy.value = false
+	}
+}
+
+async function downloadDataset() {
+	datasetBusy.value = true
+	datasetError.value = ""
+	try {
+		const payload = await frappeRequest({
+			url: "/api/method/one_bpmn.api.golden_dataset.export_dataset",
+			method: "GET",
+			params: datasetSubject.value,
+		})
+		const blob = new Blob([JSON.stringify(payload, null, 1)], { type: "application/json" })
+		const link = document.createElement("a")
+		link.href = URL.createObjectURL(blob)
+		link.download = `${payload.subject}-golden-dataset.json`.replace(/\s+/g, "-").toLowerCase()
+		link.click()
+		URL.revokeObjectURL(link.href)
+		datasetMessage.value = `Exported ${payload.case_count} case(s).`
+	} catch (e) {
+		datasetError.value = e.messages?.[0] || e.message || "Could not export."
+	} finally {
+		datasetBusy.value = false
+	}
+}
+
+const caseProvenance = computed(() => {
+	const from = []
+	if (caseForm.source_feedback) from.push(`feedback ${caseForm.source_feedback}`)
+	if (caseForm.source_security_event) from.push(`security event ${caseForm.source_security_event}`)
+	if (caseForm.source_run) from.push(`run ${caseForm.source_run}`)
+	return from.join(", ")
+})
+
 const caseForm = reactive({
 	name: "", title: "", input_user_prompt: "", expected_output: "", assertions: [],
+	case_type: "Output", target_skill: "", source_feedback: "", source_security_event: "", source_run: "",
 	expected_tool_calls: [],
 })
 
@@ -645,6 +957,7 @@ async function fetchDetail(silent = false) {
 		metrics.value = res?.metrics || {}
 		// Already-open report: a new run makes it stale the moment it lands.
 		if (consistency.value.cases) loadConsistency()
+		loadReadiness()
 	} catch (e) {
 		console.error("Failed to load suite:", e)
 		if (!silent) loadError.value = errorText(e, "Failed to load this suite.")
@@ -977,6 +1290,7 @@ async function loadConsistency() {
 function resetCaseForm() {
 	Object.assign(caseForm, {
 		name: "", title: "", input_user_prompt: "", expected_output: "",
+		case_type: "Output", target_skill: "", source_feedback: "", source_security_event: "", source_run: "",
 		assertions: [], expected_tool_calls: [],
 	})
 }
@@ -1020,6 +1334,11 @@ async function openEditCase(c) {
 			name: res.name, title: res.title,
 			input_user_prompt: res.input_user_prompt || "",
 			expected_output: res.expected_output || "",
+			case_type: res.case_type || "Output",
+			target_skill: res.target_skill || "",
+			source_feedback: res.source_feedback || "",
+			source_security_event: res.source_security_event || "",
+			source_run: res.source_run || "",
 			assertions: (res.assertions || []).map((a) => ({
 				assertion_type: a.assertion_type, value: a.value || "",
 				judge_provider: a.judge_provider || "", judge_model: a.judge_model || "",
@@ -1042,6 +1361,7 @@ async function saveCase() {
 		const payload = {
 			title: caseForm.title, input_user_prompt: caseForm.input_user_prompt,
 			expected_output: caseForm.expected_output, assertions: JSON.stringify(caseForm.assertions),
+			case_type: caseForm.case_type, target_skill: caseForm.target_skill,
 			expected_tool_calls: JSON.stringify(caseForm.expected_tool_calls),
 		}
 		if (caseMode.value === "edit") {
@@ -1141,6 +1461,7 @@ onMounted(async () => {
 	await fetchDetail()
 	fetchProviders()
 	fetchAiModels()
+	loadSkills()
 
 	// Arriving with ?case=<name> opens that case straight into the editor.
 	// Converting a complaint in the Feedback queue lands here, and the next
