@@ -50,6 +50,31 @@ _STOPWORDS = frozenset(
 	}
 )
 
+# ── Semantic retrieval (MariaDB 11.7+ VECTOR column) ─────────────────────────
+# Ranking is EXACT cosine over the scope-filtered, currently-valid candidate set.
+# No VECTOR INDEX: that is HNSW, an approximate search, and after scope
+# pre-filtering the candidate set is small enough that an exact scan costs
+# nothing measurable (0.6 ms at 10,000 candidates on this hardware).
+#
+# Revisit when either bound below is crossed. The volume alert reads them. The
+# next step at that point is still MariaDB (a VECTOR INDEX inside the same
+# query), not an external vector store: keeping the filter and the ranking in
+# one statement is the property that makes this design work.
+REVISIT_SCOPE_ROWS = 10_000
+REVISIT_TOTAL_ROWS = 500_000
+# Candidates pulled per query before ranking in Python. Today a scope holds far
+# fewer valid rows than this, so it is the whole candidate set.
+_SEMANTIC_CANDIDATES = 200
+# Share of the blended score that comes from meaning when Processa Settings has
+# no value. The rest comes from the FULLTEXT relevance score.
+_DEFAULT_SEMANTIC_WEIGHT = 0.6
+# A row that shares no keyword with the query must be at least this similar in
+# meaning to be returned at all, or the semantic path would pad results with
+# unrelated facts. all-MiniLM-L6-v2: related pairs score above 0.35, unrelated
+# below 0.25.
+# ponytail: fixed floor, make it a setting if a second model needs another value
+_SEMANTIC_MIN_SIMILARITY = 0.3
+
 
 def _query_tokens(query: str) -> list[str]:
 	"""Split a free-text query into distinct, meaningful keyword tokens. A whole
@@ -148,13 +173,118 @@ def _fulltext_search(filters: dict, query: str, limit: int):
 		return None
 
 
+def _vector_supported() -> bool:
+	"""True when the ``embedding`` VECTOR column exists (MariaDB 11.7+, added by
+	``ai_memory.add_embedding_column``). One information_schema lookup."""
+	try:
+		return bool(frappe.db.has_column("AI Memory", "embedding"))
+	except Exception:
+		return False
+
+
+def _semantic_weight() -> float:
+	try:
+		weight = frappe.db.get_single_value("Processa Settings", "memory_semantic_weight")
+	except Exception:
+		weight = None
+	weight = _DEFAULT_SEMANTIC_WEIGHT if weight is None else float(weight)
+	return min(max(weight, 0.0), 1.0)
+
+
+def _blend(rows: list[dict], weight: float) -> list[dict]:
+	"""Rank candidate rows by ``weight * semantic + (1 - weight) * fulltext``.
+
+	``_dist`` is the cosine distance (NULL for a row with no embedding yet, which
+	scores 0 on meaning but keeps its keyword score, so it stays findable);
+	``_ft`` is the FULLTEXT relevance, normalised by the best score in the set.
+	A row with no keyword hit and a similarity under ``_SEMANTIC_MIN_SIMILARITY``
+	is dropped. Pure function; the unit tests drive it directly."""
+	ft_max = max((float(r.get("_ft") or 0) for r in rows), default=0.0) or 1.0
+	ranked = []
+	for r in rows:
+		semantic = 0.0 if r.get("_dist") is None else 1.0 - float(r["_dist"])
+		fulltext = float(r.get("_ft") or 0) / ft_max
+		if fulltext <= 0 and semantic < _SEMANTIC_MIN_SIMILARITY:
+			continue
+		ranked.append((weight * semantic + (1.0 - weight) * fulltext, r))
+	ranked.sort(key=lambda pair: pair[0], reverse=True)
+	return [r for _, r in ranked]
+
+
+def _semantic_search(filters: dict, query: str, limit: int):
+	"""Hybrid meaning-plus-keyword search inside one SQL statement.
+
+	Scope and validity are filtered FIRST in SQL on the existing indexes; only
+	the survivors are scored. A candidate is any valid in-scope row that has an
+	embedding or matches the FULLTEXT query, so rows written before embeddings
+	existed remain reachable by keyword. Returns ranked row dicts, or ``None``
+	whenever the semantic path cannot run (no VECTOR column, embedding
+	unavailable, SQL error) so the caller falls back to keyword ranking. Never
+	raises.
+	"""
+	try:
+		if not _vector_supported():
+			return None
+		from one_bpmn.agents.llm_provider.embedding import embed
+
+		vectors = embed([query])
+		if not vectors:
+			return None
+		conds = " AND ".join(f"`{col}` = %({col})s" for col in filters)
+		params = dict(filters, _vec=json.dumps(vectors[0]), _q=query, _lim=_SEMANTIC_CANDIDATES, _now=now())
+		sql = f"""
+			SELECT name, content, metadata,
+			       VEC_DISTANCE_COSINE(embedding, VEC_FromText(%(_vec)s)) AS _dist,
+			       MATCH(content) AGAINST (%(_q)s IN NATURAL LANGUAGE MODE) AS _ft
+			FROM `tabAI Memory`
+			WHERE {conds}
+			  AND (expires_on IS NULL OR expires_on > %(_now)s)
+			  AND (embedding IS NOT NULL OR MATCH(content) AGAINST (%(_q)s IN NATURAL LANGUAGE MODE))
+			ORDER BY _dist ASC, modified DESC
+			LIMIT %(_lim)s
+		"""
+		rows = frappe.db.sql(sql, params, as_dict=True)
+		return _blend(rows, _semantic_weight())[:limit]
+	except Exception:
+		frappe.logger("one_bpmn").warning(
+			f"AI Memory: semantic search unavailable, using keyword ranking. {frappe.get_traceback()}"
+		)
+		return None
+
+
+def store_embedding(name: str, content: str) -> bool:
+	"""Embed ``content`` and store it on the row. Silent no-op (returns False)
+	when the VECTOR column or the embedding model is unavailable; a row with no
+	embedding is still found by the keyword paths. Shared with the backfill job."""
+	if not _vector_supported():
+		return False
+	from one_bpmn.agents.llm_provider.embedding import embed
+
+	vectors = embed([content])
+	if not vectors:
+		return False
+	try:
+		frappe.db.sql(
+			"UPDATE `tabAI Memory` SET embedding = VEC_FromText(%s) WHERE name = %s",
+			(json.dumps(vectors[0]), name),
+		)
+		return True
+	except Exception:
+		frappe.logger("one_bpmn").warning(f"AI Memory: could not store embedding for {name}. {frappe.get_traceback()}")
+		return False
+
+
 def memory_search(scope: str, scope_key, query: str, limit: int = 5, *, ignore_permissions: bool = False) -> list[dict]:
 	"""Look up memories for exactly one scope key whose content matches ``query``.
 
 	Returns up to ``limit`` results as ``[{name, content, metadata}]``, never from
 	a different scope key. Ranking depends on the path taken:
 
-	- Trusted dispatch (``ignore_permissions=True``) with indexable query tokens
+	- Trusted dispatch (``ignore_permissions=True``) first tries the hybrid
+	  semantic-plus-FULLTEXT ranking (``_semantic_search``), so a memory worded
+	  differently from the query still surfaces. Needs the VECTOR column
+	  (MariaDB 11.7+) and a working embedding model; otherwise it is skipped.
+	- Trusted dispatch with indexable query tokens then
 	  uses a FULLTEXT ``MATCH`` and returns results ordered by **relevance** then
 	  recency — so the most on-topic memories surface, not merely the most recent.
 	- Otherwise (permission-enforced callers, no indexable tokens, or FULLTEXT
@@ -171,8 +301,13 @@ def memory_search(scope: str, scope_key, query: str, limit: int = 5, *, ignore_p
 	page_length = limit if isinstance(limit, int) and limit > 0 else _DEFAULT_LIMIT
 	tokens = _query_tokens(query) if query else []
 
-	# Relevance-ranked FULLTEXT path (trusted dispatch only). A non-empty result
-	# wins; empty/unavailable falls through to the keyword path below.
+	# Hybrid semantic + FULLTEXT ranking, then FULLTEXT alone (both trusted
+	# dispatch only: raw SQL cannot apply row permissions). A non-empty result
+	# wins; empty/unavailable falls through to the next path.
+	if ignore_permissions and query and query.strip():
+		rows = _semantic_search(filters, query.strip(), page_length)
+		if rows:
+			return [_row_dict(r) for r in rows]
 	if ignore_permissions and tokens:
 		rows = _fulltext_search(filters, " ".join(tokens), page_length)
 		if rows:
@@ -489,6 +624,7 @@ def memory_write(
 		if user_directed:
 			doc.user_directed = 1
 		doc.save(ignore_permissions=ignore_permissions)
+		store_embedding(doc.name, content)
 	else:
 		# **keys already carries process_model for Process scope (it's the scope
 		# key there); only add the kwarg on top when it's actually passed, so an
@@ -506,6 +642,7 @@ def memory_write(
 			doc_fields["process_model"] = process_model
 		doc = frappe.get_doc(doc_fields)
 		doc.insert(ignore_permissions=ignore_permissions)
+		store_embedding(doc.name, content)
 
 	return {"name": doc.name, "content": doc.content, "metadata": _json_loads(doc.metadata)}
 
@@ -572,7 +709,7 @@ def _register_tool(name: str, description: str, input_schema: dict, handler) -> 
 
 _register_tool(
 	"memory_search",
-	"Search durable agent memories for a given scope key by keyword; returns matching memories.",
+	"Search durable agent memories for a given scope key by meaning and keyword; returns matching memories.",
 	MEMORY_SEARCH_SCHEMA,
 	memory_search,
 )

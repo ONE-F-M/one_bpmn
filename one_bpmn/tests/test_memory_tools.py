@@ -452,3 +452,65 @@ class TestMemoryToolRegistry(FrappeTestCase):
 			if Draft7Validator is not None:
 				Draft7Validator.check_schema(schema)  # valid JSON Schema
 			self.assertTrue(callable(defn["handler"]))
+
+
+class TestSemanticSearch(FrappeTestCase):
+	"""Hybrid semantic + FULLTEXT path. The live-model tests skip where the
+	VECTOR column (MariaDB 11.7+) or the embedding model is unavailable; the
+	fallback and blend tests run everywhere."""
+
+	def _require_semantic(self):
+		if not T._vector_supported():
+			self.skipTest("AI Memory has no VECTOR column (MariaDB 11.7+ required)")
+		from one_bpmn.agents.llm_provider import embedding
+
+		if embedding.embed(["probe"]) is None:
+			self.skipTest("embedding model unavailable")
+
+	def test_wording_mismatch_is_found(self):
+		self._require_semantic()
+		agent = f"S_{frappe.generate_hash(length=8)}"
+		T.memory_write("Agent", agent, "invoices need a VAT registration number before approval", ignore_permissions=True)
+		T.memory_write("Agent", agent, "ship via DHL", ignore_permissions=True)
+		res = T.memory_search("Agent", agent, "tax id on bills", ignore_permissions=True)
+		# no shared keyword with either row: only the meaning match comes back
+		self.assertEqual([r["content"] for r in res], ["invoices need a VAT registration number before approval"])
+
+	def test_row_without_embedding_stays_findable(self):
+		self._require_semantic()
+		agent = f"S_{frappe.generate_hash(length=8)}"
+		T.memory_write("Agent", agent, "customer prefers net-30 terms", ignore_permissions=True)
+		with patch("one_bpmn.agents.llm_provider.embedding.embed", return_value=None):
+			T.memory_write("Agent", agent, "warehouse closes at noon on Fridays", ignore_permissions=True)
+		self.assertEqual(
+			frappe.db.sql("select count(*) from `tabAI Memory` where agent_element=%s and embedding is null", agent)[0][0], 1
+		)
+		res = T.memory_search("Agent", agent, "warehouse Fridays", ignore_permissions=True)
+		self.assertIn("warehouse closes at noon on Fridays", [r["content"] for r in res])
+
+	def test_embedding_failure_falls_back_to_keyword(self):
+		agent, _ = _seed_agent_memories()
+		with patch("one_bpmn.agents.llm_provider.embedding.embed", side_effect=RuntimeError("model down")):
+			res = T.memory_search("Agent", agent, "net-30", ignore_permissions=True)
+		self.assertEqual([r["content"] for r in res], ["customer prefers net-30 terms"])
+
+	def test_no_vector_column_uses_keyword_path(self):
+		agent, _ = _seed_agent_memories()
+		with patch.object(T, "_vector_supported", return_value=False):
+			res = T.memory_search("Agent", agent, "net-30", ignore_permissions=True)
+		self.assertEqual([r["content"] for r in res], ["customer prefers net-30 terms"])
+
+	def test_blend_weight_extremes(self):
+		semantic_only = {"name": "a", "_dist": 0.1, "_ft": 0.0}  # close in meaning, no keyword hit
+		keyword_only = {"name": "b", "_dist": 0.9, "_ft": 5.0}  # keyword hit, far in meaning
+		self.assertEqual([r["name"] for r in T._blend([semantic_only, keyword_only], 1.0)], ["a", "b"])
+		self.assertEqual([r["name"] for r in T._blend([semantic_only, keyword_only], 0.0)], ["b", "a"])
+
+	def test_blend_drops_unrelated_rows(self):
+		unrelated = {"name": "u", "_dist": 0.85, "_ft": 0.0}  # similarity 0.15, no keyword
+		no_embedding_keyword_hit = {"name": "k", "_dist": None, "_ft": 2.0}
+		self.assertEqual([r["name"] for r in T._blend([unrelated, no_embedding_keyword_hit], 0.6)], ["k"])
+
+	def test_revisit_thresholds_recorded(self):
+		self.assertEqual(T.REVISIT_SCOPE_ROWS, 10_000)
+		self.assertEqual(T.REVISIT_TOTAL_ROWS, 500_000)
