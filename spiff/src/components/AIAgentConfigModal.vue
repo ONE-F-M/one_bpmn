@@ -171,25 +171,23 @@
             </select>
           </div>
 
-          <!-- AI Provider — read-only since WI-001650: the provider is an
-               agent property, resolved from the linked configuration. -->
-          <div class="field-row" v-if="form.aiProvider">
-            <label>AI Provider <span class="hint">(from the linked configuration)</span></label>
-            <div class="derived-value">{{ form.aiProvider }}</div>
-          </div>
-
-          <!-- Provider filter (UI-only): narrows every model dropdown below to
-               one provider's models. Never saved and never sent to the
-               server — the AI Provider field above stays derived from
-               whichever model ends up picked. -->
+          <!-- AI Provider — chosen first, and it narrows the model lists below
+               to that provider's models. Read-only between WI-001650 and now;
+               a provider that cannot be picked cannot narrow anything. -->
           <div class="field-row">
             <FormControl
               type="select"
-              label="Filter Models by Provider"
-              v-model="modelProviderFilter"
-              :options="[{ label: '-- All providers --', value: '' }, ...catalogProviders.map((p) => ({ label: p, value: p }))]"
+              label="AI Provider"
+              v-model="form.aiProvider"
+              :options="[
+                { label: '-- Any provider --', value: '' },
+                ...providers.map((p) => ({ label: p.provider_name || p.name, value: p.name })),
+              ]"
+              @change="onProviderChange"
             />
-            <span class="field-hint">Narrows every model list below to one provider. Not saved.</span>
+            <span class="field-hint">
+              Narrows the model lists below. Choosing a provider clears a model that belongs to a different one.
+            </span>
           </div>
 
           <!-- Model — the agent's catalog pick (WI-001655): editable here and
@@ -197,7 +195,7 @@
                follows the model automatically. -->
           <div class="field-row">
             <label>Model <span class="hint">(the agent's catalog pick — saving writes it back; provider follows)</span></label>
-            <select v-model="form.aiModel">
+            <select v-model="form.aiModel" @change="onModelChange">
               <option value="">-- Pick a Model --</option>
               <option v-if="unlistedModelLabel(form.aiModel)" :value="form.aiModel">
                 {{ unlistedModelLabel(form.aiModel) }}
@@ -827,35 +825,43 @@ const catalogModels = ref([]); // AI Model catalog (WI-001655)
 // broken one. Best-effort: a designer who cannot read Processa Settings still
 // gets the plain label.
 const siteDefaults = ref({ compaction: "", distill: "", reconcile: "" });
-// UI-only provider filter (not part of `form`, never saved, never sent to
-// the server): narrows every model dropdown to one provider's models. The
-// AI Provider field stays derived from whichever model is actually picked.
-const modelProviderFilter = ref("");
-// Every provider that appears on a catalog model, for the filter's options.
-const catalogProviders = computed(() =>
-  Array.from(new Set(catalogModels.value.map((m) => m.provider).filter(Boolean))).sort(),
-);
-// The catalog narrowed to the selected provider. A model with no provider
-// at all cannot match a specific filter, but must still surface when the
-// filter is blank ("all providers") so the "no provider linked" warning
-// stays visible rather than the model quietly disappearing.
+// The catalog narrowed to the chosen provider. Left whole when no provider is
+// chosen, so a model with no provider linked still surfaces with its warning
+// rather than quietly disappearing.
 const filteredCatalogModels = computed(() => {
-  if (!modelProviderFilter.value) return catalogModels.value;
-  return catalogModels.value.filter((m) => m.provider === modelProviderFilter.value);
+  if (!form.value.aiProvider) return catalogModels.value;
+  return catalogModels.value.filter((m) => m.provider === form.value.aiProvider);
 });
+
+// Picking a provider narrows the models to that provider's, so a model left
+// over from another one no longer belongs and is cleared — saving the pair as
+// it stood would write a provider and a model that disagree.
+function onProviderChange() {
+  if (!form.value.aiProvider || !form.value.aiModel) return;
+  const current = catalogModels.value.find((m) => m.name === form.value.aiModel);
+  if (current && current.provider !== form.value.aiProvider) form.value.aiModel = "";
+}
+
+// The pair has to agree from both directions: a model belongs to exactly one
+// provider, so picking one settles the provider too.
+function onModelChange() {
+  const picked = catalogModels.value.find((m) => m.name === form.value.aiModel);
+  if (picked?.provider) form.value.aiProvider = picked.provider;
+}
 // A <select> whose bound value matches no option renders blank, which reads as
 // "nothing is set" for a field that IS set — and invites someone to correct it
 // by picking something else. So whenever the chosen model is not among the
-// options actually listed, the field carries one for it, saying why it is not
-// in the list: absent from the catalogue, or present but filtered out.
+// options listed, the field carries one for it, saying why: absent from the
+// catalogue, or belonging to a different provider than the one chosen. The
+// second only reaches a person on a shape saved before the two had to agree.
 function unlistedModelLabel(model) {
   if (!model || filteredCatalogModels.value.some((m) => m.name === model)) return "";
   const known = catalogModels.value.find((m) => m.name === model);
   if (!known) return `${model} (not in catalog)`;
   // Its own name, not modelLabel(): a model with no provider linked is exactly
-  // the one a provider filter always hides, and stacking both clauses reads as
-  // two separate faults instead of one.
-  return `${known.display_name || known.name} — hidden by the provider filter`;
+  // the one a chosen provider always excludes, and stacking both clauses reads
+  // as two separate faults instead of one.
+  return `${known.display_name || known.name} — not a ${form.value.aiProvider} model`;
 }
 // What an option reads as: the display name when the model has one, else the
 // raw API id, and nothing else when it is usable. The provider is derived
@@ -1160,19 +1166,8 @@ async function loadLinkedAgent() {
     // what dispatch falls back to, and Save leaves the agent's tables alone.
     return;
   }
-  // Re-derive the provider filter so the displayed model list matches
-  // whatever model this configuration just brought in.
-  syncModelProviderFilter();
   await loadAgentUser(form.value.aiAgentConfig);
   await loadScreening();
-}
-
-// Pre-select the provider filter from the currently-chosen model, so the
-// list a designer sees already matches what is picked rather than opening
-// on "all providers" beside a model from one specific one.
-function syncModelProviderFilter() {
-  const current = catalogModels.value.find((m) => m.name === form.value.aiModel);
-  if (current?.provider) modelProviderFilter.value = current.provider;
 }
 
 // ── Notices ───────────────────────────────────────────────────────────────
@@ -1306,13 +1301,10 @@ const providerLabel = computed(() => {
   return p ? p.provider_name : form.value.aiProvider;
 });
 
-// (WI-001655) onProviderChange lived here: picking a provider copied its
-// Default Model into the Model field. Removed rather than rewritten — the
-// direction it encoded is now backwards. The MODEL is the agent's pick and the
-// provider is derived from that model's credentials link, so a provider can no
-// longer choose a model for you. The provider-level default_model was
-// deleted with the same change, the provider select is disabled, and nothing
-// called this function; it read a field that no longer exists.
+// An earlier onProviderChange (WI-001655) lived here and copied the provider's
+// Default Model into the Model field; it went when provider-level default_model
+// did. The one above shares only the name: a provider narrows the list and
+// clears a model that no longer belongs, and never picks a model for you.
 
 // Apply one recommended value onto the open form. The card (or the tray's
 // per-field Apply) is the only caller now — the legacy transcript tracked
@@ -1489,11 +1481,9 @@ onMounted(async () => {
   // through to the shape's own copy, exactly as dispatch does.
   await loadLinkedAgent();
 
-  // Pre-select the filter so the displayed model list matches what is
-  // already chosen, rather than opening on "all providers" while a model
-  // from one specific provider sits selected below. loadLinkedAgent already
-  // does this when a configuration is linked; this covers the unlinked case.
-  syncModelProviderFilter();
+  // A shape saved before the provider was pickable carries a model but no
+  // provider; settle it from the model so the lists open already narrowed.
+  if (!form.value.aiProvider) onModelChange();
 });
 
 // Pull the linked configuration's current values into the form (WI-001637
