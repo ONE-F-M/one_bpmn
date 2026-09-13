@@ -295,6 +295,37 @@ class TestAntigravityExecutor(FrappeTestCase):
         self.assertIn("google-antigravity", result.error_message)
 
 
+class TestExecutorConfigTerminalTools(FrappeTestCase):
+
+    def test_default_is_finalize(self):
+        cfg = _make_config()
+        self.assertEqual(cfg.terminal_tools, ["finalize"])
+
+    def test_merge_adds_extra_names(self):
+        cfg = _make_config()
+        cfg.merge_terminal_tools(["escalate_to_human", "give_up"])
+        self.assertEqual(cfg.terminal_tools, ["finalize", "escalate_to_human", "give_up"])
+
+    def test_merge_deduplicates_and_keeps_finalize(self):
+        cfg = _make_config()
+        cfg.merge_terminal_tools(["finalize", "escalate_to_human", "finalize"])
+        self.assertEqual(cfg.terminal_tools, ["finalize", "escalate_to_human"])
+
+    def test_merge_with_none_is_a_no_op(self):
+        cfg = _make_config()
+        cfg.merge_terminal_tools(None)
+        self.assertEqual(cfg.terminal_tools, ["finalize"])
+
+    def test_instances_do_not_share_terminal_tools_list(self):
+        # Guards against a plain mutable default: each ExecutorConfig must get
+        # its own list, or merging on one instance would leak into another.
+        cfg_a = _make_config()
+        cfg_b = _make_config()
+        cfg_a.merge_terminal_tools(["escalate_to_human"])
+        self.assertEqual(cfg_a.terminal_tools, ["finalize", "escalate_to_human"])
+        self.assertEqual(cfg_b.terminal_tools, ["finalize"])
+
+
 class TestExecutorRegistry(FrappeTestCase):
 
     def test_get_executor_direct_api(self):
