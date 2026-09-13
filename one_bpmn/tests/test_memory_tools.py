@@ -503,14 +503,100 @@ class TestSemanticSearch(FrappeTestCase):
 	def test_blend_weight_extremes(self):
 		semantic_only = {"name": "a", "_dist": 0.1, "_ft": 0.0}  # close in meaning, no keyword hit
 		keyword_only = {"name": "b", "_dist": 0.9, "_ft": 5.0}  # keyword hit, far in meaning
-		self.assertEqual([r["name"] for r in T._blend([semantic_only, keyword_only], 1.0)], ["a", "b"])
-		self.assertEqual([r["name"] for r in T._blend([semantic_only, keyword_only], 0.0)], ["b", "a"])
+		only_relevance = {"semantic": 1.0, "recency": 0.0, "importance": 0.0}
+		self.assertEqual([r["name"] for r in T._blend([semantic_only, keyword_only], only_relevance)], ["a", "b"])
+		only_relevance["semantic"] = 0.0
+		self.assertEqual([r["name"] for r in T._blend([semantic_only, keyword_only], only_relevance)], ["b", "a"])
 
 	def test_blend_drops_unrelated_rows(self):
 		unrelated = {"name": "u", "_dist": 0.85, "_ft": 0.0}  # similarity 0.15, no keyword
 		no_embedding_keyword_hit = {"name": "k", "_dist": None, "_ft": 2.0}
-		self.assertEqual([r["name"] for r in T._blend([unrelated, no_embedding_keyword_hit], 0.6)], ["k"])
+		self.assertEqual([r["name"] for r in T._blend([unrelated, no_embedding_keyword_hit], T._score_weights())], ["k"])
 
 	def test_revisit_thresholds_recorded(self):
 		self.assertEqual(T.REVISIT_SCOPE_ROWS, 10_000)
 		self.assertEqual(T.REVISIT_TOTAL_ROWS, 500_000)
+
+
+class TestMultiDimensionalScoring(FrappeTestCase):
+	"""Relevance, recency and importance each change the ranking on their own.
+	Rows are otherwise identical so one dimension decides."""
+
+	NOW = now_datetime()
+
+	@property
+	def WEIGHTS(self):
+		return {"semantic": 0.6, "recency": 0.2, "importance": 0.2}
+
+	def _row(self, name, dist=0.3, ft=1.0, age_days=0, importance=3):
+		return {
+			"name": name,
+			"_dist": dist,
+			"_ft": ft,
+			"modified": add_to_date(self.NOW, days=-age_days),
+			"importance": importance,
+		}
+
+	def _order(self, rows):
+		return [r["name"] for r in T._blend(rows, self.WEIGHTS, now=self.NOW)]
+
+	def test_relevance_changes_ranking(self):
+		closer = self._row("closer", dist=0.1)
+		farther = self._row("farther", dist=0.5)
+		self.assertEqual(self._order([farther, closer]), ["closer", "farther"])
+
+	def test_recency_changes_ranking(self):
+		fresh = self._row("fresh", age_days=0)
+		old = self._row("old", age_days=90)
+		self.assertEqual(self._order([old, fresh]), ["fresh", "old"])
+		# with recency switched off the tie stands in input order
+		no_recency = dict(self.WEIGHTS, recency=0.0)
+		self.assertEqual([r["name"] for r in T._blend([old, fresh], no_recency, now=self.NOW)], ["old", "fresh"])
+
+	def test_importance_changes_ranking(self):
+		critical = self._row("critical", importance=5)
+		minor = self._row("minor", importance=1)
+		self.assertEqual(self._order([minor, critical]), ["critical", "minor"])
+
+	def test_old_low_value_memory_does_not_outrank_fresh_critical_one(self):
+		# The story's example: an old low-value memory that is slightly closer
+		# in meaning still loses to a fresh critical one.
+		old_minor = self._row("old_minor", dist=0.25, age_days=120, importance=1)
+		fresh_critical = self._row("fresh_critical", dist=0.35, age_days=0, importance=5)
+		self.assertEqual(self._order([old_minor, fresh_critical]), ["fresh_critical", "old_minor"])
+
+	def test_recency_never_rescues_an_unrelated_memory(self):
+		unrelated_fresh = self._row("u", dist=0.9, ft=0.0, age_days=0, importance=5)
+		self.assertEqual(self._order([unrelated_fresh]), [])
+
+	def test_recency_decay_half_life(self):
+		self.assertAlmostEqual(T._recency(self.NOW, self.NOW), 1.0)
+		self.assertAlmostEqual(T._recency(add_to_date(self.NOW, days=-30), self.NOW), 0.5, places=3)
+		self.assertEqual(T._recency(None, self.NOW), 0.0)
+
+	def test_weights_come_from_settings_and_relevance_takes_the_rest(self):
+		frappe.db.set_single_value("Processa Settings", "memory_recency_weight", 0.3)
+		frappe.db.set_single_value("Processa Settings", "memory_importance_weight", 0.1)
+		w = T._score_weights()
+		self.assertEqual((w["recency"], w["importance"]), (0.3, 0.1))
+		# over-allocation is scaled back so relevance is never negative
+		frappe.db.set_single_value("Processa Settings", "memory_recency_weight", 0.8)
+		frappe.db.set_single_value("Processa Settings", "memory_importance_weight", 0.8)
+		w = T._score_weights()
+		self.assertAlmostEqual(w["recency"] + w["importance"], 1.0)
+
+	def test_importance_persists_through_memory_write(self):
+		agent = f"I_{frappe.generate_hash(length=8)}"
+		rec = T.memory_write("Agent", agent, "always attach the signed PO", importance=5, ignore_permissions=True)
+		self.assertEqual(frappe.db.get_value("AI Memory", rec["name"], "importance"), 5)
+		rec = T.memory_write("Agent", agent, "default currency is KWD", importance=9, ignore_permissions=True)
+		self.assertEqual(frappe.db.get_value("AI Memory", rec["name"], "importance"), 5)
+		rec = T.memory_write("Agent", agent, "no importance given", ignore_permissions=True)
+		self.assertEqual(frappe.db.get_value("AI Memory", rec["name"], "importance"), 3)
+
+
+class TestDistillerImportance(FrappeTestCase):
+	def test_importance_is_clamped_with_a_default(self):
+		from one_bpmn.agents.memory.distill import _importance
+
+		self.assertEqual([_importance(v) for v in (5, "4", 0, 9, None, "high")], [5, 4, 1, 5, 3, 3])

@@ -65,9 +65,17 @@ REVISIT_TOTAL_ROWS = 500_000
 # Candidates pulled per query before ranking in Python. Today a scope holds far
 # fewer valid rows than this, so it is the whole candidate set.
 _SEMANTIC_CANDIDATES = 200
-# Share of the blended score that comes from meaning when Processa Settings has
+# Share of the relevance score that comes from meaning when Processa Settings has
 # no value. The rest comes from the FULLTEXT relevance score.
 _DEFAULT_SEMANTIC_WEIGHT = 0.6
+# Shares of the final score given to recency and to importance when Processa
+# Settings has no value; relevance takes whatever is left.
+_DEFAULT_RECENCY_WEIGHT = 0.2
+_DEFAULT_IMPORTANCE_WEIGHT = 0.2
+# Recency halves every this many days. A three-month-old memory keeps an eighth.
+# ponytail: fixed half-life, make it a setting if one agent needs a different clock
+_RECENCY_HALF_LIFE_DAYS = 30.0
+_DEFAULT_IMPORTANCE = 3
 # A row that shares no keyword with the query must be at least this similar in
 # meaning to be returned at all, or the semantic path would pad results with
 # unrelated facts. all-MiniLM-L6-v2: related pairs score above 0.35, unrelated
@@ -182,31 +190,72 @@ def _vector_supported() -> bool:
 		return False
 
 
-def _semantic_weight() -> float:
+def _setting_weight(fieldname: str, default: float) -> float:
 	try:
-		weight = frappe.db.get_single_value("Processa Settings", "memory_semantic_weight")
+		value = frappe.db.get_single_value("Processa Settings", fieldname)
 	except Exception:
-		weight = None
-	weight = _DEFAULT_SEMANTIC_WEIGHT if weight is None else float(weight)
-	return min(max(weight, 0.0), 1.0)
+		value = None
+	value = default if value is None else float(value)
+	return min(max(value, 0.0), 1.0)
 
 
-def _blend(rows: list[dict], weight: float) -> list[dict]:
-	"""Rank candidate rows by ``weight * semantic + (1 - weight) * fulltext``.
+def _score_weights() -> dict:
+	"""``{semantic, recency, importance}`` from Processa Settings, code defaults
+	when blank. ``semantic`` splits the relevance score between meaning and
+	keywords; ``recency`` and ``importance`` are shares of the final score, and
+	relevance takes what is left of 1.0."""
+	recency = _setting_weight("memory_recency_weight", _DEFAULT_RECENCY_WEIGHT)
+	importance = _setting_weight("memory_importance_weight", _DEFAULT_IMPORTANCE_WEIGHT)
+	if recency + importance > 1.0:
+		total = recency + importance
+		recency, importance = recency / total, importance / total
+	return {
+		"semantic": _setting_weight("memory_semantic_weight", _DEFAULT_SEMANTIC_WEIGHT),
+		"recency": recency,
+		"importance": importance,
+	}
 
-	``_dist`` is the cosine distance (NULL for a row with no embedding yet, which
-	scores 0 on meaning but keeps its keyword score, so it stays findable);
-	``_ft`` is the FULLTEXT relevance, normalised by the best score in the set.
-	A row with no keyword hit and a similarity under ``_SEMANTIC_MIN_SIMILARITY``
-	is dropped. Pure function; the unit tests drive it directly."""
+
+def _recency(modified, now) -> float:
+	"""1.0 for a memory touched just now, halving every ``_RECENCY_HALF_LIFE_DAYS``."""
+	if not modified:
+		return 0.0
+	age_days = max(0.0, (now - get_datetime(modified)).total_seconds() / 86400.0)
+	return 0.5 ** (age_days / _RECENCY_HALF_LIFE_DAYS)
+
+
+def _blend(rows: list[dict], weights: dict, now=None) -> list[dict]:
+	"""Rank candidate rows by relevance, recency and importance.
+
+	relevance  = ``semantic * meaning + (1 - semantic) * keyword``, where meaning
+	             is ``1 - _dist`` (0 for a row with no embedding yet, so it keeps
+	             its keyword score and stays findable) and keyword is ``_ft``
+	             normalised by the best FULLTEXT score in the set.
+	recency    = exponential decay of ``modified`` with a 30-day half-life.
+	importance = ``(importance - 1) / 4``, so 1 scores 0 and 5 scores 1.
+	score      = ``(1 - recency_w - importance_w) * relevance + recency_w * recency
+	             + importance_w * importance``.
+
+	A row with no keyword hit and a meaning similarity under
+	``_SEMANTIC_MIN_SIMILARITY`` is dropped before scoring: recency and
+	importance lift a relevant memory, they never make an unrelated one
+	relevant. Pure function; the unit tests drive it directly."""
+	now = now or now_datetime()
+	semantic_w = weights.get("semantic", _DEFAULT_SEMANTIC_WEIGHT)
+	recency_w = weights.get("recency", _DEFAULT_RECENCY_WEIGHT)
+	importance_w = weights.get("importance", _DEFAULT_IMPORTANCE_WEIGHT)
+	relevance_w = max(0.0, 1.0 - recency_w - importance_w)
 	ft_max = max((float(r.get("_ft") or 0) for r in rows), default=0.0) or 1.0
 	ranked = []
 	for r in rows:
-		semantic = 0.0 if r.get("_dist") is None else 1.0 - float(r["_dist"])
-		fulltext = float(r.get("_ft") or 0) / ft_max
-		if fulltext <= 0 and semantic < _SEMANTIC_MIN_SIMILARITY:
+		meaning = 0.0 if r.get("_dist") is None else 1.0 - float(r["_dist"])
+		keyword = float(r.get("_ft") or 0) / ft_max
+		if keyword <= 0 and meaning < _SEMANTIC_MIN_SIMILARITY:
 			continue
-		ranked.append((weight * semantic + (1.0 - weight) * fulltext, r))
+		relevance = semantic_w * meaning + (1.0 - semantic_w) * keyword
+		importance = (min(5, max(1, int(r.get("importance") or _DEFAULT_IMPORTANCE))) - 1) / 4.0
+		score = relevance_w * relevance + recency_w * _recency(r.get("modified"), now) + importance_w * importance
+		ranked.append((score, r))
 	ranked.sort(key=lambda pair: pair[0], reverse=True)
 	return [r for _, r in ranked]
 
@@ -233,7 +282,7 @@ def _semantic_search(filters: dict, query: str, limit: int):
 		conds = " AND ".join(f"`{col}` = %({col})s" for col in filters)
 		params = dict(filters, _vec=json.dumps(vectors[0]), _q=query, _lim=_SEMANTIC_CANDIDATES, _now=now())
 		sql = f"""
-			SELECT name, content, metadata,
+			SELECT name, content, metadata, modified, importance,
 			       VEC_DISTANCE_COSINE(embedding, VEC_FromText(%(_vec)s)) AS _dist,
 			       MATCH(content) AGAINST (%(_q)s IN NATURAL LANGUAGE MODE) AS _ft
 			FROM `tabAI Memory`
@@ -244,7 +293,7 @@ def _semantic_search(filters: dict, query: str, limit: int):
 			LIMIT %(_lim)s
 		"""
 		rows = frappe.db.sql(sql, params, as_dict=True)
-		return _blend(rows, _semantic_weight())[:limit]
+		return _blend(rows, _score_weights())[:limit]
 	except Exception:
 		frappe.logger("one_bpmn").warning(
 			f"AI Memory: semantic search unavailable, using keyword ranking. {frappe.get_traceback()}"
@@ -521,6 +570,7 @@ def memory_write(
 	reconcile_ctx: dict | None = None,
 	process_model: str | None = None,
 	user_directed: bool = False,
+	importance: int | None = None,
 ) -> dict:
 	"""Save a memory for a scope key.
 
@@ -551,6 +601,10 @@ def memory_write(
 	is the documented escape hatch for TRUSTED server-side dispatch only (the
 	agent runs under a system context) — it must NEVER be passed from a
 	whitelisted / HTTP-reachable method.
+
+	``importance`` (1..5) is how much the fact matters when it competes for
+	recall; the distiller sets it, ranking reads it. Left ``None`` on an insert
+	the field default applies; on an overwrite the existing value is kept.
 
 	``user_directed=True`` marks a memory the user explicitly asked to be
 	remembered (e.g. "remember that..."), as opposed to one an agent's output
@@ -623,6 +677,8 @@ def memory_write(
 			doc.process_model = process_model
 		if user_directed:
 			doc.user_directed = 1
+		if importance is not None:
+			doc.importance = min(5, max(1, int(importance)))
 		doc.save(ignore_permissions=ignore_permissions)
 		store_embedding(doc.name, content)
 	else:
@@ -640,6 +696,8 @@ def memory_write(
 		}
 		if process_model is not None:
 			doc_fields["process_model"] = process_model
+		if importance is not None:
+			doc_fields["importance"] = min(5, max(1, int(importance)))
 		doc = frappe.get_doc(doc_fields)
 		doc.insert(ignore_permissions=ignore_permissions)
 		store_embedding(doc.name, content)
@@ -687,6 +745,7 @@ MEMORY_WRITE_SCHEMA = {
 		"dedup_key": {"type": "string", "description": "Optional; overwrites an existing memory with the same scope + key(s)."},
 		"metadata": {"type": "object", "description": "Optional arbitrary structured data."},
 		"source_run": {"type": "string", "description": "Optional AI Agent Run name for provenance."},
+		"importance": {"type": "integer", "minimum": 1, "maximum": 5, "description": "Optional; how much the fact matters for recall, 1 minor to 5 critical."},
 	},
 	"required": ["scope", "scope_key", "content"],
 	"additionalProperties": False,
