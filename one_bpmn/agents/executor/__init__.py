@@ -160,6 +160,22 @@ class ExecutorConfig:
     # of starting fresh (system_prompt/user_prompt are NOT re-rendered — the
     # transcript already contains the rendered originals).
     resume_state: dict | None = None
+    # Tool names that end the run when called. "finalize" is always a member —
+    # every backend relies on it being callable to close out a turn — and the
+    # AI Agent Task's aiTerminalTools attribute can name additional tools that
+    # should also be treated as terminal, merged in rather than replacing the
+    # default so a task-level list can never accidentally drop "finalize".
+    terminal_tools: list = field(default_factory=lambda: ["finalize"])
+
+    def merge_terminal_tools(self, extra: list | None) -> None:
+        """Merge tool names from the AI Agent Task's aiTerminalTools attribute.
+
+        Order-preserving, de-duplicated, and always keeps "finalize" — extra
+        names are appended after whatever is already present.
+        """
+        for name in extra or []:
+            if name not in self.terminal_tools:
+                self.terminal_tools.append(name)
 
 
 @dataclass
