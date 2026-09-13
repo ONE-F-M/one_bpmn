@@ -1,31 +1,38 @@
 """
 WI-002205: Replace onefm_mcp's google-adk RQ Job Monitoring Agent with a native
-BPMN Process Model ("RQ Job Monitor", exported at one_bpmn/exports/rq_job_monitor.bpmn).
+BPMN Process Model ("RQ Job Monitor").
 
-Mirrors the pattern already used twice in this app for the same kind of move
-(promote_threat_agents_to_bpmn.py, seed_dev_agent_config.py):
+Mirrors seed_connector_agent_config.py's convention exactly: this patch seeds
+only the Server Scripts and AI Agent Configuration records. The process map
+itself (exports/rq_job_monitor.bpmn) is NOT installed here -- Processa moves a
+diagram between environments through Import/Export in the editor, and a patch
+that also wrote the diagram would create a second source of truth to drift
+from the exported one.
 
-1. Server Scripts and AI Agent Configuration records are the things this patch
-   creates directly — the process map itself is imported from the checked-in
-   .bpmn export (import_bpmn, the same function the editor's Import button
-   calls) rather than authored inline here, so the .bpmn file stays the single
-   source of truth for the diagram.
-2. Two NEW AI Agent Configuration records are needed, not a reuse of the old
-   "RQ Job Monitor" config's two sub_prompts rows: each AI Agent Task gets
-   exactly one system_prompt from its linked config (agent_config_resolver.py's
+Two things to know about the AI Agent Configuration side:
+
+1. Two NEW records are needed, not a reuse of the old "RQ Job Monitor"
+   config's two sub_prompts rows: each AI Agent Task gets exactly one
+   system_prompt from its linked config (agent_config_resolver.py's
    _CONFIG_TO_SHAPE has no per-sub-prompt selector), so the two LLM roles
    (dedup, ticket matching) need one config each — same shape as
    "Threat Source Expander" / "Threat Keyword Generator".
-3. Both configs are agent_type="Background" (no chat surface) and go Live via
+2. Both configs are agent_type="Background" (no chat surface) and go Live via
    validate_agent_config()'s standard checks — NOT provision_agent()'s
    adversarial gate, which is chat-only (agent_provisioning.py:163-169).
+   _seed_config() links process_model and attempts that promotion only when
+   the map already exists (frappe.db.exists check) -- when this patch runs
+   before the map has been imported, both configs are created in Draft with
+   no map link, and re-running this patch (bench execute
+   one_bpmn.one_bpmn.patches.v1_0.migrate_rq_job_monitor_to_bpmn.execute)
+   after a person imports exports/rq_job_monitor.bpmn via the editor is what
+   links them and promotes them to Live -- same "may happen before or after
+   this patch runs" shape as seed_dev_agent_config.py.
 
 The old "RQ Job Monitor" config (agent_id="rq_job_monitor") is left untouched
 here — it's retired in the Phase 3 cutover patch once the new map is verified,
 not deleted as a side effect of this one.
 """
-
-import os
 
 import frappe
 
@@ -150,28 +157,8 @@ def execute():
 		frappe.set_user("Administrator")
 
 		_create_server_scripts()
-		# Seed the configs BEFORE importing the map: compile_process_model's
-		# _lint_ai_provider_config throws "Referenced AI Agent Configuration not
-		# found" if an AI Agent Task's aiAgentConfig doesn't resolve yet, so the
-		# very first compile (triggered by import_bpmn) needs both configs to
-		# already exist. Confirmed live: without this ordering, the map imports
-		# but silently fails to compile/activate (import_bpmn swallows compile
-		# errors as non-fatal), leaving is_active=0 and no start_events.
 		_seed_config(_DEDUP_CONFIG, "rq_job_deduplicator", _DEDUP_SYSTEM_PROMPT)
 		_seed_config(_MATCHER_CONFIG, "rq_job_ticket_matcher", _MATCHER_SYSTEM_PROMPT)
-		_import_process_model()
-		# Re-run now that the map exists, to link process_model and (re-)validate
-		# lifecycle to Live -- the first pass above ran with no map yet, so
-		# _take_live's "no map yet" guard skipped promotion.
-		_seed_config(_DEDUP_CONFIG, "rq_job_deduplicator", _DEDUP_SYSTEM_PROMPT)
-		_seed_config(_MATCHER_CONFIG, "rq_job_ticket_matcher", _MATCHER_SYSTEM_PROMPT)
-		# import_bpmn's own compile ran while both configs were still Draft (they
-		# only reach Live in the _seed_config pass above, which needed the map to
-		# exist first), so that first compile threw "... is Draft ... Wait for it
-		# to reach Live" and left is_active=0 with no start_events. Recompile now
-		# that both configs are Live -- confirmed live: this is what actually
-		# activates the model and populates its Timer Start Event.
-		_recompile_process_model()
 	finally:
 		frappe.set_user(original_user)
 
@@ -196,44 +183,6 @@ def _create_server_scripts():
 		script_type="API",
 		script=_CREATE_TICKETS_SCRIPT,
 	)
-
-
-def _import_process_model():
-	if frappe.db.exists("BPMN Process Model", _PROCESS_MODEL):
-		return  # re-importing on every migrate would fight manual edits made in the editor
-
-	import one_bpmn
-
-	# one_bpmn.__file__ is <bench>/apps/one_bpmn/one_bpmn/__init__.py, so its own
-	# directory IS the package the exports live in. Going up twice landed on the
-	# repository root and the patch died on every migrate.
-	package_root = os.path.dirname(os.path.abspath(one_bpmn.__file__))
-	bpmn_path = os.path.join(package_root, "exports", "rq_job_monitor.bpmn")
-	with open(bpmn_path, encoding="utf-8") as f:
-		xml_content = f.read()
-
-	from one_bpmn.api.process_map_api import import_bpmn
-
-	import_bpmn(xml_content=xml_content, title=_PROCESS_MODEL)
-
-
-def _recompile_process_model():
-	if not frappe.db.exists("BPMN Process Model", _PROCESS_MODEL):
-		return
-
-	from one_bpmn.api.compilation import compile_process_model
-
-	try:
-		compile_process_model(_PROCESS_MODEL)
-	except Exception:
-		# Same tolerance as import_bpmn's own compile step: a config still
-		# Draft/Needs Attention (e.g. no working AI Model credentials on this
-		# site) leaves the map uncompiled but imported -- an administrator can
-		# fix the config and recompile from the editor, same as any other map.
-		frappe.log_error(
-			title=f"{_PROCESS_MODEL}: recompile after config seed failed",
-			message=frappe.get_traceback(),
-		)
 
 
 def _seed_config(agent_name: str, agent_id: str, system_prompt: str):
