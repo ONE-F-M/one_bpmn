@@ -140,6 +140,8 @@ def validate_agent_config(config_name: str, test_provider: bool = True, require_
 			ok, detail = _provider_test_call(cfg)
 			if not ok:
 				errors.append(_("Provider test call failed: {0}").format(detail))
+			elif detail in (_TEST_CALL_TRUNCATED, _TEST_CALL_EMPTY):
+				warnings.append(_("Provider test call: {0}").format(detail))
 
 	return {"ok": not errors, "errors": errors, "warnings": warnings}
 
@@ -397,6 +399,11 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 # parking the AI Agent Assistant with "hit its 16-token output limit". The test
 # proves the credentials and the model, not the model's brevity.
 _TEST_CALL_MAX_TOKENS = 64
+# Two ways the call passes without the provider's own words to show for it.
+# The caller turns either into a warning on the save, so a pass that is worth
+# a second look does not look identical to a clean one.
+_TEST_CALL_TRUNCATED = "provider answered; the reply ran past the test's token ceiling"
+_TEST_CALL_EMPTY = "provider answered with an empty reply; the key and the model are fine"
 
 
 def _provider_test_call(cfg) -> tuple[bool, str]:
@@ -419,7 +426,9 @@ def _provider_test_call(cfg) -> tuple[bool, str]:
 		# WI-002134; this path did not.
 		from frappe.utils.password import get_decrypted_password
 
-		model = cfg.get("ai_model") or ""
+		# getattr, not cfg.get: this is a Document on the save path and a plain
+		# object in the tests, and only one of those has .get.
+		model = getattr(cfg, "ai_model", None) or ""
 		if model:
 			try:
 				key = get_decrypted_password("AI Model", model, "api_key", raise_exception=False)
@@ -429,16 +438,32 @@ def _provider_test_call(cfg) -> tuple[bool, str]:
 				return (False, _("AI Model '{0}' has no API key set.").format(model))
 
 		adapter = get_llm_adapter_from_settings(get_agent_config(cfg.agent_id))
-		try:
+
+		def ask() -> str:
 			completion = _run_coro_blocking(
 				adapter.complete(
 					system="Reply with the single word: OK.", user="ping", max_tokens=_TEST_CALL_MAX_TOKENS
 				)
 			)
+			return (getattr(completion, "text", str(completion or "")) or "").strip()
+
+		try:
+			text = ask()
+			if not text:
+				# Providers return an empty body now and then, and a second ask
+				# usually gets words. Worth one retry: this call decides whether
+				# an agent may go Live.
+				text = ask()
 		except LLMTruncatedError:
-			return (True, "provider answered; the reply ran past the test's token ceiling")
-		text = getattr(completion, "text", str(completion or ""))
-		return (bool(text and text.strip()), text.strip()[:80] or "empty response")
+			return (True, _TEST_CALL_TRUNCATED)
+		if not text:
+			# An empty reply is not a broken credential. The key was accepted,
+			# the model exists, and the request came back: a rejected key raises
+			# instead, and lands in the except below. Failing here parked Lumina
+			# General Chat on staging on 2026-09-12 with "empty response", which
+			# reads like something is wrong with the model and is not.
+			return (True, _TEST_CALL_EMPTY)
+		return (True, text[:80])
 	except Exception as exc:
 		return (False, str(exc)[:200])
 

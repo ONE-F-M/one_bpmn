@@ -121,6 +121,27 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 		self.assertIn("has no API key set", detail)
 		self.assertIn(self.model.name, detail)
 
+	def test_an_empty_reply_keeps_a_live_agent_live_and_says_why(self):
+		"""It passed, so it must not park the agent, and a pass with nothing to
+		show for it is still worth saying: this and a clean pass should not read
+		the same. Lumina General Chat was parked on staging for this."""
+		from one_bpmn.agents import agent_provisioning
+
+		agent = self._make_agent()
+		with patch(TEST_CALL, return_value=(True, agent_provisioning._TEST_CALL_EMPTY)):
+			agent.save(ignore_permissions=True)
+		self.assertEqual(agent.lifecycle_status, "Live")
+
+		with patch(
+			"one_bpmn.agents.agent_provisioning._provider_test_call",
+			return_value=(True, agent_provisioning._TEST_CALL_EMPTY),
+		):
+			result = agent_provisioning.validate_agent_config(agent.name, test_provider=True)
+
+		self.assertTrue(result["ok"])
+		self.assertEqual(result["errors"], [])
+		self.assertTrue(any(agent_provisioning._TEST_CALL_EMPTY in w for w in result["warnings"]))
+
 	def test_live_agent_parks_when_provider_call_fails(self):
 		agent = self._make_agent()
 		self.assertEqual(agent.lifecycle_status, "Live")
@@ -245,9 +266,27 @@ class TestProviderTestCall(FrappeTestCase):
 		self.assertFalse(ok)
 		self.assertIn("401", detail)
 
-	def test_an_empty_reply_still_fails(self):
+	def test_an_empty_reply_is_asked_again(self):
+		"""Providers return an empty body now and then. The second ask usually
+		has words in it, and then there is nothing to report."""
 		from types import SimpleNamespace
 
+		replies = ["", "OK"]
+
+		(ok, detail), _adapter = self._call(lambda kw: SimpleNamespace(text=replies.pop(0)))
+		self.assertTrue(ok)
+		self.assertEqual(detail, "OK")
+		self.assertEqual(replies, [])
+
+	def test_two_empty_replies_pass_with_a_note(self):
+		"""An empty reply is not a broken credential: the key was accepted and
+		the model answered. A rejected key raises instead. Failing here parked
+		Lumina General Chat on staging with "empty response"."""
+		from types import SimpleNamespace
+
+		from one_bpmn.agents import agent_provisioning
+
 		(ok, detail), _adapter = self._call(lambda kw: SimpleNamespace(text="   "))
-		self.assertFalse(ok)
-		self.assertEqual(detail, "empty response")
+		self.assertTrue(ok)
+		self.assertEqual(detail, agent_provisioning._TEST_CALL_EMPTY)
+
