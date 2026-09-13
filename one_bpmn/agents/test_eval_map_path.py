@@ -56,6 +56,22 @@ RECORD_START_XML = (
 )
 
 
+def chat_agent_on(model_name: str):
+    """A Chat agent pointed at *model_name*, whatever that map starts on.
+
+    A Chat agent may no longer be SAVED with a map that has no Chat Conversation
+    start event — validation refuses it, which is right for authoring and wrong
+    for these tests: the routing they check exists precisely because such an
+    agent can be reached (an older record, or a map edited after the fact). So
+    the agent is created against a chat-startable map and repointed underneath.
+    """
+    cfg = make_agent_configuration(process_model=make_process_model(CHAT_START_XML).name)
+    frappe.db.set_value("AI Agent Configuration", cfg.name, "process_model", model_name,
+                        update_modified=False)
+    cfg.reload()
+    return cfg
+
+
 def make_process_model(xml: str, **kwargs):
     """A BPMN Process Model carrying *xml*, enough for the routing checks."""
     suffix = frappe.generate_hash(length=8)
@@ -100,8 +116,7 @@ class TestNeedsMapEval(FrappeTestCase):
 
     def test_chat_agent_with_record_triggered_map_needs_map_path(self):
         """The case that used to throw "not running for this conversation"."""
-        model = make_process_model(RECORD_START_XML)
-        cfg = make_agent_configuration(process_model=model.name)
+        cfg = chat_agent_on(make_process_model(RECORD_START_XML).name)
         self.assertTrue(_needs_map_eval(cfg))
 
     def test_mapless_chat_agent_keeps_legacy_chat_path(self):
@@ -116,7 +131,7 @@ class TestMapResolution(FrappeTestCase):
         agent_map = make_process_model(RECORD_START_XML)
         suite_map = make_process_model(RECORD_START_XML)
         case_map = make_process_model(RECORD_START_XML)
-        cfg = make_agent_configuration(process_model=agent_map.name)
+        cfg = chat_agent_on(agent_map.name)
         suite = make_eval_suite(agent_configuration=cfg.name, process_model=suite_map.name)
         case = make_eval_case(suite=suite.name, process_model=case_map.name)
         self.assertEqual(_eval_map_for_case(cfg, case), case_map.name)
@@ -124,7 +139,7 @@ class TestMapResolution(FrappeTestCase):
     def test_falls_back_to_suite_then_agent(self):
         agent_map = make_process_model(RECORD_START_XML)
         suite_map = make_process_model(RECORD_START_XML)
-        cfg = make_agent_configuration(process_model=agent_map.name)
+        cfg = chat_agent_on(agent_map.name)
 
         suite = make_eval_suite(agent_configuration=cfg.name, process_model=suite_map.name)
         case = make_eval_case(suite=suite.name, process_model=None)
@@ -302,6 +317,82 @@ class TestRunMapEval(FrappeTestCase):
             frappe.db.get_value("BPMN Process Instance", created["instance"], "status"),
             "Cancelled",
         )
+
+    def test_a_delegated_workers_answer_beats_its_last_message(self):
+        """A worker's final model message is narration; its answer is the one it
+        wrote back to the A2A Task that asked for the work. The first Connector
+        Agent suite scored "now let me finalize" and failed a run that had in
+        fact delivered a written, disabled connector."""
+        task = frappe.get_doc({
+            "doctype": "A2A Task",
+            "direction": "Internal",
+            "state": "submitted",
+            "principal": frappe.session.user,
+        }).insert(ignore_permissions=True)
+
+        cfg, case, model = self._agent_and_case(
+            input_context=json.dumps(
+                {"context_doctype": "A2A Task", "context_docname": task.name}
+            )
+        )
+
+        def fake_start(self, initial_data=None):
+            frappe.db.set_value(
+                "A2A Task", task.name,
+                {"result": '{"connector": "frankfurter", "enabled": false}'},
+                update_modified=False,
+            )
+            run = frappe.get_doc({
+                "doctype": "AI Agent Run",
+                "instance": self.name,
+                "process_model": model.name,
+                "agent_configuration": cfg.name,
+                "bpmn_id": "ai_agent_task",
+                "element_type": "task",
+                "origin": "eval",
+                "status": "Success",
+                "final_output": "Perfect! The test passed. Now let me finalize.",
+                "total_tokens": 10,
+            })
+            run.flags.ignore_mandatory = True
+            run.flags.ignore_links = True
+            run.insert(ignore_permissions=True)
+
+        with patch(INSTANCE_START, new=fake_start):
+            output, _usage = _run_map_eval(cfg, case)
+
+        self.assertIn("frankfurter", output)
+        self.assertNotIn("let me finalize", output)
+
+    def test_a_context_document_that_is_not_a_task_keeps_the_run_output(self):
+        todo = self._todo()
+        cfg, case, model = self._agent_and_case(
+            input_context=json.dumps(
+                {"context_doctype": "ToDo", "context_docname": todo.name}
+            )
+        )
+
+        def fake_start(self, initial_data=None):
+            run = frappe.get_doc({
+                "doctype": "AI Agent Run",
+                "instance": self.name,
+                "process_model": model.name,
+                "agent_configuration": cfg.name,
+                "bpmn_id": "ai_agent_task",
+                "element_type": "task",
+                "origin": "eval",
+                "status": "Success",
+                "final_output": "2 net days.",
+                "total_tokens": 10,
+            })
+            run.flags.ignore_mandatory = True
+            run.flags.ignore_links = True
+            run.insert(ignore_permissions=True)
+
+        with patch(INSTANCE_START, new=fake_start):
+            output, _usage = _run_map_eval(cfg, case)
+
+        self.assertEqual(output, "2 net days.")
 
 
 class TestAgentEvalRouting(FrappeTestCase):

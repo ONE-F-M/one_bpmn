@@ -13,6 +13,9 @@
   "actual_output",
   "assertion_results",
   "error_message",
+  "runs",
+  "passes",
+  "consistency_rate",
   "section_break_tokens",
   "prompt_tokens",
   "completion_tokens",
@@ -34,8 +37,9 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Passed\nFailed\nError",
-   "reqd": 1
+   "options": "Passed\nFailed\nError\nSkipped",
+   "reqd": 1,
+   "description": "Skipped means nothing could be checked \u2014 a deterministic pass met an assertion that needs a model, or a case with no recorded answer. It counts as neither a pass nor a failure."
   },
   {
    "fieldname": "input_user_prompt",
@@ -98,6 +102,25 @@
    "in_list_view": 1,
    "label": "Cost",
    "precision": "6"
+  },
+  {
+   "fieldname": "runs",
+   "fieldtype": "Int",
+   "label": "Runs",
+   "description": "How many times this case executed in this run. Empty on rows written before a case could run more than once \u2014 those were one execution each."
+  },
+  {
+   "fieldname": "passes",
+   "fieldtype": "Int",
+   "label": "Passes",
+   "description": "How many of those executions passed every assertion."
+  },
+  {
+   "fieldname": "consistency_rate",
+   "fieldtype": "Percent",
+   "label": "Consistency",
+   "description": "Passes out of runs. Below 100% the case is flaky: same input, different behaviour.",
+   "in_list_view": 1
   }
  ],
  "index_web_pages_for_search": 1,
