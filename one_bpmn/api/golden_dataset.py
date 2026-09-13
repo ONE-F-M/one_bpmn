@@ -49,19 +49,32 @@ ASSERTION_FIELDS = ("assertion_type", "value", "judge_provider", "judge_model", 
 EXPECTED_CALL_FIELDS = ("call_order", "tool_name", "argument", "matcher", "expected_value")
 
 
-def _subject(agent: str = None, skill: str = None) -> tuple[str, str]:
-	"""Whose dataset this is. Exactly one of agent or skill."""
-	agent = (agent or "").strip()
-	skill = (skill or "").strip()
-	if bool(agent) == bool(skill):
-		frappe.throw(_("Name either an agent or a skill, not both and not neither."))
-	if agent:
-		if not frappe.db.exists("AI Agent Configuration", agent):
-			frappe.throw(_("No AI Agent Configuration named '{0}'.").format(agent))
-		return "Agent", agent
-	if not frappe.db.exists("AI Skill", skill):
-		frappe.throw(_("No AI Skill named '{0}'.").format(skill))
-	return "Skill", skill
+SUBJECT_FIELD = {"Suite": "eval_suite", "Agent": "agent_configuration", "Skill": "target_skill"}
+
+
+def _subject(agent: str = None, skill: str = None, suite: str = None) -> tuple[str, str]:
+	"""Whose dataset this is. Exactly one of suite, agent or skill.
+
+	A suite is the unit a run belongs to, so it is the one to version when the
+	question is "what did this run pass against". Agent and skill are the wider
+	view: how well covered is this thing, across whatever suites its cases are
+	scattered over.
+	"""
+	named = {"Suite": (suite or "").strip(), "Agent": (agent or "").strip(), "Skill": (skill or "").strip()}
+	chosen = [k for k, v in named.items() if v]
+	if len(chosen) != 1:
+		frappe.throw(_("Name exactly one of a suite, an agent or a skill."))
+
+	kind = chosen[0]
+	value = named[kind]
+	doctype = {"Suite": "AI Eval Suite", "Agent": "AI Agent Configuration", "Skill": "AI Skill"}[kind]
+	if not frappe.db.exists(doctype, value):
+		# A suite may be given by title, which is what an export carries.
+		by_title = frappe.db.get_value(doctype, {"title": value}, "name") if kind == "Suite" else None
+		if not by_title:
+			frappe.throw(_("No {0} named '{1}'.").format(doctype, value))
+		value = by_title
+	return kind, value
 
 
 def _case_names(subject_type: str, subject: str) -> list[str]:
@@ -71,6 +84,9 @@ def _case_names(subject_type: str, subject: str) -> list[str]:
 	every case naming it directly, whatever suite it sits in — a skill's trigger
 	cases are often written inside the agent's suite.
 	"""
+	if subject_type == "Suite":
+		return frappe.get_all("AI Eval Case", filters={"suite": subject}, pluck="name",
+							  order_by="creation asc")
 	if subject_type == "Skill":
 		return frappe.get_all("AI Eval Case", filters={"target_skill": subject}, pluck="name",
 							  order_by="creation asc")
@@ -85,6 +101,10 @@ def _serialise(case_name: str) -> dict:
 	case = frappe.get_doc("AI Eval Case", case_name)
 	return {
 		**{f: case.get(f) for f in CASE_FIELDS},
+		# By title, not by name: a suite's name is a hash that means nothing on
+		# the site receiving it. Without this an agent-wide export would flatten
+		# its suites into one on import, silently.
+		"suite": frappe.db.get_value("AI Eval Suite", case.suite, "title") or "",
 		"target_skill": case.target_skill or "",
 		"assertions": [{k: a.get(k) for k in ASSERTION_FIELDS} for a in case.assertions or []],
 		"expected_tool_calls": [
@@ -103,14 +123,14 @@ def _breakdown(case_names: list[str]) -> dict:
 
 
 @frappe.whitelist()
-def dataset_readiness(agent: str = None, skill: str = None) -> dict:
+def dataset_readiness(agent: str = None, skill: str = None, suite: str = None) -> dict:
 	"""How far this subject is from carrying a representative dataset.
 
 	Reports rather than refuses. The only hard bar on a case count in this app
 	is a skill graduating to Action-Allowed; making go-live depend on 20 cases
 	would take almost every Live agent out of service on the day it shipped.
 	"""
-	subject_type, subject = _subject(agent, skill)
+	subject_type, subject = _subject(agent, skill, suite)
 	case_names = _case_names(subject_type, subject)
 	counts = _breakdown(case_names)
 	total = len(case_names)
@@ -141,15 +161,13 @@ def dataset_readiness(agent: str = None, skill: str = None) -> dict:
 
 
 def _version_filters(subject_type: str, subject: str) -> dict:
-	if subject_type == "Agent":
-		return {"subject_type": "Agent", "agent_configuration": subject}
-	return {"subject_type": "Skill", "target_skill": subject}
+	return {"subject_type": subject_type, SUBJECT_FIELD[subject_type]: subject}
 
 
 @frappe.whitelist()
-def snapshot_dataset(agent: str = None, skill: str = None, notes: str = "") -> dict:
+def snapshot_dataset(agent: str = None, skill: str = None, suite: str = None, notes: str = "") -> dict:
 	"""Record the dataset as it stands now as the next version."""
-	subject_type, subject = _subject(agent, skill)
+	subject_type, subject = _subject(agent, skill, suite)
 	case_names = _case_names(subject_type, subject)
 	if not case_names:
 		frappe.throw(_("There are no eval cases for {0}, so there is nothing to version.").format(subject))
@@ -163,8 +181,7 @@ def snapshot_dataset(agent: str = None, skill: str = None, notes: str = "") -> d
 	version = frappe.get_doc({
 		"doctype": "AI Golden Dataset Version",
 		"subject_type": subject_type,
-		"agent_configuration": subject if subject_type == "Agent" else None,
-		"target_skill": subject if subject_type == "Skill" else None,
+		SUBJECT_FIELD[subject_type]: subject,
 		"version": (int(last) if last else 0) + 1,
 		"case_count": len(case_names),
 		"taken_at": now_datetime(),
@@ -178,14 +195,13 @@ def snapshot_dataset(agent: str = None, skill: str = None, notes: str = "") -> d
 
 
 @frappe.whitelist()
-def export_dataset(agent: str = None, skill: str = None, version: str = None) -> dict:
+def export_dataset(agent: str = None, skill: str = None, suite: str = None, version: str = None) -> dict:
 	"""The dataset as a payload to download — a named version, or today's cases."""
-	subject_type, subject = _subject(agent, skill)
+	subject_type, subject = _subject(agent, skill, suite)
 
 	if version:
 		doc = frappe.get_doc("AI Golden Dataset Version", version)
-		if doc.get("agent_configuration") != (subject if subject_type == "Agent" else None) \
-		   and doc.get("target_skill") != (subject if subject_type == "Skill" else None):
+		if doc.subject_type != subject_type or doc.get(SUBJECT_FIELD[subject_type]) != subject:
 			frappe.throw(_("That version belongs to a different subject."))
 		cases = json.loads(doc.cases or "[]")
 		taken = str(doc.taken_at or "")
@@ -208,13 +224,19 @@ def export_dataset(agent: str = None, skill: str = None, version: str = None) ->
 
 
 @frappe.whitelist()
-def import_dataset(payload, suite: str, dry_run: int = 0) -> dict:
-	"""Load a dataset into ``suite``, matching existing cases by title.
+def import_dataset(payload, suite: str = None, dry_run: int = 0) -> dict:
+	"""Load a dataset, matching existing cases by title.
 
-	Titles are the identity because a case's name is a hash — importing the same
-	dataset twice must update the cases it already created rather than double
-	the suite. Nothing is deleted: a case the payload no longer carries is
-	reported, not removed, because on the target site it may be someone's work.
+	With *suite* given, everything lands there. Without it, each case goes back
+	to the suite it was exported from, matched by title — an agent-wide dataset
+	covers several suites, and merging them into one loses the split and lets
+	two cases sharing a title overwrite each other.
+
+	Nothing is deleted: a case the payload no longer carries is reported, not
+	removed, because on the target site it may be someone's work. A suite the
+	payload names but this site does not have is reported too, rather than
+	created — a suite needs an agent, and guessing which one is worse than
+	saying so.
 	"""
 	if isinstance(payload, str):
 		try:
@@ -224,28 +246,36 @@ def import_dataset(payload, suite: str, dry_run: int = 0) -> dict:
 	if not isinstance(payload, dict) or payload.get("format") != "one_bpmn.golden_dataset.v1":
 		frappe.throw(_("That file is not a golden dataset export."))
 
-	suite_doc = frappe.get_doc("AI Eval Suite", suite)
-	suite_doc.check_permission("write")
-
 	incoming = payload.get("cases") or []
-	existing = {
-		row.title: row.name
-		for row in frappe.get_all("AI Eval Case", filters={"suite": suite}, fields=["name", "title"])
-	}
-	created, updated, skipped = [], [], []
+	forced = None
+	if suite:
+		forced = frappe.get_doc("AI Eval Suite", suite)
+		forced.check_permission("write")
+
+	created, updated, skipped, unknown_suites = [], [], [], []
+	touched_suites = set()
 
 	for spec in incoming:
 		title = (spec.get("title") or "").strip()
 		if not title:
 			skipped.append("(untitled case)")
 			continue
+
+		target = forced.name if forced else _suite_by_title(spec.get("suite"))
+		if not target:
+			unknown_suites.append(spec.get("suite") or "(no suite recorded)")
+			continue
+		if not forced:
+			frappe.get_doc("AI Eval Suite", target).check_permission("write")
+		touched_suites.add(target)
+
+		existing = frappe.db.get_value("AI Eval Case", {"suite": target, "title": title}, "name")
 		if dry_run:
-			(updated if title in existing else created).append(title)
+			(updated if existing else created).append(title)
 			continue
 
-		case = frappe.get_doc("AI Eval Case", existing[title]) if title in existing \
-			else frappe.new_doc("AI Eval Case")
-		case.suite = suite
+		case = frappe.get_doc("AI Eval Case", existing) if existing else frappe.new_doc("AI Eval Case")
+		case.suite = target
 		for field in CASE_FIELDS:
 			case.set(field, spec.get(field))
 		skill = (spec.get("target_skill") or "").strip()
@@ -258,17 +288,37 @@ def import_dataset(payload, suite: str, dry_run: int = 0) -> dict:
 		case.set("expected_tool_calls", [])
 		for call in spec.get("expected_tool_calls") or []:
 			case.append("expected_tool_calls", {k: call.get(k) for k in EXPECTED_CALL_FIELDS})
-		case.save() if title in existing else case.insert()
-		(updated if title in existing else created).append(title)
+		case.flags.ignore_mandatory = True
+		case.save() if existing else case.insert()
+		(updated if existing else created).append(title)
 
-	untouched = sorted(set(existing) - {(c.get("title") or "").strip() for c in incoming})
+	arriving = {(c.get("title") or "").strip() for c in incoming}
+	left_alone = sorted(
+		row.title
+		for row in frappe.get_all("AI Eval Case", filters={"suite": ["in", list(touched_suites)]},
+								  fields=["title"])
+		if row.title not in arriving
+	) if touched_suites else []
+
+	# Named so nobody has to read the payload to discover that an agent-wide
+	# dataset was folded into a single suite.
+	merged_from = sorted({(c.get("suite") or "") for c in incoming if c.get("suite")}) if forced else []
+
 	return {
-		"suite": suite,
+		"suite": forced.name if forced else None,
+		"suites": sorted(touched_suites),
 		"created": created,
 		"updated": updated,
 		"skipped": skipped,
-		# Named so nobody has to diff two lists by eye to see what the import
-		# did NOT bring.
-		"left_alone": untouched,
+		"left_alone": left_alone,
+		"unknown_suites": sorted(set(unknown_suites)),
+		"merged_from": merged_from if len(merged_from) > 1 else [],
 		"dry_run": bool(dry_run),
 	}
+
+
+def _suite_by_title(title) -> str | None:
+	title = (title or "").strip()
+	if not title:
+		return None
+	return frappe.db.get_value("AI Eval Suite", {"title": title}, "name")

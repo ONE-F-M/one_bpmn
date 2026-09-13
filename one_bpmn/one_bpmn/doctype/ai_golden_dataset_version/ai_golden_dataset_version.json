@@ -8,6 +8,7 @@
  "field_order": [
   "label",
   "subject_type",
+  "eval_suite",
   "agent_configuration",
   "target_skill",
   "column_break_meta",
@@ -32,8 +33,16 @@
    "fieldname": "subject_type",
    "fieldtype": "Select",
    "label": "Subject",
-   "options": "Agent\nSkill",
+   "options": "Suite\nAgent\nSkill",
    "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "depends_on": "eval:doc.subject_type=='Suite'",
+   "fieldname": "eval_suite",
+   "fieldtype": "Link",
+   "label": "Eval Suite",
+   "options": "AI Eval Suite",
    "in_list_view": 1
   },
   {
@@ -107,7 +116,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-10 20:10:00.000000",
+ "modified": "2026-09-13 11:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Golden Dataset Version",

@@ -326,6 +326,14 @@
 		<Dialog v-model="showDataset" :options="{ title: 'Golden dataset', size: '2xl' }">
 			<template #body-content>
 				<div v-if="readiness" class="space-y-4">
+					<FormControl
+						type="select"
+						label="Reading and versioning"
+						v-model="datasetScope"
+						:options="DATASET_SCOPES"
+						description="A version of this suite is what a run passed against. The agent's view spans every suite it has."
+						@change="loadReadiness"
+					/>
 					<p class="text-sm text-gray-700">
 						<span class="font-medium">{{ readiness.subject }}</span> carries
 						<span class="font-medium">{{ readiness.cases }}</span> case(s).
@@ -380,6 +388,10 @@
 						</p>
 						<p v-if="importPreview.left_alone.length" class="text-gray-600">
 							{{ importPreview.left_alone.length }} case(s) in this suite are not in the file and stay as they are.
+						</p>
+						<p v-if="importPreview.merged_from.length" class="text-amber-700">
+							This file holds cases from {{ importPreview.merged_from.length }} suites
+							({{ importPreview.merged_from.join(", ") }}) and they will all land in this one.
 						</p>
 						<p v-if="importPreview.skipped.length" class="text-amber-700">
 							{{ importPreview.skipped.length }} entry(ies) have no title and will be ignored.
@@ -680,8 +692,21 @@ const CASE_TYPE_OPTIONS = [
 
 const skillOptions = ref([{ label: "— none —", value: "" }])
 
+const DATASET_SCOPES = [
+	{ label: "This suite", value: "suite" },
+	{ label: "The whole agent", value: "agent" },
+]
+const datasetScope = ref("suite")
 const showDataset = ref(false)
 const readiness = ref(null)
+
+// What Export and Take version act on. A suite is the unit a run belongs to, so
+// it is the default; the agent's view is the wider one, across its suites.
+const datasetSubject = computed(() =>
+	datasetScope.value === "agent"
+		? { agent: suite.value.agent_configuration }
+		: { suite: suiteName }
+)
 const datasetNote = ref("")
 const datasetBusy = ref(false)
 const datasetMessage = ref("")
@@ -699,7 +724,7 @@ async function loadReadiness() {
 		readiness.value = await frappeRequest({
 			url: "/api/method/one_bpmn.api.golden_dataset.dataset_readiness",
 			method: "GET",
-			params: { agent: suite.value.agent_configuration },
+			params: datasetSubject.value,
 		})
 	} catch (e) {
 		readiness.value = null
@@ -738,7 +763,7 @@ async function takeSnapshot() {
 		const res = await frappeRequest({
 			url: "/api/method/one_bpmn.api.golden_dataset.snapshot_dataset",
 			method: "POST",
-			params: { agent: suite.value.agent_configuration, notes: datasetNote.value },
+			params: { ...datasetSubject.value, notes: datasetNote.value },
 		})
 		datasetMessage.value = `Recorded ${res.label} — ${res.case_count} case(s).`
 		await loadReadiness()
@@ -823,7 +848,7 @@ async function downloadDataset() {
 		const payload = await frappeRequest({
 			url: "/api/method/one_bpmn.api.golden_dataset.export_dataset",
 			method: "GET",
-			params: { agent: suite.value.agent_configuration },
+			params: datasetSubject.value,
 		})
 		const blob = new Blob([JSON.stringify(payload, null, 1)], { type: "application/json" })
 		const link = document.createElement("a")

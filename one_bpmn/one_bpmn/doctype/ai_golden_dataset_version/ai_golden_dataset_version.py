@@ -7,13 +7,18 @@ from frappe.model.document import Document
 
 
 class AIGoldenDatasetVersion(Document):
-	def validate(self):
-		if self.subject_type == "Agent" and not self.agent_configuration:
-			frappe.throw(_("An agent's dataset version must name the agent."))
-		if self.subject_type == "Skill" and not self.target_skill:
-			frappe.throw(_("A skill's dataset version must name the skill."))
+	SUBJECT_FIELD = {"Suite": "eval_suite", "Agent": "agent_configuration", "Skill": "target_skill"}
 
-		subject = self.agent_configuration if self.subject_type == "Agent" else self.target_skill
+	def validate(self):
+		field = self.SUBJECT_FIELD.get(self.subject_type)
+		if not field or not self.get(field):
+			frappe.throw(_("A dataset version must name the {0} it belongs to.").format(
+				(self.subject_type or "subject").lower()))
+
+		subject = self.get(field)
+		if self.subject_type == "Suite":
+			# A suite is named by a hash, so the label reads by its title.
+			subject = frappe.db.get_value("AI Eval Suite", subject, "title") or subject
 		self.label = f"{subject} v{self.version}"
 
 	def on_trash(self):
@@ -30,6 +35,5 @@ class AIGoldenDatasetVersion(Document):
 			frappe.throw(_("The newest version cannot be deleted — the number would be reused."))
 
 	def _subject_filters(self) -> dict:
-		if self.subject_type == "Agent":
-			return {"subject_type": "Agent", "agent_configuration": self.agent_configuration}
-		return {"subject_type": "Skill", "target_skill": self.target_skill}
+		field = self.SUBJECT_FIELD[self.subject_type]
+		return {"subject_type": self.subject_type, field: self.get(field)}

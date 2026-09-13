@@ -371,3 +371,76 @@ class TestDatasetSizesAreSettings(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError) as caught:
 			skill.save(ignore_permissions=True)
 		self.assertIn("3+", str(caught.exception), "it quotes the configured minimum, not a hard-coded 20")
+
+
+class TestSuiteIsASubject(FrappeTestCase):
+	"""A run belongs to a suite, so a suite is the thing to freeze when the
+	question is what a run passed against. Agent and skill stay for the wider
+	view, but an agent-wide export must not flatten its suites on the way back."""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self.agent = make_eval_suite(process_model=None,
+									 title="_Test two-suite A " + frappe.generate_hash(length=6))
+		self.first = self.agent
+		self.second = make_eval_suite(process_model=None,
+									  agent_configuration=self.agent.agent_configuration,
+									  title="_Test two-suite B " + frappe.generate_hash(length=6))
+		make_eval_case(suite=self.first.name, title="case in the first suite")
+		make_eval_case(suite=self.second.name, title="case in the second suite")
+
+	def test_a_suite_can_be_versioned_on_its_own(self):
+		out = snapshot_dataset(suite=self.first.name, notes="before the rewrite")
+		doc = frappe.get_doc("AI Golden Dataset Version", out["name"])
+		self.assertEqual(doc.subject_type, "Suite")
+		self.assertEqual(doc.eval_suite, self.first.name)
+		self.assertEqual(doc.case_count, 1)
+		self.assertIn(self.first.title, doc.label)
+
+	def test_suite_and_agent_number_separately(self):
+		self.assertEqual(snapshot_dataset(suite=self.first.name)["version"], 1)
+		self.assertEqual(snapshot_dataset(agent=self.agent.agent_configuration)["version"], 1)
+		self.assertEqual(snapshot_dataset(suite=self.first.name)["version"], 2)
+
+	def test_every_exported_case_records_its_suite(self):
+		payload = export_dataset(agent=self.agent.agent_configuration)
+		self.assertEqual(
+			sorted(c["suite"] for c in payload["cases"]),
+			sorted([self.first.title, self.second.title]),
+		)
+
+	def test_an_agent_export_goes_back_to_the_suites_it_came_from(self):
+		"""The flaw this replaced: both cases landed in whichever single suite
+		was picked, and the split was gone."""
+		payload = export_dataset(agent=self.agent.agent_configuration)
+		for case in frappe.get_all("AI Eval Case",
+								   filters={"suite": ["in", [self.first.name, self.second.name]]},
+								   pluck="name"):
+			frappe.delete_doc("AI Eval Case", case, force=True, ignore_permissions=True)
+
+		out = import_dataset(json.dumps(payload))
+		self.assertEqual(sorted(out["suites"]), sorted([self.first.name, self.second.name]))
+		self.assertEqual(frappe.db.count("AI Eval Case", {"suite": self.first.name}), 1)
+		self.assertEqual(frappe.db.count("AI Eval Case", {"suite": self.second.name}), 1)
+
+	def test_forcing_one_suite_still_works_and_says_what_it_merged(self):
+		payload = export_dataset(agent=self.agent.agent_configuration)
+		target = make_eval_suite(process_model=None, title="_Test merged " + frappe.generate_hash(length=6))
+		out = import_dataset(json.dumps(payload), suite=target.name)
+		self.assertEqual(frappe.db.count("AI Eval Case", {"suite": target.name}), 2)
+		self.assertEqual(sorted(out["merged_from"]), sorted([self.first.title, self.second.title]))
+
+	def test_a_suite_this_site_does_not_have_is_reported_not_invented(self):
+		payload = export_dataset(suite=self.first.name)
+		payload["cases"][0]["suite"] = "A Suite That Is Not Here"
+		out = import_dataset(json.dumps(payload))
+		self.assertEqual(out["unknown_suites"], ["A Suite That Is Not Here"])
+		self.assertEqual(out["created"], [])
+
+	def test_readiness_can_be_asked_of_a_suite_too(self):
+		out = dataset_readiness(suite=self.first.name)
+		self.assertEqual((out["subject_type"], out["cases"]), ("Suite", 1))
+
+	def test_naming_two_subjects_is_refused(self):
+		with self.assertRaises(frappe.ValidationError):
+			snapshot_dataset(suite=self.first.name, agent=self.agent.agent_configuration)
