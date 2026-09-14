@@ -70,5 +70,6 @@ declare module 'vue' {
     UserFilter: typeof import('./src/components/UserFilter.vue')['default']
     VersionDiffDialog: typeof import('./src/components/VersionDiffDialog.vue')['default']
     VersionHistoryPanel: typeof import('./src/components/VersionHistoryPanel.vue')['default']
+    WorkItemCostReport: typeof import('./src/components/insights/WorkItemCostReport.vue')['default']
   }
 }
