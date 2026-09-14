@@ -88,6 +88,29 @@ from SpiffWorkflow.bpmn.specs.mixins.events.intermediate_event import (
 )
 
 
+def is_script_validation(exc: BaseException) -> bool:
+	"""Did a Script Task stop the process on purpose (WI-002325)?
+
+	``frappe.throw("...")`` raises exactly ``ValidationError``. Everything the framework
+	raises for a genuine fault - a missing document, an unset mandatory field, a broken
+	link - raises a *subclass* of it, so the exact type is what separates "the script
+	said no" from "the script broke".
+
+	It matters because the two want opposite handling. A fault has to halt the instance
+	and be logged for an administrator. A validation has to reach the person who pressed
+	the button, saying which field to fill, and leave the process exactly where it was so
+	they can fill it and try again. Treated as a fault, it did neither: the instance was
+	marked Errored, and the operator got "quote Reference ID ..." instead of the message
+	the script wrote for them.
+
+	The same argument the engine already makes for AgentRefusal, which is a decision by a
+	security control rather than a fault in the process.
+	"""
+	import frappe as _f
+
+	return type(exc) is _f.exceptions.ValidationError
+
+
 def json_safe_doc_fields(doc) -> dict:
 	"""A document's fields in the form a BPMN condition can test.
 
@@ -515,11 +538,17 @@ class FrappeScriptEngine(PythonScriptEngine):
 			exec_ns = {"frappe": _frappe, "__builtins__": __builtins__}
 			exec_ns.update(local_vars)
 			exec(script_doc.script, exec_ns)  # noqa: S102
-		except Exception:
-			_frappe.log_error(
-				title=f'BPMN ScriptTask: "{script_name}" execution failed',
-				message=_frappe.get_traceback(),
-			)
+		except Exception as exc:
+			# A script that calls frappe.throw() has decided the process may not go on -
+			# a missing PAM reference, an unfilled work permit number. That is the script
+			# working, not failing, and logging it buries the real faults: 114 of these
+			# on the analyst's site, every one of them a validation the operator was
+			# supposed to read and act on (WI-002325).
+			if not is_script_validation(exc):
+				_frappe.log_error(
+					title=f'BPMN ScriptTask: "{script_name}" execution failed',
+					message=_frappe.get_traceback(),
+				)
 			raise
 
 		# Merge result back into task data for downstream gateway routing
