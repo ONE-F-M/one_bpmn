@@ -33,6 +33,15 @@ NOT_ACHIEVED = "Not Achieved"
 UNKNOWN = "Unknown"
 
 
+def _excerpt(text, limit: int = 100) -> str:
+	"""A short, quotable fragment of real content for a basis sentence — never
+	a placeholder. Falsy input excerpts to "", same as everything else here."""
+	text = str(text or "").strip()
+	if len(text) <= limit:
+		return text
+	return text[:limit].rstrip() + "…"
+
+
 def _output_text(output) -> str:
 	if output is None:
 		return ""
@@ -42,7 +51,15 @@ def _output_text(output) -> str:
 			value = output.get(key)
 			if isinstance(value, str) and value.strip():
 				return value.strip()
-		return "" if not any(output.values()) else "structured"
+		# Some other key carried the content (e.g. a map-specific field with no
+		# declared goal_key) — quote it rather than a placeholder, so the basis
+		# stays specific instead of collapsing every such run to one string.
+		for value in output.values():
+			if isinstance(value, str) and value.strip():
+				return value.strip()
+			if value:
+				return str(value).strip()
+		return ""
 	return str(output).strip()
 
 
@@ -64,11 +81,17 @@ def _declared_goal_met(output, goal_key: str) -> bool:
 	return value is not None and value is not False
 
 
-def determine(result, goal_key: str | None = None) -> tuple[str, str]:
-	"""(state, basis) from what the executor reported. Pure — no database.
+def determine(result, goal_key: str | None = None, request_text: str | None = None) -> tuple[str, str]:
+	"""(state, basis) from what the executor reported. Pure — no database, no
+	model call — request_text/output are quoted verbatim into the basis, never
+	judged by one.
 
 	Deliberately conservative: anything this cannot read confidently returns
 	Unknown with a basis saying why, rather than guessing.
+
+	request_text: what the run was asked to do (e.g. the rendered user prompt),
+	    when the caller has it in scope. Optional — background tasks and other
+	    callers with nothing to quote just get a basis built from the output alone.
 	"""
 	if result is None:
 		return UNKNOWN, "No executor result was recorded for this run."
@@ -99,8 +122,12 @@ def determine(result, goal_key: str | None = None) -> tuple[str, str]:
 			f"The run finished without producing '{goal_key}', which this map declares as done.",
 		)
 
-	if _output_text(output):
-		return ACHIEVED, "The run finished without error and produced an answer."
+	out_excerpt = _excerpt(_output_text(output))
+	if out_excerpt:
+		req_excerpt = _excerpt(request_text)
+		if req_excerpt:
+			return ACHIEVED, f'Answered "{req_excerpt}" with: "{out_excerpt}".'
+		return ACHIEVED, f'Produced an answer: "{out_excerpt}".'
 
 	# Finished cleanly but said nothing. That is not a success, and it is not
 	# evidence of failure either — some tasks legitimately write elsewhere.
@@ -124,7 +151,6 @@ def settle_for_instance(instance_name: str, instance_status: str) -> int:
 
 	if instance_status == "Completed":
 		state = ACHIEVED
-		basis = "The process reached its end event."
 	elif instance_status in ("Errored", "Cancelled"):
 		state = NOT_ACHIEVED
 		basis = f"The process {instance_status.lower()} before finishing."
@@ -134,7 +160,7 @@ def settle_for_instance(instance_name: str, instance_status: str) -> int:
 	undecided = frappe.get_all(
 		"AI Agent Run",
 		filters={"instance": instance_name, "goal_completion": UNKNOWN},
-		fields=["name", "status"],
+		fields=["name", "status", "final_output", "bpmn_label"],
 		limit_page_length=0,
 	)
 	settled = 0
@@ -146,10 +172,21 @@ def settle_for_instance(instance_name: str, instance_status: str) -> int:
 		# An errored run is never promoted by the map completing around it.
 		if state == ACHIEVED and row["status"] == "Error":
 			continue
+		if state == ACHIEVED:
+			# The map reaching its end event is not, by itself, evidence this run
+			# achieved anything — a run that produced nothing stays Unknown even
+			# though the process around it finished cleanly.
+			out_excerpt = _excerpt(row.get("final_output"))
+			if not out_excerpt:
+				continue
+			label = row.get("bpmn_label") or "the run"
+			row_basis = f'The process reached its end event; {label} produced: "{out_excerpt}".'
+		else:
+			row_basis = basis
 		frappe.db.set_value(
 			"AI Agent Run",
 			row["name"],
-			{"goal_completion": state, "completion_basis": basis},
+			{"goal_completion": state, "completion_basis": row_basis},
 			update_modified=False,
 		)
 		settled += 1

@@ -652,7 +652,9 @@ def record_failed_attempts(run, result: ExecutorResult) -> int:
 	return written
 
 
-def finalize_ai_run(run, result: ExecutorResult, goal_key: str | None = None) -> None:
+def finalize_ai_run(
+	run, result: ExecutorResult, goal_key: str | None = None, request_text: str | None = None
+) -> None:
 	"""Finalize an AI Agent Run after executor completion.
 
 	On SUCCESS: sets status, duration, tokens, cost, output.
@@ -664,6 +666,9 @@ def finalize_ai_run(run, result: ExecutorResult, goal_key: str | None = None) ->
 	    goal_key: optional reply key the map declares as its definition of done
 	        (WI-001823). When absent, completion falls back to error/turn-cap/
 	        output signals; either way the run never records a guess.
+	    request_text: what this run was asked to do, when the caller has it in
+	        scope (e.g. the rendered user prompt) — quoted into completion_basis
+	        so it names the actual request instead of a fixed sentence (WI-002188).
 	"""
 	if run is None or getattr(run, "stub", False):
 		return
@@ -714,7 +719,7 @@ def finalize_ai_run(run, result: ExecutorResult, goal_key: str | None = None) ->
 	# event — arrives later, from settle_for_instance.
 	from one_bpmn.agents import goal_completion
 
-	state, basis = goal_completion.determine(result, goal_key)
+	state, basis = goal_completion.determine(result, goal_key, request_text)
 	update["goal_completion"] = state
 	update["completion_basis"] = basis
 
