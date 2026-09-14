@@ -92,6 +92,38 @@ class TestCaseTypes(FrappeTestCase):
 		update_eval_case(name=name, target_skill="")
 		self.assertFalse(get_eval_case(name)["target_skill"])
 
+	def test_a_memory_case_carries_its_input_context(self):
+		"""For a Memory case the Input Context is the test: which scope to search,
+		how many rows to look at. Authored on Processa, it has to round-trip."""
+		name = create_eval_case(
+			suite=self.suite.name, title="recall", input_user_prompt="who approves invoices",
+			case_type="Memory",
+			input_context='{"scope": "Agent", "scope_key": "run_general_chat_agent", "k": 5}',
+		)
+		stored = json.loads(get_eval_case(name)["input_context"])
+		self.assertEqual(stored["scope_key"], "run_general_chat_agent")
+		self.assertEqual(stored["k"], 5)
+
+	def test_input_context_that_is_not_json_is_refused(self):
+		"""Stored as typed it would fail at run time with a message about a
+		missing scope_key, long after the author has closed the form."""
+		with self.assertRaises(frappe.ValidationError):
+			create_eval_case(suite=self.suite.name, title="bad", input_user_prompt="x",
+							 case_type="Memory", input_context="scope: Agent")
+
+	def test_input_context_must_be_an_object(self):
+		with self.assertRaises(frappe.ValidationError):
+			create_eval_case(suite=self.suite.name, title="list", input_user_prompt="x",
+							 case_type="Memory", input_context='["Agent"]')
+
+	def test_input_context_can_be_set_later_and_left_alone(self):
+		name = create_eval_case(suite=self.suite.name, title="later", input_user_prompt="x")
+		self.assertFalse(get_eval_case(name)["input_context"])
+		update_eval_case(name=name, input_context={"scope": "Agent", "scope_key": "x"})
+		self.assertEqual(json.loads(get_eval_case(name)["input_context"])["scope"], "Agent")
+		update_eval_case(name=name, title="renamed")
+		self.assertEqual(json.loads(get_eval_case(name)["input_context"])["scope"], "Agent")
+
 	def test_provenance_is_readable_but_not_authorable(self):
 		"""Where a case came from is written by what promoted it."""
 		name = create_eval_case(suite=self.suite.name, title="provenance", input_user_prompt="x")

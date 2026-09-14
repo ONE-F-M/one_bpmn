@@ -90,7 +90,7 @@
    "fieldname": "input_context",
    "fieldtype": "JSON",
    "label": "Input Context",
-   "description": "Jinja context variables that were available when the case was created (informational only)."
+   "description": "Jinja context variables available when the case was created. For a Memory case this is the test itself: a JSON object with scope, scope_key and optionally k, user, agent_output and produced_memories. See the memory evaluation harness for the shape."
   },
   {
    "fieldname": "expected_output",
