@@ -702,6 +702,12 @@ def finalize_ai_run(
 		"retry_count": len(result.attempts),
 	}
 
+	# WI-002187: whether `output` is a terminal tool's own answer or the
+	# platform's best-effort scrape of the model's narration — recorded
+	# regardless of outcome, since a hit-turn-cap error still carries a
+	# last-said text worth telling apart from a genuine finalize reply.
+	update["no_terminal_tool"] = bool(getattr(result, "no_terminal_tool", False))
+
 	if result.error_code == ErrorCode.SUCCESS:
 		# Final output (truncated)
 		output = str(result.output or "")

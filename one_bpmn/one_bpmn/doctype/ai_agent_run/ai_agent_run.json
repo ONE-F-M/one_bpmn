@@ -50,6 +50,7 @@
   "goal_completion",
   "completion_basis",
   "final_output",
+  "no_terminal_tool",
   "tool_calls",
   "correlation_id",
   "recall_query",
@@ -351,6 +352,14 @@
    "fieldname": "final_output",
    "fieldtype": "Long Text",
    "label": "Final Output"
+  },
+  {
+   "description": "Set when Final Output came from the model's own narration rather than a terminal tool call's arguments (a plain-text answer, or the turn cap forcing out the last thing said). Unset means a terminal tool (finalize, by default) answered as instructed.",
+   "fieldname": "no_terminal_tool",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "No Terminal Tool",
+   "read_only": 1
   },
   {
    "description": "Tool names, in call order \u2014 a plain JSON list rather than AI Agent Step child records, for runs (like the sandbox's own coding loop) that report their own turn as a single unit rather than step-by-step.",

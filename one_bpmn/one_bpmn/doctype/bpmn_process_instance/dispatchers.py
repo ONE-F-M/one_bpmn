@@ -1799,6 +1799,11 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# blank falls through to the platform default.
 		tool_result_max_chars = cint(task_cfg.get("aiToolResultMaxChars")) or None,
 		resume_state     = _checkpoint.build_resume_state(resume_payload) if resume_payload else None,
+		# WI-002187: "finalize" always ends the turn; a shape can name additional
+		# terminal tools (comma-separated) without losing that default.
+		terminal_tools   = list({"finalize", *(
+			t.strip() for t in (task_cfg.get("aiTerminalTools") or "").split(",") if t.strip()
+		)}),
 	)
 
 	context = ExecutorContext(
