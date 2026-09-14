@@ -856,15 +856,15 @@ function unlistedModelLabel(model) {
   // Its own name, not modelLabel(): a model with no provider linked is exactly
   // the one a chosen provider always excludes, and stacking both clauses reads
   // as two separate faults instead of one.
-  return `${known.display_name || known.name} — not a ${form.value.aiProvider} model`;
+  return `${known.model_name || known.name} — not a ${form.value.aiProvider} model`;
 }
-// What an option reads as: the display name when the model has one, else the
+// What an option reads as: the model's name when it has one, else the
 // raw API id, and nothing else when it is usable. The provider is derived
 // from the model and repeating it on every row said nothing a designer
 // picking a model needed. A model that will NOT work is still listed —
 // hiding it is what produced an empty picker — and still says why.
 function modelLabel(m) {
-  const label = m.display_name || m.name;
+  const label = m.model_name || m.name;
   if (!m.provider) return `${label} — no provider linked`;
   return m.has_credentials === false ? `${label} — no API key` : label;
 }

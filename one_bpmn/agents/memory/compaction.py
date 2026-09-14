@@ -355,7 +355,9 @@ def _provider_for_model(model: str | None, fallback: str | None) -> str | None:
 	if not model:
 		return fallback
 	try:
-		provider = frappe.db.get_value("AI Model", {"model_name": model}, "provider")
+		# By record name, not by the model_name field: model_name is the readable
+		# label now and no longer holds the identifier that reaches this function.
+		provider = frappe.db.get_value("AI Model", model, "provider")
 		if provider:
 			return provider
 	except Exception:

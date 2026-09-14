@@ -9,7 +9,6 @@
   "enable_model",
   "provider",
   "model_name",
-  "display_name",
   "api_details_section",
   "api_endpoint",
   "column_break_hujr",
@@ -50,6 +49,7 @@
  ],
  "fields": [
   {
+   "description": "The readable name, shown wherever a model is picked or listed. The string sent to the provider is Model API Name.",
    "fieldname": "model_name",
    "fieldtype": "Data",
    "in_list_view": 1,
@@ -62,13 +62,6 @@
    "fieldtype": "Link",
    "label": "Provider",
    "options": "AI Provider"
-  },
-  {
-   "description": "A readable name for this model, shown wherever the model is picked or listed. Optional \u2014 a model can be saved without one.",
-   "fieldname": "display_name",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Display Name"
   },
   {
    "fieldname": "token_pricing_per_1m_tokens_section",
@@ -329,5 +322,5 @@
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
- "title_field": "display_name"
+ "title_field": "model_name"
 }

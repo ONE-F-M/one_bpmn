@@ -905,7 +905,7 @@ def model_catalogue() -> list:
 	rows = frappe.get_all(
 		"AI Model",
 		filters={"enable_model": 1},
-		fields=["name", "provider", "model_api_name", "display_name"],
+		fields=["name", "provider", "model_api_name", "model_name"],
 		order_by="name asc",
 	)
 	for row in rows:
