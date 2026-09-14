@@ -124,5 +124,6 @@ const tabs = [
 	{ key: "errors", label: "Errors", icon: "lucide:alert-triangle" },
 	{ key: "performance", label: "Performance", icon: "lucide:timer" },
 	{ key: "allocation", label: "Cost Allocation", icon: "lucide:receipt" },
+	{ key: "work_item_cost", label: "Work Item Cost", icon: "lucide:package-search" },
 ]
 </script>
