@@ -383,9 +383,9 @@ def _semantic_search(filters: dict, query: str, limit: int):
 		rows = frappe.db.sql(sql, params, as_dict=True)
 		return _blend(rows, _score_weights())[:limit]
 	except Exception:
-		frappe.logger("one_bpmn").warning(
-			f"AI Memory: semantic search unavailable, using keyword ranking. {frappe.get_traceback()}"
-		)
+		from one_bpmn.agents.llm_provider.embedding import report_degraded
+
+		report_degraded("AI Memory: semantic search unavailable, using keyword ranking", frappe.get_traceback())
 		return None
 
 
@@ -395,7 +395,7 @@ def store_embedding(name: str, content: str) -> bool:
 	embedding is still found by the keyword paths. Shared with the backfill job."""
 	if not _vector_supported():
 		return False
-	from one_bpmn.agents.llm_provider.embedding import embed
+	from one_bpmn.agents.llm_provider.embedding import embed, report_degraded
 
 	vectors = embed([content])
 	if not vectors:
@@ -407,7 +407,7 @@ def store_embedding(name: str, content: str) -> bool:
 		)
 		return True
 	except Exception:
-		frappe.logger("one_bpmn").warning(f"AI Memory: could not store embedding for {name}. {frappe.get_traceback()}")
+		report_degraded("AI Memory: embedding could not be stored", f"Row {name}. {frappe.get_traceback()}")
 		return False
 
 

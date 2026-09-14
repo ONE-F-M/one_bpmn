@@ -18,6 +18,7 @@ column size in ``ai_memory.EMBEDDING_DIMENSIONS`` must follow the model.
 from __future__ import annotations
 
 import os
+import time
 
 import frappe
 
@@ -72,6 +73,54 @@ def _vectors(texts: list[str]) -> list[list[float]]:
 	return [[float(x) for x in vector] for vector in model.embed([text or "" for text in texts])]
 
 
+# One Error Log an hour per kind of failure. A backfill that meets the same
+# broken model on two hundred rows should leave one record, not two hundred,
+# and a site that is still broken tomorrow should say so again tomorrow.
+_REPORT_WINDOW_SECONDS = 3600
+_reported: dict[str, float] = {}
+
+
+def _recently_reported(title: str) -> bool:
+	"""True when this failure is already on record inside the window.
+
+	Two guards, because they cover different things. The in-process clock holds
+	a backfill walking two hundred rows, and it holds even where Redis is
+	unreachable (the cache swallows a connection error and answers None, which
+	would make a cache-only guard quietly useless). The cache key holds across
+	the other workers.
+	"""
+	now = time.monotonic()
+	last = _reported.get(title)
+	if last is not None and now - last < _REPORT_WINDOW_SECONDS:
+		return True
+	_reported[title] = now
+
+	key = f"one_bpmn:memory_degraded:{title}"
+	if frappe.cache.get_value(key):
+		return True
+	frappe.cache.set_value(key, 1, expires_in_sec=_REPORT_WINDOW_SECONDS)
+	return False
+
+
+def report_degraded(title: str, detail: str) -> None:
+	"""Record a fallback to keyword search where somebody will see it.
+
+	``frappe.logger`` sits at ERROR on every bench that does not set
+	DEV_SERVER, so the warnings these paths used to emit were thrown away on
+	staging and production. A site could store months of memories with no
+	embeddings and nothing anywhere said so. Rate limited by title, and it
+	never raises: reporting the degradation must not become the thing that
+	breaks the write.
+	"""
+	frappe.logger("one_bpmn").warning(f"{title} {detail}")
+	try:
+		if _recently_reported(title):
+			return
+		frappe.log_error(title=title, message=detail)
+	except Exception:
+		pass
+
+
 def embed(texts: list[str]) -> list[list[float]] | None:
 	"""Embed ``texts`` in order. Returns one vector per text, or ``None`` when
 	embeddings are unavailable for any reason (logged once per failure).
@@ -87,7 +136,5 @@ def embed(texts: list[str]) -> list[list[float]] | None:
 	try:
 		return _vectors(texts)
 	except Exception:
-		frappe.logger("one_bpmn").warning(
-			f"AI Memory: embedding unavailable, keyword search only. {frappe.get_traceback()}"
-		)
+		report_degraded("AI Memory: embedding unavailable, keyword search only", frappe.get_traceback())
 		return None
