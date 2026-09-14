@@ -194,15 +194,43 @@ class TestSaveValidation(HealthCase):
 			doc.save(ignore_permissions=True)
 		self.assertEqual(probe.call_args[0][1], "sk-replacement")
 
-	def test_disabling_clears_the_block(self):
+	def test_disabling_clears_the_health_problem_but_still_refuses(self):
+		"""Switching a model off is not a credential fault: the status goes back
+		to Unknown so a later re-enable starts clean and nobody is alerted about
+		something they did deliberately. It is still a reason not to start a
+		run, and the reason says which of the two it is."""
 		name = self._model()
 		record_failure(name, "PROVIDER_DISABLED", "AI Model has no API key set.")
-		self.assertIsNotNone(blocked_reason(name))
+		self.assertIn("has no API key set", blocked_reason(name))
+
 		doc = frappe.get_doc("AI Model", name)
 		doc.enable_model = 0
 		doc.save(ignore_permissions=True)
-		self.assertIsNone(blocked_reason(name))
+
 		self.assertEqual(self._health(name, "health_status"), "Unknown")
+		self.assertIn("switched off", blocked_reason(name))
+
+	def test_the_first_message_after_switching_off_is_refused_too(self):
+		"""It used to be spent finding out what the record already said. On
+		staging on 2026-09-13 message one produced an AI Agent Run, a process
+		instance, and "I couldn't generate a response. Please try again." for
+		the person; only message two was refused."""
+		name = self._model()
+		self.assertIsNone(refuse_new_run(name))
+
+		frappe.db.set_value("AI Model", name, "enable_model", 0)
+
+		reason = refuse_new_run(name)
+		self.assertIn(name, reason)
+		self.assertIn("Enable Model", reason)
+		self.assertEqual(self._health(name, "health_refused_runs"), 1)
+
+	def test_switching_it_back_on_lifts_the_refusal(self):
+		name = self._model()
+		frappe.db.set_value("AI Model", name, "enable_model", 0)
+		self.assertIsNotNone(blocked_reason(name))
+		frappe.db.set_value("AI Model", name, "enable_model", 1)
+		self.assertIsNone(blocked_reason(name))
 
 	def test_a_form_save_cannot_reset_platform_health(self):
 		"""The form sends back the health fields it loaded. A run that marked

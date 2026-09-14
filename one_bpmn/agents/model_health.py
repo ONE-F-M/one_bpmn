@@ -233,6 +233,9 @@ def probe_model(model: str, timeout: int | None = None) -> dict:
 
 _HEALTH_FIELDS = [
 	"name",
+	# Not a health field, but every caller that asks whether a run may start
+	# needs it, and reading it here saves them a second query.
+	"enable_model",
 	"health_status",
 	"health_check_source",
 	"health_checked_at",
@@ -379,7 +382,22 @@ def note_run_outcome(model: str | None, error_code: str | None, error_message: s
 def blocked_reason(model: str | None) -> str | None:
 	"""Why a new run on *model* must not start right now, or None."""
 	row = health_row(model)
-	if not row or row.health_status != "Unhealthy":
+	if not row:
+		return None
+	if not cint(row.enable_model):
+		# Switched off is not a health problem (clear_health says so, and
+		# nobody needs an alert about a thing they did on purpose), but it is
+		# still a reason not to start. Without this the first message after
+		# somebody unticks Enable Model spends a run and a process instance to
+		# discover what the record already says, and the person sees the chat
+		# surface's generic "I couldn't generate a response" instead of the
+		# reason. Measured on staging on 2026-09-13: message one produced run
+		# ksv5pri710 and an instance; only message two was refused.
+		return _(
+			"AI Model '{0}' is switched off. New runs on it are refused until "
+			"somebody ticks Enable Model on that record."
+		).format(model)
+	if row.health_status != "Unhealthy":
 		return None
 	if row.health_alerted_at:
 		told = _("An administrator was alerted at {0}.").format(
