@@ -8,7 +8,7 @@
 					:options="workItemOptions"
 					:loading="searching"
 					:compare-fn="compareOption"
-					placeholder="Search Work Items…"
+					placeholder="Search Orchestrator Work Items…"
 					@update:query="debouncedSearch"
 				/>
 			</div>
@@ -18,7 +18,10 @@
 		<div v-if="!selectedWorkItem" class="flex flex-col items-center justify-center h-48 text-center">
 			<Icon icon="lucide:search" class="w-12 h-12 text-gray-300 mb-3" />
 			<h3 class="text-base font-medium text-gray-900">Pick a Work Item</h3>
-			<p class="text-sm text-gray-500">Search above to see its AI cost breakdown.</p>
+			<p class="text-sm text-gray-500">
+				Search above to see its AI cost breakdown. Only Work Items with
+				<span class="font-medium">Orchestrator</span> ticked are listed.
+			</p>
 		</div>
 
 		<!-- Loading -->
@@ -135,6 +138,9 @@ async function searchWorkItems(query = "") {
 		const params = {
 			doctype: "Work Item",
 			fields: ["name", "title"],
+			// Only Orchestrator work items: nothing else reaches an agent, so
+			// every other work item would report a cost of zero.
+			filters: [["orchestrator", "=", 1]],
 			order_by: "modified desc",
 			limit_page_length: 20,
 		}
