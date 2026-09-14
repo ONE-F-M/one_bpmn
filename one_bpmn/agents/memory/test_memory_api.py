@@ -172,7 +172,7 @@ class TestMemoryApiDetailAndOptions(FrappeTestCase):
 		self.assertIn("scope_key", data)
 
 	def test_get_filter_options_returns_dropdown_values(self):
-		_memory(memory_scope="Agent", agent_element="Activity_opts", content="x")
+		_memory(memory_scope="Agent", agent_element="Activity_opts", content="x", user=self.owner)
 		frappe.set_user(self.owner)
 		options = memory_api.get_filter_options()
 		self.assertIn("Activity_opts", options["agents"])
