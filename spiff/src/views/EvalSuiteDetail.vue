@@ -1207,8 +1207,8 @@ const savingThresholds = ref(false)
 const thresholdError = ref("")
 const CI_ROLE_OPTIONS = [
 	{ label: "Only when asked", value: "" },
-	{ label: "Smoke — every pull request, no model call", value: "Smoke" },
-	{ label: "Nightly — the live sweep, on a schedule", value: "Nightly" },
+	{ label: "Smoke", value: "Smoke" },
+	{ label: "Nightly", value: "Nightly" },
 ]
 const thresholdForm = reactive({ pass_k: 1, min_pass_rate: 0, gate_deployment: false, ci_role: "" })
 
