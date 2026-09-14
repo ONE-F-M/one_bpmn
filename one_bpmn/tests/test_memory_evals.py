@@ -97,8 +97,27 @@ class TestLatency(FrappeTestCase):
 
 	def test_the_budget_is_the_dispatch_path_budget(self):
 		self.assertEqual(E.RETRIEVAL_BUDGET_MS, 200)
-		self.assertTrue(E.within_budget(199.0))
-		self.assertFalse(E.within_budget(200.1))
+		with patch.object(E, "retrieval_budget_ms", return_value=200):
+			self.assertTrue(E.within_budget(199.0))
+			self.assertFalse(E.within_budget(200.1))
+
+	def test_the_budget_is_a_setting(self):
+		"""Staging measures 650 to 1,800 ms against a 200 ms constant, so every
+		Memory case read Failed on latency alone. The number is now on Processa
+		Settings, next to the other memory thresholds."""
+		with patch("frappe.db.get_single_value", return_value=1000):
+			self.assertEqual(E.retrieval_budget_ms(), 1000)
+			self.assertTrue(E.within_budget(662.8))
+
+	def test_a_blank_or_zero_budget_means_the_default(self):
+		for blank in (None, 0, "", "0"):
+			with patch("frappe.db.get_single_value", return_value=blank):
+				self.assertEqual(E.retrieval_budget_ms(), 200)
+
+	def test_the_report_says_which_budget_it_was_held_to(self):
+		with patch("frappe.db.get_single_value", return_value=750), _words_only():
+			report = E.evaluate_memory_case(scope="Agent", scope_key="x", query="anything", expected_recall=[])
+		self.assertEqual(report["budget_ms"], 750)
 
 
 class TestOneCaseEndToEnd(FrappeTestCase):

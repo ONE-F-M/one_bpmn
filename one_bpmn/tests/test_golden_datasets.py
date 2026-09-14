@@ -15,7 +15,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents._eval_test_factories import make_eval_case, make_eval_suite
-from one_bpmn.api.eval_api import create_eval_case, get_eval_case, update_eval_case
+from one_bpmn.api.eval_api import create_eval_case, create_suite, get_eval_case, update_eval_case
 from one_bpmn.api.golden_dataset import (
 	CASE_TYPES,
 	DEFAULT_MINIMUM,
@@ -131,6 +131,24 @@ class TestCaseTypes(FrappeTestCase):
 		for field in ("source_feedback", "source_security_event", "source_run"):
 			self.assertIn(field, case)
 		self.assertFalse(case["source_feedback"])
+
+
+class TestSuiteTypes(FrappeTestCase):
+	"""create_suite used to turn anything but Direct or Agent into Direct. A
+	Memory suite made on the Evals page came out Direct, and every run it made
+	then called the model instead of scoring the memory store."""
+
+	def test_a_memory_suite_stays_a_memory_suite(self):
+		name = create_suite(title="_Test memory suite " + frappe.generate_hash(length=6), eval_type="Memory")
+		self.assertEqual(frappe.db.get_value("AI Eval Suite", name, "eval_type"), "Memory")
+
+	def test_no_type_means_direct(self):
+		name = create_suite(title="_Test untyped suite " + frappe.generate_hash(length=6))
+		self.assertEqual(frappe.db.get_value("AI Eval Suite", name, "eval_type"), "Direct")
+
+	def test_a_type_that_does_not_exist_is_refused_not_coerced(self):
+		with self.assertRaises(frappe.ValidationError):
+			create_suite(title="_Test typo suite", eval_type="Memroy")
 
 
 class TestReadiness(FrappeTestCase):
