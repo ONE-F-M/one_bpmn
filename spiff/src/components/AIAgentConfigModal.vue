@@ -84,7 +84,7 @@
                 <label>AI Model <span class="hint">(provider follows the model)</span></label>
                 <select v-model="newAgent.ai_model">
                   <option value="">-- Pick a Model --</option>
-                  <option v-for="m in catalogModels" :key="m.name" :value="m.name">
+                  <option v-for="m in filteredCatalogModels" :key="m.name" :value="m.name">
                     {{ modelLabel(m) }}
                   </option>
                 </select>
@@ -171,11 +171,18 @@
             </select>
           </div>
 
-          <!-- AI Provider — read-only since WI-001650: the provider is an
-               agent property, resolved from the linked configuration. -->
-          <div class="field-row" v-if="form.aiProvider">
-            <label>AI Provider <span class="hint">(from the linked configuration)</span></label>
-            <div class="derived-value">{{ form.aiProvider }}</div>
+          <!-- AI Provider — chosen first, and it narrows the model lists below
+               to that provider's models. Read-only between WI-001650 and now;
+               a provider that cannot be picked cannot narrow anything. -->
+          <div class="field-row">
+            <label>AI Provider <span class="hint">(narrows the models below)</span></label>
+            <select v-model="form.aiProvider" @change="onProviderChange">
+              <option value="">-- Any provider --</option>
+              <option v-for="p in providers" :key="p.name" :value="p.name">
+                {{ p.provider_name || p.name }}
+              </option>
+            </select>
+            <span class="field-hint">Choosing a provider clears a model that belongs to a different one.</span>
           </div>
 
           <!-- Model — the agent's catalog pick (WI-001655): editable here and
@@ -183,12 +190,12 @@
                follows the model automatically. -->
           <div class="field-row">
             <label>Model <span class="hint">(the agent's catalog pick — saving writes it back; provider follows)</span></label>
-            <select v-model="form.aiModel">
+            <select v-model="form.aiModel" @change="onModelChange">
               <option value="">-- Pick a Model --</option>
-              <option v-if="form.aiModel && !catalogModels.some(m => m.name === form.aiModel)" :value="form.aiModel">
-                {{ form.aiModel }} (not in catalog)
+              <option v-if="unlistedModelLabel(form.aiModel)" :value="form.aiModel">
+                {{ unlistedModelLabel(form.aiModel) }}
               </option>
-              <option v-for="m in catalogModels" :key="m.name" :value="m.name">
+              <option v-for="m in filteredCatalogModels" :key="m.name" :value="m.name">
                 {{ modelLabel(m) }}
               </option>
             </select>
@@ -541,13 +548,10 @@
             <label>Distillation Model <span class="hint">(optional)</span></label>
             <select v-model="form.aiMemoryDistillModel">
               <option value="">{{ inheritLabel("distill") }}</option>
-              <option
-                v-if="form.aiMemoryDistillModel && !catalogModels.some(m => m.name === form.aiMemoryDistillModel)"
-                :value="form.aiMemoryDistillModel"
-              >
-                {{ form.aiMemoryDistillModel }} (not in catalog)
+              <option v-if="unlistedModelLabel(form.aiMemoryDistillModel)" :value="form.aiMemoryDistillModel">
+                {{ unlistedModelLabel(form.aiMemoryDistillModel) }}
               </option>
-              <option v-for="m in catalogModels" :key="'distill-' + m.name" :value="m.name">
+              <option v-for="m in filteredCatalogModels" :key="'distill-' + m.name" :value="m.name">
                 {{ modelLabel(m) }}
               </option>
             </select>
@@ -564,13 +568,10 @@
             <label>Reconciliation Model <span class="hint">(optional)</span></label>
             <select v-model="form.aiMemoryReconcileModel">
               <option value="">{{ inheritLabel("reconcile") }}</option>
-              <option
-                v-if="form.aiMemoryReconcileModel && !catalogModels.some(m => m.name === form.aiMemoryReconcileModel)"
-                :value="form.aiMemoryReconcileModel"
-              >
-                {{ form.aiMemoryReconcileModel }} (not in catalog)
+              <option v-if="unlistedModelLabel(form.aiMemoryReconcileModel)" :value="form.aiMemoryReconcileModel">
+                {{ unlistedModelLabel(form.aiMemoryReconcileModel) }}
               </option>
-              <option v-for="m in catalogModels" :key="'reconcile-' + m.name" :value="m.name">
+              <option v-for="m in filteredCatalogModels" :key="'reconcile-' + m.name" :value="m.name">
                 {{ modelLabel(m) }}
               </option>
             </select>
@@ -619,13 +620,10 @@
             <label>Compaction Model <span class="hint">(optional)</span></label>
             <select v-model="form.aiCompactionModel">
               <option value="">{{ inheritLabel("compaction") }}</option>
-              <option
-                v-if="form.aiCompactionModel && !catalogModels.some(m => m.name === form.aiCompactionModel)"
-                :value="form.aiCompactionModel"
-              >
-                {{ form.aiCompactionModel }} (not in catalog)
+              <option v-if="unlistedModelLabel(form.aiCompactionModel)" :value="form.aiCompactionModel">
+                {{ unlistedModelLabel(form.aiCompactionModel) }}
               </option>
-              <option v-for="m in catalogModels" :key="'compaction-' + m.name" :value="m.name">
+              <option v-for="m in filteredCatalogModels" :key="'compaction-' + m.name" :value="m.name">
                 {{ modelLabel(m) }}
               </option>
             </select>
@@ -822,13 +820,53 @@ const catalogModels = ref([]); // AI Model catalog (WI-001655)
 // broken one. Best-effort: a designer who cannot read Processa Settings still
 // gets the plain label.
 const siteDefaults = ref({ compaction: "", distill: "", reconcile: "" });
-// What an option reads as: the model, and nothing else when it is usable. The
-// provider is derived from the model and repeating it on every row said nothing
-// a designer picking a model needed. A model that will NOT work is still listed
-// — hiding it is what produced an empty picker — and still says why.
+// The catalog narrowed to the chosen provider. Left whole when no provider is
+// chosen, so a model with no provider linked still surfaces with its warning
+// rather than quietly disappearing.
+const filteredCatalogModels = computed(() => {
+  if (!form.value.aiProvider) return catalogModels.value;
+  return catalogModels.value.filter((m) => m.provider === form.value.aiProvider);
+});
+
+// Picking a provider narrows the models to that provider's, so a model left
+// over from another one no longer belongs and is cleared — saving the pair as
+// it stood would write a provider and a model that disagree.
+function onProviderChange() {
+  if (!form.value.aiProvider || !form.value.aiModel) return;
+  const current = catalogModels.value.find((m) => m.name === form.value.aiModel);
+  if (current && current.provider !== form.value.aiProvider) form.value.aiModel = "";
+}
+
+// The pair has to agree from both directions: a model belongs to exactly one
+// provider, so picking one settles the provider too.
+function onModelChange() {
+  const picked = catalogModels.value.find((m) => m.name === form.value.aiModel);
+  if (picked?.provider) form.value.aiProvider = picked.provider;
+}
+// A <select> whose bound value matches no option renders blank, which reads as
+// "nothing is set" for a field that IS set — and invites someone to correct it
+// by picking something else. So whenever the chosen model is not among the
+// options listed, the field carries one for it, saying why: absent from the
+// catalogue, or belonging to a different provider than the one chosen. The
+// second only reaches a person on a shape saved before the two had to agree.
+function unlistedModelLabel(model) {
+  if (!model || filteredCatalogModels.value.some((m) => m.name === model)) return "";
+  const known = catalogModels.value.find((m) => m.name === model);
+  if (!known) return `${model} (not in catalog)`;
+  // Its own name, not modelLabel(): a model with no provider linked is exactly
+  // the one a chosen provider always excludes, and stacking both clauses reads
+  // as two separate faults instead of one.
+  return `${known.display_name || known.name} — not a ${form.value.aiProvider} model`;
+}
+// What an option reads as: the display name when the model has one, else the
+// raw API id, and nothing else when it is usable. The provider is derived
+// from the model and repeating it on every row said nothing a designer
+// picking a model needed. A model that will NOT work is still listed —
+// hiding it is what produced an empty picker — and still says why.
 function modelLabel(m) {
-  if (!m.provider) return `${m.name} — no provider linked`;
-  return m.has_credentials === false ? `${m.name} — no API key` : m.name;
+  const label = m.display_name || m.name;
+  if (!m.provider) return `${label} — no provider linked`;
+  return m.has_credentials === false ? `${label} — no API key` : label;
 }
 
 function inheritLabel(which) {
@@ -1258,13 +1296,10 @@ const providerLabel = computed(() => {
   return p ? p.provider_name : form.value.aiProvider;
 });
 
-// (WI-001655) onProviderChange lived here: picking a provider copied its
-// Default Model into the Model field. Removed rather than rewritten — the
-// direction it encoded is now backwards. The MODEL is the agent's pick and the
-// provider is derived from that model's credentials link, so a provider can no
-// longer choose a model for you. The provider-level default_model was
-// deleted with the same change, the provider select is disabled, and nothing
-// called this function; it read a field that no longer exists.
+// An earlier onProviderChange (WI-001655) lived here and copied the provider's
+// Default Model into the Model field; it went when provider-level default_model
+// did. The one above shares only the name: a provider narrows the list and
+// clears a model that no longer belongs, and never picks a model for you.
 
 // Apply one recommended value onto the open form. The card (or the tray's
 // per-field Apply) is the only caller now — the legacy transcript tracked
@@ -1440,6 +1475,10 @@ onMounted(async () => {
   // values are what the panel opens showing. Anything blank on the agent falls
   // through to the shape's own copy, exactly as dispatch does.
   await loadLinkedAgent();
+
+  // A shape saved before the provider was pickable carries a model but no
+  // provider; settle it from the model so the lists open already narrowed.
+  if (!form.value.aiProvider) onModelChange();
 });
 
 // Pull the linked configuration's current values into the form (WI-001637
