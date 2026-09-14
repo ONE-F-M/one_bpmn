@@ -155,12 +155,15 @@ permission_query_conditions = {
 	"AI Eval Suite": "one_bpmn.agents.eval_permissions.eval_suite_query_conditions",
 	"AI Eval Case": "one_bpmn.agents.eval_permissions.eval_case_query_conditions",
 	"AI Eval Run": "one_bpmn.agents.eval_permissions.eval_run_query_conditions",
+	# WI-000366: a user sees their own memories plus those for processes they own.
+	"AI Memory": "one_bpmn.agents.memory_permissions.memory_query_conditions",
 }
 
 has_permission = {
 	"AI Eval Suite": "one_bpmn.agents.eval_permissions.eval_suite_has_permission",
 	"AI Eval Case": "one_bpmn.agents.eval_permissions.eval_case_has_permission",
 	"AI Eval Run": "one_bpmn.agents.eval_permissions.eval_run_has_permission",
+	"AI Memory": "one_bpmn.agents.memory_permissions.memory_has_permission",
 }
 
 # DocType Class
