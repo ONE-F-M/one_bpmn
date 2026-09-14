@@ -177,6 +177,16 @@ class ExecutorConfig:
     # of starting fresh (system_prompt/user_prompt are NOT re-rendered — the
     # transcript already contains the rendered originals).
     resume_state: dict | None = None
+    # WI-000375: names of the tools that END a turn when the model calls them.
+    # An agent following the "finalize protocol" often has nothing left to say
+    # once it has called its closing tool, so a trailing free-text turn asked
+    # for after one just came back empty — a real answer sitting unread in the
+    # tool call's own arguments. The step loop stops the turn the moment one of
+    # these names is called and uses that call's arguments as the reply,
+    # instead of feeding results back for one more model call. Empty by
+    # default (byte-for-byte unchanged behaviour); dispatch_ai_agent sets it to
+    # ["finalize"] plus any names declared in aiTerminalTools.
+    terminal_tools: list = field(default_factory=list)
 
 
 @dataclass
