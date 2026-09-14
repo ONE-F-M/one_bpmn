@@ -86,6 +86,7 @@
 						:from-date="fromDate"
 						:to-date="toDate"
 					/>
+					<WorkItemCostReport v-if="activeTab === 'work_item_cost'" />
 				</div>
 			</div>
 		</main>
