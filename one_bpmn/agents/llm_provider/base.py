@@ -195,10 +195,19 @@ class CompletionResult:
     text is the final answer (empty when the tool loop hit its turn cap —
     hit_turn_cap distinguishes that from a legitimately empty answer);
     trace is the full turn-by-turn record, one TurnRecord per real LLM turn.
+
+    no_terminal_tool (WI-002187): True when text came from the model's own
+    narration rather than a declared terminal tool call (finalize, by
+    default) — a plain-text final answer, or the turn cap forcing out the
+    last thing the model said. False whenever a terminal tool call (or the
+    turn_state TURN_ANSWERED_FLAG it can still fire) produced the reply.
+    Recorded on AI Agent Run so evals can tell "the agent answered as
+    instructed" apart from "the platform had to guess".
     """
     text: str = ""
     trace: list = field(default_factory=list)  # list[TurnRecord]
     hit_turn_cap: bool = False
+    no_terminal_tool: bool = False
 
     @property
     def prompt_tokens(self) -> int:
