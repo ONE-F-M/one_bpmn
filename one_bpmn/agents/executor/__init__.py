@@ -220,6 +220,14 @@ class ExecutorResult:
     # it is a distinct outcome — the agent was still working, not broken — and
     # goal completion needs to tell them apart without matching on message text.
     hit_turn_cap: bool = False
+    # WI-000375: {"name", "arguments"} of the terminal tool call that ended
+    # the turn (finalize, or any name declared in aiTerminalTools), or None
+    # when there was none — a plain-text answer, a turn-cap, or a run that
+    # never used tools at all. Threaded through from CompletionResult.
+    # observability.finalize_ai_run reads the "response" key out of
+    # ``arguments`` for final_output when this is set, and flags
+    # no_terminal_tool when it is not.
+    terminal_call: dict | None = None
 
 
 # ---------------------------------------------------------------------------
