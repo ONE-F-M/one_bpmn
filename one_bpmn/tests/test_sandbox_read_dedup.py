@@ -88,6 +88,24 @@ class TestRepeatReadIsElided(FrappeTestCase):
 		self.assertIn(str(len(BIG)), out["content"], "the agent is told how big the file it already has is")
 		self.assertLess(len(out["content"]), 400, "the pointer must not itself be a payload")
 
+	def test_a_third_identical_read_is_a_hard_error_not_another_note(self):
+		"""Confirmed live (2026-09-13): the second read's "unchanged" note (a
+		successful result with a note attached) was ignored 29+ times in one
+		real run. A third identical read of the same path now fails outright
+		instead of succeeding with commentary."""
+		_earlier_read("i-test", PATH, BIG)
+		_earlier_read("i-test", PATH, BIG)
+		out = _run(self.args, self._dispatch(BIG))
+		self.assertIn("error", out)
+		self.assertIn("three times", out["error"])
+		self.assertNotIn("content", out)
+
+	def test_a_fourth_identical_read_is_still_an_error(self):
+		for _ in range(3):
+			_earlier_read("i-test", PATH, BIG)
+		out = _run(self.args, self._dispatch(BIG))
+		self.assertIn("error", out)
+
 	def test_a_file_that_changed_comes_back_in_full(self):
 		_earlier_read("i-test", PATH, BIG)
 		edited = BIG.replace("<template>", "<template>\n<!-- edited -->")
