@@ -135,6 +135,23 @@ class TestRemoteRegistry(FrappeTestCase):
 		with self.set_user(nobody.name):
 			self.assertRaises(frappe.PermissionError, remote.fetch_card)
 
+	def test_fetch_card_reaches_the_client_module(self):
+		"""The admin-only guard returns BEFORE the import, so a wrong import
+		path survived every existing test and only surfaced when a System
+		Manager clicked Fetch card in Processa (ModuleNotFoundError). Patching
+		at the real module path forces the import to run.
+		"""
+		remote = make_remote(approve=False)
+		with patch(
+			"one_bpmn.one_bpmn.integrations.a2a_client.fetch_agent_card",
+			return_value=CARD,
+		) as fetched:
+			card = remote.fetch_card()
+		self.assertTrue(fetched.called, "fetch_card did not reach the client module")
+		self.assertEqual(card["name"], CARD["name"])
+		remote.reload()
+		self.assertTrue(remote.agent_card, "the fetched card was not cached on the row")
+
 
 class TestClientTransport(FrappeTestCase):
 	def test_ssrf_guard_blocks_internal_hosts(self):
