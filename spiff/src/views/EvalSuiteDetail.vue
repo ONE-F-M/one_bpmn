@@ -10,7 +10,7 @@
 						<span
 							v-if="suite.eval_type"
 							class="text-xs px-2 py-0.5 rounded-full"
-							:class="suite.eval_type === 'Agent' ? 'bg-indigo-50 text-indigo-700' : 'bg-blue-50 text-blue-700'"
+							:class="suite.eval_type === 'Agent' ? 'bg-indigo-50 text-indigo-700' : suite.eval_type === 'Memory' ? 'bg-teal-50 text-teal-700' : 'bg-blue-50 text-blue-700'"
 						>
 							{{ suite.eval_type }} eval
 						</span>
