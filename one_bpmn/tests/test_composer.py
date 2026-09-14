@@ -87,6 +87,22 @@ class TestBuildOpenLink(_ComposerTestCase):
 		self.assertEqual(link, "https://erp.test.com/app/leave-application/HR-LAP-001")
 
 	@patch("one_bpmn.email_builder.composer.frappe")
+	def test_hd_ticket_goes_to_helpdesk(self, mock_frappe):
+		"""HD Ticket links to the Helpdesk portal, not the desk form."""
+		mock_frappe.utils.get_url.return_value = "https://erp.test.com"
+		from one_bpmn.email_builder.composer import _build_open_link
+		link = _build_open_link(_make_instance("HD Ticket", "TICKET-0042"))
+		self.assertEqual(link, "https://erp.test.com/helpdesk/tickets/TICKET-0042")
+
+	@patch("one_bpmn.email_builder.composer.frappe")
+	def test_hd_ticket_child_doctype_still_desk(self, mock_frappe):
+		"""Only HD Ticket itself has a portal page; its children do not."""
+		mock_frappe.utils.get_url.return_value = "https://erp.test.com"
+		from one_bpmn.email_builder.composer import _build_open_link
+		link = _build_open_link(_make_instance("HD Ticket Comment", "COMM-001"))
+		self.assertEqual(link, "https://erp.test.com/app/hd-ticket-comment/COMM-001")
+
+	@patch("one_bpmn.email_builder.composer.frappe")
 	def test_without_context_doc(self, mock_frappe):
 		"""Falls back to BPMN instance link when no context."""
 		mock_frappe.utils.get_url.return_value = "https://erp.test.com"
