@@ -22,6 +22,7 @@ payload that gets persisted to the database (story 2).
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 from dataclasses import dataclass, field
 import time
