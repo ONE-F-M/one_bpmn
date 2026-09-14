@@ -187,8 +187,11 @@ def score(run: dict, assertions: list) -> dict:
 		"status": "Error" if errored else ("Passed" if not failed else "Failed"),
 		"actual_output": answer[:140000],
 		"assertion_results": json.dumps(results, default=str),
+		# Name the rule, not just the kind of rule. A rubric is several regexes
+		# and "regex: Pattern did not match" does not say which one gave way.
 		"error_message": "; ".join(
-			f"{r.get('assertion_type')}: {r.get('message') or r.get('explanation') or ''}".strip(": ")
+			f"{r.get('assertion_type')} [{str(r.get('value') or '')[:70]}]: "
+			f"{r.get('message') or r.get('explanation') or ''}".strip(": ")
 			for r in failed
 		)[:1000],
 		"cost": cost,
