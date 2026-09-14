@@ -447,11 +447,33 @@
 					<p v-if="caseProvenance" class="text-xs text-gray-500">
 						Came from {{ caseProvenance }} — that link is set by whatever promoted this case, not here.
 					</p>
-					<FormControl type="textarea" label="User prompt" v-model="caseForm.input_user_prompt" />
-					<FormControl type="textarea" label="Expected output (optional)" v-model="caseForm.expected_output" />
+					<FormControl
+						type="textarea"
+						:label="isMemoryCase ? 'Question to recall with (leave empty for a generation-only case)' : 'User prompt'"
+						v-model="caseForm.input_user_prompt"
+					/>
+					<FormControl
+						type="textarea"
+						:label="isMemoryCase ? 'Golden memories, one per line' : 'Expected output (optional)'"
+						v-model="caseForm.expected_output"
+					/>
+					<template v-if="isMemoryCase">
+						<FormControl
+							type="textarea"
+							label="Input Context (JSON)"
+							v-model="caseForm.input_context"
+							placeholder='{"scope": "Agent", "scope_key": "run_general_chat_agent", "k": 5}'
+						/>
+						<p class="text-xs" :class="inputContextError ? 'text-red-600' : 'text-gray-500'">
+							{{ inputContextError || "scope and scope_key are required. Optional: k, user, agent_output (distilled and scored), produced_memories (scored as given)." }}
+						</p>
+					</template>
 
 					<!-- Assertions -->
-					<div class="border-t pt-3">
+					<div v-if="isMemoryCase" class="border-t pt-3 text-xs text-gray-500">
+						A Memory case scores itself: recall, precision and latency come from the memory store. Assertions are not used.
+					</div>
+					<div v-else class="border-t pt-3">
 						<div class="flex items-center justify-between mb-2">
 							<span class="text-sm font-semibold text-gray-700">Assertions</span>
 							<Button variant="subtle" icon-left="plus" @click="addAssertion">Add assertion</Button>
@@ -875,7 +897,21 @@ const caseProvenance = computed(() => {
 const caseForm = reactive({
 	name: "", title: "", input_user_prompt: "", expected_output: "", assertions: [],
 	case_type: "Output", target_skill: "", source_feedback: "", source_security_event: "", source_run: "",
-	expected_tool_calls: [],
+	expected_tool_calls: [], input_context: "",
+})
+const isMemoryCase = computed(() => caseForm.case_type === "Memory")
+const inputContextError = computed(() => {
+	if (!isMemoryCase.value) return ""
+	const text = (caseForm.input_context || "").trim()
+	if (!text) return "Input Context is required for a Memory case."
+	try {
+		const parsed = JSON.parse(text)
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "Input Context must be a JSON object."
+		if (!parsed.scope_key) return "Input Context needs a scope_key: the agent element whose memories to measure."
+		return ""
+	} catch (e) {
+		return "Input Context is not valid JSON."
+	}
 })
 
 const showFromRun = ref(false)
@@ -1291,7 +1327,7 @@ function resetCaseForm() {
 	Object.assign(caseForm, {
 		name: "", title: "", input_user_prompt: "", expected_output: "",
 		case_type: "Output", target_skill: "", source_feedback: "", source_security_event: "", source_run: "",
-		assertions: [], expected_tool_calls: [],
+		assertions: [], expected_tool_calls: [], input_context: "",
 	})
 }
 // The grid is only worth showing when something checks it.
@@ -1339,6 +1375,7 @@ async function openEditCase(c) {
 			source_feedback: res.source_feedback || "",
 			source_security_event: res.source_security_event || "",
 			source_run: res.source_run || "",
+			input_context: res.input_context || "",
 			assertions: (res.assertions || []).map((a) => ({
 				assertion_type: a.assertion_type, value: a.value || "",
 				judge_provider: a.judge_provider || "", judge_model: a.judge_model || "",
@@ -1358,11 +1395,17 @@ async function saveCase() {
 	savingCase.value = true
 	caseError.value = ""
 	try {
+		if (inputContextError.value) {
+			caseError.value = inputContextError.value
+			savingCase.value = false
+			return
+		}
 		const payload = {
 			title: caseForm.title, input_user_prompt: caseForm.input_user_prompt,
 			expected_output: caseForm.expected_output, assertions: JSON.stringify(caseForm.assertions),
 			case_type: caseForm.case_type, target_skill: caseForm.target_skill,
 			expected_tool_calls: JSON.stringify(caseForm.expected_tool_calls),
+			input_context: isMemoryCase.value ? caseForm.input_context : "",
 		}
 		if (caseMode.value === "edit") {
 			await frappeRequest({ url: "/api/method/one_bpmn.api.eval_api.update_eval_case", method: "POST", params: { name: caseForm.name, ...payload } })

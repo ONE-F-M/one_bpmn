@@ -6,6 +6,8 @@ Every read goes through ``frappe.get_list`` so the AI Evals permission scoping
 System Manager sees all.
 """
 
+import json
+
 import frappe
 from frappe import _
 from frappe.utils import cint, flt
@@ -366,6 +368,7 @@ def create_eval_case(
 	expected_tool_calls=None,
 	case_type: str = None,
 	target_skill: str = None,
+	input_context=None,
 ) -> str:
 	"""Create a manual AI Eval Case in ``suite`` with optional assertions
 	(WI-001746). Provider/model/system prompt come from the suite's agent
@@ -388,6 +391,7 @@ def create_eval_case(
 		"expected_output": expected_output,
 		"case_type": _valid_case_type(case_type) or "Output",
 		"target_skill": _valid_skill(target_skill),
+		"input_context": _valid_input_context(input_context),
 	})
 	_set_assertions(case, assertions)
 	_set_expected_tool_calls(case, expected_tool_calls)
@@ -407,6 +411,30 @@ def _valid_case_type(value) -> str:
 		frappe.throw(_("'{0}' is not a case type. Choose one of: {1}.").format(
 			value, ", ".join(CASE_TYPES)))
 	return value
+
+
+def _valid_input_context(value) -> str | None:
+	"""Input Context as a JSON object string, or None for not given.
+
+	For a Memory case this field is the test itself (scope, scope_key, k, user,
+	agent_output, produced_memories), so a string that is not a JSON object is
+	refused here instead of being stored and failing at run time with an error
+	about a missing scope_key.
+	"""
+	if value is None:
+		return None
+	if isinstance(value, dict):
+		return json.dumps(value)
+	text = str(value).strip()
+	if not text:
+		return None
+	try:
+		parsed = json.loads(text)
+	except ValueError:
+		frappe.throw(_("Input Context must be valid JSON."))
+	if not isinstance(parsed, dict):
+		frappe.throw(_("Input Context must be a JSON object, for example {\"scope\": \"Agent\", \"scope_key\": \"run_general_chat_agent\"}."))
+	return json.dumps(parsed)
 
 
 def _valid_skill(value) -> str | None:
@@ -435,6 +463,7 @@ def get_eval_case(name: str) -> dict:
 		"source_feedback": case.source_feedback or "",
 		"source_security_event": case.source_security_event or "",
 		"source_run": case.source_run or "",
+		"input_context": case.input_context or "",
 		"assertions": [{k: a.get(k) for k in _ASSERTION_FIELDS} for a in case.assertions],
 		"expected_tool_calls": [
 			{k: c.get(k) for k in _EXPECTED_CALL_FIELDS} for c in case.expected_tool_calls
@@ -452,6 +481,7 @@ def update_eval_case(
 	expected_tool_calls=None,
 	case_type: str = None,
 	target_skill: str = None,
+	input_context=None,
 ) -> str:
 	"""Edit an existing case, including its assertions (WI-001746). Gated by the
 	suite's write permission."""
@@ -471,6 +501,8 @@ def update_eval_case(
 		# An empty string clears the link — the caller means "no skill", which
 		# is different from not mentioning the field at all.
 		case.target_skill = _valid_skill(target_skill)
+	if input_context is not None:
+		case.input_context = _valid_input_context(input_context)
 	if assertions is not None:
 		_set_assertions(case, assertions)
 	if expected_tool_calls is not None:
