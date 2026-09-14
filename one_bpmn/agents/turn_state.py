@@ -70,6 +70,21 @@ _TERMINAL_KEYS = ("output", "done")
 TURN_ANSWERED_FLAG = "bpmn_turn_answered"
 
 
+def set_terminal_reply(conversation: str, output) -> dict:
+    """Write a terminal tool call's arguments as the turn's final reply.
+
+    WI-000375: when the model calls a declared terminal tool (finalize, or
+    anything named in aiTerminalTools), that call's arguments ARE the answer —
+    the same write-once contract a stage tool's own ``finalize`` observes via
+    ``update_turn(output=..., done=True)``. Routing it through this function,
+    rather than a bare ``update_turn`` call from the step loop, keeps the one
+    place that decides what a turn's reply looks like the same place that
+    enforces write-once, so a terminal tool can never clobber an answer a
+    stage tool already wrote (or vice versa).
+    """
+    return update_turn(conversation, output=output, done=True)
+
+
 def update_turn(conversation: str, **kwargs) -> dict:
     """Merge ``kwargs`` into the turn scratch and persist it. Returns the result.
 
