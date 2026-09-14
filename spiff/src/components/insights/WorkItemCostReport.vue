@@ -132,20 +132,22 @@ function debouncedSearch(query) {
 async function searchWorkItems(query = "") {
 	searching.value = true
 	try {
-		const filters = query
-			? [["Work Item", "title", "like", `%${query}%`]]
-			: []
+		const params = {
+			doctype: "Work Item",
+			fields: ["name", "title"],
+			order_by: "modified desc",
+			limit_page_length: 20,
+		}
+		if (query) {
+			params.or_filters = [
+				["name", "like", `%${query}%`],
+				["title", "like", `%${query}%`],
+			]
+		}
 		const result = await frappeRequest({
 			url: "/api/method/frappe.client.get_list",
 			method: "POST",
-			params: {
-				doctype: "Work Item",
-				fields: ["name", "title"],
-				filters: query ? undefined : filters,
-				or_filters: query ? [["name", "like", `%${query}%`], ["title", "like", `%${query}%`]] : undefined,
-				order_by: "modified desc",
-				limit_page_length: 20,
-			},
+			params,
 		})
 		workItemOptions.value = (result || []).map((w) => ({
 			label: w.title ? `${w.name} — ${w.title}` : w.name,
