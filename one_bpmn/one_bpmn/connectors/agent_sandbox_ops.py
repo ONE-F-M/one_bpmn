@@ -95,6 +95,52 @@ def _a2a_task_of(instance) -> str | None:
 	return None
 
 
+_READ_BUDGET = 15
+_READ_ACTIONS = ("read_file", "list_files")
+_PROGRESS_ACTIONS = ("edit_file", "write_file")
+
+
+def read_budget_exceeded(instance) -> str | None:
+	"""None if there's room for another read_file/list_files call this run;
+	otherwise the error to return instead of dispatching one.
+
+	Confirmed live (2026-09-13/14): once a per-file re-read cap (the read_file
+	Server Script's own dedup-then-refuse logic) forecloses looping on any one
+	file, a run can just wander across dozens of *different* unrelated files
+	instead and still never call edit_file/write_file — the real problem is
+	unbounded exploration with no edit attempt, not which file it lands on.
+
+	Counts read_file/list_files calls back from the most recent, stopping at
+	the first edit_file/write_file (in either direction — success or failure,
+	since attempting one is itself the signal that matters) or once the count
+	reaches _READ_BUDGET. An edit resets the budget: that's real progress,
+	not more looking around, however many further reads it takes afterward."""
+	if instance is None:
+		return None
+	rows = frappe.get_all(
+		"Agent Sandbox Run",
+		filters={"caller_instance": instance.name, "state": "completed"},
+		fields=["request_payload"],
+		order_by="creation desc",
+		limit_page_length=_READ_BUDGET + 1,
+	)
+	read_count = 0
+	for row in rows:
+		action = (frappe.parse_json(row.request_payload) or {}).get("action")
+		if action in _PROGRESS_ACTIONS:
+			break
+		if action in _READ_ACTIONS:
+			read_count += 1
+	if read_count < _READ_BUDGET:
+		return None
+	return (
+		f"You have made {read_count} read-only calls this run without attempting "
+		"a single edit. Stop exploring: either attempt the edit now with what "
+		"you already have, or state specifically what information is still "
+		"missing and why you cannot proceed without it."
+	)
+
+
 def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_description: str,
                       args: dict, a2a_task: str | None = None, *,
                       bpmn_id: str | None = None, instance=None) -> dict:
