@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import patch
 
 import frappe
@@ -204,6 +205,50 @@ class TestTheRunnerRunsMemoryCases(FrappeTestCase):
 		row = runner._execute_case_inner(case)
 		self.assertEqual(row["status"], "Error")
 		self.assertIn("scope_key", row["error_message"])
+
+	def test_a_case_reads_the_memories_of_whoever_runs_it(self):
+		"""An agent with User in its memory scope stores rows against a person.
+		A case that names no user used to read the shared rows only, which is no
+		rows at all there, so a memory sitting in the table scored 0 and the
+		suite reported a retrieval failure that was really a missing filter."""
+		mine = "Purchase orders over five thousand need a second signature."
+		T.memory_write(
+			"Agent", {"agent_element": self.agent, "user": frappe.session.user}, mine, ignore_permissions=True
+		)
+
+		runner, case = self._case(query="who signs a large purchase order", golden_lines=[mine])
+		with _words_only():
+			row = runner._execute_case_inner(case)
+
+		report = json.loads(row["actual_output"])
+		self.assertEqual(report["retrieval"]["recall_at_k"], 1.0)
+
+	def test_a_case_that_means_the_shared_rows_says_so(self):
+		"""An explicit empty user is a decision and is left alone."""
+		mine = "Purchase orders over five thousand need a second signature."
+		T.memory_write(
+			"Agent", {"agent_element": self.agent, "user": frappe.session.user}, mine, ignore_permissions=True
+		)
+
+		runner, case = self._case(
+			query="who signs a large purchase order",
+			golden_lines=[mine],
+			scope_key={"agent_element": self.agent, "user": ""},
+		)
+		with _words_only():
+			row = runner._execute_case_inner(case)
+
+		report = json.loads(row["actual_output"])
+		self.assertEqual(report["retrieval"]["recall_at_k"], 0.0)
+
+	def test_the_run_says_whose_memories_these_are(self):
+		"""A suite queued to a background worker runs as the worker. The owner of
+		the run is the person who asked for it."""
+		from one_bpmn.agents import eval_runner
+
+		with patch.object(frappe.db, "get_value", return_value="someone@example.test"):
+			self.assertEqual(eval_runner._memory_case_user("RUN-1"), "someone@example.test")
+		self.assertEqual(eval_runner._memory_case_user(None), frappe.session.user)
 
 	def test_the_golden_memories_come_from_the_field_people_already_edit(self):
 		runner, case = self._case(golden_lines=GOLDEN, produced_memories=list(GOLDEN))

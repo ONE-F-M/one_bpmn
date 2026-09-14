@@ -1010,7 +1010,40 @@ def _distil_for_eval(case, spec, scope, scope_key) -> list:
     return [f.get("content", "") for f in facts]
 
 
-def _execute_memory_case(case) -> dict:
+def _memory_case_user(eval_run: str = None) -> str:
+    """Whose memories a case reads when it does not say.
+
+    The run's owner, so a suite handed to a background worker measures what the
+    person who started it would see, and the session user when there is no run
+    to ask.
+    """
+    owner = frappe.db.get_value("AI Eval Run", eval_run, "owner") if eval_run else None
+    return owner or frappe.session.user
+
+
+def _scope_key_with_user(scope: str, scope_key, user: str):
+    """Put a person on the scope key when the case names none.
+
+    Recall always runs as somebody: memory_search returns that person's rows
+    plus the shared ones. A case with no user reads the shared rows only, and
+    on an agent whose memory scope includes User that is no rows at all, so a
+    memory sitting right there scores 0 and the suite reports a retrieval
+    failure that is really a missing filter.
+
+    A case that means the shared rows says so with an explicit empty user; only
+    a key that is silent gets the default.
+    """
+    if not isinstance(scope_key, dict):
+        named = {"Agent": "agent_element", "Process": "process"}.get(scope)
+        if not named:
+            return scope_key
+        scope_key = {named: scope_key}
+    if scope_key.get("user") is None:
+        scope_key = dict(scope_key, user=user)
+    return scope_key
+
+
+def _execute_memory_case(case, eval_run: str = None) -> dict:
     """Measure the memory pipeline for one case.
 
     Reports generation precision/recall/F1 when the case says what should have
@@ -1037,7 +1070,7 @@ def _execute_memory_case(case) -> dict:
 
     report = evaluate_memory_case(
         scope=scope,
-        scope_key=scope_key,
+        scope_key=_scope_key_with_user(scope, scope_key, _memory_case_user(eval_run)),
         query=spec.get("query") or "",
         golden_memories=spec.get("golden_memories"),
         expected_recall=spec.get("expected_recall"),
@@ -1066,7 +1099,7 @@ def _execute_case_inner(case, eval_run: str = None, agent_cfg: str = None) -> di
         # it needs no provider, no model and no map. Handled before the agent is
         # resolved for exactly that reason.
         if (case.get("case_type") or "") == "Memory":
-            return _execute_memory_case(case)
+            return _execute_memory_case(case, eval_run)
 
         agent_cfg = agent_cfg or frappe.db.get_value(
             "AI Eval Suite", case.suite, "agent_configuration"
