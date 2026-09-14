@@ -104,6 +104,7 @@ import CostTokenReport from "@/components/insights/CostTokenReport.vue"
 import ErrorReport from "@/components/insights/ErrorReport.vue"
 import PerformanceReport from "@/components/insights/PerformanceReport.vue"
 import CostAllocationReport from "@/components/insights/CostAllocationReport.vue"
+import WorkItemCostReport from "@/components/insights/WorkItemCostReport.vue"
 
 const activeTab = ref("cost")
 
