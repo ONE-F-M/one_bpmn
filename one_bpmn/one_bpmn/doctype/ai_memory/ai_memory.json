@@ -207,6 +207,12 @@
    "read": 1,
    "report": 1,
    "role": "Process Designer"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Process Owner",
+   "write": 1
   }
  ],
  "sort_field": "modified",
