@@ -1008,3 +1008,108 @@ def export_cost_allocation(
 	frappe.response["type"] = "binary"
 	frappe.response["filename"] = filename
 	frappe.response["filecontent"] = content
+
+
+# ---------------------------------------------------------------------------
+# 7. Work item delegation cost (WI-000368)
+# ---------------------------------------------------------------------------
+#
+# A Work Item can be worked by an Orchestrator that delegates part of the
+# job to specialists over A2A: the caller's BPMN Process Instance parks on
+# an A2A Task, whose `instance` is the specialist's own process instance.
+# A specialist can itself delegate further, so the chain must be walked, not
+# just read one level deep \u2014 the same shape get_run_tree walks for a single
+# run's tool-started children, just following A2A Task rows instead of
+# parent_run.
+
+def _instances_for_work_item(work_item_name: str) -> list:
+	"""BPMN Process Instance names whose context is the given Work Item."""
+	return frappe.get_all(
+		"BPMN Process Instance",
+		filters={"context_doctype": "Work Item", "context_docname": work_item_name},
+		pluck="name",
+	)
+
+
+def _delegation_chain_instances(root_instances: list) -> list:
+	"""Every instance in the delegation chain starting from *root_instances*,
+	following A2A Task rows from caller_instance (the instance that parked,
+	waiting) to instance (the specialist instance doing the delegated work),
+	repeatedly \u2014 so a specialist that itself delegates further is caught too.
+
+	Depth is capped at _TREE_MAX_DEPTH, the same guard get_run_tree uses for
+	its own recursion, so a bad or cyclic chain cannot loop forever.
+	"""
+	all_instances = list(dict.fromkeys(root_instances))
+	frontier = list(root_instances)
+	for _level in range(_TREE_MAX_DEPTH):
+		if not frontier:
+			break
+		tasks = frappe.get_all(
+			"A2A Task",
+			filters={"caller_instance": ["in", frontier], "instance": ["is", "set"]},
+			fields=["instance"],
+			limit_page_length=0,
+		)
+		next_frontier = []
+		for t in tasks:
+			if t.instance and t.instance not in all_instances:
+				all_instances.append(t.instance)
+				next_frontier.append(t.instance)
+		frontier = next_frontier
+	return all_instances
+
+
+@frappe.whitelist()
+def get_work_item_delegation_cost(work_item_name: str) -> dict:
+	"""Total AI cost for a Work Item, summed across every AI Agent Run in its
+	delegation chain (WI-000368) \u2014 every Orchestrator pass plus every
+	specialist it handed work to over A2A, however many levels deep.
+
+	Returns zero totals and an empty breakdown, not an error, for a work item
+	with no BPMN Process Instance or no runs at all.
+	"""
+	frappe.only_for("System Manager")
+
+	root_instances = _instances_for_work_item(work_item_name)
+	if not root_instances:
+		return {"total_cost": 0.0, "total_tokens": 0, "breakdown": []}
+
+	instances = _delegation_chain_instances(root_instances)
+
+	Run = DocType("AI Agent Run")
+	rows = (
+		frappe.qb.from_(Run)
+		.select(
+			Run.name,
+			Run.agent_configuration,
+			Run.model,
+			Run.estimated_cost,
+			Run.total_tokens,
+		)
+		.where(Run.instance.isin(instances))
+		.orderby(Run.started_at)
+		.run(as_dict=True)
+	)
+
+	breakdown = []
+	total_cost = 0.0
+	total_tokens = 0
+	for r in rows:
+		cost = flt(r.get("estimated_cost"), 6)
+		tokens = cint(r.get("total_tokens"))
+		total_cost += cost
+		total_tokens += tokens
+		breakdown.append({
+			"run": r.get("name"),
+			"agent_configuration": r.get("agent_configuration"),
+			"model": r.get("model"),
+			"cost": cost,
+			"tokens": tokens,
+		})
+
+	return {
+		"total_cost": flt(total_cost, 6),
+		"total_tokens": total_tokens,
+		"breakdown": breakdown,
+	}
