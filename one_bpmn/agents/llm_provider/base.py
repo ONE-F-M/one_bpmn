@@ -199,6 +199,14 @@ class CompletionResult:
     text: str = ""
     trace: list = field(default_factory=list)  # list[TurnRecord]
     hit_turn_cap: bool = False
+    # WI-000375: {"name", "arguments"} of the terminal tool call that ended
+    # this turn, or None when the turn ended some other way (plain-text
+    # answer, turn cap, or the older stage-tool TURN_ANSWERED_FLAG protocol).
+    # ``text`` is still populated either way — see step_loop's terminal-tool
+    # branch — but this is what lets observability.py tell "the model
+    # answered in prose" apart from "a declared terminal tool answered for it"
+    # without having to guess from the text's shape.
+    terminal_call: dict | None = None
 
     @property
     def prompt_tokens(self) -> int:
