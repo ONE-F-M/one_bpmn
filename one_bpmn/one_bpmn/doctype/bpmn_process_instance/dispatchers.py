@@ -2006,7 +2006,11 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			# naming the reply key that proves it — Logix finishes when it has a
 			# script, ProsAlly when it has a diagram. Left unset, completion
 			# falls back to the generic error/turn-cap/output signals.
-			finalize_ai_run(run, result, goal_key=(task_cfg.get("aiGoalOutputKey") or "").strip() or None)
+			finalize_ai_run(
+				run, result,
+				goal_key=(task_cfg.get("aiGoalOutputKey") or "").strip() or None,
+				request_text=user_prompt,
+			)
 
 		# Commit observability data so AI runs + steps survive even if a
 		# downstream aiStopOnError raise rolls back the outer transaction.
