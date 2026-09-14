@@ -48,6 +48,7 @@
   "memory_semantic_weight",
   "memory_recency_weight",
   "memory_importance_weight",
+  "memory_retrieval_budget_ms",
   "memory_trust_hierarchy",
   "memory_prune_min_confidence",
   "memory_prune_uncorroborated_days",
@@ -387,6 +388,13 @@
    "fieldname": "memory_importance_weight",
    "fieldtype": "Float",
    "label": "Importance Weight"
+  },
+  {
+   "default": "200",
+   "description": "Memory eval budget. How long a memory search may take, in milliseconds, before a Memory eval case fails on latency. Recall runs before every chat reply, so this is time added to each turn. Blank or 0 means 200.",
+   "fieldname": "memory_retrieval_budget_ms",
+   "fieldtype": "Int",
+   "label": "Retrieval Budget (ms)"
   },
   {
    "default": "User Statement\nAgent Inference\nTool Output",
