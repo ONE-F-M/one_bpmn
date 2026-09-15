@@ -47,9 +47,11 @@
 						<button
 							v-if="readiness"
 							class="text-blue-600 hover:underline"
-							:title="`The golden dataset for ${readiness.subject}: ${readiness.cases} case(s), ${readiness.minimum} is the mark`"
+							:title="readiness.minimum
+								? `The golden dataset for ${readiness.subject}: ${readiness.cases} case(s), ${readiness.minimum} is the mark`
+								: `The golden dataset for ${readiness.subject}: ${readiness.cases} case(s); the agent has set no minimum`"
 							@click="openDataset"
-						>dataset {{ readiness.cases }}/{{ readiness.minimum }}</button>
+						>dataset {{ readiness.cases }}<template v-if="readiness.minimum">/{{ readiness.minimum }}</template></button>
 						<span
 							v-if="suite.gate_deployment"
 							class="inline-block px-2 py-0.5 rounded-full text-xs bg-amber-50 text-amber-700"
@@ -337,9 +339,15 @@
 					<p class="text-sm text-gray-700">
 						<span class="font-medium">{{ readiness.subject }}</span> carries
 						<span class="font-medium">{{ readiness.cases }}</span> case(s).
-						<span v-if="readiness.short_by">{{ readiness.short_by }} short of {{ readiness.minimum }};</span>
-						<span v-else>Past the {{ readiness.minimum }} mark;</span>
-						{{ readiness.target }} is comfortable.
+						<template v-if="readiness.minimum">
+							<span v-if="readiness.short_by">{{ readiness.short_by }} short of {{ readiness.minimum }};</span>
+							<span v-else>Past the {{ readiness.minimum }} mark;</span>
+							<span v-if="readiness.target">{{ readiness.target }} is comfortable.</span>
+						</template>
+						<span v-else class="text-gray-500">
+							The agent has set no minimum, so there is nothing to measure this against.
+							Set one on the agent's configuration to see a bar here.
+						</span>
 					</p>
 					<p class="text-xs text-gray-500">
 						A reading, not a gate. The one hard case-count bar is a skill graduating to Action-Allowed.

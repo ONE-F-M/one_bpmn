@@ -660,9 +660,26 @@
             </span>
           </div>
 
+          <div class="field-group-title" v-if="!isSelector">Golden Dataset</div>
+
+          <div class="field-row" v-if="!isSelector">
+            <label>Minimum Cases <span class="hint">(blank = no bar)</span></label>
+            <input type="number" min="0" v-model.number="form.aiGoldenDatasetMinimum" />
+            <span class="field-hint">
+              Cases this agent needs before its golden dataset counts as representative.
+              Left blank, the dataset shows its count and nothing to measure it against.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector">
+            <label>Target Cases <span class="hint">(optional)</span></label>
+            <input type="number" min="0" v-model.number="form.aiGoldenDatasetTarget" />
+            <span class="field-hint">The size the dataset is aiming for, shown beside the minimum.</span>
+          </div>
+
           <p class="field-hint" style="margin-top: 10px;" v-if="!isSelector">
-            Memory and compaction settings are stored on the linked AI Agent Configuration,
-            not on this diagram.
+            Memory, compaction and golden dataset settings are stored on the linked
+            AI Agent Configuration, not on this diagram.
           </p>
         </fieldset>
         </div>
@@ -1082,6 +1099,9 @@ const form = ref({
   aiCompactionTokenThreshold: 0,
   aiCompactionIdleMinutes: 0,
   aiCompactionOnTaskBoundary: false,
+  // The golden dataset bar. 0 is "no bar": the dataset shows a count and nothing to measure it against.
+  aiGoldenDatasetMinimum: 0,
+  aiGoldenDatasetTarget: 0,
   // WI-001639: the agent's frozen static context. Always arrays — they are
   // replaced wholesale by loadLinkedAgent once the agent is read.
   aiExamples: [],
@@ -1434,6 +1454,8 @@ onMounted(async () => {
     aiCompactionKeepTail: numOr("aiCompactionKeepTail", 10, parseInt),
     aiCompactionModel: get("aiCompactionModel") || "",
     aiCompactionTokenThreshold: numOr("aiCompactionTokenThreshold", 0, parseInt),
+    aiGoldenDatasetMinimum: numOr("aiGoldenDatasetMinimum", 0, parseInt),
+    aiGoldenDatasetTarget: numOr("aiGoldenDatasetTarget", 0, parseInt),
     aiCompactionIdleMinutes: numOr("aiCompactionIdleMinutes", 0, parseInt),
     aiCompactionOnTaskBoundary: get("aiCompactionOnTaskBoundary") === "true",
     // WI-001639: agent-owned, with no diagram fallback — this assignment
@@ -1678,6 +1700,8 @@ async function writeBackToConfig() {
     fields.aiContextTokenBudget = form.value.aiContextTokenBudget || 0;
     fields.aiCompactionEnabled = form.value.aiCompactionEnabled ? 1 : 0;
     fields.aiCompactionKeepTail = form.value.aiCompactionKeepTail || 10;
+    fields.aiGoldenDatasetMinimum = form.value.aiGoldenDatasetMinimum || 0;
+    fields.aiGoldenDatasetTarget = form.value.aiGoldenDatasetTarget || 0;
     fields.aiCompactionModel = form.value.aiCompactionEnabled
       ? form.value.aiCompactionModel || ""
       : "";

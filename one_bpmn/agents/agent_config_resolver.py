@@ -63,6 +63,10 @@ _CONFIG_TO_SHAPE = {
 	"compaction_token_threshold": "aiCompactionTokenThreshold",
 	"compaction_idle_minutes": "aiCompactionIdleMinutes",
 	"compaction_on_task_boundary": "aiCompactionOnTaskBoundary",
+	# The golden dataset bar is the agent's own judgement about its cases. Int,
+	# so 0 reaches the modal and reads there as "no bar".
+	"golden_dataset_minimum": "aiGoldenDatasetMinimum",
+	"golden_dataset_target": "aiGoldenDatasetTarget",
 }
 
 # Shape attributes the modal may write back, and the config fields they land
@@ -98,6 +102,8 @@ _SHAPE_TO_CONFIG = {
 	"aiCompactionTokenThreshold": "compaction_token_threshold",
 	"aiCompactionIdleMinutes": "compaction_idle_minutes",
 	"aiCompactionOnTaskBoundary": "compaction_on_task_boundary",
+	"aiGoldenDatasetMinimum": "golden_dataset_minimum",
+	"aiGoldenDatasetTarget": "golden_dataset_target",
 	# WI-001644: screening is agent-level too — what an agent may say is a
 	# property of the agent, not of the task that happens to call it.
 	"aiPiiScreening": "pii_screening",
