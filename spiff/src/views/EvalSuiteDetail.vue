@@ -47,9 +47,11 @@
 						<button
 							v-if="readiness"
 							class="text-blue-600 hover:underline"
-							:title="`The golden dataset for ${readiness.subject}: ${readiness.cases} case(s), ${readiness.minimum} is the mark`"
+							:title="readiness.minimum
+								? `The golden dataset for ${readiness.subject}: ${readiness.cases} case(s), ${readiness.minimum} is the mark`
+								: `The golden dataset for ${readiness.subject}: ${readiness.cases} case(s); the agent has set no minimum`"
 							@click="openDataset"
-						>dataset {{ readiness.cases }}/{{ readiness.minimum }}</button>
+						>dataset {{ readiness.cases }}<template v-if="readiness.minimum">/{{ readiness.minimum }}</template></button>
 						<span
 							v-if="suite.gate_deployment"
 							class="inline-block px-2 py-0.5 rounded-full text-xs bg-amber-50 text-amber-700"
@@ -207,7 +209,7 @@
 								<div v-if="c.source_run" class="text-xs text-gray-400">from run</div>
 							</td>
 							<td class="px-4 py-3">
-								<span v-for="t in c.assertion_types" :key="t" class="inline-block px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600 mr-1">{{ t }}</span>
+								<span v-for="t in c.assertion_types" :key="t" class="inline-block px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600 mr-1">{{ assertionTypeLabel(t) }}</span>
 								<span v-if="!c.assertion_types.length" class="text-xs text-amber-600">no assertions</span>
 							</td>
 							<td class="px-4 py-3 text-right whitespace-nowrap">
@@ -337,9 +339,15 @@
 					<p class="text-sm text-gray-700">
 						<span class="font-medium">{{ readiness.subject }}</span> carries
 						<span class="font-medium">{{ readiness.cases }}</span> case(s).
-						<span v-if="readiness.short_by">{{ readiness.short_by }} short of {{ readiness.minimum }};</span>
-						<span v-else>Past the {{ readiness.minimum }} mark;</span>
-						{{ readiness.target }} is comfortable.
+						<template v-if="readiness.minimum">
+							<span v-if="readiness.short_by">{{ readiness.short_by }} short of {{ readiness.minimum }};</span>
+							<span v-else>Past the {{ readiness.minimum }} mark;</span>
+							<span v-if="readiness.target">{{ readiness.target }} is comfortable.</span>
+						</template>
+						<span v-else class="text-gray-500">
+							The agent has set no minimum, so there is nothing to measure this against.
+							Set one on the agent's configuration to see a bar here.
+						</span>
 					</p>
 					<p class="text-xs text-gray-500">
 						A reading, not a gate. The one hard case-count bar is a skill graduating to Action-Allowed.
@@ -657,6 +665,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from "vue"
+import { ASSERTION_TYPES, MATCHERS, TOOL_CALL_MODES, assertionTypeLabel } from "@/utils/evalLabels"
 import { useRoute, useRouter } from "vue-router"
 import { frappeRequest, Button, Dialog, ErrorMessage, FormControl } from "frappe-ui"
 
@@ -664,7 +673,6 @@ const route = useRoute()
 const router = useRouter()
 const suiteName = route.params.suite
 
-const ASSERTION_TYPES = ["contains", "regex", "equals", "schema_valid", "llm_judge", "max_tokens", "no_tool_call", "tool_calls"]
 // What `value` means changes with the type, so the field says which.
 const VALUE_LABELS = {
 	llm_judge: "Rubric",
@@ -674,9 +682,8 @@ const VALUE_LABELS = {
 }
 // tool_calls checks the run's trace against the Expected Tool Calls below; its
 // value is only which of the three modes to check in.
-const TOOL_CALL_MODES = ["EXACT", "IN_ORDER", "ANY_ORDER"].map((m) => ({ label: m, value: m }))
-const MATCHER_OPTIONS = ["equals", "regex", "contains"].map((m) => ({ label: m, value: m }))
-const assertionTypeOptions = ASSERTION_TYPES.map((t) => ({ label: t, value: t }))
+const MATCHER_OPTIONS = MATCHERS
+const assertionTypeOptions = ASSERTION_TYPES
 
 const loading = ref(true)
 const loadError = ref("")
@@ -708,7 +715,7 @@ const CASE_TYPE_OPTIONS = [
 	"Adversarial", "Co-Load Budget", "Memory",
 ].map((t) => ({ label: t, value: t }))
 
-const skillOptions = ref([{ label: "— none —", value: "" }])
+const skillOptions = ref([{ label: "", value: "" }])
 
 const DATASET_SCOPES = [
 	{ label: "This suite", value: "suite" },
@@ -756,11 +763,11 @@ async function loadSkills() {
 			method: "GET",
 			params: { doctype: "AI Skill", fields: JSON.stringify(["name"]), limit_page_length: 0 },
 		})
-		skillOptions.value = [{ label: "— none —", value: "" }].concat(
+		skillOptions.value = [{ label: "", value: "" }].concat(
 			(res || []).map((sk) => ({ label: sk.name, value: sk.name }))
 		)
 	} catch (e) {
-		skillOptions.value = [{ label: "— none —", value: "" }]
+		skillOptions.value = [{ label: "", value: "" }]
 	}
 }
 
@@ -1028,9 +1035,9 @@ async function fetchAiModels() {
 		const res = await frappeRequest({
 			url: "/api/method/frappe.client.get_list",
 			method: "GET",
-			params: { doctype: "AI Model", fields: JSON.stringify(["name"]), limit_page_length: 0 },
+			params: { doctype: "AI Model", fields: JSON.stringify(["name", "model_name"]), limit_page_length: 0 },
 		})
-		aiModelOptions.value = (res || []).map((m) => ({ label: m.name, value: m.name }))
+		aiModelOptions.value = (res || []).map((m) => ({ label: m.model_name || m.name, value: m.name }))
 	} catch (e) {
 		aiModelOptions.value = []
 	}
@@ -1149,7 +1156,7 @@ async function openReassign() {
 		// the endpoint has always supported it. Named for what it does rather
 		// than shown as an empty row, so landing on it is a choice.
 		reassignOptions.value = [
-			{ label: "— none (detach this suite) —", value: "" },
+			{ label: "No agent (detach this suite)", value: "" },
 			...(res || []).map((a) => ({ label: agentLabel(a), value: a.name })),
 		]
 	} catch (e) {

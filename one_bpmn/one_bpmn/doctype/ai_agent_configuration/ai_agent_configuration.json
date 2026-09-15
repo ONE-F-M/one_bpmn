@@ -102,6 +102,8 @@
   "max_clarification_rounds",
   "evaluation_section",
   "sample_prompts",
+  "golden_dataset_minimum",
+  "golden_dataset_target",
   "needs_attention_reason"
  ],
  "fields": [
@@ -523,6 +525,18 @@
    "fieldtype": "Table",
    "label": "Sample Prompts",
    "options": "AI Agent Sample Prompt"
+  },
+  {
+   "description": "Cases this agent needs before its golden dataset counts as representative. Blank means no bar is shown.",
+   "fieldname": "golden_dataset_minimum",
+   "fieldtype": "Int",
+   "label": "Minimum Golden Dataset Cases"
+  },
+  {
+   "description": "The size the dataset is aiming for, shown beside the minimum.",
+   "fieldname": "golden_dataset_target",
+   "fieldtype": "Int",
+   "label": "Target Golden Dataset Cases"
   },
   {
    "description": "How this agent remembers. These settings are authoritative at dispatch \u2014 the BPMN shape no longer stores them; an older diagram's values are still honoured until the agent is configured here.",

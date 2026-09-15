@@ -95,12 +95,14 @@ class AISkill(Document):
 
 		elif self.tier == "Action-Allowed":
 			# Same number the dataset readings quote, so the bar a skill must
-			# clear and the count shown beside it can never disagree.
-			from one_bpmn.api.golden_dataset import dataset_sizes
+			# clear and the count shown beside it can never disagree. The bar is
+			# set per agent; when none of the agents holding this skill's cases
+			# has set one, there is no case-count bar to clear.
+			from one_bpmn.api.golden_dataset import subject_sizes
 
-			minimum = dataset_sizes()[0]
+			minimum = subject_sizes("Skill", self.name)[0]
 			case_count = len({c.name for c in cases})
-			if case_count < minimum:
+			if minimum and case_count < minimum:
 				frappe.throw(_(
 					"Cannot graduate to Action-Allowed: needs a golden dataset of {0}+ eval "
 					"cases targeting this skill (found {1})."

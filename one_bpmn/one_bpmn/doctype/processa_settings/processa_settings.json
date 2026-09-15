@@ -61,10 +61,6 @@
   "archive_action",
   "section_break_ai_health",
   "ai_health_alert_recipients",
-  "section_break_golden_dataset",
-  "golden_dataset_minimum",
-  "column_break_golden_dataset",
-  "golden_dataset_target",
   "section_break_nightly_evals",
   "eval_alert_recipients",
   "nightly_eval_grading_model",
@@ -476,29 +472,6 @@
    "fieldtype": "Table MultiSelect",
    "label": "Credential Alert Recipients",
    "options": "User Group Member"
-  },
-  {
-   "fieldname": "section_break_golden_dataset",
-   "fieldtype": "Section Break",
-   "label": "Golden Datasets"
-  },
-  {
-   "default": "20",
-   "description": "Cases an agent or skill needs before its dataset counts as representative. Also the bar a skill must clear to take actions; 0 falls back to 20.",
-   "fieldname": "golden_dataset_minimum",
-   "fieldtype": "Int",
-   "label": "Minimum Cases Per Dataset"
-  },
-  {
-   "fieldname": "column_break_golden_dataset",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "30",
-   "description": "The size a dataset is aiming for, shown beside the minimum. 0 falls back to 30.",
-   "fieldname": "golden_dataset_target",
-   "fieldtype": "Int",
-   "label": "Target Cases Per Dataset"
   },
   {
    "fieldname": "section_break_nightly_evals",
