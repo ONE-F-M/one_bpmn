@@ -10,9 +10,18 @@ The skill exists for the two trigger cases and the co-load one to point at:
 those types are about a skill, and a case naming none of them would be a worse
 example than no case at all. It stays Draft-Only, so no tier gate applies.
 
+Each case also runs. Nothing picks the suite up on its own, but it renders with
+a Run button like any other, and pressing it used to return seven identical
+stack traces: the Connector Agent has no chat-startable map, so an Agent eval
+starts the map against a document the case names, and these cases named none.
+An example that cannot be run is a poor example to copy, so every case now
+carries the A2A Task its own prompt describes, the way the Baseline suite does.
+
 Idempotent: the suite, the skill and the cases are matched by title and brought
-up to date.
+up to date, and a case keeps the fixture it already has.
 """
+
+import json
 
 import frappe
 
@@ -111,6 +120,39 @@ CASES = [
 ]
 
 
+def _fixture(case: str | None, agent: str, instruction: str) -> str:
+	"""The A2A Task one case runs against, created once and reused.
+
+	The case's own input_context is the only durable record of which task
+	belongs to it: the agent writes its answer onto the task's status_message
+	when a run finishes, so anything matched on that field stops matching the
+	moment the suite is used.
+
+	in_patch is set over the insert because an A2A Task landing normally starts
+	the specialist for real — seeding the example would run it.
+	"""
+	if case:
+		named = (frappe.parse_json(frappe.db.get_value("AI Eval Case", case, "input_context") or "{}") or {}).get(
+			"context_docname"
+		)
+		if named and frappe.db.exists("A2A Task", named):
+			return named
+
+	previous = frappe.flags.in_patch
+	frappe.flags.in_patch = True
+	try:
+		return frappe.get_doc({
+			"doctype": "A2A Task",
+			"direction": "Internal",
+			"state": "submitted",
+			"principal": "Administrator",
+			"agent_configuration": agent,
+			"request_payload": json.dumps({"instruction": instruction}),
+		}).insert(ignore_permissions=True).name
+	finally:
+		frappe.flags.in_patch = previous
+
+
 def _skill() -> str | None:
 	if frappe.db.exists("AI Skill", SKILL):
 		return SKILL
@@ -157,6 +199,7 @@ def execute():
 
 	for spec in CASES:
 		existing = frappe.db.get_value("AI Eval Case", {"suite": suite, "title": spec["title"]}, "name")
+		task = _fixture(existing, agent, spec["prompt"])
 		case = frappe.get_doc("AI Eval Case", existing) if existing else frappe.new_doc("AI Eval Case")
 		case.suite = suite
 		case.title = spec["title"]
@@ -164,6 +207,9 @@ def execute():
 		case.case_kind = spec.get("case_kind") or None
 		case.target_skill = skill if spec.get("skill") else None
 		case.input_user_prompt = spec["prompt"]
+		# The map reads its work order off the task, not off the case, so the
+		# prompt is carried on both: the task is what actually runs.
+		case.input_context = json.dumps({"context_doctype": "A2A Task", "context_docname": task})
 		case.expected_output = spec["expected"]
 		case.set("assertions", [])
 		for assertion in spec["assertions"]:
