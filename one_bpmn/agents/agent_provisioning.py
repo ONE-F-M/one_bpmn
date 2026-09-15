@@ -107,12 +107,22 @@ def validate_agent_config(config_name: str, test_provider: bool = True, require_
 		)
 	elif not frappe.db.exists("AI Provider", cfg.ai_provider):
 		errors.append(_("The linked AI Provider does not exist."))
-	elif cfg.get("ai_model") and not frappe.db.get_value(
-		"AI Model", cfg.get("ai_model"), "enable_model"
-	):
+	elif cfg.get("ai_model"):
 		# A provider is a name now and cannot be switched off. enable_model is
 		# the only switch left, and it is the one that carries the connection.
-		errors.append(_("The linked AI Model is disabled."))
+		#
+		# Existence is asked separately because get_value answers None both for
+		# a model that is absent and for one that is merely off, and calling a
+		# missing record "disabled" sends someone hunting for a switch on a
+		# record their site does not have.
+		if not frappe.db.exists("AI Model", cfg.get("ai_model")):
+			errors.append(_("AI Model {0} does not exist on this site.").format(cfg.get("ai_model")))
+		elif not frappe.db.get_value("AI Model", cfg.get("ai_model"), "enable_model"):
+			errors.append(
+				_("AI Model {0} is disabled — add its API key and tick Enable Model.").format(
+					cfg.get("ai_model")
+				)
+			)
 
 	# 4. Chat-type essentials — a label, unless the agent is mapped to a
 	# non-chat process map (WI-001997: a process-embedded agent never appears
