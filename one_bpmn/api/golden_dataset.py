@@ -19,24 +19,47 @@ import frappe
 from frappe import _
 from frappe.utils import cint, now_datetime
 
-# Representative at 20, comfortable at 30 — the shipped defaults. Both are
-# settings, because what counts as a representative dataset is a judgement about
-# your agents rather than a property of the software.
-DEFAULT_MINIMUM = 20
-DEFAULT_TARGET = 30
+def dataset_sizes(agent: str | None) -> tuple[int | None, int | None]:
+	"""The minimum and target case counts an agent has set for itself.
 
-
-def dataset_sizes() -> tuple[int, int]:
-	"""The minimum and target case counts, from Processa Settings.
-
-	0 or blank means the setting was never filled in, so the default stands —
-	the alternative is a site where every dataset silently reads as complete.
+	None for either it has not set. There is no site-wide number: what counts
+	as a representative dataset is a judgement about one agent's work, and an
+	agent that has not made it is shown a count with no bar beside it rather
+	than a shortfall against a figure nobody chose.
 	"""
-	settings = frappe.get_cached_doc("Processa Settings")
-	return (
-		cint(settings.get("golden_dataset_minimum")) or DEFAULT_MINIMUM,
-		cint(settings.get("golden_dataset_target")) or DEFAULT_TARGET,
+	if not agent:
+		return None, None
+	row = frappe.db.get_value(
+		"AI Agent Configuration", agent, ["golden_dataset_minimum", "golden_dataset_target"], as_dict=True
 	)
+	if not row:
+		return None, None
+	return cint(row.golden_dataset_minimum) or None, cint(row.golden_dataset_target) or None
+
+
+def _agents_of(subject_type: str, subject: str) -> list[str]:
+	"""Whose judgement a subject's bar comes from: the agent itself, a suite's
+	agent, or for a skill the agents whose suites hold its cases."""
+	if subject_type == "Agent":
+		return [subject]
+	if subject_type == "Suite":
+		agent = frappe.db.get_value("AI Eval Suite", subject, "agent_configuration")
+		return [agent] if agent else []
+	suites = [s for s in frappe.get_all("AI Eval Case", filters={"target_skill": subject}, pluck="suite") if s]
+	if not suites:
+		return []
+	return sorted({
+		a for a in frappe.get_all("AI Eval Suite", filters={"name": ["in", suites]}, pluck="agent_configuration") if a
+	})
+
+
+def subject_sizes(subject_type: str, subject: str) -> tuple[int | None, int | None]:
+	"""The bar a subject is read against. A skill spans agents, so it is held
+	to the strictest of them — the largest minimum any of them set."""
+	sizes = [dataset_sizes(agent) for agent in _agents_of(subject_type, subject)]
+	minimums = [m for m, _t in sizes if m]
+	targets = [t for _m, t in sizes if t]
+	return (max(minimums) if minimums else None, max(targets) if targets else None)
 
 CASE_TYPES = ("Output", "Trajectory", "Trigger Positive", "Trigger Negative",
 			  "Adversarial", "Co-Load Budget", "Memory")
@@ -134,7 +157,7 @@ def dataset_readiness(agent: str = None, skill: str = None, suite: str = None) -
 	case_names = _case_names(subject_type, subject)
 	counts = _breakdown(case_names)
 	total = len(case_names)
-	minimum, target = dataset_sizes()
+	minimum, target = subject_sizes(subject_type, subject)
 
 	latest = frappe.get_all(
 		"AI Golden Dataset Version",
@@ -150,7 +173,8 @@ def dataset_readiness(agent: str = None, skill: str = None, suite: str = None) -
 		"cases": total,
 		"minimum": minimum,
 		"target": target,
-		"short_by": max(0, minimum - total),
+		# None, not 0, when the agent set no minimum: 0 would read as "complete".
+		"short_by": max(0, minimum - total) if minimum else None,
 		"by_type": counts,
 		"missing_types": [t for t, n in counts.items() if not n],
 		"latest_version": latest[0] if latest else None,
