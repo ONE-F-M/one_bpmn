@@ -10,7 +10,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt
+from frappe.utils import add_days, cint, flt, now_datetime
 from frappe.utils import get_datetime
 
 
@@ -830,25 +830,30 @@ def list_owned_processes() -> list:
 
 
 @frappe.whitelist()
-def case_consistency(suite: str, limit: int = 20) -> dict:
-	"""Per-case pass history for a suite, newest run first.
+def case_consistency(suite: str, days: int = 7, limit: int = 100) -> dict:
+	"""Per-case pass history for a suite over the last *days*, newest run first.
 
 	A single run says whether a case passed; only the history says whether it
 	AGREES with itself. A case at 80% over five runs is the one that will fail
 	the week after go-live, and it looks identical to a solid case in any one
 	run's results.
 
-	``limit`` bounds how many runs back the history reaches. Cases are ordered
-	worst first, because the point of the report is the flaky ones.
+	A week by default, because that is the question being asked — "has this been
+	steady lately" — and a fixed number of runs answers a different one: on a
+	nightly suite twenty runs is three weeks, and on a quiet one it can reach
+	back months. ``limit`` is only a ceiling so a chatty suite cannot return
+	thousands. Cases are ordered worst first, because the point of the report is
+	the flaky ones.
 	"""
 	frappe.get_doc("AI Eval Suite", suite).check_permission("read")
 
+	since = add_days(now_datetime(), -abs(cint(days) or 7))
 	runs = frappe.get_all(
 		"AI Eval Run",
-		filters={"suite": suite},
+		filters={"suite": suite, "started_at": [">=", since]},
 		fields=["name", "status", "backend", "started_at"],
 		order_by="started_at desc",
-		limit_page_length=cint(limit) or 20,
+		limit_page_length=cint(limit) or 100,
 	)
 	if not runs:
 		return {"suite": suite, "runs": [], "cases": []}

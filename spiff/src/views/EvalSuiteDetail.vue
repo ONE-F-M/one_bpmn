@@ -136,7 +136,7 @@
 				<div class="border-b px-6 py-3 flex items-center justify-between">
 					<span class="text-sm font-semibold text-gray-700">
 						Consistency
-						<span class="text-gray-400 font-normal">(last {{ consistency.runs?.length || 0 }} run(s))</span>
+						<span class="text-gray-400 font-normal">({{ consistency.runs?.length || 0 }} run(s) this week)</span>
 					</span>
 					<Button variant="subtle" icon-left="activity" :loading="loadingConsistency" @click="loadConsistency">
 						{{ consistency.cases ? "Refresh" : "Show" }}
