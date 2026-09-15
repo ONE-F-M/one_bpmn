@@ -151,7 +151,7 @@
 									class="w-4 h-4"
 									:class="a.passed ? 'text-green-600' : 'text-red-600'"
 								/>
-								<span class="text-sm font-medium text-gray-800">{{ a.assertion_type }}</span>
+								<span class="text-sm font-medium text-gray-800">{{ assertionTypeLabel(a.assertion_type) }}</span>
 								<span v-if="a.score !== undefined" class="text-xs text-gray-500">score {{ a.score }}</span>
 							</div>
 							<div v-if="a.value" class="mt-1 flex items-baseline gap-2">
@@ -285,7 +285,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from "vue"
-import { toolCallModeLabel } from "@/utils/toolCallModes"
+import { assertionTypeLabel, toolCallModeLabel } from "@/utils/evalLabels"
 import { useRoute } from "vue-router"
 import { frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"

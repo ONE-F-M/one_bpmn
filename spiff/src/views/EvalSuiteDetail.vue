@@ -207,7 +207,7 @@
 								<div v-if="c.source_run" class="text-xs text-gray-400">from run</div>
 							</td>
 							<td class="px-4 py-3">
-								<span v-for="t in c.assertion_types" :key="t" class="inline-block px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600 mr-1">{{ t }}</span>
+								<span v-for="t in c.assertion_types" :key="t" class="inline-block px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600 mr-1">{{ assertionTypeLabel(t) }}</span>
 								<span v-if="!c.assertion_types.length" class="text-xs text-amber-600">no assertions</span>
 							</td>
 							<td class="px-4 py-3 text-right whitespace-nowrap">
@@ -657,7 +657,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from "vue"
-import { TOOL_CALL_MODES } from "@/utils/toolCallModes"
+import { ASSERTION_TYPES, MATCHERS, TOOL_CALL_MODES, assertionTypeLabel } from "@/utils/evalLabels"
 import { useRoute, useRouter } from "vue-router"
 import { frappeRequest, Button, Dialog, ErrorMessage, FormControl } from "frappe-ui"
 
@@ -665,7 +665,6 @@ const route = useRoute()
 const router = useRouter()
 const suiteName = route.params.suite
 
-const ASSERTION_TYPES = ["contains", "regex", "equals", "schema_valid", "llm_judge", "max_tokens", "no_tool_call", "tool_calls"]
 // What `value` means changes with the type, so the field says which.
 const VALUE_LABELS = {
 	llm_judge: "Rubric",
@@ -675,8 +674,8 @@ const VALUE_LABELS = {
 }
 // tool_calls checks the run's trace against the Expected Tool Calls below; its
 // value is only which of the three modes to check in.
-const MATCHER_OPTIONS = ["equals", "regex", "contains"].map((m) => ({ label: m, value: m }))
-const assertionTypeOptions = ASSERTION_TYPES.map((t) => ({ label: t, value: t }))
+const MATCHER_OPTIONS = MATCHERS
+const assertionTypeOptions = ASSERTION_TYPES
 
 const loading = ref(true)
 const loadError = ref("")
@@ -1028,9 +1027,9 @@ async function fetchAiModels() {
 		const res = await frappeRequest({
 			url: "/api/method/frappe.client.get_list",
 			method: "GET",
-			params: { doctype: "AI Model", fields: JSON.stringify(["name"]), limit_page_length: 0 },
+			params: { doctype: "AI Model", fields: JSON.stringify(["name", "model_name"]), limit_page_length: 0 },
 		})
-		aiModelOptions.value = (res || []).map((m) => ({ label: m.name, value: m.name }))
+		aiModelOptions.value = (res || []).map((m) => ({ label: m.model_name || m.name, value: m.name }))
 	} catch (e) {
 		aiModelOptions.value = []
 	}
