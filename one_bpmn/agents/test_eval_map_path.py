@@ -271,6 +271,20 @@ class TestRunMapEval(FrappeTestCase):
                 _run_map_eval(cfg, case)
         self.assertIn("produced no AI Agent Run", str(ctx.exception))
 
+    def test_a_script_rolling_the_transaction_back_is_named(self):
+        """A tool script that calls frappe.db.rollback() takes the eval's instance
+        with it. The error must say so, not blame the map's routing."""
+        todo = self._todo()
+        cfg, case, _ = self._agent_and_case(
+            input_context=json.dumps(
+                {"context_doctype": "ToDo", "context_docname": todo.name}
+            )
+        )
+        with patch(INSTANCE_START, side_effect=lambda *a, **k: frappe.db.rollback()):
+            with self.assertRaises(ValueError) as ctx:
+                _run_map_eval(cfg, case)
+        self.assertIn("rolled the transaction back", str(ctx.exception))
+
     def test_returns_run_output_and_usage_and_cancels_instance(self):
         todo = self._todo()
         cfg, case, model = self._agent_and_case(
