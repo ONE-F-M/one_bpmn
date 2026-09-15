@@ -39,18 +39,36 @@ _PROVIDER_DEFAULTS = {
 }
 
 
-def get_llm_adapter(provider: str, model: str, api_key: str) -> BaseLLMAdapter:
-    """Instantiate the correct adapter for *provider*."""
+def get_llm_adapter(
+    provider: str,
+    model: str,
+    api_key: str,
+    *,
+    timeout_seconds: float | None = None,
+    max_retries: int | None = None,
+) -> BaseLLMAdapter:
+    """Instantiate the correct adapter for *provider*.
+
+    ``timeout_seconds`` and ``max_retries`` reach the provider SDK's own client.
+    Left unset, the timeout is the platform default, never the SDK's: every SDK
+    here waits ten minutes for a response and retries twice on its own, so an
+    unset value let one stalled response hold a worker for half an hour — long
+    past the 180 s the platform believed it was enforcing. ``max_retries`` left
+    unset keeps the SDK's retries, for callers with no retry loop of their own.
+    """
+    from one_bpmn.agents.executor import DEFAULT_TIMEOUT_SECONDS
+
+    timeout_seconds = timeout_seconds or DEFAULT_TIMEOUT_SECONDS
     p = provider.lower()
     if p == "gemini":
         from .gemini import GeminiAdapter
-        return GeminiAdapter(api_key=api_key, model=model)
+        return GeminiAdapter(api_key=api_key, model=model, timeout_seconds=timeout_seconds, max_retries=max_retries)
     if p in ("anthropic", "claude"):
         from .anthropic_adapter import AnthropicAdapter
-        return AnthropicAdapter(api_key=api_key, model=model)
+        return AnthropicAdapter(api_key=api_key, model=model, timeout_seconds=timeout_seconds, max_retries=max_retries)
     if p == "openai":
         from .openai_adapter import OpenAIAdapter
-        return OpenAIAdapter(api_key=api_key, model=model)
+        return OpenAIAdapter(api_key=api_key, model=model, timeout_seconds=timeout_seconds, max_retries=max_retries)
     raise ValueError(f"Unknown LLM provider: {provider!r}. Supported: gemini, anthropic, openai")
 
 

@@ -66,9 +66,16 @@ def _build_tool_def(tool: ToolSpec) -> dict:
 
 
 class OpenAIAdapter(BaseLLMAdapter):
-    def __init__(self, api_key: str, model: str):
+    def __init__(self, api_key: str, model: str, timeout_seconds: float | None = None, max_retries: int | None = None):
         from openai import AsyncOpenAI
-        self._client = AsyncOpenAI(api_key=api_key)
+
+        # Same defaults and the same None-means-forever trap as the Anthropic SDK.
+        client_kwargs = {"api_key": api_key}
+        if timeout_seconds:
+            client_kwargs["timeout"] = timeout_seconds
+        if max_retries is not None:
+            client_kwargs["max_retries"] = max_retries
+        self._client = AsyncOpenAI(**client_kwargs)
         self._model = model
 
     async def complete(
