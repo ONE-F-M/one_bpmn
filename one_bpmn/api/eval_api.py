@@ -1731,7 +1731,7 @@ def scheduled_results(days: int = 7, triggered_by: str = "", agent: str = "",
 		limit_page_length=min(cint(limit) or 60, 200),
 	)
 	if not runs:
-		return {"runs": [], "is_system_manager": is_sm}
+		return {"runs": [], "agents": [], "is_system_manager": is_sm}
 
 	suites = {
 		s["name"]: s
@@ -1739,8 +1739,17 @@ def scheduled_results(days: int = 7, triggered_by: str = "", agent: str = "",
 								fields=["name", "title", "agent_configuration", "process_model"])
 	}
 	visible = _runs_visible_to(runs, suites, is_sm)
+	# A run's agent is its own field, else its suite's — and it has to be the
+	# same answer whether the reader is looking at the row or filtering by it.
+	# Filtering on the raw field dropped every run that only knew its agent
+	# through the suite, while the dropdown still listed that agent.
+	for run in visible:
+		run.agent = run.agent_configuration or (suites.get(run.suite) or {}).get("agent_configuration") or ""
+	# The choices come from everything the reader may see, not from the rows
+	# left after filtering — otherwise picking one agent removes the others.
+	agents = sorted({r.agent for r in visible if r.agent})
 	if agent:
-		visible = [r for r in visible if (r.agent_configuration or "") == agent]
+		visible = [r for r in visible if r.agent == agent]
 
 	first_failures = _first_failure_per_run([r.name for r in visible])
 	rows = []
@@ -1754,7 +1763,7 @@ def scheduled_results(days: int = 7, triggered_by: str = "", agent: str = "",
 			"when": str(run.creation),
 			"triggered_by": run.triggered_by or _inferred_trigger(run, suite),
 			"suite": suite.get("title") or run.suite or "",
-			"agent": run.agent_configuration or suite.get("agent_configuration") or "",
+			"agent": run.agent,
 			"status": run.status,
 			"passed": run.passed_cases or 0,
 			"total": run.total_cases or 0,
@@ -1765,7 +1774,7 @@ def scheduled_results(days: int = 7, triggered_by: str = "", agent: str = "",
 			"failure": failure.get("why") or "",
 			"failure_subject": failure.get("subject") or "",
 		})
-	return {"runs": rows, "is_system_manager": is_sm}
+	return {"runs": rows, "agents": agents, "is_system_manager": is_sm}
 
 
 def _runs_visible_to(runs, suites, is_sm) -> list:

@@ -657,6 +657,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from "vue"
+import { TOOL_CALL_MODES } from "@/utils/toolCallModes"
 import { useRoute, useRouter } from "vue-router"
 import { frappeRequest, Button, Dialog, ErrorMessage, FormControl } from "frappe-ui"
 
@@ -674,7 +675,6 @@ const VALUE_LABELS = {
 }
 // tool_calls checks the run's trace against the Expected Tool Calls below; its
 // value is only which of the three modes to check in.
-const TOOL_CALL_MODES = ["EXACT", "IN_ORDER", "ANY_ORDER"].map((m) => ({ label: m, value: m }))
 const MATCHER_OPTIONS = ["equals", "regex", "contains"].map((m) => ({ label: m, value: m }))
 const assertionTypeOptions = ASSERTION_TYPES.map((t) => ({ label: t, value: t }))
 
