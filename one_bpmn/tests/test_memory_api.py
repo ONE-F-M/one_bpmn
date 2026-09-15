@@ -119,6 +119,13 @@ class TestMemoryBrowser(FrappeTestCase):
 		self.assertEqual(row["owner_label"], self.alice)
 		self.assertFalse(row["retired"])
 
+	def test_the_detail_names_the_instance_behind_the_run(self):
+		run = frappe.get_all("AI Agent Run", filters={"instance": ("is", "set")}, fields=["name", "instance"], limit=1)
+		if not run:
+			self.skipTest("no AI Agent Run with an instance on this site")
+		frappe.db.set_value("AI Memory", self.shared["name"], "source_run", run[0].name)
+		self.assertEqual(API.get_memory(self.shared["name"])["source_instance"], run[0].instance)
+
 	def test_a_shared_row_is_labelled_shared(self):
 		row = next(m for m in API.list_memories(agent_element=self.agent)["memories"] if m["name"] == self.shared["name"])
 		self.assertEqual(row["owner_label"], "Shared")
