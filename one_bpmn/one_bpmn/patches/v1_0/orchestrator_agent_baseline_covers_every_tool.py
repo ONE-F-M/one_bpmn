@@ -426,13 +426,15 @@ CASES = [
 		"work_item": _item(
 			"User Story",
 			"Colour-code leave types on the calendar",
-			"<p>This is one of several items under the leave-calendar work and may already be covered by "
-			"one of them.</p><p>Before deciding anything, check what this item relates to; if the work is "
+			"<p>This is an umbrella for the leave-calendar colour work and may already be covered by an "
+			"item under it.</p><p>Before deciding anything, check what this item relates to; if the work is "
 			"covered elsewhere, say so and hand this back.</p>",
 		),
-		# The sibling that already covers it. Without one, delegating is a fair
-		# reading of the brief, and a run did exactly that: a real specialist
-		# ran for nineteen minutes and pushed a branch.
+		# The item under it that already covers the work. Without one, delegating
+		# is a fair reading of the brief, and a run did exactly that: a specialist
+		# ran for nineteen minutes and pushed a branch. It hangs off the case's
+		# item rather than beside it because the tool lists twenty sprint siblings
+		# at most, and the fixture sprint has more.
 		"covered_by": _item(
 			"User Story",
 			"Give every leave type its own colour on the leave calendar",
@@ -443,9 +445,9 @@ CASES = [
 			ANSWERED_AT_ALL, NO_DELEGATION,
 			{"assertion_type": "tool_calls", "value": "ANY_ORDER"},
 			_judge(
-				"The brief asks the agent to look at what the item relates to before deciding, and a sibling "
-				"item in the same sprint, already in progress, covers the same work.\n"
-				"Score 5 if the report names that sibling as covering the work and hands this item back or "
+				"The brief asks the agent to look at what the item relates to before deciding, and an item "
+				"under it, already in progress, covers the same work.\n"
+				"Score 5 if the report names that item as covering the work and hands this item back or "
 				"leaves a note, without delegating.\n"
 				"Score 1 if it delegated the work, or decided without saying what the item relates to."
 			),
@@ -516,6 +518,11 @@ def _work_item(case: str | None, sprint: str, fields: dict, after_insert: dict |
 			"context_docname"
 		)
 		if named and frappe.db.exists("Work Item", named):
+			# The brief is the case; a re-seed that reworded it must reach the item.
+			frappe.db.set_value(
+				"Work Item", named, {"title": fields["title"], "description": fields["description"]},
+				update_modified=False,
+			)
 			return named
 	previous = frappe.flags.in_patch
 	frappe.flags.in_patch = True
@@ -530,13 +537,14 @@ def _work_item(case: str | None, sprint: str, fields: dict, after_insert: dict |
 		frappe.flags.in_patch = previous
 
 
-def _sibling(sprint: str, fields: dict, state: dict) -> str:
-	"""A Work Item on the fixture sprint that no case runs against, found again by
-	its title. It exists to be seen by the case that reads its sprint."""
+def _child(parent: str, sprint: str, fields: dict, state: dict) -> str:
+	"""A Work Item under a case's item that no case runs against, found again by
+	its title. It exists to be seen by the case that reads its relations."""
 	existing = frappe.db.get_value("Work Item", {"sprint": sprint, "title": fields["title"]}, "name")
 	if existing:
+		frappe.db.set_value("Work Item", existing, "epic", parent, update_modified=False)
 		return existing
-	return _work_item(None, sprint, fields, state)
+	return _work_item(None, sprint, {"epic": parent, **fields}, state)
 
 
 def _fold_in_retired_suite(baseline: str):
@@ -581,7 +589,7 @@ def execute():
 		item = _work_item(existing, sprint, fields, spec.get("after_insert"))
 		items[spec["key"]] = item
 		if spec.get("covered_by"):
-			_sibling(sprint, spec["covered_by"], IN_PROGRESS)
+			_child(item, sprint, spec["covered_by"], IN_PROGRESS)
 		if spec.get("duplicate_of"):
 			# The duplicate names its original by id; keep that true on a re-seed too.
 			frappe.db.set_value("Work Item", item, "description", fields["description"], update_modified=False)
