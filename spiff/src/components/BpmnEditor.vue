@@ -1053,6 +1053,7 @@ import { encodeHtmlAttr, decodeHtmlAttr } from "@/bpmn/shared/htmlAttrCodec";
 import {
 	PROPERTY_COMMANDS,
 	isLockedElement as isPanelLockedElement,
+	isConditionUpdate,
 	isEditableProperty as isPanelEditableProperty,
 	panelElement,
 } from "@/bpmn/shared/releasedPanel";
@@ -1090,9 +1091,10 @@ const props = defineProps({
 		default: false
 	},
 	// "Release Property Panel" mode — while readonly, re-enables the properties
-	// panel for flow objects, minus script tasks, AI Agent tasks, sequence flows
-	// and the attributes that would break the map. Structural editing (moving,
-	// deleting, connecting) stays blocked.
+	// panel for flow objects, minus script tasks, AI Agent tasks and the
+	// attributes that would break the map. A sequence flow's condition and name
+	// are editable. Structural editing (moving, deleting, connecting) stays
+	// blocked.
 	reassignMode: {
 		type: Boolean,
 		default: false
@@ -1472,8 +1474,8 @@ const selectedElements = shallowRef([]);
 const modelerInstance = shallowRef(null);
 
 // Is the panel in front of us actually editable? Released mode is per element:
-// a script task, an AI Agent task or a sequence flow keeps its read-only panel
-// even while the rest of the map's properties are open for editing.
+// a script task or an AI Agent task keeps its read-only panel even while the
+// rest of the map's properties are open for editing.
 const panelReleased = computed(() => {
 	if (!props.readonly || !props.reassignMode) return false;
 	const element = panelElement(selectedElements.value);
@@ -2394,9 +2396,11 @@ onMounted(async () => {
 					if (!PROPERTY_COMMANDS.includes(command)) return false;
 					const bo = context?.element?.businessObject;
 					if (isPanelLockedElement(bo)) return false;
-					// A moddle update may target a nested element (an extension
-					// element, a timer definition); only the shape's own
-					// properties are saved by the endpoint.
+					// A flow's condition arrives as a moddle update on the
+					// expression element itself, carrying no properties.
+					if (isConditionUpdate(bo, context.moddleElement)) return true;
+					// Any other moddle update on a nested element (an extension
+					// element, a timer definition) is not saved by the endpoint.
 					if (command === "element.updateModdleProperties" && context.moddleElement !== bo) {
 						return false;
 					}
@@ -2416,6 +2420,9 @@ onMounted(async () => {
 						// Send back exactly the keys this command touched, so a
 						// property the panel did not change is never rewritten.
 						const properties = {};
+						if (isConditionUpdate(bo, context.moddleElement)) {
+							properties.conditionExpression = context.moddleElement.body || "";
+						}
 						Object.keys(context.properties || {}).forEach((key) => {
 							properties[String(key).split(":").pop()] = bo.get(key) || "";
 						});
