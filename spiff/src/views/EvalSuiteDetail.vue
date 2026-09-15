@@ -1148,7 +1148,7 @@ async function openReassign() {
 		// the endpoint has always supported it. Named for what it does rather
 		// than shown as an empty row, so landing on it is a choice.
 		reassignOptions.value = [
-			{ label: "No process map (detach this suite)", value: "" },
+			{ label: "No agent (detach this suite)", value: "" },
 			...(res || []).map((a) => ({ label: agentLabel(a), value: a.name })),
 		]
 	} catch (e) {
