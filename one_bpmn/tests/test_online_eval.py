@@ -204,6 +204,18 @@ class TestScoringAndSweep(FrappeTestCase):
 			filters={"agent_configuration": self.agent}, pluck="name")[0])
 		self.assertFalse(doc.results[0].eval_case, "an online sample has no case")
 
+	def test_a_clean_sweep_and_a_failed_one_do_not_read_alike(self):
+		"""The results page reads pass_rate off the run, not off the child rows."""
+		_run(self.agent, final_output="left it disabled")
+		clean = frappe.get_doc("AI Eval Run", sweep(self.agent, size=5)["run"])
+		self.assertEqual(clean.pass_rate, 100.0)
+		self.assertEqual(clean.total_executions, 1)
+
+		_run(self.agent, final_output="all switched on")
+		mixed = frappe.get_doc("AI Eval Run", sweep(self.agent, size=5)["run"])
+		self.assertEqual(mixed.total_executions, 2)
+		self.assertEqual(mixed.pass_rate, 50.0)
+
 	def test_the_result_records_why_the_run_was_sampled(self):
 		_run(self.agent, goal_completion="Not Achieved", final_output="left it disabled")
 		doc = frappe.get_doc("AI Eval Run", sweep(self.agent, size=5)["run"])
