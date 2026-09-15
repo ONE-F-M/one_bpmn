@@ -140,7 +140,7 @@ def list_memories(
 		"AI Memory",
 		filters=filters,
 		fields=list(LIST_FIELDS),
-		order_by="modified desc",
+		order_by="creation desc",
 		limit_start=start,
 		limit_page_length=page_length,
 	)
