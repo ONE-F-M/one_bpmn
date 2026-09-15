@@ -58,7 +58,7 @@ CASES = [
 			{"assertion_type": "tool_calls", "value": "IN_ORDER"},
 		],
 		"expected_tool_calls": [
-			{"call_order": 1, "tool_name": "read_reference", "argument": "url",
+			{"call_order": 1, "tool_name": "read_api_docs", "argument": "url",
 			 "matcher": "contains", "expected_value": "openapi.json"},
 			{"call_order": 2, "tool_name": "write_connector", "argument": "enabled",
 			 "matcher": "equals", "expected_value": "0"},
@@ -82,7 +82,7 @@ CASES = [
 		"prompt": "What is a Processa connector, in one sentence?",
 		"expected": "A connector is a configured HTTP integration that Processa maps can call as a service task.",
 		"assertions": [
-			{"assertion_type": "no_tool_call", "value": "read_reference"},
+			{"assertion_type": "no_tool_call", "value": "read_api_docs"},
 		],
 	},
 	{
@@ -105,7 +105,11 @@ CASES = [
 		"prompt": "Build a connector for https://api.frankfurter.dev/v1/latest .",
 		"expected": "",
 		"assertions": [
-			{"assertion_type": "max_tokens", "value": "20000"},
+			# The p90 of this agent's successful runs, rounded up: a routine
+			# build passes and a runaway one does not. The previous 20,000 was
+			# a round number below even the cheapest real build, so the case
+			# failed on every run and measured nothing.
+			{"assertion_type": "max_tokens", "value": "150000"},
 		],
 	},
 	{

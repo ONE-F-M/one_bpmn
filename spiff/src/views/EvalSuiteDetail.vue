@@ -674,11 +674,7 @@ const VALUE_LABELS = {
 }
 // tool_calls checks the run's trace against the Expected Tool Calls below; its
 // value is only which of the three modes to check in.
-const TOOL_CALL_MODES = [
-	{ label: "EXACT — these calls, this order, nothing else", value: "EXACT" },
-	{ label: "IN_ORDER — these calls in this order, others allowed between", value: "IN_ORDER" },
-	{ label: "ANY_ORDER — these calls happened, order not checked", value: "ANY_ORDER" },
-]
+const TOOL_CALL_MODES = ["EXACT", "IN_ORDER", "ANY_ORDER"].map((m) => ({ label: m, value: m }))
 const MATCHER_OPTIONS = ["equals", "regex", "contains"].map((m) => ({ label: m, value: m }))
 const assertionTypeOptions = ASSERTION_TYPES.map((t) => ({ label: t, value: t }))
 

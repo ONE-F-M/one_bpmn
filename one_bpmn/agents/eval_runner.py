@@ -1273,6 +1273,26 @@ def _eval_map_for_case(cfg, case) -> str:
     return ""
 
 
+def _instance_failure(instance_name: str) -> str:
+    """What the engine logged when this instance errored.
+
+    The instance keeps no error field — the traceback goes to an Error Log
+    titled "BPMN runtime failure [<ref>] — <instance>" — so the last line of
+    that log is the only thing that says what actually broke.
+    """
+    log = frappe.get_all(
+        "Error Log",
+        filters={"method": ["like", f"BPMN runtime failure%{instance_name}"]},
+        fields=["error"],
+        order_by="creation desc",
+        limit=1,
+    )
+    if not log:
+        return "No BPMN runtime failure was logged for it."
+    lines = [line for line in (log[0].error or "").strip().splitlines() if line.strip()]
+    return f"It failed with: {lines[-1].strip()}" if lines else "Its Error Log is empty."
+
+
 def _eval_context_document(case) -> tuple:
     """The document a map eval runs against, read from the case's input_context.
 
@@ -1393,6 +1413,17 @@ def _run_map_eval(cfg, case) -> tuple:
                 "BPMN Process Instance", instance.name, "status", "Cancelled",
                 update_modified=False,
             )
+
+    # The engine handles its own failures: it logs the traceback, marks the
+    # instance Errored and returns, so an exception escaping start() is NOT what
+    # a failed run looks like. Asked before the run lookup because a run that
+    # never happened is the symptom, and the missing run below would otherwise
+    # be blamed on the map's routing.
+    if frappe.db.get_value("BPMN Process Instance", instance.name, "status") == "Errored":
+        raise ValueError(
+            f"Process map '{model_name}' errored on {doctype} '{docname}' "
+            f"(instance {instance.name}). {_instance_failure(instance.name)}"
+        )
 
     filters = {"instance": instance.name}
     if case.bpmn_id:
