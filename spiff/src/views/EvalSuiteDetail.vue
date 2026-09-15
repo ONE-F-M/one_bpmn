@@ -707,7 +707,7 @@ const CASE_TYPE_OPTIONS = [
 	"Adversarial", "Co-Load Budget", "Memory",
 ].map((t) => ({ label: t, value: t }))
 
-const skillOptions = ref([{ label: "— none —", value: "" }])
+const skillOptions = ref([{ label: "", value: "" }])
 
 const DATASET_SCOPES = [
 	{ label: "This suite", value: "suite" },
@@ -755,11 +755,11 @@ async function loadSkills() {
 			method: "GET",
 			params: { doctype: "AI Skill", fields: JSON.stringify(["name"]), limit_page_length: 0 },
 		})
-		skillOptions.value = [{ label: "— none —", value: "" }].concat(
+		skillOptions.value = [{ label: "", value: "" }].concat(
 			(res || []).map((sk) => ({ label: sk.name, value: sk.name }))
 		)
 	} catch (e) {
-		skillOptions.value = [{ label: "— none —", value: "" }]
+		skillOptions.value = [{ label: "", value: "" }]
 	}
 }
 
@@ -1148,7 +1148,7 @@ async function openReassign() {
 		// the endpoint has always supported it. Named for what it does rather
 		// than shown as an empty row, so landing on it is a choice.
 		reassignOptions.value = [
-			{ label: "— none (detach this suite) —", value: "" },
+			{ label: "No process map (detach this suite)", value: "" },
 			...(res || []).map((a) => ({ label: agentLabel(a), value: a.name })),
 		]
 	} catch (e) {
