@@ -126,10 +126,12 @@ const isSystemManager = ref(false);
 const agentFilter = ref("");
 const filters = reactive({ triggered_by: "", days: 7, agent: "", failures_only: false });
 
-const agentOptions = computed(() => {
-	const names = [...new Set(rows.value.map((r) => r.agent).filter(Boolean))].sort();
-	return [{ label: __("Every agent"), value: "" }].concat(names.map((n) => ({ label: n, value: n })));
-});
+// Every agent the reader may see, from the server — not from the rows on
+// screen, which after filtering would offer only the agent already chosen.
+const agents = ref([]);
+const agentOptions = computed(() =>
+	[{ label: __("Every agent"), value: "" }].concat(agents.value.map((n) => ({ label: n, value: n })))
+);
 
 const emptyTitle = computed(() =>
 	filters.failures_only
@@ -195,6 +197,7 @@ async function load() {
 			},
 		});
 		rows.value = res?.runs || [];
+		agents.value = res?.agents || [];
 		isSystemManager.value = !!res?.is_system_manager;
 	} catch (e) {
 		rows.value = [];
