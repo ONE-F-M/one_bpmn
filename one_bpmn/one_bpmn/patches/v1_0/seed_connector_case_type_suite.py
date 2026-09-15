@@ -116,6 +116,28 @@ CASES = [
 		"assertions": [
 			{"assertion_type": "contains", "value": "frankfurter"},
 		],
+		# A Memory case is scored by the memory pipeline, not by running the map,
+		# so its Input Context is the measurement itself. Generation only: the
+		# facts to produce are stated here, so the case measures the same thing
+		# on a site with no memories as on one with thousands, and calls nothing.
+		"input_context": {
+			"scope": "Agent",
+			"scope_key": AGENT,
+			# Generation only. Left unset, the runner would read the prompt as a
+			# memory-search query and the expected output as what that search
+			# must return — measuring this site's memory store rather than the
+			# distiller, and failing anywhere the store is empty.
+			"query": "",
+			"expected_recall": [],
+			"golden_memories": [
+				"The exchange-rate API under discussion is Frankfurter.",
+				"Its reference is at https://api.frankfurter.dev/v1/latest.",
+			],
+			"produced_memories": [
+				"The exchange-rate API under discussion is Frankfurter.",
+				"Its reference is at https://api.frankfurter.dev/v1/latest.",
+			],
+		},
 	},
 ]
 
@@ -199,7 +221,7 @@ def execute():
 
 	for spec in CASES:
 		existing = frappe.db.get_value("AI Eval Case", {"suite": suite, "title": spec["title"]}, "name")
-		task = _fixture(existing, agent, spec["prompt"])
+		task = None if spec.get("input_context") else _fixture(existing, agent, spec["prompt"])
 		case = frappe.get_doc("AI Eval Case", existing) if existing else frappe.new_doc("AI Eval Case")
 		case.suite = suite
 		case.title = spec["title"]
@@ -208,8 +230,11 @@ def execute():
 		case.target_skill = skill if spec.get("skill") else None
 		case.input_user_prompt = spec["prompt"]
 		# The map reads its work order off the task, not off the case, so the
-		# prompt is carried on both: the task is what actually runs.
-		case.input_context = json.dumps({"context_doctype": "A2A Task", "context_docname": task})
+		# prompt is carried on both: the task is what actually runs. A case that
+		# states its own context is not run through the map at all.
+		case.input_context = json.dumps(
+			spec.get("input_context") or {"context_doctype": "A2A Task", "context_docname": task}
+		)
 		case.expected_output = spec["expected"]
 		case.set("assertions", [])
 		for assertion in spec["assertions"]:

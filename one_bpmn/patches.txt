@@ -161,3 +161,4 @@ one_bpmn.one_bpmn.patches.v1_0.backfill_final_output_from_finalize_args #14-09-2
 one_bpmn.one_bpmn.patches.v1_0.seed_prosally_online_rubric #15-09-2026 an online rubric for the busiest chat agent, written against its own 241 production answers so a failure means behaviour changed
 one_bpmn.one_bpmn.patches.v1_0.connector_trajectory_case_after_its_suite #15-09-2026 the case patch used to run before the Connector suite existed and skipped it in silence; run it again now the suite is there
 one_bpmn.one_bpmn.patches.v1_0.rubric_todo_marker_is_case_sensitive #15-09-2026 the leak rule matched Frappe's own ToDo DocType because (?i) covered every alternative; TODO/FIXME are case-sensitive again
+one_bpmn.one_bpmn.patches.v1_0.case_type_example_gets_its_fixtures #15-09-2026 the seven case-type cases were seeded before the patch wrote their fixtures; sites past that point have cases with nothing to run against
