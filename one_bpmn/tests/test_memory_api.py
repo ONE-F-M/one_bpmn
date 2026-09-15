@@ -82,6 +82,13 @@ class TestMemoryBrowser(FrappeTestCase):
 		self.assertNotIn(self.shared["name"], self._names())
 		self.assertIn(self.shared["name"], self._names(include_retired=1))
 
+	def test_retiring_does_not_move_the_row(self):
+		def order():
+			return [m["name"] for m in API.list_memories(agent_element=self.agent, include_retired=1)["memories"]]
+		before = order()
+		API.retire_memory(before[-1])
+		self.assertEqual(order(), before)
+
 	def test_retire_keeps_the_row_and_says_why(self):
 		API.retire_memory(self.shared["name"])
 		row = frappe.db.get_value("AI Memory", self.shared["name"], ["expires_on", "metadata"], as_dict=True)

@@ -33,6 +33,10 @@
 		</div>
 
 		<ErrorMessage v-if="error" :message="error" class="mx-6 mt-3" />
+		<div v-if="notice" class="mx-6 mt-3 flex items-center justify-between rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
+			<span class="truncate">{{ notice }}</span>
+			<Button size="sm" variant="ghost" @click="notice = ''">Dismiss</Button>
+		</div>
 
 		<div class="flex-1 overflow-auto">
 			<div v-if="!loading && !memories.length" class="p-10 text-center text-sm text-gray-500">
@@ -166,6 +170,8 @@ const PAGE_SIZES = [
 
 const loading = ref(false);
 const error = ref("");
+const notice = ref("");
+let noticeTimer = null;
 const busy = ref("");
 const memories = ref([]);
 const total = ref(0);
@@ -263,6 +269,7 @@ async function act(method, m) {
 	try {
 		await call(method, { name: m.name });
 		await load(start.value);
+		showNotice((method === "retire_memory" ? "Retired: " : "Restored: ") + m.content);
 		if (detail.value && detail.value.name === m.name) {
 			detail.value = await call("get_memory", { name: m.name });
 		}
@@ -271,6 +278,12 @@ async function act(method, m) {
 	} finally {
 		busy.value = "";
 	}
+}
+
+function showNotice(text) {
+	notice.value = text;
+	clearTimeout(noticeTimer);
+	noticeTimer = setTimeout(() => (notice.value = ""), 8000);
 }
 
 const retire = (m) => act("retire_memory", m);
