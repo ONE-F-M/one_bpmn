@@ -89,6 +89,25 @@ Respond with ONLY a JSON object:
 # Whitelisted entry point
 # ---------------------------------------------------------------------------
 
+# RQ kills a job at its timeout, and a run saves its results once, at the end.
+# A fixed 1800 s therefore lost every result of a suite that outgrew half an
+# hour — which the Baselines do at pass_k 2, where 22 cases are 44 executions.
+# Five minutes per execution is generous for one case run once, and it is a
+# bound, not a target.
+MIN_JOB_TIMEOUT_SECONDS = 1800
+SECONDS_PER_EXECUTION = 300
+
+
+def _job_timeout(suite: str, backend: str, case_count: int) -> int:
+    """Seconds RQ allows the run: the floor, or five minutes per execution,
+    whichever is more. An execution is one case run once; pass_k repeats each
+    live case that many times, and a replay repeats nothing."""
+    pass_k = 1 if backend in ("replay", "deterministic") else max(
+        1, cint(frappe.db.get_value("AI Eval Suite", suite, "pass_k"))
+    )
+    return max(MIN_JOB_TIMEOUT_SECONDS, SECONDS_PER_EXECUTION * max(1, case_count) * pass_k)
+
+
 @frappe.whitelist()
 def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     """
@@ -137,7 +156,7 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
         # compete with production business jobs for the default workers.
         queue="bpmn_ai_agent",
         run_name=run.name,
-        timeout=1800,
+        timeout=_job_timeout(suite_name, backend, frappe.db.count("AI Eval Case", {"suite": suite_name})),
     )
 
     return run.name
@@ -225,7 +244,9 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
         queue="bpmn_ai_agent",
         run_name=run.name,
         case_names=case_names,
-        timeout=1800,
+        timeout=_job_timeout(
+            suite_name, backend, len(case_names) if case_names else frappe.db.count("AI Eval Case", {"suite": suite_name})
+        ),
     )
     return run.name
 
@@ -335,7 +356,7 @@ def run_eval_comparison(
             queue="bpmn_ai_agent",
             run_name=run_name,
             case_names=case_names,
-            timeout=1800,
+            timeout=_job_timeout(suite_name, "live", len(case_names)),
         )
 
     return {

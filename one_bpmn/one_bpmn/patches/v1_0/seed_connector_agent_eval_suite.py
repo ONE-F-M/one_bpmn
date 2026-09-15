@@ -39,7 +39,7 @@ SUITE_DESCRIPTION = (
 
 CASES = [
 	{
-		"title": "Documented public API — a connector is written and left disabled",
+		"title": "A documented public API becomes a connector that is left disabled",
 		"instruction": (
 			"Build a Processa connector for the Frankfurter exchange-rate API, documented at "
 			"https://api.frankfurter.dev/v1/latest . No authentication is required. Cover the "
@@ -70,7 +70,7 @@ CASES = [
 		],
 	},
 	{
-		"title": "Authenticated API — the missing credential is reported, not invented",
+		"title": "An authenticated API has its missing credential reported, not invented",
 		"instruction": (
 			"Build a Processa connector from the OpenAPI spec at "
 			"https://petstore3.swagger.io/api/v3/openapi.json . Cover the operation that fetches a pet "
@@ -96,7 +96,7 @@ CASES = [
 		],
 	},
 	{
-		"title": "Unreadable reference — says so instead of inventing a manifest",
+		"title": "An unreadable reference is admitted instead of inventing a manifest",
 		"instruction": (
 			"Build a Processa connector for the Acme Internal Ledger API, documented at "
 			"https://docs.acme-internal-ledger.invalid/openapi.json ."

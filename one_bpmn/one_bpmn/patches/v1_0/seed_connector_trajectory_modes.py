@@ -37,7 +37,7 @@ DESCRIPTION = (
 
 CASES = [
 	{
-		"title": "ANY_ORDER — the reference is read and the connector written, in either order",
+		"title": "The reference is read and the connector written, in either order",
 		"prompt": (
 			"Build a Processa connector for the Frankfurter exchange-rate API, documented at "
 			"https://api.frankfurter.dev/v1/latest . No authentication is required."
@@ -51,7 +51,7 @@ CASES = [
 		"assertions": [{"assertion_type": "tool_calls", "value": "ANY_ORDER"}],
 	},
 	{
-		"title": "EXACT — given no work order, it reads, finds nothing, and stops",
+		"title": "Given no work order, it reads, finds nothing, and stops",
 		"prompt": "",
 		"expected": "Says there is no work order to act on, and does nothing else.",
 		"mode": "EXACT",

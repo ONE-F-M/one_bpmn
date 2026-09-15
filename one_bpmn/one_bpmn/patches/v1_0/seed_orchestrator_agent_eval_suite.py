@@ -52,7 +52,7 @@ SUITE_DESCRIPTION = (
 
 CASES = [
 	{
-		"title": "Work no specialist covers — none is invented",
+		"title": "Work no specialist covers is reported, not handed to an invented one",
 		"work_item": {
 			"work_item_type": "Task",
 			"title": "Renew the fire-safety certificate for the Salmiya site",
@@ -84,7 +84,7 @@ CASES = [
 		],
 	},
 	{
-		"title": "Work needing a person — handed over, not just described",
+		"title": "Work that needs a person is handed over, not just described",
 		"work_item": {
 			"work_item_type": "User Story",
 			"title": "Decide whether overtime should round to the nearest 15 minutes",
