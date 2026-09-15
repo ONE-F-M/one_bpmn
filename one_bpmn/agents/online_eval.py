@@ -257,6 +257,11 @@ def sweep(agent: str, window_hours: int = 24, size: int = DEFAULT_SAMPLE_SIZE,
 	run_doc.total_cases = passed + failed
 	run_doc.passed_cases = passed
 	run_doc.failed_cases = failed
+	# One sampled conversation is one execution: there is no k here, each answer
+	# was produced once by a real user. Without these two the results page reads
+	# every sweep as 0%, so a clean one and a total failure look the same.
+	run_doc.total_executions = passed + failed
+	run_doc.pass_rate = (passed / (passed + failed) * 100) if (passed + failed) else 0.0
 	run_doc.total_cost = spent
 	run_doc.status = "Passed" if not failed else "Failed"
 	if stopped:

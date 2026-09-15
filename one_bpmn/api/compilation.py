@@ -348,8 +348,8 @@ def _validate_timer_granularity(bpmn_xml: str) -> None:
 	if errors:
 		frappe.throw(
 			_(
-				"Timer validation failed — Frappe scheduler only supports minute-level precision:<br><br>"
-				+ "<br>".join(f"• {e}" for e in errors)
+				"Timer validation failed — Frappe scheduler only supports minute-level precision:\n\n"
+				+ "\n".join(f"• {e}" for e in errors)
 			),
 			title=_("Invalid Timer Configuration"),
 		)
@@ -411,7 +411,7 @@ def _validate_start_event_timers(bpmn_xml: str) -> None:
 
 	if errors:
 		frappe.throw(
-			"<br><br>".join(errors),
+			"\n\n".join(errors),
 			title=_("Invalid Timer Start Event"),
 		)
 
@@ -578,8 +578,8 @@ def _validate_prohibited_shapes(bpmn_xml: str) -> None:
 		frappe.throw(
 			_(
 				"Prohibited shapes found — the following BPMN elements are not allowed "
-				"in executable processes:<br><br>"
-				+ "<br>".join(f"• {e}" for e in errors)
+				"in executable processes:\n\n"
+				+ "\n".join(f"• {e}" for e in errors)
 			),
 			title=_("Prohibited Shapes Detected"),
 		)
@@ -1048,7 +1048,7 @@ def _validate_workflow_state_field(model, service_extensions: dict) -> None:
 
 	error_lines = [_("Workflow State field is missing on: {0}").format(dt) for dt in missing]
 	frappe.throw(
-		"<br>".join(f"• {line}" for line in error_lines),
+		"\n".join(f"• {line}" for line in error_lines),
 		title=_("Missing Workflow State Field"),
 	)
 
@@ -1387,8 +1387,8 @@ def _enforce_eval_pass_rate(model_name: str) -> None:
 
 	if refusals:
 		frappe.throw(
-			_("This map cannot be activated until its gating eval suites pass:<br><br>")
-			+ "<br>".join(f"• {r}" for r in refusals),
+			_("This map cannot be activated until its gating eval suites pass:\n\n")
+			+ "\n".join(f"• {r}" for r in refusals),
 			title=_("Eval Gate"),
 		)
 
@@ -1711,7 +1711,7 @@ def _resolve_called_process_xml(bpmn_xml: str, model_name: str) -> list:
 			frappe.throw(
 				_(
 					"Cannot deploy '{0}': the Call Activity '{1}' calls the process "
-					"'{2}', and no BPMN Process Model has that Process ID.<br><br>"
+					"'{2}', and no BPMN Process Model has that Process ID.\n\n"
 					"Open the Call Activity and set <b>Called Element</b> to the "
 					"Process ID of the map you want it to run."
 				).format(model_name, shape_id, called_id),
@@ -1859,7 +1859,7 @@ def compile_process_model(model_name: str) -> dict:
 			frappe.throw(
 				_(
 					"Cannot deploy: Business Rule Tasks reference decisions "
-					"that have no DMN XML in the Decision Tables: {0}.<br><br>"
+					"that have no DMN XML in the Decision Tables: {0}.\n\n"
 					"Open each Business Rule Task in the diagram and create a "
 					"Decision Table using the DMN modeler."
 				).format(", ".join(sorted(missing))),
@@ -2168,7 +2168,7 @@ def _validate_ai_tool_contract(service_extensions: dict) -> list:
 			warnings.append({"label": _("Tool Contract"), "icon": "wrench", "type": "warning", "detail": detail})
 	if blocking:
 		frappe.throw(
-			_("The prompt and the Tools box disagree:") + "<br>" + "<br>".join(f"• {b}" for b in blocking),
+			_("The prompt and the Tools box disagree:") + "\n" + "\n".join(f"• {b}" for b in blocking),
 			exc=frappe.ValidationError,
 		)
 	return warnings
