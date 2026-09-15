@@ -137,8 +137,24 @@ def timed(call) -> tuple[object, float]:
 	return result, round((time.perf_counter() - started) * 1000, 1)
 
 
-def within_budget(latency_ms: float, budget_ms: int = RETRIEVAL_BUDGET_MS) -> bool:
-	return latency_ms <= budget_ms
+def retrieval_budget_ms() -> int:
+	"""The budget in force: Processa Settings, or the code default when the
+	field is blank, 0, or unreadable. Never raises."""
+	try:
+		import frappe
+
+		value = frappe.db.get_single_value("Processa Settings", "memory_retrieval_budget_ms")
+	except Exception:
+		value = None
+	try:
+		value = int(value or 0)
+	except (TypeError, ValueError):
+		value = 0
+	return value if value > 0 else RETRIEVAL_BUDGET_MS
+
+
+def within_budget(latency_ms: float, budget_ms: int | None = None) -> bool:
+	return latency_ms <= (budget_ms if budget_ms is not None else retrieval_budget_ms())
 
 
 def evaluate_memory_case(
@@ -179,8 +195,10 @@ def evaluate_memory_case(
 		)
 		retrieval = score_retrieval([r.get("content", "") for r in rows], expected_recall, k=k)
 		report["retrieval"] = retrieval
+		budget = retrieval_budget_ms()
 		report["latency_ms"] = latency_ms
-		report["within_budget"] = within_budget(latency_ms)
+		report["budget_ms"] = budget
+		report["within_budget"] = within_budget(latency_ms, budget)
 		report["measured"].append("retrieval")
 		if retrieval["recall_at_k"] < 1.0 or not report["within_budget"]:
 			report["passed"] = False

@@ -990,6 +990,21 @@ def reassign_suite(suite: str, agent_configuration: str = None) -> str:
 	return doc.name
 
 
+SUITE_TYPES = ("Direct", "Agent", "Memory")
+
+
+def _valid_eval_type(value) -> str:
+	"""A suite type, Direct when not given. An unknown one is refused, not
+	quietly turned into Direct: a suite silently filed under the wrong type is
+	worse than a save that fails, because every run it makes then measures
+	something other than what its author asked for."""
+	value = (value or "").strip() or "Direct"
+	if value not in SUITE_TYPES:
+		frappe.throw(_("'{0}' is not a suite type. Choose one of: {1}.").format(
+			value, ", ".join(SUITE_TYPES)))
+	return value
+
+
 @frappe.whitelist()
 def create_suite(
 	title: str,
@@ -1001,7 +1016,8 @@ def create_suite(
 	"""Create a new suite from the Evals page and assign it to an agent.
 	``process_model`` is optional (Direct suites may have none); when set it must
 	be one the current user owns (or SM) — WI-001749 / Q5. ``eval_type`` is Direct
-	(simple LLM call) or Agent (invoke the map). ``description`` records what the
+	(simple LLM call), Agent (invoke the map) or Memory (score the memory store
+	against golden memories, no model call). ``description`` records what the
 	suite covers, so a later reader — the Evals console or the AI Assistant
 	deciding whether an existing suite already fits — can tell suites apart."""
 	if process_model:
@@ -1015,7 +1031,7 @@ def create_suite(
 		"title": title,
 		"process_model": process_model or None,
 		"agent_configuration": agent_configuration or None,
-		"eval_type": eval_type if eval_type in ("Direct", "Agent") else "Direct",
+		"eval_type": _valid_eval_type(eval_type),
 		"description": description or None,
 	})
 	doc.insert()

@@ -102,6 +102,11 @@ const routes = [
 		component: () => import("@/views/Sessions.vue"),
 	},
 	{
+		path: "/processa/memory",
+		name: "Memory",
+		component: () => import("@/views/Memory.vue"),
+	},
+	{
 		path: "/:pathMatch(.*)*",
 		redirect: "/processa",
 	},
