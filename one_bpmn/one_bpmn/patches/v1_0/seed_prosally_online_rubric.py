@@ -59,7 +59,9 @@ CASES = [
 		"rules": [
 			r"(?i)^(?![\s\S]*(?:traceback \(most recent call last\)|frappe\.exceptions|"
 			r"\bValidationError\b|/home/[a-z]+/|apps/one_bpmn/))[\s\S]*$",
-			r"(?i)^(?![\s\S]*(?:\{\{\s*\w+\s*\}\}|\bTODO\b|\bFIXME\b|lorem ipsum))[\s\S]*$",
+			# TODO/FIXME stay case-SENSITIVE on purpose: "ToDo" is a Frappe
+			# DocType, and an agent reporting a problem with it is not leaking.
+			r"^(?![\s\S]*(?:\{\{\s*\w+\s*\}\}|\bTODO\b|\bFIXME\b|(?i:lorem ipsum)))[\s\S]*$",
 		],
 	},
 ]

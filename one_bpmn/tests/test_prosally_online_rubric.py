@@ -54,3 +54,24 @@ class TestProsallyOnlineRubric(FrappeTestCase):
 		self.assertEqual(
 			frappe.db.count("AI Eval Case", {"suite": rubric_suite(patch._agent())}), 2
 		)
+
+
+class TestLeakRuleIsCaseSensitive(FrappeTestCase):
+	"""Frappe's ToDo DocType is not a leaked TODO marker."""
+
+	def setUp(self):
+		if not patch._agent():
+			self.skipTest("Prosally is not on this site")
+		patch.execute()
+		from one_bpmn.one_bpmn.patches.v1_0 import rubric_todo_marker_is_case_sensitive as fix
+		fix.execute()
+		self.rules = rubric_assertions(rubric_suite(patch._agent()))
+
+	def test_reporting_the_todo_doctype_is_not_a_leak(self):
+		answer = "The suite failed on a pre-existing issue with the ToDo doctype in the test bootstrap."
+		self.assertEqual(_fails(answer, self.rules), [])
+
+	def test_a_real_marker_is_still_caught(self):
+		for answer in ("I left a TODO in the handler.", "FIXME: this path is untested."):
+			with self.subTest(answer):
+				self.assertTrue(_fails(answer, self.rules))
