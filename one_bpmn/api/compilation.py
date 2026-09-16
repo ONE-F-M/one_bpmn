@@ -1771,20 +1771,26 @@ def compile_process_model(model_name: str) -> dict:
 	if not model.bpmn_xml:
 		frappe.throw(_("No BPMN XML found in process model '{0}'").format(model_name))
 
-	# ── Always extract the real process_id from the XML ──────────────────────
-	# The stored process_id field may be a stale UUID assigned at record-create
-	# time, while the BPMN diagram itself uses a different id (e.g. 'Process_1').
-	# SpiffWorkflow will fail if the two don't match, so we re-sync here.
+	# ── Keep the diagram and the record in step before parsing ───────────────
+	# SpiffWorkflow looks the process up by the id it is handed, so a diagram
+	# naming a different one fails to parse. The record owns the id, so the
+	# diagram is rewritten to match; copying the diagram's id back onto the
+	# record is what used to lose the readable one on every save. A record with
+	# no id yet still takes the diagram's, which is the import case.
 	import xml.etree.ElementTree as _ET
+
+	from one_bpmn.one_bpmn.doctype.bpmn_process_model.bpmn_process_model import swap_process_id
 
 	_bpmn_ns = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 	try:
 		_root = _ET.fromstring(model.bpmn_xml.strip().encode("utf-8"))
 		_process_el = _root.find(f"{{{_bpmn_ns}}}process") or _root.find("process")
 		if _process_el is not None:
-			# The record owns the process id and validate() rewrites the diagram to
-			# match, so there is nothing to sync here — copying the diagram's id
-			# back onto the record is what lost it in the first place.
+			xml_process_id = _process_el.get("id", "").strip()
+			if xml_process_id and not model.process_id:
+				model.process_id = xml_process_id
+			elif xml_process_id and xml_process_id != model.process_id:
+				model.bpmn_xml = swap_process_id(model.bpmn_xml, xml_process_id, model.process_id)
 
 			# Block deploy if process is not marked executable in the diagram
 			is_executable = _process_el.get("isExecutable", "false").strip().lower()
