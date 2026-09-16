@@ -1782,10 +1782,9 @@ def compile_process_model(model_name: str) -> dict:
 		_root = _ET.fromstring(model.bpmn_xml.strip().encode("utf-8"))
 		_process_el = _root.find(f"{{{_bpmn_ns}}}process") or _root.find("process")
 		if _process_el is not None:
-			xml_process_id = _process_el.get("id", "").strip()
-			if xml_process_id and xml_process_id != model.process_id:
-				# Sync the field so it always reflects the XML truth
-				model.process_id = xml_process_id
+			# The record owns the process id and validate() rewrites the diagram to
+			# match, so there is nothing to sync here — copying the diagram's id
+			# back onto the record is what lost it in the first place.
 
 			# Block deploy if process is not marked executable in the diagram
 			is_executable = _process_el.get("isExecutable", "false").strip().lower()
