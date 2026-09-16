@@ -1,6 +1,6 @@
-# Throwaway (LOCAL BENCH ONLY): gives the three chat agents' maps a Process,
-# an Active Pathfinder Log and a Process Implementation, so they show up in
-# Processa like any other process. Site data only — nothing here ships.
+# Throwaway (LOCAL BENCH ONLY): gives the three chat agents' maps a Process and
+# an Active Process Implementation, so they show up in Processa like any other
+# process. Site data only — nothing here ships.
 
 import frappe
 
@@ -30,29 +30,6 @@ SEEDS = {
 
 STATUS = "Active"  # → Process Implementation Active + editable (STATUS_MAP)
 
-# Pathfinder Log refuses to go Active without an Epic and a folder link
-# (_validate_active_status_conditions), so each process gets its own Epic.
-FOLDER_LINK = "http://127.0.0.1:8001/processa"
-
-
-def _epic(process: str, goal: str) -> str:
-	title = f"{process} — agent process"
-	existing = frappe.db.exists("Work Item", {"title": title, "work_item_type": "Epic"})
-	if existing:
-		print(f"  epic exists: {existing}")
-		return existing
-	doc = frappe.get_doc({
-		"doctype": "Work Item",
-		"work_item_type": "Epic",
-		"title": title,
-		"description": goal,
-	})
-	doc.flags.ignore_permissions = True
-	doc.flags.ignore_mandatory = True
-	doc.insert(ignore_permissions=True)
-	print(f"  epic created: {doc.name}")
-	return doc.name
-
 
 def _process(name: str, description: str) -> str:
 	if frappe.db.exists("Process", name):
@@ -67,33 +44,6 @@ def _process(name: str, description: str) -> str:
 	doc.flags.ignore_permissions = True
 	doc.insert(ignore_permissions=True)
 	print(f"  process created: {doc.name}")
-	return doc.name
-
-
-def _pathfinder_log(process: str, goal: str, epic: str) -> str:
-	existing = frappe.db.exists("Pathfinder Log", {"process_name": process})
-	if existing:
-		doc = frappe.get_doc("Pathfinder Log", existing)
-		doc.epic = doc.epic or epic
-		doc.process_folder_link = doc.process_folder_link or FOLDER_LINK
-		doc.status = STATUS
-		doc.flags.ignore_permissions = True
-		doc.save(ignore_permissions=True)
-		print(f"  pathfinder log exists: {existing} → {STATUS}")
-		return existing
-	doc = frappe.get_doc({
-		"doctype": "Pathfinder Log",
-		"process_name": process,
-		"goal_description": goal,
-		"process_owner_user": OWNER,
-		"business_analyst_user": OWNER,
-		"epic": epic,
-		"process_folder_link": FOLDER_LINK,
-		"status": STATUS,
-	})
-	doc.flags.ignore_permissions = True
-	doc.insert(ignore_permissions=True)
-	print(f"  pathfinder log created: {doc.name} ({STATUS})")
 	return doc.name
 
 
@@ -134,7 +84,6 @@ def run():
 			print("  no maps on this site — skipped")
 			continue
 		_process(process_name, description)
-		_pathfinder_log(process_name, goal, _epic(process_name, goal))
 		implementation = _implementation(process_name, goal, present)
 		for model in present:
 			frappe.db.set_value(

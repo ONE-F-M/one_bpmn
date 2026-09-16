@@ -225,10 +225,6 @@
  "is_tree": 1,
  "links": [
   {
-   "link_doctype": "Pathfinder Log",
-   "link_fieldname": "process_name"
-  },
-  {
    "link_doctype": "Process Owner Assignment",
    "link_fieldname": "process_name"
   }
