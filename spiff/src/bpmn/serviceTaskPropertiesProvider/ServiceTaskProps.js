@@ -1,7 +1,7 @@
 import { SelectEntry, isSelectEntryEdited } from "@bpmn-io/properties-panel";
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
-import { h } from "preact";
+import { h, Component } from "preact";
 import { frappeGet } from "../shared/frappeResource";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
@@ -18,6 +18,31 @@ const DOC_STATUS_OPTIONS = [
 	{ label: "1 (Submitted)", value: "1" },
 	{ label: "2 (Cancelled)", value: "2" },
 ];
+
+// Only a submittable doctype ever reaches these; everything else stays at 0.
+const SUBMITTABLE_ONLY = new Set(["1", "2"]);
+
+// ponytail: cached for the life of the page, so toggling Is Submittable on a
+// doctype needs a reload to show here. Clear the entry on save if that bites.
+const SUBMITTABLE_CACHE = new Map();
+
+function fetchIsSubmittable(doctype) {
+	if (!doctype) return Promise.resolve(false);
+	if (SUBMITTABLE_CACHE.has(doctype)) return Promise.resolve(SUBMITTABLE_CACHE.get(doctype));
+
+	return frappeGet("/api/resource/DocType", {
+		filters: JSON.stringify([["name", "=", doctype]]),
+		fields: '["is_submittable"]',
+		limit_page_length: 1,
+	})
+		.then((rows) => {
+			const submittable = !!(rows && rows[0] && rows[0].is_submittable);
+			SUBMITTABLE_CACHE.set(doctype, submittable);
+			return submittable;
+		})
+		// An unreadable doctype offers Draft only — never a state it cannot reach.
+		.catch(() => false);
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -362,33 +387,62 @@ function WorkflowStateComponent(props) {
 	});
 }
 
+// Class component, not hooks — see the note on CreateAgentConfigForm in
+// ScriptTaskProps.js and vite.config.js's preact/hooks dedupe note.
+class DocStatusEntry extends Component {
+	constructor(props) {
+		super(props);
+		this.state = { submittable: false };
+	}
+
+	componentDidMount() {
+		this.load();
+	}
+
+	componentDidUpdate(prev) {
+		if (prev.doctype !== this.props.doctype) this.load();
+	}
+
+	load() {
+		const { doctype } = this.props;
+		fetchIsSubmittable(doctype).then((submittable) => {
+			// The panel can switch doctype while this is in flight.
+			if (this.props.doctype === doctype) this.setState({ submittable });
+		});
+	}
+
+	render() {
+		const { element, id, bo, modeling, translate } = this.props;
+		const { submittable } = this.state;
+
+		return h(SelectEntry, {
+			element,
+			id,
+			label: translate("Document Status"),
+			getValue: () => getAttr(bo, "docStatus"),
+			setValue: (value) =>
+				modeling.updateModdleProperties(element, bo, {
+					"spiffworkflow:docStatus": value || undefined,
+				}),
+			getOptions: () =>
+				DOC_STATUS_OPTIONS.filter(
+					({ value }) => submittable || !SUBMITTABLE_ONLY.has(value)
+				).map(({ label, value }) => ({ label: translate(label), value })),
+		});
+	}
+}
+
 function DocStatusComponent(props) {
 	const { element, id } = props;
-	const modeling  = useService("modeling");
-	const translate = useService("translate");
-	const bo        = getBusinessObject(element);
+	const bo = getBusinessObject(element);
 
-	const getValue = () => getAttr(bo, "docStatus");
-
-	const setValue = (value) => {
-		modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:docStatus": value || undefined,
-		});
-	};
-
-	const getOptions = () =>
-		DOC_STATUS_OPTIONS.map(({ label, value }) => ({
-			label: translate(label),
-			value,
-		}));
-
-	return h(SelectEntry, {
+	return h(DocStatusEntry, {
 		element,
 		id,
-		label: translate("Document Status"),
-		getValue,
-		setValue,
-		getOptions,
+		bo,
+		modeling: useService("modeling"),
+		translate: useService("translate"),
+		doctype: getAttr(bo, "serviceTargetDoctype"),
 	});
 }
 
