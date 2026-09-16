@@ -198,9 +198,7 @@ class DirectApiExecutor(Executor):
         # this provider. Enabled matters now that the catalog holds models kept
         # only for their rate card — an unpriced, disabled row is not something
         # to fall back onto.
-        model = config.model or frappe.db.get_value(
-            "AI Model", {"provider": provider.name, "enable_model": 1}, "name"
-        ) or ""
+        model = config.model
 
         # What the provider's API calls this model, when that differs from the
         # catalog name agents pick.
