@@ -221,6 +221,27 @@ def plan_required_error(instance) -> str | None:
 	)
 
 
+def record_plan(target_app: str, git_branch: str, work_item_description: str, plan: str, *,
+                 bpmn_id: str | None = None, instance=None) -> None:
+	"""Records the submit_plan tool's call as a completed Agent Sandbox Run
+	row — the same row plan_required_error looks for. No sandbox HTTP call:
+	submitting a plan is a decision about what to do, not something the
+	sandbox needs to execute, so this settles synchronously like
+	sandbox_dispatch's fast tools do, just without a network round trip."""
+	doc = frappe.get_doc({
+		"doctype": "Agent Sandbox Run",
+		"state": "completed",
+		"target_app": target_app,
+		"git_branch": git_branch,
+		"bpmn_id": bpmn_id,
+		"caller_instance": getattr(instance, "name", None),
+		"work_item_description": work_item_description,
+		"request_payload": frappe.as_json({"action": _PLAN_ACTION, "args": {"plan": plan}}),
+	})
+	doc.flags.ignore_links = True
+	doc.insert(ignore_permissions=True)
+
+
 def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_description: str,
                       args: dict, a2a_task: str | None = None, *,
                       bpmn_id: str | None = None, instance=None) -> dict:

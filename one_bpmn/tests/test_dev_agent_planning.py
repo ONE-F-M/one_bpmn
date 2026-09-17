@@ -24,6 +24,7 @@ from one_bpmn.one_bpmn.connectors.agent_sandbox_ops import (
 	_REMINDER_AFTER,
 	goal_reminder,
 	plan_required_error,
+	record_plan,
 )
 
 
@@ -130,3 +131,9 @@ class TestPlanRequiredError(FrappeTestCase):
 		for _ in range(_READ_BUDGET - 1):
 			_row(inst.name, "read_file")
 		self.assertIsNotNone(plan_required_error(inst))
+
+	def test_record_plan_clears_the_gate(self):
+		inst = frappe._dict(name="i-just-planned")
+		record_plan("one_bpmn", "staging", "Add terminal_tools to ExecutorConfig.",
+		            "Add a field, then wire the loop.", bpmn_id="submit_plan", instance=inst)
+		self.assertIsNone(plan_required_error(inst))
