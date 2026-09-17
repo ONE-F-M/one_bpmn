@@ -96,8 +96,35 @@ def _a2a_task_of(instance) -> str | None:
 
 
 _READ_BUDGET = 15
+_REMINDER_AFTER = 8
 _READ_ACTIONS = ("read_file", "list_files")
 _PROGRESS_ACTIONS = ("edit_file", "write_file")
+_PLAN_ACTION = "submit_plan"
+
+
+def _reads_since_last_edit(instance, limit: int) -> int:
+	"""How many read_file/list_files calls this run has made, most-recent
+	first, stopping at the first edit_file/write_file (success or failure —
+	attempting one is the signal, not whether it worked) or at `limit`,
+	whichever comes first. Shared by read_budget_exceeded and goal_reminder
+	so the two thresholds count the exact same thing."""
+	if instance is None:
+		return 0
+	rows = frappe.get_all(
+		"Agent Sandbox Run",
+		filters={"caller_instance": instance.name, "state": "completed"},
+		fields=["request_payload"],
+		order_by="creation desc",
+		limit_page_length=limit,
+	)
+	count = 0
+	for row in rows:
+		action = (frappe.parse_json(row.request_payload) or {}).get("action")
+		if action in _PROGRESS_ACTIONS:
+			break
+		if action in _READ_ACTIONS:
+			count += 1
+	return count
 
 
 def read_budget_exceeded(instance) -> str | None:
@@ -115,29 +142,82 @@ def read_budget_exceeded(instance) -> str | None:
 	since attempting one is itself the signal that matters) or once the count
 	reaches _READ_BUDGET. An edit resets the budget: that's real progress,
 	not more looking around, however many further reads it takes afterward."""
-	if instance is None:
-		return None
-	rows = frappe.get_all(
-		"Agent Sandbox Run",
-		filters={"caller_instance": instance.name, "state": "completed"},
-		fields=["request_payload"],
-		order_by="creation desc",
-		limit_page_length=_READ_BUDGET + 1,
-	)
-	read_count = 0
-	for row in rows:
-		action = (frappe.parse_json(row.request_payload) or {}).get("action")
-		if action in _PROGRESS_ACTIONS:
-			break
-		if action in _READ_ACTIONS:
-			read_count += 1
-	if read_count < _READ_BUDGET:
+	if _reads_since_last_edit(instance, _READ_BUDGET + 1) < _READ_BUDGET:
 		return None
 	return (
-		f"You have made {read_count} read-only calls this run without attempting "
+		f"You have made {_READ_BUDGET} read-only calls this run without attempting "
 		"a single edit. Stop exploring: either attempt the edit now with what "
 		"you already have, or state specifically what information is still "
 		"missing and why you cannot proceed without it."
+	)
+
+
+def _a2a_instruction(context_docname: str) -> str:
+	"""The free-text instruction stored on one A2A Task, or "" if there is
+	none — split out purely so a test can mock this one small lookup
+	directly instead of a global frappe.db.get_value patch (confirmed to
+	have unrelated side effects on later frappe.get_all calls in the same
+	test run when tried that way)."""
+	payload = frappe.db.get_value("A2A Task", context_docname, "request_payload") or ""
+	return (frappe.parse_json(payload) or {}).get("instruction") or ""
+
+
+def goal_reminder(instance) -> str | None:
+	"""A short restatement of the actual work order, to attach alongside an
+	ordinary read_file/list_files result once exploration has gone on for a
+	while with no edit attempt yet — None below the threshold, once an edit
+	has been attempted, or when there's no A2A Task to read the original
+	instruction back from.
+
+	A long, tool-result-heavy run can bury the original work order dozens of
+	turns back, and a model's effective attention to something that far back
+	visibly weakens as the transcript grows, even though it is technically
+	still in context — confirmed live: a run that wandered into files with no
+	relation to its own work order (backfill patches, an unrelated agent's
+	config) well after the point this would have fired. Re-derived from the
+	A2A Task's own stored instruction rather than trusting the model's own
+	work_item_description argument, since that could itself have drifted
+	from the original by the time it would matter."""
+	if instance is None:
+		return None
+	if _reads_since_last_edit(instance, _REMINDER_AFTER) < _REMINDER_AFTER:
+		return None
+	if getattr(instance, "context_doctype", None) != "A2A Task":
+		return None
+	context_docname = getattr(instance, "context_docname", None)
+	if not context_docname:
+		return None
+	instruction = _a2a_instruction(context_docname)
+	if not instruction:
+		return None
+	return (
+		"Reminder of the actual work order, since a lot of exploring can bury "
+		"it: " + instruction
+	)
+
+
+def plan_required_error(instance) -> str | None:
+	"""None once this run has submitted a plan (the submit_plan tool);
+	otherwise the error to return instead of dispatching an edit_file or
+	write_file call.
+
+	Planning and executing an unfamiliar, multi-file change in one
+	continuous, unsupervised tool-calling loop is a harder task than either
+	half alone — requiring a plan first, before any file is touched, forces
+	the model to commit to a concrete approach in writing rather than
+	discovering one file at a time while already mid-edit."""
+	if instance is None:
+		return None
+	exists = frappe.db.exists("Agent Sandbox Run", {
+		"caller_instance": instance.name,
+		"state": "completed",
+		"request_payload": ["like", f'%"action": "{_PLAN_ACTION}"%'],
+	})
+	if exists:
+		return None
+	return (
+		"Submit a plan first with submit_plan — name which files you will "
+		"change and what each change is — before making any edit."
 	)
 
 
