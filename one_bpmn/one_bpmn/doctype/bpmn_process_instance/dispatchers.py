@@ -1695,8 +1695,17 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			tool_specs.extend(skill_tool_specs)
 			
 	# Inject tools for dynamically loaded skills!
+	# WI-000401: scoped to the conversation, not the instance \u2014 a resumed
+	# conversation gets a brand new instance, so state keyed by instance.name
+	# never survived the resume it was needed for.
 	if instance:
-		active_skill_names = frappe.cache().get_value(f"active_skill_names_{instance.name}") or []
+		_conversation_for_tools = None
+		if getattr(instance, "context_doctype", "") == "Chat Conversation":
+			_conversation_for_tools = getattr(instance, "context_docname", None)
+		active_skill_names = (
+			frappe.cache().get_value(f"active_skill_names_{_conversation_for_tools}") or []
+			if _conversation_for_tools else []
+		)
 		if active_skill_names:
 			import json
 			from one_bpmn.agents.llm_provider.base import ToolSpec
