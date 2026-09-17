@@ -122,8 +122,12 @@ def save_process_model(
 		doc.is_active = 0
 
 		doc.check_permission("create")
-		# The Processa editor's blank-create flow already embeds a unique
-		# process_id in the XML — skip re-generation.
+		# Name the process after itself rather than keeping the anonymous id the
+		# editor mints for a blank diagram; validate() rewrites the diagram to
+		# match, so the two agree from the first save.
+		from one_bpmn.one_bpmn.doctype.bpmn_process_model.bpmn_process_model import new_process_id
+
+		doc.process_id = new_process_id(process or model_name)
 		doc.flags.skip_process_id_regeneration = True
 		doc.insert()
 
