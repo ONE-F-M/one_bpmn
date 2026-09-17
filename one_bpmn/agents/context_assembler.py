@@ -35,6 +35,10 @@ from __future__ import annotations
 EXAMPLES_HEADER = "## Examples"
 GUARDRAILS_HEADER = "## Guard Rails"
 SKILLS_HEADER = "## AI Skills"
+# Header for the DYNAMIC-layer block that carries the full bodies of skills
+# loaded via load_skill this conversation \u2014 distinct from SKILLS_HEADER,
+# which only lists names+descriptions in the static system prompt.
+SKILLS_LOADED_HEADER = "## Loaded Skills"
 
 # Prefix for the retrieved-memory block in the DYNAMIC layer. The old
 # system-prompt header lives on as dispatchers.MEMORY_BLOCK_HEADER, which the
