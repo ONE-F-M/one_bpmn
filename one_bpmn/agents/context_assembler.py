@@ -255,13 +255,21 @@ def build_dynamic_preamble(
 
 	Returns the user prompt unchanged when there is no memory to inject, so
 	agents without long-term memory send exactly what they sent before.
+
+	``active_skills`` carries the full BODIES of skills loaded via load_skill
+	this conversation (WI-000401) \u2014 not the static index of what is
+	available, which is ``_render_skills_index``'s job in the system prompt.
+	Without this, load_skill's cache write had nothing downstream reading
+	it, so a loaded skill's instructions never reached the model at all.
 	"""
 	memory_block = str(memory_block or "").strip()
 	user_prompt = str(user_prompt or "")
 	instructions = str(instructions or "")
 	skills_block = ""
 	if active_skills:
-		skills_block = "\n\n".join(str(s).strip() for s in active_skills if s)
+		bodies = "\n\n".join(str(s).strip() for s in active_skills if s)
+		if bodies:
+			skills_block = f"{SKILLS_LOADED_HEADER}\n{bodies}"
 
 	parts = []
 	if skills_block:
