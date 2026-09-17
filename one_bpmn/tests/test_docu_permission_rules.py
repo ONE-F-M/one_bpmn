@@ -117,6 +117,33 @@ class TestDocuPermissionRules(FrappeTestCase):
 		self._apply(_ir(is_child_table=1, permissions=[{"role": "System Manager", "read": 1}]))
 		self.assertEqual(self._perms(), [])
 
+	def test_the_grid_reads_the_rules_actually_in_force(self):
+		"""On an overridden DocType the override IS the rule set.
+
+		Reading the shipped rows instead showed the builder a set nobody was
+		enforcing, so a change made through Docu looked like it had vanished —
+		and saving that view back would have undone the override.
+		"""
+		from one_bpmn.tools.tool_for_server_scripts import read_doctype_permissions
+		from one_bpmn.api.docu_api import _apply_standard_doctype_permissions
+
+		self._apply(_ir())
+		frappe.db.set_value("DocType", DT, {"custom": 0, "module": "Desk"})
+		frappe.clear_cache(doctype=DT)
+		try:
+			_apply_standard_doctype_permissions(DT, [
+				{"role": "System Manager", "read": 1, "write": 1},
+				{"role": "Projects User", "read": 1},
+			])
+			frappe.clear_cache(doctype=DT)
+			grid = {p["role"] for p in read_doctype_permissions(DT)}
+			enforced = {p.role for p in frappe.get_meta(DT).permissions}
+			self.assertEqual(grid, enforced)
+			self.assertIn("Projects User", grid)
+		finally:
+			frappe.db.delete("Custom DocPerm", {"parent": DT})
+			frappe.db.set_value("DocType", DT, {"custom": 1, "module": "ONE BPMN"})
+
 	def test_a_doctype_from_one_of_our_apps_is_recognised(self):
 		"""Routing depends on who owns the DocType, so the split is worth pinning.
 

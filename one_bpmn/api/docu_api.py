@@ -36,6 +36,7 @@ from one_bpmn.tools.tool_for_server_scripts import (
 	read_doctype_definition as _read_doctype_ir,
 )
 from one_bpmn.security.doctype_validator import RESERVED_FIELDNAMES, validate_doctype_ir
+from one_bpmn.utils.session import as_user
 
 _LAYOUT_FIELDTYPES = ("Section Break", "Column Break", "Tab Break")
 _TABLE_FIELDTYPES = ("Table", "Table MultiSelect")
@@ -279,34 +280,31 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 				title=_("Confirm data loss"),
 			)
 
-	original_user = frappe.session.user
 	child_tables: list[str] = []
 	try:
-		frappe.set_user("Administrator")
-		# Create any inline child DocTypes first and point the Table fields at them.
-		child_tables = _ensure_child_doctypes(name, module, fields)
-		if not frappe.db.exists("DocType", name):
-			action = _create_custom_doctype(name, module, is_child, autoname, fields, settings, permissions)
-		elif frappe.db.get_value("DocType", name, "custom"):
-			action = _reconcile_custom_doctype(name, is_child, autoname, fields, settings, module, permissions)
-		elif _reconciles_in_place(name):
-			action = _reconcile_owned_doctype(name, fields, settings, permissions)
-		else:
-			action = _customize_standard_doctype(name, fields)
-			_apply_standard_doctype_permissions(name, permissions)
-		if permissions is not None:
-			# Cached DocType meta predates the new rules, so roles stay locked out
-			# until it is rebuilt.
-			frappe.clear_cache(doctype=name)
-		frappe.db.commit()
+		with as_user("Administrator"):
+			# Create any inline child DocTypes first and point the Table fields at them.
+			child_tables = _ensure_child_doctypes(name, module, fields)
+			if not frappe.db.exists("DocType", name):
+				action = _create_custom_doctype(name, module, is_child, autoname, fields, settings, permissions)
+			elif frappe.db.get_value("DocType", name, "custom"):
+				action = _reconcile_custom_doctype(name, is_child, autoname, fields, settings, module, permissions)
+			elif _reconciles_in_place(name):
+				action = _reconcile_owned_doctype(name, fields, settings, permissions)
+			else:
+				action = _customize_standard_doctype(name, fields)
+				_apply_standard_doctype_permissions(name, permissions)
+			if permissions is not None:
+				# Cached DocType meta predates the new rules, so roles stay locked out
+				# until it is rebuilt.
+				frappe.clear_cache(doctype=name)
+			frappe.db.commit()
 	except frappe.PermissionError:
 		raise
 	except Exception:
 		frappe.db.rollback()
 		frappe.log_error(title=f"Docu apply_doctype failed ({name})", message=frappe.get_traceback())
 		frappe.throw(_("Could not apply the form: {0}").format(frappe.get_traceback().splitlines()[-1]))
-	finally:
-		frappe.set_user(original_user)
 
 	return {
 		"name": name,

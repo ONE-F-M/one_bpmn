@@ -286,11 +286,21 @@ def read_doctype_definition(doctype: str) -> dict | None:
 
 
 def read_doctype_permissions(doctype: str) -> list:
-	"""The DocType's permission rules, in IR shape, ordered as Frappe stores them."""
+	"""The permission rules actually in force, in IR shape.
+
+	Frappe reads Custom DocPerm in preference the moment one row exists, so on a
+	DocType we have overridden those ARE the rules. Reading the shipped DocPerm
+	rows instead showed the builder a set nobody was enforcing, and writing them
+	back would have undone the override.
+	"""
+	source = "Custom DocPerm" if frappe.db.exists("Custom DocPerm", {"parent": doctype}) else "DocPerm"
+	filters = {"parent": doctype}
+	if source == "DocPerm":
+		filters["parenttype"] = "DocType"
 	rows = []
 	for p in frappe.get_all(
-		"DocPerm",
-		filters={"parent": doctype, "parenttype": "DocType"},
+		source,
+		filters=filters,
 		fields=["role", "permlevel", *DOCTYPE_PERMISSION_FLAGS],
 		order_by="idx asc",
 	):
