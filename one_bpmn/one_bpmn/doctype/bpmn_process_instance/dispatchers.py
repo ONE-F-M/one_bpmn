@@ -1675,6 +1675,20 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			active_skills=active_skill_bodies,
 		)
 
+		# WI-000401: loaded skill bodies are part of the prompt budget the
+		# same way recalled memory is \u2014 counted here so AI Agent Run's
+		# memory_injected_tokens reflects everything injected ahead of the
+		# user's own text, not only the memory half of it.
+		if active_skill_bodies:
+			from one_bpmn.agents.memory.conversation_store import (
+				DEFAULT_CHARS_PER_TOKEN,
+				estimate_tokens,
+			)
+
+			memory_injected_tokens += estimate_tokens(
+				{"content": "\n\n".join(active_skill_bodies)}, DEFAULT_CHARS_PER_TOKEN
+			)
+
 	# ── Tools: the shapes of the referenced ad-hoc sub-process (Camunda "tools
 	# are the shapes"). aiToolShapes was embedded at compile time (WI-001421);
 	# each becomes a function-tool the LLM can call, whose result feeds back into
