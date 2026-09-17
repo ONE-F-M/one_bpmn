@@ -15,7 +15,10 @@ from __future__ import annotations
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import google_chat_recipients
+from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
+	dispatch_google_chat,
+	google_chat_recipients,
+)
 
 
 def _instance(doctype="", docname=""):
@@ -175,3 +178,23 @@ class TestTableFieldBasis(FrappeTestCase):
 		)
 		self.assertEqual(got, [])
 		self.assertIn("gchatTableField is empty", problem)
+
+
+class TestCredentialSource(FrappeTestCase):
+	"""The key moved off site_config.json, where it could not be seen or rotated."""
+
+	def test_an_empty_setting_sends_nothing(self):
+		"""Without a key the dispatcher must give up before it reaches Google."""
+		from unittest.mock import patch
+
+		settings = frappe.get_cached_doc("Processa Settings")
+		with patch.object(settings, "get_password", return_value=""), patch(
+			"frappe.get_cached_doc", return_value=settings
+		), patch("requests.post") as post:
+			dispatch_google_chat(
+				_instance(),
+				None,
+				{"gchatType": "space", "gchatSpaceId": "spaces/x", "gchatMessage": "hi"},
+				"_test",
+			)
+		post.assert_not_called()

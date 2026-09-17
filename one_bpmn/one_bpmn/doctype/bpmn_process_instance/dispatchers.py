@@ -848,10 +848,9 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	    gchatSpaceId          — space ID e.g. "spaces/XXXXXXX" (space mode)
 	    gchatMessage          — message body; Jinja2 supported
 
-	Credentials: the site must have a Google service account JSON key stored in
-	site_config.json under "google_chat_service_account_json" (the full JSON content
-	as a string or dict).  The service account must have the Google Chat API scope
-	https://www.googleapis.com/auth/chat.bot and be a member of the target space.
+	Credentials: Processa Settings → Google Chat → Service Account JSON. The key
+	needs the https://www.googleapis.com/auth/chat.bot scope, and the app it
+	belongs to must be a member of the target space.
 
 	Failures are non-fatal: the workflow continues and the error is logged.
 	"""
@@ -912,12 +911,13 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 				message=frappe.get_traceback(),
 			)
 
-	# Load service account credentials from site config
-	sa_json = frappe.conf.get("google_chat_service_account_json")
+	sa_json = frappe.get_cached_doc("Processa Settings").get_password(
+		"google_chat_service_account_json", raise_exception=False
+	)
 	if not sa_json:
 		frappe.log_error(
 			title=f"BPMN ServiceTask: google_chat credentials missing ({bpmn_id})",
-			message="'google_chat_service_account_json' not found in site_config.json.",
+			message="Processa Settings → Google Chat → Service Account JSON is empty.",
 		)
 		return
 
@@ -928,7 +928,7 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		from google.auth.transport.requests import Request as GoogleRequest
 
 		SCOPES = ["https://www.googleapis.com/auth/chat.bot"]
-		sa_info = sa_json if isinstance(sa_json, dict) else _json.loads(sa_json)
+		sa_info = _json.loads(sa_json)
 		credentials = service_account.Credentials.from_service_account_info(sa_info, scopes=SCOPES)
 		credentials.refresh(GoogleRequest())
 		access_token = credentials.token

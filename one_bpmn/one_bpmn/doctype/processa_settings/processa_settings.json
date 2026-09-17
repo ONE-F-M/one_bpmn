@@ -25,6 +25,8 @@
   "column_break_agent_sandbox",
   "agent_callback_secret",
   "agent_sandbox_caller_key",
+  "section_break_google_chat",
+  "google_chat_service_account_json",
   "section_break_script_security",
   "script_security_intro",
   "script_binop_multiply_threshold",
@@ -235,6 +237,17 @@
    "fieldname": "agent_sandbox_caller_key",
    "fieldtype": "Password",
    "label": "Sandbox Caller Key (GCP Service Account JSON)"
+  },
+  {
+   "fieldname": "section_break_google_chat",
+   "fieldtype": "Section Break",
+   "label": "Google Chat"
+  },
+  {
+   "description": "Service account key the Chat Service Task sends with. Needs the chat.bot scope.",
+   "fieldname": "google_chat_service_account_json",
+   "fieldtype": "Password",
+   "label": "Google Chat Service Account JSON"
   },
   {
    "collapsible": 1,
