@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import re
 
+import frappe
+
 # ── Field types Docu is allowed to emit ──────────────────────────────────────
 # Deliberately a conservative subset of Frappe's fieldtypes. Layout-only types
 # (Section/Column Break, HTML, Heading) are allowed because a good form needs
@@ -233,11 +235,56 @@ def validate_doctype_ir(ir: dict, existing_fieldnames: set | None = None) -> dic
 	if fields and not has_data_field:
 		violations.append("The DocType has only layout breaks and no real data fields.")
 
+	violations.extend(_permission_violations(ir.get("permissions")))
+
 	return {
 		"valid": not violations,
 		"violations": violations,
 		"fix_hints": [] if not violations else [_FIX_HINT],
 	}
+
+
+_MAX_PERMISSIONS = 40
+
+
+def _permission_violations(permissions) -> list:
+	"""Check the IR's permission rules name real roles and grant nothing twice.
+
+	A role that does not exist is the failure worth catching early: Frappe would
+	accept the row and the DocType would then be unreachable by the people the
+	process owner meant to name.
+	"""
+	if permissions in (None, ""):
+		return []
+	if not isinstance(permissions, list):
+		return ["'permissions' must be a list of permission rules."]
+	if len(permissions) > _MAX_PERMISSIONS:
+		return [f"Too many permission rules ({len(permissions)}); maximum is {_MAX_PERMISSIONS}."]
+
+	out, seen = [], set()
+	for i, rule in enumerate(permissions, start=1):
+		if not isinstance(rule, dict):
+			out.append(f"Permission rule {i} must be an object.")
+			continue
+		role = (rule.get("role") or "").strip()
+		if not role:
+			out.append(f"Permission rule {i} has no role.")
+			continue
+		if not frappe.db.exists("Role", role):
+			out.append(f"Permission rule {i}: there is no role named '{role}'.")
+			continue
+		try:
+			level = int(rule.get("permlevel") or 0)
+		except (TypeError, ValueError):
+			out.append(f"Permission rule {i} ('{role}'): level must be a whole number.")
+			continue
+		if level < 0 or level > 9:
+			out.append(f"Permission rule {i} ('{role}'): level must be between 0 and 9.")
+			continue
+		if (role, level) in seen:
+			out.append(f"Permission rule {i}: '{role}' already has a rule at level {level}.")
+		seen.add((role, level))
+	return out
 
 
 _FIX_HINT = (
