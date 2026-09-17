@@ -281,9 +281,13 @@ def _permission_violations(permissions) -> list:
 		if level < 0 or level > 9:
 			out.append(f"Permission rule {i} ('{role}'): level must be between 0 and 9.")
 			continue
-		if (role, level) in seen:
-			out.append(f"Permission rule {i}: '{role}' already has a rule at level {level}.")
-		seen.add((role, level))
+		# Frappe pairs two rules for one role at one level to mean "anyone may
+		# read, only the owner may edit", so if_owner is part of what makes a
+		# rule distinct. Note and Kanban Board ship exactly that shape.
+		owner_only = int(bool(rule.get("if_owner")))
+		if (role, level, owner_only) in seen:
+			out.append(f"Permission rule {i}: '{role}' already has this rule at level {level}.")
+		seen.add((role, level, owner_only))
 	return out
 
 

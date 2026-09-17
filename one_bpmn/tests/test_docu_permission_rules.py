@@ -47,7 +47,30 @@ class TestDocuPermissionRules(FrappeTestCase):
 		rule = {"role": "System Manager", "permlevel": 0, "read": 1}
 		verdict = validate_doctype_ir(_ir(permissions=[rule, dict(rule)]))
 		self.assertFalse(verdict["valid"])
-		self.assertIn("already has a rule", " ".join(verdict["violations"]))
+		self.assertIn("already has this rule", " ".join(verdict["violations"]))
+
+	def test_frappes_own_owner_only_pairing_is_allowed(self):
+		"""Note and Kanban Board ship two rules for one role at one level.
+
+		They differ by if_owner: anyone may read, only the owner may edit.
+		Rejecting that made the builder unable to save any DocType shaped this
+		way — it read the real rules in and then refused to write them back.
+		"""
+		verdict = validate_doctype_ir(_ir(permissions=[
+			{"role": "Desk User", "permlevel": 0, "if_owner": 0, "read": 1},
+			{"role": "Desk User", "permlevel": 0, "if_owner": 1, "write": 1, "delete": 1},
+		]))
+		self.assertTrue(verdict["valid"], verdict["violations"])
+
+	def test_a_real_doctype_can_be_read_and_written_back(self):
+		"""The failure the builder actually hit: load an existing DocType's
+		rules into the grid, change nothing, and the save is refused."""
+		from one_bpmn.tools.tool_for_server_scripts import read_doctype_permissions
+
+		live = read_doctype_permissions("Note")
+		self.assertTrue(live, "Note should ship permission rules")
+		verdict = validate_doctype_ir(_ir(permissions=live))
+		self.assertTrue(verdict["valid"], verdict["violations"])
 
 	def test_the_named_roles_are_written(self):
 		self._apply(_ir(permissions=[
@@ -83,3 +106,31 @@ class TestDocuPermissionRules(FrappeTestCase):
 	def test_a_child_table_carries_no_rules_of_its_own(self):
 		self._apply(_ir(is_child_table=1, permissions=[{"role": "System Manager", "read": 1}]))
 		self.assertEqual(self._perms(), [])
+
+	def test_a_standard_doctype_gets_custom_docperm_rows(self):
+		"""The path that silently dropped permissions.
+
+		A standard DocType goes through Customize Form, which only handles
+		fields, so the rules went nowhere and no error was raised. Its own
+		DocPerm rows belong to the app that ships it, so the change has to land
+		in Custom DocPerm instead.
+		"""
+		from one_bpmn.api.docu_api import _apply_standard_doctype_permissions
+
+		self._apply(_ir())
+		frappe.db.set_value("DocType", DT, "custom", 0)  # stand in for a shipped DocType
+		try:
+			_apply_standard_doctype_permissions(DT, [
+				{"role": "System Manager", "read": 1, "write": 1},
+				{"role": "Projects User", "read": 1},
+			])
+			rows = frappe.get_all(
+				"Custom DocPerm", filters={"parent": DT}, fields=["role", "read", "write"]
+			)
+			by_role = {r["role"]: r for r in rows}
+			self.assertEqual(set(by_role), {"System Manager", "Projects User"})
+			self.assertEqual(by_role["Projects User"]["read"], 1)
+			self.assertEqual(by_role["Projects User"]["write"], 0)
+		finally:
+			frappe.db.delete("Custom DocPerm", {"parent": DT})
+			frappe.db.set_value("DocType", DT, "custom", 1)

@@ -280,6 +280,11 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 			action = _reconcile_custom_doctype(name, is_child, autoname, fields, settings, module, permissions)
 		else:
 			action = _customize_standard_doctype(name, fields)
+			_apply_standard_doctype_permissions(name, permissions)
+		if permissions is not None:
+			# Cached DocType meta predates the new rules, so roles stay locked out
+			# until it is rebuilt.
+			frappe.clear_cache(doctype=name)
 		frappe.db.commit()
 	except frappe.PermissionError:
 		raise
@@ -337,6 +342,40 @@ def _extract_permissions(ir_dict: dict):
 	"""
 	perms = ir_dict.get("permissions")
 	return perms if isinstance(perms, list) else None
+
+
+def _apply_standard_doctype_permissions(name: str, permissions) -> None:
+	"""Set a STANDARD DocType's permission rules the way Customize Form does.
+
+	Its own DocPerm rows belong to the app that ships it and are rewritten on
+	every migrate, so the change goes to Custom DocPerm instead — which Frappe
+	reads in preference once any row exists for the DocType.
+	"""
+	if permissions is None:
+		return
+	from frappe.permissions import setup_custom_perms
+
+	setup_custom_perms(name)  # seeds Custom DocPerm from the shipped rules, once
+	frappe.db.delete("Custom DocPerm", {"parent": name})
+	for rule in permissions:
+		if not isinstance(rule, dict):
+			continue
+		role = (rule.get("role") or "").strip()
+		if not role:
+			continue
+		row = frappe.new_doc("Custom DocPerm")
+		row.parent = name
+		row.permlevel = int(rule.get("permlevel") or 0)
+		row.role = role
+		for flag in DOCTYPE_PERMISSION_FLAGS:
+			setattr(row, flag, int(bool(rule.get(flag))))
+		row.insert(ignore_permissions=True)
+	if not frappe.db.exists("Custom DocPerm", {"parent": name}):
+		# Never leave a DocType nobody can open — the same floor the custom path keeps.
+		row = frappe.new_doc("Custom DocPerm")
+		row.parent = name
+		row.update(_DEFAULT_PERMISSION)
+		row.insert(ignore_permissions=True)
 
 
 def _apply_doctype_permissions(doc, permissions, is_child: int) -> None:
