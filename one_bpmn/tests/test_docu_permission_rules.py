@@ -131,18 +131,20 @@ class TestDocuPermissionRules(FrappeTestCase):
 	def test_a_doctype_of_ours_keeps_its_rules_in_the_doctype(self):
 		"""Ours goes on the DocType itself, which is what writes the app's JSON,
 		and never into Custom DocPerm — an override would beat the file."""
-		from one_bpmn.api.docu_api import _apply_standard_doctype_permissions
+		from one_bpmn.api.docu_api import _reconcile_owned_doctype
 		from one_bpmn.api.doctype_source_sync import owned_in_source
 
 		self._apply(_ir())
 		frappe.db.set_value("DocType", DT, "custom", 0)
-		frappe.db.set_value("Custom DocPerm", {"parent": DT}, "role", "System Manager")
 		try:
 			self.assertTrue(owned_in_source(DT), "the probe should count as ours")
-			_apply_standard_doctype_permissions(DT, [
-				{"role": "System Manager", "read": 1, "write": 1},
-				{"role": "Projects User", "read": 1},
-			])
+			_reconcile_owned_doctype(
+				DT,
+				[{"fieldname": "subject", "fieldtype": "Data", "label": "Subject"}],
+				None,
+				[{"role": "System Manager", "read": 1, "write": 1},
+				 {"role": "Projects User", "read": 1}],
+			)
 			self.assertEqual(frappe.db.count("Custom DocPerm", {"parent": DT}), 0)
 			roles = {p["role"] for p in frappe.get_all("DocPerm", filters={"parent": DT}, fields=["role"])}
 			self.assertEqual(roles, {"System Manager", "Projects User"})

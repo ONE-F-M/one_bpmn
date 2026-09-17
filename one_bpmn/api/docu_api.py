@@ -129,7 +129,15 @@ def preview_doctype(ir: str) -> dict:
 	ir_dict = _parse(ir, None)
 	if not isinstance(ir_dict, dict):
 		return {"valid": False, "violations": [_("Invalid form definition.")]}
-	verdict = validate_doctype_ir(ir_dict)
+
+	# Exempt the DocType's own fields exactly as apply_doctype does. Without it a
+	# submittable DocType fails preview on its own amended_from and the user never
+	# reaches the confirm step, while apply would have accepted the same IR.
+	_name = (ir_dict.get("doctype_name") or "").strip()
+	existing_fieldnames = set()
+	if _name and frappe.db.exists("DocType", _name):
+		existing_fieldnames = {f.fieldname for f in frappe.get_meta(_name).fields if f.fieldname}
+	verdict = validate_doctype_ir(ir_dict, existing_fieldnames=existing_fieldnames)
 	if not verdict["valid"]:
 		return {"valid": False, "violations": verdict["violations"]}
 
@@ -146,6 +154,9 @@ def preview_doctype(ir: str) -> dict:
 
 	exists = bool(frappe.db.exists("DocType", name))
 	custom = bool(frappe.db.get_value("DocType", name, "custom")) if exists else False
+	# Preview must branch the way apply does, or a DocType edited in place is
+	# previewed as an untouched one gaining Custom Fields.
+	reconciles = exists and _reconciles_in_place(name)
 	child_note = (
 		" " + _("It also creates {0} linked list(s): {1}.").format(len(child_tables), ", ".join(child_tables))
 		if child_tables else ""
@@ -162,7 +173,7 @@ def preview_doctype(ir: str) -> dict:
 		out["action"] = "create"
 		out["summary"] = _("Creates a new DocType “{0}” with {1} field(s). Nothing else changes.{2}").format(
 			name, len(content), child_note)
-	elif custom:
+	elif reconciles:
 		d = diff_ir(_read_doctype_ir(name) or {}, ir_dict)
 		out["action"] = "update"
 		out["diff"] = {
@@ -256,7 +267,7 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 	if (
 		not int(confirm or 0)
 		and frappe.db.exists("DocType", name)
-		and frappe.db.get_value("DocType", name, "custom")
+		and _reconciles_in_place(name)
 	):
 		current = _read_doctype_ir(name) or {}
 		removed = diff_ir(current, ir_dict).get("removed") or []
@@ -278,6 +289,8 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 			action = _create_custom_doctype(name, module, is_child, autoname, fields, settings, permissions)
 		elif frappe.db.get_value("DocType", name, "custom"):
 			action = _reconcile_custom_doctype(name, is_child, autoname, fields, settings, module, permissions)
+		elif _reconciles_in_place(name):
+			action = _reconcile_owned_doctype(name, fields, settings, permissions)
 		else:
 			action = _customize_standard_doctype(name, fields)
 			_apply_standard_doctype_permissions(name, permissions)
@@ -302,6 +315,39 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 		"child_tables": child_tables,
 		"url": f"/app/{frappe.scrub(name).replace('_', '-')}",
 	}
+
+
+def _reconciles_in_place(name: str) -> bool:
+	"""True when field changes belong in the DocType's own definition.
+
+	A custom DocType has no source file, so its definition is the only place to
+	write. A standard DocType one of our apps owns already has its schema in
+	source, so a Custom Field there overrides our own JSON — the file says one
+	thing, the override says another, and the effective schema is knowable only
+	on a migrated site. Frappe refuses to save a standard DocType outside
+	developer mode, so a site without it keeps the Customize Form path.
+	"""
+	if frappe.db.get_value("DocType", name, "custom"):
+		return True
+	if not frappe.conf.get("developer_mode"):
+		return False
+
+	from one_bpmn.api.doctype_source_sync import owned_in_source
+
+	return owned_in_source(name)
+
+
+def _field_payloads(fields: list) -> list:
+	"""Project the IR's fields onto DocField rows, numbered in IR order."""
+	payloads = []
+	idx = 0
+	for f in _uniquify_fieldnames(fields):
+		is_layout = f.get("fieldtype") in _LAYOUT_FIELDTYPES
+		if not is_layout and not (f.get("fieldname") or "").strip():
+			continue
+		idx += 1
+		payloads.append(_docfield_dict(f, idx))
+	return payloads
 
 
 def _docfield_dict(field: dict, idx: int) -> dict:
@@ -344,50 +390,16 @@ def _extract_permissions(ir_dict: dict):
 	return perms if isinstance(perms, list) else None
 
 
-def _write_source_doctype_permissions(name: str, permissions) -> None:
-	"""Put the rules on the DocType itself, so they land in the app's own JSON.
-
-	Developer mode is what makes the file get written; without it the rules still
-	apply to the running site but nothing reaches the repository, so the caller
-	is told to export the DocType by hand.
-	"""
-	# Frappe reads Custom DocPerm in preference the moment one row exists, so an
-	# override left over from an earlier edit would silently beat the file we are
-	# about to write. The JSON is the single source of truth for a DocType of ours.
-	frappe.db.delete("Custom DocPerm", {"parent": name})
-
-	doc = frappe.get_doc("DocType", name)
-	_apply_doctype_permissions(doc, permissions, int(bool(doc.istable)))
-	doc.flags.ignore_permissions = True
-	doc.flags.ignore_validate = True
-	doc.save(ignore_permissions=True)
-	if not frappe.conf.developer_mode:
-		frappe.msgprint(
-			_("Permissions for {0} were changed on this site only — developer mode is off, "
-			  "so its file was not updated. Export the DocType to carry the change into the app.").format(name),
-			indicator="orange",
-			alert=True,
-		)
-
-
 def _apply_standard_doctype_permissions(name: str, permissions) -> None:
-	"""Set a standard DocType's permission rules, in whichever place owns them.
+	"""Set the rules for a DocType whose definition we cannot write.
 
-	A DocType from one of our own apps keeps its rules in its own JSON, so the
-	change goes onto the DocType itself and Frappe writes the file. One from an
-	app we do not control (erpnext, frappe, hrms) cannot: its rules are rewritten
-	on every migrate, so the change goes to Custom DocPerm, which Frappe reads in
-	preference once any row exists.
+	Only reached for a DocType an external app ships, or one of ours on a site
+	without developer mode — ``_reconciles_in_place`` takes everything else. Its
+	own rows are rewritten on every migrate, so the change goes to Custom
+	DocPerm, which Frappe reads in preference once any row exists.
 	"""
 	if permissions is None:
 		return
-
-	from one_bpmn.api.doctype_source_sync import owned_in_source
-
-	if owned_in_source(name):
-		_write_source_doctype_permissions(name, permissions)
-		return
-
 	from frappe.permissions import setup_custom_perms
 
 	setup_custom_perms(name)  # seeds Custom DocPerm from the shipped rules, once
@@ -611,20 +623,33 @@ def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: l
 	doc = frappe.get_doc("DocType", name)
 	if module and doc.module != module:
 		doc.module = module
-	payloads = []
-	idx = 0
-	for f in _uniquify_fieldnames(fields):
-		is_layout = f.get("fieldtype") in _LAYOUT_FIELDTYPES
-		if not is_layout and not (f.get("fieldname") or "").strip():
-			continue
-		idx += 1
-		payloads.append(_docfield_dict(f, idx))
-	doc.set("fields", payloads)
+	doc.set("fields", _field_payloads(fields))
 	_apply_doctype_settings(doc, settings)
 	_apply_doctype_permissions(doc, permissions, is_child)
 	doc.istable = is_child
 	if autoname:
 		doc.autoname = autoname
+	doc.save(ignore_permissions=True)
+	return "updated"
+
+
+def _reconcile_owned_doctype(name: str, fields: list, settings: dict = None, permissions=None) -> str:
+	"""Bring a standard DocType we own in line with the IR — fields only.
+
+	Its module, child-table flag and naming rule live in a source directory on
+	disk, not in the IR, so reconciling them here would move or rename files the
+	IR knows nothing about. In developer mode Frappe exports the saved DocType
+	back to that directory, so the change lands in source rather than as an
+	override of it.
+	"""
+	if permissions is not None:
+		# Frappe reads a Custom DocPerm override in preference, so one left from an
+		# earlier edit would beat the file we are about to write.
+		frappe.db.delete("Custom DocPerm", {"parent": name})
+	doc = frappe.get_doc("DocType", name)
+	doc.set("fields", _field_payloads(fields))
+	_apply_doctype_settings(doc, settings)
+	_apply_doctype_permissions(doc, permissions, int(bool(doc.istable)))
 	doc.save(ignore_permissions=True)
 	return "updated"
 
