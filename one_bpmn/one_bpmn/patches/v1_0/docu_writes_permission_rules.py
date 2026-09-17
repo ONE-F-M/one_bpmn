@@ -43,7 +43,7 @@ Only 'fieldname', 'label', and 'fieldtype' are required per field;"""
 
 # ── 2) The rule, placed with the other numbered rules ────────────────────────
 RULE_OLD = """NAMING (how records are titled) — set 'autoname' when it matters:"""
-RULE_NEW = """10. WHO MAY USE IT: only include "permissions" when the person tells you who should have access ("HR can raise these", "only supervisors approve"). Leave the key out otherwise — omitting it keeps whatever access the DocType already has, while sending it REPLACES every rule, so a partial list silently removes the rest. Call `list_roles` first and use the exact names it returns; a role you invent is rejected. One rule per role: 'read' to look, 'write' to change, 'create' to add, 'delete' to remove, 'submit' only on a submittable DocType. Leave 'permlevel' at 0 unless the person describes a second tier of access. Never drop System Manager — an administrator locked out of a form cannot repair it.
+RULE_NEW = """10. WHO MAY USE IT: only include "permissions" when the person tells you who should have access ("HR can raise these", "only supervisors approve"). Leave the key out otherwise — omitting it keeps whatever access the DocType already has, while sending it REPLACES every rule, so a partial list silently removes the rest. Call `list_roles` first and use the exact names it returns; a role you invent is rejected. If the role they asked for is not in that list, say plainly that there is no such role, name the closest ones that do exist, and change nothing — never claim permissions are outside what you do. One rule per role: 'read' to look, 'write' to change, 'create' to add, 'delete' to remove, 'submit' only on a submittable DocType. Leave 'permlevel' at 0 unless the person describes a second tier of access. Never drop System Manager — an administrator locked out of a form cannot repair it.
 
 PERMISSIONS — turning what they said into rules:
 - "HR can raise and edit these"            → {"role": "HR Manager", "read": 1, "write": 1, "create": 1}
@@ -61,10 +61,34 @@ TOOLS_NEW = (
 	"- `validate_doctype`: run it on your finished design"
 )
 
+# ── 4) The classifier has to route a permissions request to the writer ───────
+# Without this it reads "give HR access" as nothing it handles, and the agent
+# answers from its own knowledge instead of designing anything.
+INTENT_OLD = "- MODIFY  — the user wants to add, remove, rename, or change the properties of fields on an EXISTING DocType"
+INTENT_NEW = (
+	"- MODIFY  — the user wants to add, remove, rename, or change the properties of fields on an "
+	"EXISTING DocType, OR to change who may use it (\"let HR raise these\", \"only supervisors "
+	"approve\", \"give the Site Manager role access\"). Who may use a DocType is part of its design, "
+	"not a separate job."
+)
+
+# ── 5) The agent's own system prompt, which is what actually runs ────────────
+# The map carries a copy of this on the shape, but the configuration field wins,
+# so a permissions request was answered straight from here without the pipeline
+# ever being entered — and the answer was that permissions are not Docu's job.
+SYSTEM_OLD = "then design, review, and validate a DocType through a multi-step pipeline."
+SYSTEM_NEW = (
+	"then design, review, and validate a DocType through a multi-step pipeline. A DocType's design "
+	"includes WHO MAY USE IT: a request to give a role access, or take it away, is a MODIFY like any "
+	"other and goes through the same pipeline. Never tell the person that permissions are outside "
+	"what you do, and never answer a design request from your own knowledge — run the pipeline."
+)
+
 _REPLACEMENTS = (
 	("schema_writer", SHAPE_OLD, SHAPE_NEW),
 	("schema_writer", RULE_OLD, RULE_NEW),
 	("schema_writer", TOOLS_OLD, TOOLS_NEW),
+	("intent_classifier", INTENT_OLD, INTENT_NEW),
 )
 
 
@@ -76,6 +100,9 @@ def execute():
 	doc = frappe.get_doc("AI Agent Configuration", name)
 
 	updated = False
+	if SYSTEM_NEW not in (doc.system_prompt or "") and SYSTEM_OLD in (doc.system_prompt or ""):
+		doc.system_prompt = doc.system_prompt.replace(SYSTEM_OLD, SYSTEM_NEW, 1)
+		updated = True
 	for row in doc.sub_prompts:
 		for sub_agent_id, old, new in _REPLACEMENTS:
 			if row.sub_agent_id != sub_agent_id:

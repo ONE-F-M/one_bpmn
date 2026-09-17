@@ -181,3 +181,30 @@ class TestDocuPermissionRules(FrappeTestCase):
 		finally:
 			frappe.db.delete("Custom DocPerm", {"parent": DT})
 			frappe.db.set_value("DocType", DT, {"custom": 1, "module": "ONE BPMN"})
+
+
+class TestDocuKnowsPermissionsAreItsJob(FrappeTestCase):
+	"""Docu answered "permissions are not part of the DocType design" and never
+	entered its own pipeline. The prompts are what decide that, so they are
+	worth pinning: the config's system prompt wins over the copy on the map."""
+
+	def setUp(self):
+		name = frappe.db.get_value("AI Agent Configuration", {"agent_id": "docu_agent"}, "name")
+		if not name:
+			self.skipTest("Docu is not configured on this site")
+		self.cfg = frappe.get_doc("AI Agent Configuration", name)
+
+	def _sub(self, key):
+		return next((r.prompt_text or "" for r in self.cfg.sub_prompts if r.sub_agent_id == key), "")
+
+	def test_the_system_prompt_claims_permissions(self):
+		self.assertIn("WHO MAY USE IT", self.cfg.system_prompt or "")
+
+	def test_the_classifier_treats_a_role_request_as_a_change(self):
+		self.assertIn("change who may use it", self._sub("intent_classifier"))
+
+	def test_the_writer_knows_the_key_and_the_tool(self):
+		writer = self._sub("schema_writer")
+		self.assertIn('"permissions": [', writer)
+		self.assertIn("list_roles", writer)
+		self.assertIn("there is no such role", writer)
