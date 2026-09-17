@@ -274,8 +274,9 @@ CASES = [
 			{"assertion_type": "tool_calls", "value": "IN_ORDER"},
 			_judge(
 				"The pull request has no review comments at all, so there is nothing to hand to a specialist.\n"
-				"Score 5 if the report says the review asked for no changes and nothing was delegated.\n"
-				"Score 1 if it delegated a fix, or describes review comments that do not exist."
+				"Score 5 if the report says the review asked for no changes and no specialist was given work; "
+				"handing the item back to a person, or leaving a note on it, is fine.\n"
+				"Score 1 if it delegated a fix to a specialist, or describes review comments that do not exist."
 			),
 		],
 		"expected_tool_calls": [{"call_order": 1, "tool_name": "get_pull_request"}],
@@ -298,8 +299,9 @@ CASES = [
 				"The pull request lives in a different repository from the usual one and has no review "
 				"comments.\n"
 				"Score 5 if the report shows the pull request was read and says the review asked for no "
-				"changes, so nothing was delegated.\n"
-				"Score 1 if it delegated a fix, invented review comments, or refused because of the repository."
+				"changes, so no specialist was given work; handing the item back or leaving a note is fine.\n"
+				"Score 1 if it delegated a fix to a specialist, invented review comments, or refused because of "
+				"the repository."
 			),
 		],
 		"expected_tool_calls": [{"call_order": 1, "tool_name": "get_pull_request"}],
@@ -424,18 +426,30 @@ CASES = [
 		"work_item": _item(
 			"User Story",
 			"Colour-code leave types on the calendar",
-			"<p>This is one of several items under the leave-calendar work and may already be covered by "
-			"one of them.</p><p>Before deciding anything, check what this item relates to; if the work is "
+			"<p>This is an umbrella for the leave-calendar colour work and may already be covered by an "
+			"item under it.</p><p>Before deciding anything, check what this item relates to; if the work is "
 			"covered elsewhere, say so and hand this back.</p>",
+		),
+		# The item under it that already covers the work. Without one, delegating
+		# is a fair reading of the brief, and a run did exactly that: a specialist
+		# ran for nineteen minutes and pushed a branch. It hangs off the case's
+		# item rather than beside it because the tool lists twenty sprint siblings
+		# at most, and the fixture sprint has more.
+		"covered_by": _item(
+			"User Story",
+			"Give every leave type its own colour on the leave calendar",
+			"<p>Each leave type is drawn in its own colour on the leave calendar, with a legend. "
+			"Being built now.</p>",
 		),
 		"assertions": [
 			ANSWERED_AT_ALL, NO_DELEGATION,
 			{"assertion_type": "tool_calls", "value": "ANY_ORDER"},
 			_judge(
-				"The brief asks the agent to look at what the item relates to before deciding.\n"
-				"Score 5 if the report says what it found the item related to (or that it found nothing) and "
-				"what it did about it, without delegating.\n"
-				"Score 1 if it delegated the work without saying what the item relates to."
+				"The brief asks the agent to look at what the item relates to before deciding, and an item "
+				"under it, already in progress, covers the same work.\n"
+				"Score 5 if the report names that item as covering the work and hands this item back or "
+				"leaves a note, without delegating.\n"
+				"Score 1 if it delegated the work, or decided without saying what the item relates to."
 			),
 		],
 		"expected_tool_calls": [{"call_order": 1, "tool_name": "wi_relates_to"}],
@@ -504,6 +518,11 @@ def _work_item(case: str | None, sprint: str, fields: dict, after_insert: dict |
 			"context_docname"
 		)
 		if named and frappe.db.exists("Work Item", named):
+			# The brief is the case; a re-seed that reworded it must reach the item.
+			frappe.db.set_value(
+				"Work Item", named, {"title": fields["title"], "description": fields["description"]},
+				update_modified=False,
+			)
 			return named
 	previous = frappe.flags.in_patch
 	frappe.flags.in_patch = True
@@ -516,6 +535,16 @@ def _work_item(case: str | None, sprint: str, fields: dict, after_insert: dict |
 		return name
 	finally:
 		frappe.flags.in_patch = previous
+
+
+def _child(parent: str, sprint: str, fields: dict, state: dict) -> str:
+	"""A Work Item under a case's item that no case runs against, found again by
+	its title. It exists to be seen by the case that reads its relations."""
+	existing = frappe.db.get_value("Work Item", {"sprint": sprint, "title": fields["title"]}, "name")
+	if existing:
+		frappe.db.set_value("Work Item", existing, "epic", parent, update_modified=False)
+		return existing
+	return _work_item(None, sprint, {"epic": parent, **fields}, state)
 
 
 def _fold_in_retired_suite(baseline: str):
@@ -537,6 +566,9 @@ def execute():
 	baseline = frappe.db.get_value("AI Eval Suite", {"title": SUITE_TITLE}, "name")
 	if not baseline:
 		return  # seed_orchestrator_agent_eval_suite creates it; nothing to add to yet
+	# Each case runs once. The hardening patch set two, which doubled the suite's
+	# time and cost and reported one wobble as a failed case.
+	frappe.db.set_value("AI Eval Suite", baseline, "pass_k", 1, update_modified=False)
 	if not frappe.db.exists("AI Model", JUDGE_MODEL):
 		frappe.log_error(
 			title="orchestrator_agent_baseline_covers_every_tool: judge model missing",
@@ -556,6 +588,8 @@ def execute():
 			fields["description"] = fields["description"].format(duplicate_of=items[spec["duplicate_of"]])
 		item = _work_item(existing, sprint, fields, spec.get("after_insert"))
 		items[spec["key"]] = item
+		if spec.get("covered_by"):
+			_child(item, sprint, spec["covered_by"], IN_PROGRESS)
 		if spec.get("duplicate_of"):
 			# The duplicate names its original by id; keep that true on a re-seed too.
 			frappe.db.set_value("Work Item", item, "description", fields["description"], update_modified=False)
