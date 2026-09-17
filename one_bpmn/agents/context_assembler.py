@@ -88,14 +88,30 @@ def _render_examples(rows) -> str:
 
 
 def _render_skills_index(skills) -> str:
+	"""The static system-prompt index of skills the agent may load.
+
+	Defensive filter: a skill dict carrying a ``status`` other than "Active"
+	is dropped even though callers (``get_agent_config`` /
+	``load_agent_behaviour``) are expected to have already filtered to
+	Active-only. A Deprecated skill reaching the index would advertise a
+	skill ``load_skill`` itself refuses to load \u2014 that mismatch is exactly
+	what this guards against if an upstream caller ever forgets to filter.
+	Rows with no ``status`` key at all (older callers, tests) are kept, so
+	behaviour is unchanged for anything that never carried the field.
+	"""
 	if not skills:
 		return ""
 	lines = [SKILLS_HEADER, "You have the following skills available. Use the load_skill tool to read a skill's full instructions when needed."]
 	for skill in skills:
+		status = skill.get("status")
+		if status is not None and status != "Active":
+			continue
 		name = skill.get("name", "")
 		desc = skill.get("description", "")
 		if name:
 			lines.append(f"- **{name}**: {desc}")
+	if len(lines) <= 2:
+		return ""
 	return "\n".join(lines)
 
 
