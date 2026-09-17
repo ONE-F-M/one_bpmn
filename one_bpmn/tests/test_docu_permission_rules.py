@@ -30,7 +30,17 @@ def _ir(**over):
 class TestDocuPermissionRules(FrappeTestCase):
 	def tearDown(self):
 		if frappe.db.exists("DocType", DT):
+			frappe.db.set_value("DocType", DT, {"custom": 1, "module": "ONE BPMN"})
 			frappe.delete_doc("DocType", DT, force=True, ignore_permissions=True)
+		frappe.db.delete("Custom DocPerm", {"parent": DT})
+		# Saving a non-custom DocType under developer mode writes its files, so a
+		# test that made the probe standard leaves a folder behind in the app.
+		import shutil
+
+		shutil.rmtree(
+			frappe.get_app_path("one_bpmn", "one_bpmn", "doctype", frappe.scrub(DT)),
+			ignore_errors=True,
+		)
 
 	def _apply(self, ir):
 		return apply_doctype(json.dumps(ir), confirm=1)
@@ -107,6 +117,38 @@ class TestDocuPermissionRules(FrappeTestCase):
 		self._apply(_ir(is_child_table=1, permissions=[{"role": "System Manager", "read": 1}]))
 		self.assertEqual(self._perms(), [])
 
+	def test_a_doctype_from_one_of_our_apps_is_recognised(self):
+		"""Routing depends on who owns the DocType, so the split is worth pinning.
+
+		A2A Task is standard but it is ours, so its rules belong in one_bpmn's
+		own JSON. ToDo is standard and frappe's, so they cannot go there.
+		"""
+		from one_bpmn.api.doctype_source_sync import owned_in_source
+
+		self.assertTrue(owned_in_source("A2A Task"))
+		self.assertFalse(owned_in_source("ToDo"))
+
+	def test_a_doctype_of_ours_keeps_its_rules_in_the_doctype(self):
+		"""Ours goes on the DocType itself, which is what writes the app's JSON,
+		and never into Custom DocPerm — an override would beat the file."""
+		from one_bpmn.api.docu_api import _apply_standard_doctype_permissions
+		from one_bpmn.api.doctype_source_sync import owned_in_source
+
+		self._apply(_ir())
+		frappe.db.set_value("DocType", DT, "custom", 0)
+		frappe.db.set_value("Custom DocPerm", {"parent": DT}, "role", "System Manager")
+		try:
+			self.assertTrue(owned_in_source(DT), "the probe should count as ours")
+			_apply_standard_doctype_permissions(DT, [
+				{"role": "System Manager", "read": 1, "write": 1},
+				{"role": "Projects User", "read": 1},
+			])
+			self.assertEqual(frappe.db.count("Custom DocPerm", {"parent": DT}), 0)
+			roles = {p["role"] for p in frappe.get_all("DocPerm", filters={"parent": DT}, fields=["role"])}
+			self.assertEqual(roles, {"System Manager", "Projects User"})
+		finally:
+			frappe.db.set_value("DocType", DT, "custom", 1)
+
 	def test_a_standard_doctype_gets_custom_docperm_rows(self):
 		"""The path that silently dropped permissions.
 
@@ -118,8 +160,13 @@ class TestDocuPermissionRules(FrappeTestCase):
 		from one_bpmn.api.docu_api import _apply_standard_doctype_permissions
 
 		self._apply(_ir())
-		frappe.db.set_value("DocType", DT, "custom", 0)  # stand in for a shipped DocType
+		# Standard AND owned by an app we do not control: module decides the app,
+		# so pointing it at a frappe module is what makes it genuinely external.
+		frappe.db.set_value("DocType", DT, {"custom": 0, "module": "Desk"})
+		frappe.clear_cache(doctype=DT)
 		try:
+			from one_bpmn.api.doctype_source_sync import owned_in_source
+			self.assertFalse(owned_in_source(DT), "the probe should count as external")
 			_apply_standard_doctype_permissions(DT, [
 				{"role": "System Manager", "read": 1, "write": 1},
 				{"role": "Projects User", "read": 1},
@@ -133,4 +180,4 @@ class TestDocuPermissionRules(FrappeTestCase):
 			self.assertEqual(by_role["Projects User"]["write"], 0)
 		finally:
 			frappe.db.delete("Custom DocPerm", {"parent": DT})
-			frappe.db.set_value("DocType", DT, "custom", 1)
+			frappe.db.set_value("DocType", DT, {"custom": 1, "module": "ONE BPMN"})

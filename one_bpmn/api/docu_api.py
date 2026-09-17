@@ -344,15 +344,50 @@ def _extract_permissions(ir_dict: dict):
 	return perms if isinstance(perms, list) else None
 
 
-def _apply_standard_doctype_permissions(name: str, permissions) -> None:
-	"""Set a STANDARD DocType's permission rules the way Customize Form does.
+def _write_source_doctype_permissions(name: str, permissions) -> None:
+	"""Put the rules on the DocType itself, so they land in the app's own JSON.
 
-	Its own DocPerm rows belong to the app that ships it and are rewritten on
-	every migrate, so the change goes to Custom DocPerm instead — which Frappe
-	reads in preference once any row exists for the DocType.
+	Developer mode is what makes the file get written; without it the rules still
+	apply to the running site but nothing reaches the repository, so the caller
+	is told to export the DocType by hand.
+	"""
+	# Frappe reads Custom DocPerm in preference the moment one row exists, so an
+	# override left over from an earlier edit would silently beat the file we are
+	# about to write. The JSON is the single source of truth for a DocType of ours.
+	frappe.db.delete("Custom DocPerm", {"parent": name})
+
+	doc = frappe.get_doc("DocType", name)
+	_apply_doctype_permissions(doc, permissions, int(bool(doc.istable)))
+	doc.flags.ignore_permissions = True
+	doc.flags.ignore_validate = True
+	doc.save(ignore_permissions=True)
+	if not frappe.conf.developer_mode:
+		frappe.msgprint(
+			_("Permissions for {0} were changed on this site only — developer mode is off, "
+			  "so its file was not updated. Export the DocType to carry the change into the app.").format(name),
+			indicator="orange",
+			alert=True,
+		)
+
+
+def _apply_standard_doctype_permissions(name: str, permissions) -> None:
+	"""Set a standard DocType's permission rules, in whichever place owns them.
+
+	A DocType from one of our own apps keeps its rules in its own JSON, so the
+	change goes onto the DocType itself and Frappe writes the file. One from an
+	app we do not control (erpnext, frappe, hrms) cannot: its rules are rewritten
+	on every migrate, so the change goes to Custom DocPerm, which Frappe reads in
+	preference once any row exists.
 	"""
 	if permissions is None:
 		return
+
+	from one_bpmn.api.doctype_source_sync import owned_in_source
+
+	if owned_in_source(name):
+		_write_source_doctype_permissions(name, permissions)
+		return
+
 	from frappe.permissions import setup_custom_perms
 
 	setup_custom_perms(name)  # seeds Custom DocPerm from the shipped rules, once
