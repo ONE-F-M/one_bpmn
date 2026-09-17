@@ -7,6 +7,7 @@ import re
 import frappe
 
 from one_bpmn.security.rate_limit import RateLimited
+from one_bpmn.utils.session import as_user
 from frappe import _
 
 
@@ -298,9 +299,7 @@ def create_server_script(
 	if module:
 		doc.module = module
 
-	original_user = frappe.session.user
-	try:
-		frappe.set_user("Administrator")
+	with as_user("Administrator"):
 		if frappe.db.exists("Server Script", script_name):
 			# Script already exists — update in place instead of re-inserting
 			doc = frappe.get_doc("Server Script", script_name)
@@ -327,8 +326,6 @@ def create_server_script(
 			doc.save(ignore_permissions=True)
 		else:
 			doc.insert(ignore_permissions=True)
-	finally:
-		frappe.set_user(original_user)
 
 	method = getattr(doc, "api_method", None) or ""
 	return {
@@ -381,12 +378,8 @@ def update_server_script(
 			doc.cron_format = cron_format
 		if module is not None:
 			doc.module = module
-		original_user = frappe.session.user
-		try:
-			frappe.set_user("Administrator")
+		with as_user("Administrator"):
 			doc.save(ignore_permissions=True)
-		finally:
-			frappe.set_user(original_user)
 		method = doc.api_method or ""
 		return {
 			"name":        doc.name,

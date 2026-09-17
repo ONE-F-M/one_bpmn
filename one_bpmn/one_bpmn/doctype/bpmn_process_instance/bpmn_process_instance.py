@@ -2490,7 +2490,10 @@ def run_parked_ai_task(
 	  the task's activity log, and the task stays parked so retry_ai_task
 	  (manual retry) can re-kick it.
 	"""
-	if run_as_user:
+	# Only switch when the identity really differs: set_user rewrites session.sid
+	# and wipes session.data, which guts the caller's session if this ever runs
+	# inline in a web request.
+	if run_as_user and run_as_user != frappe.session.user:
 		frappe.set_user(run_as_user)
 
 	# Row lock serializes concurrent engine passes on the same instance

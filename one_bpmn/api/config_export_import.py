@@ -7,6 +7,8 @@ import frappe
 from frappe import _
 from frappe.utils import now
 
+from one_bpmn.utils.session import as_user
+
 
 # ============================================
 # Configuration Export / Import API
@@ -152,12 +154,8 @@ def import_bpmn_config(config_json: str) -> dict:
 		if ws_data.get("icon"):
 			doc.icon = ws_data["icon"]
 
-		original_user = frappe.session.user
-		try:
-			frappe.set_user("Administrator")
+		with as_user("Administrator"):
 			doc.insert(ignore_permissions=True)
-		finally:
-			frappe.set_user(original_user)
 
 		created.append({"name": name, "type": "Workflow State"})
 
@@ -174,12 +172,8 @@ def import_bpmn_config(config_json: str) -> dict:
 		doc = frappe.new_doc("Workflow Action Master")
 		doc.workflow_action_name = action_name
 
-		original_user = frappe.session.user
-		try:
-			frappe.set_user("Administrator")
+		with as_user("Administrator"):
 			doc.insert(ignore_permissions=True)
-		finally:
-			frappe.set_user(original_user)
 
 		created.append({"name": action_name, "type": "Workflow Action Master"})
 
@@ -204,12 +198,8 @@ def import_bpmn_config(config_json: str) -> dict:
 			doc.module = ss_data.get("module", "")
 			doc.disabled = 0
 
-			original_user = frappe.session.user
-			try:
-				frappe.set_user("Administrator")
+			with as_user("Administrator"):
 				doc.insert(ignore_permissions=True)
-			finally:
-				frappe.set_user(original_user)
 
 			created.append({"name": name, "type": "Server Script"})
 		else:
@@ -269,15 +259,11 @@ def confirm_overwrite_scripts(overwrites: str) -> dict:
 		if not name or not frappe.db.exists("Server Script", name):
 			continue
 
-		original_user = frappe.session.user
-		try:
-			frappe.set_user("Administrator")
+		with as_user("Administrator"):
 			doc = frappe.get_doc("Server Script", name)
 			doc.script = script
 			doc.disabled = 0
 			doc.save(ignore_permissions=True)
-		finally:
-			frappe.set_user(original_user)
 
 		updated.append({"name": name, "type": "Server Script"})
 
