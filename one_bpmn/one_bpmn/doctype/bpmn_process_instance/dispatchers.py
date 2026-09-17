@@ -1655,13 +1655,24 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				message=frappe.get_traceback(),
 			)
 
-	if memory_block or user_message:
+	# WI-000401: skills loaded earlier in this conversation (load_skill wrote
+	# their bodies to a conversation-scoped cache) must actually reach the
+	# model's prompt on the NEXT turn, not just sit in a cache nothing reads.
+	active_skill_bodies = []
+	_conversation_for_skills = None
+	if getattr(instance, "context_doctype", "") == "Chat Conversation":
+		_conversation_for_skills = getattr(instance, "context_docname", None)
+	if _conversation_for_skills:
+		active_skill_bodies = frappe.cache().get_value(f"active_skills_{_conversation_for_skills}") or []
+
+	if memory_block or user_message or active_skill_bodies:
 		from one_bpmn.agents.context_assembler import build_dynamic_preamble
 
 		user_prompt = build_dynamic_preamble(
 			memory_block=memory_block,
 			instructions=user_prompt,
 			user_prompt=user_message,
+			active_skills=active_skill_bodies,
 		)
 
 	# ── Tools: the shapes of the referenced ad-hoc sub-process (Camunda "tools
