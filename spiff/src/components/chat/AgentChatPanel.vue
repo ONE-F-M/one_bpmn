@@ -605,10 +605,16 @@ async function send(text, extraContext = null) {
 			sent.retryContext = extraContext || null;
 		},
 		onDone: () => {
-			if (streamingText.value) {
+			// A turn that streamed no text at all (pure tool calls, no
+			// closing words) still gets a reply bubble \u2014 empty is a valid
+			// answer, and dropping it would leave the transcript looking
+			// like the turn never finished.
+			if (streamingText.value || !turnProducedReply) {
 				items.value.push(agentItem(streamingText.value));
 				streamingText.value = "";
+				turnProducedReply = true;
 			}
+			toolStatus.value = "";
 			streamingMessageId.value = "";
 			busy.value = false;
 			if (status.value !== "error") status.value = "done";
