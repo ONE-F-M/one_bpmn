@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import AsyncIterator, Callable
 
 
 class LLMTruncatedError(RuntimeError):
