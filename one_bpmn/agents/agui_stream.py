@@ -137,6 +137,48 @@ def register_reply_shaper(agent_id, fn):
 # ── The stream ───────────────────────────────────────────────────────────────
 
 
+_HEARTBEAT_INTERVAL_SECONDS = 10
+
+
+def _invoke_with_heartbeat(fn, interval: float = _HEARTBEAT_INTERVAL_SECONDS):
+	"""Run a blocking callable off-thread, yielding an SSE keep-alive comment
+	every ``interval`` seconds while it is in progress.
+
+	The buffered runners (bpmn_map / direct_api / adk) block for the whole
+	turn between the RunStarted and TextMessage* yields, with nothing to
+	flush to the client in the meantime. A proxy or load balancer that times
+	out an idle connection has no way to tell that turn apart from a dead
+	one, so it closes the stream out from under a turn that was still
+	working. A keep-alive is transport, never an AG-UI event (see the module
+	docstring and the HEARTBEAT handling in ``_relay_child_stream``), so it
+	is sent here as a bare SSE comment line, not through the encoder.
+
+	``fn``'s return value comes back as this generator's ``StopIteration.value``
+	(consume with ``result = yield from _invoke_with_heartbeat(fn)``); an
+	exception raised by ``fn`` is re-raised here, on the caller's thread, so
+	existing except clauses keep working unchanged.
+	"""
+	outcome: dict = {}
+
+	def _run():
+		try:
+			outcome["result"] = fn()
+		except BaseException as exc:  # noqa: BLE001 - re-raised on caller's thread
+			outcome["error"] = exc
+
+	thread = threading.Thread(target=_run, daemon=True)
+	thread.start()
+	while True:
+		thread.join(timeout=interval)
+		if not thread.is_alive():
+			break
+		yield ": keep-alive\n\n"
+
+	if "error" in outcome:
+		raise outcome["error"]
+	return outcome.get("result")
+
+
 def agent_event_stream(agent_id: str, message: str, conversation: str, context: dict | None = None):
 	"""Yield one agent turn as encoded AG-UI SSE lines.
 
