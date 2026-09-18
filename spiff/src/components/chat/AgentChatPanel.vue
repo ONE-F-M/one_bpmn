@@ -84,6 +84,9 @@
 
 			<div v-if="busy" class="acp-thinking">{{ streamingText ? "" : __("Thinking…") }}</div>
 			<div v-if="streamingText" class="acp-msg acp-msg--agent" v-html="renderMarkdown(streamingText)" />
+			<div v-if="toolStatus" class="acp-tool-status">
+				<span class="acp-dot acp-dot--tool" />{{ toolStatus }}
+			</div>
 			<div v-if="statusLine" class="acp-status">
 				<span class="acp-dot" :class="{ 'acp-dot--err': status === 'error' }" />{{ statusLine }}
 			</div>
