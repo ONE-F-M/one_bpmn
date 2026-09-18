@@ -258,11 +258,11 @@ const ratings = ref({});
 // never persisted: on history restore only final replies come back, so
 // this line has nothing to render outside a live turn.
 const toolStatus = ref("");
-// Set on TEXT_MESSAGE_START, cleared whenever the buffer is flushed. Marks
-// that this turn actually opened a reply — so a turn with an empty final
-// message (no deltas at all) still lands an empty bubble instead of
-// silently vanishing the moment "Thinking…" drops away.
-const sawTextMessage = ref(false);
+// Whether this turn has already landed a reply bubble (a flush inside
+// handleCustom, or the final flush in onDone). A turn that never streams a
+// single delta \u2014 all tool calls, no words \u2014 must still close with an
+// (empty) reply bubble rather than just vanishing when busy drops to false.
+let turnProducedReply = false;
 
 // Whether this agent collects feedback at all. Configuration, like the greeting
 // and the icon: no agent-specific behaviour is hardcoded in a component.
