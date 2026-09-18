@@ -366,6 +366,7 @@ async def _run_turns(
 						"content": wrap_tool_result(_invalid, call.name, call.arguments),
 					})
 					continue
+				_notify_tool_event(on_tool_event, "start", call.name)
 				try:
 					result = str(tool.fn(**call.arguments))
 					if call.name in terminal_tools:
