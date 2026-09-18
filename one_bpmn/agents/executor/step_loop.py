@@ -153,6 +153,14 @@ async def run_agent_loop(
 	the model calls one. None (every caller before this existed) falls back
 	to ``("finalize",)`` — see ``_run_turns`` for how the reply is read off
 	the call's own arguments instead of the model's next narration.
+
+	``on_tool_event`` (streaming observability): called
+	``on_tool_event("start", tool_name)`` immediately before an automatic
+	tool's fn runs and ``on_tool_event("end", tool_name)`` immediately after
+	— success or failure, always both. None (every caller before this
+	existed) means no observer; a callback that itself raises is caught and
+	logged rather than failing the turn, since a broken UI hook must never
+	break the tool it is only reporting on.
 	"""
 	tool_map = {t.name: t for t in (tools or [])}
 
