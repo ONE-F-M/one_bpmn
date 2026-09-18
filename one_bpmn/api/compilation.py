@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import re
+import ast
 import json
 
 import frappe
@@ -1929,6 +1930,7 @@ def compile_process_model(model_name: str) -> dict:
 	deploy_warnings = _check_eval_suite_gating(model_name)
 	deploy_warnings.extend(_check_ai_tasks_have_a_user_prompt(spec_data))
 	deploy_warnings.extend(_validate_ai_tool_contract(service_extensions))
+	deploy_warnings.extend(_validate_turn_store_contract(sanitized_xml, service_extensions))
 	deploy_warnings.extend(_check_connector_tools_can_answer(sanitized_xml))
 
 	script_extensions = _extract_script_task_config(sanitized_xml)
@@ -2102,7 +2104,14 @@ def disable_process_model(model_name: str) -> dict:
 # A prompt telling the model to "call X" where X is not in the Tools box. Only a
 # name in a calling position counts — bare snake_case words are app names and
 # domain vocabulary far more often than tools.
-_TOOL_CALL_RE = re.compile(r"\b(?:call|calls|calling|called|invoke|invokes)\s+`?([a-z][a-z0-9_]{2,})`?", re.I)
+_TOOL_CALL_RE = re.compile(
+	r"\b(?:call|calls|calling|called|use|uses|using|invoke|invokes|invoking)\s+`?([a-z][a-z0-9_]{2,})`?",
+	re.I,
+)
+# A name in backticks is being quoted as an identifier, so it needs no verb in
+# front of it. Kept to snake_case: a single word in backticks is as often a
+# field or a status as a tool.
+_TOOL_BACKTICK_RE = re.compile(r"`([a-z][a-z0-9]*(?:_[a-z0-9]+)+)`")
 
 
 def _known_tool_ids() -> set:
@@ -2124,11 +2133,14 @@ def _known_tool_ids() -> set:
 
 def _tool_contract_gaps(prompt: str, tool_ids: set, known_ids: set) -> list:
 	"""Names the prompt tells the model to call that are not in its own Tools box."""
-	referenced = {m.lower() for m in _TOOL_CALL_RE.findall(prompt or "")}
-	return sorted(
-		name for name in referenced
-		if name not in tool_ids and ("_" in name or name in known_ids)
-	)
+	called = {m.lower() for m in _TOOL_CALL_RE.findall(prompt or "")}
+	gaps = {n for n in called if n not in tool_ids and ("_" in n or n in known_ids)}
+	# A backticked name has no verb vouching for it, and prompts quote argument
+	# names and field names in backticks far more often than tools. So it only
+	# counts when some map really does have a tool of that name.
+	quoted = {m.lower() for m in _TOOL_BACKTICK_RE.findall(prompt or "")}
+	gaps |= {n for n in quoted if n not in tool_ids and n in known_ids}
+	return sorted(gaps)
 
 
 def _validate_ai_tool_contract(service_extensions: dict) -> list:
@@ -2155,13 +2167,17 @@ def _validate_ai_tool_contract(service_extensions: dict) -> list:
 				"AI Agent Configuration", config_name, ["system_prompt", "agent_type"], as_dict=True
 			)
 			prompt, agent_type = (row.system_prompt or prompt), (row.agent_type or "")
-		gaps = _tool_contract_gaps(prompt, tool_ids, known)
+		# The turn's own instructions name tools just as the system prompt does,
+		# and a tool named only there is just as dead.
+		instructions = "\n".join(p for p in (prompt, cfg.get("aiUserPrompt") or "") if p)
+		gaps = _tool_contract_gaps(instructions, tool_ids, known)
 		if not gaps:
 			continue
+		adhoc_id = (cfg.get("aiToolsAdhoc") or "").strip() or "?"
 		detail = _(
-			"'{0}' tells the model to call {1}, but its Tools box has no such tool. "
-			"Fix the prompt or add the shape."
-		).format(agent_id, ", ".join(gaps))
+			"Instructions for '{0}' reference tool {1}, which does not exist in Tools box '{2}'. "
+			"Fix the instructions or add the shape."
+		).format(agent_id, ", ".join(f"'{g}'" for g in gaps), adhoc_id)
 		if agent_type == "Background":
 			blocking.append(detail)
 		else:
@@ -2171,6 +2187,191 @@ def _validate_ai_tool_contract(service_extensions: dict) -> list:
 			_("The prompt and the Tools box disagree:") + "\n" + "\n".join(f"• {b}" for b in blocking),
 			exc=frappe.ValidationError,
 		)
+	return warnings
+
+
+# ── The turn store: what the closing script reads vs what the tools write ────
+# A tool hands its result to the next step through the turn store, and the
+# closing script (Save Response, Answer the Caller) reads it back out. Nothing
+# connected the two, so a script could read a key nothing on the map ever wrote
+# would end with an empty answer and no error anywhere.
+#
+# Two levels, because that is how the scripts are written: update_turn(doc, k=v)
+# sets a top-level key, and update_turn(doc, output={...}) sets the payload the
+# closing script reads through `_out`.
+_TURN_READ_RE = re.compile(r"\b(?:_?turn|_?out)\.get\(\s*['\"]([a-zA-Z_][\w]*)['\"]")
+
+
+def _turn_keys_read(script: str) -> tuple:
+	"""(top-level keys, output keys) a script reads out of the turn store."""
+	top, out = set(), set()
+	try:
+		tree = ast.parse(script or "")
+	except SyntaxError:
+		# Fall back to the pattern: a script we cannot parse still tells us what
+		# it reads, and half an answer beats refusing to look.
+		return set(_TURN_READ_RE.findall(script or "")), set()
+	for node in ast.walk(tree):
+		if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+			continue
+		if node.func.attr != "get" or not node.args:
+			continue
+		key = node.args[0]
+		if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
+			continue
+		base = node.func.value
+		name = base.id if isinstance(base, ast.Name) else None
+		if name in ("turn", "_turn"):
+			# `output` is the envelope every closing script opens to reach the
+			# payload, not a key a tool sets.
+			if key.value != "output":
+				top.add(key.value)
+		elif name in ("out", "_out"):
+			out.add(key.value)
+	return top, out
+
+
+def _turn_keys_written(script: str) -> tuple:
+	"""(top-level keys, output keys) a script writes into the turn store."""
+	top, out = set(), set()
+	try:
+		tree = ast.parse(script or "")
+	except SyntaxError:
+		return top, out
+	# Scripts build the payload as a named dict and pass it by name, so the keys
+	# are one hop from the call. ProsAlly's finalize does exactly this, and
+	# reading only inline literals reported its every key as unwritten.
+	literals = {}
+	for node in ast.walk(tree):
+		if isinstance(node, ast.Assign) and isinstance(node.value, ast.Dict):
+			for target in node.targets:
+				if isinstance(target, ast.Name):
+					literals[target.id] = _dict_literal_keys(node.value)
+	for node in ast.walk(tree):
+		if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+			continue
+		if node.func.id not in ("update_turn", "set_turn"):
+			continue
+		for kw in node.keywords:
+			if kw.arg is None:
+				continue  # **kwargs — nothing static to read
+			if kw.arg == "output":
+				out |= _keys_of(kw.value, literals)
+			else:
+				top.add(kw.arg)
+		# set_turn(docname, {"a": 1}) seeds keys positionally.
+		for arg in node.args[1:]:
+			top |= _keys_of(arg, literals)
+	return top, out
+
+
+def _keys_of(node, literals: dict) -> set:
+	"""Keys of a dict argument, whether written inline or passed by name."""
+	if isinstance(node, ast.Name):
+		return set(literals.get(node.id) or ())
+	return _dict_literal_keys(node)
+
+
+def _dict_literal_keys(node) -> set:
+	if not isinstance(node, ast.Dict):
+		return set()
+	return {
+		k.value for k in node.keys
+		if isinstance(k, ast.Constant) and isinstance(k.value, str)
+	}
+
+
+def _script_bodies(names: set) -> dict:
+	"""Server Script sources by name, skipping any that no longer exist."""
+	if not names:
+		return {}
+	rows = frappe.get_all(
+		"Server Script", filters={"name": ["in", list(names)]}, fields=["name", "script"]
+	)
+	return {r["name"]: r["script"] or "" for r in rows}
+
+
+def _agent_script_names(bpmn_xml: str, adhoc_id: str) -> tuple:
+	"""(tool scripts inside the Tools box, scripts everywhere else on the map)."""
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+	try:
+		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml)
+	except Exception:
+		return set(), {}
+
+	tool_scripts, inside = set(), set()
+	for adhoc in root.iter(f"{{{BPMN_NS}}}adHocSubProcess"):
+		for child in adhoc.iter():
+			name = child.get(f"{{{SPIFF_NS}}}serverScript")
+			if child.get("id"):
+				inside.add(child.get("id"))
+			if name and adhoc.get("id") == adhoc_id:
+				tool_scripts.add(name)
+
+	others = {}
+	for el in root.iter():
+		name = el.get(f"{{{SPIFF_NS}}}serverScript")
+		if name and el.get("id") not in inside:
+			others[el.get("id")] = name
+	return tool_scripts, others
+
+
+def _validate_turn_store_contract(bpmn_xml: str, service_extensions: dict) -> list:
+	"""Warn when the closing script reads a turn-store key no tool writes.
+
+	A warning, not a block: the reader always uses .get, so a missing key is an
+	empty answer rather than a crash, and a map can legitimately read a key a
+	person sets elsewhere. The Frontend Agent's Answer the Caller read delivered,
+	build and pull_request, none of which any tool wrote, and every run ended
+	"staged but never delivered" with nothing in the logs to say why.
+	"""
+	agents = _ai_agents_with_tools(service_extensions)
+	if not agents:
+		return []
+
+	warnings = []
+	for agent_id, cfg in agents.items():
+		adhoc_id = (cfg.get("aiToolsAdhoc") or "").strip()
+		tool_names, closing = _agent_script_names(bpmn_xml, adhoc_id)
+		if not closing:
+			continue
+		bodies = _script_bodies(tool_names | set(closing.values()))
+
+		# Every script on the map counts as a writer, not only the tools. Build
+		# Context seeds the turn before the agent runs, so treating tools as the
+		# only source reported keys that are set on every single turn.
+		wrote_top, wrote_out = set(), set()
+		for name in bodies:
+			t, o = _turn_keys_written(bodies[name])
+			wrote_top |= t
+			wrote_out |= o
+		# finalize declares its payload as tool parameters, so those count as
+		# written even though no script literally assigns them.
+		for shape in json.loads(cfg.get("aiToolShapes") or "[]"):
+			wrote_out |= set((shape.get("parameters") or {}).keys())
+
+		for shape_id, script_name in sorted(closing.items()):
+			body = bodies.get(script_name, "")
+			# A script that writes as well as reads supplies its own keys.
+			read_top, read_out = _turn_keys_read(body)
+			missing = sorted(
+				[k for k in read_top if k not in wrote_top]
+				+ [k for k in read_out if k not in wrote_out]
+			)
+			if not missing:
+				continue
+			warnings.append({
+				"label": _("Turn Store"),
+				"icon": "unplug",
+				"type": "warning",
+				"detail": _(
+					"'{0}' ({1}) reads {2} from the turn store, which no tool of '{3}' writes. "
+					"The answer will come back empty."
+				).format(shape_id, script_name, ", ".join(f"'{k}'" for k in missing), agent_id),
+			})
 	return warnings
 
 
