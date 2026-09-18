@@ -671,6 +671,7 @@ function handleCustom(name, value) {
 	if (streamingText.value) {
 		items.value.push(agentItem(streamingText.value));
 		streamingText.value = "";
+		turnProducedReply = true;
 	}
 	if (name === "onefm.conversation_title") {
 		conversationTitle.value = value.title || "";
