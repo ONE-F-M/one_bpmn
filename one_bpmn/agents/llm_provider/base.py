@@ -226,6 +226,37 @@ class CompletionResult:
         return sum(getattr(t, "cache_write_tokens", 0) or 0 for t in self.trace)
 
 
+@dataclass
+class StreamEvent:
+    """One increment of a streamed model turn (WI-002xxx streaming support).
+
+    ``type`` is one of:
+
+        "text_delta"       \u2014 ``delta`` is the next chunk of assistant text.
+        "tool_call_start"  \u2014 the model has started (or fully emitted, for
+                              providers with no incremental tool-call wire
+                              format) a tool call; ``tool_call`` carries its
+                              id/name/arguments-so-far.
+        "tool_call_end"    \u2014 the tool call named in ``tool_call`` is fully
+                              formed (arguments complete). The step loop
+                              executes it AFTER the stream finishes, exactly
+                              as it does today from a StepResult \u2014 stream()
+                              only reports the model's own output, it never
+                              runs a tool.
+        "done"              \u2014 terminal event for the turn; ``step`` carries
+                              the same StepResult step() would have returned,
+                              so a caller that only wants the final shape can
+                              ignore every earlier event and read this one.
+
+    Every adapter must emit exactly one "done" event, last, whether or not it
+    emitted any deltas or tool-call events before it.
+    """
+    type: str
+    delta: str = ""
+    tool_call: "StepToolCall | None" = None
+    step: "StepResult | None" = None
+
+
 class BaseLLMAdapter(ABC):
     """Single async entry-point for any LLM provider.
 
