@@ -272,8 +272,10 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 		# refusal arrived as RUN_ERROR and the panel showed "Something went
 		# wrong" over a message that explains itself perfectly well.
 		#
-		# Delivered as an ordinary assistant message so it lands in the thread
-		# where the user is reading, and NOT logged as an error: the control
+		# Delivered as a SYSTEM notice, not an ordinary assistant message, so
+		# it lands in the thread where the user is reading without reading as
+		# the agent itself speaking \u2014 a throttle or a freeze is the platform
+		# talking, not the agent. NOT logged as an error either: the control
 		# working as designed is not an incident, and a traceback per refusal
 		# fills the log with false alarms.
 		# COMMIT, not rollback. Nothing of this turn has been written — enforce
