@@ -29,6 +29,7 @@ RunError; nothing is ever emitted as a bare named SSE line.
 """
 
 import json
+import threading
 import uuid
 
 import frappe
