@@ -564,6 +564,8 @@ async function send(text, extraContext = null) {
 	busy.value = true;
 	status.value = "streaming";
 	streamingText.value = "";
+	toolStatus.value = "";
+	turnProducedReply = false;
 	scrollDown();
 
 	// extraContext = per-turn keys the PANEL stages itself (today: the
