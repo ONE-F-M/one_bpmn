@@ -250,10 +250,22 @@ async def _step_with_retries(
 			await asyncio.sleep(base_s + random.uniform(0, 0.1))
 
 
+def _notify_tool_event(on_tool_event, phase: str, tool_name: str) -> None:
+	"""Best-effort call of the observability hook. A broken callback must
+	never break the tool call it is only reporting on — the loop's own
+	behaviour (and the model's answer) does not depend on anyone watching."""
+	if on_tool_event is None:
+		return
+	try:
+		on_tool_event(phase, tool_name)
+	except Exception:
+		frappe.log_error(title="run_agent_loop on_tool_event failed", message=frappe.get_traceback())
+
+
 async def _run_turns(
 	adapter, *, system, tools, tool_map, transcript, trace, turns_used, max_tokens, max_turns,
 	timeout_seconds=None, max_retries=0, retry_backoff_ms=1000, tool_result_max_chars=None,
-	terminal_tools=frozenset({"finalize"}),
+	terminal_tools=frozenset({"finalize"}), on_tool_event=None,
 ):
 	"""The turn loop itself. Split out only so run_agent_loop can guarantee the
 	pause flag is cleared however this returns."""
