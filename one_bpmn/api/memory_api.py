@@ -236,8 +236,8 @@ def retire_memory(name: str) -> dict:
 
 @frappe.whitelist()
 def purge_memories(user: str | None = None) -> dict:
-	\"\"\"Permanently delete every memory belonging to one person, across every
-	``memory_scope`` (Agent, Process, Entity) \u2014 only the ``user`` field decides
+	"""Permanently delete every memory belonging to one person, across every
+	``memory_scope`` (Agent, Process, Entity) -- only the ``user`` field decides
 	what is theirs. Shared rows (``user`` empty/None) are never touched: the
 	filter below only ever matches a non-empty ``user`` value.
 
@@ -247,21 +247,21 @@ def purge_memories(user: str | None = None) -> dict:
 
 	This is permanent (``frappe.delete_doc``), unlike ``retire_memory`` which
 	only stops a row being recalled.
-	\"\"\"
+	"""
 	caller = frappe.session.user
 	target_user = user or caller
 	if target_user != caller and not is_system_manager(caller):
 		frappe.throw(
-			_(\"You do not have permission to purge another user's memories.\"),
+			_("You do not have permission to purge another user's memories."),
 			frappe.PermissionError,
 		)
 
-	names = frappe.get_all(\"AI Memory\", filters={\"user\": target_user}, pluck=\"name\")
+	names = frappe.get_all("AI Memory", filters={"user": target_user}, pluck="name")
 	for name in names:
-		frappe.delete_doc(\"AI Memory\", name, ignore_permissions=True, force=True)
+		frappe.delete_doc("AI Memory", name, ignore_permissions=True, force=True)
 
-	remaining = frappe.db.count(\"AI Memory\", {\"user\": target_user})
-	return {\"user\": target_user, \"deleted\": len(names), \"remaining\": remaining}
+	remaining = frappe.db.count("AI Memory", {"user": target_user})
+	return {"user": target_user, "deleted": len(names), "remaining": remaining}
 
 
 @frappe.whitelist()
