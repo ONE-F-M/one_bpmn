@@ -5,11 +5,73 @@ optional ``resources`` (rows for AI Skill Resource) and ``status`` (Active by
 default, so ``load_skill`` will serve it). The AI Skill controller still
 validates every record, so a description without trigger phrasing or a body
 over the token ceiling fails the patch instead of shipping silently.
+
+Skills ship as folders under ``one_bpmn/agent_skills``: a ``SKILL.md`` with
+YAML frontmatter and a body, and every other file as a resource named by its
+path relative to the folder, so a body that links to ``references/x.md`` names
+the resource the model loads.
 """
 
 from __future__ import annotations
 
+import os
+
 import frappe
+
+SKILLS_DIR = "agent_skills"
+
+
+def skills_root() -> str:
+	"""Where the skill folders live.
+
+	``get_app_path`` scrubs each path part, which turns a hyphenated folder name
+	into an underscored one that does not exist.
+	"""
+	return os.path.join(frappe.get_app_path("one_bpmn"), SKILLS_DIR)
+
+
+def seed_agent_skills(agent_name: str, skill_dirs: list[str]) -> list[str]:
+	"""Seed the named skill folders and enable them on ``agent_name``."""
+	return seed_skills(agent_name, [load_skill_dir(name) for name in skill_dirs])
+
+
+def load_skill_dir(dir_name: str) -> dict:
+	"""Read one shipped skill folder into a spec."""
+	import yaml
+
+	root = os.path.join(skills_root(), dir_name)
+	with open(os.path.join(root, "SKILL.md")) as handle:
+		text = handle.read()
+
+	if not text.startswith("---"):
+		frappe.throw(f"{dir_name}/SKILL.md has no frontmatter")
+	_, front, body = text.split("---\n", 2)
+	meta = yaml.safe_load(front) or {}
+
+	return {
+		"skill_name": meta.get("name") or dir_name,
+		"description": " ".join(str(meta.get("description") or "").split()),
+		"body": body.strip(),
+		"resources": _resources(root),
+	}
+
+
+def _resources(root: str) -> list[dict]:
+	rows = []
+	for folder, _dirs, files in os.walk(root):
+		for name in sorted(files):
+			if name == "SKILL.md":
+				continue
+			path = os.path.join(folder, name)
+			with open(path) as handle:
+				rows.append(
+					{
+						"resource_type": "Reference",
+						"resource_name": os.path.relpath(path, root),
+						"resource_value": handle.read(),
+					}
+				)
+	return sorted(rows, key=lambda row: row["resource_name"])
 
 
 def seed_skills(agent_name: str, skills: list[dict]) -> list[str]:
