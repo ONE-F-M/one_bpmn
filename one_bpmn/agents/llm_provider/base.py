@@ -303,3 +303,36 @@ class BaseLLMAdapter(ABC):
         step-driven loop (agents/executor/step_loop.py) uses step() only.
         """
         raise NotImplementedError(f"{type(self).__name__} does not implement step()")
+
+    async def stream(
+        self,
+        system: str,
+        transcript: list,
+        tools: list[ToolSpec] | None = None,
+        max_tokens: int = 16384,
+    ) -> AsyncIterator[StreamEvent]:
+        """Like step(), one model call against the same provider-agnostic
+        transcript -- but INCREMENTAL: text deltas and tool-call events are
+        yielded as the provider produces them instead of only after the
+        whole reply has arrived.
+
+        Never executes a tool. Exactly like step(), the caller (the AG-UI
+        stream / the step loop's observability callback) decides what
+        happens with a completed tool call; stream() only reports what the
+        model asked for, turn by turn, as it asks for it.
+
+        Default implementation: adapters that have not been updated for
+        streaming fall back to one blocking step() call, replayed as a
+        single text_delta (when there is content) followed by
+        tool_call_start + tool_call_end pairs for every requested call, then
+        "done". This keeps every existing adapter usable through the
+        streaming seam without every adapter needing its own implementation
+        on day one.
+        """
+        result = await self.step(system, transcript, tools=tools, max_tokens=max_tokens)
+        if result.content:
+            yield StreamEvent(type="text_delta", delta=result.content)
+        for call in result.tool_calls:
+            yield StreamEvent(type="tool_call_start", tool_call=call)
+            yield StreamEvent(type="tool_call_end", tool_call=call)
+        yield StreamEvent(type="done", step=result)
