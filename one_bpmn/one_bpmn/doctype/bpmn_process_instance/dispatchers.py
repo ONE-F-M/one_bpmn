@@ -1655,14 +1655,39 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				message=frappe.get_traceback(),
 			)
 
-	if memory_block or user_message:
+	# WI-000401: skills loaded earlier in this conversation (load_skill wrote
+	# their bodies to a conversation-scoped cache) must actually reach the
+	# model's prompt on the NEXT turn, not just sit in a cache nothing reads.
+	active_skill_bodies = []
+	_conversation_for_skills = None
+	if getattr(instance, "context_doctype", "") == "Chat Conversation":
+		_conversation_for_skills = getattr(instance, "context_docname", None)
+	if _conversation_for_skills:
+		active_skill_bodies = frappe.cache().get_value(f"active_skills_{_conversation_for_skills}") or []
+
+	if memory_block or user_message or active_skill_bodies:
 		from one_bpmn.agents.context_assembler import build_dynamic_preamble
 
 		user_prompt = build_dynamic_preamble(
 			memory_block=memory_block,
 			instructions=user_prompt,
 			user_prompt=user_message,
+			active_skills=active_skill_bodies,
 		)
+
+		# WI-000401: loaded skill bodies are part of the prompt budget the
+		# same way recalled memory is \u2014 counted here so AI Agent Run's
+		# memory_injected_tokens reflects everything injected ahead of the
+		# user's own text, not only the memory half of it.
+		if active_skill_bodies:
+			from one_bpmn.agents.memory.conversation_store import (
+				DEFAULT_CHARS_PER_TOKEN,
+				estimate_tokens,
+			)
+
+			memory_injected_tokens += estimate_tokens(
+				{"content": "\n\n".join(active_skill_bodies)}, DEFAULT_CHARS_PER_TOKEN
+			)
 
 	# ── Tools: the shapes of the referenced ad-hoc sub-process (Camunda "tools
 	# are the shapes"). aiToolShapes was embedded at compile time (WI-001421);
@@ -1684,8 +1709,17 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			tool_specs.extend(skill_tool_specs)
 			
 	# Inject tools for dynamically loaded skills!
+	# WI-000401: scoped to the conversation, not the instance \u2014 a resumed
+	# conversation gets a brand new instance, so state keyed by instance.name
+	# never survived the resume it was needed for.
 	if instance:
-		active_skill_names = frappe.cache().get_value(f"active_skill_names_{instance.name}") or []
+		_conversation_for_tools = None
+		if getattr(instance, "context_doctype", "") == "Chat Conversation":
+			_conversation_for_tools = getattr(instance, "context_docname", None)
+		active_skill_names = (
+			frappe.cache().get_value(f"active_skill_names_{_conversation_for_tools}") or []
+			if _conversation_for_tools else []
+		)
 		if active_skill_names:
 			import json
 			from one_bpmn.agents.llm_provider.base import ToolSpec
