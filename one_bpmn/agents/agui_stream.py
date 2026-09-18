@@ -199,8 +199,14 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 		if builder:
 			context = builder(context or {})
 
-		result = invoke_agent(
-			agent_id, message, conversation=conversation, context=context or {}, stream=True
+		# The blocking call below can run the whole turn (bpmn_map / direct_api /
+		# adk runners never yield until they are done), so a heartbeat comment
+		# keeps the connection from going quiet while it is in progress \u2014 see
+		# _invoke_with_heartbeat.
+		result = yield from _invoke_with_heartbeat(
+			lambda: invoke_agent(
+				agent_id, message, conversation=conversation, context=context or {}, stream=True
+			)
 		)
 
 		# SSE has no request-success commit: the whitelisted handler returned
