@@ -8,6 +8,7 @@ from .base import (
     CompletionResult,
     StepResult,
     StepToolCall,
+    StreamEvent,
     ToolCallRecord,
     ToolSpec,
     TurnRecord,
