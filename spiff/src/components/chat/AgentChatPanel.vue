@@ -644,7 +644,7 @@ function handleEvent(event) {
 	// TEXT_MESSAGE_START/END, THINKING_*, TOOL_CALL_ARGS, STATE_* need no
 	// transcript entry today; the streaming buffer covers the visible part.
 	// TOOL_CALL_START/END get the ephemeral status line above, never a
-	// transcript row \u2014 it never persists, so history restore shows only
+	// transcript row — it never persists, so history restore shows only
 	// final replies.
 }
 
