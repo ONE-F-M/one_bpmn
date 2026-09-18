@@ -292,7 +292,7 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 		if not frappe.flags.in_test:
 			frappe.db.commit()
 		text = str(refusal) or _("This agent declined to answer that message.")
-		yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
+		yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="system"))
 		yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=text))
 		yield encoder.encode(TextMessageEndEvent(message_id=message_id))
 	except Exception as e:
