@@ -7,6 +7,7 @@ from .base import (
     LLMTruncatedError,
     StepResult,
     StepToolCall,
+    StreamEvent,
     ToolCallRecord,
     ToolSpec,
     TurnRecord,
