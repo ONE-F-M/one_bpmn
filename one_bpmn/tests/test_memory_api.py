@@ -145,3 +145,64 @@ class TestMemoryBrowser(FrappeTestCase):
 		with self.set_user(self.alice):
 			API.list_memories(agent_element=self.agent, user=self.alice, page_length=100)
 		self.assertEqual(frappe.db.count("Access Log", {"export_from": "AI Memory"}), before)
+
+
+# ── purge: permanent deletion ──────────────────────────────────────────────
+class TestMemoryPurge(FrappeTestCase):
+	def setUp(self):
+		self.agent = f"PG_{frappe.generate_hash(length=8)}"
+		self.process = f"PG_PROC_{frappe.generate_hash(length=8)}"
+		self.alice = _user("alice")
+		self.bob = _user("bob")
+		# Alice's memories, spread across every scope, so a purge is proven to
+		# reach all of them and not just the one it was tested against.
+		self.alice_agent = T.memory_write(
+			"Agent", {"agent_element": self.agent, "user": self.alice}, "alice agent memory", ignore_permissions=True
+		)
+		self.alice_process = T.memory_write(
+			"Process", {"process": self.process, "user": self.alice}, "alice process memory", ignore_permissions=True
+		)
+		self.alice_entity = T.memory_write(
+			"Entity",
+			{"reference_doctype": "User", "reference_name": self.alice, "user": self.alice},
+			"alice entity memory",
+			ignore_permissions=True,
+		)
+		# Bob's own memory, and a shared one with no user at all.
+		self.bob_memory = T.memory_write(
+			"Agent", {"agent_element": self.agent, "user": self.bob}, "bob agent memory", ignore_permissions=True
+		)
+		self.shared = T.memory_write("Agent", self.agent, "shared memory for everyone", ignore_permissions=True)
+
+	def test_a_user_can_purge_their_own_memories(self):
+		with self.set_user(self.alice):
+			result = API.purge_memories()
+		for row in (self.alice_agent, self.alice_process, self.alice_entity):
+			self.assertFalse(frappe.db.exists("AI Memory", row["name"]))
+		self.assertEqual(result["deleted"], 3)
+		self.assertEqual(result["remaining"], 0)
+
+	def test_shared_memories_are_untouched_by_a_purge(self):
+		with self.set_user(self.alice):
+			API.purge_memories()
+		self.assertTrue(frappe.db.exists("AI Memory", self.shared["name"]))
+
+	def test_another_users_memories_are_untouched_by_a_purge(self):
+		with self.set_user(self.alice):
+			API.purge_memories()
+		self.assertTrue(frappe.db.exists("AI Memory", self.bob_memory["name"]))
+
+	def test_a_non_system_manager_cannot_purge_someone_elses_memories(self):
+		with self.set_user(self.bob), self.assertRaises(frappe.PermissionError):
+			API.purge_memories(user=self.alice)
+		# Nothing was deleted by the refused attempt.
+		self.assertTrue(frappe.db.exists("AI Memory", self.alice_agent["name"]))
+
+	def test_a_system_manager_can_purge_another_users_memories(self):
+		result = API.purge_memories(user=self.alice)  # the test runs as Administrator
+		for row in (self.alice_agent, self.alice_process, self.alice_entity):
+			self.assertFalse(frappe.db.exists("AI Memory", row["name"]))
+		self.assertEqual(result["deleted"], 3)
+		self.assertEqual(result["remaining"], 0)
+		self.assertTrue(frappe.db.exists("AI Memory", self.bob_memory["name"]))
+		self.assertTrue(frappe.db.exists("AI Memory", self.shared["name"]))
