@@ -254,6 +254,10 @@ const streamingText = ref("");
 // you said, not a tally.
 const streamingMessageId = ref("");
 const ratings = ref({});
+// Ephemeral tool status (TOOL_CALL_START/END) — never a transcript entry,
+// never persisted: on history restore only final replies come back, so
+// this line has nothing to render outside a live turn.
+const toolStatus = ref("");
 
 // Whether this agent collects feedback at all. Configuration, like the greeting
 // and the icon: no agent-specific behaviour is hardcoded in a component.
