@@ -122,6 +122,7 @@ async def run_agent_loop(
 	retry_backoff_ms: int = 1000,
 	tool_result_max_chars: int | None = None,
 	terminal_tools: list | None = None,
+	on_tool_event: "Callable[[str, str], None] | None" = None,
 ) -> tuple:
 	"""Drive the tool loop. Returns (CompletionResult, None) when the model
 	produces a final answer or hits the turn cap, or (None, AgentSuspension)
