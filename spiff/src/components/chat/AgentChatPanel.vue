@@ -258,6 +258,11 @@ const ratings = ref({});
 // never persisted: on history restore only final replies come back, so
 // this line has nothing to render outside a live turn.
 const toolStatus = ref("");
+// Set on TEXT_MESSAGE_START, cleared whenever the buffer is flushed. Marks
+// that this turn actually opened a reply — so a turn with an empty final
+// message (no deltas at all) still lands an empty bubble instead of
+// silently vanishing the moment "Thinking…" drops away.
+const sawTextMessage = ref(false);
 
 // Whether this agent collects feedback at all. Configuration, like the greeting
 // and the icon: no agent-specific behaviour is hardcoded in a component.
