@@ -633,11 +633,19 @@ function handleEvent(event) {
 			streamingMessageId.value = event.messageId || event.message_id || "";
 		}
 		scrollDown();
+	} else if (type === "TOOL_CALL_START") {
+		toolStatus.value = __("Running {0}…").replace("{0}", event.toolCallName || event.tool_call_name || __("a tool"));
+		scrollDown();
+	} else if (type === "TOOL_CALL_END") {
+		toolStatus.value = "";
 	} else if (type === "CUSTOM") {
 		handleCustom(event.name || "", event.value || {});
 	}
-	// TEXT_MESSAGE_START/END, THINKING_*, TOOL_CALL_*, STATE_* need no
+	// TEXT_MESSAGE_START/END, THINKING_*, TOOL_CALL_ARGS, STATE_* need no
 	// transcript entry today; the streaming buffer covers the visible part.
+	// TOOL_CALL_START/END get the ephemeral status line above, never a
+	// transcript row \u2014 it never persists, so history restore shows only
+	// final replies.
 }
 
 function handleCustom(name, value) {
