@@ -962,9 +962,12 @@ defineExpose({ send, conversationName });
 .acp-fallback { padding: 8px 12px; } .acp-fallback pre { font-size: 11px; overflow-x: auto; }
 
 .acp-thinking { color: var(--ig5); font-style: italic; font-size: 12px; }
+.acp-tool-status { font-size: 11px; color: var(--ig5); display: flex; gap: 6px; align-items: center;
+	font-style: italic; }
 .acp-status { font-size: 11px; color: var(--ig5); display: flex; gap: 6px; align-items: center; }
 .acp-dot { width: 7px; height: 7px; border-radius: 99px; background: var(--green-ink); }
 .acp-dot--err { background: var(--red-ink); }
+.acp-dot--tool { background: var(--blue-ink); }
 .acp-starters { display: flex; flex-direction: column; align-items: stretch; gap: 6px;
 	margin-top: auto; padding-bottom: 4px; }
 /* Starter chips carry full sentences: they must grow with their text
