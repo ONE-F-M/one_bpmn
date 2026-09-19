@@ -331,12 +331,21 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 		# sprint, a completed sprint, an Epic — and the agent has to be able to
 		# say which rule stopped it instead of reporting the change as made.
 		return json.dumps({"error": str(invalid), "retryable": False})
-	except Exception:
+	except Exception as unexpected:
 		frappe.log_error(
 			title=f"AI Agent shape tool '{bpmn_id}' failed",
 			message=frappe.get_traceback(),
 		)
-		return json.dumps({"error": f"Shape '{bpmn_id}' failed — see Error Log for details."})
+		# Same reasoning as the permission/validation branches above: "see the
+		# Error Log" is useless to a model that cannot read it, so it invents an
+		# explanation instead. Carrying the exception's own class name and
+		# message lets the model tell a truncated-output problem apart from an
+		# unrelated bug rather than guessing at both from silence.
+		return json.dumps({
+			"error": (
+				f"Shape '{bpmn_id}' failed — {type(unexpected).__name__}: {unexpected}"
+			),
+		})
 
 
 def _connector_not_permitted(task_cfg: dict) -> dict | None:
