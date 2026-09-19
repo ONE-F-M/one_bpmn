@@ -91,7 +91,7 @@ Respond with ONLY a JSON object:
 
 # RQ kills a job at its timeout, and a run saves its results once, at the end.
 # A fixed 1800 s therefore lost every result of a suite that outgrew half an
-# hour — which the Baselines do at pass_k 2, where 22 cases are 44 executions.
+# hour, which twenty-two live cases do.
 # Five minutes per execution is generous for one case run once, and it is a
 # bound, not a target.
 MIN_JOB_TIMEOUT_SECONDS = 1800
@@ -1434,6 +1434,16 @@ def _run_map_eval(cfg, case) -> tuple:
                 "BPMN Process Instance", instance.name, "status", "Cancelled",
                 update_modified=False,
             )
+
+    # A script the map ran can call frappe.db.rollback() and take this
+    # transaction with it: the instance inserted above is gone, the run with it,
+    # and the lookup below would blame the map's routing.
+    if not frappe.db.exists("BPMN Process Instance", instance.name):
+        raise ValueError(
+            f"Process map '{model_name}' rolled the transaction back while running on "
+            f"{doctype} '{docname}': the instance this eval inserted no longer exists. A script "
+            f"on the map calls frappe.db.rollback(); it should roll back to a savepoint of its own."
+        )
 
     # The engine handles its own failures: it logs the traceback, marks the
     # instance Errored and returns, so an exception escaping start() is NOT what

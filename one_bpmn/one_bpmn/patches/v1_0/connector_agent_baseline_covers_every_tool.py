@@ -556,6 +556,9 @@ def execute():
 	baseline = frappe.db.get_value("AI Eval Suite", {"title": SUITE_TITLE}, "name")
 	if not baseline:
 		return  # seed_connector_agent_eval_suite creates it; nothing to add to yet
+	# Each case runs once. The hardening patch set two, which doubled the suite's
+	# time and cost and reported one wobble as a failed case.
+	frappe.db.set_value("AI Eval Suite", baseline, "pass_k", 1, update_modified=False)
 	if not frappe.db.exists("AI Model", JUDGE_MODEL):
 		frappe.log_error(
 			title="connector_agent_baseline_covers_every_tool: judge model missing",

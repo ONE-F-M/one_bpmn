@@ -6,6 +6,8 @@ import json as _json
 import frappe
 from frappe import _
 
+from one_bpmn.utils.session import as_user
+
 
 # ============================================
 # Notification API
@@ -175,11 +177,7 @@ def create_notification(
 
 	# Elevate to bypass permission checks in the Notification controller.
 	# The role guard above already ensures only authorised users reach here.
-	original_user = frappe.session.user
-	try:
-		frappe.set_user("Administrator")
+	with as_user("Administrator"):
 		doc.insert(ignore_permissions=True)
-	finally:
-		frappe.set_user(original_user)
 
 	return {"name": doc.name, "channel": doc.channel}
