@@ -220,6 +220,108 @@ class TestAgentEventStream(FrappeTestCase):
 		self.assertIn(raw, chunks)
 
 
+class TestInvokeWithHeartbeat(FrappeTestCase):
+	"""WI-000407: the buffered turn runs on its own thread, with its own
+	database connection, and keeps the SSE connection alive while it runs."""
+
+	def _drain(self, gen):
+		"""Collect every keep-alive chunk and the generator's return value."""
+		chunks = []
+		result = None
+		try:
+			while True:
+				chunks.append(next(gen))
+		except StopIteration as stop:
+			result = stop.value
+		return chunks, result
+
+	def test_slow_call_yields_keepalive_comments_every_interval(self):
+		from one_bpmn.agents import agui_stream
+
+		def slow():
+			time.sleep(0.25)
+			return "done"
+
+		gen = agui_stream._invoke_with_heartbeat(slow, interval=0.05)
+		chunks, result = self._drain(gen)
+
+		self.assertGreaterEqual(len(chunks), 2)
+		self.assertTrue(all(c == ": keep-alive\n\n" for c in chunks))
+		self.assertEqual(result, "done")
+
+	def test_fast_call_sends_no_keepalive(self):
+		from one_bpmn.agents import agui_stream
+
+		gen = agui_stream._invoke_with_heartbeat(lambda: "quick", interval=1)
+		chunks, result = self._drain(gen)
+
+		self.assertEqual(chunks, [])
+		self.assertEqual(result, "quick")
+
+	def test_worker_exception_reaches_the_caller(self):
+		from one_bpmn.agents import agui_stream
+
+		def boom():
+			raise ValueError("worker exploded")
+
+		with self.assertRaises(ValueError):
+			list(agui_stream._invoke_with_heartbeat(boom, interval=0.05))
+
+	def test_stream_relays_keepalive_comments_from_a_slow_buffered_turn(self):
+		"""End to end through agent_event_stream: a slow buffered runner
+		still produces a valid lifecycle, with keep-alive comments relayed
+		before the content."""
+		from one_bpmn.agents import agui_stream
+
+		def slow_invoke(*args, **kwargs):
+			time.sleep(0.2)
+			return {"response": "hello there", "conversation": "CONV-1"}
+
+		with (
+			patch("one_bpmn.api.agent_invocation.invoke_agent", side_effect=slow_invoke),
+			patch.object(agui_stream, "_HEARTBEAT_SECONDS", 0.05),
+		):
+			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
+
+		keepalives = [c for c in chunks if c == ": keep-alive\n\n"]
+		self.assertGreaterEqual(len(keepalives), 1)
+		types = _types(chunks)
+		self.assertEqual(types[0], "RUN_STARTED")
+		self.assertEqual(types[-1], "RUN_FINISHED")
+		deltas = [e["delta"] for e in _events(chunks) if e.get("type") == "TEXT_MESSAGE_CONTENT"]
+		self.assertEqual(deltas, ["hello there"])
+
+
+class TestRefusalRole(FrappeTestCase):
+	"""WI-000407: a rate-limit refusal must not look like the agent talking."""
+
+	def test_rate_limited_refusal_is_delivered_as_system_role(self):
+		from one_bpmn.agents import agui_stream
+		from one_bpmn.security.rate_limit import RateLimited
+
+		with patch(
+			"one_bpmn.api.agent_invocation.invoke_agent",
+			side_effect=RateLimited("You are sending messages too quickly."),
+		):
+			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
+
+		start = next(e for e in _events(chunks) if e.get("type") == "TEXT_MESSAGE_START")
+		self.assertEqual(start.get("role"), "system")
+
+	def test_other_refusal_keeps_assistant_role(self):
+		from one_bpmn.agents import agui_stream
+		from one_bpmn.security.refusal import AgentRefusal
+
+		with patch(
+			"one_bpmn.api.agent_invocation.invoke_agent",
+			side_effect=AgentRefusal("blocked by injection screening"),
+		):
+			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
+
+		start = next(e for e in _events(chunks) if e.get("type") == "TEXT_MESSAGE_START")
+		self.assertEqual(start.get("role"), "assistant")
+
+
 class TestInvokeAgentStreamSeam(FrappeTestCase):
 	"""The stream flag threads through invoke_agent without changing the
 	buffered contract."""
