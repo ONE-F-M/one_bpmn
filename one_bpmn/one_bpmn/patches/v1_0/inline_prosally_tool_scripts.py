@@ -624,6 +624,7 @@ from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
 from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 from one_bpmn.agents.bpmn_ir_pipeline import compile_ir, extract_process_name, translate_problems, translate_violations
 from one_bpmn.security.bpmn_validator import validate_bpmn_xml
+from one_bpmn.agents.llm_provider.base import LLMTruncatedError
 
 _GENERATE_INTENTS = frozenset({"GENERATE_NEW", "OVERWRITE_EXISTING"})
 _MAX_FIX_PASSES = 3
@@ -633,6 +634,22 @@ _cfg = get_agent_config("prosally_agent") or {}
 _cfg.setdefault("agent_id", "prosally_agent")
 _subs = _cfg.get("sub_prompts") or {}
 _adapter = get_llm_adapter_from_settings(_cfg)
+
+# ── explicit output budget (WI-000405) ──
+# The adapter's own default (16384) only applied when nothing else was
+# passed; a configured max_tokens below that (e.g. 1024) silently won,
+# cutting a large IR off mid-JSON with no explanation to the user. Floor at
+# 16384, and cap at whatever the configured model actually supports so the
+# request is never rejected for asking beyond the model's own ceiling.
+_max_tokens = int(_cfg.get("max_tokens") or 0)
+if _max_tokens < 16384:
+    _max_tokens = 16384
+_model_ceiling = 0
+if _cfg.get("ai_model"):
+    _model_ceiling = frappe.db.get_value("AI Model", _cfg.get("ai_model"), "max_output_tokens") or 0
+if _model_ceiling:
+    _max_tokens = min(_max_tokens, int(_model_ceiling))
+_truncated_error = False
 
 action = turn.get("intent", "GENERATE_NEW")
 if action not in _GENERATE_INTENTS:
