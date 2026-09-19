@@ -20,7 +20,9 @@ import json
 import re
 
 import frappe
-from frappe.utils import cint, flt, now_datetime
+from datetime import timedelta
+
+from frappe.utils import cint, flt, get_datetime, now_datetime
 
 from one_bpmn.agents.executor import ErrorCode, ExecutorConfig, ExecutorResult
 from one_bpmn.agents.pricing import compute_token_cost
@@ -385,6 +387,36 @@ def create_ai_run(
 	return run
 
 
+STEP_KINDS = ("prompt", "model_call", "tool_turn", "sub_call")
+
+
+def classify_step(role: str, content: str = "", tool_calls: list | None = None) -> str:
+	"""Which kind of step this is, from what the recorder already knows."""
+	if role in ("system", "user"):
+		return "prompt"
+	if parse_sub_call(content):
+		return "sub_call"
+	if role == "tool" or tool_calls:
+		return "tool_turn"
+	return "model_call"
+
+
+def step_window(started_at=None, ended_at=None, latency_ms: int = 0) -> tuple:
+	"""(started_at, ended_at) as datetimes, filling whichever side is missing
+	from the other and the latency."""
+	start = get_datetime(started_at) if started_at else None
+	end = get_datetime(ended_at) if ended_at else None
+	span = timedelta(milliseconds=cint(latency_ms))
+	if start and not end:
+		end = start + span
+	elif end and not start:
+		start = end - span
+	elif not start and not end:
+		end = now_datetime()
+		start = end - span
+	return start, end
+
+
 def record_ai_step(
 	run,
 	step_index: int,
@@ -399,6 +431,9 @@ def record_ai_step(
 	tool_calls: list | None = None,
 	error_code: str = None,
 	error_message: str = None,
+	started_at=None,
+	ended_at=None,
+	step_kind: str | None = None,
 ) -> Optional["frappe.Document"]:
 	"""Record a single AI Agent Step linked to *run*.
 
@@ -418,12 +453,20 @@ def record_ai_step(
 	    latency_ms: Step latency in milliseconds
 	    error_code: Error code if this step is a failed retry attempt
 	    error_message: Error details for failed retry attempts
+	    started_at, ended_at: when the step ran. A step written after the
+	        fact gets ended_at = now and started_at = ended_at - latency_ms,
+	        so every step has a window even when only its duration was kept.
+	    step_kind: prompt, model_call, tool_turn or sub_call; derived from
+	        the role, the tool calls and the sub-call tag when not given
 
 	Returns:
 	    The created AI Agent Step document, or None on failure.
 	"""
 	if getattr(run, "stub", False):
 		return None
+
+	started_at, ended_at = step_window(started_at, ended_at, latency_ms)
+	step_kind = step_kind or classify_step(role, content, tool_calls)
 
 	# Cost split by billing rate: uncached input / cache read / cache write /
 	# output. Charging the whole prompt at the input rate (pre-WI-001643)
@@ -452,6 +495,9 @@ def record_ai_step(
 		"cache_read_cost": costs["cache_read_cost"],
 		"cache_write_cost": costs["cache_write_cost"],
 		"latency_ms": latency_ms,
+		"started_at": started_at,
+		"ended_at": ended_at,
+		"step_kind": step_kind,
 		"error_code": error_code or None,
 		"error_message": error_message or None,
 	})
@@ -967,6 +1013,8 @@ def record_selector_turns(run, trace: list, source_map: dict | None = None) -> i
 			tool_calls=tool_calls,
 			error_code=error_code,
 			error_message=error_message,
+			started_at=turn.get("started_at") or None,
+			ended_at=turn.get("ended_at") or None,
 		)
 		next_index += 1
 		if step is not None:
