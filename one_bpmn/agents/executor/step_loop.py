@@ -122,10 +122,20 @@ async def run_agent_loop(
 	retry_backoff_ms: int = 1000,
 	tool_result_max_chars: int | None = None,
 	terminal_tools: list | None = None,
+	on_tool_event=None,
 ) -> tuple:
 	"""Drive the tool loop. Returns (CompletionResult, None) when the model
 	produces a final answer or hits the turn cap, or (None, AgentSuspension)
 	when it selects a human tool.
+
+	``on_tool_event`` (WI-000406): optional ``callable(phase, tool_name)``
+	invoked as ``on_tool_event("start", name)`` immediately before an
+	automatic tool runs and ``on_tool_event("end", name)`` immediately
+	after, whether it succeeded, deferred, was policy-refused, or raised.
+	Used by the streaming surface (agui_stream.py) to emit
+	TOOL_CALL_START/END events while the turn is still running. A
+	callback that itself raises is logged and swallowed \u2014 a broken
+	progress indicator must never fail the turn it is only reporting on.
 
 	Fresh run: pass ``user`` (the rendered user prompt); the transcript starts
 	as a single user entry.
