@@ -1333,30 +1333,31 @@ for attempt in range(_MAX_FIX_PASSES + 1):
     if attempt == _MAX_FIX_PASSES:
         break
 
-note = ((" (" + str(len(problems)) + " issue(s) remain — review the canvas.)") if problems else "") + topology_note
+if not _truncated_error:
+    note = ((" (" + str(len(problems)) + " issue(s) remain — review the canvas.)") if problems else "") + topology_note
 
-# ── preserve configured properties from the old diagram onto the new one ──
-merged_xml, removed_elements = _prosally_preserver("transfer", current_xml, best_xml)
+    # ── preserve configured properties from the old diagram onto the new one ──
+    merged_xml, removed_elements = _prosally_preserver("transfer", current_xml, best_xml)
 
-if removed_elements:
-    output = {
-        "intent": "CONFIRM_REMOVAL",
-        "action_intent": "MODIFY_EXISTING",
-        "response": _prosally_preserver("format_removal", "", removed_elements),
-        "options": ["Yes, apply changes", "No, keep existing"],
-        "pending_xml": merged_xml,
-    }
-    update_turn(context_docname, output=output, done=True)
-    result["modified"] = False
-    result["needs_removal_confirm"] = True
-else:
-    xml_name = extract_process_name(merged_xml) or process_name or "process"
-    output = {
-        "intent": "BPMN_MODIFIED",
-        "action_intent": "MODIFY_EXISTING",
-        "bpmn_xml": merged_xml,
-        "response": (
-            "I've updated the " + xml_name + " process." + note + " All existing configurations "
+    if removed_elements:
+        output = {
+            "intent": "CONFIRM_REMOVAL",
+            "action_intent": "MODIFY_EXISTING",
+            "response": _prosally_preserver("format_removal", "", removed_elements),
+            "options": ["Yes, apply changes", "No, keep existing"],
+            "pending_xml": merged_xml,
+        }
+        update_turn(context_docname, output=output, done=True)
+        result["modified"] = False
+        result["needs_removal_confirm"] = True
+    else:
+        xml_name = extract_process_name(merged_xml) or process_name or "process"
+        output = {
+            "intent": "BPMN_MODIFIED",
+            "action_intent": "MODIFY_EXISTING",
+            "bpmn_xml": merged_xml,
+            "response": (
+                "I've updated the " + xml_name + " process." + note + " All existing configurations "
             "have been preserved. Review the changes on the canvas."
         ),
         "options": [],
