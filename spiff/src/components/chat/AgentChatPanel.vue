@@ -706,6 +706,12 @@ function restoredItems(history, isNewestPage) {
 			out.push({ kind: "user", text: m.content, ts: m.timestamp });
 			return;
 		}
+		// WI-000407: a stored rate-limit refusal carries role "system" —
+		// restore it as a system notice, same as when it first streamed.
+		if (m.role === "system") {
+			if (m.content) out.push({ kind: "system", text: m.content, ts: m.timestamp });
+			return;
+		}
 		if (m.content) {
 			out.push({ kind: "agent", text: m.content, message: m.message || "", ts: m.timestamp });
 		}
