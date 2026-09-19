@@ -222,9 +222,17 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 		if builder:
 			context = builder(context or {})
 
-		result = invoke_agent(
-			agent_id, message, conversation=conversation, context=context or {}, stream=True
+		# The blocking turn runs on its own thread (WI-000407) so a slow
+		# call can be kept alive on the wire with SSE comments rather than
+		# leaving the connection to look dead for however long the model
+		# takes to answer. See _invoke_with_heartbeat for why that thread
+		# needs its own database connection.
+		heartbeat = _invoke_with_heartbeat(
+			lambda: invoke_agent(
+				agent_id, message, conversation=conversation, context=context or {}, stream=True
+			)
 		)
+		result = yield from heartbeat
 
 		# SSE has no request-success commit: the whitelisted handler returned
 		# the moment the Response was constructed, so everything the turn
