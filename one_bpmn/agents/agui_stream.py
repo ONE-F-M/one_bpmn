@@ -94,6 +94,55 @@ def _extension_events(result: dict):
 			frappe.log_error(title="agui extension translator error", message=frappe.get_traceback())
 
 
+def _iter_text_deltas(text: str, chunk_chars: int = 60):
+	"""Split a reply into delta-sized chunks for progressive
+	TextMessageContent emission (WI-000406).
+
+	A short reply \u2014 the common case, and every reply in the pre-WI-000406
+	tests \u2014 still comes out as exactly one chunk, so callers that assumed
+	one delta per turn keep working unchanged. Anything longer is cut only
+	at whitespace, never mid-word, and ``"".join(chunks) == text`` always:
+	the client concatenates deltas to build the message, so a chunk
+	boundary must never lose or duplicate a character.
+	"""
+	if not text:
+		return
+	length = len(text)
+	if length <= chunk_chars:
+		yield text
+		return
+	start = 0
+	while start < length:
+		end = min(start + chunk_chars, length)
+		if end < length:
+			next_space = text.find(" ", end)
+			end = next_space + 1 if next_space != -1 else length
+		yield text[start:end]
+		start = end
+
+
+def _tool_calls_from_result(result: dict) -> list:
+	"""Tool calls that ran during a buffered turn (WI-000406).
+
+	A buffered runner (bpmn_map / direct_api / adk) has already finished by
+	the time its reply reaches this stream, so there is no live moment to
+	hang a TOOL_CALL_START/END pair on \u2014 they are emitted here, together,
+	from whatever record of the turn's tool calls the reply carries.
+	Prefers an explicit ``tool_calls`` list on the reply; falls back to
+	flattening the AI Agent Run's own per-turn ``trace`` (the
+	TurnRecord/ToolCallRecord shape from agents/llm_provider/base.py) when
+	a runner exposes that instead. Neither present is not an error \u2014 most
+	turns call no tools at all.
+	"""
+	calls = result.get("tool_calls")
+	if calls:
+		return list(calls)
+	flattened = []
+	for turn in result.get("trace") or []:
+		flattened.extend((turn or {}).get("tool_calls") or [])
+	return flattened
+
+
 def _agent_artifact_type(agent_id: str) -> str:
 	"""The agent's configured Artifact Type (WI-001996), for the generic
 	artifact translator. Empty string when unset/unreadable — the translator
