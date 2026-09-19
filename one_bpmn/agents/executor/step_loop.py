@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import random
 from dataclasses import dataclass, field
+from typing import Callable
 import time
 
 import frappe
@@ -122,6 +123,7 @@ async def run_agent_loop(
 	retry_backoff_ms: int = 1000,
 	tool_result_max_chars: int | None = None,
 	terminal_tools: list | None = None,
+	on_tool_event: "Callable[[str, str], None] | None" = None,
 ) -> tuple:
 	"""Drive the tool loop. Returns (CompletionResult, None) when the model
 	produces a final answer or hits the turn cap, or (None, AgentSuspension)
@@ -151,6 +153,14 @@ async def run_agent_loop(
 	the model calls one. None (every caller before this existed) falls back
 	to ``("finalize",)`` — see ``_run_turns`` for how the reply is read off
 	the call's own arguments instead of the model's next narration.
+
+	``on_tool_event`` (streaming observability): called
+	``on_tool_event("start", tool_name)`` immediately before an automatic
+	tool's fn runs and ``on_tool_event("end", tool_name)`` immediately after
+	— success or failure, always both. None (every caller before this
+	existed) means no observer; a callback that itself raises is caught and
+	logged rather than failing the turn, since a broken UI hook must never
+	break the tool it is only reporting on.
 	"""
 	tool_map = {t.name: t for t in (tools or [])}
 
@@ -199,6 +209,7 @@ async def run_agent_loop(
 			retry_backoff_ms=retry_backoff_ms,
 			tool_result_max_chars=tool_result_max_chars,
 			terminal_tools=set(terminal_tools) if terminal_tools is not None else {"finalize"},
+			on_tool_event=on_tool_event,
 		)
 	finally:
 		# Cleared on EVERY exit — final answer, turn cap, suspension, exception.
@@ -239,10 +250,22 @@ async def _step_with_retries(
 			await asyncio.sleep(base_s + random.uniform(0, 0.1))
 
 
+def _notify_tool_event(on_tool_event, phase: str, tool_name: str) -> None:
+	"""Best-effort call of the observability hook. A broken callback must
+	never break the tool call it is only reporting on — the loop's own
+	behaviour (and the model's answer) does not depend on anyone watching."""
+	if on_tool_event is None:
+		return
+	try:
+		on_tool_event(phase, tool_name)
+	except Exception:
+		frappe.log_error(title="run_agent_loop on_tool_event failed", message=frappe.get_traceback())
+
+
 async def _run_turns(
 	adapter, *, system, tools, tool_map, transcript, trace, turns_used, max_tokens, max_turns,
 	timeout_seconds=None, max_retries=0, retry_backoff_ms=1000, tool_result_max_chars=None,
-	terminal_tools=frozenset({"finalize"}),
+	terminal_tools=frozenset({"finalize"}), on_tool_event=None,
 ):
 	"""The turn loop itself. Split out only so run_agent_loop can guarantee the
 	pause flag is cleared however this returns."""
@@ -343,6 +366,7 @@ async def _run_turns(
 						"content": wrap_tool_result(_invalid, call.name, call.arguments),
 					})
 					continue
+				_notify_tool_event(on_tool_event, "start", call.name)
 				try:
 					result = str(tool.fn(**call.arguments))
 					if call.name in terminal_tools:

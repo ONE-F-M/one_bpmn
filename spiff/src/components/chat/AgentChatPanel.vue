@@ -84,6 +84,9 @@
 
 			<div v-if="busy" class="acp-thinking">{{ streamingText ? "" : __("Thinking…") }}</div>
 			<div v-if="streamingText" class="acp-msg acp-msg--agent" v-html="renderMarkdown(streamingText)" />
+			<div v-if="toolStatus" class="acp-tool-status">
+				<span class="acp-dot acp-dot--tool" />{{ toolStatus }}
+			</div>
 			<div v-if="statusLine" class="acp-status">
 				<span class="acp-dot" :class="{ 'acp-dot--err': status === 'error' }" />{{ statusLine }}
 			</div>
@@ -251,6 +254,15 @@ const streamingText = ref("");
 // you said, not a tally.
 const streamingMessageId = ref("");
 const ratings = ref({});
+// Ephemeral tool status (TOOL_CALL_START/END) — never a transcript entry,
+// never persisted: on history restore only final replies come back, so
+// this line has nothing to render outside a live turn.
+const toolStatus = ref("");
+// Whether this turn has already landed a reply bubble (a flush inside
+// handleCustom, or the final flush in onDone). A turn that never streams a
+// single delta \u2014 all tool calls, no words \u2014 must still close with an
+// (empty) reply bubble rather than just vanishing when busy drops to false.
+let turnProducedReply = false;
 
 // Whether this agent collects feedback at all. Configuration, like the greeting
 // and the icon: no agent-specific behaviour is hardcoded in a component.
@@ -552,6 +564,8 @@ async function send(text, extraContext = null) {
 	busy.value = true;
 	status.value = "streaming";
 	streamingText.value = "";
+	toolStatus.value = "";
+	turnProducedReply = false;
 	scrollDown();
 
 	// extraContext = per-turn keys the PANEL stages itself (today: the
@@ -591,10 +605,16 @@ async function send(text, extraContext = null) {
 			sent.retryContext = extraContext || null;
 		},
 		onDone: () => {
-			if (streamingText.value) {
+			// A turn that streamed no text at all (pure tool calls, no
+			// closing words) still gets a reply bubble \u2014 empty is a valid
+			// answer, and dropping it would leave the transcript looking
+			// like the turn never finished.
+			if (streamingText.value || !turnProducedReply) {
 				items.value.push(agentItem(streamingText.value));
 				streamingText.value = "";
+				turnProducedReply = true;
 			}
+			toolStatus.value = "";
 			streamingMessageId.value = "";
 			busy.value = false;
 			if (status.value !== "error") status.value = "done";
@@ -626,11 +646,19 @@ function handleEvent(event) {
 			streamingMessageId.value = event.messageId || event.message_id || "";
 		}
 		scrollDown();
+	} else if (type === "TOOL_CALL_START") {
+		toolStatus.value = __("Running {0}…").replace("{0}", event.toolCallName || event.tool_call_name || __("a tool"));
+		scrollDown();
+	} else if (type === "TOOL_CALL_END") {
+		toolStatus.value = "";
 	} else if (type === "CUSTOM") {
 		handleCustom(event.name || "", event.value || {});
 	}
-	// TEXT_MESSAGE_START/END, THINKING_*, TOOL_CALL_*, STATE_* need no
+	// TEXT_MESSAGE_START/END, THINKING_*, TOOL_CALL_ARGS, STATE_* need no
 	// transcript entry today; the streaming buffer covers the visible part.
+	// TOOL_CALL_START/END get the ephemeral status line above, never a
+	// transcript row — it never persists, so history restore shows only
+	// final replies.
 }
 
 function handleCustom(name, value) {
@@ -643,6 +671,7 @@ function handleCustom(name, value) {
 	if (streamingText.value) {
 		items.value.push(agentItem(streamingText.value));
 		streamingText.value = "";
+		turnProducedReply = true;
 	}
 	if (name === "onefm.conversation_title") {
 		conversationTitle.value = value.title || "";
@@ -933,9 +962,12 @@ defineExpose({ send, conversationName });
 .acp-fallback { padding: 8px 12px; } .acp-fallback pre { font-size: 11px; overflow-x: auto; }
 
 .acp-thinking { color: var(--ig5); font-style: italic; font-size: 12px; }
+.acp-tool-status { font-size: 11px; color: var(--ig5); display: flex; gap: 6px; align-items: center;
+	font-style: italic; }
 .acp-status { font-size: 11px; color: var(--ig5); display: flex; gap: 6px; align-items: center; }
 .acp-dot { width: 7px; height: 7px; border-radius: 99px; background: var(--green-ink); }
 .acp-dot--err { background: var(--red-ink); }
+.acp-dot--tool { background: var(--blue-ink); }
 .acp-starters { display: flex; flex-direction: column; align-items: stretch; gap: 6px;
 	margin-top: auto; padding-bottom: 4px; }
 /* Starter chips carry full sentences: they must grow with their text

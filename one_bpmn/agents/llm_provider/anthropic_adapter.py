@@ -7,6 +7,7 @@ from .base import (
     LLMTruncatedError,
     StepResult,
     StepToolCall,
+    StreamEvent,
     ToolCallRecord,
     ToolSpec,
     TurnRecord,
@@ -385,4 +386,111 @@ class AnthropicAdapter(BaseLLMAdapter):
             completion_tokens=completion_tokens,
             cache_read_tokens=cache_read,
             cache_write_tokens=cache_write,
+        )
+
+    async def stream(
+        self,
+        system: str,
+        transcript: list,
+        tools: list[ToolSpec] | None = None,
+        max_tokens: int = 16384,
+    ):
+        """Incremental sibling of step(): the SAME wire request, but the
+        deltas the SDK's own messages.stream() already produces are yielded
+        as they arrive instead of being discarded in favour of
+        get_final_message() (as step() does).
+
+        Text deltas are relayed as they land. A tool_use block has no
+        incremental text worth surfacing (its "delta" is a partial-json
+        fragment of the arguments, not something a user should read) so it
+        is reported once, complete, as a tool_call_start immediately followed
+        by tool_call_end \u2014 nothing downstream distinguishes "starting" from
+        "already finished" for this provider.
+        """
+        tool_defs = [_build_tool_def(t) for t in tools] if tools else []
+        if tool_defs:
+            tool_defs[-1]["cache_control"] = {"type": "ephemeral"}
+
+        system_blocks = [
+            {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+        ]
+
+        messages = []
+        last_tool_result_block = None
+        for entry in transcript:
+            role = entry.get("role")
+            if role == "user":
+                messages.append({
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": _nonempty(entry.get("content"))}
+                    ],
+                })
+            elif role == "assistant":
+                blocks = []
+                if entry.get("content"):
+                    blocks.append({"type": "text", "text": entry["content"]})
+                for c in entry.get("tool_calls") or []:
+                    blocks.append({
+                        "type": "tool_use",
+                        "id": c.get("id", ""),
+                        "name": c.get("name", ""),
+                        "input": c.get("arguments") or {},
+                    })
+                messages.append({"role": "assistant", "content": blocks})
+            elif role == "tool_results":
+                blocks = [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": r.get("id", ""),
+                        "content": _nonempty(r.get("content")),
+                    }
+                    for r in entry.get("results") or []
+                ]
+                if blocks:
+                    last_tool_result_block = blocks[-1]
+                    messages.append({"role": "user", "content": blocks})
+        if last_tool_result_block is not None:
+            last_tool_result_block["cache_control"] = {"type": "ephemeral"}
+
+        kwargs: dict = {
+            "model": self._model,
+            "system": system_blocks,
+            "max_tokens": max_tokens,
+            "messages": messages,
+        }
+        if tool_defs:
+            kwargs["tools"] = tool_defs
+
+        async with self._client.messages.stream(**kwargs) as stream:
+            async for event in stream:
+                if event.type == "content_block_delta":
+                    delta = getattr(event, "delta", None)
+                    text = getattr(delta, "text", None)
+                    if text:
+                        yield StreamEvent(type="text_delta", delta=text)
+
+            response = await stream.get_final_message()
+
+        prompt_tokens, completion_tokens, cache_read, cache_write = _usage_tokens(response)
+        text_parts = [b.text for b in response.content if hasattr(b, "text")]
+        tool_calls = [
+            StepToolCall(id=b.id, name=b.name, arguments=dict(b.input or {}))
+            for b in response.content
+            if b.type == "tool_use"
+        ]
+        for call in tool_calls:
+            yield StreamEvent(type="tool_call_start", tool_call=call)
+            yield StreamEvent(type="tool_call_end", tool_call=call)
+
+        yield StreamEvent(
+            type="done",
+            step=StepResult(
+                content="\n".join(text_parts),
+                tool_calls=tool_calls if response.stop_reason == "tool_use" else [],
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cache_read_tokens=cache_read,
+                cache_write_tokens=cache_write,
+            ),
         )

@@ -29,6 +29,7 @@ RunError; nothing is ever emitted as a bare named SSE line.
 """
 
 import json
+import threading
 import uuid
 
 import frappe
@@ -136,6 +137,48 @@ def register_reply_shaper(agent_id, fn):
 # ── The stream ───────────────────────────────────────────────────────────────
 
 
+_HEARTBEAT_INTERVAL_SECONDS = 10
+
+
+def _invoke_with_heartbeat(fn, interval: float = _HEARTBEAT_INTERVAL_SECONDS):
+	"""Run a blocking callable off-thread, yielding an SSE keep-alive comment
+	every ``interval`` seconds while it is in progress.
+
+	The buffered runners (bpmn_map / direct_api / adk) block for the whole
+	turn between the RunStarted and TextMessage* yields, with nothing to
+	flush to the client in the meantime. A proxy or load balancer that times
+	out an idle connection has no way to tell that turn apart from a dead
+	one, so it closes the stream out from under a turn that was still
+	working. A keep-alive is transport, never an AG-UI event (see the module
+	docstring and the HEARTBEAT handling in ``_relay_child_stream``), so it
+	is sent here as a bare SSE comment line, not through the encoder.
+
+	``fn``'s return value comes back as this generator's ``StopIteration.value``
+	(consume with ``result = yield from _invoke_with_heartbeat(fn)``); an
+	exception raised by ``fn`` is re-raised here, on the caller's thread, so
+	existing except clauses keep working unchanged.
+	"""
+	outcome: dict = {}
+
+	def _run():
+		try:
+			outcome["result"] = fn()
+		except BaseException as exc:  # noqa: BLE001 - re-raised on caller's thread
+			outcome["error"] = exc
+
+	thread = threading.Thread(target=_run, daemon=True)
+	thread.start()
+	while True:
+		thread.join(timeout=interval)
+		if not thread.is_alive():
+			break
+		yield ": keep-alive\n\n"
+
+	if "error" in outcome:
+		raise outcome["error"]
+	return outcome.get("result")
+
+
 def agent_event_stream(agent_id: str, message: str, conversation: str, context: dict | None = None):
 	"""Yield one agent turn as encoded AG-UI SSE lines.
 
@@ -156,8 +199,14 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 		if builder:
 			context = builder(context or {})
 
-		result = invoke_agent(
-			agent_id, message, conversation=conversation, context=context or {}, stream=True
+		# The blocking call below can run the whole turn (bpmn_map / direct_api /
+		# adk runners never yield until they are done), so a heartbeat comment
+		# keeps the connection from going quiet while it is in progress \u2014 see
+		# _invoke_with_heartbeat.
+		result = yield from _invoke_with_heartbeat(
+			lambda: invoke_agent(
+				agent_id, message, conversation=conversation, context=context or {}, stream=True
+			)
 		)
 
 		# SSE has no request-success commit: the whitelisted handler returned
@@ -223,8 +272,10 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 		# refusal arrived as RUN_ERROR and the panel showed "Something went
 		# wrong" over a message that explains itself perfectly well.
 		#
-		# Delivered as an ordinary assistant message so it lands in the thread
-		# where the user is reading, and NOT logged as an error: the control
+		# Delivered as a SYSTEM notice, not an ordinary assistant message, so
+		# it lands in the thread where the user is reading without reading as
+		# the agent itself speaking \u2014 a throttle or a freeze is the platform
+		# talking, not the agent. NOT logged as an error either: the control
 		# working as designed is not an incident, and a traceback per refusal
 		# fills the log with false alarms.
 		# COMMIT, not rollback. Nothing of this turn has been written — enforce
@@ -241,7 +292,7 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 		if not frappe.flags.in_test:
 			frappe.db.commit()
 		text = str(refusal) or _("This agent declined to answer that message.")
-		yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
+		yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="system"))
 		yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=text))
 		yield encoder.encode(TextMessageEndEvent(message_id=message_id))
 	except Exception as e:

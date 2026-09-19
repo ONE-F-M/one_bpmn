@@ -8,6 +8,7 @@ from .base import (
     CompletionResult,
     StepResult,
     StepToolCall,
+    StreamEvent,
     ToolCallRecord,
     ToolSpec,
     TurnRecord,
@@ -249,4 +250,119 @@ class OpenAIAdapter(BaseLLMAdapter):
             completion_tokens=completion_tokens,
             cache_read_tokens=cache_read,
             cache_write_tokens=cache_write,
+        )
+
+    async def stream(
+        self,
+        system: str,
+        transcript: list,
+        tools: list[ToolSpec] | None = None,
+        max_tokens: int = 16384,
+    ):
+        """Incremental sibling of step(): the same wire request as step(),
+        with ``stream=True`` so content and tool-call fragments arrive as
+        chunks instead of one blocking response.
+
+        OpenAI sends tool-call arguments as a running string split across
+        many chunks, indexed by position in the call list \u2014 there is no
+        signal that a call is COMPLETE other than the stream ending (or the
+        next chunk starting a new index), so tool_call_start/end are both
+        emitted only once every chunk has been folded into the accumulator
+        below, exactly like the non-streaming parse.
+        """
+        messages = [{"role": "system", "content": system}]
+        for entry in transcript:
+            role = entry.get("role")
+            if role == "user":
+                messages.append({"role": "user", "content": entry.get("content", "")})
+            elif role == "assistant":
+                msg = {"role": "assistant", "content": entry.get("content") or None}
+                calls = entry.get("tool_calls") or []
+                if calls:
+                    msg["tool_calls"] = [
+                        {
+                            "id": c.get("id", ""),
+                            "type": "function",
+                            "function": {
+                                "name": c.get("name", ""),
+                                "arguments": json.dumps(c.get("arguments") or {}),
+                            },
+                        }
+                        for c in calls
+                    ]
+                messages.append(msg)
+            elif role == "tool_results":
+                for r in entry.get("results") or []:
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": r.get("id", ""),
+                        "content": r.get("content", ""),
+                    })
+
+        kwargs: dict = {
+            "model": self._model,
+            "messages": messages,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+        }
+        kwargs.update(_token_cap(self._model, max_tokens))
+        if tools:
+            kwargs["tools"] = [_build_tool_def(t) for t in tools]
+
+        content_parts: list[str] = []
+        # index -> {"id", "name", "arguments"} accumulator.
+        call_accum: dict[int, dict] = {}
+        finish_reason = None
+        prompt_tokens = completion_tokens = cache_read = 0
+
+        response_stream = await self._client.chat.completions.create(**kwargs)
+        async for chunk in response_stream:
+            usage = getattr(chunk, "usage", None)
+            if usage is not None:
+                details = getattr(usage, "prompt_tokens_details", None)
+                prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+                completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+                cache_read = getattr(details, "cached_tokens", 0) or 0
+            if not chunk.choices:
+                continue
+            choice = chunk.choices[0]
+            if choice.finish_reason:
+                finish_reason = choice.finish_reason
+            delta = choice.delta
+            if delta and delta.content:
+                content_parts.append(delta.content)
+                yield StreamEvent(type="text_delta", delta=delta.content)
+            for tc_delta in delta.tool_calls or []:
+                slot = call_accum.setdefault(
+                    tc_delta.index, {"id": "", "name": "", "arguments": ""}
+                )
+                if tc_delta.id:
+                    slot["id"] = tc_delta.id
+                if tc_delta.function and tc_delta.function.name:
+                    slot["name"] = tc_delta.function.name
+                if tc_delta.function and tc_delta.function.arguments:
+                    slot["arguments"] += tc_delta.function.arguments
+
+        tool_calls = []
+        if finish_reason == "tool_calls":
+            for slot in call_accum.values():
+                try:
+                    args = json.loads(slot["arguments"]) if slot["arguments"] else {}
+                except Exception:
+                    args = {"_raw": slot["arguments"]}
+                call = StepToolCall(id=slot["id"], name=slot["name"], arguments=args)
+                tool_calls.append(call)
+                yield StreamEvent(type="tool_call_start", tool_call=call)
+                yield StreamEvent(type="tool_call_end", tool_call=call)
+
+        yield StreamEvent(
+            type="done",
+            step=StepResult(
+                content="".join(content_parts),
+                tool_calls=tool_calls,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cache_read_tokens=cache_read,
+                cache_write_tokens=0,
+            ),
         )

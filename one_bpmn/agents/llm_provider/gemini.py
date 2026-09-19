@@ -8,6 +8,7 @@ from .base import (
     CompletionResult,
     StepResult,
     StepToolCall,
+    StreamEvent,
     ToolCallRecord,
     ToolSpec,
     TurnRecord,
@@ -277,4 +278,110 @@ class GeminiAdapter(BaseLLMAdapter):
             completion_tokens=completion_tokens,
             cache_read_tokens=cache_read,
             cache_write_tokens=cache_write,
+        )
+
+    async def stream(
+        self,
+        system: str,
+        transcript: list,
+        tools: list[ToolSpec] | None = None,
+        max_tokens: int = 16384,
+    ):
+        """Incremental sibling of step(): the same wire request, using
+        ``generate_content_stream`` so text chunks are yielded as they
+        arrive. Gemini has no incremental function-call wire format either
+        (a function_call part shows up whole, in one chunk's candidate) so,
+        like the other adapters, each call is reported as a
+        tool_call_start immediately followed by tool_call_end.
+        """
+        contents: list[types.Content] = []
+        for entry in transcript:
+            role = entry.get("role")
+            if role == "user":
+                contents.append(
+                    types.Content(role="user", parts=[types.Part(text=entry.get("content", ""))])
+                )
+            elif role == "assistant":
+                parts = []
+                if entry.get("content"):
+                    parts.append(types.Part(text=entry["content"]))
+                for c in entry.get("tool_calls") or []:
+                    parts.append(
+                        types.Part(
+                            function_call=types.FunctionCall(
+                                name=c.get("name", ""), args=c.get("arguments") or {}
+                            )
+                        )
+                    )
+                contents.append(types.Content(role="model", parts=parts))
+            elif role == "tool_results":
+                parts = [
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            name=r.get("name", ""),
+                            response={"output": r.get("content", "")},
+                        )
+                    )
+                    for r in entry.get("results") or []
+                ]
+                if parts:
+                    contents.append(types.Content(role="user", parts=parts))
+
+        genai_tools = None
+        if tools:
+            genai_tools = [
+                types.Tool(function_declarations=[_build_fn_decl(t) for t in tools])
+            ]
+        config = types.GenerateContentConfig(
+            system_instruction=system,
+            tools=genai_tools,
+        )
+
+        content_parts: list[str] = []
+        tool_calls: list[StepToolCall] = []
+        prompt_tokens = completion_tokens = cache_read = 0
+        call_index = 0
+
+        response_stream = await self._client.aio.models.generate_content_stream(
+            model=self._model,
+            contents=contents,
+            config=config,
+        )
+        async for chunk in response_stream:
+            usage = getattr(chunk, "usage_metadata", None)
+            if usage is not None:
+                prompt_tokens = getattr(usage, "prompt_token_count", 0) or 0
+                completion_tokens = getattr(usage, "candidates_token_count", 0) or 0
+                cache_read = getattr(usage, "cached_content_token_count", 0) or 0
+            candidates = getattr(chunk, "candidates", None) or []
+            if not candidates:
+                continue
+            parts = candidates[0].content.parts or [] if candidates[0].content else []
+            for p in parts:
+                text = getattr(p, "text", None)
+                if text:
+                    content_parts.append(text)
+                    yield StreamEvent(type="text_delta", delta=text)
+                fc = getattr(p, "function_call", None)
+                if fc:
+                    call = StepToolCall(
+                        id=f"{fc.name}::{call_index}",
+                        name=fc.name,
+                        arguments=dict(fc.args) if fc.args else {},
+                    )
+                    call_index += 1
+                    tool_calls.append(call)
+                    yield StreamEvent(type="tool_call_start", tool_call=call)
+                    yield StreamEvent(type="tool_call_end", tool_call=call)
+
+        yield StreamEvent(
+            type="done",
+            step=StepResult(
+                content="\n".join(content_parts),
+                tool_calls=tool_calls,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cache_read_tokens=cache_read,
+                cache_write_tokens=0,
+            ),
         )
