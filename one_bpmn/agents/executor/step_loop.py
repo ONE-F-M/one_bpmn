@@ -209,6 +209,7 @@ async def run_agent_loop(
 			retry_backoff_ms=retry_backoff_ms,
 			tool_result_max_chars=tool_result_max_chars,
 			terminal_tools=set(terminal_tools) if terminal_tools is not None else {"finalize"},
+			on_tool_event=on_tool_event,
 		)
 	finally:
 		# Cleared on EVERY exit — final answer, turn cap, suspension, exception.
