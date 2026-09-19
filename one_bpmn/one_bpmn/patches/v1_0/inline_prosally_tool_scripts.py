@@ -711,7 +711,34 @@ for attempt in range(_MAX_FIX_PASSES + 1):
             "Current IR:\n" + json.dumps(ir_dict, indent=2)
         )
 
-    raw = run_sync(_adapter.complete(system=_system, user=prompt)).text
+    try:
+        raw = run_sync(_adapter.complete(system=_system, user=prompt, max_tokens=_max_tokens)).text
+    except LLMTruncatedError:
+        # The model hit its output-token ceiling mid-generation — its JSON is
+        # necessarily unparseable, so there is no repair pass to attempt.
+        # Write the real explanation into turn state now (with done=True) so
+        # the finalize tool never overwrites it with its generic fallback
+        # question ("Could you tell me more about the process you'd like to
+        # model?"), which said nothing about the actual, fixable problem.
+        _truncated_error = True
+        _size_msg = (
+            "This process is too large for me to generate in a single pass — the "
+            "model's output was cut off before it finished, even at a " + str(_max_tokens) +
+            "-token budget. Try describing a smaller piece of the process at a time "
+            "(for example, one department or phase), and I can assemble it "
+            "incrementally, or ask me to model just the part you need most."
+        )
+        output = {
+            "intent": "CLARIFY",
+            "action_intent": None,
+            "response": _size_msg,
+            "options": [],
+        }
+        update_turn(context_docname, output=output, done=True)
+        result["generated"] = False
+        result["response"] = _size_msg
+        result["truncated"] = True
+        break
 
     # ── parse IR JSON (inline) ──
     ir_dict = None
