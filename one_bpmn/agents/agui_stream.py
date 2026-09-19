@@ -246,7 +246,7 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 			# of this function for the WHOLE lifecycle of the streamed
 			# message (start, every delta, end). Once the runner's reply is
 			# in hand the persisted Chat Message name (WI-001641) IS known,
-			// so it is delivered separately, at the end, as the durable id a
+			# so it is delivered separately, at the end, as the durable id a
 			# rating or report should point at — never by silently swapping
 			# the id already used for events the client already rendered.
 			persisted_name = result.get("message_name")
