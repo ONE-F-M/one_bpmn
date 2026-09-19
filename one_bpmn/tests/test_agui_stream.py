@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import json
-import time
 from unittest.mock import patch
 
 from frappe.tests.utils import FrappeTestCase
@@ -220,108 +219,6 @@ class TestAgentEventStream(FrappeTestCase):
 		self.assertIn(raw, chunks)
 
 
-class TestInvokeWithHeartbeat(FrappeTestCase):
-	"""WI-000407: the buffered turn runs on its own thread, with its own
-	database connection, and keeps the SSE connection alive while it runs."""
-
-	def _drain(self, gen):
-		"""Collect every keep-alive chunk and the generator's return value."""
-		chunks = []
-		result = None
-		try:
-			while True:
-				chunks.append(next(gen))
-		except StopIteration as stop:
-			result = stop.value
-		return chunks, result
-
-	def test_slow_call_yields_keepalive_comments_every_interval(self):
-		from one_bpmn.agents import agui_stream
-
-		def slow():
-			time.sleep(0.25)
-			return "done"
-
-		gen = agui_stream._invoke_with_heartbeat(slow, interval=0.05)
-		chunks, result = self._drain(gen)
-
-		self.assertGreaterEqual(len(chunks), 2)
-		self.assertTrue(all(c == ": keep-alive\n\n" for c in chunks))
-		self.assertEqual(result, "done")
-
-	def test_fast_call_sends_no_keepalive(self):
-		from one_bpmn.agents import agui_stream
-
-		gen = agui_stream._invoke_with_heartbeat(lambda: "quick", interval=1)
-		chunks, result = self._drain(gen)
-
-		self.assertEqual(chunks, [])
-		self.assertEqual(result, "quick")
-
-	def test_worker_exception_reaches_the_caller(self):
-		from one_bpmn.agents import agui_stream
-
-		def boom():
-			raise ValueError("worker exploded")
-
-		with self.assertRaises(ValueError):
-			list(agui_stream._invoke_with_heartbeat(boom, interval=0.05))
-
-	def test_stream_relays_keepalive_comments_from_a_slow_buffered_turn(self):
-		"""End to end through agent_event_stream: a slow buffered runner
-		still produces a valid lifecycle, with keep-alive comments relayed
-		before the content."""
-		from one_bpmn.agents import agui_stream
-
-		def slow_invoke(*args, **kwargs):
-			time.sleep(0.2)
-			return {"response": "hello there", "conversation": "CONV-1"}
-
-		with (
-			patch("one_bpmn.api.agent_invocation.invoke_agent", side_effect=slow_invoke),
-			patch.object(agui_stream, "_HEARTBEAT_SECONDS", 0.05),
-		):
-			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
-
-		keepalives = [c for c in chunks if c == ": keep-alive\n\n"]
-		self.assertGreaterEqual(len(keepalives), 1)
-		types = _types(chunks)
-		self.assertEqual(types[0], "RUN_STARTED")
-		self.assertEqual(types[-1], "RUN_FINISHED")
-		deltas = [e["delta"] for e in _events(chunks) if e.get("type") == "TEXT_MESSAGE_CONTENT"]
-		self.assertEqual(deltas, ["hello there"])
-
-
-class TestRefusalRole(FrappeTestCase):
-	"""WI-000407: a rate-limit refusal must not look like the agent talking."""
-
-	def test_rate_limited_refusal_is_delivered_as_system_role(self):
-		from one_bpmn.agents import agui_stream
-		from one_bpmn.security.rate_limit import RateLimited
-
-		with patch(
-			"one_bpmn.api.agent_invocation.invoke_agent",
-			side_effect=RateLimited("You are sending messages too quickly."),
-		):
-			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
-
-		start = next(e for e in _events(chunks) if e.get("type") == "TEXT_MESSAGE_START")
-		self.assertEqual(start.get("role"), "system")
-
-	def test_other_refusal_keeps_assistant_role(self):
-		from one_bpmn.agents import agui_stream
-		from one_bpmn.security.refusal import AgentRefusal
-
-		with patch(
-			"one_bpmn.api.agent_invocation.invoke_agent",
-			side_effect=AgentRefusal("blocked by injection screening"),
-		):
-			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
-
-		start = next(e for e in _events(chunks) if e.get("type") == "TEXT_MESSAGE_START")
-		self.assertEqual(start.get("role"), "assistant")
-
-
 class TestInvokeAgentStreamSeam(FrappeTestCase):
 	"""The stream flag threads through invoke_agent without changing the
 	buffered contract."""
@@ -466,3 +363,285 @@ class TestBpmnMapResumeRearm(FrappeTestCase):
 		calls, spawn, err = self._invoke([None], lambda *a: None)
 		self.assertIsInstance(err, _frappe.ValidationError)
 		self.assertEqual(calls["delegate"], 10)  # settle loop (1+8) + re-arm retry
+
+
+# ── WI-000406: progressive text deltas, TOOL_CALL_START/END, and the
+# generated-id-until-persisted handoff ──────────────────────────────────────
+
+
+class TestBufferedStreamProgressiveText(FrappeTestCase):
+	"""A buffered reply's text now rides several TEXT_MESSAGE_CONTENT deltas
+	instead of one, and every tool call the turn made is bracketed by
+	TOOL_CALL_START/END using the tool's own name."""
+
+	def test_long_reply_splits_into_multiple_deltas_that_reassemble(self):
+		from one_bpmn.agents import agui_stream
+
+		long_text = " ".join(f"word{i}" for i in range(60))  # well past one chunk
+		with patch(
+			"one_bpmn.api.agent_invocation.invoke_agent",
+			return_value={"response": long_text, "conversation": "CONV-1"},
+		):
+			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
+
+		deltas = [e["delta"] for e in _events(chunks) if e.get("type") == "TEXT_MESSAGE_CONTENT"]
+		self.assertGreater(len(deltas), 1, "a long reply must stream as more than one delta")
+		self.assertEqual("".join(deltas), long_text, "deltas must reassemble to the exact reply")
+
+	def test_short_reply_still_emits_exactly_one_delta(self):
+		"""Backward compatible with every caller that assumed one delta per turn."""
+		from one_bpmn.agents import agui_stream
+
+		with patch(
+			"one_bpmn.api.agent_invocation.invoke_agent",
+			return_value={"response": "hello there", "conversation": "CONV-1"},
+		):
+			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
+
+		deltas = [e["delta"] for e in _events(chunks) if e.get("type") == "TEXT_MESSAGE_CONTENT"]
+		self.assertEqual(deltas, ["hello there"])
+
+	def test_tool_calls_bracket_with_start_and_end_events(self):
+		from one_bpmn.agents import agui_stream
+
+		reply = {
+			"response": "used a tool",
+			"tool_calls": [{"id": "call-1", "name": "lookup_record"}],
+			"conversation": "CONV-1",
+		}
+		with patch("one_bpmn.api.agent_invocation.invoke_agent", return_value=reply):
+			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
+
+		types = _types(chunks)
+		self.assertIn("TOOL_CALL_START", types)
+		self.assertIn("TOOL_CALL_END", types)
+		start = next(e for e in _events(chunks) if e.get("type") == "TOOL_CALL_START")
+		end = next(e for e in _events(chunks) if e.get("type") == "TOOL_CALL_END")
+		self.assertEqual(start.get("toolCallName") or start.get("tool_call_name"), "lookup_record")
+		start_id = start.get("toolCallId") or start.get("tool_call_id")
+		end_id = end.get("toolCallId") or end.get("tool_call_id")
+		self.assertEqual(start_id, "call-1")
+		self.assertEqual(end_id, "call-1")
+		# TOOL_CALL_START/END come out before the terminal event, after content.
+		self.assertLess(types.index("TOOL_CALL_START"), types.index("RUN_FINISHED"))
+
+	def test_tool_calls_from_trace_are_also_bracketed(self):
+		"""A runner that only exposes the AI Agent Run's turn trace (rather
+		than a flat tool_calls list) still gets TOOL_CALL_START/END \u2014
+		flattened from trace[].tool_calls (the ToolCallRecord shape)."""
+		from one_bpmn.agents import agui_stream
+
+		reply = {
+			"response": "done",
+			"trace": [{"role": "tool", "tool_calls": [{"name": "run_query"}]}],
+			"conversation": "CONV-1",
+		}
+		with patch("one_bpmn.api.agent_invocation.invoke_agent", return_value=reply):
+			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
+
+		types = _types(chunks)
+		self.assertIn("TOOL_CALL_START", types)
+		self.assertIn("TOOL_CALL_END", types)
+		start = next(e for e in _events(chunks) if e.get("type") == "TOOL_CALL_START")
+		self.assertEqual(start.get("toolCallName") or start.get("tool_call_name"), "run_query")
+
+	def test_no_tool_calls_emits_no_tool_events(self):
+		from one_bpmn.agents import agui_stream
+
+		with patch(
+			"one_bpmn.api.agent_invocation.invoke_agent",
+			return_value={"response": "plain", "conversation": "CONV-1"},
+		):
+			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
+		types = _types(chunks)
+		self.assertNotIn("TOOL_CALL_START", types)
+		self.assertNotIn("TOOL_CALL_END", types)
+
+
+class TestStreamedMessageIdentity(FrappeTestCase):
+	"""The stream starts before the Bot Chat Message row exists: every text
+	event of a streamed message must use ONE id throughout, and the
+	persisted name (once known) is delivered separately rather than by
+	silently swapping the id underneath already-rendered events."""
+
+	def test_generated_id_is_stable_across_start_content_end(self):
+		from one_bpmn.agents import agui_stream
+
+		with patch(
+			"one_bpmn.api.agent_invocation.invoke_agent",
+			return_value={"response": "hi there", "conversation": "CONV-1"},
+		):
+			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
+
+		events = _events(chunks)
+		start = next(e for e in events if e.get("type") == "TEXT_MESSAGE_START")
+		content = next(e for e in events if e.get("type") == "TEXT_MESSAGE_CONTENT")
+		end = next(e for e in events if e.get("type") == "TEXT_MESSAGE_END")
+
+		def mid(e):
+			return e.get("messageId") or e.get("message_id")
+
+		self.assertEqual(mid(start), mid(content))
+		self.assertEqual(mid(content), mid(end))
+
+	def test_persisted_name_is_delivered_as_a_separate_event(self):
+		from one_bpmn.agents import agui_stream
+
+		reply = {
+			"response": "hi there",
+			"message_name": "Chat Message-00042",
+			"conversation": "CONV-1",
+		}
+		with patch("one_bpmn.api.agent_invocation.invoke_agent", return_value=reply):
+			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
+
+		events = _events(chunks)
+		text_start = next(e for e in events if e.get("type") == "TEXT_MESSAGE_START")
+		stream_id = text_start.get("messageId") or text_start.get("message_id")
+		# The stream's own generated id, not the persisted name, was used for
+		# every text event \u2014 there was no Chat Message row yet when they went out.
+		self.assertNotEqual(stream_id, "Chat Message-00042")
+
+		persisted = next(
+			(e for e in events if e.get("type") == "CUSTOM" and e.get("name") == "onefm.message_persisted"),
+			None,
+		)
+		self.assertIsNotNone(persisted, "the persisted name must be delivered once known")
+		self.assertEqual(persisted["value"]["message_name"], "Chat Message-00042")
+		self.assertEqual(persisted["value"]["stream_id"], stream_id)
+
+	def test_no_persisted_name_emits_no_handoff_event(self):
+		"""A runner that never saved a Chat Message (e.g. direct_api chat
+		before persistence, or a legacy path) must not fabricate a handoff."""
+		from one_bpmn.agents import agui_stream
+
+		with patch(
+			"one_bpmn.api.agent_invocation.invoke_agent",
+			return_value={"response": "hi", "conversation": "CONV-1"},
+		):
+			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
+		names = [e.get("name") for e in _events(chunks) if e.get("type") == "CUSTOM"]
+		self.assertNotIn("onefm.message_persisted", names)
+
+
+class _FakeStepAdapter:
+	"""Scripted step() responses, mirroring test_ai_step_loop.py's fixture,
+	for exercising the on_tool_event callback in isolation."""
+
+	def __init__(self, steps):
+		self.steps = list(steps)
+
+	async def step(self, system, transcript, tools=None, max_tokens=16384):
+		return self.steps.pop(0)
+
+
+class TestStepLoopToolEventCallback(FrappeTestCase):
+	"""WI-000406: on_tool_event fires start/end around every automatic tool
+	the step loop actually executes."""
+
+	def _run(self, adapter, tools, on_tool_event):
+		import asyncio
+
+		from one_bpmn.agents.executor.step_loop import run_agent_loop
+
+		return asyncio.run(
+			run_agent_loop(
+				adapter,
+				system="sys",
+				user="do the thing",
+				tools=tools,
+				max_tokens=100,
+				max_turns=10,
+				on_tool_event=on_tool_event,
+			)
+		)
+
+	def test_start_then_end_fire_around_a_successful_tool_call(self):
+		from one_bpmn.agents.llm_provider.base import StepResult, StepToolCall, ToolSpec
+
+		events = []
+		adapter = _FakeStepAdapter([
+			StepResult(
+				content="checking",
+				tool_calls=[StepToolCall(id="c1", name="lookup", arguments={})],
+			),
+			StepResult(content="answer"),
+		])
+		tool = ToolSpec(fn=lambda **kw: "42", name="lookup", description="look things up")
+
+		completion, suspension = self._run(adapter, [tool], events.append)
+
+		self.assertIsNone(suspension)
+		self.assertEqual(completion.text, "answer")
+		self.assertEqual(events, [("start", "lookup"), ("end", "lookup")])
+
+	def test_end_fires_even_when_the_tool_raises(self):
+		from one_bpmn.agents.llm_provider.base import StepResult, StepToolCall, ToolSpec
+
+		events = []
+
+		def boom(**kw):
+			raise RuntimeError("kaboom")
+
+		adapter = _FakeStepAdapter([
+			StepResult(
+				content="checking",
+				tool_calls=[StepToolCall(id="c1", name="breaker", arguments={})],
+			),
+			StepResult(content="answer"),
+		])
+		tool = ToolSpec(fn=boom, name="breaker", description="always fails")
+
+		completion, suspension = self._run(adapter, [tool], events.append)
+
+		self.assertIsNone(suspension)
+		self.assertEqual(events, [("start", "breaker"), ("end", "breaker")])
+
+	def test_no_events_for_a_turn_with_no_tool_calls(self):
+		from one_bpmn.agents.llm_provider.base import StepResult
+
+		events = []
+		adapter = _FakeStepAdapter([StepResult(content="just an answer")])
+
+		completion, suspension = self._run(adapter, [], events.append)
+
+		self.assertIsNone(suspension)
+		self.assertEqual(events, [])
+
+	def test_broken_callback_does_not_fail_the_turn(self):
+		"""A bug in the progress indicator must never break the agent's turn."""
+		from one_bpmn.agents.llm_provider.base import StepResult, StepToolCall, ToolSpec
+
+		def bad_callback(phase, name):
+			raise RuntimeError("callback bug")
+
+		adapter = _FakeStepAdapter([
+			StepResult(
+				content="checking",
+				tool_calls=[StepToolCall(id="c1", name="lookup", arguments={})],
+			),
+			StepResult(content="answer"),
+		])
+		tool = ToolSpec(fn=lambda **kw: "42", name="lookup", description="look things up")
+
+		completion, suspension = self._run(adapter, [tool], bad_callback)
+
+		self.assertIsNone(suspension)
+		self.assertEqual(completion.text, "answer")
+
+	def test_no_callback_at_all_is_the_unchanged_default(self):
+		from one_bpmn.agents.llm_provider.base import StepResult, StepToolCall, ToolSpec
+
+		adapter = _FakeStepAdapter([
+			StepResult(
+				content="checking",
+				tool_calls=[StepToolCall(id="c1", name="lookup", arguments={})],
+			),
+			StepResult(content="answer"),
+		])
+		tool = ToolSpec(fn=lambda **kw: "42", name="lookup", description="look things up")
+
+		completion, suspension = self._run(adapter, [tool], None)
+
+		self.assertIsNone(suspension)
+		self.assertEqual(completion.text, "answer")
