@@ -372,40 +372,44 @@ async def _run_turns(
 						"content": wrap_tool_result(_invalid, call.name, call.arguments),
 					})
 					continue
+				_fire_tool_event(on_tool_event, "start", call.name)
 				try:
-					result = str(tool.fn(**call.arguments))
-					if call.name in terminal_tools:
-						# The "response" key is the reply contract (see the ticket's
-						# expected behaviour); a terminal tool called without one
-						# still ends the turn, falling back to its raw arguments
-						# rather than losing the reply entirely.
-						_args = call.arguments if isinstance(call.arguments, dict) else {}
-						terminal_reply = _args.get("response", _args) if _args else result
-				except ToolDeferred as deferred:
-					# The tool ran, but its work outlives this turn. Same pause
-					# as a human tool — the answer arrives from elsewhere — so
-					# it takes the same slot, and the marker rides along so the
-					# dispatcher knows what is being waited on.
-					if pending_call is None:
-						pending_call = {
-							"id": call.id, "name": call.name, "arguments": call.arguments
-						}
-						deferred_wait = deferred.marker or {}
-						frappe.flags[PAUSE_HELD_FLAG] = True
-						continue
-					# A second pause in the same turn. Reaching here means the
-					# tool got past the connector's own guard and parked anyway,
-					# so its work IS running and this turn cannot collect it —
-					# say so rather than blaming a human task.
-					result = _SECOND_PAUSE_RESULT
-				except PolicyViolation as violation:
-					# The interceptor refused the call BEFORE the tool ran
-					# (WI-001645). Handed back as an ordinary tool result, so the
-					# model is told why and can take a different approach —
-					# exactly how every loop already treats a tool that failed.
-					result = violation.decision.as_tool_result()
-				except Exception as exc:
-					result = f"Error calling {call.name}: {exc}"
+					try:
+						result = str(tool.fn(**call.arguments))
+						if call.name in terminal_tools:
+							# The "response" key is the reply contract (see the ticket's
+							# expected behaviour); a terminal tool called without one
+							# still ends the turn, falling back to its raw arguments
+							# rather than losing the reply entirely.
+							_args = call.arguments if isinstance(call.arguments, dict) else {}
+							terminal_reply = _args.get("response", _args) if _args else result
+					except ToolDeferred as deferred:
+						# The tool ran, but its work outlives this turn. Same pause
+						# as a human tool — the answer arrives from elsewhere — so
+						# it takes the same slot, and the marker rides along so the
+						# dispatcher knows what is being waited on.
+						if pending_call is None:
+							pending_call = {
+								"id": call.id, "name": call.name, "arguments": call.arguments
+							}
+							deferred_wait = deferred.marker or {}
+							frappe.flags[PAUSE_HELD_FLAG] = True
+							continue
+						# A second pause in the same turn. Reaching here means the
+						# tool got past the connector's own guard and parked anyway,
+						# so its work IS running and this turn cannot collect it —
+						# say so rather than blaming a human task.
+						result = _SECOND_PAUSE_RESULT
+					except PolicyViolation as violation:
+						# The interceptor refused the call BEFORE the tool ran
+						# (WI-001645). Handed back as an ordinary tool result, so the
+						# model is told why and can take a different approach —
+						# exactly how every loop already treats a tool that failed.
+						result = violation.decision.as_tool_result()
+					except Exception as exc:
+						result = f"Error calling {call.name}: {exc}"
+				finally:
+					_fire_tool_event(on_tool_event, "end", call.name)
 
 			turn_record.tool_calls.append(
 				ToolCallRecord(name=call.name, arguments=call.arguments, result=result)
