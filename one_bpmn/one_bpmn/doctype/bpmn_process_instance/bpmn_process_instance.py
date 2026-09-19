@@ -6,6 +6,7 @@ import uuid
 
 import frappe
 
+from one_bpmn.agents import turn_signal
 from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
 from frappe import _
 from frappe.model.document import Document
@@ -2565,6 +2566,12 @@ def run_parked_ai_task(
 			0,
 			update_modified=False,
 		)
+		# A chat request may be holding its connection open for this turn. It
+		# reads the reply from the database; this only tells it to stop waiting.
+		# In the finally block on purpose: a failed job has to end the wait too,
+		# or the person sits on a spinner until the deadline for no reason.
+		frappe.db.commit()
+		turn_signal.publish(instance_name)
 		frappe.publish_realtime(
 			"bpmn_instance_updated",
 			{

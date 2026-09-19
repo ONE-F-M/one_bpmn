@@ -317,7 +317,7 @@ class TestBpmnMapResumeRearm(FrappeTestCase):
 
 		calls = {"delegate": 0}
 
-		def fake_delegate(conversation, message, context=None):
+		def fake_delegate(conversation, message, context=None, wait=True):
 			calls["delegate"] += 1
 			return delegate_results[min(calls["delegate"], len(delegate_results)) - 1]
 
@@ -326,7 +326,6 @@ class TestBpmnMapResumeRearm(FrappeTestCase):
 			patch("one_bpmn.api.server_script_api.delegate_chat_turn", side_effect=fake_delegate),
 			patch("one_bpmn.one_bpmn.trigger._maybe_start_instance", side_effect=rearm) as spawn,
 			patch("frappe.get_doc", return_value=object()),
-			patch("time.sleep"),  # the first-turn settle loop must not slow tests
 		):
 			from one_bpmn.api.agent_invocation import _run_bpmn_map
 
@@ -336,19 +335,20 @@ class TestBpmnMapResumeRearm(FrappeTestCase):
 				return calls, spawn, e
 			return calls, spawn, result
 
-	def test_settle_loop_recovers_a_racing_first_turn(self):
-		# None once (instance still Queued mid-start), then delivered — no re-arm
+	def test_nothing_delivered_goes_straight_to_the_rearm(self):
+		"""No settle loop any more. Delivery accepts a Queued instance and
+		starts it itself, so a None here means there is no live instance to
+		deliver to and retrying the same call cannot change that."""
 		calls, spawn, result = self._invoke([None, {"response": "settled"}], lambda *a: None)
 		self.assertEqual(result["response"], "settled")
 		self.assertEqual(calls["delegate"], 2)
-		spawn.assert_not_called()
+		spawn.assert_called_once()
 
 	def test_dead_instance_rearms_and_retries(self):
-		# None through the whole settle loop (1+8), then the re-arm retry lands
-		results = [None] * 9 + [{"response": "back from the dead"}]
+		results = [None, {"response": "back from the dead"}]
 		calls, spawn, result = self._invoke(results, lambda *a: None)
 		self.assertEqual(result["response"], "back from the dead")
-		self.assertEqual(calls["delegate"], 10)
+		self.assertEqual(calls["delegate"], 2)
 		spawn.assert_called_once()
 
 	def test_live_instance_never_rearms(self):
@@ -362,4 +362,4 @@ class TestBpmnMapResumeRearm(FrappeTestCase):
 
 		calls, spawn, err = self._invoke([None], lambda *a: None)
 		self.assertIsInstance(err, _frappe.ValidationError)
-		self.assertEqual(calls["delegate"], 10)  # settle loop (1+8) + re-arm retry
+		self.assertEqual(calls["delegate"], 2)  # the first attempt, then the re-arm retry

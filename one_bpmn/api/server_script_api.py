@@ -5,10 +5,11 @@ import json
 import re
 
 import frappe
+from frappe import _
 
+from one_bpmn.agents import turn_signal
 from one_bpmn.security.rate_limit import RateLimited
 from one_bpmn.utils.session import as_user
-from frappe import _
 
 
 # ============================================
@@ -28,7 +29,56 @@ def _derive_api_method(script_name: str) -> str:
 	return method or "script"
 
 
-def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: dict):
+# How long the chat request waits for the worker to finish the turn. Matches the
+# per-call ceiling an AI Agent Task is given, so the request gives up at the same
+# point the work itself would.
+CHAT_TURN_WAIT_SECONDS = 300
+
+
+def _latest_bot_message(conversation_name: str):
+	"""The newest Bot reply in this conversation, as a one-row list.
+
+	``name`` is selected because the reply has to be identifiable afterwards
+	(WI-001641): a rating or a report needs something durable to point at.
+	"""
+	return frappe.get_all(
+		"Chat Message",
+		filters={"conversation": conversation_name, "message_type": "Bot"},
+		fields=["name", "text", "metadata"],
+		order_by="creation desc",
+		limit=1,
+	)
+
+
+def _wait_for_worker_reply(inst_name: str, conversation_name: str, reply_before: str | None):
+	"""Wait for the parked turn to produce its reply, or give up (WI-002363).
+
+	Two commits, both load-bearing. The first releases this request's
+	transaction: the job is enqueued after commit, so without it the worker is
+	never started and the wait is certain to time out. The second starts a fresh
+	read snapshot, because a transaction that opened before the worker committed
+	would keep answering with the rows it saw then, however long it waited.
+	"""
+	if frappe.flags.in_test and not frappe.flags.get("bpmn_force_ai_parking"):
+		# Parking is off in tests, so the engine ran inline and the reply is
+		# already there. Without this a delegation test would block for the
+		# whole turn deadline waiting for a worker that never runs. A test that
+		# forces parking means it, and gets the real path.
+		return None
+
+	frappe.db.commit()
+	turn_signal.wait(inst_name, CHAT_TURN_WAIT_SECONDS)
+	frappe.db.commit()
+
+	rows = _latest_bot_message(conversation_name)
+	if rows and rows[0]["name"] != reply_before:
+		return rows
+	return None
+
+
+def _delegate_to_bpmn_instance(
+	conversation_name: str, message: str, context: dict, wait: bool = True
+):
 	"""Hand a chat turn to the BPMN Process Instance driving this conversation.
 
 	The process map performs ALL the work: its ``Save User Message`` task persists
@@ -98,15 +148,13 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 	}
 	payload.update({k: v for k, v in (context or {}).items() if v not in (None, "")})
 
-	# Run the agent INLINE for this turn instead of parking it on the
-	# bpmn_ai_agent worker. The chat endpoint is an explicit waiter: the
-	# frontend expects the reply in this HTTP response, so the "Run <Agent>"
-	# AI task must execute (and "Save Response" must persist the bot message)
-	# before the read-back below. Without this the agent parks async, the
-	# read-back finds no fresh bot message, and the caller wrongly surfaces
-	# "reopen the chat" even though the instance is running normally.
-	prev_parking_flag = getattr(frappe.flags, "bpmn_disable_ai_parking", False)
-	frappe.flags.bpmn_disable_ai_parking = True
+	# The AI work of this turn parks on the bpmn_ai_agent worker like every
+	# other agent task (WI-002363). It used to run inline here, which put the
+	# model call and every tool inside the gunicorn worker for the length of a
+	# turn. What the chat endpoint still owes its caller is the reply, so the
+	# wait moved below: the engine pass returns as soon as the job is queued,
+	# and this function waits for that job instead of doing its work.
+	turn_signal.clear(inst_name)
 	try:
 		instance = frappe.get_doc("BPMN Process Instance", inst_name)
 		instance.receive_message("ChatConversation_Message_Action", payload=payload)
@@ -127,8 +175,6 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 	except Exception:
 		frappe.log_error(title="BPMN chat delegation failed", message=frappe.get_traceback())
 		return None
-	finally:
-		frappe.flags.bpmn_disable_ai_parking = prev_parking_flag
 
 	# Read back the bot message the instance produced during Call Agent → Save Response.
 	#
@@ -137,13 +183,19 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 	# stream minted a throwaway uuid for the message instead, and nothing the
 	# user later says about a specific reply — a rating, a report — had anything
 	# durable to point at.
-	rows = frappe.get_all(
-		"Chat Message",
-		filters={"conversation": conversation_name, "message_type": "Bot"},
-		fields=["name", "text", "metadata"],
-		order_by="creation desc",
-		limit=1,
-	)
+	rows = _latest_bot_message(conversation_name)
+	if not rows or rows[0]["name"] == reply_before:
+		if not wait:
+			# The caller wants to relay the worker's progress while the turn
+			# runs, which a function that blocks cannot let it do. It collects
+			# the reply itself through collect_chat_turn_reply.
+			return {
+				"pending": True,
+				"instance": inst_name,
+				"conversation": conversation_name,
+				"reply_before": reply_before,
+			}
+		rows = _wait_for_worker_reply(inst_name, conversation_name, reply_before) or rows
 	if not rows or rows[0]["name"] == reply_before:
 		# This turn produced no reply of its own. Before reporting a dead
 		# process, check whether it PARKED: a designer-marked human tool
@@ -157,6 +209,54 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 			return parked
 		return None
 
+	return _shape_reply(rows, inst_name)
+
+
+def collect_chat_turn_reply(handle: dict, task_output=None) -> dict | None:
+	"""Read what a turn delivered with ``wait=False`` produced.
+
+	The streaming surface delivers the message, relays the worker's progress
+	while the turn runs, then calls this. Splitting delivery from collection is
+	what lets the connection report a running tool, because a function that
+	blocks cannot also yield.
+
+	``task_output`` is the AI task's own output, sent by the worker as it wrote
+	it. When it is there it IS the answer, and the Chat Message row is read only
+	to name the reply. Without it the row is the answer, as it always was.
+	"""
+	inst_name = handle["instance"]
+	conversation_name = handle["conversation"]
+	reply_before = handle.get("reply_before")
+
+	rows = _latest_bot_message(conversation_name)
+	if not rows or rows[0]["name"] == reply_before:
+		rows = _wait_for_worker_reply(inst_name, conversation_name, reply_before) or rows
+	if not rows or rows[0]["name"] == reply_before:
+		parked = _parked_for_human(inst_name, conversation_name)
+		if parked:
+			return parked
+		# No row of its own, but the task answered. A map that does not persist
+		# a Bot message still has a reply to give.
+		return _reply_from_task_output(task_output, inst_name) if task_output else None
+	return _shape_reply(rows, inst_name, task_output)
+
+
+def _reply_from_task_output(task_output, inst_name: str) -> dict | None:
+	"""The AI task's output as a reply, for a turn that saved no message."""
+	result = dict(task_output) if isinstance(task_output, dict) else {"response": str(task_output)}
+	if not (result.get("response") or "").strip():
+		return None
+	result["bpmn_driven"] = True
+	return result
+
+
+def _shape_reply(rows, inst_name: str, task_output=None) -> dict:
+	"""Turn what this turn produced into the caller's result.
+
+	``task_output`` wins over the message metadata when the worker sent it: it
+	is the AI task's own output rather than a copy of it read back from a row
+	that was only assumed to belong to this turn.
+	"""
 	meta = {}
 	if rows[0].get("metadata"):
 		try:
@@ -164,8 +264,10 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 		except Exception:
 			meta = {}
 
-	agent_result = meta.get("agent_result")
+	agent_result = task_output if isinstance(task_output, dict) else meta.get("agent_result")
 	result = dict(agent_result) if isinstance(agent_result, dict) else {}
+	if not isinstance(task_output, dict) and isinstance(task_output, str) and task_output.strip():
+		result.setdefault("response", task_output)
 	# The Chat Message text is what the map actually said, so it wins over a
 	# BLANK response in agent_result. setdefault treated "" as an answer, and a
 	# map that reports its reply only on the message — every Logix branch that
@@ -237,7 +339,7 @@ def _parked_for_human(inst_name: str, conversation_name: str) -> dict | None:
 	}
 
 
-def delegate_chat_turn(conversation_name: str, message: str, context: dict = None):
+def delegate_chat_turn(conversation_name: str, message: str, context: dict = None, wait: bool = True):
 	"""Public entry point for other apps (e.g. the Lumina Desk page in onefm_mcp)
 	to hand a chat turn to the BPMN Process Instance driving a conversation.
 
@@ -250,7 +352,7 @@ def delegate_chat_turn(conversation_name: str, message: str, context: dict = Non
 	Chat Message — the map's "Save User Message" task then reuses it instead of
 	inserting a duplicate.
 	"""
-	return _delegate_to_bpmn_instance(conversation_name, message, context or {})
+	return _delegate_to_bpmn_instance(conversation_name, message, context or {}, wait=wait)
 
 
 @frappe.whitelist()

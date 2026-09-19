@@ -479,6 +479,88 @@ def _stream_with_pii_teardown(gen, pii_turn):
 # contract.
 
 
+def _rearm_and_deliver(config, conversation, message, context, wait: bool = True):
+	"""Re-arm a conversation whose instance has closed, then deliver once more.
+
+	A resumed conversation's instance has Completed with the map's close branch,
+	so the first turn after a resume has nothing to deliver to. This goes
+	through the same conditional-start gate the insert hook uses, which
+	evaluates the map's own start condition and dedups.
+	"""
+	from one_bpmn.api.server_script_api import delegate_chat_turn
+
+	if not config.get("process_model"):
+		return None
+	try:
+		from one_bpmn.one_bpmn.trigger import _maybe_start_instance
+
+		_maybe_start_instance(
+			frappe.get_doc("Chat Conversation", conversation), config["process_model"]
+		)
+		return delegate_chat_turn(conversation, message, context=context, wait=wait)
+	except Exception:
+		frappe.log_error(title="bpmn_map resume re-arm failed", message=frappe.get_traceback())
+		return None
+
+
+def _no_live_instance(config):
+	frappe.throw(
+		_("The process for agent '{0}' is not running for this conversation. Please reopen the chat.").format(
+			config["agent_id"]
+		)
+	)
+
+
+def _bpmn_turn_stream(config, conversation, message, context):
+	"""Deliver the turn, relay the worker's progress, hand over the reply.
+
+	The turn runs on the bpmn_ai_agent worker, so the request is free to report
+	what it is doing while it runs. Tools announce themselves from the shape
+	runner; this relays those announcements and finishes with the reply, which
+	the stream shapes the same way it shapes a runner that never streamed.
+	"""
+	from one_bpmn.agents import turn_signal
+	from one_bpmn.agents.agui_stream import HANDOVER_EVENT
+	from one_bpmn.api.server_script_api import (
+		CHAT_TURN_WAIT_SECONDS,
+		collect_chat_turn_reply,
+		delegate_chat_turn,
+	)
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import TURN_OUTPUT_EVENT
+
+	handle = delegate_chat_turn(conversation, message, context=context, wait=False)
+	if handle is None:
+		handle = _rearm_and_deliver(config, conversation, message, context, wait=False)
+	if handle is None:
+		_no_live_instance(config)
+
+	if not handle.get("pending"):
+		# The reply was already there: an inline engine pass in tests, or a turn
+		# the map answered without parking anything.
+		yield {"type": HANDOVER_EVENT, "result": handle}
+		return
+
+	# The worker's job is queued to start after this request commits, so nothing
+	# runs until the transaction is released. Progress would never arrive.
+	if not frappe.flags.in_test:
+		frappe.db.commit()
+
+	# The AI task's own output travels on the same list. It is the answer, not
+	# a status line, so it is taken out here and handed to the collector rather
+	# than relayed to the client.
+	task_output = {}
+	for event in turn_signal.consume(handle["instance"], CHAT_TURN_WAIT_SECONDS):
+		if isinstance(event, dict) and event.get("type") == TURN_OUTPUT_EVENT:
+			task_output["output"] = event.get("output")
+			continue
+		yield event
+
+	result = collect_chat_turn_reply(handle, task_output.get("output"))
+	if result is None:
+		_no_live_instance(config)
+	yield {"type": HANDOVER_EVENT, "result": result}
+
+
 def _run_bpmn_map(config, conversation, message, context, stream=False):
 	"""Converted agents: the linked process map owns the whole turn.
 
@@ -490,46 +572,27 @@ def _run_bpmn_map(config, conversation, message, context, stream=False):
 	gate the insert hook uses (_maybe_start_instance evaluates the map's own
 	start condition and dedups), then retry the turn once.
 	"""
-	import time
-
 	from one_bpmn.api.server_script_api import delegate_chat_turn
+
+	if stream:
+		return {
+			"streaming": True,
+			"stream": _bpmn_turn_stream(config, conversation, message, context),
+		}
 
 	result = delegate_chat_turn(conversation, message, context=context)
 
-	# First-turn race (diagnosed live, 2026-08-08): the insert hook spawns the
-	# instance and enqueues its first engine pass on the worker; a fast first
-	# message can catch it Queued mid-start — the inline starter loses the
-	# row-lock race and reads a not-yet-Active status one beat before the
-	# worker commits. The production Lumina page solved this with a
-	# wait-then-stream loop; same idea here, bounded: the SSE connection is
-	# already streaming, so a few seconds of settling costs nothing visible.
-	if result is None:
-		# NB: not `for _ in range(...)` — that would shadow gettext's _ and
-		# turn the throw below into `int(...)`.
-		for _attempt in range(8):
-			time.sleep(0.75)
-			result = delegate_chat_turn(conversation, message, context=context)
-			if result is not None:
-				break
+	# The first-turn race used to be met here with eight blind retries of the
+	# whole turn, a second apart. Delivery answers it properly now: it accepts a
+	# Queued instance, starts it inline under a row lock, and waits for the
+	# worker to finish the turn. What is left when delivery still returns
+	# nothing is a conversation with no live instance at all, and retrying the
+	# same call cannot change that. The re-arm below is the recovery.
 
-	if result is None and config.get("process_model"):
-		try:
-			from one_bpmn.one_bpmn.trigger import _maybe_start_instance
-
-			_maybe_start_instance(
-				frappe.get_doc("Chat Conversation", conversation), config["process_model"]
-			)
-			result = delegate_chat_turn(conversation, message, context=context)
-		except Exception:
-			frappe.log_error(
-				title="bpmn_map resume re-arm failed", message=frappe.get_traceback()
-			)
 	if result is None:
-		frappe.throw(
-			_("The process for agent '{0}' is not running for this conversation. Please reopen the chat.").format(
-				config["agent_id"]
-			)
-		)
+		result = _rearm_and_deliver(config, conversation, message, context)
+	if result is None:
+		_no_live_instance(config)
 	return result
 
 
