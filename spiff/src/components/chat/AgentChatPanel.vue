@@ -611,6 +611,7 @@ async function send(text, extraContext = null) {
 				streamingText.value = "";
 			}
 			streamingMessageId.value = "";
+			streamingRole.value = "assistant";
 			busy.value = false;
 			if (status.value !== "error") status.value = "done";
 			activeStream = null;
