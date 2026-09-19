@@ -267,6 +267,13 @@ function agentItem(text) {
 	// Both things a finished agent bubble needs: the row id it can be rated by
 	// (WI-001822) and when it arrived (WI-002047). Built in one place so a new
 	// flush site cannot forget either.
+	//
+	// WI-000407: a role of "system" (a rate-limit refusal) flushes as a
+	// system notice instead — no rating control, and it never reads as the
+	// agent itself talking.
+	if (streamingRole.value === "system") {
+		return { kind: "system", text, ts: stampNow() };
+	}
 	return { kind: "agent", text, message: streamingMessageId.value || "", ts: stampNow() };
 }
 
