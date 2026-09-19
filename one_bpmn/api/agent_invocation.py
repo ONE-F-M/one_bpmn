@@ -526,6 +526,7 @@ def _bpmn_turn_stream(config, conversation, message, context):
 		collect_chat_turn_reply,
 		delegate_chat_turn,
 	)
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import TURN_OUTPUT_EVENT
 
 	handle = delegate_chat_turn(conversation, message, context=context, wait=False)
 	if handle is None:
@@ -544,9 +545,17 @@ def _bpmn_turn_stream(config, conversation, message, context):
 	if not frappe.flags.in_test:
 		frappe.db.commit()
 
-	yield from turn_signal.consume(handle["instance"], CHAT_TURN_WAIT_SECONDS)
+	# The AI task's own output travels on the same list. It is the answer, not
+	# a status line, so it is taken out here and handed to the collector rather
+	# than relayed to the client.
+	task_output = {}
+	for event in turn_signal.consume(handle["instance"], CHAT_TURN_WAIT_SECONDS):
+		if isinstance(event, dict) and event.get("type") == TURN_OUTPUT_EVENT:
+			task_output["output"] = event.get("output")
+			continue
+		yield event
 
-	result = collect_chat_turn_reply(handle)
+	result = collect_chat_turn_reply(handle, task_output.get("output"))
 	if result is None:
 		_no_live_instance(config)
 	yield {"type": HANDOVER_EVENT, "result": result}

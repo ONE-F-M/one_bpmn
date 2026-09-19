@@ -212,13 +212,17 @@ def _delegate_to_bpmn_instance(
 	return _shape_reply(rows, inst_name)
 
 
-def collect_chat_turn_reply(handle: dict) -> dict | None:
+def collect_chat_turn_reply(handle: dict, task_output=None) -> dict | None:
 	"""Read what a turn delivered with ``wait=False`` produced.
 
 	The streaming surface delivers the message, relays the worker's progress
 	while the turn runs, then calls this. Splitting delivery from collection is
 	what lets the connection report a running tool, because a function that
 	blocks cannot also yield.
+
+	``task_output`` is the AI task's own output, sent by the worker as it wrote
+	it. When it is there it IS the answer, and the Chat Message row is read only
+	to name the reply. Without it the row is the answer, as it always was.
 	"""
 	inst_name = handle["instance"]
 	conversation_name = handle["conversation"]
@@ -228,12 +232,31 @@ def collect_chat_turn_reply(handle: dict) -> dict | None:
 	if not rows or rows[0]["name"] == reply_before:
 		rows = _wait_for_worker_reply(inst_name, conversation_name, reply_before) or rows
 	if not rows or rows[0]["name"] == reply_before:
-		return _parked_for_human(inst_name, conversation_name)
-	return _shape_reply(rows, inst_name)
+		parked = _parked_for_human(inst_name, conversation_name)
+		if parked:
+			return parked
+		# No row of its own, but the task answered. A map that does not persist
+		# a Bot message still has a reply to give.
+		return _reply_from_task_output(task_output, inst_name) if task_output else None
+	return _shape_reply(rows, inst_name, task_output)
 
 
-def _shape_reply(rows, inst_name: str) -> dict:
-	"""Turn the Bot Chat Message this turn produced into the caller's result."""
+def _reply_from_task_output(task_output, inst_name: str) -> dict | None:
+	"""The AI task's output as a reply, for a turn that saved no message."""
+	result = dict(task_output) if isinstance(task_output, dict) else {"response": str(task_output)}
+	if not (result.get("response") or "").strip():
+		return None
+	result["bpmn_driven"] = True
+	return result
+
+
+def _shape_reply(rows, inst_name: str, task_output=None) -> dict:
+	"""Turn what this turn produced into the caller's result.
+
+	``task_output`` wins over the message metadata when the worker sent it: it
+	is the AI task's own output rather than a copy of it read back from a row
+	that was only assumed to belong to this turn.
+	"""
 	meta = {}
 	if rows[0].get("metadata"):
 		try:
@@ -241,8 +264,10 @@ def _shape_reply(rows, inst_name: str) -> dict:
 		except Exception:
 			meta = {}
 
-	agent_result = meta.get("agent_result")
+	agent_result = task_output if isinstance(task_output, dict) else meta.get("agent_result")
 	result = dict(agent_result) if isinstance(agent_result, dict) else {}
+	if not isinstance(task_output, dict) and isinstance(task_output, str) and task_output.strip():
+		result.setdefault("response", task_output)
 	# The Chat Message text is what the map actually said, so it wins over a
 	# BLANK response in agent_result. setdefault treated "" as an answer, and a
 	# map that reports its reply only on the message — every Logix branch that

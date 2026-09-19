@@ -1,6 +1,7 @@
 """The chat turn runs on the worker, and the request waits for it (WI-002363)."""
 
 import time
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -200,3 +201,83 @@ class TestProgressReachesTheRequest(FrappeTestCase):
 		list(_take_handover(iter([{"type": "TOOL_CALL_START", "toolCallName": "x"}]), handover))
 
 		self.assertNotIn("result", handover)
+
+
+class TestTheReplyComesFromTheTaskOutput(FrappeTestCase):
+	"""The answer is the AI task's own output, not whatever row happened to be
+	newest when the request looked."""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self.conversation = "_test_conv_" + frappe.generate_hash(length=8)
+		self.instance = _instance_name()
+		frappe.flags.bpmn_force_ai_parking = True
+		# The worker is not running here, so a turn with no reply row would
+		# otherwise wait out the whole production deadline.
+		self._wait_patch = patch.object(server_script_api, "CHAT_TURN_WAIT_SECONDS", 0.3)
+		self._wait_patch.start()
+
+	def tearDown(self):
+		self._wait_patch.stop()
+		frappe.flags.bpmn_force_ai_parking = False
+
+	def _bot_message(self, text, metadata=None):
+		doc = frappe.get_doc(
+			{
+				"doctype": "Chat Message",
+				"conversation": self.conversation,
+				"message_type": "Bot",
+				"text": text,
+				"metadata": metadata,
+			}
+		)
+		doc.flags.ignore_links = True
+		doc.flags.ignore_mandatory = True
+		return doc.insert(ignore_permissions=True)
+
+	def _handle(self, reply_before=None):
+		return {
+			"instance": self.instance,
+			"conversation": self.conversation,
+			"reply_before": reply_before,
+		}
+
+	def test_the_task_output_wins_over_the_metadata_on_the_row(self):
+		import json as _json
+
+		row = self._bot_message("row text", _json.dumps({"agent_result": {"response": "from the row"}}))
+
+		with patch.object(frappe.db, "commit"):
+			result = server_script_api.collect_chat_turn_reply(
+				self._handle(), {"response": "from the task", "intent": "ANSWER"}
+			)
+
+		self.assertEqual(result["response"], "from the task")
+		self.assertEqual(result["intent"], "ANSWER")
+		# The row still names the reply, so a rating has something to point at.
+		self.assertEqual(result["message_name"], row.name)
+
+	def test_without_a_task_output_the_row_still_answers(self):
+		import json as _json
+
+		self._bot_message("row text", _json.dumps({"agent_result": {"response": "from the row"}}))
+
+		with patch.object(frappe.db, "commit"):
+			result = server_script_api.collect_chat_turn_reply(self._handle())
+
+		self.assertEqual(result["response"], "from the row")
+
+	def test_a_turn_that_saved_no_message_still_answers_from_its_output(self):
+		with patch.object(frappe.db, "commit"):
+			result = server_script_api.collect_chat_turn_reply(
+				self._handle(), {"response": "no row, still an answer"}
+			)
+
+		self.assertEqual(result["response"], "no row, still an answer")
+		self.assertTrue(result["bpmn_driven"])
+
+	def test_an_empty_output_and_no_message_is_still_nothing(self):
+		with patch.object(frappe.db, "commit"):
+			result = server_script_api.collect_chat_turn_reply(self._handle(), {"response": "   "})
+
+		self.assertIsNone(result)
