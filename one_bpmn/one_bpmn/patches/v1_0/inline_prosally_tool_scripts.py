@@ -1139,6 +1139,7 @@ def _prosally_preserver(mode, arg_a="", arg_b=None):
         return summarize_configured_elements(_cfg)
     return None
 from one_bpmn.security.bpmn_validator import validate_bpmn_xml
+from one_bpmn.agents.llm_provider.base import LLMTruncatedError
 
 _MAX_FIX_PASSES = 3
 
@@ -1147,6 +1148,20 @@ _cfg = get_agent_config("prosally_agent") or {}
 _cfg.setdefault("agent_id", "prosally_agent")
 _subs = _cfg.get("sub_prompts") or {}
 _adapter = get_llm_adapter_from_settings(_cfg)
+
+# ── explicit output budget (WI-000405) ──
+# See the same block in the Generate Process tool for the reasoning: the
+# adapter default only wins when nothing is passed, so a configured
+# max_tokens below 16384 silently cut a large modification off mid-JSON.
+_max_tokens = int(_cfg.get("max_tokens") or 0)
+if _max_tokens < 16384:
+    _max_tokens = 16384
+_model_ceiling = 0
+if _cfg.get("ai_model"):
+    _model_ceiling = frappe.db.get_value("AI Model", _cfg.get("ai_model"), "max_output_tokens") or 0
+if _model_ceiling:
+    _max_tokens = min(_max_tokens, int(_model_ceiling))
+_truncated_error = False
 
 process_name = turn.get("process_name", "")
 chat_history = turn.get("chat_history", []) or []
