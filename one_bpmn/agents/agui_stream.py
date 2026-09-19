@@ -29,6 +29,7 @@ RunError; nothing is ever emitted as a bare named SSE line.
 """
 
 import json
+import threading
 import uuid
 
 import frappe
@@ -46,6 +47,71 @@ from frappe import _
 
 from one_bpmn.security.rate_limit import RateLimited
 from one_bpmn.security.refusal import AgentRefusal
+
+# Keep-alive cadence for a buffered turn (WI-000407): long enough not to spam
+# the wire, short enough to beat any proxy/load-balancer idle-connection
+# timeout well inside a minute.
+_HEARTBEAT_SECONDS = 10
+
+
+def _invoke_with_heartbeat(fn, interval: float = _HEARTBEAT_SECONDS):
+	"""Run a blocking call on its own thread, yielding ``: keep-alive`` SSE
+	comments every ``interval`` seconds while it is still running.
+
+	A Frappe request context (the site connection, the current user, the
+	local db handle) does not cross a thread boundary: a plain
+	``threading.Thread`` running ``fn`` would have no database connection at
+	all and every real turn would fail immediately. So the worker opens its
+	OWN site connection and user context, and commits for itself before it
+	is torn down \u2014 the same "the caller cannot commit on this thread's
+	behalf" reasoning that ``_commit_turn`` already applies to the main
+	generator thread.
+
+	Yields ``": keep-alive\\n\\n"`` chunks (a comment line, never an event \u2014
+	see the module docstring) until the worker finishes, then either raises
+	the worker's exception (so it surfaces to the caller exactly as if ``fn``
+	had been called inline) or returns its result via ``StopIteration.value``.
+	"""
+	site = getattr(frappe.local, "site", None)
+	user = frappe.session.user
+	in_test = frappe.flags.in_test
+	outcome = {}
+
+	def _run():
+		if not site:
+			# No site to reconnect to (e.g. a unit test driving this helper
+			# directly outside a request) \u2014 fall back to running inline on
+			# this thread using the context already in place.
+			try:
+				outcome["result"] = fn()
+			except BaseException as exc:  # noqa: BLE001 - relayed to caller
+				outcome["error"] = exc
+			return
+		frappe.init(site=site)
+		frappe.connect()
+		frappe.set_user(user)
+		frappe.flags.in_test = in_test
+		try:
+			outcome["result"] = fn()
+			if not in_test:
+				frappe.db.commit()
+		except BaseException as exc:  # noqa: BLE001 - relayed to caller
+			if not in_test:
+				frappe.db.rollback()
+			outcome["error"] = exc
+		finally:
+			frappe.destroy()
+
+	worker = threading.Thread(target=_run, daemon=True)
+	worker.start()
+	while worker.is_alive():
+		worker.join(timeout=interval)
+		if worker.is_alive():
+			yield ": keep-alive\n\n"
+
+	if "error" in outcome:
+		raise outcome["error"]
+	return outcome.get("result")
 
 # ── Extension translators (payload dict → list of CustomEvent) ──────────────
 # Registered callables receive the runner's reply dict and return an iterable
