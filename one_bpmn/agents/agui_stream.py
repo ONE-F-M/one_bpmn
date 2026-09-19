@@ -315,7 +315,13 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 		if not frappe.flags.in_test:
 			frappe.db.commit()
 		text = str(refusal) or _("This agent declined to answer that message.")
-		yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
+		# A rate-limit refusal is the platform pushing back, not the agent
+		# talking (WI-000407): role "system" keeps it visibly distinct from
+		# an assistant message so it doesn't read as the agent itself
+		# declining. Every other refusal (injection Block, disabled model,
+		# a frozen conversation) keeps the existing "assistant" role.
+		role = "system" if isinstance(refusal, RateLimited) else "assistant"
+		yield encoder.encode(TextMessageStartEvent(message_id=message_id, role=role))
 		yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=text))
 		yield encoder.encode(TextMessageEndEvent(message_id=message_id))
 	except Exception as e:
