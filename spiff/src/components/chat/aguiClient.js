@@ -33,7 +33,7 @@ const GENERIC_FAILURE = "Connection lost. Please try again.";
 // of frame has arrived for this long, the connection is stuck — fail the
 // turn instead of leaving the panel on "Thinking…" forever.
 const DEFAULT_IDLE_TIMEOUT_MS = 60000;
-const TIMEOUT_FAILURE = "The agent did not respond.";
+const TIMEOUT_FAILURE = "The agent did not respond";
 
 /**
  * Stream one agent turn.
