@@ -1,5 +1,5 @@
 """
-WI-000405: ProsAlly's modify_process / generate_process tool scripts must
+ProsAlly's modify_process / generate_process tool scripts must
 read an explicit max_tokens from agent configuration (floored at 16384,
 capped at the configured model's own ceiling) and must turn a truncated
 completion into a real explanation instead of letting the finalize tool's
@@ -19,17 +19,16 @@ from unittest.mock import AsyncMock, patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.llm_provider.base import LLMTruncatedError
 from one_bpmn.agents import shape_tools
+from one_bpmn.agents.llm_provider.base import LLMTruncatedError
 from one_bpmn.one_bpmn.patches.v1_0.inline_prosally_tool_scripts import (
-	MODIFY,
-	GENERATE,
 	FINALIZE,
+	GENERATE,
+	MODIFY,
 )
 
 
 class TestProsAllyTruncationHandling(FrappeTestCase):
-
 	def _run_script(self, body: str, context_docname="turn-1", extra_globals=None):
 		ns = {"frappe": frappe, "context_docname": context_docname, "result": {}}
 		if extra_globals:
@@ -60,13 +59,15 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 
 		adapter = self._fake_adapter(raises=LLMTruncatedError("hit ceiling"))
 
-		with patch("one_bpmn.agents.turn_state.get_turn", return_value=turn), \
-			patch("one_bpmn.agents.turn_state.update_turn", side_effect=fake_update_turn), \
+		with (
+			patch("one_bpmn.agents.turn_state.get_turn", return_value=turn),
+			patch("one_bpmn.agents.turn_state.update_turn", side_effect=fake_update_turn),
 			patch(
 				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
 				return_value={"sub_prompts": {}, "max_tokens": 1024, "agent_id": "prosally_agent"},
-			), \
-			patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter):
+			),
+			patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter),
+		):
 			ns = self._run_script(MODIFY)
 
 		result = ns["result"]
@@ -83,8 +84,10 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 	def test_finalize_does_not_overwrite_the_size_explanation(self):
 		"""Once modify_process has closed the turn with done=True, finalize
 		must report success without emitting its own generic question."""
-		with patch("one_bpmn.agents.turn_state.get_turn", return_value={"done": True}), \
-			patch("one_bpmn.agents.turn_state.update_turn") as mock_update:
+		with (
+			patch("one_bpmn.agents.turn_state.get_turn", return_value={"done": True}),
+			patch("one_bpmn.agents.turn_state.update_turn") as mock_update,
+		):
 			ns = self._run_script(FINALIZE)
 
 		self.assertTrue(ns["result"].get("finalized"))
@@ -97,13 +100,15 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 		turn = {"process_name": "P", "chat_history": [], "current_xml": ""}
 		adapter = self._fake_adapter(raises=LLMTruncatedError("still truncated"))
 
-		with patch("one_bpmn.agents.turn_state.get_turn", return_value=turn), \
-			patch("one_bpmn.agents.turn_state.update_turn"), \
+		with (
+			patch("one_bpmn.agents.turn_state.get_turn", return_value=turn),
+			patch("one_bpmn.agents.turn_state.update_turn"),
 			patch(
 				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
 				return_value={"sub_prompts": {}, "max_tokens": 32000, "agent_id": "prosally_agent"},
-			), \
-			patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter):
+			),
+			patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter),
+		):
 			self._run_script(MODIFY)
 
 		_, kwargs = adapter.complete.call_args
@@ -116,13 +121,15 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 		turn = {"process_name": "P", "chat_history": [], "current_xml": ""}
 		adapter = self._fake_adapter(raises=LLMTruncatedError("truncated"))
 
-		with patch("one_bpmn.agents.turn_state.get_turn", return_value=turn), \
-			patch("one_bpmn.agents.turn_state.update_turn"), \
+		with (
+			patch("one_bpmn.agents.turn_state.get_turn", return_value=turn),
+			patch("one_bpmn.agents.turn_state.update_turn"),
 			patch(
 				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
 				return_value={"sub_prompts": {}, "max_tokens": 1024, "agent_id": "prosally_agent"},
-			), \
-			patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter):
+			),
+			patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter),
+		):
 			self._run_script(MODIFY)
 
 		_, kwargs = adapter.complete.call_args
@@ -132,13 +139,15 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 		turn = {"intent": "GENERATE_NEW", "process_name": "P", "chat_history": []}
 		adapter = self._fake_adapter(raises=LLMTruncatedError("truncated"))
 
-		with patch("one_bpmn.agents.turn_state.get_turn", return_value=turn), \
-			patch("one_bpmn.agents.turn_state.update_turn"), \
+		with (
+			patch("one_bpmn.agents.turn_state.get_turn", return_value=turn),
+			patch("one_bpmn.agents.turn_state.update_turn"),
 			patch(
 				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
 				return_value={"sub_prompts": {}, "max_tokens": 20000, "agent_id": "prosally_agent"},
-			), \
-			patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter):
+			),
+			patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter),
+		):
 			ns = self._run_script(GENERATE)
 
 		_, kwargs = adapter.complete.call_args
@@ -169,17 +178,19 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 			"normalizedIR": None,
 		}
 
-		with patch("one_bpmn.agents.turn_state.get_turn", return_value=turn), \
-			patch("one_bpmn.agents.turn_state.update_turn", side_effect=fake_update_turn), \
+		with (
+			patch("one_bpmn.agents.turn_state.get_turn", return_value=turn),
+			patch("one_bpmn.agents.turn_state.update_turn", side_effect=fake_update_turn),
 			patch(
 				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
 				return_value={"sub_prompts": {}, "max_tokens": 16384, "agent_id": "prosally_agent"},
-			), \
-			patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter), \
-			patch("one_bpmn.agents.bpmn_ir_pipeline.compile_ir", return_value=fake_compile_result), \
-			patch("one_bpmn.agents.bpmn_ir_pipeline.extract_process_name", return_value="Onboarding"), \
-			patch("one_bpmn.agents.bpmn_ir_pipeline.extract_element_ids", return_value=""), \
-			patch("one_bpmn.security.bpmn_validator.validate_bpmn_xml", return_value={"valid": True}):
+			),
+			patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter),
+			patch("one_bpmn.agents.bpmn_ir_pipeline.compile_ir", return_value=fake_compile_result),
+			patch("one_bpmn.agents.bpmn_ir_pipeline.extract_process_name", return_value="Onboarding"),
+			patch("one_bpmn.agents.bpmn_ir_pipeline.extract_element_ids", return_value=""),
+			patch("one_bpmn.security.bpmn_validator.validate_bpmn_xml", return_value={"valid": True}),
+		):
 			ns = self._run_script(MODIFY)
 
 		result = ns["result"]
@@ -189,32 +200,27 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 
 
 class TestShapeToolGenericFailureCarriesException(FrappeTestCase):
-
 	def test_generic_failure_includes_exception_class_and_message(self):
-		"""execute_shape's catch-all branch must surface the exception's own
-		class name and message (WI-000405), the same way the permission and
-		validation branches already do — "see the Error Log" tells the model
-		nothing it can act on."""
+		"""The catch-all branch has to name the exception it caught.
+
+		"See the Error Log" tells a model nothing it can act on, so it invents
+		an explanation, and the one it invents is usually that the work is done.
+		The permission and validation branches already carry their reason; this
+		is the branch that did not.
+		"""
 		import json
+		from unittest.mock import patch
 
 		instance = frappe._dict({"_service_task_extensions": {}, "context_docname": None})
-		task_cfg = {}  # neither serverScript nor serviceType -> falls to the "not executable" branch
+		task_cfg = {"serverScript": "Any Script"}
 
-		# Force the generic Exception branch directly rather than depending on
-		# a real Server Script record: patch _run_server_script's caller path
-		# by making task_cfg carry a serverScript name that raises when looked
-		# up (frappe.get_doc on a name that does not exist raises
-		# DoesNotExistError, a plain Exception subclass — exactly the shape
-		# the catch-all branch exists to describe).
-		task_cfg = {"serverScript": "Nonexistent Prosally Test Script"}
+		# Patched at the call, not through a missing script: a script that does
+		# not exist is a frappe.throw, which the ValidationError branch above
+		# answers. Only an unexpected exception reaches the branch under test.
+		with patch.object(shape_tools, "_run_server_script", side_effect=RuntimeError("chair not found")):
+			raw = shape_tools.execute_shape(instance, "modify_process", task_cfg, {})
 
-		raw = shape_tools.execute_shape(instance, "modify_process", task_cfg, {})
 		payload = json.loads(raw)
-
-		self.assertIn("error", payload)
 		self.assertIn("modify_process", payload["error"])
-		# The exception's own class name/message travelled into the message,
-		# not just a static "see Error Log" string.
-		self.assertNotEqual(
-			payload["error"], "Shape 'modify_process' failed — see Error Log for details."
-		)
+		self.assertIn("RuntimeError", payload["error"])
+		self.assertIn("chair not found", payload["error"])

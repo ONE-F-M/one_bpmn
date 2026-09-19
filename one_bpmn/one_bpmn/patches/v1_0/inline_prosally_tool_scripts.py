@@ -635,7 +635,7 @@ _cfg.setdefault("agent_id", "prosally_agent")
 _subs = _cfg.get("sub_prompts") or {}
 _adapter = get_llm_adapter_from_settings(_cfg)
 
-# ── explicit output budget (WI-000405) ──
+# ── explicit output budget ──
 # The adapter's own default (16384) only applied when nothing else was
 # passed; a configured max_tokens below that (e.g. 1024) silently won,
 # cutting a large IR off mid-JSON with no explanation to the user. Floor at
@@ -1149,7 +1149,7 @@ _cfg.setdefault("agent_id", "prosally_agent")
 _subs = _cfg.get("sub_prompts") or {}
 _adapter = get_llm_adapter_from_settings(_cfg)
 
-# ── explicit output budget (WI-000405) ──
+# ── explicit output budget ──
 # See the same block in the Generate Process tool for the reasoning: the
 # adapter default only wins when nothing is passed, so a configured
 # max_tokens below 16384 silently cut a large modification off mid-JSON.
