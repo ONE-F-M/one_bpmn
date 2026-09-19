@@ -254,6 +254,9 @@ const streamingText = ref("");
 // message id (WI-001822). Ratings are the user's own — the control shows what
 // you said, not a tally.
 const streamingMessageId = ref("");
+// WI-000407: the role the currently-streaming reply carries — "assistant"
+// normally, "system" for a rate-limit refusal (see TEXT_MESSAGE_START below).
+const streamingRole = ref("assistant");
 const ratings = ref({});
 
 // Whether this agent collects feedback at all. Configuration, like the greeting
