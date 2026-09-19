@@ -149,6 +149,10 @@ export function streamAgentTurn({
 			return;
 		}
 
+		// The connection is live from here — arm the idle timer before the
+		// first read, so a turn that never sends anything still times out.
+		resetIdleTimer();
+
 		const reader = response.body.getReader();
 		const decoder = new TextDecoder();
 		let buffer = "";
@@ -157,6 +161,9 @@ export function streamAgentTurn({
 			for (;;) {
 				const { value, done } = await reader.read();
 				if (done) break;
+				// Any bytes at all — a real event or a bare `: keep-alive`
+				// comment — prove the connection is still alive.
+				resetIdleTimer();
 				buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
 
 				// SSE frames are separated by a blank line.
