@@ -186,6 +186,10 @@ class TurnRecord:
     # is how the step writer places that sub-call after the turn that made it
     # instead of giving both the same step index.
     turn_no: int = 0
+    # ISO timestamps of the turn's first and last moment, so a step can be
+    # placed on a real timeline instead of by its latency alone.
+    started_at: str = ""
+    ended_at: str = ""
 
 
 @dataclass
