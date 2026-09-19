@@ -171,9 +171,23 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 				frappe.db.commit()
 
 		if result.get("streaming"):
-			yield from _relay_child_stream(result["stream"], encoder, message_id)
-			_commit_turn()
-		else:
+			# A runner that streams may still finish with an ordinary reply to
+			# shape: the map runner relays the worker's progress first, then
+			# hands over what the turn produced (WI-002363). Anything it hands
+			# over is taken out of the relay here and falls through to the
+			# buffered path below, so cards, artifacts and the persisted message
+			# id keep working exactly as they do for a runner that never streams.
+			handover = {}
+			yield from _relay_child_stream(
+				_take_handover(result["stream"], handover), encoder, message_id
+			)
+			if "result" not in handover:
+				_commit_turn()
+				result = None
+			else:
+				result = handover["result"]
+
+		if result is not None and not result.get("streaming"):
 			shaper = _REPLY_SHAPERS.get(agent_id)
 			if shaper:
 				try:
@@ -261,6 +275,21 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 # Keys that belong to the CUSTOM envelope itself; everything else a legacy
 # producer puts on the event is payload (see _relay_child_stream).
 _CUSTOM_ENVELOPE_KEYS = {"type", "name", "event", "value", "timestamp", "raw_event", "rawEvent"}
+
+
+# A runner that streams its progress can end by handing over an ordinary
+# buffered reply. It travels as one event on the same stream so the runner does
+# not have to repeat the shaping the buffered path already does.
+HANDOVER_EVENT = "ONEFM_TURN_RESULT"
+
+
+def _take_handover(child, handover: dict):
+	"""Relay a child's events, keeping the handover event out of the stream."""
+	for event in child:
+		if isinstance(event, dict) and event.get("type") == HANDOVER_EVENT:
+			handover["result"] = event.get("result") or {}
+			return
+		yield event
 
 
 def _relay_child_stream(child, encoder, message_id):
