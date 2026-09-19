@@ -1235,7 +1235,33 @@ for attempt in range(_MAX_FIX_PASSES + 1):
             "Current IR:\n" + json.dumps(ir_dict, indent=2)
         )
 
-    raw = run_sync(_adapter.complete(system=_system, user=prompt)).text
+    try:
+        raw = run_sync(_adapter.complete(system=_system, user=prompt, max_tokens=_max_tokens)).text
+    except LLMTruncatedError:
+        # See the Generate Process tool for the full reasoning: a truncated
+        # completion has no repair pass, and the reply written here (with
+        # done=True) must reach the user before finalize's generic fallback
+        # question ("Could you tell me more about the process you'd like to
+        # model?") can overwrite it.
+        _truncated_error = True
+        _size_msg = (
+            "This process is too large for me to regenerate in a single pass — the "
+            "model's output was cut off before it finished, even at a " + str(_max_tokens) +
+            "-token budget. Try asking for a smaller, more targeted change (for "
+            "example, one lane or one section of the process at a time), and I can "
+            "apply it incrementally instead of rewriting the whole diagram."
+        )
+        output = {
+            "intent": "CLARIFY",
+            "action_intent": None,
+            "response": _size_msg,
+            "options": [],
+        }
+        update_turn(context_docname, output=output, done=True)
+        result["modified"] = False
+        result["response"] = _size_msg
+        result["truncated"] = True
+        break
 
     # ── parse IR JSON (inline) ──
     ir_dict = None
