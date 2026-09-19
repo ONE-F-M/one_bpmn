@@ -38,6 +38,10 @@
 						@rated="onRated"
 					/>
 				</div>
+				<!-- WI-000407: a rate-limit refusal (role=system) is the platform
+				     pushing back, not the agent talking — a distinct notice, no
+				     rating control, so it never reads as an assistant reply. -->
+				<div v-else-if="item.kind === 'system'" class="acp-msg acp-msg--system">{{ item.text }}</div>
 				<!-- choice buttons (panel feature, onefm.choice) -->
 				<div v-else-if="item.kind === 'choice'" class="acp-card">
 					<div v-if="item.value.prompt" class="acp-card-head" v-html="renderMarkdown(item.value.prompt)" />
