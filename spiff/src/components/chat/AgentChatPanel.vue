@@ -624,6 +624,10 @@ function handleEvent(event) {
 		// the persisted Chat Message name). Held until the buffer is flushed so
 		// the finished bubble carries it and can be rated.
 		streamingMessageId.value = event.messageId || event.message_id || "";
+		// WI-000407: a rate-limit refusal streams with role "system" — a
+		// platform notice, not the agent talking — so the finished bubble
+		// flushes as a system item instead of an agent one.
+		streamingRole.value = event.role || "assistant";
 	} else if (type === "TEXT_MESSAGE_CONTENT") {
 		streamingText.value += event.delta || "";
 		if (!streamingMessageId.value) {
