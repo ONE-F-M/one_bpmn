@@ -40,6 +40,8 @@ from ag_ui.core import (
 	TextMessageContentEvent,
 	TextMessageEndEvent,
 	TextMessageStartEvent,
+	ToolCallEndEvent,
+	ToolCallStartEvent,
 )
 from ag_ui.encoder import EventEncoder
 from frappe import _
