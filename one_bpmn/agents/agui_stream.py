@@ -77,6 +77,8 @@ def _invoke_with_heartbeat(fn, interval: float | None = None):
 	the worker's exception (so it surfaces to the caller exactly as if ``fn``
 	had been called inline) or returns its result via ``StopIteration.value``.
 	"""
+	if interval is None:
+		interval = _HEARTBEAT_SECONDS
 	site = getattr(frappe.local, "site", None)
 	user = frappe.session.user
 	in_test = frappe.flags.in_test
