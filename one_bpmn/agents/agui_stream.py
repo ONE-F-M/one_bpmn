@@ -54,9 +54,14 @@ from one_bpmn.security.refusal import AgentRefusal
 _HEARTBEAT_SECONDS = 10
 
 
-def _invoke_with_heartbeat(fn, interval: float = _HEARTBEAT_SECONDS):
+def _invoke_with_heartbeat(fn, interval: float | None = None):
 	"""Run a blocking call on its own thread, yielding ``: keep-alive`` SSE
 	comments every ``interval`` seconds while it is still running.
+
+	``interval`` defaults to the module-level ``_HEARTBEAT_SECONDS``, read at
+	call time (not bound as a default argument) so tests can shorten it via
+	``patch.object(agui_stream, "_HEARTBEAT_SECONDS", ...)`` without needing
+	every caller to thread a parameter through.
 
 	A Frappe request context (the site connection, the current user, the
 	local db handle) does not cross a thread boundary: a plain
