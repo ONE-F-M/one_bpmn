@@ -832,19 +832,20 @@ for attempt in range(_MAX_FIX_PASSES + 1):
     if attempt == _MAX_FIX_PASSES:
         break
 
-note = ((" (" + str(len(problems)) + " issue(s) remain — review the canvas.)") if problems else "") + topology_note
-xml_name = extract_process_name(best_xml) or process_name or "process"
-output = {
-    "intent": "BPMN_GENERATED",
-    "action_intent": action,
-    "bpmn_xml": best_xml,
-    "response": "I've generated the " + xml_name + " process model." + note + " Review it on the canvas.",
-    "options": [],
-}
-update_turn(context_docname, output=output, done=True)
-result["generated"] = True
-result["process_name"] = xml_name
-result["issues"] = len(problems)
+if not _truncated_error:
+    note = ((" (" + str(len(problems)) + " issue(s) remain — review the canvas.)") if problems else "") + topology_note
+    xml_name = extract_process_name(best_xml) or process_name or "process"
+    output = {
+        "intent": "BPMN_GENERATED",
+        "action_intent": action,
+        "bpmn_xml": best_xml,
+        "response": "I've generated the " + xml_name + " process model." + note + " Review it on the canvas.",
+        "options": [],
+    }
+    update_turn(context_docname, output=output, done=True)
+    result["generated"] = True
+    result["process_name"] = xml_name
+    result["issues"] = len(problems)
 '''
 
 MODIFY = r'''# ProsAlly – Tool Modify Process (self-contained, FLAT top-level code).
