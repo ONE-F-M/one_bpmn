@@ -40,6 +40,8 @@ from ag_ui.core import (
 	TextMessageContentEvent,
 	TextMessageEndEvent,
 	TextMessageStartEvent,
+	ToolCallEndEvent,
+	ToolCallStartEvent,
 )
 from ag_ui.encoder import EventEncoder
 from frappe import _
@@ -92,6 +94,55 @@ def _extension_events(result: dict):
 		except Exception:
 			# A broken translator must never kill the transcript.
 			frappe.log_error(title="agui extension translator error", message=frappe.get_traceback())
+
+
+def _iter_text_deltas(text: str, chunk_chars: int = 60):
+	"""Split a reply into delta-sized chunks for progressive
+	TextMessageContent emission (WI-000406).
+
+	A short reply \u2014 the common case, and every reply in the pre-WI-000406
+	tests \u2014 still comes out as exactly one chunk, so callers that assumed
+	one delta per turn keep working unchanged. Anything longer is cut only
+	at whitespace, never mid-word, and ``"".join(chunks) == text`` always:
+	the client concatenates deltas to build the message, so a chunk
+	boundary must never lose or duplicate a character.
+	"""
+	if not text:
+		return
+	length = len(text)
+	if length <= chunk_chars:
+		yield text
+		return
+	start = 0
+	while start < length:
+		end = min(start + chunk_chars, length)
+		if end < length:
+			next_space = text.find(" ", end)
+			end = next_space + 1 if next_space != -1 else length
+		yield text[start:end]
+		start = end
+
+
+def _tool_calls_from_result(result: dict) -> list:
+	"""Tool calls that ran during a buffered turn (WI-000406).
+
+	A buffered runner (bpmn_map / direct_api / adk) has already finished by
+	the time its reply reaches this stream, so there is no live moment to
+	hang a TOOL_CALL_START/END pair on \u2014 they are emitted here, together,
+	from whatever record of the turn's tool calls the reply carries.
+	Prefers an explicit ``tool_calls`` list on the reply; falls back to
+	flattening the AI Agent Run's own per-turn ``trace`` (the
+	TurnRecord/ToolCallRecord shape from agents/llm_provider/base.py) when
+	a runner exposes that instead. Neither present is not an error \u2014 most
+	turns call no tools at all.
+	"""
+	calls = result.get("tool_calls")
+	if calls:
+		return list(calls)
+	flattened = []
+	for turn in result.get("trace") or []:
+		flattened.extend((turn or {}).get("tool_calls") or [])
+	return flattened
 
 
 def _agent_artifact_type(agent_id: str) -> str:
@@ -188,30 +239,65 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 			if result.get("artifact") is not None and not result.get("artifact_type"):
 				result["artifact_type"] = _agent_artifact_type(agent_id)
 			text = result.get("response") or ""
-			# The AG-UI message_id IS the persisted Chat Message name whenever the
-			# runner saved one (WI-001641). `message_id` exists in the protocol to
-			# identify a message; minting a uuid for it and throwing it away left
-			# the client unable to name the reply it had just been shown, so a
-			# rating or a report had nothing durable to point at. Runners that
-			# persist nothing keep the generated id, which is still unique per
-			# turn and still correct for grouping the text events.
-			message_id = result.get("message_name") or message_id
+			# WI-000406: the stream itself starts (and the RunStarted event
+			# above already went out) before invoke_agent returns, so before
+			# this point there is no Bot Chat Message row to name the
+			# message after — `message_id` stays the id generated at the top
+			# of this function for the WHOLE lifecycle of the streamed
+			# message (start, every delta, end). Once the runner's reply is
+			# in hand the persisted Chat Message name (WI-001641) IS known,
+			# so it is delivered separately, at the end, as the durable id a
+			# rating or report should point at — never by silently swapping
+			# the id already used for events the client already rendered.
+			persisted_name = result.get("message_name")
 			# AG-UI rejects an empty delta (min_length=1), so a runner that
 			# produced no text used to abort the whole stream with a validation
 			# error — the user saw a failed request rather than an answer. An
 			# empty reply is a thing that happens (a failed AI task leaves the
 			# output variable blank), so it is reported, not raised.
 			extensions = list(_extension_events(result))
-			if not text and not extensions:
+			tool_calls = _tool_calls_from_result(result)
+			if not text and not extensions and not tool_calls:
 				text = _(
 					"The agent finished without producing a reply. Please try again."
 				)
 			yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
-			if text:
-				yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=text))
+			# Emitted as multiple TextMessageContent events, one per chunk,
+			# rather than the whole reply in a single delta — the runner
+			# already ran to completion before we got here, but the client
+			# still sees the text arrive progressively instead of appearing
+			# all at once (WI-000406).
+			for delta in _iter_text_deltas(text):
+				yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=delta))
 			yield encoder.encode(TextMessageEndEvent(message_id=message_id))
+			# WI-000406: TOOL_CALL_START/END bracket each tool the turn ran,
+			# named for the tool shape that ran it — the same names already
+			# recorded on the turn's ToolCallRecord/tool_calls entries, so a
+			# client showing "using <tool>…" names the same thing the trace
+			# does. The buffered runner already finished every call before
+			# this reply reached the stream, so start/end are emitted back to
+			# back rather than bracketing a live wait.
+			for call in tool_calls:
+				tool_call_id = str((call or {}).get("id") or uuid.uuid4())
+				tool_name = (call or {}).get("name") or ""
+				yield encoder.encode(
+					ToolCallStartEvent(tool_call_id=tool_call_id, tool_call_name=tool_name)
+				)
+				yield encoder.encode(ToolCallEndEvent(tool_call_id=tool_call_id))
 			for event in extensions:
 				yield encoder.encode(event)
+			# The generated stream id is what every event above was keyed to;
+			# once the Chat Message is actually saved (unchanged: still
+			# wherever the runner/hook already does it) its real name is
+			# handed over here so the client can attach a rating/report to
+			# the durable record instead of the throwaway stream id.
+			if persisted_name and persisted_name != message_id:
+				yield encoder.encode(
+					CustomEvent(
+						name="onefm.message_persisted",
+						value={"stream_id": message_id, "message_name": persisted_name},
+					)
+				)
 			_commit_turn()
 	except AgentRefusal as refusal:
 		# RateLimited, an injection Block, a model with broken credentials
