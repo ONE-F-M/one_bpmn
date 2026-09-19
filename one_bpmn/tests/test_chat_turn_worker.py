@@ -72,3 +72,69 @@ class TestWaitForWorkerReply(FrappeTestCase):
 
 		source = inspect.getsource(server_script_api._delegate_to_bpmn_instance)
 		self.assertNotIn("bpmn_disable_ai_parking", source)
+
+
+class TestTheRequestPicksUpTheWorkerReply(FrappeTestCase):
+	"""The whole point of the change: the request hands the turn to the worker
+	and still returns that turn's reply."""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self.conversation = "_test_conv_" + frappe.generate_hash(length=8)
+		self.instance = _instance_name()
+		# Say the turn really did park, so the wait runs instead of assuming an
+		# inline engine pass already produced the reply.
+		frappe.flags.bpmn_force_ai_parking = True
+
+	def tearDown(self):
+		frappe.flags.bpmn_force_ai_parking = False
+
+	def _bot_message(self, text):
+		doc = frappe.get_doc(
+			{
+				"doctype": "Chat Message",
+				"conversation": self.conversation,
+				"message_type": "Bot",
+				"text": text,
+			}
+		)
+		doc.flags.ignore_links = True
+		doc.flags.ignore_mandatory = True
+		return doc.insert(ignore_permissions=True)
+
+	def test_the_reply_the_worker_wrote_is_what_comes_back(self):
+		from unittest.mock import patch
+
+		reply = self._bot_message("the worker answered")
+		turn_signal.publish(self.instance)
+
+		# The two commits are what the real path needs and what a test must not
+		# do: committing here would defeat the suite's rollback.
+		with patch.object(frappe.db, "commit"):
+			rows = server_script_api._wait_for_worker_reply(self.instance, self.conversation, None)
+
+		self.assertIsNotNone(rows)
+		self.assertEqual(rows[0]["name"], reply.name)
+		self.assertEqual(rows[0]["text"], "the worker answered")
+
+	def test_a_turn_that_produced_nothing_new_reports_nothing(self):
+		from unittest.mock import patch
+
+		earlier = self._bot_message("last turn's answer")
+		turn_signal.publish(self.instance)
+
+		with patch.object(frappe.db, "commit"):
+			rows = server_script_api._wait_for_worker_reply(self.instance, self.conversation, earlier.name)
+
+		self.assertIsNone(rows)
+
+	def test_a_worker_that_never_answers_ends_at_the_deadline(self):
+		from unittest.mock import patch
+
+		with (
+			patch.object(frappe.db, "commit"),
+			patch.object(server_script_api, "CHAT_TURN_WAIT_SECONDS", 0.5),
+		):
+			rows = server_script_api._wait_for_worker_reply(self.instance, self.conversation, None)
+
+		self.assertIsNone(rows)

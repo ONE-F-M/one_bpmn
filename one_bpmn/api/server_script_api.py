@@ -59,9 +59,11 @@ def _wait_for_worker_reply(inst_name: str, conversation_name: str, reply_before:
 	read snapshot, because a transaction that opened before the worker committed
 	would keep answering with the rows it saw then, however long it waited.
 	"""
-	if frappe.flags.in_test:
-		# The engine ran inline (``_ai_parking_active`` is off in tests), so the
-		# reply is already there and there is nothing to wait for.
+	if frappe.flags.in_test and not frappe.flags.get("bpmn_force_ai_parking"):
+		# Parking is off in tests, so the engine ran inline and the reply is
+		# already there. Without this a delegation test would block for the
+		# whole turn deadline waiting for a worker that never runs. A test that
+		# forces parking means it, and gets the real path.
 		return None
 
 	frappe.db.commit()
