@@ -1358,14 +1358,14 @@ if not _truncated_error:
             "bpmn_xml": merged_xml,
             "response": (
                 "I've updated the " + xml_name + " process." + note + " All existing configurations "
-            "have been preserved. Review the changes on the canvas."
-        ),
-        "options": [],
-    }
-    update_turn(context_docname, output=output, done=True)
-    result["modified"] = True
-    result["process_name"] = xml_name
-    result["issues"] = len(problems)
+                "have been preserved. Review the changes on the canvas."
+            ),
+            "options": [],
+        }
+        update_turn(context_docname, output=output, done=True)
+        result["modified"] = True
+        result["process_name"] = xml_name
+        result["issues"] = len(problems)
 '''
 
 REDIRECT = r'''# ProsAlly – Tool Redirect (self-contained, FLAT top-level code).
