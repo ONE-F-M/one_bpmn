@@ -945,6 +945,10 @@ defineExpose({ send, conversationName });
 .acp-time--user { align-self: flex-end; }
 .acp-msg--user { align-self: flex-end; background: var(--sg4); color: var(--ig9); white-space: pre-wrap; }
 .acp-msg--agent { align-self: flex-start; background: var(--sw); border: 1px solid var(--og2); }
+/* WI-000407: a rate-limit refusal (role=system) — a platform notice, not
+   the agent talking, so it is visually distinct from both bubble kinds. */
+.acp-msg--system { align-self: center; background: var(--sg2); color: var(--ig6); font-size: 12px;
+	font-style: italic; border: none; }
 .acp-msg--agent :deep(p) { margin: 0 0 6px; } .acp-msg--agent :deep(p:last-child) { margin: 0; }
 .acp-msg--agent :deep(pre) { background: var(--sg2); border-radius: 8px; padding: 8px; overflow-x: auto; }
 .acp-msg--agent :deep(table) { border-collapse: collapse; }
