@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import time
 from unittest.mock import patch
 
 from frappe.tests.utils import FrappeTestCase
