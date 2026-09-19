@@ -76,7 +76,9 @@ def _wait_for_worker_reply(inst_name: str, conversation_name: str, reply_before:
 	return None
 
 
-def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: dict):
+def _delegate_to_bpmn_instance(
+	conversation_name: str, message: str, context: dict, wait: bool = True
+):
 	"""Hand a chat turn to the BPMN Process Instance driving this conversation.
 
 	The process map performs ALL the work: its ``Save User Message`` task persists
@@ -183,6 +185,16 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 	# durable to point at.
 	rows = _latest_bot_message(conversation_name)
 	if not rows or rows[0]["name"] == reply_before:
+		if not wait:
+			# The caller wants to relay the worker's progress while the turn
+			# runs, which a function that blocks cannot let it do. It collects
+			# the reply itself through collect_chat_turn_reply.
+			return {
+				"pending": True,
+				"instance": inst_name,
+				"conversation": conversation_name,
+				"reply_before": reply_before,
+			}
 		rows = _wait_for_worker_reply(inst_name, conversation_name, reply_before) or rows
 	if not rows or rows[0]["name"] == reply_before:
 		# This turn produced no reply of its own. Before reporting a dead
@@ -197,6 +209,31 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 			return parked
 		return None
 
+	return _shape_reply(rows, inst_name)
+
+
+def collect_chat_turn_reply(handle: dict) -> dict | None:
+	"""Read what a turn delivered with ``wait=False`` produced.
+
+	The streaming surface delivers the message, relays the worker's progress
+	while the turn runs, then calls this. Splitting delivery from collection is
+	what lets the connection report a running tool, because a function that
+	blocks cannot also yield.
+	"""
+	inst_name = handle["instance"]
+	conversation_name = handle["conversation"]
+	reply_before = handle.get("reply_before")
+
+	rows = _latest_bot_message(conversation_name)
+	if not rows or rows[0]["name"] == reply_before:
+		rows = _wait_for_worker_reply(inst_name, conversation_name, reply_before) or rows
+	if not rows or rows[0]["name"] == reply_before:
+		return _parked_for_human(inst_name, conversation_name)
+	return _shape_reply(rows, inst_name)
+
+
+def _shape_reply(rows, inst_name: str) -> dict:
+	"""Turn the Bot Chat Message this turn produced into the caller's result."""
 	meta = {}
 	if rows[0].get("metadata"):
 		try:
@@ -277,7 +314,7 @@ def _parked_for_human(inst_name: str, conversation_name: str) -> dict | None:
 	}
 
 
-def delegate_chat_turn(conversation_name: str, message: str, context: dict = None):
+def delegate_chat_turn(conversation_name: str, message: str, context: dict = None, wait: bool = True):
 	"""Public entry point for other apps (e.g. the Lumina Desk page in onefm_mcp)
 	to hand a chat turn to the BPMN Process Instance driving a conversation.
 
@@ -290,7 +327,7 @@ def delegate_chat_turn(conversation_name: str, message: str, context: dict = Non
 	Chat Message — the map's "Save User Message" task then reuses it instead of
 	inserting a duplicate.
 	"""
-	return _delegate_to_bpmn_instance(conversation_name, message, context or {})
+	return _delegate_to_bpmn_instance(conversation_name, message, context or {}, wait=wait)
 
 
 @frappe.whitelist()

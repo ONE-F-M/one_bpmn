@@ -138,3 +138,65 @@ class TestTheRequestPicksUpTheWorkerReply(FrappeTestCase):
 			rows = server_script_api._wait_for_worker_reply(self.instance, self.conversation, None)
 
 		self.assertIsNone(rows)
+
+
+class TestProgressReachesTheRequest(FrappeTestCase):
+	"""A tool announces itself from the worker and the request relays it."""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self.instance = _instance_name()
+
+	def test_a_tool_announces_its_start_and_its_end(self):
+		from one_bpmn.agents import shape_tools
+
+		instance = frappe._dict({"name": self.instance, "_service_task_extensions": {}})
+		# A shape with no script and no service type is not executable, so the
+		# tool returns early. Even that path has to close its status line.
+		shape_tools.execute_shape(instance, "draft_connector", {}, {})
+
+		events = list(turn_signal.consume(self.instance, timeout=0.5, poll_seconds=0.05))
+		self.assertEqual(
+			[(e["type"], e["toolCallName"]) for e in events],
+			[("TOOL_CALL_START", "draft_connector"), ("TOOL_CALL_END", "draft_connector")],
+		)
+
+	def test_a_deferred_tool_does_not_close_its_status_line(self):
+		from unittest.mock import patch
+
+		from one_bpmn.agents import shape_tools
+
+		instance = frappe._dict({"name": self.instance, "_service_task_extensions": {}})
+		with patch.object(
+			shape_tools, "_run_server_script", side_effect=shape_tools.ToolDeferred({"waiting": "sandbox"})
+		):
+			with self.assertRaises(shape_tools.ToolDeferred):
+				shape_tools.execute_shape(instance, "run_tests", {"serverScript": "X"}, {})
+
+		events = list(turn_signal.consume(self.instance, timeout=0.5, poll_seconds=0.05))
+		self.assertEqual([e["type"] for e in events], ["TOOL_CALL_START"])
+
+	def test_the_handover_leaves_the_relay_and_carries_the_reply(self):
+		from one_bpmn.agents.agui_stream import HANDOVER_EVENT, _take_handover
+
+		child = iter(
+			[
+				{"type": "TOOL_CALL_START", "toolCallName": "inspect"},
+				{"type": HANDOVER_EVENT, "result": {"response": "done"}},
+			]
+		)
+		handover = {}
+
+		relayed = list(_take_handover(child, handover))
+
+		self.assertEqual([e["type"] for e in relayed], ["TOOL_CALL_START"])
+		self.assertEqual(handover["result"], {"response": "done"})
+
+	def test_a_stream_that_ends_without_a_handover_says_so(self):
+		from one_bpmn.agents.agui_stream import _take_handover
+
+		handover = {}
+
+		list(_take_handover(iter([{"type": "TOOL_CALL_START", "toolCallName": "x"}]), handover))
+
+		self.assertNotIn("result", handover)

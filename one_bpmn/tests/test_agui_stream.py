@@ -317,7 +317,7 @@ class TestBpmnMapResumeRearm(FrappeTestCase):
 
 		calls = {"delegate": 0}
 
-		def fake_delegate(conversation, message, context=None):
+		def fake_delegate(conversation, message, context=None, wait=True):
 			calls["delegate"] += 1
 			return delegate_results[min(calls["delegate"], len(delegate_results)) - 1]
 
