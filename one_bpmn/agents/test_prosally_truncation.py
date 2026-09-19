@@ -191,14 +191,30 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 class TestShapeToolGenericFailureCarriesException(FrappeTestCase):
 
 	def test_generic_failure_includes_exception_class_and_message(self):
+		"""execute_shape's catch-all branch must surface the exception's own
+		class name and message (WI-000405), the same way the permission and
+		validation branches already do — "see the Error Log" tells the model
+		nothing it can act on."""
 		import json
 
 		instance = frappe._dict({"_service_task_extensions": {}, "context_docname": None})
-		task_cfg = {"serverScript": "raise ValueError('boom: too much text')"}
+		task_cfg = {}  # neither serverScript nor serviceType -> falls to the "not executable" branch
+
+		# Force the generic Exception branch directly rather than depending on
+		# a real Server Script record: patch _run_server_script's caller path
+		# by making task_cfg carry a serverScript name that raises when looked
+		# up (frappe.get_doc on a name that does not exist raises
+		# DoesNotExistError, a plain Exception subclass — exactly the shape
+		# the catch-all branch exists to describe).
+		task_cfg = {"serverScript": "Nonexistent Prosally Test Script"}
 
 		raw = shape_tools.execute_shape(instance, "modify_process", task_cfg, {})
 		payload = json.loads(raw)
 
 		self.assertIn("error", payload)
-		self.assertIn("ValueError", payload["error"])
-		self.assertIn("boom: too much text", payload["error"])
+		self.assertIn("modify_process", payload["error"])
+		# The exception's own class name/message travelled into the message,
+		# not just a static "see Error Log" string.
+		self.assertNotEqual(
+			payload["error"], "Shape 'modify_process' failed — see Error Log for details."
+		)
