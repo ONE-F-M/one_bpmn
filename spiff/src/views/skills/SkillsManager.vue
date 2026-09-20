@@ -608,6 +608,7 @@ const refreshSkills = async () => {
 }
 
 const selectSkill = async (skill) => {
+	isCreatingNew.value = false
 	selectedSkill.value = skill
 	activeTab.value = 'Editor'
 	
