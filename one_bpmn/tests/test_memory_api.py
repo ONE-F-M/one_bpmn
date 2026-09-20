@@ -158,12 +158,6 @@ class TestMemoryPurge(FrappeTestCase):
 		self.hers = T.memory_write(
 			"Agent", {"agent_element": self.agent, "user": self.alice}, "her leave needs a certificate", ignore_permissions=True
 		)
-		self.hers2 = T.memory_write(
-			"Process",
-			{"process_model": None, "user": self.alice},
-			"another of her memories, different scope",
-			ignore_permissions=True,
-		) if False else None
 		self.his = T.memory_write(
 			"Agent", {"agent_element": self.agent, "user": self.bob}, "his memory, not hers", ignore_permissions=True
 		)
