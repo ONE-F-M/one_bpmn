@@ -617,13 +617,50 @@ const showHarvestModal = ref(false)
 const harvestRunName = ref('')
 const harvesting = ref(false)
 
+// A skill body is capped at this many tokens.
+const TOKEN_CEILING = 5000
+
+const sortBy = ref('name')
+const sortDir = ref('asc')
+
+// Formats a token estimate for display. Missing or zero estimates are
+// shown as "unknown" rather than a misleading "0".
+const formatTokenEstimate = (value) => {
+	if (!value) return 'unknown'
+	return formatNumber(value)
+}
+
+const formatNumber = (value) => {
+	return Number(value || 0).toLocaleString()
+}
+
+const isOverTokenCeiling = (value) => {
+	return !!value && value > TOKEN_CEILING
+}
+
 const filteredSkills = computed(() => {
-	if (!searchQuery.value) return skills.value
-	const query = searchQuery.value.toLowerCase()
-	return skills.value.filter(s => 
-		(s.skill_name || s.name).toLowerCase().includes(query) || 
-		(s.description || '').toLowerCase().includes(query)
-	)
+	let result = skills.value
+	if (searchQuery.value) {
+		const query = searchQuery.value.toLowerCase()
+		result = result.filter(s =>
+			(s.skill_name || s.name).toLowerCase().includes(query) ||
+			(s.description || '').toLowerCase().includes(query)
+		)
+	}
+
+	const dir = sortDir.value === 'asc' ? 1 : -1
+	result = [...result].sort((a, b) => {
+		if (sortBy.value === 'token_estimate') {
+			const aVal = a.token_estimate || 0
+			const bVal = b.token_estimate || 0
+			return (aVal - bVal) * dir
+		}
+		const aName = (a.skill_name || a.name || '').toLowerCase()
+		const bName = (b.skill_name || b.name || '').toLowerCase()
+		return aName.localeCompare(bName) * dir
+	})
+
+	return result
 })
 
 const refreshSkills = async () => {
