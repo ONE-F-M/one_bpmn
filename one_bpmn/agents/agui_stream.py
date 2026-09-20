@@ -173,7 +173,7 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 		if result.get("streaming"):
 			# A runner that streams may still finish with an ordinary reply to
 			# shape: the map runner relays the worker's progress first, then
-			# hands over what the turn produced (WI-002363). Anything it hands
+			# hands over what the turn produced. Anything it hands
 			# over is taken out of the relay here and falls through to the
 			# buffered path below, so cards, artifacts and the persisted message
 			# id keep working exactly as they do for a runner that never streams.

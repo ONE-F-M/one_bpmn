@@ -1,4 +1,4 @@
-"""The chat turn runs on the worker, and the request waits for it (WI-002363)."""
+"""The chat turn runs on the worker, and the request waits for it."""
 
 import time
 from unittest.mock import patch

@@ -39,7 +39,7 @@ def _latest_bot_message(conversation_name: str):
 	"""The newest Bot reply in this conversation, as a one-row list.
 
 	``name`` is selected because the reply has to be identifiable afterwards
-	(WI-001641): a rating or a report needs something durable to point at.
+	a rating or a report needs something durable to point at.
 	"""
 	return frappe.get_all(
 		"Chat Message",
@@ -51,7 +51,7 @@ def _latest_bot_message(conversation_name: str):
 
 
 def _wait_for_worker_reply(inst_name: str, conversation_name: str, reply_before: str | None):
-	"""Wait for the parked turn to produce its reply, or give up (WI-002363).
+	"""Wait for the parked turn to produce its reply, or give up.
 
 	Two commits, both load-bearing. The first releases this request's
 	transaction: the job is enqueued after commit, so without it the worker is
@@ -154,7 +154,7 @@ def _delegate_to_bpmn_instance(
 	payload.update({k: v for k, v in (context or {}).items() if v not in (None, "")})
 
 	# The AI work of this turn parks on the bpmn_ai_agent worker like every
-	# other agent task (WI-002363). It used to run inline here, which put the
+	# other agent task. It used to run inline here, which put the
 	# model call and every tool inside the gunicorn worker for the length of a
 	# turn. What the chat endpoint still owes its caller is the reply, so the
 	# wait moved below: the engine pass returns as soon as the job is queued,
