@@ -40,7 +40,24 @@ DEFAULT_MAX_OUTPUT_TOKENS = 16384
 # Exported so the BPMN dispatcher can defer to it. It used to hardcode its own
 # 30 instead, which meant raising the value below changed nothing for any AI
 # task in any process map — the fix was dead on arrival. See dispatch_ai_agent.
+#
+# The AI Task Selector hardcoded 60, so the same agent waited three times longer
+# on one path than the other for no reason anybody chose.
 DEFAULT_TIMEOUT_SECONDS = 180
+
+# How random the model is allowed to be when nothing says otherwise.
+#
+# This is the number the AI Agent Configuration form has always shown as its
+# default, so it is the one an administrator reading the form expects to be
+# running. The AI Agent Task path used its own 0.7, which meant the same agent
+# was measurably more inventive through a process map than through a chat, and
+# the form was quietly wrong about it either way.
+DEFAULT_TEMPERATURE = 0.3
+
+# Nucleus sampling. 1.0 means "do not narrow the choices", which leaves
+# temperature as the single dial; two dials doing overlapping jobs is how a
+# prompt becomes impossible to reason about.
+DEFAULT_TOP_P = 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -150,11 +167,22 @@ class ExecutorConfig:
     # WI-001422: cap on tool-calling turns ("Maximum model calls" in Camunda);
     # None uses the adapter default. dispatch_ai_agent sets it from aiMaxToolCalls.
     max_tool_calls: int | None = None
+    # WI-002195: cap on the characters of any one tool result the MODEL sees
+    # (the audit copy is never cut). None uses the platform default in
+    # executor/tool_bounds; dispatch_ai_agent sets it from aiToolResultMaxChars,
+    # which the agent's configuration supplies.
+    tool_result_max_chars: int | None = None
     # Durable AI Agent HITL: persisted AgentSuspension fields + "human_result".
     # When set, the step loop re-enters the checkpointed conversation instead
     # of starting fresh (system_prompt/user_prompt are NOT re-rendered — the
     # transcript already contains the rendered originals).
     resume_state: dict | None = None
+    # WI-002187: tool names that END the turn the moment the model calls one —
+    # its call ARGUMENTS are the reply (the "response" key), not whatever the
+    # model narrates afterwards. "finalize" is always included even when a
+    # shape/config sets this, since dropping the default by mistake would
+    # silently undo the fix this field exists for.
+    terminal_tools: list = field(default_factory=lambda: ["finalize"])
 
 
 @dataclass
@@ -188,6 +216,11 @@ class ExecutorResult:
     # it is a distinct outcome — the agent was still working, not broken — and
     # goal completion needs to tell them apart without matching on message text.
     hit_turn_cap: bool = False
+    # WI-002187: True when `output` came from the model's own narration rather
+    # than a terminal tool call's arguments — a plain-text final answer, or the
+    # turn cap forcing out the last thing said. Mirrors CompletionResult's field
+    # of the same name; see agents/llm_provider/base.py for the full rationale.
+    no_terminal_tool: bool = False
 
 
 # ---------------------------------------------------------------------------

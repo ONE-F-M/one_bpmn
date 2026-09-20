@@ -233,6 +233,10 @@ def _build_open_link(instance) -> str:
 	"""Build the 'Open in ERPNext' URL for the context document."""
 	base = frappe.utils.get_url()
 	if instance.context_doctype and instance.context_docname:
+		if instance.context_doctype == "HD Ticket":
+			# Helpdesk's own portal, not the desk form. Its router forwards a
+			# non-agent to /helpdesk/my-tickets/<id>, so one link serves both.
+			return f"{base}/helpdesk/tickets/{instance.context_docname}"
 		slug = instance.context_doctype.lower().replace(" ", "-")
 		return f"{base}/app/{slug}/{instance.context_docname}"
 	# Fallback: link to the BPMN instance itself

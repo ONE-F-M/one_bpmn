@@ -7,12 +7,17 @@
  "engine": "InnoDB",
  "field_order": [
   "eval_case",
+  "source_run",
+  "sample_reason",
   "status",
   "input_user_prompt",
   "expected_output",
   "actual_output",
   "assertion_results",
   "error_message",
+  "runs",
+  "passes",
+  "consistency_rate",
   "section_break_tokens",
   "prompt_tokens",
   "completion_tokens",
@@ -27,15 +32,31 @@
    "in_list_view": 1,
    "label": "Eval Case",
    "options": "AI Eval Case",
-   "reqd": 1
+   "description": "The case this row scored. Empty for an online sample, which scores a production run against the agent's rubric and has no case behind it."
+  },
+  {
+   "description": "The production run this row scored, for an online sample.",
+   "fieldname": "source_run",
+   "fieldtype": "Link",
+   "label": "Source Run",
+   "options": "AI Agent Run",
+   "read_only": 1
+  },
+  {
+   "description": "Why this run was picked out of the window.",
+   "fieldname": "sample_reason",
+   "fieldtype": "Data",
+   "label": "Sampled Because",
+   "read_only": 1
   },
   {
    "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Passed\nFailed\nError",
-   "reqd": 1
+   "options": "Passed\nFailed\nError\nSkipped",
+   "reqd": 1,
+   "description": "Skipped means nothing could be checked — a deterministic pass met an assertion that needs a model, or a case with no recorded answer. It counts as neither a pass nor a failure."
   },
   {
    "fieldname": "input_user_prompt",
@@ -98,12 +119,31 @@
    "in_list_view": 1,
    "label": "Cost",
    "precision": "6"
+  },
+  {
+   "fieldname": "runs",
+   "fieldtype": "Int",
+   "label": "Runs",
+   "description": "How many times this case executed in this run. Empty on rows written before a case could run more than once — those were one execution each."
+  },
+  {
+   "fieldname": "passes",
+   "fieldtype": "Int",
+   "label": "Passes",
+   "description": "How many of those executions passed every assertion."
+  },
+  {
+   "fieldname": "consistency_rate",
+   "fieldtype": "Percent",
+   "label": "Consistency",
+   "description": "Passes out of runs. Below 100% the case is flaky: same input, different behaviour.",
+   "in_list_view": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-06-30 06:50:00.000000",
+ "modified": "2026-09-13 16:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Eval Result",

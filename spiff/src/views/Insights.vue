@@ -86,6 +86,7 @@
 						:from-date="fromDate"
 						:to-date="toDate"
 					/>
+					<WorkItemCostReport v-if="activeTab === 'work_item_cost'" />
 				</div>
 			</div>
 		</main>
@@ -103,6 +104,7 @@ import CostTokenReport from "@/components/insights/CostTokenReport.vue"
 import ErrorReport from "@/components/insights/ErrorReport.vue"
 import PerformanceReport from "@/components/insights/PerformanceReport.vue"
 import CostAllocationReport from "@/components/insights/CostAllocationReport.vue"
+import WorkItemCostReport from "@/components/insights/WorkItemCostReport.vue"
 
 const activeTab = ref("cost")
 
@@ -122,5 +124,6 @@ const tabs = [
 	{ key: "errors", label: "Errors", icon: "lucide:alert-triangle" },
 	{ key: "performance", label: "Performance", icon: "lucide:timer" },
 	{ key: "allocation", label: "Cost Allocation", icon: "lucide:receipt" },
+	{ key: "work_item_cost", label: "Work Item Cost", icon: "lucide:package-search" },
 ]
 </script>

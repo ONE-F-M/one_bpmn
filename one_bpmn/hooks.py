@@ -36,6 +36,8 @@ website_route_rules = [
 
 # include js, css files in header of desk.html
 # app_include_css = "/assets/one_bpmn/css/one_bpmn.css"
+extend_bootinfo = "one_bpmn.boot.boot_session"
+
 app_include_js = [
 	"/assets/one_bpmn/js/bpmn_json_prettify.js",
 	"/assets/one_bpmn/js/one_ai_loader.js",
@@ -146,12 +148,17 @@ permission_query_conditions = {
 	"AI Eval Suite": "one_bpmn.agents.eval_permissions.eval_suite_query_conditions",
 	"AI Eval Case": "one_bpmn.agents.eval_permissions.eval_case_query_conditions",
 	"AI Eval Run": "one_bpmn.agents.eval_permissions.eval_run_query_conditions",
+	# Your own memories plus the shared ones; a System Manager sees everybody's.
+	# Enforced here so it holds for the browser, the Desk list and any report,
+	# instead of being re-stated at each call site.
+	"AI Memory": "one_bpmn.agents.memory.permissions.ai_memory_query_conditions",
 }
 
 has_permission = {
 	"AI Eval Suite": "one_bpmn.agents.eval_permissions.eval_suite_has_permission",
 	"AI Eval Case": "one_bpmn.agents.eval_permissions.eval_case_has_permission",
 	"AI Eval Run": "one_bpmn.agents.eval_permissions.eval_run_has_permission",
+	"AI Memory": "one_bpmn.agents.memory.permissions.ai_memory_has_permission",
 }
 
 # DocType Class
@@ -265,11 +272,28 @@ scheduler_events = {
 			# A published rate change has a date but the catalogue has no date
 			# field, so something has to notice the day arriving.
 			"one_bpmn.tasks.apply_due_model_rates",
+			# Soft-retires memories that decayed, were never corroborated, or
+			# are minor and old. Sets expires_on with the reason in metadata;
+			# deletes nothing.
+			"one_bpmn.tasks.prune_ai_memory",
+			# Memory search ranks with an exact scan and no vector index, a
+			# decision bounded by row counts. Once a day is enough to notice a
+			# bound being approached; nothing here acts on it.
+			"one_bpmn.tasks.check_ai_memory_volume",
 		],
 		"* * * * *": [
 			"one_bpmn.tasks.process_timer_start_events",
 			"one_bpmn.tasks.process_timer_catch_events",
 			"one_bpmn.tasks.poll_a2a_tasks",
+		],
+		# WI-002191: try every enabled model's credentials against its provider
+		# (a free list call, not a completion), then tell someone about any model
+		# that is Unhealthy and has not been announced yet — once per kind of
+		# problem. Fifteen minutes is often enough that a fixed key lifts the
+		# block before the person who fixed it has moved on, and rare enough to
+		# be invisible in the provider's request log.
+		"*/15 * * * *": [
+			"one_bpmn.tasks.check_ai_model_credentials",
 		],
 		"0 * * * *": [
 			"one_bpmn.tasks.close_stale_chat_instances",

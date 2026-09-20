@@ -28,7 +28,7 @@ class TestWhatTheExecutorKnows(FrappeTestCase):
 	def test_a_clean_run_with_an_answer_achieved(self):
 		state, basis = gc.determine(ExecutorResult(output="here is your answer"))
 		self.assertEqual(state, gc.ACHIEVED)
-		self.assertIn("without error", basis)
+		self.assertIn("here is your answer", basis)
 
 	def test_an_errored_run_is_not_achieved(self):
 		state, basis = gc.determine(
@@ -82,6 +82,32 @@ class TestWhatTheExecutorKnows(FrappeTestCase):
 		):
 			_, basis = gc.determine(result)
 			self.assertTrue(basis and basis.endswith("."), f"unhelpful basis: {basis!r}")
+
+	def test_the_basis_quotes_the_actual_request_and_output(self):
+		"""WI-002188: the whole point — a basis somebody can judge, not a
+		template every run shares."""
+		state, basis = gc.determine(
+			ExecutorResult(output="the sky is blue"), request_text="why is the sky blue?"
+		)
+		self.assertEqual(state, gc.ACHIEVED)
+		self.assertIn("why is the sky blue?", basis)
+		self.assertIn("the sky is blue", basis)
+
+	def test_different_runs_get_different_bases(self):
+		"""WI-002188: no single template should ever cover most runs — the basis
+		has to move when the request/output do."""
+		_, basis_a = gc.determine(ExecutorResult(output="answer A"), request_text="question A")
+		_, basis_b = gc.determine(ExecutorResult(output="answer B"), request_text="question B")
+		self.assertNotEqual(basis_a, basis_b)
+
+	def test_a_structured_reply_without_a_known_key_is_still_quoted(self):
+		"""WI-002188: _output_text used to collapse this shape to the literal
+		placeholder "structured" — losing the one thing that could make the
+		basis specific."""
+		state, basis = gc.determine(ExecutorResult(output={"bpmn_xml": "<bpmn/>"}))
+		self.assertEqual(state, gc.ACHIEVED)
+		self.assertIn("<bpmn/>", basis)
+		self.assertNotIn("structured", basis)
 
 
 class TestAMapDeclaringItsOwnDefinitionOfDone(FrappeTestCase):
@@ -198,6 +224,7 @@ class TestTheProcessHasTheFinalWord(RunFixture):
 	def test_reaching_the_end_event_settles_an_undecided_run(self):
 		inst = self._instance()
 		run = self._run(status="Success", instance=inst.name)
+		run.db_set("final_output", "the answer", update_modified=False)
 		self.assertEqual(run.goal_completion, gc.UNKNOWN)
 
 		settled = gc.settle_for_instance(inst.name, "Completed")
@@ -205,6 +232,21 @@ class TestTheProcessHasTheFinalWord(RunFixture):
 		row = frappe.get_doc("AI Agent Run", run.name)
 		self.assertEqual(row.goal_completion, gc.ACHIEVED)
 		self.assertIn("end event", row.completion_basis)
+		self.assertIn("the answer", row.completion_basis)
+
+	def test_a_completed_map_does_not_promote_a_run_with_no_output(self):
+		"""WI-002188: the map finishing is not, by itself, evidence this run
+		achieved anything. The exact shape 6 of 15 audited "Achieved" runs
+		were wrongly recorded as."""
+		inst = self._instance()
+		run = self._run(status="Success", instance=inst.name)
+		self.assertFalse((run.final_output or "").strip())
+
+		settled = gc.settle_for_instance(inst.name, "Completed")
+		self.assertEqual(settled, 0)
+		self.assertEqual(
+			frappe.db.get_value("AI Agent Run", run.name, "goal_completion"), gc.UNKNOWN
+		)
 
 	def test_an_errored_process_settles_it_the_other_way(self):
 		inst = self._instance()

@@ -63,6 +63,10 @@ _CONFIG_TO_SHAPE = {
 	"compaction_token_threshold": "aiCompactionTokenThreshold",
 	"compaction_idle_minutes": "aiCompactionIdleMinutes",
 	"compaction_on_task_boundary": "aiCompactionOnTaskBoundary",
+	# The golden dataset bar is the agent's own judgement about its cases. Int,
+	# so 0 reaches the modal and reads there as "no bar".
+	"golden_dataset_minimum": "aiGoldenDatasetMinimum",
+	"golden_dataset_target": "aiGoldenDatasetTarget",
 }
 
 # Shape attributes the modal may write back, and the config fields they land
@@ -98,6 +102,8 @@ _SHAPE_TO_CONFIG = {
 	"aiCompactionTokenThreshold": "compaction_token_threshold",
 	"aiCompactionIdleMinutes": "compaction_idle_minutes",
 	"aiCompactionOnTaskBoundary": "compaction_on_task_boundary",
+	"aiGoldenDatasetMinimum": "golden_dataset_minimum",
+	"aiGoldenDatasetTarget": "golden_dataset_target",
 	# WI-001644: screening is agent-level too — what an agent may say is a
 	# property of the agent, not of the task that happens to call it.
 	"aiPiiScreening": "pii_screening",
@@ -360,6 +366,10 @@ def config_field_map(config_name: str) -> dict:
 	# could silently defeat the ceiling this field exists to guarantee.
 	if cint(cfg.get("memory_token_budget")):
 		out["aiMemoryTokenBudget"] = cfg.memory_token_budget
+	# WI-002195: the cap on a tool result the model sees. Same rule — 0 means
+	# "platform default", not "no cap", so it must not be written as a value.
+	if cint(cfg.get("tool_result_max_chars")):
+		out["aiToolResultMaxChars"] = cfg.tool_result_max_chars
 	if cfg.ai_provider:
 		out["aiProvider"] = cfg.ai_provider
 	# WI-001655: the model is the agent's own pick from the AI Model catalog
@@ -901,7 +911,7 @@ def model_catalogue() -> list:
 	rows = frappe.get_all(
 		"AI Model",
 		filters={"enable_model": 1},
-		fields=["name", "provider", "model_api_name"],
+		fields=["name", "provider", "model_api_name", "model_name"],
 		order_by="name asc",
 	)
 	for row in rows:

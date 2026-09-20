@@ -552,6 +552,57 @@ def get_performance_report(
 # 5. Run step detail (drill-down)
 # ---------------------------------------------------------------------------
 
+_RUN_FIELDS = [
+	"name", "status", "model", "agent_configuration", "bpmn_id", "bpmn_label",
+	"parent_run", "started_at", "duration_ms", "total_prompt_tokens",
+	"total_completion_tokens", "total_tokens", "estimated_cost", "error_code",
+	"error_message", "prompt_hash",
+]
+_STEP_FIELDS = [
+	"name", "step_index", "role", "content", "latency_ms", "prompt_tokens",
+	"completion_tokens", "cost", "error_code", "error_message",
+]
+_TREE_MAX_DEPTH = 4
+
+
+def _step_rows(run_name: str) -> list:
+	"""The steps of one run, oldest first, each carrying its AI Agent Tool Call
+	child rows, the names of the tools it called, and its sub-call tag when
+	the step is a model call made from inside a tool (WI-002190).
+
+	The step doctype has no tool_name column of its own: the child table is
+	the only record of what a turn called. The Insights step table read a
+	field that did not exist, which is why its Tool column never showed one.
+	"""
+	from one_bpmn.agents.observability import parse_sub_call
+
+	steps = frappe.get_list(
+		"AI Agent Step",
+		filters={"run": run_name},
+		fields=_STEP_FIELDS,
+		order_by="step_index asc, creation asc",
+		limit_page_length=200,
+	)
+
+	step_names = [s.name for s in steps]
+	calls_by_step: dict = {}
+	if step_names and frappe.db.exists("DocType", "AI Agent Tool Call"):
+		for call in frappe.get_all(
+			"AI Agent Tool Call",
+			filters={"parent": ["in", step_names], "parenttype": "AI Agent Step"},
+			fields=["parent", "tool_name", "tool_source", "tool_args", "tool_result", "status"],
+			order_by="idx asc",
+		):
+			calls_by_step.setdefault(call.pop("parent"), []).append(call)
+
+	for step in steps:
+		step["tool_calls"] = calls_by_step.get(step.name, [])
+		step["tool_names"] = [c.get("tool_name") for c in step["tool_calls"] if c.get("tool_name")]
+		step["sub_call"] = parse_sub_call(step.get("content"))
+		step["child_runs"] = []
+	return steps
+
+
 @frappe.whitelist()
 def get_run_steps(run_name: str) -> list:
 	"""Return steps for a single AI Agent Run.
@@ -564,32 +615,144 @@ def get_run_steps(run_name: str) -> list:
 	tool_name column (a single turn can contain several calls).
 	"""
 	frappe.only_for("System Manager")
+	return _step_rows(run_name)
 
-	steps = frappe.get_list(
-		"AI Agent Step",
-		filters={"run": run_name},
-		fields=[
-			"name", "step_index", "role", "tool_name", "content",
-			"latency_ms", "prompt_tokens", "completion_tokens", "cost",
-		],
-		order_by="step_index asc",
-		limit_page_length=100,
+
+def _own_rollup(run: dict) -> dict:
+	return {
+		"runs": 1,
+		"total_tokens": cint(run.get("total_tokens")),
+		"total_prompt_tokens": cint(run.get("total_prompt_tokens")),
+		"total_completion_tokens": cint(run.get("total_completion_tokens")),
+		"estimated_cost": flt(run.get("estimated_cost")),
+	}
+
+
+def _add_rollup(into: dict, other: dict) -> None:
+	for key in ("runs", "total_tokens", "total_prompt_tokens", "total_completion_tokens"):
+		into[key] = cint(into.get(key)) + cint(other.get(key))
+	into["estimated_cost"] = flt(into.get("estimated_cost")) + flt(other.get("estimated_cost"))
+
+
+def _run_node(run: dict, depth: int) -> dict:
+	"""One run with its steps and the runs its tools started, nested under
+	the step whose tool call started them (WI-002190).
+
+	A child run's bpmn_id is the shape the parent called as a tool, so a
+	child is attached to the first step still holding an unmatched call to
+	that tool, in order. A child that matches no step (older data, or a
+	run started outside a tool call) is listed after the steps.
+	"""
+	steps = _step_rows(run["name"]) if depth > 0 else []
+	children = (
+		frappe.get_list(
+			"AI Agent Run",
+			filters={"parent_run": run["name"]},
+			fields=_RUN_FIELDS,
+			order_by="started_at asc, creation asc",
+			limit_page_length=100,
+		)
+		if depth > 0
+		else []
 	)
+	child_nodes = [_run_node(child, depth - 1) for child in children]
 
-	step_names = [s.name for s in steps]
-	calls_by_step = {}
-	if step_names and frappe.db.exists("DocType", "AI Agent Tool Call"):
-		for call in frappe.get_all(
-			"AI Agent Tool Call",
-			filters={"parent": ["in", step_names], "parenttype": "AI Agent Step"},
-			fields=["parent", "tool_name", "tool_source", "tool_args", "tool_result", "status"],
-			order_by="idx asc",
-		):
-			calls_by_step.setdefault(call.pop("parent"), []).append(call)
+	rollup = _own_rollup(run)
+	for node in child_nodes:
+		_add_rollup(rollup, node["rollup"])
 
+	unplaced = list(child_nodes)
 	for step in steps:
-		step["tool_calls"] = calls_by_step.get(step.name, [])
-	return steps
+		for tool_name in step["tool_names"]:
+			match = next((n for n in unplaced if n["run"].get("bpmn_id") == tool_name), None)
+			if match is not None:
+				step["child_runs"].append(match)
+				unplaced.remove(match)
+
+	return {
+		"run": run,
+		"steps": steps,
+		"unplaced_children": unplaced,
+		"rollup": rollup,
+	}
+
+
+@frappe.whitelist()
+def get_run_tree(run_name: str) -> dict:
+	"""A run as the tree it really was (WI-002190): its steps, and under each
+	step the runs that step's tool calls started, recursively, with tokens and
+	cost rolled up over the whole tree. The parent's own totals cover only its
+	own model calls; the rollup is what the turn cost.
+	"""
+	frappe.only_for("System Manager")
+	run = frappe.db.get_value("AI Agent Run", run_name, _RUN_FIELDS, as_dict=True)
+	if not run:
+		frappe.throw(_("AI Agent Run {0} not found").format(run_name), frappe.DoesNotExistError)
+	return _run_node(run, _TREE_MAX_DEPTH)
+
+
+def _descendant_rollups(run_names: list) -> dict:
+	"""{top-level run name: rollup over its descendants}, walking parent_run
+	links breadth-first so grandchildren count as well as children."""
+	totals = {name: {"runs": 0, "total_tokens": 0, "total_prompt_tokens": 0, "total_completion_tokens": 0, "estimated_cost": 0.0} for name in run_names}
+	owner = {name: name for name in run_names}
+	frontier = list(run_names)
+	for _level in range(_TREE_MAX_DEPTH):
+		if not frontier:
+			break
+		children = frappe.get_all(
+			"AI Agent Run",
+			filters={"parent_run": ["in", frontier]},
+			fields=["name", "parent_run", "total_tokens", "total_prompt_tokens", "total_completion_tokens", "estimated_cost"],
+			limit_page_length=0,
+		)
+		frontier = []
+		for child in children:
+			top = owner.get(child.parent_run)
+			if not top:
+				continue
+			owner[child.name] = top
+			_add_rollup(totals[top], _own_rollup(child))
+			frontier.append(child.name)
+	return totals
+
+
+@frappe.whitelist()
+def get_recent_runs(
+	model: str = None,
+	bpmn_id: str = None,
+	agent_configuration: str = None,
+	status: str = "Success",
+	limit: int = 10,
+) -> list:
+	"""The latest top-level runs matching the filters, each with the tokens,
+	cost and count of the runs its tools started (WI-002190). Child runs are
+	not listed on their own: they appear under their parent in get_run_tree.
+	"""
+	frappe.only_for("System Manager")
+	filters: dict = {"parent_run": ["is", "not set"]}
+	if status:
+		filters["status"] = status
+	if model:
+		filters["model"] = model
+	if bpmn_id:
+		filters["bpmn_id"] = bpmn_id
+	if agent_configuration:
+		filters["agent_configuration"] = agent_configuration
+	runs = frappe.get_list(
+		"AI Agent Run",
+		filters=filters,
+		fields=_RUN_FIELDS,
+		order_by="started_at desc",
+		limit_page_length=min(cint(limit) or 10, 100),
+	)
+	rollups = _descendant_rollups([r.name for r in runs])
+	for run in runs:
+		below = rollups.get(run.name) or {}
+		run["child_runs"] = cint(below.get("runs"))
+		run["tree_total_tokens"] = cint(run.total_tokens) + cint(below.get("total_tokens"))
+		run["tree_estimated_cost"] = flt(run.estimated_cost) + flt(below.get("estimated_cost"))
+	return runs
 
 
 @frappe.whitelist()
@@ -845,3 +1008,133 @@ def export_cost_allocation(
 	frappe.response["type"] = "binary"
 	frappe.response["filename"] = filename
 	frappe.response["filecontent"] = content
+
+
+# ---------------------------------------------------------------------------
+# 7. Work item delegation cost
+# ---------------------------------------------------------------------------
+#
+# A Work Item can be worked by an Orchestrator that delegates part of the
+# job to specialists over A2A: the caller's BPMN Process Instance parks on
+# an A2A Task, whose `instance` is the specialist's own process instance.
+# A specialist can itself delegate further, so the chain must be walked, not
+# just read one level deep — the same shape get_run_tree walks for a single
+# run's tool-started children, just following A2A Task rows instead of
+# parent_run.
+
+def _instances_for_work_item(work_item_name: str) -> list:
+	"""BPMN Process Instance names whose context is the given Work Item."""
+	return frappe.get_all(
+		"BPMN Process Instance",
+		filters={"context_doctype": "Work Item", "context_docname": work_item_name},
+		pluck="name",
+	)
+
+
+def _delegated_instances(caller_instances: list) -> list:
+	"""The specialist instances these instances handed work to over A2A."""
+	if not caller_instances:
+		return []
+	return [
+		t.instance
+		for t in frappe.get_all(
+			"A2A Task",
+			filters={"caller_instance": ["in", caller_instances], "instance": ["is", "set"]},
+			fields=["instance"],
+			limit_page_length=0,
+		)
+		if t.instance
+	]
+
+
+def _delegation_chain_instances(root_instances: list) -> tuple[list, bool]:
+	"""Every instance in the delegation chain starting from *root_instances*,
+	following A2A Task rows from caller_instance (the instance that parked,
+	waiting) to instance (the specialist instance doing the delegated work),
+	repeatedly — so a specialist that itself delegates further is caught too.
+
+	Depth is capped at _TREE_MAX_DEPTH, the same guard get_run_tree uses for
+	its own recursion, so a bad or cyclic chain cannot loop forever.
+
+	Returns the instances found and whether the cap stopped the walk with more
+	chain still ahead. That second value matters here in a way it does not for
+	get_run_tree: this walk feeds a cost total, and a total short by a level is
+	an undercount that looks exactly like a correct answer.
+	"""
+	all_instances = list(dict.fromkeys(root_instances))
+	frontier = list(root_instances)
+	for _level in range(_TREE_MAX_DEPTH):
+		if not frontier:
+			break
+		next_frontier = []
+		for instance in _delegated_instances(frontier):
+			if instance not in all_instances:
+				all_instances.append(instance)
+				next_frontier.append(instance)
+		frontier = next_frontier
+	# A leftover frontier only says those instances went unexpanded, not that
+	# any chain continues past them — asking is what stops a complete total
+	# from being flagged as short.
+	truncated = any(i not in all_instances for i in _delegated_instances(frontier))
+	return all_instances, truncated
+
+
+@frappe.whitelist()
+def get_work_item_delegation_cost(work_item_name: str) -> dict:
+	"""Total AI cost for a Work Item, summed across every AI Agent Run in its
+	delegation chain — every Orchestrator pass plus every specialist it handed
+	work to over A2A, down to _TREE_MAX_DEPTH levels.
+
+	Returns zero totals and an empty breakdown, not an error, for a work item
+	with no BPMN Process Instance or no runs at all.
+
+	chain_truncated says the depth cap was reached with chain still unwalked,
+	so the totals are a floor rather than the whole figure. Read it before
+	quoting the number: nothing else distinguishes a complete total from a
+	short one.
+	"""
+	frappe.only_for("System Manager")
+
+	root_instances = _instances_for_work_item(work_item_name)
+	if not root_instances:
+		return {"total_cost": 0.0, "total_tokens": 0, "breakdown": [], "chain_truncated": False}
+
+	instances, chain_truncated = _delegation_chain_instances(root_instances)
+
+	Run = DocType("AI Agent Run")
+	rows = (
+		frappe.qb.from_(Run)
+		.select(
+			Run.name,
+			Run.agent_configuration,
+			Run.model,
+			Run.estimated_cost,
+			Run.total_tokens,
+		)
+		.where(Run.instance.isin(instances))
+		.orderby(Run.started_at)
+		.run(as_dict=True)
+	)
+
+	breakdown = []
+	total_cost = 0.0
+	total_tokens = 0
+	for r in rows:
+		cost = flt(r.get("estimated_cost"), 6)
+		tokens = cint(r.get("total_tokens"))
+		total_cost += cost
+		total_tokens += tokens
+		breakdown.append({
+			"run": r.get("name"),
+			"agent_configuration": r.get("agent_configuration"),
+			"model": r.get("model"),
+			"cost": cost,
+			"tokens": tokens,
+		})
+
+	return {
+		"total_cost": flt(total_cost, 6),
+		"total_tokens": total_tokens,
+		"breakdown": breakdown,
+		"chain_truncated": chain_truncated,
+	}

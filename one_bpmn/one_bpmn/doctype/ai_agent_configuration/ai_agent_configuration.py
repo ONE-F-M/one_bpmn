@@ -60,6 +60,8 @@ class AIAgentConfiguration(Document):
 		if self.long_term_memory != "Enabled":
 			return
 
+		self.warn_if_memory_has_no_map()
+
 		if not self.memory_scope:
 			frappe.throw(
 				_("Memory Scope is required when Long-Term Memory is Enabled."),
@@ -95,6 +97,32 @@ class AIAgentConfiguration(Document):
 				_("No Reconciliation Model is resolvable for this agent."),
 				title=_("Memory Configuration"),
 			)
+
+	def warn_if_memory_has_no_map(self):
+		"""Say so when the memory settings cannot do anything.
+
+		Recall and writeback live in the map dispatcher. A chat agent with no
+		Process Model runs on the single-shot path instead (see ``_runner_for``
+		in api/agent_invocation.py), which never reads a memory and never writes
+		one. The settings still save and the form still shows them Enabled, so
+		the only visible symptom is an agent that forgets everything, which is
+		what it looks like when memory is simply not working.
+
+		A warning and not a block: linking the map afterwards is a normal order
+		to do this in, and a Background config carries no map of its own.
+		"""
+		if self.agent_type != "Chat" or self.process_model:
+			return
+
+		frappe.msgprint(
+			_(
+				"Memory is Enabled, but this agent has no Process Model. "
+				"Memories are read and written by the process map, so this agent will not "
+				"recall anything and will not store anything until a map is linked."
+			),
+			title=_("Memory Configuration"),
+			indicator="orange",
+		)
 
 	def validate_delegation_grant(self):
 		"""Say so when the list is inert.
@@ -557,6 +585,14 @@ def get_agent_config(agent_id: str) -> dict | None:
 		constants[c.constant_name] = _cast_constant(c.constant_value, c.constant_type)
 
 	result = {
+		# The record's own name. Queried above and used for every child-table
+		# lookup in this function, then dropped from what callers got back, the
+		# same way ai_model was. The direct chat path pays for it: it builds its
+		# AI Agent Run from this dict, so every run on that path was left with
+		# no agent_configuration and could not be attributed to an agent in
+		# Insights or anywhere else. It has no BPMN instance and no process
+		# model either, so neither of create_ai_run's fallbacks could rescue it.
+		"name": config.name,
 		"agent_id": config.agent_id,
 		"system_prompt": config.system_prompt,
 		"temperature": config.temperature,

@@ -13,16 +13,23 @@ Scope key shapes (the ``scope_key`` argument):
     - "Agent"  -> agent_element (str) or {"agent_element": str}
     - "Process"-> process (str) or {"process": str}
     - "Entity" -> {"reference_doctype": str, "reference_name": str}
+
+Any dict form may add ``"user": <User name>`` to make the memory personal: a
+write stores it for that person only, and a read returns that person's memories
+plus the shared ones (rows with no user). Without ``user`` a read sees shared
+rows only and a write is shared. Nobody ever reads another person's rows.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+from contextlib import ExitStack, nullcontext
 
 import frappe
 from frappe import _
-from frappe.utils import get_datetime, now, now_datetime
+from frappe.utils import cint, get_datetime, now, now_datetime
 
 VALID_SCOPES = ("Agent", "Process", "Entity")
 _DEFAULT_LIMIT = 5
@@ -50,6 +57,53 @@ _STOPWORDS = frozenset(
 	}
 )
 
+# ── Semantic retrieval (MariaDB 11.7+ VECTOR column) ─────────────────────────
+# Ranking is EXACT cosine over the scope-filtered, currently-valid candidate set.
+# No VECTOR INDEX: that is HNSW, an approximate search, and after scope
+# pre-filtering the candidate set is small enough that an exact scan costs
+# nothing measurable (0.6 ms at 10,000 candidates on this hardware).
+#
+# Revisit when either bound below is crossed. The volume alert reads them. The
+# next step at that point is still MariaDB (a VECTOR INDEX inside the same
+# query), not an external vector store: keeping the filter and the ranking in
+# one statement is the property that makes this design work.
+REVISIT_SCOPE_ROWS = 10_000
+REVISIT_TOTAL_ROWS = 500_000
+# Candidates pulled per query before ranking in Python. Today a scope holds far
+# fewer valid rows than this, so it is the whole candidate set.
+_SEMANTIC_CANDIDATES = 200
+# Share of the relevance score that comes from meaning when Processa Settings has
+# no value. The rest comes from the FULLTEXT relevance score.
+_DEFAULT_SEMANTIC_WEIGHT = 0.6
+# Shares of the final score given to recency and to importance when Processa
+# Settings has no value; relevance takes whatever is left.
+_DEFAULT_RECENCY_WEIGHT = 0.2
+_DEFAULT_IMPORTANCE_WEIGHT = 0.2
+# Recency halves every this many days. A three-month-old memory keeps an eighth.
+# ponytail: fixed half-life, make it a setting if one agent needs a different clock
+_RECENCY_HALF_LIFE_DAYS = 30.0
+_DEFAULT_IMPORTANCE = 3
+
+# ── Provenance and trust ─────────────────────────────────────────────────────
+SOURCE_TYPES = ("User Statement", "Agent Inference", "Tool Output")
+_DEFAULT_SOURCE_TYPE = "Agent Inference"
+# Starting confidence by source. Tool output is discouraged by default: a fact
+# read off what a tool returned is one step further from anything a person
+# said, so it starts low and loses ties against the other two.
+# ponytail: fixed table, promote to settings if a site wants tool facts trusted more
+_INITIAL_CONFIDENCE = {"User Statement": 0.9, "Agent Inference": 0.6, "Tool Output": 0.4}
+# Added to confidence each time a later fact restates an existing one.
+_CORROBORATION_BOOST = 0.1
+# Effective confidence halves every this many days since the fact was last
+# written or corroborated, so an old uncorroborated fact loses a tie to a new one.
+_CONFIDENCE_HALF_LIFE_DAYS = 90.0
+# A row that shares no keyword with the query must be at least this similar in
+# meaning to be returned at all, or the semantic path would pad results with
+# unrelated facts. all-MiniLM-L6-v2: related pairs score above 0.35, unrelated
+# below 0.25.
+# ponytail: fixed floor, make it a setting if a second model needs another value
+_SEMANTIC_MIN_SIMILARITY = 0.3
+
 
 def _query_tokens(query: str) -> list[str]:
 	"""Split a free-text query into distinct, meaningful keyword tokens. A whole
@@ -65,6 +119,42 @@ def _query_tokens(query: str) -> list[str]:
 		if len(tokens) >= _MAX_QUERY_TOKENS:
 			break
 	return tokens
+
+
+# How long a writeback waits for another one on the same scope key. Distillation
+# is already off the request path, so waiting is cheaper than the duplicate or
+# the lost corroboration count that racing produces.
+_SCOPE_LOCK_TIMEOUT = 30
+
+
+def _scope_lock(keys: dict):
+	"""Serialise reconcile-and-write for one scope key.
+
+	Reconciliation reads the memories in scope, decides what the new fact
+	supersedes, and only then writes. Two writebacks for the same key that
+	interleave there both read the same candidates: both insert, or both raise
+	the corroboration count from the same starting number and one increment is
+	lost. Neither shows up as an error; the store just quietly drifts.
+
+	The lock is the framework's own file lock, named for the scope key rather
+	than the agent, so unrelated agents and different people never wait on each
+	other. A timeout here is not fatal: the caller writes anyway, because
+	losing the memory is worse than the duplicate that racing might produce.
+
+	ponytail: a file lock serialises the processes on one host, which is what a
+	Frappe bench is; a multi-server deployment sharing one database wants
+	GET_LOCK instead.
+	"""
+	from frappe.utils.synchronization import filelock
+
+	return filelock(scope_lock_name(keys), timeout=_SCOPE_LOCK_TIMEOUT)
+
+
+def scope_lock_name(keys: dict) -> str:
+	"""The lock's name for one scope key: a digest, because the key can hold a
+	document name or an email address and this becomes a filename."""
+	fingerprint = hashlib.sha1(json.dumps(keys, sort_keys=True, default=str).encode()).hexdigest()[:16]
+	return f"ai-memory-{fingerprint}"
 
 
 def _json_loads(value):
@@ -110,7 +200,38 @@ def _resolve_scope(scope: str, scope_key) -> dict:
 		keys["reference_doctype"] = reference_doctype
 		keys["reference_name"] = reference_name
 
+	# The person dimension rides on top of every scope. Exact for writes and
+	# dedup; _read_filters widens it to "mine or shared" for recall.
+	keys["user"] = (scope_key.get("user") or "") if isinstance(scope_key, dict) else ""
 	return keys
+
+
+def _read_filters(keys: dict) -> dict:
+	"""Recall filters for ``keys``: the person's own rows plus the shared ones,
+	or shared only when no user is set. Frappe and ``_sql_conditions`` both turn
+	the empty string into ``ifnull(user, '') = ''`` so NULL reads as shared."""
+	filters = dict(keys)
+	user = keys.get("user") or ""
+	filters["user"] = ("in", [user, ""] if user else [""])
+	return filters
+
+
+def _sql_conditions(filters: dict) -> tuple[str, dict]:
+	"""WHERE fragment and params for the raw-SQL search paths. Plain values are
+	equality; a ``("in", [...])`` value becomes ``IFNULL(col,'') IN (...)``."""
+	conds, params = [], {}
+	for col, value in filters.items():
+		if isinstance(value, tuple) and value[0] == "in":
+			names = []
+			for i, v in enumerate(value[1]):
+				key = f"{col}_{i}"
+				params[key] = v
+				names.append(f"%({key})s")
+			conds.append(f"IFNULL(`{col}`, '') IN ({', '.join(names)})")
+		else:
+			params[col] = value
+			conds.append(f"`{col}` = %({col})s")
+	return " AND ".join(conds), params
 
 
 # ── Tools ─────────────────────────────────────────────────────────────────
@@ -128,8 +249,8 @@ def _fulltext_search(filters: dict, query: str, limit: int):
 	"fall back" — it covers the InnoDB case where rows written in the current
 	uncommitted transaction are not yet visible to the FULLTEXT cache.
 	"""
-	conds = " AND ".join(f"`{col}` = %({col})s" for col in filters)
-	params = dict(filters, _q=query, _lim=int(limit), _now=now())
+	conds, params = _sql_conditions(filters)
+	params.update(_q=query, _lim=int(limit), _now=now())
 	# Only currently-valid memories: exclude superseded (expires_on set to now on
 	# reconcile) and naturally-expired rows, so the most-recent fact wins.
 	sql = f"""
@@ -148,13 +269,159 @@ def _fulltext_search(filters: dict, query: str, limit: int):
 		return None
 
 
+def _vector_supported() -> bool:
+	"""True when the ``embedding`` VECTOR column exists (MariaDB 11.7+, added by
+	``ai_memory.add_embedding_column``). One information_schema lookup."""
+	try:
+		return bool(frappe.db.has_column("AI Memory", "embedding"))
+	except Exception:
+		return False
+
+
+def _setting_weight(fieldname: str, default: float) -> float:
+	try:
+		value = frappe.db.get_single_value("Processa Settings", fieldname)
+	except Exception:
+		value = None
+	value = default if value is None else float(value)
+	return min(max(value, 0.0), 1.0)
+
+
+def _score_weights() -> dict:
+	"""``{semantic, recency, importance}`` from Processa Settings, code defaults
+	when blank. ``semantic`` splits the relevance score between meaning and
+	keywords; ``recency`` and ``importance`` are shares of the final score, and
+	relevance takes what is left of 1.0."""
+	recency = _setting_weight("memory_recency_weight", _DEFAULT_RECENCY_WEIGHT)
+	importance = _setting_weight("memory_importance_weight", _DEFAULT_IMPORTANCE_WEIGHT)
+	if recency + importance > 1.0:
+		total = recency + importance
+		recency, importance = recency / total, importance / total
+	return {
+		"semantic": _setting_weight("memory_semantic_weight", _DEFAULT_SEMANTIC_WEIGHT),
+		"recency": recency,
+		"importance": importance,
+	}
+
+
+def _recency(modified, now) -> float:
+	"""1.0 for a memory touched just now, halving every ``_RECENCY_HALF_LIFE_DAYS``."""
+	if not modified:
+		return 0.0
+	age_days = max(0.0, (now - get_datetime(modified)).total_seconds() / 86400.0)
+	return 0.5 ** (age_days / _RECENCY_HALF_LIFE_DAYS)
+
+
+def _blend(rows: list[dict], weights: dict, now=None) -> list[dict]:
+	"""Rank candidate rows by relevance, recency and importance.
+
+	relevance  = ``semantic * meaning + (1 - semantic) * keyword``, where meaning
+	             is ``1 - _dist`` (0 for a row with no embedding yet, so it keeps
+	             its keyword score and stays findable) and keyword is ``_ft``
+	             normalised by the best FULLTEXT score in the set.
+	recency    = exponential decay of ``modified`` with a 30-day half-life.
+	importance = ``(importance - 1) / 4``, so 1 scores 0 and 5 scores 1.
+	score      = ``(1 - recency_w - importance_w) * relevance + recency_w * recency
+	             + importance_w * importance``.
+
+	A row with no keyword hit and a meaning similarity under
+	``_SEMANTIC_MIN_SIMILARITY`` is dropped before scoring: recency and
+	importance lift a relevant memory, they never make an unrelated one
+	relevant. Pure function; the unit tests drive it directly."""
+	now = now or now_datetime()
+	semantic_w = weights.get("semantic", _DEFAULT_SEMANTIC_WEIGHT)
+	recency_w = weights.get("recency", _DEFAULT_RECENCY_WEIGHT)
+	importance_w = weights.get("importance", _DEFAULT_IMPORTANCE_WEIGHT)
+	relevance_w = max(0.0, 1.0 - recency_w - importance_w)
+	ft_max = max((float(r.get("_ft") or 0) for r in rows), default=0.0) or 1.0
+	ranked = []
+	for r in rows:
+		meaning = 0.0 if r.get("_dist") is None else 1.0 - float(r["_dist"])
+		keyword = float(r.get("_ft") or 0) / ft_max
+		if keyword <= 0 and meaning < _SEMANTIC_MIN_SIMILARITY:
+			continue
+		relevance = semantic_w * meaning + (1.0 - semantic_w) * keyword
+		importance = (min(5, max(1, int(r.get("importance") or _DEFAULT_IMPORTANCE))) - 1) / 4.0
+		score = relevance_w * relevance + recency_w * _recency(r.get("modified"), now) + importance_w * importance
+		ranked.append((score, r))
+	ranked.sort(key=lambda pair: pair[0], reverse=True)
+	return [r for _, r in ranked]
+
+
+def _semantic_search(filters: dict, query: str, limit: int):
+	"""Hybrid meaning-plus-keyword search inside one SQL statement.
+
+	Scope and validity are filtered FIRST in SQL on the existing indexes; only
+	the survivors are scored. A candidate is any valid in-scope row that has an
+	embedding or matches the FULLTEXT query, so rows written before embeddings
+	existed remain reachable by keyword. Returns ranked row dicts, or ``None``
+	whenever the semantic path cannot run (no VECTOR column, embedding
+	unavailable, SQL error) so the caller falls back to keyword ranking. Never
+	raises.
+	"""
+	try:
+		if not _vector_supported():
+			return None
+		from one_bpmn.agents.llm_provider.embedding import embed
+
+		vectors = embed([query])
+		if not vectors:
+			return None
+		conds, params = _sql_conditions(filters)
+		params.update(_vec=json.dumps(vectors[0]), _q=query, _lim=_SEMANTIC_CANDIDATES, _now=now())
+		sql = f"""
+			SELECT name, content, metadata, modified, importance,
+			       VEC_DISTANCE_COSINE(embedding, VEC_FromText(%(_vec)s)) AS _dist,
+			       MATCH(content) AGAINST (%(_q)s IN NATURAL LANGUAGE MODE) AS _ft
+			FROM `tabAI Memory`
+			WHERE {conds}
+			  AND (expires_on IS NULL OR expires_on > %(_now)s)
+			  AND (embedding IS NOT NULL OR MATCH(content) AGAINST (%(_q)s IN NATURAL LANGUAGE MODE))
+			ORDER BY _dist ASC, modified DESC
+			LIMIT %(_lim)s
+		"""
+		rows = frappe.db.sql(sql, params, as_dict=True)
+		return _blend(rows, _score_weights())[:limit]
+	except Exception:
+		from one_bpmn.agents.llm_provider.embedding import report_degraded
+
+		report_degraded("AI Memory: semantic search unavailable, using keyword ranking", frappe.get_traceback())
+		return None
+
+
+def store_embedding(name: str, content: str) -> bool:
+	"""Embed ``content`` and store it on the row. Silent no-op (returns False)
+	when the VECTOR column or the embedding model is unavailable; a row with no
+	embedding is still found by the keyword paths. Shared with the backfill job."""
+	if not _vector_supported():
+		return False
+	from one_bpmn.agents.llm_provider.embedding import embed, report_degraded
+
+	vectors = embed([content])
+	if not vectors:
+		return False
+	try:
+		frappe.db.sql(
+			"UPDATE `tabAI Memory` SET embedding = VEC_FromText(%s) WHERE name = %s",
+			(json.dumps(vectors[0]), name),
+		)
+		return True
+	except Exception:
+		report_degraded("AI Memory: embedding could not be stored", f"Row {name}. {frappe.get_traceback()}")
+		return False
+
+
 def memory_search(scope: str, scope_key, query: str, limit: int = 5, *, ignore_permissions: bool = False) -> list[dict]:
 	"""Look up memories for exactly one scope key whose content matches ``query``.
 
 	Returns up to ``limit`` results as ``[{name, content, metadata}]``, never from
 	a different scope key. Ranking depends on the path taken:
 
-	- Trusted dispatch (``ignore_permissions=True``) with indexable query tokens
+	- Trusted dispatch (``ignore_permissions=True``) first tries the hybrid
+	  semantic-plus-FULLTEXT ranking (``_semantic_search``), so a memory worded
+	  differently from the query still surfaces. Needs the VECTOR column
+	  (MariaDB 11.7+) and a working embedding model; otherwise it is skipped.
+	- Trusted dispatch with indexable query tokens then
 	  uses a FULLTEXT ``MATCH`` and returns results ordered by **relevance** then
 	  recency — so the most on-topic memories surface, not merely the most recent.
 	- Otherwise (permission-enforced callers, no indexable tokens, or FULLTEXT
@@ -167,12 +434,17 @@ def memory_search(scope: str, scope_key, query: str, limit: int = 5, *, ignore_p
 	dispatch ONLY (see ``memory_write``) — never expose it via a whitelisted
 	method.
 	"""
-	filters = _resolve_scope(scope, scope_key)
+	filters = _read_filters(_resolve_scope(scope, scope_key))
 	page_length = limit if isinstance(limit, int) and limit > 0 else _DEFAULT_LIMIT
 	tokens = _query_tokens(query) if query else []
 
-	# Relevance-ranked FULLTEXT path (trusted dispatch only). A non-empty result
-	# wins; empty/unavailable falls through to the keyword path below.
+	# Hybrid semantic + FULLTEXT ranking, then FULLTEXT alone (both trusted
+	# dispatch only: raw SQL cannot apply row permissions). A non-empty result
+	# wins; empty/unavailable falls through to the next path.
+	if ignore_permissions and query and query.strip():
+		rows = _semantic_search(filters, query.strip(), page_length)
+		if rows:
+			return [_row_dict(r) for r in rows]
 	if ignore_permissions and tokens:
 		rows = _fulltext_search(filters, " ".join(tokens), page_length)
 		if rows:
@@ -211,7 +483,7 @@ def memory_list_user_directed(scope: str, scope_key, limit: int = 3, *, ignore_p
 	surface it — that is the recall gap this exists to close. Called alongside
 	``memory_search``, not instead of it; the caller merges both result sets.
 	"""
-	filters = dict(_resolve_scope(scope, scope_key), user_directed=1)
+	filters = dict(_read_filters(_resolve_scope(scope, scope_key)), user_directed=1)
 	page_length = limit if isinstance(limit, int) and limit > 0 else _DEFAULT_LIMIT
 	rows = frappe.get_list(
 		"AI Memory",
@@ -250,7 +522,112 @@ def _keyed_candidates(keys: dict, dedup_key: str | None) -> list[dict]:
 	return [_row_dict(r) for r in _valid_rows(rows)]
 
 
-def _reconcile_and_invalidate(scope, scope_key, content, dedup_key, ctx, *, ignore_permissions) -> str | None:
+def trust_hierarchy() -> list[str]:
+	"""Source types most trusted first: Processa Settings, else the code order."""
+	try:
+		text = frappe.db.get_single_value("Processa Settings", "memory_trust_hierarchy")
+	except Exception:
+		text = None
+	order = [line.strip() for line in (text or "").splitlines() if line.strip()]
+	return order or list(SOURCE_TYPES)
+
+
+def _trust_rank(source_type: str | None, order: list[str] | None = None) -> int:
+	"""Higher is more trusted; a source type not in the hierarchy ranks 0."""
+	order = order or trust_hierarchy()
+	if source_type in order:
+		return len(order) - order.index(source_type)
+	return 0
+
+
+def _normalise_source_type(source_type: str | None, user_directed: bool) -> str:
+	if source_type in SOURCE_TYPES:
+		return source_type
+	return "User Statement" if user_directed else _DEFAULT_SOURCE_TYPE
+
+
+def effective_confidence(row: dict, now=None) -> float:
+	"""Stored confidence decayed by age since the fact was last corroborated (or
+	written), halving every ``_CONFIDENCE_HALF_LIFE_DAYS``."""
+	now = now or now_datetime()
+	confidence = float(row.get("confidence") or 0.0)
+	anchor = row.get("last_corroborated") or row.get("modified")
+	if not anchor:
+		return confidence
+	age_days = max(0.0, (now - get_datetime(anchor)).total_seconds() / 86400.0)
+	return confidence * 0.5 ** (age_days / _CONFIDENCE_HALF_LIFE_DAYS)
+
+
+def _resolve_conflict(action: str | None, supersedes: list, source_type: str, confidence: float) -> tuple[str | None, dict]:
+	"""Apply the trust hierarchy to a reconciler decision.
+
+	``replace`` (the new fact contradicts existing ones): an existing memory
+	from a more trusted source, or an equally trusted one that is still more
+	confident, wins; the new fact is rejected and nothing is invalidated.
+	``update`` (the new fact restates existing ones): corroboration, so the
+	surviving new row inherits the count plus one and a raised confidence.
+	Returns ``(action, carry)``; ``carry`` holds field values for the new row."""
+	if not supersedes:
+		return action, {}
+	rows = frappe.get_all(
+		"AI Memory",
+		filters={"name": ("in", list(supersedes))},
+		fields=[
+			"name",
+			"source_type",
+			"confidence",
+			"corroboration_count",
+			"last_corroborated",
+			"modified",
+			"user_directed",
+			"content",
+			"importance",
+		],
+	)
+	if action == "replace":
+		order = trust_hierarchy()
+		new_rank = _trust_rank(source_type, order)
+		for r in rows:
+			old_rank = _trust_rank(r.get("source_type"), order)
+			if old_rank > new_rank or (old_rank == new_rank and effective_confidence(r) > confidence):
+				return "rejected_lower_trust", {"kept": r["name"]}
+		return action, {}
+	if action == "update":
+		best = max([confidence] + [effective_confidence(r) for r in rows])
+		carry = {
+			"confidence": min(1.0, best + _CORROBORATION_BOOST),
+			"corroboration_count": max([int(r.get("corroboration_count") or 0) for r in rows] + [0]) + 1,
+			"last_corroborated": now_datetime(),
+		}
+		# Corroboration invalidates the old rows and inserts a fresh one, so
+		# without this a person's "remember that ..." is replaced by the agent's
+		# later paraphrase of it: the words change and user_directed goes back to
+		# 0. That flag is what keeps a memory out of the Log Settings cleanup and
+		# what makes memory_list_user_directed recall it whatever the turn is
+		# about, so the memory the person asked for quietly becomes an ordinary
+		# one. A restatement raises the count and the confidence. It does not get
+		# to reword what somebody asked for.
+		directed = [r for r in rows if cint(r.get("user_directed"))]
+		if directed:
+			carry["user_directed"] = 1
+			carry["content"] = max(directed, key=lambda r: r.get("modified") or "").get("content")
+
+		# Importance travels the same way, for the same reason. The distiller
+		# judges it 1 to 5; a user-directed write is stored verbatim without
+		# going through the distiller, so it carries no judgement and lands on
+		# the field default. Restating a fact then costs it the judgement it
+		# already had. On staging on 2026-09-13 a rule the distiller had scored
+		# 5 was restated in passing and the survivor came out 3.
+		highest = max([cint(r.get("importance")) for r in rows] + [0])
+		if highest:
+			carry["importance"] = highest
+		return action, carry
+	return action, {}
+
+
+def _reconcile_and_invalidate(
+	scope, scope_key, content, dedup_key, ctx, *, ignore_permissions, source_type=_DEFAULT_SOURCE_TYPE, confidence=None
+) -> tuple[str | None, dict]:
 	"""Reconcile ``content`` against the most similar currently-valid memories in
 	the same scope and invalidate any it supersedes.
 
@@ -268,10 +645,16 @@ def _reconcile_and_invalidate(scope, scope_key, content, dedup_key, ctx, *, igno
 	now`` via ``doc.save`` — NOT ``db.set_value`` — so the change is captured as a
 	Frappe ``Version`` (free history; the row stays in the table).
 
-	Returns the reconciler action ("add"/"update"/"replace"), the sentinel
-	``"skipped_exact_duplicate"`` (caller must insert nothing), or ``None`` when
-	there is nothing to reconcile against. Never raises — the caller treats any
-	problem as a plain insert.
+	The trust hierarchy is applied to the decision (``_resolve_conflict``): a
+	contradiction is only allowed to invalidate memories from a source no more
+	trusted than the new fact's, and a restatement corroborates.
+
+	Returns ``(action, carry)``: the reconciler action ("add"/"update"/
+	"replace"), the sentinel ``"skipped_exact_duplicate"`` or
+	``"rejected_lower_trust"`` (caller must insert nothing; ``carry["kept"]``
+	names the memory that stood), or ``None`` when there is nothing to reconcile
+	against. ``carry`` holds field values the new row inherits (corroboration).
+	Never raises; the caller treats any problem as a plain insert.
 	"""
 	from one_bpmn.agents.memory.reconcile import reconcile as _reconcile
 
@@ -280,9 +663,19 @@ def _reconcile_and_invalidate(scope, scope_key, content, dedup_key, ctx, *, igno
 
 	text = (content or "").strip()
 	if any((c.get("content") or "").strip() == text for c in keyed):
-		return "skipped_exact_duplicate"
+		return "skipped_exact_duplicate", {}
 
 	searched = memory_search(scope, scope_key, content, limit=_RECONCILE_K, ignore_permissions=True)
+	if keys.get("user") and searched:
+		# Recall widens to "mine or shared"; reconciliation must not. One
+		# person's statement may only supersede that person's own memories, so
+		# a shared row is never invalidated by what one user said.
+		owners = dict(
+			frappe.get_all(
+				"AI Memory", filters={"name": ("in", [c["name"] for c in searched])}, fields=["name", "user"], as_list=True
+			)
+		)
+		searched = [c for c in searched if (owners.get(c["name"]) or "") == keys["user"]]
 	seen = {c["name"] for c in keyed}
 	candidates = list(keyed)
 	for c in searched:
@@ -291,7 +684,7 @@ def _reconcile_and_invalidate(scope, scope_key, content, dedup_key, ctx, *, igno
 			candidates.append(c)
 
 	if not candidates:
-		return None
+		return None, {}
 
 	decision = _reconcile(
 		content,
@@ -317,6 +710,18 @@ def _reconcile_and_invalidate(scope, scope_key, content, dedup_key, ctx, *, igno
 		except Exception:
 			pass
 
+	action, carry = _resolve_conflict(
+		decision.get("action"),
+		decision.get("supersedes", []),
+		source_type,
+		_INITIAL_CONFIDENCE.get(source_type, 0.6) if confidence is None else confidence,
+	)
+	if action == "rejected_lower_trust":
+		frappe.logger("one_bpmn").info(
+			f"AI Memory: {source_type} fact rejected, contradicts a more trusted memory {carry.get('kept')} in {scope}"
+		)
+		return action, carry
+
 	stamp = now_datetime()
 	for name in decision.get("supersedes", []):
 		try:
@@ -332,7 +737,7 @@ def _reconcile_and_invalidate(scope, scope_key, content, dedup_key, ctx, *, igno
 				title="AI Memory: invalidate superseded failed",
 				message=frappe.get_traceback(),
 			)
-	return decision.get("action")
+	return action, carry
 
 
 def _screen_memory_content(content: str, scope: str, keys_source=None) -> str | None:
@@ -386,6 +791,65 @@ def memory_write(
 	reconcile_ctx: dict | None = None,
 	process_model: str | None = None,
 	user_directed: bool = False,
+	importance: int | None = None,
+	source_type: str | None = None,
+	confidence: float | None = None,
+) -> dict:
+	"""Save a memory for a scope key. See ``_memory_write`` for the full contract.
+
+	This wrapper exists for one reason: under ``reconcile=True`` the work below
+	is a read-modify-write over the memories in one scope, and two writebacks
+	for the same key that interleave there lose an update. It holds the scope
+	lock for the whole of it. A plain write has nothing to race with, reads
+	nothing, and takes no lock.
+
+	A lock that cannot be had in time is not allowed to cost the memory: the
+	write goes ahead unserialised and says so, because a duplicate is a smaller
+	problem than a fact nobody kept.
+	"""
+	passthrough = dict(
+		dedup_key=dedup_key,
+		metadata=metadata,
+		source_run=source_run,
+		ignore_permissions=ignore_permissions,
+		reconcile=reconcile,
+		reconcile_ctx=reconcile_ctx,
+		process_model=process_model,
+		user_directed=user_directed,
+		importance=importance,
+		source_type=source_type,
+		confidence=confidence,
+	)
+	if not reconcile:
+		return _memory_write(scope, scope_key, content, **passthrough)
+
+	with ExitStack() as stack:
+		try:
+			stack.enter_context(_scope_lock(_resolve_scope(scope, scope_key)))
+		except Exception:
+			stack.enter_context(nullcontext())
+			frappe.logger("one_bpmn").warning(
+				f"AI Memory: writing {scope} without the scope lock; another writeback held it too long."
+			)
+		return _memory_write(scope, scope_key, content, **passthrough)
+
+
+def _memory_write(
+	scope: str,
+	scope_key,
+	content: str,
+	dedup_key: str | None = None,
+	metadata: dict | None = None,
+	source_run: str | None = None,
+	*,
+	ignore_permissions: bool = False,
+	reconcile: bool = False,
+	reconcile_ctx: dict | None = None,
+	process_model: str | None = None,
+	user_directed: bool = False,
+	importance: int | None = None,
+	source_type: str | None = None,
+	confidence: float | None = None,
 ) -> dict:
 	"""Save a memory for a scope key.
 
@@ -417,6 +881,18 @@ def memory_write(
 	agent runs under a system context) — it must NEVER be passed from a
 	whitelisted / HTTP-reachable method.
 
+	``importance`` (1..5) is how much the fact matters when it competes for
+	recall; the distiller sets it, ranking reads it. Left ``None`` on an insert
+	the field default applies; on an overwrite the existing value is kept.
+
+	``source_type`` is where the fact came from (``SOURCE_TYPES``); a
+	``user_directed`` write defaults to "User Statement", anything else to
+	"Agent Inference". ``confidence`` (0..1) defaults from the source type.
+	Under ``reconcile=True`` the trust hierarchy decides a contradiction: a fact
+	from a less trusted source than the memory it contradicts is not written and
+	the standing memory is returned; a restatement corroborates, raising the
+	surviving row's confidence and count.
+
 	``user_directed=True`` marks a memory the user explicitly asked to be
 	remembered (e.g. "remember that..."), as opposed to one an agent's output
 	happened to produce. It is exempt from Log Settings auto-cleanup
@@ -441,19 +917,37 @@ def memory_write(
 		return {}
 
 	keys = _resolve_scope(scope, scope_key)
+	source_type = _normalise_source_type(source_type, user_directed)
+	if confidence is None:
+		confidence = _INITIAL_CONFIDENCE.get(source_type, 0.6)
+	confidence = min(1.0, max(0.0, float(confidence)))
 
 	# Write-time reconciliation layers on top of dedup_key (see docstring): a
 	# dedup_key/exact-content match short-circuits before any LLM call, and
 	# whatever survives is always inserted fresh, carrying dedup_key forward.
-	reconcile_action = None
+	reconcile_action, carry = None, {}
 	if reconcile:
 		try:
-			reconcile_action = _reconcile_and_invalidate(
-				scope, scope_key, content, dedup_key, reconcile_ctx, ignore_permissions=ignore_permissions
+			reconcile_action, carry = _reconcile_and_invalidate(
+				scope,
+				scope_key,
+				content,
+				dedup_key,
+				reconcile_ctx,
+				ignore_permissions=ignore_permissions,
+				source_type=source_type,
+				confidence=confidence,
 			)
 		except Exception:
 			frappe.log_error(title="AI Memory: reconcile_and_invalidate failed", message=frappe.get_traceback())
-			reconcile_action = None  # degrade: plain insert
+			reconcile_action, carry = None, {}  # degrade: plain insert
+
+		if reconcile_action == "rejected_lower_trust":
+			# A more trusted memory holds the opposite; it stands and the new
+			# fact is not written. Return the standing memory so the caller
+			# still gets a row back.
+			row = frappe.db.get_value("AI Memory", carry.get("kept"), ["name", "content", "metadata"], as_dict=True) or {}
+			return {"name": row.get("name"), "content": row.get("content"), "metadata": _json_loads(row.get("metadata"))}
 
 		if reconcile_action == "skipped_exact_duplicate":
 			# The dedup_key/content match already holds this fact — inserting
@@ -488,7 +982,12 @@ def memory_write(
 			doc.process_model = process_model
 		if user_directed:
 			doc.user_directed = 1
+		if importance is not None:
+			doc.importance = min(5, max(1, int(importance)))
+		doc.source_type = source_type
+		doc.confidence = confidence
 		doc.save(ignore_permissions=ignore_permissions)
+		store_embedding(doc.name, content)
 	else:
 		# **keys already carries process_model for Process scope (it's the scope
 		# key there); only add the kwarg on top when it's actually passed, so an
@@ -504,8 +1003,27 @@ def memory_write(
 		}
 		if process_model is not None:
 			doc_fields["process_model"] = process_model
+		if importance is not None:
+			doc_fields["importance"] = min(5, max(1, int(importance)))
+		doc_fields["source_type"] = source_type
+		doc_fields["confidence"] = carry.get("confidence", confidence)
+		if carry.get("corroboration_count"):
+			doc_fields["corroboration_count"] = carry["corroboration_count"]
+			doc_fields["last_corroborated"] = carry.get("last_corroborated")
+		if carry.get("user_directed"):
+			# A restatement of something a person asked to be remembered keeps
+			# both the flag and their wording (see _resolve_conflict).
+			doc_fields["user_directed"] = 1
+		if carry.get("content"):
+			content = carry["content"]
+			doc_fields["content"] = content
+		if carry.get("importance"):
+			# The highest any of these rows earned, so a restatement cannot cost
+			# a fact the importance it already had (see _resolve_conflict).
+			doc_fields["importance"] = max(cint(carry["importance"]), cint(doc_fields.get("importance")))
 		doc = frappe.get_doc(doc_fields)
 		doc.insert(ignore_permissions=ignore_permissions)
+		store_embedding(doc.name, content)
 
 	return {"name": doc.name, "content": doc.content, "metadata": _json_loads(doc.metadata)}
 
@@ -525,6 +1043,7 @@ _SCOPE_KEY_SCHEMA = {
 		"process": {"type": "string", "description": "BPMN Process Model (Process scope)."},
 		"reference_doctype": {"type": "string", "description": "Reference doctype (Entity scope)."},
 		"reference_name": {"type": "string", "description": "Reference document name (Entity scope)."},
+		"user": {"type": "string", "description": "Optional; the person the memory belongs to. Reads return theirs plus shared, writes are theirs alone."},
 	},
 	"additionalProperties": False,
 }
@@ -550,6 +1069,8 @@ MEMORY_WRITE_SCHEMA = {
 		"dedup_key": {"type": "string", "description": "Optional; overwrites an existing memory with the same scope + key(s)."},
 		"metadata": {"type": "object", "description": "Optional arbitrary structured data."},
 		"source_run": {"type": "string", "description": "Optional AI Agent Run name for provenance."},
+		"importance": {"type": "integer", "minimum": 1, "maximum": 5, "description": "Optional; how much the fact matters for recall, 1 minor to 5 critical."},
+		"source_type": {"type": "string", "enum": list(SOURCE_TYPES), "description": "Optional; where the fact came from. Defaults to Agent Inference."},
 	},
 	"required": ["scope", "scope_key", "content"],
 	"additionalProperties": False,
@@ -572,7 +1093,7 @@ def _register_tool(name: str, description: str, input_schema: dict, handler) -> 
 
 _register_tool(
 	"memory_search",
-	"Search durable agent memories for a given scope key by keyword; returns matching memories.",
+	"Search durable agent memories for a given scope key by meaning and keyword; returns matching memories.",
 	MEMORY_SEARCH_SCHEMA,
 	memory_search,
 )

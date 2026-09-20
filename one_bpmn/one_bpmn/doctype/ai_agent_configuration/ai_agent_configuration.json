@@ -23,6 +23,7 @@
   "column_break_llm",
   "temperature",
   "max_tokens",
+  "tool_result_max_chars",
   "prompt_section",
   "required_variables",
   "required_variables_html",
@@ -101,6 +102,8 @@
   "max_clarification_rounds",
   "evaluation_section",
   "sample_prompts",
+  "golden_dataset_minimum",
+  "golden_dataset_target",
   "needs_attention_reason"
  ],
  "fields": [
@@ -203,6 +206,13 @@
    "fieldname": "max_tokens",
    "fieldtype": "Int",
    "label": "Max Tokens"
+  },
+  {
+   "default": "0",
+   "description": "Longest tool result the model is shown, in characters. 0 = platform default (20,000). Over the cap the result is cut with a note to ask more narrowly; the full result is still recorded on the run.",
+   "fieldname": "tool_result_max_chars",
+   "fieldtype": "Int",
+   "label": "Max Tool Result Chars"
   },
   {
    "fieldname": "prompt_section",
@@ -517,6 +527,18 @@
    "options": "AI Agent Sample Prompt"
   },
   {
+   "description": "Cases this agent needs before its golden dataset counts as representative. Blank means no bar is shown.",
+   "fieldname": "golden_dataset_minimum",
+   "fieldtype": "Int",
+   "label": "Minimum Golden Dataset Cases"
+  },
+  {
+   "description": "The size the dataset is aiming for, shown beside the minimum.",
+   "fieldname": "golden_dataset_target",
+   "fieldtype": "Int",
+   "label": "Target Golden Dataset Cases"
+  },
+  {
    "description": "How this agent remembers. These settings are authoritative at dispatch \u2014 the BPMN shape no longer stores them; an older diagram's values are still honoured until the agent is configured here.",
    "fieldname": "memory_section",
    "fieldtype": "Section Break",
@@ -548,11 +570,11 @@
   },
   {
    "depends_on": "eval:doc.long_term_memory=='Enabled'",
-   "description": "Agent \u2014 this task; Process \u2014 this process model; Entity \u2014 the task's context document.",
+   "description": "What a memory is keyed on. Agent: this task, shared by everyone who uses it. Process: this process model. Entity: the task's context document. The User variants add the person asking: recall returns their own memories plus the shared ones, and new memories are written for them alone. Blank means User and Agent for a Chat agent and Agent for a Background agent.",
    "fieldname": "memory_scope",
    "fieldtype": "Select",
    "label": "Memory Scope",
-   "options": "\nAgent\nProcess\nEntity"
+   "options": "\nAgent\nProcess\nEntity\nUser and Agent\nUser and Process\nUser and Entity"
   },
   {
    "depends_on": "eval:doc.long_term_memory=='Enabled'",
@@ -782,7 +804,7 @@
    "link_fieldname": "agent_configuration"
   }
  ],
- "modified": "2026-08-17 18:30:00.000000",
+ "modified": "2026-09-10 15:00:00.000000",
  "modified_by": "c.akeru@one-fm.com",
  "module": "ONE BPMN",
  "name": "AI Agent Configuration",

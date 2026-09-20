@@ -6,9 +6,11 @@ Every read goes through ``frappe.get_list`` so the AI Evals permission scoping
 System Manager sees all.
 """
 
+import json
+
 import frappe
 from frappe import _
-from frappe.utils import cint, flt
+from frappe.utils import add_days, cint, flt, now_datetime
 from frappe.utils import get_datetime
 
 
@@ -212,6 +214,9 @@ def get_suite_detail(suite: str) -> dict:
 		filters={"suite": suite},
 		fields=["name", "status", "backend", "total_cases", "passed_cases",
 				"failed_cases", "started_at", "ended_at",
+				# How many executions the run actually made, and the rate the
+				# deployment gate reads (WI-001902).
+				"total_executions", "pass_rate",
 				# Needed by the dashboard's latest-run tokens/cost tiles.
 				"total_tokens", "total_cost",
 				# Which cases the run covered (WI-001746 follow-up).
@@ -243,6 +248,8 @@ def get_suite_detail(suite: str) -> dict:
 			"status": latest["status"],
 			"passed": latest.get("passed_cases") or 0,
 			"total": latest.get("total_cases") or 0,
+			"executions": cint(latest.get("total_executions")),
+			"pass_rate": flt(latest.get("pass_rate")),
 		} if latest else None,
 		"pass_rate": round(sum(spark) / len(spark)) if spark else None,
 		"latest_tokens": (latest.get("total_tokens") or 0) if latest else 0,
@@ -259,6 +266,10 @@ def get_suite_detail(suite: str) -> dict:
 			"agent_configuration": doc.agent_configuration,
 			"agent_name": agent_name,
 			"eval_type": doc.eval_type,
+			"gate_deployment": doc.gate_deployment,
+			"pass_k": cint(doc.pass_k) or 1,
+			"min_pass_rate": flt(doc.min_pass_rate),
+			"ci_role": doc.ci_role or "",
 		},
 		"cases": cases,
 		"runs": runs,
@@ -268,6 +279,8 @@ def get_suite_detail(suite: str) -> dict:
 
 _ASSERTION_FIELDS = ("assertion_type", "value", "judge_provider", "judge_model", "pass_threshold")
 
+_EXPECTED_CALL_FIELDS = ("call_order", "tool_name", "argument", "matcher", "expected_value")
+
 
 _ASSERTION_VALUE_LABEL = {
 	"llm_judge": _("a rubric describing what a correct answer must contain"),
@@ -276,6 +289,21 @@ _ASSERTION_VALUE_LABEL = {
 	"equals": _("the exact text the output must equal"),
 	"schema_valid": _("the JSON Schema the output must validate against"),
 }
+
+
+def _set_expected_tool_calls(case, expected) -> None:
+	"""Replace a case's expected tool calls from a list of dicts.
+
+	A row with no tool names no call, so it is dropped rather than saved as an
+	empty constraint that quietly passes.
+	"""
+	if isinstance(expected, str):
+		expected = frappe.parse_json(expected) or []
+	case.set("expected_tool_calls", [])
+	for row in expected or []:
+		if not str(row.get("tool_name") or "").strip():
+			continue
+		case.append("expected_tool_calls", {k: row.get(k) for k in _EXPECTED_CALL_FIELDS if row.get(k) not in (None, "")})
 
 
 def _set_assertions(case, assertions) -> None:
@@ -337,10 +365,20 @@ def create_eval_case(
 	input_user_prompt: str,
 	expected_output: str = "",
 	assertions=None,
+	expected_tool_calls=None,
+	case_type: str = None,
+	target_skill: str = None,
+	input_context=None,
 ) -> str:
 	"""Create a manual AI Eval Case in ``suite`` with optional assertions
 	(WI-001746). Provider/model/system prompt come from the suite's agent
-	(WI-001751). The current user must be able to write the suite (owner / SM)."""
+	(WI-001751). The current user must be able to write the suite (owner / SM).
+
+	``case_type`` says what the case measures and ``target_skill`` which skill it
+	belongs to, so a golden dataset can be authored here rather than in the desk
+	form. Provenance (source run, feedback, security event) is not settable: it
+	is written by whatever promoted the case, and a hand-authored case has none.
+	"""
 	suite_doc = frappe.get_doc("AI Eval Suite", suite)
 	suite_doc.check_permission("write")
 
@@ -351,10 +389,61 @@ def create_eval_case(
 		"process_model": suite_doc.process_model or None,
 		"input_user_prompt": input_user_prompt,
 		"expected_output": expected_output,
+		"case_type": _valid_case_type(case_type) or "Output",
+		"target_skill": _valid_skill(target_skill),
+		"input_context": _valid_input_context(input_context),
 	})
 	_set_assertions(case, assertions)
+	_set_expected_tool_calls(case, expected_tool_calls)
 	case.insert()
 	return case.name
+
+
+CASE_TYPES = ("Output", "Trajectory", "Trigger Positive", "Trigger Negative",
+			  "Adversarial", "Co-Load Budget", "Memory")
+
+
+def _valid_case_type(value) -> str:
+	"""A case type, or "" for not given. An unknown one is refused rather than
+	stored: a typo would put the case in a category nothing reports on."""
+	value = (value or "").strip()
+	if value and value not in CASE_TYPES:
+		frappe.throw(_("'{0}' is not a case type. Choose one of: {1}.").format(
+			value, ", ".join(CASE_TYPES)))
+	return value
+
+
+def _valid_input_context(value) -> str | None:
+	"""Input Context as a JSON object string, or None for not given.
+
+	For a Memory case this field is the test itself (scope, scope_key, k, user,
+	agent_output, produced_memories), so a string that is not a JSON object is
+	refused here instead of being stored and failing at run time with an error
+	about a missing scope_key.
+	"""
+	if value is None:
+		return None
+	if isinstance(value, dict):
+		return json.dumps(value)
+	text = str(value).strip()
+	if not text:
+		return None
+	try:
+		parsed = json.loads(text)
+	except ValueError:
+		frappe.throw(_("Input Context must be valid JSON."))
+	if not isinstance(parsed, dict):
+		frappe.throw(_("Input Context must be a JSON object, for example {\"scope\": \"Agent\", \"scope_key\": \"run_general_chat_agent\"}."))
+	return json.dumps(parsed)
+
+
+def _valid_skill(value) -> str | None:
+	value = (value or "").strip()
+	if not value:
+		return None
+	if not frappe.db.exists("AI Skill", value):
+		frappe.throw(_("No AI Skill named '{0}'.").format(value))
+	return value
 
 
 @frappe.whitelist()
@@ -367,7 +456,18 @@ def get_eval_case(name: str) -> dict:
 		"title": case.title,
 		"input_user_prompt": case.input_user_prompt,
 		"expected_output": case.expected_output,
+		"case_type": case.case_type or "Output",
+		"target_skill": case.target_skill or "",
+		# Where the case came from. Read-only: it is what produced the case, not
+		# something an author chooses.
+		"source_feedback": case.source_feedback or "",
+		"source_security_event": case.source_security_event or "",
+		"source_run": case.source_run or "",
+		"input_context": case.input_context or "",
 		"assertions": [{k: a.get(k) for k in _ASSERTION_FIELDS} for a in case.assertions],
+		"expected_tool_calls": [
+			{k: c.get(k) for k in _EXPECTED_CALL_FIELDS} for c in case.expected_tool_calls
+		],
 	}
 
 
@@ -378,6 +478,10 @@ def update_eval_case(
 	input_user_prompt: str = None,
 	expected_output: str = None,
 	assertions=None,
+	expected_tool_calls=None,
+	case_type: str = None,
+	target_skill: str = None,
+	input_context=None,
 ) -> str:
 	"""Edit an existing case, including its assertions (WI-001746). Gated by the
 	suite's write permission."""
@@ -391,8 +495,18 @@ def update_eval_case(
 	):
 		if val is not None:
 			case.set(field, val)
+	if case_type is not None:
+		case.case_type = _valid_case_type(case_type) or case.case_type
+	if target_skill is not None:
+		# An empty string clears the link — the caller means "no skill", which
+		# is different from not mentioning the field at all.
+		case.target_skill = _valid_skill(target_skill)
+	if input_context is not None:
+		case.input_context = _valid_input_context(input_context)
 	if assertions is not None:
 		_set_assertions(case, assertions)
+	if expected_tool_calls is not None:
+		_set_expected_tool_calls(case, expected_tool_calls)
 
 	case.save()
 	return case.name
@@ -716,6 +830,155 @@ def list_owned_processes() -> list:
 
 
 @frappe.whitelist()
+def case_consistency(suite: str, days: int = 7, limit: int = 100) -> dict:
+	"""Per-case pass history for a suite over the last *days*, newest run first.
+
+	A single run says whether a case passed; only the history says whether it
+	AGREES with itself. A case at 80% over five runs is the one that will fail
+	the week after go-live, and it looks identical to a solid case in any one
+	run's results.
+
+	A week by default, because that is the question being asked — "has this been
+	steady lately" — and a fixed number of runs answers a different one: on a
+	nightly suite twenty runs is three weeks, and on a quiet one it can reach
+	back months. ``limit`` is only a ceiling so a chatty suite cannot return
+	thousands. Cases are ordered worst first, because the point of the report is
+	the flaky ones.
+	"""
+	frappe.get_doc("AI Eval Suite", suite).check_permission("read")
+
+	since = add_days(now_datetime(), -abs(cint(days) or 7))
+	runs = frappe.get_all(
+		"AI Eval Run",
+		filters={"suite": suite, "started_at": [">=", since]},
+		fields=["name", "status", "backend", "started_at"],
+		order_by="started_at desc",
+		limit_page_length=cint(limit) or 100,
+	)
+	if not runs:
+		return {"suite": suite, "runs": [], "cases": []}
+
+	order = {r.name: idx for idx, r in enumerate(runs)}
+	rows = frappe.get_all(
+		"AI Eval Result",
+		filters={"parenttype": "AI Eval Run", "parent": ["in", [r.name for r in runs]]},
+		fields=["parent", "eval_case", "status", "runs", "passes", "consistency_rate"],
+	)
+
+	titles = {
+		c.name: c.title
+		for c in frappe.get_all("AI Eval Case", filters={"suite": suite}, fields=["name", "title"])
+	}
+
+	cases: dict = {}
+	for row in rows:
+		if not row.eval_case:
+			continue
+		entry = cases.setdefault(row.eval_case, {
+			"case": row.eval_case,
+			"title": titles.get(row.eval_case) or row.eval_case,
+			"executions": 0,
+			"passes": 0,
+			"history": [],
+		})
+		# A row written before cases ran more than once carries no runs count —
+		# and its passes field is 0 rather than empty, so `runs` is the only
+		# reliable marker. Such a row was one execution, and its status says how
+		# that execution went.
+		executions = cint(row.runs)
+		if executions:
+			passes = cint(row.passes)
+		else:
+			executions, passes = 1, (1 if row.status == "Passed" else 0)
+		entry["executions"] += executions
+		entry["passes"] += passes
+		entry["history"].append({
+			"run": row.parent,
+			"status": row.status,
+			"runs": executions,
+			"passes": passes,
+			"consistency_rate": flt(row.consistency_rate) if cint(row.runs) else passes / executions * 100,
+			"started_at": next((r.started_at for r in runs if r.name == row.parent), None),
+			"order": order.get(row.parent, 0),
+		})
+
+	out = []
+	for entry in cases.values():
+		# `runs` is newest-first, so a higher index is an OLDER run: the history
+		# reads left to right as time passing, which is how the report is read.
+		entry["history"].sort(key=lambda h: -h["order"])
+		entry["consistency_rate"] = (
+			entry["passes"] / entry["executions"] * 100 if entry["executions"] else 0
+		)
+		# "Flips" is what a reader is really looking for: a case that has both
+		# passed and failed over this window, rather than one that always fails.
+		statuses = {h["status"] for h in entry["history"]}
+		entry["flips"] = len(statuses) > 1 or any(
+			0 < h["passes"] < h["runs"] for h in entry["history"]
+		)
+		out.append(entry)
+
+	out.sort(key=lambda e: (e["consistency_rate"], e["title"]))
+	return {
+		"suite": suite,
+		"min_pass_rate": flt(frappe.db.get_value("AI Eval Suite", suite, "min_pass_rate")),
+		"pass_k": cint(frappe.db.get_value("AI Eval Suite", suite, "pass_k")) or 1,
+		"runs": runs,
+		"cases": out,
+	}
+
+
+@frappe.whitelist()
+def update_suite_thresholds(suite: str, pass_k=None, min_pass_rate=None, gate_deployment=None,
+							ci_role=None) -> dict:
+	"""Set how a suite behaves when nobody is driving it: which automated job
+	picks it up, how many times each case runs, the rate it must clear, and
+	whether falling below that rate blocks the linked map from being activated.
+
+	They belong together: a rate nothing enforces is a note to self, a gate with
+	no rate only warns, and a suite no job picks up never produces either.
+	Setting any of them anywhere else meant the switch lived in the desk while
+	the bar lived here.
+	"""
+	doc = frappe.get_doc("AI Eval Suite", suite)
+	doc.check_permission("write")
+
+	if pass_k is not None:
+		k = cint(pass_k)
+		if k < 1:
+			frappe.throw(_("Runs per case must be at least 1."))
+		if k > 20:
+			frappe.throw(_("Runs per case is capped at 20 — every run is a billed model call."))
+		doc.pass_k = k
+	if min_pass_rate is not None:
+		rate = flt(min_pass_rate)
+		if not 0 <= rate <= 100:
+			frappe.throw(_("Minimum pass rate must be between 0 and 100."))
+		doc.min_pass_rate = rate
+	if gate_deployment is not None:
+		doc.gate_deployment = cint(gate_deployment)
+	if ci_role is not None:
+		role = (ci_role or "").strip()
+		if role not in ("", "Smoke", "Nightly"):
+			frappe.throw(_("CI Role must be Smoke, Nightly, or blank."))
+		doc.ci_role = role
+
+	if doc.gate_deployment and not doc.process_model:
+		frappe.throw(
+			_("This suite gates a deployment but names no process map, so there is nothing for it "
+			  "to block. Set the map on the suite first.")
+		)
+
+	doc.save()
+	return {
+		"pass_k": doc.pass_k,
+		"min_pass_rate": doc.min_pass_rate,
+		"gate_deployment": doc.gate_deployment,
+		"ci_role": doc.ci_role or "",
+	}
+
+
+@frappe.whitelist()
 def reassign_suite(suite: str, agent_configuration: str = None) -> str:
 	"""(Re)assign a suite to an agent — or clear it when agent is empty.
 	The user must be able to write the suite (owner / SM)."""
@@ -732,6 +995,21 @@ def reassign_suite(suite: str, agent_configuration: str = None) -> str:
 	return doc.name
 
 
+SUITE_TYPES = ("Direct", "Agent", "Memory")
+
+
+def _valid_eval_type(value) -> str:
+	"""A suite type, Direct when not given. An unknown one is refused, not
+	quietly turned into Direct: a suite silently filed under the wrong type is
+	worse than a save that fails, because every run it makes then measures
+	something other than what its author asked for."""
+	value = (value or "").strip() or "Direct"
+	if value not in SUITE_TYPES:
+		frappe.throw(_("'{0}' is not a suite type. Choose one of: {1}.").format(
+			value, ", ".join(SUITE_TYPES)))
+	return value
+
+
 @frappe.whitelist()
 def create_suite(
 	title: str,
@@ -743,7 +1021,8 @@ def create_suite(
 	"""Create a new suite from the Evals page and assign it to an agent.
 	``process_model`` is optional (Direct suites may have none); when set it must
 	be one the current user owns (or SM) — WI-001749 / Q5. ``eval_type`` is Direct
-	(simple LLM call) or Agent (invoke the map). ``description`` records what the
+	(simple LLM call), Agent (invoke the map) or Memory (score the memory store
+	against golden memories, no model call). ``description`` records what the
 	suite covers, so a later reader — the Evals console or the AI Assistant
 	deciding whether an existing suite already fits — can tell suites apart."""
 	if process_model:
@@ -757,7 +1036,7 @@ def create_suite(
 		"title": title,
 		"process_model": process_model or None,
 		"agent_configuration": agent_configuration or None,
-		"eval_type": eval_type if eval_type in ("Direct", "Agent") else "Direct",
+		"eval_type": _valid_eval_type(eval_type),
 		"description": description or None,
 	})
 	doc.insert()
@@ -1417,3 +1696,142 @@ def get_feedback_overview(from_date: str = None, to_date: str = None, agent: str
 		"converted": len([r for r in rated if r["status"] == "Converted"]),
 		"dismissed": len([r for r in rated if r["status"] == "Dismissed"]),
 	}
+
+
+@frappe.whitelist()
+def scheduled_results(days: int = 7, triggered_by: str = "", agent: str = "",
+					  failures_only: int = 0, limit: int = 60) -> dict:
+	"""Recent eval runs, newest first, with the first failure on the row.
+
+	The suites list answers "what have we set up". This answers "what happened",
+	which is a different question and needs the opposite ordering: by time,
+	across every suite, with the failure text in front of the reader. A page of
+	pass rates alone is a page of numbers that all need a click.
+
+	Scoped like every other eval screen: a process owner sees runs for the
+	agents whose process they own, a System Manager sees all.
+	"""
+	from frappe.utils import cint, flt
+
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+
+	is_sm = "System Manager" in frappe.get_roles(frappe.session.user)
+	filters = {"creation": [">=", frappe.utils.add_days(frappe.utils.nowdate(), -abs(cint(days) or 7))]}
+	if triggered_by:
+		filters["triggered_by"] = triggered_by
+
+	runs = frappe.get_all(
+		"AI Eval Run",
+		filters=filters,
+		fields=["name", "suite", "agent_configuration", "triggered_by", "scope", "backend",
+				"status", "total_cases", "passed_cases", "failed_cases", "total_cost",
+				"pass_rate", "stop_reason", "creation"],
+		order_by="creation desc",
+		limit_page_length=min(cint(limit) or 60, 200),
+	)
+	if not runs:
+		return {"runs": [], "agents": [], "is_system_manager": is_sm}
+
+	suites = {
+		s["name"]: s
+		for s in frappe.get_all("AI Eval Suite", filters={"name": ["in", list({r.suite for r in runs if r.suite})]},
+								fields=["name", "title", "agent_configuration", "process_model"])
+	}
+	visible = _runs_visible_to(runs, suites, is_sm)
+	# A run's agent is its own field, else its suite's — and it has to be the
+	# same answer whether the reader is looking at the row or filtering by it.
+	# Filtering on the raw field dropped every run that only knew its agent
+	# through the suite, while the dropdown still listed that agent.
+	for run in visible:
+		run.agent = run.agent_configuration or (suites.get(run.suite) or {}).get("agent_configuration") or ""
+	# The choices come from everything the reader may see, not from the rows
+	# left after filtering — otherwise picking one agent removes the others.
+	agents = sorted({r.agent for r in visible if r.agent})
+	if agent:
+		visible = [r for r in visible if r.agent == agent]
+
+	first_failures = _first_failure_per_run([r.name for r in visible])
+	rows = []
+	for run in visible:
+		suite = suites.get(run.suite) or {}
+		failure = first_failures.get(run.name) or {}
+		if cint(failures_only) and not failure:
+			continue
+		rows.append({
+			"run": run.name,
+			"when": str(run.creation),
+			"triggered_by": run.triggered_by or _inferred_trigger(run, suite),
+			"suite": suite.get("title") or run.suite or "",
+			"agent": run.agent,
+			"status": run.status,
+			"passed": run.passed_cases or 0,
+			"total": run.total_cases or 0,
+			"rate": flt(run.pass_rate) if run.pass_rate is not None else None,
+			"cost": flt(run.total_cost),
+			"stopped": run.stop_reason or "",
+			# The whole point of the row: what went wrong, without a click.
+			"failure": failure.get("why") or "",
+			"failure_subject": failure.get("subject") or "",
+		})
+	return {"runs": rows, "agents": agents, "is_system_manager": is_sm}
+
+
+def _runs_visible_to(runs, suites, is_sm) -> list:
+	"""A process owner sees their own agents' runs, mirroring list_owned_processes."""
+	if is_sm:
+		return runs
+	owners = {p["name"]: p["process_owner"] for p in frappe.get_all("Process", fields=["name", "process_owner"])}
+	models = {m["name"]: m["process_name"] for m in frappe.get_all("BPMN Process Model", fields=["name", "process_name"])}
+	mine = []
+	for run in runs:
+		model = (suites.get(run.suite) or {}).get("process_model")
+		if model and owners.get(models.get(model)) == frappe.session.user:
+			mine.append(run)
+	return mine
+
+
+def _inferred_trigger(run, suite) -> str:
+	"""What asked for a run made before the field existed. The patch labels the
+	rows that exist today; this covers anything that slips through."""
+	if run.scope == "Online":
+		return "Online sample"
+	if run.backend == "deterministic":
+		return "Pull request"
+	return "By hand"
+
+
+def _first_failure_per_run(run_names: list) -> dict:
+	"""One failing row per run — the first — as {run: {subject, why}}.
+
+	One query for the page rather than one per run: a week of nightly sweeps
+	across a dozen agents is a hundred rows, and a hundred round trips is a
+	page nobody opens twice.
+	"""
+	if not run_names:
+		return {}
+	# assertion_results too, not just error_message: a live run records the
+	# summary note on the row and the actual reason inside the assertions, so a
+	# page built on error_message alone showed "3/4" with a blank reason —
+	# exactly the click this page exists to avoid.
+	from one_bpmn.agents.eval_ci import _why
+
+	rows = frappe.get_all(
+		"AI Eval Result",
+		filters={"parent": ["in", run_names], "status": ["in", ["Failed", "Error"]]},
+		fields=["parent", "eval_case", "source_run", "error_message", "assertion_results", "idx"],
+		order_by="parent asc, idx asc",
+	)
+	out = {}
+	titles = {
+		c["name"]: c["title"]
+		for c in frappe.get_all("AI Eval Case",
+								filters={"name": ["in", [r.eval_case for r in rows if r.eval_case]]},
+								fields=["name", "title"])
+	} if any(r.eval_case for r in rows) else {}
+	for row in rows:
+		if row.parent in out:
+			continue
+		subject = titles.get(row.eval_case) or row.eval_case or row.source_run or ""
+		out[row.parent] = {"subject": subject, "why": _why(row)[:300]}
+	return out

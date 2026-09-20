@@ -1,0 +1,117 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:TF-{#####}",
+ "creation": "2025-10-24 00:53:14.359369",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "source",
+  "title",
+  "content",
+  "url",
+  "published_date",
+  "collected_date",
+  "language",
+  "section_break_1",
+  "keywords_found",
+  "section_break_2",
+  "raw_data"
+ ],
+ "fields": [
+  {
+   "fieldname": "source",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Source",
+   "options": "Threat Source",
+   "reqd": 1
+  },
+  {
+   "fieldname": "title",
+   "fieldtype": "Text",
+   "in_list_view": 1,
+   "label": "Title",
+   "reqd": 1
+  },
+  {
+   "fieldname": "content",
+   "fieldtype": "Long Text",
+   "label": "Content"
+  },
+  {
+   "fieldname": "url",
+   "fieldtype": "Small Text",
+   "label": "URL"
+  },
+  {
+   "fieldname": "published_date",
+   "fieldtype": "Datetime",
+   "label": "Published Date"
+  },
+  {
+   "fieldname": "collected_date",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Collected Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "language",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Language",
+   "options": "English\nArabic",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_1",
+   "fieldtype": "Section Break",
+   "label": "Keywords Found"
+  },
+  {
+   "fieldname": "keywords_found",
+   "fieldtype": "Table",
+   "label": "Keywords Found",
+   "options": "Threat Feed Keyword"
+  },
+  {
+   "fieldname": "section_break_2",
+   "fieldtype": "Section Break",
+   "label": "Raw Data"
+  },
+  {
+   "fieldname": "raw_data",
+   "fieldtype": "Long Text",
+   "hidden": 1,
+   "label": "Raw Data"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-10-28 19:23:26.503231",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "Threat Feed",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "search_fields": "title,source",
+ "sort_field": "collected_date",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "title",
+ "track_changes": 1
+}

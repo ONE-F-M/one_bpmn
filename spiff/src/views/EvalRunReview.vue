@@ -151,12 +151,12 @@
 									class="w-4 h-4"
 									:class="a.passed ? 'text-green-600' : 'text-red-600'"
 								/>
-								<span class="text-sm font-medium text-gray-800">{{ a.assertion_type }}</span>
+								<span class="text-sm font-medium text-gray-800">{{ assertionTypeLabel(a.assertion_type) }}</span>
 								<span v-if="a.score !== undefined" class="text-xs text-gray-500">score {{ a.score }}</span>
 							</div>
 							<div v-if="a.value" class="mt-1 flex items-baseline gap-2">
 								<span class="text-xs text-gray-500 shrink-0">{{ assertionValueLabel(a.assertion_type) }}:</span>
-								<pre class="text-xs text-gray-700 bg-gray-50 rounded px-2 py-1 m-0 whitespace-pre-wrap break-words max-h-24 overflow-auto grow">{{ a.value }}</pre>
+								<pre class="text-xs text-gray-700 bg-gray-50 rounded px-2 py-1 m-0 whitespace-pre-wrap break-words max-h-24 overflow-auto grow">{{ assertionValueText(a) }}</pre>
 							</div>
 							<p v-if="a.explanation" class="text-sm text-gray-600 mt-1">Judge: {{ a.explanation }}</p>
 							<p v-else-if="a.message" class="text-sm text-gray-500 mt-1">{{ a.message }}</p>
@@ -285,6 +285,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from "vue"
+import { assertionTypeLabel, toolCallModeLabel } from "@/utils/evalLabels"
 import { useRoute } from "vue-router"
 import { frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
@@ -315,10 +316,18 @@ const ASSERTION_VALUE_LABELS = {
 	equals: "Expected output",
 	schema_valid: "Schema",
 	llm_judge: "Rubric",
+	max_tokens: "Token ceiling",
+	no_tool_call: "Forbidden tools",
+	tool_calls: "Order mode",
 }
 
 function assertionValueLabel(type) {
 	return ASSERTION_VALUE_LABELS[type] || "Expected"
+}
+
+// A tool_calls value is a mode, shown by its name; everything else is shown as written.
+function assertionValueText(a) {
+	return a.assertion_type === "tool_calls" ? toolCallModeLabel(a.value) : a.value
 }
 
 // Every tool call across a run's steps, flattened and tagged with the step it

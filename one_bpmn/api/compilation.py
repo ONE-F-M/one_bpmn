@@ -6,7 +6,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import cint
+from frappe.utils import cint, flt
 
 
 def _sanitize_bpmn_xml(bpmn_xml: str) -> str:
@@ -348,11 +348,115 @@ def _validate_timer_granularity(bpmn_xml: str) -> None:
 	if errors:
 		frappe.throw(
 			_(
-				"Timer validation failed — Frappe scheduler only supports minute-level precision:<br><br>"
-				+ "<br>".join(f"• {e}" for e in errors)
+				"Timer validation failed — Frappe scheduler only supports minute-level precision:\n\n"
+				+ "\n".join(f"• {e}" for e in errors)
 			),
 			title=_("Invalid Timer Configuration"),
 		)
+
+
+def _validate_start_event_timers(bpmn_xml: str) -> None:
+	"""Every Timer Start Event must carry a cycle the sweep can actually read.
+
+	``process_timer_start_events`` is what starts these instances, and it reads
+	the cycle as either a cron expression or an ISO 8601 repeating interval. A
+	timer it cannot read never fires, and nothing on the diagram says so.
+	"""
+	import xml.etree.ElementTree as _ET
+
+	from one_bpmn.tasks import timer_start_is_due
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+
+	if not bpmn_xml or not bpmn_xml.strip():
+		return
+
+	try:
+		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml)
+	except Exception:
+		return  # XML errors are caught elsewhere
+
+	errors = []
+	now = frappe.utils.now_datetime()
+
+	for start_event in root.iter(f"{{{BPMN_NS}}}startEvent"):
+		timer_def = start_event.find(f"{{{BPMN_NS}}}timerEventDefinition")
+		if timer_def is None:
+			continue
+
+		label = start_event.get("name") or start_event.get("id", "unknown")
+		expression = timer_def.get(f"{{{SPIFF_NS}}}cronExpression", "")
+		if not expression:
+			cycle_el = timer_def.find(f"{{{BPMN_NS}}}timeCycle")
+			expression = (cycle_el.text or "").strip() if cycle_el is not None else ""
+
+		if not expression:
+			errors.append(
+				_('Timer Start Event "{0}" has no cycle. Give it a cron expression '
+					'(e.g. "*/5 * * * *") or an ISO repeating interval '
+					'(e.g. "R/2026-01-01T06:00:00+03:00/P1D").').format(label)
+			)
+			continue
+
+		try:
+			timer_start_is_due(expression, now)  # raises on a cycle it cannot read
+		except Exception:
+			errors.append(
+				_('Timer Start Event "{0}": cycle "{1}" is neither a cron expression '
+					"nor an ISO repeating interval, so the scheduler can never fire it.").format(
+					label, expression
+				)
+			)
+
+	if errors:
+		frappe.throw(
+			"\n\n".join(errors),
+			title=_("Invalid Timer Start Event"),
+		)
+
+
+def _detach_start_timer_definitions(bpmn_xml: str) -> str:
+	"""Drop ``<bpmn:timerEventDefinition>`` from start events before parsing.
+
+	The scheduler decides when a timer-started process begins; the engine then
+	runs it from the top. Left in the executable spec, the same cycle becomes a
+	SpiffWorkflow cycle timer that evaluates the expression as Python — so the
+	instance errors out on its first step. The diagram keeps the timer: this
+	rewrite only touches the copy handed to the parser.
+	"""
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+
+	if not bpmn_xml or not bpmn_xml.strip():
+		return bpmn_xml
+
+	_ET.register_namespace("bpmn", BPMN_NS)
+	_ET.register_namespace("bpmndi", "http://www.omg.org/spec/BPMN/20100524/DI")
+	_ET.register_namespace("dc", "http://www.omg.org/spec/DD/20100524/DC")
+	_ET.register_namespace("di", "http://www.omg.org/spec/DD/20100524/DI")
+	_ET.register_namespace("spiffworkflow", "http://spiffworkflow.org/bpmn/schema/1.0/core")
+
+	try:
+		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml)
+	except Exception:
+		return bpmn_xml  # XML errors are caught elsewhere
+
+	detached = False
+	for start_event in root.iter(f"{{{BPMN_NS}}}startEvent"):
+		for timer_def in start_event.findall(f"{{{BPMN_NS}}}timerEventDefinition"):
+			start_event.remove(timer_def)
+			detached = True
+
+	if not detached:
+		return bpmn_xml
+
+	rewritten = _ET.tostring(root, encoding="unicode", xml_declaration=False)
+	if bpmn_xml.strip().startswith("<?xml"):
+		decl_end = bpmn_xml.index("?>") + 2
+		return bpmn_xml[:decl_end] + "\n" + rewritten
+	return rewritten
 
 
 # ── Prohibited shapes — shapes that must NOT appear in executable processes ──
@@ -474,8 +578,8 @@ def _validate_prohibited_shapes(bpmn_xml: str) -> None:
 		frappe.throw(
 			_(
 				"Prohibited shapes found — the following BPMN elements are not allowed "
-				"in executable processes:<br><br>"
-				+ "<br>".join(f"• {e}" for e in errors)
+				"in executable processes:\n\n"
+				+ "\n".join(f"• {e}" for e in errors)
 			),
 			title=_("Prohibited Shapes Detected"),
 		)
@@ -944,7 +1048,7 @@ def _validate_workflow_state_field(model, service_extensions: dict) -> None:
 
 	error_lines = [_("Workflow State field is missing on: {0}").format(dt) for dt in missing]
 	frappe.throw(
-		"<br>".join(f"• {line}" for line in error_lines),
+		"\n".join(f"• {line}" for line in error_lines),
 		title=_("Missing Workflow State Field"),
 	)
 
@@ -1231,6 +1335,62 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 				).format(provider_name, bpmn_id),
 				exc=frappe.ValidationError,
 			)
+
+
+def _enforce_eval_pass_rate(model_name: str) -> None:
+	"""Refuse activation when a gating suite is below the rate it declares.
+
+	The advisory warnings below are the older, softer half of this: they tell a
+	deployer that a suite has never run or last failed, and deploy proceeds
+	anyway. A suite that names a ``min_pass_rate`` is making a stronger claim —
+	that going live below that rate is not allowed — so it is enforced here, by
+	the number the run actually measured rather than by its pass/fail label.
+
+	A suite that leaves ``min_pass_rate`` at 0 is unchanged: nothing blocks.
+	"""
+	suites = frappe.get_list(
+		"AI Eval Suite",
+		filters={"process_model": model_name, "gate_deployment": 1},
+		fields=["name", "title", "min_pass_rate"],
+		ignore_permissions=True,
+	)
+
+	refusals = []
+	for suite in suites:
+		minimum = flt(suite.min_pass_rate)
+		if not minimum:
+			continue
+
+		latest = frappe.get_list(
+			"AI Eval Run",
+			filters={"suite": suite.name},
+			fields=["name", "status", "pass_rate", "total_executions"],
+			order_by="started_at desc",
+			limit_page_length=1,
+			ignore_permissions=True,
+		)
+		title = suite.title or suite.name
+		if not latest:
+			refusals.append(
+				_("'{0}' requires a {1}% pass rate and has never been run.").format(title, minimum)
+			)
+			continue
+
+		run = latest[0]
+		rate = flt(run.pass_rate)
+		if rate < minimum:
+			refusals.append(
+				_("'{0}' is at {1}% over {2} execution(s) and requires {3}%.").format(
+					title, round(rate, 1), cint(run.total_executions), minimum
+				)
+			)
+
+	if refusals:
+		frappe.throw(
+			_("This map cannot be activated until its gating eval suites pass:\n\n")
+			+ "\n".join(f"• {r}" for r in refusals),
+			title=_("Eval Gate"),
+		)
 
 
 def _check_eval_suite_gating(model_name: str) -> list:
@@ -1551,7 +1711,7 @@ def _resolve_called_process_xml(bpmn_xml: str, model_name: str) -> list:
 			frappe.throw(
 				_(
 					"Cannot deploy '{0}': the Call Activity '{1}' calls the process "
-					"'{2}', and no BPMN Process Model has that Process ID.<br><br>"
+					"'{2}', and no BPMN Process Model has that Process ID.\n\n"
 					"Open the Call Activity and set <b>Called Element</b> to the "
 					"Process ID of the map you want it to run."
 				).format(model_name, shape_id, called_id),
@@ -1699,7 +1859,7 @@ def compile_process_model(model_name: str) -> dict:
 			frappe.throw(
 				_(
 					"Cannot deploy: Business Rule Tasks reference decisions "
-					"that have no DMN XML in the Decision Tables: {0}.<br><br>"
+					"that have no DMN XML in the Decision Tables: {0}.\n\n"
 					"Open each Business Rule Task in the diagram and create a "
 					"Decision Table using the DMN modeler."
 				).format(", ".join(sorted(missing))),
@@ -1710,7 +1870,7 @@ def compile_process_model(model_name: str) -> dict:
 
 	try:
 		spec_dict, sp_dict = bpmn_engine.parse_bpmn(
-			bpmn_xml=sanitized_xml,
+			bpmn_xml=_detach_start_timer_definitions(sanitized_xml),
 			process_id=model.process_id,
 			dmn_xml_list=dmn_xml_list,
 			called_xml_list=called_xml_list,
@@ -1795,6 +1955,7 @@ def compile_process_model(model_name: str) -> dict:
 	# Frappe scheduler only runs at minute intervals — reject any timer value
 	# that uses seconds (e.g. PT15S, R5/PT10S).
 	_validate_timer_granularity(sanitized_xml)
+	_validate_start_event_timers(sanitized_xml)
 
 	# ── Validate prohibited shapes (block unsupported elements) ──────────
 	# Reject any BPMN element type that OneFM has marked as prohibited for
@@ -1814,6 +1975,9 @@ def compile_process_model(model_name: str) -> dict:
 	# When the process uses a workflow-state trigger or apply_workflow service
 	# task, every referenced doctype must have the field — create it if absent.
 	_validate_workflow_state_field(model, service_extensions)
+
+	# ── Eval gate: a gating suite below its declared rate blocks activation ──
+	_enforce_eval_pass_rate(model_name)
 
 	# ── Activate this model and manage deployment lifecycle ───────────────
 	_activate_deployed_model(model, script_extensions)
@@ -2004,7 +2168,7 @@ def _validate_ai_tool_contract(service_extensions: dict) -> list:
 			warnings.append({"label": _("Tool Contract"), "icon": "wrench", "type": "warning", "detail": detail})
 	if blocking:
 		frappe.throw(
-			_("The prompt and the Tools box disagree:") + "<br>" + "<br>".join(f"• {b}" for b in blocking),
+			_("The prompt and the Tools box disagree:") + "\n" + "\n".join(f"• {b}" for b in blocking),
 			exc=frappe.ValidationError,
 		)
 	return warnings

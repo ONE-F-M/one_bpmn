@@ -29,13 +29,14 @@ import time
 import frappe
 
 from one_bpmn.security.provenance import wrap_tool_result
+from one_bpmn.agents.executor.tool_bounds import bound_tool_result, validate_tool_arguments
 from one_bpmn.agents.llm_provider.base import (
 	CompletionResult,
 	ToolCallRecord,
 	ToolSpec,
 	TurnRecord,
 )
-from one_bpmn.agents.observability import clear_tool_artifacts
+from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG, clear_tool_artifacts
 from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG, ToolDeferred
 from one_bpmn.security.tool_policy import PolicyViolation
 
@@ -59,7 +60,7 @@ _SECOND_PAUSE_RESULT = (
 # without tripping over an unrelated key a future field adds to the dict.
 _TURN_RECORD_FIELDS = {
 	"role", "content", "tool_calls", "prompt_tokens", "completion_tokens",
-	"cache_read_tokens", "cache_write_tokens", "latency_ms",
+	"cache_read_tokens", "cache_write_tokens", "latency_ms", "turn_no",
 }
 
 
@@ -118,6 +119,8 @@ async def run_agent_loop(
 	timeout_seconds: float | None = None,
 	max_retries: int = 0,
 	retry_backoff_ms: int = 1000,
+	tool_result_max_chars: int | None = None,
+	terminal_tools: list | None = None,
 ) -> tuple:
 	"""Drive the tool loop. Returns (CompletionResult, None) when the model
 	produces a final answer or hits the turn cap, or (None, AgentSuspension)
@@ -142,6 +145,11 @@ async def run_agent_loop(
 	slow turn eat the entire budget. Defaults (None timeout, 0 retries) keep
 	every other caller of this function — including every existing test —
 	byte-for-byte unchanged.
+
+	``terminal_tools`` (WI-002187): tool names that end the turn the instant
+	the model calls one. None (every caller before this existed) falls back
+	to ``("finalize",)`` — see ``_run_turns`` for how the reply is read off
+	the call's own arguments instead of the model's next narration.
 	"""
 	tool_map = {t.name: t for t in (tools or [])}
 
@@ -168,7 +176,7 @@ async def run_agent_loop(
 			"id": pending.get("id") or "",
 			"name": pending.get("name") or "",
 			"content": wrap_tool_result(
-				str(resume.get("human_result") or ""),
+				bound_tool_result(resume.get("human_result") or "", tool_result_max_chars),
 				pending.get("name") or "human task",
 				pending.get("arguments"),
 			),
@@ -188,6 +196,8 @@ async def run_agent_loop(
 			max_tokens=max_tokens, max_turns=max_turns,
 			timeout_seconds=timeout_seconds, max_retries=max_retries,
 			retry_backoff_ms=retry_backoff_ms,
+			tool_result_max_chars=tool_result_max_chars,
+			terminal_tools=set(terminal_tools) if terminal_tools is not None else {"finalize"},
 		)
 	finally:
 		# Cleared on EVERY exit — final answer, turn cap, suspension, exception.
@@ -197,6 +207,7 @@ async def run_agent_loop(
 		# pause were still open. Observed live — an orchestrator's delegation
 		# returned "not-started" and created no A2A Task at all.
 		frappe.flags[PAUSE_HELD_FLAG] = False
+		frappe.flags[SUB_CALL_TURN_FLAG] = None
 
 
 async def _step_with_retries(
@@ -228,7 +239,8 @@ async def _step_with_retries(
 
 async def _run_turns(
 	adapter, *, system, tools, tool_map, transcript, trace, turns_used, max_tokens, max_turns,
-	timeout_seconds=None, max_retries=0, retry_backoff_ms=1000,
+	timeout_seconds=None, max_retries=0, retry_backoff_ms=1000, tool_result_max_chars=None,
+	terminal_tools=frozenset({"finalize"}),
 ):
 	"""The turn loop itself. Split out only so run_agent_loop can guarantee the
 	pause flag is cleared however this returns."""
@@ -255,9 +267,10 @@ async def _run_turns(
 					cache_read_tokens=getattr(step, "cache_read_tokens", 0) or 0,
 					cache_write_tokens=getattr(step, "cache_write_tokens", 0) or 0,
 					latency_ms=int((time.perf_counter() - _turn_t0) * 1000),
+					turn_no=turns_used,
 				)
 			)
-			return CompletionResult(text=step.content, trace=trace), None
+			return CompletionResult(text=step.content, trace=trace, no_terminal_tool=True), None
 
 		# ── Record the assistant turn on the transcript ───────────────────
 		transcript.append({
@@ -277,10 +290,20 @@ async def _run_turns(
 			completion_tokens=step.completion_tokens,
 			cache_read_tokens=getattr(step, "cache_read_tokens", 0) or 0,
 			cache_write_tokens=getattr(step, "cache_write_tokens", 0) or 0,
+			turn_no=turns_used,
 		)
+		# WI-002190: a model call made from inside one of this turn's tools is
+		# recorded as a step tagged with this turn number, so the step writer
+		# can place it after the turn instead of colliding with it.
+		frappe.flags[SUB_CALL_TURN_FLAG] = turns_used
 		results = []
 		pending_call = None
 		deferred_wait: dict = {}
+		# WI-002187: set the instant a terminal tool (default "finalize") actually
+		# runs this turn — its own arguments ARE the reply, so the turn ends right
+		# below instead of asking the model for a closing narration it usually has
+		# nothing left to give (see the empty-turn evidence a few lines down).
+		terminal_reply = None
 		for call in step.tool_calls:
 			tool = tool_map.get(call.name)
 			if tool is not None and tool.human:
@@ -296,8 +319,35 @@ async def _run_turns(
 			elif tool is None:
 				result = f"Unknown tool: {call.name}"
 			else:
+				# WI-002195: the declared schema is checked before the script
+				# runs. A violation is a tool error naming the field, so the model
+				# repairs the call instead of reading a Python traceback — or, worse,
+				# a script that tolerated the gap and answered wrongly.
+				_invalid = validate_tool_arguments(
+					call.name,
+					getattr(tool, "parameters", None),
+					getattr(tool, "required", None),
+					call.arguments,
+				)
+				if _invalid:
+					turn_record.tool_calls.append(
+						ToolCallRecord(name=call.name, arguments=call.arguments, result=_invalid)
+					)
+					results.append({
+						"id": call.id,
+						"name": call.name,
+						"content": wrap_tool_result(_invalid, call.name, call.arguments),
+					})
+					continue
 				try:
 					result = str(tool.fn(**call.arguments))
+					if call.name in terminal_tools:
+						# The "response" key is the reply contract (see the ticket's
+						# expected behaviour); a terminal tool called without one
+						# still ends the turn, falling back to its raw arguments
+						# rather than losing the reply entirely.
+						_args = call.arguments if isinstance(call.arguments, dict) else {}
+						terminal_reply = _args.get("response", _args) if _args else result
 				except ToolDeferred as deferred:
 					# The tool ran, but its work outlives this turn. Same pause
 					# as a human tool — the answer arrives from elsewhere — so
@@ -330,11 +380,16 @@ async def _run_turns(
 			# What the model sees is marked with the tool that
 			# produced it, so the guard rail in its frozen instructions has
 			# something to refer to. The ToolCallRecord above keeps the raw
-			# result — markers are for the model, not for the audit trail.
+			# result — markers are for the model, not for the audit trail —
+			# and, for the same reason, the size cap (WI-002195) applies only
+			# to this copy: what the model re-reads on every later call of the
+			# turn is bounded, what was recorded is not.
 			results.append({
 				"id": call.id,
 				"name": call.name,
-				"content": wrap_tool_result(result, call.name, call.arguments),
+				"content": wrap_tool_result(
+					bound_tool_result(result, tool_result_max_chars), call.name, call.arguments
+				),
 			})
 
 		turn_record.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
@@ -356,6 +411,14 @@ async def _run_turns(
 				cache_write_tokens=sum(t.cache_write_tokens for t in trace),
 			)
 
+		# ── A terminal tool answered: stop here, on ITS words ─────────────
+		# WI-002187: finalize's own arguments are the reply — asking the model
+		# for one more turn after this bought nothing (see the empty-turn
+		# evidence below) AND regularly threw the real answer away: the args
+		# can hold a full response while this same turn's narration is blank.
+		if terminal_reply is not None:
+			return CompletionResult(text=str(terminal_reply), trace=trace, no_terminal_tool=False), None
+
 		transcript.append({"role": "tool_results", "results": results})
 
 	# Turn cap reached. Carry the model's last narration out as the text rather
@@ -365,4 +428,4 @@ async def _run_turns(
 	last_said = next(
 		(t.content for t in reversed(trace) if (t.content or "").strip()), ""
 	)
-	return CompletionResult(text=last_said, trace=trace, hit_turn_cap=True), None
+	return CompletionResult(text=last_said, trace=trace, hit_turn_cap=True, no_terminal_tool=True), None
