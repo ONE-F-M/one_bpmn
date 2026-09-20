@@ -2165,13 +2165,13 @@ def _validate_ai_tool_contract(service_extensions: dict) -> None:
 			config_prompt = (
 				frappe.db.get_value("AI Agent Configuration", config_name, "system_prompt") or ""
 			)
-		# Both prompts are read, not just whichever wins at run time. The
-		# configuration's is the one the model usually gets, but the shape's is
-		# what a designer edits in the diagram, and a tool named only there looks
-		# to them exactly like a tool that was set up. The turn's own instructions
-		# name tools the same way.
+		# Whichever prompt actually reaches the model: the configuration's when
+		# one is linked (agent_config_resolver), else the shape's own copy. A
+		# linked shape keeps a copy nothing reads and the editor no longer shows,
+		# and refusing a deploy over invisible text is worse than not checking it.
+		# The turn's own instructions name tools the same way, so they count too.
 		instructions = "\n".join(
-			p for p in (config_prompt, shape_prompt, cfg.get("aiUserPrompt") or "") if p
+			p for p in (config_prompt or shape_prompt, cfg.get("aiUserPrompt") or "") if p
 		)
 		gaps = _tool_contract_gaps(instructions, tool_ids, known)
 		if not gaps:

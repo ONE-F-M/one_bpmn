@@ -51,20 +51,21 @@ class TestToolContractGaps(FrappeTestCase):
 		self.assertEqual(_tool_contract_gaps(prompt, set(), set()), [])
 
 
-class TestBothPromptsAreRead(FrappeTestCase):
-	"""A tool named only on the shape is caught too.
+class TestThePromptThatRunsIsRead(FrappeTestCase):
+	"""Whichever prompt reaches the model is the one checked.
 
-	The configuration's prompt is the one the model usually gets, so the check
-	read only that. A designer editing the prompt in the diagram then saw the
-	deploy go through and reasonably concluded the check did not work.
+	A shape with no configuration runs its own copy. A linked shape runs the
+	configuration's and keeps a copy nothing reads — blocking on that copy meant
+	refusing a deploy over text no screen shows.
 	"""
 
-	def _exts(self, shape_prompt="", user_prompt=""):
+	def _exts(self, shape_prompt="", user_prompt="", config=""):
 		import json
 
 		return {"demo_agent": {
 			"serviceType": "ai_agent",
 			"aiToolsAdhoc": "demo_tools",
+			"aiAgentConfig": config,
 			"aiToolShapes": json.dumps([{"bpmn_id": "do_work"}]),
 			"aiSystemPrompt": shape_prompt,
 			"aiUserPrompt": user_prompt,
@@ -83,6 +84,17 @@ class TestBothPromptsAreRead(FrappeTestCase):
 
 	def test_a_shape_naming_only_real_tools_is_quiet(self):
 		_validate_ai_tool_contract(self._exts(shape_prompt="Call do_work once."))
+
+	def test_a_linked_configuration_replaces_the_shape_copy(self):
+		from unittest.mock import patch
+
+		from one_bpmn.api import compilation as comp
+
+		exts = self._exts(shape_prompt="Then call propose_pull_request once.", config="Demo Agent")
+		with patch.object(comp, "_known_tool_ids", return_value={"do_work", "propose_pull_request"}), patch.object(
+			frappe.db, "exists", return_value=True
+		), patch.object(frappe.db, "get_value", return_value="Call do_work once."):
+			_validate_ai_tool_contract(exts)
 
 class TestTurnStoreKeys(FrappeTestCase):
 	def test_keys_written_inline_and_by_name(self):

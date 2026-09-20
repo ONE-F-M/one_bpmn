@@ -12,7 +12,7 @@ import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { frappeGet, frappePost } from "../shared/frappeResource";
-import { getAttr, setAttr } from "../shared/agentAttrs";
+import { getAttr, setAttr, LinkedPromptEntry } from "../shared/agentAttrs";
 
 // Human-readable labels for the executor backend stored in spiffworkflow:aiBackend.
 const BACKEND_LABELS = {
@@ -345,16 +345,16 @@ function SystemPromptComponent(props) {
 	const debounce  = useService("debounceInput");
 	const bo        = getBusinessObject(element);
 
-	return h(TextAreaEntry, {
+	return h(LinkedPromptEntry, {
 		element,
 		id,
+		bo,
+		modeling,
 		label: translate("System Prompt"),
 		description: translate("Jinja supported: {{ doc }}, {{ instance }}"),
 		tooltip: translate(
 			"The agent's role and standing instructions, sent as the system prompt. Jinja supported: {{ doc }}, {{ instance }}."
 		),
-		getValue: () => getAttr(bo, "aiSystemPrompt"),
-		setValue: (value) => setAttr(modeling, element, bo, "aiSystemPrompt", value),
 		debounce,
 	});
 }
