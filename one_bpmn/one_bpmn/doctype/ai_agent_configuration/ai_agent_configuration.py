@@ -569,10 +569,15 @@ def get_agent_config(agent_id: str) -> dict | None:
 		order_by="idx asc",
 	):
 		skill_doc = frappe.db.get_value("AI Skill", skill.skill, ["skill_name", "description", "status"], as_dict=True)
-		if skill_doc and skill_doc.status != "Draft":
+		# WI-000401: the index must match what load_skill will actually serve.
+		# load_skill refuses anything whose status isn't "Active" (Draft AND
+		# Deprecated both refused) \u2014 filtering here to != "Draft" advertised
+		# Deprecated skills the tool would then refuse to load.
+		if skill_doc and skill_doc.status == "Active":
 			enabled_skills.append({
 				"name": skill_doc.skill_name,
 				"description": skill_doc.description,
+				"status": skill_doc.status,
 			})
 
 	# Load constants keyed by constant_name, cast to proper types

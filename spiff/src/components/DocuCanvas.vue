@@ -239,6 +239,72 @@
 									</div>
 								</div>
 
+								<!-- Permission Rules -->
+								<div v-if="!isChild" class="dc-settings-section">
+									<div class="dc-settings-title">Permission Rules</div>
+									<div class="dc-perm-scroll">
+										<table class="dc-perm-table">
+											<thead>
+												<tr>
+													<th class="dc-perm-no">No.</th>
+													<th class="dc-perm-role">Role</th>
+													<th class="dc-perm-lvl">Level</th>
+													<th v-for="c in PERMISSION_COLUMNS" :key="c.key">{{ c.label }}</th>
+													<th class="dc-perm-x"><span class="sr-only">Remove</span></th>
+												</tr>
+											</thead>
+											<tbody>
+												<tr v-for="(p, i) in permissions" :key="i">
+													<td class="dc-perm-no">{{ i + 1 }}</td>
+													<td class="dc-perm-role">
+														<select
+															v-model="p.role"
+															class="dc-prop-input"
+															:aria-label="`Role for rule ${i + 1}`"
+															@change="scheduleAutosave()"
+														>
+															<option value="">Select a role…</option>
+															<option v-for="r in roleOptions(p.role)" :key="r" :value="r">{{ r }}</option>
+														</select>
+													</td>
+													<td class="dc-perm-lvl">
+														<input
+															v-model.number="p.permlevel"
+															type="number"
+															min="0"
+															max="9"
+															class="dc-prop-input"
+															:aria-label="`Level for rule ${i + 1}`"
+															@change="scheduleAutosave()"
+														/>
+													</td>
+													<td v-for="c in PERMISSION_COLUMNS" :key="c.key" class="dc-perm-check">
+														<input
+															type="checkbox"
+															:checked="!!p[c.key]"
+															:aria-label="`${c.label} for rule ${i + 1}`"
+															@change="p[c.key] = $event.target.checked ? 1 : 0; scheduleAutosave()"
+														/>
+													</td>
+													<td class="dc-perm-x">
+														<button
+															class="dc-perm-remove"
+															:title="`Remove rule ${i + 1}`"
+															@click="removePermission(i)"
+														>✕</button>
+													</td>
+												</tr>
+												<tr v-if="!permissions.length">
+													<td :colspan="PERMISSION_COLUMNS.length + 4" class="dc-perm-empty">
+														No rules yet. Without one, only System Manager can open this form.
+													</td>
+												</tr>
+											</tbody>
+										</table>
+									</div>
+									<button class="dc-perm-add" @click="addPermission()">Add Row</button>
+								</div>
+
 								<p class="dc-hint">These settings apply to the whole DocType. Switch to the <strong>Form</strong> tab to design its fields.</p>
 							</div>
 						</div>
@@ -451,6 +517,53 @@ function defaultSettings() {
 	return s;
 }
 const dtSettings = reactive(defaultSettings());
+
+// ── Permission rules ───────────────────────────────────────────────────
+// Every right Frappe records, so a rule read off a live DocType survives being
+// written back. The grid shows the six a process owner actually decides;
+// the rest ride along untouched.
+const PERMISSION_RIGHTS = [
+	"select", "read", "write", "create", "delete", "submit", "cancel", "amend",
+	"report", "export", "import", "share", "print", "email", "if_owner",
+];
+const PERMISSION_COLUMNS = [
+	{ key: "select", label: "Select" },
+	{ key: "read", label: "Read" },
+	{ key: "write", label: "Write" },
+	{ key: "create", label: "Create" },
+	{ key: "delete", label: "Delete" },
+	{ key: "submit", label: "Submit" },
+];
+const permissions = ref([]);
+const roles = ref([]);
+
+function normalizePermission(p) {
+	const out = { role: (p?.role || "").trim(), permlevel: Number(p?.permlevel) || 0 };
+	for (const r of PERMISSION_RIGHTS) out[r] = p?.[r] ? 1 : 0;
+	return out;
+}
+
+// Keep a role the agent named selectable even before the list arrives, and even
+// if it is disabled — dropping it silently would look like the rule was ignored.
+function roleOptions(current) {
+	const list = roles.value.slice();
+	if (current && !list.includes(current)) list.unshift(current);
+	return list;
+}
+
+function addPermission() {
+	// A new rule starts as plain read access: the least it can grant and still
+	// mean something, so nobody hands out write by clicking Add Row.
+	permissions.value.push(normalizePermission({ read: 1 }));
+	scheduleSnapshot();
+	scheduleAutosave();
+}
+
+function removePermission(index) {
+	permissions.value.splice(index, 1);
+	scheduleSnapshot();
+	scheduleAutosave();
+}
 // Always include the current module (e.g. an agent-supplied one) so it stays selectable.
 const moduleOptions = computed(() => {
 	const list = modules.value.slice();
@@ -949,6 +1062,9 @@ function loadIr(ir) {
 	for (const k of SETTING_FLAG_KEYS) if (k in ir) dtSettings[k] = !!ir[k];
 	for (const k of SETTING_INT_KEYS) if (k in ir) dtSettings[k] = Number(ir[k]) || 0;
 	for (const k of SETTING_STR_KEYS) if (k in ir) dtSettings[k] = ir[k] || "";
+	// Same rule as settings: a turn that says nothing about permissions leaves
+	// the ones on screen alone, so the agent adding a field cannot wipe them.
+	if (Array.isArray(ir.permissions)) permissions.value = ir.permissions.map(normalizePermission);
 	buildTree(ir.fields || []);
 	selectForm();
 	appliedName.value = "";
@@ -970,6 +1086,7 @@ function currentIr() {
 		is_child_table: isChild.value,
 		autoname: dtAutoname.value || "",
 		...settingsPayload(),
+		permissions: permissions.value.filter((p) => (p.role || "").trim()).map(normalizePermission),
 		fields: flatten().map((f) => {
 			const out = { ...f };  // preserve all properties, incl. ones the builder doesn't show
 			const structural = STRUCTURAL.has(f.fieldtype);
@@ -990,6 +1107,13 @@ async function loadSchema(dt) {
 		const res = await frappeRequest({ url: `${API}get_doctype_schema`, params: { doctype: dt } });
 		if (res?.exists && res.doctype_ir) loadIr(res.doctype_ir);
 	} catch (e) { /* new doctype — nothing to load */ }
+}
+
+async function loadRoles() {
+	try {
+		const res = await frappeRequest({ url: `${API}list_roles` });
+		if (Array.isArray(res)) roles.value = res;
+	} catch (e) { /* the rule keeps whatever role it already names */ }
 }
 
 async function loadModules() {
@@ -1125,6 +1249,7 @@ onMounted(async () => {
 	buildTree([]);  // start with an empty tab/section/column so the canvas is usable
 	selectForm();
 	loadModules();  // populate the module picker (fire-and-forget)
+	loadRoles();    // populate the permission-rule role picker
 	if (props.doctype) {
 		// A doctype is already selected on the shape — load its form builder
 		// view. The greeting comes from the docu_agent configuration
@@ -1275,6 +1400,40 @@ onMounted(async () => {
 .dc-settings-grid .dc-prop-input { border: 1px solid var(--md-outline); border-radius: 8px; background: var(--md-surface-container-lowest); padding: 9px 12px; font-size: 14px; }
 .dc-settings-grid .dc-prop-input:focus { outline: none; border-color: var(--md-primary); box-shadow: inset 0 0 0 1px var(--md-primary); }
 .dc-settings-grid .fb-prop-check { align-self: center; }
+
+/* ── Permission rules grid ── */
+.dc-perm-scroll { overflow-x: auto; border: 1px solid var(--md-outline-variant); border-radius: 8px; }
+.dc-perm-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.dc-perm-table th {
+	text-align: center; font-weight: 600; color: #525252; white-space: nowrap;
+	padding: 9px 10px; background: var(--md-surface-container-low);
+	border-bottom: 1px solid var(--md-outline-variant);
+}
+.dc-perm-table td { padding: 7px 10px; border-bottom: 1px solid var(--md-outline-variant); text-align: center; }
+.dc-perm-table tr:last-child td { border-bottom: none; }
+.dc-perm-table th.dc-perm-role, .dc-perm-table td.dc-perm-role { text-align: left; min-width: 190px; }
+.dc-perm-no { width: 44px; color: var(--md-on-surface-variant); }
+.dc-perm-lvl { width: 84px; }
+.dc-perm-x { width: 40px; }
+.dc-perm-table .dc-prop-input { width: 100%; padding: 6px 9px; font-size: 13px; }
+.dc-perm-check input { width: 15px; height: 15px; cursor: pointer; }
+.dc-perm-empty { color: var(--md-on-surface-variant); font-size: 12px; padding: 14px 10px; }
+.dc-perm-remove {
+	border: none; background: transparent; color: var(--md-on-surface-variant);
+	cursor: pointer; font-size: 12px; padding: 4px 6px; border-radius: var(--md-corner-full);
+}
+.dc-perm-remove:hover { background: rgba(186,26,26,var(--md-state-hover)); color: var(--md-error); }
+.dc-perm-add {
+	margin-top: 10px; border: 1px solid var(--md-outline); background: var(--md-surface-container-lowest);
+	color: var(--md-on-surface); border-radius: var(--md-corner-full);
+	padding: 7px 16px; font-size: 13px; font-weight: 500; cursor: pointer;
+	transition: background-color var(--md-dur) var(--md-ease);
+}
+.dc-perm-add:hover { background: var(--md-surface-container-high); }
+.sr-only {
+	position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+	overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
 
 /* ══════════════════════════════════════════════════════════════════════
    Frappe form-builder canvas — matched to the desk Form Builder look/feel.
