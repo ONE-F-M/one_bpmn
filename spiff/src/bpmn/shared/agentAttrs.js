@@ -6,6 +6,8 @@
  * only reached the diagram would look saved and change nothing. Writes go back
  * to the configuration too, the same way the task dialog's Save does.
  */
+import { useEffect, useState } from "preact/hooks";
+
 import { frappePost } from "./frappeResource";
 
 // The only panel field the linked configuration also stores. Everything else
@@ -43,4 +45,33 @@ function syncToConfig(config, attr, value) {
 			).catch((e) => console.error(`Could not write ${attr} to "${config}"`, e));
 		}, SYNC_DELAY_MS)
 	);
+}
+
+/**
+ * The linked configuration's prompt, or null when it has none and the shape's
+ * own copy is what dispatch would use. Fetched per mount — the task dialog can
+ * change it between two visits to the same shape.
+ */
+export function useConfigValue(bo, attr) {
+	const config = getAttr(bo, "aiAgentConfig");
+	const [value, setValue] = useState(null);
+
+	useEffect(() => {
+		let live = true;
+		if (!config) {
+			setValue(null);
+			return;
+		}
+		frappePost(
+			"/api/method/one_bpmn.agents.agent_config_resolver.get_agent_config_for_shape",
+			{ config_name: config }
+		)
+			.then((fields) => live && setValue(fields?.[attr] || null))
+			.catch(() => live && setValue(null));
+		return () => {
+			live = false;
+		};
+	}, [config, attr]);
+
+	return value;
 }

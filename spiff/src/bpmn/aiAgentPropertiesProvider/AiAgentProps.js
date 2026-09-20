@@ -12,7 +12,7 @@ import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { frappeGet, frappePost } from "../shared/frappeResource";
-import { getAttr, setAttr } from "../shared/agentAttrs";
+import { getAttr, setAttr, useConfigValue } from "../shared/agentAttrs";
 
 // Human-readable labels for the executor backend stored in spiffworkflow:aiBackend.
 const BACKEND_LABELS = {
@@ -344,6 +344,9 @@ function SystemPromptComponent(props) {
 	const translate = useService("translate");
 	const debounce  = useService("debounceInput");
 	const bo        = getBusinessObject(element);
+	// The linked configuration's prompt is the one that runs, so show that
+	// rather than the shape's stale copy — the same value the task dialog shows.
+	const live      = useConfigValue(bo, "aiSystemPrompt");
 
 	return h(TextAreaEntry, {
 		element,
@@ -353,7 +356,7 @@ function SystemPromptComponent(props) {
 		tooltip: translate(
 			"The agent's role and standing instructions, sent as the system prompt. Jinja supported: {{ doc }}, {{ instance }}."
 		),
-		getValue: () => getAttr(bo, "aiSystemPrompt"),
+		getValue: () => live ?? getAttr(bo, "aiSystemPrompt"),
 		setValue: (value) => setAttr(modeling, element, bo, "aiSystemPrompt", value),
 		debounce,
 	});
