@@ -98,7 +98,103 @@
 						<p>Select a skill from the sidebar to view details</p>
 					</div>
 				</div>
-				
+
+				<div v-else-if="isCreatingNew" class="absolute inset-0 overflow-y-auto bg-gray-50 p-6">
+					<div class="bg-white shadow rounded-lg border max-w-3xl mx-auto">
+						<div class="px-4 py-5 sm:px-6 border-b flex justify-between items-center">
+							<h3 class="text-lg leading-6 font-medium text-gray-900">Create New Skill</h3>
+						</div>
+						<div class="px-4 py-5 sm:p-6 space-y-6">
+							<div>
+								<label class="block text-sm font-medium text-gray-700">Skill Name <span class="text-red-500">*</span></label>
+								<input type="text" v-model="newSkillForm.skill_name" class="mt-1 shadow-sm focus:ring-gray-500 focus:border-gray-500 block w-full sm:text-sm border-gray-300 rounded-md" placeholder="e.g. Find Employee">
+							</div>
+							<div>
+								<label class="block text-sm font-medium text-gray-700">Description</label>
+								<textarea v-model="newSkillForm.description" rows="2" class="mt-1 shadow-sm focus:ring-gray-500 focus:border-gray-500 block w-full sm:text-sm border-gray-300 rounded-md" placeholder="Brief description of what the skill does"></textarea>
+							</div>
+							<div class="grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-2">
+								<div>
+									<label class="block text-sm font-medium text-gray-700">Tier</label>
+									<select v-model="newSkillForm.tier" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm rounded-md">
+										<option value="Read-Only">Read-Only</option>
+										<option value="Draft-Only">Draft-Only</option>
+										<option value="Action-Allowed">Action-Allowed</option>
+									</select>
+								</div>
+								<div>
+									<label class="block text-sm font-medium text-gray-700">Status</label>
+									<select v-model="newSkillForm.status" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm rounded-md">
+										<option value="Draft">Draft</option>
+										<option value="Active">Active</option>
+										<option value="Deprecated">Deprecated</option>
+									</select>
+								</div>
+							</div>
+							<div>
+								<label class="block text-sm font-medium text-gray-700">Body (Markdown)</label>
+								<textarea v-model="newSkillForm.body" rows="6" class="mt-1 shadow-sm focus:ring-gray-500 focus:border-gray-500 block w-full sm:text-sm border-gray-300 rounded-md font-mono" placeholder="Markdown instructions for the agent..."></textarea>
+							</div>
+
+							<div class="border-t pt-6">
+								<div class="flex justify-between items-center mb-4">
+									<h4 class="text-sm font-medium text-gray-900">Resources</h4>
+									<button @click="addNewSkillResource" type="button" class="inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50">
+										Add Resource
+									</button>
+								</div>
+								<div v-for="(r, idx) in newSkillForm.resources" :key="idx" class="bg-gray-50 p-4 rounded-lg mb-4 border">
+									<div class="flex justify-between items-start mb-4">
+										<div class="flex-1 grid grid-cols-2 gap-4">
+											<div>
+												<label class="block text-xs font-medium text-gray-700">Type</label>
+												<select v-model="r.resource_type" class="mt-1 block w-full pl-3 pr-10 py-1.5 text-base border-gray-300 focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm rounded-md">
+													<option value="Script">Script</option>
+													<option value="Reference">Reference</option>
+													<option value="Asset">Asset</option>
+													<option value="Template">Template</option>
+												</select>
+											</div>
+											<div>
+												<label class="block text-xs font-medium text-gray-700">Name</label>
+												<input type="text" v-model="r.resource_name" class="mt-1 shadow-sm focus:ring-gray-500 focus:border-gray-500 block w-full sm:text-sm border-gray-300 rounded-md">
+											</div>
+										</div>
+										<button @click="removeNewSkillResource(idx)" type="button" class="ml-4 text-gray-400 hover:text-red-500">
+											<Icon icon="lucide:trash-2" class="w-4 h-4" />
+										</button>
+									</div>
+									<div>
+										<label class="block text-xs font-medium text-gray-700">Value</label>
+										<textarea v-model="r.resource_value" rows="2" class="mt-1 shadow-sm focus:ring-gray-500 focus:border-gray-500 block w-full sm:text-sm border-gray-300 rounded-md font-mono"></textarea>
+									</div>
+								</div>
+								<div v-if="!newSkillForm.resources.length" class="text-sm text-gray-500 text-center py-4 bg-gray-50 rounded-lg border border-dashed">
+									No resources attached
+								</div>
+							</div>
+						</div>
+						<div class="bg-gray-50 px-4 py-3 sm:px-6 flex justify-end gap-3 rounded-b-lg">
+							<button
+								type="button"
+								class="inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+								@click="cancelCreateSkill"
+							>
+								Cancel
+							</button>
+							<button
+								type="button"
+								class="inline-flex justify-center items-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-gray-900 text-sm font-medium text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900 disabled:opacity-50"
+								@click="submitNewSkill"
+								:disabled="creating || !newSkillForm.skill_name"
+							>
+								<Icon v-if="creating" icon="lucide:loader-2" class="w-4 h-4 mr-2 animate-spin" />
+								{{ creating ? 'Creating...' : 'Create Skill' }}
+							</button>
+						</div>
+					</div>
+				</div>
+
 				<template v-else>
 					<!-- Tab Navigation -->
 					<div class="flex-none border-b px-6 bg-gray-50">
