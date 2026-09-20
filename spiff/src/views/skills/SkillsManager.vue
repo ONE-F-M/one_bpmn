@@ -103,6 +103,10 @@
 								</span>
 							</div>
 							<p class="text-xs text-gray-500 line-clamp-2">{{ skill.description || 'No description provided.' }}</p>
+							<p class="text-xs text-gray-400 mt-1 flex items-center gap-1">
+								<Icon icon="lucide:hash" class="w-3 h-3" />
+								{{ formatTokenEstimate(skill.token_estimate) }} tokens
+							</p>
 						</button>
 					</div>
 				</div>
