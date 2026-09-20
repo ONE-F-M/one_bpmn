@@ -467,19 +467,46 @@ const filteredTools = computed(() => {
 })
 
 
-const showCreateModal = ref(false)
+const isCreatingNew = ref(false)
 const newSkillForm = ref({
     skill_name: '',
     description: '',
     tier: 'Read-Only',
     status: 'Draft',
     owner_team: '',
-    body: ''
+    body: '',
+    resources: []
 })
 const creating = ref(false)
 
 function createNewSkill() {
-	showCreateModal.value = true
+	selectedSkill.value = null
+	isCreatingNew.value = true
+}
+
+function cancelCreateSkill() {
+	isCreatingNew.value = false
+	newSkillForm.value = {
+		skill_name: '',
+		description: '',
+		tier: 'Read-Only',
+		status: 'Draft',
+		owner_team: '',
+		body: '',
+		resources: []
+	}
+}
+
+function addNewSkillResource() {
+	newSkillForm.value.resources.push({
+		resource_type: 'Reference',
+		resource_name: '',
+		resource_value: ''
+	})
+}
+
+function removeNewSkillResource(idx) {
+	newSkillForm.value.resources.splice(idx, 1)
 }
 
 async function submitNewSkill() {
@@ -499,19 +526,21 @@ async function submitNewSkill() {
                     tier: newSkillForm.value.tier,
                     status: newSkillForm.value.status || 'Draft',
                     owner_team: newSkillForm.value.owner_team,
-                    body: newSkillForm.value.body || ''
+                    body: newSkillForm.value.body || '',
+                    resources: newSkillForm.value.resources || []
                 }
             }
         );
         if (res) {
-            showCreateModal.value = false;
+            isCreatingNew.value = false;
             newSkillForm.value = {
                 skill_name: '',
                 description: '',
                 tier: 'Read-Only',
                 status: 'Draft',
                 owner_team: '',
-                body: ''
+                body: '',
+                resources: []
             };
             await refreshSkills();
             selectSkill(res);
