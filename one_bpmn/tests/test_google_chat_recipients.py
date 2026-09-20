@@ -16,6 +16,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
+	chat_user_id,
 	dispatch_google_chat,
 	google_chat_recipients,
 )
@@ -198,3 +199,44 @@ class TestCredentialSource(FrappeTestCase):
 				"_test",
 			)
 		post.assert_not_called()
+
+
+class TestChatUserId(FrappeTestCase):
+	"""Turning an address into the id Chat will actually accept."""
+
+	DIRECTORY = {
+		"abraham adekunle": ["110011284155291104346"],
+		"chukwuebuka akeru": ["106461580433969306983"],
+	}
+
+	def setUp(self):
+		frappe.cache().delete_value("gchat_user_id::a.adekunle@one-fm.com")
+
+	def _resolve(self, email, directory=None, full_name=None):
+		from unittest.mock import patch
+
+		with patch(
+			"one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers._chat_dm_directory",
+			return_value=self.DIRECTORY if directory is None else directory,
+		) as scan, patch("frappe.db.get_value", return_value=full_name):
+			return chat_user_id(email, {}), scan
+
+	def test_a_middle_nameless_user_still_matches(self):
+		"""full_name joins three parts, so no middle name leaves a double space."""
+		got, _ = self._resolve("a.adekunle@one-fm.com", full_name="Abraham  Adekunle")
+		self.assertEqual(got, "110011284155291104346")
+
+	def test_two_people_of_one_name_resolve_to_nobody(self):
+		"""Refusing beats guessing: a DM to the wrong colleague cannot be recalled."""
+		got, _ = self._resolve(
+			"a.adekunle@one-fm.com",
+			directory={"abraham adekunle": ["1", "2"]},
+			full_name="Abraham Adekunle",
+		)
+		self.assertEqual(got, "")
+
+	def test_the_second_lookup_does_not_scan_again(self):
+		"""The scan costs one request per person in the domain."""
+		self._resolve("a.adekunle@one-fm.com", full_name="Abraham  Adekunle")
+		_, scan = self._resolve("a.adekunle@one-fm.com", full_name="Abraham  Adekunle")
+		scan.assert_not_called()

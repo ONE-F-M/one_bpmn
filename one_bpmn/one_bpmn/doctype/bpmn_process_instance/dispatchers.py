@@ -828,6 +828,87 @@ def google_chat_recipients(instance, task_cfg: dict) -> tuple:
 	return addresses, ""
 
 
+def _same_name(name: str) -> str:
+	"""A name reduced to what two directories can agree on.
+
+	Frappe builds ``full_name`` by joining first, middle and last, so a user
+	with no middle name carries a double space that Google's display name does
+	not.
+	"""
+	return " ".join((name or "").split()).lower()
+
+
+def chat_user_id(email: str, headers: dict) -> str:
+	"""The Google Chat id behind a one-fm.com address, or "" when unsettled.
+
+	Chat addresses people by an opaque id and refuses an email outright under
+	app authentication ("Service account authentication doesn't support access
+	to user information using email aliases"). Until the Directory API is
+	delegated, the id comes off the direct message spaces the domain install
+	created — one per person, matched on the name Frappe holds.
+	"""
+	key = f"gchat_user_id::{email.lower()}"
+	cached = frappe.cache().get_value(key)
+	if cached:
+		return cached
+
+	full_name = frappe.db.get_value("User", email, "full_name")
+	if not full_name:
+		return ""
+
+	holders = _chat_dm_directory(headers).get(_same_name(full_name)) or []
+	# Two colleagues sharing a name is the one case worth refusing: a direct
+	# message to the wrong person is worse than one that never arrives.
+	if len(holders) != 1:
+		return ""
+
+	# No expiry: an id outlives any TTL worth setting, and passing one skips
+	# frappe's in-process memo, so the next lookup in the same worker rescans.
+	frappe.cache().set_value(key, holders[0])
+	return holders[0]
+
+
+def _chat_dm_directory(headers: dict) -> dict:
+	"""Display name (lowercased) → the Chat ids answering to it."""
+	import concurrent.futures
+
+	import requests
+
+	spaces, page = [], None
+	while True:
+		params = {"pageSize": 1000}
+		if page:
+			params["pageToken"] = page
+		body = requests.get(
+			"https://chat.googleapis.com/v1/spaces", headers=headers, params=params, timeout=20
+		).json()
+		spaces += [
+			s["name"] for s in body.get("spaces", []) if s.get("spaceType") == "DIRECT_MESSAGE"
+		]
+		page = body.get("nextPageToken")
+		if not page:
+			break
+
+	def members(space):
+		resp = requests.get(
+			f"https://chat.googleapis.com/v1/{space}/members", headers=headers, timeout=20
+		)
+		return resp.json().get("memberships", []) if resp.status_code == 200 else []
+
+	# One request per person in the domain: sequentially this runs into minutes.
+	with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+		batches = list(pool.map(members, spaces))
+
+	directory = {}
+	for batch in batches:
+		for membership in batch:
+			member = membership.get("member", {})
+			name = _same_name(member.get("displayName"))
+			if member.get("type") == "HUMAN" and name:
+				directory.setdefault(name, []).append(member["name"].split("/")[-1])
+	return directory
+
+
 def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	"""
 	Send a Google Chat message from a Service Task with serviceType='google_chat'.
@@ -944,10 +1025,16 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 			# and logged on its own.
 			for address in recipients:
 				try:
+					user_id = chat_user_id(address, headers) if "@" in address else address
+					if not user_id:
+						raise ValueError(
+							"No single Google Chat user answers to this address. Either they "
+							"have never been sent the app, or two people share their name."
+						)
 					dm_resp = requests.get(
 						"https://chat.googleapis.com/v1/spaces:findDirectMessage",
 						headers=headers,
-						params={"name": f"users/{address}"},
+						params={"name": f"users/{user_id}"},
 						timeout=10,
 					)
 					if dm_resp.status_code == 200:
