@@ -1,0 +1,91 @@
+{
+
+  "actions": [],
+  "allow_rename": 1,
+  "creation": "2025-10-22 00:00:00",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "autoname": "format:KW-{####}",
+  "title_field": "keyword",
+  "field_order": [
+  "keyword",
+  "language",
+  "source_type",
+  "is_active",
+  "date_added",
+  "usage_count"
+ ],
+ "fields": [
+  {
+   "fieldname": "keyword",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Keyword",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "language",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Language",
+   "options": "English\nArabic",
+   "reqd": 1
+  },
+  {
+   "fieldname": "source_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Source Type",
+   "options": "Manual\nAI Generated",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Is Active"
+  },
+  {
+   "fieldname": "date_added",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Date Added",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "usage_count",
+   "fieldtype": "Int",
+   "label": "Usage Count"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-10-28 19:51:40.670206",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "Threat Keyword",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "search_fields": "keyword",
+ "show_title_field_in_link": 1,
+ "sort_field": "usage_count",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "keyword",
+ "track_changes": 1
+}

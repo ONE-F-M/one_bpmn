@@ -10,7 +10,7 @@
 						<span
 							v-if="suite.eval_type"
 							class="text-xs px-2 py-0.5 rounded-full"
-							:class="suite.eval_type === 'Agent' ? 'bg-indigo-50 text-indigo-700' : 'bg-blue-50 text-blue-700'"
+							:class="suite.eval_type === 'Agent' ? 'bg-indigo-50 text-indigo-700' : suite.eval_type === 'Memory' ? 'bg-teal-50 text-teal-700' : 'bg-blue-50 text-blue-700'"
 						>
 							{{ suite.eval_type }} eval
 						</span>
@@ -29,6 +29,34 @@
 						>{{ suite.agent_name || suite.agent_configuration || "no agent" }}</button>
 						<span v-else>{{ suite.agent_name || suite.agent_configuration || "no agent" }}</span>
 						<span>· {{ suite.process_model || "no process" }}</span>
+						<span>·</span>
+						<button
+							class="text-blue-600 hover:underline"
+							title="How many times each case runs, and the pass rate this suite must clear"
+							@click="openThresholds"
+						>{{ suite.pass_k > 1 ? `${suite.pass_k} runs per case` : "1 run per case" }}<span
+							v-if="suite.min_pass_rate"
+						>, needs {{ suite.min_pass_rate }}%</span></button>
+						<span>·</span>
+						<button
+							class="text-blue-600 hover:underline"
+							title="Which automated job runs this suite"
+							@click="openThresholds"
+						>{{ suite.ci_role ? `runs on ${suite.ci_role.toLowerCase()}` : "runs when asked" }}</button>
+						<span v-if="readiness">·</span>
+						<button
+							v-if="readiness"
+							class="text-blue-600 hover:underline"
+							:title="readiness.minimum
+								? `The golden dataset for ${readiness.subject}: ${readiness.cases} case(s), ${readiness.minimum} is the mark`
+								: `The golden dataset for ${readiness.subject}: ${readiness.cases} case(s); the agent has set no minimum`"
+							@click="openDataset"
+						>dataset {{ readiness.cases }}<template v-if="readiness.minimum">/{{ readiness.minimum }}</template></button>
+						<span
+							v-if="suite.gate_deployment"
+							class="inline-block px-2 py-0.5 rounded-full text-xs bg-amber-50 text-amber-700"
+							:title="`Deploying ${suite.process_model || 'this suite\'s map'} is refused while this suite is below its minimum`"
+						>gates deploy</span>
 					</div>
 				</div>
 				<div class="flex items-center gap-2">
@@ -90,9 +118,66 @@
 					<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">Cost (latest)</div>
 					<div class="text-2xl font-bold text-gray-900">{{ fmtCost(metrics.latest_cost ?? 0) }}</div>
 				</div>
+				<div class="bg-white rounded-lg shadow-sm p-4 border-l-4 border-rose-500">
+					<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">Pass rate (latest)</div>
+					<div class="text-2xl font-bold" :class="rateColour">
+						{{ metrics.latest?.executions ? `${round1(metrics.latest.pass_rate)}%` : "—" }}
+					</div>
+					<div v-if="metrics.latest?.executions" class="text-xs text-gray-500">
+						{{ metrics.latest.executions }} execution(s)<span v-if="suite.min_pass_rate">, needs {{ suite.min_pass_rate }}%</span>
+					</div>
+				</div>
 				<div class="bg-white rounded-lg shadow-sm p-4 border-l-4 border-cyan-500">
 					<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">Assertion coverage</div>
 					<div class="text-2xl font-bold text-gray-900">{{ metrics.assertion_coverage?.with_assertions ?? 0 }} / {{ metrics.assertion_coverage?.total ?? 0 }}</div>
+				</div>
+			</div>
+
+			<!-- Consistency — which cases disagree with themselves over time -->
+			<div class="bg-white rounded-lg shadow-sm mb-6">
+				<div class="border-b px-6 py-3 flex items-center justify-between">
+					<span class="text-sm font-semibold text-gray-700">
+						Consistency
+						<span class="text-gray-400 font-normal">({{ consistency.runs?.length || 0 }} run(s) this week)</span>
+					</span>
+					<Button variant="subtle" icon-left="activity" :loading="loadingConsistency" @click="loadConsistency">
+						{{ consistency.cases ? "Refresh" : "Show" }}
+					</Button>
+				</div>
+				<div v-if="consistency.cases && !consistency.cases.length" class="p-6 text-sm text-gray-500">
+					No results recorded yet — run the suite once.
+				</div>
+				<div v-else-if="consistency.cases" class="p-4">
+					<p v-if="!flakyCases.length" class="text-sm text-green-700">
+						Every case has agreed with itself across these runs.
+					</p>
+					<table v-else class="w-full text-sm">
+						<thead>
+							<tr class="text-left text-xs uppercase tracking-wide text-gray-500 border-b">
+								<th class="px-3 py-2 font-medium">Case</th>
+								<th class="px-3 py-2 font-medium text-right">Consistency</th>
+								<th class="px-3 py-2 font-medium">History (oldest → newest)</th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr v-for="c in flakyCases" :key="c.case" class="border-b border-gray-100">
+								<td class="px-3 py-2 font-medium text-gray-900">{{ c.title }}</td>
+								<td class="px-3 py-2 text-right" :class="c.consistency_rate < 100 ? 'text-amber-700' : 'text-gray-600'">
+									{{ round1(c.consistency_rate) }}%
+									<span class="text-xs text-gray-400">({{ c.passes }}/{{ c.executions }})</span>
+								</td>
+								<td class="px-3 py-2">
+									<span
+										v-for="h in c.history"
+										:key="h.run"
+										class="inline-block w-6 h-6 mr-1 rounded text-center text-xs leading-6"
+										:class="h.passes === h.runs ? 'bg-green-100 text-green-700' : (h.passes ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700')"
+										:title="`${h.run} — ${h.passes}/${h.runs} passed`"
+									>{{ h.passes }}/{{ h.runs }}</span>
+								</td>
+							</tr>
+						</tbody>
+					</table>
 				</div>
 			</div>
 
@@ -124,7 +209,7 @@
 								<div v-if="c.source_run" class="text-xs text-gray-400">from run</div>
 							</td>
 							<td class="px-4 py-3">
-								<span v-for="t in c.assertion_types" :key="t" class="inline-block px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600 mr-1">{{ t }}</span>
+								<span v-for="t in c.assertion_types" :key="t" class="inline-block px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600 mr-1">{{ assertionTypeLabel(t) }}</span>
 								<span v-if="!c.assertion_types.length" class="text-xs text-amber-600">no assertions</span>
 							</td>
 							<td class="px-4 py-3 text-right whitespace-nowrap">
@@ -170,13 +255,177 @@
 							<td class="px-6 py-3">
 								<span class="inline-block px-2 py-0.5 rounded-full text-xs" :class="runPill(r.status)">{{ r.status }}</span>
 							</td>
-							<td class="px-6 py-3 text-gray-600">{{ r.passed_cases }}/{{ r.total_cases }} passed</td>
+							<td class="px-6 py-3 text-gray-600">
+								{{ r.passed_cases }}/{{ r.total_cases }} passed
+								<span v-if="r.total_executions > r.total_cases" class="text-xs text-gray-400">
+									· {{ round1(r.pass_rate) }}% of {{ r.total_executions }}
+								</span>
+							</td>
 							<td class="px-6 py-3 text-gray-400 text-xs">{{ r.started_at }}</td>
 						</tr>
 					</tbody>
 				</table>
 			</div>
 		</main>
+
+		<!-- How many times each case runs, and the bar the suite must clear -->
+		<Dialog v-model="showThresholds" :options="{ title: 'When this suite runs, and the bar it must clear' }">
+			<template #body-content>
+				<div class="space-y-3">
+					<FormControl
+						type="select"
+						label="Run automatically as"
+						v-model="thresholdForm.ci_role"
+						:options="CI_ROLE_OPTIONS"
+						description="Smoke runs on every pull request touching agent code and makes no model call. Nightly is the live sweep on a schedule. Blank means it runs only when a person asks."
+					/>
+					<p v-if="thresholdForm.ci_role === 'Smoke' && smokeUncheckableCases.length" class="text-sm text-amber-600">
+						{{ smokeUncheckableCases.length }} of {{ cases.length }} case(s) here can only be judged by a
+						model, so a Smoke run would skip them. A suite where every case is skipped fails the check.
+					</p>
+					<p v-if="thresholdForm.ci_role === 'Nightly'" class="text-xs text-gray-500">
+						Nightly calls the agents for real. The ceiling on what one night may spend is in Processa
+						Settings.
+					</p>
+					<FormControl
+						type="number"
+						label="Runs per case"
+						v-model="thresholdForm.pass_k"
+						description="Above 1, a case passes only when every one of its runs passes. Every run is a billed model call."
+					/>
+					<FormControl
+						type="number"
+						label="Minimum pass rate (%)"
+						v-model="thresholdForm.min_pass_rate"
+						description="The share of executions that must pass. Above 0, activating this suite's map is refused below it."
+					/>
+					<label class="flex items-start gap-2 text-sm text-gray-700">
+						<input type="checkbox" v-model="thresholdForm.gate_deployment" class="mt-1" />
+						<span>
+							<span class="font-medium">Block deployment below the rate</span>
+							<span class="block text-xs text-gray-500">
+								Deploying {{ suite.process_model || "this suite's map" }} is refused while this
+								suite is under its minimum. With the minimum at 0 it only warns.
+							</span>
+						</span>
+					</label>
+					<p v-if="thresholdError" class="text-sm text-red-600">{{ thresholdError }}</p>
+					<p v-if="thresholdForm.gate_deployment && !suite.process_model" class="text-sm text-amber-600">
+						This suite names no process map, so there is nothing for the gate to block.
+					</p>
+					<p v-if="Number(thresholdForm.pass_k) > 1 && cases.length" class="text-xs text-gray-500">
+						{{ cases.length }} case(s) × {{ thresholdForm.pass_k }} = {{ cases.length * Number(thresholdForm.pass_k) }}
+						executions per run of this suite.
+					</p>
+				</div>
+			</template>
+			<template #actions>
+				<Button variant="solid" :loading="savingThresholds" @click="saveThresholds">Save</Button>
+			</template>
+		</Dialog>
+
+		<!-- The golden dataset this suite's agent carries -->
+		<Dialog v-model="showDataset" :options="{ title: 'Golden dataset', size: '2xl' }">
+			<template #body-content>
+				<div v-if="readiness" class="space-y-4">
+					<FormControl
+						type="select"
+						label="Reading and versioning"
+						v-model="datasetScope"
+						:options="DATASET_SCOPES"
+						description="A version of this suite is what a run passed against. The agent's view spans every suite it has."
+						@change="loadReadiness"
+					/>
+					<p class="text-sm text-gray-700">
+						<span class="font-medium">{{ readiness.subject }}</span> carries
+						<span class="font-medium">{{ readiness.cases }}</span> case(s).
+						<template v-if="readiness.minimum">
+							<span v-if="readiness.short_by">{{ readiness.short_by }} short of {{ readiness.minimum }};</span>
+							<span v-else>Past the {{ readiness.minimum }} mark;</span>
+							<span v-if="readiness.target">{{ readiness.target }} is comfortable.</span>
+						</template>
+						<span v-else class="text-gray-500">
+							The agent has set no minimum, so there is nothing to measure this against.
+							Set one on the agent's configuration to see a bar here.
+						</span>
+					</p>
+					<p class="text-xs text-gray-500">
+						A reading, not a gate. The one hard case-count bar is a skill graduating to Action-Allowed.
+					</p>
+
+					<div class="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+						<div v-for="(count, type) in readiness.by_type" :key="type" class="flex justify-between">
+							<span :class="count ? 'text-gray-700' : 'text-gray-400'">{{ type }}</span>
+							<span :class="count ? 'font-medium' : 'text-gray-400'">{{ count }}</span>
+						</div>
+					</div>
+
+					<p v-if="readiness.missing_types.length" class="text-sm text-amber-600">
+						Nothing yet for: {{ readiness.missing_types.join(", ") }}.
+					</p>
+
+					<div class="border-t border-gray-100 pt-3 text-sm">
+						<p v-if="readiness.latest_version">
+							Latest version <span class="font-medium">v{{ readiness.latest_version.version }}</span>,
+							{{ readiness.latest_version.case_count }} case(s), taken
+							{{ readiness.latest_version.taken_at }}.
+							<span v-if="readiness.drifted_from_version" class="text-amber-600">
+								The cases have changed since — take a new version to record where they are now.
+							</span>
+						</p>
+						<p v-else class="text-gray-500">No version taken yet.</p>
+					</div>
+
+					<FormControl
+						label="Note for this version (optional)"
+						v-model="datasetNote"
+						description="Why you are recording the dataset here — read later beside the version number."
+					/>
+					<div v-if="importPreview" class="border border-blue-100 bg-blue-50 rounded-md p-3 text-sm space-y-1">
+						<p class="font-medium text-gray-800">
+							{{ importFileName }} holds {{ importPreview.created.length + importPreview.updated.length }}
+							case(s) for this suite.
+						</p>
+						<p v-if="importPreview.created.length">
+							<span class="font-medium">{{ importPreview.created.length }} new:</span>
+							{{ importPreview.created.slice(0, 4).join(", ") }}<span v-if="importPreview.created.length > 4">, …</span>
+						</p>
+						<p v-if="importPreview.updated.length">
+							<span class="font-medium">{{ importPreview.updated.length }} already here</span>, and will be
+							overwritten: {{ importPreview.updated.slice(0, 4).join(", ") }}<span v-if="importPreview.updated.length > 4">, …</span>
+						</p>
+						<p v-if="importPreview.left_alone.length" class="text-gray-600">
+							{{ importPreview.left_alone.length }} case(s) in this suite are not in the file and stay as they are.
+						</p>
+						<p v-if="importPreview.merged_from.length" class="text-amber-700">
+							This file holds cases from {{ importPreview.merged_from.length }} suites
+							({{ importPreview.merged_from.join(", ") }}) and they will all land in this one.
+						</p>
+						<p v-if="importPreview.skipped.length" class="text-amber-700">
+							{{ importPreview.skipped.length }} entry(ies) have no title and will be ignored.
+						</p>
+					</div>
+					<p v-if="datasetMessage" class="text-sm text-green-700">{{ datasetMessage }}</p>
+					<p v-if="datasetError" class="text-sm text-red-600">{{ datasetError }}</p>
+					<input ref="importInput" type="file" accept="application/json,.json" class="hidden" @change="previewImport" />
+				</div>
+			</template>
+			<template #actions>
+				<div class="flex gap-2">
+					<Button :loading="datasetBusy" @click="downloadDataset">Export</Button>
+					<Button v-if="!importPreview" :loading="datasetBusy" @click="chooseImportFile">Import…</Button>
+					<Button v-else :loading="datasetBusy" @click="cancelImport">Cancel import</Button>
+					<Button
+						v-if="importPreview"
+						variant="solid"
+						theme="blue"
+						:loading="datasetBusy"
+						@click="applyImport"
+					>Import {{ importPreview.created.length + importPreview.updated.length }} case(s)</Button>
+					<Button v-else variant="solid" :loading="datasetBusy" @click="takeSnapshot">Take version</Button>
+				</div>
+			</template>
+		</Dialog>
 
 		<!-- Case editor modal (new + edit) -->
 		<Dialog v-model="showCaseEditor" :options="{ title: caseMode === 'edit' ? 'Edit case' : 'New eval case', size: '3xl' }">
@@ -187,11 +436,52 @@
 						— its provider, model and system prompt are used.
 					</div>
 					<FormControl label="Title" v-model="caseForm.title" />
-					<FormControl type="textarea" label="User prompt" v-model="caseForm.input_user_prompt" />
-					<FormControl type="textarea" label="Expected output (optional)" v-model="caseForm.expected_output" />
+					<div class="grid grid-cols-2 gap-3">
+						<FormControl
+							type="select"
+							label="Case type"
+							v-model="caseForm.case_type"
+							:options="CASE_TYPE_OPTIONS"
+							description="What this case measures."
+						/>
+						<FormControl
+							type="select"
+							label="Target skill (optional)"
+							v-model="caseForm.target_skill"
+							:options="skillOptions"
+							description="A skill's golden dataset is the cases pointing at it."
+						/>
+					</div>
+					<p v-if="caseProvenance" class="text-xs text-gray-500">
+						Came from {{ caseProvenance }} — that link is set by whatever promoted this case, not here.
+					</p>
+					<FormControl
+						type="textarea"
+						:label="isMemoryCase ? 'Question to recall with (leave empty for a generation-only case)' : 'User prompt'"
+						v-model="caseForm.input_user_prompt"
+					/>
+					<FormControl
+						type="textarea"
+						:label="isMemoryCase ? 'Golden memories, one per line' : 'Expected output (optional)'"
+						v-model="caseForm.expected_output"
+					/>
+					<template v-if="isMemoryCase">
+						<FormControl
+							type="textarea"
+							label="Input Context (JSON)"
+							v-model="caseForm.input_context"
+							placeholder='{"scope": "Agent", "scope_key": "run_general_chat_agent", "k": 5}'
+						/>
+						<p class="text-xs" :class="inputContextError ? 'text-red-600' : 'text-gray-500'">
+							{{ inputContextError || "scope and scope_key are required. Optional: k, user, agent_output (distilled and scored), produced_memories (scored as given)." }}
+						</p>
+					</template>
 
 					<!-- Assertions -->
-					<div class="border-t pt-3">
+					<div v-if="isMemoryCase" class="border-t pt-3 text-xs text-gray-500">
+						A Memory case scores itself: recall, precision and latency come from the memory store. Assertions are not used.
+					</div>
+					<div v-else class="border-t pt-3">
 						<div class="flex items-center justify-between mb-2">
 							<span class="text-sm font-semibold text-gray-700">Assertions</span>
 							<Button variant="subtle" icon-left="plus" @click="addAssertion">Add assertion</Button>
@@ -205,6 +495,14 @@
 								<Button variant="ghost" icon-left="trash-2" @click="removeAssertion(i)" />
 							</div>
 							<FormControl
+								v-if="a.assertion_type === 'tool_calls'"
+								type="select"
+								label="Order mode"
+								:options="TOOL_CALL_MODES"
+								v-model="a.value"
+							/>
+							<FormControl
+								v-else
 								type="textarea"
 								:label="VALUE_LABELS[a.assertion_type] || 'Expected value / pattern'"
 								v-model="a.value"
@@ -214,6 +512,34 @@
 								<FormControl type="select" label="Judge model" :options="aiModelOptions" v-model="a.judge_model" />
 								<FormControl type="number" label="Pass threshold (1–5)" v-model="a.pass_threshold" />
 							</div>
+						</div>
+					</div>
+
+					<!-- Expected tool calls — what a tool_calls assertion is checked against -->
+					<div v-if="wantsToolCalls" class="border-t pt-3">
+						<div class="flex items-center justify-between mb-2">
+							<span class="text-sm font-semibold text-gray-700">Expected tool calls</span>
+							<Button variant="subtle" icon-left="plus" @click="addExpectedCall">Add call</Button>
+						</div>
+						<p class="text-xs text-gray-500 mb-2">
+							One row per thing to check. Rows sharing a Call number describe the same call — give a
+							tool and, if the arguments matter, one row per argument. Leave the argument blank to
+							require only that the tool ran.
+						</p>
+						<p v-if="!caseForm.expected_tool_calls.length" class="text-xs text-amber-600 mb-2">
+							The tool_calls assertion has nothing to check until you add a call.
+						</p>
+						<div
+							v-for="(e, i) in caseForm.expected_tool_calls"
+							:key="i"
+							class="flex items-end gap-2 mb-2"
+						>
+							<FormControl type="number" label="Call" v-model="e.call_order" class="w-16" />
+							<FormControl label="Tool" v-model="e.tool_name" class="flex-1" />
+							<FormControl label="Argument" v-model="e.argument" class="flex-1" />
+							<FormControl type="select" label="Matcher" :options="MATCHER_OPTIONS" v-model="e.matcher" class="w-28" />
+							<FormControl label="Expected value" v-model="e.expected_value" class="flex-1" />
+							<Button variant="ghost" icon-left="trash-2" @click="removeExpectedCall(i)" />
 						</div>
 					</div>
 				</div>
@@ -339,6 +665,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from "vue"
+import { ASSERTION_TYPES, MATCHERS, TOOL_CALL_MODES, assertionTypeLabel } from "@/utils/evalLabels"
 import { useRoute, useRouter } from "vue-router"
 import { frappeRequest, Button, Dialog, ErrorMessage, FormControl } from "frappe-ui"
 
@@ -346,14 +673,17 @@ const route = useRoute()
 const router = useRouter()
 const suiteName = route.params.suite
 
-const ASSERTION_TYPES = ["contains", "regex", "equals", "schema_valid", "llm_judge", "max_tokens", "no_tool_call"]
 // What `value` means changes with the type, so the field says which.
 const VALUE_LABELS = {
 	llm_judge: "Rubric",
 	max_tokens: "Token ceiling",
 	no_tool_call: "Forbidden tool names",
+	tool_calls: "Order mode",
 }
-const assertionTypeOptions = ASSERTION_TYPES.map((t) => ({ label: t, value: t }))
+// tool_calls checks the run's trace against the Expected Tool Calls below; its
+// value is only which of the three modes to check in.
+const MATCHER_OPTIONS = MATCHERS
+const assertionTypeOptions = ASSERTION_TYPES
 
 const loading = ref(true)
 const loadError = ref("")
@@ -379,8 +709,212 @@ const caseError = ref("")
 const incompleteAssertion = computed(() =>
 	caseForm.assertions.findIndex((a) => !(a.value || "").trim())
 )
+
+const CASE_TYPE_OPTIONS = [
+	"Output", "Trajectory", "Trigger Positive", "Trigger Negative",
+	"Adversarial", "Co-Load Budget", "Memory",
+].map((t) => ({ label: t, value: t }))
+
+const skillOptions = ref([{ label: "", value: "" }])
+
+const DATASET_SCOPES = [
+	{ label: "This suite", value: "suite" },
+	{ label: "The whole agent", value: "agent" },
+]
+const datasetScope = ref("suite")
+const showDataset = ref(false)
+const readiness = ref(null)
+
+// What Export and Take version act on. A suite is the unit a run belongs to, so
+// it is the default; the agent's view is the wider one, across its suites.
+const datasetSubject = computed(() =>
+	datasetScope.value === "agent"
+		? { agent: suite.value.agent_configuration }
+		: { suite: suiteName }
+)
+const datasetNote = ref("")
+const datasetBusy = ref(false)
+const datasetMessage = ref("")
+const datasetError = ref("")
+
+// Read as soon as the suite loads so the count is visible without opening
+// anything. Best-effort: a suite with no agent has no dataset, and that must
+// not blank the page.
+async function loadReadiness() {
+	if (!suite.value.agent_configuration) {
+		readiness.value = null
+		return
+	}
+	try {
+		readiness.value = await frappeRequest({
+			url: "/api/method/one_bpmn.api.golden_dataset.dataset_readiness",
+			method: "GET",
+			params: datasetSubject.value,
+		})
+	} catch (e) {
+		readiness.value = null
+	}
+}
+
+async function loadSkills() {
+	try {
+		const res = await frappeRequest({
+			url: "/api/method/frappe.client.get_list",
+			method: "GET",
+			params: { doctype: "AI Skill", fields: JSON.stringify(["name"]), limit_page_length: 0 },
+		})
+		skillOptions.value = [{ label: "", value: "" }].concat(
+			(res || []).map((sk) => ({ label: sk.name, value: sk.name }))
+		)
+	} catch (e) {
+		skillOptions.value = [{ label: "", value: "" }]
+	}
+}
+
+function openDataset() {
+	datasetMessage.value = ""
+	datasetError.value = ""
+	datasetNote.value = ""
+	cancelImport()
+	showDataset.value = true
+	loadReadiness()
+}
+
+async function takeSnapshot() {
+	datasetBusy.value = true
+	datasetMessage.value = ""
+	datasetError.value = ""
+	try {
+		const res = await frappeRequest({
+			url: "/api/method/one_bpmn.api.golden_dataset.snapshot_dataset",
+			method: "POST",
+			params: { ...datasetSubject.value, notes: datasetNote.value },
+		})
+		datasetMessage.value = `Recorded ${res.label} — ${res.case_count} case(s).`
+		await loadReadiness()
+	} catch (e) {
+		datasetError.value = e.messages?.[0] || e.message || "Could not take a version."
+	} finally {
+		datasetBusy.value = false
+	}
+}
+
+const importInput = ref(null)
+const importPreview = ref(null)
+const importPayload = ref("")
+const importFileName = ref("")
+
+function chooseImportFile() {
+	datasetError.value = ""
+	datasetMessage.value = ""
+	importInput.value?.click()
+}
+
+function cancelImport() {
+	importPreview.value = null
+	importPayload.value = ""
+	importFileName.value = ""
+	if (importInput.value) importInput.value.value = ""
+}
+
+// Always previewed before it is applied: an import overwrites cases that share
+// a title, and which ones those are is not something to discover afterwards.
+async function previewImport(event) {
+	const file = event.target.files?.[0]
+	if (!file) return
+	datasetBusy.value = true
+	datasetError.value = ""
+	datasetMessage.value = ""
+	try {
+		const text = await file.text()
+		const res = await frappeRequest({
+			url: "/api/method/one_bpmn.api.golden_dataset.import_dataset",
+			method: "POST",
+			params: { payload: text, suite: suiteName, dry_run: 1 },
+		})
+		importPayload.value = text
+		importFileName.value = file.name
+		importPreview.value = res
+	} catch (e) {
+		cancelImport()
+		datasetError.value = e.messages?.[0] || e.message || "That file could not be read as a dataset."
+	} finally {
+		datasetBusy.value = false
+		if (importInput.value) importInput.value.value = ""
+	}
+}
+
+async function applyImport() {
+	datasetBusy.value = true
+	datasetError.value = ""
+	try {
+		const res = await frappeRequest({
+			url: "/api/method/one_bpmn.api.golden_dataset.import_dataset",
+			method: "POST",
+			params: { payload: importPayload.value, suite: suiteName, dry_run: 0 },
+		})
+		datasetMessage.value =
+			`Imported ${res.created.length} new and overwrote ${res.updated.length} case(s).` +
+			(res.left_alone.length ? ` ${res.left_alone.length} left as they were.` : "")
+		cancelImport()
+		await fetchDetail(true)
+		await loadReadiness()
+	} catch (e) {
+		datasetError.value = e.messages?.[0] || e.message || "Could not import."
+	} finally {
+		datasetBusy.value = false
+	}
+}
+
+async function downloadDataset() {
+	datasetBusy.value = true
+	datasetError.value = ""
+	try {
+		const payload = await frappeRequest({
+			url: "/api/method/one_bpmn.api.golden_dataset.export_dataset",
+			method: "GET",
+			params: datasetSubject.value,
+		})
+		const blob = new Blob([JSON.stringify(payload, null, 1)], { type: "application/json" })
+		const link = document.createElement("a")
+		link.href = URL.createObjectURL(blob)
+		link.download = `${payload.subject}-golden-dataset.json`.replace(/\s+/g, "-").toLowerCase()
+		link.click()
+		URL.revokeObjectURL(link.href)
+		datasetMessage.value = `Exported ${payload.case_count} case(s).`
+	} catch (e) {
+		datasetError.value = e.messages?.[0] || e.message || "Could not export."
+	} finally {
+		datasetBusy.value = false
+	}
+}
+
+const caseProvenance = computed(() => {
+	const from = []
+	if (caseForm.source_feedback) from.push(`feedback ${caseForm.source_feedback}`)
+	if (caseForm.source_security_event) from.push(`security event ${caseForm.source_security_event}`)
+	if (caseForm.source_run) from.push(`run ${caseForm.source_run}`)
+	return from.join(", ")
+})
+
 const caseForm = reactive({
 	name: "", title: "", input_user_prompt: "", expected_output: "", assertions: [],
+	case_type: "Output", target_skill: "", source_feedback: "", source_security_event: "", source_run: "",
+	expected_tool_calls: [], input_context: "",
+})
+const isMemoryCase = computed(() => caseForm.case_type === "Memory")
+const inputContextError = computed(() => {
+	if (!isMemoryCase.value) return ""
+	const text = (caseForm.input_context || "").trim()
+	if (!text) return "Input Context is required for a Memory case."
+	try {
+		const parsed = JSON.parse(text)
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "Input Context must be a JSON object."
+		if (!parsed.scope_key) return "Input Context needs a scope_key: the agent element whose memories to measure."
+		return ""
+	} catch (e) {
+		return "Input Context is not valid JSON."
+	}
 })
 
 const showFromRun = ref(false)
@@ -460,6 +994,9 @@ async function fetchDetail(silent = false) {
 		cases.value = res?.cases || []
 		runs.value = res?.runs || []
 		metrics.value = res?.metrics || {}
+		// Already-open report: a new run makes it stale the moment it lands.
+		if (consistency.value.cases) loadConsistency()
+		loadReadiness()
 	} catch (e) {
 		console.error("Failed to load suite:", e)
 		if (!silent) loadError.value = errorText(e, "Failed to load this suite.")
@@ -498,9 +1035,9 @@ async function fetchAiModels() {
 		const res = await frappeRequest({
 			url: "/api/method/frappe.client.get_list",
 			method: "GET",
-			params: { doctype: "AI Model", fields: JSON.stringify(["name"]), limit_page_length: 0 },
+			params: { doctype: "AI Model", fields: JSON.stringify(["name", "model_name"]), limit_page_length: 0 },
 		})
-		aiModelOptions.value = (res || []).map((m) => ({ label: m.name, value: m.name }))
+		aiModelOptions.value = (res || []).map((m) => ({ label: m.model_name || m.name, value: m.name }))
 	} catch (e) {
 		aiModelOptions.value = []
 	}
@@ -619,7 +1156,7 @@ async function openReassign() {
 		// the endpoint has always supported it. Named for what it does rather
 		// than shown as an empty row, so landing on it is a choice.
 		reassignOptions.value = [
-			{ label: "— none (detach this suite) —", value: "" },
+			{ label: "No agent (detach this suite)", value: "" },
 			...(res || []).map((a) => ({ label: agentLabel(a), value: a.name })),
 		]
 	} catch (e) {
@@ -703,9 +1240,111 @@ async function runCase(c) {
 	}
 }
 
+// ── Runs per case / minimum pass rate ───────────────────────────────────
+const showThresholds = ref(false)
+const savingThresholds = ref(false)
+const thresholdError = ref("")
+const CI_ROLE_OPTIONS = [
+	{ label: "Only when asked", value: "" },
+	{ label: "Smoke", value: "Smoke" },
+	{ label: "Nightly", value: "Nightly" },
+]
+const thresholdForm = reactive({ pass_k: 1, min_pass_rate: 0, gate_deployment: false, ci_role: "" })
+
+// Cases a deterministic pass could not score: everything they assert needs a
+// model. A Smoke suite made only of these reports a green check having
+// verified nothing, which the runner deliberately fails.
+const smokeUncheckableCases = computed(() =>
+	cases.value.filter((c) => {
+		const types = c.assertion_types || []
+		return types.length > 0 && types.every((t) => t === "llm_judge")
+	})
+)
+
+function openThresholds() {
+	thresholdForm.pass_k = suite.value.pass_k || 1
+	thresholdForm.min_pass_rate = suite.value.min_pass_rate || 0
+	thresholdForm.gate_deployment = !!suite.value.gate_deployment
+	thresholdForm.ci_role = suite.value.ci_role || ""
+	thresholdError.value = ""
+	showThresholds.value = true
+}
+async function saveThresholds() {
+	savingThresholds.value = true
+	thresholdError.value = ""
+	try {
+		await frappeRequest({
+			url: "/api/method/one_bpmn.api.eval_api.update_suite_thresholds",
+			method: "POST",
+			params: {
+				suite: suiteName,
+				pass_k: thresholdForm.pass_k,
+				min_pass_rate: thresholdForm.min_pass_rate,
+				gate_deployment: thresholdForm.gate_deployment ? 1 : 0,
+				ci_role: thresholdForm.ci_role || "",
+			},
+		})
+		showThresholds.value = false
+		await fetchDetail()
+	} catch (e) {
+		thresholdError.value = errorText(e, "Could not save.")
+	} finally {
+		savingThresholds.value = false
+	}
+}
+
+// ── Consistency over time ───────────────────────────────────────────────
+const consistency = ref({})
+const loadingConsistency = ref(false)
+// The report exists for the cases that disagree with themselves; a solid case
+// is not news.
+const flakyCases = computed(() =>
+	(consistency.value.cases || []).filter((c) => c.consistency_rate < 100 || c.flips)
+)
+const rateColour = computed(() => {
+	const m = metrics.value?.latest
+	if (!m?.executions) return "text-gray-900"
+	if (suite.value.min_pass_rate && m.pass_rate < suite.value.min_pass_rate) return "text-red-600"
+	return m.pass_rate === 100 ? "text-green-700" : "text-amber-600"
+})
+function round1(n) {
+	return Math.round((Number(n) || 0) * 10) / 10
+}
+async function loadConsistency() {
+	loadingConsistency.value = true
+	try {
+		consistency.value = await frappeRequest({
+			url: "/api/method/one_bpmn.api.eval_api.case_consistency",
+			method: "GET",
+			params: { suite: suiteName },
+		})
+	} catch (e) {
+		console.error("Failed to load the consistency report:", e)
+	} finally {
+		loadingConsistency.value = false
+	}
+}
+
 // ── Case editor (new + edit) ─────────────────────────────────────────────
 function resetCaseForm() {
-	Object.assign(caseForm, { name: "", title: "", input_user_prompt: "", expected_output: "", assertions: [] })
+	Object.assign(caseForm, {
+		name: "", title: "", input_user_prompt: "", expected_output: "",
+		case_type: "Output", target_skill: "", source_feedback: "", source_security_event: "", source_run: "",
+		assertions: [], expected_tool_calls: [], input_context: "",
+	})
+}
+// The grid is only worth showing when something checks it.
+const wantsToolCalls = computed(() =>
+	caseForm.assertions.some((a) => a.assertion_type === "tool_calls")
+)
+function addExpectedCall() {
+	const next = caseForm.expected_tool_calls.length
+		? Math.max(...caseForm.expected_tool_calls.map((e) => Number(e.call_order) || 0)) + 1
+		: 1
+	caseForm.expected_tool_calls.push({ call_order: next, tool_name: "", argument: "", matcher: "equals", expected_value: "" })
+}
+function removeExpectedCall(i) {
+	caseForm.expected_tool_calls.splice(i, 1)
 }
 function addAssertion() {
 	caseForm.assertions.push({ assertion_type: "contains", value: "", judge_provider: "", judge_model: "", pass_threshold: 4 })
@@ -734,10 +1373,21 @@ async function openEditCase(c) {
 			name: res.name, title: res.title,
 			input_user_prompt: res.input_user_prompt || "",
 			expected_output: res.expected_output || "",
+			case_type: res.case_type || "Output",
+			target_skill: res.target_skill || "",
+			source_feedback: res.source_feedback || "",
+			source_security_event: res.source_security_event || "",
+			source_run: res.source_run || "",
+			input_context: res.input_context || "",
 			assertions: (res.assertions || []).map((a) => ({
 				assertion_type: a.assertion_type, value: a.value || "",
 				judge_provider: a.judge_provider || "", judge_model: a.judge_model || "",
 				pass_threshold: a.pass_threshold ?? 4,
+			})),
+			expected_tool_calls: (res.expected_tool_calls || []).map((e) => ({
+				call_order: e.call_order || 1, tool_name: e.tool_name || "",
+				argument: e.argument || "", matcher: e.matcher || "equals",
+				expected_value: e.expected_value || "",
 			})),
 		})
 	} catch (e) {
@@ -748,9 +1398,17 @@ async function saveCase() {
 	savingCase.value = true
 	caseError.value = ""
 	try {
+		if (inputContextError.value) {
+			caseError.value = inputContextError.value
+			savingCase.value = false
+			return
+		}
 		const payload = {
 			title: caseForm.title, input_user_prompt: caseForm.input_user_prompt,
 			expected_output: caseForm.expected_output, assertions: JSON.stringify(caseForm.assertions),
+			case_type: caseForm.case_type, target_skill: caseForm.target_skill,
+			expected_tool_calls: JSON.stringify(caseForm.expected_tool_calls),
+			input_context: isMemoryCase.value ? caseForm.input_context : "",
 		}
 		if (caseMode.value === "edit") {
 			await frappeRequest({ url: "/api/method/one_bpmn.api.eval_api.update_eval_case", method: "POST", params: { name: caseForm.name, ...payload } })
@@ -849,6 +1507,7 @@ onMounted(async () => {
 	await fetchDetail()
 	fetchProviders()
 	fetchAiModels()
+	loadSkills()
 
 	// Arriving with ?case=<name> opens that case straight into the editor.
 	// Converting a complaint in the Feedback queue lands here, and the next

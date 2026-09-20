@@ -19,6 +19,9 @@
 				<Button icon-left="message-square" @click="$router.push('/processa/evals/feedback')">
 					Feedback
 				</Button>
+				<Button icon-left="list" @click="$router.push('/processa/evals/results')">
+					Results
+				</Button>
 				<Button icon-left="plus" @click="openNewSuite">New suite</Button>
 				<Button icon-left="refresh-cw" @click="refreshAll" :loading="loading">Refresh</Button>
 			</div>
@@ -104,7 +107,7 @@
 					</div>
 					<FormControl type="select" label="Eval type" :options="evalTypeOptions" v-model="newSuite.eval_type" />
 					<p class="text-xs text-gray-400">
-						{{ newSuite.eval_type === "Agent" ? "Invokes the full agent through its process map." : "A simple LLM call using the agent's provider, model and system prompt." }}
+						{{ evalTypeHelp[newSuite.eval_type] }}
 					</p>
 					<FormControl type="select" label="Process (optional)" :options="processOptions" v-model="newSuite.process_model" />
 				</div>
@@ -175,9 +178,15 @@ const processOptions = ref([])
 const showNewSuite = ref(false)
 const savingSuite = ref(false)
 const evalTypeOptions = [
-	{ label: "Direct — simple LLM call", value: "Direct" },
-	{ label: "Agent — invoke the process map", value: "Agent" },
+	{ label: "Direct (a simple LLM call)", value: "Direct" },
+	{ label: "Agent (invokes the process map)", value: "Agent" },
+	{ label: "Memory (scores what the agent remembers)", value: "Memory" },
 ]
+const evalTypeHelp = {
+	Direct: "A simple LLM call using the agent's provider, model and system prompt.",
+	Agent: "Invokes the full agent through its process map.",
+	Memory: "No model call. Scores distillation precision and recall, Recall@K and retrieval latency against golden memories.",
+}
 const newSuite = reactive({ title: "", process_model: "", agent_configuration: "", eval_type: "Direct" })
 
 const showReassign = ref(false)

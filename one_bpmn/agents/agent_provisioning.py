@@ -107,12 +107,22 @@ def validate_agent_config(config_name: str, test_provider: bool = True, require_
 		)
 	elif not frappe.db.exists("AI Provider", cfg.ai_provider):
 		errors.append(_("The linked AI Provider does not exist."))
-	elif cfg.get("ai_model") and not frappe.db.get_value(
-		"AI Model", cfg.get("ai_model"), "enable_model"
-	):
+	elif cfg.get("ai_model"):
 		# A provider is a name now and cannot be switched off. enable_model is
 		# the only switch left, and it is the one that carries the connection.
-		errors.append(_("The linked AI Model is disabled."))
+		#
+		# Existence is asked separately because get_value answers None both for
+		# a model that is absent and for one that is merely off, and calling a
+		# missing record "disabled" sends someone hunting for a switch on a
+		# record their site does not have.
+		if not frappe.db.exists("AI Model", cfg.get("ai_model")):
+			errors.append(_("AI Model {0} does not exist on this site.").format(cfg.get("ai_model")))
+		elif not frappe.db.get_value("AI Model", cfg.get("ai_model"), "enable_model"):
+			errors.append(
+				_("AI Model {0} is disabled — add its API key and tick Enable Model.").format(
+					cfg.get("ai_model")
+				)
+			)
 
 	# 4. Chat-type essentials — a label, unless the agent is mapped to a
 	# non-chat process map (WI-001997: a process-embedded agent never appears
@@ -122,10 +132,26 @@ def validate_agent_config(config_name: str, test_provider: bool = True, require_
 			errors.append(_("Chat agents need a chat mode label."))
 
 	# 5. Live provider test call
+	#
+	# Skipped when the platform already knows this model's credentials are
+	# broken (WI-002191 marks it, alerts once, and refuses runs on it). Calling
+	# anyway proved nothing and made every save of an affected agent park it:
+	# on prod-backup on 2026-09-13, saving ProsAlly onto a model whose OpenAI
+	# key is rejected parked it twice, the second time while the agent was being
+	# put back the way it was found. The model's own record is where that
+	# failure is reported and fixed.
 	if test_provider and cfg.ai_provider and not errors:
-		ok, detail = _provider_test_call(cfg)
-		if not ok:
-			errors.append(_("Provider test call failed: {0}").format(detail))
+		from one_bpmn.agents import model_health
+
+		blocked = model_health.blocked_reason(cfg.get("ai_model"))
+		if blocked:
+			warnings.append(_("Provider test call skipped: {0}").format(blocked))
+		else:
+			ok, detail = _provider_test_call(cfg)
+			if not ok:
+				errors.append(_("Provider test call failed: {0}").format(detail))
+			elif detail in (_TEST_CALL_TRUNCATED, _TEST_CALL_EMPTY):
+				warnings.append(_("Provider test call: {0}").format(detail))
 
 	return {"ok": not errors, "errors": errors, "warnings": warnings}
 
@@ -377,19 +403,77 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 	return suite.name
 
 
+# Room for a model that answers "ping" with a sentence. The Anthropic adapter
+# raises when a reply stops at the token ceiling, and at 16 tokens Claude
+# Sonnet 5 stopped there on every save of a Live agent on staging (2026-09-08),
+# parking the AI Agent Assistant with "hit its 16-token output limit". The test
+# proves the credentials and the model, not the model's brevity.
+_TEST_CALL_MAX_TOKENS = 64
+# Two ways the call passes without the provider's own words to show for it.
+# The caller turns either into a warning on the save, so a pass that is worth
+# a second look does not look identical to a clean one.
+_TEST_CALL_TRUNCATED = "provider answered; the reply ran past the test's token ceiling"
+_TEST_CALL_EMPTY = "provider answered with an empty reply; the key and the model are fine"
+
+
 def _provider_test_call(cfg) -> tuple[bool, str]:
-	"""Make a minimal live call through the agent's resolved adapter."""
+	"""Make a minimal live call through the agent's resolved adapter.
+
+	Passes when the provider answered at all. A reply cut off at the output
+	ceiling still means the key was accepted and the model exists, which is the
+	whole question here — so truncation counts as a pass, with a note.
+	"""
 	try:
 		from one_bpmn.agents.executor.direct_api import _run_coro_blocking
 		from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
+		from one_bpmn.agents.llm_provider.base import LLMTruncatedError
 		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 
+		# Say which record is empty. Without this the provider SDK answers for
+		# us, and what the person saving an agent read was "Could not resolve
+		# authentication method. Expected one of api_key, auth_token, or
+		# credentials to be set." The dispatch path has carried this guard since
+		# WI-002134; this path did not.
+		from frappe.utils.password import get_decrypted_password
+
+		# getattr, not cfg.get: this is a Document on the save path and a plain
+		# object in the tests, and only one of those has .get.
+		model = getattr(cfg, "ai_model", None) or ""
+		if model:
+			try:
+				key = get_decrypted_password("AI Model", model, "api_key", raise_exception=False)
+			except Exception:
+				key = None
+			if not key:
+				return (False, _("AI Model '{0}' has no API key set.").format(model))
+
 		adapter = get_llm_adapter_from_settings(get_agent_config(cfg.agent_id))
-		completion = _run_coro_blocking(
-			adapter.complete(system="Reply with the single word: OK.", user="ping", max_tokens=16)
-		)
-		text = getattr(completion, "text", str(completion or ""))
-		return (bool(text and text.strip()), text.strip()[:80] or "empty response")
+
+		def ask() -> str:
+			completion = _run_coro_blocking(
+				adapter.complete(
+					system="Reply with the single word: OK.", user="ping", max_tokens=_TEST_CALL_MAX_TOKENS
+				)
+			)
+			return (getattr(completion, "text", str(completion or "")) or "").strip()
+
+		try:
+			text = ask()
+			if not text:
+				# Providers return an empty body now and then, and a second ask
+				# usually gets words. Worth one retry: this call decides whether
+				# an agent may go Live.
+				text = ask()
+		except LLMTruncatedError:
+			return (True, _TEST_CALL_TRUNCATED)
+		if not text:
+			# An empty reply is not a broken credential. The key was accepted,
+			# the model exists, and the request came back: a rejected key raises
+			# instead, and lands in the except below. Failing here parked Lumina
+			# General Chat on staging on 2026-09-12 with "empty response", which
+			# reads like something is wrong with the model and is not.
+			return (True, _TEST_CALL_EMPTY)
+		return (True, text[:80])
 	except Exception as exc:
 		return (False, str(exc)[:200])
 

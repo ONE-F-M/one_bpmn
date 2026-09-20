@@ -11,6 +11,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime
 
+from SpiffWorkflow.bpmn.specs.mixins.multiinstance_task import MultiInstanceTask
 from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
 from SpiffWorkflow.util.task import TaskState
 
@@ -1732,6 +1733,19 @@ class BPMNProcessInstance(Document):
 				for t in wf.get_tasks(state=TaskState.STARTED)
 				if not getattr(t.task_spec, "manual", False)
 				and not isinstance(t.task_spec, SubWorkflowTask)
+				# A Multi-Instance parent (Service/Script Task wrapped in
+				# bpmn:multiInstanceLoopCharacteristics) also sits in STARTED
+				# while its per-iteration children run — same shape as a
+				# Sub-Process container above. It is not itself a dispatchable
+				# unit: dispatching it directly would run e.g. a connector call
+				# against the parent's own task data, colliding with the
+				# resultVariable/outputDataItem key its children use (raises
+				# SpiffWorkflow's "Multiinstance output item ... already
+				# exists" on the next iteration). Its children carry the real,
+				# un-wrapped task spec and dispatch normally; SpiffWorkflow's
+				# own merge_child chains the next child forward with no help
+				# needed from this loop.
+				and not isinstance(t.task_spec, MultiInstanceTask)
 				and not self._task_waiting_human(t)
 				and not self._task_waiting_a2a(t)
 				and not self._task_waiting_agent_sandbox(t)

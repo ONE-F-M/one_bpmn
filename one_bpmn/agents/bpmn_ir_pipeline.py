@@ -254,6 +254,16 @@ def compile_ir(ir: dict) -> dict:
     def fail(message):
         return {"ok": False, "xml": "", "topology": topo, "problems": [{"kind": "fatal", "message": message}]}
 
+    # Task configuration is resolved before the subprocess: the compiler writes
+    # the attributes verbatim, so what counts as a real setting is decided in
+    # Python where it can be checked against this site's own workflows.
+    try:
+        from one_bpmn.agents.bpmn_task_config import resolve_ir_config
+
+        config_problems = resolve_ir_config(ir)
+    except Exception:  # noqa: BLE001 — configuration must never block compilation
+        config_problems = []
+
     node = _find_node()
     if not node:
         return fail("node not found in PATH")
@@ -276,6 +286,7 @@ def compile_ir(ir: dict) -> dict:
 
     out["topology"] = topo
     out.setdefault("problems", [])
+    out["problems"].extend(config_problems)
     if topo.get("planar") is False:
         names = {n.get("id"): n.get("name") or n.get("id") for n in (ir or {}).get("nodes") or [] if n.get("id")}
         out["problems"].append(_topology_problem(topo, names))

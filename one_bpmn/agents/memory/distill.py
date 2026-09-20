@@ -24,6 +24,16 @@ from difflib import SequenceMatcher
 import frappe
 
 _MAX_FACTS = 5
+_DEFAULT_IMPORTANCE = 3
+
+
+class DistillationFailed(Exception):
+	"""The call did not work, as opposed to producing nothing worth keeping.
+
+	Only raised when the caller asks for it (``raise_on_failure``). Without this
+	the two outcomes were the same empty list, so a broken model looked exactly
+	like a quiet conversation and nothing was ever retried.
+	"""
 _MAX_CONTENT_LEN = 1000
 # Bound the input we hand the curator so a huge reply can't blow up the call.
 _MAX_INPUT_LEN = 6000
@@ -61,8 +71,10 @@ _DISTILL_SCHEMA = json.dumps(
 					"properties": {
 						"content": {"type": "string"},
 						"topic": {"type": "string"},
+						"importance": {"type": "integer", "minimum": 1, "maximum": 5},
+						"source_type": {"type": "string", "enum": ["User Statement", "Agent Inference", "Tool Output"]},
 					},
-					"required": ["content", "topic"],
+					"required": ["content", "topic", "importance", "source_type"],
 				},
 			},
 		},
@@ -88,8 +100,15 @@ Do NOT store (return nothing for) any of the following:
   or recalled memory context shown below — that is the agent being told
   something, not the agent learning something
 
-For each qualifying fact give a short lowercase "topic" (2-4 words) and concise
-"content" (one or two generalized sentences — no instance-specific IDs or names).
+For each qualifying fact give a short lowercase "topic" (2-4 words), concise
+"content" (one or two generalized sentences — no instance-specific IDs or names),
+and an "importance" from 1 to 5: 5 for a rule that changes what the agent must
+do on most future runs (a hard constraint, a standing instruction from the
+user), 3 for a useful preference or pattern, 1 for a minor detail that rarely
+matters. Most facts are 2 or 3.
+Give each fact a "source_type": "User Statement" when the fact is something the
+user said, asked for or decided; "Tool Output" when it is read off data a tool
+or system returned; otherwise "Agent Inference" (the agent's own conclusion).
 If nothing qualifies, return {{"memories": []}}. Prefer returning nothing over
 storing noise."""
 
@@ -163,6 +182,19 @@ def _is_echo(content: str, exclude_context: str) -> bool:
 	return False
 
 
+def _source_type(value) -> str:
+	"""One of the three source types; anything else is an agent inference."""
+	return value if value in ("User Statement", "Agent Inference", "Tool Output") else "Agent Inference"
+
+
+def _importance(value) -> int:
+	"""Clamp the curator's importance to 1..5; anything unusable is the default."""
+	try:
+		return min(5, max(1, int(value)))
+	except (TypeError, ValueError):
+		return _DEFAULT_IMPORTANCE
+
+
 def _coerce_memories(output) -> list:
 	"""The executor returns a parsed dict for response_format='json', but tolerate
 	a raw JSON string too. Anything else yields no memories."""
@@ -190,10 +222,11 @@ def distill_memories(
 	model: str | None = None,
 	conversation=None,
 	exclude_context: str | None = None,
+	raise_on_failure: bool = False,
 ) -> list[dict]:
 	"""Extract 0..N durable facts from one interaction.
 
-	Returns a list of ``{content, topic, dedup_key}``; ``[]`` when nothing is
+	Returns a list of ``{content, topic, dedup_key, importance, source_type}``; ``[]`` when nothing is
 	worth remembering. Never raises — any failure yields ``[]`` so the caller
 	(dispatcher / background job) is never blocked.
 
@@ -208,6 +241,12 @@ def distill_memories(
 	prompt instruction alone left confirmed echo rows in the store (see
 	cleanup_ai_memory_store.py). Passing nothing here (the previous behaviour)
 	just skips both checks.
+
+	``raise_on_failure`` exists because "nothing was worth remembering" and "the
+	call did not work" both came back as ``[]``, so a caller could not tell a
+	quiet turn from a broken model and had nothing to retry. Left ``False`` the
+	contract is unchanged and this never raises. The writeback passes ``True``
+	so it can retry, and record what it gave up on.
 	"""
 	text = agent_output if isinstance(agent_output, str) else str(agent_output or "")
 	if not text.strip():
@@ -217,6 +256,8 @@ def distill_memories(
 	# resolved (the task's aiModel or an explicit aiMemoryDistillModel). Without
 	# one there is nothing valid to call, so skip — visibly.
 	if not model:
+		if raise_on_failure:
+			raise DistillationFailed("no model configured; pass the task's aiModel or set aiMemoryDistillModel")
 		frappe.log_error(
 			title="AI Memory: distillation skipped (no model configured)",
 			message=f"agent={agent} scope={scope} — pass the task's aiModel or set aiMemoryDistillModel.",
@@ -250,9 +291,19 @@ def distill_memories(
 		)
 		result = get_executor(config.backend)().run(config, ExecutorContext())
 		if result.error_code != ErrorCode.SUCCESS:
+			if raise_on_failure:
+				# .value, not the enum: this string is the Error field on an AI
+				# Memory Dead Letter, which somebody reads. On prod-backup it
+				# read "the model returned ErrorCode.PROVIDER_DISABLED".
+				code = getattr(result.error_code, "value", result.error_code)
+				raise DistillationFailed(f"the model returned {code}: {getattr(result, 'error_message', '')}")
 			return []
 		raw = _coerce_memories(result.output)
+	except DistillationFailed:
+		raise
 	except Exception:
+		if raise_on_failure:
+			raise
 		frappe.log_error(title="AI Memory: distillation failed", message=frappe.get_traceback())
 		return []
 
@@ -275,5 +326,13 @@ def distill_memories(
 		if dedup_key in seen:
 			continue
 		seen.add(dedup_key)
-		facts.append({"content": content, "topic": topic, "dedup_key": dedup_key})
+		facts.append(
+			{
+				"content": content,
+				"topic": topic,
+				"dedup_key": dedup_key,
+				"importance": _importance(m.get("importance")),
+				"source_type": _source_type(m.get("source_type")),
+			}
+		)
 	return facts

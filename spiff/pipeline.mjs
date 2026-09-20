@@ -33,6 +33,8 @@ import { auditGeometry, boxesHit, segHitsBox } from './src/linting/geometry.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
+const SPIFF_NS = 'http://spiffworkflow.org/bpmn/schema/1.0/core';
+
 const GATEWAY_TYPES = new Set([
   'exclusiveGateway', 'parallelGateway', 'inclusiveGateway',
 ]);
@@ -360,6 +362,10 @@ async function compileIRtoBpmn(ir) {
   const flowElements = [];
   const elementById  = new Map();
 
+  // Set when any node carries configuration, so the namespace is declared only
+  // on diagrams that actually use it.
+  let usesSpiffNS = false;
+
   // 1. Semantic nodes
   // Do NOT pass incoming/outgoing arrays — bpmn-moddle auto-wires them through the
   // sourceRef/targetRef inverse associations when it processes the Process flowElements.
@@ -367,6 +373,15 @@ async function compileIRtoBpmn(ir) {
   for (const n of ir.nodes) {
     const bpmnType = BPMN_TYPE_MAP[n.type] || 'bpmn:ScriptTask';
     const el = moddle.create(bpmnType, { id: n.id, name: n.name });
+    // Task configuration, already resolved to final attribute names by
+    // bpmn_task_config.py. Written through $attrs because the spiffworkflow
+    // descriptor declares none of them — the same way the editor stores them.
+    for (const [key, value] of Object.entries(n.attrs || {})) {
+      if (value !== undefined && value !== null && value !== '') {
+        el.$attrs[`spiffworkflow:${key}`] = String(value);
+        usesSpiffNS = true;
+      }
+    }
     elementById.set(n.id, el);
     flowElements.push(el);
   }
@@ -446,6 +461,10 @@ async function compileIRtoBpmn(ir) {
     exporterVersion: '1.0',
     rootElements,
   });
+
+  if (usesSpiffNS) {
+    definitions.$attrs['xmlns:spiffworkflow'] = SPIFF_NS;
+  }
 
   const { xml } = await moddle.toXML(definitions, { format: true });
   return xml;

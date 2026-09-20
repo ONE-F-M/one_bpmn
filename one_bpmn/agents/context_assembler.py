@@ -170,12 +170,20 @@ def build_static_context_from_config(config: dict, system_prompt: str = None) ->
 	``config`` is what ``get_agent_config`` returns. ``system_prompt`` overrides
 	the config's own Instructions — the dispatcher passes the Jinja-rendered
 	shape prompt, which is the value that actually runs.
+
+	Every path that sends a system prompt goes through here or through
+	``build_static_context`` itself. That is the whole point: guard rails that
+	depend on which code path happened to run are not guard rails.
 	"""
 	config = config or {}
 	return build_static_context(
 		system_prompt=config.get("system_prompt", "") if system_prompt is None else system_prompt,
 		examples=config.get("examples"),
 		guardrails=config.get("guardrails"),
+		# The skills index was the one section this wrapper dropped, so a path
+		# going through it advertised none of the agent's skills while the two
+		# calling build_static_context directly advertised all of them.
+		skills=config.get("enabled_skills"),
 	)
 
 

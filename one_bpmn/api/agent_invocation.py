@@ -347,6 +347,17 @@ def invoke_agent(
 		count=(config.get("agent_type") != "Chat"),
 	)
 
+	# ── Broken credentials (WI-002191) ───────────────────────────────────
+	# A model the platform already knows cannot answer is refused before the
+	# turn starts: no Chat Message, no process instance, no failed run. The
+	# reason is an AgentRefusal, so the chat surface shows it as a message
+	# rather than "something went wrong".
+	from one_bpmn.agents import model_health as _model_health
+
+	_unavailable = _model_health.refuse_new_run(config.get("ai_model"), commit=True)
+	if _unavailable:
+		raise _model_health.ModelUnavailable(_unavailable)
+
 	# ── PII input screening (WI-001644) ──────────────────────────────────
 	# Every agent invocation passes through here, so this is the one place
 	# that can guarantee no user-supplied PII reaches a third-party model.
@@ -538,18 +549,123 @@ def _run_adk_stage_agent(config, conversation, message, context, stream=False):
 
 def _run_direct_api(config, conversation, message, context, stream=False):
 	"""Single-shot / general chat. Persists the turn and calls the adapter's
-	own (async) tool-calling loop for one exchange."""
+	own (async) tool-calling loop for one exchange.
+
+	The system prompt is composed the same way as on the two process paths.
+	This used to send ``config["system_prompt"]`` on its own, which quietly
+	dropped the agent's examples, its skills index and its guard rails: an
+	agent that refused something inside a process map would do it in a chat,
+	and the difference was invisible from the configuration.
+
+	The turn is recorded as an AI Agent Run, like every turn on the two process
+	paths. It used to be recorded nowhere: no run, so no prompt hash, no
+	snapshot, no tokens, no cost and no steps. Every Direct API agent on a site
+	was invisible to Insights, and this path's own guard rails could not be
+	read back off a run.
+	"""
+	from one_bpmn.agents import observability
+	from one_bpmn.agents.context_assembler import build_static_context_from_config
+	from one_bpmn.agents.executor import ExecutorResult, TokenUsage
 	from one_bpmn.agents.executor.direct_api import _run_coro_blocking
 	from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
 	from one_bpmn.utils.chat_persistence import save_bot_message, save_user_message
 
 	save_user_message(conversation, message)
 	adapter = get_llm_adapter_from_settings(config)
-	system_prompt = config.get("system_prompt") or ""
-	completion = _run_coro_blocking(adapter.complete(system=system_prompt, user=message))
+	system_prompt = build_static_context_from_config(config)
+
+	run = _begin_direct_run(config, system_prompt, message)
+	try:
+		completion = _run_coro_blocking(adapter.complete(system=system_prompt, user=message))
+	except Exception as exc:
+		try:
+			observability.finalize_ai_run_on_exception(run, exc)
+		except Exception:
+			frappe.log_error(title="AI chat: run not finalized", message=frappe.get_traceback())
+		raise
+
 	text = getattr(completion, "text", str(completion or ""))
+	# The adapter hands back TurnRecord dataclasses; every recorder downstream
+	# reads dicts, which is why the executor converts before it records
+	# (direct_api.py: `trace = [asdict(turn) for turn in completion.trace]`).
+	# Passing the raw objects cost a run on staging: record_selector_turns
+	# raised AttributeError on turn.get, and the run sat at Running with no
+	# tokens because finalizing came after it in the same try.
+	trace = _as_dicts(getattr(completion, "trace", None) or [])
+	prompt_tokens = getattr(completion, "prompt_tokens", 0) or 0
+	completion_tokens = getattr(completion, "completion_tokens", 0) or 0
+
+	# Two guards, not one. Recording the turns is the nice-to-have; finalizing
+	# is what stops a finished run being reported as still running.
+	try:
+		observability.record_selector_turns(run, trace)
+	except Exception:
+		frappe.log_error(title="AI chat: turns not recorded", message=frappe.get_traceback())
+	try:
+		observability.finalize_ai_run(
+			run,
+			ExecutorResult(
+				output=text,
+				trace=trace,
+				token_usage=TokenUsage(
+					prompt_tokens=prompt_tokens,
+					completion_tokens=completion_tokens,
+					total_tokens=prompt_tokens + completion_tokens,
+					cache_read_tokens=getattr(completion, "cache_read_tokens", 0) or 0,
+					cache_write_tokens=getattr(completion, "cache_write_tokens", 0) or 0,
+				),
+			),
+		)
+	except Exception:
+		frappe.log_error(title="AI chat: run not finalized", message=frappe.get_traceback())
+
 	save_bot_message(conversation, text)
 	return {"response": text}
+
+
+def _as_dicts(trace: list) -> list:
+	"""Turn a trace of TurnRecord dataclasses into the dicts the recorders read."""
+	from dataclasses import asdict, is_dataclass
+
+	return [asdict(turn) if is_dataclass(turn) else turn for turn in trace]
+
+
+def _begin_direct_run(config: dict, system_prompt: str, message: str):
+	"""Open the AI Agent Run for a direct chat turn, with its two prompt steps.
+
+	Returns the run, or a stub when recording fails: observability treats a stub
+	as "do not record", so every later call is a no-op and the turn carries on.
+	A chat answer is worth more than its bookkeeping.
+
+	There is no BPMN instance on this path, so the run carries none, and
+	``bpmn_id`` is the agent's id — the only element identity a reader has here.
+	"""
+	from types import SimpleNamespace
+
+	from one_bpmn.agents import observability
+	from one_bpmn.agents.executor import ExecutorConfig
+
+	try:
+		run = observability.create_ai_run(
+			SimpleNamespace(name="", process_model=""),
+			bpmn_id=config.get("agent_id") or "direct_api",
+			element_type="task",
+			config=ExecutorConfig(
+				backend="direct_api",
+				provider_name=config.get("ai_provider") or "",
+				agent_config_name=config.get("name") or "",
+				model=config.get("ai_model") or "",
+				system_prompt=system_prompt,
+				user_prompt=message,
+			),
+			bpmn_label=config.get("chat_mode_label") or config.get("agent_id") or "",
+		)
+		observability.record_ai_step(run, 1, "system", system_prompt)
+		observability.record_ai_step(run, 2, "user", message)
+		return run
+	except Exception:
+		frappe.log_error(title="AI chat: run not recorded", message=frappe.get_traceback())
+		return SimpleNamespace(stub=True)
 
 
 _RUNNERS = {

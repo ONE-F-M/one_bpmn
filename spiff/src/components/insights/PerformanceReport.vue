@@ -159,6 +159,7 @@
 												<th class="text-right text-xs uppercase text-gray-500 font-medium py-1.5 px-2">Duration</th>
 												<th class="text-right text-xs uppercase text-gray-500 font-medium py-1.5 px-2">Tokens</th>
 												<th class="text-right text-xs uppercase text-gray-500 font-medium py-1.5 px-2">Cost</th>
+												<th class="text-right text-xs uppercase text-gray-500 font-medium py-1.5 px-2">Sub-runs</th>
 												<th class="text-left text-xs uppercase text-gray-500 font-medium py-1.5 px-2">Started</th>
 											</tr>
 										</thead>
@@ -179,36 +180,21 @@
 														<Badge :theme="run.status === 'Success' ? 'green' : 'red'" size="sm">{{ run.status }}</Badge>
 													</td>
 													<td class="py-2 px-2 text-xs text-gray-600 text-right">{{ fmtNum(run.duration_ms) }}ms</td>
-													<td class="py-2 px-2 text-xs text-gray-600 text-right">{{ fmtNum(run.total_tokens) }}</td>
-													<td class="py-2 px-2 text-xs text-gray-600 text-right">${{ (run.estimated_cost ?? 0).toFixed(4) }}</td>
+													<!-- WI-002190: the turn's total, sub-runs included; the run's own figure on hover -->
+													<td class="py-2 px-2 text-xs text-gray-600 text-right" :title="run.child_runs ? `this run alone: ${fmtNum(run.total_tokens)}` : ''">
+														{{ fmtNum(run.tree_total_tokens ?? run.total_tokens) }}
+													</td>
+													<td class="py-2 px-2 text-xs text-gray-600 text-right" :title="run.child_runs ? `this run alone: $${(run.estimated_cost ?? 0).toFixed(4)}` : ''">
+														${{ (run.tree_estimated_cost ?? run.estimated_cost ?? 0).toFixed(4) }}
+													</td>
+													<td class="py-2 px-2 text-xs text-gray-600 text-right">{{ run.child_runs || "—" }}</td>
 													<td class="py-2 px-2 text-xs text-gray-500">{{ formatDate(run.started_at) }}</td>
 												</tr>
 
-												<!-- Steps detail -->
-												<tr v-if="expandedStepRun === ri && steps.length > 0">
-													<td colspan="7" class="bg-white p-3">
-														<table class="w-full">
-															<thead>
-																<tr class="border-b border-gray-200">
-																	<th class="text-left text-xs text-gray-400 font-medium py-1 px-2">Step</th>
-																	<th class="text-left text-xs text-gray-400 font-medium py-1 px-2">Role</th>
-																	<th class="text-left text-xs text-gray-400 font-medium py-1 px-2">Tool</th>
-																	<th class="text-right text-xs text-gray-400 font-medium py-1 px-2">Latency</th>
-																	<th class="text-right text-xs text-gray-400 font-medium py-1 px-2">Tokens</th>
-																	<th class="text-right text-xs text-gray-400 font-medium py-1 px-2">Cost</th>
-																</tr>
-															</thead>
-															<tbody>
-																<tr v-for="step in steps" :key="step.step_index" class="border-b border-gray-50">
-																	<td class="py-1.5 px-2 text-xs text-gray-500">{{ step.step_index }}</td>
-																	<td class="py-1.5 px-2 text-xs text-gray-600">{{ step.role }}</td>
-																	<td class="py-1.5 px-2 text-xs text-gray-600 font-mono">{{ step.tool_name || "—" }}</td>
-																	<td class="py-1.5 px-2 text-xs text-gray-600 text-right">{{ fmtNum(step.latency_ms) }}ms</td>
-																	<td class="py-1.5 px-2 text-xs text-gray-600 text-right">{{ fmtNum((step.prompt_tokens ?? 0) + (step.completion_tokens ?? 0)) }}</td>
-																	<td class="py-1.5 px-2 text-xs text-gray-600 text-right">${{ (step.cost ?? 0).toFixed(4) }}</td>
-																</tr>
-															</tbody>
-														</table>
+												<!-- Steps detail: the run as a tree (WI-002190) -->
+												<tr v-if="expandedStepRun === ri && tree">
+													<td colspan="8" class="bg-white p-3">
+														<RunTree :node="tree" />
 													</td>
 												</tr>
 											</template>
@@ -229,6 +215,7 @@ import { ref, computed, watch, onMounted } from "vue"
 import { frappeRequest, FormControl, Badge } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
+import RunTree from "@/components/insights/RunTree.vue"
 
 const props = defineProps({
 	fromDate: String,
@@ -250,7 +237,7 @@ const recentRuns = ref([])
 const recentRunsLoading = ref(false)
 
 const expandedStepRun = ref(null)
-const steps = ref([])
+const tree = ref(null)
 
 const numFormatter = new Intl.NumberFormat("en-US")
 function fmtNum(val) { return numFormatter.format(val ?? 0) }
@@ -290,31 +277,30 @@ async function toggleExpand(idx) {
 		expandedRow.value = null
 		recentRuns.value = []
 		expandedStepRun.value = null
-		steps.value = []
+		tree.value = null
 		return
 	}
 
 	expandedRow.value = idx
 	expandedStepRun.value = null
-	steps.value = []
+	tree.value = null
 	const row = reportData.value.rows[idx]
 
 	recentRunsLoading.value = true
 	try {
-		const filters = { status: "Success" }
-		if (row.model) filters.model = row.model
-		if (row.bpmn_id) filters.bpmn_id = row.bpmn_id
+		// WI-002190: top-level runs only, each with its sub-runs rolled up.
+		// The "model" column holds the agent name when grouped by agent.
+		const params = { status: "Success", limit: 10 }
+		if (row.model) {
+			if (groupBy.value === "agent") params.agent_configuration = row.model
+			else params.model = row.model
+		}
+		if (row.bpmn_id) params.bpmn_id = row.bpmn_id
 
 		const response = await frappeRequest({
-			url: "/api/method/frappe.client.get_list",
+			url: "/api/method/one_bpmn.api.insights_api.get_recent_runs",
 			method: "POST",
-			params: {
-				doctype: "AI Agent Run",
-				filters: JSON.stringify(filters),
-				fields: JSON.stringify(["name", "status", "duration_ms", "total_tokens", "estimated_cost", "started_at"]),
-				order_by: "started_at desc",
-				limit_page_length: 10,
-			},
+			params,
 		})
 		recentRuns.value = response || []
 	} catch (error) {
@@ -328,21 +314,22 @@ async function toggleExpand(idx) {
 async function toggleSteps(ri, runName) {
 	if (expandedStepRun.value === ri) {
 		expandedStepRun.value = null
-		steps.value = []
+		tree.value = null
 		return
 	}
 
 	expandedStepRun.value = ri
+	tree.value = null
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.insights_api.get_run_steps",
+			url: "/api/method/one_bpmn.api.insights_api.get_run_tree",
 			method: "POST",
 			params: { run_name: runName },
 		})
-		steps.value = response || []
+		tree.value = response || null
 	} catch (error) {
-		console.error("Failed to fetch run steps:", error)
-		steps.value = []
+		console.error("Failed to fetch run tree:", error)
+		tree.value = null
 	}
 }
 

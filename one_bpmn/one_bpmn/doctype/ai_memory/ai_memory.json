@@ -11,13 +11,19 @@
   "process_model",
   "reference_doctype",
   "reference_name",
+  "user",
   "section_break_content",
   "content",
+  "importance",
   "dedup_key",
   "metadata",
   "user_directed",
   "section_break_provenance",
   "source_run",
+  "source_type",
+  "confidence",
+  "corroboration_count",
+  "last_corroborated",
   "expires_on"
  ],
  "fields": [
@@ -68,6 +74,15 @@
    "description": "The specific business document this memory is about. Required for Entity scope."
   },
   {
+   "description": "Set when the memory belongs to one person. Recall for that person returns their own memories plus the shared ones (no user); nobody else ever sees them. Empty means shared within the scope.",
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "User",
+   "options": "User"
+  },
+  {
    "fieldname": "section_break_content",
    "fieldtype": "Section Break",
    "label": "Memory"
@@ -80,6 +95,14 @@
    "label": "Content",
    "reqd": 1,
    "description": "The memory text — the single source of truth for v1 keyword search. ignore_xss_filter is required here: without it, Frappe's core save-time sanitizer (Document._sanitize_content, bleach-based) treats any '<...>'-shaped substring as an unrecognized HTML tag and HTML-escapes it (observed live: a '<PROJECT>-<YEAR>-<SEQ>' naming convention was stored as '&lt;PROJECT&gt;-...' verbatim) — this field holds arbitrary plain text, not markup, and must round-trip unchanged."
+  },
+  {
+   "default": "3",
+   "description": "How much this fact matters when it competes for recall, 1 (minor) to 5 (critical). Set by the distiller; a higher value lifts the memory in ranking.",
+   "fieldname": "importance",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Importance"
   },
   {
    "fieldname": "dedup_key",
@@ -117,6 +140,37 @@
    "description": "The AI Agent Run that wrote this memory, when written by an agent."
   },
   {
+   "default": "Agent Inference",
+   "description": "Where the fact came from. A User Statement is something a person said or asked for; an Agent Inference is the agent's own conclusion; a Tool Output is read off data a tool returned. The trust hierarchy on Processa Settings decides which wins a contradiction.",
+   "fieldname": "source_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Source Type",
+   "options": "User Statement\nAgent Inference\nTool Output"
+  },
+  {
+   "default": "0.6",
+   "description": "How sure the store is of this fact, 0 to 1. Starts from the source type, rises when a later fact corroborates it, and decays with age when compared.",
+   "fieldname": "confidence",
+   "fieldtype": "Float",
+   "label": "Confidence",
+   "precision": "2"
+  },
+  {
+   "default": "0",
+   "fieldname": "corroboration_count",
+   "fieldtype": "Int",
+   "label": "Corroboration Count",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_corroborated",
+   "fieldtype": "Datetime",
+   "label": "Last Corroborated",
+   "read_only": 1
+  },
+  {
    "fieldname": "expires_on",
    "fieldtype": "Datetime",
    "label": "Expires On",
@@ -129,7 +183,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-09-07 00:00:00.000000",
+ "modified": "2026-09-11 23:30:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Memory",
@@ -153,6 +207,12 @@
    "read": 1,
    "report": 1,
    "role": "Process Designer"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "write": 1
   }
  ],
  "sort_field": "modified",

@@ -44,10 +44,28 @@
   "default_memory_reconcile_model",
   "default_compaction_model",
   "default_context_token_budget",
+  "memory_embedding_model",
+  "memory_semantic_weight",
+  "memory_recency_weight",
+  "memory_importance_weight",
+  "memory_retrieval_budget_ms",
+  "memory_trust_hierarchy",
+  "memory_prune_min_confidence",
+  "memory_prune_uncorroborated_days",
+  "memory_prune_low_importance_days",
+  "memory_scope_row_alert",
+  "memory_total_row_alert",
   "section_break_conversation_retention",
   "conversation_ttl_days",
   "column_break_conversation_retention",
   "archive_action",
+  "section_break_ai_health",
+  "ai_health_alert_recipients",
+  "section_break_nightly_evals",
+  "eval_alert_recipients",
+  "nightly_eval_grading_model",
+  "column_break_nightly_evals",
+  "nightly_eval_spend_cap",
   "llm_defaults_tab",
   "default_llm_provider",
   "openai_search_context",
@@ -79,7 +97,8 @@
   "copilot_settings_section",
   "copilot_metrics_pat",
   "copilot_org_name",
-  "copilot_enterprise_slug"
+  "copilot_enterprise_slug",
+  "eval_concurrency"
  ],
  "fields": [
   {
@@ -169,21 +188,21 @@
    "label": "GitHub Integration"
   },
   {
-   "description": "Personal (or fine-grained) access token able to push branches and open pull requests. Used by \"Review Doctypes\" \u2192 \"Sync\" to raise a PR with the DocType schema changes, and by the Agent Sandbox when an agent opens a pull request. Needed on any instance that does either, production included \u2014 it does not depend on \"Connect to Production\".",
+   "description": "Personal (or fine-grained) access token able to push branches and open pull requests. Used by \"Review Doctypes\" → \"Sync\" to raise a PR with the DocType schema changes, and by the Agent Sandbox when an agent opens a pull request. Needed on any instance that does either, production included — it does not depend on \"Connect to Production\".",
    "fieldname": "github_token",
    "fieldtype": "Password",
    "label": "GitHub Access Token"
   },
   {
    "default": "one_fm",
-   "description": "App whose source carries customizations made to <i>other</i> apps' DocTypes. A Custom Field on Employee belongs to this app, not to erpnext \u2014 so \"Sync\" writes it here, following this app's own convention (a data module under <code>custom/custom_field/</code> plus <code>custom/property_setter/</code>, registered in <code>setup/</code>, applied by a patch). A DocType owned by an app that is itself a ONE-F-M repo is written to that app instead. Leave blank to fall back to the DocType's owning app.",
+   "description": "App whose source carries customizations made to <i>other</i> apps' DocTypes. A Custom Field on Employee belongs to this app, not to erpnext — so \"Sync\" writes it here, following this app's own convention (a data module under <code>custom/custom_field/</code> plus <code>custom/property_setter/</code>, registered in <code>setup/</code>, applied by a patch). A DocType owned by an app that is itself a ONE-F-M repo is written to that app instead. Leave blank to fall back to the DocType's owning app.",
    "fieldname": "customization_app",
    "fieldtype": "Data",
    "label": "Customization Owner App"
   },
   {
    "default": "one_bpmn",
-   "description": "App whose repository receives the pull request when the Connector Agent writes a Python handler for a connector operation. Most connectors need no code at all \u2014 an operation is normally a declarative HTTP request \u2014 but a signed request, walked pagination, or a call sequence needs a real function, and that function is delivered as a pull request rather than written into this site. Handlers land in <code>connectors/generated/</code> in the named app, one module per connector, and the operation's Handler Path points at them. Defaults to the app that owns the connector layer. Leave blank to disable handler authoring entirely.",
+   "description": "App whose repository receives the pull request when the Connector Agent writes a Python handler for a connector operation. Most connectors need no code at all — an operation is normally a declarative HTTP request — but a signed request, walked pagination, or a call sequence needs a real function, and that function is delivered as a pull request rather than written into this site. Handlers land in <code>connectors/generated/</code> in the named app, one module per connector, and the operation's Handler Path points at them. Defaults to the app that owns the connector layer. Leave blank to disable handler authoring entirely.",
    "fieldname": "connector_handler_app",
    "fieldtype": "Data",
    "label": "Connector Handler App"
@@ -325,7 +344,7 @@
    "options": "AI Model"
   },
   {
-   "description": "Used when nothing else names a model for summarising the early part of a conversation. Summarising is high-volume and low-stakes, so this should be the cheap model \u2014 left blank, compaction uses whatever the caller passes and, failing that, does nothing rather than bill the agent's own reasoning model for it.",
+   "description": "Used when nothing else names a model for summarising the early part of a conversation. Summarising is high-volume and low-stakes, so this should be the cheap model — left blank, compaction uses whatever the caller passes and, failing that, does nothing rather than bill the agent's own reasoning model for it.",
    "fieldname": "default_compaction_model",
    "fieldtype": "Link",
    "label": "Default Compaction Model",
@@ -338,15 +357,93 @@
    "label": "Default Context Token Budget"
   },
   {
+   "default": "sentence-transformers/all-MiniLM-L6-v2",
+   "description": "Model that turns a memory into the numbers semantic search compares. Only models producing 384 numbers are listed, because that is the width of the stored column. Disabled turns semantic search off and leaves keyword search, which is what a machine that cannot download the model should use.",
+   "fieldname": "memory_embedding_model",
+   "fieldtype": "Select",
+   "label": "Embedding Model",
+   "options": "sentence-transformers/all-MiniLM-L6-v2\nBAAI/bge-small-en-v1.5\nsnowflake/snowflake-arctic-embed-xs\nsnowflake/snowflake-arctic-embed-s\nBAAI/bge-small-en\nsentence-transformers/paraphrase-multilingual-MiniLM-L12-v2\nDisabled"
+  },
+  {
+   "default": "0.6",
+   "description": "Share of the memory search score that comes from meaning, from 0 to 1. The rest comes from keyword match. 1 ranks by meaning only, 0 by keywords only.",
+   "fieldname": "memory_semantic_weight",
+   "fieldtype": "Float",
+   "label": "Semantic Weight"
+  },
+  {
+   "default": "0.2",
+   "description": "Share of the memory search score that comes from how recent the memory is, from 0 to 1. Recency halves every 30 days. What is left after recency and importance goes to relevance.",
+   "fieldname": "memory_recency_weight",
+   "fieldtype": "Float",
+   "label": "Recency Weight"
+  },
+  {
+   "default": "0.2",
+   "description": "Share of the memory search score that comes from the memory's Importance (1 to 5), from 0 to 1. What is left after recency and importance goes to relevance.",
+   "fieldname": "memory_importance_weight",
+   "fieldtype": "Float",
+   "label": "Importance Weight"
+  },
+  {
+   "default": "200",
+   "description": "Memory eval budget. How long a memory search may take, in milliseconds, before a Memory eval case fails on latency. Recall runs before every chat reply, so this is time added to each turn. Blank or 0 means 200.",
+   "fieldname": "memory_retrieval_budget_ms",
+   "fieldtype": "Int",
+   "label": "Retrieval Budget (ms)"
+  },
+  {
+   "default": "User Statement\nAgent Inference\nTool Output",
+   "description": "One source type per line, most trusted first. When a new memory contradicts an existing one, the higher source type wins; on a tie the higher effective confidence wins. Source types not listed rank lowest.",
+   "fieldname": "memory_trust_hierarchy",
+   "fieldtype": "Small Text",
+   "label": "Trust Hierarchy"
+  },
+  {
+   "default": "0.2",
+   "description": "Nightly prune. A memory whose effective confidence (stored confidence halving every 90 days since it was last written or corroborated) falls under this is retired. 0 turns the rule off.",
+   "fieldname": "memory_prune_min_confidence",
+   "fieldtype": "Float",
+   "label": "Prune Below Confidence"
+  },
+  {
+   "default": "180",
+   "description": "Nightly prune. A memory nothing has corroborated in this many days is retired. 0 turns the rule off.",
+   "fieldname": "memory_prune_uncorroborated_days",
+   "fieldtype": "Int",
+   "label": "Prune Uncorroborated After Days"
+  },
+  {
+   "default": "90",
+   "description": "Nightly prune. A never-corroborated memory with Importance 1 older than this many days is retired. 0 turns the rule off. Retired memories keep their row with the reason in metadata; memories the user asked to remember are never pruned.",
+   "fieldname": "memory_prune_low_importance_days",
+   "fieldtype": "Int",
+   "label": "Prune Minor Facts After Days"
+  },
+  {
+   "default": "10000",
+   "description": "Daily check. When one scope key holds more memories than this, the Credential Alert Recipients (or every System Manager) are told that the exact-ranking search design needs review.",
+   "fieldname": "memory_scope_row_alert",
+   "fieldtype": "Int",
+   "label": "Alert When One Scope Exceeds"
+  },
+  {
+   "default": "500000",
+   "description": "Daily check. When the AI Memory table holds more rows than this in total, the same alert is sent.",
+   "fieldname": "memory_total_row_alert",
+   "fieldtype": "Int",
+   "label": "Alert When Total Rows Exceed"
+  },
+  {
    "collapsible": 1,
-   "description": "What happens to chat conversations nobody has touched for a while. Idle is measured from the newest message in the conversation, not from when the record was last written \u2014 a status change or a title edit is not activity. An agent's own memory threads are never swept: they are a running agent's working state, not a conversation somebody had.",
+   "description": "What happens to chat conversations nobody has touched for a while. Idle is measured from the newest message in the conversation, not from when the record was last written — a status change or a title edit is not activity. An agent's own memory threads are never swept: they are a running agent's working state, not a conversation somebody had.",
    "fieldname": "section_break_conversation_retention",
    "fieldtype": "Section Break",
    "label": "Conversation Retention"
   },
   {
    "default": "0",
-   "description": "Days a conversation may sit idle before the daily sweep acts on it. 0 disables retention entirely \u2014 nothing is archived or deleted.",
+   "description": "Days a conversation may sit idle before the daily sweep acts on it. 0 disables retention entirely — nothing is archived or deleted.",
    "fieldname": "conversation_ttl_days",
    "fieldtype": "Int",
    "label": "Conversation TTL (days)"
@@ -358,11 +455,52 @@
   {
    "default": "Archive",
    "depends_on": "eval:doc.conversation_ttl_days > 0",
-   "description": "Archive marks the conversation and leaves everything in place, so it can be read and restored. Delete removes the conversation and its messages permanently \u2014 that is the point of a retention policy, and it cannot be undone. Both are logged with counts.",
+   "description": "Archive marks the conversation and leaves everything in place, so it can be read and restored. Delete removes the conversation and its messages permanently — that is the point of a retention policy, and it cannot be undone. Both are logged with counts.",
    "fieldname": "archive_action",
    "fieldtype": "Select",
    "label": "Action on Expiry",
    "options": "Archive\nDelete"
+  },
+  {
+   "fieldname": "section_break_ai_health",
+   "fieldtype": "Section Break",
+   "label": "AI Credential Health"
+  },
+  {
+   "description": "The users told when an AI Model's credentials stop working. Left empty, the alert goes to whoever last edited the model, or failing that to every System Manager.",
+   "fieldname": "ai_health_alert_recipients",
+   "fieldtype": "Table MultiSelect",
+   "label": "Credential Alert Recipients",
+   "options": "User Group Member"
+  },
+  {
+   "fieldname": "section_break_nightly_evals",
+   "fieldtype": "Section Break",
+   "label": "Nightly Evals"
+  },
+  {
+   "description": "Who hears when a scheduled eval falls short, besides the failing agent's own owner. Left empty it is every System Manager, which on this site includes service logins.",
+   "fieldname": "eval_alert_recipients",
+   "fieldtype": "Table MultiSelect",
+   "label": "Eval Alert Recipients",
+   "options": "User Group Member"
+  },
+  {
+   "description": "Model used to grade nightly eval answers when an assertion names none of its own.",
+   "fieldname": "nightly_eval_grading_model",
+   "fieldtype": "Link",
+   "label": "Nightly Eval Grading Model",
+   "options": "AI Model"
+  },
+  {
+   "fieldname": "column_break_nightly_evals",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Most one night's sweep may spend, shared across the suites tagged Nightly. 0 means no ceiling.",
+   "fieldname": "nightly_eval_spend_cap",
+   "fieldtype": "Currency",
+   "label": "Nightly Eval Spend Ceiling"
   },
   {
    "description": "Migrated from onefm_mcp's AI Chat Settings doctype (retired). Global fallback provider/tuning for an agent configuration that has no linked AI Provider yet — once every agent config links a provider directly, this stops being consulted.",
@@ -565,6 +703,13 @@
    "fieldtype": "Data",
    "label": "Copilot Enterprise Slug",
    "mandatory_depends_on": "eval:doc.mcp_tools_enabled"
+  },
+  {
+   "default": "1",
+   "description": "How many eval cases may run side by side. 1 runs them one at a time, as before. Above that, a suite finishes sooner but competes with live agent traffic for the provider's rate limit, and spends its budget faster. Capped at 8.",
+   "fieldname": "eval_concurrency",
+   "fieldtype": "Int",
+   "label": "Eval Concurrency"
   }
  ],
  "issingle": 1,

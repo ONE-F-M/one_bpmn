@@ -80,8 +80,13 @@ def _build_fn_decl(tool: ToolSpec) -> types.FunctionDeclaration:
 
 
 class GeminiAdapter(BaseLLMAdapter):
-    def __init__(self, api_key: str, model: str):
-        self._client = genai.Client(api_key=api_key)
+    def __init__(self, api_key: str, model: str, timeout_seconds: float | None = None, max_retries: int | None = None):
+        # genai takes its timeout in milliseconds and its retries as a count of attempts.
+        http_options = types.HttpOptions(
+            timeout=int(timeout_seconds * 1000) if timeout_seconds else None,
+            retry_options=types.HttpRetryOptions(attempts=max_retries + 1) if max_retries is not None else None,
+        )
+        self._client = genai.Client(api_key=api_key, http_options=http_options)
         self._model = model
 
     async def complete(

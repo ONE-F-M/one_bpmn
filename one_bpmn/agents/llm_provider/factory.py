@@ -39,18 +39,36 @@ _PROVIDER_DEFAULTS = {
 }
 
 
-def get_llm_adapter(provider: str, model: str, api_key: str) -> BaseLLMAdapter:
-    """Instantiate the correct adapter for *provider*."""
+def get_llm_adapter(
+    provider: str,
+    model: str,
+    api_key: str,
+    *,
+    timeout_seconds: float | None = None,
+    max_retries: int | None = None,
+) -> BaseLLMAdapter:
+    """Instantiate the correct adapter for *provider*.
+
+    ``timeout_seconds`` and ``max_retries`` reach the provider SDK's own client.
+    Left unset, the timeout is the platform default, never the SDK's: every SDK
+    here waits ten minutes for a response and retries twice on its own, so an
+    unset value let one stalled response hold a worker for half an hour — long
+    past the 180 s the platform believed it was enforcing. ``max_retries`` left
+    unset keeps the SDK's retries, for callers with no retry loop of their own.
+    """
+    from one_bpmn.agents.executor import DEFAULT_TIMEOUT_SECONDS
+
+    timeout_seconds = timeout_seconds or DEFAULT_TIMEOUT_SECONDS
     p = provider.lower()
     if p == "gemini":
         from .gemini import GeminiAdapter
-        return GeminiAdapter(api_key=api_key, model=model)
+        return GeminiAdapter(api_key=api_key, model=model, timeout_seconds=timeout_seconds, max_retries=max_retries)
     if p in ("anthropic", "claude"):
         from .anthropic_adapter import AnthropicAdapter
-        return AnthropicAdapter(api_key=api_key, model=model)
+        return AnthropicAdapter(api_key=api_key, model=model, timeout_seconds=timeout_seconds, max_retries=max_retries)
     if p == "openai":
         from .openai_adapter import OpenAIAdapter
-        return OpenAIAdapter(api_key=api_key, model=model)
+        return OpenAIAdapter(api_key=api_key, model=model, timeout_seconds=timeout_seconds, max_retries=max_retries)
     raise ValueError(f"Unknown LLM provider: {provider!r}. Supported: gemini, anthropic, openai")
 
 
@@ -178,7 +196,9 @@ def get_llm_adapter_from_settings(agent_config: dict | None = None) -> BaseLLMAd
                 api_key = ""
             else:
                 api_key = model_api_key(model)
-            return get_llm_adapter(provider=adapter_key, model=model, api_key=api_key or "")
+            return MeteredAdapter(
+                get_llm_adapter(provider=adapter_key, model=model, api_key=api_key or "")
+            )
         except frappe.DoesNotExistError:
             frappe.log_error(
                 title="LLM Factory - Missing Provider",
@@ -208,4 +228,45 @@ def get_llm_adapter_from_settings(agent_config: dict | None = None) -> BaseLLMAd
             ),
         )
 
-    return get_llm_adapter(provider=provider, model=model, api_key=api_key)
+    return MeteredAdapter(get_llm_adapter(provider=provider, model=model, api_key=api_key))
+
+
+class MeteredAdapter:
+    """An adapter that records what its complete() calls cost (WI-002190).
+
+    Tool scripts reach the model through this factory and call complete().
+    The executor reaches it through get_llm_adapter() and calls step(), and
+    records its own turns. Wrapping only what this factory returns is what
+    keeps a sub-call from being counted twice.
+
+    Everything except complete() is delegated untouched, so this stays a
+    drop-in for any adapter, including ones added later.
+    """
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    async def complete(self, *args, **kwargs):
+        import time
+
+        from one_bpmn.agents.observability import record_sub_call
+
+        started = time.perf_counter()
+        result = await self._inner.complete(*args, **kwargs)
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        try:
+            record_sub_call(
+                getattr(self._inner, "_model", "") or "",
+                result,
+                latency_ms=latency_ms,
+            )
+        except Exception:
+            # Metering must never be the reason a tool fails.
+            frappe.log_error(
+                title="AI Observability: sub-call not recorded",
+                message=frappe.get_traceback(),
+            )
+        return result
