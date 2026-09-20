@@ -9,6 +9,7 @@
  "field_order": [
   "suite",
   "agent_configuration",
+  "prompt_hash",
   "comparison_group",
   "status",
   "scope",
@@ -46,6 +47,14 @@
    "in_list_view": 1,
    "read_only": 1,
    "description": "Which agent produced this run's results. Normally the suite's own agent; an A/B comparison run nominates a different one WITHOUT rebinding the suite. Empty on runs recorded before this was tracked \u2014 those used the suite's agent at the time, which may since have changed."
+  },
+  {
+   "fieldname": "prompt_hash",
+   "fieldtype": "Data",
+   "label": "Prompt Hash",
+   "read_only": 1,
+   "search_index": 1,
+   "description": "System prompt the suite ran against. Resolves to an AI Prompt Snapshot."
   },
   {
    "fieldname": "comparison_group",

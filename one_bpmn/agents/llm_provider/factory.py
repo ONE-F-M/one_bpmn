@@ -178,7 +178,9 @@ def get_llm_adapter_from_settings(agent_config: dict | None = None) -> BaseLLMAd
                 api_key = ""
             else:
                 api_key = model_api_key(model)
-            return get_llm_adapter(provider=adapter_key, model=model, api_key=api_key or "")
+            return MeteredAdapter(
+                get_llm_adapter(provider=adapter_key, model=model, api_key=api_key or "")
+            )
         except frappe.DoesNotExistError:
             frappe.log_error(
                 title="LLM Factory - Missing Provider",
@@ -208,4 +210,45 @@ def get_llm_adapter_from_settings(agent_config: dict | None = None) -> BaseLLMAd
             ),
         )
 
-    return get_llm_adapter(provider=provider, model=model, api_key=api_key)
+    return MeteredAdapter(get_llm_adapter(provider=provider, model=model, api_key=api_key))
+
+
+class MeteredAdapter:
+    """An adapter that records what its complete() calls cost (WI-002190).
+
+    Tool scripts reach the model through this factory and call complete().
+    The executor reaches it through get_llm_adapter() and calls step(), and
+    records its own turns. Wrapping only what this factory returns is what
+    keeps a sub-call from being counted twice.
+
+    Everything except complete() is delegated untouched, so this stays a
+    drop-in for any adapter, including ones added later.
+    """
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    async def complete(self, *args, **kwargs):
+        import time
+
+        from one_bpmn.agents.observability import record_sub_call
+
+        started = time.perf_counter()
+        result = await self._inner.complete(*args, **kwargs)
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        try:
+            record_sub_call(
+                getattr(self._inner, "_model", "") or "",
+                result,
+                latency_ms=latency_ms,
+            )
+        except Exception:
+            # Metering must never be the reason a tool fails.
+            frappe.log_error(
+                title="AI Observability: sub-call not recorded",
+                message=frappe.get_traceback(),
+            )
+        return result
