@@ -1925,11 +1925,11 @@ def compile_process_model(model_name: str) -> dict:
 	_validate_adhoc_structure(sanitized_xml)
 	_validate_adhoc_selector_pool(sanitized_xml, model_name)
 	_validate_ai_agent_tools(sanitized_xml, service_extensions)
+	_validate_ai_tool_contract(service_extensions)
 
 	# ── Eval suite deployment gating (non-blocking warnings) ──────────
 	deploy_warnings = _check_eval_suite_gating(model_name)
 	deploy_warnings.extend(_check_ai_tasks_have_a_user_prompt(spec_data))
-	deploy_warnings.extend(_validate_ai_tool_contract(service_extensions))
 	deploy_warnings.extend(_validate_turn_store_contract(sanitized_xml, service_extensions))
 	deploy_warnings.extend(_check_connector_tools_can_answer(sanitized_xml))
 
@@ -2143,31 +2143,28 @@ def _tool_contract_gaps(prompt: str, tool_ids: set, known_ids: set) -> list:
 	return sorted(gaps)
 
 
-def _validate_ai_tool_contract(service_extensions: dict) -> list:
+def _validate_ai_tool_contract(service_extensions: dict) -> None:
 	"""Every tool a prompt names must exist in that agent's Tools box.
 
 	The Frontend Agent shipped for weeks with a prompt ordering draft_change,
 	review_change and propose_pull_request — none of which existed — and every
-	delegation ended "staged but never delivered". The configuration's prompt
-	wins over the shape's (agent_config_resolver), so that is the one checked.
-	A Background agent has nobody watching who would notice a dead tool, so for
-	it this blocks the deploy; a chat agent surfaces the failure to a person at
-	once, so it gets a warning."""
+	delegation ended "staged but never delivered". An order the agent cannot
+	carry out is broken whoever is watching, so this refuses the deploy for chat
+	and background agents alike."""
 	agents = _ai_agents_with_tools(service_extensions)
 	if not agents:
-		return []
+		return
 	known = _known_tool_ids()
-	warnings, blocking = [], []
+	blocking = []
 	for agent_id, cfg in agents.items():
 		tool_ids = {s.get("bpmn_id") for s in json.loads(cfg.get("aiToolShapes") or "[]")}
-		shape_prompt, agent_type = cfg.get("aiSystemPrompt") or "", ""
+		shape_prompt = cfg.get("aiSystemPrompt") or ""
 		config_prompt = ""
 		config_name = (cfg.get("aiAgentConfig") or "").strip()
 		if config_name and frappe.db.exists("AI Agent Configuration", config_name):
-			row = frappe.db.get_value(
-				"AI Agent Configuration", config_name, ["system_prompt", "agent_type"], as_dict=True
+			config_prompt = (
+				frappe.db.get_value("AI Agent Configuration", config_name, "system_prompt") or ""
 			)
-			config_prompt, agent_type = (row.system_prompt or ""), (row.agent_type or "")
 		# Both prompts are read, not just whichever wins at run time. The
 		# configuration's is the one the model usually gets, but the shape's is
 		# what a designer edits in the diagram, and a tool named only there looks
@@ -2184,16 +2181,12 @@ def _validate_ai_tool_contract(service_extensions: dict) -> list:
 			"Instructions for '{0}' reference tool {1}, which does not exist in Tools box '{2}'. "
 			"Fix the instructions or add the shape."
 		).format(agent_id, ", ".join(f"'{g}'" for g in gaps), adhoc_id)
-		if agent_type == "Background":
-			blocking.append(detail)
-		else:
-			warnings.append({"label": _("Tool Contract"), "icon": "wrench", "type": "warning", "detail": detail})
+		blocking.append(detail)
 	if blocking:
 		frappe.throw(
 			_("The prompt and the Tools box disagree:") + "\n" + "\n".join(f"• {b}" for b in blocking),
 			exc=frappe.ValidationError,
 		)
-	return warnings
 
 
 # ── The turn store: what the closing script reads vs what the tools write ────

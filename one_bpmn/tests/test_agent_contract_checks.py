@@ -71,18 +71,18 @@ class TestBothPromptsAreRead(FrappeTestCase):
 		}}
 
 	def test_a_tool_named_only_on_the_shape_is_caught(self):
-		warnings = _validate_ai_tool_contract(self._exts(shape_prompt="Then call propose_pull_request once."))
-		self.assertEqual(len(warnings), 1)
-		self.assertIn("propose_pull_request", warnings[0]["detail"])
-		self.assertIn("demo_tools", warnings[0]["detail"])
+		with self.assertRaises(frappe.ValidationError) as caught:
+			_validate_ai_tool_contract(self._exts(shape_prompt="Then call propose_pull_request once."))
+		self.assertIn("propose_pull_request", str(caught.exception))
+		self.assertIn("demo_tools", str(caught.exception))
 
 	def test_a_tool_named_only_in_the_turn_instructions_is_caught(self):
-		warnings = _validate_ai_tool_contract(self._exts(user_prompt="Finish by calling propose_pull_request."))
-		self.assertEqual(len(warnings), 1)
-		self.assertIn("propose_pull_request", warnings[0]["detail"])
+		with self.assertRaises(frappe.ValidationError) as caught:
+			_validate_ai_tool_contract(self._exts(user_prompt="Finish by calling propose_pull_request."))
+		self.assertIn("propose_pull_request", str(caught.exception))
 
 	def test_a_shape_naming_only_real_tools_is_quiet(self):
-		self.assertEqual(_validate_ai_tool_contract(self._exts(shape_prompt="Call do_work once.")), [])
+		_validate_ai_tool_contract(self._exts(shape_prompt="Call do_work once."))
 
 class TestTurnStoreKeys(FrappeTestCase):
 	def test_keys_written_inline_and_by_name(self):
