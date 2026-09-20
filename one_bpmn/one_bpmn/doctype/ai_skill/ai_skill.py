@@ -1,4 +1,3 @@
-import asyncio
 import json
 
 import frappe
@@ -50,6 +49,7 @@ class AISkill(Document):
 		skill, and it must never be confused with a genuine validation error.
 		"""
 		try:
+			from one_bpmn.agents.executor.direct_api import _run_coro_blocking
 			from one_bpmn.agents.llm_provider.factory import get_llm_adapter_from_settings
 
 			adapter = get_llm_adapter_from_settings()
@@ -68,19 +68,20 @@ class AISkill(Document):
 			)
 			user_prompt = f"Description:\n{self.description}"
 
-			async def _call():
-				return await adapter.step(
+			# _run_coro_blocking (agents/executor/direct_api.py, WI-001356)
+			# already solves "call async LLM code from this synchronous
+			# validate() hook" -- including falling back to a dedicated
+			# thread (with the caller's contextvars, so frappe.local
+			# survives) when a loop is already running. Reusing it here
+			# instead of hand-rolling asyncio.get_event_loop() keeps this
+			# codebase's one pattern for the problem instead of a second,
+			# less battle-tested one.
+			step_result = _run_coro_blocking(
+				adapter.step(
 					system=system_prompt,
 					transcript=[{"role": "user", "content": user_prompt}],
 				)
-
-			try:
-				loop = asyncio.get_event_loop()
-			except RuntimeError:
-				loop = asyncio.new_event_loop()
-				asyncio.set_event_loop(loop)
-
-			step_result = loop.run_until_complete(_call())
+			)
 
 			text = (step_result.content or "").strip()
 			if text.startswith("```"):
