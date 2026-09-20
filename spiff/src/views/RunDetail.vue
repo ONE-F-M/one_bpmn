@@ -303,9 +303,8 @@ const steps = computed(() => tree.value.steps || [])
 const latencyTotal = computed(() => steps.value.reduce((a, s) => a + (s.latency_ms || 0), 0) || 1)
 const slowest = computed(() => [...steps.value].filter((s) => s.latency_ms > 0).sort((a, b) => b.latency_ms - a.latency_ms).slice(0, 3))
 
-// A real timeline needs a start and end on every timed step. Steps recorded
-// before those existed carry a window rebuilt from their latency, which is a
-// sequence, not the clock; the label says which one the bars show.
+// Steps recorded before timestamps existed carry a window rebuilt from
+// latency, so the bars show sequence, not the clock.
 const timed = computed(() => steps.value.filter((s) => s.latency_ms > 0))
 const hasClock = computed(() => timed.value.length > 0 && timed.value.every((s) => s.started_at && s.ended_at))
 const window_ = computed(() => {

@@ -236,9 +236,8 @@ class TestListRuns(RunsPageFixture):
 		frappe.set_user(email)
 		self.assertNotIn("System Manager", frappe.get_roles())
 
-		# frappe.only_for returns without checking anything while in_test is
-		# set, so a test that leaves it set asserts a guard that cannot fire and
-		# passes or fails for reasons of its own. Both calls below only read.
+		# frappe.only_for is a no-op while in_test is set, so the guard cannot
+		# fire unless the flag is cleared. Both calls below only read.
 		frappe.flags.in_test = False
 		try:
 			with self.assertRaises(frappe.PermissionError):

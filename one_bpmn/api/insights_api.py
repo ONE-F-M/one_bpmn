@@ -1145,7 +1145,7 @@ def get_work_item_delegation_cost(work_item_name: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# 7. Runs page: list, filter options, one run in full
+# 8. Runs page: list, filter options, one run in full
 # ---------------------------------------------------------------------------
 
 RUNS_PAGE_MAX = 100
