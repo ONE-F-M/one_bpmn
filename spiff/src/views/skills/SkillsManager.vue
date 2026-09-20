@@ -92,7 +92,7 @@
 
 			<!-- Right Area: Detail View -->
 			<div class="flex-1 flex flex-col bg-white overflow-hidden relative">
-				<div v-if="!selectedSkill" class="absolute inset-0 flex items-center justify-center text-gray-400">
+				<div v-if="!selectedSkill && !isCreatingNew" class="absolute inset-0 flex items-center justify-center text-gray-400">
 					<div class="text-center">
 						<Icon icon="lucide:brain-circuit" class="w-12 h-12 mx-auto mb-3 opacity-50" />
 						<p>Select a skill from the sidebar to view details</p>
