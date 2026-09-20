@@ -228,7 +228,7 @@ const purgeTarget = computed(() => {
 	if (filters.user && filters.user !== "Shared") return filters.user;
 	return null;
 });
-const purgeTargetLabel = computed(() => purgeTarget.value || "your own memories");
+const purgeTargetLabel = computed(() => purgeTarget.value || "you");
 
 const rangeLabel = computed(() => {
 	if (!total.value) return "No memories";
