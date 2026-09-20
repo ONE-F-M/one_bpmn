@@ -843,29 +843,75 @@ def chat_user_id(email: str, headers: dict) -> str:
 
 	Chat addresses people by an opaque id and refuses an email outright under
 	app authentication ("Service account authentication doesn't support access
-	to user information using email aliases"). Until the Directory API is
-	delegated, the id comes off the direct message spaces the domain install
-	created — one per person, matched on the name Frappe holds.
+	to user information using email aliases"). The directory answers exactly;
+	matching on name is the fallback for a site that has not been delegated.
 	"""
 	key = f"gchat_user_id::{email.lower()}"
 	cached = frappe.cache().get_value(key)
 	if cached:
 		return cached
 
+	user_id = _directory_user_id(email) or _named_user_id(email, headers)
+	if user_id:
+		# No expiry: an id outlives any TTL worth setting, and passing one skips
+		# frappe's in-process memo, so the next lookup in the worker repeats.
+		frappe.cache().set_value(key, user_id)
+	return user_id
+
+
+def _directory_user_id(email: str) -> str:
+	"""Ask the Workspace directory, which answers by email and is exact."""
+	settings = frappe.get_cached_doc("Processa Settings")
+	subject = (settings.google_directory_account or "").strip()
+	sa_json = settings.get_password("google_chat_service_account_json", raise_exception=False)
+	if not (subject and sa_json):
+		return ""
+
+	import requests
+	from google.auth.transport.requests import Request as GoogleRequest
+	from google.oauth2 import service_account
+
+	try:
+		credentials = service_account.Credentials.from_service_account_info(
+			json.loads(sa_json),
+			scopes=["https://www.googleapis.com/auth/admin.directory.user.readonly"],
+			subject=subject,
+		)
+		credentials.refresh(GoogleRequest())
+		resp = requests.get(
+			f"https://admin.googleapis.com/admin/directory/v1/users/{email}",
+			headers={"Authorization": f"Bearer {credentials.token}"},
+			params={"viewType": "domain_public"},
+			timeout=15,
+		)
+	except Exception:
+		frappe.log_error(
+			title="google_chat: directory lookup failed",
+			message=frappe.get_traceback(),
+		)
+		return ""
+
+	if resp.status_code == 200:
+		return resp.json().get("id") or ""
+	# 404 means the address has no Google account at all, which is an answer,
+	# not a fault. Anything else is worth knowing about.
+	if resp.status_code != 404:
+		frappe.log_error(
+			title="google_chat: directory lookup refused",
+			message=f"{resp.status_code} for {email}: {resp.text[:500]}",
+		)
+	return ""
+
+
+def _named_user_id(email: str, headers: dict) -> str:
+	"""Fall back to the name Frappe holds, against the direct messages the app is in."""
 	full_name = frappe.db.get_value("User", email, "full_name")
 	if not full_name:
 		return ""
-
 	holders = _chat_dm_directory(headers).get(_same_name(full_name)) or []
 	# Two colleagues sharing a name is the one case worth refusing: a direct
 	# message to the wrong person is worse than one that never arrives.
-	if len(holders) != 1:
-		return ""
-
-	# No expiry: an id outlives any TTL worth setting, and passing one skips
-	# frappe's in-process memo, so the next lookup in the same worker rescans.
-	frappe.cache().set_value(key, holders[0])
-	return holders[0]
+	return holders[0] if len(holders) == 1 else ""
 
 
 def _chat_dm_directory(headers: dict) -> dict:

@@ -204,39 +204,44 @@ class TestCredentialSource(FrappeTestCase):
 class TestChatUserId(FrappeTestCase):
 	"""Turning an address into the id Chat will actually accept."""
 
-	DIRECTORY = {
-		"abraham adekunle": ["110011284155291104346"],
-		"chukwuebuka akeru": ["106461580433969306983"],
-	}
+	MOD = "one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers"
+	DIRECTORY = {"abraham adekunle": ["110011284155291104346"]}
+	EMAIL = "a.adekunle@one-fm.com"
 
 	def setUp(self):
-		frappe.cache().delete_value("gchat_user_id::a.adekunle@one-fm.com")
+		frappe.cache().delete_value(f"gchat_user_id::{self.EMAIL}")
 
-	def _resolve(self, email, directory=None, full_name=None):
+	def _resolve(self, directory_id="", names=None, full_name=None):
+		"""Run a lookup with both sources stubbed, and report whether names were read."""
 		from unittest.mock import patch
 
-		with patch(
-			"one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers._chat_dm_directory",
-			return_value=self.DIRECTORY if directory is None else directory,
+		with patch(f"{self.MOD}._directory_user_id", return_value=directory_id), patch(
+			f"{self.MOD}._chat_dm_directory",
+			return_value=self.DIRECTORY if names is None else names,
 		) as scan, patch("frappe.db.get_value", return_value=full_name):
-			return chat_user_id(email, {}), scan
+			return chat_user_id(self.EMAIL, {}), scan
+
+	def test_the_directory_answers_before_any_name_is_read(self):
+		got, scan = self._resolve(directory_id="999")
+		self.assertEqual(got, "999")
+		scan.assert_not_called()
+
+	def test_without_a_directory_the_name_still_finds_them(self):
+		got, _ = self._resolve(full_name="Abraham  Adekunle")
+		self.assertEqual(got, "110011284155291104346")
 
 	def test_a_middle_nameless_user_still_matches(self):
 		"""full_name joins three parts, so no middle name leaves a double space."""
-		got, _ = self._resolve("a.adekunle@one-fm.com", full_name="Abraham  Adekunle")
+		got, _ = self._resolve(full_name="Abraham  Adekunle")
 		self.assertEqual(got, "110011284155291104346")
 
 	def test_two_people_of_one_name_resolve_to_nobody(self):
 		"""Refusing beats guessing: a DM to the wrong colleague cannot be recalled."""
-		got, _ = self._resolve(
-			"a.adekunle@one-fm.com",
-			directory={"abraham adekunle": ["1", "2"]},
-			full_name="Abraham Adekunle",
-		)
+		got, _ = self._resolve(names={"abraham adekunle": ["1", "2"]}, full_name="Abraham Adekunle")
 		self.assertEqual(got, "")
 
 	def test_the_second_lookup_does_not_scan_again(self):
 		"""The scan costs one request per person in the domain."""
-		self._resolve("a.adekunle@one-fm.com", full_name="Abraham  Adekunle")
-		_, scan = self._resolve("a.adekunle@one-fm.com", full_name="Abraham  Adekunle")
+		self._resolve(full_name="Abraham  Adekunle")
+		_, scan = self._resolve(full_name="Abraham  Adekunle")
 		scan.assert_not_called()
