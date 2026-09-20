@@ -336,11 +336,8 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 			title=f"AI Agent shape tool '{bpmn_id}' failed",
 			message=frappe.get_traceback(),
 		)
-		# Same reasoning as the permission/validation branches above: "see the
-		# Error Log" is useless to a model that cannot read it, so it invents an
-		# explanation instead. Carrying the exception's own class name and
-		# message lets the model tell a truncated-output problem apart from an
-		# unrelated bug rather than guessing at both from silence.
+		# The model cannot read the Error Log, so the class and message travel
+		# with the refusal.
 		return json.dumps({
 			"error": (
 				f"Shape '{bpmn_id}' failed — {type(unexpected).__name__}: {unexpected}"

@@ -635,12 +635,8 @@ _cfg.setdefault("agent_id", "prosally_agent")
 _subs = _cfg.get("sub_prompts") or {}
 _adapter = get_llm_adapter_from_settings(_cfg)
 
-# ── explicit output budget ──
-# The adapter's own default (16384) only applied when nothing else was
-# passed; a configured max_tokens below that (e.g. 1024) silently won,
-# cutting a large IR off mid-JSON with no explanation to the user. Floor at
-# 16384, and cap at whatever the configured model actually supports so the
-# request is never rejected for asking beyond the model's own ceiling.
+# A configured max_tokens under 16384 cuts a large IR off mid-JSON, so the
+# floor is 16384 and the ceiling is whatever the model itself allows.
 _max_tokens = int(_cfg.get("max_tokens") or 0)
 if _max_tokens < 16384:
     _max_tokens = 16384
@@ -714,12 +710,8 @@ for attempt in range(_MAX_FIX_PASSES + 1):
     try:
         raw = run_sync(_adapter.complete(system=_system, user=prompt, max_tokens=_max_tokens)).text
     except LLMTruncatedError:
-        # The model hit its output-token ceiling mid-generation — its JSON is
-        # necessarily unparseable, so there is no repair pass to attempt.
-        # Write the real explanation into turn state now (with done=True) so
-        # the finalize tool never overwrites it with its generic fallback
-        # question ("Could you tell me more about the process you'd like to
-        # model?"), which said nothing about the actual, fixable problem.
+        # done=True here, or finalize overwrites this with its generic
+        # fallback question.
         _truncated_error = True
         _size_msg = (
             "This process is too large for me to generate in a single pass — the "
@@ -1149,10 +1141,7 @@ _cfg.setdefault("agent_id", "prosally_agent")
 _subs = _cfg.get("sub_prompts") or {}
 _adapter = get_llm_adapter_from_settings(_cfg)
 
-# ── explicit output budget ──
-# See the same block in the Generate Process tool for the reasoning: the
-# adapter default only wins when nothing is passed, so a configured
-# max_tokens below 16384 silently cut a large modification off mid-JSON.
+# A configured max_tokens under 16384 cuts a large modification off mid-JSON.
 _max_tokens = int(_cfg.get("max_tokens") or 0)
 if _max_tokens < 16384:
     _max_tokens = 16384
@@ -1238,11 +1227,8 @@ for attempt in range(_MAX_FIX_PASSES + 1):
     try:
         raw = run_sync(_adapter.complete(system=_system, user=prompt, max_tokens=_max_tokens)).text
     except LLMTruncatedError:
-        # See the Generate Process tool for the full reasoning: a truncated
-        # completion has no repair pass, and the reply written here (with
-        # done=True) must reach the user before finalize's generic fallback
-        # question ("Could you tell me more about the process you'd like to
-        # model?") can overwrite it.
+        # done=True here, or finalize overwrites this with its generic
+        # fallback question.
         _truncated_error = True
         _size_msg = (
             "This process is too large for me to regenerate in a single pass — the "
@@ -1336,7 +1322,6 @@ for attempt in range(_MAX_FIX_PASSES + 1):
 if not _truncated_error:
     note = ((" (" + str(len(problems)) + " issue(s) remain — review the canvas.)") if problems else "") + topology_note
 
-    # ── preserve configured properties from the old diagram onto the new one ──
     merged_xml, removed_elements = _prosally_preserver("transfer", current_xml, best_xml)
 
     if removed_elements:
