@@ -12,19 +12,7 @@ import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { frappeGet, frappePost } from "../shared/frappeResource";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-function getAttr(bo, attr) {
-	return bo.get(`spiffworkflow:${attr}`) ?? "";
-}
-
-function setAttr(modeling, element, bo, attr, value) {
-	modeling.updateModdleProperties(element, bo, {
-		[`spiffworkflow:${attr}`]: value || undefined,
-	});
-}
+import { getAttr, setAttr } from "../shared/agentAttrs";
 
 // Human-readable labels for the executor backend stored in spiffworkflow:aiBackend.
 const BACKEND_LABELS = {
