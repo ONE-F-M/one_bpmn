@@ -150,6 +150,11 @@ class ExecutorConfig:
     # WI-001422: cap on tool-calling turns ("Maximum model calls" in Camunda);
     # None uses the adapter default. dispatch_ai_agent sets it from aiMaxToolCalls.
     max_tool_calls: int | None = None
+    # WI-002195: cap on the characters of any one tool result the MODEL sees
+    # (the audit copy is never cut). None uses the platform default in
+    # executor/tool_bounds; dispatch_ai_agent sets it from aiToolResultMaxChars,
+    # which the agent's configuration supplies.
+    tool_result_max_chars: int | None = None
     # Durable AI Agent HITL: persisted AgentSuspension fields + "human_result".
     # When set, the step loop re-enters the checkpointed conversation instead
     # of starting fresh (system_prompt/user_prompt are NOT re-rendered — the
