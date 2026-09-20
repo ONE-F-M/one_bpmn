@@ -745,89 +745,6 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		task.data[result_var] = output
 
 
-def _addresses_for(values) -> list:
-	"""Turn user ids and plain addresses into addresses, keeping order.
-
-	A User's id is usually its address but is not required to be, so each value
-	is looked up and falls back to itself — which is also what lets a literal
-	address configured by hand work unchanged.
-	"""
-	addresses, seen = [], set()
-	for raw in values:
-		value = str(raw or "").strip()
-		if not value:
-			continue
-		address = frappe.db.get_value("User", value, "email") or value
-		if address not in seen:
-			seen.add(address)
-			addresses.append(address)
-	return addresses
-
-
-def google_chat_recipients(instance, task_cfg: dict) -> tuple:
-	"""Who a direct message goes to, and what to say when that is nobody.
-
-	Three ways to name them, the same three a User Task offers for assignment:
-
-	    User        — ``gchatEmail``, one or more addresses or user ids
-	    DocField    — ``gchatDocField``, a field on the context document holding
-	                  an address or a link to a User (``owner`` included)
-	    Table Field — ``gchatTableField`` rows, each contributing the user named
-	                  by ``gchatTableUserField``
-
-	``gchatDoctype`` says whose fields were picked in the editor; the document
-	itself is always the instance's context. Returns (addresses, problem) where
-	problem is a sentence for the log, empty when there is nothing wrong.
-	"""
-	basis = (task_cfg.get("gchatRecipientBasis") or "User").strip()
-	doctype = (task_cfg.get("gchatDoctype") or "").strip() or (instance.context_doctype or "")
-	docname = instance.context_docname or ""
-
-	if basis == "User":
-		raw = (task_cfg.get("gchatEmail") or "").strip()
-		if not raw:
-			return [], "gchatRecipientBasis=User but gchatEmail is empty."
-		return _addresses_for(raw.split(",")), ""
-
-	if basis not in ("DocField", "Table Field"):
-		return [], f"gchatRecipientBasis={basis!r} is not User, DocField or Table Field."
-
-	if not (doctype and docname):
-		return [], (
-			f"gchatRecipientBasis={basis} needs a context document, and this instance has "
-			f"doctype={doctype!r} docname={docname!r}."
-		)
-
-	try:
-		doc = frappe.get_doc(doctype, docname)
-	except Exception:
-		return [], f"Could not read {doctype} {docname} to resolve the recipient."
-
-	if basis == "DocField":
-		field = (task_cfg.get("gchatDocField") or "").strip()
-		if not field:
-			return [], "gchatRecipientBasis=DocField but gchatDocField is empty."
-		value = doc.get(field)
-		if not value:
-			return [], f"{doctype} {docname} has nothing in {field!r}."
-		return _addresses_for([value]), ""
-
-	table_field = (task_cfg.get("gchatTableField") or "").strip()
-	# "user" is the conventional row field, and defaulting to it keeps a table
-	# whose rows are obvious from needing a second setting.
-	row_field = (task_cfg.get("gchatTableUserField") or "").strip() or "user"
-	if not table_field:
-		return [], "gchatRecipientBasis=Table Field but gchatTableField is empty."
-
-	rows = doc.get(table_field) or []
-	if not rows:
-		return [], f"{doctype} {docname} has no rows in {table_field!r}."
-	addresses = _addresses_for([row.get(row_field) for row in rows])
-	if not addresses:
-		return [], f"No row of {table_field!r} names a user in {row_field!r}."
-	return addresses, ""
-
-
 def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	"""
 	Send a Google Chat message from a Service Task with serviceType='google_chat'.
@@ -837,16 +754,10 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	    space      — post a message to a Google Chat space by space ID
 
 	Configuration keys (from BPMN XML):
-	    gchatType             — "individual" or "space"
-	    gchatRecipientBasis   — how a DM names its recipients: "User" (default),
-	                            "DocField" or "Table Field"
-	    gchatEmail            — addresses or user ids, comma separated (User)
-	    gchatDoctype          — whose fields were picked in the editor
-	    gchatDocField         — field on the context document (DocField)
-	    gchatTableField       — child table on the context document (Table Field)
-	    gchatTableUserField   — the row field naming the user, default "user"
-	    gchatSpaceId          — space ID e.g. "spaces/XXXXXXX" (space mode)
-	    gchatMessage          — message body; Jinja2 supported
+	    gchatType    — "individual" or "space"
+	    gchatEmail   — recipient email (individual mode)
+	    gchatSpaceId — space ID e.g. "spaces/XXXXXXX" (space mode)
+	    gchatMessage — message body; Jinja2 supported
 
 	Credentials: the site must have a Google service account JSON key stored in
 	site_config.json under "google_chat_service_account_json" (the full JSON content
@@ -856,6 +767,7 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	Failures are non-fatal: the workflow continues and the error is logged.
 	"""
 	gchat_type = task_cfg.get("gchatType", "").strip()
+	gchat_email = (task_cfg.get("gchatEmail") or "").strip()
 	gchat_space_id = (task_cfg.get("gchatSpaceId") or "").strip()
 	raw_message = (task_cfg.get("gchatMessage") or "").strip()
 
@@ -877,15 +789,12 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		)
 		return
 
-	recipients = []
-	if gchat_type == "individual":
-		recipients, problem = google_chat_recipients(instance, task_cfg)
-		if problem or not recipients:
-			frappe.log_error(
-				title=f"BPMN ServiceTask: google_chat has no recipient ({bpmn_id})",
-				message=problem or "No recipient resolved.",
-			)
-			return
+	if gchat_type == "individual" and not gchat_email:
+		frappe.log_error(
+			title=f"BPMN ServiceTask: google_chat misconfigured ({bpmn_id})",
+			message="gchatType=individual but gchatEmail is empty.",
+		)
+		return
 
 	if gchat_type == "space" and not gchat_space_id:
 		frappe.log_error(
@@ -940,51 +849,33 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		payload = {"text": raw_message}
 
 		if gchat_type == "individual":
-			# One recipient failing must not silence the others, so each is sent
-			# and logged on its own.
-			for address in recipients:
-				try:
-					dm_resp = requests.get(
-						"https://chat.googleapis.com/v1/spaces:findDirectMessage",
-						headers=headers,
-						params={"name": f"users/{address}"},
-						timeout=10,
-					)
-					if dm_resp.status_code == 200:
-						space_name = dm_resp.json().get("name", "")
-					else:
-						# Fall back to setup DM space
-						setup_resp = requests.post(
-							"https://chat.googleapis.com/v1/spaces:setup",
-							headers=headers,
-							json={
-								"space": {"spaceType": "DIRECT_MESSAGE"},
-								"memberships": [
-									{"member": {"name": f"users/{address}", "type": "HUMAN"}}
-								],
-							},
-							timeout=10,
-						)
-						setup_resp.raise_for_status()
-						space_name = setup_resp.json().get("name", "")
+			# Create or find a DM space with the user, then post
+			dm_url = "https://chat.googleapis.com/v1/spaces:findDirectMessage"
+			params = {"name": f"users/{gchat_email}"}
+			dm_resp = requests.get(dm_url, headers=headers, params=params, timeout=10)
+			if dm_resp.status_code == 200:
+				space_name = dm_resp.json().get("name", "")
+			else:
+				# Fall back to setup DM space
+				setup_resp = requests.post(
+					"https://chat.googleapis.com/v1/spaces:setup",
+					headers=headers,
+					json={
+						"space": {"spaceType": "DIRECT_MESSAGE"},
+						"memberships": [{"member": {"name": f"users/{gchat_email}", "type": "HUMAN"}}],
+					},
+					timeout=10,
+				)
+				setup_resp.raise_for_status()
+				space_name = setup_resp.json().get("name", "")
 
-					resp = requests.post(
-						f"https://chat.googleapis.com/v1/{space_name}/messages",
-						headers=headers, json=payload, timeout=10,
-					)
-					resp.raise_for_status()
-				except Exception:
-					frappe.log_error(
-						title=f"BPMN ServiceTask: google_chat DM failed for {address} ({bpmn_id})",
-						message=frappe.get_traceback(),
-					)
+			msg_url = f"https://chat.googleapis.com/v1/{space_name}/messages"
 		else:
 			space_name = gchat_space_id.strip().rstrip("/")
-			resp = requests.post(
-				f"https://chat.googleapis.com/v1/{space_name}/messages",
-				headers=headers, json=payload, timeout=10,
-			)
-			resp.raise_for_status()
+			msg_url = f"https://chat.googleapis.com/v1/{space_name}/messages"
+
+		resp = requests.post(msg_url, headers=headers, json=payload, timeout=10)
+		resp.raise_for_status()
 
 	except Exception:
 		frappe.log_error(

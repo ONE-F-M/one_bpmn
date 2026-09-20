@@ -46,10 +46,7 @@ SERVICE_TASK_KEYS: dict[str, tuple[str, ...]] = {
 		"emailTo", "emailToDocFields", "emailToRoles", "emailCc", "emailBcc", "emailBody",
 	),
 	"update_field": ("updateFieldDoctype", "updateFieldRows"),
-	"google_chat": (
-		"gchatType", "gchatRecipientBasis", "gchatEmail", "gchatDoctype", "gchatDocField",
-		"gchatTableField", "gchatTableUserField", "gchatSpaceId", "gchatMessage",
-	),
+	"google_chat": ("gchatType", "gchatEmail", "gchatSpaceId", "gchatMessage"),
 	"push_notification": (
 		"pushDoctype", "pushTitle", "pushToUsers", "pushToDocFields",
 		"pushToRoles", "pushMessage",
