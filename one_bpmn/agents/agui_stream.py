@@ -142,21 +142,11 @@ _HEARTBEAT_INTERVAL_SECONDS = 10
 
 def _invoke_with_heartbeat(fn, interval: float = _HEARTBEAT_INTERVAL_SECONDS):
 	"""Run a blocking callable off-thread, yielding an SSE keep-alive comment
-	every ``interval`` seconds while it is in progress.
+	every ``interval`` seconds so an idle proxy cannot close a working turn.
 
-	The buffered runners (bpmn_map / direct_api / adk) block for the whole
-	turn between the RunStarted and TextMessage* yields, with nothing to
-	flush to the client in the meantime. A proxy or load balancer that times
-	out an idle connection has no way to tell that turn apart from a dead
-	one, so it closes the stream out from under a turn that was still
-	working. A keep-alive is transport, never an AG-UI event (see the module
-	docstring and the HEARTBEAT handling in ``_relay_child_stream``), so it
-	is sent here as a bare SSE comment line, not through the encoder.
-
-	``fn``'s return value comes back as this generator's ``StopIteration.value``
-	(consume with ``result = yield from _invoke_with_heartbeat(fn)``); an
-	exception raised by ``fn`` is re-raised here, on the caller's thread, so
-	existing except clauses keep working unchanged.
+	Consume with ``result = yield from _invoke_with_heartbeat(fn)``. A
+	keep-alive is transport, so it is a bare SSE comment, never an encoded
+	event.
 	"""
 	outcome: dict = {}
 
@@ -199,10 +189,6 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 		if builder:
 			context = builder(context or {})
 
-		# The blocking call below can run the whole turn (bpmn_map / direct_api /
-		# adk runners never yield until they are done), so a heartbeat comment
-		# keeps the connection from going quiet while it is in progress \u2014 see
-		# _invoke_with_heartbeat.
 		result = yield from _invoke_with_heartbeat(
 			lambda: invoke_agent(
 				agent_id, message, conversation=conversation, context=context or {}, stream=True
@@ -272,12 +258,9 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 		# refusal arrived as RUN_ERROR and the panel showed "Something went
 		# wrong" over a message that explains itself perfectly well.
 		#
-		# Delivered as a SYSTEM notice, not an ordinary assistant message, so
-		# it lands in the thread where the user is reading without reading as
-		# the agent itself speaking \u2014 a throttle or a freeze is the platform
-		# talking, not the agent. NOT logged as an error either: the control
-		# working as designed is not an incident, and a traceback per refusal
-		# fills the log with false alarms.
+		# Delivered as a system notice, not an assistant message: a throttle is
+		# the platform talking. Not logged as an error either, since a control
+		# working as designed is not an incident.
 		# COMMIT, not rollback. Nothing of this turn has been written — enforce
 		# raises before the runner is reached — so the only thing in the
 		# transaction is the AI Security Event recording the blocked attempt, and
