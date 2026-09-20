@@ -504,6 +504,15 @@ def finalize_ai_run(run, result: ExecutorResult, goal_key: str | None = None) ->
 
 	run.db_set(update)
 
+	# WI-002191: a run that died for a credential reason marks its model
+	# Unhealthy, which is what stops the next message from producing another
+	# identical failure; a success on a model that was Unhealthy clears it.
+	from one_bpmn.agents import model_health
+
+	model_health.note_run_outcome(
+		getattr(run, "model", None), update.get("error_code") or "SUCCESS", update.get("error_message")
+	)
+
 
 def finalize_ai_run_on_exception(run, exception: Exception) -> None:
 	"""Finalize an AI Agent Run when an unexpected exception occurs.
