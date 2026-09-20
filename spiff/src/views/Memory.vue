@@ -203,6 +203,9 @@ const start = ref(0);
 const pageLength = ref(20);
 const detail = ref(null);
 const options = ref({ agents: [], users: [], source_types: [] });
+const showPurgeDialog = ref(false);
+const purging = ref(false);
+const purgeError = ref("");
 
 const filters = reactive({
 	agent_element: "",
