@@ -182,7 +182,7 @@
 </template>
 
 <script setup>
-import { Button, ErrorMessage, FormControl, frappeRequest } from "frappe-ui";
+import { Button, Dialog, ErrorMessage, FormControl, frappeRequest } from "frappe-ui";
 import { computed, onMounted, reactive, ref } from "vue";
 
 const API = "/api/method/one_bpmn.api.memory_api.";
