@@ -302,7 +302,10 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 _CUSTOM_ENVELOPE_KEYS = {"type", "name", "event", "value", "timestamp", "raw_event", "rawEvent"}
 
 
-def _relay_child_stream(child, encoder, message_id):
+_CHILD_EXHAUSTED = object()
+
+
+def _relay_child_stream(child, encoder, message_id, interval=_HEARTBEAT_INTERVAL_SECONDS):
 	"""Relay a streaming runner's events into the parent stream.
 
 	Mirrors Lumina's passthrough rules (lumina.py ag_ui_event_generator):
@@ -311,7 +314,16 @@ def _relay_child_stream(child, encoder, message_id):
 	terminal error; already-encoded strings pass through untouched; text
 	deltas are re-encoded under the child's message id when it has one.
 	"""
-	for event in child:
+	# A child that is waiting on a worker yields nothing for as long as the
+	# work takes, so the wait for its next event is what has to carry the
+	# keep-alive, not the call that produced the child.
+	steps = iter(child)
+	while True:
+		event = yield from _invoke_with_heartbeat(
+			lambda: next(steps, _CHILD_EXHAUSTED), interval
+		)
+		if event is _CHILD_EXHAUSTED:
+			return
 		if isinstance(event, (bytes, str)):
 			# Already an encoded SSE line (str) — trust and pass through.
 			yield event.decode() if isinstance(event, bytes) else event

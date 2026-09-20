@@ -403,3 +403,45 @@ class TestHeartbeatKeepsTheRequestContext(FrappeTestCase):
 		with self.assertRaises(ValueError):
 			while True:
 				next(gen)
+
+
+class TestRelayKeepsASlowChildAlive(FrappeTestCase):
+	"""The wait for a child's next event is where a parked turn spends its
+	time, so that is where the keep-alive has to come from."""
+
+	def test_a_silent_child_still_produces_keepalives(self):
+		import time
+
+		from ag_ui.encoder import EventEncoder
+
+		from one_bpmn.agents import agui_stream
+
+		def slow_child():
+			time.sleep(0.25)
+			yield {"type": "TEXT_MESSAGE_CONTENT", "delta": "late"}
+
+		out = list(
+			agui_stream._relay_child_stream(
+				slow_child(), EventEncoder(), "MSG-1", interval=0.05
+			)
+		)
+
+		self.assertTrue([line for line in out if line.startswith(":")], "no keep-alive was sent")
+		self.assertTrue([line for line in out if "late" in line], "the child's event was lost")
+
+	def test_a_fast_child_sends_no_keepalive(self):
+		from ag_ui.encoder import EventEncoder
+
+		from one_bpmn.agents import agui_stream
+
+		def fast_child():
+			yield {"type": "TEXT_MESSAGE_CONTENT", "delta": "now"}
+
+		out = list(
+			agui_stream._relay_child_stream(
+				fast_child(), EventEncoder(), "MSG-1", interval=5
+			)
+		)
+
+		self.assertEqual([line for line in out if line.startswith(":")], [])
+		self.assertTrue([line for line in out if "now" in line])
