@@ -9,7 +9,10 @@
 						everybody's.
 					</p>
 				</div>
-				<Button :loading="loading" @click="load()">Refresh</Button>
+				<div class="flex items-center gap-2">
+					<Button variant="subtle" theme="red" @click="showPurgeDialog = true">Purge</Button>
+					<Button :loading="loading" @click="load()">Refresh</Button>
+				</div>
 			</div>
 		</header>
 
