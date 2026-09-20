@@ -10,7 +10,7 @@ import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { frappeGet, frappePost } from "../shared/frappeResource";
-import { getAttr, setAttr, useConfigValue } from "../shared/agentAttrs";
+import { getAttr, setAttr } from "../shared/agentAttrs";
 
 export function AiTaskSelectorProps(props) {
 	const { element } = props;
@@ -190,13 +190,12 @@ function SystemPromptComponent(props) {
 	const modeling = useService("modeling");
 	const translate = useService("translate");
 	const bo = getBusinessObject(element);
-	const live = useConfigValue(bo, "aiSystemPrompt");
 
 	return h(TextAreaEntry, {
 		element,
 		id,
 		label: translate("System Prompt"),
-		getValue: () => live ?? getAttr(bo, "aiSystemPrompt"),
+		getValue: () => getAttr(bo, "aiSystemPrompt"),
 		setValue: (value) => setAttr(modeling, element, bo, "aiSystemPrompt", value),
 		debounce: useService("debounceInput"),
 	});
