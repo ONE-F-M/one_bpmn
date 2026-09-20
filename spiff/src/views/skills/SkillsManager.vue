@@ -237,6 +237,20 @@
 						</nav>
 					</div>
 
+					<!-- Token estimate vs ceiling -->
+					<div class="flex-none border-b px-6 py-2 bg-gray-50 flex items-center gap-2 text-xs">
+						<Icon icon="lucide:hash" class="w-3.5 h-3.5 text-gray-400" />
+						<span
+							:class="[
+								'font-medium',
+								isOverTokenCeiling(selectedSkill.token_estimate) ? 'text-red-600' : 'text-gray-700'
+							]"
+						>
+							{{ formatTokenEstimate(selectedSkill.token_estimate) }} / {{ formatNumber(TOKEN_CEILING) }} tokens
+						</span>
+						<span class="text-gray-400">(skill body ceiling)</span>
+					</div>
+
 					<!-- Settings Tab -->
 					<div v-if="activeTab === 'Settings'" class="flex-1 flex flex-col overflow-y-auto bg-gray-50 p-6">
 						<div class="bg-white shadow rounded-lg border">
