@@ -66,8 +66,13 @@ def _wait_for_worker_reply(inst_name: str, conversation_name: str, reply_before:
 		# forces parking means it, and gets the real path.
 		return None
 
+	# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+	# The worker reads this turn on its own connection.
 	frappe.db.commit()
 	turn_signal.wait(inst_name, CHAT_TURN_WAIT_SECONDS)
+	# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+	# REPEATABLE READ pins a snapshot at the first read, so without a second
+	# commit this request keeps reading the rows from before the wait.
 	frappe.db.commit()
 
 	rows = _latest_bot_message(conversation_name)
