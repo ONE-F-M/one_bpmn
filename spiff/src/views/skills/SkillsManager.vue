@@ -92,13 +92,109 @@
 
 			<!-- Right Area: Detail View -->
 			<div class="flex-1 flex flex-col bg-white overflow-hidden relative">
-				<div v-if="!selectedSkill" class="absolute inset-0 flex items-center justify-center text-gray-400">
+				<div v-if="!selectedSkill && !isCreatingNew" class="absolute inset-0 flex items-center justify-center text-gray-400">
 					<div class="text-center">
 						<Icon icon="lucide:brain-circuit" class="w-12 h-12 mx-auto mb-3 opacity-50" />
 						<p>Select a skill from the sidebar to view details</p>
 					</div>
 				</div>
-				
+
+				<div v-else-if="isCreatingNew" class="absolute inset-0 overflow-y-auto bg-gray-50 p-6">
+					<div class="bg-white shadow rounded-lg border max-w-3xl mx-auto">
+						<div class="px-4 py-5 sm:px-6 border-b flex justify-between items-center">
+							<h3 class="text-lg leading-6 font-medium text-gray-900">Create New Skill</h3>
+						</div>
+						<div class="px-4 py-5 sm:p-6 space-y-6">
+							<div>
+								<label class="block text-sm font-medium text-gray-700">Skill Name <span class="text-red-500">*</span></label>
+								<input type="text" v-model="newSkillForm.skill_name" class="mt-1 shadow-sm focus:ring-gray-500 focus:border-gray-500 block w-full sm:text-sm border-gray-300 rounded-md" placeholder="e.g. Find Employee">
+							</div>
+							<div>
+								<label class="block text-sm font-medium text-gray-700">Description</label>
+								<textarea v-model="newSkillForm.description" rows="2" class="mt-1 shadow-sm focus:ring-gray-500 focus:border-gray-500 block w-full sm:text-sm border-gray-300 rounded-md" placeholder="Brief description of what the skill does"></textarea>
+							</div>
+							<div class="grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-2">
+								<div>
+									<label class="block text-sm font-medium text-gray-700">Tier</label>
+									<select v-model="newSkillForm.tier" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm rounded-md">
+										<option value="Read-Only">Read-Only</option>
+										<option value="Draft-Only">Draft-Only</option>
+										<option value="Action-Allowed">Action-Allowed</option>
+									</select>
+								</div>
+								<div>
+									<label class="block text-sm font-medium text-gray-700">Status</label>
+									<select v-model="newSkillForm.status" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm rounded-md">
+										<option value="Draft">Draft</option>
+										<option value="Active">Active</option>
+										<option value="Deprecated">Deprecated</option>
+									</select>
+								</div>
+							</div>
+							<div>
+								<label class="block text-sm font-medium text-gray-700">Body (Markdown)</label>
+								<textarea v-model="newSkillForm.body" rows="6" class="mt-1 shadow-sm focus:ring-gray-500 focus:border-gray-500 block w-full sm:text-sm border-gray-300 rounded-md font-mono" placeholder="Markdown instructions for the agent..."></textarea>
+							</div>
+
+							<div class="border-t pt-6">
+								<div class="flex justify-between items-center mb-4">
+									<h4 class="text-sm font-medium text-gray-900">Resources</h4>
+									<button @click="addNewSkillResource" type="button" class="inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50">
+										Add Resource
+									</button>
+								</div>
+								<div v-for="(r, idx) in newSkillForm.resources" :key="idx" class="bg-gray-50 p-4 rounded-lg mb-4 border">
+									<div class="flex justify-between items-start mb-4">
+										<div class="flex-1 grid grid-cols-2 gap-4">
+											<div>
+												<label class="block text-xs font-medium text-gray-700">Type</label>
+												<select v-model="r.resource_type" class="mt-1 block w-full pl-3 pr-10 py-1.5 text-base border-gray-300 focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm rounded-md">
+													<option value="Script">Script</option>
+													<option value="Reference">Reference</option>
+													<option value="Asset">Asset</option>
+													<option value="Template">Template</option>
+												</select>
+											</div>
+											<div>
+												<label class="block text-xs font-medium text-gray-700">Name</label>
+												<input type="text" v-model="r.resource_name" class="mt-1 shadow-sm focus:ring-gray-500 focus:border-gray-500 block w-full sm:text-sm border-gray-300 rounded-md">
+											</div>
+										</div>
+										<button @click="removeNewSkillResource(idx)" type="button" class="ml-4 text-gray-400 hover:text-red-500">
+											<Icon icon="lucide:trash-2" class="w-4 h-4" />
+										</button>
+									</div>
+									<div>
+										<label class="block text-xs font-medium text-gray-700">Value</label>
+										<textarea v-model="r.resource_value" rows="2" class="mt-1 shadow-sm focus:ring-gray-500 focus:border-gray-500 block w-full sm:text-sm border-gray-300 rounded-md font-mono"></textarea>
+									</div>
+								</div>
+								<div v-if="!newSkillForm.resources.length" class="text-sm text-gray-500 text-center py-4 bg-gray-50 rounded-lg border border-dashed">
+									No resources attached
+								</div>
+							</div>
+						</div>
+						<div class="bg-gray-50 px-4 py-3 sm:px-6 flex justify-end gap-3 rounded-b-lg">
+							<button
+								type="button"
+								class="inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+								@click="cancelCreateSkill"
+							>
+								Cancel
+							</button>
+							<button
+								type="button"
+								class="inline-flex justify-center items-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-gray-900 text-sm font-medium text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900 disabled:opacity-50"
+								@click="submitNewSkill"
+								:disabled="creating || !newSkillForm.skill_name"
+							>
+								<Icon v-if="creating" icon="lucide:loader-2" class="w-4 h-4 mr-2 animate-spin" />
+								{{ creating ? 'Creating...' : 'Create Skill' }}
+							</button>
+						</div>
+					</div>
+				</div>
+
 				<template v-else>
 					<!-- Tab Navigation -->
 					<div class="flex-none border-b px-6 bg-gray-50">
@@ -354,74 +450,6 @@
 			</div>
 		</div>
 
-		<!-- Create Modal -->
-		<div v-if="showCreateModal" class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-			<div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-				<div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true" @click="showCreateModal = false"></div>
-				<span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-				<div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
-					<div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-						<div class="sm:flex sm:items-start">
-							<div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-blue-100 sm:mx-0 sm:h-10 sm:w-10">
-								<Icon icon="lucide:plus" class="h-6 w-6 text-blue-600" />
-							</div>
-							<div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
-								<h3 class="text-lg leading-6 font-medium text-gray-900" id="modal-title">Create New Skill</h3>
-								<div class="mt-4 space-y-4">
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700">Skill Name <span class="text-red-500">*</span></label>
-                                        <input type="text" v-model="newSkillForm.skill_name" class="mt-1 shadow-sm focus:ring-gray-500 focus:border-gray-500 block w-full sm:text-sm border-gray-300 rounded-md" placeholder="e.g. Find Employee">
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700">Description</label>
-                                        <textarea v-model="newSkillForm.description" rows="2" class="mt-1 shadow-sm focus:ring-gray-500 focus:border-gray-500 block w-full sm:text-sm border-gray-300 rounded-md" placeholder="Brief description of what the skill does"></textarea>
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700">Tier</label>
-                                        <select v-model="newSkillForm.tier" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm rounded-md">
-                                            <option value="Read-Only">Read-Only</option>
-                                            <option value="Draft-Only">Draft-Only</option>
-                                            <option value="Action-Allowed">Action-Allowed</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700">Status</label>
-                                        <select v-model="newSkillForm.status" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm rounded-md">
-                                            <option value="Draft">Draft</option>
-                                            <option value="Active">Active</option>
-                                            <option value="Deprecated">Deprecated</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700">Body (Markdown)</label>
-                                        <textarea v-model="newSkillForm.body" rows="6" class="mt-1 shadow-sm focus:ring-gray-500 focus:border-gray-500 block w-full sm:text-sm border-gray-300 rounded-md font-mono" placeholder="Markdown instructions for the agent..."></textarea>
-                                    </div>
-								</div>
-							</div>
-						</div>
-					</div>
-					<div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-						<button
-							type="button"
-							class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-gray-900 text-base font-medium text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900 sm:ml-3 sm:w-auto sm:text-sm"
-							@click="submitNewSkill"
-							:disabled="creating || !newSkillForm.skill_name"
-						>
-							<Icon v-if="creating" icon="lucide:loader-2" class="w-4 h-4 mr-2 animate-spin" />
-							{{ creating ? 'Creating...' : 'Create Skill' }}
-						</button>
-						<button 
-							type="button" 
-							class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
-							@click="showCreateModal = false"
-						>
-							Cancel
-						</button>
-					</div>
-				</div>
-			</div>
-		</div>
-
 	</div>
 </template>
 
@@ -439,19 +467,46 @@ const filteredTools = computed(() => {
 })
 
 
-const showCreateModal = ref(false)
+const isCreatingNew = ref(false)
 const newSkillForm = ref({
     skill_name: '',
     description: '',
     tier: 'Read-Only',
     status: 'Draft',
     owner_team: '',
-    body: ''
+    body: '',
+    resources: []
 })
 const creating = ref(false)
 
 function createNewSkill() {
-	showCreateModal.value = true
+	selectedSkill.value = null
+	isCreatingNew.value = true
+}
+
+function cancelCreateSkill() {
+	isCreatingNew.value = false
+	newSkillForm.value = {
+		skill_name: '',
+		description: '',
+		tier: 'Read-Only',
+		status: 'Draft',
+		owner_team: '',
+		body: '',
+		resources: []
+	}
+}
+
+function addNewSkillResource() {
+	newSkillForm.value.resources.push({
+		resource_type: 'Reference',
+		resource_name: '',
+		resource_value: ''
+	})
+}
+
+function removeNewSkillResource(idx) {
+	newSkillForm.value.resources.splice(idx, 1)
 }
 
 async function submitNewSkill() {
@@ -471,19 +526,21 @@ async function submitNewSkill() {
                     tier: newSkillForm.value.tier,
                     status: newSkillForm.value.status || 'Draft',
                     owner_team: newSkillForm.value.owner_team,
-                    body: newSkillForm.value.body || ''
+                    body: newSkillForm.value.body || '',
+                    resources: newSkillForm.value.resources || []
                 }
             }
         );
         if (res) {
-            showCreateModal.value = false;
+            isCreatingNew.value = false;
             newSkillForm.value = {
                 skill_name: '',
                 description: '',
                 tier: 'Read-Only',
                 status: 'Draft',
                 owner_team: '',
-                body: ''
+                body: '',
+                resources: []
             };
             await refreshSkills();
             selectSkill(res);
@@ -551,6 +608,7 @@ const refreshSkills = async () => {
 }
 
 const selectSkill = async (skill) => {
+	isCreatingNew.value = false
 	selectedSkill.value = skill
 	activeTab.value = 'Editor'
 	
