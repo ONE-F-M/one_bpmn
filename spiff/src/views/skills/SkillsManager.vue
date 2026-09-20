@@ -49,7 +49,25 @@
 						>
 					</div>
 				</div>
-				
+				<div class="px-4 py-2 border-b bg-white flex items-center gap-2 text-xs text-gray-500">
+					<span>Sort by</span>
+					<select
+						v-model="sortBy"
+						class="text-xs border-gray-300 rounded-md focus:ring-gray-500 focus:border-gray-500 py-1"
+					>
+						<option value="name">Name</option>
+						<option value="token_estimate">Token estimate</option>
+					</select>
+					<button
+						type="button"
+						@click="sortDir = sortDir === 'asc' ? 'desc' : 'asc'"
+						class="inline-flex items-center px-2 py-1 border border-gray-300 rounded-md hover:bg-gray-50"
+						:title="sortDir === 'asc' ? 'Ascending' : 'Descending'"
+					>
+						<Icon :icon="sortDir === 'asc' ? 'lucide:arrow-up' : 'lucide:arrow-down'" class="w-3.5 h-3.5" />
+					</button>
+				</div>
+
 				<div class="flex-1 overflow-y-auto p-2 space-y-1">
 					<div v-if="loading && skills.length === 0" class="p-4 text-center text-sm text-gray-500">
 						Loading skills...
