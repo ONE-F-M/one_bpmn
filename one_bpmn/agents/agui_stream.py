@@ -28,6 +28,7 @@ keep-alives/heartbeats are comments, never events; errors surface only as
 RunError; nothing is ever emitted as a bare named SSE line.
 """
 
+import contextvars
 import json
 import threading
 import uuid
@@ -149,10 +150,14 @@ def _invoke_with_heartbeat(fn, interval: float = _HEARTBEAT_INTERVAL_SECONDS):
 	event.
 	"""
 	outcome: dict = {}
+	# frappe.local is a ContextVar, and a thread starts with an empty context,
+	# so the call runs inside a copy of this request's or it loses the session,
+	# the site and frappe.flags.
+	context = contextvars.copy_context()
 
 	def _run():
 		try:
-			outcome["result"] = fn()
+			outcome["result"] = context.run(fn)
 		except BaseException as exc:  # noqa: BLE001 - re-raised on caller's thread
 			outcome["error"] = exc
 

@@ -363,3 +363,43 @@ class TestBpmnMapResumeRearm(FrappeTestCase):
 		calls, spawn, err = self._invoke([None], lambda *a: None)
 		self.assertIsInstance(err, _frappe.ValidationError)
 		self.assertEqual(calls["delegate"], 10)  # settle loop (1+8) + re-arm retry
+
+
+class TestHeartbeatKeepsTheRequestContext(FrappeTestCase):
+	"""The keep-alive runs the turn on another thread, which starts with an
+	empty context unless the request's is carried across."""
+
+	def test_the_callable_still_sees_the_session(self):
+		import frappe
+
+		from one_bpmn.agents import agui_stream
+
+		seen = {}
+
+		def _work():
+			seen["user"] = frappe.session.user
+			seen["in_test"] = frappe.flags.in_test
+			return "done"
+
+		gen = agui_stream._invoke_with_heartbeat(_work, interval=0.01)
+		result = None
+		try:
+			while True:
+				next(gen)
+		except StopIteration as stop:
+			result = stop.value
+
+		self.assertEqual(result, "done")
+		self.assertEqual(seen["user"], frappe.session.user)
+		self.assertTrue(seen["in_test"])
+
+	def test_an_exception_comes_back_to_the_caller(self):
+		from one_bpmn.agents import agui_stream
+
+		def _boom():
+			raise ValueError("from the worker thread")
+
+		gen = agui_stream._invoke_with_heartbeat(lambda: _boom(), interval=0.01)
+		with self.assertRaises(ValueError):
+			while True:
+				next(gen)
