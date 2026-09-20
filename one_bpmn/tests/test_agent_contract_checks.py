@@ -13,6 +13,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.api.compilation import (
 	_tool_contract_gaps,
+	_validate_ai_tool_contract,
 	_turn_keys_read,
 	_turn_keys_written,
 	_validate_turn_store_contract,
@@ -49,6 +50,39 @@ class TestToolContractGaps(FrappeTestCase):
 		prompt = "Pass `plan_approved: false` and put the answer in `response`."
 		self.assertEqual(_tool_contract_gaps(prompt, set(), set()), [])
 
+
+class TestBothPromptsAreRead(FrappeTestCase):
+	"""A tool named only on the shape is caught too.
+
+	The configuration's prompt is the one the model usually gets, so the check
+	read only that. A designer editing the prompt in the diagram then saw the
+	deploy go through and reasonably concluded the check did not work.
+	"""
+
+	def _exts(self, shape_prompt="", user_prompt=""):
+		import json
+
+		return {"demo_agent": {
+			"serviceType": "ai_agent",
+			"aiToolsAdhoc": "demo_tools",
+			"aiToolShapes": json.dumps([{"bpmn_id": "do_work"}]),
+			"aiSystemPrompt": shape_prompt,
+			"aiUserPrompt": user_prompt,
+		}}
+
+	def test_a_tool_named_only_on_the_shape_is_caught(self):
+		warnings = _validate_ai_tool_contract(self._exts(shape_prompt="Then call propose_pull_request once."))
+		self.assertEqual(len(warnings), 1)
+		self.assertIn("propose_pull_request", warnings[0]["detail"])
+		self.assertIn("demo_tools", warnings[0]["detail"])
+
+	def test_a_tool_named_only_in_the_turn_instructions_is_caught(self):
+		warnings = _validate_ai_tool_contract(self._exts(user_prompt="Finish by calling propose_pull_request."))
+		self.assertEqual(len(warnings), 1)
+		self.assertIn("propose_pull_request", warnings[0]["detail"])
+
+	def test_a_shape_naming_only_real_tools_is_quiet(self):
+		self.assertEqual(_validate_ai_tool_contract(self._exts(shape_prompt="Call do_work once.")), [])
 
 class TestTurnStoreKeys(FrappeTestCase):
 	def test_keys_written_inline_and_by_name(self):

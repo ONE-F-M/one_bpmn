@@ -2160,16 +2160,22 @@ def _validate_ai_tool_contract(service_extensions: dict) -> list:
 	warnings, blocking = [], []
 	for agent_id, cfg in agents.items():
 		tool_ids = {s.get("bpmn_id") for s in json.loads(cfg.get("aiToolShapes") or "[]")}
-		prompt, agent_type = cfg.get("aiSystemPrompt") or "", ""
+		shape_prompt, agent_type = cfg.get("aiSystemPrompt") or "", ""
+		config_prompt = ""
 		config_name = (cfg.get("aiAgentConfig") or "").strip()
 		if config_name and frappe.db.exists("AI Agent Configuration", config_name):
 			row = frappe.db.get_value(
 				"AI Agent Configuration", config_name, ["system_prompt", "agent_type"], as_dict=True
 			)
-			prompt, agent_type = (row.system_prompt or prompt), (row.agent_type or "")
-		# The turn's own instructions name tools just as the system prompt does,
-		# and a tool named only there is just as dead.
-		instructions = "\n".join(p for p in (prompt, cfg.get("aiUserPrompt") or "") if p)
+			config_prompt, agent_type = (row.system_prompt or ""), (row.agent_type or "")
+		# Both prompts are read, not just whichever wins at run time. The
+		# configuration's is the one the model usually gets, but the shape's is
+		# what a designer edits in the diagram, and a tool named only there looks
+		# to them exactly like a tool that was set up. The turn's own instructions
+		# name tools the same way.
+		instructions = "\n".join(
+			p for p in (config_prompt, shape_prompt, cfg.get("aiUserPrompt") or "") if p
+		)
 		gaps = _tool_contract_gaps(instructions, tool_ids, known)
 		if not gaps:
 			continue
