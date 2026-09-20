@@ -324,6 +324,21 @@ function showNotice(text) {
 const retire = (m) => act("retire_memory", m);
 const restore = (m) => act("restore_memory", m);
 
+async function purge() {
+	purging.value = true;
+	purgeError.value = "";
+	try {
+		const r = await call("purge_memories", purgeTarget.value ? { user: purgeTarget.value } : {});
+		showPurgeDialog.value = false;
+		showNotice(`Purged: ${r.deleted} memor${r.deleted === 1 ? "y" : "ies"} removed.`);
+		await load(0);
+	} catch (e) {
+		purgeError.value = e.message || String(e);
+	} finally {
+		purging.value = false;
+	}
+}
+
 onMounted(() => {
 	loadOptions();
 	load();
