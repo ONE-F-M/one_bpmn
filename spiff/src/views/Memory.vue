@@ -222,6 +222,14 @@ const agentOptions = computed(() => choices("All agents", options.value.agents))
 const userOptions = computed(() => choices("Everyone", options.value.users));
 const sourceOptions = computed(() => choices("Any source", options.value.source_types));
 
+const purgeTarget = computed(() => {
+	// "Shared" memories belong to no one and the endpoint never touches them;
+	// an unfiltered list purges the caller's own, same as the endpoint's default.
+	if (filters.user && filters.user !== "Shared") return filters.user;
+	return null;
+});
+const purgeTargetLabel = computed(() => purgeTarget.value || "your own memories");
+
 const rangeLabel = computed(() => {
 	if (!total.value) return "No memories";
 	const to = Math.min(start.value + memories.value.length, total.value);
