@@ -93,6 +93,11 @@ DELEGATION_FIELDS = (
 	"max_delegation_retries",
 )
 
+# What happens to a message that arrives while the agent is still answering the
+# last one. Its own group: this is about ORDER, not about how often someone may
+# write, and filing it under the throttle would read as another rate limit.
+CONCURRENCY_FIELDS = ("concurrent_turn_policy",)
+
 CLARIFICATION_FIELDS = ("max_clarification_rounds",)
 
 # WI-002195: how much of any one tool result the model is shown. Agent-owned
@@ -102,6 +107,7 @@ TOOL_RESULT_FIELDS = ("tool_result_max_chars",)
 AGENT_CONTROL_GROUPS = (
 	("Screening", SCREENING_FIELDS),
 	("Rate limiting & freeze", RATE_LIMIT_FIELDS),
+	("Concurrent messages", CONCURRENCY_FIELDS),
 	("Feedback", FEEDBACK_FIELDS),
 	("Delegation", DELEGATION_FIELDS),
 	("Clarification", CLARIFICATION_FIELDS),

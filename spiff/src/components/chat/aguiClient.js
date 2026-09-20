@@ -37,12 +37,14 @@ const GENERIC_FAILURE = "Connection lost. Please try again.";
  * @param {string} [opts.conversation]  omit on the first turn — the
  *        conversation id arrives on RUN_STARTED as thread_id
  * @param {Object} [opts.context]      host state for this turn
+ * @param {string} [opts.clientMessageId] id minted for this message. Re-sending
+ *        it replays the first reply instead of running the agent a second time.
  * @param {(event: Object) => void} opts.onEvent   every parsed event
  * @param {(message: string) => void} opts.onError RUN_ERROR or transport failure
  * @param {() => void} opts.onDone     terminal — stream closed
  * @returns {{ close: () => void }}
  */
-export function streamAgentTurn({ agentId, message, conversation, context, onEvent, onError, onDone }) {
+export function streamAgentTurn({ agentId, message, conversation, context, clientMessageId, onEvent, onError, onDone }) {
 	const controller = new AbortController();
 	let finished = false;
 
@@ -88,6 +90,7 @@ export function streamAgentTurn({ agentId, message, conversation, context, onEve
 
 	const body = new URLSearchParams({ agent_id: agentId, message: message ?? "" });
 	if (conversation) body.set("conversation", conversation);
+	if (clientMessageId) body.set("client_message_id", clientMessageId);
 	if (context && Object.keys(context).length) body.set("context", JSON.stringify(context));
 
 	(async () => {

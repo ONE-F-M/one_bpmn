@@ -87,6 +87,7 @@
   "rate_limit_window_seconds",
   "lock_after_blocks",
   "lock_block_window_seconds",
+  "concurrent_turn_policy",
   "a2a_section",
   "a2a_exposed",
   "a2a_skill_tags",
@@ -486,6 +487,14 @@
    "fieldname": "rate_limit_messages",
    "fieldtype": "Int",
    "label": "Messages Per Window"
+  },
+  {
+   "default": "Queue",
+   "description": "What happens when a second message arrives while this agent is still answering the last one. Queue waits for the running turn and then answers; Refuse replies \"Still working on your last message\" and drops it.",
+   "fieldname": "concurrent_turn_policy",
+   "fieldtype": "Select",
+   "label": "Message During a Turn",
+   "options": "Queue\nRefuse"
   },
   {
    "fieldname": "column_break_rate_limit",
