@@ -546,9 +546,8 @@ def _bpmn_turn_stream(config, conversation, message, context):
 		# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
 		frappe.db.commit()
 
-	# The AI task's own output travels on the same list. It is the answer, not
-	# a status line, so it is taken out here and handed to the collector rather
-	# than relayed to the client.
+	# The task output is the answer, not a status line: it goes to the
+	# collector, never to the client.
 	task_output = {}
 	for event in turn_signal.consume(handle["instance"], CHAT_TURN_WAIT_SECONDS):
 		if isinstance(event, dict) and event.get("type") == TURN_OUTPUT_EVENT:
@@ -583,12 +582,8 @@ def _run_bpmn_map(config, conversation, message, context, stream=False):
 
 	result = delegate_chat_turn(conversation, message, context=context)
 
-	# The first-turn race used to be met here with eight blind retries of the
-	# whole turn, a second apart. Delivery answers it properly now: it accepts a
-	# Queued instance, starts it inline under a row lock, and waits for the
-	# worker to finish the turn. What is left when delivery still returns
-	# nothing is a conversation with no live instance at all, and retrying the
-	# same call cannot change that. The re-arm below is the recovery.
+	# Delivery already accepts a Queued instance and waits for the worker, so
+	# nothing back means no live instance. Re-arm instead of retrying.
 
 	if result is None:
 		result = _rearm_and_deliver(config, conversation, message, context)

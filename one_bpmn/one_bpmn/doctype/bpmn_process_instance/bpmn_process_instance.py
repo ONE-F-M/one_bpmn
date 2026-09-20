@@ -2566,10 +2566,8 @@ def run_parked_ai_task(
 			0,
 			update_modified=False,
 		)
-		# A chat request may be holding its connection open for this turn. It
-		# reads the reply from the database; this only tells it to stop waiting.
-		# In the finally block on purpose: a failed job has to end the wait too,
-		# or the person sits on a spinner until the deadline for no reason.
+		# In the finally block on purpose: a failed job has to end the waiting
+		# request too. The reply itself is read from the database.
 		# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
 		frappe.db.commit()
 		turn_signal.publish(instance_name)

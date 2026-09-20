@@ -29,9 +29,8 @@ def _derive_api_method(script_name: str) -> str:
 	return method or "script"
 
 
-# How long the chat request waits for the worker to finish the turn. Matches the
-# per-call ceiling an AI Agent Task is given, so the request gives up at the same
-# point the work itself would.
+# Matches the per-call ceiling of an AI Agent Task, so the request gives up
+# when the work itself would.
 CHAT_TURN_WAIT_SECONDS = 300
 
 
@@ -60,10 +59,8 @@ def _wait_for_worker_reply(inst_name: str, conversation_name: str, reply_before:
 	would keep answering with the rows it saw then, however long it waited.
 	"""
 	if frappe.flags.in_test and not frappe.flags.get("bpmn_force_ai_parking"):
-		# Parking is off in tests, so the engine ran inline and the reply is
-		# already there. Without this a delegation test would block for the
-		# whole turn deadline waiting for a worker that never runs. A test that
-		# forces parking means it, and gets the real path.
+		# Parking is off in tests, so the reply is already there and a wait
+		# would block on a worker that never runs.
 		return None
 
 	# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
@@ -153,12 +150,8 @@ def _delegate_to_bpmn_instance(
 	}
 	payload.update({k: v for k, v in (context or {}).items() if v not in (None, "")})
 
-	# The AI work of this turn parks on the bpmn_ai_agent worker like every
-	# other agent task. It used to run inline here, which put the
-	# model call and every tool inside the gunicorn worker for the length of a
-	# turn. What the chat endpoint still owes its caller is the reply, so the
-	# wait moved below: the engine pass returns as soon as the job is queued,
-	# and this function waits for that job instead of doing its work.
+	# The AI work parks on the bpmn_ai_agent worker, so the engine pass
+	# returns once the job is queued and the wait below covers the turn.
 	turn_signal.clear(inst_name)
 	try:
 		instance = frappe.get_doc("BPMN Process Instance", inst_name)
@@ -191,9 +184,8 @@ def _delegate_to_bpmn_instance(
 	rows = _latest_bot_message(conversation_name)
 	if not rows or rows[0]["name"] == reply_before:
 		if not wait:
-			# The caller wants to relay the worker's progress while the turn
-			# runs, which a function that blocks cannot let it do. It collects
-			# the reply itself through collect_chat_turn_reply.
+			# The caller relays progress itself and collects the reply through
+			# collect_chat_turn_reply.
 			return {
 				"pending": True,
 				"instance": inst_name,
@@ -240,8 +232,7 @@ def collect_chat_turn_reply(handle: dict, task_output=None) -> dict | None:
 		parked = _parked_for_human(inst_name, conversation_name)
 		if parked:
 			return parked
-		# No row of its own, but the task answered. A map that does not persist
-		# a Bot message still has a reply to give.
+		# A map that persists no Bot message still has a reply to give.
 		return _reply_from_task_output(task_output, inst_name) if task_output else None
 	return _shape_reply(rows, inst_name, task_output)
 

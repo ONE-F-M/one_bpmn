@@ -171,12 +171,8 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 				frappe.db.commit()
 
 		if result.get("streaming"):
-			# A runner that streams may still finish with an ordinary reply to
-			# shape: the map runner relays the worker's progress first, then
-			# hands over what the turn produced. Anything it hands
-			# over is taken out of the relay here and falls through to the
-			# buffered path below, so cards, artifacts and the persisted message
-			# id keep working exactly as they do for a runner that never streams.
+			# A handover is taken out of the relay and falls through to the
+			# buffered path, so cards and artifacts keep working.
 			handover = {}
 			yield from _relay_child_stream(
 				_take_handover(result["stream"], handover), encoder, message_id
@@ -277,9 +273,8 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 _CUSTOM_ENVELOPE_KEYS = {"type", "name", "event", "value", "timestamp", "raw_event", "rawEvent"}
 
 
-# A runner that streams its progress can end by handing over an ordinary
-# buffered reply. It travels as one event on the same stream so the runner does
-# not have to repeat the shaping the buffered path already does.
+# A streaming runner ends by handing its buffered reply over on the same
+# stream, so the shaping is not duplicated.
 HANDOVER_EVENT = "ONEFM_TURN_RESULT"
 
 

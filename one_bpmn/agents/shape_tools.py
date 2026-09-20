@@ -339,8 +339,7 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 
 		return json.dumps(produced or {"ok": True}, default=str)
 	except ToolDeferred:
-		# The tool has not finished, it is waiting. Announcing an end here would
-		# clear the status line while the work is still running.
+		# Waiting, not finished: an end here would clear a live status line.
 		still_running = True
 		raise
 	except frappe.PermissionError as refused:
@@ -362,8 +361,7 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 		)
 		return json.dumps({"error": f"Shape '{bpmn_id}' failed — see Error Log for details."})
 	finally:
-		# Every exit reports, including the branches that hand an error back to
-		# the model: a status line that is never cleared is worse than none.
+		# Every exit reports, or a status line is left hanging.
 		if not still_running:
 			_announce(instance, "TOOL_CALL_END", bpmn_id)
 

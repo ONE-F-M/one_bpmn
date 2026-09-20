@@ -1433,8 +1433,7 @@ def _checkpointed_tool_results(resume_payload: dict) -> list:
 	return out
 
 
-# An AI task's output on its way to the request waiting for it. Not a UI
-# event: the stream captures it and never relays it.
+# Captured by the stream, never relayed: this is the answer, not a UI event.
 TURN_OUTPUT_EVENT = "ONEFM_TURN_OUTPUT"
 
 

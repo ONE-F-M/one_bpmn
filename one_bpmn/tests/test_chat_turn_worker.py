@@ -83,8 +83,7 @@ class TestTheRequestPicksUpTheWorkerReply(FrappeTestCase):
 		frappe.set_user("Administrator")
 		self.conversation = "_test_conv_" + frappe.generate_hash(length=8)
 		self.instance = _instance_name()
-		# Say the turn really did park, so the wait runs instead of assuming an
-		# inline engine pass already produced the reply.
+		# Force the parked path, or the wait is skipped.
 		frappe.flags.bpmn_force_ai_parking = True
 
 	def tearDown(self):
@@ -109,8 +108,7 @@ class TestTheRequestPicksUpTheWorkerReply(FrappeTestCase):
 		reply = self._bot_message("the worker answered")
 		turn_signal.publish(self.instance)
 
-		# The two commits are what the real path needs and what a test must not
-		# do: committing here would defeat the suite's rollback.
+		# A real commit here would defeat the suite's rollback.
 		with patch.object(frappe.db, "commit"):
 			rows = server_script_api._wait_for_worker_reply(self.instance, self.conversation, None)
 
@@ -152,8 +150,7 @@ class TestProgressReachesTheRequest(FrappeTestCase):
 		from one_bpmn.agents import shape_tools
 
 		instance = frappe._dict({"name": self.instance, "_service_task_extensions": {}})
-		# A shape with no script and no service type is not executable, so the
-		# tool returns early. Even that path has to close its status line.
+		# Even the early return has to close its status line.
 		shape_tools.execute_shape(instance, "draft_connector", {}, {})
 
 		events = list(turn_signal.consume(self.instance, timeout=0.5, poll_seconds=0.05))
@@ -212,8 +209,7 @@ class TestTheReplyComesFromTheTaskOutput(FrappeTestCase):
 		self.conversation = "_test_conv_" + frappe.generate_hash(length=8)
 		self.instance = _instance_name()
 		frappe.flags.bpmn_force_ai_parking = True
-		# The worker is not running here, so a turn with no reply row would
-		# otherwise wait out the whole production deadline.
+		# No worker here, so an unbounded wait would hang the suite.
 		self._wait_patch = patch.object(server_script_api, "CHAT_TURN_WAIT_SECONDS", 0.3)
 		self._wait_patch.start()
 
@@ -254,7 +250,6 @@ class TestTheReplyComesFromTheTaskOutput(FrappeTestCase):
 
 		self.assertEqual(result["response"], "from the task")
 		self.assertEqual(result["intent"], "ANSWER")
-		# The row still names the reply, so a rating has something to point at.
 		self.assertEqual(result["message_name"], row.name)
 
 	def test_without_a_task_output_the_row_still_answers(self):
