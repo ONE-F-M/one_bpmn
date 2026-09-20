@@ -157,6 +157,27 @@
 				</div>
 			</aside>
 		</div>
+
+		<!-- Purge confirmation: names what will be deleted before anything runs,
+		     since unlike Retire this removes the rows for good. -->
+		<Dialog v-model="showPurgeDialog" :options="{ title: 'Purge memories', size: 'sm' }">
+			<template #body-content>
+				<div class="space-y-3 text-sm text-gray-700">
+					<p>
+						This will permanently delete all memories for
+						<strong>{{ purgeTargetLabel }}</strong>. Shared memories are not touched. This cannot
+						be undone.
+					</p>
+					<ErrorMessage v-if="purgeError" :message="purgeError" />
+				</div>
+			</template>
+			<template #actions>
+				<div class="flex gap-2 justify-end w-full">
+					<Button variant="subtle" @click="showPurgeDialog = false">Cancel</Button>
+					<Button variant="solid" theme="red" :loading="purging" @click="purge()">Purge</Button>
+				</div>
+			</template>
+		</Dialog>
 	</div>
 </template>
 
