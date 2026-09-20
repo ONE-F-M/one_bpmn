@@ -490,7 +490,18 @@ async function submitNewSkill() {
         }
     } catch (err) {
         console.error("Failed to create skill", err);
-        alert("Failed to create skill");
+        // The backend queues every frappe.msgprint (e.g. an AI-suggested
+        // rephrasing when the description looks ambiguous) alongside any
+        // frappe.throw for a genuine validation failure (bad tool
+        // reference, token ceiling exceeded, ...). frappe-ui surfaces all
+        // of those as err.messages, in the order they were raised, so
+        // joining them shows the real reason -- and the suggestion --
+        // instead of a generic message that hides both.
+        const msg =
+            err.messages && err.messages.length
+                ? err.messages.join("\n")
+                : err.message || "Failed to create skill";
+        alert(msg);
     } finally {
         creating.value = false;
     }
