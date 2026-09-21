@@ -1566,6 +1566,35 @@ def _checkpointed_tool_results(resume_payload: dict) -> list:
 	return out
 
 
+# Captured by the stream, never relayed: this is the answer, not a UI event.
+TURN_OUTPUT_EVENT = "ONEFM_TURN_OUTPUT"
+
+
+def _publish_chat_turn_output(instance, output) -> None:
+	"""Send an AI task's own output to a chat request waiting on this turn.
+
+	The request used to learn what the turn said by reading the newest Bot Chat
+	Message, which is a guess: it is only this turn's reply because no other
+	turn wrote one in between. The task's output is the answer itself, so it
+	travels directly and the row is left to confirm it and to name it.
+
+	Only for a conversation. A background agent has nobody waiting, and
+	publishing for one would leave an unread list behind on every run.
+	"""
+	if getattr(instance, "context_doctype", None) != "Chat Conversation":
+		return
+	name = getattr(instance, "name", None)
+	if not name:
+		return
+	try:
+		from one_bpmn.agents import turn_signal
+
+		turn_signal.publish_event(name, {"type": TURN_OUTPUT_EVENT, "output": output})
+	except Exception:
+		# Progress is an accelerator. The reply is still on the message row.
+		pass
+
+
 def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: str = None) -> None:
 	"""
 	Execute an AI Agent Task via the executor package.
@@ -2305,6 +2334,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			task.data.pop("_bpmn_ai_waiting_human", None)
 		output_var = task_cfg.get("aiOutputVariable") or f"{bpmn_id}_output"
 		task.data[output_var] = result.output
+		_publish_chat_turn_output(instance, result.output)
 		if result.token_usage:
 			task.data[f"{bpmn_id}_token_usage"] = {
 				"prompt_tokens":     result.token_usage.prompt_tokens,

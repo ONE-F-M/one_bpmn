@@ -28,7 +28,10 @@ keep-alives/heartbeats are comments, never events; errors surface only as
 RunError; nothing is ever emitted as a bare named SSE line.
 """
 
+import contextvars
 import json
+import time
+import threading
 import uuid
 
 import frappe
@@ -136,6 +139,53 @@ def register_reply_shaper(agent_id, fn):
 # ── The stream ───────────────────────────────────────────────────────────────
 
 
+_HEARTBEAT_INTERVAL_SECONDS = 10
+# The longest the stream waits for a turn to produce anything at all. Matches
+# the ceiling one AI task is given, so a slow turn is never cut off, while a
+# turn whose worker died stops holding the connection open with keep-alives.
+_STALL_CEILING_SECONDS = 300
+_TIMED_OUT = object()
+
+
+def _invoke_with_heartbeat(fn, interval: float = _HEARTBEAT_INTERVAL_SECONDS, timeout: float | None = None):
+	"""Run a blocking callable off-thread, yielding an SSE keep-alive comment
+	every ``interval`` seconds so an idle proxy cannot close a working turn.
+
+	Consume with ``result = yield from _invoke_with_heartbeat(fn)``. A
+	keep-alive is transport, so it is a bare SSE comment, never an encoded
+	event.
+	"""
+	outcome: dict = {}
+	# frappe.local is a ContextVar, and a thread starts with an empty context,
+	# so the call runs inside a copy of this request's or it loses the session,
+	# the site and frappe.flags.
+	context = contextvars.copy_context()
+
+	def _run():
+		try:
+			outcome["result"] = context.run(fn)
+		except BaseException as exc:  # noqa: BLE001 - re-raised on caller's thread
+			outcome["error"] = exc
+
+	thread = threading.Thread(target=_run, daemon=True)
+	thread.start()
+	deadline = None if timeout is None else time.monotonic() + timeout
+	while True:
+		thread.join(timeout=interval)
+		if not thread.is_alive():
+			break
+		if deadline is not None and time.monotonic() >= deadline:
+			# The thread is left running: it holds a database cursor this
+			# generator no longer owns, and killing it is not on offer. It ends
+			# with the request.
+			return _TIMED_OUT
+		yield ": keep-alive\n\n"
+
+	if "error" in outcome:
+		raise outcome["error"]
+	return outcome.get("result")
+
+
 def agent_event_stream(
 	agent_id: str,
 	message: str,
@@ -162,13 +212,15 @@ def agent_event_stream(
 		if builder:
 			context = builder(context or {})
 
-		result = invoke_agent(
-			agent_id,
-			message,
-			conversation=conversation,
-			context=context or {},
-			stream=True,
-			client_message_id=client_message_id,
+		result = yield from _invoke_with_heartbeat(
+			lambda: invoke_agent(
+				agent_id,
+				message,
+				conversation=conversation,
+				context=context or {},
+				stream=True,
+				client_message_id=client_message_id,
+			)
 		)
 
 		# SSE has no request-success commit: the whitelisted handler returned
@@ -182,9 +234,19 @@ def agent_event_stream(
 				frappe.db.commit()
 
 		if result.get("streaming"):
-			yield from _relay_child_stream(result["stream"], encoder, message_id)
-			_commit_turn()
-		else:
+			# A handover is taken out of the relay and falls through to the
+			# buffered path, so cards and artifacts keep working.
+			handover = {}
+			yield from _relay_child_stream(
+				_take_handover(result["stream"], handover), encoder, message_id
+			)
+			if "result" not in handover:
+				_commit_turn()
+				result = None
+			else:
+				result = handover["result"]
+
+		if result is not None and not result.get("streaming"):
 			shaper = _REPLY_SHAPERS.get(agent_id)
 			if shaper:
 				try:
@@ -234,10 +296,9 @@ def agent_event_stream(
 		# refusal arrived as RUN_ERROR and the panel showed "Something went
 		# wrong" over a message that explains itself perfectly well.
 		#
-		# Delivered as an ordinary assistant message so it lands in the thread
-		# where the user is reading, and NOT logged as an error: the control
-		# working as designed is not an incident, and a traceback per refusal
-		# fills the log with false alarms.
+		# Delivered as a system notice, not an assistant message: a throttle is
+		# the platform talking. Not logged as an error either, since a control
+		# working as designed is not an incident.
 		# COMMIT, not rollback. Nothing of this turn has been written — enforce
 		# raises before the runner is reached — so the only thing in the
 		# transaction is the AI Security Event recording the blocked attempt, and
@@ -252,7 +313,7 @@ def agent_event_stream(
 		if not frappe.flags.in_test:
 			frappe.db.commit()
 		text = str(refusal) or _("This agent declined to answer that message.")
-		yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
+		yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="system"))
 		yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=text))
 		yield encoder.encode(TextMessageEndEvent(message_id=message_id))
 	except Exception as e:
@@ -274,7 +335,26 @@ def agent_event_stream(
 _CUSTOM_ENVELOPE_KEYS = {"type", "name", "event", "value", "timestamp", "raw_event", "rawEvent"}
 
 
-def _relay_child_stream(child, encoder, message_id):
+# A streaming runner ends by handing its buffered reply over on the same
+# stream, so the shaping is not duplicated.
+HANDOVER_EVENT = "ONEFM_TURN_RESULT"
+
+_CHILD_EXHAUSTED = object()
+
+
+def _take_handover(child, handover: dict):
+	"""Relay a child's events, keeping the handover event out of the stream."""
+	for event in child:
+		if isinstance(event, dict) and event.get("type") == HANDOVER_EVENT:
+			handover["result"] = event.get("result") or {}
+			return
+		yield event
+
+
+def _relay_child_stream(
+	child, encoder, message_id, interval=_HEARTBEAT_INTERVAL_SECONDS,
+	stall_ceiling=_STALL_CEILING_SECONDS,
+):
 	"""Relay a streaming runner's events into the parent stream.
 
 	Mirrors Lumina's passthrough rules (lumina.py ag_ui_event_generator):
@@ -283,7 +363,32 @@ def _relay_child_stream(child, encoder, message_id):
 	terminal error; already-encoded strings pass through untouched; text
 	deltas are re-encoded under the child's message id when it has one.
 	"""
-	for event in child:
+	# A child that is waiting on a worker yields nothing for as long as the
+	# work takes, so the wait for its next event is what has to carry the
+	# keep-alive, not the call that produced the child.
+	steps = iter(child)
+	while True:
+		event = yield from _invoke_with_heartbeat(
+			lambda: next(steps, _CHILD_EXHAUSTED), interval, timeout=stall_ceiling
+		)
+		if event is _CHILD_EXHAUSTED:
+			return
+		if event is _TIMED_OUT:
+			# A keep-alive says the connection is open, not that the work is
+			# alive. A worker killed mid-turn leaves nothing to end the wait, so
+			# the stream ends it and says so.
+			yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="system"))
+			yield encoder.encode(
+				TextMessageContentEvent(
+					message_id=message_id,
+					delta=_(
+						"This turn stopped responding. Nothing you typed was lost — "
+						"send it again when you are ready."
+					),
+				)
+			)
+			yield encoder.encode(TextMessageEndEvent(message_id=message_id))
+			return
 		if isinstance(event, (bytes, str)):
 			# Already an encoded SSE line (str) — trust and pass through.
 			yield event.decode() if isinstance(event, bytes) else event

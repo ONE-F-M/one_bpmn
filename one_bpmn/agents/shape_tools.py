@@ -222,6 +222,25 @@ def _missing_dispatch_wiring(task_cfg: dict) -> list:
 	return [k for k in needed if not str((task_cfg or {}).get(k) or "").strip()]
 
 
+def _announce(instance, event_type: str, bpmn_id: str) -> None:
+	"""Tell a request waiting on this turn which tool is running.
+
+	A map-driven agent runs its tools here, so this is the one place that knows
+	both the shape being called and the instance a chat request is waiting on.
+	Progress only: it never carries a result, and a failure to publish is not
+	allowed to disturb the tool.
+	"""
+	name = getattr(instance, "name", None)
+	if not name:
+		return
+	try:
+		from one_bpmn.agents import turn_signal
+
+		turn_signal.publish_event(name, {"type": event_type, "toolCallName": bpmn_id})
+	except Exception:
+		pass
+
+
 def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -> str:
 	"""
 	Execute a single shape as a function tool and return a JSON string result.
@@ -243,6 +262,8 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 	failures are logged and returned as a structured ``{"error": ...}`` payload
 	so the tool-calling loop stays alive.
 	"""
+	_announce(instance, "TOOL_CALL_START", bpmn_id)
+	still_running = False
 	try:
 		if task_cfg is None:
 			task_cfg = (getattr(instance, "_service_task_extensions", {}) or {}).get(bpmn_id, {})
@@ -328,6 +349,8 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 
 		return json.dumps(produced or {"ok": True}, default=str)
 	except ToolDeferred:
+		# Waiting, not finished: an end here would clear a live status line.
+		still_running = True
 		raise
 	except frappe.PermissionError as refused:
 		# Refusals carry their reason to the model. "See Error Log for details" is
@@ -341,12 +364,22 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 		# sprint, a completed sprint, an Epic — and the agent has to be able to
 		# say which rule stopped it instead of reporting the change as made.
 		return json.dumps({"error": str(invalid), "retryable": False})
-	except Exception:
+	except Exception as unexpected:
 		frappe.log_error(
 			title=f"AI Agent shape tool '{bpmn_id}' failed",
 			message=frappe.get_traceback(),
 		)
-		return json.dumps({"error": f"Shape '{bpmn_id}' failed — see Error Log for details."})
+		# The model cannot read the Error Log, so the class and message travel
+		# with the refusal.
+		return json.dumps({
+			"error": (
+				f"Shape '{bpmn_id}' failed — {type(unexpected).__name__}: {unexpected}"
+			),
+		})
+	finally:
+		# Every exit reports, or a status line is left hanging.
+		if not still_running:
+			_announce(instance, "TOOL_CALL_END", bpmn_id)
 
 
 def _connector_not_permitted(task_cfg: dict) -> dict | None:
