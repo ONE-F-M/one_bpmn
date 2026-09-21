@@ -1795,8 +1795,12 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	_conversation_for_skills = None
 	if getattr(instance, "context_doctype", "") == "Chat Conversation":
 		_conversation_for_skills = getattr(instance, "context_docname", None)
-	if _conversation_for_skills:
-		active_skill_bodies = frappe.cache().get_value(f"active_skills_{_conversation_for_skills}") or []
+	if _conversation_for_skills and task_cfg.get("aiAgentConfig"):
+		from one_bpmn.api.skill_tools import _skills_cache_key
+
+		active_skill_bodies = frappe.cache().get_value(
+			_skills_cache_key(_conversation_for_skills, task_cfg["aiAgentConfig"])
+		) or []
 
 	if memory_block or user_message or active_skill_bodies:
 		from one_bpmn.agents.context_assembler import build_dynamic_preamble
@@ -1849,10 +1853,13 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		_conversation_for_tools = None
 		if getattr(instance, "context_doctype", "") == "Chat Conversation":
 			_conversation_for_tools = getattr(instance, "context_docname", None)
-		active_skill_names = (
-			frappe.cache().get_value(f"active_skill_names_{_conversation_for_tools}") or []
-			if _conversation_for_tools else []
-		)
+		active_skill_names = []
+		if _conversation_for_tools and agent_name:
+			from one_bpmn.api.skill_tools import _skill_names_cache_key
+
+			active_skill_names = (
+				frappe.cache().get_value(_skill_names_cache_key(_conversation_for_tools, agent_name)) or []
+			)
 		if active_skill_names:
 			import json
 			from one_bpmn.agents.llm_provider.base import ToolSpec
