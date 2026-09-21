@@ -82,7 +82,7 @@
 				<div v-if="item.ts" class="acp-time" :class="{ 'acp-time--user': item.kind === 'user' }">{{ formatTime(item.ts) }}</div>
 			</template>
 
-			<div v-if="busy" class="acp-thinking">{{ streamingText ? "" : __("Thinking…") }}</div>
+			<div v-if="busy" class="acp-thinking">{{ runningToolLabel || (streamingText ? "" : __("Thinking…")) }}</div>
 			<div v-if="streamingText" class="acp-msg acp-msg--agent" v-html="renderMarkdown(streamingText)" />
 			<div v-if="statusLine" class="acp-status">
 				<span class="acp-dot" :class="{ 'acp-dot--err': status === 'error' }" />{{ statusLine }}
@@ -250,11 +250,21 @@ const streamingText = ref("");
 // message id (WI-001822). Ratings are the user's own — the control shows what
 // you said, not a tally.
 const streamingMessageId = ref("");
+// The tool the agent is running right now, so a long turn says what it is
+// doing instead of sitting on "Thinking…". Cleared when the tool ends and
+// again when the turn does, because a stream can close mid-tool.
+const runningTool = ref("");
 const ratings = ref({});
 
 // Whether this agent collects feedback at all. Configuration, like the greeting
 // and the icon: no agent-specific behaviour is hardcoded in a component.
 const feedbackOn = computed(() => surface.value.collect_feedback !== false);
+
+// A shape id reads as a name once its underscores go, which is enough for
+// somebody watching a turn to know which tool is taking the time.
+const runningToolLabel = computed(() =>
+	runningTool.value ? __("Running {0}…").replace("{0}", runningTool.value.replace(/_/g, " ")) : "",
+)
 
 function agentItem(text) {
 	// Both things a finished agent bubble needs: the row id it can be rated by
@@ -615,6 +625,7 @@ async function send(text, extraContext = null, reuseId = null) {
 				streamingText.value = "";
 			}
 			streamingMessageId.value = "";
+			runningTool.value = "";
 			busy.value = false;
 			if (status.value !== "error") status.value = "done";
 			activeStream = null;
@@ -645,11 +656,15 @@ function handleEvent(event) {
 			streamingMessageId.value = event.messageId || event.message_id || "";
 		}
 		scrollDown();
+	} else if (type === "TOOL_CALL_START") {
+		runningTool.value = event.toolCallName || event.tool_call_name || "";
+	} else if (type === "TOOL_CALL_END") {
+		runningTool.value = "";
 	} else if (type === "CUSTOM") {
 		handleCustom(event.name || "", event.value || {});
 	}
-	// TEXT_MESSAGE_START/END, THINKING_*, TOOL_CALL_*, STATE_* need no
-	// transcript entry today; the streaming buffer covers the visible part.
+	// TEXT_MESSAGE_END, THINKING_* and STATE_* need no transcript entry today;
+	// the streaming buffer covers the visible part.
 }
 
 function handleCustom(name, value) {
