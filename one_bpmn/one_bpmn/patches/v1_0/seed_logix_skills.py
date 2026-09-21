@@ -17,6 +17,13 @@ classifier, clarifier and both writers run as AI Agent Task shapes on their own
 configurations, and only the review and finalize Server Scripts still read a
 sub-prompt (script_reviewer, test_writer). Those two stay.
 
+Its orchestrator prompt gains one paragraph of routing facts. On every change
+request that said "this script" or "the linked script" the orchestrator asked
+for the script's name instead of calling the writer, although classify_intent
+had already answered next = write_script: five of five turns on 2026-09-21, and
+the same skipped-writer shape on the three turns of 2026-09-16, all on the same
+prompt hash. It never sees the shape or the script; the tools do.
+
 Idempotent: skills are matched by name and brought up to date without lowering a
 tier a person has graduated; a writer prompt already carrying the load_skill rule
 is left as it is; enabled rows and sub-prompt removals are checked before they
@@ -31,6 +38,17 @@ DEAD_SUB_PROMPTS = ("intent_classifier", "clarifier", "script_writer", "tool_wri
 
 # Present once the prompt has been rewritten.
 PROMPT_MARKER = "load_skill"
+
+# Present once the orchestrator has been told what it never sees.
+ROUTING_MARKER = "ROUTING FACTS"
+ROUTING_FACTS = (
+	"\n\nROUTING FACTS: The person is working on one shape in the Processa editor. Your tools already "
+	"know which shape it is, which Server Script is linked to it and what that script contains; you are "
+	"never shown them and you never need them. Words like 'this script' or 'the linked script' mean that "
+	"shape. Never ask for a script's name and never ask which script is meant. Call clarify, or pass "
+	"clarify_question to finalize, ONLY when classify_intent returned next = clarify. When next is "
+	"write_script or write_agent_tool, your next call is that writer, every time."
+)
 
 WRITER_PROMPT = """You are Logix. You write Frappe Server Scripts for shapes on a Processa BPMN diagram.
 
@@ -301,7 +319,11 @@ def execute():
 		dead = [row for row in doc.sub_prompts if row.sub_agent_id in DEAD_SUB_PROMPTS]
 		for row in dead:
 			doc.remove(row)
-		if dead:
+		changed = bool(dead)
+		if ROUTING_MARKER not in (doc.system_prompt or ""):
+			doc.system_prompt = (doc.system_prompt or "").rstrip() + ROUTING_FACTS
+			changed = True
+		if changed:
 			doc.save(ignore_permissions=True)
 
 

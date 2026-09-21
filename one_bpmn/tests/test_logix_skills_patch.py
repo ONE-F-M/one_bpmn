@@ -67,6 +67,10 @@ class TestLogixSkillsSeed(FrappeTestCase):
 		ids = {row.sub_agent_id for row in frappe.get_doc("AI Agent Configuration", main).sub_prompts}
 		self.assertFalse(ids & set(seed.DEAD_SUB_PROMPTS))
 		self.assertTrue({"script_reviewer", "test_writer"} <= ids)
+		prompt = frappe.db.get_value("AI Agent Configuration", main, "system_prompt")
+		self.assertEqual(prompt.count(seed.ROUTING_MARKER), 1)
+		seed.execute()
+		self.assertEqual(frappe.db.get_value("AI Agent Configuration", main, "system_prompt"), prompt)
 
 	def test_a_loaded_skill_is_scoped_to_its_agent(self):
 		self.assertNotEqual(_skills_cache_key("c1", "Logix – Script Writer"), _skills_cache_key("c1", "Logix"))
