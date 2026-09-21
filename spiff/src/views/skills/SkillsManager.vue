@@ -35,7 +35,7 @@
 		<!-- Main Content -->
 		<div class="flex-1 flex overflow-hidden">
 			<!-- Left Sidebar: Skill List -->
-			<div class="w-80 flex-none border-r bg-gray-50/50 flex flex-col overflow-hidden">
+			<div v-if="!isCreatingNew" class="w-80 flex-none border-r bg-gray-50/50 flex flex-col overflow-hidden">
 				<div class="p-4 border-b bg-white">
 					<div class="relative rounded-md shadow-sm">
 						<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -100,7 +100,7 @@
 				</div>
 
 				<div v-else-if="isCreatingNew" class="absolute inset-0 overflow-y-auto bg-gray-50 p-6">
-					<div class="bg-white shadow rounded-lg border max-w-3xl mx-auto">
+					<div class="bg-white shadow rounded-lg border max-w-5xl mx-auto">
 						<div class="px-4 py-5 sm:px-6 border-b flex justify-between items-center">
 							<h3 class="text-lg leading-6 font-medium text-gray-900">Create New Skill</h3>
 						</div>
