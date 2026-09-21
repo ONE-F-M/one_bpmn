@@ -1969,15 +1969,20 @@ async function executeDeployment() {
 			// Show deploy readiness warnings (non-blocking). Warnings may be
 			// plain strings (eval suite gating) or structured objects with
 			// { label, detail, type, icon } (e.g. backend code removal).
+			// All of them in ONE banner: the banner holds a single message, so
+			// raising them one by one left only the last one on screen.
 			if (response.warnings && response.warnings.length > 0) {
-				for (const warning of response.warnings) {
-					if (warning && typeof warning === "object") {
-						const title = warning.label ? `${warning.label} Warning` : "Deploy Warning";
-						showNotification(title, warning.detail || warning.label || "", "orange");
-					} else {
-						showNotification("Eval Suite Warning", warning, "orange");
-					}
-				}
+				const lines = response.warnings.map((warning) =>
+					warning && typeof warning === "object"
+						? `${warning.label ? warning.label + ": " : ""}${warning.detail || warning.label || ""}`
+						: `Eval Suite: ${warning}`
+				);
+				showNotification(
+					lines.length === 1 ? "Deploy Warning" : `${lines.length} Deploy Warnings`,
+					lines.join("\n\n"),
+					"orange",
+					true
+				);
 			}
 
 			// Update local state: mark this diagram as active, deactivate siblings

@@ -828,6 +828,133 @@ def google_chat_recipients(instance, task_cfg: dict) -> tuple:
 	return addresses, ""
 
 
+def _same_name(name: str) -> str:
+	"""A name reduced to what two directories can agree on.
+
+	Frappe builds ``full_name`` by joining first, middle and last, so a user
+	with no middle name carries a double space that Google's display name does
+	not.
+	"""
+	return " ".join((name or "").split()).lower()
+
+
+def chat_user_id(email: str, headers: dict) -> str:
+	"""The Google Chat id behind a one-fm.com address, or "" when unsettled.
+
+	Chat addresses people by an opaque id and refuses an email outright under
+	app authentication ("Service account authentication doesn't support access
+	to user information using email aliases"). The directory answers exactly;
+	matching on name is the fallback for a site that has not been delegated.
+	"""
+	key = f"gchat_user_id::{email.lower()}"
+	cached = frappe.cache().get_value(key)
+	if cached:
+		return cached
+
+	user_id = _directory_user_id(email) or _named_user_id(email, headers)
+	if user_id:
+		# No expiry: an id outlives any TTL worth setting, and passing one skips
+		# frappe's in-process memo, so the next lookup in the worker repeats.
+		frappe.cache().set_value(key, user_id)
+	return user_id
+
+
+def _directory_user_id(email: str) -> str:
+	"""Ask the Workspace directory, which answers by email and is exact."""
+	settings = frappe.get_cached_doc("Processa Settings")
+	subject = (settings.google_directory_account or "").strip()
+	sa_json = settings.get_password("google_chat_service_account_json", raise_exception=False)
+	if not (subject and sa_json):
+		return ""
+
+	import requests
+	from google.auth.transport.requests import Request as GoogleRequest
+	from google.oauth2 import service_account
+
+	try:
+		credentials = service_account.Credentials.from_service_account_info(
+			json.loads(sa_json),
+			scopes=["https://www.googleapis.com/auth/admin.directory.user.readonly"],
+			subject=subject,
+		)
+		credentials.refresh(GoogleRequest())
+		resp = requests.get(
+			f"https://admin.googleapis.com/admin/directory/v1/users/{email}",
+			headers={"Authorization": f"Bearer {credentials.token}"},
+			params={"viewType": "domain_public"},
+			timeout=15,
+		)
+	except Exception:
+		frappe.log_error(
+			title="google_chat: directory lookup failed",
+			message=frappe.get_traceback(),
+		)
+		return ""
+
+	if resp.status_code == 200:
+		return resp.json().get("id") or ""
+	# 404 means the address has no Google account at all, which is an answer,
+	# not a fault. Anything else is worth knowing about.
+	if resp.status_code != 404:
+		frappe.log_error(
+			title="google_chat: directory lookup refused",
+			message=f"{resp.status_code} for {email}: {resp.text[:500]}",
+		)
+	return ""
+
+
+def _named_user_id(email: str, headers: dict) -> str:
+	"""Fall back to the name Frappe holds, against the direct messages the app is in."""
+	full_name = frappe.db.get_value("User", email, "full_name")
+	if not full_name:
+		return ""
+	holders = _chat_dm_directory(headers).get(_same_name(full_name)) or []
+	# Two colleagues sharing a name is the one case worth refusing: a direct
+	# message to the wrong person is worse than one that never arrives.
+	return holders[0] if len(holders) == 1 else ""
+
+
+def _chat_dm_directory(headers: dict) -> dict:
+	"""Display name (lowercased) → the Chat ids answering to it."""
+	import concurrent.futures
+
+	import requests
+
+	spaces, page = [], None
+	while True:
+		params = {"pageSize": 1000}
+		if page:
+			params["pageToken"] = page
+		body = requests.get(
+			"https://chat.googleapis.com/v1/spaces", headers=headers, params=params, timeout=20
+		).json()
+		spaces += [
+			s["name"] for s in body.get("spaces", []) if s.get("spaceType") == "DIRECT_MESSAGE"
+		]
+		page = body.get("nextPageToken")
+		if not page:
+			break
+
+	def members(space):
+		resp = requests.get(
+			f"https://chat.googleapis.com/v1/{space}/members", headers=headers, timeout=20
+		)
+		return resp.json().get("memberships", []) if resp.status_code == 200 else []
+
+	# One request per person in the domain: sequentially this runs into minutes.
+	with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+		batches = list(pool.map(members, spaces))
+
+	directory = {}
+	for batch in batches:
+		for membership in batch:
+			member = membership.get("member", {})
+			name = _same_name(member.get("displayName"))
+			if member.get("type") == "HUMAN" and name:
+				directory.setdefault(name, []).append(member["name"].split("/")[-1])
+	return directory
+
+
 def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	"""
 	Send a Google Chat message from a Service Task with serviceType='google_chat'.
@@ -848,10 +975,9 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	    gchatSpaceId          — space ID e.g. "spaces/XXXXXXX" (space mode)
 	    gchatMessage          — message body; Jinja2 supported
 
-	Credentials: the site must have a Google service account JSON key stored in
-	site_config.json under "google_chat_service_account_json" (the full JSON content
-	as a string or dict).  The service account must have the Google Chat API scope
-	https://www.googleapis.com/auth/chat.bot and be a member of the target space.
+	Credentials: Processa Settings → Google Chat → Service Account JSON. The key
+	needs the https://www.googleapis.com/auth/chat.bot scope, and the app it
+	belongs to must be a member of the target space.
 
 	Failures are non-fatal: the workflow continues and the error is logged.
 	"""
@@ -912,12 +1038,13 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 				message=frappe.get_traceback(),
 			)
 
-	# Load service account credentials from site config
-	sa_json = frappe.conf.get("google_chat_service_account_json")
+	sa_json = frappe.get_cached_doc("Processa Settings").get_password(
+		"google_chat_service_account_json", raise_exception=False
+	)
 	if not sa_json:
 		frappe.log_error(
 			title=f"BPMN ServiceTask: google_chat credentials missing ({bpmn_id})",
-			message="'google_chat_service_account_json' not found in site_config.json.",
+			message="Processa Settings → Google Chat → Service Account JSON is empty.",
 		)
 		return
 
@@ -928,7 +1055,7 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		from google.auth.transport.requests import Request as GoogleRequest
 
 		SCOPES = ["https://www.googleapis.com/auth/chat.bot"]
-		sa_info = sa_json if isinstance(sa_json, dict) else _json.loads(sa_json)
+		sa_info = _json.loads(sa_json)
 		credentials = service_account.Credentials.from_service_account_info(sa_info, scopes=SCOPES)
 		credentials.refresh(GoogleRequest())
 		access_token = credentials.token
@@ -944,10 +1071,16 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 			# and logged on its own.
 			for address in recipients:
 				try:
+					user_id = chat_user_id(address, headers) if "@" in address else address
+					if not user_id:
+						raise ValueError(
+							"No single Google Chat user answers to this address. Either they "
+							"have never been sent the app, or two people share their name."
+						)
 					dm_resp = requests.get(
 						"https://chat.googleapis.com/v1/spaces:findDirectMessage",
 						headers=headers,
-						params={"name": f"users/{address}"},
+						params={"name": f"users/{user_id}"},
 						timeout=10,
 					)
 					if dm_resp.status_code == 200:

@@ -136,7 +136,13 @@ def register_reply_shaper(agent_id, fn):
 # ── The stream ───────────────────────────────────────────────────────────────
 
 
-def agent_event_stream(agent_id: str, message: str, conversation: str, context: dict | None = None):
+def agent_event_stream(
+	agent_id: str,
+	message: str,
+	conversation: str,
+	context: dict | None = None,
+	client_message_id: str | None = None,
+):
 	"""Yield one agent turn as encoded AG-UI SSE lines.
 
 	``conversation`` is required: the endpoint resolves/creates it *before*
@@ -157,7 +163,12 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 			context = builder(context or {})
 
 		result = invoke_agent(
-			agent_id, message, conversation=conversation, context=context or {}, stream=True
+			agent_id,
+			message,
+			conversation=conversation,
+			context=context or {},
+			stream=True,
+			client_message_id=client_message_id,
 		)
 
 		# SSE has no request-success commit: the whitelisted handler returned

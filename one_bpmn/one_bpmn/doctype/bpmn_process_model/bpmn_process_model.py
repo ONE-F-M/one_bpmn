@@ -5,7 +5,34 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 import re
-import uuid
+
+_PROCESS_EL = re.compile(r'<(?:[\w-]+:)?process\s[^>]*\bid=["\']([^"\']+)["\']')
+
+
+def xml_process_id(bpmn_xml: str) -> str:
+	"""The process id declared in a BPMN diagram, or an empty string."""
+	found = _PROCESS_EL.search(bpmn_xml or "")
+	return found.group(1) if found else ""
+
+
+def swap_process_id(bpmn_xml: str, old_id: str, new_id: str) -> str:
+	"""Repoint every reference to ``old_id`` in a diagram at ``new_id``.
+
+	Only whole quoted attribute values are replaced — the process element, the
+	diagram plane that draws it, and any Call Activity that names it. A plain
+	string replace is wrong here: ``Process_1`` is a prefix of ``Process_10``,
+	and those are exactly the ids this has to move.
+	"""
+	if not (bpmn_xml and old_id and new_id) or old_id == new_id:
+		return bpmn_xml
+	quoted = re.compile(r'(["\'])%s\1' % re.escape(old_id))
+	return quoted.sub(lambda m: f"{m.group(1)}{new_id}{m.group(1)}", bpmn_xml)
+
+
+def new_process_id(process_name: str) -> str:
+	"""A readable, unique process id: the scrubbed name plus a short tag."""
+	stem = frappe.scrub(process_name or "") or "process"
+	return f"{stem}_{frappe.generate_hash(length=8)}"
 
 
 class BPMNProcessModel(Document):
@@ -52,7 +79,7 @@ class BPMNProcessModel(Document):
 
 	def validate(self):
 		self.validate_is_editable()
-		self.extract_process_id_from_xml()
+		self.sync_process_id_with_xml()
 		self.enforce_single_active()
 		self.validate_script_task_security()
 
@@ -188,27 +215,30 @@ class BPMNProcessModel(Document):
 			update_modified=False,
 		)
 
-	def extract_process_id_from_xml(self):
-		"""Always extract process_id from the BPMN XML (source of truth).
+	def sync_process_id_with_xml(self):
+		"""Keep the diagram's process id and this record's in step. The record wins.
 
-		The XML's <bpmn:process id="…"> is the canonical process_id.
-		This keeps the field in sync whenever the diagram is saved.
+		The id used to be copied the other way, out of the diagram and onto the
+		record, on every save. The editor mints an id for a blank diagram without
+		ever asking the record what it is called, so the readable id a model was
+		created with was overwritten the first time anyone opened and saved it —
+		and again on every save after that. On the BA site 65 of the 127 models
+		registered from Production had lost theirs, and 38 had collided on one
+		default value, which is what a Call Activity resolves against.
+
+		A record with no id yet takes the diagram's. That is the import case,
+		where the file carries the identity.
 		"""
 		if not self.bpmn_xml:
 			return
 
-		try:
-			import xml.etree.ElementTree as ET
-
-			root = ET.fromstring(self.bpmn_xml)
-			ns = {"bpmn": "http://www.omg.org/spec/BPMN/20100524/MODEL"}
-			process = root.find(".//bpmn:process", ns)
-			if process is not None:
-				extracted = process.get("id", "")
-				if extracted:
-					self.process_id = extracted
-		except Exception:
-			pass  # XML parsing failures are non-fatal here
+		found = xml_process_id(self.bpmn_xml)
+		if not found:
+			return
+		if not self.process_id:
+			self.process_id = found
+		elif found != self.process_id:
+			self.bpmn_xml = swap_process_id(self.bpmn_xml, found, self.process_id)
 
 	def regenerate_process_id_on_duplicate(self):
 		"""Generate a new unique process_id when duplicating a process model.
@@ -225,7 +255,7 @@ class BPMNProcessModel(Document):
 		``doc.flags.skip_process_id_regeneration = True`` to preserve the original
 		process_id from the imported file.
 
-		The new process_id uses the format ``Process_<8-hex-chars>``.
+		The copy is named after its process, not after the duplicate it came from.
 		"""
 		if self.flags.get("skip_process_id_regeneration"):
 			return
@@ -241,10 +271,8 @@ class BPMNProcessModel(Document):
 		old_id = old_match.group(1)
 		if not frappe.db.exists("BPMN Process Model", {"process_id": old_id}):
 			return
-		new_id = "Process_" + uuid.uuid4().hex[:8]
-		# Replace all occurrences of the old process id in the XML
-		# (covers <bpmn:process id="…"> and bpmnElement="…" references)
-		self.bpmn_xml = self.bpmn_xml.replace(old_id, new_id)
+		new_id = new_process_id(self.process_name or self.title)
+		self.bpmn_xml = swap_process_id(self.bpmn_xml, old_id, new_id)
 		self.process_id = new_id
 
 

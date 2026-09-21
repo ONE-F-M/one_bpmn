@@ -87,6 +87,7 @@
   "rate_limit_window_seconds",
   "lock_after_blocks",
   "lock_block_window_seconds",
+  "concurrent_turn_policy",
   "a2a_section",
   "a2a_exposed",
   "a2a_skill_tags",
@@ -486,6 +487,15 @@
    "fieldname": "rate_limit_messages",
    "fieldtype": "Int",
    "label": "Messages Per Window"
+  },
+  {
+   "default": "Queue",
+   "depends_on": "eval:doc.agent_type==\"Chat\"",
+   "description": "A message sent while this agent is still answering: Queue waits its turn, Refuse turns it away.",
+   "fieldname": "concurrent_turn_policy",
+   "fieldtype": "Select",
+   "label": "Message During a Turn",
+   "options": "Queue\nRefuse"
   },
   {
    "fieldname": "column_break_rate_limit",

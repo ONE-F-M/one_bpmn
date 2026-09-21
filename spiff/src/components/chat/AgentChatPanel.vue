@@ -543,11 +543,21 @@ async function onFilePicked(event) {
 
 // ── sending ─────────────────────────────────────────────────────────────────
 
-async function send(text, extraContext = null) {
+// crypto.randomUUID needs a secure context; a bench served over plain http on a
+// LAN address is not one, and the panel must still send an id there.
+function newMessageId() {
+	if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+	return `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function send(text, extraContext = null, reuseId = null) {
 	const message = (text ?? draft.value).trim();
 	if (!message || busy.value) return;
 	draft.value = "";
-	const sent = { kind: "user", text: message, ts: stampNow() };
+	// One id per message the person typed, kept across retries. A stream that
+	// dies after the agent has already answered used to cost a second run and a
+	// second reply; re-sending the same id replays the first one instead.
+	const sent = { kind: "user", text: message, ts: stampNow(), clientMessageId: reuseId || newMessageId() };
 	items.value.push(sent);
 	busy.value = true;
 	status.value = "streaming";
@@ -578,6 +588,7 @@ async function send(text, extraContext = null) {
 		message,
 		conversation: conversationName.value || undefined,
 		context: turnContext,
+		clientMessageId: sent.clientMessageId,
 		onEvent: handleEvent,
 		onError: (msg) => {
 			status.value = "error";
@@ -784,7 +795,7 @@ async function retrySend(item) {
 	errorOpen.value = false;
 	errorMessage.value = "";
 	if (status.value === "error") status.value = "idle";
-	await send(item.text, item.retryContext || null);
+	await send(item.text, item.retryContext || null, item.clientMessageId || null);
 }
 
 function onCardAction(item, action, payload) {
