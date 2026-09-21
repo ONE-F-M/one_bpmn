@@ -42,8 +42,9 @@ class TestDocuSkillsSeed(FrappeTestCase):
 			"AI Agent Configuration",
 			frappe.db.get_value("AI Agent Configuration", {"agent_id": seed.WRITER_AGENT_ID}, "name"),
 		)
-		self.assertEqual({row.skill for row in writer.enabled_skills}, names)
-		self.assertEqual(len(writer.enabled_skills), len(names))
+		enabled = [row.skill for row in writer.enabled_skills]
+		self.assertTrue(names <= set(enabled), "every seeded skill is enabled; later patches may add more")
+		self.assertEqual(len(enabled), len(set(enabled)), "no duplicate rows")
 		self.assertEqual(writer.agent_type, "Background")
 		self.assertIsNone(self._sub_prompt("schema_writer"), "the writer's prompt lives on its own record")
 		self.assertIn("load_skill", writer.system_prompt)
@@ -62,5 +63,5 @@ class TestDocuSkillsSeed(FrappeTestCase):
 		)
 		self.assertEqual(
 			frappe.db.count("AI Agent Enabled Skill", {"parenttype": "AI Agent Configuration", "parent": writer.name}),
-			len(names),
+			len(enabled),
 		)
