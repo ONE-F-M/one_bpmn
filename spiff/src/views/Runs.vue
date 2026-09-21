@@ -13,17 +13,29 @@
 		</header>
 
 		<div class="bg-white px-6 py-3 border-b flex flex-wrap gap-3 items-center">
-			<FormControl type="select" v-model="filters.agent_configuration" :options="agentOptions" class="w-52" @change="load()" />
+			<!-- Autocomplete's popover is hardcoded w-full, so the width comes
+			     from the wrapper, the same way UserFilter does it. -->
+			<div class="w-52">
+				<Autocomplete
+					v-model="agentOption"
+					:options="agentOptions"
+					:compare-fn="compareOption"
+					placeholder="All agents"
+				/>
+			</div>
 			<FormControl type="select" v-model="filters.status" :options="statusOptions" class="w-36" @change="load()" />
 			<FormControl type="select" v-model="filters.origin" :options="ORIGINS" class="w-32" @change="reloadAll()" />
 			<FormControl type="select" v-model="filters.user" :options="userOptions" class="w-52" @change="load()" />
 			<FormControl type="select" v-model="filters.model" :options="modelOptions" class="w-48" @change="load()" />
 			<FormControl type="date" v-model="filters.from_date" class="w-36" @change="load()" />
 			<FormControl type="date" v-model="filters.to_date" class="w-36" @change="load()" />
-			<label class="flex items-center gap-2 text-sm text-gray-600 whitespace-nowrap">
-				<input type="checkbox" v-model="filters.errors_only" class="rounded" @change="load()" />
-				Errors only
-			</label>
+			<FormControl
+				type="checkbox"
+				v-model="filters.errors_only"
+				label="Errors only"
+				class="whitespace-nowrap"
+				@change="load()"
+			/>
 			<FormControl type="text" v-model="filters.search" placeholder="Search run, instance, user, answer" class="w-64" @change="load()" />
 			<div class="flex items-center gap-2 ml-auto">
 				<FormControl type="select" v-model="order" :options="ORDERS" class="w-40" @change="load()" />
@@ -120,7 +132,7 @@
 </template>
 
 <script setup>
-import { Badge, Button, ErrorMessage, FormControl, frappeRequest } from "frappe-ui"
+import { Autocomplete, Badge, Button, ErrorMessage, FormControl, frappeRequest } from "frappe-ui"
 import { computed, onMounted, reactive, ref } from "vue"
 import { useRoute } from "vue-router"
 import { dayjs } from "@/dayjs"
@@ -171,7 +183,20 @@ const filters = reactive({
 function choices(label, values) {
 	return [{ label, value: "" }, ...values.map((v) => ({ label: v, value: v }))]
 }
-const agentOptions = computed(() => choices("All agents", options.value.agents))
+const agentOptions = computed(() => options.value.agents.map((v) => ({ label: v, value: v })))
+
+// Autocomplete carries {label, value} while the filter holds a plain name, and
+// its default comparator throws on a null model, so compare defensively.
+function compareOption(a, b) {
+	return a?.value === b?.value
+}
+const agentOption = computed({
+	get: () => (filters.agent_configuration ? { label: filters.agent_configuration, value: filters.agent_configuration } : null),
+	set: (opt) => {
+		filters.agent_configuration = opt?.value || ""
+		load()
+	},
+})
 const userOptions = computed(() => choices("All users", options.value.users))
 const modelOptions = computed(() => choices("All models", options.value.models))
 const statusOptions = computed(() => choices("Any status", options.value.statuses))
