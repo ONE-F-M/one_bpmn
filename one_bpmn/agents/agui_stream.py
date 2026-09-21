@@ -234,9 +234,19 @@ def agent_event_stream(
 				frappe.db.commit()
 
 		if result.get("streaming"):
-			yield from _relay_child_stream(result["stream"], encoder, message_id)
-			_commit_turn()
-		else:
+			# A handover is taken out of the relay and falls through to the
+			# buffered path, so cards and artifacts keep working.
+			handover = {}
+			yield from _relay_child_stream(
+				_take_handover(result["stream"], handover), encoder, message_id
+			)
+			if "result" not in handover:
+				_commit_turn()
+				result = None
+			else:
+				result = handover["result"]
+
+		if result is not None and not result.get("streaming"):
 			shaper = _REPLY_SHAPERS.get(agent_id)
 			if shaper:
 				try:
@@ -325,7 +335,20 @@ def agent_event_stream(
 _CUSTOM_ENVELOPE_KEYS = {"type", "name", "event", "value", "timestamp", "raw_event", "rawEvent"}
 
 
+# A streaming runner ends by handing its buffered reply over on the same
+# stream, so the shaping is not duplicated.
+HANDOVER_EVENT = "ONEFM_TURN_RESULT"
+
 _CHILD_EXHAUSTED = object()
+
+
+def _take_handover(child, handover: dict):
+	"""Relay a child's events, keeping the handover event out of the stream."""
+	for event in child:
+		if isinstance(event, dict) and event.get("type") == HANDOVER_EVENT:
+			handover["result"] = event.get("result") or {}
+			return
+		yield event
 
 
 def _relay_child_stream(
