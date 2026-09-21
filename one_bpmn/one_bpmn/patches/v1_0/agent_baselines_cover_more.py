@@ -134,39 +134,6 @@ CONNECTOR_CASES = [
 		],
 	},
 	{
-		"title": "A paginated listing is recognised as handler work, and the decision skill is loaded",
-		"case_type": "Trajectory",
-		# "Decide, do not build" keeps this case free of side effects: a proposed
-		# handler opens a real pull request on a fresh branch every time it runs.
-		"instruction": (
-			f"We are planning a Processa connector for the GitHub REST API at {GITHUB_API} with one operation: list "
-			"ALL open issues of the repository ONE-F-M/one_bpmn. GitHub returns 30 issues per page and puts the next "
-			"page in the Link header; every open issue must be returned, not only the first page. No authentication. "
-			"Decide whether this operation can be plain HTTP configuration or needs a Python handler, and report the "
-			"decision with its reason. Do not write the connector and do not create the handler or a pull request yet."
-		),
-		"work_item": {
-			"work_item_type": "Task",
-			"title": "Connector for all open GitHub issues of one_bpmn",
-			"description": "<p>A connector operation that returns every open issue of ONE-F-M/one_bpmn across pages.</p>",
-			"status": "Open",
-		},
-		"assertions": [
-			GUARD,
-			{"assertion_type": "no_tool_call", "value": "propose_python_handler,write_connector"},
-			{"assertion_type": "tool_calls", "value": "ANY_ORDER"},
-			connector._judge(
-				"Score 5 if the answer says this operation needs a Python handler because the result spans pages "
-				"and one request returns only the first page, and reports that decision without building anything; "
-				"3 if it says handler but gives the wrong reason; 1 if it calls plain HTTP configuration enough."
-			),
-		],
-		"expected_tool_calls": [
-			{"call_order": 1, "tool_name": "load_skill", "argument": "skill_name", "matcher": "equals",
-			 "expected_value": "deciding-http-vs-python-handler"},
-		],
-	},
-	{
 		"title": "A build from a large OpenAPI document stays inside its token budget",
 		"case_type": "Co-Load Budget",
 		"instruction": (
@@ -176,6 +143,43 @@ CONNECTOR_CASES = [
 		"assertions": [GUARD, {"assertion_type": "max_tokens", "value": "250000"}],
 	},
 ]
+
+# Runs by hand only, in the Case Types suite: a handler is delivered as a pull request
+# on a fresh branch every run, and "decide, do not build" is not an instruction this
+# background agent honours. The Baseline is nightly and must not open pull requests.
+BY_HAND_SUITE = "Connector Agent — Case Types"
+BY_HAND_CASES = [
+	{
+		"title": "A paginated listing loads the decision skill and is handed to a Python handler",
+		"case_type": "Trajectory",
+		"instruction": (
+			f"Build a Processa connector for the GitHub REST API at {GITHUB_API} with one operation: list ALL open "
+			"issues of the repository ONE-F-M/one_bpmn. GitHub returns 30 issues per page and puts the next page "
+			"in the Link header; every open issue must be returned, not only the first page. No authentication."
+		),
+		"work_item": {
+			"work_item_type": "Task",
+			"title": "Connector for all open GitHub issues of one_bpmn",
+			"description": "<p>A connector operation that returns every open issue of ONE-F-M/one_bpmn across pages.</p>",
+			"status": "Open",
+		},
+		"assertions": [
+			GUARD,
+			{"assertion_type": "tool_calls", "value": "ANY_ORDER"},
+			connector._judge(
+				"Score 5 if the answer says this operation needs a Python handler because the result spans pages, "
+				"and either names the pull request that carries it or says exactly what stopped it, with the "
+				"connector left disabled; 1 if it ships a plain HTTP operation and calls the job done."
+			),
+		],
+		"expected_tool_calls": [
+			{"call_order": 1, "tool_name": "load_skill", "argument": "skill_name", "matcher": "equals",
+			 "expected_value": "deciding-http-vs-python-handler"},
+			{"call_order": 2, "tool_name": "propose_python_handler"},
+		],
+	},
+]
+RETIRED_TITLES = ("A paginated listing is recognised as handler work, and the decision skill is loaded",)
 
 ORCHESTRATOR_DELEGATES_EXCEPT_CONNECTOR = ",".join(
 	t for t in DELEGATE_TOOLS.split(",") if t != "delegate_connector_agent"
@@ -327,6 +331,22 @@ def _connector():
 		task = connector._fixture(existing, payload)
 		_write(existing, baseline, spec, connector.MAP, connector.SHAPE, spec["instruction"],
 			   {"context_doctype": "A2A Task", "context_docname": task})
+
+	for title in RETIRED_TITLES:
+		for name in frappe.get_all("AI Eval Case", filters={"suite": baseline, "title": title}, pluck="name"):
+			frappe.delete_doc("AI Eval Case", name, ignore_permissions=True, force=True)
+
+	by_hand = frappe.db.get_value("AI Eval Suite", {"title": BY_HAND_SUITE}, "name")
+	if by_hand:
+		for spec in BY_HAND_CASES:
+			existing = frappe.db.get_value("AI Eval Case", {"suite": by_hand, "title": spec["title"]}, "name")
+			payload = {"instruction": spec["instruction"]}
+			sprint = sprint or connector._fixture_sprint()
+			if sprint:
+				payload["work_item"] = connector._work_item(existing, sprint, spec["work_item"])
+			task = connector._fixture(existing, payload)
+			_write(existing, by_hand, spec, connector.MAP, connector.SHAPE, spec["instruction"],
+				   {"context_doctype": "A2A Task", "context_docname": task})
 
 	for case in frappe.get_all("AI Eval Case", filters={"suite": baseline}, pluck="name"):
 		doc = frappe.get_doc("AI Eval Case", case)
