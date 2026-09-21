@@ -171,3 +171,53 @@ class TestIdempotency(FrappeTestCase):
 			ignore_permissions=True
 		)
 		self.assertIsNone(idem.find_existing(other.name, "shared-id"))
+
+
+class TestTheControlIsChatOnly(FrappeTestCase):
+	"""A Background agent has no conversation and no second message to order, so
+	offering it the setting would be a control that decides nothing."""
+
+	class _Agent:
+		"""Only what agent_screening reads off the record."""
+
+		def __init__(self, agent_type):
+			self.name = "A"
+			self.agent_type = agent_type
+
+		def check_permission(self, *args, **kwargs):
+			pass
+
+		def has_permission(self, *args, **kwargs):
+			return True
+
+		def get(self, fieldname, default=None):
+			return getattr(self, fieldname, default)
+
+	def _screening(self, agent_type):
+		from one_bpmn.api import security_api
+
+		with patch.object(frappe, "get_doc", return_value=self._Agent(agent_type)):
+			return security_api.agent_screening("A")
+
+	def test_a_chat_agent_is_offered_the_setting(self):
+		fields = [c["fieldname"] for c in self._screening("Chat")["controls"]]
+		self.assertIn("concurrent_turn_policy", fields)
+
+	def test_a_background_agent_is_not(self):
+		fields = [c["fieldname"] for c in self._screening("Background")["controls"]]
+		self.assertNotIn("concurrent_turn_policy", fields)
+		# The rest of the controls are unaffected.
+		self.assertIn("rate_limit_enabled", fields)
+
+	def test_the_save_path_refuses_it_for_a_background_agent(self):
+		from one_bpmn.api import security_api
+
+		self.assertFalse(
+			security_api._applies_to("concurrent_turn_policy", frappe._dict(agent_type="Background"))
+		)
+		self.assertTrue(
+			security_api._applies_to("concurrent_turn_policy", frappe._dict(agent_type="Chat"))
+		)
+		self.assertTrue(
+			security_api._applies_to("rate_limit_enabled", frappe._dict(agent_type="Background"))
+		)

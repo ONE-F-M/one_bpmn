@@ -490,6 +490,7 @@
   },
   {
    "default": "Queue",
+   "depends_on": "eval:doc.agent_type==\"Chat\"",
    "description": "What happens when a second message arrives while this agent is still answering the last one. Queue waits for the running turn and then answers; Refuse replies \"Still working on your last message\" and drops it.",
    "fieldname": "concurrent_turn_policy",
    "fieldtype": "Select",
