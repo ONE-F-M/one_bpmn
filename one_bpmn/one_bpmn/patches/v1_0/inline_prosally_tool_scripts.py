@@ -624,6 +624,7 @@ from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
 from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 from one_bpmn.agents.bpmn_ir_pipeline import compile_ir, extract_process_name, translate_problems, translate_violations
 from one_bpmn.security.bpmn_validator import validate_bpmn_xml
+from one_bpmn.agents.llm_provider.base import LLMTruncatedError
 
 _GENERATE_INTENTS = frozenset({"GENERATE_NEW", "OVERWRITE_EXISTING"})
 _MAX_FIX_PASSES = 3
@@ -633,6 +634,18 @@ _cfg = get_agent_config("prosally_agent") or {}
 _cfg.setdefault("agent_id", "prosally_agent")
 _subs = _cfg.get("sub_prompts") or {}
 _adapter = get_llm_adapter_from_settings(_cfg)
+
+# A configured max_tokens under 16384 cuts a large IR off mid-JSON, so the
+# floor is 16384 and the ceiling is whatever the model itself allows.
+_max_tokens = int(_cfg.get("max_tokens") or 0)
+if _max_tokens < 16384:
+    _max_tokens = 16384
+_model_ceiling = 0
+if _cfg.get("ai_model"):
+    _model_ceiling = frappe.db.get_value("AI Model", _cfg.get("ai_model"), "max_output_tokens") or 0
+if _model_ceiling:
+    _max_tokens = min(_max_tokens, int(_model_ceiling))
+_truncated_error = False
 
 action = turn.get("intent", "GENERATE_NEW")
 if action not in _GENERATE_INTENTS:
@@ -694,7 +707,30 @@ for attempt in range(_MAX_FIX_PASSES + 1):
             "Current IR:\n" + json.dumps(ir_dict, indent=2)
         )
 
-    raw = run_sync(_adapter.complete(system=_system, user=prompt)).text
+    try:
+        raw = run_sync(_adapter.complete(system=_system, user=prompt, max_tokens=_max_tokens)).text
+    except LLMTruncatedError:
+        # done=True here, or finalize overwrites this with its generic
+        # fallback question.
+        _truncated_error = True
+        _size_msg = (
+            "This process is too large for me to generate in a single pass — the "
+            "model's output was cut off before it finished, even at a " + str(_max_tokens) +
+            "-token budget. Try describing a smaller piece of the process at a time "
+            "(for example, one department or phase), and I can assemble it "
+            "incrementally, or ask me to model just the part you need most."
+        )
+        output = {
+            "intent": "CLARIFY",
+            "action_intent": None,
+            "response": _size_msg,
+            "options": [],
+        }
+        update_turn(context_docname, output=output, done=True)
+        result["generated"] = False
+        result["response"] = _size_msg
+        result["truncated"] = True
+        break
 
     # ── parse IR JSON (inline) ──
     ir_dict = None
@@ -788,19 +824,20 @@ for attempt in range(_MAX_FIX_PASSES + 1):
     if attempt == _MAX_FIX_PASSES:
         break
 
-note = ((" (" + str(len(problems)) + " issue(s) remain — review the canvas.)") if problems else "") + topology_note
-xml_name = extract_process_name(best_xml) or process_name or "process"
-output = {
-    "intent": "BPMN_GENERATED",
-    "action_intent": action,
-    "bpmn_xml": best_xml,
-    "response": "I've generated the " + xml_name + " process model." + note + " Review it on the canvas.",
-    "options": [],
-}
-update_turn(context_docname, output=output, done=True)
-result["generated"] = True
-result["process_name"] = xml_name
-result["issues"] = len(problems)
+if not _truncated_error:
+    note = ((" (" + str(len(problems)) + " issue(s) remain — review the canvas.)") if problems else "") + topology_note
+    xml_name = extract_process_name(best_xml) or process_name or "process"
+    output = {
+        "intent": "BPMN_GENERATED",
+        "action_intent": action,
+        "bpmn_xml": best_xml,
+        "response": "I've generated the " + xml_name + " process model." + note + " Review it on the canvas.",
+        "options": [],
+    }
+    update_turn(context_docname, output=output, done=True)
+    result["generated"] = True
+    result["process_name"] = xml_name
+    result["issues"] = len(problems)
 '''
 
 MODIFY = r'''# ProsAlly – Tool Modify Process (self-contained, FLAT top-level code).
@@ -1094,6 +1131,7 @@ def _prosally_preserver(mode, arg_a="", arg_b=None):
         return summarize_configured_elements(_cfg)
     return None
 from one_bpmn.security.bpmn_validator import validate_bpmn_xml
+from one_bpmn.agents.llm_provider.base import LLMTruncatedError
 
 _MAX_FIX_PASSES = 3
 
@@ -1102,6 +1140,17 @@ _cfg = get_agent_config("prosally_agent") or {}
 _cfg.setdefault("agent_id", "prosally_agent")
 _subs = _cfg.get("sub_prompts") or {}
 _adapter = get_llm_adapter_from_settings(_cfg)
+
+# A configured max_tokens under 16384 cuts a large modification off mid-JSON.
+_max_tokens = int(_cfg.get("max_tokens") or 0)
+if _max_tokens < 16384:
+    _max_tokens = 16384
+_model_ceiling = 0
+if _cfg.get("ai_model"):
+    _model_ceiling = frappe.db.get_value("AI Model", _cfg.get("ai_model"), "max_output_tokens") or 0
+if _model_ceiling:
+    _max_tokens = min(_max_tokens, int(_model_ceiling))
+_truncated_error = False
 
 process_name = turn.get("process_name", "")
 chat_history = turn.get("chat_history", []) or []
@@ -1175,7 +1224,30 @@ for attempt in range(_MAX_FIX_PASSES + 1):
             "Current IR:\n" + json.dumps(ir_dict, indent=2)
         )
 
-    raw = run_sync(_adapter.complete(system=_system, user=prompt)).text
+    try:
+        raw = run_sync(_adapter.complete(system=_system, user=prompt, max_tokens=_max_tokens)).text
+    except LLMTruncatedError:
+        # done=True here, or finalize overwrites this with its generic
+        # fallback question.
+        _truncated_error = True
+        _size_msg = (
+            "This process is too large for me to regenerate in a single pass — the "
+            "model's output was cut off before it finished, even at a " + str(_max_tokens) +
+            "-token budget. Try asking for a smaller, more targeted change (for "
+            "example, one lane or one section of the process at a time), and I can "
+            "apply it incrementally instead of rewriting the whole diagram."
+        )
+        output = {
+            "intent": "CLARIFY",
+            "action_intent": None,
+            "response": _size_msg,
+            "options": [],
+        }
+        update_turn(context_docname, output=output, done=True)
+        result["modified"] = False
+        result["response"] = _size_msg
+        result["truncated"] = True
+        break
 
     # ── parse IR JSON (inline) ──
     ir_dict = None
@@ -1247,38 +1319,38 @@ for attempt in range(_MAX_FIX_PASSES + 1):
     if attempt == _MAX_FIX_PASSES:
         break
 
-note = ((" (" + str(len(problems)) + " issue(s) remain — review the canvas.)") if problems else "") + topology_note
+if not _truncated_error:
+    note = ((" (" + str(len(problems)) + " issue(s) remain — review the canvas.)") if problems else "") + topology_note
 
-# ── preserve configured properties from the old diagram onto the new one ──
-merged_xml, removed_elements = _prosally_preserver("transfer", current_xml, best_xml)
+    merged_xml, removed_elements = _prosally_preserver("transfer", current_xml, best_xml)
 
-if removed_elements:
-    output = {
-        "intent": "CONFIRM_REMOVAL",
-        "action_intent": "MODIFY_EXISTING",
-        "response": _prosally_preserver("format_removal", "", removed_elements),
-        "options": ["Yes, apply changes", "No, keep existing"],
-        "pending_xml": merged_xml,
-    }
-    update_turn(context_docname, output=output, done=True)
-    result["modified"] = False
-    result["needs_removal_confirm"] = True
-else:
-    xml_name = extract_process_name(merged_xml) or process_name or "process"
-    output = {
-        "intent": "BPMN_MODIFIED",
-        "action_intent": "MODIFY_EXISTING",
-        "bpmn_xml": merged_xml,
-        "response": (
-            "I've updated the " + xml_name + " process." + note + " All existing configurations "
-            "have been preserved. Review the changes on the canvas."
-        ),
-        "options": [],
-    }
-    update_turn(context_docname, output=output, done=True)
-    result["modified"] = True
-    result["process_name"] = xml_name
-    result["issues"] = len(problems)
+    if removed_elements:
+        output = {
+            "intent": "CONFIRM_REMOVAL",
+            "action_intent": "MODIFY_EXISTING",
+            "response": _prosally_preserver("format_removal", "", removed_elements),
+            "options": ["Yes, apply changes", "No, keep existing"],
+            "pending_xml": merged_xml,
+        }
+        update_turn(context_docname, output=output, done=True)
+        result["modified"] = False
+        result["needs_removal_confirm"] = True
+    else:
+        xml_name = extract_process_name(merged_xml) or process_name or "process"
+        output = {
+            "intent": "BPMN_MODIFIED",
+            "action_intent": "MODIFY_EXISTING",
+            "bpmn_xml": merged_xml,
+            "response": (
+                "I've updated the " + xml_name + " process." + note + " All existing configurations "
+                "have been preserved. Review the changes on the canvas."
+            ),
+            "options": [],
+        }
+        update_turn(context_docname, output=output, done=True)
+        result["modified"] = True
+        result["process_name"] = xml_name
+        result["issues"] = len(problems)
 '''
 
 REDIRECT = r'''# ProsAlly – Tool Redirect (self-contained, FLAT top-level code).
