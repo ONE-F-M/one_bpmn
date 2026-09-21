@@ -226,15 +226,17 @@
 				<RunTree :node="tree" />
 			</div>
 
-			<!-- Conversation -->
-			<div v-else class="bg-white border rounded-lg overflow-hidden">
+			<!-- Conversation: every turn, opened one at a time down to the
+			     steps and the runs those steps delegated. -->
+			<div v-else-if="tab === 'conversation'" class="bg-white border rounded-lg overflow-hidden">
 				<div class="px-4 py-2 border-b text-xs text-gray-500">
-					Every top-level run on this instance, in the order it happened. The run you are reading is highlighted.
+					Every turn on this instance, oldest first. Open one to read its steps; a step that handed work
+					to another agent opens that agent's run underneath it.
 				</div>
 				<table class="w-full text-xs">
 					<thead class="text-gray-400 uppercase tracking-wide">
 						<tr class="border-b">
-							<th class="text-left font-medium px-4 py-1.5">Turn</th>
+							<th class="text-left font-medium px-4 py-1.5 w-16">Turn</th>
 							<th class="text-left font-medium px-3 py-1.5">Started</th>
 							<th class="text-left font-medium px-3 py-1.5">Run</th>
 							<th class="text-left font-medium px-3 py-1.5">Status</th>
@@ -245,27 +247,87 @@
 						</tr>
 					</thead>
 					<tbody class="divide-y">
-						<tr
-							v-for="(sib, i) in detail.siblings"
-							:key="sib.name"
-							class="cursor-pointer hover:bg-gray-50"
-							:class="sib.name === run.name ? 'bg-blue-50/60' : ''"
-							@click="$router.push(`/processa/runs/${sib.name}`)"
-						>
-							<td class="px-4 py-1.5 text-gray-500">{{ i + 1 }}</td>
-							<td class="px-3 py-1.5 text-gray-600 whitespace-nowrap">{{ fmtDateTime(sib.started_at) }}</td>
-							<td class="px-3 py-1.5">
-								<div class="font-mono text-blue-700">{{ sib.name }}</div>
-								<div class="text-gray-400">{{ sib.agent_configuration || sib.bpmn_label }}</div>
-							</td>
-							<td class="px-3 py-1.5"><Badge :theme="STATUS_THEMES[sib.status] || 'gray'" size="sm">{{ sib.status }}</Badge></td>
-							<td class="px-3 py-1.5 text-right text-gray-700">{{ fmtMs(sib.agent_latency_ms) }}</td>
-							<td class="px-3 py-1.5 text-right text-gray-700">{{ fmtNum(sib.total_tokens) }}</td>
-							<td class="px-3 py-1.5 text-right text-gray-700">{{ fmtCost(sib.estimated_cost) }}</td>
-							<td class="px-3 py-1.5 text-gray-600 max-w-md truncate" :title="sib.final_output">{{ sib.final_output || "" }}</td>
-						</tr>
+						<template v-for="(sib, i) in detail.siblings" :key="sib.name">
+							<tr
+								class="cursor-pointer hover:bg-gray-50"
+								:class="sib.name === run.name ? 'bg-blue-50/60' : ''"
+								@click="toggleTurn(sib.name)"
+							>
+								<td class="px-4 py-1.5 text-gray-500">
+									<span class="inline-flex items-center gap-1">
+										<Icon
+											:icon="openTurns.has(sib.name) ? 'lucide:chevron-down' : 'lucide:chevron-right'"
+											class="w-3 h-3 text-gray-400"
+										/>
+										{{ i + 1 }}
+									</span>
+								</td>
+								<td class="px-3 py-1.5 text-gray-600 whitespace-nowrap">{{ fmtDateTime(sib.started_at) }}</td>
+								<td class="px-3 py-1.5">
+									<div class="font-mono text-blue-700">{{ sib.name }}</div>
+									<div class="text-gray-400">{{ sib.agent_configuration || sib.bpmn_label }}</div>
+								</td>
+								<td class="px-3 py-1.5"><Badge :theme="STATUS_THEMES[sib.status] || 'gray'" size="sm">{{ sib.status }}</Badge></td>
+								<td class="px-3 py-1.5 text-right text-gray-700">{{ fmtMs(sib.agent_latency_ms) }}</td>
+								<td class="px-3 py-1.5 text-right text-gray-700">{{ fmtNum(sib.total_tokens) }}</td>
+								<td class="px-3 py-1.5 text-right text-gray-700">{{ fmtCost(sib.estimated_cost) }}</td>
+								<td class="px-3 py-1.5 text-gray-600 max-w-md truncate" :title="sib.final_output">{{ sib.final_output || "" }}</td>
+							</tr>
+							<tr v-if="openTurns.has(sib.name)">
+								<td colspan="8" class="px-4 py-2 bg-gray-50/60">
+									<div v-if="turnLoading.has(sib.name)" class="text-xs text-gray-500 py-2">Loading steps…</div>
+									<ErrorMessage v-else-if="turnErrors[sib.name]" :message="turnErrors[sib.name]" />
+									<div v-else-if="turns[sib.name]">
+										<div class="flex items-center gap-3 text-xs text-gray-500 mb-2">
+											<span>Own cost {{ fmtCost(sib.estimated_cost) }}</span>
+											<span v-if="turnHasChildren(sib.name)">
+												Including delegated work {{ fmtCost(turns[sib.name].rollup.estimated_cost) }},
+												{{ fmtNum(turns[sib.name].rollup.total_tokens) }} tokens
+											</span>
+											<RouterLink class="text-blue-600 hover:underline ml-auto" :to="`/processa/runs/${sib.name}`">
+												Open this turn on its own page
+											</RouterLink>
+										</div>
+										<RunTree :node="{ run: turns[sib.name].run, steps: turns[sib.name].steps, unplaced_children: turns[sib.name].unplaced_children, rollup: turns[sib.name].rollup }" />
+									</div>
+								</td>
+							</tr>
+						</template>
 					</tbody>
 				</table>
+			</div>
+
+			<!-- Waterfall: turns as bars, idle time between them collapsed so
+			     waiting never owns the width. -->
+			<div v-else class="bg-white border rounded-lg overflow-hidden">
+				<div class="px-4 py-2 border-b text-xs text-gray-500 flex items-center gap-3">
+					<span>{{ waterfallLabel }}</span>
+					<span class="ml-auto text-gray-400">Gaps between turns are collapsed and labelled.</span>
+				</div>
+				<div class="p-4 space-y-1">
+					<template v-for="(row, i) in waterfall" :key="row.key">
+						<div v-if="row.gap" class="flex items-center gap-2 py-1 pl-24 text-xs text-gray-400">
+							<div class="h-px w-8 bg-gray-200"></div>
+							<span>{{ fmtMs(row.gap) }} idle</span>
+							<div class="h-px flex-1 bg-gray-200"></div>
+						</div>
+						<div class="flex items-center gap-2 text-xs">
+							<button class="w-20 text-left text-gray-500 hover:text-gray-900" @click="toggleTurn(row.name)">
+								Turn {{ i + 1 }}
+							</button>
+							<div class="flex-1 h-4 bg-gray-50 rounded relative">
+								<div
+									class="absolute h-4 rounded"
+									:class="row.status === 'Error' ? 'bg-red-300' : 'bg-teal-300'"
+									:style="{ left: row.left + '%', width: row.width + '%' }"
+									:title="`${row.name}: ${fmtMs(row.duration)}`"
+								></div>
+							</div>
+							<span class="w-16 text-right text-gray-600">{{ fmtMs(row.duration) }}</span>
+							<span class="w-20 text-right text-gray-600">{{ fmtCost(row.cost) }}</span>
+						</div>
+					</template>
+				</div>
 			</div>
 		</div>
 	</div>
@@ -274,8 +336,8 @@
 <script setup>
 import { Badge, Button, ErrorMessage, frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
-import { computed, onMounted, ref, watch } from "vue"
-import { useRoute } from "vue-router"
+import { computed, onMounted, reactive, ref, watch } from "vue"
+import { RouterLink, useRoute, useRouter } from "vue-router"
 import { dayjs } from "@/dayjs"
 import RunTree from "@/components/insights/RunTree.vue"
 import { fmtCost, fmtMs, fmtNum, prettyJson } from "@/utils/runFormat"
@@ -290,12 +352,64 @@ const KIND_PILLS = {
 }
 
 const route = useRoute()
+const router = useRouter()
 const loading = ref(true)
 const error = ref("")
 const detail = ref({})
 const tab = ref("steps")
 const open = ref(new Set())
 const creatingCase = ref(false)
+
+// A turn's steps are fetched when it is opened: a twenty turn conversation
+// would otherwise load twenty trees nobody asked for.
+const openTurns = ref(new Set())
+const turns = reactive({})
+const turnLoading = ref(new Set())
+const turnErrors = reactive({})
+
+async function toggleTurn(name) {
+	const next = new Set(openTurns.value)
+	if (next.has(name)) {
+		next.delete(name)
+		openTurns.value = next
+		syncTurnInUrl()
+		return
+	}
+	next.add(name)
+	openTurns.value = next
+	syncTurnInUrl()
+	if (turns[name]) return
+	const busy = new Set(turnLoading.value)
+	busy.add(name)
+	turnLoading.value = busy
+	try {
+		turns[name] = await frappeRequest({
+			url: "/api/method/one_bpmn.api.insights_api.get_turn_steps",
+			params: { run_name: name },
+		})
+		delete turnErrors[name]
+	} catch (e) {
+		turnErrors[name] = e.message || String(e)
+	} finally {
+		const done = new Set(turnLoading.value)
+		done.delete(name)
+		turnLoading.value = done
+	}
+}
+
+// The open turn rides in the query string so a turn can be linked to.
+function syncTurnInUrl() {
+	const open = [...openTurns.value]
+	const turn = open.length ? open[open.length - 1] : undefined
+	router.replace({ query: { ...route.query, turn } })
+}
+
+function turnHasChildren(name) {
+	const t = turns[name]
+	if (!t) return false
+	const inSteps = (t.steps || []).some((step) => (step.child_runs || []).length)
+	return inSteps || (t.unplaced_children || []).length > 0
+}
 
 const run = computed(() => detail.value.run || null)
 const tree = computed(() => detail.value.tree || { steps: [], unplaced_children: [] })
@@ -379,7 +493,39 @@ const tabs = computed(() => [
 	{ key: "steps", label: "Steps", count: steps.value.length },
 	{ key: "tree", label: "Tree", count: tree.value.rollup ? tree.value.rollup.runs : null },
 	{ key: "conversation", label: "Conversation", count: (detail.value.siblings || []).length },
+	{ key: "waterfall", label: "Waterfall", count: (detail.value.siblings || []).length },
 ])
+
+// Turns laid end to end. Bar width is the time the turn took; the wait
+// between two turns is collapsed to a label, since a person thinking for
+// four minutes would otherwise squeeze every turn into a hairline.
+const waterfall = computed(() => {
+	const rows = detail.value.siblings || []
+	const longest = Math.max(...rows.map((r) => r.agent_latency_ms || r.duration_ms || 0), 1)
+	let previousEnd = null
+	return rows.map((r) => {
+		const duration = r.agent_latency_ms || r.duration_ms || 0
+		const start = r.started_at ? dayjs(r.started_at).valueOf() : null
+		const gap = start && previousEnd && start > previousEnd ? start - previousEnd : 0
+		previousEnd = r.ended_at ? dayjs(r.ended_at).valueOf() : start
+		return {
+			key: r.name,
+			name: r.name,
+			status: r.status,
+			duration,
+			cost: r.estimated_cost,
+			gap,
+			left: 0,
+			width: Math.max((duration / longest) * 100, 1),
+		}
+	})
+})
+
+const waterfallLabel = computed(() => {
+	const rows = detail.value.siblings || []
+	const total = rows.reduce((a, r) => a + (r.agent_latency_ms || r.duration_ms || 0), 0)
+	return `${rows.length} turns, ${fmtMs(total)} of work`
+})
 
 function fmtDateTime(v) {
 	return v ? dayjs(v).format("DD MMM YYYY HH:mm:ss") : ""
@@ -430,5 +576,14 @@ async function createEvalCase() {
 }
 
 watch(() => route.params.run, () => route.params.run && load())
-onMounted(load)
+onMounted(async () => {
+	await load()
+	// A link that names a turn opens on that turn, so a turn can be sent to
+	// somebody and read where the sender was reading.
+	const turn = route.query.turn
+	if (turn) {
+		tab.value = "conversation"
+		toggleTurn(turn)
+	}
+})
 </script>
