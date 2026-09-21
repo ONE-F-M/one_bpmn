@@ -145,3 +145,61 @@ class TestMemoryBrowser(FrappeTestCase):
 		with self.set_user(self.alice):
 			API.list_memories(agent_element=self.agent, user=self.alice, page_length=100)
 		self.assertEqual(frappe.db.count("Access Log", {"export_from": "AI Memory"}), before)
+
+
+class TestMemoryPurge(FrappeTestCase):
+	def setUp(self):
+		self.agent = f"PG_{frappe.generate_hash(length=8)}"
+		self.alice = _user("alice")
+		self.bob = _user("bob")
+		self.shared = T.memory_write(
+			"Agent", self.agent, "the office closes at two on Thursdays", ignore_permissions=True
+		)
+		self.hers = T.memory_write(
+			"Agent", {"agent_element": self.agent, "user": self.alice}, "her leave needs a certificate", ignore_permissions=True
+		)
+		self.his = T.memory_write(
+			"Agent", {"agent_element": self.agent, "user": self.bob}, "his memory, not hers", ignore_permissions=True
+		)
+
+	def test_a_person_may_purge_their_own_memories(self):
+		with self.set_user(self.alice):
+			result = API.purge_memories()
+		self.assertEqual(result["user"], self.alice)
+		self.assertGreaterEqual(result["deleted"], 1)
+		self.assertEqual(result["remaining"], 0)
+		self.assertFalse(frappe.db.exists("AI Memory", self.hers["name"]))
+
+	def test_another_persons_memories_are_untouched(self):
+		with self.set_user(self.alice):
+			API.purge_memories()
+		self.assertTrue(frappe.db.exists("AI Memory", self.his["name"]))
+
+	def test_shared_memories_are_untouched(self):
+		with self.set_user(self.alice):
+			API.purge_memories()
+		self.assertTrue(frappe.db.exists("AI Memory", self.shared["name"]))
+
+	def test_a_regular_user_cannot_purge_someone_elses_memories(self):
+		with self.set_user(self.bob), self.assertRaises(frappe.PermissionError):
+			API.purge_memories(user=self.alice)
+		self.assertTrue(frappe.db.exists("AI Memory", self.hers["name"]))
+
+	def test_a_system_manager_may_purge_another_users_memories(self):
+		# The test runs as Administrator, a System Manager.
+		result = API.purge_memories(user=self.alice)
+		self.assertEqual(result["deleted"], 1)
+		self.assertEqual(result["remaining"], 0)
+		self.assertFalse(frappe.db.exists("AI Memory", self.hers["name"]))
+
+	def test_the_deleted_count_matches_what_was_removed(self):
+		before = frappe.db.count("AI Memory", {"user": self.alice})
+		with self.set_user(self.alice):
+			result = API.purge_memories()
+		self.assertEqual(result["deleted"], before)
+
+	def test_listing_returns_none_after_a_purge(self):
+		with self.set_user(self.alice):
+			API.purge_memories()
+			found = {m["name"] for m in API.list_memories(agent_element=self.agent, user=self.alice, page_length=100)["memories"]}
+		self.assertEqual(found, set())

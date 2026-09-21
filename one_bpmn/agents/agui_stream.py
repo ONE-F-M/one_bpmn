@@ -174,7 +174,13 @@ def _invoke_with_heartbeat(fn, interval: float = _HEARTBEAT_INTERVAL_SECONDS):
 	return outcome.get("result")
 
 
-def agent_event_stream(agent_id: str, message: str, conversation: str, context: dict | None = None):
+def agent_event_stream(
+	agent_id: str,
+	message: str,
+	conversation: str,
+	context: dict | None = None,
+	client_message_id: str | None = None,
+):
 	"""Yield one agent turn as encoded AG-UI SSE lines.
 
 	``conversation`` is required: the endpoint resolves/creates it *before*
@@ -196,7 +202,12 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 
 		result = yield from _invoke_with_heartbeat(
 			lambda: invoke_agent(
-				agent_id, message, conversation=conversation, context=context or {}, stream=True
+				agent_id,
+				message,
+				conversation=conversation,
+				context=context or {},
+				stream=True,
+				client_message_id=client_message_id,
 			)
 		)
 
