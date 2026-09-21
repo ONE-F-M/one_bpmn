@@ -1352,6 +1352,18 @@ def run_filter_options(origin: str = "production") -> dict:
 
 
 @frappe.whitelist()
+def get_turn_steps(run_name: str) -> dict:
+	"""One turn's steps, with the runs its tools started, for opening a turn
+	inside a conversation without loading the conversation again."""
+	frappe.only_for("System Manager")
+	run = frappe.db.get_value("AI Agent Run", run_name, list(_DETAIL_RUN_FIELDS), as_dict=True)
+	if not run:
+		frappe.throw(_("AI Agent Run {0} not found").format(run_name), frappe.DoesNotExistError)
+	node = _run_node(dict(run), _TREE_MAX_DEPTH)
+	return {"run": run, "steps": node["steps"], "unplaced_children": node["unplaced_children"], "rollup": node["rollup"]}
+
+
+@frappe.whitelist()
 def get_run_detail(run_name: str) -> dict:
 	"""One run in full: its record, the instance and conversation it belongs
 	to, its steps as a tree (child runs under the step that started them),
