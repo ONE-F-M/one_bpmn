@@ -384,3 +384,131 @@ class TestEveryRunNumbersItsStepsFromOne(RunsPageFixture):
 		self._execute()
 		self.assertEqual(self._indexes(low), [1, 2])
 		self.assertEqual(self._indexes(high), [1, 2])
+
+
+class TestDelegatedWorkSitsUnderTheStepThatAskedForIt(FrappeTestCase):
+	"""A child reached over A2A carries the start shape of its own map, not
+	the name the caller used, so the tool name has to come off the task."""
+
+	def _children(self, *names):
+		return [{"name": n, "bpmn_id": "think", "instance": f"INST-{n}"} for n in names]
+
+	def _with_tasks(self, tasks):
+		from one_bpmn.api import insights_api
+
+		return patch.object(insights_api.frappe, "get_list", return_value=tasks)
+
+	def test_the_task_supplies_the_name_the_caller_used(self):
+		from one_bpmn.api.insights_api import _tool_names_of_children
+
+		tasks = [{"bpmn_id": "ask_safety_assessor", "agent_run": "CHILD-1", "instance": "INST-CHILD-1"}]
+		with self._with_tasks(tasks):
+			names = _tool_names_of_children("PARENT", self._children("CHILD-1"))
+		self.assertEqual(names["CHILD-1"], "ask_safety_assessor")
+
+	def test_a_task_missing_its_run_is_found_through_its_instance(self):
+		from one_bpmn.api.insights_api import _tool_names_of_children
+
+		tasks = [{"bpmn_id": "send_to_maintenance", "agent_run": None, "instance": "INST-CHILD-2"}]
+		with self._with_tasks(tasks):
+			names = _tool_names_of_children("PARENT", self._children("CHILD-2"))
+		self.assertEqual(names["CHILD-2"], "send_to_maintenance")
+
+	def test_an_ambiguous_instance_is_left_alone(self):
+		from one_bpmn.api.insights_api import _tool_names_of_children
+
+		children = [
+			{"name": "CHILD-A", "bpmn_id": "think", "instance": "SHARED"},
+			{"name": "CHILD-B", "bpmn_id": "think", "instance": "SHARED"},
+		]
+		tasks = [{"bpmn_id": "ask_safety_assessor", "agent_run": None, "instance": "SHARED"}]
+		with self._with_tasks(tasks):
+			names = _tool_names_of_children("PARENT", children)
+		self.assertEqual(names, {"CHILD-A": "think", "CHILD-B": "think"})
+
+	def test_a_child_of_the_same_process_keeps_its_own_shape(self):
+		from one_bpmn.api.insights_api import _tool_names_of_children
+
+		children = [{"name": "CHILD-3", "bpmn_id": "write_script", "instance": "INST-CHILD-3"}]
+		with self._with_tasks([]):
+			names = _tool_names_of_children("PARENT", children)
+		self.assertEqual(names["CHILD-3"], "write_script")
+
+	def test_a_run_with_no_children_asks_nothing(self):
+		from one_bpmn.api import insights_api
+
+		with patch.object(insights_api.frappe, "get_list") as listed:
+			self.assertEqual(insights_api._tool_names_of_children("PARENT", []), {})
+		listed.assert_not_called()
+
+	def test_no_permission_on_the_task_falls_back_to_the_shape(self):
+		from one_bpmn.api import insights_api
+
+		with patch.object(insights_api.frappe, "get_list", side_effect=frappe.PermissionError):
+			names = insights_api._tool_names_of_children("PARENT", self._children("CHILD-4"))
+		self.assertEqual(names["CHILD-4"], "think")
+
+
+class TestADelegatedRunNestsUnderItsStep(RunsPageFixture):
+	"""End to end through the tree builder: a step that delegated over A2A
+	carries that agent's run, instead of stranding it after the steps."""
+
+	def _step(self, run, tool):
+		step = frappe.get_doc(
+			{
+				"doctype": "AI Agent Step",
+				"run": run.name,
+				"step_index": 1,
+				"role": "tool",
+				"content": "",
+				"tool_calls": [{"tool_name": tool, "status": "Success"}],
+			}
+		).insert(ignore_permissions=True)
+		self.addCleanup(
+			lambda n=step.name: (
+				frappe.db.exists("AI Agent Step", n)
+				and frappe.delete_doc("AI Agent Step", n, force=True, ignore_permissions=True)
+			)
+		)
+		return step
+
+	def test_the_child_lands_on_the_step_that_called_it(self):
+		from one_bpmn.api import insights_api
+
+		parent = self._run()
+		child = self._run(parent_run=parent.name, bpmn_id="think")
+		self._step(parent, "ask_safety_assessor")
+
+		tasks = [{"bpmn_id": "ask_safety_assessor", "agent_run": child.name, "instance": self.instance}]
+		real = insights_api.frappe.get_list
+
+		def listed(doctype, *a, **kw):
+			if doctype == "A2A Task":
+				return tasks
+			return real(doctype, *a, **kw)
+
+		with patch.object(insights_api.frappe, "get_list", side_effect=listed):
+			node = insights_api._run_node(dict(parent.as_dict()), 2)
+
+		self.assertEqual(node["unplaced_children"], [])
+		self.assertEqual([c["run"]["name"] for c in node["steps"][0]["child_runs"]], [child.name])
+
+	def test_without_the_task_the_child_is_left_after_the_steps(self):
+		from one_bpmn.api import insights_api
+
+		parent = self._run()
+		child = self._run(parent_run=parent.name, bpmn_id="think")
+		self._step(parent, "ask_safety_assessor")
+
+		real = insights_api.frappe.get_list
+
+		def listed(doctype, *a, **kw):
+			if doctype == "A2A Task":
+				return []
+			return real(doctype, *a, **kw)
+
+		with patch.object(insights_api.frappe, "get_list", side_effect=listed):
+			node = insights_api._run_node(dict(parent.as_dict()), 2)
+
+		self.assertEqual(node["steps"][0]["child_runs"], [])
+		self.assertEqual([c["run"]["name"] for c in node["unplaced_children"]], [child.name])
