@@ -173,3 +173,4 @@ one_bpmn.one_bpmn.patches.v1_0.backfill_step_kind_and_window #17-09-2026 every s
 one_bpmn.one_bpmn.patches.v1_0.backfill_run_model_from_agent #17-09-2026 runs that never recorded a model take the one their agent configuration names, so the runs page and the cost reports stop showing blanks for older runs
 one_bpmn.one_bpmn.patches.v1_0.docu_writes_permission_rules #17-09-2026 Docu sets who may use a DocType when the process owner names roles in chat; the IR gains a permissions array and the schema writer learns to fill it
 one_bpmn.one_bpmn.patches.v1_0.chat_conversations_are_private #16-09-2026 conversations with an agent become private to the person who had them; rows the front end inserted as Administrator are handed back to their single real participant
+one_bpmn.one_bpmn.patches.v1_0.link_delegated_runs_to_their_caller #21-09-2026 a delegated run kept no link to the run that asked for it, so a handover could not be drawn as a tree
