@@ -108,6 +108,22 @@ USE YOUR TOOLS — do not guess:
 
 OUTPUT FORMAT: a short plain-English sentence describing what you built, then the JSON object in a ```json code block."""
 
+# The orchestrator's system prompt describes Docu but never says how a turn runs.
+# On 2026-09-17 and 2026-09-21 it answered "hi" and "update the form" in prose
+# without calling a tool, and on other turns stopped after classify_intent or
+# clarify. Logix carries the same rules on its map; Docu's live on the record.
+PIPELINE_MARKER = "PIPELINE RULES"
+PIPELINE_RULES = (
+	"\n\nPIPELINE RULES: You run one turn by calling tools, one at a time, and never answer in plain "
+	"text; text outside a tool call is discarded and the person sees nothing. (1) ALWAYS call "
+	"classify_intent first; it reads the message server-side and returns intent and next. (2) If next "
+	"is null the turn is answered already: call finalize and stop. (3) If next is clarify: call clarify, "
+	"then finalize, then stop. (4) If next is write_schema: call write_schema, then review_schema; if "
+	"review returns approved false call write_schema and review_schema again, at most three times. "
+	"(5) Every turn ends with exactly one finalize call. Never design a DocType yourself and never ask "
+	"the person a question yourself; the tools do both."
+)
+
 REDIRECT_OLD = "I build Frappe forms (DocTypes) for the steps in your process"
 REDIRECT_NEW = "I build DocTypes — the records behind the steps in your process"
 
@@ -244,6 +260,9 @@ def execute():
 	for row in dead:
 		doc.remove(row)
 	changed = changed or bool(dead)
+	if PIPELINE_MARKER not in (doc.system_prompt or ""):
+		doc.system_prompt = (doc.system_prompt or "").rstrip() + PIPELINE_RULES
+		changed = True
 	for row in doc.sub_prompts:
 		text = row.prompt_text or ""
 		if row.sub_agent_id == "redirect" and REDIRECT_OLD in text:

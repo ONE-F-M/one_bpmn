@@ -1514,6 +1514,13 @@ def _extract_tool_shapes(adhoc_el, bpmn_ns: str, spiff_ns: str) -> list:
 			ai_agent_config = child.get(f"{{{spiff_ns}}}aiAgentConfig", "")
 			if ai_agent_config:
 				shape["aiAgentConfig"] = ai_agent_config
+		# A tool that belongs to ONE agent in a shared box: the id of the AI Agent
+		# Task it serves. Docu's writer sits in the same Tools box as the pipeline
+		# tools the orchestrator calls, and its six lookups must not reach the
+		# orchestrator nor the pipeline tools the writer.
+		tool_for = (child.get(f"{{{spiff_ns}}}aiToolFor") or "").strip()
+		if tool_for:
+			shape["toolFor"] = tool_for
 		if service_type:
 			# Copy every spiffworkflow:* attribute (aiToolParams handled below).
 			for attr_name, attr_value in child.attrib.items():
@@ -1611,16 +1618,30 @@ def _resolve_ai_agent_tool_shapes(bpmn_xml: str, service_extensions: dict) -> No
 	adhocs = _index_adhoc_subprocesses(bpmn_xml, BPMN_NS)
 	if adhocs is None:
 		return
-	for cfg in agents.values():
+	for agent_id, cfg in agents.items():
 		adhoc = adhocs.get((cfg.get("aiToolsAdhoc") or "").strip())
 		if adhoc is None:
 			continue  # _validate_ai_agent_tools reports the missing reference
-		cfg["aiToolShapes"] = json.dumps(_extract_tool_shapes(adhoc, BPMN_NS, SPIFF_NS))
+		cfg["aiToolShapes"] = json.dumps(_tools_for_agent(_extract_tool_shapes(adhoc, BPMN_NS, SPIFF_NS), agent_id))
 	for bpmn_id, cfg in selectors.items():
 		adhoc = adhocs.get(bpmn_id)
 		if adhoc is None:
 			continue
-		cfg["aiToolShapes"] = json.dumps(_extract_tool_shapes(adhoc, BPMN_NS, SPIFF_NS))
+		cfg["aiToolShapes"] = json.dumps(_tools_for_agent(_extract_tool_shapes(adhoc, BPMN_NS, SPIFF_NS), bpmn_id))
+
+
+def _tools_for_agent(shapes: list, agent_id: str) -> list:
+	"""The shapes of a box that this agent may call.
+
+	A shape marked aiToolFor belongs to the agent it names and to nobody else.
+	An agent that lives inside the box it references (a writer stage among the
+	orchestrator's tools) gets only the shapes marked for it, never itself and
+	never its siblings. Everyone else gets the unmarked shapes.
+	"""
+	own = [s for s in shapes if s.get("toolFor") == agent_id]
+	if own:
+		return own
+	return [s for s in shapes if not s.get("toolFor") and s.get("bpmn_id") != agent_id]
 
 
 def _validate_ai_agent_tools(bpmn_xml: str, service_extensions: dict) -> None:

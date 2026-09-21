@@ -48,6 +48,7 @@ class TestDocuSkillsSeed(FrappeTestCase):
 		self.assertIsNone(self._sub_prompt("schema_writer"), "the writer's prompt lives on its own record")
 		self.assertIn("load_skill", writer.system_prompt)
 		self.assertNotIn(seed.REDIRECT_OLD, self._sub_prompt("redirect"))
+		self.assertEqual(doc.system_prompt.count(seed.PIPELINE_MARKER), 1)
 
 		writer.system_prompt = "Edited by a person."
 		writer.save(ignore_permissions=True)

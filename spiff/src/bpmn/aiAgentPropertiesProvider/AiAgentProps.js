@@ -83,6 +83,12 @@ export function AiAgentProps(props) {
 			isEdited: isTextAreaEntryEdited,
 		},
 		{
+			id: "spiffworkflow-aiToolFor",
+			element,
+			component: ToolForComponent,
+			isEdited: isTextFieldEntryEdited,
+		},
+		{
 			id: "spiffworkflow-aiToolsAdhoc",
 			element,
 			component: ToolsAdhocComponent,
@@ -402,6 +408,29 @@ function ToolParamsComponent(props) {
 		),
 		getValue: () => getAttr(bo, "aiToolParams"),
 		setValue: (value) => setAttr(modeling, element, bo, "aiToolParams", value),
+		debounce,
+	});
+}
+
+// Tool owner — a tool in a shared box that only one agent may call.
+function ToolForComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const debounce  = useService("debounceInput");
+	const bo        = getBusinessObject(element);
+
+	return h(TextFieldEntry, {
+		element,
+		id,
+		label: translate("Tool For (agent shape id)"),
+		description: translate("Leave blank for a tool every agent using this box may call"),
+		tooltip: translate(
+			"When several agents share one Tools box, the id of the AI Agent Task this tool belongs to. "
+			+ "A marked tool reaches only that agent; that agent then gets only the tools marked for it."
+		),
+		getValue: () => getAttr(bo, "aiToolFor"),
+		setValue: (value) => setAttr(modeling, element, bo, "aiToolFor", value),
 		debounce,
 	});
 }
