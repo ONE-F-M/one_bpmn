@@ -554,7 +554,7 @@ def get_performance_report(
 
 _RUN_FIELDS = [
 	"name", "status", "model", "agent_configuration", "bpmn_id", "bpmn_label",
-	"parent_run", "started_at", "duration_ms", "total_prompt_tokens",
+	"instance", "parent_run", "started_at", "duration_ms", "total_prompt_tokens",
 	"total_completion_tokens", "total_tokens", "estimated_cost", "error_code",
 	"error_message", "prompt_hash",
 ]
@@ -640,12 +640,11 @@ def _add_rollup(into: dict, other: dict) -> None:
 
 def _run_node(run: dict, depth: int) -> dict:
 	"""One run with its steps and the runs its tools started, nested under
-	the step whose tool call started them (WI-002190).
+	the step whose tool call started them.
 
-	A child run's bpmn_id is the shape the parent called as a tool, so a
-	child is attached to the first step still holding an unmatched call to
-	that tool, in order. A child that matches no step (older data, or a
-	run started outside a tool call) is listed after the steps.
+	A child is attached to the first step still holding an unmatched call to
+	the tool that started it, in order. A child that matches no step (older
+	data, or a run started outside a tool call) is listed after the steps.
 	"""
 	steps = _step_rows(run["name"]) if depth > 0 else []
 	children = (
@@ -665,10 +664,13 @@ def _run_node(run: dict, depth: int) -> dict:
 	for node in child_nodes:
 		_add_rollup(rollup, node["rollup"])
 
+	called_as = _tool_names_of_children(run["name"], children)
 	unplaced = list(child_nodes)
 	for step in steps:
 		for tool_name in step["tool_names"]:
-			match = next((n for n in unplaced if n["run"].get("bpmn_id") == tool_name), None)
+			match = next(
+				(n for n in unplaced if called_as.get(n["run"]["name"]) == tool_name), None
+			)
 			if match is not None:
 				step["child_runs"].append(match)
 				unplaced.remove(match)
@@ -679,6 +681,45 @@ def _run_node(run: dict, depth: int) -> dict:
 		"unplaced_children": unplaced,
 		"rollup": rollup,
 	}
+
+
+def _tool_names_of_children(parent: str, children: list) -> dict:
+	"""The tool name each child run answers to, as the caller called it.
+
+	A child run started in the same process carries the calling shape as its
+	own bpmn_id, so it speaks for itself. A child reached over A2A does not:
+	it carries the start shape of its own map, and the name the caller used
+	lives on the A2A Task instead. Without that, delegated work never lands
+	under the step that asked for it.
+	"""
+	names = {child["name"]: child.get("bpmn_id") for child in children}
+	if not names:
+		return names
+	try:
+		tasks = frappe.get_list(
+			"A2A Task",
+			filters={"caller_agent_run": parent},
+			fields=["bpmn_id", "agent_run", "instance"],
+			limit_page_length=0,
+		)
+	except frappe.PermissionError:
+		return names
+	by_instance = {}
+	for child in children:
+		by_instance.setdefault(child.get("instance"), []).append(child["name"])
+	for task in tasks:
+		if not task.get("bpmn_id"):
+			continue
+		child = task.get("agent_run")
+		if not child:
+			# Some tasks never had their agent_run written back, so the child
+			# has to come from the instance the task does name, and only when
+			# that instance produced exactly one of this run's children.
+			candidates = by_instance.get(task.get("instance")) or []
+			child = candidates[0] if len(candidates) == 1 else None
+		if child in names:
+			names[child] = task["bpmn_id"]
+	return names
 
 
 @frappe.whitelist()
