@@ -309,6 +309,14 @@ const WORKSPACE_EVENTS = new Set([
 	"onefm.proposed_update",
 ]);
 
+// Events that exist for the host or the protocol, never for the reader:
+// they carry no message of their own, so drawing them as a card puts
+// plumbing in the transcript. Hosts still receive them through agent-event.
+const HOST_ONLY_EVENTS = new Set([
+	"onefm.message_persisted",
+	"onefm.created_config",
+]);
+
 // Each card's PRIMARY action — the one that needs a host-side target.
 // Dismiss never needs one and always stays visible.
 const PRIMARY_ACTIONS = {
@@ -658,7 +666,7 @@ function handleCustom(name, value) {
 			value = { ...value, prompt: "" };
 		}
 		items.value.push({ kind: "choice", value, answered: "", ts: stampNow() });
-	} else {
+	} else if (!HOST_ONLY_EVENTS.has(name)) {
 		items.value.push({ kind: "custom", name, value, ts: stampNow() });
 	}
 	scrollDown();
