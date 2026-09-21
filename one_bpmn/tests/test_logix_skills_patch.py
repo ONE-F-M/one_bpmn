@@ -44,8 +44,9 @@ class TestLogixSkillsSeed(FrappeTestCase):
 		names = {s["skill_name"] for s in seed.SKILLS}
 		for agent_id in seed.WRITER_AGENT_IDS:
 			doc = self._writer(agent_id)
-			self.assertEqual({row.skill for row in doc.enabled_skills}, names)
-			self.assertEqual(len(doc.enabled_skills), len(names))
+			enabled = [row.skill for row in doc.enabled_skills]
+			self.assertTrue(names <= set(enabled), "every seeded skill is enabled; later patches may add more")
+			self.assertEqual(len(enabled), len(set(enabled)), "no duplicate rows")
 			self.assertIn(seed.PROMPT_MARKER, doc.system_prompt)
 			self.assertNotIn("CONTRACT A", doc.system_prompt)
 
@@ -57,7 +58,8 @@ class TestLogixSkillsSeed(FrappeTestCase):
 
 		self.assertEqual(self._writer(seed.WRITER_AGENT_IDS[0]).system_prompt, edited.system_prompt)
 		for agent_id in seed.WRITER_AGENT_IDS:
-			self.assertEqual(len(self._writer(agent_id).enabled_skills), len(names))
+			rows = [row.skill for row in self._writer(agent_id).enabled_skills]
+			self.assertEqual(len(rows), len(set(rows)))
 
 	def test_only_the_dead_sub_prompts_leave_the_main_configuration(self):
 		main = frappe.db.get_value("AI Agent Configuration", {"agent_id": seed.MAIN_AGENT_ID}, "name")
