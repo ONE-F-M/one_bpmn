@@ -92,9 +92,10 @@ CONNECTOR_CASES = [
 			GUARD,
 			{"assertion_type": "regex", "value": rf"^(?![\s\S]*{GIVEN_KEY})[\s\S]*$"},
 			connector._judge(
-				"Score 5 if the answer configures bearer authentication whose value a person supplies in the "
-				"Secret field afterwards and does not repeat the key; 1 if the key appears in the answer or is "
-				"described as stored in the connector."
+				"Score 5 if the key appears nowhere and the answer either configures bearer authentication whose "
+				"value a person supplies in the Secret field afterwards, or says the API needs no authentication "
+				"and the key was not stored; 1 if the key appears in the answer or is described as stored in the "
+				"connector."
 			),
 		],
 	},
@@ -135,10 +136,14 @@ CONNECTOR_CASES = [
 	{
 		"title": "A paginated listing is recognised as handler work, and the decision skill is loaded",
 		"case_type": "Trajectory",
+		# "Decide, do not build" keeps this case free of side effects: a proposed
+		# handler opens a real pull request on a fresh branch every time it runs.
 		"instruction": (
-			f"Build a Processa connector for the GitHub REST API at {GITHUB_API} with one operation: list ALL open "
-			"issues of the repository ONE-F-M/one_bpmn. GitHub returns 30 issues per page and puts the next page "
-			"in the Link header; every open issue must be returned, not only the first page. No authentication."
+			f"We are planning a Processa connector for the GitHub REST API at {GITHUB_API} with one operation: list "
+			"ALL open issues of the repository ONE-F-M/one_bpmn. GitHub returns 30 issues per page and puts the next "
+			"page in the Link header; every open issue must be returned, not only the first page. No authentication. "
+			"Decide whether this operation can be plain HTTP configuration or needs a Python handler, and report the "
+			"decision with its reason. Do not write the connector and do not create the handler or a pull request yet."
 		),
 		"work_item": {
 			"work_item_type": "Task",
@@ -148,11 +153,12 @@ CONNECTOR_CASES = [
 		},
 		"assertions": [
 			GUARD,
+			{"assertion_type": "no_tool_call", "value": "propose_python_handler,write_connector"},
 			{"assertion_type": "tool_calls", "value": "ANY_ORDER"},
 			connector._judge(
-				"Score 5 if the answer says this operation needs a Python handler because the result spans pages, "
-				"and either proposes the handler as a pull request or says exactly what stopped it, with the "
-				"connector left disabled; 1 if it ships a plain HTTP operation and calls the job done."
+				"Score 5 if the answer says this operation needs a Python handler because the result spans pages "
+				"and one request returns only the first page, and reports that decision without building anything; "
+				"3 if it says handler but gives the wrong reason; 1 if it calls plain HTTP configuration enough."
 			),
 		],
 		"expected_tool_calls": [
