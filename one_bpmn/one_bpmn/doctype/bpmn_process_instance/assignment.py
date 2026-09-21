@@ -53,11 +53,15 @@ def _decode_html_attr(value: str) -> str:
 		return value
 
 
-def get_reliever_if_on_leave(user: str) -> str:
+def get_reliever_if_on_leave(user: str, pairs: list = None) -> str:
 	"""
 	If *user* is on approved leave today, return the reliever's User ID
 	from the Leave Application (``reliever_user_id``).  Falls back to the
 	original *user* when no active approved leave exists or no reliever is set.
+
+	``pairs`` collects every (relieved, reliever) redirect this resolution
+	made, so the row can record whose task it originally was — without that,
+	nothing remembers the owner and the task stays with the reliever forever.
 	"""
 	if not user:
 		return user
@@ -82,7 +86,11 @@ def get_reliever_if_on_leave(user: str) -> str:
 			},
 			"reliever_user_id",
 		)
-		return reliever_user if reliever_user else user
+		if not reliever_user:
+			return user
+		if pairs is not None:
+			pairs.append((user, reliever_user))
+		return reliever_user
 	except Exception:
 		frappe.log_error(
 			title="BPMN: Leave reliever lookup failed",
@@ -125,7 +133,9 @@ def resolve_assignment(instance, task) -> str:
 	        an assignment as a single user must go through ``split_users()``.
 
 	For all modes, if the resolved assignee is on approved leave today the
-	task is redirected to the reliever named in their Leave Application.
+	task is redirected to the reliever named in their Leave Application, and
+	the (relieved, reliever) pair is left on ``instance._relief_pairs`` for the
+	caller to record on the row.
 
 	Returns the resolved user email/name (or comma-joined list for Table
 	Field mode), or empty string if unresolvable.
@@ -134,11 +144,16 @@ def resolve_assignment(instance, task) -> str:
 	bpmn_id = getattr(task.task_spec, "bpmn_id", None) or ""
 	task_cfg = extensions.get(bpmn_id, {})
 
+	# Reset per resolution: the caller reads it straight after to fill the row's
+	# Relieved User / Reliever User, and a stale list would mislabel the next task.
+	pairs = []
+	instance._relief_pairs = pairs
+
 	mode = task_cfg.get("assigneeMode", "")
 
 	# ── User ──────────────────────────────────────────────────────────────
 	if mode == "User":
-		return get_reliever_if_on_leave(task_cfg.get("assigneeUser", ""))
+		return get_reliever_if_on_leave(task_cfg.get("assigneeUser", ""), pairs)
 
 	# ── DocField ──────────────────────────────────────────────────────────
 	if mode == "DocField":
@@ -147,7 +162,7 @@ def resolve_assignment(instance, task) -> str:
 		if doctype and docfield and instance.context_docname:
 			try:
 				user = frappe.db.get_value(doctype, instance.context_docname, docfield)
-				return get_reliever_if_on_leave(user or "")
+				return get_reliever_if_on_leave(user or "", pairs)
 			except Exception:
 				return ""
 		return ""
@@ -183,13 +198,13 @@ def resolve_assignment(instance, task) -> str:
 			except Exception:
 				pass
 
-			return get_reliever_if_on_leave(assignee)
+			return get_reliever_if_on_leave(assignee, pairs)
 		except Exception:
 			frappe.log_error(
 				title="BPMN: Round Robin assignment failed",
 				message=frappe.get_traceback(),
 			)
-			return get_reliever_if_on_leave(users[0]) if users else ""
+			return get_reliever_if_on_leave(users[0], pairs) if users else ""
 
 	# ── Load Balancing ─────────────────────────────────────────────────────
 	# Correct logic (per spec):
@@ -224,14 +239,14 @@ def resolve_assignment(instance, task) -> str:
 			# User with fewest active assignments wins; ties → first in list
 			minimum = min(loads.values())
 			assignee = next(u for u in users if loads[u] == minimum)
-			return get_reliever_if_on_leave(assignee)
+			return get_reliever_if_on_leave(assignee, pairs)
 
 		except Exception:
 			frappe.log_error(
 				title="BPMN: Load Balancing assignment failed",
 				message=frappe.get_traceback(),
 			)
-			return get_reliever_if_on_leave(users[0]) if users else ""
+			return get_reliever_if_on_leave(users[0], pairs) if users else ""
 
 	# ── Table Field ────────────────────────────────────────────────────────
 	if mode == "Table Field":
@@ -249,7 +264,7 @@ def resolve_assignment(instance, task) -> str:
 				u = row.get(user_field)
 				if u and u not in seen:
 					seen.add(u)
-					users.append(get_reliever_if_on_leave(u))
+					users.append(get_reliever_if_on_leave(u, pairs))
 			return ",".join(users)
 		except Exception:
 			frappe.log_error(
@@ -557,3 +572,80 @@ def remove_frappe_assignment(instance, user: str, status: str = "Closed") -> Non
 			title=f"BPMN: Failed to close assignment on {instance.context_doctype} for {user}",
 			message=frappe.get_traceback(),
 		)
+
+
+def _swap_user(value: str, old_user: str, new_user: str) -> str:
+	"""Replace one entry of a comma-separated assignee list, leaving the rest.
+
+	``assigned_user`` often holds several people (Table Field mode). Only the
+	reliever's own entry may change hands — the others never went anywhere.
+	"""
+	users = split_users(value)
+	if old_user not in users or new_user in users:
+		return value
+	return ",".join(new_user if u == old_user else u for u in users)
+
+
+def restore_tasks_on_return(user: str) -> int:
+	"""Hand every task held by a reliever back to *user*, who is back from leave.
+
+	Reads the Relieved User / Reliever User pair recorded when the task was
+	redirected, swaps the reliever out of ``assigned_user`` and *user* back in,
+	and re-points the Frappe assignment so the task reappears in the right
+	person's list. The pair itself is left in place as history, so a row this
+	has already run on is skipped by the ``user in assigned_user`` guard rather
+	than by forgetting what happened.
+
+	Returns the number of rows handed back.
+	"""
+	if not user:
+		return 0
+
+	rows = frappe.db.sql(
+		"""
+		SELECT t.name, t.parent, t.assigned_user, t.relieved_user, t.reliever_user
+		FROM `tabBPMN Active Task` t
+		INNER JOIN `tabBPMN Process Instance` i ON i.name = t.parent
+		WHERE t.status = 'Waiting'
+		  AND i.status = 'Active'
+		  AND FIND_IN_SET(%s, REPLACE(t.relieved_user, ' ', '')) > 0
+		""",
+		user,
+		as_dict=True,
+	)
+
+	restored = 0
+	for row in rows:
+		relieved = split_users(row.relieved_user)
+		relievers = split_users(row.reliever_user)
+		if user not in relieved:
+			continue
+		idx = relieved.index(user)
+		if idx >= len(relievers):
+			continue
+		reliever = relievers[idx]
+
+		new_assigned = _swap_user(row.assigned_user, reliever, user)
+		if new_assigned == row.assigned_user:
+			continue  # already back with them, or the reliever has since moved on
+
+		frappe.db.set_value("BPMN Active Task", row.name, "assigned_user", new_assigned)
+
+		try:
+			instance = frappe.get_doc("BPMN Process Instance", row.parent)
+			remove_frappe_assignment(instance, reliever, status="Cancelled")
+			add_frappe_assignment(
+				instance,
+				user,
+				task_name=frappe.db.get_value("BPMN Active Task", row.name, "task_name") or "",
+				task_id=frappe.db.get_value("BPMN Active Task", row.name, "task_id") or "",
+			)
+		except Exception:
+			frappe.log_error(
+				title=f"BPMN: Could not re-point assignment on {row.parent} to {user}",
+				message=frappe.get_traceback(),
+			)
+
+		restored += 1
+
+	return restored

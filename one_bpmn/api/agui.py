@@ -21,7 +21,11 @@ from one_bpmn.agents.agui_stream import agent_event_stream
 
 @frappe.whitelist()
 def stream_agent_turn(
-	agent_id: str, message: str, conversation: str = None, context: str = None
+	agent_id: str,
+	message: str,
+	conversation: str = None,
+	context: str = None,
+	client_message_id: str = None,
 ):
 	"""Stream one agent turn as AG-UI events (SSE).
 
@@ -32,6 +36,9 @@ def stream_agent_turn(
 	        the agent's configuration when omitted (WI-001619 path).
 	    context: optional JSON dict merged into the turn payload
 	        (editor state, dialog grounding, etc.).
+	    client_message_id: id minted by the client for this message. A retry
+	        carrying the same id replays the first reply instead of running the
+	        agent again.
 
 	Returns:
 	    text/event-stream response: RunStarted → content events →
@@ -53,7 +60,9 @@ def stream_agent_turn(
 		frappe.db.commit()
 
 	return Response(
-		agent_event_stream(agent_id, message, conversation, parsed_context),
+		agent_event_stream(
+			agent_id, message, conversation, parsed_context, client_message_id=client_message_id
+		),
 		mimetype="text/event-stream",
 		headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
 	)

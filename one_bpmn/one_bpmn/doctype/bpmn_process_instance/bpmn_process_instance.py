@@ -2153,6 +2153,7 @@ class BPMNProcessInstance(Document):
 
 			# Resolve assignment from the task's configuration -------------------
 			async_user = resolve_assignment(self, task)
+			relief_pairs = getattr(self, "_relief_pairs", []) if async_user else []
 			if async_user:
 				assigned_user = async_user
 
@@ -2172,6 +2173,8 @@ class BPMNProcessInstance(Document):
 					"status": "Waiting",
 					"started_at": now_datetime(),
 					"assigned_user": assigned_user,
+					"relieved_user": ",".join(p[0] for p in relief_pairs),
+					"reliever_user": ",".join(p[1] for p in relief_pairs),
 					"assigned_role": assigned_role,
 					"task_actions": task_actions,
 					"target_doctype": target_doctype,

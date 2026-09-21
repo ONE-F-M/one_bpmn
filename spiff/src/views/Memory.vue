@@ -9,7 +9,10 @@
 						everybody's.
 					</p>
 				</div>
-				<Button :loading="loading" @click="load()">Refresh</Button>
+				<div class="flex items-center gap-2">
+					<Button variant="subtle" theme="red" @click="showPurgeDialog = true">Purge</Button>
+					<Button :loading="loading" @click="load()">Refresh</Button>
+				</div>
 			</div>
 		</header>
 
@@ -154,11 +157,32 @@
 				</div>
 			</aside>
 		</div>
+
+		<!-- Purge confirmation: names what will be deleted before anything runs,
+		     since unlike Retire this removes the rows for good. -->
+		<Dialog v-model="showPurgeDialog" :options="{ title: 'Purge memories', size: 'sm' }">
+			<template #body-content>
+				<div class="space-y-3 text-sm text-gray-700">
+					<p>
+						This will permanently delete all memories for
+						<strong>{{ purgeTargetLabel }}</strong>. Shared memories are not touched. This cannot
+						be undone.
+					</p>
+					<ErrorMessage v-if="purgeError" :message="purgeError" />
+				</div>
+			</template>
+			<template #actions>
+				<div class="flex gap-2 justify-end w-full">
+					<Button variant="subtle" @click="showPurgeDialog = false">Cancel</Button>
+					<Button variant="solid" theme="red" :loading="purging" @click="purge()">Purge</Button>
+				</div>
+			</template>
+		</Dialog>
 	</div>
 </template>
 
 <script setup>
-import { Button, ErrorMessage, FormControl, frappeRequest } from "frappe-ui";
+import { Button, Dialog, ErrorMessage, FormControl, frappeRequest } from "frappe-ui";
 import { computed, onMounted, reactive, ref } from "vue";
 
 const API = "/api/method/one_bpmn.api.memory_api.";
@@ -179,6 +203,9 @@ const start = ref(0);
 const pageLength = ref(20);
 const detail = ref(null);
 const options = ref({ agents: [], users: [], source_types: [] });
+const showPurgeDialog = ref(false);
+const purging = ref(false);
+const purgeError = ref("");
 
 const filters = reactive({
 	agent_element: "",
@@ -194,6 +221,14 @@ function choices(label, values) {
 const agentOptions = computed(() => choices("All agents", options.value.agents));
 const userOptions = computed(() => choices("Everyone", options.value.users));
 const sourceOptions = computed(() => choices("Any source", options.value.source_types));
+
+const purgeTarget = computed(() => {
+	// "Shared" memories belong to no one and the endpoint never touches them;
+	// an unfiltered list purges the caller's own, same as the endpoint's default.
+	if (filters.user && filters.user !== "Shared") return filters.user;
+	return null;
+});
+const purgeTargetLabel = computed(() => purgeTarget.value || "you");
 
 const rangeLabel = computed(() => {
 	if (!total.value) return "No memories";
@@ -288,6 +323,21 @@ function showNotice(text) {
 
 const retire = (m) => act("retire_memory", m);
 const restore = (m) => act("restore_memory", m);
+
+async function purge() {
+	purging.value = true;
+	purgeError.value = "";
+	try {
+		const r = await call("purge_memories", purgeTarget.value ? { user: purgeTarget.value } : {});
+		showPurgeDialog.value = false;
+		showNotice(`Purged: ${r.deleted} memor${r.deleted === 1 ? "y" : "ies"} removed.`);
+		await load(0);
+	} catch (e) {
+		purgeError.value = e.message || String(e);
+	} finally {
+		purging.value = false;
+	}
+}
 
 onMounted(() => {
 	loadOptions();
