@@ -839,7 +839,7 @@ def _work_item_instances(work_item_name: str) -> set:
 
 
 @frappe.whitelist()
-def get_work_item_ai_cost(work_item_name: str) -> dict:
+def get_work_item_cost(work_item_name: str) -> dict:
 	"""Total AI cost and tokens a Work Item caused, auditable down to the
 	individual AI Agent Run (WI-003329).
 
