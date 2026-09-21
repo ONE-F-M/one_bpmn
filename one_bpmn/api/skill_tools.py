@@ -4,6 +4,11 @@ from frappe.utils import now_datetime
 import hashlib
 
 
+# The tools the dispatcher gives every configuration-linked AI Agent Task. They
+# never sit in a Tools box, so a prompt may name them without the map having them.
+SKILL_TOOL_NAMES = frozenset({"load_skill", "unload_skill", "load_skill_resource"})
+
+
 def _conversation_id(instance):
     """The Chat Conversation this instance's turn belongs to, or None.
 

@@ -45,18 +45,17 @@ class TestDocuSkillsSeed(FrappeTestCase):
 		self.assertEqual({row.skill for row in writer.enabled_skills}, names)
 		self.assertEqual(len(writer.enabled_skills), len(names))
 		self.assertEqual(writer.agent_type, "Background")
-		self.assertNotIn(seed.WRITER_OLD_MARKER, self._sub_prompt("schema_writer"))
-		self.assertIn("load_skill", self._sub_prompt("schema_writer"))
+		self.assertIsNone(self._sub_prompt("schema_writer"), "the writer's prompt lives on its own record")
+		self.assertIn("load_skill", writer.system_prompt)
 		self.assertNotIn(seed.REDIRECT_OLD, self._sub_prompt("redirect"))
 
-		for row in doc.sub_prompts:
-			if row.sub_agent_id == "schema_writer":
-				row.prompt_text = "Edited by a person."
-		doc.save(ignore_permissions=True)
+		writer.system_prompt = "Edited by a person."
+		writer.save(ignore_permissions=True)
 
 		seed.execute()
 
-		self.assertEqual(self._sub_prompt("schema_writer"), "Edited by a person.")
+		writer.reload()
+		self.assertEqual(writer.system_prompt, "Edited by a person.")
 		self.assertEqual(
 			frappe.db.count("AI Agent Configuration", {"agent_id": seed.WRITER_AGENT_ID}), 1, "one writer stage"
 		)

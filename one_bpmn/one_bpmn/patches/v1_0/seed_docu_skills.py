@@ -10,14 +10,15 @@ Each chunk becomes an AI Skill, enabled on a stage configuration of its own,
 on the main Docu record put the skills index and the load_skill tool in front of
 the ORCHESTRATOR, which loaded skills it never uses before every write.
 
-Docu's stages are Server Scripts that call the model themselves, so the write
-step wires the skills in two ways. The modify rules are
-loaded by code, because the step already knows whether the DocType exists. The
-other three are offered through a skills index and a load_skill tool, and the
-writer picks the one the request calls for. Both kinds log an AI Skill
-Activation, so the Skills screen shows every load.
+On the map, write_schema is an AI Agent Task bound to that record (the map ships
+by export), so the platform renders the skills index, injects load_skill and
+logs every activation the way it does for Logix's writers. The writer's
+instructions therefore live on the record's system prompt; the schema_writer
+sub-prompt on the main Docu record is dead and is removed. The modify rules are
+a skill like the others; the writer loads them when its request shows an
+existing definition.
 
-The writer sub-prompt keeps what applies to every design: the output shape, the
+The record's prompt keeps what applies to every design: the output shape, the
 field types, the general rules, the tools, the output format. The redirect reply
 stops calling a DocType a form, which the clarifier forbids two lines later.
 
@@ -35,9 +36,6 @@ AGENT_ID = "docu_agent"
 WRITER_AGENT_ID = "docu_schema_writer"
 WRITER_AGENT_NAME = "Docu – Schema Writer"
 
-# Present while the writer prompt still carries the block that moved into a skill.
-WRITER_OLD_MARKER = "WHO MAY USE IT: only include"
-
 WRITER_PROMPT = """You are Docu, an expert assistant that designs Frappe DocTypes for business processes.
 
 IMPORTANT — WHO YOU ARE TALKING TO:
@@ -46,7 +44,7 @@ The person asking is a process owner, NOT a developer. In your response text (ou
 - Say "I've added a field for the employee's name" — never "I created a Data field."
 - Keep it to 2–3 short sentences.
 
-SKILLS: the index at the end of these instructions lists what you can load with the load_skill tool. Load a skill BEFORE designing the part it covers: who may use the DocType, how its records are named, a repeating list of rows. Load nothing when the request needs none of them.
+SKILLS: the index at the end of these instructions lists what you can load with the load_skill tool. Load a skill BEFORE designing the part it covers: who may use the DocType, how its records are named, a repeating list of rows, or a change to a DocType that already exists (the request then shows its current definition). Load nothing when the request needs none of them.
 
 YOUR OUTPUT — a DocType definition as a single JSON object with this exact shape:
 {
@@ -100,7 +98,7 @@ RULES:
 5. Group related fields with a 'Section Break' (give it a label) for a clean layout.
 6. Keep the form focused — only the fields the process actually needs.
 7. REUSE what exists: if the thing the user references is already a DocType (Employee, Customer, Vehicle, ...), LINK to it (a Link field whose options is that DocType's name) instead of recreating it. Use list_doctypes to discover what already exists before adding a Link.
-8. When the DocType ALREADY EXISTS and you are editing it, the modifying rules are appended to these instructions — follow them exactly; a field you leave out reads as a deletion.
+8. When the request shows a DocType that ALREADY EXISTS, load the modifying-a-doctype skill before you touch it; a field you leave out reads as a deletion.
 
 USE YOUR TOOLS — do not guess:
 - `list_doctypes` / `doctype_exists`: before naming a NEW form, check the name is not already taken.
@@ -241,11 +239,13 @@ def execute():
 		doc.remove(row)
 	changed = bool(misplaced)
 
+	# The writer is an AI Agent Task on its own record now; nothing reads this row.
+	dead = [row for row in doc.sub_prompts if row.sub_agent_id == "schema_writer"]
+	for row in dead:
+		doc.remove(row)
+	changed = changed or bool(dead)
 	for row in doc.sub_prompts:
 		text = row.prompt_text or ""
-		if row.sub_agent_id == "schema_writer" and WRITER_OLD_MARKER in text:
-			row.prompt_text = WRITER_PROMPT
-			changed = True
 		if row.sub_agent_id == "redirect" and REDIRECT_OLD in text:
 			row.prompt_text = text.replace(REDIRECT_OLD, REDIRECT_NEW, 1)
 			changed = True
@@ -275,12 +275,15 @@ def _enable_on_writer_stage(docu):
 			"surface_type": "Conversation",
 			"process_owner": docu.process_owner,
 			"description": (
-				"Holds the skills Docu's schema writer may load. The writer itself runs as the "
-				"Docu – Tool Write Schema Server Script on the Docu map and reads this record."
+				"Docu's schema writer: the write_schema AI Agent Task on the Docu map runs on this "
+				"record's prompt, tools and skills."
 			),
 		})
 	enabled = {row.skill for row in writer.enabled_skills}
 	changed = not name
+	if not (writer.system_prompt or "").strip():
+		writer.system_prompt = WRITER_PROMPT
+		changed = True
 	for skill in SKILLS:
 		if skill["skill_name"] not in enabled:
 			writer.append("enabled_skills", {"skill": skill["skill_name"]})

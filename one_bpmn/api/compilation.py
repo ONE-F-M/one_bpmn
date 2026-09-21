@@ -2138,6 +2138,11 @@ def _known_tool_ids() -> set:
 
 def _tool_contract_gaps(prompt: str, tool_ids: set, known_ids: set) -> list:
 	"""Names the prompt tells the model to call that are not in its own Tools box."""
+	from one_bpmn.api.skill_tools import SKILL_TOOL_NAMES
+
+	# The skill tools are injected at dispatch for any linked configuration, so
+	# a prompt that says "call load_skill" is right even though no box holds it.
+	tool_ids = set(tool_ids) | SKILL_TOOL_NAMES
 	called = {m.lower() for m in _TOOL_CALL_RE.findall(prompt or "")}
 	gaps = {n for n in called if n not in tool_ids and ("_" in n or n in known_ids)}
 	# A backticked name has no verb vouching for it, and prompts quote argument
