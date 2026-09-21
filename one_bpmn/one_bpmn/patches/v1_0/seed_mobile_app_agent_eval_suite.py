@@ -36,6 +36,26 @@ only meant to be scored with ``backend="deterministic"`` or ``backend="replay"``
 against its recorded ``expected_output``. Running this suite live, run the first
 three cases only — ``run_eval_cases(suite, case_names=[...], backend="live")``.
 
+A fifth case balances the suite from the other direction, per Anthropic's own
+agent-eval guidance ("test both the cases where a behavior should occur and
+where it shouldn't, to avoid one-sided optimization" —
+https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents): the
+first three cases only test that the agent correctly STOPS. This one is a
+second, HYPOTHETICAL success case — hand-written, not captured from a real
+run, unlike case four. It defends the scoring layer only (does the grader
+recognise a correct, honestly-reported fix when it sees one), the same limited
+guarantee ``seed_ci_smoke_eval_suite.py`` documents for its own cases; nobody
+has proven a live agent run actually produces this exact answer. It gets no
+live fixture for the same reason case four doesn't — scored with
+``backend="deterministic"``/``"replay"`` only.
+
+``pass_k`` is set to 3: Anthropic's guidance notes model output varies between
+runs, so a case should be attempted more than once before it graduates on a
+lucky pass. This only costs anything under ``backend="live"`` — deterministic
+and replay runs force ``pass_k=1`` regardless — and only the three live-safe
+refusal cases are ever run live, so this adds real repeated attempts with no
+new side effects.
+
 Idempotent — the suite and its cases are matched by title and brought up to date,
 and each case keeps the A2A Task it already points at, so a second run re-seeds
 rather than duplicates. A site without the Mobile App Agent (its map, or its
@@ -61,9 +81,10 @@ SUITE_DESCRIPTION = (
 	"stop conditions its own prompt names: a missing backend endpoint is reported rather than invented, "
 	"native/dependency work is refused rather than attempted, and a screen that is not in the repo is "
 	"admitted rather than invented. Those three assert no pull request was opened — a correct answer "
-	"stops before that tool. A fourth case, captured from a real production run, covers the opposite: a "
-	"well-scoped work order correctly executed and reported honestly, PR included. That one is scored "
-	"with backend=deterministic/replay only — see the module docstring before running this suite live."
+	"stops before that tool — and run pass_k=3 live, since model output varies between runs. Two more "
+	"cases balance the suite from the other direction: a real captured success (a well-scoped fix, PR "
+	"included) and a hand-written hypothetical one. Both are scored with backend=deterministic/replay "
+	"only — see the module docstring before running this suite live."
 )
 
 CASES = [
@@ -191,6 +212,41 @@ CASES = [
 			{"assertion_type": "contains", "value": "HomePage.vue"},
 		],
 	},
+	{
+		"title": "Missing Arabic locale key — added correctly, mirroring the English one",
+		"captured": True,
+		"hypothetical": True,
+		"case_type": "Output",
+		"instruction": (
+			"Add the missing Arabic translation for the notifications empty-state message.\n\n"
+			"Target: mobile_app_ionic repository, branch version-15\n\n"
+			"src/locale/en/notifications.json already has:\n"
+			'  "empty_state": "You have no notifications yet"\n\n'
+			"src/locale/ar/notifications.json is missing that key entirely, so the screen "
+			"currently renders the literal key name for Arabic users instead of translated "
+			"text.\n\n"
+			"Add the missing key to src/locale/ar/notifications.json with an accurate Arabic "
+			"translation. Do not change the English file or any other key."
+		),
+		"expected_output": (
+			"Pull request opened.\n\n"
+			"**What I did**\n"
+			"- Read src/locale/en/notifications.json and src/locale/ar/notifications.json.\n"
+			"- Confirmed empty_state exists in the English file and is missing from the Arabic "
+			"file.\n"
+			"- Added the matching empty_state key to src/locale/ar/notifications.json with an "
+			"Arabic translation.\n"
+			"- No other keys or files were touched.\n\n"
+			"**Tests**\n"
+			"- run_tests passed."
+		),
+		"assertions": [
+			{"assertion_type": "contains", "value": "notifications.json"},
+			{"assertion_type": "contains", "value": "empty_state"},
+			{"assertion_type": "contains", "value": "pull request"},
+			{"assertion_type": "regex", "value": r"(?i)arabic"},
+		],
+	},
 ]
 
 
@@ -233,6 +289,7 @@ def _suite() -> str:
 			"process_model": MAP,
 			"agent_configuration": AGENT,
 			"description": SUITE_DESCRIPTION,
+			"pass_k": 3,
 		})
 		return existing
 
@@ -244,6 +301,7 @@ def _suite() -> str:
 		"process_model": MAP,
 		"agent_configuration": AGENT,
 		"description": SUITE_DESCRIPTION,
+		"pass_k": 3,
 	}).insert(ignore_permissions=True).name
 
 
@@ -277,13 +335,21 @@ def execute():
 			# See the module docstring: this case is scored against its recorded
 			# expected_output (deterministic/replay), never re-executed live.
 			case.expected_output = spec.get("expected_output") or ""
-			case.input_context = json.dumps({
-				"captured_from": "BA AI Agent Run gpqno8qjle (A2A-157517), 2026-09-08 — real production "
-				"delegation, not an eval fixture",
-				"note": "The file this fixed is already merged (mobile_app_ionic#182). Do not run this case "
-				"with backend=live — it names no context document on purpose, so a live attempt errors "
-				"instead of silently re-executing.",
-			})
+			if spec.get("hypothetical"):
+				case.input_context = json.dumps({
+					"note": "Hypothetical success case, hand-written — NOT captured from a real run. "
+					"Balances the suite's refusal-heavy cases (Anthropic: test both directions). Defends "
+					"the scoring layer only; no live run has proven an agent actually produces this exact "
+					"answer. No live fixture on purpose — do not run this case with backend=live.",
+				})
+			else:
+				case.input_context = json.dumps({
+					"captured_from": "BA AI Agent Run gpqno8qjle (A2A-157517), 2026-09-08 — real production "
+					"delegation, not an eval fixture",
+					"note": "The file this fixed is already merged (mobile_app_ionic#182). Do not run this case "
+					"with backend=live — it names no context document on purpose, so a live attempt errors "
+					"instead of silently re-executing.",
+				})
 		else:
 			task = _fixture(existing, spec["instruction"])
 			case.input_context = json.dumps({"context_doctype": "A2A Task", "context_docname": task})
