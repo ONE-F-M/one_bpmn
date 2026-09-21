@@ -44,7 +44,6 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 			adapter.complete = AsyncMock(return_value=frappe._dict(text=text))
 		return adapter
 
-	# ── modify_process: truncated completion ──
 
 	def test_modify_process_truncated_writes_size_explanation_not_fallback(self):
 		turn = {
@@ -76,7 +75,6 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 		self.assertIn("too large", result.get("response", "").lower())
 		self.assertNotIn("tell me more about the process", result.get("response", ""))
 
-		# turn state was closed with done=True so finalize's fallback never fires.
 		self.assertTrue(captured_turns.get("done"))
 		self.assertEqual(captured_turns.get("output", {}).get("intent"), "CLARIFY")
 		self.assertIn("too large", captured_turns["output"]["response"].lower())
@@ -94,7 +92,6 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 		self.assertNotIn("fallback", ns["result"])
 		mock_update.assert_not_called()
 
-	# ── explicit max_tokens is read from agent config ──
 
 	def test_modify_process_uses_configured_max_tokens_above_floor(self):
 		turn = {"process_name": "P", "chat_history": [], "current_xml": ""}
@@ -155,7 +152,6 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 		self.assertTrue(ns["result"].get("truncated"))
 		self.assertIn("too large", ns["result"].get("response", "").lower())
 
-	# ── normal-sized flow still works ──
 
 	def test_modify_process_normal_completion_still_succeeds(self):
 		"""A completion that returns cleanly (no LLMTruncatedError) must still
@@ -214,9 +210,8 @@ class TestShapeToolGenericFailureCarriesException(FrappeTestCase):
 		instance = frappe._dict({"_service_task_extensions": {}, "context_docname": None})
 		task_cfg = {"serverScript": "Any Script"}
 
-		# Patched at the call, not through a missing script: a script that does
-		# not exist is a frappe.throw, which the ValidationError branch above
-		# answers. Only an unexpected exception reaches the branch under test.
+		# A missing script throws ValidationError, which an earlier branch
+		# answers, so the trap has to be sprung at the call itself.
 		with patch.object(shape_tools, "_run_server_script", side_effect=RuntimeError("chair not found")):
 			raw = shape_tools.execute_shape(instance, "modify_process", task_cfg, {})
 

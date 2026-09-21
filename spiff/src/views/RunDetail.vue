@@ -79,165 +79,26 @@
 				</button>
 			</nav>
 
-			<!-- Steps -->
-			<template v-if="tab === 'steps'">
-				<div v-if="slowest.length" class="bg-white border rounded-lg px-4 py-3">
-					<div class="text-xs font-semibold text-gray-600 mb-2">Slowest steps in this run</div>
-					<div v-for="s in slowest" :key="s.name" class="grid items-center gap-3 text-xs py-0.5" style="grid-template-columns: 2rem 16rem 1fr 3rem 4rem">
-						<span class="text-gray-400">#{{ s.step_index }}</span>
-						<span class="font-mono text-gray-700 truncate">{{ kindLabel(s) }}</span>
-						<div class="h-2 bg-gray-100 rounded"><div class="h-2 rounded" :class="barTone(s)" :style="{ width: pct(s.latency_ms, latencyTotal) + '%' }"></div></div>
-						<span class="text-right text-gray-400">{{ pct(s.latency_ms, latencyTotal).toFixed(0) }}%</span>
-						<span class="text-right font-semibold text-gray-700">{{ fmtMs(s.latency_ms) }}</span>
-					</div>
-				</div>
-
-				<details v-if="detail.system_prompt" class="bg-white border rounded-lg px-4 py-2">
-					<summary class="text-xs text-gray-600 cursor-pointer">
-						System prompt <span class="text-gray-400">{{ detail.system_prompt.split("\n")[0].slice(0, 120) }}</span>
-						<span v-if="run.prompt_hash" class="font-mono text-gray-400 ml-2">{{ run.prompt_hash.slice(0, 12) }}</span>
-					</summary>
-					<pre class="mt-2 text-xs text-gray-700 whitespace-pre-wrap max-h-96 overflow-auto">{{ detail.system_prompt }}</pre>
-				</details>
-
-				<div class="bg-white border rounded-lg overflow-hidden">
-					<div class="flex items-center justify-between px-4 py-2 border-b text-xs text-gray-500">
-						<span>{{ timelineLabel }}</span>
-						<span class="flex gap-2">
-							<button class="hover:text-gray-900" @click="setAll(true)">Expand all</button>
-							<button class="hover:text-gray-900" @click="setAll(false)">Collapse all</button>
-						</span>
-					</div>
-					<table class="w-full text-xs table-fixed">
-						<colgroup>
-							<col class="w-10" /><col class="w-64" /><col /><col class="w-20" /><col class="w-20" /><col class="w-20" />
-						</colgroup>
-						<thead class="text-gray-400 uppercase tracking-wide">
-							<tr class="border-b">
-								<th class="text-left font-medium px-3 py-1.5">#</th>
-								<th class="text-left font-medium px-3 py-1.5">Step</th>
-								<th class="text-left font-medium px-3 py-1.5">Timeline</th>
-								<th class="text-right font-medium px-3 py-1.5">Latency</th>
-								<th class="text-right font-medium px-3 py-1.5">Tokens</th>
-								<th class="text-right font-medium px-3 py-1.5">Cost</th>
-							</tr>
-						</thead>
-						<tbody>
-							<template v-for="s in steps" :key="s.name">
-								<tr class="border-b border-gray-50 cursor-pointer hover:bg-gray-50" :class="s.error_code ? 'bg-red-50/60' : ''" @click="toggle(s.name)">
-									<td class="px-3 py-1.5 text-gray-400">{{ s.step_index }}</td>
-									<td class="px-3 py-1.5">
-										<div class="flex items-center gap-1.5 min-w-0">
-											<Icon :icon="open.has(s.name) ? 'lucide:chevron-down' : 'lucide:chevron-right'" class="w-3 h-3 text-gray-400 shrink-0" />
-											<span class="rounded px-1.5 py-0.5 font-mono text-[10px] shrink-0" :class="KIND_PILLS[s.step_kind] || KIND_PILLS.model_call">{{ (s.step_kind || 'step').replace('_', ' ') }}</span>
-											<span class="font-mono text-gray-700 truncate">{{ kindLabel(s) }}</span>
-											<span v-if="s.error_code" class="rounded px-1.5 text-[10px] bg-red-100 text-red-700 shrink-0">{{ s.error_code }}</span>
-											<span v-if="s.child_runs && s.child_runs.length" class="rounded px-1.5 text-[10px] bg-indigo-50 text-indigo-700 shrink-0">+{{ s.child_runs.length }} run</span>
-										</div>
-									</td>
-									<td class="px-3 py-1.5">
-										<div class="relative h-2.5 bg-gray-100 rounded">
-											<div
-												v-if="s.latency_ms"
-												class="absolute h-2.5 rounded"
-												:class="barTone(s)"
-												:style="{ left: bar(s).left + '%', width: Math.max(bar(s).width, 0.5) + '%' }"
-												:title="fmtMs(s.latency_ms)"
-											></div>
-										</div>
-									</td>
-									<td class="px-3 py-1.5 text-right text-gray-700">{{ s.latency_ms ? fmtMs(s.latency_ms) : "" }}</td>
-									<td class="px-3 py-1.5 text-right text-gray-500">{{ (s.prompt_tokens || 0) + (s.completion_tokens || 0) ? fmtNum((s.prompt_tokens || 0) + (s.completion_tokens || 0)) : "" }}</td>
-									<td class="px-3 py-1.5 text-right text-gray-500">{{ s.cost ? fmtCost(s.cost) : "" }}</td>
-								</tr>
-								<tr v-if="open.has(s.name)" class="border-b bg-gray-50/60">
-									<td></td>
-									<td colspan="5" class="px-3 py-2 space-y-2">
-										<div v-if="s.error_message">
-											<div class="text-[11px] uppercase text-red-500 mb-0.5">Error</div>
-											<pre class="text-xs text-red-800 whitespace-pre-wrap bg-red-50 rounded p-2 max-h-48 overflow-auto">{{ s.error_message }}</pre>
-										</div>
-										<div v-if="s.content && s.role !== 'system'">
-											<div class="text-[11px] uppercase text-gray-400 mb-0.5">{{ s.role === "user" ? "Input" : s.role === "assistant" ? "Output" : "Narration" }}</div>
-											<pre class="text-xs text-gray-700 whitespace-pre-wrap bg-white border rounded p-2 max-h-72 overflow-auto">{{ s.content }}</pre>
-										</div>
-										<div v-if="s.role === 'system'" class="text-xs text-gray-400">System prompt shown above.</div>
-										<div v-for="(c, ci) in s.tool_calls" :key="ci" class="border rounded bg-white p-2">
-											<div class="flex items-center gap-2 text-xs">
-												<span class="font-mono font-semibold text-gray-800">{{ c.tool_name }}</span>
-												<span class="text-gray-400">{{ c.tool_source }}</span>
-												<Badge :theme="c.status === 'Success' ? 'green' : c.status === 'Denied' ? 'orange' : 'red'" size="sm">{{ c.status }}</Badge>
-												<span v-if="c.outcome" class="text-gray-500 truncate">{{ c.outcome }}</span>
-												<a v-if="c.artifact_file" :href="`/app/file/${c.artifact_file}`" target="_blank" class="ml-auto text-blue-600 hover:underline">artifact file</a>
-											</div>
-											<div v-if="hasValue(c.tool_args)" class="mt-1">
-												<div class="text-[11px] uppercase text-gray-400">Arguments</div>
-												<pre class="text-xs text-gray-700 whitespace-pre-wrap max-h-48 overflow-auto">{{ prettyJson(c.tool_args) }}</pre>
-											</div>
-											<div v-if="c.tool_result" class="mt-1">
-												<div class="text-[11px] uppercase text-gray-400">Result</div>
-												<pre class="text-xs text-gray-700 whitespace-pre-wrap max-h-48 overflow-auto">{{ prettyJson(c.tool_result) }}</pre>
-											</div>
-											<div v-if="c.tool_artifact" class="mt-1">
-												<div class="text-[11px] uppercase text-gray-400">Artifact</div>
-												<pre class="text-xs text-gray-700 whitespace-pre-wrap max-h-48 overflow-auto">{{ c.tool_artifact }}</pre>
-											</div>
-										</div>
-										<div v-if="s.child_runs && s.child_runs.length" class="space-y-1">
-											<div class="text-[11px] uppercase text-gray-400">Runs this step started</div>
-											<router-link
-												v-for="child in s.child_runs"
-												:key="child.run.name"
-												:to="`/processa/runs/${child.run.name}`"
-												class="flex items-center gap-2 text-xs text-blue-700 hover:underline"
-											>
-												<Icon icon="lucide:corner-down-right" class="w-3 h-3 text-gray-400" />
-												<span class="font-mono">{{ child.run.name }}</span>
-												<span class="text-gray-500">{{ child.run.agent_configuration || child.run.bpmn_label }}</span>
-												<Badge :theme="child.run.status === 'Success' ? 'green' : 'red'" size="sm">{{ child.run.status }}</Badge>
-												<span class="text-gray-500">{{ fmtNum(child.rollup.total_tokens) }} tokens, {{ fmtCost(child.rollup.estimated_cost) }}</span>
-											</router-link>
-										</div>
-										<div v-if="!s.content && !s.tool_calls.length && !s.error_message && s.role !== 'system'" class="text-xs text-gray-400">Nothing recorded for this step.</div>
-									</td>
-								</tr>
-							</template>
-						</tbody>
-					</table>
-					<div v-if="tree.unplaced_children && tree.unplaced_children.length" class="px-4 py-2 border-t text-xs">
-						<div class="text-gray-400 uppercase text-[11px] mb-1">Runs started during this run</div>
-						<router-link v-for="child in tree.unplaced_children" :key="child.run.name" :to="`/processa/runs/${child.run.name}`" class="block text-blue-700 hover:underline font-mono">{{ child.run.name }} <span class="text-gray-500 font-sans">{{ child.run.agent_configuration || child.run.bpmn_label }}</span></router-link>
-					</div>
-				</div>
-
-				<div class="bg-white border rounded-lg px-4 py-3">
-					<div class="flex items-center gap-2 text-xs text-gray-600 mb-1">
-						<span class="font-semibold">Final output</span>
-						<span v-if="run.goal_completion" :class="GOAL_TONES[run.goal_completion] || 'text-gray-400'">{{ run.goal_completion }}</span>
-						<span v-if="run.no_terminal_tool" class="text-amber-700 bg-amber-50 rounded px-1.5" title="the model answered in plain text instead of calling its terminal tool">no terminal tool</span>
-						<span v-if="run.completion_basis" class="text-gray-400 truncate" :title="run.completion_basis">{{ run.completion_basis }}</span>
-					</div>
-					<pre class="text-xs text-gray-700 whitespace-pre-wrap max-h-96 overflow-auto">{{ run.final_output || "(empty)" }}</pre>
-				</div>
-			</template>
-
 			<!-- Tree -->
-			<div v-else-if="tab === 'tree'" class="bg-white border rounded-lg p-3">
+			<div v-if="tab === 'tree'" class="bg-white border rounded-lg p-3">
 				<RunTree :node="tree" />
 			</div>
 
-			<!-- Conversation -->
+			<!-- Conversation: every turn, opened one at a time down to the
+			     steps and the runs those steps delegated. -->
 			<div v-else class="bg-white border rounded-lg overflow-hidden">
 				<div class="px-4 py-2 border-b text-xs text-gray-500">
-					Every top-level run on this instance, in the order it happened. The run you are reading is highlighted.
+					Every turn on this instance, oldest first, with a bar for the time it took and the waiting between turns collapsed. Open one to read its steps; a step that handed work
+					to another agent opens that agent's run underneath it.
 				</div>
 				<table class="w-full text-xs">
 					<thead class="text-gray-400 uppercase tracking-wide">
 						<tr class="border-b">
-							<th class="text-left font-medium px-4 py-1.5">Turn</th>
+							<th class="text-left font-medium px-4 py-1.5 w-16">Turn</th>
 							<th class="text-left font-medium px-3 py-1.5">Started</th>
 							<th class="text-left font-medium px-3 py-1.5">Run</th>
 							<th class="text-left font-medium px-3 py-1.5">Status</th>
+							<th class="text-left font-medium px-3 py-1.5 w-56">Timeline</th>
 							<th class="text-right font-medium px-3 py-1.5">Latency</th>
 							<th class="text-right font-medium px-3 py-1.5">Tokens</th>
 							<th class="text-right font-medium px-3 py-1.5">Cost</th>
@@ -245,28 +106,221 @@
 						</tr>
 					</thead>
 					<tbody class="divide-y">
-						<tr
-							v-for="(sib, i) in detail.siblings"
-							:key="sib.name"
-							class="cursor-pointer hover:bg-gray-50"
-							:class="sib.name === run.name ? 'bg-blue-50/60' : ''"
-							@click="$router.push(`/processa/runs/${sib.name}`)"
-						>
-							<td class="px-4 py-1.5 text-gray-500">{{ i + 1 }}</td>
-							<td class="px-3 py-1.5 text-gray-600 whitespace-nowrap">{{ fmtDateTime(sib.started_at) }}</td>
-							<td class="px-3 py-1.5">
-								<div class="font-mono text-blue-700">{{ sib.name }}</div>
-								<div class="text-gray-400">{{ sib.agent_configuration || sib.bpmn_label }}</div>
-							</td>
-							<td class="px-3 py-1.5"><Badge :theme="STATUS_THEMES[sib.status] || 'gray'" size="sm">{{ sib.status }}</Badge></td>
-							<td class="px-3 py-1.5 text-right text-gray-700">{{ fmtMs(sib.agent_latency_ms) }}</td>
-							<td class="px-3 py-1.5 text-right text-gray-700">{{ fmtNum(sib.total_tokens) }}</td>
-							<td class="px-3 py-1.5 text-right text-gray-700">{{ fmtCost(sib.estimated_cost) }}</td>
-							<td class="px-3 py-1.5 text-gray-600 max-w-md truncate" :title="sib.final_output">{{ sib.final_output || "" }}</td>
-						</tr>
+						<template v-for="(sib, i) in detail.siblings" :key="sib.name">
+							<tr v-if="waterfall[i] && waterfall[i].gap" class="text-gray-400">
+								<td></td>
+								<td colspan="7" class="px-3 py-0.5">
+									<div class="flex items-center gap-2">
+										<div class="h-px w-6 bg-gray-200"></div>
+										<span class="text-[10px]">{{ fmtMs(waterfall[i].gap) }} idle</span>
+										<div class="h-px flex-1 bg-gray-200"></div>
+									</div>
+								</td>
+							</tr>
+							<tr
+								class="cursor-pointer hover:bg-gray-50"
+								:class="sib.name === run.name ? 'bg-blue-50/60' : ''"
+								@click="toggleTurn(sib.name)"
+							>
+								<td class="px-4 py-1.5 text-gray-500">
+									<span class="inline-flex items-center gap-1">
+										<Icon
+											:icon="openTurns.has(sib.name) ? 'lucide:chevron-down' : 'lucide:chevron-right'"
+											class="w-3 h-3 text-gray-400"
+										/>
+										{{ i + 1 }}
+									</span>
+								</td>
+								<td class="px-3 py-1.5 text-gray-600 whitespace-nowrap">{{ fmtDateTime(sib.started_at) }}</td>
+								<td class="px-3 py-1.5">
+									<div class="font-mono text-blue-700">{{ sib.name }}</div>
+									<div class="text-gray-400">{{ sib.agent_configuration || sib.bpmn_label }}</div>
+								</td>
+								<td class="px-3 py-1.5"><Badge :theme="STATUS_THEMES[sib.status] || 'gray'" size="sm">{{ sib.status }}</Badge></td>
+								<td class="px-3 py-1.5">
+									<div class="h-2.5 bg-gray-100 rounded relative">
+										<div
+											class="absolute h-2.5 rounded"
+											:class="sib.status === 'Error' ? 'bg-red-300' : 'bg-teal-300'"
+											:style="{ width: (waterfall[i] ? waterfall[i].width : 0) + '%' }"
+											:title="`${fmtMs(sib.agent_latency_ms)} of the longest turn`"
+										></div>
+									</div>
+								</td>
+								<td class="px-3 py-1.5 text-right text-gray-700">{{ fmtMs(sib.agent_latency_ms) }}</td>
+								<td class="px-3 py-1.5 text-right text-gray-700">{{ fmtNum(sib.total_tokens) }}</td>
+								<td class="px-3 py-1.5 text-right text-gray-700">{{ fmtCost(sib.estimated_cost) }}</td>
+								<td class="px-3 py-1.5 text-gray-600 max-w-md truncate" :title="sib.final_output">{{ sib.final_output || "" }}</td>
+							</tr>
+							<tr v-if="openTurns.has(sib.name)">
+								<td colspan="9" class="px-4 py-2 bg-gray-50/60">
+									<div v-if="turnLoading.has(sib.name)" class="text-xs text-gray-500 py-2">Loading steps…</div>
+									<ErrorMessage v-else-if="turnErrors[sib.name]" :message="turnErrors[sib.name]" />
+									<div v-else-if="sib.name === run.name" class="space-y-3">
+							<div v-if="slowest.length" class="bg-white border rounded-lg px-4 py-3">
+								<div class="text-xs font-semibold text-gray-600 mb-2">Slowest steps in this run</div>
+								<div v-for="s in slowest" :key="s.name" class="grid items-center gap-3 text-xs py-0.5" style="grid-template-columns: 2rem 16rem 1fr 3rem 4rem">
+									<span class="text-gray-400">#{{ s.step_index }}</span>
+									<span class="font-mono text-gray-700 truncate">{{ kindLabel(s) }}</span>
+									<div class="h-2 bg-gray-100 rounded"><div class="h-2 rounded" :class="barTone(s)" :style="{ width: pct(s.latency_ms, latencyTotal) + '%' }"></div></div>
+									<span class="text-right text-gray-400">{{ pct(s.latency_ms, latencyTotal).toFixed(0) }}%</span>
+									<span class="text-right font-semibold text-gray-700">{{ fmtMs(s.latency_ms) }}</span>
+								</div>
+							</div>
+
+							<details v-if="detail.system_prompt" class="bg-white border rounded-lg px-4 py-2">
+								<summary class="text-xs text-gray-600 cursor-pointer">
+									System prompt <span class="text-gray-400">{{ detail.system_prompt.split("\n")[0].slice(0, 120) }}</span>
+									<span v-if="run.prompt_hash" class="font-mono text-gray-400 ml-2">{{ run.prompt_hash.slice(0, 12) }}</span>
+								</summary>
+								<pre class="mt-2 text-xs text-gray-700 whitespace-pre-wrap max-h-96 overflow-auto">{{ detail.system_prompt }}</pre>
+							</details>
+
+							<div class="bg-white border rounded-lg overflow-hidden">
+								<div class="flex items-center justify-between px-4 py-2 border-b text-xs text-gray-500">
+									<span>{{ timelineLabel }}</span>
+									<span class="flex gap-2">
+										<button class="hover:text-gray-900" @click="setAll(true)">Expand all</button>
+										<button class="hover:text-gray-900" @click="setAll(false)">Collapse all</button>
+									</span>
+								</div>
+								<table class="w-full text-xs table-fixed">
+									<colgroup>
+										<col class="w-10" /><col class="w-64" /><col /><col class="w-20" /><col class="w-20" /><col class="w-20" />
+									</colgroup>
+									<thead class="text-gray-400 uppercase tracking-wide">
+										<tr class="border-b">
+											<th class="text-left font-medium px-3 py-1.5">#</th>
+											<th class="text-left font-medium px-3 py-1.5">Step</th>
+											<th class="text-left font-medium px-3 py-1.5">Timeline</th>
+											<th class="text-right font-medium px-3 py-1.5">Latency</th>
+											<th class="text-right font-medium px-3 py-1.5">Tokens</th>
+											<th class="text-right font-medium px-3 py-1.5">Cost</th>
+										</tr>
+									</thead>
+									<tbody>
+										<template v-for="(s, si) in steps" :key="s.name">
+											<tr
+												class="border-b border-gray-50 cursor-pointer hover:bg-gray-50"
+												:class="s.error_code ? 'bg-red-50/60' : (si % 2 ? 'bg-gray-50/70' : 'bg-white')"
+												@click="toggle(s.name)"
+											>
+												<td class="px-3 py-1.5 text-gray-400">{{ s.step_index }}</td>
+												<td class="px-3 py-1.5">
+													<div class="flex items-center gap-1.5 min-w-0">
+														<Icon :icon="open.has(s.name) ? 'lucide:chevron-down' : 'lucide:chevron-right'" class="w-3 h-3 text-gray-400 shrink-0" />
+														<span class="rounded px-1.5 py-0.5 font-mono text-[10px] shrink-0" :class="KIND_PILLS[s.step_kind] || KIND_PILLS.model_call">{{ (s.step_kind || 'step').replace('_', ' ') }}</span>
+														<span class="font-mono text-gray-700 truncate">{{ kindLabel(s) }}</span>
+														<span v-if="s.error_code" class="rounded px-1.5 text-[10px] bg-red-100 text-red-700 shrink-0">{{ s.error_code }}</span>
+														<span v-if="s.child_runs && s.child_runs.length" class="rounded px-1.5 text-[10px] bg-indigo-50 text-indigo-700 shrink-0">+{{ s.child_runs.length }} run</span>
+													</div>
+												</td>
+												<td class="px-3 py-1.5">
+													<div class="relative h-2.5 bg-gray-100 rounded">
+														<div
+															v-if="s.latency_ms"
+															class="absolute h-2.5 rounded"
+															:class="barTone(s)"
+															:style="{ left: bar(s).left + '%', width: Math.max(bar(s).width, 0.5) + '%' }"
+															:title="fmtMs(s.latency_ms)"
+														></div>
+													</div>
+												</td>
+												<td class="px-3 py-1.5 text-right text-gray-700">{{ s.latency_ms ? fmtMs(s.latency_ms) : "" }}</td>
+												<td class="px-3 py-1.5 text-right text-gray-500">{{ (s.prompt_tokens || 0) + (s.completion_tokens || 0) ? fmtNum((s.prompt_tokens || 0) + (s.completion_tokens || 0)) : "" }}</td>
+												<td class="px-3 py-1.5 text-right text-gray-500">{{ s.cost ? fmtCost(s.cost) : "" }}</td>
+											</tr>
+											<tr v-if="open.has(s.name)" class="border-b bg-gray-50/60">
+												<td></td>
+												<td colspan="5" class="px-3 py-2 space-y-2">
+													<div v-if="s.error_message">
+														<div class="text-[11px] uppercase text-red-500 mb-0.5">Error</div>
+														<pre class="text-xs text-red-800 whitespace-pre-wrap bg-red-50 rounded p-2 max-h-48 overflow-auto">{{ s.error_message }}</pre>
+													</div>
+													<div v-if="s.content && s.role !== 'system'">
+														<div class="text-[11px] uppercase text-gray-400 mb-0.5">{{ s.role === "user" ? "Input" : s.role === "assistant" ? "Output" : "Narration" }}</div>
+														<pre class="text-xs text-gray-700 whitespace-pre-wrap bg-white border rounded p-2 max-h-72 overflow-auto">{{ s.content }}</pre>
+													</div>
+													<div v-if="s.role === 'system'" class="text-xs text-gray-400">System prompt shown above.</div>
+													<div v-for="(c, ci) in s.tool_calls" :key="ci" class="border rounded bg-white p-2">
+														<div class="flex items-center gap-2 text-xs">
+															<span class="font-mono font-semibold text-gray-800">{{ c.tool_name }}</span>
+															<span class="text-gray-400">{{ c.tool_source }}</span>
+															<Badge :theme="c.status === 'Success' ? 'green' : c.status === 'Denied' ? 'orange' : 'red'" size="sm">{{ c.status }}</Badge>
+															<span v-if="c.outcome" class="text-gray-500 truncate">{{ c.outcome }}</span>
+															<a v-if="c.artifact_file" :href="`/app/file/${c.artifact_file}`" target="_blank" class="ml-auto text-blue-600 hover:underline">artifact file</a>
+														</div>
+														<div v-if="hasValue(c.tool_args)" class="mt-1">
+															<div class="text-[11px] uppercase text-gray-400">Arguments</div>
+															<pre class="text-xs text-gray-700 whitespace-pre-wrap max-h-48 overflow-auto">{{ prettyJson(c.tool_args) }}</pre>
+														</div>
+														<div v-if="c.tool_result" class="mt-1">
+															<div class="text-[11px] uppercase text-gray-400">Result</div>
+															<pre class="text-xs text-gray-700 whitespace-pre-wrap max-h-48 overflow-auto">{{ prettyJson(c.tool_result) }}</pre>
+														</div>
+														<div v-if="c.tool_artifact" class="mt-1">
+															<div class="text-[11px] uppercase text-gray-400">Artifact</div>
+															<pre class="text-xs text-gray-700 whitespace-pre-wrap max-h-48 overflow-auto">{{ c.tool_artifact }}</pre>
+														</div>
+													</div>
+													<div v-if="s.child_runs && s.child_runs.length" class="space-y-1">
+														<div class="text-[11px] uppercase text-gray-400">Runs this step started</div>
+														<router-link
+															v-for="child in s.child_runs"
+															:key="child.run.name"
+															:to="`/processa/runs/${child.run.name}`"
+															class="flex items-center gap-2 text-xs text-blue-700 hover:underline"
+														>
+															<Icon icon="lucide:corner-down-right" class="w-3 h-3 text-gray-400" />
+															<span class="font-mono">{{ child.run.name }}</span>
+															<span class="text-gray-500">{{ child.run.agent_configuration || child.run.bpmn_label }}</span>
+															<Badge :theme="child.run.status === 'Success' ? 'green' : 'red'" size="sm">{{ child.run.status }}</Badge>
+															<span class="text-gray-500">{{ fmtNum(child.rollup.total_tokens) }} tokens, {{ fmtCost(child.rollup.estimated_cost) }}</span>
+														</router-link>
+													</div>
+													<div v-if="!s.content && !s.tool_calls.length && !s.error_message && s.role !== 'system'" class="text-xs text-gray-400">Nothing recorded for this step.</div>
+												</td>
+											</tr>
+										</template>
+									</tbody>
+								</table>
+								<div v-if="tree.unplaced_children && tree.unplaced_children.length" class="px-4 py-2 border-t text-xs">
+									<div class="text-gray-400 uppercase text-[11px] mb-1">Runs started during this run</div>
+									<router-link v-for="child in tree.unplaced_children" :key="child.run.name" :to="`/processa/runs/${child.run.name}`" class="block text-blue-700 hover:underline font-mono">{{ child.run.name }} <span class="text-gray-500 font-sans">{{ child.run.agent_configuration || child.run.bpmn_label }}</span></router-link>
+								</div>
+							</div>
+
+							<div class="bg-white border rounded-lg px-4 py-3">
+								<div class="flex items-center gap-2 text-xs text-gray-600 mb-1">
+									<span class="font-semibold">Final output</span>
+									<span v-if="run.goal_completion" :class="GOAL_TONES[run.goal_completion] || 'text-gray-400'">{{ run.goal_completion }}</span>
+									<span v-if="run.no_terminal_tool" class="text-amber-700 bg-amber-50 rounded px-1.5" title="the model answered in plain text instead of calling its terminal tool">no terminal tool</span>
+									<span v-if="run.completion_basis" class="text-gray-400 truncate" :title="run.completion_basis">{{ run.completion_basis }}</span>
+								</div>
+								<pre class="text-xs text-gray-700 whitespace-pre-wrap max-h-96 overflow-auto">{{ run.final_output || "(empty)" }}</pre>
+							</div>
+			
+									</div>
+									<div v-else-if="turns[sib.name]">
+										<div class="flex items-center gap-3 text-xs text-gray-500 mb-2">
+											<span>Own cost {{ fmtCost(sib.estimated_cost) }}</span>
+											<span v-if="turnHasChildren(sib.name)">
+												Including delegated work {{ fmtCost(turns[sib.name].rollup.estimated_cost) }},
+												{{ fmtNum(turns[sib.name].rollup.total_tokens) }} tokens
+											</span>
+											<RouterLink class="text-blue-600 hover:underline ml-auto" :to="`/processa/runs/${sib.name}`">
+												Open this turn on its own page
+											</RouterLink>
+										</div>
+										<RunTree :node="{ run: turns[sib.name].run, steps: turns[sib.name].steps, unplaced_children: turns[sib.name].unplaced_children, rollup: turns[sib.name].rollup }" />
+									</div>
+								</td>
+							</tr>
+						</template>
 					</tbody>
 				</table>
 			</div>
+
 		</div>
 	</div>
 </template>
@@ -274,8 +328,8 @@
 <script setup>
 import { Badge, Button, ErrorMessage, frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
-import { computed, onMounted, ref, watch } from "vue"
-import { useRoute } from "vue-router"
+import { computed, onMounted, reactive, ref, watch } from "vue"
+import { RouterLink, useRoute, useRouter } from "vue-router"
 import { dayjs } from "@/dayjs"
 import RunTree from "@/components/insights/RunTree.vue"
 import { fmtCost, fmtMs, fmtNum, prettyJson } from "@/utils/runFormat"
@@ -290,12 +344,64 @@ const KIND_PILLS = {
 }
 
 const route = useRoute()
+const router = useRouter()
 const loading = ref(true)
 const error = ref("")
 const detail = ref({})
-const tab = ref("steps")
+const tab = ref("conversation")
 const open = ref(new Set())
 const creatingCase = ref(false)
+
+// A turn's steps are fetched when it is opened: a twenty turn conversation
+// would otherwise load twenty trees nobody asked for.
+const openTurns = ref(new Set())
+const turns = reactive({})
+const turnLoading = ref(new Set())
+const turnErrors = reactive({})
+
+async function toggleTurn(name) {
+	const next = new Set(openTurns.value)
+	if (next.has(name)) {
+		next.delete(name)
+		openTurns.value = next
+		syncTurnInUrl()
+		return
+	}
+	next.add(name)
+	openTurns.value = next
+	syncTurnInUrl()
+	if (turns[name]) return
+	const busy = new Set(turnLoading.value)
+	busy.add(name)
+	turnLoading.value = busy
+	try {
+		turns[name] = await frappeRequest({
+			url: "/api/method/one_bpmn.api.insights_api.get_turn_steps",
+			params: { run_name: name },
+		})
+		delete turnErrors[name]
+	} catch (e) {
+		turnErrors[name] = e.message || String(e)
+	} finally {
+		const done = new Set(turnLoading.value)
+		done.delete(name)
+		turnLoading.value = done
+	}
+}
+
+// The open turn rides in the query string so a turn can be linked to.
+function syncTurnInUrl() {
+	const open = [...openTurns.value]
+	const turn = open.length ? open[open.length - 1] : undefined
+	router.replace({ query: { ...route.query, turn } })
+}
+
+function turnHasChildren(name) {
+	const t = turns[name]
+	if (!t) return false
+	const inSteps = (t.steps || []).some((step) => (step.child_runs || []).length)
+	return inSteps || (t.unplaced_children || []).length > 0
+}
 
 const run = computed(() => detail.value.run || null)
 const tree = computed(() => detail.value.tree || { steps: [], unplaced_children: [] })
@@ -303,9 +409,8 @@ const steps = computed(() => tree.value.steps || [])
 const latencyTotal = computed(() => steps.value.reduce((a, s) => a + (s.latency_ms || 0), 0) || 1)
 const slowest = computed(() => [...steps.value].filter((s) => s.latency_ms > 0).sort((a, b) => b.latency_ms - a.latency_ms).slice(0, 3))
 
-// A real timeline needs a start and end on every timed step. Steps recorded
-// before those existed carry a window rebuilt from their latency, which is a
-// sequence, not the clock; the label says which one the bars show.
+// Steps recorded before timestamps existed carry a window rebuilt from
+// latency, so the bars show sequence, not the clock.
 const timed = computed(() => steps.value.filter((s) => s.latency_ms > 0))
 const hasClock = computed(() => timed.value.length > 0 && timed.value.every((s) => s.started_at && s.ended_at))
 const window_ = computed(() => {
@@ -377,10 +482,35 @@ const metrics = computed(() => {
 })
 
 const tabs = computed(() => [
-	{ key: "steps", label: "Steps", count: steps.value.length },
-	{ key: "tree", label: "Tree", count: tree.value.rollup ? tree.value.rollup.runs : null },
 	{ key: "conversation", label: "Conversation", count: (detail.value.siblings || []).length },
+	{ key: "tree", label: "Tree", count: tree.value.rollup ? tree.value.rollup.runs : null },
 ])
+
+// Bar width is the time a turn took, against the longest turn. The wait
+// between two turns is collapsed to a label, since a person thinking for
+// four minutes would otherwise squeeze every turn into a hairline.
+const waterfall = computed(() => {
+	const rows = detail.value.siblings || []
+	const longest = Math.max(...rows.map((r) => r.agent_latency_ms || r.duration_ms || 0), 1)
+	let previousEnd = null
+	return rows.map((r) => {
+		const duration = r.agent_latency_ms || r.duration_ms || 0
+		const start = r.started_at ? dayjs(r.started_at).valueOf() : null
+		const gap = start && previousEnd && start > previousEnd ? start - previousEnd : 0
+		previousEnd = r.ended_at ? dayjs(r.ended_at).valueOf() : start
+		return {
+			key: r.name,
+			name: r.name,
+			status: r.status,
+			duration,
+			cost: r.estimated_cost,
+			gap,
+			left: 0,
+			width: Math.max((duration / longest) * 100, 1),
+		}
+	})
+})
+
 
 function fmtDateTime(v) {
 	return v ? dayjs(v).format("DD MMM YYYY HH:mm:ss") : ""
@@ -431,5 +561,16 @@ async function createEvalCase() {
 }
 
 watch(() => route.params.run, () => route.params.run && load())
-onMounted(load)
+onMounted(async () => {
+	await load()
+	// The run you arrived on is the turn you came to read, so it starts open.
+	if (run.value) openTurns.value = new Set([run.value.name])
+	// A link that names a turn opens on that turn, so a turn can be sent to
+	// somebody and read where the sender was reading.
+	const turn = route.query.turn
+	if (turn) {
+		tab.value = "conversation"
+		toggleTurn(turn)
+	}
+})
 </script>

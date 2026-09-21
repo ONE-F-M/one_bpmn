@@ -1,3 +1,5 @@
+import json
+
 import frappe
 from frappe.model.document import Document
 from frappe import _
@@ -28,11 +30,94 @@ class AISkill(Document):
 		if len(self.description) > 1024:
 			frappe.throw(_("Description is too long (must be <= 1024 characters)."))
 
-		desc_lower = self.description.lower()
-		if "use this skill when" not in desc_lower and "when to use" not in desc_lower:
-			frappe.throw(_("Description must contain trigger phrasing like 'Use this skill when' or 'when to use'."))
-		if "do not use" not in desc_lower and "when not to use" not in desc_lower:
-			frappe.throw(_("Description must contain anti-trigger phrasing like 'Do NOT use' or 'when NOT to use'."))
+		# US: the hard "must contain this literal phrase" checks used to block
+		# saving on wording alone. That is replaced by a non-blocking AI review:
+		# an LLM judges whether the description makes clear when to use (and
+		# when NOT to use) the skill, and - if it thinks the wording is
+		# ambiguous - offers a suggested rephrasing as feedback. The author can
+		# take it or leave it; nothing here ever raises for wording quality.
+		self._ai_review_description()
+
+	def _ai_review_description(self):
+		"""Non-blocking AI review of description clarity (US 8).
+
+		Runs ONE synchronous LLM call during save and, if the model thinks the
+		description does not make clear when to use this skill and when not
+		to, surfaces a suggested rephrasing via msgprint. Any failure here
+		(no provider configured, network error, bad LLM output, ...) is
+		logged and swallowed - an AI review outage must never block saving a
+		skill, and it must never be confused with a genuine validation error.
+
+		A migrate or a test run makes no model calls; a seed patch saving five
+		skills must not cost five judge calls.
+		"""
+		if frappe.flags.in_patch or frappe.flags.in_migrate or frappe.flags.in_install or frappe.flags.in_test:
+			return
+		try:
+			from one_bpmn.agents.executor.direct_api import _run_coro_blocking
+			from one_bpmn.agents.llm_provider.factory import get_llm_adapter_from_settings
+
+			adapter = get_llm_adapter_from_settings()
+
+			system_prompt = (
+				"You are reviewing the routing description of an AI Skill - the "
+				"text an agent reads to decide whether to load this skill. "
+				"Judge only ONE thing: does the description make it clear (a) "
+				"when the skill SHOULD be used and (b) when it should NOT be "
+				"used? Minor style issues do not matter.\n\n"
+				"Respond with ONLY a JSON object, no markdown fences, no other "
+				"text:\n"
+				'{"clear": true} if the description is clear enough, or\n'
+				'{"clear": false, "suggestion": "<a rewritten description that '
+				'fixes the ambiguity>"} if it is not.'
+			)
+			user_prompt = f"Description:\n{self.description}"
+
+			# _run_coro_blocking (agents/executor/direct_api.py, WI-001356)
+			# already solves "call async LLM code from this synchronous
+			# validate() hook" -- including falling back to a dedicated
+			# thread (with the caller's contextvars, so frappe.local
+			# survives) when a loop is already running. Reusing it here
+			# instead of hand-rolling asyncio.get_event_loop() keeps this
+			# codebase's one pattern for the problem instead of a second,
+			# less battle-tested one.
+			step_result = _run_coro_blocking(
+				adapter.step(
+					system=system_prompt,
+					transcript=[{"role": "user", "content": user_prompt}],
+				)
+			)
+
+			text = (step_result.content or "").strip()
+			if text.startswith("```"):
+				text = text.strip("`")
+				if text.lower().startswith("json"):
+					text = text[4:]
+				text = text.strip()
+
+			if not text:
+				return
+
+			review = json.loads(text)
+			if review.get("clear") is False and review.get("suggestion"):
+				frappe.msgprint(
+					_(
+						"AI review: this description may not make it clear when to "
+						"use this skill and when not to. Suggested rephrasing "
+						"(optional - you can save as-is):<br><br>{0}"
+					).format(frappe.utils.escape_html(review["suggestion"])),
+					title=_("AI Suggestion"),
+					indicator="blue",
+				)
+		except Exception:
+			# The AI review is a courtesy, not a gate. A failed or unavailable
+			# LLM call must never stop the skill from saving, and must never be
+			# mistaken for a real validation failure (bad tool refs, token
+			# ceiling, tier graduation - all of which still raise for real).
+			frappe.log_error(
+				title="AI Skill: description AI review failed",
+				message=frappe.get_traceback(),
+			)
 
 	def _validate_allowed_tools_exist(self):
 		for tool_row in self.allowed_tools or []:

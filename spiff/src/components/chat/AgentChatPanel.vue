@@ -309,6 +309,14 @@ const WORKSPACE_EVENTS = new Set([
 	"onefm.proposed_update",
 ]);
 
+// Events that exist for the host or the protocol, never for the reader:
+// they carry no message of their own, so drawing them as a card puts
+// plumbing in the transcript. Hosts still receive them through agent-event.
+const HOST_ONLY_EVENTS = new Set([
+	"onefm.message_persisted",
+	"onefm.created_config",
+]);
+
 // Each card's PRIMARY action — the one that needs a host-side target.
 // Dismiss never needs one and always stays visible.
 const PRIMARY_ACTIONS = {
@@ -543,11 +551,21 @@ async function onFilePicked(event) {
 
 // ── sending ─────────────────────────────────────────────────────────────────
 
-async function send(text, extraContext = null) {
+// crypto.randomUUID needs a secure context; a bench served over plain http on a
+// LAN address is not one, and the panel must still send an id there.
+function newMessageId() {
+	if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+	return `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function send(text, extraContext = null, reuseId = null) {
 	const message = (text ?? draft.value).trim();
 	if (!message || busy.value) return;
 	draft.value = "";
-	const sent = { kind: "user", text: message, ts: stampNow() };
+	// One id per message the person typed, kept across retries. A stream that
+	// dies after the agent has already answered used to cost a second run and a
+	// second reply; re-sending the same id replays the first one instead.
+	const sent = { kind: "user", text: message, ts: stampNow(), clientMessageId: reuseId || newMessageId() };
 	items.value.push(sent);
 	busy.value = true;
 	status.value = "streaming";
@@ -578,6 +596,7 @@ async function send(text, extraContext = null) {
 		message,
 		conversation: conversationName.value || undefined,
 		context: turnContext,
+		clientMessageId: sent.clientMessageId,
 		onEvent: handleEvent,
 		onError: (msg) => {
 			status.value = "error";
@@ -658,7 +677,7 @@ function handleCustom(name, value) {
 			value = { ...value, prompt: "" };
 		}
 		items.value.push({ kind: "choice", value, answered: "", ts: stampNow() });
-	} else {
+	} else if (!HOST_ONLY_EVENTS.has(name)) {
 		items.value.push({ kind: "custom", name, value, ts: stampNow() });
 	}
 	scrollDown();
@@ -784,7 +803,7 @@ async function retrySend(item) {
 	errorOpen.value = false;
 	errorMessage.value = "";
 	if (status.value === "error") status.value = "idle";
-	await send(item.text, item.retryContext || null);
+	await send(item.text, item.retryContext || null, item.clientMessageId || null);
 }
 
 function onCardAction(item, action, payload) {

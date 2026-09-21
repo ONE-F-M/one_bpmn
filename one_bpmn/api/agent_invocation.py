@@ -273,7 +273,12 @@ def one_ai_conversation_modes() -> list:
 
 @frappe.whitelist()
 def invoke_agent(
-	agent_id: str, message: str, conversation: str = None, context: dict = None, stream: bool = False
+	agent_id: str,
+	message: str,
+	conversation: str = None,
+	context: dict = None,
+	stream: bool = False,
+	client_message_id: str = None,
 ):
 	"""Invoke a configured agent with a single message; return its reply.
 
@@ -286,6 +291,9 @@ def invoke_agent(
 	    stream: internal callers only (the AG-UI endpoint, WI-001670). When
 	        true, a runner that can stream returns its event generator instead
 	        of a buffered reply; runners that cannot stream ignore the flag.
+	    client_message_id: id minted by the chat client for this message. Sending
+	        it twice returns the first reply instead of running the agent again,
+	        so a retry or a double submit costs nothing and says nothing twice.
 
 	Returns:
 	    dict with at least ``response`` (the agent's reply text) and
@@ -405,28 +413,82 @@ def invoke_agent(
 			agent_id, title=(message or "New chat")[:140], user=frappe.session.user
 		)
 
+	# ── Same message twice ───────────────────────────────────────────────
+	# Checked once the conversation is known and before the lock, so a
+	# redelivery neither waits behind the turn it duplicates nor is refused by
+	# it. Costs one indexed read on the common path.
+	from one_bpmn.agents import turn_idempotency as _idem
+
+	if client_message_id:
+		_already = _idem.find_existing(conversation, client_message_id)
+		if _already:
+			_pii.end_turn(_pii_turn)
+			_turn.end_turn()
+			_already.setdefault("agent_id", agent_id)
+			return _already
+
+	# ── One turn at a time on this conversation ──────────────────────────
+	# Two overlapping deliveries each restore the same workflow_state and the
+	# last write wins, losing a turn's work and interleaving the transcript.
+	# Whether a second message waits or is turned away is the agent's setting.
+	from one_bpmn.security import turn_lock as _turn_lock
+
+	_lock_token = None
+	try:
+		_lock_token = _turn_lock.acquire(conversation, _turn_lock.policy_for(config))
+	except Exception:
+		_pii.end_turn(_pii_turn)
+		_turn.end_turn()
+		raise
+
+	# The map reuses a message we have already written instead of inserting its
+	# own, which is how the client's id reaches the transcript.
+	context = dict(context or {})
+	_user_message = ""
+	if client_message_id:
+		try:
+			_user_message = _idem.record_user_message(
+				conversation, message, client_message_id, existing=context.get("message_name") or ""
+			)
+			context.setdefault("message_name", _user_message)
+		except Exception:
+			frappe.log_error(
+				title="Chat message id not recorded — turn continues without it",
+				message=frappe.get_traceback(),
+			)
+
 	runner = _runner_for(config)
 	result = None
 	try:
-		result = _RUNNERS[runner](config, conversation, message, context or {}, stream=stream)
+		result = _RUNNERS[runner](config, conversation, message, context, stream=stream)
 	finally:
 		# Streaming replies are consumed after this function returns, so the
 		# PII turn must survive until the generator is exhausted — the wrapper
 		# below owns the teardown in that case.
 		if not _is_stream(result):
 			_pii.end_turn(_pii_turn)
+			_turn_lock.release(conversation, _lock_token)
 		# Clear the correlation id too, or a pooled worker leaks it into the
 		# next turn and two unrelated turns look like one.
 		_turn.end_turn()
 	if _is_stream(result):
 		return {
 			"streaming": True,
-			"stream": _stream_with_pii_teardown(result, _pii_turn),
+			# A streamed turn is still running when this returns, so the lock
+			# has to outlive the function the same way the PII turn does.
+			"stream": _stream_with_pii_teardown(
+				result, _pii_turn, conversation=conversation, lock_token=_lock_token
+			),
 			"conversation": conversation,
 			"agent_id": agent_id,
 		}
 	if not isinstance(result, dict):
 		result = {"response": str(result or "")}
+
+	# Note which reply answered this message, so a redelivery of the same id is
+	# served from the transcript instead of running the agent again.
+	if _user_message and result.get("message_name"):
+		_idem.record_reply(_user_message, result["message_name"])
 
 	# Output screening, before send. The Chat Message hook covers what is
 	# PERSISTED; this covers what is RETURNED, and the two are not the same
@@ -459,16 +521,18 @@ def _is_stream(value) -> bool:
 	return inspect.isgenerator(value) or (hasattr(value, "__next__") and not isinstance(value, dict))
 
 
-def _stream_with_pii_teardown(gen, pii_turn):
-	"""Relay a runner's event stream, ending the PII turn only once the
-	stream is exhausted (or abandoned) — mirrors the try/finally the buffered
-	path gets inline."""
+def _stream_with_pii_teardown(gen, pii_turn, conversation=None, lock_token=None):
+	"""Relay a runner's event stream, ending the PII turn and releasing the
+	conversation's turn lock only once the stream is exhausted (or abandoned) —
+	mirrors the try/finally the buffered path gets inline."""
 	from one_bpmn.security import pii as _pii
+	from one_bpmn.security import turn_lock as _turn_lock
 
 	try:
 		yield from gen
 	finally:
 		_pii.end_turn(pii_turn)
+		_turn_lock.release(conversation, lock_token)
 
 
 # ── Runners ──────────────────────────────────────────────────────────────────
@@ -543,11 +607,11 @@ def _bpmn_turn_stream(config, conversation, message, context):
 	# The worker's job is queued to start after this request commits, so nothing
 	# runs until the transaction is released. Progress would never arrive.
 	if not frappe.flags.in_test:
+		# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
 		frappe.db.commit()
 
-	# The AI task's own output travels on the same list. It is the answer, not
-	# a status line, so it is taken out here and handed to the collector rather
-	# than relayed to the client.
+	# The task output is the answer, not a status line: it goes to the
+	# collector, never to the client.
 	task_output = {}
 	for event in turn_signal.consume(handle["instance"], CHAT_TURN_WAIT_SECONDS):
 		if isinstance(event, dict) and event.get("type") == TURN_OUTPUT_EVENT:
@@ -582,12 +646,8 @@ def _run_bpmn_map(config, conversation, message, context, stream=False):
 
 	result = delegate_chat_turn(conversation, message, context=context)
 
-	# The first-turn race used to be met here with eight blind retries of the
-	# whole turn, a second apart. Delivery answers it properly now: it accepts a
-	# Queued instance, starts it inline under a row lock, and waits for the
-	# worker to finish the turn. What is left when delivery still returns
-	# nothing is a conversation with no live instance at all, and retrying the
-	# same call cannot change that. The re-arm below is the recovery.
+	# Delivery already accepts a Queued instance and waits for the worker, so
+	# nothing back means no live instance. Re-arm instead of retrying.
 
 	if result is None:
 		result = _rearm_and_deliver(config, conversation, message, context)

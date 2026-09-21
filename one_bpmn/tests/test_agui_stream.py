@@ -363,3 +363,143 @@ class TestBpmnMapResumeRearm(FrappeTestCase):
 		calls, spawn, err = self._invoke([None], lambda *a: None)
 		self.assertIsInstance(err, _frappe.ValidationError)
 		self.assertEqual(calls["delegate"], 2)  # the first attempt, then the re-arm retry
+
+
+class TestHeartbeatKeepsTheRequestContext(FrappeTestCase):
+	"""The keep-alive runs the turn on another thread, which starts with an
+	empty context unless the request's is carried across."""
+
+	def test_the_callable_still_sees_the_session(self):
+		import frappe
+
+		from one_bpmn.agents import agui_stream
+
+		seen = {}
+
+		def _work():
+			seen["user"] = frappe.session.user
+			seen["in_test"] = frappe.flags.in_test
+			return "done"
+
+		gen = agui_stream._invoke_with_heartbeat(_work, interval=0.01)
+		result = None
+		try:
+			while True:
+				next(gen)
+		except StopIteration as stop:
+			result = stop.value
+
+		self.assertEqual(result, "done")
+		self.assertEqual(seen["user"], frappe.session.user)
+		self.assertTrue(seen["in_test"])
+
+	def test_an_exception_comes_back_to_the_caller(self):
+		from one_bpmn.agents import agui_stream
+
+		def _boom():
+			raise ValueError("from the worker thread")
+
+		gen = agui_stream._invoke_with_heartbeat(lambda: _boom(), interval=0.01)
+		with self.assertRaises(ValueError):
+			while True:
+				next(gen)
+
+
+class TestRelayKeepsASlowChildAlive(FrappeTestCase):
+	"""The wait for a child's next event is where a parked turn spends its
+	time, so that is where the keep-alive has to come from."""
+
+	def test_a_silent_child_still_produces_keepalives(self):
+		import time
+
+		from ag_ui.encoder import EventEncoder
+
+		from one_bpmn.agents import agui_stream
+
+		def slow_child():
+			time.sleep(0.25)
+			yield {"type": "TEXT_MESSAGE_CONTENT", "delta": "late"}
+
+		out = list(
+			agui_stream._relay_child_stream(
+				slow_child(), EventEncoder(), "MSG-1", interval=0.05
+			)
+		)
+
+		self.assertTrue([line for line in out if line.startswith(":")], "no keep-alive was sent")
+		self.assertTrue([line for line in out if "late" in line], "the child's event was lost")
+
+	def test_a_fast_child_sends_no_keepalive(self):
+		from ag_ui.encoder import EventEncoder
+
+		from one_bpmn.agents import agui_stream
+
+		def fast_child():
+			yield {"type": "TEXT_MESSAGE_CONTENT", "delta": "now"}
+
+		out = list(
+			agui_stream._relay_child_stream(
+				fast_child(), EventEncoder(), "MSG-1", interval=5
+			)
+		)
+
+		self.assertEqual([line for line in out if line.startswith(":")], [])
+		self.assertTrue([line for line in out if "now" in line])
+
+
+class TestARelayGivesUpOnADeadTurn(FrappeTestCase):
+	"""A worker killed mid-turn publishes nothing, so the wait has a ceiling:
+	past it the stream says so instead of sending keep-alives for ever."""
+
+	def test_a_child_that_never_yields_ends_with_a_system_notice(self):
+		import threading
+
+		from ag_ui.encoder import EventEncoder
+
+		from one_bpmn.agents import agui_stream
+
+		release = threading.Event()
+
+		def dead_child():
+			release.wait(30)  # never released within the ceiling below
+			yield {"type": "TEXT_MESSAGE_CONTENT", "delta": "too late"}
+
+		try:
+			out = list(
+				agui_stream._relay_child_stream(
+					dead_child(), EventEncoder(), "MSG-1", interval=0.05, stall_ceiling=0.2
+				)
+			)
+		finally:
+			release.set()
+
+		events = _events(out)
+		roles = [e.get("role") for e in events if e.get("type") == "TEXT_MESSAGE_START"]
+		self.assertEqual(roles, ["system"])
+		self.assertTrue(
+			[e for e in events if "stopped responding" in (e.get("delta") or "")],
+			"the stall notice never reached the client",
+		)
+		self.assertTrue([line for line in out if line.startswith(":")], "no keep-alive was sent")
+
+	def test_a_slow_but_living_child_is_not_cut_off(self):
+		import time
+
+		from ag_ui.encoder import EventEncoder
+
+		from one_bpmn.agents import agui_stream
+
+		def slow_child():
+			time.sleep(0.15)
+			yield {"type": "TEXT_MESSAGE_CONTENT", "delta": "made it"}
+
+		out = list(
+			agui_stream._relay_child_stream(
+				slow_child(), EventEncoder(), "MSG-1", interval=0.05, stall_ceiling=5
+			)
+		)
+
+		self.assertTrue([line for line in out if "made it" in line])
+		self.assertEqual(
+			[e for e in _events(out) if e.get("type") == "TEXT_MESSAGE_START"], []
+		)

@@ -194,7 +194,17 @@ def _with_dispatch_wiring(instance, bpmn_id: str, task_cfg: dict) -> dict:
 	the two, and a shape used as a tool may deliberately differ.
 	"""
 	needed = _DISPATCH_WIRING.get((task_cfg or {}).get("serviceType") or "")
-	if not needed or all(str((task_cfg or {}).get(k) or "").strip() for k in needed):
+	# A nested AI Agent Task with a Tools box of its own: the descriptor copies
+	# the shape's attributes, but its compiled tool list (aiToolShapes) exists
+	# only on the shape's own config. Without this merge the writer stage ran
+	# with no tools but the skill tools, and every list_doctypes it called came
+	# back "Unknown tool".
+	wants_tools = (
+		(task_cfg or {}).get("serviceType") == "ai_agent"
+		and str((task_cfg or {}).get("aiToolsAdhoc") or "").strip()
+		and not (task_cfg or {}).get("aiToolShapes")
+	)
+	if not wants_tools and (not needed or all(str((task_cfg or {}).get(k) or "").strip() for k in needed)):
 		return task_cfg
 	shape_cfg = (getattr(instance, "_service_task_extensions", {}) or {}).get(bpmn_id) or {}
 	if not shape_cfg:
@@ -339,8 +349,7 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 
 		return json.dumps(produced or {"ok": True}, default=str)
 	except ToolDeferred:
-		# The tool has not finished, it is waiting. Announcing an end here would
-		# clear the status line while the work is still running.
+		# Waiting, not finished: an end here would clear a live status line.
 		still_running = True
 		raise
 	except frappe.PermissionError as refused:
@@ -360,19 +369,15 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 			title=f"AI Agent shape tool '{bpmn_id}' failed",
 			message=frappe.get_traceback(),
 		)
-		# Same reasoning as the permission/validation branches above: "see the
-		# Error Log" is useless to a model that cannot read it, so it invents an
-		# explanation instead. Carrying the exception's own class name and
-		# message lets the model tell a truncated-output problem apart from an
-		# unrelated bug rather than guessing at both from silence.
+		# The model cannot read the Error Log, so the class and message travel
+		# with the refusal.
 		return json.dumps({
 			"error": (
 				f"Shape '{bpmn_id}' failed — {type(unexpected).__name__}: {unexpected}"
 			),
 		})
 	finally:
-		# Every exit reports, including the branches that hand an error back to
-		# the model: a status line that is never cleared is worse than none.
+		# Every exit reports, or a status line is left hanging.
 		if not still_running:
 			_announce(instance, "TOOL_CALL_END", bpmn_id)
 

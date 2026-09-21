@@ -367,7 +367,7 @@ def create_ai_run(
 		# its parent, which made a turn a flat list of runs that happened near
 		# each other instead of the tree it actually is.
 		"prompt_hash": snapshot_prompt(getattr(config, "system_prompt", ""), agent_configuration),
-		"parent_run": current_run_name(),
+		"parent_run": current_run_name() or _delegating_run(instance),
 	})
 	try:
 		run.insert(ignore_permissions=True)
@@ -574,6 +574,25 @@ def parse_sub_call(content: str) -> dict | None:
 		"model": match.group("model").strip(),
 		"turn_no": int(turn) if turn else None,
 	}
+
+
+def _delegating_run(instance) -> str | None:
+	"""The run that delegated this one, for a run started by an A2A Task.
+
+	A delegated run executes in its own request, so the in-request flag
+	current_run_name() reads is empty and the chain would break at every
+	handover. The task already records who asked, which is the only place
+	the two sides meet.
+	"""
+	if getattr(instance, "context_doctype", "") != "A2A Task":
+		return None
+	task = getattr(instance, "context_docname", None)
+	if not task:
+		return None
+	try:
+		return frappe.db.get_value("A2A Task", task, "caller_agent_run") or None
+	except Exception:
+		return None
 
 
 def current_run_name() -> str | None:

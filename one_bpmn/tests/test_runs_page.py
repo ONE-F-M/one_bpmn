@@ -10,6 +10,8 @@ from __future__ import annotations
 from datetime import timedelta
 
 import frappe
+from unittest.mock import patch
+
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, get_datetime, now_datetime
 
@@ -236,9 +238,8 @@ class TestListRuns(RunsPageFixture):
 		frappe.set_user(email)
 		self.assertNotIn("System Manager", frappe.get_roles())
 
-		# frappe.only_for returns without checking anything while in_test is
-		# set, so a test that leaves it set asserts a guard that cannot fire and
-		# passes or fails for reasons of its own. Both calls below only read.
+		# frappe.only_for is a no-op while in_test is set, so the guard cannot
+		# fire unless the flag is cleared. Both calls below only read.
 		frappe.flags.in_test = False
 		try:
 			with self.assertRaises(frappe.PermissionError):
@@ -273,3 +274,40 @@ class TestRunDetail(RunsPageFixture):
 	def test_a_missing_run_is_an_error(self):
 		with self.assertRaises(frappe.DoesNotExistError):
 			get_run_detail("no-such-run")
+
+
+class TestADelegatedRunKnowsItsCaller(FrappeTestCase):
+	"""A run started by an A2A Task executes in its own request, so the
+	in-request flag is empty and the chain has to come from the task."""
+
+	def test_the_caller_on_the_task_becomes_the_parent(self):
+		from one_bpmn.agents import observability
+
+		instance = frappe._dict({
+			"name": "INST-CHILD",
+			"context_doctype": "A2A Task",
+			"context_docname": "A2A-1",
+		})
+		with patch.object(observability.frappe.db, "get_value", return_value="RUN-PARENT"):
+			self.assertEqual(observability._delegating_run(instance), "RUN-PARENT")
+
+	def test_an_instance_that_is_not_a_delegation_has_no_parent(self):
+		from one_bpmn.agents import observability
+
+		instance = frappe._dict({
+			"name": "INST-CHAT",
+			"context_doctype": "Chat Conversation",
+			"context_docname": "CONV-1",
+		})
+		self.assertIsNone(observability._delegating_run(instance))
+
+	def test_a_task_that_records_no_caller_leaves_the_parent_empty(self):
+		from one_bpmn.agents import observability
+
+		instance = frappe._dict({
+			"name": "INST-CHILD",
+			"context_doctype": "A2A Task",
+			"context_docname": "A2A-2",
+		})
+		with patch.object(observability.frappe.db, "get_value", return_value=None):
+			self.assertIsNone(observability._delegating_run(instance))
