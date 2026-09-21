@@ -20,6 +20,8 @@
   "column_break_bnpt",
   "assigned_role",
   "assigned_user",
+  "relieved_user",
+  "reliever_user",
   "status"
  ],
  "fields": [
@@ -93,6 +95,20 @@
    "fieldname": "assigned_user",
    "fieldtype": "Data",
    "label": "Assigned User"
+  },
+  {
+   "description": "Owners this task was redirected away from while they were on leave, comma-separated. Runs parallel to Reliever User and is kept after their return as history.",
+   "fieldname": "relieved_user",
+   "fieldtype": "Data",
+   "label": "Relieved User",
+   "read_only": 1
+  },
+  {
+   "description": "Who covered each Relieved User, in the same order.",
+   "fieldname": "reliever_user",
+   "fieldtype": "Data",
+   "label": "Reliever User",
+   "read_only": 1
   },
   {
    "fieldname": "timer_duration",

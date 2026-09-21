@@ -65,6 +65,12 @@ app_include_js = [
 # web_include_css = "/assets/one_bpmn/css/one_bpmn.css"
 # web_include_js = "/assets/one_bpmn/js/one_bpmn.js"
 
+# Purge action on the AI Memory list view, mirroring the memory browser's
+# Purge button. Calls the same one_bpmn.api.memory_api.purge_memories.
+doctype_list_js = {
+	"AI Memory": "public/js/ai_memory_list.js",
+}
+
 # include custom scss in every website theme (without file extension ".scss")
 # website_theme_scss = "one_bpmn/public/scss/website"
 
