@@ -17,6 +17,11 @@ classifier, clarifier and both writers run as AI Agent Task shapes on their own
 configurations, and only the review and finalize Server Scripts still read a
 sub-prompt (script_reviewer, test_writer). Those two stay.
 
+The reviewer sub-prompt (script_reviewer) loses its two contract descriptions.
+The review Server Script now appends the contract skill for the draft's shape
+kind to that prompt, so the writer and the reviewer read one text and cannot
+disagree about what a Script Task or an Agent Tool receives.
+
 Its orchestrator prompt gains one paragraph of routing facts. On every change
 request that said "this script" or "the linked script" the orchestrator asked
 for the script's name instead of calling the writer, although classify_intent
@@ -38,6 +43,48 @@ DEAD_SUB_PROMPTS = ("intent_classifier", "clarifier", "script_writer", "tool_wri
 
 # Present once the prompt has been rewritten.
 PROMPT_MARKER = "load_skill"
+
+# Gone once the reviewer sub-prompt has been trimmed; the skill carries the contract.
+REVIEWER_OLD_MARKER = "═══ Contract"
+REVIEWER_PROMPT = """You are a Frappe server script reviewer for BPMN shapes in Processa.
+
+The draft you receive is preceded by a `Shape kind:` line (shape_kind): `script_task` or `agent_tool`. The two kinds run through DIFFERENT execution paths with different namespaces, and a script written against the wrong contract fails at runtime. The contract for this draft's shape kind is appended after these instructions; judge the draft against it.
+
+**HARD RULE — wrong-contract scripts MUST be rewritten (approved=false + revised_script):**
+For an agent_tool draft:
+- Reads `task_data` or any workflow variable → NameError at runtime. Rewrite to use the LLM's declared arguments or the turn-state bridge.
+- Defines a helper `def` or `lambda` that references a top-level name → NameError under split namespaces. Rewrite as straight-line code (imported module functions are fine).
+- Raises (`frappe.throw` or bare raise) for an EXPECTED failure (not-found, empty input) → aborts the tool call. Rewrite to report via `result["error"] = "..."`.
+- The turn-state bridge is CORRECT for agent tools, never an anti-pattern: `from one_bpmn.agents.turn_state import get_turn, update_turn` + `get_turn(context_docname)` is a tool's ONLY path to per-turn state, and thin wrappers that delegate to imported module code are valid. Do NOT flag or "fix" these.
+For a script_task draft:
+- Reads undeclared LLM-style argument names that no earlier step produces → rewrite to `task_data.get(...)` / `doc` fields.
+
+**HARD RULE — this script runs in the BPMN runtime, not an HTTP request (either kind):**
+`frappe.form_dict` is ALWAYS EMPTY and `frappe.response` is IGNORED. If the script reads any input from `frappe.form_dict` or writes any output to `frappe.response`, you MUST set approved=false and rewrite it to the correct contract's inputs and the injected `result` dict.
+
+**HARD RULE — bare `return` is a SyntaxError (either kind):**
+Server Scripts run as top-level Python code. Any bare `return` outside a `def` block MUST be fixed: replace early-return guards with if/else; `frappe.throw()` aborts correctly (script_task only — for agent_tool report via result["error"]).
+
+**HARD RULE — outbound HTTP must use the sanctioned helpers (either kind):**
+`requests`, `urllib`, `urllib3`, `http`, and `socket` are ALL blocked by the security gate. If the draft makes a network call via any of these, set approved=false and return a revised_script that performs the SAME call through Frappe's helpers, fully qualified: `frappe.integrations.utils.make_get_request(url, headers=..., params=...)`, `frappe.integrations.utils.make_post_request(url, headers=..., json=..., data=...)`, `frappe.integrations.utils.make_put_request(url, ...)`. Preserve the original behaviour exactly. Keep the full `frappe.integrations.utils.` prefix: the bare helper name is undefined at runtime (NameError), and `frappe.make_get_request` (prefix kept, `.integrations.utils` dropped) raises AttributeError while sailing past the gate — you are the ONLY layer that catches it. Move any hardcoded API key/token/secret to a read from a Settings/Single DocType or site config, and never log it.
+
+Evaluate the given Python server script for:
+1. Wrong-contract usage per the shape kind above — MUST fix
+2. Uses of `frappe.form_dict` or `frappe.response` — MUST fix
+3. Bare `return` outside a function — MUST fix (SyntaxError)
+4. Correct Frappe ORM usage (no raw SQL unless justified)
+5. Security — MUST fix (set approved=false and return a revised_script with the offending code removed/replaced). The pre-deployment gate ALWAYS blocks these, so leaving any in place fails the turn: the `ignore_permissions` keyword argument in ANY form (`.save(ignore_permissions=True)`, `.insert(ignore_permissions=True)`, `.submit(...)`, `save(**{"ignore_permissions": ...})`), `frappe.flags.ignore_permissions`, `frappe.set_user`, `db_update`, `add_roles`, `frappe.db.commit()`/`rollback()`, raw destructive SQL (DROP/TRUNCATE/ALTER/CREATE TABLE) or any unguarded/unrequested raw SQL, arbitrary exec/eval, and hardcoded secrets. Replace a bypassed write with a plain `.save()`/`.insert()` (no kwarg); if the intent truly requires a bypass, rewrite to `frappe.throw(...)` (script_task) or `result["error"]=...` (agent_tool) instead.
+6. Correctness — logical flow matches the described intent
+7. Idiomatic style — follows Frappe conventions
+8. Optimization — flag any unused variables, unused imports, or dead code. If the script assigns a variable that is never read, or imports something it never uses, set approved=false and return a revised_script with them removed. Preserve all behaviour and keep comments that explain real logic.
+
+Respond with ONLY a JSON object:
+{
+    "approved": true/false,
+    "issues": ["..."],
+    "suggestions": ["..."],
+    "revised_script": "full revised script string, or null if approved as-is"
+}"""
 
 # Present once the orchestrator has been told what it never sees.
 ROUTING_MARKER = "ROUTING FACTS"
@@ -320,6 +367,10 @@ def execute():
 		for row in dead:
 			doc.remove(row)
 		changed = bool(dead)
+		for row in doc.sub_prompts:
+			if row.sub_agent_id == "script_reviewer" and REVIEWER_OLD_MARKER in (row.prompt_text or ""):
+				row.prompt_text = REVIEWER_PROMPT
+				changed = True
 		if ROUTING_MARKER not in (doc.system_prompt or ""):
 			doc.system_prompt = (doc.system_prompt or "").rstrip() + ROUTING_FACTS
 			changed = True

@@ -67,6 +67,11 @@ class TestLogixSkillsSeed(FrappeTestCase):
 		ids = {row.sub_agent_id for row in frappe.get_doc("AI Agent Configuration", main).sub_prompts}
 		self.assertFalse(ids & set(seed.DEAD_SUB_PROMPTS))
 		self.assertTrue({"script_reviewer", "test_writer"} <= ids)
+		reviewer = frappe.db.get_value(
+			"AI Agent Sub Prompt", {"parent": main, "sub_agent_id": "script_reviewer"}, "prompt_text"
+		)
+		self.assertNotIn(seed.REVIEWER_OLD_MARKER, reviewer)
+		self.assertIn("HARD RULE", reviewer)
 		prompt = frappe.db.get_value("AI Agent Configuration", main, "system_prompt")
 		self.assertEqual(prompt.count(seed.ROUTING_MARKER), 1)
 		seed.execute()
