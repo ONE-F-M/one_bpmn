@@ -194,7 +194,17 @@ def _with_dispatch_wiring(instance, bpmn_id: str, task_cfg: dict) -> dict:
 	the two, and a shape used as a tool may deliberately differ.
 	"""
 	needed = _DISPATCH_WIRING.get((task_cfg or {}).get("serviceType") or "")
-	if not needed or all(str((task_cfg or {}).get(k) or "").strip() for k in needed):
+	# A nested AI Agent Task with a Tools box of its own: the descriptor copies
+	# the shape's attributes, but its compiled tool list (aiToolShapes) exists
+	# only on the shape's own config. Without this merge the writer stage ran
+	# with no tools but the skill tools, and every list_doctypes it called came
+	# back "Unknown tool".
+	wants_tools = (
+		(task_cfg or {}).get("serviceType") == "ai_agent"
+		and str((task_cfg or {}).get("aiToolsAdhoc") or "").strip()
+		and not (task_cfg or {}).get("aiToolShapes")
+	)
+	if not wants_tools and (not needed or all(str((task_cfg or {}).get(k) or "").strip() for k in needed)):
 		return task_cfg
 	shape_cfg = (getattr(instance, "_service_task_extensions", {}) or {}).get(bpmn_id) or {}
 	if not shape_cfg:

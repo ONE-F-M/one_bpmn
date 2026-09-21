@@ -15,7 +15,46 @@ export function ScriptTaskProps(props) {
 		{ id: "spiffworkflow-serverScript", element, component: ServerScriptComponent },
 		{ id: "spiffworkflow-launchEditor", element, component: LaunchEditorButton },
 		{ id: "spiffworkflow-aiAgentConfig", element, component: AiAgentConfigOverrideComponent },
+		{ id: "spiffworkflow-aiToolFor", element, component: ToolForComponent },
 	];
+}
+
+// A tool in a shared Tools box that only one agent may call.
+function ToolForComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	return h(
+		"div",
+		{ class: "bio-properties-panel-entry", "data-entry-id": id },
+		h("div", { class: "bio-properties-panel-textfield" }, [
+			h(
+				"label",
+				{
+					class: "bio-properties-panel-label",
+					for: `bio-properties-panel-${id}`,
+					title: translate(
+						"When several agents share one Tools box, the id of the AI Agent Task this tool belongs to. "
+						+ "A marked tool reaches only that agent; that agent then gets only the tools marked for it. "
+						+ "Leave blank for a tool every agent using the box may call."
+					),
+				},
+				translate("Tool For (agent shape id)")
+			),
+			h("input", {
+				id: `bio-properties-panel-${id}`,
+				class: "bio-properties-panel-input",
+				type: "text",
+				value: getAttr(bo, "aiToolFor"),
+				placeholder: translate("Every agent using this box"),
+				onChange: (e) => modeling.updateModdleProperties(element, bo, {
+					"spiffworkflow:aiToolFor": (e.target.value || "").trim() || undefined,
+				}),
+			}),
+		])
+	);
 }
 
 function ServerScriptComponent(props) {
