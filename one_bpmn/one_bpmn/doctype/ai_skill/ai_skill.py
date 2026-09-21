@@ -47,7 +47,12 @@ class AISkill(Document):
 		(no provider configured, network error, bad LLM output, ...) is
 		logged and swallowed - an AI review outage must never block saving a
 		skill, and it must never be confused with a genuine validation error.
+
+		A migrate or a test run makes no model calls; a seed patch saving five
+		skills must not cost five judge calls.
 		"""
+		if frappe.flags.in_patch or frappe.flags.in_migrate or frappe.flags.in_install or frappe.flags.in_test:
+			return
 		try:
 			from one_bpmn.agents.executor.direct_api import _run_coro_blocking
 			from one_bpmn.agents.llm_provider.factory import get_llm_adapter_from_settings
