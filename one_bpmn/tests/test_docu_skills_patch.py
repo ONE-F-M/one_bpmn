@@ -37,8 +37,14 @@ class TestDocuSkillsSeed(FrappeTestCase):
 		seed.execute()
 		names = {s["skill_name"] for s in seed.SKILLS}
 		doc = frappe.get_doc("AI Agent Configuration", DOCU)
-		self.assertEqual({row.skill for row in doc.enabled_skills}, names)
-		self.assertEqual(len(doc.enabled_skills), len(names))
+		self.assertFalse({row.skill for row in doc.enabled_skills} & names, "skills belong to the writer stage")
+		writer = frappe.get_doc(
+			"AI Agent Configuration",
+			frappe.db.get_value("AI Agent Configuration", {"agent_id": seed.WRITER_AGENT_ID}, "name"),
+		)
+		self.assertEqual({row.skill for row in writer.enabled_skills}, names)
+		self.assertEqual(len(writer.enabled_skills), len(names))
+		self.assertEqual(writer.agent_type, "Background")
 		self.assertNotIn(seed.WRITER_OLD_MARKER, self._sub_prompt("schema_writer"))
 		self.assertIn("load_skill", self._sub_prompt("schema_writer"))
 		self.assertNotIn(seed.REDIRECT_OLD, self._sub_prompt("redirect"))
@@ -51,4 +57,10 @@ class TestDocuSkillsSeed(FrappeTestCase):
 		seed.execute()
 
 		self.assertEqual(self._sub_prompt("schema_writer"), "Edited by a person.")
-		self.assertEqual(len(frappe.get_doc("AI Agent Configuration", DOCU).enabled_skills), len(names))
+		self.assertEqual(
+			frappe.db.count("AI Agent Configuration", {"agent_id": seed.WRITER_AGENT_ID}), 1, "one writer stage"
+		)
+		self.assertEqual(
+			frappe.db.count("AI Agent Enabled Skill", {"parenttype": "AI Agent Configuration", "parent": writer.name}),
+			len(names),
+		)

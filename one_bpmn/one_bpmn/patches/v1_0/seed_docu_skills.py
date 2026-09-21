@@ -5,8 +5,13 @@ DocType, how its records are named, how a repeating list becomes a child table,
 and how an existing DocType is edited without losing anything. Most requests need
 none of those; every request paid for all of them.
 
-Each chunk becomes an AI Skill. Docu's stages are Server Scripts that call the
-model themselves, so the write step wires them in two ways. The modify rules are
+Each chunk becomes an AI Skill, enabled on a stage configuration of its own,
+"Docu – Schema Writer", the way Logix's writer stages have theirs. Enabling them
+on the main Docu record put the skills index and the load_skill tool in front of
+the ORCHESTRATOR, which loaded skills it never uses before every write.
+
+Docu's stages are Server Scripts that call the model themselves, so the write
+step wires the skills in two ways. The modify rules are
 loaded by code, because the step already knows whether the DocType exists. The
 other three are offered through a skills index and a load_skill tool, and the
 writer picks the one the request calls for. Both kinds log an AI Skill
@@ -27,6 +32,8 @@ import frappe
 from one_bpmn.one_bpmn.patches.v1_0.seed_logix_skills import _upsert_skill
 
 AGENT_ID = "docu_agent"
+WRITER_AGENT_ID = "docu_schema_writer"
+WRITER_AGENT_NAME = "Docu – Schema Writer"
 
 # Present while the writer prompt still carries the block that moved into a skill.
 WRITER_OLD_MARKER = "WHO MAY USE IT: only include"
@@ -224,13 +231,15 @@ def execute():
 	if not name:
 		return
 	doc = frappe.get_doc("AI Agent Configuration", name)
+	_enable_on_writer_stage(doc)
 	changed = False
 
-	enabled = {row.skill for row in doc.enabled_skills}
-	for skill in SKILLS:
-		if skill["skill_name"] not in enabled:
-			doc.append("enabled_skills", {"skill": skill["skill_name"]})
-			changed = True
+	# An earlier run enabled the skills on the orchestrator itself; they belong
+	# to the writer stage.
+	misplaced = [row for row in doc.enabled_skills if row.skill in {s["skill_name"] for s in SKILLS}]
+	for row in misplaced:
+		doc.remove(row)
+	changed = bool(misplaced)
 
 	for row in doc.sub_prompts:
 		text = row.prompt_text or ""
@@ -243,3 +252,38 @@ def execute():
 
 	if changed:
 		doc.save(ignore_permissions=True)
+
+
+def _enable_on_writer_stage(docu):
+	"""The stage record that holds the writer's skills. Model and owner follow
+	Docu's, the prompt stays empty: the writer's instructions are the
+	schema_writer sub-prompt the Server Script reads."""
+	name = frappe.db.get_value("AI Agent Configuration", {"agent_id": WRITER_AGENT_ID}, "name")
+	if name:
+		writer = frappe.get_doc("AI Agent Configuration", name)
+	else:
+		writer = frappe.get_doc({
+			"doctype": "AI Agent Configuration",
+			"agent_name": WRITER_AGENT_NAME,
+			"agent_id": WRITER_AGENT_ID,
+			"agent_framework": "Direct API",
+			"agent_type": "Background",
+			"enabled": 1,
+			"lifecycle_status": "Live",
+			"ai_model": docu.ai_model,
+			"temperature": 0.3,
+			"surface_type": "Conversation",
+			"process_owner": docu.process_owner,
+			"description": (
+				"Holds the skills Docu's schema writer may load. The writer itself runs as the "
+				"Docu – Tool Write Schema Server Script on the Docu map and reads this record."
+			),
+		})
+	enabled = {row.skill for row in writer.enabled_skills}
+	changed = not name
+	for skill in SKILLS:
+		if skill["skill_name"] not in enabled:
+			writer.append("enabled_skills", {"skill": skill["skill_name"]})
+			changed = True
+	if changed:
+		writer.save(ignore_permissions=True)
