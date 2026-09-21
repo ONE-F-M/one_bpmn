@@ -313,6 +313,79 @@ class TestADelegatedRunKnowsItsCaller(FrappeTestCase):
 			self.assertIsNone(observability._delegating_run(instance))
 
 
+class TestEveryRunNumbersItsStepsFromOne(RunsPageFixture):
+	"""An earlier shift added one to every step row, so depending on when a run
+	happened its first step reads 0, 1 or 2. Each run moves by its own offset."""
+
+	def _steps(self, run, indexes):
+		for index in indexes:
+			doc = frappe.get_doc(
+				{
+					"doctype": "AI Agent Step",
+					"run": run.name,
+					"step_index": index,
+					"role": "assistant",
+					"content": "",
+				}
+			).insert(ignore_permissions=True)
+			self.addCleanup(
+				lambda n=doc.name: (
+					frappe.db.exists("AI Agent Step", n)
+					and frappe.delete_doc("AI Agent Step", n, force=True, ignore_permissions=True)
+				)
+			)
+
+	def _indexes(self, run):
+		return [
+			s.step_index
+			for s in frappe.get_all(
+				"AI Agent Step",
+				filters={"run": run.name},
+				fields=["step_index"],
+				order_by="step_index asc",
+			)
+		]
+
+	def _execute(self):
+		from one_bpmn.one_bpmn.patches.v1_0 import every_run_numbers_its_steps_from_one as patch
+
+		patch.execute()
+
+	def test_a_run_pushed_to_two_comes_back_to_one(self):
+		run = self._run()
+		self._steps(run, [2, 3, 4])
+		self._execute()
+		self.assertEqual(self._indexes(run), [1, 2, 3])
+
+	def test_a_run_left_at_zero_moves_up(self):
+		run = self._run()
+		self._steps(run, [0, 1, 2])
+		self._execute()
+		self.assertEqual(self._indexes(run), [1, 2, 3])
+
+	def test_a_run_already_right_is_left_alone(self):
+		run = self._run()
+		self._steps(run, [1, 2, 3])
+		self._execute()
+		self.assertEqual(self._indexes(run), [1, 2, 3])
+
+	def test_running_it_twice_changes_nothing(self):
+		run = self._run()
+		self._steps(run, [2, 3])
+		self._execute()
+		self._execute()
+		self.assertEqual(self._indexes(run), [1, 2])
+
+	def test_runs_with_different_offsets_are_fixed_together(self):
+		low = self._run()
+		high = self._run()
+		self._steps(low, [0, 1])
+		self._steps(high, [2, 3])
+		self._execute()
+		self.assertEqual(self._indexes(low), [1, 2])
+		self.assertEqual(self._indexes(high), [1, 2])
+
+
 class TestDelegatedWorkSitsUnderTheStepThatAskedForIt(FrappeTestCase):
 	"""A child reached over A2A carries the start shape of its own map, not
 	the name the caller used, so the tool name has to come off the task."""

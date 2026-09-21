@@ -185,6 +185,7 @@ def get_memory(name: str) -> dict:
 	row = _shape(doc.as_dict(), now)
 	row["metadata"] = metadata
 	row["source_run"] = doc.source_run
+	row["source_instance"] = frappe.db.get_value("AI Agent Run", doc.source_run, "instance") if doc.source_run else None
 	row["dedup_key"] = doc.dedup_key
 	return row
 

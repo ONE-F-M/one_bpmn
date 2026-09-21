@@ -133,7 +133,19 @@
 
 					<div v-if="detail.source_run">
 						<div class="text-xs text-gray-500 mb-1">Came from</div>
-						<a class="text-sm text-blue-700 hover:underline" :href="`/app/ai-agent-run/${detail.source_run}`" target="_blank">
+						<router-link
+							v-if="detail.source_instance"
+							class="text-sm text-blue-700 hover:underline"
+							:to="`/processa/instances/${detail.source_instance}`"
+						>
+							The process instance that produced it
+						</router-link>
+						<a
+							v-else
+							class="text-sm text-blue-700 hover:underline"
+							:href="`/app/ai-agent-run/${detail.source_run}`"
+							target="_blank"
+						>
 							The run that produced it
 						</a>
 					</div>
