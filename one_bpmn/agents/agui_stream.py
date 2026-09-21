@@ -30,6 +30,7 @@ RunError; nothing is ever emitted as a bare named SSE line.
 
 import contextvars
 import json
+import time
 import threading
 import uuid
 
@@ -139,9 +140,14 @@ def register_reply_shaper(agent_id, fn):
 
 
 _HEARTBEAT_INTERVAL_SECONDS = 10
+# The longest the stream waits for a turn to produce anything at all. Matches
+# the ceiling one AI task is given, so a slow turn is never cut off, while a
+# turn whose worker died stops holding the connection open with keep-alives.
+_STALL_CEILING_SECONDS = 300
+_TIMED_OUT = object()
 
 
-def _invoke_with_heartbeat(fn, interval: float = _HEARTBEAT_INTERVAL_SECONDS):
+def _invoke_with_heartbeat(fn, interval: float = _HEARTBEAT_INTERVAL_SECONDS, timeout: float | None = None):
 	"""Run a blocking callable off-thread, yielding an SSE keep-alive comment
 	every ``interval`` seconds so an idle proxy cannot close a working turn.
 
@@ -163,10 +169,16 @@ def _invoke_with_heartbeat(fn, interval: float = _HEARTBEAT_INTERVAL_SECONDS):
 
 	thread = threading.Thread(target=_run, daemon=True)
 	thread.start()
+	deadline = None if timeout is None else time.monotonic() + timeout
 	while True:
 		thread.join(timeout=interval)
 		if not thread.is_alive():
 			break
+		if deadline is not None and time.monotonic() >= deadline:
+			# The thread is left running: it holds a database cursor this
+			# generator no longer owns, and killing it is not on offer. It ends
+			# with the request.
+			return _TIMED_OUT
 		yield ": keep-alive\n\n"
 
 	if "error" in outcome:
@@ -313,7 +325,13 @@ def agent_event_stream(
 _CUSTOM_ENVELOPE_KEYS = {"type", "name", "event", "value", "timestamp", "raw_event", "rawEvent"}
 
 
-def _relay_child_stream(child, encoder, message_id):
+_CHILD_EXHAUSTED = object()
+
+
+def _relay_child_stream(
+	child, encoder, message_id, interval=_HEARTBEAT_INTERVAL_SECONDS,
+	stall_ceiling=_STALL_CEILING_SECONDS,
+):
 	"""Relay a streaming runner's events into the parent stream.
 
 	Mirrors Lumina's passthrough rules (lumina.py ag_ui_event_generator):
@@ -322,7 +340,32 @@ def _relay_child_stream(child, encoder, message_id):
 	terminal error; already-encoded strings pass through untouched; text
 	deltas are re-encoded under the child's message id when it has one.
 	"""
-	for event in child:
+	# A child that is waiting on a worker yields nothing for as long as the
+	# work takes, so the wait for its next event is what has to carry the
+	# keep-alive, not the call that produced the child.
+	steps = iter(child)
+	while True:
+		event = yield from _invoke_with_heartbeat(
+			lambda: next(steps, _CHILD_EXHAUSTED), interval, timeout=stall_ceiling
+		)
+		if event is _CHILD_EXHAUSTED:
+			return
+		if event is _TIMED_OUT:
+			# A keep-alive says the connection is open, not that the work is
+			# alive. A worker killed mid-turn leaves nothing to end the wait, so
+			# the stream ends it and says so.
+			yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="system"))
+			yield encoder.encode(
+				TextMessageContentEvent(
+					message_id=message_id,
+					delta=_(
+						"This turn stopped responding. Nothing you typed was lost — "
+						"send it again when you are ready."
+					),
+				)
+			)
+			yield encoder.encode(TextMessageEndEvent(message_id=message_id))
+			return
 		if isinstance(event, (bytes, str)):
 			# Already an encoded SSE line (str) — trust and pass through.
 			yield event.decode() if isinstance(event, bytes) else event
