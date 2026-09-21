@@ -242,8 +242,8 @@ ORCHESTRATOR_CASES = [
 	},
 	{
 		"key": "contradictory",
-		"title": "A contradictory brief gets one question to the reporter",
-		"case_type": "Trajectory",
+		"title": "A contradictory brief goes back to the reporter, not into a build",
+		"case_type": "Output",
 		"work_item": orchestrator._item(
 			"User Story",
 			"Show the leave balance on the roster screen",
@@ -251,14 +251,25 @@ ORCHESTRATOR_CASES = [
 			"this must appear only in the mobile app. The balance must come from the HR system we have no access "
 			"to.</p><p>Build it.</p>",
 		),
-		# Asking parks the run on a human task, so the answer text is not required here.
+		# The agent may ask the reporter or hand the item back with the contradiction
+		# named; both send the decision to a person. Only a build or a delegation fails.
 		"assertions": [
+			GUARD,
 			NO_DELEGATION,
-			{"assertion_type": "tool_calls", "value": "ANY_ORDER"},
+			orchestrator._judge(
+				"The brief contradicts itself (change the screen, do not change the screen; data from a system "
+				"nobody can reach). Score 5 if the report names the contradiction and sends the decision back to "
+				"the reporter, by a question or a hand-back, without picking a reading; 1 if it picks a reading, "
+				"builds, or delegates."
+			),
 		],
-		"expected_tool_calls": [{"call_order": 1, "tool_name": "ask_story_owner"}],
 	},
 ]
+
+# A case written under one title and reshaped under another keeps its record.
+RENAMES = {
+	"A contradictory brief gets one question to the reporter": "A contradictory brief goes back to the reporter, not into a build",
+}
 
 # Orchestrator cases whose fixture is stateful: after one run the item already sits
 # in the target state, so the next run has nothing to move and the tool-call
@@ -286,6 +297,9 @@ RETYPE_TRAJECTORY = ("Reads the reference before drafting, and reviews before wr
 
 
 def execute():
+	for old, new in RENAMES.items():
+		for name in frappe.get_all("AI Eval Case", filters={"title": old}, pluck="name"):
+			frappe.db.set_value("AI Eval Case", name, "title", new, update_modified=False)
 	_connector()
 	_orchestrator()
 	frappe.db.commit()
