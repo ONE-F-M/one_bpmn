@@ -47,7 +47,16 @@
 			<tbody>
 				<template v-for="step in node.steps" :key="step.name">
 					<tr class="border-b border-gray-50" :class="step.error_code ? 'bg-red-50' : ''">
-						<td class="py-1.5 px-2 text-xs text-gray-500">{{ step.step_index }}</td>
+						<td class="py-1.5 px-2 text-xs text-gray-500">
+							<span class="inline-flex items-center gap-2 min-w-0">
+								<span class="text-gray-400">{{ step.step_index }}</span>
+								<span
+									class="rounded px-1.5 py-0.5 font-mono text-[10px] shrink-0"
+									:class="KIND_PILLS[step.step_kind] || KIND_PILLS.model_call"
+								>{{ (step.step_kind || 'step').replace('_', ' ') }}</span>
+								<span class="font-mono text-gray-700 truncate">{{ stepLabel(step) }}</span>
+							</span>
+						</td>
 						<td class="py-1.5 px-2 text-xs text-gray-600">
 							{{ step.role }}
 							<span v-if="step.sub_call" class="ml-1 text-indigo-600">sub-call</span>
@@ -100,6 +109,22 @@
 
 <script setup>
 import { Badge } from "frappe-ui"
+
+// The Step column absorbs the indent at every level, so at the top level it
+// was empty space next to a number. Naming the step fills it with the thing
+// the reader is looking for.
+const KIND_PILLS = {
+	prompt: "bg-gray-100 text-gray-600",
+	model_call: "bg-teal-50 text-teal-700",
+	tool_turn: "bg-amber-50 text-amber-700",
+	sub_call: "bg-indigo-50 text-indigo-700",
+}
+
+function stepLabel(step) {
+	if (step.sub_call) return step.sub_call.tool
+	if (step.tool_names && step.tool_names.length) return step.tool_names.join(", ")
+	return step.role || "step"
+}
 import { Icon } from "@iconify/vue"
 
 defineProps({
