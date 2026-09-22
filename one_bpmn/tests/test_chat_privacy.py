@@ -196,3 +196,57 @@ class TestSystemManagerSeesEverything(ChatPrivacyCase):
 		frappe.set_user(OUTSIDER)
 		with self.assertRaises(frappe.PermissionError):
 			list_conversations()
+
+
+class TestAdministratorOwnedRowsGoBackToTheirPerson(ChatPrivacyCase):
+	"""The frontend used to save conversations as Administrator. Under if_owner
+	that hides them from the person who had them, so the patch hands them back
+	wherever the person is still on the record."""
+
+	def _saved_as_administrator(self, participant=None, first_sender=None):
+		frappe.set_user("Administrator")
+		conv = frappe.new_doc("Chat Conversation")
+		conv.agent_mode = "ProsAlly"
+		conv.title = "saved by the frontend as Administrator"
+		if participant:
+			conv.append("participants", {"user": participant})
+		conv.insert(ignore_permissions=True)
+		self._made.append(("Chat Conversation", conv.name))
+		if first_sender:
+			msg = frappe.new_doc("Chat Message")
+			msg.conversation = conv.name
+			msg.message_type = "User"
+			msg.sender = first_sender
+			msg.content = "mine"
+			msg.insert(ignore_permissions=True)
+			self._made.append(("Chat Message", msg.name))
+		return conv.name
+
+	def _run_patch(self):
+		from one_bpmn.one_bpmn.patches.v1_0 import chat_conversation_owner_is_the_person as patch
+
+		patch.execute()
+
+	def test_the_participant_row_names_the_owner(self):
+		conv = self._saved_as_administrator(participant=OWNER)
+		self._run_patch()
+		self.assertEqual(frappe.db.get_value("Chat Conversation", conv, "owner"), OWNER)
+		frappe.set_user(OWNER)
+		self.assertTrue(frappe.has_permission("Chat Conversation", "read", doc=conv))
+
+	def test_the_first_message_names_the_owner_when_there_is_no_participant(self):
+		conv = self._saved_as_administrator(first_sender=OWNER)
+		self._run_patch()
+		self.assertEqual(frappe.db.get_value("Chat Conversation", conv, "owner"), OWNER)
+
+	def test_a_row_with_no_trace_of_a_person_stays_administrators(self):
+		conv = self._saved_as_administrator()
+		self._run_patch()
+		self.assertEqual(frappe.db.get_value("Chat Conversation", conv, "owner"), "Administrator")
+
+	def test_a_user_message_owned_by_administrator_is_aligned_to_its_sender(self):
+		conv = self._saved_as_administrator(participant=OWNER, first_sender=OWNER)
+		msg = frappe.db.get_value("Chat Message", {"conversation": conv, "message_type": "User"}, "name")
+		self.assertEqual(frappe.db.get_value("Chat Message", msg, "owner"), "Administrator")
+		self._run_patch()
+		self.assertEqual(frappe.db.get_value("Chat Message", msg, "owner"), OWNER)
