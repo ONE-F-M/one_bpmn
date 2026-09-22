@@ -76,36 +76,7 @@
 						<tr v-if="open.has(s.name)" class="border-b bg-gray-50/60">
 							<td></td>
 							<td colspan="5" class="px-3 py-2 space-y-2">
-								<div v-if="s.error_message">
-									<div class="text-[11px] uppercase text-red-500 mb-0.5">Error</div>
-									<pre class="text-xs text-red-800 whitespace-pre-wrap bg-red-50 rounded p-2 max-h-48 overflow-auto">{{ s.error_message }}</pre>
-								</div>
-								<div v-if="s.content && s.role !== 'system'">
-									<div class="text-[11px] uppercase text-gray-400 mb-0.5">{{ s.role === "user" ? "Input" : s.role === "assistant" ? "Output" : "Narration" }}</div>
-									<pre class="text-xs text-gray-700 whitespace-pre-wrap bg-white border rounded p-2 max-h-72 overflow-auto">{{ s.content }}</pre>
-								</div>
-								<div v-if="s.role === 'system'" class="text-xs text-gray-400">System prompt shown above.</div>
-								<div v-for="(c, ci) in s.tool_calls" :key="ci" class="border rounded bg-white p-2">
-									<div class="flex items-center gap-2 text-xs">
-										<span class="font-mono font-semibold text-gray-800">{{ c.tool_name }}</span>
-										<span class="text-gray-400">{{ c.tool_source }}</span>
-										<Badge :theme="c.status === 'Success' ? 'green' : c.status === 'Denied' ? 'orange' : 'red'" size="sm">{{ c.status }}</Badge>
-										<span v-if="c.outcome" class="text-gray-500 truncate">{{ c.outcome }}</span>
-										<a v-if="c.artifact_file" :href="`/app/file/${c.artifact_file}`" target="_blank" class="ml-auto text-blue-600 hover:underline">artifact file</a>
-									</div>
-									<div v-if="hasValue(c.tool_args)" class="mt-1">
-										<div class="text-[11px] uppercase text-gray-400">Arguments</div>
-										<pre class="text-xs text-gray-700 whitespace-pre-wrap max-h-48 overflow-auto">{{ prettyJson(c.tool_args) }}</pre>
-									</div>
-									<div v-if="c.tool_result" class="mt-1">
-										<div class="text-[11px] uppercase text-gray-400">Result</div>
-										<pre class="text-xs text-gray-700 whitespace-pre-wrap max-h-48 overflow-auto">{{ prettyJson(c.tool_result) }}</pre>
-									</div>
-									<div v-if="c.tool_artifact" class="mt-1">
-										<div class="text-[11px] uppercase text-gray-400">Artifact</div>
-										<pre class="text-xs text-gray-700 whitespace-pre-wrap max-h-48 overflow-auto">{{ c.tool_artifact }}</pre>
-									</div>
-								</div>
+								<StepBody :step="s" />
 								<div v-if="s.child_runs && s.child_runs.length" class="space-y-1">
 									<div class="text-[11px] uppercase text-gray-400">Runs this step started</div>
 									<router-link
@@ -121,7 +92,6 @@
 										<span class="text-gray-500">{{ fmtNum(child.rollup.total_tokens) }} tokens, {{ fmtCost(child.rollup.estimated_cost) }}</span>
 									</router-link>
 								</div>
-								<div v-if="!s.content && !s.tool_calls.length && !s.error_message && s.role !== 'system'" class="text-xs text-gray-400">Nothing recorded for this step.</div>
 							</td>
 						</tr>
 					</template>
@@ -151,7 +121,8 @@ import { Icon } from "@iconify/vue"
 import { computed, ref, watch } from "vue"
 import { RouterLink } from "vue-router"
 import { dayjs } from "@/dayjs"
-import { fmtCost, fmtMs, fmtNum, prettyJson } from "@/utils/runFormat"
+import StepBody from "@/components/insights/StepBody.vue"
+import { fmtCost, fmtMs, fmtNum } from "@/utils/runFormat"
 
 const props = defineProps({
 	run: { type: Object, required: true },
@@ -244,11 +215,5 @@ function kindLabel(s) {
 	if (s.tool_names && s.tool_names.length) return s.tool_names.join(", ")
 	if (s.role === "assistant") return "model call"
 	return s.role
-}
-
-function hasValue(v) {
-	if (v == null || v === "") return false
-	if (typeof v === "object") return Object.keys(v).length > 0
-	return v !== "{}"
 }
 </script>

@@ -271,6 +271,39 @@ class TestRunDetail(RunsPageFixture):
 		self.assertEqual([s.name for s in detail["siblings"]], [first.name, second.name])
 		self.assertEqual(detail["siblings"][0]["final_output"], "first answer")
 
+	def test_a_child_run_reads_as_one_turn_and_names_its_caller(self):
+		parent = self._run(final_output="the turn")
+		child = self._run(parent_run=parent.name, bpmn_id="classify_intent", final_output="the tool's answer")
+
+		self.assertEqual([s.name for s in get_run_detail(parent.name)["siblings"]], [parent.name])
+		detail = get_run_detail(child.name)
+		self.assertEqual([s.name for s in detail["siblings"]], [child.name])
+		self.assertEqual(detail["run"]["parent_run"], parent.name)
+
+	def test_runs_below_the_one_read_arrive_without_steps_until_opened(self):
+		from one_bpmn.api.insights_api import get_turn_steps
+
+		parent = self._run(total_tokens=100, estimated_cost=0.01)
+		child = self._run(parent_run=parent.name, bpmn_id="classify_intent", total_tokens=40, estimated_cost=0.004)
+		obs.record_ai_step(
+			parent, 1, "tool", "", tool_calls=[{"name": "classify_intent", "arguments": {}, "result": "{}"}]
+		)
+		obs.record_ai_step(child, 1, "assistant", "CREATE")
+
+		tree = get_run_detail(parent.name)["tree"]
+		self.assertTrue(tree["steps_loaded"])
+		stub = tree["steps"][0]["child_runs"][0]
+		self.assertEqual(stub["run"]["name"], child.name)
+		self.assertFalse(stub["steps_loaded"])
+		self.assertEqual(stub["steps"], [])
+		self.assertEqual(stub["rollup"]["total_tokens"], 40)
+		self.assertEqual(tree["rollup"]["total_tokens"], 140)
+
+		opened = get_turn_steps(child.name)
+		self.assertTrue(opened["steps_loaded"])
+		self.assertEqual([s["content"] for s in opened["steps"]], ["CREATE"])
+		self.assertEqual(opened["run"]["name"], child.name)
+
 	def test_a_missing_run_is_an_error(self):
 		with self.assertRaises(frappe.DoesNotExistError):
 			get_run_detail("no-such-run")
