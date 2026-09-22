@@ -647,18 +647,10 @@ def _run_node(run: dict, depth: int) -> dict:
 	data, or a run started outside a tool call) is listed after the steps.
 	"""
 	steps = _step_rows(run["name"]) if depth > 0 else []
-	children = (
-		frappe.get_list(
-			"AI Agent Run",
-			filters={"parent_run": run["name"]},
-			fields=_RUN_FIELDS,
-			order_by="started_at asc, creation asc",
-			limit_page_length=100,
-		)
-		if depth > 0
-		else []
-	)
-	child_nodes = [_run_node(child, depth - 1) for child in children]
+	children = _child_runs(run["name"]) if depth > 0 else []
+	# The runs below arrive without their steps. A reader opens one at a time,
+	# and get_turn_steps answers for that one; only its totals travel now.
+	child_nodes = [_stub_node(child, depth - 1) for child in children]
 
 	rollup = _own_rollup(run)
 	for node in child_nodes:
@@ -678,9 +670,29 @@ def _run_node(run: dict, depth: int) -> dict:
 	return {
 		"run": run,
 		"steps": steps,
+		"steps_loaded": True,
 		"unplaced_children": unplaced,
 		"rollup": rollup,
 	}
+
+
+def _child_runs(parent: str) -> list:
+	return frappe.get_list(
+		"AI Agent Run",
+		filters={"parent_run": parent},
+		fields=_RUN_FIELDS,
+		order_by="started_at asc, creation asc",
+		limit_page_length=100,
+	)
+
+
+def _stub_node(run: dict, depth: int) -> dict:
+	"""A run below the one being read: its row and what its tree cost, no steps."""
+	rollup = _own_rollup(run)
+	if depth > 0:
+		for child in _child_runs(run["name"]):
+			_add_rollup(rollup, _stub_node(child, depth - 1)["rollup"])
+	return {"run": run, "steps": [], "steps_loaded": False, "unplaced_children": [], "rollup": rollup}
 
 
 def _tool_names_of_children(parent: str, children: list) -> dict:
@@ -1400,8 +1412,7 @@ def get_turn_steps(run_name: str) -> dict:
 	run = frappe.db.get_value("AI Agent Run", run_name, list(_DETAIL_RUN_FIELDS), as_dict=True)
 	if not run:
 		frappe.throw(_("AI Agent Run {0} not found").format(run_name), frappe.DoesNotExistError)
-	node = _run_node(dict(run), _TREE_MAX_DEPTH)
-	return {"run": run, "steps": node["steps"], "unplaced_children": node["unplaced_children"], "rollup": node["rollup"]}
+	return {**_run_node(dict(run), _TREE_MAX_DEPTH), "run": run}
 
 
 @frappe.whitelist()
@@ -1434,9 +1445,11 @@ def get_run_detail(run_name: str) -> dict:
 
 	siblings = []
 	if run.instance:
+		# A run started by another run's tool call is not a turn of the
+		# conversation; its page reads that one run, and points at the caller.
 		siblings = frappe.get_list(
 			"AI Agent Run",
-			filters={"instance": run.instance, "parent_run": ["is", "not set"]},
+			filters={"name": run.name} if run.parent_run else {"instance": run.instance, "parent_run": ["is", "not set"]},
 			fields=["name", "bpmn_label", "agent_configuration", "status", "started_at", "ended_at",
 			        "agent_latency_ms", "duration_ms", "total_tokens", "estimated_cost", "final_output",
 			        "error_code"],

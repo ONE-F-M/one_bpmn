@@ -79,11 +79,11 @@
 						<th class="text-left font-medium px-3 py-2">Goal</th>
 					</tr>
 				</thead>
-				<tbody class="divide-y bg-white">
+				<tbody class="divide-y">
 					<tr
 						v-for="r in runs"
 						:key="r.name"
-						class="hover:bg-gray-50 cursor-pointer"
+						class="odd:bg-white even:bg-gray-100 hover:bg-gray-200 cursor-pointer"
 						@click="$router.push(`/processa/runs/${r.name}`)"
 					>
 						<td class="px-6 py-2 text-gray-600 whitespace-nowrap">{{ fmtDate(r.started_at) }}</td>

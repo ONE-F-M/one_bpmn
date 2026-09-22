@@ -87,7 +87,12 @@
 			<!-- Conversation: every turn, opened one at a time down to the
 			     steps and the runs those steps delegated. -->
 			<div v-else class="bg-white border rounded-lg overflow-hidden">
-				<div class="px-4 py-2 border-b text-xs text-gray-500">
+				<div v-if="run && run.parent_run" class="px-4 py-2 border-b text-xs text-gray-500">
+					This run was started by a tool call inside
+					<RouterLink :to="`/processa/runs/${run.parent_run}`" class="font-mono text-blue-600 hover:underline">{{ run.parent_run }}</RouterLink>.
+					It is not a turn of the conversation; open that run to read the conversation it belongs to.
+				</div>
+				<div v-else class="px-4 py-2 border-b text-xs text-gray-500">
 					Every turn on this instance, oldest first, with a bar for the time it took and the waiting between turns collapsed. Open one to read its steps; a step that handed work
 					to another agent opens that agent's run underneath it.
 				</div>
@@ -118,8 +123,8 @@
 								</td>
 							</tr>
 							<tr
-								class="cursor-pointer hover:bg-gray-50"
-								:class="sib.name === run.name ? 'bg-blue-50/60' : ''"
+								class="cursor-pointer hover:bg-gray-200"
+								:class="sib.name === run.name ? 'bg-blue-50/60' : i % 2 ? 'bg-gray-100' : 'bg-white'"
 								@click="toggleTurn(sib.name)"
 							>
 								<td class="px-4 py-1.5 text-gray-500">

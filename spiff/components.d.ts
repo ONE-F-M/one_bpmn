@@ -65,6 +65,7 @@ declare module 'vue' {
     RunTree: typeof import('./src/components/insights/RunTree.vue')['default']
     ScriptDiffCard: typeof import('./src/components/chat/cards/ScriptDiffCard.vue')['default']
     Stack: typeof import('./src/components/chat/primitives/Stack.vue')['default']
+    StepBody: typeof import('./src/components/insights/StepBody.vue')['default']
     TestCaseCard: typeof import('./src/components/chat/cards/TestCaseCard.vue')['default']
     TextBlock: typeof import('./src/components/chat/primitives/TextBlock.vue')['default']
     TurnDetail: typeof import('./src/components/insights/TurnDetail.vue')['default']
