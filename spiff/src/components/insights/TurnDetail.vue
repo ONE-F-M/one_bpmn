@@ -44,8 +44,8 @@
 				<tbody>
 					<template v-for="(s, si) in steps" :key="s.name">
 						<tr
-							class="border-b border-gray-50 cursor-pointer hover:bg-gray-50"
-							:class="s.error_code ? 'bg-red-50/60' : (si % 2 ? 'bg-gray-50/70' : 'bg-white')"
+							class="border-b border-gray-50 cursor-pointer hover:bg-gray-200"
+							:class="s.error_code ? 'bg-red-50/60' : (si % 2 ? 'bg-gray-100' : 'bg-white')"
 							@click="toggle(s.name)"
 						>
 							<td class="px-3 py-1.5 text-gray-400">{{ s.step_index }}</td>

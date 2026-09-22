@@ -83,7 +83,7 @@
 					<tr
 						v-for="r in runs"
 						:key="r.name"
-						class="odd:bg-white even:bg-gray-50/70 hover:bg-gray-100 cursor-pointer"
+						class="odd:bg-white even:bg-gray-100 hover:bg-gray-200 cursor-pointer"
 						@click="$router.push(`/processa/runs/${r.name}`)"
 					>
 						<td class="px-6 py-2 text-gray-600 whitespace-nowrap">{{ fmtDate(r.started_at) }}</td>

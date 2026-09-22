@@ -62,10 +62,10 @@
 				</tr>
 			</thead>
 			<tbody>
-				<template v-for="step in view.steps" :key="step.name">
+				<template v-for="(step, si) in view.steps" :key="step.name">
 					<tr
-						class="border-b border-gray-50 cursor-pointer hover:bg-gray-50"
-						:class="step.error_code ? 'bg-red-50' : ''"
+						class="border-b border-gray-50 cursor-pointer hover:bg-gray-200"
+						:class="step.error_code ? 'bg-red-50' : si % 2 ? 'bg-gray-100' : 'bg-white'"
 						@click="toggleStep(step.name)"
 					>
 						<td class="py-1.5 px-2 text-xs text-gray-500">
