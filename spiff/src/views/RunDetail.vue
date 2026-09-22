@@ -123,8 +123,8 @@
 								</td>
 							</tr>
 							<tr
-								class="cursor-pointer hover:bg-gray-50"
-								:class="sib.name === run.name ? 'bg-blue-50/60' : ''"
+								class="cursor-pointer hover:bg-gray-100"
+								:class="sib.name === run.name ? 'bg-blue-50/60' : i % 2 ? 'bg-gray-50/70' : 'bg-white'"
 								@click="toggleTurn(sib.name)"
 							>
 								<td class="px-4 py-1.5 text-gray-500">
