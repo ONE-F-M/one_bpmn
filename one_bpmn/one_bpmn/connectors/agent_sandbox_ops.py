@@ -100,6 +100,10 @@ _REMINDER_AFTER = 8
 _READ_ACTIONS = ("read_file", "list_files")
 _PROGRESS_ACTIONS = ("edit_file", "write_file")
 _PLAN_ACTION = "submit_plan"
+_TEST_PATH = re.compile(
+	r"(^|/)(tests?|__tests__|spec)/|(^|/)test_[^/]+\.\w+$|_test\.\w+$|\.(test|spec)\.\w+$",
+	re.IGNORECASE,
+)
 
 
 def _reads_since_last_edit(instance, limit: int) -> int:
@@ -219,6 +223,48 @@ def plan_required_error(instance) -> str | None:
 		"Submit a plan first with submit_plan — name which files you will "
 		"change and what each change is — before making any edit."
 	)
+
+
+_REPRODUCE_MESSAGE = (
+	"Reproduce the bug first: write or edit a test that fails because of it, "
+	"call run_tests and confirm it actually fails, then make this change."
+)
+
+
+def reproduction_required_error(instance, path: str | None = None) -> str | None:
+	"""None if `path` is itself a test file (writing or editing a test is
+	always allowed, reproducing the bug included), or if this run already
+	shows a completed edit_file/write_file to a test file FOLLOWED BY a
+	run_tests that failed -- real evidence the bug was reproduced before
+	anything else was touched; otherwise the error to return instead of
+	dispatching the edit.
+
+	Checking only "does a failed run_tests row exist anywhere in this run"
+	was the first version and is deliberately not enough: an unrelated,
+	pre-existing failure in the untouched suite would satisfy that check
+	without the model ever having written a reproducing test. Ordering
+	(a test file written, THEN a failure) is what proves reproduction, not
+	just a failure existing somewhere in this run's history."""
+	if path and _TEST_PATH.search(path):
+		return None
+	if instance is None:
+		return _REPRODUCE_MESSAGE
+	rows = frappe.get_all(
+		"Agent Sandbox Run",
+		filters={"caller_instance": instance.name},
+		fields=["state", "request_payload"],
+		order_by="creation asc",
+	)
+	test_file_written = False
+	for row in rows:
+		payload = frappe.parse_json(row.request_payload) or {}
+		action = payload.get("action")
+		args = payload.get("args") or {}
+		if row.state == "completed" and action in _PROGRESS_ACTIONS and _TEST_PATH.search(args.get("path") or ""):
+			test_file_written = True
+		elif row.state == "failed" and action == "run_tests" and test_file_written:
+			return None
+	return _REPRODUCE_MESSAGE
 
 
 def record_plan(target_app: str, git_branch: str, work_item_description: str, plan: str, *,
