@@ -90,31 +90,25 @@ def consume(instance_name: str, timeout: float, poll_seconds: float = 0.25):
 		yield event
 
 
+LIVE_TEXT_QUEUE_FLAG = "bpmn_ai_live_text_queue"
+
 def live_text_sink():
-	"""A callable that sends model text to the chat request waiting on this
-	turn as it is written, or None when nobody is waiting.
+	"""A callable that sends model text to the reader as it is written, or None.
 
-	Only a conversation has a reader. A background agent has nobody at the
-	other end, and publishing for one would leave an unread list behind on
-	every run, so the sink is None for anything that is not a chat turn.
+	Only a turn that runs inside the web request gets one: there the model's
+	text is the reply, word for word, and the request hands the adapter a
+	queue to put it on. A map-driven turn gets none. Its model calls include
+	sub-agents whose text is machine-shaped for the map to read, and the
+	reply the person sees is composed afterwards, so forwarding the raw text
+	would show them the wrong thing.
 	"""
-	from one_bpmn.agents.observability import current_run_name
-
-	run = current_run_name()
-	if not run:
-		return None
-	try:
-		instance = frappe.db.get_value("AI Agent Run", run, "instance")
-		if not instance:
-			return None
-		if frappe.db.get_value("BPMN Process Instance", instance, "context_doctype") != "Chat Conversation":
-			return None
-	except Exception:
+	local_queue = frappe.flags.get(LIVE_TEXT_QUEUE_FLAG)
+	if local_queue is None:
 		return None
 
 	def sink(delta: str) -> None:
 		if delta:
-			publish_event(instance, {"type": "TEXT_MESSAGE_CONTENT", "delta": delta})
+			local_queue.put(delta)
 
 	return sink
 
