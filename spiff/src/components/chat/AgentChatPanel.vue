@@ -42,6 +42,10 @@
 				     pushing back, not the agent talking — a distinct notice, no
 				     rating control, so it never reads as an assistant reply. -->
 				<div v-else-if="item.kind === 'system'" class="acp-msg acp-msg--system">{{ item.text }}</div>
+				<details v-else-if="item.kind === 'narration'" class="acp-narration">
+					<summary>{{ __("Working notes") }}</summary>
+					<div v-html="renderMarkdown(item.text)" />
+				</details>
 				<!-- choice buttons (panel feature, onefm.choice) -->
 				<div v-else-if="item.kind === 'choice'" class="acp-card">
 					<div v-if="item.value.prompt" class="acp-card-head" v-html="renderMarkdown(item.value.prompt)" />
@@ -261,6 +265,9 @@ const streamingRole = ref("assistant");
 // doing instead of sitting on "Thinking…". Cleared when the tool ends and
 // again when the turn does, because a stream can close mid-tool.
 const runningTool = ref("");
+// The bubble the last TEXT_MESSAGE_END closed, until the next event says
+// whether it was the reply or notes before a tool call.
+let endedItem = null;
 const ratings = ref({});
 
 // Whether this agent collects feedback at all. Configuration, like the greeting
@@ -639,6 +646,7 @@ async function send(text, extraContext = null, reuseId = null) {
 				items.value.push(agentItem(streamingText.value));
 				streamingText.value = "";
 			}
+			endedItem = null;
 			streamingMessageId.value = "";
 			streamingRole.value = "assistant";
 			runningTool.value = "";
@@ -671,20 +679,38 @@ function handleEvent(event) {
 		// flushes as a system item instead of an agent one.
 		streamingRole.value = event.role || "assistant";
 	} else if (type === "TEXT_MESSAGE_CONTENT") {
+		endedItem = null;
 		streamingText.value += event.delta || "";
 		if (!streamingMessageId.value) {
 			streamingMessageId.value = event.messageId || event.message_id || "";
 		}
 		scrollDown();
+	} else if (type === "TEXT_MESSAGE_END") {
+		// The reply is complete. Flush it now so a second message in the same
+		// turn (a reply composed after the model spoke) gets its own bubble.
+		if (streamingText.value) {
+			endedItem = agentItem(streamingText.value);
+			items.value.push(endedItem);
+			streamingText.value = "";
+		}
 	} else if (type === "TOOL_CALL_START") {
+		// Words before a tool call are the agent talking to itself, not the
+		// reply. Keep them as muted working notes.
+		if (streamingText.value) {
+			items.value.push({ kind: "narration", text: streamingText.value, ts: stampNow() });
+			streamingText.value = "";
+		} else if (endedItem) {
+			endedItem.kind = "narration";
+			delete endedItem.message;
+		}
+		endedItem = null;
 		runningTool.value = event.toolCallName || event.tool_call_name || "";
 	} else if (type === "TOOL_CALL_END") {
 		runningTool.value = "";
 	} else if (type === "CUSTOM") {
 		handleCustom(event.name || "", event.value || {});
 	}
-	// TEXT_MESSAGE_END, THINKING_* and STATE_* need no transcript entry today;
-	// the streaming buffer covers the visible part.
+	// THINKING_* and STATE_* need no transcript entry today.
 }
 
 function handleCustom(name, value) {
@@ -997,6 +1023,8 @@ defineExpose({ send, conversationName });
 .acp-fallback { padding: 8px 12px; } .acp-fallback pre { font-size: 11px; overflow-x: auto; }
 
 .acp-thinking { color: var(--ig5); font-style: italic; font-size: 12px; }
+.acp-narration { align-self: flex-start; color: var(--ig5); font-size: 12px; max-width: 80%; }
+.acp-narration summary { cursor: pointer; font-style: italic; }
 .acp-status { font-size: 11px; color: var(--ig5); display: flex; gap: 6px; align-items: center; }
 .acp-dot { width: 7px; height: 7px; border-radius: 99px; background: var(--green-ink); }
 .acp-dot--err { background: var(--red-ink); }

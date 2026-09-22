@@ -264,6 +264,22 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 	"""
 	_announce(instance, "TOOL_CALL_START", bpmn_id)
 	still_running = False
+	from one_bpmn.agents import turn_signal
+
+	try:
+		with turn_signal.mask_live_text():
+			return _execute_shape_body(instance, bpmn_id, task_cfg, kwargs)
+	except ToolDeferred:
+		# Waiting, not finished: an end here would clear a live status line.
+		still_running = True
+		raise
+	finally:
+		# Every exit reports, or a status line is left hanging.
+		if not still_running:
+			_announce(instance, "TOOL_CALL_END", bpmn_id)
+
+
+def _execute_shape_body(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -> str:
 	try:
 		if task_cfg is None:
 			task_cfg = (getattr(instance, "_service_task_extensions", {}) or {}).get(bpmn_id, {})
@@ -349,8 +365,6 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 
 		return json.dumps(produced or {"ok": True}, default=str)
 	except ToolDeferred:
-		# Waiting, not finished: an end here would clear a live status line.
-		still_running = True
 		raise
 	except frappe.PermissionError as refused:
 		# Refusals carry their reason to the model. "See Error Log for details" is
@@ -376,10 +390,6 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 				f"Shape '{bpmn_id}' failed — {type(unexpected).__name__}: {unexpected}"
 			),
 		})
-	finally:
-		# Every exit reports, or a status line is left hanging.
-		if not still_running:
-			_announce(instance, "TOOL_CALL_END", bpmn_id)
 
 
 def _connector_not_permitted(task_cfg: dict) -> dict | None:

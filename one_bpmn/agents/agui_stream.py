@@ -298,6 +298,7 @@ def agent_event_stream(
 				result = handover["result"]
 				if handover.get("text_streamed") and isinstance(result, dict):
 					result["text_streamed"] = True
+					result["streamed_text"] = handover.get("streamed_text") or ""
 
 		if result is not None and not result.get("streaming"):
 			shaper = _REPLY_SHAPERS.get(agent_id)
@@ -340,7 +341,9 @@ def agent_event_stream(
 				# The reader already has the text, word by word, from the relay.
 				# Sending it again would show the reply twice.
 				yield encoder.encode(TextMessageEndEvent(message_id=message_id))
-			else:
+			if not result.get("text_streamed") or not _same_text(result.get("streamed_text"), text):
+				# A map may compose its reply after the model spoke (a finalize
+				# tool, a reply shaper), so what streamed is not always the answer.
 				yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
 				# One TextMessageContent per chunk: the runner finished before
 				# this point, but the reader still sees the text arrive in
@@ -431,6 +434,15 @@ _CUSTOM_ENVELOPE_KEYS = {"type", "name", "event", "value", "timestamp", "raw_eve
 HANDOVER_EVENT = "ONEFM_TURN_RESULT"
 
 _CHILD_EXHAUSTED = object()
+
+
+def _same_text(streamed, final) -> bool:
+	"""Did the reader already see this reply, word for word?"""
+	a = " ".join((streamed or "").split())
+	b = " ".join((final or "").split())
+	if not a or not b:
+		return False
+	return a == b or a in b or b in a
 
 
 def _take_handover(child, handover: dict):
@@ -529,6 +541,13 @@ def _relay_child_stream(
 			continue
 		if event_type == "RUN_ERROR":
 			raise Exception(event.get("message", "Unknown agent error"))
+		if event_type == "TOOL_CALL_START" and state is not None and state.get("text_streamed"):
+			# Text before a tool call is the agent talking to itself. Close it so
+			# the words after the tool open a fresh reply, and forget it so the
+			# buffered path compares only the last stretch with the final answer.
+			yield encoder.encode(TextMessageEndEvent(message_id=message_id))
+			state["text_streamed"] = False
+			state["streamed_text"] = ""
 		if event_type == "TEXT_MESSAGE_CONTENT":
 			delta = event.get("delta", "")
 			if isinstance(delta, list):
@@ -544,6 +563,8 @@ def _relay_child_stream(
 			if state is not None and not state.get("text_streamed"):
 				state["text_streamed"] = True
 				yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
+			if state is not None:
+				state["streamed_text"] = (state.get("streamed_text") or "") + delta
 			yield encoder.encode(
 				TextMessageContentEvent(
 					message_id=event.get("message_id", message_id), delta=delta

@@ -83,31 +83,87 @@ class TestTheAdapterForwardsTextAsItArrives(FrappeTestCase):
 		self._run([SimpleNamespace(type="text", text="a")], boom)  # must not raise
 
 
-class TestTheSinkExistsOnlyForATurnInTheRequest(FrappeTestCase):
-	"""A map-driven turn must not stream: its model calls include sub-agents
-	whose text is for the map, and the reply is composed afterwards."""
+class TestTheSinkExistsForARequestOrANamedInstance(FrappeTestCase):
+	"""A turn in the request gets a queue. A turn on the worker gets one when
+	the dispatcher names the conversation's instance. A tool call masks both."""
 
 	def setUp(self):
 		frappe.set_user("Administrator")
-		frappe.flags["bpmn_ai_current_run"] = None
-		frappe.flags["bpmn_ai_live_text_queue"] = None
+		self._reset()
 
 	def tearDown(self):
-		frappe.flags["bpmn_ai_current_run"] = None
-		frappe.flags["bpmn_ai_live_text_queue"] = None
+		self._reset()
 
-	def test_no_queue_means_no_sink(self):
-		from one_bpmn.agents.turn_signal import live_text_sink
-
-		self.assertIsNone(live_text_sink())
-
-	def test_a_map_driven_run_with_a_chat_instance_still_gets_no_sink(self):
+	def _reset(self):
 		from one_bpmn.agents import turn_signal
 
+		for flag in (
+			"bpmn_ai_current_run",
+			turn_signal.LIVE_TEXT_QUEUE_FLAG,
+			turn_signal.LIVE_TEXT_INSTANCE_FLAG,
+			turn_signal.LIVE_TEXT_MASK_FLAG,
+		):
+			frappe.flags[flag] = None
+
+	def test_no_queue_and_no_instance_means_no_sink(self):
+		from one_bpmn.agents.turn_signal import live_text_sink
+
 		frappe.flags["bpmn_ai_current_run"] = "RUN-2"
+		self.assertIsNone(live_text_sink())
+
+	def test_a_named_instance_publishes_each_delta_as_a_text_event(self):
+		from one_bpmn.agents import turn_signal
+
+		frappe.flags[turn_signal.LIVE_TEXT_INSTANCE_FLAG] = "INST-1"
 		with patch.object(turn_signal, "publish_event") as published:
+			sink = turn_signal.live_text_sink()
+			self.assertIsNotNone(sink)
+			sink("Hel"); sink(""); sink("lo")
+		self.assertEqual(
+			[c.args for c in published.call_args_list],
+			[("INST-1", {"type": "TEXT_MESSAGE_CONTENT", "delta": "Hel"}), ("INST-1", {"type": "TEXT_MESSAGE_CONTENT", "delta": "lo"})],
+		)
+
+	def test_a_masked_instance_gets_no_sink_and_the_mask_lifts_afterwards(self):
+		from one_bpmn.agents import turn_signal
+
+		frappe.flags[turn_signal.LIVE_TEXT_INSTANCE_FLAG] = "INST-1"
+		with turn_signal.mask_live_text():
 			self.assertIsNone(turn_signal.live_text_sink())
-		published.assert_not_called()
+			with turn_signal.mask_live_text():
+				self.assertIsNone(turn_signal.live_text_sink())
+			self.assertIsNone(turn_signal.live_text_sink(), "an inner mask must not lift the outer one")
+		self.assertIsNotNone(turn_signal.live_text_sink())
+
+	def test_the_scope_names_only_a_conversation_instance(self):
+		from one_bpmn.agents import turn_signal
+
+		chat = SimpleNamespace(name="INST-CHAT", context_doctype="Chat Conversation")
+		background = SimpleNamespace(name="INST-BG", context_doctype="Work Item")
+		with turn_signal.live_text_scope(background):
+			self.assertIsNone(frappe.flags.get(turn_signal.LIVE_TEXT_INSTANCE_FLAG))
+		with turn_signal.live_text_scope(chat):
+			self.assertEqual(frappe.flags.get(turn_signal.LIVE_TEXT_INSTANCE_FLAG), "INST-CHAT")
+		self.assertIsNone(frappe.flags.get(turn_signal.LIVE_TEXT_INSTANCE_FLAG))
+
+	def test_a_shape_tool_runs_masked_and_still_reports_its_end(self):
+		from one_bpmn.agents import shape_tools, turn_signal
+
+		frappe.flags[turn_signal.LIVE_TEXT_INSTANCE_FLAG] = "INST-1"
+		seen = {}
+
+		def body(instance, bpmn_id, task_cfg, kwargs):
+			seen["sink"] = turn_signal.live_text_sink()
+			return "{}"
+
+		instance = SimpleNamespace(name="INST-1", context_doctype="Chat Conversation")
+		with patch.object(shape_tools, "_execute_shape_body", side_effect=body), patch.object(
+			shape_tools, "_announce"
+		) as announced:
+			shape_tools.execute_shape(instance, "lookup", {}, {})
+		self.assertIsNone(seen["sink"])
+		self.assertIsNotNone(turn_signal.live_text_sink())
+		self.assertEqual([c.args[1] for c in announced.call_args_list], ["TOOL_CALL_START", "TOOL_CALL_END"])
 
 
 class TestTheRelayOpensTheReplyOnTheFirstLiveDelta(FrappeTestCase):
@@ -138,6 +194,35 @@ class TestTheRelayOpensTheReplyOnTheFirstLiveDelta(FrappeTestCase):
 		out = self._relay([{"type": "TEXT_MESSAGE_CONTENT", "delta": "x"}], None)
 		self.assertEqual([e["type"] for e in _events(out)], ["TEXT_MESSAGE_CONTENT"])
 
+	def test_a_tool_call_closes_the_words_before_it_and_the_reply_reopens(self):
+		state = {}
+		out = self._relay(
+			[
+				{"type": "TEXT_MESSAGE_CONTENT", "delta": "Let me look."},
+				{"type": "TOOL_CALL_START", "toolCallName": "lookup"},
+				{"type": "TOOL_CALL_END", "toolCallName": "lookup"},
+				{"type": "TEXT_MESSAGE_CONTENT", "delta": "Found "},
+				{"type": "TEXT_MESSAGE_CONTENT", "delta": "it."},
+			],
+			state,
+		)
+		types = [e["type"] for e in _events(out)]
+		self.assertEqual(
+			types,
+			[
+				"TEXT_MESSAGE_START", "TEXT_MESSAGE_CONTENT", "TEXT_MESSAGE_END",
+				"TOOL_CALL_START", "TOOL_CALL_END",
+				"TEXT_MESSAGE_START", "TEXT_MESSAGE_CONTENT", "TEXT_MESSAGE_CONTENT",
+			],
+		)
+		self.assertTrue(state["text_streamed"])
+		self.assertEqual(state["streamed_text"], "Found it.")
+
+	def test_a_tool_call_with_no_words_before_it_closes_nothing(self):
+		state = {}
+		out = self._relay([{"type": "TOOL_CALL_START", "toolCallName": "lookup"}], state)
+		self.assertEqual([e["type"] for e in _events(out)], ["TOOL_CALL_START"])
+
 
 class TestTheBufferedPathDoesNotResendStreamedText(FrappeTestCase):
 	def _stream(self, result):
@@ -147,11 +232,34 @@ class TestTheBufferedPathDoesNotResendStreamedText(FrappeTestCase):
 			return list(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
 
 	def test_streamed_text_gets_only_an_end(self):
-		out = self._stream({"response": "already on screen", "conversation": "CONV-1", "text_streamed": True})
+		out = self._stream({
+			"response": "already on screen", "conversation": "CONV-1",
+			"text_streamed": True, "streamed_text": "already  on screen",
+		})
 		types = [e["type"] for e in _events(out)]
 		self.assertNotIn("TEXT_MESSAGE_CONTENT", types)
 		self.assertNotIn("TEXT_MESSAGE_START", types)
-		self.assertIn("TEXT_MESSAGE_END", types)
+		self.assertEqual(types.count("TEXT_MESSAGE_END"), 1)
+
+	def test_a_reply_composed_after_the_words_is_sent_after_them(self):
+		out = self._stream({
+			"response": "Connection test complete.", "conversation": "CONV-1",
+			"text_streamed": True, "streamed_text": "Running the probe now.",
+		})
+		types = [e["type"] for e in _events(out)]
+		self.assertLess(types.index("TEXT_MESSAGE_END"), types.index("TEXT_MESSAGE_START"), "the streamed words are closed first")
+		self.assertEqual(types.count("TEXT_MESSAGE_START"), 1)
+		self.assertEqual(
+			"".join(e["delta"] for e in _events(out) if e["type"] == "TEXT_MESSAGE_CONTENT"),
+			"Connection test complete.",
+		)
+		self.assertEqual(types.count("TEXT_MESSAGE_END"), 2)
+
+	def test_nothing_streamed_before_the_handover_sends_the_reply_once(self):
+		out = self._stream({"response": "The answer.", "conversation": "CONV-1", "text_streamed": True, "streamed_text": ""})
+		types = [e["type"] for e in _events(out)]
+		self.assertEqual(types.count("TEXT_MESSAGE_START"), 1)
+		self.assertEqual(types.count("TEXT_MESSAGE_END"), 2)
 
 	def test_buffered_text_still_arrives_in_chunks(self):
 		out = self._stream({"response": "never streamed", "conversation": "CONV-1"})
