@@ -2334,6 +2334,11 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			task.data.pop("_bpmn_ai_waiting_human", None)
 		output_var = task_cfg.get("aiOutputVariable") or f"{bpmn_id}_output"
 		task.data[output_var] = result.output
+		# The shape's own name is the key every downstream reader knows: the
+		# tool artifact, the turn state a later tool reads back, the pipeline
+		# scripts. A map that renames the variable must not hide the answer
+		# from them, so the answer is written under both names.
+		task.data[f"{bpmn_id}_output"] = result.output
 		_publish_chat_turn_output(instance, result.output)
 		if result.token_usage:
 			task.data[f"{bpmn_id}_token_usage"] = {
@@ -2575,6 +2580,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# instead of routing to its default branch.
 		output_var = task_cfg.get("aiOutputVariable") or f"{bpmn_id}_output"
 		task.data.setdefault(output_var, None)
+		task.data.setdefault(f"{bpmn_id}_output", None)
 
 		# If the BPMN task is configured to stop on error, raise so the
 		# engine loop in _run_engine_steps halts and the instance is
