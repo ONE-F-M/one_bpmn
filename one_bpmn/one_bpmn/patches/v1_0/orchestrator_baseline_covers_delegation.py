@@ -24,12 +24,22 @@ def _others(chosen: str) -> str:
 	return ",".join(t for t in DELEGATES if t != chosen)
 
 
-def _route(key: str, tool: str, kind: str, title: str, description: str) -> dict:
+def _route(key: str, tool: str, kind: str, title: str, description: str, target_app: str) -> dict:
+	"""One brief whose only defensible route is ``tool``.
+
+	target_app and git_branch are set because the orchestrator refuses to delegate
+	without them — it hands the item back asking for the repository and branch,
+	which is correct behaviour and exactly what the first run of these cases
+	caught. A routing case has to clear that bar before it can test routing.
+	"""
 	return {
 		"key": key,
 		"title": title,
 		"case_type": "Trajectory",
-		"work_item": orchestrator._item(kind, title.split(" goes to ")[0], description),
+		"work_item": orchestrator._item(
+			kind, title.split(" goes to ")[0], description,
+			target_app=target_app, git_branch="staging",
+		),
 		"assertions": [
 			more.GUARD,
 			{"assertion_type": "no_tool_call", "value": _others(tool)},
@@ -47,6 +57,7 @@ CASES = [
 		"joining. Add a validation in the one_fm app so a Leave Application whose from_date is earlier than "
 		"the employee's date_of_joining is refused on save, with a message naming both dates.</p>"
 		"<p>Server-side Python only; no screen changes.</p>",
+		"one_fm",
 	),
 	_route(
 		"route_frontend", "delegate_frontend_agent", "User Story",
@@ -55,6 +66,7 @@ CASES = [
 		"Move it next to Save and give it the primary colour. No backend change: the deploy endpoint and "
 		"its behaviour stay exactly as they are.</p>"
 		"<p>Vue in the spiff app, one component.</p>",
+		"one_bpmn",
 	),
 	_route(
 		"route_mobile", "delegate_mobile_app_agent", "User Story",
@@ -62,6 +74,7 @@ CASES = [
 		"<p>In the ONE FM mobile app, the check-in screen shows the raw ISO timestamp under the button. Show "
 		"it as a local time in 12-hour format instead. This is the Ionic app in the mobile_app_ionic "
 		"repository; nothing on the Frappe side changes.</p>",
+		"mobile_app_ionic",
 	),
 	_route(
 		"route_bug", "delegate_bug_agent", "Bug",
@@ -71,6 +84,7 @@ CASES = [
 		"  File one_fm/overrides/employee.py, line 41, in validate</pre>"
 		"<p>Reproduces every time on staging with a new Employee and no Department. Expected: the ordinary "
 		"mandatory-field message.</p>",
+		"one_fm",
 	),
 ]
 
