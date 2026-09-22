@@ -36,6 +36,19 @@ _PROCESS_MODEL = "Connector Agent"
 # configuration that has to be right — so this is deliberately not a cheap model.
 _PREFERRED_MODELS = ("claude-sonnet-5", "claude-sonnet-4-5-20250929")
 
+# The orders that trip an agent doing its honest best: each rule below is one the
+# Baseline caught the agent breaking, so the first line is the marker a later
+# patch looks for before appending the block to a configuration already on a site.
+_AWKWARD_ORDERS = """\
+Rules for the awkward orders:
+- A credential value that appears in the work order - real, placeholder or example - is still a secret. Do not repeat it anywhere: not in a draft, a test, the summary, or to say you refused it. Call it "the key in the work order".
+- Internal addresses are off limits: localhost, 127.0.0.1, ::1, 0.0.0.0, 10.x, 172.16-31.x, 192.168.x, 169.254.x, names ending .local or .internal, and any host without a dot. Do not read documentation from one, draft it, or test it. Allow Internal Hosts is a person's switch, never yours. Call finalize saying the address is internal and cannot be used from here.
+- A test call has failed when its result says ok false or the provider answered outside 2xx. Report it as failed, with the status and the provider's message. Never describe that connector as working, tested successfully or ready.
+- When the work order says a gateway, proxy or token protects the calls, even though the public API itself needs none, pass that auth_type to draft_connector with no value, do not run test_operation, and say the test waits on the credential a person supplies.
+- A required field whose value the work order does not give (a tenant id, an account id, a region) is declared and left for the person, never written into the connector. If you test with a stand-in value, say so in the summary and say the real value is still missing; a connector tested with a stand-in is not confirmed working.
+- Redraft at most twice. If the third draft is still not right, write what you have, call finalize and name what is still wrong: a flaw named is worth more than a summary that never comes.
+"""
+
 _SYSTEM_PROMPT = """\
 You are the Connector Agent. You build Processa connectors — the configuration that lets a BPMN Service Task call an external API with no code written anywhere.
 
@@ -103,7 +116,9 @@ Rules that matter more than finishing:
 - Never invent a secret, API key, token or password, and never put one into a draft. You configure WHERE the credential is read from; a person supplies the value.
 - Only ever test read-only operations. Never call an operation that creates, updates or deletes data in someone's real account.
 - If the API requires a value the work order does not give you, declare the field and say what is missing. Do not invent a plausible-looking value.
-- If you cannot finish, still call finalize, and name exactly what is missing."""
+- If you cannot finish, still call finalize, and name exactly what is missing.
+
+""" + _AWKWARD_ORDERS
 
 # Used only when there is no machine-readable spec to build from. With a spec the
 # manifest is generated mechanically and no model writes it.

@@ -1370,6 +1370,59 @@ def _worker_answer(doctype: str, docname: str) -> str:
     return (row.get("result") or "").strip() or (row.get("status_message") or "").strip()
 
 
+def _parked_answer(run: dict) -> str:
+    """What a run that stopped to ask a person had said, plus the question it asked.
+
+    The executor checkpoints the call it parks on instead of finishing the
+    turn, so a run that asked the story owner has no final_output and, once the
+    eval cancels the instance, never will. The checkpoint is the only witness:
+    the last thing the model said and the tool it reached for.
+    """
+    if run.get("status") != "Suspended":
+        return ""
+    suspension = _suspension_of(run.get("checkpoint"))
+    said = ""
+    for message in reversed(suspension.get("transcript") or []):
+        content = message.get("content")
+        if isinstance(content, list):
+            content = " ".join(b.get("text") or "" for b in content if isinstance(b, dict))
+        if message.get("role") == "assistant" and content:
+            said = content
+            break
+    pending = suspension.get("pending_call") or {}
+    if not pending.get("name"):
+        return said
+    asked = f"Stopped to ask a person through {pending['name']}: {json.dumps(pending.get('arguments') or {})}"
+    return "\n\n".join(filter(None, [said, asked]))
+
+
+def _suspension_of(checkpoint) -> dict:
+    try:
+        return json.loads(checkpoint or "{}").get("suspension") or {}
+    except (ValueError, AttributeError):
+        return {}
+
+
+def _parked_calls(runs: List[str]) -> List[dict]:
+    """The call each Suspended run parked on, read off its checkpoint.
+
+    A model that asks a person has made that call, but the executor records no
+    Tool Call row for it, so a trajectory case saw "Called: nothing" and failed
+    a run that had done exactly what it should.
+    """
+    parked = []
+    for run in frappe.get_all(
+        "AI Agent Run",
+        filters={"name": ["in", runs], "status": "Suspended"},
+        fields=["checkpoint"],
+        order_by="creation asc",
+    ):
+        pending = _suspension_of(run.checkpoint).get("pending_call") or {}
+        if pending.get("name"):
+            parked.append({"tool": pending["name"], "args": pending.get("arguments") or {}, "status": "Parked"})
+    return parked
+
+
 def _run_map_eval(cfg, case) -> tuple:
     """Agent eval for an agent whose map is not chat-startable.
 
@@ -1465,8 +1518,8 @@ def _run_map_eval(cfg, case) -> tuple:
     runs = frappe.get_all(
         "AI Agent Run",
         filters=filters,
-        fields=["final_output", "total_prompt_tokens", "total_completion_tokens",
-                "total_tokens", "estimated_cost"],
+        fields=["final_output", "status", "checkpoint", "total_prompt_tokens",
+                "total_completion_tokens", "total_tokens", "estimated_cost"],
         order_by="creation asc",
     )
     if not runs:
@@ -1479,7 +1532,11 @@ def _run_map_eval(cfg, case) -> tuple:
 
     # The last run is the agent's answer; earlier ones (retries, other AI shapes)
     # still count toward spend.
-    output = _worker_answer(doctype, docname) or runs[-1].get("final_output") or ""
+    output = (
+        _worker_answer(doctype, docname)
+        or runs[-1].get("final_output")
+        or _parked_answer(runs[-1])
+    )
     usage = {
         "prompt_tokens": sum((r.get("total_prompt_tokens") or 0) for r in runs),
         "completion_tokens": sum((r.get("total_completion_tokens") or 0) for r in runs),
@@ -1902,14 +1959,11 @@ def _tool_trace_for(case, eval_run: str = None) -> List[dict]:
     steps = frappe.get_all(
         "AI Agent Step", filters={"run": ["in", runs]}, pluck="name", order_by="step_index asc, creation asc"
     )
-    if not steps:
-        return []
-
     rows = frappe.get_all(
         "AI Agent Tool Call",
         filters={"parenttype": "AI Agent Step", "parent": ["in", steps]},
         fields=["parent", "idx", "tool_name", "tool_args", "status"],
-    )
+    ) if steps else []
     position = {name: index for index, name in enumerate(steps)}
     rows.sort(key=lambda r: (position.get(r["parent"], 0), cint(r["idx"])))
 
@@ -1924,7 +1978,8 @@ def _tool_trace_for(case, eval_run: str = None) -> List[dict]:
             "args": args if isinstance(args, dict) else {"": args},
             "status": row["status"],
         })
-    return trace
+    # A parked call is the last thing the model did.
+    return trace + _parked_calls(runs)
 
 
 def _tool_calls_for(case, eval_run: str = None) -> List[str]:
@@ -1936,13 +1991,12 @@ def _tool_calls_for(case, eval_run: str = None) -> List[str]:
     if not runs:
         return []
     steps = frappe.get_all("AI Agent Step", filters={"run": ["in", runs]}, pluck="name")
-    if not steps:
-        return []
-    return frappe.get_all(
+    called = frappe.get_all(
         "AI Agent Tool Call",
         filters={"parenttype": "AI Agent Step", "parent": ["in", steps]},
         pluck="tool_name",
-    )
+    ) if steps else []
+    return called + [call["tool"] for call in _parked_calls(runs)]
 
 
 def _judge_model_for(assertion) -> tuple[str, str]:
