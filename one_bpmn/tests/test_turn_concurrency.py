@@ -17,6 +17,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import turn_idempotency as idem
+from one_bpmn.api import agent_invocation, server_script_api
 from one_bpmn.security import turn_lock
 
 
@@ -221,3 +222,72 @@ class TestTheControlIsChatOnly(FrappeTestCase):
 		self.assertTrue(
 			security_api._applies_to("rate_limit_enabled", frappe._dict(agent_type="Background"))
 		)
+
+
+class TestStreamingTurnHoldsTheLock(FrappeTestCase):
+	"""A map-driven chat turn streams, and the lock has to last as long as it does.
+
+	_run_bpmn_map hands back {"streaming": True, "stream": <generator>} rather
+	than the bare generator, which _is_stream did not recognise. The lock and the
+	PII turn were torn down the moment the runner returned — eighty milliseconds
+	in, with the map's first token still minutes of work away — so the setting
+	serialised nothing for any agent whose map drives it.
+	"""
+
+	def _generator(self):
+		yield {"type": "noop"}
+
+	def test_the_envelope_a_map_runner_returns_counts_as_a_stream(self):
+		gen = self._generator()
+		self.assertTrue(agent_invocation._is_stream({"streaming": True, "stream": gen}))
+		self.assertTrue(agent_invocation._is_stream(gen))
+		gen.close()
+
+	def test_a_buffered_reply_is_not_a_stream(self):
+		self.assertFalse(agent_invocation._is_stream({"response": "hello"}))
+		self.assertFalse(agent_invocation._is_stream({"streaming": True, "stream": None}))
+		self.assertFalse(agent_invocation._is_stream(None))
+
+
+class TestRedeliveryWhileTheMapReArms(FrappeTestCase):
+	"""A message nobody catches must not become a five-minute wait.
+
+	receive_message is quiet about a message no task was waiting for, and the
+	caller then sat out CHAT_TURN_WAIT_SECONDS for a reply that could never
+	come. The queued second message of a conversation met exactly that: the map
+	writes the reply, reports the turn, and only then loops back to its gateway.
+	"""
+
+	class _Instance:
+		def __init__(self, catches_on):
+			self.catches_on = catches_on
+			self.attempts = 0
+			self.flags = frappe._dict()
+
+		def receive_message(self, name, payload=None):
+			self.attempts += 1
+			self.flags.bpmn_message_caught = self.attempts >= self.catches_on
+
+	def _run(self, catches_on, status="Active", seconds=1.0):
+		instances = []
+
+		def _get_doc(doctype, name):
+			instances.append(self._Instance(catches_on - len(instances)))
+			return instances[-1]
+
+		with patch.object(server_script_api, "REARM_WAIT_SECONDS", seconds), patch.object(
+			server_script_api, "_REARM_POLL_SECONDS", 0.05
+		), patch.object(frappe.db, "commit"), patch.object(
+			frappe.db, "get_value", return_value=status
+		), patch.object(frappe, "get_doc", new=_get_doc):
+			return server_script_api._redeliver_until_armed("inst", {})
+
+	def test_it_keeps_trying_until_a_task_catches_the_message(self):
+		self.assertTrue(self._run(catches_on=2))
+
+	def test_it_gives_up_rather_than_trying_for_ever(self):
+		self.assertFalse(self._run(catches_on=99))
+
+	def test_an_instance_that_is_no_longer_running_is_not_retried(self):
+		self.assertFalse(self._run(catches_on=1, status="Completed"))
+
