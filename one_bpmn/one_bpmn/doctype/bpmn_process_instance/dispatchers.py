@@ -1830,6 +1830,13 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		active_skill_bodies = frappe.cache().get_value(
 			_skills_cache_key(_conversation_for_skills, task_cfg["aiAgentConfig"])
 		) or []
+		# A resumed checkpoint (resume_payload) is a continuation of the turn
+		# already in progress, not a new one — only a fresh dispatch bumps the
+		# counter, so turn_loaded/turn_unloaded on AI Skill Activation reflect
+		# the actual conversation turn instead of staying stuck at 1.
+		if not resume_payload:
+			from one_bpmn.api.skill_tools import advance_turn
+			advance_turn(_conversation_for_skills)
 
 	if memory_block or user_message or active_skill_bodies:
 		from one_bpmn.agents.context_assembler import build_dynamic_preamble
