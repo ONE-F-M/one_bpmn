@@ -83,46 +83,31 @@ class TestTheAdapterForwardsTextAsItArrives(FrappeTestCase):
 		self._run([SimpleNamespace(type="text", text="a")], boom)  # must not raise
 
 
-class TestTheSinkOnlyExistsForAChatTurn(FrappeTestCase):
+class TestTheSinkExistsOnlyForATurnInTheRequest(FrappeTestCase):
+	"""A map-driven turn must not stream: its model calls include sub-agents
+	whose text is for the map, and the reply is composed afterwards."""
+
 	def setUp(self):
 		frappe.set_user("Administrator")
 		frappe.flags["bpmn_ai_current_run"] = None
+		frappe.flags["bpmn_ai_live_text_queue"] = None
 
 	def tearDown(self):
 		frappe.flags["bpmn_ai_current_run"] = None
+		frappe.flags["bpmn_ai_live_text_queue"] = None
 
-	def test_no_current_run_means_no_sink(self):
+	def test_no_queue_means_no_sink(self):
 		from one_bpmn.agents.turn_signal import live_text_sink
 
 		self.assertIsNone(live_text_sink())
 
-	def test_a_background_instance_gets_no_sink(self):
-		from one_bpmn.agents import turn_signal
-
-		frappe.flags["bpmn_ai_current_run"] = "RUN-1"
-		values = {("AI Agent Run", "RUN-1", "instance"): "INST-1",
-		          ("BPMN Process Instance", "INST-1", "context_doctype"): "A2A Task"}
-		with patch.object(turn_signal.frappe.db, "get_value", side_effect=lambda d, n, f: values.get((d, n, f))):
-			self.assertIsNone(turn_signal.live_text_sink())
-
-	def test_a_chat_instance_publishes_each_delta(self):
+	def test_a_map_driven_run_with_a_chat_instance_still_gets_no_sink(self):
 		from one_bpmn.agents import turn_signal
 
 		frappe.flags["bpmn_ai_current_run"] = "RUN-2"
-		values = {("AI Agent Run", "RUN-2", "instance"): "INST-2",
-		          ("BPMN Process Instance", "INST-2", "context_doctype"): "Chat Conversation"}
-		published = []
-		with patch.object(turn_signal.frappe.db, "get_value", side_effect=lambda d, n, f: values.get((d, n, f))):
-			with patch.object(turn_signal, "publish_event", side_effect=lambda i, e: published.append((i, e))):
-				sink = turn_signal.live_text_sink()
-				self.assertIsNotNone(sink)
-				sink("Hello")
-				sink("")
-				sink(" there")
-		self.assertEqual(published, [
-			("INST-2", {"type": "TEXT_MESSAGE_CONTENT", "delta": "Hello"}),
-			("INST-2", {"type": "TEXT_MESSAGE_CONTENT", "delta": " there"}),
-		])
+		with patch.object(turn_signal, "publish_event") as published:
+			self.assertIsNone(turn_signal.live_text_sink())
+		published.assert_not_called()
 
 
 class TestTheRelayOpensTheReplyOnTheFirstLiveDelta(FrappeTestCase):
