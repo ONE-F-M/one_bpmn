@@ -38,6 +38,10 @@
 						@rated="onRated"
 					/>
 				</div>
+				<!-- a rate-limit refusal (role=system) is the platform
+				     pushing back, not the agent talking — a distinct notice, no
+				     rating control, so it never reads as an assistant reply. -->
+				<div v-else-if="item.kind === 'system'" class="acp-msg acp-msg--system">{{ item.text }}</div>
 				<!-- choice buttons (panel feature, onefm.choice) -->
 				<div v-else-if="item.kind === 'choice'" class="acp-card">
 					<div v-if="item.value.prompt" class="acp-card-head" v-html="renderMarkdown(item.value.prompt)" />
@@ -250,6 +254,9 @@ const streamingText = ref("");
 // message id (WI-001822). Ratings are the user's own — the control shows what
 // you said, not a tally.
 const streamingMessageId = ref("");
+// The role the currently-streaming reply carries: "assistant" normally,
+// "system" for a rate-limit refusal (see TEXT_MESSAGE_START below).
+const streamingRole = ref("assistant");
 // The tool the agent is running right now, so a long turn says what it is
 // doing instead of sitting on "Thinking…". Cleared when the tool ends and
 // again when the turn does, because a stream can close mid-tool.
@@ -270,6 +277,13 @@ function agentItem(text) {
 	// Both things a finished agent bubble needs: the row id it can be rated by
 	// (WI-001822) and when it arrived (WI-002047). Built in one place so a new
 	// flush site cannot forget either.
+	//
+	// a role of "system" (a rate-limit refusal) flushes as a
+	// system notice instead — no rating control, and it never reads as the
+	// agent itself talking.
+	if (streamingRole.value === "system") {
+		return { kind: "system", text, ts: stampNow() };
+	}
 	return { kind: "agent", text, message: streamingMessageId.value || "", ts: stampNow() };
 }
 
@@ -580,6 +594,7 @@ async function send(text, extraContext = null, reuseId = null) {
 	busy.value = true;
 	status.value = "streaming";
 	streamingText.value = "";
+	streamingRole.value = "assistant";
 	scrollDown();
 
 	// extraContext = per-turn keys the PANEL stages itself (today: the
@@ -625,6 +640,7 @@ async function send(text, extraContext = null, reuseId = null) {
 				streamingText.value = "";
 			}
 			streamingMessageId.value = "";
+			streamingRole.value = "assistant";
 			runningTool.value = "";
 			busy.value = false;
 			if (status.value !== "error") status.value = "done";
@@ -650,6 +666,10 @@ function handleEvent(event) {
 		// the persisted Chat Message name). Held until the buffer is flushed so
 		// the finished bubble carries it and can be rated.
 		streamingMessageId.value = event.messageId || event.message_id || "";
+		// a rate-limit refusal streams with role "system" — a
+		// platform notice, not the agent talking — so the finished bubble
+		// flushes as a system item instead of an agent one.
+		streamingRole.value = event.role || "assistant";
 	} else if (type === "TEXT_MESSAGE_CONTENT") {
 		streamingText.value += event.delta || "";
 		if (!streamingMessageId.value) {
@@ -718,6 +738,12 @@ function restoredItems(history, isNewestPage) {
 	history.forEach((m, index) => {
 		if (m.role === "user") {
 			out.push({ kind: "user", text: m.content, ts: m.timestamp });
+			return;
+		}
+		// a stored rate-limit refusal carries role "system" —
+		// restore it as a system notice, same as when it first streamed.
+		if (m.role === "system") {
+			if (m.content) out.push({ kind: "system", text: m.content, ts: m.timestamp });
 			return;
 		}
 		if (m.content) {
@@ -953,6 +979,10 @@ defineExpose({ send, conversationName });
 .acp-time--user { align-self: flex-end; }
 .acp-msg--user { align-self: flex-end; background: var(--sg4); color: var(--ig9); white-space: pre-wrap; }
 .acp-msg--agent { align-self: flex-start; background: var(--sw); border: 1px solid var(--og2); }
+/* a rate-limit refusal (role=system) — a platform notice, not
+   the agent talking, so it is visually distinct from both bubble kinds. */
+.acp-msg--system { align-self: center; background: var(--sg2); color: var(--ig6); font-size: 12px;
+	font-style: italic; border: none; }
 .acp-msg--agent :deep(p) { margin: 0 0 6px; } .acp-msg--agent :deep(p:last-child) { margin: 0; }
 .acp-msg--agent :deep(pre) { background: var(--sg2); border-radius: 8px; padding: 8px; overflow-x: auto; }
 .acp-msg--agent :deep(table) { border-collapse: collapse; }

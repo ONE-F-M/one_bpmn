@@ -127,10 +127,20 @@ async def run_agent_loop(
 	retry_backoff_ms: int = 1000,
 	tool_result_max_chars: int | None = None,
 	terminal_tools: list | None = None,
+	on_tool_event=None,
 ) -> tuple:
 	"""Drive the tool loop. Returns (CompletionResult, None) when the model
 	produces a final answer or hits the turn cap, or (None, AgentSuspension)
 	when it selects a human tool.
+
+	``on_tool_event``: optional ``callable(phase, tool_name)``
+	invoked as ``on_tool_event("start", name)`` immediately before an
+	automatic tool runs and ``on_tool_event("end", name)`` immediately
+	after, whether it succeeded, deferred, was policy-refused, or raised.
+	Used by the streaming surface (agui_stream.py) to emit
+	TOOL_CALL_START/END events while the turn is still running. A
+	callback that itself raises is logged and swallowed \u2014 a broken
+	progress indicator must never fail the turn it is only reporting on.
 
 	Fresh run: pass ``user`` (the rendered user prompt); the transcript starts
 	as a single user entry.
@@ -204,6 +214,7 @@ async def run_agent_loop(
 			retry_backoff_ms=retry_backoff_ms,
 			tool_result_max_chars=tool_result_max_chars,
 			terminal_tools=set(terminal_tools) if terminal_tools is not None else {"finalize"},
+			on_tool_event=on_tool_event,
 		)
 	finally:
 		# Cleared on EVERY exit — final answer, turn cap, suspension, exception.
@@ -244,10 +255,28 @@ async def _step_with_retries(
 			await asyncio.sleep(base_s + random.uniform(0, 0.1))
 
 
+def _fire_tool_event(on_tool_event, phase, tool_name):
+	"""Invoke the caller's tool-event callback, never letting it break the turn.
+
+	The callback exists purely to report progress (streaming TOOL_CALL_START/
+	END to a client) \u2014 a bug in it is a display problem, not a reason to fail
+	or corrupt an agent run.
+	"""
+	if on_tool_event is None:
+		return
+	try:
+		on_tool_event(phase, tool_name)
+	except Exception:
+		frappe.log_error(
+			title="step_loop on_tool_event callback failed",
+			message=f"phase={phase} tool={tool_name}\n\n{frappe.get_traceback()}",
+		)
+
+
 async def _run_turns(
 	adapter, *, system, tools, tool_map, transcript, trace, turns_used, max_tokens, max_turns,
 	timeout_seconds=None, max_retries=0, retry_backoff_ms=1000, tool_result_max_chars=None,
-	terminal_tools=frozenset({"finalize"}),
+	terminal_tools=frozenset({"finalize"}), on_tool_event=None,
 ):
 	"""The turn loop itself. Split out only so run_agent_loop can guarantee the
 	pause flag is cleared however this returns."""
@@ -352,40 +381,44 @@ async def _run_turns(
 						"content": wrap_tool_result(_invalid, call.name, call.arguments),
 					})
 					continue
+				_fire_tool_event(on_tool_event, "start", call.name)
 				try:
-					result = str(tool.fn(**call.arguments))
-					if call.name in terminal_tools:
-						# The "response" key is the reply contract (see the ticket's
-						# expected behaviour); a terminal tool called without one
-						# still ends the turn, falling back to its raw arguments
-						# rather than losing the reply entirely.
-						_args = call.arguments if isinstance(call.arguments, dict) else {}
-						terminal_reply = _args.get("response", _args) if _args else result
-				except ToolDeferred as deferred:
-					# The tool ran, but its work outlives this turn. Same pause
-					# as a human tool — the answer arrives from elsewhere — so
-					# it takes the same slot, and the marker rides along so the
-					# dispatcher knows what is being waited on.
-					if pending_call is None:
-						pending_call = {
-							"id": call.id, "name": call.name, "arguments": call.arguments
-						}
-						deferred_wait = deferred.marker or {}
-						frappe.flags[PAUSE_HELD_FLAG] = True
-						continue
-					# A second pause in the same turn. Reaching here means the
-					# tool got past the connector's own guard and parked anyway,
-					# so its work IS running and this turn cannot collect it —
-					# say so rather than blaming a human task.
-					result = _SECOND_PAUSE_RESULT
-				except PolicyViolation as violation:
-					# The interceptor refused the call BEFORE the tool ran
-					# (WI-001645). Handed back as an ordinary tool result, so the
-					# model is told why and can take a different approach —
-					# exactly how every loop already treats a tool that failed.
-					result = violation.decision.as_tool_result()
-				except Exception as exc:
-					result = f"Error calling {call.name}: {exc}"
+					try:
+						result = str(tool.fn(**call.arguments))
+						if call.name in terminal_tools:
+							# The "response" key is the reply contract (see the ticket's
+							# expected behaviour); a terminal tool called without one
+							# still ends the turn, falling back to its raw arguments
+							# rather than losing the reply entirely.
+							_args = call.arguments if isinstance(call.arguments, dict) else {}
+							terminal_reply = _args.get("response", _args) if _args else result
+					except ToolDeferred as deferred:
+						# The tool ran, but its work outlives this turn. Same pause
+						# as a human tool — the answer arrives from elsewhere — so
+						# it takes the same slot, and the marker rides along so the
+						# dispatcher knows what is being waited on.
+						if pending_call is None:
+							pending_call = {
+								"id": call.id, "name": call.name, "arguments": call.arguments
+							}
+							deferred_wait = deferred.marker or {}
+							frappe.flags[PAUSE_HELD_FLAG] = True
+							continue
+						# A second pause in the same turn. Reaching here means the
+						# tool got past the connector's own guard and parked anyway,
+						# so its work IS running and this turn cannot collect it —
+						# say so rather than blaming a human task.
+						result = _SECOND_PAUSE_RESULT
+					except PolicyViolation as violation:
+						# The interceptor refused the call before the tool ran, and
+						# it is handed back as an ordinary tool result, so the
+						# model is told why and can take a different approach —
+						# exactly how every loop already treats a tool that failed.
+						result = violation.decision.as_tool_result()
+					except Exception as exc:
+						result = f"Error calling {call.name}: {exc}"
+				finally:
+					_fire_tool_event(on_tool_event, "end", call.name)
 
 			turn_record.tool_calls.append(
 				ToolCallRecord(name=call.name, arguments=call.arguments, result=result)
