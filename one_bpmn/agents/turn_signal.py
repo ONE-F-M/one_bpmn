@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import time
+from contextlib import contextmanager
 
 import frappe
 
@@ -91,26 +92,72 @@ def consume(instance_name: str, timeout: float, poll_seconds: float = 0.25):
 
 
 LIVE_TEXT_QUEUE_FLAG = "bpmn_ai_live_text_queue"
+LIVE_TEXT_INSTANCE_FLAG = "bpmn_ai_live_text_instance"
+LIVE_TEXT_MASK_FLAG = "bpmn_ai_live_text_masked"
+TEXT_EVENT = "TEXT_MESSAGE_CONTENT"
+
 
 def live_text_sink():
 	"""A callable that sends model text to the reader as it is written, or None.
 
-	Only a turn that runs inside the web request gets one: there the model's
-	text is the reply, word for word, and the request hands the adapter a
-	queue to put it on. A map-driven turn gets none. Its model calls include
-	sub-agents whose text is machine-shaped for the map to read, and the
-	reply the person sees is composed afterwards, so forwarding the raw text
-	would show them the wrong thing.
+	A turn that runs inside the web request hands the adapter a queue. A turn
+	that runs on the worker for a conversation has its instance named on the
+	flags by ``live_text_scope``, and its text travels on the same list as the
+	tool progress. Text written while a tool runs is masked (``mask_live_text``):
+	a tool that calls a model itself writes JSON for the map, not for a person.
 	"""
 	local_queue = frappe.flags.get(LIVE_TEXT_QUEUE_FLAG)
-	if local_queue is None:
+	if local_queue is not None:
+
+		def sink(delta: str) -> None:
+			if delta:
+				local_queue.put(delta)
+
+		return sink
+
+	if frappe.flags.get(LIVE_TEXT_MASK_FLAG):
+		return None
+	instance_name = frappe.flags.get(LIVE_TEXT_INSTANCE_FLAG)
+	if not instance_name:
 		return None
 
-	def sink(delta: str) -> None:
+	# One cache write per delta. Coalesce here if Redis load ever shows it.
+	def publish_sink(delta: str) -> None:
 		if delta:
-			local_queue.put(delta)
+			publish_event(instance_name, {"type": TEXT_EVENT, "delta": delta})
 
-	return sink
+	return publish_sink
+
+
+@contextmanager
+def live_text_scope(instance):
+	"""Name the instance a chat request is waiting on, for the length of an AI task.
+
+	Only for a conversation: a background agent has nobody reading. Inside a
+	masked tool call the scope stays masked, so a sub-agent run as a tool does
+	not stream either.
+	"""
+	name = getattr(instance, "name", None)
+	if getattr(instance, "context_doctype", None) != "Chat Conversation" or not name:
+		yield
+		return
+	previous = frappe.flags.get(LIVE_TEXT_INSTANCE_FLAG)
+	frappe.flags[LIVE_TEXT_INSTANCE_FLAG] = name
+	try:
+		yield
+	finally:
+		frappe.flags[LIVE_TEXT_INSTANCE_FLAG] = previous
+
+
+@contextmanager
+def mask_live_text():
+	"""Silence live text while a tool runs."""
+	previous = frappe.flags.get(LIVE_TEXT_MASK_FLAG)
+	frappe.flags[LIVE_TEXT_MASK_FLAG] = True
+	try:
+		yield
+	finally:
+		frappe.flags[LIVE_TEXT_MASK_FLAG] = previous
 
 
 def wait(instance_name: str, timeout: float, poll_seconds: float = 0.25) -> bool:

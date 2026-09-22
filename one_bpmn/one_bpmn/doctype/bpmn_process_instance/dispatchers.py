@@ -2126,8 +2126,11 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				message=frappe.get_traceback(),
 			)
 	try:
+		from one_bpmn.agents import turn_signal
+
 		executor_cls = get_executor(config.backend)
-		result = executor_cls().run(config, context)
+		with turn_signal.live_text_scope(instance):
+			result = executor_cls().run(config, context)
 	except Exception as exc:
 		frappe.log_error(
 			title=f"BPMN AI Agent Task: unexpected error ({bpmn_id})",
