@@ -711,7 +711,7 @@ class TestStepLoopToolEventCallback(FrappeTestCase):
 		])
 		tool = ToolSpec(fn=lambda **kw: "42", name="lookup", description="look things up")
 
-		completion, suspension = self._run(adapter, [tool], events.append)
+		completion, suspension = self._run(adapter, [tool], lambda phase, name: events.append((phase, name)))
 
 		self.assertIsNone(suspension)
 		self.assertEqual(completion.text, "answer")
@@ -734,7 +734,7 @@ class TestStepLoopToolEventCallback(FrappeTestCase):
 		])
 		tool = ToolSpec(fn=boom, name="breaker", description="always fails")
 
-		completion, suspension = self._run(adapter, [tool], events.append)
+		completion, suspension = self._run(adapter, [tool], lambda phase, name: events.append((phase, name)))
 
 		self.assertIsNone(suspension)
 		self.assertEqual(events, [("start", "breaker"), ("end", "breaker")])
@@ -745,7 +745,7 @@ class TestStepLoopToolEventCallback(FrappeTestCase):
 		events = []
 		adapter = _FakeStepAdapter([StepResult(content="just an answer")])
 
-		completion, suspension = self._run(adapter, [], events.append)
+		completion, suspension = self._run(adapter, [], lambda phase, name: events.append((phase, name)))
 
 		self.assertIsNone(suspension)
 		self.assertEqual(events, [])
