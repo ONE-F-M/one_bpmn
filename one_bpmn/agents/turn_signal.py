@@ -90,6 +90,8 @@ def consume(instance_name: str, timeout: float, poll_seconds: float = 0.25):
 		yield event
 
 
+LIVE_TEXT_QUEUE_FLAG = "bpmn_ai_live_text_queue"
+
 def live_text_sink():
 	"""A callable that sends model text to the chat request waiting on this
 	turn as it is written, or None when nobody is waiting.
@@ -99,6 +101,16 @@ def live_text_sink():
 	every run, so the sink is None for anything that is not a chat turn.
 	"""
 	from one_bpmn.agents.observability import current_run_name
+
+	# A turn that runs inside the web request has no instance and nobody
+	# polling a list; the request hands the adapter a queue instead.
+	local_queue = frappe.flags.get(LIVE_TEXT_QUEUE_FLAG)
+	if local_queue is not None:
+		def local_sink(delta: str) -> None:
+			if delta:
+				local_queue.put(delta)
+
+		return local_sink
 
 	run = current_run_name()
 	if not run:

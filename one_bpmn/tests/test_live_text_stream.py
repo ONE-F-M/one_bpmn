@@ -174,3 +174,61 @@ class TestTheBufferedPathDoesNotResendStreamedText(FrappeTestCase):
 		self.assertEqual(types.count("TEXT_MESSAGE_START"), 1)
 		self.assertGreaterEqual(types.count("TEXT_MESSAGE_CONTENT"), 1)
 		self.assertEqual("".join(e["delta"] for e in _events(out) if e["type"] == "TEXT_MESSAGE_CONTENT"), "never streamed")
+
+
+class TestADirectTurnStreamsFromTheRequest(FrappeTestCase):
+	"""A turn with no instance runs inside the request, so the adapter is
+	handed a queue instead of a list to publish on."""
+
+	def tearDown(self):
+		from one_bpmn.agents.turn_signal import LIVE_TEXT_QUEUE_FLAG
+
+		frappe.flags[LIVE_TEXT_QUEUE_FLAG] = None
+
+	def test_the_sink_prefers_the_request_queue_over_the_run(self):
+		import queue
+
+		from one_bpmn.agents import turn_signal
+
+		q = queue.Queue()
+		frappe.flags[turn_signal.LIVE_TEXT_QUEUE_FLAG] = q
+		sink = turn_signal.live_text_sink()
+		self.assertIsNotNone(sink)
+		sink("Hel"); sink(""); sink("lo")
+		self.assertEqual([q.get_nowait(), q.get_nowait()], ["Hel", "lo"])
+		self.assertTrue(q.empty())
+
+	def test_the_stream_yields_deltas_then_the_handover(self):
+		from one_bpmn.agents.agui_stream import HANDOVER_EVENT
+		from one_bpmn.api import agent_invocation
+		from one_bpmn.agents.turn_signal import LIVE_TEXT_QUEUE_FLAG
+
+		def fake_turn(config, conversation, message):
+			sink_q = frappe.flags.get(LIVE_TEXT_QUEUE_FLAG)
+			sink_q.put("The "); sink_q.put("answer.")
+			return {"response": "The answer."}
+
+		with patch.object(agent_invocation, "_direct_api_turn", side_effect=fake_turn):
+			out = list(agent_invocation._stream_direct_api({}, "CONV-1", "hi", {}))
+
+		self.assertEqual(out[:2], [
+			{"type": "TEXT_MESSAGE_CONTENT", "delta": "The "},
+			{"type": "TEXT_MESSAGE_CONTENT", "delta": "answer."},
+		])
+		self.assertEqual(out[2]["type"], HANDOVER_EVENT)
+		self.assertEqual(out[2]["result"], {"response": "The answer."})
+		self.assertIsNone(frappe.flags.get(LIVE_TEXT_QUEUE_FLAG), "the queue must not leak into the next turn")
+
+	def test_a_failing_turn_raises_on_the_request_thread(self):
+		from one_bpmn.api import agent_invocation
+
+		with patch.object(agent_invocation, "_direct_api_turn", side_effect=RuntimeError("provider down")):
+			with self.assertRaises(RuntimeError):
+				list(agent_invocation._stream_direct_api({}, "CONV-1", "hi", {}))
+
+	def test_without_stream_the_runner_is_unchanged(self):
+		from one_bpmn.api import agent_invocation
+
+		with patch.object(agent_invocation, "_direct_api_turn", return_value={"response": "plain"}) as turn:
+			self.assertEqual(agent_invocation._run_direct_api({}, "CONV-1", "hi", {}, stream=False), {"response": "plain"})
+		turn.assert_called_once()

@@ -674,6 +674,10 @@ def _run_direct_api(config, conversation, message, context, stream=False):
 	"""Single-shot / general chat. Persists the turn and calls the adapter's
 	own (async) tool-calling loop for one exchange.
 
+	With ``stream=True`` the same work runs on a thread and the reply's text
+	is handed back as it is written, then the finished result follows as the
+	handover event the buffered path already understands.
+
 	The system prompt is composed the same way as on the two process paths.
 	This used to send ``config["system_prompt"]`` on its own, which quietly
 	dropped the agent's examples, its skills index and its guard rails: an
@@ -686,6 +690,59 @@ def _run_direct_api(config, conversation, message, context, stream=False):
 	was invisible to Insights, and this path's own guard rails could not be
 	read back off a run.
 	"""
+	if stream:
+		return _stream_direct_api(config, conversation, message, context)
+	return _direct_api_turn(config, conversation, message)
+
+
+def _stream_direct_api(config, conversation, message, context):
+	"""Run the direct turn on a thread and yield its text as the model writes it.
+
+	The adapter finds the queue on ``frappe.flags`` and puts each delta on it;
+	this generator drains the queue while the model call runs. The thread gets
+	a copy of this request's context or it would lose the site, the session
+	and frappe.flags, and it is the only thing touching the database until it
+	finishes, so the shared connection is never used from two threads at once.
+	"""
+	import contextvars
+	import queue
+	import threading
+
+	from one_bpmn.agents.agui_stream import HANDOVER_EVENT
+	from one_bpmn.agents.turn_signal import LIVE_TEXT_QUEUE_FLAG
+
+	deltas: "queue.Queue" = queue.Queue()
+	done = object()
+	outcome: dict = {}
+	frappe.flags[LIVE_TEXT_QUEUE_FLAG] = deltas
+	context_copy = contextvars.copy_context()
+
+	def _work():
+		try:
+			outcome["result"] = context_copy.run(_direct_api_turn, config, conversation, message)
+		except BaseException as exc:  # noqa: BLE001 - re-raised on the request thread
+			outcome["error"] = exc
+		finally:
+			deltas.put(done)
+
+	thread = threading.Thread(target=_work, daemon=True)
+	thread.start()
+	try:
+		while True:
+			item = deltas.get()
+			if item is done:
+				break
+			yield {"type": "TEXT_MESSAGE_CONTENT", "delta": item}
+	finally:
+		frappe.flags[LIVE_TEXT_QUEUE_FLAG] = None
+	thread.join()
+	if "error" in outcome:
+		raise outcome["error"]
+	yield {"type": HANDOVER_EVENT, "result": outcome.get("result") or {}}
+
+
+def _direct_api_turn(config, conversation, message):
+	"""One direct chat exchange, recorded as a run, persisted as two messages."""
 	from one_bpmn.agents import observability
 	from one_bpmn.agents.context_assembler import build_static_context_from_config
 	from one_bpmn.agents.executor import ExecutorResult, TokenUsage
