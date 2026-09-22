@@ -68,6 +68,20 @@ class TestAwkwardOrders(FrappeTestCase):
 		for name in judges:
 			self.assertEqual(frappe.db.get_value("AI Eval Assertion", name, "value"), patch.RUBRICS[title])
 
+	def test_the_tracking_item_is_made_once_and_the_brief_names_it(self):
+		cases = frappe.get_all("AI Eval Case", filters={"title": patch.ALREADY_DELEGATED}, pluck="name")
+		if not cases:
+			self.skipTest("the case is not on this site")
+		patch.execute()
+		before = frappe.db.count("Work Item")
+		patch.execute()
+		self.assertEqual(frappe.db.count("Work Item"), before)
+		tracking = frappe.get_all("Work Item", filters={"title": patch.TRACKING_ITEM["title"]}, pluck="name")
+		self.assertEqual(len(tracking), 1)
+		for case in cases:
+			item = frappe.parse_json(frappe.db.get_value("AI Eval Case", case, "input_context"))["context_docname"]
+			self.assertIn(tracking[0], frappe.db.get_value("Work Item", item, "description"))
+
 	def test_the_patch_is_declared(self):
 		with open(frappe.get_app_path("one_bpmn", "patches.txt")) as f:
 			self.assertIn("agent_prompts_for_awkward_orders", f.read())

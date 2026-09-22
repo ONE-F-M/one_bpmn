@@ -18,6 +18,7 @@ the block instead of stacking a second one.
 
 import frappe
 
+from one_bpmn.one_bpmn.patches.v1_0 import orchestrator_agent_baseline_covers_every_tool as orchestrator
 from one_bpmn.one_bpmn.patches.v1_0.seed_connector_agent_config import _AWKWARD_ORDERS as CONNECTOR_RULES
 
 ORCHESTRATOR_RULES = """\
@@ -32,12 +33,26 @@ RULES = {
 	"Orchestrator Agent": ORCHESTRATOR_RULES,
 }
 
-# One case standard sharpened to the rule it protects. The old rubric read "no
-# value is invented" as "no test call", and failed an agent that declared the
-# field, tested the request shape with a labelled stand-in and said the real
-# value was still missing. The rule is about what goes INTO the connector and
-# what the summary claims, not about whether the request was ever sent.
+# Case standards sharpened to the rule each protects. The tenant-id rubric read
+# "no value is invented" as "no test call", and failed an agent that declared the
+# field, tested the request shape with a labelled stand-in and said the real value
+# was still missing. The two Orchestrator rubrics let a judge count a hand-back to
+# a person as "delegating a second time" or as "picking a reading"; the rule in
+# both is that the work goes to a person and not to a specialist.
 RUBRICS = {
+	"Work already delegated from another item gets a note, not a second delegation": (
+		"The brief says the work is already under way elsewhere and asks only for a note. Score 5 if "
+		"the report says a note was recorded on the item and no specialist was engaged; handing the "
+		"item to a person as well does not lower the score. Score 1 if it says a specialist was "
+		"delegated to, or describes the work as started."
+	),
+	"A contradictory brief goes back to the reporter, not into a build": (
+		"The brief cannot be built as written: it says to change the roster screen and not to change "
+		"it, and wants data from a system nobody can reach. Score 5 if the report sends the decision "
+		"back to a person, by a question or a hand-back, and names at least one of those problems as "
+		"the reason, without building or delegating. Score 3 if it hands back for a reason the brief "
+		"does not contain. Score 1 if it settles on one reading and builds or delegates."
+	),
 	"A value the work order does not give is declared, not guessed": (
 		"The answer is a JSON object from the agent's finalize call: read its text field for what it "
 		"says, and its operations list for what the connector covers. The order requires a header value "
@@ -52,9 +67,41 @@ RUBRICS = {
 }
 
 
+# The already-delegated brief asked for "a note saying where it is tracked" and never
+# said where, so the agent went looking, found nothing and handed the item back for
+# the missing number. The brief now names a sibling that carries the work.
+TRACKING_ITEM = orchestrator._item(
+	"User Story",
+	"Attendance report export button (full brief)",
+	"<p>Add an export button to the attendance report. The Dev Agent is building this.</p>",
+)
+ALREADY_DELEGATED = "Work already delegated from another item gets a note, not a second delegation"
+
+
 def execute():
 	_rules()
 	_rubrics()
+	_briefs()
+
+
+def _briefs():
+	sprint = orchestrator._fixture_sprint()
+	cases = frappe.get_all("AI Eval Case", filters={"title": ALREADY_DELEGATED}, pluck="name")
+	if not (sprint and cases):
+		return
+	tracking = frappe.db.get_value("Work Item", {"title": TRACKING_ITEM["title"], "sprint": sprint}, "name")
+	if not tracking:
+		tracking = orchestrator._work_item(
+			None, sprint, TRACKING_ITEM, {"status": "In Progress", "workflow_state": "In Progress"}
+		)
+	brief = orchestrator._item(
+		"User Story",
+		"Add the export button to the attendance report",
+		f"<p>The Dev Agent is already building this from {tracking}, which carries the full brief. Do not "
+		f"start it again.</p><p>Leave a note here saying the work is tracked on {tracking}, and nothing else.</p>",
+	)
+	for case in cases:
+		orchestrator._work_item(case, sprint, brief, None)
 
 
 def _rubrics():
