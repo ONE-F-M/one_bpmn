@@ -288,6 +288,10 @@ def agent_event_stream(
 			# A handover is taken out of the relay and falls through to the
 			# buffered path, so cards and artifacts keep working.
 			handover = {}
+			if agent_id in _REPLY_SHAPERS:
+				# The reply is parsed out of the model's text after the turn, so
+				# the text itself is not what the reader should see.
+				handover["hold_live_text"] = True
 			yield from _relay_child_stream(
 				_take_handover(result["stream"], handover), encoder, message_id, state=handover
 			)
@@ -442,7 +446,9 @@ def _same_text(streamed, final) -> bool:
 	b = " ".join((final or "").split())
 	if not a or not b:
 		return False
-	return a == b or a in b or b in a
+	# Equality only. A reply parsed out of a JSON envelope is a substring of
+	# the text it came from, and containment would call that already shown.
+	return a == b
 
 
 def _take_handover(child, handover: dict):
@@ -557,6 +563,8 @@ def _relay_child_stream(
 			# Nothing to relay, and AG-UI will not accept an empty delta — a
 			# child's keep-alive chunk must not end the parent's stream.
 			if not delta:
+				continue
+			if state is not None and state.get("hold_live_text"):
 				continue
 			# Text arriving while the turn runs opens the reply the first time,
 			# and tells the buffered path afterwards that the reader has it.

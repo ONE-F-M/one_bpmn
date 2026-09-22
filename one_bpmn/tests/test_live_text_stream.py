@@ -224,6 +224,23 @@ class TestTheRelayOpensTheReplyOnTheFirstLiveDelta(FrappeTestCase):
 		self.assertEqual([e["type"] for e in _events(out)], ["TOOL_CALL_START"])
 
 
+	def test_a_held_relay_keeps_live_text_for_the_buffered_path(self):
+		state = {"hold_live_text": True}
+		chunks = self._relay(
+			[{"type": "TEXT_MESSAGE_CONTENT", "delta": '{"message": "hi"}'}, {"type": "TOOL_CALL_START", "toolCallName": "get_list"}],
+			state,
+		)
+		self.assertEqual([e["type"] for e in _events(chunks)], ["TOOL_CALL_START"])
+		self.assertFalse(state.get("text_streamed"))
+		self.assertFalse(state.get("streamed_text"))
+
+	def test_an_agent_with_a_reply_shaper_holds_its_live_text(self):
+		from one_bpmn.agents import agui_stream
+
+		self.assertIn("ai_agent_assistant", agui_stream._REPLY_SHAPERS)
+		self.assertNotIn("lumina_general_chat", agui_stream._REPLY_SHAPERS)
+
+
 class TestTheBufferedPathDoesNotResendStreamedText(FrappeTestCase):
 	def _stream(self, result):
 		from one_bpmn.agents import agui_stream
@@ -267,6 +284,19 @@ class TestTheBufferedPathDoesNotResendStreamedText(FrappeTestCase):
 		self.assertEqual(types.count("TEXT_MESSAGE_START"), 1)
 		self.assertGreaterEqual(types.count("TEXT_MESSAGE_CONTENT"), 1)
 		self.assertEqual("".join(e["delta"] for e in _events(out) if e["type"] == "TEXT_MESSAGE_CONTENT"), "never streamed")
+
+
+class TestAReplyIsTheSameOnlyWhenItIsEqual(FrappeTestCase):
+	def test_whitespace_does_not_matter(self):
+		from one_bpmn.agents.agui_stream import _same_text
+
+		self.assertTrue(_same_text("Hello  world\n", " Hello world "))
+
+	def test_a_message_parsed_out_of_json_is_not_already_shown(self):
+		from one_bpmn.agents.agui_stream import _same_text
+
+		self.assertFalse(_same_text('{"message": "Hi there", "recommendations": {}}', "Hi there"))
+		self.assertFalse(_same_text("", "Hi there"))
 
 
 class TestADirectTurnStreamsFromTheRequest(FrappeTestCase):
