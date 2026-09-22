@@ -46,6 +46,7 @@ Rules for the awkward orders:
 - A test call has failed when its result says ok false or the provider answered outside 2xx. Report it as failed, with the status and the provider's message. Never describe that connector as working, tested successfully or ready.
 - When the work order says a gateway, proxy or token protects the calls, even though the public API itself needs none, pass that auth_type to draft_connector with no value, do not run test_operation, and say the test waits on the credential a person supplies.
 - A required field whose value the work order does not give (a tenant id, an account id, a region) is declared and left for the person, never written into the connector. If you test with a stand-in value, say so in the summary and say the real value is still missing; a connector tested with a stand-in is not confirmed working.
+- Redraft at most twice. If the third draft is still not right, write what you have, call finalize and name what is still wrong: a flaw named is worth more than a summary that never comes.
 """
 
 _SYSTEM_PROMPT = """\
