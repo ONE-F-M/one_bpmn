@@ -289,13 +289,15 @@ def agent_event_stream(
 			# buffered path, so cards and artifacts keep working.
 			handover = {}
 			yield from _relay_child_stream(
-				_take_handover(result["stream"], handover), encoder, message_id
+				_take_handover(result["stream"], handover), encoder, message_id, state=handover
 			)
 			if "result" not in handover:
 				_commit_turn()
 				result = None
 			else:
 				result = handover["result"]
+				if handover.get("text_streamed") and isinstance(result, dict):
+					result["text_streamed"] = True
 
 		if result is not None and not result.get("streaming"):
 			shaper = _REPLY_SHAPERS.get(agent_id)
@@ -334,15 +336,18 @@ def agent_event_stream(
 				text = _(
 					"The agent finished without producing a reply. Please try again."
 				)
-			yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
-			# Emitted as multiple TextMessageContent events, one per chunk,
-			# rather than the whole reply in a single delta — the runner
-			# already ran to completion before we got here, but the client
-			# still sees the text arrive progressively instead of appearing
-			# all at once.
-			for delta in _iter_text_deltas(text):
-				yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=delta))
-			yield encoder.encode(TextMessageEndEvent(message_id=message_id))
+			if result.get("text_streamed"):
+				# The reader already has the text, word by word, from the relay.
+				# Sending it again would show the reply twice.
+				yield encoder.encode(TextMessageEndEvent(message_id=message_id))
+			else:
+				yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
+				# One TextMessageContent per chunk: the runner finished before
+				# this point, but the reader still sees the text arrive in
+				# pieces instead of all at once.
+				for delta in _iter_text_deltas(text):
+					yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=delta))
+				yield encoder.encode(TextMessageEndEvent(message_id=message_id))
 			# TOOL_CALL_START/END bracket each tool the turn ran,
 			# named for the tool shape that ran it — the same names already
 			# recorded on the turn's ToolCallRecord/tool_calls entries, so a
@@ -439,7 +444,7 @@ def _take_handover(child, handover: dict):
 
 def _relay_child_stream(
 	child, encoder, message_id, interval=_HEARTBEAT_INTERVAL_SECONDS,
-	stall_ceiling=_STALL_CEILING_SECONDS,
+	stall_ceiling=_STALL_CEILING_SECONDS, state=None,
 ):
 	"""Relay a streaming runner's events into the parent stream.
 
@@ -534,6 +539,11 @@ def _relay_child_stream(
 			# child's keep-alive chunk must not end the parent's stream.
 			if not delta:
 				continue
+			# Text arriving while the turn runs opens the reply the first time,
+			# and tells the buffered path afterwards that the reader has it.
+			if state is not None and not state.get("text_streamed"):
+				state["text_streamed"] = True
+				yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
 			yield encoder.encode(
 				TextMessageContentEvent(
 					message_id=event.get("message_id", message_id), delta=delta

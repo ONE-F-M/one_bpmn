@@ -90,6 +90,35 @@ def consume(instance_name: str, timeout: float, poll_seconds: float = 0.25):
 		yield event
 
 
+def live_text_sink():
+	"""A callable that sends model text to the chat request waiting on this
+	turn as it is written, or None when nobody is waiting.
+
+	Only a conversation has a reader. A background agent has nobody at the
+	other end, and publishing for one would leave an unread list behind on
+	every run, so the sink is None for anything that is not a chat turn.
+	"""
+	from one_bpmn.agents.observability import current_run_name
+
+	run = current_run_name()
+	if not run:
+		return None
+	try:
+		instance = frappe.db.get_value("AI Agent Run", run, "instance")
+		if not instance:
+			return None
+		if frappe.db.get_value("BPMN Process Instance", instance, "context_doctype") != "Chat Conversation":
+			return None
+	except Exception:
+		return None
+
+	def sink(delta: str) -> None:
+		if delta:
+			publish_event(instance, {"type": "TEXT_MESSAGE_CONTENT", "delta": delta})
+
+	return sink
+
+
 def wait(instance_name: str, timeout: float, poll_seconds: float = 0.25) -> bool:
 	"""Block until the turn ends, or ``timeout`` passes.
 
