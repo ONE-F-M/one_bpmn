@@ -472,12 +472,16 @@ def invoke_agent(
 		# next turn and two unrelated turns look like one.
 		_turn.end_turn()
 	if _is_stream(result):
+		envelope = dict(result) if isinstance(result, dict) else {}
+		inner = envelope.pop("stream", result)
+		envelope.pop("streaming", None)
 		return {
+			**envelope,
 			"streaming": True,
 			# A streamed turn is still running when this returns, so the lock
 			# has to outlive the function the same way the PII turn does.
 			"stream": _stream_with_pii_teardown(
-				result, _pii_turn, conversation=conversation, lock_token=_lock_token
+				inner, _pii_turn, conversation=conversation, lock_token=_lock_token
 			),
 			"conversation": conversation,
 			"agent_id": agent_id,
@@ -515,10 +519,20 @@ def invoke_agent(
 
 
 def _is_stream(value) -> bool:
-	"""True for the iterator shapes a streaming runner may hand back."""
+	"""True for the shapes a runner hands back when it is streaming.
+
+	A runner may return the generator itself, or the ``{"streaming": True,
+	"stream": <generator>}`` envelope _run_bpmn_map uses. Reading only the bare
+	generator treated every map-driven chat turn as finished the moment the
+	runner returned: the turn lock and the PII turn were torn down about eighty
+	milliseconds in, while the map had not produced a token. One turn at a time
+	stopped being one turn at a time, for every agent whose map drives it.
+	"""
 	import inspect
 
-	return inspect.isgenerator(value) or (hasattr(value, "__next__") and not isinstance(value, dict))
+	if isinstance(value, dict):
+		return bool(value.get("streaming")) and value.get("stream") is not None
+	return inspect.isgenerator(value) or hasattr(value, "__next__")
 
 
 def _stream_with_pii_teardown(gen, pii_turn, conversation=None, lock_token=None):

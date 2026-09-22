@@ -4,6 +4,8 @@
 import json
 import re
 
+import time
+
 import frappe
 from frappe import _
 
@@ -32,6 +34,10 @@ def _derive_api_method(script_name: str) -> str:
 # Matches the per-call ceiling of an AI Agent Task, so the request gives up
 # when the work itself would.
 CHAT_TURN_WAIT_SECONDS = 300
+# How long a delivery keeps trying while the map loops back to its wait gateway.
+# The gap is well under a second; this is slack, not a budget to spend.
+REARM_WAIT_SECONDS = 20
+_REARM_POLL_SECONDS = 0.25
 
 
 def _latest_bot_message(conversation_name: str):
@@ -76,6 +82,39 @@ def _wait_for_worker_reply(inst_name: str, conversation_name: str, reply_before:
 	if rows and rows[0]["name"] != reply_before:
 		return rows
 	return None
+
+
+def _redeliver_until_armed(inst_name: str, payload: dict) -> bool:
+	"""Deliver again until a task actually catches the message. True when one did.
+
+	``receive_message`` is quiet about a message nobody was waiting for, so the
+	caller went on to wait out the whole turn timeout for a reply that could
+	never come — five minutes of "Thinking…" for the second message of a
+	conversation. The gap is real and short: the engine writes the reply, the
+	turn is reported, and only then does the map loop back to its wait gateway.
+
+	Each attempt commits first. The engine re-arms the instance on the worker's
+	connection, and this request's read snapshot would otherwise keep showing
+	the state it read before the wait.
+	"""
+	deadline = time.monotonic() + REARM_WAIT_SECONDS
+	while time.monotonic() < deadline:
+		time.sleep(_REARM_POLL_SECONDS)
+		# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+		frappe.db.commit()
+		if frappe.db.get_value("BPMN Process Instance", inst_name, "status") not in ("Active", "Queued"):
+			return False
+		instance = frappe.get_doc("BPMN Process Instance", inst_name)
+		try:
+			instance.receive_message("ChatConversation_Message_Action", payload=payload)
+		except frappe.ValidationError:
+			return False
+		except Exception:
+			frappe.log_error(title="BPMN chat redelivery failed", message=frappe.get_traceback())
+			return False
+		if instance.flags.get("bpmn_message_caught"):
+			return True
+	return False
 
 
 def _delegate_to_bpmn_instance(
@@ -135,6 +174,13 @@ def _delegate_to_bpmn_instance(
 	# distinguish "the map replied" from "the map produced nothing and the last
 	# reply is still the newest row" — and the second case silently re-served a
 	# previous answer as though it were this turn's.
+	# Read it on a FRESH snapshot. A turn that queued behind another opened its
+	# transaction before that turn had committed, so under REPEATABLE READ it
+	# still sees the conversation as it was when it arrived: the reply saved
+	# while it waited looks new, and the wait below hands the previous
+	# question's answer back as this one's.
+	# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+	frappe.db.commit()
 	_before = frappe.get_all(
 		"Chat Message",
 		filters={"conversation": conversation_name, "message_type": "Bot"},
@@ -173,6 +219,10 @@ def _delegate_to_bpmn_instance(
 	except Exception:
 		frappe.log_error(title="BPMN chat delegation failed", message=frappe.get_traceback())
 		return None
+
+	if not instance.flags.get("bpmn_message_caught"):
+		if not _redeliver_until_armed(inst_name, payload):
+			return None
 
 	# Read back the bot message the instance produced during Call Agent → Save Response.
 	#
