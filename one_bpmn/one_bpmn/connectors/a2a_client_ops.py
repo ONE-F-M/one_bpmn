@@ -117,6 +117,18 @@ def delegate_to_local_agent(params: dict, ctx: dict) -> dict | None:
 	# request_payload shape every existing caller already gets.
 	extra_payload = {k: refs[k] for k in ("target_app", "git_branch") if refs.get(k)}
 
+	# An eval measures the decision, not the specialist. A real delegation here
+	# runs a sandbox agent and can open a pull request every time the suite is
+	# pressed, so under eval the call is recorded in the trace and stops.
+	if frappe.flags.get("eval_origin"):
+		return {
+			"state": "not-started",
+			"reason": "evaluation",
+			"text": (
+				f"Recorded: this work would go to {target}. Nothing was started — this is an "
+				"evaluation run, and the choice of specialist is what it measures."
+			),
+		}
 	try:
 		a2a_task = local.delegate(
 			_delegating_agent(instance, params),
