@@ -127,6 +127,11 @@
    "read": 1,
    "role": "All",
    "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "role": "A2A Client"
   }
  ],
  "row_format": "Dynamic",

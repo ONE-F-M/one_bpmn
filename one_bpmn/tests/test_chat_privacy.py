@@ -13,11 +13,7 @@ from __future__ import annotations
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.chat_permissions import (
-	chat_conversation_has_permission,
-	chat_message_has_permission,
-	is_participant,
-)
+from one_bpmn.agents.chat_permissions import chat_message_has_permission, is_participant
 
 OWNER = "wi2364_owner@example.com"
 OUTSIDER = "wi2364_outsider@example.com"
@@ -127,15 +123,16 @@ class TestThePersonWhoHadItKeepsAccess(ChatPrivacyCase):
 		self.assertTrue(frappe.has_permission("Chat Conversation", "read", doc=self.conv))
 		self.assertTrue(frappe.has_permission("Chat Message", "write", doc=self.msg))
 
-	def test_a_participant_may_read_but_not_rewrite(self):
+	def test_a_listed_participant_who_did_not_start_it_is_refused(self):
+		"""A conversation is the creator's alone. Nothing ever lists anyone else as
+		a participant in practice, so the row on the fixture is the only one that
+		would have had a claim — and if_owner refuses it."""
 		frappe.set_user(GUEST_OF)
 
 		self.assertTrue(is_participant(self.conv, GUEST_OF))
-		self.assertIn(self.conv, frappe.get_list("Chat Conversation", pluck="name", limit_page_length=0))
-		self.assertTrue(frappe.has_permission("Chat Message", "read", doc=self.msg))
-		self.assertFalse(
-			chat_conversation_has_permission(frappe.get_doc("Chat Conversation", self.conv), "write", GUEST_OF)
-		)
+		self.assertNotIn(self.conv, frappe.get_list("Chat Conversation", pluck="name", limit_page_length=0))
+		self.assertFalse(frappe.has_permission("Chat Conversation", "read", doc=self.conv))
+		self.assertFalse(frappe.has_permission("Chat Conversation", "write", doc=self.conv))
 
 	def test_nobody_but_an_administrator_may_delete_a_conversation(self):
 		frappe.set_user(OWNER)

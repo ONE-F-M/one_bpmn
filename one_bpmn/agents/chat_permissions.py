@@ -4,19 +4,19 @@
 
 Both chat doctypes granted the role ``All`` read, write, create and delete, so
 any signed-in employee could list every conversation on the site through
-``/api/resource`` and read what anyone had said to an agent — an unreleased
-process discussed with ProsAlly, a draft leave form described to Docu. They
-could edit and delete those messages too.
+``/api/resource`` and read what anyone had said to an agent. They could edit
+and delete those messages too.
 
-Scoping is done here rather than with ``if_owner`` on the permission row.
-Frappe ANDs the role permission with every ``has_permission`` hook, so a hook
-can narrow what a role allows but never widen it: with ``if_owner`` set, a
-participant who is not the creator would be refused before this code ran. The
-role keeps read and write; these hooks decide whose rows those apply to. It is
-the same arrangement AI Memory already uses.
+A conversation belongs to the person who started it, and ``if_owner`` on its
+permission row says exactly that — Frappe applies it to lists, reports and
+single reads alike, with no hook to keep in step. Participants were never more
+than the creator (create_agent_conversation writes one row, the creator), so
+nothing is lost by dropping the participant model for conversations.
 
-Deletion is left to System Manager alone — a conversation is the audit trail of
-what an agent was asked to do.
+Messages still go through the hooks below: a bot reply is written in the
+asker's session, so it must be readable by whoever owns the conversation it
+sits in, not by whoever inserted the row. Deletion is left to System Manager
+alone — a conversation is the audit trail of what an agent was asked to do.
 """
 
 from __future__ import annotations
@@ -65,20 +65,6 @@ def is_participant(conversation: str, user: str | None = None) -> bool:
 # ── List and report queries ────────────────────────────────────────────────
 
 
-def chat_conversation_query_conditions(user: str | None = None) -> str:
-	user = user or frappe.session.user
-	if _is_admin(user):
-		return ""
-	participant = DocType("Chat Participant")
-	mine = (
-		frappe.qb.from_(participant)
-		.select(participant.parent)
-		.where((participant.user == user) & (participant.parenttype == CONVERSATION))
-		.get_sql()
-	)
-	safe = frappe.db.escape(user)
-	return f"(`tab{CONVERSATION}`.`owner` = {safe} or `tab{CONVERSATION}`.`name` in ({mine}))"
-
 
 def chat_message_query_conditions(user: str | None = None) -> str:
 	user = user or frappe.session.user
@@ -89,17 +75,6 @@ def chat_message_query_conditions(user: str | None = None) -> str:
 
 # ── Document-level checks ──────────────────────────────────────────────────
 
-
-def chat_conversation_has_permission(doc, ptype: str = "read", user: str | None = None) -> bool:
-	user = user or frappe.session.user
-	if _is_admin(user):
-		return True
-	if ptype == "create":
-		# You may always start your own; it is yours the moment it is inserted.
-		return True
-	if ptype in ("write", "delete", "submit", "cancel", "amend"):
-		return doc.owner == user
-	return is_participant(doc.name, user)
 
 
 def chat_message_has_permission(doc, ptype: str = "read", user: str | None = None) -> bool:

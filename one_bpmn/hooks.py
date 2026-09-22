@@ -167,7 +167,6 @@ permission_query_conditions = {
 	"AI Memory": "one_bpmn.agents.memory.permissions.ai_memory_query_conditions",
 	# A conversation with an agent is private to the person who had it. Enforced
 	# here so it holds for the list, the Desk, any report and /api/resource alike.
-	"Chat Conversation": "one_bpmn.agents.chat_permissions.chat_conversation_query_conditions",
 	"Chat Message": "one_bpmn.agents.chat_permissions.chat_message_query_conditions",
 }
 
@@ -176,7 +175,6 @@ has_permission = {
 	"AI Eval Case": "one_bpmn.agents.eval_permissions.eval_case_has_permission",
 	"AI Eval Run": "one_bpmn.agents.eval_permissions.eval_run_has_permission",
 	"AI Memory": "one_bpmn.agents.memory.permissions.ai_memory_has_permission",
-	"Chat Conversation": "one_bpmn.agents.chat_permissions.chat_conversation_has_permission",
 	"Chat Message": "one_bpmn.agents.chat_permissions.chat_message_has_permission",
 }
 
