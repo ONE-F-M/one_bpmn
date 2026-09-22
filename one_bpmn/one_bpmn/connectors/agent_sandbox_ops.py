@@ -407,6 +407,7 @@ def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_de
 		"work_item_description": work_item_description,
 		"work_item_id": work_item_id_for(a2a_task),
 		"args": args,
+		"agent_name": getattr(instance, "process_model", None) or "Dev Agent",
 	}
 	if run:
 		run.db_set("request_payload", frappe.as_json(payload), update_modified=False)
@@ -498,6 +499,7 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 		"args": args,
 		"github_token": github_token,
 		"callback_url": _callback_url(),
+		"agent_name": getattr(instance, "process_model", None) or "Dev Agent",
 	}
 	audit_payload = {**payload, "github_token": "REDACTED"}
 	run.db_set("request_payload", frappe.as_json(audit_payload), update_modified=False)
