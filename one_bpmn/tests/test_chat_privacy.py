@@ -250,3 +250,37 @@ class TestAdministratorOwnedRowsGoBackToTheirPerson(ChatPrivacyCase):
 		self.assertEqual(frappe.db.get_value("Chat Message", msg, "owner"), "Administrator")
 		self._run_patch()
 		self.assertEqual(frappe.db.get_value("Chat Message", msg, "owner"), OWNER)
+
+
+class TestAnA2AClientIsOwnerScopedToo(ChatPrivacyCase):
+	"""An inbound A2A turn creates its own conversation — run_chat_turn calls
+	invoke_agent with no conversation — so the badge role never needs to reach
+	one it did not start, and carries if_owner like every other role."""
+
+	A2A_USER = "wi2364_a2a@example.com"
+
+	def setUp(self):
+		super().setUp()
+		from one_bpmn.agents.a2a.principal import A2A_CLIENT_ROLE, ensure_client_role
+
+		ensure_client_role()
+		_user(self.A2A_USER, roles=(A2A_CLIENT_ROLE,))
+		frappe.clear_cache(user=self.A2A_USER)
+
+	def test_a_client_cannot_read_someone_elses_conversation(self):
+		frappe.set_user(self.A2A_USER)
+
+		self.assertNotIn(self.conv, frappe.get_list("Chat Conversation", pluck="name", limit_page_length=0))
+		self.assertFalse(frappe.has_permission("Chat Conversation", "read", doc=self.conv))
+		self.assertFalse(frappe.has_permission("Chat Message", "read", doc=self.msg))
+
+	def test_a_client_still_owns_the_conversation_it_starts(self):
+		frappe.set_user(self.A2A_USER)
+		from one_bpmn.utils.chat_persistence import create_agent_conversation
+
+		conv = create_agent_conversation("lumina_general_chat", title="inbound turn")
+		self._made.append(("Chat Conversation", conv))
+
+		self.assertEqual(frappe.db.get_value("Chat Conversation", conv, "owner"), self.A2A_USER)
+		self.assertTrue(frappe.has_permission("Chat Conversation", "read", doc=conv))
+		self.assertTrue(frappe.has_permission("Chat Conversation", "write", doc=conv))
