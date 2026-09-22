@@ -450,13 +450,34 @@
 			</div>
 		</div>
 
+		<!-- Standard error/notice dialog (frappe-ui) — replaces browser alert()s -->
+		<Dialog v-model="notice.show" :options="{ title: notice.title }">
+			<template #body-content>
+				<p class="whitespace-pre-line text-sm text-gray-700">{{ notice.message }}</p>
+			</template>
+		</Dialog>
+
 	</div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { Icon } from '@iconify/vue'
-import { call } from 'frappe-ui'
+import { call, Dialog } from 'frappe-ui'
+
+// Standard error/notice dialog (frappe-ui) — replaces browser alert()s, so a
+// frappe.throw from the backend (e.g. AI Skill validation) reads as a proper
+// Frappe-style dialog instead of a native browser popup. Mirrors the pattern
+// already established in AIAgentConfigModal.vue.
+const notice = ref({ show: false, title: '', message: '' })
+function showNotice(title, message) {
+	notice.value = { show: true, title, message }
+}
+function serverMessage(e) {
+	const msgs = Array.isArray(e?.messages) ? e.messages.filter(Boolean) : []
+	return msgs.join('\n') || e?.message || String(e)
+}
+
 const allTools = ref([])
 const toolSearch = ref('')
 
@@ -511,7 +532,7 @@ function removeNewSkillResource(idx) {
 
 async function submitNewSkill() {
     if (!newSkillForm.value.skill_name) {
-        alert("Skill name is required");
+        showNotice("Missing information", "Skill name is required.");
         return;
     }
     creating.value = true;
@@ -550,15 +571,12 @@ async function submitNewSkill() {
         // The backend queues every frappe.msgprint (e.g. an AI-suggested
         // rephrasing when the description looks ambiguous) alongside any
         // frappe.throw for a genuine validation failure (bad tool
-        // reference, token ceiling exceeded, ...). frappe-ui surfaces all
-        // of those as err.messages, in the order they were raised, so
-        // joining them shows the real reason -- and the suggestion --
-        // instead of a generic message that hides both.
-        const msg =
-            err.messages && err.messages.length
-                ? err.messages.join("\n")
-                : err.message || "Failed to create skill";
-        alert(msg);
+        // reference, token ceiling exceeded, ...). serverMessage() joins
+        // err.messages in the order they were raised, so it shows the real
+        // reason -- and the suggestion -- instead of a generic message that
+        // hides both. Shown via showNotice() (a frappe-ui Dialog) instead of
+        // a native alert() popup, so it reads as a proper Frappe error.
+        showNotice("Skill was not created", serverMessage(err) || "Failed to create skill");
     } finally {
         creating.value = false;
     }
@@ -601,7 +619,7 @@ const refreshSkills = async () => {
 		}
 	} catch (err) {
 		console.error("Failed to load skills:", err)
-		alert('Failed to load skills library')
+		showNotice("Couldn't load skills", serverMessage(err))
 	} finally {
 		loading.value = false
 	}
@@ -675,10 +693,10 @@ const saveSkillSettings = async () => {
 			}
 		)
         await refreshSkills()
-		alert('Skill settings saved successfully')
+		showNotice("Saved", "Skill settings saved successfully.")
 	} catch (err) {
 		console.error("Failed to save skill settings", err)
-		alert('Failed to save skill settings')
+		showNotice("Skill settings were not saved", serverMessage(err))
 	} finally {
 		saving.value = false
 	}
@@ -695,10 +713,10 @@ const saveSkillBody = async () => {
 				new_body: editedBody.value
 			}
 		)
-		alert('Skill body saved successfully')
+		showNotice("Saved", "Skill body saved successfully.")
 	} catch (err) {
 		console.error("Failed to save skill body", err)
-		alert('Failed to save skill body')
+		showNotice("Skill body was not saved", serverMessage(err))
 	} finally {
 		saving.value = false
 	}
@@ -735,14 +753,14 @@ const harvestSkill = async () => {
 			}
 		)
 		if (res) {
-			alert(`Successfully harvested as ${res}`)
+			showNotice("Harvested", `Successfully harvested as ${res}`)
 			showHarvestModal.value = false
 			harvestRunName.value = ''
 			await refreshSkills()
 		}
 	} catch (err) {
 		console.error("Failed to harvest skill", err)
-		alert(err.message || 'Failed to harvest skill')
+		showNotice("Skill was not harvested", serverMessage(err))
 	} finally {
 		harvesting.value = false
 	}
