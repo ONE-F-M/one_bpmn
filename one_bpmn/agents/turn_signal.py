@@ -91,6 +91,10 @@ def consume(instance_name: str, timeout: float, poll_seconds: float = 0.25):
 
 
 LIVE_TEXT_QUEUE_FLAG = "bpmn_ai_live_text_queue"
+# Set by dispatch_ai_agent, for the duration of one shape's executor call,
+# only when that shape opted in with spiffworkflow:aiStreamToReader AND the
+# instance is a Chat Conversation turn — see dispatchers.dispatch_ai_agent.
+LIVE_TEXT_INSTANCE_FLAG = "bpmn_ai_live_text_instance"
 
 def live_text_sink():
 	"""A callable that sends model text to the reader as it is written, or None.
@@ -101,16 +105,32 @@ def live_text_sink():
 	sub-agents whose text is machine-shaped for the map to read, and the
 	reply the person sees is composed afterwards, so forwarding the raw text
 	would show them the wrong thing.
+
+	The one exception is a shape that has explicitly opted in
+	(spiffworkflow:aiStreamToReader) on a Chat Conversation instance: there
+	the dispatcher marks the instance on frappe.flags for the duration of that
+	shape's executor call, and text is forwarded as turn-signal progress
+	events so the reader watching that conversation sees it live.
 	"""
 	local_queue = frappe.flags.get(LIVE_TEXT_QUEUE_FLAG)
-	if local_queue is None:
-		return None
+	if local_queue is not None:
 
-	def sink(delta: str) -> None:
-		if delta:
-			local_queue.put(delta)
+		def sink(delta: str) -> None:
+			if delta:
+				local_queue.put(delta)
 
-	return sink
+		return sink
+
+	live_instance = frappe.flags.get(LIVE_TEXT_INSTANCE_FLAG)
+	if live_instance:
+
+		def sink(delta: str) -> None:
+			if delta:
+				publish_event(live_instance, {"type": "TEXT_MESSAGE_CONTENT", "delta": delta})
+
+		return sink
+
+	return None
 
 
 def wait(instance_name: str, timeout: float, poll_seconds: float = 0.25) -> bool:
