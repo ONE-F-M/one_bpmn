@@ -828,6 +828,133 @@ def google_chat_recipients(instance, task_cfg: dict) -> tuple:
 	return addresses, ""
 
 
+def _same_name(name: str) -> str:
+	"""A name reduced to what two directories can agree on.
+
+	Frappe builds ``full_name`` by joining first, middle and last, so a user
+	with no middle name carries a double space that Google's display name does
+	not.
+	"""
+	return " ".join((name or "").split()).lower()
+
+
+def chat_user_id(email: str, headers: dict) -> str:
+	"""The Google Chat id behind a one-fm.com address, or "" when unsettled.
+
+	Chat addresses people by an opaque id and refuses an email outright under
+	app authentication ("Service account authentication doesn't support access
+	to user information using email aliases"). The directory answers exactly;
+	matching on name is the fallback for a site that has not been delegated.
+	"""
+	key = f"gchat_user_id::{email.lower()}"
+	cached = frappe.cache().get_value(key)
+	if cached:
+		return cached
+
+	user_id = _directory_user_id(email) or _named_user_id(email, headers)
+	if user_id:
+		# No expiry: an id outlives any TTL worth setting, and passing one skips
+		# frappe's in-process memo, so the next lookup in the worker repeats.
+		frappe.cache().set_value(key, user_id)
+	return user_id
+
+
+def _directory_user_id(email: str) -> str:
+	"""Ask the Workspace directory, which answers by email and is exact."""
+	settings = frappe.get_cached_doc("Processa Settings")
+	subject = (settings.google_directory_account or "").strip()
+	sa_json = settings.get_password("google_chat_service_account_json", raise_exception=False)
+	if not (subject and sa_json):
+		return ""
+
+	import requests
+	from google.auth.transport.requests import Request as GoogleRequest
+	from google.oauth2 import service_account
+
+	try:
+		credentials = service_account.Credentials.from_service_account_info(
+			json.loads(sa_json),
+			scopes=["https://www.googleapis.com/auth/admin.directory.user.readonly"],
+			subject=subject,
+		)
+		credentials.refresh(GoogleRequest())
+		resp = requests.get(
+			f"https://admin.googleapis.com/admin/directory/v1/users/{email}",
+			headers={"Authorization": f"Bearer {credentials.token}"},
+			params={"viewType": "domain_public"},
+			timeout=15,
+		)
+	except Exception:
+		frappe.log_error(
+			title="google_chat: directory lookup failed",
+			message=frappe.get_traceback(),
+		)
+		return ""
+
+	if resp.status_code == 200:
+		return resp.json().get("id") or ""
+	# 404 means the address has no Google account at all, which is an answer,
+	# not a fault. Anything else is worth knowing about.
+	if resp.status_code != 404:
+		frappe.log_error(
+			title="google_chat: directory lookup refused",
+			message=f"{resp.status_code} for {email}: {resp.text[:500]}",
+		)
+	return ""
+
+
+def _named_user_id(email: str, headers: dict) -> str:
+	"""Fall back to the name Frappe holds, against the direct messages the app is in."""
+	full_name = frappe.db.get_value("User", email, "full_name")
+	if not full_name:
+		return ""
+	holders = _chat_dm_directory(headers).get(_same_name(full_name)) or []
+	# Two colleagues sharing a name is the one case worth refusing: a direct
+	# message to the wrong person is worse than one that never arrives.
+	return holders[0] if len(holders) == 1 else ""
+
+
+def _chat_dm_directory(headers: dict) -> dict:
+	"""Display name (lowercased) → the Chat ids answering to it."""
+	import concurrent.futures
+
+	import requests
+
+	spaces, page = [], None
+	while True:
+		params = {"pageSize": 1000}
+		if page:
+			params["pageToken"] = page
+		body = requests.get(
+			"https://chat.googleapis.com/v1/spaces", headers=headers, params=params, timeout=20
+		).json()
+		spaces += [
+			s["name"] for s in body.get("spaces", []) if s.get("spaceType") == "DIRECT_MESSAGE"
+		]
+		page = body.get("nextPageToken")
+		if not page:
+			break
+
+	def members(space):
+		resp = requests.get(
+			f"https://chat.googleapis.com/v1/{space}/members", headers=headers, timeout=20
+		)
+		return resp.json().get("memberships", []) if resp.status_code == 200 else []
+
+	# One request per person in the domain: sequentially this runs into minutes.
+	with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+		batches = list(pool.map(members, spaces))
+
+	directory = {}
+	for batch in batches:
+		for membership in batch:
+			member = membership.get("member", {})
+			name = _same_name(member.get("displayName"))
+			if member.get("type") == "HUMAN" and name:
+				directory.setdefault(name, []).append(member["name"].split("/")[-1])
+	return directory
+
+
 def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	"""
 	Send a Google Chat message from a Service Task with serviceType='google_chat'.
@@ -848,10 +975,9 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	    gchatSpaceId          — space ID e.g. "spaces/XXXXXXX" (space mode)
 	    gchatMessage          — message body; Jinja2 supported
 
-	Credentials: the site must have a Google service account JSON key stored in
-	site_config.json under "google_chat_service_account_json" (the full JSON content
-	as a string or dict).  The service account must have the Google Chat API scope
-	https://www.googleapis.com/auth/chat.bot and be a member of the target space.
+	Credentials: Processa Settings → Google Chat → Service Account JSON. The key
+	needs the https://www.googleapis.com/auth/chat.bot scope, and the app it
+	belongs to must be a member of the target space.
 
 	Failures are non-fatal: the workflow continues and the error is logged.
 	"""
@@ -912,12 +1038,13 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 				message=frappe.get_traceback(),
 			)
 
-	# Load service account credentials from site config
-	sa_json = frappe.conf.get("google_chat_service_account_json")
+	sa_json = frappe.get_cached_doc("Processa Settings").get_password(
+		"google_chat_service_account_json", raise_exception=False
+	)
 	if not sa_json:
 		frappe.log_error(
 			title=f"BPMN ServiceTask: google_chat credentials missing ({bpmn_id})",
-			message="'google_chat_service_account_json' not found in site_config.json.",
+			message="Processa Settings → Google Chat → Service Account JSON is empty.",
 		)
 		return
 
@@ -928,7 +1055,7 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		from google.auth.transport.requests import Request as GoogleRequest
 
 		SCOPES = ["https://www.googleapis.com/auth/chat.bot"]
-		sa_info = sa_json if isinstance(sa_json, dict) else _json.loads(sa_json)
+		sa_info = _json.loads(sa_json)
 		credentials = service_account.Credentials.from_service_account_info(sa_info, scopes=SCOPES)
 		credentials.refresh(GoogleRequest())
 		access_token = credentials.token
@@ -944,10 +1071,16 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 			# and logged on its own.
 			for address in recipients:
 				try:
+					user_id = chat_user_id(address, headers) if "@" in address else address
+					if not user_id:
+						raise ValueError(
+							"No single Google Chat user answers to this address. Either they "
+							"have never been sent the app, or two people share their name."
+						)
 					dm_resp = requests.get(
 						"https://chat.googleapis.com/v1/spaces:findDirectMessage",
 						headers=headers,
-						params={"name": f"users/{address}"},
+						params={"name": f"users/{user_id}"},
 						timeout=10,
 					)
 					if dm_resp.status_code == 200:
@@ -1433,6 +1566,35 @@ def _checkpointed_tool_results(resume_payload: dict) -> list:
 	return out
 
 
+# Captured by the stream, never relayed: this is the answer, not a UI event.
+TURN_OUTPUT_EVENT = "ONEFM_TURN_OUTPUT"
+
+
+def _publish_chat_turn_output(instance, output) -> None:
+	"""Send an AI task's own output to a chat request waiting on this turn.
+
+	The request used to learn what the turn said by reading the newest Bot Chat
+	Message, which is a guess: it is only this turn's reply because no other
+	turn wrote one in between. The task's output is the answer itself, so it
+	travels directly and the row is left to confirm it and to name it.
+
+	Only for a conversation. A background agent has nobody waiting, and
+	publishing for one would leave an unread list behind on every run.
+	"""
+	if getattr(instance, "context_doctype", None) != "Chat Conversation":
+		return
+	name = getattr(instance, "name", None)
+	if not name:
+		return
+	try:
+		from one_bpmn.agents import turn_signal
+
+		turn_signal.publish_event(name, {"type": TURN_OUTPUT_EVENT, "output": output})
+	except Exception:
+		# Progress is an accelerator. The reply is still on the message row.
+		pass
+
+
 def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: str = None) -> None:
 	"""
 	Execute an AI Agent Task via the executor package.
@@ -1655,14 +1817,50 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				message=frappe.get_traceback(),
 			)
 
-	if memory_block or user_message:
+	# WI-000401: skills loaded earlier in this conversation (load_skill wrote
+	# their bodies to a conversation-scoped cache) must actually reach the
+	# model's prompt on the NEXT turn, not just sit in a cache nothing reads.
+	active_skill_bodies = []
+	_conversation_for_skills = None
+	if getattr(instance, "context_doctype", "") == "Chat Conversation":
+		_conversation_for_skills = getattr(instance, "context_docname", None)
+	if _conversation_for_skills and task_cfg.get("aiAgentConfig"):
+		from one_bpmn.api.skill_tools import _skills_cache_key
+
+		active_skill_bodies = frappe.cache().get_value(
+			_skills_cache_key(_conversation_for_skills, task_cfg["aiAgentConfig"])
+		) or []
+		# A resumed checkpoint (resume_payload) is a continuation of the turn
+		# already in progress, not a new one — only a fresh dispatch bumps the
+		# counter, so turn_loaded/turn_unloaded on AI Skill Activation reflect
+		# the actual conversation turn instead of staying stuck at 1.
+		if not resume_payload:
+			from one_bpmn.api.skill_tools import advance_turn
+			advance_turn(_conversation_for_skills)
+
+	if memory_block or user_message or active_skill_bodies:
 		from one_bpmn.agents.context_assembler import build_dynamic_preamble
 
 		user_prompt = build_dynamic_preamble(
 			memory_block=memory_block,
 			instructions=user_prompt,
 			user_prompt=user_message,
+			active_skills=active_skill_bodies,
 		)
+
+		# WI-000401: loaded skill bodies are part of the prompt budget the
+		# same way recalled memory is \u2014 counted here so AI Agent Run's
+		# memory_injected_tokens reflects everything injected ahead of the
+		# user's own text, not only the memory half of it.
+		if active_skill_bodies:
+			from one_bpmn.agents.memory.conversation_store import (
+				DEFAULT_CHARS_PER_TOKEN,
+				estimate_tokens,
+			)
+
+			memory_injected_tokens += estimate_tokens(
+				{"content": "\n\n".join(active_skill_bodies)}, DEFAULT_CHARS_PER_TOKEN
+			)
 
 	# ── Tools: the shapes of the referenced ad-hoc sub-process (Camunda "tools
 	# are the shapes"). aiToolShapes was embedded at compile time (WI-001421);
@@ -1684,8 +1882,20 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			tool_specs.extend(skill_tool_specs)
 			
 	# Inject tools for dynamically loaded skills!
+	# WI-000401: scoped to the conversation, not the instance \u2014 a resumed
+	# conversation gets a brand new instance, so state keyed by instance.name
+	# never survived the resume it was needed for.
 	if instance:
-		active_skill_names = frappe.cache().get_value(f"active_skill_names_{instance.name}") or []
+		_conversation_for_tools = None
+		if getattr(instance, "context_doctype", "") == "Chat Conversation":
+			_conversation_for_tools = getattr(instance, "context_docname", None)
+		active_skill_names = []
+		if _conversation_for_tools and agent_name:
+			from one_bpmn.api.skill_tools import _skill_names_cache_key
+
+			active_skill_names = (
+				frappe.cache().get_value(_skill_names_cache_key(_conversation_for_tools, agent_name)) or []
+			)
 		if active_skill_names:
 			import json
 			from one_bpmn.agents.llm_provider.base import ToolSpec
@@ -1799,6 +2009,11 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# blank falls through to the platform default.
 		tool_result_max_chars = cint(task_cfg.get("aiToolResultMaxChars")) or None,
 		resume_state     = _checkpoint.build_resume_state(resume_payload) if resume_payload else None,
+		# WI-002187: "finalize" always ends the turn; a shape can name additional
+		# terminal tools (comma-separated) without losing that default.
+		terminal_tools   = list({"finalize", *(
+			t.strip() for t in (task_cfg.get("aiTerminalTools") or "").split(",") if t.strip()
+		)}),
 	)
 
 	context = ExecutorContext(
@@ -1918,8 +2133,11 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				message=frappe.get_traceback(),
 			)
 	try:
+		from one_bpmn.agents import turn_signal
+
 		executor_cls = get_executor(config.backend)
-		result = executor_cls().run(config, context)
+		with turn_signal.live_text_scope(instance):
+			result = executor_cls().run(config, context)
 	except Exception as exc:
 		frappe.log_error(
 			title=f"BPMN AI Agent Task: unexpected error ({bpmn_id})",
@@ -2006,7 +2224,11 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			# naming the reply key that proves it — Logix finishes when it has a
 			# script, ProsAlly when it has a diagram. Left unset, completion
 			# falls back to the generic error/turn-cap/output signals.
-			finalize_ai_run(run, result, goal_key=(task_cfg.get("aiGoalOutputKey") or "").strip() or None)
+			finalize_ai_run(
+				run, result,
+				goal_key=(task_cfg.get("aiGoalOutputKey") or "").strip() or None,
+				request_text=user_prompt,
+			)
 
 		# Commit observability data so AI runs + steps survive even if a
 		# downstream aiStopOnError raise rolls back the outer transaction.
@@ -2122,6 +2344,12 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			task.data.pop("_bpmn_ai_waiting_human", None)
 		output_var = task_cfg.get("aiOutputVariable") or f"{bpmn_id}_output"
 		task.data[output_var] = result.output
+		# The shape's own name is the key every downstream reader knows: the
+		# tool artifact, the turn state a later tool reads back, the pipeline
+		# scripts. A map that renames the variable must not hide the answer
+		# from them, so the answer is written under both names.
+		task.data[f"{bpmn_id}_output"] = result.output
+		_publish_chat_turn_output(instance, result.output)
 		if result.token_usage:
 			task.data[f"{bpmn_id}_token_usage"] = {
 				"prompt_tokens":     result.token_usage.prompt_tokens,
@@ -2362,6 +2590,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# instead of routing to its default branch.
 		output_var = task_cfg.get("aiOutputVariable") or f"{bpmn_id}_output"
 		task.data.setdefault(output_var, None)
+		task.data.setdefault(f"{bpmn_id}_output", None)
 
 		# If the BPMN task is configured to stop on error, raise so the
 		# engine loop in _run_engine_steps halts and the instance is

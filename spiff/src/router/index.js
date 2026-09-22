@@ -40,6 +40,16 @@ const routes = [
 		component: InstanceDetail,
 	},
 	{
+		path: "/processa/runs",
+		name: "Runs",
+		component: () => import("@/views/Runs.vue"),
+	},
+	{
+		path: "/processa/runs/:run",
+		name: "RunDetail",
+		component: () => import("@/views/RunDetail.vue"),
+	},
+	{
 		path: "/processa/insights",
 		name: "Insights",
 		component: () => import("@/views/Insights.vue"),
@@ -100,6 +110,11 @@ const routes = [
 		path: "/processa/sessions",
 		name: "Sessions",
 		component: () => import("@/views/Sessions.vue"),
+	},
+	{
+		path: "/processa/memory",
+		name: "Memory",
+		component: () => import("@/views/Memory.vue"),
 	},
 	{
 		path: "/:pathMatch(.*)*",

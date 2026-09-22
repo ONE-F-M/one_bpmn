@@ -29,8 +29,15 @@
 #     attributes meaningless, so the panel clears them. That is a silent
 #     configuration loss on a live map.
 #   * ``calledElement`` — repoints a Call Activity at a different process.
-#   * Sequence flows and gateway defaults — routing. A wrong condition does not
-#     look broken, it just takes the wrong branch.
+#   * ``default`` on a gateway — which flow is taken when no condition matches.
+#     It is a reference to another element, and one that does not name a flow
+#     off that gateway dead-ends the map.
+#
+# A sequence flow's condition and name ARE editable here. A wrong condition
+# takes the wrong branch, which is a routing mistake and not a broken map: it
+# still compiles, and editing again puts it right. Releasing the panel is for
+# exactly this kind of non-breaking correction, and a condition that can only
+# be fixed by unlocking the whole process is the wrong side of that line.
 #
 # Changes are audited by the document's own version history and nothing else.
 # BPMN Process Model has track_changes enabled, so saving the map records a
@@ -48,12 +55,19 @@ from lxml import etree
 
 from one_bpmn.api.editability import _is_production_instance
 
+etree.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
+
 SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
 
 # Elements whose properties are never editable here, by BPMN local name.
-# Sequence flows carry the routing conditions, which is why they are in this
-# list rather than the attribute one — a flow has little else worth editing.
-LOCKED_ELEMENTS = ("scriptTask", "sequenceFlow")
+LOCKED_ELEMENTS = ("scriptTask",)
+
+BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
+
+# A flow's condition is a child element, not an attribute, so it is read and
+# written by name here rather than through the attribute path below.
+CONDITION = "conditionExpression"
 
 AI_AGENT_SERVICE_TYPE = "ai_agent"
 
@@ -85,8 +99,6 @@ def locked_reason(node) -> str | None:
 	tag = etree.QName(node).localname
 	if tag == "scriptTask":
 		return _("Script tasks stay read-only.")
-	if tag == "sequenceFlow":
-		return _("Sequence flow conditions decide routing and stay read-only.")
 	if tag == "serviceTask" and node.get(f"{{{SPIFF_NS}}}serviceType") == AI_AGENT_SERVICE_TYPE:
 		return _("AI Agent tasks stay read-only.")
 	return None
@@ -97,12 +109,39 @@ def blocked_attr(name: str) -> bool:
 	return name in LOCKED_ATTRS or "script" in name.lower()
 
 
+def _condition_node(node):
+	return node.find(f"{{{BPMN_NS}}}{CONDITION}")
+
+
 def _read(node, names) -> dict:
 	out = {}
 	for name in names:
+		if name == CONDITION:
+			found = _condition_node(node)
+			out[name] = (found.text or "").strip() if found is not None else ""
+			continue
 		key = name if name in PLAIN_ATTRS else f"{{{SPIFF_NS}}}{name}"
 		out[name] = node.get(key) or ""
 	return out
+
+
+def _write_condition(node, value):
+	"""Set, replace or remove the flow's condition.
+
+	Written the way bpmn-js writes one — a tFormalExpression — so the map reads
+	the same whether the condition was drawn or corrected here. The schema puts
+	conditionExpression last among a flow's children, so a new one is appended.
+	"""
+	found = _condition_node(node)
+	if value in (None, ""):
+		if found is not None:
+			node.remove(found)
+		return
+	if found is None:
+		found = etree.SubElement(node, f"{{{BPMN_NS}}}{CONDITION}")
+		prefix = next((p for p, ns in node.nsmap.items() if ns == BPMN_NS and p), None)
+		found.set(f"{{{XSI_NS}}}type", f"{prefix}:tFormalExpression" if prefix else "tFormalExpression")
+	found.text = str(value)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -152,13 +191,18 @@ def update_element_properties(model_name: str, element_id: str, properties) -> d
 	reason = locked_reason(node)
 	if reason:
 		frappe.throw(reason, title=_("Read-only"))
+	if CONDITION in properties and etree.QName(node).localname != "sequenceFlow":
+		frappe.throw(_("Only a sequence flow carries a condition."))
 
 	names = list(properties)
 	before = _read(node, names)
 
 	for name in names:
-		key = name if name in PLAIN_ATTRS else f"{{{SPIFF_NS}}}{name}"
 		value = properties.get(name)
+		if name == CONDITION:
+			_write_condition(node, value)
+			continue
+		key = name if name in PLAIN_ATTRS else f"{{{SPIFF_NS}}}{name}"
 		if value in (None, ""):
 			node.attrib.pop(key, None)
 		else:

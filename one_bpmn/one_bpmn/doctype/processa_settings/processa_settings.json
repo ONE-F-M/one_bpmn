@@ -25,6 +25,9 @@
   "column_break_agent_sandbox",
   "agent_callback_secret",
   "agent_sandbox_caller_key",
+  "section_break_google_chat",
+  "google_chat_service_account_json",
+  "google_directory_account",
   "section_break_script_security",
   "script_security_intro",
   "script_binop_multiply_threshold",
@@ -48,6 +51,7 @@
   "memory_semantic_weight",
   "memory_recency_weight",
   "memory_importance_weight",
+  "memory_retrieval_budget_ms",
   "memory_trust_hierarchy",
   "memory_prune_min_confidence",
   "memory_prune_uncorroborated_days",
@@ -60,10 +64,6 @@
   "archive_action",
   "section_break_ai_health",
   "ai_health_alert_recipients",
-  "section_break_golden_dataset",
-  "golden_dataset_minimum",
-  "column_break_golden_dataset",
-  "golden_dataset_target",
   "section_break_nightly_evals",
   "eval_alert_recipients",
   "nightly_eval_grading_model",
@@ -240,6 +240,24 @@
    "label": "Sandbox Caller Key (GCP Service Account JSON)"
   },
   {
+   "fieldname": "section_break_google_chat",
+   "fieldtype": "Section Break",
+   "label": "Google Chat"
+  },
+  {
+   "description": "Service account key the Chat Service Task sends with. Needs the chat.bot scope.",
+   "fieldname": "google_chat_service_account_json",
+   "fieldtype": "Password",
+   "label": "Google Chat Service Account JSON"
+  },
+  {
+   "description": "Workspace account the directory lookup runs as. Empty falls back to matching on name.",
+   "fieldname": "google_directory_account",
+   "fieldtype": "Data",
+   "label": "Directory Lookup Account",
+   "options": "Email"
+  },
+  {
    "collapsible": 1,
    "fieldname": "section_break_script_security",
    "fieldtype": "Section Break",
@@ -389,6 +407,13 @@
    "label": "Importance Weight"
   },
   {
+   "default": "200",
+   "description": "Memory eval budget. How long a memory search may take, in milliseconds, before a Memory eval case fails on latency. Recall runs before every chat reply, so this is time added to each turn. Blank or 0 means 200.",
+   "fieldname": "memory_retrieval_budget_ms",
+   "fieldtype": "Int",
+   "label": "Retrieval Budget (ms)"
+  },
+  {
    "default": "User Statement\nAgent Inference\nTool Output",
    "description": "One source type per line, most trusted first. When a new memory contradicts an existing one, the higher source type wins; on a tie the higher effective confidence wins. Source types not listed rank lowest.",
    "fieldname": "memory_trust_hierarchy",
@@ -468,29 +493,6 @@
    "fieldtype": "Table MultiSelect",
    "label": "Credential Alert Recipients",
    "options": "User Group Member"
-  },
-  {
-   "fieldname": "section_break_golden_dataset",
-   "fieldtype": "Section Break",
-   "label": "Golden Datasets"
-  },
-  {
-   "default": "20",
-   "description": "Cases an agent or skill needs before its dataset counts as representative. Also the bar a skill must clear to take actions; 0 falls back to 20.",
-   "fieldname": "golden_dataset_minimum",
-   "fieldtype": "Int",
-   "label": "Minimum Cases Per Dataset"
-  },
-  {
-   "fieldname": "column_break_golden_dataset",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "30",
-   "description": "The size a dataset is aiming for, shown beside the minimum. 0 falls back to 30.",
-   "fieldname": "golden_dataset_target",
-   "fieldtype": "Int",
-   "label": "Target Cases Per Dataset"
   },
   {
    "fieldname": "section_break_nightly_evals",

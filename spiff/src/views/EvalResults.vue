@@ -64,24 +64,6 @@
 			</div>
 
 			<div v-else>
-				<!-- how each agent has moved, which one run never tells you -->
-				<div v-if="trends.length" class="er-trends">
-					<div v-for="t in trends" :key="t.agent" class="er-trend">
-						<span class="er-trend-agent">{{ t.agent }}</span>
-						<span class="er-trend-series">
-							<span
-								v-for="(p, i) in t.points"
-								:key="i"
-								class="er-bar"
-								:class="{ 'er-bar--bad': p.rate !== null && p.rate < 100 }"
-								:style="{ height: barHeight(p.rate) }"
-								:title="`${p.when} — ${p.rate === null ? __('not scored') : p.rate.toFixed(0) + '%'}`"
-							/>
-						</span>
-						<span class="er-trend-last">{{ t.last }}</span>
-					</div>
-				</div>
-
 				<div v-for="day in days" :key="day.label" class="er-day">
 					<div class="er-day-head">{{ day.label }}</div>
 					<div
@@ -144,10 +126,12 @@ const isSystemManager = ref(false);
 const agentFilter = ref("");
 const filters = reactive({ triggered_by: "", days: 7, agent: "", failures_only: false });
 
-const agentOptions = computed(() => {
-	const names = [...new Set(rows.value.map((r) => r.agent).filter(Boolean))].sort();
-	return [{ label: __("Every agent"), value: "" }].concat(names.map((n) => ({ label: n, value: n })));
-});
+// Every agent the reader may see, from the server — not from the rows on
+// screen, which after filtering would offer only the agent already chosen.
+const agents = ref([]);
+const agentOptions = computed(() =>
+	[{ label: __("Every agent"), value: "" }].concat(agents.value.map((n) => ({ label: n, value: n })))
+);
 
 const emptyTitle = computed(() =>
 	filters.failures_only
@@ -165,32 +149,6 @@ const days = computed(() => {
 	}
 	return [...groups.entries()].map(([key, list]) => ({ label: dayLabel(key), rows: list }));
 });
-
-// One run at 92% says nothing; three nights of 100 → 96 → 88 says everything.
-const trends = computed(() => {
-	const byAgent = new Map();
-	for (const row of [...rows.value].reverse()) {
-		if (!row.agent || row.total === 0) continue;
-		if (!byAgent.has(row.agent)) byAgent.set(row.agent, []);
-		byAgent.get(row.agent).push({ rate: row.rate, when: timeOf(row.when) });
-	}
-	return [...byAgent.entries()]
-		.filter(([, points]) => points.length > 1)
-		.map(([agent, points]) => {
-			const recent = points.slice(-12);
-			const last = recent[recent.length - 1];
-			return {
-				agent,
-				points: recent,
-				last: last.rate === null ? __("not scored") : `${last.rate.toFixed(0)}%`,
-			};
-		});
-});
-
-function barHeight(rate) {
-	if (rate === null) return "3px";
-	return `${Math.max(3, Math.round((rate / 100) * 22))}px`;
-}
 
 function dayLabel(key) {
 	if (!key) return "";
@@ -239,6 +197,7 @@ async function load() {
 			},
 		});
 		rows.value = res?.runs || [];
+		agents.value = res?.agents || [];
 		isSystemManager.value = !!res?.is_system_manager;
 	} catch (e) {
 		rows.value = [];
@@ -255,14 +214,6 @@ onMounted(load);
 
 .er-empty { background: #fff; border: 1px solid #eceef3; border-radius: 8px; padding: 40px; text-align: center; }
 .er-empty ul { list-style: none; padding: 0; }
-
-.er-trends { display: flex; flex-wrap: wrap; gap: 18px; padding: 4px 2px 16px; }
-.er-trend { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #6b7280; }
-.er-trend-agent { font-weight: 500; color: #374151; }
-.er-trend-series { display: flex; align-items: flex-end; gap: 2px; height: 22px; }
-.er-bar { width: 4px; background: #93a9f5; border-radius: 1px; }
-.er-bar--bad { background: #e0a458; }
-.er-trend-last { font-variant-numeric: tabular-nums; }
 
 .er-day { margin-bottom: 18px; }
 .er-day-head {

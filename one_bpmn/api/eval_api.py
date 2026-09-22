@@ -6,9 +6,11 @@ Every read goes through ``frappe.get_list`` so the AI Evals permission scoping
 System Manager sees all.
 """
 
+import json
+
 import frappe
 from frappe import _
-from frappe.utils import cint, flt
+from frappe.utils import add_days, cint, flt, now_datetime
 from frappe.utils import get_datetime
 
 
@@ -366,6 +368,7 @@ def create_eval_case(
 	expected_tool_calls=None,
 	case_type: str = None,
 	target_skill: str = None,
+	input_context=None,
 ) -> str:
 	"""Create a manual AI Eval Case in ``suite`` with optional assertions
 	(WI-001746). Provider/model/system prompt come from the suite's agent
@@ -388,6 +391,7 @@ def create_eval_case(
 		"expected_output": expected_output,
 		"case_type": _valid_case_type(case_type) or "Output",
 		"target_skill": _valid_skill(target_skill),
+		"input_context": _valid_input_context(input_context),
 	})
 	_set_assertions(case, assertions)
 	_set_expected_tool_calls(case, expected_tool_calls)
@@ -407,6 +411,30 @@ def _valid_case_type(value) -> str:
 		frappe.throw(_("'{0}' is not a case type. Choose one of: {1}.").format(
 			value, ", ".join(CASE_TYPES)))
 	return value
+
+
+def _valid_input_context(value) -> str | None:
+	"""Input Context as a JSON object string, or None for not given.
+
+	For a Memory case this field is the test itself (scope, scope_key, k, user,
+	agent_output, produced_memories), so a string that is not a JSON object is
+	refused here instead of being stored and failing at run time with an error
+	about a missing scope_key.
+	"""
+	if value is None:
+		return None
+	if isinstance(value, dict):
+		return json.dumps(value)
+	text = str(value).strip()
+	if not text:
+		return None
+	try:
+		parsed = json.loads(text)
+	except ValueError:
+		frappe.throw(_("Input Context must be valid JSON."))
+	if not isinstance(parsed, dict):
+		frappe.throw(_("Input Context must be a JSON object, for example {\"scope\": \"Agent\", \"scope_key\": \"run_general_chat_agent\"}."))
+	return json.dumps(parsed)
 
 
 def _valid_skill(value) -> str | None:
@@ -435,6 +463,7 @@ def get_eval_case(name: str) -> dict:
 		"source_feedback": case.source_feedback or "",
 		"source_security_event": case.source_security_event or "",
 		"source_run": case.source_run or "",
+		"input_context": case.input_context or "",
 		"assertions": [{k: a.get(k) for k in _ASSERTION_FIELDS} for a in case.assertions],
 		"expected_tool_calls": [
 			{k: c.get(k) for k in _EXPECTED_CALL_FIELDS} for c in case.expected_tool_calls
@@ -452,6 +481,7 @@ def update_eval_case(
 	expected_tool_calls=None,
 	case_type: str = None,
 	target_skill: str = None,
+	input_context=None,
 ) -> str:
 	"""Edit an existing case, including its assertions (WI-001746). Gated by the
 	suite's write permission."""
@@ -471,6 +501,8 @@ def update_eval_case(
 		# An empty string clears the link — the caller means "no skill", which
 		# is different from not mentioning the field at all.
 		case.target_skill = _valid_skill(target_skill)
+	if input_context is not None:
+		case.input_context = _valid_input_context(input_context)
 	if assertions is not None:
 		_set_assertions(case, assertions)
 	if expected_tool_calls is not None:
@@ -798,25 +830,30 @@ def list_owned_processes() -> list:
 
 
 @frappe.whitelist()
-def case_consistency(suite: str, limit: int = 20) -> dict:
-	"""Per-case pass history for a suite, newest run first.
+def case_consistency(suite: str, days: int = 7, limit: int = 100) -> dict:
+	"""Per-case pass history for a suite over the last *days*, newest run first.
 
 	A single run says whether a case passed; only the history says whether it
 	AGREES with itself. A case at 80% over five runs is the one that will fail
 	the week after go-live, and it looks identical to a solid case in any one
 	run's results.
 
-	``limit`` bounds how many runs back the history reaches. Cases are ordered
-	worst first, because the point of the report is the flaky ones.
+	A week by default, because that is the question being asked — "has this been
+	steady lately" — and a fixed number of runs answers a different one: on a
+	nightly suite twenty runs is three weeks, and on a quiet one it can reach
+	back months. ``limit`` is only a ceiling so a chatty suite cannot return
+	thousands. Cases are ordered worst first, because the point of the report is
+	the flaky ones.
 	"""
 	frappe.get_doc("AI Eval Suite", suite).check_permission("read")
 
+	since = add_days(now_datetime(), -abs(cint(days) or 7))
 	runs = frappe.get_all(
 		"AI Eval Run",
-		filters={"suite": suite},
+		filters={"suite": suite, "started_at": [">=", since]},
 		fields=["name", "status", "backend", "started_at"],
 		order_by="started_at desc",
-		limit_page_length=cint(limit) or 20,
+		limit_page_length=cint(limit) or 100,
 	)
 	if not runs:
 		return {"suite": suite, "runs": [], "cases": []}
@@ -958,6 +995,21 @@ def reassign_suite(suite: str, agent_configuration: str = None) -> str:
 	return doc.name
 
 
+SUITE_TYPES = ("Direct", "Agent", "Memory")
+
+
+def _valid_eval_type(value) -> str:
+	"""A suite type, Direct when not given. An unknown one is refused, not
+	quietly turned into Direct: a suite silently filed under the wrong type is
+	worse than a save that fails, because every run it makes then measures
+	something other than what its author asked for."""
+	value = (value or "").strip() or "Direct"
+	if value not in SUITE_TYPES:
+		frappe.throw(_("'{0}' is not a suite type. Choose one of: {1}.").format(
+			value, ", ".join(SUITE_TYPES)))
+	return value
+
+
 @frappe.whitelist()
 def create_suite(
 	title: str,
@@ -969,7 +1021,8 @@ def create_suite(
 	"""Create a new suite from the Evals page and assign it to an agent.
 	``process_model`` is optional (Direct suites may have none); when set it must
 	be one the current user owns (or SM) — WI-001749 / Q5. ``eval_type`` is Direct
-	(simple LLM call) or Agent (invoke the map). ``description`` records what the
+	(simple LLM call), Agent (invoke the map) or Memory (score the memory store
+	against golden memories, no model call). ``description`` records what the
 	suite covers, so a later reader — the Evals console or the AI Assistant
 	deciding whether an existing suite already fits — can tell suites apart."""
 	if process_model:
@@ -983,7 +1036,7 @@ def create_suite(
 		"title": title,
 		"process_model": process_model or None,
 		"agent_configuration": agent_configuration or None,
-		"eval_type": eval_type if eval_type in ("Direct", "Agent") else "Direct",
+		"eval_type": _valid_eval_type(eval_type),
 		"description": description or None,
 	})
 	doc.insert()
@@ -1678,7 +1731,7 @@ def scheduled_results(days: int = 7, triggered_by: str = "", agent: str = "",
 		limit_page_length=min(cint(limit) or 60, 200),
 	)
 	if not runs:
-		return {"runs": [], "is_system_manager": is_sm}
+		return {"runs": [], "agents": [], "is_system_manager": is_sm}
 
 	suites = {
 		s["name"]: s
@@ -1686,8 +1739,17 @@ def scheduled_results(days: int = 7, triggered_by: str = "", agent: str = "",
 								fields=["name", "title", "agent_configuration", "process_model"])
 	}
 	visible = _runs_visible_to(runs, suites, is_sm)
+	# A run's agent is its own field, else its suite's — and it has to be the
+	# same answer whether the reader is looking at the row or filtering by it.
+	# Filtering on the raw field dropped every run that only knew its agent
+	# through the suite, while the dropdown still listed that agent.
+	for run in visible:
+		run.agent = run.agent_configuration or (suites.get(run.suite) or {}).get("agent_configuration") or ""
+	# The choices come from everything the reader may see, not from the rows
+	# left after filtering — otherwise picking one agent removes the others.
+	agents = sorted({r.agent for r in visible if r.agent})
 	if agent:
-		visible = [r for r in visible if (r.agent_configuration or "") == agent]
+		visible = [r for r in visible if r.agent == agent]
 
 	first_failures = _first_failure_per_run([r.name for r in visible])
 	rows = []
@@ -1701,7 +1763,7 @@ def scheduled_results(days: int = 7, triggered_by: str = "", agent: str = "",
 			"when": str(run.creation),
 			"triggered_by": run.triggered_by or _inferred_trigger(run, suite),
 			"suite": suite.get("title") or run.suite or "",
-			"agent": run.agent_configuration or suite.get("agent_configuration") or "",
+			"agent": run.agent,
 			"status": run.status,
 			"passed": run.passed_cases or 0,
 			"total": run.total_cases or 0,
@@ -1712,7 +1774,7 @@ def scheduled_results(days: int = 7, triggered_by: str = "", agent: str = "",
 			"failure": failure.get("why") or "",
 			"failure_subject": failure.get("subject") or "",
 		})
-	return {"runs": rows, "is_system_manager": is_sm}
+	return {"runs": rows, "agents": agents, "is_system_manager": is_sm}
 
 
 def _runs_visible_to(runs, suites, is_sm) -> list:

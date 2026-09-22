@@ -216,6 +216,23 @@ class TestConsistencyReport(FrappeTestCase):
 		self.assertEqual(by_case[self.steady.name]["consistency_rate"], 100)
 		self.assertEqual(by_case[self.flaky.name]["consistency_rate"], 0)
 
+	def test_the_report_covers_a_week_not_a_number_of_runs(self):
+		"""A fixed run count means three weeks on a nightly suite and months on a quiet one."""
+		self._run_with([
+			{"eval_case": self.flaky.name, "status": "Failed", "runs": 1, "passes": 0, "consistency_rate": 0},
+		], minutes_ago=60 * 24 * 9)
+		recent = self._run_with([
+			{"eval_case": self.flaky.name, "status": "Passed", "runs": 1, "passes": 1, "consistency_rate": 100},
+		])
+
+		report = case_consistency(self.suite.name)
+		self.assertEqual([r["name"] for r in report["runs"]], [recent.name], "a nine-day-old run is not this week")
+		self.assertEqual(report["cases"][0]["consistency_rate"], 100)
+
+		wider = case_consistency(self.suite.name, days=30)
+		self.assertEqual(len(wider["runs"]), 2)
+		self.assertEqual(wider["cases"][0]["consistency_rate"], 50)
+
 	def test_a_suite_with_no_runs_reports_nothing_rather_than_failing(self):
 		report = case_consistency(self.suite.name)
 		self.assertEqual(report["cases"], [])

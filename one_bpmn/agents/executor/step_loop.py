@@ -41,6 +41,10 @@ from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG, ToolDeferred
 from one_bpmn.agents.turn_state import TURN_ANSWERED_FLAG
 from one_bpmn.security.tool_policy import PolicyViolation
 
+
+def _now_iso() -> str:
+	return frappe.utils.now_datetime().isoformat(sep=" ", timespec="microseconds")
+
 # Tool result handed to the model when it requests a second human tool in the
 # same turn — v1 supports one human pause at a time.
 _SECOND_HUMAN_RESULT = (
@@ -62,6 +66,7 @@ _SECOND_PAUSE_RESULT = (
 _TURN_RECORD_FIELDS = {
 	"role", "content", "tool_calls", "prompt_tokens", "completion_tokens",
 	"cache_read_tokens", "cache_write_tokens", "latency_ms", "turn_no",
+	"started_at", "ended_at",
 }
 
 
@@ -121,10 +126,21 @@ async def run_agent_loop(
 	max_retries: int = 0,
 	retry_backoff_ms: int = 1000,
 	tool_result_max_chars: int | None = None,
+	terminal_tools: list | None = None,
+	on_tool_event=None,
 ) -> tuple:
 	"""Drive the tool loop. Returns (CompletionResult, None) when the model
 	produces a final answer or hits the turn cap, or (None, AgentSuspension)
 	when it selects a human tool.
+
+	``on_tool_event``: optional ``callable(phase, tool_name)``
+	invoked as ``on_tool_event("start", name)`` immediately before an
+	automatic tool runs and ``on_tool_event("end", name)`` immediately
+	after, whether it succeeded, deferred, was policy-refused, or raised.
+	Used by the streaming surface (agui_stream.py) to emit
+	TOOL_CALL_START/END events while the turn is still running. A
+	callback that itself raises is logged and swallowed \u2014 a broken
+	progress indicator must never fail the turn it is only reporting on.
 
 	Fresh run: pass ``user`` (the rendered user prompt); the transcript starts
 	as a single user entry.
@@ -145,6 +161,11 @@ async def run_agent_loop(
 	slow turn eat the entire budget. Defaults (None timeout, 0 retries) keep
 	every other caller of this function — including every existing test —
 	byte-for-byte unchanged.
+
+	``terminal_tools`` (WI-002187): tool names that end the turn the instant
+	the model calls one. None (every caller before this existed) falls back
+	to ``("finalize",)`` — see ``_run_turns`` for how the reply is read off
+	the call's own arguments instead of the model's next narration.
 	"""
 	tool_map = {t.name: t for t in (tools or [])}
 
@@ -192,6 +213,8 @@ async def run_agent_loop(
 			timeout_seconds=timeout_seconds, max_retries=max_retries,
 			retry_backoff_ms=retry_backoff_ms,
 			tool_result_max_chars=tool_result_max_chars,
+			terminal_tools=set(terminal_tools) if terminal_tools is not None else {"finalize"},
+			on_tool_event=on_tool_event,
 		)
 	finally:
 		# Cleared on EVERY exit — final answer, turn cap, suspension, exception.
@@ -232,9 +255,28 @@ async def _step_with_retries(
 			await asyncio.sleep(base_s + random.uniform(0, 0.1))
 
 
+def _fire_tool_event(on_tool_event, phase, tool_name):
+	"""Invoke the caller's tool-event callback, never letting it break the turn.
+
+	The callback exists purely to report progress (streaming TOOL_CALL_START/
+	END to a client) \u2014 a bug in it is a display problem, not a reason to fail
+	or corrupt an agent run.
+	"""
+	if on_tool_event is None:
+		return
+	try:
+		on_tool_event(phase, tool_name)
+	except Exception:
+		frappe.log_error(
+			title="step_loop on_tool_event callback failed",
+			message=f"phase={phase} tool={tool_name}\n\n{frappe.get_traceback()}",
+		)
+
+
 async def _run_turns(
 	adapter, *, system, tools, tool_map, transcript, trace, turns_used, max_tokens, max_turns,
 	timeout_seconds=None, max_retries=0, retry_backoff_ms=1000, tool_result_max_chars=None,
+	terminal_tools=frozenset({"finalize"}), on_tool_event=None,
 ):
 	"""The turn loop itself. Split out only so run_agent_loop can guarantee the
 	pause flag is cleared however this returns."""
@@ -246,6 +288,7 @@ async def _run_turns(
 		# Same reason, same place: a turn that answered must not end the NEXT one.
 		frappe.flags[TURN_ANSWERED_FLAG] = False
 		_turn_t0 = time.perf_counter()
+		_turn_started_at = _now_iso()
 		step = await _step_with_retries(
 			adapter, system, transcript, tools, max_tokens,
 			timeout_seconds=timeout_seconds, max_retries=max_retries, retry_backoff_ms=retry_backoff_ms,
@@ -264,9 +307,11 @@ async def _run_turns(
 					cache_write_tokens=getattr(step, "cache_write_tokens", 0) or 0,
 					latency_ms=int((time.perf_counter() - _turn_t0) * 1000),
 					turn_no=turns_used,
+					started_at=_turn_started_at,
+					ended_at=_now_iso(),
 				)
 			)
-			return CompletionResult(text=step.content, trace=trace), None
+			return CompletionResult(text=step.content, trace=trace, no_terminal_tool=True), None
 
 		# ── Record the assistant turn on the transcript ───────────────────
 		transcript.append({
@@ -287,6 +332,7 @@ async def _run_turns(
 			cache_read_tokens=getattr(step, "cache_read_tokens", 0) or 0,
 			cache_write_tokens=getattr(step, "cache_write_tokens", 0) or 0,
 			turn_no=turns_used,
+			started_at=_turn_started_at,
 		)
 		# WI-002190: a model call made from inside one of this turn's tools is
 		# recorded as a step tagged with this turn number, so the step writer
@@ -295,6 +341,11 @@ async def _run_turns(
 		results = []
 		pending_call = None
 		deferred_wait: dict = {}
+		# WI-002187: set the instant a terminal tool (default "finalize") actually
+		# runs this turn — its own arguments ARE the reply, so the turn ends right
+		# below instead of asking the model for a closing narration it usually has
+		# nothing left to give (see the empty-turn evidence a few lines down).
+		terminal_reply = None
 		for call in step.tool_calls:
 			tool = tool_map.get(call.name)
 			if tool is not None and tool.human:
@@ -330,33 +381,44 @@ async def _run_turns(
 						"content": wrap_tool_result(_invalid, call.name, call.arguments),
 					})
 					continue
+				_fire_tool_event(on_tool_event, "start", call.name)
 				try:
-					result = str(tool.fn(**call.arguments))
-				except ToolDeferred as deferred:
-					# The tool ran, but its work outlives this turn. Same pause
-					# as a human tool — the answer arrives from elsewhere — so
-					# it takes the same slot, and the marker rides along so the
-					# dispatcher knows what is being waited on.
-					if pending_call is None:
-						pending_call = {
-							"id": call.id, "name": call.name, "arguments": call.arguments
-						}
-						deferred_wait = deferred.marker or {}
-						frappe.flags[PAUSE_HELD_FLAG] = True
-						continue
-					# A second pause in the same turn. Reaching here means the
-					# tool got past the connector's own guard and parked anyway,
-					# so its work IS running and this turn cannot collect it —
-					# say so rather than blaming a human task.
-					result = _SECOND_PAUSE_RESULT
-				except PolicyViolation as violation:
-					# The interceptor refused the call BEFORE the tool ran
-					# (WI-001645). Handed back as an ordinary tool result, so the
-					# model is told why and can take a different approach —
-					# exactly how every loop already treats a tool that failed.
-					result = violation.decision.as_tool_result()
-				except Exception as exc:
-					result = f"Error calling {call.name}: {exc}"
+					try:
+						result = str(tool.fn(**call.arguments))
+						if call.name in terminal_tools:
+							# The "response" key is the reply contract (see the ticket's
+							# expected behaviour); a terminal tool called without one
+							# still ends the turn, falling back to its raw arguments
+							# rather than losing the reply entirely.
+							_args = call.arguments if isinstance(call.arguments, dict) else {}
+							terminal_reply = _args.get("response", _args) if _args else result
+					except ToolDeferred as deferred:
+						# The tool ran, but its work outlives this turn. Same pause
+						# as a human tool — the answer arrives from elsewhere — so
+						# it takes the same slot, and the marker rides along so the
+						# dispatcher knows what is being waited on.
+						if pending_call is None:
+							pending_call = {
+								"id": call.id, "name": call.name, "arguments": call.arguments
+							}
+							deferred_wait = deferred.marker or {}
+							frappe.flags[PAUSE_HELD_FLAG] = True
+							continue
+						# A second pause in the same turn. Reaching here means the
+						# tool got past the connector's own guard and parked anyway,
+						# so its work IS running and this turn cannot collect it —
+						# say so rather than blaming a human task.
+						result = _SECOND_PAUSE_RESULT
+					except PolicyViolation as violation:
+						# The interceptor refused the call before the tool ran, and
+						# it is handed back as an ordinary tool result, so the
+						# model is told why and can take a different approach —
+						# exactly how every loop already treats a tool that failed.
+						result = violation.decision.as_tool_result()
+					except Exception as exc:
+						result = f"Error calling {call.name}: {exc}"
+				finally:
+					_fire_tool_event(on_tool_event, "end", call.name)
 
 			turn_record.tool_calls.append(
 				ToolCallRecord(name=call.name, arguments=call.arguments, result=result)
@@ -377,6 +439,7 @@ async def _run_turns(
 			})
 
 		turn_record.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
+		turn_record.ended_at = _now_iso()
 		trace.append(turn_record)
 
 		if pending_call is not None:
@@ -395,6 +458,14 @@ async def _run_turns(
 				cache_write_tokens=sum(t.cache_write_tokens for t in trace),
 			)
 
+		# ── A terminal tool answered: stop here, on ITS words ─────────────
+		# WI-002187: finalize's own arguments are the reply — asking the model
+		# for one more turn after this bought nothing (see the empty-turn
+		# evidence below) AND regularly threw the real answer away: the args
+		# can hold a full response while this same turn's narration is blank.
+		if terminal_reply is not None:
+			return CompletionResult(text=str(terminal_reply), trace=trace, no_terminal_tool=False), None
+
 		# ── The turn is already answered: stop here ──────────────────────
 		# A stage tool that writes the turn's output (finalize, and clarify when
 		# it ends the turn) IS the reply — the surface reads it from the turn
@@ -409,7 +480,7 @@ async def _run_turns(
 			_said = next(
 				(t.content for t in reversed(trace) if (t.content or "").strip()), ""
 			)
-			return CompletionResult(text=_said, trace=trace), None
+			return CompletionResult(text=_said, trace=trace, no_terminal_tool=False), None
 
 		transcript.append({"role": "tool_results", "results": results})
 
@@ -420,4 +491,4 @@ async def _run_turns(
 	last_said = next(
 		(t.content for t in reversed(trace) if (t.content or "").strip()), ""
 	)
-	return CompletionResult(text=last_said, trace=trace, hit_turn_cap=True), None
+	return CompletionResult(text=last_said, trace=trace, hit_turn_cap=True, no_terminal_tool=True), None

@@ -50,6 +50,13 @@
 							class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[12px] font-semibold"
 							:class="aiRun.status === 'Success' ? 'bg-green-100 text-green-700' : aiRun.status === 'Error' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700 animate-pulse'"
 						>{{ aiRun.status }}</span>
+						<router-link
+							:to="`/processa/runs/${aiRun.name}`"
+							class="ml-auto text-[12px] text-purple-700 hover:underline flex items-center gap-1"
+							title="Every step, tool call and sub-run of this run on its own page"
+						>
+							Open full run <Icon icon="lucide:arrow-up-right" class="w-3 h-3" />
+						</router-link>
 					</div>
 
 					<!-- Error details -->

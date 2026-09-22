@@ -24,6 +24,7 @@ PREFIX = "ZZ PropPanel"
 XML = """<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
                   xmlns:spiffworkflow="http://spiffworkflow.org/bpmn/schema/1.0/core"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                   id="defs_zz" targetNamespace="http://bpmn.io/schema/bpmn">
   <bpmn:process id="zz_proc" isExecutable="true">
     <bpmn:userTask id="zz_user" name="Approve the thing" />
@@ -33,6 +34,11 @@ XML = """<?xml version="1.0" encoding="UTF-8"?>
                       spiffworkflow:serviceType="ai_agent" />
     <bpmn:scriptTask id="zz_script" name="Compute a total" />
     <bpmn:sequenceFlow id="zz_flow" sourceRef="zz_user" targetRef="zz_service" />
+    <bpmn:exclusiveGateway id="zz_gw" name="Over the limit?" default="zz_flow_no" />
+    <bpmn:sequenceFlow id="zz_flow_yes" name="Yes" sourceRef="zz_gw" targetRef="zz_service">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">amount &gt; 100</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="zz_flow_no" name="No" sourceRef="zz_gw" targetRef="zz_agent" />
   </bpmn:process>
 </bpmn:definitions>"""
 
@@ -100,6 +106,33 @@ class TestWhatItAllows(CarveOutCase):
 		P.update_element_properties(self.model, "zz_service", {"workflowState": ""})
 		self.assertNotIn("workflowState", self._xml())
 
+	def test_a_sequence_flow_condition_can_be_set(self):
+		"""The reason the panel is released on a locked map at all: a routing
+		condition that is wrong in production, and a process that cannot be
+		unlocked to fix it. Written as bpmn-js writes one."""
+		out = P.update_element_properties(self.model, "zz_flow", {"conditionExpression": "approved == True"})
+		self.assertTrue(out["updated"])
+		self.assertIn('tFormalExpression">approved == True</bpmn:conditionExpression>', self._xml())
+
+	def test_a_sequence_flow_condition_can_be_replaced(self):
+		P.update_element_properties(self.model, "zz_flow_yes", {"conditionExpression": "amount > 500"})
+		xml = self._xml()
+		self.assertIn("amount &gt; 500", xml)
+		self.assertNotIn("amount &gt; 100", xml)
+		self.assertEqual(xml.count("<bpmn:conditionExpression"), 1, "replaced, not added beside the old one")
+
+	def test_clearing_a_condition_removes_it(self):
+		P.update_element_properties(self.model, "zz_flow_yes", {"conditionExpression": ""})
+		self.assertNotIn("conditionExpression", self._xml())
+
+	def test_a_sequence_flow_can_be_renamed(self):
+		P.update_element_properties(self.model, "zz_flow_yes", {"name": "Over the limit"})
+		self.assertIn('name="Over the limit"', self._xml())
+
+	def test_an_unchanged_condition_is_not_a_change(self):
+		out = P.update_element_properties(self.model, "zz_flow_yes", {"conditionExpression": "amount > 100"})
+		self.assertFalse(out["updated"])
+
 
 class TestWhatItRefuses(CarveOutCase):
 	def _refused(self, element, properties):
@@ -114,10 +147,14 @@ class TestWhatItRefuses(CarveOutCase):
 		be recognised by that attribute rather than by its element name."""
 		self._refused("zz_agent", {"aiModel": "claude-sonnet-5"})
 
-	def test_a_sequence_flow_stays_read_only(self):
-		"""A wrong condition does not look broken, it just takes the wrong
-		branch, so routing is not a panel edit."""
-		self._refused("zz_flow", {"name": "Approved"})
+	def test_a_gateway_default_cannot_be_repointed(self):
+		"""The default is a reference to another element; one that does not name
+		a flow off this gateway dead-ends the map, so it stays with id and
+		calledElement rather than with the flow's own editable condition."""
+		self._refused("zz_gw", {"default": "zz_flow_yes"})
+
+	def test_a_condition_belongs_to_a_flow_only(self):
+		self._refused("zz_user", {"conditionExpression": "approved == True"})
 
 	def test_the_id_cannot_be_changed(self):
 		"""Every flow, the compiled spec and every running instance reference it."""

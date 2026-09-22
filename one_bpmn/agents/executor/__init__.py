@@ -177,6 +177,12 @@ class ExecutorConfig:
     # of starting fresh (system_prompt/user_prompt are NOT re-rendered — the
     # transcript already contains the rendered originals).
     resume_state: dict | None = None
+    # WI-002187: tool names that END the turn the moment the model calls one —
+    # its call ARGUMENTS are the reply (the "response" key), not whatever the
+    # model narrates afterwards. "finalize" is always included even when a
+    # shape/config sets this, since dropping the default by mistake would
+    # silently undo the fix this field exists for.
+    terminal_tools: list = field(default_factory=lambda: ["finalize"])
 
 
 @dataclass
@@ -210,6 +216,11 @@ class ExecutorResult:
     # it is a distinct outcome — the agent was still working, not broken — and
     # goal completion needs to tell them apart without matching on message text.
     hit_turn_cap: bool = False
+    # WI-002187: True when `output` came from the model's own narration rather
+    # than a terminal tool call's arguments — a plain-text final answer, or the
+    # turn cap forcing out the last thing said. Mirrors CompletionResult's field
+    # of the same name; see agents/llm_provider/base.py for the full rationale.
+    no_terminal_tool: bool = False
 
 
 # ---------------------------------------------------------------------------

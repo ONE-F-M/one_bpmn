@@ -86,12 +86,16 @@ FEEDBACK_FIELDS = ("collect_feedback",)
 # so nobody had reason to look at them.
 DELEGATION_FIELDS = (
 	"a2a_exposed",
-	"restrict_delegates",
 	"max_recursion_depth",
 	"max_task_handoffs",
 	"delegation_deadline_minutes",
 	"max_delegation_retries",
 )
+
+# What happens to a message that arrives while the agent is still answering the
+# last one. Its own group: this is about ORDER, not about how often someone may
+# write, and filing it under the throttle would read as another rate limit.
+CONCURRENCY_FIELDS = ("concurrent_turn_policy",)
 
 CLARIFICATION_FIELDS = ("max_clarification_rounds",)
 
@@ -99,9 +103,15 @@ CLARIFICATION_FIELDS = ("max_clarification_rounds",)
 # because the cost it bounds is the agent's context, whichever task calls it.
 TOOL_RESULT_FIELDS = ("tool_result_max_chars",)
 
+# Controls that only mean anything for one kind of agent. Filtered here rather
+# than with depends_on, because the panel has no expression evaluator and must
+# never be handed one.
+CHAT_ONLY_FIELDS = frozenset({"concurrent_turn_policy"})
+
 AGENT_CONTROL_GROUPS = (
 	("Screening", SCREENING_FIELDS),
 	("Rate limiting & freeze", RATE_LIMIT_FIELDS),
+	("Concurrent messages", CONCURRENCY_FIELDS),
 	("Feedback", FEEDBACK_FIELDS),
 	("Delegation", DELEGATION_FIELDS),
 	("Clarification", CLARIFICATION_FIELDS),
@@ -638,6 +648,11 @@ def release(lock: str, notes: str = None) -> dict:
 _SIMPLE_DEPENDS = re.compile(r"^eval:doc\.([a-z0-9_]+)$")
 
 
+def _applies_to(fieldname: str, doc) -> bool:
+	"""Whether this control belongs on this agent at all."""
+	return fieldname not in CHAT_ONLY_FIELDS or doc.agent_type == "Chat"
+
+
 def _simple_dependency(depends_on: str | None) -> str | None:
 	"""The fieldname a control hangs off, when the rule is simply "this is set".
 
@@ -670,7 +685,7 @@ def agent_screening(agent: str) -> dict:
 	for group, fieldnames in AGENT_CONTROL_GROUPS:
 		for fieldname in fieldnames:
 			df = meta.get_field(fieldname)
-			if not df:
+			if not df or not _applies_to(fieldname, doc):
 				continue
 			controls.append({
 				"fieldname": fieldname,
@@ -689,56 +704,12 @@ def agent_screening(agent: str) -> dict:
 				"depends_on_field": _simple_dependency(df.depends_on),
 			})
 
-	# The allow-list itself, which is a child table and so has no simple value to
-	# render. It is the one control here that decides WHO may receive work, and
-	# leaving it out meant Restrict Delegation could be ticked from Processa
-	# while the list it restricts to could only be edited in the Desk — a switch
-	# with its wiring in another room.
-	#
-	# Hung off restrict_delegates so it appears exactly when it means something:
-	# with the box unticked the list is inert, and showing it then would read as
-	# a setting that does nothing.
-	if frappe.get_meta("AI Agent Configuration").get_field("allowed_delegates"):
-		controls.append({
-			"fieldname": "allowed_delegates",
-			"group": "Delegation",
-			"label": _("Agents it may delegate to"),
-			"fieldtype": "Agent List",
-			"options": None,
-			"choices": _delegate_choices(doc.name),
-			"description": _(
-				"Only these agents may receive work from this one. Exposure over A2A is "
-				"what makes an agent eligible at all; this narrows it further."
-			),
-			"value": [row.agent_configuration for row in (doc.get("allowed_delegates") or [])],
-			"depends_on_field": "restrict_delegates",
-		})
-
 	return {
 		"agent": doc.name,
 		"agent_name": doc.get("agent_name"),
 		"controls": controls,
 		"can_edit": bool(doc.has_permission("write")),
 	}
-
-
-def _delegate_choices(agent: str) -> list:
-	"""Who could legitimately appear on an allow-list.
-
-	The same rule the door enforces — enabled, Live and exposed over A2A — so a
-	person cannot pick an agent that would be refused the moment it was tried.
-	The agent itself is excluded: delegating to yourself is the loop the
-	guardrails exist to stop.
-	"""
-	return sorted(
-		name
-		for name in frappe.get_all(
-			"AI Agent Configuration",
-			filters={"enabled": 1, "lifecycle_status": "Live", "a2a_exposed": 1},
-			pluck="name",
-		)
-		if name != agent
-	)
 
 
 @frappe.whitelist()
@@ -763,27 +734,11 @@ def save_agent_screening(agent: str, values: str | dict) -> dict:
 	for fieldname in writable:
 		if fieldname not in values or not meta.get_field(fieldname):
 			continue
+		if not _applies_to(fieldname, doc):
+			continue
 		if doc.get(fieldname) != values[fieldname]:
 			doc.set(fieldname, values[fieldname])
 			changed.append(fieldname)
-
-	# The allow-list is a child table, so it is replaced rather than assigned.
-	# Written here rather than through the generic loop above because that loop
-	# compares and sets scalars, and handing it a list would silently store the
-	# repr of one.
-	if "allowed_delegates" in values and meta.get_field("allowed_delegates"):
-		wanted = [n for n in (values.get("allowed_delegates") or []) if n]
-		allowed = set(_delegate_choices(doc.name))
-		# Anything not currently delegatable is dropped rather than saved: an
-		# entry the door would refuse is not a permission, it is a surprise
-		# waiting for whoever reads the list later.
-		wanted = [n for n in wanted if n in allowed]
-		current = [row.agent_configuration for row in (doc.get("allowed_delegates") or [])]
-		if wanted != current:
-			doc.set("allowed_delegates", [])
-			for name in wanted:
-				doc.append("allowed_delegates", {"agent_configuration": name})
-			changed.append("allowed_delegates")
 
 	if changed:
 		doc.save()

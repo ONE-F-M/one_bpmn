@@ -10,7 +10,7 @@
 						<span
 							v-if="suite.eval_type"
 							class="text-xs px-2 py-0.5 rounded-full"
-							:class="suite.eval_type === 'Agent' ? 'bg-indigo-50 text-indigo-700' : 'bg-blue-50 text-blue-700'"
+							:class="suite.eval_type === 'Agent' ? 'bg-indigo-50 text-indigo-700' : suite.eval_type === 'Memory' ? 'bg-teal-50 text-teal-700' : 'bg-blue-50 text-blue-700'"
 						>
 							{{ suite.eval_type }} eval
 						</span>
@@ -47,9 +47,11 @@
 						<button
 							v-if="readiness"
 							class="text-blue-600 hover:underline"
-							:title="`The golden dataset for ${readiness.subject}: ${readiness.cases} case(s), ${readiness.minimum} is the mark`"
+							:title="readiness.minimum
+								? `The golden dataset for ${readiness.subject}: ${readiness.cases} case(s), ${readiness.minimum} is the mark`
+								: `The golden dataset for ${readiness.subject}: ${readiness.cases} case(s); the agent has set no minimum`"
 							@click="openDataset"
-						>dataset {{ readiness.cases }}/{{ readiness.minimum }}</button>
+						>dataset {{ readiness.cases }}<template v-if="readiness.minimum">/{{ readiness.minimum }}</template></button>
 						<span
 							v-if="suite.gate_deployment"
 							class="inline-block px-2 py-0.5 rounded-full text-xs bg-amber-50 text-amber-700"
@@ -136,7 +138,7 @@
 				<div class="border-b px-6 py-3 flex items-center justify-between">
 					<span class="text-sm font-semibold text-gray-700">
 						Consistency
-						<span class="text-gray-400 font-normal">(last {{ consistency.runs?.length || 0 }} run(s))</span>
+						<span class="text-gray-400 font-normal">({{ consistency.runs?.length || 0 }} run(s) this week)</span>
 					</span>
 					<Button variant="subtle" icon-left="activity" :loading="loadingConsistency" @click="loadConsistency">
 						{{ consistency.cases ? "Refresh" : "Show" }}
@@ -207,7 +209,7 @@
 								<div v-if="c.source_run" class="text-xs text-gray-400">from run</div>
 							</td>
 							<td class="px-4 py-3">
-								<span v-for="t in c.assertion_types" :key="t" class="inline-block px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600 mr-1">{{ t }}</span>
+								<span v-for="t in c.assertion_types" :key="t" class="inline-block px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600 mr-1">{{ assertionTypeLabel(t) }}</span>
 								<span v-if="!c.assertion_types.length" class="text-xs text-amber-600">no assertions</span>
 							</td>
 							<td class="px-4 py-3 text-right whitespace-nowrap">
@@ -337,9 +339,15 @@
 					<p class="text-sm text-gray-700">
 						<span class="font-medium">{{ readiness.subject }}</span> carries
 						<span class="font-medium">{{ readiness.cases }}</span> case(s).
-						<span v-if="readiness.short_by">{{ readiness.short_by }} short of {{ readiness.minimum }};</span>
-						<span v-else>Past the {{ readiness.minimum }} mark;</span>
-						{{ readiness.target }} is comfortable.
+						<template v-if="readiness.minimum">
+							<span v-if="readiness.short_by">{{ readiness.short_by }} short of {{ readiness.minimum }};</span>
+							<span v-else>Past the {{ readiness.minimum }} mark;</span>
+							<span v-if="readiness.target">{{ readiness.target }} is comfortable.</span>
+						</template>
+						<span v-else class="text-gray-500">
+							The agent has set no minimum, so there is nothing to measure this against.
+							Set one on the agent's configuration to see a bar here.
+						</span>
 					</p>
 					<p class="text-xs text-gray-500">
 						A reading, not a gate. The one hard case-count bar is a skill graduating to Action-Allowed.
@@ -447,11 +455,33 @@
 					<p v-if="caseProvenance" class="text-xs text-gray-500">
 						Came from {{ caseProvenance }} — that link is set by whatever promoted this case, not here.
 					</p>
-					<FormControl type="textarea" label="User prompt" v-model="caseForm.input_user_prompt" />
-					<FormControl type="textarea" label="Expected output (optional)" v-model="caseForm.expected_output" />
+					<FormControl
+						type="textarea"
+						:label="isMemoryCase ? 'Question to recall with (leave empty for a generation-only case)' : 'User prompt'"
+						v-model="caseForm.input_user_prompt"
+					/>
+					<FormControl
+						type="textarea"
+						:label="isMemoryCase ? 'Golden memories, one per line' : 'Expected output (optional)'"
+						v-model="caseForm.expected_output"
+					/>
+					<template v-if="isMemoryCase">
+						<FormControl
+							type="textarea"
+							label="Input Context (JSON)"
+							v-model="caseForm.input_context"
+							placeholder='{"scope": "Agent", "scope_key": "run_general_chat_agent", "k": 5}'
+						/>
+						<p class="text-xs" :class="inputContextError ? 'text-red-600' : 'text-gray-500'">
+							{{ inputContextError || "scope and scope_key are required. Optional: k, user, agent_output (distilled and scored), produced_memories (scored as given)." }}
+						</p>
+					</template>
 
 					<!-- Assertions -->
-					<div class="border-t pt-3">
+					<div v-if="isMemoryCase" class="border-t pt-3 text-xs text-gray-500">
+						A Memory case scores itself: recall, precision and latency come from the memory store. Assertions are not used.
+					</div>
+					<div v-else class="border-t pt-3">
 						<div class="flex items-center justify-between mb-2">
 							<span class="text-sm font-semibold text-gray-700">Assertions</span>
 							<Button variant="subtle" icon-left="plus" @click="addAssertion">Add assertion</Button>
@@ -635,6 +665,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from "vue"
+import { ASSERTION_TYPES, MATCHERS, TOOL_CALL_MODES, assertionTypeLabel } from "@/utils/evalLabels"
 import { useRoute, useRouter } from "vue-router"
 import { frappeRequest, Button, Dialog, ErrorMessage, FormControl } from "frappe-ui"
 
@@ -642,7 +673,6 @@ const route = useRoute()
 const router = useRouter()
 const suiteName = route.params.suite
 
-const ASSERTION_TYPES = ["contains", "regex", "equals", "schema_valid", "llm_judge", "max_tokens", "no_tool_call", "tool_calls"]
 // What `value` means changes with the type, so the field says which.
 const VALUE_LABELS = {
 	llm_judge: "Rubric",
@@ -652,13 +682,8 @@ const VALUE_LABELS = {
 }
 // tool_calls checks the run's trace against the Expected Tool Calls below; its
 // value is only which of the three modes to check in.
-const TOOL_CALL_MODES = [
-	{ label: "EXACT — these calls, this order, nothing else", value: "EXACT" },
-	{ label: "IN_ORDER — these calls in this order, others allowed between", value: "IN_ORDER" },
-	{ label: "ANY_ORDER — these calls happened, order not checked", value: "ANY_ORDER" },
-]
-const MATCHER_OPTIONS = ["equals", "regex", "contains"].map((m) => ({ label: m, value: m }))
-const assertionTypeOptions = ASSERTION_TYPES.map((t) => ({ label: t, value: t }))
+const MATCHER_OPTIONS = MATCHERS
+const assertionTypeOptions = ASSERTION_TYPES
 
 const loading = ref(true)
 const loadError = ref("")
@@ -690,7 +715,7 @@ const CASE_TYPE_OPTIONS = [
 	"Adversarial", "Co-Load Budget", "Memory",
 ].map((t) => ({ label: t, value: t }))
 
-const skillOptions = ref([{ label: "— none —", value: "" }])
+const skillOptions = ref([{ label: "", value: "" }])
 
 const DATASET_SCOPES = [
 	{ label: "This suite", value: "suite" },
@@ -738,11 +763,11 @@ async function loadSkills() {
 			method: "GET",
 			params: { doctype: "AI Skill", fields: JSON.stringify(["name"]), limit_page_length: 0 },
 		})
-		skillOptions.value = [{ label: "— none —", value: "" }].concat(
+		skillOptions.value = [{ label: "", value: "" }].concat(
 			(res || []).map((sk) => ({ label: sk.name, value: sk.name }))
 		)
 	} catch (e) {
-		skillOptions.value = [{ label: "— none —", value: "" }]
+		skillOptions.value = [{ label: "", value: "" }]
 	}
 }
 
@@ -875,7 +900,21 @@ const caseProvenance = computed(() => {
 const caseForm = reactive({
 	name: "", title: "", input_user_prompt: "", expected_output: "", assertions: [],
 	case_type: "Output", target_skill: "", source_feedback: "", source_security_event: "", source_run: "",
-	expected_tool_calls: [],
+	expected_tool_calls: [], input_context: "",
+})
+const isMemoryCase = computed(() => caseForm.case_type === "Memory")
+const inputContextError = computed(() => {
+	if (!isMemoryCase.value) return ""
+	const text = (caseForm.input_context || "").trim()
+	if (!text) return "Input Context is required for a Memory case."
+	try {
+		const parsed = JSON.parse(text)
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "Input Context must be a JSON object."
+		if (!parsed.scope_key) return "Input Context needs a scope_key: the agent element whose memories to measure."
+		return ""
+	} catch (e) {
+		return "Input Context is not valid JSON."
+	}
 })
 
 const showFromRun = ref(false)
@@ -996,9 +1035,9 @@ async function fetchAiModels() {
 		const res = await frappeRequest({
 			url: "/api/method/frappe.client.get_list",
 			method: "GET",
-			params: { doctype: "AI Model", fields: JSON.stringify(["name"]), limit_page_length: 0 },
+			params: { doctype: "AI Model", fields: JSON.stringify(["name", "model_name"]), limit_page_length: 0 },
 		})
-		aiModelOptions.value = (res || []).map((m) => ({ label: m.name, value: m.name }))
+		aiModelOptions.value = (res || []).map((m) => ({ label: m.model_name || m.name, value: m.name }))
 	} catch (e) {
 		aiModelOptions.value = []
 	}
@@ -1117,7 +1156,7 @@ async function openReassign() {
 		// the endpoint has always supported it. Named for what it does rather
 		// than shown as an empty row, so landing on it is a choice.
 		reassignOptions.value = [
-			{ label: "— none (detach this suite) —", value: "" },
+			{ label: "No agent (detach this suite)", value: "" },
 			...(res || []).map((a) => ({ label: agentLabel(a), value: a.name })),
 		]
 	} catch (e) {
@@ -1207,8 +1246,8 @@ const savingThresholds = ref(false)
 const thresholdError = ref("")
 const CI_ROLE_OPTIONS = [
 	{ label: "Only when asked", value: "" },
-	{ label: "Smoke — every pull request, no model call", value: "Smoke" },
-	{ label: "Nightly — the live sweep, on a schedule", value: "Nightly" },
+	{ label: "Smoke", value: "Smoke" },
+	{ label: "Nightly", value: "Nightly" },
 ]
 const thresholdForm = reactive({ pass_k: 1, min_pass_rate: 0, gate_deployment: false, ci_role: "" })
 
@@ -1291,7 +1330,7 @@ function resetCaseForm() {
 	Object.assign(caseForm, {
 		name: "", title: "", input_user_prompt: "", expected_output: "",
 		case_type: "Output", target_skill: "", source_feedback: "", source_security_event: "", source_run: "",
-		assertions: [], expected_tool_calls: [],
+		assertions: [], expected_tool_calls: [], input_context: "",
 	})
 }
 // The grid is only worth showing when something checks it.
@@ -1339,6 +1378,7 @@ async function openEditCase(c) {
 			source_feedback: res.source_feedback || "",
 			source_security_event: res.source_security_event || "",
 			source_run: res.source_run || "",
+			input_context: res.input_context || "",
 			assertions: (res.assertions || []).map((a) => ({
 				assertion_type: a.assertion_type, value: a.value || "",
 				judge_provider: a.judge_provider || "", judge_model: a.judge_model || "",
@@ -1358,11 +1398,17 @@ async function saveCase() {
 	savingCase.value = true
 	caseError.value = ""
 	try {
+		if (inputContextError.value) {
+			caseError.value = inputContextError.value
+			savingCase.value = false
+			return
+		}
 		const payload = {
 			title: caseForm.title, input_user_prompt: caseForm.input_user_prompt,
 			expected_output: caseForm.expected_output, assertions: JSON.stringify(caseForm.assertions),
 			case_type: caseForm.case_type, target_skill: caseForm.target_skill,
 			expected_tool_calls: JSON.stringify(caseForm.expected_tool_calls),
+			input_context: isMemoryCase.value ? caseForm.input_context : "",
 		}
 		if (caseMode.value === "edit") {
 			await frappeRequest({ url: "/api/method/one_bpmn.api.eval_api.update_eval_case", method: "POST", params: { name: caseForm.name, ...payload } })

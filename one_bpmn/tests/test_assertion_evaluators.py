@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -237,6 +238,33 @@ class TestExecutionAssertions(FrappeTestCase):
 		self.assertFalse(
 			_evaluate_assertion(_assertion("no_tool_call", "write_schema"), "hi", facts)["passed"]
 		)
+
+	def test_a_parked_call_counts_as_made(self):
+		"""A run that stopped to ask a person has no Tool Call row: the call sits in
+		its checkpoint. A trajectory expecting that ask must see it."""
+		run = frappe.get_doc({
+			"doctype": "AI Agent Run",
+			"bpmn_id": "orchestrate",
+			"origin": "eval",
+			"eval_case": "parked-case",
+			"eval_run": "parked-run",
+			"status": "Suspended",
+			"started_at": frappe.utils.now_datetime(),
+			"checkpoint": json.dumps({"suspension": {
+				"transcript": [{"role": "assistant", "content": "The brief is empty."}],
+				"pending_call": {"name": "ask_story_owner", "arguments": {"question": "Which screen?"}},
+			}}),
+		}).insert(ignore_permissions=True, ignore_links=True)
+		self.addCleanup(frappe.delete_doc, "AI Agent Run", run.name, force=True)
+
+		case = SimpleNamespace(name="parked-case")
+		self.assertEqual(eval_runner._tool_calls_for(case, "parked-run"), ["ask_story_owner"])
+		trace = eval_runner._tool_trace_for(case, "parked-run")
+		self.assertEqual(trace, [{"tool": "ask_story_owner", "args": {"question": "Which screen?"}, "status": "Parked"}])
+		answer = eval_runner._parked_answer({"status": "Suspended", "checkpoint": run.checkpoint})
+		self.assertIn("The brief is empty.", answer)
+		self.assertIn("ask_story_owner", answer)
+		self.assertEqual(eval_runner._parked_answer({"status": "Success", "checkpoint": run.checkpoint}), "")
 
 	def test_another_cases_tools_are_not_counted(self):
 		case = SimpleNamespace(name="a-case-that-never-ran")

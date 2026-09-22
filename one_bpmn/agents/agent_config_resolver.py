@@ -63,6 +63,10 @@ _CONFIG_TO_SHAPE = {
 	"compaction_token_threshold": "aiCompactionTokenThreshold",
 	"compaction_idle_minutes": "aiCompactionIdleMinutes",
 	"compaction_on_task_boundary": "aiCompactionOnTaskBoundary",
+	# The golden dataset bar is the agent's own judgement about its cases. Int,
+	# so 0 reaches the modal and reads there as "no bar".
+	"golden_dataset_minimum": "aiGoldenDatasetMinimum",
+	"golden_dataset_target": "aiGoldenDatasetTarget",
 }
 
 # Shape attributes the modal may write back, and the config fields they land
@@ -98,6 +102,8 @@ _SHAPE_TO_CONFIG = {
 	"aiCompactionTokenThreshold": "compaction_token_threshold",
 	"aiCompactionIdleMinutes": "compaction_idle_minutes",
 	"aiCompactionOnTaskBoundary": "compaction_on_task_boundary",
+	"aiGoldenDatasetMinimum": "golden_dataset_minimum",
+	"aiGoldenDatasetTarget": "golden_dataset_target",
 	# WI-001644: screening is agent-level too — what an agent may say is a
 	# property of the agent, not of the task that happens to call it.
 	"aiPiiScreening": "pii_screening",
@@ -111,6 +117,7 @@ _SHAPE_TO_CONFIG = {
 	"aiRateLimitWindowSeconds": "rate_limit_window_seconds",
 	"aiLockAfterBlocks": "lock_after_blocks",
 	"aiLockBlockWindowSeconds": "lock_block_window_seconds",
+	"aiConcurrentTurnPolicy": "concurrent_turn_policy",
 }
 
 # The inverse, for the editor read. Not folded into _CONFIG_TO_SHAPE because
@@ -125,6 +132,7 @@ _SCREENING_TO_SHAPE = {
 	"rate_limit_window_seconds": "aiRateLimitWindowSeconds",
 	"lock_after_blocks": "aiLockAfterBlocks",
 	"lock_block_window_seconds": "aiLockBlockWindowSeconds",
+	"concurrent_turn_policy": "aiConcurrentTurnPolicy",
 }
 
 # Guard rail categories, mirroring the AI Agent Guard Rail Select options
@@ -249,6 +257,7 @@ _SCREENING_FIELDS = (
 	"rate_limit_window_seconds",
 	"lock_after_blocks",
 	"lock_block_window_seconds",
+	"concurrent_turn_policy",
 )
 
 

@@ -89,6 +89,25 @@ Respond with ONLY a JSON object:
 # Whitelisted entry point
 # ---------------------------------------------------------------------------
 
+# RQ kills a job at its timeout, and a run saves its results once, at the end.
+# A fixed 1800 s therefore lost every result of a suite that outgrew half an
+# hour, which twenty-two live cases do.
+# Five minutes per execution is generous for one case run once, and it is a
+# bound, not a target.
+MIN_JOB_TIMEOUT_SECONDS = 1800
+SECONDS_PER_EXECUTION = 300
+
+
+def _job_timeout(suite: str, backend: str, case_count: int) -> int:
+    """Seconds RQ allows the run: the floor, or five minutes per execution,
+    whichever is more. An execution is one case run once; pass_k repeats each
+    live case that many times, and a replay repeats nothing."""
+    pass_k = 1 if backend in ("replay", "deterministic") else max(
+        1, cint(frappe.db.get_value("AI Eval Suite", suite, "pass_k"))
+    )
+    return max(MIN_JOB_TIMEOUT_SECONDS, SECONDS_PER_EXECUTION * max(1, case_count) * pass_k)
+
+
 @frappe.whitelist()
 def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     """
@@ -137,7 +156,7 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
         # compete with production business jobs for the default workers.
         queue="bpmn_ai_agent",
         run_name=run.name,
-        timeout=1800,
+        timeout=_job_timeout(suite_name, backend, frappe.db.count("AI Eval Case", {"suite": suite_name})),
     )
 
     return run.name
@@ -225,7 +244,9 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
         queue="bpmn_ai_agent",
         run_name=run.name,
         case_names=case_names,
-        timeout=1800,
+        timeout=_job_timeout(
+            suite_name, backend, len(case_names) if case_names else frappe.db.count("AI Eval Case", {"suite": suite_name})
+        ),
     )
     return run.name
 
@@ -335,7 +356,7 @@ def run_eval_comparison(
             queue="bpmn_ai_agent",
             run_name=run_name,
             case_names=case_names,
-            timeout=1800,
+            timeout=_job_timeout(suite_name, "live", len(case_names)),
         )
 
     return {
@@ -1273,6 +1294,26 @@ def _eval_map_for_case(cfg, case) -> str:
     return ""
 
 
+def _instance_failure(instance_name: str) -> str:
+    """What the engine logged when this instance errored.
+
+    The instance keeps no error field — the traceback goes to an Error Log
+    titled "BPMN runtime failure [<ref>] — <instance>" — so the last line of
+    that log is the only thing that says what actually broke.
+    """
+    log = frappe.get_all(
+        "Error Log",
+        filters={"method": ["like", f"BPMN runtime failure%{instance_name}"]},
+        fields=["error"],
+        order_by="creation desc",
+        limit=1,
+    )
+    if not log:
+        return "No BPMN runtime failure was logged for it."
+    lines = [line for line in (log[0].error or "").strip().splitlines() if line.strip()]
+    return f"It failed with: {lines[-1].strip()}" if lines else "Its Error Log is empty."
+
+
 def _eval_context_document(case) -> tuple:
     """The document a map eval runs against, read from the case's input_context.
 
@@ -1327,6 +1368,59 @@ def _worker_answer(doctype: str, docname: str) -> str:
         return ""
     row = frappe.db.get_value("A2A Task", docname, ["result", "status_message"], as_dict=True) or {}
     return (row.get("result") or "").strip() or (row.get("status_message") or "").strip()
+
+
+def _parked_answer(run: dict) -> str:
+    """What a run that stopped to ask a person had said, plus the question it asked.
+
+    The executor checkpoints the call it parks on instead of finishing the
+    turn, so a run that asked the story owner has no final_output and, once the
+    eval cancels the instance, never will. The checkpoint is the only witness:
+    the last thing the model said and the tool it reached for.
+    """
+    if run.get("status") != "Suspended":
+        return ""
+    suspension = _suspension_of(run.get("checkpoint"))
+    said = ""
+    for message in reversed(suspension.get("transcript") or []):
+        content = message.get("content")
+        if isinstance(content, list):
+            content = " ".join(b.get("text") or "" for b in content if isinstance(b, dict))
+        if message.get("role") == "assistant" and content:
+            said = content
+            break
+    pending = suspension.get("pending_call") or {}
+    if not pending.get("name"):
+        return said
+    asked = f"Stopped to ask a person through {pending['name']}: {json.dumps(pending.get('arguments') or {})}"
+    return "\n\n".join(filter(None, [said, asked]))
+
+
+def _suspension_of(checkpoint) -> dict:
+    try:
+        return json.loads(checkpoint or "{}").get("suspension") or {}
+    except (ValueError, AttributeError):
+        return {}
+
+
+def _parked_calls(runs: List[str]) -> List[dict]:
+    """The call each Suspended run parked on, read off its checkpoint.
+
+    A model that asks a person has made that call, but the executor records no
+    Tool Call row for it, so a trajectory case saw "Called: nothing" and failed
+    a run that had done exactly what it should.
+    """
+    parked = []
+    for run in frappe.get_all(
+        "AI Agent Run",
+        filters={"name": ["in", runs], "status": "Suspended"},
+        fields=["checkpoint"],
+        order_by="creation asc",
+    ):
+        pending = _suspension_of(run.checkpoint).get("pending_call") or {}
+        if pending.get("name"):
+            parked.append({"tool": pending["name"], "args": pending.get("arguments") or {}, "status": "Parked"})
+    return parked
 
 
 def _run_map_eval(cfg, case) -> tuple:
@@ -1394,6 +1488,27 @@ def _run_map_eval(cfg, case) -> tuple:
                 update_modified=False,
             )
 
+    # A script the map ran can call frappe.db.rollback() and take this
+    # transaction with it: the instance inserted above is gone, the run with it,
+    # and the lookup below would blame the map's routing.
+    if not frappe.db.exists("BPMN Process Instance", instance.name):
+        raise ValueError(
+            f"Process map '{model_name}' rolled the transaction back while running on "
+            f"{doctype} '{docname}': the instance this eval inserted no longer exists. A script "
+            f"on the map calls frappe.db.rollback(); it should roll back to a savepoint of its own."
+        )
+
+    # The engine handles its own failures: it logs the traceback, marks the
+    # instance Errored and returns, so an exception escaping start() is NOT what
+    # a failed run looks like. Asked before the run lookup because a run that
+    # never happened is the symptom, and the missing run below would otherwise
+    # be blamed on the map's routing.
+    if frappe.db.get_value("BPMN Process Instance", instance.name, "status") == "Errored":
+        raise ValueError(
+            f"Process map '{model_name}' errored on {doctype} '{docname}' "
+            f"(instance {instance.name}). {_instance_failure(instance.name)}"
+        )
+
     filters = {"instance": instance.name}
     if case.bpmn_id:
         filters["bpmn_id"] = case.bpmn_id
@@ -1403,8 +1518,8 @@ def _run_map_eval(cfg, case) -> tuple:
     runs = frappe.get_all(
         "AI Agent Run",
         filters=filters,
-        fields=["final_output", "total_prompt_tokens", "total_completion_tokens",
-                "total_tokens", "estimated_cost"],
+        fields=["final_output", "status", "checkpoint", "total_prompt_tokens",
+                "total_completion_tokens", "total_tokens", "estimated_cost"],
         order_by="creation asc",
     )
     if not runs:
@@ -1417,7 +1532,11 @@ def _run_map_eval(cfg, case) -> tuple:
 
     # The last run is the agent's answer; earlier ones (retries, other AI shapes)
     # still count toward spend.
-    output = _worker_answer(doctype, docname) or runs[-1].get("final_output") or ""
+    output = (
+        _worker_answer(doctype, docname)
+        or runs[-1].get("final_output")
+        or _parked_answer(runs[-1])
+    )
     usage = {
         "prompt_tokens": sum((r.get("total_prompt_tokens") or 0) for r in runs),
         "completion_tokens": sum((r.get("total_completion_tokens") or 0) for r in runs),
@@ -1840,14 +1959,11 @@ def _tool_trace_for(case, eval_run: str = None) -> List[dict]:
     steps = frappe.get_all(
         "AI Agent Step", filters={"run": ["in", runs]}, pluck="name", order_by="step_index asc, creation asc"
     )
-    if not steps:
-        return []
-
     rows = frappe.get_all(
         "AI Agent Tool Call",
         filters={"parenttype": "AI Agent Step", "parent": ["in", steps]},
         fields=["parent", "idx", "tool_name", "tool_args", "status"],
-    )
+    ) if steps else []
     position = {name: index for index, name in enumerate(steps)}
     rows.sort(key=lambda r: (position.get(r["parent"], 0), cint(r["idx"])))
 
@@ -1862,7 +1978,8 @@ def _tool_trace_for(case, eval_run: str = None) -> List[dict]:
             "args": args if isinstance(args, dict) else {"": args},
             "status": row["status"],
         })
-    return trace
+    # A parked call is the last thing the model did.
+    return trace + _parked_calls(runs)
 
 
 def _tool_calls_for(case, eval_run: str = None) -> List[str]:
@@ -1874,13 +1991,12 @@ def _tool_calls_for(case, eval_run: str = None) -> List[str]:
     if not runs:
         return []
     steps = frappe.get_all("AI Agent Step", filters={"run": ["in", runs]}, pluck="name")
-    if not steps:
-        return []
-    return frappe.get_all(
+    called = frappe.get_all(
         "AI Agent Tool Call",
         filters={"parenttype": "AI Agent Step", "parent": ["in", steps]},
         pluck="tool_name",
-    )
+    ) if steps else []
+    return called + [call["tool"] for call in _parked_calls(runs)]
 
 
 def _judge_model_for(assertion) -> tuple[str, str]:

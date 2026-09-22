@@ -4,10 +4,14 @@
 import json
 import re
 
-import frappe
+import time
 
-from one_bpmn.security.rate_limit import RateLimited
+import frappe
 from frappe import _
+
+from one_bpmn.agents import turn_signal
+from one_bpmn.security.rate_limit import RateLimited
+from one_bpmn.utils.session import as_user
 
 
 # ============================================
@@ -27,7 +31,95 @@ def _derive_api_method(script_name: str) -> str:
 	return method or "script"
 
 
-def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: dict):
+# Matches the per-call ceiling of an AI Agent Task, so the request gives up
+# when the work itself would.
+CHAT_TURN_WAIT_SECONDS = 300
+# How long a delivery keeps trying while the map loops back to its wait gateway.
+# The gap is well under a second; this is slack, not a budget to spend.
+REARM_WAIT_SECONDS = 20
+_REARM_POLL_SECONDS = 0.25
+
+
+def _latest_bot_message(conversation_name: str):
+	"""The newest Bot reply in this conversation, as a one-row list.
+
+	``name`` is selected because the reply has to be identifiable afterwards
+	a rating or a report needs something durable to point at.
+	"""
+	return frappe.get_all(
+		"Chat Message",
+		filters={"conversation": conversation_name, "message_type": "Bot"},
+		fields=["name", "text", "metadata"],
+		order_by="creation desc",
+		limit=1,
+	)
+
+
+def _wait_for_worker_reply(inst_name: str, conversation_name: str, reply_before: str | None):
+	"""Wait for the parked turn to produce its reply, or give up.
+
+	Two commits, both load-bearing. The first releases this request's
+	transaction: the job is enqueued after commit, so without it the worker is
+	never started and the wait is certain to time out. The second starts a fresh
+	read snapshot, because a transaction that opened before the worker committed
+	would keep answering with the rows it saw then, however long it waited.
+	"""
+	if frappe.flags.in_test and not frappe.flags.get("bpmn_force_ai_parking"):
+		# Parking is off in tests, so the reply is already there and a wait
+		# would block on a worker that never runs.
+		return None
+
+	# The worker reads this turn on its own connection.
+	# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+	frappe.db.commit()
+	turn_signal.wait(inst_name, CHAT_TURN_WAIT_SECONDS)
+	# REPEATABLE READ pins a snapshot at the first read, so without this
+	# the request keeps reading the rows from before the wait.
+	# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+	frappe.db.commit()
+
+	rows = _latest_bot_message(conversation_name)
+	if rows and rows[0]["name"] != reply_before:
+		return rows
+	return None
+
+
+def _redeliver_until_armed(inst_name: str, payload: dict) -> bool:
+	"""Deliver again until a task actually catches the message. True when one did.
+
+	``receive_message`` is quiet about a message nobody was waiting for, so the
+	caller went on to wait out the whole turn timeout for a reply that could
+	never come — five minutes of "Thinking…" for the second message of a
+	conversation. The gap is real and short: the engine writes the reply, the
+	turn is reported, and only then does the map loop back to its wait gateway.
+
+	Each attempt commits first. The engine re-arms the instance on the worker's
+	connection, and this request's read snapshot would otherwise keep showing
+	the state it read before the wait.
+	"""
+	deadline = time.monotonic() + REARM_WAIT_SECONDS
+	while time.monotonic() < deadline:
+		time.sleep(_REARM_POLL_SECONDS)
+		# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+		frappe.db.commit()
+		if frappe.db.get_value("BPMN Process Instance", inst_name, "status") not in ("Active", "Queued"):
+			return False
+		instance = frappe.get_doc("BPMN Process Instance", inst_name)
+		try:
+			instance.receive_message("ChatConversation_Message_Action", payload=payload)
+		except frappe.ValidationError:
+			return False
+		except Exception:
+			frappe.log_error(title="BPMN chat redelivery failed", message=frappe.get_traceback())
+			return False
+		if instance.flags.get("bpmn_message_caught"):
+			return True
+	return False
+
+
+def _delegate_to_bpmn_instance(
+	conversation_name: str, message: str, context: dict, wait: bool = True
+):
 	"""Hand a chat turn to the BPMN Process Instance driving this conversation.
 
 	The process map performs ALL the work: its ``Save User Message`` task persists
@@ -82,6 +174,13 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 	# distinguish "the map replied" from "the map produced nothing and the last
 	# reply is still the newest row" — and the second case silently re-served a
 	# previous answer as though it were this turn's.
+	# Read it on a FRESH snapshot. A turn that queued behind another opened its
+	# transaction before that turn had committed, so under REPEATABLE READ it
+	# still sees the conversation as it was when it arrived: the reply saved
+	# while it waited looks new, and the wait below hands the previous
+	# question's answer back as this one's.
+	# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+	frappe.db.commit()
 	_before = frappe.get_all(
 		"Chat Message",
 		filters={"conversation": conversation_name, "message_type": "Bot"},
@@ -97,15 +196,9 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 	}
 	payload.update({k: v for k, v in (context or {}).items() if v not in (None, "")})
 
-	# Run the agent INLINE for this turn instead of parking it on the
-	# bpmn_ai_agent worker. The chat endpoint is an explicit waiter: the
-	# frontend expects the reply in this HTTP response, so the "Run <Agent>"
-	# AI task must execute (and "Save Response" must persist the bot message)
-	# before the read-back below. Without this the agent parks async, the
-	# read-back finds no fresh bot message, and the caller wrongly surfaces
-	# "reopen the chat" even though the instance is running normally.
-	prev_parking_flag = getattr(frappe.flags, "bpmn_disable_ai_parking", False)
-	frappe.flags.bpmn_disable_ai_parking = True
+	# The AI work parks on the bpmn_ai_agent worker, so the engine pass
+	# returns once the job is queued and the wait below covers the turn.
+	turn_signal.clear(inst_name)
 	try:
 		instance = frappe.get_doc("BPMN Process Instance", inst_name)
 		instance.receive_message("ChatConversation_Message_Action", payload=payload)
@@ -126,8 +219,10 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 	except Exception:
 		frappe.log_error(title="BPMN chat delegation failed", message=frappe.get_traceback())
 		return None
-	finally:
-		frappe.flags.bpmn_disable_ai_parking = prev_parking_flag
+
+	if not instance.flags.get("bpmn_message_caught"):
+		if not _redeliver_until_armed(inst_name, payload):
+			return None
 
 	# Read back the bot message the instance produced during Call Agent → Save Response.
 	#
@@ -136,13 +231,18 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 	# stream minted a throwaway uuid for the message instead, and nothing the
 	# user later says about a specific reply — a rating, a report — had anything
 	# durable to point at.
-	rows = frappe.get_all(
-		"Chat Message",
-		filters={"conversation": conversation_name, "message_type": "Bot"},
-		fields=["name", "text", "metadata"],
-		order_by="creation desc",
-		limit=1,
-	)
+	rows = _latest_bot_message(conversation_name)
+	if not rows or rows[0]["name"] == reply_before:
+		if not wait:
+			# The caller relays progress itself and collects the reply through
+			# collect_chat_turn_reply.
+			return {
+				"pending": True,
+				"instance": inst_name,
+				"conversation": conversation_name,
+				"reply_before": reply_before,
+			}
+		rows = _wait_for_worker_reply(inst_name, conversation_name, reply_before) or rows
 	if not rows or rows[0]["name"] == reply_before:
 		# This turn produced no reply of its own. Before reporting a dead
 		# process, check whether it PARKED: a designer-marked human tool
@@ -156,6 +256,53 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 			return parked
 		return None
 
+	return _shape_reply(rows, inst_name)
+
+
+def collect_chat_turn_reply(handle: dict, task_output=None) -> dict | None:
+	"""Read what a turn delivered with ``wait=False`` produced.
+
+	The streaming surface delivers the message, relays the worker's progress
+	while the turn runs, then calls this. Splitting delivery from collection is
+	what lets the connection report a running tool, because a function that
+	blocks cannot also yield.
+
+	``task_output`` is the AI task's own output, sent by the worker as it wrote
+	it. When it is there it IS the answer, and the Chat Message row is read only
+	to name the reply. Without it the row is the answer, as it always was.
+	"""
+	inst_name = handle["instance"]
+	conversation_name = handle["conversation"]
+	reply_before = handle.get("reply_before")
+
+	rows = _latest_bot_message(conversation_name)
+	if not rows or rows[0]["name"] == reply_before:
+		rows = _wait_for_worker_reply(inst_name, conversation_name, reply_before) or rows
+	if not rows or rows[0]["name"] == reply_before:
+		parked = _parked_for_human(inst_name, conversation_name)
+		if parked:
+			return parked
+		# A map that persists no Bot message still has a reply to give.
+		return _reply_from_task_output(task_output, inst_name) if task_output else None
+	return _shape_reply(rows, inst_name, task_output)
+
+
+def _reply_from_task_output(task_output, inst_name: str) -> dict | None:
+	"""The AI task's output as a reply, for a turn that saved no message."""
+	result = dict(task_output) if isinstance(task_output, dict) else {"response": str(task_output)}
+	if not (result.get("response") or "").strip():
+		return None
+	result["bpmn_driven"] = True
+	return result
+
+
+def _shape_reply(rows, inst_name: str, task_output=None) -> dict:
+	"""Turn what this turn produced into the caller's result.
+
+	``task_output`` wins over the message metadata when the worker sent it: it
+	is the AI task's own output rather than a copy of it read back from a row
+	that was only assumed to belong to this turn.
+	"""
 	meta = {}
 	if rows[0].get("metadata"):
 		try:
@@ -163,8 +310,10 @@ def _delegate_to_bpmn_instance(conversation_name: str, message: str, context: di
 		except Exception:
 			meta = {}
 
-	agent_result = meta.get("agent_result")
+	agent_result = task_output if isinstance(task_output, dict) else meta.get("agent_result")
 	result = dict(agent_result) if isinstance(agent_result, dict) else {}
+	if not isinstance(task_output, dict) and isinstance(task_output, str) and task_output.strip():
+		result.setdefault("response", task_output)
 	# The Chat Message text is what the map actually said, so it wins over a
 	# BLANK response in agent_result. setdefault treated "" as an answer, and a
 	# map that reports its reply only on the message — every Logix branch that
@@ -236,7 +385,7 @@ def _parked_for_human(inst_name: str, conversation_name: str) -> dict | None:
 	}
 
 
-def delegate_chat_turn(conversation_name: str, message: str, context: dict = None):
+def delegate_chat_turn(conversation_name: str, message: str, context: dict = None, wait: bool = True):
 	"""Public entry point for other apps (e.g. the Lumina Desk page in onefm_mcp)
 	to hand a chat turn to the BPMN Process Instance driving a conversation.
 
@@ -249,7 +398,7 @@ def delegate_chat_turn(conversation_name: str, message: str, context: dict = Non
 	Chat Message — the map's "Save User Message" task then reuses it instead of
 	inserting a duplicate.
 	"""
-	return _delegate_to_bpmn_instance(conversation_name, message, context or {})
+	return _delegate_to_bpmn_instance(conversation_name, message, context or {}, wait=wait)
 
 
 @frappe.whitelist()
@@ -298,9 +447,7 @@ def create_server_script(
 	if module:
 		doc.module = module
 
-	original_user = frappe.session.user
-	try:
-		frappe.set_user("Administrator")
+	with as_user("Administrator"):
 		if frappe.db.exists("Server Script", script_name):
 			# Script already exists — update in place instead of re-inserting
 			doc = frappe.get_doc("Server Script", script_name)
@@ -327,8 +474,6 @@ def create_server_script(
 			doc.save(ignore_permissions=True)
 		else:
 			doc.insert(ignore_permissions=True)
-	finally:
-		frappe.set_user(original_user)
 
 	method = getattr(doc, "api_method", None) or ""
 	return {
@@ -381,12 +526,8 @@ def update_server_script(
 			doc.cron_format = cron_format
 		if module is not None:
 			doc.module = module
-		original_user = frappe.session.user
-		try:
-			frappe.set_user("Administrator")
+		with as_user("Administrator"):
 			doc.save(ignore_permissions=True)
-		finally:
-			frappe.set_user(original_user)
 		method = doc.api_method or ""
 		return {
 			"name":        doc.name,

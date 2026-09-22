@@ -69,7 +69,7 @@ class TestEveryPathComposesTheSameWay(FrappeTestCase):
 			expected = CA.build_static_context_from_config(CONFIG)
 
 		self.assertIn("Never quote a price.", expected)
-		source = inspect.getsource(agent_invocation._run_direct_api)
+		source = inspect.getsource(agent_invocation._direct_api_turn)
 		self.assertIn("build_static_context_from_config", source)
 		self.assertNotIn('config.get("system_prompt") or ""', source)
 

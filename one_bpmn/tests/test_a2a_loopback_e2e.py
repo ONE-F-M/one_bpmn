@@ -70,12 +70,9 @@ class TestA2ALoopback(FrappeTestCase):
 		super().setUp()
 		# The exposed worker — receives work through the server side.
 		self.worker = make_agent_configuration(a2a_exposed=1, a2a_skill_tags="backend")
-		# The orchestrator — delegates through the client side. It restricts
-		# delegation on purpose, so the off-the-list refusal below is exercised;
-		# an unrestricted agent could reach any exposed agent.
-		self.orchestrator = make_agent_configuration(restrict_delegates=1)
-		self.orchestrator.append("allowed_delegates", {"agent_configuration": self.worker.name})
-		self.orchestrator.save(ignore_permissions=True)
+		# The orchestrator — delegates through the client side. Exposure alone
+		# is the grant, so no list to maintain here.
+		self.orchestrator = make_agent_configuration()
 		# We are our own approved caller, allowed to reach the worker.
 		self.client = approve(make_client(agents=[self.worker.name]))
 		# ...and our own registered remote, pointing at ourselves.
@@ -196,15 +193,6 @@ class TestA2ALoopback(FrappeTestCase):
 			result = self._delegate(self._ctx())
 		self.assertEqual(result["state"], "failed")
 		self.assertEqual(frappe.get_doc("A2A Task", result["a2a_task"]).state, "failed")
-
-	def test_delegation_to_an_agent_off_the_list_never_reaches_the_wire(self):
-		from one_bpmn.agents.a2a.guardrails import DelegationRefused
-
-		self.orchestrator.allowed_delegates = []
-		self.orchestrator.save(ignore_permissions=True)
-		with self.assertRaises(DelegationRefused):
-			self._delegate(self._ctx())
-		self.assertEqual(self.transport.sent, [], "nothing should have been sent")
 
 	def test_caller_not_on_the_client_allow_list_is_refused_at_the_door(self):
 		"""The server side refuses even though the client side approved:

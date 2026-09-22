@@ -15,11 +15,9 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents._eval_test_factories import make_eval_case, make_eval_suite
-from one_bpmn.api.eval_api import create_eval_case, get_eval_case, update_eval_case
+from one_bpmn.api.eval_api import create_eval_case, create_suite, get_eval_case, update_eval_case
 from one_bpmn.api.golden_dataset import (
 	CASE_TYPES,
-	DEFAULT_MINIMUM,
-	DEFAULT_TARGET,
 	dataset_sizes,
 	dataset_readiness,
 	export_dataset,
@@ -92,6 +90,38 @@ class TestCaseTypes(FrappeTestCase):
 		update_eval_case(name=name, target_skill="")
 		self.assertFalse(get_eval_case(name)["target_skill"])
 
+	def test_a_memory_case_carries_its_input_context(self):
+		"""For a Memory case the Input Context is the test: which scope to search,
+		how many rows to look at. Authored on Processa, it has to round-trip."""
+		name = create_eval_case(
+			suite=self.suite.name, title="recall", input_user_prompt="who approves invoices",
+			case_type="Memory",
+			input_context='{"scope": "Agent", "scope_key": "run_general_chat_agent", "k": 5}',
+		)
+		stored = json.loads(get_eval_case(name)["input_context"])
+		self.assertEqual(stored["scope_key"], "run_general_chat_agent")
+		self.assertEqual(stored["k"], 5)
+
+	def test_input_context_that_is_not_json_is_refused(self):
+		"""Stored as typed it would fail at run time with a message about a
+		missing scope_key, long after the author has closed the form."""
+		with self.assertRaises(frappe.ValidationError):
+			create_eval_case(suite=self.suite.name, title="bad", input_user_prompt="x",
+							 case_type="Memory", input_context="scope: Agent")
+
+	def test_input_context_must_be_an_object(self):
+		with self.assertRaises(frappe.ValidationError):
+			create_eval_case(suite=self.suite.name, title="list", input_user_prompt="x",
+							 case_type="Memory", input_context='["Agent"]')
+
+	def test_input_context_can_be_set_later_and_left_alone(self):
+		name = create_eval_case(suite=self.suite.name, title="later", input_user_prompt="x")
+		self.assertFalse(get_eval_case(name)["input_context"])
+		update_eval_case(name=name, input_context={"scope": "Agent", "scope_key": "x"})
+		self.assertEqual(json.loads(get_eval_case(name)["input_context"])["scope"], "Agent")
+		update_eval_case(name=name, title="renamed")
+		self.assertEqual(json.loads(get_eval_case(name)["input_context"])["scope"], "Agent")
+
 	def test_provenance_is_readable_but_not_authorable(self):
 		"""Where a case came from is written by what promoted it."""
 		name = create_eval_case(suite=self.suite.name, title="provenance", input_user_prompt="x")
@@ -101,19 +131,70 @@ class TestCaseTypes(FrappeTestCase):
 		self.assertFalse(case["source_feedback"])
 
 
+class TestSuiteTypes(FrappeTestCase):
+	"""create_suite used to turn anything but Direct or Agent into Direct. A
+	Memory suite made on the Evals page came out Direct, and every run it made
+	then called the model instead of scoring the memory store."""
+
+	def test_a_memory_suite_stays_a_memory_suite(self):
+		name = create_suite(title="_Test memory suite " + frappe.generate_hash(length=6), eval_type="Memory")
+		self.assertEqual(frappe.db.get_value("AI Eval Suite", name, "eval_type"), "Memory")
+
+	def test_no_type_means_direct(self):
+		name = create_suite(title="_Test untyped suite " + frappe.generate_hash(length=6))
+		self.assertEqual(frappe.db.get_value("AI Eval Suite", name, "eval_type"), "Direct")
+
+	def test_a_type_that_does_not_exist_is_refused_not_coerced(self):
+		with self.assertRaises(frappe.ValidationError):
+			create_suite(title="_Test typo suite", eval_type="Memroy")
+
+
 class TestReadiness(FrappeTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.suite = make_eval_suite(process_model=None, title="_Test readiness " + frappe.generate_hash(length=6))
 		self.agent = self.suite.agent_configuration
 
+	def _bar(self, agent, minimum, target=0):
+		frappe.db.set_value("AI Agent Configuration", agent,
+							{"golden_dataset_minimum": minimum, "golden_dataset_target": target})
+
 	def test_it_counts_what_the_agent_has_and_what_it_is_short(self):
+		self._bar(self.agent, 20, 30)
 		for index in range(3):
 			make_eval_case(suite=self.suite.name, title=f"case {index}")
 		out = dataset_readiness(agent=self.agent)
 		self.assertEqual(out["cases"], 3)
-		self.assertEqual(out["minimum"], DEFAULT_MINIMUM)
-		self.assertEqual(out["short_by"], DEFAULT_MINIMUM - 3)
+		self.assertEqual((out["minimum"], out["target"]), (20, 30))
+		self.assertEqual(out["short_by"], 17)
+
+	def test_an_agent_that_set_no_minimum_shows_a_count_and_no_bar(self):
+		"""None, not 0 — 0 would read as a dataset that is complete."""
+		make_eval_case(suite=self.suite.name, title="one case")
+		out = dataset_readiness(agent=self.agent)
+		self.assertEqual(out["cases"], 1)
+		self.assertIsNone(out["minimum"])
+		self.assertIsNone(out["target"])
+		self.assertIsNone(out["short_by"])
+		self.assertEqual(dataset_sizes(self.agent), (None, None))
+
+	def test_a_suite_is_read_against_its_agents_bar(self):
+		self._bar(self.agent, 5)
+		make_eval_case(suite=self.suite.name, title="one case")
+		out = dataset_readiness(suite=self.suite.name)
+		self.assertEqual((out["minimum"], out["short_by"]), (5, 4))
+
+	def test_a_skill_is_held_to_the_strictest_agent_holding_its_cases(self):
+		skill = _skill("strict")
+		lenient = make_eval_suite(process_model=None, title="_Test lenient " + frappe.generate_hash(length=6))
+		self._bar(self.agent, 4)
+		self._bar(lenient.agent_configuration, 12)
+		for suite in (self.suite, lenient):
+			case = make_eval_case(suite=suite.name, title="skill case")
+			frappe.db.set_value("AI Eval Case", case.name, "target_skill", skill.name)
+		out = dataset_readiness(skill=skill.name)
+		self.assertEqual(out["cases"], 2)
+		self.assertEqual(out["minimum"], 12)
 
 	def test_it_says_which_types_are_absent(self):
 		make_eval_case(suite=self.suite.name, title="an output case")
@@ -313,7 +394,8 @@ class TestSkillGraduation(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			self.skill.save(ignore_permissions=True)
 
-	def test_action_allowed_still_wants_a_dataset_of_twenty(self):
+	def test_action_allowed_wants_the_dataset_the_agent_asked_for(self):
+		frappe.db.set_value("AI Agent Configuration", self.suite.agent_configuration, "golden_dataset_minimum", 20)
 		self._run("Passed", 10, 10)
 		self._run("Passed", 10, 10)
 		self.skill.tier = "Action-Allowed"
@@ -321,40 +403,59 @@ class TestSkillGraduation(FrappeTestCase):
 			self.skill.save(ignore_permissions=True)
 		self.assertIn("20+", str(caught.exception))
 
+	def test_with_no_bar_set_anywhere_the_case_count_does_not_block(self):
+		"""No agent holding this skill's cases has said how many it wants, so
+		there is no number to fall short of — the other gates still apply."""
+		self._run("Passed", 10, 10)
+		self._run("Passed", 10, 10)
+		self.skill.tier = "Action-Allowed"
+		self.skill.save(ignore_permissions=True)
+		self.assertEqual(frappe.db.get_value("AI Skill", self.skill.name, "tier"), "Action-Allowed")
 
-class TestDatasetSizesAreSettings(FrappeTestCase):
-	"""What counts as a representative dataset is a judgement about these
-	agents, so it belongs in Processa Settings rather than in the code."""
+
+class TestDatasetSizesAreTheAgents(FrappeTestCase):
+	"""What counts as a representative dataset is a judgement about one agent's
+	work, so each agent carries its own bar. There is no site-wide number and no
+	shipped default: an agent that has set nothing is shown a count with no bar,
+	not a shortfall against a figure nobody chose."""
 
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.suite = make_eval_suite(process_model=None,
 									 title="_Test sizes " + frappe.generate_hash(length=6))
+		self.agent = self.suite.agent_configuration
 
-	def _set(self, minimum, target):
-		frappe.db.set_single_value("Processa Settings", "golden_dataset_minimum", minimum)
-		frappe.db.set_single_value("Processa Settings", "golden_dataset_target", target)
-		frappe.clear_document_cache("Processa Settings", "Processa Settings")
+	def _set(self, minimum, target, agent=None):
+		frappe.db.set_value("AI Agent Configuration", agent or self.agent,
+							{"golden_dataset_minimum": minimum, "golden_dataset_target": target})
 
-	def test_the_readings_follow_the_settings(self):
+	def test_the_readings_follow_the_agent(self):
 		self._set(5, 8)
 		make_eval_case(suite=self.suite.name, title="one case")
-		out = dataset_readiness(agent=self.suite.agent_configuration)
+		out = dataset_readiness(agent=self.agent)
 		self.assertEqual((out["minimum"], out["target"]), (5, 8))
 		self.assertEqual(out["short_by"], 4)
 
-	def test_unset_falls_back_to_the_shipped_numbers(self):
-		"""0 means nobody filled it in — treating that as "no minimum" would make
-		every dataset on the site read as complete."""
+	def test_unset_is_no_bar_at_all(self):
+		"""None, never a fallback: a default of 20 would quietly hold every new
+		agent to a number its owner never chose."""
 		self._set(0, 0)
-		self.assertEqual(dataset_sizes(), (DEFAULT_MINIMUM, DEFAULT_TARGET))
+		self.assertEqual(dataset_sizes(self.agent), (None, None))
+		out = dataset_readiness(agent=self.agent)
+		self.assertIsNone(out["minimum"])
+		self.assertIsNone(out["short_by"])
+
+	def test_one_agents_bar_is_not_anothers(self):
+		other = make_eval_suite(process_model=None, title="_Test other sizes " + frappe.generate_hash(length=6))
+		self._set(9, 0)
+		self.assertEqual(dataset_sizes(other.agent_configuration), (None, None))
 
 	def test_the_skill_gate_quotes_the_same_number(self):
 		"""The bar a skill must clear and the count shown beside it must not be
 		able to disagree."""
-		self._set(3, 5)
 		skill = _skill("sizes")
 		suite = make_eval_suite(process_model=None, title="_Test gate size " + frappe.generate_hash(length=6))
+		self._set(3, 5, agent=suite.agent_configuration)
 		for case_type in ("Trigger Positive", "Trigger Negative"):
 			case = make_eval_case(suite=suite.name, title=f"{case_type} case")
 			frappe.db.set_value("AI Eval Case", case.name,
@@ -370,7 +471,8 @@ class TestDatasetSizesAreSettings(FrappeTestCase):
 		skill.tier = "Action-Allowed"
 		with self.assertRaises(frappe.ValidationError) as caught:
 			skill.save(ignore_permissions=True)
-		self.assertIn("3+", str(caught.exception), "it quotes the configured minimum, not a hard-coded 20")
+		self.assertIn("3+", str(caught.exception), "it quotes the agent's minimum, not a hard-coded 20")
+		self.assertEqual(dataset_readiness(skill=skill.name)["minimum"], 3)
 
 
 class TestSuiteIsASubject(FrappeTestCase):

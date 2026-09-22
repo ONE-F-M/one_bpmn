@@ -68,6 +68,30 @@ def _nonempty(value) -> str:
     return text if text.strip() else _EMPTY_PLACEHOLDER
 
 
+async def _forward_text(stream) -> None:
+    """Send each text delta to the chat request waiting on this turn, if any.
+
+    The SDK already streams the reply; this reads it as it arrives instead of
+    only at the end, so the first words reach the reader while the model is
+    still writing. Progress is an accelerator: a failure here is swallowed so
+    it can never fail the model call itself.
+    """
+    try:
+        from one_bpmn.agents.turn_signal import live_text_sink
+
+        sink = live_text_sink()
+    except Exception:
+        sink = None
+    if sink is None:
+        return
+    try:
+        async for event in stream:
+            if getattr(event, "type", None) == "text" and getattr(event, "text", ""):
+                sink(event.text)
+    except Exception:
+        pass
+
+
 class AnthropicAdapter(BaseLLMAdapter):
     """
     Anthropic Messages API adapter with prompt caching.
@@ -91,9 +115,19 @@ class AnthropicAdapter(BaseLLMAdapter):
     Cache metrics are logged at DEBUG level for diagnostics.
     """
 
-    def __init__(self, api_key: str, model: str):
+    def __init__(self, api_key: str, model: str, timeout_seconds: float | None = None, max_retries: int | None = None):
         import anthropic
-        self._client = anthropic.AsyncAnthropic(api_key=api_key)
+
+        # The SDK's own defaults are a 600 s read timeout and two retries. Both
+        # are overridden here, never passed as None — to this client None means
+        # "wait forever". Calls are streamed, so the timeout is the longest the
+        # stream may fall silent, which is the bound actually wanted.
+        client_kwargs = {"api_key": api_key}
+        if timeout_seconds:
+            client_kwargs["timeout"] = timeout_seconds
+        if max_retries is not None:
+            client_kwargs["max_retries"] = max_retries
+        self._client = anthropic.AsyncAnthropic(**client_kwargs)
         self._model = model
 
     async def complete(
@@ -185,6 +219,7 @@ class AnthropicAdapter(BaseLLMAdapter):
             # non-streaming requests.  get_final_message() collects the full
             # response and returns the same Message object as messages.create().
             async with self._client.messages.stream(**kwargs) as stream:
+                await _forward_text(stream)
                 response = await stream.get_final_message()
 
             prompt_tokens, completion_tokens, cache_read, cache_write = _usage_tokens(response)
@@ -358,6 +393,7 @@ class AnthropicAdapter(BaseLLMAdapter):
             kwargs["tools"] = tool_defs
 
         async with self._client.messages.stream(**kwargs) as stream:
+            await _forward_text(stream)
             response = await stream.get_final_message()
 
         prompt_tokens, completion_tokens, cache_read, cache_write = _usage_tokens(response)

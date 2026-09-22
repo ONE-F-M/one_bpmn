@@ -28,6 +28,13 @@ const ENDPOINT = "/api/method/one_bpmn.api.agui.stream_agent_turn";
 
 const GENERIC_FAILURE = "Connection lost. Please try again.";
 
+// the server sends a `: keep-alive` SSE comment every 10s during a
+// buffered turn, on top of whatever real events it produces. If NEITHER kind
+// of frame has arrived for this long, the connection is stuck — fail the
+// turn instead of leaving the panel on "Thinking…" forever.
+const DEFAULT_IDLE_TIMEOUT_MS = 60000;
+const TIMEOUT_FAILURE = "The agent did not respond";
+
 /**
  * Stream one agent turn.
  *
@@ -37,18 +44,49 @@ const GENERIC_FAILURE = "Connection lost. Please try again.";
  * @param {string} [opts.conversation]  omit on the first turn — the
  *        conversation id arrives on RUN_STARTED as thread_id
  * @param {Object} [opts.context]      host state for this turn
+ * @param {string} [opts.clientMessageId] id minted for this message. Re-sending
+ *        it replays the first reply instead of running the agent a second time.
  * @param {(event: Object) => void} opts.onEvent   every parsed event
  * @param {(message: string) => void} opts.onError RUN_ERROR or transport failure
  * @param {() => void} opts.onDone     terminal — stream closed
+ * @param {number} [opts.idleTimeoutMs] no event/keep-alive for this long
+ *        fails the turn; defaults to 60000 (60s), well past the server's
+ *        10s keep-alive cadence.
  * @returns {{ close: () => void }}
  */
-export function streamAgentTurn({ agentId, message, conversation, context, onEvent, onError, onDone }) {
+export function streamAgentTurn({
+	agentId,
+	message,
+	conversation,
+	context,
+	clientMessageId,
+	onEvent,
+	onError,
+	onDone,
+	idleTimeoutMs,
+}) {
 	const controller = new AbortController();
 	let finished = false;
+
+	const IDLE_TIMEOUT_MS = idleTimeoutMs || DEFAULT_IDLE_TIMEOUT_MS;
+	let idleTimer = null;
+
+	const clearIdleTimer = () => {
+		if (idleTimer) clearTimeout(idleTimer);
+		idleTimer = null;
+	};
+
+	// Called on every frame the transport actually delivers — a parsed
+	// event AND a bare keep-alive comment both count as "still alive".
+	const resetIdleTimer = () => {
+		clearIdleTimer();
+		idleTimer = setTimeout(() => fail(TIMEOUT_FAILURE), IDLE_TIMEOUT_MS);
+	};
 
 	const finish = () => {
 		if (finished) return;
 		finished = true;
+		clearIdleTimer();
 		controller.abort();
 		onDone && onDone();
 	};
@@ -88,6 +126,7 @@ export function streamAgentTurn({ agentId, message, conversation, context, onEve
 
 	const body = new URLSearchParams({ agent_id: agentId, message: message ?? "" });
 	if (conversation) body.set("conversation", conversation);
+	if (clientMessageId) body.set("client_message_id", clientMessageId);
 	if (context && Object.keys(context).length) body.set("context", JSON.stringify(context));
 
 	(async () => {
@@ -114,6 +153,10 @@ export function streamAgentTurn({ agentId, message, conversation, context, onEve
 			return;
 		}
 
+		// The connection is live from here — arm the idle timer before the
+		// first read, so a turn that never sends anything still times out.
+		resetIdleTimer();
+
 		const reader = response.body.getReader();
 		const decoder = new TextDecoder();
 		let buffer = "";
@@ -122,6 +165,9 @@ export function streamAgentTurn({ agentId, message, conversation, context, onEve
 			for (;;) {
 				const { value, done } = await reader.read();
 				if (done) break;
+				// Any bytes at all — a real event or a bare `: keep-alive`
+				// comment — prove the connection is still alive.
+				resetIdleTimer();
 				buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
 
 				// SSE frames are separated by a blank line.

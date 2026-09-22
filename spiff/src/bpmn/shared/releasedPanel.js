@@ -13,7 +13,10 @@
  * accepts typing and then discards it is worse than one that never opened.
  */
 
-const LOCKED_TYPES = ["bpmn:ScriptTask", "bpmn:SequenceFlow"];
+// A sequence flow is not here: its condition and name are exactly the kind of
+// non-breaking correction a released panel exists for. A wrong condition takes
+// the wrong branch, but the map still compiles and editing again puts it right.
+const LOCKED_TYPES = ["bpmn:ScriptTask"];
 
 const LOCKED_ATTRS = ["id", "serviceType", "calledElement", "default"];
 
@@ -34,6 +37,16 @@ export function isLockedElement(bo) {
 export function isEditableProperty(key) {
 	const name = String(key).split(":").pop();
 	return !LOCKED_ATTRS.includes(name) && !name.toLowerCase().includes("script");
+}
+
+/**
+ * Is this moddle update the flow's condition? The conditions panel mutates the
+ * expression element's body and then announces the change with the expression
+ * as the moddle element and no properties, so it is recognised by identity
+ * rather than by key.
+ */
+export function isConditionUpdate(bo, moddleElement) {
+	return !!bo && bo.$type === "bpmn:SequenceFlow" && !!moddleElement && moddleElement === bo.conditionExpression;
 }
 
 /** The single element whose panel is showing, or null. */

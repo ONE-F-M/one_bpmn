@@ -386,7 +386,13 @@ class DirectApiExecutor(Executor):
 
         start = time.time()
         try:
-            adapter = get_llm_adapter(adapter_key, model, api_key)
+            # The loop below already retries each turn aiMaxRetries times and
+            # bounds each attempt with aiTimeout, so the SDK client gets the
+            # same timeout and no retries of its own — otherwise the two policies
+            # multiply, and a stalled call could run 3 × 3 × aiTimeout.
+            adapter = get_llm_adapter(
+                adapter_key, model, api_key, timeout_seconds=config.timeout_seconds, max_retries=0
+            )
             completion, suspension = _run_coro_blocking(
                 run_agent_loop(
                     adapter,
@@ -400,6 +406,7 @@ class DirectApiExecutor(Executor):
                     max_retries=config.max_retries,
                     retry_backoff_ms=config.retry_backoff_ms,
                     tool_result_max_chars=config.tool_result_max_chars,
+                    terminal_tools=config.terminal_tools,
                 )
             )
         except asyncio.TimeoutError:
@@ -445,6 +452,7 @@ class DirectApiExecutor(Executor):
             # with the error result.
             return ExecutorResult(
                 hit_turn_cap=True,
+                no_terminal_tool=True,
                 error_code=ErrorCode.FAILED_MODEL_CALL,
                 error_message=(
                     f"Tool-calling loop hit the adapter's turn cap without a final answer "
@@ -499,12 +507,14 @@ class DirectApiExecutor(Executor):
                 output=validation_result,
                 token_usage=token_usage,
                 trace=trace,
+                no_terminal_tool=completion.no_terminal_tool,
             )
 
         return ExecutorResult(
             output=completion.text,
             token_usage=token_usage,
             trace=trace,
+            no_terminal_tool=completion.no_terminal_tool,
         )
 
     @staticmethod

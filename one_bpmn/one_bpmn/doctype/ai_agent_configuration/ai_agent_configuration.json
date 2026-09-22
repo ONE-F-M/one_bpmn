@@ -87,12 +87,10 @@
   "rate_limit_window_seconds",
   "lock_after_blocks",
   "lock_block_window_seconds",
+  "concurrent_turn_policy",
   "a2a_section",
   "a2a_exposed",
   "a2a_skill_tags",
-  "section_delegation",
-  "restrict_delegates",
-  "allowed_delegates",
   "section_guardrails",
   "max_recursion_depth",
   "max_task_handoffs",
@@ -102,6 +100,8 @@
   "max_clarification_rounds",
   "evaluation_section",
   "sample_prompts",
+  "golden_dataset_minimum",
+  "golden_dataset_target",
   "needs_attention_reason"
  ],
  "fields": [
@@ -486,6 +486,15 @@
    "label": "Messages Per Window"
   },
   {
+   "default": "Queue",
+   "depends_on": "eval:doc.agent_type==\"Chat\"",
+   "description": "A message sent while this agent is still answering: Queue waits its turn, Refuse turns it away.",
+   "fieldname": "concurrent_turn_policy",
+   "fieldtype": "Select",
+   "label": "Message During a Turn",
+   "options": "Queue\nRefuse"
+  },
+  {
    "fieldname": "column_break_rate_limit",
    "fieldtype": "Column Break"
   },
@@ -523,6 +532,18 @@
    "fieldtype": "Table",
    "label": "Sample Prompts",
    "options": "AI Agent Sample Prompt"
+  },
+  {
+   "description": "Cases this agent needs before its golden dataset counts as representative. Blank means no bar is shown.",
+   "fieldname": "golden_dataset_minimum",
+   "fieldtype": "Int",
+   "label": "Minimum Golden Dataset Cases"
+  },
+  {
+   "description": "The size the dataset is aiming for, shown beside the minimum.",
+   "fieldname": "golden_dataset_target",
+   "fieldtype": "Int",
+   "label": "Target Golden Dataset Cases"
   },
   {
    "description": "How this agent remembers. These settings are authoritative at dispatch \u2014 the BPMN shape no longer stores them; an older diagram's values are still honoured until the agent is configured here.",
@@ -705,27 +726,6 @@
    "fieldname": "a2a_skill_tags",
    "fieldtype": "Small Text",
    "label": "A2A Skill Tags"
-  },
-  {
-   "collapsible": 1,
-   "fieldname": "section_delegation",
-   "fieldtype": "Section Break",
-   "label": "Delegation"
-  },
-  {
-   "default": "0",
-   "description": "Leave off and this agent may hand work to any agent exposed over A2A \u2014 normally what you want, since the tools drawn on its process map already decide who it actually calls. Tick it only to narrow that to a named few.",
-   "fieldname": "restrict_delegates",
-   "fieldtype": "Check",
-   "label": "Restrict Delegation to Specific Agents"
-  },
-  {
-   "depends_on": "eval:doc.restrict_delegates",
-   "description": "The only agents this agent may hand work to while the restriction above is on. Each entry is an INDEPENDENT agent with its own configuration, map and lifecycle \u2014 this list grants permission to delegate, it does not create or own a child agent. Add, remove or reorder freely; the change takes effect immediately, with no code push and no restart.",
-   "fieldname": "allowed_delegates",
-   "fieldtype": "Table",
-   "label": "Allowed Delegates",
-   "options": "AI Agent Allowed Delegate"
   },
   {
    "collapsible": 1,

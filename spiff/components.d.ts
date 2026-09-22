@@ -65,10 +65,13 @@ declare module 'vue' {
     RunTree: typeof import('./src/components/insights/RunTree.vue')['default']
     ScriptDiffCard: typeof import('./src/components/chat/cards/ScriptDiffCard.vue')['default']
     Stack: typeof import('./src/components/chat/primitives/Stack.vue')['default']
+    StepBody: typeof import('./src/components/insights/StepBody.vue')['default']
     TestCaseCard: typeof import('./src/components/chat/cards/TestCaseCard.vue')['default']
     TextBlock: typeof import('./src/components/chat/primitives/TextBlock.vue')['default']
+    TurnDetail: typeof import('./src/components/insights/TurnDetail.vue')['default']
     UserFilter: typeof import('./src/components/UserFilter.vue')['default']
     VersionDiffDialog: typeof import('./src/components/VersionDiffDialog.vue')['default']
     VersionHistoryPanel: typeof import('./src/components/VersionHistoryPanel.vue')['default']
+    WorkItemCostReport: typeof import('./src/components/insights/WorkItemCostReport.vue')['default']
   }
 }

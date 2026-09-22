@@ -226,6 +226,14 @@ DOCTYPE_SETTING_STRS = (
 	"default_print_format", "sort_field", "sort_order", "document_type",
 )
 
+# Who may do what, as Frappe's DocPerm records it. The whole set is carried, not
+# just the rights the builder shows, so reading a DocType and writing it back
+# cannot quietly drop a right nobody was looking at.
+DOCTYPE_PERMISSION_FLAGS = (
+	"select", "read", "write", "create", "delete", "submit", "cancel", "amend",
+	"report", "export", "import", "share", "print", "email", "if_owner",
+)
+
 
 def read_doctype_definition(doctype: str) -> dict | None:
 	"""Read an existing DocType into the full Docu IR shape (all field properties).
@@ -273,7 +281,52 @@ def read_doctype_definition(doctype: str) -> dict | None:
 		out[attr] = int(getattr(meta, attr, 0) or 0)
 	for attr in DOCTYPE_SETTING_STRS:
 		out[attr] = getattr(meta, attr, "") or ""
+	out["permissions"] = read_doctype_permissions(doctype)
 	return out
+
+
+def read_doctype_permissions(doctype: str) -> list:
+	"""The permission rules actually in force, in IR shape.
+
+	Frappe reads Custom DocPerm in preference the moment one row exists, so on a
+	DocType we have overridden those ARE the rules. Reading the shipped DocPerm
+	rows instead showed the builder a set nobody was enforcing, and writing them
+	back would have undone the override.
+	"""
+	source = "Custom DocPerm" if frappe.db.exists("Custom DocPerm", {"parent": doctype}) else "DocPerm"
+	filters = {"parent": doctype}
+	if source == "DocPerm":
+		filters["parenttype"] = "DocType"
+	rows = []
+	for p in frappe.get_all(
+		source,
+		filters=filters,
+		fields=["role", "permlevel", *DOCTYPE_PERMISSION_FLAGS],
+		order_by="idx asc",
+	):
+		row = {"role": p.get("role") or "", "permlevel": int(p.get("permlevel") or 0)}
+		for flag in DOCTYPE_PERMISSION_FLAGS:
+			row[flag] = int(bool(p.get(flag)))
+		rows.append(row)
+	return rows
+
+
+def list_roles(search: str = "") -> str:
+	"""Role names that a permission rule may name, as JSON.
+
+	The writer needs this before it can honour "give HR Manager write access":
+	a role it invents is rejected by the schema gate, and the fix-up round that
+	follows costs a model call. ``search`` filters by substring.
+	"""
+	try:
+		filters = {"disabled": 0, "name": ["not in", ("All", "Guest")]}
+		if (search or "").strip():
+			filters["name"] = ["like", f"%{search.strip()}%"]
+		names = frappe.get_all("Role", filters=filters, pluck="name", order_by="name asc", limit=400)
+		return json.dumps({"roles": names})
+	except Exception:
+		frappe.log_error(title="Docu Tool - list_roles", message=frappe.get_traceback())
+		return json.dumps({"roles": [], "error": "Could not read the role list."})
 
 
 def get_doctype_definition(doctype: str) -> str:
