@@ -4,9 +4,9 @@
 
 Two agents in one bench. Nothing crosses a trust boundary, so the whole
 point of these tests is what is NOT required: no registry entry, no
-approved client, no service-user key, no HTTP, and no exposure flag on the
-target. What IS still required is the delegating agent's allowed-delegates
-list and its loop guardrails, because those bound scope, not identity.
+approved client, no service-user key, and no HTTP. What IS still required
+is the target's exposure flag and the delegating agent's loop guardrails,
+because those bound scope, not identity.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ class LocalDelegationCase(FrappeTestCase):
 		# as taking part in agent-to-agent work, local or remote.
 		self.worker = make_agent_configuration(a2a_exposed=1)
 		# The orchestrator needs no list: the tools on its map decide who it
-		# calls. Tests that want a refusal tick restrict_delegates themselves.
+		# calls, and exposure is what grants delegation.
 		self.orchestrator = make_agent_configuration()
 
 	def ctx(self):
@@ -65,8 +65,6 @@ class TestLocalDelegation(LocalDelegationCase):
 		"""The headline requirement: exposure alone is enough on this site —
 		no registry entry, no client record, no list to maintain."""
 		self.assertTrue(self.worker.a2a_exposed)
-		self.assertFalse(self.orchestrator.restrict_delegates)
-		self.assertFalse(self.orchestrator.allowed_delegates)
 		with stub_turn("done locally"):
 			result = a2a_client_ops.delegate_to_local_agent(self.params(), self.ctx())
 
@@ -291,18 +289,6 @@ class TestLocalDelegationGuards(LocalDelegationCase):
 	def test_unexposed_agent_cannot_receive_work(self):
 		unexposed = make_agent_configuration()
 		self.assertEqual(self.refusal(agent=unexposed.name)["reason"], "target_not_exposed")
-
-	def test_agent_off_the_list_is_refused_when_restricted(self):
-		stranger = make_agent_configuration(a2a_exposed=1)
-		self.orchestrator.restrict_delegates = 1
-		self.orchestrator.append("allowed_delegates", {"agent_configuration": self.worker.name})
-		self.orchestrator.save(ignore_permissions=True)
-
-		self.assertEqual(self.refusal(agent=stranger.name)["reason"], "target_not_allowed")
-		self.assertFalse(
-			frappe.db.exists("A2A Task", {"agent_configuration": stranger.name}),
-			"a refused delegation leaves no task row",
-		)
 
 	def test_depth_limit_applies_locally_too(self):
 		self.orchestrator.max_recursion_depth = 1

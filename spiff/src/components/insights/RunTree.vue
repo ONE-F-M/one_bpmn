@@ -1,9 +1,9 @@
 <template>
 	<!--
-		WI-002190: a run as the tree it really was. One row per step; under a
-		step that started other runs, those runs nest with their own steps, so
-		a turn reads as orchestrator call, tool, inner call, tool, each with
-		its cost and time. The component renders itself for the nested runs.
+		A run as the tree it really was. One row per step; under a step that
+		started other runs, those runs nest with their own steps, so a turn
+		reads as orchestrator call, tool, inner call, tool, each with its cost
+		and time. The component renders itself for the nested runs.
 	-->
 	<div :class="depth > 0 ? 'border-l-2 border-indigo-100 pl-3 mt-2' : ''">
 		<div v-if="depth > 0" class="flex flex-wrap items-center gap-2 py-1 text-xs">
@@ -18,16 +18,15 @@
 		</div>
 
 		<!--
-			Every level uses the same fixed column widths; only the first column
-			(Step) is left to absorb the remainder. A nested table is narrower by
-			exactly its indent, so the Step column shrinks by that much and every
-			other column lines up with the level above.
+			Every level uses the same fixed column widths; Tool absorbs the
+			remainder, since a step number needs a number's worth of space and
+			the tool name is the part worth reading.
 		-->
 		<table class="w-full table-fixed">
 			<colgroup>
-				<col />
+				<col class="w-12" />
 				<col class="w-24" />
-				<col class="w-72" />
+				<col />
 				<col class="w-36" />
 				<col class="w-24" />
 				<col class="w-24" />
@@ -100,6 +99,7 @@
 
 <script setup>
 import { Badge } from "frappe-ui"
+
 import { Icon } from "@iconify/vue"
 
 defineProps({

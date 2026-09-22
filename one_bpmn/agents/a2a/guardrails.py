@@ -1,11 +1,11 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Delegation guardrails (WI-002008) and the sub-agent allow-list (WI-002010).
+"""Delegation guardrails (WI-002008).
 
 One enforcement point for every hand-off, whichever direction it goes:
 
-- **Who** may receive work — ``allowed_delegates`` on the delegating
-  agent. It governs BOTH A2A delegation and internal composition, so
+- **Who** may receive work — any agent Exposed over A2A, enabled and
+  Live. It governs BOTH A2A delegation and internal composition, so
   there is a single answer to "who may this agent hand work to".
 - **How much** hand-off is allowed — nesting depth and total handoffs in
   one execution chain, each capped by the delegating agent's own
@@ -85,36 +85,17 @@ def deadline_minutes_for(agent_configuration: str | None) -> int:
 
 
 def may_delegate_to(agent_configuration: str, target: str) -> bool:
-	"""May this agent hand work to that one? (WI-002010)
+	"""May this agent hand work to that one?
 
-	**Exposure is the grant, the list only narrows it.** An agent marked
-	Exposed over A2A participates in agent-to-agent work and can receive a
-	delegated task; the tools drawn on the delegating agent's process map
-	already decide who it actually calls, so a second copy of that decision
-	on the configuration would be bookkeeping rather than control.
-
-	Ticking Restrict Delegation on the delegating agent narrows the set to
-	the agents it names — for the cases where the map is not a tight enough
-	boundary on its own.
+	**Exposure is the grant.** An agent marked Exposed over A2A
+	participates in agent-to-agent work and can receive a delegated task;
+	the tools drawn on the delegating agent's process map already decide
+	who it actually calls, so a second, separate allow-list on the
+	configuration would be bookkeeping rather than control.
 	"""
 	if not target:
 		return False
-	if not _participates_in_a2a(target):
-		return False
-	if not agent_configuration:
-		return True
-	if not frappe.db.get_value("AI Agent Configuration", agent_configuration, "restrict_delegates"):
-		return True
-	return bool(
-		frappe.db.exists(
-			"AI Agent Allowed Delegate",
-			{
-				"parent": agent_configuration,
-				"parenttype": "AI Agent Configuration",
-				"agent_configuration": target,
-			},
-		)
-	)
+	return _participates_in_a2a(target)
 
 
 def _participates_in_a2a(target: str) -> bool:
@@ -197,17 +178,12 @@ def check_capability(target: str, required_capability: str | None) -> None:
 def check_allowed(agent_configuration: str, target: str) -> None:
 	if may_delegate_to(agent_configuration, target):
 		return
-	if not _participates_in_a2a(target):
-		raise DelegationRefused(
-			_(
-				"Agent '{0}' is not available for agent-to-agent work. Tick 'Exposed over A2A' "
-				"on it (it must also be enabled and Live)."
-			).format(target),
-			reason_code="target_not_exposed",
-		)
 	raise DelegationRefused(
-		_("This agent restricts delegation and '{0}' is not on its list.").format(target),
-		reason_code="target_not_allowed",
+		_(
+			"Agent '{0}' is not available for agent-to-agent work. Tick 'Exposed over A2A' "
+			"on it (it must also be enabled and Live)."
+		).format(target),
+		reason_code="target_not_exposed",
 	)
 
 

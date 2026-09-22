@@ -208,9 +208,7 @@ class TestDelegateTask(FrappeTestCase):
 		# agents, so the allow-list can name a real AI Agent Configuration.
 		self.worker = make_agent_configuration(a2a_exposed=1)
 		self.remote = make_remote_for(self.worker)
-		self.orchestrator = make_agent_configuration(restrict_delegates=1)
-		self.orchestrator.append("allowed_delegates", {"agent_configuration": self.worker.name})
-		self.orchestrator.save(ignore_permissions=True)
+		self.orchestrator = make_agent_configuration()
 
 	def _ctx(self):
 		task = SimpleNamespace(

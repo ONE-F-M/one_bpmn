@@ -185,6 +185,7 @@ def get_memory(name: str) -> dict:
 	row = _shape(doc.as_dict(), now)
 	row["metadata"] = metadata
 	row["source_run"] = doc.source_run
+	row["source_instance"] = frappe.db.get_value("AI Agent Run", doc.source_run, "instance") if doc.source_run else None
 	row["dedup_key"] = doc.dedup_key
 	return row
 
@@ -254,3 +255,39 @@ def restore_memory(name: str) -> dict:
 	doc.expires_on = None
 	doc.save(ignore_version=False)
 	return {"name": doc.name, "retired": False}
+
+
+@frappe.whitelist()
+def purge_memories(user: str | None = None) -> dict:
+	"""Permanently delete every AI Memory row belonging to a user, across
+	every memory_scope (Agent, Process, Entity). This is the purge story:
+	unlike Retire, the rows and their history are gone for good.
+
+	A regular caller may only purge their own memories. A System Manager may
+	name ``user`` to purge somebody else's. Shared memories (rows with no
+	``user``) are never touched here, no matter who calls this - they belong
+	to everyone using the scope, not to one person.
+	"""
+	caller = frappe.session.user
+	target = user or caller
+
+	if target != caller and not is_system_manager(caller):
+		frappe.throw(
+			_("You do not have permission to purge another user's memories."),
+			frappe.PermissionError,
+		)
+
+	# Only rows with a user set are ever candidates: shared rows (user is
+	# NULL or "") are never matched by an "=" filter against a real user id.
+	names = frappe.get_all("AI Memory", filters={"user": target}, pluck="name")
+	deleted = 0
+	for name in names:
+		# ignore_permissions because this is a deliberate purge action gated
+		# above, not a normal document delete; force=True skips the
+		# link-checker. Not delete_permanently, so Frappe's normal delete
+		# path still records the row in Deleted Document before removing it.
+		frappe.delete_doc("AI Memory", name, ignore_permissions=True, force=True)
+		deleted += 1
+
+	remaining = frappe.db.count("AI Memory", {"user": target})
+	return {"user": target, "deleted": deleted, "remaining": remaining}

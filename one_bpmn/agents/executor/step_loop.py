@@ -41,6 +41,10 @@ from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG, ToolDeferred
 from one_bpmn.agents.turn_state import TURN_ANSWERED_FLAG
 from one_bpmn.security.tool_policy import PolicyViolation
 
+
+def _now_iso() -> str:
+	return frappe.utils.now_datetime().isoformat(sep=" ", timespec="microseconds")
+
 # Tool result handed to the model when it requests a second human tool in the
 # same turn — v1 supports one human pause at a time.
 _SECOND_HUMAN_RESULT = (
@@ -62,6 +66,7 @@ _SECOND_PAUSE_RESULT = (
 _TURN_RECORD_FIELDS = {
 	"role", "content", "tool_calls", "prompt_tokens", "completion_tokens",
 	"cache_read_tokens", "cache_write_tokens", "latency_ms", "turn_no",
+	"started_at", "ended_at",
 }
 
 
@@ -283,6 +288,7 @@ async def _run_turns(
 		# Same reason, same place: a turn that answered must not end the NEXT one.
 		frappe.flags[TURN_ANSWERED_FLAG] = False
 		_turn_t0 = time.perf_counter()
+		_turn_started_at = _now_iso()
 		step = await _step_with_retries(
 			adapter, system, transcript, tools, max_tokens,
 			timeout_seconds=timeout_seconds, max_retries=max_retries, retry_backoff_ms=retry_backoff_ms,
@@ -301,6 +307,8 @@ async def _run_turns(
 					cache_write_tokens=getattr(step, "cache_write_tokens", 0) or 0,
 					latency_ms=int((time.perf_counter() - _turn_t0) * 1000),
 					turn_no=turns_used,
+					started_at=_turn_started_at,
+					ended_at=_now_iso(),
 				)
 			)
 			return CompletionResult(text=step.content, trace=trace, no_terminal_tool=True), None
@@ -324,6 +332,7 @@ async def _run_turns(
 			cache_read_tokens=getattr(step, "cache_read_tokens", 0) or 0,
 			cache_write_tokens=getattr(step, "cache_write_tokens", 0) or 0,
 			turn_no=turns_used,
+			started_at=_turn_started_at,
 		)
 		# WI-002190: a model call made from inside one of this turn's tools is
 		# recorded as a step tagged with this turn number, so the step writer
@@ -430,6 +439,7 @@ async def _run_turns(
 			})
 
 		turn_record.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
+		turn_record.ended_at = _now_iso()
 		trace.append(turn_record)
 
 		if pending_call is not None:

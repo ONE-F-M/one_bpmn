@@ -4,6 +4,11 @@ from frappe.utils import now_datetime
 import hashlib
 
 
+# The tools the dispatcher gives every configuration-linked AI Agent Task. They
+# never sit in a Tools box, so a prompt may name them without the map having them.
+SKILL_TOOL_NAMES = frozenset({"load_skill", "unload_skill", "load_skill_resource"})
+
+
 def _conversation_id(instance):
     """The Chat Conversation this instance's turn belongs to, or None.
 
@@ -46,12 +51,18 @@ def advance_turn(conversation) -> int:
     return nxt
 
 
-def _skills_cache_key(conversation):
-    return f"active_skills_{conversation}"
+def _skills_cache_key(conversation, agent_name):
+    """Loaded skill bodies, scoped to the conversation AND the agent.
+
+    Logix runs several agents inside one conversation (the orchestrator, the
+    classifier, the writers). A contract the writer loaded must reach the
+    writer's next turn, not the classifier's.
+    """
+    return f"active_skills_{conversation}_{agent_name}"
 
 
-def _skill_names_cache_key(conversation):
-    return f"active_skill_names_{conversation}"
+def _skill_names_cache_key(conversation, agent_name):
+    return f"active_skill_names_{conversation}_{agent_name}"
 
 
 def clear_conversation_skills(conversation):
@@ -62,8 +73,8 @@ def clear_conversation_skills(conversation):
     """
     if not conversation:
         return
-    frappe.cache().delete_value(_skills_cache_key(conversation))
-    frappe.cache().delete_value(_skill_names_cache_key(conversation))
+    frappe.cache().delete_keys(f"active_skills_{conversation}_")
+    frappe.cache().delete_keys(f"active_skill_names_{conversation}_")
     frappe.cache().delete_value(_turn_counter_key(conversation))
 
 
@@ -161,14 +172,14 @@ def get_skill_tools(agent_name, instance=None):
         # cache so the dispatcher can pick it up on the NEXT loop/turn and
         # actually put the body in front of the model.
         if conversation:
-            cache_key = _skills_cache_key(conversation)
+            cache_key = _skills_cache_key(conversation, agent_name)
             active = frappe.cache().get_value(cache_key) or []
             if result.body not in active:
                 active.append(result.body)
                 frappe.cache().set_value(cache_key, active)
 
             # Also track the skill names!
-            names_key = _skill_names_cache_key(conversation)
+            names_key = _skill_names_cache_key(conversation, agent_name)
             active_names = frappe.cache().get_value(names_key) or []
             if skill_name not in active_names:
                 active_names.append(skill_name)
@@ -192,13 +203,13 @@ def get_skill_tools(agent_name, instance=None):
         if not doc:
             return f"Error: Skill '{skill_name}' not found."
 
-        cache_key = _skills_cache_key(conversation)
+        cache_key = _skills_cache_key(conversation, agent_name)
         active = frappe.cache().get_value(cache_key) or []
         if doc.body in active:
             active = [b for b in active if b != doc.body]
             frappe.cache().set_value(cache_key, active)
 
-        names_key = _skill_names_cache_key(conversation)
+        names_key = _skill_names_cache_key(conversation, agent_name)
         active_names = frappe.cache().get_value(names_key) or []
         was_loaded = skill_name in active_names
         if was_loaded:

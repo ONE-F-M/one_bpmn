@@ -13,9 +13,9 @@ yourself.
 What DOES still apply, because it is about scope and loops rather than
 authentication:
 
-- the delegating agent's ``allowed_delegates`` list — who it may hand
-  work to at all;
-- its guardrails — nesting depth and total handoffs in the chain.
+- the target still has to be Exposed over A2A, enabled and Live;
+- the delegating agent's guardrails — nesting depth and total handoffs
+  in the chain.
 
 The task row is created exactly as the network path creates one (so the
 monitor, the counters and the audit trail are identical) with direction
