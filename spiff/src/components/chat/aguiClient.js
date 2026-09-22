@@ -28,7 +28,7 @@ const ENDPOINT = "/api/method/one_bpmn.api.agui.stream_agent_turn";
 
 const GENERIC_FAILURE = "Connection lost. Please try again.";
 
-// WI-000407: the server sends a `: keep-alive` SSE comment every 10s during a
+// the server sends a `: keep-alive` SSE comment every 10s during a
 // buffered turn, on top of whatever real events it produces. If NEITHER kind
 // of frame has arrived for this long, the connection is stuck — fail the
 // turn instead of leaving the panel on "Thinking…" forever.

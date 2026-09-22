@@ -1,6 +1,6 @@
 // node --test spiff/src/components/chat/aguiClient.test.mjs
 //
-// WI-000407: the idle timer that fails a turn when neither a real event nor
+// the idle timer that fails a turn when neither a real event nor
 // a `: keep-alive` SSE comment has arrived for a while, and the abort that
 // timeout must trigger. Drives streamAgentTurn against a fake `fetch` whose
 // stream reader is scripted frame by frame — no real network, no real 60s

@@ -101,9 +101,9 @@ def _extension_events(result: dict):
 
 def _iter_text_deltas(text: str, chunk_chars: int = 60):
 	"""Split a reply into delta-sized chunks for progressive
-	TextMessageContent emission (WI-000406).
+	TextMessageContent emission.
 
-	A short reply \u2014 the common case, and every reply in the pre-WI-000406
+	A short reply \u2014 the common case, and every reply in the earlier
 	tests \u2014 still comes out as exactly one chunk, so callers that assumed
 	one delta per turn keep working unchanged. Anything longer is cut only
 	at whitespace, never mid-word, and ``"".join(chunks) == text`` always:
@@ -127,7 +127,7 @@ def _iter_text_deltas(text: str, chunk_chars: int = 60):
 
 
 def _tool_calls_from_result(result: dict) -> list:
-	"""Tool calls that ran during a buffered turn (WI-000406).
+	"""Tool calls that ran during a buffered turn.
 
 	A buffered runner (bpmn_map / direct_api / adk) has already finished by
 	the time its reply reaches this stream, so there is no live moment to
@@ -312,13 +312,13 @@ def agent_event_stream(
 			if result.get("artifact") is not None and not result.get("artifact_type"):
 				result["artifact_type"] = _agent_artifact_type(agent_id)
 			text = result.get("response") or ""
-			# WI-000406: the stream itself starts (and the RunStarted event
+			# the stream itself starts (and the RunStarted event
 			# above already went out) before invoke_agent returns, so before
 			# this point there is no Bot Chat Message row to name the
 			# message after — `message_id` stays the id generated at the top
 			# of this function for the WHOLE lifecycle of the streamed
 			# message (start, every delta, end). Once the runner's reply is
-			# in hand the persisted Chat Message name (WI-001641) IS known,
+			# in hand the persisted Chat Message name IS known,
 			# so it is delivered separately, at the end, as the durable id a
 			# rating or report should point at — never by silently swapping
 			# the id already used for events the client already rendered.
@@ -339,11 +339,11 @@ def agent_event_stream(
 			# rather than the whole reply in a single delta — the runner
 			# already ran to completion before we got here, but the client
 			# still sees the text arrive progressively instead of appearing
-			# all at once (WI-000406).
+			# all at once.
 			for delta in _iter_text_deltas(text):
 				yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=delta))
 			yield encoder.encode(TextMessageEndEvent(message_id=message_id))
-			# WI-000406: TOOL_CALL_START/END bracket each tool the turn ran,
+			# TOOL_CALL_START/END bracket each tool the turn ran,
 			# named for the tool shape that ran it — the same names already
 			# recorded on the turn's ToolCallRecord/tool_calls entries, so a
 			# client showing "using <tool>…" names the same thing the trace

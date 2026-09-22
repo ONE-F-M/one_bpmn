@@ -38,7 +38,7 @@
 						@rated="onRated"
 					/>
 				</div>
-				<!-- WI-000407: a rate-limit refusal (role=system) is the platform
+				<!-- a rate-limit refusal (role=system) is the platform
 				     pushing back, not the agent talking — a distinct notice, no
 				     rating control, so it never reads as an assistant reply. -->
 				<div v-else-if="item.kind === 'system'" class="acp-msg acp-msg--system">{{ item.text }}</div>
@@ -278,7 +278,7 @@ function agentItem(text) {
 	// (WI-001822) and when it arrived (WI-002047). Built in one place so a new
 	// flush site cannot forget either.
 	//
-	// WI-000407: a role of "system" (a rate-limit refusal) flushes as a
+	// a role of "system" (a rate-limit refusal) flushes as a
 	// system notice instead — no rating control, and it never reads as the
 	// agent itself talking.
 	if (streamingRole.value === "system") {
@@ -666,7 +666,7 @@ function handleEvent(event) {
 		// the persisted Chat Message name). Held until the buffer is flushed so
 		// the finished bubble carries it and can be rated.
 		streamingMessageId.value = event.messageId || event.message_id || "";
-		// WI-000407: a rate-limit refusal streams with role "system" — a
+		// a rate-limit refusal streams with role "system" — a
 		// platform notice, not the agent talking — so the finished bubble
 		// flushes as a system item instead of an agent one.
 		streamingRole.value = event.role || "assistant";
@@ -740,7 +740,7 @@ function restoredItems(history, isNewestPage) {
 			out.push({ kind: "user", text: m.content, ts: m.timestamp });
 			return;
 		}
-		// WI-000407: a stored rate-limit refusal carries role "system" —
+		// a stored rate-limit refusal carries role "system" —
 		// restore it as a system notice, same as when it first streamed.
 		if (m.role === "system") {
 			if (m.content) out.push({ kind: "system", text: m.content, ts: m.timestamp });
@@ -979,7 +979,7 @@ defineExpose({ send, conversationName });
 .acp-time--user { align-self: flex-end; }
 .acp-msg--user { align-self: flex-end; background: var(--sg4); color: var(--ig9); white-space: pre-wrap; }
 .acp-msg--agent { align-self: flex-start; background: var(--sw); border: 1px solid var(--og2); }
-/* WI-000407: a rate-limit refusal (role=system) — a platform notice, not
+/* a rate-limit refusal (role=system) — a platform notice, not
    the agent talking, so it is visually distinct from both bubble kinds. */
 .acp-msg--system { align-self: center; background: var(--sg2); color: var(--ig6); font-size: 12px;
 	font-style: italic; border: none; }

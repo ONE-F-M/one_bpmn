@@ -133,7 +133,7 @@ async def run_agent_loop(
 	produces a final answer or hits the turn cap, or (None, AgentSuspension)
 	when it selects a human tool.
 
-	``on_tool_event`` (WI-000406): optional ``callable(phase, tool_name)``
+	``on_tool_event``: optional ``callable(phase, tool_name)``
 	invoked as ``on_tool_event("start", name)`` immediately before an
 	automatic tool runs and ``on_tool_event("end", name)`` immediately
 	after, whether it succeeded, deferred, was policy-refused, or raised.
@@ -410,8 +410,8 @@ async def _run_turns(
 						# say so rather than blaming a human task.
 						result = _SECOND_PAUSE_RESULT
 					except PolicyViolation as violation:
-						# The interceptor refused the call BEFORE the tool ran
-						# (WI-001645). Handed back as an ordinary tool result, so the
+						# The interceptor refused the call before the tool ran, and
+						# it is handed back as an ordinary tool result, so the
 						# model is told why and can take a different approach —
 						# exactly how every loop already treats a tool that failed.
 						result = violation.decision.as_tool_result()

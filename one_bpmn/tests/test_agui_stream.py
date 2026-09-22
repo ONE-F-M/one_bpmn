@@ -507,7 +507,7 @@ class TestARelayGivesUpOnADeadTurn(FrappeTestCase):
 
 
 
-# ── WI-000406: progressive text deltas, TOOL_CALL_START/END, and the
+# ── progressive text deltas, TOOL_CALL_START/END, and the
 # generated-id-until-persisted handoff ──────────────────────────────────────
 
 
@@ -678,7 +678,7 @@ class _FakeStepAdapter:
 
 
 class TestStepLoopToolEventCallback(FrappeTestCase):
-	"""WI-000406: on_tool_event fires start/end around every automatic tool
+	""" on_tool_event fires start/end around every automatic tool
 	the step loop actually executes."""
 
 	def _run(self, adapter, tools, on_tool_event):
