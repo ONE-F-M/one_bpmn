@@ -217,3 +217,157 @@ class TestADirectTurnStreamsFromTheRequest(FrappeTestCase):
 		with patch.object(agent_invocation, "_direct_api_turn", return_value={"response": "plain"}) as turn:
 			self.assertEqual(agent_invocation._run_direct_api({}, "CONV-1", "hi", {}, stream=False), {"response": "plain"})
 		turn.assert_called_once()
+
+
+class TestTheSinkPublishesToTheFlaggedChatInstance(FrappeTestCase):
+	"""The second live_text_sink branch: frappe.flags carries the instance the
+	dispatcher marked, and every non-empty delta is published to it."""
+
+	def tearDown(self):
+		from one_bpmn.agents.turn_signal import LIVE_TEXT_INSTANCE_FLAG
+
+		frappe.flags[LIVE_TEXT_INSTANCE_FLAG] = None
+
+	def test_deltas_are_published_to_that_instance_and_nothing_else(self):
+		from one_bpmn.agents import turn_signal
+
+		frappe.flags[turn_signal.LIVE_TEXT_INSTANCE_FLAG] = "BPMN-INST-1"
+		with patch.object(turn_signal, "publish_event") as published:
+			sink = turn_signal.live_text_sink()
+			self.assertIsNotNone(sink)
+			sink("Hel")
+			sink("")
+			sink("lo")
+
+		self.assertEqual(
+			published.call_args_list,
+			[
+				(("BPMN-INST-1", {"type": "TEXT_MESSAGE_CONTENT", "delta": "Hel"}),),
+				(("BPMN-INST-1", {"type": "TEXT_MESSAGE_CONTENT", "delta": "lo"}),),
+			],
+		)
+
+	def test_no_flag_means_no_sink(self):
+		from one_bpmn.agents import turn_signal
+
+		self.assertIsNone(frappe.flags.get(turn_signal.LIVE_TEXT_INSTANCE_FLAG))
+		self.assertIsNone(turn_signal.live_text_sink())
+
+
+class TestDispatchAiAgentManagesTheLiveTextFlag(FrappeTestCase):
+	"""dispatch_ai_agent (dispatchers.py): the flag is set only for a shape
+	that opted in with aiStreamToReader AND only for a Chat Conversation
+	instance, and it is always cleared afterwards, even on failure."""
+
+	def _instance(self, context_doctype=None):
+		instance = frappe.get_doc(
+			{
+				"doctype": "BPMN Process Instance",
+				"process_id": f"test-{frappe.generate_hash(length=6)}",
+				"status": "Active",
+				"context_doctype": context_doctype or "",
+				"context_docname": "SOME-DOC" if context_doctype else "",
+			}
+		)
+		instance.flags.ignore_mandatory = True
+		instance.insert(ignore_permissions=True, ignore_mandatory=True)
+		return instance
+
+	def _task(self, bpmn_id="Agent_1"):
+		return frappe._dict({"data": {}, "task_spec": frappe._dict({"name": bpmn_id, "description": "Agent"})})
+
+	def _base_task_cfg(self, **extra):
+		return {
+			"serviceType": "ai_agent",
+			"aiProvider": "",
+			"aiModel": "gpt-4o",
+			"aiUserPrompt": "hi",
+			"aiOutputVariable": "agent_out",
+			**extra,
+		}
+
+	def tearDown(self):
+		frappe.flags["bpmn_ai_live_text_instance"] = None
+
+	def test_flag_set_only_when_opted_in_and_chat_conversation(self):
+		from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+
+		instance = self._instance(context_doctype="Chat Conversation")
+		task = self._task()
+		task_cfg = self._base_task_cfg(aiStreamToReader="1")
+		seen = {}
+
+		def fake_run(_self, config, context):
+			seen["flag_during_call"] = frappe.flags.get("bpmn_ai_live_text_instance")
+			return ExecutorResult(
+				output="hi", error_code=ErrorCode.SUCCESS,
+				token_usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+			)
+
+		with patch("one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", new=fake_run):
+			dispatchers.dispatch_ai_agent(instance, task, task_cfg, "Agent_1")
+
+		self.assertEqual(seen["flag_during_call"], instance.name)
+		self.assertIsNone(frappe.flags.get("bpmn_ai_live_text_instance"))
+
+	def test_flag_not_set_without_the_attribute(self):
+		from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+
+		instance = self._instance(context_doctype="Chat Conversation")
+		task = self._task()
+		task_cfg = self._base_task_cfg()  # no aiStreamToReader
+		seen = {}
+
+		def fake_run(_self, config, context):
+			seen["flag_during_call"] = frappe.flags.get("bpmn_ai_live_text_instance")
+			return ExecutorResult(
+				output="hi", error_code=ErrorCode.SUCCESS,
+				token_usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+			)
+
+		with patch("one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", new=fake_run):
+			dispatchers.dispatch_ai_agent(instance, task, task_cfg, "Agent_1")
+
+		self.assertIsNone(seen["flag_during_call"])
+		self.assertIsNone(frappe.flags.get("bpmn_ai_live_text_instance"))
+
+	def test_flag_not_set_for_a_non_chat_instance(self):
+		from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+
+		instance = self._instance(context_doctype="Task")  # not Chat Conversation
+		task = self._task()
+		task_cfg = self._base_task_cfg(aiStreamToReader="1")
+		seen = {}
+
+		def fake_run(_self, config, context):
+			seen["flag_during_call"] = frappe.flags.get("bpmn_ai_live_text_instance")
+			return ExecutorResult(
+				output="hi", error_code=ErrorCode.SUCCESS,
+				token_usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+			)
+
+		with patch("one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", new=fake_run):
+			dispatchers.dispatch_ai_agent(instance, task, task_cfg, "Agent_1")
+
+		self.assertIsNone(seen["flag_during_call"])
+
+	def test_flag_cleared_even_when_the_executor_raises(self):
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+
+		instance = self._instance(context_doctype="Chat Conversation")
+		task = self._task()
+		task_cfg = self._base_task_cfg(aiStreamToReader="1")
+
+		def fake_run(_self, config, context):
+			raise RuntimeError("provider down")
+
+		with patch("one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", new=fake_run):
+			# dispatch_ai_agent swallows executor exceptions and records them
+			# on task.data rather than propagating \u2014 the flag must still be
+			# cleared on that path.
+			dispatchers.dispatch_ai_agent(instance, task, task_cfg, "Agent_1")
+
+		self.assertIsNone(frappe.flags.get("bpmn_ai_live_text_instance"))

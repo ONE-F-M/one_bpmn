@@ -2125,6 +2125,20 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				title=f"AI Observability: prompt step recording failed ({bpmn_id})",
 				message=frappe.get_traceback(),
 			)
+	# A shape opts into live text streaming with spiffworkflow:aiStreamToReader
+	# (carried unchanged into task_cfg by the compiler). Only ever wired up for
+	# a Chat Conversation instance — that is the only context where the
+	# model's own text IS the reply the person is watching for; every other
+	# shape and every other instance context must never see this flag set.
+	# Restore-not-delete on the way out, so a shape dispatched from inside
+	# another shape's own executor call hands the flag back rather than
+	# blanking a still-live one.
+	_stream_to_reader = _cfg_truthy(task_cfg.get("aiStreamToReader"))
+	_stream_chat = _stream_to_reader and getattr(instance, "context_doctype", "") == "Chat Conversation"
+	_prev_live_text_instance = getattr(frappe.flags, "bpmn_ai_live_text_instance", None)
+	if _stream_chat:
+		frappe.flags.bpmn_ai_live_text_instance = instance.name
+
 	try:
 		executor_cls = get_executor(config.backend)
 		result = executor_cls().run(config, context)
@@ -2149,6 +2163,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# Restored rather than deleted: an agent task nested inside another
 		# agent's map must hand identity back, not blank it.
 		instance._a2a_delegating_agent = _prev_delegating_agent
+		if _stream_chat:
+			frappe.flags.bpmn_ai_live_text_instance = _prev_live_text_instance
 	_exec_latency_ms = int((_time.time() - _exec_start) * 1000)
 
 	# ── Durable HITL: token totals are cumulative across suspensions ───
