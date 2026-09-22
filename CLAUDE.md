@@ -59,6 +59,16 @@ was cloned from.
 
 Follow root [`CLAUDE.md`](../CLAUDE.md) for Frappe conventions.
 
+## Writing an eval case
+
+A case has three pieces of text and they do three different jobs. Keep them apart.
+
+- **The case title** names the behaviour being tested, route and all: "A server-side rule change goes to the Dev Agent". Only a person reading the suite sees it.
+- **The fixture** — the work item, the A2A task, whatever record the case runs against — is written the way its reporter would have written it. Never title it after the answer. On the map path the record IS the prompt: the first step of the map builds the brief from the title and the description, so a work item titled "A server-side rule change" hands the model the answer before it reaches the brief the decision is supposed to come from.
+- **The case's prompt field** carries a full sentence or two summarising the brief, not a label. On the map path it is never sent to the model; it is snapshotted onto the result row and is the only line a reader sees beside the verdict, so "A server-side rule change" tells them nothing. It IS the message for a chat agent's case and for a direct model call, where the same fullness applies.
+
+Two rules that follow: nothing in the case may name the expected answer where the agent can read it, and a case is only honest if the fixture alone contains every fact the agent needs to decide.
+
 ## House style
 
 Every checkable rule lives in `frappe-bench/.claude/rules/` and loads automatically: `house-style.md` always, `python-frappe.md` for Python, `vue-js.md` for JavaScript and Vue. The numbered set with ids A1 to F8 is `frappe-bench/.claude/rules/RULES.md`; cite an id when a PR body justifies an exception. Before you say a task is done, re-read your diff against `house-style.md`.
