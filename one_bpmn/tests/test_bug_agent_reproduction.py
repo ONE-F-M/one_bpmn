@@ -1,9 +1,18 @@
 # Copyright (c) 2026, one-fm and contributors
-"""reproduction_required_error: Bug Agent's (and Bug Programmer's) reproduce-
+"""Two Bug pipeline reliability gates in agent_sandbox_ops.py:
+
+reproduction_required_error -- Bug Agent's (and Bug Programmer's) reproduce-
 before-fix gate on edit_file/write_file. A non-test-file edit is refused
 until this run shows a test file written, THEN a run_tests that actually
 failed -- an unrelated pre-existing failure elsewhere in the suite must not
-satisfy it, only a failure that came after a test was written this run."""
+satisfy it, only a failure that came after a test was written this run.
+
+repeat_run_tests_without_progress_error -- refuses a run_tests call for a
+Bug pipeline agent when the single most recent Agent Sandbox Run for this
+instance was itself a failed run_tests, i.e. nothing has been attempted
+since the last failure. Confirmed live (WI-000433, A2A-165115): Bug
+Programmer called run_tests four times in a row against the unmodified
+suite and burned its whole turn budget without ever attempting an edit."""
 
 from __future__ import annotations
 
@@ -12,7 +21,10 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.one_bpmn.connectors.agent_sandbox_ops import reproduction_required_error
+from one_bpmn.one_bpmn.connectors.agent_sandbox_ops import (
+	repeat_run_tests_without_progress_error,
+	reproduction_required_error,
+)
 
 
 def _row(instance_name, action, state="completed", path=None):
@@ -86,3 +98,61 @@ class TestReproductionRequiredError(FrappeTestCase):
 		_row("i-someone-else", "run_tests", state="failed")
 		error = reproduction_required_error(inst, "one_fm/setup/doctype/company/company.py")
 		self.assertIsNotNone(error)
+
+
+class TestRepeatRunTestsWithoutProgress(FrappeTestCase):
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	def _instance(self, name, process_model="Bug Programmer"):
+		return frappe._dict(name=name, process_model=process_model)
+
+	def test_no_instance_never_blocks(self):
+		self.assertIsNone(repeat_run_tests_without_progress_error(None, "run_tests"))
+
+	def test_only_guards_run_tests_not_other_actions(self):
+		inst = self._instance("i-other-action")
+		_row(inst.name, "run_tests", state="failed")
+		self.assertIsNone(repeat_run_tests_without_progress_error(inst, "edit_file"))
+
+	def test_a_non_bug_pipeline_process_is_never_blocked(self):
+		"""Dev Agent and the rest share this same dispatch path and are
+		deliberately left untouched."""
+		inst = self._instance("i-dev-agent", process_model="Dev Agent")
+		_row(inst.name, "run_tests", state="failed")
+		self.assertIsNone(repeat_run_tests_without_progress_error(inst, "run_tests"))
+
+	def test_first_run_tests_call_ever_is_allowed(self):
+		inst = self._instance("i-first-call")
+		self.assertIsNone(repeat_run_tests_without_progress_error(inst, "run_tests"))
+
+	def test_immediate_repeat_after_a_failure_is_refused(self):
+		inst = self._instance("i-repeat")
+		_row(inst.name, "run_tests", state="failed")
+		error = repeat_run_tests_without_progress_error(inst, "run_tests")
+		self.assertIsNotNone(error)
+
+	def test_a_passing_run_is_never_treated_as_a_blocking_failure(self):
+		inst = self._instance("i-passed")
+		_row(inst.name, "run_tests", state="completed")
+		self.assertIsNone(repeat_run_tests_without_progress_error(inst, "run_tests"))
+
+	def test_an_edit_after_the_failure_clears_it(self):
+		inst = self._instance("i-edited-since")
+		_row(inst.name, "run_tests", state="failed")
+		_row(inst.name, "write_file", state="completed", path="one_fm/tests/test_company.py")
+		self.assertIsNone(repeat_run_tests_without_progress_error(inst, "run_tests"))
+
+	def test_a_read_in_between_also_counts_as_real_investigation(self):
+		"""Not a blind repeat -- re-reading before trying again is legitimate
+		and must not be refused."""
+		inst = self._instance("i-read-since")
+		_row(inst.name, "run_tests", state="failed")
+		_row(inst.name, "read_file", state="completed", path="one_fm/setup/doctype/company/company.py")
+		self.assertIsNone(repeat_run_tests_without_progress_error(inst, "run_tests"))
+
+	def test_another_instances_failure_does_not_count(self):
+		inst = self._instance("i-mine")
+		_row("i-someone-else", "run_tests", state="failed")
+		self.assertIsNone(repeat_run_tests_without_progress_error(inst, "run_tests"))

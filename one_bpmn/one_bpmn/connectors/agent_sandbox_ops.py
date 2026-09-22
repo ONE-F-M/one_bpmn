@@ -231,6 +231,49 @@ _REPRODUCE_MESSAGE = (
 )
 
 
+_BUG_PIPELINE_PROCESSES = ("Bug Agent", "Bug Planner", "Bug Programmer", "Bug Reviewer")
+
+
+def repeat_run_tests_without_progress_error(instance, action: str) -> str | None:
+	"""None unless `action` is "run_tests", this instance is running one of
+	the Bug pipeline's own processes, AND the single most recent Agent
+	Sandbox Run for it was itself a failed run_tests -- i.e. calling
+	run_tests again right now would just re-run the exact same thing with
+	nothing changed in between. Scoped to the Bug pipeline only: Dev Agent
+	and the other specialists share this same dispatch_action/run_tests path
+	and are deliberately left untouched.
+
+	Confirmed live (WI-000433, A2A-165115): Bug Programmer called run_tests
+	four times in a row against the unmodified suite, never once attempting
+	an edit, and burned its whole turn budget doing it. Checking only the
+	MOST RECENT row (not "was there ever a failure") is deliberate: reading
+	a file or submitting a plan in between is real re-investigation, not a
+	blind repeat, and must not be refused."""
+	if action != "run_tests" or instance is None:
+		return None
+	if getattr(instance, "process_model", None) not in _BUG_PIPELINE_PROCESSES:
+		return None
+	rows = frappe.get_all(
+		"Agent Sandbox Run",
+		filters={"caller_instance": instance.name},
+		fields=["state", "request_payload"],
+		order_by="creation desc",
+		limit_page_length=1,
+	)
+	if not rows:
+		return None
+	last_action = (frappe.parse_json(rows[0].request_payload) or {}).get("action")
+	if rows[0].state == "failed" and last_action == "run_tests":
+		return (
+			"The last run_tests call already failed and nothing has changed "
+			"since -- running it again right now will fail the same way. "
+			"Write or edit the file the failure actually points to first "
+			"(a reproducing test if you have not written one yet, otherwise "
+			"the fix), then call run_tests again."
+		)
+	return None
+
+
 def reproduction_required_error(instance, path: str | None = None) -> str | None:
 	"""None if `path` is itself a test file (writing or editing a test is
 	always allowed, reproducing the bug included), or if this run already
@@ -415,6 +458,10 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 	work_item_description = (params.get("work_item_description") or "").strip()
 	if not (target_app and git_branch and work_item_description):
 		raise AgentSandboxError(f"{action} needs target_app, git_branch, and work_item_description.")
+
+	progress_error = repeat_run_tests_without_progress_error(instance, action)
+	if progress_error:
+		raise AgentSandboxError(progress_error)
 
 	settings = frappe.get_cached_doc("Processa Settings")
 	sandbox_url = (settings.agent_sandbox_url or "").strip().rstrip("/")
