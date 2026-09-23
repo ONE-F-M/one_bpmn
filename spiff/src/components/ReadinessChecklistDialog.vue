@@ -169,6 +169,10 @@ const props = defineProps({
 		type: Boolean,
 		default: false,
 	},
+	deploying: {
+		type: Boolean,
+		default: false,
+	},
 });
 
 const showDialog = defineModel({ type: Boolean, default: false });
