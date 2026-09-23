@@ -21,10 +21,12 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import now_datetime
 
 from one_bpmn.agents._eval_test_factories import (
     make_agent_configuration,
     make_eval_case,
+    make_eval_run,
     make_eval_suite,
 )
 from one_bpmn.agents.eval_runner import (
@@ -34,6 +36,7 @@ from one_bpmn.agents.eval_runner import (
     _map_is_chat_startable,
     _needs_map_eval,
     _run_agent_eval,
+    _run_chat_agent_eval,
     _run_map_eval,
 )
 
@@ -465,3 +468,74 @@ class TestEvaluatableGate(FrappeTestCase):
     def test_direct_eval_type_is_never_gated(self):
         cfg = make_agent_configuration(agent_framework="Google ADK")
         _assert_agent_evaluatable(cfg.name, "Direct")
+
+
+class TestChatEvalRunAttribution(FrappeTestCase):
+    """A chat agent eval case must count only the AI Agent Run(s)
+    produced FOR IT, never a production run of the same agent that happens to
+    land in the same time window.
+
+    ``invoke_agent`` is mocked here rather than driving a real map, because the
+    bug is entirely in how ``_run_chat_agent_eval`` reads back usage afterwards
+    - the fake writes both a production run (no eval tags) and the eval's own
+    run (eval_case/eval_run set), exactly as the real chat path and a real
+    concurrent production call would.
+    """
+
+    def test_only_the_eval_tagged_run_is_counted(self):
+        model = make_process_model(CHAT_START_XML)
+        cfg = make_agent_configuration(process_model=model.name)
+        suite = make_eval_suite(
+            agent_configuration=cfg.name, eval_type="Agent", process_model=model.name
+        )
+        case = make_eval_case(suite=suite.name)
+        eval_run = make_eval_run(suite.name)
+
+        def fake_invoke_agent(agent_id, prompt, context=None):
+            # A production call to the SAME agent configuration, landing in the
+            # same window, carrying no eval tags at all.
+            prod = frappe.get_doc({
+                "doctype": "AI Agent Run",
+                "agent_configuration": cfg.name,
+                "bpmn_id": "chat_reply",
+                "status": "Success",
+                "started_at": now_datetime(),
+                "origin": "production",
+                "total_prompt_tokens": 500,
+                "total_completion_tokens": 500,
+                "total_tokens": 1000,
+                "estimated_cost": 50.0,
+            })
+            prod.flags.ignore_mandatory = True
+            prod.flags.ignore_links = True
+            prod.insert(ignore_permissions=True)
+
+            # The eval's own run, correctly tagged to this case and run.
+            ev = frappe.get_doc({
+                "doctype": "AI Agent Run",
+                "agent_configuration": cfg.name,
+                "bpmn_id": "chat_reply",
+                "status": "Success",
+                "started_at": now_datetime(),
+                "origin": "eval",
+                "eval_case": case.name,
+                "eval_run": eval_run.name,
+                "total_prompt_tokens": 10,
+                "total_completion_tokens": 5,
+                "total_tokens": 15,
+                "estimated_cost": 0.02,
+            })
+            ev.flags.ignore_mandatory = True
+            ev.flags.ignore_links = True
+            ev.insert(ignore_permissions=True)
+
+            return {"response": "hi there"}
+
+        with patch("one_bpmn.api.agent_invocation.invoke_agent", new=fake_invoke_agent):
+            output, usage = _run_agent_eval(cfg, case, eval_run.name)
+
+        self.assertEqual(output, "hi there")
+        self.assertEqual(usage["tokens"], 15)
+        self.assertEqual(usage["prompt_tokens"], 10)
+        self.assertEqual(usage["completion_tokens"], 5)
+        self.assertEqual(usage["cost"], 0.02)

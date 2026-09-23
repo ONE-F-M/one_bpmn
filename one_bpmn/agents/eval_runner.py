@@ -1566,16 +1566,16 @@ def _run_agent_eval(cfg, case, eval_run: str = None) -> tuple:
     try:
         if _needs_map_eval(cfg):
             return _run_map_eval(cfg, case)
-        return _run_chat_agent_eval(cfg, case)
+        return _run_chat_agent_eval(cfg, case, eval_run)
     finally:
         frappe.flags.eval_origin, frappe.flags.bpmn_disable_ai_parking = prev
 
 
-def _run_chat_agent_eval(cfg, case) -> tuple:
+def _run_chat_agent_eval(cfg, case, eval_run: str = None) -> tuple:
     """The chat-shaped Agent eval: hand the turn to ``invoke_agent``.
 
-    Only drives a map whose start event triggers on Chat Conversation; for
-    anything else use ``_run_map_eval``. Eval flags are set by the caller.
+    Only drives a map whose start event triggers on Chat Conversation. Usage is read
+    from the runs tagged with this case and eval run, not from every run of the agent.
     """
     from one_bpmn.api.agent_invocation import invoke_agent
 
@@ -1593,18 +1593,31 @@ def _run_chat_agent_eval(cfg, case) -> tuple:
     reply = invoke_agent(cfg.agent_id, case.input_user_prompt or "", context=context)
 
     output = (reply or {}).get("response") or ""
+
+    # Mirrors _tool_trace_for's fallback: eval_run when we have one, else fall
+    # back to eval_case + the time window this attempt started in (so
+    # _execute_case_k_times, which shares one eval_run across its sequential
+    # attempts, still counts only its own attempt's runs).
+    filters = {
+        "eval_case": case.name,
+        "creation": [">=", started],
+        # Judge runs are recorded separately and their cost is added by
+        # _execute_case; excluding them here keeps execution and judge spend
+        # from being counted twice on the Result row.
+        "bpmn_id": ["!=", EVAL_RUN_JUDGE],
+    }
+    if eval_run:
+        filters["eval_run"] = eval_run
     runs = frappe.get_all(
         "AI Agent Run",
-        filters={
-            "agent_configuration": cfg.name,
-            "creation": [">=", started],
-            # Judge runs are recorded separately and their cost is added by
-            # _execute_case; excluding them here keeps execution and judge spend
-            # from being counted twice on the Result row.
-            "bpmn_id": ["!=", EVAL_RUN_JUDGE],
-        },
+        filters=filters,
         fields=["total_prompt_tokens", "total_completion_tokens", "total_tokens", "estimated_cost"],
     )
+    if not runs:
+        raise ValueError(
+            f"Agent '{cfg.name}' ran but produced no AI Agent Run for case '{case.name}'. "
+            f"Check that the agent's map reaches its AI Agent Task for this conversation."
+        )
     usage = {
         "prompt_tokens": sum((r.get("total_prompt_tokens") or 0) for r in runs),
         "completion_tokens": sum((r.get("total_completion_tokens") or 0) for r in runs),
