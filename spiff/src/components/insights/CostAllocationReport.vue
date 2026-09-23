@@ -128,6 +128,7 @@
 import { ref, computed, watch, onMounted } from "vue"
 import { frappeRequest, Button, Dropdown } from "frappe-ui"
 import { Icon } from "@iconify/vue"
+import { fmtInt as fmtNum, fmtCurrency as fmtCost } from "@/utils/formatters"
 
 const props = defineProps({
 	fromDate: String,
@@ -164,13 +165,6 @@ const unshownCost = computed(() =>
 function toggleAxis() {
 	axis.value = axis.value === "chat_user" ? "process_owner" : "chat_user"
 }
-
-const _num = new Intl.NumberFormat("en-US")
-const _cost = new Intl.NumberFormat("en-US", {
-	style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 4,
-})
-function fmtNum(n) { return _num.format(n || 0) }
-function fmtCost(n) { return _cost.format(n || 0) }
 
 // Export goes through a normal browser navigation: the endpoint replies with a
 // file download, which fetch/frappeRequest can't hand to the user.

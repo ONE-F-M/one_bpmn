@@ -104,6 +104,7 @@
 import { ref, watch } from "vue"
 import { frappeRequest, Autocomplete } from "frappe-ui"
 import { Icon } from "@iconify/vue"
+import { fmtInt as fmtNum, fmtCurrency as fmtCost } from "@/utils/formatters"
 
 const searching = ref(false)
 const workItemOptions = ref([])
@@ -112,13 +113,6 @@ let searchTimer = null
 
 const loading = ref(false)
 const report = ref({ total_cost: 0, total_tokens: 0, breakdown: [], chain_truncated: false })
-
-const _num = new Intl.NumberFormat("en-US")
-const _cost = new Intl.NumberFormat("en-US", {
-	style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 4,
-})
-function fmtNum(n) { return _num.format(n || 0) }
-function fmtCost(n) { return _cost.format(n || 0) }
 
 // frappe-ui's default comparator is `(a, b) => a.value === b.value`, which
 // throws the moment either side is null — the same trap UserFilter and

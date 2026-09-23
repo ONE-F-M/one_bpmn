@@ -20,7 +20,7 @@
 			<Badge :theme="view.run.status === 'Success' ? 'green' : 'red'" size="sm">{{ view.run.status }}</Badge>
 			<span class="text-gray-500">{{ fmtNum(view.run.duration_ms) }}ms</span>
 			<span class="text-gray-500">{{ fmtNum(view.rollup?.total_tokens ?? view.run.total_tokens) }} tokens</span>
-			<span class="text-gray-500">${{ (view.rollup?.estimated_cost ?? view.run.estimated_cost ?? 0).toFixed(4) }}</span>
+			<span class="text-gray-500">{{ fmtCurrency(view.rollup?.estimated_cost ?? view.run.estimated_cost) }}</span>
 			<RouterLink :to="`/processa/runs/${view.run.name}`" class="text-blue-600 hover:underline ml-auto" @click.stop>open</RouterLink>
 		</div>
 
@@ -97,7 +97,7 @@
 						</td>
 						<td class="py-1.5 px-2 text-xs text-gray-600 text-right">{{ fmtNum(step.latency_ms) }}ms</td>
 						<td class="py-1.5 px-2 text-xs text-gray-600 text-right">{{ fmtNum((step.prompt_tokens ?? 0) + (step.completion_tokens ?? 0)) }}</td>
-						<td class="py-1.5 px-2 text-xs text-gray-600 text-right">${{ (step.cost ?? 0).toFixed(4) }}</td>
+						<td class="py-1.5 px-2 text-xs text-gray-600 text-right">{{ fmtCurrency(step.cost) }}</td>
 					</tr>
 					<tr v-if="openSteps.has(step.name)" class="border-b border-gray-50 bg-gray-50/60">
 						<td></td>
@@ -123,9 +123,9 @@
 		<div v-if="depth === 0 && view.rollup && view.rollup.runs > 1" class="flex flex-wrap gap-4 pt-2 text-xs text-gray-600">
 			<span>Whole turn: {{ view.rollup.runs }} runs</span>
 			<span>{{ fmtNum(view.rollup.total_tokens) }} tokens</span>
-			<span>${{ (view.rollup.estimated_cost ?? 0).toFixed(4) }}</span>
+			<span>{{ fmtCurrency(view.rollup.estimated_cost) }}</span>
 			<span class="text-gray-400">
-				(this run alone: {{ fmtNum(view.run.total_tokens) }} tokens, ${{ (view.run.estimated_cost ?? 0).toFixed(4) }})
+				(this run alone: {{ fmtNum(view.run.total_tokens) }} tokens, {{ fmtCurrency(view.run.estimated_cost) }})
 			</span>
 		</div>
 	</div>
@@ -137,6 +137,7 @@ import { Icon } from "@iconify/vue"
 import { computed, ref, watch } from "vue"
 import { RouterLink } from "vue-router"
 import StepBody from "@/components/insights/StepBody.vue"
+import { fmtInt as fmtNum, fmtCurrency } from "@/utils/formatters"
 
 const props = defineProps({
 	node: { type: Object, required: true },
@@ -186,7 +187,4 @@ function toggleStep(name) {
 function setAll(on) {
 	openSteps.value = on ? new Set((view.value.steps || []).map((s) => s.name)) : new Set()
 }
-
-const numFormatter = new Intl.NumberFormat("en-US")
-function fmtNum(val) { return numFormatter.format(val ?? 0) }
 </script>

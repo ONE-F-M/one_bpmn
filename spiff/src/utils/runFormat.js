@@ -1,7 +1,7 @@
-const numFormatter = new Intl.NumberFormat("en-US")
+import { fmtCurrency, fmtInt } from "./formatters.js"
 
 export function fmtNum(v) {
-	return numFormatter.format(Math.round(v || 0))
+	return fmtInt(v)
 }
 
 export function fmtMs(ms) {
@@ -13,8 +13,7 @@ export function fmtMs(ms) {
 }
 
 export function fmtCost(v) {
-	v = Number(v || 0)
-	return "$" + v.toFixed(v >= 1 ? 2 : 4)
+	return fmtCurrency(v)
 }
 
 export function prettyJson(v) {

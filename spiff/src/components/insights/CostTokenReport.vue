@@ -84,7 +84,7 @@
 									:fill="palette[mi % palette.length]"
 									rx="2"
 								>
-									<title>{{ ds.model }}: ${{ ds.values[di]?.toFixed(4) }} ({{ dateLabel }})</title>
+									<title>{{ ds.model }}: {{ fmtCurrency(ds.values[di]) }} ({{ dateLabel }})</title>
 								</rect>
 							</template>
 							<text
@@ -146,6 +146,7 @@
 import { ref, computed, watch, onMounted } from "vue"
 import { frappeRequest, FormControl } from "frappe-ui"
 import { Icon } from "@iconify/vue"
+import { fmtInt as fmtNum, fmtCurrency } from "@/utils/formatters"
 
 const props = defineProps({
 	fromDate: String,
@@ -167,16 +168,6 @@ const cachedProviders = ref([])
 const cachedProcesses = ref([])
 
 const palette = ["#6366f1", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#06b6d4"]
-
-const numFormatter = new Intl.NumberFormat("en-US")
-
-function fmtNum(val) {
-	return numFormatter.format(val ?? 0)
-}
-
-function fmtCurrency(val) {
-	return "$" + (val ?? 0).toFixed(4)
-}
 
 const chartData = computed(() => reportData.value.chart_data || { labels: [], datasets: [] })
 const chartHeight = 170

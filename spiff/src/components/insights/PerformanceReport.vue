@@ -186,8 +186,8 @@
 													<td class="py-2 px-2 text-xs text-gray-600 text-right" :title="run.child_runs ? `this run alone: ${fmtNum(run.total_tokens)}` : ''">
 														{{ fmtNum(run.tree_total_tokens ?? run.total_tokens) }}
 													</td>
-													<td class="py-2 px-2 text-xs text-gray-600 text-right" :title="run.child_runs ? `this run alone: $${(run.estimated_cost ?? 0).toFixed(4)}` : ''">
-														${{ (run.tree_estimated_cost ?? run.estimated_cost ?? 0).toFixed(4) }}
+													<td class="py-2 px-2 text-xs text-gray-600 text-right" :title="run.child_runs ? `this run alone: ${fmtCurrency(run.estimated_cost)}` : ''">
+														{{ fmtCurrency(run.tree_estimated_cost ?? run.estimated_cost) }}
 													</td>
 													<td class="py-2 px-2 text-xs text-gray-600 text-right">{{ run.child_runs || "—" }}</td>
 													<td class="py-2 px-2 text-xs text-gray-500">{{ formatDate(run.started_at) }}</td>
@@ -218,6 +218,7 @@ import { frappeRequest, FormControl, Badge } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 import RunTree from "@/components/insights/RunTree.vue"
+import { fmtInt as fmtNum, fmtCurrency } from "@/utils/formatters"
 
 const props = defineProps({
 	fromDate: String,
@@ -240,9 +241,6 @@ const recentRunsLoading = ref(false)
 
 const expandedStepRun = ref(null)
 const tree = ref(null)
-
-const numFormatter = new Intl.NumberFormat("en-US")
-function fmtNum(val) { return numFormatter.format(val ?? 0) }
 
 function formatDate(dateStr) {
 	if (!dateStr) return ""
