@@ -12,10 +12,24 @@ from one_bpmn.one_bpmn.patches.v1_0 import seed_lucrusher_eval_suite as seed
 class TestLucrusherEvalSuitePatch(FrappeTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
-		if not frappe.db.get_value("AI Agent Configuration", {"agent_id": seed.AGENT_ID}) or not frappe.db.exists(
-			"BPMN Process Model", seed.MAP
-		):
-			self.skipTest("LuCrusher is not on this site")
+		if frappe.db.exists("AI Agent Configuration", {"agent_id": seed.AGENT_ID}):
+			return
+		model = frappe.get_doc(
+			{"doctype": "BPMN Process Model", "title": "zz-lucrusher-stub-map", "process_id": "zz_lucrusher_stub", "version": 1}
+		)
+		model.flags.skip_editability_check = True
+		model.flags.skip_script_security_check = True
+		model.insert(ignore_permissions=True)
+		frappe.get_doc(
+			{
+				"doctype": "AI Agent Configuration",
+				"agent_name": "ZZ LuCrusher Stub",
+				"agent_id": seed.AGENT_ID,
+				"agent_type": "Background",
+				"agent_framework": "Direct API",
+				"process_model": model.name,
+			}
+		).insert(ignore_permissions=True)
 
 	def _cases(self):
 		suite = frappe.db.get_value("AI Eval Suite", {"title": seed.SUITE_TITLE})

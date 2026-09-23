@@ -1577,10 +1577,9 @@ def _run_agent_eval(cfg, case, eval_run: str = None) -> tuple:
 
 def _run_chat_agent_eval(cfg, case) -> tuple:
     """The chat-shaped Agent eval: hand the turn to ``invoke_agent`` on a fresh conversation.
-
-    ``input_context`` may carry ``conversation_messages`` and ``session_state`` to
-    seed the earlier turns; the conversation is closed when the case ends.
-    """
+    ``input_context`` may seed earlier turns through ``conversation_messages`` and
+    ``session_state``; the conversation is closed and its state cleared when the case ends."""
+    from one_bpmn.agents.memory import session_state
     from one_bpmn.api.agent_invocation import invoke_agent
     from one_bpmn.utils.chat_persistence import close_conversation, create_agent_conversation
 
@@ -1599,15 +1598,16 @@ def _run_chat_agent_eval(cfg, case) -> tuple:
     conversation = create_agent_conversation(
         cfg.agent_id, title=(case.title or _("Eval case"))[:140], user=frappe.session.user
     )
-    _seed_conversation(conversation, seed_messages, seed_state)
 
     started = now_datetime()
     try:
+        _seed_conversation(conversation, seed_messages, seed_state)
         reply = invoke_agent(
             cfg.agent_id, case.input_user_prompt or "", conversation=conversation, context=context
         )
     finally:
         close_conversation(conversation)
+        session_state.clear_state(conversation)
 
     output = (reply or {}).get("response") or ""
     runs = frappe.get_all(
@@ -1655,10 +1655,11 @@ def _seed_conversation(conversation: str, messages: list, state: dict) -> None:
             }
         )
         doc.creation = doc.modified = add_to_date(start, seconds=index)
+        doc.owner = doc.modified_by = frappe.session.user
         # db_insert: seeded history is a fixture, not a message sent through the chat's guards.
         doc.db_insert()
     if state:
-        session_state.record(conversation, state)
+        session_state.set_state(conversation, state)
 
 
 def _run_direct_eval(cfg, case) -> tuple:

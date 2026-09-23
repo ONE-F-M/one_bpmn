@@ -11,7 +11,6 @@ import json
 import frappe
 
 AGENT_ID = "lucrusher_agent"
-MAP = "LuCrusher \u2013 Migration Agent"
 SHAPE = "run_lucrusher_agent"
 SUITE_TITLE = "LuCrusher - Baseline"
 JUDGE_PROVIDER = "Anthropic"
@@ -205,8 +204,10 @@ CASES = [
 
 
 def execute():
-	agent = frappe.db.get_value("AI Agent Configuration", {"agent_id": AGENT_ID}, "name")
-	if not agent or not frappe.db.exists("BPMN Process Model", MAP):
+	agent, process_model = frappe.db.get_value(
+		"AI Agent Configuration", {"agent_id": AGENT_ID}, ["name", "process_model"]
+	) or (None, None)
+	if not agent or not process_model:
 		return
 
 	if not frappe.db.exists("AI Model", JUDGE_MODEL):
@@ -215,27 +216,30 @@ def execute():
 			message=f"No AI Model '{JUDGE_MODEL}' on this site; the llm_judge assertions will error until it exists.",
 		)
 
-	suite = _suite(agent)
+	suite = _suite(agent, process_model)
 	for spec in CASES:
 		existing = frappe.db.get_value("AI Eval Case", {"suite": suite, "title": spec["title"]}, "name")
 		case = frappe.get_doc("AI Eval Case", existing) if existing else frappe.new_doc("AI Eval Case")
 		case.suite = suite
 		case.title = spec["title"]
 		case.case_type = "Trajectory"
-		case.process_model = MAP
+		case.process_model = process_model
 		case.bpmn_id = SHAPE
 		case.input_user_prompt = spec["prompt"]
 		case.input_context = json.dumps(spec["context"]) if spec["context"] else None
 		case.set("assertions", spec["assertions"])
 		case.set("expected_tool_calls", spec["calls"])
-		case.save(ignore_permissions=True) if existing else case.insert(ignore_permissions=True)
+		if existing:
+			case.save(ignore_permissions=True)
+		else:
+			case.insert(ignore_permissions=True)
 
 
-def _suite(agent: str) -> str:
+def _suite(agent: str, process_model: str) -> str:
 	values = {
 		"eval_type": "Agent",
 		"suite_type": "Baseline",
-		"process_model": MAP,
+		"process_model": process_model,
 		"agent_configuration": agent,
 		"description": SUITE_DESCRIPTION,
 		"pass_k": PASS_K,

@@ -6,12 +6,14 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import now_datetime
 
 from one_bpmn.agents import eval_runner
 from one_bpmn.agents.memory import session_state
 from one_bpmn.utils.chat_persistence import create_conversation
 
 CFG = frappe._dict(agent_id="zz_eval_chat_agent", name="ZZ Eval Chat Agent")
+CASE_NAME = "zz-eval-chat-seeding-case"
 
 
 class TestChatEvalSeeding(FrappeTestCase):
@@ -27,6 +29,7 @@ class TestChatEvalSeeding(FrappeTestCase):
 				session_state.clear_state(conversation)
 				frappe.delete_doc(session_state.STATE_DOCTYPE, conversation, ignore_permissions=True, force=True)
 			frappe.db.delete("Chat Conversation", {"name": conversation})
+		frappe.db.delete("AI Agent Run", {"eval_case": CASE_NAME})
 		frappe.db.commit()
 
 	def _new_conversation(self, agent_id, title=None, user=None):
@@ -47,10 +50,23 @@ class TestChatEvalSeeding(FrappeTestCase):
 			),
 			"state": session_state.get_state(conversation),
 		}
+		# Tagged for both the agent_configuration and the eval_case run lookup.
+		frappe.get_doc(
+			{
+				"doctype": "AI Agent Run",
+				"agent_configuration": CFG.name,
+				"eval_case": CASE_NAME,
+				"origin": "eval",
+				"bpmn_id": "zz_chat_turn",
+				"status": "Success",
+				"started_at": now_datetime(),
+				"total_tokens": 7,
+			}
+		).insert(ignore_permissions=True, ignore_links=True)
 		return {"response": "the reply"}
 
 	def _run(self, input_context, invoke=None):
-		case = frappe._dict(title="Seeded case", input_user_prompt="yes, the topology looks good",
+		case = frappe._dict(name=CASE_NAME, title="Seeded case", input_user_prompt="yes, the topology looks good",
 			input_context=json.dumps(input_context))
 		with (
 			patch("one_bpmn.utils.chat_persistence.create_agent_conversation", side_effect=self._new_conversation),
@@ -102,6 +118,7 @@ class TestChatEvalSeeding(FrappeTestCase):
 		close.assert_called_once_with(self.conversations[0])
 
 	def test_an_unknown_message_type_is_refused(self):
-		error, _close = self._run({"conversation_messages": [{"message_type": "Robot", "text": "hi"}]})
+		error, close = self._run({"conversation_messages": [{"message_type": "Robot", "text": "hi"}]})
 		self.assertIsInstance(error, ValueError)
 		self.assertIn("Robot", str(error))
+		close.assert_called_once_with(self.conversations[0])
