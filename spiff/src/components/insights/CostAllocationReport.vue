@@ -111,9 +111,27 @@
 				<!-- The donut repeats the table's share column; at phone width the
 				     table alone carries it. -->
 				<div class="hidden sm:block bg-white rounded-lg shadow-sm p-4">
-					<div class="alloc-chart h-[230px]">
-						<ECharts :options="donutOptions" />
+					<div class="flex items-baseline justify-between">
+						<h3 class="text-sm font-medium text-gray-900">{{ donut.title }}</h3>
+						<span class="text-xs text-gray-500">{{ fmtCost(donut.total) }}</span>
 					</div>
+					<div class="relative alloc-chart h-36 mt-1">
+						<ECharts :options="donutOptions" />
+						<div
+							v-if="donut.top"
+							class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center"
+						>
+							<div class="text-sm font-semibold text-gray-900">{{ donut.top.pct }}%</div>
+							<div class="text-[11px] text-gray-500 truncate max-w-[84px]">{{ donut.top.name }}</div>
+						</div>
+					</div>
+					<ul class="mt-2 space-y-1">
+						<li v-for="x in donut.slices" :key="x.name" class="flex items-center gap-2 text-xs">
+							<span class="w-2 h-2 rounded-full shrink-0" :style="{ background: x.color }"></span>
+							<span class="truncate flex-1 text-gray-700" :title="x.name">{{ x.name }}</span>
+							<span class="text-gray-500 whitespace-nowrap">{{ fmtCost(x.value) }} · {{ x.pct }}%</span>
+						</li>
+					</ul>
 				</div>
 			</div>
 
@@ -606,54 +624,44 @@ function barTooltip(params) {
 			<div>Total</div><div class="font-bold">${fmtCost(bucketTotals.value[bucket] || 0)}</div></div>`
 }
 
-// Share donut, drawn directly: the shared DonutChart cannot show cost in its
-// legend or name the top share in the centre.
-const donutOptions = computed(() => {
+// Share donut. The ring is drawn directly; its title, centre and legend are
+// HTML, since the shared DonutChart's canvas legend collides with the ring on
+// long names.
+const donut = computed(() => {
 	const chat = axis.value === "chat_user"
+	const colors = chat ? agentColorByKey.value : colorByKey.value
 	const slices = (chat
 		? agentSlices.value.map((x) => ({ name: x.label, value: x.value, key: x.key }))
 		: seriesNodes.value.map((n) => ({ name: n.label, value: n.cost, key: n.key }))
 	).sort((a, b) => b.value - a.value)
-	const colors = chat ? agentColorByKey.value : colorByKey.value
 	const total = slices.reduce((t, x) => t + x.value, 0)
-	const top = slices[0]
-	const pct = (v) => (total ? Math.round((v / total) * 100) : 0)
+	for (const x of slices) {
+		x.pct = total ? Math.round((x.value / total) * 100) : 0
+		x.color = x.key ? colors[x.key] || OTHER_COLOR : OTHER_COLOR
+	}
 	return {
-		animation: true,
-		textStyle: { fontFamily: ["InterVar", "sans-serif"] },
-		color: slices.map((x) => (x.key ? colors[x.key] || OTHER_COLOR : OTHER_COLOR)),
-		title: {
-			text: chat ? "Share by agent" : `Share by ${groupLabel.value}`,
-			subtext: fmtCost(total), left: 0, top: 0, padding: 0,
-			textStyle: { fontSize: 14, fontWeight: 500, color: "#374151" },
-			subtextStyle: { fontSize: 13, color: "#6b7280" },
-		},
-		graphic: top ? [{
-			type: "text", left: "center", top: "44%",
-			style: { text: `${pct(top.value)}%\n${top.name}`, textAlign: "center", fontSize: 12,
-				lineHeight: 16, fill: "#4b5563", width: 90, overflow: "truncate" },
-		}] : [],
-		legend: {
-			type: "plain", bottom: 0, icon: "circle", itemGap: 8,
-			textStyle: { color: "#374151", fontSize: 11 },
-			formatter: (name) => {
-				const x = slices.find((y) => y.name === name)
-				return x ? `${name}  ${fmtCost(x.value)} · ${pct(x.value)}%` : name
-			},
-		},
-		tooltip: {
-			trigger: "item", confine: true,
-			formatter: (p) => `<div class="flex items-center justify-between gap-5"><div>${p.name}</div>
-				<div class="font-bold">${fmtCost(p.value)} (${pct(p.value)}%)</div></div>`,
-		},
-		series: [{
-			type: "pie", radius: ["46%", "68%"], center: ["50%", "48%"],
-			itemStyle: { borderColor: "#ffffff", borderWidth: 2 },
-			label: { show: false }, emphasis: { scaleSize: 4 },
-			data: slices.map((x) => ({ name: x.name, value: x.value })),
-		}],
+		title: chat ? "Share by agent" : `Share by ${groupLabel.value}`,
+		total,
+		slices,
+		top: slices[0] || null,
 	}
 })
+
+const donutOptions = computed(() => ({
+	animation: true,
+	color: donut.value.slices.map((x) => x.color),
+	tooltip: {
+		trigger: "item", confine: true,
+		formatter: (p) => `<div class="flex items-center justify-between gap-5"><div>${p.name}</div>
+			<div class="font-bold">${fmtCost(p.value)} (${donut.value.slices[p.dataIndex]?.pct ?? 0}%)</div></div>`,
+	},
+	series: [{
+		type: "pie", radius: ["62%", "88%"], center: ["50%", "50%"],
+		itemStyle: { borderColor: "#ffffff", borderWidth: 2 },
+		label: { show: false }, emphasis: { scaleSize: 3 },
+		data: donut.value.slices.map((x) => ({ name: x.name, value: x.value })),
+	}],
+}))
 
 // -- table -------------------------------------------------------------
 const expanded = ref(new Set())
