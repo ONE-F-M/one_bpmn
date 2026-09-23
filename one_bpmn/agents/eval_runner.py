@@ -1574,8 +1574,7 @@ def _run_agent_eval(cfg, case, eval_run: str = None) -> tuple:
 def _run_chat_agent_eval(cfg, case, eval_run: str = None) -> tuple:
     """The chat-shaped Agent eval: hand the turn to ``invoke_agent``.
 
-    Only drives a map whose start event triggers on Chat Conversation. Usage is read
-    from the runs tagged with this case and eval run, not from every run of the agent.
+    Usage comes from the runs tagged with this case and eval run since the attempt started.
     """
     from one_bpmn.api.agent_invocation import invoke_agent
 
@@ -1594,16 +1593,11 @@ def _run_chat_agent_eval(cfg, case, eval_run: str = None) -> tuple:
 
     output = (reply or {}).get("response") or ""
 
-    # Mirrors _tool_trace_for's fallback: eval_run when we have one, else fall
-    # back to eval_case + the time window this attempt started in (so
-    # _execute_case_k_times, which shares one eval_run across its sequential
-    # attempts, still counts only its own attempt's runs).
+    # creation >= started keeps each repeated attempt under one eval_run to its own runs.
     filters = {
         "eval_case": case.name,
         "creation": [">=", started],
-        # Judge runs are recorded separately and their cost is added by
-        # _execute_case; excluding them here keeps execution and judge spend
-        # from being counted twice on the Result row.
+        # _execute_case adds judge spend separately.
         "bpmn_id": ["!=", EVAL_RUN_JUDGE],
     }
     if eval_run:
