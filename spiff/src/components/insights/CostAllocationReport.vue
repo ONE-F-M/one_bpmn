@@ -338,8 +338,9 @@ const SERIES_COLORS = [
 	"#e87ba4", "#008300", "#4a3aa7", "#e34948",
 ]
 const OTHER_COLOR = "#9ca3af"
-// Slots in play before the tail folds into "Other", in the bar and the donut alike.
-const MAX_SERIES = 6
+// Slots in play before the tail folds into "Other"; chat users get five, so the
+// "top 5" the scope line talks about is what the chart shows.
+const seriesCap = computed(() => (axis.value === "chat_user" && groupBy.value === "user" ? 5 : 6))
 
 const axis = ref("process_owner")
 const groupBy = ref("department")
@@ -470,26 +471,32 @@ const tiles = computed(() => {
 })
 
 // -- colours -----------------------------------------------------------
-// Assigned over the keys in a stable order, not by cost, so a node keeps its
-// colour across the chart, the donut and the table's share bars.
-const colorByKey = computed(() => {
-	const keys = tree.value.map((n) => n.key).sort()
-	return Object.fromEntries(
-		keys.map((key, i) => [key, i < MAX_SERIES ? SERIES_COLORS[i] : OTHER_COLOR])
-	)
-})
+// The tree is cost-descending, so the first nodes are the heaviest. Colours are
+// assigned over their keys in a stable order, so a node keeps its colour across
+// the chart, the donut and the table's share bars.
+const charted = computed(() => tree.value.slice(0, seriesCap.value))
+const otherNodes = computed(() => tree.value.slice(seriesCap.value))
+function slotColors(keys) {
+	return Object.fromEntries([...keys].sort().map((key, i) => [key, SERIES_COLORS[i] || OTHER_COLOR]))
+}
+const colorByKey = computed(() => slotColors(charted.value.map((n) => n.key)))
 function colorOf(key) {
 	return colorByKey.value[key] || OTHER_COLOR
 }
 
-// Past the last slot the tail folds into one "Other" series rather than being
-// handed a made-up colour.
-const charted = computed(() => {
-	const keys = new Set(Object.entries(colorByKey.value)
-		.filter(([, color]) => color !== OTHER_COLOR).map(([key]) => key))
-	return tree.value.filter((n) => keys.has(n.key))
+// The chat donut is by agent whatever the grouping, so agents have their own
+// slots — the same ones as the bar when the bar is grouped by agent.
+const agentSlices = computed(() => {
+	const agents = report.value.agents || []
+	const top = agents.slice(0, 6)
+	const rest = agents.slice(6)
+	const slices = top.map((a) => ({ label: a.label, value: a.cost, key: a.key }))
+	if (rest.length) slices.push({ label: "Other", value: rest.reduce((t, a) => t + a.cost, 0), key: "" })
+	return slices
 })
-const otherNodes = computed(() => tree.value.filter((n) => !charted.value.includes(n)))
+const agentColorByKey = computed(() =>
+	groupBy.value === "agent" ? colorByKey.value : slotColors(agentSlices.value.filter((x) => x.key).map((x) => x.key))
+)
 
 const chartHeight = computed(() => (isPhone.value ? 170 : 230))
 const seriesNodes = computed(() =>
@@ -547,7 +554,7 @@ const barConfig = computed(() => {
 	const legendRows = Math.ceil(series.length / perRow)
 	return {
 		data,
-		title: `Cost by ${groupLabel.value}`,
+		title: `${axis.value === "chat_user" ? "Chat cost" : "Cost"} by ${groupLabel.value}`,
 		subtitle: `${rangeLabel.value}, ${report.value.grain}ly`,
 		xAxis: {
 			key: "date", type: "time", timeGrain: report.value.grain || "day",
@@ -584,18 +591,22 @@ function barTooltip(params) {
 // Share donut, drawn directly: the shared DonutChart cannot show cost in its
 // legend or name the top share in the centre.
 const donutOptions = computed(() => {
-	const slices = seriesNodes.value
-		.map((n) => ({ name: n.label, value: n.cost, key: n.key }))
-		.sort((a, b) => b.value - a.value)
+	const chat = axis.value === "chat_user"
+	const slices = (chat
+		? agentSlices.value.map((x) => ({ name: x.label, value: x.value, key: x.key }))
+		: seriesNodes.value.map((n) => ({ name: n.label, value: n.cost, key: n.key }))
+	).sort((a, b) => b.value - a.value)
+	const colors = chat ? agentColorByKey.value : colorByKey.value
 	const total = slices.reduce((t, x) => t + x.value, 0)
 	const top = slices[0]
 	const pct = (v) => (total ? Math.round((v / total) * 100) : 0)
 	return {
 		animation: true,
 		textStyle: { fontFamily: ["InterVar", "sans-serif"] },
-		color: slices.map((x) => (x.key ? colorOf(x.key) : OTHER_COLOR)),
+		color: slices.map((x) => (x.key ? colors[x.key] || OTHER_COLOR : OTHER_COLOR)),
 		title: {
-			text: `Share by ${groupLabel.value}`, subtext: fmtCost(total), left: 0, top: 0, padding: 0,
+			text: chat ? "Share by agent" : `Share by ${groupLabel.value}`,
+			subtext: fmtCost(total), left: 0, top: 0, padding: 0,
 			textStyle: { fontSize: 14, fontWeight: 500, color: "#374151" },
 			subtextStyle: { fontSize: 13, color: "#6b7280" },
 		},
