@@ -74,6 +74,9 @@ AI_AGENT_SERVICE_TYPE = "ai_agent"
 # Attributes that stay locked on every element. See the note above.
 LOCKED_ATTRS = frozenset({"id", "serviceType", "calledElement", "default"})
 
+# Trigger settings a conditional event keeps on its definition, where the panel writes them.
+DEFINITION_ATTRS = frozenset({"triggerDoctype", "triggerType", "triggerWorkflow", "triggerWorkflowState"})
+
 # Attributes written as plain BPMN attributes; everything else goes into the
 # spiffworkflow namespace, which is where the properties panel keeps its values.
 PLAIN_ATTRS = frozenset({"name"})
@@ -124,6 +127,14 @@ def _condition_node(node):
 	return holder.find(f"{{{BPMN_NS}}}{tag}")
 
 
+def _attr_holder(node, name):
+	if name in DEFINITION_ATTRS:
+		definition = node.find(f"{{{BPMN_NS}}}conditionalEventDefinition")
+		if definition is not None:
+			return definition
+	return node
+
+
 def _read(node, names) -> dict:
 	out = {}
 	for name in names:
@@ -132,7 +143,7 @@ def _read(node, names) -> dict:
 			out[name] = (found.text or "").strip() if found is not None else ""
 			continue
 		key = name if name in PLAIN_ATTRS else f"{{{SPIFF_NS}}}{name}"
-		out[name] = node.get(key) or ""
+		out[name] = _attr_holder(node, name).get(key) or ""
 	return out
 
 
@@ -214,10 +225,11 @@ def update_element_properties(model_name: str, element_id: str, properties) -> d
 			_write_condition(node, value)
 			continue
 		key = name if name in PLAIN_ATTRS else f"{{{SPIFF_NS}}}{name}"
+		holder = _attr_holder(node, name)
 		if value in (None, ""):
-			node.attrib.pop(key, None)
+			holder.attrib.pop(key, None)
 		else:
-			node.set(key, str(value))
+			holder.set(key, str(value))
 
 	after = _read(node, names)
 	if before == after:

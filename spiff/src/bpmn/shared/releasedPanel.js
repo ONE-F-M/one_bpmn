@@ -46,9 +46,12 @@ export function isEditableProperty(key) {
 export function isConditionUpdate(bo, moddleElement) {
 	if (!bo || !moddleElement) return false;
 	if (bo.$type === "bpmn:SequenceFlow") return moddleElement === bo.conditionExpression;
-	return (bo.eventDefinitions || []).some(
-		(definition) => definition.$type === "bpmn:ConditionalEventDefinition" && definition.condition === moddleElement
-	);
+	return conditionalDefinition(bo)?.condition === moddleElement;
+}
+
+/** An event's conditional event definition, which holds its trigger settings. */
+export function conditionalDefinition(bo) {
+	return (bo.eventDefinitions || []).find((definition) => definition.$type === "bpmn:ConditionalEventDefinition");
 }
 
 /** The single element whose panel is showing, or null. */

@@ -1054,6 +1054,7 @@ import {
 	PROPERTY_COMMANDS,
 	isLockedElement as isPanelLockedElement,
 	isConditionUpdate,
+	conditionalDefinition,
 	isEditableProperty as isPanelEditableProperty,
 	panelElement,
 } from "@/bpmn/shared/releasedPanel";
@@ -2401,7 +2402,11 @@ onMounted(async () => {
 					if (isConditionUpdate(bo, context.moddleElement)) return true;
 					// Any other moddle update on a nested element (an extension
 					// element, a timer definition) is not saved by the endpoint.
-					if (command === "element.updateModdleProperties" && context.moddleElement !== bo) {
+					if (
+						command === "element.updateModdleProperties" &&
+						context.moddleElement !== bo &&
+						context.moddleElement !== conditionalDefinition(bo)
+					) {
 						return false;
 					}
 					const keys = Object.keys(context.properties || {});
@@ -2423,8 +2428,9 @@ onMounted(async () => {
 						if (isConditionUpdate(bo, context.moddleElement)) {
 							properties.conditionExpression = context.moddleElement.body || "";
 						}
+						const target = context.moddleElement || bo;
 						Object.keys(context.properties || {}).forEach((key) => {
-							properties[String(key).split(":").pop()] = bo.get(key) || "";
+							properties[String(key).split(":").pop()] = target.get(key) || "";
 						});
 						emit("reassign-changed", { taskId: bo.id, assignment: properties });
 						return result;

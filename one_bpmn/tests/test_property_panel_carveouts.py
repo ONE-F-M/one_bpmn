@@ -145,6 +145,21 @@ class TestWhatItAllows(CarveOutCase):
 		self.assertNotIn('document_type == "SOP"', xml)
 		self.assertEqual(xml.count("<bpmn:condition "), 1, "replaced, not added beside the old one")
 
+	def test_a_conditional_start_event_trigger_doctype_can_be_changed(self):
+		"""The panel keeps a conditional start's trigger on its definition, and
+		compilation reads it from there."""
+		out = P.update_element_properties(self.model, "zz_start", {"triggerDoctype": "Note"})
+		self.assertTrue(out["updated"])
+		self.assertIn(
+			'<bpmn:conditionalEventDefinition id="zz_start_def" spiffworkflow:triggerDoctype="Note">', self._xml()
+		)
+
+	def test_a_plain_start_event_keeps_its_trigger_on_the_event(self):
+		P.update_element_properties(self.model, "zz_plain_start", {"triggerDoctype": "Note"})
+		self.assertIn(
+			'<bpmn:startEvent id="zz_plain_start" spiffworkflow:triggerDoctype="Note"/>', self._xml()
+		)
+
 	def test_clearing_an_event_condition_keeps_it_compilable(self):
 		"""Spiff refuses a conditional event with no condition element at all."""
 		P.update_element_properties(self.model, "zz_start", {"conditionExpression": ""})

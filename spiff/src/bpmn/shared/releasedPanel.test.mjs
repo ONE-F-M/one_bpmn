@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { isConditionUpdate } from "./releasedPanel.js";
+import { conditionalDefinition, isConditionUpdate } from "./releasedPanel.js";
 
 test("a conditional start event's condition is a condition update", () => {
 	// bpmn-js-spiffworkflow replaces the expression and then announces it as the moddle element.
@@ -25,4 +25,11 @@ test("another nested element on an event is not", () => {
 	const bo = { $type: "bpmn:StartEvent", eventDefinitions: [timer] };
 	assert.equal(isConditionUpdate(bo, timer), false);
 	assert.equal(isConditionUpdate({ $type: "bpmn:StartEvent" }, {}), false);
+});
+
+test("a conditional start event's trigger settings live on its definition", () => {
+	const definition = { $type: "bpmn:ConditionalEventDefinition" };
+	const bo = { $type: "bpmn:StartEvent", eventDefinitions: [{ $type: "bpmn:TimerEventDefinition" }, definition] };
+	assert.equal(conditionalDefinition(bo), definition);
+	assert.equal(conditionalDefinition({ $type: "bpmn:StartEvent" }), undefined);
 });
