@@ -226,6 +226,34 @@ def _topology_problem(topo: dict, names: dict) -> dict:
     }
 
 
+# Node types the generator prompt already tells the model belong in the
+# system lane when no lanes are named (serviceTask/scriptTask). Matches
+# process_generator's own "System (Automatic)" fallback rule verbatim.
+_SYSTEM_LANE_NODE_TYPES = frozenset({"scriptTask", "serviceTask"})
+
+
+def ensure_default_lanes(ir: dict) -> bool:
+    """Apply the generator prompt's own "User" + "System (Automatic)" lane
+    fallback in code, so a missing lane structure skips a repair-pass retry.
+
+    Mutates ``ir`` in place; returns True when it changed anything. Returns
+    False when there are no nodes to assign, so the caller still re-prompts.
+    """
+    if len(ir.get("lanes") or []) >= 2:
+        return False
+    nodes = ir.get("nodes") or []
+    if not nodes:
+        return False
+    ir["lanes"] = [
+        {"id": "user", "name": "User"},
+        {"id": "system", "name": "System (Automatic)"},
+    ]
+    for node in nodes:
+        if not node.get("lane"):
+            node["lane"] = "system" if node.get("type") in _SYSTEM_LANE_NODE_TYPES else "user"
+    return True
+
+
 def compile_ir(ir: dict) -> dict:
     """Compile an IR dict into BPMN XML via ``spiff/pipeline.mjs``.
 
