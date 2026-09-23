@@ -232,8 +232,9 @@
 										size="sm"
 										:label="subtitleOf(row.node)"
 									/>
+									<!-- An agent serves every department; only people and processes have one. -->
 									<Badge
-										v-else-if="row.depth === 0 && row.node.department"
+										v-else-if="row.depth === 0 && row.node.department && row.node.kind !== 'agent'"
 										size="sm"
 										:label="row.node.department"
 									/>
