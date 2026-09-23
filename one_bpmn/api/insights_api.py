@@ -1632,13 +1632,46 @@ def get_run_totals_crosscheck(run_name: str) -> dict:
 #
 # A run is a chat run when its BPMN instance's context is a Chat Conversation
 # (set in utils/chat_persistence.py); anything else — including runs with no
-# instance — is non-chat. Eval-origin runs are included, per WI-001668.
+# instance — is non-chat.
+#
+# The report rolls that up into a tree so finance never pivots it by hand:
+# department -> owner -> process on the process axis, department -> user ->
+# agent on the chat axis, each node carrying its share, its prior-period cost
+# and a cost per chart bucket.
 
 ALLOCATION_AXES = ("process_owner", "chat_user")
+
+# The level a tree is grouped at, and the levels that hang under it. Department
+# is an attribute of every node, so it is never a child level.
+ALLOCATION_LEVELS = {
+	("process_owner", "department"): ("department", "owner", "process"),
+	("process_owner", "owner"): ("owner", "process"),
+	("process_owner", "process"): ("process", "owner"),
+	("chat_user", "department"): ("department", "user", "agent"),
+	("chat_user", "user"): ("user", "agent"),
+	("chat_user", "agent"): ("agent", "user"),
+}
+
+DEFAULT_GROUP_BY = "department"
+
+# Chat users listed under a parent before the rest collapse into one "more"
+# node: a department with forty seats is a wall of names, not a finding.
+MAX_PEER_NODES = 5
+
+# Chat Conversation.agent_mode is blank for the general assistant.
+GENERAL_CHAT = "General Chat"
+
+# Seats = who could be chatting. The role is optional: sites that don't gate
+# chat by role fall back to the employees who have a login.
+CHAT_SEAT_ROLE = "Chat User"
 
 
 def _month_expr(Run):
 	return DateFormat(Run.started_at, "%Y-%m")
+
+
+def _group_bys_for(axis: str) -> tuple:
+	return tuple(g for (a, g) in ALLOCATION_LEVELS if a == axis)
 
 
 def _departments_for(users: list) -> dict:
@@ -1654,8 +1687,12 @@ def _departments_for(users: list) -> dict:
 	return {r["user_id"]: r["department"] for r in rows if r.get("department")}
 
 
-def _allocation_rows(axis: str, from_d, to_d) -> list:
-	"""Monthly usage rows for the requested allocation axis."""
+def _allocation_rows(axis: str, from_d, to_d, origin: str = "production") -> list:
+	"""Monthly usage rows for the requested allocation axis.
+
+	The flat, titled grain: what the export's Detail sheet lists and what the
+	tab showed before it grew a tree.
+	"""
 	Run = DocType("AI Agent Run")
 	Inst = DocType("BPMN Process Instance")
 	month = _month_expr(Run)
@@ -1682,12 +1719,15 @@ def _allocation_rows(axis: str, from_d, to_d) -> list:
 				fn.Sum(Run.estimated_cost).as_("cost"),
 			)
 			.where(in_range)
+			.where(_origin_condition(Run, origin))
 			.where(Inst.context_doctype == "Chat Conversation")
 			.groupby(month, Conv.owner, Inst.context_docname, Conv.title)
 		)
 	else:
 		Model = DocType("BPMN Process Model")
 		Proc = DocType("Process")
+		# A run with no process model has nothing to bill to: it is left out
+		# here and shows up as the gap between these totals and period_totals.
 		q = (
 			frappe.qb.from_(Run)
 			.left_join(Inst).on(Inst.name == Run.instance)
@@ -1703,7 +1743,10 @@ def _allocation_rows(axis: str, from_d, to_d) -> list:
 				fn.Sum(Run.estimated_cost).as_("cost"),
 			)
 			.where(in_range)
+			.where(_origin_condition(Run, origin))
 			.where(Inst.context_doctype.isnull() | (Inst.context_doctype != "Chat Conversation"))
+			.where(Run.process_model.isnotnull())
+			.where(Run.process_model != "")
 			.groupby(month, Proc.process_owner, Run.process_model, Model.process_name)
 		)
 
@@ -1726,7 +1769,7 @@ def _allocation_rows(axis: str, from_d, to_d) -> list:
 	return rows
 
 
-def _period_totals(from_d, to_d) -> dict:
+def _period_totals(from_d, to_d, origin: str = "production") -> dict:
 	"""Unfiltered totals for the whole period, across both allocation axes.
 
 	Each axis shows only its own slice (non-chat vs chat), so the axis totals
@@ -1743,6 +1786,7 @@ def _period_totals(from_d, to_d) -> dict:
 		)
 		.where(fn.Date(Run.started_at) >= from_d)
 		.where(fn.Date(Run.started_at) <= to_d)
+		.where(_origin_condition(Run, origin))
 	).run(as_dict=True)
 	r = row[0] if row else {}
 	return {
@@ -1752,7 +1796,7 @@ def _period_totals(from_d, to_d) -> dict:
 	}
 
 
-def _models_missing_pricing(from_d, to_d) -> list:
+def _models_missing_pricing(from_d, to_d, origin: str = "production") -> list:
 	"""Models used in the period that have no rate card on their AI Model, so
 	their spend silently counts as 0 — finance needs to know."""
 	from one_bpmn.agents.pricing import get_model_pricing
@@ -1764,76 +1808,505 @@ def _models_missing_pricing(from_d, to_d) -> list:
 		.distinct()
 		.where(fn.Date(Run.started_at) >= from_d)
 		.where(fn.Date(Run.started_at) <= to_d)
+		.where(_origin_condition(Run, origin))
 		.where(Run.model.isnotnull())
 		.where(Run.model != "")
 	).run(as_dict=True)
 	return sorted({r["model"] for r in used if not get_model_pricing(r["model"])})
 
 
+def _other_axis_cost(axis: str, from_d, to_d, origin: str) -> float:
+	"""What the other axis carries for the same period.
+
+	The two axes split the period's runs between them, so this is how the tab
+	says where the rest of the money went instead of leaving it unexplained.
+	"""
+	Run = DocType("AI Agent Run")
+	Inst = DocType("BPMN Process Instance")
+	q = (
+		frappe.qb.from_(Run)
+		.left_join(Inst).on(Inst.name == Run.instance)
+		.select(fn.Sum(Run.estimated_cost).as_("cost"))
+		.where(fn.Date(Run.started_at) >= from_d)
+		.where(fn.Date(Run.started_at) <= to_d)
+		.where(_origin_condition(Run, origin))
+	)
+	if axis == "chat_user":
+		q = q.where(Inst.context_doctype.isnull() | (Inst.context_doctype != "Chat Conversation"))
+	else:
+		q = q.where(Inst.context_doctype == "Chat Conversation")
+	row = q.run(as_dict=True)
+	return flt(row[0].get("cost") if row else 0, 6)
+
+
+def _allocation_leaves(axis: str, from_d, to_d, origin: str) -> list:
+	"""One row per day, person and subject — the grain every rollup folds from.
+
+	Per day rather than per month because the chart buckets by week inside a
+	single month; the tree and the totals fold the same rows.
+	"""
+	Run = DocType("AI Agent Run")
+	Inst = DocType("BPMN Process Instance")
+	day = fn.Date(Run.started_at)
+	in_range = (day >= from_d) & (day <= to_d)
+
+	if axis == "chat_user":
+		Conv = DocType("Chat Conversation")
+		q = (
+			frappe.qb.from_(Run)
+			.inner_join(Inst).on(Inst.name == Run.instance)
+			.left_join(Conv).on(Conv.name == Inst.context_docname)
+			.select(
+				day.as_("day"),
+				Conv.owner.as_("person"),
+				Conv.agent_mode.as_("subject"),
+				Inst.context_docname.as_("conversation"),
+				fn.Count("*").as_("runs"),
+				fn.Sum(Run.total_tokens).as_("tokens"),
+				fn.Sum(Run.estimated_cost).as_("cost"),
+			)
+			.where(in_range)
+			.where(_origin_condition(Run, origin))
+			.where(Inst.context_doctype == "Chat Conversation")
+			.groupby(day, Conv.owner, Conv.agent_mode, Inst.context_docname)
+		)
+	else:
+		Model = DocType("BPMN Process Model")
+		Proc = DocType("Process")
+		q = (
+			frappe.qb.from_(Run)
+			.left_join(Inst).on(Inst.name == Run.instance)
+			.left_join(Model).on(Model.name == Run.process_model)
+			.left_join(Proc).on(Proc.name == Model.process_name)
+			.select(
+				day.as_("day"),
+				Proc.process_owner.as_("person"),
+				Run.process_model.as_("subject"),
+				Model.process_name.as_("subject_label"),
+				fn.Count("*").as_("runs"),
+				fn.Sum(Run.total_tokens).as_("tokens"),
+				fn.Sum(Run.estimated_cost).as_("cost"),
+			)
+			.where(in_range)
+			.where(_origin_condition(Run, origin))
+			.where(Inst.context_doctype.isnull() | (Inst.context_doctype != "Chat Conversation"))
+			.where(Run.process_model.isnotnull())
+			.where(Run.process_model != "")
+			.groupby(day, Proc.process_owner, Run.process_model, Model.process_name)
+		)
+
+	raw = q.run(as_dict=True)
+	departments = _departments_for([r.get("person") for r in raw])
+	leaves = []
+	for r in raw:
+		person = cstr(r.get("person"))
+		subject = cstr(r.get("subject")) or (GENERAL_CHAT if axis == "chat_user" else "")
+		leaves.append({
+			"day": getdate(r.get("day")),
+			"person": person,
+			"department": departments.get(person) or "",
+			"subject": subject,
+			# No conversation title ever reaches the tree: the chat axis names
+			# the agent, and the titles stay in the export's Detail sheet.
+			"subject_label": cstr(r.get("subject_label")) or subject,
+			"conversation": cstr(r.get("conversation")),
+			"runs": cint(r.get("runs")),
+			"tokens": cint(r.get("tokens")),
+			"cost": flt(r.get("cost"), 6),
+		})
+	return leaves
+
+
+def _previous_period(from_d, to_d) -> tuple:
+	"""The window of equal length ending the day before this one."""
+	span = (to_d - from_d).days + 1
+	prev_to = getdate(add_days(from_d, -1))
+	return getdate(add_days(prev_to, -(span - 1))), prev_to
+
+
+def _bucket_start(day, grain: str, from_d):
+	"""The chart bucket a day belongs to, clipped to the start of the range."""
+	start = getdate(add_days(day, -day.weekday())) if grain == "week" else day.replace(day=1)
+	return max(start, from_d)
+
+
+def _period_grain(from_d, to_d) -> tuple:
+	"""(grain, buckets, months) for the range: weeks inside one calendar month,
+	months once it spans more than one."""
+	days = [getdate(add_days(from_d, i)) for i in range(max((to_d - from_d).days + 1, 1))]
+	months = sorted({d.strftime("%Y-%m") for d in days})
+	grain = "week" if len(months) == 1 else "month"
+	buckets = list(dict.fromkeys(cstr(_bucket_start(d, grain, from_d)) for d in days))
+	return grain, buckets, months
+
+
+def _level_of(level: str, leaf: dict) -> tuple:
+	"""(key, label) a leaf contributes at one level of the tree."""
+	if level == "department":
+		return leaf["department"], leaf["department"] or _("Unassigned")
+	if level in ("owner", "user"):
+		return leaf["person"], leaf["person"] or _("unassigned")
+	return leaf["subject"], leaf["subject_label"]
+
+
+def _fold(leaves: list, levels: tuple, buckets: list, months: list, grain: str, from_d) -> dict:
+	"""Aggregate leaves into {path -> metrics} for every node and every prefix,
+	so a parent's numbers are its children's by construction."""
+	agg = {}
+	for leaf in leaves:
+		bucket = cstr(_bucket_start(leaf["day"], grain, from_d))
+		month = leaf["day"].strftime("%Y-%m")
+		path = ()
+		for level in levels:
+			key, label = _level_of(level, leaf)
+			path = path + (key,)
+			node = agg.get(path)
+			if node is None:
+				node = agg[path] = {
+					"kind": level,
+					"key": key,
+					"label": label,
+					"department": leaf["department"],
+					"runs": 0,
+					"tokens": 0,
+					"cost": 0.0,
+					"by_bucket": {b: 0.0 for b in buckets},
+					"by_month": {m: 0.0 for m in months},
+					"people": set(),
+					"subjects": set(),
+					"conversations": set(),
+				}
+			node["runs"] += leaf["runs"]
+			node["tokens"] += leaf["tokens"]
+			node["cost"] += leaf["cost"]
+			node["by_bucket"][bucket] = node["by_bucket"].get(bucket, 0.0) + leaf["cost"]
+			node["by_month"][month] = node["by_month"].get(month, 0.0) + leaf["cost"]
+			if leaf["person"]:
+				node["people"].add(leaf["person"])
+			if leaf["subject"]:
+				node["subjects"].add(leaf["subject"])
+			if leaf["conversation"]:
+				node["conversations"].add(leaf["conversation"])
+	return agg
+
+
+def _share(cost: float, total: float) -> float:
+	return flt(cost / total * 100, 2) if total else 0.0
+
+
+def _delta(cost: float, previous: float):
+	"""Change against the prior period, or None when there is nothing to
+	compare against — a percentage off zero reads as infinite growth."""
+	return flt((cost - previous) / previous, 4) if previous else None
+
+
+def _allocation_tree(agg: dict, previous: dict, total_cost: float, axis: str) -> list:
+	"""Nest the folded paths, heaviest first at every level."""
+	children = defaultdict(list)
+	for path in agg:
+		children[path[:-1]].append(path)
+
+	def nodes_of(parent: tuple) -> list:
+		paths = sorted(children.get(parent, ()), key=lambda p: (-agg[p]["cost"], agg[p]["label"]))
+		out = [node_of(p) for p in paths]
+		if parent and len(out) > MAX_PEER_NODES and out[0]["kind"] == "user":
+			out, rest = out[:MAX_PEER_NODES], out[MAX_PEER_NODES:]
+			out.append(_more_node(rest, total_cost))
+		return out
+
+	def node_of(path: tuple) -> dict:
+		a = agg[path]
+		cost = flt(a["cost"], 6)
+		previous_cost = flt(previous.get(path, 0.0), 6)
+		node = {
+			"kind": a["kind"],
+			"key": a["key"],
+			"label": a["label"],
+			"department": a["department"],
+			"runs": a["runs"],
+			"tokens": a["tokens"],
+			"cost": cost,
+			"share": _share(cost, total_cost),
+			"previous_cost": previous_cost,
+			"delta": _delta(cost, previous_cost),
+			"by_bucket": {k: flt(v, 6) for k, v in a["by_bucket"].items()},
+			"by_month": {k: flt(v, 6) for k, v in a["by_month"].items()},
+			"children": nodes_of(path),
+		}
+		if axis == "chat_user":
+			conversations = len(a["conversations"])
+			node["users"] = len(a["people"])
+			node["agents"] = len(a["subjects"])
+			node["conversations"] = conversations
+			node["avg_cost_per_conversation"] = flt(cost / conversations, 6) if conversations else 0.0
+		else:
+			node["owners"] = len(a["people"])
+			node["processes"] = len(a["subjects"])
+		return node
+
+	return nodes_of(())
+
+
+def _more_node(rest: list, total_cost: float) -> dict:
+	"""The tail of a long peer list, as one row that still carries its money."""
+	cost = flt(sum(n["cost"] for n in rest), 6)
+	previous_cost = flt(sum(n["previous_cost"] for n in rest), 6)
+	node = {
+		"kind": "more",
+		"key": "",
+		"label": _("{0} more").format(len(rest)),
+		"count": len(rest),
+		"department": "",
+		"runs": sum(n["runs"] for n in rest),
+		"tokens": sum(n["tokens"] for n in rest),
+		"cost": cost,
+		"share": _share(cost, total_cost),
+		"previous_cost": previous_cost,
+		"delta": _delta(cost, previous_cost),
+		"by_bucket": _sum_series(rest, "by_bucket"),
+		"by_month": _sum_series(rest, "by_month"),
+		"children": [],
+	}
+	if "conversations" in rest[0]:
+		node["conversations"] = sum(n["conversations"] for n in rest)
+	return node
+
+
+def _sum_series(nodes: list, key: str) -> dict:
+	out = {}
+	for node in nodes:
+		for bucket, cost in node[key].items():
+			out[bucket] = flt(out.get(bucket, 0.0) + cost, 6)
+	return out
+
+
+def _chat_seats() -> int:
+	"""People who could be chatting. The role is what a site gates chat with;
+	without one, every employee who can log in counts."""
+	if frappe.db.exists("Role", CHAT_SEAT_ROLE):
+		holders = frappe.get_all(
+			"Has Role", filters={"role": CHAT_SEAT_ROLE, "parenttype": "User"}, pluck="parent"
+		)
+	else:
+		holders = frappe.get_all("Employee", filters={"user_id": ["!=", ""]}, pluck="user_id")
+	holders = {h for h in holders if h}
+	return frappe.db.count("User", {"name": ["in", list(holders)], "enabled": 1}) if holders else 0
+
+
+def _allocation_totals(axis: str, leaves: list, from_d, to_d, origin: str) -> dict:
+	"""The tile numbers for this axis: its own spend, never the period's."""
+	cost = flt(sum(x["cost"] for x in leaves), 6)
+	runs = sum(x["runs"] for x in leaves)
+	people = {x["person"] for x in leaves if x["person"]}
+	totals = {
+		"runs": runs,
+		"tokens": sum(x["tokens"] for x in leaves),
+		"cost": cost,
+		"people": len(people),
+		"departments": len({x["department"] for x in leaves if x["department"]}),
+		"avg_cost_per_run": flt(cost / runs, 6) if runs else 0.0,
+		"other_axis_cost": _other_axis_cost(axis, from_d, to_d, origin),
+	}
+
+	if axis == "chat_user":
+		conversations = len({x["conversation"] for x in leaves if x["conversation"]})
+		by_user = defaultdict(float)
+		for leaf in leaves:
+			by_user[leaf["person"]] += leaf["cost"]
+		top5 = sorted(by_user.values(), reverse=True)[:MAX_PEER_NODES]
+		totals.update({
+			"active_users": len(people),
+			"seats": _chat_seats(),
+			"conversations": conversations,
+			"avg_cost_per_user": flt(cost / len(people), 6) if people else 0.0,
+			"avg_cost_per_conversation": flt(cost / conversations, 6) if conversations else 0.0,
+			"top5_share": _share(flt(sum(top5), 6), cost),
+		})
+	else:
+		subjects = _subjects_by_cost(leaves, cost)
+		totals.update({
+			"processes": len(subjects),
+			"top_process": subjects[0]["label"] if subjects else "",
+		})
+	return totals
+
+
+def _subjects_by_cost(leaves: list, total_cost: float) -> list:
+	"""Spend per process (non-chat) or per agent (chat), heaviest first — the
+	donut beside the tree, and the top process on the tiles."""
+	by_subject = defaultdict(lambda: {"cost": 0.0, "runs": 0, "label": ""})
+	for leaf in leaves:
+		entry = by_subject[leaf["subject"]]
+		entry["cost"] += leaf["cost"]
+		entry["runs"] += leaf["runs"]
+		entry["label"] = leaf["subject_label"]
+	return [
+		{
+			"key": key,
+			"label": entry["label"],
+			"runs": entry["runs"],
+			"cost": flt(entry["cost"], 6),
+			"share": _share(flt(entry["cost"], 6), total_cost),
+		}
+		for key, entry in sorted(by_subject.items(), key=lambda kv: -kv[1]["cost"])
+	]
+
+
 @frappe.whitelist()
-def get_cost_allocation(from_date: str = None, to_date: str = None, axis: str = "process_owner") -> dict:
+def get_cost_allocation(
+	from_date: str = None,
+	to_date: str = None,
+	axis: str = "process_owner",
+	group_by: str = None,
+	origin: str = "production",
+) -> dict:
 	"""Monthly AI spend allocated by Process Owner (non-chat) or chat user
-	(WI-001668), with department, totals, and a pricing-gap warning."""
+	(WI-001668), rolled up into a department/owner/process tree with each
+	node's share, its prior-period cost and its cost per chart bucket."""
 	frappe.only_for("System Manager")
 	if axis not in ALLOCATION_AXES:
 		frappe.throw(_("axis must be one of {0}").format(", ".join(ALLOCATION_AXES)))
+	group_by = group_by or DEFAULT_GROUP_BY
+	if (axis, group_by) not in ALLOCATION_LEVELS:
+		frappe.throw(_("group_by must be one of {0}").format(", ".join(_group_bys_for(axis))))
 	from_d, to_d = _default_dates(from_date, to_date, days=30)
 
-	rows = _allocation_rows(axis, from_d, to_d)
+	levels = ALLOCATION_LEVELS[(axis, group_by)]
+	grain, buckets, months = _period_grain(from_d, to_d)
+	prev_from, prev_to = _previous_period(from_d, to_d)
+
+	leaves = _allocation_leaves(axis, from_d, to_d, origin)
+	prev_leaves = _allocation_leaves(axis, prev_from, prev_to, origin)
+	totals = _allocation_totals(axis, leaves, from_d, to_d, origin)
+	previous = {
+		path: node["cost"]
+		for path, node in _fold(prev_leaves, levels, [], [], grain, prev_from).items()
+	}
+	tree = _allocation_tree(
+		_fold(leaves, levels, buckets, months, grain, from_d), previous, totals["cost"], axis
+	)
+
 	return {
 		"axis": axis,
+		"group_by": group_by,
+		"origin": origin,
 		"from_date": cstr(from_d),
 		"to_date": cstr(to_d),
-		"rows": rows,
+		"grain": grain,
+		"buckets": buckets,
+		"months": months,
+		"tree": tree,
+		# The donut beside the tree. Only the chat axis needs one: the process
+		# axis reads its shares straight off the tree.
+		"agents": _subjects_by_cost(leaves, totals["cost"]) if axis == "chat_user" else [],
+		"previous": {
+			"from_date": cstr(prev_from),
+			"to_date": cstr(prev_to),
+			"runs": sum(x["runs"] for x in prev_leaves),
+			"tokens": sum(x["tokens"] for x in prev_leaves),
+			"cost": flt(sum(x["cost"] for x in prev_leaves), 6),
+		},
 		# Totals for THIS axis only — the chat and process-owner axes each
 		# cover half the runs. Compare against period_totals below.
-		"totals": {
-			"runs": sum(r["runs"] for r in rows),
-			"tokens": sum(r["tokens"] for r in rows),
-			"cost": flt(sum(r["cost"] for r in rows), 6),
-			"people": len({r["person"] for r in rows if r["person"]}),
-			"departments": len({r["department"] for r in rows if r["department"]}),
-		},
-		"period_totals": _period_totals(from_d, to_d),
-		"models_missing_pricing": _models_missing_pricing(from_d, to_d),
+		"totals": totals,
+		"period_totals": _period_totals(from_d, to_d, origin),
+		"models_missing_pricing": _models_missing_pricing(from_d, to_d, origin),
+		# The flat, titled grain the export's Detail sheet lists.
+		"rows": _allocation_rows(axis, from_d, to_d, origin),
 	}
 
 
-@frappe.whitelist()
-def export_cost_allocation(
-	from_date: str = None, to_date: str = None, axis: str = "process_owner", fmt: str = "xlsx"
-):
-	"""Download the cost allocation as XLSX or CSV (WI-001668). Returns a file
-	response, so the client navigates to this endpoint rather than fetching it."""
-	frappe.only_for("System Manager")
-	if axis not in ALLOCATION_AXES:
-		frappe.throw(_("axis must be one of {0}").format(", ".join(ALLOCATION_AXES)))
-	if fmt not in ("xlsx", "csv"):
-		frappe.throw(_("fmt must be 'xlsx' or 'csv'"))
-	from_d, to_d = _default_dates(from_date, to_date, days=30)
+def _summary_sheet(report: dict) -> list:
+	"""One row per tree node, depth first, with the month columns finance
+	pivots on — but only while there are few enough to stay readable."""
+	axis = report["axis"]
+	months = report["months"] if 2 <= len(report["months"]) <= 6 else []
+	person_header = _("User") if axis == "chat_user" else _("Owner")
+	subject_header = _("Agent") if axis == "chat_user" else _("Process")
+	data = [[
+		_("Level"), _("Name"), _("Department"), _("Runs"), _("Tokens"), _("Cost"),
+		_("Share %"), _("Previous Cost"), _("Change %"),
+	] + months]
 
+	kinds = {"owner": person_header, "user": person_header,
+	         "process": subject_header, "agent": subject_header,
+	         "department": _("Department"), "more": _("Other")}
+
+	def walk(nodes):
+		for node in nodes:
+			data.append([
+				kinds.get(node["kind"], node["kind"]),
+				node["label"],
+				node.get("department") or "",
+				node["runs"],
+				node["tokens"],
+				flt(node["cost"], 6),
+				node["share"],
+				node["previous_cost"],
+				"" if node["delta"] is None else flt(node["delta"] * 100, 2),
+			] + [flt(node["by_month"].get(m, 0.0), 6) for m in months])
+			walk(node["children"])
+
+	walk(report["tree"])
+	totals = report["totals"]
+	data.append([
+		_("Total"), "", "", totals["runs"], totals["tokens"], flt(totals["cost"], 6),
+		100.0 if totals["cost"] else 0.0, report["previous"]["cost"],
+		"" if _delta(totals["cost"], report["previous"]["cost"]) is None
+		else flt(_delta(totals["cost"], report["previous"]["cost"]) * 100, 2),
+	] + [""] * len(months))
+	return data
+
+
+def _detail_sheet(report: dict) -> list:
+	axis = report["axis"]
 	subject_header = _("Chat") if axis == "chat_user" else _("Process")
 	person_header = _("User") if axis == "chat_user" else _("Process Owner")
 	data = [[_("Month"), _("Department"), person_header, subject_header,
 			 _("Runs"), _("Tokens"), _("Cost")]]
-	for r in _allocation_rows(axis, from_d, to_d):
+	for r in report["rows"]:
 		data.append([
 			r["month"], r["department"], r["person"], r["subject_label"],
 			r["runs"], r["tokens"], flt(r["cost"], 6),
 		])
+	return data
 
-	stem = f"cost-allocation-{axis}-{from_d}-to-{to_d}"
+
+@frappe.whitelist()
+def export_cost_allocation(
+	from_date: str = None,
+	to_date: str = None,
+	axis: str = "process_owner",
+	group_by: str = None,
+	origin: str = "production",
+	fmt: str = "xlsx",
+):
+	"""Download the cost allocation as XLSX or CSV (WI-001668). Returns a file
+	response, so the client navigates to this endpoint rather than fetching it."""
+	frappe.only_for("System Manager")
+	if fmt not in ("xlsx", "csv"):
+		frappe.throw(_("fmt must be 'xlsx' or 'csv'"))
+	report = get_cost_allocation(from_date, to_date, axis, group_by, origin)
+
+	stem = f"cost-allocation-{report['axis']}-{report['group_by']}-{report['from_date']}-to-{report['to_date']}"
 	if fmt == "xlsx":
+		import openpyxl
 		from frappe.utils.xlsxutils import make_xlsx
 
-		content = make_xlsx(data, "Cost Allocation").getvalue()
+		# make_xlsx puts each sheet it writes first, so Detail goes in before
+		# Summary for the workbook to open on the summary. Its own workbook is
+		# write-only and can only be saved once, hence this one.
+		wb = openpyxl.Workbook()
+		wb.remove(wb.active)
+		make_xlsx(_detail_sheet(report), "Detail", wb=wb)
+		content = make_xlsx(_summary_sheet(report), "Summary", wb=wb).getvalue()
 		filename = f"{stem}.xlsx"
 	else:
 		import csv
 		import io
 
 		buf = io.StringIO()
-		csv.writer(buf).writerows(data)
+		csv.writer(buf).writerows(_summary_sheet(report))
 		content = buf.getvalue().encode("utf-8-sig")  # BOM so Excel reads UTF-8
 		filename = f"{stem}.csv"
 
