@@ -304,7 +304,10 @@
 								</template>
 								<!-- Release Property Panel (only on a Production instance) -->
 								<template v-if="isProductionInstance">
-									<div v-if="isExecutable" class="border-t border-gray-100 my-1"></div>
+									<div
+										v-if="isExecutable"
+										class="border-t border-gray-100 my-1"
+									></div>
 									<button
 										@click="toggleReassignMode(); showActionsMenu = false"
 										class="w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors"
