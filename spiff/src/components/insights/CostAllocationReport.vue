@@ -57,14 +57,15 @@
 		<div class="grid grid-cols-2 lg:grid-cols-6 gap-4">
 			<div v-for="tile in tiles" :key="tile.label" class="bg-white rounded-lg shadow-sm p-4">
 				<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">
-					{{ tile.label }}
+					{{ isPhone && tile.short ? tile.short : tile.label }}
 				</div>
 				<div class="text-xl sm:text-2xl font-bold text-gray-900 mt-1 whitespace-nowrap">{{ tile.value }}</div>
 				<DeltaBadge
 					v-if="tile.delta !== undefined"
 					:delta="tile.delta"
-					:note="priorLabel"
+					:note="tile.note || priorLabel"
 					:good-direction="tile.goodDirection"
+					:absolute="tile.absolute"
 				/>
 				<div v-else-if="tile.note" class="text-xs text-gray-500 mt-1 truncate" :title="tile.note">
 					{{ tile.note }}
@@ -83,6 +84,11 @@
 				{{ fmtCost(totals.other_axis_cost) }} are allocated under
 				<a href="#" class="underline hover:text-gray-700" @click.prevent="toggleAxis">
 					{{ otherAxisLabel }}</a>.
+			</template>
+			<template v-if="axis === 'chat_user' && totals.top5_share">
+				Top 5 users account for
+				<span class="font-medium text-gray-700">{{ Math.round(totals.top5_share) }}%</span>
+				of chat spend.
 			</template>
 		</div>
 
@@ -419,27 +425,47 @@ function ratio(now, before) {
 }
 const costDelta = computed(() => ratio(totals.value.cost, previous.value.cost))
 
+// The department with the most spend and its share, whatever the grouping:
+// department nodes when they exist, else the top-level nodes folded by department.
+const topDepartment = computed(() => {
+	const byDept = {}
+	for (const n of tree.value) {
+		const key = n.kind === "department" ? n.label : n.department
+		if (key) byDept[key] = (byDept[key] || 0) + n.cost
+	}
+	const [name, cost] = Object.entries(byDept).sort((a, b) => b[1] - a[1])[0] || []
+	return name ? { name, share: totals.value.cost ? Math.round((cost / totals.value.cost) * 100) : 0 } : null
+})
+
 const tiles = computed(() => {
 	const t = totals.value
 	const p = previous.value
-	const avgNow = t.runs ? t.cost / t.runs : 0
-	const avgBefore = p.runs ? p.cost / p.runs : 0
-	const isChat = axis.value === "chat_user"
+	const per = (cost, n) => (n ? cost / n : 0)
+	const topNote = topDepartment.value ? `Top: ${topDepartment.value.name} ${topDepartment.value.share}%` : ""
+	if (axis.value === "chat_user") {
+		const users = t.active_users || 0
+		return [
+			{ label: "Chat spend", value: fmtCost(t.cost), delta: costDelta.value, goodDirection: "down" },
+			{ label: "Conversations", value: fmtNum(t.conversations || 0),
+				delta: ratio(t.conversations || 0, p.conversations || 0), goodDirection: "up" },
+			{ label: "Active users", value: fmtNum(users), absolute: true, goodDirection: "up",
+				delta: p.users === undefined ? null : users - (p.users || 0),
+				note: `of ${fmtNum(t.seats || 0)} seats` },
+			{ label: "Avg cost / user", value: fmtCost(per(t.cost, users)),
+				delta: ratio(per(t.cost, users), per(p.cost, p.users)), goodDirection: "down" },
+			{ label: "Avg cost / conversation", short: "Avg cost / conv", value: fmtCost(per(t.cost, t.conversations)),
+				delta: ratio(per(t.cost, t.conversations), per(p.cost, p.conversations)), goodDirection: "down" },
+			{ label: "Departments", value: fmtNum(departmentCount.value), note: topNote },
+		]
+	}
 	return [
-		{ label: isChat ? "Chat spend" : "Process spend", value: fmtCost(t.cost), delta: costDelta.value, goodDirection: "down" },
+		{ label: "Process spend", value: fmtCost(t.cost), delta: costDelta.value, goodDirection: "down" },
 		{ label: "Runs", value: fmtNum(t.runs), delta: ratio(t.runs, p.runs), goodDirection: "up" },
 		{ label: "Tokens", value: fmtCompact(t.tokens), delta: ratio(t.tokens, p.tokens), goodDirection: "up" },
-		{ label: "Avg cost / run", value: fmtCost(avgNow), delta: ratio(avgNow, avgBefore), goodDirection: "down" },
-		{
-			label: "Departments",
-			value: fmtNum(departmentCount.value),
-			note: isChat
-				? `${fmtNum(t.active_users || 0)} of ${fmtNum(t.seats || 0)} seats active`
-				: `${fmtNum(ownerCount.value)} process owners`,
-		},
-		isChat
-			? { label: "Conversations", value: fmtNum(t.conversations || 0), note: `${fmtCost(t.avg_cost_per_conversation || 0)} each` }
-			: { label: "Processes", value: fmtNum(t.processes || 0), note: t.top_process ? `Top: ${t.top_process}` : "" },
+		{ label: "Avg cost / run", value: fmtCost(per(t.cost, t.runs)),
+			delta: ratio(per(t.cost, t.runs), per(p.cost, p.runs)), goodDirection: "down" },
+		{ label: "Departments", value: fmtNum(departmentCount.value), note: `${fmtNum(ownerCount.value)} process owners` },
+		{ label: "Processes", value: fmtNum(t.processes || 0), note: t.top_process ? `Top: ${t.top_process}` : "" },
 	]
 })
 
@@ -667,16 +693,19 @@ const DeltaBadge = (p) => {
 	if (p.delta === null || p.delta === undefined) {
 		return h("div", { class: "inline-flex mt-1" }, [pill(GRAY, "new")])
 	}
-	const pct = Math.round(p.delta * 100)
+	const n = p.absolute ? Math.round(p.delta) : Math.round(p.delta * 100)
 	// Within two points is noise; beyond it, red is the bad way for this tile.
-	const bad = p.goodDirection === "up" ? pct < 0 : pct > 0
-	const tone = Math.abs(pct) < 2 ? GRAY : bad ? "bg-red-50 text-red-600" : "bg-green-50 text-green-700"
+	const bad = p.goodDirection === "up" ? n < 0 : n > 0
+	const quiet = p.absolute ? n === 0 : Math.abs(n) < 2
+	const tone = quiet ? GRAY : bad ? "bg-red-50 text-red-600" : "bg-green-50 text-green-700"
 	return h("div", { class: `inline-flex items-center gap-1.5 mt-1 ${p.note ? "flex-wrap" : ""}` }, [
-		pill(tone, `${pct > 0 ? "+" : ""}${pct}%`),
+		pill(tone, `${n > 0 ? "+" : ""}${n}${p.absolute ? "" : "%"}`),
 		p.note ? h("span", { class: "text-xs text-gray-400 whitespace-nowrap" }, p.note) : null,
 	])
 }
-DeltaBadge.props = { delta: {}, note: String, goodDirection: { type: String, default: "down" } }
+DeltaBadge.props = {
+	delta: {}, note: String, goodDirection: { type: String, default: "down" }, absolute: Boolean,
+}
 
 // -- data --------------------------------------------------------------
 function toggleAxis() {

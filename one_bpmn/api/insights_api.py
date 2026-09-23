@@ -1432,6 +1432,8 @@ def get_cost_allocation(
 			"runs": sum(x["runs"] for x in prev_leaves),
 			"tokens": sum(x["tokens"] for x in prev_leaves),
 			"cost": flt(sum(x["cost"] for x in prev_leaves), 6),
+			"users": len({x["person"] for x in prev_leaves if x["person"]}),
+			"conversations": len({x["conversation"] for x in prev_leaves if x["conversation"]}),
 		},
 		# Totals for THIS axis only — the chat and process-owner axes each
 		# cover half the runs. Compare against period_totals below.

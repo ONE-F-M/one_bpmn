@@ -226,6 +226,8 @@ class TestInsightsAllocation(FrappeTestCase):
 		self.assertEqual(report["previous"]["from_date"], "2015-05-15")
 		self.assertEqual(report["previous"]["to_date"], "2015-06-02")
 		self.assertEqual(flt(report["previous"]["cost"], 2), 8.0)
+		self.assertEqual(report["previous"]["users"], 1)
+		self.assertEqual(report["previous"]["conversations"], 0)
 
 	def test_a_node_with_no_prior_spend_has_no_percentage(self):
 		ops, fin = _tree(group_by="department")
