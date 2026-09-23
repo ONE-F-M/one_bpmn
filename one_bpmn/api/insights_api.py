@@ -420,6 +420,8 @@ def get_cost_token_report(
 	frappe.only_for("System Manager")
 	group_by = group_by if group_by in ("model", "agent") else "model"
 	from_d, to_d = _default_dates(from_date, to_date)
+	previous_from, previous_to = _previous_period(from_d, to_d)
+	grain = _grain_for(from_d, to_d)
 
 	Run = DocType("AI Agent Run")
 
@@ -451,15 +453,7 @@ def get_cost_token_report(
 		.orderby(fn.Date(Run.started_at))
 	)
 	query = query.groupby(fn.Date(Run.started_at), group_field, Run.provider)
-
-	if model:
-		query = query.where(Run.model == model)
-	if provider:
-		query = query.where(Run.provider == provider)
-	if process_model:
-		query = query.where(Run.process_model == process_model)
-	if agent_configuration:
-		query = query.where(Run.agent_configuration == agent_configuration)
+	query = _apply_common_filters(query, Run, model, provider, process_model, agent_configuration)
 
 	raw_rows = query.run(as_dict=True)
 
@@ -484,17 +478,17 @@ def get_cost_token_report(
 			"output_cost": flt(r.get("output_cost"), 6),
 		})
 
-	# Build chart_data — pivot by the grouped dimension per day
-	all_dates = []
-	d = from_d
-	while d <= to_d:
-		all_dates.append(cstr(d))
-		d = getdate(add_days(cstr(d), 1))
+	# Build chart_data — pivot by the grouped dimension per bucket (day,
+	# week, or month, per the range's grain).
+	bucket_labels = _bucket_labels(from_d, to_d, grain)
 
-	series_day_cost = defaultdict(lambda: defaultdict(float))
+	series_bucket_cost = defaultdict(lambda: defaultdict(float))
+	series_bucket_tokens = defaultdict(lambda: defaultdict(int))
 	series_seen = set()
 	for r in rows:
-		series_day_cost[r["series"]][r["date"]] += r["total_cost"]
+		bucket = cstr(_bucket_start(r["date"], grain))
+		series_bucket_cost[r["series"]][bucket] += r["total_cost"]
+		series_bucket_tokens[r["series"]][bucket] += r["total_tokens"]
 		series_seen.add(r["series"])
 
 	datasets = []
@@ -502,18 +496,25 @@ def get_cost_token_report(
 		datasets.append({
 			"model": m,  # legacy key the chart legend binds to
 			"label": m,
-			"values": [flt(series_day_cost[m].get(d, 0), 6) for d in all_dates],
+			"values": [flt(series_bucket_cost[m].get(b, 0), 6) for b in bucket_labels],
+			"tokens": [cint(series_bucket_tokens[m].get(b, 0)) for b in bucket_labels],
 		})
 
-	# Summary
+	# Summary — unchanged legacy shape.
 	summary_cost = sum(r["total_cost"] for r in rows)
 	summary_runs = sum(r["total_runs"] for r in rows)
 	summary_tokens = sum(r["total_tokens"] for r in rows)
 
+	current = _usage_totals(from_d, to_d, origin, model, provider, process_model, agent_configuration)
+	previous = _usage_totals(previous_from, previous_to, origin, model, provider, process_model, agent_configuration)
+	delta = _compute_deltas(current, previous)
+	series = _series_rows(from_d, to_d, origin, group_by, model, provider, process_model, agent_configuration)
+	filter_options = _filter_options(from_d, to_d, origin)
+
 	return {
 		"rows": rows,
 		"chart_data": {
-			"labels": all_dates,
+			"labels": bucket_labels,
 			"datasets": datasets,
 		},
 		"summary": {
@@ -521,7 +522,86 @@ def get_cost_token_report(
 			"total_runs": summary_runs,
 			"total_tokens": summary_tokens,
 		},
+		"from_date": cstr(from_d),
+		"to_date": cstr(to_d),
+		"previous_from": cstr(previous_from),
+		"previous_to": cstr(previous_to),
+		"grain": grain,
+		"current": current,
+		"previous": previous,
+		"delta": delta,
+		"total": {
+			"cost": current["cost"],
+			"runs": current["runs"],
+			"tokens": current["tokens"],
+			"input_tokens": current["input_tokens"],
+			"output_tokens": current["output_tokens"],
+			"cached_tokens": current["cached_tokens"],
+		},
+		"series": series,
+		"filter_options": filter_options,
 	}
+
+
+@frappe.whitelist()
+def export_cost_token_report(
+	from_date: str = None,
+	to_date: str = None,
+	model: str = None,
+	provider: str = None,
+	process_model: str = None,
+	agent_configuration: str = None,
+	origin: str = "production",
+	group_by: str = "model",
+	fmt: str = "csv",
+):
+	"""Download the cost/token report's daily rows as CSV or XLSX. Returns a
+	file response, so the client navigates to this endpoint rather than
+	fetching it."""
+	frappe.only_for("System Manager")
+	if fmt not in ("csv", "xlsx"):
+		frappe.throw(_("fmt must be 'csv' or 'xlsx'"))
+
+	report = get_cost_token_report(
+		from_date=from_date,
+		to_date=to_date,
+		model=model,
+		provider=provider,
+		process_model=process_model,
+		agent_configuration=agent_configuration,
+		origin=origin,
+		group_by=group_by,
+	)
+
+	header = [
+		_("Date"), _("Series"), _("Provider"), _("Runs"), _("Total Tokens"),
+		_("Avg Tokens"), _("Total Cost"), _("Avg Cost"), _("Input Cost"), _("Output Cost"),
+	]
+	data = [header]
+	for r in report["rows"]:
+		data.append([
+			r["date"], r["series"], r["provider"], r["total_runs"], r["total_tokens"],
+			r["avg_tokens"], r["total_cost"], r["avg_cost"], r["input_cost"], r["output_cost"],
+		])
+
+	stem = f"usage-{group_by}-{report['from_date']}-to-{report['to_date']}"
+	if fmt == "xlsx":
+		from frappe.utils.xlsxutils import make_xlsx
+
+		content = make_xlsx(data, "Usage").getvalue()
+		filename = f"{stem}.xlsx"
+	else:
+		import csv
+		import io
+
+		buf = io.StringIO()
+		csv.writer(buf).writerows(data)
+		content = buf.getvalue().encode("utf-8-sig")  # BOM so Excel reads UTF-8
+		filename = f"{stem}.csv"
+
+	frappe.response["type"] = "binary"
+	frappe.response["filename"] = filename
+	frappe.response["filecontent"] = content
 
 
 # ---------------------------------------------------------------------------
