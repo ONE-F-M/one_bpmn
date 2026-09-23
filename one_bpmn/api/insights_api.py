@@ -310,103 +310,91 @@ def _filter_options(from_d, to_d, origin: str) -> dict:
 # ---------------------------------------------------------------------------
 
 @frappe.whitelist()
-def get_agent_overview(days: int = 7, agent_configuration: str = None, origin: str = "production") -> dict:
-	"""Return 6 headline metrics for the overview number cards.
+def get_agent_overview(
+	days: int = None,
+	from_date: str = None,
+	to_date: str = None,
+	agent_configuration: str = None,
+	model: str = None,
+	provider: str = None,
+	process_model: str = None,
+	origin: str = "production",
+) -> dict:
+	"""Return the overview number cards.
 
 	Pass *agent_configuration* to scope every metric to one agent's runs
-	(WI-001636). Deeper per-agent filtering across the other reports ships
-	with the observability feature story (WI-001608). *origin* segments the
-	metrics: "production" (default), "eval", or "all" (WI-001751).
+	(WI-001636). *origin* segments the metrics: "production" (default),
+	"eval", or "all" (WI-001751). *from_date*/*to_date* select the range for
+	every metric except ``runs_today``/``active_errors``, which always stay
+	today-only. The legacy *days* parameter is ignored (a deprecation
+	warning is logged once) in favour of from_date/to_date.
 	"""
 	frappe.only_for("System Manager")
-	days = cint(days) or 7
+	if days is not None:
+		frappe.logger("one_bpmn").warning(
+			"get_agent_overview: 'days' parameter is deprecated and ignored; use from_date/to_date instead."
+		)
+
+	from_d, to_d = _default_dates(from_date, to_date)
+	previous_from, previous_to = _previous_period(from_d, to_d)
+	grain = _grain_for(from_d, to_d)
 
 	Run = DocType("AI Agent Run")
 	today_date = getdate(today())
-	range_start = getdate(add_days(today(), -(days - 1)))
 
-	# Runs today
-	runs_today = cint(
-		frappe.qb.from_(Run)
-		.select(fn.Count("*"))
-		.where(fn.Date(Run.started_at) == today_date)
-		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
-		.where(_origin_condition(Run, origin))
-		.run()[0][0]
-	)
-
-	# Success rate over period
-	period_stats = (
-		frappe.qb.from_(Run)
-		.select(
-			fn.Count("*").as_("total"),
-			fn.Sum(Case().when(Run.status == "Success", 1).else_(0)).as_("successes"),
+	def _today_filter(status_value=None):
+		query = (
+			frappe.qb.from_(Run)
+			.select(fn.Count("*"))
+			.where(fn.Date(Run.started_at) == today_date)
+			.where(_origin_condition(Run, origin))
 		)
-		.where(fn.Date(Run.started_at) >= range_start)
-		.where(fn.Date(Run.started_at) <= today_date)
-		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
-		.where(_origin_condition(Run, origin))
-		.where(Run.status != "Running")
-		.run(as_dict=True)
-	)[0]
+		query = _apply_common_filters(query, Run, model, provider, process_model, agent_configuration)
+		if status_value:
+			query = query.where(Run.status == status_value)
+		return cint(query.run()[0][0])
 
-	total = cint(period_stats.get("total"))
-	successes = cint(period_stats.get("successes"))
-	success_rate = flt((successes / total) * 100, 1) if total else 0.0
+	runs_today = _today_filter()
+	active_errors = _today_filter("Error")
 
-	# Total cost
-	total_cost = flt(
-		frappe.qb.from_(Run)
-		.select(fn.Sum(Run.estimated_cost))
-		.where(fn.Date(Run.started_at) >= range_start)
-		.where(fn.Date(Run.started_at) <= today_date)
-		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
-		.where(_origin_condition(Run, origin))
-		.run()[0][0],
-		4,
-	)
+	current = _usage_totals(from_d, to_d, origin, model, provider, process_model, agent_configuration)
+	previous = _usage_totals(previous_from, previous_to, origin, model, provider, process_model, agent_configuration)
+	delta = _compute_deltas(current, previous)
 
-	# Active errors today
-	active_errors = cint(
-		frappe.qb.from_(Run)
-		.select(fn.Count("*"))
-		.where(fn.Date(Run.started_at) == today_date)
-		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
-		.where(_origin_condition(Run, origin))
-		.where(Run.status == "Error")
-		.run()[0][0]
-	)
-
-	# Avg latency (successful runs)
-	avg_latency = cint(
+	# Avg latency (successful runs) over the range \u2014 legacy metric, not part
+	# of the shared _usage_totals metrics dict.
+	avg_latency_query = (
 		frappe.qb.from_(Run)
 		.select(fn.Avg(Run.duration_ms))
-		.where(fn.Date(Run.started_at) >= range_start)
-		.where(fn.Date(Run.started_at) <= today_date)
-		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
+		.where(fn.Date(Run.started_at) >= from_d)
+		.where(fn.Date(Run.started_at) <= to_d)
 		.where(_origin_condition(Run, origin))
 		.where(Run.status == "Success")
-		.run()[0][0]
 	)
+	avg_latency_query = _apply_common_filters(avg_latency_query, Run, model, provider, process_model, agent_configuration)
+	avg_latency = cint(avg_latency_query.run()[0][0])
 
-	# Total tokens
-	total_tokens = cint(
-		frappe.qb.from_(Run)
-		.select(fn.Sum(Run.total_tokens))
-		.where(fn.Date(Run.started_at) >= range_start)
-		.where(fn.Date(Run.started_at) <= today_date)
-		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
-		.where(_origin_condition(Run, origin))
-		.run()[0][0]
-	)
+	daily_rows = _daily_metric_rows(from_d, to_d, origin, model, provider, process_model, agent_configuration)
+	sparklines = _bucketed_series(from_d, to_d, daily_rows, grain)
 
 	return {
+		# Legacy keys, unchanged shape:
 		"runs_today": runs_today,
-		"success_rate": success_rate,
-		"total_cost": total_cost,
+		"success_rate": current["success_rate"],
+		"total_cost": current["cost"],
 		"active_errors": active_errors,
 		"avg_latency_ms": avg_latency,
-		"total_tokens": total_tokens,
+		"total_tokens": current["tokens"],
+		# New range/comparison data:
+		"from_date": cstr(from_d),
+		"to_date": cstr(to_d),
+		"previous_from": cstr(previous_from),
+		"previous_to": cstr(previous_to),
+		"grain": grain,
+		"current": current,
+		"previous": previous,
+		"delta": delta,
+		"sparklines": sparklines,
 	}
 
 
