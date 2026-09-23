@@ -46,6 +46,265 @@ def _origin_condition(Run, origin: str):
 	return fn.Coalesce(Run.origin, "production") != "eval"
 
 
+def _previous_period(from_d, to_d):
+	"""Same-length window ending the day before *from_d* (see work order)."""
+	length = (to_d - from_d).days
+	previous_to = add_days(from_d, -1)
+	previous_from = add_days(previous_to, -length)
+	return getdate(previous_from), getdate(previous_to)
+
+
+def _grain_for(from_d, to_d) -> str:
+	span = (to_d - from_d).days + 1
+	if span <= 31:
+		return "day"
+	if span <= 92:
+		return "week"
+	return "month"
+
+
+def _bucket_start(d, grain: str):
+	d = getdate(d)
+	if grain == "week":
+		return d - timedelta(days=d.weekday())
+	if grain == "month":
+		return d.replace(day=1)
+	return d
+
+
+def _bucket_labels(from_d, to_d, grain: str) -> list:
+	"""Ordered, de-duplicated bucket-start labels spanning the range."""
+	labels = OrderedDict()
+	d = from_d
+	while d <= to_d:
+		labels[cstr(_bucket_start(d, grain))] = True
+		d = getdate(add_days(cstr(d), 1))
+	return list(labels.keys())
+
+
+def _apply_common_filters(query, Run, model=None, provider=None, process_model=None, agent_configuration=None):
+	if model:
+		query = query.where(Run.model == model)
+	if provider:
+		query = query.where(Run.provider == provider)
+	if process_model:
+		query = query.where(Run.process_model == process_model)
+	if agent_configuration:
+		query = query.where(Run.agent_configuration == agent_configuration)
+	return query
+
+
+def _usage_totals(
+	from_d,
+	to_d,
+	origin: str = "production",
+	model: str = None,
+	provider: str = None,
+	process_model: str = None,
+	agent_configuration: str = None,
+) -> dict:
+	"""Aggregate usage metrics for one period, per the WI-000455 definitions."""
+	Run = DocType("AI Agent Run")
+	query = (
+		frappe.qb.from_(Run)
+		.select(
+			fn.Count("*").as_("runs"),
+			fn.Sum(Case().when(Run.status != "Running", 1).else_(0)).as_("decided"),
+			fn.Sum(Case().when(Run.status == "Success", 1).else_(0)).as_("successes"),
+			fn.Sum(Run.estimated_cost).as_("cost"),
+			fn.Sum(Run.total_tokens).as_("tokens"),
+			fn.Sum(Run.total_prompt_tokens).as_("prompt_tokens"),
+			fn.Sum(Run.total_completion_tokens).as_("completion_tokens"),
+			fn.Sum(Run.total_cache_read_tokens).as_("cache_read_tokens"),
+			fn.Sum(Run.total_cache_write_tokens).as_("cache_write_tokens"),
+		)
+		.where(fn.Date(Run.started_at) >= from_d)
+		.where(fn.Date(Run.started_at) <= to_d)
+		.where(_origin_condition(Run, origin))
+	)
+	query = _apply_common_filters(query, Run, model, provider, process_model, agent_configuration)
+	r = query.run(as_dict=True)[0]
+
+	runs = cint(r.get("runs"))
+	decided = cint(r.get("decided"))
+	successes = cint(r.get("successes"))
+	cost = flt(r.get("cost"), 6)
+	tokens = cint(r.get("tokens"))
+	prompt_tokens = cint(r.get("prompt_tokens"))
+	completion_tokens = cint(r.get("completion_tokens"))
+	cache_read_tokens = cint(r.get("cache_read_tokens"))
+	cache_write_tokens = cint(r.get("cache_write_tokens"))
+
+	success_rate = flt((successes / decided) * 100, 1) if decided else 0.0
+	cache_hit_rate = flt((cache_read_tokens / prompt_tokens) * 100, 1) if prompt_tokens else 0.0
+	input_tokens = prompt_tokens - cache_read_tokens - cache_write_tokens
+
+	return {
+		"runs": runs,
+		"cost": cost,
+		"tokens": tokens,
+		"input_tokens": input_tokens,
+		"output_tokens": completion_tokens,
+		"cached_tokens": cache_read_tokens,
+		"success_rate": success_rate,
+		"cache_hit_rate": cache_hit_rate,
+	}
+
+
+def _compute_deltas(current: dict, previous: dict) -> dict:
+	"""Percentage change per key; null when the previous period has no runs
+	or the previous value for that key is 0."""
+	delta = {}
+	no_previous_activity = not previous or cint(previous.get("runs")) == 0
+	for key, cur_val in current.items():
+		if no_previous_activity:
+			delta[key] = None
+			continue
+		prev_val = previous.get(key)
+		if not prev_val:
+			delta[key] = None
+			continue
+		delta[key] = flt(((cur_val - prev_val) / prev_val) * 100, 1)
+	return delta
+
+
+def _daily_metric_rows(
+	from_d,
+	to_d,
+	origin: str = "production",
+	model: str = None,
+	provider: str = None,
+	process_model: str = None,
+	agent_configuration: str = None,
+) -> list:
+	"""One row per day with runs/cost/tokens, grouped by DATE(started_at)."""
+	Run = DocType("AI Agent Run")
+	query = (
+		frappe.qb.from_(Run)
+		.select(
+			fn.Date(Run.started_at).as_("date"),
+			fn.Count("*").as_("runs"),
+			fn.Sum(Run.estimated_cost).as_("cost"),
+			fn.Sum(Run.total_tokens).as_("tokens"),
+		)
+		.where(fn.Date(Run.started_at) >= from_d)
+		.where(fn.Date(Run.started_at) <= to_d)
+		.where(_origin_condition(Run, origin))
+		.groupby(fn.Date(Run.started_at))
+	)
+	query = _apply_common_filters(query, Run, model, provider, process_model, agent_configuration)
+	rows = query.run(as_dict=True)
+	return [
+		{
+			"date": cstr(r.get("date")),
+			"runs": cint(r.get("runs")),
+			"cost": flt(r.get("cost"), 6),
+			"tokens": cint(r.get("tokens")),
+		}
+		for r in rows
+	]
+
+
+def _bucketed_series(from_d, to_d, daily_rows: list, grain: str) -> dict:
+	"""Bucket daily rows into day/week/month buckets; empty buckets are 0."""
+	labels = _bucket_labels(from_d, to_d, grain)
+	cost_by_bucket = defaultdict(float)
+	tokens_by_bucket = defaultdict(int)
+	runs_by_bucket = defaultdict(int)
+	for row in daily_rows:
+		bucket = cstr(_bucket_start(row["date"], grain))
+		cost_by_bucket[bucket] += row["cost"]
+		tokens_by_bucket[bucket] += row["tokens"]
+		runs_by_bucket[bucket] += row["runs"]
+	return {
+		"labels": labels,
+		"cost": [flt(cost_by_bucket.get(label, 0), 6) for label in labels],
+		"tokens": [cint(tokens_by_bucket.get(label, 0)) for label in labels],
+		"runs": [cint(runs_by_bucket.get(label, 0)) for label in labels],
+	}
+
+
+def _series_rows(
+	from_d,
+	to_d,
+	origin: str,
+	group_by: str,
+	model: str = None,
+	provider: str = None,
+	process_model: str = None,
+	agent_configuration: str = None,
+) -> list:
+	"""Per-group usage totals for the cost/token report's ``series`` array."""
+	Run = DocType("AI Agent Run")
+	group_field = Run.agent_configuration if group_by == "agent" else Run.model
+	query = (
+		frappe.qb.from_(Run)
+		.select(
+			group_field.as_("group_key"),
+			Run.provider,
+			fn.Count("*").as_("runs"),
+			fn.Sum(Run.estimated_cost).as_("cost"),
+			fn.Sum(Run.total_tokens).as_("tokens"),
+			fn.Sum(Run.total_prompt_tokens).as_("prompt_tokens"),
+			fn.Sum(Run.total_completion_tokens).as_("completion_tokens"),
+			fn.Sum(Run.total_cache_read_tokens).as_("cache_read_tokens"),
+			fn.Sum(Run.total_cache_write_tokens).as_("cache_write_tokens"),
+		)
+		.where(fn.Date(Run.started_at) >= from_d)
+		.where(fn.Date(Run.started_at) <= to_d)
+		.where(_origin_condition(Run, origin))
+		.groupby(group_field, Run.provider)
+	)
+	query = _apply_common_filters(query, Run, model, provider, process_model, agent_configuration)
+	raw_rows = query.run(as_dict=True)
+
+	unattributed = "Unattributed" if group_by == "agent" else ""
+	series = []
+	for r in raw_rows:
+		name = cstr(r.get("group_key")) or unattributed
+		prompt_tokens = cint(r.get("prompt_tokens"))
+		cache_read_tokens = cint(r.get("cache_read_tokens"))
+		cache_write_tokens = cint(r.get("cache_write_tokens"))
+		series.append({
+			"name": name,
+			"provider": cstr(r.get("provider")) or None,
+			"runs": cint(r.get("runs")),
+			"cost": flt(r.get("cost"), 6),
+			"tokens": cint(r.get("tokens")),
+			"input_tokens": prompt_tokens - cache_read_tokens - cache_write_tokens,
+			"output_tokens": cint(r.get("completion_tokens")),
+			"cached_tokens": cache_read_tokens,
+		})
+	return series
+
+
+def _filter_options(from_d, to_d, origin: str) -> dict:
+	"""Distinct filter values available in the range, filtered by range and
+	origin only \u2014 not by the other filters (so a narrowed query still shows
+	every value a user could pick)."""
+	Run = DocType("AI Agent Run")
+
+	def _distinct(field):
+		query = (
+			frappe.qb.from_(Run)
+			.select(field)
+			.distinct()
+			.where(fn.Date(Run.started_at) >= from_d)
+			.where(fn.Date(Run.started_at) <= to_d)
+			.where(_origin_condition(Run, origin))
+			.where(field.isnotnull())
+			.where(field != "")
+		)
+		return sorted({cstr(r.get(list(r.keys())[0])) for r in query.run(as_dict=True)})
+
+	return {
+		"models": _distinct(Run.model),
+		"providers": _distinct(Run.provider),
+		"agents": _distinct(Run.agent_configuration),
+		"processes": _distinct(Run.process_model),
+	}
+
+
 # ---------------------------------------------------------------------------
 # 1. Overview cards
 # ---------------------------------------------------------------------------
