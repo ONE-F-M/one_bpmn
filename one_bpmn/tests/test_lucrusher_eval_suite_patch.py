@@ -55,6 +55,7 @@ class TestLucrusherEvalSuitePatch(FrappeTestCase):
 		self.assertEqual((suite.pass_k, suite.min_pass_rate), (seed.PASS_K, seed.MIN_PASS_RATE))
 
 	def test_a_site_without_lucrusher_is_left_alone(self):
+		frappe.db.delete("AI Eval Suite", {"title": seed.SUITE_TITLE})
 		with patch.object(seed, "AGENT_ID", "zz_no_such_agent"):
 			seed.execute()
 		self.assertFalse(frappe.db.exists("AI Eval Suite", {"title": seed.SUITE_TITLE}))

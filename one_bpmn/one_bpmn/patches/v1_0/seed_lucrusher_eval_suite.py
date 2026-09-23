@@ -100,10 +100,10 @@ CASES = [
 	},
 	{
 		"title": "A keyword with several matches",
-		"prompt": "Leave",
+		"prompt": "Maintenance",
 		"context": {},
 		"calls": [
-			_call(1, "search_processes_on_production", "search_term", "contains", "Leave"),
+			_call(1, "search_processes_on_production", "search_term", "contains", "Maintenance"),
 			_call(2, "finalize", "intent", "equals", "MULTIPLE_MATCHES"),
 		],
 		"assertions": [
