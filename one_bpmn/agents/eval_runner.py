@@ -1609,8 +1609,10 @@ def _run_chat_agent_eval(cfg, case, eval_run: str = None) -> tuple:
     )
     if not runs:
         raise ValueError(
-            f"Agent '{cfg.name}' ran but produced no AI Agent Run for case '{case.name}'. "
-            f"Check that the agent's map reaches its AI Agent Task for this conversation."
+            _(
+                "Agent '{0}' ran but produced no AI Agent Run for case '{1}'. "
+                "Check that the agent's map reaches its AI Agent Task for this conversation."
+            ).format(cfg.name, case.name)
         )
     usage = {
         "prompt_tokens": sum((r.get("total_prompt_tokens") or 0) for r in runs),
