@@ -25,18 +25,32 @@
 		</div>
 
 		<!-- Pricing gap warning -->
-		<div
-			v-if="missingPricing.length"
-			class="bg-amber-50 text-amber-800 text-sm rounded-lg px-4 py-3"
-		>
-			<span class="font-medium">Cost may be under-reported.</span>
-			{{ missingPricing.length }}
-			{{ missingPricing.length === 1 ? "model" : "models" }} used in this period
-			{{ missingPricing.length === 1 ? "has" : "have" }} no rate card, so
-			{{ missingPricing.length === 1 ? "its" : "their" }} runs count as $0.00:
-			<span class="font-mono text-xs">{{ missingPricing.join(", ") }}</span>
-			<a class="underline ml-1" href="/app/ai-model" target="_blank">Add pricing on AI Model</a>
+		<Alert v-if="missingPricing.length" title="Cost may be under-reported" type="warning">
+			<span class="text-sm">
+				{{ missingPricing.length }}
+				{{ missingPricing.length === 1 ? "model" : "models" }} used in this period
+				{{ missingPricing.length === 1 ? "has" : "have" }} no rate card, so
+				{{ missingPricing.length === 1 ? "its" : "their" }} runs count as $0.00:
+			</span>
+			<span
+				v-for="m in missingPricing"
+				:key="m"
+				class="inline-block font-mono text-xs bg-white/70 rounded px-1.5 py-0.5 ml-1"
+			>{{ m }}</span>
+			<template #actions>
+				<a class="text-sm underline whitespace-nowrap" :href="pricingLink" target="_blank">
+					Add pricing on AI Model
+				</a>
+			</template>
+		</Alert>
+
+		<!-- API failure: one message and a way back, in place of everything else. -->
+		<div v-if="error" class="flex flex-col items-center justify-center h-48 text-center gap-3">
+			<ErrorMessage :message="error" />
+			<Button @click="fetchReport">Retry</Button>
 		</div>
+
+		<template v-else>
 
 		<!-- Tiles. Scoped to the selected axis, never the whole period — the
 		     label says so, and the note below reports what is excluded. -->
@@ -45,8 +59,13 @@
 				<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">
 					{{ tile.label }}
 				</div>
-				<div class="text-2xl font-bold text-gray-900 mt-1">{{ tile.value }}</div>
-				<DeltaBadge v-if="tile.delta !== undefined" :delta="tile.delta" :note="priorLabel" />
+				<div class="text-xl sm:text-2xl font-bold text-gray-900 mt-1 whitespace-nowrap">{{ tile.value }}</div>
+				<DeltaBadge
+					v-if="tile.delta !== undefined"
+					:delta="tile.delta"
+					:note="priorLabel"
+					:good-direction="tile.goodDirection"
+				/>
 				<div v-else-if="tile.note" class="text-xs text-gray-500 mt-1 truncate" :title="tile.note">
 					{{ tile.note }}
 				</div>
@@ -62,8 +81,8 @@
 			<template v-if="totals.other_axis_cost">
 				{{ axis === "chat_user" ? "Process runs" : "Chat runs" }}
 				{{ fmtCost(totals.other_axis_cost) }} are allocated under
-				<button class="underline hover:text-gray-700" @click="toggleAxis">
-					{{ otherAxisLabel }}</button>.
+				<a href="#" class="underline hover:text-gray-700" @click.prevent="toggleAxis">
+					{{ otherAxisLabel }}</a>.
 			</template>
 		</div>
 
@@ -249,12 +268,15 @@
 				</table>
 			</div>
 		</template>
+		</template>
 	</div>
 </template>
 
 <script setup>
 import { ref, computed, watch, onMounted, h } from "vue"
-import { frappeRequest, Avatar, AxisChart, Button, DonutChart, Dropdown, TabButtons } from "frappe-ui"
+import {
+	frappeRequest, Alert, Avatar, AxisChart, Button, DonutChart, Dropdown, ErrorMessage, TabButtons,
+} from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 
@@ -280,6 +302,7 @@ const OTHER_COLOR = "#9ca3af"
 const axis = ref("process_owner")
 const groupBy = ref("department")
 const loading = ref(true)
+const error = ref(null)
 const report = ref({})
 
 // A phone row fits the toggles and Export only without the "By" prefix.
@@ -308,6 +331,9 @@ const totals = computed(() => report.value.totals || { runs: 0, tokens: 0, cost:
 const periodTotals = computed(() => report.value.period_totals || { runs: 0, tokens: 0, cost: 0 })
 const previous = computed(() => report.value.previous || { runs: 0, tokens: 0, cost: 0 })
 const missingPricing = computed(() => report.value.models_missing_pricing || [])
+const pricingLink = computed(
+	() => `/app/ai-model?name=${encodeURIComponent(JSON.stringify(["in", missingPricing.value]))}`
+)
 
 const otherAxisLabel = computed(() =>
 	axis.value === "chat_user" ? "By process owner" : "By chat user"
@@ -327,7 +353,7 @@ const priorLabel = computed(() => {
 	const to = dayjs(p.to_date)
 	// Tiles are narrow; the month is only worth repeating when it changes.
 	const end = from.isSame(to, "month") ? to.format("D") : to.format("MMM D")
-	return `vs ${from.format("MMM D")} – ${end}`
+	return `${isPhone.value ? "" : "vs "}${from.format("MMM D")} – ${end}`
 })
 const rangeLabel = computed(() =>
 	report.value.from_date
@@ -347,10 +373,10 @@ const tiles = computed(() => {
 	const avgBefore = p.runs ? p.cost / p.runs : 0
 	const isChat = axis.value === "chat_user"
 	return [
-		{ label: isChat ? "Chat spend" : "Process spend", value: fmtCost(t.cost), delta: costDelta.value },
-		{ label: "Runs", value: fmtNum(t.runs), delta: ratio(t.runs, p.runs) },
-		{ label: "Tokens", value: fmtCompact(t.tokens), delta: ratio(t.tokens, p.tokens) },
-		{ label: "Avg cost / run", value: fmtCost(avgNow), delta: ratio(avgNow, avgBefore) },
+		{ label: isChat ? "Chat spend" : "Process spend", value: fmtCost(t.cost), delta: costDelta.value, goodDirection: "down" },
+		{ label: "Runs", value: fmtNum(t.runs), delta: ratio(t.runs, p.runs), goodDirection: "up" },
+		{ label: "Tokens", value: fmtCompact(t.tokens), delta: ratio(t.tokens, p.tokens), goodDirection: "up" },
+		{ label: "Avg cost / run", value: fmtCost(avgNow), delta: ratio(avgNow, avgBefore), goodDirection: "down" },
 		{
 			label: "Departments",
 			value: fmtNum(t.departments),
@@ -490,18 +516,22 @@ function bucketLabel(start, next) {
 	return `${dayjs(start).format("MMM D")} – ${end.format("D")}`
 }
 
+const GRAY = "bg-gray-100 text-gray-500"
 const DeltaBadge = (p) => {
+	const pill = (tone, text) => h("span", { class: `text-xs px-1.5 py-0.5 rounded ${tone}` }, text)
 	if (p.delta === null || p.delta === undefined) {
-		return h("div", { class: "text-xs text-gray-400 mt-1" }, p.note ? "—" : "")
+		return h("div", { class: "inline-flex mt-1" }, [pill(GRAY, "new")])
 	}
 	const pct = Math.round(p.delta * 100)
-	const tone = pct > 0 ? "bg-red-50 text-red-600" : pct < 0 ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-500"
+	// Within two points is noise; beyond it, red is the bad way for this tile.
+	const bad = p.goodDirection === "up" ? pct < 0 : pct > 0
+	const tone = Math.abs(pct) < 2 ? GRAY : bad ? "bg-red-50 text-red-600" : "bg-green-50 text-green-700"
 	return h("div", { class: `inline-flex items-center gap-1.5 mt-1 ${p.note ? "flex-wrap" : ""}` }, [
-		h("span", { class: `text-xs px-1.5 py-0.5 rounded ${tone}` }, `${pct > 0 ? "+" : ""}${pct}%`),
+		pill(tone, `${pct > 0 ? "+" : ""}${pct}%`),
 		p.note ? h("span", { class: "text-xs text-gray-400 whitespace-nowrap" }, p.note) : null,
 	])
 }
-DeltaBadge.props = ["delta", "note"]
+DeltaBadge.props = { delta: {}, note: String, goodDirection: { type: String, default: "down" } }
 
 // -- data --------------------------------------------------------------
 function toggleAxis() {
@@ -539,6 +569,7 @@ const exportOptions = computed(() => [
 
 async function fetchReport() {
 	loading.value = true
+	error.value = null
 	try {
 		report.value = await frappeRequest({
 			url: "/api/method/one_bpmn.api.insights_api.get_cost_allocation",
@@ -548,7 +579,7 @@ async function fetchReport() {
 		const top = report.value.tree?.[0]
 		expanded.value = new Set(top ? [`/${top.key || top.label}`] : [])
 	} catch (e) {
-		console.error("Failed to fetch cost allocation:", e)
+		error.value = e
 		report.value = {}
 	} finally {
 		loading.value = false
