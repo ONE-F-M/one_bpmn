@@ -71,6 +71,7 @@ class ErrorCode(Enum):
     PROVIDER_NOT_FOUND = "PROVIDER_NOT_FOUND"
     PROVIDER_DISABLED = "PROVIDER_DISABLED"
     TIMEOUT = "TIMEOUT"
+    TURN_CAP_REACHED = "TURN_CAP_REACHED"
     UNEXPECTED_ERROR = "UNEXPECTED_ERROR"
     # Durable AI Agent HITL: the model selected a human tool — the run is
     # neither success nor failure; it is waiting for a person. Callers MUST
@@ -212,9 +213,8 @@ class ExecutorResult:
     # checkpoint layer persists.
     suspension: dict | None = None
     # WI-001823: the tool-calling loop ran out of turns without reaching a final
-    # answer. It arrives as a FAILED_MODEL_CALL like any other model failure, but
-    # it is a distinct outcome — the agent was still working, not broken — and
-    # goal completion needs to tell them apart without matching on message text.
+    # answer. It arrives as TURN_CAP_REACHED: the agent was still working, not
+    # broken, and goal completion tells the two apart without matching on text.
     hit_turn_cap: bool = False
     # WI-002187: True when `output` came from the model's own narration rather
     # than a terminal tool call's arguments — a plain-text final answer, or the

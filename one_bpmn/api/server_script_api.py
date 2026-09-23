@@ -8,6 +8,7 @@ import time
 
 import frappe
 from frappe import _
+from frappe.utils import escape_html, now_datetime
 
 from one_bpmn.agents import turn_signal
 from one_bpmn.security.rate_limit import RateLimited
@@ -189,6 +190,7 @@ def _delegate_to_bpmn_instance(
 		limit=1,
 	)
 	reply_before = _before[0]["name"] if _before else None
+	turn_started = now_datetime()
 
 	payload = {
 		"user_text": message,
@@ -214,10 +216,12 @@ def _delegate_to_bpmn_instance(
 		# one re-raise fixes all of them.
 		raise
 	except frappe.ValidationError:
-		# Instance is not currently waiting for a message.
+		# The engine reports a failed task as a ValidationError too.
+		_raise_if_turn_failed(inst_name, turn_started)
 		return None
 	except Exception:
 		frappe.log_error(title="BPMN chat delegation failed", message=frappe.get_traceback())
+		_raise_if_turn_failed(inst_name, turn_started)
 		return None
 
 	if not instance.flags.get("bpmn_message_caught"):
@@ -241,6 +245,7 @@ def _delegate_to_bpmn_instance(
 				"instance": inst_name,
 				"conversation": conversation_name,
 				"reply_before": reply_before,
+				"turn_started": turn_started,
 			}
 		rows = _wait_for_worker_reply(inst_name, conversation_name, reply_before) or rows
 	if not rows or rows[0]["name"] == reply_before:
@@ -254,6 +259,7 @@ def _delegate_to_bpmn_instance(
 		parked = _parked_for_human(inst_name, conversation_name)
 		if parked:
 			return parked
+		_raise_if_turn_failed(inst_name, turn_started)
 		return None
 
 	return _shape_reply(rows, inst_name)
@@ -282,6 +288,8 @@ def collect_chat_turn_reply(handle: dict, task_output=None) -> dict | None:
 		parked = _parked_for_human(inst_name, conversation_name)
 		if parked:
 			return parked
+		if handle.get("turn_started"):
+			_raise_if_turn_failed(inst_name, handle["turn_started"])
 		# A map that persists no Bot message still has a reply to give.
 		return _reply_from_task_output(task_output, inst_name) if task_output else None
 	return _shape_reply(rows, inst_name, task_output)
@@ -341,6 +349,33 @@ def _shape_reply(rows, inst_name: str, task_output=None) -> dict:
 	if run:
 		result["agent_run"] = run[0]["name"]
 	return result
+
+
+def _raise_if_turn_failed(inst_name: str, turn_started) -> None:
+	"""Throw what went wrong with this turn's agent run, when it errored or is still running."""
+	runs = frappe.get_all(
+		"AI Agent Run",
+		filters={"instance": inst_name, "parent_run": ["is", "not set"], "creation": [">=", turn_started]},
+		fields=["name", "status", "error_code", "error_message"],
+		order_by="creation desc",
+		limit=1,
+	)
+	if not runs or runs[0].status not in ("Error", "Running"):
+		return
+	run = runs[0]
+	if run.status == "Running":
+		message = _(
+			"The agent is still working on this message. Reload the conversation in a few minutes to see its reply."
+		)
+	elif run.error_code == "TURN_CAP_REACHED":
+		message = _("The agent hit its tool-call limit before it finished. Try a smaller request.")
+	elif run.error_code == "TIMEOUT":
+		message = _("The model timed out before it answered. Please try again.")
+	else:
+		message = _("The agent could not answer ({0}): {1}").format(
+			run.error_code or _("unknown error"), escape_html((run.error_message or "")[:300])
+		)
+	frappe.throw(message, title=_("Agent turn failed"))
 
 
 def _parked_for_human(inst_name: str, conversation_name: str) -> dict | None:
