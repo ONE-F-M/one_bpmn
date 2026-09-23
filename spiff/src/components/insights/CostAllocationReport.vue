@@ -111,25 +111,22 @@
 				</div>
 			</div>
 
-			<!-- Phone: one stacked row per node, no sideways scrolling. -->
+			<!-- Phone: nested cards, no sideways scrolling. -->
 			<div class="sm:hidden divide-y divide-gray-100 border-t border-gray-200">
 				<div
 					v-for="row in visibleRows"
 					:key="row.path"
 					class="py-3 pr-1"
+					:class="row.node.children.length ? 'cursor-pointer' : ''"
 					:style="{ paddingLeft: `${row.depth * 16}px` }"
+					@click="row.node.children.length && toggle(row.path)"
 				>
 					<div class="flex items-center gap-2">
-						<button
+						<Icon
 							v-if="row.node.children.length"
-							class="text-gray-400 p-1 -m-1"
-							@click="toggle(row.path)"
-						>
-							<Icon
-								:icon="expanded.has(row.path) ? 'lucide:chevron-down' : 'lucide:chevron-right'"
-								class="w-4 h-4"
-							/>
-						</button>
+							:icon="expanded.has(row.path) ? 'lucide:chevron-down' : 'lucide:chevron-right'"
+							class="w-4 h-4 text-gray-400 shrink-0"
+						/>
 						<span v-else class="w-4 shrink-0"></span>
 						<span
 							v-if="row.depth === 0"
@@ -137,15 +134,24 @@
 							:style="{ background: colorOf(row.node.key) }"
 						></span>
 						<span class="text-sm text-gray-900 truncate flex-1" :class="row.depth === 0 ? 'font-medium' : ''">
-							{{ row.node.label }}
+							{{ row.node.name || row.node.label }}
 						</span>
-						<span class="text-sm text-gray-900 font-medium">{{ fmtCost(row.node.cost) }}</span>
+						<span class="text-sm text-gray-900 whitespace-nowrap" :class="row.depth === 0 ? 'font-medium' : ''">
+							{{ fmtCost(row.node.cost) }}
+						</span>
 					</div>
-					<div class="flex items-center gap-2 pl-6 mt-1 text-xs text-gray-500">
-						<span>{{ Math.round(row.node.share) }}%</span>
+					<div v-if="row.depth === 0" class="flex items-center gap-2 pl-6 mt-1.5">
+						<div class="h-1.5 rounded-full bg-gray-100 flex-1 overflow-hidden">
+							<div
+								class="h-full rounded-full"
+								:style="{ width: `${barWidth(row.node)}%`, background: colorOf(row.node.key) }"
+							></div>
+						</div>
+						<span class="text-xs text-gray-500 w-8 text-right">{{ Math.round(row.node.share) }}%</span>
 						<DeltaBadge :delta="row.node.delta" />
-						<span v-if="row.node.delta !== null">vs prior</span>
-						<span v-if="subtitleOf(row.node)" class="truncate">· {{ subtitleOf(row.node) }}</span>
+					</div>
+					<div v-else-if="row.depth === 1" class="pl-6 mt-0.5 text-xs text-gray-500">
+						{{ Math.round(row.node.share) }}% of {{ axis === "chat_user" ? "chat" : "process" }} spend
 					</div>
 				</div>
 				<div class="py-3 flex items-start justify-between gap-3">
@@ -158,7 +164,7 @@
 						</div>
 						<DeltaBadge :delta="costDelta" :note="priorLabel" />
 					</div>
-					<span class="text-sm font-bold text-gray-900">{{ fmtCost(totals.cost) }}</span>
+					<span class="text-sm font-bold text-gray-900 whitespace-nowrap">{{ fmtCost(totals.cost) }}</span>
 				</div>
 			</div>
 
@@ -174,6 +180,13 @@
 							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">
 								Tokens
 							</th>
+							<th
+								v-for="m in monthColumns"
+								:key="m"
+								class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3 whitespace-nowrap"
+							>
+								{{ monthHeader(m) }}
+							</th>
 							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Cost ↓</th>
 							<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3 w-40">
 								Share
@@ -186,20 +199,17 @@
 							v-for="row in visibleRows"
 							:key="row.path"
 							class="border-b border-gray-100 hover:bg-gray-50"
+							:class="row.node.children.length ? 'cursor-pointer' : ''"
+							@click="row.node.children.length && toggle(row.path)"
 						>
 							<td class="py-2.5 px-3 text-sm text-gray-900">
 								<div class="flex items-center gap-2" :style="{ paddingLeft: `${row.depth * 20}px` }">
-									<button
+									<Icon
 										v-if="row.node.children.length"
-										class="text-gray-400 hover:text-gray-600"
-										@click="toggle(row.path)"
-									>
-										<Icon
-											:icon="expanded.has(row.path) ? 'lucide:chevron-down' : 'lucide:chevron-right'"
-											class="w-4 h-4"
-										/>
-									</button>
-									<span v-else class="w-4"></span>
+										:icon="expanded.has(row.path) ? 'lucide:chevron-down' : 'lucide:chevron-right'"
+										class="w-4 h-4 text-gray-400 shrink-0"
+									/>
+									<span v-else class="w-4 shrink-0"></span>
 									<span
 										v-if="row.depth === 0"
 										class="w-2 h-2 rounded-full shrink-0"
@@ -208,21 +218,42 @@
 									<Avatar
 										v-if="row.node.kind === 'owner' || row.node.kind === 'user'"
 										size="sm"
-										:label="row.node.label"
+										:label="row.node.name || row.node.label"
 									/>
-									<div class="min-w-0">
-										<div class="truncate" :class="row.depth === 0 ? 'font-medium' : ''">
-											{{ row.node.label }}
-										</div>
-										<div v-if="subtitleOf(row.node)" class="text-xs text-gray-500 truncate">
-											{{ subtitleOf(row.node) }}
-										</div>
-									</div>
+									<span class="truncate" :class="row.depth === 0 ? 'font-medium' : ''">
+										{{ row.node.name || row.node.label }}
+									</span>
+									<span
+										v-if="row.node.name"
+										class="text-xs text-gray-500 truncate hidden md:inline"
+									>{{ row.node.label }}</span>
+									<Badge
+										v-if="row.node.kind === 'department' && subtitleOf(row.node)"
+										size="sm"
+										:label="subtitleOf(row.node)"
+									/>
+									<Badge
+										v-else-if="row.depth === 0 && row.node.department"
+										size="sm"
+										:label="row.node.department"
+									/>
+									<Badge
+										v-else-if="row.node.kind === 'more'"
+										size="sm"
+										:label="subtitleOf(row.node)"
+									/>
 								</div>
 							</td>
 							<td class="py-2.5 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.node.runs) }}</td>
 							<td class="py-2.5 px-3 text-sm text-gray-600 text-right">
 								{{ fmtCompact(row.node.tokens) }}
+							</td>
+							<td
+								v-for="m in monthColumns"
+								:key="m"
+								class="py-2.5 px-3 text-sm text-gray-600 text-right"
+							>
+								{{ row.node.by_month?.[m] ? fmtCost(row.node.by_month[m]) : "—" }}
 							</td>
 							<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-medium">
 								{{ fmtCost(row.node.cost) }}
@@ -232,7 +263,7 @@
 									<div class="h-1.5 rounded-full bg-gray-100 flex-1 overflow-hidden">
 										<div
 											class="h-full rounded-full"
-											:style="{ width: `${Math.min(row.node.share, 100)}%`, background: colorOf(row.rootKey) }"
+											:style="{ width: `${barWidth(row.node)}%`, background: colorOf(row.rootKey) }"
 										></div>
 									</div>
 									<span class="text-xs text-gray-500 w-10 text-right">{{ Math.round(row.node.share) }}%</span>
@@ -252,6 +283,13 @@
 							<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold">
 								{{ fmtCompact(totals.tokens) }}
 							</td>
+							<td
+								v-for="m in monthColumns"
+								:key="m"
+								class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold"
+							>
+								{{ fmtCost(monthTotal(m)) }}
+							</td>
 							<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold">{{ fmtCost(totals.cost) }}</td>
 							<td class="py-2.5 px-3 text-xs text-gray-500">100%</td>
 							<td class="py-2.5 px-3 text-right">
@@ -269,7 +307,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, h } from "vue"
 import {
-	frappeRequest, Alert, Avatar, AxisChart, Button, Dropdown, ECharts, ErrorMessage, TabButtons,
+	frappeRequest, Alert, Avatar, AxisChart, Badge, Button, Dropdown, ECharts, ErrorMessage, TabButtons,
 } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
@@ -335,13 +373,18 @@ const otherAxisLabel = computed(() =>
 	axis.value === "chat_user" ? "By process owner" : "By chat user"
 )
 const groupLabel = computed(() => groupBy.value)
-const levelHeader = computed(() =>
-	groupButtons.value
-		.slice(groupButtons.value.findIndex((b) => b.value === groupBy.value))
-		.map((b) => b.value)
-		.join(" / ")
-		.toUpperCase()
-)
+// The levels under each grouping, in the order the tree nests them — the same
+// table the endpoint uses.
+const LEVELS = {
+	department: ["department", "owner", "process"], owner: ["owner", "process"], process: ["process", "owner"],
+	user: ["user", "agent"], agent: ["agent", "user"],
+}
+const levelHeader = computed(() => {
+	const levels = groupBy.value === "department" && axis.value === "chat_user"
+		? ["department", "user", "agent"]
+		: LEVELS[groupBy.value] || [groupBy.value]
+	return levels.join(" / ").toUpperCase()
+})
 const priorLabel = computed(() => {
 	const p = previous.value
 	if (!p.from_date) return ""
@@ -566,6 +609,26 @@ const visibleRows = computed(() => {
 	return rows
 })
 
+// Month columns only while there are few enough to read; one month is the Cost
+// column already, and past six the table stops being a table.
+const monthColumns = computed(() => {
+	const months = report.value.months || []
+	return months.length >= 2 && months.length <= 6 ? months : []
+})
+function monthHeader(m) {
+	const label = dayjs(`${m}-01`).format("MMM YYYY")
+	return m === dayjs().format("YYYY-MM") ? `${label} (to date)` : label
+}
+function monthTotal(m) {
+	return tree.value.reduce((t, n) => t + (n.by_month?.[m] || 0), 0)
+}
+
+// Share bars fill against the largest top-level node, so the biggest is full width.
+const maxTopShare = computed(() => Math.max(0, ...tree.value.map((n) => n.share || 0)))
+function barWidth(node) {
+	return maxTopShare.value ? Math.min(100, (node.share / maxTopShare.value) * 100) : 0
+}
+
 function subtitleOf(node) {
 	if (node.kind === "more") return `${node.count} not shown`
 	if (node.kind === "department") {
@@ -652,8 +715,7 @@ async function fetchReport() {
 			method: "POST",
 			params: queryParams(),
 		})
-		const top = report.value.tree?.[0]
-		expanded.value = new Set(top ? [`/${top.key || top.label}`] : [])
+		expanded.value = new Set((report.value.tree || []).map((n) => `/${n.key || n.label}`))
 	} catch (e) {
 		error.value = e
 		report.value = {}
