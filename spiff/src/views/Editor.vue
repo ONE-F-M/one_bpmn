@@ -883,6 +883,7 @@
 			:checklist="readinessChecklist"
 			:mode="readinessMode"
 			:loading="readinessLoading"
+			:deploying="deploying"
 			@close="onReadinessClose"
 			@cancel="onReadinessCancel"
 			@deploy="onReadinessDeploy"
