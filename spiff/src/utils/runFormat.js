@@ -4,6 +4,12 @@ export function fmtNum(v) {
 	return numFormatter.format(Math.round(v || 0))
 }
 
+const compactFormatter = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 })
+
+export function fmtCompact(v) {
+	return compactFormatter.format(v || 0)
+}
+
 export function fmtMs(ms) {
 	ms = ms || 0
 	if (ms >= 3600000) return (ms / 3600000).toFixed(1) + "h"

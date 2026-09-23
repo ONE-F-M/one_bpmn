@@ -353,12 +353,18 @@ class TestInsightsAllocation(FrappeTestCase):
 		self.assertIn(TITLE_MARK, json.dumps(report["rows"]))
 
 	# -- contract ----------------------------------------------------------
-	def test_the_keys_the_current_tab_reads_are_still_there(self):
+	def test_one_contract_remains(self):
+		"""The flat table's totals keys are gone; rows stay for the export."""
 		report = _report()
-		for key in ("rows", "period_totals", "models_missing_pricing", "totals"):
+		for key in ("rows", "period_totals", "models_missing_pricing", "totals", "tree"):
 			self.assertIn(key, report)
-		for key in ("runs", "tokens", "cost", "people", "departments"):
+		for key in ("runs", "tokens", "cost", "avg_cost_per_run", "other_axis_cost", "processes", "top_process"):
 			self.assertIn(key, report["totals"])
+		for legacy in ("people", "departments"):
+			self.assertNotIn(legacy, report["totals"])
+		chat = _report(axis="chat_user")["totals"]
+		for legacy in ("people", "departments"):
+			self.assertNotIn(legacy, chat)
 		self.assertIn("alloc-t-unpriced", report["models_missing_pricing"])
 		self.assertEqual(sorted(report["rows"][0]),
 		                 ["cost", "department", "month", "person", "runs", "subject",

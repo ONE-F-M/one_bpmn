@@ -311,6 +311,7 @@ import {
 } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
+import { fmtCompact, fmtCost, fmtNum } from "@/utils/runFormat"
 
 // Defaults keep the tab working whether or not the header passes the shared
 // filters yet.
@@ -400,6 +401,18 @@ const rangeLabel = computed(() =>
 		: ""
 )
 
+// Distinct departments and owners in the tree, whichever level they sit at.
+const departmentCount = computed(() => new Set(tree.value.map((n) => n.department).filter(Boolean)).size)
+const ownerCount = computed(() => {
+	const owners = new Set()
+	const walk = (nodes) => nodes.forEach((n) => {
+		if (n.kind === "owner" && n.key) owners.add(n.key)
+		walk(n.children || [])
+	})
+	walk(tree.value)
+	return owners.size
+})
+
 function ratio(now, before) {
 	return before ? (now - before) / before : null
 }
@@ -418,10 +431,10 @@ const tiles = computed(() => {
 		{ label: "Avg cost / run", value: fmtCost(avgNow), delta: ratio(avgNow, avgBefore), goodDirection: "down" },
 		{
 			label: "Departments",
-			value: fmtNum(t.departments),
+			value: fmtNum(departmentCount.value),
 			note: isChat
 				? `${fmtNum(t.active_users || 0)} of ${fmtNum(t.seats || 0)} seats active`
-				: `${fmtNum(t.people || 0)} process owners`,
+				: `${fmtNum(ownerCount.value)} process owners`,
 		},
 		isChat
 			? { label: "Conversations", value: fmtNum(t.conversations || 0), note: `${fmtCost(t.avg_cost_per_conversation || 0)} each` }
@@ -640,14 +653,6 @@ function subtitleOf(node) {
 }
 
 // -- formatting --------------------------------------------------------
-const _num = new Intl.NumberFormat("en-US")
-const _compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 })
-const _cost = new Intl.NumberFormat("en-US", {
-	style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 4,
-})
-function fmtNum(n) { return _num.format(n || 0) }
-function fmtCompact(n) { return _compact.format(n || 0) }
-function fmtCost(n) { return _cost.format(n || 0) }
 function fmtDay(d) { return dayjs(d).format("MMM D") }
 function bucketLabel(start, next) {
 	if (report.value.grain === "month") return dayjs(start).format("MMM YYYY")

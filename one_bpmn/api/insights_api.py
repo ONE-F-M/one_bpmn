@@ -1331,8 +1331,6 @@ def _allocation_totals(axis: str, leaves: list, from_d, to_d, origin: str) -> di
 		"runs": runs,
 		"tokens": sum(x["tokens"] for x in leaves),
 		"cost": cost,
-		"people": len(people),
-		"departments": len({x["department"] for x in leaves if x["department"]}),
 		"avg_cost_per_run": flt(cost / runs, 6) if runs else 0.0,
 		"other_axis_cost": _other_axis_cost(axis, from_d, to_d, origin),
 	}
