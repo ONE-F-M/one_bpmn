@@ -241,6 +241,15 @@ def deploy_property_changes(model_name: str) -> dict:
 
 	if not model_name:
 		frappe.throw(_("Process map name is required."))
+	frappe.has_permission("BPMN Process Model", "write", model_name, throw=True)
+
+	xml = frappe.db.get_value("BPMN Process Model", model_name, "bpmn_xml")
+	root = etree.fromstring(xml.encode("utf-8"))
+	# A non-executable map is never deployed, so its saved edits are already final.
+	if not any(
+		p.get("isExecutable", "").strip().lower() == "true" for p in root.iter(f"{{{BPMN_NS}}}process")
+	):
+		return {"redeployed": False, "deploy_error": None}
 
 	redeployed = False
 	deploy_error = None
