@@ -140,7 +140,7 @@
 							:style="{ background: colorOf(row.node.key) }"
 						></span>
 						<span class="text-sm text-gray-900 truncate flex-1" :class="row.depth === 0 ? 'font-medium' : ''">
-							{{ row.node.name || row.node.label }}
+							{{ displayLabel(row.node) }}
 						</span>
 						<span class="text-sm text-gray-900 whitespace-nowrap" :class="row.depth === 0 ? 'font-medium' : ''">
 							{{ fmtCost(row.node.cost) }}
@@ -156,8 +156,9 @@
 						<span class="text-xs text-gray-500 w-8 text-right">{{ Math.round(row.node.share) }}%</span>
 						<DeltaBadge :delta="row.node.delta" />
 					</div>
-					<div v-else-if="row.depth === 1" class="pl-6 mt-0.5 text-xs text-gray-500">
-						{{ Math.round(row.node.share) }}% of {{ axis === "chat_user" ? "chat" : "process" }} spend
+					<div v-else-if="row.depth === 1 && row.node.kind !== 'more'" class="pl-6 mt-0.5 text-xs text-gray-500">
+						{{ Math.round(row.node.share) }}% of {{ isChat ? "chat" : "process" }} spend<template
+							v-if="isChat"> · {{ fmtNum(row.node.conversations) }} conversations</template>
 					</div>
 				</div>
 				<div class="py-3 flex items-start justify-between gap-3">
@@ -166,7 +167,10 @@
 							Total {{ axis === "chat_user" ? "chat" : "process" }} spend
 						</div>
 						<div class="text-xs text-gray-500 mt-1">
-							{{ fmtNum(totals.runs) }} runs · {{ fmtCompact(totals.tokens) }} tokens
+							<template v-if="isChat">
+								{{ fmtNum(totals.conversations) }} conversations · {{ fmtNum(totals.active_users) }} users
+							</template>
+							<template v-else>{{ fmtNum(totals.runs) }} runs · {{ fmtCompact(totals.tokens) }} tokens</template>
 						</div>
 						<DeltaBadge :delta="costDelta" :note="priorLabel" />
 					</div>
@@ -182,6 +186,9 @@
 							<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3">
 								{{ levelHeader }}
 							</th>
+							<th v-if="isChat" class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">
+								Conversations
+							</th>
 							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Runs</th>
 							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">
 								Tokens
@@ -194,6 +201,9 @@
 								{{ monthHeader(m) }}
 							</th>
 							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Cost ↓</th>
+							<th v-if="isChat" class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">
+								Avg / conv
+							</th>
 							<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3 w-40">
 								Share
 							</th>
@@ -227,7 +237,7 @@
 										:label="row.node.name || row.node.label"
 									/>
 									<span class="truncate" :class="row.depth === 0 ? 'font-medium' : ''">
-										{{ row.node.name || row.node.label }}
+										{{ displayLabel(row.node) }}
 									</span>
 									<span
 										v-if="row.node.name"
@@ -244,12 +254,10 @@
 										size="sm"
 										:label="row.node.department"
 									/>
-									<Badge
-										v-else-if="row.node.kind === 'more'"
-										size="sm"
-										:label="subtitleOf(row.node)"
-									/>
 								</div>
+							</td>
+							<td v-if="isChat" class="py-2.5 px-3 text-sm text-gray-600 text-right">
+								{{ fmtNum(row.node.conversations) }}
 							</td>
 							<td class="py-2.5 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.node.runs) }}</td>
 							<td class="py-2.5 px-3 text-sm text-gray-600 text-right">
@@ -264,6 +272,9 @@
 							</td>
 							<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-medium">
 								{{ fmtCost(row.node.cost) }}
+							</td>
+							<td v-if="isChat" class="py-2.5 px-3 text-sm text-gray-600 text-right">
+								{{ fmtCost(row.node.avg_cost_per_conversation) }}
 							</td>
 							<td class="py-2.5 px-3">
 								<div class="flex items-center gap-2">
@@ -286,6 +297,9 @@
 							<td class="py-2.5 px-3 text-xs uppercase text-gray-500 font-medium">
 								Total {{ axis === "chat_user" ? "chat" : "process" }} spend
 							</td>
+							<td v-if="isChat" class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold">
+								{{ fmtNum(totals.conversations) }}
+							</td>
 							<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold">{{ fmtNum(totals.runs) }}</td>
 							<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold">
 								{{ fmtCompact(totals.tokens) }}
@@ -298,6 +312,9 @@
 								{{ fmtCost(monthTotal(m)) }}
 							</td>
 							<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold">{{ fmtCost(totals.cost) }}</td>
+							<td v-if="isChat" class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold">
+								{{ fmtCost(totals.avg_cost_per_conversation) }}
+							</td>
 							<td class="py-2.5 px-3 text-xs text-gray-500">100%</td>
 							<td class="py-2.5 px-3 text-right">
 								<DeltaBadge :delta="costDelta" />
@@ -369,6 +386,7 @@ const groupButtons = computed(() =>
 	).map((value) => ({ label: toggleLabel(value), value }))
 )
 
+const isChat = computed(() => axis.value === "chat_user")
 const tree = computed(() => report.value.tree || [])
 const totals = computed(() => report.value.totals || { runs: 0, tokens: 0, cost: 0 })
 const periodTotals = computed(() => report.value.period_totals || { runs: 0, tokens: 0, cost: 0 })
@@ -680,11 +698,14 @@ function barWidth(node) {
 	return maxTopShare.value ? Math.min(100, (node.share / maxTopShare.value) * 100) : 0
 }
 
+function displayLabel(node) {
+	if (node.kind === "more") return `${node.count} more ${isChat.value ? "users" : "rows"}`
+	return node.name || node.label
+}
 function subtitleOf(node) {
-	if (node.kind === "more") return `${node.count} not shown`
 	if (node.kind === "department") {
-		return axis.value === "chat_user"
-			? `${node.users} users · ${node.conversations} conversations`
+		return isChat.value
+			? `${node.users} users · ${node.agents} agents`
 			: `${node.owners} owners · ${node.processes} processes`
 	}
 	return ""
