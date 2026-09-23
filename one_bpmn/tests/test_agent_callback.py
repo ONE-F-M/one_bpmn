@@ -45,7 +45,7 @@ class CallbackCase(FrappeTestCase):
 		)
 		frappe.db.commit()
 
-	def _run(self, state="running"):
+	def _run(self, state="running", request_payload=None):
 		doc = frappe.get_doc({
 			"doctype": "Agent Sandbox Run",
 			"state": state,
@@ -56,6 +56,8 @@ class CallbackCase(FrappeTestCase):
 			"work_item_description": "a callback test",
 		}).insert(ignore_permissions=True)
 		self.made.append(doc.name)
+		if request_payload is not None:
+			doc.db_set("request_payload", frappe.as_json(request_payload), update_modified=False)
 		frappe.db.commit()
 		return doc
 
@@ -418,3 +420,135 @@ class TestSandboxAiAgentRun(CallbackCase):
 		agent_run = frappe.get_doc("AI Agent Run", agent_run_name)
 		self.assertEqual(agent_run.status, "Success")  # the loop itself didn't crash
 		self.assertEqual(agent_run.goal_completion, "Not Achieved")
+
+
+class TestRetryOnTestFailure(CallbackCase):
+	"""report_result()'s automatic once-only retry on status == "tests_failed"
+	(WI-002264) — a flaky test should not throw away a correct change. Every
+	real sandbox call is mocked out here (retry_dispatch itself has its own
+	coverage in test_agent_sandbox_ops.py); this suite only checks report_result
+	routes to it correctly and always falls back to resuming the waiting
+	caller when the retry cannot be dispatched."""
+
+	def setUp(self):
+		super().setUp()
+		self._configs = []
+
+	def tearDown(self):
+		for name in self._configs:
+			frappe.delete_doc("AI Agent Configuration", name, force=True, ignore_permissions=True, ignore_missing=True)
+		super().tearDown()
+
+	def _config(self, agent_name, *, retry=1):
+		if frappe.db.exists("AI Agent Configuration", agent_name):
+			frappe.db.set_value("AI Agent Configuration", agent_name, "sandbox_retry_on_test_failure", retry)
+			return agent_name
+		doc = frappe.get_doc({
+			"doctype": "AI Agent Configuration",
+			"agent_name": agent_name,
+			"agent_id": f"_cb-{frappe.generate_hash(length=6)}",
+			"agent_framework": "Direct API",
+			"sandbox_retry_on_test_failure": retry,
+		}).insert(ignore_permissions=True)
+		self._configs.append(doc.name)
+		return doc.name
+
+	def test_an_eligible_failure_dispatches_a_retry_instead_of_resuming(self):
+		self._config("Dev Agent", retry=1)
+		run = self._run(request_payload={"action": "run_tests", "args": {}, "agent_name": "Dev Agent"})
+		with patch("one_bpmn.one_bpmn.connectors.agent_sandbox_ops.retry_dispatch", return_value=True) as mock_retry, \
+		     patch.object(cb, "_enqueue_resume") as mock_resume:
+			result = self._post({"correlation_id": run.name, "status": "tests_failed", "error": "3 failed"})
+		self.assertEqual(result, {"accepted": True})
+		mock_retry.assert_called_once()
+		mock_resume.assert_not_called()
+
+	def test_an_ineligible_failure_resumes_normally(self):
+		"""No request_payload at all -- agent_name can't be extracted, so
+		retry_eligible is false and the original behaviour (resume the
+		waiting caller on the failure) is unchanged. Mirrors every existing
+		TestOutcomes tests_failed test, which never sets request_payload."""
+		run = self._run()
+		with patch.object(cb, "_enqueue_resume") as mock_resume:
+			result = self._post({"correlation_id": run.name, "status": "tests_failed", "error": "3 failed"})
+		self.assertEqual(result, {"accepted": True})
+		mock_resume.assert_called_once()
+
+	def test_a_retry_that_cannot_be_dispatched_falls_back_to_resuming_on_the_original(self):
+		"""retry_dispatch returning False means the retry itself could not
+		even be sent (no sandbox URL, no token, the POST failed) -- the
+		original failure must still resume the waiting caller, or it would
+		wait forever for a callback that can now never arrive."""
+		self._config("Dev Agent", retry=1)
+		run = self._run(request_payload={"action": "run_tests", "args": {}, "agent_name": "Dev Agent"})
+		with patch("one_bpmn.one_bpmn.connectors.agent_sandbox_ops.retry_dispatch", return_value=False), \
+		     patch.object(cb, "_enqueue_resume") as mock_resume:
+			result = self._post({"correlation_id": run.name, "status": "tests_failed", "error": "3 failed"})
+		self.assertEqual(result, {"accepted": True})
+		mock_resume.assert_called_once()
+
+	def test_a_pass_never_triggers_a_retry_check(self):
+		self._config("Dev Agent", retry=1)
+		run = self._run(request_payload={"action": "run_tests", "args": {}, "agent_name": "Dev Agent"})
+		with patch("one_bpmn.one_bpmn.connectors.agent_sandbox_ops.retry_dispatch") as mock_retry:
+			self._post({"correlation_id": run.name, "status": "tests_passed"})
+		mock_retry.assert_not_called()
+
+
+class TestFailingTestsSurfaced(CallbackCase):
+	"""_output_tail names which tests actually broke, ahead of the raw
+	truncated stdout/stderr dump -- dev_agent_server.py's own
+	_extract_failing_tests is what populates result["failing_tests"]."""
+
+	def test_failing_tests_are_named_ahead_of_the_raw_tail(self):
+		run = self._run(state="failed")
+		frappe.db.set_value(
+			"Agent Sandbox Run", run.name, "result",
+			frappe.as_json({"failing_tests": ["test_foo (a.TestA)", "test_bar (b.TestB)"], "stderr_tail": "noise"}),
+			update_modified=False,
+		)
+		run.reload()
+		tail = cb._output_tail(run)
+		self.assertIn("Failing tests:", tail)
+		self.assertIn("test_foo (a.TestA)", tail)
+		self.assertIn("test_bar (b.TestB)", tail)
+		self.assertLess(tail.index("Failing tests:"), tail.index("Sandbox output"))
+
+	def test_no_failing_tests_falls_back_to_the_raw_tail_only(self):
+		run = self._run(state="failed")
+		frappe.db.set_value(
+			"Agent Sandbox Run", run.name, "result",
+			frappe.as_json({"stderr_tail": "some traceback"}),
+			update_modified=False,
+		)
+		run.reload()
+		tail = cb._output_tail(run)
+		self.assertNotIn("Failing tests:", tail)
+		self.assertIn("some traceback", tail)
+
+
+class TestRetryPrefixInAnswer(CallbackCase):
+	"""_sandbox_run_answer tells the agent which attempt it's looking at,
+	once retry_of (set only on the automatic re-dispatch) makes this
+	something other than the first try."""
+
+	def test_first_attempt_carries_no_retry_prefix(self):
+		run = self._run(state="completed")
+		run.reload()
+		self.assertNotIn("Retry", cb._sandbox_run_answer(run))
+
+	def test_a_successful_retry_says_so(self):
+		run = self._run(state="completed")
+		frappe.db.set_value("Agent Sandbox Run", run.name, "retry_of", "DAS-00001", update_modified=False)
+		run.reload()
+		self.assertIn("Retry succeeded", cb._sandbox_run_answer(run))
+
+	def test_a_failed_retry_says_so(self):
+		run = self._run(state="failed")
+		frappe.db.set_value(
+			"Agent Sandbox Run", run.name,
+			{"retry_of": "DAS-00001", "error_message": "still failing"},
+			update_modified=False,
+		)
+		run.reload()
+		self.assertIn("automatic retry also failed", cb._sandbox_run_answer(run))

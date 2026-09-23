@@ -363,3 +363,127 @@ class TestSandboxDispatch(AgentSandboxCase):
 		result, _mock_post = self._call(post_side_effect=ConnectionError("no route to host"))
 		self.assertFalse(result["ok"])
 		self.assertIn("no route to host", result["error"])
+
+
+class TestRetryPolicy(AgentSandboxCase):
+	"""retry_eligible/retry_dispatch — the once-only automatic re-dispatch
+	agent_callback.report_result() falls back to on status == "tests_failed",
+	instead of resuming the waiting caller straight away (WI-002264)."""
+
+	def setUp(self):
+		super().setUp()
+		self._configs = []
+
+	def tearDown(self):
+		for name in self._configs:
+			frappe.delete_doc("AI Agent Configuration", name, force=True, ignore_permissions=True, ignore_missing=True)
+		super().tearDown()
+
+	def _config(self, agent_name, *, retry=1):
+		if frappe.db.exists("AI Agent Configuration", agent_name):
+			frappe.db.set_value("AI Agent Configuration", agent_name, "sandbox_retry_on_test_failure", retry)
+			return agent_name
+		doc = frappe.get_doc({
+			"doctype": "AI Agent Configuration",
+			"agent_name": agent_name,
+			"agent_id": f"_sbx-{frappe.generate_hash(length=6)}",
+			"agent_framework": "Direct API",
+			"sandbox_retry_on_test_failure": retry,
+		}).insert(ignore_permissions=True)
+		self._configs.append(doc.name)
+		return doc.name
+
+	def _run(self, *, agent_name="Dev Agent", action="run_tests", args=None, retry_of=None):
+		doc = frappe.get_doc({
+			"doctype": "Agent Sandbox Run",
+			"state": "failed",
+			"target_app": "one_bpmn",
+			"git_branch": "staging",
+			"caller_instance": self._test_instance.name,
+			"caller_wf_task_id": "wf-task-1",
+			"work_item_description": "a retry test",
+		})
+		doc.insert(ignore_permissions=True)
+		payload = {"action": action, "args": args or {}, "agent_name": agent_name, "work_item_id": "WI-1"}
+		doc.db_set("request_payload", frappe.as_json(payload), update_modified=False)
+		if retry_of:
+			# db_set (not passed at insert) — retry_of is a real Link and
+			# _validate_links would otherwise require an actual existing row.
+			doc.db_set("retry_of", retry_of, update_modified=False)
+		return doc
+
+	def test_eligible_when_agent_config_has_retry_enabled(self):
+		self._config("Dev Agent", retry=1)
+		run = self._run(agent_name="Dev Agent")
+		self.assertTrue(ops.retry_eligible(run))
+
+	def test_not_eligible_when_run_is_itself_a_retry(self):
+		"""Once, not a loop — a run that is already a retry is never retried again."""
+		self._config("Dev Agent", retry=1)
+		run = self._run(agent_name="Dev Agent", retry_of="DAS-00001")
+		self.assertFalse(ops.retry_eligible(run))
+
+	def test_not_eligible_when_agent_config_has_retry_disabled(self):
+		self._config("Dev Agent", retry=0)
+		run = self._run(agent_name="Dev Agent")
+		self.assertFalse(ops.retry_eligible(run))
+
+	def test_not_eligible_when_payload_carries_no_agent_name(self):
+		run = self._run(agent_name="Dev Agent")
+		run.db_set("request_payload", frappe.as_json({"action": "run_tests", "args": {}}), update_modified=False)
+		self.assertFalse(ops.retry_eligible(run))
+
+	def test_not_eligible_when_agent_config_does_not_exist(self):
+		run = self._run(agent_name="No Such Agent")
+		self.assertFalse(ops.retry_eligible(run))
+
+	def _dispatch(self, run, response_status=202, post_side_effect=None, agent_sandbox_url="https://sandbox.example.run.app"):
+		mock_settings = SimpleNamespace(
+			agent_sandbox_url=agent_sandbox_url,
+			get_password=lambda *a, **k: "fake-github-token",
+		)
+		mock_response = MagicMock(status_code=response_status)
+		mock_response.raise_for_status = MagicMock()
+		post_kwargs = {"side_effect": post_side_effect} if post_side_effect else {"return_value": mock_response}
+		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)), patch.object(
+			ops, "_mint_identity_token", return_value="fake-token"
+		), patch("requests.post", **post_kwargs) as mock_post:
+			result = ops.retry_dispatch(run)
+		return result, mock_post
+
+	def test_dispatch_creates_a_new_run_pointing_retry_of_at_the_original(self):
+		original = self._run(agent_name="Dev Agent", action="run_tests")
+		before = frappe.db.count("Agent Sandbox Run", {"target_app": "one_bpmn"})
+		result, mock_post = self._dispatch(original)
+		self.assertTrue(result)
+		self.assertEqual(frappe.db.count("Agent Sandbox Run", {"target_app": "one_bpmn"}), before + 1)
+		new_name = frappe.get_all(
+			"Agent Sandbox Run", filters={"retry_of": original.name}, pluck="name",
+		)[0]
+		new_run = frappe.get_doc("Agent Sandbox Run", new_name)
+		self.assertEqual(new_run.state, "running")
+		self.assertEqual(new_run.caller_instance, original.caller_instance)
+		self.assertEqual(new_run.caller_wf_task_id, original.caller_wf_task_id)
+		_args, kwargs = mock_post.call_args
+		self.assertEqual(kwargs["json"]["action"], "run_tests")
+		self.assertEqual(kwargs["json"]["agent_name"], "Dev Agent")
+
+	def test_dispatch_forwards_the_same_action_and_args_as_the_original(self):
+		original = self._run(agent_name="Dev Agent", action="open_pull_request", args={"summary": "fix it"})
+		_result, mock_post = self._dispatch(original)
+		_args, kwargs = mock_post.call_args
+		self.assertEqual(kwargs["json"]["action"], "open_pull_request")
+		self.assertEqual(kwargs["json"]["args"], {"summary": "fix it"})
+
+	def test_dispatch_returns_false_and_never_raises_with_no_sandbox_url(self):
+		original = self._run()
+		result, mock_post = self._dispatch(original, agent_sandbox_url="")
+		self.assertFalse(result)
+		mock_post.assert_not_called()
+
+	def test_dispatch_returns_false_and_marks_the_new_row_failed_when_the_post_fails(self):
+		original = self._run()
+		result, _mock_post = self._dispatch(original, post_side_effect=ConnectionError("no route to host"))
+		self.assertFalse(result)
+		new_name = frappe.get_all("Agent Sandbox Run", filters={"retry_of": original.name}, pluck="name")[0]
+		self.assertEqual(frappe.db.get_value("Agent Sandbox Run", new_name, "state"), "failed")
