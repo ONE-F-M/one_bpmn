@@ -115,7 +115,7 @@
 							</td>
 							<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtPct(row.retry_rate) }}</td>
 							<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.retry_recovered) }}</td>
-							<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.avg_duration_ms) }}ms</td>
+							<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtDuration(row.avg_duration_ms) }}</td>
 						</tr>
 					</tbody>
 				</table>
@@ -128,7 +128,7 @@
 import { ref, computed, watch, onMounted } from "vue"
 import { frappeRequest, FormControl, Badge } from "frappe-ui"
 import { Icon } from "@iconify/vue"
-import { fmtInt as fmtNum, fmtPct } from "@/utils/formatters"
+import { fmtInt as fmtNum, fmtDuration, fmtPct } from "@/utils/formatters"
 
 const props = defineProps({
 	fromDate: String,

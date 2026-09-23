@@ -6,7 +6,6 @@
 			:label="card.title"
 			:value="card.formattedValue"
 			:value-title="card.valueTitle"
-			:delta="card.delta"
 			:delta-kind="card.deltaKind"
 			:good-direction="card.goodDirection"
 			:loading="loading"
@@ -27,8 +26,6 @@ const props = defineProps({
 const loading = ref(true)
 const data = ref({})
 
-// No prior-period comparison is wired up yet, so every tile shows "new"
-// via MetricTile's null-delta state until the API returns one.
 const cards = computed(() => {
 	const d = data.value
 
@@ -37,7 +34,6 @@ const cards = computed(() => {
 			key: "runs_today",
 			title: "Runs Today",
 			formattedValue: fmtInt(d.runs_today),
-			delta: null,
 			deltaKind: "pct",
 			goodDirection: "up",
 		},
@@ -45,7 +41,6 @@ const cards = computed(() => {
 			key: "success_rate",
 			title: "Success Rate",
 			formattedValue: fmtPct(d.success_rate),
-			delta: null,
 			deltaKind: "pt",
 			goodDirection: "up",
 		},
@@ -54,7 +49,6 @@ const cards = computed(() => {
 			title: "Cost (7d)",
 			formattedValue: fmtCurrency(d.total_cost),
 			valueTitle: fmtCurrencyExact(d.total_cost),
-			delta: null,
 			deltaKind: "pct",
 			goodDirection: "down",
 		},
@@ -62,7 +56,6 @@ const cards = computed(() => {
 			key: "active_errors",
 			title: "Errors Today",
 			formattedValue: fmtInt(d.active_errors),
-			delta: null,
 			deltaKind: "pct",
 			goodDirection: "down",
 		},
@@ -70,7 +63,6 @@ const cards = computed(() => {
 			key: "avg_latency_ms",
 			title: "Avg Latency",
 			formattedValue: fmtDuration(d.avg_latency_ms),
-			delta: null,
 			deltaKind: "pct",
 			goodDirection: "down",
 		},
@@ -79,7 +71,6 @@ const cards = computed(() => {
 			title: "Tokens (7d)",
 			formattedValue: fmtCompact(d.total_tokens),
 			valueTitle: fmtInt(d.total_tokens),
-			delta: null,
 			deltaKind: "pct",
 			goodDirection: "up",
 		},

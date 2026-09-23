@@ -102,3 +102,27 @@ test("fmtDuration: minutes and seconds", () => {
 test("fmtDuration: null is 0ms", () => {
 	assert.equal(fmtDuration(null), "0ms")
 })
+
+test("fmtCurrency: tiny negative keeps its sign", () => {
+	assert.equal(fmtCurrency(-0.00005), "> -$0.0001")
+})
+
+test("fmtCurrency: rounds up to a dollar with 2 decimals", () => {
+	assert.equal(fmtCurrency(0.99996), "$1.00")
+})
+
+test("fmtDelta: sign comes from the rounded value", () => {
+	assert.equal(fmtDelta(-0.04, "pct"), "+0.0%")
+})
+
+test("fmtDuration: rounds up to a minute", () => {
+	assert.equal(fmtDuration(59960), "1:00")
+})
+
+test("fmtDuration: rounds up to a second", () => {
+	assert.equal(fmtDuration(999.6), "1.0s")
+})
+
+test("fmtCompact: rounds up to a thousand", () => {
+	assert.equal(fmtCompact(999.6), "1K")
+})
