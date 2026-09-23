@@ -1513,7 +1513,7 @@ def export_cost_allocation(
 		frappe.throw(_("fmt must be 'xlsx' or 'csv'"))
 	report = get_cost_allocation(from_date, to_date, axis, group_by, origin)
 
-	stem = f"cost-allocation-{report['axis']}-{report['group_by']}-{report['from_date']}-to-{report['to_date']}"
+	stem = f"cost-allocation-{report['axis']}-{report['from_date']}-to-{report['to_date']}"
 	if fmt == "xlsx":
 		import openpyxl
 		from frappe.utils.xlsxutils import make_xlsx
