@@ -148,3 +148,70 @@ class TestPaging(FrappeTestCase):
 	def test_the_end_of_the_conversation_is_an_empty_page(self):
 		oldest = load_history(self.conversation, limit=100)[0]
 		self.assertEqual(conversation_history(self.conversation, before=oldest["message"]), [])
+
+
+class TestHistoryCarriesWorkingNotes(FrappeTestCase):
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self.conversation = create_conversation("lumina_general_chat", "_Test notes", frappe.session.user)
+		self.instances = [self._instance(self.conversation), self._instance("ZZ-OTHER-CONV")]
+
+	def tearDown(self):
+		runs = frappe.get_all("AI Agent Run", filters={"instance": ["in", self.instances]}, pluck="name")
+		frappe.db.delete("AI Agent Step", {"run": ["in", runs or [""]]})
+		frappe.db.delete("AI Agent Run", {"name": ["in", runs or [""]]})
+		frappe.db.delete("BPMN Process Instance", {"name": ["in", self.instances]})
+		_remove(self.conversation)
+
+	def _instance(self, conversation):
+		instance = frappe.get_doc(
+			{
+				"doctype": "BPMN Process Instance",
+				"process_id": f"notes-{frappe.generate_hash(length=6)}",
+				"status": "Active",
+				"context_doctype": "Chat Conversation",
+				"context_docname": conversation,
+			}
+		)
+		instance.flags.ignore_mandatory = True
+		instance.flags.ignore_links = True
+		instance.insert(ignore_permissions=True, ignore_mandatory=True)
+		return instance.name
+
+	def _run(self, instance, said):
+		run = frappe.get_doc(
+			{
+				"doctype": "AI Agent Run",
+				"instance": instance,
+				"bpmn_id": "run_general_chat_agent",
+				"status": "Success",
+				"started_at": frappe.utils.now_datetime(),
+			}
+		).insert(ignore_permissions=True)
+		for index, content in enumerate(said, start=3):
+			frappe.get_doc(
+				{"doctype": "AI Agent Step", "run": run.name, "step_index": index, "role": "tool", "content": content}
+			).insert(ignore_permissions=True)
+		frappe.get_doc(
+			{"doctype": "AI Agent Step", "run": run.name, "step_index": 9, "role": "assistant", "content": "the reply"}
+		).insert(ignore_permissions=True)
+		return run
+
+	def test_each_reply_gets_the_notes_of_its_own_turn(self):
+		save_user_message(self.conversation, "add 2 and 3, then 10")
+		self._run(self.instances[0], ["Step 1: adding 2 + 3", "Step 2: adding 5 + 10"])
+		self._run(self.instances[1], ["someone else's turn"])
+		save_bot_message(self.conversation, "15")
+		save_user_message(self.conversation, "thanks")
+		save_bot_message(self.conversation, "you're welcome")
+
+		history = conversation_history(self.conversation)
+		self.assertEqual(history[1]["notes"], ["Step 1: adding 2 + 3", "Step 2: adding 5 + 10"])
+		self.assertEqual(history[3]["notes"], [])
+		self.assertEqual(history[0]["notes"], [])
+
+	def test_blank_tool_steps_are_not_notes(self):
+		save_user_message(self.conversation, "count ToDo")
+		self._run(self.instances[0], ["", "   "])
+		save_bot_message(self.conversation, "352,794")
+		self.assertEqual(conversation_history(self.conversation)[-1]["notes"], [])

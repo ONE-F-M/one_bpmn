@@ -91,10 +91,63 @@ def conversation_history(conversation: str, limit: int = 30, before: str = None)
 		frappe.throw(_("Authentication required"))
 
 	messages = load_history(conversation, limit=min(cint(limit) or 30, 100), before=before)
+	notes = _working_notes(conversation, messages)
 	for message in messages:
 		metadata = message.pop("metadata", None) or {}
 		message["events"] = _replayed_events(metadata) if message["role"] == "assistant" else []
+		message["notes"] = notes.get(message["message"], [])
 	return messages
+
+
+def _working_notes(conversation: str, messages: list) -> dict:
+	"""What the agent said before each tool call, keyed by the reply it led to.
+
+	A turn's notes are the tool steps of the top-level runs created between the
+	message before the reply and the reply itself. load_history has already
+	checked the conversation is the caller's, so the runs are read without a
+	permission filter.
+	"""
+	from frappe.utils import get_datetime
+
+	windows = [
+		(message["message"], get_datetime(messages[i - 1]["timestamp"]), get_datetime(message["timestamp"]))
+		for i, message in enumerate(messages)
+		if i and message["role"] == "assistant" and message["timestamp"] and messages[i - 1]["timestamp"]
+	]
+	instances = frappe.get_all(
+		"BPMN Process Instance",
+		filters={"context_doctype": "Chat Conversation", "context_docname": conversation},
+		pluck="name",
+	)
+	if not windows or not instances:
+		return {}
+
+	runs = frappe.get_all(
+		"AI Agent Run",
+		filters={
+			"instance": ["in", instances],
+			"parent_run": ["is", "not set"],
+			"creation": ["between", [windows[0][1], windows[-1][2]]],
+		},
+		fields=["name", "creation"],
+		order_by="creation asc",
+	)
+	if not runs:
+		return {}
+	steps = frappe.get_all(
+		"AI Agent Step",
+		filters={"run": ["in", [run.name for run in runs]], "role": "tool"},
+		fields=["run", "content"],
+		order_by="step_index asc",
+	)
+
+	notes = {}
+	for message_name, start, end in windows:
+		turn_runs = [run.name for run in runs if start < run.creation <= end]
+		said = [step.content for run in turn_runs for step in steps if step.run == run and (step.content or "").strip()]
+		if said:
+			notes[message_name] = said
+	return notes
 
 
 def _replayed_events(metadata: dict) -> list:
