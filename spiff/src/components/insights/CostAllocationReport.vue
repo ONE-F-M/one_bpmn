@@ -97,22 +97,16 @@
 		<template v-else>
 			<!-- Charts -->
 			<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-				<div class="bg-white rounded-lg shadow-sm p-4 lg:col-span-2">
-					<div class="flex items-baseline justify-between">
-						<h3 class="text-sm font-medium text-gray-900">Cost by {{ groupLabel }}</h3>
-						<span class="text-xs text-gray-500">{{ rangeLabel }}, {{ report.grain }}ly</span>
-					</div>
-					<div class="alloc-chart h-64">
+				<div class="bg-white rounded-lg shadow-sm p-2 sm:p-4 lg:col-span-2">
+					<div class="alloc-chart" :style="{ height: `${chartHeight}px` }">
 						<AxisChart :config="barConfig" />
 					</div>
 				</div>
-				<div class="bg-white rounded-lg shadow-sm p-4">
-					<div class="flex items-baseline justify-between">
-						<h3 class="text-sm font-medium text-gray-900">Share by {{ groupLabel }}</h3>
-						<span class="text-xs text-gray-500">{{ fmtCost(totals.cost) }}</span>
-					</div>
-					<div class="alloc-chart h-64">
-						<DonutChart :config="donutConfig" />
+				<!-- The donut repeats the table's share column; at phone width the
+				     table alone carries it. -->
+				<div class="hidden sm:block bg-white rounded-lg shadow-sm p-4">
+					<div class="alloc-chart h-[230px]">
+						<ECharts :options="donutOptions" />
 					</div>
 				</div>
 			</div>
@@ -275,7 +269,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, h } from "vue"
 import {
-	frappeRequest, Alert, Avatar, AxisChart, Button, DonutChart, Dropdown, ErrorMessage, TabButtons,
+	frappeRequest, Alert, Avatar, AxisChart, Button, Dropdown, ECharts, ErrorMessage, TabButtons,
 } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
@@ -298,6 +292,8 @@ const SERIES_COLORS = [
 	"#e87ba4", "#008300", "#4a3aa7", "#e34948",
 ]
 const OTHER_COLOR = "#9ca3af"
+// Slots in play before the tail folds into "Other", in the bar and the donut alike.
+const MAX_SERIES = 6
 
 const axis = ref("process_owner")
 const groupBy = ref("department")
@@ -396,14 +392,14 @@ const tiles = computed(() => {
 const colorByKey = computed(() => {
 	const keys = tree.value.map((n) => n.key).sort()
 	return Object.fromEntries(
-		keys.map((key, i) => [key, i < SERIES_COLORS.length ? SERIES_COLORS[i] : OTHER_COLOR])
+		keys.map((key, i) => [key, i < MAX_SERIES ? SERIES_COLORS[i] : OTHER_COLOR])
 	)
 })
 function colorOf(key) {
 	return colorByKey.value[key] || OTHER_COLOR
 }
 
-// Past eight slots the tail folds into one "Other" series rather than being
+// Past the last slot the tail folds into one "Other" series rather than being
 // handed a made-up colour.
 const charted = computed(() => {
 	const keys = new Set(Object.entries(colorByKey.value)
@@ -412,58 +408,138 @@ const charted = computed(() => {
 })
 const otherNodes = computed(() => tree.value.filter((n) => !charted.value.includes(n)))
 
+const chartHeight = computed(() => (isPhone.value ? 170 : 230))
+const seriesNodes = computed(() =>
+	otherNodes.value.length
+		? [...charted.value, { key: "", label: "Other", cost: otherNodes.value.reduce((t, n) => t + n.cost, 0),
+			by_bucket: _sumBuckets(otherNodes.value) }]
+		: charted.value
+)
+function _sumBuckets(nodes) {
+	const out = {}
+	for (const n of nodes) for (const [b, v] of Object.entries(n.by_bucket || {})) out[b] = (out[b] || 0) + v
+	return out
+}
+const bucketTotals = computed(() =>
+	Object.fromEntries((report.value.buckets || []).map((b) =>
+		[b, seriesNodes.value.reduce((t, n) => t + (n.by_bucket?.[b] || 0), 0)]))
+)
+// The bucket still being written: it is faded so a short bar is not read as a drop.
+const currentBucket = computed(() => {
+	const buckets = report.value.buckets || []
+	const today = dayjs().format("YYYY-MM-DD")
+	if (!buckets.length || today < buckets[0] || today > (report.value.to_date || "")) return null
+	return [...buckets].reverse().find((b) => b <= today) || null
+})
+
 const barConfig = computed(() => {
 	const buckets = report.value.buckets || []
-	const data = buckets.map((bucket, i) => {
-		const row = { bucket: bucketLabel(bucket, buckets[i + 1]) }
-		for (const node of charted.value) row[node.label] = node.by_bucket?.[bucket] || 0
-		if (otherNodes.value.length) {
-			row.Other = otherNodes.value.reduce((sum, n) => sum + (n.by_bucket?.[bucket] || 0), 0)
-		}
+	const border = { borderColor: "#ffffff", borderWidth: 2 }
+	const last = seriesNodes.value.length - 1
+	const data = buckets.map((bucket) => {
+		const row = { date: bucket }
+		for (const node of seriesNodes.value) row[node.label] = node.by_bucket?.[bucket] || 0
 		return row
 	})
-	const series = charted.value.map((node) => ({
+	const series = seriesNodes.value.map((node, i) => ({
 		name: node.label,
 		type: "bar",
 		stackName: "cost",
-		color: colorOf(node.key),
-		// A 2px surface gap keeps neighbouring segments readable.
-		echartOptions: { itemStyle: { borderColor: "#ffffff", borderWidth: 2 } },
+		color: node.key ? colorOf(node.key) : OTHER_COLOR,
+		echartOptions: {
+			// The point for the bucket in progress carries its own opacity.
+			data: buckets.map((b) => ({
+				value: [b, node.by_bucket?.[b] || 0],
+				itemStyle: b === currentBucket.value ? { opacity: 0.7 } : {},
+			})),
+			itemStyle: { ...border, borderRadius: i === last ? [2, 2, 0, 0] : 0 },
+			// One label per stack, on its top segment, reading the bucket total.
+			label: i === last
+				? { show: true, position: "top", fontSize: 11, color: "#4b5563",
+					formatter: (p) => (bucketTotals.value[p.value[0]] ? fmtCost(bucketTotals.value[p.value[0]]) : "") }
+				: { show: false },
+		},
 	}))
-	if (otherNodes.value.length) {
-		series.push({
-			name: "Other", type: "bar", stackName: "cost", color: OTHER_COLOR,
-			echartOptions: { itemStyle: { borderColor: "#ffffff", borderWidth: 2 } },
-		})
-	}
+	const perRow = isPhone.value ? 2 : 5
+	const legendRows = Math.ceil(series.length / perRow)
 	return {
 		data,
-		title: "",
-		xAxis: { key: "bucket", type: "category" },
-		yAxis: { title: "Cost" },
+		title: `Cost by ${groupLabel.value}`,
+		subtitle: `${rangeLabel.value}, ${report.value.grain}ly`,
+		xAxis: {
+			key: "date", type: "time", timeGrain: report.value.grain || "day",
+			// One tick per bucket; the time axis would otherwise tick every few days.
+			echartOptions: { minInterval: (report.value.grain === "month" ? 28 : 7) * 86400000 },
+		},
+		yAxis: { title: "Cost (USD)" },
 		stacked: true,
 		series,
+		echartOptions: {
+			legend: series.length > 1 ? { type: "plain", bottom: 0 } : { show: false },
+			grid: { bottom: series.length > 1 ? 16 + 22 * legendRows : 16, top: 64 },
+			tooltip: { formatter: barTooltip },
+		},
 	}
 })
 
-const donutConfig = computed(() => {
-	const slices = charted.value.map((node) => ({ label: node.label, value: node.cost, key: node.key }))
-	if (otherNodes.value.length) {
-		slices.push({
-			label: "Other",
-			value: otherNodes.value.reduce((sum, n) => sum + n.cost, 0),
-			key: "",
-		})
-	}
-	// The donut sorts its slices by value and applies colours in that order, so
-	// the colours are handed over in the same order to stay on their entity.
-	slices.sort((a, b) => b.value - a.value)
+function barTooltip(params) {
+	const points = (Array.isArray(params) ? params : [params]).filter((p) => p.value?.[1])
+	if (!points.length) return ""
+	const bucket = points[0].value[0]
+	const buckets = report.value.buckets || []
+	const idx = buckets.indexOf(bucket)
+	const rows = points
+		.sort((a, b) => b.value[1] - a.value[1])
+		.map((p) => `<div class="flex items-center justify-between gap-5">
+			<div class="flex gap-1 items-center">${p.marker}<div>${p.seriesName}</div></div>
+			<div class="font-bold">${fmtCost(p.value[1])}</div></div>`)
+	return `<div>${bucketLabel(bucket, buckets[idx + 1])}</div>${rows.join("")}
+		<div class="flex items-center justify-between gap-5 border-t mt-1 pt-1">
+			<div>Total</div><div class="font-bold">${fmtCost(bucketTotals.value[bucket] || 0)}</div></div>`
+}
+
+// Share donut, drawn directly: the shared DonutChart cannot show cost in its
+// legend or name the top share in the centre.
+const donutOptions = computed(() => {
+	const slices = seriesNodes.value
+		.map((n) => ({ name: n.label, value: n.cost, key: n.key }))
+		.sort((a, b) => b.value - a.value)
+	const total = slices.reduce((t, x) => t + x.value, 0)
+	const top = slices[0]
+	const pct = (v) => (total ? Math.round((v / total) * 100) : 0)
 	return {
-		data: slices,
-		title: "",
-		categoryColumn: "label",
-		valueColumn: "value",
-		colors: slices.map((s) => (s.key ? colorOf(s.key) : OTHER_COLOR)),
+		animation: true,
+		textStyle: { fontFamily: ["InterVar", "sans-serif"] },
+		color: slices.map((x) => (x.key ? colorOf(x.key) : OTHER_COLOR)),
+		title: {
+			text: `Share by ${groupLabel.value}`, subtext: fmtCost(total), left: 0, top: 0, padding: 0,
+			textStyle: { fontSize: 14, fontWeight: 500, color: "#374151" },
+			subtextStyle: { fontSize: 13, color: "#6b7280" },
+		},
+		graphic: top ? [{
+			type: "text", left: "center", top: "44%",
+			style: { text: `${pct(top.value)}%\n${top.name}`, textAlign: "center", fontSize: 12,
+				lineHeight: 16, fill: "#4b5563", width: 90, overflow: "truncate" },
+		}] : [],
+		legend: {
+			type: "plain", bottom: 0, icon: "circle", itemGap: 8,
+			textStyle: { color: "#374151", fontSize: 11 },
+			formatter: (name) => {
+				const x = slices.find((y) => y.name === name)
+				return x ? `${name}  ${fmtCost(x.value)} · ${pct(x.value)}%` : name
+			},
+		},
+		tooltip: {
+			trigger: "item", confine: true,
+			formatter: (p) => `<div class="flex items-center justify-between gap-5"><div>${p.name}</div>
+				<div class="font-bold">${fmtCost(p.value)} (${pct(p.value)}%)</div></div>`,
+		},
+		series: [{
+			type: "pie", radius: ["46%", "68%"], center: ["50%", "48%"],
+			itemStyle: { borderColor: "#ffffff", borderWidth: 2 },
+			label: { show: false }, emphasis: { scaleSize: 4 },
+			data: slices.map((x) => ({ name: x.name, value: x.value })),
+		}],
 	}
 })
 
