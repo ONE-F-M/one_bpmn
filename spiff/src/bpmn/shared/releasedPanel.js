@@ -40,13 +40,15 @@ export function isEditableProperty(key) {
 }
 
 /**
- * Is this moddle update the flow's condition? The conditions panel mutates the
- * expression element's body and then announces the change with the expression
- * as the moddle element and no properties, so it is recognised by identity
- * rather than by key.
+ * Is this the condition of a flow or conditional event? The panel announces the
+ * expression itself as the moddle element with no properties, so match by identity.
  */
 export function isConditionUpdate(bo, moddleElement) {
-	return !!bo && bo.$type === "bpmn:SequenceFlow" && !!moddleElement && moddleElement === bo.conditionExpression;
+	if (!bo || !moddleElement) return false;
+	if (bo.$type === "bpmn:SequenceFlow") return moddleElement === bo.conditionExpression;
+	return (bo.eventDefinitions || []).some(
+		(definition) => definition.$type === "bpmn:ConditionalEventDefinition" && definition.condition === moddleElement
+	);
 }
 
 /** The single element whose panel is showing, or null. */

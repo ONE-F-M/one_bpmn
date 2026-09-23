@@ -33,11 +33,12 @@
 #     It is a reference to another element, and one that does not name a flow
 #     off that gateway dead-ends the map.
 #
-# A sequence flow's condition and name ARE editable here. A wrong condition
-# takes the wrong branch, which is a routing mistake and not a broken map: it
-# still compiles, and editing again puts it right. Releasing the panel is for
-# exactly this kind of non-breaking correction, and a condition that can only
-# be fixed by unlocking the whole process is the wrong side of that line.
+# A sequence flow's condition and name ARE editable here, as is a conditional
+# event's condition. A wrong condition takes the wrong branch, which is a
+# routing mistake and not a broken map: it still compiles, and editing again
+# puts it right. Releasing the panel is for exactly this kind of non-breaking
+# correction, and a condition that can only be fixed by unlocking the whole
+# process is the wrong side of that line.
 #
 # Changes are audited by the document's own version history and nothing else.
 # BPMN Process Model has track_changes enabled, so saving the map records a
@@ -65,8 +66,7 @@ LOCKED_ELEMENTS = ("scriptTask",)
 BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
 
-# A flow's condition is a child element, not an attribute, so it is read and
-# written by name here rather than through the attribute path below.
+# A child element, not an attribute; the panel sends it under this key for flows and conditional events.
 CONDITION = "conditionExpression"
 
 AI_AGENT_SERVICE_TYPE = "ai_agent"
@@ -109,8 +109,19 @@ def blocked_attr(name: str) -> bool:
 	return name in LOCKED_ATTRS or "script" in name.lower()
 
 
+def _condition_holder(node):
+	"""(element, child tag) a condition lives under, or None if this node has none."""
+	if etree.QName(node).localname == "sequenceFlow":
+		return node, CONDITION
+	definition = node.find(f"{{{BPMN_NS}}}conditionalEventDefinition")
+	if definition is not None:
+		return definition, "condition"
+	return None
+
+
 def _condition_node(node):
-	return node.find(f"{{{BPMN_NS}}}{CONDITION}")
+	holder, tag = _condition_holder(node)
+	return holder.find(f"{{{BPMN_NS}}}{tag}")
 
 
 def _read(node, names) -> dict:
@@ -126,22 +137,22 @@ def _read(node, names) -> dict:
 
 
 def _write_condition(node, value):
-	"""Set, replace or remove the flow's condition.
+	"""Set, replace or remove the condition on a flow or a conditional event.
 
-	Written the way bpmn-js writes one — a tFormalExpression — so the map reads
-	the same whether the condition was drawn or corrected here. The schema puts
-	conditionExpression last among a flow's children, so a new one is appended.
+	Written as a tFormalExpression, appended last, the way bpmn-js writes one.
 	"""
-	found = _condition_node(node)
-	if value in (None, ""):
+	holder, tag = _condition_holder(node)
+	found = holder.find(f"{{{BPMN_NS}}}{tag}")
+	# A conditional event without a condition element fails to compile, so an event keeps an empty one.
+	if value in (None, "") and holder is node:
 		if found is not None:
 			node.remove(found)
 		return
 	if found is None:
-		found = etree.SubElement(node, f"{{{BPMN_NS}}}{CONDITION}")
-		prefix = next((p for p, ns in node.nsmap.items() if ns == BPMN_NS and p), None)
+		found = etree.SubElement(holder, f"{{{BPMN_NS}}}{tag}")
+		prefix = next((p for p, ns in holder.nsmap.items() if ns == BPMN_NS and p), None)
 		found.set(f"{{{XSI_NS}}}type", f"{prefix}:tFormalExpression" if prefix else "tFormalExpression")
-	found.text = str(value)
+	found.text = str(value or "")
 
 
 @frappe.whitelist(methods=["POST"])
@@ -191,8 +202,8 @@ def update_element_properties(model_name: str, element_id: str, properties) -> d
 	reason = locked_reason(node)
 	if reason:
 		frappe.throw(reason, title=_("Read-only"))
-	if CONDITION in properties and etree.QName(node).localname != "sequenceFlow":
-		frappe.throw(_("Only a sequence flow carries a condition."))
+	if CONDITION in properties and _condition_holder(node) is None:
+		frappe.throw(_("Only a sequence flow or a conditional event carries a condition."))
 
 	names = list(properties)
 	before = _read(node, names)

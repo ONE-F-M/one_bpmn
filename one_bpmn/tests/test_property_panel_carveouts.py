@@ -27,6 +27,12 @@ XML = """<?xml version="1.0" encoding="UTF-8"?>
                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                   id="defs_zz" targetNamespace="http://bpmn.io/schema/bpmn">
   <bpmn:process id="zz_proc" isExecutable="true">
+    <bpmn:startEvent id="zz_start" name="Request raised">
+      <bpmn:conditionalEventDefinition id="zz_start_def">
+        <bpmn:condition xsi:type="bpmn:tFormalExpression">document_type == "SOP"</bpmn:condition>
+      </bpmn:conditionalEventDefinition>
+    </bpmn:startEvent>
+    <bpmn:startEvent id="zz_plain_start" />
     <bpmn:userTask id="zz_user" name="Approve the thing" />
     <bpmn:serviceTask id="zz_service" name="Set the state"
                       spiffworkflow:serviceType="apply_workflow" />
@@ -129,6 +135,23 @@ class TestWhatItAllows(CarveOutCase):
 		P.update_element_properties(self.model, "zz_flow_yes", {"name": "Over the limit"})
 		self.assertIn('name="Over the limit"', self._xml())
 
+	def test_a_conditional_start_event_condition_can_be_replaced(self):
+		"""The guard deciding which documents start the map, held inside its
+		conditionalEventDefinition rather than on the event."""
+		out = P.update_element_properties(self.model, "zz_start", {"conditionExpression": "True"})
+		self.assertTrue(out["updated"])
+		xml = self._xml()
+		self.assertIn('tFormalExpression">True</bpmn:condition>', xml)
+		self.assertNotIn('document_type == "SOP"', xml)
+		self.assertEqual(xml.count("<bpmn:condition "), 1, "replaced, not added beside the old one")
+
+	def test_clearing_an_event_condition_keeps_it_compilable(self):
+		"""Spiff refuses a conditional event with no condition element at all."""
+		P.update_element_properties(self.model, "zz_start", {"conditionExpression": ""})
+		xml = self._xml()
+		self.assertIn("<bpmn:condition ", xml)
+		self.assertNotIn('document_type == "SOP"', xml)
+
 	def test_an_unchanged_condition_is_not_a_change(self):
 		out = P.update_element_properties(self.model, "zz_flow_yes", {"conditionExpression": "amount > 100"})
 		self.assertFalse(out["updated"])
@@ -153,8 +176,9 @@ class TestWhatItRefuses(CarveOutCase):
 		calledElement rather than with the flow's own editable condition."""
 		self._refused("zz_gw", {"default": "zz_flow_yes"})
 
-	def test_a_condition_belongs_to_a_flow_only(self):
+	def test_a_condition_belongs_to_a_flow_or_conditional_event_only(self):
 		self._refused("zz_user", {"conditionExpression": "approved == True"})
+		self._refused("zz_plain_start", {"conditionExpression": "approved == True"})
 
 	def test_the_id_cannot_be_changed(self):
 		"""Every flow, the compiled spec and every running instance reference it."""
