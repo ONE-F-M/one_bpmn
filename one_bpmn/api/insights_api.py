@@ -8,7 +8,7 @@ frappe.qb (Query Builder) exclusively — no raw SQL.
 """
 from __future__ import annotations
 
-from collections import OrderedDict, defaultdict
+from collections import defaultdict
 from datetime import timedelta
 from typing import Optional
 
@@ -74,12 +74,12 @@ def _bucket_start(d, grain: str):
 
 def _bucket_labels(from_d, to_d, grain: str) -> list:
 	"""Ordered, de-duplicated bucket-start labels spanning the range."""
-	labels = OrderedDict()
+	labels = {}
 	d = from_d
 	while d <= to_d:
 		labels[cstr(_bucket_start(d, grain))] = True
 		d = getdate(add_days(cstr(d), 1))
-	return list(labels.keys())
+	return list(labels)
 
 
 def _apply_common_filters(query, Run, model=None, provider=None, process_model=None, agent_configuration=None):
@@ -103,7 +103,7 @@ def _usage_totals(
 	process_model: str = None,
 	agent_configuration: str = None,
 ) -> dict:
-	"""Aggregate usage metrics for one period, per the WI-000455 definitions."""
+	"""Aggregate usage metrics for one period, per the usage metric definitions."""
 	Run = DocType("AI Agent Run")
 	query = (
 		frappe.qb.from_(Run)
@@ -236,12 +236,13 @@ def _series_rows(
 ) -> list:
 	"""Per-group usage totals for the cost/token report's ``series`` array."""
 	Run = DocType("AI Agent Run")
-	group_field = Run.agent_configuration if group_by == "agent" else Run.model
+	group_fields = [Run.agent_configuration] if group_by == "agent" else [Run.model, Run.provider]
 	query = (
 		frappe.qb.from_(Run)
 		.select(
-			group_field.as_("group_key"),
-			Run.provider,
+			group_fields[0].as_("group_key"),
+			fn.Min(Run.provider).as_("provider_min"),
+			fn.Max(Run.provider).as_("provider_max"),
 			fn.Count("*").as_("runs"),
 			fn.Sum(Run.estimated_cost).as_("cost"),
 			fn.Sum(Run.total_tokens).as_("tokens"),
@@ -253,7 +254,7 @@ def _series_rows(
 		.where(fn.Date(Run.started_at) >= from_d)
 		.where(fn.Date(Run.started_at) <= to_d)
 		.where(_origin_condition(Run, origin))
-		.groupby(group_field, Run.provider)
+		.groupby(*group_fields)
 	)
 	query = _apply_common_filters(query, Run, model, provider, process_model, agent_configuration)
 	raw_rows = query.run(as_dict=True)
@@ -262,12 +263,17 @@ def _series_rows(
 	series = []
 	for r in raw_rows:
 		name = cstr(r.get("group_key")) or unattributed
+		provider_min = cstr(r.get("provider_min"))
+		# An agent row names its provider only when all its runs share one; Unattributed never does.
+		row_provider = provider_min if provider_min == cstr(r.get("provider_max")) else ""
+		if group_by == "agent" and not r.get("group_key"):
+			row_provider = ""
 		prompt_tokens = cint(r.get("prompt_tokens"))
 		cache_read_tokens = cint(r.get("cache_read_tokens"))
 		cache_write_tokens = cint(r.get("cache_write_tokens"))
 		series.append({
 			"name": name,
-			"provider": cstr(r.get("provider")) or None,
+			"provider": row_provider or None,
 			"runs": cint(r.get("runs")),
 			"cost": flt(r.get("cost"), 6),
 			"tokens": cint(r.get("tokens")),
@@ -279,9 +285,8 @@ def _series_rows(
 
 
 def _filter_options(from_d, to_d, origin: str) -> dict:
-	"""Distinct filter values available in the range, filtered by range and
-	origin only \u2014 not by the other filters (so a narrowed query still shows
-	every value a user could pick)."""
+	"""Distinct filter values in the range, filtered by range and origin only.
+	The other filters are not applied, so a narrowed query still lists every value."""
 	Run = DocType("AI Agent Run")
 
 	def _distinct(field):
@@ -320,15 +325,8 @@ def get_agent_overview(
 	process_model: str = None,
 	origin: str = "production",
 ) -> dict:
-	"""Return the overview number cards.
-
-	Pass *agent_configuration* to scope every metric to one agent's runs
-	(WI-001636). *origin* segments the metrics: "production" (default),
-	"eval", or "all" (WI-001751). *from_date*/*to_date* select the range for
-	every metric except ``runs_today``/``active_errors``, which always stay
-	today-only. The legacy *days* parameter is ignored (a deprecation
-	warning is logged once) in favour of from_date/to_date.
-	"""
+	"""Return the overview number cards for the from_date/to_date range and filters.
+	runs_today and active_errors always cover today only. The days parameter is ignored."""
 	frappe.only_for("System Manager")
 	if days is not None:
 		frappe.logger("one_bpmn").warning(
@@ -361,8 +359,7 @@ def get_agent_overview(
 	previous = _usage_totals(previous_from, previous_to, origin, model, provider, process_model, agent_configuration)
 	delta = _compute_deltas(current, previous)
 
-	# Avg latency (successful runs) over the range \u2014 legacy metric, not part
-	# of the shared _usage_totals metrics dict.
+	# Avg latency of successful runs over the range; legacy key, not part of _usage_totals.
 	avg_latency_query = (
 		frappe.qb.from_(Run)
 		.select(fn.Avg(Run.duration_ms))
@@ -425,7 +422,7 @@ def get_cost_token_report(
 
 	Run = DocType("AI Agent Run")
 
-	# The series dimension: model (classic) or the run's agent (WI-001608).
+	# The series dimension: model (classic) or the run's agent.
 	group_field = Run.agent_configuration if group_by == "agent" else Run.model
 
 	query = (
@@ -478,8 +475,7 @@ def get_cost_token_report(
 			"output_cost": flt(r.get("output_cost"), 6),
 		})
 
-	# Build chart_data — pivot by the grouped dimension per bucket (day,
-	# week, or month, per the range's grain).
+	# Pivot chart_data by the grouped dimension per day, week or month bucket.
 	bucket_labels = _bucket_labels(from_d, to_d, grain)
 
 	series_bucket_cost = defaultdict(lambda: defaultdict(float))
@@ -500,7 +496,7 @@ def get_cost_token_report(
 			"tokens": [cint(series_bucket_tokens[m].get(b, 0)) for b in bucket_labels],
 		})
 
-	# Summary — unchanged legacy shape.
+	# Summary keeps the legacy shape.
 	summary_cost = sum(r["total_cost"] for r in rows)
 	summary_runs = sum(r["total_runs"] for r in rows)
 	summary_tokens = sum(r["total_tokens"] for r in rows)
