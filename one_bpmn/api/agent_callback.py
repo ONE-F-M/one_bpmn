@@ -107,11 +107,11 @@ def report_result() -> dict:
 
 	# A real test failure gets one automatic re-dispatch instead of resuming
 	# the waiting agent straight away — a flaky test should not throw away a
-	# correct change (WI-002264/etc.). ops.retry_dispatch only returns False
-	# when the retry itself could not even be sent (no sandbox URL, no
-	# token, the POST itself failed) — in that case fall through to the
-	# normal resume on the ORIGINAL failure below, or the agent would be
-	# left waiting forever for a callback that can now never arrive.
+	# correct change. ops.retry_dispatch only returns False when the retry
+	# itself could not even be sent (no sandbox URL, no token, the POST
+	# itself failed) — in that case fall through to the normal resume on
+	# the ORIGINAL failure below, or the agent would be left waiting
+	# forever for a callback that can now never arrive.
 	if status == "tests_failed":
 		from one_bpmn.one_bpmn.connectors import agent_sandbox_ops as ops
 
@@ -228,10 +228,10 @@ def _create_sandbox_ai_agent_run(run, payload: dict) -> str | None:
 		"final_output": (payload.get("agent_report") or "")[:65536],
 		"correlation_id": run.name,
 		# The caller's own turn, so cost/tokens roll up to whatever delegated
-		# this work (WI-002249) instead of the sandbox's coding loop reading
-		# as an unrelated, unattributed run. Blank when this dispatch came
-		# from a plain top-level Service Task rather than an ai_agent tool
-		# call — there is no caller run to attach to in that case.
+		# this work instead of the sandbox's coding loop reading as an
+		# unrelated, unattributed run. Blank when this dispatch came from a
+		# plain top-level Service Task rather than an ai_agent tool call —
+		# there is no caller run to attach to in that case.
 		"parent_run": run.caller_agent_run,
 	})
 	try:

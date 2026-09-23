@@ -368,7 +368,7 @@ class TestSandboxDispatch(AgentSandboxCase):
 class TestRetryPolicy(AgentSandboxCase):
 	"""retry_eligible/retry_dispatch — the once-only automatic re-dispatch
 	agent_callback.report_result() falls back to on status == "tests_failed",
-	instead of resuming the waiting caller straight away (WI-002264)."""
+	instead of resuming the waiting caller straight away."""
 
 	def setUp(self):
 		super().setUp()

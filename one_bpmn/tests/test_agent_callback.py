@@ -424,8 +424,8 @@ class TestSandboxAiAgentRun(CallbackCase):
 
 class TestRetryOnTestFailure(CallbackCase):
 	"""report_result()'s automatic once-only retry on status == "tests_failed"
-	(WI-002264) — a flaky test should not throw away a correct change. Every
-	real sandbox call is mocked out here (retry_dispatch itself has its own
+	— a flaky test should not throw away a correct change. Every real
+	sandbox call is mocked out here (retry_dispatch itself has its own
 	coverage in test_agent_sandbox_ops.py); this suite only checks report_result
 	routes to it correctly and always falls back to resuming the waiting
 	caller when the retry cannot be dispatched."""
