@@ -1,6 +1,9 @@
 <template>
 	<div class="bg-white rounded-lg border border-gray-200 p-4">
-		<div v-if="loading" class="space-y-3 animate-pulse">
+		<div
+			v-if="loading"
+			class="space-y-3 animate-pulse"
+		>
 			<div class="h-3 bg-gray-200 rounded w-20"></div>
 			<div class="h-7 bg-gray-200 rounded w-16"></div>
 		</div>
@@ -15,15 +18,30 @@
 					{{ deltaText }}
 				</span>
 			</div>
-			<div class="text-2xl font-bold text-gray-900" :title="valueTitle || undefined">{{ value }}</div>
-			<div v-if="subtitle" class="text-xs text-gray-500 mt-1">{{ subtitle }}</div>
+			<div
+				class="text-2xl font-bold text-gray-900"
+				:title="valueTitle || undefined"
+			>
+				{{ value }}
+			</div>
+			<div
+				v-if="subtitle"
+				class="text-xs text-gray-500 mt-1"
+			>
+				{{ subtitle }}
+			</div>
 			<svg
-				v-if="sparkline && sparkline.length > 1"
+				v-if="hasSparkline"
 				viewBox="0 0 100 24"
 				preserveAspectRatio="none"
 				class="w-full h-6 mt-2 text-gray-400"
 			>
-				<polyline :points="sparkPoints" fill="none" stroke="currentColor" stroke-width="1.5" />
+				<polyline
+					:points="sparkPoints"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.5"
+				/>
 			</svg>
 		</template>
 	</div>
@@ -63,6 +81,8 @@ const deltaClasses = computed(() => {
 		gray: "bg-gray-100 text-gray-600",
 	}[deltaTone.value]
 })
+
+const hasSparkline = computed(() => Array.isArray(props.sparkline) && props.sparkline.length > 1)
 
 const sparkPoints = computed(() => {
 	const data = props.sparkline

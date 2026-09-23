@@ -29,7 +29,7 @@ test("fmtCurrency: below 1, 4 decimals", () => {
 	assert.equal(fmtCurrency(0.0328), "$0.0328")
 })
 
-test("fmtCurrency: below 1, another value", () => {
+test("fmtCurrency: 1 and above, 2 decimals", () => {
 	assert.equal(fmtCurrency(42.18), "$42.18")
 })
 
