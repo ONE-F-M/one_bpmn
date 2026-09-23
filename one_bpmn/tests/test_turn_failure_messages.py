@@ -105,3 +105,27 @@ class TestTurnFailureMessages(FrappeTestCase):
 		self.assertTrue(kwargs["defer_insert"])
 		self.assertIn(self.instance, kwargs["message"])
 		self.assertIn("Active", kwargs["message"])
+
+	def _bot_message(self, text):
+		message = frappe.get_doc(
+			{"doctype": "Chat Message", "conversation": CONVERSATION, "message_type": "Bot", "text": text}
+		)
+		message.db_insert()
+		return message.name
+
+	def test_a_saved_fallback_reply_carries_the_reason(self):
+		self._run("Error", "TURN_CAP_REACHED", "turn cap exhausted")
+		fallback = "I couldn't generate a response. Please try again."
+		message_name = self._bot_message(fallback)
+		result = SSA._note_turn_failure(
+			{"response": fallback, "message_name": message_name}, self.instance, self.turn_started
+		)
+		self.assertIn(fallback, result["response"])
+		self.assertIn("tool-call limit", result["response"])
+		self.assertEqual(result["error_code"], "TURN_CAP_REACHED")
+		self.assertIn("tool-call limit", frappe.db.get_value("Chat Message", message_name, "text"))
+
+	def test_a_good_reply_is_left_alone(self):
+		self._run("Success")
+		result = SSA._note_turn_failure({"response": "5"}, self.instance, self.turn_started)
+		self.assertEqual(result, {"response": "5"})

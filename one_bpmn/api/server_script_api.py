@@ -262,7 +262,7 @@ def _delegate_to_bpmn_instance(
 		_raise_if_turn_failed(inst_name, turn_started)
 		return None
 
-	return _shape_reply(rows, inst_name)
+	return _note_turn_failure(_shape_reply(rows, inst_name), inst_name, turn_started)
 
 
 def collect_chat_turn_reply(handle: dict, task_output=None) -> dict | None:
@@ -292,7 +292,10 @@ def collect_chat_turn_reply(handle: dict, task_output=None) -> dict | None:
 			_raise_if_turn_failed(inst_name, handle["turn_started"])
 		# A map that persists no Bot message still has a reply to give.
 		return _reply_from_task_output(task_output, inst_name) if task_output else None
-	return _shape_reply(rows, inst_name, task_output)
+	result = _shape_reply(rows, inst_name, task_output)
+	if handle.get("turn_started"):
+		return _note_turn_failure(result, inst_name, handle["turn_started"])
+	return result
 
 
 def _reply_from_task_output(task_output, inst_name: str) -> dict | None:
@@ -353,6 +356,25 @@ def _shape_reply(rows, inst_name: str, task_output=None) -> dict:
 
 def _raise_if_turn_failed(inst_name: str, turn_started) -> None:
 	"""Throw what went wrong with this turn's agent run, when it errored or is still running."""
+	run = _latest_turn_run(inst_name, turn_started)
+	if run and run.status in ("Error", "Running"):
+		frappe.throw(_turn_failure_message(run), title=_("Agent turn failed"))
+
+
+def _note_turn_failure(result: dict, inst_name: str, turn_started) -> dict:
+	"""Add the failed run's reason to a reply the map saved anyway, on the result and the saved message."""
+	run = _latest_turn_run(inst_name, turn_started)
+	if not run or run.status != "Error":
+		return result
+	result["response"] = f"{result.get('response') or ''}\n\n{_turn_failure_message(run)}".strip()
+	result["error_code"] = run.error_code
+	if result.get("message_name"):
+		frappe.db.set_value("Chat Message", result["message_name"], "text", result["response"])
+	return result
+
+
+def _latest_turn_run(inst_name: str, turn_started):
+	"""The newest top-level AI Agent Run this turn started on the instance, or None."""
 	runs = frappe.get_all(
 		"AI Agent Run",
 		filters={"instance": inst_name, "parent_run": ["is", "not set"], "creation": [">=", turn_started]},
@@ -360,22 +382,22 @@ def _raise_if_turn_failed(inst_name: str, turn_started) -> None:
 		order_by="creation desc",
 		limit=1,
 	)
-	if not runs or runs[0].status not in ("Error", "Running"):
-		return
-	run = runs[0]
+	return runs[0] if runs else None
+
+
+def _turn_failure_message(run) -> str:
+	"""A user-facing sentence for a run that errored or is still running."""
 	if run.status == "Running":
-		message = _(
+		return _(
 			"The agent is still working on this message. Reload the conversation in a few minutes to see its reply."
 		)
-	elif run.error_code == "TURN_CAP_REACHED":
-		message = _("The agent hit its tool-call limit before it finished. Try a smaller request.")
-	elif run.error_code == "TIMEOUT":
-		message = _("The model timed out before it answered. Please try again.")
-	else:
-		message = _("The agent could not answer ({0}): {1}").format(
-			run.error_code or _("unknown error"), escape_html((run.error_message or "")[:300])
-		)
-	frappe.throw(message, title=_("Agent turn failed"))
+	if run.error_code == "TURN_CAP_REACHED":
+		return _("The agent hit its tool-call limit before it finished. Try a smaller request.")
+	if run.error_code == "TIMEOUT":
+		return _("The model timed out before it answered. Please try again.")
+	return _("The agent could not answer ({0}): {1}").format(
+		run.error_code or _("unknown error"), escape_html((run.error_message or "")[:300])
+	)
 
 
 def _parked_for_human(inst_name: str, conversation_name: str) -> dict | None:
