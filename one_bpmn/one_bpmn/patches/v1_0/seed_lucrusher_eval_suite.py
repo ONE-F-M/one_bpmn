@@ -138,12 +138,13 @@ CASES = [
 			],
 			"session_state": {f"lucid_doc:{LUCID_DOC_ID}": PARSED_DOC},
 		},
-		"calls": [_call(1, "finalize", "intent", "regex", "^LUCIDCHART_(PARSED|METADATA_ONLY)$")],
+		"calls": [_call(1, "finalize", "intent", "regex", "^(CLARIFY|LUCIDCHART_PARSED|LUCIDCHART_METADATA_ONLY)$")],
 		"assertions": [
 			IN_ORDER,
+			{"assertion_type": "no_tool_call", "value": "fetch_lucidchart_document,scan_codebase_for_process"},
 			_judge(
-				"The reply treats the Visa Process document as already loaded: it may list its two pages, "
-				"and it does not report an error or say it had to fetch or parse the document again."
+				"The reply tells the user the Visa Process document is already loaded and waits for their next "
+				"instruction. It does not report an error, say it fetched the document again, or start a codebase scan."
 			),
 		],
 	},
