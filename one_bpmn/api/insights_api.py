@@ -287,7 +287,7 @@ def _filter_options(from_d, to_d, origin: str) -> dict:
 	def _distinct(field):
 		query = (
 			frappe.qb.from_(Run)
-			.select(field)
+			.select(field.as_("value"))
 			.distinct()
 			.where(fn.Date(Run.started_at) >= from_d)
 			.where(fn.Date(Run.started_at) <= to_d)
@@ -295,7 +295,7 @@ def _filter_options(from_d, to_d, origin: str) -> dict:
 			.where(field.isnotnull())
 			.where(field != "")
 		)
-		return sorted({cstr(r.get(list(r.keys())[0])) for r in query.run(as_dict=True)})
+		return sorted({cstr(r.get("value")) for r in query.run(as_dict=True)})
 
 	return {
 		"models": _distinct(Run.model),
