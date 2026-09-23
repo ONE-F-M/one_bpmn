@@ -39,14 +39,15 @@ PROC_INSTANCE = "ALLOC-T-INST-PROC"
 SEAT_ROLE = "Chat User"
 TITLE_MARK = "ALLOC T SECRET"
 
-# One calendar month, starting on a Wednesday so the first week bucket has to
-# be clipped to the range rather than reaching back to its Monday.
+# One calendar month starting on a Wednesday, so the first week bucket is clipped.
 A_FROM, A_TO = "2015-06-03", "2015-06-21"
-# The window the prior-period comparison reads: 2015-05-15 to 2015-06-02.
+
 # Three months, for the month grain.
 C_FROM, C_TO = "2015-04-01", "2015-06-30"
 # A month of chat only, with enough users for one department to overflow.
 B_FROM, B_TO = "2015-08-01", "2015-08-31"
+# A month whose heaviest chat run belongs to a deleted conversation.
+D_FROM, D_TO = "2015-10-01", "2015-10-31"
 
 NOW = "2015-01-01 00:00:00"
 
@@ -96,25 +97,20 @@ def _chat_run(name: str, instance: str, started_at: str, cost: float, **kwargs) 
 class TestInsightsAllocation(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
+		# Nothing is committed, so the class rollback removes every fixture even after a crash.
 		super().setUpClass()
 		_wipe()
 		cls._build()
-		frappe.db.commit()
-
-	@classmethod
-	def tearDownClass(cls):
-		_wipe()
-		frappe.db.commit()
-		super().tearDownClass()
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
 
-	# -- fixtures ----------------------------------------------------------
+	# Fixtures
 	@classmethod
 	def _build(cls):
-		for role in (SEAT_ROLE,):
-			_insert("Role", role, role_name=role, disabled=0)
+		cls.seats_before = frappe.db.count("Has Role", {"role": SEAT_ROLE, "parenttype": "User"})
+		if not frappe.db.exists("Role", SEAT_ROLE):
+			_insert("Role", SEAT_ROLE, role_name=SEAT_ROLE, disabled=0)
 
 		# 41 people could chat; 27 of them do, in the August window.
 		cls.chat_users = [f"alloc-t-u{i}@example.com" for i in range(1, 42)]
@@ -152,8 +148,7 @@ class TestInsightsAllocation(FrappeTestCase):
 		     model="alloc-t-unpriced")
 		_run("ALLOC-T-REVAL", "2015-06-06 09:00:00", 1.0, origin="eval")
 
-		# Chat axis, window A: two users, two departments, two agents each,
-		# plus a blank agent_mode and a two-participant conversation.
+		# Chat axis, window A: two users and departments, two agents each, a blank agent, a shared chat.
 		c1 = _conversation("ALLOC-T-C1", cls.chat_users[0], "Logix",
 		                   participants=[cls.chat_users[0], cls.chat_users[1]])
 		c2 = _conversation("ALLOC-T-C2", cls.chat_users[0], "Docu")
@@ -179,7 +174,14 @@ class TestInsightsAllocation(FrappeTestCase):
 			instance = _conversation(f"ALLOC-T-B{i}", user, "Logix")
 			_chat_run(f"ALLOC-T-BR{i}", instance, "2015-08-05 09:00:00", costs[i])
 
-	# -- process axis ------------------------------------------------------
+		instance = _conversation("ALLOC-T-D1", cls.chat_users[0], "Logix")
+		_chat_run("ALLOC-T-DR1", instance, "2015-10-05 09:00:00", 1.0)
+		_insert("BPMN Process Instance", "ALLOC-T-D-GONE-INST", process_model=ROSTER_MODEL,
+		        status="Completed", context_doctype="Chat Conversation",
+		        context_docname="ALLOC-T-D-GONE")
+		_chat_run("ALLOC-T-DR2", "ALLOC-T-D-GONE-INST", "2015-10-06 09:00:00", 50.0)
+
+	# Process axis
 	def test_department_tree_nests_owner_then_process(self):
 		tree = _tree(group_by="department")
 		self.assertEqual([n["label"] for n in tree], [OPS, FIN])
@@ -227,10 +229,18 @@ class TestInsightsAllocation(FrappeTestCase):
 		self.assertEqual(report["previous"]["to_date"], "2015-06-02")
 		self.assertEqual(flt(report["previous"]["cost"], 2), 8.0)
 
+	def test_a_month_to_date_range_compares_with_the_same_days_last_month(self):
+		report = _report(from_date="2015-06-01", to_date="2015-06-21")
+		self.assertEqual(report["previous"]["from_date"], "2015-05-01")
+		self.assertEqual(report["previous"]["to_date"], "2015-05-21")
+		self.assertEqual(flt(report["previous"]["cost"], 2), 8.0)
+		whole = _report(from_date="2015-06-01", to_date="2015-06-30")["previous"]
+		self.assertEqual([whole["from_date"], whole["to_date"]], ["2015-05-01", "2015-05-31"])
+
 	def test_a_node_with_no_prior_spend_has_no_percentage(self):
 		ops, fin = _tree(group_by="department")
 		self.assertEqual(flt(ops["previous_cost"], 2), 8.0)
-		self.assertEqual(ops["delta"], 1.0)  # 16.00 against 8.00
+		self.assertEqual(ops["delta"], 100.0)  # 16.00 against 8.00, in percent
 		self.assertEqual(flt(fin["previous_cost"], 2), 0.0)
 		self.assertIsNone(fin["delta"])
 
@@ -274,9 +284,10 @@ class TestInsightsAllocation(FrappeTestCase):
 	def test_chat_spend_is_named_as_the_other_axis_not_dropped(self):
 		report = _report()
 		self.assertEqual(flt(report["totals"]["other_axis_cost"], 2), 6.75)
-		self.assertEqual(flt(_report(axis="chat_user")["totals"]["other_axis_cost"], 2), 22.5)
+		# Only what the process axis bills: the 2.50 run with no process model is unallocated there.
+		self.assertEqual(flt(_report(axis="chat_user")["totals"]["other_axis_cost"], 2), 20.0)
 
-	# -- chat axis ---------------------------------------------------------
+	# Chat axis
 	def test_chat_tree_nests_user_then_agent(self):
 		tree = _tree(axis="chat_user", group_by="department")
 		self.assertEqual([n["label"] for n in tree], [OPS, FIN])
@@ -320,13 +331,26 @@ class TestInsightsAllocation(FrappeTestCase):
 	def test_chat_totals_report_seats_against_the_people_using_them(self):
 		totals = _report(axis="chat_user", from_date=B_FROM, to_date=B_TO)["totals"]
 		self.assertEqual(totals["active_users"], 27)
-		self.assertEqual(totals["seats"], 41)
+		self.assertEqual(totals["seats"], self.seats_before + 41)
 		self.assertEqual(totals["conversations"], 27)
 		self.assertEqual(flt(totals["cost"], 2), 88.0)
 		self.assertEqual(flt(totals["avg_cost_per_user"], 4), flt(88.0 / 27, 4))
 		self.assertEqual(flt(totals["avg_cost_per_conversation"], 4), flt(88.0 / 27, 4))
 		# 20 + 15 + 9 + 8 + 7 of 88.00.
 		self.assertEqual(totals["top5_share"], flt(59.0 / 88.0 * 100, 2))
+
+	def test_a_deleted_conversation_never_takes_a_top_five_slot(self):
+		totals = _report(axis="chat_user", from_date=D_FROM, to_date=D_TO)["totals"]
+		self.assertEqual(flt(totals["cost"], 2), 51.0)
+		self.assertEqual(totals["top5_share"], flt(1.0 / 51.0 * 100, 2))
+
+	def test_seats_without_the_role_count_active_employees_only(self):
+		from one_bpmn.api.insights_api import _chat_seats
+
+		with patch("one_bpmn.api.insights_api.CHAT_SEAT_ROLE", "Alloc T No Such Role"):
+			active = _chat_seats()
+			frappe.db.set_value("Employee", f"ALLOC-T-EMP-{OWNER_OPS}", "status", "Left")
+			self.assertEqual(_chat_seats(), active - 1)
 
 	def test_agents_are_listed_by_cost_for_the_donut(self):
 		agents = _report(axis="chat_user")["agents"]
@@ -352,7 +376,7 @@ class TestInsightsAllocation(FrappeTestCase):
 			self.assertNotIn(TITLE_MARK, json.dumps(report[key]))
 		self.assertIn(TITLE_MARK, json.dumps(report["rows"]))
 
-	# -- contract ----------------------------------------------------------
+	# Contract
 	def test_the_keys_the_current_tab_reads_are_still_there(self):
 		report = _report()
 		for key in ("rows", "period_totals", "models_missing_pricing", "totals"):
@@ -364,9 +388,21 @@ class TestInsightsAllocation(FrappeTestCase):
 		                 ["cost", "department", "month", "person", "runs", "subject",
 		                  "subject_label", "tokens"])
 
+	def test_the_process_filter_narrows_every_number(self):
+		report = _report(process_model=ROSTER_MODEL)
+		self.assertEqual(flt(report["totals"]["cost"], 2), 16.0)
+		self.assertEqual([n["label"] for n in report["tree"]], [OPS])
+		# The whole-period figures narrow too, or the scope line would disagree with the tiles.
+		self.assertEqual(flt(report["period_totals"]["cost"], 2), 16.0)
+		self.assertEqual(flt(report["totals"]["other_axis_cost"], 2), 0.0)
+		self.assertEqual(report["models_missing_pricing"], [])
+
+	def test_a_reversed_range_or_an_unknown_origin_is_refused(self):
+		self.assertRaises(frappe.ValidationError, _report, from_date=A_TO, to_date=A_FROM)
+		self.assertRaises(frappe.ValidationError, _report, origin="staging")
+
 	def test_only_a_system_manager_may_read_or_export_it(self):
-		# frappe.only_for waves everything through while in_test is set, so the
-		# gate has to be asked the way a request asks it.
+		# frappe.only_for returns early while in_test is set, so the flag is cleared here.
 		frappe.set_user("Guest")
 		with patch.dict(frappe.local.flags, {"in_test": False}):
 			self.assertRaises(frappe.PermissionError, get_cost_allocation, A_FROM, A_TO)
@@ -389,9 +425,9 @@ class TestInsightsAllocation(FrappeTestCase):
 
 
 def _report(axis="process_owner", group_by=None, from_date=A_FROM, to_date=A_TO,
-            origin="production") -> dict:
+            origin="production", process_model=None) -> dict:
 	return get_cost_allocation(from_date=from_date, to_date=to_date, axis=axis,
-	                           group_by=group_by, origin=origin)
+	                           group_by=group_by, origin=origin, process_model=process_model)
 
 
 def _tree(**kwargs) -> list:
@@ -412,4 +448,4 @@ def _wipe():
 	frappe.db.delete("User", {"name": ("in", [OWNER_OPS, OWNER_FIN])})
 	frappe.db.delete("BPMN Process Model", {"name": ("in", [ROSTER_MODEL, PAYROLL_MODEL])})
 	frappe.db.delete("Process", {"name": ("in", [ROSTER, PAYROLL])})
-	frappe.db.delete("Role", {"name": ("in", [SEAT_ROLE])})
+
