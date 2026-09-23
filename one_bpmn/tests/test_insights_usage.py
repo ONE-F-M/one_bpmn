@@ -206,11 +206,14 @@ class TestInsightsUsage(FrappeTestCase):
 		)
 
 		frappe.set_user(username)
+		# frappe.only_for is a no-op while in_test is set.
+		frappe.flags.in_test = False
 		try:
 			self.assertRaises(frappe.PermissionError, get_agent_overview)
 			self.assertRaises(frappe.PermissionError, get_cost_token_report)
 			self.assertRaises(frappe.PermissionError, export_cost_token_report)
 		finally:
+			frappe.flags.in_test = True
 			frappe.set_user("Administrator")
 
 	# -- export -----------------------------------------------------------
