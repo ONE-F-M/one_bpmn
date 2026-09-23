@@ -137,7 +137,7 @@
 						v-if="mode === 'deploy'"
 						variant="solid"
 						@click="$emit('deploy')"
-						:disabled="!checklist?.all_ready || loading"
+						:disabled="!checklist?.all_ready || loading || deploying"
 					>Deploy</Button>
 					<Button
 						v-if="mode === 'import'"
