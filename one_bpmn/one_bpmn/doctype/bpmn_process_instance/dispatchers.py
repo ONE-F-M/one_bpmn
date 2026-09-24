@@ -2287,10 +2287,6 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			system_prompt=system_prompt,
 			wf_task_id=str(getattr(task, "id", "") or ""),
 			human_row_id="",
-			prior_prompt_tokens=int((resume_payload or {}).get("prompt_tokens_so_far") or 0),
-			prior_completion_tokens=int((resume_payload or {}).get("completion_tokens_so_far") or 0),
-			prior_cache_read_tokens=int((resume_payload or {}).get("cache_read_tokens_so_far") or 0),
-			prior_cache_write_tokens=int((resume_payload or {}).get("cache_write_tokens_so_far") or 0),
 		)
 		pending = (result.suspension or {}).get("pending_call") or {}
 		pending_name = pending.get("name") or ""
