@@ -49,8 +49,9 @@
 			<div v-if="loading" class="p-10 text-center text-sm text-gray-500">
 				No conversations match those filters.
 			</div>
-			<div v-else-if="!conversations.length" class="p-10 text-center text-sm text-gray-500">
-			No conversations match those filters.
+			<div v-else-if="!conversations.length" class="p-10 text-center">
+			<Spinner class="mx-auto mb-3" />
+			<p class="text-sm text-gray-500">Fetching conversations...</p>
 		</div>
 		<table v-else class="w-full text-sm">
 				<thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-500 sticky top-0">
