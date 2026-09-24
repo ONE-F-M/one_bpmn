@@ -9,10 +9,17 @@
 				:key="slice.name"
 				class="flex items-center gap-2 text-xs text-gray-600"
 			>
-				<span
-					class="shrink-0 w-2 h-2 rounded-sm"
-					:style="{ backgroundColor: colors[slice.name] }"
-				></span>
+				<svg
+					viewBox="0 0 8 8"
+					class="shrink-0 w-2 h-2"
+				>
+					<rect
+						width="8"
+						height="8"
+						rx="1"
+						:fill="colors[slice.name]"
+					/>
+				</svg>
 				<span
 					class="truncate"
 					:title="slice.name"
