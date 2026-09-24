@@ -1,41 +1,9 @@
 <template>
 	<div class="space-y-6">
-		<!-- Filters -->
-		<div class="flex flex-wrap gap-4 items-center">
-			<FormControl
-				type="select"
-				v-model="filterModel"
-				:options="modelOptions"
-				class="w-48"
-				@change="fetchReport"
-			/>
-			<FormControl
-				type="select"
-				v-model="filterProvider"
-				:options="providerOptions"
-				class="w-48"
-				@change="fetchReport"
-			/>
-			<FormControl
-				type="select"
-				v-model="filterProcess"
-				:options="processOptions"
-				class="w-48"
-				@change="fetchReport"
-			/>
-			<!-- WI-001608: AI tasks are done by AI Agents — group the report
-			     by the run's AI Agent Configuration instead of by model. -->
-			<FormControl
-				type="select"
-				v-model="groupBy"
-				:options="[
-					{ label: 'Group by Model', value: 'model' },
-					{ label: 'Group by AI Agent', value: 'agent' },
-				]"
-				class="w-48"
-				@change="fetchReport"
-			/>
-		</div>
+		<TabButtons
+			v-model="groupBy"
+			:buttons="GROUP_BY_BUTTONS"
+		/>
 
 		<!-- Loading State -->
 		<div v-if="loading" class="flex items-center justify-center h-64">
@@ -184,7 +152,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from "vue"
-import { frappeRequest, FormControl } from "frappe-ui"
+import { frappeRequest, TabButtons } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { fmtInt as fmtNum, fmtCompact, fmtCurrency, fmtCurrencyExact } from "@/utils/formatters"
 
@@ -192,20 +160,19 @@ const props = defineProps({
 	fromDate: String,
 	toDate: String,
 	origin: { type: String, default: "production" },
+	model: { type: String, default: "" },
+	provider: { type: String, default: "" },
+	processModel: { type: String, default: "" },
 })
+
+const GROUP_BY_BUTTONS = [
+	{ label: "By model", value: "model" },
+	{ label: "By AI agent", value: "agent" },
+]
 
 const loading = ref(false)
 const reportData = ref({})
-const filterModel = ref("")
-const filterProvider = ref("")
-const filterProcess = ref("")
 const groupBy = ref("model") // "model" | "agent" (WI-001608)
-
-// Cache dropdown options from the initial (unfiltered) load so they
-// don't shrink to only the selected value after filtering.
-const cachedModels = ref([])
-const cachedProviders = ref([])
-const cachedProcesses = ref([])
 
 const palette = ["#6366f1", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#06b6d4"]
 
@@ -242,23 +209,15 @@ function barHeight(value) {
 	return Math.max((value / maxCost.value) * (chartHeight - 20), 2)
 }
 
-const modelOptions = computed(() => {
-	return [{ label: "All Models", value: "" }, ...cachedModels.value.map(m => ({ label: m, value: m }))]
-})
-
-const providerOptions = computed(() => {
-	return [{ label: "All Providers", value: "" }, ...cachedProviders.value.map(p => ({ label: p, value: p }))]
-})
-
 async function fetchReport() {
 	loading.value = true
 	try {
 		const params = {}
 		if (props.fromDate) params.from_date = props.fromDate
 		if (props.toDate) params.to_date = props.toDate
-		if (filterModel.value) params.model = filterModel.value
-		if (filterProvider.value) params.provider = filterProvider.value
-		if (filterProcess.value) params.process_model = filterProcess.value
+		if (props.model) params.model = props.model
+		if (props.provider) params.provider = props.provider
+		if (props.processModel) params.process_model = props.processModel
 		params.origin = props.origin
 		params.group_by = groupBy.value
 
@@ -268,19 +227,6 @@ async function fetchReport() {
 			params,
 		})
 		reportData.value = response || {}
-
-		// Refresh cached dropdown options only on unfiltered, model-grouped
-		// fetches — in agent grouping the rows' series carry agent names,
-		// which must not leak into the Model filter options.
-		if (!filterModel.value && !filterProvider.value && !filterProcess.value && groupBy.value === "model") {
-			const rows = reportData.value.rows || []
-			cachedModels.value = [...new Set(rows.map(r => r.model))].sort()
-			cachedProviders.value = [...new Set(rows.map(r => r.provider))].sort()
-		}
-		// Refresh process list from a separate call on initial load
-		if (!cachedProcesses.value.length) {
-			await loadProcessOptions()
-		}
 	} catch (error) {
 		console.error("Failed to fetch cost report:", error)
 		reportData.value = {}
@@ -289,28 +235,6 @@ async function fetchReport() {
 	}
 }
 
-const processOptions = computed(() => {
-	return [{ label: "All Processes", value: "" }, ...cachedProcesses.value.map(p => ({ label: p, value: p }))]
-})
-
-async function loadProcessOptions() {
-	try {
-		const result = await frappeRequest({
-			url: "/api/method/frappe.client.get_list",
-			method: "POST",
-			params: {
-				doctype: "BPMN Process Model",
-				fields: ["name"],
-				order_by: "name asc",
-				limit_page_length: 0,
-			},
-		})
-		cachedProcesses.value = (result || []).map(r => r.name).sort()
-	} catch (e) {
-		console.error("Failed to load process models:", e)
-	}
-}
-
-watch(() => [props.fromDate, props.toDate, props.origin], fetchReport)
+watch(() => [props.fromDate, props.toDate, props.origin, props.model, props.provider, props.processModel, groupBy.value], fetchReport)
 onMounted(fetchReport)
 </script>
