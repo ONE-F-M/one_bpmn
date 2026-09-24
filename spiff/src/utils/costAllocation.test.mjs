@@ -3,7 +3,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { OTHER_COLOR, OTHER_KEY, assignColors, foldTail, pctChange, rowsOf } from "./costAllocation.js"
+import { OTHER_COLOR, OTHER_KEY, assignColors, foldTail, pctChange, pricingLink, rowsOf } from "./costAllocation.js"
 
 const node = (key, cost, children = []) => ({ key, label: key, cost, share: cost, by_bucket: { w1: cost }, children })
 
@@ -42,4 +42,8 @@ test("a percent change against nothing is null", () => {
 	assert.equal(pctChange(150, 100), 50)
 	assert.equal(pctChange(50, 100), -50)
 	assert.equal(pctChange(5, 0), null)
+})
+
+test("the pricing link opens the AI Model list filtered to the unpriced models", () => {
+	assert.equal(pricingLink(["a", "b"]), `/app/ai-model?name=${encodeURIComponent('["in",["a","b"]]')}`)
 })

@@ -85,3 +85,8 @@ export function indentOf(row, step) {
 export function pctChange(now, before) {
 	return before ? ((now - before) / before) * 100 : null
 }
+
+// The AI Model list filtered to the unpriced models, where the rate cards get fixed.
+export function pricingLink(models) {
+	return `/app/ai-model?name=${encodeURIComponent(JSON.stringify(["in", models]))}`
+}
