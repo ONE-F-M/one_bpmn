@@ -205,10 +205,9 @@ class TestSelectorObservability(FrappeTestCase):
 		self.assertEqual(recorded_first, 5)
 
 		# A sub-call made by a tool inside turn 2 of that first segment.
-		with sub_call_scope(run, "some_tool"):
-			frappe.flags.SUB_CALL_TURN_FLAG_OVERRIDE = None
-			from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG
+		from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG
 
+		with sub_call_scope(run, "some_tool"):
 			frappe.flags[SUB_CALL_TURN_FLAG] = 2
 			record_sub_call("obs-model", SimpleNamespace(text="sub answer", prompt_tokens=1, completion_tokens=1))
 			frappe.flags[SUB_CALL_TURN_FLAG] = None
