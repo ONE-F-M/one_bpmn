@@ -851,6 +851,10 @@ def _begin_direct_run(config: dict, system_prompt: str, message: str):
 				model=config.get("ai_model") or "",
 				system_prompt=system_prompt,
 				user_prompt=message,
+				# ExecutorConfig's shared default moved to DEFAULT_TEMPERATURE
+				# (0.3); this direct chat path has always run at 0.7 and keeps
+				# doing so explicitly.
+				temperature=0.7,
 			),
 			bpmn_label=config.get("chat_mode_label") or config.get("agent_id") or "",
 		)
