@@ -29,14 +29,16 @@
 
 		<template v-else>
 			<!-- Depth cap warning: the total may be a floor, not the whole figure. -->
-			<div
+			<Tooltip
 				v-if="report.chain_truncated"
-				class="bg-amber-50 text-amber-800 text-sm rounded-lg px-4 py-3"
+				text="This Work Item has delegated to agents that themselves delegated further. The cost breakdown below only includes the first level of delegation. A complete cost trace would need to walk the entire chain, which may span many runs and agents."
 			>
-				<span class="font-medium">This total may be incomplete.</span>
-				The delegation chain for this Work Item is deeper than this report walks,
-				so the figures below are a floor, not the whole cost.
-			</div>
+				<div class="bg-amber-50 text-amber-800 text-sm rounded-lg px-4 py-3 cursor-help">
+					<span class="font-medium">This total may be incomplete.</span>
+					The delegation chain for this Work Item is deeper than this report walks,
+					so the figures below are a floor, not the whole cost.
+				</div>
+			</Tooltip>
 
 			<!-- Summary tiles -->
 			<div class="grid grid-cols-2 lg:grid-cols-3 gap-4">
@@ -132,7 +134,7 @@
 
 <script setup>
 import { ref, watch } from "vue"
-import { frappeRequest, Autocomplete } from "frappe-ui"
+import { frappeRequest, Autocomplete, Tooltip } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { fmtInt as fmtNum, fmtCompact, fmtCurrency as fmtCost, fmtCurrencyExact } from "@/utils/formatters"
 
