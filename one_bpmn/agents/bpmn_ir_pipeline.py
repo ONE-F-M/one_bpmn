@@ -254,6 +254,32 @@ def ensure_default_lanes(ir: dict) -> bool:
     return True
 
 
+def merge_chunked_ir(lanes: list, chunks: list) -> dict:
+    """Combine ordered per-phase IR fragments into one IR sharing one lane set.
+
+    Each chunk is {"nodes": [...], "flows": [...]} for one phase of a process
+    generated in pieces because the whole thing would not fit in one
+    completion. A chunk's own flows already connect its first node from the
+    exit id it was given, so merging is concatenation.
+    """
+    nodes = []
+    flows = []
+    for chunk in chunks:
+        nodes.extend(chunk.get("nodes") or [])
+        flows.extend(chunk.get("flows") or [])
+    return {"lanes": lanes, "nodes": nodes, "flows": flows}
+
+
+def chunk_exit_node_id(chunk: dict) -> str | None:
+    """The node id the next phase's flow should originate from.
+
+    By convention the phase prompt asks for the hand-off node last, so it is
+    the final entry in this chunk's own "nodes" array.
+    """
+    nodes = chunk.get("nodes") or []
+    return nodes[-1].get("id") if nodes else None
+
+
 def compile_ir(ir: dict) -> dict:
     """Compile an IR dict into BPMN XML via ``spiff/pipeline.mjs``.
 
