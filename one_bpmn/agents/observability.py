@@ -1060,13 +1060,15 @@ def record_selector_turns(
 		# The sub-calls this turn's tools made come straight after it.
 		turn_no = cint(turn.get("turn_no"))
 		if turn_no:
-			for sub in sub_calls:
+			for sub in this_segment_sub_calls:
 				if sub.name not in placed and sub.sub_call.get("turn_no") == turn_no:
 					_place(sub.name)
 
 	# Sub-calls that named no turn (older data, or a call made outside the
-	# loop) keep their order and follow the turns.
-	for sub in sub_calls:
+	# loop) keep their order and follow the turns \u2014 but only the ones
+	# belonging to THIS segment; an earlier segment's unmatched sub-calls
+	# were already swept by that segment's own call to this function.
+	for sub in this_segment_sub_calls:
 		if sub.name not in placed:
 			_place(sub.name)
 
