@@ -15,8 +15,10 @@ import {
 	ListView,
 	Alert,
 	initSocket,
+	onOutsideClickDirective,
 } from "frappe-ui"
 
+import { afterOpeningClick } from "./utils/afterOpeningClick"
 import "./main.css"
 
 const app = createApp(App)
@@ -61,6 +63,7 @@ app.component("Tooltip", Tooltip)
 app.component("Avatar", Avatar)
 app.component("ListView", ListView)
 app.component("Alert", Alert)
+app.directive("click-outside", afterOpeningClick(onOutsideClickDirective))
 
 app.use(router)
 
