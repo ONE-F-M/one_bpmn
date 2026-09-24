@@ -20,32 +20,6 @@
 		</div>
 
 		<template v-else>
-			<!-- Summary -->
-			<div class="grid grid-cols-3 gap-4">
-				<div class="bg-gray-50 rounded-lg p-4">
-					<div class="text-xs text-gray-500 uppercase tracking-wide mb-1">Total Cost</div>
-					<div
-						class="text-lg font-bold text-gray-900"
-						:title="fmtCurrencyExact(reportData.summary?.total_cost)"
-					>
-						{{ fmtCurrency(reportData.summary?.total_cost) }}
-					</div>
-				</div>
-				<div class="bg-gray-50 rounded-lg p-4">
-					<div class="text-xs text-gray-500 uppercase tracking-wide mb-1">Total Runs</div>
-					<div class="text-lg font-bold text-gray-900">{{ fmtNum(reportData.summary?.total_runs) }}</div>
-				</div>
-				<div class="bg-gray-50 rounded-lg p-4">
-					<div class="text-xs text-gray-500 uppercase tracking-wide mb-1">Total Tokens</div>
-					<div
-						class="text-lg font-bold text-gray-900"
-						:title="fmtNum(reportData.summary?.total_tokens)"
-					>
-						{{ fmtCompact(reportData.summary?.total_tokens) }}
-					</div>
-				</div>
-			</div>
-
 			<!-- Chart -->
 			<div v-if="chartData.labels && chartData.labels.length > 0" class="bg-gray-50 rounded-lg p-4">
 				<div class="text-xs text-gray-500 uppercase tracking-wide mb-3">Daily Cost by Model</div>

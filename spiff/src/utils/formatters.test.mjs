@@ -75,12 +75,16 @@ test("fmtPct: null treated as 0", () => {
 	assert.equal(fmtPct(null), "0.0%")
 })
 
-test("fmtDelta: pct positive", () => {
-	assert.equal(fmtDelta(12.3, "pct"), "+12.3%")
+test("fmtDelta: pct rounds to a whole percent", () => {
+	assert.equal(fmtDelta(18.3, "pct"), "+18%")
 })
 
 test("fmtDelta: pt negative uses a hyphen", () => {
 	assert.equal(fmtDelta(-1.5, "pt"), "-1.5 pt")
+})
+
+test("fmtDelta: pt keeps one decimal", () => {
+	assert.equal(fmtDelta(0.6, "pt"), "+0.6 pt")
 })
 
 test("fmtDelta: null means no prior period", () => {
@@ -112,7 +116,7 @@ test("fmtCurrency: rounds up to a dollar with 2 decimals", () => {
 })
 
 test("fmtDelta: sign comes from the rounded value", () => {
-	assert.equal(fmtDelta(-0.04, "pct"), "+0.0%")
+	assert.equal(fmtDelta(-0.4, "pct"), "+0%")
 })
 
 test("fmtDuration: rounds up to a minute", () => {

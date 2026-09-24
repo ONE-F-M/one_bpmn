@@ -1,5 +1,5 @@
 <template>
-	<div class="bg-white rounded-lg border border-gray-200 p-4">
+	<div class="bg-white p-4">
 		<div
 			v-if="loading"
 			class="space-y-3 animate-pulse"
@@ -8,8 +8,33 @@
 			<div class="h-7 bg-gray-200 rounded w-16"></div>
 		</div>
 		<template v-else>
-			<div class="flex items-center justify-between gap-2 mb-2">
-				<span class="text-xs text-gray-500 uppercase tracking-wide font-medium truncate">{{ label }}</span>
+			<div class="flex items-start justify-between gap-2 mb-2">
+				<span class="text-xs text-gray-500 uppercase tracking-wide font-medium">{{ label }}</span>
+				<svg
+					v-if="hasSparkline"
+					viewBox="0 0 60 18"
+					preserveAspectRatio="none"
+					class="shrink-0 w-[44px] sm:w-[60px] h-[18px]"
+					:class="sparklineClass"
+				>
+					<polyline
+						:points="sparkPoints"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.5"
+					/>
+				</svg>
+			</div>
+			<div
+				class="text-2xl font-bold text-gray-900 whitespace-nowrap"
+				:title="valueTitle || undefined"
+			>
+				{{ value }}
+			</div>
+			<div
+				v-if="delta !== undefined || subtitle"
+				class="flex items-center gap-1.5 mt-1 text-xs text-gray-500 whitespace-nowrap"
+			>
 				<span
 					v-if="delta !== undefined"
 					class="shrink-0 text-[11px] font-medium rounded px-1.5 py-0.5"
@@ -17,32 +42,19 @@
 				>
 					{{ deltaText }}
 				</span>
+				<span
+					v-if="subtitle"
+					:class="{ 'hidden sm:inline': subtitleShort }"
+				>
+					{{ subtitle }}
+				</span>
+				<span
+					v-if="subtitleShort"
+					class="sm:hidden"
+				>
+					{{ subtitleShort }}
+				</span>
 			</div>
-			<div
-				class="text-2xl font-bold text-gray-900"
-				:title="valueTitle || undefined"
-			>
-				{{ value }}
-			</div>
-			<div
-				v-if="subtitle"
-				class="text-xs text-gray-500 mt-1"
-			>
-				{{ subtitle }}
-			</div>
-			<svg
-				v-if="hasSparkline"
-				viewBox="0 0 100 24"
-				preserveAspectRatio="none"
-				class="w-full h-6 mt-2 text-gray-400"
-			>
-				<polyline
-					:points="sparkPoints"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="1.5"
-				/>
-			</svg>
 		</template>
 	</div>
 </template>
@@ -60,7 +72,9 @@ const props = defineProps({
 	deltaKind: { type: String, default: "pct" }, // "pct" | "pt"
 	goodDirection: { type: String, default: "up" }, // "up" | "down"
 	subtitle: { type: String, default: "" },
+	subtitleShort: { type: String, default: "" },
 	sparkline: { type: Array, default: null },
+	sparklineClass: { type: String, default: "text-gray-500" },
 	loading: { type: Boolean, default: false },
 })
 
@@ -82,13 +96,12 @@ const deltaClasses = computed(() => {
 	}[deltaTone.value]
 })
 
-const hasSparkline = computed(() => Array.isArray(props.sparkline) && props.sparkline.length > 1)
+const hasSparkline = computed(() => Array.isArray(props.sparkline) && props.sparkline.length > 0)
 
 const sparkPoints = computed(() => {
-	const data = props.sparkline
-	if (!data || data.length < 2) return ""
-	const width = 100
-	const height = 24
+	const data = props.sparkline.length === 1 ? [props.sparkline[0], props.sparkline[0]] : props.sparkline
+	const width = 60
+	const height = 18
 	const max = Math.max(...data)
 	const min = Math.min(...data)
 	const range = max - min || 1

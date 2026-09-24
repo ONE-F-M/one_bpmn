@@ -82,7 +82,7 @@
 		</header>
 
 		<main class="flex-1 p-4 sm:p-6 overflow-auto space-y-6">
-			<OverviewCards :origin="origin" />
+			<OverviewCards v-bind="reportProps" />
 
 			<div class="insights-tabs bg-white rounded-lg shadow-sm">
 				<Tabs

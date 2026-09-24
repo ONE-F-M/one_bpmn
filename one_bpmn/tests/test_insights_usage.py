@@ -95,6 +95,34 @@ class TestInsightsUsage(FrappeTestCase):
 		for key, value in overview["delta"].items():
 			self.assertIsNone(value, f"delta.{key} should be null when the previous period is empty")
 
+	def test_avg_cost_and_rate_deltas_in_points(self):
+		model = f"usage-rates-{frappe.generate_hash(length=6)}"
+		self._make_run(
+			model, "2026-08-20 08:00:00", cost=1.0, total_prompt_tokens=100, total_cache_read_tokens=20
+		)
+		self._make_run(model, "2026-08-20 09:00:00", cost=1.0, status="Error", total_prompt_tokens=100)
+		self._make_run(
+			model, "2026-09-10 08:00:00", cost=3.0, total_prompt_tokens=100, total_cache_read_tokens=50
+		)
+		self._make_run(
+			model, "2026-09-11 08:00:00", cost=1.0, total_prompt_tokens=100, total_cache_read_tokens=30
+		)
+
+		overview = get_agent_overview(from_date="2026-09-01", to_date="2026-09-30", model=model)
+
+		self.assertEqual(overview["current"]["avg_cost"], 2.0)
+		self.assertEqual(overview["delta"]["avg_cost"], 100.0)
+		self.assertEqual(overview["delta"]["success_rate"], 50.0)
+		self.assertEqual(overview["delta"]["cache_hit_rate"], 30.0)
+
+		sparklines = overview["sparklines"]
+		day = sparklines["labels"].index("2026-09-10")
+		self.assertEqual(sparklines["avg_cost"][day], 3.0)
+		self.assertEqual(sparklines["success_rate"][day], 100.0)
+		self.assertEqual(sparklines["cache_hit_rate"][day], 50.0)
+		empty_day = sparklines["labels"].index("2026-09-12")
+		self.assertEqual(sparklines["success_rate"][empty_day], 0.0)
+
 	# -- grain selection and bucket labels ---------------------------------
 
 	def test_grain_day_week_month_and_empty_buckets(self):
