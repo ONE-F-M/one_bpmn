@@ -23,7 +23,7 @@
 			</div>
 		</header>
 
-		<!-- ── Conversations ───────────────────────────────────────────── -->
+		<!-- ──── Conversations ────────────────────────────────────────────────────────────── -->
 		<div v-show="tab === 'conversations'" class="bg-white px-6 py-3 border-b flex flex-wrap gap-4 items-center">
 			<FormControl type="select" v-model="filters.agent" :options="agentOptions" class="w-56" @change="load()" />
 			<FormControl type="select" v-model="filters.status" :options="statusOptions" class="w-44" @change="load()" />
@@ -97,7 +97,7 @@
 			</div>
 		</div>
 
-		<!-- ── Retention ───────────────────────────────────────────────── -->
+		<!-- ──── Retention ────────────────────────────────────────────────────────────────────────── -->
 		<div v-show="tab === 'retention'" class="flex-1 overflow-auto p-6">
 			<div class="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
 				<div class="xl:col-span-1 bg-white border rounded-lg p-6">
@@ -141,81 +141,81 @@
 					</div>
 				</div>
 
-			<div class="xl:col-span-2 bg-white border rounded-lg p-6">
-				<div class="flex items-baseline justify-between gap-4">
-					<h2 class="text-sm font-semibold text-gray-900">Compaction, per agent</h2>
-					<span class="text-xs text-gray-500 shrink-0">
-						{{ compactionOnCount }} of {{ agents.length }} switched on
-					</span>
+				<div class="xl:col-span-2 bg-white border rounded-lg p-6">
+					<div class="flex items-baseline justify-between gap-4">
+						<h2 class="text-sm font-semibold text-gray-900">Compaction, per agent</h2>
+						<span class="text-xs text-gray-500 shrink-0">
+							{{ compactionOnCount }} of {{ agents.length }} switched on
+						</span>
+					</div>
+					<p class="text-xs text-gray-500 mt-1 mb-4">
+						Read-only here. Each agent's triggers are edited on its own AI Agent Task, in the Memory section
+						of the task's configuration — this is the overview, so you can see what is switched on without
+						opening six agents to find out.
+					</p>
+					<div class="overflow-x-auto">
+					<table class="w-full text-sm">
+						<thead class="text-xs uppercase tracking-wide text-gray-500">
+							<tr>
+								<th class="text-left font-medium py-2">Agent</th>
+								<th class="text-left font-medium py-2 px-3">Compaction</th>
+								<th class="text-right font-medium py-2 px-3">Keep tail</th>
+								<th class="text-right font-medium py-2 px-3">Token threshold</th>
+								<th class="text-right font-medium py-2 px-3">Idle</th>
+								<th class="text-center font-medium py-2 px-3">Each turn</th>
+								<th class="text-left font-medium py-2 px-3">Summariser</th>
+								<th class="text-right font-medium py-2">Context budget</th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr v-for="a in agents" :key="a.name" class="border-t align-top"
+							    :class="a.compaction_enabled ? '' : 'text-gray-400'">
+								<td class="py-2 pr-3">
+									<div class="text-gray-900">{{ a.chat_mode_label }}</div>
+									<div class="text-xs text-gray-400 font-mono">{{ a.agent_id }}</div>
+								</td>
+								<td class="py-2 px-3">
+									<span class="px-2 py-0.5 rounded-full text-xs whitespace-nowrap"
+									      :class="a.compaction_enabled ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'">
+										{{ a.compaction_enabled ? "On" : "Off" }}
+									</span>
+									<!-- Enabled with no trigger is a real trap: it looks configured and never fires. -->
+									<div v-if="a.compaction_enabled && !hasTrigger(a)"
+									     class="text-xs text-amber-700 mt-1 leading-tight">
+										no trigger set — never fires
+									</div>
+								</td>
+								<td class="py-2 px-3 text-right tabular-nums">{{ a.compaction_keep_tail || "—" }}</td>
+								<td class="py-2 px-3 text-right tabular-nums">
+									{{ a.compaction_token_threshold ? a.compaction_token_threshold.toLocaleString() : "—" }}
+								</td>
+								<td class="py-2 px-3 text-right tabular-nums whitespace-nowrap">
+									{{ a.compaction_idle_minutes ? a.compaction_idle_minutes + "m" : "—" }}
+								</td>
+								<td class="py-2 px-3 text-center">
+									<span v-if="a.compaction_on_task_boundary" class="text-green-700">Yes</span>
+									<span v-else>—</span>
+								</td>
+								<td class="py-2 px-3 text-xs">
+									<span v-if="a.compaction_model" class="font-mono">{{ a.compaction_model }}</span>
+									<!-- No summariser named means the agent's own model does the summarising. -->
+									<span v-else class="text-gray-400 italic">agent's own model</span>
+								</td>
+								<td class="py-2 text-right tabular-nums">
+									{{ a.context_token_budget ? a.context_token_budget.toLocaleString() : "—" }}
+								</td>
+							</tr>
+							<tr v-if="!agents.length">
+								<td colspan="8" class="py-6 text-center text-sm text-gray-500">No enabled agents.</td>
+							</tr>
+						</tbody>
+					</table>
+					</div>
 				</div>
-				<p class="text-xs text-gray-500 mt-1 mb-4">
-					Read-only here. Each agent's triggers are edited on its own AI Agent Task, in the Memory section
-					of the task's configuration — this is the overview, so you can see what is switched on without
-					opening six agents to find out.
-				</p>
-				<div class="overflow-x-auto">
-				<table class="w-full text-sm">
-					<thead class="text-xs uppercase tracking-wide text-gray-500">
-						<tr>
-							<th class="text-left font-medium py-2">Agent</th>
-							<th class="text-left font-medium py-2 px-3">Compaction</th>
-							<th class="text-right font-medium py-2 px-3">Keep tail</th>
-							<th class="text-right font-medium py-2 px-3">Token threshold</th>
-							<th class="text-right font-medium py-2 px-3">Idle</th>
-							<th class="text-center font-medium py-2 px-3">Each turn</th>
-							<th class="text-left font-medium py-2 px-3">Summariser</th>
-							<th class="text-right font-medium py-2">Context budget</th>
-						</tr>
-					</thead>
-					<tbody>
-						<tr v-for="a in agents" :key="a.name" class="border-t align-top"
-						    :class="a.compaction_enabled ? '' : 'text-gray-400'">
-							<td class="py-2 pr-3">
-								<div class="text-gray-900">{{ a.chat_mode_label }}</div>
-								<div class="text-xs text-gray-400 font-mono">{{ a.agent_id }}</div>
-							</td>
-							<td class="py-2 px-3">
-								<span class="px-2 py-0.5 rounded-full text-xs whitespace-nowrap"
-								      :class="a.compaction_enabled ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'">
-									{{ a.compaction_enabled ? "On" : "Off" }}
-								</span>
-								<!-- Enabled with no trigger is a real trap: it looks configured and never fires. -->
-								<div v-if="a.compaction_enabled && !hasTrigger(a)"
-								     class="text-xs text-amber-700 mt-1 leading-tight">
-									no trigger set — never fires
-								</div>
-							</td>
-							<td class="py-2 px-3 text-right tabular-nums">{{ a.compaction_keep_tail || "—" }}</td>
-							<td class="py-2 px-3 text-right tabular-nums">
-								{{ a.compaction_token_threshold ? a.compaction_token_threshold.toLocaleString() : "—" }}
-							</td>
-							<td class="py-2 px-3 text-right tabular-nums whitespace-nowrap">
-								{{ a.compaction_idle_minutes ? a.compaction_idle_minutes + "m" : "—" }}
-							</td>
-							<td class="py-2 px-3 text-center">
-								<span v-if="a.compaction_on_task_boundary" class="text-green-700">Yes</span>
-								<span v-else>—</span>
-							</td>
-							<td class="py-2 px-3 text-xs">
-								<span v-if="a.compaction_model" class="font-mono">{{ a.compaction_model }}</span>
-								<!-- No summariser named means the agent's own model does the summarising. -->
-								<span v-else class="text-gray-400 italic">agent's own model</span>
-							</td>
-							<td class="py-2 text-right tabular-nums">
-								{{ a.context_token_budget ? a.context_token_budget.toLocaleString() : "—" }}
-							</td>
-						</tr>
-						<tr v-if="!agents.length">
-							<td colspan="8" class="py-6 text-center text-sm text-gray-500">No enabled agents.</td>
-						</tr>
-					</tbody>
-				</table>
 				</div>
-			</div>
-			</div>
 		</div>
 
-		<!-- ── One conversation ────────────────────────────────────────── -->
+		<!-- ──── One conversation ──────────────────────────────────────────────────────────── -->
 		<Dialog v-model="showDetail" :options="{ size: '7xl', title: detail?.conversation?.title || 'Conversation' }">
 			<template #body-content>
 				<div v-if="detailLoading" class="py-10 text-center text-sm text-gray-500">Loading…</div>
@@ -257,7 +257,7 @@
 								<span v-if="s.model">· {{ s.model }}</span>
 								<span class="ml-auto">{{ s.creation }}</span>
 							</div>
-							<p class="text-sm text-gray-800 whitespace-pre-wrap">{{ s.summary }}</p>
+							<p class="text-sm text-gray-800 whitespace-pre-wrap" v-html="renderMarkdown(s.summary)" />
 						</div>
 					</div>
 
@@ -276,6 +276,7 @@
 </template>
 
 <script setup>
+import MarkdownIt from "markdown-it";
 import { Button, Dialog, ErrorMessage, FormControl, frappeRequest } from "frappe-ui";
 import { computed, onMounted, ref } from "vue";
 
@@ -341,6 +342,12 @@ const prettyState = computed(() => JSON.stringify(detail.value?.state || {}, nul
 
 const compactionOnCount = computed(() => agents.value.filter((a) => a.compaction_enabled).length);
 
+const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
+
+function renderMarkdown(text) {
+	return md.render(text || "");
+}
+
 function statusClass(s) {
 	if (s === "Active") return "bg-green-50 text-green-700";
 	if (s === "Archived") return "bg-gray-200 text-gray-600";
@@ -386,40 +393,46 @@ function changePageSize() {
 
 async function loadAgents() {
 	try {
-		agents.value = await call("agent_compaction_summary");
+		agents.value = await call("agents_with_compaction");
 	} catch (e) {
-		agents.value = [];
+		error.value = e.messages?.[0] || e.message || String(e);
 	}
+}
+
+function statusClass(s) {
+	if (s === "Active") return "bg-green-50 text-green-700";
+	if (s === "Archived") return "bg-gray-200 text-gray-600";
+	return "bg-amber-50 text-amber-700";
 }
 
 async function open(name) {
 	showDetail.value = true;
 	detailLoading.value = true;
-	detail.value = null;
-	compactNote.value = "";
 	try {
-		detail.value = await call("conversation_detail", { conversation: name });
+		detail.value = await call("get_conversation", { name });
 	} catch (e) {
 		error.value = e.messages?.[0] || e.message || String(e);
-		showDetail.value = false;
 	} finally {
 		detailLoading.value = false;
 	}
 }
 
 async function compactNow() {
-	if (!detail.value) return;
+	if (!detail.value?.conversation?.name) return;
 	compacting.value = true;
 	compactNote.value = "";
+	compactOk.value = false;
 	try {
-		const res = await call("compact_now", { conversation: detail.value.conversation.name });
-		compactOk.value = !!res.queued;
-		compactNote.value = res.queued
-			? "Queued. It runs in the background — reopen this in a moment to see the summary."
-			: res.reason;
+		const res = await call("compact_conversation", { name: detail.value.conversation.name });
+		compactNote.value = res.message || "Compaction triggered.";
+		compactOk.value = true;
+		await new Promise((resolve) => setTimeout(resolve, 2000));
+		// Reload the detail view
+		const d = await call("get_conversation", { name: detail.value.conversation.name });
+		detail.value = d;
 	} catch (e) {
-		compactOk.value = false;
 		compactNote.value = e.messages?.[0] || e.message || String(e);
+		compactOk.value = false;
 	} finally {
 		compacting.value = false;
 	}
@@ -427,15 +440,15 @@ async function compactNow() {
 
 async function saveRetention() {
 	saving.value = true;
-	savedAt.value = false;
-	error.value = "";
 	try {
-		retention.value = await call("save_retention", {
-			ttl_days: retention.value.ttl_days || 0,
-			archive_action: retention.value.archive_action || "Archive",
+		await call("save_retention", {
+			ttl_days: retention.value.ttl_days,
+			archive_action: retention.value.archive_action,
 		});
 		savedAt.value = true;
-		setTimeout(() => (savedAt.value = false), 3000);
+		setTimeout(() => {
+			savedAt.value = false;
+		}, 3000);
 	} catch (e) {
 		error.value = e.messages?.[0] || e.message || String(e);
 	} finally {
