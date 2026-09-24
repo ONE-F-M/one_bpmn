@@ -1678,20 +1678,15 @@ def _validate_ai_agent_tools(bpmn_xml: str, service_extensions: dict) -> None:
 
 
 def _validate_ai_max_tokens(service_extensions: dict) -> None:
-	"""Reject an AI Agent Task whose Max Tokens is present but not a whole
-	number greater than 0 \u2014 surfaced at deploy, not as a silent fallback to
-	the default at dispatch. An absent attribute still means "use the
-	default" and passes."""
+	"""Reject an AI Agent Task whose Max Tokens is set but is not a whole number above 0.
+	An absent attribute means the default and passes."""
 	for bpmn_id, cfg in (service_extensions or {}).items():
-		if (cfg or {}).get("serviceType") != "ai_agent":
+		if (cfg or {}).get("serviceType") != "ai_agent" or cfg.get("aiMaxTokens") is None:
 			continue
-		raw = cfg.get("aiMaxTokens")
-		if raw is None or raw == "":
-			continue
-		value = flt(raw)
-		if value <= 0 or value != int(value):
+		text = str(cfg.get("aiMaxTokens")).strip()
+		if not text.isdigit() or int(text) <= 0:
 			frappe.throw(
-				_("Max tokens must be a positive number") + _(" \u2014 AI Agent Task '{0}'").format(bpmn_id),
+				_("Max tokens must be a positive number (AI Agent Task {0})").format(bpmn_id),
 				exc=frappe.ValidationError,
 			)
 
