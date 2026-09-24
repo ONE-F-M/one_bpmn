@@ -117,6 +117,11 @@ const routes = [
 		component: () => import("@/views/Memory.vue"),
 	},
 	{
+		path: "/processa/status",
+		name: "Status",
+		component: () => import("@/views/Status.vue"),
+	},
+	{
 		path: "/:pathMatch(.*)*",
 		redirect: "/processa",
 	},
