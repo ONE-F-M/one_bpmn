@@ -15,12 +15,11 @@
 				</span>
 			</div>
 			<div class="flex items-center gap-2 mt-2">
-				<div class="flex-1 h-1.5 bg-gray-100 rounded">
-					<div
-						class="h-1.5 rounded"
-						:style="{ width: `${Math.min(row.share || 0, 100)}%`, backgroundColor: colors[row.name] }"
-					></div>
-				</div>
+				<ShareBar
+					class="flex-1"
+					:share="row.share || 0"
+					:color="colors[row.name]"
+				/>
 				<span class="text-xs text-gray-600 whitespace-nowrap">{{ fmtPct(row.share, 0) }} {{ __("of spend") }}</span>
 				<DeltaPill
 					:delta="row.delta"
@@ -53,6 +52,7 @@
 
 <script setup>
 import DeltaPill from "@/components/insights/DeltaPill.vue"
+import ShareBar from "@/components/insights/ShareBar.vue"
 import { fmtCompact, fmtCurrency, fmtCurrencyExact, fmtInt, fmtPct } from "@/utils/formatters"
 
 defineProps({
