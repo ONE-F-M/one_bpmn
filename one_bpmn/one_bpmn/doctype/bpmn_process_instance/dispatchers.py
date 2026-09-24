@@ -2190,7 +2190,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				# turns are appended here.
 				from one_bpmn.agents.observability import record_selector_turns
 				source_map = {t.name: "diagram_task" for t in tool_specs}
-				record_selector_turns(run, result.trace or [], source_map)
+				record_selector_turns(
+					run, result.trace or [], source_map,
+					already_recorded=already_recorded_turns,
+				)
 			else:
 				record_ai_step(run, 1, "system", system_prompt)
 
