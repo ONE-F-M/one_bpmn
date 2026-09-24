@@ -367,9 +367,24 @@ async function checkA2AAccess() {
 	}
 }
 
+// Debug Info is only for System Managers to prevent exposing sensitive config
+const canSeeDebugInfo = ref(false)
+async function checkDebugInfoAccess() {
+	try {
+		// Try accessing the debug endpoint; if it succeeds, user has System Manager role
+		await frappeRequest({
+			url: "/api/method/one_bpmn.api.debug_api.get_debug_status",
+		})
+		canSeeDebugInfo.value = true
+	} catch (e) {
+		canSeeDebugInfo.value = false
+	}
+}
+
 onMounted(() => {
 	checkSecurityAccess()
 	checkA2AAccess()
+	checkDebugInfoAccess()
 	const saved = localStorage.getItem("one_bpmn_sidebar_collapsed")
 	if (saved === "true") {
 		collapsed.value = true
