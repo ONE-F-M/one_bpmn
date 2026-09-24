@@ -59,6 +59,11 @@ DEFAULT_TEMPERATURE = 0.3
 # prompt becomes impossible to reason about.
 DEFAULT_TOP_P = 1.0
 
+# How many times a failed model call is retried before the task gives up.
+# Shared so dispatchers.py and bpmn_process_instance.py stop each carrying
+# their own copy of the same number.
+DEFAULT_MAX_RETRIES = 2
+
 
 # ---------------------------------------------------------------------------
 # Error codes
