@@ -2986,6 +2986,16 @@ async function handleImportFile(event) {
 			params: { process: props.process, diagram: result.name },
 		});
 
+		if (isReimportOfOpenDiagram) {
+			// activeDiagramName did not actually change (same name before and
+			// after), so the watch(activeDiagramName) above never fires and the
+			// canvas is never repainted. Call the load path directly instead —
+			// this is a cache-hit thanks to the pre-populated diagramDataCache
+			// above, so it just calls editorRef.loadXML with the fresh XML. No
+			// page reload (that crashes the Preact properties panel).
+			await loadDiagramContent(result.name);
+		}
+
 		showNotification(
 			"Import Successful",
 			`Diagram "${result.model_name}" ${action} successfully.`,
