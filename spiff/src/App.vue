@@ -266,6 +266,26 @@
 						A2A
 					</span>
 				</router-link>
+				<!-- Debug Info - visible only to System Managers for troubleshooting -->
+				<router-link
+					v-if="canSeeDebugInfo"
+					to="/processa/status"
+					class="flex items-center rounded-lg transition-all duration-200"
+					:class="[
+						collapsed ? 'justify-center p-2.5' : 'gap-3 px-4 py-2.5',
+						$route.path.startsWith('/processa/status') ? 'bg-gray-900 text-white shadow-md' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+					]"
+					@click="isMobileMenuOpen = false"
+					:title="collapsed ? 'Debug Info' : ''"
+				>
+					<Icon icon="lucide:cpu" class="w-5 h-5 shrink-0" />
+					<span
+						class="text-sm font-semibold whitespace-nowrap transition-opacity duration-200 overflow-hidden"
+						:class="collapsed ? 'opacity-0 w-0' : 'opacity-100 w-auto'"
+					>
+						Debug Info
+					</span>
+				</router-link>
 			</nav>
 
 			<!-- Collapse Toggle -->
