@@ -18,9 +18,19 @@
 			<span class="text-gray-500">{{ view.run.bpmn_label || view.run.bpmn_id }}</span>
 			<span class="text-gray-400">{{ view.run.agent_configuration || view.run.model }}</span>
 			<Badge :theme="view.run.status === 'Success' ? 'green' : 'red'" size="sm">{{ view.run.status }}</Badge>
-			<span class="text-gray-500">{{ fmtNum(view.run.duration_ms) }}ms</span>
-			<span class="text-gray-500">{{ fmtNum(view.rollup?.total_tokens ?? view.run.total_tokens) }} tokens</span>
-			<span class="text-gray-500">${{ (view.rollup?.estimated_cost ?? view.run.estimated_cost ?? 0).toFixed(4) }}</span>
+			<span class="text-gray-500">{{ fmtDuration(view.run.duration_ms) }}</span>
+			<span
+				class="text-gray-500"
+				:title="fmtNum(viewTokens)"
+			>
+				{{ fmtCompact(viewTokens) }} tokens
+			</span>
+			<span
+				class="text-gray-500"
+				:title="fmtCurrencyExact(viewCost)"
+			>
+				{{ fmtCurrency(viewCost) }}
+			</span>
 			<RouterLink :to="`/processa/runs/${view.run.name}`" class="text-blue-600 hover:underline ml-auto" @click.stop>open</RouterLink>
 		</div>
 
@@ -95,9 +105,19 @@
 							>{{ step.error_code }}</span>
 							<span v-else class="text-gray-400">—</span>
 						</td>
-						<td class="py-1.5 px-2 text-xs text-gray-600 text-right">{{ fmtNum(step.latency_ms) }}ms</td>
-						<td class="py-1.5 px-2 text-xs text-gray-600 text-right">{{ fmtNum((step.prompt_tokens ?? 0) + (step.completion_tokens ?? 0)) }}</td>
-						<td class="py-1.5 px-2 text-xs text-gray-600 text-right">${{ (step.cost ?? 0).toFixed(4) }}</td>
+						<td class="py-1.5 px-2 text-xs text-gray-600 text-right">{{ fmtDuration(step.latency_ms) }}</td>
+						<td
+							class="py-1.5 px-2 text-xs text-gray-600 text-right"
+							:title="fmtNum(stepTokens(step))"
+						>
+							{{ fmtCompact(stepTokens(step)) }}
+						</td>
+						<td
+							class="py-1.5 px-2 text-xs text-gray-600 text-right"
+							:title="fmtCurrencyExact(step.cost)"
+						>
+							{{ fmtCurrency(step.cost) }}
+						</td>
 					</tr>
 					<tr v-if="openSteps.has(step.name)" class="border-b border-gray-50 bg-gray-50/60">
 						<td></td>
@@ -122,10 +142,13 @@
 
 		<div v-if="depth === 0 && view.rollup && view.rollup.runs > 1" class="flex flex-wrap gap-4 pt-2 text-xs text-gray-600">
 			<span>Whole turn: {{ view.rollup.runs }} runs</span>
-			<span>{{ fmtNum(view.rollup.total_tokens) }} tokens</span>
-			<span>${{ (view.rollup.estimated_cost ?? 0).toFixed(4) }}</span>
-			<span class="text-gray-400">
-				(this run alone: {{ fmtNum(view.run.total_tokens) }} tokens, ${{ (view.run.estimated_cost ?? 0).toFixed(4) }})
+			<span :title="fmtNum(view.rollup.total_tokens)">{{ fmtCompact(view.rollup.total_tokens) }} tokens</span>
+			<span :title="fmtCurrencyExact(view.rollup.estimated_cost)">{{ fmtCurrency(view.rollup.estimated_cost) }}</span>
+			<span
+				class="text-gray-400"
+				:title="`${fmtNum(view.run.total_tokens)} tokens, ${fmtCurrencyExact(view.run.estimated_cost)}`"
+			>
+				(this run alone: {{ fmtCompact(view.run.total_tokens) }} tokens, {{ fmtCurrency(view.run.estimated_cost) }})
 			</span>
 		</div>
 	</div>
@@ -137,6 +160,7 @@ import { Icon } from "@iconify/vue"
 import { computed, ref, watch } from "vue"
 import { RouterLink } from "vue-router"
 import StepBody from "@/components/insights/StepBody.vue"
+import { fmtInt as fmtNum, fmtCompact, fmtCurrency, fmtCurrencyExact, fmtDuration } from "@/utils/formatters"
 
 const props = defineProps({
 	node: { type: Object, required: true },
@@ -146,6 +170,8 @@ const props = defineProps({
 // A nested run's steps replace the stub the tree arrived with, once fetched.
 const fetched = ref(null)
 const view = computed(() => fetched.value || props.node)
+const viewTokens = computed(() => view.value.rollup?.total_tokens ?? view.value.run.total_tokens)
+const viewCost = computed(() => view.value.rollup?.estimated_cost ?? view.value.run.estimated_cost)
 const expanded = ref(props.depth === 0)
 const loading = ref(false)
 const loadError = ref("")
@@ -187,6 +213,7 @@ function setAll(on) {
 	openSteps.value = on ? new Set((view.value.steps || []).map((s) => s.name)) : new Set()
 }
 
-const numFormatter = new Intl.NumberFormat("en-US")
-function fmtNum(val) { return numFormatter.format(val ?? 0) }
+function stepTokens(step) {
+	return (step.prompt_tokens ?? 0) + (step.completion_tokens ?? 0)
+}
 </script>

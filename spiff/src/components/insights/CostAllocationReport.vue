@@ -36,13 +36,23 @@
 				<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">
 					Cost · {{ scopeLabel }}
 				</div>
-				<div class="text-2xl font-bold text-gray-900">{{ fmtCost(totals.cost) }}</div>
+				<div
+					class="text-2xl font-bold text-gray-900"
+					:title="fmtCurrencyExact(totals.cost)"
+				>
+					{{ fmtCost(totals.cost) }}
+				</div>
 			</div>
 			<div class="bg-white rounded-lg shadow-sm p-4 border-l-4 border-amber-500">
 				<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">
 					Tokens · {{ scopeLabel }}
 				</div>
-				<div class="text-2xl font-bold text-gray-900">{{ fmtNum(totals.tokens) }}</div>
+				<div
+					class="text-2xl font-bold text-gray-900"
+					:title="fmtNum(totals.tokens)"
+				>
+					{{ fmtCompact(totals.tokens) }}
+				</div>
 			</div>
 			<div class="bg-white rounded-lg shadow-sm p-4 border-l-4 border-blue-500">
 				<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">
@@ -105,8 +115,18 @@
 						<td class="py-2.5 px-3 text-sm text-gray-600">{{ r.person || "unassigned" }}</td>
 						<td class="py-2.5 px-3 text-sm text-gray-600">{{ r.subject_label || "—" }}</td>
 						<td class="py-2.5 px-3 text-sm text-gray-600 text-right">{{ fmtNum(r.runs) }}</td>
-						<td class="py-2.5 px-3 text-sm text-gray-600 text-right">{{ fmtNum(r.tokens) }}</td>
-						<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-medium">{{ fmtCost(r.cost) }}</td>
+						<td
+							class="py-2.5 px-3 text-sm text-gray-600 text-right"
+							:title="fmtNum(r.tokens)"
+						>
+							{{ fmtCompact(r.tokens) }}
+						</td>
+						<td
+							class="py-2.5 px-3 text-sm text-gray-900 text-right font-medium"
+							:title="fmtCurrencyExact(r.cost)"
+						>
+							{{ fmtCost(r.cost) }}
+						</td>
 					</tr>
 				</tbody>
 				<tfoot>
@@ -115,8 +135,18 @@
 							Subtotal · {{ scopeLabel }}
 						</td>
 						<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold">{{ fmtNum(totals.runs) }}</td>
-						<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold">{{ fmtNum(totals.tokens) }}</td>
-						<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold">{{ fmtCost(totals.cost) }}</td>
+						<td
+							class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold"
+							:title="fmtNum(totals.tokens)"
+						>
+							{{ fmtCompact(totals.tokens) }}
+						</td>
+						<td
+							class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold"
+							:title="fmtCurrencyExact(totals.cost)"
+						>
+							{{ fmtCost(totals.cost) }}
+						</td>
 					</tr>
 				</tfoot>
 			</table>
@@ -128,6 +158,7 @@
 import { ref, computed, watch, onMounted } from "vue"
 import { frappeRequest, Button, Dropdown } from "frappe-ui"
 import { Icon } from "@iconify/vue"
+import { fmtInt as fmtNum, fmtCompact, fmtCurrency as fmtCost, fmtCurrencyExact } from "@/utils/formatters"
 
 const props = defineProps({
 	fromDate: String,
@@ -164,13 +195,6 @@ const unshownCost = computed(() =>
 function toggleAxis() {
 	axis.value = axis.value === "chat_user" ? "process_owner" : "chat_user"
 }
-
-const _num = new Intl.NumberFormat("en-US")
-const _cost = new Intl.NumberFormat("en-US", {
-	style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 4,
-})
-function fmtNum(n) { return _num.format(n || 0) }
-function fmtCost(n) { return _cost.format(n || 0) }
 
 // Export goes through a normal browser navigation: the endpoint replies with a
 // file download, which fetch/frappeRequest can't hand to the user.

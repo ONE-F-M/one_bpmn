@@ -65,7 +65,7 @@
 								fill="#fde68a"
 								rx="2"
 							>
-								<title>p95: {{ fmtNum(trend.p95[i]) }}ms ({{ label }})</title>
+								<title>p95: {{ fmtDuration(trend.p95[i]) }} ({{ label }})</title>
 							</rect>
 							<rect
 								:x="50 + i * 40"
@@ -75,7 +75,7 @@
 								fill="#6366f1"
 								rx="2"
 							>
-								<title>p50: {{ fmtNum(trend.p50[i]) }}ms ({{ label }})</title>
+								<title>p50: {{ fmtDuration(trend.p50[i]) }} ({{ label }})</title>
 							</rect>
 							<text
 								:x="50 + i * 40 + 12"
@@ -131,14 +131,19 @@
 								<td class="py-3 px-3 text-sm text-gray-900 font-medium">{{ row.model }}</td>
 								<td class="py-3 px-3 text-sm text-gray-600">{{ row.bpmn_label || row.bpmn_id || "—" }}</td>
 								<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.runs) }}</td>
-								<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.avg_duration_ms) }}ms</td>
-								<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.p50_duration_ms) }}ms</td>
+								<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtDuration(row.avg_duration_ms) }}</td>
+								<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtDuration(row.p50_duration_ms) }}</td>
 								<td class="py-3 px-3 text-sm text-right font-medium" :class="row.p95_duration_ms > 5000 ? 'text-red-600' : 'text-gray-600'">
-									{{ fmtNum(row.p95_duration_ms) }}ms
+									{{ fmtDuration(row.p95_duration_ms) }}
 								</td>
-								<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.max_duration_ms) }}ms</td>
+								<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtDuration(row.max_duration_ms) }}</td>
 								<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ row.avg_steps }}</td>
-								<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.avg_tokens) }}</td>
+								<td
+									class="py-3 px-3 text-sm text-gray-600 text-right"
+									:title="fmtNum(row.avg_tokens)"
+								>
+									{{ fmtCompact(row.avg_tokens) }}
+								</td>
 							</tr>
 
 							<!-- Expanded: Recent runs -->
@@ -181,13 +186,19 @@
 													<td class="py-2 px-2">
 														<Badge :theme="run.status === 'Success' ? 'green' : 'red'" size="sm">{{ run.status }}</Badge>
 													</td>
-													<td class="py-2 px-2 text-xs text-gray-600 text-right">{{ fmtNum(run.duration_ms) }}ms</td>
+													<td class="py-2 px-2 text-xs text-gray-600 text-right">{{ fmtDuration(run.duration_ms) }}</td>
 													<!-- WI-002190: the turn's total, sub-runs included; the run's own figure on hover -->
-													<td class="py-2 px-2 text-xs text-gray-600 text-right" :title="run.child_runs ? `this run alone: ${fmtNum(run.total_tokens)}` : ''">
-														{{ fmtNum(run.tree_total_tokens ?? run.total_tokens) }}
+													<td
+														class="py-2 px-2 text-xs text-gray-600 text-right"
+														:title="runTokensTitle(run)"
+													>
+														{{ fmtCompact(run.tree_total_tokens ?? run.total_tokens) }}
 													</td>
-													<td class="py-2 px-2 text-xs text-gray-600 text-right" :title="run.child_runs ? `this run alone: $${(run.estimated_cost ?? 0).toFixed(4)}` : ''">
-														${{ (run.tree_estimated_cost ?? run.estimated_cost ?? 0).toFixed(4) }}
+													<td
+														class="py-2 px-2 text-xs text-gray-600 text-right"
+														:title="runCostTitle(run)"
+													>
+														{{ fmtCurrency(run.tree_estimated_cost ?? run.estimated_cost) }}
 													</td>
 													<td class="py-2 px-2 text-xs text-gray-600 text-right">{{ run.child_runs || "—" }}</td>
 													<td class="py-2 px-2 text-xs text-gray-500">{{ formatDate(run.started_at) }}</td>
@@ -218,6 +229,7 @@ import { frappeRequest, FormControl, Badge } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 import RunTree from "@/components/insights/RunTree.vue"
+import { fmtInt as fmtNum, fmtCompact, fmtCurrency, fmtCurrencyExact, fmtDuration } from "@/utils/formatters"
 
 const props = defineProps({
 	fromDate: String,
@@ -240,9 +252,6 @@ const recentRunsLoading = ref(false)
 
 const expandedStepRun = ref(null)
 const tree = ref(null)
-
-const numFormatter = new Intl.NumberFormat("en-US")
-function fmtNum(val) { return numFormatter.format(val ?? 0) }
 
 function formatDate(dateStr) {
 	if (!dateStr) return ""
@@ -396,4 +405,14 @@ async function loadProcessOptions() {
 
 watch(() => [props.fromDate, props.toDate, props.origin], fetchReport)
 onMounted(fetchReport)
+
+function runTokensTitle(run) {
+	const total = fmtNum(run.tree_total_tokens ?? run.total_tokens)
+	return run.child_runs ? `${total}, this run alone: ${fmtNum(run.total_tokens)}` : total
+}
+
+function runCostTitle(run) {
+	const total = fmtCurrencyExact(run.tree_estimated_cost ?? run.estimated_cost)
+	return run.child_runs ? `${total}, this run alone: ${fmtCurrencyExact(run.estimated_cost)}` : total
+}
 </script>

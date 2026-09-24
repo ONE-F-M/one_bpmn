@@ -144,9 +144,9 @@ class TestExecutorToolBridge(FrappeTestCase):
 		self.assertEqual(result.trace[0]["tool_calls"][0]["result"], "ok")
 		json.dumps(result.trace)  # trace must be JSON-safe for observability
 
-	# ── Scenario 5: turn cap → FAILED_MODEL_CALL naming the cause, trace kept ──
+	# Scenario 5: the turn cap returns TURN_CAP_REACHED naming the cause, and the trace is kept.
 
-	def test_turn_cap_returns_failed_model_call_with_trace(self):
+	def test_turn_cap_returns_turn_cap_reached_with_trace(self):
 		steps = [
 			StepResult(
 				tool_calls=[StepToolCall(id="c1", name="echo_tool", arguments={"text": "a"})],
@@ -157,7 +157,7 @@ class TestExecutorToolBridge(FrappeTestCase):
 		result, _, _ = self._run(
 			self.openai_provider, [_tool()], steps, max_tool_calls=1
 		)
-		self.assertEqual(result.error_code, ErrorCode.FAILED_MODEL_CALL)
+		self.assertEqual(result.error_code, ErrorCode.TURN_CAP_REACHED)
 		self.assertIn("turn cap", result.error_message)
 		self.assertEqual(len(result.trace), 1)
 
