@@ -2046,6 +2046,9 @@ def _evaluate_llm_judge(assertion, output: Any) -> dict:
         system_prompt="",
         user_prompt=judge_prompt,
         response_format="json",
+        # ExecutorConfig's shared default moved to DEFAULT_TEMPERATURE (0.3);
+        # the judge has always run at 0.7 and keeps doing so explicitly.
+        temperature=0.7,
     )
     judge_context = ExecutorContext()
 
