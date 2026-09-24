@@ -1,8 +1,11 @@
 <template>
 	<div class="bpmn-editor-wrapper h-full w-full flex flex-col">
 		<!-- Toolbar (moved natively to parent Editor.vue's header) -->
-		<div ref="toolbarEl" v-show="isMounted" class="flex items-center gap-1.5 w-full h-full text-gray-700 flex-nowrap min-w-0 pr-2">
+		<div ref="toolbarEl" v-show="isMounted" class="bpmn-toolbar relative flex items-center gap-1.5 w-full h-full text-gray-700 flex-nowrap min-w-0 pr-2">
 			<template v-if="!readonly">
+				<div
+					:class="['bpmn-toolbar-tools flex items-center gap-1.5', { 'bpmn-toolbar-tools--open': showMoreTools }]"
+				>
 				<!-- Undo/Redo buttons -->
 				<button
 					@click="undo"
@@ -75,8 +78,21 @@
 				<FormattingToolbar
 					:selectedElements="selectedElements"
 					:modeler="modelerInstance"
-					class="shrink-0"
+					class="bpmn-toolbar-format shrink-0"
 				/>
+				</div>
+
+				<!-- Shown only when the toolbar is too narrow; opens the folded tools as a panel -->
+				<button
+					@click="showMoreTools = !showMoreTools"
+					title="More tools"
+					:class="[
+						'bpmn-toolbar-more p-1.5 items-center justify-center rounded transition-colors shrink-0',
+						showMoreTools ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100 text-gray-700',
+					]"
+				>
+					<Icon icon="lucide:ellipsis" class="w-4 h-4" />
+				</button>
 			</template>
 
 			<!-- Read-only indicator -->
@@ -86,7 +102,7 @@
 			</div>
 
 
-			<div class="flex-1 min-w-4 flex items-center justify-end gap-2 px-3">
+			<div class="flex-1 flex items-center justify-end gap-2 px-3">
 				<div v-if="saveStatusText && !readonly" class="text-sm font-medium transition-colors" :class="saveStatusColor">
 					{{ saveStatusText }}
 				</div>
@@ -105,7 +121,7 @@
 					]"
 				>
 					<Icon icon="lucide:sparkles" class="w-3.5 h-3.5" />
-					<span class="hidden sm:inline">ProsAlly</span>
+					<span class="bpmn-toolbar-label hidden sm:inline">ProsAlly</span>
 				</button>
 			</div>
 		</div>
@@ -1485,6 +1501,7 @@ const panelReleased = computed(() => {
 // Mobile responsiveness
 const { isMobile } = useWindowSize();
 const showMobileFormatPopover = ref(false);
+const showMoreTools = ref(false);
 const showProsAllyPanel = ref(false);
 const internalProcessName = ref("");
 const dragHandleRef = ref(null);
@@ -3378,6 +3395,69 @@ function getAvatarColor(userName) {
 	return colors[Math.abs(hash) % colors.length];
 }
 </script>
+
+<style scoped>
+/* The toolbar shares the header with the title and actions, so it folds by its own width, not the viewport's. */
+.bpmn-toolbar {
+	container-type: inline-size;
+}
+.bpmn-toolbar-more {
+	display: none;
+}
+@container (max-width: 879px) {
+	.bpmn-toolbar-more {
+		display: flex;
+	}
+	.bpmn-toolbar .bpmn-toolbar-tools {
+		position: relative;
+	}
+	.bpmn-toolbar .bpmn-toolbar-format {
+		display: none;
+	}
+	.bpmn-toolbar .bpmn-toolbar-tools--open .bpmn-toolbar-format {
+		display: flex;
+		position: absolute;
+		top: calc(100% + 4px);
+		left: 0;
+		z-index: 70;
+		padding: 8px;
+		background: #fff;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+	}
+}
+@container (max-width: 469px) {
+	.bpmn-toolbar .bpmn-toolbar-tools {
+		display: none;
+	}
+	.bpmn-toolbar .bpmn-toolbar-tools.bpmn-toolbar-tools--open {
+		display: flex;
+		flex-wrap: wrap;
+		position: absolute;
+		top: calc(100% + 4px);
+		left: 0;
+		z-index: 70;
+		width: 320px;
+		padding: 8px;
+		background: #fff;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+	}
+	.bpmn-toolbar .bpmn-toolbar-tools--open .bpmn-toolbar-format {
+		flex-wrap: wrap;
+		flex-basis: 100%;
+		position: static;
+		padding: 0;
+		border: 0;
+		box-shadow: none;
+	}
+	.bpmn-toolbar .bpmn-toolbar-label {
+		display: none;
+	}
+}
+</style>
 
 <style>
 .bpmn-editor-wrapper {
