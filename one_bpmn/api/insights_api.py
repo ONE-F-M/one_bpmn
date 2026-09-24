@@ -692,6 +692,8 @@ def get_error_report(
 		"grain": grain,
 		"from_date": cstr(from_d),
 		"to_date": cstr(to_d),
+		"previous_from": cstr(previous_from),
+		"previous_to": cstr(previous_to),
 		"timeseries": _error_timeseries(from_d, to_d, origin, filters, grain),
 		"codes": codes,
 		"issues": issues,
@@ -902,6 +904,8 @@ def _error_summary(current: dict, previous: dict) -> dict:
 	previous_runs, previous_errors, previous_retried, previous_recovered = totals(previous)
 	error_rate = _rate(errors, runs)
 	previous_error_rate = _rate(previous_errors, previous_runs) if previous_runs else None
+	retry_recovery_rate = _rate(recovered, retried)
+	previous_retry_recovery_rate = _rate(previous_recovered, previous_retried) if previous_runs else None
 	return {
 		"runs": runs,
 		"errors": errors,
@@ -909,12 +913,16 @@ def _error_summary(current: dict, previous: dict) -> dict:
 		"previous_errors": previous_errors,
 		"previous_error_rate": previous_error_rate,
 		"delta_pt": flt(error_rate - previous_error_rate, 1) if previous_runs else None,
+		"errors_delta": flt((errors - previous_errors) / previous_errors * 100, 1)
+		if previous_errors
+		else None,
 		"suspended": current["suspended"],
 		"retried": retried,
 		"retry_recovered": recovered,
-		"retry_recovery_rate": _rate(recovered, retried),
-		"previous_retry_recovery_rate": _rate(previous_recovered, previous_retried)
-		if previous_runs
+		"retry_recovery_rate": retry_recovery_rate,
+		"previous_retry_recovery_rate": previous_retry_recovery_rate,
+		"retry_recovery_delta_pt": flt(retry_recovery_rate - previous_retry_recovery_rate, 1)
+		if previous_retried
 		else None,
 		"affected_elements": len({(key[1], key[2]) for key in current["errors"]}),
 		"elements_with_runs": len({(key[0], key[1]) for key in current["elements"]}),

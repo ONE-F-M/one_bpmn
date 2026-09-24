@@ -26,7 +26,8 @@
 				</svg>
 			</div>
 			<div
-				class="text-2xl font-bold text-gray-900 whitespace-nowrap"
+				class="text-2xl font-bold whitespace-nowrap"
+				:class="valueClass"
 				:title="valueTitle || undefined"
 			>
 				{{ value }}
@@ -67,6 +68,7 @@ const props = defineProps({
 	// Preformatted by the caller with utils/formatters.js; this component does no rounding.
 	value: { type: String, default: "" },
 	valueTitle: { type: String, default: "" },
+	valueClass: { type: String, default: "text-gray-900" },
 	delta: { type: Number, default: undefined },
 	deltaKind: { type: String, default: "pct" }, // "pct" | "pt"
 	goodDirection: { type: String, default: "up" }, // "up" | "down"

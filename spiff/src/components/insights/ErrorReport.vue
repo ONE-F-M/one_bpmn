@@ -1,151 +1,206 @@
 <template>
 	<div class="space-y-6">
-		<!-- Filters -->
-		<div class="flex flex-wrap gap-4 items-center">
-			<FormControl
-				type="select"
-				v-model="filterModel"
-				:options="modelOptions"
-				class="w-48"
-				@change="fetchReport"
-			/>
-			<FormControl
-				type="select"
-				v-model="filterErrorCode"
-				:options="errorCodeOptions"
-				class="w-56"
-				@change="fetchReport"
-			/>
-			<FormControl
-				type="select"
-				v-model="filterProcess"
-				:options="processOptions"
-				class="w-48"
-				@change="fetchReport"
-			/>
-			<!-- WI-001608: AI tasks are done by AI Agents -->
-			<FormControl
-				type="select"
+		<div class="flex items-center justify-between gap-3">
+			<TabButtons
 				v-model="groupBy"
-				:options="[
-					{ label: 'Group by Model', value: 'model' },
-					{ label: 'Group by AI Agent', value: 'agent' },
-				]"
-				class="w-48"
-				@change="fetchReport"
+				:buttons="groupByButtons"
+			/>
+			<Dropdown
+				:options="exportOptions"
+				placement="right"
+			>
+				<Button
+					icon-right="chevron-down"
+					:disabled="loading || !summary.errors"
+				>
+					{{ __("Export") }}
+				</Button>
+			</Dropdown>
+		</div>
+
+		<div
+			v-if="loading"
+			class="flex items-center justify-center h-64"
+		>
+			<LoadingIndicator class="w-6 h-6 text-gray-500" />
+		</div>
+
+		<div
+			v-else-if="error"
+			class="flex flex-col items-center justify-center h-64 gap-3"
+		>
+			<ErrorMessage :message="error" />
+			<Button
+				:label="__('Retry')"
+				@click="fetchReport"
 			/>
 		</div>
 
-		<!-- Loading State -->
-		<div v-if="loading" class="flex items-center justify-center h-64">
-			<div class="text-gray-500">Loading...</div>
-		</div>
-
-		<!-- Empty State -->
-		<div v-else-if="!reportData.rows || reportData.rows.length === 0" class="flex flex-col items-center justify-center h-64 text-center">
-			<div class="text-gray-400 mb-4">
-				<Icon icon="lucide:check-circle" class="w-16 h-16 mx-auto" />
-			</div>
-			<h3 class="text-lg font-medium text-gray-900 mb-1">No Error Data</h3>
-			<p class="text-gray-500">No agent runs found for the selected period.</p>
+		<div
+			v-else-if="!summary.runs"
+			class="flex flex-col items-center justify-center h-64 text-center"
+		>
+			<Icon
+				icon="lucide:bar-chart-3"
+				class="w-12 h-12 text-gray-400 mb-3"
+			/>
+			<h3 class="text-base font-medium text-gray-900">{{ __("No runs in this range") }}</h3>
+			<p class="text-sm text-gray-500">{{ __("Try a wider date range or different filters") }}</p>
 		</div>
 
 		<template v-else>
-			<!-- Summary -->
-			<div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-				<div class="bg-gray-50 rounded-lg p-4">
-					<div class="text-xs text-gray-500 uppercase tracking-wide mb-1">Total Errors</div>
-					<div class="text-lg font-bold" :class="summary.total_errors > 0 ? 'text-red-600' : 'text-gray-900'">
-						{{ fmtNum(summary.total_errors) }}
-					</div>
-				</div>
-				<div class="bg-gray-50 rounded-lg p-4">
-					<div class="text-xs text-gray-500 uppercase tracking-wide mb-1">Most Common Error</div>
-					<div class="text-sm font-bold text-gray-900 truncate">{{ summary.most_common_error || "—" }}</div>
-				</div>
-				<div class="bg-gray-50 rounded-lg p-4">
-					<div class="text-xs text-gray-500 uppercase tracking-wide mb-1">Worst Element</div>
-					<div class="text-sm font-bold text-gray-900 truncate">{{ summary.worst_element || "—" }}</div>
-				</div>
-				<div class="bg-gray-50 rounded-lg p-4">
-					<div class="text-xs text-gray-500 uppercase tracking-wide mb-1">Retry Recovery</div>
-					<div class="text-lg font-bold text-gray-900">{{ fmtPct(summary.retry_recovery_rate) }}</div>
-				</div>
+			<div class="grid grid-cols-2 sm:grid-cols-3 gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
+				<MetricTile
+					:label="__('Error rate')"
+					:value="fmtPct(summary.error_rate)"
+					:value-class="summary.error_rate > 0 ? 'text-red-600' : 'text-gray-900'"
+					:delta="summary.delta_pt ?? null"
+					delta-kind="pt"
+					good-direction="down"
+					:subtitle="priorDates"
+				/>
+				<MetricTile
+					:label="__('Errors')"
+					:value="fmtNum(summary.errors)"
+					:delta="summary.errors_delta ?? null"
+					good-direction="down"
+					:subtitle="errorsSubtitle"
+				/>
+				<MetricTile
+					class="col-span-2 sm:col-span-1"
+					:label="__('Retry recovery')"
+					:value="fmtPct(summary.retry_recovery_rate, 0)"
+					:delta="summary.retry_recovery_delta_pt ?? null"
+					delta-kind="pt"
+					good-direction="up"
+					:subtitle="retrySubtitle"
+				/>
 			</div>
 
-			<!-- Error breakdown badges -->
-			<div v-if="errorBreakdown.length > 0" class="flex flex-wrap gap-2">
-				<Badge
-					v-for="eb in errorBreakdown"
-					:key="eb.error_code"
-					theme="red"
-					size="sm"
-				>
-					{{ eb.error_code }}: {{ eb.count }}
-				</Badge>
+			<div
+				v-if="!summary.errors"
+				class="flex flex-col items-center justify-center h-48 text-center"
+			>
+				<Icon
+					icon="lucide:check-circle"
+					class="w-12 h-12 text-green-500 mb-3"
+				/>
+				<p class="text-sm text-gray-700">{{ __("No errors in") }} {{ fmtNum(summary.runs) }} {{ __("runs") }}</p>
 			</div>
 
-			<!-- Table -->
-			<div class="overflow-x-auto">
-				<table class="w-full">
-					<thead>
-						<tr class="border-b border-gray-200">
-							<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3">{{ groupBy === "agent" ? "AI Agent" : "Model" }}</th>
-							<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3">BPMN Element</th>
-							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Total Runs</th>
-							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Successes</th>
-							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Errors</th>
-							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Success Rate</th>
-							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Retry Rate</th>
-							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Recovered</th>
-							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Avg Duration</th>
-						</tr>
-					</thead>
-					<tbody>
-						<tr v-for="(row, idx) in reportData.rows" :key="idx" class="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-							<td class="py-3 px-3 text-sm text-gray-900 font-medium">{{ row.model }}</td>
-							<td class="py-3 px-3 text-sm text-gray-600">{{ row.bpmn_label || row.bpmn_id || "—" }}</td>
-							<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.total_runs) }}</td>
-							<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.successes) }}</td>
-							<td class="py-3 px-3 text-sm text-right font-medium" :class="row.errors > 0 ? 'text-red-600' : 'text-gray-600'">
-								{{ fmtNum(row.errors) }}
-							</td>
-							<td class="py-3 px-3 text-sm text-right font-medium" :class="rateColor(row.success_rate)">
-								{{ fmtPct(row.success_rate) }}
-							</td>
-							<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtPct(row.retry_rate) }}</td>
-							<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.retry_recovered) }}</td>
-							<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtDuration(row.avg_duration_ms) }}</td>
-						</tr>
-					</tbody>
-				</table>
-			</div>
+			<template v-else>
+				<!-- Error breakdown badges -->
+				<div v-if="errorBreakdown.length > 0" class="flex flex-wrap gap-2">
+					<Badge
+						v-for="eb in errorBreakdown"
+						:key="eb.error_code"
+						theme="red"
+						size="sm"
+					>
+						{{ eb.error_code }}: {{ eb.count }}
+					</Badge>
+				</div>
+
+				<!-- Table -->
+				<div class="overflow-x-auto">
+					<table class="w-full">
+						<thead>
+							<tr class="border-b border-gray-200">
+								<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3">{{ groupBy === "agent" ? "AI Agent" : "Model" }}</th>
+								<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3">BPMN Element</th>
+								<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Total Runs</th>
+								<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Successes</th>
+								<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Errors</th>
+								<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Success Rate</th>
+								<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Retry Rate</th>
+								<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Recovered</th>
+								<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Avg Duration</th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr v-for="(row, idx) in reportData.rows" :key="idx" class="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+								<td class="py-3 px-3 text-sm text-gray-900 font-medium">{{ row.model }}</td>
+								<td class="py-3 px-3 text-sm text-gray-600">{{ row.bpmn_label || row.bpmn_id || "-" }}</td>
+								<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.total_runs) }}</td>
+								<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.successes) }}</td>
+								<td class="py-3 px-3 text-sm text-right font-medium" :class="row.errors > 0 ? 'text-red-600' : 'text-gray-600'">
+									{{ fmtNum(row.errors) }}
+								</td>
+								<td class="py-3 px-3 text-sm text-right font-medium" :class="rateColor(row.success_rate)">
+									{{ fmtPct(row.success_rate) }}
+								</td>
+								<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtPct(row.retry_rate) }}</td>
+								<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.retry_recovered) }}</td>
+								<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtDuration(row.avg_duration_ms) }}</td>
+							</tr>
+						</tbody>
+					</table>
+				</div>
+			</template>
 		</template>
 	</div>
 </template>
 
 <script setup>
 import { ref, computed, watch, onMounted } from "vue"
-import { frappeRequest, FormControl, Badge } from "frappe-ui"
+import {
+	Badge,
+	Button,
+	Dropdown,
+	ErrorMessage,
+	frappeRequest,
+	LoadingIndicator,
+	TabButtons,
+} from "frappe-ui"
 import { Icon } from "@iconify/vue"
+import { dayjs } from "@/dayjs"
+import MetricTile from "@/components/insights/MetricTile.vue"
 import { fmtInt as fmtNum, fmtDuration, fmtPct } from "@/utils/formatters"
 
 const props = defineProps({
-	fromDate: String,
-	toDate: String,
+	fromDate: { type: String, default: "" },
+	toDate: { type: String, default: "" },
 	origin: { type: String, default: "production" },
+	model: { type: String, default: "" },
+	provider: { type: String, default: "" },
+	processModel: { type: String, default: "" },
 })
 
-const loading = ref(false)
-const reportData = ref({})
-const filterModel = ref("")
-const filterErrorCode = ref("")
-const filterProcess = ref("")
-const groupBy = ref("model") // "model" | "agent" (WI-001608)
+const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s
 
-// Cache model options from the initial (unfiltered) load
-const cachedModels = ref([])
-const cachedProcesses = ref([])
+const groupByButtons = [
+	{ label: __("By model"), value: "model" },
+	{ label: __("By AI agent"), value: "agent" },
+]
+
+const loading = ref(false)
+const error = ref(null)
+const reportData = ref({})
+const groupBy = ref("model")
+
+const summary = computed(() => reportData.value.summary || {})
+const errorBreakdown = computed(() => reportData.value.error_breakdown || [])
+
+const priorDates = computed(() => {
+	const from = dayjs(reportData.value.previous_from)
+	const to = dayjs(reportData.value.previous_to)
+	if (!from.isValid() || !to.isValid()) return ""
+	const end = from.isSame(to, "month") ? to.format("D") : to.format("MMM D")
+	return `${__("vs")} ${from.format("MMM D")} ${__("to")} ${end}`
+})
+const errorsSubtitle = computed(() => {
+	const text = `${__("of")} ${fmtNum(summary.value.runs)} ${__("runs")}`
+	return summary.value.suspended ? `${text} · ${fmtNum(summary.value.suspended)} ${__("suspended")}` : text
+})
+const retrySubtitle = computed(
+	() =>
+		`${fmtNum(summary.value.retry_recovered)} ${__("of")} ${fmtNum(summary.value.retried)} ${__("retried runs recovered")}`,
+)
+
+const exportOptions = computed(() => [
+	{ label: "CSV", onClick: () => download("csv") },
+	{ label: "XLSX", onClick: () => download("xlsx") },
+])
 
 function rateColor(rate) {
 	if (rate >= 95) return "text-green-600"
@@ -153,82 +208,42 @@ function rateColor(rate) {
 	return "text-red-600"
 }
 
-const summary = computed(() => reportData.value.summary || {})
-const errorBreakdown = computed(() => reportData.value.error_breakdown || [])
+function queryParams() {
+	return {
+		from_date: props.fromDate,
+		to_date: props.toDate,
+		origin: props.origin,
+		model: props.model,
+		provider: props.provider,
+		process_model: props.processModel,
+		group_by: groupBy.value,
+	}
+}
 
-const modelOptions = computed(() => {
-	return [{ label: "All Models", value: "" }, ...cachedModels.value.map(m => ({ label: m, value: m }))]
-})
-
-const errorCodeOptions = [
-	{ label: "All Error Codes", value: "" },
-	{ label: "FAILED_MODEL_CALL", value: "FAILED_MODEL_CALL" },
-	{ label: "SCHEMA_VALIDATION_FAILED", value: "SCHEMA_VALIDATION_FAILED" },
-	{ label: "TIMEOUT", value: "TIMEOUT" },
-	{ label: "UNEXPECTED_ERROR", value: "UNEXPECTED_ERROR" },
-	{ label: "PROVIDER_NOT_FOUND", value: "PROVIDER_NOT_FOUND" },
-	{ label: "PROVIDER_DISABLED", value: "PROVIDER_DISABLED" },
-]
+// The export endpoint replies with a file, so the browser navigates to it instead of fetching.
+function download(fmt) {
+	const params = new URLSearchParams({ ...queryParams(), fmt })
+	window.open(`/api/method/one_bpmn.api.insights_api.export_error_report?${params.toString()}`, "_blank")
+}
 
 async function fetchReport() {
 	loading.value = true
+	error.value = null
 	try {
-		const params = {}
-		if (props.fromDate) params.from_date = props.fromDate
-		if (props.toDate) params.to_date = props.toDate
-		if (filterModel.value) params.model = filterModel.value
-		if (filterErrorCode.value) params.error_code = filterErrorCode.value
-		if (filterProcess.value) params.process_model = filterProcess.value
-		params.origin = props.origin
-		params.group_by = groupBy.value
-
 		const response = await frappeRequest({
 			url: "/api/method/one_bpmn.api.insights_api.get_error_report",
 			method: "POST",
-			params,
+			params: queryParams(),
 		})
 		reportData.value = response || {}
-
-		// Refresh cached model options only on unfiltered, model-grouped
-		// fetches — agent names must not leak into the Model filter.
-		if (!filterModel.value && !filterErrorCode.value && !filterProcess.value && groupBy.value === "model") {
-			const rows = reportData.value.rows || []
-			cachedModels.value = [...new Set(rows.map(r => r.model))].sort()
-		}
-		// Refresh process list from a separate call on initial load
-		if (!cachedProcesses.value.length) {
-			await loadProcessOptions()
-		}
-	} catch (error) {
-		console.error("Failed to fetch error report:", error)
+	} catch (err) {
+		error.value = err
 		reportData.value = {}
 	} finally {
 		loading.value = false
 	}
 }
 
-const processOptions = computed(() => {
-	return [{ label: "All Processes", value: "" }, ...cachedProcesses.value.map(p => ({ label: p, value: p }))]
-})
-
-async function loadProcessOptions() {
-	try {
-		const result = await frappeRequest({
-			url: "/api/method/frappe.client.get_list",
-			method: "POST",
-			params: {
-				doctype: "BPMN Process Model",
-				fields: ["name"],
-				order_by: "name asc",
-				limit_page_length: 0,
-			},
-		})
-		cachedProcesses.value = (result || []).map(r => r.name).sort()
-	} catch (e) {
-		console.error("Failed to load process models:", e)
-	}
-}
-
-watch(() => [props.fromDate, props.toDate, props.origin], fetchReport)
+watch(() => [props.fromDate, props.toDate, props.origin, props.model, props.provider, props.processModel, groupBy.value], fetchReport)
 onMounted(fetchReport)
 </script>
