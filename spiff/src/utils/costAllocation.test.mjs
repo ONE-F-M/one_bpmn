@@ -3,7 +3,9 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { OTHER_COLOR, OTHER_KEY, assignColors, foldTail, pctChange, pricingLink, rowsOf } from "./costAllocation.js"
+import {
+	OTHER_COLOR, OTHER_KEY, assignColors, bucketTotals, currentBucket, foldTail, pctChange, pricingLink, rankSlices, rowsOf,
+} from "./costAllocation.js"
 
 const node = (key, cost, children = []) => ({ key, label: key, cost, share: cost, by_bucket: { w1: cost }, children })
 
@@ -46,4 +48,17 @@ test("a percent change against nothing is null", () => {
 
 test("the pricing link opens the AI Model list filtered to the unpriced models", () => {
 	assert.equal(pricingLink(["a", "b"]), `/app/ai-model?name=${encodeURIComponent('["in",["a","b"]]')}`)
+})
+
+test("each bucket totals every series, and the bucket holding today is the one still filling", () => {
+	const series = [{ by_bucket: { "2026-09-01": 2, "2026-09-08": 1 } }, { by_bucket: { "2026-09-01": 3, "2026-09-08": 0 } }]
+	assert.deepEqual(bucketTotals(series, ["2026-09-01", "2026-09-08"]), { "2026-09-01": 5, "2026-09-08": 1 })
+	const buckets = ["2026-09-01", "2026-09-08", "2026-09-15"]
+	assert.equal(currentBucket(buckets, "2026-09-21", "2026-09-10"), "2026-09-08")
+	assert.equal(currentBucket(buckets, "2026-09-21", "2026-10-02"), null)
+})
+
+test("donut slices rank by value with whole percentages", () => {
+	const ranked = rankSlices([{ key: "b", value: 1 }, { key: "a", value: 3 }])
+	assert.deepEqual(ranked.map((s) => [s.key, s.pct]), [["a", 75], ["b", 25]])
 })
