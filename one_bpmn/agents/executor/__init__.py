@@ -159,7 +159,7 @@ class ExecutorConfig:
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
     response_format: str = "text"        # "text" | "json"
     response_schema: Optional[str] = None  # JSON Schema string
-    max_retries: int = 2
+    max_retries: int = DEFAULT_MAX_RETRIES
     retry_backoff_ms: int = 1000
     # Optional prior message history to prime the call, same {role, content, ...}
     # shape as the conversation store. Provisional — the multi-turn loop may
