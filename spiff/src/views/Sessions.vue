@@ -206,7 +206,7 @@
 							</td>
 						</tr>
 						<tr v-if="!agents.length">
-							<td colspan="8" class="py-6 text-center text-sm text-gray-500">No enabled agents.</td>
+							<td colspan="8" class="py-6 text-center text-sm text-gray-500">No agents have compaction enabled. Edit an AI Agent Task's Memory settings to switch it on.</td>
 						</tr>
 					</tbody>
 				</table>
