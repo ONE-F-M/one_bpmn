@@ -1595,8 +1595,9 @@ def _run_chat_agent_eval(cfg, case) -> tuple:
     seed_messages = context.pop(SEED_MESSAGES_KEY, None) or []
     seed_state = context.pop(SEED_STATE_KEY, None) or {}
 
+    # No commit: the eval job commits when its case ends, and a test's rollback must reach this row.
     conversation = create_agent_conversation(
-        cfg.agent_id, title=(case.title or _("Eval case"))[:140], user=frappe.session.user
+        cfg.agent_id, title=(case.title or _("Eval case"))[:140], user=frappe.session.user, commit=False
     )
 
     started = now_datetime()
@@ -1659,7 +1660,7 @@ def _seed_conversation(conversation: str, messages: list, state: dict) -> None:
         # db_insert: seeded history is a fixture, not a message sent through the chat's guards.
         doc.db_insert()
     if state:
-        session_state.set_state(conversation, state)
+        session_state.set_state(conversation, state, commit=False)
 
 
 def _run_direct_eval(cfg, case) -> tuple:

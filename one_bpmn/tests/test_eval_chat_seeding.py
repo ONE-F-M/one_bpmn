@@ -20,20 +20,12 @@ class TestChatEvalSeeding(FrappeTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.conversations = []
+		self.commit_flags = []
 		self.seen = {}
 
-	def tearDown(self):
-		for conversation in self.conversations:
-			frappe.db.delete("Chat Message", {"conversation": conversation})
-			if frappe.db.exists(session_state.STATE_DOCTYPE, conversation):
-				session_state.clear_state(conversation)
-				frappe.delete_doc(session_state.STATE_DOCTYPE, conversation, ignore_permissions=True, force=True)
-			frappe.db.delete("Chat Conversation", {"name": conversation})
-		frappe.db.delete("AI Agent Run", {"eval_case": CASE_NAME})
-		frappe.db.commit()
-
-	def _new_conversation(self, agent_id, title=None, user=None):
-		conversation = create_conversation("ZZ Eval", title, user)
+	def _new_conversation(self, agent_id, title=None, user=None, commit=True):
+		self.commit_flags.append(commit)
+		conversation = create_conversation("ZZ Eval", title, user, commit=commit)
 		self.conversations.append(conversation)
 		return conversation
 
@@ -116,6 +108,25 @@ class TestChatEvalSeeding(FrappeTestCase):
 		error, close = self._run({}, invoke=fail)
 		self.assertIsInstance(error, frappe.ValidationError)
 		close.assert_called_once_with(self.conversations[0])
+
+	def test_a_seeded_case_commits_nothing_so_the_test_rollback_reaches_it(self):
+		with patch("frappe.db.commit") as commit:
+			output, _close = self._run(
+				{
+					"conversation_messages": [{"message_type": "User", "text": "analyse the topology"}],
+					"session_state": {"lucid_doc:abc": {"title": "Visa"}},
+				}
+			)
+		self.assertEqual(output, "the reply")
+		self.assertEqual(self.commit_flags, [False])
+		commit.assert_not_called()
+
+	def test_the_conversation_and_state_helpers_skip_their_commit_when_asked(self):
+		with patch("frappe.db.commit") as commit:
+			conversation = create_conversation("ZZ Eval", "no commit", frappe.session.user, commit=False)
+			session_state.set_state(conversation, {"k": 1}, commit=False)
+		commit.assert_not_called()
+		self.assertEqual(session_state.get_state(conversation), {"k": 1})
 
 	def test_an_unknown_message_type_is_refused(self):
 		error, close = self._run({"conversation_messages": [{"message_type": "Robot", "text": "hi"}]})
