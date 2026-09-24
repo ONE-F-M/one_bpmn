@@ -1620,6 +1620,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 
 	from one_bpmn.agents.executor import (
 		DEFAULT_MAX_OUTPUT_TOKENS,
+		DEFAULT_MAX_RETRIES,
 		DEFAULT_TEMPERATURE,
 		DEFAULT_TIMEOUT_SECONDS,
 		DEFAULT_TOP_P,
