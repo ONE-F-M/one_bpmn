@@ -2704,6 +2704,14 @@ async function getCurrentDiagramXml() {
 }
 
 // Open the full-page version history (Google-Docs-style), not a sidebar.
+function copyProcessId() {
+\tnavigator.clipboard.writeText(process).then(() => {
+\t\ttoast({ title: 'Copied', description: 'Process ID copied to clipboard', position: 'bottom' });
+\t}).catch(() => {
+\t\ttoast({ title: 'Error', description: 'Failed to copy to clipboard', variant: 'destructive', position: 'bottom' });
+\t});
+}
+
 function toggleVersionHistory() {
 	if (!activeDiagramName.value) return;
 	router.push({
