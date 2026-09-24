@@ -141,8 +141,8 @@ class ExecutorConfig:
     model: str = ""
     system_prompt: str = ""
     user_prompt: str = ""
-    temperature: float = 0.7
-    top_p: float = 1.0
+    temperature: float = DEFAULT_TEMPERATURE
+    top_p: float = DEFAULT_TOP_P
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
     # 30s was set when models answered without thinking. Every current Claude
     # model reasons before it writes, and a task like drafting a full bilingual
