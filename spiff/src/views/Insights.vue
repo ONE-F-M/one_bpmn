@@ -11,12 +11,23 @@
 				</div>
 			</Tooltip>
 			<Tooltip :text="disabledReason(['dates'])">
-				<div :class="{ 'pointer-events-none opacity-60': isDisabled('dates') }">
+				<div
+					class="sm:ml-auto"
+					:class="{ 'pointer-events-none opacity-60': isDisabled('dates') }"
+				>
 					<DateRangePicker
 						v-model="range"
 						:readonly="isDisabled('dates')"
-						input-class="w-full sm:w-56"
-					/>
+						:formatter="isMobile ? formatShortDate : formatRangeDate"
+						input-class="w-full sm:w-64"
+					>
+						<template #prefix>
+							<Icon
+								icon="lucide:calendar"
+								class="w-4 h-4 text-gray-500"
+							/>
+						</template>
+					</DateRangePicker>
 				</div>
 			</Tooltip>
 			<Tooltip :text="disabledReason(['dates'])">
@@ -63,7 +74,7 @@
 			<div class="justify-self-end">
 				<Button
 					v-if="!isDefault"
-					variant="ghost"
+					variant="outline"
 					:label="__('Reset')"
 					@click="resetFilters"
 				/>
@@ -127,6 +138,7 @@ import { computed, nextTick, onMounted, ref, watch } from "vue"
 import { Button, DateRangePicker, Dropdown, FormControl, frappeRequest, TabButtons, Tabs, Tooltip } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
+import { useWindowSize } from "@/composables/useWindowSize"
 
 import OverviewCards from "@/components/insights/OverviewCards.vue"
 import UsageReport from "@/components/insights/UsageReport.vue"
@@ -177,6 +189,7 @@ const processModel = ref("")
 const filterOptions = ref(EMPTY_OPTIONS)
 const activeIndex = ref(savedTabIndex())
 const tabElements = {}
+const { isMobile } = useWindowSize()
 
 const fromDate = computed(() => range.value.split(",")[0] || "")
 const toDate = computed(() => range.value.split(",")[1] || "")
@@ -212,6 +225,14 @@ const reportProps = computed(() => ({
 	provider: provider.value,
 	processModel: processModel.value,
 }))
+
+function formatRangeDate(date) {
+	return dayjs(date).format("MMM D, YYYY")
+}
+
+function formatShortDate(date) {
+	return dayjs(date).format("MMM D")
+}
 
 function rangeFor(key) {
 	const [from, to] = PRESETS[key].range(dayjs())
