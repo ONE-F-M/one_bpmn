@@ -1,30 +1,25 @@
 <template>
 	<div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-		<div
+		<MetricTile
 			v-for="card in cards"
 			:key="card.key"
-			class="bg-white rounded-lg shadow-sm p-4 border-l-4"
+			class="border-l-4"
 			:class="card.borderColor"
-		>
-			<div v-if="loading" class="space-y-3 animate-pulse">
-				<div class="h-3 bg-gray-200 rounded w-20"></div>
-				<div class="h-7 bg-gray-200 rounded w-16"></div>
-			</div>
-			<template v-else>
-				<div class="flex items-center justify-between mb-2">
-					<span class="text-xs text-gray-500 uppercase tracking-wide font-medium">{{ card.title }}</span>
-					<Icon :icon="card.icon" class="w-4 h-4 text-gray-400" />
-				</div>
-				<div class="text-2xl font-bold text-gray-900">{{ card.formattedValue }}</div>
-			</template>
-		</div>
+			:label="card.title"
+			:value="card.formattedValue"
+			:value-title="card.valueTitle"
+			:delta-kind="card.deltaKind"
+			:good-direction="card.goodDirection"
+			:loading="loading"
+		/>
 	</div>
 </template>
 
 <script setup>
 import { ref, computed, watch, onMounted } from "vue"
 import { frappeRequest } from "frappe-ui"
-import { Icon } from "@iconify/vue"
+import MetricTile from "@/components/insights/MetricTile.vue"
+import { fmtInt, fmtCurrency, fmtCurrencyExact, fmtPct, fmtCompact, fmtDuration } from "@/utils/formatters"
 
 const props = defineProps({
 	origin: { type: String, default: "production" },
@@ -32,14 +27,6 @@ const props = defineProps({
 
 const loading = ref(true)
 const data = ref({})
-
-const fmt = new Intl.NumberFormat("en-US")
-const fmtCurrency = new Intl.NumberFormat("en-US", {
-	style: "currency",
-	currency: "USD",
-	minimumFractionDigits: 2,
-	maximumFractionDigits: 4,
-})
 
 const cards = computed(() => {
 	const d = data.value
@@ -49,44 +36,52 @@ const cards = computed(() => {
 		{
 			key: "runs_today",
 			title: "Runs Today",
-			icon: "lucide:play",
-			borderColor: "border-blue-500",
-			formattedValue: fmt.format(d.runs_today ?? 0),
+			borderColor: "border-l-blue-500",
+			formattedValue: fmtInt(d.runs_today),
+			deltaKind: "pct",
+			goodDirection: "up",
 		},
 		{
 			key: "success_rate",
 			title: "Success Rate",
-			icon: "lucide:check-circle",
-			borderColor: rate >= 95 ? "border-green-500" : rate >= 85 ? "border-yellow-500" : "border-red-500",
-			formattedValue: (d.success_rate ?? 0).toFixed(1) + "%",
+			borderColor: rate >= 95 ? "border-l-green-500" : rate >= 85 ? "border-l-yellow-500" : "border-l-red-500",
+			formattedValue: fmtPct(d.success_rate),
+			deltaKind: "pt",
+			goodDirection: "up",
 		},
 		{
 			key: "total_cost",
 			title: "Cost (7d)",
-			icon: "lucide:credit-card",
-			borderColor: "border-purple-500",
-			formattedValue: fmtCurrency.format(d.total_cost ?? 0),
+			borderColor: "border-l-purple-500",
+			formattedValue: fmtCurrency(d.total_cost),
+			valueTitle: fmtCurrencyExact(d.total_cost),
+			deltaKind: "pct",
+			goodDirection: "down",
 		},
 		{
 			key: "active_errors",
 			title: "Errors Today",
-			icon: "lucide:alert-triangle",
-			borderColor: (d.active_errors ?? 0) > 0 ? "border-red-500" : "border-gray-300",
-			formattedValue: fmt.format(d.active_errors ?? 0),
+			borderColor: (d.active_errors ?? 0) > 0 ? "border-l-red-500" : "border-l-gray-300",
+			formattedValue: fmtInt(d.active_errors),
+			deltaKind: "pct",
+			goodDirection: "down",
 		},
 		{
 			key: "avg_latency_ms",
 			title: "Avg Latency",
-			icon: "lucide:timer",
-			borderColor: "border-amber-500",
-			formattedValue: fmt.format(d.avg_latency_ms ?? 0) + "ms",
+			borderColor: "border-l-amber-500",
+			formattedValue: fmtDuration(d.avg_latency_ms),
+			deltaKind: "pct",
+			goodDirection: "down",
 		},
 		{
 			key: "total_tokens",
 			title: "Tokens (7d)",
-			icon: "lucide:hash",
-			borderColor: "border-cyan-500",
-			formattedValue: fmt.format(d.total_tokens ?? 0),
+			borderColor: "border-l-cyan-500",
+			formattedValue: fmtCompact(d.total_tokens),
+			valueTitle: fmtInt(d.total_tokens),
+			deltaKind: "pct",
+			goodDirection: "up",
 		},
 	]
 })
