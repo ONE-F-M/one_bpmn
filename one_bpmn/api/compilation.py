@@ -1970,6 +1970,7 @@ def compile_process_model(model_name: str) -> dict:
 	_validate_adhoc_structure(sanitized_xml)
 	_validate_adhoc_selector_pool(sanitized_xml, model_name)
 	_validate_ai_agent_tools(sanitized_xml, service_extensions)
+	_validate_ai_max_tokens(service_extensions)
 	_validate_ai_tool_contract(service_extensions)
 
 	# ── Eval suite deployment gating (non-blocking warnings) ──────────
