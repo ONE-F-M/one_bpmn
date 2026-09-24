@@ -562,6 +562,117 @@ def dispatch_action(params: dict, ctx: dict) -> dict | None:
 	return _dispatch_single_action(params, ctx, action)
 
 
+def retry_eligible(run) -> bool:
+	"""Whether a just-failed run should be automatically re-dispatched once
+	instead of resuming the waiting agent with the failure.
+
+	Only ever true for a genuine test failure (status == "tests_failed" is
+	the caller's job to have already checked — a clone, migrate, or auth
+	failure reports a different status entirely, before any test ever ran,
+	and retrying one of those would just fail the same way again for free).
+	False for a run that is itself already a retry (retry_of set): the
+	policy is retry once, not a loop that could keep re-failing forever.
+	False when the calling agent's own configuration has the policy off, or
+	when the dispatch never recorded which agent it was made for."""
+	if run.retry_of:
+		return False
+	agent_name = (frappe.parse_json(run.request_payload or "{}") or {}).get("agent_name")
+	if not agent_name:
+		return False
+	return bool(frappe.db.get_value("AI Agent Configuration", agent_name, "sandbox_retry_on_test_failure"))
+
+
+def retry_dispatch(original_run) -> bool:
+	"""Re-POST the exact same sandbox action once, after a real test failure
+	-- a flaky test should not throw away a correct change. Called from
+	agent_callback.py's report_result() in place of resuming the waiting
+	agent, once retry_eligible(original_run) is true.
+
+	Creates a new Agent Sandbox Run row (retry_of = original_run.name) with
+	the same caller_instance/caller_wf_task_id/caller_agent_run copied over,
+	so its own eventual callback resumes the exact same waiting step or
+	agent turn the original would have. Returns True once the retry is
+	genuinely dispatched and running (waiting on its own callback) — the
+	caller must resume on the ORIGINAL failure itself when this returns
+	False, or the agent is left waiting forever for a callback that will
+	never come. Never raises, for the same reason: report_result() has no
+	one to report an exception to."""
+	original_payload = frappe.parse_json(original_run.request_payload or "{}") or {}
+	action = original_payload.get("action")
+	args = original_payload.get("args") or {}
+	agent_name = original_payload.get("agent_name") or "Dev Agent"
+
+	settings = frappe.get_cached_doc("Processa Settings")
+	sandbox_url = (settings.agent_sandbox_url or "").strip().rstrip("/")
+	if not sandbox_url or not action:
+		return False
+
+	run = frappe.get_doc({
+		"doctype": "Agent Sandbox Run",
+		"state": "submitted",
+		"target_app": original_run.target_app,
+		"git_branch": original_run.git_branch,
+		"bpmn_id": original_run.bpmn_id,
+		"caller_instance": original_run.caller_instance,
+		"caller_wf_task_id": original_run.caller_wf_task_id,
+		"caller_agent_run": original_run.caller_agent_run,
+		"work_item_description": original_run.work_item_description,
+		"retry_of": original_run.name,
+	})
+	run.insert(ignore_permissions=True)
+
+	github_token = settings.get_password("github_token", raise_exception=False) or ""
+	if not github_token:
+		run.db_set({"state": "failed", "error_message": "No GitHub token configured."}, update_modified=False)
+		return False
+
+	payload = {
+		"correlation_id": run.name,
+		"action": action,
+		"target_app": original_run.target_app,
+		"git_branch": original_run.git_branch,
+		"work_item_description": original_run.work_item_description,
+		"work_item_id": original_payload.get("work_item_id") or "",
+		"args": args,
+		"github_token": github_token,
+		"callback_url": _callback_url(),
+		"agent_name": agent_name,
+	}
+	audit_payload = {**payload, "github_token": "REDACTED"}
+	run.db_set("request_payload", frappe.as_json(audit_payload), update_modified=False)
+
+	try:
+		token = _mint_identity_token(sandbox_url)
+	except Exception:
+		frappe.log_error(
+			title=f"Dev Agent Sandbox: retry auth failed ({run.name})",
+			message=frappe.get_traceback(),
+		)
+		run.db_set({"state": "failed", "error_message": "Could not authenticate to the sandbox."}, update_modified=False)
+		return False
+
+	try:
+		import requests
+
+		response = requests.post(
+			f"{sandbox_url}/run",
+			json=payload,
+			headers={"Authorization": f"Bearer {token}"},
+			timeout=30,
+		)
+		response.raise_for_status()
+	except Exception as exc:
+		frappe.log_error(
+			title=f"Dev Agent Sandbox: retry dispatch failed ({run.name})",
+			message=frappe.get_traceback(),
+		)
+		run.db_set({"state": "failed", "error_message": str(exc)[:500]}, update_modified=False)
+		return False
+
+	run.db_set("state", "running", update_modified=False)
+	return True
+
+
 def _callback_url() -> str:
 	"""The sandbox's own /run validation hard-requires an https callback_url
 	(dev_agent_server.py's _validate_payload) — this endpoint is never
