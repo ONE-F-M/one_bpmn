@@ -59,6 +59,9 @@ DEFAULT_TEMPERATURE = 0.3
 # prompt becomes impossible to reason about.
 DEFAULT_TOP_P = 1.0
 
+# Retries of a failed model call before the task gives up.
+DEFAULT_MAX_RETRIES = 2
+
 
 # ---------------------------------------------------------------------------
 # Error codes
@@ -136,8 +139,8 @@ class ExecutorConfig:
     model: str = ""
     system_prompt: str = ""
     user_prompt: str = ""
-    temperature: float = 0.7
-    top_p: float = 1.0
+    temperature: float = DEFAULT_TEMPERATURE
+    top_p: float = DEFAULT_TOP_P
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
     # 30s was set when models answered without thinking. Every current Claude
     # model reasons before it writes, and a task like drafting a full bilingual
@@ -154,7 +157,7 @@ class ExecutorConfig:
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
     response_format: str = "text"        # "text" | "json"
     response_schema: Optional[str] = None  # JSON Schema string
-    max_retries: int = 2
+    max_retries: int = DEFAULT_MAX_RETRIES
     retry_backoff_ms: int = 1000
     # Optional prior message history to prime the call, same {role, content, ...}
     # shape as the conversation store. Provisional — the multi-turn loop may

@@ -1677,6 +1677,20 @@ def _validate_ai_agent_tools(bpmn_xml: str, service_extensions: dict) -> None:
 			)
 
 
+def _validate_ai_max_tokens(service_extensions: dict) -> None:
+	"""Reject an AI Agent Task whose Max Tokens is set but is not a whole number above 0.
+	An absent attribute means the default and passes."""
+	for bpmn_id, cfg in (service_extensions or {}).items():
+		if (cfg or {}).get("serviceType") != "ai_agent" or cfg.get("aiMaxTokens") is None:
+			continue
+		text = str(cfg.get("aiMaxTokens")).strip()
+		if not text.isdigit() or int(text) <= 0:
+			frappe.throw(
+				_("Max tokens must be a positive number (AI Agent Task {0})").format(bpmn_id),
+				exc=frappe.ValidationError,
+			)
+
+
 def _resolve_called_process_xml(bpmn_xml: str, model_name: str) -> list:
 	"""XML of every process this diagram's Call Activities reference.
 
@@ -1951,6 +1965,7 @@ def compile_process_model(model_name: str) -> dict:
 	_validate_adhoc_structure(sanitized_xml)
 	_validate_adhoc_selector_pool(sanitized_xml, model_name)
 	_validate_ai_agent_tools(sanitized_xml, service_extensions)
+	_validate_ai_max_tokens(service_extensions)
 	_validate_ai_tool_contract(service_extensions)
 
 	# ── Eval suite deployment gating (non-blocking warnings) ──────────

@@ -851,6 +851,8 @@ def _begin_direct_run(config: dict, system_prompt: str, message: str):
 				model=config.get("ai_model") or "",
 				system_prompt=system_prompt,
 				user_prompt=message,
+				# Pinned to 0.7 on purpose, not DEFAULT_TEMPERATURE.
+				temperature=0.7,
 			),
 			bpmn_label=config.get("chat_mode_label") or config.get("agent_id") or "",
 		)

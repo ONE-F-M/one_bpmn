@@ -1620,6 +1620,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 
 	from one_bpmn.agents.executor import (
 		DEFAULT_MAX_OUTPUT_TOKENS,
+		DEFAULT_MAX_RETRIES,
 		DEFAULT_TEMPERATURE,
 		DEFAULT_TIMEOUT_SECONDS,
 		DEFAULT_TOP_P,
@@ -2001,7 +2002,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		timeout_seconds  = cint(task_cfg.get("aiTimeout")) or DEFAULT_TIMEOUT_SECONDS,
 		response_format  = task_cfg.get("aiResponseFormat", "text") or "text",
 		response_schema  = task_cfg.get("aiResponseSchema") or None,
-		max_retries      = int(task_cfg.get("aiMaxRetries", 2) or 2),
+		max_retries      = int(task_cfg.get("aiMaxRetries", DEFAULT_MAX_RETRIES) or DEFAULT_MAX_RETRIES),
 		tools            = tool_specs,
 		# "Maximum model calls" (Camunda Limits); caps the tool-calling loop.
 		max_tool_calls   = int(task_cfg.get("aiMaxToolCalls", 10) or 10),
