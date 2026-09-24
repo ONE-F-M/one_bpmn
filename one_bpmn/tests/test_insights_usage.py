@@ -20,6 +20,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, getdate
 
 from one_bpmn.api.insights_api import (
+	_grain_for,
 	export_cost_token_report,
 	get_agent_overview,
 	get_cost_token_report,
@@ -115,6 +116,12 @@ class TestInsightsUsage(FrappeTestCase):
 			self.assertEqual(getdate(label).day, 1, "month bucket label must be the 1st")
 		self.assertTrue(all(v == 0 for v in month_overview["sparklines"]["tokens"]))
 
+	def test_grain_cut_offs_are_31_and_120_days(self):
+		start = getdate("2026-01-01")
+		for days, grain in ((31, "day"), (32, "week"), (100, "week"), (120, "week"), (121, "month")):
+			with self.subTest(days=days):
+				self.assertEqual(_grain_for(start, add_days(start, days - 1)), grain)
+
 	# -- filter_options -----------------------------------------------------
 
 	def test_filter_options_lists_all_models_even_when_narrowed(self):
@@ -133,7 +140,9 @@ class TestInsightsUsage(FrappeTestCase):
 		model = f"usage-unattr-{frappe.generate_hash(length=6)}"
 		for provider in ("usage-prov-a", "usage-prov-b"):
 			if not frappe.db.exists("AI Provider", provider):
-				frappe.get_doc({"doctype": "AI Provider", "provider": provider}).insert(ignore_permissions=True)
+				frappe.get_doc({"doctype": "AI Provider", "provider": provider}).insert(
+					ignore_permissions=True
+				)
 			self._make_run(model, "2026-09-10 08:00:00", cost=1.0, tokens=10, provider=provider)
 
 		report = get_cost_token_report(
@@ -146,9 +155,15 @@ class TestInsightsUsage(FrappeTestCase):
 		self.assertEqual(unattributed[0]["runs"], 2)
 
 		single = get_cost_token_report(
-			from_date="2026-09-01", to_date="2026-09-30", model=model, provider="usage-prov-a", group_by="agent"
+			from_date="2026-09-01",
+			to_date="2026-09-30",
+			model=model,
+			provider="usage-prov-a",
+			group_by="agent",
 		)
-		self.assertEqual([(row["name"], row["provider"]) for row in single["series"]], [("Unattributed", None)])
+		self.assertEqual(
+			[(row["name"], row["provider"]) for row in single["series"]], [("Unattributed", None)]
+		)
 
 	# -- token math ----------------------------------------------------------
 
@@ -201,9 +216,7 @@ class TestInsightsUsage(FrappeTestCase):
 			}
 		)
 		user.insert(ignore_permissions=True)
-		self.addCleanup(
-			lambda: frappe.delete_doc("User", username, force=True, ignore_permissions=True)
-		)
+		self.addCleanup(lambda: frappe.delete_doc("User", username, force=True, ignore_permissions=True))
 
 		frappe.set_user(username)
 		# frappe.only_for is a no-op while in_test is set.
@@ -227,7 +240,7 @@ class TestInsightsUsage(FrappeTestCase):
 		export_cost_token_report(from_date="2026-09-01", to_date="2026-09-30", model=model, fmt="csv")
 
 		self.assertEqual(frappe.response["type"], "binary")
-		expected_filename = f"usage-model-2026-09-01-to-2026-09-30.csv"
+		expected_filename = "usage-model-2026-09-01-to-2026-09-30.csv"
 		self.assertEqual(frappe.response["filename"], expected_filename)
 		content = frappe.response["filecontent"]
 		self.assertTrue(content.startswith(b"\xef\xbb\xbf"), "CSV must start with the UTF-8 BOM")

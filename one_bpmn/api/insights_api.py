@@ -58,7 +58,7 @@ def _grain_for(from_d, to_d) -> str:
 	span = (to_d - from_d).days + 1
 	if span <= 31:
 		return "day"
-	if span <= 92:
+	if span <= 120:
 		return "week"
 	return "month"
 
