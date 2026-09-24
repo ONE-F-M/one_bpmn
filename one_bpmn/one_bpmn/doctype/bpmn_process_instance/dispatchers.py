@@ -2193,7 +2193,14 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				# turns are appended here.
 				from one_bpmn.agents.observability import record_selector_turns
 				source_map = {t.name: "diagram_task" for t in tool_specs}
-				record_selector_turns(run, result.trace or [], source_map)
+				# A resumed segment's trace is cumulative (step_loop seeds it
+				# from the checkpoint and keeps appending), so it always repeats
+				# the turns the previous segment already wrote as Steps.
+				# Skipping the already-recorded prefix is what stops a
+				# multi-suspension run from re-recording its own history on
+				# every resume (seen live: 169 Steps for ~35 real turns).
+				already_recorded = int((resume_payload or {}).get("steps_recorded") or 0)
+				record_selector_turns(run, (result.trace or [])[already_recorded:], source_map)
 			else:
 				record_ai_step(run, 1, "system", system_prompt)
 
@@ -2290,6 +2297,9 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			system_prompt=system_prompt,
 			wf_task_id=str(getattr(task, "id", "") or ""),
 			human_row_id="",
+			# So the next resume knows how much of its (cumulative) trace was
+			# already written as Steps by this segment's record_selector_turns.
+			steps_recorded=len(result.trace or []),
 			prior_prompt_tokens=int((resume_payload or {}).get("prompt_tokens_so_far") or 0),
 			prior_completion_tokens=int((resume_payload or {}).get("completion_tokens_so_far") or 0),
 			prior_cache_read_tokens=int((resume_payload or {}).get("cache_read_tokens_so_far") or 0),

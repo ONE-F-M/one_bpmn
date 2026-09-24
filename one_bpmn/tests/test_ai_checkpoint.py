@@ -242,6 +242,41 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 			frappe.db.get_value("AI Agent Run", run_name, "status"), "Success"
 		)
 
+	def test_resume_does_not_re_record_the_prior_segment_s_turns(self):
+		"""A resumed segment's trace is cumulative (step_loop seeds it from
+		the checkpoint), so the executor hands back the already-recorded
+		turn again alongside the new one. Only the new turn should become a
+		Step - replaying the whole trace on every resume duplicated a run's
+		own history (seen live: 169 Steps recorded for ~35 real turns)."""
+		# 1. Suspend after one tool-calling turn.
+		self._dispatch(ExecutorResult(
+			error_code=ErrorCode.SUSPENDED,
+			suspension=_suspension(),
+			trace=_suspension()["trace"],
+		))
+		run_name = self.task.data["_bpmn_ai_waiting_human"]["run"]
+
+		# 2. Human answers, then resume with a trace that repeats the turn
+		# already recorded above, plus the segment's own new turn.
+		checkpoint.store_human_result(run_name, {"action": "Approve"})
+		final = ExecutorResult(
+			output="refund approved",
+			token_usage=TokenUsage(prompt_tokens=50, completion_tokens=5, total_tokens=55),
+			trace=_suspension()["trace"] + [{
+				"role": "assistant", "content": "refund approved",
+				"tool_calls": [], "prompt_tokens": 50, "completion_tokens": 5, "latency_ms": 3,
+			}],
+		)
+		self._dispatch(final, resume_run=run_name)
+
+		roles = frappe.get_all(
+			"AI Agent Step", filters={"run": run_name}, pluck="role", order_by="step_index asc"
+		)
+		# The tool turn from before the suspend, once - not twice - plus
+		# the resumed segment's one new turn.
+		self.assertEqual(roles.count("tool"), 1)
+		self.assertEqual(roles.count("assistant"), 1)
+
 	def test_double_resume_is_noop(self):
 		self._dispatch(ExecutorResult(error_code=ErrorCode.SUSPENDED, suspension=_suspension()))
 		run_name = self.task.data["_bpmn_ai_waiting_human"]["run"]
