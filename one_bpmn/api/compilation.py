@@ -1691,7 +1691,7 @@ def _validate_ai_max_tokens(service_extensions: dict) -> None:
 		value = flt(raw)
 		if value <= 0 or value != int(value):
 			frappe.throw(
-				_("Max tokens must be a positive number") + _(" (AI Agent Task '{0}')").format(bpmn_id),
+				_("Max tokens must be a positive number") + _(" \u2014 AI Agent Task '{0}'").format(bpmn_id),
 				exc=frappe.ValidationError,
 			)
 
