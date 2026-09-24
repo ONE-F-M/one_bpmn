@@ -239,8 +239,8 @@
 						</div>
 					</div>
 
-					<!-- Actions menu (last — primary actions, only for executable processes) -->
-					<template v-if="isExecutable">
+					<!-- Actions menu (last - primary actions; a non-executable map gets only Release Property Panel) -->
+					<template v-if="isExecutable || isProductionInstance">
 						<div class="relative">
 							<button
 								@click="showActionsMenu = !showActionsMenu"
@@ -260,7 +260,7 @@
 							>
 								<!-- Deploy (only when the model is not yet Active) -->
 								<button
-									v-if="!isActiveModel"
+									v-if="isExecutable && !isActiveModel"
 									@click="deployModel(); showActionsMenu = false"
 									class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
 									:disabled="!activeDiagramName || deploying || !!activeVersionName"
@@ -271,7 +271,7 @@
 								</button>
 								<!-- Disable (only when the model is Active) -->
 								<button
-									v-if="isActiveModel"
+									v-if="isExecutable && isActiveModel"
 									@click="disableModel(); showActionsMenu = false"
 									class="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
 									:disabled="!activeDiagramName || disabling"
@@ -281,7 +281,7 @@
 									{{ disabling ? 'Disabling…' : 'Disable' }}
 								</button>
 								<!-- Production review (only on a BA instance) -->
-								<template v-if="isBaInstance">
+								<template v-if="isExecutable && isBaInstance">
 									<div class="border-t border-gray-100 my-1"></div>
 									<button
 										@click="openReview('doctypes'); showActionsMenu = false"
@@ -304,7 +304,10 @@
 								</template>
 								<!-- Release Property Panel (only on a Production instance) -->
 								<template v-if="isProductionInstance">
-									<div class="border-t border-gray-100 my-1"></div>
+									<div
+										v-if="isExecutable"
+										class="border-t border-gray-100 my-1"
+									></div>
 									<button
 										@click="toggleReassignMode(); showActionsMenu = false"
 										class="w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors"
@@ -337,9 +340,9 @@
 						v-click-outside="() => showMobileMoreMenu = false"
 						class="absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1"
 					>
-						<template v-if="isExecutable">
+						<template v-if="isExecutable || isProductionInstance">
 							<button
-								v-if="isActiveModel"
+								v-if="isExecutable && isActiveModel"
 								@click="disableModel(); showMobileMoreMenu = false"
 								class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
 								:disabled="!activeDiagramName || disabling"
@@ -349,7 +352,7 @@
 								{{ disabling ? 'Disabling…' : 'Disable' }}
 							</button>
 							<button
-								v-else
+								v-else-if="isExecutable"
 								@click="deployModel(); showMobileMoreMenu = false"
 								class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
 								:disabled="!activeDiagramName || deploying || !!activeVersionName"
@@ -358,7 +361,7 @@
 								<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-4 h-4" />
 								{{ deploying ? 'Deploying…' : 'Deploy' }}
 							</button>
-							<template v-if="isBaInstance">
+							<template v-if="isExecutable && isBaInstance">
 								<button
 									@click="openReview('doctypes'); showMobileMoreMenu = false"
 									class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
@@ -1370,6 +1373,7 @@ async function finalizeReassignments() {
 	touchedReassignModels.clear();
 
 	let deployFailed = false;
+	let redeployed = false;
 	for (const modelName of models) {
 		try {
 			const res = await frappeRequest({
@@ -1377,7 +1381,8 @@ async function finalizeReassignments() {
 				method: "POST",
 				params: { model_name: modelName },
 			});
-			if (!res || res.redeployed === false) deployFailed = true;
+			if (!res || res.deploy_error) deployFailed = true;
+			else if (res.redeployed) redeployed = true;
 		} catch (err) {
 			deployFailed = true;
 		}
@@ -1389,6 +1394,12 @@ async function finalizeReassignments() {
 			"Property changes were saved and recorded in the version history, but automatic redeploy failed. Click Deploy to apply them to new instances.",
 			"red",
 			true
+		);
+	} else if (!redeployed) {
+		showNotification(
+			"Changes saved",
+			"All property changes were saved to the map's version history. This map is not executable, so there is nothing to redeploy.",
+			"green"
 		);
 	} else {
 		showNotification(

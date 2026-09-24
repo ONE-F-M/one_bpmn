@@ -229,3 +229,21 @@ class TestTheProductionGate(CarveOutCase):
 		self._set_instance_type("BA")
 		with self.assertRaises(frappe.ValidationError):
 			P.update_element_properties(self.model, "zz_user", {"assigneeMode": "Round Robin"})
+
+
+class TestNonExecutableMaps(CarveOutCase):
+	def setUp(self):
+		super().setUp()
+		frappe.db.set_value(
+			"BPMN Process Model", self.model, "bpmn_xml", XML.replace('isExecutable="true"', 'isExecutable="false"')
+		)
+
+	def test_an_edit_saves_on_a_non_executable_map(self):
+		out = P.update_element_properties(self.model, "zz_user", {"name": "Approve the request"})
+		self.assertTrue(out["updated"])
+		self.assertIn('name="Approve the request"', self._xml())
+
+	def test_locking_the_panel_does_not_try_to_deploy_it(self):
+		"""Compilation refuses a non-executable map, so trying would report every save as a failed redeploy."""
+		out = P.deploy_property_changes(self.model)
+		self.assertEqual(out, {"redeployed": False, "deploy_error": None})
