@@ -3,6 +3,8 @@
 		<MetricTile
 			v-for="card in cards"
 			:key="card.key"
+			class="border-l-4"
+			:class="card.borderColor"
 			:label="card.title"
 			:value="card.formattedValue"
 			:value-title="card.valueTitle"
@@ -28,11 +30,13 @@ const data = ref({})
 
 const cards = computed(() => {
 	const d = data.value
+	const rate = d.success_rate ?? 0
 
 	return [
 		{
 			key: "runs_today",
 			title: "Runs Today",
+			borderColor: "border-l-blue-500",
 			formattedValue: fmtInt(d.runs_today),
 			deltaKind: "pct",
 			goodDirection: "up",
@@ -40,6 +44,7 @@ const cards = computed(() => {
 		{
 			key: "success_rate",
 			title: "Success Rate",
+			borderColor: rate >= 95 ? "border-l-green-500" : rate >= 85 ? "border-l-yellow-500" : "border-l-red-500",
 			formattedValue: fmtPct(d.success_rate),
 			deltaKind: "pt",
 			goodDirection: "up",
@@ -47,6 +52,7 @@ const cards = computed(() => {
 		{
 			key: "total_cost",
 			title: "Cost (7d)",
+			borderColor: "border-l-purple-500",
 			formattedValue: fmtCurrency(d.total_cost),
 			valueTitle: fmtCurrencyExact(d.total_cost),
 			deltaKind: "pct",
@@ -55,6 +61,7 @@ const cards = computed(() => {
 		{
 			key: "active_errors",
 			title: "Errors Today",
+			borderColor: (d.active_errors ?? 0) > 0 ? "border-l-red-500" : "border-l-gray-300",
 			formattedValue: fmtInt(d.active_errors),
 			deltaKind: "pct",
 			goodDirection: "down",
@@ -62,6 +69,7 @@ const cards = computed(() => {
 		{
 			key: "avg_latency_ms",
 			title: "Avg Latency",
+			borderColor: "border-l-amber-500",
 			formattedValue: fmtDuration(d.avg_latency_ms),
 			deltaKind: "pct",
 			goodDirection: "down",
@@ -69,6 +77,7 @@ const cards = computed(() => {
 		{
 			key: "total_tokens",
 			title: "Tokens (7d)",
+			borderColor: "border-l-cyan-500",
 			formattedValue: fmtCompact(d.total_tokens),
 			valueTitle: fmtInt(d.total_tokens),
 			deltaKind: "pct",
