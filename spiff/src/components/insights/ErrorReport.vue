@@ -19,7 +19,7 @@
 		</div>
 
 		<div
-			v-if="loading"
+			v-if="loading && !reportData.summary"
 			class="flex items-center justify-center h-64"
 		>
 			<LoadingIndicator class="w-6 h-6 text-gray-500" />
@@ -89,17 +89,15 @@
 			</div>
 
 			<template v-else>
-				<!-- Error breakdown badges -->
-				<div v-if="errorBreakdown.length > 0" class="flex flex-wrap gap-2">
-					<Badge
-						v-for="eb in errorBreakdown"
-						:key="eb.error_code"
-						theme="red"
-						size="sm"
-					>
-						{{ eb.error_code }}: {{ eb.count }}
-					</Badge>
-				</div>
+				<ErrorReportChart
+					:timeseries="reportData.timeseries || {}"
+					:codes="reportData.codes || []"
+					:grain="reportData.grain"
+					:from-date="reportData.from_date"
+					:to-date="reportData.to_date"
+					:selected-code="errorCode"
+					@select="errorCode = $event"
+				/>
 
 				<!-- Table -->
 				<div class="overflow-x-auto">
@@ -144,7 +142,6 @@
 <script setup>
 import { ref, computed, watch, onMounted } from "vue"
 import {
-	Badge,
 	Button,
 	Dropdown,
 	ErrorMessage,
@@ -154,6 +151,7 @@ import {
 } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
+import ErrorReportChart from "@/components/insights/ErrorReportChart.vue"
 import MetricTile from "@/components/insights/MetricTile.vue"
 import { fmtInt as fmtNum, fmtDuration, fmtPct } from "@/utils/formatters"
 
@@ -177,9 +175,9 @@ const loading = ref(false)
 const error = ref(null)
 const reportData = ref({})
 const groupBy = ref("model")
+const errorCode = ref("")
 
 const summary = computed(() => reportData.value.summary || {})
-const errorBreakdown = computed(() => reportData.value.error_breakdown || [])
 
 const priorDates = computed(() => {
 	const from = dayjs(reportData.value.previous_from)
@@ -217,6 +215,7 @@ function queryParams() {
 		provider: props.provider,
 		process_model: props.processModel,
 		group_by: groupBy.value,
+		error_code: errorCode.value,
 	}
 }
 
@@ -244,6 +243,6 @@ async function fetchReport() {
 	}
 }
 
-watch(() => [props.fromDate, props.toDate, props.origin, props.model, props.provider, props.processModel, groupBy.value], fetchReport)
+watch(() => [props.fromDate, props.toDate, props.origin, props.model, props.provider, props.processModel, groupBy.value, errorCode.value], fetchReport)
 onMounted(fetchReport)
 </script>
