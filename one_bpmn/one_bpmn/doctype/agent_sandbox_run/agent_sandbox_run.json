@@ -27,7 +27,8 @@
   "section_outcome",
   "pr_url",
   "error_message",
-  "ai_agent_run"
+  "ai_agent_run",
+  "retry_of"
  ],
  "fields": [
   {
@@ -166,6 +167,14 @@
    "fieldtype": "Link",
    "label": "AI Agent Run",
    "options": "AI Agent Run",
+   "read_only": 1
+  },
+  {
+   "description": "Set only on the automatic re-dispatch after a test failure — points at the run that failed and triggered it. A run with this set is itself never retried again, however it turns out: retry policy is once, not a loop.",
+   "fieldname": "retry_of",
+   "fieldtype": "Link",
+   "label": "Retry Of",
+   "options": "Agent Sandbox Run",
    "read_only": 1
   }
  ],
