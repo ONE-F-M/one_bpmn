@@ -965,19 +965,30 @@ def _tool_failure(tool_calls: list) -> tuple:
 	return code, message[:_TOOL_ERROR_MESSAGE_CHARS]
 
 
-def record_selector_turns(run, trace: list, source_map: dict | None = None) -> int:
-	"""Append one AI Agent Step per turn of an executor trace to *run*.
+def record_selector_turns(
+	run, trace: list, source_map: dict | None = None, already_recorded: int = 0
+) -> int:
+	"""Append one AI Agent Step per NEW turn of an executor trace to *run*.
 
 	Turns with tool calls become role="tool" Steps carrying one AI Agent
 	Tool Call row per call (tool_source resolved via *source_map*,
 	{tool_name: "diagram_task"|"registry_tool"}); the final-answer turn
 	becomes a role="assistant" Step with no Tool Call rows.
 
+	*already_recorded* (WI-002190/park-resume): a resumed segment's trace is
+	seeded with every turn from earlier segments (step_loop.py), so writing
+	the whole trace here would write those earlier turns again as duplicate
+	Steps. Only ``trace[already_recorded:]`` \u2014 the turns this call actually
+	produced \u2014 are written. Defaults to 0 so a caller recording a trace that
+	was never seeded (e.g. ai_task_selector.py, which reuses one run across
+	decisions with a fresh trace each time) is unaffected.
+
 	Returns the number of Steps recorded.
 	"""
 	if getattr(run, "stub", False):
 		return 0
 	source_map = source_map or {}
+	new_turns = (trace or [])[already_recorded:]
 
 	# Numbering (WI-002190). Sub-call steps are written WHILE the loop runs,
 	# each taking "count + 1" at that moment; the loop's own turns are written
@@ -991,6 +1002,12 @@ def record_selector_turns(run, trace: list, source_map: dict | None = None) -> i
 	ordinary = [s for s in existing if not s.sub_call]
 	next_index = (max((s.step_index for s in ordinary), default=0) or 0) + 1
 	next_index = max(next_index, len(ordinary) + 1)
+	# The highest ordinary step_index that existed when THIS segment started.
+	# A sub-call step is only ours to place if it was created during this
+	# segment (its step_index is above that watermark) \u2014 a sub-call left
+	# over from an earlier segment already sits where an earlier call to
+	# this function put it, and must not be re-swept.
+	segment_start_max = next_index - 1
 	placed: set = set()
 
 	def _place(step_name: str) -> None:
@@ -1001,8 +1018,10 @@ def record_selector_turns(run, trace: list, source_map: dict | None = None) -> i
 		placed.add(step_name)
 		next_index += 1
 
+	this_segment_sub_calls = [s for s in sub_calls if s.step_index > segment_start_max]
+
 	recorded = 0
-	for turn in trace or []:
+	for turn in new_turns:
 		tool_calls = [
 			{
 				"name": call.get("name", ""),
