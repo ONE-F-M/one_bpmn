@@ -288,14 +288,10 @@ def collect_chat_turn_reply(handle: dict, task_output=None) -> dict | None:
 		parked = _parked_for_human(inst_name, conversation_name)
 		if parked:
 			return parked
-		if handle.get("turn_started"):
-			_raise_if_turn_failed(inst_name, handle["turn_started"])
+		_raise_if_turn_failed(inst_name, handle["turn_started"])
 		# A map that persists no Bot message still has a reply to give.
 		return _reply_from_task_output(task_output, inst_name) if task_output else None
-	result = _shape_reply(rows, inst_name, task_output)
-	if handle.get("turn_started"):
-		return _note_turn_failure(result, inst_name, handle["turn_started"])
-	return result
+	return _note_turn_failure(_shape_reply(rows, inst_name, task_output), inst_name, handle["turn_started"])
 
 
 def _reply_from_task_output(task_output, inst_name: str) -> dict | None:

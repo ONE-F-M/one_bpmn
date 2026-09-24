@@ -27,9 +27,7 @@ class TestTurnFailureMessages(FrappeTestCase):
 				"context_docname": CONVERSATION,
 			}
 		)
-		instance.flags.ignore_mandatory = True
-		instance.flags.ignore_links = True
-		instance.insert(ignore_permissions=True, ignore_mandatory=True)
+		instance.insert(ignore_mandatory=True, ignore_links=True)
 		self.instance = instance.name
 		self.turn_started = add_to_date(now_datetime(), seconds=-1)
 
@@ -45,7 +43,7 @@ class TestTurnFailureMessages(FrappeTestCase):
 				"parent_run": parent_run,
 				"started_at": now_datetime(),
 			}
-		).insert(ignore_permissions=True)
+		).insert()
 
 	def _message(self):
 		with self.assertRaises(frappe.ValidationError) as ctx:

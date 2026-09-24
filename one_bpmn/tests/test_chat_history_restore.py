@@ -173,9 +173,7 @@ class TestHistoryCarriesWorkingNotes(FrappeTestCase):
 				"context_docname": conversation,
 			}
 		)
-		instance.flags.ignore_mandatory = True
-		instance.flags.ignore_links = True
-		instance.insert(ignore_permissions=True, ignore_mandatory=True)
+		instance.insert(ignore_mandatory=True, ignore_links=True)
 		return instance.name
 
 	def _run(self, instance, said):
@@ -187,14 +185,14 @@ class TestHistoryCarriesWorkingNotes(FrappeTestCase):
 				"status": "Success",
 				"started_at": frappe.utils.now_datetime(),
 			}
-		).insert(ignore_permissions=True)
+		).insert()
 		for index, content in enumerate(said, start=3):
 			frappe.get_doc(
 				{"doctype": "AI Agent Step", "run": run.name, "step_index": index, "role": "tool", "content": content}
-			).insert(ignore_permissions=True)
+			).insert()
 		frappe.get_doc(
 			{"doctype": "AI Agent Step", "run": run.name, "step_index": 9, "role": "assistant", "content": "the reply"}
-		).insert(ignore_permissions=True)
+		).insert()
 		return run
 
 	def test_each_reply_gets_the_notes_of_its_own_turn(self):
@@ -215,3 +213,11 @@ class TestHistoryCarriesWorkingNotes(FrappeTestCase):
 		self._run(self.instances[0], ["", "   "])
 		save_bot_message(self.conversation, "352,794")
 		self.assertEqual(conversation_history(self.conversation)[-1]["notes"], [])
+
+	def test_a_reply_that_opens_its_page_keeps_its_notes(self):
+		save_user_message(self.conversation, "add 2 and 3")
+		self._run(self.instances[0], ["Step 1: adding 2 + 3"])
+		save_bot_message(self.conversation, "5")
+		page = conversation_history(self.conversation, limit=1)
+		self.assertEqual([m["role"] for m in page], ["assistant"])
+		self.assertEqual(page[0]["notes"], ["Step 1: adding 2 + 3"])

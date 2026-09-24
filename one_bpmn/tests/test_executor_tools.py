@@ -144,7 +144,7 @@ class TestExecutorToolBridge(FrappeTestCase):
 		self.assertEqual(result.trace[0]["tool_calls"][0]["result"], "ok")
 		json.dumps(result.trace)  # trace must be JSON-safe for observability
 
-	# ── Scenario 5: turn cap → TURN_CAP_REACHED naming the cause, trace kept ──
+	# Scenario 5: the turn cap returns TURN_CAP_REACHED naming the cause, and the trace is kept.
 
 	def test_turn_cap_returns_turn_cap_reached_with_trace(self):
 		steps = [

@@ -236,6 +236,7 @@ class TestTheReplyComesFromTheTaskOutput(FrappeTestCase):
 			"instance": self.instance,
 			"conversation": self.conversation,
 			"reply_before": reply_before,
+			"turn_started": frappe.utils.now_datetime(),
 		}
 
 	def test_the_task_output_wins_over_the_metadata_on_the_row(self):
