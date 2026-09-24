@@ -1,8 +1,8 @@
 <template>
-	<div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+	<div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
 		<ErrorMessage
 			v-if="error"
-			class="col-span-full bg-white rounded-lg border border-gray-200 p-4"
+			class="col-span-full bg-white p-4"
 			:message="error"
 		/>
 		<template v-else>

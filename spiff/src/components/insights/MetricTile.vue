@@ -1,5 +1,5 @@
 <template>
-	<div class="bg-white rounded-lg border border-gray-200 p-4">
+	<div class="bg-white p-4">
 		<div
 			v-if="loading"
 			class="space-y-3 animate-pulse"
