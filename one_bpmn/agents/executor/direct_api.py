@@ -460,13 +460,21 @@ class DirectApiExecutor(Executor):
                 ),
                 token_usage=token_usage,
                 trace=trace,
+                # This AttemptRecord deliberately carries no token_usage or
+                # latency_ms: those fields on an AttemptRecord mean "this one
+                # attempt cost X", but token_usage above is already the
+                # WHOLE trace's tokens and latency_ms would be the whole
+                # segment's time. record_failed_attempts writes this as a
+                # Step, and finalize_ai_run's step-metric rollup then sums
+                # every step's tokens/cost/latency — so a non-empty value
+                # here counted the whole run's cost and agent latency a
+                # second time. Left at their defaults (None / 0), the turn
+                # cap step still names what happened via error_message.
                 attempts=[
                     AttemptRecord(
                         attempt_index=0,
                         error_code=ErrorCode.FAILED_MODEL_CALL.value,
                         error_message="turn cap exhausted",
-                        token_usage=token_usage,
-                        latency_ms=latency_ms,
                     )
                 ],
             )
