@@ -451,7 +451,7 @@ class DirectApiExecutor(Executor):
             return ExecutorResult(
                 hit_turn_cap=True,
                 no_terminal_tool=True,
-                error_code=ErrorCode.FAILED_MODEL_CALL,
+                error_code=ErrorCode.TURN_CAP_REACHED,
                 error_message=(
                     f"Tool-calling loop hit the adapter's turn cap without a final answer "
                     f"({len(trace)} turns recorded)."
@@ -462,7 +462,7 @@ class DirectApiExecutor(Executor):
                 attempts=[
                     AttemptRecord(
                         attempt_index=0,
-                        error_code=ErrorCode.FAILED_MODEL_CALL.value,
+                        error_code=ErrorCode.TURN_CAP_REACHED.value,
                         error_message="turn cap exhausted",
                     )
                 ],
