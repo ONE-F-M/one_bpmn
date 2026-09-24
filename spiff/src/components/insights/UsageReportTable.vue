@@ -42,12 +42,11 @@
 							v-else-if="column.key === 'share'"
 							class="flex items-center gap-2"
 						>
-							<div class="w-16 h-1.5 bg-gray-100 rounded">
-								<div
-									class="h-1.5 rounded"
-									:style="{ width: `${Math.min(item || 0, 100)}%`, backgroundColor: row.isTotal ? 'transparent' : colors[row.name] }"
-								></div>
-							</div>
+							<ShareBar
+								class="w-16"
+								:share="item || 0"
+								:color="row.isTotal ? 'transparent' : colors[row.name]"
+							/>
 							<span class="text-sm">{{ fmtPct(item, 0) }}</span>
 						</div>
 						<DeltaPill
@@ -75,6 +74,7 @@ import { ref, computed } from "vue"
 import { ListHeader, ListHeaderItem, ListRow, ListRows, ListView } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import DeltaPill from "@/components/insights/DeltaPill.vue"
+import ShareBar from "@/components/insights/ShareBar.vue"
 import { fmtCompact, fmtCurrency, fmtCurrencyExact, fmtInt, fmtPct } from "@/utils/formatters"
 
 const props = defineProps({
