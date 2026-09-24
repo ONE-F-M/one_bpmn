@@ -18,9 +18,10 @@ from __future__ import annotations
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import flt
 
 from one_bpmn.agents.executor import AttemptRecord, ErrorCode, ExecutorResult, TokenUsage
-from one_bpmn.agents.observability import finalize_ai_run, record_failed_attempts
+from one_bpmn.agents.observability import finalize_ai_run, record_ai_step, record_failed_attempts
 
 
 class RunFixture(FrappeTestCase):
@@ -109,6 +110,73 @@ class TestAFailedAttemptIsVisible(RunFixture):
 		self.assertEqual([s.step_index for s in steps], [1, 2])
 		self.assertEqual(steps[0].error_code, None)
 		self.assertEqual(steps[1].error_code, "TIMEOUT")
+
+
+class TestTurnCapNotDoubleCounted(RunFixture):
+	"""Bug 2: the turn-cap AttemptRecord used to carry token_usage for the
+	WHOLE trace and latency_ms for the WHOLE segment. record_failed_attempts
+	wrote it as a Step, and _sum_step_metrics then summed every step
+	(including the turns already recorded) a second time on top of it. The
+	fix drops token_usage/latency_ms from that AttemptRecord — this test
+	fails on the old code, where the turn-cap step's tokens/cost are
+	non-zero and estimated_cost double-counts the turn steps.
+	"""
+
+	def test_turn_cap_step_has_zero_tokens_and_cost(self):
+		run = self._run()
+		# Ordinary turn steps already on the run (as record_selector_turns
+		# would have written before the executor hit its cap).
+		record_ai_step(
+			run, 1, "assistant", "turn 1", prompt_tokens=100, completion_tokens=20,
+		)
+		record_ai_step(
+			run, 2, "assistant", "turn 2", prompt_tokens=150, completion_tokens=30,
+		)
+
+		# The turn-cap AttemptRecord, fixed shape: no token_usage, no
+		# latency_ms — only the error_message names what happened.
+		finalize_ai_run(
+			run,
+			ExecutorResult(
+				error_code=ErrorCode.FAILED_MODEL_CALL,
+				error_message=(
+					"Tool-calling loop hit the adapter's turn cap without a final answer "
+					"(2 turns recorded)."
+				),
+				hit_turn_cap=True,
+				no_terminal_tool=True,
+				token_usage=TokenUsage(prompt_tokens=250, completion_tokens=50, total_tokens=300),
+				attempts=[
+					AttemptRecord(
+						attempt_index=0,
+						error_code=ErrorCode.FAILED_MODEL_CALL.value,
+						error_message="turn cap exhausted",
+					)
+				],
+			),
+		)
+
+		full_steps = frappe.get_all(
+			"AI Agent Step",
+			filters={"run": run.name},
+			fields=["step_index", "prompt_tokens", "completion_tokens", "cost", "error_message"],
+			order_by="step_index asc",
+		)
+		cap_steps = [s for s in full_steps if s.error_message == "turn cap exhausted"]
+		self.assertEqual(len(cap_steps), 1)
+		cap_step = cap_steps[0]
+		self.assertEqual(cap_step.prompt_tokens, 0)
+		self.assertEqual(cap_step.completion_tokens, 0)
+		self.assertEqual(cap_step.cost, 0)
+
+		turn_steps = [s for s in full_steps if s.error_message != "turn cap exhausted"]
+		self.assertEqual(len(turn_steps), 2)
+
+		row = frappe.get_doc("AI Agent Run", run.name)
+		self.assertEqual(
+			row.estimated_cost, sum(flt(s.cost) for s in turn_steps),
+			"estimated_cost must equal the sum of the turn steps, not double-count them",
+		)
 
 
 class TestTheCostStopsHiding(RunFixture):
