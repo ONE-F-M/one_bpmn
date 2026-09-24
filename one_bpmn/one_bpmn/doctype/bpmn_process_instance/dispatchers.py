@@ -2092,6 +2092,9 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	import time as _time
 	_exec_start = _time.time()
 
+	# Turns seeded from earlier segments are already Steps; count them before the executor runs.
+	already_recorded_turns = len((config.resume_state or {}).get("trace") or [])
+
 	# WI-001645: publish which agent is running so the tool-policy interceptor
 	# can apply that agent's tool grant — including for tools a Server Script
 	# constructs for its own sub-agent call, which never see this frame.
@@ -2161,23 +2164,6 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		instance._a2a_delegating_agent = _prev_delegating_agent
 	_exec_latency_ms = int((_time.time() - _exec_start) * 1000)
 
-	# ── Durable HITL: token totals are cumulative across suspensions ───
-	if resume_payload and result.token_usage:
-		result.token_usage.prompt_tokens += int(resume_payload.get("prompt_tokens_so_far") or 0)
-		result.token_usage.completion_tokens += int(resume_payload.get("completion_tokens_so_far") or 0)
-		# WI-001643: the cache breakdown must accumulate alongside the prompt
-		# total it is a breakdown OF — otherwise the final segment's small cache
-		# figures would be costed against every earlier segment's prompt tokens.
-		result.token_usage.cache_read_tokens += int(
-			resume_payload.get("cache_read_tokens_so_far") or 0
-		)
-		result.token_usage.cache_write_tokens += int(
-			resume_payload.get("cache_write_tokens_so_far") or 0
-		)
-		result.token_usage.total_tokens = (
-			result.token_usage.prompt_tokens + result.token_usage.completion_tokens
-		)
-
 	# ── Observability: record Steps + finalize ─────────────────────────
 	try:
 		from one_bpmn.agents.observability import record_ai_step, finalize_ai_run
@@ -2193,7 +2179,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				# turns are appended here.
 				from one_bpmn.agents.observability import record_selector_turns
 				source_map = {t.name: "diagram_task" for t in tool_specs}
-				record_selector_turns(run, result.trace or [], source_map)
+				record_selector_turns(
+					run, result.trace or [], source_map,
+					already_recorded=already_recorded_turns,
+				)
 			else:
 				record_ai_step(run, 1, "system", system_prompt)
 
@@ -2290,10 +2279,6 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			system_prompt=system_prompt,
 			wf_task_id=str(getattr(task, "id", "") or ""),
 			human_row_id="",
-			prior_prompt_tokens=int((resume_payload or {}).get("prompt_tokens_so_far") or 0),
-			prior_completion_tokens=int((resume_payload or {}).get("completion_tokens_so_far") or 0),
-			prior_cache_read_tokens=int((resume_payload or {}).get("cache_read_tokens_so_far") or 0),
-			prior_cache_write_tokens=int((resume_payload or {}).get("cache_write_tokens_so_far") or 0),
 		)
 		pending = (result.suspension or {}).get("pending_call") or {}
 		pending_name = pending.get("name") or ""
