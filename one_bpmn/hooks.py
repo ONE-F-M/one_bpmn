@@ -73,7 +73,7 @@ doctype_list_js = {
 
 # Form scripts for individual doctypes
 doctype_js = {
-	"AI Eval Case": "public/js/doctype_js/ai_eval_case.js",
+	"AI Eval Case": "public/js/ai_eval_case.js",
 }
 
 # include custom scss in every website theme (without file extension ".scss")
