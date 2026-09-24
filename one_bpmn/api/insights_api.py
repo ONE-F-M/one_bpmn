@@ -142,6 +142,7 @@ def _usage_totals(
 	return {
 		"runs": runs,
 		"cost": cost,
+		"avg_cost": flt(cost / runs, 6) if runs else 0.0,
 		"tokens": tokens,
 		"input_tokens": input_tokens,
 		"output_tokens": completion_tokens,
@@ -152,8 +153,8 @@ def _usage_totals(
 
 
 def _compute_deltas(current: dict, previous: dict) -> dict:
-	"""Percentage change per key; null when the previous period has no runs
-	or the previous value for that key is 0."""
+	"""Percentage change per key, points for the rates; null when the previous
+	period has no runs or the previous value for a non-rate key is 0."""
 	delta = {}
 	no_previous_activity = not previous or cint(previous.get("runs")) == 0
 	for key, cur_val in current.items():
@@ -161,6 +162,9 @@ def _compute_deltas(current: dict, previous: dict) -> dict:
 			delta[key] = None
 			continue
 		prev_val = previous.get(key)
+		if key in ("success_rate", "cache_hit_rate"):
+			delta[key] = flt(cur_val - flt(prev_val), 1)
+			continue
 		if not prev_val:
 			delta[key] = None
 			continue
@@ -184,8 +188,12 @@ def _daily_metric_rows(
 		.select(
 			fn.Date(Run.started_at).as_("date"),
 			fn.Count("*").as_("runs"),
+			fn.Sum(Case().when(Run.status != "Running", 1).else_(0)).as_("decided"),
+			fn.Sum(Case().when(Run.status == "Success", 1).else_(0)).as_("successes"),
 			fn.Sum(Run.estimated_cost).as_("cost"),
 			fn.Sum(Run.total_tokens).as_("tokens"),
+			fn.Sum(Run.total_prompt_tokens).as_("prompt_tokens"),
+			fn.Sum(Run.total_cache_read_tokens).as_("cache_read_tokens"),
 		)
 		.where(fn.Date(Run.started_at) >= from_d)
 		.where(fn.Date(Run.started_at) <= to_d)
@@ -198,8 +206,12 @@ def _daily_metric_rows(
 		{
 			"date": cstr(r.get("date")),
 			"runs": cint(r.get("runs")),
+			"decided": cint(r.get("decided")),
+			"successes": cint(r.get("successes")),
 			"cost": flt(r.get("cost"), 6),
 			"tokens": cint(r.get("tokens")),
+			"prompt_tokens": cint(r.get("prompt_tokens")),
+			"cache_read_tokens": cint(r.get("cache_read_tokens")),
 		}
 		for r in rows
 	]
@@ -208,19 +220,25 @@ def _daily_metric_rows(
 def _bucketed_series(from_d, to_d, daily_rows: list, grain: str) -> dict:
 	"""Bucket daily rows into day/week/month buckets; empty buckets are 0."""
 	labels = _bucket_labels(from_d, to_d, grain)
-	cost_by_bucket = defaultdict(float)
-	tokens_by_bucket = defaultdict(int)
-	runs_by_bucket = defaultdict(int)
+	sums = defaultdict(lambda: defaultdict(float))
 	for row in daily_rows:
-		bucket = cstr(_bucket_start(row["date"], grain))
-		cost_by_bucket[bucket] += row["cost"]
-		tokens_by_bucket[bucket] += row["tokens"]
-		runs_by_bucket[bucket] += row["runs"]
+		bucket = sums[cstr(_bucket_start(row["date"], grain))]
+		for key in ("runs", "decided", "successes", "cost", "tokens", "prompt_tokens", "cache_read_tokens"):
+			bucket[key] += row[key]
+	buckets = [sums[label] for label in labels]
 	return {
 		"labels": labels,
-		"cost": [flt(cost_by_bucket.get(label, 0), 6) for label in labels],
-		"tokens": [cint(tokens_by_bucket.get(label, 0)) for label in labels],
-		"runs": [cint(runs_by_bucket.get(label, 0)) for label in labels],
+		"cost": [flt(b["cost"], 6) for b in buckets],
+		"tokens": [cint(b["tokens"]) for b in buckets],
+		"runs": [cint(b["runs"]) for b in buckets],
+		"avg_cost": [flt(b["cost"] / b["runs"], 6) if b["runs"] else 0.0 for b in buckets],
+		"success_rate": [
+			flt(b["successes"] / b["decided"] * 100, 1) if b["decided"] else 0.0 for b in buckets
+		],
+		"cache_hit_rate": [
+			flt(b["cache_read_tokens"] / b["prompt_tokens"] * 100, 1) if b["prompt_tokens"] else 0.0
+			for b in buckets
+		],
 	}
 
 

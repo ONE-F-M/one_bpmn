@@ -65,9 +65,10 @@ export function fmtPct(v, decimals = 1) {
 
 export function fmtDelta(v, kind) {
 	if (v === null || v === undefined) return "new"
-	const tenths = Math.round(toNum(v) * 10)
-	const sign = tenths < 0 ? "-" : "+"
-	const abs = (Math.abs(tenths) / 10).toFixed(1)
+	const decimals = kind === "pct" ? 0 : 1
+	const scaled = Math.round(toNum(v) * 10 ** decimals)
+	const sign = scaled < 0 ? "-" : "+"
+	const abs = (Math.abs(scaled) / 10 ** decimals).toFixed(decimals)
 	if (kind === "pct") return `${sign}${abs}%`
 	if (kind === "pt") return `${sign}${abs} pt`
 	return `${sign}${abs}`
