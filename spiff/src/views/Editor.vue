@@ -2948,6 +2948,13 @@ async function handleImportFile(event) {
 
 		const action = result.action === "updated" ? "updated" : "imported";
 
+		// If the imported map is the one already open, import_bpmn returns the
+		// same name and activeDiagramName won't change below, so
+		// watch(activeDiagramName) never fires and the canvas would keep
+		// showing the stale drawing. Remember this now, before we touch
+		// activeDiagramName, so we can repaint it directly further down.
+		const isReimportOfOpenDiagram = activeDiagramName.value === result.name;
+
 		// Pre-populate cache so the watch(activeDiagramName) handler
 		// gets an instant cache-hit and calls loadXML without a round-trip.
 		diagramDataCache.value[result.name] = xmlContent;
