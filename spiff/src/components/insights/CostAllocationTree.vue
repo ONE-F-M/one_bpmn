@@ -76,9 +76,9 @@
 								class="text-xs text-gray-500 truncate hidden md:inline"
 							>{{ row.node.label }}</span>
 							<Badge
-								v-if="chipOf(row)"
+								v-if="chipOf(row, axis)"
 								size="sm"
-								:label="chipOf(row)"
+								:label="chipOf(row, axis)"
 							/>
 						</div>
 					</td>
@@ -165,7 +165,7 @@ import DeltaPill from "@/components/insights/DeltaPill.vue"
 import ShareBar from "@/components/insights/ShareBar.vue"
 import { fmtCompact, fmtCurrency, fmtCurrencyExact, fmtInt, fmtPct } from "@/utils/formatters"
 import {
-	barWidth, chevronOf, indentOf, monthColumns, nameOf, subtitleOf, toggleLabelOf, totalLabel,
+	barWidth, chevronOf, chipOf, indentOf, monthColumns, nameOf, toggleLabelOf, totalLabel,
 } from "@/utils/costAllocation"
 
 const props = defineProps({
@@ -187,10 +187,6 @@ function onRowClick(row) {
 }
 function isPerson(node) {
 	return node.kind === "owner" || node.kind === "user"
-}
-function chipOf(row) {
-	if (row.node.kind === "department" || row.node.kind === "more") return subtitleOf(row.node, axis.value)
-	return row.depth === 0 ? row.node.department : ""
 }
 function monthHeader(m) {
 	const label = dayjs(`${m}-01`).format("MMM YYYY")

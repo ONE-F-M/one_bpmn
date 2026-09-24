@@ -129,3 +129,9 @@ export function monthColumns(months) {
 export function nameOf(node) {
 	return node.name || node.label
 }
+
+// Counts on a department row, the department on a top-level person or process row, nothing on an agent.
+export function chipOf(row, axis) {
+	if (row.node.kind === "department" || row.node.kind === "more") return subtitleOf(row.node, axis)
+	return row.depth === 0 && row.node.kind !== "agent" ? row.node.department : ""
+}
