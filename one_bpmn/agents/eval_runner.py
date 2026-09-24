@@ -1641,6 +1641,9 @@ def _run_direct_eval(cfg, case) -> tuple:
         model=model,
         system_prompt=cfg.system_prompt or "",
         user_prompt=case.input_user_prompt or "",
+        # ExecutorConfig's shared default moved to DEFAULT_TEMPERATURE (0.3);
+        # this eval has always run at 0.7 and keeps doing so explicitly.
+        temperature=0.7,
     )
     result = get_executor("direct_api")().run(config, ExecutorContext())
     if result.error_code != ErrorCode.SUCCESS:
