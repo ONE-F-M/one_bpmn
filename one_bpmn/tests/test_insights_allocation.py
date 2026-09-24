@@ -379,14 +379,25 @@ class TestInsightsAllocation(FrappeTestCase):
 		self.assertIn(TITLE_MARK, json.dumps([[c.value for c in row] for row in detail.rows]))
 
 	# Contract
-	def test_the_flat_rows_leave_the_response(self):
-		report = _report()
-		self.assertNotIn("rows", report)
-		for key in ("period_totals", "models_missing_pricing", "totals", "tree"):
-			self.assertIn(key, report)
-		for key in ("runs", "tokens", "cost", "people", "departments"):
-			self.assertIn(key, report["totals"])
-		self.assertIn("alloc-t-unpriced", report["models_missing_pricing"])
+	def test_one_contract_remains(self):
+		"""The response carries the tree and its totals, never the flat rows."""
+		process = _report()
+		self.assertNotIn("rows", process)
+		self.assertEqual(sorted(process), [
+			"agents", "axis", "buckets", "from_date", "grain", "group_by", "models_missing_pricing",
+			"months", "origin", "period_totals", "previous", "to_date", "totals", "tree",
+		])
+		self.assertEqual(sorted(process["totals"]), [
+			"avg_cost_per_run", "cost", "departments", "other_axis_cost", "people", "processes",
+			"runs", "tokens", "top_process",
+		])
+		chat = _report(axis="chat_user")["totals"]
+		self.assertEqual(sorted(chat), [
+			"active_users", "avg_cost_per_conversation", "avg_cost_per_run", "avg_cost_per_user",
+			"conversations", "cost", "departments", "other_axis_cost", "people", "runs", "seats",
+			"tokens", "top5_share",
+		])
+		self.assertIn("alloc-t-unpriced", process["models_missing_pricing"])
 
 	def test_the_process_filter_narrows_every_number(self):
 		report = _report(process_model=ROSTER_MODEL)
