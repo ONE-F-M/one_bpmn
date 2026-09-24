@@ -32,16 +32,18 @@ def save_checkpoint(
 	wf_task_id: str,
 	human_row_id: str,
 	steps_recorded: int = 0,
-	prior_prompt_tokens: int = 0,
-	prior_completion_tokens: int = 0,
-	prior_cache_read_tokens: int = 0,
-	prior_cache_write_tokens: int = 0,
 ):
 	"""Persist a suspension on its AI Agent Run (status="Suspended").
 
 	Returns the run document the checkpoint was written to. When observability
 	could not create a run (it never blocks the executor), a minimal run is
 	created here instead — the checkpoint is load-bearing, not telemetry.
+
+	The suspension's own prompt/completion/cache totals already cover the
+	WHOLE run — step_loop seeds each resumed segment's trace with every turn
+	from earlier segments and sums over it (WI-001643) — so this payload
+	carries only that segment's totals, never a "prior + this segment" sum:
+	adding prior totals on top counted earlier turns again at every park.
 	"""
 	if run is None or getattr(run, "stub", False):
 		run = frappe.get_doc({
@@ -61,14 +63,6 @@ def save_checkpoint(
 		"human_row_id": human_row_id,
 		"pending_result": None,
 		"steps_recorded": steps_recorded,
-		# Token totals of ALL segments before the next resume — the final
-		# segment's usage is added on top so run totals stay cumulative.
-		"prompt_tokens_so_far": prior_prompt_tokens + int(suspension.get("prompt_tokens") or 0),
-		"completion_tokens_so_far": prior_completion_tokens + int(suspension.get("completion_tokens") or 0),
-		# The cache breakdown of prompt_tokens_so_far, carried the same way so
-		# cost stays accurate across a multi-suspension run (WI-001643).
-		"cache_read_tokens_so_far": prior_cache_read_tokens + int(suspension.get("cache_read_tokens") or 0),
-		"cache_write_tokens_so_far": prior_cache_write_tokens + int(suspension.get("cache_write_tokens") or 0),
 	}
 	run.db_set(
 		{
