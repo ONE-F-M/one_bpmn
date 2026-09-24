@@ -84,7 +84,7 @@ const config = computed(() => {
 	const legendRows = props.isPhone ? 1 : Math.ceil(props.series.length / 5)
 	return {
 		data: buckets.value.map((date) => ({ date })),
-		title: `Cost by ${props.groupLabel}`,
+		title: `${props.report.axis === "chat_user" ? "Chat cost" : "Cost"} by ${props.groupLabel}`,
 		subtitle: `${fmtDateRange(props.report.from_date, props.report.to_date)}, ${props.report.grain}ly`,
 		xAxis: {
 			key: "date",
