@@ -19,8 +19,18 @@
 			<span class="text-gray-400">{{ view.run.agent_configuration || view.run.model }}</span>
 			<Badge :theme="view.run.status === 'Success' ? 'green' : 'red'" size="sm">{{ view.run.status }}</Badge>
 			<span class="text-gray-500">{{ fmtDuration(view.run.duration_ms) }}</span>
-			<span class="text-gray-500" :title="fmtNum(view.rollup?.total_tokens ?? view.run.total_tokens)">{{ fmtCompact(view.rollup?.total_tokens ?? view.run.total_tokens) }} tokens</span>
-			<span class="text-gray-500" :title="fmtCurrencyExact(view.rollup?.estimated_cost ?? view.run.estimated_cost)">{{ fmtCurrency(view.rollup?.estimated_cost ?? view.run.estimated_cost) }}</span>
+			<span
+				class="text-gray-500"
+				:title="fmtNum(viewTokens)"
+			>
+				{{ fmtCompact(viewTokens) }} tokens
+			</span>
+			<span
+				class="text-gray-500"
+				:title="fmtCurrencyExact(viewCost)"
+			>
+				{{ fmtCurrency(viewCost) }}
+			</span>
 			<RouterLink :to="`/processa/runs/${view.run.name}`" class="text-blue-600 hover:underline ml-auto" @click.stop>open</RouterLink>
 		</div>
 
@@ -96,8 +106,18 @@
 							<span v-else class="text-gray-400">—</span>
 						</td>
 						<td class="py-1.5 px-2 text-xs text-gray-600 text-right">{{ fmtDuration(step.latency_ms) }}</td>
-						<td class="py-1.5 px-2 text-xs text-gray-600 text-right" :title="fmtNum((step.prompt_tokens ?? 0) + (step.completion_tokens ?? 0))">{{ fmtCompact((step.prompt_tokens ?? 0) + (step.completion_tokens ?? 0)) }}</td>
-						<td class="py-1.5 px-2 text-xs text-gray-600 text-right" :title="fmtCurrencyExact(step.cost)">{{ fmtCurrency(step.cost) }}</td>
+						<td
+							class="py-1.5 px-2 text-xs text-gray-600 text-right"
+							:title="fmtNum(stepTokens(step))"
+						>
+							{{ fmtCompact(stepTokens(step)) }}
+						</td>
+						<td
+							class="py-1.5 px-2 text-xs text-gray-600 text-right"
+							:title="fmtCurrencyExact(step.cost)"
+						>
+							{{ fmtCurrency(step.cost) }}
+						</td>
 					</tr>
 					<tr v-if="openSteps.has(step.name)" class="border-b border-gray-50 bg-gray-50/60">
 						<td></td>
@@ -150,6 +170,8 @@ const props = defineProps({
 // A nested run's steps replace the stub the tree arrived with, once fetched.
 const fetched = ref(null)
 const view = computed(() => fetched.value || props.node)
+const viewTokens = computed(() => view.value.rollup?.total_tokens ?? view.value.run.total_tokens)
+const viewCost = computed(() => view.value.rollup?.estimated_cost ?? view.value.run.estimated_cost)
 const expanded = ref(props.depth === 0)
 const loading = ref(false)
 const loadError = ref("")
@@ -189,5 +211,9 @@ function toggleStep(name) {
 
 function setAll(on) {
 	openSteps.value = on ? new Set((view.value.steps || []).map((s) => s.name)) : new Set()
+}
+
+function stepTokens(step) {
+	return (step.prompt_tokens ?? 0) + (step.completion_tokens ?? 0)
 }
 </script>

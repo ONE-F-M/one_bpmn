@@ -60,7 +60,7 @@ export function fmtInt(v) {
 // Input is already 0-100.
 export function fmtPct(v, decimals = 1) {
 	v = toNum(v)
-	return v.toFixed(decimals) + "%"
+	return `${v.toFixed(decimals)}%`
 }
 
 export function fmtDelta(v, kind) {
@@ -68,17 +68,17 @@ export function fmtDelta(v, kind) {
 	const tenths = Math.round(toNum(v) * 10)
 	const sign = tenths < 0 ? "-" : "+"
 	const abs = (Math.abs(tenths) / 10).toFixed(1)
-	if (kind === "pct") return sign + abs + "%"
-	if (kind === "pt") return sign + abs + " pt"
-	return sign + abs
+	if (kind === "pct") return `${sign}${abs}%`
+	if (kind === "pt") return `${sign}${abs} pt`
+	return `${sign}${abs}`
 }
 
 export function fmtDuration(ms) {
 	ms = toNum(ms)
-	if (Math.round(ms) < 1000) return Math.round(ms) + "ms"
-	if (Math.round(ms / 100) < 600) return (Math.round(ms / 100) / 10).toFixed(1) + "s"
+	if (Math.round(ms) < 1000) return `${Math.round(ms)}ms`
+	if (Math.round(ms / 100) < 600) return `${(Math.round(ms / 100) / 10).toFixed(1)}s`
 	const totalSeconds = Math.round(ms / 1000)
 	const minutes = Math.floor(totalSeconds / 60)
 	const seconds = totalSeconds % 60
-	return minutes + ":" + String(seconds).padStart(2, "0")
+	return `${minutes}:${String(seconds).padStart(2, "0")}`
 }

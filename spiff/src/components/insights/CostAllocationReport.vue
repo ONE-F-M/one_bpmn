@@ -36,13 +36,23 @@
 				<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">
 					Cost · {{ scopeLabel }}
 				</div>
-				<div class="text-2xl font-bold text-gray-900" :title="fmtCurrencyExact(totals.cost)">{{ fmtCost(totals.cost) }}</div>
+				<div
+					class="text-2xl font-bold text-gray-900"
+					:title="fmtCurrencyExact(totals.cost)"
+				>
+					{{ fmtCost(totals.cost) }}
+				</div>
 			</div>
 			<div class="bg-white rounded-lg shadow-sm p-4 border-l-4 border-amber-500">
 				<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">
 					Tokens · {{ scopeLabel }}
 				</div>
-				<div class="text-2xl font-bold text-gray-900" :title="fmtNum(totals.tokens)">{{ fmtCompact(totals.tokens) }}</div>
+				<div
+					class="text-2xl font-bold text-gray-900"
+					:title="fmtNum(totals.tokens)"
+				>
+					{{ fmtCompact(totals.tokens) }}
+				</div>
 			</div>
 			<div class="bg-white rounded-lg shadow-sm p-4 border-l-4 border-blue-500">
 				<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">
@@ -105,8 +115,18 @@
 						<td class="py-2.5 px-3 text-sm text-gray-600">{{ r.person || "unassigned" }}</td>
 						<td class="py-2.5 px-3 text-sm text-gray-600">{{ r.subject_label || "—" }}</td>
 						<td class="py-2.5 px-3 text-sm text-gray-600 text-right">{{ fmtNum(r.runs) }}</td>
-						<td class="py-2.5 px-3 text-sm text-gray-600 text-right" :title="fmtNum(r.tokens)">{{ fmtCompact(r.tokens) }}</td>
-						<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-medium" :title="fmtCurrencyExact(r.cost)">{{ fmtCost(r.cost) }}</td>
+						<td
+							class="py-2.5 px-3 text-sm text-gray-600 text-right"
+							:title="fmtNum(r.tokens)"
+						>
+							{{ fmtCompact(r.tokens) }}
+						</td>
+						<td
+							class="py-2.5 px-3 text-sm text-gray-900 text-right font-medium"
+							:title="fmtCurrencyExact(r.cost)"
+						>
+							{{ fmtCost(r.cost) }}
+						</td>
 					</tr>
 				</tbody>
 				<tfoot>
@@ -115,8 +135,18 @@
 							Subtotal · {{ scopeLabel }}
 						</td>
 						<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold">{{ fmtNum(totals.runs) }}</td>
-						<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold" :title="fmtNum(totals.tokens)">{{ fmtCompact(totals.tokens) }}</td>
-						<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold" :title="fmtCurrencyExact(totals.cost)">{{ fmtCost(totals.cost) }}</td>
+						<td
+							class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold"
+							:title="fmtNum(totals.tokens)"
+						>
+							{{ fmtCompact(totals.tokens) }}
+						</td>
+						<td
+							class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold"
+							:title="fmtCurrencyExact(totals.cost)"
+						>
+							{{ fmtCost(totals.cost) }}
+						</td>
 					</tr>
 				</tfoot>
 			</table>

@@ -56,7 +56,12 @@
 			<div class="grid grid-cols-3 gap-4">
 				<div class="bg-gray-50 rounded-lg p-4">
 					<div class="text-xs text-gray-500 uppercase tracking-wide mb-1">Total Cost</div>
-					<div class="text-lg font-bold text-gray-900" :title="fmtCurrencyExact(reportData.summary?.total_cost)">{{ fmtCurrency(reportData.summary?.total_cost) }}</div>
+					<div
+						class="text-lg font-bold text-gray-900"
+						:title="fmtCurrencyExact(reportData.summary?.total_cost)"
+					>
+						{{ fmtCurrency(reportData.summary?.total_cost) }}
+					</div>
 				</div>
 				<div class="bg-gray-50 rounded-lg p-4">
 					<div class="text-xs text-gray-500 uppercase tracking-wide mb-1">Total Runs</div>
@@ -64,7 +69,12 @@
 				</div>
 				<div class="bg-gray-50 rounded-lg p-4">
 					<div class="text-xs text-gray-500 uppercase tracking-wide mb-1">Total Tokens</div>
-					<div class="text-lg font-bold text-gray-900" :title="fmtNum(reportData.summary?.total_tokens)">{{ fmtCompact(reportData.summary?.total_tokens) }}</div>
+					<div
+						class="text-lg font-bold text-gray-900"
+						:title="fmtNum(reportData.summary?.total_tokens)"
+					>
+						{{ fmtCompact(reportData.summary?.total_tokens) }}
+					</div>
 				</div>
 			</div>
 
@@ -128,12 +138,42 @@
 							<td class="py-3 px-3 text-sm text-gray-900 font-medium">{{ row.model }}</td>
 							<td class="py-3 px-3 text-sm text-gray-600">{{ row.provider }}</td>
 							<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.total_runs) }}</td>
-							<td class="py-3 px-3 text-sm text-gray-600 text-right" :title="fmtNum(row.total_tokens)">{{ fmtCompact(row.total_tokens) }}</td>
-							<td class="py-3 px-3 text-sm text-gray-600 text-right" :title="fmtNum(row.avg_tokens)">{{ fmtCompact(row.avg_tokens) }}</td>
-							<td class="py-3 px-3 text-sm text-gray-900 font-medium text-right" :title="fmtCurrencyExact(row.total_cost)">{{ fmtCurrency(row.total_cost) }}</td>
-							<td class="py-3 px-3 text-sm text-gray-600 text-right" :title="fmtCurrencyExact(row.avg_cost)">{{ fmtCurrency(row.avg_cost) }}</td>
-							<td class="py-3 px-3 text-sm text-gray-600 text-right" :title="fmtCurrencyExact(row.input_cost)">{{ fmtCurrency(row.input_cost) }}</td>
-							<td class="py-3 px-3 text-sm text-gray-600 text-right" :title="fmtCurrencyExact(row.output_cost)">{{ fmtCurrency(row.output_cost) }}</td>
+							<td
+								class="py-3 px-3 text-sm text-gray-600 text-right"
+								:title="fmtNum(row.total_tokens)"
+							>
+								{{ fmtCompact(row.total_tokens) }}
+							</td>
+							<td
+								class="py-3 px-3 text-sm text-gray-600 text-right"
+								:title="fmtNum(row.avg_tokens)"
+							>
+								{{ fmtCompact(row.avg_tokens) }}
+							</td>
+							<td
+								class="py-3 px-3 text-sm text-gray-900 font-medium text-right"
+								:title="fmtCurrencyExact(row.total_cost)"
+							>
+								{{ fmtCurrency(row.total_cost) }}
+							</td>
+							<td
+								class="py-3 px-3 text-sm text-gray-600 text-right"
+								:title="fmtCurrencyExact(row.avg_cost)"
+							>
+								{{ fmtCurrency(row.avg_cost) }}
+							</td>
+							<td
+								class="py-3 px-3 text-sm text-gray-600 text-right"
+								:title="fmtCurrencyExact(row.input_cost)"
+							>
+								{{ fmtCurrency(row.input_cost) }}
+							</td>
+							<td
+								class="py-3 px-3 text-sm text-gray-600 text-right"
+								:title="fmtCurrencyExact(row.output_cost)"
+							>
+								{{ fmtCurrency(row.output_cost) }}
+							</td>
 						</tr>
 					</tbody>
 				</table>

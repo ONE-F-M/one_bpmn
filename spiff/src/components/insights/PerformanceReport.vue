@@ -138,7 +138,12 @@
 								</td>
 								<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtDuration(row.max_duration_ms) }}</td>
 								<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ row.avg_steps }}</td>
-								<td class="py-3 px-3 text-sm text-gray-600 text-right" :title="fmtNum(row.avg_tokens)">{{ fmtCompact(row.avg_tokens) }}</td>
+								<td
+									class="py-3 px-3 text-sm text-gray-600 text-right"
+									:title="fmtNum(row.avg_tokens)"
+								>
+									{{ fmtCompact(row.avg_tokens) }}
+								</td>
 							</tr>
 
 							<!-- Expanded: Recent runs -->
@@ -183,10 +188,16 @@
 													</td>
 													<td class="py-2 px-2 text-xs text-gray-600 text-right">{{ fmtDuration(run.duration_ms) }}</td>
 													<!-- WI-002190: the turn's total, sub-runs included; the run's own figure on hover -->
-													<td class="py-2 px-2 text-xs text-gray-600 text-right" :title="`${fmtNum(run.tree_total_tokens ?? run.total_tokens)}${run.child_runs ? `, this run alone: ${fmtNum(run.total_tokens)}` : ''}`">
+													<td
+														class="py-2 px-2 text-xs text-gray-600 text-right"
+														:title="runTokensTitle(run)"
+													>
 														{{ fmtCompact(run.tree_total_tokens ?? run.total_tokens) }}
 													</td>
-													<td class="py-2 px-2 text-xs text-gray-600 text-right" :title="`${fmtCurrencyExact(run.tree_estimated_cost ?? run.estimated_cost)}${run.child_runs ? `, this run alone: ${fmtCurrencyExact(run.estimated_cost)}` : ''}`">
+													<td
+														class="py-2 px-2 text-xs text-gray-600 text-right"
+														:title="runCostTitle(run)"
+													>
 														{{ fmtCurrency(run.tree_estimated_cost ?? run.estimated_cost) }}
 													</td>
 													<td class="py-2 px-2 text-xs text-gray-600 text-right">{{ run.child_runs || "—" }}</td>
@@ -394,4 +405,14 @@ async function loadProcessOptions() {
 
 watch(() => [props.fromDate, props.toDate, props.origin], fetchReport)
 onMounted(fetchReport)
+
+function runTokensTitle(run) {
+	const total = fmtNum(run.tree_total_tokens ?? run.total_tokens)
+	return run.child_runs ? `${total}, this run alone: ${fmtNum(run.total_tokens)}` : total
+}
+
+function runCostTitle(run) {
+	const total = fmtCurrencyExact(run.tree_estimated_cost ?? run.estimated_cost)
+	return run.child_runs ? `${total}, this run alone: ${fmtCurrencyExact(run.estimated_cost)}` : total
+}
 </script>

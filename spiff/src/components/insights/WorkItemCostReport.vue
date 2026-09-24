@@ -42,11 +42,21 @@
 			<div class="grid grid-cols-2 lg:grid-cols-3 gap-4">
 				<div class="bg-white rounded-lg shadow-sm p-4 border-l-4 border-purple-500">
 					<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">Total Cost</div>
-					<div class="text-2xl font-bold text-gray-900" :title="fmtCurrencyExact(report.total_cost)">{{ fmtCost(report.total_cost) }}</div>
+					<div
+						class="text-2xl font-bold text-gray-900"
+						:title="fmtCurrencyExact(report.total_cost)"
+					>
+						{{ fmtCost(report.total_cost) }}
+					</div>
 				</div>
 				<div class="bg-white rounded-lg shadow-sm p-4 border-l-4 border-amber-500">
 					<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">Total Tokens</div>
-					<div class="text-2xl font-bold text-gray-900" :title="fmtNum(report.total_tokens)">{{ fmtCompact(report.total_tokens) }}</div>
+					<div
+						class="text-2xl font-bold text-gray-900"
+						:title="fmtNum(report.total_tokens)"
+					>
+						{{ fmtCompact(report.total_tokens) }}
+					</div>
 				</div>
 				<div class="bg-white rounded-lg shadow-sm p-4 border-l-4 border-blue-500">
 					<div class="text-xs text-gray-500 uppercase tracking-wide font-medium">Runs</div>
@@ -83,15 +93,35 @@
 						>
 							<td class="py-2.5 px-3 text-sm text-gray-900 font-medium">{{ r.agent_configuration || "—" }}</td>
 							<td class="py-2.5 px-3 text-sm text-gray-600">{{ r.model || "—" }}</td>
-							<td class="py-2.5 px-3 text-sm text-gray-600 text-right" :title="fmtNum(r.tokens)">{{ fmtCompact(r.tokens) }}</td>
-							<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-medium" :title="fmtCurrencyExact(r.cost)">{{ fmtCost(r.cost) }}</td>
+							<td
+								class="py-2.5 px-3 text-sm text-gray-600 text-right"
+								:title="fmtNum(r.tokens)"
+							>
+								{{ fmtCompact(r.tokens) }}
+							</td>
+							<td
+								class="py-2.5 px-3 text-sm text-gray-900 text-right font-medium"
+								:title="fmtCurrencyExact(r.cost)"
+							>
+								{{ fmtCost(r.cost) }}
+							</td>
 						</tr>
 					</tbody>
 					<tfoot>
 						<tr class="border-t-2 border-gray-200">
 							<td colspan="2" class="py-2.5 px-3 text-xs uppercase text-gray-500 font-medium">Total</td>
-							<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold" :title="fmtNum(report.total_tokens)">{{ fmtCompact(report.total_tokens) }}</td>
-							<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold" :title="fmtCurrencyExact(report.total_cost)">{{ fmtCost(report.total_cost) }}</td>
+							<td
+								class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold"
+								:title="fmtNum(report.total_tokens)"
+							>
+								{{ fmtCompact(report.total_tokens) }}
+							</td>
+							<td
+								class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold"
+								:title="fmtCurrencyExact(report.total_cost)"
+							>
+								{{ fmtCost(report.total_cost) }}
+							</td>
 						</tr>
 					</tfoot>
 				</table>
