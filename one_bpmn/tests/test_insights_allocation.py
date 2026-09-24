@@ -130,7 +130,7 @@ class TestInsightsAllocation(FrappeTestCase):
 
 		for process, owner in ((ROSTER, OWNER_OPS), (PAYROLL, OWNER_FIN)):
 			_insert("Process", process, process_name=process, description=process,
-			        process_owner=owner)
+			        process_owner=owner, process_owner_name=f"Owner of {process}")
 		for model, process in ((ROSTER_MODEL, ROSTER), (PAYROLL_MODEL, PAYROLL)):
 			_insert("BPMN Process Model", model, title=model, process_id=model,
 			        version=1, process_name=process, is_active=1)
@@ -189,6 +189,7 @@ class TestInsightsAllocation(FrappeTestCase):
 		ops = tree[0]
 		self.assertEqual([c["kind"] for c in ops["children"]], ["owner"])
 		self.assertEqual(ops["children"][0]["key"], OWNER_OPS)
+		self.assertEqual(ops["children"][0]["name"], f"Owner of {ROSTER}")
 		self.assertEqual([g["kind"] for g in ops["children"][0]["children"]], ["process"])
 		self.assertEqual(ops["children"][0]["children"][0]["label"], ROSTER)
 

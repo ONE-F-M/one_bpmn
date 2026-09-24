@@ -1855,6 +1855,7 @@ def _allocation_leaves(axis: str, from_d, to_d, filters: list) -> list:
 			.select(
 				day.as_("day"),
 				Proc.process_owner.as_("person"),
+				Proc.process_owner_name.as_("person_name"),
 				Run.process_model.as_("subject"),
 				Model.process_name.as_("subject_label"),
 				fn.Count("*").as_("runs"),
@@ -1865,7 +1866,7 @@ def _allocation_leaves(axis: str, from_d, to_d, filters: list) -> list:
 			.where(Inst.context_doctype.isnull() | (Inst.context_doctype != "Chat Conversation"))
 			.where(Run.process_model.isnotnull())
 			.where(Run.process_model != "")
-			.groupby(day, Proc.process_owner, Run.process_model, Model.process_name)
+			.groupby(day, Proc.process_owner, Proc.process_owner_name, Run.process_model, Model.process_name)
 		)
 
 	raw = _apply(q, filters).run(as_dict=True)
@@ -1877,6 +1878,7 @@ def _allocation_leaves(axis: str, from_d, to_d, filters: list) -> list:
 		leaves.append({
 			"day": getdate(r.get("day")),
 			"person": person,
+			"person_name": cstr(r.get("person_name")),
 			"department": departments.get(person) or "",
 			"subject": subject,
 			# Chat leaves are named by agent; conversation titles never reach the tree.
@@ -1943,6 +1945,7 @@ def _fold(leaves: list, levels: tuple, buckets: list, months: list, grain: str, 
 					"kind": level,
 					"key": key,
 					"label": label,
+					"name": leaf["person_name"] if level in ("owner", "user") else "",
 					"department": leaf["department"],
 					"runs": 0,
 					"tokens": 0,
@@ -1999,6 +2002,7 @@ def _allocation_tree(agg: dict, previous: dict, total_cost: float, axis: str) ->
 			"kind": a["kind"],
 			"key": a["key"],
 			"label": a["label"],
+			"name": a["name"],
 			"department": a["department"],
 			"runs": a["runs"],
 			"tokens": a["tokens"],

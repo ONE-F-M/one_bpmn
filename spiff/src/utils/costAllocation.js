@@ -115,3 +115,17 @@ export function escapeHtml(text) {
 	el.textContent = text
 	return el.innerHTML
 }
+
+// Share bars fill against the largest top-level node, so the biggest reads full width.
+export function barWidth(node, tree) {
+	const max = Math.max(...tree.map((n) => n.share))
+	return max ? Math.min(100, (node.share / max) * 100) : 0
+}
+
+export function monthColumns(months) {
+	return months.length >= 2 && months.length <= 6 ? months : []
+}
+
+export function nameOf(node) {
+	return node.name || node.label
+}

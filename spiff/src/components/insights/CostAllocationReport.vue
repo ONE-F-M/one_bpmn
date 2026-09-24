@@ -214,8 +214,8 @@ const exportOptions = [
 
 async function fetchReport() {
 	if (!(await load(queryParams()))) return
-	const top = report.value.tree?.[0]
-	expanded.value = new Set(top ? [`/${top.key || top.label}`] : [])
+	// Top-level rows open on load; everything under them starts closed.
+	expanded.value = new Set(report.value.tree.map((n) => `/${n.key || n.label}`))
 }
 
 // The two axes group differently, so switching axis resets the grouping.
