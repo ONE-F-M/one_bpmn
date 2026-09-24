@@ -1326,9 +1326,11 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 	"""
 	Send an email notification from a Service Task with serviceType='send_email'.
 
-	Recipient resolution (union of all three sources):
+	Recipient resolution (union of all four sources):
 	  - emailTo          : direct comma-separated email addresses
 	  - emailToDocFields : field names on the context doc that hold email addresses
+	  - emailToTableField: a child table on the context doc; each row names a
+	                       recipient in emailToTableUserField ("user" by default)
 	  - emailToRoles     : roles — all users holding those roles receive the email
 
 	Subject and Body support Jinja2 via frappe.render_template():
@@ -1384,7 +1386,14 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 				continue
 			recipients += _emails_from_doc_field(doc.get(field_name))
 
-	# 3. Role members — fetch all users with the configured roles
+	# 3. Rows of a Table or Table MultiSelect field, each naming a recipient
+	table_field = (task_cfg.get("emailToTableField") or "").strip()
+	if table_field and doc:
+		row_field = (task_cfg.get("emailToTableUserField") or "").strip() or "user"
+		for row in doc.get(table_field) or []:
+			recipients += _emails_from_doc_field(row.get(row_field))
+
+	# 4. Role members: fetch all users with the configured roles
 	raw_roles = task_cfg.get("emailToRoles", "")
 	if raw_roles:
 		for role_name in raw_roles.split(","):
