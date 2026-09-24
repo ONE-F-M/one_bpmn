@@ -93,7 +93,7 @@
 					</template>
 					<template #tab-panel="{ tab }">
 						<div class="p-4 sm:p-6">
-							<CostTokenReport
+							<UsageReport
 								v-if="tab.key === 'cost'"
 								v-bind="reportProps"
 							/>
@@ -129,7 +129,7 @@ import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 
 import OverviewCards from "@/components/insights/OverviewCards.vue"
-import CostTokenReport from "@/components/insights/CostTokenReport.vue"
+import UsageReport from "@/components/insights/UsageReport.vue"
 import ErrorReport from "@/components/insights/ErrorReport.vue"
 import PerformanceReport from "@/components/insights/PerformanceReport.vue"
 import CostAllocationReport from "@/components/insights/CostAllocationReport.vue"
