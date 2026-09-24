@@ -6,6 +6,12 @@
 					<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3">
 						{{ levelHeader }}
 					</th>
+					<th
+						v-if="isChat"
+						class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3"
+					>
+						Conversations
+					</th>
 					<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Runs</th>
 					<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Tokens</th>
 					<th
@@ -23,6 +29,12 @@
 								class="w-3 h-3"
 							/>
 						</span>
+					</th>
+					<th
+						v-if="isChat"
+						class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3"
+					>
+						Avg / conv
 					</th>
 					<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3 w-40">Share</th>
 					<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Vs prior</th>
@@ -82,6 +94,12 @@
 							/>
 						</div>
 					</td>
+					<td
+						v-if="isChat"
+						class="py-2.5 px-3 text-sm text-gray-600 text-right"
+					>
+						{{ fmtInt(row.node.conversations) }}
+					</td>
 					<td class="py-2.5 px-3 text-sm text-gray-600 text-right">{{ fmtInt(row.node.runs) }}</td>
 					<td
 						class="py-2.5 px-3 text-sm text-gray-600 text-right"
@@ -101,6 +119,12 @@
 						:title="fmtCurrencyExact(row.node.cost)"
 					>
 						{{ fmtCurrency(row.node.cost) }}
+					</td>
+					<td
+						v-if="isChat"
+						class="py-2.5 px-3 text-sm text-gray-600 text-right"
+					>
+						{{ fmtCurrency(row.node.avg_cost_per_conversation) }}
 					</td>
 					<td class="py-2.5 px-3">
 						<div class="flex items-center gap-2">
@@ -123,6 +147,12 @@
 			<tfoot>
 				<tr class="border-t-2 border-gray-200">
 					<td class="py-2.5 px-3 text-xs uppercase text-gray-500 font-medium">{{ totalLabel(axis) }}</td>
+					<td
+						v-if="isChat"
+						class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold"
+					>
+						{{ fmtInt(totals.conversations) }}
+					</td>
 					<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold">{{ fmtInt(totals.runs) }}</td>
 					<td
 						class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold"
@@ -142,6 +172,12 @@
 						:title="fmtCurrencyExact(totals.cost)"
 					>
 						{{ fmtCurrency(totals.cost) }}
+					</td>
+					<td
+						v-if="isChat"
+						class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold"
+					>
+						{{ fmtCurrency(totals.avg_cost_per_conversation) }}
 					</td>
 					<td class="py-2.5 px-3 text-xs text-gray-500">100%</td>
 					<td class="py-2.5 px-3 text-right">
@@ -179,6 +215,7 @@ const emit = defineEmits(["toggle"])
 
 const axis = computed(() => props.report.axis)
 const tree = computed(() => props.report.tree)
+const isChat = computed(() => axis.value === "chat_user")
 const totals = computed(() => props.report.totals)
 const months = computed(() => monthColumns(props.report.months))
 

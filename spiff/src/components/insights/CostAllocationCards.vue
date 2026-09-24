@@ -100,8 +100,13 @@ const axis = computed(() => props.report.axis)
 const tree = computed(() => props.report.tree)
 const totals = computed(() => props.report.totals)
 const previous = computed(() => props.report.previous)
+const isChat = computed(() => axis.value === "chat_user")
 const priorLabel = computed(() => fmtDateRange(previous.value.from_date, previous.value.to_date))
-const totalLine = computed(() => `${fmtInt(totals.value.runs)} runs · ${fmtCompact(totals.value.tokens)} tokens`)
+const totalLine = computed(() =>
+	isChat.value
+		? `${fmtInt(totals.value.conversations)} conversations · ${fmtInt(totals.value.active_users)} users`
+		: `${fmtInt(totals.value.runs)} runs · ${fmtCompact(totals.value.tokens)} tokens`
+)
 
 function expandedOf(row) {
 	return row.hasChildren ? row.open : undefined
@@ -113,7 +118,8 @@ function showsShareLine(row) {
 	return row.depth === 1 && row.node.kind !== "more"
 }
 function shareLine(row) {
-	return `${fmtPct(row.node.share, 0)} of ${axis.value === "chat_user" ? "chat" : "process"} spend`
+	const share = `${fmtPct(row.node.share, 0)} of ${isChat.value ? "chat" : "process"} spend`
+	return isChat.value ? `${share} · ${fmtInt(row.node.conversations)} conversations` : share
 }
 </script>
 

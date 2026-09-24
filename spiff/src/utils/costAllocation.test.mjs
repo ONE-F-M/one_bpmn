@@ -5,7 +5,7 @@ import assert from "node:assert/strict"
 
 import {
 	OTHER_COLOR, OTHER_KEY, assignColors, barWidth, bucketTotals, chipOf, currentBucket, foldTail, monthColumns,
-	pctChange, pricingLink, rankSlices, rowsOf, seriesCap,
+	nameOf, pctChange, pricingLink, rankSlices, rowsOf, seriesCap, subtitleOf,
 } from "./costAllocation.js"
 
 const node = (key, cost, children = []) => ({ key, label: key, cost, share: cost, by_bucket: { w1: cost }, children })
@@ -87,6 +87,13 @@ test("month columns appear only for two to six months", () => {
 	assert.deepEqual(monthColumns(["2026-09"]), [])
 	assert.deepEqual(monthColumns(["2026-07", "2026-08", "2026-09"]), ["2026-07", "2026-08", "2026-09"])
 	assert.deepEqual(monthColumns(["1", "2", "3", "4", "5", "6", "7"]), [])
+})
+
+test("a folded tail reads as its user count and a chat department counts users and agents", () => {
+	assert.equal(nameOf({ kind: "more", count: 4, label: "4 more" }), "4 more users")
+	assert.equal(nameOf({ kind: "owner", name: "Owner A", label: "owner-a@example.com" }), "Owner A")
+	assert.equal(subtitleOf({ kind: "department", users: 9, agents: 3 }, "chat_user"), "9 users · 3 agents")
+	assert.equal(chipOf({ depth: 1, node: { kind: "more", count: 4 } }, "chat_user"), "")
 })
 
 test("an agent row carries no department; a top-level process does", () => {
