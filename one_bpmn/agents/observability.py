@@ -965,19 +965,26 @@ def _tool_failure(tool_calls: list) -> tuple:
 	return code, message[:_TOOL_ERROR_MESSAGE_CHARS]
 
 
-def record_selector_turns(run, trace: list, source_map: dict | None = None) -> int:
-	"""Append one AI Agent Step per turn of an executor trace to *run*.
+def record_selector_turns(
+	run, trace: list, source_map: dict | None = None, already_recorded: int = 0
+) -> int:
+	"""Append one AI Agent Step per NEW turn of an executor trace to *run*.
 
 	Turns with tool calls become role="tool" Steps carrying one AI Agent
 	Tool Call row per call (tool_source resolved via *source_map*,
 	{tool_name: "diagram_task"|"registry_tool"}); the final-answer turn
 	becomes a role="assistant" Step with no Tool Call rows.
 
+	*already_recorded* is how many leading turns of *trace* are already Steps; a
+	resumed segment's trace is seeded with earlier segments' turns, and only the
+	turns after them are written.
+
 	Returns the number of Steps recorded.
 	"""
 	if getattr(run, "stub", False):
 		return 0
 	source_map = source_map or {}
+	new_turns = (trace or [])[already_recorded:]
 
 	# Numbering (WI-002190). Sub-call steps are written WHILE the loop runs,
 	# each taking "count + 1" at that moment; the loop's own turns are written
@@ -991,6 +998,8 @@ def record_selector_turns(run, trace: list, source_map: dict | None = None) -> i
 	ordinary = [s for s in existing if not s.sub_call]
 	next_index = (max((s.step_index for s in ordinary), default=0) or 0) + 1
 	next_index = max(next_index, len(ordinary) + 1)
+	# Sub-call steps at or below this index were placed by an earlier segment.
+	segment_start_max = next_index - 1
 	placed: set = set()
 
 	def _place(step_name: str) -> None:
@@ -1001,8 +1010,10 @@ def record_selector_turns(run, trace: list, source_map: dict | None = None) -> i
 		placed.add(step_name)
 		next_index += 1
 
+	this_segment_sub_calls = [s for s in sub_calls if s.step_index > segment_start_max]
+
 	recorded = 0
-	for turn in trace or []:
+	for turn in new_turns:
 		tool_calls = [
 			{
 				"name": call.get("name", ""),
@@ -1041,13 +1052,13 @@ def record_selector_turns(run, trace: list, source_map: dict | None = None) -> i
 		# The sub-calls this turn's tools made come straight after it.
 		turn_no = cint(turn.get("turn_no"))
 		if turn_no:
-			for sub in sub_calls:
+			for sub in this_segment_sub_calls:
 				if sub.name not in placed and sub.sub_call.get("turn_no") == turn_no:
 					_place(sub.name)
 
 	# Sub-calls that named no turn (older data, or a call made outside the
 	# loop) keep their order and follow the turns.
-	for sub in sub_calls:
+	for sub in this_segment_sub_calls:
 		if sub.name not in placed:
 			_place(sub.name)
 

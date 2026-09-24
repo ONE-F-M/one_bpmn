@@ -384,7 +384,6 @@ class DirectApiExecutor(Executor):
                 ),
             )
 
-        start = time.time()
         try:
             # The loop below already retries each turn aiMaxRetries times and
             # bounds each attempt with aiTimeout, so the SDK client gets the
@@ -445,7 +444,6 @@ class DirectApiExecutor(Executor):
             cache_write_tokens=completion.cache_write_tokens,
         )
         trace = [asdict(turn) for turn in completion.trace]
-        latency_ms = int((time.time() - start) * 1000)
 
         if completion.hit_turn_cap:
             # Partial progress is not lost: the trace collected so far ships
@@ -460,13 +458,12 @@ class DirectApiExecutor(Executor):
                 ),
                 token_usage=token_usage,
                 trace=trace,
+                # No token_usage or latency_ms: every turn is already a step, so they would count twice.
                 attempts=[
                     AttemptRecord(
                         attempt_index=0,
                         error_code=ErrorCode.FAILED_MODEL_CALL.value,
                         error_message="turn cap exhausted",
-                        token_usage=token_usage,
-                        latency_ms=latency_ms,
                     )
                 ],
             )
