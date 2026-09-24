@@ -49,7 +49,10 @@
 			<div v-if="loading" class="p-10 text-center text-sm text-gray-500">
 				No conversations match those filters.
 			</div>
-			<table v-else class="w-full text-sm">
+			<div v-else-if="!conversations.length" class="p-10 text-center text-sm text-gray-500">
+			No conversations match those filters.
+		</div>
+		<table v-else class="w-full text-sm">
 				<thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-500 sticky top-0">
 					<tr>
 						<th class="text-left font-medium px-6 py-2">Conversation</th>
