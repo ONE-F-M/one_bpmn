@@ -124,7 +124,8 @@
 			<!-- ProsAlly Panel — flex sibling so canvas shrinks instead of being covered -->
 			<transition name="prosally-slide">
 				<div
-					v-if="showProsAllyPanel && !readonly && !isMobile"
+					v-if="prosAllyMounted && !readonly && !isMobile"
+					v-show="showProsAllyPanel"
 					class="prosally-panel-container order-first w-[var(--agui-chat-pane,420px)] shrink-0 border-r border-gray-200 flex flex-col z-[50]"
 				>
 					<ProsAllyPanel
@@ -139,7 +140,8 @@
 			<!-- Mobile: ProsAlly as bottom sheet -->
 			<transition name="slide-up">
 				<div
-					v-if="showProsAllyPanel && !readonly && isMobile"
+					v-if="prosAllyMounted && !readonly && isMobile"
+					v-show="showProsAllyPanel"
 					class="fixed inset-x-0 bottom-0 rounded-t-2xl shadow-2xl border-t border-gray-200 bg-white z-[65] flex flex-col"
 					style="height: 70vh;"
 				>
@@ -956,17 +958,22 @@
 
 		<!-- AI Agent Task / AI Task Selector config modal -->
 		<AIAgentConfigModal
-			v-if="aiAgentModal.show && aiAgentModal.element"
+			v-if="aiAgentModal.element"
+			v-show="aiAgentModal.show"
+			:key="`${aiAgentModal.element.id}:${aiAgentModal.mode}`"
 			:element="aiAgentModal.element"
 			:modeler="modeler"
 			:mode="aiAgentModal.mode"
 			:readonly="readonly"
-			@close="aiAgentModal.show = false"
+			@hide="aiAgentModal.show = false"
+			@close="aiAgentModal.element = null"
 		/>
 
 		<!-- Docu — AI DocType builder -->
 		<DocuCanvas
-			v-if="docuPanel.show && docuPanel.element"
+			v-if="docuPanel.element"
+			:key="`${docuPanel.element.id}:${docuPanel.attr}`"
+			:open="docuPanel.show"
 			:element="docuPanel.element"
 			:doctype="docuPanel.doctype"
 			:attr="docuPanel.attr"
@@ -1487,6 +1494,11 @@ const panelReleased = computed(() => {
 const { isMobile } = useWindowSize();
 const showMobileFormatPopover = ref(false);
 const showProsAllyPanel = ref(false);
+// Closing ProsAlly only hides it, so its conversation survives until the editor goes away.
+const prosAllyMounted = ref(false);
+watch(showProsAllyPanel, (show) => {
+	if (show) prosAllyMounted.value = true;
+});
 const internalProcessName = ref("");
 const dragHandleRef = ref(null);
 const { dragOffset, isDragging, attach: attachBottomSheet } = useBottomSheet();

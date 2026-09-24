@@ -1,5 +1,5 @@
 <template>
-  <div class="ai-agent-modal-overlay" @click.self="$emit('close')">
+  <div class="ai-agent-modal-overlay">
     <div :class="['ai-agent-modal', { 'ai-agent-modal--readonly': readonly }]">
       <!-- ============ LEFT: configuration form ============ -->
       <div class="modal-main">
@@ -8,7 +8,16 @@
             {{ isSelector ? "Configure AI Task Selector" : "Configure AI Agent Task" }}
             <span v-if="readonly" class="readonly-badge">View only</span>
           </h3>
-          <button class="close-btn" @click="$emit('close')">✕</button>
+          <button
+            class="close-btn"
+            title="Close"
+            @click="$emit('hide')"
+          >
+            <Icon
+              icon="lucide:x"
+              class="w-4 h-4"
+            />
+          </button>
         </div>
 
         <div class="modal-body">
@@ -742,6 +751,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, toRaw } from "vue";
+import { Icon } from "@iconify/vue";
 import { Dialog, frappeRequest } from "frappe-ui";
 import { frappeGet } from "@/bpmn/shared/frappeResource";
 // WI-001674: agent mode chats through the shared panel + card registry.
@@ -826,7 +836,7 @@ const props = defineProps({
 
 const isSelector = computed(() => props.mode === "selector");
 
-const emit = defineEmits(["close"]);
+const emit = defineEmits(["close", "hide"]);
 
 const providers = ref([]);
 const agentConfigs = ref([]);
