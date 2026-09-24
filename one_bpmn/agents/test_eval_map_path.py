@@ -499,25 +499,6 @@ class TestChatEvalRunAttribution(FrappeTestCase):
         )
         self.case = make_eval_case(suite=suite.name)
         self.eval_run = make_eval_run(suite.name)
-        self.addCleanup(self._remove_fixtures, model.name, suite.name)
-
-    def _remove_fixtures(self, model_name, suite_name):
-        # The chat eval path can commit mid-test, so the class rollback does not reach these rows.
-        conversations = frappe.get_all(
-            "Chat Conversation",
-            filters={"agent_mode": ["in", [self.cfg.get("chat_mode_label") or "", self.cfg.agent_id or ""]]},
-            pluck="name",
-        )
-        if conversations:
-            frappe.db.delete("Chat Message", {"conversation": ["in", conversations]})
-            frappe.db.delete("Chat Conversation", {"name": ["in", conversations]})
-        frappe.db.delete("AI Agent Run", {"agent_configuration": self.cfg.name})
-        frappe.db.delete("AI Eval Run", {"name": self.eval_run.name})
-        frappe.db.delete("AI Eval Case", {"name": self.case.name})
-        frappe.db.delete("AI Eval Suite", {"name": suite_name})
-        frappe.db.delete("AI Agent Configuration", {"name": self.cfg.name})
-        frappe.db.delete("BPMN Process Model", {"name": model_name})
-        frappe.db.commit()
 
     def _eval_tags(self):
         return {"eval_case": self.case.name, "eval_run": self.eval_run.name}
