@@ -46,7 +46,7 @@
 		</div>
 
 		<div v-show="tab === 'conversations'" class="flex-1 overflow-auto">
-			<div v-if="!loading && !conversations.length" class="p-10 text-center text-sm text-gray-500">
+			<div v-if="loading" class="p-10 text-center text-sm text-gray-500">
 				No conversations match those filters.
 			</div>
 			<table v-else class="w-full text-sm">
