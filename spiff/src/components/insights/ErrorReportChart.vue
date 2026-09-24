@@ -13,10 +13,17 @@
 				@click="$emit('select', selectedCode === code.error_code ? '' : code.error_code)"
 			>
 				<span class="flex items-center gap-1.5 font-mono text-xs">
-					<span
-						class="w-2 h-2 rounded-sm"
-						:style="{ backgroundColor: colorFor(code.error_code) }"
-					></span>
+					<svg
+						viewBox="0 0 8 8"
+						class="w-2 h-2"
+					>
+						<rect
+							width="8"
+							height="8"
+							rx="1"
+							:fill="colorFor(code.error_code)"
+						/>
+					</svg>
 					{{ code.error_code }}
 					<span class="font-semibold">{{ code.count }}</span>
 					<span
