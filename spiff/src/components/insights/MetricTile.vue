@@ -35,13 +35,12 @@
 				v-if="delta !== undefined || subtitle"
 				class="flex items-center gap-1.5 mt-1 text-xs text-gray-500 whitespace-nowrap"
 			>
-				<span
+				<DeltaPill
 					v-if="delta !== undefined"
-					class="shrink-0 text-[11px] font-medium rounded px-1.5 py-0.5"
-					:class="deltaClasses"
-				>
-					{{ deltaText }}
-				</span>
+					:delta="delta"
+					:kind="deltaKind"
+					:good-direction="goodDirection"
+				/>
 				<span
 					v-if="subtitle"
 					:class="{ 'hidden sm:inline': subtitleShort }"
@@ -61,7 +60,7 @@
 
 <script setup>
 import { computed } from "vue"
-import { fmtDelta } from "@/utils/formatters"
+import DeltaPill from "@/components/insights/DeltaPill.vue"
 
 const props = defineProps({
 	label: { type: String, required: true },
@@ -76,24 +75,6 @@ const props = defineProps({
 	sparkline: { type: Array, default: null },
 	sparklineClass: { type: String, default: "text-gray-500" },
 	loading: { type: Boolean, default: false },
-})
-
-const deltaText = computed(() => fmtDelta(props.delta, props.deltaKind))
-
-const deltaTone = computed(() => {
-	if (props.delta === null) return "gray"
-	const s = props.goodDirection === "down" ? -props.delta : props.delta
-	if (s < -2) return "red"
-	if (s > 2) return "green"
-	return "gray"
-})
-
-const deltaClasses = computed(() => {
-	return {
-		red: "bg-red-50 text-red-700",
-		green: "bg-green-50 text-green-700",
-		gray: "bg-gray-100 text-gray-600",
-	}[deltaTone.value]
 })
 
 const hasSparkline = computed(() => Array.isArray(props.sparkline) && props.sparkline.length > 0)

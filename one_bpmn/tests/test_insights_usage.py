@@ -164,6 +164,30 @@ class TestInsightsUsage(FrappeTestCase):
 		self.assertIn(model_a, report["filter_options"]["models"])
 		self.assertIn(model_b, report["filter_options"]["models"])
 
+	def test_series_share_delta_and_totals(self):
+		provider = f"usage-share-{frappe.generate_hash(length=6)}"
+		frappe.get_doc({"doctype": "AI Provider", "provider": provider}).insert(ignore_permissions=True)
+		model_a = f"usage-shA-{frappe.generate_hash(length=6)}"
+		model_b = f"usage-shB-{frappe.generate_hash(length=6)}"
+		tokens = {"provider": provider, "total_prompt_tokens": 100}
+		self._make_run(model_a, "2026-09-10 08:00:00", cost=2.0, total_cache_read_tokens=40, **tokens)
+		self._make_run(model_a, "2026-09-11 08:00:00", cost=1.0, total_cache_read_tokens=40, **tokens)
+		self._make_run(model_b, "2026-09-12 08:00:00", cost=1.0, **tokens)
+		self._make_run(model_a, "2026-08-20 08:00:00", cost=1.5, **tokens)
+
+		report = get_cost_token_report(from_date="2026-09-01", to_date="2026-09-30", provider=provider)
+
+		by_name = {row["name"]: row for row in report["series"]}
+		self.assertEqual(by_name[model_a]["share"], 75.0)
+		self.assertEqual(by_name[model_a]["avg_cost"], 1.5)
+		self.assertEqual(by_name[model_a]["cache_hit_rate"], 40.0)
+		self.assertEqual(by_name[model_a]["previous_cost"], 1.5)
+		self.assertEqual(by_name[model_a]["delta"], 100.0)
+		self.assertEqual(by_name[model_b]["share"], 25.0)
+		self.assertIsNone(by_name[model_b]["delta"])
+		self.assertEqual(report["total"]["avg_cost"], 1.333333)
+		self.assertEqual(report["total"]["cache_hit_rate"], 26.7)
+
 	def test_unattributed_agent_series_has_no_provider(self):
 		model = f"usage-unattr-{frappe.generate_hash(length=6)}"
 		for provider in ("usage-prov-a", "usage-prov-b"):

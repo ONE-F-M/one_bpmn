@@ -289,15 +289,19 @@ def _series_rows(
 		prompt_tokens = cint(r.get("prompt_tokens"))
 		cache_read_tokens = cint(r.get("cache_read_tokens"))
 		cache_write_tokens = cint(r.get("cache_write_tokens"))
+		runs = cint(r.get("runs"))
+		cost = flt(r.get("cost"), 6)
 		series.append({
 			"name": name,
 			"provider": row_provider or None,
-			"runs": cint(r.get("runs")),
-			"cost": flt(r.get("cost"), 6),
+			"runs": runs,
+			"cost": cost,
+			"avg_cost": flt(cost / runs, 6) if runs else 0.0,
 			"tokens": cint(r.get("tokens")),
 			"input_tokens": prompt_tokens - cache_read_tokens - cache_write_tokens,
 			"output_tokens": cint(r.get("completion_tokens")),
 			"cached_tokens": cache_read_tokens,
+			"cache_hit_rate": flt(cache_read_tokens / prompt_tokens * 100, 1) if prompt_tokens else 0.0,
 		})
 	return series
 
@@ -523,6 +527,20 @@ def get_cost_token_report(
 	previous = _usage_totals(previous_from, previous_to, origin, model, provider, process_model, agent_configuration)
 	delta = _compute_deltas(current, previous)
 	series = _series_rows(from_d, to_d, origin, group_by, model, provider, process_model, agent_configuration)
+	previous_cost = {
+		(r["name"], r["provider"]): r["cost"]
+		for r in _series_rows(
+			previous_from, previous_to, origin, group_by, model, provider, process_model, agent_configuration
+		)
+	}
+	for r in series:
+		r["share"] = flt(r["cost"] / current["cost"] * 100, 1) if current["cost"] else 0.0
+		r["previous_cost"] = previous_cost.get((r["name"], r["provider"]), 0.0)
+		r["delta"] = (
+			flt((r["cost"] - r["previous_cost"]) / r["previous_cost"] * 100, 1)
+			if r["previous_cost"]
+			else None
+		)
 	filter_options = _filter_options(from_d, to_d, origin)
 
 	return {
@@ -551,6 +569,8 @@ def get_cost_token_report(
 			"input_tokens": current["input_tokens"],
 			"output_tokens": current["output_tokens"],
 			"cached_tokens": current["cached_tokens"],
+			"cache_hit_rate": current["cache_hit_rate"],
+			"avg_cost": current["avg_cost"],
 		},
 		"series": series,
 		"filter_options": filter_options,
