@@ -2525,7 +2525,7 @@ function showNotification(title, message, theme = "green", stay = false) {
 async function handleDeleteTab(tab) {
 	if (!isEditable.value) return;
 	// Confirmation dialog removed - deletion happens immediately
-	if (false) // kept for reference: if (!confirm(`xxx "${tab.model_name}"? This action cannot be undone.`)) return;
+	// Confirmation dialog removed - allowing immediate deletion on click(`xxx "${tab.model_name}"? This action cannot be undone.`)) return;
 
 	// ── Optimistic: remove from UI immediately ───────────────────────
 	const tabIndex = openTabs.value.findIndex(t => t.name === tab.name);
