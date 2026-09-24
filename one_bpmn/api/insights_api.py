@@ -8,6 +8,7 @@ frappe.qb (Query Builder) exclusively — no raw SQL.
 """
 from __future__ import annotations
 
+import base64
 import math
 from collections import defaultdict
 from datetime import timedelta
@@ -2192,8 +2193,6 @@ def get_cost_allocation(
 		"totals": totals,
 		"period_totals": _period_totals(from_d, to_d, filters),
 		"models_missing_pricing": _models_missing_pricing(from_d, to_d, filters),
-		# The flat, titled grain the export's Detail sheet lists.
-		"rows": _allocation_rows(axis, from_d, to_d, filters),
 	}
 
 
@@ -2246,13 +2245,12 @@ def _summary_sheet(report: dict) -> list:
 	return data
 
 
-def _detail_sheet(report: dict) -> list:
-	axis = report["axis"]
+def _detail_sheet(axis: str, rows: list) -> list:
 	subject_header = _("Chat") if axis == "chat_user" else _("Process")
 	person_header = _("User") if axis == "chat_user" else _("Process Owner")
 	data = [[_("Month"), _("Department"), person_header, subject_header,
 			 _("Runs"), _("Tokens"), _("Cost")]]
-	for r in report["rows"]:
+	for r in rows:
 		data.append([
 			r["month"], r["department"], r["person"], r["subject_label"],
 			r["runs"], r["tokens"], flt(r["cost"], 6),
@@ -2269,14 +2267,17 @@ def export_cost_allocation(
 	origin: str = "production",
 	process_model: str = None,
 	fmt: str = "xlsx",
-):
-	"""The cost allocation as an XLSX or CSV file response."""
+) -> dict:
+	"""The cost allocation as an XLSX or CSV file, base64 encoded, with its filename."""
 	frappe.only_for("System Manager")
 	if fmt not in ("xlsx", "csv"):
 		frappe.throw(_("fmt must be 'xlsx' or 'csv'"))
 	report = get_cost_allocation(from_date, to_date, axis, group_by, origin, process_model)
+	# Conversation titles appear only here, in the Detail sheet.
+	filters = _run_filters(origin, process_model)
+	rows = _allocation_rows(axis, getdate(report["from_date"]), getdate(report["to_date"]), filters)
 
-	stem = f"cost-allocation-{report['axis']}-{report['group_by']}-{report['from_date']}-to-{report['to_date']}"
+	stem = f"cost-allocation-{report['axis']}-{report['from_date']}-to-{report['to_date']}"
 	if fmt == "xlsx":
 		import openpyxl
 		from frappe.utils.xlsxutils import make_xlsx
@@ -2284,7 +2285,7 @@ def export_cost_allocation(
 		# make_xlsx inserts each sheet first and saves every call, so it needs a normal workbook.
 		wb = openpyxl.Workbook()
 		wb.remove(wb.active)
-		make_xlsx(_detail_sheet(report), "Detail", wb=wb)
+		make_xlsx(_detail_sheet(axis, rows), "Detail", wb=wb)
 		content = make_xlsx(_summary_sheet(report), "Summary", wb=wb).getvalue()
 		filename = f"{stem}.xlsx"
 	else:
@@ -2296,9 +2297,7 @@ def export_cost_allocation(
 		content = buf.getvalue().encode("utf-8-sig")  # BOM so Excel reads UTF-8
 		filename = f"{stem}.csv"
 
-	frappe.response["type"] = "binary"
-	frappe.response["filename"] = filename
-	frappe.response["filecontent"] = content
+	return {"filename": filename, "content": base64.b64encode(content).decode()}
 
 
 # ---------------------------------------------------------------------------
