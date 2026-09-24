@@ -21,7 +21,7 @@
 					<span class="font-semibold">{{ code.count }}</span>
 					<span
 						v-if="code.is_new"
-						class="rounded-full bg-indigo-50 text-indigo-700 px-1.5 text-[10px] font-sans"
+						class="rounded-full bg-blue-50 text-blue-700 px-1.5 text-[10px] font-sans"
 					>{{ __("new") }}</span>
 				</span>
 			</Button>
