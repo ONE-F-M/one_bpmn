@@ -99,41 +99,20 @@
 					@select="errorCode = $event"
 				/>
 
-				<!-- Table -->
-				<div class="overflow-x-auto">
-					<table class="w-full">
-						<thead>
-							<tr class="border-b border-gray-200">
-								<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3">{{ groupBy === "agent" ? "AI Agent" : "Model" }}</th>
-								<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3">BPMN Element</th>
-								<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Total Runs</th>
-								<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Successes</th>
-								<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Errors</th>
-								<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Success Rate</th>
-								<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Retry Rate</th>
-								<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Recovered</th>
-								<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Avg Duration</th>
-							</tr>
-						</thead>
-						<tbody>
-							<tr v-for="(row, idx) in reportData.rows" :key="idx" class="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-								<td class="py-3 px-3 text-sm text-gray-900 font-medium">{{ row.model }}</td>
-								<td class="py-3 px-3 text-sm text-gray-600">{{ row.bpmn_label || row.bpmn_id || "-" }}</td>
-								<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.total_runs) }}</td>
-								<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.successes) }}</td>
-								<td class="py-3 px-3 text-sm text-right font-medium" :class="row.errors > 0 ? 'text-red-600' : 'text-gray-600'">
-									{{ fmtNum(row.errors) }}
-								</td>
-								<td class="py-3 px-3 text-sm text-right font-medium" :class="rateColor(row.success_rate)">
-									{{ fmtPct(row.success_rate) }}
-								</td>
-								<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtPct(row.retry_rate) }}</td>
-								<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.retry_recovered) }}</td>
-								<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtDuration(row.avg_duration_ms) }}</td>
-							</tr>
-						</tbody>
-					</table>
-				</div>
+				<ErrorReportCards
+					v-if="isMobile"
+					:issues="issues"
+					:summary="summary"
+					:group-by="groupBy"
+					:issue-runs="issueRuns"
+				/>
+				<ErrorReportTable
+					v-else
+					:issues="issues"
+					:summary="summary"
+					:group-by="groupBy"
+					:issue-runs="issueRuns"
+				/>
 			</template>
 		</template>
 	</div>
@@ -151,9 +130,13 @@ import {
 } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
+import { useIssueRuns } from "@/composables/useIssueRuns"
+import { useWindowSize } from "@/composables/useWindowSize"
+import ErrorReportCards from "@/components/insights/ErrorReportCards.vue"
 import ErrorReportChart from "@/components/insights/ErrorReportChart.vue"
+import ErrorReportTable from "@/components/insights/ErrorReportTable.vue"
 import MetricTile from "@/components/insights/MetricTile.vue"
-import { fmtInt as fmtNum, fmtDuration, fmtPct } from "@/utils/formatters"
+import { fmtInt as fmtNum, fmtPct } from "@/utils/formatters"
 
 const props = defineProps({
 	fromDate: { type: String, default: "" },
@@ -177,7 +160,11 @@ const reportData = ref({})
 const groupBy = ref("model")
 const errorCode = ref("")
 
+const { isMobile } = useWindowSize()
+const issueRuns = useIssueRuns(queryParams)
+
 const summary = computed(() => reportData.value.summary || {})
+const issues = computed(() => [...(reportData.value.issues || [])].sort((a, b) => b.errors - a.errors))
 
 const priorDates = computed(() => {
 	const from = dayjs(reportData.value.previous_from)
@@ -199,12 +186,6 @@ const exportOptions = computed(() => [
 	{ label: "CSV", onClick: () => download("csv") },
 	{ label: "XLSX", onClick: () => download("xlsx") },
 ])
-
-function rateColor(rate) {
-	if (rate >= 95) return "text-green-600"
-	if (rate >= 85) return "text-yellow-600"
-	return "text-red-600"
-}
 
 function queryParams() {
 	return {
