@@ -276,7 +276,7 @@
 </template>
 
 <script setup>
-import { Button, Dialog, ErrorMessage, FormControl, frappeRequest } from "frappe-ui";
+import { Button, Dialog, ErrorMessage, FormControl, Spinner, frappeRequest } from "frappe-ui";
 import { computed, onMounted, ref } from "vue";
 
 const API = "/api/method/one_bpmn.api.sessions_api.";
