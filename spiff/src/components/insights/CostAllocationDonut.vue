@@ -1,7 +1,7 @@
 <template>
-	<div class="bg-white rounded-lg shadow-sm p-4">
+	<div class="bg-white rounded-lg border border-gray-200 p-4">
 		<div class="flex items-baseline justify-between">
-			<h3 class="text-sm font-medium text-gray-900">{{ title }}</h3>
+			<h3 class="text-[13px] font-semibold text-gray-900">{{ title }}</h3>
 			<span
 				class="text-xs text-gray-500"
 				:title="fmtCurrencyExact(total)"
@@ -13,7 +13,7 @@
 				class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center"
 			>
 				<div class="text-sm font-semibold text-gray-900">{{ top.pct }}%</div>
-				<div class="text-xs text-gray-500 truncate max-w-[84px]">{{ top.label }}</div>
+				<div class="text-[11px] text-gray-500 truncate max-w-[84px]">{{ top.label }}</div>
 			</div>
 		</div>
 		<ul class="mt-2 space-y-1">

@@ -18,7 +18,7 @@
 		<!-- What this axis leaves out, so the tiles are never read as the whole period. -->
 		<div
 			v-if="showsScope"
-			class="text-sm text-gray-500"
+			class="text-xs text-gray-500"
 		>
 			{{ scope.runs }}:
 			<span

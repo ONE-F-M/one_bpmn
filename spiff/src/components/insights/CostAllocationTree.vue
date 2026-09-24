@@ -3,25 +3,25 @@
 		<table class="w-full">
 			<thead>
 				<tr class="border-b border-gray-200">
-					<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3">
+					<th class="text-left text-[10px] uppercase tracking-wider text-gray-500 font-semibold py-2 px-3">
 						{{ levelHeader }}
 					</th>
 					<th
 						v-if="isChat"
-						class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3"
+						class="text-right text-[10px] uppercase tracking-wider text-gray-500 font-semibold py-2 px-3"
 					>
 						Conversations
 					</th>
-					<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Runs</th>
-					<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Tokens</th>
+					<th class="text-right text-[10px] uppercase tracking-wider text-gray-500 font-semibold py-2 px-3">Runs</th>
+					<th class="text-right text-[10px] uppercase tracking-wider text-gray-500 font-semibold py-2 px-3">Tokens</th>
 					<th
 						v-for="m in months"
 						:key="m"
-						class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3 whitespace-nowrap"
+						class="text-right text-[10px] uppercase tracking-wider text-gray-500 font-semibold py-2 px-3 whitespace-nowrap"
 					>
 						{{ monthHeader(m) }}
 					</th>
-					<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">
+					<th class="text-right text-[10px] uppercase tracking-wider text-gray-500 font-semibold py-2 px-3">
 						<span class="inline-flex items-center gap-1">
 							Cost
 							<Icon
@@ -32,12 +32,12 @@
 					</th>
 					<th
 						v-if="isChat"
-						class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3"
+						class="text-right text-[10px] uppercase tracking-wider text-gray-500 font-semibold py-2 px-3"
 					>
 						Avg / conv
 					</th>
-					<th class="text-left text-xs uppercase text-gray-500 font-medium py-2 px-3 w-40">Share</th>
-					<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Vs prior</th>
+					<th class="text-left text-[10px] uppercase tracking-wider text-gray-500 font-semibold py-2 px-3 w-40">Share</th>
+					<th class="text-right text-[10px] uppercase tracking-wider text-gray-500 font-semibold py-2 px-3">Vs prior</th>
 				</tr>
 			</thead>
 			<tbody>
@@ -48,7 +48,7 @@
 					:class="{ 'cursor-pointer': row.hasChildren }"
 					@click="onRowClick(row)"
 				>
-					<td class="py-2.5 px-3 text-sm text-gray-900">
+					<td class="py-2 px-3 text-xs text-gray-900">
 						<div
 							class="flex items-center gap-2"
 							:style="indentOf(row, 20)"
@@ -81,28 +81,27 @@
 							/>
 							<span
 								class="truncate"
-								:class="{ 'font-medium': row.depth === 0 }"
+								:class="{ 'font-semibold': row.hasChildren }"
 							>{{ nameOf(row.node) }}</span>
 							<span
 								v-if="row.node.name"
-								class="text-xs text-gray-500 truncate hidden md:inline"
+								class="text-[11px] text-gray-500 truncate hidden md:inline"
 							>{{ row.node.label }}</span>
-							<Badge
+							<span
 								v-if="chipOf(row, axis)"
-								size="sm"
-								:label="chipOf(row, axis)"
-							/>
+								class="text-[11px] text-gray-500 whitespace-nowrap ml-1"
+							>{{ chipOf(row, axis) }}</span>
 						</div>
 					</td>
 					<td
 						v-if="isChat"
-						class="py-2.5 px-3 text-sm text-gray-600 text-right"
+						class="py-2 px-3 text-xs text-gray-600 text-right"
 					>
 						{{ fmtInt(row.node.conversations) }}
 					</td>
-					<td class="py-2.5 px-3 text-sm text-gray-600 text-right">{{ fmtInt(row.node.runs) }}</td>
+					<td class="py-2 px-3 text-xs text-gray-600 text-right">{{ fmtInt(row.node.runs) }}</td>
 					<td
-						class="py-2.5 px-3 text-sm text-gray-600 text-right"
+						class="py-2 px-3 text-xs text-gray-600 text-right"
 						:title="fmtInt(row.node.tokens)"
 					>
 						{{ fmtCompact(row.node.tokens) }}
@@ -110,33 +109,33 @@
 					<td
 						v-for="m in months"
 						:key="m"
-						class="py-2.5 px-3 text-sm text-gray-600 text-right"
+						class="py-2 px-3 text-xs text-gray-600 text-right"
 					>
 						{{ monthCost(row.node, m) }}
 					</td>
 					<td
-						class="py-2.5 px-3 text-sm text-gray-900 text-right font-medium"
+						class="py-2 px-3 text-xs text-gray-900 text-right font-semibold"
 						:title="fmtCurrencyExact(row.node.cost)"
 					>
 						{{ fmtCurrency(row.node.cost) }}
 					</td>
 					<td
 						v-if="isChat"
-						class="py-2.5 px-3 text-sm text-gray-600 text-right"
+						class="py-2 px-3 text-xs text-gray-600 text-right"
 					>
 						{{ fmtCurrency(row.node.avg_cost_per_conversation) }}
 					</td>
-					<td class="py-2.5 px-3">
+					<td class="py-2 px-3">
 						<div class="flex items-center gap-2">
 							<ShareBar
 								class="flex-1"
 								:share="barWidth(row.node, tree)"
 								:color="colors[row.rootKey]"
 							/>
-							<span class="text-xs text-gray-500 w-10 text-right">{{ fmtPct(row.node.share, 0) }}</span>
+							<span class="text-xs font-semibold text-gray-800 w-10 text-right">{{ fmtPct(row.node.share, 0) }}</span>
 						</div>
 					</td>
-					<td class="py-2.5 px-3 text-right">
+					<td class="py-2 px-3 text-right">
 						<DeltaPill
 							:delta="row.node.delta"
 							good-direction="down"
@@ -146,16 +145,16 @@
 			</tbody>
 			<tfoot>
 				<tr class="border-t-2 border-gray-200">
-					<td class="py-2.5 px-3 text-xs uppercase text-gray-500 font-medium">{{ totalLabel(axis) }}</td>
+					<td class="py-2 px-3 text-xs font-bold text-gray-900">{{ totalLabel(axis) }}</td>
 					<td
 						v-if="isChat"
-						class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold"
+						class="py-2 px-3 text-xs text-gray-900 text-right font-bold"
 					>
 						{{ fmtInt(totals.conversations) }}
 					</td>
-					<td class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold">{{ fmtInt(totals.runs) }}</td>
+					<td class="py-2 px-3 text-xs text-gray-900 text-right font-bold">{{ fmtInt(totals.runs) }}</td>
 					<td
-						class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold"
+						class="py-2 px-3 text-xs text-gray-900 text-right font-bold"
 						:title="fmtInt(totals.tokens)"
 					>
 						{{ fmtCompact(totals.tokens) }}
@@ -163,24 +162,24 @@
 					<td
 						v-for="m in months"
 						:key="m"
-						class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold"
+						class="py-2 px-3 text-xs text-gray-900 text-right font-bold"
 					>
 						{{ fmtCurrency(monthTotal(m)) }}
 					</td>
 					<td
-						class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold"
+						class="py-2 px-3 text-xs text-gray-900 text-right font-bold"
 						:title="fmtCurrencyExact(totals.cost)"
 					>
 						{{ fmtCurrency(totals.cost) }}
 					</td>
 					<td
 						v-if="isChat"
-						class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold"
+						class="py-2 px-3 text-xs text-gray-900 text-right font-bold"
 					>
 						{{ fmtCurrency(totals.avg_cost_per_conversation) }}
 					</td>
-					<td class="py-2.5 px-3 text-xs text-gray-500">100%</td>
-					<td class="py-2.5 px-3 text-right">
+					<td class="py-2 px-3 text-xs text-gray-700 font-semibold">100%</td>
+					<td class="py-2 px-3 text-right">
 						<DeltaPill
 							:delta="costDelta"
 							good-direction="down"
@@ -194,7 +193,7 @@
 
 <script setup>
 import { computed } from "vue"
-import { Avatar, Badge } from "frappe-ui"
+import { Avatar } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 import DeltaPill from "@/components/insights/DeltaPill.vue"
