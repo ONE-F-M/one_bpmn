@@ -1,7 +1,11 @@
 <template>
 	<div class="bpmn-editor-wrapper h-full w-full flex flex-col">
 		<!-- Toolbar (moved natively to parent Editor.vue's header) -->
-		<div ref="toolbarEl" v-show="isMounted" class="bpmn-toolbar relative flex items-center gap-1.5 w-full h-full text-gray-700 flex-nowrap min-w-0 pr-2">
+		<div
+			ref="toolbarEl"
+			v-show="isMounted"
+			class="bpmn-toolbar relative flex items-center gap-1.5 w-full h-full text-gray-700 flex-nowrap min-w-0 pr-2"
+		>
 			<template v-if="!readonly">
 				<div
 					:class="['bpmn-toolbar-tools flex items-center gap-1.5', { 'bpmn-toolbar-tools--open': showMoreTools }]"
