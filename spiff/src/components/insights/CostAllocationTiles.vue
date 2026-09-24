@@ -8,6 +8,7 @@
 				:value="tile.value"
 				:value-title="tile.valueTitle"
 				:delta="tile.delta"
+				:delta-kind="tile.deltaKind"
 				:good-direction="tile.goodDirection"
 				:subtitle="tile.subtitle"
 				:subtitle-short="tile.subtitleShort"
@@ -33,6 +34,11 @@
 				>
 					{{ scope.otherAxis }}</button>.
 			</template>
+			<template v-if="isChat">
+				Top 5 users account for
+				<span class="font-medium text-gray-700">{{ fmtPct(totals.top5_share, 0) }}</span>
+				of chat spend.
+			</template>
 		</div>
 	</div>
 </template>
@@ -40,7 +46,8 @@
 <script setup>
 import { computed } from "vue"
 import MetricTile from "@/components/insights/MetricTile.vue"
-import { fmtCompact, fmtCurrency, fmtCurrencyExact, fmtDateRange, fmtInt } from "@/utils/formatters"
+import { useWindowSize } from "@/composables/useWindowSize"
+import { fmtCompact, fmtCurrency, fmtCurrencyExact, fmtDateRange, fmtInt, fmtPct } from "@/utils/formatters"
 import { pctChange } from "@/utils/costAllocation"
 
 const props = defineProps({
@@ -48,59 +55,79 @@ const props = defineProps({
 })
 const emit = defineEmits(["switch-axis"])
 
+const { isMobile } = useWindowSize()
 const isChat = computed(() => props.report.axis === "chat_user")
 const totals = computed(() => props.report.totals)
 const previous = computed(() => props.report.previous)
 const periodCost = computed(() => props.report.period_totals.cost)
 const showsScope = computed(() => totals.value.cost !== periodCost.value)
 const priorDates = computed(() => fmtDateRange(previous.value.from_date, previous.value.to_date))
+const vsPrior = computed(() => ({ subtitle: `vs ${priorDates.value}`, subtitleShort: priorDates.value }))
 const scope = computed(() =>
 	isChat.value
 		? { runs: "Chat runs", otherRuns: "Process runs", otherAxis: "By process owner" }
 		: { runs: "Process runs", otherRuns: "Chat runs", otherAxis: "By chat user" }
 )
 
-const tiles = computed(() => {
+function money(label, value, delta) {
+	return { label, value: fmtCurrency(value), valueTitle: fmtCurrencyExact(value), delta, goodDirection: "down", ...vsPrior.value }
+}
+
+const chatTiles = computed(() => {
 	const t = totals.value
 	const p = previous.value
-	const avgBefore = p.runs ? p.cost / p.runs : 0
-	const vs = { subtitle: `vs ${priorDates.value}`, subtitleShort: priorDates.value }
 	return [
+		money("Chat spend", t.cost, pctChange(t.cost, p.cost)),
 		{
-			label: isChat.value ? "Chat spend" : "Process spend",
-			value: fmtCurrency(t.cost),
-			valueTitle: fmtCurrencyExact(t.cost),
-			delta: pctChange(t.cost, p.cost),
-			goodDirection: "down",
-			...vs,
+			label: "Conversations",
+			value: fmtInt(t.conversations),
+			delta: pctChange(t.conversations, p.conversations),
+			goodDirection: "up",
+			...vsPrior.value,
 		},
-		{ label: "Runs", value: fmtInt(t.runs), delta: pctChange(t.runs, p.runs), goodDirection: "up", ...vs },
+		{
+			label: "Active users",
+			value: fmtInt(t.active_users),
+			delta: t.active_users - p.users,
+			deltaKind: "count",
+			goodDirection: "up",
+			subtitle: `of ${fmtInt(t.seats)} seats`,
+		},
+		money("Avg cost / user", t.avg_cost_per_user, pctChange(t.avg_cost_per_user, p.avg_cost_per_user)),
+		money(
+			isMobile.value ? "Avg cost / conv" : "Avg cost / conversation",
+			t.avg_cost_per_conversation,
+			pctChange(t.avg_cost_per_conversation, p.avg_cost_per_conversation),
+		),
+		{
+			label: "Departments",
+			value: fmtInt(t.departments),
+			subtitle: `Top: ${t.top_department.name} ${fmtPct(t.top_department.share, 0)}`,
+		},
+	]
+})
+
+const processTiles = computed(() => {
+	const t = totals.value
+	const p = previous.value
+	return [
+		money("Process spend", t.cost, pctChange(t.cost, p.cost)),
+		{ label: "Runs", value: fmtInt(t.runs), delta: pctChange(t.runs, p.runs), goodDirection: "up", ...vsPrior.value },
 		{
 			label: "Tokens",
 			value: fmtCompact(t.tokens),
 			valueTitle: fmtInt(t.tokens),
 			delta: pctChange(t.tokens, p.tokens),
 			goodDirection: "up",
-			...vs,
+			...vsPrior.value,
 		},
-		{
-			label: "Avg cost / run",
-			value: fmtCurrency(t.avg_cost_per_run),
-			valueTitle: fmtCurrencyExact(t.avg_cost_per_run),
-			delta: pctChange(t.avg_cost_per_run, avgBefore),
-			goodDirection: "down",
-			...vs,
-		},
-		{
-			label: "Departments",
-			value: fmtInt(t.departments),
-			subtitle: isChat.value ? `${fmtInt(t.active_users)} of ${fmtInt(t.seats)} seats active` : `${fmtInt(t.people)} process owners`,
-		},
-		isChat.value
-			? { label: "Conversations", value: fmtInt(t.conversations), subtitle: `${fmtCurrency(t.avg_cost_per_conversation)} each` }
-			: { label: "Processes", value: fmtInt(t.processes), subtitle: t.top_process ? `Top: ${t.top_process}` : "" },
+		money("Avg cost / run", t.avg_cost_per_run, pctChange(t.avg_cost_per_run, p.avg_cost_per_run)),
+		{ label: "Departments", value: fmtInt(t.departments), subtitle: `${fmtInt(t.people)} process owners` },
+		{ label: "Processes", value: fmtInt(t.processes), subtitle: t.top_process ? `Top: ${t.top_process}` : "" },
 	]
 })
+
+const tiles = computed(() => (isChat.value ? chatTiles.value : processTiles.value))
 </script>
 
 <style scoped></style>
