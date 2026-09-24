@@ -17,7 +17,16 @@
 					<div class="flex items-center gap-2 relative min-w-0">
 						<h1 class="text-sm font-semibold text-gray-800 truncate max-w-[120px] sm:max-w-[180px] lg:max-w-[260px]" :title="processName">{{ processName }}</h1>
 						
-						<!-- Status Icon -->
+						<!-- Copy ID Button -->
+\t\t\t\t\t\t<button
+\t\t\t\t\t\t\t@click=\"copyProcessId\"
+\t\t\t\t\t\t\tclass=\"p-1 rounded transition-colors text-gray-600 hover:bg-gray-100\"
+\t\t\t\t\t\t\ttitle=\"Copy process ID\"
+\t\t\t\t\t\t>
+\t\t\t\t\t\t\t<Icon icon=\"lucide:copy\" class=\"w-4 h-4\" />
+\t\t\t\t\t\t</button>
+
+\t\t\t\t\t\t<!-- Status Icon -->
 						<button
 							@click="showStatusPopup = !showStatusPopup"
 							class="p-1 rounded transition-colors"
