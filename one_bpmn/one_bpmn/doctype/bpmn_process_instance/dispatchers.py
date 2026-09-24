@@ -2092,6 +2092,14 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	import time as _time
 	_exec_start = _time.time()
 
+	# WI-002190/park-resume (bug 1): a resumed segment's trace is seeded with
+	# every turn from earlier segments (step_loop.py:181-184), so
+	# record_selector_turns must skip that many turns or it writes them again
+	# as duplicate Steps. Read the count BEFORE the executor runs, off the
+	# resolved config, so the value is tied unambiguously to what THIS
+	# segment started with.
+	already_recorded_turns = len((config.resume_state or {}).get("trace") or [])
+
 	# WI-001645: publish which agent is running so the tool-policy interceptor
 	# can apply that agent's tool grant — including for tools a Server Script
 	# constructs for its own sub-agent call, which never see this frame.
