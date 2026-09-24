@@ -384,7 +384,6 @@ class DirectApiExecutor(Executor):
                 ),
             )
 
-        start = time.time()
         try:
             # The loop below already retries each turn aiMaxRetries times and
             # bounds each attempt with aiTimeout, so the SDK client gets the
@@ -445,7 +444,6 @@ class DirectApiExecutor(Executor):
             cache_write_tokens=completion.cache_write_tokens,
         )
         trace = [asdict(turn) for turn in completion.trace]
-        latency_ms = int((time.time() - start) * 1000)
 
         if completion.hit_turn_cap:
             # Partial progress is not lost: the trace collected so far ships
@@ -460,16 +458,7 @@ class DirectApiExecutor(Executor):
                 ),
                 token_usage=token_usage,
                 trace=trace,
-                # This AttemptRecord deliberately carries no token_usage or
-                # latency_ms: those fields on an AttemptRecord mean "this one
-                # attempt cost X", but token_usage above is already the
-                # WHOLE trace's tokens and latency_ms would be the whole
-                # segment's time. record_failed_attempts writes this as a
-                # Step, and finalize_ai_run's step-metric rollup then sums
-                # every step's tokens/cost/latency — so a non-empty value
-                # here counted the whole run's cost and agent latency a
-                # second time. Left at their defaults (None / 0), the turn
-                # cap step still names what happened via error_message.
+                # No token_usage or latency_ms: every turn is already a step, so they would count twice.
                 attempts=[
                     AttemptRecord(
                         attempt_index=0,

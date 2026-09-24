@@ -2092,12 +2092,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	import time as _time
 	_exec_start = _time.time()
 
-	# WI-002190/park-resume (bug 1): a resumed segment's trace is seeded with
-	# every turn from earlier segments (step_loop.py:181-184), so
-	# record_selector_turns must skip that many turns or it writes them again
-	# as duplicate Steps. Read the count BEFORE the executor runs, off the
-	# resolved config, so the value is tied unambiguously to what THIS
-	# segment started with.
+	# Turns seeded from earlier segments are already Steps; count them before the executor runs.
 	already_recorded_turns = len((config.resume_state or {}).get("trace") or [])
 
 	# WI-001645: publish which agent is running so the tool-policy interceptor
@@ -2168,12 +2163,6 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# agent's map must hand identity back, not blank it.
 		instance._a2a_delegating_agent = _prev_delegating_agent
 	_exec_latency_ms = int((_time.time() - _exec_start) * 1000)
-
-	# Durable HITL: a resumed segment's trace is seeded with every turn from
-	# earlier segments (step_loop.py), so the executor's own token_usage
-	# already sums the WHOLE run, not just this segment. Adding the
-	# checkpoint's carried-over totals on top (as this used to do) counted
-	# every earlier segment's tokens a second time.
 
 	# ── Observability: record Steps + finalize ─────────────────────────
 	try:

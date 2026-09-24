@@ -182,74 +182,36 @@ class TestSelectorObservability(FrappeTestCase):
 	# ── Bug 1: a resume must not re-write turns seeded from earlier segments ──
 
 	def test_already_recorded_skips_seeded_turns(self):
-		"""A resumed segment's trace is seeded with every turn recorded so
-		far (step_loop.py), plus whatever new turns this segment made.
-		Given a run that already has 5 turns recorded and the resumed
-		segment made 2 more (a 7-turn trace), record_selector_turns with
-		already_recorded=5 must write only the 2 new turns, numbered 6 and 7
-		— and a sub-call step tied to turn 2 (recorded live, during an
-		earlier segment) must keep its original position rather than being
-		swept as though it belonged to this segment.
-		"""
-		from one_bpmn.agents.observability import sub_call_scope, record_sub_call
+		"""5 turns recorded, then a resume with 7: only turns 6 and 7 are written,
+		and a sub-call step placed by the first segment stays where it was."""
 		from types import SimpleNamespace
 
+		from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG, record_sub_call, sub_call_scope
+
 		run = get_or_create_selector_run(_instance("INST-OBS-ALREADY"), "AdhocSub_1", _config())
-
-		five_turns = [
-			{"role": "assistant", "content": f"turn {i}", "prompt_tokens": 10, "completion_tokens": 5}
-			for i in range(1, 6)
+		turns = [
+			{"role": "assistant", "content": f"turn {i}", "turn_no": i, "prompt_tokens": 10, "completion_tokens": 5}
+			for i in range(1, 8)
 		]
-		# First segment: 5 turns recorded (already_recorded=0, nothing seeded yet).
-		recorded_first = record_selector_turns(run, five_turns, SOURCE_MAP, already_recorded=0)
-		self.assertEqual(recorded_first, 5)
 
-		# A sub-call made by a tool inside turn 2 of that first segment.
-		from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG
-
+		# First segment: a tool in turn 2 makes a sub-call while the loop runs, then the 5 turns are written.
 		with sub_call_scope(run, "some_tool"):
 			frappe.flags[SUB_CALL_TURN_FLAG] = 2
-			record_sub_call("obs-model", SimpleNamespace(text="sub answer", prompt_tokens=1, completion_tokens=1))
+			sub = record_sub_call("obs-model", SimpleNamespace(text="sub answer", prompt_tokens=1, completion_tokens=1))
 			frappe.flags[SUB_CALL_TURN_FLAG] = None
+		self.assertEqual(record_selector_turns(run, turns[:5], SOURCE_MAP), 5)
+		sub_index = frappe.db.get_value("AI Agent Step", sub.name, "step_index")
 
-		sub_call_step_before = frappe.get_all(
-			"AI Agent Step",
-			filters={"run": run.name},
-			fields=["name", "step_index", "content"],
-			order_by="step_index asc",
+		# Second segment: the trace is seeded with the 5 earlier turns plus 2 new ones.
+		self.assertEqual(record_selector_turns(run, turns, SOURCE_MAP, already_recorded=5), 2)
+
+		steps = frappe.get_all(
+			"AI Agent Step", filters={"run": run.name}, fields=["name", "step_index", "content"], order_by="step_index asc"
 		)
-		sub_step = next(s for s in sub_call_step_before if "[sub_call" in (s.content or ""))
-		sub_step_index_before = sub_step.step_index
-
-		# Second segment (resume): the seeded trace carries the 5 earlier
-		# turns plus 2 new ones. already_recorded=5 says "the first 5 are
-		# already Steps".
-		seven_turns = five_turns + [
-			{"role": "assistant", "content": "turn 6", "prompt_tokens": 11, "completion_tokens": 6},
-			{"role": "assistant", "content": "turn 7", "prompt_tokens": 12, "completion_tokens": 7},
-		]
-		recorded_second = record_selector_turns(run, seven_turns, SOURCE_MAP, already_recorded=5)
-		self.assertEqual(recorded_second, 2)
-
-		ordinary_steps = frappe.get_all(
-			"AI Agent Step",
-			filters={"run": run.name},
-			fields=["step_index", "content"],
-			order_by="step_index asc",
-		)
-		new_step_contents = {s.step_index: s.content for s in ordinary_steps if s.content in ("turn 6", "turn 7")}
-		self.assertEqual(sorted(new_step_contents.keys()), [6, 7])
-		self.assertEqual(new_step_contents[6], "turn 6")
-		self.assertEqual(new_step_contents[7], "turn 7")
-
-		# The turn-2 sub-call step (from the FIRST segment) must not have
-		# moved: it was not created during this second segment.
-		sub_step_after = frappe.db.get_value("AI Agent Step", sub_step.name, "step_index")
-		self.assertEqual(sub_step_after, sub_step_index_before)
-
-		# No earlier turn (1-5) was written a second time.
-		total_steps = frappe.db.count("AI Agent Step", {"run": run.name})
-		self.assertEqual(total_steps, 5 + 1 + 2)  # 5 first-segment turns + 1 sub-call + 2 new turns
+		contents = [s.content for s in steps if s.name != sub.name]
+		self.assertEqual(contents, [f"turn {i}" for i in range(1, 8)])
+		self.assertEqual(frappe.db.get_value("AI Agent Step", sub.name, "step_index"), sub_index)
+		self.assertEqual([s.step_index for s in steps], list(range(1, 9)))
 
 	# ── Scenario 6: finalized exactly once, final_output = last assistant ──
 

@@ -975,13 +975,9 @@ def record_selector_turns(
 	{tool_name: "diagram_task"|"registry_tool"}); the final-answer turn
 	becomes a role="assistant" Step with no Tool Call rows.
 
-	*already_recorded* (WI-002190/park-resume): a resumed segment's trace is
-	seeded with every turn from earlier segments (step_loop.py), so writing
-	the whole trace here would write those earlier turns again as duplicate
-	Steps. Only ``trace[already_recorded:]`` \u2014 the turns this call actually
-	produced \u2014 are written. Defaults to 0 so a caller recording a trace that
-	was never seeded (e.g. ai_task_selector.py, which reuses one run across
-	decisions with a fresh trace each time) is unaffected.
+	*already_recorded* is how many leading turns of *trace* are already Steps; a
+	resumed segment's trace is seeded with earlier segments' turns, and only the
+	turns after them are written.
 
 	Returns the number of Steps recorded.
 	"""
@@ -1002,11 +998,7 @@ def record_selector_turns(
 	ordinary = [s for s in existing if not s.sub_call]
 	next_index = (max((s.step_index for s in ordinary), default=0) or 0) + 1
 	next_index = max(next_index, len(ordinary) + 1)
-	# The highest ordinary step_index that existed when THIS segment started.
-	# A sub-call step is only ours to place if it was created during this
-	# segment (its step_index is above that watermark) \u2014 a sub-call left
-	# over from an earlier segment already sits where an earlier call to
-	# this function put it, and must not be re-swept.
+	# Sub-call steps at or below this index were placed by an earlier segment.
 	segment_start_max = next_index - 1
 	placed: set = set()
 
@@ -1065,9 +1057,7 @@ def record_selector_turns(
 					_place(sub.name)
 
 	# Sub-calls that named no turn (older data, or a call made outside the
-	# loop) keep their order and follow the turns \u2014 but only the ones
-	# belonging to THIS segment; an earlier segment's unmatched sub-calls
-	# were already swept by that segment's own call to this function.
+	# loop) keep their order and follow the turns.
 	for sub in this_segment_sub_calls:
 		if sub.name not in placed:
 			_place(sub.name)

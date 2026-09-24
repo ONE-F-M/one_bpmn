@@ -38,12 +38,6 @@ def save_checkpoint(
 	Returns the run document the checkpoint was written to. When observability
 	could not create a run (it never blocks the executor), a minimal run is
 	created here instead — the checkpoint is load-bearing, not telemetry.
-
-	The suspension's own prompt/completion/cache totals already cover the
-	WHOLE run — step_loop seeds each resumed segment's trace with every turn
-	from earlier segments and sums over it (WI-001643) — so this payload
-	carries only that segment's totals, never a "prior + this segment" sum:
-	adding prior totals on top counted earlier turns again at every park.
 	"""
 	if run is None or getattr(run, "stub", False):
 		run = frappe.get_doc({

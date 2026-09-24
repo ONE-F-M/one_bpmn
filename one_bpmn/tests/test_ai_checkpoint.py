@@ -87,7 +87,7 @@ class TestCheckpointPersistence(_CheckpointTestBase):
 		self.assertEqual(payload["system_prompt"], "sys prompt")
 		self.assertEqual(payload["wf_task_id"], "wf-uuid-1")
 		self.assertEqual(payload["suspension"]["pending_call"]["name"], "approve_refund")
-		self.assertEqual(payload["prompt_tokens_so_far"], 90)
+		self.assertNotIn("prompt_tokens_so_far", payload)
 
 		state = checkpoint.build_resume_state(payload)
 		self.assertEqual(state["turns_used"], 2)
@@ -117,15 +117,15 @@ class TestCheckpointPersistence(_CheckpointTestBase):
 			frappe.db.get_value("AI Agent Run", run.name, "status"), "Running"
 		)
 
-	def test_cumulative_tokens_across_chained_suspensions(self):
+	def test_a_checkpoint_carries_no_token_totals_of_its_own(self):
+		"""The seeded trace already holds every earlier turn's tokens."""
 		run = checkpoint.save_checkpoint(
 			None, self.instance, self.bpmn_id, _suspension(),
 			system_prompt="s", wf_task_id="t", human_row_id="r1",
-			prior_prompt_tokens=100, prior_completion_tokens=10,
 		)
 		payload = json.loads(frappe.db.get_value("AI Agent Run", run.name, "checkpoint"))
-		self.assertEqual(payload["prompt_tokens_so_far"], 190)
-		self.assertEqual(payload["completion_tokens_so_far"], 19)
+		for key in ("prompt_tokens_so_far", "completion_tokens_so_far", "cache_read_tokens_so_far", "cache_write_tokens_so_far"):
+			self.assertNotIn(key, payload)
 
 
 class TestDispatcherSuspendResume(_CheckpointTestBase):
@@ -205,11 +205,12 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 		# 2. Human answers
 		checkpoint.store_human_result(run_name, {"action": "Approve"})
 
-		# 3. Resume → final answer
+		# 3. Resume -> final answer. The step loop seeds the trace with the earlier
+		# segment's turn, so its token totals cover the whole run (90+50 / 9+5).
 		final = ExecutorResult(
 			output="refund approved and processed",
-			token_usage=TokenUsage(prompt_tokens=50, completion_tokens=5, total_tokens=55),
-			trace=[{
+			token_usage=TokenUsage(prompt_tokens=140, completion_tokens=14, total_tokens=154),
+			trace=_suspension()["trace"] + [{
 				"role": "assistant", "content": "refund approved and processed",
 				"tool_calls": [], "prompt_tokens": 50, "completion_tokens": 5, "latency_ms": 3,
 			}],
@@ -221,12 +222,21 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 		self.assertEqual(json.loads(state["human_result"]), {"action": "Approve"})
 		self.assertEqual(state["turns_used"], 2)
 
-		# output written, marker cleared, tokens cumulative (90+50 / 9+5)
+		# output written, marker cleared, the run's tokens counted once
 		self.assertEqual(self.task.data["agent_out"], "refund approved and processed")
 		self.assertNotIn("_bpmn_ai_waiting_human", self.task.data)
 		usage = self.task.data[f"{self.bpmn_id}_token_usage"]
 		self.assertEqual(usage["prompt_tokens"], 140)
 		self.assertEqual(usage["completion_tokens"], 14)
+		self.assertEqual(frappe.db.get_value("AI Agent Run", run_name, "total_tokens"), 154)
+
+		# one step per turn: the seeded turn is not written again on resume
+		turn_steps = frappe.get_all(
+			"AI Agent Step",
+			filters={"run": run_name, "role": ["in", ["tool", "assistant"]]},
+			pluck="content",
+		)
+		self.assertEqual(len(turn_steps), 2)
 
 		# cross-segment evidence: earlier lookups + the human's answer
 		results = self.task.data[f"{self.bpmn_id}_toolCallResults"]
@@ -345,13 +355,3 @@ class TestHumanWaitAccounting(_CheckpointTestBase):
 		waited = frappe.db.get_value("AI Agent Run", run.name, "human_wait_ms")
 		self.assertGreater(waited, 19 * 60 * 1000)
 
-	def test_cumulative_cache_tokens_across_chained_suspensions(self):
-		run = checkpoint.save_checkpoint(
-			None, self.instance, self.bpmn_id, _suspension(),
-			system_prompt="s", wf_task_id="t", human_row_id="r1",
-			prior_cache_read_tokens=1000, prior_cache_write_tokens=100,
-		)
-		payload = json.loads(frappe.db.get_value("AI Agent Run", run.name, "checkpoint"))
-		# _suspension() carries no cache figures, so the priors carry through.
-		self.assertEqual(payload["cache_read_tokens_so_far"], 1000)
-		self.assertEqual(payload["cache_write_tokens_so_far"], 100)
