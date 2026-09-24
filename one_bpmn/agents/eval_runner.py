@@ -1571,7 +1571,7 @@ def _run_agent_eval(cfg, case, eval_run: str = None) -> tuple:
         frappe.flags.eval_origin, frappe.flags.bpmn_disable_ai_parking = prev
 
 
-def _run_chat_agent_eval(cfg, case, eval_run: str = None) -> tuple:
+def _run_chat_agent_eval(cfg, case, eval_run: str | None = None) -> tuple:
     """The chat-shaped Agent eval: hand the turn to ``invoke_agent``.
 
     Usage comes from the runs tagged with this case and eval run since the attempt started.

@@ -484,9 +484,7 @@ def _insert_agent_run(cfg, tokens: int, cost: float, **tags):
         "estimated_cost": cost,
         **tags,
     })
-    run.flags.ignore_mandatory = True
-    run.flags.ignore_links = True
-    run.insert(ignore_permissions=True)
+    run.insert()
     return run
 
 
