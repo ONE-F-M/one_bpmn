@@ -2161,22 +2161,11 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		instance._a2a_delegating_agent = _prev_delegating_agent
 	_exec_latency_ms = int((_time.time() - _exec_start) * 1000)
 
-	# ── Durable HITL: token totals are cumulative across suspensions ───
-	if resume_payload and result.token_usage:
-		result.token_usage.prompt_tokens += int(resume_payload.get("prompt_tokens_so_far") or 0)
-		result.token_usage.completion_tokens += int(resume_payload.get("completion_tokens_so_far") or 0)
-		# WI-001643: the cache breakdown must accumulate alongside the prompt
-		# total it is a breakdown OF — otherwise the final segment's small cache
-		# figures would be costed against every earlier segment's prompt tokens.
-		result.token_usage.cache_read_tokens += int(
-			resume_payload.get("cache_read_tokens_so_far") or 0
-		)
-		result.token_usage.cache_write_tokens += int(
-			resume_payload.get("cache_write_tokens_so_far") or 0
-		)
-		result.token_usage.total_tokens = (
-			result.token_usage.prompt_tokens + result.token_usage.completion_tokens
-		)
+	# Durable HITL: a resumed segment's trace is seeded with every turn from
+	# earlier segments (step_loop.py), so the executor's own token_usage
+	# already sums the WHOLE run, not just this segment. Adding the
+	# checkpoint's carried-over totals on top (as this used to do) counted
+	# every earlier segment's tokens a second time.
 
 	# ── Observability: record Steps + finalize ─────────────────────────
 	try:
