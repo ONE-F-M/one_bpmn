@@ -214,6 +214,7 @@ import { dayjs } from "@/dayjs";
 import { streamAgentTurn } from "./aguiClient";
 import ProposedFieldsTray from "./ProposedFieldsTray.vue";
 import ResponseFeedback from "./ResponseFeedback.vue";
+import { adoptPersistedName } from "./persistedMessage";
 
 const props = defineProps({
 	agentId: { type: String, required: true },
@@ -738,6 +739,8 @@ function handleCustom(name, value) {
 			value = { ...value, prompt: "" };
 		}
 		items.value.push({ kind: "choice", value, answered: "", ts: stampNow() });
+	} else if (name === "onefm.message_persisted") {
+		adoptPersistedName(items.value, value);
 	} else if (!HOST_ONLY_EVENTS.has(name)) {
 		items.value.push({ kind: "custom", name, value, ts: stampNow() });
 	}
