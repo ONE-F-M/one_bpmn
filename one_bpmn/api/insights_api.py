@@ -1685,6 +1685,14 @@ def _departments_for(users: list) -> dict:
 	return {r["user_id"]: r["department"] for r in rows if r.get("department")}
 
 
+def _department_labels(names: set) -> dict:
+	"""Map Department name -> department_name, the name without the company suffix."""
+	if not names:
+		return {}
+	rows = frappe.db.get_values("Department", {"name": ["in", list(names)]}, ["name", "department_name"], as_dict=True)
+	return {r["name"]: r["department_name"] for r in rows}
+
+
 def _allocation_rows(axis: str, from_d, to_d, filters: list) -> list:
 	"""Monthly usage rows at the titled grain the export's Detail sheet lists."""
 	Run = DocType("AI Agent Run")
@@ -1871,15 +1879,18 @@ def _allocation_leaves(axis: str, from_d, to_d, filters: list) -> list:
 
 	raw = _apply(q, filters).run(as_dict=True)
 	departments = _departments_for([r.get("person") for r in raw])
+	labels = _department_labels(set(departments.values()))
 	leaves = []
 	for r in raw:
 		person = cstr(r.get("person"))
+		department = departments.get(person) or ""
 		subject = cstr(r.get("subject")) or (GENERAL_CHAT if axis == "chat_user" else "")
 		leaves.append({
 			"day": getdate(r.get("day")),
 			"person": person,
 			"person_name": cstr(r.get("person_name")),
-			"department": departments.get(person) or "",
+			"department": department,
+			"department_label": labels.get(department, department),
 			"subject": subject,
 			# Chat leaves are named by agent; conversation titles never reach the tree.
 			"subject_label": cstr(r.get("subject_label")) or _(subject),
@@ -1922,7 +1933,7 @@ def _period_grain(from_d, to_d) -> tuple:
 def _level_of(level: str, leaf: dict) -> tuple:
 	"""(key, label) a leaf contributes at one level of the tree."""
 	if level == "department":
-		return leaf["department"], leaf["department"] or _("Unassigned")
+		return leaf["department"], leaf["department_label"] or _("Unassigned")
 	if level in ("owner", "user"):
 		return leaf["person"], leaf["person"] or _("unassigned")
 	return leaf["subject"], leaf["subject_label"]
@@ -2111,7 +2122,7 @@ def _allocation_totals(axis: str, leaves: list, from_d, to_d, filters: list) -> 
 		by_user = defaultdict(float)
 		by_department = defaultdict(float)
 		for leaf in leaves:
-			by_department[leaf["department"]] += leaf["cost"]
+			by_department[leaf["department_label"]] += leaf["cost"]
 			if leaf["person"]:
 				by_user[leaf["person"]] += leaf["cost"]
 		top5 = sorted(by_user.values(), reverse=True)[:MAX_PEER_NODES]
