@@ -1570,15 +1570,15 @@ def _run_agent_eval(cfg, case, eval_run: str = None) -> tuple:
     try:
         if _needs_map_eval(cfg):
             return _run_map_eval(cfg, case)
-        return _run_chat_agent_eval(cfg, case)
+        return _run_chat_agent_eval(cfg, case, eval_run)
     finally:
         frappe.flags.eval_origin, frappe.flags.bpmn_disable_ai_parking = prev
 
 
-def _run_chat_agent_eval(cfg, case) -> tuple:
+def _run_chat_agent_eval(cfg, case, eval_run: str | None = None) -> tuple:
     """The chat-shaped Agent eval: hand the turn to ``invoke_agent`` on a fresh conversation.
     ``input_context`` may seed earlier turns through ``conversation_messages`` and
-    ``session_state``; the conversation is closed and its state cleared when the case ends."""
+    ``session_state``; usage comes from the runs tagged with this case and eval run."""
     from one_bpmn.agents.memory import session_state
     from one_bpmn.api.agent_invocation import invoke_agent
     from one_bpmn.utils.chat_persistence import close_conversation, create_agent_conversation
@@ -1611,18 +1611,28 @@ def _run_chat_agent_eval(cfg, case) -> tuple:
         session_state.clear_state(conversation)
 
     output = (reply or {}).get("response") or ""
+
+    # creation >= started keeps each repeated attempt under one eval_run to its own runs.
+    filters = {
+        "eval_case": case.name,
+        "creation": [">=", started],
+        # _execute_case adds judge spend separately.
+        "bpmn_id": ["!=", EVAL_RUN_JUDGE],
+    }
+    if eval_run:
+        filters["eval_run"] = eval_run
     runs = frappe.get_all(
         "AI Agent Run",
-        filters={
-            "agent_configuration": cfg.name,
-            "creation": [">=", started],
-            # Judge runs are recorded separately and their cost is added by
-            # _execute_case; excluding them here keeps execution and judge spend
-            # from being counted twice on the Result row.
-            "bpmn_id": ["!=", EVAL_RUN_JUDGE],
-        },
+        filters=filters,
         fields=["total_prompt_tokens", "total_completion_tokens", "total_tokens", "estimated_cost"],
     )
+    if not runs:
+        raise ValueError(
+            _(
+                "Agent '{0}' ran but produced no AI Agent Run for case '{1}'. "
+                "Check that the agent's map reaches its AI Agent Task for this conversation."
+            ).format(cfg.name, case.name)
+        )
     usage = {
         "prompt_tokens": sum((r.get("total_prompt_tokens") or 0) for r in runs),
         "completion_tokens": sum((r.get("total_completion_tokens") or 0) for r in runs),

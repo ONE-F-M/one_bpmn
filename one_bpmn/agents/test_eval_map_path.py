@@ -21,10 +21,12 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import add_to_date, now_datetime
 
 from one_bpmn.agents._eval_test_factories import (
     make_agent_configuration,
     make_eval_case,
+    make_eval_run,
     make_eval_suite,
 )
 from one_bpmn.agents.eval_runner import (
@@ -465,3 +467,83 @@ class TestEvaluatableGate(FrappeTestCase):
     def test_direct_eval_type_is_never_gated(self):
         cfg = make_agent_configuration(agent_framework="Google ADK")
         _assert_agent_evaluatable(cfg.name, "Direct")
+
+
+def _insert_agent_run(cfg, tokens: int, cost: float, **tags):
+    """Insert a finished chat AI Agent Run for *cfg* with the given usage and eval tags."""
+    run = frappe.get_doc({
+        "doctype": "AI Agent Run",
+        "agent_configuration": cfg.name,
+        "bpmn_id": "chat_reply",
+        "status": "Success",
+        "started_at": now_datetime(),
+        "origin": "eval" if tags else "production",
+        "total_prompt_tokens": tokens,
+        "total_completion_tokens": 0,
+        "total_tokens": tokens,
+        "estimated_cost": cost,
+        **tags,
+    })
+    run.insert()
+    return run
+
+
+class TestChatEvalRunAttribution(FrappeTestCase):
+    """A chat eval case counts only the AI Agent Runs tagged to it, not other runs of the agent."""
+
+    def setUp(self):
+        model = make_process_model(CHAT_START_XML)
+        self.cfg = make_agent_configuration(process_model=model.name)
+        suite = make_eval_suite(
+            agent_configuration=self.cfg.name, eval_type="Agent", process_model=model.name
+        )
+        self.case = make_eval_case(suite=suite.name)
+        self.eval_run = make_eval_run(suite.name)
+
+    def _eval_tags(self):
+        return {"eval_case": self.case.name, "eval_run": self.eval_run.name}
+
+    def test_only_the_eval_tagged_run_is_counted(self):
+        def fake_invoke_agent(agent_id, prompt, context=None, **kwargs):
+            _insert_agent_run(self.cfg, 1000, 50.0)
+            _insert_agent_run(self.cfg, 15, 0.02, **self._eval_tags())
+            return {"response": "hi there"}
+
+        with patch("one_bpmn.api.agent_invocation.invoke_agent", new=fake_invoke_agent):
+            output, usage = _run_agent_eval(self.cfg, self.case, self.eval_run.name)
+
+        self.assertEqual(output, "hi there")
+        self.assertEqual(usage["tokens"], 15)
+        self.assertEqual(usage["prompt_tokens"], 15)
+        self.assertEqual(usage["cost"], 0.02)
+
+    def test_no_eval_tagged_run_raises(self):
+        def fake_invoke_agent(agent_id, prompt, context=None, **kwargs):
+            _insert_agent_run(self.cfg, 1000, 50.0)
+            return {"response": "hi there"}
+
+        with patch("one_bpmn.api.agent_invocation.invoke_agent", new=fake_invoke_agent):
+            with self.assertRaises(ValueError) as ctx:
+                _run_agent_eval(self.cfg, self.case, self.eval_run.name)
+        self.assertIn(self.case.name, str(ctx.exception))
+
+    def test_second_attempt_counts_only_its_own_run(self):
+        attempt_tokens = iter([100, 7])
+
+        def fake_invoke_agent(agent_id, prompt, context=None, **kwargs):
+            _insert_agent_run(self.cfg, next(attempt_tokens), 0.01, **self._eval_tags())
+            return {"response": "hi there"}
+
+        with patch("one_bpmn.api.agent_invocation.invoke_agent", new=fake_invoke_agent):
+            _, first = _run_agent_eval(self.cfg, self.case, self.eval_run.name)
+            first_run = frappe.get_all(
+                "AI Agent Run", filters=self._eval_tags(), pluck="name"
+            )[0]
+            frappe.db.set_value(
+                "AI Agent Run", first_run, "creation",
+                add_to_date(now_datetime(), hours=-1), update_modified=False,
+            )
+            _, second = _run_agent_eval(self.cfg, self.case, self.eval_run.name)
+
+        self.assertEqual(first["tokens"], 100)
+        self.assertEqual(second["tokens"], 7)
