@@ -12,10 +12,9 @@ export function seriesCap(axis, groupBy) {
 }
 
 export function subtitleOf(node, axis) {
-	if (node.kind === "more") return `${node.count} not shown`
 	if (node.kind !== "department") return ""
 	return axis === "chat_user"
-		? `${node.users} users · ${node.conversations} conversations`
+		? `${node.users} users · ${node.agents} agents`
 		: `${node.owners} owners · ${node.processes} processes`
 }
 
@@ -133,11 +132,11 @@ export function monthColumns(months) {
 }
 
 export function nameOf(node) {
-	return node.name || node.label
+	return node.kind === "more" ? `${node.count} more users` : node.name || node.label
 }
 
 // Counts on a department row, the department on a top-level person or process row, nothing on an agent.
 export function chipOf(row, axis) {
-	if (row.node.kind === "department" || row.node.kind === "more") return subtitleOf(row.node, axis)
+	if (row.node.kind === "department") return subtitleOf(row.node, axis)
 	return row.depth === 0 && row.node.kind !== "agent" ? row.node.department : ""
 }
