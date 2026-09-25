@@ -684,11 +684,6 @@ def get_error_report(
 	issues = _error_issues(current, previous, from_d, to_d, origin, filters, group_by, error_code)
 	summary = _error_summary(current, previous)
 
-	rows, error_breakdown, legacy_summary = _legacy_error_report(
-		from_d, to_d, origin, group_by, model, error_code, process_model, agent_configuration
-	)
-	summary.update(legacy_summary)
-
 	return {
 		"grain": grain,
 		"from_date": cstr(from_d),
@@ -699,8 +694,6 @@ def get_error_report(
 		"codes": codes,
 		"issues": issues,
 		"summary": summary,
-		"rows": rows,
-		"error_breakdown": error_breakdown,
 	}
 
 
@@ -1089,110 +1082,6 @@ def _error_timeseries(from_d, to_d, origin: str, filters: dict, grain: str) -> d
 			{"error_code": code, "values": [by_code[code][label] for label in labels]}
 			for code in ordered_codes
 		],
-	}
-
-
-def _legacy_error_report(from_d, to_d, origin, group_by, model, error_code, process_model, agent_configuration):
-	"""The rows, error_breakdown and summary keys the current ErrorReport.vue reads; removed in story 4.5."""
-	Run = DocType("AI Agent Run")
-	group_field = Run.agent_configuration if group_by == "agent" else Run.model
-
-	# --- Main rows: group by (model | agent) + bpmn_id ---
-	query = (
-		frappe.qb.from_(Run)
-		.select(
-			group_field.as_("group_key"),
-			Run.bpmn_id,
-			fn.Max(Run.bpmn_label).as_("bpmn_label"),
-			fn.Count("*").as_("total_runs"),
-			fn.Sum(Case().when(Run.status == "Success", 1).else_(0)).as_("successes"),
-			fn.Sum(Case().when(Run.status == "Error", 1).else_(0)).as_("errors"),
-			fn.Sum(Case().when(Run.retry_count > 0, 1).else_(0)).as_("retried"),
-			fn.Sum(
-				Case().when(
-					(Run.retry_count > 0) & (Run.status == "Success"), 1
-				).else_(0)
-			).as_("retry_recovered"),
-			fn.Avg(Run.duration_ms).as_("avg_duration_ms"),
-		)
-		.where(fn.Date(Run.started_at) >= from_d)
-		.where(fn.Date(Run.started_at) <= to_d)
-		.where(Run.status != "Running")
-		.where(_origin_condition(Run, origin))
-		.groupby(group_field, Run.bpmn_id)
-		.orderby(fn.Sum(Case().when(Run.status == "Error", 1).else_(0)), order=frappe.qb.desc)
-	)
-
-	if model:
-		query = query.where(Run.model == model)
-	if error_code:
-		query = query.where(Run.error_code == error_code)
-	if process_model:
-		query = query.where(Run.process_model == process_model)
-	if agent_configuration:
-		query = query.where(Run.agent_configuration == agent_configuration)
-
-	raw_rows = query.run(as_dict=True)
-
-	rows = []
-	for r in raw_rows:
-		total = cint(r.get("total_runs"))
-		errors = cint(r.get("errors"))
-		retried = cint(r.get("retried"))
-		series = cstr(r.get("group_key")) or ("Unattributed" if group_by == "agent" else "")
-		rows.append({
-			"model": series,
-			"bpmn_id": cstr(r.get("bpmn_id")),
-			"bpmn_label": cstr(r.get("bpmn_label")) or cstr(r.get("bpmn_id")),
-			"total_runs": total,
-			"successes": cint(r.get("successes")),
-			"errors": errors,
-			"success_rate": flt((cint(r.get("successes")) / total) * 100, 1) if total else 0.0,
-			"retry_rate": flt((retried / total) * 100, 1) if total else 0.0,
-			"retry_recovered": cint(r.get("retry_recovered")),
-			"avg_duration_ms": cint(r.get("avg_duration_ms")),
-		})
-
-	# --- Error breakdown ---
-	error_query = (
-		frappe.qb.from_(Run)
-		.select(Run.error_code, fn.Count("*").as_("count"))
-		.where(fn.Date(Run.started_at) >= from_d)
-		.where(fn.Date(Run.started_at) <= to_d)
-		.where(Run.status == "Error")
-		.where(Run.error_code.isnotnull())
-		.where(_origin_condition(Run, origin))
-		.groupby(Run.error_code)
-		.orderby(fn.Count("*"), order=frappe.qb.desc)
-	)
-	if model:
-		error_query = error_query.where(Run.model == model)
-	if error_code:
-		error_query = error_query.where(Run.error_code == error_code)
-	if process_model:
-		error_query = error_query.where(Run.process_model == process_model)
-	if agent_configuration:
-		error_query = error_query.where(Run.agent_configuration == agent_configuration)
-
-	error_breakdown = [
-		{"error_code": cstr(r.get("error_code")), "count": cint(r.get("count"))}
-		for r in error_query.run(as_dict=True)
-	]
-
-	# --- Summary ---
-	total_errors = sum(r["errors"] for r in rows)
-	most_common = error_breakdown[0]["error_code"] if error_breakdown else ""
-	worst_element = ""
-	worst_rate = 100.0
-	for r in rows:
-		if r["total_runs"] >= 1 and r["success_rate"] < worst_rate:
-			worst_rate = r["success_rate"]
-			worst_element = r["bpmn_label"] or r["bpmn_id"]
-
-	return rows, error_breakdown, {
-		"total_errors": total_errors,
-		"most_common_error": most_common,
-		"worst_element": worst_element,
 	}
 
 
