@@ -772,6 +772,9 @@ function restoredItems(history, isNewestPage) {
 			if (m.content) out.push({ kind: "system", text: m.content, ts: m.timestamp });
 			return;
 		}
+		for (const note of m.notes || []) {
+			out.push({ kind: "narration", text: note, ts: m.timestamp });
+		}
 		if (m.content) {
 			out.push({ kind: "agent", text: m.content, message: m.message || "", ts: m.timestamp });
 		}

@@ -91,10 +91,77 @@ def conversation_history(conversation: str, limit: int = 30, before: str = None)
 		frappe.throw(_("Authentication required"))
 
 	messages = load_history(conversation, limit=min(cint(limit) or 30, 100), before=before)
+	notes = _working_notes(conversation, messages)
 	for message in messages:
 		metadata = message.pop("metadata", None) or {}
 		message["events"] = _replayed_events(metadata) if message["role"] == "assistant" else []
+		message["notes"] = notes.get(message["message"], [])
 	return messages
+
+
+def _working_notes(conversation: str, messages: list) -> dict:
+	"""What the agent said before each tool call, keyed by the reply it led to.
+
+	load_history has checked the conversation is the caller's, so runs are read without a permission filter.
+	"""
+	from frappe.utils import get_datetime
+
+	windows = []
+	for i, message in enumerate(messages):
+		if message["role"] != "assistant":
+			continue
+		start = messages[i - 1]["timestamp"] if i else _time_before(conversation, message["timestamp"])
+		if start:
+			windows.append((message["message"], get_datetime(start), get_datetime(message["timestamp"])))
+	instances = frappe.get_all(
+		"BPMN Process Instance",
+		filters={"context_doctype": "Chat Conversation", "context_docname": conversation},
+		pluck="name",
+	)
+	if not windows or not instances:
+		return {}
+
+	runs = frappe.get_all(
+		"AI Agent Run",
+		filters={
+			"instance": ["in", instances],
+			"parent_run": ["is", "not set"],
+			"creation": ["between", [windows[0][1], windows[-1][2]]],
+		},
+		fields=["name", "creation"],
+		order_by="creation asc",
+	)
+	if not runs:
+		return {}
+	steps_by_run = {}
+	for step in frappe.get_all(
+		"AI Agent Step",
+		filters={"run": ["in", [run.name for run in runs]], "role": "tool"},
+		fields=["run", "content"],
+		order_by="step_index asc",
+	):
+		if (step.content or "").strip():
+			steps_by_run.setdefault(step.run, []).append(step.content)
+
+	notes = {}
+	for message_name, start, end in windows:
+		turn_runs = [run.name for run in runs if start < run.creation <= end]
+		said = [content for run_name in turn_runs for content in steps_by_run.get(run_name, [])]
+		if said:
+			notes[message_name] = said
+	return notes
+
+
+def _time_before(conversation: str, timestamp) -> str | None:
+	"""When the message before *timestamp* was written, for a reply that opens its history page."""
+	previous = frappe.get_all(
+		"Chat Message",
+		filters={"conversation": conversation, "message_type": ["in", ["User", "Bot"]], "creation": ["<", timestamp]},
+		fields=["creation"],
+		order_by="creation desc",
+		limit=1,
+	)
+	return str(previous[0].creation) if previous else None
 
 
 def _replayed_events(metadata: dict) -> list:

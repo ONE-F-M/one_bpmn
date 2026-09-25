@@ -1697,6 +1697,8 @@ onMounted(async () => {
 						{ name: "emailSubject",         isAttr: true, type: "String" },
 						{ name: "emailTo",              isAttr: true, type: "String" },
 						{ name: "emailToDocFields",     isAttr: true, type: "String" },
+						{ name: "emailToTableField",    isAttr: true, type: "String" },
+						{ name: "emailToTableUserField", isAttr: true, type: "String" },
 						{ name: "emailToRoles",         isAttr: true, type: "String" },
 						{ name: "emailCc",              isAttr: true, type: "String" },
 						{ name: "emailBcc",             isAttr: true, type: "String" },

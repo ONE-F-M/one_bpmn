@@ -7,6 +7,7 @@ import {
 	fmtCompact,
 	fmtInt,
 	fmtPct,
+	fmtDateRange,
 	fmtDelta,
 	fmtDuration,
 } from "./formatters.js"
@@ -129,4 +130,14 @@ test("fmtDuration: rounds up to a second", () => {
 
 test("fmtCompact: rounds up to a thousand", () => {
 	assert.equal(fmtCompact(999.6), "1K")
+})
+
+test("fmtDelta: a head count has no decimals or percent sign", () => {
+	assert.equal(fmtDelta(4, "count"), "+4")
+	assert.equal(fmtDelta(-2, "count"), "-2")
+})
+
+test("fmtDateRange: the month repeats only when it changes", () => {
+	assert.equal(fmtDateRange("2026-09-01", "2026-09-21"), "Sep 1 - 21")
+	assert.equal(fmtDateRange("2026-09-28", "2026-10-04"), "Sep 28 - Oct 4")
 })
