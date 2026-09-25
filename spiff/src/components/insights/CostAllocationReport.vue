@@ -77,8 +77,11 @@
 						:series="series"
 						:colors="colors"
 						:group-label="groupLabel"
+						:is-phone="isMobile"
 					/>
+					<!-- The donut repeats the table's share column; at phone width the list alone carries it. -->
 					<CostAllocationDonut
+						v-if="!isMobile"
 						:slices="donutSlices"
 						:colors="colors"
 						:title="donutTitle"
