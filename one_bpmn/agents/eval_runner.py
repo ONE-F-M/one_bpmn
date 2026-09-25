@@ -27,7 +27,7 @@ from typing import Any, List
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, now_datetime
+from frappe.utils import add_to_date, cint, flt, now_datetime
 
 from one_bpmn.agents.executor import (
     ErrorCode,
@@ -51,6 +51,10 @@ from one_bpmn.agents.pricing import get_model_pricing
 # bpmn_id markers for the eval LLM calls recorded as AI Agent Runs (origin="eval").
 EVAL_RUN_DIRECT = "direct-eval"
 EVAL_RUN_JUDGE = "eval-judge"
+# input_context keys a chat case uses to seed its conversation's earlier turns.
+SEED_MESSAGES_KEY = "conversation_messages"
+SEED_STATE_KEY = "session_state"
+SEED_MESSAGE_TYPES = ("User", "Bot", "Tool")
 
 # live       calls the model.
 # replay     re-scores each case's last stored answer — and still makes a judge
@@ -1572,11 +1576,12 @@ def _run_agent_eval(cfg, case, eval_run: str = None) -> tuple:
 
 
 def _run_chat_agent_eval(cfg, case, eval_run: str | None = None) -> tuple:
-    """The chat-shaped Agent eval: hand the turn to ``invoke_agent``.
-
-    Usage comes from the runs tagged with this case and eval run since the attempt started.
-    """
+    """The chat-shaped Agent eval: hand the turn to ``invoke_agent`` on a fresh conversation.
+    ``input_context`` may seed earlier turns through ``conversation_messages`` and
+    ``session_state``; usage comes from the runs tagged with this case and eval run."""
+    from one_bpmn.agents.memory import session_state
     from one_bpmn.api.agent_invocation import invoke_agent
+    from one_bpmn.utils.chat_persistence import close_conversation, create_agent_conversation
 
     if not cfg.agent_id:
         raise ValueError(f"Agent configuration '{cfg.name}' has no agent_id.")
@@ -1587,9 +1592,23 @@ def _run_chat_agent_eval(cfg, case, eval_run: str | None = None) -> tuple:
             context = frappe.parse_json(case.input_context) or {}
         except Exception:
             context = {}
+    seed_messages = context.pop(SEED_MESSAGES_KEY, None) or []
+    seed_state = context.pop(SEED_STATE_KEY, None) or {}
+
+    # No commit: the eval job commits when its case ends, and a test's rollback must reach this row.
+    conversation = create_agent_conversation(
+        cfg.agent_id, title=(case.title or _("Eval case"))[:140], user=frappe.session.user, commit=False
+    )
 
     started = now_datetime()
-    reply = invoke_agent(cfg.agent_id, case.input_user_prompt or "", context=context)
+    try:
+        _seed_conversation(conversation, seed_messages, seed_state)
+        reply = invoke_agent(
+            cfg.agent_id, case.input_user_prompt or "", conversation=conversation, context=context
+        )
+    finally:
+        close_conversation(conversation)
+        session_state.clear_state(conversation)
 
     output = (reply or {}).get("response") or ""
 
@@ -1623,6 +1642,37 @@ def _run_chat_agent_eval(cfg, case, eval_run: str | None = None) -> tuple:
     return output, usage
 
 
+def _seed_conversation(conversation: str, messages: list, state: dict) -> None:
+    """Write earlier turns and session state into an eval conversation, oldest first."""
+    from one_bpmn.agents.memory import session_state
+
+    start = add_to_date(now_datetime(), seconds=-len(messages) - 1)
+    for index, message in enumerate(messages):
+        message_type = message.get("message_type")
+        if message_type not in SEED_MESSAGE_TYPES:
+            raise ValueError(
+                f"Seeded message {index + 1} has message_type {message_type!r}; "
+                f"use one of {', '.join(SEED_MESSAGE_TYPES)}."
+            )
+        metadata = message.get("metadata")
+        doc = frappe.get_doc(
+            {
+                "doctype": "Chat Message",
+                "conversation": conversation,
+                "message_type": message_type,
+                "text": message.get("text") or "",
+                "metadata": json.dumps(metadata) if isinstance(metadata, (dict, list)) else metadata,
+                "sender": frappe.session.user if message_type == "User" else "Administrator",
+            }
+        )
+        doc.creation = doc.modified = add_to_date(start, seconds=index)
+        doc.owner = doc.modified_by = frappe.session.user
+        # db_insert: seeded history is a fixture, not a message sent through the chat's guards.
+        doc.db_insert()
+    if state:
+        session_state.set_state(conversation, state, commit=False)
+
+
 def _run_direct_eval(cfg, case) -> tuple:
     """Direct (simple) eval: a plain LLM call with the agent's provider/model/
     system prompt. Records a standalone eval-origin AI Agent Run so the call
@@ -1650,6 +1700,8 @@ def _run_direct_eval(cfg, case) -> tuple:
         model=model,
         system_prompt=cfg.system_prompt or "",
         user_prompt=case.input_user_prompt or "",
+        # Pinned to 0.7 on purpose, not DEFAULT_TEMPERATURE.
+        temperature=0.7,
     )
     result = get_executor("direct_api")().run(config, ExecutorContext())
     if result.error_code != ErrorCode.SUCCESS:
@@ -2052,6 +2104,8 @@ def _evaluate_llm_judge(assertion, output: Any) -> dict:
         system_prompt="",
         user_prompt=judge_prompt,
         response_format="json",
+        # Pinned to 0.7 on purpose, not DEFAULT_TEMPERATURE.
+        temperature=0.7,
     )
     judge_context = ExecutorContext()
 

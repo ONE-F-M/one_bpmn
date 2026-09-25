@@ -69,7 +69,7 @@
 				</div>
 				<div class="bg-gray-50 rounded-lg p-4">
 					<div class="text-xs text-gray-500 uppercase tracking-wide mb-1">Retry Recovery</div>
-					<div class="text-lg font-bold text-gray-900">{{ (summary.retry_recovery_rate ?? 0).toFixed(1) }}%</div>
+					<div class="text-lg font-bold text-gray-900">{{ fmtPct(summary.retry_recovery_rate) }}</div>
 				</div>
 			</div>
 
@@ -111,11 +111,11 @@
 								{{ fmtNum(row.errors) }}
 							</td>
 							<td class="py-3 px-3 text-sm text-right font-medium" :class="rateColor(row.success_rate)">
-								{{ row.success_rate.toFixed(1) }}%
+								{{ fmtPct(row.success_rate) }}
 							</td>
-							<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ row.retry_rate.toFixed(1) }}%</td>
+							<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtPct(row.retry_rate) }}</td>
 							<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.retry_recovered) }}</td>
-							<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtNum(row.avg_duration_ms) }}ms</td>
+							<td class="py-3 px-3 text-sm text-gray-600 text-right">{{ fmtDuration(row.avg_duration_ms) }}</td>
 						</tr>
 					</tbody>
 				</table>
@@ -128,6 +128,7 @@
 import { ref, computed, watch, onMounted } from "vue"
 import { frappeRequest, FormControl, Badge } from "frappe-ui"
 import { Icon } from "@iconify/vue"
+import { fmtInt as fmtNum, fmtDuration, fmtPct } from "@/utils/formatters"
 
 const props = defineProps({
 	fromDate: String,
@@ -145,9 +146,6 @@ const groupBy = ref("model") // "model" | "agent" (WI-001608)
 // Cache model options from the initial (unfiltered) load
 const cachedModels = ref([])
 const cachedProcesses = ref([])
-
-const numFormatter = new Intl.NumberFormat("en-US")
-function fmtNum(val) { return numFormatter.format(val ?? 0) }
 
 function rateColor(rate) {
 	if (rate >= 95) return "text-green-600"

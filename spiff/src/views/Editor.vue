@@ -239,8 +239,8 @@
 						</div>
 					</div>
 
-					<!-- Actions menu (last — primary actions, only for executable processes) -->
-					<template v-if="isExecutable">
+					<!-- Actions menu (last - primary actions; a non-executable map gets only Release Property Panel) -->
+					<template v-if="isExecutable || isProductionInstance">
 						<div class="relative">
 							<button
 								@click="showActionsMenu = !showActionsMenu"
@@ -260,7 +260,7 @@
 							>
 								<!-- Deploy (only when the model is not yet Active) -->
 								<button
-									v-if="!isActiveModel"
+									v-if="isExecutable && !isActiveModel"
 									@click="deployModel(); showActionsMenu = false"
 									class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
 									:disabled="!activeDiagramName || deploying || !!activeVersionName"
@@ -271,7 +271,7 @@
 								</button>
 								<!-- Disable (only when the model is Active) -->
 								<button
-									v-if="isActiveModel"
+									v-if="isExecutable && isActiveModel"
 									@click="disableModel(); showActionsMenu = false"
 									class="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
 									:disabled="!activeDiagramName || disabling"
@@ -281,7 +281,7 @@
 									{{ disabling ? 'Disabling…' : 'Disable' }}
 								</button>
 								<!-- Production review (only on a BA instance) -->
-								<template v-if="isBaInstance">
+								<template v-if="isExecutable && isBaInstance">
 									<div class="border-t border-gray-100 my-1"></div>
 									<button
 										@click="openReview('doctypes'); showActionsMenu = false"
@@ -304,7 +304,10 @@
 								</template>
 								<!-- Release Property Panel (only on a Production instance) -->
 								<template v-if="isProductionInstance">
-									<div class="border-t border-gray-100 my-1"></div>
+									<div
+										v-if="isExecutable"
+										class="border-t border-gray-100 my-1"
+									></div>
 									<button
 										@click="toggleReassignMode(); showActionsMenu = false"
 										class="w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors"
@@ -337,9 +340,9 @@
 						v-click-outside="() => showMobileMoreMenu = false"
 						class="absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1"
 					>
-						<template v-if="isExecutable">
+						<template v-if="isExecutable || isProductionInstance">
 							<button
-								v-if="isActiveModel"
+								v-if="isExecutable && isActiveModel"
 								@click="disableModel(); showMobileMoreMenu = false"
 								class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
 								:disabled="!activeDiagramName || disabling"
@@ -349,7 +352,7 @@
 								{{ disabling ? 'Disabling…' : 'Disable' }}
 							</button>
 							<button
-								v-else
+								v-else-if="isExecutable"
 								@click="deployModel(); showMobileMoreMenu = false"
 								class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
 								:disabled="!activeDiagramName || deploying || !!activeVersionName"
@@ -358,7 +361,7 @@
 								<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-4 h-4" />
 								{{ deploying ? 'Deploying…' : 'Deploy' }}
 							</button>
-							<template v-if="isBaInstance">
+							<template v-if="isExecutable && isBaInstance">
 								<button
 									@click="openReview('doctypes'); showMobileMoreMenu = false"
 									class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
@@ -785,22 +788,53 @@
 			</template>
 		</Dialog>
 
-		<!-- Logix Canvas (AI Script Editor) -->
-		<Dialog v-model="showLogixCanvas" :options="{ title: 'Logix AI Assistant', size: '7xl' }">
-			<template #body-content>
-				<LogixCanvas
-					:element="logixElement"
-					:script-type="logixScriptType"
-					:current-script="logixCurrentScript"
-					:event-bus="logixEventBus"
-					:process-context="logixProcessContext"
-					:readonly="logixReadonly"
-					@close="showLogixCanvas = false"
-					@script-saved="onLogixScriptSaved"
-					@back="onLogixBack"
-				/>
-			</template>
-		</Dialog>
+		<!-- Logix Canvas (AI Script Editor): only the X hides it, and it stays mounted so reopening keeps the chat and draft -->
+		<Teleport to="body">
+			<div
+				v-if="logixElement"
+				v-show="showLogixCanvas"
+				class="dialog-overlay fixed inset-0 overflow-y-auto bg-black-overlay-200 backdrop-blur-[12px]"
+			>
+				<div class="flex min-h-screen items-start justify-center px-4 py-4">
+					<div
+						class="logix-window my-8 overflow-hidden rounded-xl bg-surface-modal text-left shadow-xl"
+						role="dialog"
+						aria-modal="true"
+						aria-label="Logix AI Assistant"
+					>
+						<div class="mb-6 flex items-center justify-between px-4 pt-5 sm:px-6">
+							<h3 class="text-2xl font-semibold leading-6 text-ink-gray-9">Logix AI Assistant</h3>
+							<Button
+								variant="ghost"
+								title="Close"
+								@click="showLogixCanvas = false"
+							>
+								<template #icon>
+									<Icon
+										icon="lucide:x"
+										class="h-4 w-4 text-ink-gray-9"
+									/>
+								</template>
+							</Button>
+						</div>
+						<div class="px-4 pb-6 sm:px-6">
+							<LogixCanvas
+								:key="`${logixElement.id}:${logixScriptType}`"
+								:element="logixElement"
+								:script-type="logixScriptType"
+								:current-script="logixCurrentScript"
+								:event-bus="logixEventBus"
+								:process-context="logixProcessContext"
+								:readonly="logixReadonly"
+								@close="showLogixCanvas = false"
+								@script-saved="onLogixScriptSaved"
+								@back="onLogixBack"
+							/>
+						</div>
+					</div>
+				</div>
+			</div>
+		</Teleport>
 
 		<!-- DMN Editor Dialog (Business Rule Task) — autosaves on every change -->
 		<Dialog v-model="showDmnEditorDialog" :options="{ title: dmnEditorTitle, size: '7xl' }">
@@ -1370,6 +1404,7 @@ async function finalizeReassignments() {
 	touchedReassignModels.clear();
 
 	let deployFailed = false;
+	let redeployed = false;
 	for (const modelName of models) {
 		try {
 			const res = await frappeRequest({
@@ -1377,7 +1412,8 @@ async function finalizeReassignments() {
 				method: "POST",
 				params: { model_name: modelName },
 			});
-			if (!res || res.redeployed === false) deployFailed = true;
+			if (!res || res.deploy_error) deployFailed = true;
+			else if (res.redeployed) redeployed = true;
 		} catch (err) {
 			deployFailed = true;
 		}
@@ -1389,6 +1425,12 @@ async function finalizeReassignments() {
 			"Property changes were saved and recorded in the version history, but automatic redeploy failed. Click Deploy to apply them to new instances.",
 			"red",
 			true
+		);
+	} else if (!redeployed) {
+		showNotification(
+			"Changes saved",
+			"All property changes were saved to the map's version history. This map is not executable, so there is nothing to redeploy.",
+			"green"
 		);
 	} else {
 		showNotification(
@@ -2906,6 +2948,13 @@ async function handleImportFile(event) {
 
 		const action = result.action === "updated" ? "updated" : "imported";
 
+		// If the imported map is the one already open, import_bpmn returns the
+		// same name and activeDiagramName won't change below, so
+		// watch(activeDiagramName) never fires and the canvas would keep
+		// showing the stale drawing. Remember this now, before we touch
+		// activeDiagramName, so we can repaint it directly further down.
+		const isReimportOfOpenDiagram = activeDiagramName.value === result.name;
+
 		// Pre-populate cache so the watch(activeDiagramName) handler
 		// gets an instant cache-hit and calls loadXML without a round-trip.
 		diagramDataCache.value[result.name] = xmlContent;
@@ -2936,6 +2985,16 @@ async function handleImportFile(event) {
 			name: "DiagramEditor",
 			params: { process: props.process, diagram: result.name },
 		});
+
+		if (isReimportOfOpenDiagram) {
+			// activeDiagramName did not actually change (same name before and
+			// after), so the watch(activeDiagramName) above never fires and the
+			// canvas is never repainted. Call the load path directly instead —
+			// this is a cache-hit thanks to the pre-populated diagramDataCache
+			// above, so it just calls editorRef.loadXML with the fresh XML. No
+			// page reload (that crashes the Preact properties panel).
+			await loadDiagramContent(result.name);
+		}
 
 		showNotification(
 			"Import Successful",
@@ -3522,10 +3581,9 @@ const totalCommentCount = computed(() => {
 	width: 100% !important;
 }
 
-/* Logix AI Assistant — wider than the standard 7xl cap */
-:deep(.dialog-content:has(.lc-root)) {
-	max-width: min(92vw, 1520px) !important;
-	width: min(92vw, 1520px) !important;
+/* Logix AI Assistant: wider than the standard 7xl cap */
+.logix-window {
+	width: min(92vw, 1520px);
 }
 
 /* DMN Editor Dialog — near-full-screen experience */

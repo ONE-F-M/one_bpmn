@@ -8,14 +8,17 @@ frappe.qb (Query Builder) exclusively — no raw SQL.
 """
 from __future__ import annotations
 
+import base64
+import math
 from collections import defaultdict
+from datetime import timedelta
 from typing import Optional
 
 import frappe
 from frappe import _
 from frappe.query_builder import DocType
 from frappe.query_builder import functions as fn
-from frappe.utils import add_days, cint, cstr, flt, getdate, today
+from frappe.utils import add_days, add_months, cint, cstr, flt, get_last_day, getdate, today
 
 from pypika import CustomFunction
 from pypika.terms import Case
@@ -45,108 +48,374 @@ def _origin_condition(Run, origin: str):
 	return fn.Coalesce(Run.origin, "production") != "eval"
 
 
+def _previous_period(from_d, to_d):
+	"""Same-length window ending the day before *from_d* (see work order)."""
+	length = (to_d - from_d).days
+	previous_to = add_days(from_d, -1)
+	previous_from = add_days(previous_to, -length)
+	return getdate(previous_from), getdate(previous_to)
+
+
+def _grain_for(from_d, to_d) -> str:
+	span = (to_d - from_d).days + 1
+	if span <= 31:
+		return "day"
+	if span <= 120:
+		return "week"
+	return "month"
+
+
+def _bucket_start(d, grain: str):
+	d = getdate(d)
+	if grain == "week":
+		return d - timedelta(days=d.weekday())
+	if grain == "month":
+		return d.replace(day=1)
+	return d
+
+
+def _bucket_labels(from_d, to_d, grain: str) -> list:
+	"""Ordered, de-duplicated bucket-start labels spanning the range."""
+	labels = {}
+	d = from_d
+	while d <= to_d:
+		labels[cstr(_bucket_start(d, grain))] = True
+		d = getdate(add_days(cstr(d), 1))
+	return list(labels)
+
+
+def _apply_common_filters(query, Run, model=None, provider=None, process_model=None, agent_configuration=None):
+	if model:
+		query = query.where(Run.model == model)
+	if provider:
+		query = query.where(Run.provider == provider)
+	if process_model:
+		query = query.where(Run.process_model == process_model)
+	if agent_configuration:
+		query = query.where(Run.agent_configuration == agent_configuration)
+	return query
+
+
+def _usage_totals(
+	from_d,
+	to_d,
+	origin: str = "production",
+	model: str = None,
+	provider: str = None,
+	process_model: str = None,
+	agent_configuration: str = None,
+) -> dict:
+	"""Aggregate usage metrics for one period, per the usage metric definitions."""
+	Run = DocType("AI Agent Run")
+	query = (
+		frappe.qb.from_(Run)
+		.select(
+			fn.Count("*").as_("runs"),
+			fn.Sum(Case().when(Run.status != "Running", 1).else_(0)).as_("decided"),
+			fn.Sum(Case().when(Run.status == "Success", 1).else_(0)).as_("successes"),
+			fn.Sum(Run.estimated_cost).as_("cost"),
+			fn.Sum(Run.total_tokens).as_("tokens"),
+			fn.Sum(Run.total_prompt_tokens).as_("prompt_tokens"),
+			fn.Sum(Run.total_completion_tokens).as_("completion_tokens"),
+			fn.Sum(Run.total_cache_read_tokens).as_("cache_read_tokens"),
+			fn.Sum(Run.total_cache_write_tokens).as_("cache_write_tokens"),
+		)
+		.where(fn.Date(Run.started_at) >= from_d)
+		.where(fn.Date(Run.started_at) <= to_d)
+		.where(_origin_condition(Run, origin))
+	)
+	query = _apply_common_filters(query, Run, model, provider, process_model, agent_configuration)
+	r = query.run(as_dict=True)[0]
+
+	runs = cint(r.get("runs"))
+	decided = cint(r.get("decided"))
+	successes = cint(r.get("successes"))
+	cost = flt(r.get("cost"), 6)
+	tokens = cint(r.get("tokens"))
+	prompt_tokens = cint(r.get("prompt_tokens"))
+	completion_tokens = cint(r.get("completion_tokens"))
+	cache_read_tokens = cint(r.get("cache_read_tokens"))
+	cache_write_tokens = cint(r.get("cache_write_tokens"))
+
+	success_rate = flt((successes / decided) * 100, 1) if decided else 0.0
+	cache_hit_rate = flt((cache_read_tokens / prompt_tokens) * 100, 1) if prompt_tokens else 0.0
+	input_tokens = prompt_tokens - cache_read_tokens - cache_write_tokens
+
+	return {
+		"runs": runs,
+		"cost": cost,
+		"avg_cost": flt(cost / runs, 6) if runs else 0.0,
+		"tokens": tokens,
+		"input_tokens": input_tokens,
+		"output_tokens": completion_tokens,
+		"cached_tokens": cache_read_tokens,
+		"success_rate": success_rate,
+		"cache_hit_rate": cache_hit_rate,
+	}
+
+
+def _compute_deltas(current: dict, previous: dict) -> dict:
+	"""Percentage change per key, points for the rates; null when the previous
+	period has no runs or the previous value for a non-rate key is 0."""
+	delta = {}
+	no_previous_activity = not previous or cint(previous.get("runs")) == 0
+	for key, cur_val in current.items():
+		if no_previous_activity:
+			delta[key] = None
+			continue
+		prev_val = previous.get(key)
+		if key in ("success_rate", "cache_hit_rate"):
+			delta[key] = flt(cur_val - flt(prev_val), 1)
+			continue
+		if not prev_val:
+			delta[key] = None
+			continue
+		delta[key] = flt(((cur_val - prev_val) / prev_val) * 100, 1)
+	return delta
+
+
+def _daily_metric_rows(
+	from_d,
+	to_d,
+	origin: str = "production",
+	model: str = None,
+	provider: str = None,
+	process_model: str = None,
+	agent_configuration: str = None,
+) -> list:
+	"""One row per day with runs/cost/tokens, grouped by DATE(started_at)."""
+	Run = DocType("AI Agent Run")
+	query = (
+		frappe.qb.from_(Run)
+		.select(
+			fn.Date(Run.started_at).as_("date"),
+			fn.Count("*").as_("runs"),
+			fn.Sum(Case().when(Run.status != "Running", 1).else_(0)).as_("decided"),
+			fn.Sum(Case().when(Run.status == "Success", 1).else_(0)).as_("successes"),
+			fn.Sum(Run.estimated_cost).as_("cost"),
+			fn.Sum(Run.total_tokens).as_("tokens"),
+			fn.Sum(Run.total_prompt_tokens).as_("prompt_tokens"),
+			fn.Sum(Run.total_cache_read_tokens).as_("cache_read_tokens"),
+		)
+		.where(fn.Date(Run.started_at) >= from_d)
+		.where(fn.Date(Run.started_at) <= to_d)
+		.where(_origin_condition(Run, origin))
+		.groupby(fn.Date(Run.started_at))
+	)
+	query = _apply_common_filters(query, Run, model, provider, process_model, agent_configuration)
+	rows = query.run(as_dict=True)
+	return [
+		{
+			"date": cstr(r.get("date")),
+			"runs": cint(r.get("runs")),
+			"decided": cint(r.get("decided")),
+			"successes": cint(r.get("successes")),
+			"cost": flt(r.get("cost"), 6),
+			"tokens": cint(r.get("tokens")),
+			"prompt_tokens": cint(r.get("prompt_tokens")),
+			"cache_read_tokens": cint(r.get("cache_read_tokens")),
+		}
+		for r in rows
+	]
+
+
+def _bucketed_series(from_d, to_d, daily_rows: list, grain: str) -> dict:
+	"""Bucket daily rows into day/week/month buckets; empty buckets are 0."""
+	labels = _bucket_labels(from_d, to_d, grain)
+	sums = defaultdict(lambda: defaultdict(float))
+	for row in daily_rows:
+		bucket = sums[cstr(_bucket_start(row["date"], grain))]
+		for key in ("runs", "decided", "successes", "cost", "tokens", "prompt_tokens", "cache_read_tokens"):
+			bucket[key] += row[key]
+	buckets = [sums[label] for label in labels]
+	return {
+		"labels": labels,
+		"cost": [flt(b["cost"], 6) for b in buckets],
+		"tokens": [cint(b["tokens"]) for b in buckets],
+		"runs": [cint(b["runs"]) for b in buckets],
+		"avg_cost": [flt(b["cost"] / b["runs"], 6) if b["runs"] else 0.0 for b in buckets],
+		"success_rate": [
+			flt(b["successes"] / b["decided"] * 100, 1) if b["decided"] else 0.0 for b in buckets
+		],
+		"cache_hit_rate": [
+			flt(b["cache_read_tokens"] / b["prompt_tokens"] * 100, 1) if b["prompt_tokens"] else 0.0
+			for b in buckets
+		],
+	}
+
+
+def _series_rows(
+	from_d,
+	to_d,
+	origin: str,
+	group_by: str,
+	model: str = None,
+	provider: str = None,
+	process_model: str = None,
+	agent_configuration: str = None,
+) -> list:
+	"""Per-group usage totals for the cost/token report's ``series`` array."""
+	Run = DocType("AI Agent Run")
+	group_fields = [Run.agent_configuration] if group_by == "agent" else [Run.model, Run.provider]
+	query = (
+		frappe.qb.from_(Run)
+		.select(
+			group_fields[0].as_("group_key"),
+			fn.Min(Run.provider).as_("provider_min"),
+			fn.Max(Run.provider).as_("provider_max"),
+			fn.Count("*").as_("runs"),
+			fn.Sum(Run.estimated_cost).as_("cost"),
+			fn.Sum(Run.total_tokens).as_("tokens"),
+			fn.Sum(Run.total_prompt_tokens).as_("prompt_tokens"),
+			fn.Sum(Run.total_completion_tokens).as_("completion_tokens"),
+			fn.Sum(Run.total_cache_read_tokens).as_("cache_read_tokens"),
+			fn.Sum(Run.total_cache_write_tokens).as_("cache_write_tokens"),
+		)
+		.where(fn.Date(Run.started_at) >= from_d)
+		.where(fn.Date(Run.started_at) <= to_d)
+		.where(_origin_condition(Run, origin))
+		.groupby(*group_fields)
+	)
+	query = _apply_common_filters(query, Run, model, provider, process_model, agent_configuration)
+	raw_rows = query.run(as_dict=True)
+
+	unattributed = "Unattributed" if group_by == "agent" else ""
+	series = []
+	for r in raw_rows:
+		name = cstr(r.get("group_key")) or unattributed
+		provider_min = cstr(r.get("provider_min"))
+		# An agent row names its provider only when all its runs share one; Unattributed never does.
+		row_provider = provider_min if provider_min == cstr(r.get("provider_max")) else ""
+		if group_by == "agent" and not r.get("group_key"):
+			row_provider = ""
+		prompt_tokens = cint(r.get("prompt_tokens"))
+		cache_read_tokens = cint(r.get("cache_read_tokens"))
+		cache_write_tokens = cint(r.get("cache_write_tokens"))
+		runs = cint(r.get("runs"))
+		cost = flt(r.get("cost"), 6)
+		series.append({
+			"name": name,
+			"provider": row_provider or None,
+			"runs": runs,
+			"cost": cost,
+			"avg_cost": flt(cost / runs, 6) if runs else 0.0,
+			"tokens": cint(r.get("tokens")),
+			"input_tokens": prompt_tokens - cache_read_tokens - cache_write_tokens,
+			"output_tokens": cint(r.get("completion_tokens")),
+			"cached_tokens": cache_read_tokens,
+			"cache_hit_rate": flt(cache_read_tokens / prompt_tokens * 100, 1) if prompt_tokens else 0.0,
+		})
+	return series
+
+
+def _filter_options(from_d, to_d, origin: str) -> dict:
+	"""Distinct filter values in the range, filtered by range and origin only.
+	The other filters are not applied, so a narrowed query still lists every value."""
+	Run = DocType("AI Agent Run")
+
+	def _distinct(field):
+		query = (
+			frappe.qb.from_(Run)
+			.select(field.as_("value"))
+			.distinct()
+			.where(fn.Date(Run.started_at) >= from_d)
+			.where(fn.Date(Run.started_at) <= to_d)
+			.where(_origin_condition(Run, origin))
+			.where(field.isnotnull())
+			.where(field != "")
+		)
+		return sorted({cstr(r.get("value")) for r in query.run(as_dict=True)})
+
+	return {
+		"models": _distinct(Run.model),
+		"providers": _distinct(Run.provider),
+		"agents": _distinct(Run.agent_configuration),
+		"processes": _distinct(Run.process_model),
+	}
+
+
 # ---------------------------------------------------------------------------
 # 1. Overview cards
 # ---------------------------------------------------------------------------
 
 @frappe.whitelist()
-def get_agent_overview(days: int = 7, agent_configuration: str = None, origin: str = "production") -> dict:
-	"""Return 6 headline metrics for the overview number cards.
-
-	Pass *agent_configuration* to scope every metric to one agent's runs
-	(WI-001636). Deeper per-agent filtering across the other reports ships
-	with the observability feature story (WI-001608). *origin* segments the
-	metrics: "production" (default), "eval", or "all" (WI-001751).
-	"""
+def get_agent_overview(
+	days: int = None,
+	from_date: str = None,
+	to_date: str = None,
+	agent_configuration: str = None,
+	model: str = None,
+	provider: str = None,
+	process_model: str = None,
+	origin: str = "production",
+) -> dict:
+	"""Return the overview number cards for the from_date/to_date range and filters.
+	runs_today and active_errors always cover today only. The days parameter is ignored."""
 	frappe.only_for("System Manager")
-	days = cint(days) or 7
+	if days is not None:
+		frappe.logger("one_bpmn").warning(
+			"get_agent_overview: 'days' parameter is deprecated and ignored; use from_date/to_date instead."
+		)
+
+	from_d, to_d = _default_dates(from_date, to_date)
+	previous_from, previous_to = _previous_period(from_d, to_d)
+	grain = _grain_for(from_d, to_d)
 
 	Run = DocType("AI Agent Run")
 	today_date = getdate(today())
-	range_start = getdate(add_days(today(), -(days - 1)))
 
-	# Runs today
-	runs_today = cint(
-		frappe.qb.from_(Run)
-		.select(fn.Count("*"))
-		.where(fn.Date(Run.started_at) == today_date)
-		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
-		.where(_origin_condition(Run, origin))
-		.run()[0][0]
-	)
-
-	# Success rate over period
-	period_stats = (
-		frappe.qb.from_(Run)
-		.select(
-			fn.Count("*").as_("total"),
-			fn.Sum(Case().when(Run.status == "Success", 1).else_(0)).as_("successes"),
+	def _today_filter(status_value=None):
+		query = (
+			frappe.qb.from_(Run)
+			.select(fn.Count("*"))
+			.where(fn.Date(Run.started_at) == today_date)
+			.where(_origin_condition(Run, origin))
 		)
-		.where(fn.Date(Run.started_at) >= range_start)
-		.where(fn.Date(Run.started_at) <= today_date)
-		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
-		.where(_origin_condition(Run, origin))
-		.where(Run.status != "Running")
-		.run(as_dict=True)
-	)[0]
+		query = _apply_common_filters(query, Run, model, provider, process_model, agent_configuration)
+		if status_value:
+			query = query.where(Run.status == status_value)
+		return cint(query.run()[0][0])
 
-	total = cint(period_stats.get("total"))
-	successes = cint(period_stats.get("successes"))
-	success_rate = flt((successes / total) * 100, 1) if total else 0.0
+	runs_today = _today_filter()
+	active_errors = _today_filter("Error")
 
-	# Total cost
-	total_cost = flt(
-		frappe.qb.from_(Run)
-		.select(fn.Sum(Run.estimated_cost))
-		.where(fn.Date(Run.started_at) >= range_start)
-		.where(fn.Date(Run.started_at) <= today_date)
-		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
-		.where(_origin_condition(Run, origin))
-		.run()[0][0],
-		4,
-	)
+	current = _usage_totals(from_d, to_d, origin, model, provider, process_model, agent_configuration)
+	previous = _usage_totals(previous_from, previous_to, origin, model, provider, process_model, agent_configuration)
+	delta = _compute_deltas(current, previous)
 
-	# Active errors today
-	active_errors = cint(
-		frappe.qb.from_(Run)
-		.select(fn.Count("*"))
-		.where(fn.Date(Run.started_at) == today_date)
-		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
-		.where(_origin_condition(Run, origin))
-		.where(Run.status == "Error")
-		.run()[0][0]
-	)
-
-	# Avg latency (successful runs)
-	avg_latency = cint(
+	# Avg latency of successful runs over the range; legacy key, not part of _usage_totals.
+	avg_latency_query = (
 		frappe.qb.from_(Run)
 		.select(fn.Avg(Run.duration_ms))
-		.where(fn.Date(Run.started_at) >= range_start)
-		.where(fn.Date(Run.started_at) <= today_date)
-		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
+		.where(fn.Date(Run.started_at) >= from_d)
+		.where(fn.Date(Run.started_at) <= to_d)
 		.where(_origin_condition(Run, origin))
 		.where(Run.status == "Success")
-		.run()[0][0]
 	)
+	avg_latency_query = _apply_common_filters(avg_latency_query, Run, model, provider, process_model, agent_configuration)
+	avg_latency = cint(avg_latency_query.run()[0][0])
 
-	# Total tokens
-	total_tokens = cint(
-		frappe.qb.from_(Run)
-		.select(fn.Sum(Run.total_tokens))
-		.where(fn.Date(Run.started_at) >= range_start)
-		.where(fn.Date(Run.started_at) <= today_date)
-		.where(Run.agent_configuration == agent_configuration if agent_configuration else Run.name.notnull())
-		.where(_origin_condition(Run, origin))
-		.run()[0][0]
-	)
+	daily_rows = _daily_metric_rows(from_d, to_d, origin, model, provider, process_model, agent_configuration)
+	sparklines = _bucketed_series(from_d, to_d, daily_rows, grain)
 
 	return {
+		# Legacy keys, unchanged shape:
 		"runs_today": runs_today,
-		"success_rate": success_rate,
-		"total_cost": total_cost,
+		"success_rate": current["success_rate"],
+		"total_cost": current["cost"],
 		"active_errors": active_errors,
 		"avg_latency_ms": avg_latency,
-		"total_tokens": total_tokens,
+		"total_tokens": current["tokens"],
+		# New range/comparison data:
+		"from_date": cstr(from_d),
+		"to_date": cstr(to_d),
+		"previous_from": cstr(previous_from),
+		"previous_to": cstr(previous_to),
+		"grain": grain,
+		"current": current,
+		"previous": previous,
+		"delta": delta,
+		"sparklines": sparklines,
 	}
 
 
@@ -172,10 +441,12 @@ def get_cost_token_report(
 	frappe.only_for("System Manager")
 	group_by = group_by if group_by in ("model", "agent") else "model"
 	from_d, to_d = _default_dates(from_date, to_date)
+	previous_from, previous_to = _previous_period(from_d, to_d)
+	grain = _grain_for(from_d, to_d)
 
 	Run = DocType("AI Agent Run")
 
-	# The series dimension: model (classic) or the run's agent (WI-001608).
+	# The series dimension: model (classic) or the run's agent.
 	group_field = Run.agent_configuration if group_by == "agent" else Run.model
 
 	query = (
@@ -203,15 +474,7 @@ def get_cost_token_report(
 		.orderby(fn.Date(Run.started_at))
 	)
 	query = query.groupby(fn.Date(Run.started_at), group_field, Run.provider)
-
-	if model:
-		query = query.where(Run.model == model)
-	if provider:
-		query = query.where(Run.provider == provider)
-	if process_model:
-		query = query.where(Run.process_model == process_model)
-	if agent_configuration:
-		query = query.where(Run.agent_configuration == agent_configuration)
+	query = _apply_common_filters(query, Run, model, provider, process_model, agent_configuration)
 
 	raw_rows = query.run(as_dict=True)
 
@@ -236,17 +499,16 @@ def get_cost_token_report(
 			"output_cost": flt(r.get("output_cost"), 6),
 		})
 
-	# Build chart_data — pivot by the grouped dimension per day
-	all_dates = []
-	d = from_d
-	while d <= to_d:
-		all_dates.append(cstr(d))
-		d = getdate(add_days(cstr(d), 1))
+	# Pivot chart_data by the grouped dimension per day, week or month bucket.
+	bucket_labels = _bucket_labels(from_d, to_d, grain)
 
-	series_day_cost = defaultdict(lambda: defaultdict(float))
+	series_bucket_cost = defaultdict(lambda: defaultdict(float))
+	series_bucket_tokens = defaultdict(lambda: defaultdict(int))
 	series_seen = set()
 	for r in rows:
-		series_day_cost[r["series"]][r["date"]] += r["total_cost"]
+		bucket = cstr(_bucket_start(r["date"], grain))
+		series_bucket_cost[r["series"]][bucket] += r["total_cost"]
+		series_bucket_tokens[r["series"]][bucket] += r["total_tokens"]
 		series_seen.add(r["series"])
 
 	datasets = []
@@ -254,18 +516,39 @@ def get_cost_token_report(
 		datasets.append({
 			"model": m,  # legacy key the chart legend binds to
 			"label": m,
-			"values": [flt(series_day_cost[m].get(d, 0), 6) for d in all_dates],
+			"values": [flt(series_bucket_cost[m].get(b, 0), 6) for b in bucket_labels],
+			"tokens": [cint(series_bucket_tokens[m].get(b, 0)) for b in bucket_labels],
 		})
 
-	# Summary
+	# Summary keeps the legacy shape.
 	summary_cost = sum(r["total_cost"] for r in rows)
 	summary_runs = sum(r["total_runs"] for r in rows)
 	summary_tokens = sum(r["total_tokens"] for r in rows)
 
+	current = _usage_totals(from_d, to_d, origin, model, provider, process_model, agent_configuration)
+	previous = _usage_totals(previous_from, previous_to, origin, model, provider, process_model, agent_configuration)
+	delta = _compute_deltas(current, previous)
+	series = _series_rows(from_d, to_d, origin, group_by, model, provider, process_model, agent_configuration)
+	previous_cost = {
+		(r["name"], r["provider"]): r["cost"]
+		for r in _series_rows(
+			previous_from, previous_to, origin, group_by, model, provider, process_model, agent_configuration
+		)
+	}
+	for r in series:
+		r["share"] = flt(r["cost"] / current["cost"] * 100, 1) if current["cost"] else 0.0
+		r["previous_cost"] = previous_cost.get((r["name"], r["provider"]), 0.0)
+		r["delta"] = (
+			flt((r["cost"] - r["previous_cost"]) / r["previous_cost"] * 100, 1)
+			if r["previous_cost"]
+			else None
+		)
+	filter_options = _filter_options(from_d, to_d, origin)
+
 	return {
 		"rows": rows,
 		"chart_data": {
-			"labels": all_dates,
+			"labels": bucket_labels,
 			"datasets": datasets,
 		},
 		"summary": {
@@ -273,12 +556,99 @@ def get_cost_token_report(
 			"total_runs": summary_runs,
 			"total_tokens": summary_tokens,
 		},
+		"from_date": cstr(from_d),
+		"to_date": cstr(to_d),
+		"previous_from": cstr(previous_from),
+		"previous_to": cstr(previous_to),
+		"grain": grain,
+		"current": current,
+		"previous": previous,
+		"delta": delta,
+		"total": {
+			"cost": current["cost"],
+			"runs": current["runs"],
+			"tokens": current["tokens"],
+			"input_tokens": current["input_tokens"],
+			"output_tokens": current["output_tokens"],
+			"cached_tokens": current["cached_tokens"],
+			"cache_hit_rate": current["cache_hit_rate"],
+			"avg_cost": current["avg_cost"],
+		},
+		"series": series,
+		"filter_options": filter_options,
 	}
+
+
+@frappe.whitelist()
+def export_cost_token_report(
+	from_date: str = None,
+	to_date: str = None,
+	model: str = None,
+	provider: str = None,
+	process_model: str = None,
+	agent_configuration: str = None,
+	origin: str = "production",
+	group_by: str = "model",
+	fmt: str = "csv",
+):
+	"""Download the cost/token report's daily rows as CSV or XLSX. Returns a
+	file response, so the client navigates to this endpoint rather than
+	fetching it."""
+	frappe.only_for("System Manager")
+	if fmt not in ("csv", "xlsx"):
+		frappe.throw(_("fmt must be 'csv' or 'xlsx'"))
+
+	report = get_cost_token_report(
+		from_date=from_date,
+		to_date=to_date,
+		model=model,
+		provider=provider,
+		process_model=process_model,
+		agent_configuration=agent_configuration,
+		origin=origin,
+		group_by=group_by,
+	)
+
+	header = [
+		_("Date"), _("Series"), _("Provider"), _("Runs"), _("Total Tokens"),
+		_("Avg Tokens"), _("Total Cost"), _("Avg Cost"), _("Input Cost"), _("Output Cost"),
+	]
+	data = [header]
+	for r in report["rows"]:
+		data.append([
+			r["date"], r["series"], r["provider"], r["total_runs"], r["total_tokens"],
+			r["avg_tokens"], r["total_cost"], r["avg_cost"], r["input_cost"], r["output_cost"],
+		])
+
+	stem = f"usage-{group_by}-{report['from_date']}-to-{report['to_date']}"
+	if fmt == "xlsx":
+		from frappe.utils.xlsxutils import make_xlsx
+
+		content = make_xlsx(data, "Usage").getvalue()
+		filename = f"{stem}.xlsx"
+	else:
+		import csv
+		import io
+
+		buf = io.StringIO()
+		csv.writer(buf).writerows(data)
+		content = buf.getvalue().encode("utf-8-sig")  # BOM so Excel reads UTF-8
+		filename = f"{stem}.csv"
+
+	frappe.response["type"] = "binary"
+	frappe.response["filename"] = filename
+	frappe.response["filecontent"] = content
 
 
 # ---------------------------------------------------------------------------
 # 3. Error report
 # ---------------------------------------------------------------------------
+
+COUNTED_EXCLUDED_STATUSES = ("Running", "Suspended")
+ISSUE_KEY_PARTS = 4
+ISSUE_RUNS_MAX_LIMIT = 50
+MESSAGE_CHARS = 200
+
 
 @frappe.whitelist()
 def get_error_report(
@@ -290,13 +660,432 @@ def get_error_report(
 	agent_configuration: str = None,
 	origin: str = "production",
 	group_by: str = "model",
+	provider: str | None = None,
 ) -> dict:
-	"""Return error analysis grouped by model + bpmn_id — or by the run's
-	AI Agent Configuration + bpmn_id when ``group_by="agent"`` (WI-001608)."""
+	"""Error rate over time, errors by code, one issue per code and element, and a summary.
+
+	The error_code filter narrows issues only; timeseries, codes and summary always cover every code.
+	"""
 	frappe.only_for("System Manager")
 	group_by = group_by if group_by in ("model", "agent") else "model"
 	from_d, to_d = _default_dates(from_date, to_date)
+	previous_from, previous_to = _previous_period(from_d, to_d)
+	grain = _grain_for(from_d, to_d)
+	filters = {
+		"model": model,
+		"provider": provider,
+		"process_model": process_model,
+		"agent_configuration": agent_configuration,
+	}
 
+	current = _error_period(from_d, to_d, origin, filters, group_by)
+	previous = _error_period(previous_from, previous_to, origin, filters, group_by)
+	codes = _error_codes(current, from_d, origin)
+	issues = _error_issues(current, previous, from_d, to_d, origin, filters, group_by, error_code)
+	summary = _error_summary(current, previous)
+
+	rows, error_breakdown, legacy_summary = _legacy_error_report(
+		from_d, to_d, origin, group_by, model, error_code, process_model, agent_configuration
+	)
+	summary.update(legacy_summary)
+
+	return {
+		"grain": grain,
+		"from_date": cstr(from_d),
+		"to_date": cstr(to_d),
+		"timeseries": _error_timeseries(from_d, to_d, origin, filters, grain),
+		"codes": codes,
+		"issues": issues,
+		"summary": summary,
+		"rows": rows,
+		"error_breakdown": error_breakdown,
+	}
+
+
+@frappe.whitelist()
+def get_issue_runs(
+	key: str,
+	from_date: str | None = None,
+	to_date: str | None = None,
+	origin: str = "production",
+	limit: int = 3,
+	offset: int = 0,
+	group_by: str = "model",
+) -> dict:
+	"""The failed top-level runs of one issue in the range, newest first, paged by limit and offset."""
+	frappe.only_for("System Manager")
+	parts = cstr(key).split("|")
+	if len(parts) != ISSUE_KEY_PARTS:
+		frappe.throw(_("Issue key must be error_code|bpmn_id|process_model|series"))
+	group_by = group_by if group_by in ("model", "agent") else "model"
+	from_d, to_d = _default_dates(from_date, to_date)
+	limit = min(max(cint(limit), 1), ISSUE_RUNS_MAX_LIMIT)
+	offset = max(cint(offset), 0)
+
+	Run = DocType("AI Agent Run")
+	fields = (Run.error_code, Run.bpmn_id, Run.process_model, _series_field(Run, group_by))
+	query = _in_range(frappe.qb.from_(Run), Run, from_d, to_d, origin).where(Run.status == "Error")
+	query = query.where(Run.parent_run.isnull() | (Run.parent_run == ""))
+	for field, value in zip(fields, parts, strict=True):
+		query = query.where(field == value) if value else query.where(field.isnull() | (field == ""))
+
+	total = query.select(fn.Count("*").as_("n")).run(as_dict=True)[0]["n"]
+	runs = (
+		query.select(Run.name, Run.started_at, Run.error_message, Run.retry_count, Run.duration_ms)
+		.orderby(Run.started_at, order=frappe.qb.desc)
+		.limit(limit)
+		.offset(offset)
+		.run(as_dict=True)
+	)
+	return {
+		"total": cint(total),
+		"runs": [
+			{
+				"name": r.name,
+				"started_at": cstr(r.started_at),
+				"error_message": cstr(r.error_message)[:MESSAGE_CHARS],
+				"retry_count": cint(r.retry_count),
+				"duration_ms": cint(r.duration_ms),
+			}
+			for r in runs
+		],
+	}
+
+
+@frappe.whitelist()
+def export_error_report(
+	from_date: str | None = None,
+	to_date: str | None = None,
+	model: str | None = None,
+	error_code: str | None = None,
+	process_model: str | None = None,
+	agent_configuration: str | None = None,
+	origin: str = "production",
+	group_by: str = "model",
+	provider: str | None = None,
+	fmt: str = "csv",
+):
+	"""Download the error report's issues, one row per issue with every column, as CSV or XLSX."""
+	frappe.only_for("System Manager")
+	if fmt not in ("csv", "xlsx"):
+		frappe.throw(_("fmt must be 'csv' or 'xlsx'"))
+
+	report = get_error_report(
+		from_date=from_date,
+		to_date=to_date,
+		model=model,
+		error_code=error_code,
+		process_model=process_model,
+		agent_configuration=agent_configuration,
+		origin=origin,
+		group_by=group_by,
+		provider=provider,
+	)
+	columns = [
+		("error_code", _("Error type")),
+		("bpmn_label", _("Element")),
+		("process_model", _("Process")),
+		("series", _("AI Agent") if group_by == "agent" else _("Model")),
+		("errors", _("Errors")),
+		("runs", _("Runs")),
+		("error_rate", _("Error rate")),
+		("previous_error_rate", _("Previous error rate")),
+		("delta_pt", _("Change (pt)")),
+		("first_seen", _("First seen")),
+		("last_seen", _("Last seen")),
+		("is_new", _("New")),
+		("retried", _("Retried")),
+		("retry_recovered", _("Recovered by retry")),
+		("p95_duration_ms", _("P95 duration (ms)")),
+		("last_message", _("Last message")),
+	]
+	data = [[label for _field, label in columns]]
+	data += [[issue[field] for field, _label in columns] for issue in report["issues"]]
+
+	stem = f"errors-{group_by}-{report['from_date']}-to-{report['to_date']}"
+	if fmt == "xlsx":
+		from frappe.utils.xlsxutils import make_xlsx
+
+		content = make_xlsx(data, "Errors").getvalue()
+		filename = f"{stem}.xlsx"
+	else:
+		import csv
+		import io
+
+		buf = io.StringIO()
+		csv.writer(buf).writerows(data)
+		content = buf.getvalue().encode("utf-8-sig")
+		filename = f"{stem}.csv"
+
+	frappe.response["type"] = "binary"
+	frappe.response["filename"] = filename
+	frappe.response["filecontent"] = content
+
+
+def _series_field(Run, group_by: str):
+	return Run.agent_configuration if group_by == "agent" else Run.model
+
+
+def _in_range(query, Run, from_d, to_d, origin: str):
+	return (
+		query.where(fn.Date(Run.started_at) >= from_d)
+		.where(fn.Date(Run.started_at) <= to_d)
+		.where(_origin_condition(Run, origin))
+	)
+
+
+def _scoped(query, Run, from_d, to_d, origin: str, filters: dict):
+	return _apply_common_filters(_in_range(query, Run, from_d, to_d, origin), Run, **filters)
+
+
+def _rate(part, whole) -> float:
+	return flt(part / whole * 100, 1) if whole else 0.0
+
+
+def _issue_key(error_code, bpmn_id, process_model, series) -> str:
+	return "|".join(cstr(v) for v in (error_code, bpmn_id, process_model, series))
+
+
+def _error_period(from_d, to_d, origin: str, filters: dict, group_by: str) -> dict:
+	"""Counted-run and error aggregates for one period, keyed by element and by issue."""
+	Run = DocType("AI Agent Run")
+	series = _series_field(Run, group_by)
+	elements = _scoped(frappe.qb.from_(Run), Run, from_d, to_d, origin, filters)
+	elements = (
+		elements.select(
+			Run.bpmn_id,
+			Run.process_model,
+			series.as_("series"),
+			fn.Max(Run.bpmn_label).as_("bpmn_label"),
+			fn.Count("*").as_("runs"),
+			fn.Sum(Case().when(Run.retry_count > 0, 1).else_(0)).as_("retried"),
+			fn.Sum(Case().when((Run.retry_count > 0) & (Run.status == "Success"), 1).else_(0)).as_(
+				"recovered"
+			),
+		)
+		.where(Run.status.notin(COUNTED_EXCLUDED_STATUSES))
+		.groupby(Run.bpmn_id, Run.process_model, series)
+		.run(as_dict=True)
+	)
+	errors = (
+		_scoped(frappe.qb.from_(Run), Run, from_d, to_d, origin, filters)
+		.select(
+			Run.error_code, Run.bpmn_id, Run.process_model, series.as_("series"), fn.Count("*").as_("errors")
+		)
+		.where(Run.status == "Error")
+		.groupby(Run.error_code, Run.bpmn_id, Run.process_model, series)
+		.run(as_dict=True)
+	)
+	suspended = (
+		_scoped(frappe.qb.from_(Run), Run, from_d, to_d, origin, filters)
+		.select(fn.Count("*").as_("n"))
+		.where(Run.status == "Suspended")
+		.run(as_dict=True)[0]["n"]
+	)
+	return {
+		"elements": {(r.bpmn_id, r.process_model, r.series): r for r in elements},
+		"errors": {(r.error_code, r.bpmn_id, r.process_model, r.series): cint(r.errors) for r in errors},
+		"suspended": cint(suspended),
+	}
+
+
+def _error_summary(current: dict, previous: dict) -> dict:
+	"""Tile figures for the range and the period before it, computed from counts."""
+
+	def totals(period):
+		elements = period["elements"].values()
+		runs = sum(cint(e.runs) for e in elements)
+		errors = sum(period["errors"].values())
+		retried = sum(cint(e.retried) for e in elements)
+		return runs, errors, retried, sum(cint(e.recovered) for e in elements)
+
+	runs, errors, retried, recovered = totals(current)
+	previous_runs, previous_errors, previous_retried, previous_recovered = totals(previous)
+	error_rate = _rate(errors, runs)
+	previous_error_rate = _rate(previous_errors, previous_runs) if previous_runs else None
+	return {
+		"runs": runs,
+		"errors": errors,
+		"error_rate": error_rate,
+		"previous_errors": previous_errors,
+		"previous_error_rate": previous_error_rate,
+		"delta_pt": flt(error_rate - previous_error_rate, 1) if previous_runs else None,
+		"suspended": current["suspended"],
+		"retried": retried,
+		"retry_recovered": recovered,
+		"retry_recovery_rate": _rate(recovered, retried),
+		"previous_retry_recovery_rate": _rate(previous_recovered, previous_retried)
+		if previous_runs
+		else None,
+		"affected_elements": len({(key[1], key[2]) for key in current["errors"]}),
+		"elements_with_runs": len({(key[0], key[1]) for key in current["elements"]}),
+	}
+
+
+def _error_codes(current: dict, from_d, origin: str) -> list:
+	"""Each error code in the range with its count and whether it first appeared in the range."""
+	counts = defaultdict(int)
+	for key, errors in current["errors"].items():
+		counts[key[0]] += errors
+	if not counts:
+		return []
+	Run = DocType("AI Agent Run")
+	first_seen = {
+		r.error_code: r.first_seen
+		for r in frappe.qb.from_(Run)
+		.select(Run.error_code, fn.Min(Run.started_at).as_("first_seen"))
+		.where(Run.status == "Error")
+		.where(_origin_condition(Run, origin))
+		.groupby(Run.error_code)
+		.run(as_dict=True)
+	}
+	codes = [
+		{"error_code": cstr(code), "count": count, "is_new": _seen_since(first_seen.get(code), from_d)}
+		for code, count in counts.items()
+	]
+	return sorted(codes, key=lambda c: c["count"], reverse=True)
+
+
+def _seen_since(first_seen, from_d) -> bool:
+	return bool(first_seen) and getdate(first_seen) >= from_d
+
+
+def _error_issues(current, previous, from_d, to_d, origin, filters, group_by, error_code) -> list:
+	"""One row per (error_code, bpmn_id, process_model, series) with its counts, history and P95."""
+	keys = [k for k in current["errors"] if not error_code or k[0] == error_code]
+	if not keys:
+		return []
+	history = _issue_history(keys, from_d, to_d, origin, filters, group_by)
+	issues = []
+	for key in keys:
+		element_key = key[1:]
+		element = current["elements"].get(element_key) or frappe._dict()
+		previous_element = previous["elements"].get(element_key) or frappe._dict()
+		runs = cint(element.runs)
+		previous_runs = cint(previous_element.runs)
+		error_rate = _rate(current["errors"][key], runs)
+		previous_error_rate = _rate(previous["errors"].get(key, 0), previous_runs) if previous_runs else None
+		seen = history["seen"].get(key) or frappe._dict()
+		issues.append(
+			{
+				"key": _issue_key(*key),
+				"error_code": cstr(key[0]),
+				"bpmn_id": cstr(key[1]),
+				"bpmn_label": cstr(element.bpmn_label) or cstr(key[1]),
+				"process_model": cstr(key[2]),
+				"series": cstr(key[3]) or ("Unattributed" if group_by == "agent" else ""),
+				"errors": current["errors"][key],
+				"runs": runs,
+				"error_rate": error_rate,
+				"first_seen": cstr(seen.first_seen),
+				"last_seen": cstr(seen.last_seen),
+				"last_message": history["messages"].get(key, ""),
+				"is_new": _seen_since(seen.first_seen, from_d),
+				"retried": cint(element.retried),
+				"retry_recovered": cint(element.recovered),
+				"p95_duration_ms": _p95(history["durations"].get(element_key, [])),
+				"previous_error_rate": previous_error_rate,
+				"delta_pt": flt(error_rate - previous_error_rate, 1) if previous_runs else None,
+			}
+		)
+	return sorted(issues, key=lambda i: i["errors"], reverse=True)
+
+
+def _issue_history(keys, from_d, to_d, origin, filters, group_by) -> dict:
+	"""All-time first and last seen, the latest message in range, and counted-run durations per element."""
+	Run = DocType("AI Agent Run")
+	series = _series_field(Run, group_by)
+	bpmn_ids = list({k[1] for k in keys if k[1]})
+	element_filter = Run.bpmn_id.isin(bpmn_ids) if bpmn_ids else Run.bpmn_id.isnull()
+	seen_rows = (
+		frappe.qb.from_(Run)
+		.select(
+			Run.error_code,
+			Run.bpmn_id,
+			Run.process_model,
+			series.as_("series"),
+			fn.Min(Run.started_at).as_("first_seen"),
+			fn.Max(Run.started_at).as_("last_seen"),
+		)
+		.where(Run.status == "Error")
+		.where(_origin_condition(Run, origin))
+		.where(element_filter)
+		.groupby(Run.error_code, Run.bpmn_id, Run.process_model, series)
+		.run(as_dict=True)
+	)
+	message_rows = (
+		_scoped(frappe.qb.from_(Run), Run, from_d, to_d, origin, filters)
+		.select(Run.error_code, Run.bpmn_id, Run.process_model, series.as_("series"), Run.error_message)
+		.where(Run.status == "Error")
+		.where(element_filter)
+		.orderby(Run.started_at, order=frappe.qb.desc)
+		.run(as_dict=True)
+	)
+	duration_rows = (
+		_scoped(frappe.qb.from_(Run), Run, from_d, to_d, origin, filters)
+		.select(Run.bpmn_id, Run.process_model, series.as_("series"), Run.duration_ms)
+		.where(Run.status.notin(COUNTED_EXCLUDED_STATUSES))
+		.where(element_filter)
+		.run(as_dict=True)
+	)
+	messages = {}
+	for r in message_rows:
+		messages.setdefault(
+			(r.error_code, r.bpmn_id, r.process_model, r.series), cstr(r.error_message)[:MESSAGE_CHARS]
+		)
+	durations = defaultdict(list)
+	for r in duration_rows:
+		durations[(r.bpmn_id, r.process_model, r.series)].append(cint(r.duration_ms))
+	return {
+		"seen": {(r.error_code, r.bpmn_id, r.process_model, r.series): r for r in seen_rows},
+		"messages": messages,
+		"durations": durations,
+	}
+
+
+def _p95(values: list) -> int:
+	"""Nearest-rank 95th percentile; MariaDB has no percentile function."""
+	if not values:
+		return 0
+	ordered = sorted(values)
+	return ordered[max(math.ceil(0.95 * len(ordered)) - 1, 0)]
+
+
+def _error_timeseries(from_d, to_d, origin: str, filters: dict, grain: str) -> dict:
+	"""Error rate, counted runs and errors per code for every bucket in the range; empty buckets are 0."""
+	Run = DocType("AI Agent Run")
+	day = fn.Date(Run.started_at)
+	rows = (
+		_scoped(frappe.qb.from_(Run), Run, from_d, to_d, origin, filters)
+		.select(day.as_("day"), Run.status, Run.error_code, fn.Count("*").as_("n"))
+		.where(Run.status.notin(COUNTED_EXCLUDED_STATUSES))
+		.groupby(day, Run.status, Run.error_code)
+		.run(as_dict=True)
+	)
+	labels = _bucket_labels(from_d, to_d, grain)
+	runs = defaultdict(int)
+	errors = defaultdict(int)
+	by_code = defaultdict(lambda: defaultdict(int))
+	for r in rows:
+		bucket = cstr(_bucket_start(r.day, grain))
+		runs[bucket] += cint(r.n)
+		if r.status == "Error":
+			errors[bucket] += cint(r.n)
+			by_code[cstr(r.error_code)][bucket] += cint(r.n)
+	ordered_codes = sorted(by_code, key=lambda code: sum(by_code[code].values()), reverse=True)
+	return {
+		"labels": labels,
+		"error_rate": [_rate(errors[label], runs[label]) for label in labels],
+		"runs": [runs[label] for label in labels],
+		"by_code": [
+			{"error_code": code, "values": [by_code[code][label] for label in labels]}
+			for code in ordered_codes
+		],
+	}
+
+
+def _legacy_error_report(from_d, to_d, origin, group_by, model, error_code, process_model, agent_configuration):
+	"""The rows, error_breakdown and summary keys the current ErrorReport.vue reads; removed in story 4.5."""
 	Run = DocType("AI Agent Run")
 	group_field = Run.agent_configuration if group_by == "agent" else Run.model
 
@@ -392,23 +1181,10 @@ def get_error_report(
 			worst_rate = r["success_rate"]
 			worst_element = r["bpmn_label"] or r["bpmn_id"]
 
-	total_retried = sum(1 for r in rows if cint(r.get("retry_rate")) > 0)
-	total_recovered = sum(r["retry_recovered"] for r in rows)
-	# Recovery rate: of all runs that had retries, how many ended up succeeding
-	retried_runs = sum(
-		cint(r["total_runs"] * r["retry_rate"] / 100) for r in rows
-	)
-	recovery_rate = flt((total_recovered / retried_runs) * 100, 1) if retried_runs else 0.0
-
-	return {
-		"rows": rows,
-		"error_breakdown": error_breakdown,
-		"summary": {
-			"total_errors": total_errors,
-			"most_common_error": most_common,
-			"worst_element": worst_element,
-			"retry_recovery_rate": recovery_rate,
-		},
+	return rows, error_breakdown, {
+		"total_errors": total_errors,
+		"most_common_error": most_common,
+		"worst_element": worst_element,
 	}
 
 
@@ -848,22 +1624,52 @@ def get_run_totals_crosscheck(run_name: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# 6. Cost allocation (WI-001668)
+# 6. Cost allocation
 # ---------------------------------------------------------------------------
-#
-# Finance needs monthly AI spend attributed to a person and their department:
-#   * non-chat  -> per process, via the process's Process Owner
-#   * chat      -> per conversation, via the conversation's owner
-#
-# A run is a chat run when its BPMN instance's context is a Chat Conversation
-# (set in utils/chat_persistence.py); anything else — including runs with no
-# instance — is non-chat. Eval-origin runs are included, per WI-001668.
+# A run whose BPMN instance context is a Chat Conversation bills its user; every other run bills its process owner.
 
 ALLOCATION_AXES = ("process_owner", "chat_user")
+ALLOCATION_ORIGINS = ("production", "eval", "all")
+
+
+def _run_filters(origin: str, process_model: str = None) -> list:
+	"""The header's origin and process filters as conditions every query in the report applies."""
+	Run = DocType("AI Agent Run")
+	conditions = [_origin_condition(Run, origin)]
+	if process_model:
+		conditions.append(Run.process_model == process_model)
+	return conditions
+
+
+# Top level of a tree per grouping, then the levels under it; department is never a child.
+ALLOCATION_LEVELS = {
+	("process_owner", "department"): ("department", "owner", "process"),
+	("process_owner", "owner"): ("owner", "process"),
+	("process_owner", "process"): ("process", "owner"),
+	("chat_user", "department"): ("department", "user", "agent"),
+	("chat_user", "user"): ("user", "agent"),
+	("chat_user", "agent"): ("agent", "user"),
+}
+
+DEFAULT_GROUP_BY = "department"
+
+# Chat users listed under a parent before the rest fold into one "more" node.
+MAX_PEER_NODES = 5
+
+# Chat Conversation.agent_mode is blank for the general assistant.
+GENERAL_CHAT = "General Chat"
+
+# Holders of this role are the chat seats; without it, active employees with a login are.
+CHAT_SEAT_ROLE = "Chat User"
 
 
 def _month_expr(Run):
 	return DateFormat(Run.started_at, "%Y-%m")
+
+
+def _in_period(Run, from_d, to_d):
+	"""started_at inside [from_d, to_d], compared raw so the column index applies."""
+	return (Run.started_at >= from_d) & (Run.started_at < getdate(add_days(to_d, 1)))
 
 
 def _departments_for(users: list) -> dict:
@@ -879,20 +1685,16 @@ def _departments_for(users: list) -> dict:
 	return {r["user_id"]: r["department"] for r in rows if r.get("department")}
 
 
-def _allocation_rows(axis: str, from_d, to_d) -> list:
-	"""Monthly usage rows for the requested allocation axis."""
+def _allocation_rows(axis: str, from_d, to_d, filters: list) -> list:
+	"""Monthly usage rows at the titled grain the export's Detail sheet lists."""
 	Run = DocType("AI Agent Run")
 	Inst = DocType("BPMN Process Instance")
 	month = _month_expr(Run)
-	in_range = (fn.Date(Run.started_at) >= from_d) & (fn.Date(Run.started_at) <= to_d)
+	in_range = _in_period(Run, from_d, to_d)
 
 	if axis == "chat_user":
 		Conv = DocType("Chat Conversation")
-		# LEFT join, and group on the instance's context_docname rather than
-		# Conv.name: a run whose Chat Conversation has since been deleted is
-		# still a chat run, so it must not vanish. An inner join dropped it
-		# from this axis while the process-owner axis already excluded it for
-		# being chat — leaving its spend unallocated in both views.
+		# LEFT join on context_docname so runs of a deleted conversation stay on this axis.
 		q = (
 			frappe.qb.from_(Run)
 			.inner_join(Inst).on(Inst.name == Run.instance)
@@ -913,6 +1715,7 @@ def _allocation_rows(axis: str, from_d, to_d) -> list:
 	else:
 		Model = DocType("BPMN Process Model")
 		Proc = DocType("Process")
+		# A run with no process model has nothing to bill to, so it stays unallocated.
 		q = (
 			frappe.qb.from_(Run)
 			.left_join(Inst).on(Inst.name == Run.instance)
@@ -929,10 +1732,12 @@ def _allocation_rows(axis: str, from_d, to_d) -> list:
 			)
 			.where(in_range)
 			.where(Inst.context_doctype.isnull() | (Inst.context_doctype != "Chat Conversation"))
+			.where(Run.process_model.isnotnull())
+			.where(Run.process_model != "")
 			.groupby(month, Proc.process_owner, Run.process_model, Model.process_name)
 		)
 
-	raw = q.run(as_dict=True)
+	raw = _apply(q, filters).run(as_dict=True)
 	departments = _departments_for([r.get("person") for r in raw])
 	rows = []
 	for r in raw:
@@ -951,24 +1756,19 @@ def _allocation_rows(axis: str, from_d, to_d) -> list:
 	return rows
 
 
-def _period_totals(from_d, to_d) -> dict:
-	"""Unfiltered totals for the whole period, across both allocation axes.
-
-	Each axis shows only its own slice (non-chat vs chat), so the axis totals
-	are not the period's AI spend. The UI needs this to say so plainly instead
-	of labelling a slice "Total".
-	"""
+def _period_totals(from_d, to_d, filters: list) -> dict:
+	"""The period's totals across both axes under the header filters; each axis covers only its slice."""
 	Run = DocType("AI Agent Run")
-	row = (
+	q = (
 		frappe.qb.from_(Run)
 		.select(
 			fn.Count("*").as_("runs"),
 			fn.Sum(Run.total_tokens).as_("tokens"),
 			fn.Sum(Run.estimated_cost).as_("cost"),
 		)
-		.where(fn.Date(Run.started_at) >= from_d)
-		.where(fn.Date(Run.started_at) <= to_d)
-	).run(as_dict=True)
+		.where(_in_period(Run, from_d, to_d))
+	)
+	row = _apply(q, filters).run(as_dict=True)
 	r = row[0] if row else {}
 	return {
 		"runs": cint(r.get("runs")),
@@ -977,94 +1777,548 @@ def _period_totals(from_d, to_d) -> dict:
 	}
 
 
-def _models_missing_pricing(from_d, to_d) -> list:
+def _models_missing_pricing(from_d, to_d, filters: list) -> list:
 	"""Models used in the period that have no rate card on their AI Model, so
-	their spend silently counts as 0 — finance needs to know."""
+	their spend silently counts as 0; finance needs to know."""
 	from one_bpmn.agents.pricing import get_model_pricing
 
 	Run = DocType("AI Agent Run")
-	used = (
+	q = (
 		frappe.qb.from_(Run)
 		.select(Run.model)
 		.distinct()
-		.where(fn.Date(Run.started_at) >= from_d)
-		.where(fn.Date(Run.started_at) <= to_d)
+		.where(_in_period(Run, from_d, to_d))
 		.where(Run.model.isnotnull())
 		.where(Run.model != "")
-	).run(as_dict=True)
+	)
+	used = _apply(q, filters).run(as_dict=True)
 	return sorted({r["model"] for r in used if not get_model_pricing(r["model"])})
 
 
-@frappe.whitelist()
-def get_cost_allocation(from_date: str = None, to_date: str = None, axis: str = "process_owner") -> dict:
-	"""Monthly AI spend allocated by Process Owner (non-chat) or chat user
-	(WI-001668), with department, totals, and a pricing-gap warning."""
-	frappe.only_for("System Manager")
-	if axis not in ALLOCATION_AXES:
-		frappe.throw(_("axis must be one of {0}").format(", ".join(ALLOCATION_AXES)))
-	from_d, to_d = _default_dates(from_date, to_date, days=30)
+def _other_axis_cost(axis: str, from_d, to_d, filters: list) -> float:
+	"""The cost the other axis allocates for the same period and filters."""
+	Run = DocType("AI Agent Run")
+	Inst = DocType("BPMN Process Instance")
+	q = (
+		frappe.qb.from_(Run)
+		.left_join(Inst).on(Inst.name == Run.instance)
+		.select(fn.Sum(Run.estimated_cost).as_("cost"))
+		.where(_in_period(Run, from_d, to_d))
+	)
+	if axis == "chat_user":
+		# The process axis bills only runs that carry a process model.
+		q = (
+			q.where(Inst.context_doctype.isnull() | (Inst.context_doctype != "Chat Conversation"))
+			.where(Run.process_model.isnotnull())
+			.where(Run.process_model != "")
+		)
+	else:
+		q = q.where(Inst.context_doctype == "Chat Conversation")
+	row = _apply(q, filters).run(as_dict=True)
+	return flt(row[0].get("cost"), 6)
 
-	rows = _allocation_rows(axis, from_d, to_d)
+
+def _allocation_leaves(axis: str, from_d, to_d, filters: list) -> list:
+	"""One row per day, person and subject: the grain the tree, chart and totals fold."""
+	Run = DocType("AI Agent Run")
+	Inst = DocType("BPMN Process Instance")
+	day = fn.Date(Run.started_at)
+	in_range = _in_period(Run, from_d, to_d)
+
+	if axis == "chat_user":
+		Conv = DocType("Chat Conversation")
+		q = (
+			frappe.qb.from_(Run)
+			.inner_join(Inst).on(Inst.name == Run.instance)
+			.left_join(Conv).on(Conv.name == Inst.context_docname)
+			.select(
+				day.as_("day"),
+				Conv.owner.as_("person"),
+				Conv.agent_mode.as_("subject"),
+				Inst.context_docname.as_("conversation"),
+				fn.Count("*").as_("runs"),
+				fn.Sum(Run.total_tokens).as_("tokens"),
+				fn.Sum(Run.estimated_cost).as_("cost"),
+			)
+			.where(in_range)
+			.where(Inst.context_doctype == "Chat Conversation")
+			.groupby(day, Conv.owner, Conv.agent_mode, Inst.context_docname)
+		)
+	else:
+		Model = DocType("BPMN Process Model")
+		Proc = DocType("Process")
+		q = (
+			frappe.qb.from_(Run)
+			.left_join(Inst).on(Inst.name == Run.instance)
+			.left_join(Model).on(Model.name == Run.process_model)
+			.left_join(Proc).on(Proc.name == Model.process_name)
+			.select(
+				day.as_("day"),
+				Proc.process_owner.as_("person"),
+				Proc.process_owner_name.as_("person_name"),
+				Run.process_model.as_("subject"),
+				Model.process_name.as_("subject_label"),
+				fn.Count("*").as_("runs"),
+				fn.Sum(Run.total_tokens).as_("tokens"),
+				fn.Sum(Run.estimated_cost).as_("cost"),
+			)
+			.where(in_range)
+			.where(Inst.context_doctype.isnull() | (Inst.context_doctype != "Chat Conversation"))
+			.where(Run.process_model.isnotnull())
+			.where(Run.process_model != "")
+			.groupby(day, Proc.process_owner, Proc.process_owner_name, Run.process_model, Model.process_name)
+		)
+
+	raw = _apply(q, filters).run(as_dict=True)
+	departments = _departments_for([r.get("person") for r in raw])
+	leaves = []
+	for r in raw:
+		person = cstr(r.get("person"))
+		subject = cstr(r.get("subject")) or (GENERAL_CHAT if axis == "chat_user" else "")
+		leaves.append({
+			"day": getdate(r.get("day")),
+			"person": person,
+			"person_name": cstr(r.get("person_name")),
+			"department": departments.get(person) or "",
+			"subject": subject,
+			# Chat leaves are named by agent; conversation titles never reach the tree.
+			"subject_label": cstr(r.get("subject_label")) or _(subject),
+			"conversation": cstr(r.get("conversation")),
+			"runs": cint(r.get("runs")),
+			"tokens": cint(r.get("tokens")),
+			"cost": flt(r.get("cost"), 6),
+		})
+	return leaves
+
+
+def _allocation_previous_period(from_d, to_d) -> tuple:
+	"""The same days a span of whole months back when the range starts on the 1st,
+	else the window of equal length ending the day before."""
+	if from_d.day == 1:
+		months = (to_d.year - from_d.year) * 12 + to_d.month - from_d.month + 1
+		prev_from = getdate(add_months(from_d, -months))
+		prev_to = getdate(add_months(to_d, -months))
+		if to_d == getdate(get_last_day(to_d)):
+			prev_to = getdate(get_last_day(prev_to))
+		return prev_from, prev_to
+	return _previous_period(from_d, to_d)
+
+
+def _allocation_bucket_start(day, grain: str, from_d):
+	"""The chart bucket a day belongs to, clipped to the start of the range."""
+	return max(_bucket_start(day, grain), from_d)
+
+
+def _period_grain(from_d, to_d) -> tuple:
+	"""(grain, buckets, months) for the range: weeks inside one calendar month,
+	months once it spans more than one."""
+	days = [getdate(add_days(from_d, i)) for i in range((to_d - from_d).days + 1)]
+	months = sorted({d.strftime("%Y-%m") for d in days})
+	grain = "week" if len(months) == 1 else "month"
+	buckets = list(dict.fromkeys(cstr(_allocation_bucket_start(d, grain, from_d)) for d in days))
+	return grain, buckets, months
+
+
+def _level_of(level: str, leaf: dict) -> tuple:
+	"""(key, label) a leaf contributes at one level of the tree."""
+	if level == "department":
+		return leaf["department"], leaf["department"] or _("Unassigned")
+	if level in ("owner", "user"):
+		return leaf["person"], leaf["person"] or _("unassigned")
+	return leaf["subject"], leaf["subject_label"]
+
+
+def _fold(leaves: list, levels: tuple, buckets: list, months: list, grain: str, from_d) -> dict:
+	"""Aggregate leaves into {path -> metrics} for every node and every prefix,
+	so a parent's numbers are its children's by construction."""
+	agg = {}
+	for leaf in leaves:
+		bucket = cstr(_allocation_bucket_start(leaf["day"], grain, from_d))
+		month = leaf["day"].strftime("%Y-%m")
+		path = ()
+		for level in levels:
+			key, label = _level_of(level, leaf)
+			path = (*path, key)
+			node = agg.get(path)
+			if node is None:
+				node = agg[path] = {
+					"kind": level,
+					"key": key,
+					"label": label,
+					"name": leaf["person_name"] if level in ("owner", "user") else "",
+					"department": leaf["department"],
+					"runs": 0,
+					"tokens": 0,
+					"cost": 0.0,
+					"by_bucket": {b: 0.0 for b in buckets},
+					"by_month": {m: 0.0 for m in months},
+					"people": set(),
+					"subjects": set(),
+					"conversations": set(),
+				}
+			node["runs"] += leaf["runs"]
+			node["tokens"] += leaf["tokens"]
+			node["cost"] += leaf["cost"]
+			node["by_bucket"][bucket] = node["by_bucket"].get(bucket, 0.0) + leaf["cost"]
+			node["by_month"][month] = node["by_month"].get(month, 0.0) + leaf["cost"]
+			if leaf["person"]:
+				node["people"].add(leaf["person"])
+			if leaf["subject"]:
+				node["subjects"].add(leaf["subject"])
+			if leaf["conversation"]:
+				node["conversations"].add(leaf["conversation"])
+	return agg
+
+
+def _share(cost: float, total: float) -> float:
+	return flt(cost / total * 100, 2) if total else 0.0
+
+
+def _delta(cost: float, previous: float):
+	"""Change against the prior period in percent, or None when there is nothing to compare against."""
+	return flt((cost - previous) / previous * 100, 1) if previous else None
+
+
+def _allocation_tree(agg: dict, previous: dict, total_cost: float, axis: str) -> list:
+	"""Nest the folded paths, heaviest first at every level."""
+	children = defaultdict(list)
+	for path in agg:
+		children[path[:-1]].append(path)
+
+	def nodes_of(parent: tuple) -> list:
+		paths = sorted(children.get(parent, ()), key=lambda p: (-agg[p]["cost"], agg[p]["label"]))
+		out = [node_of(p) for p in paths]
+		too_many_users = len(out) > MAX_PEER_NODES and out[0]["kind"] == "user"
+		if parent and too_many_users:
+			out, rest = out[:MAX_PEER_NODES], out[MAX_PEER_NODES:]
+			out.append(_more_node(rest, total_cost))
+		return out
+
+	def node_of(path: tuple) -> dict:
+		a = agg[path]
+		cost = flt(a["cost"], 6)
+		previous_cost = flt(previous.get(path, 0.0), 6)
+		node = {
+			"kind": a["kind"],
+			"key": a["key"],
+			"label": a["label"],
+			"name": a["name"],
+			"department": a["department"],
+			"runs": a["runs"],
+			"tokens": a["tokens"],
+			"cost": cost,
+			"share": _share(cost, total_cost),
+			"previous_cost": previous_cost,
+			"delta": _delta(cost, previous_cost),
+			"by_bucket": {k: flt(v, 6) for k, v in a["by_bucket"].items()},
+			"by_month": {k: flt(v, 6) for k, v in a["by_month"].items()},
+			"children": nodes_of(path),
+		}
+		if axis == "chat_user":
+			conversations = len(a["conversations"])
+			node["users"] = len(a["people"])
+			node["agents"] = len(a["subjects"])
+			node["conversations"] = conversations
+			node["avg_cost_per_conversation"] = flt(cost / conversations, 6) if conversations else 0.0
+		else:
+			node["owners"] = len(a["people"])
+			node["processes"] = len(a["subjects"])
+		return node
+
+	return nodes_of(())
+
+
+def _more_node(rest: list, total_cost: float) -> dict:
+	"""The tail of a long peer list, as one row that still carries its money."""
+	cost = flt(sum(n["cost"] for n in rest), 6)
+	previous_cost = flt(sum(n["previous_cost"] for n in rest), 6)
+	node = {
+		"kind": "more",
+		"key": "",
+		"label": _("{0} more").format(len(rest)),
+		"count": len(rest),
+		"department": "",
+		"runs": sum(n["runs"] for n in rest),
+		"tokens": sum(n["tokens"] for n in rest),
+		"cost": cost,
+		"share": _share(cost, total_cost),
+		"previous_cost": previous_cost,
+		"delta": _delta(cost, previous_cost),
+		"by_bucket": _sum_series(rest, "by_bucket"),
+		"by_month": _sum_series(rest, "by_month"),
+		"children": [],
+	}
+	node["conversations"] = sum(n["conversations"] for n in rest)
+	return node
+
+
+def _sum_series(nodes: list, key: str) -> dict:
+	out = {}
+	for node in nodes:
+		for bucket, cost in node[key].items():
+			out[bucket] = flt(out.get(bucket, 0.0) + cost, 6)
+	return out
+
+
+def _chat_seats() -> int:
+	"""Enabled users holding the chat role, or enabled users of active employees without it."""
+	User = DocType("User")
+	q = frappe.qb.from_(User).select(fn.Count(User.name).distinct()).where(User.enabled == 1)
+	if frappe.db.exists("Role", CHAT_SEAT_ROLE):
+		HasRole = DocType("Has Role")
+		q = q.inner_join(HasRole).on(
+			(HasRole.parent == User.name) & (HasRole.parenttype == "User") & (HasRole.role == CHAT_SEAT_ROLE)
+		)
+	else:
+		Employee = DocType("Employee")
+		q = q.inner_join(Employee).on((Employee.user_id == User.name) & (Employee.status == "Active"))
+	return cint(q.run()[0][0])
+
+
+def _window_figures(leaves: list) -> dict:
+	"""Spend, volume and audience of one window's leaves, with the averages the tiles compare."""
+	cost = flt(sum(x["cost"] for x in leaves), 6)
+	runs = sum(x["runs"] for x in leaves)
+	users = len({x["person"] for x in leaves if x["person"]})
+	conversations = len({x["conversation"] for x in leaves if x["conversation"]})
 	return {
-		"axis": axis,
-		"from_date": cstr(from_d),
-		"to_date": cstr(to_d),
-		"rows": rows,
-		# Totals for THIS axis only — the chat and process-owner axes each
-		# cover half the runs. Compare against period_totals below.
-		"totals": {
-			"runs": sum(r["runs"] for r in rows),
-			"tokens": sum(r["tokens"] for r in rows),
-			"cost": flt(sum(r["cost"] for r in rows), 6),
-			"people": len({r["person"] for r in rows if r["person"]}),
-			"departments": len({r["department"] for r in rows if r["department"]}),
-		},
-		"period_totals": _period_totals(from_d, to_d),
-		"models_missing_pricing": _models_missing_pricing(from_d, to_d),
+		"runs": runs,
+		"tokens": sum(x["tokens"] for x in leaves),
+		"cost": cost,
+		"users": users,
+		"conversations": conversations,
+		"avg_cost_per_run": flt(cost / runs, 6) if runs else 0.0,
+		"avg_cost_per_user": flt(cost / users, 6) if users else 0.0,
+		"avg_cost_per_conversation": flt(cost / conversations, 6) if conversations else 0.0,
 	}
 
 
+def _allocation_totals(axis: str, leaves: list, from_d, to_d, filters: list) -> dict:
+	"""The tile numbers for this axis: its own spend, never the period's."""
+	now = _window_figures(leaves)
+	cost = now["cost"]
+	totals = {
+		"runs": now["runs"],
+		"tokens": now["tokens"],
+		"cost": cost,
+		"people": now["users"],
+		"departments": len({x["department"] for x in leaves if x["department"]}),
+		"avg_cost_per_run": now["avg_cost_per_run"],
+		"other_axis_cost": _other_axis_cost(axis, from_d, to_d, filters),
+	}
+
+	if axis == "chat_user":
+		by_user = defaultdict(float)
+		by_department = defaultdict(float)
+		for leaf in leaves:
+			by_department[leaf["department"]] += leaf["cost"]
+			if leaf["person"]:
+				by_user[leaf["person"]] += leaf["cost"]
+		top5 = sorted(by_user.values(), reverse=True)[:MAX_PEER_NODES]
+		top_department = max(by_department.items(), key=lambda kv: kv[1]) if leaves else ("", 0.0)
+		totals.update({
+			"active_users": now["users"],
+			"seats": _chat_seats(),
+			"conversations": now["conversations"],
+			"avg_cost_per_user": now["avg_cost_per_user"],
+			"avg_cost_per_conversation": now["avg_cost_per_conversation"],
+			"top5_share": _share(flt(sum(top5), 6), cost),
+			"top_department": {
+				"name": top_department[0] or _("Unassigned"),
+				"share": _share(flt(top_department[1], 6), cost),
+			},
+		})
+	else:
+		subjects = _subjects_by_cost(leaves, cost)
+		totals.update({
+			"processes": len(subjects),
+			"top_process": subjects[0]["label"] if subjects else "",
+		})
+	return totals
+
+
+def _subjects_by_cost(leaves: list, total_cost: float) -> list:
+	"""Spend per process (non-chat) or per agent (chat), heaviest first."""
+	by_subject = defaultdict(lambda: {"cost": 0.0, "runs": 0, "label": ""})
+	for leaf in leaves:
+		entry = by_subject[leaf["subject"]]
+		entry["cost"] += leaf["cost"]
+		entry["runs"] += leaf["runs"]
+		entry["label"] = leaf["subject_label"]
+	return [
+		{
+			"key": key,
+			"label": entry["label"],
+			"runs": entry["runs"],
+			"cost": flt(entry["cost"], 6),
+			"share": _share(flt(entry["cost"], 6), total_cost),
+		}
+		for key, entry in sorted(by_subject.items(), key=lambda kv: -kv[1]["cost"])
+	]
+
+
 @frappe.whitelist()
-def export_cost_allocation(
-	from_date: str = None, to_date: str = None, axis: str = "process_owner", fmt: str = "xlsx"
-):
-	"""Download the cost allocation as XLSX or CSV (WI-001668). Returns a file
-	response, so the client navigates to this endpoint rather than fetching it."""
+def get_cost_allocation(
+	from_date: str = None,
+	to_date: str = None,
+	axis: str = "process_owner",
+	group_by: str = None,
+	origin: str = "production",
+	process_model: str = None,
+) -> dict:
+	"""AI spend allocated by Process Owner (non-chat) or chat user, as a department
+	tree with each node's share, prior-period cost and cost per chart bucket."""
 	frappe.only_for("System Manager")
 	if axis not in ALLOCATION_AXES:
 		frappe.throw(_("axis must be one of {0}").format(", ".join(ALLOCATION_AXES)))
-	if fmt not in ("xlsx", "csv"):
-		frappe.throw(_("fmt must be 'xlsx' or 'csv'"))
+	if origin not in ALLOCATION_ORIGINS:
+		frappe.throw(_("origin must be one of {0}").format(", ".join(ALLOCATION_ORIGINS)))
+	group_by = group_by or DEFAULT_GROUP_BY
+	if (axis, group_by) not in ALLOCATION_LEVELS:
+		options = ", ".join(g for (a, g) in ALLOCATION_LEVELS if a == axis)
+		frappe.throw(_("group_by must be one of {0}").format(options))
 	from_d, to_d = _default_dates(from_date, to_date, days=30)
+	if from_d > to_d:
+		frappe.throw(_("From date must be on or before to date"))
 
+	levels = ALLOCATION_LEVELS[(axis, group_by)]
+	grain, buckets, months = _period_grain(from_d, to_d)
+	prev_from, prev_to = _allocation_previous_period(from_d, to_d)
+	filters = _run_filters(origin, process_model)
+
+	leaves = _allocation_leaves(axis, from_d, to_d, filters)
+	prev_leaves = _allocation_leaves(axis, prev_from, prev_to, filters)
+	totals = _allocation_totals(axis, leaves, from_d, to_d, filters)
+	previous = {
+		path: node["cost"]
+		for path, node in _fold(prev_leaves, levels, [], [], grain, prev_from).items()
+	}
+	tree = _allocation_tree(
+		_fold(leaves, levels, buckets, months, grain, from_d), previous, totals["cost"], axis
+	)
+
+	return {
+		"axis": axis,
+		"group_by": group_by,
+		"origin": origin,
+		"from_date": cstr(from_d),
+		"to_date": cstr(to_d),
+		"grain": grain,
+		"buckets": buckets,
+		"months": months,
+		"tree": tree,
+		# The chat donut is by agent; the process axis reads its shares off the tree.
+		"agents": _subjects_by_cost(leaves, totals["cost"]) if axis == "chat_user" else [],
+		"previous": {"from_date": cstr(prev_from), "to_date": cstr(prev_to), **_window_figures(prev_leaves)},
+		# This axis only; period_totals covers both.
+		"totals": totals,
+		"period_totals": _period_totals(from_d, to_d, filters),
+		"models_missing_pricing": _models_missing_pricing(from_d, to_d, filters),
+	}
+
+
+def _summary_sheet(report: dict) -> list:
+	"""One row per tree node, depth first, with month columns while there are two to six."""
+	axis = report["axis"]
+	months = report["months"] if 2 <= len(report["months"]) <= 6 else []
+	person_header = _("User") if axis == "chat_user" else _("Owner")
+	subject_header = _("Agent") if axis == "chat_user" else _("Process")
+	data = [[
+		_("Level"), _("Name"), _("Department"), _("Runs"), _("Tokens"), _("Cost"),
+		_("Share %"), _("Previous Cost"), _("Change %"),
+		*months,
+	]]
+
+	kinds = {
+		"owner": person_header,
+		"user": person_header,
+		"process": subject_header,
+		"agent": subject_header,
+		"department": _("Department"),
+		"more": _("Other"),
+	}
+
+	def walk(nodes):
+		for node in nodes:
+			data.append([
+				kinds[node["kind"]],
+				node["label"],
+				node["department"],
+				node["runs"],
+				node["tokens"],
+				flt(node["cost"], 6),
+				node["share"],
+				node["previous_cost"],
+				"" if node["delta"] is None else node["delta"],
+				*(flt(node["by_month"][m], 6) for m in months),
+			])
+			walk(node["children"])
+
+	walk(report["tree"])
+	totals = report["totals"]
+	delta = _delta(totals["cost"], report["previous"]["cost"])
+	data.append([
+		_("Total"), "", "", totals["runs"], totals["tokens"], flt(totals["cost"], 6),
+		100.0 if totals["cost"] else 0.0, report["previous"]["cost"],
+		"" if delta is None else delta,
+		*([""] * len(months)),
+	])
+	return data
+
+
+def _detail_sheet(axis: str, rows: list) -> list:
 	subject_header = _("Chat") if axis == "chat_user" else _("Process")
 	person_header = _("User") if axis == "chat_user" else _("Process Owner")
 	data = [[_("Month"), _("Department"), person_header, subject_header,
 			 _("Runs"), _("Tokens"), _("Cost")]]
-	for r in _allocation_rows(axis, from_d, to_d):
+	for r in rows:
 		data.append([
 			r["month"], r["department"], r["person"], r["subject_label"],
 			r["runs"], r["tokens"], flt(r["cost"], 6),
 		])
+	return data
 
-	stem = f"cost-allocation-{axis}-{from_d}-to-{to_d}"
+
+@frappe.whitelist()
+def export_cost_allocation(
+	from_date: str = None,
+	to_date: str = None,
+	axis: str = "process_owner",
+	group_by: str = None,
+	origin: str = "production",
+	process_model: str = None,
+	fmt: str = "xlsx",
+) -> dict:
+	"""The cost allocation as an XLSX or CSV file, base64 encoded, with its filename."""
+	frappe.only_for("System Manager")
+	if fmt not in ("xlsx", "csv"):
+		frappe.throw(_("fmt must be 'xlsx' or 'csv'"))
+	report = get_cost_allocation(from_date, to_date, axis, group_by, origin, process_model)
+	# Conversation titles appear only here, in the Detail sheet.
+	filters = _run_filters(origin, process_model)
+	rows = _allocation_rows(axis, getdate(report["from_date"]), getdate(report["to_date"]), filters)
+
+	stem = f"cost-allocation-{report['axis']}-{report['from_date']}-to-{report['to_date']}"
 	if fmt == "xlsx":
+		import openpyxl
 		from frappe.utils.xlsxutils import make_xlsx
 
-		content = make_xlsx(data, "Cost Allocation").getvalue()
+		# make_xlsx inserts each sheet first and saves every call, so it needs a normal workbook.
+		wb = openpyxl.Workbook()
+		wb.remove(wb.active)
+		make_xlsx(_detail_sheet(axis, rows), "Detail", wb=wb)
+		content = make_xlsx(_summary_sheet(report), "Summary", wb=wb).getvalue()
 		filename = f"{stem}.xlsx"
 	else:
 		import csv
 		import io
 
 		buf = io.StringIO()
-		csv.writer(buf).writerows(data)
+		csv.writer(buf).writerows(_summary_sheet(report))
 		content = buf.getvalue().encode("utf-8-sig")  # BOM so Excel reads UTF-8
 		filename = f"{stem}.csv"
 
-	frappe.response["type"] = "binary"
-	frappe.response["filename"] = filename
-	frappe.response["filecontent"] = content
+	return {"filename": filename, "content": base64.b64encode(content).decode()}
 
 
 # ---------------------------------------------------------------------------
