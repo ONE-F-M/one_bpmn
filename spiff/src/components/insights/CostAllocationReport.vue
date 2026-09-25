@@ -83,7 +83,7 @@
 					<CostAllocationDonut
 						v-if="!isMobile"
 						:slices="donutSlices"
-						:colors="colors"
+						:colors="donutColors"
 						:title="donutTitle"
 						:total="report.totals.cost"
 					/>
@@ -122,7 +122,7 @@ import CostAllocationChart from "@/components/insights/CostAllocationChart.vue"
 import CostAllocationDonut from "@/components/insights/CostAllocationDonut.vue"
 import CostAllocationTree from "@/components/insights/CostAllocationTree.vue"
 import CostAllocationCards from "@/components/insights/CostAllocationCards.vue"
-import { MAX_SERIES, OTHER_COLOR, OTHER_KEY, assignColors, foldTail, pctChange, rowsOf } from "@/utils/costAllocation"
+import { MAX_SERIES, OTHER_COLOR, OTHER_KEY, assignColors, foldTail, pctChange, rowsOf, seriesCap } from "@/utils/costAllocation"
 
 // model and provider arrive from the shared header and are unused here.
 const props = defineProps({
@@ -163,8 +163,10 @@ const groupLabel = computed(() => report.value.group_by)
 const levelHeader = computed(() => LEVELS[report.value.axis][report.value.group_by].join(" / ").toUpperCase())
 const costDelta = computed(() => pctChange(report.value.totals.cost, report.value.previous.cost))
 
+const isChat = computed(() => report.value.axis === "chat_user")
 const colorMemo = new Map()
-const series = computed(() => foldTail(tree.value, MAX_SERIES))
+const agentMemo = new Map()
+const series = computed(() => foldTail(tree.value, seriesCap(report.value.axis, report.value.group_by)))
 const colors = computed(() => {
 	const out = assignColors(series.value.map((n) => n.key).filter((k) => k !== OTHER_KEY), colorMemo)
 	for (const node of tree.value) {
@@ -172,8 +174,16 @@ const colors = computed(() => {
 	}
 	return out
 })
-const donutTitle = computed(() => `Share by ${groupLabel.value}`)
-const donutSlices = computed(() => series.value.map((n) => ({ key: n.key, label: n.label, value: n.cost })))
+// The chat donut is by agent whatever the grouping; grouped by agent, both panels share colours.
+const agentSlices = computed(() => foldTail(report.value.agents, MAX_SERIES))
+const donutColors = computed(() => {
+	if (!isChat.value || report.value.group_by === "agent") return colors.value
+	return assignColors(agentSlices.value.map((a) => a.key).filter((k) => k !== OTHER_KEY), agentMemo)
+})
+const donutTitle = computed(() => (isChat.value ? "Share by agent" : `Share by ${groupLabel.value}`))
+const donutSlices = computed(() =>
+	(isChat.value ? agentSlices.value : series.value).map((n) => ({ key: n.key, label: n.label, value: n.cost }))
+)
 
 const expanded = ref(new Set())
 const rows = computed(() => rowsOf(tree.value, expanded.value))

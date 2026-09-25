@@ -5,8 +5,7 @@ import assert from "node:assert/strict"
 
 import {
 	OTHER_COLOR, OTHER_KEY, assignColors, barWidth, bucketTotals, chipOf, currentBucket, foldTail, monthColumns,
-	pctChange,
-	pricingLink, rankSlices, rowsOf,
+	pctChange, pricingLink, rankSlices, rowsOf, seriesCap,
 } from "./costAllocation.js"
 
 const node = (key, cost, children = []) => ({ key, label: key, cost, share: cost, by_bucket: { w1: cost }, children })
@@ -16,6 +15,19 @@ test("the tail folds into one Other entry that keeps its money", () => {
 	assert.deepEqual(folded.map((n) => n.key), ["a", OTHER_KEY])
 	assert.equal(folded[1].cost, 5)
 	assert.deepEqual(folded[1].by_bucket, { w1: 5 })
+})
+
+test("chat users chart five before Other; everything else six", () => {
+	assert.equal(seriesCap("chat_user", "user"), 5)
+	assert.equal(seriesCap("chat_user", "agent"), 6)
+	assert.equal(seriesCap("process_owner", "owner"), 6)
+})
+
+test("the agents list folds without buckets", () => {
+	const agents = [1, 2, 3, 4, 5, 6, 7, 8].map((i) => ({ key: `a${i}`, label: `a${i}`, cost: 10 - i }))
+	const folded = foldTail(agents, 6)
+	assert.equal(folded.length, 7)
+	assert.equal(folded[6].cost, 3 + 2)
 })
 
 test("a key keeps its colour when another key leaves", () => {

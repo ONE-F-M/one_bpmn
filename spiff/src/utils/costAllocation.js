@@ -6,6 +6,11 @@ const SERIES_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#
 // Series in the chart and slices in the donut before the tail folds into "Other".
 export const MAX_SERIES = 6
 
+// Chat users get five, so the chart shows the same "top 5" the scope line counts.
+export function seriesCap(axis, groupBy) {
+	return axis === "chat_user" && groupBy === "user" ? 5 : MAX_SERIES
+}
+
 export function subtitleOf(node, axis) {
 	if (node.kind === "more") return `${node.count} not shown`
 	if (node.kind !== "department") return ""
@@ -25,7 +30,8 @@ export function foldTail(nodes, cap) {
 	if (!rest.length) return top
 	const byBucket = {}
 	for (const node of rest) {
-		for (const [bucket, cost] of Object.entries(node.by_bucket)) {
+		// The agents list behind the chat donut has no buckets.
+		for (const [bucket, cost] of Object.entries(node.by_bucket || {})) {
 			byBucket[bucket] = (byBucket[bucket] || 0) + cost
 		}
 	}
