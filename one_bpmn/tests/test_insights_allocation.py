@@ -229,6 +229,9 @@ class TestInsightsAllocation(FrappeTestCase):
 		self.assertEqual(report["previous"]["from_date"], "2015-05-15")
 		self.assertEqual(report["previous"]["to_date"], "2015-06-02")
 		self.assertEqual(flt(report["previous"]["cost"], 2), 8.0)
+		self.assertEqual(report["previous"]["users"], 1)
+		self.assertEqual(report["previous"]["conversations"], 0)
+		self.assertEqual(flt(report["previous"]["avg_cost_per_user"], 2), 8.0)
 
 	def test_a_month_to_date_range_compares_with_the_same_days_last_month(self):
 		report = _report(from_date="2015-06-01", to_date="2015-06-21")
@@ -353,6 +356,10 @@ class TestInsightsAllocation(FrappeTestCase):
 			frappe.db.set_value("Employee", f"ALLOC-T-EMP-{OWNER_OPS}", "status", "Left")
 			self.assertEqual(_chat_seats(), active - 1)
 
+	def test_the_top_department_and_its_share_come_with_the_chat_totals(self):
+		top = _report(axis="chat_user")["totals"]["top_department"]
+		self.assertEqual(top, {"name": OPS, "share": flt(4.25 / 6.75 * 100, 2)})
+
 	def test_agents_are_listed_by_cost_for_the_donut(self):
 		agents = _report(axis="chat_user")["agents"]
 		self.assertEqual([a["label"] for a in agents], ["Logix", "Docu", "General Chat"])
@@ -395,7 +402,7 @@ class TestInsightsAllocation(FrappeTestCase):
 		self.assertEqual(sorted(chat), [
 			"active_users", "avg_cost_per_conversation", "avg_cost_per_run", "avg_cost_per_user",
 			"conversations", "cost", "departments", "other_axis_cost", "people", "runs", "seats",
-			"tokens", "top5_share",
+			"tokens", "top5_share", "top_department",
 		])
 		self.assertIn("alloc-t-unpriced", process["models_missing_pricing"])
 

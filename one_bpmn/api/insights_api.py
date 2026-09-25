@@ -2075,35 +2075,58 @@ def _chat_seats() -> int:
 	return cint(q.run()[0][0])
 
 
-def _allocation_totals(axis: str, leaves: list, from_d, to_d, filters: list) -> dict:
-	"""The tile numbers for this axis: its own spend, never the period's."""
+def _window_figures(leaves: list) -> dict:
+	"""Spend, volume and audience of one window's leaves, with the averages the tiles compare."""
 	cost = flt(sum(x["cost"] for x in leaves), 6)
 	runs = sum(x["runs"] for x in leaves)
-	people = {x["person"] for x in leaves if x["person"]}
-	totals = {
+	users = len({x["person"] for x in leaves if x["person"]})
+	conversations = len({x["conversation"] for x in leaves if x["conversation"]})
+	return {
 		"runs": runs,
 		"tokens": sum(x["tokens"] for x in leaves),
 		"cost": cost,
-		"people": len(people),
-		"departments": len({x["department"] for x in leaves if x["department"]}),
+		"users": users,
+		"conversations": conversations,
 		"avg_cost_per_run": flt(cost / runs, 6) if runs else 0.0,
+		"avg_cost_per_user": flt(cost / users, 6) if users else 0.0,
+		"avg_cost_per_conversation": flt(cost / conversations, 6) if conversations else 0.0,
+	}
+
+
+def _allocation_totals(axis: str, leaves: list, from_d, to_d, filters: list) -> dict:
+	"""The tile numbers for this axis: its own spend, never the period's."""
+	now = _window_figures(leaves)
+	cost = now["cost"]
+	totals = {
+		"runs": now["runs"],
+		"tokens": now["tokens"],
+		"cost": cost,
+		"people": now["users"],
+		"departments": len({x["department"] for x in leaves if x["department"]}),
+		"avg_cost_per_run": now["avg_cost_per_run"],
 		"other_axis_cost": _other_axis_cost(axis, from_d, to_d, filters),
 	}
 
 	if axis == "chat_user":
-		conversations = len({x["conversation"] for x in leaves if x["conversation"]})
 		by_user = defaultdict(float)
+		by_department = defaultdict(float)
 		for leaf in leaves:
+			by_department[leaf["department"]] += leaf["cost"]
 			if leaf["person"]:
 				by_user[leaf["person"]] += leaf["cost"]
 		top5 = sorted(by_user.values(), reverse=True)[:MAX_PEER_NODES]
+		top_department = max(by_department.items(), key=lambda kv: kv[1]) if leaves else ("", 0.0)
 		totals.update({
-			"active_users": len(people),
+			"active_users": now["users"],
 			"seats": _chat_seats(),
-			"conversations": conversations,
-			"avg_cost_per_user": flt(cost / len(people), 6) if people else 0.0,
-			"avg_cost_per_conversation": flt(cost / conversations, 6) if conversations else 0.0,
+			"conversations": now["conversations"],
+			"avg_cost_per_user": now["avg_cost_per_user"],
+			"avg_cost_per_conversation": now["avg_cost_per_conversation"],
 			"top5_share": _share(flt(sum(top5), 6), cost),
+			"top_department": {
+				"name": top_department[0] or _("Unassigned"),
+				"share": _share(flt(top_department[1], 6), cost),
+			},
 		})
 	else:
 		subjects = _subjects_by_cost(leaves, cost)
@@ -2186,13 +2209,7 @@ def get_cost_allocation(
 		"tree": tree,
 		# The chat donut is by agent; the process axis reads its shares off the tree.
 		"agents": _subjects_by_cost(leaves, totals["cost"]) if axis == "chat_user" else [],
-		"previous": {
-			"from_date": cstr(prev_from),
-			"to_date": cstr(prev_to),
-			"runs": sum(x["runs"] for x in prev_leaves),
-			"tokens": sum(x["tokens"] for x in prev_leaves),
-			"cost": flt(sum(x["cost"] for x in prev_leaves), 6),
-		},
+		"previous": {"from_date": cstr(prev_from), "to_date": cstr(prev_to), **_window_figures(prev_leaves)},
 		# This axis only; period_totals covers both.
 		"totals": totals,
 		"period_totals": _period_totals(from_d, to_d, filters),
