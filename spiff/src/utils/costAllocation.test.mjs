@@ -4,7 +4,8 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 
 import {
-	OTHER_COLOR, OTHER_KEY, assignColors, barWidth, bucketTotals, currentBucket, foldTail, monthColumns, pctChange,
+	OTHER_COLOR, OTHER_KEY, assignColors, barWidth, bucketTotals, chipOf, currentBucket, foldTail, monthColumns,
+	pctChange,
 	pricingLink, rankSlices, rowsOf,
 } from "./costAllocation.js"
 
@@ -74,4 +75,10 @@ test("month columns appear only for two to six months", () => {
 	assert.deepEqual(monthColumns(["2026-09"]), [])
 	assert.deepEqual(monthColumns(["2026-07", "2026-08", "2026-09"]), ["2026-07", "2026-08", "2026-09"])
 	assert.deepEqual(monthColumns(["1", "2", "3", "4", "5", "6", "7"]), [])
+})
+
+test("an agent row carries no department; a top-level process does", () => {
+	assert.equal(chipOf({ depth: 0, node: { kind: "agent", department: "Ops" } }, "chat_user"), "")
+	assert.equal(chipOf({ depth: 0, node: { kind: "process", department: "Ops" } }, "process_owner"), "Ops")
+	assert.equal(chipOf({ depth: 1, node: { kind: "user", department: "Ops" } }, "chat_user"), "")
 })
