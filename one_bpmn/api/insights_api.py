@@ -349,64 +349,23 @@ def get_agent_overview(
 	process_model: str = None,
 	origin: str = "production",
 ) -> dict:
-	"""Return the overview number cards for the from_date/to_date range and filters.
-	runs_today and active_errors always cover today only. The days parameter is ignored."""
+	"""Return the overview tiles for the from_date/to_date range and filters, with the previous period."""
 	frappe.only_for("System Manager")
 	if days is not None:
-		frappe.logger("one_bpmn").warning(
-			"get_agent_overview: 'days' parameter is deprecated and ignored; use from_date/to_date instead."
-		)
+		frappe.throw(_("days is not supported; pass from_date and to_date instead"))
 
 	from_d, to_d = _default_dates(from_date, to_date)
 	previous_from, previous_to = _previous_period(from_d, to_d)
 	grain = _grain_for(from_d, to_d)
 
-	Run = DocType("AI Agent Run")
-	today_date = getdate(today())
-
-	def _today_filter(status_value=None):
-		query = (
-			frappe.qb.from_(Run)
-			.select(fn.Count("*"))
-			.where(fn.Date(Run.started_at) == today_date)
-			.where(_origin_condition(Run, origin))
-		)
-		query = _apply_common_filters(query, Run, model, provider, process_model, agent_configuration)
-		if status_value:
-			query = query.where(Run.status == status_value)
-		return cint(query.run()[0][0])
-
-	runs_today = _today_filter()
-	active_errors = _today_filter("Error")
-
 	current = _usage_totals(from_d, to_d, origin, model, provider, process_model, agent_configuration)
 	previous = _usage_totals(previous_from, previous_to, origin, model, provider, process_model, agent_configuration)
 	delta = _compute_deltas(current, previous)
-
-	# Avg latency of successful runs over the range; legacy key, not part of _usage_totals.
-	avg_latency_query = (
-		frappe.qb.from_(Run)
-		.select(fn.Avg(Run.duration_ms))
-		.where(fn.Date(Run.started_at) >= from_d)
-		.where(fn.Date(Run.started_at) <= to_d)
-		.where(_origin_condition(Run, origin))
-		.where(Run.status == "Success")
-	)
-	avg_latency_query = _apply_common_filters(avg_latency_query, Run, model, provider, process_model, agent_configuration)
-	avg_latency = cint(avg_latency_query.run()[0][0])
 
 	daily_rows = _daily_metric_rows(from_d, to_d, origin, model, provider, process_model, agent_configuration)
 	sparklines = _bucketed_series(from_d, to_d, daily_rows, grain)
 
 	return {
-		# Legacy keys, unchanged shape:
-		"runs_today": runs_today,
-		"success_rate": current["success_rate"],
-		"total_cost": current["cost"],
-		"active_errors": active_errors,
-		"avg_latency_ms": avg_latency,
-		"total_tokens": current["tokens"],
-		# New range/comparison data:
 		"from_date": cstr(from_d),
 		"to_date": cstr(to_d),
 		"previous_from": cstr(previous_from),
@@ -423,27 +382,17 @@ def get_agent_overview(
 # 2. Cost & Token report
 # ---------------------------------------------------------------------------
 
-@frappe.whitelist()
-def get_cost_token_report(
-	from_date: str = None,
-	to_date: str = None,
+def _daily_cost_rows(
+	from_d,
+	to_d,
+	origin: str,
+	group_by: str,
 	model: str = None,
 	provider: str = None,
 	process_model: str = None,
 	agent_configuration: str = None,
-	origin: str = "production",
-	group_by: str = "model",
-) -> dict:
-	"""Return daily cost/token data grouped by date and model — or, since
-	AI tasks are done by AI Agents (WI-001608), grouped by the run's
-	AI Agent Configuration when ``group_by="agent"``. Runs recorded before
-	agent attribution existed appear as "Unattributed"."""
-	frappe.only_for("System Manager")
-	group_by = group_by if group_by in ("model", "agent") else "model"
-	from_d, to_d = _default_dates(from_date, to_date)
-	previous_from, previous_to = _previous_period(from_d, to_d)
-	grain = _grain_for(from_d, to_d)
-
+) -> list:
+	"""One row per date, series and provider with runs, tokens and costs, for the chart and the export."""
 	Run = DocType("AI Agent Run")
 
 	# The series dimension: model (classic) or the run's agent.
@@ -468,7 +417,7 @@ def get_cost_token_report(
 		.where(_origin_condition(Run, origin))
 		# Running runs ARE included: selector runs stay "Running" for the
 		# whole life of their subprocess and their token/cost rollups are
-		# refreshed after every decision — excluding them hid all selector
+		# refreshed after every decision; excluding them hid all selector
 		# spend until (if ever) the subprocess completed. Success-rate and
 		# reliability reports still exclude Running, correctly.
 		.orderby(fn.Date(Run.started_at))
@@ -478,9 +427,7 @@ def get_cost_token_report(
 
 	raw_rows = query.run(as_dict=True)
 
-	# Build rows with safe number conversions. "series" is the grouped
-	# dimension's display value; "model" keeps carrying it too so the
-	# existing frontend bindings keep working in both modes.
+	# "series" is the grouped dimension's display value.
 	unattributed = "Unattributed"
 	rows = []
 	for r in raw_rows:
@@ -488,7 +435,6 @@ def get_cost_token_report(
 		rows.append({
 			"date": cstr(r.get("date")),
 			"series": series,
-			"model": series,
 			"provider": cstr(r.get("provider")),
 			"total_runs": cint(r.get("total_runs")),
 			"total_tokens": cint(r.get("total_tokens")),
@@ -498,6 +444,30 @@ def get_cost_token_report(
 			"input_cost": flt(r.get("input_cost"), 6),
 			"output_cost": flt(r.get("output_cost"), 6),
 		})
+	return rows
+
+
+@frappe.whitelist()
+def get_cost_token_report(
+	from_date: str = None,
+	to_date: str = None,
+	model: str = None,
+	provider: str = None,
+	process_model: str = None,
+	agent_configuration: str = None,
+	origin: str = "production",
+	group_by: str = "model",
+) -> dict:
+	"""Cost and tokens by model, or by the run's AI Agent Configuration when ``group_by="agent"``,
+	as chart buckets, series rows and totals against the previous period.
+	Runs recorded before agent attribution existed appear as "Unattributed"."""
+	frappe.only_for("System Manager")
+	group_by = group_by if group_by in ("model", "agent") else "model"
+	from_d, to_d = _default_dates(from_date, to_date)
+	previous_from, previous_to = _previous_period(from_d, to_d)
+	grain = _grain_for(from_d, to_d)
+
+	rows = _daily_cost_rows(from_d, to_d, origin, group_by, model, provider, process_model, agent_configuration)
 
 	# Pivot chart_data by the grouped dimension per day, week or month bucket.
 	bucket_labels = _bucket_labels(from_d, to_d, grain)
@@ -514,16 +484,10 @@ def get_cost_token_report(
 	datasets = []
 	for m in sorted(series_seen):
 		datasets.append({
-			"model": m,  # legacy key the chart legend binds to
 			"label": m,
 			"values": [flt(series_bucket_cost[m].get(b, 0), 6) for b in bucket_labels],
 			"tokens": [cint(series_bucket_tokens[m].get(b, 0)) for b in bucket_labels],
 		})
-
-	# Summary keeps the legacy shape.
-	summary_cost = sum(r["total_cost"] for r in rows)
-	summary_runs = sum(r["total_runs"] for r in rows)
-	summary_tokens = sum(r["total_tokens"] for r in rows)
 
 	current = _usage_totals(from_d, to_d, origin, model, provider, process_model, agent_configuration)
 	previous = _usage_totals(previous_from, previous_to, origin, model, provider, process_model, agent_configuration)
@@ -546,15 +510,9 @@ def get_cost_token_report(
 	filter_options = _filter_options(from_d, to_d, origin)
 
 	return {
-		"rows": rows,
 		"chart_data": {
 			"labels": bucket_labels,
 			"datasets": datasets,
-		},
-		"summary": {
-			"total_cost": flt(summary_cost, 6),
-			"total_runs": summary_runs,
-			"total_tokens": summary_tokens,
 		},
 		"from_date": cstr(from_d),
 		"to_date": cstr(to_d),
@@ -598,29 +556,22 @@ def export_cost_token_report(
 	if fmt not in ("csv", "xlsx"):
 		frappe.throw(_("fmt must be 'csv' or 'xlsx'"))
 
-	report = get_cost_token_report(
-		from_date=from_date,
-		to_date=to_date,
-		model=model,
-		provider=provider,
-		process_model=process_model,
-		agent_configuration=agent_configuration,
-		origin=origin,
-		group_by=group_by,
-	)
+	group_by = group_by if group_by in ("model", "agent") else "model"
+	from_d, to_d = _default_dates(from_date, to_date)
+	rows = _daily_cost_rows(from_d, to_d, origin, group_by, model, provider, process_model, agent_configuration)
 
 	header = [
 		_("Date"), _("Series"), _("Provider"), _("Runs"), _("Total Tokens"),
 		_("Avg Tokens"), _("Total Cost"), _("Avg Cost"), _("Input Cost"), _("Output Cost"),
 	]
 	data = [header]
-	for r in report["rows"]:
+	for r in rows:
 		data.append([
 			r["date"], r["series"], r["provider"], r["total_runs"], r["total_tokens"],
 			r["avg_tokens"], r["total_cost"], r["avg_cost"], r["input_cost"], r["output_cost"],
 		])
 
-	stem = f"usage-{group_by}-{report['from_date']}-to-{report['to_date']}"
+	stem = f"usage-{group_by}-{from_d}-to-{to_d}"
 	if fmt == "xlsx":
 		from frappe.utils.xlsxutils import make_xlsx
 
@@ -1210,6 +1161,7 @@ def get_performance_report(
 	agent_configuration: str = None,
 	origin: str = "production",
 	group_by: str = "model",
+	provider: str | None = None,
 ) -> dict:
 	"""Return latency/throughput data with percentiles, grouped by model +
 	bpmn_id — or by the run's AI Agent Configuration + bpmn_id when
@@ -1236,6 +1188,8 @@ def get_performance_report(
 	)
 	if model:
 		duration_query = duration_query.where(Run.model == model)
+	if provider:
+		duration_query = duration_query.where(Run.provider == provider)
 	if bpmn_id:
 		duration_query = duration_query.where(Run.bpmn_id == bpmn_id)
 	if process_model:
@@ -1258,6 +1212,8 @@ def get_performance_report(
 	)
 	if model:
 		step_counts_query = step_counts_query.where(Run.model == model)
+	if provider:
+		step_counts_query = step_counts_query.where(Run.provider == provider)
 	if bpmn_id:
 		step_counts_query = step_counts_query.where(Run.bpmn_id == bpmn_id)
 	if process_model:
@@ -2396,6 +2352,22 @@ def _delegation_chain_instances(root_instances: list) -> tuple[list, bool]:
 	# from being flagged as short.
 	truncated = any(i not in all_instances for i in _delegated_instances(frontier))
 	return all_instances, truncated
+
+
+@frappe.whitelist()
+def search_orchestrator_work_items(query: str | None = None) -> list:
+	"""Orchestrator Work Items whose name or title matches query, newest first, for the Work Items tab picker."""
+	frappe.only_for("System Manager")
+	# Only Orchestrator work items reach an agent; any other would report a cost of zero.
+	or_filters = [["name", "like", f"%{query}%"], ["title", "like", f"%{query}%"]] if query else None
+	return frappe.get_list(
+		"Work Item",
+		fields=["name", "title"],
+		filters={"orchestrator": 1},
+		or_filters=or_filters,
+		order_by="modified desc",
+		limit_page_length=20,
+	)
 
 
 @frappe.whitelist()

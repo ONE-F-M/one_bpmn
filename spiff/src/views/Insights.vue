@@ -114,9 +114,7 @@
 							/>
 							<PerformanceReport
 								v-if="tab.key === 'performance'"
-								:from-date="fromDate"
-								:to-date="toDate"
-								:origin="origin"
+								v-bind="reportProps"
 							/>
 							<CostAllocationReport
 								v-if="tab.key === 'allocation'"

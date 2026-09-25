@@ -24,6 +24,8 @@ from one_bpmn.api.insights_api import (
 	export_cost_token_report,
 	get_agent_overview,
 	get_cost_token_report,
+	get_performance_report,
+	search_orchestrator_work_items,
 )
 
 test_ignore = ["BPMN Process Instance", "BPMN Process Model"]
@@ -277,9 +279,16 @@ class TestInsightsUsage(FrappeTestCase):
 			self.assertRaises(frappe.PermissionError, get_agent_overview)
 			self.assertRaises(frappe.PermissionError, get_cost_token_report)
 			self.assertRaises(frappe.PermissionError, export_cost_token_report)
+			self.assertRaises(frappe.PermissionError, search_orchestrator_work_items)
 		finally:
 			frappe.flags.in_test = True
 			frappe.set_user("Administrator")
+
+	def test_work_item_search_lists_only_orchestrator_items(self):
+		names = [w["name"] for w in search_orchestrator_work_items()]
+		others = frappe.get_all("Work Item", filters={"orchestrator": 0, "name": ["in", names]}, pluck="name") if names else []
+		self.assertEqual(others, [])
+		self.assertLessEqual(len(names), 20)
 
 	# -- export -----------------------------------------------------------
 
@@ -288,7 +297,6 @@ class TestInsightsUsage(FrappeTestCase):
 		self._make_run(model, "2026-09-10 08:00:00", cost=1.0, tokens=10)
 		self._make_run(model, "2026-09-11 08:00:00", cost=2.0, tokens=20)
 
-		report = get_cost_token_report(from_date="2026-09-01", to_date="2026-09-30", model=model)
 		export_cost_token_report(from_date="2026-09-01", to_date="2026-09-30", model=model, fmt="csv")
 
 		self.assertEqual(frappe.response["type"], "binary")
@@ -299,7 +307,7 @@ class TestInsightsUsage(FrappeTestCase):
 
 		text = content.decode("utf-8-sig")
 		lines = list(csv.reader(io.StringIO(text)))
-		self.assertEqual(len(lines), len(report["rows"]) + 1)
+		self.assertEqual(len(lines), 3, "a header plus one row per day")
 
 	def test_xlsx_export_returns_a_file(self):
 		model = f"usage-xlsx-{frappe.generate_hash(length=6)}"
@@ -314,23 +322,40 @@ class TestInsightsUsage(FrappeTestCase):
 
 	# -- legacy keys --------------------------------------------------------
 
-	def test_legacy_keys_still_present(self):
+	def test_legacy_keys_are_gone(self):
 		model = f"usage-legacy-{frappe.generate_hash(length=6)}"
 		self._make_run(model, "2026-09-10 08:00:00", cost=1.5, tokens=30)
 		self._make_run(model, "2026-09-11 08:00:00", cost=2.5, tokens=70)
 		filters = {"from_date": "2026-09-01", "to_date": "2026-09-30", "model": model}
 
 		overview = get_agent_overview(**filters)
-		for key in ("runs_today", "active_errors", "avg_latency_ms"):
-			self.assertIn(key, overview)
-		self.assertEqual(overview["total_cost"], 4.0)
-		self.assertEqual(overview["total_tokens"], 100)
-		self.assertEqual(overview["success_rate"], 100.0)
+		for key in ("runs_today", "active_errors", "avg_latency_ms", "success_rate", "total_cost", "total_tokens"):
+			self.assertNotIn(key, overview)
+		self.assertEqual(overview["current"]["cost"], 4.0)
 
 		report = get_cost_token_report(**filters)
-		self.assertEqual(len(report["rows"]), 2)
-		self.assertEqual(report["summary"], {"total_cost": 4.0, "total_runs": 2, "total_tokens": 100})
+		self.assertNotIn("rows", report)
+		self.assertNotIn("summary", report)
 		self.assertEqual(len(report["chart_data"]["labels"]), 30)
 		datasets = report["chart_data"]["datasets"]
-		self.assertEqual([d["model"] for d in datasets], [model])
+		self.assertEqual([d["label"] for d in datasets], [model])
+		self.assertNotIn("model", datasets[0])
 		self.assertEqual(sum(datasets[0]["values"]), 4.0)
+
+	def test_performance_report_filters_by_provider(self):
+		model = f"usage-perf-{frappe.generate_hash(length=6)}"
+		for provider in ("usage-perf-a", "usage-perf-b"):
+			if not frappe.db.exists("AI Provider", provider):
+				frappe.get_doc({"doctype": "AI Provider", "provider": provider}).insert(ignore_permissions=True)
+		self._make_run(model, "2026-09-10 08:00:00", provider="usage-perf-a", duration_ms=1000)
+		self._make_run(model, "2026-09-10 09:00:00", provider="usage-perf-b", duration_ms=3000)
+
+		report = get_performance_report(
+			from_date="2026-09-01", to_date="2026-09-30", model=model, provider="usage-perf-a"
+		)
+
+		self.assertEqual(sum(row["runs"] for row in report["rows"]), 1)
+
+	def test_days_is_rejected(self):
+		with self.assertRaises(frappe.ValidationError):
+			get_agent_overview(days=7)
