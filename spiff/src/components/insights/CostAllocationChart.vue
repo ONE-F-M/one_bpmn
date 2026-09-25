@@ -1,5 +1,5 @@
 <template>
-	<div class="bg-white rounded-lg shadow-sm p-2 sm:p-4">
+	<div class="bg-white rounded-lg border border-gray-200 p-2 sm:p-4">
 		<div
 			class="alloc-chart"
 			:style="heightStyle"
