@@ -161,7 +161,20 @@ class TestErrorReport(FrappeTestCase):
 		self.assertEqual(report["summary"]["previous_error_rate"], 50.0)
 		self.assertEqual(report["summary"]["previous_errors"], 1)
 		self.assertEqual(report["summary"]["delta_pt"], -25.0)
+		self.assertEqual(report["summary"]["errors_delta"], 0.0)
 		self.assertEqual(report["issues"][0]["delta_pt"], -25.0)
+		self.assertEqual(report["previous_to"], "2026-08-31")
+
+	def test_retry_recovery_delta_is_in_points(self):
+		self._run("2026-08-28", "Success", retry_count=1)
+		self._run("2026-08-28", "Error", self.code("Q"), retry_count=1)
+		self._run("2026-09-02", "Success", retry_count=1)
+
+		summary = self._report()["summary"]
+
+		self.assertEqual(summary["retry_recovery_rate"], 100.0)
+		self.assertEqual(summary["retry_recovery_delta_pt"], 50.0)
+		self.assertEqual(summary["errors_delta"], -100.0)
 
 	def test_no_previous_runs_leaves_the_delta_empty(self):
 		self._run("2026-09-02", "Error", self.code("N"))
@@ -169,6 +182,8 @@ class TestErrorReport(FrappeTestCase):
 		report = self._report()
 
 		self.assertIsNone(report["summary"]["delta_pt"])
+		self.assertIsNone(report["summary"]["errors_delta"])
+		self.assertIsNone(report["summary"]["retry_recovery_delta_pt"])
 		self.assertIsNone(report["summary"]["previous_error_rate"])
 		self.assertIsNone(report["issues"][0]["delta_pt"])
 
