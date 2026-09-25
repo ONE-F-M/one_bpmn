@@ -8,6 +8,13 @@
 					</th>
 					<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Runs</th>
 					<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Tokens</th>
+					<th
+						v-for="m in months"
+						:key="m"
+						class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3 whitespace-nowrap"
+					>
+						{{ monthHeader(m) }}
+					</th>
 					<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">
 						<span class="inline-flex items-center gap-1">
 							Cost
@@ -26,6 +33,8 @@
 					v-for="row in rows"
 					:key="row.path"
 					class="border-b border-gray-100 hover:bg-gray-50"
+					:class="{ 'cursor-pointer': row.hasChildren }"
+					@click="onRowClick(row)"
 				>
 					<td class="py-2.5 px-3 text-sm text-gray-900">
 						<div
@@ -34,10 +43,10 @@
 						>
 							<button
 								v-if="row.hasChildren"
-								class="text-gray-400 hover:text-gray-600"
+								class="text-gray-400 hover:text-gray-600 shrink-0"
 								:aria-expanded="row.open"
 								:aria-label="toggleLabelOf(row)"
-								@click="emit('toggle', row.path)"
+								@click.stop="emit('toggle', row.path)"
 							>
 								<Icon
 									:icon="chevronOf(row)"
@@ -46,7 +55,7 @@
 							</button>
 							<span
 								v-else
-								class="w-4"
+								class="w-4 shrink-0"
 							></span>
 							<span
 								v-if="row.depth === 0"
@@ -56,22 +65,21 @@
 							<Avatar
 								v-if="isPerson(row.node)"
 								size="sm"
-								:label="row.node.label"
+								:label="nameOf(row.node)"
 							/>
-							<div class="min-w-0">
-								<div
-									class="truncate"
-									:class="{ 'font-medium': row.depth === 0 }"
-								>
-									{{ row.node.label }}
-								</div>
-								<div
-									v-if="subtitleOf(row.node, axis)"
-									class="text-xs text-gray-500 truncate"
-								>
-									{{ subtitleOf(row.node, axis) }}
-								</div>
-							</div>
+							<span
+								class="truncate"
+								:class="{ 'font-medium': row.depth === 0 }"
+							>{{ nameOf(row.node) }}</span>
+							<span
+								v-if="row.node.name"
+								class="text-xs text-gray-500 truncate hidden md:inline"
+							>{{ row.node.label }}</span>
+							<Badge
+								v-if="chipOf(row)"
+								size="sm"
+								:label="chipOf(row)"
+							/>
 						</div>
 					</td>
 					<td class="py-2.5 px-3 text-sm text-gray-600 text-right">{{ fmtInt(row.node.runs) }}</td>
@@ -80,6 +88,13 @@
 						:title="fmtInt(row.node.tokens)"
 					>
 						{{ fmtCompact(row.node.tokens) }}
+					</td>
+					<td
+						v-for="m in months"
+						:key="m"
+						class="py-2.5 px-3 text-sm text-gray-600 text-right"
+					>
+						{{ monthCost(row.node, m) }}
 					</td>
 					<td
 						class="py-2.5 px-3 text-sm text-gray-900 text-right font-medium"
@@ -91,7 +106,7 @@
 						<div class="flex items-center gap-2">
 							<ShareBar
 								class="flex-1"
-								:share="row.node.share"
+								:share="barWidth(row.node, tree)"
 								:color="colors[row.rootKey]"
 							/>
 							<span class="text-xs text-gray-500 w-10 text-right">{{ fmtPct(row.node.share, 0) }}</span>
@@ -116,6 +131,13 @@
 						{{ fmtCompact(totals.tokens) }}
 					</td>
 					<td
+						v-for="m in months"
+						:key="m"
+						class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold"
+					>
+						{{ fmtCurrency(monthTotal(m)) }}
+					</td>
+					<td
 						class="py-2.5 px-3 text-sm text-gray-900 text-right font-bold"
 						:title="fmtCurrencyExact(totals.cost)"
 					>
@@ -136,12 +158,15 @@
 
 <script setup>
 import { computed } from "vue"
-import { Avatar } from "frappe-ui"
+import { Avatar, Badge } from "frappe-ui"
 import { Icon } from "@iconify/vue"
+import { dayjs } from "@/dayjs"
 import DeltaPill from "@/components/insights/DeltaPill.vue"
 import ShareBar from "@/components/insights/ShareBar.vue"
 import { fmtCompact, fmtCurrency, fmtCurrencyExact, fmtInt, fmtPct } from "@/utils/formatters"
-import { chevronOf, indentOf, subtitleOf, toggleLabelOf, totalLabel } from "@/utils/costAllocation"
+import {
+	barWidth, chevronOf, indentOf, monthColumns, nameOf, subtitleOf, toggleLabelOf, totalLabel,
+} from "@/utils/costAllocation"
 
 const props = defineProps({
 	report: { type: Object, required: true },
@@ -153,10 +178,29 @@ const props = defineProps({
 const emit = defineEmits(["toggle"])
 
 const axis = computed(() => props.report.axis)
+const tree = computed(() => props.report.tree)
 const totals = computed(() => props.report.totals)
+const months = computed(() => monthColumns(props.report.months))
 
+function onRowClick(row) {
+	if (row.hasChildren) emit("toggle", row.path)
+}
 function isPerson(node) {
 	return node.kind === "owner" || node.kind === "user"
+}
+function chipOf(row) {
+	if (row.node.kind === "department" || row.node.kind === "more") return subtitleOf(row.node, axis.value)
+	return row.depth === 0 ? row.node.department : ""
+}
+function monthHeader(m) {
+	const label = dayjs(`${m}-01`).format("MMM YYYY")
+	return m === dayjs().format("YYYY-MM") ? `${label} (to date)` : label
+}
+function monthCost(node, m) {
+	return node.by_month[m] ? fmtCurrency(node.by_month[m]) : ""
+}
+function monthTotal(m) {
+	return tree.value.reduce((t, n) => t + n.by_month[m], 0)
 }
 </script>
 

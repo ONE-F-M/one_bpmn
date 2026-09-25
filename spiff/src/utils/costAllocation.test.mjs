@@ -4,7 +4,8 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 
 import {
-	OTHER_COLOR, OTHER_KEY, assignColors, bucketTotals, currentBucket, foldTail, pctChange, pricingLink, rankSlices, rowsOf,
+	OTHER_COLOR, OTHER_KEY, assignColors, barWidth, bucketTotals, currentBucket, foldTail, monthColumns, pctChange,
+	pricingLink, rankSlices, rowsOf,
 } from "./costAllocation.js"
 
 const node = (key, cost, children = []) => ({ key, label: key, cost, share: cost, by_bucket: { w1: cost }, children })
@@ -61,4 +62,16 @@ test("each bucket totals every series, and the bucket holding today is the one s
 test("donut slices rank by value with whole percentages", () => {
 	const ranked = rankSlices([{ key: "b", value: 1 }, { key: "a", value: 3 }])
 	assert.deepEqual(ranked.map((s) => [s.key, s.pct]), [["a", 75], ["b", 25]])
+})
+
+test("the largest top-level share fills the bar and the rest scale to it", () => {
+	const tree = [{ share: 60 }, { share: 30 }]
+	assert.equal(barWidth(tree[0], tree), 100)
+	assert.equal(barWidth(tree[1], tree), 50)
+})
+
+test("month columns appear only for two to six months", () => {
+	assert.deepEqual(monthColumns(["2026-09"]), [])
+	assert.deepEqual(monthColumns(["2026-07", "2026-08", "2026-09"]), ["2026-07", "2026-08", "2026-09"])
+	assert.deepEqual(monthColumns(["1", "2", "3", "4", "5", "6", "7"]), [])
 })
