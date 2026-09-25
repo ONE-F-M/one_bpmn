@@ -370,23 +370,22 @@ class TestInsightsAllocation(FrappeTestCase):
 		self.assertEqual(flt(owner["cost"], 2), 4.25)  # both runs of the shared chat
 		self.assertEqual(flt(other["cost"], 2), 2.5)
 
-	def test_conversation_titles_never_leave_the_detail_rows(self):
-		report = _report(axis="chat_user")
-		for key in ("tree", "agents", "totals"):
-			self.assertNotIn(TITLE_MARK, json.dumps(report[key]))
-		self.assertIn(TITLE_MARK, json.dumps(report["rows"]))
+	def test_conversation_titles_reach_only_the_export(self):
+		for group_by in ("department", "user", "agent"):
+			report = _report(axis="chat_user", group_by=group_by)
+			self.assertNotIn(TITLE_MARK, json.dumps(report))
+		detail = _workbook(axis="chat_user", from_date=A_FROM, to_date=A_TO)["Detail"]
+		self.assertIn(TITLE_MARK, json.dumps([[c.value for c in row] for row in detail.rows]))
 
 	# Contract
-	def test_the_keys_the_current_tab_reads_are_still_there(self):
+	def test_the_flat_rows_leave_the_response(self):
 		report = _report()
-		for key in ("rows", "period_totals", "models_missing_pricing", "totals"):
+		self.assertNotIn("rows", report)
+		for key in ("period_totals", "models_missing_pricing", "totals", "tree"):
 			self.assertIn(key, report)
 		for key in ("runs", "tokens", "cost", "people", "departments"):
 			self.assertIn(key, report["totals"])
 		self.assertIn("alloc-t-unpriced", report["models_missing_pricing"])
-		self.assertEqual(sorted(report["rows"][0]),
-		                 ["cost", "department", "month", "person", "runs", "subject",
-		                  "subject_label", "tokens"])
 
 	def test_the_process_filter_narrows_every_number(self):
 		report = _report(process_model=ROSTER_MODEL)
@@ -409,10 +408,9 @@ class TestInsightsAllocation(FrappeTestCase):
 			self.assertRaises(frappe.PermissionError, export_cost_allocation, A_FROM, A_TO)
 
 	def test_the_export_carries_the_summary_and_the_detail(self):
-		import openpyxl
-
-		export_cost_allocation(from_date=C_FROM, to_date=C_TO, fmt="xlsx")
-		book = openpyxl.load_workbook(BytesIO(frappe.response["filecontent"]))
+		exported = export_cost_allocation(from_date=C_FROM, to_date=C_TO, fmt="xlsx")
+		self.assertEqual(exported["filename"], f"cost-allocation-process_owner-{C_FROM}-to-{C_TO}.xlsx")
+		book = _workbook(from_date=C_FROM, to_date=C_TO)
 		self.assertEqual(book.sheetnames, ["Summary", "Detail"])
 
 		summary = [[c.value for c in row] for row in book["Summary"].rows]
@@ -428,6 +426,15 @@ def _report(axis="process_owner", group_by=None, from_date=A_FROM, to_date=A_TO,
             origin="production", process_model=None) -> dict:
 	return get_cost_allocation(from_date=from_date, to_date=to_date, axis=axis,
 	                           group_by=group_by, origin=origin, process_model=process_model)
+
+
+def _workbook(**kwargs):
+	import base64
+
+	import openpyxl
+
+	content = export_cost_allocation(fmt="xlsx", **kwargs)["content"]
+	return openpyxl.load_workbook(BytesIO(base64.b64decode(content)))
 
 
 def _tree(**kwargs) -> list:

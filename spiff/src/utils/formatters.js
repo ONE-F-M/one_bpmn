@@ -65,13 +65,22 @@ export function fmtPct(v, decimals = 1) {
 
 export function fmtDelta(v, kind) {
 	if (v === null || v === undefined) return "new"
-	const decimals = kind === "pct" ? 0 : 1
+	const decimals = kind === "pct" || kind === "count" ? 0 : 1
 	const scaled = Math.round(toNum(v) * 10 ** decimals)
 	const sign = scaled < 0 ? "-" : "+"
 	const abs = (Math.abs(scaled) / 10 ** decimals).toFixed(decimals)
 	if (kind === "pct") return `${sign}${abs}%`
 	if (kind === "pt") return `${sign}${abs} pt`
 	return `${sign}${abs}`
+}
+
+// "Sep 1 - 21" inside one month, "Sep 28 - Oct 4" across two.
+export function fmtDateRange(from, to) {
+	const start = new Date(`${from}T00:00:00`)
+	const end = new Date(`${to}T00:00:00`)
+	const month = (d) => d.toLocaleString("en-US", { month: "short" })
+	const sameMonth = start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth()
+	return `${month(start)} ${start.getDate()} - ${sameMonth ? "" : `${month(end)} `}${end.getDate()}`
 }
 
 export function fmtDuration(ms) {

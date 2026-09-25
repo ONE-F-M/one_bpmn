@@ -1,0 +1,87 @@
+// Pure helpers for the Cost Allocation tab, unit-tested in costAllocation.test.mjs.
+
+export const OTHER_KEY = "__other__"
+export const OTHER_COLOR = "#9ca3af"
+const SERIES_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
+export const MAX_SERIES = SERIES_COLORS.length
+
+export function subtitleOf(node, axis) {
+	if (node.kind === "more") return `${node.count} not shown`
+	if (node.kind !== "department") return ""
+	return axis === "chat_user"
+		? `${node.users} users · ${node.conversations} conversations`
+		: `${node.owners} owners · ${node.processes} processes`
+}
+
+export function totalLabel(axis) {
+	return `Total ${axis === "chat_user" ? "chat" : "process"} spend`
+}
+
+// The heaviest `cap` nodes stay; the rest fold into one "Other" entry that keeps their money.
+export function foldTail(nodes, cap) {
+	const top = nodes.slice(0, cap)
+	const rest = nodes.slice(cap)
+	if (!rest.length) return top
+	const byBucket = {}
+	for (const node of rest) {
+		for (const [bucket, cost] of Object.entries(node.by_bucket)) {
+			byBucket[bucket] = (byBucket[bucket] || 0) + cost
+		}
+	}
+	const cost = rest.reduce((sum, node) => sum + node.cost, 0)
+	return [...top, { key: OTHER_KEY, label: "Other", cost, by_bucket: byBucket }]
+}
+
+// A key keeps its remembered slot while it stays on screen; newcomers take the lowest free slot.
+export function assignColors(keys, memo) {
+	const taken = new Set()
+	const out = { [OTHER_KEY]: OTHER_COLOR }
+	for (const key of keys) {
+		const slot = memo.get(key)
+		if (slot !== undefined && !taken.has(slot)) {
+			taken.add(slot)
+			out[key] = SERIES_COLORS[slot]
+		}
+	}
+	for (const key of keys.filter((k) => !(k in out))) {
+		let slot = 0
+		while (taken.has(slot)) slot += 1
+		memo.set(key, slot)
+		taken.add(slot)
+		out[key] = SERIES_COLORS[slot]
+	}
+	return out
+}
+
+// The tree flattened to the rows on screen: children appear only under an open parent.
+export function rowsOf(tree, expanded) {
+	const out = []
+	const walk = (nodes, depth, prefix, rootKey) => {
+		for (const node of nodes) {
+			const path = `${prefix}/${node.key || node.label}`
+			const root = depth === 0 ? node.key : rootKey
+			const hasChildren = node.children.length > 0
+			const open = hasChildren && expanded.has(path)
+			out.push({ path, depth, node, rootKey: root, hasChildren, open })
+			if (open) walk(node.children, depth + 1, path, root)
+		}
+	}
+	walk(tree, 0, "", "")
+	return out
+}
+
+export function chevronOf(row) {
+	return row.open ? "lucide:chevron-down" : "lucide:chevron-right"
+}
+
+export function toggleLabelOf(row) {
+	return `Toggle ${row.node.label}`
+}
+
+export function indentOf(row, step) {
+	return { paddingLeft: `${row.depth * step}px` }
+}
+
+export function pctChange(now, before) {
+	return before ? ((now - before) / before) * 100 : null
+}
