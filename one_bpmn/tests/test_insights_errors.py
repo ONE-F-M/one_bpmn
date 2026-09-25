@@ -218,15 +218,15 @@ class TestErrorReport(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			get_issue_runs("only|three|parts", FROM, TO)
 
-	def test_the_legacy_keys_stay_for_the_current_tab(self):
+	def test_the_legacy_keys_are_gone(self):
 		self._run("2026-09-02", "Error", self.code("L"))
 
 		report = self._report()
 
-		self.assertIn("rows", report)
-		self.assertIn("error_breakdown", report)
+		self.assertNotIn("rows", report)
+		self.assertNotIn("error_breakdown", report)
 		for key in ("total_errors", "most_common_error", "worst_element"):
-			self.assertIn(key, report["summary"])
+			self.assertNotIn(key, report["summary"])
 
 	def test_export_writes_one_row_per_issue(self):
 		self._run("2026-09-02", "Error", self.code("E1"))
