@@ -31,19 +31,10 @@
 		</div>
 		<ErrorMessage :message="exportError" />
 
-		<div
+		<CostAllocationPricingAlert
 			v-if="missingPricing.length"
-			class="bg-amber-50 text-amber-800 text-sm rounded-lg px-4 py-3"
-		>
-			<span class="font-medium">Cost may be under-reported.</span>
-			{{ pricingNote }}
-			<span class="font-mono text-xs">{{ missingPricing.join(", ") }}</span>
-			<a
-				class="underline ml-1"
-				href="/app/ai-model"
-				target="_blank"
-			>Add pricing on AI Model</a>
-		</div>
+			:models="missingPricing"
+		/>
 
 		<div
 			v-if="error"
@@ -122,6 +113,7 @@ import { Button, Dropdown, ErrorMessage, LoadingIndicator, TabButtons } from "fr
 import { Icon } from "@iconify/vue"
 import { useCostAllocation } from "@/composables/useCostAllocation"
 import { useWindowSize } from "@/composables/useWindowSize"
+import CostAllocationPricingAlert from "@/components/insights/CostAllocationPricingAlert.vue"
 import CostAllocationTiles from "@/components/insights/CostAllocationTiles.vue"
 import CostAllocationChart from "@/components/insights/CostAllocationChart.vue"
 import CostAllocationDonut from "@/components/insights/CostAllocationDonut.vue"
@@ -163,10 +155,6 @@ const groupButtons = computed(() =>
 
 const tree = computed(() => report.value.tree || [])
 const missingPricing = computed(() => report.value.models_missing_pricing || [])
-const pricingNote = computed(() => {
-	const one = missingPricing.value.length === 1
-	return `${missingPricing.value.length} ${one ? "model" : "models"} used in this period ${one ? "has" : "have"} no rate card, so ${one ? "its" : "their"} runs count as $0.00:`
-})
 // Labels follow the report on screen, not the toggle, until the new report arrives.
 const groupLabel = computed(() => report.value.group_by)
 const levelHeader = computed(() => LEVELS[report.value.axis][report.value.group_by].join(" / ").toUpperCase())
