@@ -1,38 +1,40 @@
 <template>
 	<div class="bg-white rounded-lg border border-gray-200 p-4">
-		<div class="flex items-baseline justify-between">
-			<h3 class="text-[13px] font-semibold text-gray-900">{{ title }}</h3>
+		<div class="flex items-baseline justify-between gap-3">
+			<h3 class="text-sm font-semibold text-gray-900">{{ title }}</h3>
 			<span
 				class="text-xs text-gray-500"
 				:title="fmtCurrencyExact(total)"
 			>{{ fmtCurrency(total) }}</span>
 		</div>
-		<div class="relative alloc-chart h-36 mt-1">
-			<ECharts :options="options" />
-			<div
-				class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center"
-			>
-				<div class="text-sm font-semibold text-gray-900">{{ top.pct }}%</div>
-				<div class="text-[11px] text-gray-500 truncate max-w-[84px]">{{ top.label }}</div>
+		<div class="flex items-center gap-2 h-[180px] sm:h-[260px]">
+			<div class="relative alloc-chart alloc-donut w-[112px] shrink-0 h-full">
+				<ECharts :options="options" />
+				<div
+					class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center"
+				>
+					<div class="text-sm font-semibold text-gray-900">{{ top.pct }}%</div>
+					<div class="text-[11px] text-gray-500 truncate max-w-[84px]">{{ top.label }}</div>
+				</div>
 			</div>
+			<ul class="flex-1 space-y-2 min-w-0">
+				<li
+					v-for="slice in ranked"
+					:key="slice.key"
+					class="flex items-center gap-1.5 text-[11px]"
+				>
+					<span
+						class="w-2 h-2 rounded-full shrink-0"
+						:style="dotStyleOf(slice)"
+					></span>
+					<span
+						class="truncate text-gray-600"
+						:title="slice.label"
+					>{{ slice.label }}</span>
+					<span class="ml-auto shrink-0 text-gray-500">{{ fmtCurrency(slice.value) }} · {{ slice.pct }}%</span>
+				</li>
+			</ul>
 		</div>
-		<ul class="mt-2 space-y-1">
-			<li
-				v-for="slice in ranked"
-				:key="slice.key"
-				class="flex items-center gap-2 text-xs"
-			>
-				<span
-					class="w-2 h-2 rounded-full shrink-0"
-					:style="dotStyleOf(slice)"
-				></span>
-				<span
-					class="truncate flex-1 text-gray-700"
-					:title="slice.label"
-				>{{ slice.label }}</span>
-				<span class="text-gray-500 whitespace-nowrap">{{ fmtCurrency(slice.value) }} · {{ slice.pct }}%</span>
-			</li>
-		</ul>
 	</div>
 </template>
 
@@ -58,7 +60,7 @@ function dotStyleOf(slice) {
 
 // The ring alone is drawn on the canvas; the centre and legend are HTML so long names never overlap it.
 const options = computed(() => ({
-	animation: true,
+	animation: false,
 	color: ranked.value.map((s) => props.colors[s.key]),
 	tooltip: {
 		trigger: "item",
@@ -68,7 +70,7 @@ const options = computed(() => ({
 	},
 	series: [{
 		type: "pie",
-		radius: ["62%", "88%"],
+		radius: ["58%", "82%"],
 		center: ["50%", "50%"],
 		itemStyle: { borderColor: "#ffffff", borderWidth: 2 },
 		label: { show: false },
@@ -78,4 +80,9 @@ const options = computed(() => ({
 }))
 </script>
 
-<style scoped></style>
+<style scoped>
+/* The shared chart root pads itself by 16px; the ring needs the whole column. */
+.alloc-donut :deep(> div) {
+	padding: 0;
+}
+</style>
