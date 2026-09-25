@@ -345,7 +345,6 @@ const WORKSPACE_EVENTS = new Set([
 // they carry no message of their own, so drawing them as a card puts
 // plumbing in the transcript. Hosts still receive them through agent-event.
 const HOST_ONLY_EVENTS = new Set([
-	"onefm.message_persisted",
 	"onefm.created_config",
 ]);
 
