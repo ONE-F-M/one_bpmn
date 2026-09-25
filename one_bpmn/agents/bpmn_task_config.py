@@ -43,7 +43,8 @@ SERVICE_TASK_KEYS: dict[str, tuple[str, ...]] = {
 	"apply_workflow": ("serviceTargetDoctype", "workflowState", "docStatus", "onlyAllowEdit"),
 	"send_email": (
 		"emailAccount", "emailUseDoctype", "emailDoctype", "emailSubject",
-		"emailTo", "emailToDocFields", "emailToRoles", "emailCc", "emailBcc", "emailBody",
+		"emailTo", "emailToDocFields", "emailToTableField", "emailToTableUserField",
+		"emailToRoles", "emailCc", "emailBcc", "emailBody",
 	),
 	"update_field": ("updateFieldDoctype", "updateFieldRows"),
 	"google_chat": (
