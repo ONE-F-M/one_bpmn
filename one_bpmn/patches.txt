@@ -192,3 +192,5 @@ one_bpmn.one_bpmn.patches.v1_0.backfill_frontend_agent_eval_fixtures #23-09-2026
 one_bpmn.one_bpmn.patches.v1_0.seed_lucrusher_eval_suite #23-09-2026 LuCrusher Baseline suite, six chat cases from process search to topology confirmation; cases 4 to 6 seed earlier turns through input_context
 one_bpmn.one_bpmn.patches.v1_0.drop_non_positive_ai_max_tokens #24-09-2026 remove aiMaxTokens 0, blank or negative from map shapes now that compile refuses them; runtime already used the default for these
 one_bpmn.one_bpmn.patches.v1_0.dedupe_resumed_run_steps #24-09-2026 delete turn steps a resume wrote again, zero turn cap steps that repeated the run tokens, and recalculate those runs from their remaining steps
+one_bpmn.one_bpmn.patches.v1_0.repoint_lucrusher_judge_model #26-09-2026 point LuCrusher Baseline judge checks at an enabled model; the seeded judge model is disabled on some sites
+one_bpmn.one_bpmn.patches.v1_0.mark_eval_chat_conversations #26-09-2026 flag chat conversations created by eval runs so the one-ai history sidebar leaves them out

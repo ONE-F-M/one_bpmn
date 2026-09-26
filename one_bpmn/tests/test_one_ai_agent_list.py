@@ -127,3 +127,14 @@ class TestOneAiConversationList(FrappeTestCase):
 		self.assertIn(mine_by_label, listed)
 		self.assertIn(mine_by_id, listed, "conversations recorded by agent id count too")
 		self.assertNotIn(someone_elses, listed)
+
+	def test_eval_conversations_are_left_out(self):
+		chat = self._conversation("General Chat")
+		eval_chat = self._conversation("General Chat")
+		frappe.db.set_value("Chat Conversation", eval_chat, "is_eval", 1)
+		self.addCleanup(frappe.db.delete, "Chat Conversation", {"name": ["in", [chat, eval_chat]]})
+
+		listed = {c["name"] for c in agui.list_conversations()}
+
+		self.assertIn(chat, listed)
+		self.assertNotIn(eval_chat, listed)
