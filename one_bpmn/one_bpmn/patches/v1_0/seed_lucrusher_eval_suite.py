@@ -13,8 +13,6 @@ import frappe
 AGENT_ID = "lucrusher_agent"
 SHAPE = "run_lucrusher_agent"
 SUITE_TITLE = "LuCrusher - Baseline"
-JUDGE_PROVIDER = "Anthropic"
-JUDGE_MODEL = "claude-sonnet-4-5-20250929"
 PASS_K = 5
 MIN_PASS_RATE = 90
 
@@ -72,13 +70,18 @@ def _call(order, tool, argument="", matcher="", value=""):
 
 
 def _judge(rubric):
-	return {
-		"assertion_type": "llm_judge",
-		"value": rubric,
-		"judge_provider": JUDGE_PROVIDER,
-		"judge_model": JUDGE_MODEL,
-		"pass_threshold": 4,
-	}
+	return {"assertion_type": "llm_judge", "value": rubric, "pass_threshold": 4}
+
+
+def judge_for(agent: str) -> tuple[str | None, str | None]:
+	"""The agent's own model when it is enabled, else any enabled model of the agent's provider."""
+	provider, model = frappe.db.get_value("AI Agent Configuration", agent, ["ai_provider", "ai_model"]) or (
+		None,
+		None,
+	)
+	if model and frappe.db.get_value("AI Model", model, "enable_model"):
+		return provider, model
+	return provider, frappe.db.get_value("AI Model", {"provider": provider, "enable_model": 1}, "name")
 
 
 IN_ORDER = {"assertion_type": "tool_calls", "value": "IN_ORDER"}
@@ -210,10 +213,11 @@ def execute():
 	if not agent or not process_model:
 		return
 
-	if not frappe.db.exists("AI Model", JUDGE_MODEL):
+	judge_provider, judge_model = judge_for(agent)
+	if not judge_model:
 		frappe.log_error(
-			title="seed_lucrusher_eval_suite: judge model missing",
-			message=f"No AI Model '{JUDGE_MODEL}' on this site; the llm_judge assertions will error until it exists.",
+			title="seed_lucrusher_eval_suite: no judge model",
+			message=f"No enabled AI Model for {agent}'s provider; the llm_judge assertions will error until one exists.",
 		)
 
 	suite = _suite(agent, process_model)
@@ -227,7 +231,15 @@ def execute():
 		case.bpmn_id = SHAPE
 		case.input_user_prompt = spec["prompt"]
 		case.input_context = json.dumps(spec["context"]) if spec["context"] else None
-		case.set("assertions", spec["assertions"])
+		case.set(
+			"assertions",
+			[
+				{**a, "judge_provider": judge_provider, "judge_model": judge_model}
+				if a["assertion_type"] == "llm_judge"
+				else a
+				for a in spec["assertions"]
+			],
+		)
 		case.set("expected_tool_calls", spec["calls"])
 		if existing:
 			case.save(ignore_permissions=True)
