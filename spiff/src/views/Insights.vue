@@ -51,23 +51,22 @@
 			</Tooltip>
 			<Tooltip :text="disabledReason(['provider'])">
 				<div>
-					<FormControl
+					<InsightsLinkFilter
 						v-model="provider"
-						type="select"
-						:options="withAll(__('All providers'), filterOptions.providers)"
+						:values="filterOptions.providers"
+						:placeholder="__('All providers')"
 						:disabled="isDisabled('provider')"
-						class="sm:w-44"
+						width-class="w-full sm:w-44"
 					/>
 				</div>
 			</Tooltip>
 			<Tooltip :text="disabledReason(['process'])">
 				<div>
-					<FormControl
+					<InsightsLinkFilter
 						v-model="processModel"
-						type="select"
-						:options="withAll(__('All processes'), filterOptions.processes)"
+						:values="filterOptions.processes"
+						:placeholder="__('All processes')"
 						:disabled="isDisabled('process')"
-						class="sm:w-48"
 					/>
 				</div>
 			</Tooltip>
@@ -136,6 +135,7 @@ import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 import { useWindowSize } from "@/composables/useWindowSize"
 
+import InsightsLinkFilter from "@/components/insights/InsightsLinkFilter.vue"
 import OverviewCards from "@/components/insights/OverviewCards.vue"
 import UsageReport from "@/components/insights/UsageReport.vue"
 import ErrorReport from "@/components/insights/ErrorReport.vue"
