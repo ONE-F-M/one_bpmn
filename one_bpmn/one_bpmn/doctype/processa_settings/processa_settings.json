@@ -16,6 +16,7 @@
   "ba_site_url",
   "ba_api_key",
   "ba_api_secret",
+  "ba_last_synced",
   "section_break_github",
   "github_token",
   "customization_app",
@@ -183,6 +184,12 @@
    "fieldtype": "Password",
    "label": "BA API Secret",
    "mandatory_depends_on": "eval:doc.enable_ba_sync==1"
+  },
+  {
+   "fieldname": "ba_last_synced",
+   "fieldtype": "DateTime",
+   "label": "Last Synced",
+   "read_only": 1
   },
   {
    "collapsible": 1,
@@ -436,35 +443,34 @@
   },
   {
    "default": "90",
-   "description": "Nightly prune. A never-corroborated memory with Importance 1 older than this many days is retired. 0 turns the rule off. Retired memories keep their row with the reason in metadata; memories the user asked to remember are never pruned.",
+   "description": "Nightly prune. A never-corroborated memory with Importance 1 older than this many days is retired. 0 turns the rule off. Retired memories keep their row with the reason_retired filled in for auditing.",
    "fieldname": "memory_prune_low_importance_days",
    "fieldtype": "Int",
    "label": "Prune Minor Facts After Days"
   },
   {
-   "default": "10000",
-   "description": "Daily check. When one scope key holds more memories than this, the Credential Alert Recipients (or every System Manager) are told that the exact-ranking search design needs review.",
+   "default": "5000",
+   "description": "Nightly audit. Raise an alert if one scope exceeds this many rows of memory. Use as a leading indicator of a memory that has diverged in the field (too many facts about too narrow a topic) or as a safety net if a memory eval fails to constrain scope. 0 means no alert.",
    "fieldname": "memory_scope_row_alert",
    "fieldtype": "Int",
    "label": "Alert When One Scope Exceeds"
   },
   {
-   "default": "500000",
-   "description": "Daily check. When the AI Memory table holds more rows than this in total, the same alert is sent.",
+   "default": "50000",
+   "description": "Nightly audit. Raise an alert if the total number of memories exceeds this many rows. A broad leading indicator of memory accumulation. 0 means no alert.",
    "fieldname": "memory_total_row_alert",
    "fieldtype": "Int",
    "label": "Alert When Total Rows Exceed"
   },
   {
    "collapsible": 1,
-   "description": "What happens to chat conversations nobody has touched for a while. Idle is measured from the newest message in the conversation, not from when the record was last written — a status change or a title edit is not activity. An agent's own memory threads are never swept: they are a running agent's working state, not a conversation somebody had.",
    "fieldname": "section_break_conversation_retention",
    "fieldtype": "Section Break",
    "label": "Conversation Retention"
   },
   {
    "default": "0",
-   "description": "Days a conversation may sit idle before the daily sweep acts on it. 0 disables retention entirely — nothing is archived or deleted.",
+   "description": "Automatic deletion. After this many days (0 = never), move the conversation to the Archived folder and then delete its row so the index stays tight. Runs as a background job weekly.",
    "fieldname": "conversation_ttl_days",
    "fieldtype": "Int",
    "label": "Conversation TTL (days)"
@@ -475,39 +481,41 @@
   },
   {
    "default": "Archive",
+   "description": "What to do with a TTL'd conversation: Archive it (move to the folder named Archived, deleting its row), or Delete it outright.",
    "depends_on": "eval:doc.conversation_ttl_days > 0",
-   "description": "Archive marks the conversation and leaves everything in place, so it can be read and restored. Delete removes the conversation and its messages permanently — that is the point of a retention policy, and it cannot be undone. Both are logged with counts.",
    "fieldname": "archive_action",
    "fieldtype": "Select",
    "label": "Action on Expiry",
    "options": "Archive\nDelete"
   },
   {
+   "collapsible": 1,
    "fieldname": "section_break_ai_health",
    "fieldtype": "Section Break",
-   "label": "AI Credential Health"
+   "label": "Credentials"
   },
   {
-   "description": "The users told when an AI Model's credentials stop working. Left empty, the alert goes to whoever last edited the model, or failing that to every System Manager.",
+   "description": "User Groups to alert if any AI Model's credentials are expiring or missing.",
    "fieldname": "ai_health_alert_recipients",
    "fieldtype": "Table MultiSelect",
    "label": "Credential Alert Recipients",
    "options": "User Group Member"
   },
   {
+   "collapsible": 1,
    "fieldname": "section_break_nightly_evals",
    "fieldtype": "Section Break",
    "label": "Nightly Evals"
   },
   {
-   "description": "Who hears when a scheduled eval falls short, besides the failing agent's own owner. Left empty it is every System Manager, which on this site includes service logins.",
+   "description": "User Groups to alert if an overnight eval run fails or spends over budget.",
    "fieldname": "eval_alert_recipients",
    "fieldtype": "Table MultiSelect",
    "label": "Eval Alert Recipients",
    "options": "User Group Member"
   },
   {
-   "description": "Model used to grade nightly eval answers when an assertion names none of its own.",
+   "description": "The model used for the automated test grading in evals. When blank, defaults to gpt-4o.",
    "fieldname": "nightly_eval_grading_model",
    "fieldtype": "Link",
    "label": "Nightly Eval Grading Model",
@@ -518,97 +526,94 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Most one night's sweep may spend, shared across the suites tagged Nightly. 0 means no ceiling.",
+   "default": "0",
+   "description": "Daily maximum spend on overnight evals. When this is exceeded, any running eval is cancelled and not restarted. 0 means no limit.",
    "fieldname": "nightly_eval_spend_cap",
    "fieldtype": "Currency",
    "label": "Nightly Eval Spend Ceiling"
   },
   {
-   "description": "Migrated from onefm_mcp's AI Chat Settings doctype (retired). Global fallback provider/tuning for an agent configuration that has no linked AI Provider yet — once every agent config links a provider directly, this stops being consulted.",
    "fieldname": "llm_defaults_tab",
    "fieldtype": "Tab Break",
    "label": "LLM Defaults"
   },
   {
-   "default": "anthropic",
-   "description": "Global fallback provider for an agent configuration without a linked AI Provider record. Read by one_bpmn/agents/llm_provider/factory.py as the last resort before the hard-coded \"gemini\" default.",
+   "default": "openai",
    "fieldname": "default_llm_provider",
    "fieldtype": "Select",
    "label": "Default LLM Provider",
    "options": "gemini\nanthropic\nopenai"
   },
   {
-   "default": "medium",
    "depends_on": "eval:doc.default_llm_provider=='openai'",
-   "description": "Has a real configured value in production — restore this field's consumer (believed to be a BPMN Script Task node's inline script) to read it from here.",
+   "description": "Controls the amount of extra search context the OpenAI request includes. Low uses standard, Medium includes metadata, High includes full embeddings vectors (more tokens but better results). Empty falls back to Medium.",
    "fieldname": "openai_search_context",
    "fieldtype": "Select",
    "label": "OpenAI Search Context",
    "options": "low\nmedium\nhigh"
   },
   {
-   "description": "Migrated from onefm_mcp's AI Chat Settings doctype (retired).",
    "fieldname": "observability_tab",
    "fieldtype": "Tab Break",
    "label": "Observability"
   },
   {
    "collapsible": 1,
-   "description": "Site-wide LangSmith tracing defaults, consumed by onefm_mcp's Lumina observability layer as well as any one_bpmn agent that leaves its own LangSmith Project blank on AI Agent Configuration.",
    "fieldname": "section_break_observability",
    "fieldtype": "Section Break",
-   "label": "LangSmith Observability"
+   "label": "LangSmith"
   },
   {
-   "default": "1",
+   "description": "Observe AI conversations in LangSmith. Needs a LangSmith account and API key.",
    "fieldname": "enable_observability",
    "fieldtype": "Check",
    "label": "Enable Observability"
   },
   {
+   "depends_on": "eval:doc.enable_observability==1",
    "fieldname": "langsmith_api_key",
    "fieldtype": "Password",
    "label": "LangSmith API Key",
-   "mandatory_depends_on": "eval:doc.enable_observability"
+   "mandatory_depends_on": "eval:doc.enable_observability==1"
   },
   {
-   "default": "lumina-production",
+   "depends_on": "eval:doc.enable_observability==1",
    "fieldname": "langsmith_project_name",
    "fieldtype": "Data",
    "label": "LangSmith Project Name",
-   "mandatory_depends_on": "eval:doc.enable_observability"
+   "mandatory_depends_on": "eval:doc.enable_observability==1"
   },
   {
+   "depends_on": "eval:doc.enable_observability==1",
    "default": "Partial",
    "fieldname": "observability_sanitization_level",
    "fieldtype": "Select",
    "label": "Observability Sanitization Level",
-   "mandatory_depends_on": "eval:doc.enable_observability",
+   "mandatory_depends_on": "eval:doc.enable_observability==1",
    "options": "None\nPartial\nFull"
   },
   {
    "default": "3",
+   "depends_on": "eval:doc.enable_observability==1",
    "fieldname": "observability_retry_attempts",
    "fieldtype": "Int",
    "label": "Observability Retry Attempts",
-   "mandatory_depends_on": "eval:doc.enable_observability"
+   "mandatory_depends_on": "eval:doc.enable_observability==1"
   },
   {
    "collapsible": 1,
-   "description": "Credentials and schedule for the weekly email summary of the OneFM AI development agent's Langfuse traces.",
    "fieldname": "section_break_langfuse",
    "fieldtype": "Section Break",
-   "label": "Langfuse & Weekly Agent Report"
+   "label": "Langfuse"
   },
   {
-   "default": "https://cloud.langfuse.com",
-   "description": "Langfuse Cloud endpoint for the OneFM AI development agent observability",
+   "description": "Base URL of your Langfuse instance. Leave blank to skip Langfuse.",
    "fieldname": "langfuse_base_url",
    "fieldtype": "Data",
    "label": "Langfuse Base URL"
   },
   {
-   "description": "Langfuse project public key (pk-lf-...)",
+   "description": "Public key for your Langfuse project.",
    "fieldname": "langfuse_public_key",
    "fieldtype": "Password",
    "label": "Langfuse Public Key"
@@ -618,30 +623,28 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Langfuse project secret key (sk-lf-...)",
+   "description": "Secret key for your Langfuse project.",
    "fieldname": "langfuse_secret_key",
    "fieldtype": "Password",
    "label": "Langfuse Secret Key"
   },
   {
    "default": "0",
-   "description": "Send a weekly email summary of agent performance metrics every Monday",
    "fieldname": "dev_agent_weekly_report_enabled",
    "fieldtype": "Check",
    "label": "Enable Weekly Report"
   },
   {
-   "description": "Comma-separated email addresses to receive the weekly report",
+   "depends_on": "eval:doc.dev_agent_weekly_report_enabled==1",
    "fieldname": "dev_agent_report_recipients",
    "fieldtype": "Data",
    "label": "Report Recipients"
   },
   {
    "collapsible": 1,
-   "description": "Consumed by one_bpmn's AI Skill token-estimate helper.",
    "fieldname": "section_break_token_estimator",
    "fieldtype": "Section Break",
-   "label": "Token Estimation"
+   "label": "Token Estimator"
   },
   {
    "default": "4",
@@ -650,14 +653,12 @@
    "label": "Chars Per Token (Estimate)"
   },
   {
-   "description": "Migrated from onefm_mcp's AI Chat Settings doctype (retired). Config for onefm_mcp's Lumina chat widget and the MCP tool integrations it exposes — kept here rather than in onefm_mcp itself so agent-adjacent config has one home.",
    "fieldname": "mcp_integration_tab",
    "fieldtype": "Tab Break",
    "label": "MCP Integration"
   },
   {
-   "default": "1",
-   "description": "Enables onefm_mcp's Lumina chat widget.",
+   "default": "0",
    "fieldname": "enabled",
    "fieldtype": "Check",
    "label": "Enable AI Chat Widget"
@@ -675,7 +676,6 @@
    "label": "Enable MCP Tools For User Planning Agent"
   },
   {
-   "description": "Has a real configured value in production — restore this field's consumer (believed to be the BA/User Planning agent's BPMN Script Task node) to read it from here.",
    "fieldname": "user_story_template",
    "fieldtype": "Small Text",
    "label": "User Story Template"
@@ -684,7 +684,7 @@
    "collapsible": 1,
    "fieldname": "jira_credentials_section",
    "fieldtype": "Section Break",
-   "label": "Jira Credentials"
+   "label": "Jira Integration"
   },
   {
    "fieldname": "jira_url",
@@ -705,55 +705,37 @@
    "collapsible": 1,
    "fieldname": "copilot_settings_section",
    "fieldtype": "Section Break",
-   "label": "Copilot Settings"
+   "label": "GitHub Copilot"
   },
   {
    "fieldname": "copilot_metrics_pat",
    "fieldtype": "Password",
-   "label": "Copilot Metrics PAT",
-   "mandatory_depends_on": "eval:doc.mcp_tools_enabled"
+   "label": "Copilot Metrics PAT"
   },
   {
    "fieldname": "copilot_org_name",
    "fieldtype": "Data",
-   "label": "Copilot Organization Name",
-   "mandatory_depends_on": "eval:doc.mcp_tools_enabled"
+   "label": "Copilot Organization Name"
   },
   {
    "fieldname": "copilot_enterprise_slug",
    "fieldtype": "Data",
-   "label": "Copilot Enterprise Slug",
-   "mandatory_depends_on": "eval:doc.mcp_tools_enabled"
+   "label": "Copilot Enterprise Slug"
   },
   {
    "default": "1",
-   "description": "How many eval cases may run side by side. 1 runs them one at a time, as before. Above that, a suite finishes sooner but competes with live agent traffic for the provider's rate limit, and spends its budget faster. Capped at 8.",
    "fieldname": "eval_concurrency",
    "fieldtype": "Int",
    "label": "Eval Concurrency"
   }
  ],
+ "index_web_route_by_name": 0,
  "issingle": 1,
- "links": [],
- "modified": "2026-09-13 12:30:00.000000",
- "modified_by": "s.shariff@one-fm.com",
+ "istable": 0,
+ "modified": "2025-01-01 00:00:00",
+ "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "Processa Settings",
  "owner": "Administrator",
- "permissions": [
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "read": 1,
-   "role": "System Manager",
-   "share": 1,
-   "write": 1
-  }
- ],
- "row_format": "Dynamic",
- "sort_field": "creation",
- "sort_order": "DESC",
- "states": [],
- "track_changes": 1
+ "permissions": []
 }
