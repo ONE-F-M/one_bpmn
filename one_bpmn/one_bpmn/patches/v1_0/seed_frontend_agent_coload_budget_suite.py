@@ -68,8 +68,9 @@ CASES = [
 			"target_app": "one_bpmn",
 			"git_branch": "staging",
 		},
+		# 3,000,000: comparable new-component-plus-wire-in BA runs ranged 2.75M-6.96M tokens.
 		"assertions": [
-			{"assertion_type": "max_tokens", "value": "600000"},
+			{"assertion_type": "max_tokens", "value": "3000000"},
 		],
 	},
 ]
