@@ -251,6 +251,10 @@ Respond with ONLY a JSON object:
 
 
 def execute():
+	# WI-000463 verification pass: confirmed the skill-delivery mechanism
+	# (api/skill_tools.py load_skill -> agents/context_assembler.py
+	# build_dynamic_preamble) is already in place, so this patch's work
+	# reaches the model.
 	for skill in SKILLS:
 		_upsert_skill(skill)
 
