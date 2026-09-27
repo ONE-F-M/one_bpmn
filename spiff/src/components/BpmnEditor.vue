@@ -1,8 +1,15 @@
 <template>
 	<div class="bpmn-editor-wrapper h-full w-full flex flex-col">
 		<!-- Toolbar (moved natively to parent Editor.vue's header) -->
-		<div ref="toolbarEl" v-show="isMounted" class="flex items-center gap-1.5 w-full h-full text-gray-700 flex-nowrap min-w-0 pr-2">
+		<div
+			ref="toolbarEl"
+			v-show="isMounted"
+			class="bpmn-toolbar relative flex items-center gap-1.5 w-full h-full text-gray-700 flex-nowrap min-w-0 pr-2"
+		>
 			<template v-if="!readonly">
+				<div
+					:class="['bpmn-toolbar-tools flex items-center gap-1.5', { 'bpmn-toolbar-tools--open': showMoreTools }]"
+				>
 				<!-- Undo/Redo buttons -->
 				<button
 					@click="undo"
@@ -75,8 +82,21 @@
 				<FormattingToolbar
 					:selectedElements="selectedElements"
 					:modeler="modelerInstance"
-					class="shrink-0"
+					class="bpmn-toolbar-format shrink-0"
 				/>
+				</div>
+
+				<!-- Shown only when the toolbar is too narrow; opens the folded tools as a panel -->
+				<button
+					@click="showMoreTools = !showMoreTools"
+					title="More tools"
+					:class="[
+						'bpmn-toolbar-more p-1.5 items-center justify-center rounded transition-colors shrink-0',
+						showMoreTools ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100 text-gray-700',
+					]"
+				>
+					<Icon icon="lucide:ellipsis" class="w-4 h-4" />
+				</button>
 			</template>
 
 			<!-- Read-only indicator -->
@@ -86,7 +106,7 @@
 			</div>
 
 
-			<div class="flex-1 min-w-4 flex items-center justify-end gap-2 px-3">
+			<div class="flex-1 flex items-center justify-end gap-2 px-3">
 				<div v-if="saveStatusText && !readonly" class="text-sm font-medium transition-colors" :class="saveStatusColor">
 					{{ saveStatusText }}
 				</div>
@@ -105,7 +125,7 @@
 					]"
 				>
 					<Icon icon="lucide:sparkles" class="w-3.5 h-3.5" />
-					<span class="hidden sm:inline">ProsAlly</span>
+					<span class="bpmn-toolbar-label hidden sm:inline">ProsAlly</span>
 				</button>
 			</div>
 		</div>
@@ -124,7 +144,8 @@
 			<!-- ProsAlly Panel — flex sibling so canvas shrinks instead of being covered -->
 			<transition name="prosally-slide">
 				<div
-					v-if="showProsAllyPanel && !readonly && !isMobile"
+					v-if="prosAllyMounted && !readonly && !isMobile"
+					v-show="showProsAllyPanel"
 					class="prosally-panel-container order-first w-[var(--agui-chat-pane,420px)] shrink-0 border-r border-gray-200 flex flex-col z-[50]"
 				>
 					<ProsAllyPanel
@@ -139,7 +160,8 @@
 			<!-- Mobile: ProsAlly as bottom sheet -->
 			<transition name="slide-up">
 				<div
-					v-if="showProsAllyPanel && !readonly && isMobile"
+					v-if="prosAllyMounted && !readonly && isMobile"
+					v-show="showProsAllyPanel"
 					class="fixed inset-x-0 bottom-0 rounded-t-2xl shadow-2xl border-t border-gray-200 bg-white z-[65] flex flex-col"
 					style="height: 70vh;"
 				>
@@ -956,17 +978,22 @@
 
 		<!-- AI Agent Task / AI Task Selector config modal -->
 		<AIAgentConfigModal
-			v-if="aiAgentModal.show && aiAgentModal.element"
+			v-if="aiAgentModal.element"
+			v-show="aiAgentModal.show"
+			:key="`${aiAgentModal.element.id}:${aiAgentModal.mode}`"
 			:element="aiAgentModal.element"
 			:modeler="modeler"
 			:mode="aiAgentModal.mode"
 			:readonly="readonly"
-			@close="aiAgentModal.show = false"
+			@hide="aiAgentModal.show = false"
+			@close="aiAgentModal.element = null"
 		/>
 
 		<!-- Docu — AI DocType builder -->
 		<DocuCanvas
-			v-if="docuPanel.show && docuPanel.element"
+			v-if="docuPanel.element"
+			:key="`${docuPanel.element.id}:${docuPanel.attr}`"
+			:open="docuPanel.show"
 			:element="docuPanel.element"
 			:doctype="docuPanel.doctype"
 			:attr="docuPanel.attr"
@@ -1054,6 +1081,7 @@ import {
 	PROPERTY_COMMANDS,
 	isLockedElement as isPanelLockedElement,
 	isConditionUpdate,
+	conditionalDefinition,
 	isEditableProperty as isPanelEditableProperty,
 	panelElement,
 } from "@/bpmn/shared/releasedPanel";
@@ -1485,7 +1513,13 @@ const panelReleased = computed(() => {
 // Mobile responsiveness
 const { isMobile } = useWindowSize();
 const showMobileFormatPopover = ref(false);
+const showMoreTools = ref(false);
 const showProsAllyPanel = ref(false);
+// Closing ProsAlly only hides it, so its conversation survives until the editor goes away.
+const prosAllyMounted = ref(false);
+watch(showProsAllyPanel, (show) => {
+	if (show) prosAllyMounted.value = true;
+});
 const internalProcessName = ref("");
 const dragHandleRef = ref(null);
 const { dragOffset, isDragging, attach: attachBottomSheet } = useBottomSheet();
@@ -1663,6 +1697,8 @@ onMounted(async () => {
 						{ name: "emailSubject",         isAttr: true, type: "String" },
 						{ name: "emailTo",              isAttr: true, type: "String" },
 						{ name: "emailToDocFields",     isAttr: true, type: "String" },
+						{ name: "emailToTableField",    isAttr: true, type: "String" },
+						{ name: "emailToTableUserField", isAttr: true, type: "String" },
 						{ name: "emailToRoles",         isAttr: true, type: "String" },
 						{ name: "emailCc",              isAttr: true, type: "String" },
 						{ name: "emailBcc",             isAttr: true, type: "String" },
@@ -2401,7 +2437,11 @@ onMounted(async () => {
 					if (isConditionUpdate(bo, context.moddleElement)) return true;
 					// Any other moddle update on a nested element (an extension
 					// element, a timer definition) is not saved by the endpoint.
-					if (command === "element.updateModdleProperties" && context.moddleElement !== bo) {
+					if (
+						command === "element.updateModdleProperties" &&
+						context.moddleElement !== bo &&
+						context.moddleElement !== conditionalDefinition(bo)
+					) {
 						return false;
 					}
 					const keys = Object.keys(context.properties || {});
@@ -2423,8 +2463,9 @@ onMounted(async () => {
 						if (isConditionUpdate(bo, context.moddleElement)) {
 							properties.conditionExpression = context.moddleElement.body || "";
 						}
+						const target = context.moddleElement || bo;
 						Object.keys(context.properties || {}).forEach((key) => {
-							properties[String(key).split(":").pop()] = bo.get(key) || "";
+							properties[String(key).split(":").pop()] = target.get(key) || "";
 						});
 						emit("reassign-changed", { taskId: bo.id, assignment: properties });
 						return result;
@@ -3378,6 +3419,69 @@ function getAvatarColor(userName) {
 	return colors[Math.abs(hash) % colors.length];
 }
 </script>
+
+<style scoped>
+/* The toolbar shares the header with the title and actions, so it folds by its own width, not the viewport's. */
+.bpmn-toolbar {
+	container-type: inline-size;
+}
+.bpmn-toolbar-more {
+	display: none;
+}
+@container (max-width: 879px) {
+	.bpmn-toolbar-more {
+		display: flex;
+	}
+	.bpmn-toolbar .bpmn-toolbar-tools {
+		position: relative;
+	}
+	.bpmn-toolbar .bpmn-toolbar-format {
+		display: none;
+	}
+	.bpmn-toolbar .bpmn-toolbar-tools--open .bpmn-toolbar-format {
+		display: flex;
+		position: absolute;
+		top: calc(100% + 4px);
+		left: 0;
+		z-index: 70;
+		padding: 8px;
+		background: #fff;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+	}
+}
+@container (max-width: 469px) {
+	.bpmn-toolbar .bpmn-toolbar-tools {
+		display: none;
+	}
+	.bpmn-toolbar .bpmn-toolbar-tools.bpmn-toolbar-tools--open {
+		display: flex;
+		flex-wrap: wrap;
+		position: absolute;
+		top: calc(100% + 4px);
+		left: 0;
+		z-index: 70;
+		width: 320px;
+		padding: 8px;
+		background: #fff;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+	}
+	.bpmn-toolbar .bpmn-toolbar-tools--open .bpmn-toolbar-format {
+		flex-wrap: wrap;
+		flex-basis: 100%;
+		position: static;
+		padding: 0;
+		border: 0;
+		box-shadow: none;
+	}
+	.bpmn-toolbar .bpmn-toolbar-label {
+		display: none;
+	}
+}
+</style>
 
 <style>
 .bpmn-editor-wrapper {

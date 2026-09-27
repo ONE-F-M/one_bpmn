@@ -98,6 +98,7 @@
   "column_break_guardrails",
   "max_delegation_retries",
   "max_clarification_rounds",
+  "sandbox_retry_on_test_failure",
   "evaluation_section",
   "sample_prompts",
   "golden_dataset_minimum",
@@ -775,6 +776,13 @@
    "fieldname": "max_clarification_rounds",
    "fieldtype": "Int",
    "label": "Max Clarification Rounds"
+  },
+  {
+   "default": "1",
+   "description": "A sandbox dispatch (run_tests or open_pull_request) that fails because the target app's real tests failed is automatically re-dispatched once \u2014 a flaky test should not throw away a correct change. Never applies to a clone, migrate, or auth failure (those report a different status entirely, before any test ever ran) \u2014 retrying those would just fail the same way again.",
+   "fieldname": "sandbox_retry_on_test_failure",
+   "fieldtype": "Check",
+   "label": "Retry Sandbox Dispatch Once On Test Failure"
   }
  ],
  "index_web_pages_for_search": 1,

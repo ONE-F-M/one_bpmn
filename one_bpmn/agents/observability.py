@@ -536,6 +536,51 @@ def record_ai_step(
 		return None
 
 
+def latest_ordinary_step(run_name: str) -> str | None:
+	"""The most recently recorded Step of *run_name* that is not a sub-call.
+
+	This is the Step a deferred tool call's resolved answer belongs to: the
+	turn that made the call is the last one written before a suspension
+	checkpoints.
+	"""
+	for row in frappe.get_all(
+		"AI Agent Step",
+		filters={"run": run_name},
+		fields=["name", "content"],
+		order_by="step_index desc",
+		limit_page_length=10,
+	):
+		if not parse_sub_call(row.content):
+			return row.name
+	return None
+
+
+def attach_resolved_call(step_name: str, run, name: str, arguments, result: str) -> bool:
+	"""Append a deferred call's resolved answer to the Step that made it,
+	instead of a separate Step carrying none of that turn's own cost.
+
+	Returns False, touching nothing, when *step_name* no longer exists.
+	"""
+	if not (step_name and frappe.db.exists("AI Agent Step", step_name)):
+		return False
+	step = frappe.get_doc("AI Agent Step", step_name)
+	artifact, artifact_file = _fit_artifact(run, name, pop_tool_artifact(name))
+	step.append(
+		"tool_calls",
+		{
+			"tool_name": name,
+			"tool_source": "diagram_task",
+			"tool_args": _fit_arguments(run, name, arguments),
+			"tool_result": result,
+			"tool_artifact": artifact,
+			"artifact_file": artifact_file,
+			"status": "Success",
+		},
+	)
+	step.save(ignore_permissions=True)
+	return True
+
+
 # ── Sub-calls made from inside tool scripts (WI-002190) ──────────────────────
 #
 # ProsAlly, Docu and Logix all call the model from Server Scripts through
@@ -965,19 +1010,26 @@ def _tool_failure(tool_calls: list) -> tuple:
 	return code, message[:_TOOL_ERROR_MESSAGE_CHARS]
 
 
-def record_selector_turns(run, trace: list, source_map: dict | None = None) -> int:
-	"""Append one AI Agent Step per turn of an executor trace to *run*.
+def record_selector_turns(
+	run, trace: list, source_map: dict | None = None, already_recorded: int = 0
+) -> int:
+	"""Append one AI Agent Step per NEW turn of an executor trace to *run*.
 
 	Turns with tool calls become role="tool" Steps carrying one AI Agent
 	Tool Call row per call (tool_source resolved via *source_map*,
 	{tool_name: "diagram_task"|"registry_tool"}); the final-answer turn
 	becomes a role="assistant" Step with no Tool Call rows.
 
+	*already_recorded* is how many leading turns of *trace* are already Steps; a
+	resumed segment's trace is seeded with earlier segments' turns, and only the
+	turns after them are written.
+
 	Returns the number of Steps recorded.
 	"""
 	if getattr(run, "stub", False):
 		return 0
 	source_map = source_map or {}
+	new_turns = (trace or [])[already_recorded:]
 
 	# Numbering (WI-002190). Sub-call steps are written WHILE the loop runs,
 	# each taking "count + 1" at that moment; the loop's own turns are written
@@ -991,6 +1043,8 @@ def record_selector_turns(run, trace: list, source_map: dict | None = None) -> i
 	ordinary = [s for s in existing if not s.sub_call]
 	next_index = (max((s.step_index for s in ordinary), default=0) or 0) + 1
 	next_index = max(next_index, len(ordinary) + 1)
+	# Sub-call steps at or below this index were placed by an earlier segment.
+	segment_start_max = next_index - 1
 	placed: set = set()
 
 	def _place(step_name: str) -> None:
@@ -1001,8 +1055,10 @@ def record_selector_turns(run, trace: list, source_map: dict | None = None) -> i
 		placed.add(step_name)
 		next_index += 1
 
+	this_segment_sub_calls = [s for s in sub_calls if s.step_index > segment_start_max]
+
 	recorded = 0
-	for turn in trace or []:
+	for turn in new_turns:
 		tool_calls = [
 			{
 				"name": call.get("name", ""),
@@ -1041,13 +1097,13 @@ def record_selector_turns(run, trace: list, source_map: dict | None = None) -> i
 		# The sub-calls this turn's tools made come straight after it.
 		turn_no = cint(turn.get("turn_no"))
 		if turn_no:
-			for sub in sub_calls:
+			for sub in this_segment_sub_calls:
 				if sub.name not in placed and sub.sub_call.get("turn_no") == turn_no:
 					_place(sub.name)
 
 	# Sub-calls that named no turn (older data, or a call made outside the
 	# loop) keep their order and follow the turns.
-	for sub in sub_calls:
+	for sub in this_segment_sub_calls:
 		if sub.name not in placed:
 			_place(sub.name)
 

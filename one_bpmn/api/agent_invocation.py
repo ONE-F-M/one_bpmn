@@ -576,12 +576,29 @@ def _rearm_and_deliver(config, conversation, message, context, wait: bool = True
 			frappe.get_doc("Chat Conversation", conversation), config["process_model"]
 		)
 		return delegate_chat_turn(conversation, message, context=context, wait=wait)
+	except frappe.ValidationError:
+		raise
 	except Exception:
 		frappe.log_error(title="bpmn_map resume re-arm failed", message=frappe.get_traceback())
 		return None
 
 
-def _no_live_instance(config):
+def _no_live_instance(config, conversation):
+	last = frappe.get_all(
+		"BPMN Process Instance",
+		filters={"context_doctype": "Chat Conversation", "context_docname": conversation},
+		fields=["name", "status", "waiting_for_ai", "waiting_for_human", "modified"],
+		order_by="creation desc",
+		limit=1,
+	)
+	# Deferred so the entry survives the rollback that follows the throw.
+	frappe.log_error(
+		title=f"Chat turn found no waiting process ({config['agent_id']})",
+		message=f"conversation: {conversation}\nlatest instance: {last[0] if last else 'none'}",
+		reference_doctype="Chat Conversation",
+		reference_name=conversation,
+		defer_insert=True,
+	)
 	frappe.throw(
 		_("The process for agent '{0}' is not running for this conversation. Please reopen the chat.").format(
 			config["agent_id"]
@@ -610,7 +627,7 @@ def _bpmn_turn_stream(config, conversation, message, context):
 	if handle is None:
 		handle = _rearm_and_deliver(config, conversation, message, context, wait=False)
 	if handle is None:
-		_no_live_instance(config)
+		_no_live_instance(config, conversation)
 
 	if not handle.get("pending"):
 		# The reply was already there: an inline engine pass in tests, or a turn
@@ -635,7 +652,7 @@ def _bpmn_turn_stream(config, conversation, message, context):
 
 	result = collect_chat_turn_reply(handle, task_output.get("output"))
 	if result is None:
-		_no_live_instance(config)
+		_no_live_instance(config, conversation)
 	yield {"type": HANDOVER_EVENT, "result": result}
 
 
@@ -666,7 +683,7 @@ def _run_bpmn_map(config, conversation, message, context, stream=False):
 	if result is None:
 		result = _rearm_and_deliver(config, conversation, message, context)
 	if result is None:
-		_no_live_instance(config)
+		_no_live_instance(config, conversation)
 	return result
 
 
@@ -851,6 +868,8 @@ def _begin_direct_run(config: dict, system_prompt: str, message: str):
 				model=config.get("ai_model") or "",
 				system_prompt=system_prompt,
 				user_prompt=message,
+				# Pinned to 0.7 on purpose, not DEFAULT_TEMPERATURE.
+				temperature=0.7,
 			),
 			bpmn_label=config.get("chat_mode_label") or config.get("agent_id") or "",
 		)

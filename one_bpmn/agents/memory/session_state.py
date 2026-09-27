@@ -114,7 +114,7 @@ def conversations_with(key: str, value=None) -> list[str]:
 
 # ── writing ─────────────────────────────────────────────────────────────────
 def set_state(conversation: str, values: dict, expected_version: int | None = None,
-              merge: bool = True) -> int:
+              merge: bool = True, commit: bool = True) -> int:
 	"""Write ``values`` and return the new version.
 
 	``expected_version`` is the version the caller read. A mismatch raises
@@ -131,7 +131,7 @@ def set_state(conversation: str, values: dict, expected_version: int | None = No
 	if not isinstance(values, dict):
 		frappe.throw(_("Session state values must be a dict."))
 
-	doc = _get_or_create(conversation)
+	doc = _get_or_create(conversation, commit=commit)
 	current = int(doc.version or 0)
 	if expected_version is not None and int(expected_version) != current:
 		raise StaleSessionState(
@@ -222,7 +222,7 @@ def record(conversation: str, values: dict, retries: int = RECORD_RETRIES) -> in
 	return 0
 
 
-def _get_or_create(conversation: str):
+def _get_or_create(conversation: str, commit: bool = True):
 	"""The state row for a conversation, created on first write.
 
 	The doctype is named AFTER its conversation, so two turns creating it at the
@@ -239,9 +239,12 @@ def _get_or_create(conversation: str):
 		doc.insert(ignore_permissions=True)
 		# Published immediately so a concurrent creator collides with a row it
 		# can see, rather than blocking on an invisible one.
-		frappe.db.commit()
+		if commit:
+			frappe.db.commit()
 	except Exception:
 		frappe.db.rollback(save_point="session_state_create")
+		if not commit:
+			raise
 		# Under REPEATABLE READ this transaction's snapshot predates the winner,
 		# so a plain re-read would still not find it. Commit for a fresh one.
 		frappe.db.commit()

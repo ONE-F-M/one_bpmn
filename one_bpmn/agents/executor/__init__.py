@@ -59,6 +59,9 @@ DEFAULT_TEMPERATURE = 0.3
 # prompt becomes impossible to reason about.
 DEFAULT_TOP_P = 1.0
 
+# Retries of a failed model call before the task gives up.
+DEFAULT_MAX_RETRIES = 2
+
 
 # ---------------------------------------------------------------------------
 # Error codes
@@ -71,6 +74,7 @@ class ErrorCode(Enum):
     PROVIDER_NOT_FOUND = "PROVIDER_NOT_FOUND"
     PROVIDER_DISABLED = "PROVIDER_DISABLED"
     TIMEOUT = "TIMEOUT"
+    TURN_CAP_REACHED = "TURN_CAP_REACHED"
     UNEXPECTED_ERROR = "UNEXPECTED_ERROR"
     # Durable AI Agent HITL: the model selected a human tool — the run is
     # neither success nor failure; it is waiting for a person. Callers MUST
@@ -136,8 +140,8 @@ class ExecutorConfig:
     model: str = ""
     system_prompt: str = ""
     user_prompt: str = ""
-    temperature: float = 0.7
-    top_p: float = 1.0
+    temperature: float = DEFAULT_TEMPERATURE
+    top_p: float = DEFAULT_TOP_P
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
     # 30s was set when models answered without thinking. Every current Claude
     # model reasons before it writes, and a task like drafting a full bilingual
@@ -154,7 +158,7 @@ class ExecutorConfig:
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
     response_format: str = "text"        # "text" | "json"
     response_schema: Optional[str] = None  # JSON Schema string
-    max_retries: int = 2
+    max_retries: int = DEFAULT_MAX_RETRIES
     retry_backoff_ms: int = 1000
     # Optional prior message history to prime the call, same {role, content, ...}
     # shape as the conversation store. Provisional — the multi-turn loop may
@@ -212,9 +216,8 @@ class ExecutorResult:
     # checkpoint layer persists.
     suspension: dict | None = None
     # WI-001823: the tool-calling loop ran out of turns without reaching a final
-    # answer. It arrives as a FAILED_MODEL_CALL like any other model failure, but
-    # it is a distinct outcome — the agent was still working, not broken — and
-    # goal completion needs to tell them apart without matching on message text.
+    # answer. It arrives as TURN_CAP_REACHED: the agent was still working, not
+    # broken, and goal completion tells the two apart without matching on text.
     hit_turn_cap: bool = False
     # WI-002187: True when `output` came from the model's own narration rather
     # than a terminal tool call's arguments — a plain-text final answer, or the

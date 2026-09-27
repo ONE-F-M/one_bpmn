@@ -179,6 +179,40 @@ class TestSelectorObservability(FrappeTestCase):
 		)
 		self.assertEqual(indices, [1, 2, 3, 4])
 
+	# ── Bug 1: a resume must not re-write turns seeded from earlier segments ──
+
+	def test_already_recorded_skips_seeded_turns(self):
+		"""5 turns recorded, then a resume with 7: only turns 6 and 7 are written,
+		and a sub-call step placed by the first segment stays where it was."""
+		from types import SimpleNamespace
+
+		from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG, record_sub_call, sub_call_scope
+
+		run = get_or_create_selector_run(_instance("INST-OBS-ALREADY"), "AdhocSub_1", _config())
+		turns = [
+			{"role": "assistant", "content": f"turn {i}", "turn_no": i, "prompt_tokens": 10, "completion_tokens": 5}
+			for i in range(1, 8)
+		]
+
+		# First segment: a tool in turn 2 makes a sub-call while the loop runs, then the 5 turns are written.
+		with sub_call_scope(run, "some_tool"):
+			frappe.flags[SUB_CALL_TURN_FLAG] = 2
+			sub = record_sub_call("obs-model", SimpleNamespace(text="sub answer", prompt_tokens=1, completion_tokens=1))
+			frappe.flags[SUB_CALL_TURN_FLAG] = None
+		self.assertEqual(record_selector_turns(run, turns[:5], SOURCE_MAP), 5)
+		sub_index = frappe.db.get_value("AI Agent Step", sub.name, "step_index")
+
+		# Second segment: the trace is seeded with the 5 earlier turns plus 2 new ones.
+		self.assertEqual(record_selector_turns(run, turns, SOURCE_MAP, already_recorded=5), 2)
+
+		steps = frappe.get_all(
+			"AI Agent Step", filters={"run": run.name}, fields=["name", "step_index", "content"], order_by="step_index asc"
+		)
+		contents = [s.content for s in steps if s.name != sub.name]
+		self.assertEqual(contents, [f"turn {i}" for i in range(1, 8)])
+		self.assertEqual(frappe.db.get_value("AI Agent Step", sub.name, "step_index"), sub_index)
+		self.assertEqual([s.step_index for s in steps], list(range(1, 9)))
+
 	# ── Scenario 6: finalized exactly once, final_output = last assistant ──
 
 	def test_finalize_sets_rollups_and_final_output(self):

@@ -7,6 +7,7 @@ import uuid
 import frappe
 
 from one_bpmn.agents import turn_signal
+from one_bpmn.agents.executor import DEFAULT_MAX_RETRIES
 from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
 from frappe import _
 from frappe.model.document import Document
@@ -2413,9 +2414,9 @@ def _job_retry_cap(instance, kind: str, task_id: str) -> int:
 				c for c in exts.values() if (c or {}).get("serviceType") == "ai_agent"
 			]
 			cfg = ai_cfgs[0] if len(ai_cfgs) == 1 else {}
-		return int(cfg.get("aiMaxRetries", 2) or 2)
+		return int(cfg.get("aiMaxRetries", DEFAULT_MAX_RETRIES) or DEFAULT_MAX_RETRIES)
 	except Exception:
-		return 2
+		return DEFAULT_MAX_RETRIES
 
 
 def _enqueue_a2a_resume(instance_name: str, wf_task_id: str, a2a_task_name: str) -> None:

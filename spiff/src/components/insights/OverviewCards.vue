@@ -1,113 +1,140 @@
 <template>
-	<div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-		<div
-			v-for="card in cards"
-			:key="card.key"
-			class="bg-white rounded-lg shadow-sm p-4 border-l-4"
-			:class="card.borderColor"
-		>
-			<div v-if="loading" class="space-y-3 animate-pulse">
-				<div class="h-3 bg-gray-200 rounded w-20"></div>
-				<div class="h-7 bg-gray-200 rounded w-16"></div>
-			</div>
-			<template v-else>
-				<div class="flex items-center justify-between mb-2">
-					<span class="text-xs text-gray-500 uppercase tracking-wide font-medium">{{ card.title }}</span>
-					<Icon :icon="card.icon" class="w-4 h-4 text-gray-400" />
-				</div>
-				<div class="text-2xl font-bold text-gray-900">{{ card.formattedValue }}</div>
-			</template>
-		</div>
+	<div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
+		<ErrorMessage
+			v-if="error"
+			class="col-span-full bg-white p-4"
+			:message="error"
+		/>
+		<template v-else>
+			<MetricTile
+				v-for="card in cards"
+				:key="card.key"
+				:label="card.title"
+				:value="card.formattedValue"
+				:value-title="card.valueTitle"
+				:delta="loading ? undefined : (data.delta?.[card.key] ?? null)"
+				:delta-kind="card.deltaKind"
+				:good-direction="card.goodDirection"
+				:subtitle="priorText"
+				:subtitle-short="priorTextShort"
+				:sparkline="data.sparklines?.[card.key]"
+				:sparkline-class="card.sparklineClass"
+				:loading="loading"
+			/>
+		</template>
 	</div>
 </template>
 
 <script setup>
 import { ref, computed, watch, onMounted } from "vue"
-import { frappeRequest } from "frappe-ui"
-import { Icon } from "@iconify/vue"
+import { ErrorMessage, frappeRequest } from "frappe-ui"
+import { dayjs } from "@/dayjs"
+import MetricTile from "@/components/insights/MetricTile.vue"
+import { fmtInt, fmtCurrency, fmtCurrencyExact, fmtPct, fmtCompact } from "@/utils/formatters"
 
 const props = defineProps({
+	fromDate: { type: String, default: "" },
+	toDate: { type: String, default: "" },
 	origin: { type: String, default: "production" },
+	model: { type: String, default: "" },
+	provider: { type: String, default: "" },
+	processModel: { type: String, default: "" },
 })
+
+const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s
 
 const loading = ref(true)
+const error = ref(null)
 const data = ref({})
 
-const fmt = new Intl.NumberFormat("en-US")
-const fmtCurrency = new Intl.NumberFormat("en-US", {
-	style: "currency",
-	currency: "USD",
-	minimumFractionDigits: 2,
-	maximumFractionDigits: 4,
-})
+const rangeDays = computed(() => dayjs(props.toDate).diff(dayjs(props.fromDate), "day") + 1)
+const priorText = computed(() =>
+	rangeDays.value === 1 ? __("vs prior 1 day") : `${__("vs prior")} ${rangeDays.value} ${__("days")}`,
+)
+const priorTextShort = computed(() => `${__("vs prior")} ${rangeDays.value}d`)
 
 const cards = computed(() => {
-	const d = data.value
-	const rate = d.success_rate ?? 0
+	const current = data.value.current || {}
 
 	return [
 		{
-			key: "runs_today",
-			title: "Runs Today",
-			icon: "lucide:play",
-			borderColor: "border-blue-500",
-			formattedValue: fmt.format(d.runs_today ?? 0),
+			key: "cost",
+			title: __("Cost"),
+			formattedValue: fmtCurrency(current.cost),
+			valueTitle: fmtCurrencyExact(current.cost),
+			deltaKind: "pct",
+			goodDirection: "down",
+		},
+		{
+			key: "tokens",
+			title: __("Tokens"),
+			formattedValue: fmtCompact(current.tokens),
+			valueTitle: fmtInt(current.tokens),
+			deltaKind: "pct",
+			goodDirection: "down",
+		},
+		{
+			key: "runs",
+			title: __("Runs"),
+			formattedValue: fmtInt(current.runs),
+			valueTitle: String(current.runs ?? 0),
+			deltaKind: "pct",
+			goodDirection: "up",
+		},
+		{
+			key: "avg_cost",
+			title: __("Avg cost / run"),
+			formattedValue: fmtCurrency(current.avg_cost),
+			valueTitle: fmtCurrencyExact(current.avg_cost),
+			deltaKind: "pct",
+			goodDirection: "down",
 		},
 		{
 			key: "success_rate",
-			title: "Success Rate",
-			icon: "lucide:check-circle",
-			borderColor: rate >= 95 ? "border-green-500" : rate >= 85 ? "border-yellow-500" : "border-red-500",
-			formattedValue: (d.success_rate ?? 0).toFixed(1) + "%",
+			title: __("Success rate"),
+			formattedValue: fmtPct(current.success_rate),
+			valueTitle: String(current.success_rate ?? 0),
+			deltaKind: "pt",
+			goodDirection: "up",
+			sparklineClass: "text-green-500",
 		},
 		{
-			key: "total_cost",
-			title: "Cost (7d)",
-			icon: "lucide:credit-card",
-			borderColor: "border-purple-500",
-			formattedValue: fmtCurrency.format(d.total_cost ?? 0),
-		},
-		{
-			key: "active_errors",
-			title: "Errors Today",
-			icon: "lucide:alert-triangle",
-			borderColor: (d.active_errors ?? 0) > 0 ? "border-red-500" : "border-gray-300",
-			formattedValue: fmt.format(d.active_errors ?? 0),
-		},
-		{
-			key: "avg_latency_ms",
-			title: "Avg Latency",
-			icon: "lucide:timer",
-			borderColor: "border-amber-500",
-			formattedValue: fmt.format(d.avg_latency_ms ?? 0) + "ms",
-		},
-		{
-			key: "total_tokens",
-			title: "Tokens (7d)",
-			icon: "lucide:hash",
-			borderColor: "border-cyan-500",
-			formattedValue: fmt.format(d.total_tokens ?? 0),
+			key: "cache_hit_rate",
+			title: __("Cache hit rate"),
+			formattedValue: fmtPct(current.cache_hit_rate),
+			valueTitle: String(current.cache_hit_rate ?? 0),
+			deltaKind: "pt",
+			goodDirection: "up",
+			sparklineClass: "text-cyan-500",
 		},
 	]
 })
 
 async function fetchOverview() {
 	loading.value = true
+	error.value = null
 	try {
 		const response = await frappeRequest({
 			url: "/api/method/one_bpmn.api.insights_api.get_agent_overview",
 			method: "POST",
-			params: { days: 7, origin: props.origin },
+			params: {
+				from_date: props.fromDate,
+				to_date: props.toDate,
+				origin: props.origin,
+				model: props.model,
+				provider: props.provider,
+				process_model: props.processModel,
+			},
 		})
 		data.value = response || {}
-	} catch (error) {
-		console.error("Failed to fetch overview:", error)
+	} catch (err) {
+		error.value = err
 		data.value = {}
 	} finally {
 		loading.value = false
 	}
 }
 
-watch(() => props.origin, fetchOverview)
+watch(() => [props.fromDate, props.toDate, props.origin, props.model, props.provider, props.processModel], fetchOverview)
 onMounted(fetchOverview)
 </script>
