@@ -464,5 +464,11 @@ async function saveRetention() {
 onMounted(() => {
 	load();
 	loadAgents();
+	// A copied conversation link lands here with ?conversation=<name> — open
+	// it straight away so the link is actually shareable, not just a bookmark
+	// to the list.
+	if (route.query.conversation) {
+		open(route.query.conversation);
+	}
 });
 </script>
