@@ -536,6 +536,51 @@ def record_ai_step(
 		return None
 
 
+def latest_ordinary_step(run_name: str) -> str | None:
+	"""The most recently recorded Step of *run_name* that is not a sub-call.
+
+	This is the Step a deferred tool call's resolved answer belongs to: the
+	turn that made the call is the last one written before a suspension
+	checkpoints.
+	"""
+	for row in frappe.get_all(
+		"AI Agent Step",
+		filters={"run": run_name},
+		fields=["name", "content"],
+		order_by="step_index desc",
+		limit_page_length=10,
+	):
+		if not parse_sub_call(row.content):
+			return row.name
+	return None
+
+
+def attach_resolved_call(step_name: str, run, name: str, arguments, result: str) -> bool:
+	"""Append a deferred call's resolved answer to the Step that made it,
+	instead of a separate Step carrying none of that turn's own cost.
+
+	Returns False, touching nothing, when *step_name* no longer exists.
+	"""
+	if not (step_name and frappe.db.exists("AI Agent Step", step_name)):
+		return False
+	step = frappe.get_doc("AI Agent Step", step_name)
+	artifact, artifact_file = _fit_artifact(run, name, pop_tool_artifact(name))
+	step.append(
+		"tool_calls",
+		{
+			"tool_name": name,
+			"tool_source": "diagram_task",
+			"tool_args": _fit_arguments(run, name, arguments),
+			"tool_result": result,
+			"tool_artifact": artifact,
+			"artifact_file": artifact_file,
+			"status": "Success",
+		},
+	)
+	step.save(ignore_permissions=True)
+	return True
+
+
 # ── Sub-calls made from inside tool scripts (WI-002190) ──────────────────────
 #
 # ProsAlly, Docu and Logix all call the model from Server Scripts through

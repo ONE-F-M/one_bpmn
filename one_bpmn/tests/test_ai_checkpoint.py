@@ -137,6 +137,17 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 
 	def setUp(self):
 		super().setUp()
+		# create_ai_run link-validates this against a real AI Provider - without
+		# it, every dispatch below silently falls back to a stub run and never
+		# writes an AI Agent Step at all.
+		if not frappe.db.exists("AI Provider", "Does Not Matter"):
+			frappe.get_doc({
+				"doctype": "AI Provider",
+				"provider": "Does Not Matter",
+				"provider_type": "OpenAI",
+				"api_key": "test-key-not-real",
+				"enabled": 1,
+			}).insert(ignore_permissions=True)
 		self.task = frappe._dict({
 			"data": {},
 			"id": "wf-task-uuid",
@@ -199,7 +210,11 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
 
 		# 1. Suspend
-		self._dispatch(ExecutorResult(error_code=ErrorCode.SUSPENDED, suspension=_suspension()))
+		self._dispatch(ExecutorResult(
+			error_code=ErrorCode.SUSPENDED,
+			suspension=_suspension(),
+			trace=_suspension()["trace"],
+		))
 		run_name = self.task.data["_bpmn_ai_waiting_human"]["run"]
 
 		# 2. Human answers
@@ -251,6 +266,45 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 		self.assertEqual(
 			frappe.db.get_value("AI Agent Run", run_name, "status"), "Success"
 		)
+
+	def test_resume_attaches_the_answer_to_the_step_that_deferred(self):
+		"""The turn that made the deferred call is recorded empty at
+		suspension time (its result isn't known yet) but keeps its own
+		cost and latency. The resolved answer belongs on that same Step,
+		not a second one with none of that turn's own cost."""
+		self._dispatch(ExecutorResult(
+			error_code=ErrorCode.SUSPENDED,
+			suspension=_suspension(),
+			trace=_suspension()["trace"],
+		))
+		run_name = self.task.data["_bpmn_ai_waiting_human"]["run"]
+		checkpoint.store_human_result(run_name, {"action": "Approve"})
+
+		final = ExecutorResult(
+			output="refund approved",
+			token_usage=TokenUsage(prompt_tokens=50, completion_tokens=5, total_tokens=55),
+			trace=_suspension()["trace"] + [{
+				"role": "assistant", "content": "refund approved",
+				"tool_calls": [], "prompt_tokens": 50, "completion_tokens": 5, "latency_ms": 3,
+			}],
+		)
+		self._dispatch(final, resume_run=run_name)
+
+		tool_steps = frappe.get_all(
+			"AI Agent Step", filters={"run": run_name, "role": "tool"}, fields=["name", "latency_ms"]
+		)
+		self.assertEqual(len(tool_steps), 1)
+		# The turn's own latency survived - this is the same Step, not a
+		# fresh one recorded with none of it.
+		self.assertEqual(tool_steps[0].latency_ms, 5)
+
+		calls = frappe.get_all(
+			"AI Agent Tool Call", filters={"parent": tool_steps[0].name},
+			fields=["tool_name", "tool_result"],
+		)
+		self.assertEqual(len(calls), 1)
+		self.assertEqual(calls[0].tool_name, "approve_refund")
+		self.assertEqual(json.loads(calls[0].tool_result), {"action": "Approve"})
 
 	def test_double_resume_is_noop(self):
 		self._dispatch(ExecutorResult(error_code=ErrorCode.SUSPENDED, suspension=_suspension()))

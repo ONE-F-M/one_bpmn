@@ -32,6 +32,7 @@ def save_checkpoint(
 	wf_task_id: str,
 	human_row_id: str,
 	steps_recorded: int = 0,
+	pending_step: str = "",
 ):
 	"""Persist a suspension on its AI Agent Run (status="Suspended").
 
@@ -57,6 +58,7 @@ def save_checkpoint(
 		"human_row_id": human_row_id,
 		"pending_result": None,
 		"steps_recorded": steps_recorded,
+		"pending_step": pending_step,
 	}
 	run.db_set(
 		{
