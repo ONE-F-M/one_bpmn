@@ -1,8 +1,6 @@
 // Copyright (c) 2025, One BPMN and contributors
 // For license information, please see license.txt
 
-import LastSyncedBadge from "../../../spiff/src/components/LastSyncedBadge.vue"
-
 frappe.ui.form.on("Processa Settings", {
 	refresh(frm) {
 		// Intentionally left minimal. The former BA-sync "Sync Now" / "View Sync
@@ -11,47 +9,52 @@ frappe.ui.form.on("Processa Settings", {
 		// ("Actions" → "Review Doctypes" / "Review Workflow Objects").
 
 		// Add Last Synced badge to BA Sync section
-		if (frm.doc.enable_ba_sync) {
-			this.add_ba_sync_badge(frm)
+		if (frm.doc.enable_ba_sync && frm.doc.ba_last_synced) {
+			this.render_ba_sync_badge(frm)
 		}
 	},
 
-	add_ba_sync_badge(frm) {
-		const ba_sync_section = document.querySelector(
-			'[data-fieldname="section_break_ba"]'
-		)
+	render_ba_sync_badge(frm) {
+		// Dynamically import Vue and the component
+		import("vue").then(({ createApp }) => {
+			import("../../../spiff/src/components/LastSyncedBadge.vue").then(
+				(module) => {
+					const LastSyncedBadge = module.default
 
-		if (!ba_sync_section) return
+					// Find the section that contains ba_last_synced field
+					const field_wrapper = frm.get_field("ba_last_synced")
+					if (!field_wrapper) return
 
-		const existing_badge = ba_sync_section.querySelector(
-			".ba-last-synced-badge-container"
-		)
-		if (existing_badge) {
-			existing_badge.remove()
-		}
+					const container = field_wrapper.$wrapper
+					if (!container) return
 
-		const badge_container = document.createElement("div")
-		badge_container.className = "ba-last-synced-badge-container mb-2"
+					// Clear any existing Vue app
+					const existing_app = container.__vue_app
+					if (existing_app) {
+						existing_app.unmount()
+					}
 
-		const section_body = ba_sync_section.querySelector(
-			".form-section-body"
-		)
-		if (section_body) {
-			section_body.insertBefore(badge_container, section_body.firstChild)
-		}
+					// Create and mount the Vue app
+					const app = createApp({
+						components: { LastSyncedBadge },
+						template: `
+							<div class="d-flex align-items-center gap-2">
+								<span class="text-muted text-sm">Last Synced:</span>
+								<LastSyncedBadge :timestamp="timestamp" />
+							</div>
+						`,
+						setup() {
+							return {
+								timestamp: frm.doc.ba_last_synced,
+							}
+						},
+					})
 
-		const { createApp } = require("vue")
-
-		const app = createApp({
-			components: { LastSyncedBadge },
-			template: `<LastSyncedBadge :timestamp="timestamp" />`,
-			setup() {
-				return {
-					timestamp: frm.doc.ba_last_synced,
+					// Store reference for cleanup
+					container.__vue_app = app
+					app.mount(container)
 				}
-			},
+			)
 		})
-
-		app.mount(badge_container)
 	},
 })
