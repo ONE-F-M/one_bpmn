@@ -50,7 +50,7 @@
 							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Runs</th>
 							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Avg</th>
 							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">p50</th>
-							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">p95</th>
+							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">P95 Latency (ms)</th>
 							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Max</th>
 							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Avg Steps</th>
 							<th class="text-right text-xs uppercase text-gray-500 font-medium py-2 px-3">Avg Tokens</th>
