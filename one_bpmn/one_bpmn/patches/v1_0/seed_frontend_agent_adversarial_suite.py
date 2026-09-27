@@ -157,10 +157,7 @@ CASES = [
 			"target_app": "hrms",
 			"git_branch": "staging",
 		},
-		# No no_tool_call assertion: the correct answer redirects the work into one_fm and
-		# then legitimately edits a file there, so a blanket ban on edit_file cannot tell a
-		# correct redirect apart from a literal hrms/erpnext edit. The judge already reads
-		# which app the change actually landed in.
+		# No no_tool_call: the correct answer legitimately edits a file in one_fm after redirecting.
 		"assertions": [
 			{
 				"assertion_type": "llm_judge",
