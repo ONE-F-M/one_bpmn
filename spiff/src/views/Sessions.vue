@@ -414,6 +414,17 @@ async function open(name) {
 	}
 }
 
+async function copyLink(c) {
+	const url = `${window.location.origin}/processa/sessions?conversation=${encodeURIComponent(c.name)}`;
+	try {
+		await navigator.clipboard.writeText(url);
+		copiedLink.value = c.name;
+		setTimeout(() => (copiedLink.value === c.name ? (copiedLink.value = "") : null), 1500);
+	} catch (e) {
+		error.value = "Could not copy the link — copy it from the address bar instead.";
+	}
+}
+
 async function compactNow() {
 	if (!detail.value) return;
 	compacting.value = true;
