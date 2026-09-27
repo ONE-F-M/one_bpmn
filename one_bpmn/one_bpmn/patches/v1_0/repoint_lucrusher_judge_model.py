@@ -1,8 +1,7 @@
 """Point the LuCrusher Baseline judge checks at a model that is enabled on this site.
 
-The first seed named claude-sonnet-4-5-20250929, which is disabled on some sites, so every
-llm_judge check failed with "AI Model ... is disabled". Checks whose judge model is missing
-or disabled move to the agent's own model, or another enabled model of its provider.
+Checks whose judge model is missing or disabled move to the agent's own model, or another
+enabled model of its provider.
 """
 
 import frappe
