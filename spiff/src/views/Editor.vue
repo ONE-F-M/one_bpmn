@@ -3093,6 +3093,7 @@ function onLaunchScriptEditor(event) {
 	logixScriptType.value = event.scriptType || "bpmn:script";
 	logixCurrentScript.value = event.script || "";
 	logixEventBus.value = event.eventBus;
+	logixReadonly.value = !!event.readonly;
 	logixProcessContext.value = extractProcessContext(event.element);
 
 	// Prep dialog state so it's ready if the user goes back from Logix
