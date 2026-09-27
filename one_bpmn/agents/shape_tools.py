@@ -378,18 +378,12 @@ def _execute_shape_body(instance, bpmn_id: str, task_cfg: dict | None, kwargs: d
 		# sprint, a completed sprint, an Epic — and the agent has to be able to
 		# say which rule stopped it instead of reporting the change as made.
 		return json.dumps({"error": str(invalid), "retryable": False})
-	except Exception as unexpected:
+	except Exception:
 		frappe.log_error(
 			title=f"AI Agent shape tool '{bpmn_id}' failed",
 			message=frappe.get_traceback(),
 		)
-		# The model cannot read the Error Log, so the class and message travel
-		# with the refusal.
-		return json.dumps({
-			"error": (
-				f"Shape '{bpmn_id}' failed — {type(unexpected).__name__}: {unexpected}"
-			),
-		})
+		return json.dumps({"error": f"Shape '{bpmn_id}' failed — see Error Log for details."})
 
 
 def _connector_not_permitted(task_cfg: dict) -> dict | None:
