@@ -10,9 +10,19 @@ blacklist. A blacklist is trivially bypassed via string formatting, dynamic
 attribute lookup, or sandbox-escape gadgets; walking the AST catches the
 *shape* of an attack regardless of how it is spelled.
 
-Enforcement model: PRE-DEPLOYMENT GATE. Validation runs when a script is
-authored/saved and again when a model is deployed — never at execution time.
-The intent is to prevent an unsafe script from ever being added or deployed.
+Enforcement model: BOTH pre-deployment AND execution-time gate. Validation
+runs when a script is authored/saved and again when a model is deployed, so
+an unsafe script is normally rejected long before it can ever run. It is
+ALSO re-run immediately before every exec() of a BPMN Server Task/inline
+script (see one_bpmn.one_bpmn.engine._check_script_permissions), because a
+save-time-only gate leaves several real gaps open: a script written directly
+to the DB by a migration/fixture/another app, a Server Script that predates
+this validator or a stricter ValidatorOptions posture, or a script whose
+BPMN linkage (see script_gate.is_bpmn_linked_server_script) was not in place
+at save time but is by the time it executes. Re-running the same structural
+check at execution time is cheap (a single ast.parse + tree walk) and closes
+all of those gaps with the exact same rules, rather than maintaining a
+second, weaker runtime blacklist.
 
 Tuning (per the agreed decisions):
   * Unambiguous escape vectors are ALWAYS blocked (exec/eval/getattr as bare
