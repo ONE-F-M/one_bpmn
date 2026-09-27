@@ -84,15 +84,19 @@ def close_conversation(conversation_name: str) -> None:
 		},
 		"name",
 	)
+	from one_bpmn.api.skill_tools import clear_conversation_skills
+
 	if not inst_name:
 		# No orchestration is running — close the conversation record itself so
 		# it can't be resumed into the same dead end.
 		frappe.db.set_value("Chat Conversation", conversation_name, "status", "Closed")
+		clear_conversation_skills(conversation_name)
 		return
 
 	try:
 		instance = frappe.get_doc("BPMN Process Instance", inst_name)
 		instance.receive_message("ChatConversation_Close_Action", payload={})
+		clear_conversation_skills(conversation_name)
 	except frappe.ValidationError:
 		pass  # instance not waiting for the close message — nothing to do
 	except Exception:

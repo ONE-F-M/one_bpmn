@@ -87,7 +87,7 @@ function aiCallTooltip(node) {
 	const lines = ["Called by the AI agent — not a flow step"]
 	if (node.argsPreview) lines.push(`args: ${node.argsPreview}`)
 	if (node.resultPreview) lines.push(`result: ${node.resultPreview}`)
-	lines.push("Click to open the agent's AI Run tab")
+	lines.push("Click to open the agent's AI Run tab; the tab links to the full run page")
 	return lines.join("\n")
 }
 </script>

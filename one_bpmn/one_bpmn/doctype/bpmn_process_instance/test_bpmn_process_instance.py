@@ -489,7 +489,7 @@ class TestResolveAssignmentTableField(BaseBPMNHelperTest):
 
 		with patch.object(frappe, "get_doc", return_value=doc), patch.object(
 			assignment, "get_reliever_if_on_leave",
-			side_effect=lambda u: "stand-in@x.com" if u == "a@x.com" else u,
+			side_effect=lambda u, pairs=None: "stand-in@x.com" if u == "a@x.com" else u,
 		):
 			result = call_resolve_assignment(inst, FakeTask("task_1"))
 

@@ -37,7 +37,6 @@ import frappe
 _AGENT_NAME = "Mobile App Agent"
 _AGENT_ID = "mobile_app_agent"
 _PROCESS_MODEL = "Mobile App Agent"
-_ORCHESTRATOR = "Orchestrator Agent"
 
 # Writing Vue against an unfamiliar codebase from a plain-words brief is exacting
 # work, so this is deliberately not a cheap model.
@@ -57,12 +56,6 @@ _CONSTANTS = [
 	("backend_ref", "staging",
 	 "Branch the backend endpoint catalogue is read from."),
 ]
-
-_DELEGATE_PURPOSE = (
-	"Changes the ONE-F-M Ionic mobile app — screens, stores, API modules, routes and "
-	"translations — from a plain-words work order, and delivers it as a pull request. "
-	"Mobile half only: backend endpoints stay in one_fm."
-)
 
 _SYSTEM_PROMPT = """\
 You are the Mobile App Agent. You build and fix features in the ONE-F-M mobile app — an Ionic 7 + Vue 3 + Capacitor 6 application whose screens talk to a Frappe backend. Mobile work is what you are for: screens, stores, API modules, routes and translations in that app.
@@ -198,30 +191,7 @@ def execute():
 		doc.db_set("process_model", _PROCESS_MODEL, update_modified=False)
 		doc.reload()
 
-	_allow_as_delegate()
 	_take_live(doc)
-
-
-def _allow_as_delegate():
-	"""Let the orchestrator hand work to this agent.
-
-	``a2a_exposed`` only makes the agent OFFERABLE. When the orchestrator restricts
-	its delegates — and it does — a target missing from that table is refused before
-	anything is created, so the shape on the diagram would exist and never fire.
-	"""
-	if not frappe.db.exists("AI Agent Configuration", _ORCHESTRATOR):
-		return
-	orchestrator = frappe.get_doc("AI Agent Configuration", _ORCHESTRATOR)
-	if not orchestrator.restrict_delegates:
-		return
-	for row in orchestrator.allowed_delegates:
-		if row.agent_configuration == _AGENT_NAME:
-			return
-	orchestrator.append("allowed_delegates", {
-		"agent_configuration": _AGENT_NAME,
-		"purpose": _DELEGATE_PURPOSE,
-	})
-	orchestrator.save(ignore_permissions=True)
 
 
 def _process_owner():

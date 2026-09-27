@@ -45,6 +45,13 @@
 					<Icon icon="lucide:calendar-clock" class="w-3.5 h-3.5 text-gray-400" /> {{ formatDateTime(details.started_at) }}
 				</span>
 			</div>
+			<router-link
+				:to="`/processa/runs?instance=${details.name}&origin=all`"
+				class="flex items-center gap-1 font-semibold text-blue-600 hover:underline"
+				title="Every agent run of this instance, step by step"
+			>
+				<Icon icon="lucide:list-tree" class="w-3 h-3" /> AI runs
+			</router-link>
 			<div v-if="details.completed_at" class="flex items-center gap-1.5">
 				<span class="tracking-wide font-bold text-gray-600">Finished</span>
 				<span class="font-mono text-gray-700 flex items-center gap-1">

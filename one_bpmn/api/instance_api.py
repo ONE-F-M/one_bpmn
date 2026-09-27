@@ -9,6 +9,7 @@ from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
 from frappe import _
 
 from one_bpmn.api.utils import _is_bpmn_super_user
+from one_bpmn.utils.session import as_user
 
 
 @frappe.whitelist()
@@ -330,18 +331,13 @@ def _start_process_as_user(
 	Used by start_process_async to preserve the caller's user context.
 	Restores the original user afterwards to avoid leaking into subsequent jobs.
 	"""
-	original_user = frappe.session.user
-	try:
-		if run_as_user:
-			frappe.set_user(run_as_user)
+	with as_user(run_as_user):
 		start_process(
 			model_name=model_name,
 			context_doctype=context_doctype,
 			context_docname=context_docname,
 			initial_data=initial_data,
 		)
-	finally:
-		frappe.set_user(original_user)
 
 
 @frappe.whitelist()
@@ -1127,10 +1123,7 @@ def _start_and_deliver_message(
 	— the sync they trigger is per-user, and attribution on anything they write
 	should name the person who pressed the button, not the worker.
 	"""
-	original_user = frappe.session.user
-	try:
-		if run_as_user:
-			frappe.set_user(run_as_user)
+	with as_user(run_as_user):
 
 		started = start_process(
 			model_name=model_name,
@@ -1156,8 +1149,6 @@ def _start_and_deliver_message(
 					"The instance is left Active and will not progress."
 				),
 			)
-	finally:
-		frappe.set_user(original_user)
 
 
 def _models_listening_for(message_name: str) -> list:

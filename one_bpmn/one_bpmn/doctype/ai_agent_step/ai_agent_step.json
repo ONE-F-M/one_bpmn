@@ -9,6 +9,7 @@
   "step_index",
   "role",
   "content",
+  "step_kind",
   "column_break_tool",
   "tool_calls",
   "section_break_metrics",
@@ -23,6 +24,8 @@
   "cache_read_cost",
   "cache_write_cost",
   "latency_ms",
+  "started_at",
+  "ended_at",
   "section_break_error",
   "error_code",
   "error_message"
@@ -57,6 +60,14 @@
    "fieldtype": "Long Text",
    "label": "Content",
    "description": "The rendered prompt text or response text"
+  },
+  {
+   "fieldname": "step_kind",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Step Kind",
+   "options": "\nprompt\nmodel_call\ntool_turn\nsub_call",
+   "description": "prompt: system or user text; model_call: the agent's own turn; tool_turn: a turn that called tools; sub_call: a model call made from inside a tool"
   },
   {
    "fieldname": "column_break_tool",
@@ -140,6 +151,16 @@
    "label": "Latency (ms)"
   },
   {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At"
+  },
+  {
+   "fieldname": "ended_at",
+   "fieldtype": "Datetime",
+   "label": "Ended At"
+  },
+  {
    "fieldname": "section_break_error",
    "fieldtype": "Section Break",
    "label": "Error",
@@ -165,10 +186,14 @@
   [
    "run",
    "step_index"
+  ],
+  [
+   "run",
+   "started_at"
   ]
  ],
  "links": [],
- "modified": "2026-07-29 12:00:00.000000",
+ "modified": "2026-09-17 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Agent Step",

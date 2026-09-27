@@ -38,6 +38,14 @@
 						@rated="onRated"
 					/>
 				</div>
+				<!-- a rate-limit refusal (role=system) is the platform
+				     pushing back, not the agent talking — a distinct notice, no
+				     rating control, so it never reads as an assistant reply. -->
+				<div v-else-if="item.kind === 'system'" class="acp-msg acp-msg--system">{{ item.text }}</div>
+				<details v-else-if="item.kind === 'narration'" class="acp-narration">
+					<summary>{{ __("Working notes") }}</summary>
+					<div v-html="renderMarkdown(item.text)" />
+				</details>
 				<!-- choice buttons (panel feature, onefm.choice) -->
 				<div v-else-if="item.kind === 'choice'" class="acp-card">
 					<div v-if="item.value.prompt" class="acp-card-head" v-html="renderMarkdown(item.value.prompt)" />
@@ -82,7 +90,7 @@
 				<div v-if="item.ts" class="acp-time" :class="{ 'acp-time--user': item.kind === 'user' }">{{ formatTime(item.ts) }}</div>
 			</template>
 
-			<div v-if="busy" class="acp-thinking">{{ streamingText ? "" : __("Thinking…") }}</div>
+			<div v-if="busy" class="acp-thinking">{{ runningToolLabel || (streamingText ? "" : __("Thinking…")) }}</div>
 			<div v-if="streamingText" class="acp-msg acp-msg--agent" v-html="renderMarkdown(streamingText)" />
 			<div v-if="statusLine" class="acp-status">
 				<span class="acp-dot" :class="{ 'acp-dot--err': status === 'error' }" />{{ statusLine }}
@@ -250,16 +258,39 @@ const streamingText = ref("");
 // message id (WI-001822). Ratings are the user's own — the control shows what
 // you said, not a tally.
 const streamingMessageId = ref("");
+// The role the currently-streaming reply carries: "assistant" normally,
+// "system" for a rate-limit refusal (see TEXT_MESSAGE_START below).
+const streamingRole = ref("assistant");
+// The tool the agent is running right now, so a long turn says what it is
+// doing instead of sitting on "Thinking…". Cleared when the tool ends and
+// again when the turn does, because a stream can close mid-tool.
+const runningTool = ref("");
+// The bubble the last TEXT_MESSAGE_END closed, until the next event says
+// whether it was the reply or notes before a tool call.
+let endedItem = null;
 const ratings = ref({});
 
 // Whether this agent collects feedback at all. Configuration, like the greeting
 // and the icon: no agent-specific behaviour is hardcoded in a component.
 const feedbackOn = computed(() => surface.value.collect_feedback !== false);
 
+// A shape id reads as a name once its underscores go, which is enough for
+// somebody watching a turn to know which tool is taking the time.
+const runningToolLabel = computed(() =>
+	runningTool.value ? __("Running {0}…").replace("{0}", runningTool.value.replace(/_/g, " ")) : "",
+)
+
 function agentItem(text) {
 	// Both things a finished agent bubble needs: the row id it can be rated by
 	// (WI-001822) and when it arrived (WI-002047). Built in one place so a new
 	// flush site cannot forget either.
+	//
+	// a role of "system" (a rate-limit refusal) flushes as a
+	// system notice instead — no rating control, and it never reads as the
+	// agent itself talking.
+	if (streamingRole.value === "system") {
+		return { kind: "system", text, ts: stampNow() };
+	}
 	return { kind: "agent", text, message: streamingMessageId.value || "", ts: stampNow() };
 }
 
@@ -307,6 +338,14 @@ const WORKSPACE_EVENTS = new Set([
 	"onefm.bpmn_preview",
 	"onefm.doctype_schema",
 	"onefm.proposed_update",
+]);
+
+// Events that exist for the host or the protocol, never for the reader:
+// they carry no message of their own, so drawing them as a card puts
+// plumbing in the transcript. Hosts still receive them through agent-event.
+const HOST_ONLY_EVENTS = new Set([
+	"onefm.message_persisted",
+	"onefm.created_config",
 ]);
 
 // Each card's PRIMARY action — the one that needs a host-side target.
@@ -543,15 +582,26 @@ async function onFilePicked(event) {
 
 // ── sending ─────────────────────────────────────────────────────────────────
 
-async function send(text, extraContext = null) {
+// crypto.randomUUID needs a secure context; a bench served over plain http on a
+// LAN address is not one, and the panel must still send an id there.
+function newMessageId() {
+	if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+	return `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function send(text, extraContext = null, reuseId = null) {
 	const message = (text ?? draft.value).trim();
 	if (!message || busy.value) return;
 	draft.value = "";
-	const sent = { kind: "user", text: message, ts: stampNow() };
+	// One id per message the person typed, kept across retries. A stream that
+	// dies after the agent has already answered used to cost a second run and a
+	// second reply; re-sending the same id replays the first one instead.
+	const sent = { kind: "user", text: message, ts: stampNow(), clientMessageId: reuseId || newMessageId() };
 	items.value.push(sent);
 	busy.value = true;
 	status.value = "streaming";
 	streamingText.value = "";
+	streamingRole.value = "assistant";
 	scrollDown();
 
 	// extraContext = per-turn keys the PANEL stages itself (today: the
@@ -578,6 +628,7 @@ async function send(text, extraContext = null) {
 		message,
 		conversation: conversationName.value || undefined,
 		context: turnContext,
+		clientMessageId: sent.clientMessageId,
 		onEvent: handleEvent,
 		onError: (msg) => {
 			status.value = "error";
@@ -595,7 +646,10 @@ async function send(text, extraContext = null) {
 				items.value.push(agentItem(streamingText.value));
 				streamingText.value = "";
 			}
+			endedItem = null;
 			streamingMessageId.value = "";
+			streamingRole.value = "assistant";
+			runningTool.value = "";
 			busy.value = false;
 			if (status.value !== "error") status.value = "done";
 			activeStream = null;
@@ -620,17 +674,43 @@ function handleEvent(event) {
 		// the persisted Chat Message name). Held until the buffer is flushed so
 		// the finished bubble carries it and can be rated.
 		streamingMessageId.value = event.messageId || event.message_id || "";
+		// a rate-limit refusal streams with role "system" — a
+		// platform notice, not the agent talking — so the finished bubble
+		// flushes as a system item instead of an agent one.
+		streamingRole.value = event.role || "assistant";
 	} else if (type === "TEXT_MESSAGE_CONTENT") {
+		endedItem = null;
 		streamingText.value += event.delta || "";
 		if (!streamingMessageId.value) {
 			streamingMessageId.value = event.messageId || event.message_id || "";
 		}
 		scrollDown();
+	} else if (type === "TEXT_MESSAGE_END") {
+		// The reply is complete. Flush it now so a second message in the same
+		// turn (a reply composed after the model spoke) gets its own bubble.
+		if (streamingText.value) {
+			endedItem = agentItem(streamingText.value);
+			items.value.push(endedItem);
+			streamingText.value = "";
+		}
+	} else if (type === "TOOL_CALL_START") {
+		// Words before a tool call are the agent talking to itself, not the
+		// reply. Keep them as muted working notes.
+		if (streamingText.value) {
+			items.value.push({ kind: "narration", text: streamingText.value, ts: stampNow() });
+			streamingText.value = "";
+		} else if (endedItem) {
+			endedItem.kind = "narration";
+			delete endedItem.message;
+		}
+		endedItem = null;
+		runningTool.value = event.toolCallName || event.tool_call_name || "";
+	} else if (type === "TOOL_CALL_END") {
+		runningTool.value = "";
 	} else if (type === "CUSTOM") {
 		handleCustom(event.name || "", event.value || {});
 	}
-	// TEXT_MESSAGE_START/END, THINKING_*, TOOL_CALL_*, STATE_* need no
-	// transcript entry today; the streaming buffer covers the visible part.
+	// THINKING_* and STATE_* need no transcript entry today.
 }
 
 function handleCustom(name, value) {
@@ -658,7 +738,7 @@ function handleCustom(name, value) {
 			value = { ...value, prompt: "" };
 		}
 		items.value.push({ kind: "choice", value, answered: "", ts: stampNow() });
-	} else {
+	} else if (!HOST_ONLY_EVENTS.has(name)) {
 		items.value.push({ kind: "custom", name, value, ts: stampNow() });
 	}
 	scrollDown();
@@ -684,6 +764,12 @@ function restoredItems(history, isNewestPage) {
 	history.forEach((m, index) => {
 		if (m.role === "user") {
 			out.push({ kind: "user", text: m.content, ts: m.timestamp });
+			return;
+		}
+		// a stored rate-limit refusal carries role "system" —
+		// restore it as a system notice, same as when it first streamed.
+		if (m.role === "system") {
+			if (m.content) out.push({ kind: "system", text: m.content, ts: m.timestamp });
 			return;
 		}
 		if (m.content) {
@@ -784,7 +870,7 @@ async function retrySend(item) {
 	errorOpen.value = false;
 	errorMessage.value = "";
 	if (status.value === "error") status.value = "idle";
-	await send(item.text, item.retryContext || null);
+	await send(item.text, item.retryContext || null, item.clientMessageId || null);
 }
 
 function onCardAction(item, action, payload) {
@@ -919,6 +1005,10 @@ defineExpose({ send, conversationName });
 .acp-time--user { align-self: flex-end; }
 .acp-msg--user { align-self: flex-end; background: var(--sg4); color: var(--ig9); white-space: pre-wrap; }
 .acp-msg--agent { align-self: flex-start; background: var(--sw); border: 1px solid var(--og2); }
+/* a rate-limit refusal (role=system) — a platform notice, not
+   the agent talking, so it is visually distinct from both bubble kinds. */
+.acp-msg--system { align-self: center; background: var(--sg2); color: var(--ig6); font-size: 12px;
+	font-style: italic; border: none; }
 .acp-msg--agent :deep(p) { margin: 0 0 6px; } .acp-msg--agent :deep(p:last-child) { margin: 0; }
 .acp-msg--agent :deep(pre) { background: var(--sg2); border-radius: 8px; padding: 8px; overflow-x: auto; }
 .acp-msg--agent :deep(table) { border-collapse: collapse; }
@@ -933,6 +1023,8 @@ defineExpose({ send, conversationName });
 .acp-fallback { padding: 8px 12px; } .acp-fallback pre { font-size: 11px; overflow-x: auto; }
 
 .acp-thinking { color: var(--ig5); font-style: italic; font-size: 12px; }
+.acp-narration { align-self: flex-start; color: var(--ig5); font-size: 12px; max-width: 80%; }
+.acp-narration summary { cursor: pointer; font-style: italic; }
 .acp-status { font-size: 11px; color: var(--ig5); display: flex; gap: 6px; align-items: center; }
 .acp-dot { width: 7px; height: 7px; border-radius: 99px; background: var(--green-ink); }
 .acp-dot--err { background: var(--red-ink); }

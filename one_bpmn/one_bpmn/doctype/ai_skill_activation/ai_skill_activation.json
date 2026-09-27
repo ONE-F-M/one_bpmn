@@ -12,7 +12,10 @@
   "agent_run",
   "conversation",
   "prompt_hash",
-  "loaded_at"
+  "loaded_at",
+  "unloaded_at",
+  "turn_loaded",
+  "turn_unloaded"
  ],
  "fields": [
   {
@@ -53,6 +56,21 @@
    "fieldname": "loaded_at",
    "fieldtype": "Datetime",
    "label": "Loaded At"
+  },
+  {
+   "fieldname": "unloaded_at",
+   "fieldtype": "Datetime",
+   "label": "Unloaded At"
+  },
+  {
+   "fieldname": "turn_loaded",
+   "fieldtype": "Int",
+   "label": "Turn Loaded"
+  },
+  {
+   "fieldname": "turn_unloaded",
+   "fieldtype": "Int",
+   "label": "Turn Unloaded"
   }
  ],
  "grid_page_length": 50,

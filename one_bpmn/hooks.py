@@ -58,6 +58,12 @@ app_include_js = [
 # web_include_css = "/assets/one_bpmn/css/one_bpmn.css"
 # web_include_js = "/assets/one_bpmn/js/one_bpmn.js"
 
+# Purge action on the AI Memory list view, mirroring the memory browser's
+# Purge button. Calls the same one_bpmn.api.memory_api.purge_memories.
+doctype_list_js = {
+	"AI Memory": "public/js/ai_memory_list.js",
+}
+
 # include custom scss in every website theme (without file extension ".scss")
 # website_theme_scss = "one_bpmn/public/scss/website"
 
@@ -152,6 +158,9 @@ permission_query_conditions = {
 	# Enforced here so it holds for the browser, the Desk list and any report,
 	# instead of being re-stated at each call site.
 	"AI Memory": "one_bpmn.agents.memory.permissions.ai_memory_query_conditions",
+	# A conversation with an agent is private to the person who had it. Enforced
+	# here so it holds for the list, the Desk, any report and /api/resource alike.
+	"Chat Message": "one_bpmn.agents.chat_permissions.chat_message_query_conditions",
 }
 
 has_permission = {
@@ -159,6 +168,7 @@ has_permission = {
 	"AI Eval Case": "one_bpmn.agents.eval_permissions.eval_case_has_permission",
 	"AI Eval Run": "one_bpmn.agents.eval_permissions.eval_run_has_permission",
 	"AI Memory": "one_bpmn.agents.memory.permissions.ai_memory_has_permission",
+	"Chat Message": "one_bpmn.agents.chat_permissions.chat_message_has_permission",
 }
 
 # DocType Class

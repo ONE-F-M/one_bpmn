@@ -6,6 +6,7 @@ import uuid
 
 import frappe
 
+from one_bpmn.agents import turn_signal
 from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
 from frappe import _
 from frappe.model.document import Document
@@ -2153,6 +2154,7 @@ class BPMNProcessInstance(Document):
 
 			# Resolve assignment from the task's configuration -------------------
 			async_user = resolve_assignment(self, task)
+			relief_pairs = getattr(self, "_relief_pairs", []) if async_user else []
 			if async_user:
 				assigned_user = async_user
 
@@ -2172,6 +2174,8 @@ class BPMNProcessInstance(Document):
 					"status": "Waiting",
 					"started_at": now_datetime(),
 					"assigned_user": assigned_user,
+					"relieved_user": ",".join(p[0] for p in relief_pairs),
+					"reliever_user": ",".join(p[1] for p in relief_pairs),
 					"assigned_role": assigned_role,
 					"task_actions": task_actions,
 					"target_doctype": target_doctype,
@@ -2490,7 +2494,10 @@ def run_parked_ai_task(
 	  the task's activity log, and the task stays parked so retry_ai_task
 	  (manual retry) can re-kick it.
 	"""
-	if run_as_user:
+	# Only switch when the identity really differs: set_user rewrites session.sid
+	# and wipes session.data, which guts the caller's session if this ever runs
+	# inline in a web request.
+	if run_as_user and run_as_user != frappe.session.user:
 		frappe.set_user(run_as_user)
 
 	# Row lock serializes concurrent engine passes on the same instance
@@ -2562,6 +2569,11 @@ def run_parked_ai_task(
 			0,
 			update_modified=False,
 		)
+		# In the finally block on purpose: a failed job has to end the waiting
+		# request too. The reply itself is read from the database.
+		# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+		frappe.db.commit()
+		turn_signal.publish(instance_name)
 		frappe.publish_realtime(
 			"bpmn_instance_updated",
 			{

@@ -29,12 +29,14 @@ from one_bpmn.tools.tool_for_server_scripts import (
 	DOCFIELD_ATTRS,
 	DOCFIELD_FLAGS,
 	DOCFIELD_INTS,
+	DOCTYPE_PERMISSION_FLAGS,
 	DOCTYPE_SETTING_FLAGS,
 	DOCTYPE_SETTING_INTS,
 	DOCTYPE_SETTING_STRS,
 	read_doctype_definition as _read_doctype_ir,
 )
 from one_bpmn.security.doctype_validator import RESERVED_FIELDNAMES, validate_doctype_ir
+from one_bpmn.utils.session import as_user
 
 _LAYOUT_FIELDTYPES = ("Section Break", "Column Break", "Tab Break")
 _TABLE_FIELDTYPES = ("Table", "Table MultiSelect")
@@ -79,6 +81,23 @@ def list_modules() -> list:
 
 
 @frappe.whitelist()
+def list_roles() -> list:
+	"""Role names a permission rule may name — for the permission-rules picker.
+
+	Disabled roles are left out, as is Frappe's "All" pseudo-role, which grants
+	everyone everything and is never what a process owner means to pick.
+	"""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Please sign in to use Docu."), frappe.PermissionError)
+	return frappe.get_all(
+		"Role",
+		filters={"disabled": 0, "name": ["not in", ("All", "Guest")]},
+		pluck="name",
+		order_by="name asc",
+	)
+
+
+@frappe.whitelist()
 def get_doctype_schema(doctype: str) -> dict:
 	"""Return an existing DocType as a Docu IR so the form builder can render it.
 
@@ -111,7 +130,15 @@ def preview_doctype(ir: str) -> dict:
 	ir_dict = _parse(ir, None)
 	if not isinstance(ir_dict, dict):
 		return {"valid": False, "violations": [_("Invalid form definition.")]}
-	verdict = validate_doctype_ir(ir_dict)
+
+	# Exempt the DocType's own fields exactly as apply_doctype does. Without it a
+	# submittable DocType fails preview on its own amended_from and the user never
+	# reaches the confirm step, while apply would have accepted the same IR.
+	_name = (ir_dict.get("doctype_name") or "").strip()
+	existing_fieldnames = set()
+	if _name and frappe.db.exists("DocType", _name):
+		existing_fieldnames = {f.fieldname for f in frappe.get_meta(_name).fields if f.fieldname}
+	verdict = validate_doctype_ir(ir_dict, existing_fieldnames=existing_fieldnames)
 	if not verdict["valid"]:
 		return {"valid": False, "violations": verdict["violations"]}
 
@@ -128,6 +155,9 @@ def preview_doctype(ir: str) -> dict:
 
 	exists = bool(frappe.db.exists("DocType", name))
 	custom = bool(frappe.db.get_value("DocType", name, "custom")) if exists else False
+	# Preview must branch the way apply does, or a DocType edited in place is
+	# previewed as an untouched one gaining Custom Fields.
+	reconciles = exists and _reconciles_in_place(name)
 	child_note = (
 		" " + _("It also creates {0} linked list(s): {1}.").format(len(child_tables), ", ".join(child_tables))
 		if child_tables else ""
@@ -144,7 +174,7 @@ def preview_doctype(ir: str) -> dict:
 		out["action"] = "create"
 		out["summary"] = _("Creates a new DocType “{0}” with {1} field(s). Nothing else changes.{2}").format(
 			name, len(content), child_note)
-	elif custom:
+	elif reconciles:
 		d = diff_ir(_read_doctype_ir(name) or {}, ir_dict)
 		out["action"] = "update"
 		out["diff"] = {
@@ -230,6 +260,7 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 	autoname = (ir_dict.get("autoname") or "").strip()
 	fields = ir_dict.get("fields") or []
 	settings = _extract_settings(ir_dict)
+	permissions = _extract_permissions(ir_dict)
 
 	# 3) Data-loss guard: block destructive field removals on an existing custom
 	#    DocType unless the client explicitly confirmed (via preview_doctype). This
@@ -237,7 +268,7 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 	if (
 		not int(confirm or 0)
 		and frappe.db.exists("DocType", name)
-		and frappe.db.get_value("DocType", name, "custom")
+		and _reconciles_in_place(name)
 	):
 		current = _read_doctype_ir(name) or {}
 		removed = diff_ir(current, ir_dict).get("removed") or []
@@ -249,27 +280,31 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 				title=_("Confirm data loss"),
 			)
 
-	original_user = frappe.session.user
 	child_tables: list[str] = []
 	try:
-		frappe.set_user("Administrator")
-		# Create any inline child DocTypes first and point the Table fields at them.
-		child_tables = _ensure_child_doctypes(name, module, fields)
-		if not frappe.db.exists("DocType", name):
-			action = _create_custom_doctype(name, module, is_child, autoname, fields, settings)
-		elif frappe.db.get_value("DocType", name, "custom"):
-			action = _reconcile_custom_doctype(name, is_child, autoname, fields, settings, module)
-		else:
-			action = _customize_standard_doctype(name, fields)
-		frappe.db.commit()
+		with as_user("Administrator"):
+			# Create any inline child DocTypes first and point the Table fields at them.
+			child_tables = _ensure_child_doctypes(name, module, fields)
+			if not frappe.db.exists("DocType", name):
+				action = _create_custom_doctype(name, module, is_child, autoname, fields, settings, permissions)
+			elif frappe.db.get_value("DocType", name, "custom"):
+				action = _reconcile_custom_doctype(name, is_child, autoname, fields, settings, module, permissions)
+			elif _reconciles_in_place(name):
+				action = _reconcile_owned_doctype(name, fields, settings, permissions)
+			else:
+				action = _customize_standard_doctype(name, fields)
+				_apply_standard_doctype_permissions(name, permissions)
+			if permissions is not None:
+				# Cached DocType meta predates the new rules, so roles stay locked out
+				# until it is rebuilt.
+				frappe.clear_cache(doctype=name)
+			frappe.db.commit()
 	except frappe.PermissionError:
 		raise
 	except Exception:
 		frappe.db.rollback()
 		frappe.log_error(title=f"Docu apply_doctype failed ({name})", message=frappe.get_traceback())
 		frappe.throw(_("Could not apply the form: {0}").format(frappe.get_traceback().splitlines()[-1]))
-	finally:
-		frappe.set_user(original_user)
 
 	return {
 		"name": name,
@@ -278,6 +313,39 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 		"child_tables": child_tables,
 		"url": f"/app/{frappe.scrub(name).replace('_', '-')}",
 	}
+
+
+def _reconciles_in_place(name: str) -> bool:
+	"""True when field changes belong in the DocType's own definition.
+
+	A custom DocType has no source file, so its definition is the only place to
+	write. A standard DocType one of our apps owns already has its schema in
+	source, so a Custom Field there overrides our own JSON — the file says one
+	thing, the override says another, and the effective schema is knowable only
+	on a migrated site. Frappe refuses to save a standard DocType outside
+	developer mode, so a site without it keeps the Customize Form path.
+	"""
+	if frappe.db.get_value("DocType", name, "custom"):
+		return True
+	if not frappe.conf.get("developer_mode"):
+		return False
+
+	from one_bpmn.api.doctype_source_sync import owned_in_source
+
+	return owned_in_source(name)
+
+
+def _field_payloads(fields: list) -> list:
+	"""Project the IR's fields onto DocField rows, numbered in IR order."""
+	payloads = []
+	idx = 0
+	for f in _uniquify_fieldnames(fields):
+		is_layout = f.get("fieldtype") in _LAYOUT_FIELDTYPES
+		if not is_layout and not (f.get("fieldname") or "").strip():
+			continue
+		idx += 1
+		payloads.append(_docfield_dict(f, idx))
+	return payloads
 
 
 def _docfield_dict(field: dict, idx: int) -> dict:
@@ -300,6 +368,90 @@ def _docfield_dict(field: dict, idx: int) -> dict:
 def _extract_settings(ir_dict: dict) -> dict:
 	"""Pull the DocType-level settings the client sent (only keys actually present)."""
 	return {k: ir_dict[k] for k in _DOCTYPE_SETTING_KEYS if k in ir_dict}
+
+
+_DEFAULT_PERMISSION = {
+	"role": "System Manager", "permlevel": 0,
+	"read": 1, "write": 1, "create": 1, "delete": 1,
+	"report": 1, "export": 1, "share": 1, "print": 1, "email": 1,
+}
+
+
+def _extract_permissions(ir_dict: dict):
+	"""The permission rules the client sent, or None when it said nothing.
+
+	None and [] mean different things. None is "I am not describing permissions",
+	which leaves whatever the DocType already has alone. An empty list is a
+	deliberate "no rules", which the caller is entitled to ask for.
+	"""
+	perms = ir_dict.get("permissions")
+	return perms if isinstance(perms, list) else None
+
+
+def _apply_standard_doctype_permissions(name: str, permissions) -> None:
+	"""Set the rules for a DocType whose definition we cannot write.
+
+	Only reached for a DocType an external app ships, or one of ours on a site
+	without developer mode — ``_reconciles_in_place`` takes everything else. Its
+	own rows are rewritten on every migrate, so the change goes to Custom
+	DocPerm, which Frappe reads in preference once any row exists.
+	"""
+	if permissions is None:
+		return
+	from frappe.permissions import setup_custom_perms
+
+	setup_custom_perms(name)  # seeds Custom DocPerm from the shipped rules, once
+	frappe.db.delete("Custom DocPerm", {"parent": name})
+	for rule in permissions:
+		if not isinstance(rule, dict):
+			continue
+		role = (rule.get("role") or "").strip()
+		if not role:
+			continue
+		row = frappe.new_doc("Custom DocPerm")
+		row.parent = name
+		row.permlevel = int(rule.get("permlevel") or 0)
+		row.role = role
+		for flag in DOCTYPE_PERMISSION_FLAGS:
+			setattr(row, flag, int(bool(rule.get(flag))))
+		row.insert(ignore_permissions=True)
+	if not frappe.db.exists("Custom DocPerm", {"parent": name}):
+		# Never leave a DocType nobody can open — the same floor the custom path keeps.
+		row = frappe.new_doc("Custom DocPerm")
+		row.parent = name
+		row.update(_DEFAULT_PERMISSION)
+		row.insert(ignore_permissions=True)
+
+
+def _apply_doctype_permissions(doc, permissions, is_child: int) -> None:
+	"""Replace the DocType's permission rules with the ones in the IR.
+
+	A child table holds no rules of its own — it is read and written through its
+	parent — so anything sent for one is dropped. Roles were checked against the
+	Role table by the validator before this runs.
+	"""
+	if is_child:
+		doc.set("permissions", [])
+		return
+	if permissions is None:
+		if not doc.get("permissions"):
+			doc.append("permissions", dict(_DEFAULT_PERMISSION))
+		return
+
+	rows = []
+	for rule in permissions:
+		if not isinstance(rule, dict):
+			continue
+		role = (rule.get("role") or "").strip()
+		if not role:
+			continue
+		row = {"role": role, "permlevel": int(rule.get("permlevel") or 0)}
+		for flag in DOCTYPE_PERMISSION_FLAGS:
+			row[flag] = int(bool(rule.get(flag)))
+		rows.append(row)
+	# A DocType nobody can reach is almost never what was meant, and it locks the
+	# process owner out of their own form, so fall back to the default rule.
+	doc.set("permissions", rows or [dict(_DEFAULT_PERMISSION)])
 
 
 def _apply_doctype_settings(doc, settings: dict) -> None:
@@ -431,7 +583,8 @@ def _move_custom_doctype(name: str, module: str) -> None:
 	frappe.db.set_value("DocType", name, "module", module)
 
 
-def _create_custom_doctype(name: str, module: str, is_child: int, autoname: str, fields: list, settings: dict = None) -> str:
+def _create_custom_doctype(name: str, module: str, is_child: int, autoname: str, fields: list,
+                           settings: dict = None, permissions=None) -> str:
 	doc = frappe.get_doc({
 		"doctype": "DocType",
 		"name": name,
@@ -445,18 +598,13 @@ def _create_custom_doctype(name: str, module: str, is_child: int, autoname: str,
 	_apply_doctype_settings(doc, settings)
 	doc.custom = 1          # never let a setting flip the custom flag
 	doc.istable = is_child  # child-table state is owned by the caller
-	if not doc.istable:
-		doc.append("permissions", {
-			"role": "System Manager",
-			"read": 1, "write": 1, "create": 1, "delete": 1,
-			"report": 1, "export": 1, "share": 1, "print": 1, "email": 1,
-		})
+	_apply_doctype_permissions(doc, permissions, is_child)
 	doc.insert(ignore_permissions=True)
 	return "created"
 
 
 def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: list,
-                              settings: dict = None, module: str = None) -> str:
+                              settings: dict = None, module: str = None, permissions=None) -> str:
 	"""Bring a custom DocType's fields in line with the IR (add / update / remove).
 
 	The IR (seeded from the live schema and echoed back by the writer) is the
@@ -473,19 +621,33 @@ def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: l
 	doc = frappe.get_doc("DocType", name)
 	if module and doc.module != module:
 		doc.module = module
-	payloads = []
-	idx = 0
-	for f in _uniquify_fieldnames(fields):
-		is_layout = f.get("fieldtype") in _LAYOUT_FIELDTYPES
-		if not is_layout and not (f.get("fieldname") or "").strip():
-			continue
-		idx += 1
-		payloads.append(_docfield_dict(f, idx))
-	doc.set("fields", payloads)
+	doc.set("fields", _field_payloads(fields))
 	_apply_doctype_settings(doc, settings)
+	_apply_doctype_permissions(doc, permissions, is_child)
 	doc.istable = is_child
 	if autoname:
 		doc.autoname = autoname
+	doc.save(ignore_permissions=True)
+	return "updated"
+
+
+def _reconcile_owned_doctype(name: str, fields: list, settings: dict = None, permissions=None) -> str:
+	"""Bring a standard DocType we own in line with the IR — fields only.
+
+	Its module, child-table flag and naming rule live in a source directory on
+	disk, not in the IR, so reconciling them here would move or rename files the
+	IR knows nothing about. In developer mode Frappe exports the saved DocType
+	back to that directory, so the change lands in source rather than as an
+	override of it.
+	"""
+	if permissions is not None:
+		# Frappe reads a Custom DocPerm override in preference, so one left from an
+		# earlier edit would beat the file we are about to write.
+		frappe.db.delete("Custom DocPerm", {"parent": name})
+	doc = frappe.get_doc("DocType", name)
+	doc.set("fields", _field_payloads(fields))
+	_apply_doctype_settings(doc, settings)
+	_apply_doctype_permissions(doc, permissions, int(bool(doc.istable)))
 	doc.save(ignore_permissions=True)
 	return "updated"
 

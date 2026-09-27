@@ -213,6 +213,19 @@ class TestAiShapeArtifacts(FrappeTestCase):
 		instance._dispatch_service_task = dispatch
 		return instance
 
+	def test_a_renamed_output_variable_still_reaches_the_readers(self):
+		"""A map may name the answer ``ai_result``; the artifact and the turn
+		state readers still expect ``<bpmn_id>_output`` and must not go blank."""
+		from one_bpmn.agents.shape_tools import execute_shape
+
+		instance = self._instance({"ai_result": SCRIPT, "write_script_output": SCRIPT})
+		execute_shape(instance, "write_script", {
+			"serviceType": "ai_agent", "aiAgentConfig": "x", "aiUserPrompt": "p",
+			"aiOutputVariable": "ai_result",
+		}, {})
+
+		self.assertEqual(pop_tool_artifact("write_script"), SCRIPT)
+
 	def test_the_shapes_answer_is_recorded_as_its_artifact(self):
 		from one_bpmn.agents.shape_tools import execute_shape
 

@@ -443,3 +443,42 @@ class TestTheArtefactSetFollowsOwnership(FrappeTestCase):
         body = _pr_body("one_fm", [THEIRS], "Some Map", artefacts, routing, {})
         self.assertIn("customization artefacts", body)
         self.assertIn("override is the only mechanism", body)
+
+
+class TestDocuWritesWhereOwnershipSays(FrappeTestCase):
+    """Docu asked to add a field to a DocType we own minted a Custom Field.
+
+    Same rule as the sync above, different entry point: apply_doctype branched on
+    ``custom`` alone, so every standard DocType got the Customize Form path —
+    including the ones whose schema is in our own source.
+    """
+
+    def setUp(self):
+        self.previous = frappe.db.get_single_value(SETTINGS, "customization_app")
+        _set_app("one_fm")
+
+    def tearDown(self):
+        _set_app(self.previous)
+
+    def test_a_doctype_we_own_is_edited_in_place(self):
+        from one_bpmn.api.docu_api import _reconciles_in_place
+
+        self.assertTrue(_reconciles_in_place(OURS))
+
+    def test_a_doctype_another_app_owns_still_gets_an_override(self):
+        from one_bpmn.api.docu_api import _reconciles_in_place
+
+        if not frappe.db.exists("DocType", THEIRS):
+            self.skipTest(f"{THEIRS} is not installed")
+        self.assertFalse(_reconciles_in_place(THEIRS))
+
+    def test_without_developer_mode_ours_falls_back_to_the_override(self):
+        """Frappe refuses to save a standard DocType outside developer mode."""
+        from one_bpmn.api import docu_api
+
+        previous = frappe.conf.get("developer_mode")
+        try:
+            frappe.conf["developer_mode"] = 0
+            self.assertFalse(docu_api._reconciles_in_place(OURS))
+        finally:
+            frappe.conf["developer_mode"] = previous
