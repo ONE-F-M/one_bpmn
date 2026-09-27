@@ -2686,6 +2686,21 @@ function goBack() {
 	router.push({ name: "Home" });
 }
 
+function copyProcessId() {
+	if (!activeDiagramName.value) return;
+	navigator.clipboard.writeText(activeDiagramName.value).then(() => {
+		frappe.show_alert({
+			message: __('Process ID copied to clipboard'),
+			indicator: 'green'
+		});
+	}).catch(() => {
+		frappe.show_alert({
+			message: __('Failed to copy process ID'),
+			indicator: 'red'
+		});
+	});
+}
+
 // ── Version Comparison (Diff) ──
 
 // Deployed-version compare (legacy picker, kept available).
