@@ -137,12 +137,18 @@ def _orchestrator(suite: str) -> None:
 
 
 def execute():
+	# A suite that is not here yet is skipped, and a skip must be visible: this
+	# ran before the Connector seed once and nobody knew until the count was off.
 	connector = frappe.db.get_value("AI Eval Suite", {"title": CONNECTOR_SUITE}, "name")
 	if connector:
 		_connector(connector)
+	else:
+		print(f"add_tool_call_cases_to_agent_suites: no suite titled {CONNECTOR_SUITE!r} — skipped")
 
 	orchestrator = frappe.db.get_value("AI Eval Suite", {"title": ORCHESTRATOR_SUITE}, "name")
 	if orchestrator:
 		_orchestrator(orchestrator)
+	else:
+		print(f"add_tool_call_cases_to_agent_suites: no suite titled {ORCHESTRATOR_SUITE!r} — skipped")
 
 	frappe.db.commit()
