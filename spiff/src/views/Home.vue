@@ -2,7 +2,7 @@
 	<div class="h-full flex flex-col bg-gray-50">
 		<!-- Header -->
 		<header class="bg-white border-b px-6 py-4 flex items-center justify-between gap-4">
-			<h1 class="text-xl font-semibold text-gray-900 shrink-0">Processes</h1>
+			<h1 class="text-xl font-semibold text-gray-900 shrink-0">Welcome back</h1>
 			<div class="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 min-w-0">
 				<Icon icon="lucide:info" class="w-4 h-4 text-blue-500 shrink-0" />
 				<p class="text-xs text-blue-800 leading-snug">
