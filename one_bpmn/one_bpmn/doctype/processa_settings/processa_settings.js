@@ -15,46 +15,68 @@ frappe.ui.form.on("Processa Settings", {
 	},
 
 	render_ba_sync_badge(frm) {
-		// Dynamically import Vue and the component
-		import("vue").then(({ createApp }) => {
-			import("../../../spiff/src/components/LastSyncedBadge.vue").then(
-				(module) => {
-					const LastSyncedBadge = module.default
+		// Render the Last Synced badge in the ba_last_synced field
+		const field_wrapper = frm.get_field("ba_last_synced")
+		if (!field_wrapper) return
 
-					// Find the section that contains ba_last_synced field
-					const field_wrapper = frm.get_field("ba_last_synced")
-					if (!field_wrapper) return
+		// Access the actual field element
+		const field_element = field_wrapper.$wrapper
+		if (!field_element) return
 
-					const container = field_wrapper.$wrapper
-					if (!container) return
+		// Clear previous content
+		field_element.innerHTML = ""
 
-					// Clear any existing Vue app
-					const existing_app = container.__vue_app
-					if (existing_app) {
-						existing_app.unmount()
-					}
+		// Create a simple badge display using HTML
+		// We'll render the relative time directly using the same logic
+		// as the LastSyncedBadge component
+		const relative_time = this.get_relative_time(frm.doc.ba_last_synced)
+		const badge_html = `
+			<div class="d-flex align-items-center">
+				<div class="badge badge-blue" style="white-space: nowrap;">
+					${frappe.escape_html(relative_time)}
+				</div>
+			</div>
+		`
+		field_element.innerHTML = badge_html
+	},
 
-					// Create and mount the Vue app
-					const app = createApp({
-						components: { LastSyncedBadge },
-						template: `
-							<div class="d-flex align-items-center gap-2">
-								<span class="text-muted text-sm">Last Synced:</span>
-								<LastSyncedBadge :timestamp="timestamp" />
-							</div>
-						`,
-						setup() {
-							return {
-								timestamp: frm.doc.ba_last_synced,
-							}
-						},
-					})
+	get_relative_time(timestamp) {
+		if (!timestamp) {
+			return "Invalid date"
+		}
 
-					// Store reference for cleanup
-					container.__vue_app = app
-					app.mount(container)
-				}
-			)
-		})
+		const now = new Date()
+		const syncDate = new Date(timestamp)
+
+		if (isNaN(syncDate.getTime())) {
+			return "Invalid date"
+		}
+
+		const diffMs = now.getTime() - syncDate.getTime()
+		const diffSec = Math.floor(diffMs / 1000)
+		const diffMin = Math.floor(diffSec / 60)
+		const diffHours = Math.floor(diffMin / 60)
+		const diffDays = Math.floor(diffHours / 24)
+		const diffWeeks = Math.floor(diffDays / 7)
+
+		if (diffSec < 60) {
+			return "just now"
+		} else if (diffMin < 60) {
+			const mins = Math.max(1, diffMin)
+			return `${mins} minute${mins > 1 ? "s" : ""} ago`
+		} else if (diffHours < 24) {
+			return `${diffHours} hour${diffHours > 1 ? "s" : ""} ago`
+		} else if (diffDays < 7) {
+			return `${diffDays} day${diffDays > 1 ? "s" : ""} ago`
+		} else if (diffWeeks < 4) {
+			return `${diffWeeks} week${diffWeeks > 1 ? "s" : ""} ago`
+		} else {
+			const months = Math.floor(diffDays / 30)
+			if (months < 12) {
+				return `${months} month${months > 1 ? "s" : ""} ago`
+			}
+			const years = Math.floor(months / 12)
+			return `${years} year${years > 1 ? "s" : ""} ago`
+		}
 	},
 })
