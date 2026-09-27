@@ -157,7 +157,6 @@ class DirectApiExecutor(Executor):
                 ),
             )
 
-        # The agent's catalog pick, else any enabled catalog model on this provider.
         model_name = config.model or frappe.db.get_value(
             "AI Model", {"provider": config.provider_name, "enable_model": 1}, "name"
         )
