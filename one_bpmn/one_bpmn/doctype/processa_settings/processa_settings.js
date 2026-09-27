@@ -16,9 +16,9 @@ frappe.ui.form.on("Processa Settings", {
 
 	render_ba_sync_badge(frm) {
 		// Render the Last Synced badge in the ba_last_synced field.
-		// Relative time comes from frappe.datetime.comment_when \u2014 the same
+		// Relative time comes from frappe.datetime.comment_when - the same
 		// built-in helper already used elsewhere in this app (see
-		// ai_clarification_on_document.js) \u2014 rather than a hand-rolled diff.
+		// ai_clarification_on_document.js) - rather than a hand-rolled diff.
 		const field_wrapper = frm.get_field("ba_last_synced")
 		if (!field_wrapper) return
 
