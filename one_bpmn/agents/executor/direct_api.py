@@ -20,6 +20,7 @@ import time
 from typing import Any, ClassVar, Optional
 
 import frappe
+from frappe import _
 
 from . import (
     AttemptRecord,
@@ -156,22 +157,32 @@ class DirectApiExecutor(Executor):
                 ),
             )
 
+        # The agent's catalog pick, else any enabled catalog model on this provider.
+        model_name = config.model or frappe.db.get_value(
+            "AI Model", {"provider": config.provider_name, "enable_model": 1}, "name"
+        )
+        if not model_name:
+            return ExecutorResult(
+                error_code=ErrorCode.MODEL_NOT_CONFIGURED,
+                error_message=_("No model is configured for provider {0}.").format(config.provider_name),
+            )
+
         # The connection lives on the model now: its own key, its own endpoint,
         # and enable_model as the only on/off switch.
         model_row = frappe.db.get_value(
-            "AI Model", config.model, ["enable_model", "api_endpoint"], as_dict=True
-        ) if config.model else None
+            "AI Model", model_name, ["enable_model", "api_endpoint"], as_dict=True
+        )
 
         if model_row and not model_row.enable_model:
             return ExecutorResult(
                 error_code=ErrorCode.PROVIDER_DISABLED,
-                error_message=f"AI Model '{config.model}' is disabled.",
+                error_message=_("AI Model '{0}' is disabled.").format(model_name),
             )
 
         try:
             api_key = frappe.utils.password.get_decrypted_password(
-                "AI Model", config.model, "api_key", raise_exception=False
-            ) or "" if config.model else ""
+                "AI Model", model_name, "api_key", raise_exception=False
+            ) or ""
         except Exception:
             api_key = ""
 
@@ -183,29 +194,18 @@ class DirectApiExecutor(Executor):
         if not api_key:
             return ExecutorResult(
                 error_code=ErrorCode.PROVIDER_DISABLED,
-                error_message=(
-                    f"AI Model '{config.model}' has no API key set. "
-                    f"Open that record and enter the {provider_type} API key."
-                ),
+                error_message=_(
+                    "AI Model '{0}' has no API key set. Open that record and enter the {1} API key."
+                ).format(model_name, provider_type),
             )
 
         endpoint = ((model_row.api_endpoint if model_row else "") or "").rstrip("/")
         if not endpoint:
             endpoint = self._DEFAULT_ENDPOINTS.get(provider_type, "")
 
-        # The model comes from the config (the agent's catalog pick, resolved
-        # upstream); the last-resort fallback is any ENABLED catalog model on
-        # this provider. Enabled matters now that the catalog holds models kept
-        # only for their rate card — an unpriced, disabled row is not something
-        # to fall back onto.
-        model = config.model or frappe.db.get_value(
-            "AI Model", {"provider": provider.name, "enable_model": 1}, "name"
-        ) or ""
-
         # What the provider's API calls this model, when that differs from the
         # catalog name agents pick.
-        if model:
-            model = frappe.db.get_value("AI Model", model, "model_api_name") or model
+        model = frappe.db.get_value("AI Model", model_name, "model_api_name") or model_name
 
         # WI-001356: with tools present, delegate to the matching
         # agents/llm_provider adapter's multi-turn tool-calling loop. With
