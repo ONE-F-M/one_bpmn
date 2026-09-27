@@ -9,6 +9,7 @@
  "field_order": [
   "title",
   "case_type",
+  "first_assertion_pass_threshold",
   "target_skill",
   "suite",
   "case_kind",
