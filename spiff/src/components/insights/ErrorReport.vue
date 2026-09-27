@@ -164,7 +164,9 @@ const { isMobile } = useWindowSize()
 const issueRuns = useIssueRuns(queryParams)
 
 const summary = computed(() => reportData.value.summary || {})
-const issues = computed(() => [...(reportData.value.issues || [])].sort((a, b) => b.errors - a.errors))
+const issues = computed(() =>
+	[...(reportData.value.issues || [])].sort((a, b) => dayjs(b.last_seen).valueOf() - dayjs(a.last_seen).valueOf()),
+)
 
 const priorDates = computed(() => {
 	const from = dayjs(reportData.value.previous_from)
