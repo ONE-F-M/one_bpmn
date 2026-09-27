@@ -68,8 +68,10 @@ CASES = [
 			"target_app": "one_bpmn",
 			"git_branch": "staging",
 		},
+		# 3,000,000: real BA runs of comparable new-component-plus-wire-in work ranged
+		# 2.75M-6.96M tokens for this agent and model.
 		"assertions": [
-			{"assertion_type": "max_tokens", "value": "600000"},
+			{"assertion_type": "max_tokens", "value": "3000000"},
 		],
 	},
 ]
