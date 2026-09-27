@@ -1599,6 +1599,7 @@ def _run_chat_agent_eval(cfg, case, eval_run: str | None = None) -> tuple:
     conversation = create_agent_conversation(
         cfg.agent_id, title=(case.title or _("Eval case"))[:140], user=frappe.session.user, commit=False
     )
+    frappe.db.set_value("Chat Conversation", conversation, "is_eval", 1, update_modified=False)
 
     started = now_datetime()
     try:

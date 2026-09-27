@@ -205,7 +205,11 @@ def list_conversations(limit: int = 30) -> list:
 		frappe.throw(_("Authentication required"))
 	return frappe.get_all(
 		"Chat Conversation",
-		filters={"owner": frappe.session.user, "agent_mode": ["in", one_ai_conversation_modes()]},
+		filters={
+			"owner": frappe.session.user,
+			"agent_mode": ["in", one_ai_conversation_modes()],
+			"is_eval": 0,
+		},
 		fields=["name", "title", "agent_mode", "last_updated", "status"],
 		order_by="last_updated desc",
 		limit=min(cint(limit) or 30, 100),

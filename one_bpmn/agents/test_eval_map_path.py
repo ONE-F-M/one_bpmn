@@ -517,6 +517,19 @@ class TestChatEvalRunAttribution(FrappeTestCase):
         self.assertEqual(usage["prompt_tokens"], 15)
         self.assertEqual(usage["cost"], 0.02)
 
+    def test_the_eval_conversation_is_marked(self):
+        seen = {}
+
+        def fake_invoke_agent(agent_id, prompt, context=None, conversation=None, **kwargs):
+            seen["conversation"] = conversation
+            _insert_agent_run(self.cfg, 15, 0.02, **self._eval_tags())
+            return {"response": "hi there"}
+
+        with patch("one_bpmn.api.agent_invocation.invoke_agent", new=fake_invoke_agent):
+            _run_agent_eval(self.cfg, self.case, self.eval_run.name)
+
+        self.assertEqual(frappe.db.get_value("Chat Conversation", seen["conversation"], "is_eval"), 1)
+
     def test_no_eval_tagged_run_raises(self):
         def fake_invoke_agent(agent_id, prompt, context=None, **kwargs):
             _insert_agent_run(self.cfg, 1000, 50.0)
