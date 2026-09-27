@@ -7,6 +7,7 @@ import {
 	fmtCompact,
 	fmtInt,
 	fmtPct,
+	fmtDateRange,
 	fmtDelta,
 	fmtDuration,
 } from "./formatters.js"
@@ -75,12 +76,16 @@ test("fmtPct: null treated as 0", () => {
 	assert.equal(fmtPct(null), "0.0%")
 })
 
-test("fmtDelta: pct positive", () => {
-	assert.equal(fmtDelta(12.3, "pct"), "+12.3%")
+test("fmtDelta: pct rounds to a whole percent", () => {
+	assert.equal(fmtDelta(18.3, "pct"), "+18%")
 })
 
 test("fmtDelta: pt negative uses a hyphen", () => {
 	assert.equal(fmtDelta(-1.5, "pt"), "-1.5 pt")
+})
+
+test("fmtDelta: pt keeps one decimal", () => {
+	assert.equal(fmtDelta(0.6, "pt"), "+0.6 pt")
 })
 
 test("fmtDelta: null means no prior period", () => {
@@ -112,7 +117,7 @@ test("fmtCurrency: rounds up to a dollar with 2 decimals", () => {
 })
 
 test("fmtDelta: sign comes from the rounded value", () => {
-	assert.equal(fmtDelta(-0.04, "pct"), "+0.0%")
+	assert.equal(fmtDelta(-0.4, "pct"), "+0%")
 })
 
 test("fmtDuration: rounds up to a minute", () => {
@@ -125,4 +130,14 @@ test("fmtDuration: rounds up to a second", () => {
 
 test("fmtCompact: rounds up to a thousand", () => {
 	assert.equal(fmtCompact(999.6), "1K")
+})
+
+test("fmtDelta: a head count has no decimals or percent sign", () => {
+	assert.equal(fmtDelta(4, "count"), "+4")
+	assert.equal(fmtDelta(-2, "count"), "-2")
+})
+
+test("fmtDateRange: the month repeats only when it changes", () => {
+	assert.equal(fmtDateRange("2026-09-01", "2026-09-21"), "Sep 1 - 21")
+	assert.equal(fmtDateRange("2026-09-28", "2026-10-04"), "Sep 28 - Oct 4")
 })

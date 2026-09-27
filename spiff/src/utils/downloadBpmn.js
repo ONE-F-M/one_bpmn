@@ -24,7 +24,13 @@ export function sanitiseFilename(name) {
  */
 export function downloadBpmn(xml, title) {
 	const filename = sanitiseFilename(title) + ".bpmn";
-	const blob = new Blob([xml], { type: "application/xml" });
+	return downloadBlob(new Blob([xml], { type: "application/xml" }), filename);
+}
+
+/**
+ * Trigger a browser download of `blob` under `filename`.
+ */
+export function downloadBlob(blob, filename) {
 	const url = URL.createObjectURL(blob);
 	const link = document.createElement("a");
 	link.href = url;

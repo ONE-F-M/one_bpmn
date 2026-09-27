@@ -18,9 +18,10 @@ from __future__ import annotations
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import flt
 
 from one_bpmn.agents.executor import AttemptRecord, ErrorCode, ExecutorResult, TokenUsage
-from one_bpmn.agents.observability import finalize_ai_run, record_failed_attempts
+from one_bpmn.agents.observability import finalize_ai_run, record_ai_step, record_failed_attempts
 
 
 class RunFixture(FrappeTestCase):
@@ -109,6 +110,58 @@ class TestAFailedAttemptIsVisible(RunFixture):
 		self.assertEqual([s.step_index for s in steps], [1, 2])
 		self.assertEqual(steps[0].error_code, None)
 		self.assertEqual(steps[1].error_code, "TIMEOUT")
+
+
+class TestTurnCapNotDoubleCounted(RunFixture):
+	"""The turn-cap attempt must not repeat the tokens its turns already carry."""
+
+	def _turn_cap_result(self):
+		from unittest.mock import patch
+
+		from one_bpmn.agents.executor import ExecutorConfig
+		from one_bpmn.agents.executor.direct_api import DirectApiExecutor
+		from one_bpmn.agents.llm_provider.base import CompletionResult, TurnRecord
+
+		turns = [
+			TurnRecord(role="tool", content="turn 1", prompt_tokens=100, completion_tokens=20),
+			TurnRecord(role="tool", content="turn 2", prompt_tokens=150, completion_tokens=30),
+		]
+
+		async def capped_loop(*args, **kwargs):
+			return CompletionResult(trace=turns, hit_turn_cap=True), None
+
+		with (
+			patch("one_bpmn.agents.llm_provider.factory.get_llm_adapter", return_value=object()),
+			patch("one_bpmn.agents.executor.step_loop.run_agent_loop", new=capped_loop),
+		):
+			return DirectApiExecutor()._run_with_tools(ExecutorConfig(), "Anthropic", "key", "model")
+
+	def test_the_turn_cap_attempt_carries_no_tokens_or_latency(self):
+		result = self._turn_cap_result()
+		self.assertTrue(result.hit_turn_cap)
+		self.assertEqual(result.token_usage.prompt_tokens, 250)
+		self.assertEqual(len(result.attempts), 1)
+		self.assertEqual(result.attempts[0].error_message, "turn cap exhausted")
+		self.assertIsNone(result.attempts[0].token_usage)
+		self.assertFalse(result.attempts[0].latency_ms)
+
+	def test_the_run_cost_is_the_sum_of_its_turn_steps(self):
+		run = self._run()
+		record_ai_step(run, 1, "tool", "turn 1", prompt_tokens=100, completion_tokens=20)
+		record_ai_step(run, 2, "tool", "turn 2", prompt_tokens=150, completion_tokens=30)
+
+		finalize_ai_run(run, self._turn_cap_result())
+
+		steps = frappe.get_all(
+			"AI Agent Step",
+			filters={"run": run.name},
+			fields=["prompt_tokens", "completion_tokens", "cost", "error_message"],
+		)
+		cap = [s for s in steps if s.error_message == "turn cap exhausted"]
+		self.assertEqual(len(cap), 1)
+		self.assertEqual((cap[0].prompt_tokens, cap[0].completion_tokens, flt(cap[0].cost)), (0, 0, 0))
+		turn_cost = sum(flt(s.cost) for s in steps if s.error_message != "turn cap exhausted")
+		self.assertEqual(flt(frappe.db.get_value("AI Agent Run", run.name, "estimated_cost")), turn_cost)
 
 
 class TestTheCostStopsHiding(RunFixture):

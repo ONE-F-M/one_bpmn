@@ -1,38 +1,16 @@
 <template>
 	<div class="space-y-6">
-		<!-- Filters -->
-		<div class="flex flex-wrap gap-4 items-center">
-			<FormControl
-				type="select"
-				v-model="filterModel"
-				:options="modelOptions"
-				class="w-48"
-				@change="fetchReport"
+		<div class="flex flex-wrap gap-3 items-center justify-between">
+			<TabButtons
+				v-model="groupBy"
+				:buttons="GROUP_BY_BUTTONS"
 			/>
 			<FormControl
-				type="text"
 				v-model="filterBpmnId"
+				type="text"
 				placeholder="Filter by BPMN Element ID"
 				class="w-56"
 				@update:model-value="debouncedFetch"
-			/>
-			<FormControl
-				type="select"
-				v-model="filterProcess"
-				:options="processOptions"
-				class="w-48"
-				@change="fetchReport"
-			/>
-			<!-- WI-001608: AI tasks are done by AI Agents -->
-			<FormControl
-				type="select"
-				v-model="groupBy"
-				:options="[
-					{ label: 'Group by Model', value: 'model' },
-					{ label: 'Group by AI Agent', value: 'agent' },
-				]"
-				class="w-48"
-				@change="fetchReport"
 			/>
 		</div>
 
@@ -51,51 +29,13 @@
 		</div>
 
 		<template v-else>
-			<!-- Trend -->
-			<div v-if="trend.labels && trend.labels.length > 0" class="bg-gray-50 rounded-lg p-4">
+			<div
+				v-if="trend.labels && trend.labels.length > 0"
+				class="bg-gray-50 rounded-lg p-4"
+			>
 				<div class="text-xs text-gray-500 uppercase tracking-wide mb-3">Latency Trend (p50 / p95)</div>
-				<div class="overflow-x-auto">
-					<svg :width="trendWidth" height="120" class="block">
-						<template v-for="(label, i) in trend.labels" :key="i">
-							<rect
-								:x="50 + i * 40"
-								:y="100 - trendBarH(trend.p95[i])"
-								width="24"
-								:height="trendBarH(trend.p95[i])"
-								fill="#fde68a"
-								rx="2"
-							>
-								<title>p95: {{ fmtDuration(trend.p95[i]) }} ({{ label }})</title>
-							</rect>
-							<rect
-								:x="50 + i * 40"
-								:y="100 - trendBarH(trend.p50[i])"
-								width="24"
-								:height="trendBarH(trend.p50[i])"
-								fill="#6366f1"
-								rx="2"
-							>
-								<title>p50: {{ fmtDuration(trend.p50[i]) }} ({{ label }})</title>
-							</rect>
-							<text
-								:x="50 + i * 40 + 12"
-								y="116"
-								text-anchor="middle"
-								class="fill-gray-400"
-								font-size="10"
-							>{{ label.slice(5) }}</text>
-						</template>
-					</svg>
-				</div>
-				<div class="flex gap-4 mt-2">
-					<div class="flex items-center gap-1.5">
-						<div class="w-3 h-3 rounded-sm bg-indigo-500"></div>
-						<span class="text-xs text-gray-600">p50</span>
-					</div>
-					<div class="flex items-center gap-1.5">
-						<div class="w-3 h-3 rounded-sm bg-yellow-200"></div>
-						<span class="text-xs text-gray-600">p95</span>
-					</div>
+				<div class="latency-chart h-[180px]">
+					<AxisChart :config="trendConfig" />
 				</div>
 			</div>
 
@@ -225,7 +165,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from "vue"
-import { frappeRequest, FormControl, Badge } from "frappe-ui"
+import { AxisChart, Badge, FormControl, frappeRequest, TabButtons } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 import RunTree from "@/components/insights/RunTree.vue"
@@ -235,16 +175,20 @@ const props = defineProps({
 	fromDate: String,
 	toDate: String,
 	origin: { type: String, default: "production" },
+	model: { type: String, default: "" },
+	provider: { type: String, default: "" },
+	processModel: { type: String, default: "" },
 })
+
+const GROUP_BY_BUTTONS = [
+	{ label: "By model", value: "model" },
+	{ label: "By AI agent", value: "agent" },
+]
 
 const loading = ref(false)
 const reportData = ref({})
-const filterModel = ref("")
 const filterBpmnId = ref("")
-const filterProcess = ref("")
-const groupBy = ref("model") // "model" | "agent" (WI-001608)
-const cachedProcesses = ref([])
-const cachedModels = ref([])
+const groupBy = ref("model")
 
 const expandedRow = ref(null)
 const recentRuns = ref([])
@@ -260,22 +204,31 @@ function formatDate(dateStr) {
 
 const trend = computed(() => reportData.value.trend || { labels: [], p50: [], p95: [] })
 
-const maxTrendVal = computed(() => {
-	let max = 0
-	for (const v of (trend.value.p95 || [])) { if (v > max) max = v }
-	return max || 1
-})
-
-const trendWidth = computed(() => 60 + (trend.value.labels?.length || 0) * 40)
-
-function trendBarH(value) {
-	if (!value || !maxTrendVal.value) return 0
-	return Math.max((value / maxTrendVal.value) * 80, 2)
-}
-
-const modelOptions = computed(() => {
-	return [{ label: "All Models", value: "" }, ...cachedModels.value.map(m => ({ label: m, value: m }))]
-})
+const trendConfig = computed(() => ({
+	data: trend.value.labels.map((date, i) => ({ date, p50: trend.value.p50[i], p95: trend.value.p95[i] })),
+	xAxis: {
+		key: "date",
+		type: "time",
+		timeGrain: "day",
+		echartOptions: { axisLabel: { formatter: (v) => dayjs(v).format("MMM D") } },
+	},
+	yAxis: { echartOptions: { name: "", axisLabel: { formatter: (v) => fmtDuration(v) } } },
+	series: [
+		{ name: "p50", type: "line", color: "#2563eb", showDataPoints: true },
+		{ name: "p95", type: "line", color: "#d97706", showDataPoints: true },
+	],
+	echartOptions: {
+		tooltip: {
+			confine: true,
+			formatter: (params) =>
+				[
+					`<div class="font-medium mb-1">${dayjs(params[0]?.value?.[0]).format("MMM D")}</div>`,
+					...params.map((p) => `<div class="flex justify-between gap-5"><span>${p.seriesName}</span><span>${fmtDuration(p.value?.[1])}</span></div>`),
+				].join(""),
+		},
+		grid: { bottom: 30 },
+	},
+}))
 
 let fetchTimer = null
 function debouncedFetch() {
@@ -350,9 +303,10 @@ async function fetchReport() {
 		const params = {}
 		if (props.fromDate) params.from_date = props.fromDate
 		if (props.toDate) params.to_date = props.toDate
-		if (filterModel.value) params.model = filterModel.value
+		if (props.model) params.model = props.model
+		if (props.provider) params.provider = props.provider
+		if (props.processModel) params.process_model = props.processModel
 		if (filterBpmnId.value) params.bpmn_id = filterBpmnId.value
-		if (filterProcess.value) params.process_model = filterProcess.value
 		params.origin = props.origin
 		params.group_by = groupBy.value
 
@@ -362,17 +316,6 @@ async function fetchReport() {
 			params,
 		})
 		reportData.value = response || {}
-
-		// Only model-grouped rows may feed the Model filter options —
-		// agent names must not leak in (WI-001608).
-		if (groupBy.value === "model" && !filterModel.value) {
-			cachedModels.value = [...new Set((reportData.value.rows || []).map(r => r.model))].sort()
-		}
-
-		// Load process options on first fetch
-		if (!cachedProcesses.value.length) {
-			await loadProcessOptions()
-		}
 	} catch (error) {
 		console.error("Failed to fetch performance report:", error)
 		reportData.value = {}
@@ -381,29 +324,7 @@ async function fetchReport() {
 	}
 }
 
-const processOptions = computed(() => {
-	return [{ label: "All Processes", value: "" }, ...cachedProcesses.value.map(p => ({ label: p, value: p }))]
-})
-
-async function loadProcessOptions() {
-	try {
-		const result = await frappeRequest({
-			url: "/api/method/frappe.client.get_list",
-			method: "POST",
-			params: {
-				doctype: "BPMN Process Model",
-				fields: ["name"],
-				order_by: "name asc",
-				limit_page_length: 0,
-			},
-		})
-		cachedProcesses.value = (result || []).map(r => r.name).sort()
-	} catch (e) {
-		console.error("Failed to load process models:", e)
-	}
-}
-
-watch(() => [props.fromDate, props.toDate, props.origin], fetchReport)
+watch(() => [props.fromDate, props.toDate, props.origin, props.model, props.provider, props.processModel, groupBy.value], fetchReport)
 onMounted(fetchReport)
 
 function runTokensTitle(run) {
@@ -416,3 +337,10 @@ function runCostTitle(run) {
 	return run.child_runs ? `${total}, this run alone: ${fmtCurrencyExact(run.estimated_cost)}` : total
 }
 </script>
+
+<style scoped>
+.latency-chart :deep(div[class*="min-h-[300px]"]) {
+	min-height: 0;
+	min-width: 0;
+}
+</style>

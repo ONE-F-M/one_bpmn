@@ -159,25 +159,10 @@ function debouncedSearch(query) {
 async function searchWorkItems(query = "") {
 	searching.value = true
 	try {
-		const params = {
-			doctype: "Work Item",
-			fields: ["name", "title"],
-			// Only Orchestrator work items: nothing else reaches an agent, so
-			// every other work item would report a cost of zero.
-			filters: [["orchestrator", "=", 1]],
-			order_by: "modified desc",
-			limit_page_length: 20,
-		}
-		if (query) {
-			params.or_filters = [
-				["name", "like", `%${query}%`],
-				["title", "like", `%${query}%`],
-			]
-		}
 		const result = await frappeRequest({
-			url: "/api/method/frappe.client.get_list",
+			url: "/api/method/one_bpmn.api.insights_api.search_orchestrator_work_items",
 			method: "POST",
-			params,
+			params: { query },
 		})
 		workItemOptions.value = (result || []).map((w) => ({
 			label: w.title ? `${w.name} — ${w.title}` : w.name,

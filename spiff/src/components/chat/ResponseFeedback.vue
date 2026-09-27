@@ -1,7 +1,5 @@
 <template>
-	<!-- One row under an agent reply. Quiet by default: the buttons carry no
-	     background until they are hovered, focused or chosen, so a transcript of
-	     twenty replies does not read as twenty toolbars. -->
+	<!-- One row under an agent reply; the buttons get a background only when hovered, focused or chosen. -->
 	<div class="arf" :class="{ 'arf--open': panelOpen }">
 		<div class="arf-row" role="group" :aria-label="__('Rate this reply')">
 			<button
@@ -85,6 +83,13 @@
 				</button>
 			</div>
 		</div>
+		<div
+			v-if="error"
+			class="arf-comment-error"
+			role="alert"
+		>
+			{{ error }}
+		</div>
 	</div>
 </template>
 
@@ -111,6 +116,7 @@
 //    tell us something, not a score to compare yourself against.
 import { nextTick, ref, watch } from "vue";
 import { frappeRequest } from "frappe-ui";
+import { serverMessage } from "@/utils/serverMessage";
 
 const props = defineProps({
 	message: { type: String, required: true },
@@ -136,6 +142,7 @@ const busy = ref(false);
 const saved = ref(false);
 const panelEl = ref(null);
 const commentError = ref(false);
+const error = ref("");
 
 // A resumed conversation learns its ratings after the bubbles are drawn.
 watch(
@@ -153,6 +160,7 @@ function acknowledge() {
 }
 
 function call(method, body) {
+	error.value = "";
 	return frappeRequest({
 		url: `/api/method/one_bpmn.api.feedback.${method}`,
 		method: "POST",
@@ -182,6 +190,7 @@ async function choose(next) {
 			emit("rated", { message: props.message, rating: "" });
 		} catch (e) {
 			rating.value = previous;
+			error.value = serverMessage(e);
 		} finally {
 			busy.value = false;
 		}
@@ -211,6 +220,7 @@ async function choose(next) {
 		emit("rated", { message: props.message, rating: rating.value });
 	} catch (e) {
 		rating.value = previous;
+		error.value = serverMessage(e);
 	} finally {
 		busy.value = false;
 	}
@@ -241,8 +251,8 @@ async function submitNegative() {
 		emit("rated", { message: props.message, rating: "Negative" });
 		panelOpen.value = false;
 	} catch (e) {
-		// Keep the panel open — whatever was typed is not lost, and the rating
-		// was never recorded, so there is nothing to roll back.
+		// Keep the panel open so what was typed is not lost; nothing was recorded.
+		error.value = serverMessage(e);
 	} finally {
 		busy.value = false;
 	}
@@ -261,26 +271,13 @@ function closePanel() {
 	display: flex;
 	align-items: center;
 	gap: 2px;
-	/* Invisible until the reply is hovered or something here has focus, so the
-	   transcript stays a transcript. */
-	opacity: 0;
-	transition: opacity 0.12s ease-in-out;
-}
-.arf:hover .arf-row,
-.arf--open .arf-row,
-.arf-row:focus-within {
-	opacity: 1;
-}
-/* Never hide a rating the user already gave. */
-.arf-row:has(.arf-btn--on) {
-	opacity: 1;
 }
 .arf-btn {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	width: 22px;
-	height: 22px;
+	width: 28px;
+	height: 28px;
 	padding: 0;
 	border: none;
 	border-radius: 4px;
@@ -289,8 +286,8 @@ function closePanel() {
 	cursor: pointer;
 }
 .arf-btn svg {
-	width: 13px;
-	height: 13px;
+	width: 16px;
+	height: 16px;
 	fill: currentColor;
 }
 .arf-btn:hover:not(:disabled) {
