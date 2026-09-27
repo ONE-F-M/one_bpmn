@@ -41,6 +41,13 @@
    "description": "What this case measures. Output: the answer itself. Trajectory: which tools were called, in what order, with what arguments. Trigger Positive/Negative: whether a skill fires when it should and stays quiet when it should not. Adversarial: the agent must refuse. Co-Load Budget: the context cost of loading a skill. Memory: whether stored memory is recalled and used."
   },
   {
+   "fieldname": "first_assertion_pass_threshold",
+   "fieldtype": "Int",
+   "label": "First Assertion Pass Threshold",
+   "read_only": 1,
+   "description": "Read-only summary of the pass_threshold on the first row of the Assertions table below, so a reviewer does not have to scroll down to see it. Only meaningful when that assertion's type is llm_judge."
+  },
+  {
    "fieldname": "target_skill",
    "fieldtype": "Link",
    "label": "Target Skill",
