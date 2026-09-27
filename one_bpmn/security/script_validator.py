@@ -283,6 +283,16 @@ class _SecurityVisitor(ast.NodeVisitor):
 				self.violations.append(
 					f"Permission-bypass keyword '{key.value}' injected via **kwargs is not allowed"
 				)
+			elif key is not None and not isinstance(key, ast.Constant):
+				# save(**{"ignore_" + "permissions": True}) — the key is built at
+				# runtime specifically so it never spells the literal string a
+				# blacklist would look for. We cannot evaluate it statically, so
+				# treat any non-constant key in a permission-shaped kwargs unpack
+				# as suspicious rather than silently letting it through.
+				self.violations.append(
+					"Dynamically computed keyword name in **kwargs unpack is not allowed "
+					"(cannot verify it is not a permission-bypass keyword)"
+				)
 
 	# ── attribute access ─────────────────────────────────────────────────
 	def visit_Attribute(self, node: ast.Attribute) -> None:
