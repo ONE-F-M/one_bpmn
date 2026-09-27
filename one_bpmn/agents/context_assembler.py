@@ -35,6 +35,10 @@ from __future__ import annotations
 EXAMPLES_HEADER = "## Examples"
 GUARDRAILS_HEADER = "## Guard Rails"
 SKILLS_HEADER = "## AI Skills"
+# Header for the DYNAMIC-layer block that carries the full bodies of skills
+# loaded via load_skill this conversation \u2014 distinct from SKILLS_HEADER,
+# which only lists names+descriptions in the static system prompt.
+SKILLS_LOADED_HEADER = "## Loaded Skills"
 
 # Prefix for the retrieved-memory block in the DYNAMIC layer. The old
 # system-prompt header lives on as dispatchers.MEMORY_BLOCK_HEADER, which the
@@ -84,14 +88,30 @@ def _render_examples(rows) -> str:
 
 
 def _render_skills_index(skills) -> str:
+	"""The static system-prompt index of skills the agent may load.
+
+	Defensive filter: a skill dict carrying a ``status`` other than "Active"
+	is dropped even though callers (``get_agent_config`` /
+	``load_agent_behaviour``) are expected to have already filtered to
+	Active-only. A Deprecated skill reaching the index would advertise a
+	skill ``load_skill`` itself refuses to load \u2014 that mismatch is exactly
+	what this guards against if an upstream caller ever forgets to filter.
+	Rows with no ``status`` key at all (older callers, tests) are kept, so
+	behaviour is unchanged for anything that never carried the field.
+	"""
 	if not skills:
 		return ""
 	lines = [SKILLS_HEADER, "You have the following skills available. Use the load_skill tool to read a skill's full instructions when needed."]
 	for skill in skills:
+		status = skill.get("status")
+		if status is not None and status != "Active":
+			continue
 		name = skill.get("name", "")
 		desc = skill.get("description", "")
 		if name:
 			lines.append(f"- **{name}**: {desc}")
+	if len(lines) <= 2:
+		return ""
 	return "\n".join(lines)
 
 
@@ -235,13 +255,21 @@ def build_dynamic_preamble(
 
 	Returns the user prompt unchanged when there is no memory to inject, so
 	agents without long-term memory send exactly what they sent before.
+
+	``active_skills`` carries the full BODIES of skills loaded via load_skill
+	this conversation (WI-000401) \u2014 not the static index of what is
+	available, which is ``_render_skills_index``'s job in the system prompt.
+	Without this, load_skill's cache write had nothing downstream reading
+	it, so a loaded skill's instructions never reached the model at all.
 	"""
 	memory_block = str(memory_block or "").strip()
 	user_prompt = str(user_prompt or "")
 	instructions = str(instructions or "")
 	skills_block = ""
 	if active_skills:
-		skills_block = "\n\n".join(str(s).strip() for s in active_skills if s)
+		bodies = "\n\n".join(str(s).strip() for s in active_skills if s)
+		if bodies:
+			skills_block = f"{SKILLS_LOADED_HEADER}\n{bodies}"
 
 	parts = []
 	if skills_block:

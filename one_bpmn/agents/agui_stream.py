@@ -28,7 +28,10 @@ keep-alives/heartbeats are comments, never events; errors surface only as
 RunError; nothing is ever emitted as a bare named SSE line.
 """
 
+import contextvars
 import json
+import time
+import threading
 import uuid
 
 import frappe
@@ -40,6 +43,8 @@ from ag_ui.core import (
 	TextMessageContentEvent,
 	TextMessageEndEvent,
 	TextMessageStartEvent,
+	ToolCallEndEvent,
+	ToolCallStartEvent,
 )
 from ag_ui.encoder import EventEncoder
 from frappe import _
@@ -94,6 +99,55 @@ def _extension_events(result: dict):
 			frappe.log_error(title="agui extension translator error", message=frappe.get_traceback())
 
 
+def _iter_text_deltas(text: str, chunk_chars: int = 60):
+	"""Split a reply into delta-sized chunks for progressive
+	TextMessageContent emission.
+
+	A short reply \u2014 the common case, and every reply in the earlier
+	tests \u2014 still comes out as exactly one chunk, so callers that assumed
+	one delta per turn keep working unchanged. Anything longer is cut only
+	at whitespace, never mid-word, and ``"".join(chunks) == text`` always:
+	the client concatenates deltas to build the message, so a chunk
+	boundary must never lose or duplicate a character.
+	"""
+	if not text:
+		return
+	length = len(text)
+	if length <= chunk_chars:
+		yield text
+		return
+	start = 0
+	while start < length:
+		end = min(start + chunk_chars, length)
+		if end < length:
+			next_space = text.find(" ", end)
+			end = next_space + 1 if next_space != -1 else length
+		yield text[start:end]
+		start = end
+
+
+def _tool_calls_from_result(result: dict) -> list:
+	"""Tool calls that ran during a buffered turn.
+
+	A buffered runner (bpmn_map / direct_api / adk) has already finished by
+	the time its reply reaches this stream, so there is no live moment to
+	hang a TOOL_CALL_START/END pair on \u2014 they are emitted here, together,
+	from whatever record of the turn's tool calls the reply carries.
+	Prefers an explicit ``tool_calls`` list on the reply; falls back to
+	flattening the AI Agent Run's own per-turn ``trace`` (the
+	TurnRecord/ToolCallRecord shape from agents/llm_provider/base.py) when
+	a runner exposes that instead. Neither present is not an error \u2014 most
+	turns call no tools at all.
+	"""
+	calls = result.get("tool_calls")
+	if calls:
+		return list(calls)
+	flattened = []
+	for turn in result.get("trace") or []:
+		flattened.extend((turn or {}).get("tool_calls") or [])
+	return flattened
+
+
 def _agent_artifact_type(agent_id: str) -> str:
 	"""The agent's configured Artifact Type (WI-001996), for the generic
 	artifact translator. Empty string when unset/unreadable — the translator
@@ -136,7 +190,60 @@ def register_reply_shaper(agent_id, fn):
 # ── The stream ───────────────────────────────────────────────────────────────
 
 
-def agent_event_stream(agent_id: str, message: str, conversation: str, context: dict | None = None):
+_HEARTBEAT_INTERVAL_SECONDS = 10
+# The longest the stream waits for a turn to produce anything at all. Matches
+# the ceiling one AI task is given, so a slow turn is never cut off, while a
+# turn whose worker died stops holding the connection open with keep-alives.
+_STALL_CEILING_SECONDS = 300
+_TIMED_OUT = object()
+
+
+def _invoke_with_heartbeat(fn, interval: float = _HEARTBEAT_INTERVAL_SECONDS, timeout: float | None = None):
+	"""Run a blocking callable off-thread, yielding an SSE keep-alive comment
+	every ``interval`` seconds so an idle proxy cannot close a working turn.
+
+	Consume with ``result = yield from _invoke_with_heartbeat(fn)``. A
+	keep-alive is transport, so it is a bare SSE comment, never an encoded
+	event.
+	"""
+	outcome: dict = {}
+	# frappe.local is a ContextVar, and a thread starts with an empty context,
+	# so the call runs inside a copy of this request's or it loses the session,
+	# the site and frappe.flags.
+	context = contextvars.copy_context()
+
+	def _run():
+		try:
+			outcome["result"] = context.run(fn)
+		except BaseException as exc:  # noqa: BLE001 - re-raised on caller's thread
+			outcome["error"] = exc
+
+	thread = threading.Thread(target=_run, daemon=True)
+	thread.start()
+	deadline = None if timeout is None else time.monotonic() + timeout
+	while True:
+		thread.join(timeout=interval)
+		if not thread.is_alive():
+			break
+		if deadline is not None and time.monotonic() >= deadline:
+			# The thread is left running: it holds a database cursor this
+			# generator no longer owns, and killing it is not on offer. It ends
+			# with the request.
+			return _TIMED_OUT
+		yield ": keep-alive\n\n"
+
+	if "error" in outcome:
+		raise outcome["error"]
+	return outcome.get("result")
+
+
+def agent_event_stream(
+	agent_id: str,
+	message: str,
+	conversation: str,
+	context: dict | None = None,
+	client_message_id: str | None = None,
+):
 	"""Yield one agent turn as encoded AG-UI SSE lines.
 
 	``conversation`` is required: the endpoint resolves/creates it *before*
@@ -156,8 +263,15 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 		if builder:
 			context = builder(context or {})
 
-		result = invoke_agent(
-			agent_id, message, conversation=conversation, context=context or {}, stream=True
+		result = yield from _invoke_with_heartbeat(
+			lambda: invoke_agent(
+				agent_id,
+				message,
+				conversation=conversation,
+				context=context or {},
+				stream=True,
+				client_message_id=client_message_id,
+			)
 		)
 
 		# SSE has no request-success commit: the whitelisted handler returned
@@ -171,9 +285,26 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 				frappe.db.commit()
 
 		if result.get("streaming"):
-			yield from _relay_child_stream(result["stream"], encoder, message_id)
-			_commit_turn()
-		else:
+			# A handover is taken out of the relay and falls through to the
+			# buffered path, so cards and artifacts keep working.
+			handover = {}
+			if agent_id in _REPLY_SHAPERS:
+				# The reply is parsed out of the model's text after the turn, so
+				# the text itself is not what the reader should see.
+				handover["hold_live_text"] = True
+			yield from _relay_child_stream(
+				_take_handover(result["stream"], handover), encoder, message_id, state=handover
+			)
+			if "result" not in handover:
+				_commit_turn()
+				result = None
+			else:
+				result = handover["result"]
+				if handover.get("text_streamed") and isinstance(result, dict):
+					result["text_streamed"] = True
+					result["streamed_text"] = handover.get("streamed_text") or ""
+
+		if result is not None and not result.get("streaming"):
 			shaper = _REPLY_SHAPERS.get(agent_id)
 			if shaper:
 				try:
@@ -188,30 +319,70 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 			if result.get("artifact") is not None and not result.get("artifact_type"):
 				result["artifact_type"] = _agent_artifact_type(agent_id)
 			text = result.get("response") or ""
-			# The AG-UI message_id IS the persisted Chat Message name whenever the
-			# runner saved one (WI-001641). `message_id` exists in the protocol to
-			# identify a message; minting a uuid for it and throwing it away left
-			# the client unable to name the reply it had just been shown, so a
-			# rating or a report had nothing durable to point at. Runners that
-			# persist nothing keep the generated id, which is still unique per
-			# turn and still correct for grouping the text events.
-			message_id = result.get("message_name") or message_id
+			# the stream itself starts (and the RunStarted event
+			# above already went out) before invoke_agent returns, so before
+			# this point there is no Bot Chat Message row to name the
+			# message after — `message_id` stays the id generated at the top
+			# of this function for the WHOLE lifecycle of the streamed
+			# message (start, every delta, end). Once the runner's reply is
+			# in hand the persisted Chat Message name IS known,
+			# so it is delivered separately, at the end, as the durable id a
+			# rating or report should point at — never by silently swapping
+			# the id already used for events the client already rendered.
+			persisted_name = result.get("message_name")
 			# AG-UI rejects an empty delta (min_length=1), so a runner that
 			# produced no text used to abort the whole stream with a validation
 			# error — the user saw a failed request rather than an answer. An
 			# empty reply is a thing that happens (a failed AI task leaves the
 			# output variable blank), so it is reported, not raised.
 			extensions = list(_extension_events(result))
-			if not text and not extensions:
+			tool_calls = _tool_calls_from_result(result)
+			if not text and not extensions and not tool_calls:
 				text = _(
 					"The agent finished without producing a reply. Please try again."
 				)
-			yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
-			if text:
-				yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=text))
-			yield encoder.encode(TextMessageEndEvent(message_id=message_id))
+			if result.get("text_streamed"):
+				# The reader already has the text, word by word, from the relay.
+				# Sending it again would show the reply twice.
+				yield encoder.encode(TextMessageEndEvent(message_id=message_id))
+			if not result.get("text_streamed") or not _same_text(result.get("streamed_text"), text):
+				# A map may compose its reply after the model spoke (a finalize
+				# tool, a reply shaper), so what streamed is not always the answer.
+				yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
+				# One TextMessageContent per chunk: the runner finished before
+				# this point, but the reader still sees the text arrive in
+				# pieces instead of all at once.
+				for delta in _iter_text_deltas(text):
+					yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=delta))
+				yield encoder.encode(TextMessageEndEvent(message_id=message_id))
+			# TOOL_CALL_START/END bracket each tool the turn ran,
+			# named for the tool shape that ran it — the same names already
+			# recorded on the turn's ToolCallRecord/tool_calls entries, so a
+			# client showing "using <tool>…" names the same thing the trace
+			# does. The buffered runner already finished every call before
+			# this reply reached the stream, so start/end are emitted back to
+			# back rather than bracketing a live wait.
+			for call in tool_calls:
+				tool_call_id = str((call or {}).get("id") or uuid.uuid4())
+				tool_name = (call or {}).get("name") or ""
+				yield encoder.encode(
+					ToolCallStartEvent(tool_call_id=tool_call_id, tool_call_name=tool_name)
+				)
+				yield encoder.encode(ToolCallEndEvent(tool_call_id=tool_call_id))
 			for event in extensions:
 				yield encoder.encode(event)
+			# The generated stream id is what every event above was keyed to;
+			# once the Chat Message is actually saved (unchanged: still
+			# wherever the runner/hook already does it) its real name is
+			# handed over here so the client can attach a rating/report to
+			# the durable record instead of the throwaway stream id.
+			if persisted_name and persisted_name != message_id:
+				yield encoder.encode(
+					CustomEvent(
+						name="onefm.message_persisted",
+						value={"stream_id": message_id, "message_name": persisted_name},
+					)
+				)
 			_commit_turn()
 	except AgentRefusal as refusal:
 		# RateLimited, an injection Block, a model with broken credentials
@@ -223,10 +394,9 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 		# refusal arrived as RUN_ERROR and the panel showed "Something went
 		# wrong" over a message that explains itself perfectly well.
 		#
-		# Delivered as an ordinary assistant message so it lands in the thread
-		# where the user is reading, and NOT logged as an error: the control
-		# working as designed is not an incident, and a traceback per refusal
-		# fills the log with false alarms.
+		# Delivered as a system notice, not an assistant message: a throttle is
+		# the platform talking. Not logged as an error either, since a control
+		# working as designed is not an incident.
 		# COMMIT, not rollback. Nothing of this turn has been written — enforce
 		# raises before the runner is reached — so the only thing in the
 		# transaction is the AI Security Event recording the blocked attempt, and
@@ -241,7 +411,7 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 		if not frappe.flags.in_test:
 			frappe.db.commit()
 		text = str(refusal) or _("This agent declined to answer that message.")
-		yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
+		yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="system"))
 		yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=text))
 		yield encoder.encode(TextMessageEndEvent(message_id=message_id))
 	except Exception as e:
@@ -263,7 +433,37 @@ def agent_event_stream(agent_id: str, message: str, conversation: str, context: 
 _CUSTOM_ENVELOPE_KEYS = {"type", "name", "event", "value", "timestamp", "raw_event", "rawEvent"}
 
 
-def _relay_child_stream(child, encoder, message_id):
+# A streaming runner ends by handing its buffered reply over on the same
+# stream, so the shaping is not duplicated.
+HANDOVER_EVENT = "ONEFM_TURN_RESULT"
+
+_CHILD_EXHAUSTED = object()
+
+
+def _same_text(streamed, final) -> bool:
+	"""Did the reader already see this reply, word for word?"""
+	a = " ".join((streamed or "").split())
+	b = " ".join((final or "").split())
+	if not a or not b:
+		return False
+	# Equality only. A reply parsed out of a JSON envelope is a substring of
+	# the text it came from, and containment would call that already shown.
+	return a == b
+
+
+def _take_handover(child, handover: dict):
+	"""Relay a child's events, keeping the handover event out of the stream."""
+	for event in child:
+		if isinstance(event, dict) and event.get("type") == HANDOVER_EVENT:
+			handover["result"] = event.get("result") or {}
+			return
+		yield event
+
+
+def _relay_child_stream(
+	child, encoder, message_id, interval=_HEARTBEAT_INTERVAL_SECONDS,
+	stall_ceiling=_STALL_CEILING_SECONDS, state=None,
+):
 	"""Relay a streaming runner's events into the parent stream.
 
 	Mirrors Lumina's passthrough rules (lumina.py ag_ui_event_generator):
@@ -272,7 +472,32 @@ def _relay_child_stream(child, encoder, message_id):
 	terminal error; already-encoded strings pass through untouched; text
 	deltas are re-encoded under the child's message id when it has one.
 	"""
-	for event in child:
+	# A child that is waiting on a worker yields nothing for as long as the
+	# work takes, so the wait for its next event is what has to carry the
+	# keep-alive, not the call that produced the child.
+	steps = iter(child)
+	while True:
+		event = yield from _invoke_with_heartbeat(
+			lambda: next(steps, _CHILD_EXHAUSTED), interval, timeout=stall_ceiling
+		)
+		if event is _CHILD_EXHAUSTED:
+			return
+		if event is _TIMED_OUT:
+			# A keep-alive says the connection is open, not that the work is
+			# alive. A worker killed mid-turn leaves nothing to end the wait, so
+			# the stream ends it and says so.
+			yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="system"))
+			yield encoder.encode(
+				TextMessageContentEvent(
+					message_id=message_id,
+					delta=_(
+						"This turn stopped responding. Nothing you typed was lost — "
+						"send it again when you are ready."
+					),
+				)
+			)
+			yield encoder.encode(TextMessageEndEvent(message_id=message_id))
+			return
 		if isinstance(event, (bytes, str)):
 			# Already an encoded SSE line (str) — trust and pass through.
 			yield event.decode() if isinstance(event, bytes) else event
@@ -322,6 +547,13 @@ def _relay_child_stream(child, encoder, message_id):
 			continue
 		if event_type == "RUN_ERROR":
 			raise Exception(event.get("message", "Unknown agent error"))
+		if event_type == "TOOL_CALL_START" and state is not None and state.get("text_streamed"):
+			# Text before a tool call is the agent talking to itself. Close it so
+			# the words after the tool open a fresh reply, and forget it so the
+			# buffered path compares only the last stretch with the final answer.
+			yield encoder.encode(TextMessageEndEvent(message_id=message_id))
+			state["text_streamed"] = False
+			state["streamed_text"] = ""
 		if event_type == "TEXT_MESSAGE_CONTENT":
 			delta = event.get("delta", "")
 			if isinstance(delta, list):
@@ -332,6 +564,15 @@ def _relay_child_stream(child, encoder, message_id):
 			# child's keep-alive chunk must not end the parent's stream.
 			if not delta:
 				continue
+			if state is not None and state.get("hold_live_text"):
+				continue
+			# Text arriving while the turn runs opens the reply the first time,
+			# and tells the buffered path afterwards that the reader has it.
+			if state is not None and not state.get("text_streamed"):
+				state["text_streamed"] = True
+				yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
+			if state is not None:
+				state["streamed_text"] = (state.get("streamed_text") or "") + delta
 			yield encoder.encode(
 				TextMessageContentEvent(
 					message_id=event.get("message_id", message_id), delta=delta

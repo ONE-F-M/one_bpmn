@@ -177,6 +177,39 @@ class TestSlowActionDispatch(AgentSandboxCase):
 		self.assertEqual(kwargs["json"]["action"], "open_pull_request")
 		self.assertEqual(kwargs["json"]["args"], {"summary": "Added the docstring."})
 
+	def test_agent_name_defaults_to_dev_agent_when_ctx_instance_carries_no_process_model(self):
+		"""self.ctx()'s instance is a bare SimpleNamespace stand-in (name +
+		initiated_by only, no process_model) -- matches every other test in
+		this class, so the default fallback is what actually gets exercised
+		here."""
+		_result, _ctx, mock_post = self._dispatch("run_tests")
+		_args, kwargs = mock_post.call_args
+		self.assertEqual(kwargs["json"]["agent_name"], "Dev Agent")
+
+	def test_agent_name_in_payload_reflects_the_instances_process_model(self):
+		"""The sandbox used to hardcode every commit/PR as authored by "Dev
+		Agent" regardless of which specialist actually called it (confirmed
+		live on a real Bug Agent PR). agent_name in the payload is what lets
+		it attribute correctly instead."""
+		mock_settings = SimpleNamespace(
+			agent_sandbox_url="https://sandbox.example.run.app",
+			get_password=lambda *a, **k: "fake-github-token",
+		)
+		mock_response = MagicMock(status_code=202)
+		mock_response.raise_for_status = MagicMock()
+		ctx = self.ctx(operation="run_tests")
+		ctx["instance"] = SimpleNamespace(
+			name=self._test_instance.name, initiated_by="Administrator", process_model="Bug Agent",
+		)
+		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)), patch.object(
+			ops, "_mint_identity_token", return_value="fake-token"
+		), patch("requests.post", return_value=mock_response) as mock_post:
+			ops.dispatch_action(
+				{"target_app": "one_bpmn", "git_branch": "staging", "work_item_description": "Fix the thing."}, ctx,
+			)
+		_args, kwargs = mock_post.call_args
+		self.assertEqual(kwargs["json"]["agent_name"], "Bug Agent")
+
 	def test_missing_operation_is_refused(self):
 		"""dispatch_action must not silently no-op or crash oddly when it was
 		somehow invoked outside a configured connector operation."""
@@ -264,6 +297,16 @@ class TestSandboxDispatch(AgentSandboxCase):
 		self.assertEqual(kwargs["json"]["action"], "read_file")
 		self.assertEqual(kwargs["json"]["args"], {"path": "a.py"})
 		self.assertEqual(kwargs["headers"]["Authorization"], "Bearer fake-token")
+
+	def test_agent_name_defaults_to_dev_agent_with_no_instance(self):
+		_result, mock_post = self._call()
+		_args, kwargs = mock_post.call_args
+		self.assertEqual(kwargs["json"]["agent_name"], "Dev Agent")
+
+	def test_agent_name_reflects_the_instances_process_model(self):
+		_result, mock_post = self._call(instance=self._test_instance)
+		_args, kwargs = mock_post.call_args
+		self.assertEqual(kwargs["json"]["agent_name"], self._test_instance.process_model)
 
 	def test_missing_sandbox_url_never_raises(self):
 		result, mock_post = self._call(agent_sandbox_url="")

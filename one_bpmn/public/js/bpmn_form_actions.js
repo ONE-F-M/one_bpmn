@@ -443,7 +443,7 @@ frappe.provide('one_bpmn');
 		// Confirmation dialog
 		if (needsConfirm) {
 			const msg = action
-				? __('Apply BPMN action <b>{0}</b> on this document?', [action])
+				? __('Confirm selected workflow action "{0}"?', [action])
 				: __('Complete task <b>{0}</b>?', [task.task_name || 'Task']);
 			frappe.confirm(msg, function () {
 				doSignatureCheck();

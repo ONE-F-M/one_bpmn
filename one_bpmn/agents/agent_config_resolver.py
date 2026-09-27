@@ -117,6 +117,7 @@ _SHAPE_TO_CONFIG = {
 	"aiRateLimitWindowSeconds": "rate_limit_window_seconds",
 	"aiLockAfterBlocks": "lock_after_blocks",
 	"aiLockBlockWindowSeconds": "lock_block_window_seconds",
+	"aiConcurrentTurnPolicy": "concurrent_turn_policy",
 }
 
 # The inverse, for the editor read. Not folded into _CONFIG_TO_SHAPE because
@@ -131,6 +132,7 @@ _SCREENING_TO_SHAPE = {
 	"rate_limit_window_seconds": "aiRateLimitWindowSeconds",
 	"lock_after_blocks": "aiLockAfterBlocks",
 	"lock_block_window_seconds": "aiLockBlockWindowSeconds",
+	"concurrent_turn_policy": "aiConcurrentTurnPolicy",
 }
 
 # Guard rail categories, mirroring the AI Agent Guard Rail Select options
@@ -255,6 +257,7 @@ _SCREENING_FIELDS = (
 	"rate_limit_window_seconds",
 	"lock_after_blocks",
 	"lock_block_window_seconds",
+	"concurrent_turn_policy",
 )
 
 

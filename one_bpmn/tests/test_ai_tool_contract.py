@@ -69,33 +69,33 @@ class TestValidateAiToolContract(FrappeTestCase):
 		self._known.stop()
 
 	def test_a_clean_prompt_passes_silently(self):
-		self.assertEqual(comp._validate_ai_tool_contract(_agents("Call read_file, then call open_pull_request.")), [])
+		comp._validate_ai_tool_contract(_agents("Call read_file, then call open_pull_request."))
 
-	def test_a_background_agent_with_a_dead_tool_blocks_the_deploy(self):
+	def test_the_configuration_prompt_is_checked_too(self):
 		with patch.object(frappe.db, "exists", return_value=True), patch.object(
-			frappe.db, "get_value", return_value=frappe._dict(system_prompt=OLD_FRONTEND_PROMPT, agent_type="Background")
+			frappe.db, "get_value", return_value=OLD_FRONTEND_PROMPT
 		):
 			with self.assertRaises(frappe.ValidationError) as caught:
-				comp._validate_ai_tool_contract(_agents("irrelevant — the configuration's prompt wins", config="Frontend Agent"))
+				comp._validate_ai_tool_contract(_agents("nothing wrong here", config="Frontend Agent"))
 		self.assertIn("draft_change", str(caught.exception))
 		self.assertIn("build_change", str(caught.exception))
 
-	def test_a_chat_agent_with_a_dead_tool_only_warns(self):
+	def test_a_chat_agent_is_blocked_the_same_as_a_background_one(self):
 		with patch.object(frappe.db, "exists", return_value=True), patch.object(
-			frappe.db, "get_value", return_value=frappe._dict(system_prompt="Call create_jira_stories.", agent_type="Chat")
+			frappe.db, "get_value", return_value="Call create_jira_stories."
 		):
-			warnings = comp._validate_ai_tool_contract(_agents("", config="BA Agent"))
-		self.assertEqual(len(warnings), 1)
-		self.assertEqual(warnings[0]["label"], "Tool Contract")
-		self.assertIn("create_jira_stories", warnings[0]["detail"])
+			with self.assertRaises(frappe.ValidationError) as caught:
+				comp._validate_ai_tool_contract(_agents("", config="BA Agent"))
+		self.assertIn("create_jira_stories", str(caught.exception))
 
 	def test_without_a_configuration_the_shape_prompt_is_checked(self):
 		with patch.object(frappe.db, "exists", return_value=False):
-			warnings = comp._validate_ai_tool_contract(_agents("Call review_change."))
-		self.assertEqual([w["label"] for w in warnings], ["Tool Contract"])
+			with self.assertRaises(frappe.ValidationError) as caught:
+				comp._validate_ai_tool_contract(_agents("Call review_change."))
+		self.assertIn("review_change", str(caught.exception))
 
 	def test_agents_without_a_tools_box_are_ignored(self):
-		self.assertEqual(comp._validate_ai_tool_contract({"x": {"serviceType": "ai_agent"}}), [])
+		comp._validate_ai_tool_contract({"x": {"serviceType": "ai_agent"}})
 
 
 class TestSeedPromptsMatchTheirMaps(FrappeTestCase):

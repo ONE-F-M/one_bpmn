@@ -767,7 +767,9 @@ async function completeTask(task, detail) {
 	}
 
 	if (needsConfirm) {
-		const msg = actionName ? `Apply action "${actionName}"?` : "Complete task?"
+		const msg = actionName
+			? `Confirm selected workflow action "${actionName}"?`
+			: "Complete task?"
 		if (window.confirm(msg)) doSig()
 	} else {
 		doSig()

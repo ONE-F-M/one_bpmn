@@ -12,19 +12,7 @@ import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { frappeGet, frappePost } from "../shared/frappeResource";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-function getAttr(bo, attr) {
-	return bo.get(`spiffworkflow:${attr}`) ?? "";
-}
-
-function setAttr(modeling, element, bo, attr, value) {
-	modeling.updateModdleProperties(element, bo, {
-		[`spiffworkflow:${attr}`]: value || undefined,
-	});
-}
+import { getAttr, setAttr, LinkedPromptEntry } from "../shared/agentAttrs";
 
 // Human-readable labels for the executor backend stored in spiffworkflow:aiBackend.
 const BACKEND_LABELS = {
@@ -93,6 +81,12 @@ export function AiAgentProps(props) {
 			element,
 			component: ToolParamsComponent,
 			isEdited: isTextAreaEntryEdited,
+		},
+		{
+			id: "spiffworkflow-aiToolFor",
+			element,
+			component: ToolForComponent,
+			isEdited: isTextFieldEntryEdited,
 		},
 		{
 			id: "spiffworkflow-aiToolsAdhoc",
@@ -357,16 +351,16 @@ function SystemPromptComponent(props) {
 	const debounce  = useService("debounceInput");
 	const bo        = getBusinessObject(element);
 
-	return h(TextAreaEntry, {
+	return h(LinkedPromptEntry, {
 		element,
 		id,
+		bo,
+		modeling,
 		label: translate("System Prompt"),
 		description: translate("Jinja supported: {{ doc }}, {{ instance }}"),
 		tooltip: translate(
 			"The agent's role and standing instructions, sent as the system prompt. Jinja supported: {{ doc }}, {{ instance }}."
 		),
-		getValue: () => getAttr(bo, "aiSystemPrompt"),
-		setValue: (value) => setAttr(modeling, element, bo, "aiSystemPrompt", value),
 		debounce,
 	});
 }
@@ -414,6 +408,29 @@ function ToolParamsComponent(props) {
 		),
 		getValue: () => getAttr(bo, "aiToolParams"),
 		setValue: (value) => setAttr(modeling, element, bo, "aiToolParams", value),
+		debounce,
+	});
+}
+
+// Tool owner — a tool in a shared box that only one agent may call.
+function ToolForComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const debounce  = useService("debounceInput");
+	const bo        = getBusinessObject(element);
+
+	return h(TextFieldEntry, {
+		element,
+		id,
+		label: translate("Tool For (agent shape id)"),
+		description: translate("Leave blank for a tool every agent using this box may call"),
+		tooltip: translate(
+			"When several agents share one Tools box, the id of the AI Agent Task this tool belongs to. "
+			+ "A marked tool reaches only that agent; that agent then gets only the tools marked for it."
+		),
+		getValue: () => getAttr(bo, "aiToolFor"),
+		setValue: (value) => setAttr(modeling, element, bo, "aiToolFor", value),
 		debounce,
 	});
 }

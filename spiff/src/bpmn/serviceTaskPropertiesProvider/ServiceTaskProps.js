@@ -1,7 +1,7 @@
 import { SelectEntry, isSelectEntryEdited } from "@bpmn-io/properties-panel";
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
-import { h } from "preact";
+import { h, Component } from "preact";
 import { frappeGet } from "../shared/frappeResource";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
@@ -18,6 +18,31 @@ const DOC_STATUS_OPTIONS = [
 	{ label: "1 (Submitted)", value: "1" },
 	{ label: "2 (Cancelled)", value: "2" },
 ];
+
+// Only a submittable doctype ever reaches these; everything else stays at 0.
+const SUBMITTABLE_ONLY = new Set(["1", "2"]);
+
+// ponytail: cached for the life of the page, so toggling Is Submittable on a
+// doctype needs a reload to show here. Clear the entry on save if that bites.
+const SUBMITTABLE_CACHE = new Map();
+
+function fetchIsSubmittable(doctype) {
+	if (!doctype) return Promise.resolve(false);
+	if (SUBMITTABLE_CACHE.has(doctype)) return Promise.resolve(SUBMITTABLE_CACHE.get(doctype));
+
+	return frappeGet("/api/resource/DocType", {
+		filters: JSON.stringify([["name", "=", doctype]]),
+		fields: '["is_submittable"]',
+		limit_page_length: 1,
+	})
+		.then((rows) => {
+			const submittable = !!(rows && rows[0] && rows[0].is_submittable);
+			SUBMITTABLE_CACHE.set(doctype, submittable);
+			return submittable;
+		})
+		// An unreadable doctype offers Draft only — never a state it cannot reach.
+		.catch(() => false);
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -127,7 +152,30 @@ export function ServiceTaskProps(props) {
 		);
 		const gchatType = getAttr(bo, "gchatType");
 		if (gchatType === "individual") {
-			entries.push({ id: "spiffworkflow-gchatEmail",   element, component: GchatEmailComponent });
+			entries.push({
+				id: "spiffworkflow-gchatRecipientBasis", element, component: GchatRecipientBasisComponent,
+			});
+			// Blank is the old shape: a map drawn before this asked for an
+			// address and nothing else, and must keep working untouched.
+			const basis = getAttr(bo, "gchatRecipientBasis") || "User";
+			if (basis === "User") {
+				entries.push({ id: "spiffworkflow-gchatEmail", element, component: GchatEmailComponent });
+			} else {
+				entries.push({ id: "spiffworkflow-gchatDoctype", element, component: GchatDoctypeComponent });
+				if (basis === "DocField") {
+					entries.push({
+						id: "spiffworkflow-gchatDocField", element, component: GchatDocFieldComponent,
+					});
+				} else if (basis === "Table Field") {
+					entries.push(
+						{ id: "spiffworkflow-gchatTableField", element, component: GchatTableFieldComponent },
+						{
+							id: "spiffworkflow-gchatTableUserField", element,
+							component: GchatTableUserFieldComponent,
+						},
+					);
+				}
+			}
 		} else if (gchatType === "space") {
 			entries.push({ id: "spiffworkflow-gchatSpaceId", element, component: GchatSpaceIdComponent });
 		}
@@ -198,7 +246,12 @@ function ServiceTypeComponent(props) {
 			"spiffworkflow:updateFieldValue":     undefined,
 			// Clear google_chat attrs
 			"spiffworkflow:gchatType":            undefined,
+			"spiffworkflow:gchatRecipientBasis":  undefined,
 			"spiffworkflow:gchatEmail":           undefined,
+			"spiffworkflow:gchatDoctype":         undefined,
+			"spiffworkflow:gchatDocField":        undefined,
+			"spiffworkflow:gchatTableField":      undefined,
+			"spiffworkflow:gchatTableUserField":  undefined,
 			"spiffworkflow:gchatSpaceId":         undefined,
 			"spiffworkflow:gchatMessage":         undefined,
 			// Clear push_notification attrs
@@ -334,33 +387,62 @@ function WorkflowStateComponent(props) {
 	});
 }
 
+// Class component, not hooks — see the note on CreateAgentConfigForm in
+// ScriptTaskProps.js and vite.config.js's preact/hooks dedupe note.
+class DocStatusEntry extends Component {
+	constructor(props) {
+		super(props);
+		this.state = { submittable: false };
+	}
+
+	componentDidMount() {
+		this.load();
+	}
+
+	componentDidUpdate(prev) {
+		if (prev.doctype !== this.props.doctype) this.load();
+	}
+
+	load() {
+		const { doctype } = this.props;
+		fetchIsSubmittable(doctype).then((submittable) => {
+			// The panel can switch doctype while this is in flight.
+			if (this.props.doctype === doctype) this.setState({ submittable });
+		});
+	}
+
+	render() {
+		const { element, id, bo, modeling, translate } = this.props;
+		const { submittable } = this.state;
+
+		return h(SelectEntry, {
+			element,
+			id,
+			label: translate("Document Status"),
+			getValue: () => getAttr(bo, "docStatus"),
+			setValue: (value) =>
+				modeling.updateModdleProperties(element, bo, {
+					"spiffworkflow:docStatus": value || undefined,
+				}),
+			getOptions: () =>
+				DOC_STATUS_OPTIONS.filter(
+					({ value }) => submittable || !SUBMITTABLE_ONLY.has(value)
+				).map(({ label, value }) => ({ label: translate(label), value })),
+		});
+	}
+}
+
 function DocStatusComponent(props) {
 	const { element, id } = props;
-	const modeling  = useService("modeling");
-	const translate = useService("translate");
-	const bo        = getBusinessObject(element);
+	const bo = getBusinessObject(element);
 
-	const getValue = () => getAttr(bo, "docStatus");
-
-	const setValue = (value) => {
-		modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:docStatus": value || undefined,
-		});
-	};
-
-	const getOptions = () =>
-		DOC_STATUS_OPTIONS.map(({ label, value }) => ({
-			label: translate(label),
-			value,
-		}));
-
-	return h(SelectEntry, {
+	return h(DocStatusEntry, {
 		element,
 		id,
-		label: translate("Document Status"),
-		getValue,
-		setValue,
-		getOptions,
+		bo,
+		modeling: useService("modeling"),
+		translate: useService("translate"),
+		doctype: getAttr(bo, "serviceTargetDoctype"),
 	});
 }
 
@@ -956,9 +1038,12 @@ function GchatTypeComponent(props) {
 
 	const getValue  = () => getAttr(bo, "gchatType");
 	const setValue  = (v) => modeling.updateModdleProperties(element, bo, {
-		"spiffworkflow:gchatType":    v || undefined,
-		"spiffworkflow:gchatEmail":   undefined,
-		"spiffworkflow:gchatSpaceId": undefined,
+		"spiffworkflow:gchatType":           v || undefined,
+		"spiffworkflow:gchatEmail":          undefined,
+		"spiffworkflow:gchatDocField":       undefined,
+		"spiffworkflow:gchatTableField":     undefined,
+		"spiffworkflow:gchatTableUserField": undefined,
+		"spiffworkflow:gchatSpaceId":        undefined,
 	});
 	const getOptions = () => [
 		{ label: translate("-- Select --"),  value: "" },
@@ -983,7 +1068,191 @@ function GchatEmailComponent(props) {
 			"spiffworkflow:gchatEmail": e.target.value || undefined,
 		}),
 		placeholder: translate("e.g. john.doe@example.com"),
-		hint: translate("Google Workspace email of the DM recipient."),
+		hint: translate("Google Workspace address or user id. Several may be separated by commas."),
+	});
+}
+
+function GchatRecipientBasisComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const getValue = () => getAttr(bo, "gchatRecipientBasis") || "User";
+	// Each basis reads a different setting, so leaving the others behind would
+	// send to whoever the previous choice named.
+	const setValue = (v) => modeling.updateModdleProperties(element, bo, {
+		"spiffworkflow:gchatRecipientBasis": v || undefined,
+		"spiffworkflow:gchatEmail":          undefined,
+		"spiffworkflow:gchatDocField":       undefined,
+		"spiffworkflow:gchatTableField":     undefined,
+		"spiffworkflow:gchatTableUserField": undefined,
+	});
+	const getOptions = () => [
+		{ label: translate("User"),        value: "User" },
+		{ label: translate("DocField"),    value: "DocField" },
+		{ label: translate("Table Field"), value: "Table Field" },
+	];
+
+	return h(SelectEntry, {
+		element, id, label: translate("Recipient Basis"), getValue, setValue, getOptions,
+	});
+}
+
+function GchatDoctypeComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const fetchDoctypes = (txt) => {
+		const params = { fields: '["name"]', limit_page_length: 50, order_by: "name asc" };
+		if (txt) params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
+		return frappeGet("/api/resource/DocType", params);
+	};
+
+	return h(FrappeAutocomplete, {
+		id,
+		label: translate("DocType"),
+		value: getAttr(bo, "gchatDoctype"),
+		onChange: (val) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:gchatDoctype": val || undefined,
+			"spiffworkflow:gchatDocField": undefined,
+			"spiffworkflow:gchatTableField": undefined,
+			"spiffworkflow:gchatTableUserField": undefined,
+		}),
+		fetchApi: fetchDoctypes,
+		valueField: "name",
+		renderOption: (opt) => opt.name,
+	});
+}
+
+function GchatDocFieldComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const doctype = getAttr(bo, "gchatDoctype");
+
+	// Email fields AND links to User, owner included — the same list the email
+	// service task offers, because the question is the same one.
+	const fetchFields = (txt) => {
+		if (!doctype) {
+			return Promise.resolve([{ fieldname: "", label: "— Select a DocType first —" }]);
+		}
+		return frappeGet("/api/method/one_bpmn.api.utils.get_recipient_docfields", {
+			doctype, search_text: txt || "",
+		});
+	};
+
+	return h(FrappeAutocomplete, {
+		id,
+		label: translate("Recipient Field"),
+		value: getAttr(bo, "gchatDocField"),
+		onChange: (val) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:gchatDocField": val || undefined,
+		}),
+		fetchApi: fetchFields,
+		valueField: "fieldname",
+		renderOption: (opt) =>
+			opt.fieldname ? `${opt.label || opt.fieldname} (${opt.fieldname})` : opt.label,
+		noResultsText: doctype
+			? translate("No email or User-linked fields found")
+			: translate("Select a DocType first"),
+	});
+}
+
+function GchatTableFieldComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const doctype = getAttr(bo, "gchatDoctype");
+
+	const fetchTableFields = (txt) => {
+		if (!doctype) {
+			return Promise.resolve([{ fieldname: "", label: "— Select a DocType first —" }]);
+		}
+		return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+			doctype, fieldtype_in: '["Table MultiSelect","Table"]', include_options: true,
+		}).then((fields) => {
+			const list = Array.isArray(fields) ? fields : [];
+			if (!txt) return list;
+			const lower = txt.toLowerCase();
+			return list.filter(
+				(f) =>
+					(f.fieldname && f.fieldname.toLowerCase().includes(lower)) ||
+					(f.label && f.label.toLowerCase().includes(lower))
+			);
+		});
+	};
+
+	return h(FrappeAutocomplete, {
+		id,
+		label: translate("Table Field"),
+		value: getAttr(bo, "gchatTableField"),
+		onChange: (val) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:gchatTableField": val || undefined,
+			// The row field belongs to the table that was just replaced.
+			"spiffworkflow:gchatTableUserField": undefined,
+		}),
+		fetchApi: fetchTableFields,
+		valueField: "fieldname",
+		renderOption: (opt) =>
+			opt.fieldname ? `${opt.label || opt.fieldname} (${opt.fieldname})` : opt.label,
+		noResultsText: doctype
+			? translate("No Table/Table MultiSelect fields found")
+			: translate("Select a DocType first"),
+	});
+}
+
+function GchatTableUserFieldComponent(props) {
+	const { element, id } = props;
+	const modeling  = useService("modeling");
+	const translate = useService("translate");
+	const bo        = getBusinessObject(element);
+
+	const doctype    = getAttr(bo, "gchatDoctype");
+	const tableField = getAttr(bo, "gchatTableField");
+
+	// Two lookups: the child doctype comes off the parent's table field, then
+	// that child's links to User.
+	const fetchChildUserFields = () => {
+		if (!doctype || !tableField) {
+			return Promise.resolve([{ fieldname: "", label: "— Select a Table Field first —" }]);
+		}
+		return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+			doctype, fieldtype_in: '["Table MultiSelect","Table"]', include_options: true,
+		}).then((tableFields) => {
+			const match = (Array.isArray(tableFields) ? tableFields : []).find(
+				(f) => f.fieldname === tableField
+			);
+			const childDoctype = match && match.options;
+			if (!childDoctype) return [];
+			return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+				doctype: childDoctype, fieldtype_in: '["Link"]', include_options: true,
+			}).then((childFields) =>
+				(Array.isArray(childFields) ? childFields : []).filter((f) => f.options === "User")
+			);
+		});
+	};
+
+	return h(FrappeAutocomplete, {
+		id,
+		label: translate("Row User Field"),
+		value: getAttr(bo, "gchatTableUserField"),
+		onChange: (val) => modeling.updateModdleProperties(element, bo, {
+			"spiffworkflow:gchatTableUserField": val || undefined,
+		}),
+		fetchApi: fetchChildUserFields,
+		valueField: "fieldname",
+		renderOption: (opt) =>
+			opt.fieldname ? `${opt.label || opt.fieldname} (${opt.fieldname})` : opt.label,
+		noResultsText: tableField
+			? translate("No User-linked fields on that table — rows default to \"user\"")
+			: translate("Select a Table Field first"),
 	});
 }
 

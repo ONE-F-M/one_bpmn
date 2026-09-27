@@ -45,7 +45,6 @@ class AIAgentConfiguration(Document):
 		self.validate_chat_label_against_map()
 		self.validate_agent_creation_grant()
 		self.validate_a2a_exposure()
-		self.validate_delegation_grant()
 		self.validate_memory_config()
 
 	def validate_memory_config(self):
@@ -123,24 +122,6 @@ class AIAgentConfiguration(Document):
 			title=_("Memory Configuration"),
 			indicator="orange",
 		)
-
-	def validate_delegation_grant(self):
-		"""Say so when the list is inert.
-
-		Exposure is what grants an agent delegated work; this list only
-		narrows the set, and only while the restriction is on. Rows sitting
-		under an unticked restriction do nothing — which is easy to
-		misread as "delegation is locked down" when it is not.
-		"""
-		if self.allowed_delegates and not self.restrict_delegates:
-			frappe.msgprint(
-				_(
-					"This list is ignored while 'Restrict Delegation to Specific Agents' is off — "
-					"the agent may currently hand work to any agent exposed over A2A."
-				),
-				alert=True,
-				indicator="orange",
-			)
 
 	def validate_a2a_exposure(self):
 		"""WI-001931: exposure is an admin grant on an operating agent. A
@@ -569,10 +550,15 @@ def get_agent_config(agent_id: str) -> dict | None:
 		order_by="idx asc",
 	):
 		skill_doc = frappe.db.get_value("AI Skill", skill.skill, ["skill_name", "description", "status"], as_dict=True)
-		if skill_doc and skill_doc.status != "Draft":
+		# WI-000401: the index must match what load_skill will actually serve.
+		# load_skill refuses anything whose status isn't "Active" (Draft AND
+		# Deprecated both refused) \u2014 filtering here to != "Draft" advertised
+		# Deprecated skills the tool would then refuse to load.
+		if skill_doc and skill_doc.status == "Active":
 			enabled_skills.append({
 				"name": skill_doc.skill_name,
 				"description": skill_doc.description,
+				"status": skill_doc.status,
 			})
 
 	# Load constants keyed by constant_name, cast to proper types

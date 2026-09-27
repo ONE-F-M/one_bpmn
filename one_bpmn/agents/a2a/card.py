@@ -3,14 +3,13 @@
 """Agent Card builder (WI-001931).
 
 Cards are generated fresh from AI Agent Configuration on every request —
-never stored, so they cannot drift from the configuration (WI-002010).
+never stored, so they cannot drift from the configuration.
 Only an enabled, Live, exposed agent has a card at all; everything else
 returns None and the discovery endpoint turns that into a 404
 indistinguishable from an unknown agent.
 
-Only public information leaves this module: name, description, tags,
-sample prompts and (when configured) the public ids of allowed
-sub-agents. Prompts, credentials and model settings never appear.
+Only public information leaves this module: name, description, tags and
+sample prompts. Prompts, credentials and model settings never appear.
 """
 
 from __future__ import annotations
@@ -66,9 +65,6 @@ def build_agent_card(agent_id: str) -> dict | None:
 		"skills": [_skill(config)],
 	}
 
-	sub_agents = _public_sub_agents(config)
-	if sub_agents:
-		card["subAgents"] = sub_agents
 	return card
 
 
@@ -87,20 +83,3 @@ def _skill(config) -> dict:
 	if examples:
 		skill["examples"] = examples
 	return skill
-
-
-def _public_sub_agents(config) -> list[str]:
-	"""agent_ids from allowed_delegates (WI-002010) that are themselves
-	publicly discoverable — a private sub-agent is nobody's business."""
-	rows = config.get("allowed_delegates") or []
-	public: list[str] = []
-	for row in rows:
-		fields = frappe.db.get_value(
-			"AI Agent Configuration",
-			row.agent_configuration,
-			["agent_id", "enabled", "lifecycle_status", "a2a_exposed"],
-			as_dict=True,
-		)
-		if fields and fields.enabled and fields.lifecycle_status == "Live" and fields.a2a_exposed:
-			public.append(fields.agent_id)
-	return public

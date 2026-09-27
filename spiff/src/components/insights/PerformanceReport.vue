@@ -175,7 +175,9 @@
 															class="w-3 h-3 text-gray-400"
 														/>
 													</td>
-													<td class="py-2 px-2 text-xs text-gray-600 font-mono">{{ run.name }}</td>
+													<td class="py-2 px-2 text-xs font-mono">
+														<router-link :to="`/processa/runs/${run.name}`" class="text-blue-600 hover:underline" title="Open the full run" @click.stop>{{ run.name }}</router-link>
+													</td>
 													<td class="py-2 px-2">
 														<Badge :theme="run.status === 'Success' ? 'green' : 'red'" size="sm">{{ run.status }}</Badge>
 													</td>
