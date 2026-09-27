@@ -118,8 +118,14 @@ BANNED_ATTRIBUTES = frozenset({
 })
 
 # Frappe internals that bypass the permission / durability model — ALWAYS blocked.
+# `set_user` is included so `frappe.set_user(...)`, `frappe.local.set_user(...)`,
+# and any other attribute chain ending in `.set_user` are caught structurally —
+# the attribute-access AST node is flagged by *name* regardless of the object
+# it hangs off, which is what makes this immune to the old two-string
+# substring blocklist's blind spot (`frappe.local.set_user` does not contain
+# the literal text "frappe.set_user").
 BANNED_FRAPPE_ATTRIBUTES = frozenset({
-	"ignore_permissions", "db_update", "add_roles",
+	"ignore_permissions", "db_update", "add_roles", "set_user",
 })
 
 # Frappe internals that are sensitive but often legitimate (frappe.db.sql for
