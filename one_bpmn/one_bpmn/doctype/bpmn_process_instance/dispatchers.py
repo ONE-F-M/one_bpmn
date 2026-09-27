@@ -2047,25 +2047,34 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	if resume_payload:
 		try:
 			run = frappe.get_doc("AI Agent Run", resume_run)
-			# The human's answer is a real tool result — record it as a step
-			# BEFORE the resumed turns so the Run reads chronologically.
-			from one_bpmn.agents.observability import record_ai_step
+			# The resolved answer belongs on the Step that made the call,
+			# not a new one; a checkpoint with no pending_step falls back to
+			# a standalone step.
+			from one_bpmn.agents.observability import attach_resolved_call, record_ai_step
 			pending = (resume_payload.get("suspension") or {}).get("pending_call") or {}
 			human_result = _checkpoint.build_resume_state(resume_payload)["human_result"]
-			record_ai_step(
+			attached = attach_resolved_call(
+				resume_payload.get("pending_step") or "",
 				run,
-				# step_index is 1-based: with N steps recorded, the next is N+1
-				frappe.db.count("AI Agent Step", {"run": run.name}) + 1,
-				"tool",
+				pending.get("name") or "",
+				pending.get("arguments") or {},
 				human_result,
-				tool_calls=[{
-					"name": pending.get("name") or "",
-					"tool_source": "diagram_task",
-					"arguments": pending.get("arguments") or {},
-					"result": human_result,
-					"status": "Success",
-				}],
 			)
+			if not attached:
+				record_ai_step(
+					run,
+					# step_index is 1-based: with N steps recorded, the next is N+1
+					frappe.db.count("AI Agent Step", {"run": run.name}) + 1,
+					"tool",
+					human_result,
+					tool_calls=[{
+						"name": pending.get("name") or "",
+						"tool_source": "diagram_task",
+						"arguments": pending.get("arguments") or {},
+						"result": human_result,
+						"status": "Success",
+					}],
+				)
 		except Exception:
 			frappe.log_error(
 				title=f"AI Observability: resume run load error ({bpmn_id})",
@@ -2285,6 +2294,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# the engine wiring parks the service task and spawns the human task
 		# off this marker. No output/error variables, no retry consumed, no
 		# aiStopOnError: waiting for a person is not a failure.
+		from one_bpmn.agents.observability import latest_ordinary_step
+
 		run = _checkpoint.save_checkpoint(
 			run,
 			instance,
@@ -2296,6 +2307,9 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			# So the next resume knows how much of its (cumulative) trace was
 			# already written as Steps by this segment's record_selector_turns.
 			steps_recorded=len(result.trace or []),
+			# The Step the deferring turn was just written as - the next
+			# resume attaches its resolved answer here instead of a new Step.
+			pending_step=latest_ordinary_step(run.name) if run else "",
 			prior_prompt_tokens=int((resume_payload or {}).get("prompt_tokens_so_far") or 0),
 			prior_completion_tokens=int((resume_payload or {}).get("completion_tokens_so_far") or 0),
 			prior_cache_read_tokens=int((resume_payload or {}).get("cache_read_tokens_so_far") or 0),

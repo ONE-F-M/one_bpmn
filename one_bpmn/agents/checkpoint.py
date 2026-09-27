@@ -32,6 +32,7 @@ def save_checkpoint(
 	wf_task_id: str,
 	human_row_id: str,
 	steps_recorded: int = 0,
+	pending_step: str = "",
 	prior_prompt_tokens: int = 0,
 	prior_completion_tokens: int = 0,
 	prior_cache_read_tokens: int = 0,
@@ -61,6 +62,7 @@ def save_checkpoint(
 		"human_row_id": human_row_id,
 		"pending_result": None,
 		"steps_recorded": steps_recorded,
+		"pending_step": pending_step,
 		# Token totals of ALL segments before the next resume — the final
 		# segment's usage is added on top so run totals stay cumulative.
 		"prompt_tokens_so_far": prior_prompt_tokens + int(suspension.get("prompt_tokens") or 0),
