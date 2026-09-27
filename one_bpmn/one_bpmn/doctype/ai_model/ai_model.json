@@ -90,6 +90,7 @@
    "fieldname": "api_key",
    "fieldtype": "Password",
    "label": "API Key",
+   "length": 500,
    "mandatory_depends_on": "eval:doc.enable_model"
   },
   {
@@ -297,7 +298,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-23 10:50:18.207823",
+ "modified": "2026-09-27 16:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Model",
