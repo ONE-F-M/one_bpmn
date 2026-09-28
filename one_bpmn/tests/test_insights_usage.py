@@ -237,10 +237,12 @@ class TestInsightsUsage(FrappeTestCase):
 		overview = get_agent_overview(from_date="2026-09-01", to_date="2026-09-30", model=model)
 		current = overview["current"]
 
-		self.assertEqual(
-			current["input_tokens"] + current["output_tokens"] + current["cached_tokens"],
-			current["tokens"] - 10,
-		)
+		self.assertEqual(current["input_tokens"] + current["output_tokens"], current["tokens"] - 10)
+		self.assertEqual(current["cached_tokens"], 20)
+
+		report = get_cost_token_report(from_date="2026-09-01", to_date="2026-09-30", model=model)
+		self.assertEqual(report["total"]["input_tokens"] + report["total"]["output_tokens"], current["tokens"] - 10)
+		self.assertEqual(report["series"][0]["input_tokens"], 90)
 
 	def test_cache_hit_rate_zero_when_no_prompt_tokens(self):
 		model = f"usage-nohit-{frappe.generate_hash(length=6)}"

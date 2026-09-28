@@ -139,7 +139,7 @@ def _usage_totals(
 
 	success_rate = flt((successes / decided) * 100, 1) if decided else 0.0
 	cache_hit_rate = flt((cache_read_tokens / prompt_tokens) * 100, 1) if prompt_tokens else 0.0
-	input_tokens = prompt_tokens - cache_read_tokens - cache_write_tokens
+	input_tokens = prompt_tokens - cache_write_tokens
 
 	return {
 		"runs": runs,
@@ -300,7 +300,7 @@ def _series_rows(
 			"cost": cost,
 			"avg_cost": flt(cost / runs, 6) if runs else 0.0,
 			"tokens": cint(r.get("tokens")),
-			"input_tokens": prompt_tokens - cache_read_tokens - cache_write_tokens,
+			"input_tokens": prompt_tokens - cache_write_tokens,
 			"output_tokens": cint(r.get("completion_tokens")),
 			"cached_tokens": cache_read_tokens,
 			"cache_hit_rate": flt(cache_read_tokens / prompt_tokens * 100, 1) if prompt_tokens else 0.0,
