@@ -638,7 +638,7 @@ def get_run_review(run: str, baseline: str = None) -> dict:
 		for c in frappe.get_all(
 			"AI Eval Case",
 			filters={"name": ["in", case_names]} if case_names else {"name": ""},
-			fields=["name", "title", "input_user_prompt", "expected_output"],
+			fields=["name", "title", "input_user_prompt", "expected_output", "input_context"],
 		)
 	}
 
@@ -655,6 +655,8 @@ def get_run_review(run: str, baseline: str = None) -> dict:
 			"input_user_prompt": r.input_user_prompt or info.get("input_user_prompt") or "",
 			"expected_output": r.expected_output or info.get("expected_output") or "",
 			"prompt_is_snapshot": bool(r.input_user_prompt),
+			# The case's earlier turns and saved state, as the case holds them now.
+			"input_context": frappe.parse_json(info.get("input_context")) if info.get("input_context") else None,
 			"status": r.status,
 			"actual_output": r.actual_output,
 			"error_message": r.error_message,
