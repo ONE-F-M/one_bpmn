@@ -34,7 +34,7 @@
 				text="This Work Item has delegated to agents that themselves delegated further. The cost breakdown below only includes the first level of delegation. A complete cost trace would need to walk the entire chain, which may span many runs and agents."
 			>
 				<div class="bg-amber-50 text-amber-800 text-sm rounded-lg px-4 py-3 cursor-help">
-					<span class="font-medium">This total may be incomplete. (chain_truncated)</span>
+					<span class="font-medium">This total may be incomplete.</span> <Tooltip text="chain_truncated: The delegation chain is deeper than shown. Only first level delegations are included in the cost breakdown."> <Icon icon="lucide:info" class="inline w-4 h-4" /> </Tooltip>
 					The delegation chain for this Work Item is deeper than this report walks (chain is truncated),
 					so the figures below are a floor, not the whole cost. Chain truncation means the delegation went deeper than we show.
 				</div>
