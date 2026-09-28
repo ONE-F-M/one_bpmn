@@ -101,7 +101,7 @@ const cards = computed(() => {
 		{
 			key: "cache_hit_rate",
 			title: __("Cache hit rate"),
-			formattedValue: fmtPct(current.cache_hit_rate),
+			formattedValue: fmtPct(current.cache_hit_rate, 0),
 			valueTitle: String(current.cache_hit_rate ?? 0),
 			deltaKind: "pt",
 			goodDirection: "up",

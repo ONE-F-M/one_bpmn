@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 
 import {
 	fmtCurrency,
+	fmtCurrencyAxis,
 	fmtCurrencyExact,
 	fmtCompact,
 	fmtInt,
@@ -140,4 +141,16 @@ test("fmtDelta: a head count has no decimals or percent sign", () => {
 test("fmtDateRange: the month repeats only when it changes", () => {
 	assert.equal(fmtDateRange("2026-09-01", "2026-09-21"), "Sep 1 - 21")
 	assert.equal(fmtDateRange("2026-09-28", "2026-10-04"), "Sep 28 - Oct 4")
+})
+
+test("fmtCurrencyAxis: axis ticks drop trailing zeros", () => {
+	assert.equal(fmtCurrencyAxis(14), "$14")
+	assert.equal(fmtCurrencyAxis(10.5), "$10.5")
+	assert.equal(fmtCurrencyAxis(0.9), "$0.9")
+	assert.equal(fmtCurrencyAxis(0), "$0")
+})
+
+test("fmtDelta: a whole pt change has no decimal", () => {
+	assert.equal(fmtDelta(9, "pt"), "+9 pt")
+	assert.equal(fmtDelta(-2.04, "pt"), "-2 pt")
 })

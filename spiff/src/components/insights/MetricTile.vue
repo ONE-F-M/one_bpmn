@@ -9,7 +9,12 @@
 		</div>
 		<template v-else>
 			<div class="flex items-start justify-between gap-2 mb-2">
-				<span class="text-xs text-gray-500 uppercase tracking-wide font-medium">{{ label }}</span>
+				<span
+					class="min-w-0 truncate text-[11px] sm:text-xs text-gray-500 uppercase sm:tracking-wide font-medium"
+					:title="label"
+				>
+					{{ label }}
+				</span>
 				<svg
 					v-if="hasSparkline"
 					viewBox="0 0 60 18"

@@ -19,6 +19,11 @@ const props = defineProps({
 
 const toneClasses = computed(() => {
 	const signed = props.delta === null ? 0 : props.goodDirection === "down" ? -props.delta : props.delta
+	if (props.kind === "pt") {
+		if (signed <= -0.5) return "bg-red-50 text-red-700"
+		if (signed >= 0.5) return "bg-green-50 text-green-700"
+		return "text-gray-500"
+	}
 	if (signed < -2) return "bg-red-50 text-red-700"
 	if (signed > 2) return "bg-green-50 text-green-700"
 	return "text-gray-500"
