@@ -439,6 +439,17 @@ async function compactNow() {
 	}
 }
 
+async function copyLink(c) {
+	try {
+		const url = `${window.location.origin}/app/processa/sessions?session=${encodeURIComponent(c.name)}`;
+		await navigator.clipboard.writeText(url);
+		copied.value = c.name;
+		setTimeout(() => (copied.value = ""), 1500);
+	} catch {
+		error.value = "Could not copy the link — select it from the conversation title instead.";
+	}
+}
+
 async function saveRetention() {
 	saving.value = true;
 	savedAt.value = false;
