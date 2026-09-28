@@ -105,7 +105,7 @@
 										<span class="text-right text-gray-600 whitespace-nowrap">{{ retriesText(run.retry_count) }}</span>
 										<span class="text-right text-gray-600">{{ fmtDuration(run.duration_ms) }}</span>
 										<a
-											:href="`/app/ai-agent-run/${run.name}`"
+											:href="`/processa/runs/${run.name}`"
 											target="_blank"
 											rel="noopener"
 											class="text-right text-blue-600 hover:underline whitespace-nowrap"

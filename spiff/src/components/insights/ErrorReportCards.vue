@@ -45,7 +45,7 @@
 					<span class="font-semibold text-gray-900">{{ dayjs(run.started_at).format("MMM D HH:mm") }}</span>
 					<span class="text-gray-600">{{ fmtDuration(run.duration_ms) }}</span>
 					<a
-						:href="`/app/ai-agent-run/${run.name}`"
+						:href="`/processa/runs/${run.name}`"
 						target="_blank"
 						rel="noopener"
 						class="ml-auto text-blue-600"
