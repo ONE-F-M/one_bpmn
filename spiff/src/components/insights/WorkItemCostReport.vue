@@ -16,7 +16,7 @@
 
 		<!-- Nothing selected yet -->
 		<div v-if="!selectedWorkItem" class="flex flex-col items-center justify-center h-48 text-center">
-			<Icon icon="lucide:search" class="w-12 h-12 text-gray-300 mb-3" />
+			<Icon icon="lucide:magnifying-glass" class="w-12 h-12 text-gray-300 mb-3" />
 			<h3 class="text-base font-medium text-gray-900">Pick a Work Item</h3>
 			<p class="text-sm text-gray-500">
 				Search above to see its AI cost breakdown. Only Work Items with
