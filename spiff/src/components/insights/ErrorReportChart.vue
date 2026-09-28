@@ -2,7 +2,8 @@
 	<div class="bg-white rounded-lg border border-gray-200 p-4 space-y-3">
 		<div class="flex flex-wrap items-baseline justify-between gap-2">
 			<h3 class="text-sm font-semibold text-gray-900">{{ __("Error rate over time") }}</h3>
-			<span class="text-xs text-gray-500">{{ subtitle }}</span>
+			<span class="hidden sm:inline text-xs text-gray-500">{{ subtitle }}</span>
+			<span class="sm:hidden text-xs text-gray-500">{{ grainLabel.toLowerCase() }}</span>
 		</div>
 		<div class="flex flex-wrap gap-2">
 			<Button
@@ -10,6 +11,7 @@
 				:key="code.error_code"
 				:variant="selectedCode === code.error_code ? 'solid' : 'outline'"
 				size="sm"
+				class="!rounded-full"
 				@click="$emit('select', selectedCode === code.error_code ? '' : code.error_code)"
 			>
 				<span class="flex items-center gap-1.5 font-mono text-xs">
@@ -36,7 +38,22 @@
 		<div class="error-chart h-[150px] sm:h-[220px]">
 			<AxisChart :config="chartConfig" />
 		</div>
-		<p class="text-xs text-gray-500">{{ __("Line: error rate (left axis). Bars: errors by type (right axis).") }}</p>
+		<p class="flex items-center gap-1.5 text-xs text-gray-500">
+			<svg
+				viewBox="0 0 12 2"
+				class="shrink-0 w-3 h-0.5"
+			>
+				<line
+					x1="0"
+					y1="1"
+					x2="12"
+					y2="1"
+					stroke="#111827"
+					stroke-width="2"
+				/>
+			</svg>
+			{{ __("Error rate (left axis)") }} · {{ barsLegend }}
+		</p>
 	</div>
 </template>
 
@@ -44,7 +61,7 @@
 import { computed } from "vue"
 import { AxisChart, Button } from "frappe-ui"
 import { dayjs } from "@/dayjs"
-import { fmtInt, fmtPct } from "@/utils/formatters"
+import { fmtDateRange, fmtInt, fmtPct } from "@/utils/formatters"
 
 const props = defineProps({
 	timeseries: { type: Object, required: true },
@@ -72,13 +89,17 @@ const CODE_COLORS = {
 	UNEXPECTED_ERROR: "#db2777",
 }
 const GRAIN_LABELS = { day: __("Daily"), week: __("Weekly"), month: __("Monthly") }
+const BARS_LEGEND = {
+	day: __("bars: errors per day by type (right axis)"),
+	week: __("bars: errors per week by type (right axis)"),
+	month: __("bars: errors per month by type (right axis)"),
+}
 
-const subtitle = computed(() => {
-	const from = dayjs(props.fromDate)
-	const to = dayjs(props.toDate)
-	const end = from.isSame(to, "month") ? to.format("D") : to.format("MMM D")
-	return `${GRAIN_LABELS[props.grain] || GRAIN_LABELS.day} · ${from.format("MMM D")} ${__("to")} ${end} · ${__("click a type to filter the table")}`
-})
+const grainLabel = computed(() => GRAIN_LABELS[props.grain] || GRAIN_LABELS.day)
+const barsLegend = computed(() => BARS_LEGEND[props.grain] || BARS_LEGEND.day)
+const subtitle = computed(
+	() => `${grainLabel.value} · ${fmtDateRange(props.fromDate, props.toDate)} · ${__("click a type to filter the table")}`,
+)
 
 const chartConfig = computed(() => {
 	const { labels = [], error_rate: rates = [], by_code: byCode = [] } = props.timeseries
@@ -96,7 +117,7 @@ const chartConfig = computed(() => {
 			echartOptions: { axisLabel: { formatter: (v) => dayjs(v).format("MMM D") } },
 		},
 		yAxis: { echartOptions: { name: "", axisLabel: { formatter: (v) => `${v}%` } } },
-		y2Axis: { echartOptions: { name: "" } },
+		y2Axis: { echartOptions: { name: "", minInterval: 1 } },
 		stacked: true,
 		series: [
 			...byCode.map((c) => ({
