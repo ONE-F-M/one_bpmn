@@ -35,6 +35,14 @@ class AIEvalCase(Document):
     def validate(self):
         self._validate_assertions()
         self._validate_tool_call_assertions()
+        self._sync_first_assertion_pass_threshold()
+
+    def _sync_first_assertion_pass_threshold(self):
+        """Keep the read-only summary field in step with assertions[0].pass_threshold,
+        so a reviewer sees it near the top of the form without opening the Assertions
+        table \u2014 including for records created or edited outside the form UI."""
+        first_row = self.assertions[0] if self.assertions else None
+        self.first_assertion_pass_threshold = first_row.pass_threshold if first_row else None
 
     def _validate_tool_call_assertions(self):
         """A tool_calls assertion needs a mode, expected calls, and — where the
