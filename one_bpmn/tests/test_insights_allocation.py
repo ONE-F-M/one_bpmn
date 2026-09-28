@@ -24,6 +24,7 @@ from frappe.utils import flt
 from one_bpmn.api.insights_api import export_cost_allocation, get_cost_allocation
 
 OPS = "Alloc Ops - T"
+OPS_LABEL = "Alloc Ops"
 FIN = "Alloc Fin - T"
 HR = "Alloc HR - T"
 
@@ -123,6 +124,8 @@ class TestInsightsAllocation(FrappeTestCase):
 			_user(user)
 		_employee(OWNER_OPS, OPS)
 		_employee(OWNER_FIN, FIN)
+		# Only Ops has a Department record, so Fin shows the fallback: its raw name.
+		_insert("Department", OPS, department_name=OPS_LABEL)
 		_employee(cls.chat_users[0], OPS)
 		_employee(cls.chat_users[1], FIN)
 		for user in cls.chat_users[2:11]:
@@ -184,7 +187,7 @@ class TestInsightsAllocation(FrappeTestCase):
 	# Process axis
 	def test_department_tree_nests_owner_then_process(self):
 		tree = _tree(group_by="department")
-		self.assertEqual([n["label"] for n in tree], [OPS, FIN])
+		self.assertEqual([n["label"] for n in tree], [OPS_LABEL, FIN])
 		self.assertEqual([n["kind"] for n in tree], ["department", "department"])
 		ops = tree[0]
 		self.assertEqual([c["kind"] for c in ops["children"]], ["owner"])
@@ -294,7 +297,7 @@ class TestInsightsAllocation(FrappeTestCase):
 	# Chat axis
 	def test_chat_tree_nests_user_then_agent(self):
 		tree = _tree(axis="chat_user", group_by="department")
-		self.assertEqual([n["label"] for n in tree], [OPS, FIN])
+		self.assertEqual([n["label"] for n in tree], [OPS_LABEL, FIN])
 		ops = tree[0]
 		self.assertEqual(flt(ops["cost"], 2), 4.25)
 		user = ops["children"][0]
@@ -358,7 +361,7 @@ class TestInsightsAllocation(FrappeTestCase):
 
 	def test_the_top_department_and_its_share_come_with_the_chat_totals(self):
 		top = _report(axis="chat_user")["totals"]["top_department"]
-		self.assertEqual(top, {"name": OPS, "share": flt(4.25 / 6.75 * 100, 2)})
+		self.assertEqual(top, {"name": OPS_LABEL, "share": flt(4.25 / 6.75 * 100, 2)})
 
 	def test_agents_are_listed_by_cost_for_the_donut(self):
 		agents = _report(axis="chat_user")["agents"]
@@ -409,7 +412,7 @@ class TestInsightsAllocation(FrappeTestCase):
 	def test_the_process_filter_narrows_every_number(self):
 		report = _report(process_model=ROSTER_MODEL)
 		self.assertEqual(flt(report["totals"]["cost"], 2), 16.0)
-		self.assertEqual([n["label"] for n in report["tree"]], [OPS])
+		self.assertEqual([n["label"] for n in report["tree"]], [OPS_LABEL])
 		# The whole-period figures narrow too, or the scope line would disagree with the tiles.
 		self.assertEqual(flt(report["period_totals"]["cost"], 2), 16.0)
 		self.assertEqual(flt(report["totals"]["other_axis_cost"], 2), 0.0)
@@ -470,6 +473,7 @@ def _wipe():
 	frappe.db.delete("BPMN Process Instance", {"name": like})
 	frappe.db.delete("Has Role", {"name": like})
 	frappe.db.delete("Employee", {"name": like})
+	frappe.db.delete("Department", {"name": ("in", [OPS])})
 	frappe.db.delete("User", {"name": ("like", "alloc-t-u%@example.com")})
 	frappe.db.delete("User", {"name": ("in", [OWNER_OPS, OWNER_FIN])})
 	frappe.db.delete("BPMN Process Model", {"name": ("in", [ROSTER_MODEL, PAYROLL_MODEL])})
