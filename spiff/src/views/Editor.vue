@@ -2687,17 +2687,11 @@ function goBack() {
 }
 
 function copyProcessId() {
-	if (!activeDiagramName.value) return;
-	navigator.clipboard.writeText(activeDiagramName.value).then(() => {
-		frappe.show_alert({
-			message: __('Process ID copied to clipboard'),
-			indicator: 'green'
-		});
+	if (!props.process) return;
+	navigator.clipboard.writeText(props.process).then(() => {
+		showNotification("Copied", "Process ID copied to clipboard", "green");
 	}).catch(() => {
-		frappe.show_alert({
-			message: __('Failed to copy process ID'),
-			indicator: 'red'
-		});
+		showNotification("Copy Failed", "Failed to copy process ID", "red");
 	});
 }
 
