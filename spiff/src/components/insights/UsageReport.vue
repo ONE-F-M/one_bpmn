@@ -59,6 +59,26 @@
 					<div class="usage-chart h-[180px] sm:h-[260px]">
 						<AxisChart :config="chartConfig" />
 					</div>
+					<ul class="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+						<li
+							v-for="item in chartConfig.series"
+							:key="item.name"
+							class="flex items-center gap-1.5 text-xs text-gray-600"
+						>
+							<svg
+								viewBox="0 0 8 8"
+								class="shrink-0 w-2 h-2"
+							>
+								<rect
+									width="8"
+									height="8"
+									rx="1"
+									:fill="item.color"
+								/>
+							</svg>
+							{{ item.name }}
+						</li>
+					</ul>
 				</div>
 				<div class="bg-white rounded-lg border border-gray-200 p-4">
 					<div class="flex items-baseline justify-between gap-3">
@@ -188,7 +208,7 @@ const chartConfig = computed(() => {
 		yAxis: { echartOptions: { name: "", axisLabel: { formatter: (v) => fmtCurrency(v) } } },
 		stacked: true,
 		series: ordered.map((d) => ({ name: d.label, type: "bar", color: colors.value[d.label] })),
-		echartOptions: { tooltip: { confine: true, formatter: tooltipHtml }, legend: { type: "plain", formatter: (name) => name } },
+		echartOptions: { tooltip: { confine: true, formatter: tooltipHtml }, legend: { show: false } },
 	}
 })
 
