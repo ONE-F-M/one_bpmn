@@ -2,6 +2,7 @@
 	<span
 		class="shrink-0 text-[11px] font-medium rounded px-1.5 py-0.5 whitespace-nowrap"
 		:class="toneClasses"
+		:title="delta === null ? __('Nothing in the previous period to compare with') : undefined"
 	>
 		{{ fmtDelta(delta, kind) }}
 	</span>
@@ -10,6 +11,8 @@
 <script setup>
 import { computed } from "vue"
 import { fmtDelta } from "@/utils/formatters"
+
+const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s
 
 const props = defineProps({
 	delta: { type: Number, default: null },
