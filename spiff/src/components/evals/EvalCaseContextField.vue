@@ -14,7 +14,18 @@
 			v-if="enabled"
 			class="border border-gray-200 rounded-md p-3 space-y-3"
 		>
-			<div class="space-y-2">
+			<Button
+				v-if="!pickerOpen"
+				size="sm"
+				variant="subtle"
+				icon-left="plus"
+				:label="__('Load another conversation')"
+				@click="pickerOpen = true"
+			/>
+			<div
+				v-else
+				class="space-y-2"
+			>
 				<div class="flex items-center justify-between gap-2">
 					<span class="text-sm font-medium text-gray-700">{{ __("Load from a conversation") }}</span>
 					<Button
@@ -23,6 +34,13 @@
 						variant="ghost"
 						:label="__('Back to the list')"
 						@click="picked = null"
+					/>
+					<Button
+						v-else-if="modelValue"
+						size="sm"
+						variant="ghost"
+						:label="__('Close')"
+						@click="pickerOpen = false"
 					/>
 				</div>
 
@@ -109,7 +127,12 @@
 				/>
 			</div>
 
-			<EvalEarlierConversation :context="parsed" />
+			<div
+				v-if="parsed"
+				class="max-h-72 overflow-auto rounded border border-gray-100 p-2"
+			>
+				<EvalEarlierConversation :context="parsed" />
+			</div>
 
 			<details>
 				<summary class="text-xs text-gray-500 cursor-pointer">{{ __("Edit as JSON") }}</summary>
@@ -160,6 +183,8 @@ const { conversations, messages, loading, error, search, open, contextUpTo } = u
 const term = ref("")
 const picked = ref(null)
 const loaded = ref([])
+// Open until something is loaded, so an existing case starts on its preview.
+const pickerOpen = ref(!props.modelValue)
 let searchTimer = null
 
 const parsed = computed(() => parseContext(props.modelValue))
@@ -172,7 +197,9 @@ function toggle(value) {
 watch(
 	() => props.enabled,
 	(on) => {
-		if (on && !conversations.value.length) search("")
+		if (!on) return
+		pickerOpen.value = !props.modelValue
+		if (!conversations.value.length) search("")
 	},
 	{ immediate: true },
 )
@@ -196,10 +223,12 @@ async function load(message, includeMessage) {
 	loaded.value.push(plain(picked.value.title) || picked.value.name)
 	if (!includeMessage) emit("use-prompt", plain(messageText))
 	picked.value = null
+	pickerOpen.value = false
 }
 
 function clearAll() {
 	loaded.value = []
+	pickerOpen.value = true
 	emit("update:modelValue", "")
 }
 
