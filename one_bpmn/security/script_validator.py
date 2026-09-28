@@ -10,19 +10,8 @@ blacklist. A blacklist is trivially bypassed via string formatting, dynamic
 attribute lookup, or sandbox-escape gadgets; walking the AST catches the
 *shape* of an attack regardless of how it is spelled.
 
-Enforcement model: BOTH pre-deployment AND execution-time gate. Validation
-runs when a script is authored/saved and again when a model is deployed, so
-an unsafe script is normally rejected long before it can ever run. It is
-ALSO re-run immediately before every exec() of a BPMN Server Task/inline
-script (see one_bpmn.one_bpmn.engine._check_script_permissions), because a
-save-time-only gate leaves several real gaps open: a script written directly
-to the DB by a migration/fixture/another app, a Server Script that predates
-this validator or a stricter ValidatorOptions posture, or a script whose
-BPMN linkage (see script_gate.is_bpmn_linked_server_script) was not in place
-at save time but is by the time it executes. Re-running the same structural
-check at execution time is cheap (a single ast.parse + tree walk) and closes
-all of those gaps with the exact same rules, rather than maintaining a
-second, weaker runtime blacklist.
+Enforcement model: runs on save, on deploy, and again before every exec()
+(see one_bpmn.one_bpmn.engine._check_script_permissions).
 
 Tuning (per the agreed decisions):
   * Unambiguous escape vectors are ALWAYS blocked (exec/eval/getattr as bare
@@ -128,12 +117,6 @@ BANNED_ATTRIBUTES = frozenset({
 })
 
 # Frappe internals that bypass the permission / durability model — ALWAYS blocked.
-# `set_user` is included so `frappe.set_user(...)`, `frappe.local.set_user(...)`,
-# and any other attribute chain ending in `.set_user` are caught structurally —
-# the attribute-access AST node is flagged by *name* regardless of the object
-# it hangs off, which is what makes this immune to the old two-string
-# substring blocklist's blind spot (`frappe.local.set_user` does not contain
-# the literal text "frappe.set_user").
 BANNED_FRAPPE_ATTRIBUTES = frozenset({
 	"ignore_permissions", "db_update", "add_roles", "set_user",
 })
@@ -144,6 +127,10 @@ BANNED_FRAPPE_ATTRIBUTES = frozenset({
 SOFT_BANNED_FRAPPE_ATTRIBUTES = frozenset({
 	"sql", "commit", "flags", "conf", "cache",
 })
+
+# Request state a script may read but never mutate in bulk.
+PROTECTED_STATE_ATTRIBUTES = frozenset({"flags", "session"})
+MUTATING_METHODS = frozenset({"update", "setdefault", "pop", "popitem", "clear", "__setitem__"})
 
 # Keyword arguments that inject a permission bypass into a save/insert/submit call.
 PERMISSION_BYPASS_KWARGS = frozenset({
@@ -273,6 +260,12 @@ class _SecurityVisitor(ast.NodeVisitor):
 		elif isinstance(func, ast.Attribute) and func.attr in BANNED_CALL_ATTRIBUTES:
 			# builtins.exec(...), or any other object that happens to hold it.
 			self.violations.append(f".{func.attr}() is not allowed")
+		if (
+			isinstance(func, ast.Attribute)
+			and func.attr in MUTATING_METHODS
+			and _node_name(func.value) in PROTECTED_STATE_ATTRIBUTES
+		):
+			self.violations.append(f".{_node_name(func.value)}.{func.attr}() is not allowed")
 
 		# explicit  save(ignore_permissions=True)
 		for kw in node.keywords:
@@ -294,11 +287,6 @@ class _SecurityVisitor(ast.NodeVisitor):
 					f"Permission-bypass keyword '{key.value}' injected via **kwargs is not allowed"
 				)
 			elif key is not None and not isinstance(key, ast.Constant):
-				# save(**{"ignore_" + "permissions": True}) — the key is built at
-				# runtime specifically so it never spells the literal string a
-				# blacklist would look for. We cannot evaluate it statically, so
-				# treat any non-constant key in a permission-shaped kwargs unpack
-				# as suspicious rather than silently letting it through.
 				self.violations.append(
 					"Dynamically computed keyword name in **kwargs unpack is not allowed "
 					"(cannot verify it is not a permission-bypass keyword)"
@@ -313,7 +301,12 @@ class _SecurityVisitor(ast.NodeVisitor):
 			self.violations.append(f"Access to Frappe internal '.{attr}' is not allowed")
 		elif attr in SOFT_BANNED_FRAPPE_ATTRIBUTES and self.options.strict_frappe_attrs:
 			self.violations.append(f"Access to '.{attr}' is not allowed (strict mode)")
+		self._check_session_write(node)
 		self.generic_visit(node)
+
+	def _check_session_write(self, node: ast.Attribute | ast.Subscript) -> None:
+		if isinstance(node.ctx, (ast.Store, ast.Del)) and _node_name(node.value) == "session":
+			self.violations.append("Writing to the request session is not allowed")
 
 	# ── subscript string lookup:  frappe["__dict__"], obj["f_back"] ──────
 	def visit_Subscript(self, node: ast.Subscript) -> None:
@@ -325,6 +318,7 @@ class _SecurityVisitor(ast.NodeVisitor):
 				)
 			elif key in SOFT_BANNED_FRAPPE_ATTRIBUTES and self.options.strict_frappe_attrs:
 				self.violations.append(f"Subscript lookup of '{key}' is not allowed (strict mode)")
+		self._check_session_write(node)
 		self.generic_visit(node)
 
 	@staticmethod
@@ -385,6 +379,14 @@ class _SecurityVisitor(ast.NodeVisitor):
 
 def _is_dunder(name: str) -> bool:
 	return len(name) > 4 and name.startswith("__") and name.endswith("__")
+
+
+def _node_name(node: ast.expr) -> str | None:
+	if isinstance(node, ast.Attribute):
+		return node.attr
+	if isinstance(node, ast.Name):
+		return node.id
+	return None
 
 
 def deep_inspect_script(script_text: str, options: "ValidatorOptions | None" = None) -> list[str]:

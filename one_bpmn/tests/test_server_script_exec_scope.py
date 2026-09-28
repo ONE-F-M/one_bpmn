@@ -105,6 +105,16 @@ mod = __import__("os")
 mod.system("id")
 """
 
+_FLAGS_UPDATE = """
+frappe.flags.update({"ignore_" + "permissions": True})
+result["done"] = True
+"""
+
+_SESSION_USER_ASSIGN = """
+frappe.session.user = "Administrator"
+result["done"] = True
+"""
+
 
 class TestServerScriptExecutionGateHardening(FrappeTestCase):
 	"""Runtime-gate bypass attempts — each must be blocked before exec()."""
@@ -161,6 +171,22 @@ class TestServerScriptExecutionGateHardening(FrappeTestCase):
 		"""__import__("os") loads a forbidden module dynamically, bypassing an
 		`import os` statement a naive check might look for at the top of the file."""
 		name = self._script("ZZ Gate Dynamic Import", _DYNAMIC_IMPORT)
+		engine = _make_script_engine()
+		task = _FakeTask({})
+		with self.assertRaises(frappe.ValidationError):
+			engine._run_frappe_server_script(name, task)
+
+	def test_flags_update_bypass_is_blocked(self):
+		"""frappe.flags.update() sets ignore_permissions without an attribute node named after it."""
+		name = self._script("ZZ Gate Flags Update", _FLAGS_UPDATE)
+		engine = _make_script_engine()
+		task = _FakeTask({})
+		with self.assertRaises(frappe.ValidationError):
+			engine._run_frappe_server_script(name, task)
+
+	def test_session_user_assignment_bypass_is_blocked(self):
+		"""Assigning frappe.session.user impersonates another user without calling set_user."""
+		name = self._script("ZZ Gate Session User Assign", _SESSION_USER_ASSIGN)
 		engine = _make_script_engine()
 		task = _FakeTask({})
 		with self.assertRaises(frappe.ValidationError):
