@@ -8,23 +8,23 @@
 			>{{ fmtCurrency(total) }}</span>
 		</div>
 		<div class="flex items-center gap-2 h-[180px] sm:h-[260px]">
-			<div class="relative alloc-chart alloc-donut w-[112px] shrink-0 h-full">
+			<div class="relative alloc-chart alloc-donut w-[136px] shrink-0 h-full">
 				<ECharts :options="options" />
 				<div
 					class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center"
 				>
-					<div class="text-sm font-semibold text-gray-900">{{ top.pct }}%</div>
-					<div class="text-[11px] text-gray-500 truncate max-w-[84px]">{{ top.label }}</div>
+					<div class="text-base font-semibold text-gray-900">{{ top.pct }}%</div>
+					<div class="text-[11px] text-gray-500 truncate max-w-[88px]">{{ top.label }}</div>
 				</div>
 			</div>
-			<ul class="flex-1 space-y-2 min-w-0">
+			<ul class="flex-1 space-y-2.5 min-w-0">
 				<li
 					v-for="slice in ranked"
 					:key="slice.key"
-					class="flex items-center gap-1.5 text-[11px]"
+					class="flex items-center gap-2 text-[11px]"
 				>
 					<span
-						class="w-2 h-2 rounded-full shrink-0"
+						class="w-2.5 h-2.5 rounded-sm shrink-0"
 						:style="dotStyleOf(slice)"
 					></span>
 					<span
@@ -70,9 +70,8 @@ const options = computed(() => ({
 	},
 	series: [{
 		type: "pie",
-		radius: ["58%", "82%"],
+		radius: ["60%", "88%"],
 		center: ["50%", "50%"],
-		itemStyle: { borderColor: "#ffffff", borderWidth: 2 },
 		label: { show: false },
 		emphasis: { scaleSize: 3 },
 		data: ranked.value.map((s) => ({ name: s.label, value: s.value })),

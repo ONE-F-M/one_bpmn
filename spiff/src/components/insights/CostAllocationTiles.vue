@@ -12,6 +12,7 @@
 				:good-direction="tile.goodDirection"
 				:subtitle="tile.subtitle"
 				:subtitle-short="tile.subtitleShort"
+				:hint="tile.hint"
 			/>
 		</div>
 
@@ -92,6 +93,7 @@ const chatTiles = computed(() => {
 			deltaKind: "count",
 			goodDirection: "up",
 			subtitle: `of ${fmtInt(t.seats)} seats`,
+			hint: "Spend is charged to the conversation owner. Participants are not charged.",
 		},
 		money("Avg cost / user", t.avg_cost_per_user, pctChange(t.avg_cost_per_user, p.avg_cost_per_user)),
 		money(
