@@ -5,7 +5,7 @@
 			<span class="text-xs text-gray-500">{{ __("tap a row to open its runs") }}</span>
 		</div>
 		<div
-			v-for="issue in issues"
+			v-for="issue in visibleIssues"
 			:key="issue.key"
 			class="bg-white rounded-lg border border-gray-200 p-3"
 			@click="toggle(issue.key)"
@@ -69,10 +69,17 @@
 				</button>
 			</div>
 		</div>
+		<button
+			v-if="hiddenCount > 0"
+			class="text-xs text-gray-500"
+			@click="showAll = true"
+		>
+			{{ hiddenCount }} {{ __("more") }} · <span class="text-blue-600">{{ __("show") }}</span>
+		</button>
 		<div class="bg-gray-50 rounded-lg border border-gray-200 p-3">
 			<div class="flex items-center justify-between text-sm font-semibold text-gray-900">
 				<span>{{ __("All") }}</span>
-				<span>{{ fmtInt(summary.errors) }} {{ __("errors") }}</span>
+				<span>{{ fmtInt(summary.errors) }} {{ summary.errors === 1 ? __("error") : __("errors") }}</span>
 			</div>
 			<div class="text-xs text-gray-500 mt-1">{{ fmtPct(summary.error_rate) }} {{ __("of") }} {{ fmtInt(summary.runs) }} {{ __("runs") }}</div>
 		</div>
@@ -80,6 +87,7 @@
 </template>
 
 <script setup>
+import { computed, ref } from "vue"
 import { ErrorMessage, LoadingIndicator } from "frappe-ui"
 import { dayjs } from "@/dayjs"
 import { errorRateClass, lastSeenText } from "@/composables/useIssueRuns"
@@ -94,4 +102,9 @@ const props = defineProps({
 
 const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s
 const { entry: runsFor, load, remaining: moreCount, toggle, expanded } = props.issueRuns
+const FIRST_ISSUES = 4
+
+const showAll = ref(false)
+const visibleIssues = computed(() => (showAll.value ? props.issues : props.issues.slice(0, FIRST_ISSUES)))
+const hiddenCount = computed(() => props.issues.length - visibleIssues.value.length)
 </script>
