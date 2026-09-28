@@ -26,12 +26,9 @@ SKILLS = [
 	{
 		"skill_name": TOPOLOGY_SKILL,
 		"description": (
-			"LuCrusher Phase 4: how to split a fetched Lucidchart document into Processa processes. "
-			"Rules R1 to R5 for process boundaries and names, the process types, and the topology "
-			"argument finalize takes with intent TOPOLOGY_PROPOSAL. Use this skill when the user asks "
-			"to analyse, plan, recommend or split the process topology, or asks to change a proposed "
-			"topology. Do NOT use it to confirm a topology the user has approved, or for process "
-			"search, Lucidchart fetching, codebase scans, migration tasks or ProsAlly prompts."
+			"Phase 4 rules R1 to R5 for splitting the document into processes. Use it to draft or "
+			"revise a TOPOLOGY_PROPOSAL. Do NOT use it to confirm an approved topology or in any "
+			"other phase."
 		),
 		"body": """# LuCrusher Phase 4: topology analysis
 
@@ -59,12 +56,9 @@ Split the fetched Lucidchart document into Processa processes, reading the docum
 	{
 		"skill_name": TASKS_SKILL,
 		"description": (
-			"LuCrusher Phase 5: how to turn a confirmed topology into a migration task list. The "
-			"Processa engine reference (task, gateway and trigger types), the five task categories, "
-			"and the migration_tasks argument finalize takes with intent MIGRATION_TASKS_DRAFT. Use "
-			"this skill when the topology is confirmed and the user asks to generate migration tasks "
-			"or a plan, or asks to change a drafted task list. Do NOT use it to confirm tasks the user "
-			"has approved, or before the topology is confirmed."
+			"Phase 5 Processa engine reference and task categories. Use it to draft or revise "
+			"MIGRATION_TASKS_DRAFT once the topology is confirmed. Do NOT use it to confirm approved "
+			"tasks or before the topology is confirmed."
 		),
 		"body": """# LuCrusher Phase 5: migration task list
 
@@ -98,13 +92,9 @@ Imperative titles. Cross-reference the codebase scan. Exact serviceType strings.
 	{
 		"skill_name": PROSALLY_SKILL,
 		"description": (
-			"LuCrusher Phase 6: how to write one ProsAlly prompt block per confirmed process so "
-			"ProsAlly can draw its BPMN diagram. Block sections A to E (header, lanes, elements, "
-			"sequence flows, anti-linting), the lane rules, and the prosally_prompts argument finalize "
-			"takes with intent PROSALLY_PROMPT_DRAFT. Use this skill when migration tasks are confirmed "
-			"and the user asks for ProsAlly or diagram prompts, or asks to change drafted prompts. Do "
-			"NOT use it to confirm prompts the user has approved, or before migration tasks are "
-			"confirmed."
+			"Phase 6 ProsAlly prompt block format, sections A to E. Use it to draft or revise "
+			"PROSALLY_PROMPT_DRAFT once migration tasks are confirmed. Do NOT use it to confirm "
+			"approved prompts or before migration tasks are confirmed."
 		),
 		"body": """# LuCrusher Phase 6: ProsAlly prompt generation
 
