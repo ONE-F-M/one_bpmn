@@ -82,16 +82,28 @@ function seriesOf(node, i, last) {
 const config = computed(() => {
 	const last = props.series.length - 1
 	// A phone fits one legend row, so it scrolls instead of stacking over the plot.
-	const legendRows = props.isPhone ? 1 : Math.ceil(props.series.length / 5)
+	const legendRows = props.isPhone ? 1 : Math.ceil(props.series.length / 8)
 	return {
 		data: labels.value.map((bucket) => ({ bucket })),
 		xAxis: { key: "bucket", type: "category" },
-		yAxis: { echartOptions: { name: "", axisLabel: { formatter: axisTick } } },
+		yAxis: { echartOptions: { name: "", splitLine: { show: false }, axisLabel: { formatter: axisTick } } },
 		stacked: true,
 		series: props.series.map((node, i) => seriesOf(node, i, last)),
 		echartOptions: {
-			legend: props.series.length > 1 ? { type: props.isPhone ? "scroll" : "plain", bottom: 0 } : { show: false },
-			grid: { bottom: props.series.length > 1 ? 36 + 22 * legendRows : 36, top: 28 },
+			legend: props.series.length > 1
+				? {
+					type: props.isPhone ? "scroll" : "plain",
+					left: 0,
+					bottom: 0,
+					padding: 0,
+					itemGap: 16,
+					icon: "rect",
+					itemWidth: 9,
+					itemHeight: 9,
+					textStyle: { padding: [0, 0, 0, 1] },
+				}
+				: { show: false },
+			grid: { bottom: props.series.length > 1 ? 10 + 22 * legendRows : 10, top: 28 },
 			tooltip: { confine: true, formatter: tooltip },
 		},
 	}
