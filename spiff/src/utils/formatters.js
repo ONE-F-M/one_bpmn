@@ -81,7 +81,8 @@ export function fmtDelta(v, kind) {
 	const scaled = Math.round(toNum(v) * 10 ** decimals)
 	const sign = scaled < 0 ? "-" : "+"
 	const abs = (Math.abs(scaled) / 10 ** decimals).toFixed(decimals)
-	if (kind === "pct") return `${sign}${abs}%`
+	// A prior period of a few cents makes any real spend a five-digit rise; the pill stops at three.
+	if (kind === "pct") return scaled > 999 ? ">999%" : `${sign}${abs}%`
 	if (kind === "pt") return `${sign}${abs.replace(/\.0$/, "")} pt`
 	return `${sign}${abs}`
 }

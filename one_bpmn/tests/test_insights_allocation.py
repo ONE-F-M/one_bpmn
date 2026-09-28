@@ -63,7 +63,7 @@ def _insert(doctype: str, name: str, owner: str = "Administrator", **values) -> 
 
 def _user(email: str) -> str:
 	return _insert("User", email, email=email, first_name=email.split("@")[0],
-	               enabled=1, user_type="System User")
+	               full_name=f"Name of {email}", enabled=1, user_type="System User")
 
 
 def _employee(user: str, department: str) -> str:
@@ -302,6 +302,7 @@ class TestInsightsAllocation(FrappeTestCase):
 		self.assertEqual(flt(ops["cost"], 2), 4.25)
 		user = ops["children"][0]
 		self.assertEqual(user["kind"], "user")
+		self.assertEqual(user["name"], f"Name of {self.chat_users[0]}")
 		self.assertEqual([a["label"] for a in user["children"]], ["Logix", "Docu", "General Chat"])
 		for key in ("conversations", "runs", "tokens", "cost",
 		            "avg_cost_per_conversation", "share", "previous_cost", "delta"):
@@ -350,6 +351,8 @@ class TestInsightsAllocation(FrappeTestCase):
 		totals = _report(axis="chat_user", from_date=D_FROM, to_date=D_TO)["totals"]
 		self.assertEqual(flt(totals["cost"], 2), 51.0)
 		self.assertEqual(totals["top5_share"], flt(1.0 / 51.0 * 100, 2))
+		# The 50.00 with nobody to bill it to is still in the tree, but a department it is not.
+		self.assertEqual(totals["top_department"], {"name": OPS_LABEL, "share": flt(1.0 / 51.0 * 100, 2)})
 
 	def test_seats_without_the_role_count_active_employees_only(self):
 		from one_bpmn.api.insights_api import _chat_seats

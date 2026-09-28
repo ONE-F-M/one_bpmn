@@ -89,6 +89,11 @@ test("fmtDelta: pt keeps one decimal", () => {
 	assert.equal(fmtDelta(0.6, "pt"), "+0.6 pt")
 })
 
+test("fmtDelta: a rise past 999 percent is capped", () => {
+	assert.equal(fmtDelta(83845, "pct"), ">999%")
+	assert.equal(fmtDelta(999.4, "pct"), "+999%")
+})
+
 test("fmtDelta: null means no prior period", () => {
 	assert.equal(fmtDelta(null, "pct"), "new")
 })
