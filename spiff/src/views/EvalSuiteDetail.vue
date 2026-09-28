@@ -679,6 +679,7 @@ const VALUE_LABELS = {
 	max_tokens: "Token ceiling",
 	no_tool_call: "Forbidden tool names",
 	tool_calls: "Order mode",
+	tool_artifact: "Artifact check (JSON)",
 }
 // tool_calls checks the run's trace against the Expected Tool Calls below; its
 // value is only which of the three modes to check in.

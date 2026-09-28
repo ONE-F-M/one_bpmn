@@ -1786,6 +1786,9 @@ def _evaluate_assertion(assertion, output: Any, facts: dict = None) -> dict:
         if a_type == "tool_calls":
             return {**base, **_evaluate_tool_calls(value, facts)}
 
+        if a_type == "tool_artifact":
+            return {**base, **_evaluate_tool_artifact(value, facts)}
+
         if a_type == "llm_judge":
             return _evaluate_llm_judge(assertion, output)
 
@@ -1993,6 +1996,52 @@ def _evaluate_tool_calls(value: str, facts: dict) -> dict:
             "message": "" if not unmatched else f"Never called: {', '.join(unmatched)}. Called: {called}."}
 
 
+def _evaluate_tool_artifact(value: str, facts: dict) -> dict:
+    """Match a dotted path in the JSON a tool recorded as its artifact.
+
+    *value* is {"tool", "path", "matcher", "expected"}. The last call to the tool
+    that recorded an artifact is the one checked.
+    """
+    if facts is None:
+        return {"passed": False, "error": True,
+                "message": "Tool artifacts are only recorded on a live run, not a replay."}
+    spec = json.loads(value or "{}")
+    tool, path = spec.get("tool"), spec.get("path")
+    if not (tool and path):
+        return {"passed": False, "error": True,
+                "message": "tool_artifact needs a tool and a path."}
+
+    calls = [c for c in facts.get("tool_trace") or [] if c.get("tool") == tool
+             and (c.get("artifact") or c.get("artifact_file"))]
+    if not calls:
+        return {"passed": False, "error": True, "message": f"{tool} recorded no artifact."}
+    last = calls[-1]
+    text = last.get("artifact") or frappe.get_doc("File", last["artifact_file"]).get_content()
+
+    resolved = _resolve_path(json.loads(text), path)
+    expected = spec.get("expected")
+    matcher = {
+        "argument": path,
+        "matcher": spec.get("matcher") or "equals",
+        "expected": expected if isinstance(expected, str) else json.dumps(expected, sort_keys=True),
+    }
+    passed, why = _argument_matches(matcher, {path: resolved})
+    return {"passed": passed, "message": "" if passed else why}
+
+
+def _resolve_path(data: Any, path: str) -> Any:
+    """Walk *path* key by key; a list along the way maps the rest of the path over its items."""
+    # ponytail: keys and lists only, no filters or wildcards; add them when a case needs one.
+    for key in path.split("."):
+        if isinstance(data, list):
+            data = [item.get(key) for item in data if isinstance(item, dict)]
+        elif isinstance(data, dict):
+            data = data.get(key)
+        else:
+            return None
+    return data
+
+
 def _execution_facts(case, eval_run: str, usage: dict) -> dict:
     """What the assertions may know about the execution itself, not its text."""
     trace = _tool_trace_for(case, eval_run)
@@ -2024,7 +2073,7 @@ def _tool_trace_for(case, eval_run: str = None) -> List[dict]:
     rows = frappe.get_all(
         "AI Agent Tool Call",
         filters={"parenttype": "AI Agent Step", "parent": ["in", steps]},
-        fields=["parent", "idx", "tool_name", "tool_args", "status"],
+        fields=["parent", "idx", "tool_name", "tool_args", "status", "tool_artifact", "artifact_file"],
     ) if steps else []
     position = {name: index for index, name in enumerate(steps)}
     rows.sort(key=lambda r: (position.get(r["parent"], 0), cint(r["idx"])))
@@ -2039,6 +2088,8 @@ def _tool_trace_for(case, eval_run: str = None) -> List[dict]:
             "tool": row["tool_name"],
             "args": args if isinstance(args, dict) else {"": args},
             "status": row["status"],
+            "artifact": row["tool_artifact"] or "",
+            "artifact_file": row["artifact_file"],
         })
     # A parked call is the last thing the model did.
     return trace + _parked_calls(runs)
