@@ -10,7 +10,7 @@
 		<template v-else>
 			<div class="flex items-start justify-between gap-2 mb-2">
 				<span
-					class="min-w-0 truncate text-[11px] sm:text-xs text-gray-500 uppercase sm:tracking-wide font-medium"
+					class="min-w-0 truncate text-[10px] sm:text-xs text-gray-500 uppercase sm:tracking-wide font-medium"
 					:title="label"
 				>
 					{{ label }}
