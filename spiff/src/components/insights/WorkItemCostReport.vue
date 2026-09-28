@@ -30,7 +30,7 @@
 		<template v-else>
 			<!-- Depth cap warning: the total may be a floor, not the whole figure. -->
 			<Tooltip
-				v-if="report.chain_truncated"
+				v-if="report.chain_truncated" @click="test"
 				text="This Work Item has delegated to agents that themselves delegated further. The cost breakdown below only includes the first level of delegation. A complete cost trace would need to walk the entire chain, which may span many runs and agents."
 			>
 				<div class="bg-amber-50 text-amber-800 text-sm rounded-lg px-4 py-3 cursor-help">
