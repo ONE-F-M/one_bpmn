@@ -55,3 +55,28 @@ export function savedState(context) {
 		...(session ? { session_state: session } : {}),
 	}
 }
+
+// Several earlier conversations as one: all User and Bot turns in order, the most
+// recent progress snapshot last (the only one an agent reads), fetched state merged.
+export function mergeContexts(contexts) {
+	const messages = []
+	let snapshot = null
+	const state = {}
+	for (const context of contexts.filter(Boolean)) {
+		for (const message of context.conversation_messages || []) {
+			if (message.message_type === "Tool") snapshot = message
+			else messages.push(message)
+		}
+		Object.assign(state, context.session_state || {})
+	}
+	return { conversation_messages: snapshot ? [...messages, snapshot] : messages, session_state: state }
+}
+
+export function parseContext(text) {
+	try {
+		const parsed = JSON.parse((text || "").trim())
+		return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null
+	} catch {
+		return null
+	}
+}

@@ -471,6 +471,92 @@ def get_eval_case(name: str) -> dict:
 	}
 
 
+
+CONVERSATION_LIST_MAX = 100
+CONVERSATION_MESSAGES_MAX = 500
+
+
+@frappe.whitelist()
+def list_conversations_for_case(suite: str, search: str = "", limit: int = 30) -> list:
+	"""Real conversations with the suite's agent that a case can start from, newest first."""
+	suite_doc = frappe.get_doc("AI Eval Suite", suite)
+	suite_doc.check_permission("write")
+	mode = frappe.db.get_value("AI Agent Configuration", suite_doc.agent_configuration, "chat_mode_label")
+	if not mode:
+		return []
+	or_filters = None
+	if (search or "").strip():
+		term = f"%{search.strip()}%"
+		or_filters = [["title", "like", term], ["owner", "like", term]]
+	return frappe.get_list(
+		"Chat Conversation",
+		filters={"agent_mode": mode, "is_eval": 0},
+		or_filters=or_filters,
+		fields=["name", "title", "owner", "modified"],
+		order_by="modified desc",
+		limit_page_length=min(max(cint(limit), 1), CONVERSATION_LIST_MAX),
+	)
+
+
+def _readable_conversation(suite: str, conversation: str):
+	frappe.get_doc("AI Eval Suite", suite).check_permission("write")
+	frappe.get_doc("Chat Conversation", conversation).check_permission("read")
+
+
+@frappe.whitelist()
+def get_conversation_for_case(suite: str, conversation: str) -> list:
+	"""The User and Bot messages of a conversation, oldest first, for picking where a case starts."""
+	_readable_conversation(suite, conversation)
+	return frappe.get_list(
+		"Chat Message",
+		filters={"conversation": conversation, "message_type": ["in", ["User", "Bot"]]},
+		fields=["name", "message_type", "text", "creation"],
+		order_by="creation asc",
+		limit_page_length=CONVERSATION_MESSAGES_MAX,
+	)
+
+
+@frappe.whitelist()
+def conversation_context_for_case(suite: str, conversation: str, message: str, include_message: int = 0) -> dict:
+	"""A conversation's turns before ``message`` (or through it) as a case's earlier conversation.
+
+	Carries the agent's latest saved progress before that point and what its tools fetched.
+	"""
+	_readable_conversation(suite, conversation)
+	cutoff = frappe.db.get_value("Chat Message", {"name": message, "conversation": conversation}, "creation")
+	if not cutoff:
+		frappe.throw(_("That message is not part of this conversation."))
+	before = "<=" if cint(include_message) else "<"
+	rows = frappe.get_list(
+		"Chat Message",
+		filters={"conversation": conversation, "message_type": ["in", ["User", "Bot"]], "creation": [before, cutoff]},
+		fields=["message_type", "text"],
+		order_by="creation asc",
+		limit_page_length=CONVERSATION_MESSAGES_MAX,
+	)
+	messages = [{"message_type": r.message_type, "text": r.text or ""} for r in rows]
+	snapshot = frappe.get_list(
+		"Chat Message",
+		filters={"conversation": conversation, "message_type": "Tool", "creation": [before, cutoff]},
+		fields=["text", "metadata"],
+		order_by="creation desc",
+		limit_page_length=1,
+	)
+	if snapshot:
+		messages.append({
+			"message_type": "Tool",
+			"text": snapshot[0].text or "",
+			"metadata": frappe.parse_json(snapshot[0].metadata) if snapshot[0].metadata else None,
+		})
+
+	from one_bpmn.agents.memory import session_state
+
+	return {
+		"conversation_messages": messages,
+		"session_state": session_state.get_state(conversation),
+		"message_text": frappe.db.get_value("Chat Message", message, "text") or "",
+	}
+
 @frappe.whitelist()
 def update_eval_case(
 	name: str,

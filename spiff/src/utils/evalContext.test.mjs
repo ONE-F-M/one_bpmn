@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { earlierTurns, midConversationError, savedState } from "./evalContext.js"
+import { earlierTurns, mergeContexts, midConversationError, savedState } from "./evalContext.js"
 
 test("midConversationError: an empty box asks for the conversation", () => {
 	assert.match(midConversationError(""), /Add the earlier conversation/)
@@ -42,4 +42,28 @@ test("savedState: carries Tool metadata and session_state, or null when there is
 		session_state: { "lucid_doc:1": { title: "Visa" } },
 	})
 	assert.equal(savedState({ conversation_messages: [{ message_type: "User", text: "a" }] }), null)
+})
+
+test("mergeContexts: turns from each conversation in order, latest snapshot last, state merged", () => {
+	const first = {
+		conversation_messages: [
+			{ message_type: "User", text: "a" },
+			{ message_type: "Tool", text: "__state__", metadata: { intent: "ONE" } },
+			{ message_type: "Bot", text: "b" },
+		],
+		session_state: { k1: 1, shared: "old" },
+	}
+	const second = {
+		conversation_messages: [{ message_type: "User", text: "c" }, { message_type: "Tool", text: "__state__", metadata: { intent: "TWO" } }],
+		session_state: { shared: "new" },
+	}
+	assert.deepEqual(mergeContexts([first, null, second]), {
+		conversation_messages: [
+			{ message_type: "User", text: "a" },
+			{ message_type: "Bot", text: "b" },
+			{ message_type: "User", text: "c" },
+			{ message_type: "Tool", text: "__state__", metadata: { intent: "TWO" } },
+		],
+		session_state: { k1: 1, shared: "new" },
+	})
 })

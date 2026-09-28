@@ -480,6 +480,8 @@
 						v-else
 						v-model:enabled="startsMidConversation"
 						v-model="caseForm.input_context"
+						:suite="suiteName"
+						@use-prompt="useLoadedPrompt"
 					/>
 
 					<!-- Assertions -->
@@ -911,6 +913,10 @@ const caseForm = reactive({
 })
 const isMemoryCase = computed(() => caseForm.case_type === "Memory")
 const startsMidConversation = ref(false)
+function useLoadedPrompt(text) {
+	caseForm.input_user_prompt = text
+	if (!caseForm.title) caseForm.title = text.slice(0, 120)
+}
 const inputContextError = computed(() => {
 	if (!isMemoryCase.value) return startsMidConversation.value ? midConversationError(caseForm.input_context) : ""
 	const text = (caseForm.input_context || "").trim()
