@@ -36,7 +36,7 @@
 				<div class="bg-amber-50 text-amber-800 text-sm rounded-lg px-4 py-3 cursor-help">
 					<span class="font-medium">This total may be incomplete.</span>
 					The delegation chain for this Work Item is deeper than this report walks (chain is truncated),
-					so the figures below are a floor, not the whole cost.
+					so the figures below are a floor, not the whole cost. Chain truncation means the delegation went deeper than we show.
 				</div>
 			</Tooltip>
 
