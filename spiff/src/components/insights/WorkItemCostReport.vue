@@ -29,16 +29,15 @@
 
 		<template v-else>
 			<!-- Depth cap warning: the total may be a floor, not the whole figure. This warning shows when chain_truncated is true. -->
-			<Tooltip
-				v-if="report.chain_truncated"
-				text="This Work Item has delegated to agents that themselves delegated further. The cost breakdown below only includes the first level of delegation. A complete cost trace would need to walk the entire chain, which may span many runs and agents."
-			>
-				<div class="bg-amber-50 text-amber-800 text-sm rounded-lg px-4 py-3 cursor-help">
-					<span class="font-medium">This total may be incomplete.</span> <Tooltip text="chain_truncated: The delegation chain is deeper than shown. Only first level delegations are included in the cost breakdown."> <Icon icon="lucide:info" class="inline w-4 h-4" /> </Tooltip>
-					The delegation chain for this Work Item is deeper than this report walks (chain is truncated),
-					so the figures below are a floor, not the whole cost. Chain truncation means the delegation went deeper than we show.
-				</div>
-			</Tooltip>
+			<div v-if="report.chain_truncated" class="bg-amber-50 text-amber-800 text-sm rounded-lg px-4 py-3">
+				<span class="font-medium">This total may be incomplete.</span>
+				<Tooltip
+					text="chain_truncated: this Work Item delegated to an agent that itself delegated further. Only the first level of delegation is included below, so the totals may understate the true cost."
+				>
+					<Icon icon="lucide:info" class="inline w-4 h-4 -mt-0.5 cursor-help" />
+				</Tooltip>
+				The delegation chain for this Work Item is deeper than this report walks, so the figures below are a floor, not the whole cost.
+			</div>
 
 			<!-- Summary tiles -->
 			<div class="grid grid-cols-2 lg:grid-cols-3 gap-4">
