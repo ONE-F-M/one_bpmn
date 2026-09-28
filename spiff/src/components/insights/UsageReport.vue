@@ -105,7 +105,7 @@ import {
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 import { useWindowSize } from "@/composables/useWindowSize"
-import { fmtCurrency } from "@/utils/formatters"
+import { fmtCurrency, fmtCurrencyAxis } from "@/utils/formatters"
 import UsageReportCards from "@/components/insights/UsageReportCards.vue"
 import UsageReportDonut from "@/components/insights/UsageReportDonut.vue"
 import UsageReportTable from "@/components/insights/UsageReportTable.vue"
@@ -184,7 +184,7 @@ const chartConfig = computed(() => {
 			timeGrain: grain.value,
 			echartOptions: { axisLabel: { formatter: (v) => dayjs(v).format("MMM D") } },
 		},
-		yAxis: { echartOptions: { name: "", axisLabel: { formatter: (v) => fmtCurrency(v) } } },
+		yAxis: { echartOptions: { name: "", axisLabel: { formatter: (v) => fmtCurrencyAxis(v) } } },
 		stacked: true,
 		series: ordered.map((d) => ({ name: d.label, type: "bar", color: colors.value[d.label] })),
 		echartOptions: { tooltip: { confine: true, formatter: tooltipHtml }, legend: { formatter: (name) => name } },
