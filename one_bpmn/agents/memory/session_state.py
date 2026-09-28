@@ -186,6 +186,31 @@ def clear_state(conversation: str) -> None:
 
 RECORD_RETRIES = 3
 
+# The session state key that says what the previous turn decided and produced.
+LAST_TURN_KEY = "last_turn"
+
+
+def record_turn_result(conversation: str, output, keys=(), **facts) -> int:
+	"""Record ``keys`` off the agent's output plus ``facts``, and a one-line ``last_turn`` summary."""
+	values = {}
+	output = output if isinstance(output, dict) else {}
+	for key in keys:
+		if output.get(key) not in (None, "", [], {}):
+			values[key] = output[key]
+	for key, value in facts.items():
+		if value not in (None, "", [], {}):
+			values[key] = value
+	if output:
+		produced = sorted(
+			k for k, v in output.items()
+			if k not in ("intent", "response", "options") and v not in (None, "", [], {})
+		)
+		summary = str(output.get("intent") or "answered")
+		if produced:
+			summary += " (produced: " + ", ".join(produced) + ")"
+		values[LAST_TURN_KEY] = summary
+	return record(conversation, values)
+
 
 def record(conversation: str, values: dict, retries: int = RECORD_RETRIES) -> int:
 	"""Write decisions, re-reading and re-applying if another turn got there first.

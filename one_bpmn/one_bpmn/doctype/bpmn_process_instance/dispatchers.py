@@ -257,17 +257,36 @@ def _turn_user_message(instance, task) -> str:
 	if not getattr(instance, "context_docname", ""):
 		return ""
 
+	from one_bpmn.agents.memory.text_clean import strip_html
+
 	data = getattr(task, "data", None)
 	if isinstance(data, dict):
 		text = str(data.get("user_text") or "").strip()
 		if text:
-			return text
+			return strip_html(text)
 	try:
 		from one_bpmn.agents.turn_state import get_turn
 
-		return str((get_turn(instance.context_docname) or {}).get("user_text") or "").strip()
+		return strip_html(str((get_turn(instance.context_docname) or {}).get("user_text") or ""))
 	except Exception:
 		return ""
+
+
+def _platform_history(instance, task_cfg: dict, raw_user_message: str) -> tuple[list, str]:
+	"""(prior messages, facts block) for a chat turn, also written to the turn store for tool scripts."""
+	from one_bpmn.agents.memory.turn_context import conversation_of, established_block, load_history
+	from one_bpmn.agents.turn_state import update_turn
+
+	conversation = conversation_of(instance)
+	if not conversation:
+		return [], ""
+	history = load_history(
+		conversation,
+		limit=frappe.utils.cint(task_cfg.get("aiContextMaxMessages")),
+		current_message=raw_user_message,
+	)
+	update_turn(conversation, chat_history=history)
+	return history, established_block(conversation)
 
 
 def _extract_memory_content(output, content_field: str) -> str:
@@ -1827,6 +1846,11 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				message=frappe.get_traceback(),
 			)
 
+	# A resumed segment already carries its transcript in the checkpoint.
+	turn_history, turn_established = ([], "") if resume_payload else _platform_history(
+		instance, task_cfg, raw_user_message
+	)
+
 	# WI-000401: skills loaded earlier in this conversation (load_skill wrote
 	# their bodies to a conversation-scoped cache) must actually reach the
 	# model's prompt on the NEXT turn, not just sit in a cache nothing reads.
@@ -1848,13 +1872,14 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			from one_bpmn.api.skill_tools import advance_turn
 			advance_turn(_conversation_for_skills)
 
-	if memory_block or user_message or active_skill_bodies:
+	if memory_block or user_message or turn_established or active_skill_bodies:
 		from one_bpmn.agents.context_assembler import build_dynamic_preamble
 
 		user_prompt = build_dynamic_preamble(
 			memory_block=memory_block,
 			instructions=user_prompt,
 			user_prompt=user_message,
+			established_block=turn_established,
 			active_skills=active_skill_bodies,
 		)
 
@@ -1996,6 +2021,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		model            = task_cfg.get("aiModel", ""),
 		system_prompt    = system_prompt,
 		user_prompt      = user_prompt,
+		# Prior turns go as real messages, so the cacheable prefix keeps its shape.
+		messages         = turn_history,
 		# Deferring to the shared defaults, not repeating numbers here:
 		# this line used to say 0.7 while the configuration form said 0.3, so
 		# the same agent behaved differently depending on which path ran it.
@@ -2560,7 +2587,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# Primarily for the multi-turn loop; when a backend is configured we
 		# record this single call's turns. process_variable uses the live task.
 		cs_backend = task_cfg.get("aiConversationStore") or ""
-		if cs_backend:
+		# A chat turn is already a Chat Message that the history step reads.
+		if cs_backend and getattr(instance, "context_doctype", "") != "Chat Conversation":
 			try:
 				from one_bpmn.agents.memory.conversation_store import get_conversation_store
 				store = get_conversation_store(cs_backend, task=task)
