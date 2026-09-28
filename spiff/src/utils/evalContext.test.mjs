@@ -4,7 +4,7 @@ import assert from "node:assert/strict"
 import { earlierTurns, mergeContexts, midConversationError, savedState } from "./evalContext.js"
 
 test("midConversationError: an empty box asks for the conversation", () => {
-	assert.match(midConversationError(""), /Add the earlier conversation/)
+	assert.match(midConversationError(""), /untick Include earlier conversation/)
 })
 
 test("midConversationError: text that is not JSON is refused", () => {

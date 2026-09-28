@@ -55,6 +55,12 @@
 
 				<template v-else>
 					<div class="text-xs text-gray-500">{{ plain(picked.title) || picked.name }}</div>
+					<p
+						v-if="!messages.length && !loading"
+						class="text-xs text-gray-500"
+					>
+						{{ __("This conversation has no messages.") }}
+					</p>
 					<div class="max-h-64 overflow-auto space-y-1.5">
 						<div
 							v-for="m in messages"
@@ -133,7 +139,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from "vue"
+import { computed, ref, watch } from "vue"
 import { Button, ErrorMessage, FormControl } from "frappe-ui"
 import { dayjs } from "@/dayjs"
 import EvalEarlierConversation from "@/components/evals/EvalEarlierConversation.vue"
@@ -160,8 +166,15 @@ const validation = computed(() => (props.enabled ? midConversationError(props.mo
 
 function toggle(value) {
 	emit("update:enabled", value)
-	if (value && !conversations.value.length) search("")
 }
+
+watch(
+	() => props.enabled,
+	(on) => {
+		if (on && !conversations.value.length) search("")
+	},
+	{ immediate: true },
+)
 
 function onSearch(value) {
 	term.value = value

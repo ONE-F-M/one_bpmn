@@ -17,7 +17,7 @@ export const EXAMPLE_CONTEXT = JSON.stringify(
 // An error message for the text, or "" when the case can start from it.
 export function midConversationError(text) {
 	const trimmed = (text || "").trim()
-	if (!trimmed) return "Add the earlier conversation, or untick Starts mid-conversation."
+	if (!trimmed) return "Load or add the earlier conversation, or untick Include earlier conversation."
 	let parsed
 	try {
 		parsed = JSON.parse(trimmed)
