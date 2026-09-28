@@ -68,6 +68,7 @@ function segments(pts) {
 /**
  * Count crossings, collinear overlaps, edges through shapes, and label
  * collisions. Edges that share a node may touch at that node without penalty.
+ * An edge's ``within`` lists the subprocesses it is drawn inside, whose boxes it may cross.
  */
 export function auditGeometry({ shapes, edges }) {
 	const crossingPairs = [], overlapPairs = [], throughPairs = [], labelPairs = [];
@@ -98,7 +99,7 @@ export function auditGeometry({ shapes, edges }) {
 	for (let i = 0; i < edges.length; i++) {
 		const e = edges[i];
 		for (const shape of nodes) {
-			if (shape.id === e.src || shape.id === e.tgt) continue;
+			if (shape.id === e.src || shape.id === e.tgt || (e.within || []).includes(shape.id)) continue;
 			if (segsOf[i].some(s => segHitsBox(s, shape))) throughPairs.push({ edge: e.id, shape: shape.id });
 		}
 	}

@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 import { properCross, collinearOverlap, segHitsBox, auditGeometry } from './src/linting/geometry.js';
+import { auditLayout } from './pipeline.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const run = (ir) => JSON.parse(spawnSync(process.execPath, [path.join(here, 'pipeline.mjs')],
@@ -41,6 +42,39 @@ test('edges that share a node may fan out from it without a crossing', () => {
   ];
   const r = auditGeometry({ shapes, edges });
   assert.equal(r.crossings, 0);
+});
+
+test('a line inside a subprocess may cross its box, but not the steps inside it or other subprocesses', () => {
+  const shapes = [
+    { id: 'sub', x: 100, y: 0, w: 400, h: 100, container: false },
+    { id: 'inner', x: 250, y: 30, w: 50, h: 40, container: false },
+    { id: 'other', x: 600, y: 0, w: 200, h: 100, container: false },
+  ];
+  const edges = [
+    { id: 'inside', pts: [[120, 50], [240, 50]], src: 's', tgt: 't', within: ['sub'] },
+    { id: 'through_inner', pts: [[120, 50], [480, 50]], src: 's', tgt: 'e', within: ['sub'] },
+    { id: 'across', pts: [[0, 50], [900, 50]], src: 'x', tgt: 'y' },
+  ];
+  const through = auditGeometry({ shapes, edges }).throughPairs.map((p) => `${p.edge}>${p.shape}`);
+  assert.deepEqual(through.sort(), ['across>inner', 'across>other', 'across>sub', 'through_inner>inner']);
+});
+
+test('the layout audit reads which subprocess a flow is declared in', () => {
+  const xml = `<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI">
+  <bpmn:process id="p">
+    <bpmn:subProcess id="sub" name="Sub">
+      <bpmn:startEvent id="s"/><bpmn:task id="t"/>
+      <bpmn:sequenceFlow id="f" sourceRef="s" targetRef="t"/>
+    </bpmn:subProcess>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram><bpmndi:BPMNPlane bpmnElement="p">
+    <bpmndi:BPMNShape bpmnElement="sub" isExpanded="true"><dc:Bounds x="100" y="0" width="400" height="100"/></bpmndi:BPMNShape>
+    <bpmndi:BPMNShape bpmnElement="s"><dc:Bounds x="120" y="30" width="36" height="36"/></bpmndi:BPMNShape>
+    <bpmndi:BPMNShape bpmnElement="t"><dc:Bounds x="250" y="10" width="100" height="80"/></bpmndi:BPMNShape>
+    <bpmndi:BPMNEdge bpmnElement="f"><di:waypoint x="156" y="48"/><di:waypoint x="250" y="48"/></bpmndi:BPMNEdge>
+  </bpmndi:BPMNPlane></bpmndi:BPMNDiagram>
+</bpmn:definitions>`;
+  assert.equal(auditLayout(xml).throughShape, 0);
 });
 
 const lanes = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }];
