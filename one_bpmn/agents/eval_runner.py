@@ -55,6 +55,8 @@ EVAL_RUN_JUDGE = "eval-judge"
 SEED_MESSAGES_KEY = "conversation_messages"
 SEED_STATE_KEY = "session_state"
 SEED_MESSAGE_TYPES = ("User", "Bot", "Tool")
+# Reply intents whose bpmn_xml is appended to the output the assertions read.
+DIAGRAM_INTENTS = ("BPMN_GENERATED", "BPMN_MODIFIED")
 
 # live       calls the model.
 # replay     re-scores each case's last stored answer — and still makes a judge
@@ -1611,7 +1613,11 @@ def _run_chat_agent_eval(cfg, case, eval_run: str | None = None) -> tuple:
         close_conversation(conversation)
         session_state.clear_state(conversation)
 
-    output = (reply or {}).get("response") or ""
+    reply = reply or {}
+    output = reply.get("response") or ""
+    # A diagram turn's lanes and shapes live only in its XML, so assertions read it after the reply.
+    if (reply.get("intent") or "").upper() in DIAGRAM_INTENTS and reply.get("bpmn_xml"):
+        output = output + "\n\n" + reply["bpmn_xml"]
 
     # creation >= started keeps each repeated attempt under one eval_run to its own runs.
     filters = {
