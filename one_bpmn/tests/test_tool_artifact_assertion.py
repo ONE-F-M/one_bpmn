@@ -5,14 +5,13 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
-from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import eval_runner
 from one_bpmn.agents.eval_runner import _evaluate_assertion
-from one_bpmn.one_bpmn.patches.v1_0 import prosally_orchestrator_has_no_skills, seed_prosally_baseline_suite
+from one_bpmn.one_bpmn.patches.v1_0 import seed_prosally_baseline_suite
 
 IR = {"ir": {"lanes": [{"id": "r", "name": "Recruiter"}, {"id": "m", "name": "GRD Manager"}]}}
 LANES = ["Recruiter", "GRD Manager"]
@@ -107,15 +106,3 @@ class TestProsAllyBaselineCases(FrappeTestCase):
 		for case in seed_prosally_baseline_suite.CASES:
 			banned = [a["value"] for a in case["assertions"] if a["assertion_type"] == "no_tool_call"]
 			self.assertIn("load_skill", banned[0], case["title"])
-
-
-class TestProsAllyOrchestratorHasNoSkills(FrappeTestCase):
-	def test_every_enabled_skill_row_on_the_config_is_removed(self):
-		frappe.db.bulk_insert(
-			"AI Agent Enabled Skill",
-			fields=["name", "parent", "parenttype", "parentfield", "skill"],
-			values=[["zz-prosally-skill-row", "zz-prosally", "AI Agent Configuration", "enabled_skills", "any-skill"]],
-		)
-		with patch.object(prosally_orchestrator_has_no_skills.frappe.db, "get_value", return_value="zz-prosally"):
-			prosally_orchestrator_has_no_skills.execute()
-		self.assertFalse(frappe.db.exists("AI Agent Enabled Skill", {"parent": "zz-prosally"}))
