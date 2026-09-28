@@ -1,9 +1,9 @@
 <template>
 	<div class="flex h-full items-center gap-3">
-		<div class="w-1/2 h-full">
+		<div class="w-2/5 sm:w-1/2 h-full">
 			<ECharts :options="options" />
 		</div>
-		<ul class="w-1/2 space-y-2 min-w-0">
+		<ul class="w-3/5 sm:w-1/2 space-y-2 min-w-0">
 			<li
 				v-for="slice in slices"
 				:key="slice.name"

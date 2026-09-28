@@ -1,5 +1,5 @@
 <template>
-	<div class="overflow-x-auto">
+	<div class="overflow-x-auto bg-white rounded-lg border border-gray-200">
 		<div class="min-w-[900px]">
 			<ListView
 				:columns="columns"
@@ -7,12 +7,12 @@
 				row-key="key"
 				:options="{ selectable: false, showTooltip: false }"
 			>
-				<ListHeader>
+				<ListHeader class="!mb-0 !rounded-none !bg-white border-b border-gray-200">
 					<ListHeaderItem
 						v-for="column in columns"
 						:key="column.key"
 						:item="column"
-						class="cursor-pointer select-none"
+						class="cursor-pointer select-none uppercase !text-xs font-medium tracking-wide"
 						@click="sortBy(column.key)"
 					>
 						<template #suffix>
@@ -47,7 +47,10 @@
 								:share="item || 0"
 								:color="row.isTotal ? 'transparent' : colors[row.name]"
 							/>
-							<span class="text-sm">{{ fmtPct(item, 0) }}</span>
+							<span
+								class="text-sm"
+								:class="{ 'font-semibold text-gray-900': row.isTotal }"
+							>{{ fmtPct(item, 0) }}</span>
 						</div>
 						<DeltaPill
 							v-else-if="column.key === 'delta'"
@@ -57,7 +60,7 @@
 						<span
 							v-else
 							class="text-sm"
-							:class="{ 'font-semibold text-gray-900': row.isTotal }"
+							:class="{ 'font-semibold text-gray-900': row.isTotal || column.key === 'name' }"
 							:title="titleFor(column.key, item) || undefined"
 						>
 							{{ format(column.key, item) }}

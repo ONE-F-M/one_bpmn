@@ -10,6 +10,7 @@
 				placement="right"
 			>
 				<Button
+					icon-left="download"
 					icon-right="chevron-down"
 					:disabled="loading || !series.length"
 				>
@@ -187,7 +188,7 @@ const chartConfig = computed(() => {
 		yAxis: { echartOptions: { name: "", axisLabel: { formatter: (v) => fmtCurrency(v) } } },
 		stacked: true,
 		series: ordered.map((d) => ({ name: d.label, type: "bar", color: colors.value[d.label] })),
-		echartOptions: { tooltip: { confine: true, formatter: tooltipHtml }, legend: { formatter: (name) => name } },
+		echartOptions: { tooltip: { confine: true, formatter: tooltipHtml }, legend: { type: "plain", formatter: (name) => name } },
 	}
 })
 
