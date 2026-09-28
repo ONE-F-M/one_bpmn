@@ -69,21 +69,22 @@
 						>
 							<span class="shrink-0 w-12 font-medium text-gray-500">{{ m.message_type === "User" ? __("User") : __("Agent") }}</span>
 							<div class="flex-1 min-w-0 rounded px-2 py-1 bg-gray-50 text-gray-800 max-h-16 overflow-hidden whitespace-pre-wrap">{{ plain(m.text) }}</div>
-							<div class="shrink-0 flex flex-col gap-1">
-								<Button
-									v-if="m.message_type === 'User'"
-									size="sm"
-									variant="solid"
-									:label="__('Test from here')"
-									@click="load(m, false)"
-								/>
-								<Button
-									size="sm"
-									variant="subtle"
-									:label="__('Add as history')"
-									@click="load(m, true)"
-								/>
-							</div>
+							<Button
+								v-if="m.message_type === 'User'"
+								class="shrink-0"
+								size="sm"
+								variant="solid"
+								:label="__('Test from here')"
+								@click="load(m, false)"
+							/>
+							<Button
+								v-else
+								class="shrink-0"
+								size="sm"
+								variant="subtle"
+								:label="__('Add as history')"
+								@click="load(m, true)"
+							/>
 						</div>
 					</div>
 				</template>
