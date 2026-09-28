@@ -2,6 +2,7 @@
 	<span
 		class="shrink-0 text-[11px] font-medium rounded px-1.5 py-0.5 whitespace-nowrap"
 		:class="toneClasses"
+		:title="delta === null ? __('Nothing in the previous period to compare with') : undefined"
 	>
 		{{ fmtDelta(delta, kind) }}
 	</span>
@@ -11,6 +12,8 @@
 import { computed } from "vue"
 import { fmtDelta } from "@/utils/formatters"
 
+const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s
+
 const props = defineProps({
 	delta: { type: Number, default: null },
 	kind: { type: String, default: "pct" }, // "pct" | "pt"
@@ -19,6 +22,11 @@ const props = defineProps({
 
 const toneClasses = computed(() => {
 	const signed = props.delta === null ? 0 : props.goodDirection === "down" ? -props.delta : props.delta
+	if (props.kind === "pt") {
+		if (signed <= -0.5) return "bg-red-50 text-red-700"
+		if (signed >= 0.5) return "bg-green-50 text-green-700"
+		return "text-gray-500"
+	}
 	if (signed < -2) return "bg-red-50 text-red-700"
 	if (signed > 2) return "bg-green-50 text-green-700"
 	return "text-gray-500"

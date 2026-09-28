@@ -298,7 +298,7 @@ watch(activeKey, (key) => {
 		// A private window can refuse storage; the tab still opens.
 	}
 	if (key === "allocation") preset.value = "this_month"
-})
+}, { immediate: true })
 watch([fromDate, toDate, origin], loadFilterOptions)
 
 onMounted(() => {
@@ -317,6 +317,11 @@ onMounted(() => {
 
 	.insights-tabs :deep([role="tablist"]) {
 		mask-image: linear-gradient(to right, black calc(100% - 24px), transparent);
+		scrollbar-width: none;
+	}
+
+	.insights-tabs :deep([role="tablist"])::-webkit-scrollbar {
+		display: none;
 	}
 }
 </style>

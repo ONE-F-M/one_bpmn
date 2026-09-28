@@ -139,7 +139,7 @@ def _usage_totals(
 
 	success_rate = flt((successes / decided) * 100, 1) if decided else 0.0
 	cache_hit_rate = flt((cache_read_tokens / prompt_tokens) * 100, 1) if prompt_tokens else 0.0
-	input_tokens = prompt_tokens - cache_read_tokens - cache_write_tokens
+	input_tokens = prompt_tokens - cache_write_tokens
 
 	return {
 		"runs": runs,
@@ -300,7 +300,7 @@ def _series_rows(
 			"cost": cost,
 			"avg_cost": flt(cost / runs, 6) if runs else 0.0,
 			"tokens": cint(r.get("tokens")),
-			"input_tokens": prompt_tokens - cache_read_tokens - cache_write_tokens,
+			"input_tokens": prompt_tokens - cache_write_tokens,
 			"output_tokens": cint(r.get("completion_tokens")),
 			"cached_tokens": cache_read_tokens,
 			"cache_hit_rate": flt(cache_read_tokens / prompt_tokens * 100, 1) if prompt_tokens else 0.0,
@@ -1538,6 +1538,14 @@ def _departments_for(users: list) -> dict:
 	return {r["user_id"]: r["department"] for r in rows if r.get("department")}
 
 
+def _department_labels(names: set) -> dict:
+	"""Map Department name -> department_name, the name without the company suffix."""
+	if not names:
+		return {}
+	rows = frappe.db.get_values("Department", {"name": ["in", list(names)]}, ["name", "department_name"], as_dict=True)
+	return {r["name"]: r["department_name"] for r in rows}
+
+
 def _allocation_rows(axis: str, from_d, to_d, filters: list) -> list:
 	"""Monthly usage rows at the titled grain the export's Detail sheet lists."""
 	Run = DocType("AI Agent Run")
@@ -1680,13 +1688,16 @@ def _allocation_leaves(axis: str, from_d, to_d, filters: list) -> list:
 
 	if axis == "chat_user":
 		Conv = DocType("Chat Conversation")
+		User = DocType("User")
 		q = (
 			frappe.qb.from_(Run)
 			.inner_join(Inst).on(Inst.name == Run.instance)
 			.left_join(Conv).on(Conv.name == Inst.context_docname)
+			.left_join(User).on(User.name == Conv.owner)
 			.select(
 				day.as_("day"),
 				Conv.owner.as_("person"),
+				User.full_name.as_("person_name"),
 				Conv.agent_mode.as_("subject"),
 				Inst.context_docname.as_("conversation"),
 				fn.Count("*").as_("runs"),
@@ -1695,7 +1706,7 @@ def _allocation_leaves(axis: str, from_d, to_d, filters: list) -> list:
 			)
 			.where(in_range)
 			.where(Inst.context_doctype == "Chat Conversation")
-			.groupby(day, Conv.owner, Conv.agent_mode, Inst.context_docname)
+			.groupby(day, Conv.owner, User.full_name, Conv.agent_mode, Inst.context_docname)
 		)
 	else:
 		Model = DocType("BPMN Process Model")
@@ -1724,15 +1735,18 @@ def _allocation_leaves(axis: str, from_d, to_d, filters: list) -> list:
 
 	raw = _apply(q, filters).run(as_dict=True)
 	departments = _departments_for([r.get("person") for r in raw])
+	labels = _department_labels(set(departments.values()))
 	leaves = []
 	for r in raw:
 		person = cstr(r.get("person"))
+		department = departments.get(person) or ""
 		subject = cstr(r.get("subject")) or (GENERAL_CHAT if axis == "chat_user" else "")
 		leaves.append({
 			"day": getdate(r.get("day")),
 			"person": person,
 			"person_name": cstr(r.get("person_name")),
-			"department": departments.get(person) or "",
+			"department": department,
+			"department_label": labels.get(department, department),
 			"subject": subject,
 			# Chat leaves are named by agent; conversation titles never reach the tree.
 			"subject_label": cstr(r.get("subject_label")) or _(subject),
@@ -1775,7 +1789,7 @@ def _period_grain(from_d, to_d) -> tuple:
 def _level_of(level: str, leaf: dict) -> tuple:
 	"""(key, label) a leaf contributes at one level of the tree."""
 	if level == "department":
-		return leaf["department"], leaf["department"] or _("Unassigned")
+		return leaf["department"], leaf["department_label"] or _("Unassigned")
 	if level in ("owner", "user"):
 		return leaf["person"], leaf["person"] or _("unassigned")
 	return leaf["subject"], leaf["subject_label"]
@@ -1964,11 +1978,13 @@ def _allocation_totals(axis: str, leaves: list, from_d, to_d, filters: list) -> 
 		by_user = defaultdict(float)
 		by_department = defaultdict(float)
 		for leaf in leaves:
-			by_department[leaf["department"]] += leaf["cost"]
+			# Spend with no department to bill stays in the tree but never tops the tile.
+			if leaf["department"]:
+				by_department[leaf["department_label"]] += leaf["cost"]
 			if leaf["person"]:
 				by_user[leaf["person"]] += leaf["cost"]
 		top5 = sorted(by_user.values(), reverse=True)[:MAX_PEER_NODES]
-		top_department = max(by_department.items(), key=lambda kv: kv[1]) if leaves else ("", 0.0)
+		top_department = max(by_department.items(), key=lambda kv: kv[1]) if by_department else ("", 0.0)
 		totals.update({
 			"active_users": now["users"],
 			"seats": _chat_seats(),

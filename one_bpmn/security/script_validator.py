@@ -10,9 +10,19 @@ blacklist. A blacklist is trivially bypassed via string formatting, dynamic
 attribute lookup, or sandbox-escape gadgets; walking the AST catches the
 *shape* of an attack regardless of how it is spelled.
 
-Enforcement model: PRE-DEPLOYMENT GATE. Validation runs when a script is
-authored/saved and again when a model is deployed — never at execution time.
-The intent is to prevent an unsafe script from ever being added or deployed.
+Enforcement model: BOTH pre-deployment AND execution-time gate. Validation
+runs when a script is authored/saved and again when a model is deployed, so
+an unsafe script is normally rejected long before it can ever run. It is
+ALSO re-run immediately before every exec() of a BPMN Server Task/inline
+script (see one_bpmn.one_bpmn.engine._check_script_permissions), because a
+save-time-only gate leaves several real gaps open: a script written directly
+to the DB by a migration/fixture/another app, a Server Script that predates
+this validator or a stricter ValidatorOptions posture, or a script whose
+BPMN linkage (see script_gate.is_bpmn_linked_server_script) was not in place
+at save time but is by the time it executes. Re-running the same structural
+check at execution time is cheap (a single ast.parse + tree walk) and closes
+all of those gaps with the exact same rules, rather than maintaining a
+second, weaker runtime blacklist.
 
 Tuning (per the agreed decisions):
   * Unambiguous escape vectors are ALWAYS blocked (exec/eval/getattr as bare
@@ -118,8 +128,14 @@ BANNED_ATTRIBUTES = frozenset({
 })
 
 # Frappe internals that bypass the permission / durability model — ALWAYS blocked.
+# `set_user` is included so `frappe.set_user(...)`, `frappe.local.set_user(...)`,
+# and any other attribute chain ending in `.set_user` are caught structurally —
+# the attribute-access AST node is flagged by *name* regardless of the object
+# it hangs off, which is what makes this immune to the old two-string
+# substring blocklist's blind spot (`frappe.local.set_user` does not contain
+# the literal text "frappe.set_user").
 BANNED_FRAPPE_ATTRIBUTES = frozenset({
-	"ignore_permissions", "db_update", "add_roles",
+	"ignore_permissions", "db_update", "add_roles", "set_user",
 })
 
 # Frappe internals that are sensitive but often legitimate (frappe.db.sql for
@@ -276,6 +292,16 @@ class _SecurityVisitor(ast.NodeVisitor):
 			if isinstance(key, ast.Constant) and key.value in PERMISSION_BYPASS_KWARGS:
 				self.violations.append(
 					f"Permission-bypass keyword '{key.value}' injected via **kwargs is not allowed"
+				)
+			elif key is not None and not isinstance(key, ast.Constant):
+				# save(**{"ignore_" + "permissions": True}) — the key is built at
+				# runtime specifically so it never spells the literal string a
+				# blacklist would look for. We cannot evaluate it statically, so
+				# treat any non-constant key in a permission-shaped kwargs unpack
+				# as suspicious rather than silently letting it through.
+				self.violations.append(
+					"Dynamically computed keyword name in **kwargs unpack is not allowed "
+					"(cannot verify it is not a permission-bypass keyword)"
 				)
 
 	# ── attribute access ─────────────────────────────────────────────────

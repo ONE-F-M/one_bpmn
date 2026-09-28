@@ -24,6 +24,7 @@ from frappe.utils import flt
 from one_bpmn.api.insights_api import export_cost_allocation, get_cost_allocation
 
 OPS = "Alloc Ops - T"
+OPS_LABEL = "Alloc Ops"
 FIN = "Alloc Fin - T"
 HR = "Alloc HR - T"
 
@@ -62,7 +63,7 @@ def _insert(doctype: str, name: str, owner: str = "Administrator", **values) -> 
 
 def _user(email: str) -> str:
 	return _insert("User", email, email=email, first_name=email.split("@")[0],
-	               enabled=1, user_type="System User")
+	               full_name=f"Name of {email}", enabled=1, user_type="System User")
 
 
 def _employee(user: str, department: str) -> str:
@@ -123,6 +124,8 @@ class TestInsightsAllocation(FrappeTestCase):
 			_user(user)
 		_employee(OWNER_OPS, OPS)
 		_employee(OWNER_FIN, FIN)
+		# Only Ops has a Department record, so Fin shows the fallback: its raw name.
+		_insert("Department", OPS, department_name=OPS_LABEL)
 		_employee(cls.chat_users[0], OPS)
 		_employee(cls.chat_users[1], FIN)
 		for user in cls.chat_users[2:11]:
@@ -184,7 +187,7 @@ class TestInsightsAllocation(FrappeTestCase):
 	# Process axis
 	def test_department_tree_nests_owner_then_process(self):
 		tree = _tree(group_by="department")
-		self.assertEqual([n["label"] for n in tree], [OPS, FIN])
+		self.assertEqual([n["label"] for n in tree], [OPS_LABEL, FIN])
 		self.assertEqual([n["kind"] for n in tree], ["department", "department"])
 		ops = tree[0]
 		self.assertEqual([c["kind"] for c in ops["children"]], ["owner"])
@@ -294,11 +297,12 @@ class TestInsightsAllocation(FrappeTestCase):
 	# Chat axis
 	def test_chat_tree_nests_user_then_agent(self):
 		tree = _tree(axis="chat_user", group_by="department")
-		self.assertEqual([n["label"] for n in tree], [OPS, FIN])
+		self.assertEqual([n["label"] for n in tree], [OPS_LABEL, FIN])
 		ops = tree[0]
 		self.assertEqual(flt(ops["cost"], 2), 4.25)
 		user = ops["children"][0]
 		self.assertEqual(user["kind"], "user")
+		self.assertEqual(user["name"], f"Name of {self.chat_users[0]}")
 		self.assertEqual([a["label"] for a in user["children"]], ["Logix", "Docu", "General Chat"])
 		for key in ("conversations", "runs", "tokens", "cost",
 		            "avg_cost_per_conversation", "share", "previous_cost", "delta"):
@@ -347,6 +351,8 @@ class TestInsightsAllocation(FrappeTestCase):
 		totals = _report(axis="chat_user", from_date=D_FROM, to_date=D_TO)["totals"]
 		self.assertEqual(flt(totals["cost"], 2), 51.0)
 		self.assertEqual(totals["top5_share"], flt(1.0 / 51.0 * 100, 2))
+		# The 50.00 with nobody to bill it to is still in the tree, but a department it is not.
+		self.assertEqual(totals["top_department"], {"name": OPS_LABEL, "share": flt(1.0 / 51.0 * 100, 2)})
 
 	def test_seats_without_the_role_count_active_employees_only(self):
 		from one_bpmn.api.insights_api import _chat_seats
@@ -358,7 +364,7 @@ class TestInsightsAllocation(FrappeTestCase):
 
 	def test_the_top_department_and_its_share_come_with_the_chat_totals(self):
 		top = _report(axis="chat_user")["totals"]["top_department"]
-		self.assertEqual(top, {"name": OPS, "share": flt(4.25 / 6.75 * 100, 2)})
+		self.assertEqual(top, {"name": OPS_LABEL, "share": flt(4.25 / 6.75 * 100, 2)})
 
 	def test_agents_are_listed_by_cost_for_the_donut(self):
 		agents = _report(axis="chat_user")["agents"]
@@ -409,7 +415,7 @@ class TestInsightsAllocation(FrappeTestCase):
 	def test_the_process_filter_narrows_every_number(self):
 		report = _report(process_model=ROSTER_MODEL)
 		self.assertEqual(flt(report["totals"]["cost"], 2), 16.0)
-		self.assertEqual([n["label"] for n in report["tree"]], [OPS])
+		self.assertEqual([n["label"] for n in report["tree"]], [OPS_LABEL])
 		# The whole-period figures narrow too, or the scope line would disagree with the tiles.
 		self.assertEqual(flt(report["period_totals"]["cost"], 2), 16.0)
 		self.assertEqual(flt(report["totals"]["other_axis_cost"], 2), 0.0)
@@ -470,6 +476,7 @@ def _wipe():
 	frappe.db.delete("BPMN Process Instance", {"name": like})
 	frappe.db.delete("Has Role", {"name": like})
 	frappe.db.delete("Employee", {"name": like})
+	frappe.db.delete("Department", {"name": ("in", [OPS])})
 	frappe.db.delete("User", {"name": ("like", "alloc-t-u%@example.com")})
 	frappe.db.delete("User", {"name": ("in", [OWNER_OPS, OWNER_FIN])})
 	frappe.db.delete("BPMN Process Model", {"name": ("in", [ROSTER_MODEL, PAYROLL_MODEL])})

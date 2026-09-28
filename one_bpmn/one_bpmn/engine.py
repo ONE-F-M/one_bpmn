@@ -229,29 +229,82 @@ def get_serializer() -> BpmnWorkflowSerializer:
 # Permission guard — patterns scripts must never contain
 # ─────────────────────────────────────────────────────────────
 
-_FORBIDDEN_SCRIPT_PATTERNS = (
-	"frappe.set_user",
-	"frappe.flags.ignore_permissions",
-)
-
-
 def _check_script_permissions(script_text: str, label: str) -> None:
 	"""
-	Reject scripts that attempt to bypass Frappe permission controls.
+	Reject scripts that attempt to bypass Frappe permission controls or any
+	other rule enforced by the structural script validator.
 
-	Called before exec() for both Server Script tasks and inline <bpmn:script>
-	tasks.  Raises frappe.ValidationError if a forbidden pattern is found.
+	This used to be a two-string substring blocklist ("frappe.set_user",
+	"frappe.flags.ignore_permissions") checked with `pattern in script_text`.
+	That is trivially defeated by anything that doesn't spell the literal
+	strings: `frappe.local.set_user(...)`, `getattr(frappe, "set_" + "user")`,
+	string concatenation/formatting to build the attribute name, a dynamic
+	`__import__` of a module that reaches the same call, etc. A blacklist over
+	raw text can only ever catch spellings someone already thought of.
+
+	We now call the SAME structural AST analyser used at save-time
+	(one_bpmn.security.script_validator.deep_inspect_script) here, at
+	execution time, instead of maintaining a second, weaker ad-hoc check. It
+	walks the parsed syntax tree looking at the *shape* of the code (an
+	Attribute node named `set_user` regardless of what object it hangs off, a
+	Call to a banned builtin under any alias reachable via `ast.Name`, a
+	kwargs-unpack whose key cannot be proven safe, dynamic `__import__`, etc.),
+	so it isn't defeated by re-spelling a banned literal.
+
+	Why not route this exec() through frappe.safe_exec() / RestrictedPython
+	instead of hardening the gate in front of plain exec()? Evaluated and
+	rejected, for now:
+	  * safe_exec() is gated behind `server_script_enabled` in
+	    common_site_config.json — a site-wide toggle this app does not own,
+	    and flipping it on affects every Frappe Server Script on the site
+	    (whitelisted methods, doctype hooks, etc.), not just BPMN-linked ones.
+	  * safe_exec() pre-binds a curated, restricted `frappe` namespace (its own
+	    wrapped get_doc/db/etc.). BPMN Server Scripts are documented and taught
+	    (see _run_frappe_server_script) to call fully-qualified paths like
+	    `frappe.integrations.utils.make_get_request(...)` against the REAL
+	    frappe module; several already-deployed Logix-authored scripts rely on
+	    that. Moving to RestrictedPython would silently break them and would
+	    need its own compatibility audit — out of scope for a security-gate
+	    hardening change.
+	  * Introducing a second sandboxing mechanism here would create two
+	    independent, divergent notions of "safe script" (the AST validator's
+	    rules vs. RestrictedPython's Guard rules) to keep in sync forever.
+	    Reusing one validator for both save-time and execution-time keeps a
+	    single source of truth, which is the actual ask in this hardening pass.
+	If BPMN Server Task scripts are ever opened up to less-trusted authors
+	(e.g. arbitrary end users rather than Script Manager/System Manager plus
+	Logix's own validated generation pipeline), safe_exec()/RestrictedPython
+	should be revisited as a stronger, defense-in-depth boundary underneath
+	this gate — not as a replacement for it.
+
+	Called before exec() for Server Script tasks, inline <bpmn:script> tasks,
+	AND the Logix "run test case" replay (server_script_api.run_logix_test_case
+	imports and calls this exact function) — one hardened gate, not a
+	separate weaker copy per call site. Raises frappe.ValidationError if any
+	violation is found.
 	"""
 	try:
 		import frappe as _f
 	except ImportError:
 		return
-	for pattern in _FORBIDDEN_SCRIPT_PATTERNS:
-		if pattern in (script_text or ""):
-			_f.throw(
-				f'BPMN Script "{label}": scripts may not use `{pattern}`. '
-				f"Tasks must run under the user's permission context."
+
+	from one_bpmn.security.script_validator import deep_inspect_script
+
+	violations = deep_inspect_script(script_text or "")
+	if violations:
+		# Keep the message concise for the caller but log full detail, same
+		# convention as the save-time gate in security/script_gate.py.
+		try:
+			_f.log_error(
+				title=f'BPMN Script "{label}": execution blocked',
+				message="\n".join(violations),
 			)
+		except Exception:
+			pass
+		_f.throw(
+			f'BPMN Script "{label}" was blocked before it ran: {violations[0]}'
+			+ (f" (+{len(violations) - 1} more issue(s))" if len(violations) > 1 else "")
+		)
 
 
 # ─────────────────────────────────────────────────────────────

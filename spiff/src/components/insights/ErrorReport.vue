@@ -129,14 +129,13 @@ import {
 	TabButtons,
 } from "frappe-ui"
 import { Icon } from "@iconify/vue"
-import { dayjs } from "@/dayjs"
 import { useIssueRuns } from "@/composables/useIssueRuns"
 import { useWindowSize } from "@/composables/useWindowSize"
 import ErrorReportCards from "@/components/insights/ErrorReportCards.vue"
 import ErrorReportChart from "@/components/insights/ErrorReportChart.vue"
 import ErrorReportTable from "@/components/insights/ErrorReportTable.vue"
 import MetricTile from "@/components/insights/MetricTile.vue"
-import { fmtInt as fmtNum, fmtPct } from "@/utils/formatters"
+import { fmtDateRange, fmtInt as fmtNum, fmtPct } from "@/utils/formatters"
 
 const props = defineProps({
 	fromDate: { type: String, default: "" },
@@ -167,11 +166,8 @@ const summary = computed(() => reportData.value.summary || {})
 const issues = computed(() => [...(reportData.value.issues || [])].sort((a, b) => b.errors - a.errors))
 
 const priorDates = computed(() => {
-	const from = dayjs(reportData.value.previous_from)
-	const to = dayjs(reportData.value.previous_to)
-	if (!from.isValid() || !to.isValid()) return ""
-	const end = from.isSame(to, "month") ? to.format("D") : to.format("MMM D")
-	return `${__("vs")} ${from.format("MMM D")} ${__("to")} ${end}`
+	const { previous_from: from, previous_to: to } = reportData.value
+	return from && to ? `${__("vs")} ${fmtDateRange(from, to)}` : ""
 })
 const errorsSubtitle = computed(() => {
 	const text = `${__("of")} ${fmtNum(summary.value.runs)} ${__("runs")}`

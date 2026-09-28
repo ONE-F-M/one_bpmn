@@ -21,6 +21,14 @@ const CURRENCY_6 = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 6,
 })
 
+// Chart axis ticks: "$14", "$10.5", "$0.9".
+const CURRENCY_AXIS = new Intl.NumberFormat("en-US", {
+	style: "currency",
+	currency: "USD",
+	minimumFractionDigits: 0,
+	maximumSignificantDigits: 3,
+})
+
 const INT_FMT = new Intl.NumberFormat("en-US")
 
 const COMPACT_FMT = new Intl.NumberFormat("en-US", {
@@ -39,6 +47,10 @@ export function fmtCurrency(v) {
 	if (Math.abs(v) < 0.0001) return v < 0 ? "> -$0.0001" : "< $0.0001"
 	if (Math.abs(Math.round(v * 10000)) < 10000) return CURRENCY_4.format(v)
 	return CURRENCY_2.format(v)
+}
+
+export function fmtCurrencyAxis(v) {
+	return CURRENCY_AXIS.format(toNum(v))
 }
 
 export function fmtCurrencyExact(v) {
@@ -69,8 +81,9 @@ export function fmtDelta(v, kind) {
 	const scaled = Math.round(toNum(v) * 10 ** decimals)
 	const sign = scaled < 0 ? "-" : "+"
 	const abs = (Math.abs(scaled) / 10 ** decimals).toFixed(decimals)
-	if (kind === "pct") return `${sign}${abs}%`
-	if (kind === "pt") return `${sign}${abs} pt`
+	// A prior period of a few cents makes any real spend a five-digit rise; the pill stops at three.
+	if (kind === "pct") return scaled > 999 ? ">999%" : `${sign}${abs}%`
+	if (kind === "pt") return `${sign}${abs.replace(/\.0$/, "")} pt`
 	return `${sign}${abs}`
 }
 

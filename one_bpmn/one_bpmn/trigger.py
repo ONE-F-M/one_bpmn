@@ -895,6 +895,13 @@ def delete_linked_bpmn_instances(doc, method: str):
 					updates,
 					update_modified=False,
 				)
+				# Task rows name the document too, and Frappe's dynamic link check reads child rows.
+				frappe.db.set_value(
+					"BPMN Active Task",
+					{"parent": inst_name, "target_doctype": doc.doctype, "target_docname": doc.name},
+					{"target_doctype": None, "target_docname": None},
+					update_modified=False,
+				)
 			except Exception:
 				frappe.log_error(
 					title=f"Failed to unlink BPMN instance {inst_name}",

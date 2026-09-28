@@ -1,9 +1,9 @@
 <template>
-	<div class="space-y-2">
+	<div class="bg-white rounded-lg border border-gray-200 divide-y divide-gray-200 overflow-hidden">
 		<div
 			v-for="row in series"
 			:key="`${row.name}|${row.provider || ''}`"
-			class="bg-white rounded-lg border border-gray-200 p-3"
+			class="p-3"
 		>
 			<div class="flex items-center justify-between gap-3">
 				<span class="text-sm font-medium text-gray-900 truncate">{{ row.name }}</span>
@@ -28,7 +28,7 @@
 				<span class="text-xs text-gray-500 whitespace-nowrap">{{ __("vs prior") }}</span>
 			</div>
 		</div>
-		<div class="bg-gray-50 rounded-lg border border-gray-200 p-3">
+		<div class="bg-gray-50 p-3">
 			<div class="flex items-center justify-between gap-3">
 				<span class="text-sm font-semibold text-gray-900">{{ __("Total") }}</span>
 				<span

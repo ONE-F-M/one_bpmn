@@ -1,3 +1,6 @@
+import dayjs from "dayjs"
+import { fmtDateRange } from "./formatters.js"
+
 // Pure helpers for the Cost Allocation tab, unit-tested in costAllocation.test.mjs.
 
 export const OTHER_KEY = "__other__"
@@ -99,6 +102,22 @@ export function pricingLink(models) {
 
 export function bucketTotals(series, buckets) {
 	return Object.fromEntries(buckets.map((b) => [b, series.reduce((sum, node) => sum + node.by_bucket[b], 0)]))
+}
+
+// "Sep 1 - 7" per weekly bucket, the last one ending on the range's end; "Sep 2026" per monthly bucket.
+export function bucketLabels(buckets, toDate, grain) {
+	return buckets.map((bucket, i) => {
+		if (grain === "month") return dayjs(bucket).format("MMM YYYY")
+		const next = buckets[i + 1]
+		const end = next ? dayjs(next).subtract(1, "day").format("YYYY-MM-DD") : toDate
+		return end === bucket ? dayjs(bucket).format("MMM D") : fmtDateRange(bucket, end)
+	})
+}
+
+// The same labels squeezed for a phone axis: "1 - 7", "28", "Sep".
+export function shortBucketLabels(buckets, toDate, grain) {
+	if (grain === "month") return buckets.map((bucket) => dayjs(bucket).format("MMM"))
+	return bucketLabels(buckets, toDate, grain).map((label) => label.replace(/[A-Za-z]{3} /g, ""))
 }
 
 // The bucket holding today, if the range reaches today; it is still filling up.
