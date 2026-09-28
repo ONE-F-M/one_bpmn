@@ -67,8 +67,10 @@ app_include_js = [
 
 # Purge action on the AI Memory list view, mirroring the memory browser's
 # Purge button. Calls the same one_bpmn.api.memory_api.purge_memories.
+# Colour-coded indicators for AI Eval Run status in its list view.
 doctype_list_js = {
 	"AI Memory": "public/js/ai_memory_list.js",
+	"AI Eval Run": "public/js/ai_eval_run_list.js",
 }
 
 # include custom scss in every website theme (without file extension ".scss")
