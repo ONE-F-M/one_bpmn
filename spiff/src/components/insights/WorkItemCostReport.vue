@@ -28,7 +28,7 @@
 		<div v-else-if="loading" class="flex items-center justify-center h-48 text-gray-500">Loading…</div>
 
 		<template v-else>
-			<!-- Depth cap warning: the total may be a floor, not the whole figure. -->
+			<!-- Depth cap warning: the total may be a floor, not the whole figure. This warning shows when chain_truncated is true. -->
 			<Tooltip
 				v-if="report.chain_truncated"
 				text="This Work Item has delegated to agents that themselves delegated further. The cost breakdown below only includes the first level of delegation. A complete cost trace would need to walk the entire chain, which may span many runs and agents."
