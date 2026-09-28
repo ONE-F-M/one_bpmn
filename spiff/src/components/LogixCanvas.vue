@@ -242,6 +242,7 @@
 					v-model="canvasCode"
 					language="python"
 					placeholder="# Script will appear here after chatting with Logix or loading an existing script..."
+					:read-only="props.readonly"
 					@change="onCodeInput"
 				/>
 			</div>
