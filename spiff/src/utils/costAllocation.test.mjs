@@ -5,7 +5,7 @@ import assert from "node:assert/strict"
 
 import {
 	OTHER_COLOR, OTHER_KEY, assignColors, barWidth, bucketLabels, bucketTotals, chipOf, currentBucket, foldTail, monthColumns,
-	nameOf, pctChange, pricingLink, rankSlices, rowsOf, seriesCap, subtitleOf,
+	nameOf, pctChange, pricingLink, rankSlices, rowsOf, seriesCap, shortBucketLabels, subtitleOf,
 } from "./costAllocation.js"
 
 const node = (key, cost, children = []) => ({ key, label: key, cost, share: cost, by_bucket: { w1: cost }, children })
@@ -106,4 +106,13 @@ test("bucket labels read as date ranges, the last one ending on the range end", 
 	const buckets = ["2026-09-01", "2026-09-08", "2026-09-15"]
 	assert.deepEqual(bucketLabels(buckets, "2026-09-21", "week"), ["Sep 1 - 7", "Sep 8 - 14", "Sep 15 - 21"])
 	assert.deepEqual(bucketLabels(["2026-08-01", "2026-09-01"], "2026-09-21", "month"), ["Aug 2026", "Sep 2026"])
+})
+
+test("a bucket of one day is labelled with that day alone", () => {
+	assert.deepEqual(bucketLabels(["2026-09-21", "2026-09-28"], "2026-09-28", "week"), ["Sep 21 - 27", "Sep 28"])
+})
+
+test("phone axis labels drop the month inside a week and the year inside a month", () => {
+	assert.deepEqual(shortBucketLabels(["2026-09-21", "2026-09-28"], "2026-09-28", "week"), ["21 - 27", "28"])
+	assert.deepEqual(shortBucketLabels(["2026-08-01", "2026-09-01"], "2026-09-21", "month"), ["Aug", "Sep"])
 })

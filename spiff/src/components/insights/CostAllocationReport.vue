@@ -1,7 +1,7 @@
 <template>
 	<div class="space-y-6">
 		<!-- At phone width the axis toggle and Export share row one; grouping takes row two. -->
-		<div class="alloc-toolbar flex flex-wrap items-center gap-3">
+		<div class="alloc-toolbar flex flex-wrap items-center gap-2 sm:gap-3">
 			<TabButtons
 				v-model="axis"
 				class="order-1"
@@ -19,13 +19,11 @@
 				>
 					<Button
 						icon-left="download"
-						icon-right="chevron-down"
-						aria-label="Export"
+						:icon-right="isMobile ? undefined : 'chevron-down'"
+						label="Export"
 						:loading="exporting"
 						:disabled="!tree.length || exporting"
-					>
-						<span class="hidden sm:inline">Export</span>
-					</Button>
+					/>
 				</Dropdown>
 			</div>
 		</div>
@@ -145,15 +143,12 @@ const exportError = ref(null)
 const { report, loading, error, exporting, load, exportFile } = useCostAllocation()
 const { isMobile } = useWindowSize()
 
-function toggleLabel(text) {
-	return isMobile.value ? `${text[0].toUpperCase()}${text.slice(1)}` : `By ${text}`
-}
-const axisButtons = computed(() => [
-	{ label: toggleLabel("process owner"), value: "process_owner" },
-	{ label: toggleLabel("chat user"), value: "chat_user" },
-])
+const axisButtons = [
+	{ label: "By process owner", value: "process_owner" },
+	{ label: "By chat user", value: "chat_user" },
+]
 const groupButtons = computed(() =>
-	Object.keys(LEVELS[axis.value]).map((value) => ({ label: toggleLabel(value), value }))
+	Object.keys(LEVELS[axis.value]).map((value) => ({ label: `By ${value}`, value }))
 )
 
 const tree = computed(() => report.value.tree || [])
@@ -243,8 +238,9 @@ onMounted(fetchReport)
 	.alloc-toolbar :deep(button) {
 		min-height: 36px;
 	}
-	.alloc-toolbar :deep([role="radiogroup"] > div > div) {
-		flex: 1;
+	/* Smaller type so the axis toggle and Export share one row at 390px. */
+	.alloc-toolbar :deep(button) {
+		font-size: 12px;
 	}
 }
 </style>
