@@ -74,13 +74,13 @@
 									v-if="m.message_type === 'User'"
 									size="sm"
 									variant="solid"
-									:label="__('Test this message')"
+									:label="__('Test from here')"
 									@click="load(m, false)"
 								/>
 								<Button
 									size="sm"
 									variant="subtle"
-									:label="__('Add up to here')"
+									:label="__('Add as history')"
 									@click="load(m, true)"
 								/>
 							</div>
