@@ -25,8 +25,6 @@ const props = defineProps({
 	isPhone: { type: Boolean, default: false },
 })
 
-const BORDER = { borderColor: "#ffffff", borderWidth: 2 }
-
 const buckets = computed(() => props.report.buckets)
 const labels = computed(() => bucketLabels(buckets.value, props.report.to_date, props.report.grain))
 const axisLabels = computed(() =>
@@ -74,7 +72,7 @@ function seriesOf(node, i, last) {
 			})),
 			barMaxWidth: 160,
 			barCategoryGap: "25%",
-			itemStyle: { ...BORDER, borderRadius: i === last ? [2, 2, 0, 0] : 0 },
+			itemStyle: { borderRadius: i === last ? [2, 2, 0, 0] : 0 },
 			// One label per stack, on its top segment, reading the bucket total.
 			label: i === last
 				? { show: true, position: "top", fontSize: 11, color: "#4b5563", formatter: totalLabel }

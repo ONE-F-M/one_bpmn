@@ -72,7 +72,6 @@ const options = computed(() => ({
 		type: "pie",
 		radius: ["60%", "88%"],
 		center: ["50%", "50%"],
-		itemStyle: { borderColor: "#ffffff", borderWidth: 2 },
 		label: { show: false },
 		emphasis: { scaleSize: 3 },
 		data: ranked.value.map((s) => ({ name: s.label, value: s.value })),
