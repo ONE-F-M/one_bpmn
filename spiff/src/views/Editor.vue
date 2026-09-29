@@ -1404,7 +1404,6 @@ async function finalizeReassignments() {
 	touchedReassignModels.clear();
 
 	let deployFailed = false;
-	let redeployed = false;
 	for (const modelName of models) {
 		try {
 			const res = await frappeRequest({
@@ -1413,30 +1412,18 @@ async function finalizeReassignments() {
 				params: { model_name: modelName },
 			});
 			if (!res || res.deploy_error) deployFailed = true;
-			else if (res.redeployed) redeployed = true;
 		} catch (err) {
 			deployFailed = true;
 		}
 	}
 
+	// Locking the panel already announced itself; only a failed redeploy needs a word.
 	if (deployFailed) {
 		showNotification(
-			"Changes saved — redeploy pending",
+			"Changes saved, redeploy pending",
 			"Property changes were saved and recorded in the version history, but automatic redeploy failed. Click Deploy to apply them to new instances.",
 			"red",
 			true
-		);
-	} else if (!redeployed) {
-		showNotification(
-			"Changes saved",
-			"All property changes were saved to the map's version history. This map is not executable, so there is nothing to redeploy.",
-			"green"
-		);
-	} else {
-		showNotification(
-			"Changes saved & redeployed",
-			"All property changes were saved to the map's version history and the map was redeployed once. New process instances use them; already-running instances keep the map they started with.",
-			"green"
 		);
 	}
 }
