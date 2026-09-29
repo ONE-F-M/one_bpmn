@@ -1,6 +1,6 @@
 """Seed ProsAlly's baseline eval suite: generate turns scored on the diagram, not the reply.
 
-Each case arrives already confirmed, so the turn is classify_intent, generate_process, finalize.
+Each case arrives already confirmed, so the turn is classify_intent then generate_process, where it stops.
 The lanes are read off the IR generate_process records as its artifact, which only follow the
 lane rules when the stage skills reached the generator. Idempotent by suite and case title.
 """
@@ -16,13 +16,14 @@ SHAPE = "run_prosally_agent"
 SUITE_TITLE = "ProsAlly - Baseline"
 
 SUITE_DESCRIPTION = (
-	"ProsAlly through a real, already-confirmed generate turn. Every case checks the three-call "
-	"trace, that the orchestrator never loads a skill, and the lanes in the IR generate_process "
+	"ProsAlly through a real, already-confirmed generate turn. Every case checks the trace up to "
+	"generate_process, that the orchestrator never loads a skill, and the lanes in the IR generate_process "
 	"recorded. Each case spends one generator call."
 )
 
 CONFIRMED = {"confirmed_action": "GENERATE_NEW"}
-GENERATE_TRACE = [_call(1, "classify_intent"), _call(2, "generate_process"), _call(3, "finalize")]
+# A stage tool that writes the reply ends the turn, so finalize is never called after it.
+GENERATE_TRACE = [_call(1, "classify_intent"), _call(2, "generate_process")]
 
 
 def _lanes(matcher, expected):

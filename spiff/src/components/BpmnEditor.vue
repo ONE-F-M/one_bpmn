@@ -86,16 +86,16 @@
 				/>
 				</div>
 
-				<!-- Shown only when the toolbar is too narrow; opens the folded tools as a panel -->
+				<!-- Shown only when the toolbar is too narrow; opens the folded formatting tools as a panel -->
 				<button
 					@click="showMoreTools = !showMoreTools"
-					title="More tools"
+					title="Formatting"
 					:class="[
 						'bpmn-toolbar-more p-1.5 items-center justify-center rounded transition-colors shrink-0',
 						showMoreTools ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100 text-gray-700',
 					]"
 				>
-					<Icon icon="lucide:ellipsis" class="w-4 h-4" />
+					<Icon icon="lucide:palette" class="w-4 h-4" />
 				</button>
 			</template>
 
