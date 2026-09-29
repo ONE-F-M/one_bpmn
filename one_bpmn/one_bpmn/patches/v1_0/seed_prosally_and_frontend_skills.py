@@ -88,6 +88,7 @@ Keep every attribute name exactly as listed; the compiler and the properties pan
 
 - frappe-ui components rather than raw markup: Button, FormControl with type select, Dialog. A hand-rolled control re-implements focus, keyboard handling and dark mode, worse.
 - Vue uses script setup. Prefer computed over methods, clean up listeners in onBeforeUnmount, never put v-if and v-for on one element, never write v-for without a key.
+- Never use v-html, including on markdown-rendered or otherwise "sanitised" content - it renders raw HTML regardless of how the content was produced and stays an XSS vector. Render text normally and let Vue escape it.
 - Colours come from Tailwind tokens, never hex literals.
 - Fetch data with frappeRequest. Do not introduce fetch or axios.
 - Desk scripts use frappe.ui.form.on and match the siblings in their folder.
