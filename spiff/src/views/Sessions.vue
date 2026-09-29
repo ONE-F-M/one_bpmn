@@ -468,5 +468,10 @@ async function saveRetention() {
 onMounted(() => {
 	load();
 	loadAgents();
+
+	// A copied conversation link lands here with ?conversation=<name>; open
+	// straight into it rather than making the reader find the row again.
+	const wanted = route.query.conversation;
+	if (wanted) open(wanted);
 });
 </script>
