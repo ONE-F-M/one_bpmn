@@ -1,9 +1,9 @@
 """ProsAlly's generate and modify stages read their shared modelling rules from skills.
 
-Both stages call the model with no tools, so they cannot load_skill. Their scripts now append
-the Active stage skills to the system prompt, and the node type and flow rules the two sub-prompts
-each carried become one skill. The orchestrator gets its three-call procedure as its system prompt
-and loses a skill it never uses. Idempotent: each edit applies only while its old text is present.
+Both stages call the model with no tools, so they cannot load_skill. Each script appends the Active
+skills named in its own ProsAlly constant, and the node type and flow rules the two sub-prompts each
+carried become one skill. The orchestrator gets its three-call procedure and no enabled skills, since
+its skills index would advertise rules it never uses. Idempotent: each edit applies only once.
 """
 
 import frappe
@@ -30,12 +30,22 @@ MOD_LANE_POINTER_NEW = (
 	"  LANE AND REWORK RULES: the bpmn-modelling-rules-and-ir-schema skill below is authoritative.\n"
 )
 
-SKILL_LINE = (
-	r'_system = "\n\n".join([_system] + ["## Skill: " + _sk.name + "\n\n" + _sk.body for _sk in '
-	r'frappe.get_all("AI Skill", filters={"name": ["in", ["bpmn-modelling-rules-and-ir-schema", '
-	r'"prosally-node-types-and-flow-rules"]], "status": "Active"}, fields=["name", "body"], '
-	r'order_by="name asc")])'
-)
+# Stage sub-prompt id -> the ProsAlly constant listing, comma separated, the skills that stage appends.
+STAGE_CONSTANTS = {
+	"process_generator": "generate_skills",
+	"modifier": "modify_skills",
+}
+STAGE_SKILLS = f"{BPMN_SKILL}, {NODE_FLOW_SKILL}"
+
+
+def skill_line(constant: str) -> str:
+	"""The script line that appends the Active skills named in *constant* to the stage's system prompt."""
+	return (
+		r'_system = "\n\n".join([_system] + ["## Skill: " + _sk.name + "\n\n" + _sk.body for _sk in '
+		r'frappe.get_all("AI Skill", filters={"name": ["in", [_n.strip() for _n in ((_cfg.get("constants") '
+		f'or {{}}).get("{constant}") or "").split(",") if _n.strip()]], "status": "Active"}}, '
+		r'fields=["name", "body"], order_by="name asc")])'
+	)
 
 ORCHESTRATOR_PROMPT = (
 	"You run ONE turn of the ProsAlly process-modelling assistant by calling tools, one at a time. "
@@ -110,6 +120,7 @@ def execute():
 	if not name:
 		return
 
+	_set_stage_constants(name)
 	for sub_agent_id, script_pattern in STAGES.items():
 		if _append_skills_to_script(script_pattern, sub_agent_id):
 			_trim_sub_prompt(name, sub_agent_id)
@@ -123,13 +134,31 @@ def execute():
 	)
 
 
+def _set_stage_constants(config_name: str):
+	"""Add each stage's skill-list constant to the ProsAlly configuration unless it is already set."""
+	for constant in STAGE_CONSTANTS.values():
+		if frappe.db.exists("AI Agent Constant", {"parent": config_name, "constant_name": constant}):
+			continue
+		frappe.get_doc({
+			"doctype": "AI Agent Constant",
+			"parent": config_name,
+			"parentfield": "constants",
+			"parenttype": "AI Agent Configuration",
+			"constant_name": constant,
+			"constant_value": STAGE_SKILLS,
+			"constant_type": "String",
+			"idx": frappe.db.count("AI Agent Constant", {"parent": config_name}) + 1,
+		}).insert(ignore_permissions=True)
+
+
 def _append_skills_to_script(script_pattern: str, sub_agent_id: str) -> bool:
 	"""Insert the skill line after the stage's system prompt line; True once the script carries it."""
 	script_name = frappe.db.get_value("Server Script", {"name": ["like", script_pattern]}, "name")
 	if not script_name:
 		return False
 	doc = frappe.get_doc("Server Script", script_name)
-	if SKILL_LINE in doc.script:
+	line = skill_line(STAGE_CONSTANTS[sub_agent_id])
+	if line in doc.script:
 		return True
 	anchor = f'_system = (_subs.get("{sub_agent_id}") or {{}}).get("prompt") or ""'
 	if doc.script.count(anchor) != 1:
@@ -138,7 +167,7 @@ def _append_skills_to_script(script_pattern: str, sub_agent_id: str) -> bool:
 			message=f"{script_name} has no single '{anchor}' line; the script and its sub-prompt are left as-is.",
 		)
 		return False
-	doc.script = doc.script.replace(anchor, f"{anchor}\n{SKILL_LINE}", 1)
+	doc.script = doc.script.replace(anchor, f"{anchor}\n{line}", 1)
 	doc.save(ignore_permissions=True)
 	return True
 
