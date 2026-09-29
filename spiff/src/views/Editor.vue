@@ -1179,6 +1179,17 @@ const processName = ref("");
 const diagrams = ref([]);
 const openTabs = ref([]);
 const activeDiagramName = ref("");
+const idCopied = ref(false);
+
+async function copyProcessId() {
+	try {
+		await navigator.clipboard.writeText(props.process || "");
+		idCopied.value = true;
+		setTimeout(() => (idCopied.value = false), 1500);
+	} catch (err) {
+		console.error("Failed to copy process ID:", err);
+	}
+}
 
 const isAnyDialogOpen = computed(() => {
 	return (
