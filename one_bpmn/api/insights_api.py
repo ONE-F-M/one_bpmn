@@ -940,7 +940,8 @@ def _error_issues(current, previous, from_d, to_d, origin, filters, group_by, er
 				"delta_pt": flt(error_rate - previous_error_rate, 1) if previous_runs else None,
 			}
 		)
-	return sorted(issues, key=lambda i: i["errors"], reverse=True)
+	# Most recent first (last_seen is an ISO-formatted datetime string, so lexical order is chronological).
+	return sorted(issues, key=lambda i: i["last_seen"], reverse=True)
 
 
 def _issue_history(keys, from_d, to_d, origin, filters, group_by) -> dict:
