@@ -60,7 +60,6 @@ function dotStyleOf(slice) {
 
 // The ring alone is drawn on the canvas; the centre and legend are HTML so long names never overlap it.
 const options = computed(() => ({
-	animation: false,
 	color: ranked.value.map((s) => props.colors[s.key]),
 	tooltip: {
 		trigger: "item",
