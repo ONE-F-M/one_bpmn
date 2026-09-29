@@ -776,4 +776,5 @@ def production_review_settings() -> dict:
 	return {
 		"connect_to_production": bool(settings.connect_to_production),
 		"instance_type": settings.instance_type or "",
+		"pr_base_branch": PR_BASE_BRANCH,
 	}

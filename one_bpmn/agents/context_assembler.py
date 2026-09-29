@@ -236,6 +236,7 @@ def build_dynamic_preamble(
 	user_prompt: str = "",
 	active_skills: list[str] = None,
 	instructions: str = "",
+	established_block: str = "",
 ) -> str:
 	"""Compose the DYNAMIC layer's opening message.
 
@@ -265,6 +266,7 @@ def build_dynamic_preamble(
 	memory_block = str(memory_block or "").strip()
 	user_prompt = str(user_prompt or "")
 	instructions = str(instructions or "")
+	established_block = str(established_block or "").strip()
 	skills_block = ""
 	if active_skills:
 		bodies = "\n\n".join(str(s).strip() for s in active_skills if s)
@@ -276,6 +278,9 @@ def build_dynamic_preamble(
 		parts.append(skills_block)
 	if memory_block:
 		parts.append(memory_block)
+	# Established facts change rarely, so they sit in the cacheable prefix with memory.
+	if established_block:
+		parts.append(established_block)
 
 	# With both, the instructions are prefix and the message is what the marker
 	# announces. With only one of them, that one IS the message — which is what

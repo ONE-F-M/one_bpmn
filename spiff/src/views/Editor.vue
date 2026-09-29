@@ -1016,7 +1016,7 @@
 						</table>
 					</div>
 					<p v-if="reviewKind === 'doctypes'" class="text-xs text-gray-500">
-						Sync opens a GitHub pull request (per owning app) with these changes. Merging and deploying migrates Production.
+						Sync opens a GitHub pull request against {{ prBaseBranch }} (per owning app) with these changes. Merging and deploying migrates Production.
 					</p>
 					<p v-else class="text-xs text-gray-500">
 						Sync overwrites existing records and creates new ones on the linked Production system.
@@ -1032,7 +1032,7 @@
 				<!-- Syncing -->
 				<div v-else-if="reviewStage === 'syncing'" class="flex items-center gap-3 py-6 text-sm text-gray-600">
 					<Icon icon="lucide:loader-2" class="w-5 h-5 animate-spin" />
-					Syncing to Production…
+					{{ syncingLabel }}
 				</div>
 
 				<!-- Sync result -->
@@ -1043,7 +1043,7 @@
 					</div>
 					<template v-else-if="reviewKind === 'doctypes'">
 						<div v-if="reviewResult && reviewResult.prs && reviewResult.prs.length" class="space-y-2">
-							<div class="text-gray-700">Pull request(s) opened:</div>
+							<div class="text-gray-700">Pull request(s) opened against {{ prBaseBranch }}:</div>
 							<a v-for="(pr, i) in reviewResult.prs" :key="i" :href="pr.pr_url" target="_blank"
 								class="flex items-center gap-2 text-blue-600 hover:underline">
 								<Icon icon="lucide:git-pull-request" class="w-4 h-4" />
@@ -1217,6 +1217,11 @@ const isBaInstance = computed(() => instanceType.value === "BA");
 const isProductionInstance = computed(() => instanceType.value === "Production");
 const showReviewDialog = ref(false);
 const reviewKind = ref("doctypes"); // "doctypes" | "workflow"
+// A doctype sync raises a pull request; only a workflow sync writes to Production itself.
+const prBaseBranch = ref("");
+const syncingLabel = computed(() =>
+	reviewKind.value === "doctypes" ? `Opening pull request against ${prBaseBranch.value}…` : "Syncing to Production…",
+);
 const reviewStage = ref("intro"); // intro | loading | diff | empty | syncing | result
 const reviewChanges = ref([]);
 const reviewResult = ref(null);
@@ -1243,6 +1248,7 @@ async function loadProductionReviewSettings() {
 		const d = r.message || r;
 		connectToProduction.value = !!d.connect_to_production;
 		instanceType.value = d.instance_type || "";
+		prBaseBranch.value = d.pr_base_branch || "";
 	} catch (e) {
 		connectToProduction.value = false;
 		instanceType.value = "";
