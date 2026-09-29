@@ -281,3 +281,12 @@ class TestEvalRunReviewInputContext(FrappeTestCase):
 		case = make_eval_case(suite=self.suite).name
 		run = _run_with_results(self.suite, {case: "Passed"}, 5)
 		self.assertIsNone(get_run_review(run)["results"][0]["input_context"])
+
+	def test_each_case_reports_how_many_of_its_runs_passed(self):
+		case = make_eval_case(suite=self.suite).name
+		run = _run_with_results(self.suite, {case: "Failed"}, 5)
+		result_row = frappe.get_doc("AI Eval Run", run).results[0]
+		frappe.db.set_value("AI Eval Result", result_row.name, {"runs": 5, "passes": 3})
+
+		result = get_run_review(run)["results"][0]
+		self.assertEqual((result["runs"], result["passes"]), (5, 3))

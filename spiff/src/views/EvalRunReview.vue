@@ -109,11 +109,28 @@
 				<div v-for="n in 3" :key="n" class="h-16 bg-gray-100 rounded"></div>
 			</div>
 
-			<!-- Per-case results -->
+			<!-- Per-case results: one line each until opened. -->
+			<div
+				v-if="results.length > 1"
+				class="flex items-center gap-2"
+			>
+				<span class="text-xs text-gray-500">{{ results.length }} cases</span>
+				<Button size="sm" variant="subtle" label="Expand all" @click="openAll" />
+				<Button size="sm" variant="subtle" label="Collapse all" @click="openCases = new Set()" />
+			</div>
 			<div v-for="res in results" :key="res.eval_case" class="bg-white rounded-lg shadow-sm">
-				<div class="border-b px-6 py-3 flex items-center justify-between">
-					<div class="flex items-center gap-3">
-						<span class="font-medium text-gray-900">{{ res.case_title }}</span>
+				<button
+					type="button"
+					class="w-full text-left px-6 py-3 flex items-center justify-between gap-3 hover:bg-gray-50"
+					:class="{ 'border-b': isOpen(res.eval_case) }"
+					@click="toggleCase(res.eval_case)"
+				>
+					<div class="flex items-center gap-3 min-w-0">
+						<Icon
+							:icon="isOpen(res.eval_case) ? 'lucide:chevron-down' : 'lucide:chevron-right'"
+							class="w-4 h-4 text-gray-400 shrink-0"
+						/>
+						<span class="font-medium text-gray-900 truncate">{{ res.case_title }}</span>
 						<span class="inline-block px-2 py-0.5 rounded-full text-xs" :class="runPill(res.status)">
 							{{ res.status }}
 						</span>
@@ -123,10 +140,11 @@
 							:class="delta(res).cls"
 							:title="delta(res).title"
 						>{{ delta(res).label }}</span>
+						<span v-if="res.runs" class="text-xs text-gray-500 shrink-0">{{ res.passes || 0 }}/{{ res.runs }} runs passed</span>
 					</div>
-					<span class="text-xs text-gray-400">{{ res.tokens_used }} tok · ${{ (res.cost || 0).toFixed(4) }}</span>
-				</div>
-				<div class="px-6 py-4 space-y-4">
+					<span class="text-xs text-gray-400 shrink-0">{{ res.tokens_used }} tok · ${{ (res.cost || 0).toFixed(4) }}</span>
+				</button>
+				<div v-if="isOpen(res.eval_case)" class="px-6 py-4 space-y-4">
 					<EvalEarlierConversation :context="res.input_context" />
 
 					<!-- Prompt under test -->
@@ -178,7 +196,15 @@
 							:key="ar.name"
 							class="border border-gray-100 rounded-md mb-2"
 						>
-							<div class="px-3 py-2 flex items-center gap-3 flex-wrap border-b border-gray-100">
+							<div
+								class="px-3 py-2 flex items-center gap-3 flex-wrap cursor-pointer hover:bg-gray-50"
+								:class="{ 'border-b border-gray-100': openRuns.has(ar.name) }"
+								@click="toggleRun(ar.name)"
+							>
+								<Icon
+									:icon="openRuns.has(ar.name) ? 'lucide:chevron-down' : 'lucide:chevron-right'"
+									class="w-3.5 h-3.5 text-gray-400"
+								/>
 								<span class="text-sm font-medium text-gray-800">
 									{{ ar.bpmn_label || ar.bpmn_id || ar.name }}
 								</span>
@@ -193,6 +219,10 @@
 								>
 									{{ ar.tool_call_count }} tool call{{ ar.tool_call_count === 1 ? "" : "s" }}
 								</span>
+								<code
+									v-if="ar.tool_call_count"
+									class="text-xs text-gray-600"
+								>{{ toolCalls(ar).map((tc) => tc.tool_name).join(" → ") }}</code>
 								<span v-if="ar.model" class="text-xs text-gray-400">{{ ar.model }}</span>
 								<span class="text-xs text-gray-400 ml-auto">
 									{{ ar.total_tokens || 0 }} tok · ${{ (ar.estimated_cost || 0).toFixed(4) }}
@@ -202,9 +232,11 @@
 									target="_blank"
 									rel="noopener"
 									class="text-xs text-blue-600 hover:underline"
+									@click.stop
 								>full run ↗</a>
 							</div>
 
+							<template v-if="openRuns.has(ar.name)">
 							<p v-if="ar.error_message" class="px-3 py-2 text-sm text-red-600">
 								{{ ar.error_message }}
 							</p>
@@ -266,6 +298,7 @@
 									>{{ s.content }}</pre>
 								</div>
 							</details>
+							</template>
 						</div>
 					</div>
 
@@ -289,7 +322,7 @@
 import { ref, computed, onMounted } from "vue"
 import { assertionTypeLabel, toolCallModeLabel } from "@/utils/evalLabels"
 import { useRoute } from "vue-router"
-import { frappeRequest } from "frappe-ui"
+import { Button, frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import EvalEarlierConversation from "@/components/evals/EvalEarlierConversation.vue"
 
@@ -305,6 +338,32 @@ const results = ref([])
 const previous = ref(null)
 const baselines = ref([])
 const caseBaselines = ref({})
+// Cases and agent runs start folded to one line; a run with a single case opens it.
+const openCases = ref(new Set())
+const openRuns = ref(new Set())
+
+function isOpen(caseName) {
+	return openCases.value.has(caseName)
+}
+
+function flipped(set, key) {
+	const next = new Set(set)
+	if (next.has(key)) next.delete(key)
+	else next.add(key)
+	return next
+}
+
+function toggleCase(caseName) {
+	openCases.value = flipped(openCases.value, caseName)
+}
+
+function toggleRun(runName) {
+	openRuns.value = flipped(openRuns.value, runName)
+}
+
+function openAll() {
+	openCases.value = new Set(results.value.map((r) => r.eval_case))
+}
 // "" = auto: compare each case against the most recent earlier run that covered
 // it. A run name pins every case to that one run instead.
 const baseline = ref("")
@@ -439,6 +498,7 @@ async function fetchReview({ keepContent = false } = {}) {
 		})
 		run.value = res?.run || {}
 		results.value = res?.results || []
+		if (results.value.length === 1) openCases.value = new Set([results.value[0].eval_case])
 		previous.value = res?.previous || null
 		baselines.value = res?.baselines || []
 		caseBaselines.value = res?.case_baselines || {}
