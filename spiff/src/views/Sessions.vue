@@ -280,9 +280,18 @@
 
 <script setup>
 import { Button, Dialog, ErrorMessage, FormControl, frappeRequest } from "frappe-ui";
+import MarkdownIt from "markdown-it";
 import { computed, onMounted, ref } from "vue";
 
 const API = "/api/method/one_bpmn.api.sessions_api.";
+
+// Same rendering AgentChatPanel uses for a live reply: markdown-it with raw
+// HTML disabled, so a summary can carry bold/links/lists without the model's
+// own output being able to inject a script tag through v-html.
+const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
+function renderSummary(text) {
+	return md.render(text || "");
+}
 
 const tab = ref("conversations");
 const loading = ref(false);
