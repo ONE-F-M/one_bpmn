@@ -106,6 +106,7 @@
 					<Button variant="subtle" :disabled="start + pageSize >= total" @click="load(start + pageSize)">Next</Button>
 				</span>
 			</div>
+			</template>
 		</div>
 
 		<!-- ── Retention ───────────────────────────────────────────────── -->
