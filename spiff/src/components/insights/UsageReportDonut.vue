@@ -52,13 +52,10 @@ const options = computed(() => {
 		color: props.slices.map((s) => props.colors[s.name]),
 		title: {
 			text: top ? `${percent(top.cost)}%` : "",
-			subtext: top?.name || "",
 			left: "50%",
 			top: "center",
 			textAlign: "center",
 			textStyle: { fontSize: 13, fontWeight: 600, color: "#374151" },
-			subtextStyle: { fontSize: 10, color: "#6b7280", width: 70, overflow: "truncate" },
-			itemGap: 2,
 		},
 		tooltip: {
 			trigger: "item",
