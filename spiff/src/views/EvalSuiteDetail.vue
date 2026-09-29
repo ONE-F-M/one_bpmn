@@ -476,6 +476,13 @@
 							{{ inputContextError || "scope and scope_key are required. Optional: k, user, agent_output (distilled and scored), produced_memories (scored as given)." }}
 						</p>
 					</template>
+					<EvalCaseContextField
+						v-else
+						v-model:enabled="startsMidConversation"
+						v-model="caseForm.input_context"
+						:suite="suiteName"
+						@use-prompt="useLoadedPrompt"
+					/>
 
 					<!-- Assertions -->
 					<div v-if="isMemoryCase" class="border-t pt-3 text-xs text-gray-500">
@@ -665,6 +672,8 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from "vue"
+import EvalCaseContextField from "@/components/evals/EvalCaseContextField.vue"
+import { midConversationError } from "@/utils/evalContext"
 import { ASSERTION_TYPES, MATCHERS, TOOL_CALL_MODES, assertionTypeLabel } from "@/utils/evalLabels"
 import { useRoute, useRouter } from "vue-router"
 import { frappeRequest, Button, Dialog, ErrorMessage, FormControl } from "frappe-ui"
@@ -904,8 +913,13 @@ const caseForm = reactive({
 	expected_tool_calls: [], input_context: "",
 })
 const isMemoryCase = computed(() => caseForm.case_type === "Memory")
+const startsMidConversation = ref(false)
+function useLoadedPrompt(text) {
+	caseForm.input_user_prompt = text
+	if (!caseForm.title) caseForm.title = text.slice(0, 120)
+}
 const inputContextError = computed(() => {
-	if (!isMemoryCase.value) return ""
+	if (!isMemoryCase.value) return startsMidConversation.value ? midConversationError(caseForm.input_context) : ""
 	const text = (caseForm.input_context || "").trim()
 	if (!text) return "Input Context is required for a Memory case."
 	try {
@@ -1333,6 +1347,7 @@ function resetCaseForm() {
 		case_type: "Output", target_skill: "", source_feedback: "", source_security_event: "", source_run: "",
 		assertions: [], expected_tool_calls: [], input_context: "",
 	})
+	startsMidConversation.value = false
 }
 // The grid is only worth showing when something checks it.
 const wantsToolCalls = computed(() =>
@@ -1391,6 +1406,7 @@ async function openEditCase(c) {
 				expected_value: e.expected_value || "",
 			})),
 		})
+		startsMidConversation.value = Boolean(res.input_context) && res.case_type !== "Memory"
 	} catch (e) {
 		console.error("Failed to load case:", e)
 	}
@@ -1409,7 +1425,7 @@ async function saveCase() {
 			expected_output: caseForm.expected_output, assertions: JSON.stringify(caseForm.assertions),
 			case_type: caseForm.case_type, target_skill: caseForm.target_skill,
 			expected_tool_calls: JSON.stringify(caseForm.expected_tool_calls),
-			input_context: isMemoryCase.value ? caseForm.input_context : "",
+			input_context: isMemoryCase.value || startsMidConversation.value ? caseForm.input_context : "",
 		}
 		if (caseMode.value === "edit") {
 			await frappeRequest({ url: "/api/method/one_bpmn.api.eval_api.update_eval_case", method: "POST", params: { name: caseForm.name, ...payload } })
