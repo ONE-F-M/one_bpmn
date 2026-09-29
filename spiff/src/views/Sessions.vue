@@ -257,7 +257,10 @@
 								<span v-if="s.model">· {{ s.model }}</span>
 								<span class="ml-auto">{{ s.creation }}</span>
 							</div>
-							<p class="text-sm text-gray-800 whitespace-pre-wrap">{{ s.summary }}</p>
+							<!-- The summary is model output, same as a chat reply, so it gets the same
+						     safe markdown rendering AgentChatPanel uses for bold/links/etc \u2014 v-html
+						     over markdown-it with html disabled, never the raw string. -->
+						<div class="text-sm text-gray-800" v-html="renderSummary(s.summary)"></div>
 						</div>
 					</div>
 
