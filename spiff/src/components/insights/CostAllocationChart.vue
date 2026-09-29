@@ -4,7 +4,7 @@
 			<h3 class="text-sm font-semibold text-gray-900">{{ title }}</h3>
 			<span class="text-xs text-gray-500">{{ subtitle }}</span>
 		</div>
-		<div class="alloc-chart h-[180px] sm:h-[260px]">
+		<div class="alloc-chart h-[250px] sm:h-[260px]">
 			<AxisChart :config="config" />
 		</div>
 	</div>
@@ -14,7 +14,7 @@
 import { computed } from "vue"
 import { AxisChart } from "frappe-ui"
 import { fmtCompact, fmtCurrency, fmtDateRange } from "@/utils/formatters"
-import { bucketLabels, bucketTotals, currentBucket, escapeHtml } from "@/utils/costAllocation"
+import { bucketLabels, bucketTotals, currentBucket, escapeHtml, shortBucketLabels } from "@/utils/costAllocation"
 import { dayjs } from "@/dayjs"
 
 const props = defineProps({
@@ -25,10 +25,11 @@ const props = defineProps({
 	isPhone: { type: Boolean, default: false },
 })
 
-const BORDER = { borderColor: "#ffffff", borderWidth: 2 }
-
 const buckets = computed(() => props.report.buckets)
 const labels = computed(() => bucketLabels(buckets.value, props.report.to_date, props.report.grain))
+const axisLabels = computed(() =>
+	props.isPhone ? shortBucketLabels(buckets.value, props.report.to_date, props.report.grain) : labels.value
+)
 const totals = computed(() => bucketTotals(props.series, buckets.value))
 const filling = computed(() => currentBucket(buckets.value, props.report.to_date, dayjs().format("YYYY-MM-DD")))
 const title = computed(() => `${props.report.axis === "chat_user" ? "Chat cost" : "Cost"} by ${props.groupLabel}`)
@@ -69,8 +70,9 @@ function seriesOf(node, i, last) {
 				value: [labels.value[i], node.by_bucket[b]],
 				itemStyle: b === filling.value ? { opacity: 0.7 } : {},
 			})),
-			barMaxWidth: 120,
-			itemStyle: { ...BORDER, borderRadius: i === last ? [2, 2, 0, 0] : 0 },
+			barMaxWidth: 160,
+			barCategoryGap: "25%",
+			itemStyle: { borderRadius: i === last ? [2, 2, 0, 0] : 0 },
 			// One label per stack, on its top segment, reading the bucket total.
 			label: i === last
 				? { show: true, position: "top", fontSize: 11, color: "#4b5563", formatter: totalLabel }
@@ -81,17 +83,32 @@ function seriesOf(node, i, last) {
 
 const config = computed(() => {
 	const last = props.series.length - 1
-	// A phone fits one legend row, so it scrolls instead of stacking over the plot.
-	const legendRows = props.isPhone ? 1 : Math.ceil(props.series.length / 5)
+	const legendRows = Math.ceil(props.series.length / (props.isPhone ? 4 : 8))
 	return {
 		data: labels.value.map((bucket) => ({ bucket })),
-		xAxis: { key: "bucket", type: "category" },
-		yAxis: { echartOptions: { name: "", axisLabel: { formatter: axisTick } } },
+		xAxis: {
+			key: "bucket",
+			type: "category",
+			echartOptions: { axisLabel: { interval: 0, fontSize: props.isPhone ? 10 : 12, formatter: (_, i) => axisLabels.value[i] } },
+		},
+		yAxis: { echartOptions: { name: "", splitLine: { show: false }, axisLabel: { formatter: axisTick } } },
 		stacked: true,
 		series: props.series.map((node, i) => seriesOf(node, i, last)),
 		echartOptions: {
-			legend: props.series.length > 1 ? { type: props.isPhone ? "scroll" : "plain", bottom: 0 } : { show: false },
-			grid: { bottom: props.series.length > 1 ? 36 + 22 * legendRows : 36, top: 28 },
+			legend: props.series.length > 1
+				? {
+					type: "plain",
+					left: 0,
+					bottom: 0,
+					padding: 0,
+					itemGap: props.isPhone ? 10 : 16,
+					icon: "rect",
+					itemWidth: 9,
+					itemHeight: 9,
+					textStyle: { padding: [0, 0, 0, 1], fontSize: props.isPhone ? 10 : 12 },
+				}
+				: { show: false },
+			grid: { bottom: props.series.length > 1 ? (props.isPhone ? 28 + 18 * legendRows : 10 + 22 * legendRows) : 10, top: 28 },
 			tooltip: { confine: true, formatter: tooltip },
 		},
 	}

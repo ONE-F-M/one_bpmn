@@ -1,5 +1,8 @@
 <template>
-	<div class="bg-white p-4">
+	<div
+		class="bg-white p-4"
+		:title="hint || undefined"
+	>
 		<div
 			v-if="loading"
 			class="space-y-3 animate-pulse"
@@ -79,6 +82,7 @@ const props = defineProps({
 	goodDirection: { type: String, default: "up" }, // "up" | "down"
 	subtitle: { type: String, default: "" },
 	subtitleShort: { type: String, default: "" },
+	hint: { type: String, default: "" },
 	sparkline: { type: Array, default: null },
 	sparklineClass: { type: String, default: "text-gray-500" },
 	loading: { type: Boolean, default: false },

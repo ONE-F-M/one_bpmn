@@ -127,6 +127,8 @@
 					<span class="text-xs text-gray-400">{{ res.tokens_used }} tok · ${{ (res.cost || 0).toFixed(4) }}</span>
 				</div>
 				<div class="px-6 py-4 space-y-4">
+					<EvalEarlierConversation :context="res.input_context" />
+
 					<!-- Prompt under test -->
 					<div v-if="res.input_user_prompt">
 						<div class="text-xs uppercase tracking-wide text-gray-500 font-medium mb-2">Prompt</div>
@@ -289,6 +291,7 @@ import { assertionTypeLabel, toolCallModeLabel } from "@/utils/evalLabels"
 import { useRoute } from "vue-router"
 import { frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
+import EvalEarlierConversation from "@/components/evals/EvalEarlierConversation.vue"
 
 const route = useRoute()
 const runName = route.params.run
@@ -319,6 +322,7 @@ const ASSERTION_VALUE_LABELS = {
 	max_tokens: "Token ceiling",
 	no_tool_call: "Forbidden tools",
 	tool_calls: "Order mode",
+	tool_artifact: "Artifact check (JSON)",
 }
 
 function assertionValueLabel(type) {

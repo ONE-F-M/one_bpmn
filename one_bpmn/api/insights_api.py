@@ -1688,13 +1688,16 @@ def _allocation_leaves(axis: str, from_d, to_d, filters: list) -> list:
 
 	if axis == "chat_user":
 		Conv = DocType("Chat Conversation")
+		User = DocType("User")
 		q = (
 			frappe.qb.from_(Run)
 			.inner_join(Inst).on(Inst.name == Run.instance)
 			.left_join(Conv).on(Conv.name == Inst.context_docname)
+			.left_join(User).on(User.name == Conv.owner)
 			.select(
 				day.as_("day"),
 				Conv.owner.as_("person"),
+				User.full_name.as_("person_name"),
 				Conv.agent_mode.as_("subject"),
 				Inst.context_docname.as_("conversation"),
 				fn.Count("*").as_("runs"),
@@ -1703,7 +1706,7 @@ def _allocation_leaves(axis: str, from_d, to_d, filters: list) -> list:
 			)
 			.where(in_range)
 			.where(Inst.context_doctype == "Chat Conversation")
-			.groupby(day, Conv.owner, Conv.agent_mode, Inst.context_docname)
+			.groupby(day, Conv.owner, User.full_name, Conv.agent_mode, Inst.context_docname)
 		)
 	else:
 		Model = DocType("BPMN Process Model")
@@ -1975,11 +1978,13 @@ def _allocation_totals(axis: str, leaves: list, from_d, to_d, filters: list) -> 
 		by_user = defaultdict(float)
 		by_department = defaultdict(float)
 		for leaf in leaves:
-			by_department[leaf["department_label"]] += leaf["cost"]
+			# Spend with no department to bill stays in the tree but never tops the tile.
+			if leaf["department"]:
+				by_department[leaf["department_label"]] += leaf["cost"]
 			if leaf["person"]:
 				by_user[leaf["person"]] += leaf["cost"]
 		top5 = sorted(by_user.values(), reverse=True)[:MAX_PEER_NODES]
-		top_department = max(by_department.items(), key=lambda kv: kv[1]) if leaves else ("", 0.0)
+		top_department = max(by_department.items(), key=lambda kv: kv[1]) if by_department else ("", 0.0)
 		totals.update({
 			"active_users": now["users"],
 			"seats": _chat_seats(),

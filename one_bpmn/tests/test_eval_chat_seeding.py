@@ -22,6 +22,7 @@ class TestChatEvalSeeding(FrappeTestCase):
 		self.conversations = []
 		self.commit_flags = []
 		self.seen = {}
+		self.reply = {"response": "the reply"}
 
 	def _new_conversation(self, agent_id, title=None, user=None, commit=True):
 		self.commit_flags.append(commit)
@@ -55,7 +56,7 @@ class TestChatEvalSeeding(FrappeTestCase):
 				"total_tokens": 7,
 			}
 		).insert(ignore_permissions=True, ignore_links=True)
-		return {"response": "the reply"}
+		return self.reply
 
 	def _run(self, input_context, invoke=None):
 		case = frappe._dict(name=CASE_NAME, title="Seeded case", input_user_prompt="yes, the topology looks good",
@@ -127,6 +128,23 @@ class TestChatEvalSeeding(FrappeTestCase):
 			session_state.set_state(conversation, {"k": 1}, commit=False)
 		commit.assert_not_called()
 		self.assertEqual(session_state.get_state(conversation), {"k": 1})
+
+	def test_a_generated_diagram_reaches_the_assertions_after_the_reply(self):
+		xml = '<bpmn:definitions><bpmn:lane id="lane_recruiter" name="Recruiter" /></bpmn:definitions>'
+		self.reply = {
+			"response": "I've generated the Visa Request process model.",
+			"intent": "BPMN_GENERATED",
+			"bpmn_xml": xml,
+		}
+		output, _close = self._run({})
+		self.assertEqual(output, "I've generated the Visa Request process model.\n\n" + xml)
+		lane_check = frappe._dict(assertion_type="regex", value=r'<bpmn:lane [^>]*name="Recruiter"')
+		self.assertTrue(eval_runner._evaluate_assertion(lane_check, output, None)["passed"])
+
+	def test_xml_on_a_reply_that_is_not_a_diagram_stays_out_of_the_output(self):
+		self.reply = {"response": "Shall I build it?", "intent": "CONFIRM", "bpmn_xml": "<bpmn:definitions />"}
+		output, _close = self._run({})
+		self.assertEqual(output, "Shall I build it?")
 
 	def test_an_unknown_message_type_is_refused(self):
 		error, close = self._run({"conversation_messages": [{"message_type": "Robot", "text": "hi"}]})
