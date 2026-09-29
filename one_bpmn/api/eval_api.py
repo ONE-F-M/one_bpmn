@@ -756,6 +756,8 @@ def get_run_review(run: str, baseline: str = None) -> dict:
 			# The case's earlier turns and saved state, as the case holds them now.
 			"input_context": frappe.parse_json(info.get("input_context")) if info.get("input_context") else None,
 			"status": r.status,
+			"runs": r.runs,
+			"passes": r.passes,
 			"actual_output": r.actual_output,
 			"error_message": r.error_message,
 			"tokens_used": r.tokens_used,
