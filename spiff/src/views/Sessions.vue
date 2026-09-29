@@ -281,6 +281,10 @@
 <script setup>
 import { Button, Dialog, ErrorMessage, FormControl, frappeRequest } from "frappe-ui";
 import { computed, onMounted, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
+
+const route = useRoute();
+const router = useRouter();
 
 const API = "/api/method/one_bpmn.api.sessions_api.";
 
