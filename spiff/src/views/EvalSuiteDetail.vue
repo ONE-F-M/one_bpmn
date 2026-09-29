@@ -256,7 +256,7 @@
 									class="ml-2 inline-block px-2 py-0.5 rounded-full text-xs bg-amber-50 text-amber-700"
 									title="Assertions were re-checked against each case's stored answer — the agent was not called"
 								>replay</span>
-								<div class="sm:hidden text-xs text-gray-500 mt-0.5">{{ r.case_label }} · {{ r.started_at }}</div>
+								<div class="sm:hidden text-xs text-gray-500 mt-0.5">{{ r.case_label }}</div>
 							</td>
 							<td class="hidden sm:table-cell px-6 py-3 text-gray-600" :title="(r.case_names || []).join(', ')">
 								{{ r.case_label }}
