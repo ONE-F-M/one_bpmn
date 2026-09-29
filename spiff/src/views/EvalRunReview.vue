@@ -319,6 +319,7 @@ const ASSERTION_VALUE_LABELS = {
 	max_tokens: "Token ceiling",
 	no_tool_call: "Forbidden tools",
 	tool_calls: "Order mode",
+	tool_artifact: "Artifact check (JSON)",
 }
 
 function assertionValueLabel(type) {
