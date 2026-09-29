@@ -1,11 +1,11 @@
 <template>
 	<div class="h-full flex flex-col bg-gray-50">
 		<!-- Header -->
-		<header class="bg-white border-b px-6 py-4">
+		<header class="bg-white border-b px-4 sm:px-6 py-4">
 			<router-link to="/processa/evals" class="text-xs text-gray-500 hover:underline">← Evals</router-link>
-			<div class="flex items-center justify-between mt-1">
-				<div>
-					<div class="flex items-center gap-2">
+			<div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mt-1">
+				<div class="min-w-0">
+					<div class="flex flex-wrap items-center gap-2">
 						<h1 class="text-xl font-semibold text-gray-900">{{ suite.title || suiteName }}</h1>
 						<span
 							v-if="suite.eval_type"
@@ -20,7 +20,7 @@
 					     an adversarial pack is written once and pointed at each
 					     agent in turn — and this is the screen you are on when
 					     you discover it is aimed at the wrong one. -->
-					<div class="text-xs text-gray-400 flex items-center gap-1">
+					<div class="text-xs text-gray-400 flex flex-wrap items-center gap-1">
 						<button
 							v-if="canReassign"
 							class="underline decoration-dotted underline-offset-2 hover:text-gray-700"
@@ -59,7 +59,7 @@
 						>gates deploy</span>
 					</div>
 				</div>
-				<div class="flex items-center gap-2">
+				<div class="flex flex-wrap items-center gap-2">
 					<Button icon-left="file-plus" @click="openNewCase">New case</Button>
 					<Button icon-left="git-branch" @click="showFromRun = true">From run</Button>
 					<Button variant="subtle" icon-left="play" :disabled="!selected.length" :loading="runningSelected" @click="runSelected">
@@ -84,7 +84,7 @@
 			</div>
 		</header>
 
-		<main class="flex-1 p-6 overflow-auto space-y-6">
+		<main class="flex-1 p-4 sm:p-6 overflow-auto space-y-6">
 			<div v-if="loadError" class="bg-red-50 text-red-700 text-sm rounded-lg px-4 py-3">{{ loadError }}</div>
 
 			<!-- Dashboard -->
@@ -135,7 +135,7 @@
 
 			<!-- Consistency — which cases disagree with themselves over time -->
 			<div class="bg-white rounded-lg shadow-sm mb-6">
-				<div class="border-b px-6 py-3 flex items-center justify-between">
+				<div class="border-b px-4 sm:px-6 py-3 flex items-center justify-between gap-2">
 					<span class="text-sm font-semibold text-gray-700">
 						Consistency
 						<span class="text-gray-400 font-normal">({{ consistency.runs?.length || 0 }} run(s) this week)</span>
@@ -147,7 +147,7 @@
 				<div v-if="consistency.cases && !consistency.cases.length" class="p-6 text-sm text-gray-500">
 					No results recorded yet — run the suite once.
 				</div>
-				<div v-else-if="consistency.cases" class="p-4">
+				<div v-else-if="consistency.cases" class="p-4 overflow-x-auto">
 					<p v-if="!flakyCases.length" class="text-sm text-green-700">
 						Every case has agreed with itself across these runs.
 					</p>
@@ -183,7 +183,7 @@
 
 			<!-- Cases -->
 			<div class="bg-white rounded-lg shadow-sm">
-				<div class="border-b px-6 py-3 text-sm font-semibold text-gray-700">
+				<div class="border-b px-4 sm:px-6 py-3 text-sm font-semibold text-gray-700">
 					Cases <span class="text-gray-400 font-normal">({{ cases.length }})</span>
 				</div>
 				<div v-if="loading" class="p-6 space-y-3 animate-pulse">
@@ -195,24 +195,28 @@
 				<table v-else class="w-full text-sm">
 					<thead>
 						<tr class="text-left text-xs uppercase tracking-wide text-gray-500 border-b">
-							<th class="px-4 py-3 w-8"><input type="checkbox" :checked="allSelected" @change="toggleAll" /></th>
-							<th class="px-4 py-3 font-medium">Case</th>
-							<th class="px-4 py-3 font-medium">Assertions</th>
-							<th class="px-4 py-3 font-medium text-right">Actions</th>
+							<th class="px-2 sm:px-4 py-3 w-8"><input type="checkbox" :checked="allSelected" @change="toggleAll" /></th>
+							<th class="px-2 sm:px-4 py-3 font-medium">Case</th>
+							<th class="hidden md:table-cell px-4 py-3 font-medium">Assertions</th>
+							<th class="px-2 sm:px-4 py-3 font-medium text-right">Actions</th>
 						</tr>
 					</thead>
 					<tbody>
 						<tr v-for="c in cases" :key="c.name" class="border-b border-gray-100 hover:bg-gray-50">
-							<td class="px-4 py-3"><input type="checkbox" :value="c.name" v-model="selected" /></td>
-							<td class="px-4 py-3">
+							<td class="px-2 sm:px-4 py-3"><input type="checkbox" :value="c.name" v-model="selected" /></td>
+							<td class="px-2 sm:px-4 py-3">
 								<div class="font-medium text-gray-900">{{ c.title }}</div>
 								<div v-if="c.source_run" class="text-xs text-gray-400">from run</div>
+								<div class="md:hidden mt-1">
+									<span v-for="t in c.assertion_types" :key="t" class="inline-block px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600 mr-1 mb-1">{{ assertionTypeLabel(t) }}</span>
+								</div>
 							</td>
-							<td class="px-4 py-3">
+							<td class="hidden md:table-cell px-4 py-3">
 								<span v-for="t in c.assertion_types" :key="t" class="inline-block px-2 py-0.5 rounded-full text-xs bg-gray-100 text-gray-600 mr-1">{{ assertionTypeLabel(t) }}</span>
 								<span v-if="!c.assertion_types.length" class="text-xs text-amber-600">no assertions</span>
 							</td>
-							<td class="px-4 py-3 text-right whitespace-nowrap">
+							<td class="px-2 sm:px-4 py-3">
+								<div class="flex flex-col sm:flex-row items-end sm:items-center justify-end gap-1 whitespace-nowrap">
 								<Button variant="ghost" icon-left="pencil" @click="openEditCase(c)">Edit</Button>
 								<Button
 									variant="ghost"
@@ -223,6 +227,7 @@
 									@click="recheckCase(c)"
 								>Re-check</Button>
 								<Button icon-left="play" :loading="runningCase[c.name]" @click="runCase(c)">Run</Button>
+								</div>
 							</td>
 						</tr>
 					</tbody>
@@ -231,12 +236,15 @@
 
 			<!-- Runs -->
 			<div class="bg-white rounded-lg shadow-sm">
-				<div class="border-b px-6 py-3 text-sm font-semibold text-gray-700">Recent runs</div>
+				<div class="border-b px-4 sm:px-6 py-3 flex items-center justify-between gap-2 text-sm">
+					<span class="font-semibold text-gray-700">Recent runs</span>
+					<FormControl type="select" v-model="runsPageLength" :options="PAGE_SIZES" class="w-20" @change="loadRunsPage(0)" />
+				</div>
 				<div v-if="!runs.length" class="p-8 text-center text-sm text-gray-500">No runs yet.</div>
 				<table v-else class="w-full text-sm">
 					<tbody>
 						<tr v-for="r in runs" :key="r.name" class="border-b border-gray-100 hover:bg-gray-50">
-							<td class="px-6 py-3">
+							<td class="px-4 sm:px-6 py-3">
 								<router-link :to="`/processa/evals/run/${encodeURIComponent(r.name)}`" class="text-gray-900 hover:underline">
 									{{ r.display_title || r.name }}
 								</router-link>
@@ -248,23 +256,31 @@
 									class="ml-2 inline-block px-2 py-0.5 rounded-full text-xs bg-amber-50 text-amber-700"
 									title="Assertions were re-checked against each case's stored answer — the agent was not called"
 								>replay</span>
+								<div class="sm:hidden text-xs text-gray-500 mt-0.5">{{ r.case_label }}</div>
 							</td>
-							<td class="px-6 py-3 text-gray-600" :title="(r.case_names || []).join(', ')">
+							<td class="hidden sm:table-cell px-6 py-3 text-gray-600" :title="(r.case_names || []).join(', ')">
 								{{ r.case_label }}
 							</td>
-							<td class="px-6 py-3">
+							<td class="px-2 sm:px-6 py-3">
 								<span class="inline-block px-2 py-0.5 rounded-full text-xs" :class="runPill(r.status)">{{ r.status }}</span>
 							</td>
-							<td class="px-6 py-3 text-gray-600">
+							<td class="px-2 sm:px-6 py-3 text-gray-600 text-right sm:text-left">
 								{{ r.passed_cases }}/{{ r.total_cases }} passed
 								<span v-if="r.total_executions > r.total_cases" class="text-xs text-gray-400">
 									· {{ round1(r.pass_rate) }}% of {{ r.total_executions }}
 								</span>
 							</td>
-							<td class="px-6 py-3 text-gray-400 text-xs">{{ r.started_at }}</td>
+							<td class="hidden sm:table-cell px-6 py-3 text-gray-400 text-xs">{{ r.started_at }}</td>
 						</tr>
 					</tbody>
 				</table>
+				<div v-if="totalRuns" class="border-t px-4 sm:px-6 py-2 flex items-center justify-between text-sm text-gray-600">
+					<span>{{ runsRangeLabel }}</span>
+					<div class="flex gap-2">
+						<Button size="sm" :disabled="runsStart === 0" @click="loadRunsPage(runsStart - runsPageLength)">Previous</Button>
+						<Button size="sm" :disabled="runsStart + runs.length >= totalRuns" @click="loadRunsPage(runsStart + runsPageLength)">Next</Button>
+					</div>
+				</div>
 			</div>
 		</main>
 
@@ -700,6 +716,11 @@ const loadError = ref("")
 const suite = ref({})
 const cases = ref([])
 const runs = ref([])
+const PAGE_SIZES = [25, 50, 100].map((n) => ({ label: String(n), value: n }))
+const totalRuns = ref(0)
+const runsStart = ref(0)
+const runsPageLength = ref(25)
+const runsRangeLabel = computed(() => `${runsStart.value + 1} to ${runsStart.value + runs.value.length} of ${totalRuns.value}`)
 const metrics = ref({})
 const selected = ref([])
 const runningCase = reactive({})
@@ -949,7 +970,7 @@ const loadingAgentRuns = ref(false)
 // suite has been run at least once.
 const rechecking = ref(false)
 const recheckingCase = reactive({})
-const canRecheck = computed(() => runs.value.length > 0)
+const canRecheck = computed(() => totalRuns.value > 0)
 
 const _fmt = new Intl.NumberFormat("en-US")
 const _fmtCost = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 4 })
@@ -1003,11 +1024,13 @@ async function fetchDetail(silent = false) {
 		const res = await frappeRequest({
 			url: "/api/method/one_bpmn.api.eval_api.get_suite_detail",
 			method: "GET",
-			params: { suite: suiteName },
+			params: { suite: suiteName, start: runsStart.value, page_length: runsPageLength.value },
 		})
 		suite.value = res?.suite || {}
 		cases.value = res?.cases || []
 		runs.value = res?.runs || []
+		totalRuns.value = res?.total_runs || 0
+		runsStart.value = res?.start || 0
 		metrics.value = res?.metrics || {}
 		// Already-open report: a new run makes it stale the moment it lands.
 		if (consistency.value.cases) loadConsistency()
@@ -1018,6 +1041,11 @@ async function fetchDetail(silent = false) {
 	} finally {
 		if (!silent) loading.value = false
 	}
+}
+
+function loadRunsPage(from) {
+	runsStart.value = Math.max(from, 0)
+	fetchDetail(true)
 }
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)) }

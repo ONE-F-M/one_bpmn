@@ -170,9 +170,10 @@ def _annotate_run_scope(runs: list, cases: list) -> None:
 
 
 @frappe.whitelist()
-def get_suite_detail(suite: str) -> dict:
-	"""Suite header, its cases, and recent runs for the suite-detail view
-	(WI-001746). Permission is enforced by check_permission (owner / SM).
+def get_suite_detail(suite: str, start: int = 0, page_length: int = 25) -> dict:
+	"""Suite header, its cases, and one page of its runs, newest first.
+
+	Permission is enforced by check_permission (owner / SM).
 	"""
 	doc = frappe.get_doc("AI Eval Suite", suite)
 	doc.check_permission("read")
@@ -209,10 +210,9 @@ def get_suite_detail(suite: str) -> dict:
 	for c in cases:
 		c["assertion_types"] = assertions.get(c["name"], [])
 
-	runs = frappe.get_all(
-		"AI Eval Run",
-		filters={"suite": suite},
-		fields=["name", "status", "backend", "total_cases", "passed_cases",
+	start = max(cint(start), 0)
+	page_length = min(max(cint(page_length), 1), 100)
+	run_fields = ["name", "status", "backend", "total_cases", "passed_cases",
 				"failed_cases", "started_at", "ended_at",
 				# How many executions the run actually made, and the rate the
 				# deployment gate reads (WI-001902).
@@ -220,26 +220,36 @@ def get_suite_detail(suite: str) -> dict:
 				# Needed by the dashboard's latest-run tokens/cost tiles.
 				"total_tokens", "total_cost",
 				# Which cases the run covered (WI-001746 follow-up).
-				"scope", "requested_cases"],
+				"scope", "requested_cases"]
+	runs = frappe.get_all(
+		"AI Eval Run",
+		filters={"suite": suite},
+		fields=run_fields,
 		order_by="creation desc",
-		limit_page_length=20,
+		limit_start=start,
+		limit_page_length=page_length,
 	)
 	_annotate_run_scope(runs, cases)
 	# Number runs by their absolute order (newest first in the list), and give
 	# each a readable title so the UI never shows the raw run id.
 	total_runs = frappe.db.count("AI Eval Run", {"suite": suite})
 	for idx, r in enumerate(runs):
-		r["display_title"] = _run_title(doc.title, total_runs - idx, r.get("started_at"))
+		r["display_title"] = _run_title(doc.title, total_runs - start - idx, r.get("started_at"))
+
+	# The dashboard always reads the latest 20 runs, whatever page the list is on.
+	recent = runs if start == 0 and page_length >= 20 else frappe.get_all(
+		"AI Eval Run", filters={"suite": suite}, fields=run_fields, order_by="creation desc", limit_page_length=20
+	)
 
 	# Dashboard metrics for the suite page (WI-001746).
 	# Pass-rate sparkline: % of cases passing per run, oldest -> newest.
 	spark = []
-	for r in reversed(runs):
+	for r in reversed(recent[:20]):
 		tot = r.get("total_cases") or 0
 		if tot:
 			spark.append(round(100.0 * (r.get("passed_cases") or 0) / tot))
 	spark = spark[-12:]
-	latest = runs[0] if runs else None
+	latest = recent[0] if recent else None
 	with_assertions = sum(1 for c in cases if c.get("assertion_types"))
 	metrics = {
 		"cases": len(cases),
@@ -273,6 +283,8 @@ def get_suite_detail(suite: str) -> dict:
 		},
 		"cases": cases,
 		"runs": runs,
+		"total_runs": total_runs,
+		"start": start,
 		"metrics": metrics,
 	}
 

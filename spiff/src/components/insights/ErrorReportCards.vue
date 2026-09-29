@@ -3,6 +3,16 @@
 		<div class="flex flex-wrap items-baseline gap-x-2">
 			<h3 class="text-sm font-semibold text-gray-900">{{ __("What is failing") }}</h3>
 			<span class="text-xs text-gray-500">{{ __("tap a row to open its runs") }}</span>
+			<span class="ml-auto flex gap-3 text-xs text-gray-500">
+				<button
+					class="hover:text-gray-900"
+					@click="setAll(visibleIssues.map((i) => i.key))"
+				>{{ __("Expand all") }}</button>
+				<button
+					class="hover:text-gray-900"
+					@click="setAll([])"
+				>{{ __("Collapse all") }}</button>
+			</span>
 		</div>
 		<div
 			v-for="issue in visibleIssues"
@@ -29,7 +39,7 @@
 				<span class="ml-1 text-gray-500">{{ __("error rate") }} · {{ __("last") }} {{ lastSeenText(issue.last_seen, __) }}</span>
 			</div>
 			<div
-				v-if="expanded === issue.key"
+				v-if="isExpanded(issue.key)"
 				class="mt-3 space-y-2"
 			>
 				<div class="text-xs text-gray-600">
@@ -101,7 +111,7 @@ const props = defineProps({
 })
 
 const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s
-const { entry: runsFor, load, remaining: moreCount, toggle, expanded } = props.issueRuns
+const { entry: runsFor, load, remaining: moreCount, toggle, isExpanded, setAll } = props.issueRuns
 const FIRST_ISSUES = 4
 
 const showAll = ref(false)
