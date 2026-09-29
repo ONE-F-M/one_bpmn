@@ -20,10 +20,11 @@
 						<!-- Copy ID Button -->
 						<button
 							@click="copyProcessId"
-							class="p-1 rounded transition-colors text-gray-600 hover:bg-gray-100"
-							title="Copy process ID"
+							class="p-1 rounded transition-colors hover:bg-gray-100"
+							:class="idCopied ? 'text-green-600' : 'text-gray-600'"
+							:title="idCopied ? 'Copied!' : 'Copy process ID'"
 						>
-							<Icon icon="lucide:copy" class="w-4 h-4" />
+							<Icon :icon="idCopied ? 'lucide:check' : 'lucide:copy'" class="w-4 h-4" />
 						</button>
 
 						<!-- Status Icon -->
