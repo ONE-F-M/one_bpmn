@@ -2,19 +2,15 @@
 // For license information, please see license.txt
 
 frappe.listview_settings["AI Eval Run"] = {
-	// Show status as the row indicator with colour-coded states
+	// Colour-code the run's status in the list row indicator.
 	get_indicator(doc) {
 		const color =
 			{
-				"Running": "blue",
+				"Running": "orange",
 				"Passed": "green",
 				"Failed": "red",
-				"Error": "orange",
+				"Error": "darkgrey",
 			}[doc.status] || "gray";
-		return [
-			__(doc.status || "Running"),
-			color,
-			"status,=," + (doc.status || "Running"),
-		];
+		return [__(doc.status), color, "status,=," + doc.status];
 	},
 };
