@@ -257,7 +257,7 @@
 								<span v-if="s.model">· {{ s.model }}</span>
 								<span class="ml-auto">{{ s.creation }}</span>
 							</div>
-							<p class="text-sm text-gray-800 whitespace-pre-wrap">{{ s.summary }}</p>
+							<div class="text-sm text-gray-800 acp-summary" v-html="renderMarkdown(s.summary)" />
 						</div>
 					</div>
 
