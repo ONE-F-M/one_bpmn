@@ -52,7 +52,15 @@
 			<div v-else-if="!loading && !conversations.length" class="p-10 text-center text-sm text-gray-500">
 				No conversations match those filters.
 			</div>
-			<table v-else class="w-full text-sm">
+			<template v-else>
+				<!-- Refetching (filter change, refresh, pagination) with rows already on
+				     screen: keep the table visible and show a thin strip instead of
+				     replacing it with the big centered spinner above. -->
+				<div v-if="loading" class="flex items-center gap-2 px-6 py-2 text-xs text-gray-500 border-b bg-white">
+					<LoadingIndicator class="w-4 h-4" />
+					Refreshing…
+				</div>
+				<table class="w-full text-sm">
 				<thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-500 sticky top-0">
 					<tr>
 						<th class="text-left font-medium px-6 py-2">Conversation</th>
