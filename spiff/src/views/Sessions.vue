@@ -459,3 +459,11 @@ onMounted(() => {
 	loadAgents();
 });
 </script>
+
+<style scoped>
+/* Same markdown spacing as the shared AgentChatPanel: paragraphs need a
+   gap or every line in a multi-paragraph summary runs together. */
+.acp-summary :deep(p) { margin: 0 0 6px; }
+.acp-summary :deep(p:last-child) { margin: 0; }
+.acp-summary :deep(pre) { background: theme("colors.gray.50"); border-radius: 6px; padding: 8px; overflow-x: auto; }
+</style>
