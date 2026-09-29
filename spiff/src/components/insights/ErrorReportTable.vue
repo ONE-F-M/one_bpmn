@@ -3,6 +3,16 @@
 		<div class="flex flex-wrap items-baseline gap-x-3">
 			<h3 class="text-sm font-semibold text-gray-900">{{ __("What is failing") }}</h3>
 			<span class="text-xs text-gray-500">{{ __("one row per error type and element · click a row for details and runs") }}</span>
+			<span class="ml-auto flex gap-3 text-xs text-gray-500">
+				<button
+					class="hover:text-gray-900"
+					@click="setAll(issues.map((i) => i.key))"
+				>{{ __("Expand all") }}</button>
+				<button
+					class="hover:text-gray-900"
+					@click="setAll([])"
+				>{{ __("Collapse all") }}</button>
+			</span>
 		</div>
 		<div class="overflow-x-auto bg-white rounded-lg border border-gray-200">
 			<table class="w-full min-w-[800px] table-fixed">
@@ -35,7 +45,7 @@
 						>
 							<td class="py-3 pl-3">
 								<FeatherIcon
-									:name="expanded === issue.key ? 'chevron-down' : 'chevron-right'"
+									:name="isExpanded(issue.key) ? 'chevron-down' : 'chevron-right'"
 									class="w-4 h-4 text-gray-400"
 								/>
 							</td>
@@ -69,7 +79,7 @@
 							</td>
 						</tr>
 						<tr
-							v-if="expanded === issue.key"
+							v-if="isExpanded(issue.key)"
 							class="border-b border-gray-100"
 						>
 							<td
@@ -164,7 +174,7 @@ const props = defineProps({
 })
 
 const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s
-const { entry: runsFor, load, remaining: moreCount, toggle, expanded } = props.issueRuns
+const { entry: runsFor, load, remaining: moreCount, toggle, isExpanded, setAll } = props.issueRuns
 
 function retriesText(count) {
 	if (!count) return ""

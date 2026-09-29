@@ -5,10 +5,10 @@ import { dayjs } from "@/dayjs"
 const FIRST_PAGE = 3
 const NEXT_PAGE = 10
 
-// One expanded issue at a time; its failed runs load on first expand and stay cached for the session.
+// Each issue's failed runs load on first expand and stay cached for the session.
 export function useIssueRuns(queryParams) {
 	const cache = reactive({})
-	const expanded = ref("")
+	const expanded = ref(new Set())
 
 	function cacheKey(issueKey) {
 		const { from_date, to_date, origin, group_by } = queryParams()
@@ -50,12 +50,24 @@ export function useIssueRuns(queryParams) {
 		return total - runs.length
 	}
 
-	function toggle(issueKey) {
-		expanded.value = expanded.value === issueKey ? "" : issueKey
-		if (expanded.value) load(issueKey)
+	function isExpanded(issueKey) {
+		return expanded.value.has(issueKey)
 	}
 
-	return { entry, load, remaining, toggle, expanded }
+	function toggle(issueKey) {
+		const next = new Set(expanded.value)
+		if (next.has(issueKey)) next.delete(issueKey)
+		else next.add(issueKey)
+		expanded.value = next
+		if (next.has(issueKey)) load(issueKey)
+	}
+
+	function setAll(issueKeys) {
+		expanded.value = new Set(issueKeys)
+		issueKeys.forEach((key) => load(key))
+	}
+
+	return { entry, load, remaining, toggle, isExpanded, setAll }
 }
 
 export function errorRateClass(rate) {
