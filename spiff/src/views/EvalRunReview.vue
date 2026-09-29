@@ -228,7 +228,7 @@
 									{{ ar.total_tokens || 0 }} tok · ${{ (ar.estimated_cost || 0).toFixed(4) }}
 								</span>
 								<a
-									:href="`/app/ai-agent-run/${encodeURIComponent(ar.name)}`"
+									:href="`/processa/runs/${encodeURIComponent(ar.name)}`"
 									target="_blank"
 									rel="noopener"
 									class="text-xs text-blue-600 hover:underline"
