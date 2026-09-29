@@ -19,6 +19,11 @@ frappe.ui.form.on("Processa Settings", {
 		// Relative time comes from frappe.datetime.comment_when - the same
 		// built-in helper already used elsewhere in this app (see
 		// ai_clarification_on_document.js) - rather than a hand-rolled diff.
+		// (Mirrors the LastSyncedBadge.vue component used inside the Processa
+		// SPA, which is built on the same dayjs relativeTime plugin - see
+		// spiff/src/components/LastSyncedBadge.vue - but the desk form here
+		// is plain server-rendered JS, not the Vue app, so it renders the
+		// equivalent markup directly rather than mounting a Vue instance.)
 		const field_wrapper = frm.get_field("ba_last_synced")
 		if (!field_wrapper) return
 
