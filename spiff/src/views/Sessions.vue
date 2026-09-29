@@ -405,6 +405,9 @@ async function open(name) {
 	detailLoading.value = true;
 	detail.value = null;
 	compactNote.value = "";
+	// The URL is how the link this row can be copied gets back to this same
+	// conversation, so keep it in step with what is actually open.
+	router.replace({ query: { ...route.query, conversation: name } });
 	try {
 		detail.value = await call("conversation_detail", { conversation: name });
 	} catch (e) {
@@ -412,6 +415,17 @@ async function open(name) {
 		showDetail.value = false;
 	} finally {
 		detailLoading.value = false;
+	}
+}
+
+async function copyConversationLink(c) {
+	const url = `${window.location.origin}${route.path}?conversation=${encodeURIComponent(c.name)}`;
+	try {
+		await navigator.clipboard.writeText(url);
+		copiedLink.value = c.name;
+		setTimeout(() => (copiedLink.value = ""), 1500);
+	} catch (e) {
+		error.value = "Could not copy the link — select it from the address bar instead.";
 	}
 }
 
