@@ -3069,8 +3069,6 @@ async function onLaunchDmnEditor(event) {
 	activeDmnDecisionId = decisionId;
 	dmnEditorTitle.value = `Edit Decision Model — ${elementName}`;
 
-	console.log(`[DMN] Launching editor for element: ${element.id}, decision: ${decisionId}, model: ${activeDiagramName.value}`);
-
 	// Load stored XML from backend
 	let storedXml = "";
 	if (activeDiagramName.value) {
