@@ -277,9 +277,20 @@
 
 <script setup>
 import { Button, Dialog, ErrorMessage, FormControl, frappeRequest } from "frappe-ui";
+import MarkdownIt from "markdown-it";
 import { computed, onMounted, ref } from "vue";
 
 const API = "/api/method/one_bpmn.api.sessions_api.";
+
+// Same rendering as the shared AgentChatPanel: markdown syntax (bold, links,
+// lists) is converted to HTML, but html:false means any literal HTML the
+// model wrote comes through escaped rather than executed. That is what
+// keeps this safe to feed into v-html.
+const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
+
+function renderMarkdown(text) {
+	return md.render(text || "");
+}
 
 const tab = ref("conversations");
 const loading = ref(false);
