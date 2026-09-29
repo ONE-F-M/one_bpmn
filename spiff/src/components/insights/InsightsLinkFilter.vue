@@ -17,7 +17,7 @@
 					:title="modelValue || placeholder"
 					@click="togglePopover"
 				>
-					<span class="truncate font-normal text-gray-800">
+					<span class="truncate font-normal">
 						{{ modelValue || placeholder }}
 					</span>
 					<template #suffix>
