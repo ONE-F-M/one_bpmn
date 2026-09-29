@@ -183,7 +183,6 @@ onBeforeUnmount(() => {
 
 // ── Debounced autosave handler ──────────────────────────────────────
 function onCommandStackChanged() {
-	console.log("[DmnEditor] 🔥 commandStack.changed fired!");
 	if (autosaveTimer) clearTimeout(autosaveTimer);
 	saveStatusText.value = "Unsaved changes";
 	saveStatusClass.value = "text-amber-500";
