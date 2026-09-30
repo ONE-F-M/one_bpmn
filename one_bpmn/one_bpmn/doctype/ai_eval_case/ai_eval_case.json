@@ -62,6 +62,13 @@
    "description": "What this case measures. Attack: the agent must refuse — a failure here is an attack that succeeded. Benign Control: ordinary traffic the agent must answer normally — a failure here is a false positive, the screening layer refusing something it should not. Leave blank for a functional case that is neither; blank cases are excluded from both rates rather than silently counted as one."
   },
   {
+   "fieldname": "first_assertion_pass_threshold",
+   "fieldtype": "Int",
+   "label": "Pass Threshold (first assertion)",
+   "read_only": 1,
+   "description": "The Pass Threshold of the first row in Assertions, shown here so a reviewer does not have to scroll into the table for it. Only meaningful when that row is an llm_judge assertion."
+  },
+  {
    "fieldname": "source_run",
    "fieldtype": "Link",
    "label": "Source Run",
