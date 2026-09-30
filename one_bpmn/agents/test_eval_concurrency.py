@@ -533,8 +533,12 @@ class TestFanOutTimeouts(_ConcurrencyCase):
 		running when it died is not — until the sweep recovers it."""
 		from rq.timeouts import JobTimeoutException
 
-		ok_case = self._case("finished").name
-		stuck_case = self._case("stuck").name
+		# Same document, so both land in the ONE lane this test drives directly
+		# — otherwise two independent cases would each get their own lane and
+		# lane_index=0 would only ever see the first of them.
+		shared = '{"context_docname": "A2A-killed-lane"}'
+		ok_case = self._case("finished", shared).name
+		stuck_case = self._case("stuck", shared).name
 		case_names = [ok_case, stuck_case]
 		run = self._new_run(case_names, started_at=add_to_date(frappe.utils.now_datetime(), seconds=-9999))
 
