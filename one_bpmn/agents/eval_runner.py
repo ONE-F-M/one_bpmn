@@ -656,10 +656,12 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None, fan_out: 
     if not frappe.flags.in_test:
         frappe.db.commit()
 
+    # Realtime goes to whoever started the run, never "all" \u2014 an eval run is
+    # not something every connected user needs to hear about.
     frappe.publish_realtime(
         "eval_run_completed",
         {"run_name": run.name, "status": run.status},
-        user="all",
+        user=run.owner,
     )
 
 
