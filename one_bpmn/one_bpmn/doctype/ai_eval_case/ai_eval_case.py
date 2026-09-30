@@ -35,6 +35,15 @@ class AIEvalCase(Document):
     def validate(self):
         self._validate_assertions()
         self._validate_tool_call_assertions()
+        self._sync_first_assertion_pass_threshold()
+
+    def _sync_first_assertion_pass_threshold(self):
+        """Keep the read-only summary field in step with row 1 of Assertions,
+        so it is correct whether the case was saved from the form or from an
+        API call that never touched the form script."""
+        self.first_assertion_pass_threshold = (
+            self.assertions[0].pass_threshold if self.assertions else None
+        )
 
     def _validate_tool_call_assertions(self):
         """A tool_calls assertion needs a mode, expected calls, and — where the
