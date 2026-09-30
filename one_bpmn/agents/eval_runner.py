@@ -175,6 +175,44 @@ def _job_timeout(suite: str, backend: str, case_count: int) -> int:
     return max(MIN_JOB_TIMEOUT_SECONDS, SECONDS_PER_EXECUTION * max(1, case_count) * pass_k)
 
 
+def _find_running_run(suite_name: str, agent_cfg: str | None, backend: str) -> str | None:
+    """The name of a Running AI Eval Run already covering the same suite,
+    agent and backend, or None.
+
+    One run at a time per suite (per agent/backend, so a comparison's two runs
+    are never mistaken for each other): a second click on "Run" must find the
+    run already in flight rather than start a duplicate that spends the
+    provider budget twice for the same question. A run whose own deadline has
+    already passed does not count as running — it should have been finalised
+    by the sweep and treating it as live would wedge the suite forever behind
+    a job that no longer exists.
+    """
+    candidates = frappe.get_all(
+        "AI Eval Run",
+        filters={
+            "suite": suite_name,
+            "agent_configuration": agent_cfg or "",
+            "backend": backend,
+            "status": "Running",
+        },
+        fields=["name", "started_at", "total_cases"],
+        order_by="started_at desc",
+    )
+    if not candidates:
+        return None
+
+    case_count = frappe.db.count("AI Eval Case", {"suite": suite_name})
+    deadline_span = _job_timeout(suite_name, backend, case_count) + DEADLINE_MARGIN_SECONDS
+    now = now_datetime()
+    for row in candidates:
+        if not row.started_at:
+            continue
+        deadline = add_to_date(row.started_at, seconds=deadline_span)
+        if now <= deadline:
+            return row.name
+    return None
+
+
 @frappe.whitelist()
 def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     """
@@ -189,7 +227,8 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     their cost is still counted — a known, accepted asymmetry.
 
     Returns the AI Eval Run name immediately; the cases run in a background
-    job.
+    job. A suite already running (same suite/agent/backend) returns that run's
+    name and creates nothing new.
     """
     frappe.only_for("System Manager")
 
@@ -199,6 +238,12 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     if not frappe.db.exists("AI Eval Suite", suite_name):
         frappe.throw(_("AI Eval Suite '{0}' not found.").format(suite_name))
 
+    agent_cfg = frappe.db.get_value("AI Eval Suite", suite_name, "agent_configuration")
+
+    existing = _find_running_run(suite_name, agent_cfg, backend)
+    if existing:
+        return existing
+
     run = frappe.new_doc("AI Eval Run")
     run.suite = suite_name
     run.status = "Running"
@@ -207,9 +252,7 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     run.scope = "Suite"  # this entry point always runs the whole suite
     # WI-001821: record which agent this run tested. Without it a later
     # comparison has to assume the suite still points where it did at run time.
-    run.agent_configuration = frappe.db.get_value(
-        "AI Eval Suite", suite_name, "agent_configuration"
-    )
+    run.agent_configuration = agent_cfg
     # The caller is already authorised above (suite read gate + evaluatable
     # check, or System Manager). The AI Eval Run is a system-written record of
     # that action, so it must not additionally demand write rights on the Run
@@ -223,7 +266,10 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
         # compete with production business jobs for the default workers.
         queue="bpmn_ai_agent",
         run_name=run.name,
+        fan_out=True,
         timeout=_job_timeout(suite_name, backend, frappe.db.count("AI Eval Case", {"suite": suite_name})),
+        job_id=f"eval-run::{run.name}",
+        deduplicate=True,
     )
 
     return run.name
