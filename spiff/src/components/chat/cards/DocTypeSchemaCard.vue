@@ -6,10 +6,7 @@
 				@press="$emit('action', 'apply-schema', value)" />
 			<ActionButton label="Discard" kind="ghost" :disabled="busy || done" @press="$emit('action', 'dismiss')" />
 		</template>
-		<!-- WI-003118: expand into a bigger window (CardShell's shared #expanded
-		     mechanism, WI-003115) with the field table at full width, plus the
-		     raw doctype_ir as JSON \u2014 two stacked sections rather than tabs, so
-		     both views are visible without extra clicks. -->
+		<!-- Fields and the raw doctype_ir JSON, stacked so both show at once. -->
 		<template #expanded>
 			<div class="dtsc-expanded-section">
 				<div class="dtsc-expanded-label">{{ __("Fields") }}</div>
