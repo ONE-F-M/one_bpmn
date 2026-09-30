@@ -139,7 +139,7 @@
 
 <script setup>
 import { ref, watch } from "vue"
-import { frappeRequest, Autocomplete } from "frappe-ui"
+import { frappeRequest, Autocomplete, Tooltip } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { fmtInt as fmtNum, fmtCompact, fmtCurrency as fmtCost, fmtCurrencyExact } from "@/utils/formatters"
 
