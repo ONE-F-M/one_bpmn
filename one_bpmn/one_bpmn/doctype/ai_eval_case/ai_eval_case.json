@@ -33,6 +33,13 @@
    "reqd": 1
   },
   {
+   "fieldname": "first_assertion_pass_threshold",
+   "fieldtype": "Int",
+   "label": "First Assertion Pass Threshold",
+   "read_only": 1,
+   "description": "Read-only summary of the Pass Threshold on the first row of Assertions below (meaningful for llm_judge assertions), so a reviewer does not have to scroll to see it. Kept in sync by client script."
+  },
+  {
    "fieldname": "case_type",
    "fieldtype": "Select",
    "label": "Case Type",
