@@ -20,8 +20,10 @@
 		<Dialog v-if="value.rows && value.rows.length" v-model="open" :options="{ title: value.title || __('Table'), size: '7xl' }">
 			<template #body-content>
 				<div class="h-[75vh] overflow-auto">
+					<!-- #expanded: same table, full width, no row-action — the
+					     dialog is a read-only preview. -->
 					<slot v-if="open" name="expanded">
-						<DataTable class="w-full" :title="value.title" :columns="value.columns" :rows="value.rows" />
+						<DataTable class="w-full" :columns="value.columns" :rows="value.rows" />
 					</slot>
 				</div>
 			</template>
@@ -32,11 +34,11 @@
 // onefm.table binds the DataTable primitive directly — no CardShell, per
 // the contract note: it is data, not a proposal awaiting a decision.
 //
-// WI-003115: since this card has no CardShell, its own expand button opens
-// a read-only, full-width copy of the same table in a large Dialog via its
-// own #expanded slot (defaulting to the plain DataTable if a caller does not
-// override it). Explicit Dialog import — the one-ai IIFE bundle never runs
-// main.js, so nothing registers it globally there.
+// WI-003115: since this card has no CardShell, it carries its own expand
+// button and Dialog, wired the same way: an #expanded slot (default content
+// is the same DataTable, full width, without the row-action column) so a
+// consumer could still override it. Explicit Dialog import — the one-ai IIFE
+// bundle never runs main.js, so nothing registers Dialog globally there.
 import { ref } from "vue";
 import { Icon } from "@iconify/vue";
 import { Dialog } from "frappe-ui";
