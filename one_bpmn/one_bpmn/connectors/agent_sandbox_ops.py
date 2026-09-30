@@ -171,6 +171,56 @@ def read_budget_exceeded(instance) -> str | None:
 	)
 
 
+_FRONTEND_AGENT = "Frontend Agent"
+_FRONTEND_SKILL = "frontend-house-style"
+_FRONTEND_FILE = re.compile(r"\.(vue|js)$", re.IGNORECASE)
+
+
+def frontend_edit_error(instance, action: str, path: str) -> str | None:
+	"""None unless the Frontend Agent is about to change a file before the steps its
+	prompt requires: frontend-house-style loaded for a .vue or .js file, and read_file
+	of the same path before edit_file."""
+	if action not in _PROGRESS_ACTIONS or getattr(instance, "process_model", None) != _FRONTEND_AGENT:
+		return None
+	if _FRONTEND_FILE.search(path) and not _skill_loaded(instance, _FRONTEND_SKILL):
+		return (
+			f"Call load_skill {_FRONTEND_SKILL} before changing {path}. It holds the "
+			"conventions this file has to follow."
+		)
+	# Past the read budget a read would be refused, so the edit must be allowed.
+	if action == "edit_file" and not _has_read(instance, path) and not read_budget_exceeded(instance):
+		return f"Call read_file on {path} before editing it. Never change a file you have not read."
+	return None
+
+
+def _skill_loaded(instance, skill: str) -> bool:
+	runs = frappe.get_all("AI Agent Run", filters={"instance": instance.name}, pluck="name")
+	return bool(runs) and bool(
+		frappe.db.exists("AI Skill Activation", {"skill": skill, "agent_run": ["in", runs]})
+	)
+
+
+def _has_read(instance, path: str) -> bool:
+	"""True once this run read the file, or wrote it itself, whichever form of the path it used."""
+	want = _repo_path(path)
+	for row in frappe.get_all(
+		"Agent Sandbox Run",
+		filters={"caller_instance": instance.name, "state": "completed"},
+		fields=["request_payload"],
+	):
+		payload = frappe.parse_json(row.request_payload) or {}
+		if payload.get("action") not in ("read_file", "write_file"):
+			continue
+		got = _repo_path((payload.get("args") or {}).get("path"))
+		if got and (got == want or got.endswith("/" + want) or want.endswith("/" + got)):
+			return True
+	return False
+
+
+def _repo_path(path: str | None) -> str:
+	return (path or "").strip().removeprefix("./").strip("/")
+
+
 def _a2a_instruction(context_docname: str) -> str:
 	"""The free-text instruction stored on one A2A Task, or "" if there is
 	none — split out purely so a test can mock this one small lookup
@@ -382,6 +432,10 @@ def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_de
 	fields left blank. Row creation itself is wrapped so a DB hiccup here
 	degrades to no row at all rather than breaking the NEVER RAISES
 	guarantee above, except a deadlock, which is re-raised."""
+	gate = frontend_edit_error(instance, action, (args or {}).get("path") or "")
+	if gate:
+		return {"ok": False, "error": gate}
+
 	run = None
 	try:
 		run = frappe.get_doc({
