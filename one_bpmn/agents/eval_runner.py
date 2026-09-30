@@ -927,10 +927,11 @@ def _finalize_eval_run(run_name: str, case_names: list) -> None:
     run.save(ignore_permissions=True)
     frappe.db.commit()
 
+    # Realtime goes to whoever started the run, never "all".
     frappe.publish_realtime(
         "eval_run_completed",
         {"run_name": run.name, "status": run.status},
-        user="all",
+        user=run.owner,
     )
 
 
