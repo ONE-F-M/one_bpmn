@@ -142,7 +142,6 @@ async function initModeler() {
 			const viewerEventBus = viewer.get("eventBus");
 			viewerEventBus.on("commandStack.changed", onCommandStackChanged);
 			attachedViewers.add(viewer);
-			console.log(`[DmnEditor] ✅ Attached commandStack.changed to ${label}`);
 		} catch (e) {
 			console.warn(`[DmnEditor] ⚠ Failed to attach to ${label}:`, e);
 		}
