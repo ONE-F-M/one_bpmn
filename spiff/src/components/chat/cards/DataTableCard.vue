@@ -1,17 +1,30 @@
 <template>
-	<div class="dt-card">
+	<CardShell :title="value.title || ''">
 		<DataTable
-			:title="value.title"
 			:columns="value.columns"
 			:rows="value.rows"
 			:row-action="value.row_action"
 			@row-action="(action, row) => $emit('action', action, row)"
 		/>
-	</div>
+		<template #expanded>
+			<!-- WI-003124: same body, full width — the dialog's slot is not
+			     squeezed to the small card's 94% column, so a wide table gets
+			     room to breathe. Read-only, same as every other #expanded. -->
+			<DataTable
+				:columns="value.columns"
+				:rows="value.rows"
+				:row-action="value.row_action"
+				@row-action="(action, row) => $emit('action', action, row)"
+			/>
+		</template>
+	</CardShell>
 </template>
 <script setup>
-// onefm.table binds the DataTable primitive directly — no CardShell, per
-// the contract note: it is data, not a proposal awaiting a decision.
+// onefm.table now goes through CardShell too (WI-003124), so it can offer
+// the shared #expanded dialog. It still carries no action bar and no
+// done/doneText — it was never a proposal awaiting a decision, only data,
+// and CardShell's action bar and done line stay hidden when unused.
+import CardShell from "../primitives/CardShell.vue";
 import DataTable from "../primitives/DataTable.vue";
 defineProps({
 	value: { type: Object, required: true },
@@ -20,8 +33,3 @@ defineProps({
 });
 defineEmits(["action"]);
 </script>
-<style scoped>
-.dt-card { align-self: flex-start; width: 94%; background: #fff; border: 1px solid #e2e2e2;
-	border-radius: 10px; padding: 10px 12px; }
-:global([data-theme="dark"]) .dt-card { background: #1c1c1c; border-color: #343434; }
-</style>
