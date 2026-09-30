@@ -503,11 +503,23 @@ def run_eval_comparison(
 # Background job
 # ---------------------------------------------------------------------------
 
-def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
+def _execute_eval_suite(run_name: str, case_names: list | None = None, fan_out: bool = False) -> None:
     """Run the suite's cases and finalise the AI Eval Run.
 
     ``case_names`` (WI-001746) restricts the run to a chosen subset; when None
     every case in the suite runs.
+
+    ``fan_out`` distinguishes the two callers this function has. With it False
+    (the default), this is the SYNCHRONOUS path ``adversarial_gate.py`` and
+    ``eval_ci.py`` call inline and depend on returning with a fully finalised
+    run and its results already on the in-memory doc — neither of those must
+    ever be asked to poll or listen for anything, so this path is left exactly
+    as it always has been. The whitelisted entry points (``run_eval_suite``,
+    ``run_eval_cases``, ``run_eval_comparison``) pass fan_out=True: each case's
+    result is durably persisted and broadcast the moment it lands, so a killed
+    job loses only whatever was still in flight rather than the whole run, and
+    a missing result at the end reads as "the lane never got back to us"
+    (Timed Out) rather than an in-process crash (Error).
 
     WI-001361 Scenario 5: an unexpected exception partway through must
     never leave the Run stuck on "Running" — the run is finalised as
@@ -542,29 +554,45 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
         # same agent even if the suite is reassigned mid-run.
         agent_cfg = run.get("agent_configuration") or None
         # One ceiling for the whole run, drawn on by every lane. 0 means none.
+        # The spend is checked against what has actually been COMMITTED to the
+        # database, not an in-memory float, so it holds across separate jobs —
+        # every lane's own committed AI Eval Result rows plus whatever this run
+        # already carried in from a previous, interrupted pass.
         budget = {
             "cap": flt(run.get("spend_cap") or 0),
-            "spent": 0.0,
+            "spent": flt(frappe.db.sql(
+                "select coalesce(sum(cost), 0) from `tabAI Eval Result` "
+                "where parent = %s and parenttype = 'AI Eval Run'",
+                (run.name,),
+            )[0][0]) if run.get("spend_cap") else 0.0,
             "not_run": 0,
             "lock": threading.Lock(),
         }
         rows = _execute_lanes(
-            case_names, run.name, run.backend, agent_cfg, pass_k, _eval_concurrency(), budget
+            case_names, run.name, run.backend, agent_cfg, pass_k, _eval_concurrency(), budget,
+            case_timeout=_case_timeout_seconds() * pass_k,
         )
 
         # Results are appended in the order the cases were asked for, never the
         # order they came back in. Lanes finish out of order — a one-word reply
         # lands long before a connector build — and a run's history has to read
         # the same either way, or comparing two runs becomes guesswork.
-        for case_name in case_names:
+        for idx, case_name in enumerate(case_names, start=1):
             result_row = rows.get(case_name)
             if result_row is None:
                 # A worker that died without recording anything would otherwise
-                # drop the case silently and shrink the denominator.
+                # drop the case silently and shrink the denominator. Fanned out,
+                # missing almost always means its lane's job never reported
+                # back; inline, it means something raised past every guard
+                # below, which is genuinely unexpected.
                 result_row = {
                     "eval_case": case_name,
-                    "status": "Error",
-                    "error_message": "This case produced no result. See the Error Log.",
+                    "status": "Timed Out" if fan_out else "Error",
+                    "error_message": (
+                        "This case produced no result before the run's deadline."
+                        if fan_out else
+                        "This case produced no result. See the Error Log."
+                    ),
                     "runs": 1, "passes": 0, "consistency_rate": 0,
                 }
             # Snapshot what was evaluated, so later edits to the case don't
@@ -575,7 +603,37 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
             ) or {}
             result_row.setdefault("input_user_prompt", snapshot.get("input_user_prompt") or "")
             result_row.setdefault("expected_output", snapshot.get("expected_output") or "")
-            run.append("results", result_row)
+
+            if fan_out:
+                # Durable the moment it lands: a row of its own, committed
+                # immediately, rather than waiting on this function reaching
+                # its own end. A killed job after this point loses nothing that
+                # already got here.
+                row_doc = frappe.get_doc({
+                    "doctype": "AI Eval Result",
+                    "parent": run.name,
+                    "parenttype": "AI Eval Run",
+                    "parentfield": "results",
+                    "idx": idx,
+                    **result_row,
+                })
+                row_doc.insert(ignore_permissions=True)
+                if not frappe.flags.in_test:
+                    frappe.db.commit()
+                frappe.publish_realtime(
+                    "eval_case_completed",
+                    {
+                        "run_name": run.name,
+                        "eval_case": case_name,
+                        "status": result_row["status"],
+                        "done": idx,
+                        "total": len(case_names),
+                    },
+                    user=run.owner,
+                )
+            else:
+                run.append("results", result_row)
+
             if result_row["status"] == "Passed":
                 passed += 1
             elif result_row["status"] == "Skipped":
@@ -584,6 +642,9 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
                 # nothing is acceptable — see run_ai_evals.
                 skipped += 1
             else:
+                # Failed, Error and Timed Out are all a failure to demonstrate
+                # the case works — none of them belongs in the passing column,
+                # and all three count in the executions denominator below.
                 failed += 1
             if result_row["status"] != "Skipped":
                 # Nothing ran, so it cannot be in the denominator. Counting it
@@ -594,6 +655,14 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
                 passing_executions += cint(result_row.get("passes") or 0)
             total_cost += flt(result_row.get("cost", 0))
             total_tokens += (result_row.get("tokens_used") or 0)
+
+        if fan_out:
+            # The rows above were written directly rather than through
+            # run.append, so the in-memory doc has to be brought back in line
+            # with what is actually on the database before anything below
+            # reads run.results (the exception handler, and any caller that
+            # inspects the returned doc).
+            run.reload()
 
         if budget["not_run"]:
             run.stop_reason = (
@@ -628,10 +697,13 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
     if not frappe.flags.in_test:
         frappe.db.commit()
 
+    # WI-000467: realtime goes to whoever started the run, never "all" — a
+    # suite anyone can run must not broadcast its completion (and the case
+    # payloads riding alongside it) to every connected session on the site.
     frappe.publish_realtime(
         "eval_run_completed",
         {"run_name": run.name, "status": run.status},
-        user="all",
+        user=run.owner,
     )
 
 
