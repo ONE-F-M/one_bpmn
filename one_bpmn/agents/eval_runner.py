@@ -180,6 +180,41 @@ def _job_timeout(suite: str, backend: str, case_count: int) -> int:
     return max(MIN_JOB_TIMEOUT_SECONDS, SECONDS_PER_EXECUTION * max(1, case_count) * pass_k)
 
 
+def _find_reusable_running_run(suite_name: str, agent_cfg: str | None, backend: str) -> str | None:
+    """A Running AI Eval Run for the same suite, agent configuration and
+    backend that is still within its deadline, or None.
+
+    One run at a time per suite (same agent, same backend): a second call
+    made while the first is still going must hand back the SAME run rather
+    than starting a competing one that would double the spend and the load on
+    the executor. A Running run whose deadline has already passed is not
+    reused \u2014 the sweep has not caught up with it yet, but a caller here should
+    not be handed a run that is effectively dead.
+    """
+    AIEvalRun = DocType("AI Eval Run")
+    candidates = (
+        frappe.qb.from_(AIEvalRun)
+        .select(AIEvalRun.name, AIEvalRun.started_at, AIEvalRun.backend, AIEvalRun.requested_cases, AIEvalRun.suite)
+        .where(AIEvalRun.suite == suite_name)
+        .where(AIEvalRun.status == "Running")
+        .where(AIEvalRun.backend == backend)
+        .where(
+            AIEvalRun.agent_configuration == agent_cfg
+            if agent_cfg
+            else (AIEvalRun.agent_configuration.isnull() | (AIEvalRun.agent_configuration == ""))
+        )
+        .orderby(AIEvalRun.started_at, order=Order.desc)
+    ).run(as_dict=True)
+    for candidate in candidates:
+        if not candidate.started_at:
+            continue
+        run = frappe.get_doc("AI Eval Run", candidate.name)
+        deadline = add_to_date(candidate.started_at, seconds=_run_deadline_seconds(run))
+        if now_datetime() < deadline:
+            return candidate.name
+    return None
+
+
 @frappe.whitelist()
 def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     """
