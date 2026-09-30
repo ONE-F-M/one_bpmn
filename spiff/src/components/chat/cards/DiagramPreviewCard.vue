@@ -52,3 +52,8 @@ const applyLabel = computed(() =>
 	props.value.mode === "pending_removal" ? "Yes, apply changes" : "Apply to canvas"
 );
 </script>
+<style scoped>
+.diagram-preview-expanded { display: flex; flex-direction: column; gap: 10px; }
+.diagram-preview-summary { margin: 0; font-size: 13px; color: #383838; }
+:global([data-theme="dark"]) .diagram-preview-summary { color: #d4d4d4; }
+</style>
