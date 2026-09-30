@@ -48,6 +48,10 @@
 // actually supplies that slot.
 import { ref } from "vue";
 import { Icon } from "@iconify/vue";
+// Imported directly (not relying on global registration) because this
+// component is shared by both the SPA (main.js registers Dialog globally)
+// and the one-ai IIFE bundle (oneai-entry.js does not).
+import { Dialog } from "frappe-ui";
 
 const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s;
 
