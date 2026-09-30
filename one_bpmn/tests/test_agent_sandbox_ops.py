@@ -364,6 +364,18 @@ class TestSandboxDispatch(AgentSandboxCase):
 		self.assertFalse(result["ok"])
 		self.assertIn("no route to host", result["error"])
 
+	def test_deadlock_creating_the_row_is_raised_not_swallowed(self):
+		from one_bpmn.one_bpmn.doctype.agent_sandbox_run.agent_sandbox_run import AgentSandboxRun
+
+		deadlock = frappe.QueryDeadlockError("Record has changed since last read in table 'tabSeries'")
+		with patch.object(AgentSandboxRun, "insert", side_effect=deadlock):
+			with self.assertRaises(frappe.QueryDeadlockError):
+				self._call()
+
+	def test_row_name_does_not_come_from_a_naming_series(self):
+		self._call()
+		self.assertFalse(self._last_run().name.startswith("DAS-"))
+
 
 class TestRetryPolicy(AgentSandboxCase):
 	"""retry_eligible/retry_dispatch — the once-only automatic re-dispatch

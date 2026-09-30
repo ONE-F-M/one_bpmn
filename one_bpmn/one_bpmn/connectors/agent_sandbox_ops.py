@@ -76,7 +76,11 @@ _WORK_ITEM_ID = re.compile(r"\bWI-\d+\b")
 def work_item_id_for(a2a_task: str | None) -> str:
 	"""The Work Item behind an A2A delegation, so the sandbox can name its branch
 	after it. Prefers the Agent Delegation's reference, then an id written into
-	the instruction; "" when there is neither."""
+	the instruction; "" when there is neither. An eval gets a branch of its own
+	per run and case, so a rerun never resumes an earlier run's edits."""
+	origin = frappe.flags.eval_origin or {}
+	if origin.get("eval_run"):
+		return f"eval/{origin['eval_run']}/{origin.get('eval_case') or 'case'}"
 	if not a2a_task:
 		return ""
 	ref = frappe.db.get_value(
@@ -366,7 +370,7 @@ def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_de
 	and breaks on — omitting them still creates the row, just with those two
 	fields left blank. Row creation itself is wrapped so a DB hiccup here
 	degrades to no row at all rather than breaking the NEVER RAISES
-	guarantee above."""
+	guarantee above, except a deadlock, which is re-raised."""
 	run = None
 	try:
 		run = frappe.get_doc({
@@ -379,6 +383,9 @@ def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_de
 			"work_item_description": work_item_description,
 		})
 		run.insert(ignore_permissions=True)
+	except frappe.QueryDeadlockError:
+		# The database has already rolled back the caller's whole transaction.
+		raise
 	except Exception:
 		frappe.log_error(
 			title=f"Dev Agent Sandbox: {action} could not create a tracking row",
