@@ -12,6 +12,7 @@
   "target_skill",
   "suite",
   "case_kind",
+  "first_assertion_pass_threshold",
   "source_run",
   "source_security_event",
   "source_feedback",
