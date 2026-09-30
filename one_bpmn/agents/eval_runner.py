@@ -239,17 +239,23 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     if not frappe.db.exists("AI Eval Suite", suite_name):
         frappe.throw(_("AI Eval Suite '{0}' not found.").format(suite_name))
 
+    # WI-001821: record which agent this run tested. Without it a later
+    # comparison has to assume the suite still points where it did at run time.
+    agent_cfg = frappe.db.get_value("AI Eval Suite", suite_name, "agent_configuration")
+
+    # One run at a time per suite (same agent, same backend): a second call
+    # while one is still Running reuses it instead of starting a competitor.
+    reusable = _find_reusable_running_run(suite_name, agent_cfg, backend)
+    if reusable:
+        return reusable
+
     run = frappe.new_doc("AI Eval Run")
     run.suite = suite_name
     run.status = "Running"
     run.backend = backend
     run.started_at = now_datetime()
     run.scope = "Suite"  # this entry point always runs the whole suite
-    # WI-001821: record which agent this run tested. Without it a later
-    # comparison has to assume the suite still points where it did at run time.
-    run.agent_configuration = frappe.db.get_value(
-        "AI Eval Suite", suite_name, "agent_configuration"
-    )
+    run.agent_configuration = agent_cfg
     # The caller is already authorised above (suite read gate + evaluatable
     # check, or System Manager). The AI Eval Run is a system-written record of
     # that action, so it must not additionally demand write rights on the Run
@@ -264,6 +270,8 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
         queue="bpmn_ai_agent",
         run_name=run.name,
         fan_out=True,
+        job_id=f"eval-run::{run.name}",
+        deduplicate=True,
         timeout=_job_timeout(suite_name, backend, frappe.db.count("AI Eval Case", {"suite": suite_name})),
     )
 
