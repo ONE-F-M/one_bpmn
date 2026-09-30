@@ -150,7 +150,6 @@ async function initModeler() {
 	if (!props.readonly) {
 		// Hook 1: when a viewer is first created
 		modeler.on("viewer.created", ({ type, viewer }) => {
-			console.log(`[DmnEditor] viewer.created: ${type}`);
 			attachToViewer(viewer, `viewer.created:${type}`);
 		});
 
