@@ -404,6 +404,248 @@ class TestWorkerContext(_ConcurrencyCase):
 			frappe.db.commit()
 
 
+class _ThreadedEnqueue:
+	"""Stands in for ``frappe.enqueue`` in the fan-out tests: instead of a real
+	RQ/Redis queue, every enqueued lane job runs on its own thread with its
+	own Frappe context — exactly the shape a real RQ worker gives it, minus
+	the process boundary. Each job may itself enqueue the next lane (that is
+	how the real code hands work along), so ``join_all`` keeps joining
+	threads until no more appear.
+	"""
+
+	_RESERVED = {"queue", "timeout", "event", "is_async", "job_name", "now",
+				 "enqueue_after_commit", "at_front", "job_id"}
+
+	def __init__(self, site: str):
+		self.site = site
+		self.threads: list[threading.Thread] = []
+		self.lock = threading.Lock()
+
+	def __call__(self, method, **kwargs):
+		target = frappe.get_attr(method) if isinstance(method, str) else method
+		job_kwargs = {k: v for k, v in kwargs.items() if k not in self._RESERVED}
+		thread = threading.Thread(target=self._run, args=(target, job_kwargs), daemon=True)
+		with self.lock:
+			self.threads.append(thread)
+		thread.start()
+
+	def _run(self, target, job_kwargs):
+		frappe.init(site=self.site)
+		frappe.connect()
+		try:
+			target(**job_kwargs)
+		finally:
+			frappe.destroy()
+
+	def join_all(self, timeout=10):
+		deadline = time.time() + timeout
+		while time.time() < deadline:
+			with self.lock:
+				pending = [t for t in self.threads if t.is_alive()]
+			if not pending:
+				return
+			for t in pending:
+				t.join(timeout=0.2)
+
+
+class TestFanOutExecution(_ConcurrencyCase):
+	"""fan_out=True: one RQ job per lane instead of one thread per lane, but
+	the guarantees a caller relies on — every case exactly once, results in
+	case order, a shared document never worked on twice at once, the
+	concurrency cap respected — must hold exactly as they do for the thread
+	pool.
+	"""
+
+	def _run_fanned_out(self, recorder, concurrency: int, case_count: int, context_pairs=None):
+		self.suite.db_set("eval_concurrency", None, update_modified=False)
+		frappe.db.set_single_value("Processa Settings", "eval_concurrency", concurrency)
+		names = []
+		if context_pairs:
+			for title, ctx in context_pairs:
+				names.append(self._case(title, ctx).name)
+		else:
+			names = [self._case(f"c{n}").name for n in range(case_count)]
+
+		run = frappe.get_doc({
+			"doctype": "AI Eval Run", "suite": self.suite.name, "status": "Running",
+			"backend": "live", "scope": "Suite", "started_at": frappe.utils.now_datetime(),
+		})
+		run.flags.ignore_mandatory = True
+		run.flags.ignore_links = True
+		run.insert(ignore_permissions=True)
+		self.runs.append(run.name)
+		frappe.db.commit()
+
+		enqueue = _ThreadedEnqueue(frappe.local.site)
+		with patch(RUNNER_CASE, new=recorder), patch.object(frappe, "enqueue", enqueue):
+			_execute_eval_suite(run.name, case_names=names, fan_out=True)
+			enqueue.join_all()
+		frappe.db.commit()
+		run.reload()
+		return run, names
+
+	def test_thirty_independent_cases_run_as_lane_jobs_with_the_cap_respected(self):
+		recorder = _Recorder(delay=0.03)
+		run, names = self._run_fanned_out(recorder, concurrency=4, case_count=30)
+
+		self.assertLessEqual(recorder.peak, 4, "more than the concurrency cap was in flight")
+		self.assertGreater(recorder.peak, 1, "nothing overlapped — fan-out never engaged")
+		self.assertEqual(sorted(recorder.order), sorted(names), "every case must run exactly once")
+		self.assertEqual(len(run.results), 30)
+		self.assertEqual([r.eval_case for r in run.results], names, "results must land in case order")
+		self.assertEqual(run.total_cases, 30)
+		self.assertEqual(run.status, "Passed")
+		self.assertTrue(run.ended_at)
+
+	def test_a_shared_document_is_never_run_twice_at_once_under_fan_out(self):
+		shared = '{"context_doctype": "A2A Task", "context_docname": "A2A-fanout"}'
+		pairs = [(f"shared{n}", shared) for n in range(4)] + [(f"solo{n}", None) for n in range(4)]
+		recorder = _Recorder(delay=0.03)
+		run, names = self._run_fanned_out(recorder, concurrency=8, case_count=0, context_pairs=pairs)
+
+		self.assertEqual(recorder.concurrent_docs, [], "two executions shared one document")
+		self.assertGreater(recorder.peak, 1, "the independent cases should still overlap")
+		self.assertEqual(len(run.results), 8)
+
+
+class TestFanOutTimeouts(_ConcurrencyCase):
+	"""A case with no result when its lane job dies, or when the run's own
+	deadline passes, must not vanish from the run — it is recorded Timed Out
+	and counts as a failure, the same as Error.
+	"""
+
+	def _new_run(self, case_names, started_at=None):
+		run = frappe.get_doc({
+			"doctype": "AI Eval Run", "suite": self.suite.name, "status": "Running",
+			"backend": "live", "scope": "Suite",
+			"started_at": started_at or frappe.utils.now_datetime(),
+		})
+		run.flags.ignore_mandatory = True
+		run.flags.ignore_links = True
+		run.insert(ignore_permissions=True)
+		self.runs.append(run.name)
+		frappe.db.commit()
+		return run
+
+	def test_a_killed_lane_job_leaves_only_its_own_case_missing(self):
+		"""The lane job raises RQ's own timeout kill partway through its lane.
+		The case it had already finished is on the run; the case it was
+		running when it died is not — until the sweep recovers it."""
+		from rq.timeouts import JobTimeoutException
+
+		ok_case = self._case("finished").name
+		stuck_case = self._case("stuck").name
+		case_names = [ok_case, stuck_case]
+		run = self._new_run(case_names, started_at=add_to_date(frappe.utils.now_datetime(), seconds=-9999))
+
+		def flaky(case, eval_run=None, agent_cfg=None):
+			if case.name == stuck_case:
+				raise JobTimeoutException("simulated RQ kill")
+			return {"eval_case": case.name, "status": "Passed", "assertion_results": "[]"}
+
+		with patch(RUNNER_CASE, new=flaky):
+			with self.assertRaises(JobTimeoutException):
+				_run_eval_lane_job(
+					run.name, case_names, "live", None, 1, lane_index=0, concurrency=1,
+				)
+
+		# The finished case survived the kill; the stuck one has no row yet.
+		frappe.db.commit()
+		rows = frappe.get_all(
+			"AI Eval Result", filters={"parent": run.name, "parenttype": "AI Eval Run"},
+			fields=["eval_case", "status"],
+		)
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0].eval_case, ok_case)
+		self.assertEqual(rows[0].status, "Passed")
+
+		# The deadline sweep is what finalises a run whose crashed lane never
+		# got to check whether it was the last one home.
+		sweep_stale_eval_runs()
+		run.reload()
+		self.assertEqual(run.status, "Failed")
+		by_case = {r.eval_case: r for r in run.results}
+		self.assertEqual(by_case[ok_case].status, "Passed")
+		self.assertEqual(by_case[stuck_case].status, "Timed Out")
+
+	def test_the_deadline_sweep_finalises_a_run_no_lane_job_ever_finished(self):
+		"""Even with no crash to point to, a run past its deadline with a case
+		that has no result must not be left Running forever."""
+		ok_case = self._case("finished").name
+		missing_case = self._case("missing").name
+		case_names = [ok_case, missing_case]
+		run = self._new_run(case_names, started_at=add_to_date(frappe.utils.now_datetime(), seconds=-99999))
+		_write_eval_result_row(run.name, ok_case, {"eval_case": ok_case, "status": "Passed"}, 1)
+		frappe.db.commit()
+
+		sweep_stale_eval_runs()
+
+		run.reload()
+		self.assertEqual(run.status, "Failed")
+		by_case = {r.eval_case: r for r in run.results}
+		self.assertEqual(by_case[ok_case].status, "Passed")
+		self.assertEqual(by_case[missing_case].status, "Timed Out")
+
+	def test_timed_out_counts_as_failure_in_pass_rate(self):
+		"""Timed Out must count the same way Error does: a failure, and in the
+		pass_rate denominator — never excluded the way Skipped is."""
+		ok_case = self._case("finished").name
+		missing_case = self._case("missing").name
+		case_names = [ok_case, missing_case]
+		run = self._new_run(case_names, started_at=add_to_date(frappe.utils.now_datetime(), seconds=-99999))
+		_write_eval_result_row(
+			run.name, ok_case,
+			{"eval_case": ok_case, "status": "Passed", "runs": 1, "passes": 1}, 1,
+		)
+		frappe.db.commit()
+
+		sweep_stale_eval_runs()
+
+		run.reload()
+		self.assertEqual(run.failed_cases, 1)
+		self.assertEqual(run.total_executions, 2, "Timed Out must still be counted, not skipped")
+		self.assertEqual(run.pass_rate, 50)
+
+	def test_a_running_run_short_of_its_deadline_is_left_alone(self):
+		case_names = [self._case("only").name]
+		run = self._new_run(case_names)  # started just now — nowhere near its deadline
+		sweep_stale_eval_runs()
+		run.reload()
+		self.assertEqual(run.status, "Running")
+
+	def test_finalising_twice_at_once_only_finalises_once(self):
+		"""Two callers racing to finalise the same run (two lane jobs finishing
+		together, or a lane job and the sweep) must not double-finalise."""
+		case_names = [self._case(f"c{n}").name for n in range(2)]
+		run = self._new_run(case_names, started_at=add_to_date(frappe.utils.now_datetime(), seconds=-99999))
+		for i, case_name in enumerate(case_names, start=1):
+			_write_eval_result_row(
+				run.name, case_name, {"eval_case": case_name, "status": "Passed"}, i,
+			)
+		frappe.db.commit()
+
+		results = []
+
+		def finalize_once():
+			frappe.init(site=frappe.local.site)
+			frappe.connect()
+			try:
+				_force_finalize_if_running(run.name, case_names)
+				results.append(frappe.db.get_value("AI Eval Run", run.name, "ended_at"))
+			finally:
+				frappe.destroy()
+
+		threads = [threading.Thread(target=finalize_once) for _ in range(2)]
+		for t in threads:
+			t.start()
+		for t in threads:
+			t.join()
+
+		run.reload()
+		self.assertEqual(run.status, "Passed")
+		self.assertEqual(len(run.results), 2, "finalising twice must not duplicate the missing-result fill-in")
+
+
 class TestFailureIsolation(_ConcurrencyCase):
 	def test_a_case_that_raises_becomes_an_error_row_and_the_rest_finish(self):
 		names = [self._case(f"c{n}").name for n in range(5)]
