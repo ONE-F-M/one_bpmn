@@ -16,7 +16,16 @@
 					</button>
 					<div class="flex items-center gap-2 relative min-w-0">
 						<h1 class="text-sm font-semibold text-gray-800 truncate max-w-[120px] sm:max-w-[180px] lg:max-w-[260px]" :title="processName">{{ processName }}</h1>
-						
+
+						<!-- Copy ID Button -->
+						<button
+							@click="copyProcessId"
+							class="p-1 rounded transition-colors text-gray-500 hover:bg-gray-100"
+							:title="`Copy ID: ${props.process}`"
+						>
+							<Icon :icon="idCopied ? 'lucide:check' : 'lucide:copy'" class="w-3.5 h-3.5" />
+						</button>
+
 						<!-- Status Icon -->
 						<button
 							@click="showStatusPopup = !showStatusPopup"
