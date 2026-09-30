@@ -76,6 +76,14 @@ class TestPreserverMatchesTheInlinedCopy(FrappeTestCase):
 		)
 		self.assertEqual(helpers.overwrite_warning(NEW_XML), "")
 
+	def test_a_diagram_that_is_not_xml_raises(self):
+		from xml.etree import ElementTree as ET
+
+		with self.assertRaises(ET.ParseError):
+			helpers.extract_configured_elements("<bpmn:definitions")
+		with self.assertRaises(ET.ParseError):
+			helpers.transfer_properties(OLD_XML, "<bpmn:definitions")
+
 
 class TestExtractJson(FrappeTestCase):
 	def test_plain_fenced_and_embedded_objects(self):

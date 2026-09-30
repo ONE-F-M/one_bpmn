@@ -177,7 +177,9 @@ def overwrite_warning(xml: str) -> str:
 
 def transfer_properties(old_xml: str, new_xml: str) -> tuple:
 	"""Copy configuration from old_xml onto the same ids in new_xml; return (merged_xml, removed)."""
-	if not old_xml or not old_xml.strip() or not new_xml or not new_xml.strip():
+	if not (old_xml or "").strip():
+		return new_xml, []
+	if not (new_xml or "").strip():
 		return new_xml, []
 	old_configured = extract_configured_elements(old_xml)
 	if not old_configured:
@@ -211,10 +213,8 @@ def format_removal_warning(removed_elements: list) -> str:
 		)
 	]
 	for elem in removed_elements:
-		line = _("• **{0}** ({1})").format(
-			elem.get("name", elem.get("id", _("Unknown"))), elem.get("type", _("Element"))
-		)
-		configs = elem.get("configs", [])
+		line = _("• **{0}** ({1})").format(elem["name"], elem["type"])
+		configs = elem["configs"]
 		if configs:
 			detail = list(configs[:3])
 			if len(configs) > 3:
@@ -267,9 +267,9 @@ def summarize_configured_elements(configured: dict) -> str:
 			"This will completely replace the existing diagram. The following shapes have configurations that will be lost:\n"
 		)
 	]
-	for elem_id, data in configured.items():
+	for data in configured.values():
 		config_labels = []
-		for clark in data.get("attrs", {}):
+		for clark in data["attrs"]:
 			label = _attr_label(clark)
 			if label not in config_labels:
 				config_labels.append(label)
@@ -277,7 +277,7 @@ def summarize_configured_elements(configured: dict) -> str:
 			config_labels.append(_("Extension Elements"))
 		if data.get("documentation"):
 			config_labels.append(_("Documentation"))
-		line = _("• **{0}** ({1})").format(data.get("name", elem_id), data.get("type", _("Element")))
+		line = _("• **{0}** ({1})").format(data["name"], data["type"])
 		if config_labels:
 			line = line + " - " + ", ".join(config_labels[:4])
 			if len(config_labels) > 4:
@@ -303,12 +303,12 @@ def _copy_configuration(new_elem, old_data: dict) -> None:
 def _config_descriptions(old_data: dict) -> list:
 	configs = [_attr_label(clark) + ": " + value for clark, value in old_data["attrs"].items()]
 	if old_data["extension_elements_xml"]:
-		configs.append("Extension Elements (pre/post scripts or other)")
+		configs.append(_("Extension Elements (pre/post scripts or other)"))
 	if old_data.get("documentation"):
 		preview = old_data["documentation"][:80]
 		if len(old_data["documentation"]) > 80:
 			preview = preview + "…"
-		configs.append("Documentation: " + preview)
+		configs.append(_("Documentation: {0}").format(preview))
 	return configs
 
 
@@ -321,15 +321,9 @@ def _is_extension_attr(attr_name: str) -> bool:
 	return any(attr_name.startswith(uri) for uri in EXTENSION_NS_URIS)
 
 
-def _short_attr_name(attr_name: str) -> str:
-	if "}" in attr_name:
-		return attr_name.split("}", 1)[1]
-	return attr_name
-
-
 def _attr_label(clark_name: str) -> str:
-	local = _short_attr_name(clark_name)
-	return ATTR_FAMILY_LABELS.get(local, local)
+	local = clark_name.split("}", 1)[1] if "}" in clark_name else clark_name
+	return _(ATTR_FAMILY_LABELS.get(local, local))
 
 
 def _element_type_label(tag: str) -> str:
