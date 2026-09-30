@@ -29,7 +29,6 @@ import ActionButton from "../primitives/ActionButton.vue";
 import CardShell from "../primitives/CardShell.vue";
 import DiagramThumb from "../primitives/DiagramThumb.vue";
 
-const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s;
 const expandedHeight = computed(() => Math.round(window.innerHeight * 0.7));
 
 const props = defineProps({
