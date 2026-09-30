@@ -26,6 +26,36 @@
 				</Row>
 			</Stack>
 		</Stack>
+		<!-- WI-003119: same checklist, rendered again at 7xl inside the shared
+		     CardShell expand dialog \u2014 useful once a run has many cases. -->
+		<template #expanded>
+			<Stack :gap="12">
+				<Stack v-for="(c, i) in value.cases" :key="i" :gap="4" class="tc-case">
+					<Heading :text="c.scenario || `Check ${i + 1}`" />
+					<TextBlock v-if="c.when" class="tc-line"><span class="tc-label">When</span>{{ c.when }}</TextBlock>
+					<TextBlock v-if="c.expected" class="tc-line"><span class="tc-label">Expect</span>{{ c.expected }}</TextBlock>
+					<Row :gap="8" class="tc-run-row">
+						<ActionButton
+							v-if="canApply"
+							:label="results[i] && results[i].loading ? 'Running…' : 'Run this check'"
+							kind="outline"
+							:disabled="busy || (results[i] && results[i].loading)"
+							@press="run(i)"
+						/>
+						<span
+							v-if="results[i] && !results[i].loading"
+							class="tc-chip"
+							:class="results[i].passed ? 'tc-chip--pass' : 'tc-chip--fail'"
+						>
+							{{ results[i].passed ? "✓ Passed" : "✗ Failed" }}
+						</span>
+						<TextBlock v-if="results[i] && !results[i].loading && results[i].summary" class="tc-result">
+							{{ results[i].summary }}
+						</TextBlock>
+					</Row>
+				</Stack>
+			</Stack>
+		</template>
 	</CardShell>
 </template>
 <script setup>
