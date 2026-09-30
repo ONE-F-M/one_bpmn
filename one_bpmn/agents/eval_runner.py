@@ -485,6 +485,8 @@ def run_eval_comparison(
             run_name=run_name,
             case_names=case_names,
             fan_out=True,
+            job_id=f"eval-run::{run_name}",
+            deduplicate=True,
             timeout=_job_timeout(suite_name, "live", len(case_names)),
         )
 
