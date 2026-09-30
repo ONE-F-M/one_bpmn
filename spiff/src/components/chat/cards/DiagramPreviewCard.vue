@@ -7,6 +7,17 @@
 			<ActionButton :label="value.mode === 'pending_removal' ? 'No, keep it' : 'Discard'" kind="ghost"
 				:disabled="busy || done" @press="$emit('action', 'dismiss')" />
 		</template>
+		<!-- WI-003126: the expanded dialog view. CardShell shows the expand
+		     icon only because this slot is provided, and teleports it out
+		     of the 420px docked pane so the diagram isn't clipped. -->
+		<template #expanded>
+			<div class="diagram-preview-expanded">
+				<p v-if="value.summary" class="diagram-preview-expanded-summary">{{ value.summary }}</p>
+				<!-- NavigatedViewer (already used by DiagramThumb) supports
+				     pan and zoom out of the box — no extra wiring needed. -->
+				<DiagramThumb :xml="value.bpmn_xml" :height="expandedHeight" large />
+			</div>
+		</template>
 	</CardShell>
 </template>
 <script setup>
@@ -18,6 +29,8 @@ import { computed } from "vue";
 import ActionButton from "../primitives/ActionButton.vue";
 import CardShell from "../primitives/CardShell.vue";
 import DiagramThumb from "../primitives/DiagramThumb.vue";
+
+const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s;
 
 const props = defineProps({
 	value: { type: Object, required: true },
