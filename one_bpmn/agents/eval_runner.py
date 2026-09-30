@@ -989,7 +989,7 @@ def _budget_draw(budget: dict | None, cost) -> None:
 
 def _lane_worker(site: str, lanes: "queue.Queue", results: dict, lock: "threading.Lock",
                  run_name: str, backend: str, agent_cfg: str | None, pass_k: int,
-                 budget: dict | None = None) -> None:
+                 budget: dict | None = None, case_timeout: float | None = None) -> None:
     """One worker: its own Frappe context, then lanes until the queue is empty.
 
     The context is set up ONCE per worker rather than per lane — a connect is
@@ -1008,7 +1008,7 @@ def _lane_worker(site: str, lanes: "queue.Queue", results: dict, lock: "threadin
             except queue.Empty:
                 return
             try:
-                rows = _run_lane(lane, run_name, backend, agent_cfg, pass_k, budget)
+                rows = _run_lane(lane, run_name, backend, agent_cfg, pass_k, budget, case_timeout)
                 # Each worker owns its own transaction, so its writes are its own
                 # to commit. Without this the case's AI Agent Runs — and every
                 # judge call recorded against them — roll back when the thread
@@ -1024,7 +1024,7 @@ def _lane_worker(site: str, lanes: "queue.Queue", results: dict, lock: "threadin
 
 def _execute_lanes(case_names: List[str], run_name: str, backend: str,
                    agent_cfg: str | None, pass_k: int, concurrency: int,
-                   budget: dict | None = None) -> dict:
+                   budget: dict | None = None, case_timeout: float | None = None) -> dict:
     """Run every case, side by side up to ``concurrency`` lanes, and return
     {case: result row}.
 
@@ -1032,12 +1032,16 @@ def _execute_lanes(case_names: List[str], run_name: str, backend: str,
     threads, no per-worker connect. That is not an optimisation so much as a
     guarantee — the default configuration runs the code path that has been in
     production all along.
+
+    ``case_timeout`` bounds one case's total time (all of its pass_k
+    repetitions) before it is recorded Timed Out; see
+    ``_run_case_with_timeout``.
     """
     lanes = _lanes_for(case_names)
     if concurrency <= 1 or len(lanes) <= 1:
         rows = {}
         for lane in lanes:
-            rows.update(_run_lane(lane, run_name, backend, agent_cfg, pass_k, budget))
+            rows.update(_run_lane(lane, run_name, backend, agent_cfg, pass_k, budget, case_timeout))
         return rows
 
     # Each worker reads through its OWN database connection, so it cannot see
@@ -1058,7 +1062,7 @@ def _execute_lanes(case_names: List[str], run_name: str, backend: str,
         threading.Thread(
             target=_lane_worker,
             args=(frappe.local.site, pending, results, lock, run_name, backend, agent_cfg,
-                  pass_k, budget),
+                  pass_k, budget, case_timeout),
             name=f"eval-{run_name}-{index}",
             daemon=True,
         )
