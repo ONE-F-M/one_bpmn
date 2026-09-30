@@ -46,7 +46,11 @@
 		</div>
 
 		<div v-show="tab === 'conversations'" class="flex-1 overflow-auto">
-			<div v-if="!loading && !conversations.length" class="p-10 text-center text-sm text-gray-500">
+			<div v-if="loading" class="flex flex-col items-center justify-center gap-3 p-10 text-sm text-gray-500">
+				<Icon icon="lucide:loader" class="w-6 h-6 text-gray-400 animate-spin" />
+				<span>Loading conversations…</span>
+			</div>
+			<div v-else-if="!conversations.length" class="p-10 text-center text-sm text-gray-500">
 				No conversations match those filters.
 			</div>
 			<table v-else class="w-full text-sm">
