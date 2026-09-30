@@ -1623,6 +1623,14 @@ def _publish_chat_turn_output(instance, output) -> None:
 		pass
 
 
+def _record_ai_failure(task, task_cfg: dict, bpmn_id: str, error_code: str, error_message: str) -> None:
+	"""Write the error code and message, and blank both output names so the previous turn's answer is gone."""
+	task.data[f"{bpmn_id}_error_code"] = error_code
+	task.data[f"{bpmn_id}_error_message"] = error_message
+	task.data[task_cfg.get("aiOutputVariable") or f"{bpmn_id}_output"] = None
+	task.data[f"{bpmn_id}_output"] = None
+
+
 def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: str = None) -> None:
 	"""
 	Execute an AI Agent Task via the executor package.
@@ -2072,8 +2080,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 
 		_refusal = model_health.refuse_new_run(config.model)
 		if _refusal:
-			task.data[f"{bpmn_id}_error_code"] = ErrorCode.PROVIDER_DISABLED.value
-			task.data[f"{bpmn_id}_error_message"] = _refusal
+			_record_ai_failure(task, task_cfg, bpmn_id, ErrorCode.PROVIDER_DISABLED.value, _refusal)
 			frappe.logger("one_bpmn").warning(
 				f"AI Agent Task {bpmn_id}: refused — {_refusal}"
 			)
@@ -2192,8 +2199,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			title=f"BPMN AI Agent Task: unexpected error ({bpmn_id})",
 			message=frappe.get_traceback(),
 		)
-		task.data[f"{bpmn_id}_error_code"] = "UNEXPECTED_ERROR"
-		task.data[f"{bpmn_id}_error_message"] = "See Frappe Error Log for details."
+		_record_ai_failure(task, task_cfg, bpmn_id, "UNEXPECTED_ERROR", "See Frappe Error Log for details.")
 		# Observability: finalize on exception
 		try:
 			from one_bpmn.agents.observability import finalize_ai_run_on_exception
@@ -2378,6 +2384,9 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# Completing a resumed run: drop the waiting marker the suspension left
 		if isinstance(task.data, dict):
 			task.data.pop("_bpmn_ai_waiting_human", None)
+			# A failure from an earlier pass of a looping map must not mark this answer as failed.
+			task.data.pop(f"{bpmn_id}_error_code", None)
+			task.data.pop(f"{bpmn_id}_error_message", None)
 		output_var = task_cfg.get("aiOutputVariable") or f"{bpmn_id}_output"
 		task.data[output_var] = result.output
 		# The shape's own name is the key every downstream reader knows: the
@@ -2618,16 +2627,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				f"error: {result.error_message}"
 			),
 		)
-		task.data[f"{bpmn_id}_error_code"]    = error_code_name
-		task.data[f"{bpmn_id}_error_message"] = result.error_message
-
-		# Without aiStopOnError the flow continues past the failed task, so
-		# the declared output variable must still exist (as None) — otherwise
-		# a downstream gateway condition referencing it dies on a NameError
-		# instead of routing to its default branch.
-		output_var = task_cfg.get("aiOutputVariable") or f"{bpmn_id}_output"
-		task.data.setdefault(output_var, None)
-		task.data.setdefault(f"{bpmn_id}_output", None)
+		# Without aiStopOnError the flow continues, so gateways still find both output names, as None.
+		_record_ai_failure(task, task_cfg, bpmn_id, error_code_name, result.error_message)
 
 		# If the BPMN task is configured to stop on error, raise so the
 		# engine loop in _run_engine_steps halts and the instance is
