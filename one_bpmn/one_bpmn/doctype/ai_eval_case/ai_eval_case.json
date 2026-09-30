@@ -8,6 +8,7 @@
  "engine": "InnoDB",
  "field_order": [
   "title",
+  "first_assertion_pass_threshold",
   "case_type",
   "target_skill",
   "suite",
