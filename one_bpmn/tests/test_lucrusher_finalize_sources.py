@@ -82,3 +82,38 @@ class TestSkillsCiteSourcesPatch(FrappeTestCase):
 			self.assertIn("is not listed", body, name)
 		self.assertIn("shapes, source}", bodies[patch.TOPOLOGY_SKILL])
 		self.assertIn("prompt_block, source}", bodies[patch.PROSALLY_SKILL])
+
+
+class TestBaselineStateInSessionStatePatch(FrappeTestCase):
+	def test_hidden_state_note_moves_into_session_state(self):
+		from one_bpmn.one_bpmn.patches.v1_0 import lucrusher_baseline_state_in_session_state as patch
+		from one_bpmn.one_bpmn.patches.v1_0.seed_lucrusher_eval_suite import SUITE_TITLE
+
+		suite = frappe.db.get_value("AI Eval Suite", {"title": SUITE_TITLE}, "name") or frappe.get_doc(
+			{"doctype": "AI Eval Suite", "title": SUITE_TITLE}
+		).insert(ignore_permissions=True).name
+		case = frappe.get_doc({
+			"doctype": "AI Eval Case",
+			"suite": suite,
+			"title": "_Test state note",
+			"input_user_prompt": "now write the ProsAlly prompts",
+			"input_context": json.dumps({
+				"conversation_messages": [
+					{"message_type": "User", "text": "approved"},
+					{"message_type": "Tool", "text": "__lucrusher_state__", "metadata": {
+						"intent": "MIGRATION_TASKS_CONFIRMED",
+						"topology": {"processes": [{"process_name": "Visa Request"}]},
+						"codebase_scan": None,
+					}},
+				],
+				"session_state": {"lucid_doc:abc": {"summary": "two pages"}},
+			}),
+		}).insert(ignore_permissions=True)
+
+		patch.execute()
+
+		context = json.loads(frappe.db.get_value("AI Eval Case", case.name, "input_context"))
+		self.assertEqual([m["text"] for m in context["conversation_messages"]], ["approved"])
+		self.assertEqual(context["session_state"]["topology"], {"processes": [{"process_name": "Visa Request"}]})
+		self.assertEqual(context["session_state"]["lucid_doc:abc"], {"summary": "two pages"})
+		self.assertNotIn("codebase_scan", context["session_state"])
