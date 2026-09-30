@@ -597,6 +597,339 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None, fan_out: 
     )
 
 
+# ---------------------------------------------------------------------------
+# Fan-out execution: one RQ job per lane
+# ---------------------------------------------------------------------------
+#
+# Threads share one process; a job that runs too long can only be *waited
+# out*, and a worker restart during a suite loses every result the old loop
+# had not yet written to the run. A lane job fixes both: it is its own RQ job
+# with its own timeout, and it writes and commits each case's AI Eval Result
+# row the moment that case finishes — a killed lane job loses only the one
+# case it was in the middle of, never the ones before it.
+#
+# Lanes are handed out as a static partition, not a shared queue: worker slot
+# ``lane_index`` (0..concurrency-1) runs lane ``lane_index``, then
+# ``lane_index + concurrency``, then ``lane_index + 2 * concurrency``, and so
+# on, each hop enqueued by the job before it. That keeps at most
+# ``concurrency`` lane jobs in flight without any shared mutable cursor to
+# race over. The cost is a lane job that dies stopping its own future lanes
+# too — the deadline sweep is what recovers those as Timed Out.
+
+
+def _eval_result_row_defaults(case_name: str, row: dict) -> dict:
+    """Fill in the snapshot fields every result row needs, whichever path
+    produced it (case, exception, or a never-ran case at finalise time)."""
+    snapshot = frappe.db.get_value(
+        "AI Eval Case", case_name, ["input_user_prompt", "expected_output"], as_dict=True
+    ) or {}
+    row = dict(row)
+    row["eval_case"] = case_name
+    row.setdefault("input_user_prompt", snapshot.get("input_user_prompt") or "")
+    row.setdefault("expected_output", snapshot.get("expected_output") or "")
+    return row
+
+
+def _write_eval_result_row(run_name: str, case_name: str, row: dict, idx: int) -> None:
+    """Insert one case's result directly as a child row of the run, durably.
+
+    Written and committed by the caller immediately after \u2014 this function
+    only builds and inserts the row; it does not commit, so a caller writing
+    several rows in one case's retry chain still controls its own commit
+    point.
+    """
+    payload = _eval_result_row_defaults(case_name, row)
+    payload.update({
+        "doctype": "AI Eval Result",
+        "parent": run_name,
+        "parenttype": "AI Eval Run",
+        "parentfield": "results",
+        "idx": idx,
+    })
+    frappe.get_doc(payload).insert(ignore_permissions=True)
+
+
+def _is_job_timeout_exception(exc: BaseException) -> bool:
+    """True for RQ's own timeout kill, which must never be swallowed as an
+    ordinary case failure \u2014 it has to keep propagating so the job actually
+    dies and leaves its in-flight case for the deadline sweep to record."""
+    try:
+        from rq.timeouts import JobTimeoutException
+    except Exception:
+        return False
+    return isinstance(exc, JobTimeoutException)
+
+
+def _fan_out_eval_suite(run, case_names: list) -> None:
+    """Kick off a run's lanes as background jobs and return immediately.
+
+    Called by ``_execute_eval_suite(fan_out=True)``. Spend ceilings are out of
+    scope for the fanned-out path (WI note: separate item) \u2014 every case in
+    every lane runs.
+    """
+    if not case_names:
+        _finalize_eval_run(run.name, case_names)
+        return
+
+    pass_k = 1 if run.backend in ("replay", "deterministic") else max(1, cint(
+        frappe.db.get_value("AI Eval Suite", run.suite, "pass_k")
+    ))
+    agent_cfg = run.get("agent_configuration") or None
+    lanes = _lanes_for(case_names)
+    concurrency = max(1, min(_eval_concurrency(), len(lanes)))
+
+    # The lane jobs read through their own connections; anything this
+    # transaction has not committed does not exist as far as they are
+    # concerned. Skipped under test, where FrappeTestCase's rollback is what
+    # cleans up the fixtures afterwards.
+    if not frappe.flags.in_test:
+        frappe.db.commit()
+
+    for lane_index in range(concurrency):
+        frappe.enqueue(
+            "one_bpmn.agents.eval_runner._run_eval_lane_job",
+            queue="bpmn_ai_agent",
+            run_name=run.name,
+            case_names=case_names,
+            backend=run.backend,
+            agent_cfg=agent_cfg,
+            pass_k=pass_k,
+            lane_index=lane_index,
+            concurrency=concurrency,
+            timeout=_lane_timeout_seconds(lanes[lane_index], pass_k),
+        )
+
+
+def _run_eval_lane_job(run_name: str, case_names: list, backend: str, agent_cfg: str | None,
+                        pass_k: int, lane_index: int, concurrency: int) -> None:
+    """One lane, as its own RQ job.
+
+    Every case this lane runs gets its own AI Eval Result row, written and
+    committed the instant that case finishes \u2014 so a job killed on its
+    timeout loses only the case it was running, never the ones before it.
+    A ``JobTimeoutException`` is deliberately let through: catching it would
+    turn RQ's own kill signal into an ordinary "this case errored" row, which
+    is not what happened and would stop the job from actually dying on
+    schedule.
+    """
+    lanes = _lanes_for(case_names)
+    if lane_index >= len(lanes):
+        return
+    lane = lanes[lane_index]
+    order_index = {name: i + 1 for i, name in enumerate(case_names)}
+
+    for case_name in lane:
+        try:
+            case = frappe.get_doc("AI Eval Case", case_name)
+            row = _execute_case_k_times(run_name, backend, case, agent_cfg, pass_k)
+        except Exception as exc:
+            if _is_job_timeout_exception(exc):
+                raise
+            frappe.log_error(
+                title=f"AI Eval: case execution failed ({case_name})",
+                message=frappe.get_traceback(),
+            )
+            row = {
+                "eval_case": case_name,
+                "status": "Error",
+                "error_message": "This case could not be executed. See the Error Log.",
+                "runs": 1, "passes": 0, "consistency_rate": 0,
+            }
+        _write_eval_result_row(run_name, case_name, row, order_index[case_name])
+        # Unconditional: this write has to survive even when the very next
+        # line never runs because the job is killed. Unlike the inline path,
+        # a lane job's whole reason to exist is that its results outlive it.
+        frappe.db.commit()
+
+    next_index = lane_index + concurrency
+    if next_index < len(lanes):
+        frappe.enqueue(
+            "one_bpmn.agents.eval_runner._run_eval_lane_job",
+            queue="bpmn_ai_agent",
+            run_name=run_name,
+            case_names=case_names,
+            backend=backend,
+            agent_cfg=agent_cfg,
+            pass_k=pass_k,
+            lane_index=next_index,
+            concurrency=concurrency,
+            timeout=_lane_timeout_seconds(lanes[next_index], pass_k),
+        )
+
+    _maybe_finalize_eval_run(run_name, case_names)
+
+
+def _maybe_finalize_eval_run(run_name: str, case_names: list) -> None:
+    """Finalise the run once every case has a result \u2014 and not before."""
+    result_count = frappe.db.count(
+        "AI Eval Result", {"parent": run_name, "parenttype": "AI Eval Run"}
+    )
+    if result_count < len(case_names):
+        return
+    _force_finalize_if_running(run_name, case_names)
+
+
+def _force_finalize_if_running(run_name: str, case_names: list) -> None:
+    """Finalise *run_name* if, and only if, it is still Running \u2014 locked so
+    two lane jobs (or a lane job and the deadline sweep) finishing at once
+    finalise exactly once.
+
+    The row lock is the guard: whichever caller's SELECT ... FOR UPDATE lands
+    first sees status="Running" and finalises (which flips status away from
+    Running before it commits, releasing the lock); the other blocks on the
+    lock, then sees the new status and does nothing.
+    """
+    AIEvalRun = DocType("AI Eval Run")
+    locked = (
+        frappe.qb.from_(AIEvalRun)
+        .select(AIEvalRun.name, AIEvalRun.status)
+        .where(AIEvalRun.name == run_name)
+        .for_update()
+    ).run(as_dict=True)
+    if not locked or locked[0].status != "Running":
+        frappe.db.commit()  # release the lock even when there is nothing to do
+        return
+    _finalize_eval_run(run_name, case_names)
+
+
+def _finalize_eval_run(run_name: str, case_names: list) -> None:
+    """Compute a fanned-out run's totals and status, and publish completion.
+
+    Identical arithmetic to the inline path in ``_execute_eval_suite``: results
+    in case order, Skipped excluded from the denominator, everything else
+    (Failed, Error, Timed Out) counted as failure. A case with no row at all
+    \u2014 its lane job was killed, or the deadline swept it up first \u2014 is
+    recorded here as Timed Out rather than silently shrinking the run.
+    """
+    run = frappe.get_doc("AI Eval Run", run_name)
+    try:
+        existing = {r.eval_case: r for r in (run.results or [])}
+        passed = failed = skipped = 0
+        total_cost = 0.0
+        total_tokens = 0
+        executions = passing_executions = 0
+
+        for idx, case_name in enumerate(case_names, start=1):
+            result_row = existing.get(case_name)
+            if result_row is None:
+                new_row = _eval_result_row_defaults(case_name, {
+                    "status": "Timed Out",
+                    "error_message": (
+                        "This case produced no result before the run was finalised "
+                        "\u2014 its lane job was killed or the run's deadline passed."
+                    ),
+                    "runs": 1, "passes": 0, "consistency_rate": 0,
+                })
+                run.append("results", new_row)
+                result_row = run.results[-1]
+
+            status = result_row.status
+            if status == "Passed":
+                passed += 1
+            elif status == "Skipped":
+                skipped += 1
+            else:
+                # Failed, Error, Timed Out — all count as a failure.
+                failed += 1
+            if status != "Skipped":
+                executions += cint(result_row.get("runs") or 1)
+                passing_executions += cint(result_row.get("passes") or 0)
+            total_cost += flt(result_row.get("cost") or 0)
+            total_tokens += (result_row.get("tokens_used") or 0)
+
+        run.total_cases = len(case_names)
+        run.passed_cases = passed
+        run.failed_cases = failed
+        run.total_executions = executions
+        run.pass_rate = (passing_executions / executions * 100) if executions else 0
+        run.total_cost = total_cost
+        run.total_tokens = total_tokens
+        run.status = _suite_run_status(run, failed)
+    except Exception:
+        frappe.log_error(
+            title=f"AI Eval: fan-out finalise failed ({run_name})",
+            message=frappe.get_traceback(),
+        )
+        run.status = "Error"
+        run.total_cases = len(run.results or [])
+        run.passed_cases = sum(1 for r in (run.results or []) if r.status == "Passed")
+        run.failed_cases = run.total_cases - run.passed_cases
+
+    run.ended_at = now_datetime()
+    run.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    frappe.publish_realtime(
+        "eval_run_completed",
+        {"run_name": run.name, "status": run.status},
+        user="all",
+    )
+
+
+def _run_case_names(run) -> list:
+    """The ordered case list a run covers \u2014 its requested subset, or the
+    whole suite when none was requested."""
+    if run.get("requested_cases"):
+        try:
+            cases = frappe.parse_json(run.requested_cases)
+        except Exception:
+            cases = None
+        if cases:
+            return cases
+    return frappe.get_all(
+        "AI Eval Case", filters={"suite": run.suite}, pluck="name", order_by="creation asc"
+    )
+
+
+def _run_deadline_seconds(run) -> float:
+    """How long a fanned-out run may run before the sweep below finalises it:
+    started_at + (sum of every lane's own timeout, divided across however many
+    may run at once) + a fixed margin for the bookkeeping in between."""
+    case_names = _run_case_names(run)
+    if not case_names:
+        return DEADLINE_MARGIN_SECONDS
+    pass_k = 1 if run.backend in ("replay", "deterministic") else max(1, cint(
+        frappe.db.get_value("AI Eval Suite", run.suite, "pass_k")
+    ))
+    lanes = _lanes_for(case_names)
+    if not lanes:
+        return DEADLINE_MARGIN_SECONDS
+    concurrency = max(1, min(_eval_concurrency(), len(lanes)))
+    total_lane_seconds = sum(_lane_timeout_seconds(lane, pass_k) for lane in lanes)
+    return (total_lane_seconds / concurrency) + DEADLINE_MARGIN_SECONDS
+
+
+def sweep_stale_eval_runs() -> None:
+    """Scheduled every five minutes: finalise any Running AI Eval Run whose
+    deadline has passed, recording whatever case never produced a result as
+    Timed Out.
+
+    This is the backstop for a lane job that was killed without ever getting
+    to enqueue its own successor or check whether it was the last lane home
+    \u2014 without it, that run would sit on "Running" forever.
+    """
+    running = frappe.get_all(
+        "AI Eval Run",
+        filters={"status": "Running"},
+        fields=["name", "suite", "backend", "started_at", "requested_cases"],
+    )
+    now = now_datetime()
+    for run in running:
+        try:
+            if not run.started_at:
+                continue
+            deadline = add_to_date(run.started_at, seconds=_run_deadline_seconds(run))
+            if now < deadline:
+                continue
+            case_names = _run_case_names(run)
+            _force_finalize_if_running(run.name, case_names)
+        except Exception:
+            frappe.log_error(
+                title=f"AI Eval: deadline sweep failed ({run.name})",
+                message=frappe.get_traceback(),
+            )
+
+
 def _execute_case_deterministic(case) -> dict:
     """Score a case's assertions against the answer recorded on the case.
 
