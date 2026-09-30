@@ -281,6 +281,7 @@
 
 <script setup>
 import { Button, Dialog, ErrorMessage, FormControl, frappeRequest } from "frappe-ui";
+import { Icon } from "@iconify/vue";
 import { computed, onMounted, ref } from "vue";
 
 const API = "/api/method/one_bpmn.api.sessions_api.";
