@@ -17,14 +17,16 @@
 			<Icon icon="lucide:maximize-2" class="dt-card-expand-icon" />
 		</button>
 
-		<!-- #expanded, read-only preview: the same table full width, no
-		     row-action column, mirroring the CardShell pattern used by the
-		     other cards even though DataTableCard has no CardShell of its
-		     own (onefm.table is data, not a proposal awaiting a decision). -->
+		<!-- Read-only preview, mirroring CardShell's own #expanded contract
+		     even though DataTableCard has no CardShell of its own (onefm.table
+		     is data, not a proposal awaiting a decision): the same table, full
+		     width, no row-action column. -->
 		<Dialog v-if="value.rows && value.rows.length" v-model="open" :options="{ title: value.title || __('Table'), size: '7xl' }">
 			<template #body-content>
 				<div class="h-[75vh] overflow-auto">
-					<DataTable v-if="open" class="w-full" :columns="value.columns" :rows="value.rows" />
+					<slot v-if="open" name="expanded">
+						<DataTable class="w-full" :columns="value.columns" :rows="value.rows" />
+					</slot>
 				</div>
 			</template>
 		</Dialog>
@@ -37,9 +39,10 @@
 // WI-003115: since this card has no CardShell to carry a #expanded slot, it
 // carries its own expand button and Dialog directly, wired the same way as
 // CardShell: an icon button next to the header, a Dialog sized '7xl', and
-// the body mounted only while open. Explicit Dialog import — the one-ai
-// IIFE bundle never runs main.js, so nothing registers Dialog globally
-// there.
+// an #expanded slot (default content: the same table at full width, minus
+// the row-action column) mounted only while open. Explicit Dialog import —
+// the one-ai IIFE bundle never runs main.js, so nothing registers Dialog
+// globally there.
 import { ref } from "vue";
 import { Icon } from "@iconify/vue";
 import { Dialog } from "frappe-ui";
