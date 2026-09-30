@@ -7,6 +7,12 @@
 			<ActionButton :label="value.mode === 'pending_removal' ? 'No, keep it' : 'Discard'" kind="ghost"
 				:disabled="busy || done" @press="$emit('action', 'dismiss')" />
 		</template>
+		<template #expanded>
+			<div class="diagram-preview-expanded">
+				<p v-if="value.summary" class="diagram-preview-summary">{{ value.summary }}</p>
+				<DiagramThumb :xml="value.bpmn_xml" :height="expandedHeight" large />
+			</div>
+		</template>
 	</CardShell>
 </template>
 <script setup>
@@ -14,10 +20,17 @@
 // Renders onefm.bpmn_preview — generated / modified / pending_removal in one
 // card; the destructive-change confirm lives HERE, not in loose buttons.
 // Deliberate behavior change: the canvas updates only on apply.
+//
+// WI-003116: the #expanded slot reuses the shared CardShell dialog
+// (WI-003115) to show the same diagram larger, with pan/zoom already
+// supported by NavigatedViewer — no second viewer, no second mechanism.
 import { computed } from "vue";
 import ActionButton from "../primitives/ActionButton.vue";
 import CardShell from "../primitives/CardShell.vue";
 import DiagramThumb from "../primitives/DiagramThumb.vue";
+
+const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s;
+const expandedHeight = computed(() => Math.round(window.innerHeight * 0.7));
 
 const props = defineProps({
 	value: { type: Object, required: true },
