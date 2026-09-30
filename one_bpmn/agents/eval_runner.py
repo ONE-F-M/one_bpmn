@@ -107,17 +107,16 @@ MIN_JOB_TIMEOUT_SECONDS = 1800
 SECONDS_PER_EXECUTION = 300
 
 # Slack added on top of a computed lane/suite deadline, in seconds. Covers the
-# gap between "the model call should have returned by now" and "the worker
-# actually got to check" \u2014 queueing, GC pauses, a slow database round trip.
-# Not a knob anyone should need to tune per suite, so it is a constant, not a
-# setting.
+# gap between the model call finishing and a worker actually getting to check
+# -- queueing, GC pauses, a slow database round trip. Not a knob anyone should
+# need to tune per suite, so it is a constant, not a setting.
 DEADLINE_MARGIN_SECONDS = 60
 
 # How long a single case (one execution, before pass_k repeats it) is allowed
 # to run before the runner gives up on it and records "Timed Out". A live
 # executor call already retries internally up to DEFAULT_MAX_RETRIES times,
 # each attempt bounded by DEFAULT_TIMEOUT_SECONDS, so a case genuinely
-# finishing on its own worst-case path needs that much wall time \u2014 anything
+# finishing on its own worst-case path needs that much wall time -- anything
 # beyond it means the call is well and truly stuck (a thread the executor's own
 # retry loop cannot reach, a connector hung on I/O with no timeout of its own).
 CASE_TIMEOUT_SECONDS = DEFAULT_TIMEOUT_SECONDS * (DEFAULT_MAX_RETRIES + 1)
@@ -129,12 +128,12 @@ def _case_timeout_seconds() -> int:
 
 
 def _lane_timeout_seconds(lane: List[str], pass_k: int) -> int:
-    """Seconds one lane's RQ job is allowed: every case in it, run ``pass_k``
+    """Seconds one lane's RQ job is allowed: every case in it, run pass_k
     times, at the per-case ceiling, plus margin.
 
-    A map eval (Agent/process_model) can declare its own ``aiTimeout`` on the
-    tasks it runs, and that may exceed the plain executor ceiling \u2014 so the
-    largest ``aiTimeout`` found on the suite's map tasks is used instead of the
+    A map eval (Agent/process_model) can declare its own aiTimeout on the
+    tasks it runs, and that may exceed the plain executor ceiling -- so the
+    largest aiTimeout found on the suite's map tasks is used instead of the
     default when it is bigger.
     """
     per_case = max(_case_timeout_seconds(), _largest_map_ai_timeout())
@@ -142,23 +141,23 @@ def _lane_timeout_seconds(lane: List[str], pass_k: int) -> int:
 
 
 def _largest_map_ai_timeout() -> int:
-    """The largest ``aiTimeout`` set on any AI Agent Task in a BPMN Process
+    """The largest aiTimeout set on any AI Agent Task in a BPMN Process
     Model, or 0 when none is set / readable.
 
     Only meaningful for Agent (process) evals: a Direct eval never starts a
     map, so its ceiling is always the plain executor default. Reading this off
-    every process model is deliberately best-effort \u2014 a map with unusual XML
+    every process model is deliberately best-effort -- a map with unusual XML
     must never block sizing a lane's timeout.
-    \"\"\"
+    """
     try:
         rows = frappe.get_all(
-            \"BPMN Process Model\", filters={\"is_active\": 1}, pluck=\"bpmn_xml\"
+            "BPMN Process Model", filters={"is_active": 1}, pluck="bpmn_xml"
         )
     except Exception:
         return 0
     largest = 0
     for xml in rows:
-        for match in re.finditer(r'aiTimeout=\"(\\d+)\"', xml or \"\"):
+        for match in re.finditer(r'aiTimeout="(\d+)"', xml or ""):
             try:
                 largest = max(largest, int(match.group(1)))
             except ValueError:
