@@ -423,3 +423,7 @@ default_log_clearing_doctypes = {
 # Consumed by get_conversation_store("custom"); optional.
 # ai_conversation_store = "your_app.path.to.YourConversationStore"
 
+doctype_js = {
+	"AI Eval Case": "public/js/ai_eval_case.js",
+}
+
