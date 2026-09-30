@@ -19,7 +19,10 @@ NO_SOURCE_RULE = (
 
 EDITS = {
 	TOPOLOGY_SKILL: {
-		"replace": ("processes:[{process_name, type, reason, shapes}]", "processes:[{process_name, type, reason, shapes, source}]"),
+		"replace": (
+			"processes:[{process_name, type, reason, shapes}]",
+			"processes:[{process_name, type, reason, shapes, source}]",
+		),
 		"section": (
 			f"{MARKER}\n"
 			"Every process names its source: the Lucidchart page title its shapes are on. "

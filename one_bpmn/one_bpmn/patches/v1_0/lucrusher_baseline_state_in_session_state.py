@@ -1,8 +1,7 @@
 """LuCrusher Baseline cases seed the migration state where Build Context reads it.
 
-Build Context reads session state, so a case that carries the state in a hidden
-__lucrusher_state__ Tool message ran with no document, topology or tasks. Each such
-message is merged into the case's session_state and dropped from its messages.
+Each hidden __lucrusher_state__ Tool message is merged into the case's session_state,
+where Build Context reads it, and dropped from the case's messages.
 """
 
 import json
