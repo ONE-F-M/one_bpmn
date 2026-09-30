@@ -561,14 +561,18 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None, fan_out: 
         # same agent even if the suite is reassigned mid-run.
         agent_cfg = run.get("agent_configuration") or None
         # One ceiling for the whole run, drawn on by every lane. 0 means none.
-        budget = {
-            "cap": flt(run.get("spend_cap") or 0),
-            "spent": 0.0,
-            "not_run": 0,
+        spend_cap = flt(run.get("spend_cap") or 0)
+        # Progress shared across lanes so each case can announce itself to the
+        # user who started the run, never to "all".
+        progress = {
+            "done": 0,
+            "total": len(case_names),
             "lock": threading.Lock(),
+            "owner": run.owner,
         }
         rows = _execute_lanes(
-            case_names, run.name, run.backend, agent_cfg, pass_k, _eval_concurrency(), budget
+            case_names, run.name, run.backend, agent_cfg, pass_k, _eval_concurrency(),
+            spend_cap, progress,
         )
 
         # Results are appended in the order the cases were asked for, never the
