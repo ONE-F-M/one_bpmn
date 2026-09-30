@@ -645,6 +645,9 @@ class TestFanOutTimeouts(_ConcurrencyCase):
 		for t in threads:
 			t.join()
 
+		# This thread's own transaction still holds the snapshot it opened
+		# before the workers ran — see test_a_workers_writes_are_committed.
+		frappe.db.commit()
 		run.reload()
 		self.assertEqual(run.status, "Passed")
 		self.assertEqual(len(run.results), 2, "finalising twice must not duplicate the missing-result fill-in")
