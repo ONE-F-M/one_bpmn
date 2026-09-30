@@ -106,6 +106,68 @@ Respond with ONLY a JSON object:
 MIN_JOB_TIMEOUT_SECONDS = 1800
 SECONDS_PER_EXECUTION = 300
 
+# One case execution's own worst case: the configured per-call timeout,
+# multiplied by the call plus every retry the executor is allowed. A lane's
+# RQ timeout is built from this, not from SECONDS_PER_EXECUTION's flat
+# estimate, because it has to bound a REAL model call chain, not guess at one.
+CASE_TIMEOUT_SECONDS = DEFAULT_TIMEOUT_SECONDS * (DEFAULT_MAX_RETRIES + 1)
+
+# Slack added on top of the arithmetic sum of lane timeouts when computing a
+# run's overall deadline for the sweep below. Bookkeeping (loading the case,
+# writing the result row, enqueuing the next lane) is not free, and a sweep
+# that fires the instant the last lane's timeout theoretically elapses would
+# race a lane job that is still doing exactly that.
+DEADLINE_MARGIN_SECONDS = 60
+
+
+def _case_timeout_seconds() -> int:
+    """Seconds one case execution (all of its own retries) may take."""
+    return CASE_TIMEOUT_SECONDS
+
+
+def _lane_timeout_seconds(lane: List[str], pass_k: int) -> int:
+    """RQ timeout for the job that runs one lane.
+
+    A lane runs its cases, and each case's pass_k repetitions, strictly one
+    after another (that is the whole point of a lane), so the job's timeout is
+    the sum of every case's worst case, repeated pass_k times.
+    """
+    case_count = max(1, len(lane))
+    return max(MIN_JOB_TIMEOUT_SECONDS, _case_timeout_seconds() * case_count * max(1, pass_k))
+
+
+def _suite_max_ai_timeout(suite_name: str) -> int:
+    """The largest ``aiTimeout`` set on any AI Agent Task shape of the suite's
+    map, in seconds, or 0 when the suite has no map or no shape sets one.
+
+    Used only as an extra signal when sizing a run's deadline sweep \u2014 a map
+    author who has already widened one shape's own timeout beyond the
+    executor default is telling us this suite's cases legitimately run long.
+    """
+    process_model = frappe.db.get_value("AI Eval Suite", suite_name, "process_model")
+    if not process_model:
+        return 0
+    serialized_spec = frappe.db.get_value("BPMN Process Model", process_model, "serialized_spec")
+    if not serialized_spec:
+        return 0
+    try:
+        spec = frappe.parse_json(serialized_spec) or {}
+    except Exception:
+        return 0
+    extensions = (
+        (spec.get("script_task_extensions") or {})
+        if isinstance(spec, dict) else {}
+    )
+    best = 0
+    for shape in (extensions or {}).values():
+        if not isinstance(shape, dict):
+            continue
+        try:
+            best = max(best, cint(shape.get("aiTimeout") or 0))
+        except Exception:
+            continue
+    return best
+
 
 def _job_timeout(suite: str, backend: str, case_count: int) -> int:
     """Seconds RQ allows the run: the floor, or five minutes per execution,
