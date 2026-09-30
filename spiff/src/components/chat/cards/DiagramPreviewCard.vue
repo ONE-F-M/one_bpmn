@@ -30,8 +30,6 @@ import ActionButton from "../primitives/ActionButton.vue";
 import CardShell from "../primitives/CardShell.vue";
 import DiagramThumb from "../primitives/DiagramThumb.vue";
 
-const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s;
-
 const props = defineProps({
 	value: { type: Object, required: true },
 	busy: { type: Boolean, default: false },
