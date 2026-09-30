@@ -167,7 +167,6 @@ async function initModeler() {
 	const xmlToLoad = props.initialXml || getDefaultDmnXml();
 	try {
 		await modeler.importXML(xmlToLoad);
-		console.log("[DmnEditor] importXML complete");
 	} catch (err) {
 		console.error("[DmnEditor] Failed to import DMN XML:", err);
 	}
