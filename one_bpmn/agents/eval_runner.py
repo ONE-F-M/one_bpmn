@@ -429,6 +429,7 @@ def run_eval_comparison(
             queue="bpmn_ai_agent",
             run_name=run_name,
             case_names=case_names,
+            fan_out=True,
             timeout=_job_timeout(suite_name, "live", len(case_names)),
         )
 
