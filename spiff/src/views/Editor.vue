@@ -1175,6 +1175,7 @@ const otherEditors = ref([]);
 
 const editorRef = ref(null);
 const processName = ref("");
+const idCopied = ref(false);
 const diagrams = ref([]);
 const openTabs = ref([]);
 const activeDiagramName = ref("");
