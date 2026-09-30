@@ -28,3 +28,29 @@ test("the allocation donut animates in like the Usage donut", () => {
 	assert.doesNotMatch(source("components/insights/CostAllocationDonut.vue"), /animation:\s*false/)
 	assert.doesNotMatch(source("components/insights/UsageReportDonut.vue"), /animation:\s*false/)
 })
+
+test("CardShell imports Dialog from frappe-ui explicitly, since the one-ai IIFE bundle never runs main.js", () => {
+	const shell = source("components/chat/primitives/CardShell.vue")
+	assert.match(shell, /import\s*\{\s*Dialog\s*\}\s*from\s*"frappe-ui"/)
+})
+
+test("CardShell's #expanded slot opens a 7xl Dialog behind a maximize button gated on $slots.expanded", () => {
+	const shell = source("components/chat/primitives/CardShell.vue")
+	assert.match(shell, /name="expanded"/)
+	assert.match(shell, /size:\s*'7xl'/)
+	assert.match(shell, /\$slots\.expanded/)
+	assert.match(shell, /lucide:maximize-2/)
+	assert.match(shell, /Open in larger window/)
+})
+
+test("LuCrusherResultCard offers an #expanded preview of the same panel", () => {
+	assert.match(source("components/chat/cards/LuCrusherResultCard.vue"), /#expanded/)
+})
+
+test("ProposalCard offers an #expanded preview of the same KeyValueTable", () => {
+	assert.match(source("components/chat/cards/ProposalCard.vue"), /#expanded/)
+})
+
+test("DataTableCard offers an #expanded preview of the same table", () => {
+	assert.match(source("components/chat/cards/DataTableCard.vue"), /name="expanded"/)
+})
