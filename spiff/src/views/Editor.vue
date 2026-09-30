@@ -3115,8 +3115,6 @@ async function onDmnXmlChanged(xml) {
 	const decisionId = activeDmnDecisionId || activeDmnElement.id;
 	const elementName = activeDmnElement.businessObject?.name || decisionId;
 
-	console.log(`[DMN] Saving DMN XML for decision: ${decisionId}, model: ${activeDiagramName.value}, xml length: ${xml.length}`);
-
 	try {
 		await frappeRequest({
 			url: "/api/method/one_bpmn.api.dmn_api.save_dmn_xml",
