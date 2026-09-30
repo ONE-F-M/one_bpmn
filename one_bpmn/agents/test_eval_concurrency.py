@@ -27,6 +27,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import add_to_date
 
 from one_bpmn.agents._eval_test_factories import make_eval_case, make_eval_suite
 from one_bpmn.agents.eval_runner import (
