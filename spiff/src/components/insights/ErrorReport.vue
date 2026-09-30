@@ -163,7 +163,9 @@ const { isMobile } = useWindowSize()
 const issueRuns = useIssueRuns(queryParams)
 
 const summary = computed(() => reportData.value.summary || {})
-const issues = computed(() => [...(reportData.value.issues || [])].sort((a, b) => b.errors - a.errors))
+const issues = computed(() =>
+	[...(reportData.value.issues || [])].sort((a, b) => new Date(b.last_seen) - new Date(a.last_seen)),
+)
 
 const priorDates = computed(() => {
 	const { previous_from: from, previous_to: to } = reportData.value
