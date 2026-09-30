@@ -206,7 +206,7 @@
 							</td>
 						</tr>
 						<tr v-if="!agents.length">
-							<td colspan="8" class="py-6 text-center text-sm text-gray-500">No enabled agents.</td>
+							<td colspan="8" class="py-6 text-center text-sm text-gray-500">No agents are enabled yet.</td>
 						</tr>
 					</tbody>
 				</table>
