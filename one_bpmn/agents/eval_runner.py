@@ -316,6 +316,7 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
         queue="bpmn_ai_agent",
         run_name=run.name,
         case_names=case_names,
+        fan_out=True,
         timeout=_job_timeout(
             suite_name, backend, len(case_names) if case_names else frappe.db.count("AI Eval Case", {"suite": suite_name})
         ),
