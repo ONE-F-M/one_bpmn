@@ -50,4 +50,7 @@ const title = computed(() => {
 const applyLabel = computed(() =>
 	props.value.mode === "pending_removal" ? "Yes, apply changes" : "Apply to canvas"
 );
+// The expanded dialog fills most of the viewport; size the viewer to match
+// rather than the 180px chat thumbnail height.
+const expandedHeight = computed(() => Math.round(window.innerHeight * 0.7));
 </script>
