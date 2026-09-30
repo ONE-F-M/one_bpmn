@@ -44,6 +44,17 @@ import re
 import frappe
 
 AGENT_SANDBOX_WAITING_KEY = "_bpmn_agent_sandbox_waiting"
+EVAL_DRY_RUN_KEY = "sandbox_result"
+EVAL_DRY_RUN_ANSWERS = {
+	"run_tests": (
+		"Eval dry run: the tests were not run. An eval cannot wait for the sandbox, "
+		"so report the change as untested."
+	),
+	"open_pull_request": (
+		"Eval dry run: no pull request was opened and none exists. A live run would open one "
+		"from branch {git_branch}. Report that no pull request was created."
+	),
+}
 
 
 class AgentSandboxError(Exception):
@@ -466,6 +477,13 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 	work_item_description = (params.get("work_item_description") or "").strip()
 	if not (target_app and git_branch and work_item_description):
 		raise AgentSandboxError(f"{action} needs target_app, git_branch, and work_item_description.")
+
+	# An eval cannot wait for the callback, and must never push or open a real pull request.
+	if (frappe.flags.eval_origin or {}).get("eval_run"):
+		task.data[EVAL_DRY_RUN_KEY] = EVAL_DRY_RUN_ANSWERS.get(
+			action, f"Eval dry run: {action} was not sent to the sandbox."
+		).format(git_branch=git_branch)
+		return None
 
 	progress_error = repeat_run_tests_without_progress_error(instance, action)
 	if progress_error:
