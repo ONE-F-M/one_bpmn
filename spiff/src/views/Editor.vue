@@ -3087,7 +3087,6 @@ async function onLaunchDmnEditor(event) {
 			} else if (resp && typeof resp.message === "string") {
 				storedXml = resp.message;
 			}
-			console.log(`[DMN] Loaded stored XML: ${storedXml ? storedXml.length + " chars" : "(empty)"}`);
 		} catch (err) {
 			console.warn("[DMN] Could not load stored XML:", err);
 		}
