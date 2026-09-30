@@ -210,6 +210,45 @@ class TestSlowActionDispatch(AgentSandboxCase):
 		_args, kwargs = mock_post.call_args
 		self.assertEqual(kwargs["json"]["agent_name"], "Bug Agent")
 
+	def _dispatch_in_eval(self, operation, **param_overrides):
+		with patch.dict(frappe.flags, {"eval_origin": {"eval_run": "evalrun01", "eval_case": "case01"}}):
+			return self._dispatch(operation, **param_overrides)
+
+	def test_open_pull_request_in_an_eval_opens_nothing_and_answers_inline(self):
+		before = frappe.db.count("Agent Sandbox Run", {"target_app": "one_bpmn"})
+		result, ctx, mock_post = self._dispatch_in_eval("open_pull_request", summary="Colour-code statuses.")
+		self.assertIsNone(result)
+		mock_post.assert_not_called()
+		self.assertNotIn(ops.AGENT_SANDBOX_WAITING_KEY, ctx["task"].data)
+		answer = ctx["task"].data[ops.EVAL_DRY_RUN_KEY]
+		self.assertIn("no pull request was opened", answer)
+		self.assertIn("staging", answer)
+		self.assertEqual(frappe.db.count("Agent Sandbox Run", {"target_app": "one_bpmn"}), before)
+
+	def test_run_tests_in_an_eval_does_not_park(self):
+		_result, ctx, mock_post = self._dispatch_in_eval("run_tests")
+		mock_post.assert_not_called()
+		self.assertNotIn(ops.AGENT_SANDBOX_WAITING_KEY, ctx["task"].data)
+		self.assertIn("tests were not run", ctx["task"].data[ops.EVAL_DRY_RUN_KEY])
+
+	def test_the_dry_run_answer_reaches_the_model_without_a_result_variable(self):
+		from one_bpmn.agents.shape_tools import _connector_tool_result
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import CONNECTOR_OUTCOME_KEY
+
+		_result, ctx, _post = self._dispatch_in_eval("open_pull_request")
+		task = ctx["task"]
+		task.data[CONNECTOR_OUTCOME_KEY] = {"connector": "agent_sandbox/open_pull_request", "status": "ok"}
+		told = _connector_tool_result(task, {}, {"target_app": "one_bpmn"})
+		self.assertIn("no pull request was opened", told[ops.EVAL_DRY_RUN_KEY])
+
+	def test_an_eval_still_refuses_a_call_missing_its_arguments(self):
+		with patch.dict(frappe.flags, {"eval_origin": {"eval_run": "evalrun01"}}):
+			with self.assertRaises(ops.AgentSandboxError):
+				ops.dispatch_action(
+					{"target_app": "one_bpmn", "git_branch": "", "work_item_description": "x"},
+					self.ctx(operation="open_pull_request"),
+				)
+
 	def test_missing_operation_is_refused(self):
 		"""dispatch_action must not silently no-op or crash oddly when it was
 		somehow invoked outside a configured connector operation."""
