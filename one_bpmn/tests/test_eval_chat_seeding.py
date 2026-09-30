@@ -146,6 +146,19 @@ class TestChatEvalSeeding(FrappeTestCase):
 		output, _close = self._run({})
 		self.assertEqual(output, "Shall I build it?")
 
+	def test_a_designed_doctype_reaches_the_assertions_after_the_reply(self):
+		ir = {"doctype_name": "Safety Incident", "autoname": "format:INC-{#####}", "fields": []}
+		self.reply = {"response": "I've set up a Safety Incident DocType.", "intent": "CREATE", "doctype_ir": ir}
+		output, _close = self._run({})
+		self.assertEqual(output, "I've set up a Safety Incident DocType.\n\n" + json.dumps(ir, indent=1))
+		naming = frappe._dict(assertion_type="regex", value=r'"autoname": "format:INC-\{#####\}"')
+		self.assertTrue(eval_runner._evaluate_assertion(naming, output, None)["passed"])
+
+	def test_a_reply_with_no_doctype_is_only_the_reply(self):
+		self.reply = {"response": "Do you want a new DocType?", "intent": "DISAMBIGUATE", "doctype_ir": None}
+		output, _close = self._run({})
+		self.assertEqual(output, "Do you want a new DocType?")
+
 	def test_an_unknown_message_type_is_refused(self):
 		error, close = self._run({"conversation_messages": [{"message_type": "Robot", "text": "hi"}]})
 		self.assertIsInstance(error, ValueError)
