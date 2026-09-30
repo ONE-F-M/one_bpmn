@@ -447,11 +447,25 @@ def run_eval_comparison(
 # Background job
 # ---------------------------------------------------------------------------
 
-def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
+def _execute_eval_suite(run_name: str, case_names: list | None = None, fan_out: bool = False) -> None:
     """Run the suite's cases and finalise the AI Eval Run.
 
     ``case_names`` (WI-001746) restricts the run to a chosen subset; when None
     every case in the suite runs.
+
+    ``fan_out=False`` (the default) is the original, synchronous behaviour:
+    this call runs every lane inline (in threads, above a concurrency of one)
+    and returns only once the run is fully finalised. ``adversarial_gate`` and
+    ``eval_ci`` depend on exactly this — they call this function directly and
+    read ``run.results`` the moment it returns.
+
+    ``fan_out=True`` is used by the whitelisted entry points
+    (``run_eval_suite``, ``run_eval_cases``, ``run_eval_comparison``): instead
+    of running lanes itself, this call creates the lane jobs and enqueues as
+    many as the concurrency cap allows, then returns immediately. Each lane
+    runs as its own RQ job (see ``_run_eval_lane_job``); the LAST lane job to
+    finish computes the run's totals and finalises it, exactly as the code
+    below does for the inline case.
 
     WI-001361 Scenario 5: an unexpected exception partway through must
     never leave the Run stuck on "Running" — the run is finalised as
@@ -460,6 +474,18 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
     doesn't hang forever.
     """
     run = frappe.get_doc("AI Eval Run", run_name)
+
+    if case_names is None:
+        case_names = frappe.get_all(
+            "AI Eval Case",
+            filters={"suite": run.suite},
+            pluck="name",
+            order_by="creation asc",
+        )
+
+    if fan_out:
+        _fan_out_eval_suite(run, case_names)
+        return
 
     try:
         if case_names is None:
