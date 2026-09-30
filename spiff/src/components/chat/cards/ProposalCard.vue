@@ -12,8 +12,6 @@
 			<ActionButton label="Dismiss" kind="ghost" :disabled="busy || done" @press="$emit('action', 'dismiss')" />
 		</template>
 		<template #expanded>
-			<!-- WI-003124: same body at full width, read-only — Apply/Discard stay
-			     on the small card; the dialog is only for looking closer. -->
 			<KeyValueTable :rows="rows" />
 		</template>
 	</CardShell>

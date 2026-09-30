@@ -7,7 +7,7 @@
 					<Heading :text="matchName(m, i)" />
 					<TextBlock v-if="matchDesc(m)" class="lcr-sub">{{ matchDesc(m) }}</TextBlock>
 				</Stack>
-				<ActionButton :label="__('Select')" kind="solid" :disabled="busy" @press="quickSend(matchName(m, i))" />
+				<ActionButton v-if="!readonly" :label="__('Select')" kind="solid" :disabled="busy" @press="quickSend(matchName(m, i))" />
 			</Row>
 		</Stack>
 
@@ -113,7 +113,7 @@
 		</Stack>
 
 		<!-- Confirm / request-changes, then the contextual next steps ── -->
-		<Row v-if="view.stageActions.length && !view.confirmed" :gap="8">
+		<Row v-if="view.stageActions.length && !view.confirmed && !readonly" :gap="8">
 			<ActionButton
 				v-for="(a, i) in view.stageActions"
 				:key="i"
@@ -125,7 +125,7 @@
 		</Row>
 		<div v-else-if="view.confirmed" class="lcr-confirmed">✓ {{ view.confirmedLabel }}</div>
 
-		<Stack v-if="view.suggestions.length" :gap="4">
+		<Stack v-if="view.suggestions.length && !readonly" :gap="4">
 			<span class="lcr-label">{{ __("What would you like to do next?") }}</span>
 			<Row :gap="6">
 				<ActionButton
@@ -140,11 +140,9 @@
 	</Stack>
 </template>
 <script setup>
-// LuCrusherResultBody (WI-003124): the six-panel body of LuCrusherResultCard,
-// extracted so it can be rendered twice — once capped at 220px inside the
-// small card, once uncapped inside the CardShell #expanded dialog — without
-// duplicating the panel markup or the view-model derivation. See
-// luCrusherView.js for the intent → panel logic itself.
+// The six-panel body of LuCrusherResultCard, rendered twice: capped inside
+// the small card, and uncapped and read-only inside CardShell's #expanded
+// window. Intent → panel logic lives in luCrusherView.js.
 import { computed, ref } from "vue";
 import ActionButton from "../primitives/ActionButton.vue";
 import CodeBlock from "../primitives/CodeBlock.vue";
@@ -161,6 +159,9 @@ const props = defineProps({
 	// The small card caps long lists at 220px with an inner scroll; the
 	// #expanded dialog has room, so it renders the same lists uncapped.
 	capped: { type: Boolean, default: false },
+	// The #expanded copy is for looking only: every quick-send (Select, stage
+	// actions, next steps) stays on the small card.
+	readonly: { type: Boolean, default: false },
 });
 const emit = defineEmits(["action"]);
 

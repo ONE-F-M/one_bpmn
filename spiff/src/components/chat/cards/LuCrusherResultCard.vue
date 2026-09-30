@@ -4,9 +4,8 @@
 	     nothing rather than an empty shell above it. -->
 	<CardShell v-if="view.hasContent" :title="view.title">
 		<LuCrusherResultBody :value="value" :busy="busy" capped @action="(...a) => $emit('action', ...a)" />
-		<template #expanded>
-			<!-- WI-003124: same body, no 220px scroll cap — there is room in the dialog. -->
-			<LuCrusherResultBody :value="value" :busy="busy" @action="(...a) => $emit('action', ...a)" />
+		<template v-if="view.panel" #expanded>
+			<LuCrusherResultBody :value="value" :busy="busy" readonly />
 		</template>
 	</CardShell>
 </template>

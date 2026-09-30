@@ -1,5 +1,5 @@
 // Pure derivation of the LuCrusherResultCard view model from the raw
-// onefm.lucrusher_result payload (WI-001678, extended WI-003124). Kept out
+// onefm.lucrusher_result payload. Kept out
 // of the .vue files so both the small-card body and the #expanded dialog
 // body (LuCrusherResultBody.vue, rendered twice by LuCrusherResultCard.vue)
 // compute the exact same thing from the exact same `value` prop, and so the
