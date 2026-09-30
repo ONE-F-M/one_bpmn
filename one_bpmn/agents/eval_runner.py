@@ -618,10 +618,15 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None, fan_out: 
             total_cost += flt(result_row.get("cost", 0))
             total_tokens += (result_row.get("tokens_used") or 0)
 
-        if budget["not_run"]:
+        not_run = sum(
+            1 for case_name in case_names
+            if (rows.get(case_name) or {}).get("status") == "Skipped"
+            and "spend ceiling" in ((rows.get(case_name) or {}).get("error_message") or "")
+        )
+        if not_run:
             run.stop_reason = (
-                f"Stopped on budget: spent {budget['spent']:.4f} of a {budget['cap']:.4f} "
-                f"ceiling; {budget['not_run']} case(s) not run."
+                f"Stopped on budget: spent {total_cost:.4f} of a {spend_cap:.4f} "
+                f"ceiling; {not_run} case(s) not run."
             )
 
         run.total_cases = len(case_names)
