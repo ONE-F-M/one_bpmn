@@ -458,7 +458,6 @@ class TestFanOutExecution(_ConcurrencyCase):
 	"""
 
 	def _run_fanned_out(self, recorder, concurrency: int, case_count: int, context_pairs=None):
-		self.suite.db_set("eval_concurrency", None, update_modified=False)
 		frappe.db.set_single_value("Processa Settings", "eval_concurrency", concurrency)
 		names = []
 		if context_pairs:
