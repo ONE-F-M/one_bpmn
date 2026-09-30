@@ -2507,6 +2507,16 @@ async function saveCurrentDiagram() {
 	}
 }
 
+async function copyProcessId() {
+	try {
+		await navigator.clipboard.writeText(props.process);
+		idCopied.value = true;
+		setTimeout(() => (idCopied.value = false), 1500);
+	} catch (e) {
+		showNotification("Couldn't Copy ID", "Could not copy the ID — select it manually instead.", "red");
+	}
+}
+
 function showNotification(title, message, theme = "green", stay = false) {
 	notification.value = {
 		show: true,
