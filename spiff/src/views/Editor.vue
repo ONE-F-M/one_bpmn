@@ -3126,7 +3126,6 @@ async function onDmnXmlChanged(xml) {
 				dmn_xml: xml,
 			},
 		});
-		console.log("[DMN] ✅ Save successful");
 	} catch (err) {
 		console.error("[DMN] Autosave failed:", err);
 	}
