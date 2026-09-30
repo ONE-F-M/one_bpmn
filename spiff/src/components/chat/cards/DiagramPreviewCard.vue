@@ -7,15 +7,10 @@
 			<ActionButton :label="value.mode === 'pending_removal' ? 'No, keep it' : 'Discard'" kind="ghost"
 				:disabled="busy || done" @press="$emit('action', 'dismiss')" />
 		</template>
-		<!-- WI-003126: the expanded dialog view. CardShell shows the expand
-		     icon only because this slot is provided, and teleports it out
-		     of the 420px docked pane so the diagram isn't clipped. -->
 		<template #expanded>
 			<div class="diagram-preview-expanded">
 				<p v-if="value.summary" class="diagram-preview-expanded-summary">{{ value.summary }}</p>
-				<!-- NavigatedViewer (already used by DiagramThumb) supports
-				     pan and zoom out of the box — no extra wiring needed. -->
-				<DiagramThumb :xml="value.bpmn_xml" :height="expandedHeight" large />
+				<DiagramThumb :xml="value.bpmn_xml" :height="expandedHeight()" large />
 			</div>
 		</template>
 	</CardShell>
@@ -50,9 +45,8 @@ const title = computed(() => {
 const applyLabel = computed(() =>
 	props.value.mode === "pending_removal" ? "Yes, apply changes" : "Apply to canvas"
 );
-// The expanded dialog fills most of the viewport; size the viewer to match
-// rather than the 180px chat thumbnail height.
-const expandedHeight = computed(() => Math.round(window.innerHeight * 0.7));
+// Read on each open, so the viewer matches the viewport at that moment.
+const expandedHeight = () => Math.round(window.innerHeight * 0.7);
 </script>
 <style scoped>
 .diagram-preview-expanded { display: flex; flex-direction: column; gap: 10px; }
