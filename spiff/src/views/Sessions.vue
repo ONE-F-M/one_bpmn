@@ -414,6 +414,22 @@ async function open(name) {
 	}
 }
 
+// A direct link to one conversation, so it can be shared and reopens the
+// same detail dialog rather than just the bare Sessions list.
+function conversationLink(c) {
+	return `${window.location.origin}/processa/sessions?conversation=${encodeURIComponent(c.name)}`;
+}
+
+async function copyLink(c) {
+	try {
+		await navigator.clipboard.writeText(conversationLink(c));
+		copiedName.value = c.name;
+		setTimeout(() => (copiedName.value = ""), 1500);
+	} catch (e) {
+		error.value = "Could not copy the link — select it from the conversation instead.";
+	}
+}
+
 async function compactNow() {
 	if (!detail.value) return;
 	compacting.value = true;
