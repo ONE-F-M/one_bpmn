@@ -71,6 +71,12 @@ doctype_list_js = {
 	"AI Memory": "public/js/ai_memory_list.js",
 }
 
+# WI: surfaces the first Assertions row's Pass Threshold as a read-only
+# summary field near the top of the AI Eval Case form.
+doctype_js = {
+	"AI Eval Case": "public/js/doctype_js/ai_eval_case.js",
+}
+
 # include custom scss in every website theme (without file extension ".scss")
 # website_theme_scss = "one_bpmn/public/scss/website"
 
