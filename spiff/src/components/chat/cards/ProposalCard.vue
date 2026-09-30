@@ -11,6 +11,11 @@
 			/>
 			<ActionButton label="Dismiss" kind="ghost" :disabled="busy || done" @press="$emit('action', 'dismiss')" />
 		</template>
+		<template #expanded>
+			<div class="w-full">
+				<KeyValueTable :rows="rows" />
+			</div>
+		</template>
 	</CardShell>
 </template>
 <script setup>
@@ -19,6 +24,9 @@
 // payload shapes. It proposes; confirm-create relays the designer's approval
 // into the conversation (the AGENT then calls its create tool), apply-fields
 // is applied by the HOST (WI-001649 rule as amended).
+//
+// WI-003115: #expanded renders the same KeyValueTable at full width in the
+// large dialog. Read-only preview — Apply/Discard stay on the small card.
 import { computed } from "vue";
 import ActionButton from "../primitives/ActionButton.vue";
 import CardShell from "../primitives/CardShell.vue";
