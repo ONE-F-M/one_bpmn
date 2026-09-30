@@ -326,14 +326,6 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
             suite.agent_configuration, suite.eval_type, suite.process_model
         )
 
-    # One run at a time per suite (same agent, same backend): a second call
-    # while one is still Running reuses it instead of starting a competitor.
-    # Placed after the permission/evaluatable gates above, so a caller who
-    # cannot read the suite fails there, never reaching this dedup lookup.
-    reusable = _find_reusable_running_run(suite_name, suite.agent_configuration, backend)
-    if reusable:
-        return reusable
-
     if isinstance(case_names, str):
         case_names = frappe.parse_json(case_names) or None
     if case_names:
@@ -345,6 +337,15 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
             frappe.throw(_("Cases do not belong to this suite: {0}").format(", ".join(invalid)))
     else:
         case_names = None  # whole suite
+
+    # One run at a time per suite (same agent, same backend): a second call
+    # while one is still Running reuses it instead of starting a competitor.
+    # Placed after the permission/evaluatable/case-validation gates above, so
+    # a caller who cannot read the suite (or names a foreign case) fails
+    # there, never reaching this dedup lookup.
+    reusable = _find_reusable_running_run(suite_name, suite.agent_configuration, backend)
+    if reusable:
+        return reusable
 
     run = frappe.new_doc("AI Eval Run")
     run.suite = suite_name
