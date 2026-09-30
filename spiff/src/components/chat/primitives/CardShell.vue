@@ -46,6 +46,11 @@
 // the ONE expand mechanism for chat cards — a card wanting a bigger view
 // fills #expanded, it does not build its own dialog.
 import { ref } from "vue";
+// This card renders both inside the SPA (Dialog is globally registered by
+// main.js) and inside the standalone one-ai IIFE bundle (oneai-entry.js),
+// which mounts AgentChatPanel directly and registers no globals. Import it
+// explicitly so the expand dialog works in either host.
+import { Dialog } from "frappe-ui";
 
 const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s;
 
