@@ -31,11 +31,16 @@
 			<!-- Depth cap warning: the total may be a floor, not the whole figure. -->
 			<div
 				v-if="report.chain_truncated"
-				class="bg-amber-50 text-amber-800 text-sm rounded-lg px-4 py-3"
+				class="bg-amber-50 text-amber-800 text-sm rounded-lg px-4 py-3 flex items-start gap-2"
 			>
-				<span class="font-medium">This total may be incomplete.</span>
-				The delegation chain for this Work Item is deeper than this report walks,
-				so the figures below are a floor, not the whole cost.
+				<span>
+					<span class="font-medium">This total may be incomplete.</span>
+					The delegation chain for this Work Item is deeper than this report walks,
+					so the figures below are a floor, not the whole cost.
+				</span>
+				<Tooltip text="chain_truncated: the delegation chain for this Work Item goes deeper than the report follows, so runs beyond that depth are not included in the total.">
+					<Icon icon="lucide:info" class="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+				</Tooltip>
 			</div>
 
 			<!-- Summary tiles -->
