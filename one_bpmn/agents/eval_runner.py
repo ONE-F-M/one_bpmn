@@ -335,6 +335,14 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
     else:
         case_names = None  # whole suite
 
+    # AC8: the permission gate above already ran (suite.check_permission),
+    # so a caller who cannot read the suite never reaches this point at all —
+    # they get the 404/permission error from get_doc/check_permission, never
+    # someone else's run name.
+    existing = _find_running_run(suite_name, suite.agent_configuration, backend)
+    if existing:
+        return existing
+
     run = frappe.new_doc("AI Eval Run")
     run.suite = suite_name
     run.status = "Running"
@@ -357,9 +365,12 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
         queue="bpmn_ai_agent",
         run_name=run.name,
         case_names=case_names,
+        fan_out=True,
         timeout=_job_timeout(
             suite_name, backend, len(case_names) if case_names else frappe.db.count("AI Eval Case", {"suite": suite_name})
         ),
+        job_id=f"eval-run::{run.name}",
+        deduplicate=True,
     )
     return run.name
 
