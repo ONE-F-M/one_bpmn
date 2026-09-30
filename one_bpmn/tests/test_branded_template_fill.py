@@ -122,6 +122,55 @@ def policy_document(title_en="Add  the title of the Policy",
 	}
 
 
+def _merge(row):
+	row["tableCells"][0]["tableCellStyle"] = {"columnSpan": len(row["tableCells"])}
+	return row
+
+
+def manual_document(steps=2, extra_merged=0):
+	"""The prod Manual template's item table: each step row has a full-width
+	screenshot row under it. extra_merged adds the merged rows an earlier fill
+	left behind by copying the last row."""
+	build = _Builder()
+	rows = [["EXPLAIN WHAT THIS MANUAL IS ABOUT", "", "اشرح ما الذي يدور حوله هذا الدليل", ""],
+	        ["Step", "Action", "العمل", "الخطوة"]]
+	merged = []
+	for position in range(1, steps + 1):
+		rows.append([str(position), "Write your instructions here" if position == 1 else "",
+		             "اكتب تعليماتك هنا" if position == 1 else "", gdocs._arabic_indic(position)])
+		rows.append(["Add annotated screenshot" if position == 1 else "", "", "", ""])
+		merged.append(len(rows) - 1)
+	for _ in range(extra_merged):
+		rows.append(["", "", "", ""])
+		merged.append(len(rows) - 1)
+	table = build.table(rows)
+	_merge(table["table"]["tableRows"][0])
+	for index in merged:
+		_merge(table["table"]["tableRows"][index])
+	return {"documentId": DOC_ID, "body": {"content": [table]}}
+
+
+def knowledge_base_document():
+	"""The Knowledge Base template: plain step rows and one empty merged row closing the table."""
+	build = _Builder()
+	table = build.table([
+		["EXPLAIN WHAT THIS KNOWLEDGE BASE IS ABOUT", "", "اشرح محتوى قاعدة المعرفة هذه", ""],
+		["Knowledge Base", "", "قاعدة المعرفة", ""],
+		["1", "Write your article here", "اكتب مقالك هنا", "١"],
+		["2", "", "", "٢"],
+		["", "", "", ""],
+	])
+	for index in (0, 1, 4):
+		_merge(table["table"]["tableRows"][index])
+	return {"documentId": DOC_ID, "body": {"content": [table]}}
+
+
+def _pattern(document):
+	layout = gdocs._find_item_table(document)
+	return "".join("M" if gdocs._is_merged(row) else "S"
+	               for row in gdocs._rows(layout["table"])[layout["start_row"]:])
+
+
 class _FillCase(unittest.TestCase):
 	"""Captures the batches a fill would send, without sending them."""
 
@@ -143,8 +192,18 @@ class _FillCase(unittest.TestCase):
 				if "insertTableRow" in request and layout:
 					rows = gdocs._rows(layout["table"])
 					width = len(gdocs._cells(rows[0]))
-					rows.append({"tableCells": [_Builder().cell("") for _ in range(width)]})
+					new_row = {"tableCells": [_Builder().cell("") for _ in range(width)]}
+					# Docs copies the merge of the row the new one is added below.
+					at = request["insertTableRow"]["tableCellLocation"]["rowIndex"]
+					if gdocs._is_merged(rows[at]):
+						_merge(new_row)
+					rows.insert(at + 1, new_row)
 					layout["table"]["table"]["rows"] = len(rows)
+				elif ("mergeTableCells" in request or "unmergeTableCells" in request) and layout:
+					key = "mergeTableCells" if "mergeTableCells" in request else "unmergeTableCells"
+					index = request[key]["tableRange"]["tableCellLocation"]["rowIndex"]
+					row = gdocs._rows(layout["table"])[index]
+					_merge(row) if key == "mergeTableCells" else row["tableCells"][0].pop("tableCellStyle", None)
 				elif "deleteTableRow" in request and layout:
 					index = request["deleteTableRow"]["tableCellLocation"]["rowIndex"]
 					rows = gdocs._rows(layout["table"])
@@ -293,6 +352,85 @@ class TestTheItemTableIsSizedToTheContent(_FillCase):
 		self.assertTrue(structural and textual)
 		self.assertTrue(max(structural) < min(textual),
 		                "the table must be resized before any index is computed")
+
+
+class TestTemplatesWithMergedRows(_FillCase):
+	"""The Manual template puts a merged screenshot row under every step."""
+
+	def test_each_item_lands_in_a_step_row_not_a_screenshot_row(self):
+		document = manual_document()
+		targeted = []
+		real_range = gdocs._cell_text_range
+
+		def spy(cell):
+			targeted.append(cell)
+			return real_range(cell)
+
+		with patch.object(gdocs, "_cell_text_range", side_effect=spy):
+			self.fill({"items": [{"en": x, "ar": "أ"} for x in "abc"]}, document=document)
+		layout = gdocs._find_item_table(document)
+		merged_cells = {id(cell) for row in gdocs._rows(layout["table"]) if gdocs._is_merged(row)
+		                for cell in gdocs._cells(row)}
+		intro_cells = {id(cell) for cell in gdocs._cells(gdocs._rows(layout["table"])[0])}
+		item_cells = [cell for cell in targeted if id(cell) not in intro_cells]
+		self.assertEqual(len(item_cells), 12, "three items, four cells each")
+		self.assertFalse([cell for cell in item_cells if id(cell) in merged_cells],
+		                 "a write into a merged row is redirected by Docs and breaks the batch")
+
+	def test_rows_are_added_as_step_and_screenshot_pairs(self):
+		document = manual_document()
+		report = self.fill({"items": [{"en": x, "ar": "أ"} for x in "abcd"]}, document=document)
+		self.assertEqual(report["rows_added"], 4)
+		self.assertEqual(_pattern(document), "SMSMSMSM")
+
+	def test_rows_copied_from_a_merged_row_are_unmerged_for_their_step(self):
+		"""Docs copies the merge of the row a new one goes under, which is what
+		sent every write past row two into cells that do not exist."""
+		document = manual_document()
+		self.fill({"items": [{"en": x, "ar": "أ"} for x in "abc"]}, document=document)
+		unmerged = [r for r in self.writes if "unmergeTableCells" in r]
+		self.assertTrue(unmerged)
+		structural = [i for i, batch in enumerate(self.batches)
+		              if any("unmergeTableCells" in r or "mergeTableCells" in r for r in batch)]
+		textual = [i for i, batch in enumerate(self.batches) if any("insertText" in r for r in batch)]
+		self.assertTrue(max(structural) < min(textual))
+
+	def test_a_document_an_earlier_fill_broke_is_repaired(self):
+		document = manual_document(steps=2, extra_merged=6)
+		self.assertEqual(_pattern(document), "SMSMMMMMMM")
+		report = self.fill({"items": [{"en": x, "ar": "أ"} for x in "abcde"]}, document=document)
+		self.assertEqual(_pattern(document), "SMSMSMSMSM")
+		self.assertEqual(report["unmatched"], [])
+
+	def test_a_shorter_revision_removes_whole_pairs(self):
+		document = manual_document(steps=3)
+		report = self.fill({"items": [{"en": "only", "ar": "فقط"}]}, document=document)
+		self.assertEqual(report["rows_removed"], 4)
+		self.assertEqual(_pattern(document), "SM")
+
+
+class TestATemplateWithAClosingMergedRow(_FillCase):
+	"""With no merged row under a step, a merged row at the end is the table's footer."""
+
+	def test_added_steps_go_above_the_footer(self):
+		document = knowledge_base_document()
+		report = self.fill({"items": [{"en": x, "ar": "أ"} for x in "abcde"]}, document=document)
+		self.assertEqual(report["rows_added"], 3)
+		self.assertEqual(_pattern(document), "SSSSSM")
+		self.assertEqual(report["unmatched"], [])
+
+	def test_a_single_step_keeps_the_footer(self):
+		document = knowledge_base_document()
+		report = self.fill({"items": [{"en": "only", "ar": "فقط"}]}, document=document)
+		self.assertEqual(report["rows_removed"], 1)
+		self.assertEqual(_pattern(document), "SM")
+
+	def test_nothing_is_written_into_the_footer(self):
+		document = knowledge_base_document()
+		self.fill({"items": [{"en": x, "ar": "أ"} for x in "abc"]}, document=document)
+		footer = gdocs._rows(gdocs._find_item_table(document)["table"])[-1]
+		self.assertEqual([gdocs._cell_text(cell) for cell in gdocs._cells(footer)], ["", "", "", ""])
+		self.assertFalse([r for r in self.writes if "mergeTableCells" in r or "unmergeTableCells" in r])
 
 
 class TestRefillingReplacesRatherThanAppends(_FillCase):
