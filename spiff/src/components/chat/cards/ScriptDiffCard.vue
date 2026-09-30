@@ -7,6 +7,13 @@
 				@press="$emit('action', 'apply-script', value)" />
 			<ActionButton label="Discard" kind="ghost" :disabled="busy || done" @press="$emit('action', 'dismiss')" />
 		</template>
+		<!-- WI-003119: the expand button in CardShell's header opens this at
+		     7xl \u2014 same DiffView/CodeBlock choice as the inline card, just at
+		     full dialog width so a side-by-side diff is actually readable. -->
+		<template #expanded>
+			<DiffView v-if="value.diff" :diff="value.diff" />
+			<CodeBlock v-else :code="value.modified_script" />
+		</template>
 	</CardShell>
 </template>
 <script setup>
