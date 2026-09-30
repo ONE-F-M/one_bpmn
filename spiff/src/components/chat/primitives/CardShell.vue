@@ -2,11 +2,26 @@
 	<div class="prim-shell">
 		<div class="prim-shell-head">
 			<span class="prim-shell-title">{{ title }}</span>
-			<slot name="head-extra" />
+			<slot name="head-extra">
+				<button
+					v-if="$slots.expanded"
+					type="button"
+					class="prim-shell-expand"
+					:title="__('Expand')"
+					@click="showExpanded = true"
+				>
+					<Icon icon="lucide:maximize-2" class="prim-shell-expand-icon" />
+				</button>
+			</slot>
 		</div>
 		<div class="prim-shell-body"><slot /></div>
 		<div v-if="$slots.actions && !done" class="prim-shell-actions"><slot name="actions" /></div>
 		<div v-if="done && doneText" class="prim-shell-done">✓ {{ doneText }}</div>
+		<Dialog v-if="$slots.expanded" v-model="showExpanded" :options="{ size: '7xl', title }">
+			<template #body-content>
+				<slot name="expanded" />
+			</template>
+		</Dialog>
 	</div>
 </template>
 <script setup>
@@ -14,11 +29,24 @@
 // Document/Form card is CardShell[Heading, body, Row[actions]]. Once a
 // card's action is taken the buttons retire and a result line takes their
 // place — a decision made cannot be re-made from a stale card.
+//
+// Shared expand mechanism (WI-003115): a card that fills the unused
+// #expanded slot gets a maximize button for free, wired into the
+// #head-extra slot that already existed but nothing used. The dialog
+// teleports to <body> (frappe-ui Dialog), so a docked 420px pane never
+// clips it.
+import { ref } from "vue";
+import { Dialog } from "frappe-ui";
+import { Icon } from "@iconify/vue";
+
 defineProps({
 	title: { type: String, default: "" },
 	done: { type: Boolean, default: false },
 	doneText: { type: String, default: "" },
 });
+
+const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s;
+const showExpanded = ref(false);
 </script>
 <style scoped>
 .prim-shell { align-self: flex-start; width: 94%; background: var(--shell-bg, #fff);
