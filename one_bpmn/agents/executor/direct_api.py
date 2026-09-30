@@ -405,6 +405,7 @@ class DirectApiExecutor(Executor):
                     retry_backoff_ms=config.retry_backoff_ms,
                     tool_result_max_chars=config.tool_result_max_chars,
                     terminal_tools=config.terminal_tools,
+                    history=config.messages,
                 )
             )
         except asyncio.TimeoutError:

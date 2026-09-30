@@ -128,6 +128,7 @@ async def run_agent_loop(
 	tool_result_max_chars: int | None = None,
 	terminal_tools: list | None = None,
 	on_tool_event=None,
+	history: list | None = None,
 ) -> tuple:
 	"""Drive the tool loop. Returns (CompletionResult, None) when the model
 	produces a final answer or hits the turn cap, or (None, AgentSuspension)
@@ -143,7 +144,7 @@ async def run_agent_loop(
 	progress indicator must never fail the turn it is only reporting on.
 
 	Fresh run: pass ``user`` (the rendered user prompt); the transcript starts
-	as a single user entry.
+	as ``history`` (prior ``{"role", "content"}`` turns, if any) then that user entry.
 
 	Resume: pass ``resume`` = {"transcript", "pending_call", "deferred_results",
 	"turns_used", "trace", "human_result"} — the persisted AgentSuspension
@@ -199,7 +200,7 @@ async def run_agent_loop(
 		})
 		transcript.append({"role": "tool_results", "results": results})
 	else:
-		transcript = [{"role": "user", "content": user}]
+		transcript = [*(history or []), {"role": "user", "content": user}]
 
 	# Anything a previous loop stashed and nobody recorded is stale: draining it
 	# here is what stops one run's script showing up on the next run's tool call.
