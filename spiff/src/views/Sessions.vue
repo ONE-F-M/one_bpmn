@@ -469,5 +469,10 @@ async function saveRetention() {
 onMounted(() => {
 	load();
 	loadAgents();
+	// A shared link carries the conversation in the query string, so opening
+	// it here lands straight on the same detail dialog the link was copied from.
+	if (route.query.conversation) {
+		open(route.query.conversation);
+	}
 });
 </script>
