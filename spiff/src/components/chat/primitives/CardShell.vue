@@ -57,8 +57,14 @@ const showExpanded = ref(false);
 .prim-shell-body { padding: 10px 12px; font-size: 13px; }
 .prim-shell-actions { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid #ededed; }
 .prim-shell-done { padding: 10px 12px; border-top: 1px solid #ededed; font-size: 12px; color: #278f5e; }
+.prim-shell-expand { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+	margin-left: auto; border: none; border-radius: 6px; background: transparent; color: #7c7c7c; cursor: pointer; }
+.prim-shell-expand:hover { background: #ededed; color: #383838; }
+.prim-shell-expand-icon { width: 14px; height: 14px; }
 :global([data-theme="dark"]) .prim-shell { background: #1c1c1c; border-color: #343434; }
 :global([data-theme="dark"]) .prim-shell-head { background: #232323; border-color: #232323; }
 :global([data-theme="dark"]) .prim-shell-title { color: #f8f8f8; }
 :global([data-theme="dark"]) .prim-shell-actions { border-color: #232323; }
+:global([data-theme="dark"]) .prim-shell-expand { color: #808080; }
+:global([data-theme="dark"]) .prim-shell-expand:hover { background: #2b2b2b; color: #d4d4d4; }
 </style>
