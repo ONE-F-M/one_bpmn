@@ -860,13 +860,75 @@ def _lanes_for(case_names: List[str]) -> List[List[str]]:
     return lanes
 
 
+def _run_case_with_timeout(run_name: str, backend: str, case, agent_cfg: str | None,
+                            pass_k: int, timeout_seconds: float | None) -> dict:
+    """``_execute_case_k_times``, but given up on after ``timeout_seconds``.
+
+    A hung model call can outlast even its own executor-level retries — a
+    connector stuck on I/O with no timeout of its own, a thread the executor's
+    retry loop never regains control from. Without a ceiling here, that one
+    case holds its whole lane (and every case behind it) for as long as the RQ
+    job itself survives. The attempt still runs to completion on its own
+    thread — Python has no way to force a thread to stop — but the lane is
+    freed to move on to its next case the moment the deadline passes, and the
+    case is recorded as "Timed Out" rather than left with no result at all.
+    """
+    if not timeout_seconds or timeout_seconds <= 0:
+        return _execute_case_k_times(run_name, backend, case, agent_cfg, pass_k)
+
+    outcome: dict = {}
+    error: list = []
+
+    def _target():
+        try:
+            outcome["row"] = _execute_case_k_times(run_name, backend, case, agent_cfg, pass_k)
+        except Exception:
+            error.append(frappe.get_traceback())
+
+    worker = threading.Thread(target=_target, name=f"eval-case-{case.name}", daemon=True)
+    worker.start()
+    worker.join(timeout=timeout_seconds)
+
+    if worker.is_alive():
+        # The attempt is abandoned, not stopped — it may still write its own
+        # AI Agent Run/judge records when it eventually finishes, which is
+        # accepted: recording what actually happened beats erasing it, and the
+        # lane must not wait around to find out.
+        return {
+            "eval_case": case.name,
+            "status": "Timed Out",
+            "error_message": (
+                f"This case did not finish inside its {int(timeout_seconds)}s deadline."
+            ),
+            "runs": pass_k, "passes": 0, "consistency_rate": 0,
+        }
+    if error:
+        frappe.log_error(
+            title=f"AI Eval: case execution failed ({case.name})",
+            message=error[0],
+        )
+        return {
+            "eval_case": case.name,
+            "status": "Error",
+            "error_message": "This case could not be executed. See the Error Log.",
+            "runs": 1, "passes": 0, "consistency_rate": 0,
+        }
+    return outcome.get("row") or {
+        "eval_case": case.name,
+        "status": "Error",
+        "error_message": "This case produced no result.",
+        "runs": 1, "passes": 0, "consistency_rate": 0,
+    }
+
+
 def _run_lane(lane: List[str], run_name: str, backend: str, agent_cfg: str | None, pass_k: int,
-              budget: dict | None = None) -> dict:
+              budget: dict | None = None, case_timeout: float | None = None) -> dict:
     """Execute one lane's cases in order, returning {case: result row}.
 
     A case that blows up is recorded as an Error and the lane carries on: one
     bad case must not cost the others their turn, which is the same rule the
-    serial runner has always followed.
+    serial runner has always followed. A case that hangs past ``case_timeout``
+    is recorded as Timed Out instead, and the lane carries on the same way.
 
     *budget* is the run's spend ceiling, shared with every other lane. It is
     checked before each case and never mid-case: cutting off an answer already
@@ -889,7 +951,9 @@ def _run_lane(lane: List[str], run_name: str, backend: str, agent_cfg: str | Non
             continue
         try:
             case = frappe.get_doc("AI Eval Case", case_name)
-            rows[case_name] = _execute_case_k_times(run_name, backend, case, agent_cfg, pass_k)
+            rows[case_name] = _run_case_with_timeout(
+                run_name, backend, case, agent_cfg, pass_k, case_timeout
+            )
         except Exception:
             frappe.log_error(
                 title=f"AI Eval: case execution failed ({case_name})",
