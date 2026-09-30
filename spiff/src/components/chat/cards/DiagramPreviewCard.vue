@@ -54,3 +54,8 @@ const applyLabel = computed(() =>
 // rather than the 180px chat thumbnail height.
 const expandedHeight = computed(() => Math.round(window.innerHeight * 0.7));
 </script>
+<style scoped>
+.diagram-preview-expanded { display: flex; flex-direction: column; gap: 10px; }
+.diagram-preview-expanded-summary { margin: 0; font-size: 13px; color: #383838; }
+:global([data-theme="dark"]) .diagram-preview-expanded-summary { color: #d4d4d4; }
+</style>
