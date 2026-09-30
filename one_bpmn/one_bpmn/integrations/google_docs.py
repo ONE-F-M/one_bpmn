@@ -328,7 +328,14 @@ def _find_item_table(document):
 				"columns": len(texts),
 				# A step row plus the merged rows the template puts under each step.
 				"stride": 1 + companions,
+				"footer": 0,
 			}
+			# With no merged rows under a step, merged rows at the end belong to no step.
+			if not companions:
+				while layout["footer"] < len(rows) - row_index - 1:
+					if not _is_merged(rows[len(rows) - 1 - layout["footer"]]):
+						break
+					layout["footer"] += 1
 			rest = []
 			for column, text in enumerate(texts):
 				if _is_arabic_number(text):
@@ -410,17 +417,18 @@ def fill_branded_template(document_id: str, content: dict) -> dict:
 	# follows them, so they cannot share a batch with writes whose indices were
 	# computed beforehand.
 	if layout and items:
-		stride = layout["stride"]
+		stride, footer = layout["stride"], layout["footer"]
 		table_location = {"index": layout["table"]["startIndex"], "segmentId": layout.get("segment") or ""}
-		wanted_rows = layout["start_row"] + len(items) * stride
-		shortfall = wanted_rows - layout["rows"]
+		steps_end = layout["rows"] - footer
+		wanted_end = layout["start_row"] + len(items) * stride
+		shortfall = wanted_end - steps_end
 		requests = []
 		if shortfall > 0:
 			requests = [
 				{"insertTableRow": {
 					"tableCellLocation": {
 						"tableStartLocation": table_location,
-						"rowIndex": layout["rows"] - 1 + offset,
+						"rowIndex": steps_end - 1 + offset,
 						"columnIndex": 0,
 					},
 					"insertBelow": True,
@@ -438,7 +446,7 @@ def fill_branded_template(document_id: str, content: dict) -> dict:
 						"columnIndex": 0,
 					}
 				}}
-				for row_index in range(layout["rows"] - 1, wanted_rows - 1, -1)
+				for row_index in range(steps_end - 1, wanted_end - 1, -1)
 			]
 			report["rows_removed"] = -shortfall
 		if requests:
@@ -446,10 +454,10 @@ def fill_branded_template(document_id: str, content: dict) -> dict:
 			document = get_document(document_id)
 			layout = _find_item_table(document)
 
-		if _reset_row_merges(document_id, layout, stride, table_location):
+		if _reset_row_merges(document_id, layout, stride, table_location, wanted_end):
 			document = get_document(document_id)
 			layout = _find_item_table(document)
-		layout["stride"] = stride
+		layout["stride"], layout["footer"] = stride, footer
 
 	# Pass two — collect every (cell, value) pair, then clear and write each.
 	targets = []
@@ -539,11 +547,11 @@ def fill_branded_template(document_id: str, content: dict) -> dict:
 	return report
 
 
-def _reset_row_merges(document_id, layout, stride, table_location):
+def _reset_row_merges(document_id, layout, stride, table_location, stop):
 	"""Merge or unmerge item rows back to the template's step pattern. Returns True if it wrote."""
 	# A new row copies the merge of the row above it, so reset every row to the template's pattern.
 	requests = []
-	for row_index, row in enumerate(_rows(layout["table"])[layout["start_row"]:], start=layout["start_row"]):
+	for row_index, row in enumerate(_rows(layout["table"])[layout["start_row"]:stop], start=layout["start_row"]):
 		should_merge = (row_index - layout["start_row"]) % stride != 0
 		if should_merge == _is_merged(row):
 			continue
