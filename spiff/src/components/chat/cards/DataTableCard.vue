@@ -20,7 +20,9 @@
 		<Dialog v-if="value.rows && value.rows.length" v-model="open" :options="{ title: value.title || __('Table'), size: '7xl' }">
 			<template #body-content>
 				<div class="h-[75vh] overflow-auto">
-					<DataTable v-if="open" class="w-full" :title="value.title" :columns="value.columns" :rows="value.rows" />
+					<slot v-if="open" name="expanded">
+						<DataTable class="w-full" :title="value.title" :columns="value.columns" :rows="value.rows" />
+					</slot>
 				</div>
 			</template>
 		</Dialog>
@@ -31,9 +33,10 @@
 // the contract note: it is data, not a proposal awaiting a decision.
 //
 // WI-003115: since this card has no CardShell, its own expand button opens
-// a read-only, full-width copy of the same table in a large Dialog. Explicit
-// Dialog import — the one-ai IIFE bundle never runs main.js, so nothing
-// registers it globally there.
+// a read-only, full-width copy of the same table in a large Dialog via its
+// own #expanded slot (defaulting to the plain DataTable if a caller does not
+// override it). Explicit Dialog import — the one-ai IIFE bundle never runs
+// main.js, so nothing registers it globally there.
 import { ref } from "vue";
 import { Icon } from "@iconify/vue";
 import { Dialog } from "frappe-ui";
