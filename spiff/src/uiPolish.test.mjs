@@ -28,3 +28,26 @@ test("the allocation donut animates in like the Usage donut", () => {
 	assert.doesNotMatch(source("components/insights/CostAllocationDonut.vue"), /animation:\s*false/)
 	assert.doesNotMatch(source("components/insights/UsageReportDonut.vue"), /animation:\s*false/)
 })
+
+test("CardShell offers a shared expand mechanism through the unused head-extra slot (WI-003115)", () => {
+	const shell = source("components/chat/primitives/CardShell.vue")
+	assert.match(shell, /name="head-extra"/)
+	assert.match(shell, /\$slots\.expanded/)
+	assert.match(shell, /<Dialog[^>]*size:\s*['"]7xl['"]/s)
+	assert.match(shell, /name="expanded"/)
+})
+
+test("DiagramPreviewCard fills the CardShell #expanded slot with a bigger DiagramThumb (WI-003116)", () => {
+	const card = source("components/chat/cards/DiagramPreviewCard.vue")
+	assert.match(card, /template #expanded/)
+	assert.match(card, /value\.summary/)
+	assert.match(card, /DiagramThumb[^/]*large/)
+})
+
+test("DiagramThumb takes a height prop instead of the hard-coded 180 (WI-003116)", () => {
+	const thumb = source("components/chat/primitives/DiagramThumb.vue")
+	assert.match(thumb, /height:\s*\{\s*type:\s*Number,\s*default:\s*180\s*\}/)
+	assert.match(thumb, /large:\s*\{\s*type:\s*Boolean/)
+	assert.doesNotMatch(thumb, /height:\s*180\s*\}\);/)
+	assert.match(thumb, /height:\s*props\.height/)
+})
