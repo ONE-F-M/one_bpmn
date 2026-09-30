@@ -317,6 +317,7 @@ const detailLoading = ref(false);
 const compacting = ref(false);
 const compactNote = ref("");
 const compactOk = ref(false);
+const copiedName = ref("");
 
 const tabs = computed(() => [
 	{ key: "conversations", label: "Conversations", count: total.value || null },
