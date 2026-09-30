@@ -488,14 +488,6 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None, fan_out: 
         return
 
     try:
-        if case_names is None:
-            case_names = frappe.get_all(
-                "AI Eval Case",
-                filters={"suite": run.suite},
-                pluck="name",
-                order_by="creation asc",
-            )
-
         passed = failed = skipped = 0
         total_cost = 0.0
         total_tokens = 0
