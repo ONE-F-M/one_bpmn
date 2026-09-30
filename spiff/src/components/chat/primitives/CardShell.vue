@@ -3,10 +3,27 @@
 		<div class="prim-shell-head">
 			<span class="prim-shell-title">{{ title }}</span>
 			<slot name="head-extra" />
+			<button
+				v-if="$slots.expanded"
+				type="button"
+				class="prim-shell-expand"
+				:title="__('Open in larger window')"
+				@click="open = true"
+			>
+				<Icon icon="lucide:maximize-2" class="prim-shell-expand-icon" />
+			</button>
 		</div>
 		<div class="prim-shell-body"><slot /></div>
 		<div v-if="$slots.actions && !done" class="prim-shell-actions"><slot name="actions" /></div>
 		<div v-if="done && doneText" class="prim-shell-done">✓ {{ doneText }}</div>
+
+		<Dialog v-if="$slots.expanded" v-model="open" :options="{ title, size: '7xl' }">
+			<template #body-content>
+				<div class="h-[75vh] overflow-auto">
+					<slot v-if="open" name="expanded" />
+				</div>
+			</template>
+		</Dialog>
 	</div>
 </template>
 <script setup>
@@ -14,23 +31,45 @@
 // Document/Form card is CardShell[Heading, body, Row[actions]]. Once a
 // card's action is taken the buttons retire and a result line takes their
 // place — a decision made cannot be re-made from a stale card.
+//
+// #expanded (WI-003124): an optional slot a card can provide to offer a
+// larger read-only view of the same content in a Dialog — the small card
+// keeps its Apply/Discard buttons, the dialog never does. Rendered with
+// v-if so heavy content (e.g. a bpmn-js viewer) is mounted only while the
+// dialog is actually open, never twice. Dialog is imported explicitly:
+// it is only registered globally in the SPA's main.js, and the one-ai
+// IIFE bundle that serves the generic Chat button does not run main.js.
+import { ref } from "vue";
+import { Dialog } from "frappe-ui";
+import { Icon } from "@iconify/vue";
+
+const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s;
+
 defineProps({
 	title: { type: String, default: "" },
 	done: { type: Boolean, default: false },
 	doneText: { type: String, default: "" },
 });
+
+const open = ref(false);
 </script>
 <style scoped>
 .prim-shell { align-self: flex-start; width: 94%; background: var(--shell-bg, #fff);
 	border: 1px solid var(--shell-line, #e2e2e2); border-radius: 10px; overflow: hidden; }
 .prim-shell-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px;
 	border-bottom: 1px solid #ededed; background: #f8f8f8; }
-.prim-shell-title { font-size: 12px; font-weight: 600; color: #171717; }
+.prim-shell-title { font-size: 12px; font-weight: 600; color: #171717; flex: 1; min-width: 0; }
 .prim-shell-body { padding: 10px 12px; font-size: 13px; }
 .prim-shell-actions { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid #ededed; }
 .prim-shell-done { padding: 10px 12px; border-top: 1px solid #ededed; font-size: 12px; color: #278f5e; }
+.prim-shell-expand { display: grid; place-items: center; width: 22px; height: 22px; flex: none;
+	border: none; border-radius: 6px; background: transparent; color: #7c7c7c; cursor: pointer; }
+.prim-shell-expand:hover { background: #ededed; color: #171717; }
+.prim-shell-expand-icon { width: 14px; height: 14px; }
 :global([data-theme="dark"]) .prim-shell { background: #1c1c1c; border-color: #343434; }
 :global([data-theme="dark"]) .prim-shell-head { background: #232323; border-color: #232323; }
 :global([data-theme="dark"]) .prim-shell-title { color: #f8f8f8; }
 :global([data-theme="dark"]) .prim-shell-actions { border-color: #232323; }
+:global([data-theme="dark"]) .prim-shell-expand { color: #999; }
+:global([data-theme="dark"]) .prim-shell-expand:hover { background: #343434; color: #f8f8f8; }
 </style>
