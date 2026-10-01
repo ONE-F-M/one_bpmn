@@ -129,6 +129,8 @@ async def run_agent_loop(
 	terminal_tools: list | None = None,
 	on_tool_event=None,
 	history: list | None = None,
+	response_schema: dict | None = None,
+	check_reply=None,
 ) -> tuple:
 	"""Drive the tool loop. Returns (CompletionResult, None) when the model
 	produces a final answer or hits the turn cap, or (None, AgentSuspension)
@@ -167,6 +169,10 @@ async def run_agent_loop(
 	the model calls one. None (every caller before this existed) falls back
 	to ``("finalize",)`` — see ``_run_turns`` for how the reply is read off
 	the call's own arguments instead of the model's next narration.
+
+	``response_schema`` goes to every ``adapter.step()`` for the provider's native
+	JSON mode. ``check_reply(text)`` returns an error for a final reply that is
+	not the declared format; the model is then asked once more, with the error.
 	"""
 	tool_map = {t.name: t for t in (tools or [])}
 
@@ -216,6 +222,8 @@ async def run_agent_loop(
 			tool_result_max_chars=tool_result_max_chars,
 			terminal_tools=set(terminal_tools) if terminal_tools is not None else {"finalize"},
 			on_tool_event=on_tool_event,
+			response_schema=response_schema,
+			check_reply=check_reply,
 		)
 	finally:
 		# Cleared on EVERY exit — final answer, turn cap, suspension, exception.
@@ -230,7 +238,8 @@ async def run_agent_loop(
 
 
 async def _step_with_retries(
-	adapter, system, transcript, tools, max_tokens, *, timeout_seconds=None, max_retries=0, retry_backoff_ms=1000
+	adapter, system, transcript, tools, max_tokens, *, timeout_seconds=None, max_retries=0, retry_backoff_ms=1000,
+	response_schema=None,
 ):
 	"""One turn's model call, bounded by timeout_seconds and retried up to
 	max_retries times — mirrors DirectApiExecutor._run_request's own
@@ -245,7 +254,8 @@ async def _step_with_retries(
 	caller from before this existed."""
 	for attempt in range(max_retries + 1):
 		try:
-			call = adapter.step(system, transcript, tools=tools or None, max_tokens=max_tokens)
+			extra = {"response_schema": response_schema} if response_schema else {}
+			call = adapter.step(system, transcript, tools=tools or None, max_tokens=max_tokens, **extra)
 			if timeout_seconds:
 				return await asyncio.wait_for(call, timeout=timeout_seconds)
 			return await call
@@ -277,10 +287,11 @@ def _fire_tool_event(on_tool_event, phase, tool_name):
 async def _run_turns(
 	adapter, *, system, tools, tool_map, transcript, trace, turns_used, max_tokens, max_turns,
 	timeout_seconds=None, max_retries=0, retry_backoff_ms=1000, tool_result_max_chars=None,
-	terminal_tools=frozenset({"finalize"}), on_tool_event=None,
+	terminal_tools=frozenset({"finalize"}), on_tool_event=None, response_schema=None, check_reply=None,
 ):
 	"""The turn loop itself. Split out only so run_agent_loop can guarantee the
 	pause flag is cleared however this returns."""
+	reply_checked = False
 	while turns_used < max_turns:
 		# No pause is held yet this turn. Cleared here, at the very top, rather
 		# than just before the tool loop: the flag must never outlive the turn
@@ -293,6 +304,7 @@ async def _run_turns(
 		step = await _step_with_retries(
 			adapter, system, transcript, tools, max_tokens,
 			timeout_seconds=timeout_seconds, max_retries=max_retries, retry_backoff_ms=retry_backoff_ms,
+			response_schema=response_schema,
 		)
 		turns_used += 1
 
@@ -312,6 +324,12 @@ async def _run_turns(
 					ended_at=_now_iso(),
 				)
 			)
+			reply_error = None if reply_checked or check_reply is None else check_reply(step.content)
+			if reply_error:
+				reply_checked = True
+				transcript.append({"role": "assistant", "content": step.content})
+				transcript.append({"role": "user", "content": reply_error})
+				continue
 			return CompletionResult(text=step.content, trace=trace, no_terminal_tool=True), None
 
 		# ── Record the assistant turn on the transcript ───────────────────
