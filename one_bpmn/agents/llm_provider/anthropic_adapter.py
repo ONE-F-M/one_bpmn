@@ -143,8 +143,8 @@ class AnthropicAdapter(BaseLLMAdapter):
 
         The transcript is rebuilt into wire format on every step (it must be
         JSON-checkpointable, so no SDK objects are retained between steps).
-        Three cache breakpoints: tools, system, and the LAST tool_result block,
-        or a split-off user context prefix before the first tool result.
+        Up to four cache breakpoints: tools, system, the last earlier-turn message, and the LAST
+        tool_result block or, before the first tool result, a split-off user context prefix.
         """
         tool_defs = [_build_tool_def(t) for t in tools] if tools else []
         if tool_defs:
@@ -154,9 +154,15 @@ class AnthropicAdapter(BaseLLMAdapter):
             {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
         ]
 
+        # The turn's own request is the last user entry before its first tool result; earlier entries are history.
+        first_result = next((i for i, e in enumerate(transcript) if e.get("role") == "tool_results"), len(transcript))
+        turn_at = max((i for i, e in enumerate(transcript[:first_result]) if e.get("role") == "user"), default=0)
         messages = []
         last_tool_result_block = None
-        for entry in transcript:
+        last_history_message = None
+        for index, entry in enumerate(transcript):
+            if index == turn_at and messages:
+                last_history_message = messages[-1]
             role = entry.get("role")
             if role == "user":
                 messages.append({
@@ -189,6 +195,8 @@ class AnthropicAdapter(BaseLLMAdapter):
                 if blocks:
                     last_tool_result_block = blocks[-1]
                     messages.append({"role": "user", "content": blocks})
+        if last_history_message is not None and last_history_message["content"]:
+            last_history_message["content"][-1]["cache_control"] = {"type": "ephemeral"}
         if last_tool_result_block is not None:
             last_tool_result_block["cache_control"] = {"type": "ephemeral"}
         elif messages and messages[-1]["role"] == "user":
