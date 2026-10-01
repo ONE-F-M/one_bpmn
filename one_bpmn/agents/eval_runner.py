@@ -2319,6 +2319,9 @@ def _evaluate_assertion(assertion, output: Any, facts: dict = None) -> dict:
         if a_type == "tool_artifact":
             return {**base, **_evaluate_tool_artifact(value, facts)}
 
+        if a_type == "skill_in_prompt":
+            return {**base, **_evaluate_skill_in_prompt(value, facts)}
+
         if a_type == "llm_judge":
             return _evaluate_llm_judge(assertion, output)
 
@@ -2394,6 +2397,20 @@ def _evaluate_no_tool_call(value: str, facts: dict) -> dict:
     called = sorted({t for t in (facts.get("tool_calls") or []) if t in banned})
     return {"passed": not called,
             "message": "" if not called else "Called " + ", ".join(called) + "."}
+
+
+def _evaluate_skill_in_prompt(value: str, facts: dict) -> dict:
+    """Pass if the body of the skill named in *value* was in a prompt the case sent to the model."""
+    if facts is None:
+        return {"passed": False, "error": True,
+                "message": "Prompts are only observed on a live run, not a replay."}
+    body = (frappe.db.get_value("AI Skill", value.strip(), "body") or "").strip()
+    if not body:
+        return {"passed": False, "error": True,
+                "message": f"No AI Skill named {value.strip()!r} with a body."}
+    passed = any(body in prompt for prompt in facts.get("prompts") or [])
+    return {"passed": passed,
+            "message": "" if passed else f"The {value.strip()} skill was not in any prompt."}
 
 
 TOOL_CALL_MODES = ("EXACT", "IN_ORDER", "ANY_ORDER")
@@ -2582,7 +2599,21 @@ def _execution_facts(case, eval_run: str, usage: dict, since=None) -> dict:
         "tool_calls": [c["tool"] for c in trace],
         "tool_trace": trace,
         "expected_tool_calls": _expected_tool_calls(case),
+        "prompts": _prompts_for(case, eval_run, since),
     }
+
+
+def _prompts_for(case, eval_run: str | None = None, since=None) -> list[str]:
+    """The user prompts the case's runs sent to the model, which is where loaded skills are injected."""
+    filters = {"eval_case": case.name}
+    if eval_run:
+        filters["eval_run"] = eval_run
+    if since:
+        filters["creation"] = [">=", since]
+    runs = frappe.get_all("AI Agent Run", filters=filters, pluck="name")
+    if not runs:
+        return []
+    return frappe.get_all("AI Agent Step", filters={"run": ["in", runs], "role": "user"}, pluck="content")
 
 
 def _tool_trace_for(case, eval_run: str = None, since=None) -> List[dict]:

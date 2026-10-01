@@ -708,6 +708,7 @@ const VALUE_LABELS = {
 	no_tool_call: "Forbidden tool names",
 	tool_calls: "Order mode",
 	tool_artifact: "Artifact check (JSON)",
+	skill_in_prompt: "Skill name",
 }
 // tool_calls checks the run's trace against the Expected Tool Calls below; its
 // value is only which of the three modes to check in.
