@@ -5,7 +5,9 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 import re
+import xml.etree.ElementTree as ET
 
+_SPIFF_NS = "{http://spiffworkflow.org/bpmn/schema/1.0/core}"
 _PROCESS_EL = re.compile(r'<(?:[\w-]+:)?process\s[^>]*\bid=["\']([^"\']+)["\']')
 
 
@@ -82,6 +84,44 @@ class BPMNProcessModel(Document):
 		self.sync_process_id_with_xml()
 		self.enforce_single_active()
 		self.validate_script_task_security()
+		self.validate_response_schemas()
+
+	def validate_response_schemas(self):
+		"""Refuse a JSON response schema that uses a rule some AI provider rejects, naming the task and field."""
+		if not self.bpmn_xml or (not self.is_new() and not self.has_value_changed("bpmn_xml")):
+			return
+		try:
+			root = ET.fromstring(self.bpmn_xml.strip().encode("utf-8"))
+		except ET.ParseError:
+			return  # an unparseable diagram is reported by the other validators
+
+		from one_bpmn.agents.llm_provider.structured_output import (
+			UnsupportedSchemaRule,
+			normalize_response_schema,
+			validate_schema_rules,
+		)
+
+		problems = []
+		for element in root.iter():
+			raw = element.get(f"{_SPIFF_NS}aiResponseSchema")
+			if element.get(f"{_SPIFF_NS}aiResponseFormat") != "json" or not raw:
+				continue
+			task = element.get("name") or element.get("id")
+			try:
+				validate_schema_rules(normalize_response_schema(raw))
+			except UnsupportedSchemaRule as exc:
+				problems.append(
+					_("{0}: the response schema uses '{1}' on field '{2}', which not every AI provider accepts.").format(
+						task, exc.rule, exc.field
+					)
+				)
+			except ValueError as exc:
+				problems.append(_("{0}: the response schema is not a valid JSON object ({1}).").format(task, exc))
+		if problems:
+			frappe.throw(
+				"<br>".join(frappe.utils.escape_html(p) for p in problems),
+				title=_("Response schema not supported"),
+			)
 
 	def validate_script_task_security(self):
 		"""Pre-deployment gate: block unsafe script tasks at authoring time.
