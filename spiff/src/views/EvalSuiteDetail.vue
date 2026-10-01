@@ -688,7 +688,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch } from "vue"
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from "vue"
 import EvalCaseContextField from "@/components/evals/EvalCaseContextField.vue"
 import { midConversationError } from "@/utils/evalContext"
 import { ASSERTION_TYPES, MATCHERS, TOOL_CALL_MODES, assertionTypeLabel } from "@/utils/evalLabels"
@@ -1112,10 +1112,7 @@ async function runCases(caseNames, flag, backend = "live") {
 				backend,
 			},
 		})
-		// The backend hands back an existing Running run's name instead of
-		// starting a competitor. That run is already in the list (either from
-		// an earlier fetch, or from the optimistic row the first click added),
-		// so adding a second optimistic row here would just duplicate it.
+		// A name already in the list is the backend handing back the run in progress.
 		if (runs.value.some((r) => r.name === runName)) {
 			inProgressMessage.value = __("A run of this suite is already in progress")
 		} else {
@@ -1561,7 +1558,17 @@ async function createFromRun() {
 	}
 }
 
+// Refresh as each case lands; pollRun stays as the fallback when realtime is down.
+function onEvalCaseCompleted(data) {
+	if (runs.value.some((r) => r.name === data?.run_name)) fetchDetail(true)
+}
+
+onUnmounted(() => {
+	window.frappe?.realtime?.off("eval_case_completed", onEvalCaseCompleted)
+})
+
 onMounted(async () => {
+	window.frappe?.realtime?.on("eval_case_completed", onEvalCaseCompleted)
 	await fetchDetail()
 	fetchProviders()
 	fetchAiModels()

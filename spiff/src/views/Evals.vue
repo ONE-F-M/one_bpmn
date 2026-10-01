@@ -29,6 +29,7 @@
 
 		<!-- Content -->
 		<main class="flex-1 p-6 overflow-auto space-y-6">
+			<div v-if="inProgressMessage" class="bg-blue-50 text-blue-700 text-sm rounded-lg px-4 py-3">{{ inProgressMessage }}</div>
 			<!-- Dashboard -->
 			<div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
 				<div v-for="c in overviewCards" :key="c.key" class="bg-white rounded-lg shadow-sm p-4 border-l-4" :class="c.border">
@@ -143,7 +144,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted } from "vue"
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from "vue"
 import { frappeRequest, Button, Dialog, FormControl, Autocomplete } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
@@ -322,10 +323,8 @@ async function runSuite(s) {
 			method: "POST",
 			params: { suite_name: s.name },
 		})
-		// The backend hands back an existing Running run's name instead of
-		// starting a competitor. Nothing new to show in that case \u2014 the row
-		// is already Running from the earlier click \u2014 just say so and poll it.
-		if (s.latest_run?.status === "Running" && s.latest_run?.name === runName) {
+		// A row already Running means the backend handed back that same run.
+		if (s.latest_run?.status === "Running") {
 			inProgressMessage.value = __("A run of this suite is already in progress")
 		} else {
 			// Optimistic: mark the row Running immediately, then poll quietly.
@@ -393,10 +392,20 @@ async function doReassign() {
 	}
 }
 
+// Refresh as each case lands; pollRunning stays as the fallback when realtime is down.
+function onEvalCaseCompleted() {
+	if (suites.value.some((s) => s.latest_run?.status === "Running")) fetchSuites(true)
+}
+
 onMounted(() => {
 	fetchSuites()
 	fetchOverview()
 	fetchAgents()
 	fetchProcesses()
+	window.frappe?.realtime?.on("eval_case_completed", onEvalCaseCompleted)
+})
+
+onUnmounted(() => {
+	window.frappe?.realtime?.off("eval_case_completed", onEvalCaseCompleted)
 })
 </script>
