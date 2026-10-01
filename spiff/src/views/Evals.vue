@@ -148,10 +148,13 @@ import { frappeRequest, Button, Dialog, FormControl, Autocomplete } from "frappe
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 
+const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s
+
 const loading = ref(true)
 const suites = ref([])
 const isSystemManager = ref(false)
 const running = reactive({})
+const inProgressMessage = ref("")
 
 const fromDate = ref(dayjs().subtract(29, "day").format("YYYY-MM-DD"))
 const toDate = ref(dayjs().format("YYYY-MM-DD"))
