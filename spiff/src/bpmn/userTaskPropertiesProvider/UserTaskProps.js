@@ -833,26 +833,17 @@ class ActionRowComponent extends Component {
 		this.props.onUpdate(this.props.idx, "action", name);
 	}
 
-	createAndSelect(name) {
+	async createAndSelect(name) {
 		if (this.state.creating) return;
 		this.setState({ creating: true, createError: "" });
-		const request = createWorkflowActionMaster(frappePost, name);
-		if (!request) {
+		try {
+			const createdName = await createWorkflowActionMaster(frappePost, name);
 			this.setState({ creating: false });
-			return;
+			this.selectOption(createdName);
+		} catch (err) {
+			// frappeRequest's own message leads with the URL; the server's readable text is in messages.
+			this.setState({ creating: false, isOpen: false, createError: (err.messages && err.messages[0]) || err.message });
 		}
-		request
-			.then((createdName) => {
-				this.setState({ creating: false });
-				this.selectOption(createdName);
-			})
-			.catch((err) => {
-				this.setState({
-					creating: false,
-					isOpen: false,
-					createError: (err.messages && err.messages[0]) || err.message,
-				});
-			});
 	}
 
 	onBlur() {
@@ -934,9 +925,9 @@ class ActionRowComponent extends Component {
 									),
 							]
 						),
+					// Inside the name cell: the row is a four-column grid, so a cell of its own would push the checkboxes along.
+					createError && h("div", { class: "bpmn-frappe-hint", style: "color:#c0392b" }, createError),
 				]),
-				createError &&
-					h("div", { class: "bpmn-frappe-hint", style: "color:#c0392b" }, createError),
 
 				// ── Confirm Transition checkbox ─────────────────
 				h(

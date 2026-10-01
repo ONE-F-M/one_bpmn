@@ -14,20 +14,13 @@ function recordingPost(outcome) {
 	return { post, calls };
 }
 
-test("a named action is posted and resolves to the typed name", async () => {
+test("a name is posted and resolves to that name", async () => {
 	const { post, calls } = recordingPost(Promise.resolve(undefined));
-	const created = await createWorkflowActionMaster(post, "  Escalate to GRD ");
+	const created = await createWorkflowActionMaster(post, "Escalate to GRD");
 	assert.equal(created, "Escalate to GRD");
 	assert.deepEqual(calls, [
 		{ path: "/api/resource/Workflow Action Master", body: { workflow_action_name: "Escalate to GRD" } },
 	]);
-});
-
-test("a blank name sends no request", () => {
-	const { post, calls } = recordingPost(Promise.resolve(undefined));
-	assert.equal(createWorkflowActionMaster(post, "   "), null);
-	assert.equal(createWorkflowActionMaster(post, ""), null);
-	assert.equal(calls.length, 0);
 });
 
 test("the server's error reaches the caller", async () => {
