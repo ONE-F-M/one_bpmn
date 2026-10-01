@@ -29,7 +29,8 @@ DESIGN_TRACE = [
 	_call(3, "review_schema"),
 	_call(4, "finalize"),
 ]
-CLARIFY_TRACE = [_call(1, "classify_intent"), _call(2, "clarify"), _call(3, "finalize")]
+# clarify writes the reply and marks the turn done, so a finalize after it is optional.
+CLARIFY_TRACE = [_call(1, "classify_intent"), _call(2, "clarify")]
 ON_TODO = {"doctype": "ToDo"}
 
 
