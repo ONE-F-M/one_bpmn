@@ -12,6 +12,7 @@ from .base import (
     TurnRecord,
     build_parameter_schema,
 )
+from .structured_output import anthropic_output_config
 
 _MAX_TOOL_TURNS = 10
 
@@ -328,6 +329,7 @@ class AnthropicAdapter(BaseLLMAdapter):
         transcript: list,
         tools: list[ToolSpec] | None = None,
         max_tokens: int = 16384,
+        response_schema: dict | None = None,
     ) -> StepResult:
         """One Messages API call from the provider-agnostic transcript.
 
@@ -391,6 +393,8 @@ class AnthropicAdapter(BaseLLMAdapter):
         }
         if tool_defs:
             kwargs["tools"] = tool_defs
+        if response_schema:
+            kwargs["output_config"] = anthropic_output_config(response_schema)
 
         async with self._client.messages.stream(**kwargs) as stream:
             await _forward_text(stream)
