@@ -227,3 +227,4 @@ one_bpmn.one_bpmn.patches.v1_0.logix_answers_questions_and_always_offers_options
 one_bpmn.one_bpmn.patches.v1_0.prosally_auto_fix_ir #01-10-2026 ProsAlly generate and modify fix the IR problems the compiler names exactly before compiling, so only judgement problems cost a repair pass
 one_bpmn.one_bpmn.patches.v1_0.prosally_stages_read_the_latest_message #01-10-2026 ProsAlly generate and modify add the turn's own message to their prompt, which the chat history leaves out
 one_bpmn.one_bpmn.patches.v1_0.prosally_classifier_skip_confirmation #01-10-2026 ProsAlly intent classifier reports skip_confirmation when the person says to act without being asked first
+one_bpmn.one_bpmn.patches.v1_0.prosally_says_what_it_sets #01-10-2026 ProsAlly names the records, states and assignees it plans to set before drawing, offers draw only, and lists the settings it put on the diagram afterwards

@@ -368,6 +368,76 @@ def summarize_configured_elements(configured: dict) -> str:
 	return "\n".join(lines)
 
 
+def describe_task_config(xml: str, previous_xml: str = "") -> str:
+	"""The settings on the diagram's shapes as plain sentences, leaving out any previous_xml already had; "" when none."""
+	before = extract_configured_elements(previous_xml)
+	lines = []
+	for elem_id, data in extract_configured_elements(xml).items():
+		config = {_local_name(clark): value for clark, value in data["attrs"].items()}
+		previous = {_local_name(clark): value for clark, value in before.get(elem_id, {}).get("attrs", {}).items()}
+		if elem_id in before and previous == config:
+			continue
+		kind = data["type"].replace(" ", "")
+		if kind == "StartEvent" and config.get("triggerDoctype"):
+			lines.append(_("The process starts when a new {0} is created.").format(config["triggerDoctype"]))
+		elif kind == "ServiceTask":
+			lines.append(_service_task_sentence(data["name"], config))
+		elif kind == "UserTask":
+			lines.append(_user_task_sentence(data["name"], config))
+	lines = [line for line in lines if line]
+	if not lines:
+		return ""
+	return "\n\n" + _("I also set these up on the steps:") + "\n" + "\n".join("- " + line for line in lines)
+
+
+def _service_task_sentence(name: str, config: dict) -> str:
+	service = config.get("serviceType")
+	if service == "apply_workflow":
+		return _("{0} moves the {1} to {2}.").format(
+			name, config.get("serviceTargetDoctype") or _("document"), config.get("workflowState") or _("its next state")
+		)
+	if service == "send_email":
+		return _("{0} sends an email.").format(name)
+	if service == "update_field":
+		return _("{0} updates a field on the {1}.").format(name, config.get("updateFieldDoctype") or _("document"))
+	if service == "google_chat":
+		return _("{0} sends a Google Chat message.").format(name)
+	if service == "push_notification":
+		return _("{0} sends a push notification.").format(name)
+	if service == "connector":
+		return _("{0} runs the {1} connector.").format(name, config.get("connectorId") or "")
+	return ""
+
+
+def _user_task_sentence(name: str, config: dict) -> str:
+	parts = []
+	if config.get("targetDoctype"):
+		parts.append(_("works on the {0}").format(config["targetDoctype"]))
+	mode = config.get("assigneeMode")
+	if mode == "User" and config.get("assigneeUser"):
+		parts.append(_("is assigned to {0}").format(config["assigneeUser"]))
+	elif mode == "DocField" and config.get("assigneeDocfield"):
+		parts.append(_("is assigned to the person in the {0} field").format(config["assigneeDocfield"]))
+	elif mode == "Table Field" and config.get("assigneeTableField"):
+		parts.append(_("is assigned to the people in the {0} table").format(config["assigneeTableField"]))
+	elif mode == "Round Robin":
+		parts.append(_("is assigned by round robin"))
+	elif mode == "Load Balancing":
+		parts.append(_("is assigned by load balancing"))
+	elif mode:
+		parts.append(_("has no one chosen to do it yet"))
+	actions = config.get("taskActions") or []
+	if isinstance(actions, str):
+		actions = json.loads(actions)
+	actions = [a.get("action") if isinstance(a, dict) else a for a in actions]
+	actions = [str(a) for a in actions if a]
+	if actions:
+		parts.append(_("has the buttons {0}").format(", ".join(actions)))
+	if not parts:
+		return ""
+	return _("{0} {1}.").format(name, ", ".join(parts))
+
+
 def _copy_configuration(new_elem, old_data: dict) -> None:
 	for clark, value in old_data["attrs"].items():
 		new_elem.set(clark, value)
@@ -405,6 +475,10 @@ def _is_extension_attr(attr_name: str) -> bool:
 def _attr_label(clark_name: str) -> str:
 	local = clark_name.split("}", 1)[1] if "}" in clark_name else clark_name
 	return _(ATTR_FAMILY_LABELS.get(local, local))
+
+
+def _local_name(clark_name: str) -> str:
+	return clark_name.split("}", 1)[1] if "}" in clark_name else clark_name
 
 
 def _element_type_label(tag: str) -> str:
