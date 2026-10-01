@@ -86,6 +86,7 @@
 
 		<main class="flex-1 p-4 sm:p-6 overflow-auto space-y-6">
 			<div v-if="loadError" class="bg-red-50 text-red-700 text-sm rounded-lg px-4 py-3">{{ loadError }}</div>
+			<div v-if="inProgressMessage" class="bg-blue-50 text-blue-700 text-sm rounded-lg px-4 py-3">{{ inProgressMessage }}</div>
 
 			<!-- Dashboard -->
 			<div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
