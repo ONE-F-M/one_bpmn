@@ -13,6 +13,7 @@ entry costs a status line or some latency and never a reply.
 from __future__ import annotations
 
 import json
+import math
 import time
 from contextlib import contextmanager
 
@@ -62,26 +63,21 @@ def _push(instance_name: str, payload: dict) -> None:
 		pass
 
 
-def consume(instance_name: str, timeout: float, poll_seconds: float = 0.25):
+def consume(instance_name: str, timeout: float):
 	"""Yield this turn's progress events until it ends or ``timeout`` passes.
 
 	The end marker is consumed and not yielded, so a caller can simply iterate
-	and then read the reply. Polls rather than using a blocking pop, because the
-	cache connection is shared with the rest of the request and a blocking call
-	would hold it for the whole turn.
+	and then read the reply.
 	"""
 	key = _key(instance_name)
 	deadline = time.monotonic() + max(0.0, timeout)
 	while True:
 		try:
-			raw = frappe.cache().lpop(key)
+			raw = _pop_before(key, deadline)
 		except Exception:
 			return
 		if raw is None:
-			if time.monotonic() >= deadline:
-				return
-			time.sleep(poll_seconds)
-			continue
+			return
 		try:
 			event = json.loads(raw)
 		except (TypeError, ValueError):
@@ -160,7 +156,7 @@ def mask_live_text():
 		frappe.flags[LIVE_TEXT_MASK_FLAG] = previous
 
 
-def wait(instance_name: str, timeout: float, poll_seconds: float = 0.25) -> bool:
+def wait(instance_name: str, timeout: float) -> bool:
 	"""Block until the turn ends, or ``timeout`` passes.
 
 	Returns True when the end marker arrived. Progress events are dropped on the
@@ -173,16 +169,24 @@ def wait(instance_name: str, timeout: float, poll_seconds: float = 0.25) -> bool
 	deadline = time.monotonic() + max(0.0, timeout)
 	while True:
 		try:
-			raw = frappe.cache().lpop(key)
+			raw = _pop_before(key, deadline)
 		except Exception:
 			return False
 		if raw is None:
-			if time.monotonic() >= deadline:
-				return False
-			time.sleep(poll_seconds)
-			continue
+			return False
 		try:
 			if json.loads(raw).get("type") == _DONE:
 				return True
 		except (TypeError, ValueError):
 			continue
+
+
+def _pop_before(key: str, deadline: float) -> bytes | None:
+	"""Block on the turn's list until an entry arrives or ``deadline`` passes."""
+	remaining = deadline - time.monotonic()
+	if remaining <= 0:
+		return None
+	cache = frappe.cache()
+	# Redis truncates the timeout to whole milliseconds and reads 0 as forever.
+	popped = cache.blpop(cache.make_key(key), timeout=math.ceil(remaining * 1000) / 1000)
+	return popped[1] if popped else None

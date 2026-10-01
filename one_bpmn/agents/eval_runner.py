@@ -27,7 +27,8 @@ from typing import Any, List
 
 import frappe
 from frappe import _
-from frappe.query_builder import DocType
+from frappe.query_builder import DocType, Order
+from frappe.query_builder.functions import Sum
 from frappe.utils import add_to_date, cint, flt, now_datetime
 
 from one_bpmn.agents.executor import (
@@ -119,6 +120,8 @@ CASE_TIMEOUT_SECONDS = DEFAULT_TIMEOUT_SECONDS * (DEFAULT_MAX_RETRIES + 1)
 # race a lane job that is still doing exactly that.
 DEADLINE_MARGIN_SECONDS = 60
 
+SPEND_CEILING_MESSAGE = "Not run - the run reached its spend ceiling."
+
 
 def _case_timeout_seconds() -> int:
     """Seconds one case execution (all of its own retries) may take."""
@@ -179,6 +182,34 @@ def _job_timeout(suite: str, backend: str, case_count: int) -> int:
     return max(MIN_JOB_TIMEOUT_SECONDS, SECONDS_PER_EXECUTION * max(1, case_count) * pass_k)
 
 
+def _find_reusable_running_run(suite_name: str, agent_cfg: str | None, backend: str) -> str | None:
+    """The Running AI Eval Run for this suite, agent configuration and backend
+    that is still inside its deadline, or None. A run past its deadline is not
+    reused even before the sweep finalises it."""
+    AIEvalRun = DocType("AI Eval Run")
+    candidates = (
+        frappe.qb.from_(AIEvalRun)
+        .select(AIEvalRun.name, AIEvalRun.started_at)
+        .where(AIEvalRun.suite == suite_name)
+        .where(AIEvalRun.status == "Running")
+        .where(AIEvalRun.backend == backend)
+        .where(
+            AIEvalRun.agent_configuration == agent_cfg
+            if agent_cfg
+            else (AIEvalRun.agent_configuration.isnull() | (AIEvalRun.agent_configuration == ""))
+        )
+        .orderby(AIEvalRun.started_at, order=Order.desc)
+    ).run(as_dict=True)
+    for candidate in candidates:
+        if not candidate.started_at:
+            continue
+        run = frappe.get_doc("AI Eval Run", candidate.name)
+        deadline = add_to_date(candidate.started_at, seconds=_run_deadline_seconds(run))
+        if now_datetime() < deadline:
+            return candidate.name
+    return None
+
+
 @frappe.whitelist()
 def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     """
@@ -203,17 +234,23 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     if not frappe.db.exists("AI Eval Suite", suite_name):
         frappe.throw(_("AI Eval Suite '{0}' not found.").format(suite_name))
 
+    # WI-001821: record which agent this run tested. Without it a later
+    # comparison has to assume the suite still points where it did at run time.
+    agent_cfg = frappe.db.get_value("AI Eval Suite", suite_name, "agent_configuration")
+
+    # One run at a time per suite (same agent, same backend): a second call
+    # while one is still Running reuses it instead of starting a competitor.
+    reusable = _find_reusable_running_run(suite_name, agent_cfg, backend)
+    if reusable:
+        return reusable
+
     run = frappe.new_doc("AI Eval Run")
     run.suite = suite_name
     run.status = "Running"
     run.backend = backend
     run.started_at = now_datetime()
     run.scope = "Suite"  # this entry point always runs the whole suite
-    # WI-001821: record which agent this run tested. Without it a later
-    # comparison has to assume the suite still points where it did at run time.
-    run.agent_configuration = frappe.db.get_value(
-        "AI Eval Suite", suite_name, "agent_configuration"
-    )
+    run.agent_configuration = agent_cfg
     # The caller is already authorised above (suite read gate + evaluatable
     # check, or System Manager). The AI Eval Run is a system-written record of
     # that action, so it must not additionally demand write rights on the Run
@@ -228,6 +265,8 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
         queue="bpmn_ai_agent",
         run_name=run.name,
         fan_out=True,
+        job_id=f"eval-run::{run.name}",
+        deduplicate=True,
         timeout=_job_timeout(suite_name, backend, frappe.db.count("AI Eval Case", {"suite": suite_name})),
     )
 
@@ -294,6 +333,15 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
     else:
         case_names = None  # whole suite
 
+    # One run at a time per suite (same agent, same backend): a second call
+    # while one is still Running reuses it instead of starting a competitor.
+    # Placed after the permission/evaluatable/case-validation gates above, so
+    # a caller who cannot read the suite (or names a foreign case) fails
+    # there, never reaching this dedup lookup.
+    reusable = _find_reusable_running_run(suite_name, suite.agent_configuration, backend)
+    if reusable:
+        return reusable
+
     run = frappe.new_doc("AI Eval Run")
     run.suite = suite_name
     run.status = "Running"
@@ -317,6 +365,8 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
         run_name=run.name,
         case_names=case_names,
         fan_out=True,
+        job_id=f"eval-run::{run.name}",
+        deduplicate=True,
         timeout=_job_timeout(
             suite_name, backend, len(case_names) if case_names else frappe.db.count("AI Eval Case", {"suite": suite_name})
         ),
@@ -430,6 +480,8 @@ def run_eval_comparison(
             run_name=run_name,
             case_names=case_names,
             fan_out=True,
+            job_id=f"eval-run::{run_name}",
+            deduplicate=True,
             timeout=_job_timeout(suite_name, "live", len(case_names)),
         )
 
@@ -593,7 +645,7 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None, fan_out: 
     frappe.publish_realtime(
         "eval_run_completed",
         {"run_name": run.name, "status": run.status},
-        user="all",
+        user=run.owner,
     )
 
 
@@ -663,9 +715,8 @@ def _is_job_timeout_exception(exc: BaseException) -> bool:
 def _fan_out_eval_suite(run, case_names: list) -> None:
     """Kick off a run's lanes as background jobs and return immediately.
 
-    Called by ``_execute_eval_suite(fan_out=True)``. Spend ceilings are out of
-    scope for the fanned-out path (WI note: separate item) \u2014 every case in
-    every lane runs.
+    Called by ``_execute_eval_suite(fan_out=True)``. Each lane job checks the
+    run's spend ceiling against committed results before every case.
     """
     if not case_names:
         _finalize_eval_run(run.name, case_names)
@@ -717,29 +768,58 @@ def _run_eval_lane_job(run_name: str, case_names: list, backend: str, agent_cfg:
         return
     lane = lanes[lane_index]
     order_index = {name: i + 1 for i, name in enumerate(case_names)}
+    spend_cap, owner = frappe.db.get_value("AI Eval Run", run_name, ["spend_cap", "owner"])
+    spend_cap = flt(spend_cap)
+    AIEvalResult = DocType("AI Eval Result")
 
     for case_name in lane:
-        try:
-            case = frappe.get_doc("AI Eval Case", case_name)
-            row = _execute_case_k_times(run_name, backend, case, agent_cfg, pass_k)
-        except Exception as exc:
-            if _is_job_timeout_exception(exc):
-                raise
-            frappe.log_error(
-                title=f"AI Eval: case execution failed ({case_name})",
-                message=frappe.get_traceback(),
-            )
+        # Committed rows are the only spend every lane job can see.
+        spent = flt((
+            frappe.qb.from_(AIEvalResult)
+            .select(Sum(AIEvalResult.cost))
+            .where(AIEvalResult.parent == run_name)
+            .where(AIEvalResult.parenttype == "AI Eval Run")
+        ).run()[0][0]) if spend_cap else 0.0
+        if spend_cap and spent >= spend_cap:
             row = {
                 "eval_case": case_name,
-                "status": "Error",
-                "error_message": "This case could not be executed. See the Error Log.",
-                "runs": 1, "passes": 0, "consistency_rate": 0,
+                "status": "Skipped",
+                "error_message": SPEND_CEILING_MESSAGE,
+                "runs": 0, "passes": 0, "consistency_rate": 0,
             }
+        else:
+            try:
+                case = frappe.get_doc("AI Eval Case", case_name)
+                row = _execute_case_k_times(run_name, backend, case, agent_cfg, pass_k)
+            except Exception as exc:
+                if _is_job_timeout_exception(exc):
+                    raise
+                frappe.log_error(
+                    title=f"AI Eval: case execution failed ({case_name})",
+                    message=frappe.get_traceback(),
+                )
+                row = {
+                    "eval_case": case_name,
+                    "status": "Error",
+                    "error_message": "This case could not be executed. See the Error Log.",
+                    "runs": 1, "passes": 0, "consistency_rate": 0,
+                }
         _write_eval_result_row(run_name, case_name, row, order_index[case_name])
         # Unconditional: this write has to survive even when the very next
         # line never runs because the job is killed. Unlike the inline path,
         # a lane job's whole reason to exist is that its results outlive it.
         frappe.db.commit()
+        frappe.publish_realtime(
+            "eval_case_completed",
+            {
+                "run_name": run_name,
+                "eval_case": case_name,
+                "status": row["status"],
+                "done": frappe.db.count("AI Eval Result", {"parent": run_name, "parenttype": "AI Eval Run"}),
+                "total": len(case_names),
+            },
+            user=owner,
+        )
 
     next_index = lane_index + concurrency
     if next_index < len(lanes):
@@ -837,6 +917,15 @@ def _finalize_eval_run(run_name: str, case_names: list) -> None:
             total_cost += flt(result_row.get("cost") or 0)
             total_tokens += (result_row.get("tokens_used") or 0)
 
+        not_run = sum(
+            1 for r in run.results if r.status == "Skipped" and r.error_message == SPEND_CEILING_MESSAGE
+        )
+        if not_run:
+            run.stop_reason = (
+                f"Stopped on budget: spent {total_cost:.4f} of a {flt(run.spend_cap):.4f} "
+                f"ceiling; {not_run} case(s) not run."
+            )
+
         run.total_cases = len(case_names)
         run.passed_cases = passed
         run.failed_cases = failed
@@ -859,10 +948,11 @@ def _finalize_eval_run(run_name: str, case_names: list) -> None:
     run.save(ignore_permissions=True)
     frappe.db.commit()
 
+    # Realtime goes to whoever started the run, never "all".
     frappe.publish_realtime(
         "eval_run_completed",
         {"run_name": run.name, "status": run.status},
-        user="all",
+        user=run.owner,
     )
 
 
@@ -1558,12 +1648,13 @@ def _execute_case_inner(case, eval_run: str = None, agent_cfg: str = None) -> di
         eval_type = frappe.db.get_value("AI Eval Suite", case.suite, "eval_type") or "Direct"
         cfg = frappe.get_cached_doc("AI Agent Configuration", agent_cfg)
 
+        started = now_datetime()
         if eval_type == "Agent":
             output, usage = _run_agent_eval(cfg, case, eval_run)
         else:
             output, usage = _run_direct_eval(cfg, case)
 
-        facts = _execution_facts(case, eval_run, usage)
+        facts = _execution_facts(case, eval_run, usage, since=started)
         assertion_results = [
             _evaluate_assertion(assertion, output, facts)
             for assertion in (case.assertions or [])
@@ -2481,9 +2572,11 @@ def _resolve_path(data: Any, path: str) -> Any:
     return data
 
 
-def _execution_facts(case, eval_run: str, usage: dict) -> dict:
-    """What the assertions may know about the execution itself, not its text."""
-    trace = _tool_trace_for(case, eval_run)
+def _execution_facts(case, eval_run: str, usage: dict, since=None) -> dict:
+    """What the assertions may know about the execution itself, not its text.
+
+    ``since`` is when this execution started, so a pass_k repeat is scored on its own calls only."""
+    trace = _tool_trace_for(case, eval_run, since)
     return {
         "tokens": cint(usage.get("tokens")),
         "tool_calls": [c["tool"] for c in trace],
@@ -2492,7 +2585,7 @@ def _execution_facts(case, eval_run: str, usage: dict) -> dict:
     }
 
 
-def _tool_trace_for(case, eval_run: str = None) -> List[dict]:
+def _tool_trace_for(case, eval_run: str = None, since=None) -> List[dict]:
     """The calls this case made, in the order it made them, with their arguments.
 
     Order is the step's ``step_index`` and then the row's position within that
@@ -2503,6 +2596,8 @@ def _tool_trace_for(case, eval_run: str = None) -> List[dict]:
     filters = {"eval_case": case.name}
     if eval_run:
         filters["eval_run"] = eval_run
+    if since:
+        filters["creation"] = [">=", since]
     runs = frappe.get_all("AI Agent Run", filters=filters, pluck="name", order_by="creation asc")
     if not runs:
         return []

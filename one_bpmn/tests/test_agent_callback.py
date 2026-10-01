@@ -552,3 +552,79 @@ class TestRetryPrefixInAnswer(CallbackCase):
 		)
 		run.reload()
 		self.assertIn("automatic retry also failed", cb._sandbox_run_answer(run))
+
+
+USAGE = {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}
+
+
+class TestCallbackRunsAsAgentUser(CallbackCase):
+	"""A signed callback arrives as Guest, so its writes and the resume must carry a real user."""
+
+	def setUp(self):
+		super().setUp()
+		self.agent_user = f"_cb-agent-{frappe.generate_hash(length=6)}@agents.processa"
+		frappe.get_doc({
+			"doctype": "User",
+			"email": self.agent_user,
+			"first_name": "Callback Agent",
+			"send_welcome_email": 0,
+		}).insert(ignore_permissions=True)
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+		frappe.delete_doc("User", self.agent_user, force=True, ignore_permissions=True)
+		super().tearDown()
+
+	def _post_as_guest(self, body: dict, user_for: str | None, **kwargs):
+		resumed_as = []
+		frappe.set_user("Guest")
+		with patch("one_bpmn.agents.identity.user_for", return_value=user_for), \
+		     patch(
+				"one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance._enqueue_agent_sandbox_resume",
+				side_effect=lambda *a: resumed_as.append(frappe.session.user),
+			):
+			result = self._post(body, **kwargs)
+		return result, resumed_as
+
+	def test_a_guest_callback_records_the_run_as_the_agent_user(self):
+		run = self._run()
+		result, _ = self._post_as_guest(
+			{"correlation_id": run.name, "status": "tests_passed", "agent_usage": USAGE},
+			user_for=self.agent_user,
+		)
+
+		self.assertEqual(result, {"accepted": True})
+		agent_run_name = frappe.db.get_value("Agent Sandbox Run", run.name, "ai_agent_run")
+		self.assertEqual(frappe.db.get_value("AI Agent Run", agent_run_name, "owner"), self.agent_user)
+		self.assertEqual(frappe.session.user, "Guest")
+
+	def test_the_resume_runs_as_the_agent_user(self):
+		run = self._run()
+		_, resumed_as = self._post_as_guest(
+			{"correlation_id": run.name, "status": "tests_passed"}, user_for=self.agent_user
+		)
+
+		self.assertEqual(resumed_as, [self.agent_user])
+
+	def test_without_an_agent_user_the_sandbox_run_owner_is_used(self):
+		run = self._run()
+		_, resumed_as = self._post_as_guest(
+			{"correlation_id": run.name, "status": "tests_passed", "agent_usage": USAGE}, user_for=None
+		)
+
+		agent_run_name = frappe.db.get_value("Agent Sandbox Run", run.name, "ai_agent_run")
+		self.assertEqual(frappe.db.get_value("AI Agent Run", agent_run_name, "owner"), run.owner)
+		self.assertEqual(resumed_as, [run.owner])
+
+	def test_a_wrong_signature_records_nothing_and_stays_guest(self):
+		run = self._run()
+		result, resumed_as = self._post_as_guest(
+			{"correlation_id": run.name, "status": "tests_passed", "agent_usage": USAGE},
+			user_for=self.agent_user,
+			signature="deadbeef",
+		)
+
+		self.assertEqual(result, {"accepted": False})
+		self.assertFalse(frappe.db.exists("AI Agent Run", {"correlation_id": run.name}))
+		self.assertEqual(resumed_as, [])
+		self.assertEqual(frappe.session.user, "Guest")

@@ -365,11 +365,8 @@ scheduler_events = {
 
 # Cache keys that survive frappe.clear_cache()
 # --------------------------------------------
-# `docu_turn::*` lived here: Docu's enqueue-and-poll chat kept each running
-# turn's result in a cache entry that a global wipe would destroy mid-turn.
-# WI-001679 deleted that endpoint pair — Docu streams over the shared AG-UI
-# endpoint now, and a stream needs no handle to survive a cache wipe — so
-# nothing in this app requires an exemption any more.
+# The stage tools' per-turn store (agents/turn_state.py) is live state for a running turn.
+persistent_cache_keys = ["ait_turn:*"]
 
 # Request Events
 # ----------------

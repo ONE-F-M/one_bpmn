@@ -1,9 +1,12 @@
 """The chat turn runs on the worker, and the request waits for it."""
 
+import json
+import threading
 import time
 from unittest.mock import patch
 
 import frappe
+import redis
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import turn_signal
@@ -23,10 +26,22 @@ class TestTurnSignal(FrappeTestCase):
 		self.assertTrue(turn_signal.wait(instance, timeout=5))
 		self.assertLess(time.monotonic() - started, 2)
 
+	def test_a_signal_published_mid_wait_ends_it_without_sleeping(self):
+		instance = _instance_name()
+		cache = frappe.cache()
+		full_key = cache.make_key(turn_signal._key(instance))
+		payload = json.dumps({"type": "done"})
+		publisher = threading.Timer(0.2, redis.Redis.rpush, (cache, full_key, payload))
+
+		with patch.object(turn_signal.time, "sleep", side_effect=AssertionError("polled")):
+			publisher.start()
+			self.assertTrue(turn_signal.wait(instance, timeout=5))
+		publisher.join()
+
 	def test_waiting_without_a_signal_gives_up_at_the_deadline(self):
 		started = time.monotonic()
 
-		self.assertFalse(turn_signal.wait(_instance_name(), timeout=0.5, poll_seconds=0.05))
+		self.assertFalse(turn_signal.wait(_instance_name(), timeout=0.5))
 
 		elapsed = time.monotonic() - started
 		self.assertGreaterEqual(elapsed, 0.5)
@@ -37,7 +52,7 @@ class TestTurnSignal(FrappeTestCase):
 		turn_signal.publish(instance)
 
 		self.assertTrue(turn_signal.wait(instance, timeout=5))
-		self.assertFalse(turn_signal.wait(instance, timeout=0.2, poll_seconds=0.05))
+		self.assertFalse(turn_signal.wait(instance, timeout=0.2))
 
 	def test_clear_drops_a_signal_left_by_an_earlier_turn(self):
 		instance = _instance_name()
@@ -45,13 +60,13 @@ class TestTurnSignal(FrappeTestCase):
 
 		turn_signal.clear(instance)
 
-		self.assertFalse(turn_signal.wait(instance, timeout=0.2, poll_seconds=0.05))
+		self.assertFalse(turn_signal.wait(instance, timeout=0.2))
 
 	def test_one_instance_signal_does_not_end_another_instance_wait(self):
 		mine, other = _instance_name(), _instance_name()
 		turn_signal.publish(other)
 
-		self.assertFalse(turn_signal.wait(mine, timeout=0.2, poll_seconds=0.05))
+		self.assertFalse(turn_signal.wait(mine, timeout=0.2))
 		self.assertTrue(turn_signal.wait(other, timeout=5))
 
 
@@ -153,7 +168,7 @@ class TestProgressReachesTheRequest(FrappeTestCase):
 		# Even the early return has to close its status line.
 		shape_tools.execute_shape(instance, "draft_connector", {}, {})
 
-		events = list(turn_signal.consume(self.instance, timeout=0.5, poll_seconds=0.05))
+		events = list(turn_signal.consume(self.instance, timeout=0.5))
 		self.assertEqual(
 			[(e["type"], e["toolCallName"]) for e in events],
 			[("TOOL_CALL_START", "draft_connector"), ("TOOL_CALL_END", "draft_connector")],
@@ -171,7 +186,7 @@ class TestProgressReachesTheRequest(FrappeTestCase):
 			with self.assertRaises(shape_tools.ToolDeferred):
 				shape_tools.execute_shape(instance, "run_tests", {"serverScript": "X"}, {})
 
-		events = list(turn_signal.consume(self.instance, timeout=0.5, poll_seconds=0.05))
+		events = list(turn_signal.consume(self.instance, timeout=0.5))
 		self.assertEqual([e["type"] for e in events], ["TOOL_CALL_START"])
 
 	def test_the_handover_leaves_the_relay_and_carries_the_reply(self):
