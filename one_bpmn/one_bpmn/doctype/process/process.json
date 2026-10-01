@@ -36,7 +36,10 @@
   "section_break_uimp",
   "process_creation_request",
   "column_break_tutf",
-  "column_break_vapa"
+  "column_break_vapa",
+  "section_deployment_checklist",
+  "backend_code_removal_status",
+  "backend_code_removal_notes"
  ],
  "fields": [
   {
