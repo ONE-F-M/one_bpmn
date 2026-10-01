@@ -382,6 +382,7 @@ const ASSERTION_VALUE_LABELS = {
 	no_tool_call: "Forbidden tools",
 	tool_calls: "Order mode",
 	tool_artifact: "Artifact check (JSON)",
+	skill_in_prompt: "Skill name",
 }
 
 function assertionValueLabel(type) {
