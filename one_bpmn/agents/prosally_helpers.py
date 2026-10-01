@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Helpers the ProsAlly tool scripts share: property preservation, JSON extraction, history, model calls."""
+"""Helpers the ProsAlly tool scripts share: property preservation, JSON extraction, confirmation replies, history, model calls."""
 
 import json
 import re
@@ -10,12 +10,61 @@ import frappe
 from frappe import _
 
 from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
+from one_bpmn.agents.memory.text_clean import strip_html
 from one_bpmn.agents.turn_state import run_sync
 from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 
 AGENT_ID = "prosally_agent"
 HISTORY_TURNS = 10
 MIN_STAGE_TOKENS = 16384
+
+# Whole replies that approve a pending confirmation, after punctuation and "please" or "thanks" are dropped.
+AFFIRMATIONS = frozenset(
+	{
+		"yes",
+		"y",
+		"yeah",
+		"yep",
+		"yup",
+		"sure",
+		"ok",
+		"okay",
+		"alright",
+		"all right",
+		"go",
+		"go ahead",
+		"yes go ahead",
+		"ok go ahead",
+		"okay go ahead",
+		"proceed",
+		"yes proceed",
+		"ok proceed",
+		"do it",
+		"yes do it",
+		"do",
+		"just do it",
+		"go for it",
+		"draw it",
+		"yes draw it",
+		"confirm",
+		"confirmed",
+		"yes confirm",
+		"sounds good",
+		"looks good",
+		"yes sounds good",
+		"yes looks good",
+		"perfect",
+		"correct",
+		"yes correct",
+		"thats right",
+		"yes thats right",
+		"absolutely",
+		"of course",
+	}
+)
+# Replies starting with one of these turn a pending confirmation down.
+DECLINES = ("no", "nope", "nah", "wait", "change", "not yet", "hold on", "stop", "dont", "do not", "cancel")
+_POLITE_WORDS = re.compile(r"\b(please|thanks|thank you)\b")
 
 NS = {
 	"bpmn": "http://www.omg.org/spec/BPMN/20100524/MODEL",
@@ -116,6 +165,38 @@ def stage_max_tokens(cfg: dict) -> int:
 	if ceiling:
 		max_tokens = min(max_tokens, int(ceiling))
 	return max_tokens
+
+
+def answer_to_confirmation(conversation: str, user_text: str) -> dict:
+	"""{"confirmed_action": ...} or {"declined_action": ...} when user_text answers the last Bot confirmation, else {}."""
+	last = frappe.get_all(
+		"Chat Message",
+		filters={"conversation": conversation, "message_type": "Bot"},
+		fields=["metadata"],
+		order_by="creation desc",
+		limit=1,
+	)
+	meta = frappe.parse_json(last[0].metadata or "{}") if last else {}
+	action = (meta.get("agent_result") or {}).get("action_intent")
+	if meta.get("intent") != "CONFIRM" or not action:
+		return {}
+	reply = confirmation_reply(user_text)
+	if reply == "yes":
+		return {"confirmed_action": action}
+	if reply == "no":
+		return {"declined_action": action}
+	return {}
+
+
+def confirmation_reply(text: str) -> str:
+	""" "yes" when text is a plain affirmation, "no" when it starts with a decline, else ""."""
+	words = re.sub(r"[^a-z ]", " ", strip_html(text).lower().replace("'", ""))
+	words = " ".join(_POLITE_WORDS.sub(" ", words).split())
+	if words in AFFIRMATIONS:
+		return "yes"
+	if any(words == d or words.startswith(d + " ") for d in DECLINES):
+		return "no"
+	return ""
 
 
 def format_history(chat_history: list, agent_label: str = "ProsAlly") -> str:

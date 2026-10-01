@@ -13,11 +13,11 @@ Prompt rendering (Jinja) is performed by the dispatcher BEFORE calling run().
 from __future__ import annotations
 
 import asyncio
-import json
+import dataclasses
 import re
 import random
 import time
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar
 
 import frappe
 from frappe import _
@@ -32,6 +32,7 @@ from . import (
     TokenUsage,
     register_executor,
 )
+from one_bpmn.agents.llm_provider import structured_output
 
 
 def _run_coro_blocking(coro):
@@ -64,47 +65,8 @@ def _run_coro_blocking(coro):
         return pool.submit(ctx.run, asyncio.run, coro).result()
 
 
-def _strip_code_fences(content: str) -> str:
-    """
-    Remove a surrounding Markdown code fence from *content*, if present.
-
-    Models (notably Anthropic) frequently wrap JSON responses in ```json …```
-    fences even when asked for raw JSON. This strips an opening fence line
-    (``` or ```json) and a trailing ``` so the inner payload can be parsed.
-    Content without fences is returned stripped but otherwise unchanged.
-    """
-    text = (content or "").strip()
-    if text.startswith("```"):
-        newline = text.find("\n")
-        if newline != -1:
-            text = text[newline + 1:]
-        else:
-            text = text[3:]
-        if text.rstrip().endswith("```"):
-            text = text.rstrip()[:-3]
-    return text.strip()
-
-
-def _extract_json_object(text: str) -> Optional[dict]:
-    """
-    Best-effort recovery of a JSON object embedded in surrounding prose.
-
-    Models sometimes preface the requested JSON with commentary ("Sure!
-    Here is the decision: {...}") despite JSON-only instructions. Scan for
-    the first parseable object literal and return it, or None.
-    """
-    decoder = json.JSONDecoder()
-    idx = text.find("{")
-    while idx != -1:
-        try:
-            obj, _ = decoder.raw_decode(text, idx)
-        except json.JSONDecodeError:
-            idx = text.find("{", idx + 1)
-            continue
-        if isinstance(obj, dict):
-            return obj
-        idx = text.find("{", idx + 1)
-    return None
+_strip_code_fences = structured_output.strip_code_fences
+_extract_json_object = structured_output.extract_json_object
 
 
 _TRANSIENT_STATUS_CODES = frozenset({429, 500, 502, 503})
@@ -206,11 +168,31 @@ class DirectApiExecutor(Executor):
         # catalog name agents pick.
         model = frappe.db.get_value("AI Model", model_name, "model_api_name") or model_name
 
+        schema = None
+        native = False
+        if config.response_format == "json" and config.response_schema:
+            try:
+                schema = structured_output.normalize_response_schema(config.response_schema)
+            except ValueError as exc:
+                return ExecutorResult(
+                    error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
+                    error_message=f"Response schema is not valid: {exc}",
+                )
+            # Gemini cannot pair responseSchema with function calling, so it gets the prompt fallback.
+            native = bool(frappe.db.get_value("AI Model", model_name, "support_structured_output")) and not (
+                config.tools and provider_type == "Google"
+            )
+            config = dataclasses.replace(
+                config,
+                system_prompt=structured_output.system_prompt_with_format(config.system_prompt, schema, native),
+            )
+        native_schema = structured_output.provider_schema(schema) if native else None
+
         # WI-001356: with tools present, delegate to the matching
         # agents/llm_provider adapter's multi-turn tool-calling loop. With
         # tools=None (the default) the raw HTTP path below is untouched.
         if config.tools:
-            return self._run_with_tools(config, provider_type, api_key, model)
+            return self._run_with_tools(config, provider_type, api_key, model, schema, native_schema)
 
         if provider_type == "Anthropic":
             url, payload, headers = self._build_anthropic_request(
@@ -222,13 +204,19 @@ class DirectApiExecutor(Executor):
                 endpoint, api_key, model, config, provider_type,
             )
             parse_fn = self._parse_openai_response
+        if native_schema and provider_type == "Anthropic":
+            payload["output_config"] = structured_output.anthropic_output_config(native_schema)
+        elif native_schema:
+            payload["response_format"] = structured_output.openai_response_format(native_schema)
 
         import requests
 
         attempts = []
         last_error_result = None
+        attempt = 0
+        corrected = False
 
-        for attempt in range(config.max_retries + 1):
+        while True:
             attempt_start = time.time()
             error_result = None
             content = None
@@ -290,17 +278,37 @@ class DirectApiExecutor(Executor):
 
             # ── JSON schema validation ────────────────────────────
             if error_result is None and config.response_format == "json":
-                validation_result = self._validate_json(content, config.response_schema)
-                if isinstance(validation_result, ExecutorResult):
-                    error_result = validation_result
-                else:
+                try:
+                    parsed = structured_output.read_json_reply(
+                        content, schema, self._stop_reason(provider_type, data)
+                    )
+                except structured_output.ReplyRejected as exc:
+                    if exc.retry and not corrected:
+                        corrected = True
+                        attempts.append(AttemptRecord(
+                            attempt_index=attempt,
+                            content=content or "",
+                            error_code=ErrorCode.SCHEMA_VALIDATION_FAILED.value,
+                            error_message=str(exc),
+                            token_usage=token_usage,
+                            latency_ms=int((time.time() - attempt_start) * 1000),
+                        ))
+                        payload = self._with_correction(payload, content, str(exc))
+                        continue
                     return ExecutorResult(
-                        output=validation_result,
+                        error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
+                        error_message=f"The reply is not the declared JSON: {exc}",
                         token_usage=token_usage,
-                        error_code=ErrorCode.SUCCESS,
                         raw=data,
                         attempts=list(attempts),
                     )
+                return ExecutorResult(
+                    output=parsed,
+                    token_usage=token_usage,
+                    error_code=ErrorCode.SUCCESS,
+                    raw=data,
+                    attempts=list(attempts),
+                )
 
             # ── Success (text format) ─────────────────────────────
             if error_result is None:
@@ -324,8 +332,10 @@ class DirectApiExecutor(Executor):
             ))
             last_error_result = error_result
 
-            if attempt < config.max_retries:
-                self._sleep_backoff(config, attempt)
+            if attempt >= config.max_retries:
+                break
+            self._sleep_backoff(config, attempt)
+            attempt += 1
 
         # All retries exhausted
         last_error_result.attempts = list(attempts)
@@ -356,7 +366,8 @@ class DirectApiExecutor(Executor):
     }
 
     def _run_with_tools(
-        self, config: ExecutorConfig, provider_type: str, api_key: str, model: str
+        self, config: ExecutorConfig, provider_type: str, api_key: str, model: str,
+        schema: dict | None = None, native_schema: dict | None = None,
     ) -> ExecutorResult:
         """
         Tool-enabled execution path. Since the Durable AI Agent HITL work the
@@ -406,6 +417,8 @@ class DirectApiExecutor(Executor):
                     tool_result_max_chars=config.tool_result_max_chars,
                     terminal_tools=config.terminal_tools,
                     history=config.messages,
+                    response_schema=native_schema,
+                    check_reply=self._json_reply_check(schema) if config.response_format == "json" else None,
                 )
             )
         except asyncio.TimeoutError:
@@ -472,7 +485,7 @@ class DirectApiExecutor(Executor):
         # does: a "json" agent must yield a parsed (schema-valid) object, not
         # the raw final text — downstream gateways route on its keys.
         if config.response_format == "json":
-            validation_result = self._validate_json(completion.text, config.response_schema)
+            validation_result = self._validate_json(completion.text, schema)
             if isinstance(validation_result, ExecutorResult):
                 validation_result.token_usage = token_usage
                 validation_result.trace = trace
@@ -702,38 +715,43 @@ class DirectApiExecutor(Executor):
         )
 
     @staticmethod
-    def _validate_json(content: str, schema_str: Optional[str]) -> Any:
-        stripped = _strip_code_fences(content)
+    def _validate_json(content: str, schema: dict | None) -> Any:
         try:
-            parsed = json.loads(stripped)
-        except json.JSONDecodeError as exc:
-            # Fallback: pull the object out of surrounding prose before failing.
-            parsed = _extract_json_object(stripped)
-            if parsed is None:
-                return ExecutorResult(
-                    error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
-                    error_message=f"Model returned invalid JSON: {exc}",
-                )
+            return structured_output.read_json_reply(content, schema)
+        except structured_output.ReplyRejected as exc:
+            return ExecutorResult(
+                error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
+                error_message=f"The reply is not the declared JSON: {exc}.",
+            )
 
-        if schema_str:
+    @staticmethod
+    def _json_reply_check(schema: dict | None):
+        """For the tool loop: the correction to send when a final reply is not the declared JSON."""
+
+        def check(text: str) -> str | None:
             try:
-                import jsonschema
-                schema = json.loads(schema_str)
-                jsonschema.validate(parsed, schema)
-            except ImportError:
-                pass
-            except json.JSONDecodeError as exc:
-                return ExecutorResult(
-                    error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
-                    error_message=f"Response schema is not valid JSON: {exc}",
-                )
-            except Exception as exc:
-                return ExecutorResult(
-                    error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
-                    error_message=f"JSON schema validation failed: {exc}",
-                )
+                structured_output.read_json_reply(text, schema)
+            except structured_output.ReplyRejected as exc:
+                return structured_output.retry_note(str(exc)) if exc.retry else None
+            return None
 
-        return parsed
+        return check
 
+    @staticmethod
+    def _stop_reason(provider_type: str, data: dict) -> str | None:
+        if provider_type == "Anthropic":
+            return data.get("stop_reason")
+        choices = data.get("choices") or [{}]
+        return choices[0].get("finish_reason")
+
+    @staticmethod
+    def _with_correction(payload: dict, reply: str, error: str) -> dict:
+        """The same request with the rejected reply and the reason it failed appended."""
+        messages = [
+            *payload["messages"],
+            {"role": "assistant", "content": reply or ""},
+            {"role": "user", "content": structured_output.retry_note(error)},
+        ]
+        return {**payload, "messages": messages}
 
 register_executor("direct_api", DirectApiExecutor)
