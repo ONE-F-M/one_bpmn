@@ -1100,6 +1100,7 @@ function optimisticRun(runName, totalCases) {
 async function runCases(caseNames, flag, backend = "live") {
 	flag.value = true
 	loadError.value = ""
+	inProgressMessage.value = ""
 	try {
 		const runName = await frappeRequest({
 			url: "/api/method/one_bpmn.agents.eval_runner.run_eval_cases",
@@ -1110,7 +1111,15 @@ async function runCases(caseNames, flag, backend = "live") {
 				backend,
 			},
 		})
-		optimisticRun(runName, caseNames ? caseNames.length : cases.value.length)
+		// The backend hands back an existing Running run's name instead of
+		// starting a competitor. That run is already in the list (either from
+		// an earlier fetch, or from the optimistic row the first click added),
+		// so adding a second optimistic row here would just duplicate it.
+		if (runs.value.some((r) => r.name === runName)) {
+			inProgressMessage.value = __("A run of this suite is already in progress")
+		} else {
+			optimisticRun(runName, caseNames ? caseNames.length : cases.value.length)
+		}
 		pollRun(runName)
 	} catch (e) {
 		console.error("Run failed:", e)
