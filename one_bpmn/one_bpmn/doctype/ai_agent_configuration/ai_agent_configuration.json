@@ -24,6 +24,10 @@
   "temperature",
   "max_tokens",
   "tool_result_max_chars",
+  "tool_choice",
+  "parallel_tool_calls",
+  "thinking_budget_tokens",
+  "terminal_tools",
   "prompt_section",
   "required_variables",
   "required_variables_html",
@@ -212,6 +216,32 @@
    "fieldname": "tool_result_max_chars",
    "fieldtype": "Int",
    "label": "Max Tool Result Chars"
+  },
+  {
+   "description": "auto, required, or one tool's name. Applies to the first model call of a run; a model that refuses a forced choice gets auto, and a plain-text answer is sent back once before the run fails.",
+   "fieldname": "tool_choice",
+   "fieldtype": "Data",
+   "label": "Tool Choice"
+  },
+  {
+   "default": "1",
+   "description": "Let the model request several tools in one turn. Not used by Gemini.",
+   "fieldname": "parallel_tool_calls",
+   "fieldtype": "Check",
+   "label": "Parallel Tool Calls"
+  },
+  {
+   "default": "0",
+   "description": "Thinking tokens per model call, for Claude 4.5 and Gemini. 0 = off. Newer Claude models decide their own thinking and ignore this.",
+   "fieldname": "thinking_budget_tokens",
+   "fieldtype": "Int",
+   "label": "Thinking Budget Tokens"
+  },
+  {
+   "description": "Comma-separated tools that end the turn when called; their arguments are the reply. finalize always does.",
+   "fieldname": "terminal_tools",
+   "fieldtype": "Data",
+   "label": "Terminal Tools"
   },
   {
    "fieldname": "prompt_section",
@@ -798,7 +828,7 @@
    "link_fieldname": "agent_configuration"
   }
  ],
- "modified": "2026-09-10 15:00:00.000000",
+ "modified": "2026-10-01 21:00:00.000000",
  "modified_by": "c.akeru@one-fm.com",
  "module": "ONE BPMN",
  "name": "AI Agent Configuration",

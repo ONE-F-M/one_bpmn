@@ -67,6 +67,10 @@ _CONFIG_TO_SHAPE = {
 	# so 0 reaches the modal and reads there as "no bar".
 	"golden_dataset_minimum": "aiGoldenDatasetMinimum",
 	"golden_dataset_target": "aiGoldenDatasetTarget",
+	"tool_choice": "aiToolChoice",
+	"parallel_tool_calls": "aiParallelToolCalls",
+	"thinking_budget_tokens": "aiThinkingBudgetTokens",
+	"terminal_tools": "aiTerminalTools",
 }
 
 # Shape attributes the modal may write back, and the config fields they land

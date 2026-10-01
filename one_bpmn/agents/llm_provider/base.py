@@ -52,9 +52,8 @@ class ToolSpec:
         wave the call through.
 
         Guarding at construction rather than in an execution loop is deliberate:
-        tools run in FOUR loops (the step loop plus the Anthropic/OpenAI/Gemini
-        adapters' own), and some ToolSpecs are built inside Server Script bodies
-        rather than by compile_shape_tools. Construction is the single point all
+        some ToolSpecs are built inside Server Script bodies rather than by
+        compile_shape_tools. Construction is the single point all
         of them pass through, so a new loop — or a new in-script tool — is
         covered without anyone remembering to add a check.
 
@@ -153,6 +152,8 @@ class StepResult:
     # Breakdown of prompt_tokens by billing rate (WI-001643) — see TurnRecord.
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+    # Provider thinking blocks, as JSON, sent back with this turn's tool results.
+    thinking: list = field(default_factory=list)
 
 
 @dataclass
@@ -231,14 +232,10 @@ class CompletionResult:
 class BaseLLMAdapter(ABC):
     """Single async entry-point for any LLM provider.
 
-    Each provider subclass handles its own tool-calling loop internally.
-    complete() returns a CompletionResult carrying both the final answer
-    text and the full turn-by-turn trace — earlier versions returned a bare
-    string and discarded every intermediate turn's tool calls and token
-    usage (contract change made explicitly in scope by WI-001356).
+    Each provider implements step(), one model call. complete() runs the step
+    loop over it, so every caller shares one tool loop.
     """
 
-    @abstractmethod
     async def complete(
         self,
         system: str,
@@ -249,7 +246,13 @@ class BaseLLMAdapter(ABC):
     ) -> CompletionResult:
         """Run one conversation (with optional multi-step tool calls) and
         return the final text plus the per-turn trace."""
+        from one_bpmn.agents.executor.step_loop import run_nested_loop
 
+        return await run_nested_loop(
+            self, system=system, user=user, tools=tools, max_tokens=max_tokens, max_turns=max_turns or 10
+        )
+
+    @abstractmethod
     async def step(
         self,
         system: str,
@@ -257,6 +260,9 @@ class BaseLLMAdapter(ABC):
         tools: list[ToolSpec] | None = None,
         max_tokens: int = 16384,
         response_schema: dict | None = None,
+        tool_choice: str | None = None,
+        parallel_tool_calls: bool = True,
+        thinking_budget_tokens: int = 0,
     ) -> StepResult:
         """Make ONE model call against a provider-agnostic transcript and
         return its content + requested tool calls WITHOUT executing anything.
@@ -271,10 +277,8 @@ class BaseLLMAdapter(ABC):
              [{"id": str, "name": str, "content": str}]}
 
         ``response_schema`` asks the provider's native JSON mode to shape the
-        final text reply; tool calls are unaffected.
+        final text reply; tool calls are unaffected. ``tool_choice`` is "auto",
+        "required" or a tool name; a model that refuses a forced choice gets "auto".
 
-        Each adapter converts this to its wire format. complete() keeps its
-        adapter-internal loop for existing callers; the AI Agent Task's
-        step-driven loop (agents/executor/step_loop.py) uses step() only.
+        Each adapter converts this to its wire format.
         """
-        raise NotImplementedError(f"{type(self).__name__} does not implement step()")
