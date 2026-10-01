@@ -715,6 +715,7 @@ const assertionTypeOptions = ASSERTION_TYPES
 
 const loading = ref(true)
 const loadError = ref("")
+const inProgressMessage = ref("")
 const suite = ref({})
 const cases = ref([])
 const runs = ref([])
