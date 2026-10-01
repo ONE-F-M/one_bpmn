@@ -46,6 +46,15 @@ class AIAgentConfiguration(Document):
 		self.validate_agent_creation_grant()
 		self.validate_a2a_exposure()
 		self.validate_memory_config()
+		self.validate_loop_compaction()
+
+	def validate_loop_compaction(self):
+		"""A tool loop compacted down to one or two turns loses track of what it was doing."""
+		if self.get("loop_compaction_threshold") and (self.get("loop_compaction_keep_turns") or 0) < 3:
+			frappe.throw(
+				_("Tool Loop Keep Turns must be at least 3 when the Tool Loop Threshold is set."),
+				title=_("Invalid Tool Loop Compaction"),
+			)
 
 	def validate_memory_config(self):
 		"""WI-002168: an Enabled config with no resolvable model silently drops

@@ -2063,6 +2063,9 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		terminal_tools   = list({"finalize", *(
 			t.strip() for t in (task_cfg.get("aiTerminalTools") or "").split(",") if t.strip()
 		)}),
+		loop_compaction_threshold = cint(task_cfg.get("aiLoopCompactionThreshold")),
+		loop_compaction_keep_turns = cint(task_cfg.get("aiLoopCompactionKeepTurns")) or 8,
+		compaction_model = task_cfg.get("aiCompactionModel") or "",
 	)
 
 	context = ExecutorContext(
