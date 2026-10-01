@@ -694,6 +694,8 @@ import { ASSERTION_TYPES, MATCHERS, TOOL_CALL_MODES, assertionTypeLabel } from "
 import { useRoute, useRouter } from "vue-router"
 import { frappeRequest, Button, Dialog, ErrorMessage, FormControl } from "frappe-ui"
 
+const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s
+
 const route = useRoute()
 const router = useRouter()
 const suiteName = route.params.suite
