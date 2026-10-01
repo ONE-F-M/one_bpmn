@@ -180,6 +180,23 @@ _DISPATCH_WIRING = {"connector": ("connectorId", "operation")}
 # readiness check does not ask for one.
 ANSWERS_OUT_OF_BAND = frozenset({"a2a", "agent_sandbox"})
 
+# Names a Server Script receives without importing them: (name, meaning, Script Task, agent tool).
+SCRIPT_NAMES = (
+	("frappe", "The frappe module.", True, True),
+	("task_data", "A copy of the workflow variables, read with task_data.get(...).", True, True),
+	("result", "A dict; what the script puts here becomes workflow variables (or the tool's reply).", True, True),
+	("context_doctype", "DocType of the record the process runs for.", True, True),
+	("context_docname", "Name of that record; for a chat agent, the Chat Conversation.", True, True),
+	("doc", "That record, loaded; an empty dict when there is none.", True, True),
+	("instance", "The BPMN Process Instance.", True, True),
+	("bpmn_id", "Id of the shape the script runs for.", True, True),
+	("agent_configuration", "The AI Agent Configuration that owns the map, or empty.", True, False),
+	("ai_agent_config", "The AI Agent Configuration set on the calling AI Agent Task.", False, True),
+	("shape_config", "The tool shape's own compiled settings.", False, True),
+	("<workflow variables>", "Each workflow variable, also as a plain name.", True, False),
+	("<tool arguments>", "Each argument the model passed to the tool, as a plain name.", False, True),
+)
+
 
 def _with_dispatch_wiring(instance, bpmn_id: str, task_cfg: dict) -> dict:
 	"""Fill a tool descriptor's gaps from the shape's own compiled descriptor.
