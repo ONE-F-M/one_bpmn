@@ -228,3 +228,4 @@ one_bpmn.one_bpmn.patches.v1_0.prosally_auto_fix_ir #01-10-2026 ProsAlly generat
 one_bpmn.one_bpmn.patches.v1_0.prosally_stages_read_the_latest_message #01-10-2026 ProsAlly generate and modify add the turn's own message to their prompt, which the chat history leaves out
 one_bpmn.one_bpmn.patches.v1_0.prosally_classifier_skip_confirmation #01-10-2026 ProsAlly intent classifier reports skip_confirmation when the person says to act without being asked first
 one_bpmn.one_bpmn.patches.v1_0.prosally_says_what_it_sets #01-10-2026 ProsAlly names the records, states and assignees it plans to set before drawing, offers draw only, and lists the settings it put on the diagram afterwards
+one_bpmn.one_bpmn.patches.v1_0.prosally_replies_say_what_was_drawn #01-10-2026 ProsAlly generate lists the lanes it drew and any named lane it missed, and modify lists what it added, removed and renamed
