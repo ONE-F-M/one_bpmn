@@ -86,6 +86,7 @@
 
 		<main class="flex-1 p-4 sm:p-6 overflow-auto space-y-6">
 			<div v-if="loadError" class="bg-red-50 text-red-700 text-sm rounded-lg px-4 py-3">{{ loadError }}</div>
+			<div v-if="inProgressMessage" class="bg-blue-50 text-blue-700 text-sm rounded-lg px-4 py-3">{{ inProgressMessage }}</div>
 
 			<!-- Dashboard -->
 			<div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
@@ -687,12 +688,14 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch } from "vue"
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from "vue"
 import EvalCaseContextField from "@/components/evals/EvalCaseContextField.vue"
 import { midConversationError } from "@/utils/evalContext"
 import { ASSERTION_TYPES, MATCHERS, TOOL_CALL_MODES, assertionTypeLabel } from "@/utils/evalLabels"
 import { useRoute, useRouter } from "vue-router"
 import { frappeRequest, Button, Dialog, ErrorMessage, FormControl } from "frappe-ui"
+
+const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s
 
 const route = useRoute()
 const router = useRouter()
@@ -713,6 +716,7 @@ const assertionTypeOptions = ASSERTION_TYPES
 
 const loading = ref(true)
 const loadError = ref("")
+const inProgressMessage = ref("")
 const suite = ref({})
 const cases = ref([])
 const runs = ref([])
@@ -1000,7 +1004,7 @@ const sparkPoints = computed(() => {
 
 function runPill(status) {
 	if (status === "Passed") return "bg-green-50 text-green-700"
-	if (status === "Failed" || status === "Error") return "bg-red-50 text-red-700"
+	if (status === "Failed" || status === "Error" || status === "Timed Out") return "bg-red-50 text-red-700"
 	if (status === "Running") return "bg-yellow-50 text-yellow-700 animate-pulse"
 	return "bg-gray-100 text-gray-500"
 }
@@ -1097,6 +1101,7 @@ function optimisticRun(runName, totalCases) {
 async function runCases(caseNames, flag, backend = "live") {
 	flag.value = true
 	loadError.value = ""
+	inProgressMessage.value = ""
 	try {
 		const runName = await frappeRequest({
 			url: "/api/method/one_bpmn.agents.eval_runner.run_eval_cases",
@@ -1107,7 +1112,12 @@ async function runCases(caseNames, flag, backend = "live") {
 				backend,
 			},
 		})
-		optimisticRun(runName, caseNames ? caseNames.length : cases.value.length)
+		// A name already in the list is the backend handing back the run in progress.
+		if (runs.value.some((r) => r.name === runName)) {
+			inProgressMessage.value = __("A run of this suite is already in progress")
+		} else {
+			optimisticRun(runName, caseNames ? caseNames.length : cases.value.length)
+		}
 		pollRun(runName)
 	} catch (e) {
 		console.error("Run failed:", e)
@@ -1548,7 +1558,17 @@ async function createFromRun() {
 	}
 }
 
+// Refresh as each case lands; pollRun stays as the fallback when realtime is down.
+function onEvalCaseCompleted(data) {
+	if (runs.value.some((r) => r.name === data?.run_name)) fetchDetail(true)
+}
+
+onUnmounted(() => {
+	window.frappe?.realtime?.off("eval_case_completed", onEvalCaseCompleted)
+})
+
 onMounted(async () => {
+	window.frappe?.realtime?.on("eval_case_completed", onEvalCaseCompleted)
 	await fetchDetail()
 	fetchProviders()
 	fetchAiModels()
