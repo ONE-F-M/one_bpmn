@@ -2046,8 +2046,7 @@ def compile_process_model(model_name: str) -> dict:
 	# old native controller code can still reject or mutate a document even
 	# after the BPMN process is active. Warn — but never block — if the
 	# designer hasn't confirmed the backend code was removed on Production.
-	# Absent field (pre-schema-change records) or "Removed on Production"
-	# suppresses the warning.
+	# A model with no Process, or a Process marked "Removed on Production", shows no warning.
 	removal_status = None
 	if model.get("process_name"):
 		removal_status = frappe.db.get_value(

@@ -11,7 +11,6 @@ one_bpmn.one_bpmn.patches.v1_0.rename_allowed_sub_agents_to_delegates #13-08-202
 one_bpmn.one_bpmn.patches.v1_0.drop_delegates_to_agents_flag #13-08-2026 WI-002010 exposure grants delegation; the list only narrows it
 one_bpmn.one_bpmn.patches.v1_0.move_threat_assessment_doctypes_to_one_bpmn #09-09-2026 WI-002201 Threat Assessment Report doctypes move from onefm_mcp
 one_bpmn.one_bpmn.patches.v1_0.move_threat_feed_doctypes_to_one_bpmn #09-09-2026 WI-002202 Threat Feed / Threat Feed Keyword move from onefm_mcp alongside the sibling Threat Source/Keyword move (WI-002203)
-one_bpmn.one_bpmn.patches.v1_0.move_backend_code_removal_to_process #WI-003131 backend code removal status/notes move from each BPMN Process Model version onto its Process; runs pre_model_sync so the old model columns are still there to read
 [post_model_sync]
 one_bpmn.one_bpmn.patches.v1_0.seed_threat_sources #09-09-2026 WI-002203 moved from onefm_mcp with the Threat Source doctype
 one_bpmn.one_bpmn.patches.v1_0.seed_threat_keywords #09-09-2026 WI-002203 moved from onefm_mcp with the Threat Keyword doctype
@@ -214,3 +213,4 @@ one_bpmn.one_bpmn.patches.v1_0.prosally_baseline_trace_ends_at_stage_tool #29-09
 one_bpmn.one_bpmn.patches.v1_0.prosally_stage_scripts_record_artifacts #29-09-2026 ProsAlly generate and modify scripts record their IR and XML as the tool artifact again; inline_prosally_tool_scripts re-ran after record_tool_artifacts and dropped the call, so the Baseline lane checks had nothing to read
 one_bpmn.one_bpmn.patches.v1_0.bump_eval_concurrency_default #30-09-2026 eval runs fan out one RQ job per lane; sites still sitting on the old default of 1 move to 4, anyone who chose their own value keeps it
 one_bpmn.one_bpmn.patches.v1_0.add_missing_connector_operations #30-09-2026 the Slides fillBrandedDeck operation joins the shipped manifest, so a site that never got its record by hand gets it on migrate
+one_bpmn.one_bpmn.patches.v1_0.move_backend_code_removal_to_process #01-10-2026 backend code removal status and notes move from each process model version onto its Process, post_model_sync so the Process columns exist
