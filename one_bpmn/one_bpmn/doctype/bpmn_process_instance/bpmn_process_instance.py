@@ -215,7 +215,7 @@ class BPMNProcessInstance(Document):
 		Raises:
 		    frappe.ValidationError: if task not found or not in READY state
 		"""
-		if self.status in ("Completed", "Cancelled"):
+		if self.status in ("Completed", "Cancelled", "Suspended"):
 			frappe.throw(
 				_('Instance "{0}" is already {1} and cannot be advanced.').format(self.name, self.status)
 			)
@@ -500,7 +500,7 @@ class BPMNProcessInstance(Document):
 		        ignored, because a document event firing while an instance sits
 		        elsewhere is normal.
 		"""
-		if self.status in ("Completed", "Cancelled"):
+		if self.status in ("Completed", "Cancelled", "Suspended"):
 			frappe.throw(
 				_('Instance "{0}" is already {1} and cannot receive messages.').format(
 					self.name, self.status
@@ -613,7 +613,7 @@ class BPMNProcessInstance(Document):
 		worker pass — there is no open request to return them to. Further AI
 		tasks reached here park again as fresh jobs.
 		"""
-		if self.status in ("Completed", "Cancelled"):
+		if self.status in ("Completed", "Cancelled", "Suspended"):
 			return
 		if not self.workflow_state:
 			return
@@ -746,6 +746,69 @@ class BPMNProcessInstance(Document):
 		self.db_update()
 		self.update_children()
 		self.run_method("on_update")
+
+	def retry_failed_step(self):
+		"""Run an Errored instance again from its last saved state, so the step that failed runs again."""
+		if not self.workflow_state:
+			# A failure in the first engine pass saved no state, so the run starts over from the context document.
+			initiated_by = self.initiated_by
+			self.start()
+			if initiated_by:
+				self.db_set("initiated_by", initiated_by, update_modified=False)
+			return
+
+		_spec_snap = self._load_json(self.serialized_spec or "{}") or {}
+		_script_exts = _spec_snap.get("script_task_extensions", {})
+		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
+		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
+		self._script_task_extensions = _script_exts
+		self._refresh_user_task_extensions_from_model()
+
+		wf = bpmn_engine.restore_workflow(
+			workflow_state=self._load_json(self.workflow_state),
+			context_doctype=self.context_doctype,
+			context_docname=self.context_docname,
+			script_task_extensions=_script_exts,
+			initiated_by=self.initiated_by or "Administrator",
+			instance=self,
+		)
+		if self.context_doctype and self.context_docname:
+			bpmn_engine.refresh_context_doc(wf, self.context_doctype, self.context_docname)
+
+		prev_assigned = {
+			row.assigned_user for row in self.active_tasks if row.status == "Waiting" and row.assigned_user
+		}
+
+		self.status = "Active"
+		frappe.flags.bpmn_engine_action = True
+		try:
+			self._run_engine(wf)
+		except Exception:
+			self._fail_runtime(phase="retry_failed_step")
+		finally:
+			frappe.flags.bpmn_engine_action = False
+
+		bpmn_engine.clean_doc_from_wf_data(wf)
+		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
+		self._sync_call_activity_rows(wf)
+		self._sync_active_tasks(wf, prev_assigned=prev_assigned)
+		self._check_completion(wf)
+
+		self.modified = frappe.utils.now()
+		self.modified_by = frappe.session.user
+		self.db_update()
+		self.update_children()
+		self.run_method("on_update")
+
+	def log_operator_action(self, action: str, reason: str) -> None:
+		"""Record an operator's cancel, suspend, resume or retry with who did it and why."""
+		# _log_task drops a repeat of the same task_id and action, so every operator action gets its own id.
+		self._log_task(
+			task_id=f"instance-{action.lower()}::{frappe.generate_hash(length=10)}",
+			task_name=_("Instance {0}").format(action.lower()),
+			action=action,
+			data={"reason": reason},
+		)
 
 	def get_parked_ai_units(self) -> list:
 		"""

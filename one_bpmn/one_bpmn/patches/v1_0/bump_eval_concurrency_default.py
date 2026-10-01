@@ -16,7 +16,7 @@ import frappe
 
 
 def execute():
-	if not frappe.db.has_column("Processa Settings", "eval_concurrency"):
+	if not frappe.get_meta("Processa Settings").has_field("eval_concurrency"):
 		return
 
 	current = frappe.db.get_single_value("Processa Settings", "eval_concurrency")
