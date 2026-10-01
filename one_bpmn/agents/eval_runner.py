@@ -1055,6 +1055,8 @@ def _execute_case_deterministic(case) -> dict:
         source = "the last stored answer"
 
     assertions = case.assertions or []
+    if not assertions:
+        return _invalid_without_assertions(case)
     checkable = [a for a in assertions if a.assertion_type not in MODEL_BACKED_ASSERTIONS]
     needs_model = sorted({a.assertion_type for a in assertions if a.assertion_type in MODEL_BACKED_ASSERTIONS})
 
@@ -1339,6 +1341,15 @@ def _suite_run_status(run, failed: int) -> str:
     return "Passed"
 
 
+def _invalid_without_assertions(case) -> dict:
+    """The row for a case with no assertions: nothing could make it fail, so it is not a pass."""
+    return {
+        "eval_case": case.name,
+        "status": "Invalid",
+        "error_message": _("This case has no assertions, so nothing can make it fail. Add one before it counts."),
+    }
+
+
 def _execute_case_k_times(run_name: str, backend: str, case, agent_cfg: str | None, pass_k: int) -> dict:
     """Execute one case ``pass_k`` times and report how it behaved across them.
 
@@ -1421,6 +1432,8 @@ def _execute_case_replay_inner(run_name: str, case) -> dict:
             "error_message": "Nothing to replay: this case has no prior result. Run it live first.",
         }
 
+    if not case.assertions:
+        return _invalid_without_assertions(case)
     output = prior[0].actual_output or ""
     assertion_results = [
         _evaluate_assertion(assertion, output)
@@ -1636,6 +1649,8 @@ def _execute_case_inner(case, eval_run: str = None, agent_cfg: str = None) -> di
         # resolved for exactly that reason.
         if (case.get("case_type") or "") == "Memory":
             return _execute_memory_case(case, eval_run)
+        if not case.assertions:
+            return _invalid_without_assertions(case)
 
         agent_cfg = agent_cfg or frappe.db.get_value(
             "AI Eval Suite", case.suite, "agent_configuration"
