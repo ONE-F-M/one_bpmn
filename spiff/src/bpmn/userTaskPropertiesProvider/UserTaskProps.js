@@ -867,7 +867,11 @@ class ActionRowComponent extends Component {
 
 	render() {
 		const { row, idx, translate, onUpdate, onRemove } = this.props;
-		const { inputText, options, isOpen, loading } = this.state;
+		const { inputText, options, isOpen, loading, creating, createError } = this.state;
+
+		const trimmedInput = inputText.trim();
+		const hasExactMatch = options.some((opt) => opt.name === trimmedInput);
+		const showCreateItem = !loading && !!trimmedInput && !hasExactMatch;
 
 		return h(
 			"div",
