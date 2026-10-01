@@ -129,7 +129,7 @@ def _add_tailwind_resource() -> bool:
 	"""Copy the bench's tailwind config into the skill; False when the skill or the file is missing."""
 	if not frappe.db.exists("AI Skill", SKILL):
 		return False
-	path = frappe.get_app_path("one_bpmn", "..", "spiff", "tailwind.config.cjs")
+	path = frappe.get_app_source_path("one_bpmn", "spiff", "tailwind.config.cjs")
 	try:
 		with open(path) as handle:
 			config = handle.read()

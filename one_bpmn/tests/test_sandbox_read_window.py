@@ -17,14 +17,14 @@ from frappe.tests.utils import FrappeTestCase
 from one_bpmn.agents.executor.tool_bounds import DEFAULT_TOOL_RESULT_MAX_CHARS
 from one_bpmn.one_bpmn.patches.v1_0 import frontend_agent_reads_in_windows as fix
 
-SPIFF = frappe.get_app_path("one_bpmn", "..", "spiff")
+REPO = frappe.get_app_source_path("one_bpmn")
 BPMN_EDITOR = "spiff/src/components/BpmnEditor.vue"
 EDITOR = "spiff/src/views/Editor.vue"
 ARGS = {"target_app": "one_bpmn", "git_branch": "staging", "work_item_description": "Fix the panel."}
 
 
 def _source(path: str) -> str:
-	with open(os.path.join(SPIFF, "..", path)) as handle:
+	with open(os.path.join(REPO, path)) as handle:
 		return handle.read()
 
 
