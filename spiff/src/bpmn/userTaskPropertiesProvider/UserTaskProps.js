@@ -770,6 +770,8 @@ class ActionRowComponent extends Component {
 			options: [],
 			isOpen: false,
 			loading: false,
+			creating: false,
+			createError: "",
 		};
 		this.containerRef  = null;
 		this.debounceTimer = null;
