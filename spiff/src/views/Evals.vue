@@ -315,14 +315,22 @@ function sleep(ms) { return new Promise((r) => setTimeout(r, ms)) }
 
 async function runSuite(s) {
 	running[s.name] = true
+	inProgressMessage.value = ""
 	try {
-		await frappeRequest({
+		const runName = await frappeRequest({
 			url: "/api/method/one_bpmn.agents.eval_runner.run_eval_cases",
 			method: "POST",
 			params: { suite_name: s.name },
 		})
-		// Optimistic: mark the row Running immediately, then poll quietly.
-		s.latest_run = { status: "Running", passed_cases: 0, total_cases: s.case_count }
+		// The backend hands back an existing Running run's name instead of
+		// starting a competitor. Nothing new to show in that case \u2014 the row
+		// is already Running from the earlier click \u2014 just say so and poll it.
+		if (s.latest_run?.status === "Running" && s.latest_run?.name === runName) {
+			inProgressMessage.value = __("A run of this suite is already in progress")
+		} else {
+			// Optimistic: mark the row Running immediately, then poll quietly.
+			s.latest_run = { name: runName, status: "Running", passed_cases: 0, total_cases: s.case_count }
+		}
 		pollRunning(s.name)
 	} catch (e) {
 		console.error("Failed to start run:", e)
