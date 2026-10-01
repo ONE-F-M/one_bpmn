@@ -930,7 +930,7 @@ class ActionRowComponent extends Component {
 										},
 										creating
 											? translate("Creating…")
-											: `+ ${translate('Create "{0}"', [trimmedInput])}`
+											: `+ ${translate("Create")} "${trimmedInput}"`
 									),
 							]
 						),
