@@ -120,6 +120,8 @@ CASE_TIMEOUT_SECONDS = DEFAULT_TIMEOUT_SECONDS * (DEFAULT_MAX_RETRIES + 1)
 # race a lane job that is still doing exactly that.
 DEADLINE_MARGIN_SECONDS = 60
 
+SPEND_CEILING_MESSAGE = "Not run - the run reached its spend ceiling."
+
 
 def _case_timeout_seconds() -> int:
     """Seconds one case execution (all of its own retries) may take."""
@@ -181,20 +183,13 @@ def _job_timeout(suite: str, backend: str, case_count: int) -> int:
 
 
 def _find_reusable_running_run(suite_name: str, agent_cfg: str | None, backend: str) -> str | None:
-    """A Running AI Eval Run for the same suite, agent configuration and
-    backend that is still within its deadline, or None.
-
-    One run at a time per suite (same agent, same backend): a second call
-    made while the first is still going must hand back the SAME run rather
-    than starting a competing one that would double the spend and the load on
-    the executor. A Running run whose deadline has already passed is not
-    reused \u2014 the sweep has not caught up with it yet, but a caller here should
-    not be handed a run that is effectively dead.
-    """
+    """The Running AI Eval Run for this suite, agent configuration and backend
+    that is still inside its deadline, or None. A run past its deadline is not
+    reused even before the sweep finalises it."""
     AIEvalRun = DocType("AI Eval Run")
     candidates = (
         frappe.qb.from_(AIEvalRun)
-        .select(AIEvalRun.name, AIEvalRun.started_at, AIEvalRun.backend, AIEvalRun.requested_cases, AIEvalRun.suite)
+        .select(AIEvalRun.name, AIEvalRun.started_at)
         .where(AIEvalRun.suite == suite_name)
         .where(AIEvalRun.status == "Running")
         .where(AIEvalRun.backend == backend)
@@ -561,18 +556,14 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None, fan_out: 
         # same agent even if the suite is reassigned mid-run.
         agent_cfg = run.get("agent_configuration") or None
         # One ceiling for the whole run, drawn on by every lane. 0 means none.
-        spend_cap = flt(run.get("spend_cap") or 0)
-        # Progress shared across lanes so each case can announce itself to the
-        # user who started the run, never to "all".
-        progress = {
-            "done": 0,
-            "total": len(case_names),
+        budget = {
+            "cap": flt(run.get("spend_cap") or 0),
+            "spent": 0.0,
+            "not_run": 0,
             "lock": threading.Lock(),
-            "owner": run.owner,
         }
         rows = _execute_lanes(
-            case_names, run.name, run.backend, agent_cfg, pass_k, _eval_concurrency(),
-            spend_cap, progress,
+            case_names, run.name, run.backend, agent_cfg, pass_k, _eval_concurrency(), budget
         )
 
         # Results are appended in the order the cases were asked for, never the
@@ -618,15 +609,10 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None, fan_out: 
             total_cost += flt(result_row.get("cost", 0))
             total_tokens += (result_row.get("tokens_used") or 0)
 
-        not_run = sum(
-            1 for case_name in case_names
-            if (rows.get(case_name) or {}).get("status") == "Skipped"
-            and "spend ceiling" in ((rows.get(case_name) or {}).get("error_message") or "")
-        )
-        if not_run:
+        if budget["not_run"]:
             run.stop_reason = (
-                f"Stopped on budget: spent {total_cost:.4f} of a {spend_cap:.4f} "
-                f"ceiling; {not_run} case(s) not run."
+                f"Stopped on budget: spent {budget['spent']:.4f} of a {budget['cap']:.4f} "
+                f"ceiling; {budget['not_run']} case(s) not run."
             )
 
         run.total_cases = len(case_names)
@@ -656,8 +642,6 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None, fan_out: 
     if not frappe.flags.in_test:
         frappe.db.commit()
 
-    # Realtime goes to whoever started the run, never "all" \u2014 an eval run is
-    # not something every connected user needs to hear about.
     frappe.publish_realtime(
         "eval_run_completed",
         {"run_name": run.name, "status": run.status},
@@ -731,9 +715,8 @@ def _is_job_timeout_exception(exc: BaseException) -> bool:
 def _fan_out_eval_suite(run, case_names: list) -> None:
     """Kick off a run's lanes as background jobs and return immediately.
 
-    Called by ``_execute_eval_suite(fan_out=True)``. Spend ceilings are out of
-    scope for the fanned-out path (WI note: separate item) \u2014 every case in
-    every lane runs.
+    Called by ``_execute_eval_suite(fan_out=True)``. Each lane job checks the
+    run's spend ceiling against committed results before every case.
     """
     if not case_names:
         _finalize_eval_run(run.name, case_names)
@@ -785,29 +768,58 @@ def _run_eval_lane_job(run_name: str, case_names: list, backend: str, agent_cfg:
         return
     lane = lanes[lane_index]
     order_index = {name: i + 1 for i, name in enumerate(case_names)}
+    spend_cap, owner = frappe.db.get_value("AI Eval Run", run_name, ["spend_cap", "owner"])
+    spend_cap = flt(spend_cap)
+    AIEvalResult = DocType("AI Eval Result")
 
     for case_name in lane:
-        try:
-            case = frappe.get_doc("AI Eval Case", case_name)
-            row = _execute_case_k_times(run_name, backend, case, agent_cfg, pass_k)
-        except Exception as exc:
-            if _is_job_timeout_exception(exc):
-                raise
-            frappe.log_error(
-                title=f"AI Eval: case execution failed ({case_name})",
-                message=frappe.get_traceback(),
-            )
+        # Committed rows are the only spend every lane job can see.
+        spent = flt((
+            frappe.qb.from_(AIEvalResult)
+            .select(Sum(AIEvalResult.cost))
+            .where(AIEvalResult.parent == run_name)
+            .where(AIEvalResult.parenttype == "AI Eval Run")
+        ).run()[0][0]) if spend_cap else 0.0
+        if spend_cap and spent >= spend_cap:
             row = {
                 "eval_case": case_name,
-                "status": "Error",
-                "error_message": "This case could not be executed. See the Error Log.",
-                "runs": 1, "passes": 0, "consistency_rate": 0,
+                "status": "Skipped",
+                "error_message": SPEND_CEILING_MESSAGE,
+                "runs": 0, "passes": 0, "consistency_rate": 0,
             }
+        else:
+            try:
+                case = frappe.get_doc("AI Eval Case", case_name)
+                row = _execute_case_k_times(run_name, backend, case, agent_cfg, pass_k)
+            except Exception as exc:
+                if _is_job_timeout_exception(exc):
+                    raise
+                frappe.log_error(
+                    title=f"AI Eval: case execution failed ({case_name})",
+                    message=frappe.get_traceback(),
+                )
+                row = {
+                    "eval_case": case_name,
+                    "status": "Error",
+                    "error_message": "This case could not be executed. See the Error Log.",
+                    "runs": 1, "passes": 0, "consistency_rate": 0,
+                }
         _write_eval_result_row(run_name, case_name, row, order_index[case_name])
         # Unconditional: this write has to survive even when the very next
         # line never runs because the job is killed. Unlike the inline path,
         # a lane job's whole reason to exist is that its results outlive it.
         frappe.db.commit()
+        frappe.publish_realtime(
+            "eval_case_completed",
+            {
+                "run_name": run_name,
+                "eval_case": case_name,
+                "status": row["status"],
+                "done": frappe.db.count("AI Eval Result", {"parent": run_name, "parenttype": "AI Eval Run"}),
+                "total": len(case_names),
+            },
+            user=owner,
+        )
 
     next_index = lane_index + concurrency
     if next_index < len(lanes):
@@ -904,6 +916,15 @@ def _finalize_eval_run(run_name: str, case_names: list) -> None:
                 passing_executions += cint(result_row.get("passes") or 0)
             total_cost += flt(result_row.get("cost") or 0)
             total_tokens += (result_row.get("tokens_used") or 0)
+
+        not_run = sum(
+            1 for r in run.results if r.status == "Skipped" and r.error_message == SPEND_CEILING_MESSAGE
+        )
+        if not_run:
+            run.stop_reason = (
+                f"Stopped on budget: spent {total_cost:.4f} of a {flt(run.spend_cap):.4f} "
+                f"ceiling; {not_run} case(s) not run."
+            )
 
         run.total_cases = len(case_names)
         run.passed_cases = passed

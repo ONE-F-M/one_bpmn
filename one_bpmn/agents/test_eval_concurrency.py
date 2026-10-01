@@ -32,6 +32,7 @@ from frappe.utils import add_to_date
 from one_bpmn.agents._eval_test_factories import make_eval_case, make_eval_suite
 from one_bpmn.agents.eval_runner import (
 	MAX_EVAL_CONCURRENCY,
+	SPEND_CEILING_MESSAGE,
 	_eval_concurrency,
 	_execute_eval_suite,
 	_force_finalize_if_running,
@@ -651,6 +652,89 @@ class TestFanOutTimeouts(_ConcurrencyCase):
 		run.reload()
 		self.assertEqual(run.status, "Passed")
 		self.assertEqual(len(run.results), 2, "finalising twice must not duplicate the missing-result fill-in")
+
+
+class TestFanOutSpendAndEvents(_ConcurrencyCase):
+	"""Lane jobs share no memory, so the spend ceiling is read from committed
+	results, and progress goes only to the user who started the run."""
+
+	def _run_with_cap(self, case_names, spend_cap: float):
+		run = frappe.get_doc({
+			"doctype": "AI Eval Run", "suite": self.suite.name, "status": "Running",
+			"backend": "live", "scope": "Suite", "started_at": frappe.utils.now_datetime(),
+			"spend_cap": spend_cap,
+		})
+		run.flags.ignore_mandatory = True
+		run.flags.ignore_links = True
+		run.insert(ignore_permissions=True)
+		self.runs.append(run.name)
+		frappe.db.commit()
+		return run
+
+	def test_a_lane_job_skips_its_cases_once_another_lane_spent_the_ceiling(self):
+		shared = '{"context_docname": "A2A-spend-lane"}'
+		first = self._case("first").name
+		later = [self._case("later-1", shared).name, self._case("later-2", shared).name]
+		case_names = [first, *later]
+		run = self._run_with_cap(case_names, spend_cap=0.01)
+		recorder = _Recorder(delay=0)
+
+		with patch(RUNNER_CASE, new=recorder), patch.object(frappe, "enqueue"):
+			_run_eval_lane_job(run.name, case_names, "live", None, 1, lane_index=0, concurrency=2)
+			_run_eval_lane_job(run.name, case_names, "live", None, 1, lane_index=1, concurrency=2)
+
+		run.reload()
+		self.assertEqual(recorder.order, [first], "the lane after the ceiling must not run its cases")
+		rows = {r.eval_case: r for r in run.results}
+		for name in later:
+			self.assertEqual(rows[name].status, "Skipped")
+			self.assertEqual(rows[name].error_message, SPEND_CEILING_MESSAGE)
+		self.assertEqual(run.stop_reason, "Stopped on budget: spent 0.0100 of a 0.0100 ceiling; 2 case(s) not run.")
+
+	def test_no_ceiling_runs_every_case(self):
+		shared = '{"context_docname": "A2A-no-cap"}'
+		case_names = [self._case("a", shared).name, self._case("b", shared).name]
+		run = self._run_with_cap(case_names, spend_cap=0)
+		recorder = _Recorder(delay=0)
+
+		with patch(RUNNER_CASE, new=recorder), patch.object(frappe, "enqueue"):
+			_run_eval_lane_job(run.name, case_names, "live", None, 1, lane_index=0, concurrency=1)
+
+		run.reload()
+		self.assertEqual(sorted(recorder.order), sorted(case_names))
+		self.assertFalse(run.stop_reason)
+
+	def test_progress_and_completion_go_to_the_run_owner_only(self):
+		shared = '{"context_docname": "A2A-events"}'
+		case_names = [self._case("a", shared).name, self._case("b", shared).name]
+		run = self._run_with_cap(case_names, spend_cap=0)
+
+		with patch(RUNNER_CASE, new=_Recorder(delay=0)), patch.object(frappe, "enqueue"), \
+				patch.object(frappe, "publish_realtime") as publish:
+			_run_eval_lane_job(run.name, case_names, "live", None, 1, lane_index=0, concurrency=1)
+
+		events = [
+			(c.args[0], c.args[1], c.kwargs.get("user"))
+			for c in publish.call_args_list
+			if c.args[0].startswith("eval_")
+		]
+		case_events = [e for e in events if e[0] == "eval_case_completed"]
+		self.assertEqual(
+			[(p["eval_case"], p["done"], p["total"]) for _, p, _ in case_events],
+			[(case_names[0], 1, 2), (case_names[1], 2, 2)],
+		)
+		self.assertIn(("eval_run_completed", {"run_name": run.name, "status": "Passed"}, run.owner), events)
+		self.assertTrue(all(user == run.owner for _, _, user in events), events)
+
+	def test_the_inline_path_announces_completion_to_the_run_owner(self):
+		self._case("solo")
+		with patch.object(frappe, "publish_realtime") as publish:
+			run = self._execute(_Recorder(delay=0), concurrency=1)
+
+		self.assertEqual(
+			[(c.args[0], c.kwargs.get("user")) for c in publish.call_args_list if c.args[0].startswith("eval_")],
+			[("eval_run_completed", run.owner)],
+		)
 
 
 class TestFailureIsolation(_ConcurrencyCase):
