@@ -2,11 +2,12 @@ import { SelectEntry, isSelectEntryEdited } from "@bpmn-io/properties-panel";
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h, Component } from "preact";
-import { frappeGet } from "../shared/frappeResource";
+import { frappeGet, frappePost } from "../shared/frappeResource";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
 import { decodeHtmlAttr } from "../shared/htmlAttrCodec";
 import { makeLaunchDocuButton } from "../shared/launchDocuButton";
+import { createWorkflowActionMaster } from "./workflowActionCreate";
 
 // Helpers
 function getAttr(bo, attr) {
@@ -769,6 +770,8 @@ class ActionRowComponent extends Component {
 			options: [],
 			isOpen: false,
 			loading: false,
+			creating: false,
+			createError: "",
 		};
 		this.containerRef  = null;
 		this.debounceTimer = null;
@@ -816,7 +819,7 @@ class ActionRowComponent extends Component {
 
 	onInput(e) {
 		const val = e.target.value;
-		this.setState({ inputText: val });
+		this.setState({ inputText: val, createError: "" });
 		if (this.debounceTimer) clearTimeout(this.debounceTimer);
 		this.debounceTimer = setTimeout(() => this.fetchOptions(val), 300);
 	}
@@ -828,6 +831,19 @@ class ActionRowComponent extends Component {
 	selectOption(name) {
 		this.setState({ inputText: name, isOpen: false });
 		this.props.onUpdate(this.props.idx, "action", name);
+	}
+
+	async createAndSelect(name) {
+		if (this.state.creating) return;
+		this.setState({ creating: true, createError: "" });
+		try {
+			const createdName = await createWorkflowActionMaster(frappePost, name);
+			this.setState({ creating: false });
+			this.selectOption(createdName);
+		} catch (err) {
+			// frappeRequest's own message leads with the URL; the server's readable text is in messages.
+			this.setState({ creating: false, isOpen: false, createError: (err.messages && err.messages[0]) || err.message });
+		}
 	}
 
 	onBlur() {
@@ -842,7 +858,11 @@ class ActionRowComponent extends Component {
 
 	render() {
 		const { row, idx, translate, onUpdate, onRemove } = this.props;
-		const { inputText, options, isOpen, loading } = this.state;
+		const { inputText, options, isOpen, loading, creating, createError } = this.state;
+
+		const trimmedInput = inputText.trim();
+		const hasExactMatch = options.some((opt) => opt.name === trimmedInput);
+		const showCreateItem = !loading && !!trimmedInput && !hasExactMatch;
 
 		return h(
 			"div",
@@ -888,8 +908,25 @@ class ActionRowComponent extends Component {
 											opt.name
 										)
 									),
+								showCreateItem &&
+									h(
+										"li",
+										{
+											key: "create-new-action",
+											class: "bpmn-action-dropdown-create",
+											onMouseDown: (e) => {
+												e.preventDefault();
+												this.createAndSelect(trimmedInput);
+											},
+										},
+										creating
+											? translate("Creating…")
+											: `+ ${translate("Create")} "${trimmedInput}"`
+									),
 							]
 						),
+					// Inside the name cell: the row is a four-column grid, so a cell of its own would push the checkboxes along.
+					createError && h("div", { class: "bpmn-frappe-hint", style: "color:#c0392b" }, createError),
 				]),
 
 				// ── Confirm Transition checkbox ─────────────────

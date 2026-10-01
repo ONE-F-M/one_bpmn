@@ -49,6 +49,19 @@ class TestWorkItemIdFor(FrappeTestCase):
 		with patch.object(frappe.db, "get_value", side_effect=get_value):
 			self.assertEqual(ops.work_item_id_for("A2A-x"), "")
 
+	def test_an_eval_gets_a_branch_per_run_and_case(self):
+		def get_value(doctype, *args, **kwargs):
+			return None if doctype == "Agent Delegation" else '{"instruction": "Fix WI-002322."}'
+
+		prev = frappe.flags.eval_origin
+		frappe.flags.eval_origin = {"eval_case": "lh10cmtf86", "eval_run": "tiumoi4qhe"}
+		try:
+			with patch.object(frappe.db, "get_value", side_effect=get_value):
+				self.assertEqual(ops.work_item_id_for("A2A-x"), "eval/tiumoi4qhe/lh10cmtf86")
+				self.assertEqual(ops.work_item_id_for(None), "eval/tiumoi4qhe/lh10cmtf86")
+		finally:
+			frappe.flags.eval_origin = prev
+
 
 class TestWorkItemIdReachesTheSandbox(FrappeTestCase):
 	def _post_capture(self):

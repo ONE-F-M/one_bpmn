@@ -256,6 +256,7 @@ class BaseLLMAdapter(ABC):
         transcript: list,
         tools: list[ToolSpec] | None = None,
         max_tokens: int = 16384,
+        response_schema: dict | None = None,
     ) -> StepResult:
         """Make ONE model call against a provider-agnostic transcript and
         return its content + requested tool calls WITHOUT executing anything.
@@ -268,6 +269,9 @@ class BaseLLMAdapter(ABC):
              "tool_calls": [{"id": str, "name": str, "arguments": dict}]}
             {"role": "tool_results", "results":
              [{"id": str, "name": str, "content": str}]}
+
+        ``response_schema`` asks the provider's native JSON mode to shape the
+        final text reply; tool calls are unaffected.
 
         Each adapter converts this to its wire format. complete() keeps its
         adapter-internal loop for existing callers; the AI Agent Task's

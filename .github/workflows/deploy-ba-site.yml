@@ -21,6 +21,7 @@ jobs:
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       - name: Deploy to BA site
+        id: deploy
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.BA_HOST }}
@@ -50,3 +51,35 @@ jobs:
             bench --site business-analyst.one-fm.com build --app one_bpmn
             bench --site business-analyst.one-fm.com clear-cache
             bench restart
+
+      - name: Check agent tools on BA site
+        uses: appleboy/ssh-action@master
+        env:
+          GCHAT_WEBHOOK: ${{ secrets.GCHAT_AGENT_TOOLS_WEBHOOK }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          host: ${{ secrets.BA_HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.BA_KEY }}
+          port: 22
+          envs: GCHAT_WEBHOOK,RUN_URL
+          script: |
+            export PATH="/home/frappe/.local/bin:$PATH"
+            cd /home/frappe/sandbox-bench
+            bench --site business-analyst.one-fm.com check-agent-tools > /tmp/check-agent-tools.log 2>&1
+            status=$?
+            cat /tmp/check-agent-tools.log
+            if [ $status -ne 0 ]; then
+              python3 -c 'import json, os, urllib.request; log = open("/tmp/check-agent-tools.log").read()[-3500:]; body = json.dumps({"text": "*check-agent-tools failed on BA site*\n```" + log + "```\n" + os.environ["RUN_URL"]}).encode(); urllib.request.urlopen(urllib.request.Request(os.environ["GCHAT_WEBHOOK"], body, {"Content-Type": "application/json; charset=UTF-8"}), timeout=20)'
+              exit $status
+            fi
+
+      - name: Notify Google Chat of deploy failure
+        if: failure() && steps.deploy.outcome == 'failure'
+        env:
+          GCHAT_WEBHOOK: ${{ secrets.GCHAT_AGENT_TOOLS_WEBHOOK }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          jq -n --arg text "*BA site deploy failed* before check-agent-tools ran (commit ${COMMIT:0:7})"$'\n'"$RUN_URL" '{text: $text}' \
+            | curl -sSf -X POST -H "Content-Type: application/json; charset=UTF-8" --data @- "$GCHAT_WEBHOOK"

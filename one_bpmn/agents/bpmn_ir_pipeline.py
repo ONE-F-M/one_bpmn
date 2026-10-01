@@ -254,6 +254,50 @@ def ensure_default_lanes(ir: dict) -> bool:
     return True
 
 
+def auto_fix_ir(ir: dict) -> list[str]:
+    """Fix in place the IR problems the compiler names exactly and return one line per fix: drop flows to
+    or from a missing node, default the last unconditioned flow of an exclusiveGateway split that has
+    none, and give a node with no lane its predecessor's lane."""
+    nodes = {n.get("id"): n for n in ir.get("nodes") or [] if n.get("id")}
+    fixes = []
+    kept = []
+    for flow in ir.get("flows") or []:
+        missing = [end for end in (flow.get("from"), flow.get("to")) if end not in nodes]
+        if missing:
+            gone = ", ".join(map(str, missing))
+            fixes.append(f"Dropped flow {flow.get('from')} -> {flow.get('to')}: no node {gone}")
+        else:
+            kept.append(flow)
+    ir["flows"] = kept
+
+    for node_id, node in nodes.items():
+        outgoing = [f for f in kept if f.get("from") == node_id]
+        if node.get("type") != "exclusiveGateway":
+            continue
+        if len(outgoing) < 2:
+            continue
+        if any(f.get("default") for f in outgoing):
+            continue
+        unconditioned = [f for f in outgoing if not f.get("condition")]
+        if unconditioned:
+            unconditioned[-1]["default"] = True
+            fixes.append(f"Marked flow {node_id} -> {unconditioned[-1].get('to')} as the default of {node_id}")
+
+    if ir.get("lanes"):
+        changed = True
+        while changed:
+            changed = False
+            for flow in kept:
+                source, target = nodes[flow["from"]], nodes[flow["to"]]
+                if source.get("lane") and not target.get("lane"):
+                    target["lane"] = source["lane"]
+                    fixes.append(
+                        f"Put {flow['to']} in lane {source['lane']}, the lane of {flow['from']}"
+                    )
+                    changed = True
+    return fixes
+
+
 def merge_chunked_ir(lanes: list, chunks: list) -> dict:
     """Combine ordered per-phase IR fragments into one IR sharing one lane set.
 
