@@ -1648,12 +1648,13 @@ def _execute_case_inner(case, eval_run: str = None, agent_cfg: str = None) -> di
         eval_type = frappe.db.get_value("AI Eval Suite", case.suite, "eval_type") or "Direct"
         cfg = frappe.get_cached_doc("AI Agent Configuration", agent_cfg)
 
+        started = now_datetime()
         if eval_type == "Agent":
             output, usage = _run_agent_eval(cfg, case, eval_run)
         else:
             output, usage = _run_direct_eval(cfg, case)
 
-        facts = _execution_facts(case, eval_run, usage)
+        facts = _execution_facts(case, eval_run, usage, since=started)
         assertion_results = [
             _evaluate_assertion(assertion, output, facts)
             for assertion in (case.assertions or [])
@@ -2560,9 +2561,11 @@ def _resolve_path(data: Any, path: str) -> Any:
     return data
 
 
-def _execution_facts(case, eval_run: str, usage: dict) -> dict:
-    """What the assertions may know about the execution itself, not its text."""
-    trace = _tool_trace_for(case, eval_run)
+def _execution_facts(case, eval_run: str, usage: dict, since=None) -> dict:
+    """What the assertions may know about the execution itself, not its text.
+
+    ``since`` is when this execution started, so a pass_k repeat is scored on its own calls only."""
+    trace = _tool_trace_for(case, eval_run, since)
     return {
         "tokens": cint(usage.get("tokens")),
         "tool_calls": [c["tool"] for c in trace],
@@ -2571,7 +2574,7 @@ def _execution_facts(case, eval_run: str, usage: dict) -> dict:
     }
 
 
-def _tool_trace_for(case, eval_run: str = None) -> List[dict]:
+def _tool_trace_for(case, eval_run: str = None, since=None) -> List[dict]:
     """The calls this case made, in the order it made them, with their arguments.
 
     Order is the step's ``step_index`` and then the row's position within that
@@ -2582,6 +2585,8 @@ def _tool_trace_for(case, eval_run: str = None) -> List[dict]:
     filters = {"eval_case": case.name}
     if eval_run:
         filters["eval_run"] = eval_run
+    if since:
+        filters["creation"] = [">=", since]
     runs = frappe.get_all("AI Agent Run", filters=filters, pluck="name", order_by="creation asc")
     if not runs:
         return []
