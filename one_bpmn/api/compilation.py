@@ -2048,7 +2048,11 @@ def compile_process_model(model_name: str) -> dict:
 	# designer hasn't confirmed the backend code was removed on Production.
 	# Absent field (pre-schema-change records) or "Removed on Production"
 	# suppresses the warning.
-	removal_status = model.get("backend_code_removal_status")
+	removal_status = None
+	if model.get("process_name"):
+		removal_status = frappe.db.get_value(
+			"Process", model.process_name, "backend_code_removal_status"
+		)
 	if removal_status and removal_status not in ("Removed on Production",):
 		deploy_warnings.append({
 			"label": "Backend Code Removal",
