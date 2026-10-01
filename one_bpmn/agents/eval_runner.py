@@ -2037,6 +2037,9 @@ def _run_chat_agent_eval(cfg, case, eval_run: str | None = None) -> tuple:
     # A diagram turn's lanes and shapes live only in its XML, so assertions read it after the reply.
     if (reply.get("intent") or "").upper() in DIAGRAM_INTENTS and reply.get("bpmn_xml"):
         output = output + "\n\n" + reply["bpmn_xml"]
+    # A DocType turn's fields live only in its definition, so assertions read it after the reply.
+    if reply.get("doctype_ir"):
+        output = output + "\n\n" + json.dumps(reply["doctype_ir"], indent=1, default=str)
 
     # creation >= started keeps each repeated attempt under one eval_run to its own runs.
     filters = {
