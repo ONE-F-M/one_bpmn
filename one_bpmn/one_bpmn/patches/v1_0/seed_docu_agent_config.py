@@ -57,6 +57,7 @@ _INTENT_CLASSIFIER = (
 	"- If a DocType IS already selected on the shape, lean MODIFY unless the user clearly says \"create a new …\" or names a different DocType.\n"
 	"- If NO DocType is selected and the user does not reference an existing one, lean CREATE.\n"
 	"- Use DISAMBIGUATE when you genuinely cannot tell create-vs-modify, when several existing DocTypes could match, or when the request is too vague to act on.\n"
+	"- A request that says neither what the DocType is for nor anything it should record (\"a form for my team\", \"I need a doctype\") is DISAMBIGUATE, never CREATE.\n"
 	"- When DISAMBIGUATE, suggest in your reason whether a Yes/No (polar) question or a multiple-choice question would resolve it fastest.\n\n"
 	"Respond with ONLY a JSON object — no other text:\n"
 	"{\"intent\": \"CREATE|MODIFY|DISAMBIGUATE\", \"reason\": \"one short sentence\"}"

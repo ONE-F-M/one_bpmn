@@ -2038,8 +2038,9 @@ def _run_chat_agent_eval(cfg, case, eval_run: str | None = None) -> tuple:
     if (reply.get("intent") or "").upper() in DIAGRAM_INTENTS and reply.get("bpmn_xml"):
         output = output + "\n\n" + reply["bpmn_xml"]
     # A DocType turn's fields live only in its definition, so assertions read it after the reply.
-    if reply.get("doctype_ir"):
-        output = output + "\n\n" + json.dumps(reply["doctype_ir"], indent=1, default=str)
+    doctype_ir = reply.get("doctype_ir") or _saved_doctype_ir(conversation)
+    if doctype_ir:
+        output = output + "\n\n" + json.dumps(doctype_ir, indent=1, default=str)
 
     # creation >= started keeps each repeated attempt under one eval_run to its own runs.
     filters = {
@@ -2069,6 +2070,16 @@ def _run_chat_agent_eval(cfg, case, eval_run: str | None = None) -> tuple:
         "cost": sum(flt(r.get("estimated_cost")) for r in runs),
     }
     return output, usage
+
+
+def _saved_doctype_ir(conversation: str):
+    """The DocType definition on the conversation's latest reply, as the schema card shows it."""
+    metadata = frappe.db.get_value(
+        "Chat Message", {"conversation": conversation, "message_type": "Bot"}, "metadata",
+        order_by="creation desc",
+    )
+    agent_result = (frappe.parse_json(metadata) or {}).get("agent_result") if metadata else None
+    return agent_result.get("doctype_ir") if isinstance(agent_result, dict) else None
 
 
 def _seed_conversation(conversation: str, messages: list, state: dict) -> None:

@@ -154,6 +154,27 @@ class TestChatEvalSeeding(FrappeTestCase):
 		naming = frappe._dict(assertion_type="regex", value=r'"autoname": "format:INC-\{#####\}"')
 		self.assertTrue(eval_runner._evaluate_assertion(naming, output, None)["passed"])
 
+	def test_a_doctype_missing_from_the_reply_is_read_from_the_saved_message(self):
+		ir = {"doctype_name": "Safety Incident", "autoname": "format:INC-.#####", "fields": []}
+
+		def save_reply_without_returning_its_doctype(agent_id, message, conversation=None, context=None):
+			self._record_turn(agent_id, message, conversation, context)
+			frappe.get_doc(
+				{
+					"doctype": "Chat Message",
+					"conversation": conversation,
+					"sender": "Administrator",
+					"receiver": "User",
+					"message_type": "Bot",
+					"text": "I've set up a Safety Incident DocType.",
+					"metadata": json.dumps({"intent": "CREATE", "agent_result": {"doctype_ir": ir}}),
+				}
+			).insert(ignore_permissions=True)
+			return {"response": "I've set up a Safety Incident DocType.", "intent": "CREATE"}
+
+		output, _close = self._run({}, invoke=save_reply_without_returning_its_doctype)
+		self.assertEqual(output, "I've set up a Safety Incident DocType.\n\n" + json.dumps(ir, indent=1))
+
 	def test_a_reply_with_no_doctype_is_only_the_reply(self):
 		self.reply = {"response": "Do you want a new DocType?", "intent": "DISAMBIGUATE", "doctype_ir": None}
 		output, _close = self._run({})
