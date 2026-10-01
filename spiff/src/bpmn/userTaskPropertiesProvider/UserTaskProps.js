@@ -917,9 +917,26 @@ class ActionRowComponent extends Component {
 											opt.name
 										)
 									),
+								showCreateItem &&
+									h(
+										"li",
+										{
+											key: "create-new-action",
+											class: "bpmn-action-dropdown-create",
+											onMouseDown: (e) => {
+												e.preventDefault();
+												this.createAndSelect(trimmedInput);
+											},
+										},
+										creating
+											? translate("Creating…")
+											: `+ ${translate('Create "{0}"', [trimmedInput])}`
+									),
 							]
 						),
 				]),
+				createError &&
+					h("div", { class: "bpmn-frappe-hint", style: "color:#c0392b" }, createError),
 
 				// ── Confirm Transition checkbox ─────────────────
 				h(
