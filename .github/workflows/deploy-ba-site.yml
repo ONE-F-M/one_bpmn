@@ -50,3 +50,4 @@ jobs:
             bench --site business-analyst.one-fm.com build --app one_bpmn
             bench --site business-analyst.one-fm.com clear-cache
             bench restart
+            bench --site business-analyst.one-fm.com check-agent-tools

@@ -50,3 +50,4 @@ jobs:
             bench --site staging.one-fm.com build --app one_bpmn
             bench --site staging.one-fm.com clear-cache
             bench restart
+            bench --site staging.one-fm.com check-agent-tools
