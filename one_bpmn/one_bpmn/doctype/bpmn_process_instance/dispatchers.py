@@ -1713,6 +1713,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		try:
 			return frappe.render_template(text, jinja_ctx)
 		except Exception:
+			frappe.log_error(
+				title=f"BPMN AI Agent Task: prompt template render failed ({bpmn_id})",
+				message=frappe.get_traceback(),
+			)
 			return text
 
 	if resume_payload:
