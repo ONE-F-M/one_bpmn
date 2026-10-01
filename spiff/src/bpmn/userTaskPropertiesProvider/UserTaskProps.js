@@ -2,11 +2,12 @@ import { SelectEntry, isSelectEntryEdited } from "@bpmn-io/properties-panel";
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h, Component } from "preact";
-import { frappeGet } from "../shared/frappeResource";
+import { frappeGet, frappePost } from "../shared/frappeResource";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
 import { decodeHtmlAttr } from "../shared/htmlAttrCodec";
 import { makeLaunchDocuButton } from "../shared/launchDocuButton";
+import { createWorkflowActionMaster } from "./workflowActionCreate";
 
 // Helpers
 function getAttr(bo, attr) {
