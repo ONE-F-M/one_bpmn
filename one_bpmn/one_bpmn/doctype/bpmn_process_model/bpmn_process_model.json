@@ -34,10 +34,7 @@
   "deployed_at",
   "deployed_by",
   "section_start_events",
-  "start_events",
-  "section_deployment_checklist",
-  "backend_code_removal_status",
-  "backend_code_removal_notes"
+  "start_events"
  ],
  "fields": [
   {
