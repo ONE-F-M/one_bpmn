@@ -239,7 +239,7 @@ function runLabel(run) {
 function runPill(run) {
 	const status = run?.status
 	if (status === "Passed") return "bg-green-50 text-green-700"
-	if (status === "Failed" || status === "Error") return "bg-red-50 text-red-700"
+	if (status === "Failed" || status === "Error" || status === "Timed Out") return "bg-red-50 text-red-700"
 	if (status === "Running") return "bg-yellow-50 text-yellow-700 animate-pulse"
 	return "bg-gray-100 text-gray-500"
 }
