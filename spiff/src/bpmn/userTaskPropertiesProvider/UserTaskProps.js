@@ -819,7 +819,7 @@ class ActionRowComponent extends Component {
 
 	onInput(e) {
 		const val = e.target.value;
-		this.setState({ inputText: val });
+		this.setState({ inputText: val, createError: "" });
 		if (this.debounceTimer) clearTimeout(this.debounceTimer);
 		this.debounceTimer = setTimeout(() => this.fetchOptions(val), 300);
 	}
@@ -831,6 +831,28 @@ class ActionRowComponent extends Component {
 	selectOption(name) {
 		this.setState({ inputText: name, isOpen: false });
 		this.props.onUpdate(this.props.idx, "action", name);
+	}
+
+	createAndSelect(name) {
+		if (this.state.creating) return;
+		this.setState({ creating: true, createError: "" });
+		const request = createWorkflowActionMaster(frappePost, name);
+		if (!request) {
+			this.setState({ creating: false });
+			return;
+		}
+		request
+			.then((createdName) => {
+				this.setState({ creating: false });
+				this.selectOption(createdName);
+			})
+			.catch((err) => {
+				this.setState({
+					creating: false,
+					isOpen: false,
+					createError: (err.messages && err.messages[0]) || err.message,
+				});
+			});
 	}
 
 	onBlur() {
