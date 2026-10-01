@@ -4,11 +4,13 @@
 
 import json
 import re
+from collections import Counter
 from xml.etree import ElementTree as ET
 
 import frappe
 from frappe import _
 
+from one_bpmn.agents.bpmn_ir_pipeline import element_names
 from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
 from one_bpmn.agents.memory.text_clean import strip_html
 from one_bpmn.agents.turn_state import run_sync
@@ -65,6 +67,32 @@ AFFIRMATIONS = frozenset(
 # Replies starting with one of these turn a pending confirmation down.
 DECLINES = ("no", "nope", "nah", "wait", "change", "not yet", "hold on", "stop", "dont", "do not", "cancel")
 _POLITE_WORDS = re.compile(r"\b(please|thanks|thank you)\b")
+
+# "lanes" then optional "only/named/called/are" and a colon, then the list up to the end of the clause.
+_LANE_LIST = re.compile(r"\blanes\b(?:\s+(?:only|named|called|are))*\s*:?\s*([^.;:\n]+)", re.I)
+# Plain words for the element types a designer sees in a change list.
+_ELEMENT_WORDS = {
+	"startEvent": "the start",
+	"endEvent": "the end",
+	"exclusiveGateway": "the decision",
+	"inclusiveGateway": "the decision",
+	"eventBasedGateway": "the decision",
+	"parallelGateway": "the parallel split",
+	"sequenceFlow": "the path",
+	"subProcess": "the sub-process",
+	"intermediateCatchEvent": "the event",
+	"intermediateThrowEvent": "the event",
+	"boundaryEvent": "the event",
+	"userTask": "the step",
+	"serviceTask": "the step",
+	"scriptTask": "the step",
+	"manualTask": "the step",
+	"sendTask": "the step",
+	"receiveTask": "the step",
+	"businessRuleTask": "the step",
+	"callActivity": "the step",
+	"task": "the step",
+}
 
 NS = {
 	"bpmn": "http://www.omg.org/spec/BPMN/20100524/MODEL",
@@ -436,6 +464,75 @@ def _user_task_sentence(name: str, config: dict) -> str:
 	if not parts:
 		return ""
 	return _("{0} {1}.").format(name, ", ".join(parts))
+
+
+def describe_changes(previous_xml: str, xml: str) -> str:
+	"""What a modify added, removed and renamed on the diagram, as plain lines; says so when nothing changed."""
+	before = element_names(previous_xml)
+	after = element_names(xml)
+	lines = []
+	for elem_id, (kind, name) in after.items():
+		if kind == "sequenceFlow":
+			continue
+		if elem_id not in before:
+			lines.append(_("Added {0}.").format(_element_label(kind, name)))
+			continue
+		old_name = before[elem_id][1]
+		if name and old_name and name != old_name:
+			lines.append(_("Renamed {0} to {1}.").format(_element_label(kind, old_name), _quoted(name)))
+	for elem_id, (kind, name) in before.items():
+		if kind != "sequenceFlow" and elem_id not in after:
+			lines.append(_("Removed {0}.").format(_element_label(kind, name)))
+	# Paths are compared by label, since a modify may give an unchanged path a new id.
+	old_paths = Counter(name for kind, name in before.values() if kind == "sequenceFlow" and name)
+	new_paths = Counter(name for kind, name in after.values() if kind == "sequenceFlow" and name)
+	for name in (new_paths - old_paths).elements():
+		lines.append(_("Added {0}.").format(_element_label("sequenceFlow", name)))
+	for name in (old_paths - new_paths).elements():
+		lines.append(_("Removed {0}.").format(_element_label("sequenceFlow", name)))
+	if not lines:
+		return "\n\n" + _("I could not find any change on the diagram. Check that your request was applied.")
+	return "\n\n" + _("What changed:") + "\n" + "\n".join("- " + line for line in lines)
+
+
+def describe_lanes(chat_history: list, user_text: str, ir: dict | None) -> str:
+	"""The lanes drawn, and any lane the person named that is not among them; "" when no lanes were drawn."""
+	drawn = [lane.get("name") for lane in (ir or {}).get("lanes") or [] if lane.get("name")]
+	if not drawn:
+		return ""
+	text = "\n\n" + _("Lanes drawn: {0}.").format(", ".join(drawn))
+	asked = [e.get("content") or "" for e in chat_history if (e.get("role") or e.get("type")) == "user"]
+	missing = [
+		lane
+		for lane in requested_lanes([*asked, user_text or ""])
+		if not any(lane.lower() in d.lower() or d.lower() in lane.lower() for d in drawn)
+	]
+	if missing:
+		text += " " + _("You also asked for {0}, which I did not draw. Ask me to add it.").format(
+			", ".join(missing)
+		)
+	return text
+
+
+def requested_lanes(texts: list) -> list[str]:
+	"""The lane names listed after "lanes" in the latest of texts that lists two or more, else []."""
+	for text in reversed(texts):
+		for match in _LANE_LIST.finditer(strip_html(text)):
+			names = [
+				re.sub(r"^the\s+", "", n.strip(), flags=re.I) for n in re.split(r",|\band\b|&", match[1])
+			]
+			names = [n for n in names if n and n[0].isupper() and len(n.split()) <= 4]
+			if len(names) >= 2:
+				return names
+	return []
+
+
+def _element_label(kind: str, name: str) -> str:
+	return _ELEMENT_WORDS.get(kind, "the element") + (" " + _quoted(name) if name else "")
+
+
+def _quoted(name: str) -> str:
+	return '"' + name + '"'
 
 
 def _copy_configuration(new_elem, old_data: dict) -> None:
