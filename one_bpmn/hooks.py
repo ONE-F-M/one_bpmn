@@ -312,6 +312,14 @@ scheduler_events = {
 		"*/15 * * * *": [
 			"one_bpmn.tasks.check_ai_model_credentials",
 		],
+		# A lane job that is killed (worker restart, RQ timeout) never gets to
+		# enqueue its own successor or notice it was the last lane home, so a
+		# fanned-out run it belonged to would sit on "Running" forever without
+		# this. Five minutes is the same cadence as the credential check above
+		# and well inside the margin a run's own deadline already carries.
+		"*/5 * * * *": [
+			"one_bpmn.agents.eval_runner.sweep_stale_eval_runs",
+		],
 		"0 * * * *": [
 			"one_bpmn.tasks.close_stale_chat_instances",
 			# WI-002050: chase a question nobody has answered. Hourly rather than
