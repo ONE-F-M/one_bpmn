@@ -203,24 +203,6 @@
    "read_only": 1
   },
   {
-   "collapsible": 1,
-   "fieldname": "section_deployment_checklist",
-   "fieldtype": "Section Break",
-   "label": "Deployment Checklist"
-  },
-  {
-   "default": "Not Started",
-   "fieldname": "backend_code_removal_status",
-   "fieldtype": "Select",
-   "label": "Backend Code Removal Status",
-   "options": "Not Started\nRemoved on BA\nRemoved on Production\nMigrated"
-  },
-  {
-   "fieldname": "backend_code_removal_notes",
-   "fieldtype": "Small Text",
-   "label": "Backend Code Removal Notes"
-  },
-  {
    "fieldname": "column_break_pbtg",
    "fieldtype": "Column Break"
   },
