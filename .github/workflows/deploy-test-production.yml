@@ -46,3 +46,4 @@ jobs:
             bench --site test-production.one-fm.com build --app one_bpmn
             bench --site test-production.one-fm.com clear-cache
             bench restart
+            bench --site test-production.one-fm.com check-agent-tools
