@@ -8,6 +8,7 @@ import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
 import { encodeHtmlAttr, decodeHtmlAttr } from "../shared/htmlAttrCodec";
 import { makeLaunchDocuButton } from "../shared/launchDocuButton";
 import { connectorEntries } from "./connectorEntries";
+import { CreateWorkflowStateForm } from "./CreateWorkflowStateForm";
 
 // ---------------------------------------------------------------------------
 // Document Status options — mirrors Frappe's docstatus values exactly
@@ -378,15 +379,22 @@ function WorkflowStateComponent(props) {
 		return frappeGet("/api/resource/Workflow State", params);
 	};
 
-	return h(FrappeAutocomplete, {
-		id,
-		label: translate("Next Workflow State"),
-		value,
-		onChange: handleChange,
-		fetchApi: fetchWorkflowStates,
-		valueField: "name",
-		renderOption: (opt) => opt.name,
-	});
+	return h(
+		"div",
+		{ class: "bio-properties-panel-entry", "data-entry-id": `${id}-wrap` },
+		[
+			h(FrappeAutocomplete, {
+				id,
+				label: translate("Next Workflow State"),
+				value,
+				onChange: handleChange,
+				fetchApi: fetchWorkflowStates,
+				valueField: "name",
+				renderOption: (opt) => opt.name,
+			}),
+			h(CreateWorkflowStateForm, { translate, onCreated: handleChange }),
+		]
+	);
 }
 
 // Class component, not hooks — see the note on CreateAgentConfigForm in

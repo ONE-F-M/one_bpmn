@@ -54,9 +54,9 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Passed\nFailed\nError\nSkipped",
+   "options": "Passed\nFailed\nError\nSkipped\nTimed Out",
    "reqd": 1,
-   "description": "Skipped means nothing could be checked — a deterministic pass met an assertion that needs a model, or a case with no recorded answer. It counts as neither a pass nor a failure."
+   "description": "Skipped means nothing could be checked — a deterministic pass met an assertion that needs a model, or a case with no recorded answer. It counts as neither a pass nor a failure. Timed Out means a lane job was killed or the run's deadline passed before this case produced a result; it counts as a failure, the same as Error."
   },
   {
    "fieldname": "input_user_prompt",

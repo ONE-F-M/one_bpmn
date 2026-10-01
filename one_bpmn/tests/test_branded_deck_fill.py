@@ -259,3 +259,28 @@ class TestBrandedDeckFill(FrappeTestCase):
             with self.assertRaises(ValueError):
                 ops.fill_branded_deck(
                     {"presentation": PID, "content": CONTENT, "failIfUnmatched": "1"}, None)
+
+
+class TestTheDeckOperationShipsWithTheApp(FrappeTestCase):
+    """A site that never had the record made by hand gets it from migrate."""
+
+    def test_the_missing_operations_patch_creates_it(self):
+        import importlib
+
+        import frappe
+
+        from one_bpmn.one_bpmn.patches.v1_0 import add_missing_connector_operations
+
+        filters = {"connector": "google_slides", "operation_id": "fillBrandedDeck"}
+        name = frappe.db.get_value("BPMN Connector Operation", filters, "name")
+        if name:
+            frappe.delete_doc("BPMN Connector Operation", name, force=True)
+
+        add_missing_connector_operations.execute()
+
+        name = frappe.db.get_value("BPMN Connector Operation", filters, "name")
+        row = frappe.get_doc("BPMN Connector Operation", name)
+        self.assertEqual(row.execution_type, "Python Handler")
+        module_path, _, attribute = row.handler_path.rpartition(".")
+        self.assertTrue(hasattr(importlib.import_module(module_path), attribute))
+        self.assertEqual({f.field_name for f in row.fields}, {"presentation", "content", "failIfUnmatched"})

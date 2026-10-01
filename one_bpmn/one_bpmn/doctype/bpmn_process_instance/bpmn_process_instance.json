@@ -55,7 +55,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Queued\nActive\nCompleted\nErrored\nCancelled"
+   "options": "Queued\nActive\nCompleted\nErrored\nCancelled\nSuspended"
   },
   {
    "default": "0",
