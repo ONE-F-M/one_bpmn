@@ -371,18 +371,21 @@ def _execute_shape_body(instance, bpmn_id: str, task_cfg: dict | None, kwargs: d
 		# useless to an agent — it cannot read the Error Log, so it invents an
 		# explanation, and the explanation it invents is usually that the work is
 		# done or that retrying will help.
+		_record_tool_error(instance, bpmn_id, refused)
 		return json.dumps({"error": str(refused), "retryable": False})
 	except frappe.ValidationError as invalid:
 		# Same reasoning for a rule the document itself enforced. A Work Item save
 		# can fail for reasons nothing to do with what the tool changed — no
 		# sprint, a completed sprint, an Epic — and the agent has to be able to
 		# say which rule stopped it instead of reporting the change as made.
+		_record_tool_error(instance, bpmn_id, invalid)
 		return json.dumps({"error": str(invalid), "retryable": False})
 	except Exception as unexpected:
 		frappe.log_error(
 			title=f"AI Agent shape tool '{bpmn_id}' failed",
 			message=frappe.get_traceback(),
 		)
+		_record_tool_error(instance, bpmn_id, unexpected)
 		# The model cannot read the Error Log, so the class and message travel
 		# with the refusal.
 		return json.dumps({
@@ -390,6 +393,18 @@ def _execute_shape_body(instance, bpmn_id: str, task_cfg: dict | None, kwargs: d
 				f"Shape '{bpmn_id}' failed — {type(unexpected).__name__}: {unexpected}"
 			),
 		})
+
+
+def _record_tool_error(instance, bpmn_id: str, exc: Exception) -> None:
+	"""Put the failed tool in the chat turn store, so the turn's closing script can report the failure."""
+	if getattr(instance, "context_doctype", None) != "Chat Conversation":
+		return
+	from one_bpmn.agents.turn_state import update_turn
+
+	update_turn(
+		instance.context_docname,
+		tool_error={"tool": bpmn_id, "error": str(exc), "error_class": type(exc).__name__},
+	)
 
 
 def _connector_not_permitted(task_cfg: dict) -> dict | None:
