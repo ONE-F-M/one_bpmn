@@ -416,6 +416,9 @@ class DirectApiExecutor(Executor):
                     retry_backoff_ms=config.retry_backoff_ms,
                     tool_result_max_chars=config.tool_result_max_chars,
                     terminal_tools=config.terminal_tools,
+                    tool_choice=config.tool_choice,
+                    parallel_tool_calls=config.parallel_tool_calls,
+                    thinking_budget_tokens=config.thinking_budget_tokens,
                     history=config.messages,
                     loop_compaction={
                         "threshold": config.loop_compaction_threshold,

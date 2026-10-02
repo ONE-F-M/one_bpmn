@@ -46,7 +46,20 @@ class AIAgentConfiguration(Document):
 		self.validate_agent_creation_grant()
 		self.validate_a2a_exposure()
 		self.validate_memory_config()
+		self.validate_thinking_budget()
 		self.validate_loop_compaction()
+
+	def validate_thinking_budget(self):
+		"""Anthropic needs a thinking budget of at least 1,024 tokens and below Max Tokens."""
+		from one_bpmn.agents.executor import DEFAULT_MAX_OUTPUT_TOKENS
+
+		budget = self.get("thinking_budget_tokens") or 0
+		limit = self.max_tokens or DEFAULT_MAX_OUTPUT_TOKENS
+		if budget and not 1024 <= budget < limit:
+			frappe.throw(
+				_("Thinking Budget Tokens must be 0, or at least 1,024 and below Max Tokens ({0}).").format(limit),
+				title=_("Invalid Thinking Budget"),
+			)
 
 	def validate_loop_compaction(self):
 		"""A tool loop compacted down to one or two turns loses track of what it was doing."""

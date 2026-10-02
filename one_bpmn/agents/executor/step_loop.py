@@ -29,9 +29,14 @@ import time
 import frappe
 
 from one_bpmn.security.provenance import wrap_tool_result
-from one_bpmn.agents.executor.tool_bounds import bound_tool_result, validate_tool_arguments
+from one_bpmn.agents.executor.tool_bounds import (
+	bound_tool_result,
+	salvage_leaked_delimiters,
+	validate_tool_arguments,
+)
 from one_bpmn.agents.llm_provider.base import (
 	CompletionResult,
+	LLMTruncatedError,
 	ToolCallRecord,
 	ToolSpec,
 	TurnRecord,
@@ -60,6 +65,10 @@ _SECOND_PAUSE_RESULT = (
 	"Another step from this turn is already waiting for its answer, and only one "
 	"can be tracked at a time. Call this tool again once the pending one is back."
 )
+
+# Sent once when a call that had to use a tool answered in plain text instead.
+_FORCED_TOOL_NUDGE = "This step must call a tool. Call one of your tools now instead of answering in text."
+_FORCED_TOOL_REFUSED = "tool_choice is {0}, but the model answered in plain text twice instead of calling a tool."
 
 # TurnRecord's own fields, so a resumed trace (a list of plain dicts, from
 # asdict() at suspension time) can be turned back into TurnRecord instances
@@ -132,6 +141,9 @@ async def run_agent_loop(
 	history: list | None = None,
 	response_schema: dict | None = None,
 	check_reply=None,
+	tool_choice: str | None = None,
+	parallel_tool_calls: bool = True,
+	thinking_budget_tokens: int = 0,
 	loop_compaction: dict | None = None,
 ) -> tuple:
 	"""Drive the tool loop. Returns (CompletionResult, None) when the model
@@ -175,6 +187,10 @@ async def run_agent_loop(
 	``response_schema`` goes to every ``adapter.step()`` for the provider's native
 	JSON mode. ``check_reply(text)`` returns an error for a final reply that is
 	not the declared format; the model is then asked once more, with the error.
+
+	``tool_choice`` ("auto", "required" or a tool name) applies to the first call of a
+	fresh run; a plain-text answer there is sent back once with a nudge, then fails the run.
+	``parallel_tool_calls`` and ``thinking_budget_tokens`` go to every call.
 
 	``loop_compaction`` ({"threshold", "keep_turns", "model", "agent_model", "provider"}): when a call's
 	prompt passes threshold tokens, the turns before the last keep_turns are summarised before the next call.
@@ -229,6 +245,8 @@ async def run_agent_loop(
 			on_tool_event=on_tool_event,
 			response_schema=response_schema,
 			check_reply=check_reply,
+			tool_choice=tool_choice,
+			controls=_step_controls(parallel_tool_calls, thinking_budget_tokens),
 			loop_compaction=loop_compaction,
 		)
 	finally:
@@ -243,9 +261,35 @@ async def run_agent_loop(
 		frappe.flags[SUB_CALL_TURN_FLAG] = None
 
 
+async def run_nested_loop(adapter, *, system: str, user: str, tools: list | None, max_tokens: int, max_turns: int):
+	"""complete()'s loop: the same turns, with no terminal tool, leaving the calling turn's state as it was."""
+	saved = {flag: frappe.flags.get(flag) for flag in (PAUSE_HELD_FLAG, TURN_ANSWERED_FLAG, SUB_CALL_TURN_FLAG)}
+	try:
+		completion, _suspension = await _run_turns(
+			adapter, system=system, tools=tools, tool_map={t.name: t for t in tools or []},
+			transcript=[{"role": "user", "content": user}], trace=[], turns_used=0,
+			max_tokens=max_tokens, max_turns=max_turns, terminal_tools=frozenset(),
+		)
+	finally:
+		frappe.flags.update(saved)
+	if completion.hit_turn_cap:
+		completion.text = ""
+	return completion
+
+
+def _step_controls(parallel_tool_calls: bool, thinking_budget_tokens: int) -> dict:
+	"""The per-call controls that differ from the provider default, so adapters without them still work."""
+	controls = {}
+	if not parallel_tool_calls:
+		controls["parallel_tool_calls"] = False
+	if thinking_budget_tokens:
+		controls["thinking_budget_tokens"] = thinking_budget_tokens
+	return controls
+
+
 async def _step_with_retries(
 	adapter, system, transcript, tools, max_tokens, *, timeout_seconds=None, max_retries=0, retry_backoff_ms=1000,
-	response_schema=None,
+	response_schema=None, controls=None,
 ):
 	"""One turn's model call, bounded by timeout_seconds and retried up to
 	max_retries times — mirrors DirectApiExecutor._run_request's own
@@ -260,11 +304,15 @@ async def _step_with_retries(
 	caller from before this existed."""
 	for attempt in range(max_retries + 1):
 		try:
-			extra = {"response_schema": response_schema} if response_schema else {}
+			extra = dict(controls or {})
+			if response_schema:
+				extra["response_schema"] = response_schema
 			call = adapter.step(system, transcript, tools=tools or None, max_tokens=max_tokens, **extra)
 			if timeout_seconds:
 				return await asyncio.wait_for(call, timeout=timeout_seconds)
 			return await call
+		except LLMTruncatedError:
+			raise
 		except Exception:
 			if attempt >= max_retries:
 				raise
@@ -294,11 +342,14 @@ async def _run_turns(
 	adapter, *, system, tools, tool_map, transcript, trace, turns_used, max_tokens, max_turns,
 	timeout_seconds=None, max_retries=0, retry_backoff_ms=1000, tool_result_max_chars=None,
 	terminal_tools=frozenset({"finalize"}), on_tool_event=None, response_schema=None, check_reply=None,
+	tool_choice=None, controls=None,
 	loop_compaction=None,
 ):
 	"""The turn loop itself. Split out only so run_agent_loop can guarantee the
 	pause flag is cleared however this returns."""
 	reply_checked = False
+	force_pending = bool(tool_choice) and tool_choice != "auto" and turns_used == 0
+	nudged = False
 	last_prompt_tokens = 0
 	# Compaction runs again only once keep_turns new turns have replaced what the last one kept.
 	compacted_at = None
@@ -330,6 +381,7 @@ async def _run_turns(
 			adapter, system, transcript, tools, max_tokens,
 			timeout_seconds=timeout_seconds, max_retries=max_retries, retry_backoff_ms=retry_backoff_ms,
 			response_schema=response_schema,
+			controls={**(controls or {}), **({"tool_choice": tool_choice} if force_pending else {})},
 		)
 		turns_used += 1
 		last_prompt_tokens = step.prompt_tokens
@@ -350,6 +402,14 @@ async def _run_turns(
 					ended_at=_now_iso(),
 				)
 			)
+			if force_pending:
+				if nudged:
+					raise RuntimeError(_FORCED_TOOL_REFUSED.format(tool_choice))
+				nudged = True
+				if (step.content or "").strip():
+					transcript.append({"role": "assistant", "content": step.content})
+				transcript.append({"role": "user", "content": _FORCED_TOOL_NUDGE})
+				continue
 			reply_error = None if reply_checked or check_reply is None else check_reply(step.content)
 			if reply_error:
 				reply_checked = True
@@ -358,15 +418,21 @@ async def _run_turns(
 				continue
 			return CompletionResult(text=step.content, trace=trace, no_terminal_tool=True), None
 
+		force_pending = False
+
 		# ── Record the assistant turn on the transcript ───────────────────
-		transcript.append({
+		assistant_entry = {
 			"role": "assistant",
 			"content": step.content,
 			"tool_calls": [
 				{"id": c.id, "name": c.name, "arguments": c.arguments}
 				for c in step.tool_calls
 			],
-		})
+		}
+		# Anthropic refuses a tool result whose call lost the thinking that preceded it.
+		if getattr(step, "thinking", None):
+			assistant_entry["thinking"] = step.thinking
+		transcript.append(assistant_entry)
 
 		# ── Execute automatic calls; a human call suspends ────────────────
 		turn_record = TurnRecord(
@@ -410,6 +476,9 @@ async def _run_turns(
 				# runs. A violation is a tool error naming the field, so the model
 				# repairs the call instead of reading a Python traceback — or, worse,
 				# a script that tolerated the gap and answered wrongly.
+				call.arguments = salvage_leaked_delimiters(
+					call.name, getattr(tool, "parameters", None), call.arguments
+				)
 				_invalid = validate_tool_arguments(
 					call.name,
 					getattr(tool, "parameters", None),
