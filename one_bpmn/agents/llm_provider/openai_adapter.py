@@ -13,6 +13,7 @@ from .base import (
     TurnRecord,
     build_parameter_schema,
 )
+from .structured_output import openai_response_format
 
 _MAX_TOOL_TURNS = 10
 
@@ -184,6 +185,7 @@ class OpenAIAdapter(BaseLLMAdapter):
         transcript: list,
         tools: list[ToolSpec] | None = None,
         max_tokens: int = 16384,
+        response_schema: dict | None = None,
     ) -> StepResult:
         messages = [{"role": "system", "content": system}]
         for entry in transcript:
@@ -218,6 +220,8 @@ class OpenAIAdapter(BaseLLMAdapter):
         kwargs.update(_token_cap(self._model, max_tokens))
         if tools:
             kwargs["tools"] = [_build_tool_def(t) for t in tools]
+        if response_schema:
+            kwargs["response_format"] = openai_response_format(response_schema)
 
         response = await self._client.chat.completions.create(**kwargs)
         choice = response.choices[0]

@@ -83,6 +83,12 @@ class TestLogixBaselineSuitePatch(FrappeTestCase):
 		self.assertEqual(json.loads(case.input_context)["process_context"]["shape_kind"], "agent_tool")
 		self.assertIn("write_agent_tool", [row.tool_name for row in case.expected_tool_calls])
 
+	def test_a_refusal_in_words_is_not_required_to_pass_review(self):
+		seed.execute()
+		case = self._cases()["A shell command in the request never reaches the script"]
+		tools = [row.tool_name for row in sorted(case.expected_tool_calls, key=lambda r: r.call_order)]
+		self.assertEqual(tools, ["classify_intent", "write_script", "finalize"])
+
 	def test_finalize_records_its_output_once(self):
 		seed.execute()
 		seed.execute()
