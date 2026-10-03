@@ -210,6 +210,8 @@ class CompletionResult:
     trace: list = field(default_factory=list)  # list[TurnRecord]
     hit_turn_cap: bool = False
     no_terminal_tool: bool = False
+    # Why the run stopped at its budget, or "" when it did not.
+    budget_exceeded: str = ""
 
     @property
     def prompt_tokens(self) -> int:

@@ -37,7 +37,7 @@ from one_bpmn.agents.llm_provider.base import (
 	TurnRecord,
 )
 from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG, clear_tool_artifacts
-from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG, ToolDeferred
+from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG, BudgetExceeded, ToolDeferred
 from one_bpmn.agents.turn_state import TURN_ANSWERED_FLAG
 from one_bpmn.security.tool_policy import PolicyViolation
 
@@ -131,6 +131,7 @@ async def run_agent_loop(
 	history: list | None = None,
 	response_schema: dict | None = None,
 	check_reply=None,
+	budget_check=None,
 ) -> tuple:
 	"""Drive the tool loop. Returns (CompletionResult, None) when the model
 	produces a final answer or hits the turn cap, or (None, AgentSuspension)
@@ -173,6 +174,10 @@ async def run_agent_loop(
 	``response_schema`` goes to every ``adapter.step()`` for the provider's native
 	JSON mode. ``check_reply(text)`` returns an error for a final reply that is
 	not the declared format; the model is then asked once more, with the error.
+
+	``budget_check(trace)`` returns why the run has spent its budget, or "".
+	It runs before every model call; a tool raising BudgetExceeded ends the run
+	the same way. Either returns a CompletionResult with ``budget_exceeded`` set.
 	"""
 	tool_map = {t.name: t for t in (tools or [])}
 
@@ -224,6 +229,7 @@ async def run_agent_loop(
 			on_tool_event=on_tool_event,
 			response_schema=response_schema,
 			check_reply=check_reply,
+			budget_check=budget_check,
 		)
 	finally:
 		# Cleared on EVERY exit — final answer, turn cap, suspension, exception.
@@ -288,11 +294,15 @@ async def _run_turns(
 	adapter, *, system, tools, tool_map, transcript, trace, turns_used, max_tokens, max_turns,
 	timeout_seconds=None, max_retries=0, retry_backoff_ms=1000, tool_result_max_chars=None,
 	terminal_tools=frozenset({"finalize"}), on_tool_event=None, response_schema=None, check_reply=None,
+	budget_check=None,
 ):
 	"""The turn loop itself. Split out only so run_agent_loop can guarantee the
 	pause flag is cleared however this returns."""
 	reply_checked = False
 	while turns_used < max_turns:
+		spent = budget_check(trace) if budget_check else ""
+		if spent:
+			return _stopped_at_budget(trace, spent), None
 		# No pause is held yet this turn. Cleared here, at the very top, rather
 		# than just before the tool loop: the flag must never outlive the turn
 		# that set it, and a turn can also end at the final-answer return below.
@@ -365,7 +375,10 @@ async def _run_turns(
 		# below instead of asking the model for a closing narration it usually has
 		# nothing left to give (see the empty-turn evidence a few lines down).
 		terminal_reply = None
+		budget_reason = ""
 		for call in step.tool_calls:
+			if budget_reason:
+				break
 			tool = tool_map.get(call.name)
 			if tool is not None and tool.human:
 				if pending_call is None:
@@ -428,6 +441,9 @@ async def _run_turns(
 						# so its work IS running and this turn cannot collect it —
 						# say so rather than blaming a human task.
 						result = _SECOND_PAUSE_RESULT
+					except BudgetExceeded as exceeded:
+						result = f"Run stopped: {exceeded}"
+						budget_reason = f"{exceeded} (in {call.name})"
 					except PolicyViolation as violation:
 						# The interceptor refused the call before the tool ran, and
 						# it is handed back as an ordinary tool result, so the
@@ -460,6 +476,9 @@ async def _run_turns(
 		turn_record.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
 		turn_record.ended_at = _now_iso()
 		trace.append(turn_record)
+
+		if budget_reason:
+			return _stopped_at_budget(trace, budget_reason), None
 
 		if pending_call is not None:
 			from dataclasses import asdict
@@ -511,3 +530,8 @@ async def _run_turns(
 		(t.content for t in reversed(trace) if (t.content or "").strip()), ""
 	)
 	return CompletionResult(text=last_said, trace=trace, hit_turn_cap=True, no_terminal_tool=True), None
+
+
+def _stopped_at_budget(trace: list, reason: str) -> CompletionResult:
+	last_said = next((t.content for t in reversed(trace) if (t.content or "").strip()), "")
+	return CompletionResult(text=last_said, trace=trace, no_terminal_tool=True, budget_exceeded=reason)

@@ -6,6 +6,8 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.one_bpmn.patches.v1_0 import docu_clarify_trace_ends_at_clarify as clarify_trace
 from one_bpmn.one_bpmn.patches.v1_0 import docu_greeting_token_ceiling as ceiling
+from one_bpmn.one_bpmn.patches.v1_0 import docu_naming_skill_braces_the_counter as naming_skill
+from one_bpmn.one_bpmn.patches.v1_0.seed_docu_skills import SKILLS
 from one_bpmn.one_bpmn.patches.v1_0 import docu_vague_request_disambiguates as vague
 from one_bpmn.one_bpmn.patches.v1_0.seed_docu_agent_config import _INLINE_SUB_PROMPTS
 from one_bpmn.security.doctype_validator import validate_doctype_ir
@@ -29,6 +31,22 @@ class TestNamingRule(FrappeTestCase):
 	def test_a_braced_counter_and_a_naming_series_both_pass(self):
 		for autoname in ("format:INC-{#####}", "INC-.#####", "format:SC-{subcontractor_name}-{#####}", ""):
 			self.assertTrue(validate_doctype_ir(_ir(autoname))["valid"], autoname)
+
+
+class TestNamingSkill(FrappeTestCase):
+	def test_the_seeded_skill_teaches_a_counter_the_validator_accepts(self):
+		body = next(s["body"] for s in SKILLS if s["skill_name"] == naming_skill.SKILL)
+		self.assertIn(naming_skill.NEW, body)
+		self.assertTrue(validate_doctype_ir(_ir("format:INSP-{#####}"))["valid"])
+
+	def test_the_live_skill_is_corrected_once(self):
+		if not frappe.db.exists("AI Skill", naming_skill.SKILL):
+			self.skipTest("the naming skill is not on this site")
+		frappe.db.set_value("AI Skill", naming_skill.SKILL, "body", "# Naming\n" + naming_skill.OLD + "\nrest")
+		naming_skill.execute()
+		naming_skill.execute()
+		body = frappe.db.get_value("AI Skill", naming_skill.SKILL, "body")
+		self.assertEqual(body, "# Naming\n" + naming_skill.NEW + "\nrest")
 
 
 class TestPatches(FrappeTestCase):

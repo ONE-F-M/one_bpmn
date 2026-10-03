@@ -142,7 +142,7 @@ _SCHEMA_WRITER = (
 	"9. REUSE what exists: if the thing the user references is already a DocType (Employee, Customer, Vehicle, ...), LINK to it (a Link field whose options is that DocType's name) instead of recreating it. Use list_doctypes to discover what already exists before adding a Link.\n\n"
 	"NAMING (how records are titled) — set 'autoname' when it matters:\n"
 	"- \"field:some_fieldname\"       → name each record after that field's value (e.g. \"field:employee_name\").\n"
-	"- \"format:INSP-.#####\"          → a pattern with an auto-incrementing counter (the .#####).\n"
+	"- \"format:INSP-{#####}\"         → a pattern with an auto-incrementing counter (the {#####}, always in braces).\n"
 	"- \"naming_series:\"              → user picks from a series (also add a Select field named 'naming_series').\n"
 	"- \"Prompt\"                      → the user types the name each time.\n"
 	"- \"autoincrement\"               → simple 1, 2, 3 numbering.\n"
