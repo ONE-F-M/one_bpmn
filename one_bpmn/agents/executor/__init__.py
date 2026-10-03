@@ -76,6 +76,7 @@ class ErrorCode(Enum):
     MODEL_NOT_CONFIGURED = "MODEL_NOT_CONFIGURED"
     TIMEOUT = "TIMEOUT"
     TURN_CAP_REACHED = "TURN_CAP_REACHED"
+    BUDGET_EXCEEDED = "BUDGET_EXCEEDED"
     UNEXPECTED_ERROR = "UNEXPECTED_ERROR"
     # Durable AI Agent HITL: the model selected a human tool — the run is
     # neither success nor failure; it is waiting for a person. Callers MUST
@@ -187,6 +188,9 @@ class ExecutorConfig:
     # shape/config sets this, since dropping the default by mistake would
     # silently undo the fix this field exists for.
     terminal_tools: list = field(default_factory=lambda: ["finalize"])
+    # A run stops once it passes either budget; None means no budget.
+    run_token_budget: int | None = None
+    run_cost_budget: float | None = None
 
 
 @dataclass

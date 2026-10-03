@@ -30,7 +30,7 @@ the toolkit.
 
 import frappe
 from frappe import _
-from frappe.utils import cint
+from frappe.utils import cint, flt
 
 from one_bpmn.agents.agent_provisioning import is_chat_startable_map
 
@@ -373,6 +373,10 @@ def config_field_map(config_name: str) -> dict:
 	# "platform default", not "no cap", so it must not be written as a value.
 	if cint(cfg.get("tool_result_max_chars")):
 		out["aiToolResultMaxChars"] = cfg.tool_result_max_chars
+	if cint(cfg.get("run_token_budget")):
+		out["aiRunTokenBudget"] = cfg.run_token_budget
+	if flt(cfg.get("run_cost_budget")):
+		out["aiRunCostBudget"] = cfg.run_cost_budget
 	if cfg.ai_provider:
 		out["aiProvider"] = cfg.ai_provider
 	# WI-001655: the model is the agent's own pick from the AI Model catalog
