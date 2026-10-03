@@ -316,6 +316,11 @@
                   <textarea v-model="ex.input" rows="2" placeholder="e.g. How many staff are on shift today?" />
                 </div>
                 <div class="static-field">
+                  <span class="static-field-label">Context <em>- what the agent knew when the message arrived</em></span>
+                  <textarea v-model="ex.context_summary" rows="2" placeholder="e.g. The Leave Request form is open." />
+                </div>
+                <ExampleTrajectory v-if="ex.trajectory" v-model="ex.trajectory" />
+                <div class="static-field">
                   <span class="static-field-label">Agent should answer <em>— the reply to imitate</em></span>
                   <textarea v-model="ex.expected_output" rows="2" placeholder="e.g. 14." />
                 </div>
@@ -757,6 +762,7 @@ import { frappeGet } from "@/bpmn/shared/frappeResource";
 // WI-001674: agent mode chats through the shared panel + card registry.
 import { AgentChatPanel } from "@/components/chat";
 import { cardRegistry } from "@/components/chat/cards/registry";
+import ExampleTrajectory from "@/components/ExampleTrajectory.vue";
 const availableSkills = ref([]);
 function addSkill() { form.value.aiSkills.push({ skill: '', version_pin: '' }); }
 
@@ -1138,7 +1144,7 @@ const GUARDRAIL_CATEGORIES = [
 const staticContextLoaded = ref(false);
 
 function addExample() {
-  form.value.aiExamples.push({ input: "", expected_output: "", note: "", enabled: 1 });
+  form.value.aiExamples.push({ input: "", context_summary: "", trajectory: null, expected_output: "", note: "", enabled: 1 });
 }
 
 function addGuardrail() {

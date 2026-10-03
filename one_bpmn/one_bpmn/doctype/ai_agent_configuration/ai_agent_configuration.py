@@ -552,7 +552,7 @@ def get_agent_config(agent_id: str) -> dict | None:
 	examples = frappe.get_all(
 		"AI Agent Example",
 		filters={"parent": config.name, "parenttype": "AI Agent Configuration"},
-		fields=["input", "expected_output", "note", "enabled"],
+		fields=["input", "context_summary", "trajectory", "expected_output", "note", "enabled"],
 		order_by="idx asc",
 	)
 	guardrails = frappe.get_all(

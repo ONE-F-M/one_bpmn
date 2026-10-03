@@ -2057,6 +2057,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# WI-002195: the agent's cap on any one tool result the model sees;
 		# blank falls through to the platform default.
 		tool_result_max_chars = cint(task_cfg.get("aiToolResultMaxChars")) or None,
+		run_token_budget = cint(task_cfg.get("aiRunTokenBudget")) or None,
+		run_cost_budget  = frappe.utils.flt(task_cfg.get("aiRunCostBudget")) or None,
 		resume_state     = _checkpoint.build_resume_state(resume_payload) if resume_payload else None,
 		# WI-002187: "finalize" always ends the turn; a shape can name additional
 		# terminal tools (comma-separated) without losing that default.

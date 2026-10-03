@@ -12,6 +12,7 @@
   "agent_type",
   "lifecycle_status",
   "process_owner",
+  "feedback_owner",
   "column_break_basics",
   "description",
   "process_model",
@@ -28,6 +29,8 @@
   "parallel_tool_calls",
   "thinking_budget_tokens",
   "terminal_tools",
+  "run_token_budget",
+  "run_cost_budget",
   "prompt_section",
   "required_variables",
   "required_variables_html",
@@ -189,6 +192,14 @@
    "options": "User"
   },
   {
+   "description": "Receives every new AI Response Feedback on this agent's replies. Blank falls back to the Process Owner.",
+   "fieldname": "feedback_owner",
+   "fieldtype": "Link",
+   "ignore_user_permissions": 1,
+   "label": "Feedback Owner",
+   "options": "User"
+  },
+  {
    "fieldname": "llm_settings_section",
    "fieldtype": "Section Break",
    "label": "LLM Settings"
@@ -244,6 +255,18 @@
    "fieldname": "terminal_tools",
    "fieldtype": "Data",
    "label": "Terminal Tools"
+  },
+  {
+   "description": "Stop the run once its prompt plus completion tokens pass this figure, whether or not it made an edit. Blank means no token budget.",
+   "fieldname": "run_token_budget",
+   "fieldtype": "Int",
+   "label": "Run Token Budget"
+  },
+  {
+   "description": "Stop the run once its estimated cost in USD, priced the same way as AI Agent Run Estimated Cost, passes this figure, whether or not it made an edit. Blank means no cost budget.",
+   "fieldname": "run_cost_budget",
+   "fieldtype": "Currency",
+   "label": "Run Cost Budget"
   },
   {
    "fieldname": "prompt_section",
@@ -845,7 +868,7 @@
    "link_fieldname": "agent_configuration"
   }
  ],
- "modified": "2026-10-01 22:00:00.000000",
+ "modified": "2026-10-03 14:00:00.000000",
  "modified_by": "c.akeru@one-fm.com",
  "module": "ONE BPMN",
  "name": "AI Agent Configuration",

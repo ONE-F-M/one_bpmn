@@ -429,6 +429,7 @@ class DirectApiExecutor(Executor):
                     } if config.loop_compaction_threshold else None,
                     response_schema=native_schema,
                     check_reply=self._json_reply_check(schema) if config.response_format == "json" else None,
+                    budget_check=self._budget_check(config),
                 )
             )
         except asyncio.TimeoutError:
@@ -467,6 +468,18 @@ class DirectApiExecutor(Executor):
             cache_write_tokens=completion.cache_write_tokens,
         )
         trace = [asdict(turn) for turn in completion.trace]
+
+        if completion.budget_exceeded:
+            last_tool = next(
+                (call["name"] for turn in reversed(trace) for call in reversed(turn.get("tool_calls") or [])), "none"
+            )
+            return ExecutorResult(
+                no_terminal_tool=True,
+                error_code=ErrorCode.BUDGET_EXCEEDED,
+                error_message=f"{completion.budget_exceeded}. Last tool called: {last_tool}.",
+                token_usage=token_usage,
+                trace=trace,
+            )
 
         if completion.hit_turn_cap:
             # Partial progress is not lost: the trace collected so far ships
@@ -744,6 +757,33 @@ class DirectApiExecutor(Executor):
             except structured_output.ReplyRejected as exc:
                 return structured_output.retry_note(str(exc)) if exc.retry else None
             return None
+
+        return check
+
+    @staticmethod
+    def _budget_check(config: ExecutorConfig):
+        """For the tool loop: why the run has spent its token or cost budget, or "" while it has not."""
+        if not (config.run_token_budget or config.run_cost_budget):
+            return None
+        from one_bpmn.agents.pricing import compute_token_cost
+
+        def check(trace: list) -> str:
+            prompt = sum(t.prompt_tokens for t in trace)
+            completion = sum(t.completion_tokens for t in trace)
+            tokens = prompt + completion
+            if config.run_token_budget and tokens > config.run_token_budget:
+                return f"The run passed its token budget of {config.run_token_budget:,} with {tokens:,} tokens"
+            if config.run_cost_budget:
+                cost = compute_token_cost(
+                    config.model,
+                    prompt_tokens=prompt,
+                    completion_tokens=completion,
+                    cache_read_tokens=sum(t.cache_read_tokens for t in trace),
+                    cache_write_tokens=sum(t.cache_write_tokens for t in trace),
+                )["total_cost"]
+                if cost > config.run_cost_budget:
+                    return f"The run passed its cost budget of ${config.run_cost_budget:.2f} at ${cost:.2f}"
+            return ""
 
         return check
 
