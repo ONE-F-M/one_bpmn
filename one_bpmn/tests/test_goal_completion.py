@@ -299,3 +299,129 @@ class TestTheProcessHasTheFinalWord(RunFixture):
 
 	def test_no_instance_settles_nothing(self):
 		self.assertEqual(gc.settle_for_instance("", "Completed"), 0)
+
+
+def _turn(role, tool_calls=None):
+	"""A TurnRecord-shaped dict, enough to drive determine()'s trace walk."""
+	return {"role": role, "content": "", "tool_calls": tool_calls or []}
+
+
+class TestAToolFailureNeverRetried(FrappeTestCase):
+	"""WI-000474: finalize being called is not achievement when a tool it
+	depended on failed and nothing ever called it again successfully."""
+
+	def test_a_failed_tool_with_no_retry_is_not_achieved_and_names_the_tool(self):
+		"""Revert the C1 change (the unsuperseded_tool_failure check in
+		determine()) and this must fail: a bare error-code/goal_key read of
+		the finalize output alone reports Achieved here."""
+		trace = [
+			_turn("tool", [{"name": "send_email", "result": '{"error": "smtp timeout"}'}]),
+			_turn("tool", [{"name": "finalize", "result": "ok"}]),
+		]
+		state, basis = gc.determine(
+			ExecutorResult(output="here is your answer", trace=trace)
+		)
+		self.assertEqual(state, gc.NOT_ACHIEVED)
+		self.assertIn("send_email", basis)
+
+	def test_a_failed_tool_retried_successfully_is_achieved_as_normal(self):
+		trace = [
+			_turn("tool", [{"name": "send_email", "result": '{"error": "smtp timeout"}'}]),
+			_turn("tool", [{"name": "send_email", "result": "sent"}]),
+			_turn("tool", [{"name": "finalize", "result": "ok"}]),
+		]
+		state, basis = gc.determine(
+			ExecutorResult(output="here is your answer", trace=trace)
+		)
+		self.assertEqual(state, gc.ACHIEVED)
+		self.assertIn("here is your answer", basis)
+
+	def test_a_different_tool_succeeding_does_not_supersede_the_failed_one(self):
+		trace = [
+			_turn("tool", [{"name": "tool_a", "result": '{"error": "boom"}'}]),
+			_turn("tool", [{"name": "tool_b", "result": "ok"}]),
+			_turn("tool", [{"name": "finalize", "result": "ok"}]),
+		]
+		state, basis = gc.determine(
+			ExecutorResult(output="here is your answer", trace=trace)
+		)
+		self.assertEqual(state, gc.NOT_ACHIEVED)
+		self.assertIn("tool_a", basis)
+
+	def test_a_dict_shaped_resumed_trace_with_a_failure_is_not_achieved(self):
+		"""A resumed run's trace is rebuilt from dicts (executor/step_loop.py:188)
+		rather than TurnRecord/ToolCallRecord dataclasses \u2014 the walk has to read
+		both shapes the same way."""
+		trace = [
+			{
+				"role": "tool",
+				"content": "",
+				"tool_calls": [{"name": "fetch_doc", "result": "Error calling fetch_doc: not found"}],
+			},
+			{
+				"role": "tool",
+				"content": "",
+				"tool_calls": [{"name": "finalize", "result": "ok"}],
+			},
+		]
+		state, basis = gc.determine(
+			ExecutorResult(output="here is your answer", trace=trace)
+		)
+		self.assertEqual(state, gc.NOT_ACHIEVED)
+		self.assertIn("fetch_doc", basis)
+
+
+class TestThePatchFixesAlreadyAchievedRuns(RunFixture):
+	"""WI-000474: the data patch reclassifies Achieved runs whose trace already
+	shows a tool failure that was never retried successfully."""
+
+	def _step_with_call(self, run_name, step_index, tool_name, status, tool_result):
+		step = frappe.get_doc(
+			{
+				"doctype": "AI Agent Step",
+				"run": run_name,
+				"step_index": step_index,
+				"role": "tool",
+				"tool_calls": [
+					{
+						"tool_name": tool_name,
+						"status": status,
+						"tool_result": tool_result,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+		return step
+
+	def test_an_unretried_failure_flips_an_achieved_run_to_not_achieved(self):
+		run = self._run(status="Success")
+		frappe.db.set_value(
+			"AI Agent Run", run.name, {"goal_completion": gc.ACHIEVED, "completion_basis": "stub"}
+		)
+		self._step_with_call(run.name, 1, "send_email", "Error", '{"error": "smtp timeout"}')
+		self._step_with_call(run.name, 2, "finalize", "Success", "ok")
+
+		from one_bpmn.one_bpmn.patches.v1_0 import goal_completion_unsuperseded_tool_error as patch
+
+		patch.execute()
+
+		row = frappe.get_doc("AI Agent Run", run.name)
+		self.assertEqual(row.goal_completion, gc.NOT_ACHIEVED)
+		self.assertIn("send_email", row.completion_basis)
+
+	def test_a_retried_success_leaves_the_run_achieved(self):
+		run = self._run(status="Success")
+		frappe.db.set_value(
+			"AI Agent Run", run.name, {"goal_completion": gc.ACHIEVED, "completion_basis": "stub"}
+		)
+		self._step_with_call(run.name, 1, "send_email", "Error", '{"error": "smtp timeout"}')
+		self._step_with_call(run.name, 2, "send_email", "Success", "sent")
+		self._step_with_call(run.name, 3, "finalize", "Success", "ok")
+
+		from one_bpmn.one_bpmn.patches.v1_0 import goal_completion_unsuperseded_tool_error as patch
+
+		patch.execute()
+
+		self.assertEqual(
+			frappe.db.get_value("AI Agent Run", run.name, "goal_completion"), gc.ACHIEVED
+		)
