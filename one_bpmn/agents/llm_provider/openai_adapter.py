@@ -1,21 +1,15 @@
 import json
-import time
 
 import frappe
 
 from .base import (
     BaseLLMAdapter,
-    CompletionResult,
     StepResult,
     StepToolCall,
-    ToolCallRecord,
     ToolSpec,
-    TurnRecord,
     build_parameter_schema,
 )
 from .structured_output import openai_response_format
-
-_MAX_TOOL_TURNS = 10
 
 
 # OpenAI's reasoning families reject `max_tokens` outright — the request 400s with
@@ -79,106 +73,6 @@ class OpenAIAdapter(BaseLLMAdapter):
         self._client = AsyncOpenAI(**client_kwargs)
         self._model = model
 
-    async def complete(
-        self,
-        system: str,
-        user: str,
-        tools: list[ToolSpec] | None = None,
-        max_tokens: int = 16384,
-        max_turns: int | None = None,
-    ) -> CompletionResult:
-        messages = [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ]
-        tool_defs = [_build_tool_def(t) for t in tools] if tools else []
-        tool_map = {t.name: t for t in tools} if tools else {}
-
-        kwargs: dict = {"model": self._model, "messages": messages}
-        kwargs.update(_token_cap(self._model, max_tokens))
-        if tool_defs:
-            kwargs["tools"] = tool_defs
-
-        trace = []
-        for _ in range(max_turns or _MAX_TOOL_TURNS):
-            _turn_t0 = time.perf_counter()
-            response = await self._client.chat.completions.create(**kwargs)
-            choice = response.choices[0]
-            prompt_tokens, completion_tokens, cache_read, cache_write = _usage_tokens(response)
-
-            if choice.finish_reason != "tool_calls":
-                content = choice.message.content or ""
-                if choice.finish_reason == "length":
-                    frappe.log_error(
-                        title="OpenAI Adapter — output truncated (max_tokens)",
-                        message=(
-                            f"model={self._model}  finish_reason=length  max_tokens={max_tokens}  "
-                            f"content_len={len(content)}"
-                        ),
-                    )
-                trace.append(
-                    TurnRecord(
-                        role="assistant",
-                        content=content,
-                        prompt_tokens=prompt_tokens,
-                        completion_tokens=completion_tokens,
-                        cache_read_tokens=cache_read,
-                        cache_write_tokens=cache_write,
-                        latency_ms=int((time.perf_counter() - _turn_t0) * 1000),
-                    )
-                )
-                return CompletionResult(text=content, trace=trace)
-
-            # Append assistant turn
-            messages.append(choice.message)
-
-            # Execute tool calls; all calls of this response stay grouped
-            # under ONE TurnRecord with the turn's real token usage.
-            turn = TurnRecord(
-                role="tool",
-                content=choice.message.content or "",
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                cache_read_tokens=cache_read,
-                cache_write_tokens=cache_write,
-            )
-            for tc in choice.message.tool_calls:
-                tool = tool_map.get(tc.function.name)
-                try:
-                    args = json.loads(tc.function.arguments)
-                except Exception:
-                    args = {"_raw": tc.function.arguments}
-                if tool:
-                    try:
-                        result = str(tool.fn(**args))
-                    except Exception as exc:
-                        result = f"Error calling {tc.function.name}: {exc}"
-                else:
-                    result = f"Unknown tool: {tc.function.name}"
-
-                turn.tool_calls.append(
-                    ToolCallRecord(name=tc.function.name, arguments=args, result=result)
-                )
-                # The model reads tool output through the same
-                # channel as its own instructions, so it is marked with the tool
-                # that produced it — that marker is what the seeded guard rail
-                # refers to. The ToolCallRecord above keeps the raw result; the
-                # wrapper is for the model, not the audit trail.
-                from one_bpmn.security.provenance import wrap_tool_result
-
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": wrap_tool_result(result, tc.function.name, args),
-                })
-            # API round-trip + inline tool execution = this turn's decision latency
-            turn.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
-            trace.append(turn)
-
-            kwargs["messages"] = messages
-
-        return CompletionResult(text="", trace=trace, hit_turn_cap=True)
-
     async def step(
         self,
         system: str,
@@ -186,6 +80,9 @@ class OpenAIAdapter(BaseLLMAdapter):
         tools: list[ToolSpec] | None = None,
         max_tokens: int = 16384,
         response_schema: dict | None = None,
+        tool_choice: str | None = None,
+        parallel_tool_calls: bool = True,
+        thinking_budget_tokens: int = 0,
     ) -> StepResult:
         messages = [{"role": "system", "content": system}]
         for entry in transcript:
@@ -220,6 +117,13 @@ class OpenAIAdapter(BaseLLMAdapter):
         kwargs.update(_token_cap(self._model, max_tokens))
         if tools:
             kwargs["tools"] = [_build_tool_def(t) for t in tools]
+            if tool_choice and tool_choice != "auto":
+                kwargs["tool_choice"] = (
+                    "required" if tool_choice == "required"
+                    else {"type": "function", "function": {"name": tool_choice}}
+                )
+            if not parallel_tool_calls:
+                kwargs["parallel_tool_calls"] = False
         if response_schema:
             kwargs["response_format"] = openai_response_format(response_schema)
 
@@ -228,7 +132,8 @@ class OpenAIAdapter(BaseLLMAdapter):
         prompt_tokens, completion_tokens, cache_read, cache_write = _usage_tokens(response)
 
         tool_calls = []
-        if choice.finish_reason == "tool_calls":
+        # A forced tool_choice ends with finish_reason "stop" although the message carries tool calls.
+        if choice.message.tool_calls:
             for tc in choice.message.tool_calls:
                 try:
                     args = json.loads(tc.function.arguments)
@@ -237,7 +142,7 @@ class OpenAIAdapter(BaseLLMAdapter):
                 tool_calls.append(
                     StepToolCall(id=tc.id, name=tc.function.name, arguments=args)
                 )
-        elif choice.finish_reason == "length":
+        if choice.finish_reason == "length":
             frappe.log_error(
                 title="OpenAI Adapter — output truncated (max_tokens)",
                 message=(

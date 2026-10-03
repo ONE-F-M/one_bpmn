@@ -380,6 +380,19 @@ def _summarise(transcript: str, previous: str, *, model: str, provider_name: str
                backend: str, max_tokens: int = _MAX_SUMMARY_TOKENS) -> str | None:
 	"""One LLM call. Returns None on any failure — the caller must then leave
 	the conversation uncompacted rather than store a summary it cannot trust."""
+	result = summary_call(
+		transcript, previous, model=model, provider_name=provider_name, backend=backend, max_tokens=max_tokens
+	)
+	if result is None:
+		return None
+	text = result.output if isinstance(result.output, str) else str(result.output or "")
+	return text.strip() or None
+
+
+def summary_call(transcript: str, previous: str, *, model: str, provider_name: str | None, backend: str,
+                 max_tokens: int = _MAX_SUMMARY_TOKENS, system_prompt: str = _SYSTEM_PROMPT,
+                 max_input_chars: int = _MAX_INPUT_CHARS):
+	"""The summariser's ExecutorResult, or None (with an Error Log entry) when the call failed."""
 	from one_bpmn.agents.executor import (
 		ErrorCode,
 		ExecutorConfig,
@@ -396,9 +409,9 @@ def _summarise(transcript: str, previous: str, *, model: str, provider_name: str
 		backend=backend or "direct_api",
 		provider_name=provider_name,
 		model=model,
-		system_prompt=_SYSTEM_PROMPT,
+		system_prompt=system_prompt,
 		user_prompt=_USER_PROMPT.format(
-			previous=previous_block, transcript=transcript[:_MAX_INPUT_CHARS]
+			previous=previous_block, transcript=transcript[:max_input_chars]
 		),
 		temperature=0.0,
 		max_tokens=max_tokens,
@@ -410,8 +423,7 @@ def _summarise(transcript: str, previous: str, *, model: str, provider_name: str
 			message=f"model={model} provider={provider_name} error={result.error_message}",
 		)
 		return None
-	text = result.output if isinstance(result.output, str) else str(result.output or "")
-	return text.strip() or None
+	return result
 
 
 def compact_conversation(
