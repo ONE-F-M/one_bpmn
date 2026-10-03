@@ -165,6 +165,19 @@ def determine(result, goal_key: str | None = None, request_text: str | None = No
 	if code and code != "SUCCESS":
 		return NOT_ACHIEVED, f"The run ended with an error ({code})."
 
+	trace = getattr(result, "trace", None) or []
+	calls = []
+	for turn in trace:
+		turn_calls = _call_field(turn, "tool_calls") or []
+		calls.extend(turn_calls)
+	hit = unsuperseded_tool_failure(calls)
+	if hit:
+		name, tool_result = hit
+		return (
+			NOT_ACHIEVED,
+			f"Tool '{name}' failed and was not retried successfully: {_excerpt(tool_result)}",
+		)
+
 	output = getattr(result, "output", None)
 
 	if goal_key:
