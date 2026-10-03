@@ -511,7 +511,7 @@
 							<Button variant="subtle" icon-left="plus" @click="addAssertion">Add assertion</Button>
 						</div>
 						<p v-if="!caseForm.assertions.length" class="text-xs text-amber-600 mb-2">
-							A case with no assertions passes trivially — add at least one.
+							A case with no assertions is marked Invalid and fails its suite. Add at least one.
 						</p>
 						<div v-for="(a, i) in caseForm.assertions" :key="i" class="border border-gray-100 rounded-md p-3 mb-2 space-y-2">
 							<div class="flex items-center gap-2">
@@ -1005,7 +1005,7 @@ const sparkPoints = computed(() => {
 
 function runPill(status) {
 	if (status === "Passed") return "bg-green-50 text-green-700"
-	if (status === "Failed" || status === "Error" || status === "Timed Out") return "bg-red-50 text-red-700"
+	if (status === "Failed" || status === "Error" || status === "Timed Out" || status === "Invalid") return "bg-red-50 text-red-700"
 	if (status === "Running") return "bg-yellow-50 text-yellow-700 animate-pulse"
 	return "bg-gray-100 text-gray-500"
 }

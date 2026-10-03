@@ -426,21 +426,23 @@ def extract_element_ids(xml: str) -> str:
     each real element as ``  <type> id="..." name="..."``.
     """
     lines = []
-    tag_pattern = re.compile(r'<bpmn:(\w+)\s([^>]*?)/?>')
-    for m in tag_pattern.finditer(xml or ""):
-        bpmn_type = m.group(1)
-        attrs_str = m.group(2)
-        if bpmn_type in _ID_SKIP_TYPES:
-            continue
-        id_m = re.search(r'id="([^"]+)"', attrs_str)
-        if not id_m:
-            continue
-        elem_id = id_m.group(1)
-        name_m = re.search(r'name="([^"]*)"', attrs_str)
-        elem_name = name_m.group(1) if name_m else None
+    for elem_id, (bpmn_type, elem_name) in element_names(xml).items():
         label = f' name="{elem_name}"' if elem_name else ""
         lines.append(f'  {bpmn_type} id="{elem_id}"{label}')
     return "\n".join(lines)
+
+
+def element_names(xml: str) -> dict[str, tuple[str, str]]:
+    """{id: (type, name)} for every real element of a BPMN XML string; name is "" when it has none."""
+    elements = {}
+    for m in re.finditer(r"<bpmn:(\w+)\s([^>]*?)/?>", xml or ""):
+        if m.group(1) in _ID_SKIP_TYPES:
+            continue
+        id_m = re.search(r'id="([^"]+)"', m.group(2))
+        if id_m:
+            name_m = re.search(r'name="([^"]*)"', m.group(2))
+            elements[id_m.group(1)] = (m.group(1), name_m.group(1) if name_m else "")
+    return elements
 
 
 def has_lanes(xml: str) -> bool:
