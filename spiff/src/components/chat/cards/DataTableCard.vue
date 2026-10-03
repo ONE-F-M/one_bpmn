@@ -1,18 +1,24 @@
 <template>
-	<div class="dt-card">
+	<CardShell :title="value.title || __('Table')">
 		<DataTable
-			:title="value.title"
 			:columns="value.columns"
 			:rows="value.rows"
 			:row-action="value.row_action"
 			@row-action="(action, row) => $emit('action', action, row)"
 		/>
-	</div>
+		<template v-if="value.rows && value.rows.length" #expanded>
+			<DataTable :columns="value.columns" :rows="value.rows" />
+		</template>
+	</CardShell>
 </template>
 <script setup>
-// onefm.table binds the DataTable primitive directly — no CardShell, per
-// the contract note: it is data, not a proposal awaiting a decision.
+// onefm.table goes through CardShell for the shared #expanded window. It is
+// data, not a proposal, so it has no action bar and the expanded copy has no
+// row actions.
+import CardShell from "../primitives/CardShell.vue";
 import DataTable from "../primitives/DataTable.vue";
+
+const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s;
 defineProps({
 	value: { type: Object, required: true },
 	busy: { type: Boolean, default: false },
@@ -20,8 +26,3 @@ defineProps({
 });
 defineEmits(["action"]);
 </script>
-<style scoped>
-.dt-card { align-self: flex-start; width: 94%; background: #fff; border: 1px solid #e2e2e2;
-	border-radius: 10px; padding: 10px 12px; }
-:global([data-theme="dark"]) .dt-card { background: #1c1c1c; border-color: #343434; }
-</style>
