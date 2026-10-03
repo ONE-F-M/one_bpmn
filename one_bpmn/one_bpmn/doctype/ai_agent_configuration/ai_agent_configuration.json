@@ -76,6 +76,8 @@
   "compaction_token_threshold",
   "compaction_idle_minutes",
   "compaction_on_task_boundary",
+  "loop_compaction_threshold",
+  "loop_compaction_keep_turns",
   "identity_section",
   "agent_user",
   "agent_roles",
@@ -693,7 +695,7 @@
    "label": "Keep Recent Messages"
   },
   {
-   "depends_on": "compaction_enabled",
+   "depends_on": "eval:doc.compaction_enabled || doc.loop_compaction_threshold",
    "description": "Model that writes the summary. Summarising is high-volume and low-stakes, so a cheap model belongs here. Blank falls back to the site-wide Default Compaction Model.",
    "fieldname": "compaction_model",
    "fieldtype": "Link",
@@ -725,6 +727,21 @@
    "fieldname": "compaction_on_task_boundary",
    "fieldtype": "Check",
    "label": "On Turn Boundary"
+  },
+  {
+   "default": "0",
+   "description": "Inside one tool loop: once a model call's prompt passes this many tokens, the turns before the last Keep Turns are replaced by a summary and the list of files read and edited. 0 = off. Independent of Enable Compaction; uses the Compaction Model, else the site default, else the agent's model.",
+   "fieldname": "loop_compaction_threshold",
+   "fieldtype": "Int",
+   "label": "Tool Loop Threshold"
+  },
+  {
+   "default": "8",
+   "depends_on": "loop_compaction_threshold",
+   "description": "How many of the latest tool turns stay word-for-word when the tool loop is compacted.",
+   "fieldname": "loop_compaction_keep_turns",
+   "fieldtype": "Int",
+   "label": "Tool Loop Keep Turns"
   },
   {
    "fieldname": "skills_section",
@@ -828,7 +845,7 @@
    "link_fieldname": "agent_configuration"
   }
  ],
- "modified": "2026-10-01 21:00:00.000000",
+ "modified": "2026-10-01 22:00:00.000000",
  "modified_by": "c.akeru@one-fm.com",
  "module": "ONE BPMN",
  "name": "AI Agent Configuration",

@@ -377,6 +377,9 @@ def config_field_map(config_name: str) -> dict:
 	# "platform default", not "no cap", so it must not be written as a value.
 	if cint(cfg.get("tool_result_max_chars")):
 		out["aiToolResultMaxChars"] = cfg.tool_result_max_chars
+	if cint(cfg.get("loop_compaction_threshold")):
+		out["aiLoopCompactionThreshold"] = cfg.loop_compaction_threshold
+		out["aiLoopCompactionKeepTurns"] = cint(cfg.get("loop_compaction_keep_turns")) or 8
 	if cfg.ai_provider:
 		out["aiProvider"] = cfg.ai_provider
 	# WI-001655: the model is the agent's own pick from the AI Model catalog

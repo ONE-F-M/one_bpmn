@@ -41,6 +41,7 @@ from one_bpmn.agents.llm_provider.base import (
 	ToolSpec,
 	TurnRecord,
 )
+from one_bpmn.agents.memory.loop_compaction import compact_transcript
 from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG, clear_tool_artifacts
 from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG, ToolDeferred
 from one_bpmn.agents.turn_state import TURN_ANSWERED_FLAG
@@ -143,6 +144,7 @@ async def run_agent_loop(
 	tool_choice: str | None = None,
 	parallel_tool_calls: bool = True,
 	thinking_budget_tokens: int = 0,
+	loop_compaction: dict | None = None,
 ) -> tuple:
 	"""Drive the tool loop. Returns (CompletionResult, None) when the model
 	produces a final answer or hits the turn cap, or (None, AgentSuspension)
@@ -189,6 +191,9 @@ async def run_agent_loop(
 	``tool_choice`` ("auto", "required" or a tool name) applies to the first call of a
 	fresh run; a plain-text answer there is sent back once with a nudge, then fails the run.
 	``parallel_tool_calls`` and ``thinking_budget_tokens`` go to every call.
+
+	``loop_compaction`` ({"threshold", "keep_turns", "model", "agent_model", "provider"}): when a call's
+	prompt passes threshold tokens, the turns before the last keep_turns are summarised before the next call.
 	"""
 	tool_map = {t.name: t for t in (tools or [])}
 
@@ -242,6 +247,7 @@ async def run_agent_loop(
 			check_reply=check_reply,
 			tool_choice=tool_choice,
 			controls=_step_controls(parallel_tool_calls, thinking_budget_tokens),
+			loop_compaction=loop_compaction,
 		)
 	finally:
 		# Cleared on EVERY exit — final answer, turn cap, suspension, exception.
@@ -337,12 +343,16 @@ async def _run_turns(
 	timeout_seconds=None, max_retries=0, retry_backoff_ms=1000, tool_result_max_chars=None,
 	terminal_tools=frozenset({"finalize"}), on_tool_event=None, response_schema=None, check_reply=None,
 	tool_choice=None, controls=None,
+	loop_compaction=None,
 ):
 	"""The turn loop itself. Split out only so run_agent_loop can guarantee the
 	pause flag is cleared however this returns."""
 	reply_checked = False
 	force_pending = bool(tool_choice) and tool_choice != "auto" and turns_used == 0
 	nudged = False
+	last_prompt_tokens = 0
+	# Compaction runs again only once keep_turns new turns have replaced what the last one kept.
+	compacted_at = None
 	while turns_used < max_turns:
 		# No pause is held yet this turn. Cleared here, at the very top, rather
 		# than just before the tool loop: the flag must never outlive the turn
@@ -350,6 +360,21 @@ async def _run_turns(
 		frappe.flags[PAUSE_HELD_FLAG] = False
 		# Same reason, same place: a turn that answered must not end the NEXT one.
 		frappe.flags[TURN_ANSWERED_FLAG] = False
+		if (
+			loop_compaction
+			and last_prompt_tokens > loop_compaction["threshold"]
+			and (compacted_at is None or turns_used - compacted_at >= loop_compaction["keep_turns"])
+		):
+			compacted = compact_transcript(
+				transcript,
+				keep_turns=loop_compaction["keep_turns"],
+				model=loop_compaction.get("model"),
+				agent_model=loop_compaction["agent_model"],
+				provider=loop_compaction.get("provider"),
+			)
+			compacted_at = turns_used
+			if compacted is not None:
+				transcript[:] = compacted
 		_turn_t0 = time.perf_counter()
 		_turn_started_at = _now_iso()
 		step = await _step_with_retries(
@@ -359,6 +384,7 @@ async def _run_turns(
 			controls={**(controls or {}), **({"tool_choice": tool_choice} if force_pending else {})},
 		)
 		turns_used += 1
+		last_prompt_tokens = step.prompt_tokens
 
 		# ── Final answer: no tool calls requested ─────────────────────────
 		if not step.tool_calls:

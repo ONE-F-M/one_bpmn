@@ -420,6 +420,13 @@ class DirectApiExecutor(Executor):
                     parallel_tool_calls=config.parallel_tool_calls,
                     thinking_budget_tokens=config.thinking_budget_tokens,
                     history=config.messages,
+                    loop_compaction={
+                        "threshold": config.loop_compaction_threshold,
+                        "keep_turns": config.loop_compaction_keep_turns,
+                        "model": config.compaction_model or None,
+                        "agent_model": config.model,
+                        "provider": config.provider_name,
+                    } if config.loop_compaction_threshold else None,
                     response_schema=native_schema,
                     check_reply=self._json_reply_check(schema) if config.response_format == "json" else None,
                 )

@@ -192,6 +192,10 @@ class ExecutorConfig:
     parallel_tool_calls: bool = True
     # Anthropic and Gemini only; 0 leaves thinking to the model.
     thinking_budget_tokens: int = 0
+    # Tool-loop compaction: 0 is off; otherwise the prompt size, in tokens, that triggers it.
+    loop_compaction_threshold: int = 0
+    loop_compaction_keep_turns: int = 8
+    compaction_model: str = ""
 
 
 @dataclass
