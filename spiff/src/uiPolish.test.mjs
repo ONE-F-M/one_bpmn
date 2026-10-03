@@ -28,3 +28,36 @@ test("the allocation donut animates in like the Usage donut", () => {
 	assert.doesNotMatch(source("components/insights/CostAllocationDonut.vue"), /animation:\s*false/)
 	assert.doesNotMatch(source("components/insights/UsageReportDonut.vue"), /animation:\s*false/)
 })
+
+test("DiagramPreviewCard offers an #expanded slot for its larger dialog view", () => {
+	const card = source("components/chat/cards/DiagramPreviewCard.vue")
+	assert.match(card, /<template #expanded>/)
+	assert.match(card, /value\.summary/)
+})
+
+test("DiagramThumb takes a height prop instead of a hard-coded 180", () => {
+	const thumb = source("components/chat/primitives/DiagramThumb.vue")
+	assert.match(thumb, /height:\s*\{\s*type:\s*Number,\s*default:\s*180\s*\}/)
+	assert.match(thumb, /new NavigatedViewer\(\{ container: host\.value, height: props\.height \}\)/)
+	assert.doesNotMatch(thumb, /height:\s*180\s*\}\);/)
+})
+
+test("DiagramThumb's large prop removes the 190px thumbnail cap", () => {
+	const thumb = source("components/chat/primitives/DiagramThumb.vue")
+	assert.match(thumb, /large:\s*\{\s*type:\s*Boolean,\s*default:\s*false\s*\}/)
+	assert.match(thumb, /max-height:\s*190px/)
+	assert.match(thumb, /prim-thumb--large[^{]*\{\s*max-height:\s*none/)
+})
+
+test("DiagramThumb fits after layout and never leaks a viewer it was closed on", () => {
+	const thumb = source("components/chat/primitives/DiagramThumb.vue")
+	assert.match(thumb, /await nextTick\(\);\s*const canvas = viewer\.get\("canvas"\);\s*canvas\.resized\(\);/)
+	assert.equal((thumb.match(/if \(disposed\) return;/g) || []).length, 2)
+	assert.match(thumb, /disposed = true;/)
+})
+
+test("the expanded diagram height is read on each open, not once", () => {
+	const card = source("components/chat/cards/DiagramPreviewCard.vue")
+	assert.match(card, /:height="expandedHeight\(\)"/)
+	assert.doesNotMatch(card, /expandedHeight = computed/)
+})

@@ -7,6 +7,12 @@
 			<ActionButton :label="value.mode === 'pending_removal' ? 'No, keep it' : 'Discard'" kind="ghost"
 				:disabled="busy || done" @press="$emit('action', 'dismiss')" />
 		</template>
+		<template #expanded>
+			<div class="diagram-preview-expanded">
+				<p v-if="value.summary" class="diagram-preview-expanded-summary">{{ value.summary }}</p>
+				<DiagramThumb :xml="value.bpmn_xml" :height="expandedHeight()" large />
+			</div>
+		</template>
 	</CardShell>
 </template>
 <script setup>
@@ -39,4 +45,11 @@ const title = computed(() => {
 const applyLabel = computed(() =>
 	props.value.mode === "pending_removal" ? "Yes, apply changes" : "Apply to canvas"
 );
+// Read on each open, so the viewer matches the viewport at that moment.
+const expandedHeight = () => Math.round(window.innerHeight * 0.7);
 </script>
+<style scoped>
+.diagram-preview-expanded { display: flex; flex-direction: column; gap: 10px; }
+.diagram-preview-expanded-summary { margin: 0; font-size: 13px; color: #383838; }
+:global([data-theme="dark"]) .diagram-preview-expanded-summary { color: #d4d4d4; }
+</style>
