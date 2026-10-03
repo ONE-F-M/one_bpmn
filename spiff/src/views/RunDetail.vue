@@ -15,6 +15,23 @@
 				</template>
 				<div class="ml-auto flex items-center gap-2">
 					<Button size="sm" :loading="creatingCase" :disabled="!run || !['Success', 'Error'].includes(run.status)" @click="createEvalCase">Create eval case</Button>
+					<Button
+						size="sm"
+						:loading="creatingExample"
+						:disabled="!run || run.status !== 'Success' || !run.agent_configuration"
+						:title="__('Adds a disabled example to this agent from this run')"
+						@click="createExample"
+					>
+						{{ __("Create example") }}
+					</Button>
+					<a
+						v-if="createdExampleFor"
+						:href="`/app/ai-agent-configuration/${encodeURIComponent(createdExampleFor)}`"
+						target="_blank"
+						class="text-sm text-green-700 hover:underline"
+					>
+						{{ __("Example added (disabled), open") }} {{ createdExampleFor }}
+					</a>
 					<a v-if="run" :href="`/app/ai-agent-run/${run.name}`" target="_blank" class="text-sm text-blue-600 hover:underline">Open in Desk</a>
 				</div>
 			</div>
@@ -213,6 +230,9 @@ const error = ref("")
 const detail = ref({})
 const tab = ref("conversation")
 const creatingCase = ref(false)
+const creatingExample = ref(false)
+const createdExampleFor = ref("")
+const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s
 
 // A turn's steps are fetched when it is opened: a twenty turn conversation
 // would otherwise load twenty trees nobody asked for.
@@ -342,6 +362,22 @@ async function load() {
 		error.value = e.message || String(e)
 	} finally {
 		loading.value = false
+	}
+}
+
+async function createExample() {
+	creatingExample.value = true
+	try {
+		const { configuration } = await frappeRequest({
+			url: "/api/method/one_bpmn.agents.eval_case_factory.create_example_from_run",
+			method: "POST",
+			params: { run_name: run.value.name },
+		})
+		createdExampleFor.value = configuration
+	} catch (e) {
+		error.value = e.message || String(e)
+	} finally {
+		creatingExample.value = false
 	}
 }
 

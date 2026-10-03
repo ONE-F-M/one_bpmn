@@ -199,14 +199,14 @@ def confirmation_reply(text: str) -> str:
 	return ""
 
 
-def format_history(chat_history: list) -> str:
-	"""The last HISTORY_TURNS messages as "User: ..." and "ProsAlly: ..." lines."""
+def format_history(chat_history: list, agent_label: str = "ProsAlly") -> str:
+	"""The last HISTORY_TURNS messages as "User: ..." lines and lines labelled with the agent's name."""
 	lines = []
 	for entry in (chat_history or [])[-HISTORY_TURNS:]:
 		role = entry.get("role") or entry.get("type", "user")
 		content = (entry.get("content") or "").strip()
 		if content:
-			lines.append(("User" if role == "user" else "ProsAlly") + ": " + content)
+			lines.append(("User" if role == "user" else agent_label) + ": " + content)
 	return "\n".join(lines)
 
 

@@ -182,6 +182,19 @@ def _job_timeout(suite: str, backend: str, case_count: int) -> int:
     return max(MIN_JOB_TIMEOUT_SECONDS, SECONDS_PER_EXECUTION * max(1, case_count) * pass_k)
 
 
+def _resolve_agent_configuration_fallback(agent_cfg: str | None, process_model: str | None) -> str | None:
+    """The suite's own agent, else the only AI Agent Configuration on its process model.
+
+    Zero or several configurations on the process model give None.
+    """
+    if agent_cfg or not process_model:
+        return agent_cfg or None
+    matches = frappe.get_all(
+        "AI Agent Configuration", filters={"process_model": process_model}, pluck="name", limit=2
+    )
+    return matches[0] if len(matches) == 1 else None
+
+
 def _find_reusable_running_run(suite_name: str, agent_cfg: str | None, backend: str) -> str | None:
     """The Running AI Eval Run for this suite, agent configuration and backend
     that is still inside its deadline, or None. A run past its deadline is not
@@ -236,7 +249,9 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
 
     # WI-001821: record which agent this run tested. Without it a later
     # comparison has to assume the suite still points where it did at run time.
-    agent_cfg = frappe.db.get_value("AI Eval Suite", suite_name, "agent_configuration")
+    agent_cfg = _resolve_agent_configuration_fallback(
+        *frappe.db.get_value("AI Eval Suite", suite_name, ["agent_configuration", "process_model"])
+    )
 
     # One run at a time per suite (same agent, same backend): a second call
     # while one is still Running reuses it instead of starting a competitor.
@@ -316,10 +331,9 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
     suite = frappe.get_doc("AI Eval Suite", suite_name)  # 404s if missing
     suite.check_permission("read")  # owner / System Manager gate
 
+    agent_cfg = _resolve_agent_configuration_fallback(suite.agent_configuration, suite.process_model)
     if backend == "live":
-        _assert_agent_evaluatable(
-            suite.agent_configuration, suite.eval_type, suite.process_model
-        )
+        _assert_agent_evaluatable(agent_cfg, suite.eval_type, suite.process_model)
 
     if isinstance(case_names, str):
         case_names = frappe.parse_json(case_names) or None
@@ -338,7 +352,7 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
     # Placed after the permission/evaluatable/case-validation gates above, so
     # a caller who cannot read the suite (or names a foreign case) fails
     # there, never reaching this dedup lookup.
-    reusable = _find_reusable_running_run(suite_name, suite.agent_configuration, backend)
+    reusable = _find_reusable_running_run(suite_name, agent_cfg, backend)
     if reusable:
         return reusable
 
@@ -351,7 +365,7 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
     # even while Running, or if it errors before producing any result.
     run.scope = "Subset" if case_names else "Suite"
     run.requested_cases = json.dumps(case_names) if case_names else None
-    run.agent_configuration = suite.agent_configuration  # WI-001821
+    run.agent_configuration = agent_cfg  # WI-001821
     # The caller is already authorised above (suite read gate + evaluatable
     # check, or System Manager). The AI Eval Run is a system-written record of
     # that action, so it must not additionally demand write rights on the Run
@@ -1501,9 +1515,36 @@ def _execute_case(case, eval_run: str = None, agent_cfg: str = None) -> dict:
     prev_origin = getattr(frappe.flags, "eval_origin", None)
     frappe.flags.eval_origin = _eval_origin_flag(case, eval_run)
     try:
-        return _execute_case_inner(case, eval_run, agent_cfg)
+        result = _execute_case_inner(case, eval_run, agent_cfg)
+        _mark_expected_errors(case.name, case.get("expected_error"), eval_run)
+        return result
     finally:
         frappe.flags.eval_origin = prev_origin
+
+
+def _mark_expected_errors(case_name: str, expected_error: str | None, eval_run: str | None = None) -> int:
+    """Flag the case's step errors that contain ``expected_error`` so tool-error alerts skip them.
+
+    ``eval_run`` limits it to one run; None covers every run of the case. Returns the count flagged.
+    """
+    expected = (expected_error or "").strip()
+    if not expected:
+        return 0
+    run_filters = {"eval_case": case_name}
+    if eval_run:
+        run_filters["eval_run"] = eval_run
+    runs = frappe.get_all("AI Agent Run", filters=run_filters, pluck="name")
+    if not runs:
+        return 0
+    steps = frappe.get_all(
+        "AI Agent Step",
+        filters={"run": ["in", runs], "error_code": ["is", "set"], "is_expected_error": 0},
+        fields=["name", "error_code", "error_message"],
+    )
+    flagged = [s.name for s in steps if expected in f"{s.error_code} {s.error_message or ''}"]
+    for step_name in flagged:
+        frappe.db.set_value("AI Agent Step", step_name, "is_expected_error", 1, update_modified=False)
+    return len(flagged)
 
 
 def _memory_case_spec(case) -> dict:
