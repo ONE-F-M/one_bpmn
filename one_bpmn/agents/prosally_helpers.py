@@ -199,6 +199,20 @@ def confirmation_reply(text: str) -> str:
 	return ""
 
 
+def join_confirmation(summary: str, question: str) -> str:
+	"""The summary then the question on its own line, without a closing summary sentence that repeats the question."""
+	summary = (summary or "").strip()
+	question = (question or "").strip()
+	last = re.search(r"[^.!?\n]*[.!?]?\s*$", summary)
+	if question and _comparable(last.group(0)) == _comparable(question):
+		summary = summary[: last.start()].rstrip()
+	return (summary + "\n" + question) if summary else question
+
+
+def _comparable(text: str) -> str:
+	return " ".join(re.sub(r"[^a-z0-9 ]", " ", text.lower()).split())
+
+
 def format_history(chat_history: list, agent_label: str = "ProsAlly") -> str:
 	"""The last HISTORY_TURNS messages as "User: ..." lines and lines labelled with the agent's name."""
 	lines = []
