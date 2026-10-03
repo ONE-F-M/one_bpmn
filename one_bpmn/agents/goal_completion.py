@@ -81,6 +81,59 @@ def _declared_goal_met(output, goal_key: str) -> bool:
 	return value is not None and value is not False
 
 
+def _call_field(call, *names):
+	"""Read the first present field from a tool-call entry that may be a
+	dataclass (ToolCallRecord/StepToolCall) or a plain dict \u2014 a resumed run's
+	trace is rebuilt from dicts (executor/step_loop.py:188), a fresh run's is
+	not."""
+	for name in names:
+		if isinstance(call, dict):
+			if name in call:
+				return call.get(name)
+		else:
+			value = getattr(call, name, None)
+			if value is not None:
+				return value
+	return None
+
+
+def unsuperseded_tool_failure(calls):
+	"""(name, result) for the first tool (in call order) whose LAST call in
+	*calls* failed, or None if every tool's last call did not fail.
+
+	*calls* is an ordered flat list of tool-call entries across a whole trace
+	(every turn's tool_calls, in turn order) \u2014 each entry may be a
+	ToolCallRecord/dict carrying "name"/"result" (fresh run) or "name"/"result"
+	after being rebuilt from a resumed run's stored dicts. Classification is
+	delegated entirely to observability._tool_call_status, imported here
+	(not at module level) because observability already imports this module
+	lazily (see finalize_ai_run), and a top-level import back would be circular.
+
+	State is decided PER TOOL NAME: a tool that failed and was never called
+	again stays failed even if some other, different tool went on to succeed
+	\u2014 that other tool never superseded it.
+	"""
+	from one_bpmn.agents.observability import _tool_call_status
+
+	last_status_by_name: dict = {}
+	last_result_by_name: dict = {}
+	order: list = []
+	for call in calls or []:
+		name = _call_field(call, "name", "tool_name")
+		if not name:
+			continue
+		result = _call_field(call, "result", "tool_result")
+		if name not in last_status_by_name:
+			order.append(name)
+		last_status_by_name[name] = _tool_call_status(result)
+		last_result_by_name[name] = result
+
+	for name in order:
+		if last_status_by_name.get(name) == "Error":
+			return name, last_result_by_name.get(name)
+	return None
+
+
 def determine(result, goal_key: str | None = None, request_text: str | None = None) -> tuple[str, str]:
 	"""(state, basis) from what the executor reported. Pure — no database, no
 	model call — request_text/output are quoted verbatim into the basis, never
