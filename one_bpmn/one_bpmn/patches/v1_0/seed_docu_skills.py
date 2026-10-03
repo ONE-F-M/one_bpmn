@@ -174,7 +174,7 @@ Say in plain English who you gave access to and what they can do, so the person 
 Set 'autoname' only when it matters. Empty means a random id, which is fine for child tables and for records nobody refers to by name.
 
 - `"field:some_fieldname"`: name each record after that field's value (for example `"field:employee_name"`). Prefer this when one field clearly identifies the record. That field should be mandatory and unique.
-- `"format:INSP-.#####"`: a coded id with an auto-incrementing counter (the `.#####`). Prefer this when the person wants a reference number. The prefix is theirs; ask nothing, use the letters they used.
+- `"format:INSP-{#####}"`: a coded id with an auto-incrementing counter (the `{#####}`). Prefer this when the person wants a reference number. The prefix is theirs; ask nothing, use the letters they used. A format: rule fills only what is in braces, so the counter must be in braces: `"format:INSP-.#####"` names every record `INSP-.#####`.
 - `"naming_series:"`: the person picks a series when saving. Also add a Select field named `naming_series` whose options are the series prefixes.
 - `"Prompt"`: the person types the name each time.
 - `"autoincrement"`: simple 1, 2, 3 numbering.

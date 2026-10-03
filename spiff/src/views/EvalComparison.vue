@@ -240,7 +240,7 @@ StatusPill.props = ["status"]
 function runPill(status) {
 	if (status === "Passed") return "bg-green-50 text-green-700"
 	if (status === "Failed") return "bg-red-50 text-red-700"
-	if (status === "Error" || status === "Timed Out") return "bg-amber-50 text-amber-700"
+	if (status === "Error" || status === "Timed Out" || status === "Invalid") return "bg-amber-50 text-amber-700"
 	return "bg-gray-100 text-gray-600"
 }
 

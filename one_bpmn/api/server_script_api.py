@@ -596,6 +596,19 @@ def update_server_script(
 
 
 @frappe.whitelist()
+def get_script_names() -> list:
+	"""The names a Server Script receives without importing them, and which runner provides each."""
+	if not frappe.has_permission("Server Script", "read"):
+		frappe.throw(_("Not permitted to read Server Scripts"), frappe.PermissionError)
+	from one_bpmn.agents.shape_tools import SCRIPT_NAMES
+
+	return [
+		{"name": name, "meaning": _(meaning), "script_task": script_task, "tool": tool}
+		for name, meaning, script_task, tool in SCRIPT_NAMES
+	]
+
+
+@frappe.whitelist()
 def check_server_script_exists(script_name: str) -> dict:
 	"""Check if a Server Script document with the given name exists."""
 	if frappe.session.user == "Guest":

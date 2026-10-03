@@ -28,7 +28,8 @@
   "ended_at",
   "section_break_error",
   "error_code",
-  "error_message"
+  "error_message",
+  "is_expected_error"
  ],
  "fields": [
   {
@@ -177,6 +178,14 @@
    "fieldtype": "Long Text",
    "label": "Error Message",
    "description": "Error details for failed retry attempts"
+  },
+  {
+   "fieldname": "is_expected_error",
+   "fieldtype": "Check",
+   "label": "Is Expected Error",
+   "default": "0",
+   "description": "Set when this step's error contains the eval case's Expected Error. The case causes this error on purpose, so tool-error alerts leave it out.",
+   "read_only": 1
   }
  ],
  "indexes": [
@@ -193,7 +202,7 @@
   ]
  ],
  "links": [],
- "modified": "2026-09-17 09:00:00.000000",
+ "modified": "2026-10-03 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Agent Step",
