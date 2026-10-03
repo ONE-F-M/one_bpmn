@@ -109,6 +109,9 @@ def determine(result, goal_key: str | None = None, request_text: str | None = No
 			"The tool-calling loop ran out of turns before reaching a final answer.",
 		)
 
+	if code == "BUDGET_EXCEEDED":
+		return NOT_ACHIEVED, f"The run stopped at its budget: {getattr(result, 'error_message', '')}"
+
 	if code and code != "SUCCESS":
 		return NOT_ACHIEVED, f"The run ended with an error ({code})."
 

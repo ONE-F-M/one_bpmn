@@ -110,6 +110,10 @@ def compile_shape_tools(tool_shapes, instance) -> list:
 PAUSE_HELD_FLAG = "a2a_pause_held_this_turn"
 
 
+class BudgetExceeded(Exception):
+	"""A tool found the run has spent its budget; the step loop ends the run with BUDGET_EXCEEDED."""
+
+
 class ToolDeferred(Exception):
 	"""A tool started work that finishes later, so it has no result yet.
 
@@ -257,8 +261,9 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 	that is its ``result`` dict; for a Service Task it is whatever the dispatch
 	handler wrote to ``task.data`` — excluding the arguments the LLM supplied.
 
-	Never raises, with one exception: ``ToolDeferred``, which is not a failure
-	but "no answer yet" and must reach the loop so it can suspend. Ordinary
+	Never raises, with two exceptions that must reach the loop: ``ToolDeferred``,
+	which is not a failure but "no answer yet", so the loop can suspend, and
+	``BudgetExceeded``, so the loop can end the run. Ordinary
 	failures are logged and returned as a structured ``{"error": ...}`` payload
 	so the tool-calling loop stays alive.
 	"""
@@ -364,7 +369,7 @@ def _execute_shape_body(instance, bpmn_id: str, task_cfg: dict | None, kwargs: d
 				)
 
 		return json.dumps(produced or {"ok": True}, default=str)
-	except ToolDeferred:
+	except (ToolDeferred, BudgetExceeded):
 		raise
 	except frappe.PermissionError as refused:
 		# Refusals carry their reason to the model. "See Error Log for details" is

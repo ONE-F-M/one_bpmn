@@ -23,7 +23,7 @@ class TestFrontendEditError(FrappeTestCase):
 	def _gate(self, action="edit_file", path=VUE, instance=FRONTEND, skill=True, read=True, over_budget=False):
 		with patch.object(ops, "_skill_loaded", return_value=skill), patch.object(
 			ops, "_has_read", return_value=read
-		), patch.object(ops, "read_budget_exceeded", return_value="spent" if over_budget else None):
+		), patch.object(ops, "_past_read_budget", return_value=over_budget):
 			return ops.frontend_edit_error(instance, action, path)
 
 	def test_vue_edit_without_the_skill_is_refused(self):
@@ -70,7 +70,7 @@ class TestSandboxDispatchRefuses(FrappeTestCase):
 	def test_a_refused_edit_never_reaches_the_sandbox(self):
 		with patch.object(ops, "_skill_loaded", return_value=True), patch.object(
 			ops, "_has_read", return_value=False
-		), patch.object(ops, "read_budget_exceeded", return_value=None), patch("requests.post") as post:
+		), patch.object(ops, "_past_read_budget", return_value=False), patch("requests.post") as post:
 			result = ops.sandbox_dispatch(
 				"edit_file", "one_bpmn", "staging", "Reword the heading.",
 				{"path": VUE, "old_string": "Processes", "new_string": "Your Processes"}, instance=FRONTEND,

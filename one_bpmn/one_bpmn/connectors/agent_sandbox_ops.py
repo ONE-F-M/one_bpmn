@@ -43,6 +43,8 @@ from __future__ import annotations
 import re
 import frappe
 
+from one_bpmn.agents.shape_tools import BudgetExceeded
+
 AGENT_SANDBOX_WAITING_KEY = "_bpmn_agent_sandbox_waiting"
 EVAL_DRY_RUN_KEY = "sandbox_result"
 EVAL_DRY_RUN_ANSWERS = {
@@ -111,6 +113,7 @@ def _a2a_task_of(instance) -> str | None:
 
 
 _READ_BUDGET = 15
+_READ_WARNING_TTL_SECONDS = 2 * 60 * 60
 _REMINDER_AFTER = 8
 _READ_ACTIONS = ("read_file", "list_files")
 _PROGRESS_ACTIONS = ("edit_file", "write_file")
@@ -148,7 +151,8 @@ def _reads_since_last_edit(instance, limit: int) -> int:
 
 def read_budget_exceeded(instance) -> str | None:
 	"""None if there's room for another read_file/list_files call this run;
-	otherwise the error to return instead of dispatching one.
+	otherwise the error to return instead of dispatching one. The call after
+	that error raises BudgetExceeded, which ends the run.
 
 	Confirmed live (2026-09-13/14): once a per-file re-read cap (the read_file
 	Server Script's own dedup-then-refuse logic) forecloses looping on any one
@@ -161,14 +165,27 @@ def read_budget_exceeded(instance) -> str | None:
 	since attempting one is itself the signal that matters) or once the count
 	reaches _READ_BUDGET. An edit resets the budget: that's real progress,
 	not more looking around, however many further reads it takes afterward."""
-	if _reads_since_last_edit(instance, _READ_BUDGET + 1) < _READ_BUDGET:
+	warned_key = f"agent_read_budget_warned:{getattr(instance, 'name', '')}"
+	if not _past_read_budget(instance):
+		frappe.cache.delete_value(warned_key)
 		return None
+	# A refused read sends nothing to the sandbox, so the count cannot show a second refusal.
+	if frappe.cache.get_value(warned_key, expires=True):
+		raise BudgetExceeded(
+			f"the run kept reading after it was told to stop at {_READ_BUDGET} read-only calls without an edit"
+		)
+	frappe.cache.set_value(warned_key, 1, expires_in_sec=_READ_WARNING_TTL_SECONDS)
 	return (
 		f"You have made {_READ_BUDGET} read-only calls this run without attempting "
 		"a single edit. Stop exploring: either attempt the edit now with what "
 		"you already have, or state specifically what information is still "
-		"missing and why you cannot proceed without it."
+		"missing and why you cannot proceed without it. The next read-only call "
+		"ends the run."
 	)
+
+
+def _past_read_budget(instance) -> bool:
+	return _reads_since_last_edit(instance, _READ_BUDGET) >= _READ_BUDGET
 
 
 _FRONTEND_AGENT = "Frontend Agent"
@@ -188,7 +205,7 @@ def frontend_edit_error(instance, action: str, path: str) -> str | None:
 			"conventions this file has to follow."
 		)
 	# Past the read budget a read would be refused, so the edit must be allowed.
-	if action == "edit_file" and not _has_read(instance, path) and not read_budget_exceeded(instance):
+	if action == "edit_file" and not _has_read(instance, path) and not _past_read_budget(instance):
 		return f"Call read_file on {path} before editing it. Never change a file you have not read."
 	return None
 
