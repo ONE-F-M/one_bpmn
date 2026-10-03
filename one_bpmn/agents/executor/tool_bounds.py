@@ -25,6 +25,9 @@ the model as a tool error naming the field, without the script having run.
 
 from __future__ import annotations
 
+import re
+
+import frappe
 from frappe import _
 
 # The default cap when an agent's configuration leaves the field blank. Large
@@ -139,3 +142,39 @@ def _json_type(value) -> str:
 	if isinstance(value, dict):
 		return "object"
 	return type(value).__name__
+
+
+_LEAKED_PARAMETER = re.compile(r"<parameter\s+name=\"([^\"]+)\"\s*>(.*?)(?=<parameter\s+name=|\Z)", re.S)
+_LEAKED_DELIMITER = re.compile(r"</?parameter[^>]*>|</?invoke[^>]*>")
+
+
+def salvage_leaked_delimiters(tool_name: str, parameters: dict | None, arguments):
+	"""Strip tool-call delimiters the model wrote into a string argument, recovering any argument they opened."""
+	if not isinstance(arguments, dict):
+		return arguments
+	declared = parameters or {}
+	repaired = dict(arguments)
+	for key, value in arguments.items():
+		if not isinstance(value, str):
+			continue
+		cuts = [i for i in (value.find(f"</{key}>"), _first_start(_LEAKED_PARAMETER, value)) if i >= 0]
+		if not cuts and not _LEAKED_DELIMITER.search(value):
+			continue
+		cut = min(cuts, default=len(value))
+		for match in _LEAKED_PARAMETER.finditer(value, cut):
+			name, recovered = match.group(1), _LEAKED_DELIMITER.sub("", match.group(2)).strip()
+			if not recovered or name == key or name not in declared:
+				continue
+			if declared[name].get("type") == "array":
+				existing = repaired.get(name) or []
+				repaired[name] = [*(existing if isinstance(existing, list) else [existing]), recovered]
+			elif not repaired.get(name):
+				repaired[name] = recovered
+		repaired[key] = _LEAKED_DELIMITER.sub("", value[:cut]).strip()
+		frappe.logger("tool_arguments").info(f"stripped leaked tool-call delimiters from {tool_name}.{key}")
+	return repaired
+
+
+def _first_start(pattern, text: str) -> int:
+	match = pattern.search(text)
+	return match.start() if match else -1

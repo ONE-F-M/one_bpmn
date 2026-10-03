@@ -69,6 +69,10 @@ _CONFIG_TO_SHAPE = {
 	# so 0 reaches the modal and reads there as "no bar".
 	"golden_dataset_minimum": "aiGoldenDatasetMinimum",
 	"golden_dataset_target": "aiGoldenDatasetTarget",
+	"tool_choice": "aiToolChoice",
+	"parallel_tool_calls": "aiParallelToolCalls",
+	"thinking_budget_tokens": "aiThinkingBudgetTokens",
+	"terminal_tools": "aiTerminalTools",
 }
 
 # Shape attributes the modal may write back, and the config fields they land
@@ -394,6 +398,9 @@ def config_field_map(config_name: str) -> dict:
 	# "platform default", not "no cap", so it must not be written as a value.
 	if cint(cfg.get("tool_result_max_chars")):
 		out["aiToolResultMaxChars"] = cfg.tool_result_max_chars
+	if cint(cfg.get("loop_compaction_threshold")):
+		out["aiLoopCompactionThreshold"] = cfg.loop_compaction_threshold
+		out["aiLoopCompactionKeepTurns"] = cint(cfg.get("loop_compaction_keep_turns")) or 8
 	if cint(cfg.get("run_token_budget")):
 		out["aiRunTokenBudget"] = cfg.run_token_budget
 	if flt(cfg.get("run_cost_budget")):

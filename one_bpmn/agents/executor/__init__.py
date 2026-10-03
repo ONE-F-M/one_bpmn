@@ -188,6 +188,15 @@ class ExecutorConfig:
     # shape/config sets this, since dropping the default by mistake would
     # silently undo the fix this field exists for.
     terminal_tools: list = field(default_factory=lambda: ["finalize"])
+    # "auto", "required" or a tool name, for the first model call of a fresh run.
+    tool_choice: str = "auto"
+    parallel_tool_calls: bool = True
+    # Anthropic and Gemini only; 0 leaves thinking to the model.
+    thinking_budget_tokens: int = 0
+    # Tool-loop compaction: 0 is off; otherwise the prompt size, in tokens, that triggers it.
+    loop_compaction_threshold: int = 0
+    loop_compaction_keep_turns: int = 8
+    compaction_model: str = ""
     # A run stops once it passes either budget; None means no budget.
     run_token_budget: int | None = None
     run_cost_budget: float | None = None

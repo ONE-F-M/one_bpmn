@@ -1,19 +1,12 @@
-import time
-
 from google import genai
 from google.genai import types
 
 from .base import (
     BaseLLMAdapter,
-    CompletionResult,
     StepResult,
     StepToolCall,
-    ToolCallRecord,
     ToolSpec,
-    TurnRecord,
 )
-
-_MAX_TOOL_TURNS = 10
 
 
 def _usage_tokens(response) -> tuple:
@@ -89,115 +82,15 @@ class GeminiAdapter(BaseLLMAdapter):
         self._client = genai.Client(api_key=api_key, http_options=http_options)
         self._model = model
 
-    async def complete(
-        self,
-        system: str,
-        user: str,
-        tools: list[ToolSpec] | None = None,
-        max_tokens: int = 16384,
-        max_turns: int | None = None,
-    ) -> CompletionResult:
-        contents: list[types.Content] = [
-            types.Content(role="user", parts=[types.Part(text=user)])
-        ]
-
-        genai_tools = None
-        tool_map: dict[str, ToolSpec] = {}
-        if tools:
-            genai_tools = [
-                types.Tool(function_declarations=[_build_fn_decl(t) for t in tools])
-            ]
-            tool_map = {t.name: t for t in tools}
-
-        config = types.GenerateContentConfig(
-            system_instruction=system,
-            tools=genai_tools,
-        )
-
-        trace = []
-        for _ in range(max_turns or _MAX_TOOL_TURNS):
-            _turn_t0 = time.perf_counter()
-            response = await self._client.aio.models.generate_content(
-                model=self._model,
-                contents=contents,
-                config=config,
-            )
-
-            candidate = response.candidates[0]
-            parts = candidate.content.parts or []
-            fn_call_parts = [p for p in parts if p.function_call]
-            prompt_tokens, completion_tokens, cache_read, cache_write = _usage_tokens(response)
-
-            if not fn_call_parts:
-                content = response.text or ""
-                trace.append(
-                    TurnRecord(
-                        role="assistant",
-                        content=content,
-                        prompt_tokens=prompt_tokens,
-                        completion_tokens=completion_tokens,
-                        cache_read_tokens=cache_read,
-                        cache_write_tokens=cache_write,
-                        latency_ms=int((time.perf_counter() - _turn_t0) * 1000),
-                    )
-                )
-                return CompletionResult(text=content, trace=trace)
-
-            # Append model turn
-            contents.append(types.Content(role="model", parts=parts))
-
-            # Execute tool calls and collect responses; all calls of this
-            # response stay grouped under ONE TurnRecord.
-            turn = TurnRecord(
-                role="tool",
-                content="",
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                cache_read_tokens=cache_read,
-                cache_write_tokens=cache_write,
-            )
-            result_parts = []
-            for p in fn_call_parts:
-                fc = p.function_call
-                tool = tool_map.get(fc.name)
-                args = dict(fc.args) if fc.args else {}
-                if tool:
-                    try:
-                        result = str(tool.fn(**args))
-                    except Exception as exc:
-                        result = f"Error calling {fc.name}: {exc}"
-                else:
-                    result = f"Unknown tool: {fc.name}"
-                turn.tool_calls.append(
-                    ToolCallRecord(name=fc.name, arguments=args, result=result)
-                )
-                # Same marking as the other adapters, so the
-                # guard rail means the same thing whichever provider an agent
-                # happens to run on.
-                from one_bpmn.security.provenance import wrap_tool_result
-
-                result_parts.append(
-                    types.Part(
-                        function_response=types.FunctionResponse(
-                            name=fc.name,
-                            response={"output": wrap_tool_result(result, fc.name, args)},
-                        )
-                    )
-                )
-            # API round-trip + inline tool execution = this turn's decision latency
-            turn.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
-            trace.append(turn)
-
-            contents.append(types.Content(role="user", parts=result_parts))
-
-        return CompletionResult(text="", trace=trace, hit_turn_cap=True)
-
     async def step(
         self,
         system: str,
         transcript: list,
         tools: list[ToolSpec] | None = None,
         max_tokens: int = 16384,
+        tool_choice: str | None = None,
+        parallel_tool_calls: bool = True,
+        thinking_budget_tokens: int = 0,
     ) -> StepResult:
         """One generate_content call from the provider-agnostic transcript.
 
@@ -247,6 +140,10 @@ class GeminiAdapter(BaseLLMAdapter):
         config = types.GenerateContentConfig(
             system_instruction=system,
             tools=genai_tools,
+            tool_config=_tool_config(tool_choice) if genai_tools else None,
+            thinking_config=(
+                types.ThinkingConfig(thinking_budget=thinking_budget_tokens) if thinking_budget_tokens else None
+            ),
         )
 
         response = await self._client.aio.models.generate_content(
@@ -278,3 +175,15 @@ class GeminiAdapter(BaseLLMAdapter):
             cache_read_tokens=cache_read,
             cache_write_tokens=cache_write,
         )
+
+
+def _tool_config(tool_choice: str | None) -> types.ToolConfig | None:
+    """Gemini's function-calling mode for "required" or a tool name; None leaves it on AUTO."""
+    if not tool_choice or tool_choice == "auto":
+        return None
+    return types.ToolConfig(
+        function_calling_config=types.FunctionCallingConfig(
+            mode=types.FunctionCallingConfigMode.ANY,
+            allowed_function_names=None if tool_choice == "required" else [tool_choice],
+        )
+    )
