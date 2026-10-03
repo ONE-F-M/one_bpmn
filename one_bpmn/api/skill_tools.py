@@ -218,6 +218,8 @@ def deactivate_skill(skill_name, agent_name, instance):
 
 
 def get_skill_tools(agent_name, instance=None):
+    if not frappe.db.exists("AI Agent Enabled Skill", {"parent": agent_name}):
+        return []
 
     def load_skill(skill_name: str) -> str:
         """Load the full instructions body of a published AI Skill.
