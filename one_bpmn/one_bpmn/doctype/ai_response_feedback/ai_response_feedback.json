@@ -24,6 +24,8 @@
   "column_break_subject",
   "agent_run",
   "agent_configuration",
+  "section_run_errors",
+  "run_errors",
   "section_outcome",
   "eval_case",
   "dedup_key",
@@ -144,6 +146,18 @@
    "read_only": 1
   },
   {
+   "fieldname": "section_run_errors",
+   "fieldtype": "Section Break",
+   "label": "Run Errors"
+  },
+  {
+   "description": "Tool calls that failed in the linked run, one \"tool: error\" line each. Copied when the feedback is created.",
+   "fieldname": "run_errors",
+   "fieldtype": "Long Text",
+   "label": "Run Errors",
+   "read_only": 1
+  },
+  {
    "fieldname": "section_outcome",
    "fieldtype": "Section Break",
    "label": "Outcome"
@@ -171,7 +185,7 @@
    "label": "Assignment"
   },
   {
-   "description": "Who this was assigned to for review — the AI Response Feedback Handling process resolves this from the reply's AI Agent Configuration and writes it here; not editable directly.",
+   "description": "Who reviews this feedback. Set on creation from the agent's Feedback Owner, or its Process Owner when no Feedback Owner is set. The AI Response Feedback Handling process assigns its tasks to this user.",
    "fieldname": "process_owner",
    "fieldtype": "Link",
    "label": "Process Owner",
@@ -188,7 +202,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-08-13 00:00:00.000000",
+ "modified": "2026-10-03 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Response Feedback",

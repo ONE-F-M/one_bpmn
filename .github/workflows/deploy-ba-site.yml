@@ -21,7 +21,6 @@ jobs:
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       - name: Deploy to BA site
-        id: deploy
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.BA_HOST }}
@@ -73,13 +72,3 @@ jobs:
               python3 -c 'import json, os, urllib.request; log = open("/tmp/check-agent-tools.log").read()[-3500:]; body = json.dumps({"text": "*check-agent-tools failed on BA site*\n```" + log + "```\n" + os.environ["RUN_URL"]}).encode(); urllib.request.urlopen(urllib.request.Request(os.environ["GCHAT_WEBHOOK"], body, {"Content-Type": "application/json; charset=UTF-8"}), timeout=20)'
               exit $status
             fi
-
-      - name: Notify Google Chat of deploy failure
-        if: failure() && steps.deploy.outcome == 'failure'
-        env:
-          GCHAT_WEBHOOK: ${{ secrets.GCHAT_AGENT_TOOLS_WEBHOOK }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          COMMIT: ${{ github.sha }}
-        run: |
-          jq -n --arg text "*BA site deploy failed* before check-agent-tools ran (commit ${COMMIT:0:7})"$'\n'"$RUN_URL" '{text: $text}' \
-            | curl -sSf -X POST -H "Content-Type: application/json; charset=UTF-8" --data @- "$GCHAT_WEBHOOK"

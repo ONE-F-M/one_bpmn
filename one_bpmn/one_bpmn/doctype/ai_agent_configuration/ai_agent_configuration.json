@@ -12,6 +12,7 @@
   "agent_type",
   "lifecycle_status",
   "process_owner",
+  "feedback_owner",
   "column_break_basics",
   "description",
   "process_model",
@@ -182,6 +183,14 @@
    "fieldtype": "Link",
    "ignore_user_permissions": 1,
    "label": "Process Owner",
+   "options": "User"
+  },
+  {
+   "description": "Receives every new AI Response Feedback on this agent's replies. Blank falls back to the Process Owner.",
+   "fieldname": "feedback_owner",
+   "fieldtype": "Link",
+   "ignore_user_permissions": 1,
+   "label": "Feedback Owner",
    "options": "User"
   },
   {
@@ -812,7 +821,7 @@
    "link_fieldname": "agent_configuration"
   }
  ],
- "modified": "2026-09-10 15:00:00.000000",
+ "modified": "2026-10-03 12:00:00.000000",
  "modified_by": "c.akeru@one-fm.com",
  "module": "ONE BPMN",
  "name": "AI Agent Configuration",
