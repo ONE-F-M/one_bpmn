@@ -81,6 +81,30 @@ def _declared_goal_met(output, goal_key: str) -> bool:
 	return value is not None and value is not False
 
 
+def _field(entry, name):
+	"""A field of a trace entry: a dataclass on a fresh run, a dict on a resumed one."""
+	if isinstance(entry, dict):
+		return entry.get(name)
+	return getattr(entry, name, None)
+
+
+def unsuperseded_tool_failure(calls) -> tuple | None:
+	"""(name, result) of the first tool whose last call failed, or None.
+
+	Each tool is judged by its own last call; a different tool succeeding does not supersede it.
+	"""
+	# Imported here because observability imports this module.
+	from one_bpmn.agents.observability import _tool_call_status
+
+	last_result = {}
+	for call in calls:
+		last_result[_field(call, "name")] = _field(call, "result")
+	for name, result in last_result.items():
+		if _tool_call_status(result) == "Error":
+			return name, result
+	return None
+
+
 def determine(result, goal_key: str | None = None, request_text: str | None = None) -> tuple[str, str]:
 	"""(state, basis) from what the executor reported. Pure — no database, no
 	model call — request_text/output are quoted verbatim into the basis, never
@@ -114,6 +138,15 @@ def determine(result, goal_key: str | None = None, request_text: str | None = No
 
 	if code and code != "SUCCESS":
 		return NOT_ACHIEVED, f"The run ended with an error ({code})."
+
+	calls = [call for turn in getattr(result, "trace", None) or [] for call in _field(turn, "tool_calls")]
+	hit = unsuperseded_tool_failure(calls)
+	if hit:
+		name, tool_result = hit
+		return (
+			NOT_ACHIEVED,
+			f"Tool '{name}' failed and was not retried successfully: {_excerpt(tool_result)}",
+		)
 
 	output = getattr(result, "output", None)
 
