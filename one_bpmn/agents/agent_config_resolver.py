@@ -28,6 +28,8 @@ Tools are NOT sourced from the config — the diagram's ad-hoc shapes remain
 the toolkit.
 """
 
+import json
+
 import frappe
 from frappe import _
 from frappe.utils import cint, flt
@@ -154,7 +156,7 @@ _GUARDRAIL_CATEGORIES = (
 # alone" rather than "empty it".
 _EXAMPLE_SHAPE_ATTR = "aiExamples"
 _GUARDRAIL_SHAPE_ATTR = "aiGuardrails"
-_EXAMPLE_FIELDS = ("input", "expected_output", "note", "enabled")
+_EXAMPLE_FIELDS = ("input", "context_summary", "trajectory", "expected_output", "note", "enabled")
 _GUARDRAIL_FIELDS = ("guardrail", "category", "enabled")
 
 _SKILL_SHAPE_ATTR = "aiSkills"
@@ -208,6 +210,8 @@ def _clean_example_rows(rows) -> list[dict]:
 		out.append(
 			{
 				"input": row["input"],
+				"context_summary": row.get("context_summary") or "",
+				"trajectory": canonical_trajectory(row.get("trajectory")),
 				"expected_output": row.get("expected_output") or "",
 				"note": row.get("note") or "",
 				# Absent means on: the assistant's proposals carry no flag, and a
@@ -241,7 +245,24 @@ def _clean_guardrail_rows(rows) -> list[dict]:
 def _rows_for_shape(doc, table: str, fields: tuple[str, ...]) -> list[dict]:
 	"""The table's rows as plain dicts, in document order — the order they
 	reach the model."""
-	return [{f: (r.get(f) or "") if f != "enabled" else int(r.get("enabled") or 0) for f in fields} for r in doc.get(table) or []]
+	return [{f: _shape_value(r, f) for f in fields} for r in doc.get(table) or []]
+
+
+def _shape_value(row, field: str):
+	if field == "enabled":
+		return int(row.get("enabled") or 0)
+	if field == "trajectory":
+		return canonical_trajectory(row.get("trajectory"))
+	return row.get(field) or ""
+
+
+def canonical_trajectory(value) -> str | None:
+	"""An example's tool calls as one JSON text with sorted keys; None when it has none, since the column is JSON."""
+	if isinstance(value, str):
+		value = frappe.parse_json(value) if value.strip() else None
+	if not value:
+		return None
+	return json.dumps(value, sort_keys=True, ensure_ascii=False)
 
 
 # The agent's screening settings. Agent-owned with no shape equivalent, so —
