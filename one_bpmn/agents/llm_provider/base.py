@@ -213,6 +213,8 @@ class CompletionResult:
     no_terminal_tool: bool = False
     # Why the run stopped at its budget, or "" when it did not.
     budget_exceeded: str = ""
+    # Why the run stopped on one tool failing the same way twice, or "".
+    repeated_tool_error: str = ""
 
     @property
     def prompt_tokens(self) -> int:

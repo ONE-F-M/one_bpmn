@@ -77,6 +77,7 @@ class ErrorCode(Enum):
     TIMEOUT = "TIMEOUT"
     TURN_CAP_REACHED = "TURN_CAP_REACHED"
     BUDGET_EXCEEDED = "BUDGET_EXCEEDED"
+    REPEATED_TOOL_ERROR = "REPEATED_TOOL_ERROR"
     UNEXPECTED_ERROR = "UNEXPECTED_ERROR"
     # Durable AI Agent HITL: the model selected a human tool — the run is
     # neither success nor failure; it is waiting for a person. Callers MUST
