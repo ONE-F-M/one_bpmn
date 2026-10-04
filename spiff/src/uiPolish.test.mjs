@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { readFileSync } from "node:fs"
+import { readdirSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 
@@ -63,6 +63,17 @@ test("the expanded diagram offers zoom in, zoom out and fit; the chat thumbnail 
 	assert.match(thumb, /@click="zoomBy\(1 \/ ZOOM_STEP\)"/)
 	assert.match(thumb, /@click="fit"/)
 	assert.match(thumb, /canvas\.zoom\(canvas\.zoom\(\) \* factor/)
+})
+
+test("every chat component whose template calls __ defines it; it is not a Vue global", () => {
+	const dir = join(here, "components/chat")
+	const files = readdirSync(dir, { recursive: true }).filter((f) => f.endsWith(".vue"))
+	const missing = files.filter((f) => {
+		const text = readFileSync(join(dir, f), "utf8")
+		const template = text.slice(0, text.indexOf("<script"))
+		return template.includes("__(") && !/const __ = /.test(text)
+	})
+	assert.deepEqual(missing, [])
 })
 
 test("the expanded diagram height is read on each open, not once", () => {

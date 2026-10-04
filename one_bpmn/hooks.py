@@ -214,10 +214,11 @@ _BPMN_DELETE  = "one_bpmn.one_bpmn.trigger.delete_linked_bpmn_instances"
 # Copies each AI Agent Configuration's prompt, model, temperature and max tokens onto the map shapes that link it.
 after_migrate = ["one_bpmn.agents.agent_config_resolver.sync_all_shapes_to_configs"]
 
-# Exposes turn_state.get_turn as a Jinja global for aiUserPrompt templates.
+# Jinja globals for aiUserPrompt templates.
 jinja = {
 	"methods": [
 		"one_bpmn.agents.turn_state.get_turn",
+		"one_bpmn.tools.tool_for_server_scripts.compact_ir",
 	]
 }
 

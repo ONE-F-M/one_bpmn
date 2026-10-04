@@ -2228,6 +2228,18 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		instance._a2a_delegating_agent = _prev_delegating_agent
 	_exec_latency_ms = int((_time.time() - _exec_start) * 1000)
 
+	# A stage tool can answer the turn with no closing narration; the reply is then only in the turn store.
+	if (
+		result.error_code == ErrorCode.SUCCESS
+		and not result.output
+		and getattr(instance, "context_doctype", "") == "Chat Conversation"
+	):
+		from one_bpmn.agents.turn_state import get_turn
+
+		_turn_output = get_turn(instance.context_docname).get("output")
+		if isinstance(_turn_output, dict) and _turn_output.get("response"):
+			result.output = _turn_output["response"]
+
 	# ── Observability: record Steps + finalize ─────────────────────────
 	try:
 		from one_bpmn.agents.observability import record_ai_step, finalize_ai_run

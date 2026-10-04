@@ -215,10 +215,31 @@ class TestSyntaxAndWrapper(unittest.TestCase):
 		self.assertIn("Syntax error", out[0])
 
 	def test_validate_script_wrapper(self):
-		self.assertEqual(validate_script("doc = frappe.get_doc('X', 'y')"), {"valid": True, "violations": []})
+		self.assertEqual(
+			validate_script("doc = frappe.get_doc('X', 'y')"),
+			{"valid": True, "violations": [], "findings": []},
+		)
 		bad = validate_script("import os")
 		self.assertFalse(bad["valid"])
 		self.assertTrue(bad["violations"])
+
+	def test_findings_carry_the_rule_and_the_offending_line(self):
+		code = "x = 1\nfor d in []:\n    d.save(ignore_permissions=True)\nfrappe.db.sql('DROP TABLE tabX')"
+		self.assertEqual(
+			validate_script(code)["findings"],
+			[
+				{
+					"rule": "Permission-bypass keyword 'ignore_permissions=...' is not allowed",
+					"line": 3,
+					"code": "d.save(ignore_permissions=True)",
+				},
+				{
+					"rule": "Destructive raw SQL (DROP/TRUNCATE/ALTER/CREATE TABLE) is not allowed",
+					"line": 4,
+					"code": "frappe.db.sql('DROP TABLE tabX')",
+				},
+			],
+		)
 
 	def test_empty_script(self):
 		self.assertEqual(_flags(""), [])

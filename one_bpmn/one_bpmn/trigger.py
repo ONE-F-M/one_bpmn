@@ -209,30 +209,28 @@ def _maybe_send_message(doc, message_suffix: str):
 	except Exception:
 		return
 
-	if not active_instances:
-		return
+	# Pass _old_status so scripts can detect status transitions
+	# (by on_update time, the DB already has the new value).
+	# Not every doctype has a `status` field (e.g. AI Agent
+	# Configuration uses lifecycle_status) — use .get(), or the
+	# delivery dies with AttributeError before receive_message.
+	prev_doc = getattr(doc, "_doc_before_save", None)
+	payload = {
+		"triggered_by": frappe.session.user,
+		"trigger_event": message_suffix,
+	}
+	if prev_doc:
+		payload["_old_status"] = prev_doc.get("status")
 
+	caught = False
 	for instance_name in active_instances:
 		try:
 			instance = frappe.get_doc("BPMN Process Instance", instance_name)
-
-			# Pass _old_status so scripts can detect status transitions
-			# (by on_update time, the DB already has the new value).
-			# Not every doctype has a `status` field (e.g. AI Agent
-			# Configuration uses lifecycle_status) — use .get(), or the
-			# delivery dies with AttributeError before receive_message.
-			prev_doc = getattr(doc, "_doc_before_save", None)
-			payload = {
-				"triggered_by": frappe.session.user,
-				"trigger_event": message_suffix,
-			}
-			if prev_doc:
-				payload["_old_status"] = prev_doc.get("status")
-
 			instance.receive_message(
 				message_name=message_name,
 				payload=payload,
 			)
+			caught = caught or bool(instance.flags.get("bpmn_message_caught"))
 		except frappe.ValidationError:
 			# "No task is waiting for message" — expected when the instance
 			# is active but not at a matching catch event. Silently skip.
@@ -243,6 +241,9 @@ def _maybe_send_message(doc, message_suffix: str):
 				title=f"BPMN message delivery failed: {message_name} → {instance_name}",
 				message=frappe.get_traceback(),
 			)
+
+	if not caught:
+		_start_by_message(doc, message_name, payload)
 
 
 # The message a deployment announces. Follows the {DocType}{Action}_Action
@@ -819,7 +820,13 @@ def delete_linked_bpmn_instances(doc, method: str):
 		fields=["name", "status"],
 	)
 
-	if not instances:
+	delete_message = f"{doc.doctype.replace(' ', '')}_Delete_Action"
+	delete_payload = {
+		"deleted_by": frappe.session.user,
+		"deleted_doctype": doc.doctype,
+		"deleted_docname": doc.name,
+	}
+	if not instances and not message_start_models(delete_message):
 		return
 
 	# Save the current flag state so we don't clobber an outer
@@ -828,22 +835,20 @@ def delete_linked_bpmn_instances(doc, method: str):
 	frappe.flags.bpmn_engine_action = True
 
 	try:
+		handled = set()
+		caught = False
+
 		# Step 1: Try to deliver Delete message to active instances
 		# so the BPMN delete flow can execute (e.g. delete Google Task)
-		delete_message = f"{doc.doctype.replace(' ', '')}_Delete_Action"
-		handled = set()
 		for inst in instances:
 			if inst.status == "Active":
 				try:
 					instance_doc = frappe.get_doc("BPMN Process Instance", inst.name)
 					instance_doc.receive_message(
 						message_name=delete_message,
-						payload={
-							"deleted_by": frappe.session.user,
-							"deleted_doctype": doc.doctype,
-							"deleted_docname": doc.name,
-						},
+						payload=delete_payload,
 					)
+					caught = caught or bool(instance_doc.flags.get("bpmn_message_caught"))
 					# The diagram has a delete catch event and it fired — this
 					# instance ran its own delete flow, so keep it.
 					handled.add(inst.name)
@@ -860,6 +865,9 @@ def delete_linked_bpmn_instances(doc, method: str):
 						title=f"BPMN delete message failed for {inst.name}",
 						message=frappe.get_traceback(),
 					)
+
+		if not caught:
+			handled.update(_start_by_message(doc, delete_message, delete_payload))
 
 		# Step 2: Instances that handled the delete message are kept.
 		# Cancel them so nothing tries to advance them once the context
@@ -943,3 +951,67 @@ def delete_linked_bpmn_instances(doc, method: str):
 	finally:
 		frappe.flags.bpmn_engine_action = previous_flag
 
+
+# Seconds a deploy can take to reach document edits; the index is rebuilt after that.
+MESSAGE_START_INDEX_TTL = 60
+MESSAGE_START_INDEX_KEY = "bpmn_message_start_index"
+
+
+def _start_by_message(doc, message_name: str, payload: dict) -> list:
+	"""Run the one active map whose start event takes message_name; return the instances it left linked to doc."""
+	models = message_start_models(message_name)
+	if len(models) > 1:
+		frappe.log_error(
+			title=f"BPMN: {len(models)} active maps start on {message_name}",
+			message=f"Exactly one must listen for it. Listening: {', '.join(sorted(models))}",
+		)
+		return []
+	if not models:
+		return []
+	model_name = models[0]
+	# Its running instance is busy with an earlier edit; a second one would repeat the work.
+	if frappe.db.exists(
+		"BPMN Process Instance",
+		{
+			"process_model": model_name,
+			"context_doctype": doc.doctype,
+			"context_docname": doc.name,
+			"status": "Active",
+		},
+	):
+		return []
+	from one_bpmn.api.instance_api import _start_and_deliver_message
+
+	try:
+		return [
+			_start_and_deliver_message(
+				model_name=model_name,
+				message_name=message_name,
+				payload=frappe.as_json(payload),
+				context_doctype=doc.doctype,
+				context_docname=doc.name,
+				run_as_user=frappe.session.user,
+			)
+		]
+	except Exception:
+		# A failed map must not block the save or delete that triggered it; the instance keeps the record.
+		frappe.log_error(
+			title=f"BPMN: {message_name} could not start {model_name} for {doc.name}",
+			message=frappe.get_traceback(),
+		)
+	return frappe.get_all(
+		"BPMN Process Instance",
+		filters={"process_model": model_name, "context_doctype": doc.doctype, "context_docname": doc.name},
+		pluck="name",
+	)
+
+
+def message_start_models(message_name: str) -> list:
+	"""Active maps started by message_name, from an index rebuilt at most once a minute."""
+	index = frappe.cache.get_value(MESSAGE_START_INDEX_KEY)
+	if index is None:
+		from one_bpmn.api.instance_api import message_start_index
+
+		index = message_start_index()
+		frappe.cache.set_value(MESSAGE_START_INDEX_KEY, index, expires_in_sec=MESSAGE_START_INDEX_TTL)
+	return index.get(message_name, [])
