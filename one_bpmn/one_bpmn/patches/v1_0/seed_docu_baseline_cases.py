@@ -86,8 +86,8 @@ CASES = [
 	{
 		"title": "A list of parts with a quantity each becomes a child table",
 		"prompt": (
-			"A record for a vehicle service visit: the vehicle, the date, the mechanic, and a list of "
-			"the parts used with the quantity of each"
+			"Create a new DocType for a vehicle service visit: the vehicle, the date, the mechanic, and "
+			"a list of the parts used with the quantity of each"
 		),
 		"trace": DESIGN_TRACE,
 		"assertions": [
