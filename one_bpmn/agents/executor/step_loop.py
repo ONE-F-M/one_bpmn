@@ -42,7 +42,7 @@ from one_bpmn.agents.llm_provider.base import (
 	TurnRecord,
 )
 from one_bpmn.agents.memory.loop_compaction import compact_transcript
-from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG, clear_tool_artifacts
+from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG, _tool_call_status, clear_tool_artifacts
 from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG, BudgetExceeded, ToolDeferred
 from one_bpmn.agents.turn_state import TURN_ANSWERED_FLAG
 from one_bpmn.security.tool_policy import PolicyViolation
@@ -199,6 +199,9 @@ async def run_agent_loop(
 	``budget_check(trace)`` returns why the run has spent its budget, or "".
 	It runs before every model call; a tool raising BudgetExceeded ends the run
 	the same way. Either returns a CompletionResult with ``budget_exceeded`` set.
+
+	The same tool failing with the same result on two calls in a row ends the run
+	with ``repeated_tool_error`` set.
 	"""
 	tool_map = {t.name: t for t in (tools or [])}
 
@@ -360,6 +363,7 @@ async def _run_turns(
 	last_prompt_tokens = 0
 	# Compaction runs again only once keep_turns new turns have replaced what the last one kept.
 	compacted_at = None
+	last_error = None
 	while turns_used < max_turns:
 		spent = budget_check(trace) if budget_check else ""
 		if spent:
@@ -468,8 +472,9 @@ async def _run_turns(
 		# nothing left to give (see the empty-turn evidence a few lines down).
 		terminal_reply = None
 		budget_reason = ""
+		repeated = ""
 		for call in step.tool_calls:
-			if budget_reason:
+			if budget_reason or repeated:
 				break
 			tool = tool_map.get(call.name)
 			if tool is not None and tool.human:
@@ -502,6 +507,7 @@ async def _run_turns(
 					turn_record.tool_calls.append(
 						ToolCallRecord(name=call.name, arguments=call.arguments, result=_invalid)
 					)
+					repeated, last_error = _repeated_error(last_error, call.name, _invalid)
 					results.append({
 						"id": call.id,
 						"name": call.name,
@@ -553,6 +559,7 @@ async def _run_turns(
 			turn_record.tool_calls.append(
 				ToolCallRecord(name=call.name, arguments=call.arguments, result=result)
 			)
+			repeated, last_error = _repeated_error(last_error, call.name, result)
 			# What the model sees is marked with the tool that
 			# produced it, so the guard rail in its frozen instructions has
 			# something to refer to. The ToolCallRecord above keeps the raw
@@ -574,6 +581,9 @@ async def _run_turns(
 
 		if budget_reason:
 			return _stopped_at_budget(trace, budget_reason), None
+		if repeated:
+			last_said = next((t.content for t in reversed(trace) if (t.content or "").strip()), "")
+			return CompletionResult(text=last_said, trace=trace, no_terminal_tool=True, repeated_tool_error=repeated), None
 
 		if pending_call is not None:
 			from dataclasses import asdict
@@ -630,3 +640,11 @@ async def _run_turns(
 def _stopped_at_budget(trace: list, reason: str) -> CompletionResult:
 	last_said = next((t.content for t in reversed(trace) if (t.content or "").strip()), "")
 	return CompletionResult(text=last_said, trace=trace, no_terminal_tool=True, budget_exceeded=reason)
+
+
+def _repeated_error(last_error, name: str, result) -> tuple[str, tuple | None]:
+	"""(why the run stops or "", the error to compare the next call against)."""
+	error = (name, str(result)) if _tool_call_status(result) == "Error" else None
+	if error and error == last_error:
+		return f"{name} failed twice in a row with the same error: {str(result)[:300]}", error
+	return "", error
