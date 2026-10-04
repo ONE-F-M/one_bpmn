@@ -29,10 +29,11 @@ the toolkit.
 """
 
 import json
+from xml.sax.saxutils import escape as xml_escape
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt
+from frappe.utils import cint, cstr, flt
 
 from one_bpmn.agents.agent_provisioning import is_chat_startable_map
 
@@ -448,6 +449,124 @@ def resolve_dispatch_overrides(config_name: str) -> dict:
 			message=frappe.get_traceback(),
 		)
 		return {}
+
+
+DRIFT_FIELDS = {
+	"aiSystemPrompt": "System Prompt",
+	"aiModel": "Model",
+	"aiTemperature": "Temperature",
+	"aiMaxTokens": "Max Tokens",
+}
+_AI_SHAPE_TYPES = ("ai_agent", "ai_task_selector")
+
+
+def shape_config_drift(shape: dict, live: dict) -> list[dict]:
+	"""The DRIFT_FIELDS where the shape's copy differs from the configuration value dispatch runs."""
+	drift = []
+	for attr, label in DRIFT_FIELDS.items():
+		if attr not in live or _same_value(attr, shape.get(attr), live[attr]):
+			continue
+		drift.append({"field": attr, "label": label, "shape": shape.get(attr) or "", "live": live[attr]})
+	return drift
+
+
+def _same_value(attr: str, shape_value, live_value) -> bool:
+	if attr == "aiTemperature":
+		return flt(shape_value) == flt(live_value)
+	if attr == "aiMaxTokens":
+		return cint(shape_value) == cint(live_value)
+	return cstr(shape_value).strip() == cstr(live_value).strip()
+
+
+@frappe.whitelist()
+def get_shape_drift(config_name: str, shape: str) -> list[dict]:
+	"""Whitelisted: the properties panel's per-field "differs from configuration" markers."""
+	frappe.has_permission("AI Agent Configuration", "read", throw=True)
+	return shape_config_drift(frappe.parse_json(shape) or {}, config_field_map(config_name))
+
+
+def sync_all_shapes_to_configs() -> None:
+	"""after_migrate: bring every linked map shape up to its configuration, whatever a patch wrote."""
+	for config_name in frappe.get_all("AI Agent Configuration", pluck="name"):
+		sync_shapes_to_config(config_name)
+
+
+def sync_shapes_to_config(config_name: str) -> list[str]:
+	"""Write the configuration's DRIFT_FIELDS onto every AI shape linking it, in the XML and the deployed spec."""
+	live = {attr: value for attr, value in config_field_map(config_name).items() if attr in DRIFT_FIELDS}
+	if not live:
+		return []
+	in_xml = xml_escape(config_name, {'"': "&quot;"})
+	changed = []
+	for model in frappe.get_all(
+		"BPMN Process Model",
+		or_filters={
+			"bpmn_xml": ["like", f'%aiAgentConfig="{in_xml}"%'],
+			"serialized_spec": ["like", f'%"aiAgentConfig": "{config_name}"%'],
+		},
+		fields=["name", "bpmn_xml", "serialized_spec"],
+	):
+		updates = {}
+		xml = _synced_xml(model.name, model.bpmn_xml, config_name, live)
+		if xml is not None:
+			updates["bpmn_xml"] = xml
+		spec = _synced_spec(model.serialized_spec, config_name, live)
+		if spec is not None:
+			updates["serialized_spec"] = spec
+		if updates:
+			frappe.db.set_value("BPMN Process Model", model.name, updates, update_modified=False)
+			changed.append(model.name)
+	return changed
+
+
+def _synced_xml(model_name: str, xml: str | None, config_name: str, live: dict) -> str | None:
+	"""The map XML with the linked shapes' drifted attributes rewritten, or None when nothing drifted."""
+	from lxml import etree
+
+	if not xml:
+		return None
+	try:
+		root = etree.fromstring(xml.strip().encode("utf-8"))
+	except etree.XMLSyntaxError:
+		frappe.log_error(
+			title=f"Shape sync skipped {model_name}: its BPMN XML does not parse",
+			message=frappe.get_traceback(),
+		)
+		return None
+	touched = False
+	for el in root.iter():
+		if el.get(_spiff("aiAgentConfig")) != config_name or el.get(_spiff("serviceType")) not in _AI_SHAPE_TYPES:
+			continue
+		shape = {attr: el.get(_spiff(attr)) for attr in DRIFT_FIELDS}
+		for d in shape_config_drift(shape, live):
+			el.set(_spiff(d["field"]), cstr(d["live"]))
+			touched = True
+	if not touched:
+		return None
+	body = etree.tostring(root, encoding="unicode")
+	stripped = xml.strip()
+	if stripped.startswith("<?xml"):
+		return stripped[: stripped.index("?>") + 2] + "\n" + body
+	return body
+
+
+def _synced_spec(serialized_spec: str | None, config_name: str, live: dict) -> str | None:
+	"""The deployed spec with the linked extensions' drifted values rewritten, or None when nothing drifted."""
+	if not serialized_spec:
+		return None
+	spec = json.loads(serialized_spec)
+	touched = False
+	for cfg in (spec.get("service_task_extensions") or {}).values():
+		if cfg.get("aiAgentConfig") != config_name or cfg.get("serviceType") not in _AI_SHAPE_TYPES:
+			continue
+		for d in shape_config_drift(cfg, live):
+			cfg[d["field"]] = cstr(d["live"])
+			touched = True
+	return json.dumps(spec) if touched else None
+
+
+def _spiff(attr: str) -> str:
+	return f"{{http://spiffworkflow.org/bpmn/schema/1.0/core}}{attr}"
 
 
 @frappe.whitelist()
