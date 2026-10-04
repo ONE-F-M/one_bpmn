@@ -30,6 +30,7 @@
   "column_break_wsfx",
   "support_tool_calling",
   "support_structured_output",
+  "support_temperature",
   "section_break_health",
   "health_status",
   "health_check_source",
@@ -170,6 +171,13 @@
    "label": "Support Structured Output"
   },
   {
+   "default": "0",
+   "description": "Send temperature and top_p to this model. Leave unchecked for a model that rejects them or accepts only the default.",
+   "fieldname": "support_temperature",
+   "fieldtype": "Check",
+   "label": "Support Temperature"
+  },
+  {
    "fieldname": "api_details_section",
    "fieldtype": "Section Break",
    "label": "API Details"
@@ -298,7 +306,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-27 16:00:00.000000",
+ "modified": "2026-10-04 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Model",

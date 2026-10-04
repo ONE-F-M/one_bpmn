@@ -146,6 +146,8 @@ async def run_agent_loop(
 	thinking_budget_tokens: int = 0,
 	loop_compaction: dict | None = None,
 	budget_check=None,
+	temperature: float | None = None,
+	top_p: float | None = None,
 ) -> tuple:
 	"""Drive the tool loop. Returns (CompletionResult, None) when the model
 	produces a final answer or hits the turn cap, or (None, AgentSuspension)
@@ -191,7 +193,7 @@ async def run_agent_loop(
 
 	``tool_choice`` ("auto", "required" or a tool name) applies to the first call of a
 	fresh run; a plain-text answer there is sent back once with a nudge, then fails the run.
-	``parallel_tool_calls`` and ``thinking_budget_tokens`` go to every call.
+	``parallel_tool_calls``, ``thinking_budget_tokens``, ``temperature`` and ``top_p`` go to every call.
 
 	``loop_compaction`` ({"threshold", "keep_turns", "model", "agent_model", "provider"}): when a call's
 	prompt passes threshold tokens, the turns before the last keep_turns are summarised before the next call.
@@ -254,7 +256,7 @@ async def run_agent_loop(
 			response_schema=response_schema,
 			check_reply=check_reply,
 			tool_choice=tool_choice,
-			controls=_step_controls(parallel_tool_calls, thinking_budget_tokens),
+			controls=_step_controls(parallel_tool_calls, thinking_budget_tokens, temperature, top_p),
 			loop_compaction=loop_compaction,
 			budget_check=budget_check,
 		)
@@ -270,7 +272,10 @@ async def run_agent_loop(
 		frappe.flags[SUB_CALL_TURN_FLAG] = None
 
 
-async def run_nested_loop(adapter, *, system: str, user: str, tools: list | None, max_tokens: int, max_turns: int):
+async def run_nested_loop(
+	adapter, *, system: str, user: str, tools: list | None, max_tokens: int, max_turns: int,
+	temperature: float | None = None, top_p: float | None = None,
+):
 	"""complete()'s loop: the same turns, with no terminal tool, leaving the calling turn's state as it was."""
 	saved = {flag: frappe.flags.get(flag) for flag in (PAUSE_HELD_FLAG, TURN_ANSWERED_FLAG, SUB_CALL_TURN_FLAG)}
 	try:
@@ -278,6 +283,7 @@ async def run_nested_loop(adapter, *, system: str, user: str, tools: list | None
 			adapter, system=system, tools=tools, tool_map={t.name: t for t in tools or []},
 			transcript=[{"role": "user", "content": user}], trace=[], turns_used=0,
 			max_tokens=max_tokens, max_turns=max_turns, terminal_tools=frozenset(),
+			controls=_step_controls(True, 0, temperature, top_p),
 		)
 	finally:
 		frappe.flags.update(saved)
@@ -286,13 +292,19 @@ async def run_nested_loop(adapter, *, system: str, user: str, tools: list | None
 	return completion
 
 
-def _step_controls(parallel_tool_calls: bool, thinking_budget_tokens: int) -> dict:
+def _step_controls(
+	parallel_tool_calls: bool, thinking_budget_tokens: int, temperature: float | None = None, top_p: float | None = None
+) -> dict:
 	"""The per-call controls that differ from the provider default, so adapters without them still work."""
 	controls = {}
 	if not parallel_tool_calls:
 		controls["parallel_tool_calls"] = False
 	if thinking_budget_tokens:
 		controls["thinking_budget_tokens"] = thinking_budget_tokens
+	if temperature is not None:
+		controls["temperature"] = temperature
+	if top_p is not None:
+		controls["top_p"] = top_p
 	return controls
 
 
