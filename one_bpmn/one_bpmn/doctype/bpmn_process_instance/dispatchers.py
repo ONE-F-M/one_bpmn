@@ -2228,10 +2228,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		instance._a2a_delegating_agent = _prev_delegating_agent
 	_exec_latency_ms = int((_time.time() - _exec_start) * 1000)
 
-	# A stage tool can answer the turn with no closing narration; the reply is then only in the turn store.
+	# A stage tool that answers the turn writes the reply to the turn store; the loop's own text is narration.
 	if (
 		result.error_code == ErrorCode.SUCCESS
-		and not result.output
+		and not isinstance(result.output, dict)
 		and getattr(instance, "context_doctype", "") == "Chat Conversation"
 	):
 		from one_bpmn.agents.turn_state import get_turn
