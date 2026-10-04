@@ -56,6 +56,15 @@ test("DiagramThumb fits after layout and never leaks a viewer it was closed on",
 	assert.match(thumb, /disposed = true;/)
 })
 
+test("the expanded diagram offers zoom in, zoom out and fit; the chat thumbnail does not", () => {
+	const thumb = source("components/chat/primitives/DiagramThumb.vue")
+	assert.match(thumb, /v-if="large && ready" class="prim-thumb-zoom"/)
+	assert.match(thumb, /@click="zoomBy\(ZOOM_STEP\)"/)
+	assert.match(thumb, /@click="zoomBy\(1 \/ ZOOM_STEP\)"/)
+	assert.match(thumb, /@click="fit"/)
+	assert.match(thumb, /canvas\.zoom\(canvas\.zoom\(\) \* factor/)
+})
+
 test("the expanded diagram height is read on each open, not once", () => {
 	const card = source("components/chat/cards/DiagramPreviewCard.vue")
 	assert.match(card, /:height="expandedHeight\(\)"/)
