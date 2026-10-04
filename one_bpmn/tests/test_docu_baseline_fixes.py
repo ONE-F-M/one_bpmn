@@ -4,6 +4,7 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from one_bpmn.one_bpmn.patches.v1_0 import docu_child_table_case_asks_for_a_new_doctype as child_table
 from one_bpmn.one_bpmn.patches.v1_0 import docu_clarify_trace_ends_at_clarify as clarify_trace
 from one_bpmn.one_bpmn.patches.v1_0 import docu_greeting_token_ceiling as ceiling
 from one_bpmn.one_bpmn.patches.v1_0 import docu_naming_skill_braces_the_counter as naming_skill
@@ -141,3 +142,17 @@ class TestPatches(FrappeTestCase):
 
 		self.assertEqual(tools(vague), ["classify_intent", "clarify"])
 		self.assertEqual(tools(design), ["classify_intent", "write_schema", "review_schema", "finalize"])
+
+
+class TestChildTableCasePrompt(FrappeTestCase):
+	def test_the_old_prompt_becomes_the_seeded_one_and_other_cases_stay(self):
+		def case(title, prompt):
+			return frappe.get_doc(
+				{"doctype": "AI Eval Case", "title": title, "input_user_prompt": prompt}
+			).insert(ignore_permissions=True, ignore_links=True).name
+
+		target = case(child_table.TITLE, child_table.OLD_PROMPT)
+		other = case("_Test other", child_table.OLD_PROMPT)
+		child_table.execute()
+		self.assertTrue(frappe.db.get_value("AI Eval Case", target, "input_user_prompt").startswith("Create a new DocType"))
+		self.assertEqual(frappe.db.get_value("AI Eval Case", other, "input_user_prompt"), child_table.OLD_PROMPT)
