@@ -2228,10 +2228,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		instance._a2a_delegating_agent = _prev_delegating_agent
 	_exec_latency_ms = int((_time.time() - _exec_start) * 1000)
 
-	# A stage tool can answer the turn with no closing narration; the reply is then only in the turn store.
+	# A stage tool that answers the turn writes the reply to the turn store; the loop's own text is narration.
 	if (
 		result.error_code == ErrorCode.SUCCESS
-		and not result.output
+		and not isinstance(result.output, dict)
 		and getattr(instance, "context_doctype", "") == "Chat Conversation"
 	):
 		from one_bpmn.agents.turn_state import get_turn
@@ -2279,7 +2279,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 						run, 3, "assistant",
 						str(result.output or ""),
 						completion_tokens=usage.completion_tokens if usage else 0,
-						latency_ms=_exec_latency_ms,
+						# Failed attempts become their own steps in finalize_ai_run.
+						latency_ms=_exec_latency_ms - sum(a.latency_ms for a in result.attempts or []),
 					)
 
 		# A suspension is not an outcome — the run stays open ("Suspended",

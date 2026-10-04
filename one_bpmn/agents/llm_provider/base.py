@@ -182,6 +182,8 @@ class TurnRecord:
     # tool executions. Decision latency — NOT the runtime of an activated
     # diagram task (that happens later in the engine).
     latency_ms: int = 0
+    # The provider part of latency_ms, retries included.
+    model_latency_ms: int = 0
     # 1-based position of this turn in the loop (WI-002190). A model call made
     # from inside one of this turn's tools is tagged with the same number, which
     # is how the step writer places that sub-call after the turn that made it
@@ -213,6 +215,8 @@ class CompletionResult:
     no_terminal_tool: bool = False
     # Why the run stopped at its budget, or "" when it did not.
     budget_exceeded: str = ""
+    # Why the run stopped on one tool failing the same way twice, or "".
+    repeated_tool_error: str = ""
 
     @property
     def prompt_tokens(self) -> int:

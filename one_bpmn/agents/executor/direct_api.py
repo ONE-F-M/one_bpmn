@@ -481,6 +481,15 @@ class DirectApiExecutor(Executor):
                 trace=trace,
             )
 
+        if completion.repeated_tool_error:
+            return ExecutorResult(
+                no_terminal_tool=True,
+                error_code=ErrorCode.REPEATED_TOOL_ERROR,
+                error_message=completion.repeated_tool_error,
+                token_usage=token_usage,
+                trace=trace,
+            )
+
         if completion.hit_turn_cap:
             # Partial progress is not lost: the trace collected so far ships
             # with the error result.

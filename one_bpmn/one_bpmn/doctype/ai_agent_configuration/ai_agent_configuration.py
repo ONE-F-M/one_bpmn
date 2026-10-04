@@ -288,6 +288,13 @@ class AIAgentConfiguration(Document):
 		provider = frappe.db.get_value("AI Model", self.ai_model, "provider")
 		if provider:
 			self.ai_provider = provider
+		if not self.ai_provider:
+			frappe.throw(
+				_("AI Model {0} has no provider. Link a provider on the model before saving this agent.").format(
+					frappe.bold(self.ai_model)
+				),
+				title=_("No provider for model"),
+			)
 
 	def validate_unique_chat_mode_label(self):
 		"""Two enabled chat agents must never claim the same conversation mode —

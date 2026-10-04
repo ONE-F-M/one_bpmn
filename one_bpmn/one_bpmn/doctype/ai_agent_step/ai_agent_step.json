@@ -24,6 +24,7 @@
   "cache_read_cost",
   "cache_write_cost",
   "latency_ms",
+  "model_latency_ms",
   "started_at",
   "ended_at",
   "section_break_error",
@@ -152,6 +153,12 @@
    "label": "Latency (ms)"
   },
   {
+   "description": "Time spent waiting on the model provider in this step, retries included. Latency minus this is the time the turn's tools took.",
+   "fieldname": "model_latency_ms",
+   "fieldtype": "Int",
+   "label": "Model Latency (ms)"
+  },
+  {
    "fieldname": "started_at",
    "fieldtype": "Datetime",
    "label": "Started At"
@@ -202,7 +209,7 @@
   ]
  ],
  "links": [],
- "modified": "2026-10-03 12:00:00.000000",
+ "modified": "2026-10-04 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Agent Step",
