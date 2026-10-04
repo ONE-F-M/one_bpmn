@@ -259,6 +259,10 @@ def start_process(
 		# halted + surfaced as a sanitized Reference-ID message, and pre-engine
 		# validation (e.g. no compiled spec) already carries a safe message.
 		# Re-raise as-is — never wrap raw internals (the old wrapper leaked str(exc)).
+		# A caller that catches this keeps the instance row, which must not stay Active with no state.
+		frappe.db.set_value(
+			"BPMN Process Instance", instance.name, "status", "Errored", update_modified=False
+		)
 		raise
 	except Exception:
 		# Backstop for failures OUTSIDE the engine seam (e.g. building or
