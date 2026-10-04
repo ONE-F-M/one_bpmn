@@ -178,6 +178,31 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 			"only the map may promote",
 		)
 
+	def test_a_parked_agent_that_still_fails_shows_the_new_reason_once(self):
+		"""A save that failed again on a parked agent wrote nothing, so the form kept
+		the old reason ("is disabled") after the model had been enabled."""
+		agent = self._make_agent()
+		with patch(TEST_CALL, return_value=(False, "down")):
+			agent.save(ignore_permissions=True)
+
+		def comments():
+			return frappe.db.count(
+				"Comment",
+				{"reference_doctype": "AI Agent Configuration", "reference_name": agent.name,
+				 "content": ("like", "Needs Attention:%")},
+			)
+
+		before = comments()
+		with patch(TEST_CALL, return_value=(False, "404 model not found")):
+			agent.save(ignore_permissions=True)
+			agent.save(ignore_permissions=True)
+
+		self.assertIn(
+			"404 model not found",
+			frappe.db.get_value("AI Agent Configuration", agent.name, "needs_attention_reason"),
+		)
+		self.assertEqual(comments(), before + 1)
+
 	def test_retired_is_untouched(self):
 		# Retired is a deliberate manual state: the on-save revalidation may
 		# neither resurrect nor park it. (Draft belongs to the creation process,
@@ -290,3 +315,49 @@ class TestProviderTestCall(FrappeTestCase):
 		self.assertTrue(ok)
 		self.assertEqual(detail, agent_provisioning._TEST_CALL_EMPTY)
 
+
+
+class TestTheFactorySendsTheApiName(FrappeTestCase):
+	"""A per-agent record is named "<Agent> - <model>"; the provider only knows
+	model_api_name. Sending the record name answered 404 on every save."""
+
+	def setUp(self):
+		if not frappe.db.exists("AI Provider", "Anthropic"):
+			frappe.get_doc({"doctype": "AI Provider", "provider": "Anthropic"}).insert(
+				ignore_permissions=True
+			)
+		self.model = frappe.get_doc({
+			"doctype": "AI Model",
+			"enable_model": 1,
+			"model_name": f"Factory Agent {frappe.generate_hash(length=6)} - claude-test",
+			"model_api_name": "claude-test-api-id",
+			"provider": "Anthropic",
+			"api_key": "test-key-not-real",
+		}).insert(ignore_permissions=True)
+
+	def _sent_model(self, cfg):
+		from one_bpmn.agents.llm_provider import factory
+
+		with patch.object(factory, "get_llm_adapter") as build:
+			factory.get_llm_adapter_from_settings(cfg)
+		return build.call_args.kwargs["model"]
+
+	def test_the_linked_provider_path_sends_the_api_name(self):
+		self.assertEqual(
+			self._sent_model({"ai_provider": "Anthropic", "ai_model": self.model.name}),
+			"claude-test-api-id",
+		)
+
+	def test_the_site_default_path_sends_the_api_name(self):
+		with patch(
+			"one_bpmn.agents.llm_provider.factory._get_provider_credentials",
+			return_value=("test-key-not-real", self.model.name),
+		):
+			self.assertEqual(self._sent_model({}), "claude-test-api-id")
+
+	def test_a_model_that_is_not_a_record_is_sent_as_it_is(self):
+		with patch(
+			"one_bpmn.agents.llm_provider.factory._get_provider_credentials",
+			return_value=("", ""),
+		), patch("frappe.db.get_single_value", return_value="anthropic"):
+			self.assertEqual(self._sent_model({}), "claude-sonnet-4-5")
