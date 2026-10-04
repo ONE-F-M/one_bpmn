@@ -18,6 +18,9 @@
 // the chat thumbnail as it was.
 import { nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 
+// Not a Vue global: a template that calls __ without this throws on render.
+const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s;
+
 const props = defineProps({
 	xml: { type: String, default: "" },
 	height: { type: Number, default: 180 },
