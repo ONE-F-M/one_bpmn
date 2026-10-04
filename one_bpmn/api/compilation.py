@@ -1973,6 +1973,7 @@ def compile_process_model(model_name: str) -> dict:
 	deploy_warnings.extend(_check_ai_tasks_have_a_user_prompt(spec_data))
 	deploy_warnings.extend(_validate_turn_store_contract(sanitized_xml, service_extensions))
 	deploy_warnings.extend(_check_connector_tools_can_answer(sanitized_xml))
+	deploy_warnings.extend(_check_shape_config_drift(service_extensions))
 
 	script_extensions = _extract_script_task_config(sanitized_xml)
 	if script_extensions or called_script_extensions:
@@ -2481,6 +2482,40 @@ def _check_ai_tasks_have_a_user_prompt(spec_data: dict) -> list:
 			).format(bpmn_id),
 		})
 	return warnings
+
+
+def _check_shape_config_drift(service_extensions: dict) -> list:
+	"""One warning per AI shape whose prompt, model, temperature or max tokens differ from its linked configuration."""
+	from one_bpmn.agents.agent_config_resolver import config_field_map, shape_config_drift
+
+	warnings = []
+	live_by_config = {}
+	for bpmn_id, cfg in service_extensions.items():
+		if cfg.get("serviceType") not in ("ai_agent", "ai_task_selector"):
+			continue
+		config_name = cfg.get("aiAgentConfig") or ""
+		if config_name not in live_by_config:
+			live_by_config[config_name] = config_field_map(config_name)
+		drift = shape_config_drift(cfg, live_by_config[config_name])
+		if not drift:
+			continue
+		warnings.append({
+			"label": _("AI task differs from its configuration"),
+			"icon": "git-compare",
+			"type": "warning",
+			"detail": _("'{0}' differs from AI Agent Configuration '{1}'. What runs: {2}").format(
+				bpmn_id, config_name, "; ".join(_drift_line(d) for d in drift)
+			),
+		})
+	return warnings
+
+
+def _drift_line(drift: dict) -> str:
+	if drift["field"] == "aiSystemPrompt":
+		return _("{0} is the configuration's ({1} characters, the shape has {2})").format(
+			drift["label"], len(drift["live"]), len(drift["shape"])
+		)
+	return _("{0} {1} (the shape says {2})").format(drift["label"], drift["live"], drift["shape"] or _("nothing"))
 
 
 def _recompile_callers_of(process_id: str, model_name: str, _seen: set | None = None) -> None:

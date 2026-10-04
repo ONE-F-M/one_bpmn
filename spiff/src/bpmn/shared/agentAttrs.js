@@ -11,6 +11,7 @@ import { Component, h } from "preact";
 
 import { serverMessage } from "@/utils/serverMessage";
 import { frappePost } from "./frappeResource";
+import "./bpmn-panel.css";
 
 // The only panel field the linked configuration also stores. Everything else
 // here is diagram-only, or read-only once a configuration is linked.
@@ -93,4 +94,52 @@ export class LinkedPromptEntry extends Component {
 			},
 		});
 	}
+}
+
+const DRIFT_ATTRS = ["aiSystemPrompt", "aiModel", "aiTemperature", "aiMaxTokens"];
+const PROMPT_PREVIEW_CHARS = 160;
+
+/**
+ * One "differs from configuration" marker per field whose shape copy disagrees
+ * with the linked configuration, showing the value that runs.
+ */
+export class DriftMarkers extends Component {
+	state = { drift: [] };
+
+	componentDidMount() {
+		const { bo } = this.props;
+		const config = getAttr(bo, "aiAgentConfig");
+		if (!config) return;
+		const shape = Object.fromEntries(DRIFT_ATTRS.map((attr) => [attr, getAttr(bo, attr)]));
+		frappePost("/api/method/one_bpmn.agents.agent_config_resolver.get_shape_drift", {
+			config_name: config,
+			shape: JSON.stringify(shape),
+		})
+			.then((drift) => this.setState({ drift: drift || [] }))
+			.catch((e) => this.setState({ drift: [{ field: "error", label: serverMessage(e), live: "" }] }));
+	}
+
+	render({ id, translate }) {
+		const { drift } = this.state;
+		if (!drift.length) return null;
+		return h(
+			"div",
+			{ class: "bio-properties-panel-entry", "data-entry-id": id },
+			h(
+				"ul",
+				{ class: "bpmn-drift-list" },
+				drift.map((d) =>
+					h("li", { key: d.field, class: "bpmn-drift-item" }, [
+						h("strong", null, `${d.label}: ${translate("differs from configuration")}`),
+						h("span", { class: "bpmn-drift-live" }, `${translate("Runs")}: ${livePreview(d)}`),
+					])
+				)
+			)
+		);
+	}
+}
+
+function livePreview(d) {
+	const text = String(d.live ?? "");
+	return text.length > PROMPT_PREVIEW_CHARS ? `${text.slice(0, PROMPT_PREVIEW_CHARS)}...` : text;
 }

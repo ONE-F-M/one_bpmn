@@ -316,3 +316,27 @@
 	margin-right: 4px;
 	vertical-align: middle;
 }
+
+.bpmn-drift-list {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.bpmn-drift-item {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 6px 8px;
+	border: 1px solid #f59e0b;
+	border-radius: 6px;
+	background: #fffbeb;
+	font-size: 12px;
+	line-height: 1.45;
+	overflow-wrap: anywhere;
+}
+.bpmn-drift-live {
+	white-space: pre-wrap;
+}

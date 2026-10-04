@@ -389,6 +389,7 @@ class AIAgentConfiguration(Document):
 			except Exception:
 				pass
 		self.revalidate_credentials_on_save()
+		self.sync_linked_shapes()
 
 		# The agent's identity is NOT provisioned here. It is a step in the Agent
 		# creation process ("Provision Agent User"), because minting a User as a
@@ -396,6 +397,13 @@ class AIAgentConfiguration(Document):
 		# database write — and the process is where this system keeps behaviour.
 		# The map runs it on the edited-config loop as well as the first pass, so
 		# a change to the roles still reaches the agent's user.
+
+	def sync_linked_shapes(self):
+		"""Copy a changed prompt, model, temperature or max tokens onto the map shapes that link this agent."""
+		from one_bpmn.agents.agent_config_resolver import sync_shapes_to_config
+
+		if any(self.has_value_changed(f) for f in ("system_prompt", "ai_model", "temperature", "max_tokens")):
+			sync_shapes_to_config(self.name)
 
 	def revalidate_credentials_on_save(self):
 		"""Re-prove the agent on EVERY save — assume nothing (user ruling,
