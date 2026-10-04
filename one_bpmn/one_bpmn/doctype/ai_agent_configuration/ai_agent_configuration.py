@@ -399,6 +399,7 @@ class AIAgentConfiguration(Document):
 		Runs the full validation including the live provider test call:
 		  * Live agent that fails    → parked Needs Attention, with the reason
 		  * Needs Attention that passes → promoted back to Live (self-healing)
+		  * Needs Attention that fails with new errors → the reason is replaced
 		  * Draft is the creation process's to advance, Retired is a manual
 		    state — neither is touched.
 
@@ -457,8 +458,10 @@ class AIAgentConfiguration(Document):
 			from one_bpmn.agents.agent_config_resolver import _start_reprovision
 
 			_start_reprovision(self.name)
-		elif not result["ok"] and self.lifecycle_status == "Live":
-			self._stamp_lifecycle("Needs Attention", "; ".join(result["errors"]))
+		elif not result["ok"]:
+			reason = "; ".join(result["errors"])
+			if self.lifecycle_status == "Live" or reason != self.needs_attention_reason:
+				self._stamp_lifecycle("Needs Attention", reason)
 
 	def _stamp_lifecycle(self, status: str, reason: str):
 		"""Post-save lifecycle stamp: the doc row is already written, so this
