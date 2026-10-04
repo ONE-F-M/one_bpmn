@@ -27,7 +27,7 @@ from typing import Any, List
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, now_datetime
+from frappe.utils import add_to_date, cint, flt, now_datetime
 
 from one_bpmn.agents.executor import (
     ErrorCode,
@@ -51,6 +51,12 @@ from one_bpmn.agents.pricing import get_model_pricing
 # bpmn_id markers for the eval LLM calls recorded as AI Agent Runs (origin="eval").
 EVAL_RUN_DIRECT = "direct-eval"
 EVAL_RUN_JUDGE = "eval-judge"
+# input_context keys a chat case uses to seed its conversation's earlier turns.
+SEED_MESSAGES_KEY = "conversation_messages"
+SEED_STATE_KEY = "session_state"
+SEED_MESSAGE_TYPES = ("User", "Bot", "Tool")
+# Reply intents whose bpmn_xml is appended to the output the assertions read.
+DIAGRAM_INTENTS = ("BPMN_GENERATED", "BPMN_MODIFIED")
 
 # live       calls the model.
 # replay     re-scores each case's last stored answer — and still makes a judge
@@ -1566,18 +1572,18 @@ def _run_agent_eval(cfg, case, eval_run: str = None) -> tuple:
     try:
         if _needs_map_eval(cfg):
             return _run_map_eval(cfg, case)
-        return _run_chat_agent_eval(cfg, case)
+        return _run_chat_agent_eval(cfg, case, eval_run)
     finally:
         frappe.flags.eval_origin, frappe.flags.bpmn_disable_ai_parking = prev
 
 
-def _run_chat_agent_eval(cfg, case) -> tuple:
-    """The chat-shaped Agent eval: hand the turn to ``invoke_agent``.
-
-    Only drives a map whose start event triggers on Chat Conversation; for
-    anything else use ``_run_map_eval``. Eval flags are set by the caller.
-    """
+def _run_chat_agent_eval(cfg, case, eval_run: str | None = None) -> tuple:
+    """The chat-shaped Agent eval: hand the turn to ``invoke_agent`` on a fresh conversation.
+    ``input_context`` may seed earlier turns through ``conversation_messages`` and
+    ``session_state``; usage comes from the runs tagged with this case and eval run."""
+    from one_bpmn.agents.memory import session_state
     from one_bpmn.api.agent_invocation import invoke_agent
+    from one_bpmn.utils.chat_persistence import close_conversation, create_agent_conversation
 
     if not cfg.agent_id:
         raise ValueError(f"Agent configuration '{cfg.name}' has no agent_id.")
@@ -1588,23 +1594,52 @@ def _run_chat_agent_eval(cfg, case) -> tuple:
             context = frappe.parse_json(case.input_context) or {}
         except Exception:
             context = {}
+    seed_messages = context.pop(SEED_MESSAGES_KEY, None) or []
+    seed_state = context.pop(SEED_STATE_KEY, None) or {}
+
+    # No commit: the eval job commits when its case ends, and a test's rollback must reach this row.
+    conversation = create_agent_conversation(
+        cfg.agent_id, title=(case.title or _("Eval case"))[:140], user=frappe.session.user, commit=False
+    )
+    frappe.db.set_value("Chat Conversation", conversation, "is_eval", 1, update_modified=False)
 
     started = now_datetime()
-    reply = invoke_agent(cfg.agent_id, case.input_user_prompt or "", context=context)
+    try:
+        _seed_conversation(conversation, seed_messages, seed_state)
+        reply = invoke_agent(
+            cfg.agent_id, case.input_user_prompt or "", conversation=conversation, context=context
+        )
+    finally:
+        close_conversation(conversation)
+        session_state.clear_state(conversation)
 
-    output = (reply or {}).get("response") or ""
+    reply = reply or {}
+    output = reply.get("response") or ""
+    # A diagram turn's lanes and shapes live only in its XML, so assertions read it after the reply.
+    if (reply.get("intent") or "").upper() in DIAGRAM_INTENTS and reply.get("bpmn_xml"):
+        output = output + "\n\n" + reply["bpmn_xml"]
+
+    # creation >= started keeps each repeated attempt under one eval_run to its own runs.
+    filters = {
+        "eval_case": case.name,
+        "creation": [">=", started],
+        # _execute_case adds judge spend separately.
+        "bpmn_id": ["!=", EVAL_RUN_JUDGE],
+    }
+    if eval_run:
+        filters["eval_run"] = eval_run
     runs = frappe.get_all(
         "AI Agent Run",
-        filters={
-            "agent_configuration": cfg.name,
-            "creation": [">=", started],
-            # Judge runs are recorded separately and their cost is added by
-            # _execute_case; excluding them here keeps execution and judge spend
-            # from being counted twice on the Result row.
-            "bpmn_id": ["!=", EVAL_RUN_JUDGE],
-        },
+        filters=filters,
         fields=["total_prompt_tokens", "total_completion_tokens", "total_tokens", "estimated_cost"],
     )
+    if not runs:
+        raise ValueError(
+            _(
+                "Agent '{0}' ran but produced no AI Agent Run for case '{1}'. "
+                "Check that the agent's map reaches its AI Agent Task for this conversation."
+            ).format(cfg.name, case.name)
+        )
     usage = {
         "prompt_tokens": sum((r.get("total_prompt_tokens") or 0) for r in runs),
         "completion_tokens": sum((r.get("total_completion_tokens") or 0) for r in runs),
@@ -1612,6 +1647,37 @@ def _run_chat_agent_eval(cfg, case) -> tuple:
         "cost": sum(flt(r.get("estimated_cost")) for r in runs),
     }
     return output, usage
+
+
+def _seed_conversation(conversation: str, messages: list, state: dict) -> None:
+    """Write earlier turns and session state into an eval conversation, oldest first."""
+    from one_bpmn.agents.memory import session_state
+
+    start = add_to_date(now_datetime(), seconds=-len(messages) - 1)
+    for index, message in enumerate(messages):
+        message_type = message.get("message_type")
+        if message_type not in SEED_MESSAGE_TYPES:
+            raise ValueError(
+                f"Seeded message {index + 1} has message_type {message_type!r}; "
+                f"use one of {', '.join(SEED_MESSAGE_TYPES)}."
+            )
+        metadata = message.get("metadata")
+        doc = frappe.get_doc(
+            {
+                "doctype": "Chat Message",
+                "conversation": conversation,
+                "message_type": message_type,
+                "text": message.get("text") or "",
+                "metadata": json.dumps(metadata) if isinstance(metadata, (dict, list)) else metadata,
+                "sender": frappe.session.user if message_type == "User" else "Administrator",
+            }
+        )
+        doc.creation = doc.modified = add_to_date(start, seconds=index)
+        doc.owner = doc.modified_by = frappe.session.user
+        # db_insert: seeded history is a fixture, not a message sent through the chat's guards.
+        doc.db_insert()
+    if state:
+        session_state.set_state(conversation, state, commit=False)
 
 
 def _run_direct_eval(cfg, case) -> tuple:
@@ -1723,6 +1789,9 @@ def _evaluate_assertion(assertion, output: Any, facts: dict = None) -> dict:
 
         if a_type == "tool_calls":
             return {**base, **_evaluate_tool_calls(value, facts)}
+
+        if a_type == "tool_artifact":
+            return {**base, **_evaluate_tool_artifact(value, facts)}
 
         if a_type == "llm_judge":
             return _evaluate_llm_judge(assertion, output)
@@ -1931,6 +2000,52 @@ def _evaluate_tool_calls(value: str, facts: dict) -> dict:
             "message": "" if not unmatched else f"Never called: {', '.join(unmatched)}. Called: {called}."}
 
 
+def _evaluate_tool_artifact(value: str, facts: dict) -> dict:
+    """Match a dotted path in the JSON a tool recorded as its artifact.
+
+    *value* is {"tool", "path", "matcher", "expected"}. The last call to the tool
+    that recorded an artifact is the one checked.
+    """
+    if facts is None:
+        return {"passed": False, "error": True,
+                "message": "Tool artifacts are only recorded on a live run, not a replay."}
+    spec = json.loads(value or "{}")
+    tool, path = spec.get("tool"), spec.get("path")
+    if not (tool and path):
+        return {"passed": False, "error": True,
+                "message": "tool_artifact needs a tool and a path."}
+
+    calls = [c for c in facts.get("tool_trace") or [] if c.get("tool") == tool
+             and (c.get("artifact") or c.get("artifact_file"))]
+    if not calls:
+        return {"passed": False, "error": True, "message": f"{tool} recorded no artifact."}
+    last = calls[-1]
+    text = last.get("artifact") or frappe.get_doc("File", last["artifact_file"]).get_content()
+
+    resolved = _resolve_path(json.loads(text), path)
+    expected = spec.get("expected")
+    matcher = {
+        "argument": path,
+        "matcher": spec.get("matcher") or "equals",
+        "expected": expected if isinstance(expected, str) else json.dumps(expected, sort_keys=True),
+    }
+    passed, why = _argument_matches(matcher, {path: resolved})
+    return {"passed": passed, "message": "" if passed else why}
+
+
+def _resolve_path(data: Any, path: str) -> Any:
+    """Walk *path* key by key; a list along the way maps the rest of the path over its items."""
+    # ponytail: keys and lists only, no filters or wildcards; add them when a case needs one.
+    for key in path.split("."):
+        if isinstance(data, list):
+            data = [item.get(key) for item in data if isinstance(item, dict)]
+        elif isinstance(data, dict):
+            data = data.get(key)
+        else:
+            return None
+    return data
+
+
 def _execution_facts(case, eval_run: str, usage: dict) -> dict:
     """What the assertions may know about the execution itself, not its text."""
     trace = _tool_trace_for(case, eval_run)
@@ -1962,7 +2077,7 @@ def _tool_trace_for(case, eval_run: str = None) -> List[dict]:
     rows = frappe.get_all(
         "AI Agent Tool Call",
         filters={"parenttype": "AI Agent Step", "parent": ["in", steps]},
-        fields=["parent", "idx", "tool_name", "tool_args", "status"],
+        fields=["parent", "idx", "tool_name", "tool_args", "status", "tool_artifact", "artifact_file"],
     ) if steps else []
     position = {name: index for index, name in enumerate(steps)}
     rows.sort(key=lambda r: (position.get(r["parent"], 0), cint(r["idx"])))
@@ -1977,6 +2092,8 @@ def _tool_trace_for(case, eval_run: str = None) -> List[dict]:
             "tool": row["tool_name"],
             "args": args if isinstance(args, dict) else {"": args},
             "status": row["status"],
+            "artifact": row["tool_artifact"] or "",
+            "artifact_file": row["artifact_file"],
         })
     # A parked call is the last thing the model did.
     return trace + _parked_calls(runs)

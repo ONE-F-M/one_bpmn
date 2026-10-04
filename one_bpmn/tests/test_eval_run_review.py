@@ -255,3 +255,38 @@ class TestEvalRunReviewBaseline(FrappeTestCase):
 		current = _run_with_results(self.suite, {self.case_a: "Passed"}, 5)
 		with self.assertRaises(frappe.ValidationError):
 			get_run_review(current, baseline=foreign)
+
+
+class TestEvalRunReviewInputContext(FrappeTestCase):
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self.suite = make_eval_suite().name
+
+	def test_a_mid_conversation_case_shows_its_earlier_turns(self):
+		context = {
+			"conversation_messages": [
+				{"message_type": "User", "text": "analyse the topology"},
+				{"message_type": "Bot", "text": "I propose 2 processes."},
+			],
+			"session_state": {"lucid_doc:abc": {"title": "Visa Process"}},
+		}
+		case = make_eval_case(suite=self.suite, input_context=frappe.as_json(context)).name
+		run = _run_with_results(self.suite, {case: "Passed"}, 5)
+
+		result = get_run_review(run)["results"][0]
+		self.assertEqual(result["input_context"]["conversation_messages"][1]["text"], "I propose 2 processes.")
+		self.assertEqual(result["input_context"]["session_state"], {"lucid_doc:abc": {"title": "Visa Process"}})
+
+	def test_a_case_without_earlier_turns_has_none(self):
+		case = make_eval_case(suite=self.suite).name
+		run = _run_with_results(self.suite, {case: "Passed"}, 5)
+		self.assertIsNone(get_run_review(run)["results"][0]["input_context"])
+
+	def test_each_case_reports_how_many_of_its_runs_passed(self):
+		case = make_eval_case(suite=self.suite).name
+		run = _run_with_results(self.suite, {case: "Failed"}, 5)
+		result_row = frappe.get_doc("AI Eval Run", run).results[0]
+		frappe.db.set_value("AI Eval Result", result_row.name, {"runs": 5, "passes": 3})
+
+		result = get_run_review(run)["results"][0]
+		self.assertEqual((result["runs"], result["passes"]), (5, 3))

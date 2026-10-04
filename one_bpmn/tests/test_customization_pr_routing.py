@@ -277,3 +277,32 @@ class TestPrFileSet(FrappeTestCase):
 
         for path, content in self.files.items():
             ast.parse(content)
+
+
+class TestSyncPullRequestBase(FrappeTestCase):
+    """Review PRs must land on staging, where the change can be tested before release."""
+
+    def test_the_pull_request_targets_staging(self):
+        from unittest.mock import MagicMock, patch
+
+        from one_bpmn.api import production_review as review
+
+        change = {"doctype": "Interview", "object_type": "Custom Field", "name": "custom_x", "action": "Added"}
+        opener = MagicMock(return_value="https://github.com/ONE-F-M/one_fm/pull/1")
+        with patch.object(review, "_require_ba_instance"), patch.object(
+            review, "_refs_for_model", return_value={"doctypes": ["Interview"]}
+        ), patch.object(review, "_build_doctype_snapshot", return_value={}), patch.object(
+            review, "_call_production_api", return_value={}
+        ), patch.object(review, "_diff_doctypes", return_value=[change]), patch.object(
+            review, "_customization_app_for_doctype", return_value="one_fm"
+        ), patch.object(review, "_repo_for_app", return_value="ONE-F-M/one_fm"), patch.object(
+            review, "_customization_pr_files", return_value=({"a.py": ""}, None, ["a.py"], {"owned": False})
+        ), patch.object(review, "_pr_body", return_value=""), patch.object(
+            review, "_allowed_repo_owners", return_value={"ONE-F-M"}
+        ), patch.object(
+            frappe, "get_cached_doc", return_value=MagicMock(get_password=MagicMock(return_value="token"))
+        ), patch("one_bpmn.api.github_sync.open_customization_pr", opener):
+            out = review.sync_doctypes("Some Map")
+
+        self.assertTrue(out["synced"])
+        self.assertEqual(opener.call_args.kwargs["base_branch"], "staging")

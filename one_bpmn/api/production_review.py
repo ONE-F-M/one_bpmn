@@ -47,6 +47,8 @@ SNAPSHOT_WORKFLOW = "one_bpmn.api.production_review.snapshot_workflow_objects"
 APPLY_WORKFLOW = "one_bpmn.api.production_review.apply_workflow_objects"
 SNAPSHOT_DOCTYPES = "one_bpmn.api.production_review.snapshot_doctype_schema"
 
+PR_BASE_BRANCH = "staging"
+
 # The meaningful fields compared per workflow object type. Kept small and stable
 # so the same canonical shape is produced on both sites.
 _WORKFLOW_FIELDS = {
@@ -460,11 +462,10 @@ def sync_doctypes(model_name: str) -> dict:
 		)
 		body = _pr_body(app, dts, model_name, artefacts, routing,
 		                {dt: summary.get(dt) or [] for dt in dts})
-		# base_branch=None → github_sync targets the repository's default branch.
 		pr_url = open_customization_pr(
 			token=token,
 			repo=repo,
-			base_branch=None,
+			base_branch=PR_BASE_BRANCH,
 			head_branch=head_branch,
 			files=files,
 			build_files=build_files,
@@ -775,4 +776,5 @@ def production_review_settings() -> dict:
 	return {
 		"connect_to_production": bool(settings.connect_to_production),
 		"instance_type": settings.instance_type or "",
+		"pr_base_branch": PR_BASE_BRANCH,
 	}

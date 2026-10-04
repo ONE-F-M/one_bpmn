@@ -61,6 +61,14 @@ def set_turn(conversation: str, data: dict) -> None:
 # ``done`` marks it final. They are write-once — see update_turn below.
 _TERMINAL_KEYS = ("output", "done")
 
+# Set on frappe.flags the moment a stage tool answers the turn, so the agent
+# loop can stop instead of paying for one more model call that has nothing left
+# to say. It lives here beside the write-once guard because both express the
+# same fact — this turn is over — and the store is the only layer that sees it
+# happen. Read and cleared by agents/executor/step_loop.py, exactly as
+# shape_tools.PAUSE_HELD_FLAG is.
+TURN_ANSWERED_FLAG = "bpmn_turn_answered"
+
 
 def update_turn(conversation: str, **kwargs) -> dict:
     """Merge ``kwargs`` into the turn scratch and persist it. Returns the result.
@@ -101,6 +109,8 @@ def update_turn(conversation: str, **kwargs) -> dict:
         kwargs = {k: v for k, v in kwargs.items() if k not in _TERMINAL_KEYS}
     turn.update(kwargs)
     set_turn(conversation, turn)
+    if turn.get("done"):
+        frappe.flags[TURN_ANSWERED_FLAG] = True
     return turn
 
 

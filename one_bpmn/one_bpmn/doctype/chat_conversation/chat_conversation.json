@@ -10,7 +10,8 @@
   "participants",
   "status",
   "last_message",
-  "last_updated"
+  "last_updated",
+  "is_eval"
  ],
  "fields": [
   {
@@ -53,13 +54,21 @@
    "ignore_user_permissions": 1,
    "label": "Status",
    "options": "Open\nClosed\nArchived"
+  },
+  {
+   "default": "0",
+   "description": "Set for a conversation an eval run created; the chat history sidebar leaves these out.",
+   "fieldname": "is_eval",
+   "fieldtype": "Check",
+   "label": "Eval Conversation",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "in_create": 1,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-09-29 11:16:02.810753",
+ "modified": "2026-09-26 14:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "Chat Conversation",

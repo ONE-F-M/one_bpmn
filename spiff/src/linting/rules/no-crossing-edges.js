@@ -17,6 +17,15 @@ function box(b) {
 	return b ? { x: b.x, y: b.y, w: b.width, h: b.height } : null;
 }
 
+// The subprocesses a flow is drawn inside, innermost first.
+function enclosingSubProcesses(el) {
+	const ids = [];
+	for (let p = el && el.$parent; p; p = p.$parent) {
+		if (is(p, "bpmn:SubProcess")) ids.push(p.id);
+	}
+	return ids;
+}
+
 export default function () {
 	function check(node, reporter) {
 		if (!is(node, "bpmn:Definitions")) return;
@@ -39,6 +48,7 @@ export default function () {
 					pts: el.waypoint.map((w) => [w.x, w.y]),
 					src: be && be.sourceRef && be.sourceRef.id,
 					tgt: be && be.targetRef && be.targetRef.id,
+					within: enclosingSubProcesses(be),
 					label: el.label ? box(el.label.bounds) : null,
 				});
 			}

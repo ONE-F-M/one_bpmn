@@ -226,6 +226,60 @@ def _topology_problem(topo: dict, names: dict) -> dict:
     }
 
 
+# Node types the generator prompt already tells the model belong in the
+# system lane when no lanes are named (serviceTask/scriptTask). Matches
+# process_generator's own "System (Automatic)" fallback rule verbatim.
+_SYSTEM_LANE_NODE_TYPES = frozenset({"scriptTask", "serviceTask"})
+
+
+def ensure_default_lanes(ir: dict) -> bool:
+    """Apply the generator prompt's own "User" + "System (Automatic)" lane
+    fallback in code, so a missing lane structure skips a repair-pass retry.
+
+    Mutates ``ir`` in place; returns True when it changed anything. Returns
+    False when there are no nodes to assign, so the caller still re-prompts.
+    """
+    if len(ir.get("lanes") or []) >= 2:
+        return False
+    nodes = ir.get("nodes") or []
+    if not nodes:
+        return False
+    ir["lanes"] = [
+        {"id": "user", "name": "User"},
+        {"id": "system", "name": "System (Automatic)"},
+    ]
+    for node in nodes:
+        if not node.get("lane"):
+            node["lane"] = "system" if node.get("type") in _SYSTEM_LANE_NODE_TYPES else "user"
+    return True
+
+
+def merge_chunked_ir(lanes: list, chunks: list) -> dict:
+    """Combine ordered per-phase IR fragments into one IR sharing one lane set.
+
+    Each chunk is {"nodes": [...], "flows": [...]} for one phase of a process
+    generated in pieces because the whole thing would not fit in one
+    completion. A chunk's own flows already connect its first node from the
+    exit id it was given, so merging is concatenation.
+    """
+    nodes = []
+    flows = []
+    for chunk in chunks:
+        nodes.extend(chunk.get("nodes") or [])
+        flows.extend(chunk.get("flows") or [])
+    return {"lanes": lanes, "nodes": nodes, "flows": flows}
+
+
+def chunk_exit_node_id(chunk: dict) -> str | None:
+    """The node id the next phase's flow should originate from.
+
+    By convention the phase prompt asks for the hand-off node last, so it is
+    the final entry in this chunk's own "nodes" array.
+    """
+    nodes = chunk.get("nodes") or []
+    return nodes[-1].get("id") if nodes else None
+
+
 def compile_ir(ir: dict) -> dict:
     """Compile an IR dict into BPMN XML via ``spiff/pipeline.mjs``.
 

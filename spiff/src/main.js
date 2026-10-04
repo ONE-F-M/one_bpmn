@@ -14,9 +14,12 @@ import {
 	Avatar,
 	ListView,
 	Alert,
+	FeatherIcon,
 	initSocket,
+	onOutsideClickDirective,
 } from "frappe-ui"
 
+import { afterOpeningClick } from "./utils/afterOpeningClick"
 import "./main.css"
 
 const app = createApp(App)
@@ -61,6 +64,9 @@ app.component("Tooltip", Tooltip)
 app.component("Avatar", Avatar)
 app.component("ListView", ListView)
 app.component("Alert", Alert)
+// frappe-ui pickers use FeatherIcon without importing it.
+app.component("FeatherIcon", FeatherIcon)
+app.directive("click-outside", afterOpeningClick(onOutsideClickDirective))
 
 app.use(router)
 

@@ -6,7 +6,7 @@
 				<span class="text-gray-400">#{{ s.step_index }}</span>
 				<span class="font-mono text-gray-700 truncate">{{ kindLabel(s) }}</span>
 				<div class="h-2 bg-gray-100 rounded"><div class="h-2 rounded" :class="barTone(s)" :style="{ width: pct(s.latency_ms, latencyTotal) + '%' }"></div></div>
-				<span class="text-right text-gray-400">{{ pct(s.latency_ms, latencyTotal).toFixed(0) }}%</span>
+				<span class="text-right text-gray-400">{{ fmtPct(pct(s.latency_ms, latencyTotal), 0) }}</span>
 				<span class="text-right font-semibold text-gray-700">{{ fmtMs(s.latency_ms) }}</span>
 			</div>
 		</div>
@@ -123,6 +123,7 @@ import { RouterLink } from "vue-router"
 import { dayjs } from "@/dayjs"
 import StepBody from "@/components/insights/StepBody.vue"
 import { fmtCost, fmtMs, fmtNum } from "@/utils/runFormat"
+import { fmtPct } from "@/utils/formatters"
 
 const props = defineProps({
 	run: { type: Object, required: true },

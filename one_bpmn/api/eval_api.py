@@ -170,9 +170,10 @@ def _annotate_run_scope(runs: list, cases: list) -> None:
 
 
 @frappe.whitelist()
-def get_suite_detail(suite: str) -> dict:
-	"""Suite header, its cases, and recent runs for the suite-detail view
-	(WI-001746). Permission is enforced by check_permission (owner / SM).
+def get_suite_detail(suite: str, start: int = 0, page_length: int = 25) -> dict:
+	"""Suite header, its cases, and one page of its runs, newest first.
+
+	Permission is enforced by check_permission (owner / SM).
 	"""
 	doc = frappe.get_doc("AI Eval Suite", suite)
 	doc.check_permission("read")
@@ -209,10 +210,9 @@ def get_suite_detail(suite: str) -> dict:
 	for c in cases:
 		c["assertion_types"] = assertions.get(c["name"], [])
 
-	runs = frappe.get_all(
-		"AI Eval Run",
-		filters={"suite": suite},
-		fields=["name", "status", "backend", "total_cases", "passed_cases",
+	start = max(cint(start), 0)
+	page_length = min(max(cint(page_length), 1), 100)
+	run_fields = ["name", "status", "backend", "total_cases", "passed_cases",
 				"failed_cases", "started_at", "ended_at",
 				# How many executions the run actually made, and the rate the
 				# deployment gate reads (WI-001902).
@@ -220,26 +220,36 @@ def get_suite_detail(suite: str) -> dict:
 				# Needed by the dashboard's latest-run tokens/cost tiles.
 				"total_tokens", "total_cost",
 				# Which cases the run covered (WI-001746 follow-up).
-				"scope", "requested_cases"],
+				"scope", "requested_cases"]
+	runs = frappe.get_all(
+		"AI Eval Run",
+		filters={"suite": suite},
+		fields=run_fields,
 		order_by="creation desc",
-		limit_page_length=20,
+		limit_start=start,
+		limit_page_length=page_length,
 	)
 	_annotate_run_scope(runs, cases)
 	# Number runs by their absolute order (newest first in the list), and give
 	# each a readable title so the UI never shows the raw run id.
 	total_runs = frappe.db.count("AI Eval Run", {"suite": suite})
 	for idx, r in enumerate(runs):
-		r["display_title"] = _run_title(doc.title, total_runs - idx, r.get("started_at"))
+		r["display_title"] = _run_title(doc.title, total_runs - start - idx, r.get("started_at"))
+
+	# The dashboard always reads the latest 20 runs, whatever page the list is on.
+	recent = runs if start == 0 and page_length >= 20 else frappe.get_all(
+		"AI Eval Run", filters={"suite": suite}, fields=run_fields, order_by="creation desc", limit_page_length=20
+	)
 
 	# Dashboard metrics for the suite page (WI-001746).
 	# Pass-rate sparkline: % of cases passing per run, oldest -> newest.
 	spark = []
-	for r in reversed(runs):
+	for r in reversed(recent[:20]):
 		tot = r.get("total_cases") or 0
 		if tot:
 			spark.append(round(100.0 * (r.get("passed_cases") or 0) / tot))
 	spark = spark[-12:]
-	latest = runs[0] if runs else None
+	latest = recent[0] if recent else None
 	with_assertions = sum(1 for c in cases if c.get("assertion_types"))
 	metrics = {
 		"cases": len(cases),
@@ -273,6 +283,8 @@ def get_suite_detail(suite: str) -> dict:
 		},
 		"cases": cases,
 		"runs": runs,
+		"total_runs": total_runs,
+		"start": start,
 		"metrics": metrics,
 	}
 
@@ -471,6 +483,92 @@ def get_eval_case(name: str) -> dict:
 	}
 
 
+
+CONVERSATION_LIST_MAX = 100
+CONVERSATION_MESSAGES_MAX = 500
+
+
+@frappe.whitelist()
+def list_conversations_for_case(suite: str, search: str = "", limit: int = 30) -> list:
+	"""Real conversations with the suite's agent that a case can start from, newest first."""
+	suite_doc = frappe.get_doc("AI Eval Suite", suite)
+	suite_doc.check_permission("write")
+	mode = frappe.db.get_value("AI Agent Configuration", suite_doc.agent_configuration, "chat_mode_label")
+	if not mode:
+		return []
+	or_filters = None
+	if (search or "").strip():
+		term = f"%{search.strip()}%"
+		or_filters = [["title", "like", term], ["owner", "like", term]]
+	return frappe.get_list(
+		"Chat Conversation",
+		filters={"agent_mode": mode, "is_eval": 0},
+		or_filters=or_filters,
+		fields=["name", "title", "owner", "modified"],
+		order_by="modified desc",
+		limit_page_length=min(max(cint(limit), 1), CONVERSATION_LIST_MAX),
+	)
+
+
+def _readable_conversation(suite: str, conversation: str):
+	frappe.get_doc("AI Eval Suite", suite).check_permission("write")
+	frappe.get_doc("Chat Conversation", conversation).check_permission("read")
+
+
+@frappe.whitelist()
+def get_conversation_for_case(suite: str, conversation: str) -> list:
+	"""The User and Bot messages of a conversation, oldest first, for picking where a case starts."""
+	_readable_conversation(suite, conversation)
+	return frappe.get_list(
+		"Chat Message",
+		filters={"conversation": conversation, "message_type": ["in", ["User", "Bot"]]},
+		fields=["name", "message_type", "text", "creation"],
+		order_by="creation asc",
+		limit_page_length=CONVERSATION_MESSAGES_MAX,
+	)
+
+
+@frappe.whitelist()
+def conversation_context_for_case(suite: str, conversation: str, message: str, include_message: int = 0) -> dict:
+	"""A conversation's turns before ``message`` (or through it) as a case's earlier conversation.
+
+	Carries the agent's latest saved progress before that point and what its tools fetched.
+	"""
+	_readable_conversation(suite, conversation)
+	cutoff = frappe.db.get_value("Chat Message", {"name": message, "conversation": conversation}, "creation")
+	if not cutoff:
+		frappe.throw(_("That message is not part of this conversation."))
+	before = "<=" if cint(include_message) else "<"
+	rows = frappe.get_list(
+		"Chat Message",
+		filters={"conversation": conversation, "message_type": ["in", ["User", "Bot"]], "creation": [before, cutoff]},
+		fields=["message_type", "text"],
+		order_by="creation asc",
+		limit_page_length=CONVERSATION_MESSAGES_MAX,
+	)
+	messages = [{"message_type": r.message_type, "text": r.text or ""} for r in rows]
+	snapshot = frappe.get_list(
+		"Chat Message",
+		filters={"conversation": conversation, "message_type": "Tool", "creation": [before, cutoff]},
+		fields=["text", "metadata"],
+		order_by="creation desc",
+		limit_page_length=1,
+	)
+	if snapshot:
+		messages.append({
+			"message_type": "Tool",
+			"text": snapshot[0].text or "",
+			"metadata": frappe.parse_json(snapshot[0].metadata) if snapshot[0].metadata else None,
+		})
+
+	from one_bpmn.agents.memory import session_state
+
+	return {
+		"conversation_messages": messages,
+		"session_state": session_state.get_state(conversation),
+		"message_text": frappe.db.get_value("Chat Message", message, "text") or "",
+	}
+
 @frappe.whitelist()
 def update_eval_case(
 	name: str,
@@ -638,7 +736,7 @@ def get_run_review(run: str, baseline: str = None) -> dict:
 		for c in frappe.get_all(
 			"AI Eval Case",
 			filters={"name": ["in", case_names]} if case_names else {"name": ""},
-			fields=["name", "title", "input_user_prompt", "expected_output"],
+			fields=["name", "title", "input_user_prompt", "expected_output", "input_context"],
 		)
 	}
 
@@ -655,7 +753,11 @@ def get_run_review(run: str, baseline: str = None) -> dict:
 			"input_user_prompt": r.input_user_prompt or info.get("input_user_prompt") or "",
 			"expected_output": r.expected_output or info.get("expected_output") or "",
 			"prompt_is_snapshot": bool(r.input_user_prompt),
+			# The case's earlier turns and saved state, as the case holds them now.
+			"input_context": frappe.parse_json(info.get("input_context")) if info.get("input_context") else None,
 			"status": r.status,
+			"runs": r.runs,
+			"passes": r.passes,
 			"actual_output": r.actual_output,
 			"error_message": r.error_message,
 			"tokens_used": r.tokens_used,

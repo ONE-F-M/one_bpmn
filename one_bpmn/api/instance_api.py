@@ -401,73 +401,11 @@ def complete_task(
 		frappe.throw(_("Task '{0}' is not in Waiting status.").format(active_row.task_name or task_id))
 
 	current_user = frappe.session.user
-	approved_ctc_name = None
 
 	# ── 1. USER ASSIGNMENT CHECK ─────────────────────────────────────────────
-	# Same as Frappe's "allow_edit" on workflow states — only the assigned
-	# user (or Administrator) can complete the task.
-	assigned_user = active_row.assigned_user or ""
-	assigned_role = active_row.assigned_role or ""
-
-	# assigned_user may list multiple people (Table Field / multi-assignee
-	# mode, e.g. Task.custom_assigned_to) — completion by any one of them
-	# is authorized, not just an exact string match.
-	# Imported lazily: assignment.py pulls in engine.py, which is fragile
-	# (SpiffWorkflow version drift) — importing it at module load time would
-	# take down every whitelisted method in this file, not just this one.
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import split_users
-
-	assigned_users_list = split_users(assigned_user)
-
-	if assigned_users_list and current_user not in assigned_users_list and not _is_bpmn_super_user(current_user):
-		# Also allow the document owner (they initiated the process)
-		is_doc_owner = False
-		if instance.context_doctype and instance.context_docname:
-			doc_owner = frappe.db.get_value(instance.context_doctype, instance.context_docname, "owner")
-			is_doc_owner = doc_owner == current_user
-
-		if not is_doc_owner:
-			# Allow if this specific user has an approved Contingency Task Completion
-			# for this context document.  Any other user's CTC does not grant access.
-			# Check workflow_state OR status since the BPMN process sets
-			# workflow_state via apply_workflow and status via update_field.
-			if instance.context_doctype and instance.context_docname:
-				from frappe.query_builder import DocType
-
-				CTC = DocType("Contingency Task Completion")
-				ctc_result = (
-					frappe.qb.from_(CTC)
-					.select(CTC.name)
-					.where(CTC.context_doctype == instance.context_doctype)
-					.where(CTC.context_docname == instance.context_docname)
-					.where(CTC.process_owner_user == current_user)
-					.where(
-						(CTC.workflow_state == "Approved") | (CTC.status == "Approved")
-					)
-					.where(CTC.status != "Expired")
-					.where(CTC.docstatus == 1)
-					.limit(1)
-				).run()
-				approved_ctc_name = ctc_result[0][0] if ctc_result else None
-
-			if not approved_ctc_name:
-				assignee_names = ", ".join(
-					frappe.utils.get_fullname(u) or u for u in assigned_users_list
-				)
-				frappe.throw(
-					_("You are not authorized to complete this task. It is assigned to {0}.").format(
-						assignee_names
-					),
-					frappe.PermissionError,
-				)
-
-	if assigned_role and not _is_bpmn_super_user(current_user):
-		user_roles = frappe.get_roles(current_user)
-		if assigned_role not in user_roles:
-			frappe.throw(
-				_("Only users with the role '{0}' can complete this task.").format(assigned_role),
-				frappe.PermissionError,
-			)
+	refusal, approved_ctc_name = _task_authorization(instance, active_row, current_user)
+	if refusal:
+		frappe.throw(refusal, frappe.PermissionError)
 
 	# ── 2. ACTION VALIDATION ─────────────────────────────────────────────────
 	# Same as Frappe's workflow transition validation — the submitted action
@@ -959,6 +897,7 @@ def get_active_bpmn_tasks(doctype: str, docname: str) -> list:
 		task_actions   – Comma-separated action labels (e.g. "Submit,Return to Draft")
 		assigned_user  – User the task is assigned to (or '' for role-based)
 		assigned_role  – Role the task is assigned to (or '')
+		can_action     - Whether the current user may complete it
 	"""
 	if not doctype or not docname:
 		return []
@@ -1009,6 +948,7 @@ def get_active_bpmn_tasks(doctype: str, docname: str) -> list:
 						"task_actions_detail": actions_detail,
 						"assigned_user": row.assigned_user or "",
 						"assigned_role": row.assigned_role or "",
+						"can_action": not _task_authorization(instance, row, frappe.session.user)[0],
 					}
 				)
 
@@ -1019,6 +959,51 @@ def get_active_bpmn_tasks(doctype: str, docname: str) -> list:
 			)
 
 	return result
+
+
+def _task_authorization(instance, row, user: str) -> tuple[str | None, str | None]:
+	"""Why ``user`` may not complete this Waiting task, or None; and the approved CTC that lets them.
+
+	Assignees may act, and so may a super user or the holder of an approved Contingency Task Completion.
+	"""
+	# Imported lazily: assignment.py pulls in engine.py, which is fragile across SpiffWorkflow versions.
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import split_users
+
+	super_user = _is_bpmn_super_user(user)
+	assigned_users = split_users(row.assigned_user or "")
+	approved_ctc_name = None
+
+	if assigned_users and user not in assigned_users and not super_user:
+		if instance.context_doctype and instance.context_docname:
+			from frappe.query_builder import DocType
+
+			CTC = DocType("Contingency Task Completion")
+			ctc_result = (
+				frappe.qb.from_(CTC)
+				.select(CTC.name)
+				.where(CTC.context_doctype == instance.context_doctype)
+				.where(CTC.context_docname == instance.context_docname)
+				.where(CTC.process_owner_user == user)
+				# The process sets workflow_state via apply_workflow and status via update_field.
+				.where((CTC.workflow_state == "Approved") | (CTC.status == "Approved"))
+				.where(CTC.status != "Expired")
+				.where(CTC.docstatus == 1)
+				.limit(1)
+			).run()
+			approved_ctc_name = ctc_result[0][0] if ctc_result else None
+
+		if not approved_ctc_name:
+			assignee_names = ", ".join(frappe.utils.get_fullname(u) or u for u in assigned_users)
+			return (
+				_("You are not authorized to complete this task. It is assigned to {0}.").format(assignee_names),
+				None,
+			)
+
+	assigned_role = row.assigned_role or ""
+	if assigned_role and not super_user and assigned_role not in frappe.get_roles(user):
+		return _("Only users with the role '{0}' can complete this task.").format(assigned_role), None
+
+	return None, approved_ctc_name
 
 
 # ============================================================================

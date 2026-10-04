@@ -105,6 +105,19 @@ def report_result() -> dict:
 
 	run.db_set(_settled_fields(_run_action(run), status, pr_url, payload), update_modified=False)
 
+	# A real test failure gets one automatic re-dispatch instead of resuming
+	# the waiting agent straight away — a flaky test should not throw away a
+	# correct change. ops.retry_dispatch only returns False when the retry
+	# itself could not even be sent (no sandbox URL, no token, the POST
+	# itself failed) — in that case fall through to the normal resume on
+	# the ORIGINAL failure below, or the agent would be left waiting
+	# forever for a callback that can now never arrive.
+	if status == "tests_failed":
+		from one_bpmn.one_bpmn.connectors import agent_sandbox_ops as ops
+
+		if ops.retry_eligible(run) and ops.retry_dispatch(run):
+			return {"accepted": True}
+
 	_enqueue_resume(run)
 	return {"accepted": True}
 
@@ -214,6 +227,12 @@ def _create_sandbox_ai_agent_run(run, payload: dict) -> str | None:
 		"completion_basis": completion_basis,
 		"final_output": (payload.get("agent_report") or "")[:65536],
 		"correlation_id": run.name,
+		# The caller's own turn, so cost/tokens roll up to whatever delegated
+		# this work instead of the sandbox's coding loop reading as an
+		# unrelated, unattributed run. Blank when this dispatch came from a
+		# plain top-level Service Task rather than an ai_agent tool call —
+		# there is no caller run to attach to in that case.
+		"parent_run": run.caller_agent_run,
 	})
 	try:
 		agent_run.insert(ignore_permissions=True)
@@ -354,20 +373,46 @@ def _sandbox_run_answer(run) -> str:
 	"""What the model is told the sandbox tool call returned. A failure comes
 	with the sandbox's own output so the agent can tell its change from the
 	environment, and a PR is mentioned on either branch."""
+	prefix = _retry_prefix(run)
 	if _run_action(run) == "run_tests":
 		verdict = "Tests passed." if run.state == "completed" else f"Tests failed ({run.error_message or 'no reason given'})."
-		return verdict + _output_tail(run)
+		return prefix + verdict + _output_tail(run)
 	if run.state == "completed":
-		return f"Pull request opened: {run.pr_url}" if run.pr_url else "Sandbox run completed with no changes to submit."
+		text = f"Pull request opened: {run.pr_url}" if run.pr_url else "Sandbox run completed with no changes to submit."
+		return prefix + text
 	reason = f"The sandbox run did not complete ({run.state}): {run.error_message or 'no reason given'}"
 	if run.pr_url:
 		reason += f" A pull request was still opened for review, despite the failure: {run.pr_url}"
 	elif _run_action(run) == "open_pull_request":
 		reason += " No pull request exists."
-	return reason + _output_tail(run)
+	return prefix + reason + _output_tail(run)
+
+
+def _retry_prefix(run) -> str:
+	"""Tells the agent which attempt it's looking at, once retry_of (set
+	only on the automatic re-dispatch after a real test failure) makes this
+	something other than the very first try — the WI's own acceptance
+	criterion is that the caller is told which attempt succeeded, not left
+	to guess from a result that looks identical to a first-try success."""
+	if not run.retry_of:
+		return ""
+	if run.state == "completed":
+		return "Retry succeeded after the first attempt's tests failed. "
+	return "The automatic retry also failed. "
 
 
 def _output_tail(run, limit: int = 1500) -> str:
 	result = frappe.parse_json(run.result or "{}") or {}
+	parts = []
+	# Named up front, ahead of the raw tail — the whole point of extracting
+	# these sandbox-side (dev_agent_server.py's _extract_failing_tests) is so
+	# the agent doesn't have to re-read a 1500-character truncated dump just
+	# to find out which tests actually broke.
+	failing_tests = result.get("failing_tests") or []
+	if failing_tests:
+		named = "\n".join(f"- {name}" for name in failing_tests)
+		parts.append(f"Failing tests:\n{named}")
 	tail = (result.get("stderr_tail") or result.get("stdout_tail") or "").strip()
-	return f"\n\nSandbox output (tail):\n{tail[-limit:]}" if tail else ""
+	if tail:
+		parts.append(f"Sandbox output (tail):\n{tail[-limit:]}")
+	return "\n\n" + "\n\n".join(parts) if parts else ""
