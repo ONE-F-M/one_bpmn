@@ -285,6 +285,24 @@ def read_doctype_definition(doctype: str) -> dict | None:
 	return out
 
 
+def compact_ir(ir: dict | None) -> dict | None:
+	"""The IR without properties that hold 0 or an empty string, for a prompt the model echoes back.
+
+	Applying an IR reads a missing property as its default, so nothing is lost.
+	"""
+	if not isinstance(ir, dict):
+		return ir
+
+	def _set(row: dict) -> dict:
+		return {k: v for k, v in row.items() if v not in (0, "", None)}
+
+	out = _set({k: v for k, v in ir.items() if k not in ("fields", "permissions")})
+	out["fields"] = [_set(f) for f in ir.get("fields") or []]
+	if "permissions" in ir:
+		out["permissions"] = [_set(p) for p in ir["permissions"] or []]
+	return out
+
+
 def read_doctype_permissions(doctype: str) -> list:
 	"""The permission rules actually in force, in IR shape.
 
