@@ -43,6 +43,41 @@ class TestTheTurnStoreReplyBecomesTheOutput(TurnFixture):
 		self.assertEqual(self.task.data["ai_result"], STAGE_REPLY)
 		self.assertEqual(self._final_output(), STAGE_REPLY)
 
+	def test_narration_is_replaced_by_the_stage_reply(self):
+		self._dispatch(
+			ExecutorResult(
+				error_code=ErrorCode.SUCCESS,
+				output="I'll process your request step by step.",
+				token_usage=TokenUsage(),
+				trace=[],
+			)
+		)
+
+		self.assertEqual(self.task.data["ai_result"], STAGE_REPLY)
+		self.assertEqual(self._final_output(), STAGE_REPLY)
+
+	def test_a_finalize_marker_is_replaced_by_the_stage_reply(self):
+		self._dispatch(
+			ExecutorResult(
+				error_code=ErrorCode.SUCCESS,
+				output='{"finalized": true, "tool_error": true}',
+				token_usage=TokenUsage(),
+				trace=[],
+			)
+		)
+
+		self.assertEqual(self._final_output(), STAGE_REPLY)
+
+	def test_without_a_stage_reply_the_text_is_kept(self):
+		turn_state.clear_turn(self.conversation.name)
+		self._dispatch(
+			ExecutorResult(
+				error_code=ErrorCode.SUCCESS, output="Plain answer.", token_usage=TokenUsage(), trace=[]
+			)
+		)
+
+		self.assertEqual(self._final_output(), "Plain answer.")
+
 	def test_a_failed_run_keeps_its_output_blank(self):
 		self._dispatch(
 			ExecutorResult(
