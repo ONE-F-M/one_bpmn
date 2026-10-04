@@ -1134,21 +1134,23 @@ def _start_and_deliver_message(
 					"The instance is left Active and will not progress."
 				),
 			)
+		return instance.name
 
 
 def _models_listening_for(message_name: str) -> list:
-	"""Active models with a Message Start Event bound to ``message_name``.
+	"""Active models with a Message Start Event bound to ``message_name``."""
+	return message_start_index().get((message_name or "").strip(), [])
 
-	Two hops on purpose. ``<bpmn:message>`` declares the name; a start event
-	opts in by pointing its ``messageRef`` at that declaration's id. Matching on
-	the declaration alone would also match a map that merely CATCHES the message
-	part-way through, which must not be started by it.
+
+def message_start_index() -> dict:
+	"""Message name to the active maps a start event of theirs takes it on.
+
+	Only a start event's messageRef counts, so a map that merely catches the message part-way is not listed.
 	"""
 	from lxml import etree as ET
 
 	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
-	wanted = (message_name or "").strip()
-	found = []
+	index = {}
 
 	for name, xml in frappe.get_all(
 		"BPMN Process Model",
@@ -1156,7 +1158,7 @@ def _models_listening_for(message_name: str) -> list:
 		fields=["name", "bpmn_xml"],
 		as_list=True,
 	):
-		if not xml or wanted not in xml:
+		if not xml or "messageEventDefinition" not in xml:
 			# Cheap reject before paying for a parse.
 			continue
 		try:
@@ -1167,24 +1169,21 @@ def _models_listening_for(message_name: str) -> list:
 			# compiler already reports that, so stay quiet and skip it.
 			continue
 
-		ids = {
-			el.get("id")
+		names_by_id = {
+			el.get("id"): (el.get("name") or "").strip()
 			for el in root.iter(f"{{{BPMN_NS}}}message")
-			if (el.get("name") or "").strip() == wanted and el.get("id")
+			if el.get("id") and (el.get("name") or "").strip()
 		}
-		if not ids:
-			continue
+		started_by = {
+			names_by_id[med.get("messageRef")]
+			for start in root.iter(f"{{{BPMN_NS}}}startEvent")
+			for med in start.iter(f"{{{BPMN_NS}}}messageEventDefinition")
+			if med.get("messageRef") in names_by_id
+		}
+		for message in started_by:
+			index.setdefault(message, []).append(name)
 
-		for start in root.iter(f"{{{BPMN_NS}}}startEvent"):
-			for med in start.iter(f"{{{BPMN_NS}}}messageEventDefinition"):
-				if med.get("messageRef") in ids:
-					found.append(name)
-					break
-			else:
-				continue
-			break
-
-	return found
+	return index
 
 
 @frappe.whitelist()

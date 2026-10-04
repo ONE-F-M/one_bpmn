@@ -559,11 +559,12 @@ function applyHighlights() {
 				.forEach((element) => {
 					try {
 						if (element.type === "bpmn:StartEvent") {
-							canvas.addMarker(element.id, "highlight-done")
+							// A map can have several start events; only the one that fired is done.
+							if (allReachedIds.has(element.id)) canvas.addMarker(element.id, "highlight-done")
 						} else {
 							const sourceId = element.source?.id
 							const targetId = element.target?.id
-							const sourceReached = allReachedIds.has(sourceId) || element.source?.type === "bpmn:StartEvent"
+							const sourceReached = allReachedIds.has(sourceId)
 							const targetReached = allReachedIds.has(targetId)
 							// Color a flow only when BOTH source and target were reached,
 							// preventing false-positive coloring of untouched merge-gateway inflows.
