@@ -2267,7 +2267,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 						run, 3, "assistant",
 						str(result.output or ""),
 						completion_tokens=usage.completion_tokens if usage else 0,
-						latency_ms=_exec_latency_ms,
+						# Failed attempts become their own steps in finalize_ai_run.
+						latency_ms=_exec_latency_ms - sum(a.latency_ms for a in result.attempts or []),
 					)
 
 		# A suspension is not an outcome — the run stays open ("Suspended",

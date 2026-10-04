@@ -75,7 +75,7 @@ _FORCED_TOOL_REFUSED = "tool_choice is {0}, but the model answered in plain text
 # without tripping over an unrelated key a future field adds to the dict.
 _TURN_RECORD_FIELDS = {
 	"role", "content", "tool_calls", "prompt_tokens", "completion_tokens",
-	"cache_read_tokens", "cache_write_tokens", "latency_ms", "turn_no",
+	"cache_read_tokens", "cache_write_tokens", "latency_ms", "model_latency_ms", "turn_no",
 	"started_at", "ended_at",
 }
 
@@ -393,6 +393,7 @@ async def _run_turns(
 			response_schema=response_schema,
 			controls={**(controls or {}), **({"tool_choice": tool_choice} if force_pending else {})},
 		)
+		_model_ms = int((time.perf_counter() - _turn_t0) * 1000)
 		turns_used += 1
 		last_prompt_tokens = step.prompt_tokens
 
@@ -407,6 +408,7 @@ async def _run_turns(
 					cache_read_tokens=getattr(step, "cache_read_tokens", 0) or 0,
 					cache_write_tokens=getattr(step, "cache_write_tokens", 0) or 0,
 					latency_ms=int((time.perf_counter() - _turn_t0) * 1000),
+					model_latency_ms=_model_ms,
 					turn_no=turns_used,
 					started_at=_turn_started_at,
 					ended_at=_now_iso(),
@@ -452,6 +454,7 @@ async def _run_turns(
 			completion_tokens=step.completion_tokens,
 			cache_read_tokens=getattr(step, "cache_read_tokens", 0) or 0,
 			cache_write_tokens=getattr(step, "cache_write_tokens", 0) or 0,
+			model_latency_ms=_model_ms,
 			turn_no=turns_used,
 			started_at=_turn_started_at,
 		)
