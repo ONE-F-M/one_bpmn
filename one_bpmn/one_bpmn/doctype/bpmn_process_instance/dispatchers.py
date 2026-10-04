@@ -257,17 +257,36 @@ def _turn_user_message(instance, task) -> str:
 	if not getattr(instance, "context_docname", ""):
 		return ""
 
+	from one_bpmn.agents.memory.text_clean import strip_html
+
 	data = getattr(task, "data", None)
 	if isinstance(data, dict):
 		text = str(data.get("user_text") or "").strip()
 		if text:
-			return text
+			return strip_html(text)
 	try:
 		from one_bpmn.agents.turn_state import get_turn
 
-		return str((get_turn(instance.context_docname) or {}).get("user_text") or "").strip()
+		return strip_html(str((get_turn(instance.context_docname) or {}).get("user_text") or ""))
 	except Exception:
 		return ""
+
+
+def _platform_history(instance, task_cfg: dict, raw_user_message: str) -> tuple[list, str]:
+	"""(prior messages, facts block) for a chat turn, also written to the turn store for tool scripts."""
+	from one_bpmn.agents.memory.turn_context import conversation_of, established_block, load_history
+	from one_bpmn.agents.turn_state import update_turn
+
+	conversation = conversation_of(instance)
+	if not conversation:
+		return [], ""
+	history = load_history(
+		conversation,
+		limit=frappe.utils.cint(task_cfg.get("aiContextMaxMessages")),
+		current_message=raw_user_message,
+	)
+	update_turn(conversation, chat_history=history)
+	return history, established_block(conversation)
 
 
 def _extract_memory_content(output, content_field: str) -> str:
@@ -1326,9 +1345,11 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 	"""
 	Send an email notification from a Service Task with serviceType='send_email'.
 
-	Recipient resolution (union of all three sources):
+	Recipient resolution (union of all four sources):
 	  - emailTo          : direct comma-separated email addresses
 	  - emailToDocFields : field names on the context doc that hold email addresses
+	  - emailToTableField: a child table on the context doc; each row names a
+	                       recipient in emailToTableUserField ("user" by default)
 	  - emailToRoles     : roles — all users holding those roles receive the email
 
 	Subject and Body support Jinja2 via frappe.render_template():
@@ -1384,7 +1405,14 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 				continue
 			recipients += _emails_from_doc_field(doc.get(field_name))
 
-	# 3. Role members — fetch all users with the configured roles
+	# 3. Rows of a Table or Table MultiSelect field, each naming a recipient
+	table_field = (task_cfg.get("emailToTableField") or "").strip()
+	if table_field and doc:
+		row_field = (task_cfg.get("emailToTableUserField") or "").strip() or "user"
+		for row in doc.get(table_field) or []:
+			recipients += _emails_from_doc_field(row.get(row_field))
+
+	# 4. Role members: fetch all users with the configured roles
 	raw_roles = task_cfg.get("emailToRoles", "")
 	if raw_roles:
 		for role_name in raw_roles.split(","):
@@ -1817,6 +1845,11 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				message=frappe.get_traceback(),
 			)
 
+	# A resumed segment already carries its transcript in the checkpoint.
+	turn_history, turn_established = ([], "") if resume_payload else _platform_history(
+		instance, task_cfg, raw_user_message
+	)
+
 	# WI-000401: skills loaded earlier in this conversation (load_skill wrote
 	# their bodies to a conversation-scoped cache) must actually reach the
 	# model's prompt on the NEXT turn, not just sit in a cache nothing reads.
@@ -1838,13 +1871,14 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			from one_bpmn.api.skill_tools import advance_turn
 			advance_turn(_conversation_for_skills)
 
-	if memory_block or user_message or active_skill_bodies:
+	if memory_block or user_message or turn_established or active_skill_bodies:
 		from one_bpmn.agents.context_assembler import build_dynamic_preamble
 
 		user_prompt = build_dynamic_preamble(
 			memory_block=memory_block,
 			instructions=user_prompt,
 			user_prompt=user_message,
+			established_block=turn_established,
 			active_skills=active_skill_bodies,
 		)
 
@@ -1966,6 +2000,15 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		tool_specs = None
 
 
+	# A stable instruction block belongs in the system role, which every
+	# provider caches. Anything the system prompt already says is dropped from
+	# the user prompt here, at assembly, so an agent stops paying for the same
+	# tokens on every turn without its diagram having to be re-exported.
+	if user_prompt and system_prompt:
+		from one_bpmn.agents.context_assembler import drop_duplicated_instructions
+
+		user_prompt = drop_duplicated_instructions(system_prompt, user_prompt)
+
 	config = ExecutorConfig(
 		backend          = task_cfg.get("aiBackend", "direct_api"),
 		# A shape (or a configuration) may name only the model — the provider
@@ -1977,6 +2020,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		model            = task_cfg.get("aiModel", ""),
 		system_prompt    = system_prompt,
 		user_prompt      = user_prompt,
+		# Prior turns go as real messages, so the cacheable prefix keeps its shape.
+		messages         = turn_history,
 		# Deferring to the shared defaults, not repeating numbers here:
 		# this line used to say 0.7 while the configuration form said 0.3, so
 		# the same agent behaved differently depending on which path ran it.
@@ -2038,25 +2083,34 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	if resume_payload:
 		try:
 			run = frappe.get_doc("AI Agent Run", resume_run)
-			# The human's answer is a real tool result — record it as a step
-			# BEFORE the resumed turns so the Run reads chronologically.
-			from one_bpmn.agents.observability import record_ai_step
+			# The resolved answer belongs on the Step that made the call,
+			# not a new one; a checkpoint with no pending_step falls back to
+			# a standalone step.
+			from one_bpmn.agents.observability import attach_resolved_call, record_ai_step
 			pending = (resume_payload.get("suspension") or {}).get("pending_call") or {}
 			human_result = _checkpoint.build_resume_state(resume_payload)["human_result"]
-			record_ai_step(
+			attached = attach_resolved_call(
+				resume_payload.get("pending_step") or "",
 				run,
-				# step_index is 1-based: with N steps recorded, the next is N+1
-				frappe.db.count("AI Agent Step", {"run": run.name}) + 1,
-				"tool",
+				pending.get("name") or "",
+				pending.get("arguments") or {},
 				human_result,
-				tool_calls=[{
-					"name": pending.get("name") or "",
-					"tool_source": "diagram_task",
-					"arguments": pending.get("arguments") or {},
-					"result": human_result,
-					"status": "Success",
-				}],
 			)
+			if not attached:
+				record_ai_step(
+					run,
+					# step_index is 1-based: with N steps recorded, the next is N+1
+					frappe.db.count("AI Agent Step", {"run": run.name}) + 1,
+					"tool",
+					human_result,
+					tool_calls=[{
+						"name": pending.get("name") or "",
+						"tool_source": "diagram_task",
+						"arguments": pending.get("arguments") or {},
+						"result": human_result,
+						"status": "Success",
+					}],
+				)
 		except Exception:
 			frappe.log_error(
 				title=f"AI Observability: resume run load error ({bpmn_id})",
@@ -2082,6 +2136,9 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	# ── Executor ───────────────────────────────────────────────────────
 	import time as _time
 	_exec_start = _time.time()
+
+	# Turns seeded from earlier segments are already Steps; count them before the executor runs.
+	already_recorded_turns = len((config.resume_state or {}).get("trace") or [])
 
 	# WI-001645: publish which agent is running so the tool-policy interceptor
 	# can apply that agent's tool grant — including for tools a Server Script
@@ -2152,23 +2209,6 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		instance._a2a_delegating_agent = _prev_delegating_agent
 	_exec_latency_ms = int((_time.time() - _exec_start) * 1000)
 
-	# ── Durable HITL: token totals are cumulative across suspensions ───
-	if resume_payload and result.token_usage:
-		result.token_usage.prompt_tokens += int(resume_payload.get("prompt_tokens_so_far") or 0)
-		result.token_usage.completion_tokens += int(resume_payload.get("completion_tokens_so_far") or 0)
-		# WI-001643: the cache breakdown must accumulate alongside the prompt
-		# total it is a breakdown OF — otherwise the final segment's small cache
-		# figures would be costed against every earlier segment's prompt tokens.
-		result.token_usage.cache_read_tokens += int(
-			resume_payload.get("cache_read_tokens_so_far") or 0
-		)
-		result.token_usage.cache_write_tokens += int(
-			resume_payload.get("cache_write_tokens_so_far") or 0
-		)
-		result.token_usage.total_tokens = (
-			result.token_usage.prompt_tokens + result.token_usage.completion_tokens
-		)
-
 	# ── Observability: record Steps + finalize ─────────────────────────
 	try:
 		from one_bpmn.agents.observability import record_ai_step, finalize_ai_run
@@ -2184,7 +2224,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				# turns are appended here.
 				from one_bpmn.agents.observability import record_selector_turns
 				source_map = {t.name: "diagram_task" for t in tool_specs}
-				record_selector_turns(run, result.trace or [], source_map)
+				record_selector_turns(
+					run, result.trace or [], source_map,
+					already_recorded=already_recorded_turns,
+				)
 			else:
 				record_ai_step(run, 1, "system", system_prompt)
 
@@ -2273,6 +2316,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# the engine wiring parks the service task and spawns the human task
 		# off this marker. No output/error variables, no retry consumed, no
 		# aiStopOnError: waiting for a person is not a failure.
+		from one_bpmn.agents.observability import latest_ordinary_step
+
 		run = _checkpoint.save_checkpoint(
 			run,
 			instance,
@@ -2281,10 +2326,9 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			system_prompt=system_prompt,
 			wf_task_id=str(getattr(task, "id", "") or ""),
 			human_row_id="",
-			prior_prompt_tokens=int((resume_payload or {}).get("prompt_tokens_so_far") or 0),
-			prior_completion_tokens=int((resume_payload or {}).get("completion_tokens_so_far") or 0),
-			prior_cache_read_tokens=int((resume_payload or {}).get("cache_read_tokens_so_far") or 0),
-			prior_cache_write_tokens=int((resume_payload or {}).get("cache_write_tokens_so_far") or 0),
+			# The Step the deferring turn was just written as - the next
+			# resume attaches its resolved answer here instead of a new Step.
+			pending_step=latest_ordinary_step(run.name) if run else "",
 		)
 		pending = (result.suspension or {}).get("pending_call") or {}
 		pending_name = pending.get("name") or ""
@@ -2542,7 +2586,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# Primarily for the multi-turn loop; when a backend is configured we
 		# record this single call's turns. process_variable uses the live task.
 		cs_backend = task_cfg.get("aiConversationStore") or ""
-		if cs_backend:
+		# A chat turn is already a Chat Message that the history step reads.
+		if cs_backend and getattr(instance, "context_doctype", "") != "Chat Conversation":
 			try:
 				from one_bpmn.agents.memory.conversation_store import get_conversation_store
 				store = get_conversation_store(cs_backend, task=task)

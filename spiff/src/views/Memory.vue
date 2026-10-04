@@ -143,7 +143,7 @@
 						<a
 							v-else
 							class="text-sm text-blue-700 hover:underline"
-							:href="`/app/ai-agent-run/${detail.source_run}`"
+							:href="`/processa/runs/${encodeURIComponent(detail.source_run)}`"
 							target="_blank"
 						>
 							The run that produced it

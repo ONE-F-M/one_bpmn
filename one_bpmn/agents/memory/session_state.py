@@ -114,7 +114,7 @@ def conversations_with(key: str, value=None) -> list[str]:
 
 # ── writing ─────────────────────────────────────────────────────────────────
 def set_state(conversation: str, values: dict, expected_version: int | None = None,
-              merge: bool = True) -> int:
+              merge: bool = True, commit: bool = True) -> int:
 	"""Write ``values`` and return the new version.
 
 	``expected_version`` is the version the caller read. A mismatch raises
@@ -131,7 +131,7 @@ def set_state(conversation: str, values: dict, expected_version: int | None = No
 	if not isinstance(values, dict):
 		frappe.throw(_("Session state values must be a dict."))
 
-	doc = _get_or_create(conversation)
+	doc = _get_or_create(conversation, commit=commit)
 	current = int(doc.version or 0)
 	if expected_version is not None and int(expected_version) != current:
 		raise StaleSessionState(
@@ -186,6 +186,31 @@ def clear_state(conversation: str) -> None:
 
 RECORD_RETRIES = 3
 
+# The session state key that says what the previous turn decided and produced.
+LAST_TURN_KEY = "last_turn"
+
+
+def record_turn_result(conversation: str, output, keys=(), **facts) -> int:
+	"""Record ``keys`` off the agent's output plus ``facts``, and a one-line ``last_turn`` summary."""
+	values = {}
+	output = output if isinstance(output, dict) else {}
+	for key in keys:
+		if output.get(key) not in (None, "", [], {}):
+			values[key] = output[key]
+	for key, value in facts.items():
+		if value not in (None, "", [], {}):
+			values[key] = value
+	if output:
+		produced = sorted(
+			k for k, v in output.items()
+			if k not in ("intent", "response", "options") and v not in (None, "", [], {})
+		)
+		summary = str(output.get("intent") or "answered")
+		if produced:
+			summary += " (produced: " + ", ".join(produced) + ")"
+		values[LAST_TURN_KEY] = summary
+	return record(conversation, values)
+
 
 def record(conversation: str, values: dict, retries: int = RECORD_RETRIES) -> int:
 	"""Write decisions, re-reading and re-applying if another turn got there first.
@@ -222,7 +247,7 @@ def record(conversation: str, values: dict, retries: int = RECORD_RETRIES) -> in
 	return 0
 
 
-def _get_or_create(conversation: str):
+def _get_or_create(conversation: str, commit: bool = True):
 	"""The state row for a conversation, created on first write.
 
 	The doctype is named AFTER its conversation, so two turns creating it at the
@@ -239,9 +264,12 @@ def _get_or_create(conversation: str):
 		doc.insert(ignore_permissions=True)
 		# Published immediately so a concurrent creator collides with a row it
 		# can see, rather than blocking on an invisible one.
-		frappe.db.commit()
+		if commit:
+			frappe.db.commit()
 	except Exception:
 		frappe.db.rollback(save_point="session_state_create")
+		if not commit:
+			raise
 		# Under REPEATABLE READ this transaction's snapshot predates the winner,
 		# so a plain re-read would still not find it. Commit for a fresh one.
 		frappe.db.commit()

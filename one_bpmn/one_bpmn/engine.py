@@ -229,29 +229,29 @@ def get_serializer() -> BpmnWorkflowSerializer:
 # Permission guard — patterns scripts must never contain
 # ─────────────────────────────────────────────────────────────
 
-_FORBIDDEN_SCRIPT_PATTERNS = (
-	"frappe.set_user",
-	"frappe.flags.ignore_permissions",
-)
-
-
 def _check_script_permissions(script_text: str, label: str) -> None:
-	"""
-	Reject scripts that attempt to bypass Frappe permission controls.
+	"""Run the save-time AST validator again right before exec() and throw on any violation.
 
-	Called before exec() for both Server Script tasks and inline <bpmn:script>
-	tasks.  Raises frappe.ValidationError if a forbidden pattern is found.
+	Shared by Server Script tasks, inline <bpmn:script> tasks and run_logix_test_case.
 	"""
 	try:
 		import frappe as _f
 	except ImportError:
 		return
-	for pattern in _FORBIDDEN_SCRIPT_PATTERNS:
-		if pattern in (script_text or ""):
-			_f.throw(
-				f'BPMN Script "{label}": scripts may not use `{pattern}`. '
-				f"Tasks must run under the user's permission context."
+
+	from one_bpmn.security.script_validator import deep_inspect_script
+
+	violations = deep_inspect_script(script_text or "")
+	if violations:
+		_f.log_error(
+			title=f'BPMN Script "{label}": execution blocked',
+			message="\n".join(violations),
+		)
+		_f.throw(
+			_f._('BPMN Script "{0}" was blocked before it ran: {1} ({2} issue(s) in total)').format(
+				label, violations[0], len(violations)
 			)
+		)
 
 
 # ─────────────────────────────────────────────────────────────

@@ -525,6 +525,10 @@ def _extract_bpmn_references(xml_content: str) -> dict:
 					if field:
 						referenced_fields.append((email_dt, field))
 
+				table_field = attrs.get("emailToTableField", "").strip()
+				if table_field:
+					referenced_fields.append((email_dt, table_field))
+
 				cc_fields = attrs.get("emailCcDocFields", "")
 				for field in cc_fields.split(","):
 					field = field.strip()

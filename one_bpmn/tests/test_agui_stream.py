@@ -326,6 +326,7 @@ class TestBpmnMapResumeRearm(FrappeTestCase):
 			patch("one_bpmn.api.server_script_api.delegate_chat_turn", side_effect=fake_delegate),
 			patch("one_bpmn.one_bpmn.trigger._maybe_start_instance", side_effect=rearm) as spawn,
 			patch("frappe.get_doc", return_value=object()),
+			patch("frappe.log_error"),
 		):
 			from one_bpmn.api.agent_invocation import _run_bpmn_map
 

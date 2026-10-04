@@ -16,7 +16,7 @@ import frappe
 
 # ── Conversation management ────────────────────────────────────────────────────
 
-def create_conversation(agent_mode: str, title: str, user: str) -> str:
+def create_conversation(agent_mode: str, title: str, user: str, commit: bool = True) -> str:
 	"""Create a new Chat Conversation document and return its name.
 
 	Mirrors the pattern used by Lumina's ``create_conversation()`` but
@@ -31,11 +31,12 @@ def create_conversation(agent_mode: str, title: str, user: str) -> str:
 		"last_updated": frappe.utils.now_datetime(),
 	})
 	doc.insert(ignore_permissions=True)
-	frappe.db.commit()
+	if commit:
+		frappe.db.commit()
 	return doc.name
 
 
-def create_agent_conversation(agent_id: str, title: str = None, user: str = None) -> str:
+def create_agent_conversation(agent_id: str, title: str = None, user: str = None, commit: bool = True) -> str:
 	"""Create a Chat Conversation for an agent purely from its configuration
 	(WI-001619).
 
@@ -55,6 +56,7 @@ def create_agent_conversation(agent_id: str, title: str = None, user: str = None
 		agent_mode=config.get("chat_mode_label") or agent_id,
 		title=title or frappe._("New chat"),
 		user=user or frappe.session.user,
+		commit=commit,
 	)
 
 

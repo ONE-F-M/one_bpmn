@@ -1,6 +1,9 @@
 <template>
 	<Teleport to="body">
-		<div class="dc-overlay" @click.self="close">
+		<div
+			v-show="open"
+			class="dc-overlay"
+		>
 			<div class="dc-window">
 
 				<!-- Window header -->
@@ -10,7 +13,16 @@
 						<span class="dc-subtitle">DocType Builder</span>
 						<span v-if="dtName" class="dc-dt-chip" :title="dtName">{{ dtName }}</span>
 					</div>
-					<button class="dc-icon-btn" @click="close" title="Close">✕</button>
+					<button
+						class="dc-icon-btn"
+						title="Close"
+						@click="emit('close')"
+					>
+						<Icon
+							icon="lucide:x"
+							class="w-4 h-4"
+						/>
+					</button>
 				</div>
 
 				<div class="dc-root">
@@ -410,6 +422,7 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
 import { frappeRequest } from "frappe-ui";
+import { Icon } from "@iconify/vue";
 import draggable from "vuedraggable";
 // WI-001676: the chat half is the shared panel; schemas arrive as cards.
 import { AgentChatPanel } from "@/components/chat";
@@ -421,6 +434,7 @@ const props = defineProps({
 	doctype:        { type: String, default: "" },
 	attr:           { type: String, default: "" },
 	processContext: { type: Object, default: null },
+	open:           { type: Boolean, default: true },
 });
 const emit = defineEmits(["close", "applied"]);
 
@@ -481,10 +495,6 @@ function previewPlaceholder(df) {
 	if (t === "Color") return "Choose a color";
 	return "";
 }
-
-// ── Chat (WI-001676: the shared AgentChatPanel owns transcript, composer,
-//     conversation lifecycle and history — see @/components/chat) ─────────
-const conversationName = ref(null);   // mirrored from the panel for close()
 
 // ── DocType state ──────────────────────────────────────────────────────
 const dtName     = ref(props.doctype || "");
@@ -1229,18 +1239,11 @@ function stopPolling() {
 	window.removeEventListener("keydown", onGlobalKeydown, true);
 }
 
-function close() {
-	stopPolling();
-	// Hand control to the process map's close branch (Cleanup → Conversation Ended).
-	if (conversationName.value) {
-		frappeRequest({
-			url: "/api/method/one_bpmn.api.server_script_api.end_chat_conversation",
-			method: "POST",
-			params: { conversation_name: conversationName.value },
-		}).catch(() => {});
-	}
-	emit("close");
-}
+// Undo/redo shortcuts belong to the diagram while the canvas is hidden.
+watch(() => props.open, (open) => {
+	if (open) window.addEventListener("keydown", onGlobalKeydown, true);
+	else window.removeEventListener("keydown", onGlobalKeydown, true);
+});
 
 onBeforeUnmount(stopPolling);
 

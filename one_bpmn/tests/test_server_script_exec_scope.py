@@ -72,3 +72,122 @@ class TestServerScriptExecScope(FrappeTestCase):
 		engine._run_frappe_server_script(name, task)
 		self.assertEqual(task.data["cleaned"], "x")
 		self.assertTrue(task.data["flagged"])
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Security: the runtime gate (_check_script_permissions) must block the same
+# permission-bypass constructs regardless of how they are spelled — not only
+# the two literal substrings ("frappe.set_user", "frappe.flags.ignore_permissions")
+# the old blocklist looked for. Each test below is a distinct evasion
+# technique that a plain substring check would miss but the AST-based
+# structural gate (one_bpmn.security.script_validator.deep_inspect_script)
+# catches by the *shape* of the code.
+# ─────────────────────────────────────────────────────────────────────────
+
+_GETATTR_INDIRECTION = """
+fn = getattr(frappe, "set_" + "user")
+fn("Administrator")
+"""
+
+_STRING_CONCAT_KWARGS = """
+doc = frappe.get_doc(context_doctype, context_docname)
+key = "ignore_" + "permissions"
+doc.save(**{key: True})
+"""
+
+_LOCAL_FLAGS_IGNORE_PERMISSIONS = """
+frappe.local.flags.ignore_permissions = True
+result["done"] = True
+"""
+
+_DYNAMIC_IMPORT = """
+mod = __import__("os")
+mod.system("id")
+"""
+
+_FLAGS_UPDATE = """
+frappe.flags.update({"ignore_" + "permissions": True})
+result["done"] = True
+"""
+
+_SESSION_USER_ASSIGN = """
+frappe.session.user = "Administrator"
+result["done"] = True
+"""
+
+
+class TestServerScriptExecutionGateHardening(FrappeTestCase):
+	"""Runtime-gate bypass attempts — each must be blocked before exec()."""
+
+	def _script(self, name, body):
+		if frappe.db.exists("Server Script", name):
+			frappe.delete_doc("Server Script", name, force=True)
+		frappe.get_doc(
+			{
+				"doctype": "Server Script",
+				"name": name,
+				"script_type": "API",
+				"api_method": name.lower().replace(" ", "_"),
+				"script": body,
+			}
+		).insert(ignore_permissions=True)
+		self.addCleanup(
+			lambda: frappe.db.exists("Server Script", name)
+			and frappe.delete_doc("Server Script", name, force=True)
+		)
+		return name
+
+	def test_getattr_indirection_bypass_is_blocked(self):
+		"""getattr(frappe, "set_" + "user") never spells the banned literal
+		"frappe.set_user" as a substring, so the old blocklist let it run."""
+		name = self._script("ZZ Gate Getattr Indirection", _GETATTR_INDIRECTION)
+		engine = _make_script_engine()
+		task = _FakeTask({})
+		with self.assertRaises(frappe.ValidationError):
+			engine._run_frappe_server_script(name, task)
+
+	def test_string_concatenation_kwargs_bypass_is_blocked(self):
+		"""**{"ignore_" + "permissions": True} never contains the literal
+		substring "frappe.flags.ignore_permissions" the old check looked for."""
+		name = self._script("ZZ Gate String Concat Kwargs", _STRING_CONCAT_KWARGS)
+		engine = _make_script_engine()
+		task = _FakeTask({})
+		with self.assertRaises(frappe.ValidationError):
+			engine._run_frappe_server_script(name, task)
+
+	def test_frappe_local_flags_ignore_permissions_bypass_is_blocked(self):
+		"""frappe.local.flags.ignore_permissions = True is a different attribute
+		chain than frappe.flags.ignore_permissions, so the substring check
+		(looking for the exact text "frappe.flags.ignore_permissions") missed it."""
+		name = self._script(
+			"ZZ Gate Local Flags Ignore Permissions", _LOCAL_FLAGS_IGNORE_PERMISSIONS
+		)
+		engine = _make_script_engine()
+		task = _FakeTask({})
+		with self.assertRaises(frappe.ValidationError):
+			engine._run_frappe_server_script(name, task)
+
+	def test_dynamic_import_bypass_is_blocked(self):
+		"""__import__("os") loads a forbidden module dynamically, bypassing an
+		`import os` statement a naive check might look for at the top of the file."""
+		name = self._script("ZZ Gate Dynamic Import", _DYNAMIC_IMPORT)
+		engine = _make_script_engine()
+		task = _FakeTask({})
+		with self.assertRaises(frappe.ValidationError):
+			engine._run_frappe_server_script(name, task)
+
+	def test_flags_update_bypass_is_blocked(self):
+		"""frappe.flags.update() sets ignore_permissions without an attribute node named after it."""
+		name = self._script("ZZ Gate Flags Update", _FLAGS_UPDATE)
+		engine = _make_script_engine()
+		task = _FakeTask({})
+		with self.assertRaises(frappe.ValidationError):
+			engine._run_frappe_server_script(name, task)
+
+	def test_session_user_assignment_bypass_is_blocked(self):
+		"""Assigning frappe.session.user impersonates another user without calling set_user."""
+		name = self._script("ZZ Gate Session User Assign", _SESSION_USER_ASSIGN)
+		engine = _make_script_engine()
+		task = _FakeTask({})
+		with self.assertRaises(frappe.ValidationError):
+			engine._run_frappe_server_script(name, task)

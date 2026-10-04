@@ -9,6 +9,7 @@
 import { TextAreaEntry } from "@bpmn-io/properties-panel";
 import { Component, h } from "preact";
 
+import { serverMessage } from "@/utils/serverMessage";
 import { frappePost } from "./frappeResource";
 
 // The only panel field the linked configuration also stores. Everything else
@@ -48,14 +49,6 @@ function syncToConfig(config, attr, value, onResult) {
 				.catch((e) => onResult && onResult(serverMessage(e)));
 		}, SYNC_DELAY_MS)
 	);
-}
-
-// frappe-ui falls back to "<url> <ExceptionClass>" when it finds no friendlier
-// text — prefer the server's own message, same as the task dialog does.
-function serverMessage(e) {
-	const msgs = Array.isArray(e?.messages) ? e.messages.filter(Boolean) : [];
-	const raw = msgs.join("\n") || e?.message || "Unknown error";
-	return raw.replace(/<[^>]*>/g, "").trim();
 }
 
 /**

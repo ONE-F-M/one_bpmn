@@ -240,6 +240,37 @@ class TestDispatchEmail(BaseBPMNHelperTest):
 
 		self.assertFalse(sendemail.called)
 
+	def _send_to_table(self, cfg, rows, table_field="custom_assigned_to"):
+		inst = make_instance(context_doctype="Task", context_docname="TASK-1")
+		doc = frappe._dict({table_field: [frappe._dict(r) for r in rows]})
+		patcher, sendemail = self._patched_sendemail()
+		with patcher, patch.object(frappe, "get_doc", return_value=doc):
+			call_dispatch_email(inst, FakeTask(), {"emailSubject": "Hi", "emailBody": "x", **cfg})
+		return sendemail.call_args.kwargs["recipients"] if sendemail.called else []
+
+	def test_every_row_of_a_table_field_is_a_recipient(self):
+		recipients = self._send_to_table(
+			{"emailToTableField": "custom_assigned_to"},
+			[{"user": "a@x.com"}, {"user": ""}, {"user": "b@x.com"}],
+		)
+		self.assertEqual(recipients, ["a@x.com", "b@x.com"])
+
+	def test_the_row_user_field_is_configurable(self):
+		"""Department's approver tables call the column `approver`, not `user`."""
+		recipients = self._send_to_table(
+			{"emailToTableField": "leave_approvers", "emailToTableUserField": "approver"},
+			[{"approver": "c@x.com"}],
+			table_field="leave_approvers",
+		)
+		self.assertEqual(recipients, ["c@x.com"])
+
+	def test_table_rows_join_the_other_recipients_once(self):
+		recipients = self._send_to_table(
+			{"emailTo": "a@x.com", "emailToTableField": "custom_assigned_to"},
+			[{"user": "a@x.com"}, {"user": "b@x.com"}],
+		)
+		self.assertEqual(recipients, ["a@x.com", "b@x.com"])
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # google_chat dispatcher (guard / validation behavior)

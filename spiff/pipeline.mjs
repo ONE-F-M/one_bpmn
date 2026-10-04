@@ -1365,6 +1365,15 @@ function auditLayout(xml) {
     const id = attr(m[1], 'id'), name = attr(m[1], 'name');
     if (id && name) names.set(id, name);
   }
+  // Which subprocesses each flow is declared inside, read from the element nesting.
+  const within = new Map(), open = [];
+  for (const m of xml.matchAll(/<(\/?)bpmn2?:(subProcess|adHocSubProcess|transaction|sequenceFlow|association)\b([^>]*?)(\/?)>/g)) {
+    const [, closing, tag, attrs, selfClosing] = m;
+    if (tag === 'sequenceFlow' || tag === 'association') {
+      if (!closing) within.set(attr(attrs, 'id'), [...open].reverse());
+    } else if (closing) open.pop();
+    else if (!selfClosing) open.push(attr(attrs, 'id'));
+  }
   const shapes = [], edges = [];
   for (const m of xml.matchAll(/<bpmndi:BPMNShape\b([^>]*)>([\s\S]*?)<\/bpmndi:BPMNShape>/g)) {
     const id = attr(m[1], 'bpmnElement');
@@ -1376,7 +1385,7 @@ function auditLayout(xml) {
     const id = attr(m[1], 'bpmnElement');
     const pts = [...m[2].matchAll(/<di:waypoint\s+x="([\d.-]+)"\s+y="([\d.-]+)"/g)].map(w => [+w[1], +w[2]]);
     const [src, tgt] = ends.get(id) || [null, null];
-    edges.push({ id, name: names.get(id) || id, pts, src, tgt, label: labelBounds(m[2]) });
+    edges.push({ id, name: names.get(id) || id, pts, src, tgt, within: within.get(id) || [], label: labelBounds(m[2]) });
   }
   const r = auditGeometry({ shapes, edges });
   const nm = (id) => names.get(id) || id;
