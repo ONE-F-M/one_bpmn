@@ -24,13 +24,14 @@
   "column_break_llm",
   "temperature",
   "max_tokens",
-  "tool_result_max_chars",
-  "tool_choice",
-  "parallel_tool_calls",
   "thinking_budget_tokens",
-  "terminal_tools",
   "run_token_budget",
   "run_cost_budget",
+  "column_break_llm_tools",
+  "tool_choice",
+  "parallel_tool_calls",
+  "terminal_tools",
+  "tool_result_max_chars",
   "prompt_section",
   "required_variables",
   "required_variables_html",
@@ -87,6 +88,7 @@
   "security_section",
   "pii_screening",
   "output_screening_mode",
+  "column_break_security",
   "injection_screening",
   "injection_action",
   "section_rate_limit",
@@ -267,6 +269,10 @@
    "fieldname": "run_cost_budget",
    "fieldtype": "Currency",
    "label": "Run Cost Budget"
+  },
+  {
+   "fieldname": "column_break_llm_tools",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "prompt_section",
@@ -502,6 +508,10 @@
    "fieldtype": "Select",
    "label": "Output Screening Mode",
    "options": "Log\nFlag\nBlock"
+  },
+  {
+   "fieldname": "column_break_security",
+   "fieldtype": "Column Break"
   },
   {
    "default": "Enabled",
@@ -868,7 +878,7 @@
    "link_fieldname": "agent_configuration"
   }
  ],
- "modified": "2026-10-03 14:00:00.000000",
+ "modified": "2026-10-05 17:30:00.000000",
  "modified_by": "c.akeru@one-fm.com",
  "module": "ONE BPMN",
  "name": "AI Agent Configuration",
