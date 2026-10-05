@@ -112,8 +112,18 @@ function uid(prefix) { return `${prefix}_${++_seq}`; }
 // distinguish them from explicitly modelled gateways.
 
 function normalizeGateways(ir) {
-  let nodes = ir.nodes.map(n => ({ ...n }));
-  let flows = ir.flows.map(f => ({ ...f }));
+  // A model that gives several shapes one id has drawn one node: flows name nodes by id,
+  // so there is no telling which copy a flow meant. Keep the first, and drop flows that
+  // the merge has made identical, or the passes below repoint each copy separately.
+  const seenNodes = new Set();
+  let nodes = ir.nodes.filter(n => !seenNodes.has(n.id) && seenNodes.add(n.id)).map(n => ({ ...n }));
+  const seenFlows = new Set();
+  let flows = ir.flows
+    .filter(f => {
+      const key = JSON.stringify([f.from, f.to, f.condition || '', !!f.default, f.name || '']);
+      return !seenFlows.has(key) && seenFlows.add(key);
+    })
+    .map(f => ({ ...f }));
 
   // ── Fan-out pass ──
   {

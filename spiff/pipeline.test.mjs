@@ -193,3 +193,28 @@ test('a diagram with no configured task declares no spiffworkflow namespace', ()
   assert.equal(r.ok, true, JSON.stringify(r.problems));
   assert.equal(r.xml.includes('spiffworkflow'), false);
 });
+
+test('shapes that share an id are one node, so every reject path can lead to the same step', () => {
+  const node = (id, type, name) => ({ id, type, name });
+  const reject = { id: 'set_rejected', type: 'serviceTask', name: 'Set Rejected' };
+  const ir = {
+    process_name: 'Shared Reject',
+    nodes: [
+      node('start', 'startEvent', 'Start'),
+      node('t1', 'userTask', 'Manager Review'), node('g1', 'exclusiveGateway', 'Approved by manager?'),
+      node('t2', 'userTask', 'HR Review'), node('g2', 'exclusiveGateway', 'Approved by HR?'),
+      reject, reject,
+      node('end_ok', 'endEvent', 'Approved'), node('end_rej', 'endEvent', 'Rejected'),
+    ],
+    flows: [
+      { from: 'start', to: 't1' }, { from: 't1', to: 'g1' },
+      { from: 'g1', to: 't2', condition: "action == 'Approve'" }, { from: 'g1', to: 'set_rejected', default: true },
+      { from: 't2', to: 'g2' },
+      { from: 'g2', to: 'end_ok', condition: "action == 'Approve'" }, { from: 'g2', to: 'set_rejected', default: true },
+      { from: 'set_rejected', to: 'end_rej' }, { from: 'set_rejected', to: 'end_rej' },
+    ],
+  };
+  const out = run(ir);
+  assert.equal(out.ok, true, JSON.stringify(out.errors || out.problems));
+  assert.equal((out.xml || out.bpmn_xml).match(/id="set_rejected"/g).length, 1);
+});
