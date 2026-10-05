@@ -2,12 +2,7 @@ import { h, Component } from "preact";
 import { fixedDropdownStyle } from "./dropdownPosition";
 import { filterRecords } from "./recordFilter";
 import { CHECK, CHEVRON, CLOSE, PLUS, dot, icon } from "./recordIcons";
-
-// The server's readable text is in messages, and it carries HTML such as <strong>.
-export function serverErrorText(err) {
-	const message = (err && ((err.messages && err.messages[0]) || err.message)) || "";
-	return new DOMParser().parseFromString(message, "text/html").body.textContent;
-}
+import { serverMessage } from "@/utils/serverMessage";
 
 /**
  * A searchable field for picking a record by name, with "Create" for a name that does not exist.
@@ -90,7 +85,7 @@ export class RecordCombobox extends Component {
 		try {
 			this.added({ name: await createRecord(name) });
 		} catch (err) {
-			this.setState({ creating: false, open: false, error: serverErrorText(err) });
+			this.setState({ creating: false, open: false, error: serverMessage(err) });
 		}
 	}
 
