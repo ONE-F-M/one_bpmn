@@ -11,9 +11,9 @@ Nothing the command runs is allowed to leave a trace: no Server Script,
 AI Agent Run, BPMN Process Instance, Error Log or Communication count may
 change, and frappe.enqueue must never be called.
 
-``run_check()`` is exercised directly (the piece that does the actual work)
-rather than the click command, which only adds ``frappe.init``/``connect``/
-``destroy`` around it - a test process is already connected to a site.
+Most tests call ``run_check()`` directly. The command tests run the click
+command through CliRunner with ``frappe.init``/``connect``/``set_user``/``destroy``
+patched, because the test process is already connected to a site.
 """
 
 from __future__ import annotations
@@ -22,9 +22,10 @@ import json
 from unittest.mock import patch
 
 import frappe
+from click.testing import CliRunner
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.commands.agent_tools import _is_real_failure, run_check
+from one_bpmn.commands.agent_tools import _is_real_failure, check_agent_tools, run_check
 
 BAD_IMPORT_SCRIPT = "import this_module_does_not_exist_anywhere\nresult['x'] = 1\n"
 THROWS_SCRIPT = "raise ValueError('deliberately broken input')\n"
@@ -57,6 +58,16 @@ def _make_script(name, body):
 
 def _failures_for(failures, model_title):
 	return [line for line in failures if line.startswith(f"FAIL {model_title} / ")]
+
+
+def _invoke_command():
+	with (
+		patch("frappe.init"),
+		patch("frappe.connect"),
+		patch("frappe.set_user"),
+		patch("frappe.destroy"),
+	):
+		return CliRunner().invoke(check_agent_tools, obj={"sites": [frappe.local.site], "profile": False})
 
 
 def _make_model(title, process_id, tool_shapes, is_active=1, shape_configs=None):
@@ -226,3 +237,39 @@ class TestCheckAgentToolsCommand(FrappeTestCase):
 			frappe.delete_doc(
 				"BPMN Process Model", self.connector_model_name, force=True, ignore_permissions=True
 			)
+
+	def test_command_exits_1_and_names_the_broken_tool(self):
+		result = _invoke_command()
+		self.assertEqual(result.exit_code, 1, result.output)
+		self.assertIn(
+			f"FAIL {self.model_name} / Agent_1 / bad_import_tool: ModuleNotFoundError", result.output
+		)
+		self.assertIn("tools checked", result.output)
+
+	def test_command_exits_0_when_no_tool_is_broken(self):
+		active = frappe.get_all("BPMN Process Model", filters={"is_active": 1}, pluck="name")
+		try:
+			for name in active:
+				frappe.db.set_value("BPMN Process Model", name, "is_active", 0)
+			_make_model(
+				self.isolated_model_name,
+				"zz_check_agent_tools_isolated",
+				[
+					{
+						"bpmn_id": "fine_tool",
+						"description": "Runs cleanly.",
+						"serverScript": "ZZ Check Agent Tools Fine",
+					}
+				],
+			)
+			result = _invoke_command()
+			self.assertEqual(result.exit_code, 0, result.output)
+			self.assertNotIn("FAIL ", result.output)
+			self.assertIn("1 tools checked, 0 failed, 0 skipped", result.output)
+		finally:
+			for name in active:
+				frappe.db.set_value("BPMN Process Model", name, "is_active", 1)
+			if frappe.db.exists("BPMN Process Model", self.isolated_model_name):
+				frappe.delete_doc(
+					"BPMN Process Model", self.isolated_model_name, force=True, ignore_permissions=True
+				)
