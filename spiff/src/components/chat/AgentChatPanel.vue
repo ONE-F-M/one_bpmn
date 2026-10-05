@@ -90,7 +90,7 @@
 				<div v-if="item.ts" class="acp-time" :class="{ 'acp-time--user': item.kind === 'user' }">{{ formatTime(item.ts) }}</div>
 			</template>
 
-			<div v-if="busy" class="acp-thinking">{{ runningToolLabel || (streamingText ? "" : __("Thinking…")) }}</div>
+			<div v-if="busy" class="acp-thinking">{{ progressNote || runningToolLabel || (streamingText ? "" : __("Thinking…")) }}</div>
 			<div v-if="streamingText" class="acp-msg acp-msg--agent" v-html="renderMarkdown(streamingText)" />
 			<div v-if="statusLine" class="acp-status">
 				<span class="acp-dot" :class="{ 'acp-dot--err': status === 'error' }" />{{ statusLine }}
@@ -266,6 +266,8 @@ const streamingRole = ref("assistant");
 // doing instead of sitting on "Thinking…". Cleared when the tool ends and
 // again when the turn does, because a stream can close mid-tool.
 const runningTool = ref("");
+// "Still working on your last message…" from a long turn; shown until the turn's next event.
+const progressNote = ref("");
 // The bubble the last TEXT_MESSAGE_END closed, until the next event says
 // whether it was the reply or notes before a tool call.
 let endedItem = null;
@@ -650,6 +652,7 @@ async function send(text, extraContext = null, reuseId = null) {
 			streamingMessageId.value = "";
 			streamingRole.value = "assistant";
 			runningTool.value = "";
+			progressNote.value = "";
 			busy.value = false;
 			if (status.value !== "error") status.value = "done";
 			activeStream = null;
@@ -680,6 +683,7 @@ function handleEvent(event) {
 		streamingRole.value = event.role || "assistant";
 	} else if (type === "TEXT_MESSAGE_CONTENT") {
 		endedItem = null;
+		progressNote.value = "";
 		streamingText.value += event.delta || "";
 		if (!streamingMessageId.value) {
 			streamingMessageId.value = event.messageId || event.message_id || "";
@@ -705,8 +709,10 @@ function handleEvent(event) {
 		}
 		endedItem = null;
 		runningTool.value = event.toolCallName || event.tool_call_name || "";
+		progressNote.value = "";
 	} else if (type === "TOOL_CALL_END") {
 		runningTool.value = "";
+		progressNote.value = "";
 	} else if (type === "CUSTOM") {
 		handleCustom(event.name || "", event.value || {});
 	}
@@ -719,6 +725,10 @@ function handleCustom(name, value) {
 	// agent on the open shape). Emitted before transcript handling so a host
 	// reaction can never depend on how (or whether) the event renders.
 	emit("agent-event", { name, value });
+	if (name === "onefm.turn_progress") {
+		progressNote.value = value.text || "";
+		return;
+	}
 	// flush any streamed text so events land after the words they follow
 	if (streamingText.value) {
 		items.value.push(agentItem(streamingText.value));
