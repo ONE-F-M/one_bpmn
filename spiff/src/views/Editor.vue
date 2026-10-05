@@ -1127,6 +1127,7 @@ import ReadinessChecklistDialog from "@/components/ReadinessChecklistDialog.vue"
 import ExportConfigDialog from "@/components/ExportConfigDialog.vue";
 import ConfigImportResultsDialog from "@/components/ConfigImportResultsDialog.vue";
 import { sanitiseFilename } from "@/utils/downloadBpmn";
+import { serverMessage } from "@/utils/serverMessage";
 import { useNotificationDialog } from "@/composables/useNotificationDialog";
 import { useWindowSize } from "@/composables/useWindowSize";
 import { dayjs } from "@/dayjs";
@@ -2487,11 +2488,7 @@ async function saveCurrentDiagram() {
 		// Surface the server-thrown message (e.g. the script-security gate's
 		// summary) rather than the generic HTTP/ValidationError string. Keep it
 		// on screen (stay) since a blocked save needs the author's attention.
-		const serverMsg =
-			(error.messages && error.messages.length > 0)
-				? error.messages.join("\n")
-				: (error.message || String(error));
-		showNotification("Couldn't Save Process", serverMsg, "red", true);
+		showNotification("Couldn't Save Process", serverMessage(error), "red", true);
 	} finally {
 		saving.value = false;
 	}
