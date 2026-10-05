@@ -235,7 +235,7 @@ export class RecordCombobox extends Component {
 						creating
 							? h("span", null, translate("Creating…"))
 							: canCreate && typed
-							? h("span", null, [translate("Create"), " ", h("strong", null, `“${query.trim()}”`)])
+							? h("span", null, [`${translate("Create")} ${this.props.recordLabel} `, h("strong", null, `“${query.trim()}”`)])
 							: h("span", null, newLabel),
 					]
 				),

@@ -801,9 +801,10 @@ function ActionRowComponent({ row, idx, translate, onUpdate, onRemove }) {
 				onChange: (name) => onUpdate(idx, "action", name),
 				loadOptions: loadActions,
 				createRecord: createAction,
-				placeholder: translate("Choose or type an action"),
-				emptyText: translate("No action matches"),
-				missingText: translate("Not a Workflow Action yet, so deploy will flag it."),
+				recordLabel: translate("Workflow Action Master"),
+				placeholder: translate("Choose or type a Workflow Action Master"),
+				emptyText: translate("No Workflow Action Master matches"),
+				missingText: translate("Not a Workflow Action Master yet, so deploy will flag it."),
 			})
 		),
 

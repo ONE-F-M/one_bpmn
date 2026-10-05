@@ -30,6 +30,7 @@ export function WorkflowStateField({ id, label, value, translate, onChange }) {
 		onChange,
 		showDots: true,
 		loadOptions: loadStates,
+		recordLabel: translate("Workflow State"),
 		placeholder: translate("Choose a state, or type a new one"),
 		emptyText: translate("No state matches"),
 		newLabel: translate("New workflow state"),
