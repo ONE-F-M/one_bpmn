@@ -1,12 +1,13 @@
 import { SelectEntry, isSelectEntryEdited } from "@bpmn-io/properties-panel";
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
-import { h, Component } from "preact";
+import { h } from "preact";
 import { frappeGet, frappePost } from "../shared/frappeResource";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
 import { decodeHtmlAttr } from "../shared/htmlAttrCodec";
 import { makeLaunchDocuButton } from "../shared/launchDocuButton";
+import { RecordCombobox } from "../shared/RecordCombobox";
 import { createWorkflowActionMaster } from "./workflowActionCreate";
 
 // Helpers
@@ -762,213 +763,86 @@ function TaskActionsTableComponent(props) {
  *   - Require Digital Signature checkbox
  *   - Remove button
  */
-class ActionRowComponent extends Component {
-	constructor(props) {
-		super(props);
-		this.state = {
-			inputText: props.row.action || "",
-			options: [],
-			isOpen: false,
-			loading: false,
-			creating: false,
-			createError: "",
-		};
-		this.containerRef  = null;
-		this.debounceTimer = null;
-		this.handleDocClick = this.handleDocClick.bind(this);
-	}
+// Workflow Action Master names, loaded once per page and shared by every action row; a created one is appended.
+let ACTIONS = null;
+let ACTIONS_LOADING = null;
 
-	componentDidMount() {
-		document.addEventListener("mousedown", this.handleDocClick);
-	}
-
-	componentWillUnmount() {
-		document.removeEventListener("mousedown", this.handleDocClick);
-		if (this.debounceTimer) clearTimeout(this.debounceTimer);
-	}
-
-	handleDocClick(e) {
-		if (this.containerRef && !this.containerRef.contains(e.target)) {
-			this.setState({ isOpen: false });
-		}
-	}
-
-	componentDidUpdate(prevProps) {
-		// Sync input text when the action name changes externally (undo/redo)
-		if (prevProps.row.action !== this.props.row.action) {
-			this.setState({ inputText: this.props.row.action || "" });
-		}
-	}
-
-	fetchOptions(txt) {
-		this.setState({ loading: true });
-		const params = {
+function loadActions() {
+	if (!ACTIONS_LOADING) {
+		ACTIONS_LOADING = frappeGet("/api/resource/Workflow Action Master", {
 			fields: '["name"]',
-			limit_page_length: 50,
+			limit_page_length: 0,
 			order_by: "name asc",
-		};
-		if (txt) {
-			params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
-		}
-		frappeGet("/api/resource/Workflow Action Master", params)
-			.then((list) => {
-				this.setState({ options: list || [], loading: false, isOpen: true });
-			})
-			.catch(() => this.setState({ loading: false }));
+		}).then((rows) => {
+			ACTIONS = Array.isArray(rows) ? rows : [];
+		});
 	}
+	return ACTIONS_LOADING.then(() => ACTIONS);
+}
 
-	onInput(e) {
-		const val = e.target.value;
-		this.setState({ inputText: val, createError: "" });
-		if (this.debounceTimer) clearTimeout(this.debounceTimer);
-		this.debounceTimer = setTimeout(() => this.fetchOptions(val), 300);
-	}
+function createAction(name) {
+	return createWorkflowActionMaster(frappePost, name).then((created) => {
+		ACTIONS = [...(ACTIONS || []), { name: created }];
+		return created;
+	});
+}
 
-	onFocus() {
-		this.fetchOptions(this.state.inputText);
-	}
-
-	selectOption(name) {
-		this.setState({ inputText: name, isOpen: false });
-		this.props.onUpdate(this.props.idx, "action", name);
-	}
-
-	async createAndSelect(name) {
-		if (this.state.creating) return;
-		this.setState({ creating: true, createError: "" });
-		try {
-			const createdName = await createWorkflowActionMaster(frappePost, name);
-			this.setState({ creating: false });
-			this.selectOption(createdName);
-		} catch (err) {
-			// frappeRequest's own message leads with the URL; the server's readable text is in messages.
-			this.setState({ creating: false, isOpen: false, createError: (err.messages && err.messages[0]) || err.message });
-		}
-	}
-
-	onBlur() {
-		// If the user typed a manual value, commit it on blur
-		setTimeout(() => {
-			const { inputText } = this.state;
-			if (inputText !== this.props.row.action) {
-				this.props.onUpdate(this.props.idx, "action", inputText);
-			}
-		}, 200);  // delay to allow dropdown click to register first
-	}
-
-	render() {
-		const { row, idx, translate, onUpdate, onRemove } = this.props;
-		const { inputText, options, isOpen, loading, creating, createError } = this.state;
-
-		const trimmedInput = inputText.trim();
-		const hasExactMatch = options.some((opt) => opt.name === trimmedInput);
-		const showCreateItem = !loading && !!trimmedInput && !hasExactMatch;
-
-		return h(
+function ActionRowComponent({ row, idx, translate, onUpdate, onRemove }) {
+	return h("div", { class: "bpmn-action-row" }, [
+		h(
 			"div",
+			{ class: "bpmn-action-name" },
+			h(RecordCombobox, {
+				id: `task-action-${idx}`,
+				compact: true,
+				keepTyped: true,
+				value: row.action || "",
+				translate,
+				onChange: (name) => onUpdate(idx, "action", name),
+				loadOptions: loadActions,
+				createRecord: createAction,
+				placeholder: translate("Choose or type an action"),
+				emptyText: translate("No action matches"),
+				missingText: translate("Not a Workflow Action yet, so deploy will flag it."),
+			})
+		),
+
+		// ── Confirm Transition checkbox ─────────────────
+		h(
+			"div",
+			{ class: "bpmn-action-checkbox-cell" },
+			h("input", {
+				type: "checkbox",
+				checked: row.confirmTransition === "true",
+				title: translate("Confirm Transition"),
+				onChange: (e) => onUpdate(idx, "confirmTransition", e.target.checked ? "true" : undefined),
+			})
+		),
+
+		// ── Require Digital Signature checkbox ───────────
+		h(
+			"div",
+			{ class: "bpmn-action-checkbox-cell" },
+			h("input", {
+				type: "checkbox",
+				checked: row.requireDigitalSignature === "true",
+				title: translate("Require Digital Signature"),
+				onChange: (e) => onUpdate(idx, "requireDigitalSignature", e.target.checked ? "true" : undefined),
+			})
+		),
+
+		// ── Remove button ───────────────────────────────
+		h(
+			"button",
 			{
-				class: "bpmn-action-row",
-				ref: (c) => (this.containerRef = c),
+				type: "button",
+				class: "bpmn-action-remove-btn",
+				title: translate("Remove action"),
+				onClick: () => onRemove(idx),
 			},
-			[
-				// ── Action Name cell ────────────────────────────
-				h("div", { class: "bpmn-action-name" }, [
-					h("input", {
-						type: "text",
-						class: "bpmn-action-name-input",
-						value: inputText,
-						placeholder: translate("Type action…"),
-						onInput: (e) => this.onInput(e),
-						onFocus: () => this.onFocus(),
-						onBlur: () => this.onBlur(),
-						autoComplete: "off",
-						spellCheck: "false",
-					}),
-					// Dropdown
-					isOpen &&
-						h(
-							"ul",
-							{ class: "bpmn-action-dropdown" },
-							[
-								loading &&
-									h("li", { class: "bpmn-action-dropdown-loading" }, "Loading…"),
-								!loading && options.length === 0 &&
-									h("li", { class: "bpmn-action-dropdown-empty" }, "No results"),
-								!loading &&
-									options.map((opt) =>
-										h(
-											"li",
-											{
-												key: opt.name,
-												onMouseDown: (e) => {
-													e.preventDefault();
-													this.selectOption(opt.name);
-												},
-											},
-											opt.name
-										)
-									),
-								showCreateItem &&
-									h(
-										"li",
-										{
-											key: "create-new-action",
-											class: "bpmn-action-dropdown-create",
-											onMouseDown: (e) => {
-												e.preventDefault();
-												this.createAndSelect(trimmedInput);
-											},
-										},
-										creating
-											? translate("Creating…")
-											: `+ ${translate("Create")} "${trimmedInput}"`
-									),
-							]
-						),
-					// Inside the name cell: the row is a four-column grid, so a cell of its own would push the checkboxes along.
-					createError && h("div", { class: "bpmn-frappe-hint", style: "color:#c0392b" }, createError),
-				]),
-
-				// ── Confirm Transition checkbox ─────────────────
-				h(
-					"div",
-					{ class: "bpmn-action-checkbox-cell" },
-					h("input", {
-						type: "checkbox",
-						checked: row.confirmTransition === "true",
-						title: translate("Confirm Transition"),
-						onChange: (e) =>
-							onUpdate(idx, "confirmTransition", e.target.checked ? "true" : undefined),
-					})
-				),
-
-				// ── Require Digital Signature checkbox ───────────
-				h(
-					"div",
-					{ class: "bpmn-action-checkbox-cell" },
-					h("input", {
-						type: "checkbox",
-						checked: row.requireDigitalSignature === "true",
-						title: translate("Require Digital Signature"),
-						onChange: (e) =>
-							onUpdate(idx, "requireDigitalSignature", e.target.checked ? "true" : undefined),
-					})
-				),
-
-				// ── Remove button ───────────────────────────────
-				h(
-					"button",
-					{
-						type: "button",
-						class: "bpmn-action-remove-btn",
-						title: translate("Remove action"),
-						onClick: () => onRemove(idx),
-					},
-					"×"
-				),
-			]
-		);
-	}
+			"×"
+		),
+	]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────

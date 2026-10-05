@@ -1,7 +1,8 @@
 import { h, Component } from "preact";
 import { frappePost } from "../shared/frappeResource";
 import { WORKFLOW_STATE_STYLES, createWorkflowState } from "./workflowStateCreate";
-import { CHECK, dot, icon } from "./workflowStateIcons";
+import { CHECK, dot, icon } from "../shared/recordIcons";
+import { serverErrorText } from "../shared/RecordCombobox";
 
 // The "New workflow state" form inside the Next Workflow State menu; plain elements only, like its parent.
 export class WorkflowStateCreatePanel extends Component {
@@ -23,11 +24,9 @@ export class WorkflowStateCreatePanel extends Component {
 		}
 		this.setState({ saving: true, error: "" });
 		try {
-			onCreated(await request, this.state.style);
+			onCreated({ name: await request, style: this.state.style });
 		} catch (err) {
-			// The server's readable text is in messages, and it carries HTML such as <strong>.
-			const message = (err.messages && err.messages[0]) || err.message || "";
-			this.setState({ saving: false, error: new DOMParser().parseFromString(message, "text/html").body.textContent });
+			this.setState({ saving: false, error: serverErrorText(err) });
 		}
 	}
 

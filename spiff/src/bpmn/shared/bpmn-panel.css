@@ -341,7 +341,7 @@
 	white-space: pre-wrap;
 }
 
-/* Next Workflow State field (WorkflowStateField.js): MD3 outlined field, menu and filter chips. */
+/* Record pickers (RecordCombobox.js): MD3 outlined field, menu and filter chips. */
 .wfs {
 	--wfs-primary: hsl(205, 100%, 40%);
 	--wfs-on-primary: #fff;
@@ -451,6 +451,7 @@
 }
 .wfs-menu {
 	position: fixed;
+	min-width: 240px;
 	z-index: 10000;
 	max-height: 320px;
 	overflow-y: auto;
@@ -610,4 +611,25 @@
 .wfs-btn:disabled {
 	opacity: 0.6;
 	cursor: default;
+}
+
+/* The compact picker sits in a Task Actions row. */
+.wfs--compact .wfs-field {
+	min-height: 30px;
+	padding-left: 8px;
+}
+.wfs--compact .wfs-input {
+	padding: 5px 0;
+	font-size: 12px;
+}
+.wfs--compact .wfs-icon {
+	width: 22px;
+	height: 22px;
+}
+.wfs--compact .wfs-icon svg {
+	width: 16px;
+	height: 16px;
+}
+.wfs--compact .wfs-support {
+	font-size: 11px;
 }
