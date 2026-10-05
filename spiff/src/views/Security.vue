@@ -854,7 +854,7 @@ const DETAIL_ORDER = [
 // Rendered elsewhere in the dialog, so listing them again would duplicate them:
 // the hash and length have their own block, and the rest are UI state rather
 // than things the boundary recorded.
-const DETAIL_RENDERED_SEPARATELY = ["content_hash", "content_length", "content_stored", "promoted_case"]
+const DETAIL_RENDERED_SEPARATELY = ["content_hash", "content_length", "content_stored", "promoted_case", "promoted_suite"]
 
 const detailFields = computed(() => {
 	const ev = openedEvent.value
