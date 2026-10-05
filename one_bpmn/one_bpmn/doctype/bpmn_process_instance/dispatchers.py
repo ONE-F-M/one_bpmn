@@ -1451,19 +1451,6 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 	body = render(_decode_html_attr(_raw_body))
 	cc = task_cfg.get("emailCc", "") or None
 
-	# ── Resolve sender from configured Email Account ──────────────
-	sender = None
-	email_account = task_cfg.get("emailAccount", "")
-	if email_account:
-		sender = frappe.db.get_value("Email Account", email_account, "email_id")
-
-	# ── Send via one_fm.processor.sendemail if available ─────────
-	# Uses the same branded template and notification preference
-	# checks as the rest of the one_fm app (checks if user has
-	# notifications enabled, email notifications enabled, and
-	# preferred company email).
-	# Falls back to frappe.sendmail if one_fm isn't installed.
-
 	# Render AMP info card via the composer (Story 5)
 	if not amp_html:
 		try:
@@ -1475,34 +1462,18 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 		except Exception:
 			amp_html = None  # Graceful fallback — send plain HTML
 
-	# Set AMP flag before sending — picked up by our Email Queue before_insert hook
-	if amp_html:
-		frappe.flags.amp_html = amp_html
+	from one_bpmn.email_builder.composer import _send_email
 
-	try:
-		from one_fm.processor import sendemail as onefm_sendemail
-
-		onefm_sendemail(
-			recipients=recipients,
-			subject=subject,
-			sender=sender,
-			header=[subject],
-			message=body,
-			cc=cc,
-			reference_doctype=instance.context_doctype or instance.doctype,
-			reference_name=instance.context_docname or instance.name,
-		)
-	except ImportError:
-		frappe.sendmail(
-			recipients=recipients,
-			sender=sender,
-			subject=subject,
-			message=body,
-			cc=cc.split(",") if cc else [],
-			reference_doctype=instance.context_doctype or instance.doctype,
-			reference_name=instance.context_docname or instance.name,
-			now=False,
-		)
+	_send_email(
+		recipients=recipients,
+		subject=subject,
+		html_body=body,
+		amp_html=amp_html or "",
+		sender_account=task_cfg.get("emailAccount", ""),
+		reference_doctype=instance.context_doctype or instance.doctype,
+		reference_name=instance.context_docname or instance.name,
+		cc=cc,
+	)
 
 
 def dispatch_send_notification(instance, task, task_cfg: dict, bpmn_id: str) -> None:
