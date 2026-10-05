@@ -1,6 +1,12 @@
 <template>
 	<div class="h-full flex flex-col bg-gray-50">
-		<InstanceHeader :details="details" :refreshing="refreshing" @refresh="refresh" />
+		<InstanceHeader
+			:details="details"
+			:refreshing="refreshing"
+			:parked-ai="parkedAiTasks.length > 0"
+			@refresh="refresh"
+			@notice="controlNotice = $event"
+		/>
 
 		<main class="flex-1 flex flex-col overflow-hidden">
 			<div v-if="loading" class="flex justify-center flex-col items-center p-12 gap-4 flex-1">
@@ -58,6 +64,25 @@
 					</button>
 				</div>
 
+				<!-- Result of a header control (retry, resume, suspend, cancel) that needs the user's attention -->
+				<div
+					v-if="controlNotice"
+					class="flex items-start gap-3 bg-amber-50 border border-amber-200 text-amber-900 text-sm px-4 py-3 mx-4 mt-2 rounded-lg"
+				>
+					<Icon
+						icon="lucide:triangle-alert"
+						class="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600"
+					/>
+					<p class="flex-1">{{ controlNotice }}</p>
+					<Button
+						variant="ghost"
+						size="sm"
+						icon="x"
+						label="Dismiss"
+						@click="controlNotice = ''"
+					/>
+				</div>
+
 				<!-- Task error banner -->
 				<div v-if="taskError" class="flex items-start gap-3 bg-red-50 border border-red-200 text-red-800 text-sm px-4 py-3 mx-4 mt-2 rounded-lg">
 					<svg class="w-4 h-4 mt-0.5 flex-shrink-0 text-red-500" viewBox="0 0 24 24" fill="currentColor">
@@ -97,7 +122,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from "vue"
 import { useRoute } from "vue-router"
-import { frappeRequest } from "frappe-ui"
+import { Button, frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 
 
@@ -119,6 +144,7 @@ const activeTasks = ref([])
 const completingTask = ref(null)
 const completingAction = ref(null)
 const taskError = ref(null)
+const controlNotice = ref("")
 const logs = ref([])
 const bpmnXml = ref(null)
 const limitStart = ref(0)

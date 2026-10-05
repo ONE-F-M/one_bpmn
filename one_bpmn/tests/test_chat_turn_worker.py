@@ -292,3 +292,64 @@ class TestTheReplyComesFromTheTaskOutput(FrappeTestCase):
 			result = server_script_api.collect_chat_turn_reply(self._handle(), {"response": "   "})
 
 		self.assertIsNone(result)
+
+
+class TestLongTurnKeepsWaiting(FrappeTestCase):
+	"""A turn quiet for longer than the window keeps the chat waiting while its job lives."""
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self.instance = _instance_name()
+
+	def test_a_live_turn_says_it_is_still_working_and_then_ends(self):
+		checks = []
+
+		def still_running():
+			checks.append(1)
+			if len(checks) == 2:
+				turn_signal.publish(self.instance)
+			return True
+
+		events = list(turn_signal.consume(self.instance, timeout=5, idle_seconds=0.2, still_running=still_running))
+		self.assertEqual([e.get("name") for e in events], [turn_signal.STILL_WORKING_EVENT] * 2)
+		self.assertEqual(events[0]["value"]["text"], "Still working on your last message…")
+
+	def test_a_dead_turn_ends_at_the_first_quiet_window(self):
+		started = time.monotonic()
+		events = list(turn_signal.consume(self.instance, timeout=5, idle_seconds=0.2, still_running=lambda: False))
+		self.assertEqual(events, [])
+		self.assertLess(time.monotonic() - started, 2)
+
+	def test_the_job_check_finds_only_this_instances_ai_job(self):
+		job = frappe._dict(id=frappe.utils.background_jobs.create_job_id(f"bpmn-ai-{self.instance}-run_agent"))
+		other = frappe._dict(id=frappe.utils.background_jobs.create_job_id("bpmn-ai-someone-else-run_agent"))
+		queue = frappe._dict(jobs=[other])
+		with patch("frappe.utils.background_jobs.get_queue", return_value=queue), patch(
+			"frappe.utils.background_jobs.get_running_jobs_in_queue", return_value=[]
+		):
+			self.assertFalse(turn_signal.ai_job_running(self.instance))
+			queue.jobs = [other, job]
+			self.assertTrue(turn_signal.ai_job_running(self.instance))
+
+
+class TestMessageDuringARunningTurn(FrappeTestCase):
+	def test_it_is_told_to_wait_and_logs_nothing(self):
+		from one_bpmn.api import agent_invocation
+
+		busy = [frappe._dict(name="_test_busy_instance", status="Active", waiting_for_ai=1, waiting_for_human="", modified=None)]
+		with patch.object(frappe, "get_all", return_value=busy), patch.object(
+			turn_signal, "ai_job_running", return_value=True
+		), patch.object(frappe, "log_error") as log_error:
+			with self.assertRaisesRegex(frappe.ValidationError, "still working on your previous message"):
+				agent_invocation._no_live_instance({"agent_id": "prosally_agent"}, "_test_conversation")
+		log_error.assert_not_called()
+
+	def test_a_conversation_with_no_running_job_keeps_the_old_message(self):
+		from one_bpmn.api import agent_invocation
+
+		idle = [frappe._dict(name="_test_idle_instance", status="Active", waiting_for_ai=1, waiting_for_human="", modified=None)]
+		with patch.object(frappe, "get_all", return_value=idle), patch.object(
+			turn_signal, "ai_job_running", return_value=False
+		), patch.object(frappe, "log_error"):
+			with self.assertRaisesRegex(frappe.ValidationError, "is not running for this conversation"):
+				agent_invocation._no_live_instance({"agent_id": "prosally_agent"}, "_test_conversation")

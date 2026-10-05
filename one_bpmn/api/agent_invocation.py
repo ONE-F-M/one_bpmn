@@ -200,6 +200,8 @@ def list_available_agents(include_legacy: int = 1) -> list:
 # ``ba_architect`` — "BA Agent" is its chat_mode_label, which is the same
 # label-versus-id trap LuCrusher hit.
 ONE_AI_AGENT_IDS = ("lumina_general_chat", "ba_architect", "lucrusher_agent")
+# Well inside the stream's stall ceiling, so a live turn's "still working" note always arrives first.
+_STILL_WORKING_AFTER_SECONDS = 60
 
 
 @frappe.whitelist()
@@ -591,6 +593,12 @@ def _no_live_instance(config, conversation):
 		order_by="creation desc",
 		limit=1,
 	)
+	from one_bpmn.agents import turn_signal
+
+	if last and last[0].status == "Active" and turn_signal.ai_job_running(last[0].name):
+		frappe.throw(
+			_("I'm still working on your previous message. Wait for that reply, then send this one again.")
+		)
 	# Deferred so the entry survives the rollback that follows the throw.
 	frappe.log_error(
 		title=f"Chat turn found no waiting process ({config['agent_id']})",
@@ -616,11 +624,8 @@ def _bpmn_turn_stream(config, conversation, message, context):
 	"""
 	from one_bpmn.agents import turn_signal
 	from one_bpmn.agents.agui_stream import HANDOVER_EVENT
-	from one_bpmn.api.server_script_api import (
-		CHAT_TURN_WAIT_SECONDS,
-		collect_chat_turn_reply,
-		delegate_chat_turn,
-	)
+	from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
+	from one_bpmn.api.server_script_api import collect_chat_turn_reply, delegate_chat_turn
 	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import TURN_OUTPUT_EVENT
 
 	handle = delegate_chat_turn(conversation, message, context=context, wait=False)
@@ -644,7 +649,13 @@ def _bpmn_turn_stream(config, conversation, message, context):
 	# The task output is the answer, not a status line: it goes to the
 	# collector, never to the client.
 	task_output = {}
-	for event in turn_signal.consume(handle["instance"], CHAT_TURN_WAIT_SECONDS):
+	# A quiet minute keeps waiting only while the turn's AI job lives, never past the job's own limit.
+	for event in turn_signal.consume(
+		handle["instance"],
+		AI_AGENT_JOB_TIMEOUT + 60,
+		idle_seconds=_STILL_WORKING_AFTER_SECONDS,
+		still_running=lambda: turn_signal.ai_job_running(handle["instance"]),
+	):
 		if isinstance(event, dict) and event.get("type") == TURN_OUTPUT_EVENT:
 			task_output["output"] = event.get("output")
 			continue

@@ -1,14 +1,14 @@
 import { SelectEntry, isSelectEntryEdited } from "@bpmn-io/properties-panel";
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
-import { h, Component } from "preact";
+import { h } from "preact";
 import { frappeGet } from "../shared/frappeResource";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
 import { encodeHtmlAttr, decodeHtmlAttr } from "../shared/htmlAttrCodec";
 import { makeLaunchDocuButton } from "../shared/launchDocuButton";
 import { connectorEntries } from "./connectorEntries";
-import { CreateWorkflowStateForm } from "./CreateWorkflowStateForm";
+import { WorkflowStateField } from "./WorkflowStateField";
 
 // ---------------------------------------------------------------------------
 // Document Status options — mirrors Frappe's docstatus values exactly
@@ -26,6 +26,7 @@ const SUBMITTABLE_ONLY = new Set(["1", "2"]);
 // ponytail: cached for the life of the page, so toggling Is Submittable on a
 // doctype needs a reload to show here. Clear the entry on save if that bites.
 const SUBMITTABLE_CACHE = new Map();
+const SUBMITTABLE_LOADING = new Set();
 
 function fetchIsSubmittable(doctype) {
 	if (!doctype) return Promise.resolve(false);
@@ -42,7 +43,10 @@ function fetchIsSubmittable(doctype) {
 			return submittable;
 		})
 		// An unreadable doctype offers Draft only — never a state it cannot reach.
-		.catch(() => false);
+		.catch(() => {
+			SUBMITTABLE_CACHE.set(doctype, false);
+			return false;
+		});
 }
 
 // ---------------------------------------------------------------------------
@@ -359,100 +363,52 @@ function WorkflowStateComponent(props) {
 	const translate = useService("translate");
 	const bo        = getBusinessObject(element);
 
-	const value = getAttr(bo, "workflowState");
-
-	const handleChange = (val) => {
-		modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:workflowState": val || undefined,
-		});
-	};
-
-	const fetchWorkflowStates = (txt) => {
-		const params = {
-			fields: '["name"]',
-			limit_page_length: 50,
-			order_by: "name asc",
-		};
-		if (txt) {
-			params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
-		}
-		return frappeGet("/api/resource/Workflow State", params);
-	};
-
-	return h(
-		"div",
-		{ class: "bio-properties-panel-entry", "data-entry-id": `${id}-wrap` },
-		[
-			h(FrappeAutocomplete, {
-				id,
-				label: translate("Next Workflow State"),
-				value,
-				onChange: handleChange,
-				fetchApi: fetchWorkflowStates,
-				valueField: "name",
-				renderOption: (opt) => opt.name,
+	return h(WorkflowStateField, {
+		id,
+		label: translate("Next Workflow State"),
+		value: getAttr(bo, "workflowState"),
+		translate,
+		onChange: (val) =>
+			modeling.updateModdleProperties(element, bo, {
+				"spiffworkflow:workflowState": val || undefined,
 			}),
-			h(CreateWorkflowStateForm, { translate, onCreated: handleChange }),
-		]
-	);
+	});
 }
 
-// Class component, not hooks — see the note on CreateAgentConfigForm in
-// ScriptTaskProps.js and vite.config.js's preact/hooks dedupe note.
-class DocStatusEntry extends Component {
-	constructor(props) {
-		super(props);
-		this.state = { submittable: false };
-	}
-
-	componentDidMount() {
-		this.load();
-	}
-
-	componentDidUpdate(prev) {
-		if (prev.doctype !== this.props.doctype) this.load();
-	}
-
-	load() {
-		const { doctype } = this.props;
-		fetchIsSubmittable(doctype).then((submittable) => {
-			// The panel can switch doctype while this is in flight.
-			if (this.props.doctype === doctype) this.setState({ submittable });
-		});
-	}
-
-	render() {
-		const { element, id, bo, modeling, translate } = this.props;
-		const { submittable } = this.state;
-
-		return h(SelectEntry, {
-			element,
-			id,
-			label: translate("Document Status"),
-			getValue: () => getAttr(bo, "docStatus"),
-			setValue: (value) =>
-				modeling.updateModdleProperties(element, bo, {
-					"spiffworkflow:docStatus": value || undefined,
-				}),
-			getOptions: () =>
-				DOC_STATUS_OPTIONS.filter(
-					({ value }) => submittable || !SUBMITTABLE_ONLY.has(value)
-				).map(({ label, value }) => ({ label: translate(label), value })),
-		});
-	}
+async function loadSubmittable(doctype, refresh) {
+	SUBMITTABLE_LOADING.add(doctype);
+	await fetchIsSubmittable(doctype);
+	SUBMITTABLE_LOADING.delete(doctype);
+	refresh();
 }
 
 function DocStatusComponent(props) {
 	const { element, id } = props;
+	const modeling = useService("modeling");
+	const translate = useService("translate");
+	const eventBus = useService("eventBus");
 	const bo = getBusinessObject(element);
+	const doctype = getAttr(bo, "serviceTargetDoctype");
 
-	return h(DocStatusEntry, {
+	// Re-render through the panel's own Preact; a class setState here stalls the panel's updates.
+	if (doctype && !SUBMITTABLE_CACHE.has(doctype) && !SUBMITTABLE_LOADING.has(doctype)) {
+		loadSubmittable(doctype, () => eventBus.fire("elements.changed", { elements: [element] }));
+	}
+	const submittable = !!SUBMITTABLE_CACHE.get(doctype);
+
+	return h(SelectEntry, {
 		element,
 		id,
-		bo,
-		modeling: useService("modeling"),
-		translate: useService("translate"),
-		doctype: getAttr(bo, "serviceTargetDoctype"),
+		label: translate("Document Status"),
+		getValue: () => getAttr(bo, "docStatus"),
+		setValue: (value) =>
+			modeling.updateModdleProperties(element, bo, {
+				"spiffworkflow:docStatus": value || undefined,
+			}),
+		getOptions: () =>
+			DOC_STATUS_OPTIONS.filter(({ value }) => submittable || !SUBMITTABLE_ONLY.has(value)).map(
+				({ label, value }) => ({ label: translate(label), value })
+			),
 	});
 }
 

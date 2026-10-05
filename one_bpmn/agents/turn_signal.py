@@ -63,20 +63,31 @@ def _push(instance_name: str, payload: dict) -> None:
 		pass
 
 
-def consume(instance_name: str, timeout: float):
-	"""Yield this turn's progress events until it ends or ``timeout`` passes.
+STILL_WORKING_EVENT = "onefm.turn_progress"
+_AI_QUEUE = "bpmn_ai_agent"
 
-	The end marker is consumed and not yielded, so a caller can simply iterate
-	and then read the reply.
+
+def consume(instance_name: str, timeout: float, idle_seconds: float | None = None, still_running=None):
+	"""Yield this turn's progress events until it ends or ``timeout`` passes; the end marker is not yielded.
+
+	With ``idle_seconds``, a quiet stretch yields a "still working" event while ``still_running()`` holds, else ends.
 	"""
 	key = _key(instance_name)
 	deadline = time.monotonic() + max(0.0, timeout)
 	while True:
+		window = deadline if idle_seconds is None else min(deadline, time.monotonic() + idle_seconds)
 		try:
-			raw = _pop_before(key, deadline)
+			raw = _pop_before(key, window)
 		except Exception:
 			return
 		if raw is None:
+			if still_running and time.monotonic() < deadline and still_running():
+				yield {
+					"type": "CUSTOM",
+					"name": STILL_WORKING_EVENT,
+					"value": {"text": frappe._("Still working on your last message…")},
+				}
+				continue
 			return
 		try:
 			event = json.loads(raw)
@@ -190,3 +201,12 @@ def _pop_before(key: str, deadline: float) -> bytes | None:
 	# Redis truncates the timeout to whole milliseconds and reads 0 as forever.
 	popped = cache.blpop(cache.make_key(key), timeout=math.ceil(remaining * 1000) / 1000)
 	return popped[1] if popped else None
+
+
+def ai_job_running(instance_name: str) -> bool:
+	"""Is an AI job for this instance queued or running on the worker?"""
+	from frappe.utils.background_jobs import create_job_id, get_queue, get_running_jobs_in_queue
+
+	prefix = create_job_id(f"bpmn-ai-{instance_name}-")
+	queue = get_queue(_AI_QUEUE)
+	return any(job.id.startswith(prefix) for job in [*queue.jobs, *get_running_jobs_in_queue(queue)])
