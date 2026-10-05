@@ -222,6 +222,90 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 		self.assertEqual(sp.data["AdhocSub_1_error_code"], "FAILED_MODEL_CALL")
 		self.assertEqual(sp.data["AdhocSub_1_error_message"], "boom")
 
+	# ── Narration instead of action: prose with no tool call ──
+
+	def _prose_result(self, text="Understood. I will only use the tools available to me."):
+		"""A turn that says what it will do and calls nothing — the observed failure."""
+		from one_bpmn.agents.executor import ExecutorResult, TokenUsage
+
+		return ExecutorResult(
+			output=text,
+			token_usage=TokenUsage(900, 100, 1000),
+			trace=[{"role": "assistant", "content": text, "tool_calls": [],
+				"prompt_tokens": 900, "completion_tokens": 100}],
+		)
+
+	def test_no_tool_call_retries_once_and_can_recover(self):
+		"""First turn narrates, retry activates — the subprocess advances."""
+		sp, _ = _adhoc_subworkflow()
+		turns = []
+
+		def factory(config, context):
+			turns.append(config.user_prompt)
+			if len(turns) == 1:
+				return self._prose_result()
+			# second turn behaves like the scripted path: call a diagram task
+			tool = {t.name: t for t in (config.tools or [])}.get("task_b")
+			if tool:
+				tool.fn()
+			from dataclasses import asdict
+
+			from one_bpmn.agents.executor import ExecutorResult, TokenUsage
+			from one_bpmn.agents.llm_provider.base import ToolCallRecord, TurnRecord
+
+			turn = TurnRecord(role="tool", prompt_tokens=50, completion_tokens=10)
+			turn.tool_calls.append(ToolCallRecord(name="task_b", arguments={}, result="ok"))
+			return ExecutorResult(output="", token_usage=TokenUsage(50, 10, 60),
+				trace=[asdict(turn)])
+
+		_FakeExecutor.result_factory = factory
+		with patch.object(frappe, "log_error"):
+			action, chosen, _ = ai_task_selector.dispatch_ai_task_selector(
+				_instance(), sp, dict(SELECTOR_CFG), "AdhocSub_1"
+			)
+		self.assertEqual(len(turns), 2, "should retry exactly once")
+		self.assertIn("did not call a tool", turns[1], "retry must carry the correction")
+		self.assertEqual(action, "activate")
+		self.assertEqual(chosen, "task_b")
+
+	def test_no_tool_call_twice_surfaces_a_stall(self):
+		"""Two silent turns must error, not park the subprocess invisibly."""
+		sp, _ = _adhoc_subworkflow()
+		calls = []
+
+		def factory(config, context):
+			calls.append(1)
+			return self._prose_result()
+
+		_FakeExecutor.result_factory = factory
+		with patch.object(frappe, "log_error") as log_error:
+			action, _, _ = ai_task_selector.dispatch_ai_task_selector(
+				_instance(), sp, dict(SELECTOR_CFG), "AdhocSub_1"
+			)
+		self.assertEqual(len(calls), 2)
+		self.assertEqual(action, "error")
+		self.assertEqual(sp.data["AdhocSub_1_error_code"], "SELECTOR_NO_ACTIVATION")
+		titles = [c.kwargs.get("title", "") for c in log_error.call_args_list]
+		self.assertTrue(any("stalled" in t for t in titles), titles)
+
+	def test_no_task_sentinel_is_a_real_decision(self):
+		"""An explicit NO_TASK is a deliberate stop: no retry, no error."""
+		sp, _ = _adhoc_subworkflow()
+		calls = []
+
+		def factory(config, context):
+			calls.append(1)
+			return self._prose_result("NO_TASK")
+
+		_FakeExecutor.result_factory = factory
+		with patch.object(frappe, "log_error"):
+			action, _, _ = ai_task_selector.dispatch_ai_task_selector(
+				_instance(), sp, dict(SELECTOR_CFG), "AdhocSub_1"
+			)
+		self.assertEqual(len(calls), 1, "NO_TASK must not trigger a retry")
+		self.assertEqual(action, "idle")
+		self.assertNotIn("AdhocSub_1_error_code", sp.data)
+
 	# ── Decider wiring: choice mapped onto the pending task ──
 
 	def test_decider_maps_choice_to_pending_task(self):
