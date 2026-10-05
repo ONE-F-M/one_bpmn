@@ -90,7 +90,12 @@
 				<div v-if="item.ts" class="acp-time" :class="{ 'acp-time--user': item.kind === 'user' }">{{ formatTime(item.ts) }}</div>
 			</template>
 
-			<div v-if="busy" class="acp-thinking">{{ thinkingLabel }}</div>
+			<div
+				v-if="busy"
+				class="acp-thinking"
+			>
+				{{ thinkingLabel }}
+			</div>
 			<div v-if="streamingText" class="acp-msg acp-msg--agent" v-html="renderMarkdown(streamingText)" />
 			<div v-if="statusLine" class="acp-status">
 				<span class="acp-dot" :class="{ 'acp-dot--err': status === 'error' }" />{{ statusLine }}
@@ -279,12 +284,12 @@ const feedbackOn = computed(() => surface.value.collect_feedback !== false);
 
 // A shape id reads as a name once its underscores go, which is enough for
 // somebody watching a turn to know which tool is taking the time.
-const thinkingLabel = computed(
-	() => progressNote.value || runningToolLabel.value || (streamingText.value ? "" : __("Thinking…"))
-);
 const runningToolLabel = computed(() =>
 	runningTool.value ? __("Running {0}…").replace("{0}", runningTool.value.replace(/_/g, " ")) : "",
 )
+const thinkingLabel = computed(
+	() => progressNote.value || runningToolLabel.value || (streamingText.value ? "" : __("Thinking…"))
+);
 
 function agentItem(text) {
 	// Both things a finished agent bubble needs: the row id it can be rated by

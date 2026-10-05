@@ -794,7 +794,6 @@ function ActionRowComponent({ row, idx, translate, onUpdate, onRemove }) {
 			})
 		),
 
-		// Confirm Transition checkbox
 		h(
 			"div",
 			{ class: "bpmn-action-checkbox-cell" },
@@ -806,7 +805,6 @@ function ActionRowComponent({ row, idx, translate, onUpdate, onRemove }) {
 			})
 		),
 
-		// Require Digital Signature checkbox
 		h(
 			"div",
 			{ class: "bpmn-action-checkbox-cell" },
@@ -818,7 +816,6 @@ function ActionRowComponent({ row, idx, translate, onUpdate, onRemove }) {
 			})
 		),
 
-		// Remove button
 		h(
 			"button",
 			{

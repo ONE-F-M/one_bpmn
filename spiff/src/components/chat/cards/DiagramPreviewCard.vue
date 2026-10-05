@@ -15,7 +15,12 @@
 		</template>
 		<template #expanded>
 			<div class="diagram-preview-expanded">
-				<p v-if="value.summary" class="diagram-preview-summary">{{ value.summary }}</p>
+				<p
+					v-if="value.summary"
+					class="diagram-preview-summary"
+				>
+					{{ value.summary }}
+				</p>
 				<DiagramThumb :xml="value.bpmn_xml" :height="expandedHeight()" large />
 			</div>
 		</template>

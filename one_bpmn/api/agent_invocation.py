@@ -596,7 +596,6 @@ def _no_live_instance(config, conversation):
 	from one_bpmn.agents import turn_signal
 
 	if last and last[0].status == "Active" and turn_signal.ai_job_running(last[0].name):
-		# The previous turn is still running, so this message has nothing to land on yet.
 		frappe.throw(
 			_("I'm still working on your previous message. Wait for that reply, then send this one again.")
 		)

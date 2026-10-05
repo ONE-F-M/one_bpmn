@@ -215,6 +215,6 @@ test('shapes that share an id are one node, so every reject path can lead to the
     ],
   };
   const out = run(ir);
-  assert.equal(out.ok, true, JSON.stringify(out.errors || out.problems));
-  assert.equal((out.xml || out.bpmn_xml).match(/id="set_rejected"/g).length, 1);
+  assert.equal(out.ok, true, JSON.stringify(out.problems));
+  assert.equal(out.xml.match(/id="set_rejected"/g).length, 1);
 });
