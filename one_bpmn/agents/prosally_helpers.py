@@ -514,7 +514,7 @@ def describe_lanes(chat_history: list, user_text: str, ir: dict | None) -> str:
 	drawn = [lane.get("name") for lane in (ir or {}).get("lanes") or [] if lane.get("name")]
 	if not drawn:
 		return ""
-	text = "\n\n" + _("Lanes drawn: {0}.").format(", ".join(drawn))
+	text = "\n\n" + _("Lanes drawn:") + "\n" + "\n".join("- " + lane for lane in drawn)
 	asked = [e.get("content") or "" for e in chat_history if (e.get("role") or e.get("type")) == "user"]
 	missing = [
 		lane
@@ -522,7 +522,7 @@ def describe_lanes(chat_history: list, user_text: str, ir: dict | None) -> str:
 		if not any(lane.lower() in d.lower() or d.lower() in lane.lower() for d in drawn)
 	]
 	if missing:
-		text += " " + _("You also asked for {0}, which I did not draw. Ask me to add it.").format(
+		text += "\n\n" + _("You also asked for {0}, which I did not draw. Ask me to add it.").format(
 			", ".join(missing)
 		)
 	return text
