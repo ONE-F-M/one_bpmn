@@ -268,6 +268,17 @@
             </div>
           </div>
 
+          <div class="field-row two-col" v-if="!isSelector">
+            <div>
+              <label>Run Token Budget <span class="hint">(0 = no budget)</span></label>
+              <input type="number" v-model.number="form.aiRunTokenBudget" min="0" step="1000" />
+            </div>
+            <div>
+              <label>Run Cost Budget <span class="hint">(USD, 0 = no budget)</span></label>
+              <input type="number" v-model.number="form.aiRunCostBudget" min="0" step="0.1" />
+            </div>
+          </div>
+
           <div class="field-row" v-if="!isSelector">
             <label>Max Retries</label>
             <input type="number" v-model.number="form.aiMaxRetries" min="0" max="10" />
@@ -1118,6 +1129,9 @@ const form = ref({
   // The golden dataset bar. 0 is "no bar": the dataset shows a count and nothing to measure it against.
   aiGoldenDatasetMinimum: 0,
   aiGoldenDatasetTarget: 0,
+  // Agent-owned: a run stops once it passes either budget; 0 is no budget.
+  aiRunTokenBudget: 0,
+  aiRunCostBudget: 0,
   // WI-001639: the agent's frozen static context. Always arrays — they are
   // replaced wholesale by loadLinkedAgent once the agent is read.
   aiExamples: [],
@@ -1472,6 +1486,8 @@ onMounted(async () => {
     aiCompactionTokenThreshold: numOr("aiCompactionTokenThreshold", 0, parseInt),
     aiGoldenDatasetMinimum: numOr("aiGoldenDatasetMinimum", 0, parseInt),
     aiGoldenDatasetTarget: numOr("aiGoldenDatasetTarget", 0, parseInt),
+    aiRunTokenBudget: 0,
+    aiRunCostBudget: 0,
     aiCompactionIdleMinutes: numOr("aiCompactionIdleMinutes", 0, parseInt),
     aiCompactionOnTaskBoundary: get("aiCompactionOnTaskBoundary") === "true",
     // WI-001639: agent-owned, with no diagram fallback — this assignment
@@ -1718,6 +1734,8 @@ async function writeBackToConfig() {
     fields.aiCompactionKeepTail = form.value.aiCompactionKeepTail || 10;
     fields.aiGoldenDatasetMinimum = form.value.aiGoldenDatasetMinimum || 0;
     fields.aiGoldenDatasetTarget = form.value.aiGoldenDatasetTarget || 0;
+    fields.aiRunTokenBudget = form.value.aiRunTokenBudget || 0;
+    fields.aiRunCostBudget = form.value.aiRunCostBudget || 0;
     fields.aiCompactionModel = form.value.aiCompactionEnabled
       ? form.value.aiCompactionModel || ""
       : "";
