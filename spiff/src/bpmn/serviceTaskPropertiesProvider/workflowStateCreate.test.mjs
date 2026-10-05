@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { WORKFLOW_STATE_STYLES, createWorkflowState } from "./workflowStateCreate.js";
+import { WORKFLOW_STATE_STYLES, createWorkflowState, filterWorkflowStates } from "./workflowStateCreate.js";
 
 function recordingPost(outcome) {
 	const calls = [];
@@ -37,4 +37,20 @@ test("the server's error reaches the caller", async () => {
 
 test("the style choices are the Workflow State doctype's own", () => {
 	assert.deepEqual(WORKFLOW_STATE_STYLES, ["Primary", "Info", "Success", "Warning", "Danger", "Inverse"]);
+});
+
+const STATES = [{ name: "Draft" }, { name: "Pending Approval" }, { name: "Approved" }];
+
+test("an empty query lists every state and offers no create", () => {
+	assert.deepEqual(filterWorkflowStates(STATES, "  "), { matches: STATES, canCreate: false });
+});
+
+test("a query filters by substring, case-insensitively, and offers creating a new name", () => {
+	const { matches, canCreate } = filterWorkflowStates(STATES, "appro");
+	assert.deepEqual(matches.map((s) => s.name), ["Pending Approval", "Approved"]);
+	assert.equal(canCreate, true);
+});
+
+test("a name that already exists, in any case, is not offered for creation", () => {
+	assert.equal(filterWorkflowStates(STATES, "approved").canCreate, false);
 });
