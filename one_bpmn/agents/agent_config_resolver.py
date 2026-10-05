@@ -1025,6 +1025,17 @@ def _start_reprovision(config_name: str) -> bool:
 	if already_running:
 		return False
 
+	rejected_by = _start_condition_rejects(creation_model, config_name)
+	if rejected_by:
+		frappe.log_error(
+			title=f"Re-provision skipped for {config_name}",
+			message=(
+				f"The start condition of {creation_model} does not accept this agent, so an "
+				f"instance would wait at its start event for ever: {rejected_by}"
+			),
+		)
+		return False
+
 	try:
 		from one_bpmn.api.instance_api import start_process
 
@@ -1040,6 +1051,20 @@ def _start_reprovision(config_name: str) -> bool:
 			message=frappe.get_traceback(),
 		)
 		return False
+
+
+def _start_condition_rejects(creation_model: str, config_name: str) -> str:
+	"""The map's conditional start expression when it is False for this agent, else ""."""
+	from one_bpmn.one_bpmn.engine import json_safe_doc_fields
+	from one_bpmn.one_bpmn.trigger import _get_conditional_start_condition
+
+	condition = _get_conditional_start_condition(
+		frappe.db.get_value("BPMN Process Model", creation_model, "bpmn_xml")
+	)
+	if not condition:
+		return ""
+	fields = json_safe_doc_fields(frappe.get_doc("AI Agent Configuration", config_name))
+	return "" if frappe.safe_eval(condition, eval_locals=fields) else condition
 
 
 @frappe.whitelist()
