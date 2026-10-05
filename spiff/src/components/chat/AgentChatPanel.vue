@@ -1014,7 +1014,12 @@ defineExpose({ send, conversationName });
    the agent talking, so it is visually distinct from both bubble kinds. */
 .acp-msg--system { align-self: center; background: var(--sg2); color: var(--ig6); font-size: 12px;
 	font-style: italic; border: none; }
-.acp-msg--agent :deep(p) { margin: 0 0 6px; } .acp-msg--agent :deep(p:last-child) { margin: 0; }
+.acp-msg--agent :deep(p) { margin: 0 0 8px; } .acp-msg--agent :deep(p:last-child) { margin: 0; }
+/* The global reset strips list bullets and spacing, which runs a list into the paragraph after it. */
+.acp-msg--agent :deep(ul), .acp-msg--agent :deep(ol) { margin: 0 0 8px; padding-left: 18px; }
+.acp-msg--agent :deep(ul) { list-style: disc; } .acp-msg--agent :deep(ol) { list-style: decimal; }
+.acp-msg--agent :deep(li) { margin: 2px 0; } .acp-msg--agent :deep(li > p) { margin: 0; }
+.acp-msg--agent :deep(ul:last-child), .acp-msg--agent :deep(ol:last-child) { margin-bottom: 0; }
 .acp-msg--agent :deep(pre) { background: var(--sg2); border-radius: 8px; padding: 8px; overflow-x: auto; }
 .acp-msg--agent :deep(table) { border-collapse: collapse; }
 .acp-msg--agent :deep(td), .acp-msg--agent :deep(th) { border: 1px solid var(--og2); padding: 3px 8px; }
