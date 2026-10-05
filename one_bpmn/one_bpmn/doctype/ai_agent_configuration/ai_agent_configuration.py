@@ -47,6 +47,7 @@ class AIAgentConfiguration(Document):
 		self.validate_a2a_exposure()
 		self.validate_memory_config()
 		self.validate_thinking_budget()
+		self.validate_tool_choice()
 		self.validate_loop_compaction()
 
 	def validate_thinking_budget(self):
@@ -55,10 +56,41 @@ class AIAgentConfiguration(Document):
 
 		budget = self.get("thinking_budget_tokens") or 0
 		limit = self.max_tokens or DEFAULT_MAX_OUTPUT_TOKENS
-		if budget and not 1024 <= budget < limit:
+		if not budget or 1024 <= budget < limit:
+			return
+		if limit <= 1024:
+			message = _(
+				"Thinking needs at least 1,024 tokens and is counted inside Max Tokens, so Max Tokens must be"
+				" above 1,024 to use it. Max Tokens is {0}: set Thinking Budget Tokens to 0, or raise Max Tokens."
+			).format(f"{limit:,}")
+		else:
+			message = _(
+				"Thinking Budget Tokens must be 0 (off), or between 1,024 and {0}. Thinking is counted inside"
+				" Max Tokens ({1}), so it must stay below it."
+			).format(f"{limit - 1:,}", f"{limit:,}")
+		frappe.throw(message, title=_("Invalid Thinking Budget"))
+
+	def validate_tool_choice(self):
+		"""A tool name must be a tool shape on every deployed map that runs this agent."""
+		choice = (self.get("tool_choice") or "").strip()
+		if choice in ("", "auto", "required"):
+			return
+		maps = _deployed_tool_names(self.name)
+		if not maps:
 			frappe.throw(
-				_("Thinking Budget Tokens must be 0, or at least 1,024 and below Max Tokens ({0}).").format(limit),
-				title=_("Invalid Thinking Budget"),
+				_(
+					"Tool Choice {0} names a tool, but no deployed map runs this agent, so the name cannot be"
+					" checked. Use auto or required, or deploy a map that uses this agent first."
+				).format(frappe.bold(choice)),
+				title=_("Invalid Tool Choice"),
+			)
+		missing = sorted(name for name, tools in maps.items() if choice not in tools)
+		if missing:
+			frappe.throw(
+				_(
+					"Tool Choice must be auto, required, or the ID of a tool shape. {0} is not a tool on: {1}."
+				).format(frappe.bold(choice), ", ".join(missing)),
+				title=_("Invalid Tool Choice"),
 			)
 
 	def validate_loop_compaction(self):
@@ -495,6 +527,23 @@ class AIAgentConfiguration(Document):
 				self.add_comment("Comment", _("Needs Attention: {0}").format(reason))
 			except Exception:
 				pass
+
+
+def _deployed_tool_names(config_name: str) -> dict[str, set[str]]:
+	"""Each deployed map that runs this agent, with the bpmn_ids of the tools its AI task offers."""
+	maps = {}
+	for model in frappe.get_all(
+		"BPMN Process Model",
+		filters={"serialized_spec": ["like", f'%"aiAgentConfig": "{config_name}"%']},
+		fields=["name", "serialized_spec"],
+	):
+		extensions = (frappe.parse_json(model.serialized_spec) or {}).get("service_task_extensions") or {}
+		for cfg in extensions.values():
+			if cfg.get("aiAgentConfig") != config_name or not cfg.get("aiToolShapes"):
+				continue
+			shapes = frappe.parse_json(cfg["aiToolShapes"]) or []
+			maps.setdefault(model.name, set()).update(s.get("bpmn_id") for s in shapes if s.get("bpmn_id"))
+	return maps
 
 
 @frappe.whitelist()

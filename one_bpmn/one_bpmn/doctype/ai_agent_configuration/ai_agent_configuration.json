@@ -233,7 +233,7 @@
    "label": "Max Tool Result Chars"
   },
   {
-   "description": "auto, required, or one tool's name. Applies to the first model call of a run; a model that refuses a forced choice gets auto, and a plain-text answer is sent back once before the run fails.",
+   "description": "auto, required, or the ID of one tool shape on the agent's map, checked on save. Applies to the first model call of a run; a model that refuses a forced choice gets auto, and a plain-text answer is sent back once before the run fails.",
    "fieldname": "tool_choice",
    "fieldtype": "Data",
    "label": "Tool Choice"
