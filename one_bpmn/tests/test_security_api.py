@@ -164,7 +164,8 @@ class TestSecurityApi(FrappeTestCase):
 		name = self._event()
 		out = S.get_event(name)
 		self.assertEqual(
-			set(out) - {"content_stored", "promoted_case", "promoted_suite"}, set(S.EVENT_FIELDS)
+			set(out) - {"content_stored", "promoted_case", "promoted_suite", "new_suite_title"},
+			set(S.EVENT_FIELDS),
 		)
 
 	# ------------------------------------------------------------------

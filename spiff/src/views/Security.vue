@@ -437,7 +437,7 @@
 						/>
 						<span>
 							Create a new suite
-							<span class="block text-xs text-gray-500">{{ newSuiteTitle }}</span>
+							<span class="block text-xs text-gray-500">{{ openedEvent.new_suite_title }}</span>
 						</span>
 					</label>
 					<label class="flex items-start gap-2">
@@ -785,11 +785,6 @@ const promoteChoice = reactive({ open: false, mode: "" })
 const canPromote = computed(
 	() => promoteChoice.mode === "new" || (promoteChoice.mode === "existing" && !!chosenSuite.value)
 )
-// Matches the title the server gives a new suite: "<agent> — Adversarial", numbered after the first.
-const newSuiteTitle = computed(() => {
-	const base = `${openedEvent.value?.agent_configuration || ""} — Adversarial`
-	return suiteChoices.value.length ? `${base} ${suiteChoices.value.length + 1}` : base
-})
 
 const patternDraft = ref(null)
 const savingPattern = ref(false)
@@ -854,7 +849,7 @@ const DETAIL_ORDER = [
 // Rendered elsewhere in the dialog, so listing them again would duplicate them:
 // the hash and length have their own block, and the rest are UI state rather
 // than things the boundary recorded.
-const DETAIL_RENDERED_SEPARATELY = ["content_hash", "content_length", "content_stored", "promoted_case", "promoted_suite"]
+const DETAIL_RENDERED_SEPARATELY = ["content_hash", "content_length", "content_stored", "promoted_case", "promoted_suite", "new_suite_title"]
 
 const detailFields = computed(() => {
 	const ev = openedEvent.value

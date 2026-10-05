@@ -14,7 +14,12 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.security_events import promote_to_eval_case, promote_to_pattern
+from one_bpmn.agents.adversarial_pack import SUITE_SUFFIX
+from one_bpmn.api.security_events import (
+	next_adversarial_suite_title,
+	promote_to_eval_case,
+	promote_to_pattern,
+)
 from one_bpmn.one_bpmn.doctype.ai_injection_pattern.ai_injection_pattern import (
 	active_patterns,
 	clear_pattern_cache,
@@ -459,8 +464,14 @@ class TestAISecurityEvent(FrappeTestCase):
 		self.assertTrue(second["suite_created"])
 		self.assertNotEqual(second["suite"], first["suite"])
 		suite = frappe.get_doc("AI Eval Suite", second["suite"])
-		self.assertEqual(suite.title, f"{agent} — Adversarial 2")
+		self.assertEqual(suite.title, f"{agent} {SUITE_SUFFIX} 2")
 		self.assertEqual(suite.suite_type, "Adversarial")
+
+	def test_the_next_suite_title_is_numbered_after_the_first(self):
+		agent = self._agent()
+		self.assertEqual(next_adversarial_suite_title(agent), f"{agent} {SUITE_SUFFIX}")
+		promote_to_eval_case(event=self._event(agent_configuration=agent).name)
+		self.assertEqual(next_adversarial_suite_title(agent), f"{agent} {SUITE_SUFFIX} 2")
 
 	def test_a_new_suite_needs_the_event_to_name_an_agent(self):
 		with self.assertRaises(frappe.ValidationError):

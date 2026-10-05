@@ -187,6 +187,15 @@ def _adversarial_suites(agent: str | None) -> list[str]:
 	)
 
 
+def next_adversarial_suite_title(agent: str) -> str:
+	"""The title the agent's next adversarial suite gets, numbered after the first."""
+	from one_bpmn.agents.adversarial_pack import SUITE_SUFFIX
+
+	title = f"{agent} {SUITE_SUFFIX}"
+	taken = len(_adversarial_suites(agent))
+	return f"{title} {taken + 1}" if taken else title
+
+
 def _create_adversarial_suite(agent: str) -> str | None:
 	"""The agent's first adversarial suite, made on demand.
 
@@ -204,12 +213,8 @@ def _create_adversarial_suite(agent: str) -> str | None:
 	suite but a better one than losing the reviewer's click to a traceback.
 	"""
 	try:
-		from one_bpmn.agents.adversarial_pack import SUITE_SUFFIX
-
 		doc = frappe.new_doc("AI Eval Suite")
-		title = f"{agent} {SUITE_SUFFIX}"
-		taken = len(_adversarial_suites(agent))
-		doc.title = f"{title} {taken + 1}" if taken else title
+		doc.title = next_adversarial_suite_title(agent)
 		doc.eval_type = "Agent"
 		doc.suite_type = "Adversarial"
 		doc.agent_configuration = agent

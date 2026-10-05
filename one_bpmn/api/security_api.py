@@ -32,6 +32,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint
 
+from one_bpmn.api.security_events import next_adversarial_suite_title
+
 # Reads are open to anyone who can read the doctype (Frappe's own permission
 # check does the work). WRITES are held to a narrower gate: the pattern pack is
 # the rule set every agent is screened against, so editing it is a System
@@ -259,6 +261,9 @@ def get_event(name: str) -> dict:
 	)
 	out["promoted_case"] = case.name if case else None
 	out["promoted_suite"] = case.suite if case else None
+	out["new_suite_title"] = (
+		next_adversarial_suite_title(doc.agent_configuration) if doc.agent_configuration else None
+	)
 	return out
 
 
