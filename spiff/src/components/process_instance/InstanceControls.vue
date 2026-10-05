@@ -125,14 +125,14 @@ async function confirm() {
 
 async function run(action, why, fromDialog = false) {
 	try {
-		const result = await runControl(action.method, props.details.name, why)
-		if (action.method === "retry_failed_step" && result?.status === "Errored") {
-			emit("notice", "The step failed again. Fix its cause, then retry.")
-		}
+		await runControl(action.method, props.details.name, why)
 		emit("changed")
 	} catch (e) {
 		if (fromDialog) throw e
-		emit("notice", e.message)
+		// A retry whose step fails again is refused, and the instance stays Errored under a new reference.
+		const retried = action.method === "retry_failed_step"
+		emit("notice", retried ? `The step failed again. Fix its cause, then retry. ${e.message}` : e.message)
+		if (retried) emit("changed")
 	}
 }
 </script>
