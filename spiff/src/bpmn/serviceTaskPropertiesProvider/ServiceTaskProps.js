@@ -375,6 +375,13 @@ function WorkflowStateComponent(props) {
 	});
 }
 
+async function loadSubmittable(doctype, refresh) {
+	SUBMITTABLE_LOADING.add(doctype);
+	await fetchIsSubmittable(doctype);
+	SUBMITTABLE_LOADING.delete(doctype);
+	refresh();
+}
+
 function DocStatusComponent(props) {
 	const { element, id } = props;
 	const modeling = useService("modeling");
@@ -383,14 +390,9 @@ function DocStatusComponent(props) {
 	const bo = getBusinessObject(element);
 	const doctype = getAttr(bo, "serviceTargetDoctype");
 
-	// The panel re-renders itself on elements.changed; a class setState here would
-	// re-render SelectEntry outside the panel's hooks and stall every async update.
+	// Re-render through the panel's own Preact; a class setState here stalls the panel's updates.
 	if (doctype && !SUBMITTABLE_CACHE.has(doctype) && !SUBMITTABLE_LOADING.has(doctype)) {
-		SUBMITTABLE_LOADING.add(doctype);
-		fetchIsSubmittable(doctype).then(() => {
-			SUBMITTABLE_LOADING.delete(doctype);
-			eventBus.fire("elements.changed", { elements: [element] });
-		});
+		loadSubmittable(doctype, () => eventBus.fire("elements.changed", { elements: [element] }));
 	}
 	const submittable = !!SUBMITTABLE_CACHE.get(doctype);
 

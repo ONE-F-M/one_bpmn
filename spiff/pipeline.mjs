@@ -112,9 +112,7 @@ function uid(prefix) { return `${prefix}_${++_seq}`; }
 // distinguish them from explicitly modelled gateways.
 
 function normalizeGateways(ir) {
-  // A model that gives several shapes one id has drawn one node: flows name nodes by id,
-  // so there is no telling which copy a flow meant. Keep the first, and drop flows that
-  // the merge has made identical, or the passes below repoint each copy separately.
+  // Shapes sharing an id are one node (flows name nodes by id); keep the first and drop now-identical flows.
   const seenNodes = new Set();
   let nodes = ir.nodes.filter(n => !seenNodes.has(n.id) && seenNodes.add(n.id)).map(n => ({ ...n }));
   const seenFlows = new Set();

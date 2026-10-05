@@ -193,3 +193,9 @@
 	border-radius: 50%;
 	line-height: 1;
 }
+
+.bpmn-action-remove-btn svg {
+	width: 14px;
+	height: 14px;
+	fill: currentColor;
+}

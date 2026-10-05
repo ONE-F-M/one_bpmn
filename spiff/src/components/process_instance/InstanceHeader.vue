@@ -12,7 +12,13 @@
 				</span>
 			</div>
 			<div class="flex items-center gap-3">
-				<InstanceControls v-if="details" :details="details" :parked-ai="parkedAi" @changed="$emit('refresh')" @notice="$emit('notice', $event)" />
+				<InstanceControls
+					v-if="details"
+					:details="details"
+					:parked-ai="parkedAi"
+					@changed="$emit('refresh')"
+					@notice="$emit('notice', $event)"
+				/>
 				<Button
 					v-if="details"
 					icon-left="refresh-cw"

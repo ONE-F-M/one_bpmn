@@ -68,12 +68,9 @@ _AI_QUEUE = "bpmn_ai_agent"
 
 
 def consume(instance_name: str, timeout: float, idle_seconds: float | None = None, still_running=None):
-	"""Yield this turn's progress events until it ends or ``timeout`` passes.
+	"""Yield this turn's progress events until it ends or ``timeout`` passes; the end marker is not yielded.
 
-	With ``idle_seconds``, a stretch that quiet asks ``still_running()``: a live
-	turn yields a "still working" event and the wait goes on, a dead one ends it.
-	The end marker is consumed and not yielded, so a caller can simply iterate
-	and then read the reply.
+	With ``idle_seconds``, a quiet stretch yields a "still working" event while ``still_running()`` holds, else ends.
 	"""
 	key = _key(instance_name)
 	deadline = time.monotonic() + max(0.0, timeout)

@@ -1,5 +1,8 @@
 <template>
-	<div v-if="canManage && (primary || menuOptions.length)" class="flex items-center gap-2">
+	<div
+		v-if="canManage && (primary || menuOptions.length)"
+		class="flex items-center gap-2"
+	>
 		<Button
 			v-if="primary"
 			variant="solid"
@@ -10,11 +13,23 @@
 		>
 			{{ primary.label }}
 		</Button>
-		<Dropdown v-if="menuOptions.length" :options="menuOptions" placement="right">
-			<Button variant="subtle" size="sm" icon="more-horizontal" label="More actions" />
+		<Dropdown
+			v-if="menuOptions.length"
+			:options="menuOptions"
+			placement="right"
+		>
+			<Button
+				variant="subtle"
+				size="sm"
+				icon="more-horizontal"
+				label="More actions"
+			/>
 		</Dropdown>
 
-		<Dialog v-model="dialogOpen" :options="{ title: pending?.label, size: 'sm' }">
+		<Dialog
+			v-model="dialogOpen"
+			:options="{ title: pending?.label, size: 'sm' }"
+		>
 			<template #body-content>
 				<div class="space-y-3">
 					<p class="text-sm text-gray-600">{{ pending?.description }}</p>
@@ -30,7 +45,12 @@
 			</template>
 			<template #actions>
 				<div class="flex justify-end gap-2">
-					<Button variant="ghost" @click="dialogOpen = false">Keep as is</Button>
+					<Button
+						variant="ghost"
+						@click="dialogOpen = false"
+					>
+						Keep as is
+					</Button>
 					<Button
 						variant="solid"
 						:theme="pending?.danger ? 'red' : 'gray'"

@@ -650,8 +650,7 @@ def _bpmn_turn_stream(config, conversation, message, context):
 	# The task output is the answer, not a status line: it goes to the
 	# collector, never to the client.
 	task_output = {}
-	# A quiet minute asks whether the turn's job is still on the worker, so a long
-	# turn keeps the chat waiting and a dead one ends; never past the job's own limit.
+	# A quiet minute keeps waiting only while the turn's AI job lives, never past the job's own limit.
 	for event in turn_signal.consume(
 		handle["instance"],
 		AI_AGENT_JOB_TIMEOUT + 60,

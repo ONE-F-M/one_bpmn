@@ -64,24 +64,31 @@ const LIVE_LOADING = new Set();
 const TYPED = new WeakSet(); // shapes whose box the designer has typed into this session
 const SYNC_ERROR = new WeakMap();
 
+async function loadLivePrompt(config, bo) {
+	try {
+		const fields = await frappePost(
+			"/api/method/one_bpmn.agents.agent_config_resolver.get_agent_config_for_shape",
+			{ config_name: config }
+		);
+		LIVE_PROMPT.set(config, fields?.aiSystemPrompt || null);
+	} catch (err) {
+		LIVE_PROMPT.set(config, null);
+		SYNC_ERROR.set(bo, serverMessage(err));
+	}
+}
+
 export function LinkedPromptEntry({ bo, modeling, element, id, ...entry }) {
 	const eventBus = useService("eventBus");
 	const config = getAttr(bo, "aiAgentConfig");
-	// The panel re-renders on elements.changed with its own Preact; a class setState
-	// re-renders TextAreaEntry outside the panel's hooks and stalls every later update.
+	// Re-render through the panel's own Preact; a class setState here stalls the panel's updates.
 	const refresh = () => eventBus.fire("elements.changed", { elements: [element] });
 
 	if (config && !LIVE_PROMPT.has(config) && !LIVE_LOADING.has(config)) {
 		LIVE_LOADING.add(config);
-		frappePost("/api/method/one_bpmn.agents.agent_config_resolver.get_agent_config_for_shape", {
-			config_name: config,
-		})
-			.then((fields) => LIVE_PROMPT.set(config, fields?.aiSystemPrompt || null))
-			.catch(() => LIVE_PROMPT.set(config, null))
-			.then(() => {
-				LIVE_LOADING.delete(config);
-				refresh();
-			});
+		loadLivePrompt(config, bo).then(() => {
+			LIVE_LOADING.delete(config);
+			refresh();
+		});
 	}
 
 	return h(TextAreaEntry, {
@@ -89,12 +96,10 @@ export function LinkedPromptEntry({ bo, modeling, element, id, ...entry }) {
 		element,
 		id,
 		getValue: () => (!TYPED.has(bo) && LIVE_PROMPT.get(config)) || getAttr(bo, "aiSystemPrompt"),
-		// A rejected write leaves the diagram and the agent disagreeing, and
-		// the agent is what runs, so say so on the field instead of the console.
+		// A rejected write or an unreadable configuration is said on the field, since the agent is what runs.
 		validate: () => SYNC_ERROR.get(bo) || null,
 		setValue: (value) => {
-			// Once the designer types, the box owns the value: keep showing
-			// the shape attribute their keystrokes write to.
+			// Once the designer types, the box shows the shape attribute their keystrokes write to.
 			TYPED.add(bo);
 			setAttr(modeling, element, bo, "aiSystemPrompt", value, (error) => {
 				SYNC_ERROR.set(bo, error);

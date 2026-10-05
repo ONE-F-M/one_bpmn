@@ -8,6 +8,8 @@ import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
 import { decodeHtmlAttr } from "../shared/htmlAttrCodec";
 import { makeLaunchDocuButton } from "../shared/launchDocuButton";
 import { RecordCombobox } from "../shared/RecordCombobox";
+import { cachedRecordList } from "../shared/cachedRecordList";
+import { CLOSE, icon } from "../shared/recordIcons";
 import { createWorkflowActionMaster } from "./workflowActionCreate";
 
 // Helpers
@@ -763,28 +765,12 @@ function TaskActionsTableComponent(props) {
  *   - Require Digital Signature checkbox
  *   - Remove button
  */
-// Workflow Action Master names, loaded once per page and shared by every action row; a created one is appended.
-let ACTIONS = null;
-let ACTIONS_LOADING = null;
+const ACTIONS = cachedRecordList("Workflow Action Master", ["name"]);
 
-function loadActions() {
-	if (!ACTIONS_LOADING) {
-		ACTIONS_LOADING = frappeGet("/api/resource/Workflow Action Master", {
-			fields: '["name"]',
-			limit_page_length: 0,
-			order_by: "name asc",
-		}).then((rows) => {
-			ACTIONS = Array.isArray(rows) ? rows : [];
-		});
-	}
-	return ACTIONS_LOADING.then(() => ACTIONS);
-}
-
-function createAction(name) {
-	return createWorkflowActionMaster(frappePost, name).then((created) => {
-		ACTIONS = [...(ACTIONS || []), { name: created }];
-		return created;
-	});
+async function createAction(name) {
+	const created = await createWorkflowActionMaster(frappePost, name);
+	ACTIONS.add({ name: created });
+	return created;
 }
 
 function ActionRowComponent({ row, idx, translate, onUpdate, onRemove }) {
@@ -799,7 +785,7 @@ function ActionRowComponent({ row, idx, translate, onUpdate, onRemove }) {
 				value: row.action || "",
 				translate,
 				onChange: (name) => onUpdate(idx, "action", name),
-				loadOptions: loadActions,
+				loadOptions: ACTIONS.load,
 				createRecord: createAction,
 				recordLabel: translate("Workflow Action Master"),
 				placeholder: translate("Choose or type a Workflow Action Master"),
@@ -808,7 +794,7 @@ function ActionRowComponent({ row, idx, translate, onUpdate, onRemove }) {
 			})
 		),
 
-		// ── Confirm Transition checkbox ─────────────────
+		// Confirm Transition checkbox
 		h(
 			"div",
 			{ class: "bpmn-action-checkbox-cell" },
@@ -820,7 +806,7 @@ function ActionRowComponent({ row, idx, translate, onUpdate, onRemove }) {
 			})
 		),
 
-		// ── Require Digital Signature checkbox ───────────
+		// Require Digital Signature checkbox
 		h(
 			"div",
 			{ class: "bpmn-action-checkbox-cell" },
@@ -832,16 +818,17 @@ function ActionRowComponent({ row, idx, translate, onUpdate, onRemove }) {
 			})
 		),
 
-		// ── Remove button ───────────────────────────────
+		// Remove button
 		h(
 			"button",
 			{
 				type: "button",
 				class: "bpmn-action-remove-btn",
 				title: translate("Remove action"),
+				"aria-label": translate("Remove action"),
 				onClick: () => onRemove(idx),
 			},
-			"×"
+			icon(CLOSE)
 		),
 	]);
 }

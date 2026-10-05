@@ -1,6 +1,11 @@
 <template>
 	<CardShell :title="title" :done="done || !!doneAction" :done-text="doneText">
-		<p v-if="value.summary" class="diagram-preview-summary">{{ value.summary }}</p>
+		<p
+			v-if="value.summary"
+			class="diagram-preview-summary"
+		>
+			{{ value.summary }}
+		</p>
 		<DiagramThumb :xml="value.bpmn_xml" />
 		<template #actions>
 			<ActionButton v-if="canApply" :label="applyLabel" kind="solid" :disabled="busy || done"

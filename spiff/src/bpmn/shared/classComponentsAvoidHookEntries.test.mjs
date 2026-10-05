@@ -1,8 +1,5 @@
 // node --test spiff/src/bpmn/shared/classComponentsAvoidHookEntries.test.mjs
-//
-// A class component that renders a properties-panel entry (SelectEntry, TextAreaEntry, ...) crashes when its
-// own setState re-renders it outside the panel, and the crash stalls every later async update in the panel:
-// dropdowns fetch their options and never open.
+// A class component rendering a panel entry crashes on its own re-render and stalls the panel's dropdowns.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

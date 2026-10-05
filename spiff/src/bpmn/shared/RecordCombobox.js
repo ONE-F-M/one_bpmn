@@ -12,7 +12,7 @@ import { serverMessage } from "@/utils/serverMessage";
 export class RecordCombobox extends Component {
 	constructor(props) {
 		super(props);
-		this.state = { open: false, mode: "list", query: "", typed: false, active: 0, options: null, creating: false, error: "", createName: "" };
+		this.state = { open: false, mode: "list", query: "", typed: false, active: 0, options: null, creating: false, error: "", loadError: "", createName: "" };
 		this.onDocumentDown = this.onDocumentDown.bind(this);
 		this.onReposition = this.onReposition.bind(this);
 	}
@@ -21,8 +21,16 @@ export class RecordCombobox extends Component {
 		document.addEventListener("mousedown", this.onDocumentDown);
 		document.addEventListener("scroll", this.onReposition, true);
 		window.addEventListener("resize", this.onReposition);
-		// Loaded up front so the field can flag a value that is not a record.
-		this.props.loadOptions().then((options) => this.setState({ options })).catch(() => this.setState({ options: [] }));
+		this.loadOptions();
+	}
+
+	// Loaded up front so the field can flag a value that is not a record.
+	async loadOptions() {
+		try {
+			this.setState({ options: await this.props.loadOptions(), loadError: "" });
+		} catch (err) {
+			this.setState({ options: [], loadError: serverMessage(err) });
+		}
 	}
 
 	componentWillUnmount() {
@@ -179,8 +187,10 @@ export class RecordCombobox extends Component {
 
 	renderSupport() {
 		const { value, translate, missingText } = this.props;
-		const { options, open, error, creating } = this.state;
-		if (error) return h("div", { class: "wfs-support wfs-support--error", role: "alert" }, error);
+		const { options, open, error, loadError, creating } = this.state;
+		if (error || loadError) {
+			return h("div", { class: "wfs-support wfs-support--error", role: "alert" }, error || loadError);
+		}
 		if (open || !value || !options || options.some((o) => o.name === value)) return null;
 		return h("div", { class: "wfs-support wfs-support--warn" }, [
 			`${missingText} `,

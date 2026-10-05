@@ -65,10 +65,22 @@
 				</div>
 
 				<!-- Result of a header control (retry, resume, suspend, cancel) that needs the user's attention -->
-				<div v-if="controlNotice" class="flex items-start gap-3 bg-amber-50 border border-amber-200 text-amber-900 text-sm px-4 py-3 mx-4 mt-2 rounded-lg">
-					<Icon icon="lucide:triangle-alert" class="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600" />
+				<div
+					v-if="controlNotice"
+					class="flex items-start gap-3 bg-amber-50 border border-amber-200 text-amber-900 text-sm px-4 py-3 mx-4 mt-2 rounded-lg"
+				>
+					<Icon
+						icon="lucide:triangle-alert"
+						class="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600"
+					/>
 					<p class="flex-1">{{ controlNotice }}</p>
-					<Button variant="ghost" size="sm" icon="x" aria-label="Dismiss" @click="controlNotice = ''" />
+					<Button
+						variant="ghost"
+						size="sm"
+						icon="x"
+						label="Dismiss"
+						@click="controlNotice = ''"
+					/>
 				</div>
 
 				<!-- Task error banner -->
