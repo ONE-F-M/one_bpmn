@@ -11,6 +11,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+from one_bpmn.one_bpmn.patches.v1_0 import chat_agents_name_the_failure_reason as reason_fix
 from one_bpmn.one_bpmn.patches.v1_0 import chat_agents_post_failed_turn_error as fix
 
 BPMN_ID = "run_prosally_agent"
@@ -172,6 +173,36 @@ class TestSaveResponsePostsTheError(TurnFixture):
 		message = self._save_response(script, {"ai_result": TURN_ONE_REPLY})
 		self.assertEqual(message.text, TURN_ONE_REPLY)
 
+	def _reason_script(self) -> str:
+		script = fix.apply_edit(
+			PROSALLY_SAVE_RESPONSE, fix.SAVE_ANCHOR, fix.error_block(BPMN_ID) + fix.SAVE_ANCHOR
+		)
+		return fix.apply_edit(script, reason_fix.OLD_LINE, reason_fix.NEW_LINES)
+
+	def test_a_budget_stop_is_not_blamed_on_the_provider(self):
+		message = self._save_response(
+			self._reason_script(),
+			{
+				f"{BPMN_ID}_error_code": ErrorCode.BUDGET_EXCEEDED.value,
+				f"{BPMN_ID}_error_message": "The run passed its token budget of 100 with 3,021 tokens.",
+			},
+		)
+		self.assertEqual(
+			message.text,
+			"The agent stopped because this request went over its budget. Try a smaller request.",
+		)
+		self.assertEqual(json.loads(message.metadata)["intent"], "ERROR")
+
+	def test_a_provider_error_keeps_the_provider_reply(self):
+		self._dispatch(
+			ExecutorResult(error_code=ErrorCode.SUCCESS, output="unused"), refusal="Credit balance is too low"
+		)
+		message = self._save_response(self._reason_script(), self.task.data)
+		self.assertEqual(
+			message.text,
+			"The AI provider rejected the request: Credit balance is too low. Please try again in a few minutes.",
+		)
+
 
 class TestThePatchEdits(FrappeTestCase):
 	def test_each_edit_applies_once(self):
@@ -193,3 +224,11 @@ class TestThePatchEdits(FrappeTestCase):
 
 	def test_a_script_without_a_single_anchor_is_not_edited(self):
 		self.assertIsNone(fix.apply_edit("print(1)\n", fix.SAVE_ANCHOR, "x"))
+
+	def test_the_reason_edit_applies_once(self):
+		script = fix.apply_edit(
+			PROSALLY_SAVE_RESPONSE, fix.SAVE_ANCHOR, fix.error_block(BPMN_ID) + fix.SAVE_ANCHOR
+		)
+		edited = fix.apply_edit(script, reason_fix.OLD_LINE, reason_fix.NEW_LINES)
+		self.assertNotIn("The AI provider rejected", edited)
+		self.assertEqual(fix.apply_edit(edited, reason_fix.OLD_LINE, reason_fix.NEW_LINES), edited)
