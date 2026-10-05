@@ -76,11 +76,21 @@ class TestSchemaFromTheAuthorsFormat(FrappeTestCase):
 		schema = {"type": "object", "properties": {"a": {"type": "string"}}}
 		self.assertEqual(structured_output.normalize_response_schema(json.dumps(schema)), schema)
 
-	def test_a_rule_a_provider_rejects_is_named_with_its_field(self):
-		schema = {"type": "object", "properties": {"title": {"type": "string", "minLength": 1}}}
+	def test_an_open_object_is_named_with_its_field(self):
+		schema = {"type": "object", "properties": {"meta": {"type": "object", "additionalProperties": True}}}
 		with self.assertRaises(structured_output.UnsupportedSchemaRule) as caught:
 			structured_output.validate_schema_rules(schema)
-		self.assertEqual((caught.exception.rule, caught.exception.field), ("minLength", "title"))
+		self.assertEqual((caught.exception.rule, caught.exception.field), ("additionalProperties", "meta"))
+
+	def test_length_and_range_rules_pass_because_the_provider_schema_drops_them(self):
+		schema = {
+			"type": "object",
+			"properties": {
+				"title": {"type": "string", "minLength": 1, "maxLength": 80},
+				"pages": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": 9}},
+			},
+		}
+		structured_output.validate_schema_rules(schema)
 
 	def test_the_provider_schema_drops_rejected_rules_but_the_reply_check_keeps_them(self):
 		schema = {
@@ -108,15 +118,19 @@ class TestTheSaveRefusesAnUnsupportedRule(FrappeTestCase):
 		)
 		return doc
 
-	def test_a_min_length_rule_fails_the_save_naming_task_rule_and_field(self):
-		doc = self._model_doc(
-			json.dumps({"type": "object", "properties": {"title": {"type": "string", "minLength": 1}}})
-		)
+	def test_an_open_object_fails_the_save_naming_task_rule_and_field(self):
+		open_object = {"type": "object", "additionalProperties": True}
+		doc = self._model_doc(json.dumps({"type": "object", "properties": {"meta": open_object}}))
 		with self.assertRaises(frappe.ValidationError) as caught:
 			doc.validate_response_schemas()
 		self.assertIn("Draft Content", str(caught.exception))
-		self.assertIn("minLength", str(caught.exception))
-		self.assertIn("title", str(caught.exception))
+		self.assertIn("additionalProperties", str(caught.exception))
+		self.assertIn("meta", str(caught.exception))
+
+	def test_a_min_length_rule_saves(self):
+		self._model_doc(
+			json.dumps({"type": "object", "properties": {"title": {"type": "string", "minLength": 1}}})
+		).validate_response_schemas()
 
 	def test_an_example_object_saves(self):
 		self._model_doc(EXAMPLE).validate_response_schemas()

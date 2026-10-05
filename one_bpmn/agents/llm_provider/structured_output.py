@@ -89,7 +89,10 @@ def _field_from_example(value: Any) -> dict:
 
 
 def validate_schema_rules(schema: dict) -> None:
-	"""Raise UnsupportedSchemaRule for recursion, length or range rules, or additionalProperties other than false."""
+	"""Raise UnsupportedSchemaRule for recursion or additionalProperties other than false.
+
+	Length and range rules pass: provider_schema drops them and read_json_reply still enforces them.
+	"""
 	_check_rules(schema, "", frozenset())
 
 
@@ -97,9 +100,6 @@ def _check_rules(schema: Any, path: str, refs: frozenset) -> None:
 	if not isinstance(schema, dict):
 		return
 	field = path or "(root)"
-	for rule in _UNSUPPORTED_RULES:
-		if rule in schema:
-			raise UnsupportedSchemaRule(rule, field)
 	if schema.get("additionalProperties", False) is not False:
 		raise UnsupportedSchemaRule("additionalProperties", field)
 	ref = schema.get("$ref")

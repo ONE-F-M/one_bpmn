@@ -52,8 +52,7 @@ class TestRequestedLanes(FrappeTestCase):
 class TestDescribeLanes(FrappeTestCase):
 	def test_a_missing_named_lane_is_named(self):
 		text = helpers.describe_lanes([{"role": "user", "content": THREE_LANES}], "Yes, proceed", TWO_LANE_IR)
-		self.assertIn("Lanes drawn: Recruiter, GRD Manager.", text)
-		self.assertIn("You also asked for GRD Operator", text)
+		self.assertIn("Lanes drawn:\n- Recruiter\n- GRD Manager\n\nYou also asked for GRD Operator", text)
 
 	def test_all_lanes_drawn_names_nothing_missing(self):
 		text = helpers.describe_lanes([], "Draw it with lanes Recruiter and GRD Manager.", TWO_LANE_IR)
