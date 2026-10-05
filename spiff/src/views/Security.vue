@@ -398,24 +398,16 @@
 					</div>
 
 					<div class="flex items-center gap-3 border-t pt-4">
-						<!-- Shown only when the server could not choose: an agent with one
-						     suite stays a single click. -->
-						<select v-if="suiteChoices.length" v-model="chosenSuite" class="border rounded px-2 py-1 text-sm">
-							<option value="">Choose a suite…</option>
-							<option v-for="s in suiteChoices" :key="s.name" :value="s.name">
-								{{ s.title }} ({{ s.suite_type }})
-							</option>
-						</select>
 						<button
 							class="btn-primary"
-							:disabled="promoting || !!openedEvent.promoted_case || (suiteChoices.length && !chosenSuite)"
-							@click="promote"
+							:disabled="promoting || !!openedEvent.promoted_case"
+							@click="openPromoteChoice"
 						>
 							{{ promoting ? "Promoting…" : openedEvent.promoted_case ? "Already an eval case" : "Promote to eval case" }}
 						</button>
 						<router-link
-							v-if="openedEvent.promoted_case"
-							:to="`/processa/evals`"
+							v-if="openedEvent.promoted_case && openedEvent.promoted_suite"
+							:to="`/processa/evals/suite/${openedEvent.promoted_suite}`"
 							class="text-sm text-blue-600 hover:underline"
 						>
 							{{ openedEvent.promoted_case }} →
@@ -427,6 +419,75 @@
 				</div>
 			</div>
 		</div>
+
+		<!-- ── Promote: new suite or existing ────────────────────────────── -->
+		<Dialog
+			:modelValue="promoteChoice.open"
+			:options="{ title: 'Promote to eval case', size: 'md' }"
+			@update:modelValue="(v) => { if (!v) promoteChoice.open = false }"
+		>
+			<template #body-content>
+				<div class="space-y-3 text-sm">
+					<p class="text-gray-700">Where should the new case go?</p>
+					<label class="flex items-start gap-2">
+						<input
+							v-model="promoteChoice.mode"
+							type="radio"
+							value="new"
+						/>
+						<span>
+							Create a new suite
+							<span class="block text-xs text-gray-500">{{ newSuiteTitle }}</span>
+						</span>
+					</label>
+					<label class="flex items-start gap-2">
+						<input
+							v-model="promoteChoice.mode"
+							type="radio"
+							value="existing"
+							:disabled="!suiteChoices.length"
+						/>
+						<span>
+							Add to an existing suite
+							<span
+								v-if="!suiteChoices.length"
+								class="block text-xs text-gray-500"
+							>
+								{{ openedEvent && openedEvent.agent_configuration }} has no adversarial suite yet.
+							</span>
+						</span>
+					</label>
+					<select
+						v-if="promoteChoice.mode === 'existing'"
+						v-model="chosenSuite"
+						class="border rounded px-2 py-1 w-full"
+					>
+						<option value="">Choose a suite…</option>
+						<option
+							v-for="s in suiteChoices"
+							:key="s.name"
+							:value="s.name"
+						>
+							{{ s.title }}
+						</option>
+					</select>
+					<ErrorMessage :message="promoteError ? promoteNote : ''" />
+				</div>
+			</template>
+			<template #actions>
+				<div class="flex justify-end gap-2">
+					<Button variant="subtle" @click="promoteChoice.open = false">Cancel</Button>
+					<Button
+						variant="solid"
+						:loading="promoting"
+						:disabled="!canPromote"
+						@click="promote"
+					>
+						Promote
+					</Button>
+				</div>
+			</template>
+		</Dialog>
 
 		<!-- ── Pattern editor ─────────────────────────────────────────────── -->
 		<Dialog
@@ -669,9 +730,11 @@
 // action — so this screen can never become a second, divergent implementation
 // of the rules it displays.
 import { computed, onMounted, reactive, ref } from "vue"
+import { useRoute } from "vue-router"
 import { Button, Dialog, ErrorMessage, FeatherIcon, FormControl, frappeRequest } from "frappe-ui"
 
 const API = "/api/method/one_bpmn.api.security_api."
+const route = useRoute()
 
 const tab = ref("events")
 const can = ref({ edit_patterns: false, edit_policies: false, release_locks: false, read_events: true })
@@ -718,6 +781,15 @@ const promoteNote = ref("")
 const promoteError = ref(false)
 const suiteChoices = ref([])
 const chosenSuite = ref("")
+const promoteChoice = reactive({ open: false, mode: "" })
+const canPromote = computed(
+	() => promoteChoice.mode === "new" || (promoteChoice.mode === "existing" && !!chosenSuite.value)
+)
+// Matches the title the server gives a new suite: "<agent> — Adversarial", numbered after the first.
+const newSuiteTitle = computed(() => {
+	const base = `${openedEvent.value?.agent_configuration || ""} — Adversarial`
+	return suiteChoices.value.length ? `${base} ${suiteChoices.value.length + 1}` : base
+})
 
 const patternDraft = ref(null)
 const savingPattern = ref(false)
@@ -881,7 +953,17 @@ async function openEvent(name) {
 	promoteError.value = false
 	suiteChoices.value = []
 	chosenSuite.value = ""
+	promoteChoice.open = false
 	openedEvent.value = await call("get_event", { name })
+}
+
+async function openPromoteChoice() {
+	promoteNote.value = ""
+	promoteError.value = false
+	chosenSuite.value = ""
+	promoteChoice.mode = ""
+	suiteChoices.value = (await call("suites_for_event", { event: openedEvent.value.name }).catch(() => [])) || []
+	promoteChoice.open = true
 }
 
 async function promote() {
@@ -891,10 +973,12 @@ async function promote() {
 	try {
 		const r = await call("promote_event", {
 			event: openedEvent.value.name,
-			suite: chosenSuite.value || undefined,
+			suite: promoteChoice.mode === "existing" ? chosenSuite.value : undefined,
+			new_suite: promoteChoice.mode === "new" ? 1 : 0,
 		})
 		openedEvent.value.promoted_case = r.case
-		suiteChoices.value = []
+		openedEvent.value.promoted_suite = r.suite
+		promoteChoice.open = false
 		// Saying WHICH of the two happened matters: clicking twice otherwise looks
 		// like the first click failed.
 		// A new adversarial suite may have been made for this agent on the way
@@ -911,15 +995,6 @@ async function promote() {
 	} catch (e) {
 		promoteError.value = true
 		promoteNote.value = e?.messages?.join("\n") || e?.message || String(e)
-		// "Pick a suite" is not really an error, it is a question. Offer the
-		// candidates rather than leaving the reviewer with a dead end.
-		if (/suite/i.test(promoteNote.value) && !suiteChoices.value.length) {
-			suiteChoices.value = (await call("suites_for_event", { event: openedEvent.value.name }).catch(() => [])) || []
-			if (suiteChoices.value.length) {
-				promoteNote.value = "This agent has more than one adversarial suite — choose which one to add the case to."
-				promoteError.value = false
-			}
-		}
 	} finally {
 		promoting.value = false
 	}
@@ -1121,6 +1196,7 @@ onMounted(async () => {
 	enums.value = await call("pattern_options").catch(() => enums.value)
 	policyOptions.value = await call("policy_options").catch(() => policyOptions.value)
 	await Promise.all([loadEvents(0), loadPatterns(), loadPolicies(), loadLocks(), loadViolations()])
+	if (route.query.event) await openEvent(route.query.event)
 })
 </script>
 

@@ -451,6 +451,21 @@ class TestAISecurityEvent(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			promote_to_eval_case(event=self._event(agent_configuration=agent).name)
 
+	def test_asking_for_a_new_suite_makes_one_even_when_the_agent_has_one(self):
+		agent = self._agent()
+		first = promote_to_eval_case(event=self._event(agent_configuration=agent).name)
+		second = promote_to_eval_case(event=self._event(agent_configuration=agent).name, new_suite=1)
+
+		self.assertTrue(second["suite_created"])
+		self.assertNotEqual(second["suite"], first["suite"])
+		suite = frappe.get_doc("AI Eval Suite", second["suite"])
+		self.assertEqual(suite.title, f"{agent} — Adversarial 2")
+		self.assertEqual(suite.suite_type, "Adversarial")
+
+	def test_a_new_suite_needs_the_event_to_name_an_agent(self):
+		with self.assertRaises(frappe.ValidationError):
+			promote_to_eval_case(event=self._event().name, new_suite=1)
+
 	# ------------------------------------------------------------------
 	# AC6 — the log fails open
 	# ------------------------------------------------------------------
