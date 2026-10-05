@@ -12,6 +12,7 @@ import frappe
 from frappe import _
 
 from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
+from one_bpmn.agents.llm_provider.structured_output import provider_schema
 from one_bpmn.agents.turn_state import get_turn, run_sync, update_turn
 from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 from one_bpmn.security.script_validator import validate_script
@@ -111,7 +112,11 @@ def run_debug_stage(conversation: str) -> dict:
 
 def _ask(adapter, system: str, user: str, schema: dict) -> dict:
 	step = run_sync(
-		adapter.step(system=system, transcript=[{"role": "user", "content": user}], response_schema=schema)
+		adapter.step(
+			system=system,
+			transcript=[{"role": "user", "content": user}],
+			response_schema=provider_schema(schema),
+		)
 	)
 	return json.loads(step.content)
 
