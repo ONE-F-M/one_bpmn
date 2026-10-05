@@ -90,3 +90,7 @@ class TestToolChoiceCheck(FrappeTestCase):
 		self._map("Other Map", ["classify_intent"], agent=f"{self.agent} Other")
 		with self.assertRaises(frappe.ValidationError):
 			_config(self.agent, tool_choice="classify_intent").validate_tool_choice()
+
+	def test_a_map_that_spells_the_agent_in_another_case_counts(self):
+		self._map("Lower Map", ["finalize"], agent=self.agent.lower())
+		_config(self.agent, tool_choice="finalize").validate_tool_choice()

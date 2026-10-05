@@ -531,18 +531,25 @@ class AIAgentConfiguration(Document):
 
 def _deployed_tool_names(config_name: str) -> dict[str, set[str]]:
 	"""Each deployed map that runs this agent, with the bpmn_ids of the tools its AI task offers."""
+	from frappe.query_builder import DocType
+	from frappe.query_builder.functions import Lower
+
+	# Link names resolve case-insensitively, so a map may spell the agent differently; the spec column is binary.
+	wanted = config_name.casefold()
+	model = DocType("BPMN Process Model")
+	rows = (
+		frappe.qb.from_(model)
+		.select(model.name, model.serialized_spec)
+		.where(Lower(model.serialized_spec).like(f'%"aiagentconfig": "{wanted}"%'))
+	).run(as_dict=True)
 	maps = {}
-	for model in frappe.get_all(
-		"BPMN Process Model",
-		filters={"serialized_spec": ["like", f'%"aiAgentConfig": "{config_name}"%']},
-		fields=["name", "serialized_spec"],
-	):
-		extensions = (frappe.parse_json(model.serialized_spec) or {}).get("service_task_extensions") or {}
+	for row in rows:
+		extensions = (frappe.parse_json(row.serialized_spec) or {}).get("service_task_extensions") or {}
 		for cfg in extensions.values():
-			if cfg.get("aiAgentConfig") != config_name or not cfg.get("aiToolShapes"):
+			if (cfg.get("aiAgentConfig") or "").casefold() != wanted or not cfg.get("aiToolShapes"):
 				continue
 			shapes = frappe.parse_json(cfg["aiToolShapes"]) or []
-			maps.setdefault(model.name, set()).update(s.get("bpmn_id") for s in shapes if s.get("bpmn_id"))
+			maps.setdefault(row.name, set()).update(s.get("bpmn_id") for s in shapes if s.get("bpmn_id"))
 	return maps
 
 
