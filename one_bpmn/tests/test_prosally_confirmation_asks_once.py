@@ -27,18 +27,42 @@ class TestJoinConfirmation(FrappeTestCase):
 	def test_a_summary_ending_in_the_question_asks_it_once(self):
 		reply = helpers.join_confirmation(SUMMARY, QUESTION)
 		self.assertEqual(reply.count(QUESTION), 1)
-		self.assertTrue(reply.endswith("\n" + QUESTION))
+		self.assertTrue(reply.endswith("\n\n" + QUESTION))
 
 	def test_case_and_punctuation_do_not_matter(self):
 		reply = helpers.join_confirmation("I'll draw it. shall i go ahead", QUESTION)
-		self.assertEqual(reply, "I'll draw it.\n" + QUESTION)
+		self.assertEqual(reply, "I'll draw it.\n\n" + QUESTION)
 
 	def test_a_different_closing_sentence_is_kept(self):
 		self.assertEqual(
 			helpers.join_confirmation("I'll draw it. Is that right?", QUESTION),
-			"I'll draw it. Is that right?\n" + QUESTION,
+			"I'll draw it. Is that right?\n\n" + QUESTION,
 		)
 		self.assertEqual(helpers.join_confirmation("", QUESTION), QUESTION)
+
+
+class TestStructuredSummary(FrappeTestCase):
+	def test_steps_and_settings_are_one_per_line_and_the_question_stands_alone(self):
+		reply = helpers.join_confirmation(
+			{
+				"intro": "I'll redraw the Visa Request process completely.",
+				"steps": ["The recruiter raises the Visa Request", "The GRD manager approves or rejects it"],
+				"settings": ["The Visa Request record starts the process"],
+			},
+			QUESTION,
+		)
+		self.assertEqual(
+			reply,
+			"I'll redraw the Visa Request process completely.\n\n"
+			"Here's what I understood:\n- The recruiter raises the Visa Request\n- The GRD manager approves or rejects it\n\n"
+			"I'll also set these up on the steps:\n- The Visa Request record starts the process\n\n"
+			'Reply "draw only" if you\'d rather I draw just the steps, without these settings.\n\n' + QUESTION,
+		)
+
+	def test_no_settings_means_no_draw_only_offer(self):
+		reply = helpers.join_confirmation({"intro": "I'll draw it.", "steps": ["Submit"], "settings": []}, QUESTION)
+		self.assertNotIn("draw only", reply)
+		self.assertEqual(reply, "I'll draw it.\n\nHere's what I understood:\n- Submit\n\n" + QUESTION)
 
 
 class TestScriptsAskOnce(FrappeTestCase):

@@ -227,14 +227,31 @@ def confirmation_reply(text: str) -> str:
 	return ""
 
 
-def join_confirmation(summary: str, question: str) -> str:
-	"""The summary then the question on its own line, without a closing summary sentence that repeats the question."""
+def join_confirmation(summary: str | dict, question: str) -> str:
+	"""The summary then the question as its own paragraph, without a closing summary sentence that repeats the question.
+
+	A summary given as {"intro", "steps", "settings"} is laid out as a paragraph and two one-per-line lists."""
+	if isinstance(summary, dict):
+		summary = _confirmation_text(summary)
 	summary = (summary or "").strip()
 	question = (question or "").strip()
 	last = re.search(r"[^.!?\n]*[.!?]?\s*$", summary)
 	if question and _comparable(last.group(0)) == _comparable(question):
 		summary = summary[: last.start()].rstrip()
-	return (summary + "\n" + question) if summary else question
+	return (summary + "\n\n" + question) if summary else question
+
+
+def _confirmation_text(parts: dict) -> str:
+	"""The intro, the steps understood and the settings planned, each list one item per line."""
+	steps = [str(step).strip() for step in parts.get("steps") or [] if str(step).strip()]
+	settings = [str(setting).strip() for setting in parts.get("settings") or [] if str(setting).strip()]
+	blocks = [str(parts.get("intro") or "").strip()]
+	if steps:
+		blocks.append(_("Here's what I understood:") + "\n" + "\n".join("- " + step for step in steps))
+	if settings:
+		blocks.append(_("I'll also set these up on the steps:") + "\n" + "\n".join("- " + setting for setting in settings))
+		blocks.append(_('Reply "draw only" if you\'d rather I draw just the steps, without these settings.'))
+	return "\n\n".join(block for block in blocks if block)
 
 
 def _comparable(text: str) -> str:
