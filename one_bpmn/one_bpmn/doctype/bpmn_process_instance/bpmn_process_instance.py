@@ -1205,7 +1205,7 @@ class BPMNProcessInstance(Document):
 
 		for u in split_users(assigned_user):
 			try:
-				add_frappe_assignment(self, u, label, shape_id, task_id=row_id, task_cfg=shape_cfg)
+				add_frappe_assignment(self, u, label)
 			except Exception:
 				frappe.log_error(
 					title=f"AI HITL: assignment creation failed ({shape_id})",
@@ -1213,7 +1213,7 @@ class BPMNProcessInstance(Document):
 				)
 			# This path builds its own row rather than going through
 			# _sync_active_tasks, so it asks for the notification itself.
-			notify_task_assignee(self, u, label, shape_cfg)
+			notify_task_assignee(self, u, label, shape_cfg, task_id=row_id, bpmn_id=shape_id)
 
 		self._log_task(
 			task_id=row_id,
@@ -1628,7 +1628,7 @@ class BPMNProcessInstance(Document):
 		)
 		for user in split_users(assigned_user):
 			try:
-				add_frappe_assignment(self, user, label, a2a_task_name, task_id=row_id)
+				add_frappe_assignment(self, user, label)
 			except Exception:
 				frappe.log_error(
 					title=f"A2A HITL: assignment creation failed ({a2a_task_name})",
@@ -2199,8 +2199,6 @@ class BPMNProcessInstance(Document):
 		existing_waiting_ids = {row.task_id for row in self.active_tasks if row.status == "Waiting"}
 
 		# Map of user → (task_name, task_cfg) for newly created rows
-		# Used to pass notification settings to add_frappe_assignment
-		new_user_task_cfgs = {}
 		# Every (user, task) pair opened this pass — the basis for notifications.
 		newly_opened = []
 
@@ -2250,15 +2248,10 @@ class BPMNProcessInstance(Document):
 			# add_frappe_assignment to read the user_task_extensions config.
 			self.active_tasks[-1]._bpmn_id = bpmn_id_key
 
-			# Track the task_cfg so we can pass notification settings below.
-			# assigned_user may be a comma-joined list (Table Field mode) —
-			# every one of those users gets the same task_cfg for notifications.
+			# assigned_user may be a comma-joined list (Table Field mode);
+			# notifications are per (user, task), so every user gets a row.
 			for u in split_users(assigned_user):
-				new_user_task_cfgs[u] = (task_name, task_cfg)
-				# Keyed by user, the map above keeps only the LAST task when one
-				# person opens two at once. Notifications are per task, so they
-				# are collected as a list instead of overwriting.
-				newly_opened.append((u, task_name, task_cfg))
+				newly_opened.append((u, task_name, task_cfg, tid, bpmn_id_key))
 
 			self._log_task(
 				task_id=tid,
@@ -2309,21 +2302,15 @@ class BPMNProcessInstance(Document):
 		# Create ToDos for users who are newly assigned
 		for user, info in curr_assigned.items():
 			if user not in prev_assigned:
-				task_name_cfg = new_user_task_cfgs.get(user, (info["task_name"], {}))
-				add_frappe_assignment(
-					self, user, info["task_name"],
-					info.get("bpmn_id", ""),
-					task_id=info.get("task_id", ""),
-					task_cfg=task_name_cfg[1] if isinstance(task_name_cfg, tuple) else {},
-				)
+				add_frappe_assignment(self, user, info["task_name"])
 
 		# Notify for every task that just opened — NOT only for the users who
 		# gained a ToDo above. Someone who already held one (the common case
 		# when consecutive tasks belong to one person) is skipped by that diff
 		# by design, and while the email lived inside it they were silently
 		# skipped too.
-		for user, task_name, task_cfg in newly_opened:
-			notify_task_assignee(self, user, task_name, task_cfg)
+		for user, task_name, task_cfg, task_id, bpmn_id in newly_opened:
+			notify_task_assignee(self, user, task_name, task_cfg, task_id=task_id, bpmn_id=bpmn_id)
 
 	def _check_completion(self, wf):
 		"""
