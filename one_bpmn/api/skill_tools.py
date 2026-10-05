@@ -58,11 +58,16 @@ def _skills_cache_key(conversation, agent_name):
     classifier, the writers). A contract the writer loaded must reach the
     writer's next turn, not the classifier's.
     """
-    return f"active_skills_{conversation}_{agent_name}"
+    return f"active_skills_{conversation}_{_agent_key(agent_name)}"
 
 
 def _skill_names_cache_key(conversation, agent_name):
-    return f"active_skill_names_{conversation}_{agent_name}"
+    return f"active_skill_names_{conversation}_{_agent_key(agent_name)}"
+
+
+def _agent_key(agent_name):
+    """The configuration's stored name, so a map attribute and the record agree on the cache key whatever their case."""
+    return frappe.db.get_value("AI Agent Configuration", agent_name, "name") or agent_name
 
 
 def clear_conversation_skills(conversation):
