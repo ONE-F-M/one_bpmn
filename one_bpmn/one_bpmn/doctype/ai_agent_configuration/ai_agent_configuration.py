@@ -48,7 +48,13 @@ class AIAgentConfiguration(Document):
 		self.validate_memory_config()
 		self.validate_thinking_budget()
 		self.validate_loop_compaction()
+		self.validate_top_p()
 		self.warn_unsupported_temperature()
+
+	def validate_top_p(self):
+		"""Top P is 0 (not set here) or a fraction above 0 and at most 1."""
+		if self.top_p and not 0 < self.top_p <= 1:
+			frappe.throw(_("Top P must be above 0 and at most 1, or 0 to leave it to the task."))
 
 	def warn_unsupported_temperature(self):
 		"""Warn, without blocking the save, when a temperature is set on a model that is never sent one."""
@@ -413,10 +419,10 @@ class AIAgentConfiguration(Document):
 		# a change to the roles still reaches the agent's user.
 
 	def sync_linked_shapes(self):
-		"""Copy a changed prompt, model, temperature or max tokens onto the map shapes that link this agent."""
-		from one_bpmn.agents.agent_config_resolver import sync_shapes_to_config
+		"""Copy a changed setting the map shapes mirror onto the shapes that link this agent."""
+		from one_bpmn.agents.agent_config_resolver import DRIFT_CONFIG_FIELDS, sync_shapes_to_config
 
-		if any(self.has_value_changed(f) for f in ("system_prompt", "ai_model", "temperature", "max_tokens")):
+		if any(self.has_value_changed(f) for f in DRIFT_CONFIG_FIELDS):
 			sync_shapes_to_config(self.name)
 
 	def revalidate_credentials_on_save(self):

@@ -76,6 +76,14 @@ _CONFIG_TO_SHAPE = {
 	"terminal_tools": "aiTerminalTools",
 }
 
+# Limits where 0 on the record means "not set here", so the task's own value or the platform default applies.
+_ZERO_MEANS_UNSET = {
+	"aiTimeout": "timeout_seconds",
+	"aiMaxRetries": "max_retries",
+	"aiMaxToolCalls": "max_tool_calls",
+	"aiTopP": "top_p",
+}
+
 # Shape attributes the modal may write back, and the config fields they land
 # in. WI-001655 inverted the old rule: the MODEL is now the agent's editable
 # pick (a Link into the AI Model catalog), while aiProvider is deliberately
@@ -88,6 +96,7 @@ _SHAPE_TO_CONFIG = {
 	"aiRunTokenBudget": "run_token_budget",
 	"aiRunCostBudget": "run_cost_budget",
 	"aiModel": "ai_model",
+	**_ZERO_MEANS_UNSET,
 	# WI-001793: the modal's Memory section now persists here instead of onto
 	# the BPMN XML, so the agent is the single place memory is configured.
 	"aiConversationStore": "conversation_store",
@@ -408,6 +417,9 @@ def config_field_map(config_name: str) -> dict:
 		out["aiRunTokenBudget"] = cfg.run_token_budget
 	if flt(cfg.get("run_cost_budget")):
 		out["aiRunCostBudget"] = cfg.run_cost_budget
+	for sattr, cfield in _ZERO_MEANS_UNSET.items():
+		if flt(cfg.get(cfield)):
+			out[sattr] = cfg.get(cfield)
 	if cfg.ai_provider:
 		out["aiProvider"] = cfg.ai_provider
 	# WI-001655: the model is the agent's own pick from the AI Model catalog
@@ -458,7 +470,12 @@ DRIFT_FIELDS = {
 	"aiModel": "Model",
 	"aiTemperature": "Temperature",
 	"aiMaxTokens": "Max Tokens",
+	"aiTimeout": "Timeout",
+	"aiMaxRetries": "Max Retries",
+	"aiMaxToolCalls": "Max Tool Calls",
+	"aiTopP": "Top P",
 }
+DRIFT_CONFIG_FIELDS = tuple(_SHAPE_TO_CONFIG[attr] for attr in DRIFT_FIELDS)
 _AI_SHAPE_TYPES = ("ai_agent", "ai_task_selector")
 
 
@@ -473,9 +490,9 @@ def shape_config_drift(shape: dict, live: dict) -> list[dict]:
 
 
 def _same_value(attr: str, shape_value, live_value) -> bool:
-	if attr == "aiTemperature":
+	if attr in ("aiTemperature", "aiTopP"):
 		return flt(shape_value) == flt(live_value)
-	if attr == "aiMaxTokens":
+	if attr in ("aiMaxTokens", "aiTimeout", "aiMaxRetries", "aiMaxToolCalls"):
 		return cint(shape_value) == cint(live_value)
 	return cstr(shape_value).strip() == cstr(live_value).strip()
 
@@ -692,6 +709,10 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 			value = frappe.utils.flt(value)
 		if cfield == "max_tokens" and value not in (None, ""):
 			value = frappe.utils.cint(value)
+		if cfield in ("timeout_seconds", "max_retries", "max_tool_calls"):
+			value = frappe.utils.cint(value)
+		if cfield == "top_p":
+			value = frappe.utils.flt(value)
 		# WI-001793: the modal's number input hands back a string; 0/blank means
 		# "not set here" and must stay 0 so dispatch falls through to the shape.
 		if cfield == "run_cost_budget":

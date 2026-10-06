@@ -1156,6 +1156,9 @@ const GUARDRAIL_CATEGORIES = [
 // the form arrays empty, and sending those would silently wipe its static
 // context.
 const staticContextLoaded = ref(false);
+// Limits the linked agent's record already holds. Only these are written back, so a default on screen never lands on the record.
+const LIMIT_ATTRS = ["aiTimeout", "aiMaxRetries", "aiTopP"];
+const configOwnedLimits = ref([]);
 
 function addExample() {
   form.value.aiExamples.push({ input: "", context_summary: "", trajectory: null, expected_output: "", note: "", enabled: 1 });
@@ -1185,6 +1188,7 @@ function addGuardrail() {
 async function applyLinkedAgentFields(fields) {
   if (!fields) return;
   applyConfigFields(fields);
+  configOwnedLimits.value = LIMIT_ATTRS.filter((attr) => fields[attr] != null);
   form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
   form.value.aiSkills = Array.isArray(fields?.aiSkills) ? fields.aiSkills : [];
   form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
@@ -1704,6 +1708,7 @@ async function writeBackToConfig() {
     aiMaxTokens: form.value.aiMaxTokens,
   };
   if (!isSelector.value) fields.aiTemperature = form.value.aiTemperature;
+  for (const attr of configOwnedLimits.value) fields[attr] = form.value[attr];
   // Screening is NOT sent here. It has its own writer (saveScreening, below),
   // and sending it from both places meant the resolver write landed second and
   // put the stale form value back — silently undoing whatever the user had just
