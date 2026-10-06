@@ -59,6 +59,7 @@ _INTENT_CLASSIFIER = (
 	"- Use DISAMBIGUATE when you genuinely cannot tell create-vs-modify, when several existing DocTypes could match, or when the request is too vague to act on.\n"
 	"- A request that says neither what the DocType is for nor anything it should record (\"a form for my team\", \"I need a doctype\") is DISAMBIGUATE, never CREATE.\n"
 	"- When DISAMBIGUATE, suggest in your reason whether a Yes/No (polar) question or a multiple-choice question would resolve it fastest.\n"
+	"- A question about what something means or does (\"what does this status do\", \"how does X work\") is OFF_TOPIC, never DISAMBIGUATE, even when you do not know what it refers to.\n"
 	"- PARTS: when the request is a spec that hands work to two or more departments, roles or sections "
 	"(\"Payroll enters ..., Procurement checks ..., Finance confirms ...\"), list them in \"parts\", one short "
 	"name each, in the order the spec gives them. Otherwise return an empty list.\n\n"
