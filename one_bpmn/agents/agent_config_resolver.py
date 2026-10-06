@@ -537,7 +537,7 @@ def _synced_xml(model_name: str, xml: str | None, config_name: str, live: dict) 
 		return None
 	touched = False
 	for el in root.iter():
-		if el.get(_spiff("aiAgentConfig")) != config_name or el.get(_spiff("serviceType")) not in _AI_SHAPE_TYPES:
+		if not _links_to(el.get(_spiff("aiAgentConfig")), config_name) or el.get(_spiff("serviceType")) not in _AI_SHAPE_TYPES:
 			continue
 		shape = {attr: el.get(_spiff(attr)) for attr in DRIFT_FIELDS}
 		for d in shape_config_drift(shape, live):
@@ -559,7 +559,7 @@ def _synced_spec(serialized_spec: str | None, config_name: str, live: dict) -> s
 	spec = json.loads(serialized_spec)
 	touched = False
 	for cfg in (spec.get("service_task_extensions") or {}).values():
-		if cfg.get("aiAgentConfig") != config_name or cfg.get("serviceType") not in _AI_SHAPE_TYPES:
+		if not _links_to(cfg.get("aiAgentConfig"), config_name) or cfg.get("serviceType") not in _AI_SHAPE_TYPES:
 			continue
 		for d in shape_config_drift(cfg, live):
 			cfg[d["field"]] = cstr(d["live"])
@@ -569,6 +569,11 @@ def _synced_spec(serialized_spec: str | None, config_name: str, live: dict) -> s
 
 def _spiff(attr: str) -> str:
 	return f"{{http://spiffworkflow.org/bpmn/schema/1.0/core}}{attr}"
+
+
+def _links_to(linked: str | None, config_name: str) -> bool:
+	"""Whether a shape's aiAgentConfig names this configuration; a map may spell it in another case."""
+	return cstr(linked).strip().casefold() == config_name.casefold()
 
 
 @frappe.whitelist()

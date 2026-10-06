@@ -136,6 +136,24 @@ class TestDriftAgainstAConfiguration(FrappeTestCase):
 		xml = frappe.db.get_value("BPMN Process Model", self.model_name, "bpmn_xml")
 		self.assertIn('spiffworkflow:aiTemperature="0.5"', xml)
 
+	def test_a_shape_that_names_the_configuration_in_another_case_is_synced(self):
+		lowered = CONFIG.lower()
+		extension = {**STALE_EXTENSION, "aiAgentConfig": lowered}
+		frappe.db.set_value(
+			"BPMN Process Model",
+			self.model_name,
+			{
+				"bpmn_xml": XML.replace(CONFIG, lowered),
+				"serialized_spec": json.dumps({"service_task_extensions": {"Agent_1": extension}}),
+			},
+			update_modified=False,
+		)
+
+		self.assertEqual(sync_shapes_to_config(CONFIG), [self.model_name])
+		xml, spec = frappe.db.get_value("BPMN Process Model", self.model_name, ["bpmn_xml", "serialized_spec"])
+		self.assertIn(f'spiffworkflow:aiSystemPrompt="{LIVE_PROMPT}"', xml)
+		self.assertEqual(json.loads(spec)["service_task_extensions"]["Agent_1"]["aiSystemPrompt"], LIVE_PROMPT)
+
 	def test_panel_endpoint_returns_per_field_drift(self):
 		drift = get_shape_drift(CONFIG, json.dumps({"aiTemperature": "0.7", "aiMaxTokens": "4096"}))
 		self.assertEqual([d["field"] for d in drift], ["aiSystemPrompt", "aiTemperature"])
