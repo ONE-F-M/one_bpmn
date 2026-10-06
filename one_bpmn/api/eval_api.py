@@ -575,11 +575,11 @@ def update_eval_case(
 	title: str = None,
 	input_user_prompt: str = None,
 	expected_output: str = None,
-	assertions=None,
-	expected_tool_calls=None,
+	assertions: str | list[dict] | None = None,
+	expected_tool_calls: str | list[dict] | None = None,
 	case_type: str = None,
 	target_skill: str = None,
-	input_context=None,
+	input_context: str | dict | None = None,
 ) -> str:
 	"""Edit an existing case, including its assertions (WI-001746). Gated by the
 	suite's write permission."""
