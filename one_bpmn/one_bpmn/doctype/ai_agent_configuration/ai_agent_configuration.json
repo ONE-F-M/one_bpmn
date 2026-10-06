@@ -24,6 +24,10 @@
   "column_break_llm",
   "temperature",
   "max_tokens",
+  "timeout_seconds",
+  "max_retries",
+  "max_tool_calls",
+  "top_p",
   "tool_result_max_chars",
   "tool_choice",
   "parallel_tool_calls",
@@ -222,6 +226,38 @@
    "fieldname": "max_tokens",
    "fieldtype": "Int",
    "label": "Max Tokens"
+  },
+  {
+   "default": "0",
+   "description": "Seconds one model call may take before it is cut off. 0 = use the task's own timeout, or 180 when it has none.",
+   "fieldname": "timeout_seconds",
+   "fieldtype": "Int",
+   "label": "Timeout (s)",
+   "non_negative": 1
+  },
+  {
+   "default": "0",
+   "description": "How many times a failed model call is retried. 0 = use the task's own setting, or 2 when it has none.",
+   "fieldname": "max_retries",
+   "fieldtype": "Int",
+   "label": "Max Retries",
+   "non_negative": 1
+  },
+  {
+   "default": "0",
+   "description": "Most tool calls one run may make. 0 = use the task's own setting, or 10 when it has none.",
+   "fieldname": "max_tool_calls",
+   "fieldtype": "Int",
+   "label": "Max Tool Calls",
+   "non_negative": 1
+  },
+  {
+   "default": "0",
+   "description": "Nucleus sampling, above 0.0 and up to 1.0. 0 = use the task's own setting, or 1.0 when it has none.",
+   "fieldname": "top_p",
+   "fieldtype": "Float",
+   "label": "Top P",
+   "precision": "2"
   },
   {
    "default": "0",

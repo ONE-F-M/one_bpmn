@@ -109,7 +109,16 @@ export function LinkedPromptEntry({ bo, modeling, element, id, ...entry }) {
 	});
 }
 
-const DRIFT_ATTRS = ["aiSystemPrompt", "aiModel", "aiTemperature", "aiMaxTokens"];
+const DRIFT_ATTRS = [
+	"aiSystemPrompt",
+	"aiModel",
+	"aiTemperature",
+	"aiMaxTokens",
+	"aiTimeout",
+	"aiMaxRetries",
+	"aiMaxToolCalls",
+	"aiTopP",
+];
 const PROMPT_PREVIEW_CHARS = 160;
 
 /**
