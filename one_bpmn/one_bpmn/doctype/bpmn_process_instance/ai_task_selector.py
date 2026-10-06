@@ -14,7 +14,11 @@
 import frappe
 
 from one_bpmn.one_bpmn import engine as bpmn_engine
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import _provider_for_model
+from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
+	_cfg_truthy,
+	_provider_for_model,
+	terminal_tools_for,
+)
 
 
 def make_adhoc_decider(instance, wf):
@@ -259,6 +263,10 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		# had three times less to answer in depending on which shape ran it.
 		timeout_seconds=cint(task_cfg.get("aiTimeout")) or DEFAULT_TIMEOUT_SECONDS,
 		tools=tools,
+		terminal_tools=terminal_tools_for(task_cfg),
+		tool_choice=(task_cfg.get("aiToolChoice") or "auto").strip(),
+		parallel_tool_calls=_cfg_truthy(task_cfg.get("aiParallelToolCalls", 1)),
+		thinking_budget_tokens=cint(task_cfg.get("aiThinkingBudgetTokens")),
 	)
 	context = ExecutorContext(
 		context_doctype=instance.context_doctype or "",
