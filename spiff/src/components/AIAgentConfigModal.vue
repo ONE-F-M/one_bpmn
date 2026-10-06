@@ -245,17 +245,19 @@
 
           <div class="field-group-title">Advanced Settings</div>
 
-          <!-- Temperature (selector dispatch doesn't read sampling params) -->
-          <div class="field-row two-col" v-if="!isSelector">
+          <div class="field-row two-col">
             <div>
               <label>Temperature</label>
-              <input type="number" v-model.number="form.aiTemperature" min="0" max="2" step="0.1" />
+              <input type="number" v-model.number="form.aiTemperature" min="0" max="2" step="0.1" :disabled="!samplingSupported" :class="{ 'field-off': !samplingSupported }" />
             </div>
             <div>
               <label>Top P</label>
-              <input type="number" v-model.number="form.aiTopP" min="0" max="1" step="0.05" />
+              <input type="number" v-model.number="form.aiTopP" min="0" max="1" step="0.05" :disabled="!samplingSupported" :class="{ 'field-off': !samplingSupported }" />
             </div>
           </div>
+          <span class="field-hint" v-if="!samplingSupported">
+            {{ form.aiModel }} does not accept Temperature or Top P, so neither is sent. Tick Support Temperature on the AI Model to use them.
+          </span>
 
           <div class="field-row two-col">
             <div>
@@ -908,6 +910,12 @@ function onProviderChange() {
   const current = catalogModels.value.find((m) => m.name === form.value.aiModel);
   if (current && current.provider !== form.value.aiProvider) form.value.aiModel = "";
 }
+
+// A model without Support Temperature is sent neither value; a model missing from the catalogue keeps both editable.
+const samplingSupported = computed(() => {
+  const picked = catalogModels.value.find((m) => m.name === form.value.aiModel);
+  return !picked || Boolean(picked.support_temperature);
+});
 
 // The pair has to agree from both directions: a model belongs to exactly one
 // provider, so picking one settles the provider too.
@@ -1728,8 +1736,7 @@ async function createAgent() {
 }
 
 // WI-001637 live link: on Save, write agent-level edits back to the linked
-// AI Agent Configuration. Selector mode omits temperature — the selector
-// dialog never shows it, so its form default must not clobber the record.
+// AI Agent Configuration.
 // Failure never blocks the shape save; the user is warned instead. A Live
 // agent is automatically re-provisioned by the backend so its chat map picks
 // up the change — silently: re-validation failures surface in deploy checks,
@@ -1743,7 +1750,7 @@ async function writeBackToConfig() {
     aiSystemPrompt: form.value.aiSystemPrompt,
     aiMaxTokens: form.value.aiMaxTokens,
   };
-  if (!isSelector.value) fields.aiTemperature = form.value.aiTemperature;
+  fields.aiTemperature = form.value.aiTemperature;
   for (const attr of configOwnedLimits.value) fields[attr] = form.value[attr];
   // Only once the agent was read, so the form's defaults never overwrite its real values.
   if (staticContextLoaded.value) {
@@ -1873,6 +1880,8 @@ async function save() {
       "spiffworkflow:aiModel": form.value.aiModel || undefined,
       "spiffworkflow:aiSystemPrompt": form.value.aiSystemPrompt || undefined,
       "spiffworkflow:aiUserPrompt": form.value.aiUserPrompt || undefined,
+      "spiffworkflow:aiTemperature": String(form.value.aiTemperature),
+      "spiffworkflow:aiTopP": String(form.value.aiTopP),
       "spiffworkflow:aiMaxTokens": String(form.value.aiMaxTokens),
       "spiffworkflow:aiTimeout": String(form.value.aiTimeout),
     });
@@ -2024,6 +2033,12 @@ async function save() {
   border-radius: 4px;
   font-size: 0.85rem;
   font-family: inherit;
+}
+.field-row input.field-off {
+  background: #f3f4f6;
+  color: #9ca3af;
+  border-color: #e5e7eb;
+  cursor: not-allowed;
 }
 /* A value the agent owns, shown rather than offered. Deliberately not styled as
    an input: a disabled <select> still reads as a control someone should fill. */

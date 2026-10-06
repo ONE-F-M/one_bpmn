@@ -120,6 +120,17 @@ class TestTheExecutorDecidesByTheModel(FrappeTestCase):
 		self.assertNotIn("temperature", self._first_step(_model("_temp-no-fable-5", 0)))
 
 
+class TestTheEditorKnowsWhichModelsTakeThem(FrappeTestCase):
+	def test_the_model_catalogue_says_whether_each_model_supports_temperature(self):
+		from one_bpmn.agents.agent_config_resolver import model_catalogue
+
+		with_support = _model("_temp-catalogue supports", 1)
+		without = _model("_temp-catalogue refuses", 0)
+		rows = {r["name"]: r for r in model_catalogue()}
+		self.assertEqual(rows[with_support]["support_temperature"], 1)
+		self.assertEqual(rows[without]["support_temperature"], 0)
+
+
 class TestThePatch(FrappeTestCase):
 	def test_rows_are_matched_by_api_name(self):
 		agent_row = _model("_temp-patch Dev Agent - claude-haiku-4-5", 0)

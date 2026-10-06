@@ -167,6 +167,22 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 		self.assertTrue(captured["user_prompt"].startswith("Pick the next task for INST-TEST-1."))
 		self.assertIn("activate nothing", captured["user_prompt"])
 
+	def test_the_selector_sends_its_temperature_and_top_p(self):
+		sp, _ = _adhoc_subworkflow()
+		captured = {}
+
+		def factory(config, context):
+			from one_bpmn.agents.executor import ExecutorResult, TokenUsage
+
+			captured["sampling"] = (config.temperature, config.top_p)
+			return ExecutorResult(output="", token_usage=TokenUsage(), trace=[])
+
+		_FakeExecutor.result_factory = factory
+		ai_task_selector.dispatch_ai_task_selector(
+			_instance(), sp, {**SELECTOR_CFG, "aiTemperature": "0.4", "aiTopP": "0.8"}, "AdhocSub_1"
+		)
+		self.assertEqual(captured["sampling"], (0.4, 0.8))
+
 	def test_the_selector_sends_the_agents_tool_controls(self):
 		sp, _ = _adhoc_subworkflow()
 		captured = {}
