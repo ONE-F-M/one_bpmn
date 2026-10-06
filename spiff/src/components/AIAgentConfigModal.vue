@@ -248,11 +248,11 @@
           <div class="field-row two-col">
             <div>
               <label>Temperature</label>
-              <input type="number" v-model.number="form.aiTemperature" min="0" max="2" step="0.1" :disabled="!samplingSupported" />
+              <input type="number" v-model.number="form.aiTemperature" min="0" max="2" step="0.1" :disabled="!samplingSupported" :class="{ 'field-off': !samplingSupported }" />
             </div>
             <div>
               <label>Top P</label>
-              <input type="number" v-model.number="form.aiTopP" min="0" max="1" step="0.05" :disabled="!samplingSupported" />
+              <input type="number" v-model.number="form.aiTopP" min="0" max="1" step="0.05" :disabled="!samplingSupported" :class="{ 'field-off': !samplingSupported }" />
             </div>
           </div>
           <span class="field-hint" v-if="!samplingSupported">
@@ -1990,6 +1990,12 @@ async function save() {
   border-radius: 4px;
   font-size: 0.85rem;
   font-family: inherit;
+}
+.field-row input.field-off {
+  background: #f3f4f6;
+  color: #9ca3af;
+  border-color: #e5e7eb;
+  cursor: not-allowed;
 }
 /* A value the agent owns, shown rather than offered. Deliberately not styled as
    an input: a disabled <select> still reads as a control someone should fill. */
