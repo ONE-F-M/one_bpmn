@@ -2508,6 +2508,18 @@ async function saveCurrentDiagram() {
 	}
 }
 
+const idCopied = ref(false);
+
+async function copyModelId() {
+	try {
+		await navigator.clipboard.writeText(props.process);
+		idCopied.value = true;
+		setTimeout(() => (idCopied.value = false), 1500);
+	} catch (e) {
+		showNotification("Couldn't Copy ID", "Clipboard access was denied by the browser.", "red");
+	}
+}
+
 function showNotification(title, message, theme = "green", stay = false) {
 	notification.value = {
 		show: true,
