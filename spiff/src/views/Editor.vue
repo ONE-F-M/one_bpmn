@@ -16,6 +16,20 @@
 					</button>
 					<div class="flex items-center gap-2 relative min-w-0">
 						<h1 class="text-sm font-semibold text-gray-800 truncate max-w-[120px] sm:max-w-[180px] lg:max-w-[260px]" :title="processName">{{ processName }}</h1>
+
+						<!-- Copy the model's docname to the clipboard -->
+						<Button
+							variant="ghost"
+							size="sm"
+							class="shrink-0"
+							:title="idCopied ? 'Copied' : 'Copy ID'"
+							aria-label="Copy ID"
+							@click="copyModelId"
+						>
+							<template #icon>
+								<Icon :icon="idCopied ? 'lucide:check' : 'lucide:copy'" class="w-4 h-4" />
+							</template>
+						</Button>
 						
 						<!-- Status Icon -->
 						<button
