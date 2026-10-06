@@ -163,7 +163,11 @@ const { isMobile } = useWindowSize()
 const issueRuns = useIssueRuns(queryParams)
 
 const summary = computed(() => reportData.value.summary || {})
-const issues = computed(() => [...(reportData.value.issues || [])].sort((a, b) => b.errors - a.errors))
+// Most recently seen first; ties (and rows without a last_seen) fall back to error count.
+const lastSeenMs = (issue) => new Date(issue.last_seen).getTime() || 0
+const issues = computed(() =>
+	[...(reportData.value.issues || [])].sort((a, b) => lastSeenMs(b) - lastSeenMs(a) || b.errors - a.errors),
+)
 
 const priorDates = computed(() => {
 	const { previous_from: from, previous_to: to } = reportData.value
