@@ -453,8 +453,28 @@ async function saveRetention() {
 	}
 }
 
+// The shared link is this page with ?conversation=<name>; onMounted opens it.
+const copiedName = ref("");
+let copiedTimer = null;
+
+async function copyLink(name) {
+	const url = `${window.location.origin}/processa/sessions?conversation=${encodeURIComponent(name)}`;
+	try {
+		await navigator.clipboard.writeText(url);
+		copiedName.value = name;
+		clearTimeout(copiedTimer);
+		copiedTimer = setTimeout(() => (copiedName.value = ""), 2000);
+	} catch (e) {
+		error.value = "Could not copy the link. Copy it from the address bar after opening the conversation.";
+	}
+}
+
 onMounted(() => {
 	load();
 	loadAgents();
+	const linked = route.query.conversation;
+	if (linked) open(String(linked));
 });
+
+onBeforeUnmount(() => clearTimeout(copiedTimer));
 </script>
