@@ -39,6 +39,13 @@ CHAT_TURN_WAIT_SECONDS = 300
 # The gap is well under a second; this is slack, not a budget to spend.
 REARM_WAIT_SECONDS = 20
 _REARM_POLL_SECONDS = 0.25
+# Error codes where the model call itself was refused, as opposed to the run stopping on its own limits.
+PROVIDER_ERROR_CODES = (
+	"FAILED_MODEL_CALL",
+	"PROVIDER_NOT_FOUND",
+	"PROVIDER_DISABLED",
+	"MODEL_NOT_CONFIGURED",
+)
 
 
 def _latest_bot_message(conversation_name: str):
@@ -362,8 +369,10 @@ def _note_turn_failure(result: dict, inst_name: str, turn_started) -> dict:
 	run = _latest_turn_run(inst_name, turn_started)
 	if not run or run.status != "Error":
 		return result
-	result["response"] = f"{result.get('response') or ''}\n\n{_turn_failure_message(run)}".strip()
 	result["error_code"] = run.error_code
+	if result.get("intent") == "ERROR":
+		return result
+	result["response"] = f"{result.get('response') or ''}\n\n{_turn_failure_message(run)}".strip()
 	if result.get("message_name"):
 		frappe.db.set_value("Chat Message", result["message_name"], "text", result["response"])
 	return result
@@ -387,12 +396,28 @@ def _turn_failure_message(run) -> str:
 		return _(
 			"The agent is still working on this message. Reload the conversation in a few minutes to see its reply."
 		)
-	if run.error_code == "TURN_CAP_REACHED":
+	return _stopped_reason(run.error_code, run.error_message)
+
+
+def turn_failure_text(error_code: str, error_message: str | None) -> str:
+	"""The reply a chat map's Save Response posts when its agent task failed with this code."""
+	if error_code in PROVIDER_ERROR_CODES:
+		reason = str(error_message or error_code).strip().rstrip(".")
+		return _("The AI provider rejected the request: {0}. Please try again in a few minutes.").format(
+			escape_html(reason[:300])
+		)
+	return _stopped_reason(error_code, error_message)
+
+
+def _stopped_reason(error_code: str | None, error_message: str | None) -> str:
+	if error_code == "TURN_CAP_REACHED":
 		return _("The agent hit its tool-call limit before it finished. Try a smaller request.")
-	if run.error_code == "TIMEOUT":
+	if error_code == "TIMEOUT":
 		return _("The model timed out before it answered. Please try again.")
+	if error_code == "BUDGET_EXCEEDED":
+		return _("The agent stopped because this request went over its budget. Try a smaller request.")
 	return _("The agent could not answer ({0}): {1}").format(
-		run.error_code or _("unknown error"), escape_html((run.error_message or "")[:300])
+		error_code or _("unknown error"), escape_html((error_message or "")[:300])
 	)
 
 
