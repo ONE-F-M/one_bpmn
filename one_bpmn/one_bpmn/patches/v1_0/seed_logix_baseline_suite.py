@@ -199,13 +199,13 @@ CASES = [
 		"title": "A question about the linked script is answered with no code change",
 		"prompt": "what this script does",
 		"context": {
-			"element_name": "Visa Cancellation Reason Mandatory",
-			"current_script": "Visa Cancellation Reason Mandatory",
-			"original_script_content": 'frappe.msgprint("Visa Cancellation Remark is Mandaotry")',
+			"element_name": "Visa Cancellation Remark Mandatory",
+			"current_script": "Visa Cancellation Remark Mandatory",
+			"original_script_content": 'frappe.msgprint("Visa Cancellation Remark is Mandatory")',
 			"process_context": {
-				**_script_task("Activity_0vbl0el", "Visa Cancellation Reason Mandatory", "Process_1"),
+				**_script_task("Activity_0vbl0el", "Visa Cancellation Remark Mandatory", "Process_1"),
 				"incoming": [
-					{"id": "Gateway_1o50p1k", "name": "Is Cancellation Reason set ?", "type": "ExclusiveGateway"}
+					{"id": "Gateway_1o50p1k", "name": "Is Cancellation Remark set ?", "type": "ExclusiveGateway"}
 				],
 			},
 		},
