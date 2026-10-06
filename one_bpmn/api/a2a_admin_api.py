@@ -579,7 +579,7 @@ def update_remote_agent(name: str, **fields) -> dict:
 
 
 @frappe.whitelist()
-def create_client(client_name: str, description: str = None, allowed_agents=None) -> dict:
+def create_client(client_name: str, description: str = None, allowed_agents: str | list[str] | None = None) -> dict:
 	"""Register a caller. Draft until approved, because approval is what issues
 	its credentials."""
 	_require_admin()
