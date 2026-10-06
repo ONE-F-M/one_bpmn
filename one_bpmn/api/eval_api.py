@@ -1031,8 +1031,10 @@ def case_consistency(suite: str, days: int = 7, limit: int = 100) -> dict:
 
 
 @frappe.whitelist()
-def update_suite_thresholds(suite: str, pass_k=None, min_pass_rate=None, gate_deployment=None,
-							ci_role=None) -> dict:
+def update_suite_thresholds(suite: str, pass_k: int | str | None = None,
+							min_pass_rate: float | str | None = None,
+							gate_deployment: int | str | None = None,
+							ci_role: str | None = None) -> dict:
 	"""Set how a suite behaves when nobody is driving it: which automated job
 	picks it up, how many times each case runs, the rate it must clear, and
 	whether falling below that rate blocks the linked map from being activated.
