@@ -109,6 +109,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		DEFAULT_MAX_OUTPUT_TOKENS,
 		DEFAULT_TEMPERATURE,
 		DEFAULT_TIMEOUT_SECONDS,
+		DEFAULT_TOP_P,
 		ErrorCode,
 		ExecutorConfig,
 		ExecutorContext,
@@ -255,6 +256,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		# cint first — a shape attribute is a string and "0" is truthy.
 		max_tokens=cint(task_cfg.get("aiMaxTokens")) or DEFAULT_MAX_OUTPUT_TOKENS,
 		temperature=float(task_cfg.get("aiTemperature") or DEFAULT_TEMPERATURE),
+		top_p=float(task_cfg.get("aiTopP") or DEFAULT_TOP_P),
 		# This said 60 while the other two paths said 180, so the same agent
 		# had three times less to answer in depending on which shape ran it.
 		timeout_seconds=cint(task_cfg.get("aiTimeout")) or DEFAULT_TIMEOUT_SECONDS,
