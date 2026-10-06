@@ -20,6 +20,7 @@ class AIEvalCase(Document):
         assertions: DF.Table[AIEvalAssertion]
         backend: DF.Literal["direct_api", "antigravity"]
         bpmn_id: DF.Data | None
+        first_pass_threshold: DF.Int
         expected_output: DF.LongText | None
         input_context: DF.JSON | None
         input_system_prompt: DF.LongText | None
