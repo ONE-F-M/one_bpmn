@@ -30,9 +30,11 @@ class FakeAdapter:
 	def __init__(self, *replies):
 		self.replies = list(replies)
 		self.prompts = []
+		self.schemas = []
 
 	async def step(self, system, transcript, response_schema=None, **kwargs):
 		self.prompts.append(transcript[0]["content"])
+		self.schemas.append(response_schema)
 		return StepResult(content=json.dumps(self.replies.pop(0)))
 
 
@@ -64,6 +66,17 @@ class TestLogixDebugsAnExistingScript(FrappeTestCase):
 		self.assertIn("ZeroDivisionError", adapter.prompts[0])
 		self.assertIn("```diff", adapter.prompts[1])
 		self.assertNotIn("```python", adapter.prompts[1])
+
+	def test_both_model_calls_send_a_closed_schema(self):
+		adapter = FakeAdapter(
+			{"explanation": "It divides by a quantity of zero.", "fixed_script": FIXED},
+			{"approved": True, "issues": [], "suggestions": []},
+		)
+		self._run(adapter)
+
+		self.assertEqual(len(adapter.schemas), 2)
+		for schema in adapter.schemas:
+			self.assertIs(schema["additionalProperties"], False)
 
 	def test_a_fix_the_gate_blocks_is_not_offered(self):
 		adapter = FakeAdapter(
