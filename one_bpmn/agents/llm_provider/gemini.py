@@ -91,6 +91,8 @@ class GeminiAdapter(BaseLLMAdapter):
         tool_choice: str | None = None,
         parallel_tool_calls: bool = True,
         thinking_budget_tokens: int = 0,
+        temperature: float | None = None,
+        top_p: float | None = None,
     ) -> StepResult:
         """One generate_content call from the provider-agnostic transcript.
 
@@ -141,6 +143,8 @@ class GeminiAdapter(BaseLLMAdapter):
             system_instruction=system,
             tools=genai_tools,
             tool_config=_tool_config(tool_choice) if genai_tools else None,
+            temperature=temperature,
+            top_p=top_p,
             thinking_config=(
                 types.ThinkingConfig(thinking_budget=thinking_budget_tokens) if thinking_budget_tokens else None
             ),

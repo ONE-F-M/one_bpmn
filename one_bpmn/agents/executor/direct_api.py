@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-import re
 import random
 import time
 from typing import Any, ClassVar
@@ -73,16 +72,9 @@ _TRANSIENT_STATUS_CODES = frozenset({429, 500, 502, 503})
 
 
 
-# Anthropic 5-series ids: claude-sonnet-5, claude-opus-5, claude-haiku-5 and
-# their dated variants. Deliberately anchored on "-<tier>-5" so it does NOT
-# catch claude-sonnet-4-5 or claude-haiku-4-5, which still accept sampling
-# params — verified against the live API.
-_NO_SAMPLING_PARAMS = re.compile(r"-(?:sonnet|opus|haiku)-5(?:$|[^0-9])")
-
-
-def _rejects_sampling_params(model: str) -> bool:
-    """True for models whose API refuses temperature / top_p."""
-    return bool(_NO_SAMPLING_PARAMS.search((model or "").lower()))
+def _supports_temperature(model_name: str) -> bool:
+    """True when the AI Model record says the model accepts temperature and top_p."""
+    return bool(model_name and frappe.db.get_value("AI Model", model_name, "support_temperature"))
 
 
 class DirectApiExecutor(Executor):
@@ -430,6 +422,10 @@ class DirectApiExecutor(Executor):
                     response_schema=native_schema,
                     check_reply=self._json_reply_check(schema) if config.response_format == "json" else None,
                     budget_check=self._budget_check(config),
+                    **(
+                        {"temperature": config.temperature, "top_p": config.top_p}
+                        if _supports_temperature(config.model) else {}
+                    ),
                 )
             )
         except asyncio.TimeoutError:
@@ -582,9 +578,12 @@ class DirectApiExecutor(Executor):
 
         if provider_type == "OpenAI":
             # Native OpenAI: use max_completion_tokens (required by newer
-            # models like o1, o3, gpt-5.x). Omit temperature/top_p so
-            # reasoning models that only accept default(1) don't error.
+            # models like o1, o3, gpt-5.x). Reasoning models refuse a non-default
+            # temperature, so it is sent only to a model marked as accepting it.
             payload["max_completion_tokens"] = config.max_tokens
+            if _supports_temperature(config.model):
+                payload["temperature"] = config.temperature
+                payload["top_p"] = config.top_p
         else:
             # OpenAI-compatible third-party providers (DeepSeek, etc.):
             # use the older max_tokens param and send sampling parameters.
@@ -650,15 +649,9 @@ class DirectApiExecutor(Executor):
                 "cache_control": {"type": "ephemeral"},
             }]
 
-        # Anthropic does not allow both temperature and top_p simultaneously.
-        # Send temperature by default; only send top_p if it was explicitly
-        # changed from the default (1.0).
-        #
-        # The 5-series models reject sampling params outright — the API answers
-        # 400 "`temperature` is deprecated for this model" — so they get neither.
-        # Sending one anyway does not degrade the call, it fails it, which shows
-        # up as an empty AI task output or an eval assertion that never scored.
-        if not _rejects_sampling_params(config.model):
+        # Anthropic refuses temperature and top_p together, so top_p goes only when changed from 1.0.
+        # A model without support_temperature answers 400 to either, so it gets neither.
+        if _supports_temperature(config.model):
             if config.top_p < 1.0:
                 payload["top_p"] = config.top_p
             else:

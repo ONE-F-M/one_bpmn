@@ -83,6 +83,8 @@ class OpenAIAdapter(BaseLLMAdapter):
         tool_choice: str | None = None,
         parallel_tool_calls: bool = True,
         thinking_budget_tokens: int = 0,
+        temperature: float | None = None,
+        top_p: float | None = None,
     ) -> StepResult:
         messages = [{"role": "system", "content": system}]
         for entry in transcript:
@@ -115,6 +117,10 @@ class OpenAIAdapter(BaseLLMAdapter):
 
         kwargs: dict = {"model": self._model, "messages": messages}
         kwargs.update(_token_cap(self._model, max_tokens))
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        if top_p is not None:
+            kwargs["top_p"] = top_p
         if tools:
             kwargs["tools"] = [_build_tool_def(t) for t in tools]
             if tool_choice and tool_choice != "auto":

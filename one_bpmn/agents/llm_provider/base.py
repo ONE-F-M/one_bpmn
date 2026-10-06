@@ -249,13 +249,16 @@ class BaseLLMAdapter(ABC):
         tools: list[ToolSpec] | None = None,
         max_tokens: int = 16384,
         max_turns: int | None = None,
+        temperature: float | None = None,
+        top_p: float | None = None,
     ) -> CompletionResult:
         """Run one conversation (with optional multi-step tool calls) and
         return the final text plus the per-turn trace."""
         from one_bpmn.agents.executor.step_loop import run_nested_loop
 
         return await run_nested_loop(
-            self, system=system, user=user, tools=tools, max_tokens=max_tokens, max_turns=max_turns or 10
+            self, system=system, user=user, tools=tools, max_tokens=max_tokens, max_turns=max_turns or 10,
+            temperature=temperature, top_p=top_p,
         )
 
     @abstractmethod
@@ -269,6 +272,8 @@ class BaseLLMAdapter(ABC):
         tool_choice: str | None = None,
         parallel_tool_calls: bool = True,
         thinking_budget_tokens: int = 0,
+        temperature: float | None = None,
+        top_p: float | None = None,
     ) -> StepResult:
         """Make ONE model call against a provider-agnostic transcript and
         return its content + requested tool calls WITHOUT executing anything.
@@ -285,6 +290,7 @@ class BaseLLMAdapter(ABC):
         ``response_schema`` asks the provider's native JSON mode to shape the
         final text reply; tool calls are unaffected. ``tool_choice`` is "auto",
         "required" or a tool name; a model that refuses a forced choice gets "auto".
+        ``temperature`` and ``top_p`` are sent when given; None leaves them to the provider.
 
         Each adapter converts this to its wire format.
         """

@@ -138,6 +138,8 @@ class AnthropicAdapter(BaseLLMAdapter):
         tool_choice: str | None = None,
         parallel_tool_calls: bool = True,
         thinking_budget_tokens: int = 0,
+        temperature: float | None = None,
+        top_p: float | None = None,
     ) -> StepResult:
         """One Messages API call from the provider-agnostic transcript.
 
@@ -218,6 +220,11 @@ class AnthropicAdapter(BaseLLMAdapter):
                 kwargs["tool_choice"] = choice
         if thinking:
             kwargs["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget_tokens}
+        # Anthropic refuses temperature and top_p together, and either one alongside extended thinking.
+        elif top_p is not None and top_p < 1.0:
+            kwargs["top_p"] = top_p
+        elif temperature is not None:
+            kwargs["temperature"] = temperature
         if response_schema:
             kwargs["output_config"] = anthropic_output_config(response_schema)
 
