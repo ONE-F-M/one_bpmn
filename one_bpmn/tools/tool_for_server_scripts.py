@@ -22,9 +22,31 @@ They run inside the Frappe request context, so `frappe` is always available.
 """
 
 import json
+import time
+from contextlib import contextmanager
+
 import frappe
+from frappe.utils import now_datetime
 
 from one_bpmn.security.doctype_validator import validate_doctype_ir
+
+
+@contextmanager
+def timed(timings: list, call: str):
+	"""Append when the block started and ended, and its length in ms, to timings."""
+	started_at = now_datetime()
+	t0 = time.perf_counter()
+	try:
+		yield
+	finally:
+		timings.append(
+			{
+				"call": call,
+				"started_at": str(started_at),
+				"ended_at": str(now_datetime()),
+				"ms": round((time.perf_counter() - t0) * 1000),
+			}
+		)
 
 
 def get_server_script_content(script_name: str) -> str:
