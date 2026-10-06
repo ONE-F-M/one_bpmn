@@ -376,11 +376,11 @@ def create_eval_case(
 	title: str,
 	input_user_prompt: str,
 	expected_output: str = "",
-	assertions=None,
-	expected_tool_calls=None,
+	assertions: str | list[dict] | None = None,
+	expected_tool_calls: str | list[dict] | None = None,
 	case_type: str = None,
 	target_skill: str = None,
-	input_context=None,
+	input_context: str | dict | None = None,
 ) -> str:
 	"""Create a manual AI Eval Case in ``suite`` with optional assertions
 	(WI-001746). Provider/model/system prompt come from the suite's agent
