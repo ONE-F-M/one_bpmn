@@ -35,7 +35,8 @@ ON_TODO = {"doctype": "ToDo"}
 # The case that changes a field's display condition writes it, so it runs on a DocType of its own.
 PROBE = "Docu Eval Probe"
 ON_PROBE = {"doctype": PROBE}
-PROPERTY_TRACE = [_call(1, "classify_intent"), _call(2, "edit_field_property"), _call(3, "finalize")]
+# edit_field_property writes the reply and marks the turn done, so a finalize after it is optional.
+PROPERTY_TRACE = [_call(1, "classify_intent"), _call(2, "edit_field_property")]
 
 
 def _judge(rubric):
