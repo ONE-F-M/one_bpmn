@@ -81,8 +81,18 @@
 							{{ c.summaries }}
 						</td>
 						<td class="px-3 py-2 text-gray-500 text-xs">{{ c.last_activity || "—" }}</td>
-						<td class="px-3 py-2 text-right">
-							<span v-if="c.has_state" class="text-xs text-gray-400" title="Has a session scratchpad">state</span>
+						<td class="px-3 py-2 text-right whitespace-nowrap">
+							<span v-if="c.has_state" class="text-xs text-gray-400 mr-2" title="Has a session scratchpad">state</span>
+							<!-- .stop: the row itself opens the conversation. -->
+							<Button
+								size="sm"
+								variant="subtle"
+								title="Copy conversation link"
+								aria-label="Copy conversation link"
+								@click.stop="copyLink(c.name)"
+							>
+								{{ copiedName === c.name ? "Copied" : "Copy link" }}
+							</Button>
 						</td>
 					</tr>
 				</tbody>
