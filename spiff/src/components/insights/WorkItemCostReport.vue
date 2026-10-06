@@ -141,9 +141,15 @@
 
 <script setup>
 import { ref, watch } from "vue"
-import { frappeRequest, Autocomplete } from "frappe-ui"
+import { frappeRequest, Autocomplete, Tooltip } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { fmtInt as fmtNum, fmtCompact, fmtCurrency as fmtCost, fmtCurrencyExact } from "@/utils/formatters"
+
+// Explains the API's `chain_truncated` flag in plain words for the banner.
+const chainTruncatedHelp =
+	"chain_truncated: the delegation chain (Work Item → agent runs → further delegated runs) " +
+	"is deeper than the report's depth limit, so runs beyond that depth were not counted. " +
+	"The totals are a minimum, not the full cost."
 
 const searching = ref(false)
 const workItemOptions = ref([])
