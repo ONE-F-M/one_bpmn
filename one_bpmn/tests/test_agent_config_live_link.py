@@ -71,6 +71,19 @@ class TestAgentConfigLiveLink(FrappeTestCase):
 			"Edited from the dialog.",
 		)
 
+	def test_write_back_sets_the_run_budgets(self):
+		result = update_agent_config_from_shape(
+			TEST_CONFIG, {"aiRunTokenBudget": "150000", "aiRunCostBudget": "1.5"}
+		)
+		self.assertIn("run_token_budget", result["updated"])
+		self.assertIn("run_cost_budget", result["updated"])
+		budgets = frappe.db.get_value(
+			"AI Agent Configuration", TEST_CONFIG, ["run_token_budget", "run_cost_budget"], as_dict=True
+		)
+		self.assertEqual((budgets.run_token_budget, budgets.run_cost_budget), (150000, 1.5))
+		update_agent_config_from_shape(TEST_CONFIG, {"aiRunTokenBudget": 0, "aiRunCostBudget": 0})
+		self.assertEqual(frappe.db.get_value("AI Agent Configuration", TEST_CONFIG, "run_token_budget"), 0)
+
 	def test_write_back_no_change_is_noop(self):
 		prompt = frappe.db.get_value("AI Agent Configuration", TEST_CONFIG, "system_prompt")
 		result = update_agent_config_from_shape(TEST_CONFIG, {"aiSystemPrompt": prompt})

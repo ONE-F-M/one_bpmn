@@ -85,6 +85,8 @@ _SHAPE_TO_CONFIG = {
 	"aiSystemPrompt": "system_prompt",
 	"aiTemperature": "temperature",
 	"aiMaxTokens": "max_tokens",
+	"aiRunTokenBudget": "run_token_budget",
+	"aiRunCostBudget": "run_cost_budget",
 	"aiModel": "ai_model",
 	# WI-001793: the modal's Memory section now persists here instead of onto
 	# the BPMN XML, so the agent is the single place memory is configured.
@@ -687,7 +689,14 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 			value = frappe.utils.cint(value)
 		# WI-001793: the modal's number input hands back a string; 0/blank means
 		# "not set here" and must stay 0 so dispatch falls through to the shape.
-		if cfield in ("context_max_messages", "context_token_budget", "memory_token_budget"):
+		if cfield == "run_cost_budget":
+			value = frappe.utils.flt(value)
+		if cfield in (
+			"context_max_messages",
+			"context_token_budget",
+			"memory_token_budget",
+			"run_token_budget",
+		):
 			value = frappe.utils.cint(value)
 		# Old diagrams carry model ids baked into the shape before the AI Model
 		# catalog existed (WI-001655). Letting doc.save() hit the Link
