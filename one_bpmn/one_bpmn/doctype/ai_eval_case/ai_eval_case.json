@@ -34,6 +34,13 @@
    "reqd": 1
   },
   {
+   "description": "Pass Threshold of the first assertion row, shown here so you do not have to open the Assertions table. Updated on save.",
+   "fieldname": "first_pass_threshold",
+   "fieldtype": "Int",
+   "label": "First Assertion Pass Threshold",
+   "read_only": 1
+  },
+  {
    "fieldname": "case_type",
    "fieldtype": "Select",
    "label": "Case Type",
