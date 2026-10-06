@@ -8,6 +8,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.one_bpmn.patches.v1_0 import docu_baseline_matches_the_current_agent as p
+from one_bpmn.one_bpmn.patches.v1_0 import docu_property_case_ends_at_the_stage as ends_at_the_stage
 from one_bpmn.one_bpmn.patches.v1_0 import seed_docu_baseline_cases as seed
 from one_bpmn.one_bpmn.patches.v1_0.seed_docu_agent_config import _INLINE_SUB_PROMPTS
 
@@ -75,7 +76,7 @@ class TestDocuBaselineMatchesTheAgent(FrappeTestCase):
 		spec = next(c for c in seed.CASES if c["title"] == DISPLAY)
 
 		self.assertEqual(spec["context"], seed.ON_PROBE)
-		self.assertEqual([c["tool_name"] for c in spec["trace"]], ["classify_intent", "edit_field_property", "finalize"])
+		self.assertEqual([c["tool_name"] for c in spec["trace"]], ["classify_intent", "edit_field_property"])
 
 	def test_the_patch_refreshes_those_two_cases_and_no_other(self):
 		numbering = self._case(NUMBERING)
@@ -94,7 +95,24 @@ class TestDocuBaselineMatchesTheAgent(FrappeTestCase):
 		self.assertEqual(ceiling, ["45000"])
 		refreshed = self._case(DISPLAY)
 		self.assertEqual(json.loads(refreshed.input_context), seed.ON_PROBE)
-		self.assertEqual([r.tool_name for r in refreshed.expected_tool_calls], ["classify_intent", "edit_field_property", "finalize"])
+		self.assertEqual([r.tool_name for r in refreshed.expected_tool_calls], ["classify_intent", "edit_field_property"])
+		self.assertEqual(self._case(UNTOUCHED).input_user_prompt, "edited by a person")
+
+
+	def test_the_property_case_stops_expecting_a_finalize_and_no_other_case_changes(self):
+		display = self._case(DISPLAY)
+		display.set(
+			"expected_tool_calls",
+			[seed._call(1, "classify_intent"), seed._call(2, "edit_field_property"), seed._call(3, "finalize")],
+		)
+		display.save(ignore_permissions=True)
+		frappe.db.set_value("AI Eval Case", self._case(UNTOUCHED).name, "input_user_prompt", "edited by a person")
+
+		ends_at_the_stage.execute()
+		ends_at_the_stage.execute()
+
+		tools = [r.tool_name for r in self._case(DISPLAY).expected_tool_calls]
+		self.assertEqual(tools, ["classify_intent", "edit_field_property"])
 		self.assertEqual(self._case(UNTOUCHED).input_user_prompt, "edited by a person")
 
 
