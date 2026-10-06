@@ -35,6 +35,12 @@ class AIEvalCase(Document):
     def validate(self):
         self._validate_assertions()
         self._validate_tool_call_assertions()
+        self._set_first_pass_threshold()
+
+    def _set_first_pass_threshold(self):
+        """Mirror the first assertion's pass_threshold into a read-only summary field."""
+        first = self.assertions[0] if self.assertions else None
+        self.first_pass_threshold = first.pass_threshold if first else None
 
     def _validate_tool_call_assertions(self):
         """A tool_calls assertion needs a mode, expected calls, and — where the
