@@ -101,6 +101,11 @@ def _is_remember_directive(message: str) -> bool:
 	return bool(_REMEMBER_RE.search(message or ""))
 
 
+def terminal_tools_for(task_cfg: dict) -> list:
+	"""finalize plus the comma-separated tools the task or its agent names; each ends the turn when called."""
+	return list({"finalize", *(t.strip() for t in (task_cfg.get("aiTerminalTools") or "").split(",") if t.strip())})
+
+
 def _cfg_truthy(value) -> bool:
 	"""Interpret a BPMN config value as a boolean (checkbox or string)."""
 	if isinstance(value, bool):
@@ -2031,11 +2036,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		run_token_budget = cint(task_cfg.get("aiRunTokenBudget")) or None,
 		run_cost_budget  = frappe.utils.flt(task_cfg.get("aiRunCostBudget")) or None,
 		resume_state     = _checkpoint.build_resume_state(resume_payload) if resume_payload else None,
-		# WI-002187: "finalize" always ends the turn; a shape can name additional
-		# terminal tools (comma-separated) without losing that default.
-		terminal_tools   = list({"finalize", *(
-			t.strip() for t in (task_cfg.get("aiTerminalTools") or "").split(",") if t.strip()
-		)}),
+		terminal_tools   = terminal_tools_for(task_cfg),
 		tool_choice      = (task_cfg.get("aiToolChoice") or "auto").strip(),
 		parallel_tool_calls = _cfg_truthy(task_cfg.get("aiParallelToolCalls", 1)),
 		thinking_budget_tokens = cint(task_cfg.get("aiThinkingBudgetTokens")),

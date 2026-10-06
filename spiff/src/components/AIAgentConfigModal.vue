@@ -281,6 +281,34 @@
             </div>
           </div>
 
+          <template v-if="form.aiAgentConfig">
+            <div class="field-row two-col">
+              <div>
+                <label>Tool Choice <span class="hint">(first model call only)</span></label>
+                <input type="text" v-model.trim="form.aiToolChoice" placeholder="auto" />
+              </div>
+              <div>
+                <label>Thinking Budget Tokens <span class="hint">(0 = off)</span></label>
+                <input type="number" v-model.number="form.aiThinkingBudgetTokens" min="0" step="1024" />
+              </div>
+            </div>
+            <span class="field-hint">
+              Tool Choice is auto, required, or a tool shape's id. A thinking budget is at least 1,024 and below Max Tokens. Both are saved on the linked agent.
+            </span>
+            <div class="field-row two-col">
+              <div>
+                <label>Terminal Tools <span class="hint">(comma-separated; finalize always ends the turn)</span></label>
+                <input type="text" v-model.trim="form.aiTerminalTools" />
+              </div>
+              <div>
+                <label class="checkbox-row">
+                  <input type="checkbox" v-model="form.aiParallelToolCalls" class="checkbox-input" />
+                  <span>Parallel Tool Calls</span>
+                </label>
+              </div>
+            </div>
+          </template>
+
           <div class="field-row" v-if="!isSelector">
             <label>Max Retries</label>
             <input type="number" v-model.number="form.aiMaxRetries" min="0" max="10" />
@@ -1140,6 +1168,10 @@ const form = ref({
   // Agent-owned: a run stops once it passes either budget; 0 is no budget.
   aiRunTokenBudget: 0,
   aiRunCostBudget: 0,
+  aiToolChoice: "",
+  aiParallelToolCalls: true,
+  aiThinkingBudgetTokens: 0,
+  aiTerminalTools: "",
   // WI-001639: the agent's frozen static context. Always arrays — they are
   // replaced wholesale by loadLinkedAgent once the agent is read.
   aiExamples: [],
@@ -1500,6 +1532,10 @@ onMounted(async () => {
     aiGoldenDatasetTarget: numOr("aiGoldenDatasetTarget", 0, parseInt),
     aiRunTokenBudget: 0,
     aiRunCostBudget: 0,
+    aiToolChoice: "",
+    aiParallelToolCalls: true,
+    aiThinkingBudgetTokens: 0,
+    aiTerminalTools: "",
     aiCompactionIdleMinutes: numOr("aiCompactionIdleMinutes", 0, parseInt),
     aiCompactionOnTaskBoundary: get("aiCompactionOnTaskBoundary") === "true",
     // WI-001639: agent-owned, with no diagram fallback — this assignment
@@ -1551,7 +1587,7 @@ onMounted(async () => {
 // live link). The resolver returns shape-attribute keys (aiSystemPrompt,
 // aiProvider, aiModel, aiTemperature, aiMaxTokens) that map directly onto our
 
-const BOOLEAN_FORM_KEYS = ["aiCompactionEnabled", "aiCompactionOnTaskBoundary"];
+const BOOLEAN_FORM_KEYS = ["aiCompactionEnabled", "aiCompactionOnTaskBoundary", "aiParallelToolCalls"];
 
 function configValueToForm(key, val) {
   if (BOOLEAN_FORM_KEYS.includes(key)) {
@@ -1716,6 +1752,13 @@ async function writeBackToConfig() {
   };
   fields.aiTemperature = form.value.aiTemperature;
   for (const attr of configOwnedLimits.value) fields[attr] = form.value[attr];
+  // Only once the agent was read, so the form's defaults never overwrite its real values.
+  if (staticContextLoaded.value) {
+    fields.aiToolChoice = form.value.aiToolChoice || "";
+    fields.aiParallelToolCalls = form.value.aiParallelToolCalls ? 1 : 0;
+    fields.aiThinkingBudgetTokens = form.value.aiThinkingBudgetTokens || 0;
+    fields.aiTerminalTools = form.value.aiTerminalTools || "";
+  }
   // Screening is NOT sent here. It has its own writer (saveScreening, below),
   // and sending it from both places meant the resolver write landed second and
   // put the stale form value back — silently undoing whatever the user had just
