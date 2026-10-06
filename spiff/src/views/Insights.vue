@@ -150,7 +150,7 @@ const EMPTY_OPTIONS = { models: [], providers: [], processes: [] }
 
 const tabs = [
 	{ key: "cost", label: __("Usage"), icon: "lucide:credit-card" },
-	{ key: "errors", label: __("Errors"), icon: "lucide:alert-triangle" },
+	{ key: "errors", label: __("Error Log"), icon: "lucide:alert-triangle" },
 	{ key: "performance", label: __("Latency"), icon: "lucide:timer" },
 	{ key: "allocation", label: __("Cost Allocation"), icon: "lucide:receipt" },
 	{ key: "work_item_cost", label: __("Work Items"), icon: "lucide:package-search" },
