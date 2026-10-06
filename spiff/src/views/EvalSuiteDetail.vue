@@ -469,8 +469,19 @@
 							description="A skill's golden dataset is the cases pointing at it."
 						/>
 					</div>
-					<p v-if="caseProvenance" class="text-xs text-gray-500">
-						Came from {{ caseProvenance }} — that link is set by whatever promoted this case, not here.
+					<p v-if="caseSources.length" class="text-xs text-gray-500">
+						Came from
+						<template v-for="(src, i) in caseSources" :key="src.label">
+							<span v-if="i">, </span>
+							<router-link
+								v-if="src.to"
+								:to="src.to"
+								class="text-blue-600 hover:underline"
+							>
+								{{ src.label }}
+							</router-link>
+							<span v-else>{{ src.label }}</span>
+						</template>
 					</p>
 					<FormControl
 						type="textarea"
@@ -925,12 +936,19 @@ async function downloadDataset() {
 	}
 }
 
-const caseProvenance = computed(() => {
+const caseSources = computed(() => {
 	const from = []
-	if (caseForm.source_feedback) from.push(`feedback ${caseForm.source_feedback}`)
-	if (caseForm.source_security_event) from.push(`security event ${caseForm.source_security_event}`)
-	if (caseForm.source_run) from.push(`run ${caseForm.source_run}`)
-	return from.join(", ")
+	if (caseForm.source_feedback) from.push({ label: `feedback ${caseForm.source_feedback}` })
+	if (caseForm.source_security_event) {
+		from.push({
+			label: `security event ${caseForm.source_security_event}`,
+			to: `/processa/security?event=${encodeURIComponent(caseForm.source_security_event)}`,
+		})
+	}
+	if (caseForm.source_run) {
+		from.push({ label: `run ${caseForm.source_run}`, to: `/processa/runs/${encodeURIComponent(caseForm.source_run)}` })
+	}
+	return from
 })
 
 const caseForm = reactive({

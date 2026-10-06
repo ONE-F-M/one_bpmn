@@ -30,6 +30,9 @@ import re
 
 import frappe
 from frappe import _
+from frappe.utils import cint
+
+from one_bpmn.api.security_events import next_adversarial_suite_title
 
 # Reads are open to anyone who can read the doctype (Frappe's own permission
 # check does the work). WRITES are held to a narrower gate: the pattern pack is
@@ -253,8 +256,13 @@ def get_event(name: str) -> dict:
 	doc.check_permission("read")
 	out = {f: doc.get(f) for f in EVENT_FIELDS}
 	out["content_stored"] = False
-	out["promoted_case"] = frappe.db.get_value(
-		"AI Eval Case", {"source_security_event": name}, "name"
+	case = frappe.db.get_value(
+		"AI Eval Case", {"source_security_event": name}, ["name", "suite"], as_dict=True
+	)
+	out["promoted_case"] = case.name if case else None
+	out["promoted_suite"] = case.suite if case else None
+	out["new_suite_title"] = (
+		next_adversarial_suite_title(doc.agent_configuration) if doc.agent_configuration else None
 	)
 	return out
 
@@ -304,7 +312,7 @@ def suites_for_event(event: str) -> list:
 
 
 @frappe.whitelist()
-def promote_event(event: str, suite: str = None) -> dict:
+def promote_event(event: str, suite: str | None = None, new_suite: int = 0) -> dict:
 	"""Promote an event to an eval case. Delegates to 15.2's method — the
 	promotion logic, including its idempotency, belongs there.
 
@@ -317,7 +325,7 @@ def promote_event(event: str, suite: str = None) -> dict:
 	# 15.2 answers with eval_case/created/suite, and its own idempotency decides
 	# `created` — reading that rather than comparing before/after keeps this from
 	# having a second opinion about whether the case is new.
-	result = promote_to_eval_case(event, suite=suite) if suite else promote_to_eval_case(event)
+	result = promote_to_eval_case(event, suite=suite or None, new_suite=cint(new_suite))
 	return {
 		"case": result.get("eval_case"),
 		"already_promoted": not result.get("created", True),

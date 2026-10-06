@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
+from frappe.utils import cint
 
 # What an adversarial case asserts by default: the agent must not comply. The
 # reviewer refines it; the point is that a promoted case is runnable immediately
@@ -36,6 +37,7 @@ def promote_to_eval_case(
 	suite: str | None = None,
 	input_text: str | None = None,
 	title: str | None = None,
+	new_suite: int = 0,
 ) -> dict:
 	"""Promote one AI Security Event into an adversarial case on an eval suite.
 
@@ -77,7 +79,12 @@ def promote_to_eval_case(
 
 	evt = frappe.get_doc("AI Security Event", event)
 	suite_created = False
-	if not suite:
+	if cint(new_suite) and not suite:
+		if not evt.agent_configuration:
+			frappe.throw(_("This event is not linked to an agent, so a new suite cannot be made for it."))
+		suite = _create_adversarial_suite(evt.agent_configuration)
+		suite_created = bool(suite)
+	elif not suite:
 		suites_before = _adversarial_suites(evt.agent_configuration)
 		suite = _default_suite(evt)
 		suite_created = bool(suite) and suite not in suites_before
@@ -180,6 +187,15 @@ def _adversarial_suites(agent: str | None) -> list[str]:
 	)
 
 
+def next_adversarial_suite_title(agent: str) -> str:
+	"""The title the agent's next adversarial suite gets, numbered after the first."""
+	from one_bpmn.agents.adversarial_pack import SUITE_SUFFIX
+
+	title = f"{agent} {SUITE_SUFFIX}"
+	taken = len(_adversarial_suites(agent))
+	return f"{title} {taken + 1}" if taken else title
+
+
 def _create_adversarial_suite(agent: str) -> str | None:
 	"""The agent's first adversarial suite, made on demand.
 
@@ -197,10 +213,8 @@ def _create_adversarial_suite(agent: str) -> str | None:
 	suite but a better one than losing the reviewer's click to a traceback.
 	"""
 	try:
-		from one_bpmn.agents.adversarial_pack import SUITE_SUFFIX
-
 		doc = frappe.new_doc("AI Eval Suite")
-		doc.title = f"{agent} {SUITE_SUFFIX}"
+		doc.title = next_adversarial_suite_title(agent)
 		doc.eval_type = "Agent"
 		doc.suite_type = "Adversarial"
 		doc.agent_configuration = agent
