@@ -167,6 +167,32 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 		self.assertTrue(captured["user_prompt"].startswith("Pick the next task for INST-TEST-1."))
 		self.assertIn("activate nothing", captured["user_prompt"])
 
+	def test_the_selector_sends_the_agents_tool_controls(self):
+		sp, _ = _adhoc_subworkflow()
+		captured = {}
+
+		def factory(config, context):
+			from one_bpmn.agents.executor import ExecutorResult, TokenUsage
+
+			captured["controls"] = (
+				config.tool_choice,
+				config.parallel_tool_calls,
+				config.thinking_budget_tokens,
+				sorted(config.terminal_tools),
+			)
+			return ExecutorResult(output="", token_usage=TokenUsage(), trace=[])
+
+		_FakeExecutor.result_factory = factory
+		cfg = {
+			**SELECTOR_CFG,
+			"aiToolChoice": "required",
+			"aiParallelToolCalls": "0",
+			"aiThinkingBudgetTokens": "2048",
+			"aiTerminalTools": "task_b",
+		}
+		ai_task_selector.dispatch_ai_task_selector(_instance(), sp, cfg, "AdhocSub_1")
+		self.assertEqual(captured["controls"], ("required", False, 2048, ["finalize", "task_b"]))
+
 	# ── Scenario 2: diagram-task selection → activation, args merged ──
 
 	def test_diagram_task_selection_activates_with_arguments(self):

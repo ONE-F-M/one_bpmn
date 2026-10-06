@@ -96,6 +96,10 @@ _SHAPE_TO_CONFIG = {
 	"aiRunTokenBudget": "run_token_budget",
 	"aiRunCostBudget": "run_cost_budget",
 	"aiModel": "ai_model",
+	"aiToolChoice": "tool_choice",
+	"aiParallelToolCalls": "parallel_tool_calls",
+	"aiThinkingBudgetTokens": "thinking_budget_tokens",
+	"aiTerminalTools": "terminal_tools",
 	**_ZERO_MEANS_UNSET,
 	# WI-001793: the modal's Memory section now persists here instead of onto
 	# the BPMN XML, so the agent is the single place memory is configured.
@@ -722,6 +726,8 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 			"context_token_budget",
 			"memory_token_budget",
 			"run_token_budget",
+			"parallel_tool_calls",
+			"thinking_budget_tokens",
 		):
 			value = frappe.utils.cint(value)
 		# Old diagrams carry model ids baked into the shape before the AI Model
