@@ -14,11 +14,11 @@ from one_bpmn.utils.session import as_user
 
 @frappe.whitelist()
 def list_process_instances(
-	filters=None,
-	limit_start=0,
-	limit_page_length=20,
-	order_by="creation desc",
-	pending_action_by=None,
+	filters: str | dict | list | None = None,
+	limit_start: int = 0,
+	limit_page_length: int = 20,
+	order_by: str = "creation desc",
+	pending_action_by: str | None = None,
 ) -> list:
 	"""
 	List BPMN process instances with their active tasks joined as 'current_step'.

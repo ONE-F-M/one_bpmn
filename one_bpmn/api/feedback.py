@@ -210,7 +210,9 @@ def _normalise_reasons(reasons, rating: str) -> list:
 
 
 @frappe.whitelist()
-def rate_response(message: str, rating: str, reasons=None, comment: str = "") -> dict:
+def rate_response(
+	message: str, rating: str, reasons: str | list[str] | None = None, comment: str = ""
+) -> dict:
 	"""Record (or replace) this user's rating of one agent reply.
 
 	Idempotent by construction: the row is keyed on message + user, so clicking

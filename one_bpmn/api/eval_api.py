@@ -376,11 +376,11 @@ def create_eval_case(
 	title: str,
 	input_user_prompt: str,
 	expected_output: str = "",
-	assertions=None,
-	expected_tool_calls=None,
+	assertions: str | list[dict] | None = None,
+	expected_tool_calls: str | list[dict] | None = None,
 	case_type: str = None,
 	target_skill: str = None,
-	input_context=None,
+	input_context: str | dict | None = None,
 ) -> str:
 	"""Create a manual AI Eval Case in ``suite`` with optional assertions
 	(WI-001746). Provider/model/system prompt come from the suite's agent
@@ -575,11 +575,11 @@ def update_eval_case(
 	title: str = None,
 	input_user_prompt: str = None,
 	expected_output: str = None,
-	assertions=None,
-	expected_tool_calls=None,
+	assertions: str | list[dict] | None = None,
+	expected_tool_calls: str | list[dict] | None = None,
 	case_type: str = None,
 	target_skill: str = None,
-	input_context=None,
+	input_context: str | dict | None = None,
 ) -> str:
 	"""Edit an existing case, including its assertions (WI-001746). Gated by the
 	suite's write permission."""
@@ -1031,8 +1031,10 @@ def case_consistency(suite: str, days: int = 7, limit: int = 100) -> dict:
 
 
 @frappe.whitelist()
-def update_suite_thresholds(suite: str, pass_k=None, min_pass_rate=None, gate_deployment=None,
-							ci_role=None) -> dict:
+def update_suite_thresholds(suite: str, pass_k: int | str | None = None,
+							min_pass_rate: float | str | None = None,
+							gate_deployment: int | str | None = None,
+							ci_role: str | None = None) -> dict:
 	"""Set how a suite behaves when nobody is driving it: which automated job
 	picks it up, how many times each case runs, the rate it must clear, and
 	whether falling below that rate blocks the linked map from being activated.
