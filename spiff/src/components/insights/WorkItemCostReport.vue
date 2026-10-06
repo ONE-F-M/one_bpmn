@@ -36,6 +36,15 @@
 				<span class="font-medium">This total may be incomplete.</span>
 				The delegation chain for this Work Item is deeper than this report walks,
 				so the figures below are a floor, not the whole cost.
+				<Tooltip :text="chainTruncatedHelp">
+					<span
+						class="inline-flex align-middle ml-1 cursor-help"
+						tabindex="0"
+						aria-label="What does chain_truncated mean?"
+					>
+						<Icon icon="lucide:info" class="w-4 h-4" />
+					</span>
+				</Tooltip>
 			</div>
 
 			<!-- Summary tiles -->
