@@ -161,6 +161,76 @@ class TestTheLoopCompacts(FrappeTestCase):
 		self.assertEqual(adapter.transcripts[5][1]["role"], "assistant")
 		self.assertEqual(call.call_count, 2)
 
+	def test_a_threshold_crossed_before_there_is_anything_old_still_compacts_later(self):
+		"""The Dev Agent run s9i3fbi9ig passed the threshold at 5 tool turns with keep_turns 8 and never compacted."""
+		adapter = _GrowingAdapter(turns=10)
+		tool = ToolSpec(
+			fn=lambda path: "x",
+			name="read_file",
+			description="Read a file.",
+			parameters={"path": {"type": "string"}},
+		)
+		with patch(SUMMARY_CALL, return_value=_summary()):
+			asyncio.run(
+				run_agent_loop(
+					adapter,
+					system="s",
+					user="Fix the broken panel.",
+					tools=[tool],
+					max_turns=20,
+					loop_compaction={
+						"threshold": 25000,
+						"keep_turns": 4,
+						"model": None,
+						"agent_model": "claude-sonnet-5",
+						"provider": "Claude",
+					},
+				)
+			)
+		self.assertFalse(any(e.get("compaction") for e in adapter.transcripts[4]))
+		self.assertTrue(adapter.transcripts[5][0].get("compaction"))
+
+	def test_a_resumed_run_compacts_on_its_first_call(self):
+		"""A coding run parks at run_tests and open_pull_request; each resume used to start from a prompt size of 0."""
+		calls = []
+
+		class _Answers:
+			async def step(self, system, transcript, tools=None, max_tokens=16384, **_):
+				calls.append([dict(e) for e in transcript])
+				return StepResult(content="Done.", prompt_tokens=20000)
+
+		transcript = [*_transcript(8), _turn(9)[0]]
+		resume = {
+			"transcript": transcript,
+			"turns_used": 9,
+			"trace": [
+				{"role": "assistant", "content": f"step {n}", "prompt_tokens": n * 10000}
+				for n in range(1, 10)
+			],
+			"pending_call": {"id": "c9", "name": "run_tests", "arguments": {}},
+			"human_result": "tests ran",
+		}
+		with patch(SUMMARY_CALL, return_value=_summary()):
+			completion, _ = asyncio.run(
+				run_agent_loop(
+					_Answers(),
+					system="s",
+					user="Fix the broken panel.",
+					tools=[],
+					max_turns=20,
+					resume=resume,
+					loop_compaction={
+						"threshold": 50000,
+						"keep_turns": 3,
+						"model": None,
+						"agent_model": "claude-sonnet-5",
+						"provider": "Claude",
+					},
+				)
+			)
+		self.assertEqual(completion.text, "Done.")
+		self.assertTrue(calls[0][0].get("compaction"))
+
 	def test_no_setting_means_no_compaction(self):
 		adapter = _GrowingAdapter(turns=6)
 		tool = ToolSpec(
