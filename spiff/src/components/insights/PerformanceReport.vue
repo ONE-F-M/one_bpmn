@@ -33,7 +33,7 @@
 				v-if="trend.labels && trend.labels.length > 0"
 				class="bg-gray-50 rounded-lg p-4"
 			>
-				<div class="text-xs text-gray-500 uppercase tracking-wide mb-3">Latency Trend (p50 / p95)</div>
+				<div class="text-xs text-gray-500 uppercase tracking-wide mb-3">Response Time Trend (p50 / p95)</div>
 				<div class="latency-chart h-[180px]">
 					<AxisChart :config="trendConfig" />
 				</div>
