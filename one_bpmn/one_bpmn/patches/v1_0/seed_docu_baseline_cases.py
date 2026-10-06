@@ -32,6 +32,10 @@ DESIGN_TRACE = [
 # clarify writes the reply and marks the turn done, so a finalize after it is optional.
 CLARIFY_TRACE = [_call(1, "classify_intent"), _call(2, "clarify")]
 ON_TODO = {"doctype": "ToDo"}
+# The case that changes a field's display condition writes it, so it runs on a DocType of its own.
+PROBE = "Docu Eval Probe"
+ON_PROBE = {"doctype": PROBE}
+PROPERTY_TRACE = [_call(1, "classify_intent"), _call(2, "edit_field_property"), _call(3, "finalize")]
 
 
 def _judge(rubric):
@@ -67,7 +71,7 @@ CASES = [
 				"The DocType definition after the reply has a field for each of: the location, the "
 				"date, a description and the severity. Score 5 when all four are present, 1 when any is missing."
 			),
-			{"assertion_type": "max_tokens", "value": "30000"},
+			{"assertion_type": "max_tokens", "value": "45000"},
 		],
 	},
 	{
@@ -133,16 +137,15 @@ CASES = [
 	{
 		"title": "A field shown only for some values gets a display condition on those values",
 		"prompt": "Make the Assigned By field only show when the Status is neither Cancelled nor Closed.",
-		"context": ON_TODO,
-		"trace": DESIGN_TRACE,
+		"context": ON_PROBE,
+		"trace": PROPERTY_TRACE,
 		"assertions": [
 			IN_ORDER,
-			_regex(r'"depends_on": "eval:.*Cancelled'),
-			_regex(r'"depends_on": "eval:.*Closed'),
+			_regex(r"Assigned By shows only when .*Cancelled.*Closed"),
 			_judge(
-				"In the definition after the reply, the assigned_by field has a depends_on that hides it "
-				"when status is Cancelled or Closed and shows it otherwise. Score 5 when the condition is "
-				"right, 1 when it is missing, on another field, or inverted."
+				"The reply says the Assigned By field now shows only when the status is neither Cancelled "
+				"nor Closed. Score 5 when the condition hides it for both and shows it otherwise, 1 when it "
+				"is missing, on another field, or inverted."
 			),
 		],
 	},
@@ -184,21 +187,43 @@ def execute():
 
 	suite = _suite(agent, process_model)
 	for spec in CASES:
-		existing = frappe.db.get_value("AI Eval Case", {"suite": suite, "title": spec["title"]}, "name")
-		case = frappe.get_doc("AI Eval Case", existing) if existing else frappe.new_doc("AI Eval Case")
-		case.suite = suite
-		case.title = spec["title"]
-		case.case_type = "Trajectory" if spec.get("trace") else "Output"
-		case.process_model = process_model
-		case.bpmn_id = SHAPE
-		case.input_user_prompt = spec["prompt"]
-		case.input_context = json.dumps(spec["context"]) if spec.get("context") else None
-		case.set("assertions", spec["assertions"])
-		case.set("expected_tool_calls", spec.get("trace") or [])
-		if existing:
-			case.save(ignore_permissions=True)
-		else:
-			case.insert(ignore_permissions=True)
+		upsert_case(suite, process_model, spec)
+
+
+def upsert_case(suite: str, process_model: str, spec: dict) -> None:
+	existing = frappe.db.get_value("AI Eval Case", {"suite": suite, "title": spec["title"]}, "name")
+	case = frappe.get_doc("AI Eval Case", existing) if existing else frappe.new_doc("AI Eval Case")
+	case.suite = suite
+	case.title = spec["title"]
+	case.case_type = "Trajectory" if spec.get("trace") else "Output"
+	case.process_model = process_model
+	case.bpmn_id = SHAPE
+	case.input_user_prompt = spec["prompt"]
+	case.input_context = json.dumps(spec["context"]) if spec.get("context") else None
+	case.set("assertions", spec["assertions"])
+	case.set("expected_tool_calls", spec.get("trace") or [])
+	if existing:
+		case.save(ignore_permissions=True)
+	else:
+		case.insert(ignore_permissions=True)
+
+
+def ensure_probe_doctype() -> None:
+	if frappe.db.exists("DocType", PROBE):
+		return
+	frappe.get_doc(
+		{
+			"doctype": "DocType",
+			"name": PROBE,
+			"module": "ONE BPMN",
+			"custom": 1,
+			"fields": [
+				{"fieldname": "status", "fieldtype": "Select", "label": "Status", "options": "Open\nCancelled\nClosed"},
+				{"fieldname": "assigned_by", "fieldtype": "Link", "label": "Assigned By", "options": "User"},
+			],
+			"permissions": [{"role": "System Manager", "read": 1, "write": 1, "create": 1}],
+		}
+	).insert(ignore_permissions=True)
 
 
 def _suite(agent: str, process_model: str) -> str:
