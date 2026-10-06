@@ -118,7 +118,7 @@ CASES = [
 		"assertions": [
 			{"assertion_type": "no_tool_call", "value": "clarify, write_agent_tool"},
 			_final("intent", "equals", "MODIFY"),
-			_final("diff", "regex", r'(?m)^\+.*"Operations'),
+			_final("diff", "regex", r'(?m)^\+.*"department".*Operations'),
 			_final("modified_script", "regex", r'"status":\s*"Active"'),
 			_final("modified_script", "contains", 'result["employee_count"]'),
 		],
