@@ -3777,23 +3777,6 @@ function getAvatarColor(userName) {
 	font-style: italic;
 }
 
-/* Minimap Styling */
-.djs-minimap {
-	background: #ffffff;
-	border: 1px solid #e5e7eb;
-	border-radius: 8px;
-	box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-}
-
-.djs-minimap .map {
-	border-radius: 6px;
-}
-
-.djs-minimap .viewport {
-	border: 2px solid #3b82f6;
-	background: rgba(59, 130, 246, 0.1);
-}
-
 /* Overlay Styling */
 .bpmn-overlay {
 	padding: 4px 8px;
