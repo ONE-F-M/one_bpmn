@@ -1494,7 +1494,6 @@ const showPropertiesPanel = ref(window.innerWidth >= 640);
 const propertiesCollapsed = ref(true);
 const isMounted = ref(false);
 const isImporting = ref(false);
-// const showMinimap = ref(true); // DISABLED
 const selectedElements = shallowRef([]);
 const modelerInstance = shallowRef(null);
 
