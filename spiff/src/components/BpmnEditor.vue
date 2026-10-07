@@ -1050,6 +1050,7 @@ import { customTextStyleModule, stickyNoteModule, serviceTaskIconModule } from "
 // because the npm package requires bpmn-js >= 18 (project uses 17).
 import nativeCopyPasteModule from "@/utils/nativeCopyPaste";
 import clipboardModule from "@/utils/clipboard";
+import { getInitials, getAvatarColor } from "@/utils/avatar";
 
 // Custom moddle extension for text style attributes
 import customTextStyleModdle from "@/moddle/customTextStyleModdle";
