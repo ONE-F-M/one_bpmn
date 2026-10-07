@@ -1569,18 +1569,6 @@ function togglePropertiesCollapse() {
 	propertiesCollapsed.value = !propertiesCollapsed.value;
 }
 
-// toggleMinimap - DISABLED
-// function toggleMinimap() {
-// 	if (!modeler) return;
-// 	const minimap = modeler.get("minimap");
-// 	if (showMinimap.value) {
-// 		minimap.close();
-// 	} else {
-// 		minimap.open();
-// 	}
-// 	showMinimap.value = !showMinimap.value;
-// }
-
 onMounted(async () => {
 	isMounted.value = true;
 	try {
