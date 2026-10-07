@@ -3396,28 +3396,6 @@ defineExpose({
 	showProsAllyPanel,
 });
 
-function getInitials(fullName) {
-	if (!fullName) return "??";
-	return fullName
-		.split(" ")
-		.map((n) => n[0])
-		.join("")
-		.toUpperCase()
-		.substring(0, 2);
-}
-
-function getAvatarColor(userName) {
-	const colors = [
-		"bg-red-500", "bg-blue-500", "bg-green-500", "bg-yellow-500",
-		"bg-purple-500", "bg-pink-500", "bg-indigo-500", "bg-teal-500",
-		"bg-orange-500", "bg-cyan-500"
-	];
-	let hash = 0;
-	for (let i = 0; i < (userName || "").length; i++) {
-		hash = (userName || "").charCodeAt(i) + ((hash << 5) - hash);
-	}
-	return colors[Math.abs(hash) % colors.length];
-}
 </script>
 
 <style scoped>
