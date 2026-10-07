@@ -1128,6 +1128,7 @@ import ExportConfigDialog from "@/components/ExportConfigDialog.vue";
 import ConfigImportResultsDialog from "@/components/ConfigImportResultsDialog.vue";
 import { sanitiseFilename } from "@/utils/downloadBpmn";
 import { serverMessage } from "@/utils/serverMessage";
+import { getInitials, getAvatarColor } from "@/utils/avatar";
 import { useNotificationDialog } from "@/composables/useNotificationDialog";
 import { useWindowSize } from "@/composables/useWindowSize";
 import { dayjs } from "@/dayjs";
