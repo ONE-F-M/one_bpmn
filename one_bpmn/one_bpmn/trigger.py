@@ -568,6 +568,9 @@ def _maybe_advance_instances(doc, task_action: str):
 		the target state, preventing recursion and duplicate submissions.
 	  - Any failure is logged but never crashes the original document save.
 	"""
+	# A save raised by the engine's own service task would advance the running instance a second time from its stale persisted state.
+	if frappe.flags.bpmn_engine_action:
+		return
 	try:
 		active_instances = frappe.get_all(
 			"BPMN Process Instance",
