@@ -1260,7 +1260,7 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 	"""
 	Compile-time lint for AI Agent Tasks:
 	1. Rejects raw API keys embedded in any spiffworkflow:ai* attribute.
-	2. Validates that referenced AI Provider records exist in the database.
+	2. Requires a linked, enabled, Live AI Agent Configuration; the shape's copied provider name is not checked.
 	"""
 	import re
 	_RAW_KEY_RE = re.compile(r"^(sk-|key-)", re.IGNORECASE)
@@ -1282,7 +1282,6 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 					exc=frappe.ValidationError,
 				)
 
-		provider_name = (task_cfg.get("aiProvider") or "").strip()
 		agent_config = (task_cfg.get("aiAgentConfig") or "").strip()
 
 		# WI-001637: validate the AI Agent Configuration reference when present.
@@ -1325,15 +1324,6 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 					"existing agent or create one from the task dialog — setting up "
 					"an AI task with a raw provider has been retired (WI-001650)."
 				).format(bpmn_id),
-				exc=frappe.ValidationError,
-			)
-
-		if provider_name and not frappe.db.exists("AI Provider", provider_name):
-			frappe.throw(
-				_(
-					"AI Provider '{0}' not found (task '{1}'). "
-					"Create it in the AI Provider list."
-				).format(provider_name, bpmn_id),
 				exc=frappe.ValidationError,
 			)
 
