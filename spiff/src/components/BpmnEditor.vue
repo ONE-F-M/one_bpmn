@@ -1808,7 +1808,6 @@ onMounted(async () => {
 				startEventPropertiesProviderModule,
 				conditionalStartEventPropertiesProviderModule,
 				lanePropertiesProviderModule,
-				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
 				resizeModule,
