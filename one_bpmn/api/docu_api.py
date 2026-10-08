@@ -38,6 +38,28 @@ from one_bpmn.tools.tool_for_server_scripts import (
 from one_bpmn.security.doctype_validator import RESERVED_FIELDNAMES, validate_doctype_ir
 from one_bpmn.utils.session import as_user
 
+DOCU_AGENT = "Docu Agent"
+
+
+def _may_change_forms() -> bool:
+	"""System Manager, or a role on the Docu Agent's allowed roles; an empty list admits nobody else."""
+	from one_bpmn.api.agent_invocation import allowed_roles_for
+
+	roles = set(frappe.get_roles())
+	return "System Manager" in roles or bool(roles & allowed_roles_for(DOCU_AGENT))
+
+
+def _docu_user() -> str:
+	"""The Docu Agent's own user, so form changes are made and recorded as the agent."""
+	from one_bpmn.agents.identity import user_for
+
+	return user_for(DOCU_AGENT) or "Administrator"
+
+
+@frappe.whitelist()
+def can_change_forms() -> bool:
+	return _may_change_forms()
+
 _LAYOUT_FIELDTYPES = ("Section Break", "Column Break", "Tab Break")
 _TABLE_FIELDTYPES = ("Table", "Table MultiSelect")
 
@@ -99,15 +121,15 @@ def list_roles() -> list:
 
 @frappe.whitelist()
 def get_doctype_schema(doctype: str) -> dict:
-	"""Return an existing DocType as a Docu IR so the form builder can render it.
-
-	Permission-aware: readable meta only. Returns ``{exists: False}`` when absent.
-	"""
+	"""Return an existing DocType as a Docu IR for anyone who may use the Docu Agent; ``{exists: False}`` when absent."""
 	if not doctype or not frappe.db.exists("DocType", doctype):
 		return {"exists": False, "doctype_ir": None}
-	if not frappe.has_permission("DocType", "read"):
-		frappe.throw(_("You do not have permission to read this form."), frappe.PermissionError)
-	ir = _read_doctype_ir(doctype)
+	from one_bpmn.api.agent_invocation import user_may_use_agent
+
+	if not user_may_use_agent(DOCU_AGENT):
+		frappe.throw(_("You are not allowed to use Docu."), frappe.PermissionError)
+	with as_user(_docu_user()):
+		ir = _read_doctype_ir(doctype)
 	return {"exists": True, "doctype_ir": ir}
 
 
@@ -244,11 +266,8 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 		frappe.throw(_("The form has problems that must be fixed first:<br>") + "<br>".join(verdict["violations"]))
 
 	# 2) Permission gate.
-	if "System Manager" not in frappe.get_roles() and not frappe.has_permission("DocType", "create"):
-		frappe.throw(
-			_("You need the System Manager role to create or change forms."),
-			frappe.PermissionError,
-		)
+	if not _may_change_forms():
+		frappe.throw(_("You are not allowed to create or change forms through Docu."), frappe.PermissionError)
 
 	name = ir_dict["doctype_name"].strip()
 	module = (ir_dict.get("module") or "ONE BPMN").strip()
@@ -282,7 +301,7 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 
 	child_tables: list[str] = []
 	try:
-		with as_user("Administrator"):
+		with as_user(_docu_user()):
 			# Create any inline child DocTypes first and point the Table fields at them.
 			child_tables = _ensure_child_doctypes(name, module, fields)
 			if not frappe.db.exists("DocType", name):
@@ -846,8 +865,8 @@ def apply_field_properties(doctype: str, changes: list) -> list:
 
 	A custom DocType is edited in place; any other DocType gets a Property Setter.
 	"""
-	if "System Manager" not in frappe.get_roles() and not frappe.has_permission("DocType", "create"):
-		frappe.throw(_("You need the System Manager role to change forms."), frappe.PermissionError)
+	if not _may_change_forms():
+		frappe.throw(_("You are not allowed to change forms through Docu."), frappe.PermissionError)
 	if not changes:
 		frappe.throw(_("I could not tell which field on {0} to change.").format(doctype))
 	meta = frappe.get_meta(doctype)
@@ -858,7 +877,7 @@ def apply_field_properties(doctype: str, changes: list) -> list:
 			frappe.throw(_("{0} has no field named {1}.").format(doctype, change.get("fieldname")))
 
 	lines = []
-	with as_user("Administrator"):
+	with as_user(_docu_user()):
 		doc = frappe.get_doc("DocType", doctype) if meta.custom else None
 		for change in changes:
 			fieldname, prop = change["fieldname"], change["property"]
@@ -943,19 +962,14 @@ def build_docu_turn_context(context: dict) -> dict:
 
 	schema_block = ""
 	if doctype and frappe.db.exists("DocType", doctype):
-		if frappe.has_permission("DocType", "read"):
+		with as_user(_docu_user()):
 			ir = _read_doctype_ir(doctype)
-			if ir:
-				schema_block = (
-					"CURRENT DOCTYPE ('%s') AS IR:\n```json\n%s\n```\n"
-					"This form exists — treat the request as a MODIFY of this IR "
-					"unless the user clearly asks for a new form.\n\n"
-				) % (doctype, json.dumps(_compact_ir(ir), indent=1, default=str))
-		else:
-			frappe.log_error(
-				title="Docu: DocType read denied for turn context",
-				message=f"user={frappe.session.user} doctype={doctype}",
-			)
+		if ir:
+			schema_block = (
+				"CURRENT DOCTYPE ('%s') AS IR:\n```json\n%s\n```\n"
+				"This form exists - treat the request as a MODIFY of this IR "
+				"unless the user clearly asks for a new form.\n\n"
+			) % (doctype, json.dumps(_compact_ir(ir), indent=1, default=str))
 	elif doctype:
 		schema_block = (
 			"Named form: '%s' — it does not exist yet, so this is likely a CREATE.\n\n" % doctype
