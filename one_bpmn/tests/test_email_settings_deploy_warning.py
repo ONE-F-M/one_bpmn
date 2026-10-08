@@ -37,9 +37,9 @@ class TestEmailSettingsDeployWarning(FrappeTestCase):
 		self.assertIn("subject, body", details[0])
 
 	def test_an_email_template_fills_both_subject_and_body(self):
-		user = {"Activity_review": {"notifyAssignee": "true", "notifyTemplate": "Task Assigned"}}
-
-		self.assertEqual(self._details(user=user), [])
+		for key in ("notifyAssigneeTemplate", "notifyTemplate"):
+			user = {"Activity_review": {"notifyAssignee": "true", key: "Task Assigned"}}
+			self.assertEqual(self._details(user=user), [], key)
 
 	def test_a_user_task_that_does_not_notify_is_not_flagged(self):
 		self.assertEqual(self._details(user={"Activity_review": {"notifyAssignee": "false"}}), [])

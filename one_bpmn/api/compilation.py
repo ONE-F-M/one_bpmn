@@ -2494,7 +2494,7 @@ def _check_email_settings(service_extensions: dict, user_extensions: dict) -> li
 	for bpmn_id, cfg in user_extensions.items():
 		if cfg.get("notifyAssignee") != "true":
 			continue
-		template = str(cfg.get("notifyTemplate") or "").strip()
+		template = str(cfg.get("notifyAssigneeTemplate") or cfg.get("notifyTemplate") or "").strip()
 		missing = []
 		if not (template or str(cfg.get("notifyAssigneeSubject") or cfg.get("notifySubject") or "").strip()):
 			missing.append(_("subject"))
