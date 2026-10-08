@@ -1033,9 +1033,6 @@ import {
 // SpiffWorkflow extensions (ESM from forked repo)
 import spiffworkflow, { spiffModdleExtension } from "bpmn-js-spiffworkflow";
 
-// Minimap for diagram navigation - DISABLED
-// import minimapModule from "diagram-js-minimap";
-
 // i18n for translations
 import translateModule from "@/i18n";
 
