@@ -2075,10 +2075,13 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	if resume_payload:
 		try:
 			run = frappe.get_doc("AI Agent Run", resume_run)
+			from one_bpmn.agents.observability import _CURRENT_RUN_FLAG, attach_resolved_call, record_ai_step
+
+			# The resume runs in a new job, so sub-calls such as compaction need the run named again.
+			frappe.flags[_CURRENT_RUN_FLAG] = run.name
 			# The resolved answer belongs on the Step that made the call,
 			# not a new one; a checkpoint with no pending_step falls back to
 			# a standalone step.
-			from one_bpmn.agents.observability import attach_resolved_call, record_ai_step
 			pending = (resume_payload.get("suspension") or {}).get("pending_call") or {}
 			human_result = _checkpoint.build_resume_state(resume_payload)["human_result"]
 			attached = attach_resolved_call(
