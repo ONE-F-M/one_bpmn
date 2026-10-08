@@ -47,7 +47,10 @@
 					</div>
 
 					<!-- ── MIDDLE: Visual form builder ─────────────────── -->
-					<div class="dc-builder-panel">
+					<div
+						class="dc-builder-panel"
+						:inert="!canChange"
+					>
 						<!-- Top-level view tabs (mirrors Frappe's Form / Settings) -->
 						<div class="dc-view-tabs">
 							<button class="dc-view-tab" :class="{ active: view === 'form' }" @click="view = 'form'">Form</button>
@@ -323,7 +326,11 @@
 					</div>
 
 					<!-- ── RIGHT: Properties sidebar ───────────────────── -->
-					<div class="dc-props-panel" v-if="view === 'form'">
+					<div
+						v-if="view === 'form'"
+						class="dc-props-panel"
+						:inert="!canChange"
+					>
 
 						<!-- Field properties (Frappe-style: searchable + scrollable) -->
 						<template v-if="sel.type === 'field' && sel.node">
@@ -408,7 +415,8 @@
 				<div class="dc-window-footer">
 					<span class="dc-count">{{ contentCount }} field{{ contentCount === 1 ? "" : "s" }}</span>
 					<span class="dc-save-status" :class="'st-' + saveState">
-						<template v-if="saveState === 'saving'">Saving…</template>
+						<template v-if="!canChange">Read only: you are not allowed to change forms</template>
+						<template v-else-if="saveState === 'saving'">Saving…</template>
 						<template v-else-if="saveState === 'saved'">✓ Saved{{ appliedName ? ' “' + appliedName + '”' : '' }}</template>
 						<template v-else-if="saveState === 'error'">⚠ {{ saveError }}</template>
 						<template v-else>Changes save automatically</template>
@@ -609,6 +617,7 @@ const appliedName = ref("");
 
 // Auto-save: changes persist to the system automatically (no "Apply" button).
 const saveState  = ref("idle");   // idle | saving | saved | error
+const canChange  = ref(false);
 const saveError  = ref("");
 let autosaveTimer = null;
 let autosaveInFlight = false;
@@ -1119,6 +1128,14 @@ async function loadSchema(dt) {
 	} catch (e) { /* new doctype — nothing to load */ }
 }
 
+async function loadCanChange() {
+	try {
+		canChange.value = Boolean(await frappeRequest({ url: `${API}can_change_forms` }));
+	} catch (e) {
+		canChange.value = false;
+	}
+}
+
 async function loadRoles() {
 	try {
 		const res = await frappeRequest({ url: `${API}list_roles` });
@@ -1169,7 +1186,7 @@ function scheduleAutosave() {
 }
 async function runAutosave() {
 	// Only save a valid design (a name + at least one real field).
-	if (!dtName.value.trim() || !contentCount.value) return;
+	if (!canChange.value || !dtName.value.trim() || !contentCount.value) return;
 	if (autosaveInFlight) { autosaveQueued = true; return; }
 	autosaveInFlight = true;
 	saveState.value = "saving";
@@ -1253,6 +1270,7 @@ onMounted(async () => {
 	selectForm();
 	loadModules();  // populate the module picker (fire-and-forget)
 	loadRoles();    // populate the permission-rule role picker
+	await loadCanChange();
 	if (props.doctype) {
 		// A doctype is already selected on the shape — load its form builder
 		// view. The greeting comes from the docu_agent configuration

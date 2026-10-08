@@ -80,7 +80,7 @@ class TestEditFieldPropertyStage(FrappeTestCase):
 	def test_a_user_without_system_manager_changes_nothing(self):
 		frappe.set_user("Guest")
 		output = _run_stage(PRODUCTION_MESSAGE, SECTION_DEPENDS_ON, doctype="Note")
-		self.assertIn("System Manager", output["response"])
+		self.assertIn("not allowed to change forms", output["response"])
 		self.assertFalse(frappe.db.exists("Property Setter", "Note-seen_by_section-depends_on"))
 
 
