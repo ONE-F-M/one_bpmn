@@ -715,6 +715,24 @@
             </span>
           </div>
 
+          <div class="field-row" v-if="!isSelector">
+            <label>Tool Loop Threshold <span class="hint">(0 = off)</span></label>
+            <input type="number" min="0" step="1000" v-model.number="form.aiLoopCompactionThreshold" />
+            <span class="field-hint">
+              Inside one run: once a model call's prompt passes this many tokens, the older tool turns are
+              replaced by a summary and the list of files read and edited. Works without
+              "Compact long conversations". Used by coding agents with long tool loops.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector && form.aiLoopCompactionThreshold > 0">
+            <label>Tool Loop Keep Turns</label>
+            <input type="number" min="3" v-model.number="form.aiLoopCompactionKeepTurns" />
+            <span class="field-hint">
+              How many of the latest tool turns stay word-for-word. At least 3.
+            </span>
+          </div>
+
           <div class="field-group-title" v-if="!isSelector">Golden Dataset</div>
 
           <div class="field-row" v-if="!isSelector">
@@ -1162,6 +1180,9 @@ const form = ref({
   aiCompactionTokenThreshold: 0,
   aiCompactionIdleMinutes: 0,
   aiCompactionOnTaskBoundary: false,
+  // Tool loop compaction is separate from conversation compaction; 0 is off.
+  aiLoopCompactionThreshold: 0,
+  aiLoopCompactionKeepTurns: 8,
   // The golden dataset bar. 0 is "no bar": the dataset shows a count and nothing to measure it against.
   aiGoldenDatasetMinimum: 0,
   aiGoldenDatasetTarget: 0,
@@ -1538,6 +1559,8 @@ onMounted(async () => {
     aiTerminalTools: "",
     aiCompactionIdleMinutes: numOr("aiCompactionIdleMinutes", 0, parseInt),
     aiCompactionOnTaskBoundary: get("aiCompactionOnTaskBoundary") === "true",
+    aiLoopCompactionThreshold: 0,
+    aiLoopCompactionKeepTurns: 8,
     // WI-001639: agent-owned, with no diagram fallback — this assignment
     // replaces form.value wholesale, so the keys must exist here or
     // loadLinkedAgent has nothing to fill and the template binds
@@ -1802,6 +1825,8 @@ async function writeBackToConfig() {
       : 0;
     fields.aiCompactionOnTaskBoundary =
       form.value.aiCompactionEnabled && form.value.aiCompactionOnTaskBoundary ? 1 : 0;
+    fields.aiLoopCompactionThreshold = form.value.aiLoopCompactionThreshold || 0;
+    fields.aiLoopCompactionKeepTurns = form.value.aiLoopCompactionKeepTurns || 8;
   }
   // WI-001639: examples and guard rails are agent-level, so they persist here
   // rather than onto the BPMN XML. Sent whole (the backend replaces the tables)

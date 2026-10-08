@@ -124,6 +124,8 @@ _SHAPE_TO_CONFIG = {
 	"aiCompactionTokenThreshold": "compaction_token_threshold",
 	"aiCompactionIdleMinutes": "compaction_idle_minutes",
 	"aiCompactionOnTaskBoundary": "compaction_on_task_boundary",
+	"aiLoopCompactionThreshold": "loop_compaction_threshold",
+	"aiLoopCompactionKeepTurns": "loop_compaction_keep_turns",
 	"aiGoldenDatasetMinimum": "golden_dataset_minimum",
 	"aiGoldenDatasetTarget": "golden_dataset_target",
 	# WI-001644: screening is agent-level too — what an agent may say is a
@@ -728,6 +730,8 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 			"run_token_budget",
 			"parallel_tool_calls",
 			"thinking_budget_tokens",
+			"loop_compaction_threshold",
+			"loop_compaction_keep_turns",
 		):
 			value = frappe.utils.cint(value)
 		# Old diagrams carry model ids baked into the shape before the AI Model
