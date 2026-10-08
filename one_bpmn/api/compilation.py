@@ -1982,6 +1982,7 @@ def compile_process_model(model_name: str) -> dict:
 	user_extensions = _extract_user_task_config(sanitized_xml)
 	if user_extensions:
 		spec_data["user_task_extensions"] = user_extensions
+	deploy_warnings.extend(_check_email_settings(service_extensions, user_extensions))
 
 	model.serialized_spec = json.dumps(spec_data)
 
@@ -2472,6 +2473,47 @@ def _check_ai_tasks_have_a_user_prompt(spec_data: dict) -> list:
 			).format(bpmn_id),
 		})
 	return warnings
+
+
+def _check_email_settings(service_extensions: dict, user_extensions: dict) -> list:
+	"""One warning per Send Email task or notifying User Task whose recipients, subject or body are empty."""
+	recipient_keys = ("emailTo", "emailToDocFields", "emailToTableField", "emailToRoles")
+	warnings = []
+	for bpmn_id, cfg in service_extensions.items():
+		if cfg.get("serviceType") != "send_email":
+			continue
+		missing = []
+		if not any(str(cfg.get(key) or "").strip() for key in recipient_keys):
+			missing.append(_("recipients"))
+		if not str(cfg.get("emailSubject") or "").strip():
+			missing.append(_("subject"))
+		if not str(cfg.get("emailBody") or "").strip():
+			missing.append(_("body"))
+		if missing:
+			warnings.append(_email_warning(bpmn_id, missing))
+	for bpmn_id, cfg in user_extensions.items():
+		if cfg.get("notifyAssignee") != "true":
+			continue
+		template = str(cfg.get("notifyTemplate") or "").strip()
+		missing = []
+		if not (template or str(cfg.get("notifyAssigneeSubject") or cfg.get("notifySubject") or "").strip()):
+			missing.append(_("subject"))
+		if not (template or str(cfg.get("notifyAssigneeBody") or cfg.get("notifyBody") or "").strip()):
+			missing.append(_("body"))
+		if missing:
+			warnings.append(_email_warning(bpmn_id, missing))
+	return warnings
+
+
+def _email_warning(bpmn_id: str, missing: list) -> dict:
+	return {
+		"label": _("Email settings are empty"),
+		"icon": "mail-warning",
+		"type": "warning",
+		"detail": _("'{0}' sends an email with no {1}. Fill these in so the email goes out as intended.").format(
+			bpmn_id, ", ".join(missing)
+		),
+	}
 
 
 def _check_shape_config_drift(service_extensions: dict) -> list:
