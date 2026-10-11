@@ -2500,10 +2500,12 @@ def _email_setting_gaps(service_extensions: dict, user_extensions: dict) -> list
 		if cfg.get("notifyAssignee") != "true":
 			continue
 		template = str(cfg.get("notifyAssigneeTemplate") or cfg.get("notifyTemplate") or "").strip()
+		subject = str(cfg.get("notifyAssigneeSubject") or cfg.get("notifySubject") or "").strip()
+		body = str(cfg.get("notifyAssigneeBody") or cfg.get("notifyBody") or "").strip()
 		missing = []
-		if not (template or str(cfg.get("notifyAssigneeSubject") or cfg.get("notifySubject") or "").strip()):
+		if not (template or subject):
 			missing.append(_("subject"))
-		if not (template or str(cfg.get("notifyAssigneeBody") or cfg.get("notifyBody") or "").strip()):
+		if not (template or body):
 			missing.append(_("body"))
 		if missing:
 			gaps.append((bpmn_id, missing))
