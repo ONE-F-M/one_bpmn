@@ -211,6 +211,23 @@ class TestEditingOurOwnJson(FrappeTestCase):
             "a new entry has no order to preserve, so it goes in Frappe's key order",
         )
 
+    def test_a_field_added_straight_onto_the_doctype_is_written_into_the_file(self):
+        """A DocField row the site has and the file lacks is written, in place and in field_order."""
+        anchor_field = self.parsed["fields"][1]["fieldname"]
+        dropped = self.parsed["fields"][2]["fieldname"]
+        stale = json.loads(self.before)
+        stale["fields"] = [r for r in stale["fields"] if r.get("fieldname") != dropped]
+        stale["field_order"] = [f for f in stale.get("field_order") or [] if f != dropped]
+
+        text, notes = source.merge_into_source(json.dumps(stale, indent=1), OURS)
+        after = json.loads(text)
+        names = [r.get("fieldname") for r in after["fields"]]
+
+        self.assertIn(f"added field {dropped}", notes)
+        self.assertEqual(names[names.index(anchor_field) + 1], dropped)
+        if "field_order" in self.parsed:
+            self.assertEqual(after["field_order"], self.parsed["field_order"])
+
     def test_a_doctype_level_property_goes_to_the_top_level_typed(self):
         """AC5. A Property Setter stores its value as text; the JSON wants an int."""
         self._setter(doctype_or_field="DocType", property="max_attachments",
@@ -482,3 +499,24 @@ class TestDocuWritesWhereOwnershipSays(FrappeTestCase):
             self.assertFalse(docu_api._reconciles_in_place(OURS))
         finally:
             frappe.conf["developer_mode"] = previous
+
+
+class TestTheSyncKeepsItsPromises(FrappeTestCase):
+    """A PR must carry every field its description lists, and the field a fetch reads."""
+
+    def test_a_promised_field_missing_from_the_file_stops_the_pr(self):
+        from one_bpmn.api.production_review import _require_promised_fields
+
+        text = json.dumps({"fields": [{"fieldname": "employee"}]})
+        with self.assertRaises(ValueError) as caught:
+            _require_promised_fields("Probe", "probe.json", text, ["employee", "project_manager_user"])
+        self.assertIn("project_manager_user", str(caught.exception))
+        _require_promised_fields("Probe", "probe.json", text, ["employee"])
+
+    def test_a_custom_field_another_doctype_fetches_from_is_brought_along(self):
+        from one_bpmn.api.production_review import _with_fetch_sources
+
+        if not frappe.db.exists("Custom Field", {"dt": "Project", "fieldname": "custom_project_manager_user"}):
+            self.skipTest("Project has no custom_project_manager_user on this site")
+        self.assertIn("Project", _with_fetch_sources(["Subcontract Staff Request"]))
+        self.assertEqual(_with_fetch_sources(["Processa Probe Missing"]), ["Processa Probe Missing"])

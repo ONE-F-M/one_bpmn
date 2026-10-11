@@ -205,15 +205,19 @@ def _fold(doc: dict, schema: dict) -> list:
 	rows = doc.setdefault("fields", [])
 	by_name = {r.get("fieldname"): r for r in rows if isinstance(r, dict)}
 
+	previous = None
 	for incoming in schema["fields"]:
-		target = by_name.get(incoming.get("fieldname"))
+		fieldname = incoming.get("fieldname")
+		target = by_name.get(fieldname)
 		if target is None:
-			# On the site but not in source. Whatever put it there is either a
-			# Custom Field, handled below, or a field this file predates.
-			continue
-		changed = _apply(target, incoming)
-		if changed:
-			notes.append(_("{0}: {1}").format(incoming["fieldname"], ", ".join(sorted(changed))))
+			# Added on the site straight onto a DocType we own: it belongs in the file.
+			_insert_field(doc, rows, by_name, incoming, previous)
+			notes.append(_("added field {0}").format(fieldname))
+		else:
+			changed = _apply(target, incoming)
+			if changed:
+				notes.append(_("{0}: {1}").format(fieldname, ", ".join(sorted(changed))))
+		previous = fieldname
 
 	for entry in schema["added_fields"]:
 		field = entry["field"]
@@ -223,17 +227,23 @@ def _fold(doc: dict, schema: dict) -> list:
 			if changed:
 				notes.append(_("{0}: {1}").format(fieldname, ", ".join(sorted(changed))))
 			continue
-		after = next((i for i, r in enumerate(rows) if r.get("fieldname") == entry["after"]), None)
-		# A brand-new entry has no order of its own to preserve, so its keys go in
-		# the order Frappe's exporter would write them.
-		rows.insert(
-			after + 1 if after is not None else len(rows),
-			{k: field[k] for k in sorted(field) if _set(field[k])},
-		)
-		by_name[fieldname] = rows[after + 1 if after is not None else len(rows) - 1]
+		_insert_field(doc, rows, by_name, field, entry["after"])
 		notes.append(_("added field {0}").format(fieldname))
 
 	return notes
+
+
+def _insert_field(doc: dict, rows: list, by_name: dict, field: dict, after: str | None) -> None:
+	"""Insert a field after ``after`` (or at the end), in ``fields`` and in ``field_order``."""
+	position = next((i for i, r in enumerate(rows) if r.get("fieldname") == after), None)
+	index = position + 1 if position is not None else len(rows)
+	# A brand-new entry has no order of its own to preserve, so its keys go in
+	# the order Frappe's exporter would write them.
+	rows.insert(index, {k: field[k] for k in sorted(field) if _set(field[k])})
+	by_name[field["fieldname"]] = rows[index]
+	order = doc.get("field_order")
+	if isinstance(order, list) and field["fieldname"] not in order:
+		order.insert(order.index(after) + 1 if after in order else len(order), field["fieldname"])
 
 
 def _canonical_export(dt: str) -> dict:
