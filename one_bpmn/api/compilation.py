@@ -1983,6 +1983,7 @@ def compile_process_model(model_name: str) -> dict:
 	if user_extensions:
 		spec_data["user_task_extensions"] = user_extensions
 	deploy_warnings.extend(_check_email_settings(service_extensions, user_extensions))
+	deploy_warnings.extend(_check_script_tasks_have_a_script(model.bpmn_xml))
 
 	model.serialized_spec = json.dumps(spec_data)
 
@@ -2521,6 +2522,38 @@ def _email_warning(bpmn_id: str, missing: list) -> dict:
 			bpmn_id, ", ".join(missing)
 		),
 	}
+
+
+def _check_script_tasks_have_a_script(bpmn_xml: str) -> list:
+	"""One warning per Script Task with no Server Script and no inline script."""
+	import xml.etree.ElementTree as _ET
+
+	return [
+		{
+			"label": _("Script is empty"),
+			"icon": "file-warning",
+			"type": "warning",
+			"detail": _("'{0}' has no script, so it does nothing when it runs. Pick a Server Script or write one.").format(
+				bpmn_id
+			),
+		}
+		for bpmn_id in _empty_script_tasks(_ET.fromstring(bpmn_xml.strip().encode("utf-8")))
+	]
+
+
+def _empty_script_tasks(root) -> list:
+	"""Ids of the Script Tasks under *root* that have neither a Server Script nor an inline script."""
+	bpmn_ns = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	spiff_ns = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+	empty = []
+	for task in root.iter(f"{{{bpmn_ns}}}scriptTask"):
+		script = task.find(f"{{{bpmn_ns}}}script")
+		if (task.get(f"{{{spiff_ns}}}serverScript") or "").strip():
+			continue
+		if script is not None and (script.text or "").strip():
+			continue
+		empty.append(task.get("id"))
+	return empty
 
 
 def _check_shape_config_drift(service_extensions: dict) -> list:
