@@ -7,20 +7,14 @@
 
 import { is } from "bpmnlint-utils";
 
-function inExecutableProcess(node) {
-	let current = node.$parent;
-	while (current && !is(current, "bpmn:Process")) {
-		current = current.$parent;
-	}
-	return Boolean(current && current.isExecutable);
-}
+import { findParentProcess } from "./call-activity-missing-process.js";
 
 export default function () {
 	function check(node, reporter) {
-		if (!is(node, "bpmn:ScriptTask") || !inExecutableProcess(node)) {
+		if (!is(node, "bpmn:ScriptTask") || !findParentProcess(node)?.isExecutable) {
 			return;
 		}
-		const serverScript = node.get("spiffworkflow:serverScript") || (node.$attrs || {})["spiffworkflow:serverScript"];
+		const serverScript = node.get("spiffworkflow:serverScript");
 		if (String(serverScript || "").trim() || String(node.script || "").trim()) {
 			return;
 		}

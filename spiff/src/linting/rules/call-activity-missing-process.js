@@ -17,7 +17,7 @@ import { is } from "bpmnlint-utils";
  * @param {ModdleElement} node
  * @returns {ModdleElement|null}
  */
-function findParentProcess(node) {
+export function findParentProcess(node) {
 	let current = node;
 	while (current) {
 		if (is(current, "bpmn:Process")) {
