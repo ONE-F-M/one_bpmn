@@ -71,7 +71,7 @@ class TestResolveSubjectBody(_ComposerTestCase):
 		"""Falls back to Email Template when inline config is empty."""
 		tmpl = MagicMock()
 		tmpl.subject = "Template Subject"
-		tmpl.response = "<p>Template Body</p>"
+		tmpl.response_ = "<p>Template Body</p>"
 		mock_frappe.get_doc.return_value = tmpl
 		mock_frappe.render_template = lambda text, ctx: text
 		mock_frappe._ = lambda x: x
@@ -80,6 +80,19 @@ class TestResolveSubjectBody(_ComposerTestCase):
 		subject, body = _resolve_subject_body(task_cfg, {}, "Task1", _make_instance())
 		self.assertEqual(subject, "Template Subject")
 		self.assertEqual(body, "<p>Template Body</p>")
+
+	@patch("one_bpmn.email_builder.composer.frappe")
+	def test_the_template_picked_in_the_modeler_fills_an_empty_subject_and_body(self, mock_frappe):
+		tmpl = MagicMock(subject="Template Subject", response_="<p>HTML Body</p>")
+		mock_frappe.get_doc.return_value = tmpl
+		mock_frappe.render_template = lambda text, ctx: text
+		from one_bpmn.email_builder.composer import _resolve_subject_body
+
+		subject, body = _resolve_subject_body({"notifyAssigneeTemplate": "My Template"}, {}, "Task1", _make_instance())
+
+		mock_frappe.get_doc.assert_called_once_with("Email Template", "My Template")
+		self.assertEqual(subject, "Template Subject")
+		self.assertEqual(body, "<p>HTML Body</p>")
 
 	@patch("one_bpmn.email_builder.composer._", side_effect=lambda x: x)
 	@patch("one_bpmn.email_builder.composer.frappe")

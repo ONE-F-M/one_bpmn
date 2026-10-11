@@ -1237,6 +1237,11 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 			} for g in connector_tool_gaps],
 		})
 
+	# 14. Email Settings (deploy readiness, non-blocking warnings)
+	email_category = _email_settings_category(xml_content, refs["root"])
+	if email_category:
+		categories.append(email_category)
+
 	# ── Compute summary ──────────────────────────────────────────────────
 	total_checked = 0
 	total_missing = 0
@@ -1258,6 +1263,32 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 		"is_executable": is_executable,
 		"all_ready": total_missing == 0 and is_executable,
 	}
+
+
+def _email_settings_category(xml_content: str, root) -> dict | None:
+	"""The Email Settings readiness category, one warning per email step with empty settings, or None."""
+	from one_bpmn.api.compilation import _email_setting_gaps, _extract_service_task_config, _extract_user_task_config
+
+	email_gaps = _email_setting_gaps(_extract_service_task_config(xml_content), _extract_user_task_config(xml_content))
+	if not email_gaps:
+		return None
+	step_names = {el.get("id"): (el.get("name") or "").strip() for el in root.iter() if el.get("id")}
+	seen = set()
+	items = []
+	for bpmn_id, missing in email_gaps:
+		name = step_names.get(bpmn_id) or bpmn_id
+		if name in seen:
+			name = f"{name} ({bpmn_id})"
+		seen.add(name)
+		items.append({
+			"name": name,
+			"exists": True,
+			"type": "warning",
+			"detail": _("Sends an email with no {0}. Fill these in so the email goes out as intended.").format(
+				", ".join(missing)
+			),
+		})
+	return {"label": _("Email Settings"), "icon": "mail-warning", "items": items}
 
 
 @frappe.whitelist(methods=["POST"])
