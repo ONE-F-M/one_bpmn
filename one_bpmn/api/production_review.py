@@ -450,11 +450,7 @@ def sync_doctypes(model_name: str) -> dict:
 
 		stamp = frappe.generate_hash(length=6)
 		head_branch = f"processa/sync-{frappe.scrub(model_name)}-{stamp}"
-		promised = {
-			dt: sorted(c["name"].split(" → ", 1)[1] for c in changes
-			           if c["doctype"] == dt and c["action"] == "Create" and " → " in c["name"])
-			for dt in dts
-		}
+		promised = _promised_new_fields(changes)
 		files, build_files, artefacts, routing = _customization_pr_files(app, dts, model_name, stamp, promised)
 		if not files and not routing["owned"]:
 			# Nothing this app can carry. Reported rather than opened empty.
@@ -598,14 +594,25 @@ def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str, pr
 	return files, build_files, artefacts, {"owned": owned, "foreign": foreign, "notes": source_notes}
 
 
+def _promised_new_fields(changes: list) -> dict:
+	"""DocType to the fieldnames the review lists as created on it."""
+	created = [c for c in changes if c["action"] == "Create"]
+	promised = {}
+	for c in created:
+		if " → " in c["name"]:
+			promised.setdefault(c["doctype"], []).append(c["name"].split(" → ", 1)[1])
+	return promised
+
+
 def _require_promised_fields(dt: str, path: str, text: str, fieldnames: list) -> None:
 	"""Refuse the PR when its description promises a field the DocType's file does not carry."""
 	present = {f.get("fieldname") for f in (json.loads(text).get("fields") or []) if isinstance(f, dict)}
 	missing = [f for f in fieldnames if f not in present]
 	if missing:
-		raise ValueError(
-			f"{path} would not carry {', '.join(missing)}, which the review lists as new on {dt}. "
-			"No pull request was opened."
+		frappe.throw(
+			_(
+				"{0} would not carry {1}, which the review lists as new on {2}. No pull request was opened."
+			).format(path, ", ".join(missing), dt)
 		)
 
 
@@ -619,9 +626,9 @@ def _with_fetch_sources(doctypes: list) -> list:
 		for df in meta.fields:
 			link_field, _sep, source_field = (df.fetch_from or "").partition(".")
 			link = meta.get_field(link_field) if source_field else None
-			if link and link.fieldtype == "Link" and frappe.db.exists(
-				"Custom Field", {"dt": link.options, "fieldname": source_field}
-			):
+			if not link or link.fieldtype != "Link":
+				continue
+			if frappe.db.exists("Custom Field", {"dt": link.options, "fieldname": source_field}):
 				found.add(link.options)
 	return sorted(found)
 

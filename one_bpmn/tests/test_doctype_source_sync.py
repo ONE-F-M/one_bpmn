@@ -508,7 +508,7 @@ class TestTheSyncKeepsItsPromises(FrappeTestCase):
         from one_bpmn.api.production_review import _require_promised_fields
 
         text = json.dumps({"fields": [{"fieldname": "employee"}]})
-        with self.assertRaises(ValueError) as caught:
+        with self.assertRaises(frappe.ValidationError) as caught:
             _require_promised_fields("Probe", "probe.json", text, ["employee", "project_manager_user"])
         self.assertIn("project_manager_user", str(caught.exception))
         _require_promised_fields("Probe", "probe.json", text, ["employee"])
