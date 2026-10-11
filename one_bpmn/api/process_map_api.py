@@ -1242,6 +1242,11 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 	if email_category:
 		categories.append(email_category)
 
+	# 15. Script Tasks with no script (deploy readiness, non-blocking warnings)
+	script_category = _empty_script_category(refs["root"])
+	if script_category:
+		categories.append(script_category)
+
 	# ── Compute summary ──────────────────────────────────────────────────
 	total_checked = 0
 	total_missing = 0
@@ -1272,23 +1277,52 @@ def _email_settings_category(xml_content: str, root) -> dict | None:
 	email_gaps = _email_setting_gaps(_extract_service_task_config(xml_content), _extract_user_task_config(xml_content))
 	if not email_gaps:
 		return None
-	step_names = {el.get("id"): (el.get("name") or "").strip() for el in root.iter() if el.get("id")}
-	seen = set()
-	items = []
-	for bpmn_id, missing in email_gaps:
-		name = step_names.get(bpmn_id) or bpmn_id
-		if name in seen:
-			name = f"{name} ({bpmn_id})"
-		seen.add(name)
-		items.append({
+	names = _step_names(root, [bpmn_id for bpmn_id, _missing in email_gaps])
+	items = [
+		{
 			"name": name,
 			"exists": True,
 			"type": "warning",
 			"detail": _("Sends an email with no {0}. Fill these in so the email goes out as intended.").format(
 				", ".join(missing)
 			),
-		})
+		}
+		for name, (_bpmn_id, missing) in zip(names, email_gaps)
+	]
 	return {"label": _("Email Settings"), "icon": "mail-warning", "items": items}
+
+
+def _empty_script_category(root) -> dict | None:
+	"""The Script Tasks readiness category, one warning per Script Task with no script, or None."""
+	from one_bpmn.api.compilation import _empty_script_tasks
+
+	empty = _empty_script_tasks(root)
+	if not empty:
+		return None
+	items = [
+		{
+			"name": name,
+			"exists": True,
+			"type": "warning",
+			"detail": _("Has no script, so it does nothing when it runs. Pick a Server Script or write one."),
+		}
+		for name in _step_names(root, empty)
+	]
+	return {"label": _("Script Tasks"), "icon": "file-warning", "items": items}
+
+
+def _step_names(root, bpmn_ids: list) -> list:
+	"""Each step's name as drawn on the canvas, with its id added when two steps share a name."""
+	drawn = {el.get("id"): (el.get("name") or "").strip() for el in root.iter() if el.get("id")}
+	seen = set()
+	names = []
+	for bpmn_id in bpmn_ids:
+		name = drawn.get(bpmn_id) or bpmn_id
+		if name in seen:
+			name = f"{name} ({bpmn_id})"
+		seen.add(name)
+		names.append(name)
+	return names
 
 
 @frappe.whitelist(methods=["POST"])
