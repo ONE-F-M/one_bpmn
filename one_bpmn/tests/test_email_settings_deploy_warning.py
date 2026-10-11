@@ -5,6 +5,17 @@
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.api.compilation import _check_email_settings
+from one_bpmn.api.process_map_api import validate_bpmn_readiness
+
+MAP_WITH_EMPTY_EMAIL = """<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+	xmlns:spiffworkflow="http://spiffworkflow.org/bpmn/schema/1.0/core" id="Defs">
+	<bpmn:process id="email_readiness" isExecutable="true">
+		<bpmn:startEvent id="Start" />
+		<bpmn:serviceTask id="Activity_mail" name="Notify HR" spiffworkflow:serviceType="send_email" spiffworkflow:emailSubject="Hi" />
+		<bpmn:endEvent id="End" />
+	</bpmn:process>
+</bpmn:definitions>"""
 
 SEND_EMAIL_FULL = {"serviceType": "send_email", "emailToRoles": "HR Manager", "emailSubject": "Hi", "emailBody": "Body"}
 
@@ -43,3 +54,12 @@ class TestEmailSettingsDeployWarning(FrappeTestCase):
 
 	def test_a_user_task_that_does_not_notify_is_not_flagged(self):
 		self.assertEqual(self._details(user={"Activity_review": {"notifyAssignee": "false"}}), [])
+
+	def test_the_readiness_check_lists_an_empty_email_step_by_name_without_blocking(self):
+		result = validate_bpmn_readiness(MAP_WITH_EMPTY_EMAIL)
+
+		email = next(c for c in result["categories"] if c["label"] == "Email Settings")
+		self.assertEqual(email["items"][0]["name"], "Notify HR")
+		self.assertEqual(email["items"][0]["type"], "warning")
+		self.assertIn("recipients, body", email["items"][0]["detail"])
+		self.assertTrue(result["all_ready"])

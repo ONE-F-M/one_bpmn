@@ -2477,8 +2477,13 @@ def _check_ai_tasks_have_a_user_prompt(spec_data: dict) -> list:
 
 def _check_email_settings(service_extensions: dict, user_extensions: dict) -> list:
 	"""One warning per Send Email task or notifying User Task whose recipients, subject or body are empty."""
+	return [_email_warning(bpmn_id, missing) for bpmn_id, missing in _email_setting_gaps(service_extensions, user_extensions)]
+
+
+def _email_setting_gaps(service_extensions: dict, user_extensions: dict) -> list:
+	"""(bpmn_id, missing parts) for each Send Email task or notifying User Task with an empty recipient, subject or body."""
 	recipient_keys = ("emailTo", "emailToDocFields", "emailToTableField", "emailToRoles")
-	warnings = []
+	gaps = []
 	for bpmn_id, cfg in service_extensions.items():
 		if cfg.get("serviceType") != "send_email":
 			continue
@@ -2490,7 +2495,7 @@ def _check_email_settings(service_extensions: dict, user_extensions: dict) -> li
 		if not str(cfg.get("emailBody") or "").strip():
 			missing.append(_("body"))
 		if missing:
-			warnings.append(_email_warning(bpmn_id, missing))
+			gaps.append((bpmn_id, missing))
 	for bpmn_id, cfg in user_extensions.items():
 		if cfg.get("notifyAssignee") != "true":
 			continue
@@ -2501,8 +2506,8 @@ def _check_email_settings(service_extensions: dict, user_extensions: dict) -> li
 		if not (template or str(cfg.get("notifyAssigneeBody") or cfg.get("notifyBody") or "").strip()):
 			missing.append(_("body"))
 		if missing:
-			warnings.append(_email_warning(bpmn_id, missing))
-	return warnings
+			gaps.append((bpmn_id, missing))
+	return gaps
 
 
 def _email_warning(bpmn_id: str, missing: list) -> dict:
