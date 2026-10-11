@@ -562,7 +562,7 @@ def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str, pr
 					f"{path} is not in the repository, so the generated getter cannot be registered. "
 					f"Is '{app}' the right customization owner app?"
 				)
-			for dt in dts:
+			for dt in foreign:
 				text = gen.splice_aggregator(text, app, dt, kind)
 			out[path] = text
 
@@ -617,8 +617,21 @@ def _require_promised_fields(dt: str, path: str, text: str, fieldnames: list) ->
 
 
 def _with_fetch_sources(doctypes: list) -> list:
-	"""The DocTypes plus any DocType holding a Custom Field one of their fields fetches from."""
-	found = set(doctypes)
+	"""The DocTypes plus any DocType holding a fetched-from Custom Field that Production lacks."""
+	sources = _fetch_sources(doctypes)
+	if not sources:
+		return sorted(doctypes)
+	remote = _call_production_api(SNAPSHOT_DOCTYPES, {"doctypes": json.dumps(sorted(sources))}) or {}
+	missing = [
+		dt for dt, fieldnames in sources.items()
+		if any(f"{dt}-{f}" not in ((remote.get(dt) or {}).get("custom_fields") or {}) for f in fieldnames)
+	]
+	return sorted(set(doctypes) | set(missing))
+
+
+def _fetch_sources(doctypes: list) -> dict:
+	"""DocType to the Custom Fields on it that a field of ``doctypes`` fetches from."""
+	sources = {}
 	for dt in doctypes:
 		if not frappe.db.exists("DocType", dt):
 			continue
@@ -629,8 +642,8 @@ def _with_fetch_sources(doctypes: list) -> list:
 			if not link or link.fieldtype != "Link":
 				continue
 			if frappe.db.exists("Custom Field", {"dt": link.options, "fieldname": source_field}):
-				found.add(link.options)
-	return sorted(found)
+				sources.setdefault(link.options, set()).add(source_field)
+	return sources
 
 
 def _routing_table(routing: dict, summary: dict = None) -> str:

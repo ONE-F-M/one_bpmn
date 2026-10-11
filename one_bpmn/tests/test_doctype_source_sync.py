@@ -425,6 +425,23 @@ class TestTheArtefactSetFollowsOwnership(FrappeTestCase):
         self.assertIn("one_fm/custom/property_setter/employee.py", artefacts)
         self.assertNotIn("one_fm/custom/property_setter/attendance_check.py", artefacts)
 
+    def test_a_mixed_selection_registers_only_the_foreign_doctype(self):
+        """The setup aggregators import a getter only for a DocType that got a generated module."""
+        if not frappe.db.exists("DocType", "Attendance Check"):
+            self.skipTest("Attendance Check is not installed")
+        _files, build, _artefacts, _routing = _customization_pr_files(
+            "one_fm", [THEIRS, "Attendance Check"], "Some Map", "abc123"
+        )
+        app_root = os.path.dirname(frappe.get_app_path("one_fm"))
+
+        def reader(path):
+            full = os.path.join(app_root, path)
+            return open(full).read() if os.path.exists(full) else None
+
+        out = build(reader)
+        self.assertNotIn("get_attendance_check_custom_fields", out["one_fm/setup/custom_field.py"])
+        self.assertNotIn("get_attendance_check_properties", out["one_fm/setup/property_setter.py"])
+
     def test_the_body_says_which_route_each_doctype_took_and_why(self):
         """AC8. A reviewer can see at a glance that we did not override our own."""
         _files, _build, artefacts, routing = _customization_pr_files(
@@ -514,9 +531,17 @@ class TestTheSyncKeepsItsPromises(FrappeTestCase):
         _require_promised_fields("Probe", "probe.json", text, ["employee"])
 
     def test_a_custom_field_another_doctype_fetches_from_is_brought_along(self):
-        from one_bpmn.api.production_review import _with_fetch_sources
+        from unittest.mock import patch
+
+        from one_bpmn.api import production_review as pr
 
         if not frappe.db.exists("Custom Field", {"dt": "Project", "fieldname": "custom_project_manager_user"}):
             self.skipTest("Project has no custom_project_manager_user on this site")
-        self.assertIn("Project", _with_fetch_sources(["Subcontract Staff Request"]))
-        self.assertEqual(_with_fetch_sources(["Processa Probe Missing"]), ["Processa Probe Missing"])
+        self.assertIn("custom_project_manager_user", pr._fetch_sources(["Subcontract Staff Request"])["Project"])
+
+        on_production = {"Project": {"custom_fields": {"Project-custom_project_manager_user": {}}}}
+        with patch.object(pr, "_call_production_api", return_value={}):
+            self.assertIn("Project", pr._with_fetch_sources(["Subcontract Staff Request"]))
+        with patch.object(pr, "_call_production_api", return_value=on_production), \
+                patch.object(pr, "_fetch_sources", return_value={"Project": {"custom_project_manager_user"}}):
+            self.assertEqual(pr._with_fetch_sources(["Subcontract Staff Request"]), ["Subcontract Staff Request"])
