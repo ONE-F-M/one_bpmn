@@ -44,6 +44,7 @@ import noProhibitedShapes from "@/linting/rules/no-prohibited-shapes.js";
 import callActivityMissingProcess from "@/linting/rules/call-activity-missing-process.js";
 import noCrossingEdges from "@/linting/rules/no-crossing-edges.js";
 import exemptToolCatalogues from "@/linting/rules/tool-catalogue.js";
+import scriptTaskMissingScript from "@/linting/rules/script-task-missing-script.js";
 
 /**
  * Map rule names → rule factory functions.
@@ -80,6 +81,7 @@ const ruleMapping = {
 	"custom/no-prohibited-shapes": noProhibitedShapes,
 	"custom/call-activity-missing-process": callActivityMissingProcess,
 	"custom/no-crossing-edges": noCrossingEdges,
+	"custom/script-task-missing-script": scriptTaskMissingScript,
 };
 
 const config = {
@@ -129,6 +131,9 @@ const config = {
 
 		// OneFM custom rules — drawing quality: a line over another line or through a shape
 		"custom/no-crossing-edges": "warn",
+
+		// OneFM custom rules: a Script Task with nothing to run
+		"custom/script-task-missing-script": "warn",
 	},
 };
 
