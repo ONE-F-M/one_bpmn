@@ -277,5 +277,6 @@ one_bpmn.one_bpmn.patches.v1_0.coding_agents_work_within_their_turns #12-10-2026
 one_bpmn.one_bpmn.patches.v1_0.orchestrator_routes_setup_failures_to_the_dev_agent #12-10-2026 the Orchestrator sends setup and install failures to the Dev Agent and reproducible defects to the Bug Agent
 one_bpmn.one_bpmn.patches.v1_0.frontend_and_mobile_agents_search_and_read_less #12-10-2026 the Frontend and Mobile App agents are told how to search and read with fewer calls
 one_bpmn.one_bpmn.patches.v1_0.bug_agents_batch_edits_and_read_less #12-10-2026 the Bug Programmer is told to batch its edits and the Bug Planner and Reviewer to read with fewer calls
+one_bpmn.one_bpmn.patches.v1_0.coding_agents_delete_files_they_no_longer_need #12-10-2026 the Dev, Frontend, Mobile and Bug Programmer agents are told to delete a file they no longer need, not empty it
 one_bpmn.one_bpmn.patches.v1_0.bug_agents_report_not_reproducible_and_keep_discipline #11-10-2026 the bug agents get the not-reproducible tool, the Require Reproduction setting on the ones that edit or open the pull request, and rules telling them how to work
 one_bpmn.one_bpmn.patches.v1_0.orchestrator_brief_shows_the_branch_left_by_an_earlier_attempt #11-10-2026 the Orchestrator's brief lists the commits and files an earlier attempt left on the Work Item's branch, so a retry continues from them
