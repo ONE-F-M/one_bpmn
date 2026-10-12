@@ -328,3 +328,28 @@ class TestRepeatRunTestsWithoutProgress(FrappeTestCase):
 		inst = self._instance("i-mine")
 		_row("i-someone-else", "run_tests", state="failed")
 		self.assertIsNone(repeat_run_tests_without_progress_error(inst, "run_tests"))
+
+
+class TestReproductionGateNamesTheWayOut(FrappeTestCase):
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	def _error(self, has_tool):
+		inst = frappe._dict(name="i-way-out", process_model="Bug Agent")
+		with patch("one_bpmn.one_bpmn.connectors.agent_criteria.has_tool", return_value=has_tool):
+			return reproduction_required_error(inst, "one_fm/setup/doctype/company/company.py")
+
+	def test_an_agent_with_the_tool_is_told_to_report_not_reproducible(self):
+		self.assertIn("report_not_reproducible", self._error(True))
+
+	def test_an_agent_without_the_tool_is_not_pointed_at_it(self):
+		self.assertNotIn("report_not_reproducible", self._error(False))
+
+	def test_the_way_out_is_also_named_after_a_test_that_failed_for_another_reason(self):
+		inst = frappe._dict(name="i-other-failure", process_model="Bug Agent")
+		_row(inst.name, "write_file", state="completed", path=COMPANY_TEST)
+		_row(inst.name, "run_tests", state="failed", result={"failing_tests": ["x (other.Test.x)"], "stderr_tail": "Traceback"})
+		with patch("one_bpmn.one_bpmn.connectors.agent_criteria.has_tool", return_value=True):
+			error = reproduction_required_error(inst, "one_fm/setup/doctype/company/company.py")
+		self.assertIn("report_not_reproducible", error)

@@ -440,6 +440,18 @@ _REPRODUCE_MESSAGE = (
 	"Reproduce the bug first: write or edit a test that fails because of it, "
 	"call run_tests and confirm it actually fails, then make this change."
 )
+_NOT_REPRODUCIBLE_WAY_OUT = (
+	" If you cannot make a test fail for this bug, call report_not_reproducible with what you tried instead of editing."
+)
+
+
+def _with_way_out(instance, message: str) -> str:
+	"""Names the way out of the gate when the agent's map has the tool for it."""
+	from one_bpmn.one_bpmn.connectors.agent_criteria import has_tool
+
+	if instance is not None and has_tool(instance, "Report Not Reproducible"):
+		return message + _NOT_REPRODUCIBLE_WAY_OUT
+	return message
 
 
 _BUG_PIPELINE_PROCESSES = ("Bug Agent", "Bug Planner", "Bug Programmer", "Bug Reviewer")
@@ -546,12 +558,13 @@ def reproduction_required_error(instance, path: str | None = None) -> str | None
 				return None
 			failed_for_another_reason = True
 	if failed_for_another_reason:
-		return (
+		return _with_way_out(
+			instance,
 			"The failing run_tests did not show your new test failing for the bug: either another test failed, "
 			"or it ended on an import or syntax error. Fix the test so it fails because of the bug itself, "
-			"run_tests again, then make this change."
+			"run_tests again, then make this change.",
 		)
-	return _REPRODUCE_MESSAGE
+	return _with_way_out(instance, _REPRODUCE_MESSAGE)
 
 
 def fix_unverified_error(instance) -> str | None:
