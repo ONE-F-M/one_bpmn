@@ -591,6 +591,35 @@ def fix_unverified_error(instance) -> str | None:
 	return None
 
 
+_PR_RETRY_CHANGES = ("edit_file", "write_file", "apply_edits", "delete_file")
+
+
+def repeat_open_pull_request_without_progress_error(instance, action: str) -> str | None:
+	"""A refusal when this run's last open_pull_request failed for a reason other than the network and it has
+	neither changed a file nor run the tests since, so asking again would fail the same way."""
+	if action != "open_pull_request" or instance is None:
+		return None
+	last = frappe.get_all(
+		"Agent Sandbox Run",
+		filters={"caller_instance": instance.name, "action": "open_pull_request"},
+		fields=["state", "failure_class", "error_message", "creation"],
+		order_by="creation desc",
+		limit_page_length=1,
+	)
+	if not last or last[0].state != "failed" or last[0].failure_class == "infra":
+		return None
+	since = {"caller_instance": instance.name, "creation": [">", last[0].creation]}
+	if frappe.db.exists("Agent Sandbox Run", {**since, "action": ["in", _PR_RETRY_CHANGES], "state": "completed"}):
+		return None
+	if frappe.db.exists("Agent Sandbox Run", {**since, "action": "run_tests", "state": ["in", ["completed", "failed"]]}):
+		return None
+	return (
+		f"The last open_pull_request failed ({bounded_error(last[0].error_message, 300)}) and you have not changed "
+		"a file or run the tests since, so calling it again will fail the same way. Change what the error points "
+		"to and call run_tests, then open the pull request. If you cannot fix it, say so in your report instead of retrying."
+	)
+
+
 def _discipline_error(instance, action: str, args: dict | None) -> str | None:
 	"""For an agent held to bug discipline: nothing after a not-reproducible report, and a reproduction before a non-test change."""
 	if instance is None or not requires_reproduction(instance):
@@ -855,7 +884,9 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 		).format(git_branch=git_branch)
 		return None
 
-	progress_error = repeat_run_tests_without_progress_error(instance, action)
+	progress_error = repeat_run_tests_without_progress_error(instance, action) or repeat_open_pull_request_without_progress_error(
+		instance, action
+	)
 	if progress_error:
 		raise AgentSandboxError(progress_error)
 
