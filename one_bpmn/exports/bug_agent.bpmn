@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:ns1="http://spiffworkflow.org/bpmn/schema/1.0/core" xmlns:ns4="http://www.omg.org/spec/DD/20100524/DC" xmlns:ns5="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Definitions_BugAgent" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Processa" exporterVersion="1.0">
+  <process id="bug_agent_process" name="Bug Agent" isExecutable="true">
+    <documentation>The agent an Orchestrator (or any A2A caller) delegates a bug report to. It coordinates three specialists in strict order -- Bug Planner, then Bug Programmer, then Bug Reviewer -- passing the same target_app/git_branch/work_item forward at every hop so the Programmer's fix lands where the Planner looked, and the Reviewer opens a pull request against the branch the Programmer actually changed. Bug Agent itself never reads, writes or tests a file -- it only relays and reports.</documentation>
+    <startEvent id="StartEvent_1" name="A2A Task received">
+      <documentation>Started by an A2A Task insert addressed to "Bug Agent" (spiffworkflow:triggerFieldName scopes it so an insert for any OTHER agent never starts this map).</documentation>
+      <outgoing>Flow_1</outgoing>
+      <conditionalEventDefinition id="Cond_1" ns1:triggerDoctype="A2A Task" ns1:triggerType="After Insert" ns1:triggerFieldName="agent_configuration" ns1:triggerFieldValue="Bug Agent">
+        <condition xsi:type="tFormalExpression">True</condition>
+      </conditionalEventDefinition>
+    </startEvent>
+    <sequenceFlow id="Flow_1" sourceRef="StartEvent_1" targetRef="read_instruction"/>
+    <scriptTask id="read_instruction" name="Read the instruction" ns1:serverScript="Bug Agent: Read Instruction" ns1:scriptType="Server Script" ns1:scriptName="Bug Agent: Read Instruction">
+      <documentation>Builds the agent's brief from the A2A Task's request_payload — the free-text work order the delegating caller supplied.</documentation>
+      <incoming>Flow_1</incoming>
+      <outgoing>Flow_2</outgoing>
+      <script>pass</script>
+    </scriptTask>
+    <sequenceFlow id="Flow_2" sourceRef="read_instruction" targetRef="gw_merge"/>
+    <exclusiveGateway id="gw_merge">
+      <documentation>Where the Tools sub-process returns. The agent task runs its own tool loop internally, so in practice nothing comes back this way — the loop exists so the toolbox is part of the diagram rather than floating beside it.</documentation>
+      <incoming>Flow_2</incoming>
+      <incoming>Flow_tools_back</incoming>
+      <outgoing>Flow_3</outgoing>
+    </exclusiveGateway>
+    <sequenceFlow id="Flow_3" sourceRef="gw_merge" targetRef="work"/>
+    <serviceTask id="work" name="Dispatch the work order" ns1:serviceType="ai_agent" ns1:aiBackend="direct_api" ns1:aiProvider="Anthropic" ns1:aiModel="Bug Agent - claude-sonnet-5-5" ns1:aiOutputVariable="bug_agent_result" ns1:aiUserPrompt="{{ instruction }}" ns1:aiResponseFormat="text" ns1:aiTemperature="0.2" ns1:aiTopP="1" ns1:aiMaxTokens="32768" ns1:aiTimeout="300" ns1:aiMaxRetries="2" ns1:aiAgentConfig="Bug Agent" ns1:aiToolsAdhoc="bug_agent_tools" ns1:aiMaxToolCalls="8" ns1:aiSystemPrompt="You are the Bug Agent. You take a delegated defect report and turn it into a reviewed-ready pull request by coordinating three specialists, in this order: Bug Planner, then Bug Programmer, then Bug Reviewer. You do none of the reproducing, fixing or reviewing yourself.&#10;&#10;You are a background worker. Nobody is sitting in front of you, so you never ask a question and wait: you are given a work order in plain words, naming the app it belongs to and the branch to work from, and you either finish the job or you report exactly what stopped you.&#10;&#10;THE THREE ARGUMENTS EVERY SPECIALIST NEEDS&#10;target_app, git_branch, work_item_description — pass the EXACT SAME three values to every one of the three delegations below. This is what lets the Programmer's fix land on the same branch the Planner investigated, and the Reviewer open a pull request against the branch the Programmer actually changed. Take them from your own work order's header; if it gives none, say so and stop rather than guessing.&#10;&#10;WORK IN THIS ORDER — never skip a stage, never run them out of order&#10;1. delegate_bug_planner with the bug report and the three arguments. Wait for its plan.&#10;2. delegate_bug_programmer with the three arguments plus the Planner's plan folded into the instruction, verbatim or summarized — do not silently drop what it found. If the Planner could not find where the bug lives, say so to the Programmer rather than inventing a location.&#10;3. delegate_bug_reviewer with the three arguments plus what the Programmer reports it changed. The Reviewer's own job is to audit whatever is actually on the branch and open the pull request either way, marking it clearly if tests still fail — so delegate to it whenever the Programmer made real changes to the branch (named files, even if its own report is incomplete or the fix is not confirmed working), not only when it claims full success. Only skip the Reviewer if the Programmer made no changes at all — it genuinely could not reproduce the bug or never touched a file.&#10;4. Report the outcome: the pull request the Reviewer opened, or exactly which stage stopped and why.&#10;&#10;RULES THAT MATTER MORE THAN FINISHING&#10;- Never call delegate_bug_programmer before delegate_bug_planner has answered, and never call delegate_bug_reviewer before delegate_bug_programmer has answered.&#10;- Never claim a pull request exists unless the Reviewer's own report says one was opened.&#10;- Never claim the tests passed unless a specialist's own report says so — you never run a test yourself.&#10;- If the Planner reports it could not find where the bug lives, do not paper over it by sending the Programmer in blind — stop and report that. For the Programmer, see the Reviewer-delegation rule above: real changes on the branch are enough to hand off, even an incomplete or unconfirmed fix.&#10;- If you cannot finish after a reasonable number of attempts, stop and report exactly what happened at each stage you reached.">
+      <documentation>Reads the work order, works out the target app/branch, and dispatches to the sandbox — the sandbox is the coding agent, not this step.</documentation>
+      <incoming>Flow_3</incoming>
+      <outgoing>Flow_4</outgoing>
+    </serviceTask>
+    <sequenceFlow id="Flow_4" sourceRef="work" targetRef="gw_needs_tools"/>
+    <exclusiveGateway id="gw_needs_tools" name="Needs to call tools?" default="Flow_5">
+      <documentation>Decorative on purpose, matching the Orchestrator's own map — the AI Agent Task runs its tool loop inside itself, so this always takes the No branch.</documentation>
+      <incoming>Flow_4</incoming>
+      <outgoing>Flow_call_tools</outgoing>
+      <outgoing>Flow_5</outgoing>
+    </exclusiveGateway>
+    <sequenceFlow id="Flow_call_tools" name="Call tools" sourceRef="gw_needs_tools" targetRef="bug_agent_tools">
+      <conditionExpression>needs_tools == True</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="Flow_5" name="No" sourceRef="gw_needs_tools" targetRef="write_a2a_result"/>
+    <sequenceFlow id="Flow_tools_back" name="Tool call results" sourceRef="bug_agent_tools" targetRef="gw_merge"/>
+    <scriptTask id="write_a2a_result" name="Report result to A2A Task" ns1:serverScript="Bug Agent Write A2A Result" ns1:scriptType="Server Script" ns1:scriptName="Bug Agent Write A2A Result">
+      <documentation>Writes the agent's own final report back onto this A2A Task so a delegating caller's parked step can resume.</documentation>
+      <incoming>Flow_5</incoming>
+      <outgoing>Flow_6</outgoing>
+      <script>pass</script>
+    </scriptTask>
+    <sequenceFlow id="Flow_6" sourceRef="write_a2a_result" targetRef="EndEvent_1"/>
+    <endEvent id="EndEvent_1" name="Done">
+      <incoming>Flow_6</incoming>
+    </endEvent>
+    <adHocSubProcess id="bug_agent_tools" name="Delegate (Planner / Programmer / Reviewer)">
+      <documentation>The three specialists this agent coordinates, exposed as tools. It never edits, tests or opens a pull request itself.</documentation>
+      <incoming>Flow_call_tools</incoming>
+      <outgoing>Flow_tools_back</outgoing>
+      <serviceTask id="delegate_bug_planner" name="A2A → Bug Planner" ns1:serviceType="connector" ns1:connectorId="a2a" ns1:operation="delegate_to_local_agent" ns1:connectorParams="{&quot;agent&quot;: &quot;Bug Planner&quot;, &quot;instruction&quot;: &quot;{{ task_data.instruction }}&quot;, &quot;work_item&quot;: &quot;{{ task_data.work_item }}&quot;, &quot;pull_request&quot;: &quot;{{ task_data.pull_request }}&quot;, &quot;target_app&quot;: &quot;{{ task_data.target_app }}&quot;, &quot;git_branch&quot;: &quot;{{ task_data.git_branch }}&quot;}" ns1:resultVariable="bug_planner_delegate_result" ns1:aiToolParams="{&quot;properties&quot;: {&quot;instruction&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;The bug report to investigate: the exact symptom and how to trigger it, and which work item or pull request it names, if any.&quot;}}, &quot;required&quot;: [&quot;instruction&quot;]}">
+        <documentation>Hand the bug report to the Bug Planner, which investigates read-only and reports back which file(s) the bug is in, the test that would reproduce it, and the expected fix. Always the first delegation -- nothing else here should run before this answers.</documentation>
+      </serviceTask>
+      <serviceTask id="delegate_bug_programmer" name="A2A → Bug Programmer" ns1:serviceType="connector" ns1:connectorId="a2a" ns1:operation="delegate_to_local_agent" ns1:connectorParams="{&quot;agent&quot;: &quot;Bug Programmer&quot;, &quot;instruction&quot;: &quot;{{ task_data.instruction }}&quot;, &quot;work_item&quot;: &quot;{{ task_data.work_item }}&quot;, &quot;pull_request&quot;: &quot;{{ task_data.pull_request }}&quot;, &quot;target_app&quot;: &quot;{{ task_data.target_app }}&quot;, &quot;git_branch&quot;: &quot;{{ task_data.git_branch }}&quot;}" ns1:resultVariable="bug_programmer_delegate_result" ns1:aiToolParams="{&quot;properties&quot;: {&quot;instruction&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;The bug report plus the Bug Planner's plan folded in -- which file(s) it found, the test it proposed, and the fix it expects. If the Planner could not find where the bug lives, say so here rather than inventing a location.&quot;}}, &quot;required&quot;: [&quot;instruction&quot;]}">
+        <documentation>Hand the bug report and the Bug Planner's plan to the Bug Programmer, which reproduces the bug with a failing test before touching anything else, then fixes it and confirms the target app's real test suite passes. Only call this after the Bug Planner has answered.</documentation>
+      </serviceTask>
+      <serviceTask id="delegate_bug_reviewer" name="A2A → Bug Reviewer" ns1:serviceType="connector" ns1:connectorId="a2a" ns1:operation="delegate_to_local_agent" ns1:connectorParams="{&quot;agent&quot;: &quot;Bug Reviewer&quot;, &quot;instruction&quot;: &quot;{{ task_data.instruction }}&quot;, &quot;work_item&quot;: &quot;{{ task_data.work_item }}&quot;, &quot;pull_request&quot;: &quot;{{ task_data.pull_request }}&quot;, &quot;target_app&quot;: &quot;{{ task_data.target_app }}&quot;, &quot;git_branch&quot;: &quot;{{ task_data.git_branch }}&quot;}" ns1:resultVariable="bug_reviewer_delegate_result" ns1:aiToolParams="{&quot;properties&quot;: {&quot;instruction&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;What the Bug Programmer reports it changed and why, and the test that proves the fix -- so the Reviewer knows what to check for, not just that something changed.&quot;}}, &quot;required&quot;: [&quot;instruction&quot;]}">
+        <documentation>Hand what the Bug Programmer reports to the Bug Reviewer, which audits the fix on the branch, re-runs the real test suite, and opens the pull request -- or reports exactly what is still wrong. Only call this after the Bug Programmer reports it actually reproduced and fixed something.</documentation>
+      </serviceTask>
+    </adHocSubProcess>
+  </process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="bug_agent_process">
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <ns4:Bounds x="160" y="180" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="read_instruction_di" bpmnElement="read_instruction">
+        <ns4:Bounds x="250" y="158" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="gw_merge_di" bpmnElement="gw_merge" isMarkerVisible="true">
+        <ns4:Bounds x="400" y="173" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="work_di" bpmnElement="work">
+        <ns4:Bounds x="500" y="158" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="gw_needs_tools_di" bpmnElement="gw_needs_tools" isMarkerVisible="true">
+        <ns4:Bounds x="650" y="173" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <ns4:Bounds x="633" y="130" width="85" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="write_a2a_result_di" bpmnElement="write_a2a_result">
+        <ns4:Bounds x="750" y="158" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_1_di" bpmnElement="EndEvent_1">
+        <ns4:Bounds x="900" y="180" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="bug_agent_tools_di" bpmnElement="bug_agent_tools" isExpanded="true">
+        <ns4:Bounds x="-10" y="380" width="1310" height="370"/>
+      </bpmndi:BPMNShape>
+            <bpmndi:BPMNShape id="di_delegate_bug_planner" bpmnElement="delegate_bug_planner">
+        <ns4:Bounds x="95" y="440" width="180" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="di_delegate_bug_programmer" bpmnElement="delegate_bug_programmer">
+        <ns4:Bounds x="330" y="440" width="180" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="di_delegate_bug_reviewer" bpmnElement="delegate_bug_reviewer">
+        <ns4:Bounds x="565" y="440" width="180" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_1_di" bpmnElement="Flow_1">
+        <ns5:waypoint x="196" y="198"/>
+        <ns5:waypoint x="250" y="198"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_2_di" bpmnElement="Flow_2">
+        <ns5:waypoint x="350" y="198"/>
+        <ns5:waypoint x="400" y="198"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_3_di" bpmnElement="Flow_3">
+        <ns5:waypoint x="450" y="198"/>
+        <ns5:waypoint x="500" y="198"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_4_di" bpmnElement="Flow_4">
+        <ns5:waypoint x="600" y="198"/>
+        <ns5:waypoint x="650" y="198"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_call_tools_di" bpmnElement="Flow_call_tools">
+        <ns5:waypoint x="675" y="223"/>
+        <ns5:waypoint x="675" y="380"/>
+        <bpmndi:BPMNLabel>
+          <ns4:Bounds x="686" y="289" width="49" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_5_di" bpmnElement="Flow_5">
+        <ns5:waypoint x="700" y="198"/>
+        <ns5:waypoint x="750" y="198"/>
+        <bpmndi:BPMNLabel>
+          <ns4:Bounds x="717" y="180" width="15" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_tools_back_di" bpmnElement="Flow_tools_back">
+        <ns5:waypoint x="425" y="380"/>
+        <ns5:waypoint x="425" y="223"/>
+        <bpmndi:BPMNLabel>
+          <ns4:Bounds x="339" y="283" width="82" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_6_di" bpmnElement="Flow_6">
+        <ns5:waypoint x="850" y="198"/>
+        <ns5:waypoint x="900" y="198"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</definitions>

@@ -1,0 +1,43 @@
+{
+  "export_metadata": {
+    "source_site": "business-analyst.one-fm.com",
+    "export_date": "2026-10-08 18:34:13.327942",
+    "exported_by": "s.shariff@one-fm.com",
+    "version": "1.0"
+  },
+  "server_scripts": [
+    {
+      "name": "Bug Agent Write A2A Result",
+      "script_type": "API",
+      "reference_doctype": "",
+      "doctype_event": "Before Insert",
+      "script": "# Bug Agent — report the outcome to the A2A Task.\n# `state` is written here rather than left to the reconciler: a worker map that\n# writes the row directly wins, and waiting for the poller left finished\n# delegations sitting at \"working\".\n# The sandbox outcome is read off the Agent Sandbox Run rows, never off the\n# model's prose: the last open_pull_request run says whether a PR exists.\n_worker = frappe.db.get_value(\"A2A Task\", context_docname, \"instance\")\n_pr = None\n_tests_passed = None\n_failure = None\nfor _run in frappe.get_all(\n    \"Agent Sandbox Run\",\n    filters={\"caller_instance\": _worker},\n    fields=[\"state\", \"pr_url\", \"error_message\", \"request_payload\"],\n    order_by=\"creation asc\",\n) if _worker else []:\n    _action = (frappe.parse_json(_run.request_payload or \"{}\") or {}).get(\"action\")\n    if _run.pr_url:\n        _pr = _run.pr_url\n    if _action == \"run_tests\":\n        _tests_passed = _run.state == \"completed\"\n    if _run.state == \"failed\" and not _run.pr_url:\n        _failure = _run.error_message\n\n_text = (bug_agent_result or \"\").strip() or \"The Bug Agent finished but produced no report.\"\nif _pr and _pr not in _text:\n    _text += \"\\n\\nPull request: \" + _pr\n_answer = {\"text\": _text, \"pull_request\": _pr, \"tests_passed\": _tests_passed, \"failure\": _failure}\nfrappe.db.set_value(\n    \"A2A Task\",\n    context_docname,\n    {\n        \"result\": frappe.as_json(_answer),\n        \"status_message\": (\"Pull request opened: \" + _pr) if _pr else _text[:140],\n        \"state\": \"completed\",\n    },\n)\nresult[\"answered\"] = True\nresult[\"pull_request\"] = _pr\n# The delegation row follows the task through task_store, and this script writes\n# `state` straight to the row - so tell it here too, or the Agent Delegation a\n# person reads sits at \"In Progress\" for work that finished.\nfrom one_bpmn.agents.a2a import delegation\ndelegation.sync_from_task(frappe.get_doc(\"A2A Task\", context_docname))\n",
+      "api_method": "bug_agent_write_a2a_result",
+      "allow_guest": 0,
+      "event_frequency": "All",
+      "cron_format": "",
+      "module": "",
+      "disabled": 0
+    },
+    {
+      "name": "Bug Agent: Read Instruction",
+      "script_type": "API",
+      "reference_doctype": "",
+      "doctype_event": "Before Insert",
+      "script": "# Bug Agent - Read the A2A Task's instruction.\n# This map is started by an A2A Task insert (context_doctype=\"A2A Task\"),\n# so context_docname IS the A2A Task whose request_payload carries the\n# free-text work order the delegating caller supplied — the same\n# {\"instruction\": \"...\"} shape local.delegate() always builds, whether the\n# caller is a real orchestrator or a standalone test insert.\nif context_doctype != \"A2A Task\" or not context_docname:\n    frappe.throw(\n        \"Bug Agent: expected an A2A Task as this instance's context, got \"\n        + str(context_doctype) + \" \" + str(context_docname)\n    )\n\npayload = frappe.parse_json(doc.request_payload or \"{}\") or {}\ninstruction = (payload.get(\"instruction\") or \"\").strip()\n\nif not instruction:\n    frappe.throw(\n        \"Bug Agent: A2A Task \" + str(context_docname)\n        + \" has no instruction in its request_payload to work from.\"\n    )\n\nwork_item = (payload.get(\"work_item\") or \"\").strip()\npull_request = (payload.get(\"pull_request\") or \"\").strip()\ntarget_app = (payload.get(\"target_app\") or \"\").strip()\ngit_branch = (payload.get(\"git_branch\") or \"\").strip()\n# target_app and git_branch come from the Work Item's own fields via the delegation\n# payload. Stated as values at the top so the model repeats them byte-for-byte on\n# every sandbox call; absent when the reporter left them blank, and then the\n# prompt's fallback rules apply.\n_header = \"Work Item: \" + work_item + (\"\\nPull request: \" + pull_request if pull_request else \"\") if work_item else \"\"\nif target_app or git_branch:\n    _header += (\"\\n\" if _header else \"\") + \"Sandbox arguments - pass these EXACT values on every sandbox tool call:\"\n    if target_app:\n        _header += \"\\n  target_app: \" + target_app\n    if git_branch:\n        _header += \"\\n  git_branch: \" + git_branch\nif _header:\n    instruction = _header + \"\\n\\n\" + instruction\nresult[\"work_item\"] = work_item\nresult[\"pull_request\"] = pull_request\nresult[\"target_app\"] = target_app\nresult[\"git_branch\"] = git_branch\nresult[\"instruction\"] = instruction\nresult[\"needs_tools\"] = False\n",
+      "api_method": "bug_agent_read_instruction",
+      "allow_guest": 0,
+      "event_frequency": "All",
+      "cron_format": "",
+      "module": "",
+      "disabled": 0
+    }
+  ],
+  "workflow_states": [],
+  "workflow_action_masters": [],
+  "counts": {
+    "server_scripts": 2,
+    "workflow_states": 0,
+    "workflow_action_masters": 0
+  }
+}

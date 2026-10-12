@@ -68,6 +68,9 @@ class TestWorkItemIdReachesTheSandbox(FrappeTestCase):
 		sent = {}
 
 		class _Response:
+			headers = {}
+			status_code = 200
+
 			def raise_for_status(self):
 				return None
 

@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:ns1="http://spiffworkflow.org/bpmn/schema/1.0/core" xmlns:ns4="http://www.omg.org/spec/DD/20100524/DC" xmlns:ns5="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Definitions_BugReviewer" targetNamespace="http://bpmn.io/schema/bpmn" exporter="Processa" exporterVersion="1.0">
+  <process id="bug_reviewer_023c2567" name="Bug Reviewer" isExecutable="true">
+    <documentation>Audits a bug fix already on a branch -- runs the real test suite, confirms the fix matches what was reported, checks any existing pull request's review comments -- and opens the pull request. Never edits a file.</documentation>
+    <startEvent id="StartEvent_1" name="A2A Task received">
+      <documentation>Started by an A2A Task insert addressed to "Bug Reviewer" (spiffworkflow:triggerFieldName scopes it so an insert for any OTHER agent never starts this map).</documentation>
+      <outgoing>Flow_1</outgoing>
+      <conditionalEventDefinition id="Cond_1" ns1:triggerDoctype="A2A Task" ns1:triggerType="After Insert" ns1:triggerFieldName="agent_configuration" ns1:triggerFieldValue="Bug Reviewer">
+        <condition xsi:type="tFormalExpression">True</condition>
+      </conditionalEventDefinition>
+    </startEvent>
+    <sequenceFlow id="Flow_1" sourceRef="StartEvent_1" targetRef="read_instruction"/>
+    <scriptTask id="read_instruction" name="Read the instruction" ns1:serverScript="Bug Reviewer: Read Instruction" ns1:scriptType="Server Script" ns1:scriptName="Bug Reviewer: Read Instruction">
+      <documentation>Builds the agent's brief from the A2A Task's request_payload — the free-text work order the delegating caller supplied.</documentation>
+      <incoming>Flow_1</incoming>
+      <outgoing>Flow_2</outgoing>
+      <script>pass</script>
+    </scriptTask>
+    <sequenceFlow id="Flow_2" sourceRef="read_instruction" targetRef="gw_merge"/>
+    <exclusiveGateway id="gw_merge">
+      <documentation>Where the Tools sub-process returns. The agent task runs its own tool loop internally, so in practice nothing comes back this way — the loop exists so the toolbox is part of the diagram rather than floating beside it.</documentation>
+      <incoming>Flow_2</incoming>
+      <incoming>Flow_tools_back</incoming>
+      <outgoing>Flow_3</outgoing>
+    </exclusiveGateway>
+    <sequenceFlow id="Flow_3" sourceRef="gw_merge" targetRef="work"/>
+    <serviceTask id="work" name="Dispatch the work order" ns1:serviceType="ai_agent" ns1:aiBackend="direct_api" ns1:aiProvider="Anthropic" ns1:aiModel="Bug Reviewer - claude-sonnet-5-5" ns1:aiOutputVariable="bug_reviewer_result" ns1:aiUserPrompt="{{ instruction }}" ns1:aiResponseFormat="text" ns1:aiTemperature="0.2" ns1:aiTopP="1" ns1:aiMaxTokens="32768" ns1:aiTimeout="300" ns1:aiMaxRetries="2" ns1:aiAgentConfig="Bug Reviewer" ns1:aiToolsAdhoc="bug_reviewer_tools" ns1:aiMaxToolCalls="15" ns1:aiSystemPrompt="You are the Bug Reviewer. You audit a bug fix already sitting on a branch, confirm it, and open the pull request — or you report exactly what is still wrong. You never edit a file yourself.&#10;&#10;You are a background worker. Nobody is sitting in front of you, so you never ask a question and wait: you are given a work order naming the branch a fix was made on, and you either open a pull request or you report exactly what stopped you.&#10;&#10;Three arguments identify the sandbox this branch lives in and must be IDENTICAL on every single call: target_app, git_branch, work_item_description — the exact same three values the Bug Programmer used, so you are reading the branch it actually left, not a fresh empty one. Take them from the work order's header.&#10;&#10;WORK IN THIS ORDER&#10;1. run_tests first, and read the result properly. This is the only evidence that matters — not the work order's own claim of what was fixed.&#10;2. read_file the file(s) the work order names as changed, to confirm the fix is really there and matches what was reported.&#10;3. If a pull request already exists for this work order (the work order names one), call read_pull_request and check the review comments are actually addressed, not just that the branch changed.&#10;4. open_pull_request last, with a summary a non-developer can act on, naming the test that proves the fix and whether the suite passed. Call it whether or not the tests passed — it re-runs them itself and marks the pull request clearly if they fail.&#10;&#10;RULES THAT MATTER MORE THAN FINISHING&#10;- You have no edit_file or write_file tool. If the fix is wrong or incomplete, report exactly what is missing — do not attempt to patch it yourself.&#10;- Never claim a pull request exists unless the tool result actually said one was opened. If open_pull_request came back without a URL, there is no pull request — say so plainly.&#10;- Never claim the tests passed unless the tool result actually said so. A pull request link is not proof of a pass; the sandbox opens one either way and marks it.&#10;- If you cannot finish after a reasonable number of attempts, stop and report exactly what failed.">
+      <documentation>Reads the work order, works out the target app/branch, and dispatches to the sandbox — the sandbox is the coding agent, not this step.</documentation>
+      <incoming>Flow_3</incoming>
+      <outgoing>Flow_4</outgoing>
+    </serviceTask>
+    <sequenceFlow id="Flow_4" sourceRef="work" targetRef="gw_needs_tools"/>
+    <exclusiveGateway id="gw_needs_tools" name="Needs to call tools?" default="Flow_5">
+      <documentation>Decorative on purpose, matching the Orchestrator's own map — the AI Agent Task runs its tool loop inside itself, so this always takes the No branch.</documentation>
+      <incoming>Flow_4</incoming>
+      <outgoing>Flow_call_tools</outgoing>
+      <outgoing>Flow_5</outgoing>
+    </exclusiveGateway>
+    <sequenceFlow id="Flow_call_tools" name="Call tools" sourceRef="gw_needs_tools" targetRef="bug_reviewer_tools">
+      <conditionExpression>needs_tools == True</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="Flow_5" name="No" sourceRef="gw_needs_tools" targetRef="write_a2a_result"/>
+    <sequenceFlow id="Flow_tools_back" name="Tool call results" sourceRef="bug_reviewer_tools" targetRef="gw_merge"/>
+    <scriptTask id="write_a2a_result" name="Report result to A2A Task" ns1:serverScript="Bug Reviewer Write A2A Result" ns1:scriptType="Server Script" ns1:scriptName="Bug Reviewer Write A2A Result">
+      <documentation>Writes the agent's own final report back onto this A2A Task so a delegating caller's parked step can resume.</documentation>
+      <incoming>Flow_5</incoming>
+      <outgoing>Flow_6</outgoing>
+      <script>pass</script>
+    </scriptTask>
+    <sequenceFlow id="Flow_6" sourceRef="write_a2a_result" targetRef="EndEvent_1"/>
+    <endEvent id="EndEvent_1" name="Done">
+      <incoming>Flow_6</incoming>
+    </endEvent>
+    <adHocSubProcess id="bug_reviewer_tools" name="Tools (Sandbox)">
+      <documentation>The Cloud Run sandbox, exposed as a tool.</documentation>
+      <incoming>Flow_call_tools</incoming>
+      <outgoing>Flow_tools_back</outgoing>
+      <scriptTask id="read_file" name="Read a file" ns1:serverScript="Bug Agent: Sandbox Tool: Read File" ns1:aiToolParams="{&quot;properties&quot;:{&quot;target_app&quot;:{&quot;type&quot;:&quot;string&quot;,&quot;description&quot;:&quot;The installed app to operate on, e.g. one_bpmn. Must match a real app in this bench exactly — do not guess.&quot;},&quot;git_branch&quot;:{&quot;type&quot;:&quot;string&quot;,&quot;description&quot;:&quot;The branch this work started from. Use the exact same value on every call for one work order.&quot;},&quot;work_item_description&quot;:{&quot;type&quot;:&quot;string&quot;,&quot;description&quot;:&quot;The work order in plain words, unchanged across every call — used to compute the same working branch each time.&quot;},&quot;path&quot;:{&quot;type&quot;:&quot;string&quot;,&quot;description&quot;:&quot;Repo-relative file path, e.g. one_bpmn/api/insights_api.py. One spelling per file: no leading ./, no .. segments, no line range in the path.&quot;},&quot;offset&quot;:{&quot;type&quot;:&quot;integer&quot;,&quot;description&quot;:&quot;1-indexed line number to start from. Omit to read the whole file — only set this for a file too large to read whole, using line numbers you already have (e.g. from a previous full read, or line numbers cited in the work order). Never re-read the whole file hoping different lines show up — use offset/limit on the file you already have instead.&quot;},&quot;limit&quot;:{&quot;type&quot;:&quot;integer&quot;,&quot;description&quot;:&quot;Max lines to return starting at offset. Omit to read to the end of the file.&quot;}},&quot;required&quot;:[&quot;target_app&quot;,&quot;git_branch&quot;,&quot;work_item_description&quot;,&quot;path&quot;]}">
+        <documentation>Read one file's current content from the target app's working tree.</documentation>
+        <script>Bug Agent: Sandbox Tool: Read File</script>
+      </scriptTask>
+      <serviceTask id="run_tests" name="Run the test suite" ns1:serviceType="connector" ns1:connectorId="agent_sandbox" ns1:operation="run_tests" ns1:connectorParams="{&quot;target_app&quot;: &quot;{{ task_data.target_app }}&quot;, &quot;git_branch&quot;: &quot;{{ task_data.git_branch }}&quot;, &quot;work_item_description&quot;: &quot;{{ task_data.work_item_description }}&quot;}" ns1:failOnError="true" ns1:aiToolParams="{&quot;properties&quot;:{&quot;target_app&quot;:{&quot;type&quot;:&quot;string&quot;,&quot;description&quot;:&quot;The installed app to operate on, e.g. one_bpmn. Must match a real app in this bench exactly \u2014 do not guess.&quot;},&quot;git_branch&quot;:{&quot;type&quot;:&quot;string&quot;,&quot;description&quot;:&quot;The branch this work started from. Use the exact same value on every call for one work order.&quot;},&quot;work_item_description&quot;:{&quot;type&quot;:&quot;string&quot;,&quot;description&quot;:&quot;The work order in plain words, unchanged across every call \u2014 used to compute the same working branch each time.&quot;}},&quot;required&quot;:[&quot;target_app&quot;,&quot;git_branch&quot;,&quot;work_item_description&quot;]}">
+        <documentation>Run the target app's real test suite against the working tree as it currently stands. Use this to check your own work before you finish — open_pull_request re-runs tests itself before opening, but that only decides pass/fail, it doesn't help you fix anything.</documentation>
+      </serviceTask>
+      <scriptTask id="read_pull_request" name="Read the pull request" ns1:serverScript="Bug Agent: GitHub Tool: Read Pull Request" ns1:scriptType="Server Script" ns1:scriptName="Bug Agent: GitHub Tool: Read Pull Request" ns1:aiToolParams="{&quot;properties&quot;: {&quot;pr_url&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;Optional. The pull request URL; defaults to the one this task is about.&quot;}}, &quot;required&quot;: []}">
+        <documentation>Read-only. The pull request's description, changed files with a short diff, and every review comment - the ones that asked for changes first. For a change request, fix only what these comments ask.</documentation>
+        <script>Bug Agent: GitHub Tool: Read Pull Request</script>
+      </scriptTask>
+      <serviceTask id="open_pull_request" name="Open the pull request" ns1:serviceType="connector" ns1:connectorId="agent_sandbox" ns1:operation="open_pull_request" ns1:connectorParams="{&quot;target_app&quot;: &quot;{{ task_data.target_app }}&quot;, &quot;git_branch&quot;: &quot;{{ task_data.git_branch }}&quot;, &quot;work_item_description&quot;: &quot;{{ task_data.work_item_description }}&quot;, &quot;summary&quot;: &quot;{{ task_data.summary }}&quot;}" ns1:failOnError="true" ns1:aiToolParams="{&quot;properties&quot;:{&quot;target_app&quot;:{&quot;type&quot;:&quot;string&quot;,&quot;description&quot;:&quot;The installed app to operate on, e.g. one_bpmn. Must match a real app in this bench exactly \u2014 do not guess.&quot;},&quot;git_branch&quot;:{&quot;type&quot;:&quot;string&quot;,&quot;description&quot;:&quot;The branch this work started from. Use the exact same value on every call for one work order.&quot;},&quot;work_item_description&quot;:{&quot;type&quot;:&quot;string&quot;,&quot;description&quot;:&quot;The work order in plain words, unchanged across every call \u2014 used to compute the same working branch each time.&quot;},&quot;summary&quot;:{&quot;type&quot;:&quot;string&quot;,&quot;description&quot;:&quot;Plain-words summary of what changed, for the PR body.&quot;}},&quot;required&quot;:[&quot;target_app&quot;,&quot;git_branch&quot;,&quot;work_item_description&quot;,&quot;summary&quot;]}">
+        <documentation>Open (or update, on a retry of the same work order) a pull request with every change made so far. Re-runs the real test suite itself first and marks the PR clearly if it fails — call this when you are done, WHETHER OR NOT tests passed. A change that never reaches a pull request is a change nobody can review.</documentation>
+      </serviceTask>
+    </adHocSubProcess>
+  </process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="bug_reviewer_023c2567">
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <ns4:Bounds x="160" y="180" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="read_instruction_di" bpmnElement="read_instruction">
+        <ns4:Bounds x="250" y="158" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="gw_merge_di" bpmnElement="gw_merge" isMarkerVisible="true">
+        <ns4:Bounds x="400" y="173" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="work_di" bpmnElement="work">
+        <ns4:Bounds x="500" y="158" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="gw_needs_tools_di" bpmnElement="gw_needs_tools" isMarkerVisible="true">
+        <ns4:Bounds x="650" y="173" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <ns4:Bounds x="633" y="130" width="85" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="write_a2a_result_di" bpmnElement="write_a2a_result">
+        <ns4:Bounds x="750" y="158" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_1_di" bpmnElement="EndEvent_1">
+        <ns4:Bounds x="900" y="180" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="bug_reviewer_tools_di" bpmnElement="bug_reviewer_tools" isExpanded="true">
+        <ns4:Bounds x="-10" y="380" width="1310" height="370"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="di_read_file" bpmnElement="read_file">
+        <ns4:Bounds x="475" y="440" width="150" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="di_run_tests" bpmnElement="run_tests">
+        <ns4:Bounds x="95" y="440" width="150" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="di_read_pull_request" bpmnElement="read_pull_request">
+        <ns4:Bounds x="285" y="440" width="150" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="di_open_pull_request" bpmnElement="open_pull_request">
+        <ns4:Bounds x="475" y="440" width="150" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_1_di" bpmnElement="Flow_1">
+        <ns5:waypoint x="196" y="198"/>
+        <ns5:waypoint x="250" y="198"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_2_di" bpmnElement="Flow_2">
+        <ns5:waypoint x="350" y="198"/>
+        <ns5:waypoint x="400" y="198"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_3_di" bpmnElement="Flow_3">
+        <ns5:waypoint x="450" y="198"/>
+        <ns5:waypoint x="500" y="198"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_4_di" bpmnElement="Flow_4">
+        <ns5:waypoint x="600" y="198"/>
+        <ns5:waypoint x="650" y="198"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_call_tools_di" bpmnElement="Flow_call_tools">
+        <ns5:waypoint x="675" y="223"/>
+        <ns5:waypoint x="675" y="380"/>
+        <bpmndi:BPMNLabel>
+          <ns4:Bounds x="686" y="289" width="49" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_5_di" bpmnElement="Flow_5">
+        <ns5:waypoint x="700" y="198"/>
+        <ns5:waypoint x="750" y="198"/>
+        <bpmndi:BPMNLabel>
+          <ns4:Bounds x="717" y="180" width="15" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_tools_back_di" bpmnElement="Flow_tools_back">
+        <ns5:waypoint x="425" y="380"/>
+        <ns5:waypoint x="425" y="223"/>
+        <bpmndi:BPMNLabel>
+          <ns4:Bounds x="339" y="283" width="82" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_6_di" bpmnElement="Flow_6">
+        <ns5:waypoint x="850" y="198"/>
+        <ns5:waypoint x="900" y="198"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</definitions>

@@ -22,7 +22,8 @@
   "active_tasks",
   "section_break_a38t",
   "serialized_spec",
-  "workflow_state"
+  "workflow_state",
+  "buffered_messages"
  ],
  "fields": [
   {
@@ -136,6 +137,14 @@
   {
    "fieldname": "section_break_uyli",
    "fieldtype": "Section Break"
+  },
+  {
+   "description": "Messages that arrived while nothing was waiting for them. Delivered when a wait for them starts, dropped after 24 hours.",
+   "fieldname": "buffered_messages",
+   "fieldtype": "JSON",
+   "hidden": 1,
+   "label": "Buffered Messages",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

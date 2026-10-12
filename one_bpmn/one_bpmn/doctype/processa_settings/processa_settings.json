@@ -25,6 +25,13 @@
   "column_break_agent_sandbox",
   "agent_callback_secret",
   "agent_sandbox_caller_key",
+  "section_break_sandbox_jobs",
+  "sandbox_job_project",
+  "sandbox_job_region",
+  "sandbox_job_name",
+  "column_break_sandbox_jobs",
+  "sandbox_job_max_parallel",
+  "sandbox_job_processa_url",
   "section_break_google_chat",
   "google_chat_service_account_json",
   "google_directory_account",
@@ -731,6 +738,45 @@
    "fieldname": "eval_concurrency",
    "fieldtype": "Int",
    "label": "Eval Concurrency"
+  },
+  {
+   "fieldname": "section_break_sandbox_jobs",
+   "fieldtype": "Section Break",
+   "label": "Sandbox Jobs",
+   "description": "One Cloud Run Job execution per Work Item, for agents with Sandbox Use Job set. The service account key above must be allowed to run this Job."
+  },
+  {
+   "fieldname": "sandbox_job_project",
+   "fieldtype": "Data",
+   "label": "Job Project"
+  },
+  {
+   "fieldname": "sandbox_job_region",
+   "fieldtype": "Data",
+   "label": "Job Region",
+   "default": "us-central1"
+  },
+  {
+   "fieldname": "sandbox_job_name",
+   "fieldtype": "Data",
+   "label": "Job Name"
+  },
+  {
+   "fieldname": "column_break_sandbox_jobs",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sandbox_job_max_parallel",
+   "fieldtype": "Int",
+   "label": "Max Parallel Sessions",
+   "default": "10",
+   "description": "More sessions than this wait in the queue instead of failing."
+  },
+  {
+   "fieldname": "sandbox_job_processa_url",
+   "fieldtype": "Data",
+   "label": "Processa URL For The Job",
+   "description": "The https address the container calls. Blank uses this site's own address."
   }
  ],
  "issingle": 1,

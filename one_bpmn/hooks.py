@@ -302,6 +302,11 @@ scheduler_events = {
 			# bound being approached; nothing here acts on it.
 			"one_bpmn.tasks.check_ai_memory_volume",
 		],
+		# A sandbox run whose callback never arrives would leave its agent waiting for good.
+		"*/2 * * * *": [
+			"one_bpmn.one_bpmn.connectors.agent_sandbox_reaper.reap",
+			"one_bpmn.one_bpmn.connectors.agent_sandbox_reaper.reap_sessions",
+		],
 		"* * * * *": [
 			"one_bpmn.tasks.process_timer_start_events",
 			"one_bpmn.tasks.process_timer_catch_events",

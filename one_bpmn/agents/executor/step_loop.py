@@ -308,22 +308,36 @@ def _step_controls(
 	return controls
 
 
+# A request the provider rejected as wrong will fail the same way again, so it is not retried.
+_PERMANENT_STATUSES = frozenset({400, 401, 403, 404, 413, 422})
+MAX_BACKOFF_SECONDS = 30.0
+
+
+def _status_of(exc) -> int | None:
+	return getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
+
+
+def _retry_after_seconds(exc) -> float | None:
+	"""The wait the provider asked for in its Retry-After header, capped, or None."""
+	headers = getattr(getattr(exc, "response", None), "headers", None) or {}
+	try:
+		return min(float(headers.get("retry-after")), MAX_BACKOFF_SECONDS)
+	except (TypeError, ValueError):
+		return None
+
+
 async def _step_with_retries(
 	adapter, system, transcript, tools, max_tokens, *, timeout_seconds=None, max_retries=0, retry_backoff_ms=1000,
 	response_schema=None, controls=None,
 ):
-	"""One turn's model call, bounded by timeout_seconds and retried up to
-	max_retries times — mirrors DirectApiExecutor._run_request's own
-	retry/backoff shape for the non-tool path (direct_api.py), since
-	adapter.step() previously had neither: aiTimeout/aiMaxRetries were read
-	into ExecutorConfig but silently had no effect the moment a call used
-	tools, so a hung turn could run for however long the provider SDK's own
-	default is (confirmed: the Anthropic adapter passes no timeout to the
-	SDK at all) instead of the configured aiTimeout.
+	"""One turn's model call, bounded by timeout_seconds and retried up to max_retries times.
 
-	timeout_seconds=None (the default) means unbounded, matching every
-	caller from before this existed."""
-	for attempt in range(max_retries + 1):
+	The wait doubles each time up to MAX_BACKOFF_SECONDS, or is the Retry-After the provider sent. A request
+	the provider rejected as wrong (400, 401, 403, 404, 413, 422) is not retried at all.
+
+	timeout_seconds=None (the default) means unbounded, matching every caller from before this existed."""
+	attempt = 0
+	while True:
 		try:
 			extra = dict(controls or {})
 			if response_schema:
@@ -334,11 +348,14 @@ async def _step_with_retries(
 			return await call
 		except LLMTruncatedError:
 			raise
-		except Exception:
-			if attempt >= max_retries:
+		except Exception as exc:
+			if _status_of(exc) in _PERMANENT_STATUSES or attempt >= max_retries:
 				raise
-			base_s = (retry_backoff_ms / 1000.0) * (2 ** attempt)
-			await asyncio.sleep(base_s + random.uniform(0, 0.1))
+			wait = _retry_after_seconds(exc)
+			if wait is None:
+				wait = min((retry_backoff_ms / 1000.0) * (2 ** attempt), MAX_BACKOFF_SECONDS)
+			await asyncio.sleep(wait + random.uniform(0, 0.1))
+			attempt += 1
 
 
 def _fire_tool_event(on_tool_event, phase, tool_name):
