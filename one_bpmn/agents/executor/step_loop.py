@@ -79,6 +79,23 @@ _TURN_RECORD_FIELDS = {
 	"started_at", "ended_at",
 }
 
+# The tools that change files; the budget note counts their calls.
+_EDIT_TOOLS = frozenset({"edit_file", "write_file", "apply_edits", "delete_file"})
+# From this share of the turn cap the budget note tells the agent to finish.
+_BUDGET_WARN_SHARE = 0.75
+
+
+def _budget_note(turns_used: int, max_turns: int, trace: list) -> str:
+	"""The turn count and edits made so far, and from the warn share onward an instruction to wrap up."""
+	left = max_turns - turns_used
+	edits = sum(1 for turn in trace for call in turn.tool_calls if call.name in _EDIT_TOOLS)
+	note = f"[Run budget: turn {turns_used} of {max_turns}, {left} left, {edits} edit(s) made.]"
+	if left <= 1:
+		return note + " This is your last turn: search no more, save your work and report, or hand the item back with what you found."
+	if turns_used >= max_turns * _BUDGET_WARN_SHARE:
+		return note + " Stop exploring. Use the turns left to test, save your work and report, or hand the item back with what you learned."
+	return note
+
 
 @dataclass
 class AgentSuspension:
@@ -146,6 +163,7 @@ async def run_agent_loop(
 	thinking_budget_tokens: int = 0,
 	loop_compaction: dict | None = None,
 	budget_check=None,
+	budget_notes: bool = False,
 	temperature: float | None = None,
 	top_p: float | None = None,
 ) -> tuple:
@@ -259,6 +277,7 @@ async def run_agent_loop(
 			controls=_step_controls(parallel_tool_calls, thinking_budget_tokens, temperature, top_p),
 			loop_compaction=loop_compaction,
 			budget_check=budget_check,
+			budget_notes=budget_notes,
 		)
 	finally:
 		# Cleared on EVERY exit — final answer, turn cap, suspension, exception.
@@ -383,6 +402,7 @@ async def _run_turns(
 	tool_choice=None, controls=None,
 	loop_compaction=None,
 	budget_check=None,
+	budget_notes=False,
 ):
 	"""The turn loop itself. Split out only so run_agent_loop can guarantee the
 	pause flag is cleared however this returns."""
@@ -659,6 +679,8 @@ async def _run_turns(
 			)
 			return CompletionResult(text=_said, trace=trace, no_terminal_tool=False), None
 
+		if budget_notes and results:
+			results[-1]["content"] += "\n\n" + _budget_note(turns_used, max_turns, trace)
 		transcript.append({"role": "tool_results", "results": results})
 
 	# Turn cap reached. Carry the model's last narration out as the text rather
