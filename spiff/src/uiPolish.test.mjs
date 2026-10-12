@@ -81,3 +81,12 @@ test("the expanded diagram height is read on each open, not once", () => {
 	assert.match(card, /:height="expandedHeight\(\)"/)
 	assert.doesNotMatch(card, /expandedHeight = computed/)
 })
+
+test("the agent task dialog shows the sandbox settings and saves them on the linked agent", () => {
+	const modal = source("components/AIAgentConfigModal.vue")
+	for (const key of ["aiSandboxUseJob", "aiSandboxRetryOnTestFailure", "aiRequireReproduction"]) {
+		assert.match(modal, new RegExp(`v-model="form\\.${key}"`))
+		assert.match(modal, new RegExp(`fields\\.${key} = form\\.value\\.${key} \\? 1 : 0`))
+		assert.match(modal, new RegExp(`"${key}",\\n`))
+	}
+})

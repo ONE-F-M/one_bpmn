@@ -111,8 +111,10 @@
   "column_break_guardrails",
   "max_delegation_retries",
   "max_clarification_rounds",
-  "sandbox_retry_on_test_failure",
+  "section_sandbox",
   "sandbox_use_job",
+  "sandbox_retry_on_test_failure",
+  "column_break_sandbox",
   "require_reproduction",
   "evaluation_section",
   "sample_prompts",
@@ -613,6 +615,16 @@
    "fieldname": "lock_block_window_seconds",
    "fieldtype": "Int",
    "label": "Blocked-Attempt Window (seconds)"
+  },
+  {
+   "description": "How this agent's work in the sandbox is run and held to account.",
+   "fieldname": "section_sandbox",
+   "fieldtype": "Section Break",
+   "label": "Sandbox"
+  },
+  {
+   "fieldname": "column_break_sandbox",
+   "fieldtype": "Column Break"
   },
   {
    "description": "Eval suites now link to this agent from the suite side — see the Evaluation group in the Connections panel above to view or add suites. (The former Evaluation Suite field was removed.)",
