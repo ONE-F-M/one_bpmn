@@ -299,7 +299,18 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 				title=_("Confirm data loss"),
 			)
 
+	# 4) Type changes Customize Form refuses: a Docu-owned empty field is recreated, the rest are refused here.
+	recreate = []
+	customizes = (
+		frappe.db.exists("DocType", name)
+		and not frappe.db.get_value("DocType", name, "issingle")
+		and not _reconciles_in_place(name)
+	)
+	if customizes:
+		recreate = _refused_type_changes(name, fields)
+
 	child_tables: list[str] = []
+	skipped: list[dict] = []
 	try:
 		with as_user(_docu_user()):
 			# Create any inline child DocTypes first and point the Table fields at them.
@@ -311,7 +322,8 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 			elif _reconciles_in_place(name):
 				action = _reconcile_owned_doctype(name, fields, settings, permissions)
 			else:
-				action = _customize_standard_doctype(name, fields)
+				_recreate_custom_fields(name, recreate)
+				action = _customize_standard_doctype(name, fields, skipped)
 				_apply_standard_doctype_permissions(name, permissions)
 			if permissions is not None:
 				# Cached DocType meta predates the new rules, so roles stay locked out
@@ -331,7 +343,69 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 		"is_child_table": bool(is_child),
 		"child_tables": child_tables,
 		"url": f"/app/{frappe.scrub(name).replace('_', '-')}",
+		"notes": [
+			_("{0} was not added: {1} already has a field labelled {0} ({2}). Use that field instead.").format(
+				d["label"], name, d["existing"]
+			)
+			for d in skipped
+		],
 	}
+
+
+def _refused_type_changes(doctype: str, fields: list) -> list:
+	"""(Custom Field name, IR field) for each refused type change Docu may recreate; throws for any other."""
+	from frappe.custom.doctype.customize_form.customize_form import ALLOWED_FIELDTYPE_CHANGE
+
+	meta = frappe.get_meta(doctype)
+	docu_user = _docu_user()
+	recreate = []
+	for field in fields:
+		current = meta.get_field((field.get("fieldname") or "").strip())
+		wanted = field.get("fieldtype")
+		if not current or not wanted or wanted == current.fieldtype:
+			continue
+		allowed = sorted(
+			{t for group in ALLOWED_FIELDTYPE_CHANGE if current.fieldtype in group for t in group} - {current.fieldtype}
+		)
+		if wanted in allowed:
+			continue
+		custom_field = frappe.db.get_value(
+			"Custom Field", {"dt": doctype, "fieldname": current.fieldname}, ["name", "owner"], as_dict=True
+		)
+		if (
+			custom_field
+			and custom_field.owner == docu_user
+			and not frappe.db.count(doctype, {current.fieldname: ["is", "set"]})
+		):
+			recreate.append((custom_field.name, field))
+			continue
+		frappe.throw(
+			_("{0} ({1}) is a {2} field and cannot become {3}. A {2} field can only become: {4}.").format(
+				current.label or current.fieldname,
+				current.fieldname,
+				current.fieldtype,
+				wanted,
+				", ".join(allowed) or _("no other type"),
+			),
+			title=_("Field type cannot change"),
+		)
+	return recreate
+
+
+def _recreate_custom_fields(doctype: str, recreate: list) -> None:
+	"""Drop each Custom Field and create it again with the IR's definition, in the same position."""
+	if not recreate:
+		return
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+	for custom_field, field in recreate:
+		insert_after = frappe.db.get_value("Custom Field", custom_field, "insert_after")
+		frappe.delete_doc("Custom Field", custom_field)
+		definition = _docfield_dict(field, 0)
+		definition.pop("idx")
+		definition["insert_after"] = insert_after
+		create_custom_fields({doctype: [definition]}, ignore_validate=False)
+	frappe.clear_cache(doctype=doctype)
 
 
 def _reconciles_in_place(name: str) -> bool:
@@ -671,7 +745,7 @@ def _reconcile_owned_doctype(name: str, fields: list, settings: dict = None, per
 	return "updated"
 
 
-def _customize_standard_doctype(name: str, fields: list) -> str:
+def _customize_standard_doctype(name: str, fields: list, skipped: list) -> str:
 	"""Apply Docu IR field changes to a STANDARD DocType via Customize Form.
 
 	Customize Form is Frappe's supported mechanism for changing a standard
@@ -692,6 +766,14 @@ def _customize_standard_doctype(name: str, fields: list) -> str:
 	cf.fetch_to_customize()
 
 	existing = {row.fieldname: row for row in cf.fields if row.fieldname}
+	# Labels as they will read after this save, so a relabelled field counts under its new label.
+	ir_labels = {(f.get("fieldname") or "").strip(): f.get("label") for f in fields if "label" in f}
+	labelled = {
+		str(ir_labels.get(fieldname, row.label) or "").strip().lower(): fieldname
+		for fieldname, row in existing.items()
+		if row.fieldtype not in _LAYOUT_FIELDTYPES
+	}
+	labelled.pop("", None)
 	changed = False
 	# Brand-new fields, materialised as Custom Fields after the customize pass.
 	new_fields: list = []
@@ -711,6 +793,10 @@ def _customize_standard_doctype(name: str, fields: list) -> str:
 			continue
 		row = existing.get(fieldname)
 		if row is None:
+			same_label = labelled.get(str(field.get("label") or "").strip().lower())
+			if same_label:
+				skipped.append({"label": field.get("label"), "existing": same_label})
+				continue
 			# Brand-new field → collected now, created as a Custom Field below.
 			new_fields.append(_docfield_dict(field, len(new_fields) + 1))
 			changed = True
