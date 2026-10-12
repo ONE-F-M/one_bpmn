@@ -171,8 +171,8 @@ def get_llm_adapter_from_settings(agent_config: dict | None = None) -> BaseLLMAd
     agent_id = cfg.get("agent_id", "")
 
     # ── The config's linked provider wins outright ─────────────────────────
-    # The MODEL is the agent's own catalog pick (cfg["ai_model"], whose record
-    # name is the model id) and now carries the connection too; the provider
+    # The MODEL is the agent's own catalog pick (cfg["ai_model"], sent to the
+    # provider as its model_api_name) and now carries the connection too; the provider
     # contributes only its name, which is what routes the call.
     linked = cfg.get("ai_provider")
     if linked:
@@ -196,8 +196,9 @@ def get_llm_adapter_from_settings(agent_config: dict | None = None) -> BaseLLMAd
                 api_key = ""
             else:
                 api_key = model_api_key(model)
+            api_model = frappe.db.get_value("AI Model", model, "model_api_name") or model
             return MeteredAdapter(
-                get_llm_adapter(provider=adapter_key, model=model, api_key=api_key or "")
+                get_llm_adapter(provider=adapter_key, model=api_model, api_key=api_key or "")
             )
         except frappe.DoesNotExistError:
             frappe.log_error(
@@ -228,7 +229,8 @@ def get_llm_adapter_from_settings(agent_config: dict | None = None) -> BaseLLMAd
             ),
         )
 
-    return MeteredAdapter(get_llm_adapter(provider=provider, model=model, api_key=api_key))
+    api_model = frappe.db.get_value("AI Model", model, "model_api_name") or model
+    return MeteredAdapter(get_llm_adapter(provider=provider, model=api_model, api_key=api_key))
 
 
 class MeteredAdapter:
