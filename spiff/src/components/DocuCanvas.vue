@@ -421,6 +421,14 @@
 						<template v-else-if="saveState === 'error'">⚠ {{ saveError }}</template>
 						<template v-else>Changes save automatically</template>
 					</span>
+					<span v-if="saveNotes" class="dc-save-status">{{ saveNotes }}</span>
+					<Button
+						v-if="unsavedDesign"
+						size="sm"
+						@click="restoreUnsavedDesign"
+					>
+						Restore my unsaved design
+					</Button>
 				</div>
 			</div>
 		</div>
@@ -429,7 +437,8 @@
 
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
-import { frappeRequest } from "frappe-ui";
+import { Button, frappeRequest } from "frappe-ui";
+import { serverMessage } from "@/utils/serverMessage.js";
 import { Icon } from "@iconify/vue";
 import draggable from "vuedraggable";
 // WI-001676: the chat half is the shared panel; schemas arrive as cards.
@@ -619,6 +628,9 @@ const appliedName = ref("");
 const saveState  = ref("idle");   // idle | saving | saved | error
 const canChange  = ref(false);
 const saveError  = ref("");
+const saveNotes  = ref("");
+// A design that failed to save, kept in this browser so the canvas can show the site's form and still offer it back.
+const unsavedDesign = ref("");
 let autosaveTimer = null;
 let autosaveInFlight = false;
 let autosaveQueued = false;
@@ -1191,6 +1203,7 @@ async function runAutosave() {
 	autosaveInFlight = true;
 	saveState.value = "saving";
 	saveError.value = "";
+	saveNotes.value = "";
 	try {
 		const res = await frappeRequest({
 			url: `${API}apply_doctype`,
@@ -1202,14 +1215,42 @@ async function runAutosave() {
 			appliedName.value = res.name;
 			emit("applied", res.name);   // write the DocType name back onto the shape
 		}
+		saveNotes.value = (res?.notes || []).join(" ");
+		storeUnsaved(null);
 		saveState.value = "saved";
 	} catch (e) {
-		saveError.value = errText(e) || "Could not save.";
+		saveError.value = serverMessage(e);
 		saveState.value = "error";
+		storeUnsaved(JSON.stringify(currentIr()));
 	} finally {
 		autosaveInFlight = false;
 		if (autosaveQueued) { autosaveQueued = false; scheduleAutosave(); }
 	}
+}
+
+function unsavedKey() {
+	return `docu-unsaved:${dtName.value.trim()}`;
+}
+const STORAGE_REFUSED = "This browser does not allow Docu to keep an unsaved design.";
+function storeUnsaved(design) {
+	try {
+		if (design) localStorage.setItem(unsavedKey(), design);
+		else localStorage.removeItem(unsavedKey());
+	} catch (e) {
+		saveNotes.value = STORAGE_REFUSED;
+	}
+}
+function readUnsaved() {
+	try {
+		return localStorage.getItem(unsavedKey());
+	} catch (e) {
+		saveNotes.value = STORAGE_REFUSED;
+		return null;
+	}
+}
+function restoreUnsavedDesign() {
+	loadIr(JSON.parse(unsavedDesign.value));
+	unsavedDesign.value = "";
 }
 
 // ── Undo / redo (#12) ──────────────────────────────────────────────────
@@ -1276,6 +1317,8 @@ onMounted(async () => {
 		// view. The greeting comes from the docu_agent configuration
 		// (WI-001996); the change-focused line rides as host context.
 		await loadSchema(props.doctype);
+		const stored = readUnsaved();
+		if (stored && stored !== JSON.stringify(currentIr())) unsavedDesign.value = stored;
 	}
 
 	// Undo/redo: seed the baseline snapshot, then record on every edit.
