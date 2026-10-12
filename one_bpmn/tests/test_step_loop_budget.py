@@ -7,8 +7,8 @@ import asyncio
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor.step_loop import run_agent_loop
-from one_bpmn.agents.llm_provider.base import StepResult, StepToolCall, ToolSpec
+from one_bpmn.agents.executor.step_loop import _budget_note, run_agent_loop
+from one_bpmn.agents.llm_provider.base import StepResult, StepToolCall, ToolSpec, TurnRecord
 
 
 def _tool(name):
@@ -68,6 +68,11 @@ class TestStepLoopBudget(FrappeTestCase):
 		_run(adapter, max_turns=4)
 		self.assertTrue(adapter.seen[1].rstrip().endswith("edit(s) made.]"))
 		self.assertGreater(adapter.seen[1].index("[Run budget"), adapter.seen[1].index("done"))
+
+	def test_a_resumed_trace_with_dict_tool_calls_is_counted(self):
+		calls = [{"id": "c1", "name": "edit_file", "arguments": {}}, {"id": "c2", "name": "grep_files", "arguments": {}}]
+		note = _budget_note(3, 8, [TurnRecord(role="tool", tool_calls=calls)])
+		self.assertIn("1 edit(s) made", note)
 
 	def test_without_the_flag_the_results_are_untouched(self):
 		adapter = _Calls("grep_files")

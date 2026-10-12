@@ -88,7 +88,9 @@ _BUDGET_WARN_SHARE = 0.75
 def _budget_note(turns_used: int, max_turns: int, trace: list) -> str:
 	"""The turn count and edits made so far, and from the warn share onward an instruction to wrap up."""
 	left = max_turns - turns_used
-	edits = sum(1 for turn in trace for call in turn.tool_calls if call.name in _EDIT_TOOLS)
+	# A resumed trace holds its tool calls as dicts.
+	names = (call["name"] if isinstance(call, dict) else call.name for turn in trace for call in turn.tool_calls)
+	edits = sum(1 for name in names if name in _EDIT_TOOLS)
 	note = f"[Run budget: turn {turns_used} of {max_turns}, {left} left, {edits} edit(s) made.]"
 	if left <= 1:
 		return note + " This is your last turn: search no more, save your work and report, or hand the item back with what you found."
