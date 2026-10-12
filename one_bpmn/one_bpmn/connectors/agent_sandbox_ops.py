@@ -440,9 +440,18 @@ _REPRODUCE_MESSAGE = (
 	"Reproduce the bug first: write or edit a test that fails because of it, "
 	"call run_tests and confirm it actually fails, then make this change."
 )
+_BATCH_HINT = (
+	"When you already know several changes, make them together in one apply_edits call "
+	"(up to 20 replacements, one commit) instead of one edit_file call each."
+)
 _NOT_REPRODUCIBLE_WAY_OUT = (
 	" If you cannot make a test fail for this bug, call report_not_reproducible with what you tried instead of editing."
 )
+
+
+def _with_batch_hint(action: str, data: dict) -> dict:
+	"""A changed edit_file result tells the model to batch the changes it already knows of."""
+	return {**data, "hint": _BATCH_HINT} if action == "edit_file" and data.get("edited") else data
 
 
 def _with_way_out(instance, message: str) -> str:
@@ -762,7 +771,7 @@ def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_de
 				}),
 				update_modified=False,
 			)
-		return {"ok": True, "response": data}
+		return {"ok": True, "response": _with_batch_hint(action, data)}
 	except Exception as exc:
 		frappe.log_error(title=f"Dev Agent Sandbox: {action} call failed", message=frappe.get_traceback())
 		error = f"The sandbox rejected the call: {exc}"
@@ -795,7 +804,7 @@ def _tool_call_in_session(run, payload: dict) -> dict:
 			_finished({"state": "completed", "result": frappe.as_json(data), "http_ms": _elapsed_ms(began), **timing_fields(timings)}),
 			update_modified=False,
 		)
-	return {"ok": True, "response": data}
+	return {"ok": True, "response": _with_batch_hint(payload["action"], data)}
 
 
 def _slow_action_in_session(run, action: str, payload: dict, args: dict) -> None:

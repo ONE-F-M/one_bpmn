@@ -2,6 +2,8 @@
 
 import frappe
 
+from one_bpmn.one_bpmn.patches.v1_0.prompt_block import with_block
+
 AGENTS = ("Dev Agent", "Frontend Agent", "Mobile App Agent", "Bug Programmer")
 
 RULES = """\
@@ -12,6 +14,7 @@ Working within your turns:
 - If a search finds nothing useful, do not reword the same pattern. Read the most likely file with read_files.
 - Make your first edit before a third of your turns are gone. An edit you can test is worth more than another search.
 - After each edit, run the test that covers it with run_tests before you search again.
+- When a test fails, read the whole error and list every fix it shows before you edit. Apply them together.
 - When the budget line tells you to wrap up, run the tests, open the pull request with what you have, and say in your report what is unfinished.
 """
 
@@ -25,9 +28,7 @@ def execute():
 		if not frappe.db.exists("AI Agent Configuration", name):
 			continue
 		doc = frappe.get_doc("AI Agent Configuration", name)
-		# The block is the tail of the prompt, so a reworded rule replaces it instead of stacking.
-		head = (doc.system_prompt or "").split(marker())[0].rstrip()
-		prompt = head + "\n\n" + RULES.strip() + "\n"
+		prompt = with_block(doc.system_prompt, RULES)
 		if prompt != doc.system_prompt:
 			doc.system_prompt = prompt
 			doc.save(ignore_permissions=True)

@@ -2,6 +2,8 @@
 
 import frappe
 
+from one_bpmn.one_bpmn.patches.v1_0.prompt_block import with_block
+
 RULES = {
 	"Frontend Agent": """\
 Searching and reading efficiently (front end):
@@ -29,9 +31,7 @@ def execute():
 		if not frappe.db.exists("AI Agent Configuration", agent):
 			continue
 		doc = frappe.get_doc("AI Agent Configuration", agent)
-		# The block is the tail of the prompt, so a reworded rule replaces it instead of stacking.
-		head = (doc.system_prompt or "").split(marker(agent))[0].rstrip()
-		prompt = head + "\n\n" + rules.strip() + "\n"
+		prompt = with_block(doc.system_prompt, rules)
 		if prompt != doc.system_prompt:
 			doc.system_prompt = prompt
 			doc.save(ignore_permissions=True)

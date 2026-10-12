@@ -32,6 +32,7 @@ class TestCodingAgentsWorkWithinTheirTurnsPatch(FrappeTestCase):
 			self.assertTrue(prompt.startswith("Do the job.\n\nBatched tools:\n- a rule"), name)
 			self.assertEqual(prompt.count(patch.marker()), 1, name)
 			self.assertIn("run budget line", prompt)
+			self.assertIn("list every fix it shows", prompt)
 
 	def test_a_reworded_block_is_replaced_not_stacked(self):
 		name = self.present[0]

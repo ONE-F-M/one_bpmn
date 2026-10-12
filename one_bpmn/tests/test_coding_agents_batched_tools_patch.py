@@ -35,6 +35,7 @@ class TestCodingAgentsBatchedToolsPatch(FrappeTestCase):
 			self.assertEqual(config.system_prompt.count(patch.marker()), 1, name)
 			self.assertIn("read_files", config.system_prompt)
 			self.assertIn("submit_evidence", config.system_prompt)
+			self.assertIn("Two edit_file calls in a row", config.system_prompt)
 			self.assertEqual(config.max_tool_calls, patch.MAX_TOOL_CALLS, name)
 			self.assertEqual(frappe.db.get_value("AI Agent Configuration", name, "max_retries"), patch.MODEL_RETRIES, name)
 

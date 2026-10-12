@@ -2,6 +2,8 @@
 
 import frappe
 
+from one_bpmn.one_bpmn.patches.v1_0.prompt_block import with_block
+
 from one_bpmn.one_bpmn.patches.v1_0.sandbox_tools_for_several_files_at_once import HEADER, NEEDS_BRIEF
 
 TOOL = "Sandbox Tool: Report Not Reproducible"
@@ -57,8 +59,7 @@ def execute():
 		if not frappe.db.exists("AI Agent Configuration", name):
 			continue
 		doc = frappe.get_doc("AI Agent Configuration", name)
-		# The block is the tail of the prompt, so a reworded rule replaces it instead of stacking.
-		prompt = (doc.system_prompt or "").split(marker())[0].rstrip() + "\n\n" + RULES[name].strip() + "\n"
+		prompt = with_block(doc.system_prompt, RULES[name])
 		changed = prompt != doc.system_prompt
 		doc.system_prompt = prompt
 		if name in HELD and not doc.require_reproduction:
