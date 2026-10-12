@@ -236,6 +236,8 @@
 				</ul>
 			</div>
 
+			<ScriptNamesHint class="mx-3 my-2" />
+
 			<!-- Code area with syntax highlighting -->
 			<div class="lc-code-area">
 				<CodeMirrorEditor
@@ -316,6 +318,7 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, watch } from "vue";
 import CodeMirrorEditor from "./CodeMirrorEditor.vue";
+import ScriptNamesHint from "./ScriptNamesHint.vue";
 import { frappeRequest } from "frappe-ui";
 // WI-001677: the chat half is the shared AgentChatPanel; script changes
 // arrive as onefm.script_diff cards and apply into the editor below,

@@ -13,11 +13,10 @@ Prompt rendering (Jinja) is performed by the dispatcher BEFORE calling run().
 from __future__ import annotations
 
 import asyncio
-import json
-import re
+import dataclasses
 import random
 import time
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar
 
 import frappe
 from frappe import _
@@ -32,6 +31,7 @@ from . import (
     TokenUsage,
     register_executor,
 )
+from one_bpmn.agents.llm_provider import structured_output
 
 
 def _run_coro_blocking(coro):
@@ -64,63 +64,17 @@ def _run_coro_blocking(coro):
         return pool.submit(ctx.run, asyncio.run, coro).result()
 
 
-def _strip_code_fences(content: str) -> str:
-    """
-    Remove a surrounding Markdown code fence from *content*, if present.
-
-    Models (notably Anthropic) frequently wrap JSON responses in ```json …```
-    fences even when asked for raw JSON. This strips an opening fence line
-    (``` or ```json) and a trailing ``` so the inner payload can be parsed.
-    Content without fences is returned stripped but otherwise unchanged.
-    """
-    text = (content or "").strip()
-    if text.startswith("```"):
-        newline = text.find("\n")
-        if newline != -1:
-            text = text[newline + 1:]
-        else:
-            text = text[3:]
-        if text.rstrip().endswith("```"):
-            text = text.rstrip()[:-3]
-    return text.strip()
-
-
-def _extract_json_object(text: str) -> Optional[dict]:
-    """
-    Best-effort recovery of a JSON object embedded in surrounding prose.
-
-    Models sometimes preface the requested JSON with commentary ("Sure!
-    Here is the decision: {...}") despite JSON-only instructions. Scan for
-    the first parseable object literal and return it, or None.
-    """
-    decoder = json.JSONDecoder()
-    idx = text.find("{")
-    while idx != -1:
-        try:
-            obj, _ = decoder.raw_decode(text, idx)
-        except json.JSONDecodeError:
-            idx = text.find("{", idx + 1)
-            continue
-        if isinstance(obj, dict):
-            return obj
-        idx = text.find("{", idx + 1)
-    return None
+_strip_code_fences = structured_output.strip_code_fences
+_extract_json_object = structured_output.extract_json_object
 
 
 _TRANSIENT_STATUS_CODES = frozenset({429, 500, 502, 503})
 
 
 
-# Anthropic 5-series ids: claude-sonnet-5, claude-opus-5, claude-haiku-5 and
-# their dated variants. Deliberately anchored on "-<tier>-5" so it does NOT
-# catch claude-sonnet-4-5 or claude-haiku-4-5, which still accept sampling
-# params — verified against the live API.
-_NO_SAMPLING_PARAMS = re.compile(r"-(?:sonnet|opus|haiku)-5(?:$|[^0-9])")
-
-
-def _rejects_sampling_params(model: str) -> bool:
-    """True for models whose API refuses temperature / top_p."""
-    return bool(_NO_SAMPLING_PARAMS.search((model or "").lower()))
+def _supports_temperature(model_name: str) -> bool:
+    """True when the AI Model record says the model accepts temperature and top_p."""
+    return bool(model_name and frappe.db.get_value("AI Model", model_name, "support_temperature"))
 
 
 class DirectApiExecutor(Executor):
@@ -206,11 +160,31 @@ class DirectApiExecutor(Executor):
         # catalog name agents pick.
         model = frappe.db.get_value("AI Model", model_name, "model_api_name") or model_name
 
+        schema = None
+        native = False
+        if config.response_format == "json" and config.response_schema:
+            try:
+                schema = structured_output.normalize_response_schema(config.response_schema)
+            except ValueError as exc:
+                return ExecutorResult(
+                    error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
+                    error_message=f"Response schema is not valid: {exc}",
+                )
+            # Gemini cannot pair responseSchema with function calling, so it gets the prompt fallback.
+            native = bool(frappe.db.get_value("AI Model", model_name, "support_structured_output")) and not (
+                config.tools and provider_type == "Google"
+            )
+            config = dataclasses.replace(
+                config,
+                system_prompt=structured_output.system_prompt_with_format(config.system_prompt, schema, native),
+            )
+        native_schema = structured_output.provider_schema(schema) if native else None
+
         # WI-001356: with tools present, delegate to the matching
         # agents/llm_provider adapter's multi-turn tool-calling loop. With
         # tools=None (the default) the raw HTTP path below is untouched.
         if config.tools:
-            return self._run_with_tools(config, provider_type, api_key, model)
+            return self._run_with_tools(config, provider_type, api_key, model, schema, native_schema)
 
         if provider_type == "Anthropic":
             url, payload, headers = self._build_anthropic_request(
@@ -222,13 +196,19 @@ class DirectApiExecutor(Executor):
                 endpoint, api_key, model, config, provider_type,
             )
             parse_fn = self._parse_openai_response
+        if native_schema and provider_type == "Anthropic":
+            payload["output_config"] = structured_output.anthropic_output_config(native_schema)
+        elif native_schema:
+            payload["response_format"] = structured_output.openai_response_format(native_schema)
 
         import requests
 
         attempts = []
         last_error_result = None
+        attempt = 0
+        corrected = False
 
-        for attempt in range(config.max_retries + 1):
+        while True:
             attempt_start = time.time()
             error_result = None
             content = None
@@ -290,17 +270,37 @@ class DirectApiExecutor(Executor):
 
             # ── JSON schema validation ────────────────────────────
             if error_result is None and config.response_format == "json":
-                validation_result = self._validate_json(content, config.response_schema)
-                if isinstance(validation_result, ExecutorResult):
-                    error_result = validation_result
-                else:
+                try:
+                    parsed = structured_output.read_json_reply(
+                        content, schema, self._stop_reason(provider_type, data)
+                    )
+                except structured_output.ReplyRejected as exc:
+                    if exc.retry and not corrected:
+                        corrected = True
+                        attempts.append(AttemptRecord(
+                            attempt_index=attempt,
+                            content=content or "",
+                            error_code=ErrorCode.SCHEMA_VALIDATION_FAILED.value,
+                            error_message=str(exc),
+                            token_usage=token_usage,
+                            latency_ms=int((time.time() - attempt_start) * 1000),
+                        ))
+                        payload = self._with_correction(payload, content, str(exc))
+                        continue
                     return ExecutorResult(
-                        output=validation_result,
+                        error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
+                        error_message=f"The reply is not the declared JSON: {exc}",
                         token_usage=token_usage,
-                        error_code=ErrorCode.SUCCESS,
                         raw=data,
                         attempts=list(attempts),
                     )
+                return ExecutorResult(
+                    output=parsed,
+                    token_usage=token_usage,
+                    error_code=ErrorCode.SUCCESS,
+                    raw=data,
+                    attempts=list(attempts),
+                )
 
             # ── Success (text format) ─────────────────────────────
             if error_result is None:
@@ -324,8 +324,10 @@ class DirectApiExecutor(Executor):
             ))
             last_error_result = error_result
 
-            if attempt < config.max_retries:
-                self._sleep_backoff(config, attempt)
+            if attempt >= config.max_retries:
+                break
+            self._sleep_backoff(config, attempt)
+            attempt += 1
 
         # All retries exhausted
         last_error_result.attempts = list(attempts)
@@ -356,7 +358,8 @@ class DirectApiExecutor(Executor):
     }
 
     def _run_with_tools(
-        self, config: ExecutorConfig, provider_type: str, api_key: str, model: str
+        self, config: ExecutorConfig, provider_type: str, api_key: str, model: str,
+        schema: dict | None = None, native_schema: dict | None = None,
     ) -> ExecutorResult:
         """
         Tool-enabled execution path. Since the Durable AI Agent HITL work the
@@ -405,6 +408,24 @@ class DirectApiExecutor(Executor):
                     retry_backoff_ms=config.retry_backoff_ms,
                     tool_result_max_chars=config.tool_result_max_chars,
                     terminal_tools=config.terminal_tools,
+                    tool_choice=config.tool_choice,
+                    parallel_tool_calls=config.parallel_tool_calls,
+                    thinking_budget_tokens=config.thinking_budget_tokens,
+                    history=config.messages,
+                    loop_compaction={
+                        "threshold": config.loop_compaction_threshold,
+                        "keep_turns": config.loop_compaction_keep_turns,
+                        "model": config.compaction_model or None,
+                        "agent_model": config.model,
+                        "provider": config.provider_name,
+                    } if config.loop_compaction_threshold else None,
+                    response_schema=native_schema,
+                    check_reply=self._json_reply_check(schema) if config.response_format == "json" else None,
+                    budget_check=self._budget_check(config),
+                    **(
+                        {"temperature": config.temperature, "top_p": config.top_p}
+                        if _supports_temperature(config.model) else {}
+                    ),
                 )
             )
         except asyncio.TimeoutError:
@@ -444,6 +465,27 @@ class DirectApiExecutor(Executor):
         )
         trace = [asdict(turn) for turn in completion.trace]
 
+        if completion.budget_exceeded:
+            last_tool = next(
+                (call["name"] for turn in reversed(trace) for call in reversed(turn.get("tool_calls") or [])), "none"
+            )
+            return ExecutorResult(
+                no_terminal_tool=True,
+                error_code=ErrorCode.BUDGET_EXCEEDED,
+                error_message=f"{completion.budget_exceeded}. Last tool called: {last_tool}.",
+                token_usage=token_usage,
+                trace=trace,
+            )
+
+        if completion.repeated_tool_error:
+            return ExecutorResult(
+                no_terminal_tool=True,
+                error_code=ErrorCode.REPEATED_TOOL_ERROR,
+                error_message=completion.repeated_tool_error,
+                token_usage=token_usage,
+                trace=trace,
+            )
+
         if completion.hit_turn_cap:
             # Partial progress is not lost: the trace collected so far ships
             # with the error result.
@@ -471,7 +513,7 @@ class DirectApiExecutor(Executor):
         # does: a "json" agent must yield a parsed (schema-valid) object, not
         # the raw final text — downstream gateways route on its keys.
         if config.response_format == "json":
-            validation_result = self._validate_json(completion.text, config.response_schema)
+            validation_result = self._validate_json(completion.text, schema)
             if isinstance(validation_result, ExecutorResult):
                 validation_result.token_usage = token_usage
                 validation_result.trace = trace
@@ -536,9 +578,12 @@ class DirectApiExecutor(Executor):
 
         if provider_type == "OpenAI":
             # Native OpenAI: use max_completion_tokens (required by newer
-            # models like o1, o3, gpt-5.x). Omit temperature/top_p so
-            # reasoning models that only accept default(1) don't error.
+            # models like o1, o3, gpt-5.x). Reasoning models refuse a non-default
+            # temperature, so it is sent only to a model marked as accepting it.
             payload["max_completion_tokens"] = config.max_tokens
+            if _supports_temperature(config.model):
+                payload["temperature"] = config.temperature
+                payload["top_p"] = config.top_p
         else:
             # OpenAI-compatible third-party providers (DeepSeek, etc.):
             # use the older max_tokens param and send sampling parameters.
@@ -604,15 +649,9 @@ class DirectApiExecutor(Executor):
                 "cache_control": {"type": "ephemeral"},
             }]
 
-        # Anthropic does not allow both temperature and top_p simultaneously.
-        # Send temperature by default; only send top_p if it was explicitly
-        # changed from the default (1.0).
-        #
-        # The 5-series models reject sampling params outright — the API answers
-        # 400 "`temperature` is deprecated for this model" — so they get neither.
-        # Sending one anyway does not degrade the call, it fails it, which shows
-        # up as an empty AI task output or an eval assertion that never scored.
-        if not _rejects_sampling_params(config.model):
+        # Anthropic refuses temperature and top_p together, so top_p goes only when changed from 1.0.
+        # A model without support_temperature answers 400 to either, so it gets neither.
+        if _supports_temperature(config.model):
             if config.top_p < 1.0:
                 payload["top_p"] = config.top_p
             else:
@@ -701,38 +740,70 @@ class DirectApiExecutor(Executor):
         )
 
     @staticmethod
-    def _validate_json(content: str, schema_str: Optional[str]) -> Any:
-        stripped = _strip_code_fences(content)
+    def _validate_json(content: str, schema: dict | None) -> Any:
         try:
-            parsed = json.loads(stripped)
-        except json.JSONDecodeError as exc:
-            # Fallback: pull the object out of surrounding prose before failing.
-            parsed = _extract_json_object(stripped)
-            if parsed is None:
-                return ExecutorResult(
-                    error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
-                    error_message=f"Model returned invalid JSON: {exc}",
-                )
+            return structured_output.read_json_reply(content, schema)
+        except structured_output.ReplyRejected as exc:
+            return ExecutorResult(
+                error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
+                error_message=f"The reply is not the declared JSON: {exc}.",
+            )
 
-        if schema_str:
+    @staticmethod
+    def _json_reply_check(schema: dict | None):
+        """For the tool loop: the correction to send when a final reply is not the declared JSON."""
+
+        def check(text: str) -> str | None:
             try:
-                import jsonschema
-                schema = json.loads(schema_str)
-                jsonschema.validate(parsed, schema)
-            except ImportError:
-                pass
-            except json.JSONDecodeError as exc:
-                return ExecutorResult(
-                    error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
-                    error_message=f"Response schema is not valid JSON: {exc}",
-                )
-            except Exception as exc:
-                return ExecutorResult(
-                    error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
-                    error_message=f"JSON schema validation failed: {exc}",
-                )
+                structured_output.read_json_reply(text, schema)
+            except structured_output.ReplyRejected as exc:
+                return structured_output.retry_note(str(exc)) if exc.retry else None
+            return None
 
-        return parsed
+        return check
 
+    @staticmethod
+    def _budget_check(config: ExecutorConfig):
+        """For the tool loop: why the run has spent its token or cost budget, or "" while it has not."""
+        if not (config.run_token_budget or config.run_cost_budget):
+            return None
+        from one_bpmn.agents.pricing import compute_token_cost
+
+        def check(trace: list) -> str:
+            prompt = sum(t.prompt_tokens for t in trace)
+            completion = sum(t.completion_tokens for t in trace)
+            tokens = prompt + completion
+            if config.run_token_budget and tokens > config.run_token_budget:
+                return f"The run passed its token budget of {config.run_token_budget:,} with {tokens:,} tokens"
+            if config.run_cost_budget:
+                cost = compute_token_cost(
+                    config.model,
+                    prompt_tokens=prompt,
+                    completion_tokens=completion,
+                    cache_read_tokens=sum(t.cache_read_tokens for t in trace),
+                    cache_write_tokens=sum(t.cache_write_tokens for t in trace),
+                )["total_cost"]
+                if cost > config.run_cost_budget:
+                    return f"The run passed its cost budget of ${config.run_cost_budget:.2f} at ${cost:.2f}"
+            return ""
+
+        return check
+
+    @staticmethod
+    def _stop_reason(provider_type: str, data: dict) -> str | None:
+        if provider_type == "Anthropic":
+            return data.get("stop_reason")
+        choices = data.get("choices") or [{}]
+        return choices[0].get("finish_reason")
+
+    @staticmethod
+    def _with_correction(payload: dict, reply: str, error: str) -> dict:
+        """The same request with the rejected reply and the reason it failed appended."""
+        messages = [
+            *payload["messages"],
+            {"role": "assistant", "content": reply or ""},
+            {"role": "user", "content": structured_output.retry_note(error)},
+        ]
+        return {**payload, "messages": messages}
 
 register_executor("direct_api", DirectApiExecutor)

@@ -90,7 +90,12 @@
 				<div v-if="item.ts" class="acp-time" :class="{ 'acp-time--user': item.kind === 'user' }">{{ formatTime(item.ts) }}</div>
 			</template>
 
-			<div v-if="busy" class="acp-thinking">{{ runningToolLabel || (streamingText ? "" : __("Thinking…")) }}</div>
+			<div
+				v-if="busy"
+				class="acp-thinking"
+			>
+				{{ thinkingLabel }}
+			</div>
 			<div v-if="streamingText" class="acp-msg acp-msg--agent" v-html="renderMarkdown(streamingText)" />
 			<div v-if="statusLine" class="acp-status">
 				<span class="acp-dot" :class="{ 'acp-dot--err': status === 'error' }" />{{ statusLine }}
@@ -266,6 +271,8 @@ const streamingRole = ref("assistant");
 // doing instead of sitting on "Thinking…". Cleared when the tool ends and
 // again when the turn does, because a stream can close mid-tool.
 const runningTool = ref("");
+// "Still working on your last message…" from a long turn; shown until the turn's next event.
+const progressNote = ref("");
 // The bubble the last TEXT_MESSAGE_END closed, until the next event says
 // whether it was the reply or notes before a tool call.
 let endedItem = null;
@@ -280,6 +287,9 @@ const feedbackOn = computed(() => surface.value.collect_feedback !== false);
 const runningToolLabel = computed(() =>
 	runningTool.value ? __("Running {0}…").replace("{0}", runningTool.value.replace(/_/g, " ")) : "",
 )
+const thinkingLabel = computed(
+	() => progressNote.value || runningToolLabel.value || (streamingText.value ? "" : __("Thinking…"))
+);
 
 function agentItem(text) {
 	// Both things a finished agent bubble needs: the row id it can be rated by
@@ -650,6 +660,7 @@ async function send(text, extraContext = null, reuseId = null) {
 			streamingMessageId.value = "";
 			streamingRole.value = "assistant";
 			runningTool.value = "";
+			progressNote.value = "";
 			busy.value = false;
 			if (status.value !== "error") status.value = "done";
 			activeStream = null;
@@ -680,6 +691,7 @@ function handleEvent(event) {
 		streamingRole.value = event.role || "assistant";
 	} else if (type === "TEXT_MESSAGE_CONTENT") {
 		endedItem = null;
+		progressNote.value = "";
 		streamingText.value += event.delta || "";
 		if (!streamingMessageId.value) {
 			streamingMessageId.value = event.messageId || event.message_id || "";
@@ -705,8 +717,10 @@ function handleEvent(event) {
 		}
 		endedItem = null;
 		runningTool.value = event.toolCallName || event.tool_call_name || "";
+		progressNote.value = "";
 	} else if (type === "TOOL_CALL_END") {
 		runningTool.value = "";
+		progressNote.value = "";
 	} else if (type === "CUSTOM") {
 		handleCustom(event.name || "", event.value || {});
 	}
@@ -719,6 +733,10 @@ function handleCustom(name, value) {
 	// agent on the open shape). Emitted before transcript handling so a host
 	// reaction can never depend on how (or whether) the event renders.
 	emit("agent-event", { name, value });
+	if (name === "onefm.turn_progress") {
+		progressNote.value = value.text || "";
+		return;
+	}
 	// flush any streamed text so events land after the words they follow
 	if (streamingText.value) {
 		items.value.push(agentItem(streamingText.value));
@@ -1014,7 +1032,12 @@ defineExpose({ send, conversationName });
    the agent talking, so it is visually distinct from both bubble kinds. */
 .acp-msg--system { align-self: center; background: var(--sg2); color: var(--ig6); font-size: 12px;
 	font-style: italic; border: none; }
-.acp-msg--agent :deep(p) { margin: 0 0 6px; } .acp-msg--agent :deep(p:last-child) { margin: 0; }
+.acp-msg--agent :deep(p) { margin: 0 0 8px; } .acp-msg--agent :deep(p:last-child) { margin: 0; }
+/* The global reset strips list bullets and spacing, which runs a list into the paragraph after it. */
+.acp-msg--agent :deep(ul), .acp-msg--agent :deep(ol) { margin: 0 0 8px; padding-left: 18px; }
+.acp-msg--agent :deep(ul) { list-style: disc; } .acp-msg--agent :deep(ol) { list-style: decimal; }
+.acp-msg--agent :deep(li) { margin: 2px 0; } .acp-msg--agent :deep(li > p) { margin: 0; }
+.acp-msg--agent :deep(ul:last-child), .acp-msg--agent :deep(ol:last-child) { margin-bottom: 0; }
 .acp-msg--agent :deep(pre) { background: var(--sg2); border-radius: 8px; padding: 8px; overflow-x: auto; }
 .acp-msg--agent :deep(table) { border-collapse: collapse; }
 .acp-msg--agent :deep(td), .acp-msg--agent :deep(th) { border: 1px solid var(--og2); padding: 3px 8px; }

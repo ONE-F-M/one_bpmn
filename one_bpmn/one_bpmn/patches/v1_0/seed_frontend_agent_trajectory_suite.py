@@ -144,11 +144,11 @@ CASES = [
 		"title": "hook_entry is called when a desk JS script is registered",
 		"payload": {
 			"instruction": (
-				"Add a Frappe desk Client Script equivalent as a doctype-folder JS file for the "
-				"Sprint doctype (frappe_agile) that sets the sprint_goal field's placeholder text to "
-				"'What should this sprint achieve?' when the form loads."
+				"In frappe_agile, add a desk form script for Frappe's own ToDo doctype that sets the "
+				"description field's placeholder text to 'What needs doing?' when the form loads. "
+				"ToDo is not a frappe_agile doctype, so the script has to be registered in hooks.py."
 			),
-			"work_item": "Add a placeholder hint to Sprint's sprint_goal field",
+			"work_item": "Add a placeholder hint to the ToDo description field",
 			"target_app": "frappe_agile",
 			"git_branch": "staging",
 		},
@@ -182,10 +182,10 @@ CASES = [
 		"title": "read_file is called before edit_file for the file being changed",
 		"payload": {
 			"instruction": (
-				"On the Performance tab in Insights, change the p95 latency stat tile's label from "
-				"'p95 Latency' to 'P95 Latency (ms)' so the unit is explicit."
+				"On the Performance tab in Insights, change the latency chart's caption from "
+				"'Latency Trend (p50 / p95)' to 'Response Time Trend (p50 / p95)'."
 			),
-			"work_item": "Clarify the p95 latency tile's unit on the Performance tab",
+			"work_item": "Rename the latency chart caption on the Performance tab",
 			"target_app": "one_bpmn",
 			"git_branch": "staging",
 		},

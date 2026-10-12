@@ -345,6 +345,65 @@ def create_eval_case_from_run(
 	return case.name
 
 
+EXAMPLE_RESULT_CHARS = 300
+
+
+@frappe.whitelist(methods=["POST"])
+def create_example_from_run(run_name: str) -> dict:
+	"""Add a disabled AI Agent Example to the run's agent: its user message, tool calls in order, and final output."""
+	_assert_may_read_run(run_name)
+	run = frappe.get_doc("AI Agent Run", run_name)
+	if run.status != "Success":
+		frappe.throw(_("Only a successful run can become an example."))
+	if not run.agent_configuration:
+		frappe.throw(_("This run has no agent configuration to add an example to."))
+	config = frappe.get_doc("AI Agent Configuration", run.agent_configuration)
+	config.check_permission("write")
+
+	steps = frappe.get_all(
+		"AI Agent Step",
+		filters={"run": run_name},
+		fields=["name", "role", "content"],
+		order_by="step_index asc",
+	)
+	user_message = next((s.content for s in steps if s.role == "user"), "") or ""
+	if not user_message.strip():
+		frappe.throw(_("This run has no user message to use as the example's input."))
+
+	trajectory = _run_trajectory(steps)
+	config.append(
+		"examples",
+		{
+			"input": user_message,
+			"trajectory": json.dumps(trajectory) if trajectory else None,
+			"expected_output": run.final_output or "",
+			"enabled": 0,
+		},
+	)
+	config.save()
+	return {"configuration": config.name, "example": config.examples[-1].name}
+
+
+def _run_trajectory(steps) -> list:
+	"""The run's tool calls in step order, each result cut to EXAMPLE_RESULT_CHARS."""
+	order = {s.name: i for i, s in enumerate(steps)}
+	calls = frappe.get_all(
+		"AI Agent Tool Call",
+		filters={"parenttype": "AI Agent Step", "parent": ["in", list(order)]},
+		fields=["parent", "idx", "tool_name", "tool_args", "tool_result"],
+	)
+	calls.sort(key=lambda c: (order[c.parent], c.idx))
+	trajectory = []
+	for call in calls:
+		result = call.tool_result or ""
+		if len(result) > EXAMPLE_RESULT_CHARS:
+			result = result[:EXAMPLE_RESULT_CHARS] + "..."
+		trajectory.append(
+			{"tool": call.tool_name, "args": frappe.parse_json(call.tool_args) if call.tool_args else {}, "result": result}
+		)
+	return trajectory
+
+
 @frappe.whitelist()
 def list_runs_for_case_picker(suite: str, limit: int = 40) -> list:
 	"""Runs the suite's agent has produced, newest first, for the "From run" picker.

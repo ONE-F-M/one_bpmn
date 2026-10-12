@@ -29,6 +29,8 @@ so treat it as part of the contract rather than an implementation detail.
 
 from __future__ import annotations
 
+import json
+
 # Section headers are part of the rendered prompt and appear in AI Agent Run
 # transcripts and eval fixtures. Changing them changes every agent's system
 # prompt — do not edit them casually.
@@ -74,6 +76,12 @@ def _render_examples(rows) -> str:
 		if not text:
 			continue
 		lines = [f"### Example {i}", "Input:", text]
+		context = str(get("context_summary", "") or "").strip()
+		if context:
+			lines.append(f"Context: {context}")
+		calls = _trajectory_lines(get("trajectory", None))
+		if calls:
+			lines += ["Tool calls:", *calls]
 		output = str(get("expected_output", "") or "").strip()
 		if output:
 			lines += ["Expected output:", output]
@@ -84,6 +92,21 @@ def _render_examples(rows) -> str:
 	if not blocks:
 		return ""
 	return EXAMPLES_HEADER + "\n\n" + _SECTION_GAP.join(blocks)
+
+
+def _trajectory_lines(trajectory) -> list[str]:
+	"""Each recorded tool call as "-> tool(args) => result", with sorted keys so the prompt stays byte-stable."""
+	if isinstance(trajectory, str):
+		trajectory = json.loads(trajectory) if trajectory.strip() else []
+	lines = []
+	for call in trajectory or []:
+		args = json.dumps(call.get("args") or {}, sort_keys=True, ensure_ascii=False)
+		line = f"-> {call.get('tool', '')}({args})"
+		result = str(call.get("result") or "").strip()
+		if result:
+			line += f" => {result}"
+		lines.append(line)
+	return lines
 
 
 

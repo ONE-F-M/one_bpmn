@@ -236,12 +236,25 @@ def validate_doctype_ir(ir: dict, existing_fieldnames: set | None = None) -> dic
 		violations.append("The DocType has only layout breaks and no real data fields.")
 
 	violations.extend(_permission_violations(ir.get("permissions")))
+	violations.extend(_autoname_violations(ir.get("autoname")))
 
 	return {
 		"valid": not violations,
 		"violations": violations,
 		"fix_hints": [] if not violations else [_FIX_HINT],
 	}
+
+
+def _autoname_violations(autoname) -> list:
+	"""A format: rule fills only its braces, so a counter outside them names every record the same."""
+	if not isinstance(autoname, str) or not autoname.startswith("format:"):
+		return []
+	if "#" not in re.sub(r"\{[^}]*\}", "", autoname):
+		return []
+	return [
+		f"Naming rule '{autoname}' has its counter outside braces, so every record gets the same name. "
+		"Use 'format:PREFIX-{#####}', or the naming series 'PREFIX-.#####' without 'format:'."
+	]
 
 
 _MAX_PERMISSIONS = 40

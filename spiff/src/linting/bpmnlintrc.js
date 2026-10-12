@@ -43,6 +43,7 @@ import superfluousTermination from "bpmnlint/rules/superfluous-termination";
 import noProhibitedShapes from "@/linting/rules/no-prohibited-shapes.js";
 import callActivityMissingProcess from "@/linting/rules/call-activity-missing-process.js";
 import noCrossingEdges from "@/linting/rules/no-crossing-edges.js";
+import exemptToolCatalogues from "@/linting/rules/tool-catalogue.js";
 
 /**
  * Map rule names → rule factory functions.
@@ -60,12 +61,12 @@ const ruleMapping = {
 	"bpmnlint/link-event": linkEvent,
 	"bpmnlint/no-bpmndi": noBpmndi,
 	"bpmnlint/no-complex-gateway": noComplexGateway,
-	"bpmnlint/no-disconnected": noDisconnected,
+	"bpmnlint/no-disconnected": exemptToolCatalogues(noDisconnected),
 	"bpmnlint/no-duplicate-sequence-flows": noDuplicateSequenceFlows,
 	"bpmnlint/no-gateway-join-fork": noGatewayJoinFork,
-	"bpmnlint/no-implicit-end": noImplicitEnd,
+	"bpmnlint/no-implicit-end": exemptToolCatalogues(noImplicitEnd),
 	"bpmnlint/no-implicit-split": noImplicitSplit,
-	"bpmnlint/no-implicit-start": noImplicitStart,
+	"bpmnlint/no-implicit-start": exemptToolCatalogues(noImplicitStart),
 	"bpmnlint/no-inclusive-gateway": noInclusiveGateway,
 	"bpmnlint/no-overlapping-elements": noOverlappingElements,
 	"bpmnlint/single-blank-start-event": singleBlankStartEvent,

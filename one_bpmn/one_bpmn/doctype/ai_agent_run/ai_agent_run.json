@@ -27,6 +27,7 @@
   "retry_count",
   "max_retries",
   "section_break_timing",
+  "queue_wait_ms",
   "started_at",
   "ended_at",
   "duration_ms",
@@ -214,6 +215,12 @@
    "label": "Timing"
   },
   {
+   "description": "Time the first background job of this run waited in the queue before it started.",
+   "fieldname": "queue_wait_ms",
+   "fieldtype": "Int",
+   "label": "Queue Wait (ms)"
+  },
+  {
    "fieldname": "started_at",
    "fieldtype": "Datetime",
    "in_list_view": 1,
@@ -232,7 +239,7 @@
    "label": "Duration (ms)"
   },
   {
-   "description": "Time the AGENT actually spent working: the sum of every step's latency (provider round-trips plus inline tool execution). Excludes time parked waiting for a human, so unlike Duration this is comparable across runs and is the figure to use for A/B experiments.",
+   "description": "Time the AGENT actually spent working: the sum of every step's latency (provider round-trips plus inline tool execution), leaving out model calls made inside a tool, which the turn that ran the tool already contains. Excludes time parked waiting for a human, so unlike Duration this is comparable across runs and is the figure to use for A/B experiments.",
    "fieldname": "agent_latency_ms",
    "fieldtype": "Int",
    "label": "Agent Latency (ms)"
@@ -422,7 +429,7 @@
   ]
  ],
  "links": [],
- "modified": "2026-08-04 12:00:00.000000",
+ "modified": "2026-10-04 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Agent Run",

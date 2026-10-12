@@ -12,7 +12,7 @@ import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { frappeGet, frappePost } from "../shared/frappeResource";
-import { getAttr, setAttr, LinkedPromptEntry } from "../shared/agentAttrs";
+import { getAttr, setAttr, LinkedPromptEntry, DriftMarkers } from "../shared/agentAttrs";
 
 // Human-readable labels for the executor backend stored in spiffworkflow:aiBackend.
 const BACKEND_LABELS = {
@@ -40,6 +40,11 @@ export function AiAgentProps(props) {
 			id: "spiffworkflow-aiAgentConfig",
 			element,
 			component: AgentConfigComponent,
+		},
+		{
+			id: "spiffworkflow-aiConfigDrift",
+			element,
+			component: ConfigDriftComponent,
 		},
 		{
 			id: "spiffworkflow-aiProvider",
@@ -283,6 +288,12 @@ function BackendComponent(props) {
 			"How the model request runs: Direct API (a direct HTTP call to the provider) or the Google Antigravity SDK."
 		),
 	});
+}
+
+function ConfigDriftComponent(props) {
+	const { element, id } = props;
+	const translate = useService("translate");
+	return h(DriftMarkers, { id, bo: getBusinessObject(element), translate });
 }
 
 // ---------------------------------------------------------------------------

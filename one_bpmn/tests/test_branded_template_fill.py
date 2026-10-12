@@ -150,6 +150,21 @@ def manual_document(steps=2, extra_merged=0):
 	return {"documentId": DOC_ID, "body": {"content": [table]}}
 
 
+def knowledge_base_document():
+	"""The Knowledge Base template: plain step rows and one empty merged row closing the table."""
+	build = _Builder()
+	table = build.table([
+		["EXPLAIN WHAT THIS KNOWLEDGE BASE IS ABOUT", "", "اشرح محتوى قاعدة المعرفة هذه", ""],
+		["Knowledge Base", "", "قاعدة المعرفة", ""],
+		["1", "Write your article here", "اكتب مقالك هنا", "١"],
+		["2", "", "", "٢"],
+		["", "", "", ""],
+	])
+	for index in (0, 1, 4):
+		_merge(table["table"]["tableRows"][index])
+	return {"documentId": DOC_ID, "body": {"content": [table]}}
+
+
 def _pattern(document):
 	layout = gdocs._find_item_table(document)
 	return "".join("M" if gdocs._is_merged(row) else "S"
@@ -179,10 +194,10 @@ class _FillCase(unittest.TestCase):
 					width = len(gdocs._cells(rows[0]))
 					new_row = {"tableCells": [_Builder().cell("") for _ in range(width)]}
 					# Docs copies the merge of the row the new one is added below.
-					below = rows[request["insertTableRow"]["tableCellLocation"]["rowIndex"]]
-					if gdocs._is_merged(below):
+					at = request["insertTableRow"]["tableCellLocation"]["rowIndex"]
+					if gdocs._is_merged(rows[at]):
 						_merge(new_row)
-					rows.append(new_row)
+					rows.insert(at + 1, new_row)
 					layout["table"]["table"]["rows"] = len(rows)
 				elif ("mergeTableCells" in request or "unmergeTableCells" in request) and layout:
 					key = "mergeTableCells" if "mergeTableCells" in request else "unmergeTableCells"
@@ -392,6 +407,30 @@ class TestTemplatesWithMergedRows(_FillCase):
 		report = self.fill({"items": [{"en": "only", "ar": "فقط"}]}, document=document)
 		self.assertEqual(report["rows_removed"], 4)
 		self.assertEqual(_pattern(document), "SM")
+
+
+class TestATemplateWithAClosingMergedRow(_FillCase):
+	"""With no merged row under a step, a merged row at the end is the table's footer."""
+
+	def test_added_steps_go_above_the_footer(self):
+		document = knowledge_base_document()
+		report = self.fill({"items": [{"en": x, "ar": "أ"} for x in "abcde"]}, document=document)
+		self.assertEqual(report["rows_added"], 3)
+		self.assertEqual(_pattern(document), "SSSSSM")
+		self.assertEqual(report["unmatched"], [])
+
+	def test_a_single_step_keeps_the_footer(self):
+		document = knowledge_base_document()
+		report = self.fill({"items": [{"en": "only", "ar": "فقط"}]}, document=document)
+		self.assertEqual(report["rows_removed"], 1)
+		self.assertEqual(_pattern(document), "SM")
+
+	def test_nothing_is_written_into_the_footer(self):
+		document = knowledge_base_document()
+		self.fill({"items": [{"en": x, "ar": "أ"} for x in "abc"]}, document=document)
+		footer = gdocs._rows(gdocs._find_item_table(document)["table"])[-1]
+		self.assertEqual([gdocs._cell_text(cell) for cell in gdocs._cells(footer)], ["", "", "", ""])
+		self.assertFalse([r for r in self.writes if "mergeTableCells" in r or "unmergeTableCells" in r])
 
 
 class TestRefillingReplacesRatherThanAppends(_FillCase):

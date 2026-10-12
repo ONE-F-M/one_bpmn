@@ -204,10 +204,14 @@ _BPMN_TRIGGER = "one_bpmn.one_bpmn.trigger.on_doc_event"
 _BPMN_GUARD   = "one_bpmn.one_bpmn.trigger.guard_bpmn_document"
 _BPMN_DELETE  = "one_bpmn.one_bpmn.trigger.delete_linked_bpmn_instances"
 
-# Exposes turn_state.get_turn as a Jinja global for aiUserPrompt templates.
+# Copies each AI Agent Configuration's prompt, model, temperature and max tokens onto the map shapes that link it.
+after_migrate = ["one_bpmn.agents.agent_config_resolver.sync_all_shapes_to_configs"]
+
+# Jinja globals for aiUserPrompt templates.
 jinja = {
 	"methods": [
 		"one_bpmn.agents.turn_state.get_turn",
+		"one_bpmn.tools.tool_for_server_scripts.compact_ir",
 	]
 }
 
@@ -305,6 +309,14 @@ scheduler_events = {
 		"*/15 * * * *": [
 			"one_bpmn.tasks.check_ai_model_credentials",
 		],
+		# A lane job that is killed (worker restart, RQ timeout) never gets to
+		# enqueue its own successor or notice it was the last lane home, so a
+		# fanned-out run it belonged to would sit on "Running" forever without
+		# this. Five minutes is the same cadence as the credential check above
+		# and well inside the margin a run's own deadline already carries.
+		"*/5 * * * *": [
+			"one_bpmn.agents.eval_runner.sweep_stale_eval_runs",
+		],
 		"0 * * * *": [
 			"one_bpmn.tasks.close_stale_chat_instances",
 			# WI-002050: chase a question nobody has answered. Hourly rather than
@@ -350,11 +362,8 @@ scheduler_events = {
 
 # Cache keys that survive frappe.clear_cache()
 # --------------------------------------------
-# `docu_turn::*` lived here: Docu's enqueue-and-poll chat kept each running
-# turn's result in a cache entry that a global wipe would destroy mid-turn.
-# WI-001679 deleted that endpoint pair — Docu streams over the shared AG-UI
-# endpoint now, and a stream needs no handle to survive a cache wipe — so
-# nothing in this app requires an exemption any more.
+# The stage tools' per-turn store (agents/turn_state.py) is live state for a running turn.
+persistent_cache_keys = ["ait_turn:*"]
 
 # Request Events
 # ----------------

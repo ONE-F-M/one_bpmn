@@ -163,7 +163,10 @@ class TestSecurityApi(FrappeTestCase):
 		"""So a field added to the doctype later cannot start leaking by default."""
 		name = self._event()
 		out = S.get_event(name)
-		self.assertEqual(set(out) - {"content_stored", "promoted_case"}, set(S.EVENT_FIELDS))
+		self.assertEqual(
+			set(out) - {"content_stored", "promoted_case", "promoted_suite", "new_suite_title"},
+			set(S.EVENT_FIELDS),
+		)
 
 	# ------------------------------------------------------------------
 	# AC 3 — the pack is System-Manager-writable, readable by others
@@ -226,6 +229,15 @@ class TestSecurityApi(FrappeTestCase):
 			again["already_promoted"],
 			"clicking twice must be distinguishable from the first click failing",
 		)
+
+	def test_promote_passes_the_new_suite_choice_through(self):
+		with patch(
+			"one_bpmn.api.security_events.promote_to_eval_case",
+			return_value={"eval_case": "CASE-1", "created": True, "suite": "SUITE-2", "suite_created": True},
+		) as owner:
+			out = S.promote_event("EV-1", new_suite="1")
+		self.assertEqual(owner.call_args.kwargs, {"suite": None, "new_suite": 1})
+		self.assertTrue(out["suite_created"])
 
 	def test_locks_come_back_with_their_release_audit(self):
 		out = S.list_locks()

@@ -257,6 +257,7 @@ CASES = [
 			),
 		],
 		"expected_tool_calls": [{"call_order": 1, "tool_name": "get_pull_request"}],
+		"expected_error": "get_pull_request",
 	},
 	{
 		"key": "quiet_pr",
@@ -603,6 +604,7 @@ def execute():
 		case.bpmn_id = SHAPE
 		case.input_user_prompt = spec["work_item"]["title"]
 		case.input_context = json.dumps({"context_doctype": "Work Item", "context_docname": item})
+		case.expected_error = spec.get("expected_error")
 		case.set("assertions", [])
 		for assertion in spec["assertions"]:
 			case.append("assertions", assertion)

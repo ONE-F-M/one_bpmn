@@ -266,6 +266,37 @@ class TestExecutionAssertions(FrappeTestCase):
 		self.assertIn("ask_story_owner", answer)
 		self.assertEqual(eval_runner._parked_answer({"status": "Success", "checkpoint": run.checkpoint}), "")
 
+	def test_a_repeat_is_scored_on_its_own_calls_only(self):
+		since = frappe.utils.now_datetime()
+		earlier = frappe.utils.add_to_date(since, seconds=-30)
+		for tool, created in (("write_script", earlier), ("clarify", since)):
+			run = frappe.get_doc({
+				"doctype": "AI Agent Run",
+				"bpmn_id": "run_logix_agent",
+				"origin": "eval",
+				"eval_case": "repeat-case",
+				"eval_run": "repeat-run",
+				"status": "Success",
+				"started_at": created,
+			}).insert(ignore_permissions=True, ignore_links=True)
+			frappe.db.set_value("AI Agent Run", run.name, "creation", created, update_modified=False)
+			step = frappe.get_doc({
+				"doctype": "AI Agent Step",
+				"run": run.name,
+				"step_index": 1,
+				"role": "assistant",
+				"content": "",
+			})
+			step.append("tool_calls", {"tool_name": tool, "status": "Success"})
+			step.insert(ignore_permissions=True)
+
+		case = frappe._dict(name="repeat-case")
+		facts = eval_runner._execution_facts(case, "repeat-run", {"tokens": 0}, since=since)
+		self.assertEqual(facts["tool_calls"], ["clarify"])
+		self.assertTrue(
+			_evaluate_assertion(_assertion("no_tool_call", "write_script"), "hi", facts)["passed"]
+		)
+
 	def test_another_cases_tools_are_not_counted(self):
 		case = SimpleNamespace(name="a-case-that-never-ran")
 		self.assertEqual(eval_runner._tool_calls_for(case, "some-run"), [])
