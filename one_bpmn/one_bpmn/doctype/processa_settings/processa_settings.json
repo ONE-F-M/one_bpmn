@@ -6,6 +6,7 @@
  "field_order": [
   "section_break_instance",
   "instance_type",
+  "production_notification_account",
   "section_break_1",
   "connect_to_production",
   "production_url",
@@ -116,6 +117,15 @@
    "fieldtype": "Select",
    "label": "Instance Type",
    "options": "Local\nProduction\nStaging\nBA"
+  },
+  {
+   "depends_on": "eval:doc.instance_type==\"Production\"",
+   "description": "On a Production instance, notifications should send from this account. Import and deploy warn about any notification that sends from another address.",
+   "fieldname": "production_notification_account",
+   "fieldtype": "Link",
+   "label": "Notification Email Account",
+   "mandatory_depends_on": "eval:doc.instance_type==\"Production\"",
+   "options": "Email Account"
   },
   {
    "fieldname": "section_break_1",
@@ -735,7 +745,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-09-13 12:30:00.000000",
+ "modified": "2026-10-12 12:00:00.000000",
  "modified_by": "s.shariff@one-fm.com",
  "module": "ONE BPMN",
  "name": "Processa Settings",

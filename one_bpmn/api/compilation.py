@@ -1983,6 +1983,7 @@ def compile_process_model(model_name: str) -> dict:
 	if user_extensions:
 		spec_data["user_task_extensions"] = user_extensions
 	deploy_warnings.extend(_check_email_settings(service_extensions, user_extensions))
+	deploy_warnings.extend(_check_notification_senders(service_extensions, user_extensions))
 	deploy_warnings.extend(_check_script_tasks_have_a_script(model.bpmn_xml))
 
 	model.serialized_spec = json.dumps(spec_data)
@@ -2511,6 +2512,50 @@ def _email_setting_gaps(service_extensions: dict, user_extensions: dict) -> list
 		if missing:
 			gaps.append((bpmn_id, missing))
 	return gaps
+
+
+def _check_notification_senders(service_extensions: dict, user_extensions: dict) -> list:
+	"""On a Production instance, one warning per notification that does not send from the configured address."""
+	expected, gaps = _notification_sender_gaps(service_extensions, user_extensions)
+	return [
+		{
+			"label": _("Notification sender is not {0}").format(expected),
+			"icon": "mail-warning",
+			"type": "warning",
+			"detail": _("'{0}' sends from {1}. On this Production site notifications should send from {2}.").format(
+				bpmn_id, sender, expected
+			),
+		}
+		for bpmn_id, sender in gaps
+	]
+
+
+def _notification_sender_gaps(service_extensions: dict, user_extensions: dict) -> tuple:
+	"""(expected address, [(bpmn_id, sender)]) for notifications sending from another address; empty off Production."""
+	from one_bpmn.api.editability import get_instance_type
+
+	account = frappe.db.get_single_value("Processa Settings", "production_notification_account")
+	if get_instance_type() != "Production" or not account:
+		return "", []
+	expected = frappe.db.get_value("Email Account", account, "email_id") or ""
+	accounts = [
+		(bpmn_id, cfg.get("emailAccount"))
+		for bpmn_id, cfg in service_extensions.items()
+		if cfg.get("serviceType") == "send_email"
+	]
+	accounts += [
+		(bpmn_id, cfg.get("notifyAssigneeAccount") or cfg.get("emailAccount"))
+		for bpmn_id, cfg in user_extensions.items()
+		if cfg.get("notifyAssignee") == "true"
+	]
+	default_sender = frappe.db.get_value("Email Account", {"default_outgoing": 1}, "email_id")
+	gaps = []
+	for bpmn_id, account in accounts:
+		account = str(account or "").strip()
+		sender = frappe.db.get_value("Email Account", account, "email_id") if account else default_sender
+		if (sender or "").strip().lower() != expected.lower():
+			gaps.append((bpmn_id, sender or account or _("no email account")))
+	return expected, gaps
 
 
 def _email_warning(bpmn_id: str, missing: list) -> dict:
