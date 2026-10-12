@@ -131,7 +131,10 @@
 											class="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono bg-purple-100 text-purple-700"
 											:title="step.toolCalls.map(tc => toolLabel(tc.tool_name)).join(', ')"
 										>🔧 {{ step.toolCalls.map(tc => toolLabel(tc.tool_name)).join(", ").substring(0, 40) }}</span>
-										<span class="text-gray-600 truncate max-w-[150px]">{{ step.content ? step.content.substring(0, 80) : '(empty)' }}</span>
+										<span
+											v-if="step.content || !(step.toolCalls && step.toolCalls.length)"
+											class="text-gray-600 truncate max-w-[150px]"
+										>{{ step.content ? step.content.substring(0, 80) : '(empty)' }}</span>
 									</span>
 									<span class="text-gray-400 text-[10px] whitespace-nowrap">
 									<template v-if="step.prompt_tokens">{{ step.prompt_tokens }}t in<span v-if="step.cost"> · ${{ formatCost(step.cost) }}</span></template>
@@ -143,7 +146,10 @@
 								</span>
 								</button>
 								<div v-if="expandedSteps.has(step.name)" class="border-t border-gray-200 px-2 py-1.5">
-									<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto bg-gray-50 rounded p-2">{{ step.content || '(empty)' }}</pre>
+									<pre
+										v-if="step.content || !(step.toolCalls && step.toolCalls.length)"
+										class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto bg-gray-50 rounded p-2"
+									>{{ step.content || '(empty)' }}</pre>
 									<!-- Tool calls made in this turn (AI Agent Tool Call rows) -->
 									<div
 										v-for="tc in step.toolCalls || []"

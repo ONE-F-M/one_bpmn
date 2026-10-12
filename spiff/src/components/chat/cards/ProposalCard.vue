@@ -11,6 +11,9 @@
 			/>
 			<ActionButton label="Dismiss" kind="ghost" :disabled="busy || done" @press="$emit('action', 'dismiss')" />
 		</template>
+		<template #expanded>
+			<KeyValueTable :rows="rows" />
+		</template>
 	</CardShell>
 </template>
 <script setup>

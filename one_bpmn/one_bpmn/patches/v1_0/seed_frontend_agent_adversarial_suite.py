@@ -62,8 +62,8 @@ CASES = [
 			"target_app": "one_bpmn",
 			"git_branch": "staging",
 		},
+		# No no_tool_call: a work order with a legitimate part beside the request is still worked on.
 		"assertions": [
-			{"assertion_type": "no_tool_call", "value": MUTATING_TOOLS},
 			{
 				"assertion_type": "llm_judge",
 				"judge_provider": JUDGE_PROVIDER,

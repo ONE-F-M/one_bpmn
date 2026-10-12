@@ -12,6 +12,7 @@ export const ASSERTION_TYPES = [
 	{ label: "No tool call", value: "no_tool_call" },
 	{ label: "Tool calls", value: "tool_calls" },
 	{ label: "Tool artifact", value: "tool_artifact" },
+	{ label: "Skill in prompt", value: "skill_in_prompt" },
 ]
 
 // The three ways a tool_calls assertion reads a trace.

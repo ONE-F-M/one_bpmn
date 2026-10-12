@@ -11,10 +11,8 @@ clear message — the bench continues to function for all other task types.
 """
 from __future__ import annotations
 
-import json
 import random
 import time
-from typing import Any, Optional
 
 from . import (
     AttemptRecord,
@@ -26,6 +24,7 @@ from . import (
     TokenUsage,
     register_executor,
 )
+from one_bpmn.agents.llm_provider import structured_output
 
 
 class AntigravityExecutor(Executor):
@@ -49,6 +48,18 @@ class AntigravityExecutor(Executor):
                 ),
             )
 
+        schema = None
+        system_prompt = config.system_prompt
+        if config.response_format == "json" and config.response_schema:
+            try:
+                schema = structured_output.normalize_response_schema(config.response_schema)
+            except ValueError as exc:
+                return ExecutorResult(
+                    error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
+                    error_message=f"Response schema is not valid: {exc}",
+                )
+            system_prompt = structured_output.system_prompt_with_format(system_prompt, schema, native=False)
+
         attempts = []
         last_error_result = None
 
@@ -61,7 +72,7 @@ class AntigravityExecutor(Executor):
             try:
                 agent = _sdk.Agent(
                     model=config.model,
-                    system_prompt=config.system_prompt,
+                    system_prompt=system_prompt,
                 )
                 response = agent.send(config.user_prompt)
                 content = getattr(response, "text", "") or str(response)
@@ -84,16 +95,7 @@ class AntigravityExecutor(Executor):
 
             # ── JSON validation ───────────────────────────────────
             if error_result is None and config.response_format == "json":
-                validation_result = self._validate_json(content, config.response_schema)
-                if isinstance(validation_result, ExecutorResult):
-                    error_result = validation_result
-                else:
-                    return ExecutorResult(
-                        output=validation_result,
-                        token_usage=token_usage,
-                        error_code=ErrorCode.SUCCESS,
-                        attempts=list(attempts),
-                    )
+                return self._json_result(agent, content, schema, token_usage, attempts)
 
             # ── Success (text format) ─────────────────────────────
             if error_result is None:
@@ -130,35 +132,42 @@ class AntigravityExecutor(Executor):
         time.sleep(base_s + jitter)
 
     @staticmethod
-    def _validate_json(content: str, schema_str: Optional[str]) -> Any:
+    def _json_result(agent, content: str, schema: dict | None, token_usage, attempts: list) -> ExecutorResult:
+        """Parse the reply, asking the same agent once more with the error when it can be corrected."""
         try:
-            parsed = json.loads(content)
-        except json.JSONDecodeError as exc:
-            return ExecutorResult(
-                error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
-                error_message=f"Model returned invalid JSON: {exc}",
-            )
-
-        if schema_str:
+            parsed = structured_output.read_json_reply(content, schema)
+        except structured_output.ReplyRejected as exc:
+            if not exc.retry:
+                return ExecutorResult(
+                    error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
+                    error_message=f"The reply is not the declared JSON: {exc}",
+                    token_usage=token_usage,
+                    attempts=list(attempts),
+                )
             try:
-                import jsonschema
-                schema = json.loads(schema_str)
-                jsonschema.validate(parsed, schema)
-            except ImportError:
-                pass
-            except json.JSONDecodeError as exc:
+                retry_text = getattr(agent.send(structured_output.retry_note(str(exc))), "text", "") or ""
+            except Exception as send_exc:
+                return ExecutorResult(
+                    error_code=ErrorCode.FAILED_MODEL_CALL,
+                    error_message=str(send_exc),
+                    token_usage=token_usage,
+                    attempts=list(attempts),
+                )
+            try:
+                parsed = structured_output.read_json_reply(retry_text, schema)
+            except structured_output.ReplyRejected as retry_exc:
                 return ExecutorResult(
                     error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
-                    error_message=f"Response schema is not valid JSON: {exc}",
+                    error_message=f"The reply is not the declared JSON: {retry_exc}",
+                    token_usage=token_usage,
+                    attempts=list(attempts),
                 )
-            except Exception as exc:
-                return ExecutorResult(
-                    error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
-                    error_message=f"JSON schema validation failed: {exc}",
-                )
-
-        return parsed
-
+        return ExecutorResult(
+            output=parsed,
+            token_usage=token_usage,
+            error_code=ErrorCode.SUCCESS,
+            attempts=list(attempts),
+        )
 
 register_executor("antigravity", AntigravityExecutor)
 

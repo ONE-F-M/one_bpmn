@@ -39,6 +39,23 @@ class _ComposerTestCase(FrappeTestCase):
 class TestResolveSubjectBody(_ComposerTestCase):
 
 	@patch("one_bpmn.email_builder.composer.frappe")
+	def test_modeler_fields_win_and_body_is_decoded(self, mock_frappe):
+		"""notifyAssigneeSubject / notifyAssigneeBody (base64) beat the legacy keys."""
+		import base64
+		mock_frappe.render_template = lambda text, ctx: text
+		mock_frappe._ = lambda x: x
+		from one_bpmn.email_builder.composer import _resolve_subject_body
+		task_cfg = {
+			"notifyAssigneeSubject": "Modeler Subject",
+			"notifyAssigneeBody": base64.b64encode(b"<p>Modeler Body</p>").decode(),
+			"notifySubject": "Legacy Subject",
+			"notifyBody": "<p>Legacy Body</p>",
+		}
+		subject, body = _resolve_subject_body(task_cfg, {}, "Task1", _make_instance())
+		self.assertEqual(subject, "Modeler Subject")
+		self.assertEqual(body, "<p>Modeler Body</p>")
+
+	@patch("one_bpmn.email_builder.composer.frappe")
 	def test_inline_config_wins(self, mock_frappe):
 		"""Inline notifySubject/notifyBody take priority over template."""
 		mock_frappe.render_template = lambda text, ctx: text
@@ -148,14 +165,39 @@ class TestBuildActionsForEmail(_ComposerTestCase):
 class TestSendEmail(_ComposerTestCase):
 
 	@patch("one_bpmn.email_builder.composer.frappe")
-	def test_sets_amp_flag(self, mock_frappe):
-		"""Sets frappe.flags.amp_html before sending."""
-		# Make one_fm import fail so it falls back to frappe.sendmail
+	def test_sets_amp_flag_for_the_send_and_clears_it_after(self, mock_frappe):
+		"""The flag is set while sendmail runs and gone once _send_email returns."""
+		seen = []
 		with patch.dict("sys.modules", {"one_fm": None, "one_fm.processor": None}):
-			mock_frappe.sendmail = MagicMock()
+			mock_frappe.sendmail = MagicMock(side_effect=lambda **kw: seen.append(mock_frappe.flags.amp_html))
 			from one_bpmn.email_builder.composer import _send_email
 			_send_email(["user@test.com"], "Subject", "<p>Body</p>", "<html amp>AMP</html>")
-			self.assertEqual(mock_frappe.flags.amp_html, "<html amp>AMP</html>")
+		self.assertEqual(seen, ["<html amp>AMP</html>"])
+		self.assertIsNone(mock_frappe.flags.amp_html)
+
+	@patch("one_bpmn.email_builder.composer.frappe")
+	def test_clears_amp_flag_even_when_the_send_raises(self, mock_frappe):
+		with patch.dict("sys.modules", {"one_fm": None, "one_fm.processor": None}):
+			mock_frappe.sendmail = MagicMock(side_effect=RuntimeError("smtp down"))
+			from one_bpmn.email_builder.composer import _send_email
+			with self.assertRaises(RuntimeError):
+				_send_email(["user@test.com"], "Subject", "<p>Body</p>", "<html amp>AMP</html>")
+		self.assertIsNone(mock_frappe.flags.amp_html)
+
+	@patch("one_bpmn.email_builder.composer.frappe")
+	def test_one_fm_send_is_external_mail_with_cc(self, mock_frappe):
+		"""Notify Assignee is an explicit opt-in, so the recipient preference filter is bypassed."""
+		import sys
+		import types
+		fake_proc = types.ModuleType("one_fm.processor")
+		fake_proc.sendemail = MagicMock()
+		fake_root = sys.modules.get("one_fm") or types.ModuleType("one_fm")
+		with patch.dict(sys.modules, {"one_fm": fake_root, "one_fm.processor": fake_proc}):
+			from one_bpmn.email_builder.composer import _send_email
+			_send_email(["user@test.com"], "Subject", "<p>Body</p>", "", cc="cc@test.com")
+		kwargs = fake_proc.sendemail.call_args.kwargs
+		self.assertTrue(kwargs["is_external_mail"])
+		self.assertEqual(kwargs["cc"], "cc@test.com")
 
 	@patch("one_bpmn.email_builder.composer.frappe")
 	def test_fallback_to_frappe_sendmail(self, mock_frappe):
@@ -204,11 +246,13 @@ class TestComposeAndSendTaskEmail(_ComposerTestCase):
 					"notifyAssignee": "true",
 					"notifySubject": "Approve Leave",
 					"notifyBody": "<p>Please approve</p>",
+					"notifyAssigneeAccount": "Notifications",
 					"taskActions": json.dumps([{"action": "Approve"}]),
 				}})
 				compose_and_send_task_email(inst, "user@test.com", "Task", "t-1", "Activity_1")
 				mock_send.assert_called_once()
 				args = mock_send.call_args
+				self.assertEqual(args.kwargs.get("sender_account"), "Notifications")
 				self.assertTrue(
 					args.kwargs.get("recipients") == ["user@test.com"]
 					or args[1].get("recipients") == ["user@test.com"]

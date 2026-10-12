@@ -5,7 +5,9 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 import re
+import xml.etree.ElementTree as ET
 
+_SPIFF_NS = "{http://spiffworkflow.org/bpmn/schema/1.0/core}"
 _PROCESS_EL = re.compile(r'<(?:[\w-]+:)?process\s[^>]*\bid=["\']([^"\']+)["\']')
 
 
@@ -82,6 +84,78 @@ class BPMNProcessModel(Document):
 		self.sync_process_id_with_xml()
 		self.enforce_single_active()
 		self.validate_script_task_security()
+		self.validate_response_schemas()
+		self.warn_unsupported_temperature()
+
+	def warn_unsupported_temperature(self):
+		"""Warn, without blocking the save, about AI tasks whose temperature their model is never sent."""
+		if not self.bpmn_xml or (not self.is_new() and not self.has_value_changed("bpmn_xml")):
+			return
+		try:
+			root = ET.fromstring(self.bpmn_xml.strip().encode("utf-8"))
+		except ET.ParseError:
+			return  # an unparseable diagram is reported by the other validators
+
+		from one_bpmn.agents.executor.direct_api import _supports_temperature
+
+		unused = []
+		for element in root.iter():
+			if element.get(f"{_SPIFF_NS}serviceType") != "ai_agent" or not element.get(f"{_SPIFF_NS}aiTemperature"):
+				continue
+			config = element.get(f"{_SPIFF_NS}aiAgentConfig")
+			# The configuration's model replaces the shape's at run time.
+			model = (config and frappe.db.get_value("AI Agent Configuration", config, "ai_model")) or element.get(
+				f"{_SPIFF_NS}aiModel"
+			)
+			if model and not _supports_temperature(model):
+				unused.append(
+					_("{0}: AI Model {1} does not accept a temperature, so it is not sent.").format(
+						element.get("name") or element.get("id"), model
+					)
+				)
+		if unused:
+			frappe.msgprint(
+				"<br>".join(frappe.utils.escape_html(u) for u in unused),
+				title=_("Temperature not used"),
+				indicator="orange",
+			)
+
+	def validate_response_schemas(self):
+		"""Refuse a JSON response schema that uses a rule some AI provider rejects, naming the task and field."""
+		if not self.bpmn_xml or (not self.is_new() and not self.has_value_changed("bpmn_xml")):
+			return
+		try:
+			root = ET.fromstring(self.bpmn_xml.strip().encode("utf-8"))
+		except ET.ParseError:
+			return  # an unparseable diagram is reported by the other validators
+
+		from one_bpmn.agents.llm_provider.structured_output import (
+			UnsupportedSchemaRule,
+			normalize_response_schema,
+			validate_schema_rules,
+		)
+
+		problems = []
+		for element in root.iter():
+			raw = element.get(f"{_SPIFF_NS}aiResponseSchema")
+			if element.get(f"{_SPIFF_NS}aiResponseFormat") != "json" or not raw:
+				continue
+			task = element.get("name") or element.get("id")
+			try:
+				validate_schema_rules(normalize_response_schema(raw))
+			except UnsupportedSchemaRule as exc:
+				problems.append(
+					_("{0}: the response schema uses '{1}' on field '{2}', which not every AI provider accepts.").format(
+						task, exc.rule, exc.field
+					)
+				)
+			except ValueError as exc:
+				problems.append(_("{0}: the response schema is not a valid JSON object ({1}).").format(task, exc))
+		if problems:
+			frappe.throw(
+				"<br>".join(frappe.utils.escape_html(p) for p in problems),
+				title=_("Response schema not supported"),
+			)
 
 	def validate_script_task_security(self):
 		"""Pre-deployment gate: block unsafe script tasks at authoring time.

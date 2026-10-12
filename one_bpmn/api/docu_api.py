@@ -833,6 +833,60 @@ def _norm_prop(prop: str, value, prop_types: dict):
 	return "" if value in (None, "") else value
 
 
+FIELD_PROPERTY_TYPES = {"depends_on": "Code", "hidden": "Check", "reqd": "Check", "read_only": "Check"}
+_FLAG_WORDS = {
+	"hidden": ("{0} is now hidden.", "{0} is now visible."),
+	"reqd": ("{0} is now mandatory.", "{0} is now optional."),
+	"read_only": ("{0} is now read-only.", "{0} can now be edited."),
+}
+
+
+def apply_field_properties(doctype: str, changes: list) -> list:
+	"""Set depends_on, hidden, reqd or read_only on existing fields and return one plain line per change.
+
+	A custom DocType is edited in place; any other DocType gets a Property Setter.
+	"""
+	if "System Manager" not in frappe.get_roles() and not frappe.has_permission("DocType", "create"):
+		frappe.throw(_("You need the System Manager role to change forms."), frappe.PermissionError)
+	if not changes:
+		frappe.throw(_("I could not tell which field on {0} to change.").format(doctype))
+	meta = frappe.get_meta(doctype)
+	for change in changes:
+		if change.get("property") not in FIELD_PROPERTY_TYPES:
+			frappe.throw(_("I can only show, hide, require or lock a field, not set {0}.").format(change.get("property")))
+		if not meta.get_field(change.get("fieldname")):
+			frappe.throw(_("{0} has no field named {1}.").format(doctype, change.get("fieldname")))
+
+	lines = []
+	with as_user("Administrator"):
+		doc = frappe.get_doc("DocType", doctype) if meta.custom else None
+		for change in changes:
+			fieldname, prop = change["fieldname"], change["property"]
+			value = change.get("value")
+			value = (value or "").strip() if prop == "depends_on" else int(bool(frappe.utils.sbool(value)))
+			if doc:
+				doc.get("fields", {"fieldname": fieldname})[0].set(prop, value)
+			else:
+				_force_property_setter(doctype, fieldname, prop, value, FIELD_PROPERTY_TYPES[prop])
+			lines.append(_describe_property(meta, fieldname, prop, value))
+		if doc:
+			doc.save()
+	frappe.clear_cache(doctype=doctype)
+	return lines
+
+
+def _describe_property(meta, fieldname: str, prop: str, value) -> str:
+	label = meta.get_field(fieldname).label or fieldname
+	if prop != "depends_on":
+		return _(_FLAG_WORDS[prop][0 if value else 1]).format(label)
+	if not value:
+		return _("{0} always shows.").format(label)
+	target = meta.get_field(value[len("eval:doc."):]) if value.startswith("eval:doc.") else None
+	if target and target.fieldtype == "Check":
+		return _("{0} shows only when {1} is ticked.").format(label, target.label or target.fieldname)
+	return _("{0} shows only when {1}.").format(label, value)
+
+
 def _force_property_setter(doctype: str, fieldname: str, prop: str, value, property_type: str) -> None:
 	"""Upsert a Property Setter, bypassing Customize Form's soft guards."""
 	if property_type == "Check":

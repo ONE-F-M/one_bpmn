@@ -46,6 +46,48 @@ class AIAgentConfiguration(Document):
 		self.validate_agent_creation_grant()
 		self.validate_a2a_exposure()
 		self.validate_memory_config()
+		self.validate_thinking_budget()
+		self.validate_loop_compaction()
+		self.validate_top_p()
+		self.warn_unsupported_temperature()
+
+	def validate_top_p(self):
+		"""Top P is 0 (not set here) or a fraction above 0 and at most 1."""
+		if self.top_p and not 0 < self.top_p <= 1:
+			frappe.throw(_("Top P must be above 0 and at most 1, or 0 to leave it to the task."))
+
+	def warn_unsupported_temperature(self):
+		"""Warn, without blocking the save, when a temperature is set on a model that is never sent one."""
+		from one_bpmn.agents.executor.direct_api import _supports_temperature
+
+		if self.temperature and self.ai_model and not _supports_temperature(self.ai_model):
+			frappe.msgprint(
+				_(
+					"AI Model {0} does not accept a temperature, so the temperature {1} is not sent to it."
+				).format(self.ai_model, self.temperature),
+				title=_("Temperature not used"),
+				indicator="orange",
+			)
+
+	def validate_thinking_budget(self):
+		"""Anthropic needs a thinking budget of at least 1,024 tokens and below Max Tokens."""
+		from one_bpmn.agents.executor import DEFAULT_MAX_OUTPUT_TOKENS
+
+		budget = self.get("thinking_budget_tokens") or 0
+		limit = self.max_tokens or DEFAULT_MAX_OUTPUT_TOKENS
+		if budget and not 1024 <= budget < limit:
+			frappe.throw(
+				_("Thinking Budget Tokens must be 0, or at least 1,024 and below Max Tokens ({0}).").format(limit),
+				title=_("Invalid Thinking Budget"),
+			)
+
+	def validate_loop_compaction(self):
+		"""A tool loop compacted down to one or two turns loses track of what it was doing."""
+		if self.get("loop_compaction_threshold") and (self.get("loop_compaction_keep_turns") or 0) < 3:
+			frappe.throw(
+				_("Tool Loop Keep Turns must be at least 3 when the Tool Loop Threshold is set."),
+				title=_("Invalid Tool Loop Compaction"),
+			)
 
 	def validate_memory_config(self):
 		"""WI-002168: an Enabled config with no resolvable model silently drops
@@ -266,6 +308,13 @@ class AIAgentConfiguration(Document):
 		provider = frappe.db.get_value("AI Model", self.ai_model, "provider")
 		if provider:
 			self.ai_provider = provider
+		if not self.ai_provider:
+			frappe.throw(
+				_("AI Model {0} has no provider. Link a provider on the model before saving this agent.").format(
+					frappe.bold(self.ai_model)
+				),
+				title=_("No provider for model"),
+			)
 
 	def validate_unique_chat_mode_label(self):
 		"""Two enabled chat agents must never claim the same conversation mode —
@@ -360,6 +409,7 @@ class AIAgentConfiguration(Document):
 			except Exception:
 				pass
 		self.revalidate_credentials_on_save()
+		self.sync_linked_shapes()
 
 		# The agent's identity is NOT provisioned here. It is a step in the Agent
 		# creation process ("Provision Agent User"), because minting a User as a
@@ -367,6 +417,13 @@ class AIAgentConfiguration(Document):
 		# database write — and the process is where this system keeps behaviour.
 		# The map runs it on the edited-config loop as well as the first pass, so
 		# a change to the roles still reaches the agent's user.
+
+	def sync_linked_shapes(self):
+		"""Copy a changed setting the map shapes mirror onto the shapes that link this agent."""
+		from one_bpmn.agents.agent_config_resolver import DRIFT_CONFIG_FIELDS, sync_shapes_to_config
+
+		if any(self.has_value_changed(f) for f in DRIFT_CONFIG_FIELDS):
+			sync_shapes_to_config(self.name)
 
 	def revalidate_credentials_on_save(self):
 		"""Re-prove the agent on EVERY save — assume nothing (user ruling,
@@ -533,7 +590,7 @@ def get_agent_config(agent_id: str) -> dict | None:
 	examples = frappe.get_all(
 		"AI Agent Example",
 		filters={"parent": config.name, "parenttype": "AI Agent Configuration"},
-		fields=["input", "expected_output", "note", "enabled"],
+		fields=["input", "context_summary", "trajectory", "expected_output", "note", "enabled"],
 		order_by="idx asc",
 	)
 	guardrails = frappe.get_all(

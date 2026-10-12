@@ -726,8 +726,8 @@
    "mandatory_depends_on": "eval:doc.mcp_tools_enabled"
   },
   {
-   "default": "1",
-   "description": "How many eval cases may run side by side. 1 runs them one at a time, as before. Above that, a suite finishes sooner but competes with live agent traffic for the provider's rate limit, and spends its budget faster. Capped at 8.",
+   "default": "4",
+   "description": "How many eval lanes may run side by side, each as its own background job. 1 runs them one at a time. Above that, a suite finishes sooner but competes with live agent traffic for the provider's rate limit, and spends its budget faster. Capped at 8.",
    "fieldname": "eval_concurrency",
    "fieldtype": "Int",
    "label": "Eval Concurrency"

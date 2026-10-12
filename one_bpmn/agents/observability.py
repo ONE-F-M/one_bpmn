@@ -23,6 +23,7 @@ import frappe
 from datetime import timedelta
 
 from frappe.utils import cint, flt, get_datetime, now_datetime
+from rq import get_current_job
 
 from one_bpmn.agents.executor import ErrorCode, ExecutorConfig, ExecutorResult
 from one_bpmn.agents.pricing import compute_token_cost
@@ -169,6 +170,8 @@ def _sum_step_metrics(run_name: str) -> Dict[str, Any]:
 
 	``agent_latency_ms`` is the sum of the steps' own latencies — the time the
 	agent was actually working (provider round-trips plus inline tool calls).
+	A sub-call made from a tool is left out: the turn that ran the tool already
+	contains it. Compaction runs between turns, so it is counted.
 	It deliberately excludes wall-clock gaps between steps, which for a
 	human-in-the-loop run can be days of waiting (WI-001643).
 
@@ -188,10 +191,12 @@ def _sum_step_metrics(run_name: str) -> Dict[str, Any]:
 				coalesce(sum(output_cost), 0),
 				coalesce(sum(cache_read_cost), 0),
 				coalesce(sum(cache_write_cost), 0),
-				coalesce(sum(latency_ms), 0)
+				coalesce(sum(case
+					when step_kind = 'sub_call' and content not like %s then 0
+					else latency_ms end), 0)
 			from `tabAI Agent Step` where run = %s
 			""",
-			run_name,
+			("[sub-call: compaction via %", run_name),
 		)[0]
 	except Exception:
 		frappe.log_error(
@@ -335,6 +340,9 @@ def create_ai_run(
 	if not isinstance(eval_origin, dict):
 		eval_origin = {} if not eval_origin else {"eval_case": None, "eval_run": None}
 
+	job = get_current_job()
+	queue_wait = job.started_at - job.enqueued_at if job and job.started_at and job.enqueued_at else None
+
 	run = frappe.get_doc({
 		"doctype": "AI Agent Run",
 		"instance": instance.name,
@@ -354,6 +362,7 @@ def create_ai_run(
 		"eval_case": eval_origin.get("eval_case") or None,
 		"eval_run": eval_origin.get("eval_run") or None,
 		"status": "Running",
+		"queue_wait_ms": int(queue_wait.total_seconds() * 1000) if queue_wait else 0,
 		"started_at": now_datetime(),
 		"max_retries": config.max_retries,
 		"recall_query": recall_query or "",
@@ -428,6 +437,7 @@ def record_ai_step(
 	cache_read_tokens: int = 0,
 	cache_write_tokens: int = 0,
 	latency_ms: int = 0,
+	model_latency_ms: int | None = None,
 	tool_calls: list | None = None,
 	error_code: str = None,
 	error_message: str = None,
@@ -451,6 +461,8 @@ def record_ai_step(
 	    cache_read_tokens: Part of prompt_tokens served from the prompt cache
 	    cache_write_tokens: Part of prompt_tokens written into the prompt cache
 	    latency_ms: Step latency in milliseconds
+	    model_latency_ms: the provider part of latency_ms; all of it when the
+	        step called no tools, unknown (0) when it did and none was given
 	    error_code: Error code if this step is a failed retry attempt
 	    error_message: Error details for failed retry attempts
 	    started_at, ended_at: when the step ran. A step written after the
@@ -466,6 +478,8 @@ def record_ai_step(
 		return None
 
 	started_at, ended_at = step_window(started_at, ended_at, latency_ms)
+	if model_latency_ms is None:
+		model_latency_ms = 0 if tool_calls else latency_ms
 	step_kind = step_kind or classify_step(role, content, tool_calls)
 
 	# Cost split by billing rate: uncached input / cache read / cache write /
@@ -495,6 +509,7 @@ def record_ai_step(
 		"cache_read_cost": costs["cache_read_cost"],
 		"cache_write_cost": costs["cache_write_cost"],
 		"latency_ms": latency_ms,
+		"model_latency_ms": model_latency_ms,
 		"started_at": started_at,
 		"ended_at": ended_at,
 		"step_kind": step_kind,
@@ -1085,6 +1100,7 @@ def record_selector_turns(
 			cache_read_tokens=turn.get("cache_read_tokens", 0),
 			cache_write_tokens=turn.get("cache_write_tokens", 0),
 			latency_ms=turn.get("latency_ms", 0),
+			model_latency_ms=turn.get("model_latency_ms", 0),
 			tool_calls=tool_calls,
 			error_code=error_code,
 			error_message=error_message,

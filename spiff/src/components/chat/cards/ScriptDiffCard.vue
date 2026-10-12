@@ -7,6 +7,10 @@
 				@press="$emit('action', 'apply-script', value)" />
 			<ActionButton label="Discard" kind="ghost" :disabled="busy || done" @press="$emit('action', 'dismiss')" />
 		</template>
+		<template #expanded>
+			<DiffView v-if="value.diff" :diff="value.diff" />
+			<CodeBlock v-else :code="value.modified_script" />
+		</template>
 	</CardShell>
 </template>
 <script setup>

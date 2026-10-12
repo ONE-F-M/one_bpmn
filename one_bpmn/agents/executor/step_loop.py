@@ -29,15 +29,21 @@ import time
 import frappe
 
 from one_bpmn.security.provenance import wrap_tool_result
-from one_bpmn.agents.executor.tool_bounds import bound_tool_result, validate_tool_arguments
+from one_bpmn.agents.executor.tool_bounds import (
+	bound_tool_result,
+	salvage_leaked_delimiters,
+	validate_tool_arguments,
+)
 from one_bpmn.agents.llm_provider.base import (
 	CompletionResult,
+	LLMTruncatedError,
 	ToolCallRecord,
 	ToolSpec,
 	TurnRecord,
 )
-from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG, clear_tool_artifacts
-from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG, ToolDeferred
+from one_bpmn.agents.memory.loop_compaction import compact_transcript
+from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG, _tool_call_status, clear_tool_artifacts
+from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG, BudgetExceeded, ToolDeferred
 from one_bpmn.agents.turn_state import TURN_ANSWERED_FLAG
 from one_bpmn.security.tool_policy import PolicyViolation
 
@@ -60,12 +66,16 @@ _SECOND_PAUSE_RESULT = (
 	"can be tracked at a time. Call this tool again once the pending one is back."
 )
 
+# Sent once when a call that had to use a tool answered in plain text instead.
+_FORCED_TOOL_NUDGE = "This step must call a tool. Call one of your tools now instead of answering in text."
+_FORCED_TOOL_REFUSED = "tool_choice is {0}, but the model answered in plain text twice instead of calling a tool."
+
 # TurnRecord's own fields, so a resumed trace (a list of plain dicts, from
 # asdict() at suspension time) can be turned back into TurnRecord instances
 # without tripping over an unrelated key a future field adds to the dict.
 _TURN_RECORD_FIELDS = {
 	"role", "content", "tool_calls", "prompt_tokens", "completion_tokens",
-	"cache_read_tokens", "cache_write_tokens", "latency_ms", "turn_no",
+	"cache_read_tokens", "cache_write_tokens", "latency_ms", "model_latency_ms", "turn_no",
 	"started_at", "ended_at",
 }
 
@@ -128,6 +138,16 @@ async def run_agent_loop(
 	tool_result_max_chars: int | None = None,
 	terminal_tools: list | None = None,
 	on_tool_event=None,
+	history: list | None = None,
+	response_schema: dict | None = None,
+	check_reply=None,
+	tool_choice: str | None = None,
+	parallel_tool_calls: bool = True,
+	thinking_budget_tokens: int = 0,
+	loop_compaction: dict | None = None,
+	budget_check=None,
+	temperature: float | None = None,
+	top_p: float | None = None,
 ) -> tuple:
 	"""Drive the tool loop. Returns (CompletionResult, None) when the model
 	produces a final answer or hits the turn cap, or (None, AgentSuspension)
@@ -143,7 +163,7 @@ async def run_agent_loop(
 	progress indicator must never fail the turn it is only reporting on.
 
 	Fresh run: pass ``user`` (the rendered user prompt); the transcript starts
-	as a single user entry.
+	as ``history`` (prior ``{"role", "content"}`` turns, if any) then that user entry.
 
 	Resume: pass ``resume`` = {"transcript", "pending_call", "deferred_results",
 	"turns_used", "trace", "human_result"} — the persisted AgentSuspension
@@ -166,6 +186,24 @@ async def run_agent_loop(
 	the model calls one. None (every caller before this existed) falls back
 	to ``("finalize",)`` — see ``_run_turns`` for how the reply is read off
 	the call's own arguments instead of the model's next narration.
+
+	``response_schema`` goes to every ``adapter.step()`` for the provider's native
+	JSON mode. ``check_reply(text)`` returns an error for a final reply that is
+	not the declared format; the model is then asked once more, with the error.
+
+	``tool_choice`` ("auto", "required" or a tool name) applies to the first call of a
+	fresh run; a plain-text answer there is sent back once with a nudge, then fails the run.
+	``parallel_tool_calls``, ``thinking_budget_tokens``, ``temperature`` and ``top_p`` go to every call.
+
+	``loop_compaction`` ({"threshold", "keep_turns", "model", "agent_model", "provider"}): when a call's
+	prompt passes threshold tokens, the turns before the last keep_turns are summarised before the next call.
+
+	``budget_check(trace)`` returns why the run has spent its budget, or "".
+	It runs before every model call; a tool raising BudgetExceeded ends the run
+	the same way. Either returns a CompletionResult with ``budget_exceeded`` set.
+
+	The same tool failing with the same result on two calls in a row ends the run
+	with ``repeated_tool_error`` set.
 	"""
 	tool_map = {t.name: t for t in (tools or [])}
 
@@ -199,7 +237,7 @@ async def run_agent_loop(
 		})
 		transcript.append({"role": "tool_results", "results": results})
 	else:
-		transcript = [{"role": "user", "content": user}]
+		transcript = [*(history or []), {"role": "user", "content": user}]
 
 	# Anything a previous loop stashed and nobody recorded is stale: draining it
 	# here is what stops one run's script showing up on the next run's tool call.
@@ -215,6 +253,12 @@ async def run_agent_loop(
 			tool_result_max_chars=tool_result_max_chars,
 			terminal_tools=set(terminal_tools) if terminal_tools is not None else {"finalize"},
 			on_tool_event=on_tool_event,
+			response_schema=response_schema,
+			check_reply=check_reply,
+			tool_choice=tool_choice,
+			controls=_step_controls(parallel_tool_calls, thinking_budget_tokens, temperature, top_p),
+			loop_compaction=loop_compaction,
+			budget_check=budget_check,
 		)
 	finally:
 		# Cleared on EVERY exit — final answer, turn cap, suspension, exception.
@@ -228,8 +272,45 @@ async def run_agent_loop(
 		frappe.flags[SUB_CALL_TURN_FLAG] = None
 
 
+async def run_nested_loop(
+	adapter, *, system: str, user: str, tools: list | None, max_tokens: int, max_turns: int,
+	temperature: float | None = None, top_p: float | None = None,
+):
+	"""complete()'s loop: the same turns, with no terminal tool, leaving the calling turn's state as it was."""
+	saved = {flag: frappe.flags.get(flag) for flag in (PAUSE_HELD_FLAG, TURN_ANSWERED_FLAG, SUB_CALL_TURN_FLAG)}
+	try:
+		completion, _suspension = await _run_turns(
+			adapter, system=system, tools=tools, tool_map={t.name: t for t in tools or []},
+			transcript=[{"role": "user", "content": user}], trace=[], turns_used=0,
+			max_tokens=max_tokens, max_turns=max_turns, terminal_tools=frozenset(),
+			controls=_step_controls(True, 0, temperature, top_p),
+		)
+	finally:
+		frappe.flags.update(saved)
+	if completion.hit_turn_cap:
+		completion.text = ""
+	return completion
+
+
+def _step_controls(
+	parallel_tool_calls: bool, thinking_budget_tokens: int, temperature: float | None = None, top_p: float | None = None
+) -> dict:
+	"""The per-call controls that differ from the provider default, so adapters without them still work."""
+	controls = {}
+	if not parallel_tool_calls:
+		controls["parallel_tool_calls"] = False
+	if thinking_budget_tokens:
+		controls["thinking_budget_tokens"] = thinking_budget_tokens
+	if temperature is not None:
+		controls["temperature"] = temperature
+	if top_p is not None:
+		controls["top_p"] = top_p
+	return controls
+
+
 async def _step_with_retries(
-	adapter, system, transcript, tools, max_tokens, *, timeout_seconds=None, max_retries=0, retry_backoff_ms=1000
+	adapter, system, transcript, tools, max_tokens, *, timeout_seconds=None, max_retries=0, retry_backoff_ms=1000,
+	response_schema=None, controls=None,
 ):
 	"""One turn's model call, bounded by timeout_seconds and retried up to
 	max_retries times — mirrors DirectApiExecutor._run_request's own
@@ -244,10 +325,15 @@ async def _step_with_retries(
 	caller from before this existed."""
 	for attempt in range(max_retries + 1):
 		try:
-			call = adapter.step(system, transcript, tools=tools or None, max_tokens=max_tokens)
+			extra = dict(controls or {})
+			if response_schema:
+				extra["response_schema"] = response_schema
+			call = adapter.step(system, transcript, tools=tools or None, max_tokens=max_tokens, **extra)
 			if timeout_seconds:
 				return await asyncio.wait_for(call, timeout=timeout_seconds)
 			return await call
+		except LLMTruncatedError:
+			raise
 		except Exception:
 			if attempt >= max_retries:
 				raise
@@ -276,24 +362,56 @@ def _fire_tool_event(on_tool_event, phase, tool_name):
 async def _run_turns(
 	adapter, *, system, tools, tool_map, transcript, trace, turns_used, max_tokens, max_turns,
 	timeout_seconds=None, max_retries=0, retry_backoff_ms=1000, tool_result_max_chars=None,
-	terminal_tools=frozenset({"finalize"}), on_tool_event=None,
+	terminal_tools=frozenset({"finalize"}), on_tool_event=None, response_schema=None, check_reply=None,
+	tool_choice=None, controls=None,
+	loop_compaction=None,
+	budget_check=None,
 ):
 	"""The turn loop itself. Split out only so run_agent_loop can guarantee the
 	pause flag is cleared however this returns."""
+	reply_checked = False
+	force_pending = bool(tool_choice) and tool_choice != "auto" and turns_used == 0
+	nudged = False
+	last_prompt_tokens = 0
+	# Compaction runs again only once keep_turns new turns have replaced what the last one kept.
+	compacted_at = None
+	last_error = None
 	while turns_used < max_turns:
+		spent = budget_check(trace) if budget_check else ""
+		if spent:
+			return _stopped_at_budget(trace, spent), None
 		# No pause is held yet this turn. Cleared here, at the very top, rather
 		# than just before the tool loop: the flag must never outlive the turn
 		# that set it, and a turn can also end at the final-answer return below.
 		frappe.flags[PAUSE_HELD_FLAG] = False
 		# Same reason, same place: a turn that answered must not end the NEXT one.
 		frappe.flags[TURN_ANSWERED_FLAG] = False
+		if (
+			loop_compaction
+			and last_prompt_tokens > loop_compaction["threshold"]
+			and (compacted_at is None or turns_used - compacted_at >= loop_compaction["keep_turns"])
+		):
+			compacted = compact_transcript(
+				transcript,
+				keep_turns=loop_compaction["keep_turns"],
+				model=loop_compaction.get("model"),
+				agent_model=loop_compaction["agent_model"],
+				provider=loop_compaction.get("provider"),
+			)
+			compacted_at = turns_used
+			if compacted is not None:
+				transcript[:] = compacted
 		_turn_t0 = time.perf_counter()
 		_turn_started_at = _now_iso()
 		step = await _step_with_retries(
 			adapter, system, transcript, tools, max_tokens,
 			timeout_seconds=timeout_seconds, max_retries=max_retries, retry_backoff_ms=retry_backoff_ms,
+			response_schema=response_schema,
+			controls={**(controls or {}), **({"tool_choice": tool_choice} if force_pending else {})},
 		)
+		_model_ms = int((time.perf_counter() - _turn_t0) * 1000)
 		turns_used += 1
+		last_prompt_tokens = step.prompt_tokens
 
 		# ── Final answer: no tool calls requested ─────────────────────────
 		if not step.tool_calls:
@@ -306,22 +424,43 @@ async def _run_turns(
 					cache_read_tokens=getattr(step, "cache_read_tokens", 0) or 0,
 					cache_write_tokens=getattr(step, "cache_write_tokens", 0) or 0,
 					latency_ms=int((time.perf_counter() - _turn_t0) * 1000),
+					model_latency_ms=_model_ms,
 					turn_no=turns_used,
 					started_at=_turn_started_at,
 					ended_at=_now_iso(),
 				)
 			)
+			if force_pending:
+				if nudged:
+					raise RuntimeError(_FORCED_TOOL_REFUSED.format(tool_choice))
+				nudged = True
+				if (step.content or "").strip():
+					transcript.append({"role": "assistant", "content": step.content})
+				transcript.append({"role": "user", "content": _FORCED_TOOL_NUDGE})
+				continue
+			reply_error = None if reply_checked or check_reply is None else check_reply(step.content)
+			if reply_error:
+				reply_checked = True
+				transcript.append({"role": "assistant", "content": step.content})
+				transcript.append({"role": "user", "content": reply_error})
+				continue
 			return CompletionResult(text=step.content, trace=trace, no_terminal_tool=True), None
 
+		force_pending = False
+
 		# ── Record the assistant turn on the transcript ───────────────────
-		transcript.append({
+		assistant_entry = {
 			"role": "assistant",
 			"content": step.content,
 			"tool_calls": [
 				{"id": c.id, "name": c.name, "arguments": c.arguments}
 				for c in step.tool_calls
 			],
-		})
+		}
+		# Anthropic refuses a tool result whose call lost the thinking that preceded it.
+		if getattr(step, "thinking", None):
+			assistant_entry["thinking"] = step.thinking
+		transcript.append(assistant_entry)
 
 		# ── Execute automatic calls; a human call suspends ────────────────
 		turn_record = TurnRecord(
@@ -331,6 +470,7 @@ async def _run_turns(
 			completion_tokens=step.completion_tokens,
 			cache_read_tokens=getattr(step, "cache_read_tokens", 0) or 0,
 			cache_write_tokens=getattr(step, "cache_write_tokens", 0) or 0,
+			model_latency_ms=_model_ms,
 			turn_no=turns_used,
 			started_at=_turn_started_at,
 		)
@@ -346,7 +486,11 @@ async def _run_turns(
 		# below instead of asking the model for a closing narration it usually has
 		# nothing left to give (see the empty-turn evidence a few lines down).
 		terminal_reply = None
+		budget_reason = ""
+		repeated = ""
 		for call in step.tool_calls:
+			if budget_reason or repeated:
+				break
 			tool = tool_map.get(call.name)
 			if tool is not None and tool.human:
 				if pending_call is None:
@@ -365,6 +509,9 @@ async def _run_turns(
 				# runs. A violation is a tool error naming the field, so the model
 				# repairs the call instead of reading a Python traceback — or, worse,
 				# a script that tolerated the gap and answered wrongly.
+				call.arguments = salvage_leaked_delimiters(
+					call.name, getattr(tool, "parameters", None), call.arguments
+				)
 				_invalid = validate_tool_arguments(
 					call.name,
 					getattr(tool, "parameters", None),
@@ -375,6 +522,7 @@ async def _run_turns(
 					turn_record.tool_calls.append(
 						ToolCallRecord(name=call.name, arguments=call.arguments, result=_invalid)
 					)
+					repeated, last_error = _repeated_error(last_error, call.name, _invalid)
 					results.append({
 						"id": call.id,
 						"name": call.name,
@@ -409,6 +557,9 @@ async def _run_turns(
 						# so its work IS running and this turn cannot collect it —
 						# say so rather than blaming a human task.
 						result = _SECOND_PAUSE_RESULT
+					except BudgetExceeded as exceeded:
+						result = f"Run stopped: {exceeded}"
+						budget_reason = f"{exceeded} (in {call.name})"
 					except PolicyViolation as violation:
 						# The interceptor refused the call before the tool ran, and
 						# it is handed back as an ordinary tool result, so the
@@ -423,6 +574,7 @@ async def _run_turns(
 			turn_record.tool_calls.append(
 				ToolCallRecord(name=call.name, arguments=call.arguments, result=result)
 			)
+			repeated, last_error = _repeated_error(last_error, call.name, result)
 			# What the model sees is marked with the tool that
 			# produced it, so the guard rail in its frozen instructions has
 			# something to refer to. The ToolCallRecord above keeps the raw
@@ -441,6 +593,12 @@ async def _run_turns(
 		turn_record.latency_ms = int((time.perf_counter() - _turn_t0) * 1000)
 		turn_record.ended_at = _now_iso()
 		trace.append(turn_record)
+
+		if budget_reason:
+			return _stopped_at_budget(trace, budget_reason), None
+		if repeated:
+			last_said = next((t.content for t in reversed(trace) if (t.content or "").strip()), "")
+			return CompletionResult(text=last_said, trace=trace, no_terminal_tool=True, repeated_tool_error=repeated), None
 
 		if pending_call is not None:
 			from dataclasses import asdict
@@ -492,3 +650,16 @@ async def _run_turns(
 		(t.content for t in reversed(trace) if (t.content or "").strip()), ""
 	)
 	return CompletionResult(text=last_said, trace=trace, hit_turn_cap=True, no_terminal_tool=True), None
+
+
+def _stopped_at_budget(trace: list, reason: str) -> CompletionResult:
+	last_said = next((t.content for t in reversed(trace) if (t.content or "").strip()), "")
+	return CompletionResult(text=last_said, trace=trace, no_terminal_tool=True, budget_exceeded=reason)
+
+
+def _repeated_error(last_error, name: str, result) -> tuple[str, tuple | None]:
+	"""(why the run stops or "", the error to compare the next call against)."""
+	error = (name, str(result)) if _tool_call_status(result) == "Error" else None
+	if error and error == last_error:
+		return f"{name} failed twice in a row with the same error: {str(result)[:300]}", error
+	return "", error

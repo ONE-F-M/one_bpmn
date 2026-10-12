@@ -101,6 +101,11 @@ def _is_remember_directive(message: str) -> bool:
 	return bool(_REMEMBER_RE.search(message or ""))
 
 
+def terminal_tools_for(task_cfg: dict) -> list:
+	"""finalize plus the comma-separated tools the task or its agent names; each ends the turn when called."""
+	return list({"finalize", *(t.strip() for t in (task_cfg.get("aiTerminalTools") or "").split(",") if t.strip())})
+
+
 def _cfg_truthy(value) -> bool:
 	"""Interpret a BPMN config value as a boolean (checkbox or string)."""
 	if isinstance(value, bool):
@@ -1451,19 +1456,6 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 	body = render(_decode_html_attr(_raw_body))
 	cc = task_cfg.get("emailCc", "") or None
 
-	# ── Resolve sender from configured Email Account ──────────────
-	sender = None
-	email_account = task_cfg.get("emailAccount", "")
-	if email_account:
-		sender = frappe.db.get_value("Email Account", email_account, "email_id")
-
-	# ── Send via one_fm.processor.sendemail if available ─────────
-	# Uses the same branded template and notification preference
-	# checks as the rest of the one_fm app (checks if user has
-	# notifications enabled, email notifications enabled, and
-	# preferred company email).
-	# Falls back to frappe.sendmail if one_fm isn't installed.
-
 	# Render AMP info card via the composer (Story 5)
 	if not amp_html:
 		try:
@@ -1475,34 +1467,18 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 		except Exception:
 			amp_html = None  # Graceful fallback — send plain HTML
 
-	# Set AMP flag before sending — picked up by our Email Queue before_insert hook
-	if amp_html:
-		frappe.flags.amp_html = amp_html
+	from one_bpmn.email_builder.composer import _send_email
 
-	try:
-		from one_fm.processor import sendemail as onefm_sendemail
-
-		onefm_sendemail(
-			recipients=recipients,
-			subject=subject,
-			sender=sender,
-			header=[subject],
-			message=body,
-			cc=cc,
-			reference_doctype=instance.context_doctype or instance.doctype,
-			reference_name=instance.context_docname or instance.name,
-		)
-	except ImportError:
-		frappe.sendmail(
-			recipients=recipients,
-			sender=sender,
-			subject=subject,
-			message=body,
-			cc=cc.split(",") if cc else [],
-			reference_doctype=instance.context_doctype or instance.doctype,
-			reference_name=instance.context_docname or instance.name,
-			now=False,
-		)
+	_send_email(
+		recipients=recipients,
+		subject=subject,
+		html_body=body,
+		amp_html=amp_html or "",
+		sender_account=task_cfg.get("emailAccount", ""),
+		reference_doctype=instance.context_doctype or instance.doctype,
+		reference_name=instance.context_docname or instance.name,
+		cc=cc,
+	)
 
 
 def dispatch_send_notification(instance, task, task_cfg: dict, bpmn_id: str) -> None:
@@ -1623,6 +1599,14 @@ def _publish_chat_turn_output(instance, output) -> None:
 		pass
 
 
+def _record_ai_failure(task, task_cfg: dict, bpmn_id: str, error_code: str, error_message: str) -> None:
+	"""Write the error code and message, and blank both output names so the previous turn's answer is gone."""
+	task.data[f"{bpmn_id}_error_code"] = error_code
+	task.data[f"{bpmn_id}_error_message"] = error_message
+	task.data[task_cfg.get("aiOutputVariable") or f"{bpmn_id}_output"] = None
+	task.data[f"{bpmn_id}_output"] = None
+
+
 def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: str = None) -> None:
 	"""
 	Execute an AI Agent Task via the executor package.
@@ -1648,6 +1632,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 
 	from one_bpmn.agents.executor import (
 		DEFAULT_MAX_OUTPUT_TOKENS,
+		DEFAULT_MAX_RETRIES,
 		DEFAULT_TEMPERATURE,
 		DEFAULT_TIMEOUT_SECONDS,
 		DEFAULT_TOP_P,
@@ -1704,6 +1689,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		try:
 			return frappe.render_template(text, jinja_ctx)
 		except Exception:
+			frappe.log_error(
+				title=f"BPMN AI Agent Task: prompt template render failed ({bpmn_id})",
+				message=frappe.get_traceback(),
+			)
 			return text
 
 	if resume_payload:
@@ -2037,19 +2026,23 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		timeout_seconds  = cint(task_cfg.get("aiTimeout")) or DEFAULT_TIMEOUT_SECONDS,
 		response_format  = task_cfg.get("aiResponseFormat", "text") or "text",
 		response_schema  = task_cfg.get("aiResponseSchema") or None,
-		max_retries      = int(task_cfg.get("aiMaxRetries", 2) or 2),
+		max_retries      = int(task_cfg.get("aiMaxRetries", DEFAULT_MAX_RETRIES) or DEFAULT_MAX_RETRIES),
 		tools            = tool_specs,
 		# "Maximum model calls" (Camunda Limits); caps the tool-calling loop.
 		max_tool_calls   = int(task_cfg.get("aiMaxToolCalls", 10) or 10),
 		# WI-002195: the agent's cap on any one tool result the model sees;
 		# blank falls through to the platform default.
 		tool_result_max_chars = cint(task_cfg.get("aiToolResultMaxChars")) or None,
+		run_token_budget = cint(task_cfg.get("aiRunTokenBudget")) or None,
+		run_cost_budget  = frappe.utils.flt(task_cfg.get("aiRunCostBudget")) or None,
 		resume_state     = _checkpoint.build_resume_state(resume_payload) if resume_payload else None,
-		# WI-002187: "finalize" always ends the turn; a shape can name additional
-		# terminal tools (comma-separated) without losing that default.
-		terminal_tools   = list({"finalize", *(
-			t.strip() for t in (task_cfg.get("aiTerminalTools") or "").split(",") if t.strip()
-		)}),
+		terminal_tools   = terminal_tools_for(task_cfg),
+		tool_choice      = (task_cfg.get("aiToolChoice") or "auto").strip(),
+		parallel_tool_calls = _cfg_truthy(task_cfg.get("aiParallelToolCalls", 1)),
+		thinking_budget_tokens = cint(task_cfg.get("aiThinkingBudgetTokens")),
+		loop_compaction_threshold = cint(task_cfg.get("aiLoopCompactionThreshold")),
+		loop_compaction_keep_turns = cint(task_cfg.get("aiLoopCompactionKeepTurns")) or 8,
+		compaction_model = task_cfg.get("aiCompactionModel") or "",
 	)
 
 	context = ExecutorContext(
@@ -2071,8 +2064,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 
 		_refusal = model_health.refuse_new_run(config.model)
 		if _refusal:
-			task.data[f"{bpmn_id}_error_code"] = ErrorCode.PROVIDER_DISABLED.value
-			task.data[f"{bpmn_id}_error_message"] = _refusal
+			_record_ai_failure(task, task_cfg, bpmn_id, ErrorCode.PROVIDER_DISABLED.value, _refusal)
 			frappe.logger("one_bpmn").warning(
 				f"AI Agent Task {bpmn_id}: refused — {_refusal}"
 			)
@@ -2191,8 +2183,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			title=f"BPMN AI Agent Task: unexpected error ({bpmn_id})",
 			message=frappe.get_traceback(),
 		)
-		task.data[f"{bpmn_id}_error_code"] = "UNEXPECTED_ERROR"
-		task.data[f"{bpmn_id}_error_message"] = "See Frappe Error Log for details."
+		_record_ai_failure(task, task_cfg, bpmn_id, "UNEXPECTED_ERROR", "See Frappe Error Log for details.")
 		# Observability: finalize on exception
 		try:
 			from one_bpmn.agents.observability import finalize_ai_run_on_exception
@@ -2208,6 +2199,18 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# agent's map must hand identity back, not blank it.
 		instance._a2a_delegating_agent = _prev_delegating_agent
 	_exec_latency_ms = int((_time.time() - _exec_start) * 1000)
+
+	# A stage tool that answers the turn writes the reply to the turn store; the loop's own text is narration.
+	if (
+		result.error_code == ErrorCode.SUCCESS
+		and not isinstance(result.output, dict)
+		and getattr(instance, "context_doctype", "") == "Chat Conversation"
+	):
+		from one_bpmn.agents.turn_state import get_turn
+
+		_turn_output = get_turn(instance.context_docname).get("output")
+		if isinstance(_turn_output, dict) and _turn_output.get("response"):
+			result.output = _turn_output["response"]
 
 	# ── Observability: record Steps + finalize ─────────────────────────
 	try:
@@ -2248,7 +2251,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 						run, 3, "assistant",
 						str(result.output or ""),
 						completion_tokens=usage.completion_tokens if usage else 0,
-						latency_ms=_exec_latency_ms,
+						# Failed attempts become their own steps in finalize_ai_run.
+						latency_ms=_exec_latency_ms - sum(a.latency_ms for a in result.attempts or []),
 					)
 
 		# A suspension is not an outcome — the run stays open ("Suspended",
@@ -2377,6 +2381,9 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# Completing a resumed run: drop the waiting marker the suspension left
 		if isinstance(task.data, dict):
 			task.data.pop("_bpmn_ai_waiting_human", None)
+			# A failure from an earlier pass of a looping map must not mark this answer as failed.
+			task.data.pop(f"{bpmn_id}_error_code", None)
+			task.data.pop(f"{bpmn_id}_error_message", None)
 		output_var = task_cfg.get("aiOutputVariable") or f"{bpmn_id}_output"
 		task.data[output_var] = result.output
 		# The shape's own name is the key every downstream reader knows: the
@@ -2617,16 +2624,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				f"error: {result.error_message}"
 			),
 		)
-		task.data[f"{bpmn_id}_error_code"]    = error_code_name
-		task.data[f"{bpmn_id}_error_message"] = result.error_message
-
-		# Without aiStopOnError the flow continues past the failed task, so
-		# the declared output variable must still exist (as None) — otherwise
-		# a downstream gateway condition referencing it dies on a NameError
-		# instead of routing to its default branch.
-		output_var = task_cfg.get("aiOutputVariable") or f"{bpmn_id}_output"
-		task.data.setdefault(output_var, None)
-		task.data.setdefault(f"{bpmn_id}_output", None)
+		# Without aiStopOnError the flow continues, so gateways still find both output names, as None.
+		_record_ai_failure(task, task_cfg, bpmn_id, error_code_name, result.error_message)
 
 		# If the BPMN task is configured to stop on error, raise so the
 		# engine loop in _run_engine_steps halts and the instance is
