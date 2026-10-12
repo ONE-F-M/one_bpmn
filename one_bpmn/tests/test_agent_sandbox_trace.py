@@ -99,3 +99,15 @@ class TestAgentSandboxTrace(FrappeTestCase):
 		with patch.object(module, "_tables_exist", return_value=False):
 			_run(caller="trace-inst-3")
 		self.assertIsNone(_trace("trace-inst-3"))
+
+	def test_back_to_back_edits_of_one_file_are_counted(self):
+		for _ in range(3):
+			_run(action="edit_file", args={"path": "a.py"})
+		self.assertEqual(_trace().repeat_edits, 2)
+
+	def test_an_edit_after_a_test_run_or_of_another_file_is_not_a_repeat(self):
+		_run(action="edit_file", args={"path": "a.py"})
+		_run(action="run_tests")
+		_run(action="edit_file", args={"path": "a.py"})
+		_run(action="edit_file", args={"path": "b.py"})
+		self.assertEqual(_trace().repeat_edits, 0)

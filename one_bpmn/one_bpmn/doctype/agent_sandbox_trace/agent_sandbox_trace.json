@@ -21,6 +21,7 @@
   "section_totals",
   "edit_count",
   "test_runs",
+  "repeat_edits",
   "failed_calls",
   "column_break_totals",
   "http_ms",
@@ -136,6 +137,13 @@
    "fieldname": "test_runs",
    "fieldtype": "Int",
    "label": "Test Runs",
+   "read_only": 1
+  },
+  {
+   "description": "Back-to-back edit_file calls on the same file. Each could have joined an apply_edits call.",
+   "fieldname": "repeat_edits",
+   "fieldtype": "Int",
+   "label": "Repeat Edits",
    "read_only": 1
   },
   {

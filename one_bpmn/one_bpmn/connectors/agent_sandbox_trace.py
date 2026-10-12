@@ -76,10 +76,14 @@ def _summary(run) -> str:
 	return ""
 
 
+def _same_file_edit(before, line) -> bool:
+	return line.action == before.action == "edit_file" and bool(line.summary) and line.summary == before.summary
+
+
 def _roll_up(trace: str, run) -> None:
 	lines = frappe.get_all(
 		"Agent Sandbox Trace Call", parent_doctype="Agent Sandbox Trace", filters={"parent": trace},
-		fields=["action", "state", "ended_at", "commit_sha", "pr_url", "error_message", *TIMING_FIELDS],
+		fields=["action", "state", "summary", "ended_at", "commit_sha", "pr_url", "error_message", *TIMING_FIELDS],
 		order_by="sequence asc", limit_page_length=0,
 	)
 	running = any(line.state in OPEN_STATES for line in lines)
@@ -88,6 +92,7 @@ def _roll_up(trace: str, run) -> None:
 		call_count=len(lines),
 		edit_count=sum(1 for line in lines if line.action in EDIT_ACTIONS and line.state == "completed"),
 		test_runs=sum(1 for line in lines if line.action == "run_tests"),
+		repeat_edits=sum(1 for before, line in zip(lines, lines[1:]) if _same_file_edit(before, line)),
 		failed_calls=sum(1 for line in lines if line.state in FAILED_STATES),
 		state="running" if running else "finished",
 		ended_at=None if running else max((line.ended_at for line in lines if line.ended_at), default=None),
