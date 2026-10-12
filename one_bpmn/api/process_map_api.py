@@ -1247,6 +1247,11 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 	if script_category:
 		categories.append(script_category)
 
+	# 16. Notification sender on a Production site (deploy readiness, non-blocking warnings)
+	sender_category = _notification_sender_category(xml_content, refs["root"])
+	if sender_category:
+		categories.append(sender_category)
+
 	# ── Compute summary ──────────────────────────────────────────────────
 	total_checked = 0
 	total_missing = 0
@@ -1290,6 +1295,33 @@ def _email_settings_category(xml_content: str, root) -> dict | None:
 		for name, (_bpmn_id, missing) in zip(names, email_gaps)
 	]
 	return {"label": _("Email Settings"), "icon": "mail-warning", "items": items}
+
+
+def _notification_sender_category(xml_content: str, root) -> dict | None:
+	"""The Notification Sender readiness category for a Production site, or None."""
+	from one_bpmn.api.compilation import (
+		_extract_service_task_config,
+		_extract_user_task_config,
+		_notification_sender_gaps,
+	)
+
+	expected, gaps = _notification_sender_gaps(
+		_extract_service_task_config(xml_content), _extract_user_task_config(xml_content)
+	)
+	if not gaps:
+		return None
+	items = [
+		{
+			"name": name,
+			"exists": True,
+			"type": "warning",
+			"detail": _("Sends from {0}. On this Production site notifications should send from {1}.").format(
+				sender, expected
+			),
+		}
+		for name, (_bpmn_id, sender) in zip(_step_names(root, [bpmn_id for bpmn_id, _sender in gaps]), gaps)
+	]
+	return {"label": _("Notification Sender"), "icon": "mail-warning", "items": items}
 
 
 def _empty_script_category(root) -> dict | None:
