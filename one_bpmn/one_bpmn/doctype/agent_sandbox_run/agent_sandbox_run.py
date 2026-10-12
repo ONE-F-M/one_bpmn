@@ -46,3 +46,15 @@ class AgentSandboxRun(Document):
 		for field, value in identity_from_payload(self.request_payload).items():
 			if not self.get(field):
 				self.set(field, value)
+
+	def on_update(self):
+		from one_bpmn.one_bpmn.connectors.agent_sandbox_trace import sync
+
+		sync(self)
+
+	def db_set(self, fieldname, value=None, update_modified=True, notify=False, commit=False):
+		"""Settlement writes through db_set, so the trace is refreshed here as well as on save."""
+		super().db_set(fieldname, value, update_modified=update_modified, notify=notify, commit=commit)
+		from one_bpmn.one_bpmn.connectors.agent_sandbox_trace import sync
+
+		sync(self)
