@@ -307,6 +307,24 @@
                 </label>
               </div>
             </div>
+            <div class="field-row" v-if="!isSelector">
+              <label>Sandbox</label>
+              <label class="checkbox-row">
+                <input type="checkbox" v-model="form.aiSandboxUseJob" class="checkbox-input" />
+                <span>Use a Cloud Run Job session per Work Item</span>
+              </label>
+              <label class="checkbox-row">
+                <input type="checkbox" v-model="form.aiSandboxRetryOnTestFailure" class="checkbox-input" />
+                <span>Retry a failed sandbox dispatch once on test failure</span>
+              </label>
+              <label class="checkbox-row">
+                <input type="checkbox" v-model="form.aiRequireReproduction" class="checkbox-input" />
+                <span>Require reproduction before a fix (bug discipline)</span>
+              </label>
+              <span class="field-hint">
+                Saved on the linked agent. With the Job session off, every sandbox call is its own request to the shared service.
+              </span>
+            </div>
           </template>
 
           <div class="field-row" v-if="!isSelector">
@@ -1193,6 +1211,9 @@ const form = ref({
   aiParallelToolCalls: true,
   aiThinkingBudgetTokens: 0,
   aiTerminalTools: "",
+  aiSandboxUseJob: false,
+  aiSandboxRetryOnTestFailure: true,
+  aiRequireReproduction: false,
   // WI-001639: the agent's frozen static context. Always arrays — they are
   // replaced wholesale by loadLinkedAgent once the agent is read.
   aiExamples: [],
@@ -1557,6 +1578,9 @@ onMounted(async () => {
     aiParallelToolCalls: true,
     aiThinkingBudgetTokens: 0,
     aiTerminalTools: "",
+    aiSandboxUseJob: false,
+    aiSandboxRetryOnTestFailure: true,
+    aiRequireReproduction: false,
     aiCompactionIdleMinutes: numOr("aiCompactionIdleMinutes", 0, parseInt),
     aiCompactionOnTaskBoundary: get("aiCompactionOnTaskBoundary") === "true",
     aiLoopCompactionThreshold: 0,
@@ -1610,7 +1634,14 @@ onMounted(async () => {
 // live link). The resolver returns shape-attribute keys (aiSystemPrompt,
 // aiProvider, aiModel, aiTemperature, aiMaxTokens) that map directly onto our
 
-const BOOLEAN_FORM_KEYS = ["aiCompactionEnabled", "aiCompactionOnTaskBoundary", "aiParallelToolCalls"];
+const BOOLEAN_FORM_KEYS = [
+  "aiCompactionEnabled",
+  "aiCompactionOnTaskBoundary",
+  "aiParallelToolCalls",
+  "aiSandboxUseJob",
+  "aiSandboxRetryOnTestFailure",
+  "aiRequireReproduction",
+];
 
 function configValueToForm(key, val) {
   if (BOOLEAN_FORM_KEYS.includes(key)) {
@@ -1781,6 +1812,9 @@ async function writeBackToConfig() {
     fields.aiParallelToolCalls = form.value.aiParallelToolCalls ? 1 : 0;
     fields.aiThinkingBudgetTokens = form.value.aiThinkingBudgetTokens || 0;
     fields.aiTerminalTools = form.value.aiTerminalTools || "";
+    fields.aiSandboxUseJob = form.value.aiSandboxUseJob ? 1 : 0;
+    fields.aiSandboxRetryOnTestFailure = form.value.aiSandboxRetryOnTestFailure ? 1 : 0;
+    fields.aiRequireReproduction = form.value.aiRequireReproduction ? 1 : 0;
   }
   // Screening is NOT sent here. It has its own writer (saveScreening, below),
   // and sending it from both places meant the resolver write landed second and

@@ -142,6 +142,10 @@ _SHAPE_TO_CONFIG = {
 	"aiLockAfterBlocks": "lock_after_blocks",
 	"aiLockBlockWindowSeconds": "lock_block_window_seconds",
 	"aiConcurrentTurnPolicy": "concurrent_turn_policy",
+	# The agent's sandbox settings, written back from the modal.
+	"aiSandboxUseJob": "sandbox_use_job",
+	"aiSandboxRetryOnTestFailure": "sandbox_retry_on_test_failure",
+	"aiRequireReproduction": "require_reproduction",
 }
 
 # The inverse, for the editor read. Not folded into _CONFIG_TO_SHAPE because
@@ -320,6 +324,23 @@ def config_screening(config_name: str) -> dict:
 		if meta.get_field(fieldname):
 			out[_SCREENING_TO_SHAPE[fieldname]] = cfg.get(fieldname)
 	return out
+
+
+# The agent's sandbox settings. Agent-owned with no shape equivalent, so like screening they are readable by
+# the editor and kept out of config_field_map, which is overlaid onto every task at dispatch.
+_SANDBOX_TO_SHAPE = {
+	"sandbox_use_job": "aiSandboxUseJob",
+	"sandbox_retry_on_test_failure": "aiSandboxRetryOnTestFailure",
+	"require_reproduction": "aiRequireReproduction",
+}
+
+
+def config_sandbox(config_name: str) -> dict:
+	"""The agent's sandbox settings, keyed by shape attribute."""
+	if not config_name or not frappe.db.exists("AI Agent Configuration", config_name):
+		return {}
+	cfg = frappe.get_doc("AI Agent Configuration", config_name)
+	return {attr: cint(cfg.get(field)) for field, attr in _SANDBOX_TO_SHAPE.items()}
 
 
 def config_static_context(config_name: str) -> dict:
@@ -619,6 +640,7 @@ def get_agent_config_for_shape(config_name: str) -> dict:
 		**config_field_map(config_name),
 		**config_static_context(config_name),
 		**config_screening(config_name),
+		**config_sandbox(config_name),
 		**roles_available_to_grant(),
 	}
 
@@ -729,6 +751,9 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 			"memory_token_budget",
 			"run_token_budget",
 			"parallel_tool_calls",
+			"sandbox_use_job",
+			"sandbox_retry_on_test_failure",
+			"require_reproduction",
 			"thinking_budget_tokens",
 			"loop_compaction_threshold",
 			"loop_compaction_keep_turns",

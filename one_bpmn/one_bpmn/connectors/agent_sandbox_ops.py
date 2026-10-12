@@ -41,9 +41,15 @@ over a no-code HTTP Request operation.
 from __future__ import annotations
 
 import re
+import time
+from urllib.parse import quote
+
 import frappe
+from frappe.utils import cint
 
 from one_bpmn.agents.shape_tools import BudgetExceeded
+from one_bpmn.one_bpmn.connectors import agent_sandbox_session as sessions
+from one_bpmn.one_bpmn.doctype.agent_sandbox_run.agent_sandbox_run import bounded_error
 
 AGENT_SANDBOX_WAITING_KEY = "_bpmn_agent_sandbox_waiting"
 EVAL_DRY_RUN_KEY = "sandbox_result"
@@ -84,6 +90,102 @@ def target_app_choices() -> list[str]:
 
 
 _WORK_ITEM_ID = re.compile(r"\bWI-\d+\b")
+_GITHUB_REPO = re.compile(r"https?://github\.com/([^/\s]+/[^/\s]+?)(?:\.git)?/?$")
+_BRANCH_FOUND_SECONDS = 600
+_BRANCH_MISSING_SECONDS = 60
+
+
+def dispatch_error(target_app: str, git_branch: str) -> str | None:
+	"""Why a dispatch cannot succeed, so it is refused before a run exists: an app the sandbox lacks, or a base branch GitHub does not have."""
+	if target_app not in target_app_choices():
+		return f"{target_app!r} is not an app the sandbox has. Use one of: {', '.join(target_app_choices())}."
+	return _missing_branch_error(target_app, git_branch)
+
+
+def github_access(target_app: str) -> tuple[str, str] | None:
+	"""The GitHub repository (owner/name) and token for an app, or None when either is not configured."""
+	if not frappe.db.exists("DocType", "GitHub Repository"):
+		return None
+	match = _GITHUB_REPO.match(frappe.db.get_value("GitHub Repository", target_app, "html_url") or "")
+	token = frappe.get_cached_doc("Processa Settings").get_password("github_token", raise_exception=False)
+	return (match.group(1), token) if match and token else None
+
+
+def _missing_branch_error(target_app: str, git_branch: str) -> str | None:
+	"""None when the branch exists, or when GitHub cannot be asked (no repository record, no token, no answer)."""
+	access = github_access(target_app)
+	if not access:
+		return None
+	repo, token = access
+	key = f"agent_sandbox_branch:{repo}:{git_branch}"
+	found = frappe.cache.get_value(key, expires=True)
+	if found is None:
+		import requests
+
+		response = requests.get(
+			f"https://api.github.com/repos/{repo}/branches/{quote(git_branch, safe='')}",
+			headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+			timeout=10,
+		)
+		if response.status_code not in (200, 404):
+			return None
+		found = int(response.status_code == 200)
+		frappe.cache.set_value(key, found, expires_in_sec=_BRANCH_FOUND_SECONDS if found else _BRANCH_MISSING_SECONDS)
+	if found:
+		return None
+	return f"The base branch {git_branch!r} does not exist in {repo}. Use the branch the Work Item targets, for example staging."
+
+
+TIMING_FIELDS = {
+	"total": "sandbox_ms",
+	"git": "git_ms",
+	"tool": "tool_ms",
+	"migrate": "migrate_ms",
+	"tests": "test_ms",
+	"pr": "pr_ms",
+}
+
+
+def timing_fields(timings: dict) -> dict:
+	"""Agent Sandbox Run field values for the milliseconds the sandbox reported."""
+	return {field: cint(timings.get(key)) for key, field in TIMING_FIELDS.items() if key in timings}
+
+
+def _finished(fields: dict) -> dict:
+	"""The fields of a run's last write, with the time it ended."""
+	return {**fields, "completed_at": frappe.utils.now()}
+
+
+_ALWAYS_RETRIED_STATUSES = (429, 503)
+_IDEMPOTENT_STATUSES = (502, 504)
+_IDEMPOTENT_ACTIONS = ("read_file", "list_files", "read_files", "grep_files", "write_file")
+POST_TRIES = 3
+POST_BACKOFF_SECONDS = 1.0
+
+
+def _post_with_retries(url: str, *, idempotent: bool, **kwargs):
+	"""requests.post, tried up to POST_TRIES times with growing waits when the sandbox is busy or unreachable.
+
+	A 429 or 503 means the request was not taken, so it is always tried again. A dropped connection, a timeout or a
+	502 or 504 may have been processed, so those are tried again only when repeating the call is harmless."""
+	import requests
+
+	for attempt in range(POST_TRIES):
+		last = attempt == POST_TRIES - 1
+		try:
+			response = requests.post(url, **kwargs)
+		except (requests.ConnectionError, requests.Timeout):
+			if not idempotent or last:
+				raise
+		else:
+			retried = _ALWAYS_RETRIED_STATUSES + (_IDEMPOTENT_STATUSES if idempotent else ())
+			if response.status_code not in retried or last:
+				return response
+		time.sleep(POST_BACKOFF_SECONDS * 2**attempt)
+
+
+def _elapsed_ms(began: float) -> int:
+	return int((time.monotonic() - began) * 1000)
 
 
 def work_item_id_for(a2a_task: str | None) -> str:
@@ -115,9 +217,10 @@ def _a2a_task_of(instance) -> str | None:
 _READ_BUDGET = 15
 _READ_WARNING_TTL_SECONDS = 2 * 60 * 60
 _REMINDER_AFTER = 8
-_READ_ACTIONS = ("read_file", "list_files")
-_PROGRESS_ACTIONS = ("edit_file", "write_file")
+_READ_ACTIONS = ("read_file", "list_files", "read_files", "grep_files")
+_PROGRESS_ACTIONS = ("edit_file", "write_file", "apply_edits")
 _PLAN_ACTION = "submit_plan"
+_CRITERIA_GATED_ACTIONS = ("edit_file", "write_file", "apply_edits", "delete_file")
 _TEST_PATH = re.compile(
 	r"(^|/)(tests?|__tests__|spec)/|(^|/)test_[^/]+\.\w+$|_test\.\w+$|\.(test|spec)\.\w+$",
 	re.IGNORECASE,
@@ -199,6 +302,7 @@ def frontend_edit_error(instance, action: str, path: str) -> str | None:
 	of the same path before edit_file."""
 	if action not in _PROGRESS_ACTIONS or getattr(instance, "process_model", None) != _FRONTEND_AGENT:
 		return None
+	action = "edit_file" if action == "apply_edits" else action
 	if _FRONTEND_FILE.search(path) and not _skill_loaded(instance, _FRONTEND_SKILL):
 		return (
 			f"Call load_skill {_FRONTEND_SKILL} before changing {path}. It holds the "
@@ -226,12 +330,37 @@ def _has_read(instance, path: str) -> bool:
 		fields=["request_payload"],
 	):
 		payload = frappe.parse_json(row.request_payload) or {}
-		if payload.get("action") not in ("read_file", "write_file"):
+		if payload.get("action") not in ("read_file", "write_file", "read_files"):
 			continue
-		got = _repo_path((payload.get("args") or {}).get("path"))
-		if got and (got == want or got.endswith("/" + want) or want.endswith("/" + got)):
-			return True
+		args = payload.get("args") or {}
+		paths = args.get("paths") if payload["action"] == "read_files" else [args.get("path")]
+		for path in paths if isinstance(paths, list) else []:
+			got = _repo_path(path)
+			if got and (got == want or got.endswith("/" + want) or want.endswith("/" + got)):
+				return True
 	return False
+
+
+def _plan_criteria(instance) -> dict:
+	from one_bpmn.one_bpmn.connectors.agent_criteria import criteria_for
+
+	criteria = criteria_for(instance) if instance is not None else []
+	return {"criteria": criteria} if criteria else {}
+
+
+def _plan_gap_error(instance) -> str | None:
+	from one_bpmn.one_bpmn.connectors.agent_criteria import plan_gap_error
+
+	return plan_gap_error(instance) if instance is not None else None
+
+
+def _edited_paths(action: str, args: dict | None) -> list[str]:
+	"""The files an action would change, for the per-file frontend gate."""
+	args = args or {}
+	if action == "apply_edits":
+		edits = args.get("edits")
+		return [str(e.get("path") or "") for e in edits if isinstance(e, dict)] if isinstance(edits, list) else []
+	return [str(args.get("path") or "")]
 
 
 def _repo_path(path: str | None) -> str:
@@ -311,6 +440,27 @@ _REPRODUCE_MESSAGE = (
 	"Reproduce the bug first: write or edit a test that fails because of it, "
 	"call run_tests and confirm it actually fails, then make this change."
 )
+_BATCH_HINT = (
+	"When you already know several changes, make them together in one apply_edits call "
+	"(up to 20 replacements, one commit) instead of one edit_file call each."
+)
+_NOT_REPRODUCIBLE_WAY_OUT = (
+	" If you cannot make a test fail for this bug, call report_not_reproducible with what you tried instead of editing."
+)
+
+
+def _with_batch_hint(action: str, data: dict) -> dict:
+	"""A changed edit_file result tells the model to batch the changes it already knows of."""
+	return {**data, "hint": _BATCH_HINT} if action == "edit_file" and data.get("edited") else data
+
+
+def _with_way_out(instance, message: str) -> str:
+	"""Names the way out of the gate when the agent's map has the tool for it."""
+	from one_bpmn.one_bpmn.connectors.agent_criteria import has_tool
+
+	if instance is not None and has_tool(instance, "Report Not Reproducible"):
+		return message + _NOT_REPRODUCIBLE_WAY_OUT
+	return message
 
 
 _BUG_PIPELINE_PROCESSES = ("Bug Agent", "Bug Planner", "Bug Programmer", "Bug Reviewer")
@@ -356,40 +506,134 @@ def repeat_run_tests_without_progress_error(instance, action: str) -> str | None
 	return None
 
 
-def reproduction_required_error(instance, path: str | None = None) -> str | None:
-	"""None if `path` is itself a test file (writing or editing a test is
-	always allowed, reproducing the bug included), or if this run already
-	shows a completed edit_file/write_file to a test file FOLLOWED BY a
-	run_tests that failed -- real evidence the bug was reproduced before
-	anything else was touched; otherwise the error to return instead of
-	dispatching the edit.
+_SETUP_ERRORS = re.compile(r"^\s*(?:\w+\.)*(ImportError|ModuleNotFoundError|SyntaxError|IndentationError)\b", re.MULTILINE)
+_EXCEPTION_LINE = re.compile(r"^\s*(?:\w+\.)*\w*(?:Error|Exception)\b.*$", re.MULTILINE)
 
-	Checking only "does a failed run_tests row exist anywhere in this run"
-	was the first version and is deliberately not enough: an unrelated,
-	pre-existing failure in the untouched suite would satisfy that check
-	without the model ever having written a reproducing test. Ordering
-	(a test file written, THEN a failure) is what proves reproduction, not
-	just a failure existing somewhere in this run's history."""
+
+def requires_reproduction(instance) -> bool:
+	"""Whether this run's agent is held to bug discipline (its configuration's Require Reproduction)."""
+	name = getattr(instance, "process_model", None)
+	return bool(name and frappe.db.get_value("AI Agent Configuration", name, "require_reproduction"))
+
+
+def _test_modules(path: str) -> list[str]:
+	"""How a failing test's id can name this test file: its dotted module, and its bare file name."""
+	stem = path.removesuffix(".py")
+	return [stem.replace("/", "."), stem.rsplit("/", 1)[-1]]
+
+
+def _reproduces(result_json: str | None, test_names: list[str]) -> bool:
+	"""A failed run that names a test the agent wrote and ended on something other than an import or syntax error."""
+	result = frappe.parse_json(result_json or "{}") or {}
+	if not any(name in failing for failing in result.get("failing_tests") or [] for name in test_names):
+		return False
+	text = f"{result.get('stderr_tail') or ''}\n{result.get('stdout_tail') or ''}"
+	last_exception = (_EXCEPTION_LINE.findall(text) or [""])[-1]
+	return not _SETUP_ERRORS.match(last_exception)
+
+
+def _run_history(instance, whole_work_item: bool = False):
+	"""The run's sandbox calls in order, each with its action, paths, state and result. With whole_work_item, every
+	agent's calls for the Work Item, because the fix and the pull request come from different agents."""
+	work_item = work_item_id_for(_a2a_task_of(instance)) if whole_work_item else ""
+	for row in frappe.get_all(
+		"Agent Sandbox Run",
+		filters={"work_item": work_item} if work_item else {"caller_instance": instance.name},
+		fields=["state", "request_payload", "result"],
+		order_by="creation asc",
+	):
+		payload = frappe.parse_json(row.request_payload) or {}
+		action = payload.get("action")
+		yield row, action, [p for p in _edited_paths(action, payload.get("args")) if p]
+
+
+def reproduction_required_error(instance, path: str | None = None) -> str | None:
+	"""None when `path` is a test file (writing a test is always allowed), or once this run has written a
+	test and then a run_tests that failed on a test it wrote, for an application reason and not an
+	import or syntax error. Otherwise the error to return instead of dispatching the edit.
+
+	An unrelated failure elsewhere in the suite does not count, and neither does a failure of the new
+	test that is only a mistake in the test itself."""
 	if path and _TEST_PATH.search(path):
 		return None
 	if instance is None:
 		return _REPRODUCE_MESSAGE
-	rows = frappe.get_all(
+	written, failed_for_another_reason = [], False
+	for row, action, paths in _run_history(instance):
+		if row.state == "completed" and action in _PROGRESS_ACTIONS:
+			written += [name for p in paths if _TEST_PATH.search(p) for name in _test_modules(p)]
+		elif action == "run_tests" and row.state == "failed" and written:
+			if _reproduces(row.result, written):
+				return None
+			failed_for_another_reason = True
+	if failed_for_another_reason:
+		return _with_way_out(
+			instance,
+			"The failing run_tests did not show your new test failing for the bug: either another test failed, "
+			"or it ended on an import or syntax error. Fix the test so it fails because of the bug itself, "
+			"run_tests again, then make this change.",
+		)
+	return _with_way_out(instance, _REPRODUCE_MESSAGE)
+
+
+def fix_unverified_error(instance) -> str | None:
+	"""None once a non-test change has been made and a run_tests that passed came after the last one."""
+	last_change, passed_after = None, False
+	for row, action, paths in _run_history(instance, whole_work_item=True):
+		if row.state == "completed" and action in _PROGRESS_ACTIONS and any(not _TEST_PATH.search(p) for p in paths):
+			last_change, passed_after = True, False
+		elif last_change and action == "run_tests" and row.state == "completed":
+			passed_after = True
+	if not last_change:
+		return "Make the fix first. A pull request needs a change to the application, not only a test."
+	if not passed_after:
+		return "Run run_tests after your last change and see it pass, including the test you wrote, before opening the pull request."
+	return None
+
+
+_PR_RETRY_CHANGES = ("edit_file", "write_file", "apply_edits", "delete_file")
+
+
+def repeat_open_pull_request_without_progress_error(instance, action: str) -> str | None:
+	"""A refusal when this run's last open_pull_request failed for a reason other than the network and it has
+	neither changed a file nor run the tests since, so asking again would fail the same way."""
+	if action != "open_pull_request" or instance is None:
+		return None
+	last = frappe.get_all(
 		"Agent Sandbox Run",
-		filters={"caller_instance": instance.name},
-		fields=["state", "request_payload"],
-		order_by="creation asc",
+		filters={"caller_instance": instance.name, "action": "open_pull_request"},
+		fields=["state", "failure_class", "error_message", "creation"],
+		order_by="creation desc",
+		limit_page_length=1,
 	)
-	test_file_written = False
-	for row in rows:
-		payload = frappe.parse_json(row.request_payload) or {}
-		action = payload.get("action")
-		args = payload.get("args") or {}
-		if row.state == "completed" and action in _PROGRESS_ACTIONS and _TEST_PATH.search(args.get("path") or ""):
-			test_file_written = True
-		elif row.state == "failed" and action == "run_tests" and test_file_written:
-			return None
-	return _REPRODUCE_MESSAGE
+	if not last or last[0].state != "failed" or last[0].failure_class == "infra":
+		return None
+	since = {"caller_instance": instance.name, "creation": [">", last[0].creation]}
+	if frappe.db.exists("Agent Sandbox Run", {**since, "action": ["in", _PR_RETRY_CHANGES], "state": "completed"}):
+		return None
+	if frappe.db.exists("Agent Sandbox Run", {**since, "action": "run_tests", "state": ["in", ["completed", "failed"]]}):
+		return None
+	return (
+		f"The last open_pull_request failed ({bounded_error(last[0].error_message, 300)}) and you have not changed "
+		"a file or run the tests since, so calling it again will fail the same way. Change what the error points "
+		"to and call run_tests, then open the pull request. If you cannot fix it, say so in your report instead of retrying."
+	)
+
+
+def _discipline_error(instance, action: str, args: dict | None) -> str | None:
+	"""For an agent held to bug discipline: nothing after a not-reproducible report, and a reproduction before a non-test change."""
+	if instance is None or not requires_reproduction(instance):
+		return None
+	if action not in _CRITERIA_GATED_ACTIONS:
+		return None
+	from one_bpmn.one_bpmn.connectors.agent_reproduction import not_reproducible_error
+
+	if error := not_reproducible_error(instance):
+		return error
+	for path in _edited_paths(action, args):
+		if error := reproduction_required_error(instance, path):
+			return error
+	return None
 
 
 def record_plan(target_app: str, git_branch: str, work_item_description: str, plan: str, *,
@@ -402,12 +646,15 @@ def record_plan(target_app: str, git_branch: str, work_item_description: str, pl
 	doc = frappe.get_doc({
 		"doctype": "Agent Sandbox Run",
 		"state": "completed",
+		"completed_at": frappe.utils.now(),
+		"action": _PLAN_ACTION,
+		"agent_name": getattr(instance, "process_model", None),
 		"target_app": target_app,
 		"git_branch": git_branch,
 		"bpmn_id": bpmn_id,
 		"caller_instance": getattr(instance, "name", None),
 		"work_item_description": work_item_description,
-		"request_payload": frappe.as_json({"action": _PLAN_ACTION, "args": {"plan": plan}}),
+		"request_payload": frappe.as_json({"action": _PLAN_ACTION, "args": {"plan": plan, **_plan_criteria(instance)}}),
 	})
 	doc.flags.ignore_links = True
 	doc.insert(ignore_permissions=True)
@@ -449,15 +696,28 @@ def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_de
 	fields left blank. Row creation itself is wrapped so a DB hiccup here
 	degrades to no row at all rather than breaking the NEVER RAISES
 	guarantee above, except a deadlock, which is re-raised."""
-	gate = frontend_edit_error(instance, action, (args or {}).get("path") or "")
+	gate = next(
+		(error for path in _edited_paths(action, args) if (error := frontend_edit_error(instance, action, path))), None
+	)
 	if gate:
 		return {"ok": False, "error": gate}
+	refused = dispatch_error(target_app, git_branch)
+	if refused:
+		return {"ok": False, "error": refused}
+	if action in _CRITERIA_GATED_ACTIONS and (gap := _plan_gap_error(instance)):
+		return {"ok": False, "error": gap}
+	if discipline := _discipline_error(instance, action, args):
+		return {"ok": False, "error": discipline}
 
 	run = None
+	work_item_id = work_item_id_for(a2a_task)
 	try:
 		run = frappe.get_doc({
 			"doctype": "Agent Sandbox Run",
 			"state": "running",
+			"action": action,
+			"agent_name": getattr(instance, "process_model", None),
+			"work_item": work_item_id,
 			"target_app": target_app,
 			"git_branch": git_branch,
 			"bpmn_id": bpmn_id,
@@ -480,13 +740,13 @@ def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_de
 	if not sandbox_url:
 		error = "Processa Settings has no Sandbox URL configured."
 		if run:
-			run.db_set({"state": "failed", "error_message": error}, update_modified=False)
+			run.db_set(_finished({"state": "failed", "failure_class": "policy", "error_message": error}), update_modified=False)
 		return {"ok": False, "error": error}
 	github_token = settings.get_password("github_token", raise_exception=False) or ""
 	if not github_token:
 		error = "Processa Settings has no GitHub token configured."
 		if run:
-			run.db_set({"state": "failed", "error_message": error}, update_modified=False)
+			run.db_set(_finished({"state": "failed", "failure_class": "policy", "error_message": error}), update_modified=False)
 		return {"ok": False, "error": error}
 
 	payload = {
@@ -494,42 +754,98 @@ def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_de
 		"target_app": target_app,
 		"git_branch": git_branch,
 		"work_item_description": work_item_description,
-		"work_item_id": work_item_id_for(a2a_task),
+		"work_item_id": work_item_id,
 		"args": args,
 		"agent_name": getattr(instance, "process_model", None) or "Dev Agent",
 	}
 	if run:
 		run.db_set("request_payload", frappe.as_json(payload), update_modified=False)
 
+	if work_item_id and sessions.uses_job(payload["agent_name"]):
+		return _tool_call_in_session(run, payload)
+
+	began = time.monotonic()
 	try:
 		token = _mint_identity_token(sandbox_url)
 	except Exception as exc:
 		frappe.log_error(title=f"Dev Agent Sandbox: {action} auth failed", message=frappe.get_traceback())
 		error = f"Could not authenticate to the sandbox: {exc}"
 		if run:
-			run.db_set({"state": "failed", "error_message": error[:500]}, update_modified=False)
+			run.db_set(_finished({"state": "failed", "failure_class": "infra", "error_message": bounded_error(error)}), update_modified=False)
 		return {"ok": False, "error": error}
 
 	try:
 		import requests
 
-		response = requests.post(
+		token_ms = _elapsed_ms(began)
+		began = time.monotonic()
+		response = _post_with_retries(
 			f"{sandbox_url}/tool_call",
+			idempotent=action in _IDEMPOTENT_ACTIONS,
 			json={**payload, "github_token": github_token},
 			headers={"Authorization": f"Bearer {token}"},
 			timeout=60,
 		)
+		http_ms = _elapsed_ms(began)
 		response.raise_for_status()
 		data = response.json()
 		if run:
-			run.db_set({"state": "completed", "result": frappe.as_json(data)}, update_modified=False)
-		return {"ok": True, "response": data}
+			run.db_set(
+				_finished({
+					"state": "completed",
+					"result": frappe.as_json(data),
+					"token_ms": token_ms,
+					"http_ms": http_ms,
+					**timing_fields(frappe.parse_json(response.headers.get("X-Timings-Ms") or "{}")),
+				}),
+				update_modified=False,
+			)
+		return {"ok": True, "response": _with_batch_hint(action, data)}
 	except Exception as exc:
 		frappe.log_error(title=f"Dev Agent Sandbox: {action} call failed", message=frappe.get_traceback())
 		error = f"The sandbox rejected the call: {exc}"
 		if run:
-			run.db_set({"state": "failed", "error_message": error[:500]}, update_modified=False)
+			run.db_set(_finished({"state": "failed", "failure_class": "infra", "error_message": bounded_error(error)}), update_modified=False)
 		return {"ok": False, "error": error}
+
+
+def _tool_call_in_session(run, payload: dict) -> dict:
+	"""The same call as the HTTP path, carried out by the Work Item's Job session."""
+	began = time.monotonic()
+	try:
+		session = sessions.ensure_session(
+			work_item=payload["work_item_id"], target_app=payload["target_app"], git_branch=payload["git_branch"],
+			agent_name=payload["agent_name"], caller_instance=getattr(run, "caller_instance", None),
+		)
+		answer = sessions.wait_for(sessions.enqueue(session, "tool", payload["action"], {"args": payload["args"]}))
+		error = "The sandbox session gave no answer in time." if answer is None else None
+	except Exception as exc:
+		frappe.log_error(title=f"Dev Agent Sandbox: {payload['action']} session call failed", message=frappe.get_traceback())
+		error = f"The sandbox session failed: {exc}"
+	if error:
+		if run:
+			run.db_set(_finished({"state": "failed", "failure_class": "infra", "error_message": bounded_error(error)}), update_modified=False)
+		return {"ok": False, "error": error}
+	data = {key: value for key, value in answer.items() if key != "ok"}
+	timings = data.pop("timings_ms", None) or {}
+	if run:
+		run.db_set(
+			_finished({"state": "completed", "result": frappe.as_json(data), "http_ms": _elapsed_ms(began), **timing_fields(timings)}),
+			update_modified=False,
+		)
+	return {"ok": True, "response": _with_batch_hint(payload["action"], data)}
+
+
+def _slow_action_in_session(run, action: str, payload: dict, args: dict) -> None:
+	"""Queue run_tests or the pull request for the Work Item's Job session. The result settles the run like a callback."""
+	session = sessions.ensure_session(
+		work_item=payload["work_item_id"], target_app=payload["target_app"], git_branch=payload["git_branch"],
+		agent_name=payload["agent_name"], caller_instance=run.caller_instance,
+	)
+	kind = "run_tests" if action == "run_tests" else "finalize"
+	sessions.enqueue(
+		session, kind, action, {"args": args, "work_item_description": payload["work_item_description"]}, run=run.name
+	)
 
 
 def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None:
@@ -549,6 +865,18 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 	if not (target_app and git_branch and work_item_description):
 		raise AgentSandboxError(f"{action} needs target_app, git_branch, and work_item_description.")
 
+	refused = dispatch_error(target_app, git_branch)
+	if refused:
+		raise AgentSandboxError(refused)
+	if action == "open_pull_request" and instance is not None and requires_reproduction(instance):
+		if unverified := fix_unverified_error(instance):
+			raise AgentSandboxError(unverified)
+	if action == "open_pull_request" and instance is not None:
+		from one_bpmn.one_bpmn.connectors.agent_criteria import evidence_gap_error
+
+		if gap := evidence_gap_error(instance):
+			raise AgentSandboxError(gap)
+
 	# An eval cannot wait for the callback, and must never push or open a real pull request.
 	if (frappe.flags.eval_origin or {}).get("eval_run"):
 		task.data[EVAL_DRY_RUN_KEY] = EVAL_DRY_RUN_ANSWERS.get(
@@ -556,7 +884,9 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 		).format(git_branch=git_branch)
 		return None
 
-	progress_error = repeat_run_tests_without_progress_error(instance, action)
+	progress_error = repeat_run_tests_without_progress_error(instance, action) or repeat_open_pull_request_without_progress_error(
+		instance, action
+	)
 	if progress_error:
 		raise AgentSandboxError(progress_error)
 
@@ -570,6 +900,9 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 	run = frappe.get_doc({
 		"doctype": "Agent Sandbox Run",
 		"state": "submitted",
+		"action": action,
+		"agent_name": getattr(instance, "process_model", None),
+		"work_item": work_item_id,
 		"target_app": target_app,
 		"git_branch": git_branch,
 		"bpmn_id": _bpmn_id(task),
@@ -581,7 +914,7 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 
 	github_token = settings.get_password("github_token", raise_exception=False) or ""
 	if not github_token:
-		run.db_set({"state": "failed", "error_message": "No GitHub token configured."}, update_modified=False)
+		run.db_set(_finished({"state": "failed", "failure_class": "policy", "error_message": "No GitHub token configured."}), update_modified=False)
 		raise AgentSandboxError("Processa Settings has no GitHub token configured.")
 
 	args = {k: v for k, v in params.items() if k not in ("target_app", "git_branch", "work_item_description")}
@@ -600,6 +933,19 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 	audit_payload = {**payload, "github_token": "REDACTED"}
 	run.db_set("request_payload", frappe.as_json(audit_payload), update_modified=False)
 
+	if work_item_id and sessions.uses_job(payload["agent_name"]):
+		try:
+			_slow_action_in_session(run, action, payload, args)
+		except Exception as exc:
+			frappe.log_error(title=f"Dev Agent Sandbox: {action} session dispatch failed ({run.name})", message=frappe.get_traceback())
+			run.db_set(_finished({"state": "failed", "failure_class": "infra", "error_message": bounded_error(str(exc))}), update_modified=False)
+			raise AgentSandboxError(f"The sandbox session rejected the dispatch: {exc}")
+		run.db_set("state", "running", update_modified=False)
+		if task is not None:
+			task.data[AGENT_SANDBOX_WAITING_KEY] = {"run": run.name, "label": f"{action} for {target_app}@{git_branch} (session)"}
+		return None
+
+	began = time.monotonic()
 	try:
 		token = _mint_identity_token(sandbox_url)
 	except Exception:
@@ -607,28 +953,32 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 			title=f"Dev Agent Sandbox: identity token minting failed ({run.name})",
 			message=frappe.get_traceback(),
 		)
-		run.db_set({"state": "failed", "error_message": "Could not authenticate to the sandbox."}, update_modified=False)
+		run.db_set(_finished({"state": "failed", "failure_class": "infra", "error_message": "Could not authenticate to the sandbox."}), update_modified=False)
 		raise AgentSandboxError("Could not authenticate to the sandbox — check the service account configuration.")
 
 	try:
 		import requests
 
-		response = requests.post(
+		token_ms = _elapsed_ms(began)
+		began = time.monotonic()
+		response = _post_with_retries(
 			f"{sandbox_url}/run",
+			idempotent=True,
 			json=payload,
 			headers={"Authorization": f"Bearer {token}"},
 			timeout=30,
 		)
+		http_ms = _elapsed_ms(began)
 		response.raise_for_status()
 	except Exception as exc:
 		frappe.log_error(
 			title=f"Dev Agent Sandbox: {action} dispatch failed ({run.name})",
 			message=frappe.get_traceback(),
 		)
-		run.db_set({"state": "failed", "error_message": str(exc)[:500]}, update_modified=False)
+		run.db_set(_finished({"state": "failed", "failure_class": "infra", "error_message": bounded_error(str(exc))}), update_modified=False)
 		raise AgentSandboxError(f"The sandbox rejected the dispatch: {exc}")
 
-	run.db_set("state", "running", update_modified=False)
+	run.db_set({"state": "running", "token_ms": token_ms, "http_ms": http_ms}, update_modified=False)
 
 	if task is not None:
 		task.data[AGENT_SANDBOX_WAITING_KEY] = {
@@ -662,15 +1012,14 @@ def retry_eligible(run) -> bool:
 	"""Whether a just-failed run should be automatically re-dispatched once
 	instead of resuming the waiting agent with the failure.
 
-	Only ever true for a genuine test failure (status == "tests_failed" is
-	the caller's job to have already checked — a clone, migrate, or auth
-	failure reports a different status entirely, before any test ever ran,
-	and retrying one of those would just fail the same way again for free).
+	Only true for an environment failure (see classify_failure): a code failure
+	goes back to the agent with the failing tests, because running the same
+	tests again almost never changes the result.
 	False for a run that is itself already a retry (retry_of set): the
 	policy is retry once, not a loop that could keep re-failing forever.
 	False when the calling agent's own configuration has the policy off, or
 	when the dispatch never recorded which agent it was made for."""
-	if run.retry_of:
+	if run.retry_of or run.failure_class != "env":
 		return False
 	agent_name = (frappe.parse_json(run.request_payload or "{}") or {}).get("agent_name")
 	if not agent_name:
@@ -706,6 +1055,10 @@ def retry_dispatch(original_run) -> bool:
 	run = frappe.get_doc({
 		"doctype": "Agent Sandbox Run",
 		"state": "submitted",
+		"action": action,
+		"agent_name": agent_name,
+		"work_item": original_run.work_item,
+		"attempt": (original_run.attempt or 1) + 1,
 		"target_app": original_run.target_app,
 		"git_branch": original_run.git_branch,
 		"bpmn_id": original_run.bpmn_id,
@@ -719,7 +1072,7 @@ def retry_dispatch(original_run) -> bool:
 
 	github_token = settings.get_password("github_token", raise_exception=False) or ""
 	if not github_token:
-		run.db_set({"state": "failed", "error_message": "No GitHub token configured."}, update_modified=False)
+		run.db_set(_finished({"state": "failed", "failure_class": "policy", "error_message": "No GitHub token configured."}), update_modified=False)
 		return False
 
 	payload = {
@@ -744,14 +1097,15 @@ def retry_dispatch(original_run) -> bool:
 			title=f"Dev Agent Sandbox: retry auth failed ({run.name})",
 			message=frappe.get_traceback(),
 		)
-		run.db_set({"state": "failed", "error_message": "Could not authenticate to the sandbox."}, update_modified=False)
+		run.db_set(_finished({"state": "failed", "failure_class": "infra", "error_message": "Could not authenticate to the sandbox."}), update_modified=False)
 		return False
 
 	try:
 		import requests
 
-		response = requests.post(
+		response = _post_with_retries(
 			f"{sandbox_url}/run",
+			idempotent=True,
 			json=payload,
 			headers={"Authorization": f"Bearer {token}"},
 			timeout=30,
@@ -762,7 +1116,7 @@ def retry_dispatch(original_run) -> bool:
 			title=f"Dev Agent Sandbox: retry dispatch failed ({run.name})",
 			message=frappe.get_traceback(),
 		)
-		run.db_set({"state": "failed", "error_message": str(exc)[:500]}, update_modified=False)
+		run.db_set(_finished({"state": "failed", "failure_class": "infra", "error_message": bounded_error(str(exc))}), update_modified=False)
 		return False
 
 	run.db_set("state", "running", update_modified=False)

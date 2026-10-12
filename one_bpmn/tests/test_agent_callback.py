@@ -142,6 +142,16 @@ class TestOutcomes(CallbackCase):
 		self.assertEqual(row.state, "completed")
 		self.assertEqual(row.pr_url, "https://github.com/o/r/pull/1")
 
+	def test_the_sandboxs_timings_are_recorded_on_the_run(self):
+		run = self._run()
+		self._post({"correlation_id": run.name, "status": "tests_passed",
+		            "pr_url": "https://github.com/o/r/pull/1",
+		            "timings_ms": {"total": 900, "git": 100, "migrate": 300, "tests": 450}})
+		row = frappe.db.get_value(
+			"Agent Sandbox Run", run.name, ["sandbox_ms", "git_ms", "migrate_ms", "test_ms"], as_dict=True
+		)
+		self.assertEqual((row.sandbox_ms, row.git_ms, row.migrate_ms, row.test_ms), (900, 100, 300, 450))
+
 	def test_a_pass_without_a_pr_is_a_failure_not_a_success(self):
 		"""Tests passing is not the deliverable — the pull request is. A run that
 		reports a pass and opened nothing has produced nothing."""
@@ -463,6 +473,25 @@ class TestRetryOnTestFailure(CallbackCase):
 		mock_retry.assert_called_once()
 		mock_resume.assert_not_called()
 
+	def test_a_code_failure_goes_back_to_the_agent_not_to_a_blind_retry(self):
+		self._config("Dev Agent", retry=1)
+		run = self._run(request_payload={"action": "run_tests", "args": {}, "agent_name": "Dev Agent"})
+		with patch("one_bpmn.one_bpmn.connectors.agent_sandbox_ops.retry_dispatch") as mock_retry, \
+		     patch.object(cb, "_enqueue_resume") as mock_resume:
+			self._post({"correlation_id": run.name, "status": "tests_failed", "failing_tests": ["test_x (m.T)"]})
+		mock_retry.assert_not_called()
+		mock_resume.assert_called_once()
+		self.assertEqual(frappe.db.get_value("Agent Sandbox Run", run.name, "failure_class"), "code")
+
+	def test_a_refused_branch_is_not_retried_and_is_recorded_as_policy(self):
+		self._config("Dev Agent", retry=1)
+		run = self._run(request_payload={"action": "run_tests", "args": {}, "agent_name": "Dev Agent"})
+		with patch("one_bpmn.one_bpmn.connectors.agent_sandbox_ops.retry_dispatch") as mock_retry, \
+		     patch.object(cb, "_enqueue_resume"):
+			self._post({"correlation_id": run.name, "status": "failed", "error": "git fetch failed: couldn't find remote ref x"})
+		mock_retry.assert_not_called()
+		self.assertEqual(frappe.db.get_value("Agent Sandbox Run", run.name, "failure_class"), "policy")
+
 	def test_an_ineligible_failure_resumes_normally(self):
 		"""No request_payload at all -- agent_name can't be extracted, so
 		retry_eligible is false and the original behaviour (resume the
@@ -628,3 +657,22 @@ class TestCallbackRunsAsAgentUser(CallbackCase):
 		self.assertFalse(frappe.db.exists("AI Agent Run", {"correlation_id": run.name}))
 		self.assertEqual(resumed_as, [])
 		self.assertEqual(frappe.session.user, "Guest")
+
+
+class TestClassifyFailure(FrappeTestCase):
+	def test_each_kind_of_failure_gets_its_class(self):
+		cases = [
+			("tests_passed_no_changes", {}, "gave-up"),
+			("tests_failed", {"failing_tests": ["test_a (m.A)"]}, "code"),
+			("tests_failed", {"failing_tests": [], "stderr_tail": "ModuleNotFoundError"}, "env"),
+			("failed", {"error": "migrate failed"}, "env"),
+			("failed", {"error": "git fetch failed: couldn't find remote ref develop"}, "policy"),
+			("tests_passed", {"pr_error": "GitHub API error (403) on PUT"}, "policy"),
+			("tests_passed", {"pr_error": "GitHub API error (502)"}, "infra"),
+			("failed", {"error": "coding loop failed: Error code: 529 - overloaded_error"}, "model-api"),
+			("failed", {"error": "anthropic rate limit exceeded"}, "model-api"),
+			("failed", {"error": "429 Too Many Requests"}, "model-api"),
+			("tests_failed", {"failing_tests": ["t"], "stderr_tail": "line 4290 of the log"}, "code"),
+		]
+		for status, payload, expected in cases:
+			self.assertEqual(cb.classify_failure(status, payload), expected, (status, payload))

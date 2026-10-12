@@ -1327,6 +1327,24 @@ def clean_doc_from_wf_data(wf: BpmnWorkflow) -> None:
 			task.data.pop("doc", None)
 
 
+# Messages that wait for their catch event when they arrive early. Other messages (a chat turn) are
+# dropped as before, because those processes queue their own turns.
+BUFFERED_MESSAGE_PREFIXES = ("github:",)
+
+
+def declares_message(wf: BpmnWorkflow, message_name: str) -> bool:
+	"""Whether any catch event or receive task in the process, or its sub-processes, waits for this message."""
+	from SpiffWorkflow.bpmn.specs.event_definitions import MessageEventDefinition
+
+	for spec in [wf.spec, *wf.subprocess_specs.values()]:
+		for task_spec in spec.task_specs.values():
+			event = getattr(task_spec, "event_definition", None)
+			for definition in getattr(event, "event_definitions", None) or [event]:
+				if isinstance(definition, MessageEventDefinition) and definition.name == message_name:
+					return True
+	return False
+
+
 def send_message(wf: BpmnWorkflow, message_name: str, payload: dict = None) -> bool:
 	"""
 	Deliver an external message to a running workflow instance.

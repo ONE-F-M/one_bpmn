@@ -552,6 +552,7 @@ class BPMNProcessInstance(Document):
 			# while the instance isn't parked at a matching catch node). This is
 			# benign, so skip quietly and return the unchanged task summary rather
 			# than surfacing an alarming error to the user.
+			self._buffer_message(wf, message_name, payload)
 			frappe.logger("one_bpmn").debug(
 				f'No task in instance "{self.name}" is waiting for message "{message_name}".'
 			)
@@ -973,6 +974,7 @@ class BPMNProcessInstance(Document):
 		self._pending_ai_jobs = []
 		try:
 			self._run_engine_inner(wf)
+			self._deliver_buffered_messages(wf)
 		finally:
 			bpmn_engine.adhoc_next_task_decider = None
 			bpmn_engine.adhoc_task_activated_logger = None
@@ -986,6 +988,50 @@ class BPMNProcessInstance(Document):
 			1 if (self._pending_ai_jobs or self._has_parked_ai_tasks(wf)) else 0
 		)
 		self._enqueue_parked_ai_jobs()
+
+	BUFFERED_MESSAGE_TTL_HOURS = 24
+	BUFFERED_MESSAGES_KEPT = 20
+
+	def _live_buffered_messages(self) -> list:
+		"""Buffered messages still inside their time limit, oldest first."""
+		return [
+			m
+			for m in self._load_json(self.buffered_messages) or []
+			if frappe.utils.time_diff_in_hours(frappe.utils.now(), m["received_at"]) < self.BUFFERED_MESSAGE_TTL_HOURS
+		]
+
+	def _buffer_message(self, wf, message_name: str, payload: dict | None):
+		"""Keep a message that arrived with nothing waiting for it, when the diagram declares it and its name is buffered."""
+		if not (
+			message_name.startswith(bpmn_engine.BUFFERED_MESSAGE_PREFIXES)
+			and bpmn_engine.declares_message(wf, message_name)
+		):
+			return
+		kept = self._live_buffered_messages()
+		entry = {"name": message_name, "payload": payload or {}, "received_at": frappe.utils.now()}
+		if any(m["name"] == message_name and m["payload"] == entry["payload"] for m in kept):
+			return
+		kept = (kept + [entry])[-self.BUFFERED_MESSAGES_KEPT :]
+		self.db_set("buffered_messages", json.dumps(kept), update_modified=False)
+
+	def _deliver_buffered_messages(self, wf):
+		"""Hand each buffered message to the wait that now catches it, until no more are taken."""
+		pending = self._live_buffered_messages()
+		delivered = True
+		while delivered and pending:
+			delivered = False
+			for message in list(pending):
+				if bpmn_engine.send_message(wf, message["name"], message["payload"]):
+					pending.remove(message)
+					self._log_task(
+						f"buffered:{message['received_at']}:{message['name']}",
+						f"Message: {message['name']}",
+						"Message Received",
+						message["payload"],
+					)
+					self._run_engine_inner(wf)
+					delivered = True
+		self.buffered_messages = json.dumps(pending) if pending else None
 
 	# ── WI-001495: park-and-enqueue seam for AI tasks ─────────────────────────
 

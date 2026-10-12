@@ -40,7 +40,7 @@ class TestSettledFields(FrappeTestCase):
 			{"state": "completed", "pr_url": "https://x/pull/1"},
 		)
 		fields = cb._settled_fields("open_pull_request", "tests_passed", "", {"pr_error": "boom"})
-		self.assertEqual(fields, {"state": "failed", "error_message": "boom"})
+		self.assertEqual(fields, {"state": "failed", "failure_class": "infra", "error_message": "boom"})
 
 	def test_a_pr_opened_despite_failing_tests_is_kept_on_a_failed_run(self):
 		fields = cb._settled_fields("open_pull_request", "tests_failed", "https://x/pull/2", {})

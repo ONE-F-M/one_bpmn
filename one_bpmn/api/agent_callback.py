@@ -30,6 +30,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 from datetime import datetime
 
 import frappe
@@ -37,6 +38,7 @@ import frappe
 from one_bpmn.agents import identity
 from one_bpmn.agents.observability import record_ai_step
 from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
+from one_bpmn.one_bpmn.doctype.agent_sandbox_run.agent_sandbox_run import bounded_error
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
@@ -87,7 +89,11 @@ def report_result() -> dict:
 	if run.state in ("completed", "failed"):
 		return {"accepted": True}  # already settled — a replayed callback is a no-op
 
-	# A signed callback arrives as Guest; record and resume the run as the agent's user.
+	return settle_as_agent(run, payload)
+
+
+def settle_as_agent(run, payload: dict) -> dict:
+	"""A signed result arrives as Guest; record and resume the run as the agent's user."""
 	caller = frappe.session.user
 	frappe.set_user(identity.user_for("Dev Agent") or run.owner)
 	try:
@@ -98,6 +104,8 @@ def report_result() -> dict:
 
 def _settle(run, payload: dict) -> dict:
 	"""Record the sandbox's outcome on the run, then retry or resume the caller."""
+	from one_bpmn.one_bpmn.connectors import agent_sandbox_ops as ops
+
 	status = payload.get("status")
 	run.db_set("result", frappe.as_json(payload), update_modified=False)
 
@@ -115,7 +123,13 @@ def _settle(run, payload: dict) -> dict:
 	if files:
 		run.db_set("files", frappe.as_json(files), update_modified=False)
 
-	run.db_set(_settled_fields(_run_action(run), status, pr_url, payload), update_modified=False)
+	run.db_set(ops._finished(_settled_fields(_run_action(run), status, pr_url, payload)), update_modified=False)
+
+	timings = ops.timing_fields(payload.get("timings_ms") or {})
+	if timings:
+		run.db_set(timings, update_modified=False)
+	if payload.get("commit"):
+		run.db_set("commit_sha", str(payload["commit"])[:40], update_modified=False)
 
 	# A real test failure gets one automatic re-dispatch instead of resuming
 	# the waiting agent straight away — a flaky test should not throw away a
@@ -125,8 +139,6 @@ def _settle(run, payload: dict) -> dict:
 	# the ORIGINAL failure below, or the agent would be left waiting
 	# forever for a callback that can now never arrive.
 	if status == "tests_failed":
-		from one_bpmn.one_bpmn.connectors import agent_sandbox_ops as ops
-
 		if ops.retry_eligible(run) and ops.retry_dispatch(run):
 			return {"accepted": True}
 
@@ -138,6 +150,24 @@ def _run_action(run) -> str:
 	return (frappe.parse_json(run.request_payload or "{}") or {}).get("action") or ""
 
 
+_POLICY_MARKERS = ("403", "forbidden", "couldn't find remote ref", "permission denied", "bad credentials")
+_MODEL_API = re.compile(r"\b(429|529)\b|overloaded|rate.?limit", re.IGNORECASE)
+
+
+def classify_failure(status: str, payload: dict) -> str:
+	"""The retry class of a failed sandbox result: gave-up, policy, code, env or infra."""
+	if status == "tests_passed_no_changes":
+		return "gave-up"
+	text = " ".join(str(payload.get(key) or "") for key in ("error", "pr_error", "stderr_tail")).lower()
+	if any(marker in text for marker in _POLICY_MARKERS):
+		return "policy"
+	if _MODEL_API.search(text):
+		return "model-api"
+	if status == "tests_failed" and payload.get("failing_tests"):
+		return "code"
+	return "env" if status in ("tests_failed", "failed") else "infra"
+
+
 def _settled_fields(action: str, status: str, pr_url: str, payload: dict) -> dict:
 	"""The state a finished run settles to. run_tests never opens a PR, so for
 	it tests_passed is completion; every other shape still needs a pr_url."""
@@ -147,15 +177,18 @@ def _settled_fields(action: str, status: str, pr_url: str, payload: dict) -> dic
 		if pr_url:
 			return {"state": "completed", "pr_url": pr_url}
 		error = payload.get("pr_error") or "Sandbox reported tests_passed but did not open a pull request."
-		return {"state": "failed", "error_message": error[:500]}
+		return {"state": "failed", "failure_class": classify_failure(status, payload), "error_message": bounded_error(error)}
 	if status == "tests_passed_no_changes":
-		return {"state": "failed", "error_message": "Tests passed but the agent made no changes to submit."}
+		return {
+			"state": "failed", "failure_class": classify_failure(status, payload),
+			"error_message": "Tests passed but the agent made no changes to submit.",
+		}
 	# A PR opened despite the failure doesn't make this a success, but its
 	# url is kept so the diff stays reachable for review.
 	error = payload.get("error") or status or "sandbox run failed"
 	if payload.get("pr_error") and not pr_url:
 		error = f"{error}; pull request not opened: {payload['pr_error']}"
-	fields = {"state": "failed", "error_message": error[:500]}
+	fields = {"state": "failed", "failure_class": classify_failure(status, payload), "error_message": bounded_error(error)}
 	if pr_url:
 		fields["pr_url"] = pr_url
 	return fields

@@ -1,0 +1,178 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-10-11 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "state",
+  "work_item",
+  "attempt",
+  "target_app",
+  "git_branch",
+  "agent_name",
+  "column_break_a",
+  "caller_instance",
+  "execution_name",
+  "started_at",
+  "registered_at",
+  "last_heartbeat",
+  "closed_at",
+  "section_secrets",
+  "register_token_hash",
+  "session_key",
+  "last_seq",
+  "idle_timeout_seconds",
+  "error_message"
+ ],
+ "fields": [
+  {
+   "fieldname": "state",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "State",
+   "default": "queued",
+   "search_index": 1,
+   "options": "queued\nstarting\nregistered\nactive\nclosing\nclosed\nlost\ncancelled"
+  },
+  {
+   "fieldname": "work_item",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Work Item",
+   "search_index": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "attempt",
+   "fieldtype": "Int",
+   "label": "Attempt",
+   "default": "1",
+   "read_only": 1
+  },
+  {
+   "fieldname": "target_app",
+   "fieldtype": "Data",
+   "label": "Target App",
+   "read_only": 1
+  },
+  {
+   "fieldname": "git_branch",
+   "fieldtype": "Data",
+   "label": "Base Branch",
+   "read_only": 1
+  },
+  {
+   "fieldname": "agent_name",
+   "fieldtype": "Data",
+   "label": "Agent",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "caller_instance",
+   "fieldtype": "Link",
+   "label": "Caller Instance",
+   "options": "BPMN Process Instance",
+   "read_only": 1
+  },
+  {
+   "fieldname": "execution_name",
+   "fieldtype": "Data",
+   "label": "Job Execution",
+   "read_only": 1,
+   "description": "The Cloud Run Job execution running this session."
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "registered_at",
+   "fieldtype": "Datetime",
+   "label": "Registered At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_heartbeat",
+   "fieldtype": "Datetime",
+   "label": "Last Heartbeat",
+   "read_only": 1
+  },
+  {
+   "fieldname": "closed_at",
+   "fieldtype": "Datetime",
+   "label": "Closed At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_secrets",
+   "fieldtype": "Section Break",
+   "label": "Credentials"
+  },
+  {
+   "fieldname": "register_token_hash",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Register Token Hash",
+   "read_only": 1,
+   "description": "SHA-256 of the one-time token the container registers with. Cleared when it is used."
+  },
+  {
+   "fieldname": "session_key",
+   "fieldtype": "Password",
+   "hidden": 1,
+   "label": "Session Key"
+  },
+  {
+   "fieldname": "last_seq",
+   "fieldtype": "Int",
+   "label": "Last Command Sequence",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "idle_timeout_seconds",
+   "fieldtype": "Int",
+   "label": "Idle Timeout Seconds",
+   "default": "600"
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Small Text",
+   "label": "Error Message",
+   "read_only": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-10-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "Agent Sandbox Session",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}
