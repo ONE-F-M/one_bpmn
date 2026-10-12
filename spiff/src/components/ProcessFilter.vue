@@ -62,7 +62,7 @@
 								/>
 							</div>
 						</div>
-						<Button variant="ghost" @click="removeFilter(i)">
+						<Button variant="ghost" @click="removeFilter(i)" title="Remove filter" aria-label="Remove filter">
 							<Icon icon="lucide:x" class="h-4 w-4" />
 						</Button>
 					</div>

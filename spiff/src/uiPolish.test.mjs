@@ -81,3 +81,10 @@ test("the expanded diagram height is read on each open, not once", () => {
 	assert.match(card, /:height="expandedHeight\(\)"/)
 	assert.doesNotMatch(card, /expandedHeight = computed/)
 })
+
+test("the remove-filter icon button has title and aria-label for accessibility", () => {
+	const filter = source("components/ProcessFilter.vue")
+	const button = filter.slice(filter.indexOf("removeFilter(i)") - 100, filter.indexOf("removeFilter(i)") + 100)
+	assert.match(button, /title="Remove filter"/)
+	assert.match(button, /aria-label="Remove filter"/)
+})
