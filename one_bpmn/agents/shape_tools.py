@@ -110,6 +110,10 @@ def compile_shape_tools(tool_shapes, instance) -> list:
 PAUSE_HELD_FLAG = "a2a_pause_held_this_turn"
 
 
+class BudgetExceeded(Exception):
+	"""A tool found the run has spent its budget; the step loop ends the run with BUDGET_EXCEEDED."""
+
+
 class ToolDeferred(Exception):
 	"""A tool started work that finishes later, so it has no result yet.
 
@@ -179,6 +183,23 @@ _DISPATCH_WIRING = {"connector": ("connectorId", "operation")}
 # onto task.data. A tool on one of these needs no Result Variable, so the
 # readiness check does not ask for one.
 ANSWERS_OUT_OF_BAND = frozenset({"a2a", "agent_sandbox"})
+
+# Names a Server Script receives without importing them: (name, meaning, Script Task, agent tool).
+SCRIPT_NAMES = (
+	("frappe", "The frappe module.", True, True),
+	("task_data", "A copy of the workflow variables, read with task_data.get(...).", True, True),
+	("result", "A dict; what the script puts here becomes workflow variables (or the tool's reply).", True, True),
+	("context_doctype", "DocType of the record the process runs for.", True, True),
+	("context_docname", "Name of that record; for a chat agent, the Chat Conversation.", True, True),
+	("doc", "That record, loaded; an empty dict when there is none.", True, True),
+	("instance", "The BPMN Process Instance.", True, True),
+	("bpmn_id", "Id of the shape the script runs for.", True, True),
+	("agent_configuration", "The AI Agent Configuration that owns the map, or empty.", True, False),
+	("ai_agent_config", "The AI Agent Configuration set on the calling AI Agent Task.", False, True),
+	("shape_config", "The tool shape's own compiled settings.", False, True),
+	("<workflow variables>", "Each workflow variable, also as a plain name.", True, False),
+	("<tool arguments>", "Each argument the model passed to the tool, as a plain name.", False, True),
+)
 
 
 def _with_dispatch_wiring(instance, bpmn_id: str, task_cfg: dict) -> dict:
@@ -257,8 +278,9 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 	that is its ``result`` dict; for a Service Task it is whatever the dispatch
 	handler wrote to ``task.data`` — excluding the arguments the LLM supplied.
 
-	Never raises, with one exception: ``ToolDeferred``, which is not a failure
-	but "no answer yet" and must reach the loop so it can suspend. Ordinary
+	Never raises, with two exceptions that must reach the loop: ``ToolDeferred``,
+	which is not a failure but "no answer yet", so the loop can suspend, and
+	``BudgetExceeded``, so the loop can end the run. Ordinary
 	failures are logged and returned as a structured ``{"error": ...}`` payload
 	so the tool-calling loop stays alive.
 	"""
@@ -364,25 +386,28 @@ def _execute_shape_body(instance, bpmn_id: str, task_cfg: dict | None, kwargs: d
 				)
 
 		return json.dumps(produced or {"ok": True}, default=str)
-	except ToolDeferred:
+	except (ToolDeferred, BudgetExceeded):
 		raise
 	except frappe.PermissionError as refused:
 		# Refusals carry their reason to the model. "See Error Log for details" is
 		# useless to an agent — it cannot read the Error Log, so it invents an
 		# explanation, and the explanation it invents is usually that the work is
 		# done or that retrying will help.
+		_record_tool_error(instance, bpmn_id, refused)
 		return json.dumps({"error": str(refused), "retryable": False})
 	except frappe.ValidationError as invalid:
 		# Same reasoning for a rule the document itself enforced. A Work Item save
 		# can fail for reasons nothing to do with what the tool changed — no
 		# sprint, a completed sprint, an Epic — and the agent has to be able to
 		# say which rule stopped it instead of reporting the change as made.
+		_record_tool_error(instance, bpmn_id, invalid)
 		return json.dumps({"error": str(invalid), "retryable": False})
 	except Exception as unexpected:
 		frappe.log_error(
 			title=f"AI Agent shape tool '{bpmn_id}' failed",
 			message=frappe.get_traceback(),
 		)
+		_record_tool_error(instance, bpmn_id, unexpected)
 		# The model cannot read the Error Log, so the class and message travel
 		# with the refusal.
 		return json.dumps({
@@ -390,6 +415,18 @@ def _execute_shape_body(instance, bpmn_id: str, task_cfg: dict | None, kwargs: d
 				f"Shape '{bpmn_id}' failed — {type(unexpected).__name__}: {unexpected}"
 			),
 		})
+
+
+def _record_tool_error(instance, bpmn_id: str, exc: Exception) -> None:
+	"""Put the failed tool in the chat turn store, so the turn's closing script can report the failure."""
+	if getattr(instance, "context_doctype", None) != "Chat Conversation":
+		return
+	from one_bpmn.agents.turn_state import update_turn
+
+	update_turn(
+		instance.context_docname,
+		tool_error={"tool": bpmn_id, "error": str(exc), "error_class": type(exc).__name__},
+	)
 
 
 def _connector_not_permitted(task_cfg: dict) -> dict | None:

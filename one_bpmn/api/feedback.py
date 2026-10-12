@@ -16,11 +16,14 @@ finished, so it is an ordinary endpoint like `end_chat_conversation`.
 """
 
 import json
+from datetime import timedelta
 
 import frappe
 from frappe import _
+from frappe.utils import get_datetime
 
 RATINGS = ("Positive", "Negative")
+SAME_ERROR_WINDOW_HOURS = 48
 VALID_REASONS = (
 	"Inaccurate",
 	"Incomplete",
@@ -373,6 +376,46 @@ def _notify_feedback_fixed(doc) -> None:
 		)
 	except Exception:
 		frappe.log_error(title="AI Response Feedback: fixed-notification failed", message=frappe.get_traceback())
+
+
+@frappe.whitelist()
+def get_same_error_feedback(feedback: str) -> list:
+	"""New negative feedback whose run failed with the same errors within 48 hours of this one."""
+	doc = frappe.get_doc("AI Response Feedback", feedback)
+	doc.check_permission("read")
+	return _same_error_feedback(doc)
+
+
+@frappe.whitelist(methods=["POST"])
+def mark_same_error_fixed(feedback: str) -> dict:
+	"""Apply this record's Fixed status to the New feedback that failed the same way."""
+	doc = frappe.get_doc("AI Response Feedback", feedback)
+	doc.check_permission("write")
+	if doc.status != "Fixed":
+		frappe.throw(_("Mark this feedback Fixed before applying it to similar records."))
+	names = [row.name for row in _same_error_feedback(doc)]
+	for name in names:
+		set_feedback_status(name, "Fixed")
+	return {"feedback": doc.name, "fixed": names}
+
+
+def _same_error_feedback(doc) -> list:
+	if not (doc.run_errors or "").strip():
+		return []
+	rated_on = get_datetime(doc.rated_on)
+	window = timedelta(hours=SAME_ERROR_WINDOW_HOURS)
+	return frappe.get_list(
+		"AI Response Feedback",
+		filters={
+			"name": ["!=", doc.name],
+			"status": "New",
+			"rating": "Negative",
+			"run_errors": doc.run_errors,
+			"rated_on": ["between", [rated_on - window, rated_on + window]],
+		},
+		fields=["name", "rated_on", "agent_configuration", "comment"],
+		order_by="rated_on asc",
+	)
 
 
 @frappe.whitelist()

@@ -1172,9 +1172,12 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 	# methods. Marking "Removed on Production" is the deliberate escape hatch
 	# for validation that must stay in code (couldn't move to a script).
 	if model_name:
-		removal_status = frappe.db.get_value(
-			"BPMN Process Model", model_name, "backend_code_removal_status"
-		)
+		removal_status = None
+		process_name = frappe.db.get_value("BPMN Process Model", model_name, "process_name")
+		if process_name:
+			removal_status = frappe.db.get_value(
+				"Process", process_name, "backend_code_removal_status"
+			)
 		if removal_status and removal_status not in ("Removed on Production",):
 			backend_items = [{
 				"name": _("Backend code removal not confirmed"),

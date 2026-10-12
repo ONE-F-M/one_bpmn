@@ -245,17 +245,19 @@
 
           <div class="field-group-title">Advanced Settings</div>
 
-          <!-- Temperature (selector dispatch doesn't read sampling params) -->
-          <div class="field-row two-col" v-if="!isSelector">
+          <div class="field-row two-col">
             <div>
               <label>Temperature</label>
-              <input type="number" v-model.number="form.aiTemperature" min="0" max="2" step="0.1" />
+              <input type="number" v-model.number="form.aiTemperature" min="0" max="2" step="0.1" :disabled="!samplingSupported" :class="{ 'field-off': !samplingSupported }" />
             </div>
             <div>
               <label>Top P</label>
-              <input type="number" v-model.number="form.aiTopP" min="0" max="1" step="0.05" />
+              <input type="number" v-model.number="form.aiTopP" min="0" max="1" step="0.05" :disabled="!samplingSupported" :class="{ 'field-off': !samplingSupported }" />
             </div>
           </div>
+          <span class="field-hint" v-if="!samplingSupported">
+            {{ form.aiModel }} does not accept Temperature or Top P, so neither is sent. Tick Support Temperature on the AI Model to use them.
+          </span>
 
           <div class="field-row two-col">
             <div>
@@ -267,6 +269,45 @@
               <input type="number" v-model.number="form.aiTimeout" min="1" />
             </div>
           </div>
+
+          <div class="field-row two-col" v-if="!isSelector">
+            <div>
+              <label>Run Token Budget <span class="hint">(0 = no budget)</span></label>
+              <input type="number" v-model.number="form.aiRunTokenBudget" min="0" step="1000" />
+            </div>
+            <div>
+              <label>Run Cost Budget <span class="hint">(USD, 0 = no budget)</span></label>
+              <input type="number" v-model.number="form.aiRunCostBudget" min="0" step="0.1" />
+            </div>
+          </div>
+
+          <template v-if="form.aiAgentConfig">
+            <div class="field-row two-col">
+              <div>
+                <label>Tool Choice <span class="hint">(first model call only)</span></label>
+                <input type="text" v-model.trim="form.aiToolChoice" placeholder="auto" />
+              </div>
+              <div>
+                <label>Thinking Budget Tokens <span class="hint">(0 = off)</span></label>
+                <input type="number" v-model.number="form.aiThinkingBudgetTokens" min="0" step="1024" />
+              </div>
+            </div>
+            <span class="field-hint">
+              Tool Choice is auto, required, or a tool shape's id. A thinking budget is at least 1,024 and below Max Tokens. Both are saved on the linked agent.
+            </span>
+            <div class="field-row two-col">
+              <div>
+                <label>Terminal Tools <span class="hint">(comma-separated; finalize always ends the turn)</span></label>
+                <input type="text" v-model.trim="form.aiTerminalTools" />
+              </div>
+              <div>
+                <label class="checkbox-row">
+                  <input type="checkbox" v-model="form.aiParallelToolCalls" class="checkbox-input" />
+                  <span>Parallel Tool Calls</span>
+                </label>
+              </div>
+            </div>
+          </template>
 
           <div class="field-row" v-if="!isSelector">
             <label>Max Retries</label>
@@ -315,6 +356,11 @@
                   <span class="static-field-label">User says <em>— the input to match on</em></span>
                   <textarea v-model="ex.input" rows="2" placeholder="e.g. How many staff are on shift today?" />
                 </div>
+                <div class="static-field">
+                  <span class="static-field-label">Context <em>- what the agent knew when the message arrived</em></span>
+                  <textarea v-model="ex.context_summary" rows="2" placeholder="e.g. The Leave Request form is open." />
+                </div>
+                <ExampleTrajectory v-if="ex.trajectory" v-model="ex.trajectory" />
                 <div class="static-field">
                   <span class="static-field-label">Agent should answer <em>— the reply to imitate</em></span>
                   <textarea v-model="ex.expected_output" rows="2" placeholder="e.g. 14." />
@@ -757,6 +803,7 @@ import { frappeGet } from "@/bpmn/shared/frappeResource";
 // WI-001674: agent mode chats through the shared panel + card registry.
 import { AgentChatPanel } from "@/components/chat";
 import { cardRegistry } from "@/components/chat/cards/registry";
+import ExampleTrajectory from "@/components/ExampleTrajectory.vue";
 const availableSkills = ref([]);
 function addSkill() { form.value.aiSkills.push({ skill: '', version_pin: '' }); }
 
@@ -863,6 +910,12 @@ function onProviderChange() {
   const current = catalogModels.value.find((m) => m.name === form.value.aiModel);
   if (current && current.provider !== form.value.aiProvider) form.value.aiModel = "";
 }
+
+// A model without Support Temperature is sent neither value; a model missing from the catalogue keeps both editable.
+const samplingSupported = computed(() => {
+  const picked = catalogModels.value.find((m) => m.name === form.value.aiModel);
+  return !picked || Boolean(picked.support_temperature);
+});
 
 // The pair has to agree from both directions: a model belongs to exactly one
 // provider, so picking one settles the provider too.
@@ -1112,6 +1165,13 @@ const form = ref({
   // The golden dataset bar. 0 is "no bar": the dataset shows a count and nothing to measure it against.
   aiGoldenDatasetMinimum: 0,
   aiGoldenDatasetTarget: 0,
+  // Agent-owned: a run stops once it passes either budget; 0 is no budget.
+  aiRunTokenBudget: 0,
+  aiRunCostBudget: 0,
+  aiToolChoice: "",
+  aiParallelToolCalls: true,
+  aiThinkingBudgetTokens: 0,
+  aiTerminalTools: "",
   // WI-001639: the agent's frozen static context. Always arrays — they are
   // replaced wholesale by loadLinkedAgent once the agent is read.
   aiExamples: [],
@@ -1136,9 +1196,12 @@ const GUARDRAIL_CATEGORIES = [
 // the form arrays empty, and sending those would silently wipe its static
 // context.
 const staticContextLoaded = ref(false);
+// Limits the linked agent's record already holds. Only these are written back, so a default on screen never lands on the record.
+const LIMIT_ATTRS = ["aiTimeout", "aiMaxRetries", "aiTopP"];
+const configOwnedLimits = ref([]);
 
 function addExample() {
-  form.value.aiExamples.push({ input: "", expected_output: "", note: "", enabled: 1 });
+  form.value.aiExamples.push({ input: "", context_summary: "", trajectory: null, expected_output: "", note: "", enabled: 1 });
 }
 
 function addGuardrail() {
@@ -1165,6 +1228,7 @@ function addGuardrail() {
 async function applyLinkedAgentFields(fields) {
   if (!fields) return;
   applyConfigFields(fields);
+  configOwnedLimits.value = LIMIT_ATTRS.filter((attr) => fields[attr] != null);
   form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
   form.value.aiSkills = Array.isArray(fields?.aiSkills) ? fields.aiSkills : [];
   form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
@@ -1466,6 +1530,12 @@ onMounted(async () => {
     aiCompactionTokenThreshold: numOr("aiCompactionTokenThreshold", 0, parseInt),
     aiGoldenDatasetMinimum: numOr("aiGoldenDatasetMinimum", 0, parseInt),
     aiGoldenDatasetTarget: numOr("aiGoldenDatasetTarget", 0, parseInt),
+    aiRunTokenBudget: 0,
+    aiRunCostBudget: 0,
+    aiToolChoice: "",
+    aiParallelToolCalls: true,
+    aiThinkingBudgetTokens: 0,
+    aiTerminalTools: "",
     aiCompactionIdleMinutes: numOr("aiCompactionIdleMinutes", 0, parseInt),
     aiCompactionOnTaskBoundary: get("aiCompactionOnTaskBoundary") === "true",
     // WI-001639: agent-owned, with no diagram fallback — this assignment
@@ -1517,7 +1587,7 @@ onMounted(async () => {
 // live link). The resolver returns shape-attribute keys (aiSystemPrompt,
 // aiProvider, aiModel, aiTemperature, aiMaxTokens) that map directly onto our
 
-const BOOLEAN_FORM_KEYS = ["aiCompactionEnabled", "aiCompactionOnTaskBoundary"];
+const BOOLEAN_FORM_KEYS = ["aiCompactionEnabled", "aiCompactionOnTaskBoundary", "aiParallelToolCalls"];
 
 function configValueToForm(key, val) {
   if (BOOLEAN_FORM_KEYS.includes(key)) {
@@ -1666,8 +1736,7 @@ async function createAgent() {
 }
 
 // WI-001637 live link: on Save, write agent-level edits back to the linked
-// AI Agent Configuration. Selector mode omits temperature — the selector
-// dialog never shows it, so its form default must not clobber the record.
+// AI Agent Configuration.
 // Failure never blocks the shape save; the user is warned instead. A Live
 // agent is automatically re-provisioned by the backend so its chat map picks
 // up the change — silently: re-validation failures surface in deploy checks,
@@ -1681,7 +1750,15 @@ async function writeBackToConfig() {
     aiSystemPrompt: form.value.aiSystemPrompt,
     aiMaxTokens: form.value.aiMaxTokens,
   };
-  if (!isSelector.value) fields.aiTemperature = form.value.aiTemperature;
+  fields.aiTemperature = form.value.aiTemperature;
+  for (const attr of configOwnedLimits.value) fields[attr] = form.value[attr];
+  // Only once the agent was read, so the form's defaults never overwrite its real values.
+  if (staticContextLoaded.value) {
+    fields.aiToolChoice = form.value.aiToolChoice || "";
+    fields.aiParallelToolCalls = form.value.aiParallelToolCalls ? 1 : 0;
+    fields.aiThinkingBudgetTokens = form.value.aiThinkingBudgetTokens || 0;
+    fields.aiTerminalTools = form.value.aiTerminalTools || "";
+  }
   // Screening is NOT sent here. It has its own writer (saveScreening, below),
   // and sending it from both places meant the resolver write landed second and
   // put the stale form value back — silently undoing whatever the user had just
@@ -1712,6 +1789,8 @@ async function writeBackToConfig() {
     fields.aiCompactionKeepTail = form.value.aiCompactionKeepTail || 10;
     fields.aiGoldenDatasetMinimum = form.value.aiGoldenDatasetMinimum || 0;
     fields.aiGoldenDatasetTarget = form.value.aiGoldenDatasetTarget || 0;
+    fields.aiRunTokenBudget = form.value.aiRunTokenBudget || 0;
+    fields.aiRunCostBudget = form.value.aiRunCostBudget || 0;
     fields.aiCompactionModel = form.value.aiCompactionEnabled
       ? form.value.aiCompactionModel || ""
       : "";
@@ -1801,6 +1880,8 @@ async function save() {
       "spiffworkflow:aiModel": form.value.aiModel || undefined,
       "spiffworkflow:aiSystemPrompt": form.value.aiSystemPrompt || undefined,
       "spiffworkflow:aiUserPrompt": form.value.aiUserPrompt || undefined,
+      "spiffworkflow:aiTemperature": String(form.value.aiTemperature),
+      "spiffworkflow:aiTopP": String(form.value.aiTopP),
       "spiffworkflow:aiMaxTokens": String(form.value.aiMaxTokens),
       "spiffworkflow:aiTimeout": String(form.value.aiTimeout),
     });
@@ -1952,6 +2033,12 @@ async function save() {
   border-radius: 4px;
   font-size: 0.85rem;
   font-family: inherit;
+}
+.field-row input.field-off {
+  background: #f3f4f6;
+  color: #9ca3af;
+  border-color: #e5e7eb;
+  cursor: not-allowed;
 }
 /* A value the agent owns, shown rather than offered. Deliberately not styled as
    an input: a disabled <select> still reads as a control someone should fill. */

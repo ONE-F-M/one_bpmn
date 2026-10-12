@@ -123,6 +123,23 @@ class TestTurnFailureMessages(FrappeTestCase):
 		self.assertEqual(result["error_code"], "TURN_CAP_REACHED")
 		self.assertIn("tool-call limit", frappe.db.get_value("Chat Message", message_name, "text"))
 
+	def test_a_reply_that_already_reports_the_error_gets_no_second_line(self):
+		self._run("Error", "BUDGET_EXCEEDED", "The run passed its token budget of 100 with 3,021 tokens.")
+		reply = "The agent stopped because this request went over its budget. Try a smaller request."
+		message_name = self._bot_message(reply)
+		result = SSA._note_turn_failure(
+			{"response": reply, "intent": "ERROR", "message_name": message_name},
+			self.instance,
+			self.turn_started,
+		)
+		self.assertEqual(result["response"], reply)
+		self.assertEqual(result["error_code"], "BUDGET_EXCEEDED")
+		self.assertEqual(frappe.db.get_value("Chat Message", message_name, "text"), reply)
+
+	def test_budget_stop_shows_the_budget_message(self):
+		self._run("Error", "BUDGET_EXCEEDED", "The run passed its token budget of 100 with 3,021 tokens.")
+		self.assertIn("over its budget", self._message())
+
 	def test_a_good_reply_is_left_alone(self):
 		self._run("Success")
 		result = SSA._note_turn_failure({"response": "5"}, self.instance, self.turn_started)

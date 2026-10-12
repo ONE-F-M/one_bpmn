@@ -12,6 +12,7 @@ from frappe.tests.utils import FrappeTestCase
 from one_bpmn.agents import context_assembler as CA
 from one_bpmn.agents.executor import (
 	DEFAULT_MAX_OUTPUT_TOKENS,
+	DEFAULT_MAX_RETRIES,
 	DEFAULT_TEMPERATURE,
 	DEFAULT_TIMEOUT_SECONDS,
 	DEFAULT_TOP_P,
@@ -94,13 +95,34 @@ class TestEveryPathStartsFromTheSameDefaults(FrappeTestCase):
 		self.assertEqual(DEFAULT_TIMEOUT_SECONDS, 180)
 		self.assertEqual(DEFAULT_TOP_P, 1.0)
 		self.assertEqual(DEFAULT_MAX_OUTPUT_TOKENS, 16384)
+		self.assertEqual(DEFAULT_MAX_RETRIES, 2)
+
+	def test_executor_config_starts_from_the_shared_defaults(self):
+		from one_bpmn.agents.executor import ExecutorConfig
+
+		config = ExecutorConfig()
+		self.assertEqual(config.temperature, DEFAULT_TEMPERATURE)
+		self.assertEqual(config.top_p, DEFAULT_TOP_P)
+		self.assertEqual(config.max_retries, DEFAULT_MAX_RETRIES)
+
+	def test_the_evals_and_the_direct_run_keep_temperature_0_7(self):
+		from one_bpmn.agents import eval_runner
+		from one_bpmn.api import agent_invocation
+
+		for fn in (eval_runner._run_direct_eval, eval_runner._evaluate_llm_judge, agent_invocation._begin_direct_run):
+			self.assertIn("temperature=0.7", inspect.getsource(fn), f"{fn.__name__} lost its pinned temperature")
 
 	def test_no_path_repeats_a_number_the_shared_module_owns(self):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import ai_task_selector, dispatchers
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import (
+			ai_task_selector,
+			bpmn_process_instance,
+			dispatchers,
+		)
 
 		for module, forbidden in (
-			(dispatchers, ('aiTemperature", 0.7', 'aiTopP", 1.0')),
+			(dispatchers, ('aiTemperature", 0.7', 'aiTopP", 1.0', 'aiMaxRetries", 2)')),
 			(ai_task_selector, ('aiTimeout", 60',)),
+			(bpmn_process_instance, ('aiMaxRetries", 2)',)),
 		):
 			source = inspect.getsource(module)
 			for literal in forbidden:

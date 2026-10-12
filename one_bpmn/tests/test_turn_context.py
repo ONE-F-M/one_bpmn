@@ -328,3 +328,39 @@ class TestNoMapAlsoSendsHistory(FrappeTestCase):
 			if "Conversation so far" in body:
 				offenders.append(s)
 		self.assertEqual(offenders, [], "still building a transcript block: " + ", ".join(offenders))
+
+
+class TestToolCallingTurnSendsHistory(FrappeTestCase):
+	"""Every chat agent calls tools, so the tool loop is where history has to reach the model."""
+
+	def test_prior_turns_precede_the_message_in_the_first_model_call(self):
+		from one_bpmn.agents.executor import ExecutorConfig
+		from one_bpmn.agents.executor.direct_api import DirectApiExecutor
+		from one_bpmn.agents.llm_provider.base import StepResult, ToolSpec
+
+		seen = []
+
+		class RecordingAdapter:
+			async def step(self, system, transcript, tools=None, max_tokens=16384):
+				seen.append(list(transcript))
+				return StepResult(content="Falcon")
+
+		history = [
+			{"role": "user", "content": "My project is Project Falcon."},
+			{"role": "assistant", "content": "Noted."},
+		]
+		config = ExecutorConfig(
+			model="m",
+			system_prompt="s",
+			user_prompt="What is my project called?",
+			messages=history,
+			tools=[ToolSpec(fn=lambda **kw: "ok", name="lookup", description="a read")],
+		)
+		with patch(
+			"one_bpmn.agents.llm_provider.factory.get_llm_adapter", return_value=RecordingAdapter()
+		):
+			DirectApiExecutor()._run_with_tools(config, "Anthropic", "key", "m")
+
+		self.assertEqual(
+			seen[0], [*history, {"role": "user", "content": "What is my project called?"}]
+		)

@@ -3,8 +3,8 @@
 Ties together Stories 1–4 into two public entry points:
 
 ``compose_and_send_task_email``
-	**User Task path** — called from ``add_frappe_assignment`` when a BPMN
-	User Task with ``notifyAssignee=true`` is assigned.  Renders subject /
+	**User Task path** — called from ``notify_task_assignee`` when a BPMN
+	User Task with ``notifyAssignee=true`` opens.  Renders subject /
 	body from the task's notification config, builds action buttons
 	(one-click for simple actions, "Open in ERPNext" links for actions
 	that need confirmation or digital signature), generates HMAC tokens,
@@ -41,22 +41,16 @@ def compose_and_send_task_email(
 	task_name: str,
 	task_id: str,
 	bpmn_id: str,
+	task_cfg: dict | None = None,
 ) -> None:
 	"""Compose and send the interactive AMP email for a User Task assignment.
 
-	Reads the task's notification config from ``_user_task_extensions``,
-	renders the email, and sends it.  Does nothing if ``notifyAssignee``
+	Reads the task's notification config from ``task_cfg`` or, when not
+	given, from ``_user_task_extensions``. Does nothing if ``notifyAssignee``
 	is not ``"true"``.
-
-	Args:
-		instance:  BPMN Process Instance document.
-		user:      Assignee email address.
-		task_name: Human-readable task name.
-		task_id:   SpiffWorkflow task UUID (for HMAC tokens).
-		bpmn_id:   BPMN element ID (for extension config lookup).
 	"""
-	# ── Read task config ──────────────────────────────────────────────
-	task_cfg = getattr(instance, "_user_task_extensions", {}).get(bpmn_id, {})
+	if task_cfg is None:
+		task_cfg = getattr(instance, "_user_task_extensions", {}).get(bpmn_id, {})
 
 	if task_cfg.get("notifyAssignee") != "true":
 		return
@@ -98,7 +92,7 @@ def compose_and_send_task_email(
 		subject=subject,
 		html_body=html_body,
 		amp_html=amp_html,
-		sender_account=task_cfg.get("emailAccount", ""),
+		sender_account=task_cfg.get("notifyAssigneeAccount") or task_cfg.get("emailAccount", ""),
 		reference_doctype=instance.context_doctype or instance.doctype,
 		reference_name=instance.context_docname or instance.name,
 	)
@@ -193,12 +187,15 @@ def _resolve_subject_body(
 	"""Resolve the email subject and body from task config.
 
 	Priority:
-	1. Inline ``notifySubject`` / ``notifyBody`` (always win if non-empty)
-	2. Email Template (``notifyTemplate``) fields
-	3. Default fallback
+	1. Modeler fields ``notifyAssigneeSubject`` / ``notifyAssigneeBody``
+	2. Inline ``notifySubject`` / ``notifyBody``
+	3. Email Template (``notifyTemplate``) fields
+	4. Default fallback
 	"""
-	subject = task_cfg.get("notifySubject", "")
-	body = task_cfg.get("notifyBody", "")
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import _decode_html_attr
+
+	subject = task_cfg.get("notifyAssigneeSubject", "") or task_cfg.get("notifySubject", "")
+	body = _decode_html_attr(task_cfg.get("notifyAssigneeBody", "")) or task_cfg.get("notifyBody", "")
 
 	# If neither is set, try loading from the Email Template
 	template_name = task_cfg.get("notifyTemplate", "")
@@ -323,40 +320,46 @@ def _send_email(
 	sender_account: str = "",
 	reference_doctype: str = "",
 	reference_name: str = "",
+	cc: str | None = None,
 ) -> None:
 	"""Send the email via the One-FM pipeline with AMP injection.
 
-	Sets ``frappe.flags.amp_html`` so the Email Queue ``before_insert``
-	hook (Story 1) picks it up and stores it on the queue row.
+	Sets ``frappe.flags.amp_html`` so the Email Queue ``after_insert`` hook
+	picks it up, and clears it afterwards so a send that writes no queue row
+	cannot leak AMP into the next email of the request.
 	"""
-	# Resolve sender from Email Account if configured
 	sender = None
 	if sender_account:
 		sender = frappe.db.get_value("Email Account", sender_account, "email_id")
 
-	# Set AMP flag before sending — picked up by Email Queue hook
 	if amp_html:
 		frappe.flags.amp_html = amp_html
 
 	try:
-		from one_fm.processor import sendemail as onefm_sendemail
+		try:
+			from one_fm.processor import sendemail as onefm_sendemail
 
-		onefm_sendemail(
-			recipients=recipients,
-			subject=subject,
-			sender=sender,
-			header=[subject],
-			message=html_body,
-			reference_doctype=reference_doctype,
-			reference_name=reference_name,
-		)
-	except ImportError:
-		frappe.sendmail(
-			recipients=recipients,
-			sender=sender,
-			subject=subject,
-			message=html_body,
-			reference_doctype=reference_doctype,
-			reference_name=reference_name,
-			now=False,
-		)
+			onefm_sendemail(
+				recipients=recipients,
+				subject=subject,
+				sender=sender,
+				header=[subject],
+				message=html_body,
+				cc=cc,
+				reference_doctype=reference_doctype,
+				reference_name=reference_name,
+				is_external_mail=True,
+			)
+		except ImportError:
+			frappe.sendmail(
+				recipients=recipients,
+				sender=sender,
+				subject=subject,
+				message=html_body,
+				cc=cc.split(",") if cc else [],
+				reference_doctype=reference_doctype,
+				reference_name=reference_name,
+				now=False,
+			)
+	finally:
+		frappe.flags.amp_html = None

@@ -12,6 +12,7 @@
   "agent_type",
   "lifecycle_status",
   "process_owner",
+  "feedback_owner",
   "column_break_basics",
   "description",
   "process_model",
@@ -23,7 +24,17 @@
   "column_break_llm",
   "temperature",
   "max_tokens",
+  "timeout_seconds",
+  "max_retries",
+  "max_tool_calls",
+  "top_p",
   "tool_result_max_chars",
+  "tool_choice",
+  "parallel_tool_calls",
+  "thinking_budget_tokens",
+  "terminal_tools",
+  "run_token_budget",
+  "run_cost_budget",
   "prompt_section",
   "required_variables",
   "required_variables_html",
@@ -72,6 +83,8 @@
   "compaction_token_threshold",
   "compaction_idle_minutes",
   "compaction_on_task_boundary",
+  "loop_compaction_threshold",
+  "loop_compaction_keep_turns",
   "identity_section",
   "agent_user",
   "agent_roles",
@@ -183,6 +196,14 @@
    "options": "User"
   },
   {
+   "description": "Receives every new AI Response Feedback on this agent's replies. Blank falls back to the Process Owner.",
+   "fieldname": "feedback_owner",
+   "fieldtype": "Link",
+   "ignore_user_permissions": 1,
+   "label": "Feedback Owner",
+   "options": "User"
+  },
+  {
    "fieldname": "llm_settings_section",
    "fieldtype": "Section Break",
    "label": "LLM Settings"
@@ -208,10 +229,80 @@
   },
   {
    "default": "0",
+   "description": "Seconds one model call may take before it is cut off. 0 = use the task's own timeout, or 180 when it has none.",
+   "fieldname": "timeout_seconds",
+   "fieldtype": "Int",
+   "label": "Timeout (s)",
+   "non_negative": 1
+  },
+  {
+   "default": "0",
+   "description": "How many times a failed model call is retried. 0 = use the task's own setting, or 2 when it has none.",
+   "fieldname": "max_retries",
+   "fieldtype": "Int",
+   "label": "Max Retries",
+   "non_negative": 1
+  },
+  {
+   "default": "0",
+   "description": "Most tool calls one run may make. 0 = use the task's own setting, or 10 when it has none.",
+   "fieldname": "max_tool_calls",
+   "fieldtype": "Int",
+   "label": "Max Tool Calls",
+   "non_negative": 1
+  },
+  {
+   "default": "0",
+   "description": "Nucleus sampling, above 0.0 and up to 1.0. 0 = use the task's own setting, or 1.0 when it has none.",
+   "fieldname": "top_p",
+   "fieldtype": "Float",
+   "label": "Top P",
+   "precision": "2"
+  },
+  {
+   "default": "0",
    "description": "Longest tool result the model is shown, in characters. 0 = platform default (20,000). Over the cap the result is cut with a note to ask more narrowly; the full result is still recorded on the run.",
    "fieldname": "tool_result_max_chars",
    "fieldtype": "Int",
    "label": "Max Tool Result Chars"
+  },
+  {
+   "description": "auto, required, or one tool's name. Applies to the first model call of a run; a model that refuses a forced choice gets auto, and a plain-text answer is sent back once before the run fails.",
+   "fieldname": "tool_choice",
+   "fieldtype": "Data",
+   "label": "Tool Choice"
+  },
+  {
+   "default": "1",
+   "description": "Let the model request several tools in one turn. Not used by Gemini.",
+   "fieldname": "parallel_tool_calls",
+   "fieldtype": "Check",
+   "label": "Parallel Tool Calls"
+  },
+  {
+   "default": "0",
+   "description": "Thinking tokens per model call, for Claude 4.5 and Gemini. 0 = off. Newer Claude models decide their own thinking and ignore this.",
+   "fieldname": "thinking_budget_tokens",
+   "fieldtype": "Int",
+   "label": "Thinking Budget Tokens"
+  },
+  {
+   "description": "Comma-separated tools that end the turn when called; their arguments are the reply. finalize always does.",
+   "fieldname": "terminal_tools",
+   "fieldtype": "Data",
+   "label": "Terminal Tools"
+  },
+  {
+   "description": "Stop the run once its prompt plus completion tokens pass this figure, whether or not it made an edit. Blank means no token budget.",
+   "fieldname": "run_token_budget",
+   "fieldtype": "Int",
+   "label": "Run Token Budget"
+  },
+  {
+   "description": "Stop the run once its estimated cost in USD, priced the same way as AI Agent Run Estimated Cost, passes this figure, whether or not it made an edit. Blank means no cost budget.",
+   "fieldname": "run_cost_budget",
+   "fieldtype": "Currency",
+   "label": "Run Cost Budget"
   },
   {
    "fieldname": "prompt_section",
@@ -663,7 +754,7 @@
    "label": "Keep Recent Messages"
   },
   {
-   "depends_on": "compaction_enabled",
+   "depends_on": "eval:doc.compaction_enabled || doc.loop_compaction_threshold",
    "description": "Model that writes the summary. Summarising is high-volume and low-stakes, so a cheap model belongs here. Blank falls back to the site-wide Default Compaction Model.",
    "fieldname": "compaction_model",
    "fieldtype": "Link",
@@ -695,6 +786,21 @@
    "fieldname": "compaction_on_task_boundary",
    "fieldtype": "Check",
    "label": "On Turn Boundary"
+  },
+  {
+   "default": "0",
+   "description": "Inside one tool loop: once a model call's prompt passes this many tokens, the turns before the last Keep Turns are replaced by a summary and the list of files read and edited. 0 = off. Independent of Enable Compaction; uses the Compaction Model, else the site default, else the agent's model.",
+   "fieldname": "loop_compaction_threshold",
+   "fieldtype": "Int",
+   "label": "Tool Loop Threshold"
+  },
+  {
+   "default": "8",
+   "depends_on": "loop_compaction_threshold",
+   "description": "How many of the latest tool turns stay word-for-word when the tool loop is compacted.",
+   "fieldname": "loop_compaction_keep_turns",
+   "fieldtype": "Int",
+   "label": "Tool Loop Keep Turns"
   },
   {
    "fieldname": "skills_section",
@@ -798,7 +904,7 @@
    "link_fieldname": "agent_configuration"
   }
  ],
- "modified": "2026-09-10 15:00:00.000000",
+ "modified": "2026-10-03 14:00:00.000000",
  "modified_by": "c.akeru@one-fm.com",
  "module": "ONE BPMN",
  "name": "AI Agent Configuration",

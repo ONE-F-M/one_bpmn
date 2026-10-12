@@ -24,11 +24,13 @@
   "cache_read_cost",
   "cache_write_cost",
   "latency_ms",
+  "model_latency_ms",
   "started_at",
   "ended_at",
   "section_break_error",
   "error_code",
-  "error_message"
+  "error_message",
+  "is_expected_error"
  ],
  "fields": [
   {
@@ -151,6 +153,12 @@
    "label": "Latency (ms)"
   },
   {
+   "description": "Time spent waiting on the model provider in this step, retries included. Latency minus this is the time the turn's tools took.",
+   "fieldname": "model_latency_ms",
+   "fieldtype": "Int",
+   "label": "Model Latency (ms)"
+  },
+  {
    "fieldname": "started_at",
    "fieldtype": "Datetime",
    "label": "Started At"
@@ -177,6 +185,14 @@
    "fieldtype": "Long Text",
    "label": "Error Message",
    "description": "Error details for failed retry attempts"
+  },
+  {
+   "fieldname": "is_expected_error",
+   "fieldtype": "Check",
+   "label": "Is Expected Error",
+   "default": "0",
+   "description": "Set when this step's error contains the eval case's Expected Error. The case causes this error on purpose, so tool-error alerts leave it out.",
+   "read_only": 1
   }
  ],
  "indexes": [
@@ -193,7 +209,7 @@
   ]
  ],
  "links": [],
- "modified": "2026-09-17 09:00:00.000000",
+ "modified": "2026-10-04 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Agent Step",

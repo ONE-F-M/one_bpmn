@@ -12,6 +12,13 @@
 				</span>
 			</div>
 			<div class="flex items-center gap-3">
+				<InstanceControls
+					v-if="details"
+					:details="details"
+					:parked-ai="parkedAi"
+					@changed="$emit('refresh')"
+					@notice="$emit('notice', $event)"
+				/>
 				<Button
 					v-if="details"
 					icon-left="refresh-cw"
@@ -67,15 +74,17 @@ import { computed } from "vue"
 import { Badge, Button } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
+import InstanceControls from "./InstanceControls.vue"
 
 const props = defineProps({
 	details: { type: Object, default: null },
 	refreshing: { type: Boolean, default: false },
+	parkedAi: { type: Boolean, default: false },
 })
 
-defineEmits(["refresh"])
+defineEmits(["refresh", "notice"])
 
-const STATUS_THEMES = { Queued: "orange", Completed: "green", Active: "blue", Errored: "red" }
+const STATUS_THEMES = { Queued: "orange", Completed: "green", Active: "blue", Errored: "red", Suspended: "orange" }
 const statusTheme = computed(() => STATUS_THEMES[props.details?.status] || "gray")
 
 const contextLink = computed(() => {

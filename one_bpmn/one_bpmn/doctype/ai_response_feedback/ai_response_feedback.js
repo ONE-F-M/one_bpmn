@@ -85,6 +85,34 @@ function render_buttons(frm, pending_task) {
 			frappe.set_route("Form", "AI Eval Case", frm.doc.eval_case);
 		});
 	}
+
+	if (frm.doc.status === "Fixed" && frm.doc.run_errors) {
+		offer_same_error_fix(frm);
+	}
+}
+
+async function offer_same_error_fix(frm) {
+	const similar = await frappe.xcall("one_bpmn.api.feedback.get_same_error_feedback", {
+		feedback: frm.doc.name,
+	});
+	if (!similar.length) return;
+
+	frm.dashboard.set_headline(
+		__("{0} New feedback records failed with the same errors within 48 hours.", [similar.length])
+	);
+	frm.add_custom_button(__("Mark {0} Similar Fixed", [similar.length]), () => {
+		const names = similar.map((row) => frappe.utils.escape_html(row.name)).join("<br>");
+		frappe.confirm(`${__("Mark these as Fixed too?")}<br><br>${names}`, async () => {
+			const out = await frappe.xcall("one_bpmn.api.feedback.mark_same_error_fixed", {
+				feedback: frm.doc.name,
+			});
+			frappe.show_alert(
+				{ message: __("{0} records marked Fixed.", [out.fixed.length]), indicator: "green" },
+				5
+			);
+			frm.reload_doc();
+		});
+	});
 }
 
 function complete_pending_task(frm, pending_task, action) {
