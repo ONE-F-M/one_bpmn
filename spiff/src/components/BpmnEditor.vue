@@ -1033,9 +1033,6 @@ import {
 // SpiffWorkflow extensions (ESM from forked repo)
 import spiffworkflow, { spiffModdleExtension } from "bpmn-js-spiffworkflow";
 
-// Minimap for diagram navigation - DISABLED
-// import minimapModule from "diagram-js-minimap";
-
 // i18n for translations
 import translateModule from "@/i18n";
 
@@ -1497,7 +1494,6 @@ const showPropertiesPanel = ref(window.innerWidth >= 640);
 const propertiesCollapsed = ref(true);
 const isMounted = ref(false);
 const isImporting = ref(false);
-// const showMinimap = ref(true); // DISABLED
 const selectedElements = shallowRef([]);
 const modelerInstance = shallowRef(null);
 
@@ -1572,18 +1568,6 @@ function makeEmptyDiagram() {
 function togglePropertiesCollapse() {
 	propertiesCollapsed.value = !propertiesCollapsed.value;
 }
-
-// toggleMinimap - DISABLED
-// function toggleMinimap() {
-// 	if (!modeler) return;
-// 	const minimap = modeler.get("minimap");
-// 	if (showMinimap.value) {
-// 		minimap.close();
-// 	} else {
-// 		minimap.open();
-// 	}
-// 	showMinimap.value = !showMinimap.value;
-// }
 
 onMounted(async () => {
 	isMounted.value = true;
@@ -1824,7 +1808,6 @@ onMounted(async () => {
 				startEventPropertiesProviderModule,
 				conditionalStartEventPropertiesProviderModule,
 				lanePropertiesProviderModule,
-				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
 				resizeModule,
@@ -3792,23 +3775,6 @@ function getAvatarColor(userName) {
 	font-size: 11.5px;
 	color: #6b7280;
 	font-style: italic;
-}
-
-/* Minimap Styling */
-.djs-minimap {
-	background: #ffffff;
-	border: 1px solid #e5e7eb;
-	border-radius: 8px;
-	box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-}
-
-.djs-minimap .map {
-	border-radius: 6px;
-}
-
-.djs-minimap .viewport {
-	border: 2px solid #3b82f6;
-	background: rgba(59, 130, 246, 0.1);
 }
 
 /* Overlay Styling */
