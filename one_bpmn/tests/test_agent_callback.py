@@ -28,6 +28,9 @@ SECRET = "callback-secret-not-real"
 _real_get_cached_doc = frappe.get_cached_doc
 
 
+PR_URL = "https://github.com/ONE-F-M/one_bpmn/pull/1"
+
+
 class CallbackCase(FrappeTestCase):
 	def setUp(self):
 		self.made = []
@@ -630,7 +633,7 @@ class TestCallbackRunsAsAgentUser(CallbackCase):
 	def test_the_resume_runs_as_the_agent_user(self):
 		run = self._run()
 		_, resumed_as = self._post_as_guest(
-			{"correlation_id": run.name, "status": "tests_passed"}, user_for=self.agent_user
+			{"correlation_id": run.name, "status": "tests_passed", "pr_url": PR_URL}, user_for=self.agent_user
 		)
 
 		self.assertEqual(resumed_as, [self.agent_user])
@@ -638,7 +641,8 @@ class TestCallbackRunsAsAgentUser(CallbackCase):
 	def test_without_an_agent_user_the_sandbox_run_owner_is_used(self):
 		run = self._run()
 		_, resumed_as = self._post_as_guest(
-			{"correlation_id": run.name, "status": "tests_passed", "agent_usage": USAGE}, user_for=None
+			{"correlation_id": run.name, "status": "tests_passed", "pr_url": PR_URL, "agent_usage": USAGE},
+			user_for=None,
 		)
 
 		agent_run_name = frappe.db.get_value("Agent Sandbox Run", run.name, "ai_agent_run")

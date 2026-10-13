@@ -149,12 +149,16 @@ class TestSlowActionDispatch(AgentSandboxCase):
 		mock_response = MagicMock(status_code=response_status)
 		mock_response.raise_for_status = MagicMock()
 		params = {
-			"target_app": "one_bpmn", "git_branch": "staging", "work_item_description": "Fix the thing.",
+			"target_app": "one_bpmn",
+			"git_branch": "staging",
+			"work_item_description": "Fix the thing.",
 			**param_overrides,
 		}
-		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)), patch.object(
-			ops, "_mint_identity_token", return_value="fake-token"
-		), patch("requests.post", return_value=mock_response) as mock_post:
+		with (
+			patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)),
+			patch.object(ops, "_mint_identity_token", return_value="fake-token"),
+			patch("requests.post", return_value=mock_response) as mock_post,
+		):
 			ctx = self.ctx(operation=operation)
 			result = ops.dispatch_action(params, ctx)
 		return result, ctx, mock_post
@@ -490,10 +494,17 @@ class TestRetryPolicy(AgentSandboxCase):
 
 	def test_not_eligible_for_any_other_failure_class(self):
 		self._config("Dev Agent", retry=1)
-		for failure_class in ("code", "infra", "policy", "gave-up", "not-reproducible", "model-api", None):
+		for failure_class in ("code", "policy", "gave-up", "not-reproducible", None):
 			run = self._run(agent_name="Dev Agent")
 			run.failure_class = failure_class
 			self.assertFalse(ops.retry_eligible(run), failure_class)
+
+	def test_an_infrastructure_or_model_api_failure_is_eligible_without_the_agent_setting(self):
+		self._config("Dev Agent", retry=0)
+		for failure_class in ("infra", "model-api"):
+			run = self._run(agent_name="Dev Agent")
+			run.failure_class = failure_class
+			self.assertTrue(ops.retry_eligible(run), failure_class)
 
 	def test_not_eligible_when_run_is_itself_a_retry(self):
 		"""Once, not a loop — a run that is already a retry is never retried again."""
@@ -523,9 +534,12 @@ class TestRetryPolicy(AgentSandboxCase):
 		mock_response = MagicMock(status_code=response_status)
 		mock_response.raise_for_status = MagicMock()
 		post_kwargs = {"side_effect": post_side_effect} if post_side_effect else {"return_value": mock_response}
-		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)), patch.object(
-			ops, "_mint_identity_token", return_value="fake-token"
-		), patch("requests.post", **post_kwargs) as mock_post:
+		with (
+			patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)),
+			patch.object(ops, "_mint_identity_token", return_value="fake-token"),
+			patch.object(ops.sessions, "uses_job", return_value=False),
+			patch("requests.post", **post_kwargs) as mock_post,
+		):
 			result = ops.retry_dispatch(run)
 		return result, mock_post
 
@@ -565,6 +579,54 @@ class TestRetryPolicy(AgentSandboxCase):
 		self.assertFalse(result)
 		new_name = frappe.get_all("Agent Sandbox Run", filters={"retry_of": original.name}, pluck="name")[0]
 		self.assertEqual(frappe.db.get_value("Agent Sandbox Run", new_name, "state"), "failed")
+
+
+	def test_an_agent_that_uses_the_job_is_retried_in_its_session(self):
+		original = self._run(agent_name="Dev Agent", action="run_tests")
+		mock_settings = SimpleNamespace(
+			agent_sandbox_url="https://sandbox.example.run.app", get_password=lambda *a, **k: "t"
+		)
+		with (
+			patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)),
+			patch.object(ops.sessions, "uses_job", return_value=True),
+			patch.object(ops, "_slow_action_in_session") as in_session,
+			patch("requests.post") as post,
+		):
+			result = ops.retry_dispatch(original)
+		self.assertTrue(result)
+		in_session.assert_called_once()
+		post.assert_not_called()
+		new_name = frappe.get_all("Agent Sandbox Run", filters={"retry_of": original.name}, pluck="name")[0]
+		self.assertEqual(frappe.db.get_value("Agent Sandbox Run", new_name, "state"), "running")
+
+	def test_a_delay_schedules_the_retry_and_creates_no_run_yet(self):
+		original = self._run(agent_name="Dev Agent")
+		with patch.object(frappe, "enqueue") as enqueue:
+			result = ops.retry_dispatch(original, delay=15)
+		self.assertTrue(result)
+		self.assertEqual(enqueue.call_args.kwargs["delay"], 15)
+		self.assertEqual(frappe.get_all("Agent Sandbox Run", filters={"retry_of": original.name}), [])
+
+	def test_a_retry_that_cannot_be_sent_after_the_wait_resumes_the_caller(self):
+		original = self._run(agent_name="Dev Agent")
+		with (
+			patch.object(ops.time, "sleep"),
+			patch.object(ops, "retry_dispatch", return_value=False),
+			patch("one_bpmn.api.agent_callback._enqueue_resume") as resume,
+		):
+			ops.retry_dispatch_after(original.name, 15)
+		resume.assert_called_once()
+		self.assertEqual(frappe.db.get_value("Agent Sandbox Run", original.name, "resume_enqueued"), 1)
+
+	def test_a_retry_that_is_sent_after_the_wait_does_not_resume_the_caller(self):
+		original = self._run(agent_name="Dev Agent")
+		with (
+			patch.object(ops.time, "sleep"),
+			patch.object(ops, "retry_dispatch", return_value=True),
+			patch("one_bpmn.api.agent_callback._enqueue_resume") as resume,
+		):
+			ops.retry_dispatch_after(original.name, 15)
+		resume.assert_not_called()
 
 
 class TestTimingFields(FrappeTestCase):

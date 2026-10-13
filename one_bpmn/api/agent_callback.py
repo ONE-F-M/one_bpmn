@@ -131,15 +131,17 @@ def _settle(run, payload: dict) -> dict:
 	if payload.get("commit"):
 		run.db_set("commit_sha", str(payload["commit"])[:40], update_modified=False)
 
-	# A real test failure gets one automatic re-dispatch instead of resuming
-	# the waiting agent straight away — a flaky test should not throw away a
-	# correct change. ops.retry_dispatch only returns False when the retry
-	# itself could not even be sent (no sandbox URL, no token, the POST
-	# itself failed) — in that case fall through to the normal resume on
-	# the ORIGINAL failure below, or the agent would be left waiting
-	# forever for a callback that can now never arrive.
-	if status == "tests_failed":
-		if ops.retry_eligible(run) and ops.retry_dispatch(run):
+	# The supervisor decides by the class of the failure: run it again by itself
+	# (infrastructure, model API, a flaky environment) or give the failure to the
+	# waiting agent. ops.retry_dispatch only returns False when the retry itself
+	# could not even be sent (no sandbox URL, no token, the POST itself failed) --
+	# in that case fall through to the normal resume on the ORIGINAL failure
+	# below, or the agent would be left waiting forever for a callback that can
+	# now never arrive.
+	if run.state == "failed":
+		step = ops.supervisor.next_step(run)
+		ops.supervisor.record(run, step)
+		if ops.retry_eligible(run) and ops.retry_dispatch(run, delay=step["delay"]):
 			return {"accepted": True}
 
 	_enqueue_resume(run)

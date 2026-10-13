@@ -49,6 +49,7 @@ from frappe.utils import cint
 
 from one_bpmn.agents.shape_tools import BudgetExceeded
 from one_bpmn.one_bpmn.connectors import agent_sandbox_session as sessions
+from one_bpmn.one_bpmn.connectors import agent_sandbox_supervisor as supervisor
 from one_bpmn.one_bpmn.doctype.agent_sandbox_run.agent_sandbox_run import bounded_error
 
 AGENT_SANDBOX_WAITING_KEY = "_bpmn_agent_sandbox_waiting"
@@ -1017,29 +1018,27 @@ def dispatch_action(params: dict, ctx: dict) -> dict | None:
 
 
 def retry_eligible(run) -> bool:
-	"""Whether a just-failed run should be automatically re-dispatched once
-	instead of resuming the waiting agent with the failure.
+	"""Whether a just-failed run should be run again by itself instead of resuming the waiting agent with the failure.
 
-	Only true for an environment failure (see classify_failure): a code failure
-	goes back to the agent with the failing tests, because running the same
-	tests again almost never changes the result.
-	False for a run that is itself already a retry (retry_of set): the
-	policy is retry once, not a loop that could keep re-failing forever.
-	False when the calling agent's own configuration has the policy off, or
-	when the dispatch never recorded which agent it was made for."""
-	if run.retry_of or run.failure_class != "env":
+	The supervisor decides by failure class: an infrastructure or model API failure is retried within its attempt
+	limit, an environment failure once and only when the agent's configuration allows it. A code failure goes back
+	to the agent with the failing tests, because running the same tests again almost never changes the result."""
+	if supervisor.next_step(run)["action"] != "retry":
 		return False
+	if run.failure_class != "env":
+		return True
 	agent_name = (frappe.parse_json(run.request_payload or "{}") or {}).get("agent_name")
 	if not agent_name:
 		return False
 	return bool(frappe.db.get_value("AI Agent Configuration", agent_name, "sandbox_retry_on_test_failure"))
 
 
-def retry_dispatch(original_run) -> bool:
-	"""Re-POST the exact same sandbox action once, after a real test failure
-	-- a flaky test should not throw away a correct change. Called from
-	agent_callback.py's report_result() in place of resuming the waiting
-	agent, once retry_eligible(original_run) is true.
+def retry_dispatch(original_run, delay: int = 0) -> bool:
+	"""Send the exact same sandbox action again after a failure the supervisor
+	says to retry -- a flaky test should not throw away a correct change. Called
+	from agent_callback.py's report_result() and the reaper in place of resuming
+	the waiting agent, once retry_eligible(original_run) is true. With a delay
+	the send waits in a background job and True means it is scheduled.
 
 	Creates a new Agent Sandbox Run row (retry_of = original_run.name) with
 	the same caller_instance/caller_wf_task_id/caller_agent_run copied over,
@@ -1050,6 +1049,15 @@ def retry_dispatch(original_run) -> bool:
 	False, or the agent is left waiting forever for a callback that will
 	never come. Never raises, for the same reason: report_result() has no
 	one to report an exception to."""
+	if delay:
+		frappe.enqueue(
+			"one_bpmn.one_bpmn.connectors.agent_sandbox_ops.retry_dispatch_after",
+			queue="long",
+			enqueue_after_commit=True,
+			run=original_run.name,
+			delay=delay,
+		)
+		return True
 	original_payload = frappe.parse_json(original_run.request_payload or "{}") or {}
 	action = original_payload.get("action")
 	args = original_payload.get("args") or {}
@@ -1098,6 +1106,16 @@ def retry_dispatch(original_run) -> bool:
 	audit_payload = {**payload, "github_token": "REDACTED"}
 	run.db_set("request_payload", frappe.as_json(audit_payload), update_modified=False)
 
+	if payload["work_item_id"] and sessions.uses_job(agent_name):
+		try:
+			_slow_action_in_session(run, action, payload, args)
+		except Exception as exc:
+			frappe.log_error(title=f"Dev Agent Sandbox: retry session dispatch failed ({run.name})", message=frappe.get_traceback())
+			run.db_set(_finished({"state": "failed", "failure_class": "infra", "error_message": bounded_error(str(exc))}), update_modified=False)
+			return False
+		run.db_set("state", "running", update_modified=False)
+		return True
+
 	try:
 		token = _mint_identity_token(sandbox_url)
 	except Exception:
@@ -1129,6 +1147,18 @@ def retry_dispatch(original_run) -> bool:
 
 	run.db_set("state", "running", update_modified=False)
 	return True
+
+
+def retry_dispatch_after(run: str, delay: int) -> None:
+	"""Wait out the backoff, then send the retry; resume the waiting caller with the original failure when it cannot be sent."""
+	time.sleep(delay)
+	original = frappe.get_doc("Agent Sandbox Run", run)
+	if retry_dispatch(original) or original.resume_enqueued:
+		return
+	from one_bpmn.api.agent_callback import _enqueue_resume
+
+	original.db_set("resume_enqueued", 1, update_modified=False)
+	_enqueue_resume(original)
 
 
 def _callback_url() -> str:

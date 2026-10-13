@@ -151,6 +151,10 @@ def _settle(run, state: str, reason: str):
 	if (run.caller_agent_run or run.caller_wf_task_id) and not run.resume_enqueued:
 		from one_bpmn.api.agent_callback import _enqueue_resume
 
+		step = ops.supervisor.next_step(run)
+		ops.supervisor.record(run, step)
+		if ops.retry_eligible(run) and ops.retry_dispatch(run, delay=step["delay"]):
+			return
 		run.db_set("resume_enqueued", 1, update_modified=False)
 		_enqueue_resume(run)
 
