@@ -82,6 +82,16 @@ test("the expanded diagram height is read on each open, not once", () => {
 	assert.doesNotMatch(card, /expandedHeight = computed/)
 })
 
+test("the icon-only remove-filter row button has a tooltip and an accessible name", () => {
+	const filter = source("components/ProcessFilter.vue")
+	const start = filter.indexOf('@click="removeFilter(i)"')
+	assert.notEqual(start, -1)
+	const open = filter.lastIndexOf("<Button", start)
+	const button = filter.slice(open, filter.indexOf("</Button>", start))
+	assert.match(button, /title="Remove filter"/)
+	assert.match(button, /aria-label="Remove filter"/)
+})
+
 test("the agent task dialog shows the sandbox settings and saves them on the linked agent", () => {
 	const modal = source("components/AIAgentConfigModal.vue")
 	for (const key of ["aiSandboxUseJob", "aiSandboxRetryOnTestFailure", "aiRequireReproduction"]) {
