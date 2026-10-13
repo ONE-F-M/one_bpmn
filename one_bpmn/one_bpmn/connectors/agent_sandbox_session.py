@@ -17,7 +17,7 @@ RUNNING_STATES = ("starting", "registered", "active", "closing")
 LIVE_STATES = ("queued", "starting", "registered", "active")
 REGISTER_WINDOW_SECONDS = 300
 SIGNATURE_WINDOW_SECONDS = 300
-START_WAIT_SECONDS = 180
+START_WAIT_SECONDS = 300
 FAST_WAIT_SECONDS = 60
 POLL_SECONDS = 0.25
 MAX_RESULT_CHARS = 1_000_000
@@ -74,6 +74,7 @@ def start_queued() -> int:
 
 def enqueue(session, kind: str, action: str, payload: dict, run: str | None = None):
 	"""Add a command to the session's queue. Committed here because the container reads it from another request."""
+	frappe.db.commit()  # ends the snapshot, so the locked read sees the container's latest heartbeat
 	locked = frappe.get_doc(SESSION, session.name, for_update=True)
 	seq = (locked.last_seq or 0) + 1
 	locked.db_set("last_seq", seq, update_modified=False)

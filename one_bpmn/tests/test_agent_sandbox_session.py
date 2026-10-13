@@ -247,6 +247,23 @@ class TestThePollingEndpoints(SessionCase):
 		self.assertEqual(frappe.db.get_value(sessions.SESSION, session.name, "state"), "closed")
 
 
+class TestQueueingACommand(SessionCase):
+	def test_the_snapshot_ends_before_the_session_row_is_locked(self):
+		session, _token = self._started()
+		order = []
+		frappe.db.commit.side_effect = lambda: order.append("commit")
+		real_get_doc = frappe.get_doc
+
+		def get_doc(*args, **kwargs):
+			if kwargs.get("for_update"):
+				order.append("lock")
+			return real_get_doc(*args, **kwargs)
+
+		with patch.object(frappe, "get_doc", side_effect=get_doc):
+			sessions.enqueue(session, "tool", "list_files", {})
+		self.assertEqual(order[:2], ["commit", "lock"])
+
+
 class TestWaitingForAResult(SessionCase):
 	def test_the_result_is_returned_once_the_container_has_written_it(self):
 		session, _key = self._registered()
@@ -281,6 +298,11 @@ class TestWaitingForAResult(SessionCase):
 		self.assertEqual(sessions._timeout_for(session.name), sessions.START_WAIT_SECONDS)
 		registered, _key = self._registered(work_item="WI-REG")
 		self.assertEqual(sessions._timeout_for(registered.name), sessions.FAST_WAIT_SECONDS)
+
+
+class TestHowLongACallWaitsForAStart(FrappeTestCase):
+	def test_a_call_waits_at_least_as_long_as_a_container_may_take_to_register(self):
+		self.assertGreaterEqual(sessions.START_WAIT_SECONDS, sessions.REGISTER_WINDOW_SECONDS)
 
 
 class TestTheJobCalls(FrappeTestCase):
