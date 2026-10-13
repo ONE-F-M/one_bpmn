@@ -147,7 +147,12 @@ def verified_session(body: dict, signature: str, raw: bytes):
 
 def next_command(session) -> dict | None:
 	"""Mark the session alive and hand over the oldest pending command, if any."""
-	session.db_set({"last_heartbeat": now_datetime(), "state": "closing" if session.state == "closing" else "active"}, update_modified=False)
+	frappe.db.commit()  # ends the snapshot, so the update below sees a close the reaper just wrote
+	state = frappe.db.get_value(SESSION, session.name, "state")
+	session.db_set(
+		{"last_heartbeat": now_datetime(), "state": "closing" if state == "closing" else "active"},
+		update_modified=False,
+	)
 	rows = frappe.get_all(COMMAND, filters={"session": session.name, "state": "pending"}, fields=["name", "seq", "kind", "action", "payload"], order_by="seq asc", limit_page_length=1)
 	if not rows:
 		return None

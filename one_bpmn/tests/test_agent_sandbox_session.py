@@ -169,6 +169,26 @@ class TestThePollingEndpoints(SessionCase):
 		self.assertEqual(out, {"accepted": True, "command": None})
 		self.assertEqual(frappe.db.get_value(sessions.SESSION, session.name, "state"), "active")
 
+	def test_a_close_written_after_the_session_was_read_is_not_undone_by_the_heartbeat(self):
+		session, _key = self._registered()
+		frappe.db.set_value(sessions.SESSION, session.name, "state", "closing")
+		sessions.next_command(session)  # the session object still holds the state it was read with
+		self.assertEqual(frappe.db.get_value(sessions.SESSION, session.name, "state"), "closing")
+
+	def test_the_snapshot_ends_before_the_heartbeat_is_written(self):
+		session, _key = self._registered()
+		order = []
+		frappe.db.commit.side_effect = lambda: order.append("commit")
+		real_set_value = frappe.db.set_value
+
+		def set_value(*args, **kwargs):
+			order.append("update")
+			return real_set_value(*args, **kwargs)
+
+		with patch.object(frappe.db, "set_value", side_effect=set_value):
+			sessions.next_command(session)
+		self.assertEqual(order[:2], ["commit", "update"])
+
 	def test_commands_are_handed_over_oldest_first_with_increasing_sequence_numbers(self):
 		session, key = self._registered()
 		first = self._command(session, payload={"path": "one"})
