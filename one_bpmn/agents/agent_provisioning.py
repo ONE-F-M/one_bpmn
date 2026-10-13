@@ -278,6 +278,7 @@ def generate_system_prompt(config_name: str) -> str:
 	created without a prompt, the process generates one here rather than
 	failing validation.
 	"""
+	from one_bpmn.agents.executor import DEFAULT_MAX_OUTPUT_TOKENS
 	from one_bpmn.agents.executor.direct_api import _run_coro_blocking
 	from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
 	from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
@@ -293,7 +294,11 @@ def generate_system_prompt(config_name: str) -> str:
 	)
 	adapter = get_llm_adapter_from_settings(get_agent_config(cfg.agent_id))
 	completion = _run_coro_blocking(
-		adapter.complete(system="You write system prompts.", user=meta_prompt, max_tokens=1024)
+		adapter.complete(
+			system="You write system prompts.",
+			user=meta_prompt,
+			max_tokens=cfg.max_tokens or DEFAULT_MAX_OUTPUT_TOKENS,
+		)
 	)
 	prompt = (getattr(completion, "text", "") or "").strip()
 	if prompt:
