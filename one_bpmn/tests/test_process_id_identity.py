@@ -61,6 +61,16 @@ class TestSwappingAnIdInADiagram(FrappeTestCase):
 
 		self.assertEqual(swap_process_id(xml, "Process_1", "Process_1"), xml)
 
+	def test_xml_process_id_is_empty_for_malformed_xml_with_no_process_element(self):
+		malformed = (
+			'<?xml version="1.0" encoding="UTF-8"?>'
+			'<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL">'
+			'<bpmn:collaboration id="c1" />'
+			"</bpmn:definitions>"
+		)
+
+		self.assertEqual(xml_process_id(malformed), "")
+
 
 class TestTheRecordOwnsTheId(FrappeTestCase):
 	"""A save must not let the diagram rename the record."""
