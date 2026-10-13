@@ -169,7 +169,7 @@ class TestTheBugAgentsPatch(ReproCase):
 		for name in self.present:
 			config = frappe.db.get_value("AI Agent Configuration", name, ["system_prompt", "max_tool_calls", "require_reproduction"], as_dict=True)
 			self.assertTrue(config.system_prompt.startswith("Do it."), name)
-			self.assertEqual(config.system_prompt.count(patch_module.marker()), 1, name)
+			self.assertEqual(config.system_prompt.count(patch_module.marker()), int(name in patch_module.RULES), name)
 			self.assertEqual(config.max_tool_calls, patch_module.MAX_TOOL_CALLS, name)
 			self.assertEqual(frappe.db.get_value("AI Agent Configuration", name, "max_retries"), patch_module.MODEL_RETRIES, name)
 			self.assertEqual(bool(config.require_reproduction), name in patch_module.HELD, name)
@@ -181,6 +181,10 @@ class TestTheBugAgentsPatch(ReproCase):
 		self.assertNotIn("report_not_reproducible", patch_module.RULES["Bug Reviewer"])
 		self.assertIn("report_not_reproducible", patch_module.RULES["Bug Programmer"])
 		self.assertIn("apply_edits", patch_module.RULES["Bug Programmer"])
+
+	def test_the_coordinator_prompt_gets_no_rules_because_its_map_has_no_sandbox_tools(self):
+		self.assertNotIn("Bug Agent", patch_module.RULES)
+		self.assertIn("Bug Agent", patch_module.HELD)
 
 	def test_the_planner_is_never_held_to_reproduction_and_the_reviewer_is(self):
 		self.assertNotIn("Bug Planner", patch_module.HELD)
