@@ -820,8 +820,10 @@ class BPMNProcessInstance(Document):
 		- ai_task_selector ad-hoc subprocesses waiting for a DECISION
 		  (container STARTED with no active inner head)
 
-		Returns: list of {kind, task_id, bpmn_id, label} — task_id is what
-		retry_ai_task / run_parked_ai_task expect for that kind.
+		Returns: list of {kind, task_id, bpmn_id, label, since} — task_id is what
+		retry_ai_task / run_parked_ai_task expect for that kind, and since is when
+		the task last changed state, in epoch seconds. A service_task unit also
+		carries waits_on, naming the delegation or sandbox run it is waiting for.
 		"""
 		if not self.workflow_state:
 			return []
@@ -857,6 +859,7 @@ class BPMNProcessInstance(Document):
 						"task_id": bpmn_id,
 						"bpmn_id": bpmn_id,
 						"label": bpmn_engine.get_task_display_name(t),
+						"since": t.last_state_change,
 					}
 				)
 			elif self._ai_service_type(t) in self._AI_SERVICE_TYPES:
@@ -871,9 +874,17 @@ class BPMNProcessInstance(Document):
 						"task_id": str(t.id),
 						"bpmn_id": bpmn_id,
 						"label": bpmn_engine.get_task_display_name(t),
+						"since": t.last_state_change,
+						"waits_on": self._parked_task_waits_on(t),
 					}
 				)
 		return units
+
+	def _parked_task_waits_on(self, task) -> str:
+		"""What a parked AI task is waiting for: "a2a", "agent_sandbox", or "" when it is waiting for its own job."""
+		if self._task_waiting_a2a(task):
+			return "a2a"
+		return "agent_sandbox" if self._task_waiting_agent_sandbox(task) else ""
 
 	def get_active_tasks_summary(self) -> list:
 		"""
