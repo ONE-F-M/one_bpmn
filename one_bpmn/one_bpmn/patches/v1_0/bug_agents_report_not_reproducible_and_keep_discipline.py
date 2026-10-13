@@ -36,7 +36,7 @@ else:
 MARKER = "Working on a bug:"
 READING = "- To read two or more files use read_files, and to find where something is used use grep_files.\n"
 RULES = {
-	"Bug Agent": MARKER + "\n"
+	"Bug Programmer": MARKER + "\n"
 	"- Submit a plan naming the suspected file and the test you will add before changing anything.\n"
 	"- Write a test that fails because of the bug, and run_tests. Your change to the application is refused until that test fails for an application reason, not an import or syntax error and not another test.\n"
 	"- After the fix, run_tests and see the same test pass before the pull request is opened. It is refused otherwise.\n"
@@ -46,7 +46,6 @@ RULES = {
 	"Bug Reviewer": MARKER + "\n" + READING
 	+ "- The pull request is refused until the fix has been verified: run_tests after the last change must pass, including the test that reproduced the bug.\n",
 }
-RULES["Bug Programmer"] = RULES["Bug Agent"]
 
 
 def marker() -> str:
@@ -59,9 +58,11 @@ def execute():
 		if not frappe.db.exists("AI Agent Configuration", name):
 			continue
 		doc = frappe.get_doc("AI Agent Configuration", name)
-		prompt = with_block(doc.system_prompt, RULES[name])
-		changed = prompt != doc.system_prompt
-		doc.system_prompt = prompt
+		changed = False
+		if name in RULES:
+			prompt = with_block(doc.system_prompt, RULES[name])
+			changed = prompt != doc.system_prompt
+			doc.system_prompt = prompt
 		if name in HELD and not doc.require_reproduction:
 			doc.require_reproduction = 1
 			changed = True
