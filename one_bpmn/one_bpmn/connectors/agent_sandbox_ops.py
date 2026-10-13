@@ -291,6 +291,14 @@ def _past_read_budget(instance) -> bool:
 	return _reads_since_last_edit(instance, _READ_BUDGET) >= _READ_BUDGET
 
 
+def agent_name_for(instance) -> str | None:
+	"""The agent configuration linked to the instance's map, else the map's own name."""
+	model = getattr(instance, "process_model", None)
+	if not model:
+		return None
+	return frappe.db.get_value("AI Agent Configuration", {"process_model": model}, "name") or model
+
+
 _FRONTEND_AGENT = "Frontend Agent"
 _FRONTEND_SKILL = "frontend-house-style"
 _FRONTEND_FILE = re.compile(r"\.(vue|js)$", re.IGNORECASE)
@@ -300,7 +308,7 @@ def frontend_edit_error(instance, action: str, path: str) -> str | None:
 	"""None unless the Frontend Agent is about to change a file before the steps its
 	prompt requires: frontend-house-style loaded for a .vue or .js file, and read_file
 	of the same path before edit_file."""
-	if action not in _PROGRESS_ACTIONS or getattr(instance, "process_model", None) != _FRONTEND_AGENT:
+	if action not in _PROGRESS_ACTIONS or agent_name_for(instance) != _FRONTEND_AGENT:
 		return None
 	action = "edit_file" if action == "apply_edits" else action
 	if _FRONTEND_FILE.search(path) and not _skill_loaded(instance, _FRONTEND_SKILL):
@@ -483,7 +491,7 @@ def repeat_run_tests_without_progress_error(instance, action: str) -> str | None
 	blind repeat, and must not be refused."""
 	if action != "run_tests" or instance is None:
 		return None
-	if getattr(instance, "process_model", None) not in _BUG_PIPELINE_PROCESSES:
+	if agent_name_for(instance) not in _BUG_PIPELINE_PROCESSES:
 		return None
 	rows = frappe.get_all(
 		"Agent Sandbox Run",
@@ -512,7 +520,7 @@ _EXCEPTION_LINE = re.compile(r"^\s*(?:\w+\.)*\w*(?:Error|Exception)\b.*$", re.MU
 
 def requires_reproduction(instance) -> bool:
 	"""Whether this run's agent is held to bug discipline (its configuration's Require Reproduction)."""
-	name = getattr(instance, "process_model", None)
+	name = agent_name_for(instance)
 	return bool(name and frappe.db.get_value("AI Agent Configuration", name, "require_reproduction"))
 
 
@@ -648,7 +656,7 @@ def record_plan(target_app: str, git_branch: str, work_item_description: str, pl
 		"state": "completed",
 		"completed_at": frappe.utils.now(),
 		"action": _PLAN_ACTION,
-		"agent_name": getattr(instance, "process_model", None),
+		"agent_name": agent_name_for(instance),
 		"target_app": target_app,
 		"git_branch": git_branch,
 		"bpmn_id": bpmn_id,
@@ -716,7 +724,7 @@ def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_de
 			"doctype": "Agent Sandbox Run",
 			"state": "running",
 			"action": action,
-			"agent_name": getattr(instance, "process_model", None),
+			"agent_name": agent_name_for(instance),
 			"work_item": work_item_id,
 			"target_app": target_app,
 			"git_branch": git_branch,
@@ -756,7 +764,7 @@ def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_de
 		"work_item_description": work_item_description,
 		"work_item_id": work_item_id,
 		"args": args,
-		"agent_name": getattr(instance, "process_model", None) or "Dev Agent",
+		"agent_name": agent_name_for(instance) or "Dev Agent",
 	}
 	if run:
 		run.db_set("request_payload", frappe.as_json(payload), update_modified=False)
@@ -901,7 +909,7 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 		"doctype": "Agent Sandbox Run",
 		"state": "submitted",
 		"action": action,
-		"agent_name": getattr(instance, "process_model", None),
+		"agent_name": agent_name_for(instance),
 		"work_item": work_item_id,
 		"target_app": target_app,
 		"git_branch": git_branch,
@@ -928,7 +936,7 @@ def _dispatch_single_action(params: dict, ctx: dict, action: str) -> dict | None
 		"args": args,
 		"github_token": github_token,
 		"callback_url": _callback_url(),
-		"agent_name": getattr(instance, "process_model", None) or "Dev Agent",
+		"agent_name": agent_name_for(instance) or "Dev Agent",
 	}
 	audit_payload = {**payload, "github_token": "REDACTED"}
 	run.db_set("request_payload", frappe.as_json(audit_payload), update_modified=False)
