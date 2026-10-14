@@ -218,3 +218,69 @@ test('shapes that share an id are one node, so every reject path can lead to the
   assert.equal(out.ok, true, JSON.stringify(out.problems));
   assert.equal(out.xml.match(/id="set_rejected"/g).length, 1);
 });
+
+const subIr = () => ({
+  name: 'Doctype Sync',
+  nodes: [
+    { id: 's', type: 'startEvent', name: 'Start' },
+    { id: 'mid', type: 'intermediateThrowEvent', name: 'Intermediate' },
+    {
+      id: 'sub', type: 'subProcess', name: 'Test Sub Process',
+      children: {
+        nodes: [
+          { id: 'a', type: 'startEvent', name: 'Start' },
+          { id: 't', type: 'userTask', name: 'Open the list' },
+          { id: 'z', type: 'endEvent', name: 'Saved' },
+        ],
+        flows: [{ from: 'a', to: 't' }, { from: 't', to: 'z' }],
+      },
+    },
+    { id: 'e', type: 'endEvent', name: 'End' },
+  ],
+  flows: [{ from: 's', to: 'mid' }, { from: 'mid', to: 'sub' }, { from: 'sub', to: 'e' }],
+});
+
+const between = (xml, open, close) => {
+  const i = xml.indexOf(open);
+  return i < 0 ? '' : xml.slice(i, xml.indexOf(close, i));
+};
+
+test('sub-process steps compile inside the sub-process, with their own flows', () => {
+  const r = run(subIr());
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+  const inner = between(r.xml, '<bpmn:subProcess id="sub"', '</bpmn:subProcess>');
+  for (const id of ['id="a"', 'id="t"', 'id="z"']) assert.ok(inner.includes(id), `${id} missing inside the sub-process`);
+  assert.equal((inner.match(/<bpmn:sequenceFlow /g) || []).length, 2);
+});
+
+test('sub-process steps are drawn on their own plane, not on the main diagram', () => {
+  const r = run(subIr());
+  const planes = [...r.xml.matchAll(/<bpmndi:BPMNPlane id="([^"]+)" bpmnElement="([^"]+)"/g)].map((m) => m[2]);
+  assert.deepEqual(planes, ['Process_1', 'sub']);
+  const [main, sub] = r.xml.split('<bpmndi:BPMNDiagram').slice(1);
+  assert.ok(!main.includes('bpmnElement="t"'), 'inner step leaked onto the main plane');
+  assert.ok(sub.includes('bpmnElement="t"') && sub.includes('bpmnElement="a"') && sub.includes('bpmnElement="z"'));
+  assert.match(main, /bpmnElement="sub"[^>]*isExpanded="false"/);
+});
+
+test('intermediate events keep their type', () => {
+  const r = run(subIr());
+  assert.ok(r.xml.includes('<bpmn:intermediateThrowEvent id="mid"'));
+  const catchIr = subIr();
+  catchIr.nodes[1].type = 'intermediateCatchEvent';
+  assert.ok(run(catchIr).xml.includes('<bpmn:intermediateCatchEvent id="mid"'));
+});
+
+test('a sub-process step that points outside the sub-process is reported, not drawn', () => {
+  const ir = subIr();
+  ir.nodes[2].children.flows.push({ from: 't', to: 'e' });
+  const r = run(ir);
+  assert.equal(r.ok, false);
+  assert.match(JSON.stringify(r.problems), /sub/);
+});
+
+test('the layout audit judges each plane on its own', () => {
+  const r = run(subIr());
+  assert.equal(r.layout.overlaps, 0, JSON.stringify(r.problems));
+  assert.equal(r.layout.labelCollisions, 0, JSON.stringify(r.problems));
+});

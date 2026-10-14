@@ -103,6 +103,9 @@ NS = {
 	"custom": "http://custom/text-style",
 	"camunda": "http://camunda.org/schema/1.0/bpmn",
 }
+SUBPROCESS_KEPT_TAGS = tuple(
+	"{" + NS["bpmn"] + "}" + tag for tag in ("incoming", "outgoing", "extensionElements", "documentation")
+)
 EXTENSION_NS_URIS = (
 	"{http://spiffworkflow.org/bpmn/schema/1.0/core}",
 	"{http://custom/text-style}",
@@ -351,6 +354,57 @@ def transfer_properties(old_xml: str, new_xml: str) -> tuple:
 	merged_xml = ET.tostring(new_root, encoding="unicode", xml_declaration=True)
 	merged_xml = re.sub(r"^<\?xml\s[^?]*\?>", '<?xml version="1.0" encoding="UTF-8"?>', merged_xml)
 	return merged_xml, removed
+
+
+def resolve_scope(xml: str, texts: list, scope_id: str = "") -> dict | None:
+	"""The sub-process a request is about: the one open on the canvas, else the one the newest message names."""
+	if not (xml or "").strip():
+		return None
+	_register_namespaces()
+	subs = {e.get("id"): e for e in ET.fromstring(xml).iter("{" + NS["bpmn"] + "}subProcess") if e.get("id")}
+	chosen = subs.get(scope_id)
+	for text in texts:
+		if chosen is not None:
+			break
+		squashed = re.sub(r"[^a-z0-9]", "", (text or "").lower())
+		named = [e for e in subs.values() if e.get("name") and re.sub(r"[^a-z0-9]", "", e.get("name").lower()) in squashed]
+		if named:
+			chosen = max(named, key=lambda e: len(e.get("name")))
+	if chosen is None:
+		return None
+	return {"id": chosen.get("id"), "name": chosen.get("name") or chosen.get("id"), "xml": ET.tostring(chosen, encoding="unicode")}
+
+
+def splice_subprocess(xml: str, child_xml: str, scope_id: str) -> str:
+	"""xml with the sub-process scope_id holding the steps compiled in child_xml and its own plane redrawn."""
+	_register_namespaces()
+	root = ET.fromstring(xml)
+	child_root = ET.fromstring(child_xml)
+	bpmn, bpmndi = "{" + NS["bpmn"] + "}", "{" + NS["bpmndi"] + "}"
+	sub = next(e for e in root.iter(bpmn + "subProcess") if e.get("id") == scope_id)
+	for step in [e for e in sub if e.tag not in SUBPROCESS_KEPT_TAGS]:
+		sub.remove(step)
+	sub.extend(child_root.find(bpmn + "process"))
+	new_ids = {e.get("id") for e in sub.iter() if e.get("id")} - {scope_id}
+
+	for diagram in root.findall(bpmndi + "BPMNDiagram"):
+		plane = diagram.find(bpmndi + "BPMNPlane")
+		if plane.get("bpmnElement") == scope_id:
+			root.remove(diagram)
+			continue
+		for drawn in [e for e in plane if e.get("bpmnElement") in new_ids]:
+			plane.remove(drawn)
+		for shape in plane.findall(bpmndi + "BPMNShape"):
+			if shape.get("bpmnElement") == scope_id:
+				shape.set("isExpanded", "false")
+	for diagram in child_root.findall(bpmndi + "BPMNDiagram"):
+		diagram.set("id", "BPMNDiagram_" + scope_id)
+		plane = diagram.find(bpmndi + "BPMNPlane")
+		plane.set("id", "BPMNPlane_" + scope_id)
+		plane.set("bpmnElement", scope_id)
+		root.append(diagram)
+	spliced = ET.tostring(root, encoding="unicode", xml_declaration=True)
+	return re.sub(r"^<\?xml\s[^?]*\?>", '<?xml version="1.0" encoding="UTF-8"?>', spliced)
 
 
 def format_removal_warning(removed_elements: list) -> str:

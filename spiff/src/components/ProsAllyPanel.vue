@@ -45,6 +45,7 @@ const props = defineProps({
 	processName: { type: String, default: "" },
 	diagramName: { type: String, default: "" },
 	getCanvasXml: { type: Function, default: null },
+	getScopeId: { type: Function, default: null },
 });
 
 const emit = defineEmits(["close", "bpmn-generated"]);
@@ -73,7 +74,10 @@ const turnContext = computed(() => ({
 async function withCanvasXml() {
 	if (!props.getCanvasXml) return {};
 	try {
-		return { current_xml: ((await props.getCanvasXml()) || "").trim() };
+		return {
+			current_xml: ((await props.getCanvasXml()) || "").trim(),
+			scope_id: props.getScopeId ? props.getScopeId() : "",
+		};
 	} catch (e) {
 		return {};
 	}

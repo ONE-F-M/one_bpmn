@@ -42,6 +42,8 @@ const GATEWAY_TYPES = new Set([
 const BPMN_TYPE_MAP = {
   startEvent:       'bpmn:StartEvent',
   endEvent:         'bpmn:EndEvent',
+  intermediateThrowEvent: 'bpmn:IntermediateThrowEvent',
+  intermediateCatchEvent: 'bpmn:IntermediateCatchEvent',
   task:             'bpmn:ScriptTask',       // fallback; normalised IR should never emit bare task
   userTask:         'bpmn:UserTask',
   scriptTask:       'bpmn:ScriptTask',
@@ -66,6 +68,8 @@ const LANE_HEADER_W    = 30;   // per-lane name strip
 const NODE_DIMS = {
   startEvent:       { w: 36, h: 36 },
   endEvent:         { w: 36, h: 36 },
+  intermediateThrowEvent: { w: 36, h: 36 },
+  intermediateCatchEvent: { w: 36, h: 36 },
   exclusiveGateway: { w: 50, h: 50 },
   parallelGateway:  { w: 50, h: 50 },
   inclusiveGateway: { w: 50, h: 50 },
@@ -374,57 +378,59 @@ async function compileIRtoBpmn(ir) {
   // on diagrams that actually use it.
   let usesSpiffNS = false;
 
-  // 1. Semantic nodes
-  // Do NOT pass incoming/outgoing arrays — bpmn-moddle auto-wires them through the
-  // sourceRef/targetRef inverse associations when it processes the Process flowElements.
-  // Passing them AND manually pushing causes each flow to appear twice in the output.
-  for (const n of ir.nodes) {
-    const bpmnType = BPMN_TYPE_MAP[n.type] || 'bpmn:ScriptTask';
-    const el = moddle.create(bpmnType, { id: n.id, name: n.name });
-    // Task configuration, already resolved to final attribute names by
-    // bpmn_task_config.py. Written through $attrs because the spiffworkflow
-    // descriptor declares none of them — the same way the editor stores them.
-    for (const [key, value] of Object.entries(n.attrs || {})) {
-      if (value !== undefined && value !== null && value !== '') {
-        el.$attrs[`spiffworkflow:${key}`] = String(value);
-        usesSpiffNS = true;
+  // 1-3. Semantic nodes, sequence flows and default flows, one scope at a time.
+  // A sub-process node carries its own steps as `children`; they are built into
+  // the sub-process element, so they never join the main process.
+  const buildScope = (nodes, flows) => {
+    const scopeEls = [];
+    const scopeById = new Map();
+    // Do NOT pass incoming/outgoing arrays - bpmn-moddle auto-wires them through the
+    // sourceRef/targetRef inverse associations when it processes the flowElements.
+    // Passing them AND manually pushing causes each flow to appear twice in the output.
+    for (const n of nodes) {
+      const bpmnType = BPMN_TYPE_MAP[n.type] || 'bpmn:ScriptTask';
+      const el = moddle.create(bpmnType, { id: n.id, name: n.name });
+      // Task configuration, already resolved to final attribute names by
+      // bpmn_task_config.py. Written through $attrs because the spiffworkflow
+      // descriptor declares none of them - the same way the editor stores them.
+      for (const [key, value] of Object.entries(n.attrs || {})) {
+        if (value !== undefined && value !== null && value !== '') {
+          el.$attrs[`spiffworkflow:${key}`] = String(value);
+          usesSpiffNS = true;
+        }
       }
-    }
-    elementById.set(n.id, el);
-    flowElements.push(el);
-  }
-
-  // 2. Sequence flows — setting sourceRef/targetRef is sufficient; moddle wires
-  // the inverse incoming/outgoing references automatically via its type descriptors.
-  const seqMeta = [];
-  for (let i = 0; i < ir.flows.length; i++) {
-    const f   = ir.flows[i];
-    const src = elementById.get(f.from);
-    const tgt = elementById.get(f.to);
-    if (!src || !tgt) continue;
-
-    const sf = moddle.create('bpmn:SequenceFlow', {
-      id:        `flow_${f.from}_${f.to}_${i}`,
-      name:      f.name || '',
-      sourceRef: src,
-      targetRef: tgt,
-    });
-
-    if (f.condition) {
-      sf.conditionExpression = moddle.create('bpmn:FormalExpression', { body: f.condition });
+      if (n.type === 'subProcess' && n.children) {
+        el.flowElements = buildScope(n.children.nodes || [], n.children.flows || []);
+      }
+      scopeById.set(n.id, el);
+      elementById.set(n.id, el);
+      scopeEls.push(el);
     }
 
-    flowElements.push(sf);
-    seqMeta.push({ sf, f });
-  }
+    // Setting sourceRef/targetRef is sufficient; moddle wires the inverse
+    // incoming/outgoing references automatically via its type descriptors.
+    for (let i = 0; i < flows.length; i++) {
+      const f   = flows[i];
+      const src = scopeById.get(f.from);
+      const tgt = scopeById.get(f.to);
+      if (!src || !tgt) continue;
 
-  // 3. Wire default flows on exclusive / inclusive gateways
-  for (const { sf, f } of seqMeta) {
-    if (f.default) {
-      const src = elementById.get(f.from);
-      if (src) src.default = sf;
+      const sf = moddle.create('bpmn:SequenceFlow', {
+        id:        `flow_${f.from}_${f.to}_${i}`,
+        name:      f.name || '',
+        sourceRef: src,
+        targetRef: tgt,
+      });
+
+      if (f.condition) {
+        sf.conditionExpression = moddle.create('bpmn:FormalExpression', { body: f.condition });
+      }
+      if (f.default) src.default = sf;
+      scopeEls.push(sf);
     }
-  }
+    return scopeEls;
+  };
+  flowElements.push(...buildScope(ir.nodes, ir.flows));
 
   // 4. Lane set (optional) — lanes is [{ id, name, role? }]
   let laneSets;
@@ -1294,7 +1300,8 @@ function buildManualLaneDI(ir, opts = {}) {
     const pos = nodePos.get(n.id);
     if (!pos) continue;
     const isCompact = (n.type === 'startEvent' || n.type === 'endEvent' || GATEWAY_TYPES.has(n.type));
-    lines.push('      <bpmndi:BPMNShape id="' + n.id + '_di" bpmnElement="' + n.id + '">');
+    lines.push('      <bpmndi:BPMNShape id="' + n.id + '_di" bpmnElement="' + n.id + '"' +
+               (n.type === 'subProcess' ? ' isExpanded="false"' : '') + '>');
     lines.push('        <dc:Bounds x="' + pos.x + '" y="' + pos.y +
                '" width="' + pos.w + '" height="' + pos.h + '" />');
     if (isCompact && n.name) {
@@ -1382,26 +1389,110 @@ function auditLayout(xml) {
     } else if (closing) open.pop();
     else if (!selfClosing) open.push(attr(attrs, 'id'));
   }
-  const shapes = [], edges = [];
-  for (const m of xml.matchAll(/<bpmndi:BPMNShape\b([^>]*)>([\s\S]*?)<\/bpmndi:BPMNShape>/g)) {
-    const id = attr(m[1], 'bpmnElement');
-    const b = bounds(m[2].replace(/<bpmndi:BPMNLabel>[\s\S]*?<\/bpmndi:BPMNLabel>/, ''));
-    if (!b) continue;
-    shapes.push({ id, name: names.get(id) || id, ...b, container: /isHorizontal="true"/.test(m[1]), label: labelBounds(m[2]) });
+  // Each BPMNDiagram is its own drawing: a sub-process plane shares coordinates with the main one.
+  const total = { crossings: 0, overlaps: 0, throughShape: 0, labelCollisions: 0, crossingPairs: [], throughPairs: [] };
+  for (const di of xml.split('<bpmndi:BPMNDiagram').slice(1)) {
+    const shapes = [], edges = [];
+    for (const m of di.matchAll(/<bpmndi:BPMNShape\b([^>]*)>([\s\S]*?)<\/bpmndi:BPMNShape>/g)) {
+      const id = attr(m[1], 'bpmnElement');
+      const b = bounds(m[2].replace(/<bpmndi:BPMNLabel>[\s\S]*?<\/bpmndi:BPMNLabel>/, ''));
+      if (!b) continue;
+      shapes.push({ id, name: names.get(id) || id, ...b, container: /isHorizontal="true"/.test(m[1]), label: labelBounds(m[2]) });
+    }
+    for (const m of di.matchAll(/<bpmndi:BPMNEdge\b([^>]*)>([\s\S]*?)<\/bpmndi:BPMNEdge>/g)) {
+      const id = attr(m[1], 'bpmnElement');
+      const pts = [...m[2].matchAll(/<di:waypoint\s+x="([\d.-]+)"\s+y="([\d.-]+)"/g)].map(w => [+w[1], +w[2]]);
+      const [src, tgt] = ends.get(id) || [null, null];
+      edges.push({ id, name: names.get(id) || id, pts, src, tgt, within: within.get(id) || [], label: labelBounds(m[2]) });
+    }
+    const one = auditGeometry({ shapes, edges });
+    total.crossings += one.crossings;
+    total.overlaps += one.overlaps;
+    total.throughShape += one.throughShape;
+    total.labelCollisions += one.labelCollisions;
+    total.crossingPairs.push(...one.crossingPairs);
+    total.throughPairs.push(...one.throughPairs);
   }
-  for (const m of xml.matchAll(/<bpmndi:BPMNEdge\b([^>]*)>([\s\S]*?)<\/bpmndi:BPMNEdge>/g)) {
-    const id = attr(m[1], 'bpmnElement');
-    const pts = [...m[2].matchAll(/<di:waypoint\s+x="([\d.-]+)"\s+y="([\d.-]+)"/g)].map(w => [+w[1], +w[2]]);
-    const [src, tgt] = ends.get(id) || [null, null];
-    edges.push({ id, name: names.get(id) || id, pts, src, tgt, within: within.get(id) || [], label: labelBounds(m[2]) });
-  }
-  const r = auditGeometry({ shapes, edges });
+  const r = total;
   const nm = (id) => names.get(id) || id;
   return {
     crossings: r.crossings, overlaps: r.overlaps, throughShape: r.throughShape, labelCollisions: r.labelCollisions,
     crossingPairs: r.crossingPairs.map(p => [nm(p.a), nm(p.b)]),
     throughPairs: r.throughPairs.map(p => [nm(p.edge), nm(p.shape)]),
   };
+}
+
+// ── Sub-process scopes ────────────────────────────────────────────────────────
+//
+// A sub-process node may carry `children: { nodes, flows }`. Each scope is
+// normalised and checked on its own, and drawn on its own plane.
+
+const subProcessesOf = (ir) => (ir.nodes || []).filter(n => n.type === 'subProcess' && n.children);
+
+// Flows may only join nodes of the scope that declares them.
+function assertSubProcessScopes(ir) {
+  const problems = [];
+  const descendantIds = (node) => (node.children.nodes || []).flatMap(c => [c.id, ...(c.children ? descendantIds(c) : [])]);
+  const check = (scope, owner) => {
+    const here = new Set((scope.nodes || []).map(n => n.id));
+    const inner = new Set(subProcessesOf(scope).flatMap(descendantIds));
+    for (const f of scope.flows || []) {
+      for (const end of [f.from, f.to]) {
+        if (here.has(end)) continue;
+        if (owner || inner.has(end)) {
+          problems.push({
+            kind: 'structure', rule: 'subprocess-scope', elementId: owner || end,
+            message: `Flow ${f.from} -> ${f.to} joins "${end}", which is not in the same ` +
+                     (owner ? `sub-process "${owner}"` : 'scope') + '. Keep the flows of a sub-process between its own steps.',
+          });
+        }
+      }
+    }
+    for (const sub of subProcessesOf(scope)) check(sub.children, sub.id);
+  };
+  check(ir, null);
+  return problems;
+}
+
+// Normalise every sub-process scope; returns the IR and any structural problems.
+function normaliseSubProcesses(ir) {
+  const problems = [];
+  const walk = (scope) => ({
+    ...scope,
+    nodes: scope.nodes.map(n => {
+      if (n.type !== 'subProcess' || !n.children) return n;
+      const norm = normalizeGateways({ name: n.name, nodes: n.children.nodes || [], flows: n.children.flows || [] });
+      problems.push(...assertNoImplicitSplitOrJoin(norm), ...assertGatewayPairing(norm));
+      const inner = walk({ nodes: norm.nodes, flows: norm.flows });
+      return { ...n, children: { nodes: inner.nodes, flows: inner.flows } };
+    }),
+  });
+  return { ir: walk(ir), problems };
+}
+
+// One extra BPMNDiagram per sub-process, laid out with the same builder as the main plane.
+function buildSubProcessPlanes(ir) {
+  const sections = [];
+  const problems = [];
+  for (const sub of subProcessesOf(ir)) {
+    const gridIR = {
+      name: sub.name,
+      lanes: [{ id: '__lane', name: sub.name || 'Sub-process' }],
+      nodes: (sub.children.nodes || []).map(n => ({ ...n, lane: '__lane' })),
+      flows: sub.children.flows || [],
+    };
+    const { diSection, problems: diProblems } = buildManualLaneDI(gridIR, { pool: false });
+    problems.push(...diProblems);
+    if (diSection) {
+      sections.push(diSection
+        .replace('BPMNDiagram id="BPMNDiagram_1"', `BPMNDiagram id="BPMNDiagram_${sub.id}"`)
+        .replace('BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1"', `BPMNPlane id="BPMNPlane_${sub.id}" bpmnElement="${sub.id}"`));
+    }
+    const nested = buildSubProcessPlanes(sub.children);
+    sections.push(...nested.sections);
+    problems.push(...nested.problems);
+  }
+  return { sections, problems };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -1440,7 +1531,17 @@ async function main() {
   }
 
   // Pass 1 — normalise (deterministic; no LLM involvement)
-  const normIR = normalizeGateways(ir);
+  const scopeProblems = assertSubProcessScopes(ir);
+  if (scopeProblems.length) {
+    process.stdout.write(JSON.stringify({ ok: false, xml: '', problems: scopeProblems }));
+    return;
+  }
+  const normTop = normalizeGateways(ir);
+  const { ir: normIR, problems: subProblems } = normaliseSubProcesses(normTop);
+  if (subProblems.length) {
+    process.stdout.write(JSON.stringify({ ok: false, xml: '', problems: subProblems, normalizedIR: normIR }));
+    return;
+  }
 
   // Guard: normalisation must eliminate all non-gateway fan-in / fan-out.
   // If any remain it is a pipeline bug — surface it so the repair loop handles it.
@@ -1486,7 +1587,12 @@ async function main() {
       process.stdout.write(JSON.stringify({ ok: false, xml: '', problems: diProblems, normalizedIR: normIR }));
       return;
     }
-    xml = injectLaneDI(xml, diSection);
+    const subPlanes = buildSubProcessPlanes(normIR);
+    if (subPlanes.problems.length) {
+      process.stdout.write(JSON.stringify({ ok: false, xml: '', problems: subPlanes.problems, normalizedIR: normIR }));
+      return;
+    }
+    xml = injectLaneDI(xml, [diSection, ...subPlanes.sections].join('\n'));
   } catch (err) {
     process.stdout.write(JSON.stringify({
       ok: false, xml: '',
