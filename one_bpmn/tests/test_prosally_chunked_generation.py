@@ -12,7 +12,7 @@ from unittest import mock
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.llm_provider.base import LLMTruncatedError
-from one_bpmn.one_bpmn.patches.v1_0.prosally_chunked_generation_split import GENERATE
+from one_bpmn.one_bpmn.patches.v1_0.prosally_chunked_generation_fallback import GENERATE
 
 OUTLINE = {
 	"lanes": [{"id": "user", "name": "User"}, {"id": "system", "name": "System (Automatic)"}],
