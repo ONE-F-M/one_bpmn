@@ -248,7 +248,7 @@ const props = defineProps({
 	applyTargets: { type: Array, default: null },
 });
 
-const emit = defineEmits(["card-action", "conversation", "title", "choice", "turn-complete", "agent-event"]);
+const emit = defineEmits(["card-action", "conversation", "title", "choice", "turn-sent", "turn-complete", "agent-event"]);
 
 const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s;
 
@@ -633,6 +633,9 @@ async function send(text, extraContext = null, reuseId = null) {
 		}
 	}
 
+	// The context is now copied: a host that staged per-turn keys (ProsAlly's
+	// confirmed_action) can drop them here so the NEXT turn cannot reuse them.
+	emit("turn-sent");
 	activeStream = streamAgentTurn({
 		agentId: props.agentId,
 		message,
@@ -650,6 +653,9 @@ async function send(text, extraContext = null, reuseId = null) {
 			// slow one, and retyping was the only way forward.
 			sent.failed = true;
 			sent.retryContext = extraContext || null;
+			// A failed or timed-out turn is over too: hosts clear their
+			// per-turn staging on it, same as on a clean finish.
+			emit("turn-complete");
 		},
 		onDone: () => {
 			if (streamingText.value) {
@@ -1047,7 +1053,16 @@ defineExpose({ send, conversationName });
 .acp-card-head { padding: 8px 12px; border-bottom: 1px solid var(--og1); background: var(--sg1);
 	font-weight: 600; color: var(--ig9); font-size: 12px; }
 .acp-card-head--muted { color: var(--ig5); font-family: ui-monospace, Menlo, monospace; font-weight: 400; }
-.acp-card-opts { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 12px; }
+.acp-card-opts { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 12px; min-width: 0; }
+/* Option labels can be full sentences: wrap inside the card instead of
+   running past a 390px panel and over the composer. */
+.acp-card-opts .acp-btn { height: auto; min-height: 28px; max-width: 100%; white-space: normal;
+	text-align: left; padding: 5px 10px; line-height: 1.35; }
+.acp-card { max-width: 100%; box-sizing: border-box; }
+@media (max-width: 480px) {
+	.acp-card { width: 100%; }
+	.acp-card-opts .acp-btn { flex: 1 1 100%; justify-content: flex-start; }
+}
 .acp-fallback { padding: 8px 12px; } .acp-fallback pre { font-size: 11px; overflow-x: auto; }
 
 .acp-thinking { color: var(--ig5); font-style: italic; font-size: 12px; }
