@@ -151,6 +151,7 @@
 					<ProsAllyPanel
 						:process-name="processNameForPanel"
 						:get-canvas-xml="getCanvasXml"
+						:get-scope-id="getOpenSubProcessId"
 						@close="showProsAllyPanel = false"
 						@bpmn-generated="onProsAllyBpmnGenerated"
 					/>
@@ -171,6 +172,7 @@
 					<ProsAllyPanel
 						:process-name="processNameForPanel"
 						:get-canvas-xml="getCanvasXml"
+						:get-scope-id="getOpenSubProcessId"
 						@close="showProsAllyPanel = false"
 						@bpmn-generated="onProsAllyBpmnGenerated"
 					/>
@@ -3183,6 +3185,11 @@ async function loadXML(xml) {
 	} finally {
 		isImporting.value = false;
 	}
+}
+
+function getOpenSubProcessId() {
+	const root = modeler?.get("canvas").getRootElement()?.businessObject;
+	return root?.$type === "bpmn:SubProcess" ? root.id : "";
 }
 
 async function getCanvasXml() {

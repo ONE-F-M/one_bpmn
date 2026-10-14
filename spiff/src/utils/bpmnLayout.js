@@ -390,5 +390,10 @@ export function layoutBpmnXml(xmlString) {
 	// valid XML and bpmn-moddle handles it correctly via namespace-URI lookup.
 	const processXml = new XMLSerializer().serializeToString(processEl);
 
-	return `${xmlDecl}${defOpen}\n${processXml}\n${diSection}\n${defClose}`;
+	// A sub-process keeps the plane it is drawn on; only the main plane is rebuilt above.
+	const processIdAttr = `bpmnElement="${processId}"`;
+	const subPlanes = (xmlString.match(/<bpmndi:BPMNDiagram[\s\S]*?<\/bpmndi:BPMNDiagram>/g) || [])
+		.filter((diagram) => !diagram.includes(processIdAttr));
+
+	return `${xmlDecl}${defOpen}\n${processXml}\n${[diSection, ...subPlanes].join("\n")}\n${defClose}`;
 }
