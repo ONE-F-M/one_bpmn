@@ -32,6 +32,22 @@ class TestDeployProductionWorkflow(FrappeTestCase):
 	def test_trap_is_set_before_the_workers_stop(self):
 		self.assertLess(self.trap_index(), self.lines.index(STOP_WORKERS))
 
+	def test_deploys_on_manual_run_or_merged_pr_labelled_deploy_hotfix(self):
+		text = "\n".join(self.lines)
+		self.assertIn("workflow_dispatch:", self.lines)
+		self.assertIn("pull_request:", self.lines)
+		self.assertIn("branches: [version-15]", self.lines)
+		self.assertIn("types: [closed, labeled]", self.lines)
+		start = next(i for i, line in enumerate(self.lines) if line.startswith("if:"))
+		end = next(i for i, line in enumerate(self.lines) if line.startswith("runs-on:"))
+		condition = " ".join(self.lines[start:end])
+		self.assertIn("github.event_name == 'workflow_dispatch'", condition)
+		self.assertIn("github.ref == 'refs/heads/version-15'", condition)
+		self.assertIn("github.event_name == 'pull_request'", condition)
+		self.assertIn("github.event.pull_request.merged == true", condition)
+		self.assertIn("contains(github.event.pull_request.labels.*.name, 'deploy-hotfix')", condition)
+		self.assertIn("group: deploy-production", text)
+
 	def test_trap_starts_workers_and_restarts_web(self):
 		trap = self.lines[self.trap_index()]
 		self.assertIn("supervisorctl start $WORKERS", trap)
