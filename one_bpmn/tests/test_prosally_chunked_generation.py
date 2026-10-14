@@ -12,7 +12,7 @@ from unittest import mock
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.llm_provider.base import LLMTruncatedError
-from one_bpmn.one_bpmn.patches.v1_0.prosally_chunked_generation_fallback import GENERATE
+from one_bpmn.one_bpmn.patches.v1_0.prosally_chunked_generation_split import GENERATE
 
 OUTLINE = {
 	"lanes": [{"id": "user", "name": "User"}, {"id": "system", "name": "System (Automatic)"}],
@@ -66,6 +66,12 @@ def is_full_attempt(user):
 	return "Action: GENERATE_NEW" in user and "(generating ONE PHASE" not in user and "output ONLY an outline" not in user
 
 
+def _run_doc():
+	doc = mock.Mock(model="sonnet")
+	doc.name = "RUN-1"
+	return doc
+
+
 def _cfg():
 	return {"sub_prompts": {"process_generator": {"prompt": "You generate BPMN IR."}}, "max_tokens": 16384}
 
@@ -91,7 +97,9 @@ class TestProsAllyChunkedGeneration(FrappeTestCase):
 			mock.patch("one_bpmn.agents.bpmn_ir_pipeline.ensure_default_lanes", return_value=True), \
 			mock.patch("one_bpmn.agents.bpmn_ir_pipeline.extract_process_name", return_value="Leave"), \
 			mock.patch("one_bpmn.security.bpmn_validator.validate_bpmn_xml", return_value={"valid": True}), \
-			mock.patch("one_bpmn.agents.observability.record_truncated_sub_call", record):
+			mock.patch("one_bpmn.agents.observability.current_sub_call", return_value={"run": "RUN-1", "tool": "Tool Generate Process"}), \
+			mock.patch("one_bpmn.agents.observability.record_ai_step", record), \
+			mock.patch("frappe.get_doc", return_value=_run_doc()):
 			exec(GENERATE, {"frappe": frappe_stub(), "context_docname": "TEST-TURN", "result": result})
 		return model, compile_ir, record, result
 
@@ -137,7 +145,8 @@ class TestProsAllyChunkedGeneration(FrappeTestCase):
 
 		self.assertTrue(result["generated"])
 		self.assertEqual(record.call_count, 1)
-		self.assertEqual(record.call_args[0][2], "full generation")
+		self.assertEqual(record.call_args.kwargs["step_kind"], "sub_call")
+		self.assertEqual(record.call_args.kwargs["error_code"], "TRUNCATED")
 
 	def test_ac4_more_than_25_elements_skips_the_full_attempt(self):
 		model, compile_ir, record, result = self.run_generate(lambda user, calls: False, numbered_items=30)
