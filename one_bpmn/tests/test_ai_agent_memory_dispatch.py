@@ -8,6 +8,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.executor import (
@@ -253,6 +254,20 @@ class TestDispatcherMemory(FrappeTestCase):
 		self.assertNotIn("HARD PIPELINE RULES", agent_output)
 		self.assertNotIn("classify_intent", agent_output)
 
+	def test_eval_origin_run_writes_no_memory(self):
+		cfg = {"aiBackend": "faketest", "aiMemoryScope": "Agent", "aiUserPrompt": "q"}
+		prev = frappe.flags.eval_origin
+		frappe.flags.eval_origin = {"eval_case": "case-1", "eval_run": "run-1"}
+		self.addCleanup(setattr, frappe.flags, "eval_origin", prev)
+		for mode in ("distilled", "raw"):
+			with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
+				"one_bpmn.agents.memory.tools.memory_write"
+			) as mw, patch("one_bpmn.agents.memory.writeback._dead_letter") as dl:
+				D.dispatch_ai_agent(_instance(), _task("Act_V"), {**cfg, "aiMemoryWriteMode": mode}, "Act_V")
+			dw.assert_not_called()
+			mw.assert_not_called()
+			dl.assert_not_called()
+
 	def test_legacy_autowrite_defaults_to_distilled(self):
 		# Back-compat: an existing element with aiMemoryAutoWrite on and no mode
 		# now distils rather than dumping the reply verbatim.
@@ -341,6 +356,24 @@ class TestRememberDirectiveWrite(FrappeTestCase):
 		self.assertEqual(args[2], "Remember that every form we build needs a Site link field.")
 		self.assertEqual(kwargs.get("source_run"), "RUN-FAKE")
 		self.assertTrue(kwargs.get("user_directed"))
+
+	def test_remember_directive_writes_nothing_for_eval_origin(self):
+		prev = frappe.flags.eval_origin
+		frappe.flags.eval_origin = {"eval_case": "case-1", "eval_run": "run-1"}
+		self.addCleanup(setattr, frappe.flags, "eval_origin", prev)
+		with patch("one_bpmn.agents.memory.tools.memory_write") as mw:
+			D.dispatch_ai_agent(
+				_chat_instance("CONV-R2"),
+				_chat_task("Act_R", "Remember that every form we build needs a Site link field."),
+				{
+					"aiBackend": "faketest",
+					"aiMemoryWriteMode": "distilled",
+					"aiMemoryScope": "Agent",
+					"aiUserPrompt": "q",
+				},
+				"Act_R",
+			)
+		mw.assert_not_called()
 
 	def test_remember_directive_still_bypasses_raw_mode(self):
 		# The directive text is stored, not the agent's raw output.
