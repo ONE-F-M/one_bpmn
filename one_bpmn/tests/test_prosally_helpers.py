@@ -1,6 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 """The shared ProsAlly helpers behave exactly as the copies inlined in the tool scripts did."""
 
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -8,6 +9,10 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import prosally_helpers as helpers
+from one_bpmn.agents.turn_state import clear_turn, get_turn
+from one_bpmn.one_bpmn.patches.v1_0 import (
+	prosally_build_context_confirmed_action_pending_only as build_context_patch,
+)
 from one_bpmn.one_bpmn.patches.v1_0.prosally_merge_classify_and_confirm import CLASSIFY_INTENT
 
 OLD_XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -161,3 +166,305 @@ class TestModelCalls(FrappeTestCase):
 		self.assertEqual(
 			system, "You modify BPMN.\n\n## Skill: _Test ProsAlly Rules\n\n_Test ProsAlly Rules body"
 		)
+
+
+# The Build Context script as it runs on the BA site.
+REAL_BUILD_CONTEXT = """# Seeds the turn store with this turn's inputs. The transcript and the
+# "Established so far" facts come from the platform's history step.
+conversation_id = task_data.get("conversation_id", context_docname)
+for _k in ['process_name', 'diagram_name', 'confirmed_action', 'current_xml']:
+    _v = task_data.get(_k)
+    if _v not in (None, ""):
+        result[_k] = _v
+result["agent_response_ready"] = False
+
+from one_bpmn.agents.prosally_helpers import answer_to_confirmation
+from one_bpmn.agents.turn_state import set_turn
+# A typed reply to the last confirmation counts the same as clicking its button.
+_confirmed = task_data.get("confirmed_action", "") or ""
+_answer = {} if _confirmed else answer_to_confirmation(conversation_id, task_data.get("user_text", "") or "")
+set_turn(conversation_id, {
+    "user_text": task_data.get("user_text", "") or "",
+    "process_name": task_data.get("process_name", "") or "",
+    "diagram_name": task_data.get("diagram_name", "") or "",
+    "confirmed_action": _confirmed or _answer.get("confirmed_action", ""),
+    "declined_action": _answer.get("declined_action", ""),
+    "current_xml": task_data.get("current_xml", "") or "",
+})
+
+# The AI Agent Task does tool-calling internally, so the modeled
+# "Needs to call tools?" gateway always takes the default (no) path.
+result["needs_tools"] = False
+"""
+CONVERSATION = "_test_prosally_pending"
+STATED = '_confirmed = task_data.get("confirmed_action", "") or ""'
+# The same script on Staging and on a local site: confirmed_action is staged inside the set_turn dict.
+OLDER_BUILD_CONTEXT = """# Builds the LLM conversation history and seeds the per-turn scratch store.
+conversation_id = task_data.get("conversation_id", context_docname)
+for _k in ['process_name', 'diagram_name', 'confirmed_action', 'current_xml']:
+    _v = task_data.get(_k)
+    if _v not in (None, ""):
+        result[_k] = _v
+messages = frappe.get_all("Chat Message", filters={"conversation": conversation_id, "message_type": ["in", ["User", "Bot"]]}, fields=["text", "message_type"], order_by="creation desc", limit=20)
+messages.reverse()
+chat_history = []
+for m in messages:
+    role = "user" if m.message_type == "User" else "assistant"
+    if m.text:
+        chat_history.append({"role": role, "content": m.text})
+result["chat_history"] = chat_history
+result["agent_response_ready"] = False
+from one_bpmn.agents.turn_state import set_turn
+set_turn(conversation_id, {
+    "user_text": task_data.get("user_text", "") or "",
+    "chat_history": chat_history,
+    "process_name": task_data.get("process_name", "") or "",
+    "diagram_name": task_data.get("diagram_name", "") or "",
+    "confirmed_action": task_data.get("confirmed_action", "") or "",
+    "current_xml": task_data.get("current_xml", "") or "",
+})
+
+# Illustrative Camunda loop: the AI Agent Task does tool-calling internally,
+# so the modeled "Needs to call tools?" gateway always takes the default (no) path.
+result["needs_tools"] = False
+"""
+OLDER_STAGED = '    "confirmed_action": task_data.get("confirmed_action", "") or "",'
+
+
+def _last_bot_message(metadata):
+	rows = [frappe._dict(metadata=json.dumps(metadata))] if metadata is not None else []
+	return patch.object(frappe, "get_all", return_value=rows)
+
+
+CARD = {"intent": "CONFIRM", "agent_result": {"action_intent": "GENERATE_NEW"}}
+CLARIFY = {"intent": "CLARIFY", "agent_result": {"action_intent": None}}
+
+
+def _run_build_context(script, metadata, confirmed_action="GENERATE_NEW"):
+	namespace = {
+		"frappe": frappe,
+		"context_docname": CONVERSATION,
+		"result": {},
+		"task_data": {
+			"conversation_id": CONVERSATION,
+			"confirmed_action": confirmed_action,
+			"user_text": "draw a leave process",
+		},
+	}
+	with _last_bot_message(metadata):
+		exec(script, namespace)
+	return get_turn(CONVERSATION)
+
+
+class TestPendingConfirmation(FrappeTestCase):
+	def test_a_confirmation_card_gives_its_action(self):
+		with _last_bot_message(CARD):
+			self.assertEqual(helpers.pending_confirmation(CONVERSATION), "GENERATE_NEW")
+
+	def test_a_clarify_or_no_bot_message_gives_empty(self):
+		with _last_bot_message(CLARIFY):
+			self.assertEqual(helpers.pending_confirmation(CONVERSATION), "")
+		with _last_bot_message(None):
+			self.assertEqual(helpers.pending_confirmation(CONVERSATION), "")
+
+	def test_a_card_without_an_action_gives_empty(self):
+		with _last_bot_message({"intent": "CONFIRM", "agent_result": {}}):
+			self.assertEqual(helpers.pending_confirmation(CONVERSATION), "")
+
+	def test_answer_to_confirmation_reuses_it(self):
+		with patch.object(helpers, "pending_confirmation", return_value="MODIFY_EXISTING") as pending:
+			self.assertEqual(
+				helpers.answer_to_confirmation(CONVERSATION, "Yes, proceed"),
+				{"confirmed_action": "MODIFY_EXISTING"},
+			)
+		pending.assert_called_once_with(CONVERSATION)
+		with patch.object(helpers, "pending_confirmation", return_value=""):
+			self.assertEqual(helpers.answer_to_confirmation(CONVERSATION, "yes"), {})
+
+
+class TestBuildContextPatch(FrappeTestCase):
+	def tearDown(self):
+		clear_turn(CONVERSATION)
+
+	def test_only_the_confirmed_action_line_changes(self):
+		old, new = (
+			REAL_BUILD_CONTEXT.splitlines(),
+			build_context_patch.rewrite(REAL_BUILD_CONTEXT).splitlines(),
+		)
+		self.assertEqual([line for line in old if line not in new], [STATED])
+		self.assertEqual([line for line in old if line in new], [line for line in new if line in old])
+		self.assertIn("pending_confirmation(conversation_id)", "\n".join(new))
+
+	def test_the_patched_real_script_compiles(self):
+		compile(build_context_patch.rewrite(REAL_BUILD_CONTEXT), "build_context", "exec")
+
+	def test_the_patch_is_idempotent(self):
+		once = build_context_patch.rewrite(REAL_BUILD_CONTEXT)
+		self.assertEqual(build_context_patch.rewrite(once), once)
+
+	def test_a_script_without_the_assignment_is_left_alone(self):
+		script = 'message = task_data.get("message")\n'
+		self.assertEqual(build_context_patch.rewrite(script), script)
+
+	def test_a_stale_action_after_a_clarify_is_dropped(self):
+		turn = _run_build_context(build_context_patch.rewrite(REAL_BUILD_CONTEXT), CLARIFY)
+		self.assertEqual(turn["confirmed_action"], "")
+		self.assertEqual(turn["user_text"], "draw a leave process")
+
+	def test_the_unpatched_script_keeps_the_stale_action(self):
+		self.assertEqual(_run_build_context(REAL_BUILD_CONTEXT, CLARIFY)["confirmed_action"], "GENERATE_NEW")
+
+	def test_a_real_card_keeps_its_action(self):
+		turn = _run_build_context(build_context_patch.rewrite(REAL_BUILD_CONTEXT), CARD)
+		self.assertEqual(turn["confirmed_action"], "GENERATE_NEW")
+
+	def test_an_action_that_is_not_the_pending_one_is_dropped(self):
+		turn = _run_build_context(
+			build_context_patch.rewrite(REAL_BUILD_CONTEXT), CARD, confirmed_action="OVERWRITE_EXISTING"
+		)
+		self.assertEqual(turn["confirmed_action"], "")
+
+
+class TestBuildContextPatchOlderShape(FrappeTestCase):
+	"""Staging and local sites keep confirmed_action inside the dict handed to set_turn, with no assignment."""
+
+	def tearDown(self):
+		clear_turn(CONVERSATION)
+
+	def test_only_the_confirmed_action_entry_changes(self):
+		old = OLDER_BUILD_CONTEXT.splitlines()
+		new = build_context_patch.rewrite(OLDER_BUILD_CONTEXT).splitlines()
+		self.assertEqual([line for line in old if line not in new], [OLDER_STAGED])
+		self.assertEqual([line for line in old if line in new], [line for line in new if line in old])
+
+	def test_the_check_sits_after_conversation_id_and_before_set_turn(self):
+		new = build_context_patch.rewrite(OLDER_BUILD_CONTEXT)
+		check = new.index("pending_confirmation(conversation_id)")
+		self.assertLess(new.index("conversation_id = "), check)
+		self.assertLess(check, new.index("set_turn(conversation_id"))
+
+	def test_the_patched_script_compiles_and_a_second_run_changes_nothing(self):
+		once = build_context_patch.rewrite(OLDER_BUILD_CONTEXT)
+		compile(once, "build_context", "exec")
+		self.assertEqual(build_context_patch.rewrite(once), once)
+
+	def test_a_stale_action_after_a_clarify_is_dropped(self):
+		turn = _run_build_context(build_context_patch.rewrite(OLDER_BUILD_CONTEXT), CLARIFY)
+		self.assertEqual(turn["confirmed_action"], "")
+		self.assertEqual(turn["user_text"], "draw a leave process")
+
+	def test_the_unpatched_script_keeps_the_stale_action(self):
+		self.assertEqual(_run_build_context(OLDER_BUILD_CONTEXT, CLARIFY)["confirmed_action"], "GENERATE_NEW")
+
+	def test_a_real_card_keeps_its_action(self):
+		turn = _run_build_context(build_context_patch.rewrite(OLDER_BUILD_CONTEXT), CARD)
+		self.assertEqual(turn["confirmed_action"], "GENERATE_NEW")
+
+	def test_an_action_that_is_not_the_pending_one_is_dropped(self):
+		script = build_context_patch.rewrite(OLDER_BUILD_CONTEXT)
+		self.assertEqual(
+			_run_build_context(script, CARD, confirmed_action="OVERWRITE_EXISTING")["confirmed_action"], ""
+		)
+
+	def test_an_entry_with_no_set_turn_call_is_left_alone(self):
+		script = '"confirmed_action": task_data.get("confirmed_action", "") or "",\n'
+		self.assertEqual(build_context_patch.rewrite(script), script)
+
+
+class TestBuildContextPatchExecute(FrappeTestCase):
+	def test_the_script_is_looked_up_by_api_method_not_by_name(self):
+		with (
+			patch.object(frappe.db, "get_value", side_effect=["Any Name", REAL_BUILD_CONTEXT]) as get_value,
+			patch.object(frappe.db, "set_value") as set_value,
+		):
+			build_context_patch.execute()
+		self.assertEqual(
+			get_value.call_args_list[0].args,
+			("Server Script", {"api_method": "prosally_build_context"}, "name"),
+		)
+		self.assertEqual(set_value.call_args.args[:3], ("Server Script", "Any Name", "script"))
+		self.assertIn("pending_confirmation(conversation_id)", set_value.call_args.args[3])
+
+	def test_an_older_script_is_patched_too(self):
+		with (
+			patch.object(frappe.db, "get_value", side_effect=["Any Name", OLDER_BUILD_CONTEXT]),
+			patch.object(frappe.db, "set_value") as set_value,
+		):
+			build_context_patch.execute()
+		self.assertIn('"confirmed_action": _confirmed,', set_value.call_args.args[3])
+
+	def test_a_site_without_the_script_logs_and_changes_nothing(self):
+		with (
+			patch.object(frappe.db, "get_value", return_value=None),
+			patch.object(frappe, "log_error") as log_error,
+			patch.object(frappe.db, "set_value") as set_value,
+		):
+			build_context_patch.execute()
+		log_error.assert_called_once()
+		set_value.assert_not_called()
+
+	def test_a_script_without_the_assignment_is_logged_and_left_alone(self):
+		with (
+			patch.object(frappe.db, "get_value", side_effect=["Any Name", "x = 1\n"]),
+			patch.object(frappe, "log_error") as log_error,
+			patch.object(frappe.db, "set_value") as set_value,
+		):
+			build_context_patch.execute()
+		log_error.assert_called_once()
+		set_value.assert_not_called()
+
+
+class FakeAdapter:
+	def __init__(self, reply):
+		self.reply = reply
+
+	async def complete(self, system, user):
+		return SimpleNamespace(text=self.reply)
+
+
+class TestClassifyAfterBuildContext(FrappeTestCase):
+	"""Runs the live Classify Intent Server Script with the model faked; it reaches a site with the ProsAlly map by export."""
+
+	def setUp(self):
+		self.script = frappe.db.get_value(
+			"Server Script", {"api_method": "prosally_tool_classify_intent"}, "script"
+		)
+		if not self.script:
+			self.skipTest("the ProsAlly Classify Intent script is not on this site")
+
+	def tearDown(self):
+		clear_turn(CONVERSATION)
+
+	def _classify(self, metadata, model_reply=""):
+		namespace = {
+			"frappe": frappe,
+			"context_docname": CONVERSATION,
+			"result": {},
+			"task_data": {
+				"conversation_id": CONVERSATION,
+				"confirmed_action": "GENERATE_NEW",
+				"user_text": "tell me how to divide it in smaller parts",
+				"process_name": "Leave",
+			},
+		}
+		with _last_bot_message(metadata):
+			exec(build_context_patch.rewrite(REAL_BUILD_CONTEXT), namespace)
+		result = {}
+		with patch(
+			"one_bpmn.agents.llm_provider.get_llm_adapter_from_settings",
+			return_value=FakeAdapter(model_reply),
+		) as adapter:
+			exec(self.script, {"frappe": frappe, "context_docname": CONVERSATION, "result": result})
+		return result, adapter
+
+	def test_a_stale_yes_after_a_clarify_classifies_normally(self):
+		reply = {"intent": "INCOMPLETE", "reason": "r", "summary": "", "question": ""}
+		result, adapter = self._classify(CLARIFY, json.dumps(reply))
+		adapter.assert_called_once()
+		self.assertNotIn("already_confirmed", result)
+
+	def test_yes_proceed_on_a_real_card_starts_generation(self):
+		result, adapter = self._classify(CARD)
+		adapter.assert_not_called()
+		self.assertEqual(result["next"], "generate_process")
+		self.assertTrue(result["already_confirmed"])

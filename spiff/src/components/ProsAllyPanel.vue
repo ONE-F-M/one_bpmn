@@ -10,6 +10,7 @@
 			:host-context-line="hostContextLine"
 			:cards="cardRegistry"
 			@choice="onChoice"
+			@turn-sent="confirmedAction = ''"
 			@turn-complete="confirmedAction = ''"
 			@card-action="onCardAction"
 		>

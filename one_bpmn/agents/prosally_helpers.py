@@ -195,8 +195,8 @@ def stage_max_tokens(cfg: dict) -> int:
 	return max_tokens
 
 
-def answer_to_confirmation(conversation: str, user_text: str) -> dict:
-	"""{"confirmed_action": ...} or {"declined_action": ...} when user_text answers the last Bot confirmation, else {}."""
+def pending_confirmation(conversation: str) -> str:
+	"""The action_intent the last Bot message asks the user to confirm; "" when that message is not a confirmation card."""
 	last = frappe.get_all(
 		"Chat Message",
 		filters={"conversation": conversation, "message_type": "Bot"},
@@ -207,6 +207,14 @@ def answer_to_confirmation(conversation: str, user_text: str) -> dict:
 	meta = frappe.parse_json(last[0].metadata or "{}") if last else {}
 	action = (meta.get("agent_result") or {}).get("action_intent")
 	if meta.get("intent") != "CONFIRM" or not action:
+		return ""
+	return action
+
+
+def answer_to_confirmation(conversation: str, user_text: str) -> dict:
+	"""{"confirmed_action": ...} or {"declined_action": ...} when user_text answers the last Bot confirmation, else {}."""
+	action = pending_confirmation(conversation)
+	if not action:
 		return {}
 	reply = confirmation_reply(user_text)
 	if reply == "yes":
