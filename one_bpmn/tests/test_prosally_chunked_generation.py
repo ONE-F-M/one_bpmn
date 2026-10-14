@@ -62,6 +62,10 @@ class FakeModel:
 		return _phase_reply("p" + str(phase) + suffix)
 
 
+def is_full_attempt(user):
+	return "Action: GENERATE_NEW" in user and "(generating ONE PHASE" not in user and "output ONLY an outline" not in user
+
+
 def _cfg():
 	return {"sub_prompts": {"process_generator": {"prompt": "You generate BPMN IR."}}, "max_tokens": 16384}
 
@@ -102,7 +106,7 @@ class TestProsAllyChunkedGeneration(FrappeTestCase):
 				return True
 			return False
 
-		model, compile_ir, record, result = self.run_generate(cut_phase_two_once)
+		model, compile_ir, record, result = self.run_generate(cut_full_then_phase_two_once)
 
 		self.assertTrue(result["generated"])
 		compile_ir.assert_called_once()
