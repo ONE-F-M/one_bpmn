@@ -76,20 +76,27 @@ def _cfg():
 	return {"sub_prompts": {"process_generator": {"prompt": "You generate BPMN IR."}}, "max_tokens": 16384}
 
 
-def _request(numbered_items=0):
+INLINE_TYPES = ("StartEvent", "ScriptTask", "ExclusiveGateway", "UserTask", "EndEvent")
+
+
+def _request(numbered_items=0, inline_elements=0):
 	text = "Model a leave request process."
 	if numbered_items:
 		text += "\n" + "\n".join(str(i + 1) + ". Step number " + str(i + 1) for i in range(numbered_items))
+	if inline_elements:
+		text += "\nC. ELEMENTS " + " ".join(
+			str(i + 1) + " " + INLINE_TYPES[i % len(INLINE_TYPES)] + " 'Step " + str(i + 1) + "'|Sys" for i in range(inline_elements)
+		)
 	return {"intent": "GENERATE_NEW", "process_name": "Leave", "chat_history": [{"role": "user", "content": text}]}
 
 
 class TestProsAllyChunkedGeneration(FrappeTestCase):
-	def run_generate(self, should_cut, numbered_items=0):
+	def run_generate(self, should_cut, numbered_items=0, inline_elements=0):
 		model = FakeModel(should_cut)
 		compile_ir = mock.Mock(return_value={"ok": True, "xml": "<definitions/>", "problems": [], "topology": {}, "layout": {}})
 		record = mock.Mock()
 		result = {}
-		with mock.patch("one_bpmn.agents.turn_state.get_turn", return_value=_request(numbered_items)), \
+		with mock.patch("one_bpmn.agents.turn_state.get_turn", return_value=_request(numbered_items, inline_elements)), \
 			mock.patch("one_bpmn.agents.turn_state.update_turn"), \
 			mock.patch("one_bpmn.agents.prosally_helpers.complete_sub_prompt", side_effect=model), \
 			mock.patch("one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config", return_value=_cfg()), \
@@ -155,6 +162,26 @@ class TestProsAllyChunkedGeneration(FrappeTestCase):
 		full_attempts = [c for c in model.calls if "Action: GENERATE_NEW" in c["user"] and "outline" not in c["user"] and "(generating ONE PHASE" not in c["user"]]
 		self.assertEqual(full_attempts, [])
 		self.assertTrue(result["generated"])
+
+	def test_ac4_elements_written_inline_on_one_line_are_counted(self):
+		model, _compile_ir, _record, result = self.run_generate(lambda user, calls: False, inline_elements=58)
+
+		self.assertIn("output ONLY an outline", model.calls[0]["user"])
+		self.assertTrue(result["generated"])
+
+	def test_ac4_the_limit_is_more_than_25_inline_elements(self):
+		at_limit, _c, _r, _res = self.run_generate(lambda user, calls: False, inline_elements=25)
+		over, _c, _r, _res = self.run_generate(lambda user, calls: False, inline_elements=26)
+
+		self.assertTrue(is_full_attempt(at_limit.calls[0]["user"]))
+		self.assertIn("output ONLY an outline", over.calls[0]["user"])
+
+	def test_ac4_numbers_in_ordinary_prose_do_not_count(self):
+		prose = "Draw a process where 3 Tasks run and 40 approvals happen after 5 Events."
+		with mock.patch("one_bpmn.tests.test_prosally_chunked_generation._request", return_value={"intent": "GENERATE_NEW", "process_name": "Leave", "chat_history": [{"role": "user", "content": prose}]}):
+			model, _c, _r, _res = self.run_generate(lambda user, calls: False)
+
+		self.assertTrue(is_full_attempt(model.calls[0]["user"]))
 
 	def test_ac5_phase_calls_use_full_budget_and_ask_for_one_line_json(self):
 		model, compile_ir, record, result = self.run_generate(lambda user, calls: "Action: GENERATE_NEW" in user and "(generating ONE PHASE" not in user)

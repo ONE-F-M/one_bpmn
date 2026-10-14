@@ -44,6 +44,8 @@ _MAX_FIX_PASSES = 3
 _MAX_PHASES = 6
 _MAX_SPLIT_DEPTH = 2
 _MAX_ONE_PASS_ELEMENTS = 25
+# A spec can list its elements inline, one line for all of them: "12 ScriptTask 'Validate Dates'|Sys".
+_TYPED_ELEMENT = r"\b\d{1,3}\s+\w*(?:Event|Task|Gateway|Activity|SubProcess)\s+[\x27\x22]"
 
 turn = get_turn(context_docname)
 _cfg = get_agent_config("prosally_agent") or {}
@@ -80,9 +82,11 @@ if chat_history:
             _hlines.append(("User" if _role == "user" else "ProsAlly") + ": " + _content)
     _hist = "\n".join(_hlines)
 
-# -- size of the request: numbered or bulleted items in the user's messages --
+# -- size of the request: lines that start a numbered or bulleted item, or numbered typed elements written inline --
 _user_text = "\n".join([(_e.get("content") or "") for _e in chat_history if (_e.get("role") or _e.get("type", "user")) == "user"])
-_element_count = len(re.findall(r"(?m)^\s*(?:\d+[.)]|[-*])\s+\S", _user_text))
+_listed_items = len(re.findall(r"(?m)^\s*(?:\d+[.)]|[-*])\s+\S", _user_text))
+_typed_elements = len(re.findall(_TYPED_ELEMENT, _user_text))
+_element_count = max(_listed_items, _typed_elements)
 _skip_full = _element_count > _MAX_ONE_PASS_ELEMENTS
 
 # -- build generator prompt (inline) --
