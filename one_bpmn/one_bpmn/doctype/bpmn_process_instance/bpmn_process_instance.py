@@ -138,6 +138,7 @@ class BPMNProcessInstance(Document):
 			instance=self,
 		)
 
+		previous_flag = frappe.flags.bpmn_engine_action
 		frappe.flags.bpmn_engine_action = True
 		try:
 			self._run_engine(wf)
@@ -145,7 +146,7 @@ class BPMNProcessInstance(Document):
 			# Script/service/gateway failure — halt + sanitized Reference-ID error.
 			self._fail_runtime(phase="start")
 		finally:
-			frappe.flags.bpmn_engine_action = False
+			frappe.flags.bpmn_engine_action = previous_flag
 
 		# Persist state
 		# Strip non-serializable Frappe doc objects before persisting state
@@ -317,6 +318,7 @@ class BPMNProcessInstance(Document):
 			data=data,
 		)
 
+		previous_flag = frappe.flags.bpmn_engine_action
 		frappe.flags.bpmn_engine_action = True
 		try:
 			task.run()
@@ -325,7 +327,7 @@ class BPMNProcessInstance(Document):
 			# Script/service/gateway failure — halt + sanitized Reference-ID error.
 			self._fail_runtime(phase="advance")
 		finally:
-			frappe.flags.bpmn_engine_action = False
+			frappe.flags.bpmn_engine_action = previous_flag
 
 		# Persist updated state
 		# Strip non-serializable Frappe doc objects before persisting state
@@ -566,6 +568,7 @@ class BPMNProcessInstance(Document):
 		)
 
 		# ── Run engine to process tasks that became READY ────────────────────
+		previous_flag = frappe.flags.bpmn_engine_action
 		frappe.flags.bpmn_engine_action = True
 		try:
 			self._run_engine(wf)
@@ -573,7 +576,7 @@ class BPMNProcessInstance(Document):
 			# Script/service/gateway failure — halt + sanitized Reference-ID error.
 			self._fail_runtime(phase="receive_message")
 		finally:
-			frappe.flags.bpmn_engine_action = False
+			frappe.flags.bpmn_engine_action = previous_flag
 
 		# ── Persist (same as advance) ────────────────────────────────────────
 		bpmn_engine.clean_doc_from_wf_data(wf)
@@ -646,6 +649,7 @@ class BPMNProcessInstance(Document):
 			if row.status == "Waiting" and row.assigned_user
 		}
 
+		previous_flag = frappe.flags.bpmn_engine_action
 		frappe.flags.bpmn_engine_action = True
 		try:
 			if kind == "a2a_result":
@@ -731,7 +735,7 @@ class BPMNProcessInstance(Document):
 
 			self._run_engine(wf)
 		finally:
-			frappe.flags.bpmn_engine_action = False
+			frappe.flags.bpmn_engine_action = previous_flag
 			frappe.flags.bpmn_ai_resume_target = None
 
 		# ── Persist (same as advance) ────────────────────────────────────────
@@ -781,13 +785,14 @@ class BPMNProcessInstance(Document):
 		}
 
 		self.status = "Active"
+		previous_flag = frappe.flags.bpmn_engine_action
 		frappe.flags.bpmn_engine_action = True
 		try:
 			self._run_engine(wf)
 		except Exception:
 			self._fail_runtime(phase="retry_failed_step")
 		finally:
-			frappe.flags.bpmn_engine_action = False
+			frappe.flags.bpmn_engine_action = previous_flag
 
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))

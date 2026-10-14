@@ -300,11 +300,12 @@ def _refresh_timer_tasks(instance_name: str):
 		except Exception:
 			pass
 
+		previous_flag = frappe.flags.bpmn_engine_action
 		frappe.flags.bpmn_engine_action = True
 		try:
 			instance._run_engine(wf)
 		finally:
-			frappe.flags.bpmn_engine_action = False
+			frappe.flags.bpmn_engine_action = previous_flag
 
 		# Persist the LIVE state to workflow_state; serialized_spec (the
 		# compiled snapshot) is never touched here.
