@@ -47,9 +47,7 @@ jobs:
             cd $BENCH/apps/one_bpmn
             git pull upstream version-15
             cd $BENCH
-            rm -rf env/lib/python*/site-packages/one_bpmn-*.dist-info
             trap 'status=$?; if [ $status -ne 0 ]; then sudo supervisorctl start $WORKERS; sudo supervisorctl restart $NAME-web:; fi' EXIT
-            bench setup requirements one_bpmn
             cd $BENCH/apps/one_bpmn/spiff
             yarn install
             export NODE_OPTIONS="--max-old-space-size=8192"

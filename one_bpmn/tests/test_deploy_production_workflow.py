@@ -1,45 +1,38 @@
 # Copyright (c) 2026, one-fm and contributors
-"""The production deploy's failure trap must be set before `bench setup requirements` and must restart the web group.
-
-bench setup requirements upgrades Python packages in place. If a later step fails, the workers are started again
-but a web server running with --preload keeps the old packages in memory, so the trap has to restart it too.
-"""
 
 import os
 
 from frappe.tests.utils import FrappeTestCase
 
-# one_bpmn/tests/<this file> -> repo root is three levels up.
 WORKFLOW = os.path.join(
 	os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
 	".github",
 	"workflows",
 	"deploy-production.yml",
 )
-SETUP_REQUIREMENTS = "bench setup requirements one_bpmn"
-WEB_RESTART = "supervisorctl restart $NAME-web:"
+STOP_WORKERS = "sudo supervisorctl stop $WORKERS"
 
 
 class TestDeployProductionWorkflow(FrappeTestCase):
-	def _lines(self):
+	"""A hotfix deploy leaves installed packages alone, and a failed one restarts the web group and the workers."""
+
+	def setUp(self):
 		with open(WORKFLOW) as f:
-			return f.read().splitlines()
+			self.lines = [line.strip() for line in f.read().splitlines()]
 
-	def _trap_indexes(self, lines):
-		return [i for i, line in enumerate(lines) if line.strip().startswith("trap ") and line.rstrip().endswith("EXIT")]
+	def trap_index(self):
+		traps = [i for i, line in enumerate(self.lines) if line.startswith("trap ") and line.endswith("EXIT")]
+		self.assertEqual(len(traps), 1, "expected exactly one EXIT trap")
+		return traps[0]
 
-	def test_failure_trap_is_set_before_bench_setup_requirements(self):
-		lines = self._lines()
-		setup = [i for i, line in enumerate(lines) if line.strip() == SETUP_REQUIREMENTS]
-		self.assertEqual(len(setup), 1, "expected exactly one 'bench setup requirements' line")
-		traps = self._trap_indexes(lines)
-		self.assertEqual(len(traps), 1, "expected exactly one EXIT trap in the deploy script")
-		self.assertLess(traps[0], setup[0], "the trap must be set before bench setup requirements")
+	def test_hotfix_does_not_install_requirements(self):
+		self.assertFalse([line for line in self.lines if line.startswith("bench setup requirements")])
+		self.assertFalse([line for line in self.lines if line.endswith(".dist-info") and line.startswith("rm -rf")])
 
-	def test_failure_trap_restarts_the_web_group_and_starts_the_workers(self):
-		lines = self._lines()
-		traps = self._trap_indexes(lines)
-		self.assertEqual(len(traps), 1, "expected exactly one EXIT trap in the deploy script")
-		trap = lines[traps[0]]
-		self.assertIn(WEB_RESTART, trap)
+	def test_trap_is_set_before_the_workers_stop(self):
+		self.assertLess(self.trap_index(), self.lines.index(STOP_WORKERS))
+
+	def test_trap_starts_workers_and_restarts_web(self):
+		trap = self.lines[self.trap_index()]
 		self.assertIn("supervisorctl start $WORKERS", trap)
+		self.assertIn("supervisorctl restart $NAME-web:", trap)
