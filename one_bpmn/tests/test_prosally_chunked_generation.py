@@ -94,15 +94,13 @@ class TestProsAllyChunkedGeneration(FrappeTestCase):
 	def test_ac1_cut_off_phase_is_split_and_the_rest_kept(self):
 		state = {"cut": False}
 
-		def cut_phase_two_once(user, calls):
-			if "ONLY part" in user or "This phase (2 of 3)" not in user:
-				if "generating ONE PHASE" in user and "Action: GENERATE_NEW" not in user and "outline" not in user:
-					return False
-				return "Action: GENERATE_NEW" in user and "(generating ONE PHASE" not in user
-			if state["cut"]:
-				return False
-			state["cut"] = True
-			return True
+		def cut_full_then_phase_two_once(user, calls):
+			if is_full_attempt(user):
+				return True
+			if "This phase (2 of 3)" in user and "ONLY part" not in user and not state["cut"]:
+				state["cut"] = True
+				return True
+			return False
 
 		model, compile_ir, record, result = self.run_generate(cut_phase_two_once)
 
@@ -116,7 +114,7 @@ class TestProsAllyChunkedGeneration(FrappeTestCase):
 
 	def test_ac2_phase_still_cut_off_after_two_splits_stops_and_names_it(self):
 		def always_cut_phase_two(user, calls):
-			return "This phase (2 of 3)" in user
+			return is_full_attempt(user) or "This phase (2 of 3)" in user
 
 		model, compile_ir, record, result = self.run_generate(always_cut_phase_two)
 
