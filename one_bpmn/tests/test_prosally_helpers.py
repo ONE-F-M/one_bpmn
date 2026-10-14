@@ -198,6 +198,37 @@ result["needs_tools"] = False
 """
 CONVERSATION = "_test_prosally_pending"
 STATED = '_confirmed = task_data.get("confirmed_action", "") or ""'
+# The same script on Staging and on a local site: confirmed_action is staged inside the set_turn dict.
+OLDER_BUILD_CONTEXT = """# Builds the LLM conversation history and seeds the per-turn scratch store.
+conversation_id = task_data.get("conversation_id", context_docname)
+for _k in ['process_name', 'diagram_name', 'confirmed_action', 'current_xml']:
+    _v = task_data.get(_k)
+    if _v not in (None, ""):
+        result[_k] = _v
+messages = frappe.get_all("Chat Message", filters={"conversation": conversation_id, "message_type": ["in", ["User", "Bot"]]}, fields=["text", "message_type"], order_by="creation desc", limit=20)
+messages.reverse()
+chat_history = []
+for m in messages:
+    role = "user" if m.message_type == "User" else "assistant"
+    if m.text:
+        chat_history.append({"role": role, "content": m.text})
+result["chat_history"] = chat_history
+result["agent_response_ready"] = False
+from one_bpmn.agents.turn_state import set_turn
+set_turn(conversation_id, {
+    "user_text": task_data.get("user_text", "") or "",
+    "chat_history": chat_history,
+    "process_name": task_data.get("process_name", "") or "",
+    "diagram_name": task_data.get("diagram_name", "") or "",
+    "confirmed_action": task_data.get("confirmed_action", "") or "",
+    "current_xml": task_data.get("current_xml", "") or "",
+})
+
+# Illustrative Camunda loop: the AI Agent Task does tool-calling internally,
+# so the modeled "Needs to call tools?" gateway always takes the default (no) path.
+result["needs_tools"] = False
+"""
+OLDER_STAGED = '    "confirmed_action": task_data.get("confirmed_action", "") or "",'
 
 
 def _last_bot_message(metadata):
@@ -207,6 +238,22 @@ def _last_bot_message(metadata):
 
 CARD = {"intent": "CONFIRM", "agent_result": {"action_intent": "GENERATE_NEW"}}
 CLARIFY = {"intent": "CLARIFY", "agent_result": {"action_intent": None}}
+
+
+def _run_build_context(script, metadata, confirmed_action="GENERATE_NEW"):
+	namespace = {
+		"frappe": frappe,
+		"context_docname": CONVERSATION,
+		"result": {},
+		"task_data": {
+			"conversation_id": CONVERSATION,
+			"confirmed_action": confirmed_action,
+			"user_text": "draw a leave process",
+		},
+	}
+	with _last_bot_message(metadata):
+		exec(script, namespace)
+	return get_turn(CONVERSATION)
 
 
 class TestPendingConfirmation(FrappeTestCase):
@@ -239,21 +286,6 @@ class TestBuildContextPatch(FrappeTestCase):
 	def tearDown(self):
 		clear_turn(CONVERSATION)
 
-	def _run(self, script, metadata, confirmed_action="GENERATE_NEW"):
-		namespace = {
-			"frappe": frappe,
-			"context_docname": CONVERSATION,
-			"result": {},
-			"task_data": {
-				"conversation_id": CONVERSATION,
-				"confirmed_action": confirmed_action,
-				"user_text": "draw a leave process",
-			},
-		}
-		with _last_bot_message(metadata):
-			exec(script, namespace)
-		return get_turn(CONVERSATION)
-
 	def test_only_the_confirmed_action_line_changes(self):
 		old, new = (
 			REAL_BUILD_CONTEXT.splitlines(),
@@ -275,22 +307,68 @@ class TestBuildContextPatch(FrappeTestCase):
 		self.assertEqual(build_context_patch.rewrite(script), script)
 
 	def test_a_stale_action_after_a_clarify_is_dropped(self):
-		turn = self._run(build_context_patch.rewrite(REAL_BUILD_CONTEXT), CLARIFY)
+		turn = _run_build_context(build_context_patch.rewrite(REAL_BUILD_CONTEXT), CLARIFY)
 		self.assertEqual(turn["confirmed_action"], "")
 		self.assertEqual(turn["user_text"], "draw a leave process")
 
 	def test_the_unpatched_script_keeps_the_stale_action(self):
-		self.assertEqual(self._run(REAL_BUILD_CONTEXT, CLARIFY)["confirmed_action"], "GENERATE_NEW")
+		self.assertEqual(_run_build_context(REAL_BUILD_CONTEXT, CLARIFY)["confirmed_action"], "GENERATE_NEW")
 
 	def test_a_real_card_keeps_its_action(self):
-		turn = self._run(build_context_patch.rewrite(REAL_BUILD_CONTEXT), CARD)
+		turn = _run_build_context(build_context_patch.rewrite(REAL_BUILD_CONTEXT), CARD)
 		self.assertEqual(turn["confirmed_action"], "GENERATE_NEW")
 
 	def test_an_action_that_is_not_the_pending_one_is_dropped(self):
-		turn = self._run(
+		turn = _run_build_context(
 			build_context_patch.rewrite(REAL_BUILD_CONTEXT), CARD, confirmed_action="OVERWRITE_EXISTING"
 		)
 		self.assertEqual(turn["confirmed_action"], "")
+
+
+class TestBuildContextPatchOlderShape(FrappeTestCase):
+	"""Staging and local sites keep confirmed_action inside the dict handed to set_turn, with no assignment."""
+
+	def tearDown(self):
+		clear_turn(CONVERSATION)
+
+	def test_only_the_confirmed_action_entry_changes(self):
+		old = OLDER_BUILD_CONTEXT.splitlines()
+		new = build_context_patch.rewrite(OLDER_BUILD_CONTEXT).splitlines()
+		self.assertEqual([line for line in old if line not in new], [OLDER_STAGED])
+		self.assertEqual([line for line in old if line in new], [line for line in new if line in old])
+
+	def test_the_check_sits_after_conversation_id_and_before_set_turn(self):
+		new = build_context_patch.rewrite(OLDER_BUILD_CONTEXT)
+		check = new.index("pending_confirmation(conversation_id)")
+		self.assertLess(new.index("conversation_id = "), check)
+		self.assertLess(check, new.index("set_turn(conversation_id"))
+
+	def test_the_patched_script_compiles_and_a_second_run_changes_nothing(self):
+		once = build_context_patch.rewrite(OLDER_BUILD_CONTEXT)
+		compile(once, "build_context", "exec")
+		self.assertEqual(build_context_patch.rewrite(once), once)
+
+	def test_a_stale_action_after_a_clarify_is_dropped(self):
+		turn = _run_build_context(build_context_patch.rewrite(OLDER_BUILD_CONTEXT), CLARIFY)
+		self.assertEqual(turn["confirmed_action"], "")
+		self.assertEqual(turn["user_text"], "draw a leave process")
+
+	def test_the_unpatched_script_keeps_the_stale_action(self):
+		self.assertEqual(_run_build_context(OLDER_BUILD_CONTEXT, CLARIFY)["confirmed_action"], "GENERATE_NEW")
+
+	def test_a_real_card_keeps_its_action(self):
+		turn = _run_build_context(build_context_patch.rewrite(OLDER_BUILD_CONTEXT), CARD)
+		self.assertEqual(turn["confirmed_action"], "GENERATE_NEW")
+
+	def test_an_action_that_is_not_the_pending_one_is_dropped(self):
+		script = build_context_patch.rewrite(OLDER_BUILD_CONTEXT)
+		self.assertEqual(
+			_run_build_context(script, CARD, confirmed_action="OVERWRITE_EXISTING")["confirmed_action"], ""
+		)
+
+	def test_an_entry_with_no_set_turn_call_is_left_alone(self):
+		script = '"confirmed_action": task_data.get("confirmed_action", "") or "",\n'
+		self.assertEqual(build_context_patch.rewrite(script), script)
 
 
 class TestBuildContextPatchExecute(FrappeTestCase):
@@ -306,6 +384,14 @@ class TestBuildContextPatchExecute(FrappeTestCase):
 		)
 		self.assertEqual(set_value.call_args.args[:3], ("Server Script", "Any Name", "script"))
 		self.assertIn("pending_confirmation(conversation_id)", set_value.call_args.args[3])
+
+	def test_an_older_script_is_patched_too(self):
+		with (
+			patch.object(frappe.db, "get_value", side_effect=["Any Name", OLDER_BUILD_CONTEXT]),
+			patch.object(frappe.db, "set_value") as set_value,
+		):
+			build_context_patch.execute()
+		self.assertIn('"confirmed_action": _confirmed,', set_value.call_args.args[3])
 
 	def test_a_site_without_the_script_logs_and_changes_nothing(self):
 		with (
