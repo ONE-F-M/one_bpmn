@@ -2444,7 +2444,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# run via a background job; "raw" stores the output verbatim (legacy);
 		# "off" writes nothing. Failures never block the task.
 		write_mode = _memory_write_mode(task_cfg)
-		if write_mode != "off":
+		# Eval runs never write memory; cases that need it seed it with memory_write.
+		if write_mode != "off" and not frappe.flags.get("eval_origin"):
 			try:
 				write_target = memory_target or _resolve_memory_target(task_cfg, instance, bpmn_id)
 				if write_target:
