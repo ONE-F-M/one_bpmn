@@ -96,6 +96,7 @@
 			>
 				{{ thinkingLabel }}
 			</div>
+			<div v-if="busy && progressLine" class="acp-progress" role="status">{{ progressLine }}</div>
 			<div v-if="streamingText" class="acp-msg acp-msg--agent" v-html="renderMarkdown(streamingText)" />
 			<div v-if="statusLine" class="acp-status">
 				<span class="acp-dot" :class="{ 'acp-dot--err': status === 'error' }" />{{ statusLine }}
