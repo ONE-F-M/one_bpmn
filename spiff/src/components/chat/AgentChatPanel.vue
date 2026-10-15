@@ -618,6 +618,7 @@ async function send(text, extraContext = null, reuseId = null) {
 	items.value.push(sent);
 	busy.value = true;
 	status.value = "streaming";
+	progressLine.value = "";
 	streamingText.value = "";
 	streamingRole.value = "assistant";
 	scrollDown();
