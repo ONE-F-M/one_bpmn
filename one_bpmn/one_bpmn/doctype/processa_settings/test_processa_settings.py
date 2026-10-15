@@ -19,15 +19,12 @@ class TestProcessaSettings(FrappeTestCase):
 		meta = frappe.get_meta("Processa Settings")
 		fieldnames = [df.fieldname for df in meta.fields]
 
-		# All five fields exist.
 		for fieldname in STAGING_FIELDS:
 			self.assertIn(fieldname, fieldnames, f"{fieldname} missing from Processa Settings")
 
-		# They sit together, in this order, right after the BA block.
 		start = fieldnames.index("section_break_staging")
 		self.assertEqual(fieldnames[start : start + len(STAGING_FIELDS)], STAGING_FIELDS)
 
-		# The three credential fields are mandatory only when staging sync is on.
 		for fieldname in ("staging_site_url", "staging_api_key", "staging_api_secret"):
 			self.assertEqual(
 				meta.get_field(fieldname).mandatory_depends_on,
