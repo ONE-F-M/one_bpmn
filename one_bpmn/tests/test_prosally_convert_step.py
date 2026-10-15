@@ -9,6 +9,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.bpmn_ir_pipeline import compile_ir
 from one_bpmn.agents.prosally_helpers import (
+	asks_to_make_call_activity,
 	convert_step_to_subprocess,
 	find_missing_target,
 	resolve_step,
@@ -307,6 +308,26 @@ class TestFindMissingTarget(FrappeTestCase):
 		texts = ["Yes, proceed", "Create a sub process for Complete Payroll Acceptance: steps"]
 		self.assertEqual(find_missing_target(_diagram(), texts)["asked"], "Complete Payroll Acceptance")
 		self.assertEqual(find_missing_target(_diagram(), ["Yes, proceed"]), None)
+
+
+class TestAsksToMakeACallActivity(FrappeTestCase):
+	def test_asking_to_show_or_turn_something_into_a_call_activity_is_detected(self):
+		for text in (
+			"subporcess as call activity next to payroll clearance",
+			"turn Payroll Clearance into a call activity",
+			"convert the sub process to a call activity",
+			"make Complete Payroll Acceptance a call activity",
+		):
+			self.assertTrue(asks_to_make_call_activity(text), text)
+
+	def test_adding_or_describing_a_call_activity_is_not_a_conversion(self):
+		for text in (
+			"Add a call activity that calls Offboarding Closure after Finance Clearance",
+			"Rename the call activity Call Closure",
+			"The call activity Call Closure is in the wrong lane",
+			"Create a sub process for Complete Payroll Clearance: steps",
+		):
+			self.assertFalse(asks_to_make_call_activity(text), text)
 
 
 class TestResolveStep(FrappeTestCase):

@@ -114,7 +114,12 @@ STEP_TAGS = tuple(
 )
 SUBPROCESS_REQUEST = re.compile(r"sub[\s-]?process\s+(?:for|of|on)\s+(?:the\s+)?(?:step\s+)?([^:,.;\n]+)", re.I)
 TYPO_SIMILARITY = 0.75
-POSITION_WORDS = r"\b(?:after|before|following|preceding|then)\s+(?:the\s+|a\s+)?$"
+POSITION_WORDS = (
+	r"\b(?:after|before|following|preceding|then|next\s+to|beside|alongside|near|adjacent\s+to|above|below)\s+(?:the\s+|a\s+)?$"
+)
+CALL_ACTIVITY_CONVERSION = re.compile(
+	r"\b(?:as|into|to)\s+(?:a\s+|an\s+)?call[\s-]?activit|\b(?:make|turn|convert|change)\b[^.:]{0,80}\bcall[\s-]?activit", re.I
+)
 EXPANDED_PAD = 24
 EXPANDED_HEADER = 36
 EXTENSION_NS_URIS = (
@@ -472,6 +477,11 @@ def restore_call_activities(old_xml: str, new_xml: str) -> str:
 				parent[index] = kept
 	restored = ET.tostring(root, encoding="unicode", xml_declaration=True)
 	return re.sub(r"^<\?xml\s[^?]*\?>", '<?xml version="1.0" encoding="UTF-8"?>', restored)
+
+
+def asks_to_make_call_activity(text: str) -> bool:
+	"""True when the message asks to show or turn something into a call activity, which runs a separate process."""
+	return bool(CALL_ACTIVITY_CONVERSION.search(text or ""))
 
 
 def find_missing_target(xml: str, texts: list) -> dict | None:

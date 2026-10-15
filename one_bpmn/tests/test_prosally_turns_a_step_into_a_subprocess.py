@@ -99,6 +99,17 @@ class TestStepClassification(FrappeTestCase):
 		self.assertIn("NEW sub-process", adapter.prompts[0])
 		self.assertEqual(get_turn(CONVERSATION)["output"]["intent"], "CONFIRM")
 
+	def test_a_request_to_turn_something_into_a_call_activity_gets_a_plain_answer_not_a_confirmation(self):
+		result, _ = self._classify("subporcess as call activity next to payroll clearance", step_patch.fixture_xml())
+		self.assertEqual((result["intent"], result["next"]), ("AMBIGUOUS", "finalize"))
+		output = get_turn(CONVERSATION)["output"]
+		self.assertEqual(output["intent"], "CLARIFY")
+		self.assertIn("separate process", output["response"])
+
+	def test_adding_a_call_activity_that_calls_a_named_process_is_left_to_the_classifier(self):
+		result, _ = self._classify("Add a call activity that calls Offboarding Closure after the end", step_patch.fixture_xml())
+		self.assertEqual(result["intent"], "OVERWRITE_EXISTING")
+
 	def test_a_diagram_without_that_step_is_left_to_the_classifier(self):
 		result, _ = self._classify(REQUEST, "")
 		self.assertEqual(result["intent"], "OVERWRITE_EXISTING")

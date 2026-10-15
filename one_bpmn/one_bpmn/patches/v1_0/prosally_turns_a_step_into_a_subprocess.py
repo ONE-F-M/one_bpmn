@@ -16,13 +16,14 @@ SUITE_TITLE = "Prosally - Baseline"
 
 CLASSIFY_IMPORT = (
 	"from one_bpmn.agents.prosally_helpers import complete_sub_prompt, join_confirmation, resolve_scope, ",
-	"from one_bpmn.agents.prosally_helpers import complete_sub_prompt, find_missing_target, join_confirmation, resolve_scope, "
-	"resolve_step, ",
+	"from one_bpmn.agents.prosally_helpers import asks_to_make_call_activity, complete_sub_prompt, find_missing_target, "
+	"join_confirmation, resolve_scope, resolve_step, ",
 )
 CLASSIFY_CONVERT = (
 	'    scope = resolve_scope(current_xml, _scope_texts, turn.get("scope_id", ""))\n',
 	'    scope = resolve_scope(current_xml, _scope_texts, turn.get("scope_id", ""))\n'
 	"    convert = resolve_step(current_xml, _scope_texts)\n"
+	"    wants_call = asks_to_make_call_activity(message)\n"
 	"    missing = None if (scope or convert) else find_missing_target(current_xml, _scope_texts)\n"
 	'    near = missing if (missing and missing["candidates"]) else None\n'
 	'    fresh = missing if (missing and not missing["candidates"]) else None\n'
@@ -44,6 +45,9 @@ CLASSIFY_GUARD = (
 	'    if scope and intent in _GENERATE_INTENTS:\n        intent = "MODIFY_EXISTING"\n',
 	'    if (scope or convert or fresh) and intent in _GENERATE_INTENTS:\n'
 	'        intent = "MODIFY_EXISTING"\n'
+	"    if wants_call and intent in _ACTION_INTENTS:\n"
+	'        intent = "AMBIGUOUS"\n'
+	'        reason = "The request asks for a call activity, which runs a separate process that ProsAlly cannot create."\n'
 	"    if near and intent in _ACTION_INTENTS:\n"
 	'        intent = "AMBIGUOUS"\n'
 	'        reason = "There is no step or sub-process called \\"" + near["asked"] + "\\" on the diagram. The closest are: " + _closest + "."\n',
@@ -52,8 +56,12 @@ CLASSIFY_REPLY = (
 	'    elif intent in _NEEDS_CLARIFICATION:\n        result["next"] = "clarify"\n',
 	r'''    elif intent in _NEEDS_CLARIFICATION:
         result["next"] = "clarify"
-        if near:
-            _lines = "\n".join(["- " + c["name"] + " (" + c["kind"] + ")" for c in near["candidates"]])
+        if wants_call:
+            _reply = "I can't turn a sub-process or a step into a call activity: a call activity runs a separate process, and I can't create one. I can keep it as a sub-process, or add a call activity that calls a process that already exists. Tell me which process it should call and where it goes."
+            update_turn(context_docname, output={"intent": "CLARIFY", "action_intent": None, "response": _reply, "options": []}, done=True)
+            result["next"] = "finalize"
+        elif near:
+            _lines ="\n".join(["- " + c["name"] + " (" + c["kind"] + ")" for c in near["candidates"]])
             _reply = "I can't find a step or sub-process called \"" + near["asked"] + "\" on the " + (process_name or "current") + " diagram. These are the closest:\n" + _lines + "\n\nPick one to resend your request with that name, or tell me it is a new sub-process to add."
             _fixed = [near["text"].replace(near["asked"], c["name"], 1) for c in near["candidates"][:2]]
             update_turn(context_docname, output={"intent": "CLARIFY", "action_intent": None, "response": _reply, "options": _fixed}, done=True)

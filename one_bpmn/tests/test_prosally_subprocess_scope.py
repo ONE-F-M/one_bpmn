@@ -84,6 +84,18 @@ class TestResolveScope(FrappeTestCase):
 		):
 			self.assertIsNone(resolve_scope(DIAGRAM, [text], ""), text)
 
+	def test_every_way_of_saying_next_to_marks_a_place_not_a_target(self):
+		for text in (
+			"Show a call activity next to Test Sub Process",
+			"put it beside the test subprocess",
+			"add a step alongside Test Sub Process",
+			"place it near Test Sub Process",
+			"add a step above the Test Sub Process",
+			"add a step below Test Sub Process",
+			"make it adjacent to Test Sub Process",
+		):
+			self.assertIsNone(resolve_scope(DIAGRAM, [text], ""), text)
+
 	def test_a_position_word_elsewhere_in_the_message_does_not_hide_the_sub_process(self):
 		text = "Add to the Test Sub Process: a check that runs after the review step"
 		self.assertEqual(resolve_scope(DIAGRAM, [text], "")["id"], "sub")
