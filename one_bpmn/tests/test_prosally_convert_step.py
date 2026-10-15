@@ -342,6 +342,26 @@ class TestResolveStep(FrappeTestCase):
 	def test_a_message_that_names_a_step_without_asking_for_a_sub_process_is_not_a_conversion(self):
 		self.assertIsNone(resolve_step(_diagram(), ["Rename Complete Payroll Clearance to Payroll done"]))
 
+	def test_a_step_named_as_content_of_a_sub_process_is_not_converted(self):
+		for text in (
+			"Make sure the Payroll Clearance sub-process has the step Complete Payroll Clearance",
+			"Add a sub-process after Notify HR: then Complete Payroll Clearance",
+		):
+			self.assertIsNone(resolve_step(_diagram(), [text]), text)
+
+	def test_only_the_step_the_sub_process_is_for_is_converted_not_one_named_in_its_description(self):
+		found = resolve_step(_diagram(), ["Create a sub process for Prepare: it should include Complete Payroll Clearance"])
+		self.assertEqual(found["id"], "prep")
+
+	def test_the_step_a_message_turns_into_a_sub_process_is_found_by_its_wording(self):
+		for text in (
+			"turn Complete Payroll Clearance into a sub-process",
+			"Complete Payroll Clearance should be a sub process",
+			"make the Complete Payroll Clearance step a subprocess",
+			"convert Complete Payroll Clearance to an expanded sub-process",
+		):
+			self.assertEqual(resolve_step(_diagram(), [text])["id"], "conv", text)
+
 	def test_a_call_activity_is_never_converted(self):
 		self.assertIsNone(resolve_step(_diagram(), ["Create a sub process for Call Closure: do things"]))
 

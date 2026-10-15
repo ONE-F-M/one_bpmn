@@ -113,6 +113,10 @@ STEP_TAGS = tuple(
 	"{" + NS["bpmn"] + "}" + tag for tag in ("task", "userTask", "scriptTask", "serviceTask", "manualTask", "businessRuleTask")
 )
 SUBPROCESS_REQUEST = re.compile(r"sub[\s-]?process\s+(?:for|of|on)\s+(?:the\s+)?(?:step\s+)?([^:,.;\n]+)", re.I)
+BECOME_SUBPROCESS = re.compile(
+	r"([^:,.;\n]+?)\s+(?:should\s+be|must\s+be|needs?\s+to\s+be|to\s+be|become|becomes|into|as|a|an)\s+(?:a\s+|an\s+)?(?:expanded\s+)?sub[\s-]?process",
+	re.I,
+)
 DIAGRAM_REPLIES = ("BPMN_MODIFIED", "BPMN_GENERATED")
 REQUEST_STOPWORDS = frozenset(
 	("create", "sub", "process", "subprocess", "step", "steps", "with", "that", "this", "from", "into", "inside", "when", "then", "should")
@@ -580,10 +584,9 @@ def resolve_step(xml: str, texts: list) -> dict | None:
 	_register_namespaces()
 	steps = [e for e in ET.fromstring(xml).iter() if e.tag in STEP_TAGS and e.get("id") and e.get("name")]
 	for text in texts:
-		if not re.search(r"sub[\s-]?process", text or "", re.I):
-			continue
-		squashed = re.sub(r"[^a-z0-9]", "", text.lower())
-		named = [e for e in steps if re.sub(r"[^a-z0-9]", "", e.get("name").lower()) in squashed]
+		targets = [match[1] for match in (*SUBPROCESS_REQUEST.finditer(text or ""), *BECOME_SUBPROCESS.finditer(text or ""))]
+		squashed = _squash(" ".join(targets))
+		named = [e for e in steps if _squash(e.get("name")) in squashed]
 		if named:
 			chosen = max(named, key=lambda e: len(e.get("name")))
 			return {"id": chosen.get("id"), "name": chosen.get("name")}
