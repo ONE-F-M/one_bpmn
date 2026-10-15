@@ -725,6 +725,25 @@ def record_sub_call(model: str, result, latency_ms: int = 0) -> frappe.Document 
 		run.model = run_model
 
 
+def record_truncated_calls(cut_offs: list) -> None:
+	"""Record each (latency_ms, what) cut-off model call of the open sub-call scope as a sub_call step with error code TRUNCATED."""
+	scope = current_sub_call()
+	if not scope or not cut_offs:
+		return
+	run = frappe.get_doc("AI Agent Run", scope["run"])
+	tag = sub_call_tag(scope.get("tool") or "tool", run.model or "", frappe.flags.get(SUB_CALL_TURN_FLAG))
+	for latency_ms, what in cut_offs:
+		record_ai_step(
+			run,
+			frappe.db.count("AI Agent Step", {"run": run.name}) + 1,
+			"assistant",
+			f"{tag}\n{what} cut off at the token ceiling",
+			latency_ms=latency_ms,
+			error_code="TRUNCATED",
+			step_kind="sub_call",
+		)
+
+
 def record_failed_attempts(run, result: ExecutorResult) -> int:
 	"""Write one AI Agent Step per failed attempt (WI-002190).
 

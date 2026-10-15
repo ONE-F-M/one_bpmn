@@ -17,6 +17,11 @@
   "ba_site_url",
   "ba_api_key",
   "ba_api_secret",
+  "section_break_staging",
+  "enable_staging_sync",
+  "staging_site_url",
+  "staging_api_key",
+  "staging_api_secret",
   "section_break_github",
   "github_token",
   "customization_app",
@@ -200,6 +205,39 @@
    "fieldtype": "Password",
    "label": "BA API Secret",
    "mandatory_depends_on": "eval:doc.enable_ba_sync==1"
+  },
+  {
+   "fieldname": "section_break_staging",
+   "fieldtype": "Section Break",
+   "label": "Staging Site Configuration"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_staging_sync",
+   "fieldtype": "Check",
+   "label": "Enable Staging Site Sync"
+  },
+  {
+   "depends_on": "eval:doc.enable_staging_sync==1",
+   "description": "Ex: https://staging.one-fm.com",
+   "fieldname": "staging_site_url",
+   "fieldtype": "Data",
+   "label": "Staging Site URL",
+   "mandatory_depends_on": "eval:doc.enable_staging_sync==1"
+  },
+  {
+   "depends_on": "eval:doc.enable_staging_sync==1",
+   "fieldname": "staging_api_key",
+   "fieldtype": "Password",
+   "label": "Staging Site API Key",
+   "mandatory_depends_on": "eval:doc.enable_staging_sync==1"
+  },
+  {
+   "depends_on": "eval:doc.enable_staging_sync==1",
+   "fieldname": "staging_api_secret",
+   "fieldtype": "Password",
+   "label": "Staging Site API Secret",
+   "mandatory_depends_on": "eval:doc.enable_staging_sync==1"
   },
   {
    "collapsible": 1,
@@ -791,7 +829,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-10-12 12:00:00.000000",
+ "modified": "2026-10-13 09:00:00.000000",
  "modified_by": "s.shariff@one-fm.com",
  "module": "ONE BPMN",
  "name": "Processa Settings",

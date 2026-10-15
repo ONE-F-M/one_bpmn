@@ -80,21 +80,8 @@ FAILED_AT = r"""if _fail_label:
 """
 
 RECORD = r"""if _cut_offs:
-    from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG, current_sub_call, record_ai_step, sub_call_tag
-    _sub_scope = current_sub_call()
-    if _sub_scope:
-        _run_doc = frappe.get_doc("AI Agent Run", _sub_scope["run"])
-        for _ms, _what in _cut_offs:
-            record_ai_step(
-                _run_doc,
-                frappe.db.count("AI Agent Step", {"run": _run_doc.name}) + 1,
-                "assistant",
-                sub_call_tag(_sub_scope.get("tool") or "tool", getattr(_run_doc, "model", None) or "", frappe.flags.get(SUB_CALL_TURN_FLAG))
-                + "\n" + _what + " cut off at the token ceiling",
-                latency_ms=_ms,
-                error_code="TRUNCATED",
-                step_kind="sub_call",
-            )
+    from one_bpmn.agents.observability import record_truncated_calls
+    record_truncated_calls(_cut_offs)
 """
 
 
