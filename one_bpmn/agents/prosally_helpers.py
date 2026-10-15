@@ -106,6 +106,7 @@ NS = {
 SUBPROCESS_KEPT_TAGS = tuple(
 	"{" + NS["bpmn"] + "}" + tag for tag in ("incoming", "outgoing", "extensionElements", "documentation")
 )
+ID_REF_ATTRS = ("id", "sourceRef", "targetRef", "bpmnElement", "default", "attachedToRef")
 EXTENSION_NS_URIS = (
 	"{http://spiffworkflow.org/bpmn/schema/1.0/core}",
 	"{http://custom/text-style}",
@@ -384,19 +385,30 @@ def splice_subprocess(xml: str, child_xml: str, scope_id: str) -> str:
 	sub = next(e for e in root.iter(bpmn + "subProcess") if e.get("id") == scope_id)
 	for step in [e for e in sub if e.tag not in SUBPROCESS_KEPT_TAGS]:
 		sub.remove(step)
-	sub.extend(child_root.find(bpmn + "process"))
-	new_ids = {e.get("id") for e in sub.iter() if e.get("id")} - {scope_id}
-
+	for diagram in root.findall(bpmndi + "BPMNDiagram"):
+		if diagram.find(bpmndi + "BPMNPlane").get("bpmnElement") == scope_id:
+			root.remove(diagram)
+	di_prefixes = tuple("{" + NS[prefix] for prefix in ("bpmndi", "dc", "di"))
+	semantic = {e.get("id") for e in root.iter() if e.get("id") and not e.tag.startswith(di_prefixes)}
 	for diagram in root.findall(bpmndi + "BPMNDiagram"):
 		plane = diagram.find(bpmndi + "BPMNPlane")
-		if plane.get("bpmnElement") == scope_id:
-			root.remove(diagram)
-			continue
-		for drawn in [e for e in plane if e.get("bpmnElement") in new_ids]:
-			plane.remove(drawn)
+		for gone in [e for e in plane if e.get("bpmnElement") not in semantic]:
+			plane.remove(gone)
 		for shape in plane.findall(bpmndi + "BPMNShape"):
 			if shape.get("bpmnElement") == scope_id:
 				shape.set("isExpanded", "false")
+
+	taken = {e.get("id") for e in root.iter() if e.get("id")}
+	renames = {e.get("id"): e.get("id") + "_" + scope_id for e in child_root.iter() if e.get("id") in taken}
+	for e in child_root.iter():
+		for attr in ID_REF_ATTRS:
+			if e.get(attr) in renames:
+				e.set(attr, renames[e.get(attr)])
+		if e.tag in (bpmn + "incoming", bpmn + "outgoing") and e.text in renames:
+			e.text = renames[e.text]
+	sub.extend(child_root.find(bpmn + "process"))
+	for scope in sub.iter(bpmn + "subProcess"):
+		add_flow_references(scope)
 	for diagram in child_root.findall(bpmndi + "BPMNDiagram"):
 		diagram.set("id", "BPMNDiagram_" + scope_id)
 		plane = diagram.find(bpmndi + "BPMNPlane")
@@ -405,6 +417,17 @@ def splice_subprocess(xml: str, child_xml: str, scope_id: str) -> str:
 		root.append(diagram)
 	spliced = ET.tostring(root, encoding="unicode", xml_declaration=True)
 	return re.sub(r"^<\?xml\s[^?]*\?>", '<?xml version="1.0" encoding="UTF-8"?>', spliced)
+
+
+def add_flow_references(scope: ET.Element) -> None:
+	"""Give each step of scope the incoming and outgoing flow references the editor and its linter read."""
+	bpmn = "{" + NS["bpmn"] + "}"
+	steps = {e.get("id"): e for e in scope if e.get("id") and e.tag != bpmn + "sequenceFlow"}
+	for flow in scope.findall(bpmn + "sequenceFlow"):
+		for ref, tag in ((flow.get("sourceRef"), "outgoing"), (flow.get("targetRef"), "incoming")):
+			step = steps.get(ref)
+			if step is not None and flow.get("id") not in [c.text for c in step.findall(bpmn + tag)]:
+				ET.SubElement(step, bpmn + tag).text = flow.get("id")
 
 
 def format_removal_warning(removed_elements: list) -> str:
