@@ -450,9 +450,7 @@ class BPMNProcessInstance(Document):
 			if isinstance(in_flight, AgentRefusal):
 				raise in_flight
 
-			# A permission error is the user's own to fix: its message names
-			# only the role or permission they lack, so show it and leave the
-			# instance as it was so repeating the action continues the process.
+			# A permission error names only what the user lacks: show it and keep the instance running.
 			if isinstance(in_flight, frappe.PermissionError):
 				if not str(in_flight).strip():
 					frappe.throw(
