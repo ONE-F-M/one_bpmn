@@ -1083,6 +1083,16 @@ defineExpose({ send, conversationName });
 .acp-fallback { padding: 8px 12px; } .acp-fallback pre { font-size: 11px; overflow-x: auto; }
 
 .acp-thinking { color: var(--ig5); font-style: italic; font-size: 12px; }
+/* WI-003582: progress and lock-note lines wrap inside the panel (390px) and never widen the page. */
+.acp-progress, .acp-locked-note { min-width: 0; max-width: 100%; box-sizing: border-box; white-space: normal;
+	overflow-wrap: anywhere; word-break: break-word; font-size: 12px; color: var(--ig6); }
+.acp-progress { align-self: flex-start; padding: 6px 10px; border-radius: 8px; background: var(--blue-bg);
+	color: var(--blue-ink); }
+.acp-locked-note { padding: 6px 14px 0; background: var(--sw); color: var(--ig5); font-style: italic; }
+.acp { min-width: 0; max-width: 100%; overflow-x: hidden; }
+.acp-log { overflow-x: hidden; }
+.acp-input { min-width: 0; }
+.acp-tb:disabled { opacity: 0.4; cursor: default; }
 .acp-narration { align-self: flex-start; color: var(--ig5); font-size: 12px; max-width: 80%; }
 .acp-narration summary { cursor: pointer; font-style: italic; }
 .acp-status { font-size: 11px; color: var(--ig5); display: flex; gap: 6px; align-items: center; }
