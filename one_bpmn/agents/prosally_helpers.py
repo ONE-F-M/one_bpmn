@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 """Helpers the ProsAlly tool scripts share: property preservation, JSON extraction, confirmation replies, history, model calls."""
 
+import copy
 import json
 import re
 from collections import Counter
@@ -107,6 +108,11 @@ SUBPROCESS_KEPT_TAGS = tuple(
 	"{" + NS["bpmn"] + "}" + tag for tag in ("incoming", "outgoing", "extensionElements", "documentation")
 )
 ID_REF_ATTRS = ("id", "sourceRef", "targetRef", "bpmnElement", "default", "attachedToRef")
+STEP_TAGS = tuple(
+	"{" + NS["bpmn"] + "}" + tag for tag in ("task", "userTask", "scriptTask", "serviceTask", "manualTask", "businessRuleTask")
+)
+EXPANDED_PAD = 24
+EXPANDED_HEADER = 36
 EXTENSION_NS_URIS = (
 	"{http://spiffworkflow.org/bpmn/schema/1.0/core}",
 	"{http://custom/text-style}",
@@ -327,13 +333,13 @@ def overwrite_warning(xml: str) -> str:
 	return summarize_configured_elements(configured)
 
 
-def transfer_properties(old_xml: str, new_xml: str) -> tuple:
-	"""Copy configuration from old_xml onto the same ids in new_xml; return (merged_xml, removed)."""
+def transfer_properties(old_xml: str, new_xml: str, skip_ids: tuple = ()) -> tuple:
+	"""Copy configuration from old_xml onto the same ids in new_xml, except skip_ids; return (merged_xml, removed)."""
 	if not (old_xml or "").strip():
 		return new_xml, []
 	if not (new_xml or "").strip():
 		return new_xml, []
-	old_configured = extract_configured_elements(old_xml)
+	old_configured = {k: v for k, v in extract_configured_elements(old_xml).items() if k not in skip_ids}
 	if not old_configured:
 		return new_xml, []
 	_register_namespaces()
@@ -398,14 +404,7 @@ def splice_subprocess(xml: str, child_xml: str, scope_id: str) -> str:
 			if shape.get("bpmnElement") == scope_id:
 				shape.set("isExpanded", "false")
 
-	taken = {e.get("id") for e in root.iter() if e.get("id")}
-	renames = {e.get("id"): e.get("id") + "_" + scope_id for e in child_root.iter() if e.get("id") in taken}
-	for e in child_root.iter():
-		for attr in ID_REF_ATTRS:
-			if e.get(attr) in renames:
-				e.set(attr, renames[e.get(attr)])
-		if e.tag in (bpmn + "incoming", bpmn + "outgoing") and e.text in renames:
-			e.text = renames[e.text]
+	_rename_taken_ids(child_root, {e.get("id") for e in root.iter() if e.get("id")}, scope_id)
 	sub.extend(child_root.find(bpmn + "process"))
 	for scope in sub.iter(bpmn + "subProcess"):
 		add_flow_references(scope)
@@ -419,6 +418,18 @@ def splice_subprocess(xml: str, child_xml: str, scope_id: str) -> str:
 	return re.sub(r"^<\?xml\s[^?]*\?>", '<?xml version="1.0" encoding="UTF-8"?>', spliced)
 
 
+def _rename_taken_ids(child_root: ET.Element, taken: set, suffix: str) -> None:
+	"""Rename every id in child_root that is already in taken, and every reference to it."""
+	bpmn = "{" + NS["bpmn"] + "}"
+	renames = {e.get("id"): e.get("id") + "_" + suffix for e in child_root.iter() if e.get("id") in taken}
+	for e in child_root.iter():
+		for attr in ID_REF_ATTRS:
+			if e.get(attr) in renames:
+				e.set(attr, renames[e.get(attr)])
+		if e.tag in (bpmn + "incoming", bpmn + "outgoing") and e.text in renames:
+			e.text = renames[e.text]
+
+
 def add_flow_references(scope: ET.Element) -> None:
 	"""Give each step of scope the incoming and outgoing flow references the editor and its linter read."""
 	bpmn = "{" + NS["bpmn"] + "}"
@@ -428,6 +439,148 @@ def add_flow_references(scope: ET.Element) -> None:
 			step = steps.get(ref)
 			if step is not None and flow.get("id") not in [c.text for c in step.findall(bpmn + tag)]:
 				ET.SubElement(step, bpmn + tag).text = flow.get("id")
+
+
+def restore_call_activities(old_xml: str, new_xml: str) -> str:
+	"""new_xml with each call activity of old_xml put back as it was, so a modify never changes one."""
+	_register_namespaces()
+	call = "{" + NS["bpmn"] + "}callActivity"
+	bpmn = "{" + NS["bpmn"] + "}"
+	originals = {e.get("id"): e for e in ET.fromstring(old_xml).iter(call) if e.get("id")}
+	if not originals:
+		return new_xml
+	root = ET.fromstring(new_xml)
+	for parent in list(root.iter()):
+		for index, child in enumerate(list(parent)):
+			original = originals.get(child.get("id"))
+			if original is not None:
+				kept = copy.deepcopy(original)
+				for reference in [c for c in kept if c.tag in (bpmn + "incoming", bpmn + "outgoing")]:
+					kept.remove(reference)
+				parent[index] = kept
+	restored = ET.tostring(root, encoding="unicode", xml_declaration=True)
+	return re.sub(r"^<\?xml\s[^?]*\?>", '<?xml version="1.0" encoding="UTF-8"?>', restored)
+
+
+def resolve_step(xml: str, texts: list) -> dict | None:
+	"""The step the newest message asking for a sub-process names; a call activity is never converted."""
+	if not (xml or "").strip():
+		return None
+	_register_namespaces()
+	steps = [e for e in ET.fromstring(xml).iter() if e.tag in STEP_TAGS and e.get("id") and e.get("name")]
+	for text in texts:
+		if not re.search(r"sub[\s-]?process", text or "", re.I):
+			continue
+		squashed = re.sub(r"[^a-z0-9]", "", text.lower())
+		named = [e for e in steps if re.sub(r"[^a-z0-9]", "", e.get("name").lower()) in squashed]
+		if named:
+			chosen = max(named, key=lambda e: len(e.get("name")))
+			return {"id": chosen.get("id"), "name": chosen.get("name")}
+	return None
+
+
+def convert_step_to_subprocess(xml: str, step_id: str, child_xml: str) -> str:
+	"""xml with the step step_id turned into an expanded sub-process holding the steps compiled in child_xml."""
+	_register_namespaces()
+	root = ET.fromstring(xml)
+	child_root = ET.fromstring(child_xml)
+	bpmn, bpmndi = "{" + NS["bpmn"] + "}", "{" + NS["bpmndi"] + "}"
+	parent = next(p for p in root.iter() if any(c.get("id") == step_id for c in p))
+	step = next(c for c in parent if c.get("id") == step_id)
+	sub = ET.Element(bpmn + "subProcess", {"id": step_id, "name": step.get("name", "")})
+	sub.extend([c for c in step if c.tag in (bpmn + "documentation", bpmn + "incoming", bpmn + "outgoing")])
+	parent[list(parent).index(step)] = sub
+	_rename_taken_ids(child_root, {e.get("id") for e in root.iter() if e.get("id")}, step_id)
+	sub.extend(child_root.find(bpmn + "process"))
+	add_flow_references(sub)
+	plane = next((p for p in root.iter(bpmndi + "BPMNPlane") if any(s.get("bpmnElement") == step_id for s in p)), None)
+	if plane is not None:
+		_draw_expanded(plane, step_id, child_root.find(bpmndi + "BPMNDiagram/" + bpmndi + "BPMNPlane"))
+	converted = ET.tostring(root, encoding="unicode", xml_declaration=True)
+	return re.sub(r"^<\?xml\s[^?]*\?>", '<?xml version="1.0" encoding="UTF-8"?>', converted)
+
+
+def _draw_expanded(plane: ET.Element, step_id: str, child_plane: ET.Element) -> None:
+	"""Grow the step's box to hold the child drawing, make room for it, and draw the steps inside."""
+	dc, bpmndi = "{" + NS["dc"] + "}", "{" + NS["bpmndi"] + "}"
+	shape = next(s for s in plane.findall(bpmndi + "BPMNShape") if s.get("bpmnElement") == step_id)
+	bounds = shape.find(dc + "Bounds")
+	x, y, w, h = (float(bounds.get(k)) for k in ("x", "y", "width", "height"))
+	left, top, right, bottom = _extent(child_plane)
+	new_w = max(200.0, right - left + 2 * EXPANDED_PAD)
+	new_h = max(120.0, bottom - top + EXPANDED_PAD + EXPANDED_HEADER)
+	_make_room(plane, shape, (x + w, y + h, y + h / 2), max(0.0, new_w - w), max(0.0, new_h - h))
+	bounds.set("width", _num(max(w, new_w)))
+	bounds.set("height", _num(max(h, new_h)))
+	shape.set("isExpanded", "true")
+	for drawn in child_plane:
+		moved = copy.deepcopy(drawn)
+		_shift(moved, x + EXPANDED_PAD - left, y + EXPANDED_HEADER - top, lambda px, py: (px, py))
+		plane.append(moved)
+
+
+def _extent(drawing: ET.Element) -> tuple:
+	"""The left, top, right and bottom edges of everything drawn under drawing."""
+	dc, di = "{" + NS["dc"] + "}", "{" + NS["di"] + "}"
+	xs, ys = [], []
+	for b in drawing.iter(dc + "Bounds"):
+		xs += [float(b.get("x")), float(b.get("x")) + float(b.get("width"))]
+		ys += [float(b.get("y")), float(b.get("y")) + float(b.get("height"))]
+	for p in drawing.iter(di + "waypoint"):
+		xs.append(float(p.get("x")))
+		ys.append(float(p.get("y")))
+	return min(xs), min(ys), max(xs), max(ys)
+
+
+def _make_room(plane: ET.Element, step_shape: ET.Element, edges: tuple, dw: float, dh: float) -> None:
+	"""Move what is right of the step by dw and what is below it by dh; widen and heighten the lanes and pool."""
+	dc, bpmndi = "{" + NS["dc"] + "}", "{" + NS["bpmndi"] + "}"
+	right, bottom, centre = edges
+	horizontal = [s for s in plane.findall(bpmndi + "BPMNShape") if s.get("isHorizontal") == "true"]
+	containing = []
+	for lane in horizontal:
+		b = lane.find(dc + "Bounds")
+		if float(b.get("y")) <= centre <= float(b.get("y")) + float(b.get("height")):
+			containing.append(float(b.get("y")) + float(b.get("height")))
+	lane_bottom = min(containing) if containing else None
+	for drawn in plane:
+		if drawn is step_shape:
+			continue
+		if drawn in horizontal:
+			b = drawn.find(dc + "Bounds")
+			b.set("width", _num(float(b.get("width")) + dw))
+			top, height = float(b.get("y")), float(b.get("height"))
+			if top <= centre <= top + height:
+				b.set("height", _num(height + dh))
+			elif lane_bottom is not None and top >= lane_bottom:
+				b.set("y", _num(top + dh))
+			continue
+		_shift(drawn, 0, 0, lambda px, py: (px + dw if px >= right else px, py + dh if py >= bottom else py))
+
+
+def _shift(drawn: ET.Element, dx: float, dy: float, rule) -> None:
+	"""Move a shape, with its label, or an edge point by point: each point moves as rule says, then by dx and dy."""
+	dc, di = "{" + NS["dc"] + "}", "{" + NS["di"] + "}"
+	own = drawn.find(dc + "Bounds")
+	pinned = None if own is None else _offset(own, rule)
+	for b in drawn.iter(dc + "Bounds"):
+		ox, oy = pinned or _offset(b, rule)
+		b.set("x", _num(float(b.get("x")) + ox + dx))
+		b.set("y", _num(float(b.get("y")) + oy + dy))
+	for p in drawn.iter(di + "waypoint"):
+		ox, oy = _offset(p, rule)
+		p.set("x", _num(float(p.get("x")) + ox + dx))
+		p.set("y", _num(float(p.get("y")) + oy + dy))
+
+
+def _offset(point: ET.Element, rule) -> tuple:
+	x, y = float(point.get("x")), float(point.get("y"))
+	new_x, new_y = rule(x, y)
+	return new_x - x, new_y - y
+
+
+def _num(value: float) -> str:
+	return str(int(value)) if value == int(value) else str(round(value, 2))
 
 
 def format_removal_warning(removed_elements: list) -> str:
