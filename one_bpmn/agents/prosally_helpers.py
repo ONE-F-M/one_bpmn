@@ -111,6 +111,7 @@ ID_REF_ATTRS = ("id", "sourceRef", "targetRef", "bpmnElement", "default", "attac
 STEP_TAGS = tuple(
 	"{" + NS["bpmn"] + "}" + tag for tag in ("task", "userTask", "scriptTask", "serviceTask", "manualTask", "businessRuleTask")
 )
+POSITION_WORDS = r"\b(?:after|before|following|preceding|then)\s+(?:the\s+|a\s+)?$"
 EXPANDED_PAD = 24
 EXPANDED_HEADER = 36
 EXTENSION_NS_URIS = (
@@ -373,13 +374,21 @@ def resolve_scope(xml: str, texts: list, scope_id: str = "") -> dict | None:
 	for text in texts:
 		if chosen is not None:
 			break
-		squashed = re.sub(r"[^a-z0-9]", "", (text or "").lower())
-		named = [e for e in subs.values() if e.get("name") and re.sub(r"[^a-z0-9]", "", e.get("name").lower()) in squashed]
+		named = [e for e in subs.values() if e.get("name") and _is_named(text or "", e.get("name"))]
 		if named:
 			chosen = max(named, key=lambda e: len(e.get("name")))
 	if chosen is None:
 		return None
 	return {"id": chosen.get("id"), "name": chosen.get("name") or chosen.get("id"), "xml": ET.tostring(chosen, encoding="unicode")}
+
+
+def _is_named(text: str, name: str) -> bool:
+	"""True when text names the sub-process as the thing to edit, not as a place to put a step before or after."""
+	pattern = r"[\s\-]*".join(re.escape(word) for word in re.split(r"[^A-Za-z0-9]+", name) if word)
+	for match in re.finditer(pattern, text, re.I):
+		if not re.search(POSITION_WORDS, text[: match.start()], re.I):
+			return True
+	return False
 
 
 def splice_subprocess(xml: str, child_xml: str, scope_id: str) -> str:

@@ -76,6 +76,23 @@ class TestResolveScope(FrappeTestCase):
 		self.assertIsNone(resolve_scope(DIAGRAM, ["Add an email step after Start"], ""))
 		self.assertIsNone(resolve_scope("", ["test sub process"], ""))
 
+	def test_a_sub_process_named_as_a_place_to_put_a_step_is_not_the_one_being_edited(self):
+		for text in (
+			"Add a step after Test Sub Process in the main flow",
+			"Add a step before the test subprocess where HR is notified",
+			"then Test Sub Process, add a notification",
+		):
+			self.assertIsNone(resolve_scope(DIAGRAM, [text], ""), text)
+
+	def test_a_position_word_elsewhere_in_the_message_does_not_hide_the_sub_process(self):
+		text = "Add to the Test Sub Process: a check that runs after the review step"
+		self.assertEqual(resolve_scope(DIAGRAM, [text], "")["id"], "sub")
+
+	def test_when_one_is_a_place_and_another_is_the_target_the_target_is_chosen(self):
+		xml = DIAGRAM.replace("</bpmn:process>", '<bpmn:subProcess id="other" name="Approval"/></bpmn:process>')
+		scope = resolve_scope(xml, ["After Test Sub Process, add steps to the Approval sub-process"], "")
+		self.assertEqual(scope["id"], "other")
+
 	def test_scope_carries_the_current_inner_xml(self):
 		self.assertIn('id="old_step"', resolve_scope(DIAGRAM, [], "sub")["xml"])
 
