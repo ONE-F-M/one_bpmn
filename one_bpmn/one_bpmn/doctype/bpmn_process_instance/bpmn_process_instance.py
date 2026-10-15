@@ -450,6 +450,18 @@ class BPMNProcessInstance(Document):
 			if isinstance(in_flight, AgentRefusal):
 				raise in_flight
 
+			# A permission error names only what the user lacks: show it and keep the instance running.
+			if isinstance(in_flight, frappe.PermissionError):
+				if not str(in_flight).strip():
+					frappe.throw(
+						_(
+							"You do not have permission to complete this step. "
+							"Ask your administrator for access, then try again."
+						),
+						exc=frappe.PermissionError,
+					)
+				raise in_flight
+
 		ref_id = self._record_runtime_failure(phase)
 		frappe.throw(
 			_(
