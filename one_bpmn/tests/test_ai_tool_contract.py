@@ -82,11 +82,11 @@ class TestValidateAiToolContract(FrappeTestCase):
 
 	def test_a_chat_agent_is_blocked_the_same_as_a_background_one(self):
 		with patch.object(frappe.db, "exists", return_value=True), patch.object(
-			frappe.db, "get_value", return_value="Call create_jira_stories."
+			frappe.db, "get_value", return_value="Call publish_stories."
 		):
 			with self.assertRaises(frappe.ValidationError) as caught:
 				comp._validate_ai_tool_contract(_agents("", config="BA Agent"))
-		self.assertIn("create_jira_stories", str(caught.exception))
+		self.assertIn("publish_stories", str(caught.exception))
 
 	def test_without_a_configuration_the_shape_prompt_is_checked(self):
 		with patch.object(frappe.db, "exists", return_value=False):
