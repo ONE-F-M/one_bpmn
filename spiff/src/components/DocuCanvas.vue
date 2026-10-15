@@ -411,6 +411,10 @@
 
 				</div>
 
+				<ul v-if="childChanges.length" class="dc-child-changes">
+					<li v-for="line in childChanges" :key="line">{{ line }}</li>
+				</ul>
+
 				<!-- Footer — changes auto-save to the system -->
 				<div class="dc-window-footer">
 					<span class="dc-count">{{ contentCount }} field{{ contentCount === 1 ? "" : "s" }}</span>
@@ -629,6 +633,7 @@ const saveState  = ref("idle");   // idle | saving | saved | error
 const canChange  = ref(false);
 const saveError  = ref("");
 const saveNotes  = ref("");
+const childChanges = ref([]);
 // A design that failed to save, kept in this browser so the canvas can show the site's form and still offer it back.
 const unsavedDesign = ref("");
 let autosaveTimer = null;
@@ -1187,6 +1192,21 @@ const hostContextLine = computed(() =>
 function onDocuCardAction({ name, action, value }) {
 	if (name === "onefm.doctype_schema" && action === "apply-schema" && value.doctype_ir) {
 		loadIr(value.doctype_ir);
+		loadChildChanges(value.doctype_ir);
+	}
+}
+
+async function loadChildChanges(ir) {
+	childChanges.value = [];
+	try {
+		const res = await frappeRequest({ url: `${API}preview_doctype`, params: { ir: JSON.stringify(ir) } });
+		childChanges.value = [
+			...(res?.child_changes || []).map((c) => `${c.table}: ${c.lines.join(" ")}`),
+			...(res?.warnings || []),
+		];
+	} catch (e) {
+		saveError.value = serverMessage(e);
+		saveState.value = "error";
 	}
 }
 
@@ -1603,6 +1623,7 @@ onMounted(async () => {
 
 /* Auto-save status */
 .dc-save-status { font-size: 13px; color: var(--md-on-surface-variant); }
+.dc-child-changes { margin: 0; padding: 8px 16px 8px 32px; min-width: 0; font-size: 12px; overflow-wrap: anywhere; white-space: normal; }
 .dc-save-status.st-saving { color: var(--md-primary); }
 .dc-save-status.st-saved { color: var(--md-success); }
 .dc-save-status.st-error { color: var(--md-error); }
