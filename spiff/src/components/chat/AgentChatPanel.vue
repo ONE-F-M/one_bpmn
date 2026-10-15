@@ -126,9 +126,13 @@
 
 		<!-- ── composer ───────────────────────────────────────────────── -->
 		<div class="acp-toolbar">
-			<button class="acp-tb" :title="__('Bold')" @click="wrapSelection('**')"><b>B</b></button>
-			<button class="acp-tb" :title="__('Italic')" @click="wrapSelection('*')"><i>I</i></button>
-			<button class="acp-tb" :title="__('List')" @click="prefixLine('- ')">≣</button>
+			<button class="acp-tb" :disabled="busy" :title="__('Bold')" @click="wrapSelection('**')"><b>B</b></button>
+			<button class="acp-tb" :disabled="busy" :title="__('Italic')" @click="wrapSelection('*')"><i>I</i></button>
+			<button class="acp-tb" :disabled="busy" :title="__('List')" @click="prefixLine('- ')">≣</button>
+		</div>
+		<!-- WI-003582: the composer is locked for the whole turn; say why -->
+		<div v-if="busy" class="acp-locked-note" role="status">
+			{{ __("Still drawing — you can send another message when this finishes.") }}
 		</div>
 		<div v-if="pendingFile" class="acp-pending-file">
 			<span class="acp-filechip">📎 {{ pendingFile.file_name }}</span>
