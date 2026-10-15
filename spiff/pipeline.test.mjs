@@ -284,3 +284,99 @@ test('the layout audit judges each plane on its own', () => {
   assert.equal(r.layout.overlaps, 0, JSON.stringify(r.problems));
   assert.equal(r.layout.labelCollisions, 0, JSON.stringify(r.problems));
 });
+
+// ── Expanded sub-processes: the steps are drawn inside the box, on the main plane ──
+
+const expandedIr = () => {
+  const ir = subIr();
+  ir.nodes[2].expanded = true;
+  return ir;
+};
+const rect = (xml, id) => {
+  const m = new RegExp('bpmnElement="' + id + '"[^>]*>\\s*<dc:Bounds x="([\\d.-]+)" y="([\\d.-]+)" width="([\\d.]+)" height="([\\d.]+)"').exec(xml);
+  return m && { x: +m[1], y: +m[2], w: +m[3], h: +m[4] };
+};
+const inside = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
+const apart = (a, b) => a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+
+test('an expanded sub-process is drawn on the main plane with its steps inside the box', () => {
+  const r = run(expandedIr());
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+  assert.equal((r.xml.match(/<bpmndi:BPMNPlane /g) || []).length, 1);
+  assert.match(r.xml, /bpmnElement="sub"[^>]*isExpanded="true"/);
+  const box = rect(r.xml, 'sub');
+  for (const id of ['a', 't', 'z']) assert.ok(inside(rect(r.xml, id), box), `${id} is not inside the sub-process box`);
+});
+
+test('an expanded sub-process takes the room its steps need and nothing overlaps it', () => {
+  const r = run(expandedIr());
+  const box = rect(r.xml, 'sub');
+  assert.ok(box.w > 100 && box.h > 80, JSON.stringify(box));
+  for (const id of ['s', 'mid', 'e']) assert.ok(apart(rect(r.xml, id), box), `${id} overlaps the sub-process`);
+  assert.deepEqual([r.layout.crossings, r.layout.throughShape, r.layout.overlaps], [0, 0, 0], JSON.stringify(r.problems));
+});
+
+test('an expanded sub-process inside an expanded sub-process keeps every level inside its parent', () => {
+  const ir = expandedIr();
+  ir.nodes[2].children.nodes[1] = {
+    id: 't', type: 'subProcess', name: 'Inner', expanded: true,
+    children: {
+      nodes: [{ id: 'ia', type: 'startEvent', name: 'S' }, { id: 'it', type: 'userTask', name: 'Deep step' }, { id: 'iz', type: 'endEvent', name: 'E' }],
+      flows: [{ from: 'ia', to: 'it' }, { from: 'it', to: 'iz' }],
+    },
+  };
+  const r = run(ir);
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+  assert.ok(inside(rect(r.xml, 'it'), rect(r.xml, 't')));
+  assert.ok(inside(rect(r.xml, 't'), rect(r.xml, 'sub')));
+});
+
+test('a diagram with no expanded sub-process is laid out exactly as before', () => {
+  const r = run(subIr());
+  const plain = rect(r.xml, 'sub');
+  assert.deepEqual([plain.w, plain.h], [100, 80]);
+  assert.equal((r.xml.match(/<bpmndi:BPMNPlane /g) || []).length, 2);
+});
+
+test('a lane with an expanded sub-process in it is as tall as the box needs', () => {
+  const ir = expandedIr();
+  ir.lanes = [{ id: 'l1', name: 'Payroll' }];
+  ir.nodes.forEach((n) => { n.lane = 'l1'; });
+  const r = run(ir);
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+  const lane = /bpmnElement="l1"[^>]*>\s*<dc:Bounds x="[\d.-]+" y="([\d.-]+)" width="[\d.]+" height="([\d.]+)"/.exec(r.xml);
+  const box = rect(r.xml, 'sub');
+  assert.ok(box.y >= +lane[1] && box.y + box.h <= +lane[1] + +lane[2], 'the box runs out of its lane');
+});
+
+test('steps inside a sub-process carry their incoming and outgoing flow references', () => {
+  for (const ir of [subIr(), expandedIr()]) {
+    const r = run(ir);
+    const inner = between(r.xml, '<bpmn:subProcess id="sub"', '</bpmn:subProcess>');
+    const flows = inner.match(/<bpmn:sequenceFlow /g).length;
+    assert.equal((inner.match(/<bpmn:incoming>/g) || []).length, flows);
+    assert.equal((inner.match(/<bpmn:outgoing>/g) || []).length, flows);
+  }
+});
+
+test('main-process steps do not get references from the compiler, the canvas adds those', () => {
+  const r = run(subIr());
+  const outer = r.xml.replace(between(r.xml, '<bpmn:subProcess id="sub"', '</bpmn:subProcess>'), '');
+  assert.equal((outer.match(/<bpmn:incoming>/g) || []).length, 0);
+});
+
+test('a call activity stays a call activity and keeps the process it calls', () => {
+  const ir = {
+    name: 'P',
+    nodes: [
+      { id: 's', type: 'startEvent', name: 'Start' },
+      { id: 'c', type: 'callActivity', name: 'Run clearance', calledElement: 'Process_Payroll' },
+      { id: 'e', type: 'endEvent', name: 'End' },
+    ],
+    flows: [{ from: 's', to: 'c' }, { from: 'c', to: 'e' }],
+  };
+  const r = run(ir);
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+  assert.match(r.xml, /<bpmn:callActivity id="c"[^>]*calledElement="Process_Payroll"/);
+  assert.ok(!/<bpmn:scriptTask id="c"/.test(r.xml));
+});

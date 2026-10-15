@@ -54,6 +54,7 @@ const BPMN_TYPE_MAP = {
   parallelGateway:  'bpmn:ParallelGateway',
   inclusiveGateway: 'bpmn:InclusiveGateway',
   subProcess:       'bpmn:SubProcess',
+  callActivity:     'bpmn:CallActivity',
 };
 
 // Layout constants for manual lane DI generation. Lane heights and column
@@ -76,8 +77,10 @@ const NODE_DIMS = {
 };
 const DEFAULT_NODE_DIMS = { w: 100, h: 80 };
 
-function nodeDims(type) {
-  return NODE_DIMS[type] || DEFAULT_NODE_DIMS;
+// An expanded sub-process carries the size its steps need; every other node takes its type's size.
+function nodeDims(node) {
+  if (node.w && node.h) return { w: node.w, h: node.h };
+  return NODE_DIMS[node.type] || DEFAULT_NODE_DIMS;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -381,7 +384,9 @@ async function compileIRtoBpmn(ir) {
   // 1-3. Semantic nodes, sequence flows and default flows, one scope at a time.
   // A sub-process node carries its own steps as `children`; they are built into
   // the sub-process element, so they never join the main process.
-  const buildScope = (nodes, flows) => {
+  // The editor lints on each step's incoming/outgoing references. The canvas adds them to the
+  // main process, but never inside a sub-process, so the steps of a sub-process get them here.
+  const buildScope = (nodes, flows, nested = false) => {
     const scopeEls = [];
     const scopeById = new Map();
     // Do NOT pass incoming/outgoing arrays - bpmn-moddle auto-wires them through the
@@ -390,6 +395,7 @@ async function compileIRtoBpmn(ir) {
     for (const n of nodes) {
       const bpmnType = BPMN_TYPE_MAP[n.type] || 'bpmn:ScriptTask';
       const el = moddle.create(bpmnType, { id: n.id, name: n.name });
+      if (n.type === 'callActivity' && n.calledElement) el.calledElement = n.calledElement;
       // Task configuration, already resolved to final attribute names by
       // bpmn_task_config.py. Written through $attrs because the spiffworkflow
       // descriptor declares none of them - the same way the editor stores them.
@@ -400,7 +406,7 @@ async function compileIRtoBpmn(ir) {
         }
       }
       if (n.type === 'subProcess' && n.children) {
-        el.flowElements = buildScope(n.children.nodes || [], n.children.flows || []);
+        el.flowElements = buildScope(n.children.nodes || [], n.children.flows || [], true);
       }
       scopeById.set(n.id, el);
       elementById.set(n.id, el);
@@ -426,6 +432,10 @@ async function compileIRtoBpmn(ir) {
         sf.conditionExpression = moddle.create('bpmn:FormalExpression', { body: f.condition });
       }
       if (f.default) src.default = sf;
+      if (nested) {
+        src.outgoing = [...(src.outgoing || []), sf];
+        tgt.incoming = [...(tgt.incoming || []), sf];
+      }
       scopeEls.push(sf);
     }
     return scopeEls;
@@ -482,6 +492,60 @@ async function compileIRtoBpmn(ir) {
 
   const { xml } = await moddle.toXML(definitions, { format: true });
   return xml;
+}
+
+// ── Expanded sub-processes ────────────────────────────────────────────────────
+//
+// An expanded sub-process draws its steps inside its own box on the main plane.
+// Its steps are laid out first, on their own, to learn how big the box must be;
+// the main layout then treats the box as one node of that size.
+
+const EXPANDED_PAD    = 24;   // space between the box and the steps inside it
+const EXPANDED_HEADER = 36;   // room along the top for the sub-process name
+
+function sizeExpandedSubProcesses(ir, problems) {
+  return {
+    ...ir,
+    nodes: ir.nodes.map((n) => {
+      if (n.type !== 'subProcess' || !n.expanded || !n.children) return n;
+      const inner = sizeExpandedSubProcesses({ nodes: n.children.nodes || [], flows: n.children.flows || [] }, problems);
+      const grid = {
+        name: n.name,
+        lanes: [{ id: '__lane', name: n.name || 'Sub-process' }],
+        nodes: inner.nodes.map(c => ({ ...c, lane: '__lane' })),
+        flows: inner.flows,
+      };
+      const { diSection, problems: diProblems } = buildManualLaneDI(grid, { pool: false });
+      problems.push(...(diProblems || []));
+      if (!diSection) return n;
+      const open = diSection.indexOf('>', diSection.indexOf('<bpmndi:BPMNPlane')) + 1;
+      const body = diSection.slice(open, diSection.lastIndexOf('</bpmndi:BPMNPlane>'));
+      const xs = [], ys = [];
+      for (const m of body.matchAll(/<dc:Bounds\s+x="(-?[\d.]+)"\s+y="(-?[\d.]+)"\s+width="([\d.]+)"\s+height="([\d.]+)"/g)) {
+        xs.push(+m[1], +m[1] + +m[3]);
+        ys.push(+m[2], +m[2] + +m[4]);
+      }
+      for (const m of body.matchAll(/<di:waypoint\s+x="(-?[\d.]+)"\s+y="(-?[\d.]+)"/g)) { xs.push(+m[1]); ys.push(+m[2]); }
+      const minX = Math.min(...xs), minY = Math.min(...ys);
+      return {
+        ...n,
+        children: { nodes: inner.nodes, flows: inner.flows },
+        w: Math.max(200, Math.ceil(Math.max(...xs) - minX) + 2 * EXPANDED_PAD),
+        h: Math.max(120, Math.ceil(Math.max(...ys) - minY) + EXPANDED_PAD + EXPANDED_HEADER),
+        _inner: { minX, minY, body },
+      };
+    }),
+  };
+}
+
+// The steps of an expanded sub-process, moved to sit inside its box.
+function innerDiagram(inner, box) {
+  const dx = box.x + EXPANDED_PAD - inner.minX;
+  const dy = box.y + EXPANDED_HEADER - inner.minY;
+  return inner.body.replace(
+    /(<(?:dc:Bounds|di:waypoint)\s+x=")(-?[\d.]+)("\s+y=")(-?[\d.]+)/g,
+    (_, head, x, mid, y) => head + Math.round(+x + dx) + mid + Math.round(+y + dy),
+  );
 }
 
 // ── Manual DI builder for lane-based processes ────────────────────────────────
@@ -696,13 +760,22 @@ function buildManualLaneDI(ir, opts = {}) {
     return m;
   });
 
+  // A row is as tall as its tallest node, so an expanded sub-process gets the room its steps need.
+  const rowBand = lanes.map((_, li) => Array.from({ length: laneRows[li] }, () => ROW_BAND));
+  for (const grp of groups.values()) {
+    grp.nodeIds.forEach((id, r) => { rowBand[grp.li][r] = Math.max(rowBand[grp.li][r], nodeDims(nodeMap.get(id)).h); });
+  }
+  const ROW_GAP   = ROW_PITCH - ROW_BAND;
+  const rowStart  = rowBand.map((rows) => { let y = 0; return rows.map((h) => { const top = y; y += h + ROW_GAP; return top; }); });
+  const rowsTotal = rowBand.map((rows) => rows.reduce((sum, h) => sum + h + ROW_GAP, 0));
+
   // Column width is the widest node in that column, so every column is a clean
   // vertical band and the gutters either side of it stay shape-free.
   const colW = [];
   for (let c = 0; c <= maxCol; c++) colW[c] = 36;
   for (const n of ir.nodes) {
     const c = col.get(n.id) || 0;
-    colW[c] = Math.max(colW[c], nodeDims(n.type).w);
+    colW[c] = Math.max(colW[c], nodeDims(n).w);
   }
 
   // Ordinal vertical axis: every lane contributes its node rows plus one slot
@@ -967,7 +1040,7 @@ function buildManualLaneDI(ir, opts = {}) {
   const gutterX = (g, ch) => Math.round(gutterStart(g) + 20 + ch * CH_SP);
 
   const laneH = lanes.map((_, li) =>
-    LANE_PAD_TOP + stripH(li, 'top') + laneRows[li] * ROW_PITCH + stripH(li, 'bottom') + LANE_PAD_BOT);
+    LANE_PAD_TOP + stripH(li, 'top') + rowsTotal[li] + stripH(li, 'bottom') + LANE_PAD_BOT);
   const laneTopY = [];
   let yOff = PARTICIPANT_Y;
   for (let i = 0; i < lanes.length; i++) { laneTopY.push(yOff); yOff += laneH[i]; }
@@ -975,7 +1048,7 @@ function buildManualLaneDI(ir, opts = {}) {
   const participantW = penX - PARTICIPANT_X;
 
   const rowCenterY = (li, row) =>
-    laneTopY[li] + LANE_PAD_TOP + stripH(li, 'top') + row * ROW_PITCH + ROW_BAND / 2;
+    laneTopY[li] + LANE_PAD_TOP + stripH(li, 'top') + rowStart[li][row] + rowBand[li][row] / 2;
   // Channel 0 is always the one NEAREST the node rows, on both sides. Channel
   // allocation sorts runs narrowest-first precisely so a nested run sits inside
   // its container, and "inside" means closer to the nodes — so on a top strip
@@ -985,14 +1058,14 @@ function buildManualLaneDI(ir, opts = {}) {
   const stripY = (li, side, ch) => Math.round(
     side === 'top'
       ? laneTopY[li] + LANE_PAD_TOP + stripH(li, 'top') - 8 - ch * CH_SP
-      : laneTopY[li] + LANE_PAD_TOP + stripH(li, 'top') + laneRows[li] * ROW_PITCH + 14 + ch * CH_SP);
+      : laneTopY[li] + LANE_PAD_TOP + stripH(li, 'top') + rowsTotal[li] + 14 + ch * CH_SP);
 
   // Every node centred in its column and on its row's centreline: rows cannot
   // overlap (ROW_PITCH exceeds the tallest node) and columns cannot either.
   const nodePos = new Map();  // nodeId → { x, y, w, h }
   for (const grp of groups.values()) {
     grp.nodeIds.forEach((nid, r) => {
-      const d = nodeDims(nodeMap.get(nid).type);
+      const d = nodeDims(nodeMap.get(nid));
       nodePos.set(nid, {
         x: Math.round(colLeft[grp.c] + (colW[grp.c] - d.w) / 2),
         y: Math.round(rowCenterY(grp.li, r) - d.h / 2),
@@ -1301,7 +1374,7 @@ function buildManualLaneDI(ir, opts = {}) {
     if (!pos) continue;
     const isCompact = (n.type === 'startEvent' || n.type === 'endEvent' || GATEWAY_TYPES.has(n.type));
     lines.push('      <bpmndi:BPMNShape id="' + n.id + '_di" bpmnElement="' + n.id + '"' +
-               (n.type === 'subProcess' ? ' isExpanded="false"' : '') + '>');
+               (n.type === 'subProcess' ? ' isExpanded="' + (n._inner ? 'true' : 'false') + '"' : '') + '>');
     lines.push('        <dc:Bounds x="' + pos.x + '" y="' + pos.y +
                '" width="' + pos.w + '" height="' + pos.h + '" />');
     if (isCompact && n.name) {
@@ -1332,6 +1405,7 @@ function buildManualLaneDI(ir, opts = {}) {
       lines.push('        </bpmndi:BPMNLabel>');
     }
     lines.push('      </bpmndi:BPMNShape>');
+    if (n._inner) lines.push(innerDiagram(n._inner, pos));
   }
   for (const l of edgeLines) lines.push(l);
 
@@ -1475,18 +1549,20 @@ function buildSubProcessPlanes(ir) {
   const sections = [];
   const problems = [];
   for (const sub of subProcessesOf(ir)) {
-    const gridIR = {
-      name: sub.name,
-      lanes: [{ id: '__lane', name: sub.name || 'Sub-process' }],
-      nodes: (sub.children.nodes || []).map(n => ({ ...n, lane: '__lane' })),
-      flows: sub.children.flows || [],
-    };
-    const { diSection, problems: diProblems } = buildManualLaneDI(gridIR, { pool: false });
-    problems.push(...diProblems);
-    if (diSection) {
-      sections.push(diSection
-        .replace('BPMNDiagram id="BPMNDiagram_1"', `BPMNDiagram id="BPMNDiagram_${sub.id}"`)
-        .replace('BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1"', `BPMNPlane id="BPMNPlane_${sub.id}" bpmnElement="${sub.id}"`));
+    if (!sub.expanded) {
+      const gridIR = {
+        name: sub.name,
+        lanes: [{ id: '__lane', name: sub.name || 'Sub-process' }],
+        nodes: (sub.children.nodes || []).map(n => ({ ...n, lane: '__lane' })),
+        flows: sub.children.flows || [],
+      };
+      const { diSection, problems: diProblems } = buildManualLaneDI(gridIR, { pool: false });
+      problems.push(...diProblems);
+      if (diSection) {
+        sections.push(diSection
+          .replace('BPMNDiagram id="BPMNDiagram_1"', `BPMNDiagram id="BPMNDiagram_${sub.id}"`)
+          .replace('BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1"', `BPMNPlane id="BPMNPlane_${sub.id}" bpmnElement="${sub.id}"`));
+      }
     }
     const nested = buildSubProcessPlanes(sub.children);
     sections.push(...nested.sections);
@@ -1576,10 +1652,16 @@ async function main() {
   try {
     xml = await compileIRtoBpmn(normIR);
     const hasLanes = !!(normIR.lanes && normIR.lanes.length);
-    const gridIR = hasLanes ? normIR : {
-      ...normIR,
+    const sizeProblems = [];
+    const sizedIR = sizeExpandedSubProcesses(normIR, sizeProblems);
+    if (sizeProblems.length) {
+      process.stdout.write(JSON.stringify({ ok: false, xml: '', problems: sizeProblems, normalizedIR: normIR }));
+      return;
+    }
+    const gridIR = hasLanes ? sizedIR : {
+      ...sizedIR,
       lanes: [{ id: '__lane', name: normIR.name || 'Process' }],
-      nodes: normIR.nodes.map(n => ({ ...n, lane: '__lane' })),
+      nodes: sizedIR.nodes.map(n => ({ ...n, lane: '__lane' })),
     };
     // buildManualLaneDI also validates Y-bounds and returns problems on failure.
     const { diSection, problems: diProblems } = buildManualLaneDI(gridIR, { pool: hasLanes });
