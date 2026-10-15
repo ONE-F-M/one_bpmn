@@ -37,7 +37,7 @@ import re
 
 import frappe
 
-INDEX_CACHE_KEY = "lucrusher_codebase_index_v1"
+INDEX_CACHE_KEY = "lucrusher_codebase_index_v2"
 INDEX_TTL = 3600  # 1 hour
 
 # hooks.py top-level assignments worth reporting.
@@ -113,7 +113,7 @@ def _doctypes(module_app: dict, apps_root: str) -> list:
 		module = (dt.get("module") or "").strip()
 		if not name:
 			continue
-		app = module_app.get(module, "")
+		app = module_app.get(frappe.scrub(module)) or module_app.get(module, "")
 		snake_name = name.lower().replace(" ", "_")
 		module_snake = module.lower().replace(" ", "_")
 		json_file = py_file = ""
