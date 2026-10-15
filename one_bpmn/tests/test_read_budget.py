@@ -10,10 +10,12 @@ total unproductive reads, not on repeats of any one path."""
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG
 from one_bpmn.agents.shape_tools import BudgetExceeded
 from one_bpmn.one_bpmn.connectors.agent_sandbox_ops import (
 	_READ_BUDGET,
@@ -119,3 +121,55 @@ class TestReadBudgetExceeded(FrappeTestCase):
 		for _ in range(_READ_BUDGET):
 			_row(inst.name, "read_file")
 		self.assertIsNotNone(read_budget_exceeded(inst))
+
+
+def _in_turn(turn):
+	return patch.dict(frappe.flags, {SUB_CALL_TURN_FLAG: turn})
+
+
+class TestTheWarningAndTheStopDoNotShareATurn(FrappeTestCase):
+	"""The model asks for several reads in one turn and sees none of the results until the turn ends."""
+
+	def setUp(self):
+		super().setUp()
+		self.inst = _instance("i-turns")
+		for _ in range(_READ_BUDGET):
+			_row(self.inst.name, "read_file")
+
+	def tearDown(self):
+		frappe.db.rollback()
+		super().tearDown()
+
+	def test_more_reads_in_the_turn_of_the_warning_get_the_warning_and_not_the_stop(self):
+		with _in_turn(3):
+			warning = read_budget_exceeded(self.inst)
+			self.assertIn("attempting a single edit", warning)
+			self.assertEqual(read_budget_exceeded(self.inst), warning)
+			self.assertEqual(read_budget_exceeded(self.inst), warning)
+
+	def test_a_read_in_a_later_turn_ends_the_run(self):
+		with _in_turn(3):
+			self.assertIsNotNone(read_budget_exceeded(self.inst))
+		with _in_turn(4), self.assertRaises(BudgetExceeded):
+			read_budget_exceeded(self.inst)
+
+	def test_an_edit_in_the_next_turn_clears_the_warning(self):
+		with _in_turn(3):
+			self.assertIsNotNone(read_budget_exceeded(self.inst))
+		_row(self.inst.name, "edit_file")
+		with _in_turn(4):
+			self.assertIsNone(read_budget_exceeded(self.inst))
+
+	def test_a_second_warning_after_an_edit_also_waits_for_a_later_turn(self):
+		with _in_turn(3):
+			self.assertIsNotNone(read_budget_exceeded(self.inst))
+		_row(self.inst.name, "edit_file")
+		with _in_turn(4):
+			self.assertIsNone(read_budget_exceeded(self.inst))
+		for _ in range(_READ_BUDGET):
+			_row(self.inst.name, "read_file")
+		with _in_turn(5):
+			warning = read_budget_exceeded(self.inst)
+			self.assertEqual(read_budget_exceeded(self.inst), warning)
+		with _in_turn(6), self.assertRaises(BudgetExceeded):
+			read_budget_exceeded(self.inst)
