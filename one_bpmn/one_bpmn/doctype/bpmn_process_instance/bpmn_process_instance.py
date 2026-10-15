@@ -8,7 +8,7 @@ import frappe
 
 from one_bpmn.agents import turn_signal
 from one_bpmn.agents.executor import DEFAULT_MAX_RETRIES
-from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
+from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT, AI_AGENT_QUEUE, ai_agent_queue
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime
