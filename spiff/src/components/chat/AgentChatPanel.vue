@@ -279,6 +279,8 @@ const streamingRole = ref("assistant");
 const runningTool = ref("");
 // "Still working on your last message…" from a long turn; shown until the turn's next event.
 const progressNote = ref("");
+// WI-003582: the latest `onefm.progress` line ("Drawing part 2 of 6"), shown for the rest of the turn.
+const progressLine = ref("");
 // The bubble the last TEXT_MESSAGE_END closed, until the next event says
 // whether it was the reply or notes before a tool call.
 let endedItem = null;
