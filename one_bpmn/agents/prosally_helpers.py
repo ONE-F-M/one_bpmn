@@ -256,6 +256,9 @@ def _confirmation_text(parts: dict) -> str:
 	"""The intro, the steps understood and the settings planned, each list one item per line."""
 	steps = [str(step).strip() for step in parts.get("steps") or [] if str(step).strip()]
 	settings = [str(setting).strip() for setting in parts.get("settings") or [] if str(setting).strip()]
+	# Backstop for the classifier prompt's own cap: a long list is cut, never shown whole.
+	steps = steps[:MAX_CONFIRMATION_STEPS]
+	settings = settings[:MAX_CONFIRMATION_SETTINGS]
 	blocks = [str(parts.get("intro") or "").strip()]
 	if steps:
 		blocks.append(_("Here's what I understood:") + "\n" + "\n".join("- " + step for step in steps))
