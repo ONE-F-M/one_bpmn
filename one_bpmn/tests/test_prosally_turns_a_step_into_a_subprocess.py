@@ -84,9 +84,20 @@ class TestStepClassification(FrappeTestCase):
 		self.assertIn("Complete Payroll Clearance (step)", output["response"])
 		self.assertEqual(output["options"], [REQUEST])
 
-	def test_a_new_sub_process_with_no_close_name_is_left_to_the_classifier(self):
-		result, _ = self._classify("Add a sub process for background checks: verify references", step_patch.fixture_xml())
-		self.assertEqual(result["intent"], "OVERWRITE_EXISTING")
+	def test_a_name_with_no_close_match_is_a_new_sub_process_to_add_not_a_redraw(self):
+		result, adapter = self._classify(
+			"Add a sub process for background checks: verify references", step_patch.fixture_xml()
+		)
+		self.assertEqual(result["intent"], "MODIFY_EXISTING")
+		self.assertIn("NEW sub-process", adapter.prompts[0])
+		self.assertNotIn("closest are", adapter.prompts[0])
+
+	def test_asking_for_a_new_sub_process_is_never_answered_with_a_did_you_mean(self):
+		request = REQUEST.replace("Create a sub process", "Create a new sub process").replace("Clearance", "Acceptance")
+		result, adapter = self._classify(request, step_patch.fixture_xml())
+		self.assertEqual(result["intent"], "MODIFY_EXISTING")
+		self.assertIn("NEW sub-process", adapter.prompts[0])
+		self.assertEqual(get_turn(CONVERSATION)["output"]["intent"], "CONFIRM")
 
 	def test_a_diagram_without_that_step_is_left_to_the_classifier(self):
 		result, _ = self._classify(REQUEST, "")

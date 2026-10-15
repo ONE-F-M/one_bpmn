@@ -1,4 +1,4 @@
-"""ProsAlly turns an existing step into an expanded sub-process, keeps call activities as they are, and checks the result.
+"""ProsAlly turns an existing step into an expanded sub-process, adds a new one, keeps call activities, and checks the result.
 
 Edits the Classify Intent and Modify Process scripts, the IR schema skill and three sub-prompts in place, then adds two
 baseline eval cases. Text already carrying the change is skipped, and text whose anchors are not each found exactly once
@@ -16,59 +16,46 @@ SUITE_TITLE = "Prosally - Baseline"
 
 CLASSIFY_IMPORT = (
 	"from one_bpmn.agents.prosally_helpers import complete_sub_prompt, join_confirmation, resolve_scope, ",
-	"from one_bpmn.agents.prosally_helpers import complete_sub_prompt, join_confirmation, resolve_scope, resolve_step, ",
+	"from one_bpmn.agents.prosally_helpers import complete_sub_prompt, find_missing_target, join_confirmation, resolve_scope, "
+	"resolve_step, ",
 )
 CLASSIFY_CONVERT = (
 	'    scope = resolve_scope(current_xml, _scope_texts, turn.get("scope_id", ""))\n',
 	'    scope = resolve_scope(current_xml, _scope_texts, turn.get("scope_id", ""))\n'
-	"    convert = resolve_step(current_xml, _scope_texts)\n",
+	"    convert = resolve_step(current_xml, _scope_texts)\n"
+	"    missing = None if (scope or convert) else find_missing_target(current_xml, _scope_texts)\n"
+	'    near = missing if (missing and missing["candidates"]) else None\n'
+	'    fresh = missing if (missing and not missing["candidates"]) else None\n'
+	"    if near:\n"
+	'        _closest = ", ".join([c["name"] + " (" + c["kind"] + ")" for c in near["candidates"]])\n',
 )
 CLASSIFY_HINT = (
 	'    if scope:\n        _parts.append("The diagram already has the sub-process',
 	r'''    if convert:
         _parts.append("The diagram already has the step \"" + convert["name"] + "\" and this request turns it into a sub-process holding the steps described. Classify it as MODIFY_EXISTING and describe it as turning that step into a sub-process, never as drawing or redrawing the process.")
+    if near:
+        _parts.append("The diagram has no step or sub-process called \"" + near["asked"] + "\". The closest are: " + _closest + ". Classify it as AMBIGUOUS and ask which one the person meant, never confirm a step that is not on the diagram.")
+    if fresh:
+        _parts.append("The diagram has no step or sub-process called \"" + fresh["asked"] + "\", so this asks for a NEW sub-process holding the steps described. Classify it as MODIFY_EXISTING and describe it as adding a new sub-process called that name, never as redrawing the process.")
     if scope and not convert:
         _parts.append("The diagram already has the sub-process''',
 )
 CLASSIFY_GUARD = (
-	"    if scope and intent in _GENERATE_INTENTS:\n",
-	"    if (scope or convert) and intent in _GENERATE_INTENTS:\n",
-)
-
-CLASSIFY_MISSING_IMPORT = (
-	"from one_bpmn.agents.prosally_helpers import complete_sub_prompt, join_confirmation, ",
-	"from one_bpmn.agents.prosally_helpers import complete_sub_prompt, find_missing_target, join_confirmation, ",
-)
-CLASSIFY_MISSING = (
-	"    convert = resolve_step(current_xml, _scope_texts)\n",
-	"    convert = resolve_step(current_xml, _scope_texts)\n"
-	"    missing = None if (scope or convert) else find_missing_target(current_xml, _scope_texts)\n"
-	"    if missing:\n"
-	'        _closest = ", ".join([c["name"] + " (" + c["kind"] + ")" for c in missing["candidates"]])\n',
-)
-CLASSIFY_MISSING_HINT = (
-	'    _parts.append("User message: " + message)\n',
-	r'''    if missing:
-        _parts.append("The diagram has no step or sub-process called \"" + missing["asked"] + "\". The closest are: " + _closest + ". Classify it as AMBIGUOUS and ask which one the person meant, never confirm a step that is not on the diagram.")
-    _parts.append("User message: " + message)
-''',
-)
-CLASSIFY_MISSING_GUARD = (
-	'    if (scope or convert) and intent in _GENERATE_INTENTS:\n        intent = "MODIFY_EXISTING"\n',
-	'    if (scope or convert) and intent in _GENERATE_INTENTS:\n        intent = "MODIFY_EXISTING"\n'
-	"    if missing and intent in _ACTION_INTENTS:\n"
+	'    if scope and intent in _GENERATE_INTENTS:\n        intent = "MODIFY_EXISTING"\n',
+	'    if (scope or convert or fresh) and intent in _GENERATE_INTENTS:\n'
+	'        intent = "MODIFY_EXISTING"\n'
+	"    if near and intent in _ACTION_INTENTS:\n"
 	'        intent = "AMBIGUOUS"\n'
-	'        reason = "There is no step or sub-process called \\"" + missing["asked"] + "\\" on the diagram. The closest are: " + _closest + "."\n',
+	'        reason = "There is no step or sub-process called \\"" + near["asked"] + "\\" on the diagram. The closest are: " + _closest + "."\n',
 )
-
-CLASSIFY_MISSING_REPLY = (
+CLASSIFY_REPLY = (
 	'    elif intent in _NEEDS_CLARIFICATION:\n        result["next"] = "clarify"\n',
 	r'''    elif intent in _NEEDS_CLARIFICATION:
         result["next"] = "clarify"
-        if missing:
-            _lines = "\n".join(["- " + c["name"] + " (" + c["kind"] + ")" for c in missing["candidates"]])
-            _reply = "I can't find a step or sub-process called \"" + missing["asked"] + "\" on the " + (process_name or "current") + " diagram. These are the closest:\n" + _lines + "\n\nPick one to resend your request with that name, or tell me it is a new sub-process to add."
-            _fixed = [missing["text"].replace(missing["asked"], c["name"], 1) for c in missing["candidates"][:2]]
+        if near:
+            _lines = "\n".join(["- " + c["name"] + " (" + c["kind"] + ")" for c in near["candidates"]])
+            _reply = "I can't find a step or sub-process called \"" + near["asked"] + "\" on the " + (process_name or "current") + " diagram. These are the closest:\n" + _lines + "\n\nPick one to resend your request with that name, or tell me it is a new sub-process to add."
+            _fixed = [near["text"].replace(near["asked"], c["name"], 1) for c in near["candidates"][:2]]
             update_turn(context_docname, output={"intent": "CLARIFY", "action_intent": None, "response": _reply, "options": _fixed}, done=True)
             result["next"] = "finalize"
 ''',
@@ -76,15 +63,16 @@ CLASSIFY_MISSING_REPLY = (
 
 MODIFY_IMPORT = (
 	"from one_bpmn.agents.prosally_helpers import complete_sub_prompt, resolve_scope, splice_subprocess, ",
-	"from one_bpmn.agents.prosally_helpers import complete_sub_prompt, convert_step_to_subprocess, resolve_scope, resolve_step, "
-	"restore_call_activities, splice_subprocess, ",
+	"from one_bpmn.agents.prosally_helpers import complete_sub_prompt, convert_step_to_subprocess, find_missing_target, "
+	"resolve_scope, resolve_step, restore_call_activities, splice_subprocess, ",
 )
 MODIFY_CONVERT = (
 	'scope = resolve_scope(current_xml, _scope_texts, turn.get("scope_id", ""))\n',
 	'scope = resolve_scope(current_xml, _scope_texts, turn.get("scope_id", ""))\n'
 	"convert = resolve_step(current_xml, _scope_texts)\n"
 	"if convert:\n"
-	"    scope = None\n",
+	"    scope = None\n"
+	"missing = None if (scope or convert) else find_missing_target(current_xml, _scope_texts)\n",
 )
 MODIFY_PROMPT = (
 	'        "Output the complete IR JSON for the inside of the sub-process now.",\n    ])\n',
@@ -98,6 +86,13 @@ if convert:
         "Latest message: " + turn.get("user_text", ""),
         "Output the complete IR JSON for the steps inside the new sub-process now.",
     ])
+''',
+)
+MODIFY_NEW_SUBPROCESS = (
+	'_system = stage_system_prompt(_cfg, "modifier", "modify_skills")\n',
+	r'''if missing and not missing["candidates"]:
+    initial_prompt = initial_prompt + "\n\nThe diagram has no step or sub-process called \"" + missing["asked"] + "\", so add a NEW sub-process: one subProcess node named exactly that, with \"expanded\": true and the steps described in \"children\" (its own startEvent, steps, flows and endEvent), placed where it fits in the main flow. Keep every other node, flow and id exactly as in the current diagram."
+_system = stage_system_prompt(_cfg, "modifier", "modify_skills")
 ''',
 )
 MODIFY_MERGE = (
@@ -158,8 +153,15 @@ MODIFIER_MAPPING = (
 )
 
 SCRIPTS = {
-	"ProsAlly%Tool Classify Intent": (CLASSIFY_IMPORT, CLASSIFY_CONVERT, CLASSIFY_HINT, CLASSIFY_GUARD),
-	"ProsAlly%Tool Modify Process": (MODIFY_IMPORT, MODIFY_CONVERT, MODIFY_PROMPT, MODIFY_MERGE, MODIFY_WHERE),
+	"ProsAlly%Tool Classify Intent": (CLASSIFY_IMPORT, CLASSIFY_CONVERT, CLASSIFY_HINT, CLASSIFY_GUARD, CLASSIFY_REPLY),
+	"ProsAlly%Tool Modify Process": (
+		MODIFY_IMPORT,
+		MODIFY_CONVERT,
+		MODIFY_PROMPT,
+		MODIFY_NEW_SUBPROCESS,
+		MODIFY_MERGE,
+		MODIFY_WHERE,
+	),
 }
 # sub-prompt id -> (edits, marker of an applied change)
 PROMPTS = {
@@ -177,12 +179,7 @@ def execute():
 	for pattern, edits in SCRIPTS.items():
 		name = frappe.db.get_value("Server Script", {"name": ["like", pattern]}, "name")
 		if name:
-			apply_edits("Server Script", name, "script", edits, "resolve_step(")
-	classify = frappe.db.get_value("Server Script", {"name": ["like", "ProsAlly%Tool Classify Intent"]}, "name")
-	if classify:
-		missing_edits = (CLASSIFY_MISSING_IMPORT, CLASSIFY_MISSING, CLASSIFY_MISSING_HINT, CLASSIFY_MISSING_GUARD)
-		apply_edits("Server Script", classify, "script", missing_edits, "find_missing_target(")
-		apply_edits("Server Script", classify, "script", (CLASSIFY_MISSING_REPLY,), 'missing["text"]')
+			apply_edits("Server Script", name, "script", edits, "find_missing_target(")
 	if frappe.db.exists("AI Skill", SKILL):
 		apply_edits("AI Skill", SKILL, "body", (SKILL_SECTION,), "## Sub-processes and call activities")
 	config = frappe.db.get_value("AI Agent Configuration", {"agent_id": AGENT_ID}, "name")

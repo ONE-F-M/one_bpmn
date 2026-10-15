@@ -251,9 +251,9 @@ class TestRestoreCallActivities(FrappeTestCase):
 
 
 class TestFindMissingTarget(FrappeTestCase):
-	def test_a_misnamed_step_is_reported_with_the_closest_names_on_the_diagram(self):
-		missing = find_missing_target(_diagram(), ["Create a sub process for Complete Payroll Acceptance: checks pending salary"])
-		self.assertEqual(missing["asked"], "Complete Payroll Acceptance")
+	def test_a_misspelt_step_is_reported_with_the_closest_names_on_the_diagram(self):
+		missing = find_missing_target(_diagram(), ["Create a sub process for Complete Payroll Clearence: checks pending salary"])
+		self.assertEqual(missing["asked"], "Complete Payroll Clearence")
 		self.assertEqual(missing["candidates"][0], {"name": "Complete Payroll Clearance", "kind": "step"})
 
 	def test_a_sub_process_is_offered_as_one(self):
@@ -267,18 +267,35 @@ class TestFindMissingTarget(FrappeTestCase):
 			'<bpmn:subProcess id="sp" name="Payroll Clearance"><bpmn:userTask id="in1" name="Submit Payroll Clearance"/>'
 			"</bpmn:subProcess></bpmn:process>",
 		)
-		missing = find_missing_target(xml, ["Create a sub process for Complete Payroll Acceptance: steps"])
+		missing = find_missing_target(xml, ["Create a sub process for Payroll Clearence: steps"])
 		names = [c["name"] for c in missing["candidates"]]
 		self.assertLess(names.index("Payroll Clearance"), names.index("Submit Payroll Clearance"))
 
 	def test_an_exact_name_is_not_missing(self):
 		self.assertIsNone(find_missing_target(_diagram(), ["Create a sub process for Complete Payroll Clearance: steps"]))
 
+	def test_the_word_new_always_means_a_new_sub_process_even_for_a_near_typo_of_an_existing_name(self):
+		message = "Create a new sub process for Complete Payroll Clearence: checks pending salary"
+		missing = find_missing_target(_diagram(), [message])
+		self.assertEqual((missing["asked"], missing["candidates"]), ("Complete Payroll Clearence", []))
+
+	def test_a_new_sub_process_whose_name_is_already_on_the_diagram_is_not_reported_as_missing(self):
+		self.assertIsNone(find_missing_target(_diagram(), ["Create a new sub process for Complete Payroll Clearance: steps"]))
+
+	def test_a_call_activity_name_exists_even_though_it_is_never_converted(self):
+		self.assertIsNone(find_missing_target(_diagram(), ["Create a sub process for Call Closure: steps"]))
+
 	def test_a_name_with_a_trailing_word_is_not_missing(self):
 		self.assertIsNone(find_missing_target(_diagram(), ["Create a sub process for the Complete Payroll Clearance step"]))
 
-	def test_a_new_sub_process_with_no_close_name_is_left_to_the_classifier(self):
-		self.assertIsNone(find_missing_target(_diagram(), ["Add a sub process for background checks: verify references"]))
+	def test_a_name_that_shares_a_word_with_one_on_the_diagram_is_a_new_sub_process_not_a_typo(self):
+		message = "Create a sub process for Payroll Acceptance: checks pending salary"
+		missing = find_missing_target(_diagram(), [message])
+		self.assertEqual((missing["asked"], missing["candidates"]), ("Payroll Acceptance", []))
+
+	def test_a_new_sub_process_with_no_close_name_has_no_candidates(self):
+		missing = find_missing_target(_diagram(), ["Add a sub process for background checks: verify references"])
+		self.assertEqual((missing["asked"], missing["candidates"]), ("background checks", []))
 
 	def test_a_message_that_does_not_ask_for_a_sub_process_is_ignored(self):
 		self.assertIsNone(find_missing_target(_diagram(), ["Rename Complete Payroll Acceptance to Done"]))
@@ -289,6 +306,7 @@ class TestFindMissingTarget(FrappeTestCase):
 	def test_the_newest_message_that_asks_for_one_is_used(self):
 		texts = ["Yes, proceed", "Create a sub process for Complete Payroll Acceptance: steps"]
 		self.assertEqual(find_missing_target(_diagram(), texts)["asked"], "Complete Payroll Acceptance")
+		self.assertEqual(find_missing_target(_diagram(), ["Yes, proceed"]), None)
 
 
 class TestResolveStep(FrappeTestCase):

@@ -113,7 +113,7 @@ STEP_TAGS = tuple(
 	"{" + NS["bpmn"] + "}" + tag for tag in ("task", "userTask", "scriptTask", "serviceTask", "manualTask", "businessRuleTask")
 )
 SUBPROCESS_REQUEST = re.compile(r"sub[\s-]?process\s+(?:for|of|on)\s+(?:the\s+)?(?:step\s+)?([^:,.;\n]+)", re.I)
-FILLER_WORDS = frozenset({"the", "a", "an", "of", "and", "to", "for", "step", "sub", "process", "subprocess", "complete", "create", "new"})
+TYPO_SIMILARITY = 0.75
 POSITION_WORDS = r"\b(?:after|before|following|preceding|then)\s+(?:the\s+|a\s+)?$"
 EXPANDED_PAD = 24
 EXPANDED_HEADER = 36
@@ -484,6 +484,7 @@ def find_missing_target(xml: str, texts: list) -> dict | None:
 	parents = {child: parent for parent in root.iter() for child in parent}
 	depth = {}
 	known = {}
+	existing = [e.get("name") for e in root.iter() if e.tag == "{" + NS["bpmn"] + "}callActivity" and e.get("name")]
 	for e in root.iter():
 		if e.tag in (*STEP_TAGS, sub_tag) and e.get("id") and e.get("name"):
 			ancestors, node = 0, e
@@ -497,13 +498,14 @@ def find_missing_target(xml: str, texts: list) -> dict | None:
 		if not match:
 			continue
 		asked = match.group(1).strip()
-		if any(_squash(name) in _squash(asked) or _squash(asked) in _squash(name) for name in known):
+		if any(_squash(name) in _squash(asked) or _squash(asked) in _squash(name) for name in (*known, *existing)):
 			return None
-		words = set(re.findall(r"[a-z0-9]+", asked.lower())) - FILLER_WORDS
-		close = [name for name in known if words & set(re.findall(r"[a-z0-9]+", name.lower()))]
-		close.sort(key=lambda name: (depth[name], -difflib.SequenceMatcher(None, asked.lower(), name.lower()).ratio()))
-		if not close:
-			return None
+		similarity = {name: difflib.SequenceMatcher(None, asked.lower(), name.lower()).ratio() for name in known}
+		asks_for_new = re.search(r"\bnew\s+sub[\s-]?process", text, re.I)
+		close = sorted(
+			(name for name in known if similarity[name] >= TYPO_SIMILARITY and not asks_for_new),
+			key=lambda name: (depth[name], -similarity[name]),
+		)
 		return {"asked": asked, "text": text, "candidates": [{"name": name, "kind": known[name]} for name in close[:3]]}
 	return None
 
