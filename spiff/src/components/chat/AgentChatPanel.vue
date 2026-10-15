@@ -225,6 +225,7 @@ import { streamAgentTurn } from "./aguiClient";
 import ProposedFieldsTray from "./ProposedFieldsTray.vue";
 import ResponseFeedback from "./ResponseFeedback.vue";
 import { adoptPersistedName } from "./persistedMessage";
+import { progressLineFor } from "./drawProgress";
 
 const props = defineProps({
 	agentId: { type: String, required: true },
