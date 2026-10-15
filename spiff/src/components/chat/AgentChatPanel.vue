@@ -753,6 +753,13 @@ function handleCustom(name, value) {
 		progressNote.value = value.text || "";
 		return;
 	}
+	// WI-003582: a drawing's progress. Only the agreed shape is read; anything
+	// else leaves the line as it was. It is never a transcript card.
+	if (name === "onefm.progress") {
+		const line = progressLineFor(value, __);
+		if (line) progressLine.value = line;
+		return;
+	}
 	// flush any streamed text so events land after the words they follow
 	if (streamingText.value) {
 		items.value.push(agentItem(streamingText.value));
