@@ -1177,16 +1177,33 @@ class BPMNProcessInstance(Document):
 				return True
 		return False
 
+	def _ai_job_queue(self) -> str:
+		"""The queue this instance's AI jobs run on (WI-003582): ProsAlly's own, else the shared AI queue.
+
+		The agent is the AI Agent Configuration linked to this instance's process model.
+		Any failure to find it keeps the shared queue, so a lookup problem never loses a job.
+		"""
+		agent_id = None
+		try:
+			if self.process_model:
+				agent_id = frappe.db.get_value(
+					"AI Agent Configuration", {"process_model": self.process_model}, "agent_id"
+				)
+		except Exception:
+			agent_id = None
+		return ai_agent_queue(agent_id)
+
 	def _enqueue_parked_ai_jobs(self):
-		"""One bpmn_ai_agent job per parked AI unit, deduplicated by job_id."""
+		"""One AI job per parked AI unit, deduplicated by job_id, on the queue of the instance's agent."""
 		jobs, self._pending_ai_jobs = getattr(self, "_pending_ai_jobs", []), []
+		queue = self._ai_job_queue() if jobs else AI_AGENT_QUEUE
 		for kind, ident in jobs:
 			frappe.enqueue(
 				"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 				".bpmn_process_instance.run_parked_ai_task",
 				# AI-only jobs — the rest of the pass already ran inline
 				# (WI-001494/WI-001495).
-				queue="bpmn_ai_agent",
+				queue=queue,
 				timeout=AI_AGENT_JOB_TIMEOUT,
 				enqueue_after_commit=True,
 				job_id=f"bpmn-ai-{self.name}-{ident}",
