@@ -1309,5 +1309,7 @@ def send_message(
 		"instance": instance_name,
 		"status": instance.status,
 		"active_tasks": active_tasks,
+		# receive_message sets this flag only when a waiting task took the message.
+		"caught": bool(instance.flags.get("bpmn_message_caught")),
 	}
 
