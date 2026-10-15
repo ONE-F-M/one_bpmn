@@ -19,7 +19,12 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.bpmn_ir_pipeline import compile_ir
 from one_bpmn.agents.llm_provider.base import LLMTruncatedError
+from one_bpmn.agents.observability import record_truncated_calls
+from one_bpmn.one_bpmn.patches.v1_0 import (
+	prosally_generate_process_records_cut_offs_without_getattr as repair_patch,
+)
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_generate_process_splits_cut_off_phases as split_patch
+from one_bpmn.security.script_validator import ValidatorOptions, deep_inspect_script
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SHAPES = ("ba", "staging")
@@ -48,6 +53,7 @@ FULL_IR = {
 COMPILED = {"ok": True, "xml": "<definitions/>", "problems": [], "topology": {}, "layout": {}}
 INLINE_TYPES = ("StartEvent", "ScriptTask", "ExclusiveGateway", "UserTask", "EndEvent")
 EDITED_LINES = 8
+STRICT = ValidatorOptions(strict_builtins=True, strict_frappe_attrs=True)
 
 
 def _script(shape):
@@ -382,3 +388,113 @@ class TestTheDiffIsSmall(FrappeTestCase):
 				)
 				removed = [line for line in diff if line.startswith("-") and not line.startswith("---")]
 				self.assertEqual(len(removed), EDITED_LINES)
+
+
+class TestTheEngineValidatorAcceptsTheScript(FrappeTestCase):
+	"""The engine runs this validator right before it executes a Server Script and blocks the call on any finding."""
+
+	def test_the_patched_scripts_have_no_findings(self):
+		for shape in SHAPES:
+			with self.subTest(shape=shape):
+				patched = split_patch.rewrite(_script(shape))
+				self.assertEqual(deep_inspect_script(patched), [])
+				self.assertEqual(deep_inspect_script(patched, STRICT), [])
+
+	def test_the_script_as_the_first_version_of_the_patch_left_it_was_blocked(self):
+		broken = _script("ba_after_split_patch")
+		self.assertEqual(deep_inspect_script(broken), ["getattr() is not allowed"])
+
+
+class TestTheRepairOfTheBlockedScript(FrappeTestCase):
+	def test_the_repaired_script_has_no_findings_compiles_and_a_second_run_changes_nothing(self):
+		repaired = repair_patch.rewrite(_script("ba_after_split_patch"))
+		self.assertEqual(deep_inspect_script(repaired), [])
+		self.assertEqual(deep_inspect_script(repaired, STRICT), [])
+		compile(repaired, "repaired", "exec")
+		self.assertEqual(repair_patch.rewrite(repaired), repaired)
+
+	def test_only_the_recording_block_changes(self):
+		broken = _script("ba_after_split_patch")
+		diff = list(
+			difflib.unified_diff(
+				broken.splitlines(), repair_patch.rewrite(broken).splitlines(), lineterm="", n=0
+			)
+		)
+		removed = [line for line in diff if line.startswith("-") and not line.startswith("---")]
+		added = [line for line in diff if line.startswith("+") and not line.startswith("+++")]
+		self.assertEqual((len(removed), len(added)), (15, 2))
+		self.assertTrue(all("getattr" not in line for line in added))
+
+	def test_a_script_without_the_old_block_is_left_alone(self):
+		for script in (_script("ba"), split_patch.rewrite(_script("ba"))):
+			self.assertEqual(repair_patch.rewrite(script), script)
+
+	def test_the_script_is_found_by_api_method_and_written_back_repaired(self):
+		with (
+			mock.patch.object(
+				frappe.db, "get_value", side_effect=["Any Name", _script("ba_after_split_patch")]
+			) as get_value,
+			mock.patch.object(frappe.db, "set_value") as set_value,
+		):
+			repair_patch.execute()
+		self.assertEqual(
+			get_value.call_args_list[0].args,
+			("Server Script", {"api_method": "prosally_tool_generate_process"}, "name"),
+		)
+		self.assertEqual(deep_inspect_script(set_value.call_args.args[3]), [])
+
+	def test_a_site_without_the_script_or_with_nothing_to_repair_writes_nothing(self):
+		for values in ([None], ["Any Name", split_patch.rewrite(_script("ba"))]):
+			with (
+				mock.patch.object(frappe.db, "get_value", side_effect=values),
+				mock.patch.object(frappe.db, "set_value") as set_value,
+				mock.patch.object(frappe, "log_error") as log_error,
+			):
+				repair_patch.execute()
+			set_value.assert_not_called()
+			log_error.assert_not_called()
+
+	def test_a_script_that_still_has_getattr_but_a_different_block_is_logged_and_left_alone(self):
+		odd = 'if _cut_offs:\n    x = getattr(_run_doc, "model", None)\nif not _truncated_error:\n    pass\n'
+		with (
+			mock.patch.object(frappe.db, "get_value", side_effect=["Any Name", odd]),
+			mock.patch.object(frappe.db, "set_value") as set_value,
+			mock.patch.object(frappe, "log_error") as log_error,
+		):
+			repair_patch.execute()
+		set_value.assert_not_called()
+		log_error.assert_called_once()
+
+
+class TestRecordTruncatedCalls(FrappeTestCase):
+	def _run(self, scope):
+		run_doc = mock.Mock(model="sonnet")
+		run_doc.name = "RUN-1"
+		with (
+			mock.patch(f"{OBSERVABILITY}.current_sub_call", return_value=scope),
+			mock.patch(f"{OBSERVABILITY}.record_ai_step") as record,
+			mock.patch.object(frappe, "get_doc", return_value=run_doc),
+			mock.patch.object(frappe.db, "count", side_effect=[4, 5]),
+		):
+			record_truncated_calls([(120, "outline"), (340, "Review (part)")])
+		return record
+
+	def test_each_cut_off_call_becomes_a_sub_call_step_with_error_code_truncated(self):
+		record = self._run({"run": "RUN-1", "tool": TOOL})
+		self.assertEqual(record.call_count, 2)
+		first, second = record.call_args_list
+		self.assertEqual((first.args[1], second.args[1]), (5, 6))
+		self.assertTrue(first.args[3].startswith("[sub-call: " + TOOL + " via sonnet"))
+		self.assertIn("outline cut off at the token ceiling", first.args[3])
+		self.assertEqual((first.kwargs["latency_ms"], second.kwargs["latency_ms"]), (120, 340))
+		for call in (first, second):
+			self.assertEqual((call.kwargs["error_code"], call.kwargs["step_kind"]), ("TRUNCATED", "sub_call"))
+
+	def test_outside_a_sub_call_scope_or_with_nothing_cut_off_nothing_is_recorded(self):
+		self.assertEqual(self._run(None).call_count, 0)
+		with (
+			mock.patch(f"{OBSERVABILITY}.current_sub_call", return_value={"run": "RUN-1", "tool": TOOL}),
+			mock.patch(f"{OBSERVABILITY}.record_ai_step") as record,
+		):
+			record_truncated_calls([])
+		record.assert_not_called()

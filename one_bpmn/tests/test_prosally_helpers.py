@@ -14,6 +14,7 @@ from one_bpmn.one_bpmn.patches.v1_0 import (
 	prosally_build_context_confirmed_action_pending_only as build_context_patch,
 )
 from one_bpmn.one_bpmn.patches.v1_0.prosally_merge_classify_and_confirm import CLASSIFY_INTENT
+from one_bpmn.security.script_validator import deep_inspect_script
 
 OLD_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -450,21 +451,34 @@ class TestClassifyAfterBuildContext(FrappeTestCase):
 		with _last_bot_message(metadata):
 			exec(build_context_patch.rewrite(REAL_BUILD_CONTEXT), namespace)
 		result = {}
-		with patch(
-			"one_bpmn.agents.llm_provider.get_llm_adapter_from_settings",
-			return_value=FakeAdapter(model_reply),
-		) as adapter:
+		# The script reaches the model through complete_sub_prompt on BA and through the adapter on older sites.
+		with (
+			patch.object(helpers, "complete_sub_prompt", return_value=model_reply) as helper,
+			patch(
+				"one_bpmn.agents.llm_provider.get_llm_adapter_from_settings",
+				return_value=FakeAdapter(model_reply),
+			) as adapter,
+		):
 			exec(self.script, {"frappe": frappe, "context_docname": CONVERSATION, "result": result})
-		return result, adapter
+		return result, helper.call_count + adapter.call_count
 
 	def test_a_stale_yes_after_a_clarify_classifies_normally(self):
 		reply = {"intent": "INCOMPLETE", "reason": "r", "summary": "", "question": ""}
-		result, adapter = self._classify(CLARIFY, json.dumps(reply))
-		adapter.assert_called_once()
+		result, model_calls = self._classify(CLARIFY, json.dumps(reply))
+		self.assertEqual(model_calls, 1)
 		self.assertNotIn("already_confirmed", result)
 
 	def test_yes_proceed_on_a_real_card_starts_generation(self):
-		result, adapter = self._classify(CARD)
-		adapter.assert_not_called()
+		result, model_calls = self._classify(CARD)
+		self.assertEqual(model_calls, 0)
 		self.assertEqual(result["next"], "generate_process")
 		self.assertTrue(result["already_confirmed"])
+
+
+class TestTheEngineValidatorAcceptsThePatchedBuildContext(FrappeTestCase):
+	"""The engine blocks a Server Script on any validator finding right before it runs."""
+
+	def test_both_script_shapes_have_no_findings_after_the_patch(self):
+		for label, script in (("assigned", REAL_BUILD_CONTEXT), ("in the dict", OLDER_BUILD_CONTEXT)):
+			with self.subTest(shape=label):
+				self.assertEqual(deep_inspect_script(build_context_patch.rewrite(script)), [])
