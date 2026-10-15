@@ -19,6 +19,9 @@ from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration imp
 AGENT_ID = "prosally_agent"
 HISTORY_TURNS = 10
 MIN_STAGE_TOKENS = 16384
+# The most steps and settings a confirmation summary lists (WI-003582).
+MAX_CONFIRMATION_STEPS = 8
+MAX_CONFIRMATION_SETTINGS = 6
 
 # Whole replies that approve a pending confirmation, after punctuation and "please" or "thanks" are dropped.
 AFFIRMATIONS = frozenset(
