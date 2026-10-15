@@ -156,9 +156,9 @@
 				rows="1"
 				:placeholder="surface.composer_placeholder || __('Type a message…')"
 				:disabled="busy"
-				@keydown.enter.exact.prevent="send()"
+				@keydown.enter.exact.prevent="!busy && send()"
 			/>
-			<button class="acp-btn acp-btn--solid" :disabled="busy || !draft.trim()" @click="send()">
+			<button class="acp-btn acp-btn--solid" :disabled="busy || !draft.trim()" @click="!busy && send()">
 				{{ __("Send") }}
 			</button>
 		</div>
