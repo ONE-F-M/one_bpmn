@@ -6,7 +6,7 @@ one_bpmn defaults — one settings surface instead of one per app.
 
 This carries across every still-useful field: LangSmith, Langfuse, the token
 estimator, the transitional global LLM provider default, and the onefm_mcp-owned
-Lumina chat widget / MCP tool / Jira / Copilot config (grouped under Processa
+Lumina chat widget / MCP tool / Copilot config (grouped under Processa
 Settings' own "MCP Integration Settings" section rather than a separate
 onefm_mcp doctype). AI Chat Settings itself can be dropped once this has run.
 
@@ -37,8 +37,6 @@ FIELD_MAP = {
 	"enabled": "enabled",
 	"mcp_tools_enabled": "mcp_tools_enabled",
 	"enable_mcp_tools_for_user_planning_agent": "enable_mcp_tools_for_user_planning_agent",
-	"jira_url": "jira_url",
-	"jira_email": "jira_email",
 	"copilot_org_name": "copilot_org_name",
 	"copilot_enterprise_slug": "copilot_enterprise_slug",
 	"openai_search_context": "openai_search_context",
@@ -48,7 +46,6 @@ PASSWORD_FIELD_MAP = {
 	"langsmith_api_key": "langsmith_api_key",
 	"langfuse_public_key": "langfuse_public_key",
 	"langfuse_secret_key": "langfuse_secret_key",
-	"jira_api_token": "jira_api_token",
 	"copilot_metrics_pat": "copilot_metrics_pat",
 }
 

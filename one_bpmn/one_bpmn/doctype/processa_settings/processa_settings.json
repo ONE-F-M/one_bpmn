@@ -106,10 +106,6 @@
   "mcp_tools_enabled",
   "enable_mcp_tools_for_user_planning_agent",
   "user_story_template",
-  "jira_credentials_section",
-  "jira_url",
-  "jira_email",
-  "jira_api_token",
   "copilot_settings_section",
   "copilot_metrics_pat",
   "copilot_org_name",
@@ -737,27 +733,6 @@
   },
   {
    "collapsible": 1,
-   "fieldname": "jira_credentials_section",
-   "fieldtype": "Section Break",
-   "label": "Jira Credentials"
-  },
-  {
-   "fieldname": "jira_url",
-   "fieldtype": "Data",
-   "label": "Jira URL"
-  },
-  {
-   "fieldname": "jira_email",
-   "fieldtype": "Data",
-   "label": "Jira Email"
-  },
-  {
-   "fieldname": "jira_api_token",
-   "fieldtype": "Password",
-   "label": "Jira API Token"
-  },
-  {
-   "collapsible": 1,
    "fieldname": "copilot_settings_section",
    "fieldtype": "Section Break",
    "label": "Copilot Settings"
@@ -829,7 +804,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-10-13 09:00:00.000000",
+ "modified": "2026-10-15 12:00:00.000000",
  "modified_by": "s.shariff@one-fm.com",
  "module": "ONE BPMN",
  "name": "Processa Settings",
