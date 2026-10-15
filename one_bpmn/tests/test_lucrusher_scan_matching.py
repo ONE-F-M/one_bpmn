@@ -68,6 +68,19 @@ class TestScanMatching(FrappeTestCase):
 		_, full = _run_scan([_doctype("Maintenance Frequency"), _doctype("Maintenance Schedule Entry")], [])
 		self.assertEqual([d["doctype"] for d in full["matched_doctypes"]], ["Maintenance Schedule Entry"])
 
+	def test_one_shared_word_of_a_longer_name_does_not_match(self):
+		names = ["Maintenance Plan", "Production Plan", "Route Plan Assignment"]
+		_, full = _run_scan([_doctype(name) for name in names], [])
+		self.assertEqual([d["doctype"] for d in full["matched_doctypes"]], ["Maintenance Plan"])
+
+	def test_verb_alone_does_not_match_a_hook_and_a_plural_function_name_does(self):
+		hooks = [
+			_hook("", "one_fm.x.create", event="daily", hook_type="scheduler_events"),
+			_hook("", "one_fm.x.generate_due_work_orders", event="daily", hook_type="scheduler_events"),
+		]
+		_, full = _run_scan([_doctype("Maintenance Schedule Entry")], hooks)
+		self.assertEqual([h["method"] for h in full["hooks_found"]], ["one_fm.x.generate_due_work_orders"])
+
 	def test_matched_doctype_has_an_app_and_its_controller_is_listed(self):
 		digest, full = _run_scan([_doctype("Maintenance Schedule Entry")], [])
 		self.assertGreater(digest["counts"]["controllers"], 0)

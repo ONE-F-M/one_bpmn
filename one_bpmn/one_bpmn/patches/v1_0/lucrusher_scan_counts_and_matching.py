@@ -21,7 +21,9 @@ CONTEXT_MARKER = 'scan.get("counts_line")'
 
 _GENERIC_WORDS = (
 	"maintenance management settings setting item items type entry log list template "
-	"request record detail details status master group rule config"
+	"request record detail details status master group rule config "
+	"create generate update review validate fetch calculate evaluate trigger initialize "
+	"populate configure execute aggregate initiate"
 )
 
 SCAN_EDITS = (
@@ -31,6 +33,14 @@ SCAN_EDITS = (
 		"    # Words that name a whole family of DocTypes weigh a quarter of any other word.\n"
 		'    _GENERIC_WORDS = frozenset("' + _GENERIC_WORDS + '".split())\n'
 		"    _GENERIC_WEIGHT = 0.25\n",
+	),
+	(
+		"                out.add(w)\n",
+		"                out.add(w[:-1] if len(w) > 3 and w.endswith(\"s\") and not w.endswith(\"ss\") else w)\n",
+	),
+	(
+		"    def _overlap_score(kw_a, kw_b):\n",
+		"    def _overlap_score(kw_a, kw_b, by_target=False):\n",
 	),
 	(
 		"        intersection = kw_a & kw_b\n"
@@ -44,7 +54,21 @@ SCAN_EDITS = (
 		"        def _weight(words):\n"
 		"            return sum(_GENERIC_WEIGHT if w in _GENERIC_WORDS else 1.0 for w in words)\n"
 		"\n"
-		"        return _weight(intersection) / min(_weight(kw_a), _weight(kw_b))\n",
+		"        # A DocType is scored on how much of its own name the element covers.\n"
+		"        denominator = _weight(kw_b) if by_target else min(_weight(kw_a), _weight(kw_b))\n"
+		"        return _weight(intersection) / denominator\n",
+	),
+	(
+		"    def _best_match(elem_kw_pairs, target_kws, extra_kws=None):\n",
+		"    def _best_match(elem_kw_pairs, target_kws, extra_kws=None, by_target=False):\n",
+	),
+	(
+		"            score = _overlap_score(elem_kws, target_kws)\n",
+		"            score = _overlap_score(elem_kws, target_kws, by_target)\n",
+	),
+	(
+		'        best_score, best_elements = _best_match(elem_kw_pairs, _extract_keywords(dt["name"]))\n',
+		'        best_score, best_elements = _best_match(elem_kw_pairs, _extract_keywords(dt["name"]), None, True)\n',
 	),
 	(
 		'        fn_name = method.split(".")[-1] if method else ""\n'
