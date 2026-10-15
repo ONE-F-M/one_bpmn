@@ -676,6 +676,7 @@ async function send(text, extraContext = null, reuseId = null) {
 			streamingRole.value = "assistant";
 			runningTool.value = "";
 			progressNote.value = "";
+			progressLine.value = "";
 			busy.value = false;
 			if (status.value !== "error") status.value = "done";
 			activeStream = null;
