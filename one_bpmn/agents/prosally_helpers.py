@@ -114,6 +114,9 @@ STEP_TAGS = tuple(
 )
 SUBPROCESS_REQUEST = re.compile(r"sub[\s-]?process\s+(?:for|of|on)\s+(?:the\s+)?(?:step\s+)?([^:,.;\n]+)", re.I)
 DIAGRAM_REPLIES = ("BPMN_MODIFIED", "BPMN_GENERATED")
+REQUEST_STOPWORDS = frozenset(
+	("create", "sub", "process", "subprocess", "step", "steps", "with", "that", "this", "from", "into", "inside", "when", "then", "should")
+)
 RECENT_REPLIES = 10
 DEFINITE_SUBPROCESS = re.compile(r"(?<!new\s)\b(?:the|that|this|my|your)\s+sub[\s-]?p(?:ro|or)ces{1,2}\b", re.I)
 TYPO_SIMILARITY = 0.75
@@ -870,6 +873,33 @@ def describe_changes(previous_xml: str, xml: str) -> str:
 	if not lines:
 		return "\n\n" + _("I could not find any change on the diagram. Check that your request was applied.")
 	return "\n\n" + _("What changed:") + "\n" + "\n".join("- " + line for line in lines)
+
+
+def similar_steps(xml: str, texts: list, skip: str = "") -> list[str]:
+	"""Up to three steps in xml sharing two or more significant words with the newest request in texts, best first."""
+	request = next((strip_html(text) for text in texts if text and not confirmation_reply(text)), "")
+	skipped = {word[:5] for word in re.findall(r"[a-z]{4,}", skip.lower())}
+	wanted = {
+		word[:5] for word in re.findall(r"[a-z]{4,}", request.split(":", 1)[-1].lower()) if word not in REQUEST_STOPWORDS
+	} - skipped
+	scored = []
+	for elem in ET.fromstring(xml).iter():
+		if elem.tag in STEP_TAGS and elem.get("name"):
+			shared = len(wanted & {word[:5] for word in re.findall(r"[a-z]{4,}", elem.get("name").lower())})
+			if wanted and shared >= min(2, len(wanted)):
+				scored.append((shared, elem.get("name")))
+	scored.sort(key=lambda entry: -entry[0])
+	return [name for _, name in scored[:3]]
+
+
+def no_change_reply(where: str, similar: list[str]) -> str:
+	"""The answer when a modify changed nothing: what already covers the request and what to say next."""
+	if not similar:
+		return _("I did not change {0}. Tell me which step to add or change, and where it goes.").format(where)
+	label = _("the step") if len(similar) == 1 else _("the steps")
+	return _("I did not change {0}. It already has {1} {2}. Tell me what else to add or change, and where it goes.").format(
+		where, label, ", ".join(_quoted(name) for name in similar)
+	)
 
 
 def describe_lanes(chat_history: list, user_text: str, ir: dict | None) -> str:
