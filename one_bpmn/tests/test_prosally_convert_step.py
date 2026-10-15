@@ -10,6 +10,7 @@ from frappe.tests.utils import FrappeTestCase
 from one_bpmn.agents.bpmn_ir_pipeline import compile_ir
 from one_bpmn.agents.prosally_helpers import (
 	convert_step_to_subprocess,
+	find_missing_target,
 	resolve_step,
 	restore_call_activities,
 	transfer_properties,
@@ -247,6 +248,47 @@ class TestRestoreCallActivities(FrappeTestCase):
 	def test_a_call_activity_the_modify_removed_stays_removed(self):
 		gone = self._regenerated().replace('<bpmn:scriptTask id="call" name="Call Closure"></bpmn:scriptTask>', "")
 		self.assertNotIn('id="call"', restore_call_activities(_diagram(), gone).split("<bpmndi:")[0])
+
+
+class TestFindMissingTarget(FrappeTestCase):
+	def test_a_misnamed_step_is_reported_with_the_closest_names_on_the_diagram(self):
+		missing = find_missing_target(_diagram(), ["Create a sub process for Complete Payroll Acceptance: checks pending salary"])
+		self.assertEqual(missing["asked"], "Complete Payroll Acceptance")
+		self.assertEqual(missing["candidates"][0], {"name": "Complete Payroll Clearance", "kind": "step"})
+
+	def test_a_sub_process_is_offered_as_one(self):
+		xml = _diagram().replace("</bpmn:process>", '<bpmn:subProcess id="sp" name="Payroll Clearance"/></bpmn:process>')
+		missing = find_missing_target(xml, ["Create a sub process for Payroll Clearence: steps"])
+		self.assertIn({"name": "Payroll Clearance", "kind": "sub-process"}, missing["candidates"])
+
+	def test_what_is_on_the_main_diagram_is_offered_before_a_step_inside_a_sub_process(self):
+		xml = _diagram().replace(
+			"</bpmn:process>",
+			'<bpmn:subProcess id="sp" name="Payroll Clearance"><bpmn:userTask id="in1" name="Submit Payroll Clearance"/>'
+			"</bpmn:subProcess></bpmn:process>",
+		)
+		missing = find_missing_target(xml, ["Create a sub process for Complete Payroll Acceptance: steps"])
+		names = [c["name"] for c in missing["candidates"]]
+		self.assertLess(names.index("Payroll Clearance"), names.index("Submit Payroll Clearance"))
+
+	def test_an_exact_name_is_not_missing(self):
+		self.assertIsNone(find_missing_target(_diagram(), ["Create a sub process for Complete Payroll Clearance: steps"]))
+
+	def test_a_name_with_a_trailing_word_is_not_missing(self):
+		self.assertIsNone(find_missing_target(_diagram(), ["Create a sub process for the Complete Payroll Clearance step"]))
+
+	def test_a_new_sub_process_with_no_close_name_is_left_to_the_classifier(self):
+		self.assertIsNone(find_missing_target(_diagram(), ["Add a sub process for background checks: verify references"]))
+
+	def test_a_message_that_does_not_ask_for_a_sub_process_is_ignored(self):
+		self.assertIsNone(find_missing_target(_diagram(), ["Rename Complete Payroll Acceptance to Done"]))
+
+	def test_an_empty_diagram_has_nothing_to_miss(self):
+		self.assertIsNone(find_missing_target("", ["Create a sub process for Complete Payroll Acceptance: steps"]))
+
+	def test_the_newest_message_that_asks_for_one_is_used(self):
+		texts = ["Yes, proceed", "Create a sub process for Complete Payroll Acceptance: steps"]
+		self.assertEqual(find_missing_target(_diagram(), texts)["asked"], "Complete Payroll Acceptance")
 
 
 class TestResolveStep(FrappeTestCase):

@@ -9,7 +9,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.turn_state import clear_turn, set_turn
+from one_bpmn.agents.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_turns_a_step_into_a_subprocess as step_patch
 
 CONVERSATION = "_test_prosally_turns_a_step"
@@ -68,6 +68,24 @@ class TestStepClassification(FrappeTestCase):
 
 	def test_a_call_activity_is_never_the_target(self):
 		result, _ = self._classify("Create a sub process for Call Closure: steps", step_patch.fixture_xml())
+		self.assertEqual(result["intent"], "OVERWRITE_EXISTING")
+
+	def test_a_misnamed_step_is_not_confirmed_and_the_closest_name_is_offered(self):
+		result, adapter = self._classify(REQUEST.replace("Clearance", "Acceptance"), step_patch.fixture_xml())
+		self.assertEqual((result["intent"], result["next"]), ("AMBIGUOUS", "finalize"))
+		self.assertIn("Complete Payroll Clearance (step)", result["reason"])
+		self.assertIn('no step or sub-process called "Complete Payroll Acceptance"', adapter.prompts[0])
+
+	def test_the_reply_lists_what_exists_and_each_option_is_the_request_with_that_name(self):
+		self._classify(REQUEST.replace("Clearance", "Acceptance"), step_patch.fixture_xml())
+		output = get_turn(CONVERSATION)["output"]
+		self.assertEqual(output["intent"], "CLARIFY")
+		self.assertIn('"Complete Payroll Acceptance"', output["response"])
+		self.assertIn("Complete Payroll Clearance (step)", output["response"])
+		self.assertEqual(output["options"], [REQUEST])
+
+	def test_a_new_sub_process_with_no_close_name_is_left_to_the_classifier(self):
+		result, _ = self._classify("Add a sub process for background checks: verify references", step_patch.fixture_xml())
 		self.assertEqual(result["intent"], "OVERWRITE_EXISTING")
 
 	def test_a_diagram_without_that_step_is_left_to_the_classifier(self):

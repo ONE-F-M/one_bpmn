@@ -35,6 +35,45 @@ CLASSIFY_GUARD = (
 	"    if (scope or convert) and intent in _GENERATE_INTENTS:\n",
 )
 
+CLASSIFY_MISSING_IMPORT = (
+	"from one_bpmn.agents.prosally_helpers import complete_sub_prompt, join_confirmation, ",
+	"from one_bpmn.agents.prosally_helpers import complete_sub_prompt, find_missing_target, join_confirmation, ",
+)
+CLASSIFY_MISSING = (
+	"    convert = resolve_step(current_xml, _scope_texts)\n",
+	"    convert = resolve_step(current_xml, _scope_texts)\n"
+	"    missing = None if (scope or convert) else find_missing_target(current_xml, _scope_texts)\n"
+	"    if missing:\n"
+	'        _closest = ", ".join([c["name"] + " (" + c["kind"] + ")" for c in missing["candidates"]])\n',
+)
+CLASSIFY_MISSING_HINT = (
+	'    _parts.append("User message: " + message)\n',
+	r'''    if missing:
+        _parts.append("The diagram has no step or sub-process called \"" + missing["asked"] + "\". The closest are: " + _closest + ". Classify it as AMBIGUOUS and ask which one the person meant, never confirm a step that is not on the diagram.")
+    _parts.append("User message: " + message)
+''',
+)
+CLASSIFY_MISSING_GUARD = (
+	'    if (scope or convert) and intent in _GENERATE_INTENTS:\n        intent = "MODIFY_EXISTING"\n',
+	'    if (scope or convert) and intent in _GENERATE_INTENTS:\n        intent = "MODIFY_EXISTING"\n'
+	"    if missing and intent in _ACTION_INTENTS:\n"
+	'        intent = "AMBIGUOUS"\n'
+	'        reason = "There is no step or sub-process called \\"" + missing["asked"] + "\\" on the diagram. The closest are: " + _closest + "."\n',
+)
+
+CLASSIFY_MISSING_REPLY = (
+	'    elif intent in _NEEDS_CLARIFICATION:\n        result["next"] = "clarify"\n',
+	r'''    elif intent in _NEEDS_CLARIFICATION:
+        result["next"] = "clarify"
+        if missing:
+            _lines = "\n".join(["- " + c["name"] + " (" + c["kind"] + ")" for c in missing["candidates"]])
+            _reply = "I can't find a step or sub-process called \"" + missing["asked"] + "\" on the " + (process_name or "current") + " diagram. These are the closest:\n" + _lines + "\n\nPick one to resend your request with that name, or tell me it is a new sub-process to add."
+            _fixed = [missing["text"].replace(missing["asked"], c["name"], 1) for c in missing["candidates"][:2]]
+            update_turn(context_docname, output={"intent": "CLARIFY", "action_intent": None, "response": _reply, "options": _fixed}, done=True)
+            result["next"] = "finalize"
+''',
+)
+
 MODIFY_IMPORT = (
 	"from one_bpmn.agents.prosally_helpers import complete_sub_prompt, resolve_scope, splice_subprocess, ",
 	"from one_bpmn.agents.prosally_helpers import complete_sub_prompt, convert_step_to_subprocess, resolve_scope, resolve_step, "
@@ -139,6 +178,11 @@ def execute():
 		name = frappe.db.get_value("Server Script", {"name": ["like", pattern]}, "name")
 		if name:
 			apply_edits("Server Script", name, "script", edits, "resolve_step(")
+	classify = frappe.db.get_value("Server Script", {"name": ["like", "ProsAlly%Tool Classify Intent"]}, "name")
+	if classify:
+		missing_edits = (CLASSIFY_MISSING_IMPORT, CLASSIFY_MISSING, CLASSIFY_MISSING_HINT, CLASSIFY_MISSING_GUARD)
+		apply_edits("Server Script", classify, "script", missing_edits, "find_missing_target(")
+		apply_edits("Server Script", classify, "script", (CLASSIFY_MISSING_REPLY,), 'missing["text"]')
 	if frappe.db.exists("AI Skill", SKILL):
 		apply_edits("AI Skill", SKILL, "body", (SKILL_SECTION,), "## Sub-processes and call activities")
 	config = frappe.db.get_value("AI Agent Configuration", {"agent_id": AGENT_ID}, "name")

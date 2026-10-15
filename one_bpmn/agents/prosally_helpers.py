@@ -3,6 +3,7 @@
 """Helpers the ProsAlly tool scripts share: property preservation, JSON extraction, confirmation replies, history, model calls."""
 
 import copy
+import difflib
 import json
 import re
 from collections import Counter
@@ -111,6 +112,8 @@ ID_REF_ATTRS = ("id", "sourceRef", "targetRef", "bpmnElement", "default", "attac
 STEP_TAGS = tuple(
 	"{" + NS["bpmn"] + "}" + tag for tag in ("task", "userTask", "scriptTask", "serviceTask", "manualTask", "businessRuleTask")
 )
+SUBPROCESS_REQUEST = re.compile(r"sub[\s-]?process\s+(?:for|of|on)\s+(?:the\s+)?(?:step\s+)?([^:,.;\n]+)", re.I)
+FILLER_WORDS = frozenset({"the", "a", "an", "of", "and", "to", "for", "step", "sub", "process", "subprocess", "complete", "create", "new"})
 POSITION_WORDS = r"\b(?:after|before|following|preceding|then)\s+(?:the\s+|a\s+)?$"
 EXPANDED_PAD = 24
 EXPANDED_HEADER = 36
@@ -469,6 +472,44 @@ def restore_call_activities(old_xml: str, new_xml: str) -> str:
 				parent[index] = kept
 	restored = ET.tostring(root, encoding="unicode", xml_declaration=True)
 	return re.sub(r"^<\?xml\s[^?]*\?>", '<?xml version="1.0" encoding="UTF-8"?>', restored)
+
+
+def find_missing_target(xml: str, texts: list) -> dict | None:
+	"""The name a message asks for a sub-process on when no step or sub-process has it, with the closest names that exist."""
+	if not (xml or "").strip():
+		return None
+	_register_namespaces()
+	sub_tag = "{" + NS["bpmn"] + "}subProcess"
+	root = ET.fromstring(xml)
+	parents = {child: parent for parent in root.iter() for child in parent}
+	depth = {}
+	known = {}
+	for e in root.iter():
+		if e.tag in (*STEP_TAGS, sub_tag) and e.get("id") and e.get("name"):
+			ancestors, node = 0, e
+			while node in parents:
+				node = parents[node]
+				ancestors += node.tag == sub_tag
+			known.setdefault(e.get("name"), "sub-process" if e.tag == sub_tag else "step")
+			depth[e.get("name")] = min(ancestors, depth.get(e.get("name"), ancestors))
+	for text in texts:
+		match = SUBPROCESS_REQUEST.search(text or "")
+		if not match:
+			continue
+		asked = match.group(1).strip()
+		if any(_squash(name) in _squash(asked) or _squash(asked) in _squash(name) for name in known):
+			return None
+		words = set(re.findall(r"[a-z0-9]+", asked.lower())) - FILLER_WORDS
+		close = [name for name in known if words & set(re.findall(r"[a-z0-9]+", name.lower()))]
+		close.sort(key=lambda name: (depth[name], -difflib.SequenceMatcher(None, asked.lower(), name.lower()).ratio()))
+		if not close:
+			return None
+		return {"asked": asked, "text": text, "candidates": [{"name": name, "kind": known[name]} for name in close[:3]]}
+	return None
+
+
+def _squash(text: str) -> str:
+	return re.sub(r"[^a-z0-9]", "", text.lower())
 
 
 def resolve_step(xml: str, texts: list) -> dict | None:
