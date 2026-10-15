@@ -174,6 +174,23 @@ class TestReadDoctypeLogicScript(FrappeTestCase):
 			self.assertEqual(doc["methods"][0]["name"], "m")
 			self.assertEqual(doc["workflow"]["transitions"][0]["allowed"], "Project Manager")
 
+	def test_many_methods_fall_back_to_names_and_lines_under_the_cap(self):
+		def many(name):
+			doc = _doc(name)
+			doc["methods"] = [
+				{"name": f"method_{i}", "line": i, "end_line": i + 5, "body": "x = 1", "trimmed": False, "full_lines": 1}
+				for i in range(400)
+			]
+			return doc
+
+		out = _run_script(["A", "B", "C", "D", "E"], lambda read: [many(n) for n in read])
+		self.assertLessEqual(len(json.dumps(out, default=str)), 30000)
+		self.assertIn("only names and lines", out["truncation_note"])
+		first = out["doctypes"][0]
+		self.assertEqual(first["methods"][0], {"name": "method_0", "line": 0})
+		self.assertEqual(first["methods_total"], 400)
+		self.assertLess(len(first["methods"]), 400)
+
 	def test_workflow_is_none_when_the_doctype_has_none(self):
 		out = _run_script(["A"], lambda read: [_doc("A")])
 		self.assertIsNone(out["doctypes"][0]["workflow"])

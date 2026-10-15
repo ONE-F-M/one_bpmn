@@ -128,6 +128,17 @@ def _lucrusher_read_doctype_logic(frappe, doctypes):
     def _size(payload):
         return len(json.dumps(payload, default=str))
 
+    def _names_only(payload):
+        for doc in payload["doctypes"]:
+            for key in ("methods", "module_functions"):
+                doc[key] = [{"name": f["name"], "line": f["line"]} for f in doc.get(key) or []]
+            doc["hooks"] = [
+                {k: h.get(k) for k in ("hook_type", "event", "method", "file", "line")} for h in doc.get("hooks") or []
+            ]
+            doc["server_scripts"] = [
+                {k: s.get(k) for k in ("name", "script_type", "doctype_event")} for s in doc.get("server_scripts") or []
+            ]
+
     def _fit(payload):
         for limit, groups in SHRINK_STEPS:
             if _size(payload) <= MAX_OUTPUT_CHARS:
@@ -139,6 +150,21 @@ def _lucrusher_read_doctype_logic(frappe, doctypes):
                         holder["trimmed"] = True
             payload["truncated"] = True
             payload["truncation_note"] = "Bodies were cut to fit the size cap; names, lines and workflows are complete."
+        if _size(payload) > MAX_OUTPUT_CHARS:
+            _names_only(payload)
+            payload["truncation_note"] = (
+                "Bodies were dropped to fit the size cap; only names and lines are listed. "
+                "Call again with fewer DocTypes to read bodies."
+            )
+            for limit in (60, 25, 10):
+                if _size(payload) <= MAX_OUTPUT_CHARS:
+                    break
+                for doc in payload["doctypes"]:
+                    for key in ("methods", "module_functions", "hooks", "server_scripts"):
+                        total = len(doc.get(key) or [])
+                        if total > limit:
+                            doc[key] = doc[key][:limit]
+                            doc[key + "_total"] = total
         return payload
 
     raw = doctypes or []
