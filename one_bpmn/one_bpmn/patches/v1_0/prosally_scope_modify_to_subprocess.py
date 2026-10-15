@@ -128,12 +128,13 @@ def execute():
 	for pattern, (field, edits, marker) in SCRIPTS.items():
 		name = frappe.db.get_value("Server Script", {"name": ["like", pattern]}, "name")
 		if name:
-			_apply("Server Script", name, field, edits, marker)
+			apply_edits("Server Script", name, field, edits, marker)
 	if frappe.db.exists("AI Skill", SKILL):
-		_apply("AI Skill", SKILL, "body", (SKILL_EVENTS, SKILL_SUBPROCESS), "intermediateCatchEvent")
+		apply_edits("AI Skill", SKILL, "body", (SKILL_EVENTS, SKILL_SUBPROCESS), "intermediateCatchEvent")
 
 
-def _apply(doctype: str, name: str, field: str, edits: tuple, marker: str) -> None:
+def apply_edits(doctype: str, name: str, field: str, edits: tuple, marker: str) -> None:
+	"""Apply edits to one text field of a document, unless marker is already in it; log and skip if an anchor moved."""
 	doc = frappe.get_doc(doctype, name)
 	text = doc.get(field) or ""
 	if marker in text:
