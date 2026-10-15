@@ -17,13 +17,15 @@ SUITE_TITLE = "Prosally - Baseline"
 CLASSIFY_IMPORT = (
 	"from one_bpmn.agents.prosally_helpers import complete_sub_prompt, join_confirmation, resolve_scope, ",
 	"from one_bpmn.agents.prosally_helpers import asks_to_make_call_activity, complete_sub_prompt, find_missing_target, "
-	"join_confirmation, resolve_scope, resolve_step, ",
+	"join_confirmation, resolve_scope, resolve_step, unapplied_proposal, ",
 )
 CLASSIFY_CONVERT = (
 	'    scope = resolve_scope(current_xml, _scope_texts, turn.get("scope_id", ""))\n',
 	'    scope = resolve_scope(current_xml, _scope_texts, turn.get("scope_id", ""))\n'
 	"    convert = resolve_step(current_xml, _scope_texts)\n"
 	"    wants_call = asks_to_make_call_activity(message)\n"
+	"    ghost = unapplied_proposal(context_docname, current_xml, message)\n"
+	'    named_ghost = ghost if (ghost and ghost["named"]) else None\n'
 	"    missing = None if (scope or convert) else find_missing_target(current_xml, _scope_texts)\n"
 	'    near = missing if (missing and missing["candidates"]) else None\n'
 	'    fresh = missing if (missing and not missing["candidates"]) else None\n'
@@ -38,6 +40,8 @@ CLASSIFY_HINT = (
         _parts.append("The diagram has no step or sub-process called \"" + near["asked"] + "\". The closest are: " + _closest + ". Classify it as AMBIGUOUS and ask which one the person meant, never confirm a step that is not on the diagram.")
     if fresh:
         _parts.append("The diagram has no step or sub-process called \"" + fresh["asked"] + "\", so this asks for a NEW sub-process holding the steps described. Classify it as MODIFY_EXISTING and describe it as adding a new sub-process called that name, never as redrawing the process.")
+    if ghost and not ghost["named"]:
+        _parts.append("The previous reply proposed these additions, but they are NOT on the diagram because the person discarded the change or has not applied it: " + ", ".join(ghost["added"]) + ". Treat them as not done.")
     if scope and not convert:
         _parts.append("The diagram already has the sub-process''',
 )
@@ -48,6 +52,9 @@ CLASSIFY_GUARD = (
 	"    if wants_call and intent in _ACTION_INTENTS:\n"
 	'        intent = "AMBIGUOUS"\n'
 	'        reason = "The request asks for a call activity, which runs a separate process that ProsAlly cannot create."\n'
+	"    if named_ghost and intent in _ACTION_INTENTS:\n"
+	'        intent = "AMBIGUOUS"\n'
+	'        reason = "\\"" + named_ghost["named"][0] + "\\" is not on the diagram: the change that added it was discarded or has not been applied."\n'
 	"    if near and intent in _ACTION_INTENTS:\n"
 	'        intent = "AMBIGUOUS"\n'
 	'        reason = "There is no step or sub-process called \\"" + near["asked"] + "\\" on the diagram. The closest are: " + _closest + "."\n',
@@ -59,6 +66,11 @@ CLASSIFY_REPLY = (
         if wants_call:
             _reply = "I can't turn a sub-process or a step into a call activity: a call activity runs a separate process, and I can't create one. I can keep it as a sub-process, or add a call activity that calls a process that already exists. Tell me which process it should call and where it goes."
             update_turn(context_docname, output={"intent": "CLARIFY", "action_intent": None, "response": _reply, "options": []}, done=True)
+            result["next"] = "finalize"
+        elif named_ghost:
+            _reply = "\"" + named_ghost["named"][0] + "\" is not on the diagram: the change that added it was discarded or has not been applied. Want me to add it first?"
+            _again = [named_ghost["request"]] if named_ghost["request"] else []
+            update_turn(context_docname, output={"intent": "CLARIFY", "action_intent": None, "response": _reply, "options": _again}, done=True)
             result["next"] = "finalize"
         elif near:
             _lines ="\n".join(["- " + c["name"] + " (" + c["kind"] + ")" for c in near["candidates"]])
@@ -72,7 +84,7 @@ CLASSIFY_REPLY = (
 MODIFY_IMPORT = (
 	"from one_bpmn.agents.prosally_helpers import complete_sub_prompt, resolve_scope, splice_subprocess, ",
 	"from one_bpmn.agents.prosally_helpers import complete_sub_prompt, convert_step_to_subprocess, find_missing_target, "
-	"resolve_scope, resolve_step, restore_call_activities, splice_subprocess, ",
+	"resolve_scope, resolve_step, restore_call_activities, splice_subprocess, unapplied_proposal, ",
 )
 MODIFY_CONVERT = (
 	'scope = resolve_scope(current_xml, _scope_texts, turn.get("scope_id", ""))\n',
@@ -80,7 +92,8 @@ MODIFY_CONVERT = (
 	"convert = resolve_step(current_xml, _scope_texts)\n"
 	"if convert:\n"
 	"    scope = None\n"
-	"missing = None if (scope or convert) else find_missing_target(current_xml, _scope_texts)\n",
+	"missing = None if (scope or convert) else find_missing_target(current_xml, _scope_texts)\n"
+	'ghost = unapplied_proposal(context_docname, current_xml, turn.get("user_text", ""))\n',
 )
 MODIFY_PROMPT = (
 	'        "Output the complete IR JSON for the inside of the sub-process now.",\n    ])\n',
@@ -100,6 +113,8 @@ MODIFY_NEW_SUBPROCESS = (
 	'_system = stage_system_prompt(_cfg, "modifier", "modify_skills")\n',
 	r'''if missing and not missing["candidates"]:
     initial_prompt = initial_prompt + "\n\nThe diagram has no step or sub-process called \"" + missing["asked"] + "\", so add a NEW sub-process: one subProcess node named exactly that, with \"expanded\": true and the steps described in \"children\" (its own startEvent, steps, flows and endEvent), placed where it fits in the main flow. Keep every other node, flow and id exactly as in the current diagram."
+if ghost:
+    initial_prompt = initial_prompt + "\n\nThese elements from an earlier proposal are NOT on the diagram, so do not assume they exist: " + ", ".join(ghost["added"]) + "."
 _system = stage_system_prompt(_cfg, "modifier", "modify_skills")
 ''',
 )

@@ -14,6 +14,7 @@ from one_bpmn.one_bpmn.patches.v1_0 import prosally_turns_a_step_into_a_subproce
 
 CONVERSATION = "_test_prosally_turns_a_step"
 REQUEST = "Create a sub process for Complete Payroll Clearance: Payroll Operator checks pending salary"
+NEW_REQUEST = "Create a new sub process for Complete Payroll Acceptance: Payroll Operator checks pending salary"
 DRAW_REPLY = {
 	"intent": "OVERWRITE_EXISTING",
 	"reason": "r",
@@ -43,15 +44,36 @@ class TestStepClassification(FrappeTestCase):
 	def tearDown(self):
 		clear_turn(CONVERSATION)
 
-	def _classify(self, user_text, xml):
+	def _classify(self, user_text, xml, ghost=None):
 		set_turn(
 			CONVERSATION,
 			{"user_text": user_text, "process_name": "Employee Offboarding", "current_xml": xml, "chat_history": []},
 		)
 		adapter, result = RecordingAdapter(DRAW_REPLY), {}
-		with patch("one_bpmn.agents.prosally_helpers.get_llm_adapter_from_settings", return_value=adapter):
+		with (
+			patch("one_bpmn.agents.prosally_helpers.get_llm_adapter_from_settings", return_value=adapter),
+			patch("one_bpmn.agents.prosally_helpers.unapplied_proposal", return_value=ghost),
+		):
 			exec(self.script, {"frappe": frappe, "context_docname": CONVERSATION, "result": result})
 		return result, adapter
+
+	def test_a_message_naming_something_that_was_discarded_is_told_it_is_not_on_the_diagram(self):
+		ghost = {"added": ["Complete Payroll Acceptance"], "request": NEW_REQUEST, "named": ["Complete Payroll Acceptance"]}
+		result, _ = self._classify("add a step to Complete Payroll Acceptance", step_patch.fixture_xml(), ghost)
+		self.assertEqual((result["intent"], result["next"]), ("AMBIGUOUS", "finalize"))
+		output = get_turn(CONVERSATION)["output"]
+		self.assertIn('"Complete Payroll Acceptance" is not on the diagram', output["response"])
+		self.assertEqual(output["options"], [NEW_REQUEST])
+
+	def test_the_classifier_is_told_what_is_not_on_the_diagram_when_the_message_does_not_name_it(self):
+		ghost = {"added": ["Complete Payroll Acceptance", "Check Pending Salary"], "request": NEW_REQUEST, "named": []}
+		_, adapter = self._classify("make the subprocess bigger", step_patch.fixture_xml(), ghost)
+		self.assertIn("NOT on the diagram", adapter.prompts[0])
+		self.assertIn("Complete Payroll Acceptance, Check Pending Salary", adapter.prompts[0])
+
+	def test_nothing_is_said_about_a_proposal_when_everything_it_added_is_on_the_canvas(self):
+		_, adapter = self._classify("make the subprocess bigger", step_patch.fixture_xml())
+		self.assertNotIn("NOT on the diagram", adapter.prompts[0])
 
 	def test_a_request_for_a_sub_process_on_an_existing_step_is_a_modify(self):
 		result, _ = self._classify(REQUEST, step_patch.fixture_xml())

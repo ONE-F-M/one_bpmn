@@ -113,6 +113,9 @@ STEP_TAGS = tuple(
 	"{" + NS["bpmn"] + "}" + tag for tag in ("task", "userTask", "scriptTask", "serviceTask", "manualTask", "businessRuleTask")
 )
 SUBPROCESS_REQUEST = re.compile(r"sub[\s-]?process\s+(?:for|of|on)\s+(?:the\s+)?(?:step\s+)?([^:,.;\n]+)", re.I)
+DIAGRAM_REPLIES = ("BPMN_MODIFIED", "BPMN_GENERATED")
+RECENT_REPLIES = 10
+DEFINITE_SUBPROCESS = re.compile(r"(?<!new\s)\b(?:the|that|this|my|your)\s+sub[\s-]?p(?:ro|or)ces{1,2}\b", re.I)
 TYPO_SIMILARITY = 0.75
 POSITION_WORDS = (
 	r"\b(?:after|before|following|preceding|then|next\s+to|beside|alongside|near|adjacent\s+to|above|below)\s+(?:the\s+|a\s+)?$"
@@ -477,6 +480,49 @@ def restore_call_activities(old_xml: str, new_xml: str) -> str:
 				parent[index] = kept
 	restored = ET.tostring(root, encoding="unicode", xml_declaration=True)
 	return re.sub(r"^<\?xml\s[^?]*\?>", '<?xml version="1.0" encoding="UTF-8"?>', restored)
+
+
+def unapplied_proposal(conversation: str, current_xml: str, message: str = "") -> dict | None:
+	"""What the newest diagram reply adds that the canvas lacks, the request behind it, and which of those the message names."""
+	if not (current_xml or "").strip():
+		return None
+	replies = frappe.get_all(
+		"Chat Message",
+		filters={"conversation": conversation, "message_type": "Bot"},
+		fields=["metadata", "creation"],
+		order_by="creation desc",
+		limit=RECENT_REPLIES,
+	)
+	found = [(frappe.parse_json(reply.metadata or "{}").get("agent_result"), reply.creation) for reply in replies]
+	result, replied_at = next(
+		((r, at) for r, at in found if isinstance(r, dict) and r.get("intent") in DIAGRAM_REPLIES and r.get("bpmn_xml")),
+		(None, None),
+	)
+	if result is None:
+		return None
+	on_canvas = element_names(current_xml)
+	proposed = [
+		(kind, name)
+		for element_id, (kind, name) in element_names(result["bpmn_xml"]).items()
+		if name and kind != "sequenceFlow" and element_id not in on_canvas
+	]
+	if not proposed:
+		return None
+	added = [name for _, name in proposed]
+	earlier = frappe.get_all(
+		"Chat Message",
+		filters={"conversation": conversation, "message_type": "User", "creation": ["<", replied_at]},
+		fields=["text"],
+		order_by="creation desc",
+		limit=RECENT_REPLIES,
+	)
+	request = next((strip_html(m.text) for m in earlier if m.text and not confirmation_reply(m.text)), "")
+	named = [name for name in added if _squash(name) in _squash(message or "")]
+	existing = [name for kind, name in on_canvas.values() if kind == "subProcess" and name]
+	refers_to_it = DEFINITE_SUBPROCESS.search(message or "") and not any(_is_named(message, name) for name in existing)
+	if not named and refers_to_it:
+		named = [name for kind, name in proposed if kind == "subProcess"][:1]
+	return {"added": added[:8], "request": request, "named": named}
 
 
 def asks_to_make_call_activity(text: str) -> bool:
