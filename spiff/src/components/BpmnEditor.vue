@@ -152,6 +152,7 @@
 						:process-name="processNameForPanel"
 						:get-canvas-xml="getCanvasXml"
 						:get-scope-id="getOpenSubProcessId"
+						:get-lint-issues="getLintIssues"
 						@close="showProsAllyPanel = false"
 						@bpmn-generated="onProsAllyBpmnGenerated"
 					/>
@@ -173,6 +174,7 @@
 						:process-name="processNameForPanel"
 						:get-canvas-xml="getCanvasXml"
 						:get-scope-id="getOpenSubProcessId"
+						:get-lint-issues="getLintIssues"
 						@close="showProsAllyPanel = false"
 						@bpmn-generated="onProsAllyBpmnGenerated"
 					/>
@@ -1092,6 +1094,7 @@ import {
 import lintModule from "bpmn-js-bpmnlint";
 import "bpmn-js-bpmnlint/dist/assets/css/bpmn-js-bpmnlint.css";
 import bpmnlintConfig from "@/linting/bpmnlintrc.js";
+import { flattenLintIssues } from "@/utils/lintIssues.js";
 
 // Import bpmn-js CSS
 import "bpmn-js/dist/assets/diagram-js.css";
@@ -3192,6 +3195,12 @@ function getOpenSubProcessId() {
 	return root?.$type === "bpmn:SubProcess" ? root.id : "";
 }
 
+async function getLintIssues() {
+	const linting = modeler?.get("linting");
+	if (!linting) return [];
+	return flattenLintIssues(linting._formatIssues(await linting.lint()));
+}
+
 async function getCanvasXml() {
 	if (!modeler) return "";
 	try {
@@ -3347,16 +3356,16 @@ function getSelectedElements() {
 }
 
 
-// Directly update calledElement on a Call Activity via the command stack.
+// Directly update a Call Activity's Process and its active map's id via the command stack.
 // This is the reliable way to update the property regardless of SpiffWorkflow's
 // async once-listener state.
-function updateCalledElement(element, processId) {
+function updateCalledElement(element, processId, process) {
 	if (!modeler || !element) return;
 	const cmdStack = modeler.get("commandStack");
 	cmdStack.execute("element.updateProperties", {
 		element,
 		moddleElement: element.businessObject,
-		properties: { calledElement: processId },
+		properties: { calledElement: processId, "spiffworkflow:calledProcess": process },
 	});
 	// Force the properties panel to re-initialize (and re-read getValue)
 	// by cycling the selection. Without this the Preact TextFieldEntry

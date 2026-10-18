@@ -3,10 +3,13 @@
 		<template #body-content>
 			<div class="space-y-4">
 				<!-- Current value indicator -->
-				<div v-if="currentProcessId" class="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm">
+				<div
+					v-if="currentProcess || currentProcessId"
+					class="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm"
+				>
 					<Icon icon="lucide:link" class="w-4 h-4 text-blue-500 shrink-0" />
 					<span class="text-blue-700 font-medium">Currently linked:</span>
-					<code class="text-blue-800 bg-blue-100 px-1.5 py-0.5 rounded font-mono text-xs">{{ currentProcessId }}</code>
+					<code class="text-blue-800 bg-blue-100 px-1.5 py-0.5 rounded font-mono text-xs">{{ currentProcess || currentProcessId }}</code>
 				</div>
 
 				<!-- Search input -->
@@ -16,7 +19,7 @@
 						ref="searchInput"
 						v-model="searchQuery"
 						type="text"
-						placeholder="Search by process name or ID..."
+						placeholder="Search by process name..."
 						class="w-full pl-9 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
 						@input="onSearchInput"
 					/>
@@ -59,12 +62,7 @@
 						<li
 							v-for="model in filteredModels"
 							:key="model.name"
-							:class="[
-								'flex items-start gap-3 px-4 py-3 cursor-pointer transition-colors group',
-								selectedModel?.name === model.name
-									? 'bg-blue-50 border-l-4 border-blue-500'
-									: 'hover:bg-gray-50 border-l-4 border-transparent',
-							]"
+							:class="['flex items-start gap-3 px-4 py-3 transition-colors group', rowClass(model)]"
 							@click="selectModel(model)"
 						>
 							<!-- Icon -->
@@ -76,14 +74,19 @@
 							<div class="flex-1 min-w-0">
 								<div class="flex items-center gap-2 flex-wrap">
 									<span :class="['font-medium text-sm truncate', selectedModel?.name === model.name ? 'text-blue-800' : 'text-gray-900']">
-										{{ model.title || model.model_name || model.name }}
+										{{ model.process_name || model.name }}
 									</span>
-									<span v-if="model.process_id === currentProcessId" class="shrink-0 px-1.5 py-0.5 bg-green-100 text-green-700 text-xs rounded-full font-medium">
+									<span
+										v-if="isCurrent(model)"
+										class="shrink-0 px-1.5 py-0.5 bg-green-100 text-green-700 text-xs rounded-full font-medium"
+									>
 										Current
 									</span>
 								</div>
 								<div class="mt-0.5 flex items-center gap-2 flex-wrap">
-									<code class="text-xs text-gray-400 font-mono truncate">{{ model.process_id }}</code>
+									<span class="text-xs text-gray-400 truncate">
+										{{ callableNote(model) }}
+									</span>
 								</div>
 							</div>
 
@@ -141,17 +144,32 @@ const selectedModel = ref(null);
 const loading = ref(false);
 const error = ref(null);
 
-// The process_id currently set on the element
+// What the element links to now: its Process, or the process id an older link stored
 const currentProcessId = computed(() => props.searchEvent?.processId || "");
+const currentProcess = computed(
+	() => props.searchEvent?.element?.businessObject?.get("spiffworkflow:calledProcess") || ""
+);
+
+function isCurrent(model) {
+	return model.name === currentProcess.value || model.active_process_id === currentProcessId.value;
+}
+
+function rowClass(model) {
+	if (!model.active_process_id) return "opacity-50 cursor-not-allowed border-l-4 border-transparent";
+	if (selectedModel.value?.name === model.name) return "cursor-pointer bg-blue-50 border-l-4 border-blue-500";
+	return "cursor-pointer hover:bg-gray-50 border-l-4 border-transparent";
+}
+
+function callableNote(model) {
+	return model.active_process_id ? "Runs its active map" : "No active map, so it cannot be called yet";
+}
 
 // Filtered list based on search query
 const filteredModels = computed(() => {
 	if (!searchQuery.value.trim()) return allModels.value;
 	const q = searchQuery.value.trim().toLowerCase();
 	return allModels.value.filter((m) => {
-		const title = (m.title || m.model_name || m.name || "").toLowerCase();
-		const pid = (m.process_id || "").toLowerCase();
-		return title.includes(q) || pid.includes(q);
+		return (m.process_name || m.name || "").toLowerCase().includes(q);
 	});
 });
 
@@ -161,24 +179,23 @@ async function fetchModels() {
 	error.value = null;
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.list_process_models",
+			url: "/api/method/one_bpmn.api.process_map_api.list_processes",
 		});
 		allModels.value = response.message || response || [];
 	} catch (err) {
-		console.error("Failed to fetch process models:", err);
-		error.value = "Failed to load process models. Please try again.";
+		error.value = "Failed to load processes. Please try again.";
 	} finally {
 		loading.value = false;
 	}
 }
 
 function selectModel(model) {
-	selectedModel.value = model;
+	if (model.active_process_id) selectedModel.value = model;
 }
 
 function confirm() {
 	if (!selectedModel.value) return;
-	emit("select", selectedModel.value.process_id);
+	emit("select", { process: selectedModel.value.name, processId: selectedModel.value.active_process_id });
 	close();
 }
 
@@ -215,10 +232,7 @@ watch(
 			searchQuery.value = "";
 			selectedModel.value = null;
 			await fetchModels();
-			// Pre-select model matching the current processId
-			if (currentProcessId.value) {
-				selectedModel.value = allModels.value.find((m) => m.process_id === currentProcessId.value) || null;
-			}
+			selectedModel.value = allModels.value.find((m) => m.active_process_id && isCurrent(m)) || null;
 			// Focus search input
 			await nextTick();
 			searchInput.value?.focus();
