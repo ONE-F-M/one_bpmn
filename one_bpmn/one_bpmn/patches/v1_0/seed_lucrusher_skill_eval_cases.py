@@ -143,6 +143,10 @@ CASES = [
 
 
 def execute():
+	seed_cases(CASES)
+
+
+def seed_cases(cases):
 	agent = frappe.db.get_value("AI Agent Configuration", {"agent_id": AGENT_ID}, "name")
 	suite, process_model = frappe.db.get_value(
 		"AI Eval Suite", {"title": SUITE_TITLE}, ["name", "process_model"]
@@ -151,7 +155,7 @@ def execute():
 		return
 
 	judge_provider, judge_model = judge_for(agent)
-	for spec in CASES:
+	for spec in cases:
 		existing = frappe.db.get_value("AI Eval Case", {"suite": suite, "title": spec["title"]}, "name")
 		case = frappe.get_doc("AI Eval Case", existing) if existing else frappe.new_doc("AI Eval Case")
 		case.suite = suite
