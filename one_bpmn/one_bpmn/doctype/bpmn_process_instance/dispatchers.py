@@ -18,21 +18,7 @@ import frappe.utils
 # Stable, documented format for the injected memory block. Evals and the run
 # inspector reference this header — do not change it lightly.
 MEMORY_BLOCK_HEADER = "Relevant memory:"
-# Two jobs, and they pull against each other. The second sentence stops a past
-# final response being read as this conversation's history (observed live
-# 2026-08-09: the ProsAlly orchestrator concluded the requested process already
-# existed and skipped its confirm tool). The first sentence stops the
-# over-correction: calling the notes "context only", as this did until
-# 2026-09-11, reads as "not authoritative", and an agent holding tools will go
-# to the tools instead. Observed live: General Chat was handed the user's own
-# stated approval rule and answered from a wiki lookup that found nothing.
-_MEMORY_BLOCK_PROVENANCE = (
-	"(Background notes recalled from PAST, separate conversations. Treat each "
-	"one as a true, standing fact about this user or their organisation, and "
-	"use it when it answers the current request. Nothing below has happened in "
-	"the current conversation, and none of it counts as work already done for "
-	"the current request.)"
-)
+_MEMORY_BLOCK_PROVENANCE = "Possibly relevant notes from earlier work; use them only if they match this request."
 
 # aiMemoryLimit only bounds how many memories are recalled — a raw-write-mode
 # memory has no size cap of its own (memory_write stores str(result.output)
@@ -130,14 +116,16 @@ def _requesting_user() -> str | None:
 	return None if not user or user == "Guest" else user
 
 
-def _resolve_memory_target(task_cfg: dict, instance, bpmn_id: str):
+def _resolve_memory_target(task_cfg: dict, instance, bpmn_id: str, task_data: dict | None = None):
 	"""Resolve (scope, scope_key) for memory search/write from task config and
 	the instance context. Returns None when the scope key can't be built (e.g.
 	Entity scope with no context document) so the caller safely skips memory.
 
 	Agent   -> agent_element (defaults to the task's bpmn_id)
 	Process -> the instance's process_model
-	Entity  -> {reference_doctype, reference_name} from the instance context doc
+	Entity  -> {memory_reference_doctype, memory_reference_name} from the task data,
+	           (blank means no memory), else {reference_doctype, reference_name} from
+	           the instance context doc
 
 	The "User and X" scopes key on X plus the requesting user: recall returns
 	that person's memories plus the shared ones, writes are theirs alone. With
@@ -161,8 +149,12 @@ def _resolve_memory_target(task_cfg: dict, instance, bpmn_id: str):
 			return None
 		key = {"process": process_model}
 	elif scope == "Entity":
-		reference_doctype = getattr(instance, "context_doctype", None)
-		reference_name = getattr(instance, "context_docname", None)
+		if task_data and "memory_reference_name" in task_data:
+			reference_doctype = task_data.get("memory_reference_doctype")
+			reference_name = task_data.get("memory_reference_name")
+		else:
+			reference_doctype = getattr(instance, "context_doctype", None)
+			reference_name = getattr(instance, "context_docname", None)
 		if not (reference_doctype and reference_name):
 			return None
 		key = {"reference_doctype": reference_doctype, "reference_name": reference_name}
@@ -176,6 +168,14 @@ def _resolve_memory_target(task_cfg: dict, instance, bpmn_id: str):
 	elif scope == "Process":
 		return (scope, key["process"])
 	return (scope, key)
+
+
+def _preference_user(task_data: dict | None) -> str | None:
+	"""The requester, when the task data keys memory by a business record; their
+	own preference rows are read and written alongside that record's facts."""
+	if not (task_data or {}).get("memory_reference_name"):
+		return None
+	return _requesting_user()
 
 
 def _format_memory_block(memories: list) -> str:
@@ -300,6 +300,17 @@ def _extract_memory_content(output, content_field: str) -> str:
 	if content_field and isinstance(output, dict):
 		return str(output.get(content_field, "") or "")
 	return str(output or "")
+
+
+# Tools whose turn is a canned reply or a question, so there is nothing to learn from it.
+_NON_ANSWER_TOOLS = frozenset({"redirect", "clarify"})
+
+
+def _ended_without_answer(trace) -> bool:
+	"""True when the turn called a redirect or clarify tool."""
+	return any(
+		call.get("name") in _NON_ANSWER_TOOLS for turn in trace or [] for call in turn.get("tool_calls") or []
+	)
 
 
 def _memory_output_from_trace(trace) -> str:
@@ -1778,7 +1789,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	memory_injected_tokens = 0
 	if not resume_payload and _cfg_truthy(task_cfg.get("aiLongTermMemory")):
 		try:
-			memory_target = _resolve_memory_target(task_cfg, instance, bpmn_id)
+			memory_target = _resolve_memory_target(task_cfg, instance, bpmn_id, task.data)
 			# raw_user_message, NOT user_message: the de-duplication above blanks
 			# the platform's copy whenever the map has already rendered the
 			# person's words into its own prompt, which every chat map does. The
@@ -1813,6 +1824,11 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				matched = memory_search(
 					scope, scope_key, query, limit=limit, ignore_permissions=True
 				)
+				preference_user = _preference_user(task.data)
+				if preference_user:
+					user_key = {"user": preference_user}
+					user_directed += memory_list_user_directed("User", user_key, limit=3, ignore_permissions=True)
+					matched += memory_search("User", user_key, query, limit=limit, ignore_permissions=True)
 				seen_names = {m.get("name") for m in user_directed}
 				memories = user_directed + [m for m in matched if m.get("name") not in seen_names]
 				if memories:
@@ -2447,7 +2463,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# Eval runs never write memory; cases that need it seed it with memory_write.
 		if write_mode != "off" and not frappe.flags.get("eval_origin"):
 			try:
-				write_target = memory_target or _resolve_memory_target(task_cfg, instance, bpmn_id)
+				write_target = memory_target or _resolve_memory_target(task_cfg, instance, bpmn_id, task.data)
 				if write_target:
 					scope, scope_key = write_target
 					src = run.name if run and not getattr(run, "stub", False) else None
@@ -2509,7 +2525,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 								ignore_permissions=True,
 								process_model=memory_process_model,
 							)
-					else:  # distilled
+					elif not _ended_without_answer(result.trace):  # distilled
 						# Distill and reconcile with the models the admin chose
 						# (agent -> Processa Settings -> the agent's own model),
 						# resolved here on the dispatch thread and handed to the
@@ -2574,6 +2590,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 							),
 							source_run=src,
 							process_model=memory_process_model,
+							user=_preference_user(task.data),
 							# WI-002165: the agent's own instructions for this run
 							# (the static system prompt) plus the memory block
 							# recalled and injected into the dynamic layer (WI-001639

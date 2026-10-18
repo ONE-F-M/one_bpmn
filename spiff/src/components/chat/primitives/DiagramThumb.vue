@@ -27,6 +27,8 @@ const props = defineProps({
 	// Removes the 190px max-height constraint so the expanded dialog can
 	// use the full height passed via `height` instead of being clipped.
 	large: { type: Boolean, default: false },
+	// Id of a sub-process to open instead of the main process.
+	rootId: { type: String, default: "" },
 });
 const host = ref(null);
 const ready = ref(false);
@@ -60,6 +62,9 @@ onMounted(async () => {
 		if (disposed) return;
 		viewer = new NavigatedViewer({ container: host.value, height: props.height });
 		await viewer.importXML(props.xml);
+		if (disposed) return;
+		const plane = props.rootId && viewer.getDefinitions().diagrams.find((d) => d.plane.bpmnElement?.id === props.rootId);
+		if (plane) await viewer.open(plane);
 		if (disposed) return;
 		// Fit once the freshly opened window has laid out.
 		await nextTick();

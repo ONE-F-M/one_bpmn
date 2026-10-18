@@ -18,7 +18,7 @@
 // the wrong branch, but the map still compiles and editing again puts it right.
 const LOCKED_TYPES = ["bpmn:ScriptTask"];
 
-const LOCKED_ATTRS = ["id", "serviceType", "calledElement", "default"];
+const LOCKED_ATTRS = ["id", "serviceType", "calledElement", "calledProcess", "default"];
 
 export const AI_AGENT_SERVICE_TYPE = "ai_agent";
 

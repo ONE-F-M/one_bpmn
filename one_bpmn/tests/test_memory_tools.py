@@ -16,6 +16,10 @@ from one_bpmn.agents.memory import tools as T
 
 # Seed under unique scope keys so each test is hermetic regardless of any
 # other AI Memory rows already in the table.
+def _retired(expires_on) -> bool:
+	return bool(expires_on and expires_on <= now_datetime())
+
+
 def _seed_agent_memories():
 	agent = f"A_{frappe.generate_hash(length=8)}"
 	other = f"B_{frappe.generate_hash(length=8)}"
@@ -280,7 +284,7 @@ class TestReconcileWrite(FrappeTestCase):
 				ignore_permissions=True, reconcile=True, reconcile_ctx=self._CTX,
 			)
 		# Nothing invalidated; both remain valid and searchable.
-		self.assertIsNone(frappe.db.get_value("AI Memory", old["name"], "expires_on"))
+		self.assertFalse(_retired(frappe.db.get_value("AI Memory", old["name"], "expires_on")))
 		names = [r["name"] for r in T.memory_search("Agent", agent, "customer payment", ignore_permissions=True)]
 		self.assertIn(old["name"], names)
 		self.assertIn(new["name"], names)
@@ -299,7 +303,7 @@ class TestReconcileWrite(FrappeTestCase):
 			)
 		self.assertTrue(frappe.db.exists("AI Memory", new["name"]))
 		# Old memory untouched (not invalidated) because reconciliation blew up.
-		self.assertIsNone(frappe.db.get_value("AI Memory", old["name"], "expires_on"))
+		self.assertFalse(_retired(frappe.db.get_value("AI Memory", old["name"], "expires_on")))
 
 	def test_corroboration_keeps_the_words_the_person_used(self):
 		"""Reconciliation invalidates and inserts fresh, so a restatement used to
@@ -473,7 +477,7 @@ class TestReconcileWrite(FrappeTestCase):
 				ignore_permissions=True, reconcile=True, reconcile_ctx=self._CTX,
 			)
 		# The other agent's memory is untouched.
-		self.assertIsNone(frappe.db.get_value("AI Memory", foreign["name"], "expires_on"))
+		self.assertFalse(_retired(frappe.db.get_value("AI Memory", foreign["name"], "expires_on")))
 
 
 class TestReconciler(FrappeTestCase):
@@ -860,4 +864,4 @@ class TestUserScope(FrappeTestCase):
 				"Agent", {"agent_element": self.agent, "user": self.alice}, "exports ship via FedEx",
 				user_directed=True, reconcile=True, reconcile_ctx=_TRUST_CTX, ignore_permissions=True,
 			)
-		self.assertIsNone(frappe.db.get_value("AI Memory", self.shared["name"], "expires_on"))
+		self.assertFalse(_retired(frappe.db.get_value("AI Memory", self.shared["name"], "expires_on")))

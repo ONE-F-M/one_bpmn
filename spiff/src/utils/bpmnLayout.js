@@ -121,7 +121,9 @@ export function layoutBpmnXml(xmlString) {
 	// For flat processes (no lanes), the frontend layout produces superior
 	// horizontal layouts with complete edge routing, so we always regenerate.
 	const collaborationEl = doc.getElementsByTagNameNS(BPMN_NS, "collaboration")[0];
-	if (collaborationEl) {
+	// An expanded sub-process draws its steps inside its box, which only the pipeline's drawing has.
+	const hasExpandedSubProcess = /<bpmndi:BPMNShape\b[^>]*\bisExpanded="true"/.test(xmlString);
+	if (collaborationEl || hasExpandedSubProcess) {
 		const xmlDeclMatch  = xmlString.match(/^<\?xml[^?]*\?>/);
 		const xmlDecl       = xmlDeclMatch ? xmlDeclMatch[0] + "\n" : "";
 

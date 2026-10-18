@@ -29,9 +29,9 @@ from contextlib import ExitStack, nullcontext
 
 import frappe
 from frappe import _
-from frappe.utils import cint, get_datetime, now, now_datetime
+from frappe.utils import add_days, cint, get_datetime, now, now_datetime
 
-VALID_SCOPES = ("Agent", "Process", "Entity")
+VALID_SCOPES = ("Agent", "Process", "Entity", "User")
 _DEFAULT_LIMIT = 5
 # Extra rows fetched on the keyword (`like`) path before dropping expired/
 # superseded ones in Python, so the post-filter still fills `limit` in the common
@@ -87,6 +87,8 @@ _DEFAULT_IMPORTANCE = 3
 # ── Provenance and trust ─────────────────────────────────────────────────────
 SOURCE_TYPES = ("User Statement", "Agent Inference", "Tool Output")
 _DEFAULT_SOURCE_TYPE = "Agent Inference"
+_EXPIRING_SOURCE_TYPES = ("Agent Inference", "Tool Output")
+MEMORY_TTL_DAYS = 30
 # Starting confidence by source. Tool output is discouraged by default: a fact
 # read off what a tool returned is one step further from anything a person
 # said, so it starts low and loses ties against the other two.
@@ -190,6 +192,10 @@ def _resolve_scope(scope: str, scope_key) -> dict:
 			frappe.throw(_("Process scope requires a process."))
 		keys["process_model"] = process_model
 
+	elif scope == "User":
+		if not (isinstance(scope_key, dict) and scope_key.get("user")):
+			frappe.throw(_("User scope requires a user."))
+
 	else:  # Entity
 		if not isinstance(scope_key, dict):
 			frappe.throw(_("Entity scope requires reference_doctype and reference_name."))
@@ -212,6 +218,8 @@ def _read_filters(keys: dict) -> dict:
 	the empty string into ``ifnull(user, '') = ''`` so NULL reads as shared."""
 	filters = dict(keys)
 	user = keys.get("user") or ""
+	if keys["memory_scope"] == "User":
+		return filters
 	filters["user"] = ("in", [user, ""] if user else [""])
 	return filters
 
@@ -1006,6 +1014,8 @@ def _memory_write(
 		if importance is not None:
 			doc_fields["importance"] = min(5, max(1, int(importance)))
 		doc_fields["source_type"] = source_type
+		if source_type in _EXPIRING_SOURCE_TYPES:
+			doc_fields["expires_on"] = add_days(now_datetime(), MEMORY_TTL_DAYS)
 		doc_fields["confidence"] = carry.get("confidence", confidence)
 		if carry.get("corroboration_count"):
 			doc_fields["corroboration_count"] = carry["corroboration_count"]
@@ -1031,7 +1041,7 @@ def _memory_write(
 # ── MCP-compatible tool registry ────────────────────────────────────────────
 # A JSON-Schema object describing a scope key. Which properties apply depends on
 # `scope`; the tool validates the combination at runtime.
-_SCOPE_ENUM = {"type": "string", "enum": list(VALID_SCOPES), "description": "Memory scope."}
+_SCOPE_ENUM = {"type": "string", "enum": ["Agent", "Process", "Entity"], "description": "Memory scope."}
 _SCOPE_KEY_SCHEMA = {
 	"type": "object",
 	"description": (

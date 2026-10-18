@@ -80,6 +80,7 @@ def _bpmn_preview(result: dict):
 				"mode": "generated" if intent == "BPMN_GENERATED" else "modified",
 				"bpmn_xml": result["bpmn_xml"],
 				**({"summary": result["response"]} if result.get("response") else {}),
+				**({"scope_id": result["scope_id"]} if result.get("scope_id") else {}),
 			},
 		)
 	elif intent == "CONFIRM_REMOVAL" and result.get("pending_xml"):

@@ -15,6 +15,10 @@ from one_bpmn.agents.memory import tools as T
 CONFIG = {"min_confidence": 0.2, "uncorroborated_days": 180, "low_importance_days": 90}
 
 
+def _retired(expires_on) -> bool:
+	return bool(expires_on and expires_on <= now_datetime())
+
+
 class TestPruneReason(FrappeTestCase):
 	NOW = now_datetime()
 
@@ -74,8 +78,8 @@ class TestPruneSweep(FrappeTestCase):
 		self.assertIsNotNone(row.expires_on)
 		self.assertIn((T._json_loads(row.metadata) or {}).get("pruned", {}).get("reason"), ("decayed", "never corroborated"))
 		self.assertTrue(frappe.db.exists("AI Memory", stale["name"]))  # soft delete, row stays
-		self.assertIsNone(frappe.db.get_value("AI Memory", fresh["name"], "expires_on"))
-		self.assertIsNone(frappe.db.get_value("AI Memory", kept["name"], "expires_on"))
+		self.assertFalse(_retired(frappe.db.get_value("AI Memory", fresh["name"], "expires_on")))
+		self.assertFalse(_retired(frappe.db.get_value("AI Memory", kept["name"], "expires_on")))
 		# a retired memory no longer comes back from search
 		self.assertNotIn(stale["name"], [r["name"] for r in T.memory_search("Agent", agent, "uncorroborated fact", ignore_permissions=True)])
 

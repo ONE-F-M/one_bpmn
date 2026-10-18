@@ -31,7 +31,7 @@ def build_email_actions(
 	task_id: str,
 	actions: list[dict],
 	user: str,
-	expiry_hours: int = 72,
+	expiry_hours: int = 720,
 ) -> list[dict]:
 	"""Enrich action dicts with HMAC tokens for AMP email.
 
@@ -44,7 +44,8 @@ def build_email_actions(
 		actions: List of action dicts, each having at minimum a
 			``label`` key.  May also have ``url`` and ``primary``.
 		user: Frappe user (email) allowed to execute the action.
-		expiry_hours: Token validity in hours (default 72).
+		expiry_hours: Token validity in hours (default 720 = 30 days, so the
+			button still works when the email is opened days later).
 
 	Returns:
 		A new list of action dicts, each with an added ``token`` key.
