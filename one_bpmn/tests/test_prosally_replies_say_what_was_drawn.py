@@ -2,6 +2,8 @@
 """ProsAlly's replies say which lanes it drew, which named lane it missed, and what a modify changed."""
 
 import json
+import re
+import unittest
 from unittest.mock import patch
 
 import frappe
@@ -163,3 +165,40 @@ class TestPatchTransform(FrappeTestCase):
 				"from one_bpmn.agents.prosally_helpers import complete_sub_prompt, x\n", helper, anchor, call
 			)
 		)
+
+
+class TestRelayout(FrappeTestCase):
+	"""Draws the real fuel requisition map again; needs node to compile."""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		path = frappe.get_app_path("one_bpmn", "tests", "fixtures", "lane_layout_fuel_requisition_ir.json")
+		with open(path) as f:
+			cls.ir = json.load(f)
+		compiled = helpers.compile_ir(cls.ir)
+		if not compiled.get("ok"):
+			raise unittest.SkipTest("node or pipeline.mjs unavailable")
+		cls.xml = compiled["xml"]
+
+	def test_the_ir_read_back_keeps_every_step_and_arrow(self):
+		ir = helpers.xml_to_ir(self.xml)
+		self.assertEqual({n["id"] for n in ir["nodes"]}, {n["id"] for n in self.ir["nodes"]})
+		self.assertEqual(len(ir["flows"]), len(self.ir["flows"]))
+		self.assertEqual(len(ir["lanes"]), len(self.ir["lanes"]))
+
+	def test_a_diagram_already_laid_out_says_so(self):
+		self.assertEqual(helpers.relayout(self.xml), (None, "same"))
+
+	def test_a_moved_shape_is_put_back_and_ids_and_settings_are_kept(self):
+		step = self.ir["nodes"][1]["id"]
+		messy = re.sub(
+			rf'(<bpmndi:BPMNShape id="[^"]*" bpmnElement="{step}">\s*<dc:Bounds x=")[\d.]+', r"\g<1>9999", self.xml
+		).replace(f'<bpmn:userTask id="{step}"', f'<bpmn:userTask id="{step}" spiffworkflow:assignee="kept"')
+		new_xml, reason = helpers.relayout(messy)
+		self.assertEqual(reason, "")
+		self.assertEqual(helpers.element_names(new_xml).keys(), helpers.element_names(messy).keys())
+		self.assertNotIn('x="9999"', new_xml)
+
+	def test_a_diagram_without_lanes_is_left_to_the_editor(self):
+		self.assertEqual(helpers.relayout('<bpmn:process id="p"><bpmn:startEvent id="s" /></bpmn:process>')[1], "lane-less")

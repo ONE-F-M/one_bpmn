@@ -12,7 +12,7 @@ from xml.etree import ElementTree as ET
 import frappe
 from frappe import _
 
-from one_bpmn.agents.bpmn_ir_pipeline import element_names
+from one_bpmn.agents.bpmn_ir_pipeline import compile_ir, element_names, has_lanes
 from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
 from one_bpmn.agents.memory.text_clean import strip_html
 from one_bpmn.agents.turn_state import run_sync
@@ -1024,6 +1024,93 @@ def _moved_arrows(previous_xml: str, xml: str) -> list[str]:
 				_("Moved the arrow from {0} to {1}.").format(_quoted(new_names[source] or source), _quoted(new_names[target] or target))
 			)
 	return lines
+
+IR_NODE_TYPES = frozenset(
+	{
+		"startEvent", "endEvent", "intermediateThrowEvent", "intermediateCatchEvent", "userTask", "scriptTask",
+		"serviceTask", "manualTask", "businessRuleTask", "exclusiveGateway", "parallelGateway", "inclusiveGateway",
+		"subProcess", "callActivity",
+	}
+)  # fmt: skip
+
+
+def xml_to_ir(xml: str) -> dict | None:
+	"""The IR that draws xml again, or None when xml has an element the IR cannot hold."""
+	bpmn = "{" + NS["bpmn"] + "}"
+	process = next(iter(ET.fromstring(xml).iter(bpmn + "process")), None)
+	if process is None:
+		return None
+	lane_of = {}
+	lanes = []
+	for lane in process.iter(bpmn + "lane"):
+		lanes.append({"id": lane.get("id"), "name": lane.get("name") or lane.get("id")})
+		for ref in lane.findall(bpmn + "flowNodeRef"):
+			lane_of[(ref.text or "").strip()] = lane.get("id")
+
+	def scope(parent):
+		nodes, flows = [], []
+		for elem in parent:
+			tag = elem.tag.removeprefix(bpmn)
+			if tag in IR_NODE_TYPES:
+				node = {"id": elem.get("id"), "name": elem.get("name") or "", "type": tag}
+				if elem.get("id") in lane_of:
+					node["lane"] = lane_of[elem.get("id")]
+				if elem.get("calledElement"):
+					node["calledElement"] = elem.get("calledElement")
+				if tag == "subProcess":
+					inner = scope(elem)
+					if inner is None:
+						return None
+					node["children"] = inner
+				nodes.append(node)
+			elif tag == "sequenceFlow":
+				flow = {"id": elem.get("id"), "from": elem.get("sourceRef"), "to": elem.get("targetRef")}
+				if elem.get("name"):
+					flow["name"] = elem.get("name")
+				body = elem.find(bpmn + "conditionExpression")
+				if body is not None and body.text:
+					flow["condition"] = body.text
+				if parent.get("default") == elem.get("id"):
+					flow["default"] = True
+				flows.append(flow)
+			elif tag not in ("laneSet", "extensionElements", "incoming", "outgoing", "documentation"):
+				return None
+		return {"nodes": nodes, "flows": flows}
+
+	body = scope(process)
+	if body is None:
+		return None
+	return {"name": process.get("name") or "", "lanes": lanes, **body}
+
+
+def diagram_geometry(xml: str) -> list:
+	"""Every drawn shape and arrow of xml with its position, in a stable order."""
+	bpmndi, dc, di = ("{" + NS[prefix] + "}" for prefix in ("bpmndi", "dc", "di"))
+	drawn = []
+	for elem in ET.fromstring(xml).iter():
+		if elem.tag in (bpmndi + "BPMNShape", bpmndi + "BPMNEdge"):
+			points = [(b.get("x"), b.get("y"), b.get("width"), b.get("height")) for b in elem.iter(dc + "Bounds")]
+			points += [(p.get("x"), p.get("y")) for p in elem.iter(di + "waypoint")]
+			drawn.append((elem.get("bpmnElement"), tuple(points)))
+	return sorted(drawn)
+
+
+def relayout(xml: str) -> tuple[str | None, str]:
+	"""(new xml, "") with the diagram drawn again and every id and setting kept; (None, reason) when it cannot be."""
+	if not has_lanes(xml):
+		return None, "lane-less"
+	ir = xml_to_ir(xml)
+	if ir is None:
+		return None, "unsupported"
+	compiled = compile_ir(ir)
+	if not compiled.get("ok") or not compiled.get("xml"):
+		return None, "failed"
+	merged, _removed = transfer_properties(xml, compiled["xml"])
+	if element_names(merged).keys() != element_names(xml).keys():
+		return None, "ids-changed"
+	if diagram_geometry(merged) == diagram_geometry(xml):
+		return None, "same"
+	return merged, ""
 
 
 def similar_steps(xml: str, texts: list, skip: str = "") -> list[str]:

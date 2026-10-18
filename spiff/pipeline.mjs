@@ -422,7 +422,7 @@ async function compileIRtoBpmn(ir) {
       if (!src || !tgt) continue;
 
       const sf = moddle.create('bpmn:SequenceFlow', {
-        id:        `flow_${f.from}_${f.to}_${i}`,
+        id:        f.id || `flow_${f.from}_${f.to}_${i}`,
         name:      f.name || '',
         sourceRef: src,
         targetRef: tgt,
