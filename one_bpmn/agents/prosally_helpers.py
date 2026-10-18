@@ -118,6 +118,11 @@ BECOME_SUBPROCESS = re.compile(
 	re.I,
 )
 DIAGRAM_REPLIES = ("BPMN_MODIFIED", "BPMN_GENERATED")
+DIAGRAM_VERSION_SUFFIX = re.compile(r"\s+-\s+v\d+\s*$", re.I)
+MEMORY_NOTES_LIMIT = 8
+MEMORY_NOTES_HEADER = "Notes from earlier work on this process:"
+MEMORY_NOTES_PROVENANCE = "These were agreed in other conversations; they do not mean the diagram exists."
+MEMORY_BACKEND = "direct_api"
 REQUEST_STOPWORDS = frozenset(
 	("create", "sub", "process", "subprocess", "step", "steps", "with", "that", "this", "from", "into", "inside", "when", "then", "should")
 )
@@ -198,19 +203,107 @@ def complete_sub_prompt(cfg: dict, sub_id: str, user: str, system: str | None = 
 	return run_sync(get_llm_adapter_from_settings(cfg).complete(**kwargs)).text
 
 
-def stage_system_prompt(cfg: dict, sub_id: str, skills_constant: str) -> str:
-	"""A stage's sub-prompt followed by each Active skill named in the agent constant ``skills_constant``."""
+def stage_system_prompt(cfg: dict, sub_id: str, skills_constant: str, turn: dict | None = None) -> str:
+	"""A stage's sub-prompt, the turn's process notes, then the Active skills named in ``skills_constant``."""
 	system = ((cfg.get("sub_prompts") or {}).get(sub_id) or {}).get("prompt") or ""
 	names = [
 		n.strip() for n in ((cfg.get("constants") or {}).get(skills_constant) or "").split(",") if n.strip()
 	]
-	skills = frappe.get_all(
-		"AI Skill",
-		filters={"name": ["in", names], "status": "Active"},
-		fields=["name", "body"],
-		order_by="name asc",
+	skills = []
+	if names:
+		skills = frappe.get_all(
+			"AI Skill",
+			filters={"name": ["in", names], "status": "Active"},
+			fields=["name", "body"],
+			order_by="name asc",
+		)
+	notes = memory_notes_block(turn)
+	sections = [system] + ([notes] if notes else [])
+	sections += ["## Skill: " + sk.name + "\n\n" + sk.body for sk in skills]
+	return "\n\n".join(sections)
+
+
+def process_for_diagram(diagram_name: str) -> str:
+	"""The Process a diagram is named after, with its version suffix removed; "" when there is none."""
+	name = DIAGRAM_VERSION_SUFFIX.sub("", diagram_name or "").strip()
+	return name if name and frappe.db.exists("Process", name) else ""
+
+
+def recall_process_memory(diagram_name: str) -> dict:
+	"""The diagram's Process and the notes recalled for it and the requester, for the turn store."""
+	from one_bpmn.agents.memory.tools import memory_search
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
+		DEFAULT_MEMORY_TOKEN_BUDGET,
+		_bound_memories_to_budget,
+		_requesting_user,
 	)
-	return "\n\n".join([system] + ["## Skill: " + sk.name + "\n\n" + sk.body for sk in skills])
+
+	process = process_for_diagram(diagram_name)
+	user = _requesting_user()
+	rows = []
+	# An empty query lists the key's newest rows: a confirmation turn's text matches nothing.
+	if process:
+		key = {"reference_doctype": "Process", "reference_name": process}
+		rows += memory_search("Entity", key, "", limit=MEMORY_NOTES_LIMIT, ignore_permissions=True)
+	if user:
+		rows += memory_search("User", {"user": user}, "", limit=MEMORY_NOTES_LIMIT, ignore_permissions=True)
+	notes = list(dict.fromkeys((r.get("content") or "").strip() for r in rows))
+	kept = _bound_memories_to_budget([{"content": n} for n in notes if n], DEFAULT_MEMORY_TOKEN_BUDGET)
+	return {"memory_process": process, "memory_notes": [r["content"] for r in kept]}
+
+
+def memory_notes_block(turn: dict | None) -> str:
+	"""The turn's recalled notes under their heading; "" when it has none."""
+	notes = (turn or {}).get("memory_notes") or []
+	if not notes:
+		return ""
+	return "\n".join([MEMORY_NOTES_HEADER, MEMORY_NOTES_PROVENANCE] + ["- " + n for n in notes])
+
+
+def queue_process_memory(turn: dict, agent_result: dict | None) -> None:
+	"""Queue distillation of a turn that drew or changed a diagram into its Process's memory."""
+	process = (turn or {}).get("memory_process")
+	intent = (agent_result or {}).get("intent")
+	if not process or intent not in DIAGRAM_REPLIES or frappe.flags.get("eval_origin"):
+		return
+	from one_bpmn.agents.memory.model_resolution import resolve_memory_model
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
+		_enqueue_distill,
+		_provider_for_model,
+		_requesting_user,
+	)
+
+	cfg = prosally_config()
+	own = frappe.db.get_value(
+		"AI Agent Configuration", cfg.get("name"), ["memory_distill_model", "memory_reconcile_model"], as_dict=True
+	) or {}
+	distill_model = resolve_memory_model(
+		own.get("memory_distill_model"), "default_memory_distill_model", cfg.get("ai_model")
+	)
+	reconcile_model = resolve_memory_model(
+		own.get("memory_reconcile_model"), "default_memory_reconcile_model", cfg.get("ai_model")
+	)
+	source = "\n\n".join(
+		[
+			"[User message]\n" + (turn.get("user_text") or "")[:3000],
+			"[ProsAlly reply]\n" + (agent_result.get("response") or ""),
+			"[Conversation]\n" + format_history(turn.get("chat_history")),
+		]
+	)
+	_enqueue_distill(
+		agent_output=source,
+		agent=AGENT_ID,
+		scope="Entity",
+		scope_key={"reference_doctype": "Process", "reference_name": process},
+		provider_name=_provider_for_model(distill_model, cfg.get("ai_provider")),
+		backend=MEMORY_BACKEND,
+		model=distill_model,
+		reconcile_model=reconcile_model,
+		reconcile_provider=_provider_for_model(reconcile_model, cfg.get("ai_provider")),
+		source_run=None,
+		user=_requesting_user(),
+		exclude_context=memory_notes_block(turn),
+	)
 
 
 def stage_max_tokens(cfg: dict) -> int:
