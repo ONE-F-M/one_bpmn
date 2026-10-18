@@ -21,6 +21,7 @@ from frappe.utils import add_to_date, get_datetime, now_datetime
 from one_bpmn import tasks as scheduled_tasks
 from one_bpmn.agents._eval_test_factories import make_agent_configuration
 from one_bpmn.agents.a2a import guardrails, local
+from one_bpmn.agents.test_eval_map_path import CHAT_START_XML, make_process_model
 from one_bpmn.one_bpmn.connectors import a2a_client_ops
 
 
@@ -420,3 +421,135 @@ class TestLocalDelegationParking(LocalDelegationCase):
 		self.assertEqual(row.state, "timed-out")
 		self.assertIn(row.name, [call.args[2] for call in woken.call_args_list])
 		self.assertTrue(row.resume_enqueued)
+
+
+class TestDelegationThatCannotStart(LocalDelegationCase):
+	"""A delegation that fails before the worker runs still leaves an Errored worker instance."""
+
+	def setUp(self):
+		super().setUp()
+		model = make_process_model(CHAT_START_XML)
+		self.caller = frappe.get_doc(
+			{"doctype": "BPMN Process Instance", "process_model": model.name, "status": "Active"}
+		)
+		self.caller.flags.ignore_links = True
+		self.caller.insert(ignore_permissions=True)
+		self.model = model
+
+	def delegate(self, **params):
+		ctx = self.ctx()
+		ctx["instance"].name = self.caller.name
+		return a2a_client_ops.delegate_to_local_agent(self.params(**params), ctx)
+
+	def assertErroredWorker(self, result, reason):
+		task = frappe.get_doc("A2A Task", result["a2a_task"])
+		self.assertTrue(task.instance, "the failed delegation has no worker instance")
+		worker = frappe.get_doc("BPMN Process Instance", task.instance)
+		self.assertEqual(worker.status, "Errored")
+		self.assertEqual(worker.parent_instance, self.caller.name)
+		self.assertEqual((worker.context_doctype, worker.context_docname), ("A2A Task", task.name))
+		log = frappe.get_all(
+			"BPMN Activity Log", filters={"instance": worker.name, "action": "Errored"}, pluck="data"
+		)
+		self.assertEqual(len(log), 1)
+		self.assertIn(reason, log[0])
+		delegation = frappe.get_doc("Agent Delegation", {"a2a_task": task.name})
+		self.assertEqual(delegation.status, "Failed")
+		self.assertEqual(delegation.worker_instance, worker.name)
+		self.assertIn(reason, delegation.error_message)
+		return task, worker
+
+	def background_worker(self, xml):
+		model = make_process_model(xml)
+		self.worker.db_set({"agent_type": "Background", "process_model": model.name})
+
+	def test_a_chat_turn_that_raises_leaves_an_errored_instance(self):
+		self.worker.db_set("process_model", self.model.name)
+		with patch("one_bpmn.api.agent_invocation.invoke_agent", side_effect=RuntimeError("boom")):
+			result = self.delegate()
+		self.assertEqual(result["state"], "failed")
+		self.assertErroredWorker(result, "the agent's turn failed")
+
+	def test_a_rate_limited_chat_turn_leaves_an_errored_instance(self):
+		from one_bpmn.security.rate_limit import RateLimited
+
+		self.worker.db_set("process_model", self.model.name)
+		with patch("one_bpmn.api.agent_invocation.invoke_agent", side_effect=RateLimited("slow down")):
+			result = self.delegate()
+		self.assertEqual(result["state"], "rejected")
+		self.assertErroredWorker(result, "slow down")
+
+	def test_a_map_an_a2a_task_cannot_start_leaves_an_errored_instance(self):
+		self.background_worker(CHAT_START_XML)
+		result = self.delegate()
+		self.assertEqual(result["state"], "rejected")
+		self.assertErroredWorker(result, "no process map that an A2A task can start")
+
+	def test_a_start_that_gives_no_process_leaves_an_errored_instance(self):
+		self.background_worker(CHAT_START_XML.replace("Chat Conversation", "A2A Task"))
+		result = self.delegate()
+		self.assertEqual(result["state"], "failed")
+		self.assertErroredWorker(result, "no process started for this task")
+
+	def test_an_error_after_the_task_row_exists_leaves_an_errored_instance(self):
+		self.worker.db_set("process_model", self.model.name)
+		with patch(
+			"one_bpmn.agents.a2a.delegation.record", side_effect=RuntimeError("record broke")
+		), self.assertRaises(RuntimeError):
+			self.delegate()
+		task = frappe.get_last_doc("A2A Task", {"agent_configuration": self.worker.name})
+		self.assertEqual(task.state, "failed")
+		self.assertEqual(frappe.db.get_value("BPMN Process Instance", task.instance, "status"), "Errored")
+
+	def test_a_limit_breach_leaves_an_errored_instance(self):
+		self.worker.db_set("process_model", self.model.name)
+		self.orchestrator.max_recursion_depth = 1
+		self.orchestrator.save(ignore_permissions=True)
+		with stub_turn():
+			first = self.delegate()
+		result = self.delegate(parent_task=first["a2a_task"])
+		self.assertEqual(result["state"], "refused")
+		task = frappe.get_all(
+			"A2A Task", filters={"error_code": "max_recursion_depth"}, fields=["name", "instance"]
+		)[0]
+		self.assertEqual(frappe.db.get_value("BPMN Process Instance", task.instance, "status"), "Errored")
+
+	def test_a_refused_target_still_creates_nothing(self):
+		unexposed = make_agent_configuration(process_model=self.model.name)
+		before = frappe.db.count("BPMN Process Instance")
+		result = self.delegate(agent=unexposed.name)
+		self.assertEqual(result["reason"], "target_not_exposed")
+		self.assertEqual(frappe.db.count("BPMN Process Instance"), before)
+
+	def test_a_finished_chat_instance_is_linked_to_the_task(self):
+		conversation = frappe.get_doc({"doctype": "Chat Conversation"})
+		conversation.flags.ignore_mandatory = True
+		conversation.flags.ignore_links = True
+		conversation.insert(ignore_permissions=True)
+		done = frappe.get_doc(
+			{
+				"doctype": "BPMN Process Instance",
+				"process_model": self.model.name,
+				"status": "Completed",
+				"context_doctype": "Chat Conversation",
+				"context_docname": conversation.name,
+			}
+		)
+		done.flags.ignore_links = True
+		done.insert(ignore_permissions=True)
+		for other in frappe.get_all(
+			"BPMN Process Instance",
+			filters={"context_docname": conversation.name, "name": ("!=", done.name)},
+			pluck="name",
+		):
+			frappe.db.set_value("BPMN Process Instance", other, "status", "Completed")
+		with stub_turn("answered", conversation=conversation.name):
+			result = self.delegate()
+		self.assertEqual(result["state"], "completed")
+		self.assertEqual(frappe.db.get_value("A2A Task", result["a2a_task"], "instance"), done.name)
+
+	def test_a_delegation_that_runs_is_unchanged(self):
+		with stub_turn("fine"):
+			result = self.delegate()
+		self.assertEqual(result["state"], "completed")
+		self.assertFalse(frappe.db.exists("BPMN Process Instance", {"status": "Errored", "parent_instance": self.caller.name}))
