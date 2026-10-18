@@ -11,17 +11,17 @@ AI_AGENT_JOB_TIMEOUT = 1800
 # The queue every AI agent turn runs on unless its agent has a queue of its own.
 AI_AGENT_QUEUE = "bpmn_ai_agent"
 
-# WI-003582: a ProsAlly drawing runs for minutes, and on the shared queue every
-# other agent's turn waited behind it. ProsAlly's turns go on their own queue.
+# A ProsAlly drawing runs for minutes. On the shared queue every other agent's turn waited behind it,
+# and on a general queue it would hold up unrelated jobs, so its turns have a queue and a worker of their own.
 PROSALLY_AGENT_ID = "prosally_agent"
-PROSALLY_AI_QUEUE = "long"
+PROSALLY_AI_QUEUE = "bpmn_ai_prosally"
 
 # Every queue an agent turn can be on, for code that asks "is a job still queued or running?".
 AI_AGENT_QUEUES = (AI_AGENT_QUEUE, PROSALLY_AI_QUEUE)
 
 
 def ai_agent_queue(agent_id: str | None) -> str:
-	"""The queue a turn for ``agent_id`` runs on: 'long' for ProsAlly, the shared AI queue for everyone else."""
+	"""The queue a turn for ``agent_id`` runs on: ProsAlly's own, the shared AI queue for everyone else."""
 	if agent_id == PROSALLY_AGENT_ID:
 		return PROSALLY_AI_QUEUE
 	return AI_AGENT_QUEUE

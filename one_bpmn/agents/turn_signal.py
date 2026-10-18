@@ -210,7 +210,7 @@ def ai_job_running(instance_name: str) -> bool:
 	from one_bpmn.agents.job_limits import AI_AGENT_QUEUES
 
 	prefix = create_job_id(f"bpmn-ai-{instance_name}-")
-	# ProsAlly's jobs are on their own queue (WI-003582), so every AI queue is checked.
+	# ProsAlly's jobs are on their own queue, so every AI queue is checked.
 	for queue_name in AI_AGENT_QUEUES:
 		queue = get_queue(queue_name)
 		if any(job.id.startswith(prefix) for job in [*queue.jobs, *get_running_jobs_in_queue(queue)]):

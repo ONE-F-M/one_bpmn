@@ -1177,26 +1177,10 @@ class BPMNProcessInstance(Document):
 				return True
 		return False
 
-	def _ai_job_queue(self) -> str:
-		"""The queue this instance's AI jobs run on (WI-003582): ProsAlly's own, else the shared AI queue.
-
-		The agent is the AI Agent Configuration linked to this instance's process model.
-		Any failure to find it keeps the shared queue, so a lookup problem never loses a job.
-		"""
-		agent_id = None
-		try:
-			if self.process_model:
-				agent_id = frappe.db.get_value(
-					"AI Agent Configuration", {"process_model": self.process_model}, "agent_id"
-				)
-		except Exception:
-			agent_id = None
-		return ai_agent_queue(agent_id)
-
 	def _enqueue_parked_ai_jobs(self):
 		"""One AI job per parked AI unit, deduplicated by job_id, on the queue of the instance's agent."""
 		jobs, self._pending_ai_jobs = getattr(self, "_pending_ai_jobs", []), []
-		queue = self._ai_job_queue() if jobs else AI_AGENT_QUEUE
+		queue = ai_job_queue(self.process_model) if jobs else AI_AGENT_QUEUE
 		for kind, ident in jobs:
 			frappe.enqueue(
 				"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
@@ -1458,7 +1442,7 @@ class BPMNProcessInstance(Document):
 		frappe.enqueue(
 			"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 			".bpmn_process_instance.run_parked_ai_task",
-			queue="bpmn_ai_agent",
+			queue=ai_job_queue(self.process_model),
 			timeout=AI_AGENT_JOB_TIMEOUT,
 			enqueue_after_commit=True,
 			job_id=f"bpmn-ai-{self.name}-hr-{task_id}",
@@ -2560,6 +2544,19 @@ def _job_retry_cap(instance, kind: str, task_id: str) -> int:
 		return DEFAULT_MAX_RETRIES
 
 
+def ai_job_queue(process_model: str | None) -> str:
+	"""The queue an AI job for an instance of this process model runs on: its agent's own, else the shared one."""
+	agent_id = None
+	if process_model:
+		agent_id = frappe.db.get_value("AI Agent Configuration", {"process_model": process_model}, "agent_id")
+	return ai_agent_queue(agent_id)
+
+
+def ai_job_queue_of(instance_name: str) -> str:
+	"""The queue an AI job for this instance runs on."""
+	return ai_job_queue(frappe.db.get_value("BPMN Process Instance", instance_name, "process_model"))
+
+
 def _enqueue_a2a_resume(instance_name: str, wf_task_id: str, a2a_task_name: str) -> None:
 	"""WI-001933: resume a parked delegation through the SAME worker path AI
 	tasks use — row lock, engine_in_progress gate, bounded retries and
@@ -2575,7 +2572,7 @@ def _enqueue_a2a_resume(instance_name: str, wf_task_id: str, a2a_task_name: str)
 	frappe.enqueue(
 		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 		".bpmn_process_instance.run_parked_ai_task",
-		queue="bpmn_ai_agent",
+		queue=ai_job_queue_of(instance_name),
 		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,
 		job_id=f"bpmn-ai-{instance_name}-a2a-{a2a_task_name}",
@@ -2602,7 +2599,7 @@ def _enqueue_agent_sandbox_resume(instance_name: str, wf_task_id: str, run_name:
 	frappe.enqueue(
 		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 		".bpmn_process_instance.run_parked_ai_task",
-		queue="bpmn_ai_agent",
+		queue=ai_job_queue_of(instance_name),
 		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,
 		job_id=f"bpmn-ai-{instance_name}-agent-sandbox-{run_name}",
@@ -2669,7 +2666,7 @@ def run_parked_ai_task(
 			frappe.enqueue(
 				"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 				".bpmn_process_instance.run_parked_ai_task",
-				queue="bpmn_ai_agent",
+				queue=ai_job_queue_of(instance_name),
 				timeout=AI_AGENT_JOB_TIMEOUT,
 				enqueue_after_commit=True,
 				job_id=f"bpmn-ai-{instance_name}-{task_id}-r{attempt + 1}",

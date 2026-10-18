@@ -391,6 +391,7 @@ def _resume_waiting_agent(run) -> None:
 	import json as _json
 
 	from one_bpmn.agents import checkpoint as _checkpoint
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import ai_job_queue_of
 
 	agent_run = run.caller_agent_run
 	if not (agent_run and run.caller_instance):
@@ -404,7 +405,7 @@ def _resume_waiting_agent(run) -> None:
 	frappe.enqueue(
 		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 		".bpmn_process_instance.run_parked_ai_task",
-		queue="bpmn_ai_agent",
+		queue=ai_job_queue_of(run.caller_instance),
 		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,
 		job_id=f"bpmn-ai-{run.caller_instance}-devagentres-{run.name}",

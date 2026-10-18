@@ -870,6 +870,7 @@ def _resume_waiting_agent(row) -> None:
 	import json
 
 	from one_bpmn.agents import checkpoint as _checkpoint
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import ai_job_queue_of
 
 	run = row.caller_agent_run
 	if not (run and row.caller_instance):
@@ -884,7 +885,7 @@ def _resume_waiting_agent(row) -> None:
 	frappe.enqueue(
 		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 		".bpmn_process_instance.run_parked_ai_task",
-		queue="bpmn_ai_agent",
+		queue=ai_job_queue_of(row.caller_instance),
 		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,
 		job_id=f"bpmn-ai-{row.caller_instance}-a2ares-{row.name}",
@@ -1105,6 +1106,8 @@ def _a_job_is_alive(instance, unit: dict) -> bool:
 
 
 def _requeue_or_error(instance, unit: dict, minutes: int) -> None:
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import ai_job_queue_of
+
 	done = frappe.db.count(
 		"BPMN Activity Log",
 		{
@@ -1119,7 +1122,7 @@ def _requeue_or_error(instance, unit: dict, minutes: int) -> None:
 	attempt = done + 1
 	frappe.enqueue(
 		"one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance.run_parked_ai_task",
-		queue="bpmn_ai_agent",
+		queue=ai_job_queue_of(instance.name),
 		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,
 		job_id=f"bpmn-ai-{instance.name}-{unit['task_id']}-watchdog-{attempt}",
