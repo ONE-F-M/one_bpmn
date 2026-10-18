@@ -30,6 +30,7 @@ class TestContractData(FrappeTestCase):
 			"onefm.doctype_schema",
 			"onefm.table",
 			"onefm.conversation_title",
+			"onefm.progress",
 			"onefm.mode_transition",
 			"onefm.lucrusher_result",
 		}
