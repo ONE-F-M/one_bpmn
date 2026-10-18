@@ -27,25 +27,38 @@ jobs:
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.BA_KEY }}
           port: 22
+          command_timeout: 60m
           script: |
-            set -e
+            set -eo pipefail
             export PATH="/home/frappe/.local/bin:$PATH"
-            command -v bench
-            bench --version
-
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+            command -v bench
+            bench --version
             node -v
-            cd /home/frappe/sandbox-bench/apps/one_bpmn
+
+            BENCH=/home/frappe/sandbox-bench
+            WORKERS="$(basename "$BENCH")-workers:"
+            # One deploy at a time per bench, across one_fm, one_bpmn and frappe_agile.
+            exec 9>"$BENCH/config/deploy.lock"
+            flock -w 1500 9
+
+            cd $BENCH/apps/one_bpmn
             git pull upstream staging
-            cd /home/frappe/sandbox-bench
+            cd $BENCH
             rm -rf env/lib/python*/site-packages/one_bpmn-*.dist-info
             bench setup requirements one_bpmn
-            cd /home/frappe/sandbox-bench/apps/one_bpmn/spiff
+            cd $BENCH/apps/one_bpmn/spiff
             yarn install
             export NODE_OPTIONS="--max-old-space-size=8192"
             yarn build
-            cd /home/frappe/sandbox-bench
+            cd $BENCH
+
+            trap 'status=$?; if [ $status -ne 0 ]; then sudo supervisorctl start "$WORKERS"; fi' EXIT
+            # Workers and the scheduler write Scheduled Job Log while migrate deletes from it.
+            sudo supervisorctl stop "$WORKERS"
+            # A scheduler orphaned by an earlier stop holds the lock supervisor's scheduler needs; [s] keeps pkill off this script.
+            pkill -f "$BENCH/env/bin/python -m frappe.utils.bench_helper frappe [s]chedule" || true
             bench --site business-analyst.one-fm.com migrate
             bench --site business-analyst.one-fm.com build --app one_bpmn
             bench --site business-analyst.one-fm.com clear-cache

@@ -402,6 +402,7 @@ class DirectApiExecutor(Executor):
                     tools=config.tools,
                     max_tokens=config.max_tokens,
                     max_turns=config.max_tool_calls or 10,
+                    budget_notes=bool(config.max_tool_calls),
                     resume=config.resume_state,
                     timeout_seconds=config.timeout_seconds,
                     max_retries=config.max_retries,

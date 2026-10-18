@@ -537,7 +537,7 @@ def get_parked_ai_tasks(instance_name: str) -> list:
 	viewer highlights as "Waiting for AI execution" and the targets the
 	manual retry button re-kicks.
 
-	Returns: list of {kind, task_id, bpmn_id, label}.
+	Returns: list of {kind, task_id, bpmn_id, label, since}.
 	"""
 	if not instance_name:
 		frappe.throw(_("instance_name is required"))

@@ -189,7 +189,7 @@ def _resolve_subject_body(
 	Priority:
 	1. Modeler fields ``notifyAssigneeSubject`` / ``notifyAssigneeBody``
 	2. Inline ``notifySubject`` / ``notifyBody``
-	3. Email Template (``notifyTemplate``) fields
+	3. Email Template (``notifyAssigneeTemplate``, or ``notifyTemplate`` on older maps) fields
 	4. Default fallback
 	"""
 	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import _decode_html_attr
@@ -198,14 +198,14 @@ def _resolve_subject_body(
 	body = _decode_html_attr(task_cfg.get("notifyAssigneeBody", "")) or task_cfg.get("notifyBody", "")
 
 	# If neither is set, try loading from the Email Template
-	template_name = task_cfg.get("notifyTemplate", "")
+	template_name = task_cfg.get("notifyAssigneeTemplate", "") or task_cfg.get("notifyTemplate", "")
 	if template_name and (not subject or not body):
 		try:
 			tmpl = frappe.get_doc("Email Template", template_name)
 			if not subject:
 				subject = tmpl.subject or ""
 			if not body:
-				body = tmpl.response or ""
+				body = tmpl.response_ or ""
 		except Exception:
 			pass
 

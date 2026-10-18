@@ -41,7 +41,7 @@ from one_bpmn.agents.llm_provider.base import (
 	ToolSpec,
 	TurnRecord,
 )
-from one_bpmn.agents.memory.loop_compaction import compact_transcript
+from one_bpmn.agents.memory.loop_compaction import compact_transcript, has_turns_to_compact
 from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG, _tool_call_status, clear_tool_artifacts
 from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG, BudgetExceeded, ToolDeferred
 from one_bpmn.agents.turn_state import TURN_ANSWERED_FLAG
@@ -78,6 +78,25 @@ _TURN_RECORD_FIELDS = {
 	"cache_read_tokens", "cache_write_tokens", "latency_ms", "model_latency_ms", "turn_no",
 	"started_at", "ended_at",
 }
+
+# The tools that change files; the budget note counts their calls.
+_EDIT_TOOLS = frozenset({"edit_file", "write_file", "apply_edits", "delete_file"})
+# From this share of the turn cap the budget note tells the agent to finish.
+_BUDGET_WARN_SHARE = 0.75
+
+
+def _budget_note(turns_used: int, max_turns: int, trace: list) -> str:
+	"""The turn count and edits made so far, and from the warn share onward an instruction to wrap up."""
+	left = max_turns - turns_used
+	# A resumed trace holds its tool calls as dicts.
+	names = (call["name"] if isinstance(call, dict) else call.name for turn in trace for call in turn.tool_calls)
+	edits = sum(1 for name in names if name in _EDIT_TOOLS)
+	note = f"[Run budget: turn {turns_used} of {max_turns}, {left} left, {edits} edit(s) made.]"
+	if left <= 1:
+		return note + " This is your last turn: search no more, save your work and report, or hand the item back with what you found."
+	if turns_used >= max_turns * _BUDGET_WARN_SHARE:
+		return note + " Stop exploring. Use the turns left to test, save your work and report, or hand the item back with what you learned."
+	return note
 
 
 @dataclass
@@ -146,6 +165,7 @@ async def run_agent_loop(
 	thinking_budget_tokens: int = 0,
 	loop_compaction: dict | None = None,
 	budget_check=None,
+	budget_notes: bool = False,
 	temperature: float | None = None,
 	top_p: float | None = None,
 ) -> tuple:
@@ -259,6 +279,7 @@ async def run_agent_loop(
 			controls=_step_controls(parallel_tool_calls, thinking_budget_tokens, temperature, top_p),
 			loop_compaction=loop_compaction,
 			budget_check=budget_check,
+			budget_notes=budget_notes,
 		)
 	finally:
 		# Cleared on EVERY exit — final answer, turn cap, suspension, exception.
@@ -308,22 +329,36 @@ def _step_controls(
 	return controls
 
 
+# A request the provider rejected as wrong will fail the same way again, so it is not retried.
+_PERMANENT_STATUSES = frozenset({400, 401, 403, 404, 413, 422})
+MAX_BACKOFF_SECONDS = 30.0
+
+
+def _status_of(exc) -> int | None:
+	return getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
+
+
+def _retry_after_seconds(exc) -> float | None:
+	"""The wait the provider asked for in its Retry-After header, capped, or None."""
+	headers = getattr(getattr(exc, "response", None), "headers", None) or {}
+	try:
+		return min(float(headers.get("retry-after")), MAX_BACKOFF_SECONDS)
+	except (TypeError, ValueError):
+		return None
+
+
 async def _step_with_retries(
 	adapter, system, transcript, tools, max_tokens, *, timeout_seconds=None, max_retries=0, retry_backoff_ms=1000,
 	response_schema=None, controls=None,
 ):
-	"""One turn's model call, bounded by timeout_seconds and retried up to
-	max_retries times — mirrors DirectApiExecutor._run_request's own
-	retry/backoff shape for the non-tool path (direct_api.py), since
-	adapter.step() previously had neither: aiTimeout/aiMaxRetries were read
-	into ExecutorConfig but silently had no effect the moment a call used
-	tools, so a hung turn could run for however long the provider SDK's own
-	default is (confirmed: the Anthropic adapter passes no timeout to the
-	SDK at all) instead of the configured aiTimeout.
+	"""One turn's model call, bounded by timeout_seconds and retried up to max_retries times.
 
-	timeout_seconds=None (the default) means unbounded, matching every
-	caller from before this existed."""
-	for attempt in range(max_retries + 1):
+	The wait doubles each time up to MAX_BACKOFF_SECONDS, or is the Retry-After the provider sent. A request
+	the provider rejected as wrong (400, 401, 403, 404, 413, 422) is not retried at all.
+
+	timeout_seconds=None (the default) means unbounded, matching every caller from before this existed."""
+	attempt = 0
+	while True:
 		try:
 			extra = dict(controls or {})
 			if response_schema:
@@ -334,11 +369,14 @@ async def _step_with_retries(
 			return await call
 		except LLMTruncatedError:
 			raise
-		except Exception:
-			if attempt >= max_retries:
+		except Exception as exc:
+			if _status_of(exc) in _PERMANENT_STATUSES or attempt >= max_retries:
 				raise
-			base_s = (retry_backoff_ms / 1000.0) * (2 ** attempt)
-			await asyncio.sleep(base_s + random.uniform(0, 0.1))
+			wait = _retry_after_seconds(exc)
+			if wait is None:
+				wait = min((retry_backoff_ms / 1000.0) * (2 ** attempt), MAX_BACKOFF_SECONDS)
+			await asyncio.sleep(wait + random.uniform(0, 0.1))
+			attempt += 1
 
 
 def _fire_tool_event(on_tool_event, phase, tool_name):
@@ -366,13 +404,15 @@ async def _run_turns(
 	tool_choice=None, controls=None,
 	loop_compaction=None,
 	budget_check=None,
+	budget_notes=False,
 ):
 	"""The turn loop itself. Split out only so run_agent_loop can guarantee the
 	pause flag is cleared however this returns."""
 	reply_checked = False
 	force_pending = bool(tool_choice) and tool_choice != "auto" and turns_used == 0
 	nudged = False
-	last_prompt_tokens = 0
+	# A resumed segment starts from the prompt size its last recorded turn reached.
+	last_prompt_tokens = trace[-1].prompt_tokens if trace else 0
 	# Compaction runs again only once keep_turns new turns have replaced what the last one kept.
 	compacted_at = None
 	last_error = None
@@ -390,6 +430,7 @@ async def _run_turns(
 			loop_compaction
 			and last_prompt_tokens > loop_compaction["threshold"]
 			and (compacted_at is None or turns_used - compacted_at >= loop_compaction["keep_turns"])
+			and has_turns_to_compact(transcript, loop_compaction["keep_turns"])
 		):
 			compacted = compact_transcript(
 				transcript,
@@ -640,6 +681,8 @@ async def _run_turns(
 			)
 			return CompletionResult(text=_said, trace=trace, no_terminal_tool=False), None
 
+		if budget_notes and results:
+			results[-1]["content"] += "\n\n" + _budget_note(turns_used, max_turns, trace)
 		transcript.append({"role": "tool_results", "results": results})
 
 	# Turn cap reached. Carry the model's last narration out as the text rather

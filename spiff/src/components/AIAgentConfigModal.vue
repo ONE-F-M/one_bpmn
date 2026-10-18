@@ -307,6 +307,24 @@
                 </label>
               </div>
             </div>
+            <div class="field-row" v-if="!isSelector">
+              <label>Sandbox</label>
+              <label class="checkbox-row">
+                <input type="checkbox" v-model="form.aiSandboxUseJob" class="checkbox-input" />
+                <span>Use a Cloud Run Job session per Work Item</span>
+              </label>
+              <label class="checkbox-row">
+                <input type="checkbox" v-model="form.aiSandboxRetryOnTestFailure" class="checkbox-input" />
+                <span>Retry a failed sandbox dispatch once on test failure</span>
+              </label>
+              <label class="checkbox-row">
+                <input type="checkbox" v-model="form.aiRequireReproduction" class="checkbox-input" />
+                <span>Require reproduction before a fix (bug discipline)</span>
+              </label>
+              <span class="field-hint">
+                Saved on the linked agent. With the Job session off, every sandbox call is its own request to the shared service.
+              </span>
+            </div>
           </template>
 
           <div class="field-row" v-if="!isSelector">
@@ -712,6 +730,24 @@
             <span class="field-hint">
               Runs once the agent has replied, so it never happens part-way through a turn.
               Set any combination of the three — whichever fires first does the work.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector">
+            <label>Tool Loop Threshold <span class="hint">(0 = off)</span></label>
+            <input type="number" min="0" step="1000" v-model.number="form.aiLoopCompactionThreshold" />
+            <span class="field-hint">
+              Inside one run: once a model call's prompt passes this many tokens, the older tool turns are
+              replaced by a summary and the list of files read and edited. Works without
+              "Compact long conversations". Used by coding agents with long tool loops.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector && form.aiLoopCompactionThreshold > 0">
+            <label>Tool Loop Keep Turns</label>
+            <input type="number" min="3" v-model.number="form.aiLoopCompactionKeepTurns" />
+            <span class="field-hint">
+              How many of the latest tool turns stay word-for-word. At least 3.
             </span>
           </div>
 
@@ -1162,6 +1198,9 @@ const form = ref({
   aiCompactionTokenThreshold: 0,
   aiCompactionIdleMinutes: 0,
   aiCompactionOnTaskBoundary: false,
+  // Tool loop compaction is separate from conversation compaction; 0 is off.
+  aiLoopCompactionThreshold: 0,
+  aiLoopCompactionKeepTurns: 8,
   // The golden dataset bar. 0 is "no bar": the dataset shows a count and nothing to measure it against.
   aiGoldenDatasetMinimum: 0,
   aiGoldenDatasetTarget: 0,
@@ -1172,6 +1211,9 @@ const form = ref({
   aiParallelToolCalls: true,
   aiThinkingBudgetTokens: 0,
   aiTerminalTools: "",
+  aiSandboxUseJob: false,
+  aiSandboxRetryOnTestFailure: true,
+  aiRequireReproduction: false,
   // WI-001639: the agent's frozen static context. Always arrays — they are
   // replaced wholesale by loadLinkedAgent once the agent is read.
   aiExamples: [],
@@ -1536,8 +1578,13 @@ onMounted(async () => {
     aiParallelToolCalls: true,
     aiThinkingBudgetTokens: 0,
     aiTerminalTools: "",
+    aiSandboxUseJob: false,
+    aiSandboxRetryOnTestFailure: true,
+    aiRequireReproduction: false,
     aiCompactionIdleMinutes: numOr("aiCompactionIdleMinutes", 0, parseInt),
     aiCompactionOnTaskBoundary: get("aiCompactionOnTaskBoundary") === "true",
+    aiLoopCompactionThreshold: 0,
+    aiLoopCompactionKeepTurns: 8,
     // WI-001639: agent-owned, with no diagram fallback — this assignment
     // replaces form.value wholesale, so the keys must exist here or
     // loadLinkedAgent has nothing to fill and the template binds
@@ -1587,7 +1634,14 @@ onMounted(async () => {
 // live link). The resolver returns shape-attribute keys (aiSystemPrompt,
 // aiProvider, aiModel, aiTemperature, aiMaxTokens) that map directly onto our
 
-const BOOLEAN_FORM_KEYS = ["aiCompactionEnabled", "aiCompactionOnTaskBoundary", "aiParallelToolCalls"];
+const BOOLEAN_FORM_KEYS = [
+  "aiCompactionEnabled",
+  "aiCompactionOnTaskBoundary",
+  "aiParallelToolCalls",
+  "aiSandboxUseJob",
+  "aiSandboxRetryOnTestFailure",
+  "aiRequireReproduction",
+];
 
 function configValueToForm(key, val) {
   if (BOOLEAN_FORM_KEYS.includes(key)) {
@@ -1758,6 +1812,9 @@ async function writeBackToConfig() {
     fields.aiParallelToolCalls = form.value.aiParallelToolCalls ? 1 : 0;
     fields.aiThinkingBudgetTokens = form.value.aiThinkingBudgetTokens || 0;
     fields.aiTerminalTools = form.value.aiTerminalTools || "";
+    fields.aiSandboxUseJob = form.value.aiSandboxUseJob ? 1 : 0;
+    fields.aiSandboxRetryOnTestFailure = form.value.aiSandboxRetryOnTestFailure ? 1 : 0;
+    fields.aiRequireReproduction = form.value.aiRequireReproduction ? 1 : 0;
   }
   // Screening is NOT sent here. It has its own writer (saveScreening, below),
   // and sending it from both places meant the resolver write landed second and
@@ -1802,6 +1859,8 @@ async function writeBackToConfig() {
       : 0;
     fields.aiCompactionOnTaskBoundary =
       form.value.aiCompactionEnabled && form.value.aiCompactionOnTaskBoundary ? 1 : 0;
+    fields.aiLoopCompactionThreshold = form.value.aiLoopCompactionThreshold || 0;
+    fields.aiLoopCompactionKeepTurns = form.value.aiLoopCompactionKeepTurns || 8;
   }
   // WI-001639: examples and guard rails are agent-level, so they persist here
   // rather than onto the BPMN XML. Sent whole (the backend replaces the tables)

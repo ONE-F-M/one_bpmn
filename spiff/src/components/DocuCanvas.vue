@@ -47,7 +47,10 @@
 					</div>
 
 					<!-- ── MIDDLE: Visual form builder ─────────────────── -->
-					<div class="dc-builder-panel">
+					<div
+						class="dc-builder-panel"
+						:inert="!canChange"
+					>
 						<!-- Top-level view tabs (mirrors Frappe's Form / Settings) -->
 						<div class="dc-view-tabs">
 							<button class="dc-view-tab" :class="{ active: view === 'form' }" @click="view = 'form'">Form</button>
@@ -323,7 +326,11 @@
 					</div>
 
 					<!-- ── RIGHT: Properties sidebar ───────────────────── -->
-					<div class="dc-props-panel" v-if="view === 'form'">
+					<div
+						v-if="view === 'form'"
+						class="dc-props-panel"
+						:inert="!canChange"
+					>
 
 						<!-- Field properties (Frappe-style: searchable + scrollable) -->
 						<template v-if="sel.type === 'field' && sel.node">
@@ -408,11 +415,20 @@
 				<div class="dc-window-footer">
 					<span class="dc-count">{{ contentCount }} field{{ contentCount === 1 ? "" : "s" }}</span>
 					<span class="dc-save-status" :class="'st-' + saveState">
-						<template v-if="saveState === 'saving'">Saving…</template>
+						<template v-if="!canChange">Read only: you are not allowed to change forms</template>
+						<template v-else-if="saveState === 'saving'">Saving…</template>
 						<template v-else-if="saveState === 'saved'">✓ Saved{{ appliedName ? ' “' + appliedName + '”' : '' }}</template>
 						<template v-else-if="saveState === 'error'">⚠ {{ saveError }}</template>
 						<template v-else>Changes save automatically</template>
 					</span>
+					<span v-if="saveNotes" class="dc-save-status">{{ saveNotes }}</span>
+					<Button
+						v-if="unsavedDesign"
+						size="sm"
+						@click="restoreUnsavedDesign"
+					>
+						Restore my unsaved design
+					</Button>
 				</div>
 			</div>
 		</div>
@@ -421,7 +437,8 @@
 
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
-import { frappeRequest } from "frappe-ui";
+import { Button, frappeRequest } from "frappe-ui";
+import { serverMessage } from "@/utils/serverMessage.js";
 import { Icon } from "@iconify/vue";
 import draggable from "vuedraggable";
 // WI-001676: the chat half is the shared panel; schemas arrive as cards.
@@ -609,7 +626,11 @@ const appliedName = ref("");
 
 // Auto-save: changes persist to the system automatically (no "Apply" button).
 const saveState  = ref("idle");   // idle | saving | saved | error
+const canChange  = ref(false);
 const saveError  = ref("");
+const saveNotes  = ref("");
+// A design that failed to save, kept in this browser so the canvas can show the site's form and still offer it back.
+const unsavedDesign = ref("");
 let autosaveTimer = null;
 let autosaveInFlight = false;
 let autosaveQueued = false;
@@ -1119,6 +1140,14 @@ async function loadSchema(dt) {
 	} catch (e) { /* new doctype — nothing to load */ }
 }
 
+async function loadCanChange() {
+	try {
+		canChange.value = Boolean(await frappeRequest({ url: `${API}can_change_forms` }));
+	} catch (e) {
+		canChange.value = false;
+	}
+}
+
 async function loadRoles() {
 	try {
 		const res = await frappeRequest({ url: `${API}list_roles` });
@@ -1169,11 +1198,12 @@ function scheduleAutosave() {
 }
 async function runAutosave() {
 	// Only save a valid design (a name + at least one real field).
-	if (!dtName.value.trim() || !contentCount.value) return;
+	if (!canChange.value || !dtName.value.trim() || !contentCount.value) return;
 	if (autosaveInFlight) { autosaveQueued = true; return; }
 	autosaveInFlight = true;
 	saveState.value = "saving";
 	saveError.value = "";
+	saveNotes.value = "";
 	try {
 		const res = await frappeRequest({
 			url: `${API}apply_doctype`,
@@ -1185,14 +1215,42 @@ async function runAutosave() {
 			appliedName.value = res.name;
 			emit("applied", res.name);   // write the DocType name back onto the shape
 		}
+		saveNotes.value = (res?.notes || []).join(" ");
+		storeUnsaved(null);
 		saveState.value = "saved";
 	} catch (e) {
-		saveError.value = errText(e) || "Could not save.";
+		saveError.value = serverMessage(e);
 		saveState.value = "error";
+		storeUnsaved(JSON.stringify(currentIr()));
 	} finally {
 		autosaveInFlight = false;
 		if (autosaveQueued) { autosaveQueued = false; scheduleAutosave(); }
 	}
+}
+
+function unsavedKey() {
+	return `docu-unsaved:${dtName.value.trim()}`;
+}
+const STORAGE_REFUSED = "This browser does not allow Docu to keep an unsaved design.";
+function storeUnsaved(design) {
+	try {
+		if (design) localStorage.setItem(unsavedKey(), design);
+		else localStorage.removeItem(unsavedKey());
+	} catch (e) {
+		saveNotes.value = STORAGE_REFUSED;
+	}
+}
+function readUnsaved() {
+	try {
+		return localStorage.getItem(unsavedKey());
+	} catch (e) {
+		saveNotes.value = STORAGE_REFUSED;
+		return null;
+	}
+}
+function restoreUnsavedDesign() {
+	loadIr(JSON.parse(unsavedDesign.value));
+	unsavedDesign.value = "";
 }
 
 // ── Undo / redo (#12) ──────────────────────────────────────────────────
@@ -1253,11 +1311,14 @@ onMounted(async () => {
 	selectForm();
 	loadModules();  // populate the module picker (fire-and-forget)
 	loadRoles();    // populate the permission-rule role picker
+	await loadCanChange();
 	if (props.doctype) {
 		// A doctype is already selected on the shape — load its form builder
 		// view. The greeting comes from the docu_agent configuration
 		// (WI-001996); the change-focused line rides as host context.
 		await loadSchema(props.doctype);
+		const stored = readUnsaved();
+		if (stored && stored !== JSON.stringify(currentIr())) unsavedDesign.value = stored;
 	}
 
 	// Undo/redo: seed the baseline snapshot, then record on every edit.

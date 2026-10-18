@@ -32,15 +32,16 @@ _MAX_INPUT_CHARS = 60000
 _SUMMARY_TOKENS = 1500
 
 
+def has_turns_to_compact(transcript: list, keep_turns: int) -> bool:
+	"""True when the transcript holds more tool turns than ``keep_turns``."""
+	return len(_tool_turns(transcript)) > keep_turns
+
+
 def compact_transcript(
 	transcript: list, *, keep_turns: int, model: str | None, agent_model: str, provider: str | None
 ) -> list | None:
 	"""The transcript with turns older than the last ``keep_turns`` replaced, or None when nothing was compacted."""
-	turns = [
-		i
-		for i, entry in enumerate(transcript)
-		if entry.get("role") == "assistant" and entry.get("tool_calls")
-	]
+	turns = _tool_turns(transcript)
 	if len(turns) <= keep_turns:
 		return None
 	start, cut = turns[0], turns[-keep_turns]
@@ -77,6 +78,14 @@ def compact_transcript(
 		"compaction": {"task": task, "summary": summary, "read": read, "edited": edited},
 	}
 	return [*prefix, *transcript[cut:]]
+
+
+def _tool_turns(transcript: list) -> list:
+	return [
+		i
+		for i, entry in enumerate(transcript)
+		if entry.get("role") == "assistant" and entry.get("tool_calls")
+	]
 
 
 def _without_progress(entry: dict) -> dict:

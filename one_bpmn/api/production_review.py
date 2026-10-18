@@ -369,7 +369,7 @@ def _diff_doctypes(local: dict, remote: dict) -> list:
 def review_doctypes(model_name: str) -> dict:
 	"""Compare referenced DocTypes + customizations against Production (read-only)."""
 	_require_ba_instance()
-	doctypes = sorted(_refs_for_model(model_name, "read").get("doctypes") or [])
+	doctypes = _with_fetch_sources(_refs_for_model(model_name, "read").get("doctypes") or [])
 	local = _build_doctype_snapshot(doctypes)
 	remote = _call_production_api(SNAPSHOT_DOCTYPES, {"doctypes": json.dumps(doctypes)}) or {}
 	changes = _diff_doctypes(local, remote)
@@ -382,7 +382,7 @@ def sync_doctypes(model_name: str) -> dict:
 	from one_bpmn.api.github_sync import open_customization_pr
 
 	_require_ba_instance()
-	doctypes = sorted(_refs_for_model(model_name, "write").get("doctypes") or [])
+	doctypes = _with_fetch_sources(_refs_for_model(model_name, "write").get("doctypes") or [])
 	local = _build_doctype_snapshot(doctypes)
 	remote = _call_production_api(SNAPSHOT_DOCTYPES, {"doctypes": json.dumps(doctypes)}) or {}
 	changes = _diff_doctypes(local, remote)
@@ -450,7 +450,8 @@ def sync_doctypes(model_name: str) -> dict:
 
 		stamp = frappe.generate_hash(length=6)
 		head_branch = f"processa/sync-{frappe.scrub(model_name)}-{stamp}"
-		files, build_files, artefacts, routing = _customization_pr_files(app, dts, model_name, stamp)
+		promised = _promised_new_fields(changes)
+		files, build_files, artefacts, routing = _customization_pr_files(app, dts, model_name, stamp, promised)
 		if not files and not routing["owned"]:
 			# Nothing this app can carry. Reported rather than opened empty.
 			skipped.append({"app": app, "doctypes": dts,
@@ -480,7 +481,7 @@ def sync_doctypes(model_name: str) -> dict:
 	return {"synced": bool(prs), "prs": prs, "skipped": skipped, "source_edits": source_edits}
 
 
-def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str):
+def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str, promised: dict = None):
 	"""Build the PR's file set in the customization app's own convention.
 
 	Returns ``(files, build_files, artefacts)``:
@@ -551,6 +552,7 @@ def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str):
 			source_notes[dt] = notes
 			if text is not None:
 				out[path] = text
+			_require_promised_fields(dt, path, text or existing, (promised or {}).get(dt) or [])
 
 		for kind in ("custom_field", "property_setter") if foreign else ():
 			path = gen.aggregator_path(app, kind)
@@ -560,7 +562,7 @@ def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str):
 					f"{path} is not in the repository, so the generated getter cannot be registered. "
 					f"Is '{app}' the right customization owner app?"
 				)
-			for dt in dts:
+			for dt in foreign:
 				text = gen.splice_aggregator(text, app, dt, kind)
 			out[path] = text
 
@@ -590,6 +592,58 @@ def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str):
 		return out
 
 	return files, build_files, artefacts, {"owned": owned, "foreign": foreign, "notes": source_notes}
+
+
+def _promised_new_fields(changes: list) -> dict:
+	"""DocType to the fieldnames the review lists as created on it."""
+	created = [c for c in changes if c["action"] == "Create"]
+	promised = {}
+	for c in created:
+		if " → " in c["name"]:
+			promised.setdefault(c["doctype"], []).append(c["name"].split(" → ", 1)[1])
+	return promised
+
+
+def _require_promised_fields(dt: str, path: str, text: str, fieldnames: list) -> None:
+	"""Refuse the PR when its description promises a field the DocType's file does not carry."""
+	present = {f.get("fieldname") for f in (json.loads(text).get("fields") or []) if isinstance(f, dict)}
+	missing = [f for f in fieldnames if f not in present]
+	if missing:
+		frappe.throw(
+			_(
+				"{0} would not carry {1}, which the review lists as new on {2}. No pull request was opened."
+			).format(path, ", ".join(missing), dt)
+		)
+
+
+def _with_fetch_sources(doctypes: list) -> list:
+	"""The DocTypes plus any DocType holding a fetched-from Custom Field that Production lacks."""
+	sources = _fetch_sources(doctypes)
+	if not sources:
+		return sorted(doctypes)
+	remote = _call_production_api(SNAPSHOT_DOCTYPES, {"doctypes": json.dumps(sorted(sources))}) or {}
+	missing = [
+		dt for dt, fieldnames in sources.items()
+		if any(f"{dt}-{f}" not in ((remote.get(dt) or {}).get("custom_fields") or {}) for f in fieldnames)
+	]
+	return sorted(set(doctypes) | set(missing))
+
+
+def _fetch_sources(doctypes: list) -> dict:
+	"""DocType to the Custom Fields on it that a field of ``doctypes`` fetches from."""
+	sources = {}
+	for dt in doctypes:
+		if not frappe.db.exists("DocType", dt):
+			continue
+		meta = frappe.get_meta(dt)
+		for df in meta.fields:
+			link_field, _sep, source_field = (df.fetch_from or "").partition(".")
+			link = meta.get_field(link_field) if source_field else None
+			if not link or link.fieldtype != "Link":
+				continue
+			if frappe.db.exists("Custom Field", {"dt": link.options, "fieldname": source_field}):
+				sources.setdefault(link.options, set()).add(source_field)
+	return sources
 
 
 def _routing_table(routing: dict, summary: dict = None) -> str:

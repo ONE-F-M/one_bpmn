@@ -295,6 +295,11 @@ scheduler_events = {
 			# bound being approached; nothing here acts on it.
 			"one_bpmn.tasks.check_ai_memory_volume",
 		],
+		# A sandbox run whose callback never arrives would leave its agent waiting for good.
+		"*/2 * * * *": [
+			"one_bpmn.one_bpmn.connectors.agent_sandbox_reaper.reap",
+			"one_bpmn.one_bpmn.connectors.agent_sandbox_reaper.reap_sessions",
+		],
 		"* * * * *": [
 			"one_bpmn.tasks.process_timer_start_events",
 			"one_bpmn.tasks.process_timer_catch_events",
@@ -316,6 +321,8 @@ scheduler_events = {
 		# and well inside the margin a run's own deadline already carries.
 		"*/5 * * * *": [
 			"one_bpmn.agents.eval_runner.sweep_stale_eval_runs",
+			# A parked AI step whose job was lost from the queue would otherwise wait for the delegation deadline.
+			"one_bpmn.tasks.requeue_stranded_ai_steps",
 		],
 		"0 * * * *": [
 			"one_bpmn.tasks.close_stale_chat_instances",

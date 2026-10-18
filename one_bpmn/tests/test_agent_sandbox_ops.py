@@ -60,6 +60,9 @@ def _any_process_model() -> str:
 class AgentSandboxCase(FrappeTestCase):
 	def setUp(self):
 		super().setUp()
+		branch_check = patch.object(ops, "_missing_branch_error", return_value=None)
+		branch_check.start()
+		self.addCleanup(branch_check.stop)
 		# caller_instance is a real Link field (-> BPMN Process Instance) and
 		# _dispatch_single_action's own run.insert() never sets ignore_links —
 		# production always passes a genuine, already-saved instance, so the
@@ -146,12 +149,16 @@ class TestSlowActionDispatch(AgentSandboxCase):
 		mock_response = MagicMock(status_code=response_status)
 		mock_response.raise_for_status = MagicMock()
 		params = {
-			"target_app": "one_bpmn", "git_branch": "staging", "work_item_description": "Fix the thing.",
+			"target_app": "one_bpmn",
+			"git_branch": "staging",
+			"work_item_description": "Fix the thing.",
 			**param_overrides,
 		}
-		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)), patch.object(
-			ops, "_mint_identity_token", return_value="fake-token"
-		), patch("requests.post", return_value=mock_response) as mock_post:
+		with (
+			patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)),
+			patch.object(ops, "_mint_identity_token", return_value="fake-token"),
+			patch("requests.post", return_value=mock_response) as mock_post,
+		):
 			ctx = self.ctx(operation=operation)
 			result = ops.dispatch_action(params, ctx)
 		return result, ctx, mock_post
@@ -162,6 +169,8 @@ class TestSlowActionDispatch(AgentSandboxCase):
 		marker = ctx["task"].data[ops.AGENT_SANDBOX_WAITING_KEY]
 		row = frappe.get_doc("Agent Sandbox Run", marker["run"])
 		self.assertEqual(row.state, "running")
+		self.assertIsNotNone(row.token_ms)
+		self.assertIsNotNone(row.http_ms)
 		_args, kwargs = mock_post.call_args
 		self.assertEqual(kwargs["json"]["action"], "run_tests")
 		self.assertEqual(kwargs["json"]["target_app"], "one_bpmn")
@@ -309,6 +318,7 @@ class TestSandboxDispatch(AgentSandboxCase):
 		)
 		mock_response = MagicMock(status_code=response_status)
 		mock_response.raise_for_status = MagicMock()
+		mock_response.headers = overrides.pop("headers", {})
 		mock_response.json = MagicMock(return_value=response_json or {"found": True, "content": "hi"})
 
 		post_kwargs = {"side_effect": post_side_effect} if post_side_effect else {"return_value": mock_response}
@@ -336,6 +346,19 @@ class TestSandboxDispatch(AgentSandboxCase):
 		self.assertEqual(kwargs["json"]["action"], "read_file")
 		self.assertEqual(kwargs["json"]["args"], {"path": "a.py"})
 		self.assertEqual(kwargs["headers"]["Authorization"], "Bearer fake-token")
+
+	def test_the_run_row_records_the_timings_the_sandbox_reports(self):
+		self._call(headers={"X-Timings-Ms": '{"git": 120, "tool": 5, "total": 140}'})
+		row = self._last_run()
+		self.assertEqual((row.git_ms, row.tool_ms, row.sandbox_ms), (120, 5, 140))
+		self.assertIsNotNone(row.token_ms)
+		self.assertIsNotNone(row.http_ms)
+
+	def test_a_sandbox_that_reports_no_timings_still_completes_the_run(self):
+		self._call()
+		row = self._last_run()
+		self.assertEqual(row.state, "completed")
+		self.assertFalse(row.sandbox_ms)
 
 	def test_agent_name_defaults_to_dev_agent_with_no_instance(self):
 		_result, mock_post = self._call()
@@ -463,10 +486,25 @@ class TestRetryPolicy(AgentSandboxCase):
 			doc.db_set("retry_of", retry_of, update_modified=False)
 		return doc
 
-	def test_eligible_when_agent_config_has_retry_enabled(self):
+	def test_eligible_when_the_failure_is_environmental_and_the_agent_config_has_retry_enabled(self):
 		self._config("Dev Agent", retry=1)
 		run = self._run(agent_name="Dev Agent")
+		run.failure_class = "env"
 		self.assertTrue(ops.retry_eligible(run))
+
+	def test_not_eligible_for_any_other_failure_class(self):
+		self._config("Dev Agent", retry=1)
+		for failure_class in ("code", "policy", "gave-up", "not-reproducible", None):
+			run = self._run(agent_name="Dev Agent")
+			run.failure_class = failure_class
+			self.assertFalse(ops.retry_eligible(run), failure_class)
+
+	def test_an_infrastructure_or_model_api_failure_is_eligible_without_the_agent_setting(self):
+		self._config("Dev Agent", retry=0)
+		for failure_class in ("infra", "model-api"):
+			run = self._run(agent_name="Dev Agent")
+			run.failure_class = failure_class
+			self.assertTrue(ops.retry_eligible(run), failure_class)
 
 	def test_not_eligible_when_run_is_itself_a_retry(self):
 		"""Once, not a loop — a run that is already a retry is never retried again."""
@@ -496,9 +534,12 @@ class TestRetryPolicy(AgentSandboxCase):
 		mock_response = MagicMock(status_code=response_status)
 		mock_response.raise_for_status = MagicMock()
 		post_kwargs = {"side_effect": post_side_effect} if post_side_effect else {"return_value": mock_response}
-		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)), patch.object(
-			ops, "_mint_identity_token", return_value="fake-token"
-		), patch("requests.post", **post_kwargs) as mock_post:
+		with (
+			patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)),
+			patch.object(ops, "_mint_identity_token", return_value="fake-token"),
+			patch.object(ops.sessions, "uses_job", return_value=False),
+			patch("requests.post", **post_kwargs) as mock_post,
+		):
 			result = ops.retry_dispatch(run)
 		return result, mock_post
 
@@ -538,3 +579,206 @@ class TestRetryPolicy(AgentSandboxCase):
 		self.assertFalse(result)
 		new_name = frappe.get_all("Agent Sandbox Run", filters={"retry_of": original.name}, pluck="name")[0]
 		self.assertEqual(frappe.db.get_value("Agent Sandbox Run", new_name, "state"), "failed")
+
+
+	def test_an_agent_that_uses_the_job_is_retried_in_its_session(self):
+		original = self._run(agent_name="Dev Agent", action="run_tests")
+		mock_settings = SimpleNamespace(
+			agent_sandbox_url="https://sandbox.example.run.app", get_password=lambda *a, **k: "t"
+		)
+		with (
+			patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)),
+			patch.object(ops.sessions, "uses_job", return_value=True),
+			patch.object(ops, "_slow_action_in_session") as in_session,
+			patch("requests.post") as post,
+		):
+			result = ops.retry_dispatch(original)
+		self.assertTrue(result)
+		in_session.assert_called_once()
+		post.assert_not_called()
+		new_name = frappe.get_all("Agent Sandbox Run", filters={"retry_of": original.name}, pluck="name")[0]
+		self.assertEqual(frappe.db.get_value("Agent Sandbox Run", new_name, "state"), "running")
+
+	def test_a_delay_schedules_the_retry_and_creates_no_run_yet(self):
+		original = self._run(agent_name="Dev Agent")
+		with patch.object(frappe, "enqueue") as enqueue:
+			result = ops.retry_dispatch(original, delay=15)
+		self.assertTrue(result)
+		self.assertEqual(enqueue.call_args.kwargs["delay"], 15)
+		self.assertEqual(frappe.get_all("Agent Sandbox Run", filters={"retry_of": original.name}), [])
+
+	def test_a_retry_that_cannot_be_sent_after_the_wait_resumes_the_caller(self):
+		original = self._run(agent_name="Dev Agent")
+		with (
+			patch.object(ops.time, "sleep"),
+			patch.object(ops, "retry_dispatch", return_value=False),
+			patch("one_bpmn.api.agent_callback._enqueue_resume") as resume,
+		):
+			ops.retry_dispatch_after(original.name, 15)
+		resume.assert_called_once()
+		self.assertEqual(frappe.db.get_value("Agent Sandbox Run", original.name, "resume_enqueued"), 1)
+
+	def test_a_retry_that_is_sent_after_the_wait_does_not_resume_the_caller(self):
+		original = self._run(agent_name="Dev Agent")
+		with (
+			patch.object(ops.time, "sleep"),
+			patch.object(ops, "retry_dispatch", return_value=True),
+			patch("one_bpmn.api.agent_callback._enqueue_resume") as resume,
+		):
+			ops.retry_dispatch_after(original.name, 15)
+		resume.assert_not_called()
+
+
+class TestTimingFields(FrappeTestCase):
+	def test_each_reported_key_lands_on_its_own_field(self):
+		fields = ops.timing_fields({"total": 90, "git": 10, "tool": 3, "migrate": 20, "tests": 50, "pr": 7})
+		self.assertEqual(
+			fields,
+			{"sandbox_ms": 90, "git_ms": 10, "tool_ms": 3, "migrate_ms": 20, "test_ms": 50, "pr_ms": 7},
+		)
+
+	def test_a_key_the_sandbox_did_not_report_is_left_out(self):
+		self.assertEqual(ops.timing_fields({"git": 4}), {"git_ms": 4})
+
+	def test_nothing_reported_gives_nothing(self):
+		self.assertEqual(ops.timing_fields({}), {})
+
+
+class TestDispatchError(FrappeTestCase):
+	def test_an_app_the_sandbox_does_not_have_is_refused_naming_the_choices(self):
+		message = ops.dispatch_error("spiff", "staging")
+		self.assertIn("'spiff' is not an app the sandbox has", message)
+		self.assertIn("one_bpmn", message)
+
+	def test_an_installed_app_with_a_known_branch_is_allowed(self):
+		with patch.object(ops, "_missing_branch_error", return_value=None):
+			self.assertIsNone(ops.dispatch_error("one_bpmn", "staging"))
+
+	def _repo(self, html_url="https://github.com/ONE-F-M/one_bpmn", token="t"):
+		settings = SimpleNamespace(get_password=lambda *a, **k: token)
+		return (
+			patch.object(frappe.db, "exists", return_value=True),
+			patch.object(frappe.db, "get_value", return_value=html_url),
+			patch.object(frappe, "get_cached_doc", return_value=settings),
+		)
+
+	def _ask(self, status_code, branch="develop"):
+		frappe.cache.delete_value(f"agent_sandbox_branch:ONE-F-M/one_bpmn:{branch}")
+		first, second, third = self._repo()
+		with first, second, third, patch("requests.get", return_value=SimpleNamespace(status_code=status_code)) as get:
+			return ops._missing_branch_error("one_bpmn", branch), get
+
+	def test_a_branch_github_does_not_have_is_refused(self):
+		message, get = self._ask(404)
+		self.assertIn("'develop' does not exist in ONE-F-M/one_bpmn", message)
+		self.assertIn("/branches/develop", get.call_args.args[0])
+
+	def test_a_branch_github_has_is_allowed_and_the_answer_is_remembered(self):
+		message, get = self._ask(200, "staging")
+		self.assertIsNone(message)
+		first, second, third = self._repo()
+		with first, second, third, patch("requests.get") as again:
+			self.assertIsNone(ops._missing_branch_error("one_bpmn", "staging"))
+		again.assert_not_called()
+
+	def test_a_branch_name_with_a_slash_is_encoded_in_the_url(self):
+		_message, get = self._ask(200, "feature/x")
+		self.assertIn("/branches/feature%2Fx", get.call_args.args[0])
+
+	def test_a_github_outage_does_not_block_a_dispatch(self):
+		message, _get = self._ask(502, "staging2")
+		self.assertIsNone(message)
+
+	def test_no_repository_record_or_no_token_skips_the_check(self):
+		first, second, third = self._repo(html_url="")
+		with first, second, third, patch("requests.get") as get:
+			self.assertIsNone(ops._missing_branch_error("one_bpmn", "x"))
+		get.assert_not_called()
+		first, second, third = self._repo(token="")
+		with first, second, third, patch("requests.get") as get:
+			self.assertIsNone(ops._missing_branch_error("one_bpmn", "x"))
+		get.assert_not_called()
+
+
+class TestARefusedDispatchCreatesNoRun(AgentSandboxCase):
+	def test_a_fast_call_for_an_unknown_app_is_refused_with_no_run(self):
+		before = frappe.db.count("Agent Sandbox Run")
+		out = ops.sandbox_dispatch("read_file", "spiff", "staging", "d", {"path": "a.py"})
+		self.assertFalse(out["ok"])
+		self.assertIn("not an app the sandbox has", out["error"])
+		self.assertEqual(frappe.db.count("Agent Sandbox Run"), before)
+
+	def test_a_slow_dispatch_for_an_unknown_app_raises_with_no_run(self):
+		before = frappe.db.count("Agent Sandbox Run")
+		with self.assertRaises(ops.AgentSandboxError):
+			ops.dispatch_action(
+				{"target_app": "spiff", "git_branch": "staging", "work_item_description": "d"},
+				self.ctx(operation="run_tests"),
+			)
+		self.assertEqual(frappe.db.count("Agent Sandbox Run"), before)
+
+
+class TestTheSandboxIsPostedToWithRetries(FrappeTestCase):
+	def _response(self, status):
+		return MagicMock(status_code=status)
+
+	def _post(self, outcomes, idempotent):
+		import requests
+
+		calls = []
+
+		def fake(url, **kwargs):
+			calls.append(url)
+			outcome = outcomes.pop(0)
+			if isinstance(outcome, BaseException):
+				raise outcome
+			return outcome
+
+		with patch("requests.post", side_effect=fake), patch.object(ops.time, "sleep") as sleep:
+			try:
+				result = ops._post_with_retries("https://s/x", idempotent=idempotent, json={})
+			except (requests.ConnectionError, requests.Timeout) as exc:
+				result = exc
+		return result, len(calls), [c.args[0] for c in sleep.call_args_list]
+
+	def test_a_busy_sandbox_is_retried_for_every_kind_of_call(self):
+		for idempotent in (True, False):
+			result, calls, waits = self._post([self._response(503), self._response(429), self._response(200)], idempotent)
+			self.assertEqual((result.status_code, calls, waits), (200, 3, [1.0, 2.0]), idempotent)
+
+	def test_after_the_last_try_the_busy_answer_is_returned_not_hidden(self):
+		result, calls, _ = self._post([self._response(503)] * 3, False)
+		self.assertEqual((result.status_code, calls), (503, 3))
+
+	def test_a_gateway_error_is_retried_only_when_repeating_is_harmless(self):
+		retried, calls, _ = self._post([self._response(502), self._response(200)], True)
+		self.assertEqual((retried.status_code, calls), (200, 2))
+		kept, calls, _ = self._post([self._response(502), self._response(200)], False)
+		self.assertEqual((kept.status_code, calls), (502, 1))
+
+	def test_a_dropped_connection_is_retried_only_when_harmless(self):
+		import requests
+
+		result, calls, _ = self._post([requests.ConnectionError("reset"), self._response(200)], True)
+		self.assertEqual((result.status_code, calls), (200, 2))
+		result, calls, _ = self._post([requests.ConnectionError("reset"), self._response(200)], False)
+		self.assertIsInstance(result, requests.ConnectionError)
+		self.assertEqual(calls, 1)
+
+	def test_a_timeout_that_never_clears_raises_after_the_tries(self):
+		import requests
+
+		result, calls, _ = self._post([requests.Timeout("slow")] * 3, True)
+		self.assertIsInstance(result, requests.Timeout)
+		self.assertEqual(calls, ops.POST_TRIES)
+
+	def test_an_answer_that_is_not_a_passing_failure_is_returned_at_once(self):
+		for status in (200, 400, 403, 404, 500):
+			result, calls, _ = self._post([self._response(status)], True)
+			self.assertEqual((result.status_code, calls), (status, 1), status)
+
+	def test_which_calls_are_safe_to_repeat(self):
+		self.assertIn("read_file", ops._IDEMPOTENT_ACTIONS)
+		self.assertIn("write_file", ops._IDEMPOTENT_ACTIONS)
+		for action in ("edit_file", "apply_edits", "delete_file"):
+			self.assertNotIn(action, ops._IDEMPOTENT_ACTIONS)
