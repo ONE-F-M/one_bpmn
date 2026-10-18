@@ -231,7 +231,7 @@ def preview_doctype(ir: str) -> dict:
 			"Adds {0} new field(s) to the standard DocType “{1}” as Custom Fields. "
 			"Existing fields are untouched.{2}").format(len(new_fields), name, child_note)
 
-	changes = _child_table_changes(fields)
+	changes = _child_table_changes(name, fields)
 	out["child_changes"] = [{"table": c["table"], "lines": _describe_child_change(c["diff"])} for c in changes]
 	out["destructive"] = out["destructive"] or any(c["diff"]["removed"] for c in changes)
 	out["warnings"] += verdict["warnings"]
@@ -294,7 +294,7 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 	#    DocType unless the client explicitly confirmed (via preview_doctype). This
 	#    runs BEFORE elevation so the message reaches the user cleanly.
 	if not int(confirm or 0):
-		removed = [x for c in _child_table_changes(fields) for x in c["diff"]["removed"]]
+		removed = [x for c in _child_table_changes(name, fields) for x in c["diff"]["removed"]]
 		if frappe.db.exists("DocType", name) and _reconciles_in_place(name):
 			removed += diff_ir(_read_doctype_ir(name) or {}, ir_dict).get("removed") or []
 		if removed:
@@ -643,7 +643,7 @@ def _ensure_child_doctypes(parent: str, module: str, fields: list) -> list:
 	Returns the list of child DocType names that were newly created.
 	"""
 	created = []
-	changed = {c["table"] for c in _child_table_changes(fields)}
+	changed = {c["table"] for c in _child_table_changes(parent, fields)}
 	for f in fields:
 		if not isinstance(f, dict) or f.get("fieldtype") not in _TABLE_FIELDTYPES:
 			continue
@@ -667,25 +667,29 @@ def _ensure_child_doctypes(parent: str, module: str, fields: list) -> list:
 		if not frappe.db.exists("DocType", child_name):
 			_create_custom_doctype(child_name, module, 1, "", child_fields)
 			created.append(child_name)
+		elif child_name in changed:
+			_reconcile_custom_doctype(child_name, 1, "", child_fields, module=module)
 		else:
 			_move_custom_doctype(child_name, module)
 		f["options"] = child_name
 	return created
 
 
-def _child_table_changes(fields: list) -> list:
+def _child_table_changes(parent: str, fields: list) -> list:
 	"""``{table, diff}`` for each existing custom child table whose inline columns differ from the live ones."""
 	changes = []
 	for f in fields:
 		if not isinstance(f, dict) or f.get("fieldtype") not in _TABLE_FIELDTYPES:
 			continue
-		table = (f.get("options") or "").strip()
+		table = (f.get("options") or "").strip() or _child_doctype_name(parent, f)
 		child_fields = f.get("child_fields")
 		if not (isinstance(child_fields, list) and child_fields and table and frappe.db.exists("DocType", table)):
 			continue
 		if not child_table_is_editable(table):
 			continue
-		diff = diff_ir(_read_doctype_ir(table) or {}, {"fields": child_fields})
+		# Frappe stores a default of "0" on every Check column.
+		wanted = [{**c, "default": c.get("default") or "0"} if c.get("fieldtype") == "Check" else c for c in child_fields]
+		diff = diff_ir(_read_doctype_ir(table) or {}, {"fields": wanted})
 		if diff["added"] or diff["removed"] or diff["changed"]:
 			changes.append({"table": table, "diff": diff})
 	return changes

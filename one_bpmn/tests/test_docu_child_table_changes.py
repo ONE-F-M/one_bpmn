@@ -49,6 +49,12 @@ class TestChildTableChanges(FrappeTestCase):
 		self.assertEqual(meta.get_field("apply").fieldtype, "Check")
 		self.assertEqual(frappe.db.get_value(CHILD, {"parenttype": PARENT}, "note"), "kept")
 
+	def test_a_table_field_without_options_still_reaches_its_existing_child(self):
+		apply_doctype(_ir(RELABELLED, options=""), confirm=1)
+		self.assertEqual(frappe.get_meta(CHILD, cached=False).get_field("note").label, "Remark")
+		out = preview_doctype(_ir(RELABELLED, options=""))
+		self.assertEqual(out["child_changes"], [])
+
 	def test_preview_lists_each_child_change(self):
 		out = preview_doctype(_ir(RELABELLED))
 		self.assertEqual(out["child_changes"][0]["table"], CHILD)
