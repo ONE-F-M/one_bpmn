@@ -1,6 +1,6 @@
 """Generic AMP-for-Email action endpoint for plain Frappe-Workflow documents.
 
-Mirrors ``one_bpmn.api.todo_actions.handle_amp_action`` (which advances a
+Mirrors ``one_bpmn.api.bpmn_task_actions.handle_amp_action`` (which advances a
 BPMN Process Instance's task), but for any document whose approval is
 driven by a standard Frappe Workflow instead. Unlike that endpoint, this
 one has no knowledge of any specific doctype — every doctype/action
@@ -94,7 +94,7 @@ def handle_workflow_action(token: str | None = None, **extra) -> dict:
 		dict with ``message`` (success) or ``error`` (failure) key, shaped
 		for the amp-mustache ``submit-success`` / ``submit-error`` templates.
 	"""
-	from one_bpmn.api.todo_actions import _set_amp_cors_headers
+	from one_bpmn.api.bpmn_task_actions import _set_amp_cors_headers
 
 	_set_amp_cors_headers()
 
