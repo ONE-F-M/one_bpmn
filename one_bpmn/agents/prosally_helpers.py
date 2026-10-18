@@ -987,9 +987,43 @@ def describe_changes(previous_xml: str, xml: str) -> str:
 		lines.append(_("Added {0}.").format(_element_label("sequenceFlow", name)))
 	for name in (old_paths - new_paths).elements():
 		lines.append(_("Removed {0}.").format(_element_label("sequenceFlow", name)))
+	lines += _moved_arrows(previous_xml, xml)
 	if not lines:
 		return "\n\n" + _("I could not find any change on the diagram. Check that your request was applied.")
 	return "\n\n" + _("What changed:") + "\n" + "\n".join("- " + line for line in lines)
+
+
+def _moved_arrows(previous_xml: str, xml: str) -> list[str]:
+	"""Arrows between steps that exist before and after whose source or target changed, as plain lines."""
+	old_names = {i: name for i, (kind, name) in element_names(previous_xml).items() if kind != "sequenceFlow"}
+	new_names = {i: name for i, (kind, name) in element_names(xml).items() if kind != "sequenceFlow"}
+
+	def arrows(text):
+		found = Counter()
+		for attrs in re.findall(r"<bpmn:sequenceFlow\s([^>]*?)/?>", text or ""):
+			values = {key: val for key, val in re.findall(r'(\w+)="([^"]*)"', attrs)}
+			found[(values.get("sourceRef"), values.get("targetRef"), values.get("name", ""))] += 1
+		return found
+
+	gone = list((arrows(previous_xml) - arrows(xml)).elements())
+	lines = []
+	for source, target, label in (arrows(xml) - arrows(previous_xml)).elements():
+		if source not in old_names or target not in old_names:
+			continue
+		match = next(
+			(
+				old
+				for old in gone
+				if old[2] == label and (old[0] == source) != (old[1] == target) and old[0] in new_names and old[1] in new_names
+			),
+			None,
+		)
+		if match:
+			gone.remove(match)
+			lines.append(
+				_("Moved the arrow from {0} to {1}.").format(_quoted(new_names[source] or source), _quoted(new_names[target] or target))
+			)
+	return lines
 
 
 def similar_steps(xml: str, texts: list, skip: str = "") -> list[str]:

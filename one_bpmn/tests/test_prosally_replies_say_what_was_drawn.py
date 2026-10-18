@@ -85,6 +85,28 @@ class TestDescribeChanges(FrappeTestCase):
 	def test_no_change_is_said_out_loud(self):
 		self.assertIn("could not find any change", helpers.describe_changes(self.OLD, self.OLD))
 
+	STEPS = (
+		'<bpmn:userTask id="a" name="Raise" /><bpmn:userTask id="b" name="Review" />'
+		'<bpmn:userTask id="c" name="Approve" />'
+	)
+
+	def test_a_rerouted_arrow_without_a_label_is_a_move(self):
+		old = self.STEPS + '<bpmn:sequenceFlow id="f1" sourceRef="a" targetRef="b" />'
+		new = self.STEPS + '<bpmn:sequenceFlow id="f1" sourceRef="a" targetRef="c" />'
+		text = helpers.describe_changes(old, new)
+		self.assertIn('Moved the arrow from "Raise" to "Approve".', text)
+		self.assertNotIn("could not find any change", text)
+
+	def test_a_rerouted_labeled_arrow_is_a_move(self):
+		old = self.STEPS + '<bpmn:sequenceFlow id="f1" name="Yes" sourceRef="a" targetRef="b" />'
+		new = self.STEPS + '<bpmn:sequenceFlow id="f9" name="Yes" sourceRef="a" targetRef="c" />'
+		self.assertIn('Moved the arrow from "Raise" to "Approve".', helpers.describe_changes(old, new))
+
+	def test_an_unlabeled_arrow_given_a_new_id_is_not_a_change(self):
+		old = self.STEPS + '<bpmn:sequenceFlow id="f1" sourceRef="a" targetRef="b" />'
+		new = old.replace('id="f1"', 'id="flow_7"')
+		self.assertIn("could not find any change", helpers.describe_changes(old, new))
+
 
 class TestGenerateNamesTheMissingLane(FrappeTestCase):
 	"""Runs the live Generate Process Server Script; the script reaches a site with the ProsAlly map by export."""
