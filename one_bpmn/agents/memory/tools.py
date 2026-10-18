@@ -29,7 +29,7 @@ from contextlib import ExitStack, nullcontext
 
 import frappe
 from frappe import _
-from frappe.utils import cint, get_datetime, now, now_datetime
+from frappe.utils import add_days, cint, get_datetime, now, now_datetime
 
 VALID_SCOPES = ("Agent", "Process", "Entity", "User")
 _DEFAULT_LIMIT = 5
@@ -87,6 +87,8 @@ _DEFAULT_IMPORTANCE = 3
 # ── Provenance and trust ─────────────────────────────────────────────────────
 SOURCE_TYPES = ("User Statement", "Agent Inference", "Tool Output")
 _DEFAULT_SOURCE_TYPE = "Agent Inference"
+_EXPIRING_SOURCE_TYPES = ("Agent Inference", "Tool Output")
+MEMORY_TTL_DAYS = 30
 # Starting confidence by source. Tool output is discouraged by default: a fact
 # read off what a tool returned is one step further from anything a person
 # said, so it starts low and loses ties against the other two.
@@ -1012,6 +1014,8 @@ def _memory_write(
 		if importance is not None:
 			doc_fields["importance"] = min(5, max(1, int(importance)))
 		doc_fields["source_type"] = source_type
+		if source_type in _EXPIRING_SOURCE_TYPES:
+			doc_fields["expires_on"] = add_days(now_datetime(), MEMORY_TTL_DAYS)
 		doc_fields["confidence"] = carry.get("confidence", confidence)
 		if carry.get("corroboration_count"):
 			doc_fields["corroboration_count"] = carry["corroboration_count"]

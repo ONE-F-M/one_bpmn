@@ -18,21 +18,7 @@ import frappe.utils
 # Stable, documented format for the injected memory block. Evals and the run
 # inspector reference this header — do not change it lightly.
 MEMORY_BLOCK_HEADER = "Relevant memory:"
-# Two jobs, and they pull against each other. The second sentence stops a past
-# final response being read as this conversation's history (observed live
-# 2026-08-09: the ProsAlly orchestrator concluded the requested process already
-# existed and skipped its confirm tool). The first sentence stops the
-# over-correction: calling the notes "context only", as this did until
-# 2026-09-11, reads as "not authoritative", and an agent holding tools will go
-# to the tools instead. Observed live: General Chat was handed the user's own
-# stated approval rule and answered from a wiki lookup that found nothing.
-_MEMORY_BLOCK_PROVENANCE = (
-	"(Background notes recalled from PAST, separate conversations. Treat each "
-	"one as a true, standing fact about this user or their organisation, and "
-	"use it when it answers the current request. Nothing below has happened in "
-	"the current conversation, and none of it counts as work already done for "
-	"the current request.)"
-)
+_MEMORY_BLOCK_PROVENANCE = "Possibly relevant notes from earlier work; use them only if they match this request."
 
 # aiMemoryLimit only bounds how many memories are recalled — a raw-write-mode
 # memory has no size cap of its own (memory_write stores str(result.output)
@@ -314,6 +300,17 @@ def _extract_memory_content(output, content_field: str) -> str:
 	if content_field and isinstance(output, dict):
 		return str(output.get(content_field, "") or "")
 	return str(output or "")
+
+
+# Tools whose turn is a canned reply or a question, so there is nothing to learn from it.
+_NON_ANSWER_TOOLS = frozenset({"redirect", "clarify"})
+
+
+def _ended_without_answer(trace) -> bool:
+	"""True when the turn called a redirect or clarify tool."""
+	return any(
+		call.get("name") in _NON_ANSWER_TOOLS for turn in trace or [] for call in turn.get("tool_calls") or []
+	)
 
 
 def _memory_output_from_trace(trace) -> str:
@@ -2528,7 +2525,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 								ignore_permissions=True,
 								process_model=memory_process_model,
 							)
-					else:  # distilled
+					elif not _ended_without_answer(result.trace):  # distilled
 						# Distill and reconcile with the models the admin chose
 						# (agent -> Processa Settings -> the agent's own model),
 						# resolved here on the dispatch thread and handed to the
