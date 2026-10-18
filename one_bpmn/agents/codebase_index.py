@@ -332,3 +332,152 @@ def find_whitelisted_methods(apps, path_keywords=None) -> list:
 				if candidate and not candidate.startswith("@"):
 					break
 	return results
+
+
+_STRUCTURAL_RE = re.compile(
+	r"^\s*(if|elif|else|for|while|try|except|finally|return|raise)\b"
+	r"|frappe\.throw|frappe\.db\.|frappe\.(get_doc|new_doc|get_all|get_list)\("
+	r"|\.(save|insert|submit|cancel|delete)\(|\bself\.\w+\("
+)
+
+
+def _function_info(node, src_lines: list, limit: int) -> dict:
+	"""Name, lines and a body without docstring, comments or blanks, cut to ``limit`` lines.
+
+	A body over the limit keeps its def line and the structural lines (control flow, throws,
+	database and document calls) so decisions deep inside a long method survive.
+	"""
+	skip = set()
+	first = node.body[0]
+	if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
+		skip = set(range(first.lineno, first.end_lineno + 1))
+	kept = []
+	for number in range(node.lineno, node.end_lineno + 1):
+		text = src_lines[number - 1].rstrip()
+		if number in skip or not text.strip() or text.strip().startswith("#"):
+			continue
+		kept.append(text)
+	full_lines = len(kept)
+	if full_lines > limit:
+		kept = kept[:1] + [line for line in kept[1:] if _STRUCTURAL_RE.search(line)][: limit - 1]
+	return {
+		"name": node.name,
+		"line": node.lineno,
+		"end_line": node.end_lineno,
+		"whitelisted": any("frappe.whitelist" in ast.unparse(d) for d in node.decorator_list),
+		"body": "\n".join(kept),
+		"trimmed": full_lines > limit,
+		"full_lines": full_lines,
+	}
+
+
+def _parse_python(abs_path: str):
+	"""``(tree, source_lines)`` of a python file."""
+	with open(abs_path, encoding="utf-8", errors="ignore") as fh:
+		source = fh.read()
+	return ast.parse(source, filename=abs_path), source.splitlines()
+
+
+def _functions_of(body: list, src_lines: list, limit: int) -> list:
+	return [
+		_function_info(n, src_lines, limit) for n in body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+	]
+
+
+def _read_controller(abs_path: str, doctype: str, limit: int) -> dict:
+	"""The DocType class methods and every module-level function of a controller file."""
+	tree, src_lines = _parse_python(abs_path)
+	class_name = "".join(word.title() for word in doctype.split())
+	classes = [n for n in tree.body if isinstance(n, ast.ClassDef)]
+	controller = next((c for c in classes if c.name == class_name), classes[0] if classes else None)
+	return {
+		"class": controller.name if controller else "",
+		"methods": _functions_of(controller.body, src_lines, limit) if controller else [],
+		"module_functions": _functions_of(tree.body, src_lines, limit),
+	}
+
+
+def _resolve_dotted(apps_root: str, dotted: str):
+	"""``(abs_path, attribute_name)`` for a dotted path from a hooks.py, or ``("", "")``."""
+	parts = dotted.split(".")
+	if len(parts) < 2:
+		return "", ""
+	abs_path = os.path.join(apps_root, parts[0], *parts[:-1]) + ".py"
+	return (abs_path, parts[-1]) if os.path.isfile(abs_path) else ("", "")
+
+
+def _module_function(tree, name: str):
+	return next((n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name), None)
+
+
+def _hook_entry(apps_root: str, hook: dict, limit: int) -> dict:
+	"""A hook row plus the trimmed body of the function (or override class methods) it names."""
+	entry = {key: hook.get(key) for key in ("hook_type", "event", "method", "app")}
+	abs_path, name = _resolve_dotted(apps_root, hook.get("method") or "")
+	if not abs_path:
+		entry["message"] = "source file not found"
+		return entry
+	tree, src_lines = _parse_python(abs_path)
+	entry["file"] = os.path.relpath(abs_path, apps_root)
+	if hook.get("hook_type") == "override_doctype_class":
+		node = next((n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == name), None)
+		entry["methods"] = _functions_of(node.body, src_lines, limit) if node else []
+		return entry
+	node = _module_function(tree, name)
+	if node is None:
+		entry["message"] = "function not found in file"
+		return entry
+	entry.update(_function_info(node, src_lines, limit))
+	return entry
+
+
+def _targets_doctype(apps_root: str, hook: dict, doctype: str, controller_path: str) -> bool:
+	"""Whether a scheduler method lives in the DocType's controller or names the DocType."""
+	abs_path, name = _resolve_dotted(apps_root, hook.get("method") or "")
+	if not abs_path:
+		return False
+	if abs_path == controller_path:
+		return True
+	node = _module_function(_parse_python(abs_path)[0], name)
+	return node is not None and any(isinstance(n, ast.Constant) and n.value == doctype for n in ast.walk(node))
+
+
+def read_doctype_sources(doctype_names: list, body_lines: int = 60) -> list:
+	"""Controller, hook and scheduler source for each DocType name, as one raw dict each.
+
+	Paths come from the index, never from the name. A DocType without a controller file or
+	unknown to the index is reported in ``status`` and ``message``.
+	"""
+	index = get_codebase_index()
+	apps_root = get_apps_root()
+	by_name = {dt["name"].lower(): dt for dt in index["doctypes"]}
+	out = []
+	for requested in doctype_names:
+		dt = by_name.get(str(requested).strip().lower())
+		if not dt:
+			out.append({"doctype": requested, "status": "unknown_doctype", "message": "DocType not found in any installed app"})
+			continue
+		name = dt["name"]
+		if not dt.get("py_exists"):
+			out.append({
+				"doctype": name,
+				"status": "no_controller_file",
+				"message": "no controller file in any app (the DocType may be defined in the database only)",
+				"hooks": [],
+			})
+			continue
+		controller_path = os.path.join(apps_root, dt["py_file"])
+		item = {"doctype": name, "status": "read", "app": dt["app"], "file": dt["py_file"]}
+		item.update(_read_controller(controller_path, name, body_lines))
+		hooks = [
+			h for h in index["hooks"]
+			if h.get("doctype") == name and h["hook_type"] in ("doc_events", "override_doctype_class")
+		]
+		hooks += [
+			h for h in index["hooks"]
+			if h["hook_type"] == "scheduler_events" and _targets_doctype(apps_root, h, name, controller_path)
+		]
+		item["hooks"] = [_hook_entry(apps_root, h, body_lines) for h in hooks]
+		item["star_hooks"] = sum(1 for h in index["hooks"] if h.get("doctype") == "*")
+		out.append(item)
+	return out
