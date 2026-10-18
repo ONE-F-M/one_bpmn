@@ -183,7 +183,7 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 		the old reason ("is disabled") after the model had been enabled."""
 		agent = self._make_agent()
 		with patch(TEST_CALL, return_value=(False, "down")):
-			agent.save(ignore_permissions=True)
+			agent.save()
 
 		def comments():
 			return frappe.db.count(
@@ -194,8 +194,8 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 
 		before = comments()
 		with patch(TEST_CALL, return_value=(False, "404 model not found")):
-			agent.save(ignore_permissions=True)
-			agent.save(ignore_permissions=True)
+			agent.save()
+			agent.save()
 
 		self.assertIn(
 			"404 model not found",
@@ -323,9 +323,7 @@ class TestTheFactorySendsTheApiName(FrappeTestCase):
 
 	def setUp(self):
 		if not frappe.db.exists("AI Provider", "Anthropic"):
-			frappe.get_doc({"doctype": "AI Provider", "provider": "Anthropic"}).insert(
-				ignore_permissions=True
-			)
+			frappe.get_doc({"doctype": "AI Provider", "provider": "Anthropic"}).insert()
 		self.model = frappe.get_doc({
 			"doctype": "AI Model",
 			"enable_model": 1,
@@ -333,7 +331,7 @@ class TestTheFactorySendsTheApiName(FrappeTestCase):
 			"model_api_name": "claude-test-api-id",
 			"provider": "Anthropic",
 			"api_key": "test-key-not-real",
-		}).insert(ignore_permissions=True)
+		}).insert()
 
 	def _sent_model(self, cfg):
 		from one_bpmn.agents.llm_provider import factory
