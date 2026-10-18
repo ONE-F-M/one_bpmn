@@ -2,6 +2,8 @@
 """ProsAlly's replies say which lanes it drew, which named lane it missed, and what a modify changed."""
 
 import json
+import re
+import unittest
 from unittest.mock import patch
 
 import frappe
@@ -85,6 +87,28 @@ class TestDescribeChanges(FrappeTestCase):
 	def test_no_change_is_said_out_loud(self):
 		self.assertIn("could not find any change", helpers.describe_changes(self.OLD, self.OLD))
 
+	STEPS = (
+		'<bpmn:userTask id="a" name="Raise" /><bpmn:userTask id="b" name="Review" />'
+		'<bpmn:userTask id="c" name="Approve" />'
+	)
+
+	def test_a_rerouted_arrow_without_a_label_is_a_move(self):
+		old = self.STEPS + '<bpmn:sequenceFlow id="f1" sourceRef="a" targetRef="b" />'
+		new = self.STEPS + '<bpmn:sequenceFlow id="f1" sourceRef="a" targetRef="c" />'
+		text = helpers.describe_changes(old, new)
+		self.assertIn('Moved the arrow from "Raise" to "Approve".', text)
+		self.assertNotIn("could not find any change", text)
+
+	def test_a_rerouted_labeled_arrow_is_a_move(self):
+		old = self.STEPS + '<bpmn:sequenceFlow id="f1" name="Yes" sourceRef="a" targetRef="b" />'
+		new = self.STEPS + '<bpmn:sequenceFlow id="f9" name="Yes" sourceRef="a" targetRef="c" />'
+		self.assertIn('Moved the arrow from "Raise" to "Approve".', helpers.describe_changes(old, new))
+
+	def test_an_unlabeled_arrow_given_a_new_id_is_not_a_change(self):
+		old = self.STEPS + '<bpmn:sequenceFlow id="f1" sourceRef="a" targetRef="b" />'
+		new = old.replace('id="f1"', 'id="flow_7"')
+		self.assertIn("could not find any change", helpers.describe_changes(old, new))
+
 
 class TestGenerateNamesTheMissingLane(FrappeTestCase):
 	"""Runs the live Generate Process Server Script; the script reaches a site with the ProsAlly map by export."""
@@ -141,3 +165,87 @@ class TestPatchTransform(FrappeTestCase):
 				"from one_bpmn.agents.prosally_helpers import complete_sub_prompt, x\n", helper, anchor, call
 			)
 		)
+
+
+class TestRelayout(FrappeTestCase):
+	"""Draws the real fuel requisition map again; needs node to compile."""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		path = frappe.get_app_path("one_bpmn", "tests", "fixtures", "lane_layout_fuel_requisition_ir.json")
+		with open(path) as f:
+			cls.ir = json.load(f)
+		compiled = helpers.compile_ir(cls.ir)
+		if not compiled.get("ok"):
+			raise unittest.SkipTest("node or pipeline.mjs unavailable")
+		cls.xml = compiled["xml"]
+
+	def test_the_ir_read_back_keeps_every_step_and_arrow(self):
+		ir = helpers.xml_to_ir(self.xml)
+		self.assertEqual({n["id"] for n in ir["nodes"]}, {n["id"] for n in self.ir["nodes"]})
+		self.assertEqual(len(ir["flows"]), len(self.ir["flows"]))
+		self.assertEqual(len(ir["lanes"]), len(self.ir["lanes"]))
+
+	def test_a_diagram_already_laid_out_says_so(self):
+		self.assertEqual(helpers.relayout(self.xml), (None, "same"))
+
+	def test_a_moved_shape_is_put_back_and_ids_and_settings_are_kept(self):
+		step = self.ir["nodes"][1]["id"]
+		messy = re.sub(
+			rf'(<bpmndi:BPMNShape id="[^"]*" bpmnElement="{step}">\s*<dc:Bounds x=")[\d.]+', r"\g<1>9999", self.xml
+		).replace(f'<bpmn:userTask id="{step}"', f'<bpmn:userTask id="{step}" spiffworkflow:assignee="kept"')
+		new_xml, reason = helpers.relayout(messy)
+		self.assertEqual(reason, "")
+		self.assertEqual(helpers.element_names(new_xml).keys(), helpers.element_names(messy).keys())
+		self.assertNotIn('x="9999"', new_xml)
+
+	def test_a_diagram_without_lanes_is_left_to_the_editor(self):
+		self.assertEqual(helpers.relayout('<bpmn:process id="p"><bpmn:startEvent id="s" /></bpmn:process>')[1], "lane-less")
+
+	def _classify(self, turn, llm_reply="{}"):
+		script = frappe.db.get_value("Server Script", {"api_method": "prosally_tool_classify_intent"}, "script")
+		if not script or "relayout_output" not in script:
+			self.skipTest("the patched ProsAlly Classify Intent script is not on this site")
+		set_turn("RELAYOUT-TEST", {"process_name": "P", "scope_id": "", "chat_history": [], **turn})
+		result = {}
+		with patch("one_bpmn.agents.prosally_helpers.complete_sub_prompt", return_value=llm_reply):
+			exec(script, {"frappe": frappe, "context_docname": "RELAYOUT-TEST", "result": result})
+		output = get_turn("RELAYOUT-TEST").get("output")
+		clear_turn("RELAYOUT-TEST")
+		return result, output
+
+	def test_a_confirmed_relayout_returns_the_diagram_drawn_again(self):
+		step = self.ir["nodes"][1]["id"]
+		messy = re.sub(
+			rf'(<bpmndi:BPMNShape id="[^"]*" bpmnElement="{step}">\s*<dc:Bounds x=")[\d.]+', r"\g<1>9999", self.xml
+		)
+		result, output = self._classify({"confirmed_action": "RELAYOUT", "current_xml": messy})
+		self.assertTrue(result["modified"])
+		self.assertEqual(result["next"], "finalize")
+		self.assertNotIn('x="9999"', output["bpmn_xml"])
+
+	def test_a_confirmed_relayout_of_a_tidy_diagram_says_so_and_attaches_nothing(self):
+		result, output = self._classify({"confirmed_action": "RELAYOUT", "current_xml": self.xml})
+		self.assertFalse(result["modified"])
+		self.assertNotIn("bpmn_xml", output)
+		self.assertIn("already the best", output["response"])
+		self.assertNotIn("I've updated", output["response"])
+
+	def test_a_layout_complaint_asks_before_laying_out_again(self):
+		reply = '{"intent": "RELAYOUT", "reason": "layout", "summary": "", "question": "Shall I lay it out again?"}'
+		_result, output = self._classify(
+			{"user_text": "Fix the spacing and remove the crossing lines", "current_xml": self.xml}, reply
+		)
+		self.assertEqual((output["intent"], output["action_intent"]), ("CONFIRM", "RELAYOUT"))
+
+	def test_a_spec_asked_about_lists_what_is_missing_and_asks_first(self):
+		spec = "What is missing?\n- Verify Final Settlement Statement\n- " + self.ir["nodes"][1]["name"]
+		result, output = self._classify(
+			{"user_text": spec, "current_xml": self.xml}, '{"intent": "COMPARE", "reason": "compare"}'
+		)
+		self.assertEqual(result["next"], "finalize")
+		self.assertEqual((output["intent"], output["action_intent"]), ("CONFIRM", "MODIFY_EXISTING"))
+		self.assertIn("- Verify Final Settlement Statement", output["response"])
+		self.assertNotIn("- " + self.ir["nodes"][1]["name"], output["response"])
+		self.assertIn("Shall I add them?", output["response"])
