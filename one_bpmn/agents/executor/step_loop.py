@@ -41,7 +41,7 @@ from one_bpmn.agents.llm_provider.base import (
 	ToolSpec,
 	TurnRecord,
 )
-from one_bpmn.agents.memory.loop_compaction import compact_transcript
+from one_bpmn.agents.memory.loop_compaction import compact_transcript, has_turns_to_compact
 from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG, _tool_call_status, clear_tool_artifacts
 from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG, BudgetExceeded, ToolDeferred
 from one_bpmn.agents.turn_state import TURN_ANSWERED_FLAG
@@ -372,7 +372,8 @@ async def _run_turns(
 	reply_checked = False
 	force_pending = bool(tool_choice) and tool_choice != "auto" and turns_used == 0
 	nudged = False
-	last_prompt_tokens = 0
+	# A resumed segment starts from the prompt size its last recorded turn reached.
+	last_prompt_tokens = trace[-1].prompt_tokens if trace else 0
 	# Compaction runs again only once keep_turns new turns have replaced what the last one kept.
 	compacted_at = None
 	last_error = None
@@ -390,6 +391,7 @@ async def _run_turns(
 			loop_compaction
 			and last_prompt_tokens > loop_compaction["threshold"]
 			and (compacted_at is None or turns_used - compacted_at >= loop_compaction["keep_turns"])
+			and has_turns_to_compact(transcript, loop_compaction["keep_turns"])
 		):
 			compacted = compact_transcript(
 				transcript,
