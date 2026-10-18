@@ -4,6 +4,7 @@ import { h, Component } from "preact";
 import { HeaderButton } from "@bpmn-io/properties-panel";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { frappeGet, frappePost } from "../shared/frappeResource";
+import { listenForScriptLink } from "./listenForScriptLink";
 
 function getAttr(bo, attr) {
 	return bo.get(`spiffworkflow:${attr}`) || "";
@@ -325,9 +326,7 @@ function LaunchEditorButton(props) {
 				eventBus,
 			});
 
-			// Listen for the dialog response
-			eventBus.once("spiff.script.update", (event) => {
-				const scriptName = event.script || "";
+			listenForScriptLink(eventBus, element, "bpmn:script", (scriptName) => {
 				// Update spiffworkflow:serverScript (engine reads this)
 				modeling.updateModdleProperties(element, bo, {
 					"spiffworkflow:serverScript": scriptName || undefined,
