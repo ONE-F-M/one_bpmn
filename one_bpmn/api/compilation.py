@@ -1681,86 +1681,103 @@ def _validate_ai_max_tokens(service_extensions: dict) -> None:
 			)
 
 
-def _resolve_called_process_xml(bpmn_xml: str, model_name: str) -> list:
-	"""XML of every process this diagram's Call Activities reference.
+CALL_BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+CALL_SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
 
-	A Call Activity names another process by id in ``calledElement``, and
-	SpiffWorkflow resolves that id only against processes the SAME parser has
-	parsed. Compiling one model in isolation therefore fails with a raw
-	"The process 'x' was not found" the moment a Call Activity points at a
-	different Process Model — which is why the only Call Activity in the wild
-	had an empty calledElement and had never run.
 
-	So: find each calledElement, look up the Process Model whose ``process_id``
-	matches, and return its XML for parse_bpmn to register. Resolution is
-	transitive (a called process may call another) and cycle-safe — a process
-	that calls back into the caller resolves each participant once rather than
-	recursing forever, which is also what lets SpiffWorkflow parse the pair.
+def _resolve_called_process_xml(bpmn_xml: str, model_name: str) -> tuple:
+	"""(this diagram with each Call Activity pointed at the map it runs, the XML of every map called).
 
-	A calledElement with no matching model is a modelling mistake, not a crash:
-	it throws with the id and the shape, the same way a missing Decision Table
-	does. An EMPTY calledElement is left alone — that is an unconfigured shape,
-	and it fails validation elsewhere with a better message than this one.
+	SpiffWorkflow resolves calledElement only against processes the same parser has
+	parsed, so each called map's XML is handed over too, transitively and cycle-safe.
 	"""
 	import xml.etree.ElementTree as _ET
 
-	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	_ET.register_namespace("bpmn", CALL_BPMN_NS)
+	_ET.register_namespace("bpmndi", "http://www.omg.org/spec/BPMN/20100524/DI")
+	_ET.register_namespace("dc", "http://www.omg.org/spec/DD/20100524/DC")
+	_ET.register_namespace("di", "http://www.omg.org/spec/DD/20100524/DI")
+	_ET.register_namespace("spiffworkflow", "http://spiffworkflow.org/bpmn/schema/1.0/core")
 
 	try:
 		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8"))
 	except Exception:
-		return []  # a malformed diagram surfaces properly in parse_bpmn
+		return bpmn_xml, []  # a malformed diagram surfaces properly in parse_bpmn
 
-	def _called_ids(xml_root):
-		found = {}
-		for el in xml_root.iter(f"{{{BPMN_NS}}}callActivity"):
-			called = (el.get("calledElement") or "").strip()
-			if called:
-				found.setdefault(called, el.get("id") or "?")
-		return found
+	seen = {p.get("id") for p in root.iter(f"{{{CALL_BPMN_NS}}}process") if p.get("id")}
+	queue: list = []
+	resolved = (
+		_ET.tostring(root, encoding="unicode")
+		if _point_call_activities(root, model_name, queue)
+		else bpmn_xml
+	)
 
 	collected: list = []
-	# The process ids already known to the parser: this diagram's own.
-	seen = {p.get("id") for p in root.iter(f"{{{BPMN_NS}}}process") if p.get("id")}
-	pending = _called_ids(root)
-
-	while pending:
-		called_id, shape_id = pending.popitem()
-		if called_id in seen:
+	while queue:
+		target = queue.pop()
+		if target.process_id in seen:
 			continue
-		seen.add(called_id)
-
-		target = frappe.db.get_value(
-			"BPMN Process Model", {"process_id": called_id}, ["name", "bpmn_xml"], as_dict=True
-		)
-		if not target or not target.bpmn_xml:
-			frappe.throw(
-				_(
-					"Cannot deploy '{0}': the Call Activity '{1}' calls the process "
-					"'{2}', and no BPMN Process Model has that Process ID.\n\n"
-					"Open the Call Activity and set <b>Called Element</b> to the "
-					"Process ID of the map you want it to run."
-				).format(model_name, shape_id, called_id),
-				title=_("Called Process Not Found"),
-			)
-
-		# The called document has to arrive at the parser in the same shape the
-		# main one does. Script Tasks driven only by the Server Script picker
-		# carry no inline <bpmn:script>, and SpiffWorkflow asserts exactly one —
-		# so a called map full of Server Script tasks fails the parent's compile
-		# with "Invalid Script Task. No Script Provided." even though the called
-		# map compiles perfectly well on its own.
+		seen.add(target.process_id)
+		# A called map's Server Script tasks need the same inline-script stub as the caller's.
 		child_xml = _ensure_script_task_inline_scripts(_sanitize_bpmn_xml(target.bpmn_xml))
-		collected.append(child_xml)
 		try:
 			child_root = _ET.fromstring(child_xml.strip().encode("utf-8"))
 		except Exception:
-			continue  # the called model's own compile is where that gets reported
-		for nested_id, nested_shape in _called_ids(child_root).items():
-			if nested_id not in seen:
-				pending[nested_id] = nested_shape
+			collected.append(child_xml)  # the called model's own compile is where that gets reported
+			continue
+		if _point_call_activities(child_root, target.name, queue):
+			child_xml = _ET.tostring(child_root, encoding="unicode")
+		collected.append(child_xml)
 
-	return collected
+	return resolved, collected
+
+
+def _point_call_activities(root, model_name: str, queue: list) -> bool:
+	"""Point each Call Activity under *root* at the map it runs and queue that map; True when an id changed."""
+	changed = False
+	for call in root.iter(f"{{{CALL_BPMN_NS}}}callActivity"):
+		process = (call.get(f"{{{CALL_SPIFF_NS}}}calledProcess") or "").strip()
+		called = (call.get("calledElement") or "").strip()
+		if not (process or called):
+			continue  # an unconfigured shape fails validation elsewhere with a better message
+		target = _called_model(process, called)
+		if not target or not target.bpmn_xml:
+			_throw_called_process_missing(model_name, call.get("id") or "?", process, called)
+		if called != target.process_id:
+			call.set("calledElement", target.process_id)
+			changed = True
+		queue.append(target)
+	return changed
+
+
+def _called_model(process: str, called: str):
+	"""The active map of the called Process; a Call Activity naming only an old process id runs its Process's active map."""
+	fields = ["name", "process_id", "bpmn_xml"]
+	if process:
+		return frappe.db.get_value(
+			"BPMN Process Model", {"process_name": process, "is_active": 1}, fields, as_dict=True
+		)
+	owner = frappe.db.get_value(
+		"BPMN Process Model", {"process_id": called}, "process_name", order_by="is_active desc"
+	)
+	active = owner and frappe.db.get_value(
+		"BPMN Process Model", {"process_name": owner, "is_active": 1}, fields, as_dict=True
+	)
+	return active or frappe.db.get_value("BPMN Process Model", {"process_id": called}, fields, as_dict=True)
+
+
+def _throw_called_process_missing(model_name: str, shape_id: str, process: str, called: str) -> None:
+	if process:
+		message = _(
+			"Cannot deploy '{0}': the Call Activity '{1}' calls the process '{2}', which has no active "
+			"map. Activate a map of '{2}', or pick another process on the Call Activity."
+		).format(model_name, shape_id, process)
+	else:
+		message = _(
+			"Cannot deploy '{0}': the Call Activity '{1}' calls the process '{2}', and no BPMN Process "
+			"Model has that Process ID. Open the Call Activity and pick the process it should run."
+		).format(model_name, shape_id, called)
+	frappe.throw(message, title=_("Called Process Not Found"))
 
 
 def _drop_stale_flow_node_refs(xml: str) -> str:
@@ -1897,7 +1914,7 @@ def compile_process_model(model_name: str) -> dict:
 				title=_("Missing Decision Tables"),
 			)
 
-	called_xml_list = _resolve_called_process_xml(sanitized_xml, model_name)
+	sanitized_xml, called_xml_list = _resolve_called_process_xml(sanitized_xml, model_name)
 
 	try:
 		spec_dict, sp_dict = bpmn_engine.parse_bpmn(
@@ -2660,13 +2677,15 @@ def _recompile_callers_of(process_id: str, model_name: str, _seen: set | None = 
 		return
 	seen.add(model_name)
 
-	needle = f'calledElement="{process_id}"'
 	# Active callers only. compile_process_model activates whatever it compiles,
 	# so recompiling an inactive version of a process deactivated the version a
 	# person had just deployed — the last caller in the list won.
 	for caller in frappe.get_all(
 		"BPMN Process Model",
-		filters={"name": ["!=", model_name], "is_active": 1, "bpmn_xml": ["like", f"%{needle}%"]},
+		filters={"name": ["!=", model_name], "is_active": 1},
+		or_filters=[
+			["bpmn_xml", "like", f"%{needle}%"] for needle in _caller_needles(process_id, model_name)
+		],
 		fields=["name", "process_id"],
 	):
 		if caller.name in seen:
@@ -2687,3 +2706,17 @@ def _recompile_callers_of(process_id: str, model_name: str, _seen: set | None = 
 			)
 		# Its own callers embed it in turn, so the refresh has to travel up.
 		_recompile_callers_of(caller.process_id, caller.name, seen)
+
+
+def _caller_needles(process_id: str, model_name: str) -> list:
+	"""Text a caller's XML holds when it calls this map: its Process, or the process id of any version of it."""
+	from xml.sax.saxutils import quoteattr
+
+	process = frappe.db.get_value("BPMN Process Model", model_name, "process_name")
+	if not process:
+		return [f'calledElement="{process_id}"']
+	process_ids = set(
+		frappe.get_all("BPMN Process Model", filters={"process_name": process}, pluck="process_id")
+	)
+	process_ids.add(process_id)
+	return [f"calledProcess={quoteattr(process)}"] + [f'calledElement="{pid}"' for pid in process_ids if pid]

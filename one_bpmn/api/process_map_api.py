@@ -1587,9 +1587,10 @@ def list_processes() -> list:
 		active_model = frappe.db.get_value(
 			"BPMN Process Model",
 			filters={"process_name": proc["name"], "is_active": 1},
-			fieldname=["name", "modified"],
+			fieldname=["name", "modified", "process_id"],
 			as_dict=True,
 		)
+		proc["active_process_id"] = active_model.process_id if active_model else None
 
 		if active_model:
 			proc["status"] = "Active"
