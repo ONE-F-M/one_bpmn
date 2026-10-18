@@ -6,9 +6,8 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.api.docu_api import apply_doctype, preview_doctype
-from one_bpmn.one_bpmn.patches.v1_0 import inline_docu_tool_scripts
+from one_bpmn.one_bpmn.patches.v1_0 import docu_warns_on_standard_child_tables as fix
 
 PARENT = "Docu Child Change Probe"
 CHILD = f"{PARENT} Rows Item"
@@ -77,22 +76,14 @@ class TestChildTableChanges(FrappeTestCase):
 
 
 class TestReplyWarnsAboutStandardTable(FrappeTestCase):
-	CONVERSATION = "_test_docu_standard_child_warning"
+	def test_the_finalize_line_appends_the_warnings_to_the_reply(self):
+		line = fix.FINALIZE_NEW.replace(fix.FINALIZE_OLD, "").strip()
+		scope = {"final_text": "Done.", "turn": {"warnings": ["Has Role is a standard table."]}}
+		exec(line, scope)
+		self.assertEqual(scope["final_text"], "Done.\n\nHas Role is a standard table.")
 
-	def tearDown(self):
-		clear_turn(self.CONVERSATION)
-
-	def test_the_reply_text_carries_the_warning(self):
-		warning = "Has Role is a standard table, so Docu cannot change its columns."
-		set_turn(
-			self.CONVERSATION,
-			{
-				"intent": "CREATE",
-				"schema_safe": True,
-				"final_text": "Done.",
-				"final_ir": {"doctype_name": PARENT},
-				"warnings": [warning],
-			},
-		)
-		exec(inline_docu_tool_scripts.FINALIZE, {"context_docname": self.CONVERSATION, "result": {}})
-		self.assertEqual(get_turn(self.CONVERSATION)["output"]["response"], f"Done.\n\n{warning}")
+	def test_the_finalize_line_leaves_the_reply_alone_without_warnings(self):
+		line = fix.FINALIZE_NEW.replace(fix.FINALIZE_OLD, "").strip()
+		scope = {"final_text": "Done.", "turn": {}}
+		exec(line, scope)
+		self.assertEqual(scope["final_text"], "Done.")

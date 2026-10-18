@@ -490,7 +490,7 @@ else:
     if validation["valid"]:
         update_turn(
             context_docname, final_ir=candidate, final_text=turn.get("draft_text", ""),
-            schema_safe=True, violations=[], warnings=validation["warnings"],
+            schema_safe=True, violations=[],
         )
         result["approved"] = True
         result["valid"] = True
@@ -548,7 +548,6 @@ else:
         final_text = re.sub(r"```(?:json)?\s*[\s\S]*?```", "", _ft or "").strip()
         if not final_text:
             final_text = "Here's the DocType I put together — review it on the right."
-        final_text = "\n\n".join([final_text] + list(turn.get("warnings") or []))
         ir = turn.get("final_ir")
         # Question passthrough (reviewer returned no JSON)
         if turn.get("is_question") or not ir:
