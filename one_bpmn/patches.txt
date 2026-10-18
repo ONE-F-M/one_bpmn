@@ -304,3 +304,4 @@ one_bpmn.one_bpmn.patches.v1_0.prosally_fixes_lint_findings #18-10-2026 ProsAlly
 one_bpmn.one_bpmn.patches.v1_0.docu_and_logix_memory_is_personal #18-10-2026 Docu and Logix memory is personal: scope User and Agent, the four Logix sub-agents keep no long-term memory
 one_bpmn.one_bpmn.patches.v1_0.memory_models_use_healthy_records #18-10-2026 Memory distill and reconcile models move to a Healthy AI Model once LuCrusher, Docu, Logix and ProsAlly are scoped, dead memory overrides are blanked, and the dead platform models are disabled
 one_bpmn.one_bpmn.patches.v1_0.goal_completion_failed_stage_results #18-10-2026 Achieved runs whose stage tool result says generated, modified, truncated, safe or fallback failed become Not Achieved
+one_bpmn.one_bpmn.patches.v1_0.prosally_relayouts_and_compares #18-10-2026 ProsAlly lays a saved diagram out again on request and lists what a pasted specification has that the diagram lacks
