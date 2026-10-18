@@ -399,16 +399,23 @@ def _confirmation_text(parts: dict) -> str:
 	"""The intro, the steps understood and the settings planned, each list one item per line."""
 	steps = [str(step).strip() for step in parts.get("steps") or [] if str(step).strip()]
 	settings = [str(setting).strip() for setting in parts.get("settings") or [] if str(setting).strip()]
-	# Backstop for the classifier prompt's own cap: a long list is cut, never shown whole.
-	steps = steps[:MAX_CONFIRMATION_STEPS]
-	settings = settings[:MAX_CONFIRMATION_SETTINGS]
 	blocks = [str(parts.get("intro") or "").strip()]
 	if steps:
-		blocks.append(_("Here's what I understood:") + "\n" + "\n".join("- " + step for step in steps))
+		blocks.append(_("Here's what I understood:") + "\n" + _capped_lines(steps, MAX_CONFIRMATION_STEPS))
 	if settings:
-		blocks.append(_("I'll also set these up on the steps:") + "\n" + "\n".join("- " + setting for setting in settings))
+		blocks.append(
+			_("I'll also set these up on the steps:") + "\n" + _capped_lines(settings, MAX_CONFIRMATION_SETTINGS)
+		)
 		blocks.append(_('Reply "draw only" if you\'d rather I draw just the steps, without these settings.'))
 	return "\n\n".join(block for block in blocks if block)
+
+
+def _capped_lines(items: list, limit: int) -> str:
+	"""The first limit items one per line, then a line saying how many more were not listed."""
+	lines = ["- " + item for item in items[:limit]]
+	if len(items) > limit:
+		lines.append(_("and {0} more not listed here").format(len(items) - limit))
+	return "\n".join(lines)
 
 
 def _comparable(text: str) -> str:
