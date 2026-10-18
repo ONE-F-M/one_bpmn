@@ -1,5 +1,5 @@
 // Copyright (c) 2026, one-fm and contributors
-// The progress line for a long drawing (WI-003582).
+// The progress line for a long drawing.
 //
 // Contract with the backend: a CUSTOM event named `onefm.progress` whose value
 // is { phase: int, total: int, message: string }. The backend does not emit it

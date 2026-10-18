@@ -61,5 +61,6 @@ test("progress lines wrap inside the panel and the page cannot scroll sideways",
 	assert.match(rule, /white-space: normal/)
 	assert.match(rule, /overflow-wrap: anywhere/)
 	assert.match(panel, /\.acp \{ min-width: 0; max-width: 100%; overflow-x: hidden; \}/)
-	assert.match(panel, /\.acp-log \{ overflow-x: hidden; \}/)
+	// The log must not clip: wide content scrolls inside it, which a 375px check in a browser confirmed.
+	assert.doesNotMatch(panel, /\.acp-log \{ overflow-x: hidden; \}/)
 })

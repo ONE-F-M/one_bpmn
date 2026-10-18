@@ -130,7 +130,7 @@
 			<button class="acp-tb" :disabled="busy" :title="__('Italic')" @click="wrapSelection('*')"><i>I</i></button>
 			<button class="acp-tb" :disabled="busy" :title="__('List')" @click="prefixLine('- ')">≣</button>
 		</div>
-		<!-- WI-003582: the composer is locked for the whole turn; say why -->
+		<!-- the composer is locked for the whole turn; say why -->
 		<div v-if="busy" class="acp-locked-note" role="status">
 			{{ __("Still drawing — you can send another message when this finishes.") }}
 		</div>
@@ -279,7 +279,7 @@ const streamingRole = ref("assistant");
 const runningTool = ref("");
 // "Still working on your last message…" from a long turn; shown until the turn's next event.
 const progressNote = ref("");
-// WI-003582: the latest `onefm.progress` line ("Drawing part 2 of 6"), shown for the rest of the turn.
+// the latest `onefm.progress` line ("Drawing part 2 of 6"), shown for the rest of the turn.
 const progressLine = ref("");
 // The bubble the last TEXT_MESSAGE_END closed, until the next event says
 // whether it was the reply or notes before a tool call.
@@ -753,7 +753,7 @@ function handleCustom(name, value) {
 		progressNote.value = value.text || "";
 		return;
 	}
-	// WI-003582: a drawing's progress. Only the agreed shape is read; anything
+	// a drawing's progress. Only the agreed shape is read; anything
 	// else leaves the line as it was. It is never a transcript card.
 	if (name === "onefm.progress") {
 		const line = progressLineFor(value, __);
@@ -1083,14 +1083,13 @@ defineExpose({ send, conversationName });
 .acp-fallback { padding: 8px 12px; } .acp-fallback pre { font-size: 11px; overflow-x: auto; }
 
 .acp-thinking { color: var(--ig5); font-style: italic; font-size: 12px; }
-/* WI-003582: progress and lock-note lines wrap inside the panel (390px) and never widen the page. */
+/* progress and lock-note lines wrap inside the panel (390px) and never widen the page. */
 .acp-progress, .acp-locked-note { min-width: 0; max-width: 100%; box-sizing: border-box; white-space: normal;
 	overflow-wrap: anywhere; word-break: break-word; font-size: 12px; color: var(--ig6); }
 .acp-progress { align-self: flex-start; padding: 6px 10px; border-radius: 8px; background: var(--blue-bg);
 	color: var(--blue-ink); }
 .acp-locked-note { padding: 6px 14px 0; background: var(--sw); color: var(--ig5); font-style: italic; }
 .acp { min-width: 0; max-width: 100%; overflow-x: hidden; }
-.acp-log { overflow-x: hidden; }
 .acp-input { min-width: 0; }
 .acp-tb:disabled { opacity: 0.4; cursor: default; }
 .acp-narration { align-self: flex-start; color: var(--ig5); font-size: 12px; max-width: 80%; }
