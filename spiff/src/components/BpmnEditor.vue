@@ -3347,16 +3347,16 @@ function getSelectedElements() {
 }
 
 
-// Directly update calledElement on a Call Activity via the command stack.
+// Directly update a Call Activity's Process and its active map's id via the command stack.
 // This is the reliable way to update the property regardless of SpiffWorkflow's
 // async once-listener state.
-function updateCalledElement(element, processId) {
+function updateCalledElement(element, processId, process) {
 	if (!modeler || !element) return;
 	const cmdStack = modeler.get("commandStack");
 	cmdStack.execute("element.updateProperties", {
 		element,
 		moddleElement: element.businessObject,
-		properties: { calledElement: processId },
+		properties: { calledElement: processId, "spiffworkflow:calledProcess": process },
 	});
 	// Force the properties panel to re-initialize (and re-read getValue)
 	// by cycling the selection. Without this the Preact TextFieldEntry
