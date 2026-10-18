@@ -31,7 +31,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, get_datetime, now, now_datetime
 
-VALID_SCOPES = ("Agent", "Process", "Entity")
+VALID_SCOPES = ("Agent", "Process", "Entity", "User")
 _DEFAULT_LIMIT = 5
 # Extra rows fetched on the keyword (`like`) path before dropping expired/
 # superseded ones in Python, so the post-filter still fills `limit` in the common
@@ -190,6 +190,10 @@ def _resolve_scope(scope: str, scope_key) -> dict:
 			frappe.throw(_("Process scope requires a process."))
 		keys["process_model"] = process_model
 
+	elif scope == "User":
+		if not (isinstance(scope_key, dict) and scope_key.get("user")):
+			frappe.throw(_("User scope requires a user."))
+
 	else:  # Entity
 		if not isinstance(scope_key, dict):
 			frappe.throw(_("Entity scope requires reference_doctype and reference_name."))
@@ -212,6 +216,8 @@ def _read_filters(keys: dict) -> dict:
 	the empty string into ``ifnull(user, '') = ''`` so NULL reads as shared."""
 	filters = dict(keys)
 	user = keys.get("user") or ""
+	if keys["memory_scope"] == "User":
+		return filters
 	filters["user"] = ("in", [user, ""] if user else [""])
 	return filters
 
@@ -1031,7 +1037,7 @@ def _memory_write(
 # ── MCP-compatible tool registry ────────────────────────────────────────────
 # A JSON-Schema object describing a scope key. Which properties apply depends on
 # `scope`; the tool validates the combination at runtime.
-_SCOPE_ENUM = {"type": "string", "enum": list(VALID_SCOPES), "description": "Memory scope."}
+_SCOPE_ENUM = {"type": "string", "enum": ["Agent", "Process", "Entity"], "description": "Memory scope."}
 _SCOPE_KEY_SCHEMA = {
 	"type": "object",
 	"description": (
