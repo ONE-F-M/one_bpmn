@@ -34,6 +34,7 @@ from datetime import datetime
 
 import frappe
 
+from one_bpmn.agents import identity
 from one_bpmn.agents.observability import record_ai_step
 from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
 
@@ -86,6 +87,17 @@ def report_result() -> dict:
 	if run.state in ("completed", "failed"):
 		return {"accepted": True}  # already settled — a replayed callback is a no-op
 
+	# A signed callback arrives as Guest; record and resume the run as the agent's user.
+	caller = frappe.session.user
+	frappe.set_user(identity.user_for("Dev Agent") or run.owner)
+	try:
+		return _settle(run, payload)
+	finally:
+		frappe.set_user(caller)
+
+
+def _settle(run, payload: dict) -> dict:
+	"""Record the sandbox's outcome on the run, then retry or resume the caller."""
 	status = payload.get("status")
 	run.db_set("result", frappe.as_json(payload), update_modified=False)
 
