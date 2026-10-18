@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 
 import frappe
+from frappe import _
 
 # ── Field types Docu is allowed to emit ──────────────────────────────────────
 # Deliberately a conservative subset of Frappe's fieldtypes. Layout-only types
@@ -237,6 +238,7 @@ def validate_doctype_ir(ir: dict, existing_fieldnames: set | None = None) -> dic
 
 	violations.extend(_permission_violations(ir.get("permissions")))
 	violations.extend(_autoname_violations(ir.get("autoname")))
+	violations.extend(_fetch_from_violations(ir))
 
 	return {
 		"valid": not violations,
@@ -255,6 +257,48 @@ def _autoname_violations(autoname) -> list:
 		f"Naming rule '{autoname}' has its counter outside braces, so every record gets the same name. "
 		"Use 'format:PREFIX-{#####}', or the naming series 'PREFIX-.#####' without 'format:'."
 	]
+
+
+def _fetch_from_violations(ir: dict) -> list:
+	"""A fetch_from must name a Link field on this form and a field the linked DocType has."""
+	from frappe.model import default_fields
+
+	fields = [f for f in ir.get("fields") or [] if isinstance(f, dict)]
+	links, on_site = {}, {}
+	name = (ir.get("doctype_name") or "").strip()
+	if name and frappe.db.exists("DocType", name):
+		site_fields = frappe.get_meta(name).fields
+		links = {df.fieldname: df.options for df in site_fields if df.fieldtype == "Link"}
+		on_site = {df.fieldname: df.fetch_from for df in site_fields if df.fetch_from}
+	for f in fields:
+		if f.get("fieldtype") == "Link" and (f.get("fieldname") or "").strip():
+			links[f["fieldname"].strip()] = (f.get("options") or "").strip()
+
+	out = []
+	for f in fields:
+		fetch = str(f.get("fetch_from") or "").strip()
+		if not fetch or on_site.get(f.get("fieldname")) == fetch:
+			continue
+		label = f.get("label") or f.get("fieldname") or "?"
+		link, _sep, target = fetch.partition(".")
+		if " " in fetch or not link or not target:
+			out.append(_("'{0}': fetch_from '{1}' must read link_field.field_name, with no spaces.").format(label, fetch))
+			continue
+		linked = links.get(link)
+		if not linked:
+			out.append(
+				_("'{0}': fetch_from '{1}' starts with '{2}', which is not a Link field on this form.").format(
+					label, fetch, link
+				)
+			)
+			continue
+		if target not in default_fields and not (
+			frappe.db.exists("DocType", linked) and frappe.get_meta(linked).has_field(target)
+		):
+			out.append(
+				_("'{0}': fetch_from '{1}' reads '{2}', which {3} does not have.").format(label, fetch, target, linked)
+			)
+	return out
 
 
 _MAX_PERMISSIONS = 40

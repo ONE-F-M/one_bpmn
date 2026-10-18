@@ -144,6 +144,16 @@ class TestAgentLimitsOnConfiguration(FrappeTestCase):
 
 		self.assertEqual(dict(_limits()), {"timeout_seconds": 60, "max_retries": 4, "max_tool_calls": 9, "top_p": 0.8})
 
+	def test_the_editor_writes_the_tool_loop_compaction_to_the_configuration(self):
+		fields = ["loop_compaction_threshold", "loop_compaction_keep_turns"]
+		update_agent_config_from_shape(
+			CONFIG, {"aiLoopCompactionThreshold": "12000", "aiLoopCompactionKeepTurns": "3"}
+		)
+		self.assertEqual(frappe.db.get_value("AI Agent Configuration", CONFIG, fields), (12000, 3))
+
+		update_agent_config_from_shape(CONFIG, {"aiLoopCompactionThreshold": "0"})
+		self.assertEqual(frappe.db.get_value("AI Agent Configuration", CONFIG, fields), (0, 3))
+
 	def test_a_top_p_above_one_is_refused(self):
 		config = frappe.get_doc("AI Agent Configuration", CONFIG)
 		config.top_p = 1.5

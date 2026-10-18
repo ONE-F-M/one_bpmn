@@ -1260,7 +1260,7 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 	"""
 	Compile-time lint for AI Agent Tasks:
 	1. Rejects raw API keys embedded in any spiffworkflow:ai* attribute.
-	2. Validates that referenced AI Provider records exist in the database.
+	2. Requires a linked, enabled, Live AI Agent Configuration; the shape's copied provider name is not checked.
 	"""
 	import re
 	_RAW_KEY_RE = re.compile(r"^(sk-|key-)", re.IGNORECASE)
@@ -1282,7 +1282,6 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 					exc=frappe.ValidationError,
 				)
 
-		provider_name = (task_cfg.get("aiProvider") or "").strip()
 		agent_config = (task_cfg.get("aiAgentConfig") or "").strip()
 
 		# WI-001637: validate the AI Agent Configuration reference when present.
@@ -1325,15 +1324,6 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 					"existing agent or create one from the task dialog — setting up "
 					"an AI task with a raw provider has been retired (WI-001650)."
 				).format(bpmn_id),
-				exc=frappe.ValidationError,
-			)
-
-		if provider_name and not frappe.db.exists("AI Provider", provider_name):
-			frappe.throw(
-				_(
-					"AI Provider '{0}' not found (task '{1}'). "
-					"Create it in the AI Provider list."
-				).format(provider_name, bpmn_id),
 				exc=frappe.ValidationError,
 			)
 
@@ -1992,6 +1982,9 @@ def compile_process_model(model_name: str) -> dict:
 	user_extensions = _extract_user_task_config(sanitized_xml)
 	if user_extensions:
 		spec_data["user_task_extensions"] = user_extensions
+	deploy_warnings.extend(_check_email_settings(service_extensions, user_extensions))
+	deploy_warnings.extend(_check_notification_senders(service_extensions, user_extensions))
+	deploy_warnings.extend(_check_script_tasks_have_a_script(model.bpmn_xml))
 
 	model.serialized_spec = json.dumps(spec_data)
 
@@ -2482,6 +2475,130 @@ def _check_ai_tasks_have_a_user_prompt(spec_data: dict) -> list:
 			).format(bpmn_id),
 		})
 	return warnings
+
+
+def _check_email_settings(service_extensions: dict, user_extensions: dict) -> list:
+	"""One warning per Send Email task or notifying User Task whose recipients, subject or body are empty."""
+	return [_email_warning(bpmn_id, missing) for bpmn_id, missing in _email_setting_gaps(service_extensions, user_extensions)]
+
+
+def _email_setting_gaps(service_extensions: dict, user_extensions: dict) -> list:
+	"""(bpmn_id, missing parts) for each Send Email task or notifying User Task with an empty recipient, subject or body."""
+	recipient_keys = ("emailTo", "emailToDocFields", "emailToTableField", "emailToRoles")
+	gaps = []
+	for bpmn_id, cfg in service_extensions.items():
+		if cfg.get("serviceType") != "send_email":
+			continue
+		missing = []
+		if not any(str(cfg.get(key) or "").strip() for key in recipient_keys):
+			missing.append(_("recipients"))
+		if not str(cfg.get("emailSubject") or "").strip():
+			missing.append(_("subject"))
+		if not str(cfg.get("emailBody") or "").strip():
+			missing.append(_("body"))
+		if missing:
+			gaps.append((bpmn_id, missing))
+	for bpmn_id, cfg in user_extensions.items():
+		if cfg.get("notifyAssignee") != "true":
+			continue
+		template = str(cfg.get("notifyAssigneeTemplate") or cfg.get("notifyTemplate") or "").strip()
+		subject = str(cfg.get("notifyAssigneeSubject") or cfg.get("notifySubject") or "").strip()
+		body = str(cfg.get("notifyAssigneeBody") or cfg.get("notifyBody") or "").strip()
+		missing = []
+		if not (template or subject):
+			missing.append(_("subject"))
+		if not (template or body):
+			missing.append(_("body"))
+		if missing:
+			gaps.append((bpmn_id, missing))
+	return gaps
+
+
+def _check_notification_senders(service_extensions: dict, user_extensions: dict) -> list:
+	"""On a Production instance, one warning per notification that does not send from the configured address."""
+	expected, gaps = _notification_sender_gaps(service_extensions, user_extensions)
+	return [
+		{
+			"label": _("Notification sender is not {0}").format(expected),
+			"icon": "mail-warning",
+			"type": "warning",
+			"detail": _("'{0}' sends from {1}. On this Production site notifications should send from {2}.").format(
+				bpmn_id, sender, expected
+			),
+		}
+		for bpmn_id, sender in gaps
+	]
+
+
+def _notification_sender_gaps(service_extensions: dict, user_extensions: dict) -> tuple:
+	"""(expected address, [(bpmn_id, sender)]) for notifications sending from another address; empty off Production."""
+	from one_bpmn.api.editability import get_instance_type
+
+	account = frappe.db.get_single_value("Processa Settings", "production_notification_account")
+	if get_instance_type() != "Production" or not account:
+		return "", []
+	expected = frappe.db.get_value("Email Account", account, "email_id") or ""
+	accounts = [
+		(bpmn_id, cfg.get("emailAccount"))
+		for bpmn_id, cfg in service_extensions.items()
+		if cfg.get("serviceType") == "send_email"
+	]
+	accounts += [
+		(bpmn_id, cfg.get("notifyAssigneeAccount") or cfg.get("emailAccount"))
+		for bpmn_id, cfg in user_extensions.items()
+		if cfg.get("notifyAssignee") == "true"
+	]
+	default_sender = frappe.db.get_value("Email Account", {"default_outgoing": 1}, "email_id")
+	gaps = []
+	for bpmn_id, account in accounts:
+		account = str(account or "").strip()
+		sender = frappe.db.get_value("Email Account", account, "email_id") if account else default_sender
+		if (sender or "").strip().lower() != expected.lower():
+			gaps.append((bpmn_id, sender or account or _("no email account")))
+	return expected, gaps
+
+
+def _email_warning(bpmn_id: str, missing: list) -> dict:
+	return {
+		"label": _("Email settings are empty"),
+		"icon": "mail-warning",
+		"type": "warning",
+		"detail": _("'{0}' sends an email with no {1}. Fill these in so the email goes out as intended.").format(
+			bpmn_id, ", ".join(missing)
+		),
+	}
+
+
+def _check_script_tasks_have_a_script(bpmn_xml: str) -> list:
+	"""One warning per Script Task with no Server Script and no inline script."""
+	import xml.etree.ElementTree as _ET
+
+	return [
+		{
+			"label": _("Script is empty"),
+			"icon": "file-warning",
+			"type": "warning",
+			"detail": _("'{0}' has no script, so it does nothing when it runs. Pick a Server Script or write one.").format(
+				bpmn_id
+			),
+		}
+		for bpmn_id in _empty_script_tasks(_ET.fromstring(bpmn_xml.strip().encode("utf-8")))
+	]
+
+
+def _empty_script_tasks(root) -> list:
+	"""Ids of the Script Tasks under *root* that have neither a Server Script nor an inline script."""
+	bpmn_ns = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	spiff_ns = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+	empty = []
+	for task in root.iter(f"{{{bpmn_ns}}}scriptTask"):
+		script = task.find(f"{{{bpmn_ns}}}script")
+		if (task.get(f"{{{spiff_ns}}}serverScript") or "").strip():
+			continue
+		if script is not None and (script.text or "").strip():
+			continue
+		empty.append(task.get("id"))
+	return empty
 
 
 def _check_shape_config_drift(service_extensions: dict) -> list:

@@ -4,6 +4,8 @@
 # Registered in hooks.py under scheduler_events.
 # These run at minute-level intervals via Frappe's scheduler.
 
+import time
+
 import frappe
 
 from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
@@ -1040,3 +1042,110 @@ def check_ai_memory_volume():
 	from one_bpmn.agents.memory.volume_alert import check_volume
 
 	check_volume()
+
+
+# 5. Stranded AI steps — start again a parked AI step whose job was lost
+
+STRANDED_AI_STEP_MINUTES = 10
+WATCHDOG_MAX_REQUEUES = 2
+
+
+def requeue_stranded_ai_steps():
+	"""Every five minutes: enqueue the job of a parked AI step that has none, twice at most, then error the instance."""
+	names = frappe.get_all(
+		"BPMN Process Instance", filters={"status": "Active", "waiting_for_ai": 1}, pluck="name"
+	)
+	for name in names:
+		_requeue_stranded_steps(name)
+		frappe.db.commit()
+
+
+def _requeue_stranded_steps(instance_name: str) -> None:
+	frappe.db.rollback()  # ends the snapshot, so the row lock below sees the current row
+	if _instance_job_is_running(instance_name):
+		return
+	instance = frappe.get_doc("BPMN Process Instance", instance_name)
+	if instance.status != "Active" or not instance.waiting_for_ai:
+		return
+	for unit in instance.get_parked_ai_units():
+		minutes = int((time.time() - unit["since"]) / 60)
+		if unit.get("waits_on") or minutes < STRANDED_AI_STEP_MINUTES or _a_job_is_alive(instance, unit):
+			continue
+		_requeue_or_error(instance, unit, minutes)
+
+
+def _instance_job_is_running(instance_name: str) -> bool:
+	"""True when run_parked_ai_task holds the instance row, which means its job is running."""
+	table = frappe.qb.DocType("BPMN Process Instance")
+	row = (
+		frappe.qb.from_(table)
+		.select(table.name)
+		.where(table.name == instance_name)
+		.for_update(skip_locked=True)
+	).run()
+	frappe.db.rollback()  # releases the lock the check took
+	return not row
+
+
+def _a_job_is_alive(instance, unit: dict) -> bool:
+	"""Whether the unit's own job, one of its retries or an earlier re-queue is still queued or started."""
+	from frappe.utils.background_jobs import is_job_enqueued
+
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import _job_retry_cap
+
+	base = f"bpmn-ai-{instance.name}-{unit['task_id']}"
+	retries = _job_retry_cap(instance, unit["kind"], unit["task_id"])
+	job_ids = [
+		base,
+		*(f"{base}-r{n}" for n in range(1, retries + 1)),
+		*(f"{base}-watchdog-{n}" for n in range(1, WATCHDOG_MAX_REQUEUES + 1)),
+	]
+	return any(is_job_enqueued(job_id) for job_id in job_ids)
+
+
+def _requeue_or_error(instance, unit: dict, minutes: int) -> None:
+	done = frappe.db.count(
+		"BPMN Activity Log",
+		{
+			"instance": instance.name,
+			"action": "Retried",
+			"task_id": ["like", f"{unit['task_id']}::watchdog-%"],
+		},
+	)
+	if done >= WATCHDOG_MAX_REQUEUES:
+		_error_stranded_instance(instance, unit, minutes)
+		return
+	attempt = done + 1
+	frappe.enqueue(
+		"one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance.run_parked_ai_task",
+		queue="bpmn_ai_agent",
+		timeout=AI_AGENT_JOB_TIMEOUT,
+		enqueue_after_commit=True,
+		job_id=f"bpmn-ai-{instance.name}-{unit['task_id']}-watchdog-{attempt}",
+		deduplicate=True,
+		instance_name=instance.name,
+		kind=unit["kind"],
+		task_id=unit["task_id"],
+		run_as_user=instance.initiated_by,
+		attempt=0,
+	)
+	instance._log_task(
+		task_id=f"{unit['task_id']}::watchdog-{attempt}",
+		task_name=unit["label"],
+		action="Retried",
+		data={"stranded_minutes": minutes, "requeue": attempt},
+	)
+
+
+def _error_stranded_instance(instance, unit: dict, minutes: int) -> None:
+	"""Marks the instance Errored the way an exhausted AI job does, leaving the task parked for a manual retry."""
+	frappe.db.set_value("BPMN Process Instance", instance.name, "status", "Errored")
+	frappe.db.set_value("BPMN Process Instance", instance.name, "waiting_for_ai", 0, update_modified=False)
+	error = f"No job ran for '{unit['label']}' in {minutes} minutes, after {WATCHDOG_MAX_REQUEUES} re-queues."
+	instance._log_task(
+		task_id=unit["task_id"],
+		task_name=f"AI job ({unit['kind']})",
+		action="Errored",
+		data={"kind": unit["kind"], "attempts": WATCHDOG_MAX_REQUEUES, "error": error},
+	)
+	frappe.log_error(title=f"BPMN stranded AI step: {instance.name}", message=error)

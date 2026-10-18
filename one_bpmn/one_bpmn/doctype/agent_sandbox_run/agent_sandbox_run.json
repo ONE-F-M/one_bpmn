@@ -9,9 +9,16 @@
   "state",
   "target_app",
   "git_branch",
+  "action",
+  "work_item",
+  "attempt",
   "column_break_run",
   "bpmn_id",
+  "agent_name",
+  "failure_class",
   "completed_at",
+  "started_at",
+  "last_heartbeat",
   "section_caller",
   "caller_instance",
   "caller_wf_task_id",
@@ -26,9 +33,21 @@
   "files",
   "section_outcome",
   "pr_url",
+  "commit_sha",
   "error_message",
   "ai_agent_run",
-  "retry_of"
+  "retry_of",
+  "section_timing",
+  "token_ms",
+  "http_ms",
+  "sandbox_ms",
+  "git_ms",
+  "tool_ms",
+  "migrate_ms",
+  "test_ms",
+  "pr_ms",
+  "section_commands",
+  "commands"
  ],
  "fields": [
   {
@@ -43,7 +62,8 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "State",
-   "options": "submitted\nrunning\ncompleted\nfailed"
+   "options": "submitted\nrunning\ncompleted\nfailed\nstale\ntimed_out\ncancelled",
+   "search_index": 1
   },
   {
    "description": "Which app's working tree the sandbox checked out and tested.",
@@ -99,7 +119,8 @@
    "fieldname": "caller_agent_run",
    "fieldtype": "Link",
    "label": "Caller Agent Run",
-   "options": "AI Agent Run"
+   "options": "AI Agent Run",
+   "search_index": 1
   },
   {
    "default": "0",
@@ -175,7 +196,138 @@
    "fieldtype": "Link",
    "label": "Retry Of",
    "options": "Agent Sandbox Run",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "section_timing",
+   "fieldtype": "Section Break",
+   "label": "Timing"
+  },
+  {
+   "description": "Time minting the identity token.",
+   "fieldname": "token_ms",
+   "fieldtype": "Int",
+   "label": "Token Ms",
    "read_only": 1
+  },
+  {
+   "description": "Round trip of the call to the sandbox as Processa saw it. For a parked run this is only the hand-over.",
+   "fieldname": "http_ms",
+   "fieldtype": "Int",
+   "label": "Http Ms",
+   "read_only": 1
+  },
+  {
+   "description": "Total time inside the sandbox, as it reported.",
+   "fieldname": "sandbox_ms",
+   "fieldtype": "Int",
+   "label": "Sandbox Ms",
+   "read_only": 1
+  },
+  {
+   "description": "Time on git (checkout, fetch, commit, push) inside the sandbox.",
+   "fieldname": "git_ms",
+   "fieldtype": "Int",
+   "label": "Git Ms",
+   "read_only": 1
+  },
+  {
+   "description": "Time in the file tool itself inside the sandbox.",
+   "fieldname": "tool_ms",
+   "fieldtype": "Int",
+   "label": "Tool Ms",
+   "read_only": 1
+  },
+  {
+   "description": "Time migrating the sandbox site.",
+   "fieldname": "migrate_ms",
+   "fieldtype": "Int",
+   "label": "Migrate Ms",
+   "read_only": 1
+  },
+  {
+   "description": "Time running the tests.",
+   "fieldname": "test_ms",
+   "fieldtype": "Int",
+   "label": "Test Ms",
+   "read_only": 1
+  },
+  {
+   "description": "Time opening the pull request, tests included.",
+   "fieldname": "pr_ms",
+   "fieldtype": "Int",
+   "label": "Pr Ms",
+   "read_only": 1
+  },
+  {
+   "fieldname": "action",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Action",
+   "read_only": 1,
+   "description": "What was asked of the sandbox: read_file, edit_file, run_tests, open_pull_request and so on."
+  },
+  {
+   "fieldname": "agent_name",
+   "fieldtype": "Data",
+   "label": "Agent",
+   "read_only": 1
+  },
+  {
+   "fieldname": "work_item",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Work Item",
+   "read_only": 1,
+   "search_index": 1,
+   "description": "The Work Item the run was for, or an eval case id."
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_heartbeat",
+   "fieldtype": "Datetime",
+   "label": "Last Heartbeat",
+   "read_only": 1
+  },
+  {
+   "fieldname": "attempt",
+   "fieldtype": "Int",
+   "label": "Attempt",
+   "read_only": 1,
+   "default": "1"
+  },
+  {
+   "fieldname": "failure_class",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Failure Class",
+   "options": "\ninfra\nmodel-api\nenv\ncode\ngave-up\nnot-reproducible\npolicy",
+   "read_only": 1,
+   "description": "Why a failed, stale or timed-out run ended, so the retry rules can act on it."
+  },
+  {
+   "fieldname": "section_commands",
+   "fieldtype": "Section Break",
+   "label": "Commands"
+  },
+  {
+   "fieldname": "commands",
+   "fieldtype": "Table",
+   "label": "Commands",
+   "options": "Agent Sandbox Command"
+  },
+  {
+   "fieldname": "commit_sha",
+   "fieldtype": "Data",
+   "label": "Commit",
+   "read_only": 1,
+   "description": "The commit a test run ran against, so a failing and a passing run can be tied to the code."
   }
  ],
  "links": [],

@@ -385,6 +385,15 @@ def _execute_shape_body(instance, bpmn_id: str, task_cfg: dict | None, kwargs: d
 					message=frappe.get_traceback(),
 				)
 
+		# An AI shape that could not reach its model left an error code instead of an answer.
+		failed_code = produced.get(f"{bpmn_id}_error_code") if service_type == "ai_agent" else None
+		if failed_code:
+			message = produced.get(f"{bpmn_id}_error_message") or failed_code
+			_record_tool_error(instance, bpmn_id, message, error_code=failed_code)
+			return json.dumps(
+				{"error": f"{failed_code}: {message}", "error_code": failed_code, "retryable": False}
+			)
+
 		return json.dumps(produced or {"ok": True}, default=str)
 	except (ToolDeferred, BudgetExceeded):
 		raise
@@ -417,16 +426,16 @@ def _execute_shape_body(instance, bpmn_id: str, task_cfg: dict | None, kwargs: d
 		})
 
 
-def _record_tool_error(instance, bpmn_id: str, exc: Exception) -> None:
+def _record_tool_error(instance, bpmn_id: str, exc: Exception | str, error_code: str | None = None) -> None:
 	"""Put the failed tool in the chat turn store, so the turn's closing script can report the failure."""
 	if getattr(instance, "context_doctype", None) != "Chat Conversation":
 		return
 	from one_bpmn.agents.turn_state import update_turn
 
-	update_turn(
-		instance.context_docname,
-		tool_error={"tool": bpmn_id, "error": str(exc), "error_class": type(exc).__name__},
-	)
+	tool_error = {"tool": bpmn_id, "error": str(exc), "error_class": error_code or type(exc).__name__}
+	if error_code:
+		tool_error["error_code"] = error_code
+	update_turn(instance.context_docname, tool_error=tool_error)
 
 
 def _connector_not_permitted(task_cfg: dict) -> dict | None:

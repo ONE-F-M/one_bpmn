@@ -52,6 +52,11 @@ class TestAiConfigCompileGate(FrappeTestCase):
 			"ok_sel": {"serviceType": "ai_task_selector", "aiAgentConfig": TEST_CONFIG},
 		})
 
+	def test_linked_shape_with_stale_provider_name_passes(self):
+		_lint_ai_provider_config("", {
+			"t": {"serviceType": "ai_agent", "aiAgentConfig": TEST_CONFIG, "aiProvider": "No Such Provider 404"},
+		})
+
 	def test_link_to_missing_or_disabled_config_is_blocked(self):
 		with self.assertRaises(frappe.ValidationError):
 			_lint_ai_provider_config("", {"t": {"serviceType": "ai_agent", "aiAgentConfig": "No Such Config 404"}})

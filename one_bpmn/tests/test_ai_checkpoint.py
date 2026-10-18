@@ -306,6 +306,28 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 		self.assertEqual(calls[0].tool_name, "approve_refund")
 		self.assertEqual(json.loads(calls[0].tool_result), {"action": "Approve"})
 
+	def test_a_resumed_run_is_the_current_run_for_its_sub_calls(self):
+		from one_bpmn.agents import observability
+
+		self._dispatch(ExecutorResult(error_code=ErrorCode.SUSPENDED, suspension=_suspension()))
+		run_name = self.task.data["_bpmn_ai_waiting_human"]["run"]
+		checkpoint.store_human_result(run_name, "yes")
+		frappe.flags[observability._CURRENT_RUN_FLAG] = None
+
+		seen = {}
+
+		def fake_run(_self, config, context):
+			seen["run"] = observability.current_run_name()
+			return ExecutorResult(output="done")
+
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+
+		with patch("one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", new=fake_run):
+			dispatchers.dispatch_ai_agent(
+				self.instance, self.task, self.task_cfg, self.bpmn_id, resume_run=run_name
+			)
+		self.assertEqual(seen["run"], run_name)
+
 	def test_double_resume_is_noop(self):
 		self._dispatch(ExecutorResult(error_code=ErrorCode.SUSPENDED, suspension=_suspension()))
 		run_name = self.task.data["_bpmn_ai_waiting_human"]["run"]
