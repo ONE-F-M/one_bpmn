@@ -6,7 +6,9 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from one_bpmn.agents.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.api.docu_api import apply_doctype, preview_doctype
+from one_bpmn.one_bpmn.patches.v1_0 import inline_docu_tool_scripts
 
 PARENT = "Docu Child Change Probe"
 CHILD = f"{PARENT} Rows Item"
@@ -72,3 +74,25 @@ class TestChildTableChanges(FrappeTestCase):
 			apply_doctype(_ir(RELABELLED), confirm=1)
 		frappe.set_user("Administrator")
 		self.assertEqual(frappe.get_meta(CHILD, cached=False).get_field("note").label, "Note")
+
+
+class TestReplyWarnsAboutStandardTable(FrappeTestCase):
+	CONVERSATION = "_test_docu_standard_child_warning"
+
+	def tearDown(self):
+		clear_turn(self.CONVERSATION)
+
+	def test_the_reply_text_carries_the_warning(self):
+		warning = "Has Role is a standard table, so Docu cannot change its columns."
+		set_turn(
+			self.CONVERSATION,
+			{
+				"intent": "CREATE",
+				"schema_safe": True,
+				"final_text": "Done.",
+				"final_ir": {"doctype_name": PARENT},
+				"warnings": [warning],
+			},
+		)
+		exec(inline_docu_tool_scripts.FINALIZE, {"context_docname": self.CONVERSATION, "result": {}})
+		self.assertEqual(get_turn(self.CONVERSATION)["output"]["response"], f"Done.\n\n{warning}")
