@@ -82,7 +82,16 @@ class TestFinalizeRequiresSources(FrappeTestCase):
 					"processes": [{"tasks": [{"task": "Check balance", "references": ["hrms/leave.py"]}]}]
 				},
 				prosally_prompts={
-					"processes": [{"process_name": "Submit Leave Request", "source": "Page 1: Leave"}]
+					"processes": [
+						{
+							"process_name": "Submit Leave Request",
+							"process_id": "submit_leave_request",
+							"element_count": 12,
+							"prompt_block": "A: HEADER",
+							"source": "Page 1: Leave",
+						}
+					],
+					"coverage": [],
 				},
 			)
 		)

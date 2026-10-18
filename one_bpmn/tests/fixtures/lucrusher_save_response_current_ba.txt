@@ -1,0 +1,172 @@
+# LuCrusher – Save Response
+# Persists the Bot message (with the full structured result in metadata, which
+# is what delegate_chat_turn hands back to the LUCRUSHER_RESULT AG-UI event) and
+# records the compacted state snapshot in session state for the next turn.
+import json
+from one_bpmn.agents.turn_state import get_turn, clear_turn
+
+conversation_id = task_data.get("conversation_id", context_docname)
+_turn = get_turn(conversation_id)
+_out = _turn.get("output") if isinstance(_turn, dict) else None
+_prev = (_turn.get("context_state") or {}) if isinstance(_turn, dict) else {}
+
+# The agent's own final text, used when it answered without reaching finalize —
+# never discard a real reply for a generic message.
+_agent_text = task_data.get("ai_result")
+if isinstance(_agent_text, dict):
+    _agent_text = _agent_text.get("response") or _agent_text.get("text") or ""
+if not isinstance(_agent_text, str):
+    _agent_text = ""
+_agent_text = _agent_text.strip()
+
+_failed = task_data.get("run_lucrusher_agent_error_code")
+if _failed:
+    _reason = str(task_data.get("run_lucrusher_agent_error_message") or _failed).strip().rstrip(".")
+    from one_bpmn.api.server_script_api import turn_failure_text
+    _agent_text = turn_failure_text(_failed, _reason)
+    _out = {"intent": "ERROR", "response": _agent_text}
+if isinstance(_out, dict) and _out:
+    agent_result = dict(_out)
+    response_text = agent_result.get("response") or _agent_text or "Which process on Lucidchart would you like to crush?"
+    agent_result["response"] = response_text
+    intent = agent_result.get("intent") or "CLARIFY"
+else:
+    response_text = _agent_text or "Which process on Lucidchart would you like to crush?"
+    intent = "CLARIFY"
+    agent_result = {
+        "intent": intent,
+        "response": response_text,
+        "matches": [],
+        "confirmed_process": None,
+        "document": None,
+        "codebase_scan": None,
+        "topology": None,
+        "migration_tasks": None,
+        "prosally_prompts": None,
+    }
+
+# ── Carry forward richer prior data on confirmation turns ────────────────────
+# A confirmation turn re-states what was already agreed; the model is not asked
+# to echo the payloads, so pull them from the previous snapshot rather than
+# handing the frontend an empty panel.
+if _prev and intent in ("TOPOLOGY_CONFIRMED", "MIGRATION_TASKS_CONFIRMED", "PROSALLY_PROMPT_CONFIRMED"):
+    for _key in ("document", "codebase_scan", "topology", "migration_tasks", "prosally_prompts"):
+        _new = agent_result.get(_key)
+        _old = _prev.get(_key)
+        if not _new and _old:
+            agent_result[_key] = _old
+
+msg = frappe.new_doc("Chat Message")
+msg.conversation = conversation_id
+msg.sender = "Administrator"
+msg.receiver = "User"
+msg.text = response_text
+msg.message_type = "Bot"
+_meta = {"intent": intent, "agent_result": agent_result}
+if isinstance(_turn, dict) and _turn.get("tool_error"):
+    _meta["tool_error"] = _turn["tool_error"]
+msg.metadata = json.dumps(_meta, default=str)
+msg.insert()
+result["bot_message_name"] = msg.name
+result["response_saved"] = True
+result["intent"] = intent
+
+# ── State snapshot for the next turn ────────────────────────────────────────
+# Compact: counts, names and page titles only. Values the model did not touch
+# this turn are carried forward so a partial turn never wipes confirmed state.
+def _pick(key):
+    new_val = agent_result.get(key)
+    if new_val in (None, {}, [], ""):
+        return _prev.get(key)
+    return new_val
+
+
+_fetched = agent_result.get("document")
+_last_fetch_error = _prev.get("last_fetch_error")
+if isinstance(_fetched, dict) and _fetched:
+    _fetch_failed = bool(_fetched.get("error")) or not _fetched.get("pages")
+    _last_fetch_error = {
+        "document_id": _fetched.get("document_id"),
+        "error": _fetched.get("error") or "the document returned 0 pages",
+    } if _fetch_failed else None
+    _doc = _prev.get("document") if _fetch_failed else _pick("document")
+else:
+    _doc = _pick("document")
+_doc_summary = None
+if _doc and isinstance(_doc, dict):
+    _raw_pages = _doc.get("pages")
+    _page_count = len(_raw_pages) if isinstance(_raw_pages, list) else int(_doc.get("page_count") or 0)
+    _compact_pages = []
+    if isinstance(_raw_pages, list):
+        for _pg in _raw_pages:
+            if isinstance(_pg, dict):
+                _compact_pages.append({
+                    "page_title": _pg.get("page_title", ""),
+                    "shape_count": _pg.get("shape_count", 0),
+                })
+    _doc_summary = {
+        "title": _doc.get("title") or _doc.get("document_id"),
+        "page_count": _page_count,
+        "pages": _compact_pages,
+    }
+
+_scan = _pick("codebase_scan")
+_scan_summary = None
+if _scan and isinstance(_scan, dict):
+    _raw_apps = _scan.get("apps_scanned") or []
+    _raw_dt = _scan.get("matched_doctypes") or []
+    _dt_names = _raw_dt
+    if isinstance(_raw_dt, list):
+        _dt_names = [(d.get("doctype") or d.get("name") or str(d)) if isinstance(d, dict) else str(d) for d in _raw_dt][:20]
+    else:
+        _dt_names = int(_raw_dt or 0)
+    _hooks = _scan.get("hooks_found")
+    _scan_summary = {
+        "apps_scanned": len(_raw_apps) if isinstance(_raw_apps, list) else int(_raw_apps or 0),
+        "matched_doctypes": _dt_names,
+        "hooks_found": len(_hooks) if isinstance(_hooks, list) else int(_hooks or 0),
+        "counts": _scan.get("counts"),
+        "counts_line": _scan.get("counts_line"),
+    }
+
+_topo = _pick("topology")
+_topo_summary = None
+if _topo and isinstance(_topo, dict):
+    _raw_procs = _topo.get("processes") or []
+    _procs = []
+    if isinstance(_raw_procs, list):
+        for _p in _raw_procs:
+            if isinstance(_p, dict):
+                _procs.append({
+                    "process_name": _p.get("process_name") or _p.get("name"),
+                    "type": _p.get("type"),
+                })
+    _topo_summary = {
+        "recommendation": _topo.get("recommendation"),
+        "total_processes": _topo.get("total_processes", 0),
+        "processes": _procs,
+    }
+
+# Migration tasks and ProsAlly prompts keep their FULL payloads in the snapshot:
+# a confirmation turn has to hand the frontend real tasks and real prompt blocks,
+# and the pre-migration worker had to go digging through old Bot metadata
+# precisely because the snapshot had thrown them away.
+_mt = _pick("migration_tasks")
+_pp = _pick("prosally_prompts")
+
+snapshot = {
+    "intent": intent,
+    "confirmed_process": _pick("confirmed_process"),
+    "document": _doc_summary,
+    "codebase_scan": _scan_summary,
+    "topology": _topo_summary,
+    "migration_tasks": _mt,
+    "prosally_prompts": _pp,
+    "last_fetch_error": _last_fetch_error,
+}
+from one_bpmn.agents.memory.session_state import record
+record(conversation_id, snapshot)
+
+result["turn_complete"] = True
+clear_turn(conversation_id)
+
