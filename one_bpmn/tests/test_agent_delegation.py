@@ -23,6 +23,8 @@ configured limits and may_delegate_to() skipped restrict_delegates entirely.
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, now_datetime
@@ -671,6 +673,13 @@ class TestHandingWorkBack(FrappeTestCase):
 	route was to duplicate the work item and run every step before the
 	delegation again.
 	"""
+
+	def setUp(self):
+		super().setUp()
+		# The hand-back's own bookkeeping is under test; the worker it restarts is not.
+		patcher = patch("one_bpmn.agents.a2a.execute.run_for_task")
+		patcher.start()
+		self.addCleanup(patcher.stop)
 
 	def tearDown(self):
 		frappe.db.rollback()

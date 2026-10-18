@@ -41,6 +41,51 @@ def run_for_task(task, config, text: str, *, fresh: bool = False) -> None:
 		run_chat_turn(task, config, text)
 
 
+def fail_to_start(task, config, state: str, message: str) -> None:
+	"""End a delegation that never ran: set the task state and give the worker
+	an Errored instance linked to the caller, so the failure is visible there."""
+	if task.state not in ("completed", "canceled", "failed", "rejected", "timed-out"):
+		task.db_set(
+			{"state": state, "error_message": message[:500], "completed_at": frappe.utils.now_datetime()},
+			update_modified=True,
+		)
+		task.reload()
+	process_model = config.get("process_model") if isinstance(config, dict) else config.process_model
+	if not task.instance and process_model:
+		try:
+			task.db_set("instance", _errored_instance(task, process_model, message), update_modified=False)
+			task.reload()
+		except Exception:
+			frappe.log_error(title="A2A: could not record the failed start", message=frappe.get_traceback())
+	from one_bpmn.agents.a2a import delegation
+
+	delegation.sync_from_task(task)
+
+
+def _errored_instance(task, process_model: str, message: str) -> str:
+	instance = frappe.new_doc("BPMN Process Instance")
+	instance.process_model = process_model
+	instance.status = "Errored"
+	instance.context_doctype = "A2A Task"
+	instance.context_docname = task.name
+	instance.parent_instance = task.caller_instance
+	instance.initiated_by = frappe.session.user
+	instance.started_at = frappe.utils.now_datetime()
+	instance.insert(ignore_permissions=True)
+	reference = frappe.generate_hash(length=12).upper()
+	frappe.log_error(
+		title=f"A2A delegation could not start [{reference}] - {instance.name}",
+		message=f"Task: {task.name}\nProcess Model: {process_model}\nCaller: {task.caller_instance or '-'}\n\n{message}",
+	)
+	instance._log_task(
+		task_id=f"delegation-start-failure::{reference}",
+		task_name="Delegation could not start",
+		action="Errored",
+		data={"reference_id": reference, "a2a_task": task.name, "reason": message},
+	)
+	return instance.name
+
+
 def run_chat_turn(task, config, text: str) -> None:
 	"""Chat path: the whole existing turn machinery, screening included,
 	via the standard invocation entry point."""
@@ -51,20 +96,20 @@ def run_chat_turn(task, config, text: str) -> None:
 	try:
 		result = invoke_agent(agent_id, text)
 	except RateLimited as refusal:
-		task.db_set({"state": "rejected", "error_message": str(refusal)[:500]}, update_modified=True)
-		task.reload()
+		fail_to_start(task, config, "rejected", str(refusal))
 		return
 	except Exception:
 		frappe.log_error(title="A2A turn failed", message=frappe.get_traceback())
-		task.db_set(
-			{"state": "failed", "error_message": "the agent's turn failed"}, update_modified=True
-		)
-		task.reload()
+		fail_to_start(task, config, "failed", "the agent's turn failed")
 		return
 
 	conversation = result.get("conversation")
 	updates = {"conversation": conversation}
-	instance = task_store.find_instance(conversation) if conversation else None
+	instance = (
+		task_store.find_instance(conversation) or task_store.find_instance(conversation, finished=True)
+		if conversation
+		else None
+	)
 	if instance:
 		updates["instance"] = instance
 	task.db_set(updates, update_modified=False)
@@ -109,27 +154,13 @@ def run_background(task, config, text: str, *, fresh: bool = False) -> None:
 
 	process_model = config.get("process_model") if isinstance(config, dict) else config.process_model
 	if not is_a2a_startable_map(process_model):
-		task.db_set(
-			{
-				"state": "rejected",
-				"error_message": "this agent has no process map that an A2A task can start",
-			},
-			update_modified=True,
-		)
-		task.reload()
+		fail_to_start(task, config, "rejected", "this agent has no process map that an A2A task can start")
 		return
 
 	if fresh:
 		instance = _start_another_attempt(task, process_model)
 		if not instance:
-			task.db_set(
-				{
-					"state": "failed",
-					"error_message": "the retry could not start a new run for this agent",
-				},
-				update_modified=True,
-			)
-			task.reload()
+			fail_to_start(task, config, "failed", "the retry could not start a new run for this agent")
 			return
 	else:
 		instance = task_store.find_instance_for_task(task.name)
@@ -146,11 +177,7 @@ def run_background(task, config, text: str, *, fresh: bool = False) -> None:
 			frappe.log_error(title="A2A background start failed", message=frappe.get_traceback())
 
 	if not instance:
-		task.db_set(
-			{"state": "failed", "error_message": "no process started for this task"},
-			update_modified=True,
-		)
-		task.reload()
+		fail_to_start(task, config, "failed", "no process started for this task")
 		return
 	task.db_set({"instance": instance, "state": "working"}, update_modified=True)
 	# WI-002053: the worker's instance records who started it, so the chain can
