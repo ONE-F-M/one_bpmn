@@ -72,6 +72,17 @@ class TestTranslators(FrappeTestCase):
 		self.assertEqual(value["mode"], "generated")
 		self.assertEqual(agui_contract.validate_event("onefm.bpmn_preview", value), [])
 
+	def test_a_modify_inside_a_sub_process_names_it_in_the_preview(self):
+		reply = {"intent": "BPMN_MODIFIED", "bpmn_xml": "<bpmn/>", "response": "done", "scope_id": "task_payroll_clearance"}
+		value = _named(translators._bpmn_preview(reply))["onefm.bpmn_preview"]
+		self.assertEqual(value["scope_id"], "task_payroll_clearance")
+		self.assertEqual(agui_contract.validate_event("onefm.bpmn_preview", value), [])
+
+	def test_a_modify_of_the_main_process_carries_no_scope(self):
+		reply = {"intent": "BPMN_MODIFIED", "bpmn_xml": "<bpmn/>", "response": "done", "scope_id": ""}
+		value = _named(translators._bpmn_preview(reply))["onefm.bpmn_preview"]
+		self.assertNotIn("scope_id", value)
+
 	def test_prosally_removal_gate_is_a_preview_not_choice_buttons(self):
 		from one_bpmn.agents.agui_stream import _choice_translator
 

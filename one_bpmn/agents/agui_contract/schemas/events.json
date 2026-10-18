@@ -164,7 +164,8 @@
 				"properties": {
 					"mode": {"type": "string", "enum": ["generated", "modified", "pending_removal"]},
 					"bpmn_xml": {"type": "string"},
-					"summary": {"type": "string"}
+					"summary": {"type": "string"},
+					"scope_id": {"type": "string"}
 				}
 			},
 			"example": {
