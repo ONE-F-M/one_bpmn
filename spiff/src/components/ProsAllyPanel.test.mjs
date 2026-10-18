@@ -89,3 +89,11 @@ test("choice buttons wrap inside the panel on a 390px phone and never cover the 
 	assert.match(phone, /\.acp-card \{ width: 100%; \}/)
 	assert.match(phone, /flex: 1 1 100%/)
 })
+
+test("each turn carries the lint findings the editor shows", () => {
+	assert.match(panel, /getLintIssues: \{ type: Function, default: null \}/)
+	assert.match(panel, /lint_issues: props\.getLintIssues \? await props\.getLintIssues\(\) : \[\]/)
+	const editor = source("BpmnEditor.vue")
+	assert.equal(editor.match(/:get-lint-issues="getLintIssues"/g).length, 2)
+	assert.match(editor, /flattenLintIssues\(linting\._formatIssues\(await linting\.lint\(\)\)\)/)
+})

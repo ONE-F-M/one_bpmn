@@ -152,6 +152,7 @@
 						:process-name="processNameForPanel"
 						:get-canvas-xml="getCanvasXml"
 						:get-scope-id="getOpenSubProcessId"
+						:get-lint-issues="getLintIssues"
 						@close="showProsAllyPanel = false"
 						@bpmn-generated="onProsAllyBpmnGenerated"
 					/>
@@ -173,6 +174,7 @@
 						:process-name="processNameForPanel"
 						:get-canvas-xml="getCanvasXml"
 						:get-scope-id="getOpenSubProcessId"
+						:get-lint-issues="getLintIssues"
 						@close="showProsAllyPanel = false"
 						@bpmn-generated="onProsAllyBpmnGenerated"
 					/>
@@ -1092,6 +1094,7 @@ import {
 import lintModule from "bpmn-js-bpmnlint";
 import "bpmn-js-bpmnlint/dist/assets/css/bpmn-js-bpmnlint.css";
 import bpmnlintConfig from "@/linting/bpmnlintrc.js";
+import { flattenLintIssues } from "@/utils/lintIssues.js";
 
 // Import bpmn-js CSS
 import "bpmn-js/dist/assets/diagram-js.css";
@@ -3190,6 +3193,12 @@ async function loadXML(xml) {
 function getOpenSubProcessId() {
 	const root = modeler?.get("canvas").getRootElement()?.businessObject;
 	return root?.$type === "bpmn:SubProcess" ? root.id : "";
+}
+
+async function getLintIssues() {
+	const linting = modeler?.get("linting");
+	if (!linting) return [];
+	return flattenLintIssues(linting._formatIssues(await linting.lint()));
 }
 
 async function getCanvasXml() {
