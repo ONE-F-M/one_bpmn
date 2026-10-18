@@ -202,3 +202,50 @@ class TestRelayout(FrappeTestCase):
 
 	def test_a_diagram_without_lanes_is_left_to_the_editor(self):
 		self.assertEqual(helpers.relayout('<bpmn:process id="p"><bpmn:startEvent id="s" /></bpmn:process>')[1], "lane-less")
+
+	def _classify(self, turn, llm_reply="{}"):
+		script = frappe.db.get_value("Server Script", {"api_method": "prosally_tool_classify_intent"}, "script")
+		if not script or "relayout_output" not in script:
+			self.skipTest("the patched ProsAlly Classify Intent script is not on this site")
+		set_turn("RELAYOUT-TEST", {"process_name": "P", "scope_id": "", "chat_history": [], **turn})
+		result = {}
+		with patch("one_bpmn.agents.prosally_helpers.complete_sub_prompt", return_value=llm_reply):
+			exec(script, {"frappe": frappe, "context_docname": "RELAYOUT-TEST", "result": result})
+		output = get_turn("RELAYOUT-TEST").get("output")
+		clear_turn("RELAYOUT-TEST")
+		return result, output
+
+	def test_a_confirmed_relayout_returns_the_diagram_drawn_again(self):
+		step = self.ir["nodes"][1]["id"]
+		messy = re.sub(
+			rf'(<bpmndi:BPMNShape id="[^"]*" bpmnElement="{step}">\s*<dc:Bounds x=")[\d.]+', r"\g<1>9999", self.xml
+		)
+		result, output = self._classify({"confirmed_action": "RELAYOUT", "current_xml": messy})
+		self.assertTrue(result["modified"])
+		self.assertEqual(result["next"], "finalize")
+		self.assertNotIn('x="9999"', output["bpmn_xml"])
+
+	def test_a_confirmed_relayout_of_a_tidy_diagram_says_so_and_attaches_nothing(self):
+		result, output = self._classify({"confirmed_action": "RELAYOUT", "current_xml": self.xml})
+		self.assertFalse(result["modified"])
+		self.assertNotIn("bpmn_xml", output)
+		self.assertIn("already the best", output["response"])
+		self.assertNotIn("I've updated", output["response"])
+
+	def test_a_layout_complaint_asks_before_laying_out_again(self):
+		reply = '{"intent": "RELAYOUT", "reason": "layout", "summary": "", "question": "Shall I lay it out again?"}'
+		_result, output = self._classify(
+			{"user_text": "Fix the spacing and remove the crossing lines", "current_xml": self.xml}, reply
+		)
+		self.assertEqual((output["intent"], output["action_intent"]), ("CONFIRM", "RELAYOUT"))
+
+	def test_a_spec_asked_about_lists_what_is_missing_and_asks_first(self):
+		spec = "What is missing?\n- Verify Final Settlement Statement\n- " + self.ir["nodes"][1]["name"]
+		result, output = self._classify(
+			{"user_text": spec, "current_xml": self.xml}, '{"intent": "COMPARE", "reason": "compare"}'
+		)
+		self.assertEqual(result["next"], "finalize")
+		self.assertEqual((output["intent"], output["action_intent"]), ("CONFIRM", "MODIFY_EXISTING"))
+		self.assertIn("- Verify Final Settlement Statement", output["response"])
+		self.assertNotIn("- " + self.ir["nodes"][1]["name"], output["response"])
+		self.assertIn("Shall I add them?", output["response"])

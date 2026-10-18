@@ -14,7 +14,7 @@ from frappe import _
 
 from one_bpmn.agents.bpmn_ir_pipeline import compile_ir, element_names, has_lanes
 from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
-from one_bpmn.agents.memory.text_clean import strip_html
+from one_bpmn.agents.memory.text_clean import strip_html, unescape_entities
 from one_bpmn.agents.turn_state import run_sync
 from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 
@@ -1111,6 +1111,60 @@ def relayout(xml: str) -> tuple[str | None, str]:
 	if diagram_geometry(merged) == diagram_geometry(xml):
 		return None, "same"
 	return merged, ""
+
+
+LIST_ITEM = re.compile(r"^\s*(?:[-*\u2022]|\d+[.)]|[a-z][.)])\s+(.+?)\s*$", re.I)
+
+
+def spec_items(text: str) -> list[str]:
+	"""The bulleted or numbered lines of text, without their markers."""
+	lines = unescape_entities(re.sub(r"<[^>]+>", "", re.sub(r"<(?:br|/p|/li|/div)[^>]*>", "\n", text or ""))).splitlines()
+	return [m.group(1) for line in lines if (m := LIST_ITEM.match(line))]
+
+
+def missing_spec_items(xml: str, spec: str) -> list[str]:
+	"""The list items of spec that no step on the diagram shares two significant words with."""
+	return [item for item in spec_items(spec) if len(item.split()) > 1 and not similar_steps(xml, [item])]
+
+
+def compare_output(xml: str, texts: list) -> dict:
+	"""The reply to a pasted specification asked about "what is missing": the gaps, and a question before adding them."""
+	spec = next((text for text in texts if len(spec_items(text or "")) > 1), "")
+	if not spec:
+		return {
+			"intent": "CLARIFY",
+			"response": _("Paste the list of steps you want to check, one per line, and I will tell you which are missing."),
+		}
+	missing = missing_spec_items(xml, spec)
+	if not missing:
+		return {"intent": "CLARIFY", "response": _("Every item in your list is already on the diagram, so I changed nothing.")}
+	listing = "\n".join("- " + item for item in missing)
+	return {
+		"intent": "CONFIRM",
+		"action_intent": "MODIFY_EXISTING",
+		"response": _("These items from your list are not on the diagram:") + "\n" + listing + "\n\n" + _("Shall I add them?"),
+		"options": [_("Yes, proceed"), _("No, let me adjust")],
+	}
+
+
+def relayout_output(xml: str) -> dict:
+	"""The reply to a confirmed re-layout: the diagram drawn again, or why nothing changed."""
+	new_xml, reason = relayout(xml)
+	if new_xml:
+		return {
+			"intent": "BPMN_MODIFIED",
+			"action_intent": "RELAYOUT",
+			"bpmn_xml": new_xml,
+			"response": _("I laid the diagram out again. Every step, arrow and setting is kept. Review it on the canvas."),
+			"options": [],
+		}
+	if reason == "same":
+		say = _("The layout is already the best I can make, so I changed nothing.")
+	elif reason == "lane-less":
+		say = _("This diagram has no lanes, so the editor lays it out itself. I changed nothing.")
+	else:
+		say = _("I could not lay the diagram out again without risking your steps, so I changed nothing.")
+	return {"intent": "CLARIFY", "response": say}
 
 
 def similar_steps(xml: str, texts: list, skip: str = "") -> list[str]:
