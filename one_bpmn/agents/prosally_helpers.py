@@ -12,9 +12,9 @@ from xml.etree import ElementTree as ET
 import frappe
 from frappe import _
 
-from one_bpmn.agents.bpmn_ir_pipeline import element_names
+from one_bpmn.agents.bpmn_ir_pipeline import compile_ir, element_names, has_lanes
 from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
-from one_bpmn.agents.memory.text_clean import strip_html
+from one_bpmn.agents.memory.text_clean import strip_html, unescape_entities
 from one_bpmn.agents.turn_state import run_sync
 from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 
@@ -987,9 +987,184 @@ def describe_changes(previous_xml: str, xml: str) -> str:
 		lines.append(_("Added {0}.").format(_element_label("sequenceFlow", name)))
 	for name in (old_paths - new_paths).elements():
 		lines.append(_("Removed {0}.").format(_element_label("sequenceFlow", name)))
+	lines += _moved_arrows(previous_xml, xml)
 	if not lines:
 		return "\n\n" + _("I could not find any change on the diagram. Check that your request was applied.")
 	return "\n\n" + _("What changed:") + "\n" + "\n".join("- " + line for line in lines)
+
+
+def _moved_arrows(previous_xml: str, xml: str) -> list[str]:
+	"""Arrows between steps that exist before and after whose source or target changed, as plain lines."""
+	old_names = {i: name for i, (kind, name) in element_names(previous_xml).items() if kind != "sequenceFlow"}
+	new_names = {i: name for i, (kind, name) in element_names(xml).items() if kind != "sequenceFlow"}
+
+	def arrows(text):
+		found = Counter()
+		for attrs in re.findall(r"<bpmn:sequenceFlow\s([^>]*?)/?>", text or ""):
+			values = {key: val for key, val in re.findall(r'(\w+)="([^"]*)"', attrs)}
+			found[(values.get("sourceRef"), values.get("targetRef"), values.get("name", ""))] += 1
+		return found
+
+	gone = list((arrows(previous_xml) - arrows(xml)).elements())
+	lines = []
+	for source, target, label in (arrows(xml) - arrows(previous_xml)).elements():
+		if source not in old_names or target not in old_names:
+			continue
+		match = next(
+			(
+				old
+				for old in gone
+				if old[2] == label and (old[0] == source) != (old[1] == target) and old[0] in new_names and old[1] in new_names
+			),
+			None,
+		)
+		if match:
+			gone.remove(match)
+			lines.append(
+				_("Moved the arrow from {0} to {1}.").format(_quoted(new_names[source] or source), _quoted(new_names[target] or target))
+			)
+	return lines
+
+IR_NODE_TYPES = frozenset(
+	{
+		"startEvent", "endEvent", "intermediateThrowEvent", "intermediateCatchEvent", "userTask", "scriptTask",
+		"serviceTask", "manualTask", "businessRuleTask", "exclusiveGateway", "parallelGateway", "inclusiveGateway",
+		"subProcess", "callActivity",
+	}
+)  # fmt: skip
+
+
+def xml_to_ir(xml: str) -> dict | None:
+	"""The IR that draws xml again, or None when xml has an element the IR cannot hold."""
+	bpmn = "{" + NS["bpmn"] + "}"
+	process = next(iter(ET.fromstring(xml).iter(bpmn + "process")), None)
+	if process is None:
+		return None
+	lane_of = {}
+	lanes = []
+	for lane in process.iter(bpmn + "lane"):
+		lanes.append({"id": lane.get("id"), "name": lane.get("name") or lane.get("id")})
+		for ref in lane.findall(bpmn + "flowNodeRef"):
+			lane_of[(ref.text or "").strip()] = lane.get("id")
+
+	def scope(parent):
+		nodes, flows = [], []
+		for elem in parent:
+			tag = elem.tag.removeprefix(bpmn)
+			if tag in IR_NODE_TYPES:
+				node = {"id": elem.get("id"), "name": elem.get("name") or "", "type": tag}
+				if elem.get("id") in lane_of:
+					node["lane"] = lane_of[elem.get("id")]
+				if elem.get("calledElement"):
+					node["calledElement"] = elem.get("calledElement")
+				if tag == "subProcess":
+					inner = scope(elem)
+					if inner is None:
+						return None
+					node["children"] = inner
+				nodes.append(node)
+			elif tag == "sequenceFlow":
+				flow = {"id": elem.get("id"), "from": elem.get("sourceRef"), "to": elem.get("targetRef")}
+				if elem.get("name"):
+					flow["name"] = elem.get("name")
+				body = elem.find(bpmn + "conditionExpression")
+				if body is not None and body.text:
+					flow["condition"] = body.text
+				if parent.get("default") == elem.get("id"):
+					flow["default"] = True
+				flows.append(flow)
+			elif tag not in ("laneSet", "extensionElements", "incoming", "outgoing", "documentation"):
+				return None
+		return {"nodes": nodes, "flows": flows}
+
+	body = scope(process)
+	if body is None:
+		return None
+	return {"name": process.get("name") or "", "lanes": lanes, **body}
+
+
+def diagram_geometry(xml: str) -> list:
+	"""Every drawn shape and arrow of xml with its position, in a stable order."""
+	bpmndi, dc, di = ("{" + NS[prefix] + "}" for prefix in ("bpmndi", "dc", "di"))
+	drawn = []
+	for elem in ET.fromstring(xml).iter():
+		if elem.tag in (bpmndi + "BPMNShape", bpmndi + "BPMNEdge"):
+			points = [(b.get("x"), b.get("y"), b.get("width"), b.get("height")) for b in elem.iter(dc + "Bounds")]
+			points += [(p.get("x"), p.get("y")) for p in elem.iter(di + "waypoint")]
+			drawn.append((elem.get("bpmnElement"), tuple(points)))
+	return sorted(drawn)
+
+
+def relayout(xml: str) -> tuple[str | None, str]:
+	"""(new xml, "") with the diagram drawn again and every id and setting kept; (None, reason) when it cannot be."""
+	if not has_lanes(xml):
+		return None, "lane-less"
+	ir = xml_to_ir(xml)
+	if ir is None:
+		return None, "unsupported"
+	compiled = compile_ir(ir)
+	if not compiled.get("ok") or not compiled.get("xml"):
+		return None, "failed"
+	merged, _removed = transfer_properties(xml, compiled["xml"])
+	if element_names(merged).keys() != element_names(xml).keys():
+		return None, "ids-changed"
+	if diagram_geometry(merged) == diagram_geometry(xml):
+		return None, "same"
+	return merged, ""
+
+
+LIST_ITEM = re.compile(r"^\s*(?:[-*\u2022]|\d+[.)]|[a-z][.)])\s+(.+?)\s*$", re.I)
+
+
+def spec_items(text: str) -> list[str]:
+	"""The bulleted or numbered lines of text, without their markers."""
+	lines = unescape_entities(re.sub(r"<[^>]+>", "", re.sub(r"<(?:br|/p|/li|/div)[^>]*>", "\n", text or ""))).splitlines()
+	return [m.group(1) for line in lines if (m := LIST_ITEM.match(line))]
+
+
+def missing_spec_items(xml: str, spec: str) -> list[str]:
+	"""The list items of spec that no step on the diagram shares two significant words with."""
+	return [item for item in spec_items(spec) if len(item.split()) > 1 and not similar_steps(xml, [item])]
+
+
+def compare_output(xml: str, texts: list) -> dict:
+	"""The reply to a pasted specification asked about "what is missing": the gaps, and a question before adding them."""
+	spec = next((text for text in texts if len(spec_items(text or "")) > 1), "")
+	if not spec:
+		return {
+			"intent": "CLARIFY",
+			"response": _("Paste the list of steps you want to check, one per line, and I will tell you which are missing."),
+		}
+	missing = missing_spec_items(xml, spec)
+	if not missing:
+		return {"intent": "CLARIFY", "response": _("Every item in your list is already on the diagram, so I changed nothing.")}
+	listing = "\n".join("- " + item for item in missing)
+	return {
+		"intent": "CONFIRM",
+		"action_intent": "MODIFY_EXISTING",
+		"response": _("These items from your list are not on the diagram:") + "\n" + listing + "\n\n" + _("Shall I add them?"),
+		"options": [_("Yes, proceed"), _("No, let me adjust")],
+	}
+
+
+def relayout_output(xml: str) -> dict:
+	"""The reply to a confirmed re-layout: the diagram drawn again, or why nothing changed."""
+	new_xml, reason = relayout(xml)
+	if new_xml:
+		return {
+			"intent": "BPMN_MODIFIED",
+			"action_intent": "RELAYOUT",
+			"bpmn_xml": new_xml,
+			"response": _("I laid the diagram out again. Every step, arrow and setting is kept. Review it on the canvas."),
+			"options": [],
+		}
+	if reason == "same":
+		say = _("The layout is already the best I can make, so I changed nothing.")
+	elif reason == "lane-less":
+		say = _("This diagram has no lanes, so the editor lays it out itself. I changed nothing.")
+	else:
+		say = _("I could not lay the diagram out again without risking your steps, so I changed nothing.")
+	return {"intent": "CLARIFY", "response": say}
 
 
 def similar_steps(xml: str, texts: list, skip: str = "") -> list[str]:
