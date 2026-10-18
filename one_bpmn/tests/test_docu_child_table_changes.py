@@ -7,6 +7,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.api.docu_api import apply_doctype, preview_doctype
+from one_bpmn.one_bpmn.patches.v1_0 import docu_warns_on_standard_child_tables as fix
 
 PARENT = "Docu Child Change Probe"
 CHILD = f"{PARENT} Rows Item"
@@ -48,6 +49,12 @@ class TestChildTableChanges(FrappeTestCase):
 		self.assertEqual(meta.get_field("apply").fieldtype, "Check")
 		self.assertEqual(frappe.db.get_value(CHILD, {"parenttype": PARENT}, "note"), "kept")
 
+	def test_a_table_field_without_options_still_reaches_its_existing_child(self):
+		apply_doctype(_ir(RELABELLED, options=""), confirm=1)
+		self.assertEqual(frappe.get_meta(CHILD, cached=False).get_field("note").label, "Remark")
+		out = preview_doctype(_ir(RELABELLED, options=""))
+		self.assertEqual(out["child_changes"], [])
+
 	def test_preview_lists_each_child_change(self):
 		out = preview_doctype(_ir(RELABELLED))
 		self.assertEqual(out["child_changes"][0]["table"], CHILD)
@@ -72,3 +79,17 @@ class TestChildTableChanges(FrappeTestCase):
 			apply_doctype(_ir(RELABELLED), confirm=1)
 		frappe.set_user("Administrator")
 		self.assertEqual(frappe.get_meta(CHILD, cached=False).get_field("note").label, "Note")
+
+
+class TestReplyWarnsAboutStandardTable(FrappeTestCase):
+	def test_the_finalize_line_appends_the_warnings_to_the_reply(self):
+		line = fix.FINALIZE_NEW.replace(fix.FINALIZE_OLD, "").strip()
+		scope = {"final_text": "Done.", "turn": {"warnings": ["Has Role is a standard table."]}}
+		exec(line, scope)
+		self.assertEqual(scope["final_text"], "Done.\n\nHas Role is a standard table.")
+
+	def test_the_finalize_line_leaves_the_reply_alone_without_warnings(self):
+		line = fix.FINALIZE_NEW.replace(fix.FINALIZE_OLD, "").strip()
+		scope = {"final_text": "Done.", "turn": {}}
+		exec(line, scope)
+		self.assertEqual(scope["final_text"], "Done.")
