@@ -20,22 +20,6 @@
 					</span>
 				</div>
 
-				<!-- Subject -->
-				<div>
-					<label class="block text-xs font-medium text-gray-700 mb-1">
-						Subject
-					</label>
-					<input
-						v-model="subject"
-						type="text"
-						placeholder="Email subject..."
-						class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
-					/>
-					<p class="text-xs text-gray-400 mt-1" v-pre>
-						Jinja template variables are supported: <code class="bg-gray-100 px-1 rounded">{{ doc.name }}</code>, etc.
-					</p>
-				</div>
-
 				<!-- Email Template Pre-populate -->
 				<div>
 					<label class="block text-xs font-medium text-gray-700 mb-1">
@@ -99,6 +83,22 @@
 					</div>
 					<p class="text-xs text-gray-400 mt-1">
 						Selecting a template copies its HTML into the editor below. Changes here do not affect the original template.
+					</p>
+				</div>
+
+				<!-- Subject -->
+				<div>
+					<label class="block text-xs font-medium text-gray-700 mb-1">
+						Subject
+					</label>
+					<input
+						v-model="subject"
+						type="text"
+						placeholder="Email subject..."
+						class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
+					/>
+					<p class="text-xs text-gray-400 mt-1" v-pre>
+						Jinja template variables are supported: <code class="bg-gray-100 px-1 rounded">{{ doc.name }}</code>, etc.
 					</p>
 				</div>
 
