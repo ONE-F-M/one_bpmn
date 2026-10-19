@@ -12,6 +12,7 @@ from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT, AI_AGENT_QUEUE, ai_
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime
+from frappe.utils.background_jobs import get_queues_timeout
 
 from SpiffWorkflow.bpmn.specs.mixins.multiinstance_task import MultiInstanceTask
 from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
@@ -2545,11 +2546,17 @@ def _job_retry_cap(instance, kind: str, task_id: str) -> int:
 
 
 def ai_job_queue(process_model: str | None) -> str:
-	"""The queue an AI job for an instance of this process model runs on: its agent's own, else the shared one."""
+	"""The queue an AI job for an instance of this process model runs on: its agent's own, else the shared one.
+
+	Frappe refuses a queue the site has not registered under "workers", so until it is the shared queue is used."""
 	agent_id = None
 	if process_model:
 		agent_id = frappe.db.get_value("AI Agent Configuration", {"process_model": process_model}, "agent_id")
-	return ai_agent_queue(agent_id)
+	queue = ai_agent_queue(agent_id)
+	if queue not in get_queues_timeout():
+		frappe.logger("one_bpmn").warning(f"Queue {queue} is not under workers in the site config; using {AI_AGENT_QUEUE}")
+		return AI_AGENT_QUEUE
+	return queue
 
 
 def ai_job_queue_of(instance_name: str) -> str:
