@@ -115,8 +115,7 @@ class TestModifyScriptShowsNoCardWhenNothingChanged(FrappeTestCase):
 	def test_an_unchanged_diagram_is_a_plain_reply_with_no_diagram_attached(self):
 		script = frappe.db.get_value("Server Script", self.name, "script")
 		ast.parse(script)
-		changed = ('if "\\n- " in _changes else "CLARIFY"', 'if _changed else "CLARIFY"')
-		self.assertTrue(any('"intent": "BPMN_MODIFIED" ' + tail in script for tail in changed))
+		self.assertIn('"intent": "BPMN_MODIFIED" if "\\n- " in _changes else "CLARIFY"', script)
 		self.assertIn('output["bpmn_xml"] = merged_xml', script)
 
 	def test_a_modify_that_changes_nothing_says_what_is_there_and_attaches_no_diagram(self):
