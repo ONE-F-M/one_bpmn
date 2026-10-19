@@ -17,6 +17,16 @@ from one_bpmn.one_bpmn.doctype.bpmn_process_instance import bpmn_process_instanc
 
 MODULE = "one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance"
 AGENTS = {"ProsAlly Map": "prosally_agent", "Docu Map": "docu_agent"}
+REGISTERED = {"short": 300, "default": 300, "long": 1500, AI_AGENT_QUEUE: 600, PROSALLY_AI_QUEUE: 1800}
+
+
+class QueueCase(FrappeTestCase):
+	"""A site where both AI queues are registered under workers in the site config."""
+
+	def setUp(self):
+		patcher = patch(f"{MODULE}.get_queues_timeout", return_value=REGISTERED)
+		patcher.start()
+		self.addCleanup(patcher.stop)
 
 
 def _get_value(model_of_instance):
@@ -44,7 +54,7 @@ class TestQueueForAgent(FrappeTestCase):
 		self.assertEqual(set(AI_AGENT_QUEUES), {AI_AGENT_QUEUE, PROSALLY_AI_QUEUE})
 
 
-class TestQueueForInstance(FrappeTestCase):
+class TestQueueForInstance(QueueCase):
 	def test_an_instance_of_the_agents_map_goes_to_the_agents_queue(self):
 		with patch(f"{MODULE}.frappe.db.get_value", side_effect=_get_value("unused")):
 			self.assertEqual(controller.ai_job_queue("ProsAlly Map"), PROSALLY_AI_QUEUE)
@@ -60,7 +70,7 @@ class TestQueueForInstance(FrappeTestCase):
 			self.assertEqual(controller.ai_job_queue_of("INST-1"), PROSALLY_AI_QUEUE)
 
 
-class TestEveryEnqueueSiteUsesIt(FrappeTestCase):
+class TestEveryEnqueueSiteUsesIt(QueueCase):
 	def _queue_of_call(self, enqueue):
 		return enqueue.call_args.kwargs["queue"]
 
@@ -122,7 +132,7 @@ class TestEveryEnqueueSiteUsesIt(FrappeTestCase):
 		self.assertEqual(self._queue_of_call(enqueue), AI_AGENT_QUEUE)
 
 
-class TestTheOtherEnqueueSitesUseIt(FrappeTestCase):
+class TestTheOtherEnqueueSitesUseIt(QueueCase):
 	def test_the_watchdog_requeues_a_stranded_prosally_job_on_its_queue(self):
 		from one_bpmn import tasks
 
@@ -210,3 +220,26 @@ class TestJobStatusChecksBothQueues(FrappeTestCase):
 		):
 			self.assertTrue(turn_signal.ai_job_running("INST-1"))
 			self.assertFalse(turn_signal.ai_job_running("INST-9"))
+
+
+class TestAnUnregisteredQueueFallsBack(FrappeTestCase):
+	def test_a_site_without_the_queue_uses_the_shared_one_instead_of_failing(self):
+		without = {k: v for k, v in REGISTERED.items() if k != PROSALLY_AI_QUEUE}
+		with (
+			patch(f"{MODULE}.get_queues_timeout", return_value=without),
+			patch(f"{MODULE}.frappe.db.get_value", side_effect=_get_value("unused")),
+		):
+			self.assertEqual(controller.ai_job_queue("ProsAlly Map"), AI_AGENT_QUEUE)
+
+	def test_the_queue_chosen_is_one_frappe_accepts_on_this_site(self):
+		from frappe.utils.background_jobs import validate_queue
+
+		with patch(f"{MODULE}.frappe.db.get_value", side_effect=_get_value("unused")):
+			validate_queue(controller.ai_job_queue("ProsAlly Map"))
+
+	def test_a_registered_queue_is_still_used(self):
+		with (
+			patch(f"{MODULE}.get_queues_timeout", return_value=REGISTERED),
+			patch(f"{MODULE}.frappe.db.get_value", side_effect=_get_value("unused")),
+		):
+			self.assertEqual(controller.ai_job_queue("ProsAlly Map"), PROSALLY_AI_QUEUE)
