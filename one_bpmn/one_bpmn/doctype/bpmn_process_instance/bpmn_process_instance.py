@@ -240,7 +240,7 @@ class BPMNProcessInstance(Document):
 			context_doctype=self.context_doctype,
 			context_docname=self.context_docname,
 			script_task_extensions=_script_exts,
-			initiated_by=self.initiated_by or "Administrator",
+			initiated_by=self._acting_user(),
 			instance=self,
 		)
 
@@ -770,7 +770,7 @@ class BPMNProcessInstance(Document):
 			context_doctype=self.context_doctype,
 			context_docname=self.context_docname,
 			script_task_extensions=_script_exts,
-			initiated_by=self.initiated_by or "Administrator",
+			initiated_by=self._acting_user(),
 			instance=self,
 		)
 		if self.context_doctype and self.context_docname:
@@ -800,6 +800,12 @@ class BPMNProcessInstance(Document):
 		self.db_update()
 		self.update_children()
 		self.run_method("on_update")
+
+	def _acting_user(self) -> str:
+		"""The user whose action drives this engine pass; scripts run with that user's permissions, not the creator's."""
+		if frappe.session.user != "Guest":
+			return frappe.session.user
+		return self.initiated_by or "Administrator"
 
 	def log_operator_action(self, action: str, reason: str) -> None:
 		"""Record an operator's cancel, suspend, resume or retry with who did it and why."""
