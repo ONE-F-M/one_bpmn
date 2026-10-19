@@ -96,6 +96,7 @@
 			>
 				{{ thinkingLabel }}
 			</div>
+			<div v-if="busy && progressLine" class="acp-progress" role="status">{{ progressLine }}</div>
 			<div v-if="streamingText" class="acp-msg acp-msg--agent" v-html="renderMarkdown(streamingText)" />
 			<div v-if="statusLine" class="acp-status">
 				<span class="acp-dot" :class="{ 'acp-dot--err': status === 'error' }" />{{ statusLine }}
@@ -125,9 +126,13 @@
 
 		<!-- ── composer ───────────────────────────────────────────────── -->
 		<div class="acp-toolbar">
-			<button class="acp-tb" :title="__('Bold')" @click="wrapSelection('**')"><b>B</b></button>
-			<button class="acp-tb" :title="__('Italic')" @click="wrapSelection('*')"><i>I</i></button>
-			<button class="acp-tb" :title="__('List')" @click="prefixLine('- ')">≣</button>
+			<button class="acp-tb" :disabled="busy" :title="__('Bold')" @click="wrapSelection('**')"><b>B</b></button>
+			<button class="acp-tb" :disabled="busy" :title="__('Italic')" @click="wrapSelection('*')"><i>I</i></button>
+			<button class="acp-tb" :disabled="busy" :title="__('List')" @click="prefixLine('- ')">≣</button>
+		</div>
+		<!-- the composer is locked for the whole turn; say why -->
+		<div v-if="busy" class="acp-locked-note" role="status">
+			{{ __("Still drawing — you can send another message when this finishes.") }}
 		</div>
 		<div v-if="pendingFile" class="acp-pending-file">
 			<span class="acp-filechip">📎 {{ pendingFile.file_name }}</span>
@@ -151,9 +156,9 @@
 				rows="1"
 				:placeholder="surface.composer_placeholder || __('Type a message…')"
 				:disabled="busy"
-				@keydown.enter.exact.prevent="send()"
+				@keydown.enter.exact.prevent="!busy && send()"
 			/>
-			<button class="acp-btn acp-btn--solid" :disabled="busy || !draft.trim()" @click="send()">
+			<button class="acp-btn acp-btn--solid" :disabled="busy || !draft.trim()" @click="!busy && send()">
 				{{ __("Send") }}
 			</button>
 		</div>
@@ -220,6 +225,7 @@ import { streamAgentTurn } from "./aguiClient";
 import ProposedFieldsTray from "./ProposedFieldsTray.vue";
 import ResponseFeedback from "./ResponseFeedback.vue";
 import { adoptPersistedName } from "./persistedMessage";
+import { progressLineFor } from "./drawProgress";
 
 const props = defineProps({
 	agentId: { type: String, required: true },
@@ -273,6 +279,8 @@ const streamingRole = ref("assistant");
 const runningTool = ref("");
 // "Still working on your last message…" from a long turn; shown until the turn's next event.
 const progressNote = ref("");
+// the latest `onefm.progress` line ("Drawing part 2 of 6"), shown for the rest of the turn.
+const progressLine = ref("");
 // The bubble the last TEXT_MESSAGE_END closed, until the next event says
 // whether it was the reply or notes before a tool call.
 let endedItem = null;
@@ -610,6 +618,7 @@ async function send(text, extraContext = null, reuseId = null) {
 	items.value.push(sent);
 	busy.value = true;
 	status.value = "streaming";
+	progressLine.value = "";
 	streamingText.value = "";
 	streamingRole.value = "assistant";
 	scrollDown();
@@ -667,6 +676,7 @@ async function send(text, extraContext = null, reuseId = null) {
 			streamingRole.value = "assistant";
 			runningTool.value = "";
 			progressNote.value = "";
+			progressLine.value = "";
 			busy.value = false;
 			if (status.value !== "error") status.value = "done";
 			activeStream = null;
@@ -741,6 +751,13 @@ function handleCustom(name, value) {
 	emit("agent-event", { name, value });
 	if (name === "onefm.turn_progress") {
 		progressNote.value = value.text || "";
+		return;
+	}
+	// a drawing's progress. Only the agreed shape is read; anything
+	// else leaves the line as it was. It is never a transcript card.
+	if (name === "onefm.progress") {
+		const line = progressLineFor(value, __);
+		if (line) progressLine.value = line;
 		return;
 	}
 	// flush any streamed text so events land after the words they follow
@@ -1066,6 +1083,15 @@ defineExpose({ send, conversationName });
 .acp-fallback { padding: 8px 12px; } .acp-fallback pre { font-size: 11px; overflow-x: auto; }
 
 .acp-thinking { color: var(--ig5); font-style: italic; font-size: 12px; }
+/* progress and lock-note lines wrap inside the panel (390px) and never widen the page. */
+.acp-progress, .acp-locked-note { min-width: 0; max-width: 100%; box-sizing: border-box; white-space: normal;
+	overflow-wrap: anywhere; word-break: break-word; font-size: 12px; color: var(--ig6); }
+.acp-progress { align-self: flex-start; padding: 6px 10px; border-radius: 8px; background: var(--blue-bg);
+	color: var(--blue-ink); }
+.acp-locked-note { padding: 6px 14px 0; background: var(--sw); color: var(--ig5); font-style: italic; }
+.acp { min-width: 0; max-width: 100%; overflow-x: hidden; }
+.acp-input { min-width: 0; }
+.acp-tb:disabled { opacity: 0.4; cursor: default; }
 .acp-narration { align-self: flex-start; color: var(--ig5); font-size: 12px; max-width: 80%; }
 .acp-narration summary { cursor: pointer; font-style: italic; }
 .acp-status { font-size: 11px; color: var(--ig5); display: flex; gap: 6px; align-items: center; }

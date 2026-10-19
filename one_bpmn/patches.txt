@@ -307,3 +307,5 @@ one_bpmn.one_bpmn.patches.v1_0.prosally_classify_recovers_user_text_and_pasted_s
 one_bpmn.one_bpmn.patches.v1_0.logix_settings_are_bounded_and_match_its_skills #18-10-2026 Logix context is capped at 20 messages with temperature 0, the writers get 8192 output tokens, Test Writer and Script Reviewer get a 60 second timeout and 2 retries, and the Cost & Tokens guard rail agrees with the modifying skill
 one_bpmn.one_bpmn.patches.v1_0.goal_completion_failed_stage_results #18-10-2026 Achieved runs whose stage tool result says generated, modified, truncated, safe or fallback failed become Not Achieved
 one_bpmn.one_bpmn.patches.v1_0.prosally_relayouts_and_compares #18-10-2026 ProsAlly lays a saved diagram out again on request and lists what a pasted specification has that the diagram lacks
+one_bpmn.one_bpmn.patches.v1_0.prosally_caps_the_confirmation_summary #18-10-2026 ProsAlly confirmation lists at most 8 steps and 6 settings, asked for in the classifier prompt
+one_bpmn.one_bpmn.patches.v1_0.prosally_reports_drawing_progress #18-10-2026 ProsAlly tells the person waiting which part of a drawing it is on

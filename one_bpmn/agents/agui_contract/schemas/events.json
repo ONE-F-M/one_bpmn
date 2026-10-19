@@ -253,6 +253,22 @@
 			},
 			"example": {"title": "Leave policy Q&A"}
 		},
+		"onefm.progress": {
+			"producers": ["prosally_agent (Generate Process and Modify Process, through turn_signal.publish_progress)"],
+			"rendered_as": "Panel chrome: one live progress line under the transcript, replaced by the next one and cleared when the turn ends. Never a card.",
+			"notes": "The message is the line shown. Without a message the panel builds 'Drawing part {phase} of {total}' from the two numbers. A quiet stretch inside a phase repeats the phase's line with the time spent, at least every 25 seconds.",
+			"schema": {
+				"type": "object",
+				"required": ["message"],
+				"additionalProperties": false,
+				"properties": {
+					"phase": {"type": "integer"},
+					"total": {"type": "integer"},
+					"message": {"type": "string"}
+				}
+			},
+			"example": {"phase": 2, "total": 6, "message": "Drawing part 2 of 6: Review"}
+		},
 		"onefm.mode_transition": {
 			"producers": ["lumina modes (BA Agent)"],
 			"rendered_as": "Panel chrome: the mode chip",

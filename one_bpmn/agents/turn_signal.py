@@ -1,6 +1,6 @@
 """Carry a turn's progress from the worker back to the request waiting on it.
 
-A chat turn runs on the ``bpmn_ai_agent`` worker, so the request that took the
+A chat turn runs on an AI agent worker, so the request that took the
 message has to learn two things from another process: that the turn finished,
 and what it is doing while it has not. Both travel on one list in the cache,
 oldest first, and the last entry is always the end marker.
@@ -18,6 +18,7 @@ import time
 from contextlib import contextmanager
 
 import frappe
+from frappe.utils import cint
 
 _KEY = "bpmn_turn_events:{0}"
 # Long enough that an entry published just before a caller starts reading is
@@ -64,29 +65,45 @@ def _push(instance_name: str, payload: dict) -> None:
 
 
 STILL_WORKING_EVENT = "onefm.turn_progress"
+PROGRESS_EVENT = "onefm.progress"
+# Inside a phase that outlasts this, the phase's progress line is repeated with the time spent, so the
+# person waiting never goes 30 seconds without one.
+PROGRESS_HEARTBEAT_SECONDS = 25
 _AI_QUEUE = "bpmn_ai_agent"
+
+
+def publish_progress(message: str, phase: int = 0, total: int = 0) -> None:
+	"""Tell the person waiting on this chat turn what the worker is doing now, as a progress line.
+
+	Does nothing when no chat request is waiting on the turn.
+	"""
+	instance_name = frappe.flags.get(LIVE_TEXT_INSTANCE_FLAG)
+	if instance_name:
+		value = {"phase": cint(phase), "total": cint(total), "message": message}
+		publish_event(instance_name, {"type": "CUSTOM", "name": PROGRESS_EVENT, "value": value})
 
 
 def consume(instance_name: str, timeout: float, idle_seconds: float | None = None, still_running=None):
 	"""Yield this turn's progress events until it ends or ``timeout`` passes; the end marker is not yielded.
 
 	With ``idle_seconds``, a quiet stretch yields a "still working" event while ``still_running()`` holds, else ends.
+	Once a progress line has been seen the quiet stretch is shortened, and its event repeats that line with the time spent.
 	"""
 	key = _key(instance_name)
 	deadline = time.monotonic() + max(0.0, timeout)
+	progress, progress_at = None, 0.0
 	while True:
-		window = deadline if idle_seconds is None else min(deadline, time.monotonic() + idle_seconds)
+		quiet = idle_seconds
+		if progress and idle_seconds is not None:
+			quiet = min(idle_seconds, PROGRESS_HEARTBEAT_SECONDS)
+		window = deadline if quiet is None else min(deadline, time.monotonic() + quiet)
 		try:
 			raw = _pop_before(key, window)
 		except Exception:
 			return
 		if raw is None:
 			if still_running and time.monotonic() < deadline and still_running():
-				yield {
-					"type": "CUSTOM",
-					"name": STILL_WORKING_EVENT,
-					"value": {"text": frappe._("Still working on your last message…")},
-				}
+				yield _quiet_event(progress, time.monotonic() - progress_at)
 				continue
 			return
 		try:
@@ -95,7 +112,21 @@ def consume(instance_name: str, timeout: float, idle_seconds: float | None = Non
 			continue
 		if event.get("type") == _DONE:
 			return
+		if event.get("name") == PROGRESS_EVENT:
+			progress, progress_at = event.get("value") or {}, time.monotonic()
 		yield event
+
+
+def _quiet_event(progress: dict | None, seconds: float) -> dict:
+	"""The event for a quiet stretch: the last progress line with the time spent, else the general still-working note."""
+	if progress:
+		message = frappe._("{0} (still working, {1}s)").format(progress.get("message") or "", int(seconds))
+		return {"type": "CUSTOM", "name": PROGRESS_EVENT, "value": {**progress, "message": message}}
+	return {
+		"type": "CUSTOM",
+		"name": STILL_WORKING_EVENT,
+		"value": {"text": frappe._("Still working on your last message…")},
+	}
 
 
 LIVE_TEXT_QUEUE_FLAG = "bpmn_ai_live_text_queue"
@@ -207,6 +238,12 @@ def ai_job_running(instance_name: str) -> bool:
 	"""Is an AI job for this instance queued or running on the worker?"""
 	from frappe.utils.background_jobs import create_job_id, get_queue, get_running_jobs_in_queue
 
+	from one_bpmn.agents.job_limits import AI_AGENT_QUEUES
+
 	prefix = create_job_id(f"bpmn-ai-{instance_name}-")
-	queue = get_queue(_AI_QUEUE)
-	return any(job.id.startswith(prefix) for job in [*queue.jobs, *get_running_jobs_in_queue(queue)])
+	# ProsAlly's jobs are on their own queue, so every AI queue is checked.
+	for queue_name in AI_AGENT_QUEUES:
+		queue = get_queue(queue_name)
+		if any(job.id.startswith(prefix) for job in [*queue.jobs, *get_running_jobs_in_queue(queue)]):
+			return True
+	return False
