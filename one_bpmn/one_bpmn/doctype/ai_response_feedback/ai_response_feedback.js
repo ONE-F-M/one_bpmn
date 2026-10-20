@@ -116,6 +116,29 @@ async function offer_same_error_fix(frm) {
 }
 
 function complete_pending_task(frm, pending_task, action) {
+	if (action === "Fixed" && !(frm.doc.resolution_details || "").trim()) {
+		frappe.prompt(
+			{
+				fieldname: "resolution_details",
+				fieldtype: "Small Text",
+				label: __("Resolution Details"),
+				description: __("What was done to fix the issue. The rater sees this."),
+				reqd: 1,
+			},
+			(values) => {
+				frm.set_value("resolution_details", values.resolution_details)
+					.then(() => frm.save())
+					.then(() => run_pending_task(frm, pending_task, action));
+			},
+			__("Mark Fixed"),
+			__("Mark Fixed")
+		);
+		return;
+	}
+	run_pending_task(frm, pending_task, action);
+}
+
+function run_pending_task(frm, pending_task, action) {
 	frappe.call({
 		method: "one_bpmn.api.instance_api.complete_task",
 		args: {
