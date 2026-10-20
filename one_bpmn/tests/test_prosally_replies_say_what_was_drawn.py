@@ -275,6 +275,20 @@ class TestCompareReadsInlineLists(FrappeTestCase):
 		self.assertIn("- Send reminder to HR", output["response"])
 		self.assertNotIn("- Set to Draft", output["response"])
 
+	MONTHLY = (
+		'<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL">'
+		'<bpmn:scriptTask id="a" name="Set to Draft" /><bpmn:userTask id="b" name="Submit Monthly Action" />'
+		'<bpmn:scriptTask id="c" name="Update linked Goal progress" /></bpmn:definitions>'
+	)
+
+	def test_an_item_that_shares_only_some_of_its_words_with_a_step_is_missing(self):
+		spec = "- Set to Draft\n- Manager approves the monthly action\n- Update linked Goal progress"
+		self.assertEqual(helpers.missing_spec_items(self.MONTHLY, spec), ["Manager approves the monthly action"])
+
+	def test_an_item_whose_words_are_mostly_in_one_step_is_found(self):
+		spec = "- Update the linked goal progress\n- Submit the monthly action"
+		self.assertEqual(helpers.missing_spec_items(self.MONTHLY, spec), [])
+
 
 class TestNoChangeIsNotAnUpdate(FrappeTestCase):
 	"""Runs the live Modify Process script on a saved diagram that lists its flow references."""

@@ -1137,8 +1137,17 @@ def spec_items(text: str) -> list[str]:
 
 
 def missing_spec_items(xml: str, spec: str) -> list[str]:
-	"""The list items of spec that no step on the diagram shares two significant words with."""
-	return [item for item in spec_items(spec) if len(item.split()) > 1 and not similar_steps(xml, [item])]
+	"""The list items of spec with no step on the diagram that holds at least 60% of the item's significant words."""
+
+	def stems(text):
+		return {word[:5] for word in re.findall(r"[a-z]{4,}", text.lower()) if word not in REQUEST_STOPWORDS}
+
+	steps = [stems(e.get("name")) for e in ET.fromstring(xml).iter() if e.tag in STEP_TAGS and e.get("name")]
+	return [
+		item
+		for item in spec_items(spec)
+		if len(item.split()) > 1 and not any(stems(item) and len(stems(item) & step) / len(stems(item)) >= 0.6 for step in steps)
+	]
 
 
 def compare_output(xml: str, texts: list) -> dict:
