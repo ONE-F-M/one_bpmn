@@ -1238,6 +1238,31 @@ def _unlabeled_links(root: ET.Element) -> Counter:
 	return Counter((f.get("sourceRef"), f.get("targetRef")) for f in root.iter(flow) if not f.get("name"))
 
 
+def describe_flow_references(previous_xml: str, xml: str) -> str:
+	"""Steps present before and after whose incoming or outgoing flow references changed, as one plain line; "" when none."""
+	if not (previous_xml or "").strip() or not (xml or "").strip():
+		return ""
+	before, after = _flow_references(ET.fromstring(previous_xml)), _flow_references(ET.fromstring(xml))
+	changed = sum(1 for step_id, references in after.items() if step_id in before and before[step_id] != references)
+	if not changed:
+		return ""
+	line = _("Rebuilt the flow references on {0} steps, which the editor's linter reads.").format(changed)
+	return "\n\n" + _("What changed:") + "\n- " + line
+
+
+def _flow_references(root: ET.Element) -> dict:
+	"""For each step, the flow ids listed as its incoming and as its outgoing references."""
+	bpmn = "{" + NS["bpmn"] + "}"
+	return {
+		e.get("id"): (
+			frozenset(c.text for c in e.findall(bpmn + "incoming")),
+			frozenset(c.text for c in e.findall(bpmn + "outgoing")),
+		)
+		for e in root.iter()
+		if e.get("id") and e.tag != bpmn + "sequenceFlow"
+	}
+
+
 def lint_fix_requested(texts: list) -> bool:
 	"""True when the newest message that is not a yes or a no asks to fix lint findings."""
 	request = next((strip_html(text) for text in texts if text and not confirmation_reply(text)), "")
@@ -1307,6 +1332,16 @@ def lint_leftovers(findings: dict) -> str:
 	if not parts:
 		return ""
 	return "\n\n" + _("Not fixed: {0}. Ask me again from there, or fix them in the editor.").format(", ".join(parts))
+
+
+def lint_unfixed_reply(where: str, findings: dict) -> str:
+	"""The answer when a lint fix changed nothing: how many findings stayed and which rules they break."""
+	count = len(findings["fix"])
+	rules = ", ".join(sorted({f["rule"] for f in findings["fix"]}))
+	return _(
+		"I did not change {0}. I could not fix the {1} lint findings it has ({2}) by editing the steps and paths. "
+		"Fix them in the editor, or tell me which steps to connect or add."
+	).format(where, count, rules)
 
 
 def no_lint_fix_reply(findings: dict | None) -> str:
