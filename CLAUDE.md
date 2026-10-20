@@ -62,3 +62,15 @@ Follow root [`CLAUDE.md`](../CLAUDE.md) for Frappe conventions.
 ## House style
 
 Every checkable rule lives in `frappe-bench/.claude/rules/` and loads automatically: `house-style.md` always, `python-frappe.md` for Python, `vue-js.md` for JavaScript and Vue. The numbered set with ids A1 to F8 is `frappe-bench/.claude/rules/RULES.md`; cite an id when a PR body justifies an exception. Before you say a task is done, re-read your diff against `house-style.md`.
+
+## Pull requests
+
+Never run `git push` or `gh pr create` directly.
+To push and open a PR, run this from the root of this repo:
+
+```bash
+bash scripts/claude-pr.sh <base-branch>
+```
+
+Always ask the developer which base branch to use before running the script.
+Never guess or assume it. Common bases: `staging` for features, `version-15` for hotfixes.
