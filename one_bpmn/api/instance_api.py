@@ -699,6 +699,9 @@ def _complete_task_job(
 			title="BPMN complete_task job: validation error",
 			message=frappe.get_traceback(),
 		)
+	except frappe.PermissionError:
+		# The user sees what they lack; the request rollback leaves the task waiting for a retry.
+		raise
 	except Exception:
 		frappe.db.set_value("BPMN Process Instance", instance_name, "status", "Errored")
 		frappe.log_error(
