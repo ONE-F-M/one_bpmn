@@ -10,6 +10,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.prosally_helpers import (
+	describe_flow_references,
 	describe_links,
 	lint_findings,
 	lint_fix_requested,
@@ -18,7 +19,9 @@ from one_bpmn.agents.prosally_helpers import (
 	no_lint_fix_reply,
 )
 from one_bpmn.agents.turn_state import clear_turn, get_turn, set_turn
+from one_bpmn.one_bpmn.patches.v1_0 import prosally_counts_rebuilt_flow_references as references_patch
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_fixes_lint_findings as lint_patch
+from one_bpmn.security.script_validator import deep_inspect_script
 
 CONVERSATION = "_test_prosally_fixes_lint"
 HEAD = '<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="D">'
@@ -125,6 +128,35 @@ class TestLintFindings(FrappeTestCase):
 
 
 LINKED = XML.replace("</bpmn:subProcess>", '<bpmn:sequenceFlow id="f1" sourceRef="b" targetRef="g"/></bpmn:subProcess>')
+REFERENCED = LINKED.replace(
+	'<bpmn:userTask id="b" name="Check Salary"/>',
+	'<bpmn:userTask id="b" name="Check Salary"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:userTask>',
+).replace(
+	'<bpmn:exclusiveGateway id="g" name="Salary OK?"/>',
+	'<bpmn:exclusiveGateway id="g" name="Salary OK?"><bpmn:incoming>f1</bpmn:incoming></bpmn:exclusiveGateway>',
+)
+
+
+class TestDescribeFlowReferences(FrappeTestCase):
+	def test_references_added_to_existing_steps_are_counted(self):
+		text = describe_flow_references(LINKED, REFERENCED)
+		self.assertIn("Rebuilt the flow references on 2 steps", text)
+
+	def test_references_removed_from_existing_steps_are_counted_too(self):
+		self.assertIn("Rebuilt the flow references on 2 steps", describe_flow_references(REFERENCED, LINKED))
+
+	def test_the_same_references_are_not_a_change(self):
+		self.assertEqual(describe_flow_references(REFERENCED, REFERENCED), "")
+
+	def test_a_step_that_is_new_is_left_to_the_added_step_line(self):
+		with_new_step = REFERENCED.replace(
+			"</bpmn:subProcess>", '<bpmn:userTask id="n" name="New"><bpmn:incoming>f9</bpmn:incoming></bpmn:userTask></bpmn:subProcess>'
+		)
+		self.assertEqual(describe_flow_references(REFERENCED, with_new_step), "")
+
+	def test_no_diagram_before_or_after_gives_nothing(self):
+		self.assertEqual(describe_flow_references("", REFERENCED), "")
+		self.assertEqual(describe_flow_references(LINKED, ""), "")
 
 
 class TestDescribeLinks(FrappeTestCase):
@@ -181,6 +213,7 @@ class TestLintText(FrappeTestCase):
 class LintScriptCase(FrappeTestCase):
 	def setUp(self):
 		lint_patch.execute()
+		references_patch.execute()
 
 	def tearDown(self):
 		clear_turn(CONVERSATION)
@@ -246,14 +279,14 @@ class TestClassifierFixesLint(LintScriptCase):
 
 
 class TestModifierFixesLint(LintScriptCase):
-	def _modify(self, issues, scope_id="", text="Yes, proceed", history=REQUEST, drawn=XML):
+	def _modify(self, issues, scope_id="", text="Yes, proceed", history=REQUEST, drawn=XML, current=XML):
 		script = self._script("ProsAlly%Tool Modify Process")
 		set_turn(
 			CONVERSATION,
 			{
 				"user_text": text,
 				"process_name": "P",
-				"current_xml": XML,
+				"current_xml": current,
 				"scope_id": scope_id,
 				"lint_issues": issues,
 				"chat_history": [{"role": "user", "content": history}],
@@ -297,6 +330,21 @@ class TestModifierFixesLint(LintScriptCase):
 		self.assertEqual(output["intent"], "CLARIFY")
 		self.assertNotIn("bpmn_xml", output)
 
+	def test_a_fix_that_only_rebuilds_flow_references_is_a_change_with_the_diagram_attached(self):
+		_, output = self._modify([SUB_ISSUE], current=LINKED, drawn=REFERENCED)
+		self.assertEqual(output["intent"], "BPMN_MODIFIED")
+		self.assertEqual(output["bpmn_xml"], REFERENCED)
+		self.assertIn("Rebuilt the flow references on 2 steps", output["response"])
+
+	def test_findings_that_could_not_be_fixed_are_counted_in_the_reply(self):
+		_, output = self._modify([SUB_ISSUE, SUB_GATEWAY_ISSUE])
+		self.assertEqual(output["intent"], "CLARIFY")
+		self.assertIn("could not fix the 2 lint findings", output["response"])
+		self.assertIn("no-disconnected", output["response"])
+
+	def test_the_patched_script_passes_the_validator_the_engine_runs_before_it(self):
+		self.assertEqual(deep_inspect_script(self._script("ProsAlly%Tool Modify Process")), [])
+
 	def test_what_was_left_alone_is_said_in_the_reply(self):
 		_, output = self._modify([SUB_ISSUE, MAIN_ISSUE, LAYOUT_ISSUE], scope_id="sub")
 		self.assertIn("Not fixed:", output["response"])
@@ -328,3 +376,13 @@ class TestLintPatch(FrappeTestCase):
 		lint_patch.execute()
 		for name, script in before.items():
 			self.assertEqual(frappe.db.get_value("Server Script", {"name": ["like", name]}, "script"), script)
+
+
+class TestReferencesPatch(FrappeTestCase):
+	def test_running_it_again_changes_no_script(self):
+		lint_patch.execute()
+		references_patch.execute()
+		before = frappe.db.get_value("Server Script", {"name": ["like", "ProsAlly%Tool Modify Process"]}, "script")
+		references_patch.execute()
+		after = frappe.db.get_value("Server Script", {"name": ["like", "ProsAlly%Tool Modify Process"]}, "script")
+		self.assertEqual(after, before)
