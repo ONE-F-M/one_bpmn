@@ -5,6 +5,7 @@ import json
 import re
 import unittest
 from unittest.mock import patch
+from xml.etree import ElementTree as ET
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -249,3 +250,83 @@ class TestRelayout(FrappeTestCase):
 		self.assertIn("- Verify Final Settlement Statement", output["response"])
 		self.assertNotIn("- " + self.ir["nodes"][1]["name"], output["response"])
 		self.assertIn("Shall I add them?", output["response"])
+
+
+class TestCompareReadsInlineLists(FrappeTestCase):
+	SPEC = "What is missing? Check: - Set to Draft, - Manager approves the request, - Send reminder to HR"
+	XML = (
+		'<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL">'
+		'<bpmn:scriptTask id="a" name="Set to Draft" /><bpmn:scriptTask id="b" name="Update linked Goal progress" />'
+		"</bpmn:definitions>"
+	)
+
+	def test_dash_items_run_together_on_one_line_are_each_an_item(self):
+		self.assertEqual(
+			helpers.spec_items(self.SPEC), ["Set to Draft", "Manager approves the request", "Send reminder to HR"]
+		)
+
+	def test_a_hyphen_inside_an_item_does_not_split_it(self):
+		self.assertEqual(helpers.spec_items("- Review - then approve\n- Close"), ["Review - then approve", "Close"])
+
+	def test_the_missing_items_of_an_inline_list_are_asked_about(self):
+		output = helpers.compare_output(self.XML, [self.SPEC])
+		self.assertEqual(output["intent"], "CONFIRM")
+		self.assertIn("- Manager approves the request", output["response"])
+		self.assertIn("- Send reminder to HR", output["response"])
+		self.assertNotIn("- Set to Draft", output["response"])
+
+
+class TestNoChangeIsNotAnUpdate(FrappeTestCase):
+	"""Runs the live Modify Process script on a saved diagram that lists its flow references."""
+
+	IR = {
+		"name": "P",
+		"lanes": [{"id": "staff", "name": "Staff"}, {"id": "manager", "name": "Manager"}],
+		"nodes": [
+			{"id": "start", "name": "Request raised", "type": "startEvent", "lane": "staff"},
+			{"id": "raise", "name": "Raise the request", "type": "userTask", "lane": "staff"},
+			{"id": "approve", "name": "Approve the request", "type": "userTask", "lane": "manager"},
+			{"id": "end", "name": "Request closed", "type": "endEvent", "lane": "manager"},
+		],
+		"flows": [
+			{"from": "start", "to": "raise"},
+			{"from": "raise", "to": "approve"},
+			{"from": "approve", "to": "end"},
+		],
+	}
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		compiled = helpers.compile_ir(cls.IR)
+		if not compiled.get("ok"):
+			raise unittest.SkipTest("node or pipeline.mjs unavailable")
+		helpers._register_namespaces()
+		root = ET.fromstring(compiled["xml"])
+		for process in root.iter("{" + helpers.NS["bpmn"] + "}process"):
+			helpers.add_flow_references(process)
+		cls.with_references = ET.tostring(root, encoding="unicode")
+
+	def _modify(self, user_text):
+		name = frappe.db.get_value("Server Script", {"name": ["like", "ProsAlly%Tool Modify Process"]}, "name")
+		script = frappe.db.get_value("Server Script", name, "script") if name else ""
+		if "describe_flow_references" not in (script or ""):
+			self.skipTest("the patched ProsAlly Modify Process script is not on this site")
+		set_turn(
+			"NO-CHANGE-TEST",
+			{"user_text": user_text, "process_name": "P", "current_xml": self.with_references, "scope_id": "", "chat_history": []},
+		)
+		result = {}
+		with patch("one_bpmn.agents.prosally_helpers.complete_sub_prompt", return_value=json.dumps(self.IR)):
+			exec(script, {"frappe": frappe, "context_docname": "NO-CHANGE-TEST", "result": result, "bpmn_id": "x"})
+		output = get_turn("NO-CHANGE-TEST")["output"]
+		clear_turn("NO-CHANGE-TEST")
+		return result, output
+
+	def test_a_request_that_only_rebuilds_flow_references_changes_nothing(self):
+		result, output = self._modify("Add a step Approve the request")
+		self.assertFalse(result["modified"])
+		self.assertEqual(output["intent"], "CLARIFY")
+		self.assertNotIn("bpmn_xml", output)
+		self.assertNotIn("I've updated", output["response"])
+		self.assertNotIn("Rebuilt the flow references", output["response"])
