@@ -539,11 +539,12 @@
    "label": "AI Credential Health"
   },
   {
-   "description": "The users told when an AI Model's credentials stop working. Left empty, the alert goes to whoever last edited the model, or failing that to every System Manager.",
+   "description": "Email addresses told when an AI Model's credentials stop working, separated by commas. Left empty, the alert goes to whoever last edited the model, or failing that to every System Manager.",
    "fieldname": "ai_health_alert_recipients",
-   "fieldtype": "Table MultiSelect",
+   "fieldtype": "Data",
    "label": "Credential Alert Recipients",
-   "options": "User Group Member"
+   "length": 500,
+   "options": "Email"
   },
   {
    "fieldname": "section_break_nightly_evals",
@@ -551,11 +552,12 @@
    "label": "Nightly Evals"
   },
   {
-   "description": "Who hears when a scheduled eval falls short, besides the failing agent's own owner. Left empty it is every System Manager, which on this site includes service logins.",
+   "description": "Email addresses told when a scheduled eval falls short, separated by commas, besides the failing agent's own owner. Left empty it is every System Manager, which on this site includes service logins.",
    "fieldname": "eval_alert_recipients",
-   "fieldtype": "Table MultiSelect",
+   "fieldtype": "Data",
    "label": "Eval Alert Recipients",
-   "options": "User Group Member"
+   "length": 500,
+   "options": "Email"
   },
   {
    "description": "Model used to grade nightly eval answers when an assertion names none of its own.",
@@ -804,7 +806,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-10-15 12:00:00.000000",
+ "modified": "2026-10-20 12:00:00.000000",
  "modified_by": "s.shariff@one-fm.com",
  "module": "ONE BPMN",
  "name": "Processa Settings",

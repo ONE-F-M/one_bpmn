@@ -81,17 +81,9 @@ def repoint_grading_and_compaction():
 
 
 def add_platform_owners():
-	settings = frappe.get_doc("Processa Settings")
-	changed = False
 	for field in RECIPIENT_FIELDS:
-		if settings.get(field):
-			continue
-		for user in PLATFORM_OWNERS:
-			if frappe.db.get_value("User", user, "enabled"):
-				settings.append(field, {"user": user})
-				changed = True
-	if changed:
-		settings.save(ignore_permissions=True)
+		if not frappe.db.get_single_value("Processa Settings", field):
+			frappe.db.set_single_value("Processa Settings", field, ", ".join(PLATFORM_OWNERS))
 
 
 def clear_stale_reasons():
