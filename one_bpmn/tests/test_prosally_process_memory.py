@@ -7,6 +7,7 @@ Run with:
 
 from __future__ import annotations
 
+from typing import ClassVar
 from unittest.mock import patch
 
 import frappe
@@ -98,8 +99,8 @@ class TestRecall(FrappeTestCase):
 
 
 class TestPrompt(FrappeTestCase):
-	CFG = {"sub_prompts": {"modifier": {"prompt": "MODIFIER"}}, "constants": {}}
-	TURN = {"memory_notes": ["promotion needs the board lane"]}
+	CFG: ClassVar[dict] = {"sub_prompts": {"modifier": {"prompt": "MODIFIER"}}, "constants": {}}
+	TURN: ClassVar[dict] = {"memory_notes": ["promotion needs the board lane"]}
 
 	def test_notes_sit_under_their_heading_after_the_sub_prompt(self):
 		prompt = helpers.stage_system_prompt(self.CFG, "modifier", "modify_skills", self.TURN)
@@ -119,7 +120,12 @@ class TestPrompt(FrappeTestCase):
 
 
 class TestQueueProcessMemory(FrappeTestCase):
-	TURN = {"memory_process": PROMOTION, "user_text": "yes", "memory_notes": ["a note"], "chat_history": []}
+	TURN: ClassVar[dict] = {
+		"memory_process": PROMOTION,
+		"user_text": "yes",
+		"memory_notes": ["a note"],
+		"chat_history": [],
+	}
 
 	def _queue(self, turn, intent):
 		cfg = {"name": "CFG", "ai_model": "m", "ai_provider": "p"}
@@ -152,7 +158,7 @@ class TestQueueProcessMemory(FrappeTestCase):
 
 
 class TestStageToolsPatch(FrappeTestCase):
-	SCRIPTS = {
+	SCRIPTS: ClassVar[dict] = {
 		BUILD_CONTEXT: "x = 1\n# The AI Agent Task does tool-calling internally\nresult = 1\n",
 		f"ProsAlly {memory_patch.DASH} Tool Classify Intent": (
 			"if a:\n    pass\nelse:\n    _cfg = 1\n"
