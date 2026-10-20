@@ -101,6 +101,9 @@ def _notify(lines: list[str]) -> None:
 	) + "</p>"
 	told = []
 	for user in _recipients():
+		if not frappe.db.exists("User", user):
+			told.append(user)
+			continue
 		try:
 			note = frappe.new_doc("Notification Log")
 			note.for_user = user

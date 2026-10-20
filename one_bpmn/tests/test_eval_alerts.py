@@ -9,6 +9,8 @@ reaches somebody, and nobody hears twice.
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -139,31 +141,29 @@ class TestWhoIsAPerson(FrappeTestCase):
 
 	def test_a_configured_list_replaces_the_managers(self):
 		chosen = _user("_test_eval_watcher@one-fm.com")
-		# The field is new; a process holding the old meta silently drops the rows.
-		frappe.clear_cache(doctype="Processa Settings")
-		settings = frappe.get_single("Processa Settings")
-		settings.set("eval_alert_recipients", [{"user": chosen}])
-		settings.flags.ignore_mandatory = True
-		settings.save(ignore_permissions=True)
+		frappe.db.set_single_value("Processa Settings", "eval_alert_recipients", chosen)
 		try:
 			self.assertEqual(system_managers(), [chosen])
 		finally:
-			settings.set("eval_alert_recipients", [])
-			settings.save(ignore_permissions=True)
+			frappe.db.set_single_value("Processa Settings", "eval_alert_recipients", "")
 
 	def test_the_owner_is_told_even_when_a_list_is_configured(self):
 		"""The list is who else hears, not who hears instead."""
 		chosen = _user("_test_eval_watcher2@one-fm.com")
-		# The field is new; a process holding the old meta silently drops the rows.
-		frappe.clear_cache(doctype="Processa Settings")
-		settings = frappe.get_single("Processa Settings")
-		settings.set("eval_alert_recipients", [{"user": chosen}])
-		settings.flags.ignore_mandatory = True
-		settings.save(ignore_permissions=True)
+		frappe.db.set_single_value("Processa Settings", "eval_alert_recipients", chosen)
 		try:
 			people = recipients_for([self.agent])
 			self.assertEqual(people[0], self.owner)
 			self.assertIn(chosen, people)
 		finally:
-			settings.set("eval_alert_recipients", [])
-			settings.save(ignore_permissions=True)
+			frappe.db.set_single_value("Processa Settings", "eval_alert_recipients", "")
+
+	def test_an_address_that_is_not_a_user_is_emailed(self):
+		frappe.db.set_single_value("Processa Settings", "eval_alert_recipients", "outsider@example.com")
+		try:
+			with patch("one_bpmn.agents.eval_alerts._send_email") as send:
+				told = notify("subject", "body", [self.agent])
+		finally:
+			frappe.db.set_single_value("Processa Settings", "eval_alert_recipients", "")
+		self.assertIn("outsider@example.com", told)
+		send.assert_called_once_with(["outsider@example.com"], "subject", "body")

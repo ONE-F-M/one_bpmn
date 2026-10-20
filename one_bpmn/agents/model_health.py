@@ -473,16 +473,9 @@ def alert_recipients(model: str) -> list[str]:
 
 
 def configured_recipients() -> list[str]:
-	"""The Credential Alert Recipients rows on Processa Settings, in order."""
-	return frappe.get_all(
-		"User Group Member",
-		filters={
-			"parenttype": "Processa Settings",
-			"parent": "Processa Settings",
-			"parentfield": "ai_health_alert_recipients",
-		},
-		pluck="user",
-		order_by="idx asc",
+	"""The Credential Alert Recipients addresses on Processa Settings, in order."""
+	return frappe.utils.split_emails(
+		frappe.db.get_single_value("Processa Settings", "ai_health_alert_recipients")
 	)
 
 
@@ -569,10 +562,13 @@ def _alert_body(row) -> str:
 
 
 def _deliver(recipients: list[str], subject: str, body: str, model: str) -> list[str]:
-	"""In-app alert plus an email, to each recipient. Returns who got the in-app
-	alert. Never raises."""
+	"""An in-app alert for each recipient that is a User, plus one email to all
+	of them. Returns who was told. Never raises."""
 	told = []
 	for user in recipients:
+		if not frappe.db.exists("User", user):
+			told.append(user)
+			continue
 		try:
 			note = frappe.new_doc("Notification Log")
 			note.for_user = user

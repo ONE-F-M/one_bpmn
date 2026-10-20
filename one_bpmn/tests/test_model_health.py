@@ -409,13 +409,9 @@ class TestHealthState(HealthCase):
 			note_run_outcome("whatever", "PROVIDER_DISABLED", "x")  # must not raise
 
 
-def _set_recipients(users):
-	"""Replace the Credential Alert Recipients rows on Processa Settings."""
-	settings = frappe.get_doc("Processa Settings")
-	settings.set("ai_health_alert_recipients", [])
-	for user in users:
-		settings.append("ai_health_alert_recipients", {"user": user})
-	settings.save(ignore_permissions=True)
+def _set_recipients(addresses):
+	"""Replace the Credential Alert Recipients on Processa Settings."""
+	frappe.db.set_single_value("Processa Settings", "ai_health_alert_recipients", ", ".join(addresses))
 
 
 class TestAlerting(HealthCase):
@@ -511,19 +507,49 @@ class TestAlerting(HealthCase):
 			patch("frappe.get_all", return_value=["Administrator", "someone@example.com"]):
 			self.assertEqual(model_health.alert_recipients(name), ["someone@example.com"])
 
-	def test_old_text_value_is_migrated_to_rows(self):
-		"""The field used to be free text. The patch turns each entry that names a
-		User into a row and logs the rest, then clears the old value."""
-		from one_bpmn.one_bpmn.patches.v1_0.ai_health_recipients_to_users import execute, migrate_text
+	def test_an_address_that_is_not_a_user_gets_the_email_only(self):
+		name = self._model()
+		with patch("one_bpmn.agents.model_health._send_email") as send:
+			told = model_health._deliver(["outsider@example.com", "Administrator"], "subject", "body", name)
+		self.assertEqual(told, ["outsider@example.com", "Administrator"])
+		send.assert_called_once_with(["outsider@example.com", "Administrator"], "subject", "body")
+		self.assertEqual([n.for_user for n in self._notes(name)], ["Administrator"])
 
-		_set_recipients([])
-		rows, unmatched = migrate_text("Administrator, nobody@example.invalid; Guest")
-		self.assertEqual(rows, ["Administrator", "Guest"])
-		self.assertEqual(unmatched, ["nobody@example.invalid"])
-		self.assertEqual(model_health.configured_recipients(), ["Administrator", "Guest"])
-		# Nothing left to migrate: a second run changes nothing.
+	def test_configured_recipients_are_split_from_the_field(self):
+		_set_recipients(["a@example.com", "b@example.com"])
+		self.assertEqual(model_health.configured_recipients(), ["a@example.com", "b@example.com"])
+
+	def test_a_list_that_is_not_email_addresses_is_refused(self):
+		settings = frappe.get_doc("Processa Settings")
+		settings.ai_health_alert_recipients = "not an address"
+		with self.assertRaises(frappe.InvalidEmailAddressError):
+			settings.save(ignore_permissions=True)
+
+	def test_existing_rows_become_email_addresses(self):
+		from one_bpmn.one_bpmn.patches.v1_0.alert_recipients_become_email_addresses import execute
+
+		_set_recipients(["kept@example.com"])
+		frappe.get_doc(
+			{
+				"doctype": "User Group Member",
+				"parent": "Processa Settings",
+				"parenttype": "Processa Settings",
+				"parentfield": "ai_health_alert_recipients",
+				"user": "Administrator",
+				"idx": 1,
+			}
+		).db_insert()
+
 		execute()
-		self.assertEqual(model_health.configured_recipients(), ["Administrator", "Guest"])
+		execute()
+
+		admin = frappe.db.get_value("User", "Administrator", "email") or "Administrator"
+		self.assertEqual(model_health.configured_recipients(), ["kept@example.com", admin])
+		self.assertFalse(
+			frappe.db.exists(
+				"User Group Member", {"parent": "Processa Settings", "parentfield": "ai_health_alert_recipients"}
+			)
+		)
 
 
 # ---------------------------------------------------------------------------

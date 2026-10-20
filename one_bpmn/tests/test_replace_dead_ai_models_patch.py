@@ -105,17 +105,15 @@ class TestReplaceDeadAiModels(FrappeTestCase):
 		self.assertEqual(self.value("memory_reconcile_model"), DEAD_SONNET)
 
 	def test_platform_owners_fill_empty_recipient_lists_once(self):
-		settings = frappe.get_doc("Processa Settings")
 		for field in P.RECIPIENT_FIELDS:
-			settings.set(field, [])
-		settings.save(ignore_permissions=True)
+			frappe.db.set_single_value("Processa Settings", field, "")
 
 		P.add_platform_owners()
+		frappe.db.set_single_value("Processa Settings", P.RECIPIENT_FIELDS[0], "kept@example.com")
 		P.add_platform_owners()
 
-		settings = frappe.get_doc("Processa Settings")
-		for field in P.RECIPIENT_FIELDS:
-			self.assertEqual([row.user for row in settings.get(field)], ["Administrator"])
+		self.assertEqual(frappe.db.get_single_value("Processa Settings", P.RECIPIENT_FIELDS[0]), "kept@example.com")
+		self.assertEqual(frappe.db.get_single_value("Processa Settings", P.RECIPIENT_FIELDS[1]), "Administrator")
 
 	def test_stale_reason_is_cleared_only_when_the_agent_validates(self):
 		frappe.db.set_value(
