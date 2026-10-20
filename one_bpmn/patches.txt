@@ -312,3 +312,4 @@ one_bpmn.one_bpmn.patches.v1_0.prosally_reports_drawing_progress #18-10-2026 Pro
 one_bpmn.one_bpmn.patches.v1_0.alert_recipients_become_email_addresses #20-10-2026 the Credential Alert Recipients and Eval Alert Recipients hold email addresses, each existing User row is copied as that user email
 one_bpmn.one_bpmn.patches.v1_0.prosally_counts_rebuilt_flow_references #20-10-2026 ProsAlly returns a lint fix that only rebuilds flow references and says how many findings it could not fix
 one_bpmn.one_bpmn.patches.v1_0.ai_feedback_requires_resolution_details #20-10-2026 Fixed feedback carries resolution details: existing Fixed records get a note and the Mark Fixed script refuses none
+one_bpmn.one_bpmn.patches.v1_0.prosally_no_change_is_not_an_update #20-10-2026 ProsAlly counts rebuilt flow references as a change only when the person asked for a lint fix, so a request that changes nothing no longer says it updated the process

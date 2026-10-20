@@ -1130,8 +1130,9 @@ LIST_ITEM = re.compile(r"^\s*(?:[-*\u2022]|\d+[.)]|[a-z][.)])\s+(.+?)\s*$", re.I
 
 
 def spec_items(text: str) -> list[str]:
-	"""The bulleted or numbered lines of text, without their markers."""
-	lines = unescape_entities(re.sub(r"<[^>]+>", "", re.sub(r"<(?:br|/p|/li|/div)[^>]*>", "\n", text or ""))).splitlines()
+	"""The bulleted or numbered lines of text, or dash items run together after a comma or colon, without their markers."""
+	plain = unescape_entities(re.sub(r"<[^>]+>", "", re.sub(r"<(?:br|/p|/li|/div)[^>]*>", "\n", text or "")))
+	lines = re.sub(r"[,:]\s+(?=[-*\u2022]\s)", "\n", plain).splitlines()
 	return [m.group(1) for line in lines if (m := LIST_ITEM.match(line))]
 
 
