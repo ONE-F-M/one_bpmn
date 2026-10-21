@@ -317,7 +317,7 @@ def render_patch(app: str, model_name: str, doctypes: list, stamp: str, client_s
 	)
 	if doctypes:
 		doc += (
-			"\nFresh installs\n"
+			" Fresh installs\n"
 			"get the same content through setup/setup.py's after_install.\n"
 			"\n"
 			"Idempotent: create_custom_fields(update=True) updates a field that is\n"
