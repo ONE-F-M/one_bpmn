@@ -126,19 +126,23 @@ def _instances_pending_on(user: str) -> list:
 	"""
 	# Imported lazily for the same reason as in complete_user_task: assignment.py
 	# pulls in engine.py, which is fragile across SpiffWorkflow versions.
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import split_users
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import task_actors
 
 	roles = frappe.get_roles(user)
 
-	or_filters = {"assigned_user": ["like", f"%{user}%"]}
+	or_filters = [
+		["BPMN Active Task", field, "like", f"%{name}%"]
+		for name in {user, *_users_covered_by(user)}
+		for field in ("assigned_user", "relieved_user", "reliever_user")
+	]
 	if roles:
-		or_filters["assigned_role"] = ["in", roles]
+		or_filters.append(["BPMN Active Task", "assigned_role", "in", roles])
 
 	rows = frappe.get_all(
 		"BPMN Active Task",
 		filters={"parenttype": "BPMN Process Instance", "status": "Waiting"},
 		or_filters=or_filters,
-		fields=["parent", "assigned_user", "assigned_role"],
+		fields=["parent", "assigned_user", "relieved_user", "reliever_user", "assigned_role"],
 	)
 
 	role_set = set(roles)
@@ -146,9 +150,31 @@ def _instances_pending_on(user: str) -> list:
 		{
 			row.parent
 			for row in rows
-			if user in split_users(row.assigned_user)
+			if user in task_actors(row)
 			or (not (row.assigned_user or "").strip() and row.assigned_role in role_set)
 		}
+	)
+
+
+def _users_covered_by(user: str) -> list:
+	"""User IDs of employees whose approved leave today names ``user`` as their reliever."""
+	today = frappe.utils.today()
+	employees = frappe.get_all(
+		"Leave Application",
+		filters={
+			"status": "Approved",
+			"reliever_user_id": user,
+			"from_date": ["<=", today],
+			"to_date": [">=", today],
+		},
+		pluck="employee",
+	)
+	if not employees:
+		return []
+	return frappe.get_all(
+		"Employee",
+		filters={"name": ["in", employees], "user_id": ["is", "set"]},
+		pluck="user_id",
 	)
 
 
@@ -971,16 +997,16 @@ def get_active_bpmn_tasks(doctype: str, docname: str) -> list:
 def _task_authorization(instance, row, user: str) -> tuple[str | None, str | None]:
 	"""Why ``user`` may not complete this Waiting task, or None; and the approved CTC that lets them.
 
-	Assignees may act, and so may a super user or the holder of an approved Contingency Task Completion.
+	Assignees and their relievers may act, and so may a super user or the holder of an approved Contingency Task Completion.
 	"""
 	# Imported lazily: assignment.py pulls in engine.py, which is fragile across SpiffWorkflow versions.
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import split_users
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import split_users, task_actors
 
 	super_user = _is_bpmn_super_user(user)
 	assigned_users = split_users(row.assigned_user or "")
 	approved_ctc_name = None
 
-	if assigned_users and user not in assigned_users and not super_user:
+	if assigned_users and user not in task_actors(row) and not super_user:
 		if instance.context_doctype and instance.context_docname:
 			from frappe.query_builder import DocType
 
