@@ -248,7 +248,7 @@ def export_dataset(agent: str = None, skill: str = None, suite: str = None, vers
 
 
 @frappe.whitelist()
-def import_dataset(payload, suite: str = None, dry_run: int = 0) -> dict:
+def import_dataset(payload: str | dict, suite: str = None, dry_run: int = 0) -> dict:
 	"""Load a dataset, matching existing cases by title.
 
 	With *suite* given, everything lands there. Without it, each case goes back

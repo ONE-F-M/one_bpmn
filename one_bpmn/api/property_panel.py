@@ -167,7 +167,7 @@ def _write_condition(node, value):
 
 
 @frappe.whitelist(methods=["POST"])
-def update_element_properties(model_name: str, element_id: str, properties) -> dict:
+def update_element_properties(model_name: str, element_id: str, properties: str | dict | None) -> dict:
 	"""Write panel properties onto one flow object in a process map.
 
 	Does NOT recompile — the editor calls deploy_property_changes() once when
