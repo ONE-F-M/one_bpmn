@@ -267,7 +267,25 @@ const exportingProcesses = ref(new Set())
 const router = useRouter()
 const processes = ref([])
 const loading = ref(true)
-const filterKeyword = ref("")
+
+// Persist the search key so it survives leaving and returning to this page
+const SEARCH_KEY_STORAGE = "one_bpmn_process_list_search"
+function readSavedSearch() {
+	try {
+		return localStorage.getItem(SEARCH_KEY_STORAGE) || ""
+	} catch (e) {
+		return ""
+	}
+}
+const filterKeyword = ref(readSavedSearch())
+watch(filterKeyword, (val) => {
+	try {
+		if (val) localStorage.setItem(SEARCH_KEY_STORAGE, val)
+		else localStorage.removeItem(SEARCH_KEY_STORAGE)
+	} catch (e) {
+		// storage unavailable - search simply isn't retained
+	}
+})
 
 // Filters: array of { field, operator, value } managed by the Filter popover
 const activeFilters = ref([])
