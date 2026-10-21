@@ -714,6 +714,11 @@ def _pr_body(app: str, dts: list, model_name: str, artefacts: list, routing: dic
 	listed = "\n".join(f"- `{p}`" for p in artefacts)
 	routing = routing or {}
 	foreign = routing.get("foreign", dts)
+	client_script_dts = routing.get("client_scripts") or []
+	client_script_note = (
+		f"Client Scripts for {', '.join(client_script_dts)} are written to `custom/client_script/` "
+		"data modules and applied to **existing sites** by the same patch (upserted by name).\n\n"
+	) if client_script_dts else ""
 	return (
 		"Automated by Processa (Review Doctypes → Sync).\n\n"
 		f"Process map: `{model_name}`\n"
@@ -728,10 +733,9 @@ def _pr_body(app: str, dts: list, model_name: str, artefacts: list, routing: dic
 		"- `setup/custom_field.py` and `setup/property_setter.py` register them for **fresh installs** "
 		"(via `after_install`, which never runs on an existing site)\n"
 		"- the patch under `patches/v15_0/` applies them to **existing sites** on `bench migrate`\n"
-		+ client_script_note +
-		"
 		"- `custom/*.json` is updated too, and is **merged** rather than regenerated, so "
 		"customizations outside this sync are preserved\n\n")
+		+ client_script_note
 		+ f"Files touched:\n{listed}\n\n"
 		+ ("The data modules are regenerated from the BA site's current state, so any hand edit "
 		   "made to those two files will be replaced — review that hunk with care." if foreign else
