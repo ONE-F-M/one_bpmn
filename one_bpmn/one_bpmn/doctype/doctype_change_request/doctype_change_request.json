@@ -1,0 +1,145 @@
+{
+ "actions": [],
+ "autoname": "format:DCR-{#####}",
+ "creation": "2026-07-10 09:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "target_doctype",
+  "status",
+  "destructive",
+  "column_break_dcr1",
+  "requested_by",
+  "processes",
+  "section_break_dcr1",
+  "change_summary",
+  "requested_ir",
+  "section_break_dcr2",
+  "reviewed_by",
+  "reviewed_on",
+  "decision_note"
+ ],
+ "fields": [
+  {
+   "fieldname": "target_doctype",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Target Doctype",
+   "options": "DocType",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Pending\nApproved\nRejected",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "The change removes fields and would delete their stored data.",
+   "fieldname": "destructive",
+   "fieldtype": "Check",
+   "label": "Destructive",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_dcr1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "requested_by",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Requested By",
+   "options": "User",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "description": "Processes that list the Target Doctype when the request was logged, one per line.",
+   "fieldname": "processes",
+   "fieldtype": "Small Text",
+   "label": "Processes",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_dcr1",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "change_summary",
+   "fieldtype": "Small Text",
+   "label": "Change Summary",
+   "read_only": 1
+  },
+  {
+   "fieldname": "requested_ir",
+   "fieldtype": "Code",
+   "label": "Requested Definition",
+   "options": "JSON",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_dcr2",
+   "fieldtype": "Section Break",
+   "label": "Decision"
+  },
+  {
+   "fieldname": "reviewed_by",
+   "fieldtype": "Link",
+   "label": "Reviewed By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reviewed_on",
+   "fieldtype": "Datetime",
+   "label": "Reviewed On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "decision_note",
+   "fieldtype": "Small Text",
+   "label": "Decision Note",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-07-10 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "Doctype Change Request",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Business Analyst"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "target_doctype"
+}
