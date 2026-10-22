@@ -669,15 +669,8 @@
 							</div>
 							<div>
 								<label class="block text-xs font-medium text-gray-700 mb-1">Script Type <span class="text-red-500">*</span></label>
-								<select v-model="newScript.script_type" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" :disabled="isScriptTaskElement">
-									<template v-if="isScriptTaskElement"><option value="API">API</option></template>
-									<template v-else>
-										<option value="">Select type...</option>
-										<option value="DocType Event">DocType Event</option>
-										<option value="Scheduler Event">Scheduler Event</option>
-										<option value="Permission Query">Permission Query</option>
-										<option value="API">API</option>
-									</template>
+								<select v-model="newScript.script_type" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" disabled>
+									<option value="API">API</option>
 								</select>
 							</div>
 						</div>
@@ -1657,7 +1650,6 @@ const creatingScript = ref(false);
 const showDoctypeDropdown = ref(false);
 const showModuleDropdown = ref(false);
 let activeScriptEvent = null;
-const isScriptTaskElement = ref(false);
 
 // Script preview state (Select Existing tab)
 const previewScriptContent = ref(null);
@@ -1673,7 +1665,7 @@ const savingEditScript = ref(false);
 // New Script form state
 const newScript = ref({
 	name: "",
-	script_type: "",
+	script_type: "API",
 	script: "",
 	reference_doctype: "",
 	doctype_event: "",
@@ -1700,9 +1692,7 @@ const eventFrequencies = [
 // Computed: filtered scripts based on search (restricted to API for Script Tasks)
 const filteredServerScripts = computed(() => {
 	let list = serverScripts.value;
-	if (isScriptTaskElement.value) {
-		list = list.filter((s) => s.script_type === "API");
-	}
+	list = list.filter((s) => s.script_type === "API");
 	if (!serverScriptSearch.value) return list;
 	const q = serverScriptSearch.value.toLowerCase();
 	return list.filter(
@@ -3175,7 +3165,6 @@ function onLaunchScriptEditor(event) {
 	scriptDialogMode.value = event.script ? "edit" : "select";
 	serverScriptSearch.value = "";
 	selectedServerScript.value = event.script || null;
-	isScriptTaskElement.value = !!(event.element?.type === "bpmn:ScriptTask");
 	if (event.script) loadScriptContent(event.script, "edit");
 
 	// Go straight to Logix canvas — skip the script selector dialog
