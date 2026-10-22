@@ -67,25 +67,7 @@ def get_reliever_if_on_leave(user: str, pairs: list = None) -> str:
 		return user
 
 	try:
-		today = frappe.utils.today()
-		employee = frappe.db.get_value(
-			"Employee",
-			{"user_id": user, "status": ["in", ["Active", "Vacation", "Not Returned from Leave"]]},
-			"name",
-		)
-		if not employee:
-			return user
-		reliever_user = frappe.db.get_value(
-			"Leave Application",
-			{
-				"employee": employee,
-				"status": "Approved",
-				"from_date": ["<=", today],
-				"to_date": [">=", today],
-				"reliever_user_id": ["is", "set"],
-			},
-			"reliever_user_id",
-		)
+		reliever_user = _current_reliever(user)
 		if not reliever_user:
 			return user
 		if pairs is not None:
@@ -97,6 +79,43 @@ def get_reliever_if_on_leave(user: str, pairs: list = None) -> str:
 			message=frappe.get_traceback(),
 		)
 		return user
+
+
+def _current_reliever(user: str) -> str | None:
+	"""The reliever named on *user*'s approved leave covering today, or None."""
+	today = frappe.utils.today()
+	employee = frappe.db.get_value(
+		"Employee",
+		{"user_id": user, "status": ["in", ["Active", "Vacation", "Not Returned from Leave"]]},
+		"name",
+	)
+	if not employee:
+		return None
+	return frappe.db.get_value(
+		"Leave Application",
+		{
+			"employee": employee,
+			"status": "Approved",
+			"from_date": ["<=", today],
+			"to_date": [">=", today],
+			"reliever_user_id": ["is", "set"],
+		},
+		"reliever_user_id",
+	)
+
+
+def task_actors(row) -> set:
+	"""Everyone who may action a Waiting task row: its assignees, the recorded relieved/reliever
+	pair, and the live reliever of any assignee or relieved user."""
+	actors = set()
+	for field in (row.assigned_user, row.relieved_user, row.reliever_user):
+		actors.update(split_users(field or ""))
+	owners = set(split_users(row.assigned_user or "")) | set(split_users(row.relieved_user or ""))
+	for owner in owners:
+		reliever = _current_reliever(owner)
+		if reliever:
+			actors.add(reliever)
+	return actors
 
 
 def resolve_assignment(instance, task) -> str:
