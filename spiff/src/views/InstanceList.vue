@@ -16,11 +16,15 @@
 		<div class="bg-white px-6 py-3 border-b flex flex-wrap gap-4 items-center">
 			<FormControl
 				type="text"
-				v-model="filters.process_model"
-				placeholder="Filter by Process Model"
-				class="w-64"
+				v-model="filters.search"
+				placeholder="Search instances (e.g. SD5)"
+				class="w-72"
 				@update:model-value="applyFilters"
-			/>
+			>
+				<template #prefix>
+					<FeatherIcon name="search" class="w-4 h-4 text-gray-400" />
+				</template>
+			</FormControl>
 			<FormControl
 				type="select"
 				v-model="filters.status"
@@ -318,7 +322,7 @@ const pageLengthNum = computed(() => Number(limitPageLength.value))
 
 // Filters state
 const filters = ref({
-	process_model: "",
+	search: "",
 	status: "",
 	...saved.filters,
 })
@@ -470,9 +474,6 @@ async function loadInstances() {
 	try {
 		// Build frappe API filters
 		const apiFilters = {}
-		if (filters.value.process_model) {
-			apiFilters.process_model = ["like", `%${filters.value.process_model}%`]
-		}
 		if (filters.value.status) {
 			apiFilters.status = filters.value.status
 		}
@@ -497,7 +498,8 @@ async function loadInstances() {
 				limit_start: limitStart.value,
 				limit_page_length: pageLengthNum.value,
 				order_by: "creation desc",
-				pending_action_by: pendingActionBy.value?.value || ""
+				pending_action_by: pendingActionBy.value?.value || "",
+				search: filters.value.search || ""
 			}
 		})
 		
