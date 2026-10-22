@@ -208,6 +208,31 @@ frappe.provide('one_bpmn');
 		}
 	}
 
+	// Opens the newest Process Instance of this document in the Processa page
+	async function _open_process_instance(frm) {
+		const instances = await frappe.db.get_list('BPMN Process Instance', {
+			filters: { context_doctype: frm.doctype, context_docname: frm.docname },
+			fields: ['name'],
+			order_by: 'creation desc',
+			limit: 1,
+		});
+		if (!instances.length) {
+			frappe.show_alert({
+				message: __('No Process Instance found for this document'),
+				indicator: 'orange',
+			});
+			return;
+		}
+		window.open(`/processa/instances/${encodeURIComponent(instances[0].name)}`, '_blank');
+	}
+
+	// The form page is shared by all documents of a doctype, so add the item once per page
+	function _add_instance_menu_item(frm) {
+		if (!frm.page || frm.page.__bpmn_instance_menu) return;
+		frm.page.__bpmn_instance_menu = true;
+		frm.page.add_menu_item(__('Go to Process Instance'), () => _open_process_instance(frm));
+	}
+
 	// load_bpmn_actions — fires on every form-refresh
 	async function load_bpmn_actions(frm) {
 		if (!frm || frm.is_new()) {
@@ -215,7 +240,7 @@ frappe.provide('one_bpmn');
 		}
 		if (BPMN_INTERNAL_DOCTYPES.has(frm.doctype)) return;
 
-
+		_add_instance_menu_item(frm);
 
 		// Always clear previously injected items first
 		_clear_bpmn_actions(frm);
