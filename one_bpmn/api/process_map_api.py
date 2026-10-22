@@ -1482,6 +1482,7 @@ def get_process_model(name: str) -> dict:
 		"model_name": doc.title,
 		"title": doc.title,
 		"process_id": doc.process_id,
+		"process_name": doc.process_name,
 		"description": doc.description,
 		"xml_content": xml_content,
 		"bpmn_xml": xml_content,
