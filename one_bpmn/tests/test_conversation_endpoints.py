@@ -150,7 +150,10 @@ class TestConversationEndpoints(FrappeTestCase):
 			elif df.fieldtype in ("Data", "Small Text", "Text", "Long Text", "Text Editor"):
 				values[df.fieldname] = "Test"
 		try:
-			self.ticket = frappe.get_doc(values).insert(ignore_permissions=True)
+			# after_insert runs the site's ticket automation (assignment, SLA,
+			# notifications), which is not what these tests exercise.
+			with patch.object(frappe.get_doc_class("HD Ticket"), "after_insert", create=True):
+				self.ticket = frappe.get_doc(values).insert(ignore_permissions=True)
 		except Exception as e:
 			import traceback
 
