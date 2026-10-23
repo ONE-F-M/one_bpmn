@@ -132,6 +132,8 @@ class TestConversationEndpoints(FrappeTestCase):
 		# Sites add mandatory custom fields to HD Ticket (e.g. a category):
 		# fill whatever is required with an existing value.
 		for df in frappe.get_meta("HD Ticket").fields:
+			if df.fieldname == "status":
+				continue  # HD Ticket sets its own status
 			if not df.reqd or values.get(df.fieldname) or df.default or df.hidden or df.read_only:
 				continue
 			choices = [o for o in (df.options or "").split("\n") if o.strip()]
