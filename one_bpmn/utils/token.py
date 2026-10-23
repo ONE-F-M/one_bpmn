@@ -143,6 +143,51 @@ def verify_action_token(token: str) -> dict:
 	return payload
 
 
+CONVERSATION_TOKEN_KINDS = ("thread", "reply", "note")
+
+
+def generate_conversation_token(
+	instance_name: str,
+	task_id: str,
+	user: str,
+	kind: str,
+	expiry_hours: int = 72,
+) -> str:
+	"""Generate an HMAC-signed token for the in-email conversation endpoints.
+
+	Same sealing scheme as :func:`generate_action_token`, plus a ``type``
+	of ``"thread"``, ``"reply"`` or ``"note"``. The token carries no
+	``action``: it can read the thread, post a reply or add a note, and
+	:func:`one_bpmn.api.todo_actions.handle_amp_action` refuses any token
+	with a ``type``, so it can never complete the task by itself.
+	Verified with :func:`verify_action_token`.
+
+	Args:
+		instance_name: BPMN Process Instance document name.
+		task_id: SpiffWorkflow task UUID.
+		user: Frappe user (email) the endpoint acts as.
+		kind: ``"thread"``, ``"reply"`` or ``"note"``.
+		expiry_hours: Hours until the token expires (default 72 = 3 days).
+
+	Returns:
+		A sealed string in the form ``<base64_payload>.<hmac_hex>``.
+	"""
+	if kind not in CONVERSATION_TOKEN_KINDS:
+		raise ValueError(f"Unknown conversation token kind: {kind!r}")
+	payload = {
+		"instance_name": instance_name,
+		"task_id": task_id,
+		"type": kind,
+		"user": user,
+		"expires": int(time.time()) + (expiry_hours * 3600),
+	}
+	payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+	signature = _sign(payload_json)
+	import base64
+	encoded_payload = base64.urlsafe_b64encode(payload_json.encode("utf-8")).decode("ascii")
+	return f"{encoded_payload}.{signature}"
+
+
 def generate_doc_action_token(
 	doctype: str,
 	docname: str,
