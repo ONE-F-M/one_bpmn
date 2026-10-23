@@ -280,6 +280,7 @@ class TestConversationEndpoints(FrappeTestCase):
 
 		before = self._communications()
 		result, mock_ct = self._call(post_amp_reply, _token("reply"), "We are on it.", conv={})
+		self.assertNotIn("error", result, str(result)[:600])
 
 		self.assertEqual(self._communications(), before + 1)
 		self.assertIn("We are on it.", result["message"])
@@ -293,6 +294,7 @@ class TestConversationEndpoints(FrappeTestCase):
 
 		conv = {"key": "Reply", "completesTask": True}
 		result, mock_ct = self._call(post_amp_reply, _token("reply"), "Fixed it.", conv=conv)
+		self.assertNotIn("error", result, str(result)[:600])
 
 		mock_ct.assert_called_once()
 		kwargs = mock_ct.call_args.kwargs
