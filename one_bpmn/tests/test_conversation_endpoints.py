@@ -152,8 +152,9 @@ class TestConversationEndpoints(FrappeTestCase):
 		try:
 			# after_insert runs the site's ticket automation (assignment, SLA,
 			# notifications), which is not what these tests exercise.
-			with patch.object(frappe.get_doc_class("HD Ticket"), "after_insert", create=True):
-				self.ticket = frappe.get_doc(values).insert(ignore_permissions=True)
+			ticket = frappe.get_doc(values)
+			with patch.object(type(ticket), "after_insert", create=True):
+				self.ticket = ticket.insert(ignore_permissions=True)
 		except Exception as e:
 			import traceback
 
