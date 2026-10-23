@@ -9,8 +9,12 @@
 		</p>
 
 		<div v-else>
-			<label class="notify-label">Layout</label>
+			<label
+				class="notify-label"
+				:for="`${uid}-layout`"
+			>Layout</label>
 			<select
+				:id="`${uid}-layout`"
 				v-model="layout"
 				class="notify-input"
 			>
@@ -26,8 +30,12 @@
 		</div>
 
 		<div>
-			<label class="notify-label">{{ htmlMode ? "Subject" : "Subject (English)" }}</label>
+			<label
+				class="notify-label"
+				:for="`${uid}-subject`"
+			>{{ htmlMode ? "Subject" : "Subject (English)" }}</label>
 			<input
+				:id="`${uid}-subject`"
 				v-model="subject"
 				type="text"
 				class="notify-input"
@@ -42,8 +50,12 @@
 
 		<template v-if="!htmlMode">
 			<div>
-				<label class="notify-label">Subject (Arabic)</label>
+				<label
+					class="notify-label"
+					:for="`${uid}-subject-ar`"
+				>Subject (Arabic)</label>
 				<input
+					:id="`${uid}-subject-ar`"
 					v-model="subjectAr"
 					type="text"
 					dir="rtl"
@@ -64,8 +76,12 @@
 			</div>
 
 			<div>
-				<label class="notify-label">{{ isChat ? "Heading (English)" : "Question (English)" }}</label>
+				<label
+					class="notify-label"
+					:for="`${uid}-question-en`"
+				>{{ isChat ? "Heading (English)" : "Question (English)" }}</label>
 				<input
+					:id="`${uid}-question-en`"
 					v-model="questionEn"
 					type="text"
 					class="notify-input"
@@ -73,8 +89,12 @@
 			</div>
 
 			<div>
-				<label class="notify-label">{{ isChat ? "Heading (Arabic)" : "Question (Arabic)" }}</label>
+				<label
+					class="notify-label"
+					:for="`${uid}-question-ar`"
+				>{{ isChat ? "Heading (Arabic)" : "Question (Arabic)" }}</label>
 				<input
+					:id="`${uid}-question-ar`"
 					v-model="questionAr"
 					type="text"
 					dir="rtl"
@@ -86,7 +106,7 @@
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { computed, useId } from "vue";
 
 const props = defineProps({
 	htmlMode: { type: Boolean, required: true },
@@ -100,6 +120,8 @@ const subject = defineModel("subject", { type: String });
 const subjectAr = defineModel("subjectAr", { type: String });
 const questionEn = defineModel("questionEn", { type: String });
 const questionAr = defineModel("questionAr", { type: String });
+
+const uid = useId();
 
 const isChat = computed(() => layout.value === "chat");
 

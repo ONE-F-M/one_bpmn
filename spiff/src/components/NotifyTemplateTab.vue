@@ -98,10 +98,14 @@
 			</div>
 
 			<div>
-				<label class="block text-xs font-medium text-gray-700 mb-1">
+				<label
+					class="block text-xs font-medium text-gray-700 mb-1"
+					:for="`${uid}-body`"
+				>
 					HTML Body
 				</label>
 				<textarea
+					:id="`${uid}-body`"
 					v-model="body"
 					class="w-full h-64 p-3 font-mono text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-y"
 					placeholder="Enter notification HTML here..."
@@ -120,7 +124,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, useId } from "vue";
 import { Icon } from "@iconify/vue";
 import { frappeGet } from "@/bpmn/shared/frappeResource";
 
@@ -129,6 +133,7 @@ const template = defineModel("template", { type: String });
 const body = defineModel("body", { type: String });
 const subject = defineModel("subject", { type: String });
 
+const uid = useId();
 const templateSearch = ref("");
 const showTemplateDropdown = ref(false);
 const loadingTemplates = ref(false);
