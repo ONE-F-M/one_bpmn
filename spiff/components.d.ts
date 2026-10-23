@@ -65,6 +65,8 @@ declare module 'vue' {
     MetricTile: typeof import('./src/components/insights/MetricTile.vue')['default']
     NotificationLinkDialog: typeof import('./src/components/NotificationLinkDialog.vue')['default']
     NotifyAssigneeEditorDialog: typeof import('./src/components/NotifyAssigneeEditorDialog.vue')['default']
+    NotifyContentTab: typeof import('./src/components/NotifyContentTab.vue')['default']
+    NotifyTemplateTab: typeof import('./src/components/NotifyTemplateTab.vue')['default']
     OneAiApp: typeof import('./src/components/chat/OneAiApp.vue')['default']
     OverviewCards: typeof import('./src/components/insights/OverviewCards.vue')['default']
     PendingActions: typeof import('./src/components/process_instance/PendingActions.vue')['default']

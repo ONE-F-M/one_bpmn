@@ -1,154 +1,129 @@
 <template>
-	<Dialog v-model="open" :options="{ title: 'Notification Editor', size: '4xl' }">
+	<Dialog
+		v-model="open"
+		:options="{ title: 'Notification Editor', size: '5xl' }"
+	>
 		<template #body-content>
-			<div class="space-y-4">
-				<!-- Auto-save status indicator -->
+			<div class="space-y-3">
 				<div class="flex justify-end h-4 -mt-2">
 					<span
 						v-if="saveStatus === 'saving'"
 						class="flex items-center gap-1 text-xs text-gray-400"
 					>
-						<Icon icon="lucide:loader-2" class="w-3.5 h-3.5 animate-spin" />
+						<Icon
+							icon="lucide:loader-2"
+							class="w-3.5 h-3.5 animate-spin"
+						/>
 						Saving…
 					</span>
 					<span
 						v-else-if="saveStatus === 'saved'"
 						class="flex items-center gap-1 text-xs text-green-600"
 					>
-						<Icon icon="lucide:check" class="w-3.5 h-3.5" />
-						Saved
+						<Icon
+							icon="lucide:check"
+							class="w-3.5 h-3.5"
+						/>
+						Saved to task
+					</span>
+					<span
+						v-else
+						class="text-xs text-gray-400"
+					>
+						All changes save automatically
 					</span>
 				</div>
 
-				<!-- Email Template Pre-populate -->
-				<div>
-					<label class="block text-xs font-medium text-gray-700 mb-1">
-						Pre-populate from Email Template
-					</label>
-					<div class="relative">
-						<Icon icon="lucide:search" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-						<input
-							v-model="templateSearch"
-							type="text"
-							placeholder="Search email templates..."
-							class="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
-							@focus="showTemplateDropdown = true"
-							@blur="onBlurTemplate"
-						/>
-						<div
-							v-if="showTemplateDropdown && filteredTemplates.length > 0"
-							class="absolute z-50 w-full mt-1 max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg"
+				<Tabs
+					v-model="activeTab"
+					:tabs="tabs"
+				>
+					<template #tab-item="{ tab, selected }">
+						<button
+							class="py-2 text-sm font-medium whitespace-nowrap border-b-2"
+							:class="selected ? 'text-gray-900 border-gray-900' : 'text-gray-500 border-transparent hover:text-gray-700'"
 						>
-							<div
-								v-for="tpl in filteredTemplates"
-								:key="tpl.name"
-								@mousedown.prevent="selectTemplate(tpl)"
-								class="px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 text-gray-900 border-b border-gray-50 last:border-b-0"
-							>
-								<div class="font-medium">{{ tpl.name }}</div>
-								<div v-if="tpl.subject" class="text-xs text-gray-500 mt-0.5">{{ tpl.subject }}</div>
-							</div>
+							{{ tab.label }}
+						</button>
+					</template>
+					<template #tab-panel="{ tab }">
+						<div class="pt-4">
+							<NotifyContentTab
+								v-if="tab.key === 'content'"
+								v-model:layout="values.notifyLayout"
+								v-model:subject="values.notifyAssigneeSubject"
+								v-model:subject-ar="values.notifySubjectAr"
+								v-model:question-en="values.notifyQuestionEn"
+								v-model:question-ar="values.notifyQuestionAr"
+								:html-mode="useHtml"
+								:doctype="doctype"
+								:task-name="taskName"
+								:email-thread="thread"
+							/>
+							<NotifyTemplateTab
+								v-if="tab.key === 'html'"
+								v-model:use-html="useHtml"
+								v-model:template="values.notifyAssigneeTemplate"
+								v-model:body="values.notifyAssigneeBody"
+								v-model:subject="values.notifyAssigneeSubject"
+							/>
 						</div>
-						<div
-							v-if="showTemplateDropdown && !loadingTemplates && filteredTemplates.length === 0 && templateSearch"
-							class="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg"
-						>
-							<div class="px-3 py-3 text-sm text-gray-400 text-center">No templates found</div>
-						</div>
-					</div>
-					<!-- Template-attached sign -->
-					<div class="mt-2">
-						<span
-							v-if="attachedTemplate"
-							class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-green-50 text-green-700 text-xs font-medium border border-green-200"
-						>
-							<Icon icon="lucide:paperclip" class="w-3.5 h-3.5" />
-							Template attached: {{ attachedTemplate }}
-							<button
-								type="button"
-								class="ml-1 text-green-600 hover:text-green-900"
-								title="Detach template"
-								@click="detachTemplate"
-							>
-								<Icon icon="lucide:x" class="w-3.5 h-3.5" />
-							</button>
-						</span>
-						<span
-							v-else
-							class="inline-flex items-center gap-1.5 text-xs text-gray-400"
-						>
-							<Icon icon="lucide:paperclip-off" class="w-3.5 h-3.5" />
-							No template attached
-						</span>
-					</div>
-					<p class="text-xs text-gray-400 mt-1">
-						Selecting a template copies its HTML into the editor below. Changes here do not affect the original template.
-					</p>
-				</div>
-
-				<!-- Subject -->
-				<div>
-					<label class="block text-xs font-medium text-gray-700 mb-1">
-						Subject
-					</label>
-					<input
-						v-model="subject"
-						type="text"
-						placeholder="Email subject..."
-						class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
-					/>
-					<p class="text-xs text-gray-400 mt-1" v-pre>
-						Jinja template variables are supported: <code class="bg-gray-100 px-1 rounded">{{ doc.name }}</code>, etc.
-					</p>
-				</div>
-
-				<!-- HTML Editor -->
-				<div>
-					<label class="block text-xs font-medium text-gray-700 mb-1">
-						Notification HTML Body
-					</label>
-					<textarea
-						v-model="htmlBody"
-						class="w-full h-64 p-3 font-mono text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-y"
-						placeholder="Enter notification HTML here..."
-						spellcheck="false"
-					></textarea>
-					<p class="text-xs text-gray-400 mt-1" v-pre>
-						Jinja template variables are supported: <code class="bg-gray-100 px-1 rounded">{{ doc.name }}</code>,
-						<code class="bg-gray-100 px-1 rounded">{{ doc.owner }}</code>, etc.
-					</p>
-				</div>
+					</template>
+				</Tabs>
 			</div>
 		</template>
 	</Dialog>
 </template>
 
 <script setup>
-import { ref, watch, computed } from "vue";
-import { frappeGet } from "@/bpmn/shared/frappeResource";
+import { ref, reactive, watch, computed } from "vue";
+import { Dialog, Tabs } from "frappe-ui";
 import { Icon } from "@iconify/vue";
+import NotifyContentTab from "@/components/NotifyContentTab.vue";
+import NotifyTemplateTab from "@/components/NotifyTemplateTab.vue";
+import { NOTIFY_EDITOR_ATTRS, isHtmlMode } from "@/bpmn/shared/notifyAssigneeAttrs";
+import { useDoctypeEmailThread } from "@/composables/useDoctypeEmailThread";
 
 const props = defineProps({
 	modelValue: { type: Boolean, default: false },
-	initialBody: { type: String, default: "" },
-	initialSubject: { type: String, default: "" },
-	initialTemplate: { type: String, default: "" },
+	initialValues: { type: Object, default: () => ({}) },
+	doctype: { type: String, default: "" },
+	taskName: { type: String, default: "" },
 });
 
 const emit = defineEmits(["update:modelValue", "save"]);
 
 const open = computed({
 	get: () => props.modelValue,
-	set: (v) => emit("update:modelValue", v),
+	set: (v) => {
+		// Save a pending edit before the parent drops the element it writes to
+		if (!v && saveTimer) saveNow();
+		emit("update:modelValue", v);
+	},
 });
 
-const htmlBody = ref("");
-const subject = ref("");
-const attachedTemplate = ref(""); // name of the Email Template this body came from
-const templateSearch = ref("");
-const showTemplateDropdown = ref(false);
-const loadingTemplates = ref(false);
-const templates = ref([]);
+const tabs = [
+	{ key: "content", label: "Content" },
+	{ key: "html", label: "Email Template or HTML" },
+];
+const HTML_TAB = 1;
+
+const values = reactive(Object.fromEntries(NOTIFY_EDITOR_ATTRS.map((name) => [name, ""])));
+const activeTab = ref(0);
+const { thread, load: loadThread } = useDoctypeEmailThread();
+let lastLayout = "card";
+
+const useHtml = computed({
+	get: () => isHtmlMode(values.notifyLayout),
+	set: (on) => {
+		if (!on) {
+			values.notifyLayout = lastLayout;
+			return;
+		}
+		if (!isHtmlMode(values.notifyLayout)) lastLayout = values.notifyLayout;
+		values.notifyLayout = "html";
+	},
+});
 
 // Auto-save state
 const saveStatus = ref(""); // "" | "saving" | "saved"
@@ -156,109 +131,41 @@ let isReady = false;        // true once the dialog has finished populating
 let saveTimer = null;
 let savedTimer = null;
 
-// Reset editor content when dialog opens
 watch(
 	() => props.modelValue,
 	(isOpen) => {
-		if (isOpen) {
-			isReady = false;
-			htmlBody.value = props.initialBody || "";
-			subject.value = props.initialSubject || "";
-			attachedTemplate.value = props.initialTemplate || "";
-			templateSearch.value = "";
-			saveStatus.value = "";
-			if (saveTimer) clearTimeout(saveTimer);
-			if (savedTimer) clearTimeout(savedTimer);
-			fetchTemplates();
-			// Allow edits to trigger auto-save only after the initial values settle
-			setTimeout(() => {
-				isReady = true;
-			}, 0);
-		}
+		if (!isOpen) return;
+		isReady = false;
+		for (const name of NOTIFY_EDITOR_ATTRS) values[name] = props.initialValues[name] || "";
+		lastLayout = isHtmlMode(values.notifyLayout) ? "card" : values.notifyLayout;
+		activeTab.value = useHtml.value ? HTML_TAB : 0;
+		saveStatus.value = "";
+		clearTimeout(saveTimer);
+		clearTimeout(savedTimer);
+		saveTimer = null;
+		loadThread(props.doctype);
+		// Allow edits to trigger auto-save only after the initial values settle
+		setTimeout(() => {
+			isReady = true;
+		}, 0);
 	}
 );
 
-// Debounced auto-save — fires whenever the subject, body, or template changes
-watch([subject, htmlBody, attachedTemplate], () => {
+watch(values, () => {
 	if (!isReady) return;
 	saveStatus.value = "saving";
-	if (saveTimer) clearTimeout(saveTimer);
-	if (savedTimer) clearTimeout(savedTimer);
-	saveTimer = setTimeout(() => {
-		emit("save", {
-			body: htmlBody.value,
-			subject: subject.value,
-			template: attachedTemplate.value,
-		});
-		saveStatus.value = "saved";
-		// Fade the "Saved" indicator after a short while
-		savedTimer = setTimeout(() => {
-			if (saveStatus.value === "saved") saveStatus.value = "";
-		}, 2000);
-	}, 500);
+	clearTimeout(saveTimer);
+	clearTimeout(savedTimer);
+	saveTimer = setTimeout(saveNow, 500);
 });
 
-const filteredTemplates = computed(() => {
-	const q = (templateSearch.value || "").toLowerCase();
-	if (!q) return templates.value;
-	return templates.value.filter(
-		(t) =>
-			t.name.toLowerCase().includes(q) ||
-			(t.subject && t.subject.toLowerCase().includes(q))
-	);
-});
-
-async function fetchTemplates() {
-	loadingTemplates.value = true;
-	try {
-		const data = await frappeGet("/api/resource/Email Template", {
-			fields: JSON.stringify(["name", "subject"]),
-			limit_page_length: 200,
-			order_by: "name asc",
-		});
-		templates.value = Array.isArray(data) ? data : [];
-	} catch (err) {
-		console.error("[NotifyAssigneeEditor] Failed to fetch email templates:", err);
-		templates.value = [];
-	} finally {
-		loadingTemplates.value = false;
-	}
-}
-
-async function selectTemplate(tpl) {
-	showTemplateDropdown.value = false;
-	templateSearch.value = tpl.name;
-
-	// Fetch the full template to get the HTML body + subject
-	try {
-		const doc = await frappeGet(`/api/resource/Email Template/${encodeURIComponent(tpl.name)}`, {
-			fields: JSON.stringify(["subject", "response_html", "response"]),
-		});
-		// Prefer response_html; fall back to response (plain text / markdown)
-		const body = doc?.response_html || doc?.response || "";
-		if (body) {
-			htmlBody.value = body;
-		}
-		// Pre-populate the subject from the template too
-		if (doc?.subject) {
-			subject.value = doc.subject;
-		}
-		// Mark this template as attached
-		attachedTemplate.value = tpl.name;
-	} catch (err) {
-		console.error("[NotifyAssigneeEditor] Failed to fetch template content:", err);
-	}
-}
-
-function detachTemplate() {
-	// Detach the template marker only — keep the body/subject the user may have edited.
-	attachedTemplate.value = "";
-	templateSearch.value = "";
-}
-
-function onBlurTemplate() {
-	setTimeout(() => {
-		showTemplateDropdown.value = false;
-	}, 200);
+function saveNow() {
+	clearTimeout(saveTimer);
+	saveTimer = null;
+	emit("save", { ...values });
+	saveStatus.value = "saved";
+	savedTimer = setTimeout(() => {
+		if (saveStatus.value === "saved") saveStatus.value = "";
+	}, 2000);
 }
 </script>

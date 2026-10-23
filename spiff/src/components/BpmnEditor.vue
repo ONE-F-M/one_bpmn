@@ -1081,6 +1081,7 @@ import lanePropertiesProviderModule from "@/bpmn/lanePropertiesProvider";
 import propertiesPanelFilterModule from "@/bpmn/propertiesPanelFilter";
 import commentContextPadModule from "@/bpmn/commentContextPad";
 import { encodeHtmlAttr, decodeHtmlAttr } from "@/bpmn/shared/htmlAttrCodec";
+import { NOTIFY_EDITOR_ATTRS, contextDoctype } from "@/bpmn/shared/notifyAssigneeAttrs";
 import {
 	PROPERTY_COMMANDS,
 	isLockedElement as isPanelLockedElement,
@@ -1656,9 +1657,7 @@ onMounted(async () => {
 						{ name: "roundRobinLastUser",    isAttr: true, type: "String" },
 						{ name: "taskActions",           isAttr: true, type: "String" },
 						{ name: "notifyAssignee",        isAttr: true, type: "String" },
-						{ name: "notifyAssigneeBody",    isAttr: true, type: "String" },
-						{ name: "notifyAssigneeSubject", isAttr: true, type: "String" },
-						{ name: "notifyAssigneeTemplate", isAttr: true, type: "String" }
+						...NOTIFY_EDITOR_ATTRS.map((name) => ({ name, isAttr: true, type: "String" })),
 					]
 				});
 
@@ -2275,25 +2274,28 @@ onMounted(async () => {
 
 			// Notify Assignee editor (User Tasks)
 			eventBus.on("spiff.userTask.notifyAssignee.edit", (event) => {
+				const bo = event.element.businessObject || event.element;
 				emit("launch-notify-assignee-editor", {
 					element: event.element,
-					body: decodeHtmlAttr(event.body) || "",
-					subject: event.subject || "",
-					template: event.template || "",
+					values: { ...event.values, notifyAssigneeBody: decodeHtmlAttr(event.values.notifyAssigneeBody) || "" },
+					doctype: contextDoctype(bo),
+					taskName: bo.name || bo.id,
 					eventBus: event.eventBus,
 				});
 			});
 
-			// Write notify-assignee HTML body + subject + template back to BPMN element
+			// Write every Notification Editor value back to the BPMN element in one update
 			eventBus.on("spiff.userTask.notifyAssignee.update", (event) => {
 				if (event.element) {
 					const modeling = modeler.get("modeling");
 					const bo = event.element.businessObject || event.element;
-					modeling.updateModdleProperties(event.element, bo, {
-						"spiffworkflow:notifyAssigneeBody": encodeHtmlAttr(event.body),
-						"spiffworkflow:notifyAssigneeSubject": event.subject || undefined,
-						"spiffworkflow:notifyAssigneeTemplate": event.template || undefined,
-					});
+					const updates = {};
+					for (const name of NOTIFY_EDITOR_ATTRS) {
+						const value = event.values[name];
+						updates[`spiffworkflow:${name}`] =
+							name === "notifyAssigneeBody" ? encodeHtmlAttr(value) : value || undefined;
+					}
+					modeling.updateModdleProperties(event.element, bo, updates);
 				}
 			});
 

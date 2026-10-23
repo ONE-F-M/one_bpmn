@@ -6,6 +6,7 @@ import { frappeGet, frappePost } from "../shared/frappeResource";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
 import { decodeHtmlAttr } from "../shared/htmlAttrCodec";
+import { NOTIFY_EDITOR_ATTRS } from "../shared/notifyAssigneeAttrs";
 import { makeLaunchDocuButton } from "../shared/launchDocuButton";
 import { RecordCombobox } from "../shared/RecordCombobox";
 import { cachedRecordList } from "../shared/cachedRecordList";
@@ -846,11 +847,9 @@ function NotifyAssigneeCheckboxComponent(props) {
 		const updates = {
 			"spiffworkflow:notifyAssignee": e.target.checked ? "true" : undefined,
 		};
-		// Clear the body + subject + template when unchecking
+		// Clear every Notification Editor value and the account when unchecking
 		if (!e.target.checked) {
-			updates["spiffworkflow:notifyAssigneeBody"] = undefined;
-			updates["spiffworkflow:notifyAssigneeSubject"] = undefined;
-			updates["spiffworkflow:notifyAssigneeTemplate"] = undefined;
+			for (const name of NOTIFY_EDITOR_ATTRS) updates[`spiffworkflow:${name}`] = undefined;
 			updates["spiffworkflow:notifyAssigneeAccount"] = undefined;
 		}
 		modeling.updateModdleProperties(element, bo, updates);
@@ -901,9 +900,7 @@ function NotifyAssigneeEditorButtonComponent(props) {
 		eventBus.fire("spiff.userTask.notifyAssignee.edit", {
 			element,
 			eventBus,
-			body: getAttr(bo, "notifyAssigneeBody"),
-			subject: getAttr(bo, "notifyAssigneeSubject"),
-			template: getAttr(bo, "notifyAssigneeTemplate"),
+			values: Object.fromEntries(NOTIFY_EDITOR_ATTRS.map((name) => [name, getAttr(bo, name)])),
 		});
 	};
 
