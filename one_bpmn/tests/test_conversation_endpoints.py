@@ -142,7 +142,7 @@ class TestConversationEndpoints(FrappeTestCase):
 				if not values[df.fieldname]:
 					self.skipTest(f"No {df.options} record to fill mandatory {df.fieldname}")
 			elif df.fieldtype == "Select":
-				values[df.fieldname] = (df.options or "").split("\n")[0] or None
+				values[df.fieldname] = choices[0] if choices else None
 			elif df.fieldtype in ("Int", "Float", "Currency", "Check"):
 				values[df.fieldname] = 1
 			elif df.fieldtype in ("Data", "Small Text", "Text", "Long Text", "Text Editor"):
