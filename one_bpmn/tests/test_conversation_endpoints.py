@@ -146,7 +146,13 @@ class TestConversationEndpoints(FrappeTestCase):
 				values[df.fieldname] = 1
 			elif df.fieldtype in ("Data", "Small Text", "Text", "Long Text", "Text Editor"):
 				values[df.fieldname] = "Test"
-		self.ticket = frappe.get_doc(values).insert(ignore_permissions=True)
+		try:
+			self.ticket = frappe.get_doc(values).insert(ignore_permissions=True)
+		except Exception as e:
+			import traceback
+
+			frames = [f"{f.filename.split('apps/')[-1]}:{f.lineno}:{f.name}" for f in traceback.extract_tb(e.__traceback__)]
+			self.fail(f"HD Ticket fixture failed with {values}: " + " | ".join(frames[:8]))
 		self.addCleanup(self._remove_ticket)
 
 	def _remove_ticket(self):
