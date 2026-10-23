@@ -134,8 +134,9 @@ class TestConversationEndpoints(FrappeTestCase):
 		for df in frappe.get_meta("HD Ticket").fields:
 			if not df.reqd or values.get(df.fieldname) or df.default or df.hidden or df.read_only:
 				continue
-			if df.fieldtype == "Link" and "\n" in (df.options or ""):
-				values[df.fieldname] = df.options.split("\n")[0]
+			choices = [o for o in (df.options or "").split("\n") if o.strip()]
+			if df.fieldtype in ("Link", "Select") and len(choices) > 1:
+				values[df.fieldname] = "Open" if "Open" in choices else choices[0]
 			elif df.fieldtype == "Link":
 				values[df.fieldname] = frappe.db.get_value(df.options, {}, "name")
 				if not values[df.fieldname]:
