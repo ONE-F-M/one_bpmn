@@ -194,6 +194,57 @@
 	line-height: 1;
 }
 
+/* Gateway check: one line per action / branch, wraps inside the panel */
+.bpmn-link-list {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	margin-top: 4px;
+}
+
+.bpmn-link {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	color: #374151;
+}
+
+/* .bio-properties-panel * sets every element's size, so the size needs this heavier selector */
+.bio-properties-panel .bpmn-link {
+	font-size: 11px;
+}
+
+.bpmn-link span {
+	min-width: 0;
+	font-size: inherit;
+	overflow-wrap: anywhere;
+	white-space: normal;
+}
+
+.bpmn-link i {
+	flex: none;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: #9ca3af;
+}
+
+.bpmn-link-ok i {
+	background: #16a34a;
+}
+
+.bpmn-link-bad {
+	color: #b91c1c;
+}
+
+.bpmn-link-bad i {
+	background: #dc2626;
+}
+
+.bpmn-link-other {
+	color: #9ca3af;
+}
+
 .bpmn-action-remove-btn svg {
 	width: 14px;
 	height: 14px;

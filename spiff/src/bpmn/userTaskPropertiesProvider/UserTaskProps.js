@@ -12,6 +12,10 @@ import { RecordCombobox } from "../shared/RecordCombobox";
 import { cachedRecordList } from "../shared/cachedRecordList";
 import { CLOSE, icon } from "../shared/recordIcons";
 import { createWorkflowActionMaster } from "./workflowActionCreate";
+import { makeGatewayCheckComponent } from "./gatewayCheckComponent";
+
+// Read-only check of the task's actions against the next gateway's branches
+const GatewayCheckComponent = makeGatewayCheckComponent((raw) => parseTaskActions(raw));
 
 // Helpers
 function getAttr(bo, attr) {
@@ -93,6 +97,13 @@ export function UserTaskProps(props) {
 		element,
 		component: TaskActionsTableComponent,
 		isEdited: isSelectEntryEdited,
+	});
+
+	// Gateway check: read-only, writes nothing, never blocks deploy
+	entries.push({
+		id: "spiffworkflow-gatewayCheck",
+		element,
+		component: GatewayCheckComponent,
 	});
 
 	// Notify Assignee — checkbox + conditional Launch Editor button
