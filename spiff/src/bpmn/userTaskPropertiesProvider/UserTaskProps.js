@@ -912,6 +912,7 @@ function NotifyAssigneeEditorButtonComponent(props) {
 			element,
 			eventBus,
 			values: Object.fromEntries(NOTIFY_EDITOR_ATTRS.map((name) => [name, getAttr(bo, name)])),
+			taskActions: parseTaskActions(getAttr(bo, "taskActions")),
 		});
 	};
 

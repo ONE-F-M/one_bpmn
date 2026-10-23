@@ -2280,6 +2280,7 @@ onMounted(async () => {
 					values: { ...event.values, notifyAssigneeBody: decodeHtmlAttr(event.values.notifyAssigneeBody) || "" },
 					doctype: contextDoctype(bo),
 					taskName: bo.name || bo.id,
+					taskActions: event.taskActions,
 					eventBus: event.eventBus,
 				});
 			});
