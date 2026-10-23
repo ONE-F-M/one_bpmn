@@ -123,14 +123,28 @@ class TestConversationEndpoints(FrappeTestCase):
 		super().setUp()
 		if not frappe.db.exists("DocType", "HD Ticket"):
 			self.skipTest("Helpdesk (HD Ticket) is not installed on this site")
-		self.ticket = frappe.get_doc(
-			{
-				"doctype": "HD Ticket",
-				"subject": "Conversation endpoint test",
-				"raised_by": "customer@example.com",
-				"description": "My printer is on fire.",
-			}
-		).insert(ignore_permissions=True)
+		values = {
+			"doctype": "HD Ticket",
+			"subject": "Conversation endpoint test",
+			"raised_by": "customer@example.com",
+			"description": "My printer is on fire.",
+		}
+		# Sites add mandatory custom fields to HD Ticket (e.g. a category):
+		# fill whatever is required with an existing value.
+		for df in frappe.get_meta("HD Ticket").fields:
+			if not df.reqd or values.get(df.fieldname) or df.hidden or df.read_only:
+				continue
+			if df.fieldtype == "Link":
+				values[df.fieldname] = frappe.db.get_value(df.options, {}, "name")
+				if not values[df.fieldname]:
+					self.skipTest(f"No {df.options} record to fill mandatory {df.fieldname}")
+			elif df.fieldtype == "Select":
+				values[df.fieldname] = (df.options or "").split("\n")[0] or None
+			elif df.fieldtype in ("Int", "Float", "Currency", "Check"):
+				values[df.fieldname] = 1
+			elif df.fieldtype in ("Data", "Small Text", "Text", "Long Text", "Text Editor"):
+				values[df.fieldname] = "Test"
+		self.ticket = frappe.get_doc(values).insert(ignore_permissions=True)
 		self.addCleanup(self._remove_ticket)
 
 	def _remove_ticket(self):
