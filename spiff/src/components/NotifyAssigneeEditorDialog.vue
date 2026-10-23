@@ -35,6 +35,7 @@
 				</div>
 
 				<Tabs
+					:key="tabs.length"
 					v-model="activeTab"
 					:tabs="tabs"
 				>
@@ -60,6 +61,13 @@
 								:task-name="taskName"
 								:email-thread="thread"
 							/>
+							<NotifyActionsTab
+								v-if="tab.key === 'actions'"
+								v-model:actions="actionsModel"
+								v-model:hours="values.notifyTokenHours"
+								:task-actions="taskActions"
+								:doctype="doctype"
+							/>
 							<NotifyTemplateTab
 								v-if="tab.key === 'html'"
 								v-model:use-html="useHtml"
@@ -80,8 +88,10 @@ import { ref, reactive, watch, computed } from "vue";
 import { Dialog, Tabs } from "frappe-ui";
 import { Icon } from "@iconify/vue";
 import NotifyContentTab from "@/components/NotifyContentTab.vue";
+import NotifyActionsTab from "@/components/NotifyActionsTab.vue";
 import NotifyTemplateTab from "@/components/NotifyTemplateTab.vue";
 import { NOTIFY_EDITOR_ATTRS, isHtmlMode } from "@/bpmn/shared/notifyAssigneeAttrs";
+import { mergeNotifyActions, serializeNotifyActions } from "@/bpmn/shared/notifyActions";
 import { useDoctypeEmailThread } from "@/composables/useDoctypeEmailThread";
 
 const props = defineProps({
@@ -89,6 +99,7 @@ const props = defineProps({
 	initialValues: { type: Object, default: () => ({}) },
 	doctype: { type: String, default: "" },
 	taskName: { type: String, default: "" },
+	taskActions: { type: Array, default: () => [] },
 });
 
 const emit = defineEmits(["update:modelValue", "save"]);
@@ -101,12 +112,6 @@ const open = computed({
 		emit("update:modelValue", v);
 	},
 });
-
-const tabs = [
-	{ key: "content", label: "Content" },
-	{ key: "html", label: "Email Template or HTML" },
-];
-const HTML_TAB = 1;
 
 const values = reactive(Object.fromEntries(NOTIFY_EDITOR_ATTRS.map((name) => [name, ""])));
 const activeTab = ref(0);
@@ -125,6 +130,23 @@ const useHtml = computed({
 	},
 });
 
+const actionsModel = computed({
+	get: () => (values.notifyActions ? JSON.parse(values.notifyActions) : {}),
+	set: (actions) => (values.notifyActions = serializeNotifyActions(actions)),
+});
+
+const tabs = computed(() => [
+	{ key: "content", label: "Content" },
+	...(useHtml.value ? [] : [{ key: "actions", label: `Actions (${Object.keys(actionsModel.value).length})` }]),
+	{ key: "html", label: "Email Template or HTML" },
+]);
+const lastTab = () => tabs.value.length - 1;
+
+// The switch adds or removes the Actions tab; the Tabs key remounts the strip so its selection stays in step
+watch(useHtml, () => {
+	if (isReady) activeTab.value = lastTab();
+});
+
 // Auto-save state
 const saveStatus = ref(""); // "" | "saving" | "saved"
 let isReady = false;        // true once the dialog has finished populating
@@ -137,8 +159,9 @@ watch(
 		if (!isOpen) return;
 		isReady = false;
 		for (const name of NOTIFY_EDITOR_ATTRS) values[name] = props.initialValues[name] || "";
+		values.notifyActions = serializeNotifyActions(mergeNotifyActions(props.taskActions, values.notifyActions));
 		lastLayout = isHtmlMode(values.notifyLayout) ? "card" : values.notifyLayout;
-		activeTab.value = useHtml.value ? HTML_TAB : 0;
+		activeTab.value = useHtml.value ? lastTab() : 0;
 		saveStatus.value = "";
 		clearTimeout(saveTimer);
 		clearTimeout(savedTimer);

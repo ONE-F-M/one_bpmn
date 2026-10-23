@@ -888,6 +888,7 @@
 			:initial-values="notifyAssigneeValues"
 			:doctype="notifyAssigneeDoctype"
 			:task-name="notifyAssigneeTaskName"
+			:task-actions="notifyAssigneeTaskActions"
 			@save="onSaveNotifyAssigneeBody"
 		/>
 		<Dialog v-model="showUnsavedNavigationWarning" :options="{ title: 'Unsaved Changes', size: 'sm' }">
@@ -3405,6 +3406,7 @@ const showNotifyAssigneeDialog = ref(false);
 const notifyAssigneeValues = ref({});
 const notifyAssigneeDoctype = ref("");
 const notifyAssigneeTaskName = ref("");
+const notifyAssigneeTaskActions = ref([]);
 let notifyAssigneeEvent = null;
 
 watch(showNotifyAssigneeDialog, (isOpen) => {
@@ -3418,6 +3420,7 @@ function onLaunchNotifyAssigneeEditor(event) {
 	notifyAssigneeValues.value = event.values;
 	notifyAssigneeDoctype.value = event.doctype;
 	notifyAssigneeTaskName.value = event.taskName;
+	notifyAssigneeTaskActions.value = event.taskActions;
 	showNotifyAssigneeDialog.value = true;
 }
 
