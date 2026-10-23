@@ -193,6 +193,9 @@ class TestConversationEndpoints(FrappeTestCase):
 			stack.enter_context(
 				patch("one_bpmn.api.todo_actions._handled_by_message", return_value=handled)
 			)
+			# The sandbox has no outgoing email account; the Communication is still
+			# created, only the actual send is stubbed.
+			stack.enter_context(patch.object(frappe, "sendmail"))
 			mock_ct = stack.enter_context(patch("one_bpmn.api.instance_api.complete_task"))
 			result = _raw(fn)(**kwargs)
 		return result, mock_ct
