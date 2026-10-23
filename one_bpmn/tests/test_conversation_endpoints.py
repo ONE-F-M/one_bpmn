@@ -132,9 +132,11 @@ class TestConversationEndpoints(FrappeTestCase):
 		# Sites add mandatory custom fields to HD Ticket (e.g. a category):
 		# fill whatever is required with an existing value.
 		for df in frappe.get_meta("HD Ticket").fields:
-			if not df.reqd or values.get(df.fieldname) or df.hidden or df.read_only:
+			if not df.reqd or values.get(df.fieldname) or df.default or df.hidden or df.read_only:
 				continue
-			if df.fieldtype == "Link":
+			if df.fieldtype == "Link" and "\n" in (df.options or ""):
+				values[df.fieldname] = df.options.split("\n")[0]
+			elif df.fieldtype == "Link":
 				values[df.fieldname] = frappe.db.get_value(df.options, {}, "name")
 				if not values[df.fieldname]:
 					self.skipTest(f"No {df.options} record to fill mandatory {df.fieldname}")
