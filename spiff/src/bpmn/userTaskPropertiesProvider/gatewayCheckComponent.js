@@ -21,12 +21,8 @@ function readGateway(element) {
 }
 
 function signatureOf(element) {
-	try {
-		const found = readGateway(element);
-		return found ? JSON.stringify([found.gateway.id, found.gateway.name, found.bodies]) : "";
-	} catch (_) {
-		return "";
-	}
+	const found = readGateway(element);
+	return found ? JSON.stringify([found.gateway.id, found.gateway.name, found.bodies]) : "";
 }
 
 // The panel only re-renders when the selected element changes, and a branch

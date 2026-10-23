@@ -99,7 +99,7 @@ export function UserTaskProps(props) {
 		isEdited: isSelectEntryEdited,
 	});
 
-	// Gateway check — read-only, writes nothing, never blocks deploy
+	// Gateway check: read-only, writes nothing, never blocks deploy
 	entries.push({
 		id: "spiffworkflow-gatewayCheck",
 		element,

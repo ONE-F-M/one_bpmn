@@ -194,7 +194,7 @@
 	line-height: 1;
 }
 
-/* Gateway check — one line per action / branch, wraps inside the panel */
+/* Gateway check: one line per action / branch, wraps inside the panel */
 .bpmn-link-list {
 	display: flex;
 	flex-direction: column;
@@ -206,12 +206,17 @@
 	display: flex;
 	align-items: center;
 	gap: 6px;
-	font-size: 11px;
 	color: #374151;
+}
+
+/* .bio-properties-panel * sets every element's size, so the size needs this heavier selector */
+.bio-properties-panel .bpmn-link {
+	font-size: 11px;
 }
 
 .bpmn-link span {
 	min-width: 0;
+	font-size: inherit;
 	overflow-wrap: anywhere;
 	white-space: normal;
 }

@@ -1,8 +1,8 @@
-// Gateway check — pure comparison of a User Task's actions against the
+// Gateway check: pure comparison of a User Task's actions against the
 // conditions on the outgoing flows of the exclusive gateway that follows it.
 // No imports and no DOM, so it runs under `node --test`.
 
-// action == "Name" — spaces optional, either quote. Real maps write action == "Approve".
+// action == "Name", spaces optional, either quote. Real maps write action == "Approve".
 const ACTION_CONDITION = /^\s*action\s*==\s*(?:"([^"]*)"|'([^']*)')\s*$/;
 
 // Fallback translator: fills {placeholders}. The panel passes the bpmn-js
