@@ -885,9 +885,9 @@
 		<!-- Notify Assignee Editor Dialog (User Task) -->
 		<NotifyAssigneeEditorDialog
 			v-model="showNotifyAssigneeDialog"
-			:initial-body="notifyAssigneeBody"
-			:initial-subject="notifyAssigneeSubject"
-			:initial-template="notifyAssigneeTemplate"
+			:initial-values="notifyAssigneeValues"
+			:doctype="notifyAssigneeDoctype"
+			:task-name="notifyAssigneeTaskName"
 			@save="onSaveNotifyAssigneeBody"
 		/>
 		<Dialog v-model="showUnsavedNavigationWarning" :options="{ title: 'Unsaved Changes', size: 'sm' }">
@@ -3402,37 +3402,32 @@ function onLaunchNotificationEditor(event) {
 
 // --- Notify Assignee Editor (User Task) ---
 const showNotifyAssigneeDialog = ref(false);
-const notifyAssigneeBody = ref("");
-const notifyAssigneeSubject = ref("");
-const notifyAssigneeTemplate = ref("");
+const notifyAssigneeValues = ref({});
+const notifyAssigneeDoctype = ref("");
+const notifyAssigneeTaskName = ref("");
 let notifyAssigneeEvent = null;
 
 watch(showNotifyAssigneeDialog, (isOpen) => {
 	if (!isOpen) {
 		notifyAssigneeEvent = null;
-		notifyAssigneeBody.value = "";
-		notifyAssigneeSubject.value = "";
-		notifyAssigneeTemplate.value = "";
+		notifyAssigneeValues.value = {};
 	}
 });
 function onLaunchNotifyAssigneeEditor(event) {
 	notifyAssigneeEvent = event;
-	notifyAssigneeBody.value = event.body || "";
-	notifyAssigneeSubject.value = event.subject || "";
-	notifyAssigneeTemplate.value = event.template || "";
+	notifyAssigneeValues.value = event.values;
+	notifyAssigneeDoctype.value = event.doctype;
+	notifyAssigneeTaskName.value = event.taskName;
 	showNotifyAssigneeDialog.value = true;
 }
 
-function onSaveNotifyAssigneeBody(payload) {
-	const { body = "", subject = "", template = "" } = payload || {};
+function onSaveNotifyAssigneeBody(values) {
 	// Auto-save fires this repeatedly — keep notifyAssigneeEvent alive until the
 	// dialog closes (the showNotifyAssigneeDialog watcher clears it).
 	if (notifyAssigneeEvent && notifyAssigneeEvent.eventBus) {
 		notifyAssigneeEvent.eventBus.fire("spiff.userTask.notifyAssignee.update", {
 			element: notifyAssigneeEvent.element,
-			body,
-			subject,
-			template,
+			values,
 		});
 	}
 }
