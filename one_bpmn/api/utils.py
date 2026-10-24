@@ -1,6 +1,15 @@
 # Copyright (c) 2026, kartiksharma9319@gmail.com and contributors
 # For license information, please see license.txt
 
+"""Whitelisted helper endpoints for the BPMN editor and properties panel.
+
+Provides autocomplete/lookup data used by the BPMN process editor UI, such as
+DocType fields that can hold a user or email (for assignees and
+notification recipients), workflow states for a DocType's active Workflow,
+system users, and context DocType/document values used by instance list
+filters.
+"""
+
 import json
 
 import frappe
