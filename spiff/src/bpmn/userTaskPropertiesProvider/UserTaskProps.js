@@ -6,7 +6,8 @@ import { frappeGet, frappePost } from "../shared/frappeResource";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
 import { decodeHtmlAttr } from "../shared/htmlAttrCodec";
-import { NOTIFY_EDITOR_ATTRS } from "../shared/notifyAssigneeAttrs";
+import { NOTIFY_EDITOR_ATTRS, contextDoctype } from "../shared/notifyAssigneeAttrs";
+import { NotifySummaryBox } from "./notifySummaryBox";
 import { makeLaunchDocuButton } from "../shared/launchDocuButton";
 import { RecordCombobox } from "../shared/RecordCombobox";
 import { cachedRecordList } from "../shared/cachedRecordList";
@@ -907,43 +908,22 @@ function NotifyAssigneeEditorButtonComponent(props) {
 	const bo        = getBusinessObject(element);
 	const eventBus  = useService("eventBus");
 
-	const handleClick = () => {
-		eventBus.fire("spiff.userTask.notifyAssignee.edit", {
-			element,
-			eventBus,
-			values: Object.fromEntries(NOTIFY_EDITOR_ATTRS.map((name) => [name, getAttr(bo, name)])),
-			taskActions: parseTaskActions(getAttr(bo, "taskActions")),
-		});
-	};
+	const values = Object.fromEntries(NOTIFY_EDITOR_ATTRS.map((name) => [name, getAttr(bo, name)]));
+	const taskActions = parseTaskActions(getAttr(bo, "taskActions"));
 
-	const hasBody = !!decodeHtmlAttr(getAttr(bo, "notifyAssigneeBody"));
-	const template = getAttr(bo, "notifyAssigneeTemplate");
+	const handleClick = () => {
+		eventBus.fire("spiff.userTask.notifyAssignee.edit", { element, eventBus, values, taskActions });
+	};
 
 	return h(
 		"div",
 		{ class: "bio-properties-panel-entry", "data-entry-id": id },
-		[
-			h(
-				"button",
-				{
-					class: "spiffworkflow-properties-panel-button bpmn-notify-editor-btn",
-					onClick: handleClick,
-					type: "button",
-				},
-				[
-					h("span", {}, translate("Launch Editor")),
-					hasBody &&
-						h("span", { class: "bpmn-notify-editor-badge" }, "✓"),
-				]
-			),
-			// Template-attached indicator
-			h(
-				"div",
-				{ class: "bio-properties-panel-description bpmn-mt-6" },
-				template
-					? h("span", {}, `${translate("Template attached")}: ${template}`)
-					: h("span", {}, translate("No template attached"))
-			),
-		]
+		h(NotifySummaryBox, {
+			values: { ...values, notifyAssigneeBody: decodeHtmlAttr(values.notifyAssigneeBody) },
+			taskActions,
+			doctype: contextDoctype(bo),
+			translate,
+			onLaunch: handleClick,
+		})
 	);
 }
