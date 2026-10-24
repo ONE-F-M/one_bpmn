@@ -68,6 +68,11 @@
 								:task-actions="taskActions"
 								:doctype="doctype"
 							/>
+							<NotifyConversationTab
+								v-if="tab.key === 'conv'"
+								v-model:conversation="values.notifyConversation"
+								:doctype="doctype"
+							/>
 							<NotifyTemplateTab
 								v-if="tab.key === 'html'"
 								v-model:use-html="useHtml"
@@ -89,6 +94,7 @@ import { Dialog, Tabs } from "frappe-ui";
 import { Icon } from "@iconify/vue";
 import NotifyContentTab from "@/components/NotifyContentTab.vue";
 import NotifyActionsTab from "@/components/NotifyActionsTab.vue";
+import NotifyConversationTab from "@/components/NotifyConversationTab.vue";
 import NotifyTemplateTab from "@/components/NotifyTemplateTab.vue";
 import { NOTIFY_EDITOR_ATTRS, isHtmlMode } from "@/bpmn/shared/notifyAssigneeAttrs";
 import { mergeNotifyActions, serializeNotifyActions } from "@/bpmn/shared/notifyActions";
@@ -138,6 +144,7 @@ const actionsModel = computed({
 const tabs = computed(() => [
 	{ key: "content", label: "Content" },
 	...(useHtml.value ? [] : [{ key: "actions", label: `Actions (${Object.keys(actionsModel.value).length})` }]),
+	...(values.notifyLayout === "chat" ? [{ key: "conv", label: "Conversation" }] : []),
 	{ key: "html", label: "Email Template or HTML" },
 ]);
 const lastTab = () => tabs.value.length - 1;
