@@ -93,7 +93,7 @@
 					</span>
 				</div>
 				<p class="text-xs text-gray-400 mt-1">
-					Selecting a template copies its HTML into the editor below. Changes here do not affect the original template.
+					The email uses this task's subject and HTML. When either is empty, it uses the attached template's latest subject or HTML at send time. Editing here does not detach the template.
 				</p>
 			</div>
 
