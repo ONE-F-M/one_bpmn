@@ -194,6 +194,52 @@
 	line-height: 1;
 }
 
+/* Saved Notification Editor values under Launch Editor, read-only */
+.bpmn-notify-summary {
+	display: flex;
+	flex-direction: column;
+	margin-top: 4px;
+	border: 1px solid #e5e7eb;
+	border-radius: 6px;
+	background: #f9fafb;
+}
+
+.bpmn-notify-summary-row {
+	display: grid;
+	grid-template-columns: 96px minmax(0, 1fr);
+	gap: 8px;
+	padding: 6px 10px;
+	border-bottom: 1px solid #eef0f2;
+	line-height: 1.4;
+}
+
+.bpmn-notify-summary-row:last-child {
+	border-bottom: 0;
+}
+
+/* .bio-properties-panel * sets every element's size, so the size needs this heavier selector */
+.bio-properties-panel .bpmn-notify-summary-row span {
+	font-size: 12px;
+}
+
+.bpmn-notify-summary-key {
+	color: #6b7280;
+}
+
+.bpmn-notify-summary-value {
+	min-width: 0;
+	color: #111827;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+}
+
+.bpmn-notify-summary-value.warn {
+	color: #b91c1c;
+}
+
 /* Gateway check: one line per action / branch, wraps inside the panel */
 .bpmn-link-list {
 	display: flex;
