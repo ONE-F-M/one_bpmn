@@ -1,0 +1,48 @@
+import { test } from "node:test"
+import assert from "node:assert/strict"
+
+import { checkGateway } from "./gatewayCheck.js"
+
+test("checkGateway: a branch matching an action is ok", () => {
+	assert.deepEqual(checkGateway(["Approve"], ['action == "Approve"']), [
+		{ state: "ok", text: 'action=="Approve" matches action Approve' },
+	])
+})
+
+test("checkGateway: spaces are optional and either quote works", () => {
+	const rows = checkGateway(["A", "B", "C"], ['action=="A"', "action == 'B'", '  action  ==  "C"  '])
+	assert.deepEqual(rows.map((r) => r.state), ["ok", "ok", "ok"])
+})
+
+test("checkGateway: a branch with no action is bad", () => {
+	assert.deepEqual(checkGateway(["Approve"], ['action == "Approve"', 'action == "Return"']).slice(1), [
+		{ state: "bad", text: 'action=="Return" has no action: add Return or remove the branch' },
+	])
+})
+
+test("checkGateway: an action with no branch is bad", () => {
+	assert.deepEqual(checkGateway(["Approve", "Cancel"], ['action == "Approve"']).slice(1), [
+		{ state: "bad", text: "Action Cancel has no gateway branch; the task cannot continue on it" },
+	])
+})
+
+test("checkGateway: a condition not in the action form is other", () => {
+	assert.deepEqual(checkGateway([], ["amount > 100", "", undefined]), [
+		{ state: "other", text: "Other condition, not checked" },
+		{ state: "other", text: "Other condition, not checked" },
+		{ state: "other", text: "Other condition, not checked" },
+	])
+})
+
+test("checkGateway: blank and repeated actions are ignored", () => {
+	assert.deepEqual(checkGateway(["", " ", "Cancel", "Cancel"], []), [
+		{ state: "bad", text: "Action Cancel has no gateway branch; the task cannot continue on it" },
+	])
+})
+
+test("checkGateway: the translator is applied to every text", () => {
+	const t = (template, vars) => `T:${template}:${JSON.stringify(vars || {})}`
+	const rows = checkGateway(["Cancel"], ["x > 1"], t)
+	assert.equal(rows[0].text, "T:Other condition, not checked:{}")
+	assert.equal(rows[1].text.startsWith("T:Action {name} has no gateway branch"), true)
+})

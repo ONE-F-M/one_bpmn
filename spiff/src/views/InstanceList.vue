@@ -16,11 +16,15 @@
 		<div class="bg-white px-6 py-3 border-b flex flex-wrap gap-4 items-center">
 			<FormControl
 				type="text"
-				v-model="filters.process_model"
-				placeholder="Filter by Process Model"
-				class="w-64"
+				v-model="filters.search"
+				placeholder="Search instances (e.g. SD5)"
+				class="w-72"
 				@update:model-value="applyFilters"
-			/>
+			>
+				<template #prefix>
+					<FeatherIcon name="search" class="w-4 h-4 text-gray-400" />
+				</template>
+			</FormControl>
 			<FormControl
 				type="select"
 				v-model="filters.status"
@@ -300,34 +304,37 @@ import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 import { useWindowSize } from "@/composables/useWindowSize"
 import UserFilter from "@/components/UserFilter.vue"
+import { loadInstanceListState, saveInstanceListState } from "./instanceListState"
 
 const { isMobile } = useWindowSize()
 
 const router = useRouter()
 const instances = ref([])
 const loading = ref(true)
+const saved = loadInstanceListState()
 
 // Pagination state
-const limitStart = ref(0)
-const limitPageLength = ref(20)
+const limitStart = ref(saved.limitStart ?? 0)
+const limitPageLength = ref(saved.limitPageLength ?? 20)
 
 // Coerce limitPageLength to a number (FormControl select can set it as a string)
 const pageLengthNum = computed(() => Number(limitPageLength.value))
 
 // Filters state
 const filters = ref({
-	process_model: "",
+	search: "",
 	status: "",
+	...saved.filters,
 })
 
 // User filters — each holds the selected { label, value } option or null.
 // initiated_by is a field on the instance; pending_action_by is derived from
 // the active task rows on the backend, so it travels as its own parameter.
-const initiatedBy = ref(null)
-const pendingActionBy = ref(null)
+const initiatedBy = ref(saved.initiatedBy ?? null)
+const pendingActionBy = ref(saved.pendingActionBy ?? null)
 
 // Unified Context State
-const activeContext = ref({ doctype: null, docname: null })
+const activeContext = ref(saved.activeContext ?? { doctype: null, docname: null })
 const contextOptions = ref([])
 const contextQuery = ref("")
 
@@ -355,6 +362,21 @@ const columns = computed(() => [
 	{ label: "Started At", key: "started_at", width: "180px" },
 	{ label: "Initiated By", key: "initiated_by", width: "180px" },
 ])
+
+watch(
+	[filters, initiatedBy, pendingActionBy, activeContext, limitStart, limitPageLength],
+	() => {
+		saveInstanceListState({
+			filters: filters.value,
+			initiatedBy: initiatedBy.value,
+			pendingActionBy: pendingActionBy.value,
+			activeContext: activeContext.value,
+			limitStart: limitStart.value,
+			limitPageLength: limitPageLength.value,
+		})
+	},
+	{ deep: true },
+)
 
 onMounted(async () => {
 	await loadInstances()
@@ -452,9 +474,6 @@ async function loadInstances() {
 	try {
 		// Build frappe API filters
 		const apiFilters = {}
-		if (filters.value.process_model) {
-			apiFilters.process_model = ["like", `%${filters.value.process_model}%`]
-		}
 		if (filters.value.status) {
 			apiFilters.status = filters.value.status
 		}
@@ -479,7 +498,8 @@ async function loadInstances() {
 				limit_start: limitStart.value,
 				limit_page_length: pageLengthNum.value,
 				order_by: "creation desc",
-				pending_action_by: pendingActionBy.value?.value || ""
+				pending_action_by: pendingActionBy.value?.value || "",
+				search: filters.value.search || ""
 			}
 		})
 		

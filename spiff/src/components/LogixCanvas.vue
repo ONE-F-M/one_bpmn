@@ -143,11 +143,8 @@
 						<!-- Script Type -->
 						<div class="lc-settings-field">
 							<label class="lc-settings-label">Script Type</label>
-							<select v-model="scriptMeta.script_type" class="lc-settings-select">
+							<select v-model="scriptMeta.script_type" class="lc-settings-select" disabled>
 								<option value="API">API</option>
-								<option value="DocType Event">DocType Event</option>
-								<option value="Scheduler Event">Scheduler Event</option>
-								<option value="Permission Query">Permission Query</option>
 							</select>
 						</div>
 
@@ -501,7 +498,7 @@ async function linkExistingScript(name) {
 		});
 		canvasCode.value = msg?.script || "";
 		scriptMeta.value = {
-			script_type:       msg?.script_type || "API",
+			script_type:       "API",
 			reference_doctype: msg?.reference_doctype || "",
 			doctype_event:     msg?.doctype_event || "",
 			api_method:        msg?.api_method || "",
@@ -616,7 +613,7 @@ async function initCanvas() {
 				});
 				canvasCode.value = msg?.script || "";
 				scriptMeta.value = {
-					script_type:       msg?.script_type || "API",
+					script_type:       "API",
 					reference_doctype: msg?.reference_doctype || "",
 					doctype_event:     msg?.doctype_event || "",
 					api_method:        msg?.api_method || "",
@@ -637,9 +634,6 @@ async function initCanvas() {
 			canvasScriptName.value = elementLabel.value || "";
 			savedScriptName.value  = "";
 			canvasCode.value = "";
-			if (props.element?.type === "bpmn:ScriptTask") {
-				scriptMeta.value.script_type = "API";
-			}
 		}
 	} finally {
 		isInitializing = false;
@@ -802,7 +796,7 @@ async function saveScript() {
 			method: "POST",
 			params: {
 				script_name:       name,
-				script_type:       meta.script_type || "API",
+				script_type:       "API",
 				script:            canvasCode.value,
 				reference_doctype: meta.reference_doctype || undefined,
 				doctype_event:     meta.doctype_event || undefined,

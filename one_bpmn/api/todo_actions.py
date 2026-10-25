@@ -24,10 +24,13 @@ for faster preflight handling at the proxy layer.
 
 from __future__ import annotations
 
+import html as _html
 import json
+import re
 
 import frappe
 from frappe import _
+from frappe.rate_limiter import rate_limit
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +125,11 @@ def handle_amp_action(token: str | None = None, comment: str | None = None) -> d
 		frappe.local.response.http_status_code = 403
 		return {"error": str(e)}
 
+	# A token with a "type" (conversation / status) is not an action token.
+	if payload.get("type"):
+		frappe.local.response.http_status_code = 403
+		return {"error": _("This link cannot be used to action a task.")}
+
 	# ── Set the authenticated user ─────────────────────────────────
 	# Gmail AMP XHR has no Frappe session — the token is the sole
 	# trust anchor.  complete_task() checks frappe.session.user for
@@ -199,6 +207,402 @@ def handle_amp_action(token: str | None = None, comment: str | None = None) -> d
 		)
 		frappe.local.response.http_status_code = 500
 		return {"error": _("An error occurred. Please try in ERPNext.")}
+
+
+# ---------------------------------------------------------------------------
+# Conversation endpoints (thread, reply, internal note from the email)
+# ---------------------------------------------------------------------------
+
+_THREAD_LIMIT = 10
+_DEFAULT_CONVERSATION_KEY = {"reply": "Reply", "note": "Note"}
+
+
+def _truthy(value) -> bool:
+	if isinstance(value, str):
+		return value.strip().lower() in ("1", "true", "yes", "on")
+	return bool(value)
+
+
+def _plain_text(value: str | None) -> str:
+	"""HTML to plain text for the thread view."""
+	text = re.sub(r"(?i)<br\s*/?>|</p>|</div>|</li>", "\n", value or "")
+	text = re.sub(r"<[^>]*>", "", text)
+	text = _html.unescape(text)
+	text = re.sub(r"[ \t]+", " ", text)
+	text = re.sub(r"\n\s*\n+", "\n\n", text)
+	return text.strip()
+
+
+def _format_time(value) -> str:
+	return frappe.utils.format_datetime(value, "d MMM, h:mm a") if value else ""
+
+
+def _conversation_error(status: int, message: str) -> dict:
+	frappe.local.response.http_status_code = status
+	return {"error": message}
+
+
+def _open_conversation_token(token: str | None, kind: str):
+	"""Verify a conversation token of the given kind and act as its user.
+
+	Returns ``(payload, None)`` on success or ``(None, error_response)``.
+	The token is the only trust anchor: nothing is read or written before
+	it has been verified and its type matched to the endpoint.
+	"""
+	if not token:
+		return None, _conversation_error(403, _("Missing action token."))
+
+	try:
+		from one_bpmn.utils.token import verify_action_token
+
+		payload = verify_action_token(token)
+	except frappe.AuthenticationError:
+		return None, _conversation_error(403, _("Invalid or tampered token."))
+	except frappe.ValidationError as e:
+		return None, _conversation_error(403, str(e))
+	except Exception:
+		return None, _conversation_error(403, _("Invalid or tampered token."))
+
+	if payload.get("type") != kind:
+		return None, _conversation_error(403, _("This link cannot be used for this request."))
+
+	frappe.set_user(payload["user"])
+	return payload, None
+
+
+def _get_instance_context(instance_name: str):
+	"""Context document, serialized spec and workflow state of an instance."""
+	return frappe.db.get_value(
+		"BPMN Process Instance",
+		instance_name,
+		["context_doctype", "context_docname", "serialized_spec", "workflow_state"],
+		as_dict=True,
+	)
+
+
+def _get_conversation_config(instance, task_id: str) -> dict:
+	"""``notifyConversation`` of the task, as a dict (empty when absent).
+
+	Accepts the setting as a dict or a JSON string. Understood keys:
+	``key`` (action key sent to complete_task), ``completesTask`` and
+	``internalNotes``.
+	"""
+	try:
+		state = json.loads(instance.workflow_state or "{}")
+		bpmn_id = state["tasks"][task_id]["task_spec"]
+		spec = json.loads(instance.serialized_spec or "{}")
+		cfg = spec["user_task_extensions"][bpmn_id]
+	except (KeyError, TypeError, ValueError):
+		return {}
+
+	conv = (cfg or {}).get("notifyConversation")
+	if isinstance(conv, str):
+		try:
+			conv = json.loads(conv)
+		except ValueError:
+			conv = {}
+	return conv if isinstance(conv, dict) else {}
+
+
+def _is_helpdesk_agent(user: str) -> bool:
+	try:
+		from helpdesk.utils import is_agent
+
+		return bool(is_agent(user))
+	except Exception:
+		return bool(frappe.db.exists("HD Agent", user))
+
+
+def _check_conversation_access(doctype: str, docname: str, ptype: str) -> None:
+	"""Raise ``frappe.PermissionError`` unless the session user may act."""
+	if doctype == "HD Ticket" and not _is_helpdesk_agent(frappe.session.user):
+		raise frappe.PermissionError(_("Only Helpdesk agents can use the conversation."))
+	frappe.get_doc(doctype, docname).check_permission(ptype)
+
+
+def _comment_source(doctype: str, docname: str) -> tuple[str, dict, str]:
+	"""(comment doctype, filters, author field) for the document's notes."""
+	if doctype == "HD Ticket":
+		return "HD Ticket Comment", {"reference_ticket": docname}, "commented_by"
+	return (
+		"Comment",
+		{"reference_doctype": doctype, "reference_name": docname, "comment_type": "Comment"},
+		"comment_email",
+	)
+
+
+def _communication_item(row) -> dict:
+	return {
+		"who": row.get("sender_full_name") or row.get("sender") or "",
+		"message": _plain_text(row.get("content")),
+		"time": _format_time(row.get("creation")),
+		"is_note": False,
+	}
+
+
+def _note_item(row, author_field: str) -> dict:
+	author = row.get(author_field) or row.get("owner") or ""
+	return {
+		"who": frappe.utils.get_fullname(author) if author else "",
+		"message": _plain_text(row.get("content")),
+		"time": _format_time(row.get("creation")),
+		"is_note": True,
+	}
+
+
+def _latest_communication(doctype: str, docname: str, user: str) -> dict:
+	rows = frappe.get_all(
+		"Communication",
+		filters={
+			"reference_doctype": doctype,
+			"reference_name": docname,
+			"communication_type": "Communication",
+			"owner": user,
+		},
+		fields=["name", "sender", "sender_full_name", "content", "creation"],
+		order_by="creation desc",
+		limit=1,
+	)
+	return _communication_item(rows[0]) if rows else {}
+
+
+def _latest_note(doctype: str, docname: str, user: str) -> dict:
+	comment_dt, filters, author_field = _comment_source(doctype, docname)
+	rows = frappe.get_all(
+		comment_dt,
+		filters={**filters, "owner": user},
+		fields=["name", author_field, "content", "creation"],
+		order_by="creation desc",
+		limit=1,
+	)
+	return _note_item(rows[0], author_field) if rows else {}
+
+
+def _load_conversation(payload: dict, ptype: str):
+	"""Resolve instance, context document, config and access.
+
+	Returns ``(ctx, None)`` or ``(None, error_response)``.
+	"""
+	instance = _get_instance_context(payload["instance_name"])
+	if not instance or not instance.context_doctype or not instance.context_docname:
+		return None, _conversation_error(404, _("This conversation is no longer available."))
+
+	doctype, docname = instance.context_doctype, instance.context_docname
+	try:
+		_check_conversation_access(doctype, docname, ptype)
+	except frappe.PermissionError as e:
+		return None, _conversation_error(403, _("Permission denied: {0}").format(str(e)))
+	except frappe.DoesNotExistError:
+		return None, _conversation_error(404, _("This conversation is no longer available."))
+
+	conv = _get_conversation_config(instance, payload["task_id"])
+	return frappe._dict(doctype=doctype, docname=docname, conv=conv), None
+
+
+def _handled_by_message(instance_name: str, task_id: str) -> str | None:
+	"""None while the task is Waiting, else a line saying who handled it."""
+	row = frappe.db.get_value(
+		"BPMN Active Task",
+		{"parent": instance_name, "task_id": task_id},
+		["status", "assigned_user"],
+		as_dict=True,
+	)
+	if row and row.status == "Waiting":
+		return None
+	if row and row.assigned_user:
+		return _("This task was already handled by {0}.").format(
+			frappe.utils.get_fullname(row.assigned_user)
+		)
+	return _("This task was already handled by someone else.")
+
+
+def _complete_with_conversation(payload: dict, conv: dict, kind: str, text: str) -> bool:
+	"""Complete the task when the conversation action completes it."""
+	completes = conv.get("completesTask", conv.get("completes"))
+	if not _truthy(completes):
+		return False
+
+	key = conv.get("key") or _DEFAULT_CONVERSATION_KEY[kind]
+	try:
+		from one_bpmn.api.instance_api import complete_task
+
+		complete_task(
+			instance_name=payload["instance_name"],
+			task_id=payload["task_id"],
+			data=json.dumps({"action": key, "comment": text}),
+		)
+		return True
+	except Exception:
+		# The message is already posted; do not report it as failed.
+		frappe.log_error(
+			title="AMP conversation: completing the task failed",
+			message=frappe.get_traceback(),
+		)
+		return False
+
+
+def _post_conversation(token: str | None, text: str | None, kind: str) -> dict:
+	"""Shared body of :func:`post_amp_reply` and :func:`post_amp_note`."""
+	_set_amp_cors_headers()
+
+	if frappe.request.method == "OPTIONS":
+		frappe.response["type"] = "text"
+		frappe.response["message"] = ""
+		return {}
+
+	payload, error = _open_conversation_token(token, kind)
+	if error:
+		return error
+
+	text = (text or "").strip()
+	if not text:
+		return _conversation_error(400, _("Write a message first."))
+
+	ctx, error = _load_conversation(payload, "write")
+	if error:
+		return error
+
+	handled = _handled_by_message(payload["instance_name"], payload["task_id"])
+	if handled:
+		return {"message": handled, "handled": True}
+
+	user = payload["user"]
+	try:
+		doc = frappe.get_doc(ctx.doctype, ctx.docname)
+		if kind == "reply":
+			item = _send_reply(doc, text, user)
+		else:
+			item = _add_note(doc, text, user)
+	except frappe.PermissionError as e:
+		return _conversation_error(403, _("Permission denied: {0}").format(str(e)))
+	except frappe.ValidationError as e:
+		return _conversation_error(400, str(e))
+	except Exception:
+		frappe.log_error(
+			title=f"AMP conversation {kind} failed",
+			message=frappe.get_traceback(),
+		)
+		return _conversation_error(500, _("An error occurred. Please try in ERPNext."))
+
+	completed = _complete_with_conversation(payload, ctx.conv, kind, text)
+	return {"message": item.get("message") or text, "item": item, "completed": completed}
+
+
+def _send_reply(doc, text: str, user: str) -> dict:
+	"""Send ``text`` as a Communication to the document's sender_field address."""
+	if doc.doctype == "HD Ticket":
+		# Sends to the ticket's customer and sets the status to Replied.
+		doc.reply_via_agent(message=text)
+	else:
+		sender_field = frappe.get_meta(doc.doctype).sender_field
+		recipient = doc.get(sender_field) if sender_field else None
+		if not recipient:
+			raise frappe.ValidationError(_("There is no address on this document to reply to."))
+		from frappe.core.doctype.communication.email import make
+
+		make(
+			doctype=doc.doctype,
+			name=doc.name,
+			content=text,
+			subject=_("Re: {0}").format(doc.name),
+			sender=user,
+			recipients=recipient,
+			communication_medium="Email",
+			send_email=True,
+		)
+	return _latest_communication(doc.doctype, doc.name, user)
+
+
+def _add_note(doc, text: str, user: str) -> dict:
+	"""Add ``text`` as an internal Comment on the document."""
+	if doc.doctype == "HD Ticket":
+		doc.new_comment(content=text)
+	else:
+		doc.add_comment("Comment", text)
+	return _latest_note(doc.doctype, doc.name, user)
+
+
+@frappe.whitelist(allow_guest=True, methods=["GET", "OPTIONS"])
+def get_amp_thread(token: str = "") -> dict:
+	"""Return the latest conversation on the task's document for an AMP amp-list.
+
+	Args:
+		token: HMAC-signed token from
+			:func:`~one_bpmn.utils.token.generate_conversation_token` (kind ``thread``).
+
+	Returns:
+		``{"items": [...]}``: the latest 10 Communications (``is_note`` false)
+		and, when the task's ``internalNotes`` setting is on, the document's
+		Comments (``is_note`` true), oldest first. Each item has ``who``,
+		``message`` (plain text), ``time`` and ``is_note``.
+	"""
+	_set_amp_cors_headers()
+
+	if frappe.request.method == "OPTIONS":
+		frappe.response["type"] = "text"
+		frappe.response["message"] = ""
+		return {}
+
+	payload, error = _open_conversation_token(token, "thread")
+	if error:
+		return error
+
+	ctx, error = _load_conversation(payload, "read")
+	if error:
+		return error
+
+	entries = []
+	comms = frappe.get_all(
+		"Communication",
+		filters={
+			"reference_doctype": ctx.doctype,
+			"reference_name": ctx.docname,
+			"communication_type": "Communication",
+		},
+		fields=["name", "sender", "sender_full_name", "content", "creation"],
+		order_by="creation desc",
+		limit=_THREAD_LIMIT,
+	)
+	entries += [(row.creation, _communication_item(row)) for row in comms]
+
+	if _truthy(ctx.conv.get("internalNotes")):
+		comment_dt, filters, author_field = _comment_source(ctx.doctype, ctx.docname)
+		notes = frappe.get_all(
+			comment_dt,
+			filters=filters,
+			fields=["name", author_field, "owner", "content", "creation"],
+			order_by="creation desc",
+			limit=_THREAD_LIMIT,
+		)
+		entries += [(row.creation, _note_item(row, author_field)) for row in notes]
+
+	entries.sort(key=lambda entry: str(entry[0]))
+	return {"items": [item for _created, item in entries]}
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST", "OPTIONS"])
+@rate_limit(limit=60, seconds=60)
+def post_amp_reply(token: str = "", text: str = "") -> dict:
+	"""Reply to the document's sender from the email.
+
+	For HD Ticket this goes through ``HD Ticket.reply_via_agent`` (status
+	becomes Replied); other DocTypes get a Communication to their
+	``sender_field`` address. When the task's conversation action completes
+	the task, ``complete_task`` runs with the conversation key and the text
+	as comment.
+	"""
+	return _post_conversation(token, text, "reply")
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST", "OPTIONS"])
+@rate_limit(limit=60, seconds=60)
+def post_amp_note(token: str = "", text: str = "") -> dict:
+	"""Add an internal note (Comment) on the document from the email.
+
+	For HD Ticket this goes through ``HD Ticket.new_comment``. Completion
+	behaves as in :func:`post_amp_reply`.
+	"""
+	return _post_conversation(token, text, "note")
 
 
 # ---------------------------------------------------------------------------

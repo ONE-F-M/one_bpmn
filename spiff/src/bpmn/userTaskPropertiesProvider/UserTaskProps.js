@@ -6,11 +6,17 @@ import { frappeGet, frappePost } from "../shared/frappeResource";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
 import { decodeHtmlAttr } from "../shared/htmlAttrCodec";
+import { NOTIFY_EDITOR_ATTRS, contextDoctype } from "../shared/notifyAssigneeAttrs";
+import { NotifySummaryBox } from "./notifySummaryBox";
 import { makeLaunchDocuButton } from "../shared/launchDocuButton";
 import { RecordCombobox } from "../shared/RecordCombobox";
 import { cachedRecordList } from "../shared/cachedRecordList";
 import { CLOSE, icon } from "../shared/recordIcons";
 import { createWorkflowActionMaster } from "./workflowActionCreate";
+import { makeGatewayCheckComponent } from "./gatewayCheckComponent";
+
+// Read-only check of the task's actions against the next gateway's branches
+const GatewayCheckComponent = makeGatewayCheckComponent((raw) => parseTaskActions(raw));
 
 // Helpers
 function getAttr(bo, attr) {
@@ -92,6 +98,13 @@ export function UserTaskProps(props) {
 		element,
 		component: TaskActionsTableComponent,
 		isEdited: isSelectEntryEdited,
+	});
+
+	// Gateway check: read-only, writes nothing, never blocks deploy
+	entries.push({
+		id: "spiffworkflow-gatewayCheck",
+		element,
+		component: GatewayCheckComponent,
 	});
 
 	// Notify Assignee — checkbox + conditional Launch Editor button
@@ -846,11 +859,9 @@ function NotifyAssigneeCheckboxComponent(props) {
 		const updates = {
 			"spiffworkflow:notifyAssignee": e.target.checked ? "true" : undefined,
 		};
-		// Clear the body + subject + template when unchecking
+		// Clear every Notification Editor value and the account when unchecking
 		if (!e.target.checked) {
-			updates["spiffworkflow:notifyAssigneeBody"] = undefined;
-			updates["spiffworkflow:notifyAssigneeSubject"] = undefined;
-			updates["spiffworkflow:notifyAssigneeTemplate"] = undefined;
+			for (const name of NOTIFY_EDITOR_ATTRS) updates[`spiffworkflow:${name}`] = undefined;
 			updates["spiffworkflow:notifyAssigneeAccount"] = undefined;
 		}
 		modeling.updateModdleProperties(element, bo, updates);
@@ -897,44 +908,22 @@ function NotifyAssigneeEditorButtonComponent(props) {
 	const bo        = getBusinessObject(element);
 	const eventBus  = useService("eventBus");
 
-	const handleClick = () => {
-		eventBus.fire("spiff.userTask.notifyAssignee.edit", {
-			element,
-			eventBus,
-			body: getAttr(bo, "notifyAssigneeBody"),
-			subject: getAttr(bo, "notifyAssigneeSubject"),
-			template: getAttr(bo, "notifyAssigneeTemplate"),
-		});
-	};
+	const values = Object.fromEntries(NOTIFY_EDITOR_ATTRS.map((name) => [name, getAttr(bo, name)]));
+	const taskActions = parseTaskActions(getAttr(bo, "taskActions"));
 
-	const hasBody = !!decodeHtmlAttr(getAttr(bo, "notifyAssigneeBody"));
-	const template = getAttr(bo, "notifyAssigneeTemplate");
+	const handleClick = () => {
+		eventBus.fire("spiff.userTask.notifyAssignee.edit", { element, eventBus, values, taskActions });
+	};
 
 	return h(
 		"div",
 		{ class: "bio-properties-panel-entry", "data-entry-id": id },
-		[
-			h(
-				"button",
-				{
-					class: "spiffworkflow-properties-panel-button bpmn-notify-editor-btn",
-					onClick: handleClick,
-					type: "button",
-				},
-				[
-					h("span", {}, translate("Launch Editor")),
-					hasBody &&
-						h("span", { class: "bpmn-notify-editor-badge" }, "✓"),
-				]
-			),
-			// Template-attached indicator
-			h(
-				"div",
-				{ class: "bio-properties-panel-description bpmn-mt-6" },
-				template
-					? h("span", {}, `${translate("Template attached")}: ${template}`)
-					: h("span", {}, translate("No template attached"))
-			),
-		]
+		h(NotifySummaryBox, {
+			values: { ...values, notifyAssigneeBody: decodeHtmlAttr(values.notifyAssigneeBody) },
+			taskActions,
+			doctype: contextDoctype(bo),
+			translate,
+			onLaunch: handleClick,
+		})
 	);
 }

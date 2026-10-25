@@ -41,7 +41,7 @@ extend_bootinfo = "one_bpmn.boot.boot_session"
 app_include_js = [
 	"/assets/one_bpmn/js/bpmn_json_prettify.js",
 	"/assets/one_bpmn/js/one_ai_loader.js",
-	"/assets/one_bpmn/js/bpmn_form_actions.js?v=4",
+	"/assets/one_bpmn/js/bpmn_form_actions.js?v=6",
 	"/assets/one_bpmn/js/bpmn_list_indicator.js",
 	# WI-002050: an agent's question appears on the document it is about, whatever
 	# that document is. Loaded for every form rather than bound to one doctype:
@@ -239,6 +239,10 @@ doc_events = {
 	# Scripts pass through untouched).
 	"Server Script": {
 		"validate": "one_bpmn.security.script_gate.validate_server_script_on_save",
+	},
+	"Document Register": {
+		"on_update": "one_bpmn.agents.dms_search.enqueue_reindex",
+		"on_trash": "one_bpmn.agents.dms_search.enqueue_reindex",
 	},
 	# WI-001644: PII input screening. The map-driven agents read the user's
 	# text back off the stored Chat Message, so redacting the in-flight

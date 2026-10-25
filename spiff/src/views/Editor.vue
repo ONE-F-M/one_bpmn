@@ -669,15 +669,8 @@
 							</div>
 							<div>
 								<label class="block text-xs font-medium text-gray-700 mb-1">Script Type <span class="text-red-500">*</span></label>
-								<select v-model="newScript.script_type" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" :disabled="isScriptTaskElement">
-									<template v-if="isScriptTaskElement"><option value="API">API</option></template>
-									<template v-else>
-										<option value="">Select type...</option>
-										<option value="DocType Event">DocType Event</option>
-										<option value="Scheduler Event">Scheduler Event</option>
-										<option value="Permission Query">Permission Query</option>
-										<option value="API">API</option>
-									</template>
+								<select v-model="newScript.script_type" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" disabled>
+									<option value="API">API</option>
 								</select>
 							</div>
 						</div>
@@ -855,6 +848,7 @@
 		<!-- Call Activity Search Dialog -->
 		<CallActivitySearchDialog
 			v-model="showCallActivitySearchDialog"
+			:caller-executable="isExecutable"
 			:search-event="callActivitySearchEvent"
 			@select="onCallActivitySelected"
 			@cancel="onCancelCallActivitySearch"
@@ -892,9 +886,10 @@
 		<!-- Notify Assignee Editor Dialog (User Task) -->
 		<NotifyAssigneeEditorDialog
 			v-model="showNotifyAssigneeDialog"
-			:initial-body="notifyAssigneeBody"
-			:initial-subject="notifyAssigneeSubject"
-			:initial-template="notifyAssigneeTemplate"
+			:initial-values="notifyAssigneeValues"
+			:doctype="notifyAssigneeDoctype"
+			:task-name="notifyAssigneeTaskName"
+			:task-actions="notifyAssigneeTaskActions"
 			@save="onSaveNotifyAssigneeBody"
 		/>
 		<Dialog v-model="showUnsavedNavigationWarning" :options="{ title: 'Unsaved Changes', size: 'sm' }">
@@ -1232,7 +1227,7 @@ const reviewTitle = computed(() =>
 );
 const reviewIntro = computed(() =>
 	reviewKind.value === "doctypes"
-		? "Doctypes referenced in the process model, alongside Custom Fields and Property Setters will be compared to the Production system for changes."
+		? "Doctypes referenced in the process model, alongside Client Scripts, Custom Fields and Property Setters, will be compared to the Production system for changes."
 		: "Workflow Objects (Roles, Server Scripts, Workflow States, and Workflow Action Master) referenced in the process model will be compared to the Production system for changes."
 );
 const reviewEmptyMessage = computed(() =>
@@ -1657,7 +1652,6 @@ const creatingScript = ref(false);
 const showDoctypeDropdown = ref(false);
 const showModuleDropdown = ref(false);
 let activeScriptEvent = null;
-const isScriptTaskElement = ref(false);
 
 // Script preview state (Select Existing tab)
 const previewScriptContent = ref(null);
@@ -1673,7 +1667,7 @@ const savingEditScript = ref(false);
 // New Script form state
 const newScript = ref({
 	name: "",
-	script_type: "",
+	script_type: "API",
 	script: "",
 	reference_doctype: "",
 	doctype_event: "",
@@ -1700,9 +1694,7 @@ const eventFrequencies = [
 // Computed: filtered scripts based on search (restricted to API for Script Tasks)
 const filteredServerScripts = computed(() => {
 	let list = serverScripts.value;
-	if (isScriptTaskElement.value) {
-		list = list.filter((s) => s.script_type === "API");
-	}
+	list = list.filter((s) => s.script_type === "API");
 	if (!serverScriptSearch.value) return list;
 	const q = serverScriptSearch.value.toLowerCase();
 	return list.filter(
@@ -3175,7 +3167,6 @@ function onLaunchScriptEditor(event) {
 	scriptDialogMode.value = event.script ? "edit" : "select";
 	serverScriptSearch.value = "";
 	selectedServerScript.value = event.script || null;
-	isScriptTaskElement.value = !!(event.element?.type === "bpmn:ScriptTask");
 	if (event.script) loadScriptContent(event.script, "edit");
 
 	// Go straight to Logix canvas — skip the script selector dialog
@@ -3413,37 +3404,34 @@ function onLaunchNotificationEditor(event) {
 
 // --- Notify Assignee Editor (User Task) ---
 const showNotifyAssigneeDialog = ref(false);
-const notifyAssigneeBody = ref("");
-const notifyAssigneeSubject = ref("");
-const notifyAssigneeTemplate = ref("");
+const notifyAssigneeValues = ref({});
+const notifyAssigneeDoctype = ref("");
+const notifyAssigneeTaskName = ref("");
+const notifyAssigneeTaskActions = ref([]);
 let notifyAssigneeEvent = null;
 
 watch(showNotifyAssigneeDialog, (isOpen) => {
 	if (!isOpen) {
 		notifyAssigneeEvent = null;
-		notifyAssigneeBody.value = "";
-		notifyAssigneeSubject.value = "";
-		notifyAssigneeTemplate.value = "";
+		notifyAssigneeValues.value = {};
 	}
 });
 function onLaunchNotifyAssigneeEditor(event) {
 	notifyAssigneeEvent = event;
-	notifyAssigneeBody.value = event.body || "";
-	notifyAssigneeSubject.value = event.subject || "";
-	notifyAssigneeTemplate.value = event.template || "";
+	notifyAssigneeValues.value = event.values;
+	notifyAssigneeDoctype.value = event.doctype;
+	notifyAssigneeTaskName.value = event.taskName;
+	notifyAssigneeTaskActions.value = event.taskActions;
 	showNotifyAssigneeDialog.value = true;
 }
 
-function onSaveNotifyAssigneeBody(payload) {
-	const { body = "", subject = "", template = "" } = payload || {};
+function onSaveNotifyAssigneeBody(values) {
 	// Auto-save fires this repeatedly — keep notifyAssigneeEvent alive until the
 	// dialog closes (the showNotifyAssigneeDialog watcher clears it).
 	if (notifyAssigneeEvent && notifyAssigneeEvent.eventBus) {
 		notifyAssigneeEvent.eventBus.fire("spiff.userTask.notifyAssignee.update", {
 			element: notifyAssigneeEvent.element,
-			body,
-			subject,
-			template,
+			values,
 		});
 	}
 }
@@ -3466,6 +3454,11 @@ function saveMarkdown() {
 }
 
 async function onLaunchCallActivityEditor(event) {
+	const calledProcess = event.element?.businessObject?.get("spiffworkflow:calledProcess");
+	if (!event.processId && calledProcess) {
+		window.open(`/processa/process/${encodeURIComponent(calledProcess)}`, "_blank", "noopener,noreferrer");
+		return;
+	}
 	if (!event.processId) {
 		showNotification(
 			"Call Activity",

@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import json
+import re
 
 import frappe
 
@@ -19,9 +20,14 @@ def list_process_instances(
 	limit_page_length=20,
 	order_by="creation desc",
 	pending_action_by=None,
+	search=None,
 ) -> list:
 	"""
 	List BPMN process instances with their active tasks joined as 'current_step'.
+
+	``search`` is a search-bar style query ("SD5", "s d 5") matched against the
+	process model, instance id, context and initiator; results come back ranked
+	by match quality (see ``_search_rank``) instead of ``order_by``.
 
 	``pending_action_by`` is not a field on the instance — it is resolved from
 	the active task rows (see ``_instances_pending_on``) and narrows the list to
@@ -49,6 +55,17 @@ def list_process_instances(
 			filters["name"] = ["in", pending]
 			filters["status"] = "Active"
 
+	ranked_names = None
+	if search and search.strip():
+		ranked_names = _rank_instances(filters, search)[limit_start : limit_start + limit_page_length]
+		if not ranked_names:
+			return []
+		if isinstance(filters, list):
+			filters = filters + [["name", "in", ranked_names]]
+		else:
+			filters = {**(filters or {}), "name": ["in", ranked_names]}
+		limit_start = 0
+
 	instances = frappe.get_list(
 		"BPMN Process Instance",
 		fields=[
@@ -66,6 +83,9 @@ def list_process_instances(
 		limit_page_length=limit_page_length,
 		order_by=order_by,
 	)
+
+	if ranked_names:
+		instances.sort(key=lambda d: ranked_names.index(d.name))
 
 	if instances:
 		instance_names = [d.name for d in instances]
@@ -107,6 +127,61 @@ def list_process_instances(
 					d.current_step = derived.get(d.name, "")
 
 	return instances
+
+
+SEARCH_FIELDS = ("process_model", "name", "context_doctype", "context_docname", "initiated_by")
+
+
+def _words(text: str) -> list:
+	return re.findall(r"[a-z0-9]+", (text or "").lower())
+
+
+def _is_subsequence(needle: str, haystack: str) -> bool:
+	chars = iter(haystack)
+	return all(c in chars for c in needle)
+
+
+def _search_rank(query: str, row: dict):
+	"""Rank of a search match, lower is better, None for no match: 0 substring, 1 token prefixes, 2 initials."""
+	query = (query or "").strip().lower()
+	values = [str(row.get(f) or "") for f in SEARCH_FIELDS]
+	text = " ".join(values).lower()
+	if query in text:
+		return 0
+
+	compact = "".join(query.split())
+	if len(compact) < 2:
+		return None
+
+	words = _words(text)
+	tokens = _words(query)
+	unused = list(words)
+	for token in tokens:
+		match = next((w for w in unused if w.startswith(token)), None)
+		if match is None:
+			break
+		unused.remove(match)
+	else:
+		return 1
+
+	for value in values:
+		initials = "".join(w[0] + "".join(c for c in w[1:] if c.isdigit()) for w in _words(value))
+		if _is_subsequence(compact, initials):
+			return 2
+	return None
+
+
+def _rank_instances(filters, search: str) -> list:
+	"""Names of the instances matching ``search`` under ``filters``, best match first."""
+	rows = frappe.get_list(
+		"BPMN Process Instance",
+		fields=list(SEARCH_FIELDS),
+		filters=filters,
+		limit_page_length=0,
+		order_by="creation desc",
+	)
+	scored = [(_search_rank(search, row), i, row.name) for i, row in enumerate(rows)]
+	return [name for rank, _, name in sorted(r for r in scored if r[0] is not None)]
 
 
 def _instances_pending_on(user: str) -> list:
