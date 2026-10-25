@@ -254,6 +254,7 @@ import { Icon } from "@iconify/vue"
 import ProcessFilter from "@/components/ProcessFilter.vue"
 import { dayjs } from "@/dayjs"
 import { downloadBpmn } from "@/utils/downloadBpmn"
+import { searchRank } from "@/utils/searchRank"
 import { useWindowSize } from "@/composables/useWindowSize"
 
 const { isMobile } = useWindowSize()
@@ -328,11 +329,7 @@ const filteredProcesses = computed(() => {
 	if (!Array.isArray(processes.value)) return []
 	let list = processes.value
 	if (filterKeyword.value) {
-		const query = filterKeyword.value.toLowerCase().trim()
-		list = list.filter(p =>
-			(p.process_name && p.process_name.toLowerCase().includes(query)) ||
-			(p.name && p.name.toLowerCase().includes(query))
-		)
+		list = list.filter(p => searchRank(filterKeyword.value, [p.process_name, p.name]) !== null)
 	}
 	for (const f of activeFilters.value) {
 		if (!f.value) continue

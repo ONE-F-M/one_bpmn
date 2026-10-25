@@ -94,6 +94,49 @@ class TestResolveSubjectBody(_ComposerTestCase):
 		self.assertEqual(subject, "Template Subject")
 		self.assertEqual(body, "<p>HTML Body</p>")
 
+	@patch("one_bpmn.email_builder.composer.frappe")
+	def test_the_task_subject_and_body_win_and_the_template_is_not_read(self, mock_frappe):
+		mock_frappe.render_template = lambda text, ctx: text
+		from one_bpmn.email_builder.composer import _resolve_subject_body
+
+		task_cfg = {
+			"notifySubject": "Task Subject",
+			"notifyBody": "<p>Task Body</p>",
+			"notifyAssigneeTemplate": "My Template",
+		}
+		subject, body = _resolve_subject_body(task_cfg, {}, "Task1", _make_instance())
+
+		mock_frappe.get_doc.assert_not_called()
+		self.assertEqual(subject, "Task Subject")
+		self.assertEqual(body, "<p>Task Body</p>")
+
+	@patch("one_bpmn.email_builder.composer.frappe")
+	def test_the_template_fills_only_the_empty_body(self, mock_frappe):
+		mock_frappe.get_doc.return_value = MagicMock(subject="Template Subject", response_="<p>Template Body</p>")
+		mock_frappe.render_template = lambda text, ctx: text
+		from one_bpmn.email_builder.composer import _resolve_subject_body
+
+		task_cfg = {"notifySubject": "Task Subject", "notifyAssigneeTemplate": "My Template"}
+		subject, body = _resolve_subject_body(task_cfg, {}, "Task1", _make_instance())
+
+		self.assertEqual(subject, "Task Subject")
+		self.assertEqual(body, "<p>Template Body</p>")
+
+	@patch("one_bpmn.email_builder.composer._", side_effect=lambda x: x)
+	@patch("one_bpmn.email_builder.composer.frappe")
+	def test_a_deleted_template_logs_and_falls_back_to_the_default_text(self, mock_frappe, mock_translate):
+		mock_frappe.DoesNotExistError = frappe.DoesNotExistError
+		mock_frappe.get_doc.side_effect = frappe.DoesNotExistError
+		mock_frappe.render_template = lambda text, ctx: text
+		from one_bpmn.email_builder.composer import _resolve_subject_body
+
+		subject, body = _resolve_subject_body({"notifyAssigneeTemplate": "Gone"}, {}, "Task1", _make_instance())
+
+		mock_frappe.log_error.assert_called_once()
+		self.assertIn("Gone", mock_frappe.log_error.call_args.kwargs["message"])
+		self.assertTrue("Task1" in subject or "INST-001" in subject)
+		self.assertIn("<p>", body)
+
 	@patch("one_bpmn.email_builder.composer._", side_effect=lambda x: x)
 	@patch("one_bpmn.email_builder.composer.frappe")
 	def test_default_fallback(self, mock_frappe, mock_translate):

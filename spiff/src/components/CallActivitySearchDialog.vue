@@ -122,11 +122,16 @@
 import { ref, computed, watch, nextTick } from "vue";
 import { frappeRequest, Button } from "frappe-ui";
 import { Icon } from "@iconify/vue";
+import { isLinkable } from "./callActivityLink.js";
 
 const props = defineProps({
 	modelValue: {
 		type: Boolean,
 		default: false,
+	},
+	callerExecutable: {
+		type: Boolean,
+		default: true,
 	},
 	// The raw spiff.callactivity.search event payload
 	searchEvent: {
@@ -151,17 +156,19 @@ const currentProcess = computed(
 );
 
 function isCurrent(model) {
-	return model.name === currentProcess.value || model.active_process_id === currentProcessId.value;
+	if (model.name === currentProcess.value) return true;
+	return Boolean(model.active_process_id) && model.active_process_id === currentProcessId.value;
 }
 
 function rowClass(model) {
-	if (!model.active_process_id) return "opacity-50 cursor-not-allowed border-l-4 border-transparent";
+	if (!isLinkable(model, props.callerExecutable)) return "opacity-50 cursor-not-allowed border-l-4 border-transparent";
 	if (selectedModel.value?.name === model.name) return "cursor-pointer bg-blue-50 border-l-4 border-blue-500";
 	return "cursor-pointer hover:bg-gray-50 border-l-4 border-transparent";
 }
 
 function callableNote(model) {
-	return model.active_process_id ? "Runs its active map" : "No active map, so it cannot be called yet";
+	if (model.active_process_id) return "Runs its active map";
+	return props.callerExecutable ? "No active map, so it cannot be called yet" : "No active map";
 }
 
 // Filtered list based on search query
@@ -190,12 +197,12 @@ async function fetchModels() {
 }
 
 function selectModel(model) {
-	if (model.active_process_id) selectedModel.value = model;
+	if (isLinkable(model, props.callerExecutable)) selectedModel.value = model;
 }
 
 function confirm() {
 	if (!selectedModel.value) return;
-	emit("select", { process: selectedModel.value.name, processId: selectedModel.value.active_process_id });
+	emit("select", { process: selectedModel.value.name, processId: selectedModel.value.active_process_id || "" });
 	close();
 }
 
@@ -232,7 +239,7 @@ watch(
 			searchQuery.value = "";
 			selectedModel.value = null;
 			await fetchModels();
-			selectedModel.value = allModels.value.find((m) => m.active_process_id && isCurrent(m)) || null;
+			selectedModel.value = allModels.value.find((m) => isLinkable(m, props.callerExecutable) && isCurrent(m)) || null;
 			// Focus search input
 			await nextTick();
 			searchInput.value?.focus();

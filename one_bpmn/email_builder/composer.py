@@ -206,8 +206,11 @@ def _resolve_subject_body(
 				subject = tmpl.subject or ""
 			if not body:
 				body = tmpl.response_ or ""
-		except Exception:
-			pass
+		except frappe.DoesNotExistError:
+			frappe.log_error(
+				title="Email Template not found",
+				message=f"Task {task_name}: Email Template {template_name} does not exist",
+			)
 
 	# Render with Jinja
 	subject = _render_template(subject, jinja_ctx)

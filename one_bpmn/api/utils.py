@@ -354,6 +354,14 @@ def get_doctype_fields(
 
 
 @frappe.whitelist()
+def get_doctype_email_thread(doctype: str) -> dict:
+	"""Whether a DocType keeps an email thread, and the field that holds the sender's address."""
+	frappe.has_permission("BPMN Process Model", "write", throw=True)
+	meta = frappe.get_meta(doctype)
+	return {"email_append_to": bool(meta.email_append_to), "sender_field": meta.sender_field or ""}
+
+
+@frappe.whitelist()
 def get_context_doctypes(query: str = None) -> list:
 	"""
 	Get unique DocTypes used as context in Process Instances, filtered by query.
