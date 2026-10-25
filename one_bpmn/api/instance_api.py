@@ -1225,7 +1225,9 @@ def send_message(
 	    payload:          JSON string of data to merge into task.data
 
 	Returns:
-	    dict with instance status and active tasks
+	    dict with ``instance``, ``status``, ``active_tasks`` and ``caught``
+	    (True when a waiting task took the message, False when nothing was
+	    waiting for it).
 	"""
 	if not message_name:
 		frappe.throw(_("message_name is required"))
@@ -1309,5 +1311,6 @@ def send_message(
 		"instance": instance_name,
 		"status": instance.status,
 		"active_tasks": active_tasks,
+		"caught": bool(instance.flags.get("bpmn_message_caught")),
 	}
 
