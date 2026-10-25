@@ -36,7 +36,7 @@ from one_bpmn.tools.tool_for_server_scripts import (
 	DOCTYPE_SETTING_STRS,
 	read_doctype_definition as _read_doctype_ir,
 )
-from one_bpmn.security.client_script_validator import validate_form_script
+from one_bpmn.security.client_script_validator import validate_form_script, validate_list_view_script
 from one_bpmn.security.doctype_validator import (
 	RESERVED_FIELDNAMES,
 	child_table_is_editable,
@@ -1120,6 +1120,56 @@ def _form_script_name(doctype: str):
 
 
 # ── Shared-endpoint integration (WI-001676 follow-up, after 54e9ead/73e7d89) ──
+def _list_script_name(doctype: str) -> str:
+	return f"{doctype}-List"
+
+
+@frappe.whitelist()
+def get_list_view_script(doctype: str) -> dict:
+	"""Return the List View Client Script on a DocType, or an empty script when it has none."""
+	if not _may_change_forms():
+		frappe.throw(_("You are not allowed to change lists through Docu."), frappe.PermissionError)
+	name = frappe.db.get_value("Client Script", {"dt": doctype, "view": "List"}, "name")
+	if not name:
+		return {"name": None, "script": "", "enabled": 0}
+	return frappe.db.get_value("Client Script", name, ["name", "script", "enabled"], as_dict=True)
+
+
+@frappe.whitelist(methods=["POST"])
+def apply_list_view_script(doctype: str, script: str, enabled: int = 1) -> dict:
+	"""Create or update the List View Client Script on a DocType, after the safety gate."""
+	if not _may_change_forms():
+		frappe.throw(_("You are not allowed to change lists through Docu."), frappe.PermissionError)
+	if not frappe.db.exists("DocType", doctype):
+		frappe.throw(_("{0} does not exist.").format(doctype))
+	problems = validate_list_view_script(doctype, script)
+	if problems:
+		frappe.throw(_("The list script cannot be applied:<br>") + "<br>".join(problems))
+
+	enabled = int(bool(frappe.utils.sbool(enabled)))
+	with as_user(_docu_user()):
+		name = frappe.db.get_value("Client Script", {"dt": doctype, "view": "List"}, "name")
+		if name:
+			doc = frappe.get_doc("Client Script", name)
+			doc.update({"script": script, "enabled": enabled})
+			doc.save()
+			action = "updated"
+		else:
+			doc = frappe.get_doc(
+				{
+					"doctype": "Client Script",
+					"__newname": _list_script_name(doctype),
+					"dt": doctype,
+					"view": "List",
+					"script": script,
+					"enabled": enabled,
+				}
+			)
+			doc.insert()
+			action = "created"
+	return {"name": doc.name, "action": action, "enabled": enabled}
+
+
 def _compact_ir(ir: dict) -> dict:
 	"""Strip empty/zero attributes from a round-tripped IR before it rides in
 	dialog_context — the reader emits every DocField attribute (a plain ToDo
