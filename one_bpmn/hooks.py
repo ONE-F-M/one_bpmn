@@ -41,7 +41,7 @@ extend_bootinfo = "one_bpmn.boot.boot_session"
 app_include_js = [
 	"/assets/one_bpmn/js/bpmn_json_prettify.js",
 	"/assets/one_bpmn/js/one_ai_loader.js",
-	"/assets/one_bpmn/js/bpmn_form_actions.js?v=5",
+	"/assets/one_bpmn/js/bpmn_form_actions.js?v=6",
 	"/assets/one_bpmn/js/bpmn_list_indicator.js",
 	# WI-002050: an agent's question appears on the document it is about, whatever
 	# that document is. Loaded for every form rather than bound to one doctype:
