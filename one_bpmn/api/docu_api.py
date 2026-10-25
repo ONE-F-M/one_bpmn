@@ -18,6 +18,7 @@ is never trusted. Elevation uses the ``server_script_api.create_server_script``
 template (narrow ``set_user('Administrator')`` inside try/finally).
 """
 
+import difflib
 import json
 
 import frappe
@@ -35,6 +36,7 @@ from one_bpmn.tools.tool_for_server_scripts import (
 	DOCTYPE_SETTING_STRS,
 	read_doctype_definition as _read_doctype_ir,
 )
+from one_bpmn.security.client_script_validator import validate_form_script
 from one_bpmn.security.doctype_validator import (
 	RESERVED_FIELDNAMES,
 	child_table_is_editable,
@@ -1065,6 +1067,56 @@ def _force_property_setter(doctype: str, fieldname: str, prop: str, value, prope
 			},
 			is_system_generated=False,
 		)
+
+
+@frappe.whitelist()
+def preview_client_script(doctype: str, script: str) -> dict:
+	"""Check a proposed Form View script and return its diff against the one saved today."""
+	script = _checked_form_script(doctype, script)
+	name = _form_script_name(doctype)
+	current = (frappe.db.get_value("Client Script", name, "script") if name else "") or ""
+	diff = difflib.unified_diff(current.splitlines(True), script.splitlines(True), "current", "proposed")
+	return {"exists": bool(name), "name": name, "diff": "".join(diff)}
+
+
+@frappe.whitelist(methods=["POST"])
+def apply_client_script(doctype: str, script: str) -> str:
+	"""Create or update the DocType's Form View client script and say which."""
+	script = _checked_form_script(doctype, script)
+	name = _form_script_name(doctype)
+	with as_user(_docu_user()):
+		if name:
+			doc = frappe.get_doc("Client Script", name)
+			doc.update({"script": script, "enabled": 1})
+			doc.save()
+		else:
+			frappe.get_doc(
+				{
+					"doctype": "Client Script",
+					"name": f"{doctype}-Form",
+					"dt": doctype,
+					"view": "Form",
+					"enabled": 1,
+					"script": script,
+					"module": frappe.db.get_value("DocType", doctype, "module"),
+				}
+			).insert()
+	return _("The form script on {0} was updated.").format(doctype) if name else _("The form script on {0} was created.").format(doctype)
+
+
+def _checked_form_script(doctype: str, script: str) -> str:
+	if not _may_change_forms():
+		frappe.throw(_("You are not allowed to change forms through Docu."), frappe.PermissionError)
+	if not frappe.db.exists("DocType", doctype):
+		frappe.throw(_("{0} does not exist.").format(doctype))
+	problems = validate_form_script(doctype, script)
+	if problems:
+		frappe.throw("\n".join(problems))
+	return script.strip() + "\n"
+
+
+def _form_script_name(doctype: str):
+	return frappe.db.get_value("Client Script", {"dt": doctype, "view": "Form"}, "name", order_by="creation")
 
 
 # ── Shared-endpoint integration (WI-001676 follow-up, after 54e9ead/73e7d89) ──
