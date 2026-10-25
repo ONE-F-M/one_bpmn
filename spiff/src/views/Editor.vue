@@ -848,6 +848,7 @@
 		<!-- Call Activity Search Dialog -->
 		<CallActivitySearchDialog
 			v-model="showCallActivitySearchDialog"
+			:caller-executable="isExecutable"
 			:search-event="callActivitySearchEvent"
 			@select="onCallActivitySelected"
 			@cancel="onCancelCallActivitySearch"
@@ -3453,6 +3454,11 @@ function saveMarkdown() {
 }
 
 async function onLaunchCallActivityEditor(event) {
+	const calledProcess = event.element?.businessObject?.get("spiffworkflow:calledProcess");
+	if (!event.processId && calledProcess) {
+		window.open(`/processa/process/${encodeURIComponent(calledProcess)}`, "_blank", "noopener,noreferrer");
+		return;
+	}
 	if (!event.processId) {
 		showNotification(
 			"Call Activity",
