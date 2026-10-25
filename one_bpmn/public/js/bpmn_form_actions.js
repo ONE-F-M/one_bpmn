@@ -226,7 +226,7 @@ frappe.provide('one_bpmn');
 		window.open(`/processa/instances/${encodeURIComponent(instances[0].name)}`, '_blank');
 	}
 
-	// The toolbar clears the menu on every form refresh, so add the item whenever it is missing
+	// Standard items survive toolbar.set_primary_action, which clears user-action items
 	function _add_instance_menu_item(frm) {
 		if (!frm.page || !frm.page.menu) return;
 		const label = __('Go to Process Instance');
@@ -234,7 +234,7 @@ frappe.provide('one_bpmn');
 			.find('.menu-item-label')
 			.filter((i, el) => $(el).text() === label).length;
 		if (exists) return;
-		frm.page.add_menu_item(label, () => _open_process_instance(frm));
+		frm.page.add_menu_item(label, () => _open_process_instance(frm), true);
 	}
 
 	// load_bpmn_actions — fires on every form-refresh
