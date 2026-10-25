@@ -315,6 +315,5 @@ one_bpmn.one_bpmn.patches.v1_0.ai_feedback_requires_resolution_details #20-10-20
 one_bpmn.one_bpmn.patches.v1_0.prosally_no_change_is_not_an_update #20-10-2026 ProsAlly counts rebuilt flow references as a change only when the person asked for a lint fix, so a request that changes nothing no longer says it updated the process
 one_bpmn.one_bpmn.patches.v1_0.prosally_memory_follows_agent_configuration #21-10-2026 ProsAlly process memory is controlled by its AI Agent Configuration: Long-Term Memory Enabled, Entity scope, distilled writes and token budget, with blank memory keys in Build Context so the orchestrator task skips memory
 one_bpmn.one_bpmn.patches.v1_0.general_chat_answers_from_processes #25-10-2026 General Chat gets the process model find and digest tool scripts and the prompt rules for executable and documented processes
-one_bpmn.one_bpmn.patches.v1_0.index_dms_documents #25-10-2026 every Active Document Register entry is queued for the DMS search index
 one_bpmn.one_bpmn.patches.v1_0.general_chat_answers_from_dms #25-10-2026 General Chat gets the DMS search tool script and the prompt rules for the five document types and their precedence
 one_bpmn.one_bpmn.patches.v1_0.docu_writes_form_client_scripts #22-10-2026 Docu classifies a request for form behaviour as EDIT_CLIENT_SCRIPT and routes it to a client script stage
