@@ -22,12 +22,26 @@ INTENT_RULE = (
 ENUM_OLD = "EDIT_FIELD_PROPERTY|DISAMBIGUATE|"
 ENUM_NEW = "EDIT_FIELD_PROPERTY|EDIT_CLIENT_SCRIPT|DISAMBIGUATE|"
 
-ACCEPT_OLD = 'if intent not in ("CREATE", "MODIFY", "EDIT_FIELD_PROPERTY", "DISAMBIGUATE")'
-ACCEPT_NEW = 'if intent not in ("CREATE", "MODIFY", "EDIT_FIELD_PROPERTY", "EDIT_CLIENT_SCRIPT", "DISAMBIGUATE")'
-ROUTE_OLD = '{"DISAMBIGUATE": "clarify", "EDIT_FIELD_PROPERTY": "edit_field_property"}'
-ROUTE_NEW = (
-	'{"DISAMBIGUATE": "clarify", "EDIT_FIELD_PROPERTY": "edit_field_property", '
-	'"EDIT_CLIENT_SCRIPT": "edit_client_script"}'
+ACCEPT_OLD = '"MODIFY", "EDIT_FIELD_PROPERTY", '
+ACCEPT_NEW = '"MODIFY", "EDIT_FIELD_PROPERTY", "EDIT_CLIENT_SCRIPT", '
+ROUTE_OLD = '"EDIT_FIELD_PROPERTY": "edit_field_property"'
+ROUTE_NEW = ROUTE_OLD + ', "EDIT_CLIENT_SCRIPT": "edit_client_script"'
+
+# The model often fences its JSON; json.loads then fails and the intent falls back to MODIFY.
+IMPORT_OLD = "from one_bpmn.agents.turn_state import get_turn, run_sync, update_turn\n"
+IMPORT_NEW = IMPORT_OLD + "from one_bpmn.agents.prosally_helpers import extract_json\n"
+PARSE_OLD = (
+	"    try:\n"
+	'        _data = json.loads((raw or "").strip())\n'
+	'        _found = _data.get("parts") or []\n'
+	'        intent = _data.get("intent", intent).upper()\n'
+	"    except (json.JSONDecodeError, TypeError, AttributeError):\n"
+	"        pass\n"
+)
+PARSE_NEW = (
+	"    _data = extract_json(raw) or {}\n"
+	'    _found = _data.get("parts") or []\n'
+	'    intent = str(_data.get("intent") or intent).upper()\n'
 )
 
 SYSTEM_OLD = "call edit_field_property, then finalize, then stop."
@@ -143,7 +157,20 @@ else:
             for _tag, _i1, _i2, _j1, _j2 in difflib.SequenceMatcher(None, _old, _new).get_opcodes():
                 if _tag != "equal":
                     _kind = {"replace": "changed", "delete": "deleted", "insert": "added"}[_tag]
-                    _diff.append({"type": _kind, "left": "\n".join(_old[_i1:_i2]), "right": "\n".join(_new[_j1:_j2])})
+                    _left = _old[_i1:_i2]
+                    _right = _new[_j1:_j2]
+                    _indent = 99
+                    for _line in _left + _right:
+                        if _line.strip():
+                            _indent = min(_indent, len(_line) - len(_line.lstrip()))
+                    _indent = 0 if _indent == 99 else _indent
+                    _lcut = []
+                    for _line in _left:
+                        _lcut.append(_line[_indent:])
+                    _rcut = []
+                    for _line in _right:
+                        _rcut.append(_line[_indent:])
+                    _diff.append({"type": _kind, "left": "\n".join(_lcut), "right": "\n".join(_rcut)})
         output["modified_script"] = script + "\n"
         output["diff"] = _diff or None
         output["apply_target"] = doctype
@@ -180,7 +207,9 @@ def execute():
 	if not name or not frappe.db.exists("Server Script", CLASSIFY):
 		return
 	_set_config(name)
-	if not frappe.db.exists("Server Script", STAGE_SCRIPT):
+	if frappe.db.exists("Server Script", STAGE_SCRIPT):
+		frappe.db.set_value("Server Script", STAGE_SCRIPT, "script", STAGE_SCRIPT_BODY)
+	else:
 		frappe.get_doc(
 			{"doctype": "Server Script", "name": STAGE_SCRIPT, "script_type": "API", "script": STAGE_SCRIPT_BODY}
 		).insert(ignore_permissions=True)
@@ -237,11 +266,10 @@ def _add_shape():
 
 def _route_from_classifier():
 	script = frappe.db.get_value("Server Script", CLASSIFY, "script") or ""
-	if ROUTE_NEW in script or ROUTE_OLD not in script or ACCEPT_OLD not in script:
-		return
-	frappe.db.set_value(
-		"Server Script",
-		CLASSIFY,
-		"script",
-		script.replace(ACCEPT_OLD, ACCEPT_NEW, 1).replace(ROUTE_OLD, ROUTE_NEW, 1),
-	)
+	fixed = script
+	if ROUTE_NEW not in fixed and ROUTE_OLD in fixed and ACCEPT_OLD in fixed:
+		fixed = fixed.replace(ACCEPT_OLD, ACCEPT_NEW, 1).replace(ROUTE_OLD, ROUTE_NEW, 1)
+	if "extract_json(raw)" not in fixed and PARSE_OLD in fixed and IMPORT_OLD in fixed:
+		fixed = fixed.replace(PARSE_OLD, PARSE_NEW, 1).replace(IMPORT_OLD, IMPORT_NEW, 1)
+	if fixed != script:
+		frappe.db.set_value("Server Script", CLASSIFY, "script", fixed)

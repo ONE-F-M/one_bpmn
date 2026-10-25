@@ -104,6 +104,25 @@ class TestRoutingPatchChain(FrappeTestCase):
 		self.assertIn(patch.SYSTEM_OLD, previous.SYSTEM_NEW)
 		self.assertIn(patch.ENUM_OLD, previous.ENUM_NEW)
 
+	def test_a_fenced_model_reply_still_gives_the_intent(self):
+		from one_bpmn.agents.prosally_helpers import extract_json
+
+		fenced = '```json\n{"intent": "EDIT_CLIENT_SCRIPT", "parts": []}\n```'
+		scope = {"raw": fenced, "intent": "MODIFY", "extract_json": extract_json}
+
+		exec("if True:\n" + patch.PARSE_NEW, scope)
+
+		self.assertEqual(scope["intent"], "EDIT_CLIENT_SCRIPT")
+
+	def test_an_unparsable_model_reply_keeps_the_default_intent(self):
+		from one_bpmn.agents.prosally_helpers import extract_json
+
+		scope = {"raw": "no json here", "intent": "MODIFY", "extract_json": extract_json}
+
+		exec("if True:\n" + patch.PARSE_NEW, scope)
+
+		self.assertEqual(scope["intent"], "MODIFY")
+
 	def test_the_patch_is_a_no_op_on_a_site_without_docu(self):
 		if frappe.db.exists("AI Agent Configuration", {"agent_id": patch.AGENT_ID}):
 			self.skipTest("this site has Docu")
@@ -157,6 +176,8 @@ class TestEditClientScriptStage(FrappeTestCase):
 
 		self.assertEqual(output["mode"], "MODIFY")
 		self.assertEqual(output["diff"][0]["type"], "changed")
+		self.assertEqual(output["diff"][0]["left"], "frm.toggle_reqd(\"content\", frm.doc.public);")
+		self.assertEqual(output["diff"][0]["right"], "frm.toggle_reqd(\"content\", !frm.doc.public);")
 
 	def test_an_unclear_request_asks_one_question_with_options(self):
 		output, _ = _run_stage([{"question": "Which field?", "options": ["Content", "Title"]}])
@@ -216,4 +237,6 @@ class TestPatchAddsTheStage(FrappeTestCase):
 		xml = frappe.db.get_value("BPMN Process Model", patch.MAP, "bpmn_xml")
 		self.assertEqual(xml.count(f'id="{patch.STAGE}"'), 1)
 		self.assertTrue(frappe.db.exists("Server Script", patch.STAGE_SCRIPT))
-		self.assertIn(patch.ROUTE_NEW, frappe.db.get_value("Server Script", patch.CLASSIFY, "script"))
+		classifier = frappe.db.get_value("Server Script", patch.CLASSIFY, "script")
+		self.assertIn(patch.ROUTE_NEW, classifier)
+		self.assertIn("extract_json(raw)", classifier)
