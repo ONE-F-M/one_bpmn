@@ -38,7 +38,7 @@
 							agent-id="docu_agent"
 							variant="docked"
 							layout="conversation"
-							:apply-targets="['apply-schema']"
+							:apply-targets="['apply-schema', 'apply-script']"
 							:context="docuTurnContext"
 							:host-context-line="hostContextLine"
 							:cards="cardRegistry"
@@ -1189,10 +1189,23 @@ const hostContextLine = computed(() =>
 		: ""
 );
 
-function onDocuCardAction({ name, action, value }) {
+function onDocuCardAction({ name, action, value, fail }) {
 	if (name === "onefm.doctype_schema" && action === "apply-schema" && value.doctype_ir) {
 		loadIr(value.doctype_ir);
 		loadChildChanges(value.doctype_ir);
+	}
+	if (name === "onefm.script_diff" && action === "apply-script") applyFormScript(value, fail);
+}
+
+async function applyFormScript({ apply_target: doctype, modified_script: script }, fail) {
+	try {
+		saveNotes.value = await frappeRequest({
+			url: `${API}apply_client_script`,
+			method: "POST",
+			params: { doctype, script },
+		});
+	} catch (e) {
+		fail(serverMessage(e));
 	}
 }
 
