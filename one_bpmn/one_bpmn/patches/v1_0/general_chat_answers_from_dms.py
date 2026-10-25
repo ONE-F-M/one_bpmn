@@ -10,7 +10,7 @@ SCRIPT = """\
 # Lumina tool: search_dms_documents. The shape's arguments arrive in task_data.
 from one_bpmn.agents.dms_search import search_dms_documents
 
-result["output"] = search_dms_documents(task_data.get("query"), task_data.get("document_type"))
+result["output"] = search_dms_documents(task_data.get("query"), task_data.get("document_type"), instance=instance)
 """
 
 DMS_PROMPT = """

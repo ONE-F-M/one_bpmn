@@ -74,6 +74,27 @@ class TestDmsSearch(FrappeTestCase):
 		with self.assertRaises(frappe.PermissionError):
 			dms_search.search_dms_documents("annual leave entitlement")
 
+	def conversation_instance(self, owner):
+		conversation = frappe.get_doc({"doctype": "Chat Conversation", "agent_mode": "General Chat"}).insert(
+			ignore_permissions=True
+		)
+		frappe.db.set_value("Chat Conversation", conversation.name, "owner", owner)
+		return frappe._dict(context_doctype="Chat Conversation", context_docname=conversation.name)
+
+	def test_reads_are_checked_as_the_conversation_owner(self):
+		instance = self.conversation_instance("Administrator")
+		frappe.set_user("Guest")
+
+		results = dms_search.search_dms_documents("annual leave entitlement", instance=instance)["results"]
+
+		self.assertEqual([result["title"] for result in results], ["Leave Policy"])
+
+	def test_conversation_owner_without_read_permission_is_refused(self):
+		instance = self.conversation_instance("Guest")
+
+		with self.assertRaises(frappe.PermissionError):
+			dms_search.search_dms_documents("annual leave entitlement", instance=instance)
+
 
 class TestGeneralChatDmsPatch(FrappeTestCase):
 	def setUp(self):

@@ -14,8 +14,8 @@ KEYWORD_MIN_SHARE = 0.34
 MAX_RESULTS = 4
 
 
-def search_dms_documents(query: str, document_type: str | None = None) -> dict:
-	"""Best matching excerpts from the Active documents the current user can read."""
+def search_dms_documents(query: str, document_type: str | None = None, instance=None) -> dict:
+	"""Best matching excerpts from the Active documents the person in the conversation can read."""
 	if document_type and document_type not in DOCUMENT_TYPES:
 		return {"error": _("document_type must be one of: {0}").format(", ".join(DOCUMENT_TYPES))}
 
@@ -28,7 +28,13 @@ def search_dms_documents(query: str, document_type: str | None = None) -> dict:
 		filters["document_type"] = document_type
 
 	# ponytail: reads every readable Active document per query, index them if the register outgrows a few hundred
-	documents = frappe.get_list(DOCTYPE, filters=filters, fields=FIELDS, limit_page_length=0)
+	user = _chatting_user(instance) or frappe.session.user
+	frappe.has_permission(DOCTYPE, "read", user=user, throw=True)
+	documents = [
+		document
+		for document in frappe.get_all(DOCTYPE, filters=filters, fields=FIELDS, limit_page_length=0)
+		if frappe.has_permission(DOCTYPE, "read", doc=document.name, user=user)
+	]
 
 	hits = []
 	for document in documents:
@@ -51,6 +57,13 @@ def search_dms_documents(query: str, document_type: str | None = None) -> dict:
 			for _hit_score, document, chunk in hits[:MAX_RESULTS]
 		]
 	}
+
+
+def _chatting_user(instance) -> str | None:
+	"""The person the conversation belongs to; the agent's own user holds no roles, so reads are checked as this person."""
+	if getattr(instance, "context_doctype", "") != "Chat Conversation":
+		return None
+	return frappe.db.get_value("Chat Conversation", instance.context_docname, "owner")
 
 
 def _score(text: str, tokens: list) -> float:
