@@ -30,6 +30,12 @@ CLASSIFY = (
 	"    pass\n"
 	'nxt = {"DISAMBIGUATE": "clarify", "EDIT_FIELD_PROPERTY": "edit_field_property"}.get(intent, "write_schema")\n'
 )
+# The same script once the form client script patch has also edited it.
+CLASSIFY_WITH_FORM_SCRIPTS = CLASSIFY.replace(
+	'"EDIT_FIELD_PROPERTY", "DISAMBIGUATE")', '"EDIT_FIELD_PROPERTY", "EDIT_CLIENT_SCRIPT", "DISAMBIGUATE")'
+).replace(
+	'"EDIT_FIELD_PROPERTY": "edit_field_property"}', '"EDIT_FIELD_PROPERTY": "edit_field_property", "EDIT_CLIENT_SCRIPT": "edit_client_script"}'
+)
 
 
 class _Adapter:
@@ -124,8 +130,8 @@ class TestWriteListScriptStage(FrappeTestCase):
 
 
 class TestClassifierEdits(FrappeTestCase):
-	def _edited(self):
-		script = CLASSIFY
+	def _edited(self, base=CLASSIFY):
+		script = base
 		for anchor, replacement in (
 			(fix.ACCEPT_OLD, fix.ACCEPT_NEW),
 			(fix.ROUTE_OLD, fix.ROUTE_NEW),
@@ -141,6 +147,14 @@ class TestClassifierEdits(FrappeTestCase):
 
 	def test_a_reply_with_a_pending_draft_goes_to_the_list_script_stage(self):
 		self.assertEqual(self._run({"pending_list_script": PENDING}), ("LIST_VIEW_SCRIPT", "write_list_script"))
+
+	def test_the_edits_apply_whether_or_not_the_form_script_patch_ran_first(self):
+		edited = self._edited(CLASSIFY_WITH_FORM_SCRIPTS)
+		self.assertIn('"LIST_VIEW_SCRIPT": "write_list_script"', edited)
+		self.assertIn('"EDIT_CLIENT_SCRIPT": "edit_client_script"', edited)
+		scope = {"STATE": {"pending_list_script": PENDING}, "_cheap_intents": ("SMALL_TALK", "OFF_TOPIC")}
+		exec(edited, scope)
+		self.assertEqual(scope["nxt"], "write_list_script")
 
 	def test_a_greeting_with_no_pending_draft_stays_small_talk(self):
 		self.assertEqual(self._run({})[0], "SMALL_TALK")

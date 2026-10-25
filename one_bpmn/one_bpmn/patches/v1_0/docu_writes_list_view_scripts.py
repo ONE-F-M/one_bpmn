@@ -8,7 +8,7 @@ small-talk test, so a bare "yes" is not taken for a greeting. Idempotent: every 
 
 import frappe
 
-from one_bpmn.one_bpmn.patches.v1_0.chat_agents_post_failed_turn_error import _edit_script
+from one_bpmn.one_bpmn.patches.v1_0.chat_agents_post_failed_turn_error import _edit_script, apply_edit
 
 AGENT_ID = "docu_agent"
 MAP = "Docu \u2013 DocType Agent"
@@ -23,16 +23,16 @@ INTENT_RULE = (
 	'filter ("show the status as a coloured tag in the Leave Request list"). It changes how records are '
 	"listed, never which fields the DocType has. Name the DocType in your reason."
 )
-ENUM_OLD = "|EDIT_FIELD_PROPERTY|DISAMBIGUATE|"
-ENUM_NEW = "|EDIT_FIELD_PROPERTY|LIST_VIEW_SCRIPT|DISAMBIGUATE|"
+ENUM_OLD = "|DISAMBIGUATE|"
+ENUM_NEW = "|LIST_VIEW_SCRIPT|DISAMBIGUATE|"
 
-SYSTEM_OLD = "If next is edit_field_property: call edit_field_property, then finalize, then stop."
+SYSTEM_OLD = "(3) If next is clarify: call clarify, then finalize, then stop."
 SYSTEM_NEW = SYSTEM_OLD + " If next is write_list_script: call write_list_script, then finalize, then stop."
 
-ACCEPT_OLD = '"MODIFY", "EDIT_FIELD_PROPERTY", "DISAMBIGUATE")'
-ACCEPT_NEW = '"MODIFY", "EDIT_FIELD_PROPERTY", "LIST_VIEW_SCRIPT", "DISAMBIGUATE")'
-ROUTE_OLD = '"EDIT_FIELD_PROPERTY": "edit_field_property"}'
-ROUTE_NEW = '"EDIT_FIELD_PROPERTY": "edit_field_property", "LIST_VIEW_SCRIPT": "write_list_script"}'
+ACCEPT_OLD = '"DISAMBIGUATE") and intent not in _cheap_intents:'
+ACCEPT_NEW = '"LIST_VIEW_SCRIPT", "DISAMBIGUATE") and intent not in _cheap_intents:'
+ROUTE_OLD = '}.get(intent, "write_schema")'
+ROUTE_NEW = ', "LIST_VIEW_SCRIPT": "write_list_script"}.get(intent, "write_schema")'
 PENDING_OLD = 'intent = "SMALL_TALK" if _small_talk else ""\n'
 PENDING_NEW = (
 	'_pending_list = (turn.get("session_state") or {}).get("pending_list_script")\n'
@@ -51,13 +51,15 @@ The script must be one assignment, frappe.listview_settings["<DocType>"] = { ...
 - onload: function(listview) { listview.page.add_inner_button(__("Label"), function() { ... }); } a button above the list.
 - button: { show: function(doc) { return ...; }, get_label: function() { return __("Label"); }, get_description: function(doc) { return __("Text"); }, action: function(doc) { ... } } a button on each row.
 
+What the list can show: formatters and get_indicator only change columns the list already shows, which are marked "shown in list" in the field list; add_fields only loads data. hide_name_column only does something when a Title field is given. When the request depends on a field that is not shown in the list, or on a Title field that is missing, say in the summary what the person will not see and what they would change (add the field as a list column), instead of promising it.
+
 Hard limits: no network calls, eval, cookies, storage, redirects, external URLs or script tags. Use only fieldnames from the list. Wrap every label in __().
 When there is a current script, return the COMPLETE new script: keep every setting the request does not change.
 
 Ask a question instead of writing when the request does not say which DocType, or which fields or values it means. One short plain English question, never mentioning code.
 
 Respond with ONLY a JSON object:
-{"doctype": "the DocType name", "script": "the full script, or an empty string when you ask a question", "summary": "one or two plain English sentences of what changes in the list, for a non-technical person", "question": "your question, or an empty string"}"""
+{"doctype": "the DocType name", "script": "the full script, or an empty string when you ask a question", "summary": "one or two plain English sentences saying what the list will do once applied, for a non-technical person; nothing has been changed yet, so never say it is already changed", "question": "your question, or an empty string"}"""
 
 WRITE_SCRIPT_BODY = r"""# Docu - Tool Write List Script (self-contained, FLAT top-level code; no def/lambda under the shape-tool exec).
 # Drafts a List View Client Script, keeps it pending until the person says yes, then applies it.
@@ -105,13 +107,14 @@ if _draft:
     _current = ""
     if doctype:
         for _f in frappe.get_meta(doctype).fields:
-            _rows.append(_f.fieldname + " | " + _f.fieldtype + " | " + (_f.label or ""))
+            _rows.append(_f.fieldname + " | " + _f.fieldtype + " | " + (_f.label or "") + (" | shown in list" if _f.in_list_view else ""))
         try:
             _current = get_list_view_script(doctype).get("script") or ""
         except frappe.PermissionError as e:
             reply = str(e)
     if not reply:
-        prompt = "DocType: " + (doctype or "not selected") + "\nFields:\n" + "\n".join(_rows)
+        _title = frappe.get_meta(doctype).title_field if doctype else ""
+        prompt = "DocType: " + (doctype or "not selected") + "\nTitle field: " + (_title or "none") + "\nFields:\n" + "\n".join(_rows)
         prompt += "\n\nCurrent list script:\n" + (_current or "none") + "\n\nUser request: " + message
         _system = (_subs.get("list_script_writer") or {}).get("prompt") or ""
         raw = run_sync(get_llm_adapter_from_settings(_cfg).complete(system=_system, user=prompt)).text
@@ -172,7 +175,9 @@ def execute():
 		return
 	_set_config(name)
 	_route_from_classifier()
-	if not frappe.db.exists("Server Script", WRITE_SCRIPT):
+	if frappe.db.exists("Server Script", WRITE_SCRIPT):
+		frappe.db.set_value("Server Script", WRITE_SCRIPT, "script", WRITE_SCRIPT_BODY)
+	else:
 		frappe.get_doc(
 			{"doctype": "Server Script", "name": WRITE_SCRIPT, "script_type": "API", "script": WRITE_SCRIPT_BODY}
 		).insert(ignore_permissions=True)
@@ -185,10 +190,11 @@ def _set_config(name):
 		doc.system_prompt = (doc.system_prompt or "").replace(SYSTEM_OLD, SYSTEM_NEW, 1)
 	for row in doc.sub_prompts:
 		if row.sub_agent_id == "intent_classifier" and "LIST_VIEW_SCRIPT" not in (row.prompt_text or ""):
-			row.prompt_text = (row.prompt_text or "").replace(INTENT_ANCHOR, INTENT_RULE + INTENT_ANCHOR, 1).replace(
-				ENUM_OLD, ENUM_NEW, 1
-			)
-	if not any(row.sub_agent_id == SUB_AGENT_ID for row in doc.sub_prompts):
+			row.prompt_text = _teach_classifier(row.prompt_text or "")
+	writer = next((row for row in doc.sub_prompts if row.sub_agent_id == SUB_AGENT_ID), None)
+	if writer:
+		writer.prompt_text = WRITER_PROMPT
+	else:
 		doc.append(
 			"sub_prompts",
 			{
@@ -200,6 +206,19 @@ def _set_config(name):
 		)
 	doc.save(ignore_permissions=True)
 	frappe.cache.delete_value(f"agent_config:{AGENT_ID}")
+
+
+def _teach_classifier(text):
+	for anchor, replacement in ((INTENT_ANCHOR, INTENT_RULE + INTENT_ANCHOR), (ENUM_OLD, ENUM_NEW)):
+		edited = apply_edit(text, anchor, replacement)
+		if edited is None:
+			frappe.log_error(
+				title="docu_writes_list_view_scripts: anchor not found",
+				message=f"intent_classifier has no single '{anchor}'; the prompt is left as-is.",
+			)
+			return text
+		text = edited
+	return text
 
 
 def _route_from_classifier():
