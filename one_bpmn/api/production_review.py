@@ -9,8 +9,8 @@
 #       Workflow Action Masters referenced by the model. "Sync" overwrites
 #       existing records and creates new ones on Production directly via API.
 #
-#   Review Doctypes          — Referenced DocTypes plus their Custom Fields and
-#       Property Setters. "Sync" opens a GitHub pull request (per owning app)
+#   Review Doctypes          — Referenced DocTypes plus their Custom Fields,
+#       Property Setters and Client Scripts. "Sync" opens a GitHub pull request (per owning app)
 #       carrying the changes; merging + deploying migrates Production.
 #
 # Consumer endpoints run on the BA site (called by the frontend). The snapshot /
@@ -281,6 +281,10 @@ def _build_doctype_snapshot(doctypes: list) -> dict:
 				r["name"]: _clean(r)
 				for r in frappe.get_all("Property Setter", filters={"doc_type": dt}, fields=["*"])
 			},
+			"client_scripts": {
+				r["name"]: _clean(r)
+				for r in frappe.get_all("Client Script", filters={"dt": dt}, fields=["*"])
+			},
 			"docfields": {
 				r["fieldname"]: _clean_docfield(r)
 				for r in frappe.get_all("DocField", filters={"parent": dt}, fields=["*"], order_by="idx")
@@ -320,7 +324,15 @@ def _diff_doctypes(local: dict, remote: dict) -> list:
 			changes.append({"object_type": "DocType", "name": dt, "doctype": dt,
 			                "action": "Create", "detail": _("Missing on Production"),
 			                "destination": destination})
-		for section, otype in (("custom_fields", "Custom Field"), ("property_setters", "Property Setter")):
+		for section, otype in (
+			("custom_fields", "Custom Field"),
+			("property_setters", "Property Setter"),
+			("client_scripts", "Client Script"),
+		):
+			# An older Production predates client_scripts; treating "absent" as
+			# "empty" would announce every Client Script as missing there.
+			if section == "client_scripts" and "client_scripts" not in rsnap:
+				continue
 			lrecs = lsnap.get(section) or {}
 			rrecs = rsnap.get(section) or {}
 			for name, lrec in lrecs.items():
@@ -332,9 +344,11 @@ def _diff_doctypes(local: dict, remote: dict) -> list:
 						"detail": "" if rrec is None else ", ".join(
 							[k for k in lrec if lrec.get(k) != (rrec or {}).get(k)][:6]
 						),
-						"destination": destination,
+						# A Client Script is never folded into a DocType's JSON; it
+						# always travels as a data module + patch.
+						"destination": "" if section == "client_scripts" else destination,
 					}
-					if destination:
+					if destination and section != "client_scripts":
 						# Ours: the change is a field's property, and it goes into
 						# the JSON — say that, rather than naming the override.
 						field = (lrec.get("field_name") or lrec.get("fieldname") or "").strip()
@@ -516,13 +530,27 @@ def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str, pr
 		files[ps_path] = gen.render_property_setter_module(dt, pss)
 		artefacts += [cf_path, ps_path]
 
-	if foreign:
+	# Client Scripts apply to every DocType in the run, owned or not: a Client
+	# Script is not part of the DocType's JSON, so there is no source file to fold
+	# it into. Same delivery as the rest: a data module plus a patch.
+	client_scripts = {}
+	for dt in dts:
+		css = frappe.get_all("Client Script", filters={"dt": dt}, fields=["*"], order_by="name")
+		if css:
+			client_scripts[dt] = css
+			cs_path = gen.module_path(app, dt, "client_script")
+			files[cs_path] = gen.render_client_script_module(dt, css)
+			artefacts.append(cs_path)
+	cs_dts = sorted(client_scripts)
+	patched = bool(foreign or cs_dts)
+
+	if patched:
 		patch_path = gen.patch_path(app, model_name, stamp)
-		files[patch_path] = gen.render_patch(app, model_name, foreign, stamp)
+		files[patch_path] = gen.render_patch(app, model_name, foreign, stamp, cs_dts)
 		artefacts.append(patch_path)
 
 	spliced = [gen.aggregator_path(app, k) for k in ("custom_field", "property_setter")] if foreign else []
-	if foreign:
+	if patched:
 		spliced.append(gen.patches_txt_path(app))
 	# Under the CUSTOMIZATION app's module, not the DocType's owning module. The
 	# latter is what the previous implementation used, and for a foreign DocType it
@@ -566,13 +594,14 @@ def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str, pr
 				text = gen.splice_aggregator(text, app, dt, kind)
 			out[path] = text
 
-		if foreign:
+		if patched:
 			pt_path = gen.patches_txt_path(app)
 			pt_text = reader(pt_path)
 			if pt_text is None:
 				raise ValueError(f"{pt_path} is not in the repository; the patch would never run.")
+			patched_dts = list(foreign) + [d for d in cs_dts if d not in foreign]
 			out[pt_path] = gen.splice_patches_txt(
-				pt_text, app, model_name, stamp, today, note=f"Processa sync: {', '.join(foreign)}"
+				pt_text, app, model_name, stamp, today, note=f"Processa sync: {', '.join(patched_dts)}"
 			)
 
 		# The Frappe-native customizations file is merged, never regenerated: it
@@ -591,7 +620,9 @@ def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str, pr
 			out[path] = gen.merge_customization_json(reader(path) or "", incoming)
 		return out
 
-	return files, build_files, artefacts, {"owned": owned, "foreign": foreign, "notes": source_notes}
+	return files, build_files, artefacts, {
+		"owned": owned, "foreign": foreign, "notes": source_notes, "client_scripts": cs_dts,
+	}
 
 
 def _promised_new_fields(changes: list) -> dict:
@@ -683,6 +714,11 @@ def _pr_body(app: str, dts: list, model_name: str, artefacts: list, routing: dic
 	listed = "\n".join(f"- `{p}`" for p in artefacts)
 	routing = routing or {}
 	foreign = routing.get("foreign", dts)
+	client_script_dts = routing.get("client_scripts") or []
+	client_script_note = (
+		f"Client Scripts for {', '.join(client_script_dts)} are written to `custom/client_script/` "
+		"data modules and applied to **existing sites** by the same patch (upserted by name).\n\n"
+	) if client_script_dts else ""
 	return (
 		"Automated by Processa (Review Doctypes → Sync).\n\n"
 		f"Process map: `{model_name}`\n"
@@ -699,6 +735,7 @@ def _pr_body(app: str, dts: list, model_name: str, artefacts: list, routing: dic
 		"- the patch under `patches/v15_0/` applies them to **existing sites** on `bench migrate`\n"
 		"- `custom/*.json` is updated too, and is **merged** rather than regenerated, so "
 		"customizations outside this sync are preserved\n\n")
+		+ client_script_note
 		+ f"Files touched:\n{listed}\n\n"
 		+ ("The data modules are regenerated from the BA site's current state, so any hand edit "
 		   "made to those two files will be replaced — review that hunk with care." if foreign else

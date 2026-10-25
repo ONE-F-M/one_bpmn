@@ -1226,7 +1226,7 @@ const reviewTitle = computed(() =>
 );
 const reviewIntro = computed(() =>
 	reviewKind.value === "doctypes"
-		? "Doctypes referenced in the process model, alongside Custom Fields and Property Setters will be compared to the Production system for changes."
+		? "Doctypes referenced in the process model, alongside Client Scripts, Custom Fields and Property Setters, will be compared to the Production system for changes."
 		: "Workflow Objects (Roles, Server Scripts, Workflow States, and Workflow Action Master) referenced in the process model will be compared to the Production system for changes."
 );
 const reviewEmptyMessage = computed(() =>
