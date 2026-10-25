@@ -122,11 +122,16 @@
 import { ref, computed, watch, nextTick } from "vue";
 import { frappeRequest, Button } from "frappe-ui";
 import { Icon } from "@iconify/vue";
+import { isLinkable } from "./callActivityLink.js";
 
 const props = defineProps({
 	modelValue: {
 		type: Boolean,
 		default: false,
+	},
+	callerExecutable: {
+		type: Boolean,
+		default: true,
 	},
 	// The raw spiff.callactivity.search event payload
 	searchEvent: {
