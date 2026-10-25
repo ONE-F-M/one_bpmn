@@ -3508,14 +3508,14 @@ function onLaunchCallActivitySearch(event) {
 	showCallActivitySearchDialog.value = true;
 }
 
-function onCallActivitySelected(processId) {
+function onCallActivitySelected({ process, processId }) {
 	const event = callActivitySearchEvent;
 	if (!event) return;
 
 	// Primary: drive the update directly via the modeler's command stack.
 	// Reliable regardless of SpiffWorkflow's async once-listener state.
 	if (editorRef.value && typeof editorRef.value.updateCalledElement === "function") {
-		editorRef.value.updateCalledElement(event.element, processId);
+		editorRef.value.updateCalledElement(event.element, processId, process);
 	}
 
 	// Secondary: also fire spiff.callactivity.update so the once-listener (if still

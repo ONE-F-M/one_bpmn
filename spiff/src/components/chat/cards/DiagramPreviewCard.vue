@@ -6,7 +6,7 @@
 		>
 			{{ value.summary }}
 		</p>
-		<DiagramThumb :xml="value.bpmn_xml" />
+		<DiagramThumb :xml="value.bpmn_xml" :root-id="value.scope_id" />
 		<template #actions>
 			<ActionButton v-if="canApply" :label="applyLabel" kind="solid" :disabled="busy || done"
 				@press="$emit('action', 'apply-diagram', value)" />
@@ -21,7 +21,7 @@
 				>
 					{{ value.summary }}
 				</p>
-				<DiagramThumb :xml="value.bpmn_xml" :height="expandedHeight()" large />
+				<DiagramThumb :xml="value.bpmn_xml" :root-id="value.scope_id" :height="expandedHeight()" large />
 			</div>
 		</template>
 	</CardShell>

@@ -27,6 +27,9 @@ class AIResponseFeedback(Document):
 		if self.rating == "Negative" and not (self.comment or "").strip():
 			frappe.throw(_("A comment is required when rating a reply Negative."))
 
+		if self.status == "Fixed" and not (self.resolution_details or "").strip():
+			frappe.throw(_("Resolution details are required when the status is Fixed."))
+
 		if not self.rated_on:
 			self.rated_on = frappe.utils.now_datetime()
 

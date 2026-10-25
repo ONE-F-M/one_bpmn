@@ -418,3 +418,124 @@ class TestThePatchFixesAlreadyAchievedRuns(RunFixture):
 		self.assertEqual(
 			frappe.db.get_value("AI Agent Run", run.name, "goal_completion"), gc.ACHIEVED
 		)
+
+
+G57_TOO_LARGE = (
+	'{"generated": false, "response": "This process is too large for me to generate, '
+	'even split into smaller phases.", "truncated": true, "auto_fixes": []}'
+)
+UKB_GENERATED = '{"generated": true, "process_name": "Event Staff Lifecycle", "issues": 0, "auto_fixes": []}'
+
+
+def _stage_trace(stage_name, stage_result):
+	return [
+		_turn("tool", [{"name": "classify_intent", "result": '{"intent": "GENERATE_NEW"}'}]),
+		_turn("tool", [{"name": stage_name, "result": stage_result}]),
+	]
+
+
+class TestAFailedStageIsNotAchieved(FrappeTestCase):
+	"""A stage tool reports failure in a JSON body its call status calls Success."""
+
+	def test_the_too_large_run_is_not_achieved_and_says_why(self):
+		state, basis = gc.determine(
+			ExecutorResult(output="This process is too large for me to generate.", trace=_stage_trace("generate_process", G57_TOO_LARGE))
+		)
+		self.assertEqual(state, gc.NOT_ACHIEVED)
+		self.assertIn("generate_process", basis)
+		self.assertIn("too large", basis)
+
+	def test_a_generated_diagram_stays_achieved(self):
+		state, _ = gc.determine(
+			ExecutorResult(output="I've generated the process.", trace=_stage_trace("generate_process", UKB_GENERATED))
+		)
+		self.assertEqual(state, gc.ACHIEVED)
+
+	def test_each_failure_flag_is_not_achieved(self):
+		cases = (
+			("generated", '{"generated": false}'),
+			("modified", '{"modified": false}'),
+			("truncated", '{"truncated": true}'),
+			("safe", '{"finalized": true, "safe": false}'),
+			("fallback", '{"finalized": true, "fallback": true}'),
+		)
+		for flag, body in cases:
+			with self.subTest(flag):
+				state, basis = gc.determine(ExecutorResult(output="a reply", trace=_stage_trace("stage", body)))
+				self.assertEqual(state, gc.NOT_ACHIEVED)
+				self.assertIn("'stage'", basis)
+
+	def test_a_success_body_stays_achieved(self):
+		for body in ('{"modified": true, "process_name": "P"}', '{"finalized": true}', '{"has_ir": true}'):
+			with self.subTest(body):
+				state, _ = gc.determine(ExecutorResult(output="a reply", trace=_stage_trace("stage", body)))
+				self.assertEqual(state, gc.ACHIEVED)
+
+	def test_a_removal_confirmation_is_a_question_not_a_failure(self):
+		state, _ = gc.determine(
+			ExecutorResult(
+				output="confirm removal?",
+				trace=_stage_trace("modify_process", '{"modified": false, "needs_removal_confirm": true}'),
+			)
+		)
+		self.assertEqual(state, gc.ACHIEVED)
+
+	def test_a_stage_retried_successfully_is_achieved(self):
+		trace = _stage_trace("generate_process", G57_TOO_LARGE) + [
+			_turn("tool", [{"name": "generate_process", "result": UKB_GENERATED}])
+		]
+		state, _ = gc.determine(ExecutorResult(output="done", trace=trace))
+		self.assertEqual(state, gc.ACHIEVED)
+
+	def test_another_tool_succeeding_does_not_rescue_a_failed_stage(self):
+		trace = _stage_trace("generate_process", G57_TOO_LARGE) + [
+			_turn("tool", [{"name": "finalize", "result": '{"finalized": true}'}])
+		]
+		state, basis = gc.determine(ExecutorResult(output="done", trace=trace))
+		self.assertEqual(state, gc.NOT_ACHIEVED)
+		self.assertIn("generate_process", basis)
+
+	def test_results_that_are_not_json_objects_are_ignored(self):
+		for body in ("plain text", "[1, 2]", "", "{broken"):
+			with self.subTest(body):
+				state, _ = gc.determine(ExecutorResult(output="a reply", trace=_stage_trace("stage", body)))
+				self.assertEqual(state, gc.ACHIEVED)
+
+	def test_a_dict_shaped_resumed_trace_is_read_the_same_way(self):
+		trace = [{"role": "tool", "content": "", "tool_calls": [{"name": "generate_process", "result": G57_TOO_LARGE}]}]
+		state, _ = gc.determine(ExecutorResult(output="a reply", trace=trace))
+		self.assertEqual(state, gc.NOT_ACHIEVED)
+
+
+class TestStageFailuresOnTheRecord(RunFixture):
+	_step_with_call = TestThePatchFixesAlreadyAchievedRuns._step_with_call
+
+	def test_finalizing_records_it_and_leaves_status_alone(self):
+		run = self._run()
+		finalize_ai_run(
+			run,
+			ExecutorResult(output="too large", trace=_stage_trace("generate_process", G57_TOO_LARGE)),
+		)
+		row = frappe.get_doc("AI Agent Run", run.name)
+		self.assertEqual(row.status, "Success")
+		self.assertEqual(row.goal_completion, gc.NOT_ACHIEVED)
+		self.assertIn("generate_process", row.completion_basis)
+	def _achieved_run(self, stage_result):
+		run = self._run(status="Success")
+		frappe.db.set_value("AI Agent Run", run.name, {"goal_completion": gc.ACHIEVED, "completion_basis": "stub"})
+		self._step_with_call(run.name, 1, "generate_process", "Success", stage_result)
+		self._step_with_call(run.name, 2, "finalize", "Success", '{"finalized": true}')
+		return run
+
+	def test_a_too_large_run_flips_and_a_generated_run_does_not(self):
+		bad = self._achieved_run(G57_TOO_LARGE)
+		good = self._achieved_run(UKB_GENERATED)
+
+		from one_bpmn.one_bpmn.patches.v1_0 import goal_completion_failed_stage_results as patch
+
+		patch.execute()
+		patch.execute()
+
+		self.assertEqual(frappe.db.get_value("AI Agent Run", bad.name, "goal_completion"), gc.NOT_ACHIEVED)
+		self.assertIn("generate_process", frappe.db.get_value("AI Agent Run", bad.name, "completion_basis"))
+		self.assertEqual(frappe.db.get_value("AI Agent Run", good.name, "goal_completion"), gc.ACHIEVED)

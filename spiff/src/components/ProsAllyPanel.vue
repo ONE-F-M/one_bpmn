@@ -10,6 +10,7 @@
 			:host-context-line="hostContextLine"
 			:cards="cardRegistry"
 			@choice="onChoice"
+			@turn-sent="confirmedAction = ''"
 			@turn-complete="confirmedAction = ''"
 			@card-action="onCardAction"
 		>
@@ -44,6 +45,8 @@ const props = defineProps({
 	processName: { type: String, default: "" },
 	diagramName: { type: String, default: "" },
 	getCanvasXml: { type: Function, default: null },
+	getScopeId: { type: Function, default: null },
+	getLintIssues: { type: Function, default: null },
 });
 
 const emit = defineEmits(["close", "bpmn-generated"]);
@@ -72,7 +75,11 @@ const turnContext = computed(() => ({
 async function withCanvasXml() {
 	if (!props.getCanvasXml) return {};
 	try {
-		return { current_xml: ((await props.getCanvasXml()) || "").trim() };
+		return {
+			current_xml: ((await props.getCanvasXml()) || "").trim(),
+			scope_id: props.getScopeId ? props.getScopeId() : "",
+			lint_issues: props.getLintIssues ? await props.getLintIssues() : [],
+		};
 	} catch (e) {
 		return {};
 	}

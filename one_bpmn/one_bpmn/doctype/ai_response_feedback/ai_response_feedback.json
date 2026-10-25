@@ -31,7 +31,8 @@
   "dedup_key",
   "section_assignment",
   "process_owner",
-  "fixed_on"
+  "fixed_on",
+  "resolution_details"
  ],
  "fields": [
   {
@@ -198,11 +199,18 @@
    "fieldtype": "Datetime",
    "label": "Fixed On",
    "read_only": 1
+  },
+  {
+   "description": "What was done to fix the issue. Required when the status is Fixed. The rater sees it in the message telling them the feedback was resolved.",
+   "fieldname": "resolution_details",
+   "fieldtype": "Small Text",
+   "label": "Resolution Details",
+   "mandatory_depends_on": "eval:doc.status==\"Fixed\""
   }
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-10-03 12:00:00.000000",
+ "modified": "2026-10-20 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Response Feedback",

@@ -133,18 +133,20 @@ def list_memories(
 		filters.append(["user", "in", ["", None]] if user == "Shared" else ["user", "=", user])
 	if search:
 		filters.append(["content", "like", f"%{search}%"])
+	or_filters = None
 	if not cint(include_retired):
-		filters.append(["expires_on", "is", "not set"])
+		or_filters = [["expires_on", "is", "not set"], ["expires_on", ">", now_datetime()]]
 
 	rows = frappe.get_list(
 		"AI Memory",
 		filters=filters,
+		or_filters=or_filters,
 		fields=list(LIST_FIELDS),
 		order_by="creation desc",
 		limit_start=start,
 		limit_page_length=page_length,
 	)
-	total = frappe.get_list("AI Memory", filters=filters, limit_page_length=0, as_list=True)
+	total = frappe.get_list("AI Memory", filters=filters, or_filters=or_filters, limit_page_length=0, as_list=True)
 
 	applied = {
 		"search": search,

@@ -1,0 +1,80 @@
+# LuCrusher – Tool Finalize  (bpmn_id: finalize)
+# Assembles the turn's structured result — the same 9-key dict the old
+# Anthropic loop produced from one JSON blob — and writes it to the turn store
+# for "Save AI Response" to persist. Self-contained (split globals/locals).
+from one_bpmn.agents.turn_state import get_turn, update_turn
+
+def _lucrusher_finalize(turn, args):
+    import json
+
+    def _arg(key):
+        val = args.get(key)
+        # The model sometimes hands structured arguments over as a JSON string.
+        if isinstance(val, str):
+            text = val.strip()
+            if not text or text.lower() in ("null", "none"):
+                return None
+            if text[:1] in ("{", "["):
+                try:
+                    return json.loads(text)
+                except Exception:
+                    return val
+            return val
+        if val in ({}, [], ""):
+            return None
+        return val
+
+    prev = turn.get("context_state") or {}
+
+    intent = (_arg("intent") or "CLARIFY")
+    if not isinstance(intent, str):
+        intent = "CLARIFY"
+    intent = intent.strip().upper() or "CLARIFY"
+
+    response_text = _arg("response") or ""
+    if not isinstance(response_text, str):
+        response_text = str(response_text)
+    # Some models double-escape newlines inside their argument strings.
+    response_text = response_text.replace("\\n", "\n").replace("\\t", "\t")
+
+    matches = _arg("matches") or []
+    if not isinstance(matches, list):
+        matches = []
+    confirmed_process = _arg("confirmed_process")
+    topology = _arg("topology")
+    migration_tasks = _arg("migration_tasks")
+    prosally_prompts = _arg("prosally_prompts")
+
+    # The FULL tool results, not a model echo: whatever fetch/scan produced this
+    # turn. Nothing to re-serialise, so nothing to truncate.
+    document = turn.get("full_document")
+    codebase_scan = turn.get("full_scan")
+
+    # Intent correction: "Yes" after a match list sets confirmed_process but the
+    # model often leaves intent at CLARIFY.
+    if (
+        intent == "CLARIFY"
+        and confirmed_process
+        and prev.get("intent") in ("EXACT_MATCH_FOUND", "MULTIPLE_MATCHES")
+    ):
+        intent = "CONFIRMED"
+
+    return {
+        "intent": intent,
+        "response": response_text,
+        "matches": matches,
+        "confirmed_process": confirmed_process,
+        "document": document,
+        "codebase_scan": codebase_scan,
+        "topology": topology,
+        "migration_tasks": migration_tasks,
+        "prosally_prompts": prosally_prompts,
+    }
+
+
+_lcr_turn = get_turn(context_docname)
+_lcr_output = _lucrusher_finalize(_lcr_turn, task_data)
+update_turn(context_docname, output=_lcr_output, done=True)
+result["finalized"] = True
+result["intent"] = _lcr_output["intent"]
+

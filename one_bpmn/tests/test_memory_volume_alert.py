@@ -48,6 +48,13 @@ class TestVolumeAlert(FrappeTestCase):
 		)
 		self.assertTrue(note and "outgrown" in note[0]["subject"])
 
+	def test_an_address_that_is_not_a_user_gets_the_email_only(self):
+		with patch.object(V, "_send_email") as send, patch.object(V, "_recipients", return_value=["outsider@example.com"]):
+			V._notify(["a line"])
+		send.assert_called_once()
+		self.assertEqual(send.call_args.args[0], ["outsider@example.com"])
+		self.assertFalse(frappe.db.exists("Notification Log", {"for_user": "outsider@example.com"}))
+
 	def test_below_threshold_sends_nothing(self):
 		with patch.object(V, "measure", return_value={"total": 1, "largest": {"memory_scope": "Agent", "n": 1}}), patch.object(
 			V, "_notify"

@@ -417,6 +417,10 @@ def record_limit_breach(
 		)
 		doc.flags.ignore_links = True
 		doc.insert(ignore_permissions=True)
+		from one_bpmn.agents.a2a import execute
+
+		process_model = frappe.db.get_value("AI Agent Configuration", target, "process_model")
+		execute.fail_to_start(doc, {"process_model": process_model}, "failed", str(refusal))
 		return doc.name
 	except Exception:
 		frappe.log_error(
