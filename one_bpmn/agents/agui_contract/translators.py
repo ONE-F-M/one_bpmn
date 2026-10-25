@@ -24,13 +24,14 @@ from one_bpmn.agents.agui_stream import register_extension_translator
 
 @register_extension_translator
 def _script_diff(result: dict):
-	"""Logix: CREATE / MODIFY replies with a proposed script."""
+	"""Logix: CREATE / MODIFY replies with a proposed script; Docu: EDIT_CLIENT_SCRIPT with its own mode."""
 	intent = (result.get("intent") or "").upper()
-	if intent in ("CREATE", "MODIFY") and result.get("modified_script"):
+	mode = str(result.get("mode") or "").upper() if intent == "EDIT_CLIENT_SCRIPT" else intent
+	if mode in ("CREATE", "MODIFY") and result.get("modified_script"):
 		yield CustomEvent(
 			name="onefm.script_diff",
 			value={
-				"mode": intent,
+				"mode": mode,
 				"modified_script": result["modified_script"],
 				**({"diff": result["diff"]} if result.get("diff") else {}),
 				**({"apply_target": result["apply_target"]} if result.get("apply_target") else {}),
