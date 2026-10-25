@@ -1,0 +1,340 @@
+# LuCrusher – Tool Scan Codebase  (bpmn_id: scan_codebase_for_process)
+# Self-contained (split globals/locals — see the patch docstring). Returns a
+# TRIMMED scan to the LLM and stashes the FULL result in the turn store.
+#
+# The filesystem primitives (walking apps/, reading hooks.py, finding
+# @frappe.whitelist() defs) come from one_bpmn.agents.codebase_index: the script
+# security gate permanently forbids os / glob / open() in a Server Script. That
+# module returns RAW structure only — every keyword, score, threshold, ranking
+# and narrative below is LuCrusher's own analysis and lives here.
+from one_bpmn.agents.turn_state import update_turn
+
+def _lucrusher_scan_codebase(frappe, process_elements):
+    import json
+    import re
+    import unicodedata
+
+    from one_bpmn.agents.codebase_index import find_whitelisted_methods, get_codebase_index
+
+    _STOP_WORDS = frozenset([
+        "a", "an", "the", "in", "on", "at", "to", "for", "of", "and", "or",
+        "is", "are", "was", "were", "be", "been", "being", "have", "has",
+        "had", "do", "does", "did", "will", "would", "could", "should",
+        "may", "might", "shall", "can", "need", "this", "that", "these",
+        "those", "it", "its", "from", "by", "with", "about", "into",
+        "during", "before", "after", "up", "down", "out", "off", "over",
+        "under", "then", "once", "as", "all", "each", "new", "get", "set",
+    ])
+    _SCORE_THRESHOLD = 0.30
+
+    def _normalize_text(text):
+        text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+        text = re.sub(r"[^a-z0-9\s]", " ", text.lower())
+        return re.sub(r"\s+", " ", text).strip()
+
+    def _extract_keywords(text):
+        out = set()
+        for w in _normalize_text(text).split():
+            if len(w) >= 2 and w not in _STOP_WORDS:
+                out.add(w)
+        return out
+
+    def _overlap_score(kw_a, kw_b):
+        # Containment-style similarity: rewards one full name appearing inside
+        # the other ("Leave Application" inside "Submit Leave Application").
+        if not kw_a or not kw_b:
+            return 0.0
+        intersection = kw_a & kw_b
+        if not intersection:
+            return 0.0
+        return len(intersection) / min(len(kw_a), len(kw_b))
+
+    def _best_match(elem_kw_pairs, target_kws, extra_kws=None):
+        # Returns (best_score, [elements that cleared the threshold]).
+        best_score = 0.0
+        best_elements = []
+        for elem, elem_kws in elem_kw_pairs:
+            score = _overlap_score(elem_kws, target_kws)
+            if extra_kws:
+                alt = _overlap_score(elem_kws, extra_kws)
+                if alt > score:
+                    score = alt
+            if score >= _SCORE_THRESHOLD:
+                if score > best_score:
+                    best_score = score
+                best_elements.append(elem)
+        return best_score, best_elements
+
+    def _build_codebase_summary(elements, matched_doctypes, matched_hooks, controller_classes,
+                                whitelisted_methods, apps_scanned):
+        lines = []
+        lines.append("Scanned " + str(len(apps_scanned)) + " app(s): " + ", ".join(apps_scanned) + ".")
+        lines.append("Analysed " + str(len(elements)) + " process element(s).")
+        lines.append("")
+
+        if matched_doctypes:
+            lines.append("### DocTypes matched (" + str(len(matched_doctypes)) + ")")
+            for dt in matched_doctypes[:20]:
+                hit_str = ", ".join(['"' + str(e) + '"' for e in dt["matched_elements"][:3]])
+                lines.append("  • **" + dt["doctype"] + "** (" + str(dt["app"]) + ") — via: " + hit_str)
+            if len(matched_doctypes) > 20:
+                lines.append("  … and " + str(len(matched_doctypes) - 20) + " more DocTypes")
+            lines.append("")
+        else:
+            lines.append("No matching DocTypes found.")
+            lines.append("")
+
+        if controller_classes:
+            lines.append("### Controller classes found (" + str(len(controller_classes)) + ")")
+            for cc in controller_classes[:15]:
+                lines.append("  • `" + cc["class"] + "` → `" + cc["file"] + "`")
+            lines.append("")
+
+        if matched_hooks:
+            lines.append("### Hooks matched (" + str(len(matched_hooks)) + ")")
+            by_type = {}
+            for h in matched_hooks:
+                by_type.setdefault(h["hook_type"], []).append(h)
+            for htype, items in by_type.items():
+                lines.append("  **" + htype + "** (" + str(len(items)) + "):")
+                for h in items[:6]:
+                    dt_part = " [" + h["doctype"] + "]" if h["doctype"] else ""
+                    event_part = " on *" + str(h["event"]) + "*" if h["event"] != "class_override" else ""
+                    lines.append("    • `" + str(h["method"]) + "`" + dt_part + event_part)
+                if len(items) > 6:
+                    lines.append("    … and " + str(len(items) - 6) + " more")
+            lines.append("")
+        else:
+            lines.append("No matching hooks found.")
+            lines.append("")
+
+        if whitelisted_methods:
+            lines.append("### @frappe.whitelist() methods found (" + str(len(whitelisted_methods)) + ")")
+            for m in whitelisted_methods[:15]:
+                lines.append("  • `" + m["function"] + "` in `" + m["file"] + ":" + str(m["line"]) + "`")
+            lines.append("")
+
+        return "\n".join(lines)
+
+    def _empty(elements, summary, error=None):
+        return {
+            "process_elements": elements,
+            "doctypes_found": [],
+            "hooks_found": [],
+            "controller_classes": [],
+            "whitelisted_methods": [],
+            "summary": summary,
+            "apps_scanned": [],
+            "error": error,
+        }
+
+    # ── 0. Validate input ─────────────────────────────────────────────────────
+    raw_elements = process_elements or []
+    if isinstance(raw_elements, str):
+        try:
+            decoded = json.loads(raw_elements)
+            raw_elements = decoded if isinstance(decoded, list) else [raw_elements]
+        except Exception:
+            raw_elements = [raw_elements]
+    elements = [str(e).strip() for e in raw_elements if str(e).strip()]
+    if not elements:
+        return _empty(raw_elements, "No process elements supplied.")
+
+    # ── 1. Raw index (cached an hour by the shared module) ────────────────────
+    try:
+        index = get_codebase_index()
+    except Exception as exc:
+        frappe.log_error(title="LuCrusher — Codebase Index Error", message=frappe.get_traceback())
+        return _empty(elements, "Failed to build codebase index: " + str(exc), str(exc))
+
+    all_doctypes = index["doctypes"]
+    all_hooks = index["hooks"]
+    apps_scanned = index["apps_scanned"]
+
+    # ── 2. Keyword sets ───────────────────────────────────────────────────────
+    elem_kw_pairs = [(e, _extract_keywords(e)) for e in elements]
+    all_elem_kws = set()
+    for _e, kws in elem_kw_pairs:
+        all_elem_kws.update(kws)
+
+    # ── 3. DocTypes ───────────────────────────────────────────────────────────
+    matched_doctypes = []
+    matched_dt_names = set()
+    for dt in all_doctypes:
+        best_score, best_elements = _best_match(elem_kw_pairs, _extract_keywords(dt["name"]))
+        if best_elements:
+            matched_doctypes.append({
+                "doctype": dt["name"],
+                "app": dt["app"],
+                "module": dt["module"],
+                "file": dt["file"],
+                "py_file": dt["py_file"],
+                "py_exists": dt.get("py_exists"),
+                "matched_elements": best_elements,
+                "score": round(best_score, 3),
+            })
+            matched_dt_names.add(dt["name"].lower())
+    matched_doctypes.sort(key=lambda x: x["score"], reverse=True)
+    matched_doctypes = matched_doctypes[:60]
+
+    # ── 4. Hooks ──────────────────────────────────────────────────────────────
+    matched_hooks = []
+    for hook in all_hooks:
+        doctype = hook.get("doctype") or ""
+        method = hook.get("method") or ""
+        fn_name = method.split(".")[-1] if method else ""
+        hook_kws = _extract_keywords(doctype + " " + str(hook.get("event") or "") + " " + fn_name)
+        doctype_kws = _extract_keywords(doctype)
+        best_score, best_elements = _best_match(elem_kw_pairs, hook_kws, doctype_kws or None)
+        # Structurally related: a hook on an already-matched DocType counts even
+        # when its own text overlap is weak.
+        if doctype.lower() and doctype.lower() in matched_dt_names and not best_elements:
+            best_elements = ["(via matched DocType)"]
+            best_score = _SCORE_THRESHOLD
+        if best_elements:
+            matched_hooks.append({
+                "hook_type": hook["hook_type"],
+                "doctype": doctype,
+                "event": hook["event"],
+                "method": method,
+                "app": hook["app"],
+                "matched_elements": best_elements,
+                "score": round(best_score, 3),
+            })
+    matched_hooks.sort(key=lambda x: x["score"], reverse=True)
+    matched_hooks = matched_hooks[:120]
+
+    # ── 5. Controller files ───────────────────────────────────────────────────
+    controller_classes = []
+    for dt in matched_doctypes[:30]:
+        if not dt["app"] or not dt.get("py_exists"):
+            continue
+        pascal = "".join([w.title() for w in dt["doctype"].split()])
+        controller_classes.append({
+            "class": pascal,
+            "doctype": dt["doctype"],
+            "file": dt["py_file"],
+            "app": dt["app"],
+            "matched_elements": dt["matched_elements"],
+            "score": dt["score"],
+        })
+    controller_classes.sort(key=lambda x: x["score"], reverse=True)
+
+    # ── 6. @frappe.whitelist() methods ────────────────────────────────────────
+    # Bounded twice over: only apps that contributed matched DocTypes or hooks,
+    # and only files whose path mentions one of the element keywords.
+    apps_to_scan = set()
+    for dt in matched_doctypes[:25]:
+        if dt["app"]:
+            apps_to_scan.add(dt["app"])
+    for hook in matched_hooks[:40]:
+        if hook["app"]:
+            apps_to_scan.add(hook["app"])
+
+    whitelisted_methods = []
+    try:
+        candidates = find_whitelisted_methods(sorted(apps_to_scan), all_elem_kws)
+    except Exception:
+        frappe.log_error(
+            title="LuCrusher — @frappe.whitelist() scan failed",
+            message=frappe.get_traceback(),
+        )
+        candidates = []
+    for entry in candidates:
+        best_score, best_elements = _best_match(elem_kw_pairs, _extract_keywords(entry["function"]))
+        if best_elements:
+            hit = dict(entry)
+            hit["matched_elements"] = best_elements
+            hit["score"] = round(best_score, 3)
+            whitelisted_methods.append(hit)
+    whitelisted_methods.sort(key=lambda x: x["score"], reverse=True)
+    whitelisted_methods = whitelisted_methods[:60]
+
+    summary = _build_codebase_summary(
+        elements, matched_doctypes, matched_hooks, controller_classes,
+        whitelisted_methods, apps_scanned,
+    )
+
+    # Both spellings of each key are returned — the frontend panels and the
+    # trimmer below read either.
+    return {
+        "process_elements": elements,
+        "doctypes_found": matched_doctypes,
+        "matched_doctypes": matched_doctypes,
+        "hooks_found": matched_hooks,
+        "controller_classes": controller_classes,
+        "controller_files": controller_classes,
+        "whitelisted_methods": whitelisted_methods,
+        "whitelist_methods": whitelisted_methods,
+        "summary": summary,
+        "apps_scanned": apps_scanned,
+        "error": None,
+    }
+
+
+def _lucrusher_trim_scan(scan):
+    if not scan or scan.get("error"):
+        return scan
+    trimmed = dict(scan)
+    for key in (
+        "matched_doctypes", "doctypes_found",
+        "hooks_found",
+        "controller_files", "controller_classes",
+        "whitelist_methods", "whitelisted_methods",
+    ):
+        items = scan.get(key) or []
+        if len(items) > 20:
+            trimmed[key] = items[:20]
+            trimmed[key + "_truncated"] = True
+            trimmed[key + "_total"] = len(items)
+    return trimmed
+
+
+_lcr_full_scan = _lucrusher_scan_codebase(frappe, task_data.get("process_elements") or [])
+update_turn(context_docname, full_scan=_lcr_full_scan)
+def _lucrusher_scan_digest(scan):
+    # What the MODEL is shown (WI-002195). The full scan is already in the turn
+    # store (update_turn above) and finalize attaches it to the result itself,
+    # so the model needs the ranked summary and the names it can act on — not
+    # twenty fully-detailed rows per list under two spellings each. Measured:
+    # the trimmed structure ran to 76,893 characters on one call.
+    if not scan or scan.get("error"):
+        return scan
+
+    def _count(key):
+        items = scan.get(key) or []
+        return len(items) if isinstance(items, list) else 0
+
+    top_doctypes = []
+    for dt in (scan.get("matched_doctypes") or [])[:10]:
+        if isinstance(dt, dict):
+            top_doctypes.append({
+                "doctype": dt.get("doctype"),
+                "app": dt.get("app"),
+                "score": dt.get("score"),
+            })
+    top_methods = []
+    for m in (scan.get("whitelisted_methods") or [])[:10]:
+        if isinstance(m, dict):
+            top_methods.append({"function": m.get("function"), "file": m.get("file")})
+
+    return {
+        "summary": scan.get("summary") or "",
+        "counts": {
+            "doctypes": _count("matched_doctypes"),
+            "hooks": _count("hooks_found"),
+            "controllers": _count("controller_classes"),
+            "whitelisted_methods": _count("whitelisted_methods"),
+        },
+        "top_doctypes": top_doctypes,
+        "top_whitelisted_methods": top_methods,
+        "apps_scanned": scan.get("apps_scanned") or [],
+        "note": (
+            "This is a digest. The full scan is stored for this turn and attached "
+            "to finalize automatically - do not repeat it and do not pass it to finalize."
+        ),
+        "error": None,
+    }
+
+
+result["codebase_scan"] = _lucrusher_scan_digest(_lcr_full_scan)

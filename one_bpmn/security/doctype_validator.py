@@ -243,8 +243,26 @@ def validate_doctype_ir(ir: dict, existing_fieldnames: set | None = None) -> dic
 	return {
 		"valid": not violations,
 		"violations": violations,
+		"warnings": _child_table_warnings(ir.get("fields")),
 		"fix_hints": [] if not violations else [_FIX_HINT],
 	}
+
+
+def child_table_is_editable(name: str) -> bool:
+	"""True for a custom child DocType, the only kind whose columns Docu may change."""
+	return bool(frappe.db.get_value("DocType", name, "custom") and frappe.db.get_value("DocType", name, "istable"))
+
+
+def _child_table_warnings(fields) -> list:
+	"""One line per inline column change aimed at a table Docu cannot change."""
+	warnings = []
+	for field in fields or []:
+		if not isinstance(field, dict) or field.get("fieldtype") not in _TABLE_FIELDTYPES:
+			continue
+		target = (field.get("options") or "").strip()
+		if field.get("child_fields") and frappe.db.exists("DocType", target) and not child_table_is_editable(target):
+			warnings.append(_("{0} is a standard table, so Docu cannot change its columns.").format(target))
+	return warnings
 
 
 def _autoname_violations(autoname) -> list:

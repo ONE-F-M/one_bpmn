@@ -2,6 +2,8 @@
 # For license information, please see license.txt
 """Helpers the ProsAlly tool scripts share: property preservation, JSON extraction, confirmation replies, history, model calls."""
 
+import copy
+import difflib
 import json
 import re
 from collections import Counter
@@ -10,15 +12,18 @@ from xml.etree import ElementTree as ET
 import frappe
 from frappe import _
 
-from one_bpmn.agents.bpmn_ir_pipeline import element_names
+from one_bpmn.agents.bpmn_ir_pipeline import compile_ir, element_names, has_lanes
 from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
-from one_bpmn.agents.memory.text_clean import strip_html
+from one_bpmn.agents.memory.text_clean import strip_html, unescape_entities
 from one_bpmn.agents.turn_state import run_sync
 from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 
 AGENT_ID = "prosally_agent"
 HISTORY_TURNS = 10
 MIN_STAGE_TOKENS = 16384
+# The most steps and settings a confirmation summary lists.
+MAX_CONFIRMATION_STEPS = 8
+MAX_CONFIRMATION_SETTINGS = 6
 
 # Whole replies that approve a pending confirmation, after punctuation and "please" or "thanks" are dropped.
 AFFIRMATIONS = frozenset(
@@ -103,6 +108,54 @@ NS = {
 	"custom": "http://custom/text-style",
 	"camunda": "http://camunda.org/schema/1.0/bpmn",
 }
+SUBPROCESS_KEPT_TAGS = tuple(
+	"{" + NS["bpmn"] + "}" + tag for tag in ("incoming", "outgoing", "extensionElements", "documentation")
+)
+ID_REF_ATTRS = ("id", "sourceRef", "targetRef", "bpmnElement", "default", "attachedToRef")
+STEP_TAGS = tuple(
+	"{" + NS["bpmn"] + "}" + tag for tag in ("task", "userTask", "scriptTask", "serviceTask", "manualTask", "businessRuleTask")
+)
+SUBPROCESS_REQUEST = re.compile(r"sub[\s-]?process\s+(?:for|of|on)\s+(?:the\s+)?(?:step\s+)?([^:,.;\n]+)", re.I)
+BECOME_SUBPROCESS = re.compile(
+	r"([^:,.;\n]+?)\s+(?:should\s+be|must\s+be|needs?\s+to\s+be|to\s+be|become|becomes|into|as|a|an)\s+(?:a\s+|an\s+)?(?:expanded\s+)?sub[\s-]?process",
+	re.I,
+)
+LINT_FIX_REQUEST = re.compile(
+	r"\b(?:fix|resolve|clear|clean\s*up|correct|repair|solve|sort\s*out)\b[^.:]{0,60}\b(?:lint(?:ing)?|linter|warnings?|errors?|issues?|problems?)\b"
+	r"(?!\s+(?:handler|step|task|event|gateway|flow|path|boundary|code))"
+	r"|\blint(?:ing)?\b[^.:]{0,40}\b(?:fix|resolve|clear|clean\s*up|correct|repair)",
+	re.I,
+)
+LINT_NOT_FIXABLE = frozenset(
+	(
+		"no-overlapping-elements",
+		"no-crossing-edges",
+		"script-task-missing-script",
+		"call-activity-missing-process",
+		"no-prohibited-shapes",
+		"no-bpmndi",
+		"ad-hoc-sub-process",
+	)
+)
+LINT_ABOUT_CONTENTS = frozenset(
+	("start-event-required", "end-event-required", "sub-process-blank-start-event", "single-blank-start-event")
+)
+MAX_LINT_FINDINGS = 40
+DIAGRAM_REPLIES = ("BPMN_MODIFIED", "BPMN_GENERATED")
+REQUEST_STOPWORDS = frozenset(
+	("create", "sub", "process", "subprocess", "step", "steps", "with", "that", "this", "from", "into", "inside", "when", "then", "should")
+)
+RECENT_REPLIES = 10
+DEFINITE_SUBPROCESS = re.compile(r"(?<!new\s)\b(?:the|that|this|my|your)\s+sub[\s-]?p(?:ro|or)ces{1,2}\b", re.I)
+TYPO_SIMILARITY = 0.75
+POSITION_WORDS = (
+	r"\b(?:after|before|following|preceding|then|next\s+to|beside|alongside|near|adjacent\s+to|above|below)\s+(?:the\s+|a\s+)?$"
+)
+CALL_ACTIVITY_CONVERSION = re.compile(
+	r"\b(?:as|into|to)\s+(?:a\s+|an\s+)?call[\s-]?activit|\b(?:make|turn|convert|change)\b[^.:]{0,80}\bcall[\s-]?activit", re.I
+)
+EXPANDED_PAD = 24
+EXPANDED_HEADER = 36
 EXTENSION_NS_URIS = (
 	"{http://spiffworkflow.org/bpmn/schema/1.0/core}",
 	"{http://custom/text-style}",
@@ -195,8 +248,8 @@ def stage_max_tokens(cfg: dict) -> int:
 	return max_tokens
 
 
-def answer_to_confirmation(conversation: str, user_text: str) -> dict:
-	"""{"confirmed_action": ...} or {"declined_action": ...} when user_text answers the last Bot confirmation, else {}."""
+def pending_confirmation(conversation: str) -> str:
+	"""The action_intent the last Bot message asks the user to confirm; "" when that message is not a confirmation card."""
 	last = frappe.get_all(
 		"Chat Message",
 		filters={"conversation": conversation, "message_type": "Bot"},
@@ -207,6 +260,14 @@ def answer_to_confirmation(conversation: str, user_text: str) -> dict:
 	meta = frappe.parse_json(last[0].metadata or "{}") if last else {}
 	action = (meta.get("agent_result") or {}).get("action_intent")
 	if meta.get("intent") != "CONFIRM" or not action:
+		return ""
+	return action
+
+
+def answer_to_confirmation(conversation: str, user_text: str) -> dict:
+	"""{"confirmed_action": ...} or {"declined_action": ...} when user_text answers the last Bot confirmation, else {}."""
+	action = pending_confirmation(conversation)
+	if not action:
 		return {}
 	reply = confirmation_reply(user_text)
 	if reply == "yes":
@@ -247,11 +308,21 @@ def _confirmation_text(parts: dict) -> str:
 	settings = [str(setting).strip() for setting in parts.get("settings") or [] if str(setting).strip()]
 	blocks = [str(parts.get("intro") or "").strip()]
 	if steps:
-		blocks.append(_("Here's what I understood:") + "\n" + "\n".join("- " + step for step in steps))
+		blocks.append(_("Here's what I understood:") + "\n" + _capped_lines(steps, MAX_CONFIRMATION_STEPS))
 	if settings:
-		blocks.append(_("I'll also set these up on the steps:") + "\n" + "\n".join("- " + setting for setting in settings))
+		blocks.append(
+			_("I'll also set these up on the steps:") + "\n" + _capped_lines(settings, MAX_CONFIRMATION_SETTINGS)
+		)
 		blocks.append(_('Reply "draw only" if you\'d rather I draw just the steps, without these settings.'))
 	return "\n\n".join(block for block in blocks if block)
+
+
+def _capped_lines(items: list, limit: int) -> str:
+	"""The first limit items one per line, then a line saying how many more were not listed."""
+	lines = ["- " + item for item in items[:limit]]
+	if len(items) > limit:
+		lines.append(_("and {0} more not listed here").format(len(items) - limit))
+	return "\n".join(lines)
 
 
 def _comparable(text: str) -> str:
@@ -315,13 +386,13 @@ def overwrite_warning(xml: str) -> str:
 	return summarize_configured_elements(configured)
 
 
-def transfer_properties(old_xml: str, new_xml: str) -> tuple:
-	"""Copy configuration from old_xml onto the same ids in new_xml; return (merged_xml, removed)."""
+def transfer_properties(old_xml: str, new_xml: str, skip_ids: tuple = ()) -> tuple:
+	"""Copy configuration from old_xml onto the same ids in new_xml, except skip_ids; return (merged_xml, removed)."""
 	if not (old_xml or "").strip():
 		return new_xml, []
 	if not (new_xml or "").strip():
 		return new_xml, []
-	old_configured = extract_configured_elements(old_xml)
+	old_configured = {k: v for k, v in extract_configured_elements(old_xml).items() if k not in skip_ids}
 	if not old_configured:
 		return new_xml, []
 	_register_namespaces()
@@ -343,6 +414,321 @@ def transfer_properties(old_xml: str, new_xml: str) -> tuple:
 	merged_xml = ET.tostring(new_root, encoding="unicode", xml_declaration=True)
 	merged_xml = re.sub(r"^<\?xml\s[^?]*\?>", '<?xml version="1.0" encoding="UTF-8"?>', merged_xml)
 	return merged_xml, removed
+
+
+def resolve_scope(xml: str, texts: list, scope_id: str = "") -> dict | None:
+	"""The sub-process a request is about: the one open on the canvas, else the one the newest message names."""
+	if not (xml or "").strip():
+		return None
+	_register_namespaces()
+	subs = {e.get("id"): e for e in ET.fromstring(xml).iter("{" + NS["bpmn"] + "}subProcess") if e.get("id")}
+	chosen = subs.get(scope_id)
+	for text in texts:
+		if chosen is not None:
+			break
+		named = [e for e in subs.values() if e.get("name") and _is_named(text or "", e.get("name"))]
+		if named:
+			chosen = max(named, key=lambda e: len(e.get("name")))
+	if chosen is None:
+		return None
+	return {"id": chosen.get("id"), "name": chosen.get("name") or chosen.get("id"), "xml": ET.tostring(chosen, encoding="unicode")}
+
+
+def _is_named(text: str, name: str) -> bool:
+	"""True when text names the sub-process as the thing to edit, not as a place to put a step before or after."""
+	pattern = r"[\s\-]*".join(re.escape(word) for word in re.split(r"[^A-Za-z0-9]+", name) if word)
+	for match in re.finditer(pattern, text, re.I):
+		if not re.search(POSITION_WORDS, text[: match.start()], re.I):
+			return True
+	return False
+
+
+def splice_subprocess(xml: str, child_xml: str, scope_id: str) -> str:
+	"""xml with the sub-process scope_id holding the steps compiled in child_xml and its own plane redrawn."""
+	_register_namespaces()
+	root = ET.fromstring(xml)
+	child_root = ET.fromstring(child_xml)
+	bpmn, bpmndi = "{" + NS["bpmn"] + "}", "{" + NS["bpmndi"] + "}"
+	sub = next(e for e in root.iter(bpmn + "subProcess") if e.get("id") == scope_id)
+	for step in [e for e in sub if e.tag not in SUBPROCESS_KEPT_TAGS]:
+		sub.remove(step)
+	for diagram in root.findall(bpmndi + "BPMNDiagram"):
+		if diagram.find(bpmndi + "BPMNPlane").get("bpmnElement") == scope_id:
+			root.remove(diagram)
+	di_prefixes = tuple("{" + NS[prefix] for prefix in ("bpmndi", "dc", "di"))
+	semantic = {e.get("id") for e in root.iter() if e.get("id") and not e.tag.startswith(di_prefixes)}
+	for diagram in root.findall(bpmndi + "BPMNDiagram"):
+		plane = diagram.find(bpmndi + "BPMNPlane")
+		for gone in [e for e in plane if e.get("bpmnElement") not in semantic]:
+			plane.remove(gone)
+		for shape in plane.findall(bpmndi + "BPMNShape"):
+			if shape.get("bpmnElement") == scope_id:
+				shape.set("isExpanded", "false")
+
+	_rename_taken_ids(child_root, {e.get("id") for e in root.iter() if e.get("id")}, scope_id)
+	sub.extend(child_root.find(bpmn + "process"))
+	for scope in sub.iter(bpmn + "subProcess"):
+		add_flow_references(scope)
+	for diagram in child_root.findall(bpmndi + "BPMNDiagram"):
+		diagram.set("id", "BPMNDiagram_" + scope_id)
+		plane = diagram.find(bpmndi + "BPMNPlane")
+		plane.set("id", "BPMNPlane_" + scope_id)
+		plane.set("bpmnElement", scope_id)
+		root.append(diagram)
+	spliced = ET.tostring(root, encoding="unicode", xml_declaration=True)
+	return re.sub(r"^<\?xml\s[^?]*\?>", '<?xml version="1.0" encoding="UTF-8"?>', spliced)
+
+
+def _rename_taken_ids(child_root: ET.Element, taken: set, suffix: str) -> None:
+	"""Rename every id in child_root that is already in taken, and every reference to it."""
+	bpmn = "{" + NS["bpmn"] + "}"
+	renames = {e.get("id"): e.get("id") + "_" + suffix for e in child_root.iter() if e.get("id") in taken}
+	for e in child_root.iter():
+		for attr in ID_REF_ATTRS:
+			if e.get(attr) in renames:
+				e.set(attr, renames[e.get(attr)])
+		if e.tag in (bpmn + "incoming", bpmn + "outgoing") and e.text in renames:
+			e.text = renames[e.text]
+
+
+def add_flow_references(scope: ET.Element) -> None:
+	"""Give each step of scope the incoming and outgoing flow references the editor and its linter read."""
+	bpmn = "{" + NS["bpmn"] + "}"
+	steps = {e.get("id"): e for e in scope if e.get("id") and e.tag != bpmn + "sequenceFlow"}
+	for flow in scope.findall(bpmn + "sequenceFlow"):
+		for ref, tag in ((flow.get("sourceRef"), "outgoing"), (flow.get("targetRef"), "incoming")):
+			step = steps.get(ref)
+			if step is not None and flow.get("id") not in [c.text for c in step.findall(bpmn + tag)]:
+				ET.SubElement(step, bpmn + tag).text = flow.get("id")
+
+
+def restore_call_activities(old_xml: str, new_xml: str) -> str:
+	"""new_xml with each call activity of old_xml put back as it was, so a modify never changes one."""
+	_register_namespaces()
+	call = "{" + NS["bpmn"] + "}callActivity"
+	bpmn = "{" + NS["bpmn"] + "}"
+	originals = {e.get("id"): e for e in ET.fromstring(old_xml).iter(call) if e.get("id")}
+	if not originals:
+		return new_xml
+	root = ET.fromstring(new_xml)
+	for parent in list(root.iter()):
+		for index, child in enumerate(list(parent)):
+			original = originals.get(child.get("id"))
+			if original is not None:
+				kept = copy.deepcopy(original)
+				for reference in [c for c in kept if c.tag in (bpmn + "incoming", bpmn + "outgoing")]:
+					kept.remove(reference)
+				parent[index] = kept
+	restored = ET.tostring(root, encoding="unicode", xml_declaration=True)
+	return re.sub(r"^<\?xml\s[^?]*\?>", '<?xml version="1.0" encoding="UTF-8"?>', restored)
+
+
+def unapplied_proposal(conversation: str, current_xml: str, message: str = "") -> dict | None:
+	"""What the newest diagram reply adds that the canvas lacks, the request behind it, and which of those the message names."""
+	if not (current_xml or "").strip():
+		return None
+	replies = frappe.get_all(
+		"Chat Message",
+		filters={"conversation": conversation, "message_type": "Bot"},
+		fields=["metadata", "creation"],
+		order_by="creation desc",
+		limit=RECENT_REPLIES,
+	)
+	found = [(frappe.parse_json(reply.metadata or "{}").get("agent_result"), reply.creation) for reply in replies]
+	result, replied_at = next(
+		((r, at) for r, at in found if isinstance(r, dict) and r.get("intent") in DIAGRAM_REPLIES and r.get("bpmn_xml")),
+		(None, None),
+	)
+	if result is None:
+		return None
+	on_canvas = element_names(current_xml)
+	proposed = [
+		(kind, name)
+		for element_id, (kind, name) in element_names(result["bpmn_xml"]).items()
+		if name and kind != "sequenceFlow" and element_id not in on_canvas
+	]
+	if not proposed:
+		return None
+	added = [name for _, name in proposed]
+	earlier = frappe.get_all(
+		"Chat Message",
+		filters={"conversation": conversation, "message_type": "User", "creation": ["<", replied_at]},
+		fields=["text"],
+		order_by="creation desc",
+		limit=RECENT_REPLIES,
+	)
+	request = next((strip_html(m.text) for m in earlier if m.text and not confirmation_reply(m.text)), "")
+	named = [name for name in added if _squash(name) in _squash(message or "")]
+	existing = [name for kind, name in on_canvas.values() if kind == "subProcess" and name]
+	refers_to_it = DEFINITE_SUBPROCESS.search(message or "") and not any(_is_named(message, name) for name in existing)
+	if not named and refers_to_it:
+		named = [name for kind, name in proposed if kind == "subProcess"][:1]
+	return {"added": added[:8], "request": request, "named": named}
+
+
+def asks_to_make_call_activity(text: str) -> bool:
+	"""True when the message asks to show or turn something into a call activity, which runs a separate process."""
+	return bool(CALL_ACTIVITY_CONVERSION.search(text or ""))
+
+
+def find_missing_target(xml: str, texts: list) -> dict | None:
+	"""The name a message asks for a sub-process on when no step or sub-process has it, with the closest names that exist."""
+	if not (xml or "").strip():
+		return None
+	_register_namespaces()
+	sub_tag = "{" + NS["bpmn"] + "}subProcess"
+	root = ET.fromstring(xml)
+	parents = {child: parent for parent in root.iter() for child in parent}
+	depth = {}
+	known = {}
+	existing = [e.get("name") for e in root.iter() if e.tag == "{" + NS["bpmn"] + "}callActivity" and e.get("name")]
+	for e in root.iter():
+		if e.tag in (*STEP_TAGS, sub_tag) and e.get("id") and e.get("name"):
+			ancestors, node = 0, e
+			while node in parents:
+				node = parents[node]
+				ancestors += node.tag == sub_tag
+			known.setdefault(e.get("name"), "sub-process" if e.tag == sub_tag else "step")
+			depth[e.get("name")] = min(ancestors, depth.get(e.get("name"), ancestors))
+	for text in texts:
+		match = SUBPROCESS_REQUEST.search(text or "")
+		if not match:
+			continue
+		asked = match.group(1).strip()
+		if any(_squash(name) in _squash(asked) or _squash(asked) in _squash(name) for name in (*known, *existing)):
+			return None
+		similarity = {name: difflib.SequenceMatcher(None, asked.lower(), name.lower()).ratio() for name in known}
+		asks_for_new = re.search(r"\bnew\s+sub[\s-]?process", text, re.I)
+		close = sorted(
+			(name for name in known if similarity[name] >= TYPO_SIMILARITY and not asks_for_new),
+			key=lambda name: (depth[name], -similarity[name]),
+		)
+		return {"asked": asked, "text": text, "candidates": [{"name": name, "kind": known[name]} for name in close[:3]]}
+	return None
+
+
+def _squash(text: str) -> str:
+	return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
+def resolve_step(xml: str, texts: list) -> dict | None:
+	"""The step the newest message asking for a sub-process names; a call activity is never converted."""
+	if not (xml or "").strip():
+		return None
+	_register_namespaces()
+	steps = [e for e in ET.fromstring(xml).iter() if e.tag in STEP_TAGS and e.get("id") and e.get("name")]
+	for text in texts:
+		targets = [match[1] for match in (*SUBPROCESS_REQUEST.finditer(text or ""), *BECOME_SUBPROCESS.finditer(text or ""))]
+		squashed = _squash(" ".join(targets))
+		named = [e for e in steps if _squash(e.get("name")) in squashed]
+		if named:
+			chosen = max(named, key=lambda e: len(e.get("name")))
+			return {"id": chosen.get("id"), "name": chosen.get("name")}
+	return None
+
+
+def convert_step_to_subprocess(xml: str, step_id: str, child_xml: str) -> str:
+	"""xml with the step step_id turned into an expanded sub-process holding the steps compiled in child_xml."""
+	_register_namespaces()
+	root = ET.fromstring(xml)
+	child_root = ET.fromstring(child_xml)
+	bpmn, bpmndi = "{" + NS["bpmn"] + "}", "{" + NS["bpmndi"] + "}"
+	parent = next(p for p in root.iter() if any(c.get("id") == step_id for c in p))
+	step = next(c for c in parent if c.get("id") == step_id)
+	sub = ET.Element(bpmn + "subProcess", {"id": step_id, "name": step.get("name", "")})
+	sub.extend([c for c in step if c.tag in (bpmn + "documentation", bpmn + "incoming", bpmn + "outgoing")])
+	parent[list(parent).index(step)] = sub
+	_rename_taken_ids(child_root, {e.get("id") for e in root.iter() if e.get("id")}, step_id)
+	sub.extend(child_root.find(bpmn + "process"))
+	add_flow_references(sub)
+	plane = next((p for p in root.iter(bpmndi + "BPMNPlane") if any(s.get("bpmnElement") == step_id for s in p)), None)
+	if plane is not None:
+		_draw_expanded(plane, step_id, child_root.find(bpmndi + "BPMNDiagram/" + bpmndi + "BPMNPlane"))
+	converted = ET.tostring(root, encoding="unicode", xml_declaration=True)
+	return re.sub(r"^<\?xml\s[^?]*\?>", '<?xml version="1.0" encoding="UTF-8"?>', converted)
+
+
+def _draw_expanded(plane: ET.Element, step_id: str, child_plane: ET.Element) -> None:
+	"""Grow the step's box to hold the child drawing, make room for it, and draw the steps inside."""
+	dc, bpmndi = "{" + NS["dc"] + "}", "{" + NS["bpmndi"] + "}"
+	shape = next(s for s in plane.findall(bpmndi + "BPMNShape") if s.get("bpmnElement") == step_id)
+	bounds = shape.find(dc + "Bounds")
+	x, y, w, h = (float(bounds.get(k)) for k in ("x", "y", "width", "height"))
+	left, top, right, bottom = _extent(child_plane)
+	new_w = max(200.0, right - left + 2 * EXPANDED_PAD)
+	new_h = max(120.0, bottom - top + EXPANDED_PAD + EXPANDED_HEADER)
+	_make_room(plane, shape, (x + w, y + h, y + h / 2), max(0.0, new_w - w), max(0.0, new_h - h))
+	bounds.set("width", _num(max(w, new_w)))
+	bounds.set("height", _num(max(h, new_h)))
+	shape.set("isExpanded", "true")
+	for drawn in child_plane:
+		moved = copy.deepcopy(drawn)
+		_shift(moved, x + EXPANDED_PAD - left, y + EXPANDED_HEADER - top, lambda px, py: (px, py))
+		plane.append(moved)
+
+
+def _extent(drawing: ET.Element) -> tuple:
+	"""The left, top, right and bottom edges of everything drawn under drawing."""
+	dc, di = "{" + NS["dc"] + "}", "{" + NS["di"] + "}"
+	xs, ys = [], []
+	for b in drawing.iter(dc + "Bounds"):
+		xs += [float(b.get("x")), float(b.get("x")) + float(b.get("width"))]
+		ys += [float(b.get("y")), float(b.get("y")) + float(b.get("height"))]
+	for p in drawing.iter(di + "waypoint"):
+		xs.append(float(p.get("x")))
+		ys.append(float(p.get("y")))
+	return min(xs), min(ys), max(xs), max(ys)
+
+
+def _make_room(plane: ET.Element, step_shape: ET.Element, edges: tuple, dw: float, dh: float) -> None:
+	"""Move what is right of the step by dw and what is below it by dh; widen and heighten the lanes and pool."""
+	dc, bpmndi = "{" + NS["dc"] + "}", "{" + NS["bpmndi"] + "}"
+	right, bottom, centre = edges
+	horizontal = [s for s in plane.findall(bpmndi + "BPMNShape") if s.get("isHorizontal") == "true"]
+	containing = []
+	for lane in horizontal:
+		b = lane.find(dc + "Bounds")
+		if float(b.get("y")) <= centre <= float(b.get("y")) + float(b.get("height")):
+			containing.append(float(b.get("y")) + float(b.get("height")))
+	lane_bottom = min(containing) if containing else None
+	for drawn in plane:
+		if drawn is step_shape:
+			continue
+		if drawn in horizontal:
+			b = drawn.find(dc + "Bounds")
+			b.set("width", _num(float(b.get("width")) + dw))
+			top, height = float(b.get("y")), float(b.get("height"))
+			if top <= centre <= top + height:
+				b.set("height", _num(height + dh))
+			elif lane_bottom is not None and top >= lane_bottom:
+				b.set("y", _num(top + dh))
+			continue
+		_shift(drawn, 0, 0, lambda px, py: (px + dw if px >= right else px, py + dh if py >= bottom else py))
+
+
+def _shift(drawn: ET.Element, dx: float, dy: float, rule) -> None:
+	"""Move a shape, with its label, or an edge point by point: each point moves as rule says, then by dx and dy."""
+	dc, di = "{" + NS["dc"] + "}", "{" + NS["di"] + "}"
+	own = drawn.find(dc + "Bounds")
+	pinned = None if own is None else _offset(own, rule)
+	for b in drawn.iter(dc + "Bounds"):
+		ox, oy = pinned or _offset(b, rule)
+		b.set("x", _num(float(b.get("x")) + ox + dx))
+		b.set("y", _num(float(b.get("y")) + oy + dy))
+	for p in drawn.iter(di + "waypoint"):
+		ox, oy = _offset(p, rule)
+		p.set("x", _num(float(p.get("x")) + ox + dx))
+		p.set("y", _num(float(p.get("y")) + oy + dy))
+
+
+def _offset(point: ET.Element, rule) -> tuple:
+	x, y = float(point.get("x")), float(point.get("y"))
+	new_x, new_y = rule(x, y)
+	return new_x - x, new_y - y
+
+
+def _num(value: float) -> str:
+	return str(int(value)) if value == int(value) else str(round(value, 2))
 
 
 def format_removal_warning(removed_elements: list) -> str:
@@ -521,9 +907,359 @@ def describe_changes(previous_xml: str, xml: str) -> str:
 		lines.append(_("Added {0}.").format(_element_label("sequenceFlow", name)))
 	for name in (old_paths - new_paths).elements():
 		lines.append(_("Removed {0}.").format(_element_label("sequenceFlow", name)))
+	lines += _moved_arrows(previous_xml, xml)
 	if not lines:
 		return "\n\n" + _("I could not find any change on the diagram. Check that your request was applied.")
 	return "\n\n" + _("What changed:") + "\n" + "\n".join("- " + line for line in lines)
+
+
+def _moved_arrows(previous_xml: str, xml: str) -> list[str]:
+	"""Arrows between steps that exist before and after whose source or target changed, as plain lines."""
+	old_names = {i: name for i, (kind, name) in element_names(previous_xml).items() if kind != "sequenceFlow"}
+	new_names = {i: name for i, (kind, name) in element_names(xml).items() if kind != "sequenceFlow"}
+
+	def arrows(text):
+		found = Counter()
+		for attrs in re.findall(r"<bpmn:sequenceFlow\s([^>]*?)/?>", text or ""):
+			values = {key: val for key, val in re.findall(r'(\w+)="([^"]*)"', attrs)}
+			found[(values.get("sourceRef"), values.get("targetRef"), values.get("name", ""))] += 1
+		return found
+
+	gone = list((arrows(previous_xml) - arrows(xml)).elements())
+	lines = []
+	for source, target, label in (arrows(xml) - arrows(previous_xml)).elements():
+		if source not in old_names or target not in old_names:
+			continue
+		match = next(
+			(
+				old
+				for old in gone
+				if old[2] == label and (old[0] == source) != (old[1] == target) and old[0] in new_names and old[1] in new_names
+			),
+			None,
+		)
+		if match:
+			gone.remove(match)
+			lines.append(
+				_("Moved the arrow from {0} to {1}.").format(_quoted(new_names[source] or source), _quoted(new_names[target] or target))
+			)
+	return lines
+
+IR_NODE_TYPES = frozenset(
+	{
+		"startEvent", "endEvent", "intermediateThrowEvent", "intermediateCatchEvent", "userTask", "scriptTask",
+		"serviceTask", "manualTask", "businessRuleTask", "exclusiveGateway", "parallelGateway", "inclusiveGateway",
+		"subProcess", "callActivity",
+	}
+)  # fmt: skip
+
+
+def xml_to_ir(xml: str) -> dict | None:
+	"""The IR that draws xml again, or None when xml has an element the IR cannot hold."""
+	bpmn = "{" + NS["bpmn"] + "}"
+	process = next(iter(ET.fromstring(xml).iter(bpmn + "process")), None)
+	if process is None:
+		return None
+	lane_of = {}
+	lanes = []
+	for lane in process.iter(bpmn + "lane"):
+		lanes.append({"id": lane.get("id"), "name": lane.get("name") or lane.get("id")})
+		for ref in lane.findall(bpmn + "flowNodeRef"):
+			lane_of[(ref.text or "").strip()] = lane.get("id")
+
+	def scope(parent):
+		nodes, flows = [], []
+		for elem in parent:
+			tag = elem.tag.removeprefix(bpmn)
+			if tag in IR_NODE_TYPES:
+				node = {"id": elem.get("id"), "name": elem.get("name") or "", "type": tag}
+				if elem.get("id") in lane_of:
+					node["lane"] = lane_of[elem.get("id")]
+				if elem.get("calledElement"):
+					node["calledElement"] = elem.get("calledElement")
+				if tag == "subProcess":
+					inner = scope(elem)
+					if inner is None:
+						return None
+					node["children"] = inner
+				nodes.append(node)
+			elif tag == "sequenceFlow":
+				flow = {"id": elem.get("id"), "from": elem.get("sourceRef"), "to": elem.get("targetRef")}
+				if elem.get("name"):
+					flow["name"] = elem.get("name")
+				body = elem.find(bpmn + "conditionExpression")
+				if body is not None and body.text:
+					flow["condition"] = body.text
+				if parent.get("default") == elem.get("id"):
+					flow["default"] = True
+				flows.append(flow)
+			elif tag not in ("laneSet", "extensionElements", "incoming", "outgoing", "documentation"):
+				return None
+		return {"nodes": nodes, "flows": flows}
+
+	body = scope(process)
+	if body is None:
+		return None
+	return {"name": process.get("name") or "", "lanes": lanes, **body}
+
+
+def diagram_geometry(xml: str) -> list:
+	"""Every drawn shape and arrow of xml with its position, in a stable order."""
+	bpmndi, dc, di = ("{" + NS[prefix] + "}" for prefix in ("bpmndi", "dc", "di"))
+	drawn = []
+	for elem in ET.fromstring(xml).iter():
+		if elem.tag in (bpmndi + "BPMNShape", bpmndi + "BPMNEdge"):
+			points = [(b.get("x"), b.get("y"), b.get("width"), b.get("height")) for b in elem.iter(dc + "Bounds")]
+			points += [(p.get("x"), p.get("y")) for p in elem.iter(di + "waypoint")]
+			drawn.append((elem.get("bpmnElement"), tuple(points)))
+	return sorted(drawn)
+
+
+def relayout(xml: str) -> tuple[str | None, str]:
+	"""(new xml, "") with the diagram drawn again and every id and setting kept; (None, reason) when it cannot be."""
+	if not has_lanes(xml):
+		return None, "lane-less"
+	ir = xml_to_ir(xml)
+	if ir is None:
+		return None, "unsupported"
+	compiled = compile_ir(ir)
+	if not compiled.get("ok") or not compiled.get("xml"):
+		return None, "failed"
+	merged, _removed = transfer_properties(xml, compiled["xml"])
+	if element_names(merged).keys() != element_names(xml).keys():
+		return None, "ids-changed"
+	if diagram_geometry(merged) == diagram_geometry(xml):
+		return None, "same"
+	return merged, ""
+
+
+LIST_ITEM = re.compile(r"^\s*(?:[-*\u2022]|\d+[.)]|[a-z][.)])\s+(.+?)\s*$", re.I)
+
+
+def spec_items(text: str) -> list[str]:
+	"""The bulleted or numbered lines of text, or dash items run together after a comma or colon, without their markers."""
+	plain = unescape_entities(re.sub(r"<[^>]+>", "", re.sub(r"<(?:br|/p|/li|/div)[^>]*>", "\n", text or "")))
+	lines = re.sub(r"[,:]\s+(?=[-*\u2022]\s)", "\n", plain).splitlines()
+	return [m.group(1) for line in lines if (m := LIST_ITEM.match(line))]
+
+
+def missing_spec_items(xml: str, spec: str) -> list[str]:
+	"""The list items of spec that no step on the diagram shares two significant words with."""
+	return [item for item in spec_items(spec) if len(item.split()) > 1 and not similar_steps(xml, [item])]
+
+
+def compare_output(xml: str, texts: list) -> dict:
+	"""The reply to a pasted specification asked about "what is missing": the gaps, and a question before adding them."""
+	spec = next((text for text in texts if len(spec_items(text or "")) > 1), "")
+	if not spec:
+		return {
+			"intent": "CLARIFY",
+			"response": _("Paste the list of steps you want to check, one per line, and I will tell you which are missing."),
+		}
+	missing = missing_spec_items(xml, spec)
+	if not missing:
+		return {"intent": "CLARIFY", "response": _("Every item in your list is already on the diagram, so I changed nothing.")}
+	listing = "\n".join("- " + item for item in missing)
+	return {
+		"intent": "CONFIRM",
+		"action_intent": "MODIFY_EXISTING",
+		"response": _("These items from your list are not on the diagram:") + "\n" + listing + "\n\n" + _("Shall I add them?"),
+		"options": [_("Yes, proceed"), _("No, let me adjust")],
+	}
+
+
+def relayout_output(xml: str) -> dict:
+	"""The reply to a confirmed re-layout: the diagram drawn again, or why nothing changed."""
+	new_xml, reason = relayout(xml)
+	if new_xml:
+		return {
+			"intent": "BPMN_MODIFIED",
+			"action_intent": "RELAYOUT",
+			"bpmn_xml": new_xml,
+			"response": _("I laid the diagram out again. Every step, arrow and setting is kept. Review it on the canvas."),
+			"options": [],
+		}
+	if reason == "same":
+		say = _("The layout is already the best I can make, so I changed nothing.")
+	elif reason == "lane-less":
+		say = _("This diagram has no lanes, so the editor lays it out itself. I changed nothing.")
+	else:
+		say = _("I could not lay the diagram out again without risking your steps, so I changed nothing.")
+	return {"intent": "CLARIFY", "response": say}
+
+
+def similar_steps(xml: str, texts: list, skip: str = "") -> list[str]:
+	"""Up to three steps in xml sharing two or more significant words with the newest request in texts, best first."""
+	request = next((strip_html(text) for text in texts if text and not confirmation_reply(text)), "")
+	skipped = {word[:5] for word in re.findall(r"[a-z]{4,}", skip.lower())}
+	wanted = {
+		word[:5] for word in re.findall(r"[a-z]{4,}", request.split(":", 1)[-1].lower()) if word not in REQUEST_STOPWORDS
+	} - skipped
+	scored = []
+	for elem in ET.fromstring(xml).iter():
+		if elem.tag in STEP_TAGS and elem.get("name"):
+			shared = len(wanted & {word[:5] for word in re.findall(r"[a-z]{4,}", elem.get("name").lower())})
+			if wanted and shared >= min(2, len(wanted)):
+				scored.append((shared, elem.get("name")))
+	scored.sort(key=lambda entry: -entry[0])
+	return [name for _, name in scored[:3]]
+
+
+def no_change_reply(where: str, similar: list[str]) -> str:
+	"""The answer when a modify changed nothing: what already covers the request and what to say next."""
+	if not similar:
+		return _("I did not change {0}. Tell me which step to add or change, and where it goes.").format(where)
+	label = _("the step") if len(similar) == 1 else _("the steps")
+	return _("I did not change {0}. It already has {1} {2}. Tell me what else to add or change, and where it goes.").format(
+		where, label, ", ".join(_quoted(name) for name in similar)
+	)
+
+
+def describe_links(previous_xml: str, xml: str) -> str:
+	"""Unlabeled paths added or removed between steps that exist before and after, as plain lines; "" when none."""
+	if not (previous_xml or "").strip() or not (xml or "").strip():
+		return ""
+	old_root, new_root = ET.fromstring(previous_xml), ET.fromstring(xml)
+	old_names, new_names = _names_by_id(old_root), _names_by_id(new_root)
+	old_links, new_links = _unlabeled_links(old_root), _unlabeled_links(new_root)
+	lines = [
+		_("Connected {0} to {1}.").format(_quoted(new_names[source]), _quoted(new_names[target]))
+		for source, target in new_links - old_links
+		if source in old_names and target in old_names
+	]
+	lines += [
+		_("Disconnected {0} from {1}.").format(_quoted(old_names[source]), _quoted(old_names[target]))
+		for source, target in old_links - new_links
+		if source in new_names and target in new_names
+	]
+	if not lines:
+		return ""
+	return "\n\n" + _("What changed:") + "\n" + "\n".join("- " + line for line in lines)
+
+
+def _names_by_id(root: ET.Element) -> dict:
+	return {e.get("id"): e.get("name") or e.get("id") for e in root.iter() if e.get("id")}
+
+
+def _unlabeled_links(root: ET.Element) -> Counter:
+	flow = "{" + NS["bpmn"] + "}sequenceFlow"
+	return Counter((f.get("sourceRef"), f.get("targetRef")) for f in root.iter(flow) if not f.get("name"))
+
+
+def describe_flow_references(previous_xml: str, xml: str) -> str:
+	"""Steps present before and after whose incoming or outgoing flow references changed, as one plain line; "" when none."""
+	if not (previous_xml or "").strip() or not (xml or "").strip():
+		return ""
+	before, after = _flow_references(ET.fromstring(previous_xml)), _flow_references(ET.fromstring(xml))
+	changed = sum(1 for step_id, references in after.items() if step_id in before and before[step_id] != references)
+	if not changed:
+		return ""
+	line = _("Rebuilt the flow references on {0} steps, which the editor's linter reads.").format(changed)
+	return "\n\n" + _("What changed:") + "\n- " + line
+
+
+def _flow_references(root: ET.Element) -> dict:
+	"""For each step, the flow ids listed as its incoming and as its outgoing references."""
+	bpmn = "{" + NS["bpmn"] + "}"
+	return {
+		e.get("id"): (
+			frozenset(c.text for c in e.findall(bpmn + "incoming")),
+			frozenset(c.text for c in e.findall(bpmn + "outgoing")),
+		)
+		for e in root.iter()
+		if e.get("id") and e.tag != bpmn + "sequenceFlow"
+	}
+
+
+def lint_fix_requested(texts: list) -> bool:
+	"""True when the newest message that is not a yes or a no asks to fix lint findings."""
+	request = next((strip_html(text) for text in texts if text and not confirmation_reply(text)), "")
+	return bool(LINT_FIX_REQUEST.search(request))
+
+
+def lint_findings(xml: str, issues: list, scope_id: str = "") -> dict | None:
+	"""The findings to fix in the process or sub-process to edit, those that need a person, and the rest by place."""
+	if not (xml or "").strip() or not issues:
+		return None
+	_register_namespaces()
+	root = ET.fromstring(xml)
+	sub_tag = "{" + NS["bpmn"] + "}subProcess"
+	parents = {child: node for node in root.iter() for child in node}
+	elements = {e.get("id"): e for e in root.iter() if e.get("id")}
+	subs = {e.get("id"): e for e in root.iter(sub_tag)}
+	found = []
+	for issue in issues[:MAX_LINT_FINDINGS]:
+		element = elements.get(issue.get("id"))
+		rule = str(issue.get("rule") or "").rsplit("/", 1)[-1]
+		inside = element is not None and element.tag == sub_tag and rule in LINT_ABOUT_CONTENTS
+		node = element if inside else parents.get(element)
+		while node is not None and node.tag != sub_tag:
+			node = parents.get(node)
+		found.append(
+			{
+				"id": str(issue.get("id") or ""),
+				"name": (element.get("name") if element is not None else "") or str(issue.get("id") or ""),
+				"rule": rule,
+				"message": str(issue.get("message") or ""),
+				"category": str(issue.get("category") or "warn"),
+				"owner": node.get("id") if node is not None else "",
+			}
+		)
+	fixable = [f for f in found if f["rule"] not in LINT_NOT_FIXABLE]
+	by_owner = Counter(f["owner"] for f in fixable)
+	chosen = scope_id if scope_id in subs else ""
+	if not chosen and by_owner and "" not in by_owner:
+		chosen = by_owner.most_common(1)[0][0]
+	return {
+		"scope": resolve_scope(xml, [], chosen) if chosen else None,
+		"fix": [f for f in fixable if f["owner"] == chosen],
+		"left": [f for f in found if f["rule"] in LINT_NOT_FIXABLE],
+		"elsewhere": [
+			(subs[owner].get("name") or owner if owner else "", count) for owner, count in by_owner.items() if owner != chosen
+		],
+	}
+
+
+def lint_prompt(findings: dict) -> str:
+	"""The findings to fix, one per line, under where they sit."""
+	where = findings["scope"]["name"] if findings["scope"] else "the main process"
+	lines = [
+		"- [{0}] {1} (id {2}): {3} ({4})".format(f["category"], _quoted(f["name"]), f["id"], f["message"], f["rule"])
+		for f in findings["fix"]
+	]
+	return "In {0}:\n{1}".format(where, "\n".join(lines))
+
+
+def lint_leftovers(findings: dict) -> str:
+	"""What a lint fix did not touch: findings in other places and findings that need a person."""
+	parts = []
+	for name, count in findings["elsewhere"]:
+		parts.append(_("{0} in {1}").format(count, _quoted(name) if name else _("the main process")))
+	if findings["left"]:
+		parts.append(_("{0} that need a person to fix").format(len(findings["left"])))
+	if not parts:
+		return ""
+	return "\n\n" + _("Not fixed: {0}. Ask me again from there, or fix them in the editor.").format(", ".join(parts))
+
+
+def lint_unfixed_reply(where: str, findings: dict) -> str:
+	"""The answer when a lint fix changed nothing: how many findings stayed and which rules they break."""
+	count = len(findings["fix"])
+	rules = ", ".join(sorted({f["rule"] for f in findings["fix"]}))
+	return _(
+		"I did not change {0}. I could not fix the {1} lint findings it has ({2}) by editing the steps and paths. "
+		"Fix them in the editor, or tell me which steps to connect or add."
+	).format(where, count, rules)
+
+
+def no_lint_fix_reply(findings: dict | None) -> str:
+	"""The answer to a request to fix lint findings when there is nothing ProsAlly can change."""
+	if not findings:
+		return _("The editor shows no lint findings to fix. If you expect some, open the lint panel and ask again.")
+	lines = "\n".join("- {0}: {1}".format(_quoted(f["name"]), f["message"]) for f in findings["left"])
+	return _("None of these findings can be fixed by changing the steps and paths, so they need a person in the editor:") + (
+		"\n" + lines
+	)
 
 
 def describe_lanes(chat_history: list, user_text: str, ir: dict | None) -> str:

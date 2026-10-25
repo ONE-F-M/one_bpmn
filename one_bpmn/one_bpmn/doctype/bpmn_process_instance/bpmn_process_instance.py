@@ -8,10 +8,11 @@ import frappe
 
 from one_bpmn.agents import turn_signal
 from one_bpmn.agents.executor import DEFAULT_MAX_RETRIES
-from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
+from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT, AI_AGENT_QUEUE, ai_agent_queue
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime
+from frappe.utils.background_jobs import get_queues_timeout
 
 from SpiffWorkflow.bpmn.specs.mixins.multiinstance_task import MultiInstanceTask
 from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
@@ -138,6 +139,7 @@ class BPMNProcessInstance(Document):
 			instance=self,
 		)
 
+		previous_flag = frappe.flags.bpmn_engine_action
 		frappe.flags.bpmn_engine_action = True
 		try:
 			self._run_engine(wf)
@@ -145,7 +147,7 @@ class BPMNProcessInstance(Document):
 			# Script/service/gateway failure — halt + sanitized Reference-ID error.
 			self._fail_runtime(phase="start")
 		finally:
-			frappe.flags.bpmn_engine_action = False
+			frappe.flags.bpmn_engine_action = previous_flag
 
 		# Persist state
 		# Strip non-serializable Frappe doc objects before persisting state
@@ -317,6 +319,7 @@ class BPMNProcessInstance(Document):
 			data=data,
 		)
 
+		previous_flag = frappe.flags.bpmn_engine_action
 		frappe.flags.bpmn_engine_action = True
 		try:
 			task.run()
@@ -325,7 +328,7 @@ class BPMNProcessInstance(Document):
 			# Script/service/gateway failure — halt + sanitized Reference-ID error.
 			self._fail_runtime(phase="advance")
 		finally:
-			frappe.flags.bpmn_engine_action = False
+			frappe.flags.bpmn_engine_action = previous_flag
 
 		# Persist updated state
 		# Strip non-serializable Frappe doc objects before persisting state
@@ -448,6 +451,18 @@ class BPMNProcessInstance(Document):
 			if isinstance(in_flight, AgentRefusal):
 				raise in_flight
 
+			# A permission error names only what the user lacks: show it and keep the instance running.
+			if isinstance(in_flight, frappe.PermissionError):
+				if not str(in_flight).strip():
+					frappe.throw(
+						_(
+							"You do not have permission to complete this step. "
+							"Ask your administrator for access, then try again."
+						),
+						exc=frappe.PermissionError,
+					)
+				raise in_flight
+
 		ref_id = self._record_runtime_failure(phase)
 		frappe.throw(
 			_(
@@ -566,6 +581,7 @@ class BPMNProcessInstance(Document):
 		)
 
 		# ── Run engine to process tasks that became READY ────────────────────
+		previous_flag = frappe.flags.bpmn_engine_action
 		frappe.flags.bpmn_engine_action = True
 		try:
 			self._run_engine(wf)
@@ -573,7 +589,7 @@ class BPMNProcessInstance(Document):
 			# Script/service/gateway failure — halt + sanitized Reference-ID error.
 			self._fail_runtime(phase="receive_message")
 		finally:
-			frappe.flags.bpmn_engine_action = False
+			frappe.flags.bpmn_engine_action = previous_flag
 
 		# ── Persist (same as advance) ────────────────────────────────────────
 		bpmn_engine.clean_doc_from_wf_data(wf)
@@ -646,6 +662,7 @@ class BPMNProcessInstance(Document):
 			if row.status == "Waiting" and row.assigned_user
 		}
 
+		previous_flag = frappe.flags.bpmn_engine_action
 		frappe.flags.bpmn_engine_action = True
 		try:
 			if kind == "a2a_result":
@@ -731,7 +748,7 @@ class BPMNProcessInstance(Document):
 
 			self._run_engine(wf)
 		finally:
-			frappe.flags.bpmn_engine_action = False
+			frappe.flags.bpmn_engine_action = previous_flag
 			frappe.flags.bpmn_ai_resume_target = None
 
 		# ── Persist (same as advance) ────────────────────────────────────────
@@ -781,13 +798,14 @@ class BPMNProcessInstance(Document):
 		}
 
 		self.status = "Active"
+		previous_flag = frappe.flags.bpmn_engine_action
 		frappe.flags.bpmn_engine_action = True
 		try:
 			self._run_engine(wf)
 		except Exception:
 			self._fail_runtime(phase="retry_failed_step")
 		finally:
-			frappe.flags.bpmn_engine_action = False
+			frappe.flags.bpmn_engine_action = previous_flag
 
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
@@ -1167,15 +1185,16 @@ class BPMNProcessInstance(Document):
 		return False
 
 	def _enqueue_parked_ai_jobs(self):
-		"""One bpmn_ai_agent job per parked AI unit, deduplicated by job_id."""
+		"""One AI job per parked AI unit, deduplicated by job_id, on the queue of the instance's agent."""
 		jobs, self._pending_ai_jobs = getattr(self, "_pending_ai_jobs", []), []
+		queue = ai_job_queue(self.process_model) if jobs else AI_AGENT_QUEUE
 		for kind, ident in jobs:
 			frappe.enqueue(
 				"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 				".bpmn_process_instance.run_parked_ai_task",
 				# AI-only jobs — the rest of the pass already ran inline
 				# (WI-001494/WI-001495).
-				queue="bpmn_ai_agent",
+				queue=queue,
 				timeout=AI_AGENT_JOB_TIMEOUT,
 				enqueue_after_commit=True,
 				job_id=f"bpmn-ai-{self.name}-{ident}",
@@ -1430,7 +1449,7 @@ class BPMNProcessInstance(Document):
 		frappe.enqueue(
 			"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 			".bpmn_process_instance.run_parked_ai_task",
-			queue="bpmn_ai_agent",
+			queue=ai_job_queue(self.process_model),
 			timeout=AI_AGENT_JOB_TIMEOUT,
 			enqueue_after_commit=True,
 			job_id=f"bpmn-ai-{self.name}-hr-{task_id}",
@@ -2532,6 +2551,25 @@ def _job_retry_cap(instance, kind: str, task_id: str) -> int:
 		return DEFAULT_MAX_RETRIES
 
 
+def ai_job_queue(process_model: str | None) -> str:
+	"""The queue an AI job for an instance of this process model runs on: its agent's own, else the shared one.
+
+	Frappe refuses a queue the site has not registered under "workers", so until it is the shared queue is used."""
+	agent_id = None
+	if process_model:
+		agent_id = frappe.db.get_value("AI Agent Configuration", {"process_model": process_model}, "agent_id")
+	queue = ai_agent_queue(agent_id)
+	if queue not in get_queues_timeout():
+		frappe.logger("one_bpmn").warning(f"Queue {queue} is not under workers in the site config; using {AI_AGENT_QUEUE}")
+		return AI_AGENT_QUEUE
+	return queue
+
+
+def ai_job_queue_of(instance_name: str) -> str:
+	"""The queue an AI job for this instance runs on."""
+	return ai_job_queue(frappe.db.get_value("BPMN Process Instance", instance_name, "process_model"))
+
+
 def _enqueue_a2a_resume(instance_name: str, wf_task_id: str, a2a_task_name: str) -> None:
 	"""WI-001933: resume a parked delegation through the SAME worker path AI
 	tasks use — row lock, engine_in_progress gate, bounded retries and
@@ -2547,7 +2585,7 @@ def _enqueue_a2a_resume(instance_name: str, wf_task_id: str, a2a_task_name: str)
 	frappe.enqueue(
 		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 		".bpmn_process_instance.run_parked_ai_task",
-		queue="bpmn_ai_agent",
+		queue=ai_job_queue_of(instance_name),
 		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,
 		job_id=f"bpmn-ai-{instance_name}-a2a-{a2a_task_name}",
@@ -2574,7 +2612,7 @@ def _enqueue_agent_sandbox_resume(instance_name: str, wf_task_id: str, run_name:
 	frappe.enqueue(
 		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 		".bpmn_process_instance.run_parked_ai_task",
-		queue="bpmn_ai_agent",
+		queue=ai_job_queue_of(instance_name),
 		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,
 		job_id=f"bpmn-ai-{instance_name}-agent-sandbox-{run_name}",
@@ -2641,7 +2679,7 @@ def run_parked_ai_task(
 			frappe.enqueue(
 				"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 				".bpmn_process_instance.run_parked_ai_task",
-				queue="bpmn_ai_agent",
+				queue=ai_job_queue_of(instance_name),
 				timeout=AI_AGENT_JOB_TIMEOUT,
 				enqueue_after_commit=True,
 				job_id=f"bpmn-ai-{instance_name}-{task_id}-r{attempt + 1}",

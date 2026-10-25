@@ -8,6 +8,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.executor import (
@@ -253,6 +254,45 @@ class TestDispatcherMemory(FrappeTestCase):
 		self.assertNotIn("HARD PIPELINE RULES", agent_output)
 		self.assertNotIn("classify_intent", agent_output)
 
+	def _distilled_turn(self, tool_calls):
+		class _Executor(Executor):
+			def run(self, config, context):
+				return ExecutorResult(
+					output="",
+					token_usage=TokenUsage(1, 2, 3),
+					error_code=ErrorCode.SUCCESS,
+					trace=[{"tool_calls": tool_calls}],
+				)
+
+		register_executor("endedturntest", _Executor)
+		cfg = {"aiBackend": "endedturntest", "aiMemoryWriteMode": "distilled", "aiMemoryScope": "Agent", "aiUserPrompt": "q"}
+		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw:
+			D.dispatch_ai_agent(_instance(), _task(), cfg, "Act_T")
+		return dw
+
+	def test_redirect_and_clarify_turns_distill_nothing(self):
+		for tool in ("redirect", "clarify"):
+			dw = self._distilled_turn([{"name": tool, "arguments": {}, "result": "canned reply"}])
+			dw.assert_not_called()
+
+	def test_an_answered_turn_is_still_distilled(self):
+		dw = self._distilled_turn([{"name": "finalize", "arguments": {}, "result": "done"}])
+		dw.assert_called_once()
+
+	def test_eval_origin_run_writes_no_memory(self):
+		cfg = {"aiBackend": "faketest", "aiMemoryScope": "Agent", "aiUserPrompt": "q"}
+		prev = frappe.flags.eval_origin
+		frappe.flags.eval_origin = {"eval_case": "case-1", "eval_run": "run-1"}
+		self.addCleanup(setattr, frappe.flags, "eval_origin", prev)
+		for mode in ("distilled", "raw"):
+			with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
+				"one_bpmn.agents.memory.tools.memory_write"
+			) as mw, patch("one_bpmn.agents.memory.writeback._dead_letter") as dl:
+				D.dispatch_ai_agent(_instance(), _task("Act_V"), {**cfg, "aiMemoryWriteMode": mode}, "Act_V")
+			dw.assert_not_called()
+			mw.assert_not_called()
+			dl.assert_not_called()
+
 	def test_legacy_autowrite_defaults_to_distilled(self):
 		# Back-compat: an existing element with aiMemoryAutoWrite on and no mode
 		# now distils rather than dumping the reply verbatim.
@@ -341,6 +381,24 @@ class TestRememberDirectiveWrite(FrappeTestCase):
 		self.assertEqual(args[2], "Remember that every form we build needs a Site link field.")
 		self.assertEqual(kwargs.get("source_run"), "RUN-FAKE")
 		self.assertTrue(kwargs.get("user_directed"))
+
+	def test_remember_directive_writes_nothing_for_eval_origin(self):
+		prev = frappe.flags.eval_origin
+		frappe.flags.eval_origin = {"eval_case": "case-1", "eval_run": "run-1"}
+		self.addCleanup(setattr, frappe.flags, "eval_origin", prev)
+		with patch("one_bpmn.agents.memory.tools.memory_write") as mw:
+			D.dispatch_ai_agent(
+				_chat_instance("CONV-R2"),
+				_chat_task("Act_R", "Remember that every form we build needs a Site link field."),
+				{
+					"aiBackend": "faketest",
+					"aiMemoryWriteMode": "distilled",
+					"aiMemoryScope": "Agent",
+					"aiUserPrompt": "q",
+				},
+				"Act_R",
+			)
+		mw.assert_not_called()
 
 	def test_remember_directive_still_bypasses_raw_mode(self):
 		# The directive text is stored, not the agent's raw output.
@@ -957,24 +1015,13 @@ class TestMemoryTargetUserScope(FrappeTestCase):
 
 
 class TestMemoryBlockProvenance(FrappeTestCase):
-	"""The line above the recalled memories has to do two opposing jobs at once,
-	and dropping either half has been observed to break a live agent."""
-
-	def test_the_notes_are_presented_as_facts_to_use(self):
+	def test_the_notes_are_offered_as_possibly_relevant(self):
 		block = D._format_memory_block([{"content": "invoices are approved by the finance lead"}])
-		self.assertIn("standing fact", block)
-		self.assertIn("use it when it answers the current request", block)
-		# "context only" told agents holding tools that the notes were not
-		# authoritative, and they answered from the tools instead.
-		self.assertNotIn("context only", block)
-
-	def test_the_notes_are_still_not_this_conversation(self):
-		# Without this half, a past final response reads as work already done in
-		# the current conversation (ProsAlly, 2026-08-09).
-		block = D._format_memory_block([{"content": "created the invoice process"}])
-		self.assertIn("PAST, separate conversations", block)
-		self.assertIn("Nothing below has happened in the current conversation", block)
-		self.assertIn("none of it counts as work already done", block)
+		self.assertEqual(
+			block.splitlines()[1],
+			"Possibly relevant notes from earlier work; use them only if they match this request.",
+		)
+		self.assertNotIn("standing fact", block)
 
 	def test_the_memories_follow_the_provenance_line(self):
 		block = D._format_memory_block([{"content": "ship by DHL"}, {"content": "net-30 terms"}])

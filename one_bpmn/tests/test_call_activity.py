@@ -149,7 +149,7 @@ class TestCallActivityCompile(FrappeTestCase):
 	def test_resolver_returns_the_called_models_xml(self):
 		self._model("WI2111 Child", CHILD_ID, _child_xml())
 		self._model("WI2111 Parent", PARENT_ID, _parent_xml())
-		found = _resolve_called_process_xml(_parent_xml(), "WI2111 Parent")
+		_xml, found = _resolve_called_process_xml(_parent_xml(), "WI2111 Parent")
 		self.assertEqual(len(found), 1)
 		self.assertIn(f'id="{CHILD_ID}"', found[0])
 
@@ -159,7 +159,7 @@ class TestCallActivityCompile(FrappeTestCase):
 		document must get the same injection the main one does, or the parent
 		fails with 'Invalid Script Task. No Script Provided.'"""
 		self._model("WI2111 Child", CHILD_ID, _child_xml())
-		found = _resolve_called_process_xml(_parent_xml(), "WI2111 Parent")
+		_xml, found = _resolve_called_process_xml(_parent_xml(), "WI2111 Parent")
 		self.assertIn("<bpmn:script>", found[0])
 
 	def test_unknown_called_element_throws_a_readable_error(self):
@@ -176,7 +176,7 @@ class TestCallActivityCompile(FrappeTestCase):
 		"""An unconfigured Call Activity has nothing to look up, so the resolver
 		must return empty rather than throwing its own error over the top of the
 		parser's (which is the one that actually reports the problem)."""
-		self.assertEqual(_resolve_called_process_xml(_parent_xml(called=""), "WI2111 Parent"), [])
+		self.assertEqual(_resolve_called_process_xml(_parent_xml(called=""), "WI2111 Parent")[1], [])
 
 	def test_an_ai_task_with_no_user_prompt_warns_at_deploy(self):
 		"""An AI task with a system prompt but no user prompt is a broken map that
@@ -271,7 +271,7 @@ class TestCallActivityCompile(FrappeTestCase):
 		)
 		frappe.db.set_value("BPMN Process Model", "WI2111 Child", "bpmn_xml", looping_child)
 		self._model("WI2111 Parent", PARENT_ID, _parent_xml())
-		found = _resolve_called_process_xml(_parent_xml(), "WI2111 Parent")
+		_xml, found = _resolve_called_process_xml(_parent_xml(), "WI2111 Parent")
 		# The parent is already known to the parser, so only the child comes back.
 		self.assertEqual(len(found), 1)
 
@@ -319,3 +319,105 @@ class TestCallActivityCompile(FrappeTestCase):
 		self.assertEqual(
 			spec["script_task_extensions"]["child_step"]["serverScript"], "WI2111 Parent Script"
 		)
+
+
+PROCESS = "Called Process Test"
+V1_ID, V2_ID = "called_v1", "called_v2"
+
+
+def _calling(process="", called=V1_ID):
+	"""A caller whose Call Activity names a Process and, optionally, an older process id."""
+	xml = _parent_xml(called=called)
+	if process:
+		xml = xml.replace(
+			'name="Call the child"', f'name="Call the child" spiffworkflow:calledProcess="{process}"'
+		)
+	return xml
+
+
+class TestCallActivityRunsTheActiveMapOfItsProcess(FrappeTestCase):
+	"""A Call Activity names a Process, and the Process's active map is what runs."""
+
+	def setUp(self):
+		super().setUp()
+		self._models = []
+		if not frappe.db.exists("Process", PROCESS):
+			frappe.get_doc(
+				{
+					"doctype": "Process",
+					"process_name": PROCESS,
+					"description": "Called",
+					"process_owner": "Administrator",
+				}
+			).insert()
+
+	def tearDown(self):
+		for name in self._models:
+			if frappe.db.exists("BPMN Process Model", name):
+				frappe.delete_doc("BPMN Process Model", name, force=1)
+		frappe.delete_doc("Process", PROCESS, force=1, ignore_missing=True)
+		frappe.db.commit()
+		super().tearDown()
+
+	def _model(self, name, process_id, xml, process=None, active=0):
+		if frappe.db.exists("BPMN Process Model", name):
+			frappe.delete_doc("BPMN Process Model", name, force=1)
+		doc = frappe.get_doc(
+			{
+				"doctype": "BPMN Process Model",
+				"name": name,
+				"title": name,
+				"process_id": process_id,
+				"process_name": process,
+				"bpmn_xml": xml,
+				"version": 1,
+			}
+		).insert()
+		frappe.db.set_value("BPMN Process Model", name, "is_active", active)
+		self._models.append(name)
+		return doc
+
+	def _versions(self, active_v2=True):
+		self._model("Called v1", V1_ID, _child_xml(process_id=V1_ID), PROCESS, active=int(not active_v2))
+		v2_xml = _child_xml(process_id=V2_ID).replace("WI2111 Child Script", "V2 Script")
+		self._model("Called v2", V2_ID, v2_xml, PROCESS, active=int(active_v2))
+
+	def test_a_call_to_a_process_runs_its_active_map(self):
+		self._versions()
+
+		resolved, called = _resolve_called_process_xml(_calling(PROCESS), "Caller")
+
+		self.assertIn(f'calledElement="{V2_ID}"', resolved)
+		self.assertEqual(len(called), 1)
+		self.assertIn(f'id="{V2_ID}"', called[0])
+
+	def test_an_older_process_id_runs_the_active_map_of_its_process(self):
+		self._versions()
+
+		resolved, called = _resolve_called_process_xml(_calling(called=V1_ID), "Caller")
+
+		self.assertIn(f'calledElement="{V2_ID}"', resolved)
+		self.assertIn("V2 Script", called[0])
+
+	def test_a_process_with_no_active_map_is_refused(self):
+		self._model("Called v1", V1_ID, _child_xml(process_id=V1_ID), PROCESS, active=0)
+
+		with self.assertRaises(frappe.ValidationError) as caught:
+			_resolve_called_process_xml(_calling(PROCESS, called=V1_ID), "Caller")
+
+		self.assertIn(PROCESS, str(caught.exception))
+		self.assertIn("no active map", str(caught.exception))
+
+	def test_activating_a_new_version_refreshes_its_callers(self):
+		self._versions(active_v2=False)
+		compile_process_model("Called v1")
+		parent = self._model("Caller", PARENT_ID, _calling(PROCESS))
+		compile_process_model(parent.name)
+		self.assertNotIn(
+			"V2 Script", frappe.db.get_value("BPMN Process Model", parent.name, "serialized_spec")
+		)
+
+		compile_process_model("Called v2")
+
+		self.assertEqual(frappe.db.get_value("BPMN Process Model", "Called v1", "is_active"), 0)
+		self.assertIn("V2 Script", frappe.db.get_value("BPMN Process Model", parent.name, "serialized_spec"))

@@ -26,6 +26,8 @@ Nothing here asks a model to judge itself.
 
 from __future__ import annotations
 
+import json
+
 import frappe
 
 ACHIEVED = "Achieved"
@@ -105,6 +107,47 @@ def unsuperseded_tool_failure(calls) -> tuple | None:
 	return None
 
 
+# (key, value that means the stage failed, what the basis says happened)
+_STAGE_FAILURES = (
+	("generated", False, "did not produce a diagram"),
+	("modified", False, "made no change"),
+	("truncated", True, "ran out of room (the output was too large)"),
+	("safe", False, "was refused by the safety check"),
+	("fallback", True, "closed the turn with a generic question"),
+)
+
+
+def _stage_reason(result) -> str | None:
+	"""Why a stage tool's JSON reply says it failed, or None."""
+	try:
+		body = json.loads(str(result or ""))
+	except ValueError:
+		return None
+	if not isinstance(body, dict):
+		return None
+	# A removal confirmation is a question to the user, not a failed change.
+	exempt = body.get("needs_removal_confirm") is True
+	for key, bad, reason in _STAGE_FAILURES:
+		if body.get(key) is bad and not (key == "modified" and exempt):
+			return reason
+	return None
+
+
+def stage_failure(calls) -> tuple | None:
+	"""(name, basis) of the first tool whose last call reports a failed stage, or None.
+
+	Each tool is judged by its own last call, as in unsuperseded_tool_failure.
+	"""
+	last_result = {}
+	for call in calls:
+		last_result[_field(call, "name")] = _field(call, "result")
+	for name, result in last_result.items():
+		reason = _stage_reason(result)
+		if reason:
+			return name, f"Tool '{name}' {reason}: {_excerpt(result)}"
+	return None
+
+
 def determine(result, goal_key: str | None = None, request_text: str | None = None) -> tuple[str, str]:
 	"""(state, basis) from what the executor reported. Pure — no database, no
 	model call — request_text/output are quoted verbatim into the basis, never
@@ -147,6 +190,10 @@ def determine(result, goal_key: str | None = None, request_text: str | None = No
 			NOT_ACHIEVED,
 			f"Tool '{name}' failed and was not retried successfully: {_excerpt(tool_result)}",
 		)
+
+	stage = stage_failure(calls)
+	if stage:
+		return NOT_ACHIEVED, stage[1]
 
 	output = getattr(result, "output", None)
 

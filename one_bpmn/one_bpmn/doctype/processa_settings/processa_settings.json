@@ -17,6 +17,11 @@
   "ba_site_url",
   "ba_api_key",
   "ba_api_secret",
+  "section_break_staging",
+  "enable_staging_sync",
+  "staging_site_url",
+  "staging_api_key",
+  "staging_api_secret",
   "section_break_github",
   "github_token",
   "customization_app",
@@ -101,10 +106,6 @@
   "mcp_tools_enabled",
   "enable_mcp_tools_for_user_planning_agent",
   "user_story_template",
-  "jira_credentials_section",
-  "jira_url",
-  "jira_email",
-  "jira_api_token",
   "copilot_settings_section",
   "copilot_metrics_pat",
   "copilot_org_name",
@@ -200,6 +201,39 @@
    "fieldtype": "Password",
    "label": "BA API Secret",
    "mandatory_depends_on": "eval:doc.enable_ba_sync==1"
+  },
+  {
+   "fieldname": "section_break_staging",
+   "fieldtype": "Section Break",
+   "label": "Staging Site Configuration"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_staging_sync",
+   "fieldtype": "Check",
+   "label": "Enable Staging Site Sync"
+  },
+  {
+   "depends_on": "eval:doc.enable_staging_sync==1",
+   "description": "Ex: https://staging.one-fm.com",
+   "fieldname": "staging_site_url",
+   "fieldtype": "Data",
+   "label": "Staging Site URL",
+   "mandatory_depends_on": "eval:doc.enable_staging_sync==1"
+  },
+  {
+   "depends_on": "eval:doc.enable_staging_sync==1",
+   "fieldname": "staging_api_key",
+   "fieldtype": "Password",
+   "label": "Staging Site API Key",
+   "mandatory_depends_on": "eval:doc.enable_staging_sync==1"
+  },
+  {
+   "depends_on": "eval:doc.enable_staging_sync==1",
+   "fieldname": "staging_api_secret",
+   "fieldtype": "Password",
+   "label": "Staging Site API Secret",
+   "mandatory_depends_on": "eval:doc.enable_staging_sync==1"
   },
   {
    "collapsible": 1,
@@ -505,11 +539,12 @@
    "label": "AI Credential Health"
   },
   {
-   "description": "The users told when an AI Model's credentials stop working. Left empty, the alert goes to whoever last edited the model, or failing that to every System Manager.",
+   "description": "Email addresses told when an AI Model's credentials stop working, separated by commas. Left empty, the alert goes to whoever last edited the model, or failing that to every System Manager.",
    "fieldname": "ai_health_alert_recipients",
-   "fieldtype": "Table MultiSelect",
+   "fieldtype": "Data",
    "label": "Credential Alert Recipients",
-   "options": "User Group Member"
+   "length": 500,
+   "options": "Email"
   },
   {
    "fieldname": "section_break_nightly_evals",
@@ -517,11 +552,12 @@
    "label": "Nightly Evals"
   },
   {
-   "description": "Who hears when a scheduled eval falls short, besides the failing agent's own owner. Left empty it is every System Manager, which on this site includes service logins.",
+   "description": "Email addresses told when a scheduled eval falls short, separated by commas, besides the failing agent's own owner. Left empty it is every System Manager, which on this site includes service logins.",
    "fieldname": "eval_alert_recipients",
-   "fieldtype": "Table MultiSelect",
+   "fieldtype": "Data",
    "label": "Eval Alert Recipients",
-   "options": "User Group Member"
+   "length": 500,
+   "options": "Email"
   },
   {
    "description": "Model used to grade nightly eval answers when an assertion names none of its own.",
@@ -699,27 +735,6 @@
   },
   {
    "collapsible": 1,
-   "fieldname": "jira_credentials_section",
-   "fieldtype": "Section Break",
-   "label": "Jira Credentials"
-  },
-  {
-   "fieldname": "jira_url",
-   "fieldtype": "Data",
-   "label": "Jira URL"
-  },
-  {
-   "fieldname": "jira_email",
-   "fieldtype": "Data",
-   "label": "Jira Email"
-  },
-  {
-   "fieldname": "jira_api_token",
-   "fieldtype": "Password",
-   "label": "Jira API Token"
-  },
-  {
-   "collapsible": 1,
    "fieldname": "copilot_settings_section",
    "fieldtype": "Section Break",
    "label": "Copilot Settings"
@@ -791,7 +806,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-10-12 12:00:00.000000",
+ "modified": "2026-10-20 12:00:00.000000",
  "modified_by": "s.shariff@one-fm.com",
  "module": "ONE BPMN",
  "name": "Processa Settings",

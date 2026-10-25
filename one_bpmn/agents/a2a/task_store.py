@@ -124,16 +124,15 @@ def _set_state(task, state: str, **extra) -> None:
 	_notify(task)
 
 
-def find_instance(conversation: str) -> str | None:
+def find_instance(conversation: str, finished: bool = False) -> str | None:
 	"""The live instance answering a conversation — context correlation,
-	same as the chat surface uses."""
+	same as the chat surface uses. ``finished`` also matches an instance that already ended."""
+	filters = {"context_doctype": "Chat Conversation", "context_docname": conversation}
+	if not finished:
+		filters["status"] = ("in", ("Queued", "Active"))
 	rows = frappe.get_all(
 		"BPMN Process Instance",
-		filters={
-			"context_doctype": "Chat Conversation",
-			"context_docname": conversation,
-			"status": ("in", ("Queued", "Active")),
-		},
+		filters=filters,
 		order_by="creation desc",
 		limit=1,
 		pluck="name",

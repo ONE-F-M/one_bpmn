@@ -211,9 +211,12 @@ def delegate(
 
 	# Recorded before the worker runs, not after: a delegation whose worker
 	# fails or hangs is exactly the one someone needs to be able to find.
-	delegation.record(task, delegating_agent=delegating_agent, instruction=instruction)
-
-	execute.run_for_task(task, config, instruction)
+	try:
+		delegation.record(task, delegating_agent=delegating_agent, instruction=instruction)
+		execute.run_for_task(task, config, instruction)
+	except Exception as error:
+		execute.fail_to_start(task, config, "failed", str(error))
+		raise
 	task.reload()
 	return task
 

@@ -121,7 +121,9 @@ export function layoutBpmnXml(xmlString) {
 	// For flat processes (no lanes), the frontend layout produces superior
 	// horizontal layouts with complete edge routing, so we always regenerate.
 	const collaborationEl = doc.getElementsByTagNameNS(BPMN_NS, "collaboration")[0];
-	if (collaborationEl) {
+	// An expanded sub-process draws its steps inside its box, which only the pipeline's drawing has.
+	const hasExpandedSubProcess = /<bpmndi:BPMNShape\b[^>]*\bisExpanded="true"/.test(xmlString);
+	if (collaborationEl || hasExpandedSubProcess) {
 		const xmlDeclMatch  = xmlString.match(/^<\?xml[^?]*\?>/);
 		const xmlDecl       = xmlDeclMatch ? xmlDeclMatch[0] + "\n" : "";
 
@@ -390,5 +392,10 @@ export function layoutBpmnXml(xmlString) {
 	// valid XML and bpmn-moddle handles it correctly via namespace-URI lookup.
 	const processXml = new XMLSerializer().serializeToString(processEl);
 
-	return `${xmlDecl}${defOpen}\n${processXml}\n${diSection}\n${defClose}`;
+	// A sub-process keeps the plane it is drawn on; only the main plane is rebuilt above.
+	const processIdAttr = `bpmnElement="${processId}"`;
+	const subPlanes = (xmlString.match(/<bpmndi:BPMNDiagram[\s\S]*?<\/bpmndi:BPMNDiagram>/g) || [])
+		.filter((diagram) => !diagram.includes(processIdAttr));
+
+	return `${xmlDecl}${defOpen}\n${processXml}\n${[diSection, ...subPlanes].join("\n")}\n${defClose}`;
 }

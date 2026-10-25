@@ -311,7 +311,7 @@ def get_conversation_ratings(conversation: str) -> dict:
 
 
 @frappe.whitelist()
-def set_feedback_status(feedback: str, status: str) -> dict:
+def set_feedback_status(feedback: str, status: str, resolution_details: str = "") -> dict:
 	"""Record the triage decision (WI-002068).
 
 	Reviewed and Dismissed are the two honest outcomes, and Dismissed must be as
@@ -324,7 +324,8 @@ def set_feedback_status(feedback: str, status: str) -> dict:
 	Fixed is normally reached by completing the "Investigate & Fix" task in the
 	AI Response Feedback Handling BPMN process; this is the manual-override path
 	for a Process Owner acting on the desk record directly instead. Guarded the
-	same way that process guards it: only a rating with an issue to fix.
+	same way that process guards it: only a rating with an issue to fix, and only
+	with resolution details, which the rater is shown.
 	"""
 	if status not in ("New", "Reviewed", "Dismissed", "Fixed"):
 		frappe.throw(_("Status must be New, Reviewed, Dismissed or Fixed."))
@@ -336,10 +337,14 @@ def set_feedback_status(feedback: str, status: str) -> dict:
 	if status == "Fixed" and doc.rating != "Negative":
 		frappe.throw(_("Only Negative feedback has an issue to mark fixed."))
 
+	resolution = (resolution_details or doc.resolution_details or "").strip()
+	if status == "Fixed" and not resolution:
+		frappe.throw(_("Resolution details are required to mark feedback Fixed."))
+
 	was_fixed = doc.status == "Fixed"
 	doc.db_set("status", status)
 	if status == "Fixed":
-		doc.db_set("fixed_on", frappe.utils.now_datetime())
+		doc.db_set({"fixed_on": frappe.utils.now_datetime(), "resolution_details": resolution})
 		if not was_fixed:
 			_notify_feedback_fixed(doc)
 	frappe.db.commit()
@@ -359,6 +364,14 @@ def _notify_feedback_fixed(doc) -> None:
 	try:
 		from frappe.desk.doctype.notification_log.notification_log import enqueue_create_notification
 
+		message = _(
+			"Your feedback regarding the AI response has been reviewed and the "
+			"issue has been resolved. Thank you for helping us improve the AI "
+			"service."
+		)
+		if (doc.resolution_details or "").strip():
+			message += "<br><br>" + _("What was done: {0}").format(frappe.utils.escape_html(doc.resolution_details))
+
 		enqueue_create_notification(
 			[doc.rated_by],
 			{
@@ -367,11 +380,7 @@ def _notify_feedback_fixed(doc) -> None:
 				"document_name": doc.conversation,
 				"subject": _("Your feedback has been resolved"),
 				"from_user": frappe.session.user,
-				"email_content": _(
-					"Your feedback regarding the AI response has been reviewed and the "
-					"issue has been resolved. Thank you for helping us improve the AI "
-					"service."
-				),
+				"email_content": message,
 			},
 		)
 	except Exception:
@@ -395,7 +404,7 @@ def mark_same_error_fixed(feedback: str) -> dict:
 		frappe.throw(_("Mark this feedback Fixed before applying it to similar records."))
 	names = [row.name for row in _same_error_feedback(doc)]
 	for name in names:
-		set_feedback_status(name, "Fixed")
+		set_feedback_status(name, "Fixed", doc.resolution_details)
 	return {"feedback": doc.name, "fixed": names}
 
 
