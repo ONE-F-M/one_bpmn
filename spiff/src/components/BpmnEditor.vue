@@ -2153,6 +2153,21 @@ onMounted(async () => {
 				document.removeEventListener("mousedown", handleGlobalClick);
 			});
 
+			// The drilldown arrow alerts when calledElement is empty; route a Process-name link instead
+			const canvasContainer = modeler.get("canvas").getContainer();
+			const launchProcessNameLink = (event) => {
+				if (!event.target.closest(".bjs-drilldown")) return;
+				const [element] = modeler.get("selection").get();
+				const businessObject = element?.businessObject;
+				if (businessObject?.calledElement || !businessObject?.get("spiffworkflow:calledProcess")) return;
+				event.stopPropagation();
+				emit("launch-callactivity-editor", { processId: "", element });
+			};
+			canvasContainer.addEventListener("click", launchProcessNameLink, true);
+			onUnmounted(() => {
+				canvasContainer.removeEventListener("click", launchProcessNameLink, true);
+			});
+
 			// Re-inject only when calledElement actually changed
 			// churn and repeated network requests on every command stack event.
 			eventBus.on("commandStack.changed", () => {
@@ -3544,6 +3559,10 @@ function getAvatarColor(userName) {
 .bpmn-process-name-empty {
 	color: var(--gray-400, #9ca3af);
 	font-style: italic;
+}
+
+.bio-properties-panel-entry[data-entry-id="process_id"] {
+	display: none;
 }
 /* ─────────────────────────────────────────────────── */
 
