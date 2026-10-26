@@ -46,3 +46,15 @@ test("checkGateway: the translator is applied to every text", () => {
 	assert.equal(rows[0].text, "T:Other condition, not checked:{}")
 	assert.equal(rows[1].text.startsWith("T:Action {name} has no gateway branch"), true)
 })
+
+test("checkGateway: with a default branch, an action without its own branch takes it", () => {
+	assert.deepEqual(checkGateway(["Accept", "Reject"], ['action == "Reject"'], undefined, true), [
+		{ state: "ok", text: 'action=="Reject" matches action Reject' },
+		{ state: "other", text: "Default branch: takes any action without its own branch" },
+		{ state: "other", text: "Action Accept takes the default branch" },
+	])
+})
+
+test("checkGateway: without a default branch, an action without its own branch is still bad", () => {
+	assert.equal(checkGateway(["Accept"], [], undefined, false)[0].state, "bad")
+})
