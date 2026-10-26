@@ -73,8 +73,10 @@
 								v-if="tab.key === 'actions'"
 								v-model:actions="actionsModel"
 								v-model:hours="values.notifyTokenHours"
+								v-model:conversation="values.notifyConversation"
 								:task-actions="taskActions"
 								:doctype="doctype"
+								:layout="values.notifyLayout"
 							/>
 							<NotifyConversationTab
 								v-if="tab.key === 'conv'"

@@ -28,6 +28,41 @@
 			</p>
 		</div>
 
+		<div v-if="conversationRows.length">
+			<span class="block text-xs font-medium text-gray-700 mb-2">Finish the task from the conversation</span>
+			<div class="space-y-2">
+				<div
+					v-for="conv in conversationRows"
+					:key="conv.key"
+					class="flex flex-wrap items-center gap-3"
+				>
+					<label
+						class="w-48 text-sm text-gray-700"
+						:for="`${uid}-finish-${conv.key}`"
+					>{{ conv.label }}</label>
+					<select
+						:id="`${uid}-finish-${conv.key}`"
+						class="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+						:value="conv.completesWith"
+						@change="setFinish(conv.key, $event.target.value)"
+					>
+						<option value="">Don't finish</option>
+						<option
+							v-for="row in rows"
+							:key="row.name"
+							:value="row.name"
+						>
+							{{ row.name }}
+						</option>
+					</select>
+				</div>
+			</div>
+			<p class="text-xs text-gray-400 mt-1">
+				Conversation layout only. Picking a button means a reply or note also presses it, so the task ends and takes
+				that button's path.
+			</p>
+		</div>
+
 		<p
 			v-if="!rows.length"
 			class="text-sm text-gray-500"
@@ -167,16 +202,20 @@
 import { computed, reactive, ref, useId, watch } from "vue";
 import { Icon } from "@iconify/vue";
 import { clampTokenHours, serializeTokenHours } from "@/bpmn/shared/notifyActions";
+import { parseConversation } from "@/bpmn/shared/notifyConversation";
 import { useDoctypeFields } from "@/composables/useDoctypeFields";
 
 const props = defineProps({
 	taskActions: { type: Array, required: true },
 	doctype: { type: String, default: "" },
+	layout: { type: String, default: "" },
 });
 
 // settings keyed by action name, already merged with the current Task Actions
 const actions = defineModel("actions", { type: Object, required: true });
 const hours = defineModel("hours", { type: String });
+// notifyConversation as a JSON string; the finish settings are shown here for the Conversation layout
+const conversation = defineModel("conversation", { type: String });
 
 const uid = useId();
 const { fields: reasonFields, load: loadReasonFields } = useDoctypeFields(["Text", "Small Text", "Text Editor", "Data"]);
@@ -217,6 +256,22 @@ function addChip(row) {
 
 function removeChip(row, index) {
 	update(row.name, { chips: row.chips.filter((_, i) => i !== index) });
+}
+
+const FINISH_LABELS = { reply: "When the agent replies", note: "When the agent adds a note" };
+
+const conversationRows = computed(() =>
+	props.layout === "chat"
+		? parseConversation(conversation.value).actions.map((a) => ({ ...a, label: FINISH_LABELS[a.key] }))
+		: []
+);
+
+function setFinish(key, completesWith) {
+	const settings = parseConversation(conversation.value);
+	conversation.value = JSON.stringify({
+		...settings,
+		actions: settings.actions.map((a) => (a.key === key ? { ...a, completesWith } : a)),
+	});
 }
 
 const hoursDraft = ref(String(clampTokenHours(hours.value)));
