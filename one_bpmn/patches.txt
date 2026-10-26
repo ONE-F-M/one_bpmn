@@ -320,3 +320,5 @@ one_bpmn.one_bpmn.patches.v1_0.general_chat_answers_from_processes #25-10-2026 G
 one_bpmn.one_bpmn.patches.v1_0.general_chat_answers_from_dms #25-10-2026 General Chat gets the DMS search tool script and the prompt rules for the five document types and their precedence
 one_bpmn.one_bpmn.patches.v1_0.docu_writes_form_client_scripts #22-10-2026 Docu classifies a request for form behaviour as EDIT_CLIENT_SCRIPT and routes it to a client script stage
 one_bpmn.one_bpmn.patches.v1_0.dms_tool_reads_as_the_chatting_user #25-10-2026 the DMS tool script passes the conversation so documents are read as the person chatting, because the agent's own user holds no roles
+one_bpmn.one_bpmn.patches.v1_0.docu_settings_are_bounded #27-10-2026 Docu has one retry rule in its prompt, and its Schema Writer gets max_tokens 16384, top_p 1, the Safety guard rail, two examples and the form design rules in its prompt instead of a load_skill call
+one_bpmn.one_bpmn.patches.v1_0.seed_docu_help_text_and_child_table_cases #27-10-2026 Docu Baseline gains a help text in description case and an edit to an existing child table case
