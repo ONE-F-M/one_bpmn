@@ -22,6 +22,13 @@ INHERITED_USER = {
 	"role": "writer",
 	"permissionDetails": [{"inherited": True, "inheritedFrom": "drive-1"}],
 }
+MEMBER_WITH_DIRECT_GRANT = {
+	"id": "p-mixed",
+	"type": "user",
+	"emailAddress": "member@one-fm.com",
+	"role": "writer",
+	"permissionDetails": [{"inherited": True, "inheritedFrom": "drive-1"}, {"inherited": False}],
+}
 
 
 def fake_service(permissions):
@@ -84,6 +91,34 @@ class TestSetPermissionsUpsert(unittest.TestCase):
 
 		perms.update.assert_not_called()
 		perms.create.assert_called_once()
+
+
+class TestDirectGrantAlongsideInheritedAccess(unittest.TestCase):
+	def test_upsert_changes_the_direct_grant_of_a_drive_member(self):
+		service, perms = fake_service([DOMAIN_READER, MEMBER_WITH_DIRECT_GRANT])
+
+		gd.set_permissions(
+			FILE_ID,
+			[{"type": "user", "emailAddress": "member@one-fm.com", "role": "reader"}],
+			service=service,
+		)
+
+		perms.update.assert_called_once()
+		self.assertEqual(perms.update.call_args.kwargs["permissionId"], "p-mixed")
+		self.assertEqual(perms.update.call_args.kwargs["body"], {"role": "reader"})
+		perms.create.assert_not_called()
+
+	def test_named_revoke_removes_the_direct_grant_of_a_drive_member(self):
+		service, perms = fake_service([DOMAIN_READER, MEMBER_WITH_DIRECT_GRANT, OTHER_USER])
+
+		outcome = gd.revoke_permissions(
+			FILE_ID, scope="user", email_address="member@one-fm.com", service=service
+		)
+
+		perms.delete.assert_called_once()
+		self.assertEqual(perms.delete.call_args.kwargs["permissionId"], "p-mixed")
+		self.assertEqual([p["id"] for p in outcome["removed"]], ["p-mixed"])
+		self.assertEqual(outcome["skipped"], [])
 
 
 class TestNamedRevoke(unittest.TestCase):

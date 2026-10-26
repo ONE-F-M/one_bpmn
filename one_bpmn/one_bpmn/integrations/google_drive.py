@@ -132,13 +132,9 @@ def set_permissions(file_id: str, grants: list, service=None) -> list:
 	  {"type": "domain", "domain": "one-fm.com", "role": "reader"}
 	  {"type": "user", "emailAddress": "x@one-fm.com", "role": "writer"}
 
-	User grants are an upsert: if the email already holds a *direct* grant on the
-	file, that grant's role is changed (permissions.update) rather than creating
-	a second one, which Drive rejects or which would duplicate nothing useful.
-	A new email is created as before. Domain (and any other type of) grants are
-	always created, unchanged. Access merely inherited from a parent folder or
-	drive is not a direct grant, so it is not updated here — a direct grant is
-	created alongside it.
+	A user grant is an upsert: an email that already holds a direct grant on the
+	file gets that grant's role changed, otherwise the grant is created. Other
+	grant types are always created.
 	"""
 	service = service or _get_service()
 	results = []
@@ -190,10 +186,16 @@ def _direct_user_grants(service, file_id: str) -> dict:
 	for perm in listed.get("permissions", []):
 		if perm.get("type") != "user" or not perm.get("emailAddress"):
 			continue
-		if any(d.get("inherited") for d in (perm.get("permissionDetails") or [])):
+		if _inherited_only(perm):
 			continue
 		direct[perm["emailAddress"].lower()] = perm
 	return direct
+
+
+def _inherited_only(perm: dict) -> bool:
+	"""True when every grant behind this permission is inherited, none direct."""
+	details = perm.get("permissionDetails") or []
+	return bool(details) and all(d.get("inherited") for d in details)
 
 
 # Roles that express who *owns or structures* a file rather than who was granted
@@ -228,7 +230,8 @@ def revoke_permissions(
 	``email_address`` names one user (same as ``scope="user"`` with ``match`` set
 	to that address). Only that user's direct grant is removed; every other grant,
 	including the domain reader, is left alone and not reported. If that user's
-	access is inherited it is reported in ``skipped`` with a reason, never deleted.
+	access is only inherited it is reported in ``skipped`` with a reason, never
+	deleted. A direct grant held alongside inherited access is removed.
 
 	Returns ``{"removed": [...], "skipped": [...]}``. Two kinds of grant end up
 	in ``skipped`` rather than failing the call:
@@ -269,7 +272,7 @@ def revoke_permissions(
 		if perm.get("role") in STRUCTURAL_ROLES:
 			skipped.append(dict(perm, reason="structural role"))
 			continue
-		if any(d.get("inherited") for d in (perm.get("permissionDetails") or [])):
+		if _inherited_only(perm):
 			skipped.append(dict(perm, reason="inherited from a parent folder"))
 			continue
 		if scope in ("domain", "user") and perm.get("type") != scope:
