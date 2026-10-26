@@ -499,6 +499,7 @@
 						:readonly="!canEditActiveDiagram || !!activeVersionName"
 						:reassign-mode="reassignMode && !activeVersionName"
 						:model-name="activeDiagramName"
+						:process="process"
 						@ready="onEditorReady"
 						@changed="onDiagramChanged"
 						@reassign-changed="onReassignChanged"
