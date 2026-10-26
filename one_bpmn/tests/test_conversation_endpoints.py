@@ -281,6 +281,7 @@ class TestConversationEndpoints(FrappeTestCase):
 	def test_reply_creates_communication(self):
 		from one_bpmn.api.todo_actions import post_amp_reply
 
+		self._add_communication()
 		before = self._communications()
 		result, mock_ct = self._call(post_amp_reply, _token("reply"), "We are on it.", conv={})
 		self.assertNotIn("error", result, str(result)[:600])
@@ -292,9 +293,24 @@ class TestConversationEndpoints(FrappeTestCase):
 		mock_ct.assert_not_called()
 		self.assertFalse(result["completed"])
 
+	def test_reply_is_addressed_to_the_customer(self):
+		from one_bpmn.api.todo_actions import post_amp_reply
+
+		self._add_communication()
+		result, _ = self._call(post_amp_reply, _token("reply"), "We are on it.", conv={})
+		self.assertNotIn("error", result, str(result)[:600])
+
+		recipients = frappe.db.get_value(
+			"Communication",
+			{"reference_doctype": "HD Ticket", "reference_name": self.ticket.name, "sent_or_received": "Sent"},
+			"recipients",
+		)
+		self.assertEqual(recipients, "customer@example.com")
+
 	def test_reply_completes_task_when_configured(self):
 		from one_bpmn.api.todo_actions import post_amp_reply
 
+		self._add_communication()
 		conv = {"key": "Reply", "completesTask": True}
 		result, mock_ct = self._call(post_amp_reply, _token("reply"), "Fixed it.", conv=conv)
 		self.assertNotIn("error", result, str(result)[:600])
