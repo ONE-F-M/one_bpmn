@@ -415,6 +415,10 @@
 					<li v-for="line in childChanges" :key="line">{{ line }}</li>
 				</ul>
 
+				<div v-if="saveState === 'pending'" class="dc-pending-banner" role="status">
+					<strong>Awaiting approval.</strong> {{ pendingNotice }}
+				</div>
+
 				<!-- Footer — changes auto-save to the system -->
 				<div class="dc-window-footer">
 					<span class="dc-count">{{ contentCount }} field{{ contentCount === 1 ? "" : "s" }}</span>
@@ -1424,6 +1428,8 @@ onMounted(async () => {
 	--md-error-container: #ffdad6;
 	--md-on-error-container: #410002;
 	--md-success: #106b34;
+	--md-warning-container: #ffe9b8;
+	--md-on-warning-container: #3b2a00;
 	/* state-layer opacities */
 	--md-state-hover: 0.08;
 	--md-state-focus: 0.12;
@@ -1670,6 +1676,7 @@ onMounted(async () => {
 .dc-save-status.st-saved { color: var(--md-success); }
 .dc-save-status.st-error { color: var(--md-error); }
 .dc-save-status.st-pending { color: var(--md-primary); }
+.dc-pending-banner { padding: 10px 16px; font-size: 13px; background: var(--md-warning-container); color: var(--md-on-warning-container); border-top: 1px solid var(--md-outline-variant); }
 .dc-save-status .dc-option-btn { margin-left: 8px; }
 
 /* ── Properties (right) ── */

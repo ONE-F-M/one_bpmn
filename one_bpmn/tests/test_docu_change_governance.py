@@ -141,6 +141,46 @@ class TestDocuChangeGovernance(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			approve_doctype_change(out["request"], confirm=1)
 
+	# ── who can see a request ──────────────────────────────────────────────
+	def _plain_user(self, key):
+		email = f"zz_gov_{key}_{self.tag}@example.com"
+		frappe.get_doc({
+			"doctype": "User", "email": email, "first_name": f"Gov {key}",
+			"send_welcome_email": 0, "enabled": 1,
+			"roles": [{"role": "Employee"}],
+		}).insert(ignore_permissions=True)
+		self.users[key] = email
+		return email
+
+	def test_a_process_owner_without_a_role_can_see_the_request(self):
+		owner = self._plain_user("d")
+		self._process("one", "d")
+		frappe.set_user(self.users["b"])
+		out = apply_doctype(self._ir(extra=True), confirm=1)
+
+		frappe.set_user(owner)
+		self.assertTrue(frappe.has_permission(REQUEST, "read", doc=out["request"]))
+		self.assertEqual([r.name for r in frappe.get_list(REQUEST, fields=["name"])], [out["request"]])
+
+	def test_an_unrelated_user_cannot_see_the_request(self):
+		stranger = self._plain_user("e")
+		self._process("one", "a")
+		frappe.set_user(self.users["b"])
+		out = apply_doctype(self._ir(extra=True), confirm=1)
+
+		frappe.set_user(stranger)
+		self.assertFalse(frappe.has_permission(REQUEST, "read", doc=out["request"]))
+		self.assertEqual(frappe.get_list(REQUEST, fields=["name"]), [])
+
+	def test_the_requester_can_see_their_own_request(self):
+		requester = self._plain_user("f")
+		self._process("one", "a")
+		frappe.set_user(requester)
+		out = apply_doctype(self._ir(extra=True), confirm=1)
+
+		self.assertTrue(frappe.has_permission(REQUEST, "read", doc=out["request"]))
+		self.assertEqual([r.name for r in frappe.get_list(REQUEST, fields=["name"])], [out["request"]])
+
 	# ── AC2 ────────────────────────────────────────────────────────────────
 	def test_owner_change_is_applied_immediately_without_a_request(self):
 		self._process("one", "a")

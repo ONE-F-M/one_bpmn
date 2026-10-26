@@ -161,6 +161,7 @@ permission_query_conditions = {
 	# A conversation with an agent is private to the person who had it. Enforced
 	# here so it holds for the list, the Desk, any report and /api/resource alike.
 	"Chat Message": "one_bpmn.agents.chat_permissions.chat_message_query_conditions",
+	"Doctype Change Request": "one_bpmn.one_bpmn.doctype.doctype_change_request.doctype_change_request.get_permission_query_conditions",
 }
 
 has_permission = {
@@ -169,6 +170,7 @@ has_permission = {
 	"AI Eval Run": "one_bpmn.agents.eval_permissions.eval_run_has_permission",
 	"AI Memory": "one_bpmn.agents.memory.permissions.ai_memory_has_permission",
 	"Chat Message": "one_bpmn.agents.chat_permissions.chat_message_has_permission",
+	"Doctype Change Request": "one_bpmn.one_bpmn.doctype.doctype_change_request.doctype_change_request.has_permission",
 }
 
 # DocType Class
