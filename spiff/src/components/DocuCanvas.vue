@@ -333,7 +333,13 @@
 						<template v-if="saveState === 'saving'">Saving…</template>
 						<template v-else-if="saveState === 'saved'">✓ Saved{{ appliedName ? ' “' + appliedName + '”' : '' }}</template>
 						<template v-else-if="saveState === 'error'">⚠ {{ saveError }}</template>
-						<template v-else>Changes save automatically</template>
+						<template v-else-if="saveState === 'pending'">{{ pendingNotice }}</template>
+							<template v-else-if="saveState === 'question'">
+								{{ listingQuestion }}
+								<button class="dc-option-btn" @click="answerListing(true)">Yes</button>
+								<button class="dc-option-btn" @click="answerListing(false)">No</button>
+							</template>
+							<template v-else>Changes save automatically</template>
 					</span>
 				</div>
 			</div>
@@ -487,6 +493,9 @@ const appliedName = ref("");
 // Auto-save: changes persist to the system automatically (no "Apply" button).
 const saveState  = ref("idle");   // idle | saving | saved | error
 const saveError  = ref("");
+const listingQuestion = ref("");
+const listingAnswer   = ref(null);
+const pendingNotice   = ref("");
 let autosaveTimer = null;
 let autosaveInFlight = false;
 let autosaveQueued = false;
@@ -1045,8 +1054,24 @@ async function runAutosave() {
 			url: `${API}apply_doctype`,
 			method: "POST",
 			// confirm=1: the builder edits are the user's intent — no extra prompt.
-			params: { ir: JSON.stringify(currentIr()), confirm: 1 },
+			params: {
+				ir: JSON.stringify(currentIr()),
+				confirm: 1,
+				process: props.processContext?.process || undefined,
+				list_in_process: listingAnswer.value ?? undefined,
+			},
 		});
+		if (res?.status === "needs_listing_decision") {
+			listingQuestion.value = res.message;
+			saveState.value = "question";
+			return;
+		}
+		listingQuestion.value = "";
+		if (res?.status === "pending_approval") {
+			pendingNotice.value = res.message;
+			saveState.value = "pending";
+			return;
+		}
 		if (res?.name) {
 			appliedName.value = res.name;
 			emit("applied", res.name);   // write the DocType name back onto the shape
@@ -1059,6 +1084,14 @@ async function runAutosave() {
 		autosaveInFlight = false;
 		if (autosaveQueued) { autosaveQueued = false; scheduleAutosave(); }
 	}
+}
+
+function answerListing(listIt) {
+	listingAnswer.value = listIt ? 1 : 0;
+	runAutosave();
+}
+function errText(e) {
+	return e?.messages?.join(" ") || e?.message || "";
 }
 
 // ── Undo / redo (#12) ──────────────────────────────────────────────────
@@ -1383,6 +1416,8 @@ onMounted(async () => {
 .dc-save-status.st-saving { color: var(--md-primary); }
 .dc-save-status.st-saved { color: var(--md-success); }
 .dc-save-status.st-error { color: var(--md-error); }
+.dc-save-status.st-pending { color: var(--md-primary); }
+.dc-save-status .dc-option-btn { margin-left: 8px; }
 
 /* ── Properties (right) ── */
 .dc-props-panel { width: clamp(250px, 22%, 312px); flex: none; border-left: 1px solid var(--md-outline-variant); background: var(--md-surface-container-low); overflow-y: auto; scrollbar-gutter: stable; padding: 18px 16px; }

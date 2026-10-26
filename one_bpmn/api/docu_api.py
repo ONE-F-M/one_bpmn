@@ -216,10 +216,9 @@ def apply_doctype(ir: str, confirm: int = 0, process: str = None, list_in_proces
 	if not verdict["valid"]:
 		frappe.throw(_("The form has problems that must be fixed first:<br>") + "<br>".join(verdict["violations"]))
 
-	# 1b) Process-ownership routing (WI-003237). Driven entirely by the Process
-	#     Doctypes child tables: the owner of a process that lists the DocType
-	#     applies at once; anyone else is logged as a Doctype Change Request;
-	#     an unlisted DocType triggers the "list it in the current process?" ask.
+	# 1b) Process-ownership routing from the Process Doctypes tables: an owner
+	#     applies at once, anyone else is logged as a Doctype Change Request,
+	#     and an unlisted DocType asks "list it in the current process?".
 	_target = (ir_dict.get("doctype_name") or "").strip()
 	outcome = _route_change(ir_dict, process, list_in_process)
 	if outcome:
@@ -809,7 +808,7 @@ def shape_docu_reply(result: dict) -> dict:
 	return shaped
 
 
-# ── Process-ownership governance (WI-003237) ──
+# ── Process-ownership governance ──
 _PROCESS = "Process"
 _PROCESS_DOCTYPE = "Process Doctype"  # the Process.process_doctypes child table
 _CHANGE_REQUEST = "Doctype Change Request"
@@ -892,8 +891,7 @@ def _log_change_request(name: str, ir_dict: dict, listed: list) -> dict:
 	"""Record the change as a pending Doctype Change Request instead of applying it."""
 	current = _read_doctype_ir(name) if frappe.db.exists("DocType", name) else {}
 	d = diff_ir(current or {}, ir_dict)
-	doc = frappe.get_doc({
-		"doctype": _CHANGE_REQUEST,
+	values = {
 		"target_doctype": name,
 		"requested_by": frappe.session.user,
 		"status": "Pending",
@@ -901,8 +899,17 @@ def _log_change_request(name: str, ir_dict: dict, listed: list) -> dict:
 		"change_summary": d.get("summary") or _("No field changes"),
 		"processes": "\n".join(p.name for p in listed),
 		"requested_ir": json.dumps(ir_dict, default=str),
-	})
-	doc.insert(ignore_permissions=True)
+	}
+	# Autosave re-sends every edit; keep one Pending request per requester and doctype.
+	pending = frappe.db.get_value(_CHANGE_REQUEST, {
+		"target_doctype": name, "requested_by": frappe.session.user, "status": "Pending"})
+	if pending:
+		doc = frappe.get_doc(_CHANGE_REQUEST, pending)
+		doc.update(values)
+		doc.save(ignore_permissions=True)
+	else:
+		doc = frappe.get_doc({"doctype": _CHANGE_REQUEST, **values})
+		doc.insert(ignore_permissions=True)
 	return {
 		"status": "pending_approval",
 		"request": doc.name,

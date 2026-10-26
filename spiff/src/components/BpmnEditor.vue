@@ -1092,6 +1092,10 @@ const props = defineProps({
 	modelName: {
 		type: String,
 		default: ""
+	},
+	process: {
+		type: String,
+		default: ""
 	}
 });
 
@@ -1170,6 +1174,7 @@ const docuProcessContext = computed(() => {
 	const doc = bo?.documentation?.[0];
 	return {
 		process_name: props.modelName || "",
+		process: props.process || "",
 		element_id: bo?.id || "",
 		element_name: bo?.name || "",
 		element_type: _elementTypeLabel(bo),

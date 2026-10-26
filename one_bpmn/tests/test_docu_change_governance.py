@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-003237 — Docu doctype changes are routed by process ownership.
+"""Docu doctype changes are routed by process ownership.
 
 AC1  not an owner of a process listing the doctype -> logged as a Doctype Change
      Request, applied only when a Process Owner of a listing process approves.
@@ -97,6 +97,18 @@ class TestDocuChangeGovernance(FrappeTestCase):
 		self.assertEqual(reqs[0].status, "Pending")
 		self.assertEqual(reqs[0].requested_by, self.users["b"])
 		self.assertEqual(out["request"], reqs[0].name)
+
+	def test_repeated_edits_keep_one_pending_request(self):
+		self._process("one", "a")
+		frappe.set_user(self.users["b"])
+		first = apply_doctype(self._ir(), confirm=1)
+		second = apply_doctype(self._ir(extra=True), confirm=1)
+
+		self.assertEqual(first["request"], second["request"])
+		reqs = self._requests()
+		self.assertEqual(len(reqs), 1)
+		stored = json.loads(frappe.db.get_value(REQUEST, reqs[0].name, "requested_ir"))
+		self.assertIn("extra", [f["fieldname"] for f in stored["fields"]])
 
 	def test_any_owner_of_a_listing_process_can_approve(self):
 		self._process("one", "a")

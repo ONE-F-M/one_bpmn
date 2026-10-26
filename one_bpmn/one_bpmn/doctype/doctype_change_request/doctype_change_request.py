@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""A proposed DocType change logged for Process Owner approval (WI-003237).
+"""A proposed DocType change logged for Process Owner approval.
 
 Created by ``one_bpmn.api.docu_api.apply_doctype`` when the requesting user is
 not a Process Owner of any process whose Process Doctypes table lists the
