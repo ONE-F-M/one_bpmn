@@ -171,7 +171,19 @@ class TestTimerStartSweep(FrappeTestCase):
 		self.assertFalse(timer_start_is_due("", datetime(2026, 9, 9, 13, 16, 0)))
 
 	def _sweep_at(self, now: datetime):
-		with patch("one_bpmn.tasks.now_datetime", return_value=now):
+		"""Sweep at a fixed time, looking only at the models this test deployed."""
+		get_all = frappe.get_all
+		own_models = [model_name for model_name, _ in self.deployed]
+
+		def get_own_configs(doctype, *args, **kwargs):
+			if doctype == "BPMN Start Event Config":
+				kwargs["filters"] = {**kwargs["filters"], "parent": ["in", own_models]}
+			return get_all(doctype, *args, **kwargs)
+
+		with (
+			patch("one_bpmn.tasks.now_datetime", return_value=now),
+			patch("one_bpmn.tasks.frappe.get_all", side_effect=get_own_configs),
+		):
 			process_timer_start_events()
 
 	def _set_marker(self, model, value):
