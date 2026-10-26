@@ -492,7 +492,7 @@ def _send_reply(doc, text: str, user: str) -> dict:
 	"""Send ``text`` as a Communication to the document's sender_field address."""
 	if doc.doctype == "HD Ticket":
 		# Sends to the ticket's customer and sets the status to Replied.
-		doc.reply_via_agent(message=text)
+		doc.reply_via_agent(message=text, to=doc.raised_by)
 	else:
 		sender_field = frappe.get_meta(doc.doctype).sender_field
 		recipient = doc.get(sender_field) if sender_field else None
