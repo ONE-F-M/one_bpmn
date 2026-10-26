@@ -61,6 +61,14 @@
 								:task-name="taskName"
 								:email-thread="thread"
 							/>
+							<NotifyFieldsTab
+								v-if="tab.key === 'fields'"
+								v-model:facts="values.notifyFacts"
+								v-model:details="values.notifyDetails"
+								v-model:attachments="values.notifyAttachments"
+								:doctype="doctype"
+								:layout="values.notifyLayout"
+							/>
 							<NotifyActionsTab
 								v-if="tab.key === 'actions'"
 								v-model:actions="actionsModel"
@@ -94,10 +102,12 @@ import { Dialog, Tabs } from "frappe-ui";
 import { Icon } from "@iconify/vue";
 import NotifyContentTab from "@/components/NotifyContentTab.vue";
 import NotifyActionsTab from "@/components/NotifyActionsTab.vue";
+import NotifyFieldsTab from "@/components/NotifyFieldsTab.vue";
 import NotifyConversationTab from "@/components/NotifyConversationTab.vue";
 import NotifyTemplateTab from "@/components/NotifyTemplateTab.vue";
 import { NOTIFY_EDITOR_ATTRS, isHtmlMode } from "@/bpmn/shared/notifyAssigneeAttrs";
 import { mergeNotifyActions, serializeNotifyActions } from "@/bpmn/shared/notifyActions";
+import { fieldsTabCount, parseFieldList } from "@/bpmn/shared/notifyFields";
 import { useDoctypeEmailThread } from "@/composables/useDoctypeEmailThread";
 
 const props = defineProps({
@@ -141,9 +151,18 @@ const actionsModel = computed({
 	set: (actions) => (values.notifyActions = serializeNotifyActions(actions)),
 });
 
+const fieldsCount = computed(() =>
+	fieldsTabCount(parseFieldList(values.notifyFacts), parseFieldList(values.notifyDetails), values.notifyLayout)
+);
+
 const tabs = computed(() => [
 	{ key: "content", label: "Content" },
-	...(useHtml.value ? [] : [{ key: "actions", label: `Actions (${Object.keys(actionsModel.value).length})` }]),
+	...(useHtml.value
+		? []
+		: [
+				{ key: "fields", label: `Fields (${fieldsCount.value})` },
+				{ key: "actions", label: `Actions (${Object.keys(actionsModel.value).length})` },
+			]),
 	...(values.notifyLayout === "chat" ? [{ key: "conv", label: "Conversation" }] : []),
 	{ key: "html", label: "Email Template or HTML" },
 ]);

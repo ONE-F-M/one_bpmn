@@ -1,10 +1,10 @@
 import { isHtmlMode } from "./notifyAssigneeAttrs.js";
 import { DEFAULT_TOKEN_HOURS, mergeNotifyActions } from "./notifyActions.js";
+import { fieldOf } from "./notifyFields.js";
 
 const LAYOUT_LABELS = { card: "Decision card", steps: "Step by step", chat: "Conversation" };
 
 const parse = (raw, fallback) => (raw ? JSON.parse(raw) : fallback);
-const fieldOf = (entry) => (Array.isArray(entry) ? entry[0] : entry);
 
 /**
  * What the panel shows under Launch Editor: a line, read-only rows and whether the
