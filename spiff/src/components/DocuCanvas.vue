@@ -1369,10 +1369,14 @@ watch(() => props.open, (open) => {
 	else window.removeEventListener("keydown", onGlobalKeydown, true);
 });
 
-onBeforeUnmount(stopPolling);
+onBeforeUnmount(() => {
+	stopPolling();
+	document.body.classList.remove("docu-open");
+});
 
 // ── Init ──────────────────────────────────────────────────────────────
 onMounted(async () => {
+	document.body.classList.add("docu-open");
 	buildTree([]);  // start with an empty tab/section/column so the canvas is usable
 	selectForm();
 	loadModules();  // populate the module picker (fire-and-forget)
@@ -1760,4 +1764,9 @@ onMounted(async () => {
 @media (max-width: 420px) {
 	.dc-dt-chip { max-width: 120px; }
 }
+</style>
+
+<style>
+/* The chat's error dialog is portalled to the body; lift it above the Docu window while open. */
+body.docu-open #headlessui-portal-root { position: relative; z-index: 2100; }
 </style>
