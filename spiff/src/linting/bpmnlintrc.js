@@ -52,6 +52,10 @@ import aiToolsBoxNotFound from "@/linting/rules/ai-tools-box-not-found.js";
 import aiToolsBoxUnreferenced from "@/linting/rules/ai-tools-box-unreferenced.js";
 import aiToolMissingDescription from "@/linting/rules/ai-tool-missing-description.js";
 import aiToolParamsInvalidJson from "@/linting/rules/ai-tool-params-invalid-json.js";
+import serviceTaskMissingConfig from "@/linting/rules/service-task-missing-config.js";
+import sendEmailMissingContent from "@/linting/rules/send-email-missing-content.js";
+import sendTaskMissingNotification from "@/linting/rules/send-task-missing-notification.js";
+import userTaskMissingAssignee from "@/linting/rules/user-task-missing-assignee.js";
 
 /**
  * Map rule names → rule factory functions.
@@ -96,6 +100,10 @@ const ruleMapping = {
 	"custom/ai-tools-box-unreferenced": aiToolsBoxUnreferenced,
 	"custom/ai-tool-missing-description": aiToolMissingDescription,
 	"custom/ai-tool-params-invalid-json": aiToolParamsInvalidJson,
+	"custom/service-task-missing-config": serviceTaskMissingConfig,
+	"custom/send-email-missing-content": sendEmailMissingContent,
+	"custom/send-task-missing-notification": sendTaskMissingNotification,
+	"custom/user-task-missing-assignee": userTaskMissingAssignee,
 };
 
 const config = {
@@ -157,6 +165,12 @@ const config = {
 		"custom/ai-tools-box-unreferenced": "error",
 		"custom/ai-tool-params-invalid-json": "error",
 		"custom/ai-tool-missing-description": "warn",
+
+		// OneFM custom rules: Frappe task properties the engine needs (it skips the task without them)
+		"custom/service-task-missing-config": "error",
+		"custom/send-task-missing-notification": "error",
+		"custom/user-task-missing-assignee": "error",
+		"custom/send-email-missing-content": "warn",
 	},
 };
 
