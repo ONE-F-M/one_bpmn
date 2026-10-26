@@ -283,3 +283,80 @@ class TestSheetsIsPureConfiguration(FrappeTestCase):
         self.assertTrue(_shadowed_field_access("google_sheets", "updateValues", broken))
         self.assertFalse(_shadowed_field_access("google_sheets", "updateValues", self._spec("updateValues")))
 
+
+class TestSetContentRestrictionRendering(FrappeTestCase):
+    """google_drive-setContentRestriction, rendered by the real HTTP executor.
+
+    The operation record ships through Processa export, so the definition is
+    held in the test (no database record). What matters is that the body
+    template renders ``readOnly`` as a JSON boolean — a dropped key or the
+    string "true" would either leave the file unlocked or be rejected by Drive.
+    """
+
+    _HTTP = "one_bpmn.one_bpmn.connectors.http_ops"
+
+    @staticmethod
+    def _spec():
+        return frappe._dict(
+            connector_id="google_drive",
+            operation_id="setContentRestriction",
+            execution_type="HTTP Request",
+            http_method="PATCH",
+            base_url="https://www.googleapis.com/drive/v3",
+            url_template="/files/{{ params.file }}",
+            query_params_json='{"supportsAllDrives": "true", "fields": "id,contentRestrictions"}',
+            headers_json="",
+            body_template=(
+                '{"contentRestrictions": [{"readOnly": {{ params.readOnly | tojson }}, '
+                '"reason": {{ params.reason | tojson }}}]}'
+            ),
+            body_content_type="application/json",
+            response_map_json="",
+            auth_type="None",
+            allow_internal_hosts=1,  # no DNS lookup in the test
+            request_timeout=5,
+        )
+
+    def _render(self, params):
+        from one_bpmn.one_bpmn.connectors import http_ops
+
+        sent = {}
+
+        def fake_request(spec, url, headers, body):
+            sent.update(method=spec.http_method, url=url, body=body)
+            return {}
+
+        with patch(f"{self._HTTP}._request", side_effect=fake_request):
+            http_ops.execute(self._spec(), params, {"task_data": {}})
+        return sent
+
+    def test_lock_renders_boolean_true(self):
+        sent = self._render({"file": "FILE_ABC123", "readOnly": True, "reason": "Under approval"})
+
+        self.assertEqual(sent["method"], "PATCH")
+        self.assertIn("/files/FILE_ABC123", sent["url"])
+        self.assertIn("supportsAllDrives=true", sent["url"])
+        self.assertIn("fields=id%2CcontentRestrictions", sent["url"])
+
+        restriction = sent["body"]["contentRestrictions"][0]
+        self.assertIn("readOnly", restriction, "readOnly was dropped from the body")
+        self.assertIs(restriction["readOnly"], True)
+        self.assertNotEqual(restriction["readOnly"], "true")
+        self.assertEqual(restriction["reason"], "Under approval")
+
+    def test_unlock_renders_boolean_false(self):
+        sent = self._render({"file": "FILE_ABC123", "readOnly": False, "reason": ""})
+
+        restriction = sent["body"]["contentRestrictions"][0]
+        # False is the dangerous one: a template that drops falsy values would
+        # silently send no readOnly and never lift the lock.
+        self.assertIn("readOnly", restriction, "readOnly was dropped from the body")
+        self.assertIs(restriction["readOnly"], False)
+        self.assertNotEqual(restriction["readOnly"], "false")
+        self.assertIn("reason", restriction)
+        self.assertEqual(restriction["reason"], "")
+
+    def test_reason_with_quotes_stays_valid_json(self):
+        sent = self._render({"file": "F1", "readOnly": True, "reason": 'Held for "Legal" review'})
+        self.assertEqual(sent["body"]["contentRestrictions"][0]["reason"], 'Held for "Legal" review')
+
