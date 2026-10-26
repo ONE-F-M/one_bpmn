@@ -32,6 +32,9 @@ _INSTANCE = "INST-CONV-001"
 _USER = "agent@test.com"
 
 
+_BOTH_COMPLETE = {"actions": [{"key": "reply", "completes": True}, {"key": "note", "completes": True}]}
+
+
 def _mock_secret():
 	return patch("one_bpmn.utils.token._get_secret", return_value=_TEST_SECRET)
 
@@ -311,7 +314,7 @@ class TestConversationEndpoints(FrappeTestCase):
 		from one_bpmn.api.todo_actions import post_amp_reply
 
 		self._add_communication()
-		conv = {"key": "Reply", "completesTask": True}
+		conv = {"actions": [{"key": "reply", "completes": True}, {"key": "note", "completes": False}]}
 		result, mock_ct = self._call(post_amp_reply, _token("reply"), "Fixed it.", conv=conv)
 		self.assertNotIn("error", result, str(result)[:600])
 
@@ -321,6 +324,17 @@ class TestConversationEndpoints(FrappeTestCase):
 		self.assertEqual(kwargs["task_id"], _TASK_ID)
 		self.assertEqual(json.loads(kwargs["data"]), {"action": "Reply", "comment": "Fixed it."})
 		self.assertTrue(result["completed"])
+
+	def test_reply_does_not_complete_when_only_note_is_ticked(self):
+		from one_bpmn.api.todo_actions import post_amp_reply
+
+		self._add_communication()
+		conv = {"actions": [{"key": "reply", "completes": False}, {"key": "note", "completes": True}]}
+		result, mock_ct = self._call(post_amp_reply, _token("reply"), "Still looking.", conv=conv)
+		self.assertNotIn("error", result, str(result)[:600])
+
+		mock_ct.assert_not_called()
+		self.assertFalse(result["completed"])
 
 	# -- note (AC3, AC4) --------------------------------------------------
 
@@ -337,7 +351,7 @@ class TestConversationEndpoints(FrappeTestCase):
 	def test_note_completes_task_when_configured(self):
 		from one_bpmn.api.todo_actions import post_amp_note
 
-		conv = json.dumps({"key": "Note", "completesTask": "true"})  # JSON string form
+		conv = json.dumps({"actions": [{"key": "note", "completes": True}]})  # JSON string form
 		result, mock_ct = self._call(post_amp_note, _token("note"), "Done.", conv=conv)
 
 		mock_ct.assert_called_once()
@@ -350,7 +364,7 @@ class TestConversationEndpoints(FrappeTestCase):
 
 		comms, comments = self._communications(), self._comments()
 		for fn, kind in ((post_amp_reply, "reply"), (post_amp_note, "note")):
-			result, mock_ct = self._call(fn, _token(kind), "   ", conv={"completesTask": True})
+			result, mock_ct = self._call(fn, _token(kind), "   ", conv=_BOTH_COMPLETE)
 			self.assertEqual(self._status(), 400)
 			self.assertEqual(result["error"], "Write a message first.")
 			mock_ct.assert_not_called()
@@ -393,7 +407,7 @@ class TestConversationEndpoints(FrappeTestCase):
 
 		comms, comments = self._communications(), self._comments()
 		for fn, kind in ((post_amp_reply, "reply"), (post_amp_note, "note")):
-			result, mock_ct = self._call(fn, _token(kind), "Hello", agent=False, conv={"completesTask": True})
+			result, mock_ct = self._call(fn, _token(kind), "Hello", agent=False, conv=_BOTH_COMPLETE)
 			self.assertEqual(self._status(), 403)
 			self.assertIn("Permission denied", result["error"])
 			mock_ct.assert_not_called()

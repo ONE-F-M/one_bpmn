@@ -283,9 +283,8 @@ def _get_instance_context(instance_name: str):
 def _get_conversation_config(instance, task_id: str) -> dict:
 	"""``notifyConversation`` of the task, as a dict (empty when absent).
 
-	Accepts the setting as a dict or a JSON string. Understood keys:
-	``key`` (action key sent to complete_task), ``completesTask`` and
-	``internalNotes``.
+	Saved by the Conversation tab as ``{actions: [{key, completes}], internalNotes, canned}``,
+	as a dict or a JSON string.
 	"""
 	try:
 		state = json.loads(instance.workflow_state or "{}")
@@ -417,12 +416,12 @@ def _handled_by_message(instance_name: str, task_id: str) -> str | None:
 
 
 def _complete_with_conversation(payload: dict, conv: dict, kind: str, text: str) -> bool:
-	"""Complete the task when the conversation action completes it."""
-	completes = conv.get("completesTask", conv.get("completes"))
-	if not _truthy(completes):
+	"""Complete the task when Completes task is ticked on this conversation action."""
+	action = next((a for a in conv.get("actions") or [] if a.get("key") == kind), {})
+	if not _truthy(action.get("completes")):
 		return False
 
-	key = conv.get("key") or _DEFAULT_CONVERSATION_KEY[kind]
+	key = _DEFAULT_CONVERSATION_KEY[kind]
 	try:
 		from one_bpmn.api.instance_api import complete_task
 
