@@ -14,7 +14,8 @@
   "trigger_event",
   "column_break_2",
   "workflow_state_condition",
-  "cron_expression"
+  "cron_expression",
+  "last_started_at"
  ],
  "fields": [
   {
@@ -70,6 +71,14 @@
    "fieldtype": "Select",
    "label": "Trigger Type",
    "options": "DocType Event\nScheduler Event\nAPI"
+  },
+  {
+   "fieldname": "last_started_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Last Started At",
+   "no_copy": 1,
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,

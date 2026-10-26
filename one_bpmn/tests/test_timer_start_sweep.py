@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -168,3 +169,101 @@ class TestTimerStartSweep(FrappeTestCase):
 		self.assertTrue(timer_start_is_due("*/5 * * * *", datetime(2026, 9, 9, 13, 15, 0)))
 		self.assertFalse(timer_start_is_due("*/5 * * * *", datetime(2026, 9, 9, 13, 16, 0)))
 		self.assertFalse(timer_start_is_due("", datetime(2026, 9, 9, 13, 16, 0)))
+
+	def _sweep_at(self, now: datetime):
+		with patch("one_bpmn.tasks.now_datetime", return_value=now):
+			process_timer_start_events()
+
+	def _set_marker(self, model, value):
+		frappe.db.set_value(
+			"BPMN Start Event Config",
+			{"parent": model.name},
+			"last_started_at",
+			value,
+			update_modified=False,
+		)
+
+	def _marker(self, model):
+		return frappe.db.get_value("BPMN Start Event Config", {"parent": model.name}, "last_started_at")
+
+	def test_late_check_starts_the_missed_hour(self):
+		model = self._deploy("0 * * * *")
+		self._set_marker(model, "2026-10-27 09:00:05")
+
+		self._sweep_at(datetime(2026, 10, 27, 10, 3, 0))
+
+		self.assertEqual(len(self._instances(model.name)), 1)
+		self.assertEqual(self._marker(model), datetime(2026, 10, 27, 10, 3, 0))
+
+	def test_repeated_checks_start_one_run_per_scheduled_time(self):
+		model = self._deploy("0 * * * *")
+		self._set_marker(model, "2026-10-27 09:00:05")
+
+		self._sweep_at(datetime(2026, 10, 27, 10, 0, 10))
+		self._sweep_at(datetime(2026, 10, 27, 10, 0, 40))
+		self._sweep_at(datetime(2026, 10, 27, 10, 4, 0))
+
+		self.assertEqual(len(self._instances(model.name)), 1)
+
+	def test_outage_starts_one_run_not_one_per_missed_hour(self):
+		model = self._deploy("0 * * * *")
+		self._set_marker(model, "2026-10-27 07:00:05")
+
+		self._sweep_at(datetime(2026, 10, 27, 12, 30, 0))
+
+		self.assertEqual(len(self._instances(model.name)), 1)
+
+	def test_timer_that_never_started_waits_for_its_own_minute(self):
+		model = self._deploy("0 * * * *")
+
+		self._sweep_at(datetime(2026, 10, 27, 10, 3, 0))
+		self.assertEqual(len(self._instances(model.name)), 0)
+
+		self._sweep_at(datetime(2026, 10, 27, 11, 0, 20))
+		self.assertEqual(len(self._instances(model.name)), 1)
+
+	def test_inactive_model_does_not_catch_up(self):
+		model = self._deploy("0 * * * *")
+		model.db_set("is_active", 0)
+		self._set_marker(model, "2026-10-27 07:00:05")
+
+		self._sweep_at(datetime(2026, 10, 27, 12, 30, 0))
+
+		self.assertEqual(len(self._instances(model.name)), 0)
+		self.assertEqual(self._marker(model), datetime(2026, 10, 27, 7, 0, 5))
+
+	def test_uncompiled_model_does_not_catch_up(self):
+		model = self._deploy("0 * * * *")
+		model.db_set("serialized_spec", None, update_modified=False)
+		self._set_marker(model, "2026-10-27 07:00:05")
+
+		self._sweep_at(datetime(2026, 10, 27, 12, 30, 0))
+
+		self.assertEqual(len(self._instances(model.name)), 0)
+		self.assertEqual(self._marker(model), datetime(2026, 10, 27, 7, 0, 5))
+
+	def test_recompile_keeps_the_last_started_marker(self):
+		model = self._deploy("0 * * * *")
+		self._set_marker(model, "2026-10-27 09:00:05")
+
+		compile_process_model(model.name)
+
+		self.assertEqual(self._marker(model), datetime(2026, 10, 27, 9, 0, 5))
+
+	def test_cron_is_due_once_per_slot_after_the_last_start(self):
+		hourly = "0 * * * *"
+		late = datetime(2026, 10, 27, 10, 3, 0)
+		self.assertTrue(timer_start_is_due(hourly, late, datetime(2026, 10, 27, 9, 0, 5)))
+		self.assertFalse(timer_start_is_due(hourly, late, datetime(2026, 10, 27, 10, 0, 5)))
+		self.assertFalse(timer_start_is_due(hourly, late))
+
+	def test_iso_cycle_catches_up_and_stops_at_its_last_repeat(self):
+		daily = "R/2026-09-07T00:00:00+03:00/P1D"
+		late = datetime(2026, 9, 10, 0, 3, 0)
+		self.assertTrue(timer_start_is_due(daily, late, datetime(2026, 9, 9, 0, 0, 10)))
+		self.assertFalse(timer_start_is_due(daily, late, datetime(2026, 9, 10, 0, 0, 10)))
+
+		twice = "R2/2026-09-07T00:00:00+03:00/P1D"
+		after = datetime(2026, 9, 12, 0, 0, 5)
+		self.assertTrue(timer_start_is_due(twice, after, datetime(2026, 9, 7, 0, 0, 10)))
+		self.assertFalse(timer_start_is_due(twice, after, datetime(2026, 9, 8, 0, 0, 10)))
