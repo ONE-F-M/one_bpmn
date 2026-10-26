@@ -68,6 +68,7 @@ declare module 'vue' {
     NotifyAssigneeEditorDialog: typeof import('./src/components/NotifyAssigneeEditorDialog.vue')['default']
     NotifyContentTab: typeof import('./src/components/NotifyContentTab.vue')['default']
     NotifyConversationTab: typeof import('./src/components/NotifyConversationTab.vue')['default']
+    NotifyFieldsTab: typeof import('./src/components/NotifyFieldsTab.vue')['default']
     NotifyTemplateTab: typeof import('./src/components/NotifyTemplateTab.vue')['default']
     OneAiApp: typeof import('./src/components/chat/OneAiApp.vue')['default']
     OverviewCards: typeof import('./src/components/insights/OverviewCards.vue')['default']
