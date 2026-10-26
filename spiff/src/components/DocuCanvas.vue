@@ -415,7 +415,10 @@
 					<li v-for="line in childChanges" :key="line">{{ line }}</li>
 				</ul>
 
-				<div v-if="saveState === 'pending'" class="dc-pending-banner" role="status">
+				<div v-if="permissionChecked && !canChange" class="dc-notice-banner" role="status">
+					<strong>Read only.</strong> Your role is not allowed to change forms in Docu. Ask a System Manager to give you access.
+				</div>
+				<div v-else-if="saveState === 'pending'" class="dc-notice-banner" role="status">
 					<strong>Awaiting approval.</strong> {{ pendingNotice }}
 				</div>
 
@@ -423,7 +426,7 @@
 				<div class="dc-window-footer">
 					<span class="dc-count">{{ contentCount }} field{{ contentCount === 1 ? "" : "s" }}</span>
 					<span class="dc-save-status" :class="'st-' + saveState">
-						<template v-if="!canChange">Read only: you are not allowed to change forms</template>
+						<template v-if="!canChange">Read only: your role cannot change forms</template>
 						<template v-else-if="saveState === 'saving'">Saving…</template>
 						<template v-else-if="saveState === 'saved'">✓ Saved{{ appliedName ? ' “' + appliedName + '”' : '' }}</template>
 						<template v-else-if="saveState === 'error'">⚠ {{ saveError }}</template>
@@ -641,6 +644,7 @@ const appliedName = ref("");
 // Auto-save: changes persist to the system automatically (no "Apply" button).
 const saveState  = ref("idle");   // idle | saving | saved | error
 const canChange  = ref(false);
+const permissionChecked = ref(false);
 const saveError  = ref("");
 const listingQuestion = ref("");
 const listingAnswer   = ref(null);
@@ -1163,6 +1167,8 @@ async function loadCanChange() {
 		canChange.value = Boolean(await frappeRequest({ url: `${API}can_change_forms` }));
 	} catch (e) {
 		canChange.value = false;
+	} finally {
+		permissionChecked.value = true;
 	}
 }
 
@@ -1369,10 +1375,14 @@ watch(() => props.open, (open) => {
 	else window.removeEventListener("keydown", onGlobalKeydown, true);
 });
 
-onBeforeUnmount(stopPolling);
+onBeforeUnmount(() => {
+	stopPolling();
+	document.body.classList.remove("docu-open");
+});
 
 // ── Init ──────────────────────────────────────────────────────────────
 onMounted(async () => {
+	document.body.classList.add("docu-open");
 	buildTree([]);  // start with an empty tab/section/column so the canvas is usable
 	selectForm();
 	loadModules();  // populate the module picker (fire-and-forget)
@@ -1676,7 +1686,7 @@ onMounted(async () => {
 .dc-save-status.st-saved { color: var(--md-success); }
 .dc-save-status.st-error { color: var(--md-error); }
 .dc-save-status.st-pending { color: var(--md-primary); }
-.dc-pending-banner { padding: 10px 16px; font-size: 13px; background: var(--md-warning-container); color: var(--md-on-warning-container); border-top: 1px solid var(--md-outline-variant); }
+.dc-notice-banner { padding: 10px 16px; font-size: 13px; background: var(--md-warning-container); color: var(--md-on-warning-container); border-top: 1px solid var(--md-outline-variant); }
 .dc-save-status .dc-option-btn { margin-left: 8px; }
 
 /* ── Properties (right) ── */
@@ -1760,4 +1770,9 @@ onMounted(async () => {
 @media (max-width: 420px) {
 	.dc-dt-chip { max-width: 120px; }
 }
+</style>
+
+<style>
+/* The chat's error dialog is portalled to the body; lift it above the Docu window while open. */
+body.docu-open #headlessui-portal-root { position: relative; z-index: 2100; }
 </style>
