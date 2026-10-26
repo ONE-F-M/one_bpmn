@@ -56,6 +56,9 @@ import serviceTaskMissingConfig from "@/linting/rules/service-task-missing-confi
 import sendEmailMissingContent from "@/linting/rules/send-email-missing-content.js";
 import sendTaskMissingNotification from "@/linting/rules/send-task-missing-notification.js";
 import userTaskMissingAssignee from "@/linting/rules/user-task-missing-assignee.js";
+import aiTaskConfigUnavailable from "@/linting/rules/ai-task-config-unavailable.js";
+import aiTaskConfigIncomplete from "@/linting/rules/ai-task-config-incomplete.js";
+import aiTaskConfigNotLive from "@/linting/rules/ai-task-config-not-live.js";
 
 /**
  * Map rule names → rule factory functions.
@@ -104,6 +107,9 @@ const ruleMapping = {
 	"custom/send-email-missing-content": sendEmailMissingContent,
 	"custom/send-task-missing-notification": sendTaskMissingNotification,
 	"custom/user-task-missing-assignee": userTaskMissingAssignee,
+	"custom/ai-task-config-unavailable": aiTaskConfigUnavailable,
+	"custom/ai-task-config-incomplete": aiTaskConfigIncomplete,
+	"custom/ai-task-config-not-live": aiTaskConfigNotLive,
 };
 
 const config = {
@@ -171,6 +177,11 @@ const config = {
 		"custom/send-task-missing-notification": "error",
 		"custom/user-task-missing-assignee": "error",
 		"custom/send-email-missing-content": "warn",
+
+		// OneFM custom rules: the linked AI Agent Configuration, read from the server by useAgentConfigLintState
+		"custom/ai-task-config-unavailable": "error",
+		"custom/ai-task-config-incomplete": "error",
+		"custom/ai-task-config-not-live": "warn",
 	},
 };
 
