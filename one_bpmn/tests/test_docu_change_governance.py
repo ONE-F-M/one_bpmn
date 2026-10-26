@@ -20,6 +20,7 @@ from frappe.tests.utils import FrappeTestCase
 from one_bpmn.api.docu_api import (
 	apply_doctype,
 	approve_doctype_change,
+	can_change_forms,
 	reject_doctype_change,
 )
 
@@ -180,6 +181,30 @@ class TestDocuChangeGovernance(FrappeTestCase):
 
 		self.assertTrue(frappe.has_permission(REQUEST, "read", doc=out["request"]))
 		self.assertEqual([r.name for r in frappe.get_list(REQUEST, fields=["name"])], [out["request"]])
+
+	# ── who may use Docu at all ────────────────────────────────────────────
+	def test_a_process_owner_without_an_admitted_role_may_change_forms(self):
+		owner = self._plain_user("g")
+		self._process("one", "g")
+		frappe.set_user(owner)
+
+		self.assertTrue(can_change_forms())
+
+	def test_a_person_who_owns_no_process_is_still_refused(self):
+		stranger = self._plain_user("h")
+		self._process("one", "a")
+		frappe.set_user(stranger)
+
+		self.assertFalse(can_change_forms())
+
+	def test_a_plain_process_owner_applies_a_change_to_their_listed_doctype(self):
+		owner = self._plain_user("i")
+		self._process("one", "i")
+		frappe.set_user(owner)
+		out = apply_doctype(self._ir(extra=True), confirm=1)
+
+		self.assertEqual(out["status"], "applied")
+		self.assertTrue(self._has_extra())
 
 	# ── AC2 ────────────────────────────────────────────────────────────────
 	def test_owner_change_is_applied_immediately_without_a_request(self):
