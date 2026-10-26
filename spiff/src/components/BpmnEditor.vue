@@ -1078,6 +1078,7 @@ import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
 import conditionalStartEventPropertiesProviderModule from "@/bpmn/conditionalStartEventPropertiesProvider";
 import lanePropertiesProviderModule from "@/bpmn/lanePropertiesProvider";
+import signalPropertiesProviderModule from "@/bpmn/signalPropertiesProvider";
 import propertiesPanelFilterModule from "@/bpmn/propertiesPanelFilter";
 import commentContextPadModule from "@/bpmn/commentContextPad";
 import { encodeHtmlAttr, decodeHtmlAttr } from "@/bpmn/shared/htmlAttrCodec";
@@ -1833,6 +1834,7 @@ onMounted(async () => {
 				startEventPropertiesProviderModule,
 				conditionalStartEventPropertiesProviderModule,
 				lanePropertiesProviderModule,
+				signalPropertiesProviderModule,
 				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
