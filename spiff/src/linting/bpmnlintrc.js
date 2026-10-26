@@ -45,6 +45,13 @@ import callActivityMissingProcess from "@/linting/rules/call-activity-missing-pr
 import noCrossingEdges from "@/linting/rules/no-crossing-edges.js";
 import exemptToolCatalogues from "@/linting/rules/tool-catalogue.js";
 import scriptTaskMissingScript from "@/linting/rules/script-task-missing-script.js";
+import aiTaskMissingConfig from "@/linting/rules/ai-task-missing-config.js";
+import aiTaskMissingUserPrompt from "@/linting/rules/ai-task-missing-user-prompt.js";
+import aiTaskInvalidSettings from "@/linting/rules/ai-task-invalid-settings.js";
+import aiToolsBoxNotFound from "@/linting/rules/ai-tools-box-not-found.js";
+import aiToolsBoxUnreferenced from "@/linting/rules/ai-tools-box-unreferenced.js";
+import aiToolMissingDescription from "@/linting/rules/ai-tool-missing-description.js";
+import aiToolParamsInvalidJson from "@/linting/rules/ai-tool-params-invalid-json.js";
 
 /**
  * Map rule names → rule factory functions.
@@ -82,6 +89,13 @@ const ruleMapping = {
 	"custom/call-activity-missing-process": callActivityMissingProcess,
 	"custom/no-crossing-edges": noCrossingEdges,
 	"custom/script-task-missing-script": scriptTaskMissingScript,
+	"custom/ai-task-missing-config": aiTaskMissingConfig,
+	"custom/ai-task-missing-user-prompt": aiTaskMissingUserPrompt,
+	"custom/ai-task-invalid-settings": aiTaskInvalidSettings,
+	"custom/ai-tools-box-not-found": aiToolsBoxNotFound,
+	"custom/ai-tools-box-unreferenced": aiToolsBoxUnreferenced,
+	"custom/ai-tool-missing-description": aiToolMissingDescription,
+	"custom/ai-tool-params-invalid-json": aiToolParamsInvalidJson,
 };
 
 const config = {
@@ -134,6 +148,15 @@ const config = {
 
 		// OneFM custom rules: a Script Task with nothing to run
 		"custom/script-task-missing-script": "warn",
+
+		// OneFM custom rules: AI Agent Task and Tools box setup (deploy refuses the same gaps)
+		"custom/ai-task-missing-config": "error",
+		"custom/ai-task-missing-user-prompt": "error",
+		"custom/ai-task-invalid-settings": "error",
+		"custom/ai-tools-box-not-found": "error",
+		"custom/ai-tools-box-unreferenced": "error",
+		"custom/ai-tool-params-invalid-json": "error",
+		"custom/ai-tool-missing-description": "warn",
 	},
 };
 
