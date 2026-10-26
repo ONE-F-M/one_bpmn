@@ -28,9 +28,12 @@ Tools are NOT sourced from the config — the diagram's ad-hoc shapes remain
 the toolkit.
 """
 
+import json
+from xml.sax.saxutils import escape as xml_escape
+
 import frappe
 from frappe import _
-from frappe.utils import cint
+from frappe.utils import cint, cstr, flt
 
 from one_bpmn.agents.agent_provisioning import is_chat_startable_map
 
@@ -63,6 +66,22 @@ _CONFIG_TO_SHAPE = {
 	"compaction_token_threshold": "aiCompactionTokenThreshold",
 	"compaction_idle_minutes": "aiCompactionIdleMinutes",
 	"compaction_on_task_boundary": "aiCompactionOnTaskBoundary",
+	# The golden dataset bar is the agent's own judgement about its cases. Int,
+	# so 0 reaches the modal and reads there as "no bar".
+	"golden_dataset_minimum": "aiGoldenDatasetMinimum",
+	"golden_dataset_target": "aiGoldenDatasetTarget",
+	"tool_choice": "aiToolChoice",
+	"parallel_tool_calls": "aiParallelToolCalls",
+	"thinking_budget_tokens": "aiThinkingBudgetTokens",
+	"terminal_tools": "aiTerminalTools",
+}
+
+# Limits where 0 on the record means "not set here", so the task's own value or the platform default applies.
+_ZERO_MEANS_UNSET = {
+	"aiTimeout": "timeout_seconds",
+	"aiMaxRetries": "max_retries",
+	"aiMaxToolCalls": "max_tool_calls",
+	"aiTopP": "top_p",
 }
 
 # Shape attributes the modal may write back, and the config fields they land
@@ -74,7 +93,14 @@ _SHAPE_TO_CONFIG = {
 	"aiSystemPrompt": "system_prompt",
 	"aiTemperature": "temperature",
 	"aiMaxTokens": "max_tokens",
+	"aiRunTokenBudget": "run_token_budget",
+	"aiRunCostBudget": "run_cost_budget",
 	"aiModel": "ai_model",
+	"aiToolChoice": "tool_choice",
+	"aiParallelToolCalls": "parallel_tool_calls",
+	"aiThinkingBudgetTokens": "thinking_budget_tokens",
+	"aiTerminalTools": "terminal_tools",
+	**_ZERO_MEANS_UNSET,
 	# WI-001793: the modal's Memory section now persists here instead of onto
 	# the BPMN XML, so the agent is the single place memory is configured.
 	"aiConversationStore": "conversation_store",
@@ -84,6 +110,12 @@ _SHAPE_TO_CONFIG = {
 	"aiMemoryWriteMode": "memory_write_mode",
 	"aiMemoryDistillModel": "memory_distill_model",
 	"aiMemoryReconcileModel": "memory_reconcile_model",
+	# WI-002163: caps the injected recall block's estimated size. Handled the
+	# same way context_max_messages is below (NOT in _CONFIG_TO_SHAPE's generic
+	# read loop) rather than like context_token_budget — 0 must mean "not
+	# configured here", never a real "no cap" setting, or an agent could
+	# silently defeat the ceiling this field exists to guarantee.
+	"aiMemoryTokenBudget": "memory_token_budget",
 	# Compaction is configured in the same modal and persists the same way.
 	"aiContextTokenBudget": "context_token_budget",
 	"aiCompactionEnabled": "compaction_enabled",
@@ -92,6 +124,10 @@ _SHAPE_TO_CONFIG = {
 	"aiCompactionTokenThreshold": "compaction_token_threshold",
 	"aiCompactionIdleMinutes": "compaction_idle_minutes",
 	"aiCompactionOnTaskBoundary": "compaction_on_task_boundary",
+	"aiLoopCompactionThreshold": "loop_compaction_threshold",
+	"aiLoopCompactionKeepTurns": "loop_compaction_keep_turns",
+	"aiGoldenDatasetMinimum": "golden_dataset_minimum",
+	"aiGoldenDatasetTarget": "golden_dataset_target",
 	# WI-001644: screening is agent-level too — what an agent may say is a
 	# property of the agent, not of the task that happens to call it.
 	"aiPiiScreening": "pii_screening",
@@ -105,6 +141,11 @@ _SHAPE_TO_CONFIG = {
 	"aiRateLimitWindowSeconds": "rate_limit_window_seconds",
 	"aiLockAfterBlocks": "lock_after_blocks",
 	"aiLockBlockWindowSeconds": "lock_block_window_seconds",
+	"aiConcurrentTurnPolicy": "concurrent_turn_policy",
+	# The agent's sandbox settings, written back from the modal.
+	"aiSandboxUseJob": "sandbox_use_job",
+	"aiSandboxRetryOnTestFailure": "sandbox_retry_on_test_failure",
+	"aiRequireReproduction": "require_reproduction",
 }
 
 # The inverse, for the editor read. Not folded into _CONFIG_TO_SHAPE because
@@ -119,6 +160,7 @@ _SCREENING_TO_SHAPE = {
 	"rate_limit_window_seconds": "aiRateLimitWindowSeconds",
 	"lock_after_blocks": "aiLockAfterBlocks",
 	"lock_block_window_seconds": "aiLockBlockWindowSeconds",
+	"concurrent_turn_policy": "aiConcurrentTurnPolicy",
 }
 
 # Guard rail categories, mirroring the AI Agent Guard Rail Select options
@@ -140,7 +182,7 @@ _GUARDRAIL_CATEGORIES = (
 # alone" rather than "empty it".
 _EXAMPLE_SHAPE_ATTR = "aiExamples"
 _GUARDRAIL_SHAPE_ATTR = "aiGuardrails"
-_EXAMPLE_FIELDS = ("input", "expected_output", "note", "enabled")
+_EXAMPLE_FIELDS = ("input", "context_summary", "trajectory", "expected_output", "note", "enabled")
 _GUARDRAIL_FIELDS = ("guardrail", "category", "enabled")
 
 _SKILL_SHAPE_ATTR = "aiSkills"
@@ -194,6 +236,8 @@ def _clean_example_rows(rows) -> list[dict]:
 		out.append(
 			{
 				"input": row["input"],
+				"context_summary": row.get("context_summary") or "",
+				"trajectory": canonical_trajectory(row.get("trajectory")),
 				"expected_output": row.get("expected_output") or "",
 				"note": row.get("note") or "",
 				# Absent means on: the assistant's proposals carry no flag, and a
@@ -227,7 +271,24 @@ def _clean_guardrail_rows(rows) -> list[dict]:
 def _rows_for_shape(doc, table: str, fields: tuple[str, ...]) -> list[dict]:
 	"""The table's rows as plain dicts, in document order — the order they
 	reach the model."""
-	return [{f: (r.get(f) or "") if f != "enabled" else int(r.get("enabled") or 0) for f in fields} for r in doc.get(table) or []]
+	return [{f: _shape_value(r, f) for f in fields} for r in doc.get(table) or []]
+
+
+def _shape_value(row, field: str):
+	if field == "enabled":
+		return int(row.get("enabled") or 0)
+	if field == "trajectory":
+		return canonical_trajectory(row.get("trajectory"))
+	return row.get(field) or ""
+
+
+def canonical_trajectory(value) -> str | None:
+	"""An example's tool calls as one JSON text with sorted keys; None when it has none, since the column is JSON."""
+	if isinstance(value, str):
+		value = frappe.parse_json(value) if value.strip() else None
+	if not value:
+		return None
+	return json.dumps(value, sort_keys=True, ensure_ascii=False)
 
 
 # The agent's screening settings. Agent-owned with no shape equivalent, so —
@@ -243,6 +304,7 @@ _SCREENING_FIELDS = (
 	"rate_limit_window_seconds",
 	"lock_after_blocks",
 	"lock_block_window_seconds",
+	"concurrent_turn_policy",
 )
 
 
@@ -262,6 +324,23 @@ def config_screening(config_name: str) -> dict:
 		if meta.get_field(fieldname):
 			out[_SCREENING_TO_SHAPE[fieldname]] = cfg.get(fieldname)
 	return out
+
+
+# The agent's sandbox settings. Agent-owned with no shape equivalent, so like screening they are readable by
+# the editor and kept out of config_field_map, which is overlaid onto every task at dispatch.
+_SANDBOX_TO_SHAPE = {
+	"sandbox_use_job": "aiSandboxUseJob",
+	"sandbox_retry_on_test_failure": "aiSandboxRetryOnTestFailure",
+	"require_reproduction": "aiRequireReproduction",
+}
+
+
+def config_sandbox(config_name: str) -> dict:
+	"""The agent's sandbox settings, keyed by shape attribute."""
+	if not config_name or not frappe.db.exists("AI Agent Configuration", config_name):
+		return {}
+	cfg = frappe.get_doc("AI Agent Configuration", config_name)
+	return {attr: cint(cfg.get(field)) for field, attr in _SANDBOX_TO_SHAPE.items()}
 
 
 def config_static_context(config_name: str) -> dict:
@@ -348,6 +427,26 @@ def config_field_map(config_name: str) -> dict:
 	# not override the shape's value the way a real setting would (WI-001793).
 	if cint(cfg.get("context_max_messages")):
 		out["aiContextMaxMessages"] = cfg.context_max_messages
+	# WI-002163: same reasoning, and deliberately so — unlike context_token_budget
+	# (where 0 is a real "no size limit" setting the modal offers), 0/blank here
+	# must stay "not configured" with no way to opt out of the cap, or an agent
+	# could silently defeat the ceiling this field exists to guarantee.
+	if cint(cfg.get("memory_token_budget")):
+		out["aiMemoryTokenBudget"] = cfg.memory_token_budget
+	# WI-002195: the cap on a tool result the model sees. Same rule — 0 means
+	# "platform default", not "no cap", so it must not be written as a value.
+	if cint(cfg.get("tool_result_max_chars")):
+		out["aiToolResultMaxChars"] = cfg.tool_result_max_chars
+	if cint(cfg.get("loop_compaction_threshold")):
+		out["aiLoopCompactionThreshold"] = cfg.loop_compaction_threshold
+		out["aiLoopCompactionKeepTurns"] = cint(cfg.get("loop_compaction_keep_turns")) or 8
+	if cint(cfg.get("run_token_budget")):
+		out["aiRunTokenBudget"] = cfg.run_token_budget
+	if flt(cfg.get("run_cost_budget")):
+		out["aiRunCostBudget"] = cfg.run_cost_budget
+	for sattr, cfield in _ZERO_MEANS_UNSET.items():
+		if flt(cfg.get(cfield)):
+			out[sattr] = cfg.get(cfield)
 	if cfg.ai_provider:
 		out["aiProvider"] = cfg.ai_provider
 	# WI-001655: the model is the agent's own pick from the AI Model catalog
@@ -393,6 +492,134 @@ def resolve_dispatch_overrides(config_name: str) -> dict:
 		return {}
 
 
+DRIFT_FIELDS = {
+	"aiSystemPrompt": "System Prompt",
+	"aiModel": "Model",
+	"aiTemperature": "Temperature",
+	"aiMaxTokens": "Max Tokens",
+	"aiTimeout": "Timeout",
+	"aiMaxRetries": "Max Retries",
+	"aiMaxToolCalls": "Max Tool Calls",
+	"aiTopP": "Top P",
+}
+DRIFT_CONFIG_FIELDS = tuple(_SHAPE_TO_CONFIG[attr] for attr in DRIFT_FIELDS)
+_AI_SHAPE_TYPES = ("ai_agent", "ai_task_selector")
+
+
+def shape_config_drift(shape: dict, live: dict) -> list[dict]:
+	"""The DRIFT_FIELDS where the shape's copy differs from the configuration value dispatch runs."""
+	drift = []
+	for attr, label in DRIFT_FIELDS.items():
+		if attr not in live or _same_value(attr, shape.get(attr), live[attr]):
+			continue
+		drift.append({"field": attr, "label": label, "shape": shape.get(attr) or "", "live": live[attr]})
+	return drift
+
+
+def _same_value(attr: str, shape_value, live_value) -> bool:
+	if attr in ("aiTemperature", "aiTopP"):
+		return flt(shape_value) == flt(live_value)
+	if attr in ("aiMaxTokens", "aiTimeout", "aiMaxRetries", "aiMaxToolCalls"):
+		return cint(shape_value) == cint(live_value)
+	return cstr(shape_value).strip() == cstr(live_value).strip()
+
+
+@frappe.whitelist()
+def get_shape_drift(config_name: str, shape: str) -> list[dict]:
+	"""Whitelisted: the properties panel's per-field "differs from configuration" markers."""
+	frappe.has_permission("AI Agent Configuration", "read", throw=True)
+	return shape_config_drift(frappe.parse_json(shape) or {}, config_field_map(config_name))
+
+
+def sync_all_shapes_to_configs() -> None:
+	"""after_migrate: bring every linked map shape up to its configuration, whatever a patch wrote."""
+	for config_name in frappe.get_all("AI Agent Configuration", pluck="name"):
+		sync_shapes_to_config(config_name)
+
+
+def sync_shapes_to_config(config_name: str) -> list[str]:
+	"""Write the configuration's DRIFT_FIELDS onto every AI shape linking it, in the XML and the deployed spec."""
+	live = {attr: value for attr, value in config_field_map(config_name).items() if attr in DRIFT_FIELDS}
+	if not live:
+		return []
+	in_xml = xml_escape(config_name, {'"': "&quot;"})
+	changed = []
+	for model in frappe.get_all(
+		"BPMN Process Model",
+		or_filters={
+			"bpmn_xml": ["like", f'%aiAgentConfig="{in_xml}"%'],
+			"serialized_spec": ["like", f'%"aiAgentConfig": "{config_name}"%'],
+		},
+		fields=["name", "bpmn_xml", "serialized_spec"],
+	):
+		updates = {}
+		xml = _synced_xml(model.name, model.bpmn_xml, config_name, live)
+		if xml is not None:
+			updates["bpmn_xml"] = xml
+		spec = _synced_spec(model.serialized_spec, config_name, live)
+		if spec is not None:
+			updates["serialized_spec"] = spec
+		if updates:
+			frappe.db.set_value("BPMN Process Model", model.name, updates, update_modified=False)
+			changed.append(model.name)
+	return changed
+
+
+def _synced_xml(model_name: str, xml: str | None, config_name: str, live: dict) -> str | None:
+	"""The map XML with the linked shapes' drifted attributes rewritten, or None when nothing drifted."""
+	from lxml import etree
+
+	if not xml:
+		return None
+	try:
+		root = etree.fromstring(xml.strip().encode("utf-8"))
+	except etree.XMLSyntaxError:
+		frappe.log_error(
+			title=f"Shape sync skipped {model_name}: its BPMN XML does not parse",
+			message=frappe.get_traceback(),
+		)
+		return None
+	touched = False
+	for el in root.iter():
+		if not _links_to(el.get(_spiff("aiAgentConfig")), config_name) or el.get(_spiff("serviceType")) not in _AI_SHAPE_TYPES:
+			continue
+		shape = {attr: el.get(_spiff(attr)) for attr in DRIFT_FIELDS}
+		for d in shape_config_drift(shape, live):
+			el.set(_spiff(d["field"]), cstr(d["live"]))
+			touched = True
+	if not touched:
+		return None
+	body = etree.tostring(root, encoding="unicode")
+	stripped = xml.strip()
+	if stripped.startswith("<?xml"):
+		return stripped[: stripped.index("?>") + 2] + "\n" + body
+	return body
+
+
+def _synced_spec(serialized_spec: str | None, config_name: str, live: dict) -> str | None:
+	"""The deployed spec with the linked extensions' drifted values rewritten, or None when nothing drifted."""
+	if not serialized_spec:
+		return None
+	spec = json.loads(serialized_spec)
+	touched = False
+	for cfg in (spec.get("service_task_extensions") or {}).values():
+		if not _links_to(cfg.get("aiAgentConfig"), config_name) or cfg.get("serviceType") not in _AI_SHAPE_TYPES:
+			continue
+		for d in shape_config_drift(cfg, live):
+			cfg[d["field"]] = cstr(d["live"])
+			touched = True
+	return json.dumps(spec) if touched else None
+
+
+def _spiff(attr: str) -> str:
+	return f"{{http://spiffworkflow.org/bpmn/schema/1.0/core}}{attr}"
+
+
+def _links_to(linked: str | None, config_name: str) -> bool:
+	"""Whether a shape's aiAgentConfig names this configuration; a map may spell it in another case."""
+	return cstr(linked).strip().casefold() == config_name.casefold()
+
+
 @frappe.whitelist()
 def get_agent_config_for_shape(config_name: str) -> dict:
 	"""Whitelisted: the editor calls this on selecting a config to copy its
@@ -413,6 +640,7 @@ def get_agent_config_for_shape(config_name: str) -> dict:
 		**config_field_map(config_name),
 		**config_static_context(config_name),
 		**config_screening(config_name),
+		**config_sandbox(config_name),
 		**roles_available_to_grant(),
 	}
 
@@ -509,9 +737,27 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 			value = frappe.utils.flt(value)
 		if cfield == "max_tokens" and value not in (None, ""):
 			value = frappe.utils.cint(value)
+		if cfield in ("timeout_seconds", "max_retries", "max_tool_calls"):
+			value = frappe.utils.cint(value)
+		if cfield == "top_p":
+			value = frappe.utils.flt(value)
 		# WI-001793: the modal's number input hands back a string; 0/blank means
 		# "not set here" and must stay 0 so dispatch falls through to the shape.
-		if cfield in ("context_max_messages", "context_token_budget"):
+		if cfield == "run_cost_budget":
+			value = frappe.utils.flt(value)
+		if cfield in (
+			"context_max_messages",
+			"context_token_budget",
+			"memory_token_budget",
+			"run_token_budget",
+			"parallel_tool_calls",
+			"sandbox_use_job",
+			"sandbox_retry_on_test_failure",
+			"require_reproduction",
+			"thinking_budget_tokens",
+			"loop_compaction_threshold",
+			"loop_compaction_keep_turns",
+		):
 			value = frappe.utils.cint(value)
 		# Old diagrams carry model ids baked into the shape before the AI Model
 		# catalog existed (WI-001655). Letting doc.save() hit the Link
@@ -849,6 +1095,17 @@ def _start_reprovision(config_name: str) -> bool:
 	if already_running:
 		return False
 
+	rejected_by = _start_condition_rejects(creation_model, config_name)
+	if rejected_by:
+		frappe.log_error(
+			title=f"Re-provision skipped for {config_name}",
+			message=(
+				f"The start condition of {creation_model} does not accept this agent, so an "
+				f"instance would wait at its start event for ever: {rejected_by}"
+			),
+		)
+		return False
+
 	try:
 		from one_bpmn.api.instance_api import start_process
 
@@ -864,6 +1121,20 @@ def _start_reprovision(config_name: str) -> bool:
 			message=frappe.get_traceback(),
 		)
 		return False
+
+
+def _start_condition_rejects(creation_model: str, config_name: str) -> str:
+	"""The map's conditional start expression when it is False for this agent, else ""."""
+	from one_bpmn.one_bpmn.engine import json_safe_doc_fields
+	from one_bpmn.one_bpmn.trigger import _get_conditional_start_condition
+
+	condition = _get_conditional_start_condition(
+		frappe.db.get_value("BPMN Process Model", creation_model, "bpmn_xml")
+	)
+	if not condition:
+		return ""
+	fields = json_safe_doc_fields(frappe.get_doc("AI Agent Configuration", config_name))
+	return "" if frappe.safe_eval(condition, eval_locals=fields) else condition
 
 
 @frappe.whitelist()
@@ -889,7 +1160,7 @@ def model_catalogue() -> list:
 	rows = frappe.get_all(
 		"AI Model",
 		filters={"enable_model": 1},
-		fields=["name", "provider", "model_api_name"],
+		fields=["name", "provider", "model_api_name", "model_name", "support_temperature"],
 		order_by="name asc",
 	)
 	for row in rows:

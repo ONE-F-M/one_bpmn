@@ -20,8 +20,9 @@ is selected via `AI Chat Settings → Processa LLM Provider` (Anthropic, Gemini,
 
 ```
 User message  (process_context carries shape_kind: script_task | agent_tool)
-  └─► IntentClassifier  →  CREATE | MODIFY | DISAMBIGUATE   (+ shape_kind routing)
+  └─► IntentClassifier  →  CREATE | MODIFY | DISAMBIGUATE | DEBUG_EXISTING   (+ shape_kind routing)
          ├─ DISAMBIGUATE → Clarifier            (asks one clarifying question, writes no code)
+         ├─ DEBUG_EXISTING → Debugger           (explains the failure, proposes a minimal diff; reviewer sees the diff only)
          ├─ CREATE/MODIFY + script_task → ScriptWriter        (general dual-contract writer)
          └─ CREATE/MODIFY + agent_tool  → ToolWriter          (specialist — Agent Tool standard)
                               └─► ScriptReviewer   (receives "Shape kind: X" preamble; knows both contracts)
@@ -32,7 +33,15 @@ User message  (process_context carries shape_kind: script_task | agent_tool)
 
 At runtime the pipeline stages are inlined DB Server Scripts ("Logix – Tool ...") called as
 Agent Tools by the "Run Logix Agent" AI Agent Task in the "Logix – Script Task Agent" process
-model. `classify_intent` returns `next` = `clarify` | `write_script` | `write_agent_tool`.
+model. `classify_intent` returns `next` = `clarify` | `write_script` | `write_agent_tool` | `debug_script`.
+
+**Debug path.** "Logix – Build Context" puts `script_text` (a script pasted in the message, else the linked
+script's code) and `last_error` (a pasted traceback, else the newest `BPMN ScriptTask: "<script>" execution failed`
+Error Log) on the turn via `agents/logix_debug.py:debug_inputs`. The `debug_script` tool ("Logix – Tool Debug
+Script") calls `run_debug_stage`: the `script_debugger` sub-prompt returns an explanation and the fixed script,
+the reviewer judges only the unified diff, and `validate_script` gates the fixed script. A fix that passes is
+replied as a MODIFY with the diff; one that fails is explained with the issues and offers no code. The stage
+writes the turn's output itself, so finalize only closes the turn.
 
 Each pipeline step is a separate `_run()` call via the active `BaseLLMAdapter`. Steps do not share
 session state — each call receives a fresh prompt built from conversation history.
@@ -146,7 +155,7 @@ All tools return strings (JSON or plain text). They never raise — errors are e
   `google_vertex_ai_api_key`, `gemini_model`, `openai_api_key`, `openai_model`.
 - Sub-prompt overrides: loaded from `AI Agent Configuration` via `get_agent_config(AGENT_ID)`.
   Key names: `intent_classifier`, `clarifier`, `script_writer`, `script_reviewer`, `test_writer`,
-  `tool_writer` (optional specialist — Agent Tool authoring standard).
+  `tool_writer` (optional specialist - Agent Tool authoring standard), `script_debugger` (debug path).
 - `AGENT_ID = "logix_agent"`. Falls back to hardcoded `_DEFAULT_*_INSTRUCTION` strings if absent.
 
 ## Chat Persistence (`utils/chat_persistence.py`)
@@ -179,7 +188,7 @@ but ignored when `conversation_name` is provided.
 
 ```python
 {
-    "intent":          "CREATE" | "MODIFY" | "DISAMBIGUATE",
+    "intent":          "CREATE" | "MODIFY" | "DISAMBIGUATE" | "DEBUG_EXISTING",  # a debug fix replies as MODIFY
     "response":        str,           # agent text shown to user
     "diff":            str | None,    # unified diff (MODIFY only)
     "original_script": str | None,    # original code (MODIFY only)

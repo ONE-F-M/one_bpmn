@@ -1,14 +1,27 @@
 <template>
-  <div class="ai-agent-modal-overlay" @click.self="$emit('close')">
-    <div class="ai-agent-modal">
+  <div class="ai-agent-modal-overlay">
+    <div :class="['ai-agent-modal', { 'ai-agent-modal--readonly': readonly }]">
       <!-- ============ LEFT: configuration form ============ -->
       <div class="modal-main">
         <div class="modal-header">
-          <h3>{{ isSelector ? "Configure AI Task Selector" : "Configure AI Agent Task" }}</h3>
-          <button class="close-btn" @click="$emit('close')">✕</button>
+          <h3>
+            {{ isSelector ? "Configure AI Task Selector" : "Configure AI Agent Task" }}
+            <span v-if="readonly" class="readonly-badge">View only</span>
+          </h3>
+          <button
+            class="close-btn"
+            title="Close"
+            @click="$emit('hide')"
+          >
+            <Icon
+              icon="lucide:x"
+              class="w-4 h-4"
+            />
+          </button>
         </div>
 
         <div class="modal-body">
+        <fieldset class="field-gate" :disabled="readonly">
           <!-- Linked AI Agent Configuration (WI-001637 live link). Selecting
                one shows its current values in the fields below; at run time
                the configuration is authoritative for agent-level fields, and
@@ -80,7 +93,7 @@
                 <label>AI Model <span class="hint">(provider follows the model)</span></label>
                 <select v-model="newAgent.ai_model">
                   <option value="">-- Pick a Model --</option>
-                  <option v-for="m in catalogModels" :key="m.name" :value="m.name">
+                  <option v-for="m in filteredCatalogModels" :key="m.name" :value="m.name">
                     {{ modelLabel(m) }}
                   </option>
                 </select>
@@ -167,11 +180,18 @@
             </select>
           </div>
 
-          <!-- AI Provider — read-only since WI-001650: the provider is an
-               agent property, resolved from the linked configuration. -->
-          <div class="field-row" v-if="form.aiProvider">
-            <label>AI Provider <span class="hint">(from the linked configuration)</span></label>
-            <div class="derived-value">{{ form.aiProvider }}</div>
+          <!-- AI Provider — chosen first, and it narrows the model lists below
+               to that provider's models. Read-only between WI-001650 and now;
+               a provider that cannot be picked cannot narrow anything. -->
+          <div class="field-row">
+            <label>AI Provider <span class="hint">(narrows the models below)</span></label>
+            <select v-model="form.aiProvider" @change="onProviderChange">
+              <option value="">-- Any provider --</option>
+              <option v-for="p in providers" :key="p.name" :value="p.name">
+                {{ p.provider_name || p.name }}
+              </option>
+            </select>
+            <span class="field-hint">Choosing a provider clears a model that belongs to a different one.</span>
           </div>
 
           <!-- Model — the agent's catalog pick (WI-001655): editable here and
@@ -179,12 +199,12 @@
                follows the model automatically. -->
           <div class="field-row">
             <label>Model <span class="hint">(the agent's catalog pick — saving writes it back; provider follows)</span></label>
-            <select v-model="form.aiModel">
+            <select v-model="form.aiModel" @change="onModelChange">
               <option value="">-- Pick a Model --</option>
-              <option v-if="form.aiModel && !catalogModels.some(m => m.name === form.aiModel)" :value="form.aiModel">
-                {{ form.aiModel }} (not in catalog)
+              <option v-if="unlistedModelLabel(form.aiModel)" :value="form.aiModel">
+                {{ unlistedModelLabel(form.aiModel) }}
               </option>
-              <option v-for="m in catalogModels" :key="m.name" :value="m.name">
+              <option v-for="m in filteredCatalogModels" :key="m.name" :value="m.name">
                 {{ modelLabel(m) }}
               </option>
             </select>
@@ -225,17 +245,19 @@
 
           <div class="field-group-title">Advanced Settings</div>
 
-          <!-- Temperature (selector dispatch doesn't read sampling params) -->
-          <div class="field-row two-col" v-if="!isSelector">
+          <div class="field-row two-col">
             <div>
               <label>Temperature</label>
-              <input type="number" v-model.number="form.aiTemperature" min="0" max="2" step="0.1" />
+              <input type="number" v-model.number="form.aiTemperature" min="0" max="2" step="0.1" :disabled="!samplingSupported" :class="{ 'field-off': !samplingSupported }" />
             </div>
             <div>
               <label>Top P</label>
-              <input type="number" v-model.number="form.aiTopP" min="0" max="1" step="0.05" />
+              <input type="number" v-model.number="form.aiTopP" min="0" max="1" step="0.05" :disabled="!samplingSupported" :class="{ 'field-off': !samplingSupported }" />
             </div>
           </div>
+          <span class="field-hint" v-if="!samplingSupported">
+            {{ form.aiModel }} does not accept Temperature or Top P, so neither is sent. Tick Support Temperature on the AI Model to use them.
+          </span>
 
           <div class="field-row two-col">
             <div>
@@ -247,6 +269,63 @@
               <input type="number" v-model.number="form.aiTimeout" min="1" />
             </div>
           </div>
+
+          <div class="field-row two-col" v-if="!isSelector">
+            <div>
+              <label>Run Token Budget <span class="hint">(0 = no budget)</span></label>
+              <input type="number" v-model.number="form.aiRunTokenBudget" min="0" step="1000" />
+            </div>
+            <div>
+              <label>Run Cost Budget <span class="hint">(USD, 0 = no budget)</span></label>
+              <input type="number" v-model.number="form.aiRunCostBudget" min="0" step="0.1" />
+            </div>
+          </div>
+
+          <template v-if="form.aiAgentConfig">
+            <div class="field-row two-col">
+              <div>
+                <label>Tool Choice <span class="hint">(first model call only)</span></label>
+                <input type="text" v-model.trim="form.aiToolChoice" placeholder="auto" />
+              </div>
+              <div>
+                <label>Thinking Budget Tokens <span class="hint">(0 = off)</span></label>
+                <input type="number" v-model.number="form.aiThinkingBudgetTokens" min="0" step="1024" />
+              </div>
+            </div>
+            <span class="field-hint">
+              Tool Choice is auto, required, or a tool shape's id. A thinking budget is at least 1,024 and below Max Tokens. Both are saved on the linked agent.
+            </span>
+            <div class="field-row two-col">
+              <div>
+                <label>Terminal Tools <span class="hint">(comma-separated; finalize always ends the turn)</span></label>
+                <input type="text" v-model.trim="form.aiTerminalTools" />
+              </div>
+              <div>
+                <label class="checkbox-row">
+                  <input type="checkbox" v-model="form.aiParallelToolCalls" class="checkbox-input" />
+                  <span>Parallel Tool Calls</span>
+                </label>
+              </div>
+            </div>
+            <div class="field-row" v-if="!isSelector">
+              <label>Sandbox</label>
+              <label class="checkbox-row">
+                <input type="checkbox" v-model="form.aiSandboxUseJob" class="checkbox-input" />
+                <span>Use a Cloud Run Job session per Work Item</span>
+              </label>
+              <label class="checkbox-row">
+                <input type="checkbox" v-model="form.aiSandboxRetryOnTestFailure" class="checkbox-input" />
+                <span>Retry a failed sandbox dispatch once on test failure</span>
+              </label>
+              <label class="checkbox-row">
+                <input type="checkbox" v-model="form.aiRequireReproduction" class="checkbox-input" />
+                <span>Require reproduction before a fix (bug discipline)</span>
+              </label>
+              <span class="field-hint">
+                Saved on the linked agent. With the Job session off, every sandbox call is its own request to the shared service.
+              </span>
+            </div>
+          </template>
 
           <div class="field-row" v-if="!isSelector">
             <label>Max Retries</label>
@@ -295,6 +374,11 @@
                   <span class="static-field-label">User says <em>— the input to match on</em></span>
                   <textarea v-model="ex.input" rows="2" placeholder="e.g. How many staff are on shift today?" />
                 </div>
+                <div class="static-field">
+                  <span class="static-field-label">Context <em>- what the agent knew when the message arrived</em></span>
+                  <textarea v-model="ex.context_summary" rows="2" placeholder="e.g. The Leave Request form is open." />
+                </div>
+                <ExampleTrajectory v-if="ex.trajectory" v-model="ex.trajectory" />
                 <div class="static-field">
                   <span class="static-field-label">Agent should answer <em>— the reply to imitate</em></span>
                   <textarea v-model="ex.expected_output" rows="2" placeholder="e.g. 14." />
@@ -499,6 +583,20 @@
             </span>
           </div>
 
+          <!-- Recall token budget (only when long-term memory is on). Governs
+               what gets INJECTED, independent of write mode — recall runs
+               whenever memory is on, whatever the write mode is set to. -->
+          <div class="field-row" v-if="!isSelector && form.aiLongTermMemory">
+            <label>Memory Token Budget</label>
+            <input type="number" min="0" step="100" v-model.number="form.aiMemoryTokenBudget" />
+            <span class="field-hint">
+              Caps the injected recall block by estimated token size, truncating the lowest-ranked
+              memories first. 0 or blank uses the default (800) — there is no way to disable the
+              cap here, unlike Context Token Budget below: an unbounded block is the defect this
+              field exists to close.
+            </span>
+          </div>
+
           <!-- Memory write mode (only when long-term memory is on) -->
           <div class="field-row" v-if="!isSelector && form.aiLongTermMemory">
             <label>Memory Write Mode</label>
@@ -523,13 +621,10 @@
             <label>Distillation Model <span class="hint">(optional)</span></label>
             <select v-model="form.aiMemoryDistillModel">
               <option value="">{{ inheritLabel("distill") }}</option>
-              <option
-                v-if="form.aiMemoryDistillModel && !catalogModels.some(m => m.name === form.aiMemoryDistillModel)"
-                :value="form.aiMemoryDistillModel"
-              >
-                {{ form.aiMemoryDistillModel }} (not in catalog)
+              <option v-if="unlistedModelLabel(form.aiMemoryDistillModel)" :value="form.aiMemoryDistillModel">
+                {{ unlistedModelLabel(form.aiMemoryDistillModel) }}
               </option>
-              <option v-for="m in catalogModels" :key="'distill-' + m.name" :value="m.name">
+              <option v-for="m in filteredCatalogModels" :key="'distill-' + m.name" :value="m.name">
                 {{ modelLabel(m) }}
               </option>
             </select>
@@ -546,13 +641,10 @@
             <label>Reconciliation Model <span class="hint">(optional)</span></label>
             <select v-model="form.aiMemoryReconcileModel">
               <option value="">{{ inheritLabel("reconcile") }}</option>
-              <option
-                v-if="form.aiMemoryReconcileModel && !catalogModels.some(m => m.name === form.aiMemoryReconcileModel)"
-                :value="form.aiMemoryReconcileModel"
-              >
-                {{ form.aiMemoryReconcileModel }} (not in catalog)
+              <option v-if="unlistedModelLabel(form.aiMemoryReconcileModel)" :value="form.aiMemoryReconcileModel">
+                {{ unlistedModelLabel(form.aiMemoryReconcileModel) }}
               </option>
-              <option v-for="m in catalogModels" :key="'reconcile-' + m.name" :value="m.name">
+              <option v-for="m in filteredCatalogModels" :key="'reconcile-' + m.name" :value="m.name">
                 {{ modelLabel(m) }}
               </option>
             </select>
@@ -601,13 +693,10 @@
             <label>Compaction Model <span class="hint">(optional)</span></label>
             <select v-model="form.aiCompactionModel">
               <option value="">{{ inheritLabel("compaction") }}</option>
-              <option
-                v-if="form.aiCompactionModel && !catalogModels.some(m => m.name === form.aiCompactionModel)"
-                :value="form.aiCompactionModel"
-              >
-                {{ form.aiCompactionModel }} (not in catalog)
+              <option v-if="unlistedModelLabel(form.aiCompactionModel)" :value="form.aiCompactionModel">
+                {{ unlistedModelLabel(form.aiCompactionModel) }}
               </option>
-              <option v-for="m in catalogModels" :key="'compaction-' + m.name" :value="m.name">
+              <option v-for="m in filteredCatalogModels" :key="'compaction-' + m.name" :value="m.name">
                 {{ modelLabel(m) }}
               </option>
             </select>
@@ -644,20 +733,60 @@
             </span>
           </div>
 
+          <div class="field-row" v-if="!isSelector">
+            <label>Tool Loop Threshold <span class="hint">(0 = off)</span></label>
+            <input type="number" min="0" step="1000" v-model.number="form.aiLoopCompactionThreshold" />
+            <span class="field-hint">
+              Inside one run: once a model call's prompt passes this many tokens, the older tool turns are
+              replaced by a summary and the list of files read and edited. Works without
+              "Compact long conversations". Used by coding agents with long tool loops.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector && form.aiLoopCompactionThreshold > 0">
+            <label>Tool Loop Keep Turns</label>
+            <input type="number" min="3" v-model.number="form.aiLoopCompactionKeepTurns" />
+            <span class="field-hint">
+              How many of the latest tool turns stay word-for-word. At least 3.
+            </span>
+          </div>
+
+          <div class="field-group-title" v-if="!isSelector">Golden Dataset</div>
+
+          <div class="field-row" v-if="!isSelector">
+            <label>Minimum Cases <span class="hint">(blank = no bar)</span></label>
+            <input type="number" min="0" v-model.number="form.aiGoldenDatasetMinimum" />
+            <span class="field-hint">
+              Cases this agent needs before its golden dataset counts as representative.
+              Left blank, the dataset shows its count and nothing to measure it against.
+            </span>
+          </div>
+
+          <div class="field-row" v-if="!isSelector">
+            <label>Target Cases <span class="hint">(optional)</span></label>
+            <input type="number" min="0" v-model.number="form.aiGoldenDatasetTarget" />
+            <span class="field-hint">The size the dataset is aiming for, shown beside the minimum.</span>
+          </div>
+
           <p class="field-hint" style="margin-top: 10px;" v-if="!isSelector">
-            Memory and compaction settings are stored on the linked AI Agent Configuration,
-            not on this diagram.
+            Memory, compaction and golden dataset settings are stored on the linked
+            AI Agent Configuration, not on this diagram.
           </p>
+        </fieldset>
         </div>
 
         <div class="modal-footer">
-          <button class="btn-cancel" @click="$emit('close')">Cancel</button>
-          <button class="btn-save" @click="save">Save</button>
+          <button class="btn-cancel" @click="$emit('close')">{{ readonly ? "Close" : "Cancel" }}</button>
+          <button v-if="!readonly" class="btn-save" @click="save">Save</button>
         </div>
       </div>
 
       <!-- ============ RIGHT: assistant chat panel ============ -->
-      <div class="assistant-panel">
+      <!-- Hidden in read-only mode: the assistant can apply changes onto
+           the form via card actions, which would bypass the fieldset's
+           disabled state (that only blocks native form controls). A
+           locked map must not be editable through this side door either. -->
+      <div v-if="!readonly" class="assistant-panel">
         <!-- WI-001679: ONE chat for both ways into this dialog. An AI Agent
              Task and an AI Task Selector now open the same panel, on the same
              agent, over the same endpoint — the mode only changes what the
@@ -704,11 +833,13 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, toRaw } from "vue";
+import { Icon } from "@iconify/vue";
 import { Dialog, frappeRequest } from "frappe-ui";
 import { frappeGet } from "@/bpmn/shared/frappeResource";
 // WI-001674: agent mode chats through the shared panel + card registry.
 import { AgentChatPanel } from "@/components/chat";
 import { cardRegistry } from "@/components/chat/cards/registry";
+import ExampleTrajectory from "@/components/ExampleTrajectory.vue";
 const availableSkills = ref([]);
 function addSkill() { form.value.aiSkills.push({ skill: '', version_pin: '' }); }
 
@@ -779,11 +910,16 @@ const props = defineProps({
   // reads (backend, output variable, response format/schema, sampling,
   // retries) and writes only the selector attribute set on save.
   mode: { type: String, default: "agent" },
+  // True when the map is open read-only: the form shows current values with
+  // every field disabled (the <fieldset disabled> above), no Save button,
+  // and the assistant chat (which can also apply edits onto the form) is
+  // hidden entirely.
+  readonly: { type: Boolean, default: false },
 });
 
 const isSelector = computed(() => props.mode === "selector");
 
-const emit = defineEmits(["close"]);
+const emit = defineEmits(["close", "hide"]);
 
 const providers = ref([]);
 const agentConfigs = ref([]);
@@ -794,14 +930,59 @@ const catalogModels = ref([]); // AI Model catalog (WI-001655)
 // broken one. Best-effort: a designer who cannot read Processa Settings still
 // gets the plain label.
 const siteDefaults = ref({ compaction: "", distill: "", reconcile: "" });
-// What an option reads as. A model whose provider is missing or disabled is
-// still listed — hiding it is what produced an empty picker — but it says why
-// it may not work rather than looking identical to a usable one.
+// The catalog narrowed to the chosen provider. Left whole when no provider is
+// chosen, so a model with no provider linked still surfaces with its warning
+// rather than quietly disappearing.
+const filteredCatalogModels = computed(() => {
+  if (!form.value.aiProvider) return catalogModels.value;
+  return catalogModels.value.filter((m) => m.provider === form.value.aiProvider);
+});
+
+// Picking a provider narrows the models to that provider's, so a model left
+// over from another one no longer belongs and is cleared — saving the pair as
+// it stood would write a provider and a model that disagree.
+function onProviderChange() {
+  if (!form.value.aiProvider || !form.value.aiModel) return;
+  const current = catalogModels.value.find((m) => m.name === form.value.aiModel);
+  if (current && current.provider !== form.value.aiProvider) form.value.aiModel = "";
+}
+
+// A model without Support Temperature is sent neither value; a model missing from the catalogue keeps both editable.
+const samplingSupported = computed(() => {
+  const picked = catalogModels.value.find((m) => m.name === form.value.aiModel);
+  return !picked || Boolean(picked.support_temperature);
+});
+
+// The pair has to agree from both directions: a model belongs to exactly one
+// provider, so picking one settles the provider too.
+function onModelChange() {
+  const picked = catalogModels.value.find((m) => m.name === form.value.aiModel);
+  if (picked?.provider) form.value.aiProvider = picked.provider;
+}
+// A <select> whose bound value matches no option renders blank, which reads as
+// "nothing is set" for a field that IS set — and invites someone to correct it
+// by picking something else. So whenever the chosen model is not among the
+// options listed, the field carries one for it, saying why: absent from the
+// catalogue, or belonging to a different provider than the one chosen. The
+// second only reaches a person on a shape saved before the two had to agree.
+function unlistedModelLabel(model) {
+  if (!model || filteredCatalogModels.value.some((m) => m.name === model)) return "";
+  const known = catalogModels.value.find((m) => m.name === model);
+  if (!known) return `${model} (not in catalog)`;
+  // Its own name, not modelLabel(): a model with no provider linked is exactly
+  // the one a chosen provider always excludes, and stacking both clauses reads
+  // as two separate faults instead of one.
+  return `${known.model_name || known.name} — not a ${form.value.aiProvider} model`;
+}
+// What an option reads as: the model's name when it has one, else the
+// raw API id, and nothing else when it is usable. The provider is derived
+// from the model and repeating it on every row said nothing a designer
+// picking a model needed. A model that will NOT work is still listed —
+// hiding it is what produced an empty picker — and still says why.
 function modelLabel(m) {
-  if (!m.provider) return `${m.name} — no provider linked`;
-  return m.has_credentials === false
-    ? `${m.name} — via ${m.provider} (no API key on the model)`
-    : `${m.name} — via ${m.provider}`;
+  const label = m.model_name || m.name;
+  if (!m.provider) return `${label} — no provider linked`;
+  return m.has_credentials === false ? `${label} — no API key` : label;
 }
 
 function inheritLabel(which) {
@@ -1002,6 +1183,9 @@ const form = ref({
   aiLongTermMemory: false,
   aiMemoryScope: "Agent",
   aiMemoryWriteMode: "off",
+  // WI-002163: caps the injected recall block's estimated size. See the
+  // field-hint in the template for why 0 isn't offered as "no cap" here.
+  aiMemoryTokenBudget: 800,
   // WI-001793: blank means "inherit" — site default, then the agent's own model.
   aiMemoryDistillModel: "",
   aiMemoryReconcileModel: "",
@@ -1014,6 +1198,22 @@ const form = ref({
   aiCompactionTokenThreshold: 0,
   aiCompactionIdleMinutes: 0,
   aiCompactionOnTaskBoundary: false,
+  // Tool loop compaction is separate from conversation compaction; 0 is off.
+  aiLoopCompactionThreshold: 0,
+  aiLoopCompactionKeepTurns: 8,
+  // The golden dataset bar. 0 is "no bar": the dataset shows a count and nothing to measure it against.
+  aiGoldenDatasetMinimum: 0,
+  aiGoldenDatasetTarget: 0,
+  // Agent-owned: a run stops once it passes either budget; 0 is no budget.
+  aiRunTokenBudget: 0,
+  aiRunCostBudget: 0,
+  aiToolChoice: "",
+  aiParallelToolCalls: true,
+  aiThinkingBudgetTokens: 0,
+  aiTerminalTools: "",
+  aiSandboxUseJob: false,
+  aiSandboxRetryOnTestFailure: true,
+  aiRequireReproduction: false,
   // WI-001639: the agent's frozen static context. Always arrays — they are
   // replaced wholesale by loadLinkedAgent once the agent is read.
   aiExamples: [],
@@ -1038,9 +1238,12 @@ const GUARDRAIL_CATEGORIES = [
 // the form arrays empty, and sending those would silently wipe its static
 // context.
 const staticContextLoaded = ref(false);
+// Limits the linked agent's record already holds. Only these are written back, so a default on screen never lands on the record.
+const LIMIT_ATTRS = ["aiTimeout", "aiMaxRetries", "aiTopP"];
+const configOwnedLimits = ref([]);
 
 function addExample() {
-  form.value.aiExamples.push({ input: "", expected_output: "", note: "", enabled: 1 });
+  form.value.aiExamples.push({ input: "", context_summary: "", trajectory: null, expected_output: "", note: "", enabled: 1 });
 }
 
 function addGuardrail() {
@@ -1067,6 +1270,7 @@ function addGuardrail() {
 async function applyLinkedAgentFields(fields) {
   if (!fields) return;
   applyConfigFields(fields);
+  configOwnedLimits.value = LIMIT_ATTRS.filter((attr) => fields[attr] != null);
   form.value.aiExamples = Array.isArray(fields?.aiExamples) ? fields.aiExamples : [];
   form.value.aiSkills = Array.isArray(fields?.aiSkills) ? fields.aiSkills : [];
   form.value.aiGuardrails = Array.isArray(fields?.aiGuardrails) ? fields.aiGuardrails : [];
@@ -1228,13 +1432,10 @@ const providerLabel = computed(() => {
   return p ? p.provider_name : form.value.aiProvider;
 });
 
-// (WI-001655) onProviderChange lived here: picking a provider copied its
-// Default Model into the Model field. Removed rather than rewritten — the
-// direction it encoded is now backwards. The MODEL is the agent's pick and the
-// provider is derived from that model's credentials link, so a provider can no
-// longer choose a model for you. The provider-level default_model was
-// deleted with the same change, the provider select is disabled, and nothing
-// called this function; it read a field that no longer exists.
+// An earlier onProviderChange (WI-001655) lived here and copied the provider's
+// Default Model into the Model field; it went when provider-level default_model
+// did. The one above shares only the name: a provider narrows the list and
+// clears a model that no longer belongs, and never picks a model for you.
 
 // Apply one recommended value onto the open form. The card (or the tray's
 // per-field Apply) is the only caller now — the legacy transcript tracked
@@ -1352,6 +1553,9 @@ onMounted(async () => {
     aiMemoryWriteMode:
       get("aiMemoryWriteMode") ||
       (get("aiMemoryAutoWrite") === "true" ? "distilled" : "off"),
+    // WI-002163: same reasoning as the two below it — must exist on the form
+    // object for the same wholesale-replace reason.
+    aiMemoryTokenBudget: numOr("aiMemoryTokenBudget", 800, parseInt),
     // WI-001793: these two live on the agent, but seed them from the diagram so
     // a map whose agent has not been migrated still shows its real setting.
     // They must exist on the form object — the linked-agent load only overlays
@@ -1366,8 +1570,21 @@ onMounted(async () => {
     aiCompactionKeepTail: numOr("aiCompactionKeepTail", 10, parseInt),
     aiCompactionModel: get("aiCompactionModel") || "",
     aiCompactionTokenThreshold: numOr("aiCompactionTokenThreshold", 0, parseInt),
+    aiGoldenDatasetMinimum: numOr("aiGoldenDatasetMinimum", 0, parseInt),
+    aiGoldenDatasetTarget: numOr("aiGoldenDatasetTarget", 0, parseInt),
+    aiRunTokenBudget: 0,
+    aiRunCostBudget: 0,
+    aiToolChoice: "",
+    aiParallelToolCalls: true,
+    aiThinkingBudgetTokens: 0,
+    aiTerminalTools: "",
+    aiSandboxUseJob: false,
+    aiSandboxRetryOnTestFailure: true,
+    aiRequireReproduction: false,
     aiCompactionIdleMinutes: numOr("aiCompactionIdleMinutes", 0, parseInt),
     aiCompactionOnTaskBoundary: get("aiCompactionOnTaskBoundary") === "true",
+    aiLoopCompactionThreshold: 0,
+    aiLoopCompactionKeepTurns: 8,
     // WI-001639: agent-owned, with no diagram fallback — this assignment
     // replaces form.value wholesale, so the keys must exist here or
     // loadLinkedAgent has nothing to fill and the template binds
@@ -1407,13 +1624,24 @@ onMounted(async () => {
   // values are what the panel opens showing. Anything blank on the agent falls
   // through to the shape's own copy, exactly as dispatch does.
   await loadLinkedAgent();
+
+  // A shape saved before the provider was pickable carries a model but no
+  // provider; settle it from the model so the lists open already narrowed.
+  if (!form.value.aiProvider) onModelChange();
 });
 
 // Pull the linked configuration's current values into the form (WI-001637
 // live link). The resolver returns shape-attribute keys (aiSystemPrompt,
 // aiProvider, aiModel, aiTemperature, aiMaxTokens) that map directly onto our
 
-const BOOLEAN_FORM_KEYS = ["aiCompactionEnabled", "aiCompactionOnTaskBoundary"];
+const BOOLEAN_FORM_KEYS = [
+  "aiCompactionEnabled",
+  "aiCompactionOnTaskBoundary",
+  "aiParallelToolCalls",
+  "aiSandboxUseJob",
+  "aiSandboxRetryOnTestFailure",
+  "aiRequireReproduction",
+];
 
 function configValueToForm(key, val) {
   if (BOOLEAN_FORM_KEYS.includes(key)) {
@@ -1562,8 +1790,7 @@ async function createAgent() {
 }
 
 // WI-001637 live link: on Save, write agent-level edits back to the linked
-// AI Agent Configuration. Selector mode omits temperature — the selector
-// dialog never shows it, so its form default must not clobber the record.
+// AI Agent Configuration.
 // Failure never blocks the shape save; the user is warned instead. A Live
 // agent is automatically re-provisioned by the backend so its chat map picks
 // up the change — silently: re-validation failures surface in deploy checks,
@@ -1577,7 +1804,18 @@ async function writeBackToConfig() {
     aiSystemPrompt: form.value.aiSystemPrompt,
     aiMaxTokens: form.value.aiMaxTokens,
   };
-  if (!isSelector.value) fields.aiTemperature = form.value.aiTemperature;
+  fields.aiTemperature = form.value.aiTemperature;
+  for (const attr of configOwnedLimits.value) fields[attr] = form.value[attr];
+  // Only once the agent was read, so the form's defaults never overwrite its real values.
+  if (staticContextLoaded.value) {
+    fields.aiToolChoice = form.value.aiToolChoice || "";
+    fields.aiParallelToolCalls = form.value.aiParallelToolCalls ? 1 : 0;
+    fields.aiThinkingBudgetTokens = form.value.aiThinkingBudgetTokens || 0;
+    fields.aiTerminalTools = form.value.aiTerminalTools || "";
+    fields.aiSandboxUseJob = form.value.aiSandboxUseJob ? 1 : 0;
+    fields.aiSandboxRetryOnTestFailure = form.value.aiSandboxRetryOnTestFailure ? 1 : 0;
+    fields.aiRequireReproduction = form.value.aiRequireReproduction ? 1 : 0;
+  }
   // Screening is NOT sent here. It has its own writer (saveScreening, below),
   // and sending it from both places meant the resolver write landed second and
   // put the stale form value back — silently undoing whatever the user had just
@@ -1594,6 +1832,10 @@ async function writeBackToConfig() {
     fields.aiLongTermMemory = form.value.aiLongTermMemory ? "Enabled" : "Disabled";
     fields.aiMemoryScope = form.value.aiLongTermMemory ? form.value.aiMemoryScope : "";
     fields.aiMemoryWriteMode = form.value.aiLongTermMemory ? form.value.aiMemoryWriteMode : "";
+    // Recall runs whenever memory is on, independent of write mode — sent
+    // unconditionally (like aiCompactionKeepTail below), never zeroed when
+    // memory is off, since a stray 0 would just fall back to the default.
+    fields.aiMemoryTokenBudget = form.value.aiMemoryTokenBudget || 800;
     fields.aiMemoryDistillModel = form.value.aiMemoryDistillModel || "";
     fields.aiMemoryReconcileModel = form.value.aiMemoryReconcileModel || "";
     // Compaction. The thresholds are only meaningful while it is enabled, so
@@ -1602,6 +1844,10 @@ async function writeBackToConfig() {
     fields.aiContextTokenBudget = form.value.aiContextTokenBudget || 0;
     fields.aiCompactionEnabled = form.value.aiCompactionEnabled ? 1 : 0;
     fields.aiCompactionKeepTail = form.value.aiCompactionKeepTail || 10;
+    fields.aiGoldenDatasetMinimum = form.value.aiGoldenDatasetMinimum || 0;
+    fields.aiGoldenDatasetTarget = form.value.aiGoldenDatasetTarget || 0;
+    fields.aiRunTokenBudget = form.value.aiRunTokenBudget || 0;
+    fields.aiRunCostBudget = form.value.aiRunCostBudget || 0;
     fields.aiCompactionModel = form.value.aiCompactionEnabled
       ? form.value.aiCompactionModel || ""
       : "";
@@ -1613,6 +1859,8 @@ async function writeBackToConfig() {
       : 0;
     fields.aiCompactionOnTaskBoundary =
       form.value.aiCompactionEnabled && form.value.aiCompactionOnTaskBoundary ? 1 : 0;
+    fields.aiLoopCompactionThreshold = form.value.aiLoopCompactionThreshold || 0;
+    fields.aiLoopCompactionKeepTurns = form.value.aiLoopCompactionKeepTurns || 8;
   }
   // WI-001639: examples and guard rails are agent-level, so they persist here
   // rather than onto the BPMN XML. Sent whole (the backend replaces the tables)
@@ -1691,6 +1939,8 @@ async function save() {
       "spiffworkflow:aiModel": form.value.aiModel || undefined,
       "spiffworkflow:aiSystemPrompt": form.value.aiSystemPrompt || undefined,
       "spiffworkflow:aiUserPrompt": form.value.aiUserPrompt || undefined,
+      "spiffworkflow:aiTemperature": String(form.value.aiTemperature),
+      "spiffworkflow:aiTopP": String(form.value.aiTopP),
       "spiffworkflow:aiMaxTokens": String(form.value.aiMaxTokens),
       "spiffworkflow:aiTimeout": String(form.value.aiTimeout),
     });
@@ -1753,6 +2003,9 @@ async function save() {
   justify-content: center;
 }
 
+/* Read-only withholds the chat pane, so the dialog is just the form's width. */
+.ai-agent-modal--readonly { width: 560px; }
+
 .ai-agent-modal {
   background: white;
   border-radius: 8px;
@@ -1796,6 +2049,32 @@ async function save() {
   gap: 12px;
 }
 
+/* The gate sits INSIDE the scroll container, never around it: a disabled
+   <fieldset> is inert, so making the scrolling element the fieldset stopped
+   the body scrolling and left most of the config unreachable. */
+.field-gate {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.field-gate:disabled,
+.field-gate[disabled] {
+  opacity: 1; /* keep values legible — only pointer/keyboard input is blocked */
+}
+
+.readonly-badge {
+  margin-left: 8px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #92400e;
+  background: #fef3c7;
+  border-radius: 10px;
+  vertical-align: middle;
+}
+
 .field-row { display: flex; flex-direction: column; gap: 4px; }
 .field-row.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; align-items: start; }
 /* Each cell inside a two-column row stacks its label + input just like a
@@ -1813,6 +2092,12 @@ async function save() {
   border-radius: 4px;
   font-size: 0.85rem;
   font-family: inherit;
+}
+.field-row input.field-off {
+  background: #f3f4f6;
+  color: #9ca3af;
+  border-color: #e5e7eb;
+  cursor: not-allowed;
 }
 /* A value the agent owns, shown rather than offered. Deliberately not styled as
    an input: a disabled <select> still reads as a control someone should fill. */

@@ -10,9 +10,8 @@ blacklist. A blacklist is trivially bypassed via string formatting, dynamic
 attribute lookup, or sandbox-escape gadgets; walking the AST catches the
 *shape* of an attack regardless of how it is spelled.
 
-Enforcement model: PRE-DEPLOYMENT GATE. Validation runs when a script is
-authored/saved and again when a model is deployed — never at execution time.
-The intent is to prevent an unsafe script from ever being added or deployed.
+Enforcement model: runs on save, on deploy, and again before every exec()
+(see one_bpmn.one_bpmn.engine._check_script_permissions).
 
 Tuning (per the agreed decisions):
   * Unambiguous escape vectors are ALWAYS blocked (exec/eval/getattr as bare
@@ -37,7 +36,7 @@ Public API:
 
   validate_script(code) -> dict
       Back-compatible wrapper used by the AI pipeline.
-      Returns {"valid": bool, "violations": [...]}.
+      Returns {"valid": bool, "violations": [...], "findings": [{"rule", "line", "code"}]}.
 """
 
 import ast
@@ -119,7 +118,7 @@ BANNED_ATTRIBUTES = frozenset({
 
 # Frappe internals that bypass the permission / durability model — ALWAYS blocked.
 BANNED_FRAPPE_ATTRIBUTES = frozenset({
-	"ignore_permissions", "db_update", "add_roles",
+	"ignore_permissions", "db_update", "add_roles", "set_user",
 })
 
 # Frappe internals that are sensitive but often legitimate (frappe.db.sql for
@@ -128,6 +127,10 @@ BANNED_FRAPPE_ATTRIBUTES = frozenset({
 SOFT_BANNED_FRAPPE_ATTRIBUTES = frozenset({
 	"sql", "commit", "flags", "conf", "cache",
 })
+
+# Request state a script may read but never mutate in bulk.
+PROTECTED_STATE_ATTRIBUTES = frozenset({"flags", "session"})
+MUTATING_METHODS = frozenset({"update", "setdefault", "pop", "popitem", "clear", "__setitem__"})
 
 # Keyword arguments that inject a permission bypass into a save/insert/submit call.
 PERMISSION_BYPASS_KWARGS = frozenset({
@@ -225,24 +228,35 @@ class _SecurityVisitor(ast.NodeVisitor):
 	def __init__(self, options: ValidatorOptions):
 		self.options = options
 		self.violations: list[str] = []
+		self.lines: list[int] = []
+		self._node: ast.AST | None = None
+
+	def visit(self, node: ast.AST) -> None:
+		parent, self._node = self._node, node
+		super().visit(node)
+		self._node = parent
+
+	def _flag(self, message: str) -> None:
+		self.violations.append(message)
+		self.lines.append(self._node.lineno)
 
 	# ── imports ──────────────────────────────────────────────────────────
 	def visit_Import(self, node: ast.Import) -> None:
 		for alias in node.names:
 			top = alias.name.split(".")[0]
 			if self.options.block_all_imports:
-				self.violations.append(f"Import statements are not allowed: 'import {alias.name}'")
+				self._flag(f"Import statements are not allowed: 'import {alias.name}'")
 			elif top in FORBIDDEN_MODULES:
-				self.violations.append(f"Forbidden import: '{alias.name}'")
+				self._flag(f"Forbidden import: '{alias.name}'")
 		self.generic_visit(node)
 
 	def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
 		module = node.module or ""
 		top = module.split(".")[0]
 		if self.options.block_all_imports:
-			self.violations.append(f"Import statements are not allowed: 'from {module} import ...'")
+			self._flag(f"Import statements are not allowed: 'from {module} import ...'")
 		elif top in FORBIDDEN_MODULES:
-			self.violations.append(f"Forbidden import: 'from {module} import ...'")
+			self._flag(f"Forbidden import: 'from {module} import ...'")
 		self.generic_visit(node)
 
 	# ── calls: banned builtins + kwargs permission injection ─────────────
@@ -251,12 +265,18 @@ class _SecurityVisitor(ast.NodeVisitor):
 		if isinstance(func, ast.Name):
 			name = func.id
 			if name in BANNED_BUILTINS:
-				self.violations.append(f"{name}() is not allowed")
+				self._flag(f"{name}() is not allowed")
 			elif name in SOFT_BANNED_BUILTINS and self.options.strict_builtins:
-				self.violations.append(f"{name}() is not allowed (strict mode)")
+				self._flag(f"{name}() is not allowed (strict mode)")
 		elif isinstance(func, ast.Attribute) and func.attr in BANNED_CALL_ATTRIBUTES:
 			# builtins.exec(...), or any other object that happens to hold it.
-			self.violations.append(f".{func.attr}() is not allowed")
+			self._flag(f".{func.attr}() is not allowed")
+		if (
+			isinstance(func, ast.Attribute)
+			and func.attr in MUTATING_METHODS
+			and _node_name(func.value) in PROTECTED_STATE_ATTRIBUTES
+		):
+			self._flag(f".{_node_name(func.value)}.{func.attr}() is not allowed")
 
 		# explicit  save(ignore_permissions=True)
 		for kw in node.keywords:
@@ -264,7 +284,7 @@ class _SecurityVisitor(ast.NodeVisitor):
 				# dict-unpack:  save(**{"ignore_permissions": True})
 				self._check_kwargs_unpack(kw.value)
 			elif kw.arg in PERMISSION_BYPASS_KWARGS:
-				self.violations.append(
+				self._flag(
 					f"Permission-bypass keyword '{kw.arg}=...' is not allowed"
 				)
 		self.generic_visit(node)
@@ -274,31 +294,42 @@ class _SecurityVisitor(ast.NodeVisitor):
 			return
 		for key in value.keys:
 			if isinstance(key, ast.Constant) and key.value in PERMISSION_BYPASS_KWARGS:
-				self.violations.append(
+				self._flag(
 					f"Permission-bypass keyword '{key.value}' injected via **kwargs is not allowed"
+				)
+			elif key is not None and not isinstance(key, ast.Constant):
+				self._flag(
+					"Dynamically computed keyword name in **kwargs unpack is not allowed "
+					"(cannot verify it is not a permission-bypass keyword)"
 				)
 
 	# ── attribute access ─────────────────────────────────────────────────
 	def visit_Attribute(self, node: ast.Attribute) -> None:
 		attr = node.attr
 		if attr in BANNED_ATTRIBUTES:
-			self.violations.append(f"Access to '.{attr}' is not allowed")
+			self._flag(f"Access to '.{attr}' is not allowed")
 		elif attr in BANNED_FRAPPE_ATTRIBUTES:
-			self.violations.append(f"Access to Frappe internal '.{attr}' is not allowed")
+			self._flag(f"Access to Frappe internal '.{attr}' is not allowed")
 		elif attr in SOFT_BANNED_FRAPPE_ATTRIBUTES and self.options.strict_frappe_attrs:
-			self.violations.append(f"Access to '.{attr}' is not allowed (strict mode)")
+			self._flag(f"Access to '.{attr}' is not allowed (strict mode)")
+		self._check_session_write(node)
 		self.generic_visit(node)
+
+	def _check_session_write(self, node: ast.Attribute | ast.Subscript) -> None:
+		if isinstance(node.ctx, (ast.Store, ast.Del)) and _node_name(node.value) == "session":
+			self._flag("Writing to the request session is not allowed")
 
 	# ── subscript string lookup:  frappe["__dict__"], obj["f_back"] ──────
 	def visit_Subscript(self, node: ast.Subscript) -> None:
 		key = self._subscript_key(node)
 		if isinstance(key, str):
 			if key in BANNED_ATTRIBUTES or key in BANNED_FRAPPE_ATTRIBUTES or _is_dunder(key):
-				self.violations.append(
+				self._flag(
 					f"Subscript lookup of '{key}' is not allowed (attribute-access bypass)"
 				)
 			elif key in SOFT_BANNED_FRAPPE_ATTRIBUTES and self.options.strict_frappe_attrs:
-				self.violations.append(f"Subscript lookup of '{key}' is not allowed (strict mode)")
+				self._flag(f"Subscript lookup of '{key}' is not allowed (strict mode)")
+		self._check_session_write(node)
 		self.generic_visit(node)
 
 	@staticmethod
@@ -314,28 +345,28 @@ class _SecurityVisitor(ast.NodeVisitor):
 	# ── control flow (config-gated, default allow) ───────────────────────
 	def visit_While(self, node: ast.While) -> None:
 		if self.options.block_while:
-			self.violations.append(
+			self._flag(
 				"while loops are not allowed — use a BPMN gateway/loop for iteration"
 			)
 		self.generic_visit(node)
 
 	def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
 		if self.options.block_functiondef:
-			self.violations.append(
+			self._flag(
 				f"Function definitions are not allowed ('def {node.name}')"
 			)
 		self.generic_visit(node)
 
 	def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
 		if self.options.block_functiondef:
-			self.violations.append(
+			self._flag(
 				f"Function definitions are not allowed ('async def {node.name}')"
 			)
 		self.generic_visit(node)
 
 	def visit_Lambda(self, node: ast.Lambda) -> None:
 		if self.options.block_lambda:
-			self.violations.append("lambda expressions are not allowed")
+			self._flag("lambda expressions are not allowed")
 		self.generic_visit(node)
 
 	# ── memory-bomb multiplication:  "A" * 999999999 ────────────────────
@@ -349,7 +380,7 @@ class _SecurityVisitor(ast.NodeVisitor):
 					and not isinstance(operand.value, bool)
 					and operand.value > threshold
 				):
-					self.violations.append(
+					self._flag(
 						f"Multiplication factor {operand.value} exceeds the "
 						f"memory-safety threshold of {threshold}"
 					)
@@ -359,6 +390,14 @@ class _SecurityVisitor(ast.NodeVisitor):
 
 def _is_dunder(name: str) -> bool:
 	return len(name) > 4 and name.startswith("__") and name.endswith("__")
+
+
+def _node_name(node: ast.expr) -> str | None:
+	if isinstance(node, ast.Attribute):
+		return node.attr
+	if isinstance(node, ast.Name):
+		return node.id
+	return None
 
 
 def deep_inspect_script(script_text: str, options: "ValidatorOptions | None" = None) -> list[str]:
@@ -374,40 +413,57 @@ def deep_inspect_script(script_text: str, options: "ValidatorOptions | None" = N
 		clean), or a single-element list containing a syntax-error message when
 		the script does not parse.
 	"""
+	return [message for message, _line in _inspect(script_text or "", options)]
+
+
+def _inspect(code: str, options: "ValidatorOptions | None") -> list[tuple[str, int | None]]:
+	"""Each violation in ``code`` paired with the line it was found on."""
 	if options is None:
 		options = _resolve_options()
-
-	code = script_text or ""
 
 	try:
 		tree = ast.parse(code)
 	except SyntaxError as exc:
-		return [f"Syntax error in script: {exc}"]
+		return [(f"Syntax error in script: {exc}", exc.lineno)]
 
 	visitor = _SecurityVisitor(options)
 	visitor.visit(tree)
-	violations = list(visitor.violations)
+	found = list(zip(visitor.violations, visitor.lines))
 
 	# Destructive raw SQL is a string-content concern, not a structural one.
-	if _DESTRUCTIVE_SQL_RE.search(code):
-		violations.append(
-			"Destructive raw SQL (DROP/TRUNCATE/ALTER/CREATE TABLE) is not allowed"
-		)
+	if match := _DESTRUCTIVE_SQL_RE.search(code):
+		found.append((
+			"Destructive raw SQL (DROP/TRUNCATE/ALTER/CREATE TABLE) is not allowed",
+			code.count("\n", 0, match.start()) + 1,
+		))
 
 	# __builtins__ can appear as a bare name too (not only as an attribute).
-	if re.search(r"\b__builtins__\b", code) and not any("__builtins__" in v for v in violations):
-		violations.append("__builtins__ access is not allowed")
+	match = re.search(r"\b__builtins__\b", code)
+	if match and not any("__builtins__" in message for message, _line in found):
+		found.append(("__builtins__ access is not allowed", code.count("\n", 0, match.start()) + 1))
 
-	return violations
+	return found
 
 
 def validate_script(code: str) -> dict:
 	"""
 	Back-compatible wrapper for the AI-generation pipeline.
 
-	Returns:
-		{"valid": True, "violations": []}
-		{"valid": False, "violations": ["reason 1", ...]}
+	Returns {"valid", "violations", "findings"}; each finding is {"rule", "line", "code"}.
 	"""
-	violations = deep_inspect_script(code)
-	return {"valid": len(violations) == 0, "violations": violations}
+	code = code or ""
+	source_lines = code.splitlines()
+	found = _inspect(code, None)
+	findings = [
+		{
+			"rule": message,
+			"line": line,
+			"code": source_lines[line - 1].strip() if line and line <= len(source_lines) else "",
+		}
+		for message, line in found
+	]
+	return {
+		"valid": not found,
+		"violations": [message for message, _line in found],
+		"findings": findings,
+	}

@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import frappe
 from frappe import _
-from frappe.utils import get_datetime, now_datetime
+from frappe.utils import flt, get_datetime, now_datetime
 
 # The suite type that satisfies the gate.
 ADVERSARIAL = "Adversarial"
@@ -92,7 +92,7 @@ def latest_run(suite: str) -> dict | None:
 	rows = frappe.get_all(
 		"AI Eval Run",
 		filters={"suite": suite, "status": ("in", list(TERMINAL_STATUSES))},
-		fields=["name", "status", "total_cases", "passed_cases", "failed_cases", "ended_at", "creation"],
+		fields=["name", "status", "total_cases", "passed_cases", "failed_cases", "pass_rate", "ended_at", "creation"],
 		order_by="creation desc",
 		limit=1,
 	)
@@ -209,6 +209,15 @@ def check(agent: str) -> dict:
 				continue
 			if int(run.get("failed_cases") or 0) > 0 or not int(run.get("total_cases") or 0):
 				failed.append(f"{suite} ({run.get('failed_cases')} failed)")
+				continue
+			# A suite that names a minimum pass rate is the graduation bar for
+			# anything allowed to act: passing every case once is not the same
+			# as passing k times, and this is the number that says which happened.
+			minimum = flt(frappe.db.get_value("AI Eval Suite", suite, "min_pass_rate"))
+			if minimum and flt(run.get("pass_rate")) < minimum:
+				failed.append(
+					f"{suite} ({round(flt(run.get('pass_rate')), 1)}% pass rate, needs {minimum}%)"
+				)
 				continue
 			ran_at = run.get("ended_at") or run.get("creation")
 			if changed_at and ran_at and get_datetime(ran_at) < get_datetime(changed_at):

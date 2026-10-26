@@ -19,7 +19,8 @@ MEMORY_XML = """<?xml version="1.0" encoding="UTF-8"?>
         spiffworkflow:aiContextMaxMessages="20"
         spiffworkflow:aiLongTermMemory="true"
         spiffworkflow:aiMemoryScope="Entity"
-        spiffworkflow:aiMemoryWriteMode="distilled" />
+        spiffworkflow:aiMemoryWriteMode="distilled"
+        spiffworkflow:aiMemoryTokenBudget="1200" />
   </bpmn:process>
 </bpmn:definitions>
 """
@@ -48,6 +49,7 @@ class TestAIMemoryConfig(FrappeTestCase):
 		self.assertEqual(cfg["aiLongTermMemory"], "true")
 		self.assertEqual(cfg["aiMemoryScope"], "Entity")
 		self.assertEqual(cfg["aiMemoryWriteMode"], "distilled")
+		self.assertEqual(cfg["aiMemoryTokenBudget"], "1200")
 
 	def test_memory_off_omits_scope_and_autowrite(self):
 		cfg = _extract_service_task_config(MEMORY_OFF_XML)["ai_task"]
@@ -58,3 +60,6 @@ class TestAIMemoryConfig(FrappeTestCase):
 		self.assertNotIn("aiLongTermMemory", cfg)
 		self.assertNotIn("aiMemoryScope", cfg)
 		self.assertNotIn("aiMemoryWriteMode", cfg)
+		# WI-002163: no aiMemoryTokenBudget attribute on this task — the
+		# dispatcher falls back to DEFAULT_MEMORY_TOKEN_BUDGET (800).
+		self.assertNotIn("aiMemoryTokenBudget", cfg)

@@ -4,14 +4,66 @@
 # Registered in hooks.py under scheduler_events.
 # These run at minute-level intervals via Frappe's scheduler.
 
+import time
+
 import frappe
 
 from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
 from frappe import _
-from frappe.utils import add_to_date, now_datetime
+from frappe.utils import add_to_date, get_system_timezone, now_datetime
 
 
 # 1. Timer Start Events — create new instances on schedule
+
+
+def timer_start_is_due(expression: str, now) -> bool:
+	"""Does a Timer Start Event's cycle fall in the minute ``now`` sits in?
+
+	A modeller writes one of two things into ``<bpmn:timeCycle>``: a cron
+	expression, or the BPMN-standard ISO 8601 repeating interval
+	(``R[n]/<start>/<period>``). Both are accepted here; anything else raises,
+	which is what the deploy-time check reports.
+	"""
+	from croniter import croniter
+
+	expression = (expression or "").strip()
+	if not expression:
+		return False
+
+	if expression.upper().startswith("R"):
+		return _iso_cycle_is_due(expression, now)
+
+	return croniter.match(expression, now)
+
+
+def _iso_cycle_is_due(expression: str, now) -> bool:
+	"""Match an ISO 8601 repeating interval against the current minute.
+
+	Occurrences are ``start + n × period``; the sweep runs once a minute, so an
+	occurrence counts as due when it lands in the same minute as ``now``.
+	"""
+	from datetime import timezone
+	from zoneinfo import ZoneInfo
+
+	from SpiffWorkflow.bpmn.specs.event_definitions.timer import TimerEventDefinition
+
+	cycles, start, period = TimerEventDefinition.parse_iso_recurring_interval(expression)
+	seconds = period.total_seconds()
+	if seconds < 60:
+		# The scheduler itself only runs every minute; deploy rejects these.
+		return False
+
+	now_utc = now.replace(tzinfo=ZoneInfo(get_system_timezone())).astimezone(timezone.utc)
+	elapsed = (now_utc - start).total_seconds()
+	if elapsed < 0:
+		return False
+
+	n = int(elapsed // seconds)
+	if cycles >= 0 and n >= cycles:
+		return False
+
+	occurrence = start + n * period
+	return occurrence.replace(second=0, microsecond=0) == now_utc.replace(second=0, microsecond=0)
 
 
 def process_timer_start_events():
@@ -22,17 +74,15 @@ def process_timer_start_events():
 	Called every minute by the Frappe scheduler.
 
 	For each active BPMN Process Model with a Timer start event:
-	  1. Read the cron_expression from the BPMN Start Event Config row
-	  2. Check if the current minute matches the cron expression
+	  1. Read the cycle from the BPMN Start Event Config row
+	  2. Check whether it falls due in the current minute
 	  3. If yes, create and start a new BPMN Process Instance (unless
 	     a duplicate-prevention check fails)
 
 	Timer Start Events with timeDuration or timeDate are not supported
 	(those only make sense for intermediate catch events, not start events).
-	Only timeCycle (cron expressions) trigger repeated process instances.
+	Only timeCycle triggers repeated process instances.
 	"""
-	from croniter import croniter
-
 	now = now_datetime()
 
 	# New-style rows: trigger_type explicitly set to "Scheduler Event".
@@ -94,12 +144,7 @@ def process_timer_start_events():
 
 	for cfg in timer_configs:
 		try:
-			cron_expr = cfg.cron_expression.strip()
-			if not cron_expr:
-				continue
-
-			# croniter.match() checks if the given datetime matches the pattern.
-			if not croniter.match(cron_expr, now):
+			if not timer_start_is_due(cfg["cron_expression"], now):
 				continue
 
 			# Duplicate prevention: don't start if an Active instance already
@@ -110,7 +155,7 @@ def process_timer_start_events():
 			existing = frappe.db.exists(
 				"BPMN Process Instance",
 				{
-					"process_model": cfg.model_name,
+					"process_model": cfg["model_name"],
 					"status": "Active",
 					"started_at": (">=", recent_cutoff),
 				},
@@ -118,11 +163,14 @@ def process_timer_start_events():
 			if existing:
 				continue
 
-			_start_timer_instance(cfg.model_name)
+			_start_timer_instance(cfg["model_name"])
 
 		except Exception:
+			# One unschedulable model must not cost the others their turn: an
+			# exception escaping here fails the whole scheduled job, and the
+			# rollback that follows takes every instance this sweep started.
 			frappe.log_error(
-				title=f"BPMN Timer Start: failed for model {cfg.model_name}",
+				title=f"BPMN Timer Start: failed for model {cfg['model_name']}",
 				message=frappe.get_traceback(),
 			)
 
@@ -252,11 +300,12 @@ def _refresh_timer_tasks(instance_name: str):
 		except Exception:
 			pass
 
+		previous_flag = frappe.flags.bpmn_engine_action
 		frappe.flags.bpmn_engine_action = True
 		try:
 			instance._run_engine(wf)
 		finally:
-			frappe.flags.bpmn_engine_action = False
+			frappe.flags.bpmn_engine_action = previous_flag
 
 		# Persist the LIVE state to workflow_state; serialized_spec (the
 		# compiled snapshot) is never touched here.
@@ -346,6 +395,9 @@ def close_stale_chat_instances():
 		try:
 			instance = frappe.get_doc("BPMN Process Instance", instance_name)
 			instance.receive_message("ChatConversation_Close_Action", payload={})
+			if instance.context_docname:
+				from one_bpmn.api.skill_tools import clear_conversation_skills
+				clear_conversation_skills(instance.context_docname)
 		except frappe.ValidationError:
 			pass  # not parked at the close catch event — leave it alone
 		except Exception:
@@ -818,6 +870,7 @@ def _resume_waiting_agent(row) -> None:
 	import json
 
 	from one_bpmn.agents import checkpoint as _checkpoint
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import ai_job_queue_of
 
 	run = row.caller_agent_run
 	if not (run and row.caller_instance):
@@ -832,7 +885,7 @@ def _resume_waiting_agent(row) -> None:
 	frappe.enqueue(
 		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 		".bpmn_process_instance.run_parked_ai_task",
-		queue="bpmn_ai_agent",
+		queue=ai_job_queue_of(row.caller_instance),
 		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,
 		job_id=f"bpmn-ai-{row.caller_instance}-a2ares-{row.name}",
@@ -964,3 +1017,139 @@ def chase_unanswered_clarifications():
 			title="AI Clarification: chasing unanswered questions failed",
 			message=frappe.get_traceback(),
 		)
+
+
+def check_ai_model_credentials():
+	"""WI-002191: every 15 minutes. Re-checks every enabled model's key — a
+	pass lifts the block on a model that was Unhealthy, a credential failure
+	marks one nobody has tried to run yet — then alerts once per model per
+	distinct problem. Probe first, so an alert describes the current state."""
+	from one_bpmn.agents import model_health
+
+	model_health.probe_enabled_models()
+	model_health.alert_unhealthy_models()
+
+
+def prune_ai_memory():
+	"""Nightly. Retires decayed, never-corroborated and minor aged memories by
+	setting expires_on, with the reason in metadata. Thresholds live on
+	Processa Settings, AI Memory section; the rows stay for audit."""
+	from one_bpmn.agents.memory.prune import prune_memories
+
+	prune_memories()
+def check_ai_memory_volume():
+	"""Daily. Tells the platform team when AI Memory has grown past the point
+	where exact (index-free) semantic ranking should be reconsidered. The
+	thresholds live on Processa Settings, AI Memory section."""
+	from one_bpmn.agents.memory.volume_alert import check_volume
+
+	check_volume()
+
+
+# 5. Stranded AI steps — start again a parked AI step whose job was lost
+
+STRANDED_AI_STEP_MINUTES = 10
+WATCHDOG_MAX_REQUEUES = 2
+
+
+def requeue_stranded_ai_steps():
+	"""Every five minutes: enqueue the job of a parked AI step that has none, twice at most, then error the instance."""
+	names = frappe.get_all(
+		"BPMN Process Instance", filters={"status": "Active", "waiting_for_ai": 1}, pluck="name"
+	)
+	for name in names:
+		_requeue_stranded_steps(name)
+		frappe.db.commit()
+
+
+def _requeue_stranded_steps(instance_name: str) -> None:
+	frappe.db.rollback()  # ends the snapshot, so the row lock below sees the current row
+	if _instance_job_is_running(instance_name):
+		return
+	instance = frappe.get_doc("BPMN Process Instance", instance_name)
+	if instance.status != "Active" or not instance.waiting_for_ai:
+		return
+	for unit in instance.get_parked_ai_units():
+		minutes = int((time.time() - unit["since"]) / 60)
+		if unit.get("waits_on") or minutes < STRANDED_AI_STEP_MINUTES or _a_job_is_alive(instance, unit):
+			continue
+		_requeue_or_error(instance, unit, minutes)
+
+
+def _instance_job_is_running(instance_name: str) -> bool:
+	"""True when run_parked_ai_task holds the instance row, which means its job is running."""
+	table = frappe.qb.DocType("BPMN Process Instance")
+	row = (
+		frappe.qb.from_(table)
+		.select(table.name)
+		.where(table.name == instance_name)
+		.for_update(skip_locked=True)
+	).run()
+	frappe.db.rollback()  # releases the lock the check took
+	return not row
+
+
+def _a_job_is_alive(instance, unit: dict) -> bool:
+	"""Whether the unit's own job, one of its retries or an earlier re-queue is still queued or started."""
+	from frappe.utils.background_jobs import is_job_enqueued
+
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import _job_retry_cap
+
+	base = f"bpmn-ai-{instance.name}-{unit['task_id']}"
+	retries = _job_retry_cap(instance, unit["kind"], unit["task_id"])
+	job_ids = [
+		base,
+		*(f"{base}-r{n}" for n in range(1, retries + 1)),
+		*(f"{base}-watchdog-{n}" for n in range(1, WATCHDOG_MAX_REQUEUES + 1)),
+	]
+	return any(is_job_enqueued(job_id) for job_id in job_ids)
+
+
+def _requeue_or_error(instance, unit: dict, minutes: int) -> None:
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import ai_job_queue_of
+
+	done = frappe.db.count(
+		"BPMN Activity Log",
+		{
+			"instance": instance.name,
+			"action": "Retried",
+			"task_id": ["like", f"{unit['task_id']}::watchdog-%"],
+		},
+	)
+	if done >= WATCHDOG_MAX_REQUEUES:
+		_error_stranded_instance(instance, unit, minutes)
+		return
+	attempt = done + 1
+	frappe.enqueue(
+		"one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance.run_parked_ai_task",
+		queue=ai_job_queue_of(instance.name),
+		timeout=AI_AGENT_JOB_TIMEOUT,
+		enqueue_after_commit=True,
+		job_id=f"bpmn-ai-{instance.name}-{unit['task_id']}-watchdog-{attempt}",
+		deduplicate=True,
+		instance_name=instance.name,
+		kind=unit["kind"],
+		task_id=unit["task_id"],
+		run_as_user=instance.initiated_by,
+		attempt=0,
+	)
+	instance._log_task(
+		task_id=f"{unit['task_id']}::watchdog-{attempt}",
+		task_name=unit["label"],
+		action="Retried",
+		data={"stranded_minutes": minutes, "requeue": attempt},
+	)
+
+
+def _error_stranded_instance(instance, unit: dict, minutes: int) -> None:
+	"""Marks the instance Errored the way an exhausted AI job does, leaving the task parked for a manual retry."""
+	frappe.db.set_value("BPMN Process Instance", instance.name, "status", "Errored")
+	frappe.db.set_value("BPMN Process Instance", instance.name, "waiting_for_ai", 0, update_modified=False)
+	error = f"No job ran for '{unit['label']}' in {minutes} minutes, after {WATCHDOG_MAX_REQUEUES} re-queues."
+	instance._log_task(
+		task_id=unit["task_id"],
+		task_name=f"AI job ({unit['kind']})",
+		action="Errored",
+		data={"kind": unit["kind"], "attempts": WATCHDOG_MAX_REQUEUES, "error": error},
+	)
+	frappe.log_error(title=f"BPMN stranded AI step: {instance.name}", message=error)

@@ -6,6 +6,9 @@ from __future__ import annotations
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import add_to_date, now_datetime
+
+from one_bpmn.one_bpmn.doctype.ai_memory.ai_memory import AIMemory
 
 
 def _memory(**kw):
@@ -52,6 +55,25 @@ class TestAIMemoryDoctype(FrappeTestCase):
 		m = _memory(memory_scope="Process", process_model=pm, content="p")
 		self.assertEqual(m.process_model, pm)
 
+	def test_agent_scope_preserves_optional_process_model(self):
+		# process_model is provenance on an Agent row (which process run wrote
+		# this fact), not a scope key — _normalize_scope_keys must not clear it
+		# the way it clears fields that don't belong to the chosen scope.
+		pm = _make_process_model()
+		m = _memory(memory_scope="Agent", agent_element="Activity_pm", process_model=pm, content="a")
+		self.assertEqual(m.agent_element, "Activity_pm")
+		self.assertEqual(m.process_model, pm)
+
+	def test_entity_scope_clears_process_model(self):
+		m = _memory(
+			memory_scope="Entity",
+			reference_doctype="User",
+			reference_name="Administrator",
+			process_model=_make_process_model(),
+			content="e",
+		)
+		self.assertIsNone(m.process_model)
+
 	def test_create_entity_scope(self):
 		m = _memory(
 			memory_scope="Entity",
@@ -72,7 +94,7 @@ class TestAIMemoryDoctype(FrappeTestCase):
 
 	# ── dedup overwrite vs insert ──
 	def test_dedup_overwrite(self):
-		_memory(memory_scope="Agent", agent_element="A", content="v1", dedup_key="k")
+		first = _memory(memory_scope="Agent", agent_element="A", content="v1", dedup_key="k")
 		_memory(memory_scope="Agent", agent_element="A", content="v2", dedup_key="k")
 		rows = frappe.get_all(
 			"AI Memory",
@@ -81,6 +103,14 @@ class TestAIMemoryDoctype(FrappeTestCase):
 		)
 		self.assertEqual(len(rows), 1)
 		self.assertEqual(rows[0]["content"], "v2")
+		# The overwritten row is a delete under the hood — it must not disappear
+		# without a trace: Frappe's normal Deleted Document audit record should
+		# still be there for it.
+		self.assertTrue(
+			frappe.db.exists(
+				"Deleted Document", {"deleted_doctype": "AI Memory", "deleted_name": first.name}
+			)
+		)
 
 	def test_insert_without_dedup_key(self):
 		_memory(memory_scope="Agent", agent_element="B", content="x")
@@ -106,3 +136,23 @@ class TestAIMemoryDoctype(FrappeTestCase):
 		frappe.set_user(user)
 		with self.assertRaises(frappe.PermissionError):
 			frappe.delete_doc("AI Memory", m.name)
+
+	# ── clear_old_logs (Log Settings retention) exempts user_directed rows ──
+	def test_clear_old_logs_exempts_user_directed(self):
+		stale = add_to_date(now_datetime(), days=-400)
+		directed = _memory(memory_scope="Agent", agent_element="C", content="a convention", user_directed=1)
+		incidental = _memory(memory_scope="Agent", agent_element="C", content="an incidental fact")
+		frappe.db.set_value("AI Memory", directed.name, "modified", stale, update_modified=False)
+		frappe.db.set_value("AI Memory", incidental.name, "modified", stale, update_modified=False)
+
+		AIMemory.clear_old_logs(days=30)
+
+		self.assertTrue(frappe.db.exists("AI Memory", directed.name))
+		self.assertFalse(frappe.db.exists("AI Memory", incidental.name))
+
+	def test_clear_old_logs_noop_when_days_not_positive(self):
+		stale = add_to_date(now_datetime(), days=-400)
+		m = _memory(memory_scope="Agent", agent_element="C", content="an incidental fact")
+		frappe.db.set_value("AI Memory", m.name, "modified", stale, update_modified=False)
+		AIMemory.clear_old_logs(days=0)
+		self.assertTrue(frappe.db.exists("AI Memory", m.name))

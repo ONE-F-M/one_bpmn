@@ -1,0 +1,79 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:prompt_hash",
+ "creation": "2026-09-07 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "prompt_hash",
+  "agent_configuration",
+  "column_break_meta",
+  "first_seen_at",
+  "char_count",
+  "section_break_text",
+  "system_prompt"
+ ],
+ "fields": [
+  {
+   "fieldname": "prompt_hash",
+   "fieldtype": "Data",
+   "label": "Prompt Hash",
+   "read_only": 1,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "agent_configuration",
+   "fieldtype": "Link",
+   "label": "First Seen On Agent",
+   "options": "AI Agent Configuration",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_meta",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "first_seen_at",
+   "fieldtype": "Datetime",
+   "label": "First Seen At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "char_count",
+   "fieldtype": "Int",
+   "label": "Characters",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_text",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "system_prompt",
+   "fieldtype": "Long Text",
+   "label": "System Prompt",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-07 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "One Bpmn",
+ "name": "AI Prompt Snapshot",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "read": 1,
+   "role": "System Manager",
+   "share": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

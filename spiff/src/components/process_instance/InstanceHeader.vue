@@ -12,6 +12,13 @@
 				</span>
 			</div>
 			<div class="flex items-center gap-3">
+				<InstanceControls
+					v-if="details"
+					:details="details"
+					:parked-ai="parkedAi"
+					@changed="$emit('refresh')"
+					@notice="$emit('notice', $event)"
+				/>
 				<Button
 					v-if="details"
 					icon-left="refresh-cw"
@@ -45,6 +52,21 @@
 					<Icon icon="lucide:calendar-clock" class="w-3.5 h-3.5 text-gray-400" /> {{ formatDateTime(details.started_at) }}
 				</span>
 			</div>
+			<router-link
+				:to="`/processa/runs?instance=${details.name}&origin=all`"
+				class="flex items-center gap-1 font-semibold text-blue-600 hover:underline"
+				title="Every agent run of this instance, step by step"
+			>
+				<Icon icon="lucide:list-tree" class="w-3 h-3" /> AI runs
+			</router-link>
+			<router-link
+				v-if="details.process_model"
+				:to="modelRoute"
+				class="flex items-center gap-1 font-semibold text-blue-600 hover:underline"
+				title="Open this instance's BPMN process model"
+			>
+				<Icon icon="lucide:workflow" class="w-3 h-3" /> Go to Process Model
+			</router-link>
 			<div v-if="details.completed_at" class="flex items-center gap-1.5">
 				<span class="tracking-wide font-bold text-gray-600">Finished</span>
 				<span class="font-mono text-gray-700 flex items-center gap-1">
@@ -60,15 +82,18 @@ import { computed } from "vue"
 import { Badge, Button } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
+import InstanceControls from "./InstanceControls.vue"
 
 const props = defineProps({
 	details: { type: Object, default: null },
 	refreshing: { type: Boolean, default: false },
+	parkedAi: { type: Boolean, default: false },
+	modelProcessName: { type: String, default: "" },
 })
 
-defineEmits(["refresh"])
+defineEmits(["refresh", "notice"])
 
-const STATUS_THEMES = { Queued: "orange", Completed: "green", Active: "blue", Errored: "red" }
+const STATUS_THEMES = { Queued: "orange", Completed: "green", Active: "blue", Errored: "red", Suspended: "orange" }
 const statusTheme = computed(() => STATUS_THEMES[props.details?.status] || "gray")
 
 const contextLink = computed(() => {
@@ -77,6 +102,12 @@ const contextLink = computed(() => {
 		return `/app/${d.context_doctype.toLowerCase().replace(/ /g, "-")}/${d.context_docname}`
 	}
 	return "#"
+})
+
+const modelRoute = computed(() => {
+	const model = encodeURIComponent(props.details?.process_model || "")
+	if (!props.modelProcessName) return `/processa/process/${model}`
+	return `/processa/process/${encodeURIComponent(props.modelProcessName)}/diagram/${model}`
 })
 
 function formatDateTime(d) {

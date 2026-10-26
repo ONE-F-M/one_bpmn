@@ -254,6 +254,7 @@ import { Icon } from "@iconify/vue"
 import ProcessFilter from "@/components/ProcessFilter.vue"
 import { dayjs } from "@/dayjs"
 import { downloadBpmn } from "@/utils/downloadBpmn"
+import { searchRank } from "@/utils/searchRank"
 import { useWindowSize } from "@/composables/useWindowSize"
 
 const { isMobile } = useWindowSize()
@@ -267,7 +268,25 @@ const exportingProcesses = ref(new Set())
 const router = useRouter()
 const processes = ref([])
 const loading = ref(true)
-const filterKeyword = ref("")
+
+// Persist the search key so it survives leaving and returning to this page
+const SEARCH_KEY_STORAGE = "one_bpmn_process_list_search"
+function readSavedSearch() {
+	try {
+		return localStorage.getItem(SEARCH_KEY_STORAGE) || ""
+	} catch (e) {
+		return ""
+	}
+}
+const filterKeyword = ref(readSavedSearch())
+watch(filterKeyword, (val) => {
+	try {
+		if (val) localStorage.setItem(SEARCH_KEY_STORAGE, val)
+		else localStorage.removeItem(SEARCH_KEY_STORAGE)
+	} catch (e) {
+		// storage unavailable - search simply isn't retained
+	}
+})
 
 // Filters: array of { field, operator, value } managed by the Filter popover
 const activeFilters = ref([])
@@ -310,11 +329,7 @@ const filteredProcesses = computed(() => {
 	if (!Array.isArray(processes.value)) return []
 	let list = processes.value
 	if (filterKeyword.value) {
-		const query = filterKeyword.value.toLowerCase().trim()
-		list = list.filter(p =>
-			(p.process_name && p.process_name.toLowerCase().includes(query)) ||
-			(p.name && p.name.toLowerCase().includes(query))
-		)
+		list = list.filter(p => searchRank(filterKeyword.value, [p.process_name, p.name]) !== null)
 	}
 	for (const f of activeFilters.value) {
 		if (!f.value) continue

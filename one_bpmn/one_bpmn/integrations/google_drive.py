@@ -131,10 +131,36 @@ def set_permissions(file_id: str, grants: list, service=None) -> list:
 	Each grant is a dict per the Drive API Permissions resource, e.g.
 	  {"type": "domain", "domain": "one-fm.com", "role": "reader"}
 	  {"type": "user", "emailAddress": "x@one-fm.com", "role": "writer"}
+
+	User grants are an upsert: if the email already holds a *direct* grant on the
+	file, that grant's role is changed (permissions.update) rather than creating
+	a second one, which Drive rejects or which would duplicate nothing useful.
+	A new email is created as before. Domain (and any other type of) grants are
+	always created, unchanged. Access merely inherited from a parent folder or
+	drive is not a direct grant, so it is not updated here — a direct grant is
+	created alongside it.
 	"""
 	service = service or _get_service()
 	results = []
+	existing = None  # direct user grants by lower-cased email; listed lazily, once
 	for grant in grants:
+		if grant.get("type") == "user" and grant.get("emailAddress"):
+			if existing is None:
+				existing = _direct_user_grants(service, file_id)
+			current = existing.get(grant["emailAddress"].lower())
+			if current:
+				results.append(
+					service.permissions()
+					.update(
+						fileId=file_id,
+						permissionId=current["id"],
+						body={"role": grant["role"]},
+						fields="id,role",
+						supportsAllDrives=True,
+					)
+					.execute()
+				)
+				continue
 		results.append(
 			service.permissions()
 			.create(
@@ -149,6 +175,27 @@ def set_permissions(file_id: str, grants: list, service=None) -> list:
 	return results
 
 
+def _direct_user_grants(service, file_id: str) -> dict:
+	"""Map lower-cased email -> permission for user grants held directly on the file."""
+	listed = (
+		service.permissions()
+		.list(
+			fileId=file_id,
+			fields="permissions(id,type,role,emailAddress,permissionDetails(inherited,inheritedFrom))",
+			supportsAllDrives=True,
+		)
+		.execute()
+	)
+	direct = {}
+	for perm in listed.get("permissions", []):
+		if perm.get("type") != "user" or not perm.get("emailAddress"):
+			continue
+		if any(d.get("inherited") for d in (perm.get("permissionDetails") or [])):
+			continue
+		direct[perm["emailAddress"].lower()] = perm
+	return direct
+
+
 # Roles that express who *owns or structures* a file rather than who was granted
 # access to read it. On a Shared Drive there is no "owner" role at all —
 # ownership is the drive itself, surfaced as organizer/fileOrganizer — so
@@ -159,7 +206,13 @@ def set_permissions(file_id: str, grants: list, service=None) -> list:
 STRUCTURAL_ROLES = ("owner", "organizer", "fileOrganizer")
 
 
-def revoke_permissions(file_id: str, scope: str = "all", match: str = None, service=None) -> dict:
+def revoke_permissions(
+	file_id: str,
+	scope: str = "all",
+	match: str = None,
+	service=None,
+	email_address: str = None,
+) -> dict:
 	"""Remove sharing grants from a file — the inverse of ``set_permissions``.
 
 	This is what actually takes a document out of circulation. Marking a record
@@ -171,6 +224,11 @@ def revoke_permissions(file_id: str, scope: str = "all", match: str = None, serv
 	  ``all``    — every access grant (the default: withdraw it from everyone)
 	  ``domain`` — domain grants only, optionally just the one in ``match``
 	  ``user``   — user grants only, optionally just the address in ``match``
+
+	``email_address`` names one user (same as ``scope="user"`` with ``match`` set
+	to that address). Only that user's direct grant is removed; every other grant,
+	including the domain reader, is left alone and not reported. If that user's
+	access is inherited it is reported in ``skipped`` with a reason, never deleted.
 
 	Returns ``{"removed": [...], "skipped": [...]}``. Two kinds of grant end up
 	in ``skipped`` rather than failing the call:
@@ -197,9 +255,17 @@ def revoke_permissions(file_id: str, scope: str = "all", match: str = None, serv
 		.execute()
 	)
 
+	if email_address:
+		scope, match = "user", email_address
+
 	removed = []
 	skipped = []
 	for perm in listed.get("permissions", []):
+		if email_address and (
+			perm.get("type") != "user" or (perm.get("emailAddress") or "").lower() != email_address.lower()
+		):
+			# A named revoke is about one person; other grants are not its business.
+			continue
 		if perm.get("role") in STRUCTURAL_ROLES:
 			skipped.append(dict(perm, reason="structural role"))
 			continue

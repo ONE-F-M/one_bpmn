@@ -36,17 +36,12 @@ website_route_rules = [
 
 # include js, css files in header of desk.html
 # app_include_css = "/assets/one_bpmn/css/one_bpmn.css"
+extend_bootinfo = "one_bpmn.boot.boot_session"
+
 app_include_js = [
 	"/assets/one_bpmn/js/bpmn_json_prettify.js",
-	# WI-001678: tiny stub defining window.oneAI.openAgentChat — surfaces like
-	# the AI Agent Configuration Chat button lazy-load the real bundle on use.
 	"/assets/one_bpmn/js/one_ai_loader.js",
-	# ?v= is a manual cache-buster — bump it any time this file changes.
-	# Plain app_include_js paths (not *.bundle.js) get no automatic
-	# versioning from Frappe, and this file has a 12h Cache-Control on
-	# /assets/ — without a version bump, browsers can keep serving a
-	# stale copy indefinitely even across hard reloads.
-	"/assets/one_bpmn/js/bpmn_form_actions.js?v=3",
+	"/assets/one_bpmn/js/bpmn_form_actions.js?v=6",
 	"/assets/one_bpmn/js/bpmn_list_indicator.js",
 	# WI-002050: an agent's question appears on the document it is about, whatever
 	# that document is. Loaded for every form rather than bound to one doctype:
@@ -62,6 +57,12 @@ app_include_js = [
 # include js, css files in header of web template
 # web_include_css = "/assets/one_bpmn/css/one_bpmn.css"
 # web_include_js = "/assets/one_bpmn/js/one_bpmn.js"
+
+# Purge action on the AI Memory list view, mirroring the memory browser's
+# Purge button. Calls the same one_bpmn.api.memory_api.purge_memories.
+doctype_list_js = {
+	"AI Memory": "public/js/ai_memory_list.js",
+}
 
 # include custom scss in every website theme (without file extension ".scss")
 # website_theme_scss = "one_bpmn/public/scss/website"
@@ -153,12 +154,21 @@ permission_query_conditions = {
 	"AI Eval Suite": "one_bpmn.agents.eval_permissions.eval_suite_query_conditions",
 	"AI Eval Case": "one_bpmn.agents.eval_permissions.eval_case_query_conditions",
 	"AI Eval Run": "one_bpmn.agents.eval_permissions.eval_run_query_conditions",
+	# Your own memories plus the shared ones; a System Manager sees everybody's.
+	# Enforced here so it holds for the browser, the Desk list and any report,
+	# instead of being re-stated at each call site.
+	"AI Memory": "one_bpmn.agents.memory.permissions.ai_memory_query_conditions",
+	# A conversation with an agent is private to the person who had it. Enforced
+	# here so it holds for the list, the Desk, any report and /api/resource alike.
+	"Chat Message": "one_bpmn.agents.chat_permissions.chat_message_query_conditions",
 }
 
 has_permission = {
 	"AI Eval Suite": "one_bpmn.agents.eval_permissions.eval_suite_has_permission",
 	"AI Eval Case": "one_bpmn.agents.eval_permissions.eval_case_has_permission",
 	"AI Eval Run": "one_bpmn.agents.eval_permissions.eval_run_has_permission",
+	"AI Memory": "one_bpmn.agents.memory.permissions.ai_memory_has_permission",
+	"Chat Message": "one_bpmn.agents.chat_permissions.chat_message_has_permission",
 }
 
 # DocType Class
@@ -194,10 +204,14 @@ _BPMN_TRIGGER = "one_bpmn.one_bpmn.trigger.on_doc_event"
 _BPMN_GUARD   = "one_bpmn.one_bpmn.trigger.guard_bpmn_document"
 _BPMN_DELETE  = "one_bpmn.one_bpmn.trigger.delete_linked_bpmn_instances"
 
-# Exposes turn_state.get_turn as a Jinja global for aiUserPrompt templates.
+# Copies each AI Agent Configuration's prompt, model, temperature and max tokens onto the map shapes that link it.
+after_migrate = ["one_bpmn.agents.agent_config_resolver.sync_all_shapes_to_configs"]
+
+# Jinja globals for aiUserPrompt templates.
 jinja = {
 	"methods": [
 		"one_bpmn.agents.turn_state.get_turn",
+		"one_bpmn.tools.tool_for_server_scripts.compact_ir",
 	]
 }
 
@@ -272,11 +286,43 @@ scheduler_events = {
 			# A published rate change has a date but the catalogue has no date
 			# field, so something has to notice the day arriving.
 			"one_bpmn.tasks.apply_due_model_rates",
+			# Soft-retires memories that decayed, were never corroborated, or
+			# are minor and old. Sets expires_on with the reason in metadata;
+			# deletes nothing.
+			"one_bpmn.tasks.prune_ai_memory",
+			# Memory search ranks with an exact scan and no vector index, a
+			# decision bounded by row counts. Once a day is enough to notice a
+			# bound being approached; nothing here acts on it.
+			"one_bpmn.tasks.check_ai_memory_volume",
+		],
+		# A sandbox run whose callback never arrives would leave its agent waiting for good.
+		"*/2 * * * *": [
+			"one_bpmn.one_bpmn.connectors.agent_sandbox_reaper.reap",
+			"one_bpmn.one_bpmn.connectors.agent_sandbox_reaper.reap_sessions",
 		],
 		"* * * * *": [
 			"one_bpmn.tasks.process_timer_start_events",
 			"one_bpmn.tasks.process_timer_catch_events",
 			"one_bpmn.tasks.poll_a2a_tasks",
+		],
+		# WI-002191: try every enabled model's credentials against its provider
+		# (a free list call, not a completion), then tell someone about any model
+		# that is Unhealthy and has not been announced yet — once per kind of
+		# problem. Fifteen minutes is often enough that a fixed key lifts the
+		# block before the person who fixed it has moved on, and rare enough to
+		# be invisible in the provider's request log.
+		"*/15 * * * *": [
+			"one_bpmn.tasks.check_ai_model_credentials",
+		],
+		# A lane job that is killed (worker restart, RQ timeout) never gets to
+		# enqueue its own successor or notice it was the last lane home, so a
+		# fanned-out run it belonged to would sit on "Running" forever without
+		# this. Five minutes is the same cadence as the credential check above
+		# and well inside the margin a run's own deadline already carries.
+		"*/5 * * * *": [
+			"one_bpmn.agents.eval_runner.sweep_stale_eval_runs",
+			# A parked AI step whose job was lost from the queue would otherwise wait for the delegation deadline.
+			"one_bpmn.tasks.requeue_stranded_ai_steps",
 		],
 		"0 * * * *": [
 			"one_bpmn.tasks.close_stale_chat_instances",
@@ -323,11 +369,8 @@ scheduler_events = {
 
 # Cache keys that survive frappe.clear_cache()
 # --------------------------------------------
-# `docu_turn::*` lived here: Docu's enqueue-and-poll chat kept each running
-# turn's result in a cache entry that a global wipe would destroy mid-turn.
-# WI-001679 deleted that endpoint pair — Docu streams over the shared AG-UI
-# endpoint now, and a stream needs no handle to survive a cache wipe — so
-# nothing in this app requires an exemption any more.
+# The stage tools' per-turn store (agents/turn_state.py) is live state for a running turn.
+persistent_cache_keys = ["ait_turn:*"]
 
 # Request Events
 # ----------------

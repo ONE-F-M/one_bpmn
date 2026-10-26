@@ -200,6 +200,8 @@ def list_available_agents(include_legacy: int = 1) -> list:
 # ``ba_architect`` — "BA Agent" is its chat_mode_label, which is the same
 # label-versus-id trap LuCrusher hit.
 ONE_AI_AGENT_IDS = ("lumina_general_chat", "ba_architect", "lucrusher_agent")
+# Well inside the stream's stall ceiling, so a live turn's "still working" note always arrives first.
+_STILL_WORKING_AFTER_SECONDS = 60
 
 
 @frappe.whitelist()
@@ -273,7 +275,12 @@ def one_ai_conversation_modes() -> list:
 
 @frappe.whitelist()
 def invoke_agent(
-	agent_id: str, message: str, conversation: str = None, context: dict = None, stream: bool = False
+	agent_id: str,
+	message: str,
+	conversation: str = None,
+	context: dict = None,
+	stream: bool = False,
+	client_message_id: str = None,
 ):
 	"""Invoke a configured agent with a single message; return its reply.
 
@@ -286,6 +293,9 @@ def invoke_agent(
 	    stream: internal callers only (the AG-UI endpoint, WI-001670). When
 	        true, a runner that can stream returns its event generator instead
 	        of a buffered reply; runners that cannot stream ignore the flag.
+	    client_message_id: id minted by the chat client for this message. Sending
+	        it twice returns the first reply instead of running the agent again,
+	        so a retry or a double submit costs nothing and says nothing twice.
 
 	Returns:
 	    dict with at least ``response`` (the agent's reply text) and
@@ -308,6 +318,22 @@ def invoke_agent(
 			)
 	if isinstance(context, str):
 		context = frappe.parse_json(context)
+
+	# Some chat clients submit HTML-escaped text (e.g. a rich-text/
+	# contenteditable input serializing its content before it reaches this
+	# endpoint) even though ``message`` is meant to be plain text — observed
+	# live as an escaped ``&lt;PROJECT&gt;``-style placeholder surviving all
+	# the way into a durable AI Memory row. Decoding entities here, before
+	# anything else touches the message, means every downstream consumer
+	# (PII/injection screening, the rendered prompt, chat history, long-term
+	# memory) sees the plain text. Entity-decoding only (not full
+	# ``strip_html``): unlike markup tags, a plain chat message can
+	# legitimately contain a literal ``<...>``-shaped placeholder, and this
+	# must not corrupt that.
+	from one_bpmn.agents.memory.text_clean import unescape_entities
+
+	message = unescape_entities(message)
+
 	config = _resolve_config(agent_id)
 	_authorize(config, conversation)
 
@@ -330,6 +356,17 @@ def invoke_agent(
 		conversation=conversation,
 		count=(config.get("agent_type") != "Chat"),
 	)
+
+	# ── Broken credentials (WI-002191) ───────────────────────────────────
+	# A model the platform already knows cannot answer is refused before the
+	# turn starts: no Chat Message, no process instance, no failed run. The
+	# reason is an AgentRefusal, so the chat surface shows it as a message
+	# rather than "something went wrong".
+	from one_bpmn.agents import model_health as _model_health
+
+	_unavailable = _model_health.refuse_new_run(config.get("ai_model"), commit=True)
+	if _unavailable:
+		raise _model_health.ModelUnavailable(_unavailable)
 
 	# ── PII input screening (WI-001644) ──────────────────────────────────
 	# Every agent invocation passes through here, so this is the one place
@@ -378,28 +415,86 @@ def invoke_agent(
 			agent_id, title=(message or "New chat")[:140], user=frappe.session.user
 		)
 
+	# ── Same message twice ───────────────────────────────────────────────
+	# Checked once the conversation is known and before the lock, so a
+	# redelivery neither waits behind the turn it duplicates nor is refused by
+	# it. Costs one indexed read on the common path.
+	from one_bpmn.agents import turn_idempotency as _idem
+
+	if client_message_id:
+		_already = _idem.find_existing(conversation, client_message_id)
+		if _already:
+			_pii.end_turn(_pii_turn)
+			_turn.end_turn()
+			_already.setdefault("agent_id", agent_id)
+			return _already
+
+	# ── One turn at a time on this conversation ──────────────────────────
+	# Two overlapping deliveries each restore the same workflow_state and the
+	# last write wins, losing a turn's work and interleaving the transcript.
+	# Whether a second message waits or is turned away is the agent's setting.
+	from one_bpmn.security import turn_lock as _turn_lock
+
+	_lock_token = None
+	try:
+		_lock_token = _turn_lock.acquire(conversation, _turn_lock.policy_for(config))
+	except Exception:
+		_pii.end_turn(_pii_turn)
+		_turn.end_turn()
+		raise
+
+	# The map reuses a message we have already written instead of inserting its
+	# own, which is how the client's id reaches the transcript.
+	context = dict(context or {})
+	_user_message = ""
+	if client_message_id:
+		try:
+			_user_message = _idem.record_user_message(
+				conversation, message, client_message_id, existing=context.get("message_name") or ""
+			)
+			context.setdefault("message_name", _user_message)
+		except Exception:
+			frappe.log_error(
+				title="Chat message id not recorded — turn continues without it",
+				message=frappe.get_traceback(),
+			)
+
 	runner = _runner_for(config)
 	result = None
 	try:
-		result = _RUNNERS[runner](config, conversation, message, context or {}, stream=stream)
+		result = _RUNNERS[runner](config, conversation, message, context, stream=stream)
 	finally:
 		# Streaming replies are consumed after this function returns, so the
 		# PII turn must survive until the generator is exhausted — the wrapper
 		# below owns the teardown in that case.
 		if not _is_stream(result):
 			_pii.end_turn(_pii_turn)
+			_turn_lock.release(conversation, _lock_token)
 		# Clear the correlation id too, or a pooled worker leaks it into the
 		# next turn and two unrelated turns look like one.
 		_turn.end_turn()
 	if _is_stream(result):
+		envelope = dict(result) if isinstance(result, dict) else {}
+		inner = envelope.pop("stream", result)
+		envelope.pop("streaming", None)
 		return {
+			**envelope,
 			"streaming": True,
-			"stream": _stream_with_pii_teardown(result, _pii_turn),
+			# A streamed turn is still running when this returns, so the lock
+			# has to outlive the function the same way the PII turn does.
+			"stream": _stream_with_pii_teardown(
+				inner, _pii_turn, conversation=conversation, lock_token=_lock_token
+			),
 			"conversation": conversation,
 			"agent_id": agent_id,
 		}
 	if not isinstance(result, dict):
 		result = {"response": str(result or "")}
+
+	# Note which reply answered this message, so a redelivery of the same id is
+	# served from the transcript instead of running the agent again.
+	if _user_message and result.get("message_name"):
+		_idem.record_reply(_user_message, result["message_name"])
 
 	# Output screening, before send. The Chat Message hook covers what is
 	# PERSISTED; this covers what is RETURNED, and the two are not the same
@@ -426,22 +521,34 @@ def invoke_agent(
 
 
 def _is_stream(value) -> bool:
-	"""True for the iterator shapes a streaming runner may hand back."""
+	"""True for the shapes a runner hands back when it is streaming.
+
+	A runner may return the generator itself, or the ``{"streaming": True,
+	"stream": <generator>}`` envelope _run_bpmn_map uses. Reading only the bare
+	generator treated every map-driven chat turn as finished the moment the
+	runner returned: the turn lock and the PII turn were torn down about eighty
+	milliseconds in, while the map had not produced a token. One turn at a time
+	stopped being one turn at a time, for every agent whose map drives it.
+	"""
 	import inspect
 
-	return inspect.isgenerator(value) or (hasattr(value, "__next__") and not isinstance(value, dict))
+	if isinstance(value, dict):
+		return bool(value.get("streaming")) and value.get("stream") is not None
+	return inspect.isgenerator(value) or hasattr(value, "__next__")
 
 
-def _stream_with_pii_teardown(gen, pii_turn):
-	"""Relay a runner's event stream, ending the PII turn only once the
-	stream is exhausted (or abandoned) — mirrors the try/finally the buffered
-	path gets inline."""
+def _stream_with_pii_teardown(gen, pii_turn, conversation=None, lock_token=None):
+	"""Relay a runner's event stream, ending the PII turn and releasing the
+	conversation's turn lock only once the stream is exhausted (or abandoned) —
+	mirrors the try/finally the buffered path gets inline."""
 	from one_bpmn.security import pii as _pii
+	from one_bpmn.security import turn_lock as _turn_lock
 
 	try:
 		yield from gen
 	finally:
 		_pii.end_turn(pii_turn)
+		_turn_lock.release(conversation, lock_token)
 
 
 # ── Runners ──────────────────────────────────────────────────────────────────
@@ -450,6 +557,114 @@ def _stream_with_pii_teardown(gen, pii_turn):
 # return an event generator when stream=True; runners that cannot simply
 # ignore the flag (WI-001670). They wrap today's execution styles behind one
 # contract.
+
+
+def _rearm_and_deliver(config, conversation, message, context, wait: bool = True):
+	"""Re-arm a conversation whose instance has closed, then deliver once more.
+
+	A resumed conversation's instance has Completed with the map's close branch,
+	so the first turn after a resume has nothing to deliver to. This goes
+	through the same conditional-start gate the insert hook uses, which
+	evaluates the map's own start condition and dedups.
+	"""
+	from one_bpmn.api.server_script_api import delegate_chat_turn
+
+	if not config.get("process_model"):
+		return None
+	try:
+		from one_bpmn.one_bpmn.trigger import _maybe_start_instance
+
+		_maybe_start_instance(
+			frappe.get_doc("Chat Conversation", conversation), config["process_model"]
+		)
+		return delegate_chat_turn(conversation, message, context=context, wait=wait)
+	except frappe.ValidationError:
+		raise
+	except Exception:
+		frappe.log_error(title="bpmn_map resume re-arm failed", message=frappe.get_traceback())
+		return None
+
+
+def _no_live_instance(config, conversation):
+	last = frappe.get_all(
+		"BPMN Process Instance",
+		filters={"context_doctype": "Chat Conversation", "context_docname": conversation},
+		fields=["name", "status", "waiting_for_ai", "waiting_for_human", "modified"],
+		order_by="creation desc",
+		limit=1,
+	)
+	from one_bpmn.agents import turn_signal
+
+	if last and last[0].status == "Active" and turn_signal.ai_job_running(last[0].name):
+		frappe.throw(
+			_("I'm still working on your previous message. Wait for that reply, then send this one again.")
+		)
+	# Deferred so the entry survives the rollback that follows the throw.
+	frappe.log_error(
+		title=f"Chat turn found no waiting process ({config['agent_id']})",
+		message=f"conversation: {conversation}\nlatest instance: {last[0] if last else 'none'}",
+		reference_doctype="Chat Conversation",
+		reference_name=conversation,
+		defer_insert=True,
+	)
+	frappe.throw(
+		_("The process for agent '{0}' is not running for this conversation. Please reopen the chat.").format(
+			config["agent_id"]
+		)
+	)
+
+
+def _bpmn_turn_stream(config, conversation, message, context):
+	"""Deliver the turn, relay the worker's progress, hand over the reply.
+
+	The turn runs on the bpmn_ai_agent worker, so the request is free to report
+	what it is doing while it runs. Tools announce themselves from the shape
+	runner; this relays those announcements and finishes with the reply, which
+	the stream shapes the same way it shapes a runner that never streamed.
+	"""
+	from one_bpmn.agents import turn_signal
+	from one_bpmn.agents.agui_stream import HANDOVER_EVENT
+	from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
+	from one_bpmn.api.server_script_api import collect_chat_turn_reply, delegate_chat_turn
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import TURN_OUTPUT_EVENT
+
+	handle = delegate_chat_turn(conversation, message, context=context, wait=False)
+	if handle is None:
+		handle = _rearm_and_deliver(config, conversation, message, context, wait=False)
+	if handle is None:
+		_no_live_instance(config, conversation)
+
+	if not handle.get("pending"):
+		# The reply was already there: an inline engine pass in tests, or a turn
+		# the map answered without parking anything.
+		yield {"type": HANDOVER_EVENT, "result": handle}
+		return
+
+	# The worker's job is queued to start after this request commits, so nothing
+	# runs until the transaction is released. Progress would never arrive.
+	if not frappe.flags.in_test:
+		# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+		frappe.db.commit()
+
+	# The task output is the answer, not a status line: it goes to the
+	# collector, never to the client.
+	task_output = {}
+	# A quiet minute keeps waiting only while the turn's AI job lives, never past the job's own limit.
+	for event in turn_signal.consume(
+		handle["instance"],
+		AI_AGENT_JOB_TIMEOUT + 60,
+		idle_seconds=_STILL_WORKING_AFTER_SECONDS,
+		still_running=lambda: turn_signal.ai_job_running(handle["instance"]),
+	):
+		if isinstance(event, dict) and event.get("type") == TURN_OUTPUT_EVENT:
+			task_output["output"] = event.get("output")
+			continue
+		yield event
+
+	result = collect_chat_turn_reply(handle, task_output.get("output"))
+	if result is None:
+		_no_live_instance(config, conversation)
+	yield {"type": HANDOVER_EVENT, "result": result}
 
 
 def _run_bpmn_map(config, conversation, message, context, stream=False):
@@ -463,46 +678,23 @@ def _run_bpmn_map(config, conversation, message, context, stream=False):
 	gate the insert hook uses (_maybe_start_instance evaluates the map's own
 	start condition and dedups), then retry the turn once.
 	"""
-	import time
-
 	from one_bpmn.api.server_script_api import delegate_chat_turn
+
+	if stream:
+		return {
+			"streaming": True,
+			"stream": _bpmn_turn_stream(config, conversation, message, context),
+		}
 
 	result = delegate_chat_turn(conversation, message, context=context)
 
-	# First-turn race (diagnosed live, 2026-08-08): the insert hook spawns the
-	# instance and enqueues its first engine pass on the worker; a fast first
-	# message can catch it Queued mid-start — the inline starter loses the
-	# row-lock race and reads a not-yet-Active status one beat before the
-	# worker commits. The production Lumina page solved this with a
-	# wait-then-stream loop; same idea here, bounded: the SSE connection is
-	# already streaming, so a few seconds of settling costs nothing visible.
-	if result is None:
-		# NB: not `for _ in range(...)` — that would shadow gettext's _ and
-		# turn the throw below into `int(...)`.
-		for _attempt in range(8):
-			time.sleep(0.75)
-			result = delegate_chat_turn(conversation, message, context=context)
-			if result is not None:
-				break
+	# Delivery already accepts a Queued instance and waits for the worker, so
+	# nothing back means no live instance. Re-arm instead of retrying.
 
-	if result is None and config.get("process_model"):
-		try:
-			from one_bpmn.one_bpmn.trigger import _maybe_start_instance
-
-			_maybe_start_instance(
-				frappe.get_doc("Chat Conversation", conversation), config["process_model"]
-			)
-			result = delegate_chat_turn(conversation, message, context=context)
-		except Exception:
-			frappe.log_error(
-				title="bpmn_map resume re-arm failed", message=frappe.get_traceback()
-			)
 	if result is None:
-		frappe.throw(
-			_("The process for agent '{0}' is not running for this conversation. Please reopen the chat.").format(
-				config["agent_id"]
-			)
-		)
+		result = _rearm_and_deliver(config, conversation, message, context)
+	if result is None:
+		_no_live_instance(config, conversation)
 	return result
 
 
@@ -522,18 +714,182 @@ def _run_adk_stage_agent(config, conversation, message, context, stream=False):
 
 def _run_direct_api(config, conversation, message, context, stream=False):
 	"""Single-shot / general chat. Persists the turn and calls the adapter's
-	own (async) tool-calling loop for one exchange."""
+	own (async) tool-calling loop for one exchange.
+
+	With ``stream=True`` the same work runs on a thread and the reply's text
+	is handed back as it is written, then the finished result follows as the
+	handover event the buffered path already understands.
+
+	The system prompt is composed the same way as on the two process paths.
+	This used to send ``config["system_prompt"]`` on its own, which quietly
+	dropped the agent's examples, its skills index and its guard rails: an
+	agent that refused something inside a process map would do it in a chat,
+	and the difference was invisible from the configuration.
+
+	The turn is recorded as an AI Agent Run, like every turn on the two process
+	paths. It used to be recorded nowhere: no run, so no prompt hash, no
+	snapshot, no tokens, no cost and no steps. Every Direct API agent on a site
+	was invisible to Insights, and this path's own guard rails could not be
+	read back off a run.
+	"""
+	if stream:
+		return _stream_direct_api(config, conversation, message, context)
+	return _direct_api_turn(config, conversation, message)
+
+
+def _stream_direct_api(config, conversation, message, context):
+	"""Run the direct turn on a thread and yield its text as the model writes it.
+
+	The adapter finds the queue on ``frappe.flags`` and puts each delta on it;
+	this generator drains the queue while the model call runs. The thread gets
+	a copy of this request's context or it would lose the site, the session
+	and frappe.flags, and it is the only thing touching the database until it
+	finishes, so the shared connection is never used from two threads at once.
+	"""
+	import contextvars
+	import queue
+	import threading
+
+	from one_bpmn.agents.agui_stream import HANDOVER_EVENT
+	from one_bpmn.agents.turn_signal import LIVE_TEXT_QUEUE_FLAG
+
+	deltas: "queue.Queue" = queue.Queue()
+	done = object()
+	outcome: dict = {}
+	frappe.flags[LIVE_TEXT_QUEUE_FLAG] = deltas
+	context_copy = contextvars.copy_context()
+
+	def _work():
+		try:
+			outcome["result"] = context_copy.run(_direct_api_turn, config, conversation, message)
+		except BaseException as exc:  # noqa: BLE001 - re-raised on the request thread
+			outcome["error"] = exc
+		finally:
+			deltas.put(done)
+
+	thread = threading.Thread(target=_work, daemon=True)
+	thread.start()
+	try:
+		while True:
+			item = deltas.get()
+			if item is done:
+				break
+			yield {"type": "TEXT_MESSAGE_CONTENT", "delta": item}
+	finally:
+		frappe.flags[LIVE_TEXT_QUEUE_FLAG] = None
+	thread.join()
+	if "error" in outcome:
+		raise outcome["error"]
+	yield {"type": HANDOVER_EVENT, "result": outcome.get("result") or {}}
+
+
+def _direct_api_turn(config, conversation, message):
+	"""One direct chat exchange, recorded as a run, persisted as two messages."""
+	from one_bpmn.agents import observability
+	from one_bpmn.agents.context_assembler import build_static_context_from_config
+	from one_bpmn.agents.executor import ExecutorResult, TokenUsage
 	from one_bpmn.agents.executor.direct_api import _run_coro_blocking
 	from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
 	from one_bpmn.utils.chat_persistence import save_bot_message, save_user_message
 
 	save_user_message(conversation, message)
 	adapter = get_llm_adapter_from_settings(config)
-	system_prompt = config.get("system_prompt") or ""
-	completion = _run_coro_blocking(adapter.complete(system=system_prompt, user=message))
+	system_prompt = build_static_context_from_config(config)
+
+	run = _begin_direct_run(config, system_prompt, message)
+	try:
+		completion = _run_coro_blocking(adapter.complete(system=system_prompt, user=message))
+	except Exception as exc:
+		try:
+			observability.finalize_ai_run_on_exception(run, exc)
+		except Exception:
+			frappe.log_error(title="AI chat: run not finalized", message=frappe.get_traceback())
+		raise
+
 	text = getattr(completion, "text", str(completion or ""))
+	# The adapter hands back TurnRecord dataclasses; every recorder downstream
+	# reads dicts, which is why the executor converts before it records
+	# (direct_api.py: `trace = [asdict(turn) for turn in completion.trace]`).
+	# Passing the raw objects cost a run on staging: record_selector_turns
+	# raised AttributeError on turn.get, and the run sat at Running with no
+	# tokens because finalizing came after it in the same try.
+	trace = _as_dicts(getattr(completion, "trace", None) or [])
+	prompt_tokens = getattr(completion, "prompt_tokens", 0) or 0
+	completion_tokens = getattr(completion, "completion_tokens", 0) or 0
+
+	# Two guards, not one. Recording the turns is the nice-to-have; finalizing
+	# is what stops a finished run being reported as still running.
+	try:
+		observability.record_selector_turns(run, trace)
+	except Exception:
+		frappe.log_error(title="AI chat: turns not recorded", message=frappe.get_traceback())
+	try:
+		observability.finalize_ai_run(
+			run,
+			ExecutorResult(
+				output=text,
+				trace=trace,
+				token_usage=TokenUsage(
+					prompt_tokens=prompt_tokens,
+					completion_tokens=completion_tokens,
+					total_tokens=prompt_tokens + completion_tokens,
+					cache_read_tokens=getattr(completion, "cache_read_tokens", 0) or 0,
+					cache_write_tokens=getattr(completion, "cache_write_tokens", 0) or 0,
+				),
+			),
+		)
+	except Exception:
+		frappe.log_error(title="AI chat: run not finalized", message=frappe.get_traceback())
+
 	save_bot_message(conversation, text)
 	return {"response": text}
+
+
+def _as_dicts(trace: list) -> list:
+	"""Turn a trace of TurnRecord dataclasses into the dicts the recorders read."""
+	from dataclasses import asdict, is_dataclass
+
+	return [asdict(turn) if is_dataclass(turn) else turn for turn in trace]
+
+
+def _begin_direct_run(config: dict, system_prompt: str, message: str):
+	"""Open the AI Agent Run for a direct chat turn, with its two prompt steps.
+
+	Returns the run, or a stub when recording fails: observability treats a stub
+	as "do not record", so every later call is a no-op and the turn carries on.
+	A chat answer is worth more than its bookkeeping.
+
+	There is no BPMN instance on this path, so the run carries none, and
+	``bpmn_id`` is the agent's id — the only element identity a reader has here.
+	"""
+	from types import SimpleNamespace
+
+	from one_bpmn.agents import observability
+	from one_bpmn.agents.executor import ExecutorConfig
+
+	try:
+		run = observability.create_ai_run(
+			SimpleNamespace(name="", process_model=""),
+			bpmn_id=config.get("agent_id") or "direct_api",
+			element_type="task",
+			config=ExecutorConfig(
+				backend="direct_api",
+				provider_name=config.get("ai_provider") or "",
+				agent_config_name=config.get("name") or "",
+				model=config.get("ai_model") or "",
+				system_prompt=system_prompt,
+				user_prompt=message,
+				# Pinned to 0.7 on purpose, not DEFAULT_TEMPERATURE.
+				temperature=0.7,
+			),
+			bpmn_label=config.get("chat_mode_label") or config.get("agent_id") or "",
+		)
+		observability.record_ai_step(run, 1, "system", system_prompt)
+		observability.record_ai_step(run, 2, "user", message)
+		return run
+	except Exception:
+		frappe.log_error(title="AI chat: run not recorded", message=frappe.get_traceback())
+		return SimpleNamespace(stub=True)
 
 
 _RUNNERS = {

@@ -792,7 +792,34 @@ GOOGLE_CONNECTORS = \
                               'type': 'String',
                               'required': True,
                               'transform': 'one_bpmn.one_bpmn.integrations.google_common.normalize_drive_id'}],
-                  'output': {'text': 'Plain text across all slides'}}]}]
+                  'output': {'text': 'Plain text across all slides'}},
+                 {'value': 'fillBrandedDeck',
+                  'label': 'Fill branded deck (no placeholders)',
+                  'method': 'presentations.batchUpdate',
+                  'executionType': 'Python Handler',
+                  'handlerPath': 'one_bpmn.one_bpmn.connectors.google_slides_ops.fill_branded_deck',
+                  'fields': [{'name': 'presentation',
+                              'label': 'Presentation',
+                              'type': 'String',
+                              'required': True,
+                              'help': 'The copy of the deck to fill. Copy it with Drive "Copy file" '
+                                      'first, which is what keeps the branding.'},
+                             {'name': 'content',
+                              'label': 'Guideline content (JSON)',
+                              'type': 'Text',
+                              'required': True,
+                              'help': 'The guideline as fields, not slides: {"guideline_name": ..., '
+                                      '"pages": [{"title": ..., "body": ...}], "dos": [...], '
+                                      '"donts": [...]}. The content page is duplicated once per '
+                                      "entry in pages, and the cover's table of contents is rebuilt "
+                                      'from the page titles.'},
+                             {'name': 'failIfUnmatched',
+                              'label': 'Fail if a target is not found',
+                              'type': 'Boolean',
+                              'default': 'false',
+                              'help': "Off by default, matching Fill branded template: a guideline "
+                                      "with no do's and don'ts is ordinary, not a fault. Misses are "
+                                      'always reported in "unmatched".'}]}]}]
 
 
 def execute():

@@ -9,8 +9,8 @@
 #       Workflow Action Masters referenced by the model. "Sync" overwrites
 #       existing records and creates new ones on Production directly via API.
 #
-#   Review Doctypes          — Referenced DocTypes plus their Custom Fields and
-#       Property Setters. "Sync" opens a GitHub pull request (per owning app)
+#   Review Doctypes          — Referenced DocTypes plus their Custom Fields,
+#       Property Setters and Client Scripts. "Sync" opens a GitHub pull request (per owning app)
 #       carrying the changes; merging + deploying migrates Production.
 #
 # Consumer endpoints run on the BA site (called by the frontend). The snapshot /
@@ -46,6 +46,8 @@ def _require_ba_instance():
 SNAPSHOT_WORKFLOW = "one_bpmn.api.production_review.snapshot_workflow_objects"
 APPLY_WORKFLOW = "one_bpmn.api.production_review.apply_workflow_objects"
 SNAPSHOT_DOCTYPES = "one_bpmn.api.production_review.snapshot_doctype_schema"
+
+PR_BASE_BRANCH = "staging"
 
 # The meaningful fields compared per workflow object type. Kept small and stable
 # so the same canonical shape is produced on both sites.
@@ -279,6 +281,10 @@ def _build_doctype_snapshot(doctypes: list) -> dict:
 				r["name"]: _clean(r)
 				for r in frappe.get_all("Property Setter", filters={"doc_type": dt}, fields=["*"])
 			},
+			"client_scripts": {
+				r["name"]: _clean(r)
+				for r in frappe.get_all("Client Script", filters={"dt": dt}, fields=["*"])
+			},
 			"docfields": {
 				r["fieldname"]: _clean_docfield(r)
 				for r in frappe.get_all("DocField", filters={"parent": dt}, fields=["*"], order_by="idx")
@@ -288,25 +294,68 @@ def _build_doctype_snapshot(doctypes: list) -> dict:
 	return snap
 
 
+def _sync_destination(dt: str) -> str:
+	"""Where Sync will actually write this DocType's changes.
+
+	The review used to name the object it FOUND on this site — a Property
+	Setter — which for a DocType we own is the one thing Sync no longer writes:
+	it folds the change into the DocType's own JSON instead. So the preview
+	announced an override that was never going to be created.
+	"""
+	from one_bpmn.api import doctype_source_sync as source
+
+	if source.owned_in_source(dt):
+		return source.source_json_path(dt) or ""
+	return ""
+
+
 def _diff_doctypes(local: dict, remote: dict) -> list:
-	"""Granular BA → Production diff over DocTypes / Custom Fields / Property Setters."""
+	"""Granular BA → Production diff over DocTypes / Custom Fields / Property Setters.
+
+	Every change carries the file Sync will write it into when we own the
+	DocType, so the dialog can say "this lands in a2a_task.json" rather than
+	naming a Property Setter that will not exist.
+	"""
 	changes = []
 	for dt, lsnap in local.items():
 		rsnap = (remote or {}).get(dt) or {}
+		destination = _sync_destination(dt)
 		if lsnap.get("exists") and not rsnap.get("exists"):
 			changes.append({"object_type": "DocType", "name": dt, "doctype": dt,
-			                "action": "Create", "detail": _("Missing on Production")})
-		for section, otype in (("custom_fields", "Custom Field"), ("property_setters", "Property Setter")):
+			                "action": "Create", "detail": _("Missing on Production"),
+			                "destination": destination})
+		for section, otype in (
+			("custom_fields", "Custom Field"),
+			("property_setters", "Property Setter"),
+			("client_scripts", "Client Script"),
+		):
+			# An older Production predates client_scripts; treating "absent" as
+			# "empty" would announce every Client Script as missing there.
+			if section == "client_scripts" and "client_scripts" not in rsnap:
+				continue
 			lrecs = lsnap.get(section) or {}
 			rrecs = rsnap.get(section) or {}
 			for name, lrec in lrecs.items():
 				rrec = rrecs.get(name)
-				if rrec is None:
-					changes.append({"object_type": otype, "name": name, "doctype": dt, "action": "Create", "detail": ""})
-				elif rrec != lrec:
-					diffk = [k for k in lrec if lrec.get(k) != (rrec or {}).get(k)]
-					changes.append({"object_type": otype, "name": name, "doctype": dt,
-					                "action": "Update", "detail": ", ".join(diffk[:6])})
+				if rrec is None or rrec != lrec:
+					row = {
+						"object_type": otype, "name": name, "doctype": dt,
+						"action": "Create" if rrec is None else "Update",
+						"detail": "" if rrec is None else ", ".join(
+							[k for k in lrec if lrec.get(k) != (rrec or {}).get(k)][:6]
+						),
+						# A Client Script is never folded into a DocType's JSON; it
+						# always travels as a data module + patch.
+						"destination": "" if section == "client_scripts" else destination,
+					}
+					if destination and section != "client_scripts":
+						# Ours: the change is a field's property, and it goes into
+						# the JSON — say that, rather than naming the override.
+						field = (lrec.get("field_name") or lrec.get("fieldname") or "").strip()
+						row["object_type"] = _("Field")
+						row["name"] = f"{dt} → {field}" if field else dt
+						row["detail"] = (lrec.get("property") or row["detail"] or "").strip()
+					changes.append(row)
 
 		# DocField drift — a standard DocType edited directly rather than through
 		# Customize Form. Only compared when Production actually reports the key:
@@ -317,13 +366,16 @@ def _diff_doctypes(local: dict, remote: dict) -> list:
 			rfields = rsnap.get("docfields") or {}
 			for fieldname, lrec in lfields.items():
 				rrec = rfields.get(fieldname)
-				if rrec is None:
-					changes.append({"object_type": "DocField", "name": f"{dt}-{fieldname}", "doctype": dt,
-					                "action": "Create", "detail": _("Field is not on Production")})
-				elif rrec != lrec:
-					diffk = [k for k in lrec if lrec.get(k) != rrec.get(k)]
-					changes.append({"object_type": "DocField", "name": f"{dt}-{fieldname}", "doctype": dt,
-					                "action": "Update", "detail": ", ".join(diffk[:6])})
+				if rrec is None or rrec != lrec:
+					changes.append({
+						"object_type": _("Field") if destination else "DocField",
+						"name": f"{dt} → {fieldname}" if destination else f"{dt}-{fieldname}",
+						"doctype": dt,
+						"action": "Create" if rrec is None else "Update",
+						"detail": _("Field is not on Production") if rrec is None
+						else ", ".join([k for k in lrec if lrec.get(k) != rrec.get(k)][:6]),
+						"destination": destination,
+					})
 	return changes
 
 
@@ -331,7 +383,7 @@ def _diff_doctypes(local: dict, remote: dict) -> list:
 def review_doctypes(model_name: str) -> dict:
 	"""Compare referenced DocTypes + customizations against Production (read-only)."""
 	_require_ba_instance()
-	doctypes = sorted(_refs_for_model(model_name, "read").get("doctypes") or [])
+	doctypes = _with_fetch_sources(_refs_for_model(model_name, "read").get("doctypes") or [])
 	local = _build_doctype_snapshot(doctypes)
 	remote = _call_production_api(SNAPSHOT_DOCTYPES, {"doctypes": json.dumps(doctypes)}) or {}
 	changes = _diff_doctypes(local, remote)
@@ -344,7 +396,7 @@ def sync_doctypes(model_name: str) -> dict:
 	from one_bpmn.api.github_sync import open_customization_pr
 
 	_require_ba_instance()
-	doctypes = sorted(_refs_for_model(model_name, "write").get("doctypes") or [])
+	doctypes = _with_fetch_sources(_refs_for_model(model_name, "write").get("doctypes") or [])
 	local = _build_doctype_snapshot(doctypes)
 	remote = _call_production_api(SNAPSHOT_DOCTYPES, {"doctypes": json.dumps(doctypes)}) or {}
 	changes = _diff_doctypes(local, remote)
@@ -384,6 +436,14 @@ def sync_doctypes(model_name: str) -> dict:
 
 	changed_doctypes = sorted({c["doctype"] for c in syncable})
 
+	# What changed, per DocType, for the PR body. Taken from the diff rather than
+	# from the file writer, which has not run by the time the body is composed.
+	summary = {}
+	for c in changes:
+		label = f"{c['object_type']} {c['name']}" if c["object_type"] != "DocField" else c["name"]
+		detail = f" ({c['detail']})" if c.get("detail") else ""
+		summary.setdefault(c["doctype"], []).append(f"{c['action']} {label}{detail}")
+
 	token = frappe.get_cached_doc("Processa Settings").get_password("github_token")
 
 	# Group by the app whose SOURCE carries the customization, which is not the
@@ -404,14 +464,23 @@ def sync_doctypes(model_name: str) -> dict:
 
 		stamp = frappe.generate_hash(length=6)
 		head_branch = f"processa/sync-{frappe.scrub(model_name)}-{stamp}"
-		title = f"Processa: sync customizations for {', '.join(dts)}"
-		files, build_files, artefacts = _customization_pr_files(app, dts, model_name, stamp)
-		body = _pr_body(app, dts, model_name, artefacts)
-		# base_branch=None → github_sync targets the repository's default branch.
+		promised = _promised_new_fields(changes)
+		files, build_files, artefacts, routing = _customization_pr_files(app, dts, model_name, stamp, promised)
+		if not files and not routing["owned"]:
+			# Nothing this app can carry. Reported rather than opened empty.
+			skipped.append({"app": app, "doctypes": dts,
+			                "reason": _("Nothing to write for these doctypes.")})
+			continue
+		title = (
+			f"Processa: sync {', '.join(dts)}"
+			if routing["owned"] else f"Processa: sync customizations for {', '.join(dts)}"
+		)
+		body = _pr_body(app, dts, model_name, artefacts, routing,
+		                {dt: summary.get(dt) or [] for dt in dts})
 		pr_url = open_customization_pr(
 			token=token,
 			repo=repo,
-			base_branch=None,
+			base_branch=PR_BASE_BRANCH,
 			head_branch=head_branch,
 			files=files,
 			build_files=build_files,
@@ -426,7 +495,7 @@ def sync_doctypes(model_name: str) -> dict:
 	return {"synced": bool(prs), "prs": prs, "skipped": skipped, "source_edits": source_edits}
 
 
-def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str):
+def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str, promised: dict = None):
 	"""Build the PR's file set in the customization app's own convention.
 
 	Returns ``(files, build_files, artefacts)``:
@@ -436,11 +505,21 @@ def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str):
 	    the shared custom/<dt>.json. Those cannot be built up front.
 	  * ``artefacts``  — every path touched, for the PR body and the API response.
 	"""
+	from one_bpmn.api import doctype_source_sync as source
 	from one_bpmn.api import onefm_customization_codegen as gen
+
+	# Ownership decides the destination. A DocType whose schema is in a
+	# repository we control is edited in its own JSON; overriding our own source
+	# with a Property Setter would leave the file no longer true, and the
+	# generated patch would re-apply the override on every migrate.
+	owned = [dt for dt in dts if source.owned_in_source(dt) and source.source_json_path(dt)]
+	foreign = [dt for dt in dts if dt not in owned]
 
 	files, artefacts = {}, []
 	snapshots = {}
-	for dt in dts:
+	source_paths = {dt: source.source_json_path(dt) for dt in owned}
+	artefacts += sorted(source_paths.values())
+	for dt in foreign:
 		cfs = frappe.get_all("Custom Field", filters={"dt": dt}, fields=["*"], order_by="name")
 		pss = frappe.get_all("Property Setter", filters={"doc_type": dt}, fields=["*"], order_by="name")
 		snapshots[dt] = (cfs, pss)
@@ -451,23 +530,59 @@ def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str):
 		files[ps_path] = gen.render_property_setter_module(dt, pss)
 		artefacts += [cf_path, ps_path]
 
-	patch_path = gen.patch_path(app, model_name, stamp)
-	files[patch_path] = gen.render_patch(app, model_name, dts, stamp)
-	artefacts.append(patch_path)
+	# Client Scripts apply to every DocType in the run, owned or not: a Client
+	# Script is not part of the DocType's JSON, so there is no source file to fold
+	# it into. Same delivery as the rest: a data module plus a patch.
+	client_scripts = {}
+	for dt in dts:
+		css = frappe.get_all("Client Script", filters={"dt": dt}, fields=["*"], order_by="name")
+		if css:
+			client_scripts[dt] = css
+			cs_path = gen.module_path(app, dt, "client_script")
+			files[cs_path] = gen.render_client_script_module(dt, css)
+			artefacts.append(cs_path)
+	cs_dts = sorted(client_scripts)
+	patched = bool(foreign or cs_dts)
 
-	spliced = [gen.aggregator_path(app, k) for k in ("custom_field", "property_setter")]
-	spliced.append(gen.patches_txt_path(app))
+	if patched:
+		patch_path = gen.patch_path(app, model_name, stamp)
+		files[patch_path] = gen.render_patch(app, model_name, foreign, stamp, cs_dts)
+		artefacts.append(patch_path)
+
+	spliced = [gen.aggregator_path(app, k) for k in ("custom_field", "property_setter")] if foreign else []
+	if patched:
+		spliced.append(gen.patches_txt_path(app))
 	# Under the CUSTOMIZATION app's module, not the DocType's owning module. The
 	# latter is what the previous implementation used, and for a foreign DocType it
 	# resolves outside this repo entirely (../hrms/hrms/hr/custom/interview.json).
-	json_paths = {dt: gen.customization_json_path(app, dt) for dt in dts}
+	json_paths = {dt: gen.customization_json_path(app, dt) for dt in foreign}
 	artefacts += spliced + sorted(json_paths.values())
 
 	today = frappe.utils.today()
+	source_notes = {}
 
 	def build_files(reader):
 		out = {}
-		for kind in ("custom_field", "property_setter"):
+		# Our own DocTypes first: the file is edited, never regenerated, so a
+		# property nobody changed keeps its value and field order is preserved.
+		for dt in owned:
+			path = source_paths[dt]
+			existing = reader(path)
+			if not (existing or "").strip():
+				# Authored on the BA site and never in source: it has to be
+				# written, with the package marker and controller a standard
+				# DocType is loaded through.
+				created, notes = source.create_source_files(dt)
+				out.update(created)
+				source_notes[dt] = notes
+				continue
+			text, notes = source.merge_into_source(existing, dt)
+			source_notes[dt] = notes
+			if text is not None:
+				out[path] = text
+			_require_promised_fields(dt, path, text or existing, (promised or {}).get(dt) or [])
+
+		for kind in ("custom_field", "property_setter") if foreign else ():
 			path = gen.aggregator_path(app, kind)
 			text = reader(path)
 			if text is None:
@@ -475,21 +590,23 @@ def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str):
 					f"{path} is not in the repository, so the generated getter cannot be registered. "
 					f"Is '{app}' the right customization owner app?"
 				)
-			for dt in dts:
+			for dt in foreign:
 				text = gen.splice_aggregator(text, app, dt, kind)
 			out[path] = text
 
-		pt_path = gen.patches_txt_path(app)
-		pt_text = reader(pt_path)
-		if pt_text is None:
-			raise ValueError(f"{pt_path} is not in the repository; the patch would never run.")
-		out[pt_path] = gen.splice_patches_txt(
-			pt_text, app, model_name, stamp, today, note=f"Processa sync: {', '.join(dts)}"
-		)
+		if patched:
+			pt_path = gen.patches_txt_path(app)
+			pt_text = reader(pt_path)
+			if pt_text is None:
+				raise ValueError(f"{pt_path} is not in the repository; the patch would never run.")
+			patched_dts = list(foreign) + [d for d in cs_dts if d not in foreign]
+			out[pt_path] = gen.splice_patches_txt(
+				pt_text, app, model_name, stamp, today, note=f"Processa sync: {', '.join(patched_dts)}"
+			)
 
 		# The Frappe-native customizations file is merged, never regenerated: it
 		# carries customizations beyond the ones this run happens to know about.
-		for dt in dts:
+		for dt in foreign:
 			path = json_paths[dt]
 			cfs, pss = snapshots[dt]
 			incoming = {
@@ -503,29 +620,127 @@ def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str):
 			out[path] = gen.merge_customization_json(reader(path) or "", incoming)
 		return out
 
-	return files, build_files, artefacts
+	return files, build_files, artefacts, {
+		"owned": owned, "foreign": foreign, "notes": source_notes, "client_scripts": cs_dts,
+	}
 
 
-def _pr_body(app: str, dts: list, model_name: str, artefacts: list) -> str:
+def _promised_new_fields(changes: list) -> dict:
+	"""DocType to the fieldnames the review lists as created on it."""
+	created = [c for c in changes if c["action"] == "Create"]
+	promised = {}
+	for c in created:
+		if " → " in c["name"]:
+			promised.setdefault(c["doctype"], []).append(c["name"].split(" → ", 1)[1])
+	return promised
+
+
+def _require_promised_fields(dt: str, path: str, text: str, fieldnames: list) -> None:
+	"""Refuse the PR when its description promises a field the DocType's file does not carry."""
+	present = {f.get("fieldname") for f in (json.loads(text).get("fields") or []) if isinstance(f, dict)}
+	missing = [f for f in fieldnames if f not in present]
+	if missing:
+		frappe.throw(
+			_(
+				"{0} would not carry {1}, which the review lists as new on {2}. No pull request was opened."
+			).format(path, ", ".join(missing), dt)
+		)
+
+
+def _with_fetch_sources(doctypes: list) -> list:
+	"""The DocTypes plus any DocType holding a fetched-from Custom Field that Production lacks."""
+	sources = _fetch_sources(doctypes)
+	if not sources:
+		return sorted(doctypes)
+	remote = _call_production_api(SNAPSHOT_DOCTYPES, {"doctypes": json.dumps(sorted(sources))}) or {}
+	missing = [
+		dt for dt, fieldnames in sources.items()
+		if any(f"{dt}-{f}" not in ((remote.get(dt) or {}).get("custom_fields") or {}) for f in fieldnames)
+	]
+	return sorted(set(doctypes) | set(missing))
+
+
+def _fetch_sources(doctypes: list) -> dict:
+	"""DocType to the Custom Fields on it that a field of ``doctypes`` fetches from."""
+	sources = {}
+	for dt in doctypes:
+		if not frappe.db.exists("DocType", dt):
+			continue
+		meta = frappe.get_meta(dt)
+		for df in meta.fields:
+			link_field, _sep, source_field = (df.fetch_from or "").partition(".")
+			link = meta.get_field(link_field) if source_field else None
+			if not link or link.fieldtype != "Link":
+				continue
+			if frappe.db.exists("Custom Field", {"dt": link.options, "fieldname": source_field}):
+				sources.setdefault(link.options, set()).add(source_field)
+	return sources
+
+
+def _routing_table(routing: dict, summary: dict = None) -> str:
+	"""Which route each DocType took, and why, for the reviewer.
+
+	The point of the table is that a DocType we own can be seen NOT to have been
+	overridden: the reason column is the whole argument for the split.
+	"""
+	if not routing:
+		return ""
+	summary = summary or {}
+
+	def what(dt, fallback):
+		"""A few items, then a count. The full list is the diff below."""
+		items = summary.get(dt) or fallback
+		if len(items) <= 5:
+			return "; ".join(items)
+		return "; ".join(items[:5]) + f"; and {len(items) - 5} more"
+
+	lines = ["| DocType | Written to | Why | What changed |", "| --- | --- | --- | --- |"]
+	for dt in routing.get("owned") or []:
+		lines.append(
+			f"| {dt} | its own DocType JSON | we own this DocType, so the source file stays "
+			f"the truth and no Property Setter overrides it "
+			f"| {what(dt, routing.get('notes', {}).get(dt) or ['schema'])} |"
+		)
+	for dt in routing.get("foreign") or []:
+		lines.append(
+			f"| {dt} | customization artefacts | owned by an app we do not control, so an "
+			f"override is the only mechanism there is | {what(dt, ['customizations'])} |"
+		)
+	return "\n".join(lines) + "\n\n"
+
+
+def _pr_body(app: str, dts: list, model_name: str, artefacts: list, routing: dict = None,
+             summary: dict = None) -> str:
 	listed = "\n".join(f"- `{p}`" for p in artefacts)
+	routing = routing or {}
+	foreign = routing.get("foreign", dts)
+	client_script_dts = routing.get("client_scripts") or []
+	client_script_note = (
+		f"Client Scripts for {', '.join(client_script_dts)} are written to `custom/client_script/` "
+		"data modules and applied to **existing sites** by the same patch (upserted by name).\n\n"
+	) if client_script_dts else ""
 	return (
 		"Automated by Processa (Review Doctypes → Sync).\n\n"
 		f"Process map: `{model_name}`\n"
 		f"DocTypes: {', '.join(dts)}\n"
 		f"Customization owner app: `{app}`\n\n"
-		"These Custom Field / Property Setter changes exist on the authoring (BA) "
-		"site but not yet on Production.\n\n"
-		f"Written in {app}'s own convention, so the change lands on both a fresh "
-		"install and an existing site:\n\n"
+		+ _routing_table(routing, summary) +
+		"These changes exist on the authoring (BA) site but not yet on Production.\n\n"
+		+ ("" if not foreign else
+		f"For the DocTypes above that route to customizations, written in {app}'s own "
+		"convention so the change lands on both a fresh install and an existing site:\n\n"
 		"- the `custom/custom_field/` and `custom/property_setter/` data modules hold the content\n"
 		"- `setup/custom_field.py` and `setup/property_setter.py` register them for **fresh installs** "
 		"(via `after_install`, which never runs on an existing site)\n"
 		"- the patch under `patches/v15_0/` applies them to **existing sites** on `bench migrate`\n"
 		"- `custom/*.json` is updated too, and is **merged** rather than regenerated, so "
-		"customizations outside this sync are preserved\n\n"
-		f"Files touched:\n{listed}\n\n"
-		"The data modules are regenerated from the BA site's current state, so any hand edit "
-		"made to those two files will be replaced — review that hunk with care."
+		"customizations outside this sync are preserved\n\n")
+		+ client_script_note
+		+ f"Files touched:\n{listed}\n\n"
+		+ ("The data modules are regenerated from the BA site's current state, so any hand edit "
+		   "made to those two files will be replaced — review that hunk with care." if foreign else
+		   "Each DocType JSON was EDITED, not regenerated: a property nobody changed keeps its "
+		   "value and field order is preserved.")
 	)
 
 
@@ -652,4 +867,5 @@ def production_review_settings() -> dict:
 	return {
 		"connect_to_production": bool(settings.connect_to_production),
 		"instance_type": settings.instance_type or "",
+		"pr_base_branch": PR_BASE_BRANCH,
 	}

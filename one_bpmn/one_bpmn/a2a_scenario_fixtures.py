@@ -34,11 +34,12 @@ What this covers that the fast/slow pair does not:
 - **Both answer shapes in one run.** A fast worker answers inside the
   call and the caller never parks; the dispatcher parks on a user task,
   and the caller only continues once the reconciler settles it.
-- **A refusal you can trigger on purpose** — see ``restrict_coordinator``.
-  Note what a refused delegation leaves behind: nothing. An off-the-list
+- **A refusal you can trigger on purpose** — expose a target agent's
+  ``a2a_exposed`` off, or leave it not Live, and delegate to it anyway.
+  Note what a refused delegation leaves behind: nothing. An unexposed
   target never became work, so there is no A2A Task to find — only the
   errored instance and the missing row say it happened. (A breached depth
-  or handoff LIMIT does leave a failed task; the allow-list does not.)
+  or handoff LIMIT does leave a failed task; an exposure refusal does not.)
 
 Every specialist here is a real agent: its map contains an AI Agent Task
 and a model does the judging. They were script maps at first, for
@@ -62,8 +63,6 @@ Usage::
     bench execute one_bpmn.one_bpmn.a2a_scenario_fixtures.assign_technician
     bench execute one_bpmn.one_bpmn.a2a_scenario_fixtures.show_chain
 
-    bench execute one_bpmn.one_bpmn.a2a_scenario_fixtures.restrict_coordinator
-    bench execute one_bpmn.one_bpmn.a2a_scenario_fixtures.unrestrict_coordinator
     bench execute one_bpmn.one_bpmn.a2a_scenario_fixtures.teardown
 
 ``assign_technician`` plays the person in the middle and then reconciles,
@@ -960,44 +959,6 @@ def show_chain():
 	chains = {row.task_execution_id for row in rows if row.task_execution_id}
 	print(f"\n{len(rows)} task(s) across {len(chains) or 1} execution chain(s).")
 	return rows
-
-
-# ── The refusal scenario ─────────────────────────────────────────────────────
-
-
-def restrict_coordinator():
-	"""Narrow the coordinator to safety + compliance only, so a critical
-	incident is refused when it tries to reach maintenance.
-
-	Exposure is what grants delegation; this list only narrows it. Run
-	``run_critical`` afterwards and the delegation fails with a plain reason
-	instead of dispatching.
-	"""
-	agent = frappe.get_doc("AI Agent Configuration", COORDINATOR)
-	agent.restrict_delegates = 1
-	agent.set("allowed_delegates", [])
-	for target in (ASSESSOR, LOGGER):
-		agent.append("allowed_delegates", {"agent_configuration": target})
-	agent.flags.ignore_permissions = True
-	agent.flags.ignore_mandatory = True
-	agent.flags.ignore_links = True
-	agent.save(ignore_permissions=True)
-	frappe.db.commit()
-	print(f"{COORDINATOR} may now delegate only to: {ASSESSOR}, {LOGGER}.")
-	print("Run run_critical() — reaching maintenance is now refused.")
-
-
-def unrestrict_coordinator():
-	"""Put the coordinator back to delegating anywhere that is exposed."""
-	agent = frappe.get_doc("AI Agent Configuration", COORDINATOR)
-	agent.restrict_delegates = 0
-	agent.set("allowed_delegates", [])
-	agent.flags.ignore_permissions = True
-	agent.flags.ignore_mandatory = True
-	agent.flags.ignore_links = True
-	agent.save(ignore_permissions=True)
-	frappe.db.commit()
-	print(f"{COORDINATOR} may delegate to any exposed agent again.")
 
 
 # ── Cleanup ──────────────────────────────────────────────────────────────────

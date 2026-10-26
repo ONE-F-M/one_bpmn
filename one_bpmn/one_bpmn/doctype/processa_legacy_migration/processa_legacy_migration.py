@@ -34,6 +34,3 @@ class ProcessaLegacyMigration(Document):
 			frappe.throw(_("Old Status is required."))
 		if not self.target_status:
 			frappe.throw(_("Target Status is required."))
-
-		if self.old_status == self.target_status:
-			frappe.throw(_("Old Status and Target Status cannot be the same."))

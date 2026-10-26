@@ -1,19 +1,15 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""The agent_sandbox connector's dispatch operation.
+"""The agent_sandbox connector's operations: sandbox_dispatch (the fast,
+synchronous file-op primitive) and run_tests/open_pull_request (the two
+parked, minutes-scale operations).
 
-Mirrors test_a2a_local.py's TestLocalDelegationParking shape: a fake
-task/instance (SimpleNamespace), the external call mocked out, and
-assertions on what got parked and what row tracks it. _resolve_agent_config
-and _mint_identity_token are mocked directly rather than depending on a real
-"Dev Agent" AI Agent Configuration or real GCP credentials existing in the
-test environment — this suite is about the connector's own dispatch/parking
-contract, not the agent seed or Google auth.
-
-agent_config's shape here (system_prompt/model/api_key) and the separate
-github_token resolved from Processa Settings both reflect dispatch()'s
-current contract — the sandbox is the coding agent and opens the PR itself,
-so both a model credential and a GitHub token now travel in every dispatch.
+Mirrors test_a2a_local.py's TestLocalDelegationParking shape for the parked
+operations: a fake task/instance (SimpleNamespace), the external call mocked
+out, and assertions on what got parked and what row tracks it. Neither
+operation forwards a model credential or a tool list — all the reasoning
+happens once, in Processa's own AI Agent Task; the sandbox only ever
+receives the concrete action and its arguments.
 """
 
 from __future__ import annotations
@@ -64,10 +60,13 @@ def _any_process_model() -> str:
 class AgentSandboxCase(FrappeTestCase):
 	def setUp(self):
 		super().setUp()
+		branch_check = patch.object(ops, "_missing_branch_error", return_value=None)
+		branch_check.start()
+		self.addCleanup(branch_check.stop)
 		# caller_instance is a real Link field (-> BPMN Process Instance) and
-		# dispatch()'s own run.insert() never sets ignore_links — production
-		# always passes a genuine, already-saved instance, so the test fixture
-		# needs one too rather than a bare SimpleNamespace stand-in.
+		# _dispatch_single_action's own run.insert() never sets ignore_links —
+		# production always passes a genuine, already-saved instance, so the
+		# test fixture needs one too rather than a bare SimpleNamespace stand-in.
 		# Any process model resolves the Link; this suite never runs a diagram.
 		# Deliberately NOT the "Dev Agent" map — maps ship by export/import, so
 		# naming one makes the whole suite pass or fail on whether somebody has
@@ -77,23 +76,17 @@ class AgentSandboxCase(FrappeTestCase):
 			"process_model": _any_process_model(),
 		}).insert(ignore_permissions=True)
 
-	def ctx(self):
+	def ctx(self, operation=None):
 		task = SimpleNamespace(
 			id="00000000-0000-0000-0000-000000000da1",
 			data={},
 			task_spec=SimpleNamespace(bpmn_id="ServiceTask_DevAgent", name="ServiceTask_DevAgent"),
 		)
 		instance = SimpleNamespace(name=self._test_instance.name, initiated_by="Administrator")
-		return {"instance": instance, "task": task}
-
-	def params(self, **kwargs):
-		merged = {
-			"target_app": "one_bpmn",
-			"git_branch": "staging",
-			"work_item_description": "Fix the thing.",
-		}
-		merged.update(kwargs)
-		return merged
+		c = {"instance": instance, "task": task}
+		if operation is not None:
+			c["operation"] = operation
+		return c
 
 	def tearDown(self):
 		for name in frappe.get_all(
@@ -105,271 +98,6 @@ class AgentSandboxCase(FrappeTestCase):
 			force=True, ignore_permissions=True, ignore_missing=True,
 		)
 		super().tearDown()
-
-
-class TestDispatchValidation(AgentSandboxCase):
-	def test_missing_target_app_is_refused_before_anything_is_created(self):
-		with self.assertRaises(ops.AgentSandboxError):
-			ops.dispatch(self.params(target_app=""), self.ctx())
-		self.assertEqual(
-			frappe.db.count("Agent Sandbox Run", {"target_app": "one_bpmn"}), 0,
-			"a rejected dispatch must not leave a row behind",
-		)
-
-	def test_missing_sandbox_url_is_refused(self):
-		mock_settings = SimpleNamespace(agent_sandbox_url="", get_password=lambda *a, **k: "")
-		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)):
-			with self.assertRaises(ops.AgentSandboxError):
-				ops.dispatch(self.params(), self.ctx())
-
-	def test_missing_github_token_is_refused_and_marks_the_row_failed(self):
-		"""Checked after agent_config resolves but before the sandbox is ever
-		called — a dispatch that can't deliver a PR must not run at all."""
-		mock_settings = SimpleNamespace(
-			agent_sandbox_url="https://sandbox.example.run.app",
-			get_password=lambda *a, **k: "",
-		)
-		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)), patch.object(
-			ops, "_resolve_agent_config",
-			return_value={"system_prompt": "test", "model": "claude-haiku-4-5-20251001", "api_key": "fake-key"},
-		):
-			with self.assertRaises(ops.AgentSandboxError):
-				ops.dispatch(self.params(), self.ctx())
-
-		row = frappe.get_doc(
-			"Agent Sandbox Run", frappe.get_all("Agent Sandbox Run", pluck="name")[0]
-		)
-		self.assertEqual(row.state, "failed")
-
-
-class TestResolveAgentConfig(FrappeTestCase):
-	"""_resolve_agent_config is mocked everywhere else in this file — these
-	tests exercise the real implementation against real AI Model / AI Agent
-	Configuration records instead. That gap is exactly what let a real bug
-	ship undetected: the function used to read `provider.enabled` and
-	`provider.get_password("api_key", ...)` off AI Provider, but AI Provider
-	only ever holds a name (it's just the dialect tag) — the enable flag and
-	credential actually live on AI Model. No test ever called the real
-	function, so the AttributeError it raised on every dispatch went
-	uncaught until a real end-to-end run hit it."""
-
-	def setUp(self):
-		super().setUp()
-		self._agent_configs = []
-		self._models = []
-
-	def tearDown(self):
-		for name in self._agent_configs:
-			frappe.delete_doc(
-				"AI Agent Configuration", name, force=True, ignore_permissions=True, ignore_missing=True
-			)
-		for name in self._models:
-			frappe.delete_doc("AI Model", name, force=True, ignore_permissions=True, ignore_missing=True)
-		super().tearDown()
-
-	def _make_model(self, name, *, enable_model=1, api_key="sk-test-key", model_api_name=""):
-		doc = frappe.get_doc({
-			"doctype": "AI Model",
-			"model_name": name,
-			"enable_model": enable_model,
-			"api_key": api_key,
-			"model_api_name": model_api_name,
-		}).insert(ignore_permissions=True)
-		self._models.append(doc.name)
-		return doc
-
-	def _make_agent_config(self, name, *, ai_model, system_prompt="You are a test agent.",
-	                       process_model=None):
-		# Inserting an AI Agent Configuration fires "AI Agent Creation Process",
-		# an active map whose prompt-writing AI step OVERWRITES system_prompt with
-		# a real LLM call. on_doc_event skips on in_migrate but not on in_test, so
-		# without this the fixture's prompt comes back as model output, the
-		# assertion fails, and every run of this suite costs money and half a
-		# minute. Suppressed the same way patches and imports already are.
-		frappe.flags.in_migrate = True
-		try:
-			doc = frappe.get_doc({
-				"doctype": "AI Agent Configuration",
-				"agent_name": name,
-				"agent_id": name.lower().replace(" ", "-"),
-				"agent_framework": "Direct API",
-				"ai_model": ai_model,
-				"system_prompt": system_prompt,
-				"process_model": process_model,
-			}).insert(ignore_permissions=True)
-		finally:
-			frappe.flags.in_migrate = False
-		self._agent_configs.append(doc.name)
-		return doc
-
-	def test_resolves_a_real_enabled_model_with_a_key(self):
-		model = self._make_model(
-			"Test Sandbox Model - Enabled", api_key="sk-real-looking-test-key", model_api_name="claude-test-model"
-		)
-		self._make_agent_config("Test Dev Agent - Happy Path", ai_model=model.name, system_prompt="Be helpful.")
-
-		with patch.object(ops, "_AGENT_CONFIG_NAME", "Test Dev Agent - Happy Path"):
-			config = ops._resolve_agent_config()
-
-		self.assertEqual(config["system_prompt"], "Be helpful.")
-		self.assertEqual(config["model"], "claude-test-model")
-		self.assertEqual(config["api_key"], "sk-real-looking-test-key")
-
-	def test_falls_back_to_model_name_when_model_api_name_is_blank(self):
-		model = self._make_model("Test Sandbox Model - No API Name", api_key="sk-key")
-		self._make_agent_config("Test Dev Agent - No API Name", ai_model=model.name)
-
-		with patch.object(ops, "_AGENT_CONFIG_NAME", "Test Dev Agent - No API Name"):
-			config = ops._resolve_agent_config()
-
-		self.assertEqual(config["model"], model.name)
-
-	def test_no_ai_model_configured_raises(self):
-		self._make_agent_config("Test Dev Agent - No Model", ai_model="")
-
-		with patch.object(ops, "_AGENT_CONFIG_NAME", "Test Dev Agent - No Model"):
-			with self.assertRaises(ops.AgentSandboxError):
-				ops._resolve_agent_config()
-
-	def test_disabled_model_raises(self):
-		model = self._make_model("Test Sandbox Model - Disabled", enable_model=0, api_key="sk-key")
-		self._make_agent_config("Test Dev Agent - Disabled Model", ai_model=model.name)
-
-		with patch.object(ops, "_AGENT_CONFIG_NAME", "Test Dev Agent - Disabled Model"):
-			with self.assertRaises(ops.AgentSandboxError):
-				ops._resolve_agent_config()
-
-	def test_model_with_no_api_key_raises(self):
-		model = self._make_model("Test Sandbox Model - No Key", api_key="")
-		self._make_agent_config("Test Dev Agent - No Key", ai_model=model.name)
-
-		with patch.object(ops, "_AGENT_CONFIG_NAME", "Test Dev Agent - No Key"):
-			with self.assertRaises(ops.AgentSandboxError):
-				ops._resolve_agent_config()
-
-
-class TestDispatchParking(AgentSandboxCase):
-	def _dispatch(self, response_status=202):
-		mock_settings = SimpleNamespace(
-			agent_sandbox_url="https://sandbox.example.run.app",
-			get_password=lambda *a, **k: "fake-github-token",
-		)
-		mock_response = MagicMock(status_code=response_status)
-		mock_response.raise_for_status = MagicMock()
-
-		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)), patch.object(
-			ops, "_resolve_agent_config",
-			return_value={"system_prompt": "test", "model": "claude-haiku-4-5-20251001", "api_key": "fake-key"},
-		), patch.object(ops, "_mint_identity_token", return_value="fake-token"), patch(
-			"requests.post", return_value=mock_response
-		) as mock_post:
-			ctx = self.ctx()
-			result = ops.dispatch(self.params(), ctx)
-		return result, ctx, mock_post
-
-	def test_a_dispatch_always_parks_never_answers_inline(self):
-		"""A sandbox run takes minutes — there is no fast path that answers
-		inside the call the way a quick HTTP connector might."""
-		result, ctx, _ = self._dispatch()
-		self.assertIsNone(result)
-		marker = ctx["task"].data[ops.AGENT_SANDBOX_WAITING_KEY]
-		self.assertIn("run", marker)
-
-	def test_the_tracking_row_is_created_and_marked_running(self):
-		_result, ctx, _ = self._dispatch()
-		marker = ctx["task"].data[ops.AGENT_SANDBOX_WAITING_KEY]
-		row = frappe.get_doc("Agent Sandbox Run", marker["run"])
-		self.assertEqual(row.state, "running")
-		self.assertEqual(row.target_app, "one_bpmn")
-		self.assertEqual(row.caller_wf_task_id, str(ctx["task"].id))
-
-	def test_the_sandbox_is_called_with_a_bearer_token_not_a_static_secret(self):
-		_result, _ctx, mock_post = self._dispatch()
-		_args, kwargs = mock_post.call_args
-		self.assertEqual(kwargs["headers"]["Authorization"], "Bearer fake-token")
-
-	def test_the_payload_carries_agent_config_and_a_separate_github_token(self):
-		"""The sandbox is the coding agent now — it needs a model, a live
-		API key, and (separately) a GitHub token to open the PR itself.
-		None of this is baked into the sandbox's own deployment."""
-		_result, _ctx, mock_post = self._dispatch()
-		_args, kwargs = mock_post.call_args
-		payload = kwargs["json"]
-		self.assertEqual(payload["agent_config"]["model"], "claude-haiku-4-5-20251001")
-		self.assertEqual(payload["agent_config"]["api_key"], "fake-key")
-		self.assertEqual(payload["github_token"], "fake-github-token")
-
-	def test_a_rejected_dispatch_marks_the_row_failed_and_raises(self):
-		mock_settings = SimpleNamespace(
-			agent_sandbox_url="https://sandbox.example.run.app",
-			get_password=lambda *a, **k: "fake-github-token",
-		)
-		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)), patch.object(
-			ops, "_resolve_agent_config",
-			return_value={"system_prompt": "", "model": "claude-haiku-4-5-20251001", "api_key": "fake-key"},
-		), patch.object(ops, "_mint_identity_token", return_value="fake-token"), patch(
-			"requests.post", side_effect=ConnectionError("no route to host"),
-		):
-			with self.assertRaises(ops.AgentSandboxError):
-				ops.dispatch(self.params(), self.ctx())
-
-		row = frappe.get_doc(
-			"Agent Sandbox Run", frappe.get_all("Agent Sandbox Run", pluck="name")[0]
-		)
-		self.assertEqual(row.state, "failed")
-
-
-class TestResolutionFailureIsRecorded(AgentSandboxCase):
-	"""Upstream's TestResolveAgentConfig covers the resolver itself. This covers
-	the HANDLER around it, which is a different failure and the one that made the
-	original bug silent."""
-
-	def setUp(self):
-		super().setUp()
-		self._models = []
-		self._original_model = frappe.db.get_value("AI Agent Configuration", "Dev Agent", "ai_model")
-
-	def tearDown(self):
-		frappe.db.set_value("AI Agent Configuration", "Dev Agent", "ai_model",
-		                    self._original_model, update_modified=False)
-		for m in self._models:
-			frappe.db.delete("AI Model", {"name": m})
-			frappe.db.sql("DELETE FROM `__Auth` WHERE doctype='AI Model' AND name=%s", (m,))
-		frappe.db.commit()
-		frappe.clear_cache()
-		super().tearDown()
-
-	def test_a_resolution_failure_never_strands_the_tracking_row(self):
-		"""The row is inserted before resolution runs, so anything escaping the
-		handler leaves it at "submitted" with nothing ever resuming the parked
-		task. That is exactly what the AttributeError did, and why the handler
-		catches everything rather than only AgentSandboxError."""
-		name = f"_sbx-nokey-{frappe.generate_hash(length=6)}"
-		frappe.get_doc({
-			"doctype": "AI Model", "model_name": name,
-			"provider": frappe.db.get_value("AI Provider", {}, "name"),
-			"enable_model": 1,
-		}).insert(ignore_permissions=True)
-		self._models.append(name)
-		frappe.db.set_value("AI Agent Configuration", "Dev Agent", "ai_model", name,
-		                    update_modified=False)
-		frappe.db.commit()
-		frappe.clear_cache()
-
-		settings = SimpleNamespace(
-			agent_sandbox_url="https://sandbox.example",
-			get_password=lambda f, raise_exception=True: "gh-token",
-		)
-		with patch.object(ops.frappe, "get_cached_doc", _scoped_get_cached_doc(settings)):
-			with self.assertRaises(ops.AgentSandboxError):
-				ops.dispatch(self.params(), self.ctx())
-
-		rows = frappe.get_all("Agent Sandbox Run", filters={"target_app": "one_bpmn"},
-		                      fields=["name", "state", "error_message"],
-		                      order_by="creation desc", limit=1)
-		self.assertTrue(rows)
-		self.assertEqual(rows[0].state, "failed")
-		self.assertTrue(rows[0].error_message)
 
 
 class TestCallbackUrl(FrappeTestCase):
@@ -404,65 +132,653 @@ class TestCallbackUrl(FrappeTestCase):
 			)
 
 
-class TestDispatchingAgentResolution(FrappeTestCase):
-	"""The sandbox must run as the agent that dispatched, not always the Dev Agent.
+class TestSlowActionDispatch(AgentSandboxCase):
+	"""run_tests and open_pull_request — the two sandbox tools slow enough
+	(they may re-run the real test suite) to need a park/track shape. Both
+	are named Connector Operations sharing one handler, dispatch_action,
+	which reads which operation it was configured as off ctx["operation"]
+	(set by dispatch_connector) rather than being told apart by function
+	identity. Neither forwards a tool list or a model credential; the
+	sandbox itself never calls an LLM for either of them."""
 
-	``_resolve_agent_config`` took no argument and read a module constant, so a
-	Frontend Agent dispatch handed the sandbox the Dev Agent's prompt and model.
-	Observed on DAS-154626: caller instance was the Frontend Agent map, payload
-	said "You are the Dev Agent".
-	"""
+	def _dispatch(self, operation, response_status=202, **param_overrides):
+		mock_settings = SimpleNamespace(
+			agent_sandbox_url="https://sandbox.example.run.app",
+			get_password=lambda *a, **k: "fake-github-token",
+		)
+		mock_response = MagicMock(status_code=response_status)
+		mock_response.raise_for_status = MagicMock()
+		params = {
+			"target_app": "one_bpmn",
+			"git_branch": "staging",
+			"work_item_description": "Fix the thing.",
+			**param_overrides,
+		}
+		with (
+			patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)),
+			patch.object(ops, "_mint_identity_token", return_value="fake-token"),
+			patch("requests.post", return_value=mock_response) as mock_post,
+		):
+			ctx = self.ctx(operation=operation)
+			result = ops.dispatch_action(params, ctx)
+		return result, ctx, mock_post
+
+	def test_run_tests_parks_and_tracks(self):
+		result, ctx, mock_post = self._dispatch("run_tests")
+		self.assertIsNone(result)
+		marker = ctx["task"].data[ops.AGENT_SANDBOX_WAITING_KEY]
+		row = frappe.get_doc("Agent Sandbox Run", marker["run"])
+		self.assertEqual(row.state, "running")
+		self.assertIsNotNone(row.token_ms)
+		self.assertIsNotNone(row.http_ms)
+		_args, kwargs = mock_post.call_args
+		self.assertEqual(kwargs["json"]["action"], "run_tests")
+		self.assertEqual(kwargs["json"]["target_app"], "one_bpmn")
+		self.assertNotIn("agent_config", kwargs["json"])
+		self.assertNotIn("tools", kwargs["json"])
+
+	def test_open_pull_request_parks_and_forwards_summary_as_an_arg(self):
+		result, ctx, mock_post = self._dispatch("open_pull_request", summary="Added the docstring.")
+		self.assertIsNone(result)
+		marker = ctx["task"].data[ops.AGENT_SANDBOX_WAITING_KEY]
+		self.assertIn("run", marker)
+		_args, kwargs = mock_post.call_args
+		self.assertEqual(kwargs["json"]["action"], "open_pull_request")
+		self.assertEqual(kwargs["json"]["args"], {"summary": "Added the docstring."})
+
+	def test_agent_name_defaults_to_dev_agent_when_ctx_instance_carries_no_process_model(self):
+		"""self.ctx()'s instance is a bare SimpleNamespace stand-in (name +
+		initiated_by only, no process_model) -- matches every other test in
+		this class, so the default fallback is what actually gets exercised
+		here."""
+		_result, _ctx, mock_post = self._dispatch("run_tests")
+		_args, kwargs = mock_post.call_args
+		self.assertEqual(kwargs["json"]["agent_name"], "Dev Agent")
+
+	def test_agent_name_in_payload_reflects_the_instances_process_model(self):
+		"""The sandbox used to hardcode every commit/PR as authored by "Dev
+		Agent" regardless of which specialist actually called it (confirmed
+		live on a real Bug Agent PR). agent_name in the payload is what lets
+		it attribute correctly instead."""
+		mock_settings = SimpleNamespace(
+			agent_sandbox_url="https://sandbox.example.run.app",
+			get_password=lambda *a, **k: "fake-github-token",
+		)
+		mock_response = MagicMock(status_code=202)
+		mock_response.raise_for_status = MagicMock()
+		ctx = self.ctx(operation="run_tests")
+		ctx["instance"] = SimpleNamespace(
+			name=self._test_instance.name, initiated_by="Administrator", process_model="Bug Agent",
+		)
+		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)), patch.object(
+			ops, "_mint_identity_token", return_value="fake-token"
+		), patch("requests.post", return_value=mock_response) as mock_post:
+			ops.dispatch_action(
+				{"target_app": "one_bpmn", "git_branch": "staging", "work_item_description": "Fix the thing."}, ctx,
+			)
+		_args, kwargs = mock_post.call_args
+		self.assertEqual(kwargs["json"]["agent_name"], "Bug Agent")
+
+	def _dispatch_in_eval(self, operation, **param_overrides):
+		with patch.dict(frappe.flags, {"eval_origin": {"eval_run": "evalrun01", "eval_case": "case01"}}):
+			return self._dispatch(operation, **param_overrides)
+
+	def test_open_pull_request_in_an_eval_opens_nothing_and_answers_inline(self):
+		before = frappe.db.count("Agent Sandbox Run", {"target_app": "one_bpmn"})
+		result, ctx, mock_post = self._dispatch_in_eval("open_pull_request", summary="Colour-code statuses.")
+		self.assertIsNone(result)
+		mock_post.assert_not_called()
+		self.assertNotIn(ops.AGENT_SANDBOX_WAITING_KEY, ctx["task"].data)
+		answer = ctx["task"].data[ops.EVAL_DRY_RUN_KEY]
+		self.assertIn("no pull request was opened", answer)
+		self.assertIn("staging", answer)
+		self.assertEqual(frappe.db.count("Agent Sandbox Run", {"target_app": "one_bpmn"}), before)
+
+	def test_run_tests_in_an_eval_does_not_park(self):
+		_result, ctx, mock_post = self._dispatch_in_eval("run_tests")
+		mock_post.assert_not_called()
+		self.assertNotIn(ops.AGENT_SANDBOX_WAITING_KEY, ctx["task"].data)
+		self.assertIn("tests were not run", ctx["task"].data[ops.EVAL_DRY_RUN_KEY])
+
+	def test_the_dry_run_answer_reaches_the_model_without_a_result_variable(self):
+		from one_bpmn.agents.shape_tools import _connector_tool_result
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import CONNECTOR_OUTCOME_KEY
+
+		_result, ctx, _post = self._dispatch_in_eval("open_pull_request")
+		task = ctx["task"]
+		task.data[CONNECTOR_OUTCOME_KEY] = {"connector": "agent_sandbox/open_pull_request", "status": "ok"}
+		told = _connector_tool_result(task, {}, {"target_app": "one_bpmn"})
+		self.assertIn("no pull request was opened", told[ops.EVAL_DRY_RUN_KEY])
+
+	def test_an_eval_still_refuses_a_call_missing_its_arguments(self):
+		with patch.dict(frappe.flags, {"eval_origin": {"eval_run": "evalrun01"}}):
+			with self.assertRaises(ops.AgentSandboxError):
+				ops.dispatch_action(
+					{"target_app": "one_bpmn", "git_branch": "", "work_item_description": "x"},
+					self.ctx(operation="open_pull_request"),
+				)
+
+	def test_missing_operation_is_refused(self):
+		"""dispatch_action must not silently no-op or crash oddly when it was
+		somehow invoked outside a configured connector operation."""
+		with self.assertRaises(ops.AgentSandboxError):
+			ops.dispatch_action(
+				{"target_app": "one_bpmn", "git_branch": "staging", "work_item_description": "x"},
+				self.ctx(),
+			)
+
+	def test_missing_target_app_is_refused_before_anything_is_created(self):
+		before = frappe.db.count("Agent Sandbox Run", {"target_app": "one_bpmn"})
+		with self.assertRaises(ops.AgentSandboxError):
+			ops.dispatch_action(
+				{"target_app": "", "git_branch": "staging", "work_item_description": "x"},
+				self.ctx(operation="run_tests"),
+			)
+		self.assertEqual(frappe.db.count("Agent Sandbox Run", {"target_app": "one_bpmn"}), before)
+
+	def test_a_rejected_dispatch_marks_the_row_failed_and_raises(self):
+		mock_settings = SimpleNamespace(
+			agent_sandbox_url="https://sandbox.example.run.app",
+			get_password=lambda *a, **k: "fake-github-token",
+		)
+		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)), patch.object(
+			ops, "_mint_identity_token", return_value="fake-token"
+		), patch("requests.post", side_effect=ConnectionError("no route to host")):
+			with self.assertRaises(ops.AgentSandboxError):
+				ops.dispatch_action(
+					{"target_app": "one_bpmn", "git_branch": "staging", "work_item_description": "x"},
+					self.ctx(operation="run_tests"),
+				)
+		row = frappe.get_doc(
+			"Agent Sandbox Run", frappe.get_all("Agent Sandbox Run", filters={"target_app": "one_bpmn"}, pluck="name")[-1]
+		)
+		self.assertEqual(row.state, "failed")
+
+
+class TestSandboxDispatch(AgentSandboxCase):
+	"""sandbox_dispatch — the bare HTTP primitive the 4 Sandbox Tool Server
+	Scripts call directly (see one_bpmn/one_bpmn/frontend/primitives.py's
+	own docstring for why it's this thin: a Server Script cannot import
+	requests itself — security/script_validator.py's FORBIDDEN_MODULES —
+	so this exists only to place the one call; all tool policy (which
+	arguments are required, how to word an error) lives in the Server
+	Script itself, not here). Never raises, by design.
+
+	Inherits AgentSandboxCase (not a plain FrappeTestCase) for its real,
+	already-saved BPMN Process Instance fixture — caller_instance is a
+	genuine Link field, and Agent Sandbox Run's own insert() never sets
+	ignore_links, so a bare SimpleNamespace stand-in fails Link validation
+	silently (caught by sandbox_dispatch's own try/except) rather than
+	creating the row the tracking tests below need to exist."""
+
+	def _call(self, response_status=200, response_json=None, post_side_effect=None, **overrides):
+		mock_settings = SimpleNamespace(
+			agent_sandbox_url=overrides.pop("agent_sandbox_url", "https://sandbox.example.run.app"),
+			get_password=overrides.pop("get_password", lambda *a, **k: "fake-github-token"),
+		)
+		mock_response = MagicMock(status_code=response_status)
+		mock_response.raise_for_status = MagicMock()
+		mock_response.headers = overrides.pop("headers", {})
+		mock_response.json = MagicMock(return_value=response_json or {"found": True, "content": "hi"})
+
+		post_kwargs = {"side_effect": post_side_effect} if post_side_effect else {"return_value": mock_response}
+		bpmn_id = overrides.pop("bpmn_id", None)
+		instance = overrides.pop("instance", None)
+		with patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)), patch.object(
+			ops, "_mint_identity_token", overrides.pop("mint_identity_token", MagicMock(return_value="fake-token"))
+		), patch("requests.post", **post_kwargs) as mock_post:
+			result = ops.sandbox_dispatch(
+				"read_file", "one_bpmn", "staging", "Fix the thing.", {"path": "a.py"},
+				bpmn_id=bpmn_id, instance=instance,
+			)
+		return result, mock_post
+
+	def _last_run(self):
+		return frappe.get_doc(
+			"Agent Sandbox Run",
+			frappe.get_all("Agent Sandbox Run", filters={"target_app": "one_bpmn"}, order_by="creation desc", pluck="name")[0],
+		)
+
+	def test_successful_call_wraps_the_sandboxs_response(self):
+		result, mock_post = self._call(response_json={"found": True, "content": "hello"})
+		self.assertEqual(result, {"ok": True, "response": {"found": True, "content": "hello"}})
+		_args, kwargs = mock_post.call_args
+		self.assertEqual(kwargs["json"]["action"], "read_file")
+		self.assertEqual(kwargs["json"]["args"], {"path": "a.py"})
+		self.assertEqual(kwargs["headers"]["Authorization"], "Bearer fake-token")
+
+	def test_the_run_row_records_the_timings_the_sandbox_reports(self):
+		self._call(headers={"X-Timings-Ms": '{"git": 120, "tool": 5, "total": 140}'})
+		row = self._last_run()
+		self.assertEqual((row.git_ms, row.tool_ms, row.sandbox_ms), (120, 5, 140))
+		self.assertIsNotNone(row.token_ms)
+		self.assertIsNotNone(row.http_ms)
+
+	def test_a_sandbox_that_reports_no_timings_still_completes_the_run(self):
+		self._call()
+		row = self._last_run()
+		self.assertEqual(row.state, "completed")
+		self.assertFalse(row.sandbox_ms)
+
+	def test_agent_name_defaults_to_dev_agent_with_no_instance(self):
+		_result, mock_post = self._call()
+		_args, kwargs = mock_post.call_args
+		self.assertEqual(kwargs["json"]["agent_name"], "Dev Agent")
+
+	def test_agent_name_reflects_the_instances_process_model(self):
+		_result, mock_post = self._call(instance=self._test_instance)
+		_args, kwargs = mock_post.call_args
+		self.assertEqual(kwargs["json"]["agent_name"], self._test_instance.process_model)
+
+	def test_missing_sandbox_url_never_raises(self):
+		result, mock_post = self._call(agent_sandbox_url="")
+		self.assertEqual(result, {"ok": False, "error": "Processa Settings has no Sandbox URL configured."})
+		mock_post.assert_not_called()
+
+	def test_missing_github_token_never_raises(self):
+		result, mock_post = self._call(get_password=lambda *a, **k: "")
+		self.assertFalse(result["ok"])
+		self.assertIn("GitHub token", result["error"])
+		mock_post.assert_not_called()
+
+	def test_auth_failure_never_raises(self):
+		result, mock_post = self._call(mint_identity_token=MagicMock(side_effect=RuntimeError("bad key")))
+		self.assertFalse(result["ok"])
+		self.assertIn("authenticate", result["error"])
+		mock_post.assert_not_called()
+
+	def test_every_fast_tool_call_gets_its_own_agent_sandbox_run_row(self):
+		"""Same auditability the slow tools already have (run_tests/
+		open_pull_request), just settled in one pass instead of parked."""
+		before = frappe.db.count("Agent Sandbox Run", {"target_app": "one_bpmn"})
+		instance = frappe.get_doc("BPMN Process Instance", self._test_instance.name)
+		self._call(response_json={"found": True, "content": "hello"}, bpmn_id="read_file", instance=instance)
+		self.assertEqual(frappe.db.count("Agent Sandbox Run", {"target_app": "one_bpmn"}), before + 1)
+		row = self._last_run()
+		self.assertEqual(row.state, "completed")
+		self.assertEqual(row.bpmn_id, "read_file")
+		self.assertEqual(row.caller_instance, self._test_instance.name)
+		self.assertIn("hello", row.result)
+
+	def test_a_failed_sandbox_call_marks_the_row_failed(self):
+		self._call(post_side_effect=ConnectionError("no route to host"))
+		row = self._last_run()
+		self.assertEqual(row.state, "failed")
+		self.assertIn("no route to host", row.error_message)
+
+	def test_missing_config_still_creates_a_failed_row(self):
+		"""The row is created before the sandbox_url/github_token checks, so
+		even an early bail-out leaves an auditable trace, not silence."""
+		self._call(agent_sandbox_url="")
+		row = self._last_run()
+		self.assertEqual(row.state, "failed")
+		self.assertIn("Sandbox URL", row.error_message)
+
+	def test_no_bpmn_id_or_instance_still_creates_a_row_with_those_fields_blank(self):
+		self._call(response_json={"found": True})
+		row = self._last_run()
+		self.assertEqual(row.state, "completed")
+		self.assertFalse(row.bpmn_id)
+		self.assertFalse(row.caller_instance)
+
+	def test_network_failure_never_raises(self):
+		result, _mock_post = self._call(post_side_effect=ConnectionError("no route to host"))
+		self.assertFalse(result["ok"])
+		self.assertIn("no route to host", result["error"])
+
+	def test_deadlock_creating_the_row_is_raised_not_swallowed(self):
+		from one_bpmn.one_bpmn.doctype.agent_sandbox_run.agent_sandbox_run import AgentSandboxRun
+
+		deadlock = frappe.QueryDeadlockError("Record has changed since last read in table 'tabSeries'")
+		with patch.object(AgentSandboxRun, "insert", side_effect=deadlock):
+			with self.assertRaises(frappe.QueryDeadlockError):
+				self._call()
+
+	def test_row_name_does_not_come_from_a_naming_series(self):
+		self._call()
+		self.assertFalse(self._last_run().name.startswith("DAS-"))
+
+
+class TestRetryPolicy(AgentSandboxCase):
+	"""retry_eligible/retry_dispatch — the once-only automatic re-dispatch
+	agent_callback.report_result() falls back to on status == "tests_failed",
+	instead of resuming the waiting caller straight away."""
 
 	def setUp(self):
 		super().setUp()
 		self._configs = []
 
 	def tearDown(self):
-		for n in self._configs:
-			frappe.delete_doc("AI Agent Configuration", n, force=True,
-			                  ignore_permissions=True, ignore_missing=True)
+		for name in self._configs:
+			frappe.delete_doc("AI Agent Configuration", name, force=True, ignore_permissions=True, ignore_missing=True)
 		super().tearDown()
 
-	def _config_on(self, name, process_model):
-		frappe.flags.in_migrate = True
-		try:
-			doc = frappe.get_doc({
-				"doctype": "AI Agent Configuration",
-				"agent_name": name,
-				"agent_id": name.lower().replace(" ", "-"),
-				"agent_framework": "Direct API",
-				"process_model": process_model,
-			}).insert(ignore_permissions=True)
-		finally:
-			frappe.flags.in_migrate = False
+	def _config(self, agent_name, *, retry=1):
+		if frappe.db.exists("AI Agent Configuration", agent_name):
+			frappe.db.set_value("AI Agent Configuration", agent_name, "sandbox_retry_on_test_failure", retry)
+			return agent_name
+		doc = frappe.get_doc({
+			"doctype": "AI Agent Configuration",
+			"agent_name": agent_name,
+			"agent_id": f"_sbx-{frappe.generate_hash(length=6)}",
+			"agent_framework": "Direct API",
+			"sandbox_retry_on_test_failure": retry,
+		}).insert(ignore_permissions=True)
 		self._configs.append(doc.name)
 		return doc.name
 
-	class _Instance:
-		def __init__(self, process_model):
-			self.process_model = process_model
+	def _run(self, *, agent_name="Dev Agent", action="run_tests", args=None, retry_of=None):
+		doc = frappe.get_doc({
+			"doctype": "Agent Sandbox Run",
+			"state": "failed",
+			"target_app": "one_bpmn",
+			"git_branch": "staging",
+			"caller_instance": self._test_instance.name,
+			"caller_wf_task_id": "wf-task-1",
+			"work_item_description": "a retry test",
+		})
+		doc.insert(ignore_permissions=True)
+		payload = {"action": action, "args": args or {}, "agent_name": agent_name, "work_item_id": "WI-1"}
+		doc.db_set("request_payload", frappe.as_json(payload), update_modified=False)
+		if retry_of:
+			# db_set (not passed at insert) — retry_of is a real Link and
+			# _validate_links would otherwise require an actual existing row.
+			doc.db_set("retry_of", retry_of, update_modified=False)
+		return doc
 
-	def test_resolves_the_config_whose_map_dispatched(self):
-		pm = _any_process_model()
-		name = self._config_on(f"_sbx caller {frappe.generate_hash(length=5)}", pm)
-		self.assertEqual(ops._agent_config_name(self._Instance(pm)), name)
+	def test_eligible_when_the_failure_is_environmental_and_the_agent_config_has_retry_enabled(self):
+		self._config("Dev Agent", retry=1)
+		run = self._run(agent_name="Dev Agent")
+		run.failure_class = "env"
+		self.assertTrue(ops.retry_eligible(run))
 
-	def test_falls_back_to_the_dev_agent_when_the_map_has_no_config(self):
+	def test_not_eligible_for_any_other_failure_class(self):
+		self._config("Dev Agent", retry=1)
+		for failure_class in ("code", "policy", "gave-up", "not-reproducible", None):
+			run = self._run(agent_name="Dev Agent")
+			run.failure_class = failure_class
+			self.assertFalse(ops.retry_eligible(run), failure_class)
+
+	def test_an_infrastructure_or_model_api_failure_is_eligible_without_the_agent_setting(self):
+		self._config("Dev Agent", retry=0)
+		for failure_class in ("infra", "model-api"):
+			run = self._run(agent_name="Dev Agent")
+			run.failure_class = failure_class
+			self.assertTrue(ops.retry_eligible(run), failure_class)
+
+	def test_not_eligible_when_run_is_itself_a_retry(self):
+		"""Once, not a loop — a run that is already a retry is never retried again."""
+		self._config("Dev Agent", retry=1)
+		run = self._run(agent_name="Dev Agent", retry_of="DAS-00001")
+		self.assertFalse(ops.retry_eligible(run))
+
+	def test_not_eligible_when_agent_config_has_retry_disabled(self):
+		self._config("Dev Agent", retry=0)
+		run = self._run(agent_name="Dev Agent")
+		self.assertFalse(ops.retry_eligible(run))
+
+	def test_not_eligible_when_payload_carries_no_agent_name(self):
+		run = self._run(agent_name="Dev Agent")
+		run.db_set("request_payload", frappe.as_json({"action": "run_tests", "args": {}}), update_modified=False)
+		self.assertFalse(ops.retry_eligible(run))
+
+	def test_not_eligible_when_agent_config_does_not_exist(self):
+		run = self._run(agent_name="No Such Agent")
+		self.assertFalse(ops.retry_eligible(run))
+
+	def _dispatch(self, run, response_status=202, post_side_effect=None, agent_sandbox_url="https://sandbox.example.run.app"):
+		mock_settings = SimpleNamespace(
+			agent_sandbox_url=agent_sandbox_url,
+			get_password=lambda *a, **k: "fake-github-token",
+		)
+		mock_response = MagicMock(status_code=response_status)
+		mock_response.raise_for_status = MagicMock()
+		post_kwargs = {"side_effect": post_side_effect} if post_side_effect else {"return_value": mock_response}
+		with (
+			patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)),
+			patch.object(ops, "_mint_identity_token", return_value="fake-token"),
+			patch.object(ops.sessions, "uses_job", return_value=False),
+			patch("requests.post", **post_kwargs) as mock_post,
+		):
+			result = ops.retry_dispatch(run)
+		return result, mock_post
+
+	def test_dispatch_creates_a_new_run_pointing_retry_of_at_the_original(self):
+		original = self._run(agent_name="Dev Agent", action="run_tests")
+		before = frappe.db.count("Agent Sandbox Run", {"target_app": "one_bpmn"})
+		result, mock_post = self._dispatch(original)
+		self.assertTrue(result)
+		self.assertEqual(frappe.db.count("Agent Sandbox Run", {"target_app": "one_bpmn"}), before + 1)
+		new_name = frappe.get_all(
+			"Agent Sandbox Run", filters={"retry_of": original.name}, pluck="name",
+		)[0]
+		new_run = frappe.get_doc("Agent Sandbox Run", new_name)
+		self.assertEqual(new_run.state, "running")
+		self.assertEqual(new_run.caller_instance, original.caller_instance)
+		self.assertEqual(new_run.caller_wf_task_id, original.caller_wf_task_id)
+		_args, kwargs = mock_post.call_args
+		self.assertEqual(kwargs["json"]["action"], "run_tests")
+		self.assertEqual(kwargs["json"]["agent_name"], "Dev Agent")
+
+	def test_dispatch_forwards_the_same_action_and_args_as_the_original(self):
+		original = self._run(agent_name="Dev Agent", action="open_pull_request", args={"summary": "fix it"})
+		_result, mock_post = self._dispatch(original)
+		_args, kwargs = mock_post.call_args
+		self.assertEqual(kwargs["json"]["action"], "open_pull_request")
+		self.assertEqual(kwargs["json"]["args"], {"summary": "fix it"})
+
+	def test_dispatch_returns_false_and_never_raises_with_no_sandbox_url(self):
+		original = self._run()
+		result, mock_post = self._dispatch(original, agent_sandbox_url="")
+		self.assertFalse(result)
+		mock_post.assert_not_called()
+
+	def test_dispatch_returns_false_and_marks_the_new_row_failed_when_the_post_fails(self):
+		original = self._run()
+		result, _mock_post = self._dispatch(original, post_side_effect=ConnectionError("no route to host"))
+		self.assertFalse(result)
+		new_name = frappe.get_all("Agent Sandbox Run", filters={"retry_of": original.name}, pluck="name")[0]
+		self.assertEqual(frappe.db.get_value("Agent Sandbox Run", new_name, "state"), "failed")
+
+
+	def test_an_agent_that_uses_the_job_is_retried_in_its_session(self):
+		original = self._run(agent_name="Dev Agent", action="run_tests")
+		mock_settings = SimpleNamespace(
+			agent_sandbox_url="https://sandbox.example.run.app", get_password=lambda *a, **k: "t"
+		)
+		with (
+			patch.object(frappe, "get_cached_doc", side_effect=_scoped_get_cached_doc(mock_settings)),
+			patch.object(ops.sessions, "uses_job", return_value=True),
+			patch.object(ops, "_slow_action_in_session") as in_session,
+			patch("requests.post") as post,
+		):
+			result = ops.retry_dispatch(original)
+		self.assertTrue(result)
+		in_session.assert_called_once()
+		post.assert_not_called()
+		new_name = frappe.get_all("Agent Sandbox Run", filters={"retry_of": original.name}, pluck="name")[0]
+		self.assertEqual(frappe.db.get_value("Agent Sandbox Run", new_name, "state"), "running")
+
+	def test_a_delay_schedules_the_retry_and_creates_no_run_yet(self):
+		original = self._run(agent_name="Dev Agent")
+		with patch.object(frappe, "enqueue") as enqueue:
+			result = ops.retry_dispatch(original, delay=15)
+		self.assertTrue(result)
+		self.assertEqual(enqueue.call_args.kwargs["delay"], 15)
+		self.assertEqual(frappe.get_all("Agent Sandbox Run", filters={"retry_of": original.name}), [])
+
+	def test_a_retry_that_cannot_be_sent_after_the_wait_resumes_the_caller(self):
+		original = self._run(agent_name="Dev Agent")
+		with (
+			patch.object(ops.time, "sleep"),
+			patch.object(ops, "retry_dispatch", return_value=False),
+			patch("one_bpmn.api.agent_callback._enqueue_resume") as resume,
+		):
+			ops.retry_dispatch_after(original.name, 15)
+		resume.assert_called_once()
+		self.assertEqual(frappe.db.get_value("Agent Sandbox Run", original.name, "resume_enqueued"), 1)
+
+	def test_a_retry_that_is_sent_after_the_wait_does_not_resume_the_caller(self):
+		original = self._run(agent_name="Dev Agent")
+		with (
+			patch.object(ops.time, "sleep"),
+			patch.object(ops, "retry_dispatch", return_value=True),
+			patch("one_bpmn.api.agent_callback._enqueue_resume") as resume,
+		):
+			ops.retry_dispatch_after(original.name, 15)
+		resume.assert_not_called()
+
+
+class TestTimingFields(FrappeTestCase):
+	def test_each_reported_key_lands_on_its_own_field(self):
+		fields = ops.timing_fields({"total": 90, "git": 10, "tool": 3, "migrate": 20, "tests": 50, "pr": 7})
 		self.assertEqual(
-			ops._agent_config_name(self._Instance("_sbx-no-such-map")),
-			ops._AGENT_CONFIG_NAME,
+			fields,
+			{"sandbox_ms": 90, "git_ms": 10, "tool_ms": 3, "migrate_ms": 20, "test_ms": 50, "pr_ms": 7},
 		)
 
-	def test_falls_back_when_there_is_no_instance(self):
-		self.assertEqual(ops._agent_config_name(None), ops._AGENT_CONFIG_NAME)
+	def test_a_key_the_sandbox_did_not_report_is_left_out(self):
+		self.assertEqual(ops.timing_fields({"git": 4}), {"git_ms": 4})
 
-	def test_resolve_reads_the_constant_at_call_time(self):
-		"""The default must not bind _AGENT_CONFIG_NAME at import.
+	def test_nothing_reported_gives_nothing(self):
+		self.assertEqual(ops.timing_fields({}), {})
 
-		Binding it in the signature silently breaks every test that patches the
-		constant, and would pin the fallback to whatever it was at import.
-		"""
-		import inspect
-		self.assertIsNone(
-			inspect.signature(ops._resolve_agent_config).parameters["config_name"].default
+
+class TestDispatchError(FrappeTestCase):
+	def test_an_app_the_sandbox_does_not_have_is_refused_naming_the_choices(self):
+		message = ops.dispatch_error("spiff", "staging")
+		self.assertIn("'spiff' is not an app the sandbox has", message)
+		self.assertIn("one_bpmn", message)
+
+	def test_an_installed_app_with_a_known_branch_is_allowed(self):
+		with patch.object(ops, "_missing_branch_error", return_value=None):
+			self.assertIsNone(ops.dispatch_error("one_bpmn", "staging"))
+
+	def _repo(self, html_url="https://github.com/ONE-F-M/one_bpmn", token="t"):
+		settings = SimpleNamespace(get_password=lambda *a, **k: token)
+		return (
+			patch.object(frappe.db, "exists", return_value=True),
+			patch.object(frappe.db, "get_value", return_value=html_url),
+			patch.object(frappe, "get_cached_doc", return_value=settings),
 		)
+
+	def _ask(self, status_code, branch="develop"):
+		frappe.cache.delete_value(f"agent_sandbox_branch:ONE-F-M/one_bpmn:{branch}")
+		first, second, third = self._repo()
+		with first, second, third, patch("requests.get", return_value=SimpleNamespace(status_code=status_code)) as get:
+			return ops._missing_branch_error("one_bpmn", branch), get
+
+	def test_a_branch_github_does_not_have_is_refused(self):
+		message, get = self._ask(404)
+		self.assertIn("'develop' does not exist in ONE-F-M/one_bpmn", message)
+		self.assertIn("/branches/develop", get.call_args.args[0])
+
+	def test_a_branch_github_has_is_allowed_and_the_answer_is_remembered(self):
+		message, get = self._ask(200, "staging")
+		self.assertIsNone(message)
+		first, second, third = self._repo()
+		with first, second, third, patch("requests.get") as again:
+			self.assertIsNone(ops._missing_branch_error("one_bpmn", "staging"))
+		again.assert_not_called()
+
+	def test_a_branch_name_with_a_slash_is_encoded_in_the_url(self):
+		_message, get = self._ask(200, "feature/x")
+		self.assertIn("/branches/feature%2Fx", get.call_args.args[0])
+
+	def test_a_github_outage_does_not_block_a_dispatch(self):
+		message, _get = self._ask(502, "staging2")
+		self.assertIsNone(message)
+
+	def test_no_repository_record_or_no_token_skips_the_check(self):
+		first, second, third = self._repo(html_url="")
+		with first, second, third, patch("requests.get") as get:
+			self.assertIsNone(ops._missing_branch_error("one_bpmn", "x"))
+		get.assert_not_called()
+		first, second, third = self._repo(token="")
+		with first, second, third, patch("requests.get") as get:
+			self.assertIsNone(ops._missing_branch_error("one_bpmn", "x"))
+		get.assert_not_called()
+
+
+class TestARefusedDispatchCreatesNoRun(AgentSandboxCase):
+	def test_a_fast_call_for_an_unknown_app_is_refused_with_no_run(self):
+		before = frappe.db.count("Agent Sandbox Run")
+		out = ops.sandbox_dispatch("read_file", "spiff", "staging", "d", {"path": "a.py"})
+		self.assertFalse(out["ok"])
+		self.assertIn("not an app the sandbox has", out["error"])
+		self.assertEqual(frappe.db.count("Agent Sandbox Run"), before)
+
+	def test_a_slow_dispatch_for_an_unknown_app_raises_with_no_run(self):
+		before = frappe.db.count("Agent Sandbox Run")
+		with self.assertRaises(ops.AgentSandboxError):
+			ops.dispatch_action(
+				{"target_app": "spiff", "git_branch": "staging", "work_item_description": "d"},
+				self.ctx(operation="run_tests"),
+			)
+		self.assertEqual(frappe.db.count("Agent Sandbox Run"), before)
+
+
+class TestTheSandboxIsPostedToWithRetries(FrappeTestCase):
+	def _response(self, status):
+		return MagicMock(status_code=status)
+
+	def _post(self, outcomes, idempotent):
+		import requests
+
+		calls = []
+
+		def fake(url, **kwargs):
+			calls.append(url)
+			outcome = outcomes.pop(0)
+			if isinstance(outcome, BaseException):
+				raise outcome
+			return outcome
+
+		with patch("requests.post", side_effect=fake), patch.object(ops.time, "sleep") as sleep:
+			try:
+				result = ops._post_with_retries("https://s/x", idempotent=idempotent, json={})
+			except (requests.ConnectionError, requests.Timeout) as exc:
+				result = exc
+		return result, len(calls), [c.args[0] for c in sleep.call_args_list]
+
+	def test_a_busy_sandbox_is_retried_for_every_kind_of_call(self):
+		for idempotent in (True, False):
+			result, calls, waits = self._post([self._response(503), self._response(429), self._response(200)], idempotent)
+			self.assertEqual((result.status_code, calls, waits), (200, 3, [1.0, 2.0]), idempotent)
+
+	def test_after_the_last_try_the_busy_answer_is_returned_not_hidden(self):
+		result, calls, _ = self._post([self._response(503)] * 3, False)
+		self.assertEqual((result.status_code, calls), (503, 3))
+
+	def test_a_gateway_error_is_retried_only_when_repeating_is_harmless(self):
+		retried, calls, _ = self._post([self._response(502), self._response(200)], True)
+		self.assertEqual((retried.status_code, calls), (200, 2))
+		kept, calls, _ = self._post([self._response(502), self._response(200)], False)
+		self.assertEqual((kept.status_code, calls), (502, 1))
+
+	def test_a_dropped_connection_is_retried_only_when_harmless(self):
+		import requests
+
+		result, calls, _ = self._post([requests.ConnectionError("reset"), self._response(200)], True)
+		self.assertEqual((result.status_code, calls), (200, 2))
+		result, calls, _ = self._post([requests.ConnectionError("reset"), self._response(200)], False)
+		self.assertIsInstance(result, requests.ConnectionError)
+		self.assertEqual(calls, 1)
+
+	def test_a_timeout_that_never_clears_raises_after_the_tries(self):
+		import requests
+
+		result, calls, _ = self._post([requests.Timeout("slow")] * 3, True)
+		self.assertIsInstance(result, requests.Timeout)
+		self.assertEqual(calls, ops.POST_TRIES)
+
+	def test_an_answer_that_is_not_a_passing_failure_is_returned_at_once(self):
+		for status in (200, 400, 403, 404, 500):
+			result, calls, _ = self._post([self._response(status)], True)
+			self.assertEqual((result.status_code, calls), (status, 1), status)
+
+	def test_which_calls_are_safe_to_repeat(self):
+		self.assertIn("read_file", ops._IDEMPOTENT_ACTIONS)
+		self.assertIn("write_file", ops._IDEMPOTENT_ACTIONS)
+		for action in ("edit_file", "apply_edits", "delete_file"):
+			self.assertNotIn(action, ops._IDEMPOTENT_ACTIONS)

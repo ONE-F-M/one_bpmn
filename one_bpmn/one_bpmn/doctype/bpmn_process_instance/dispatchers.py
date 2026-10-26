@@ -8,6 +8,7 @@
 # ``_dispatch_service_task`` router.
 
 import json
+import re
 
 import frappe
 import frappe.utils
@@ -17,6 +18,78 @@ import frappe.utils
 # Stable, documented format for the injected memory block. Evals and the run
 # inspector reference this header — do not change it lightly.
 MEMORY_BLOCK_HEADER = "Relevant memory:"
+_MEMORY_BLOCK_PROVENANCE = "Possibly relevant notes from earlier work; use them only if they match this request."
+
+# aiMemoryLimit only bounds how many memories are recalled — a raw-write-mode
+# memory has no size cap of its own (memory_write stores str(result.output)
+# verbatim), so the block those memories are rendered into had no bound at
+# all. This is the per-agent default (aiMemoryTokenBudget overrides it); see
+# _bound_memories_to_budget.
+DEFAULT_MEMORY_TOKEN_BUDGET = 800
+
+# Greetings/acknowledgements carry no signal worth searching memory with, and
+# searching anyway risks a coincidental keyword match injecting an unrelated
+# fact into a "hi" — the case this rules out, not just makes unlikely.
+# Deliberately generic: recall gating runs ahead of every agent (ProsAlly,
+# Logix, Docu, ...), so this can't lean on any one agent's domain vocabulary
+# the way Docu's own classifier does (docu_answers_small_talk.py's
+# "_substantive" regex is DocType-specific and would misclassify a real
+# Logix or ProsAlly request).
+_SMALL_TALK_WORDS = frozenset(
+	"""
+	a afternoon alright am and are back bye can cheers cool day do does evening
+	excellent fine good goodbye great hallo hello help hey hi hiya how howdy i
+	is it just k kk later lovely me morning much my name nice night no now ok
+	okay okey perfect ping please pong really right say see so sup sure test
+	testing thank thanks thanx there this thx to u up welcome well what who
+	with working works yeah yep yes yo you your yours yw
+	""".split()
+)
+
+
+def _is_small_talk(message: str) -> bool:
+	"""True for a greeting, acknowledgement, or empty/wordless message — none of
+	which memory recall should be searched with.
+
+	Conservative on purpose, like the vocabulary it borrows the shape of:
+	refusing a real request's recall is the expensive mistake, so this only
+	fires when the message has no words at all, or EVERY word in it is a known
+	chatter word.
+	"""
+	words = re.findall(r"[a-z']+", (message or "").strip().lower())
+	if not words:
+		return True
+	return all(w in _SMALL_TALK_WORDS for w in words)
+
+
+# A user stating a standing convention ("remember that...", "from now on...")
+# is asking for something categorically different from a fact the agent
+# might incidentally produce: it must survive verbatim (the distiller's
+# salience prompt is licensed to drop instance-specific wording) and it must
+# be recalled on every later turn regardless of that turn's vocabulary (a
+# keyword/FULLTEXT match on THIS turn's words can't be expected to find a
+# convention stated in unrelated words weeks ago). Detected here, cheaply and
+# deterministically, rather than left to the distiller's own judgment.
+_REMEMBER_PHRASES = (
+	r"\bremember (?:that|this|to|for)\b",
+	r"\bfrom now on\b",
+	r"\bgoing forward\b",
+	r"\bmake a note (?:that|to)\b",
+	r"\bkeep in mind (?:that)?\b",
+	r"\bfor every .+ (?:we|you) build\b",
+)
+_REMEMBER_RE = re.compile("|".join(_REMEMBER_PHRASES), re.IGNORECASE)
+
+
+def _is_remember_directive(message: str) -> bool:
+	"""True when *message* explicitly asks the agent to remember a standing
+	convention, rather than just answer the current request."""
+	return bool(_REMEMBER_RE.search(message or ""))
+
+
+def terminal_tools_for(task_cfg: dict) -> list:
+	"""finalize plus the comma-separated tools the task or its agent names; each ends the turn when called."""
+	return list({"finalize", *(t.strip() for t in (task_cfg.get("aiTerminalTools") or "").split(",") if t.strip())})
 
 
 def _cfg_truthy(value) -> bool:
@@ -28,29 +101,81 @@ def _cfg_truthy(value) -> bool:
 	return str(value or "").strip().lower() in ("1", "true", "yes", "on", "enabled")
 
 
-def _resolve_memory_target(task_cfg: dict, instance, bpmn_id: str):
+def _default_memory_scope(task_cfg: dict) -> str:
+	"""Scope when the configuration leaves it blank: a Chat agent keeps memory
+	per person (User and Agent), a Background agent shares it (Agent)."""
+	config_name = task_cfg.get("aiAgentConfig")
+	agent_type = frappe.db.get_value("AI Agent Configuration", config_name, "agent_type") if config_name else None
+	return "Agent" if agent_type == "Background" else "User and Agent"
+
+
+def _requesting_user() -> str | None:
+	"""The person whose memory this run reads and writes. A background job runs
+	as the user who queued it, so this holds on the dispatch path too."""
+	user = frappe.session.user
+	return None if not user or user == "Guest" else user
+
+
+def _resolve_memory_target(task_cfg: dict, instance, bpmn_id: str, task_data: dict | None = None):
 	"""Resolve (scope, scope_key) for memory search/write from task config and
 	the instance context. Returns None when the scope key can't be built (e.g.
 	Entity scope with no context document) so the caller safely skips memory.
 
 	Agent   -> agent_element (defaults to the task's bpmn_id)
 	Process -> the instance's process_model
-	Entity  -> {reference_doctype, reference_name} from the instance context doc
+	Entity  -> {memory_reference_doctype, memory_reference_name} from the task data,
+	           (blank means no memory), else {reference_doctype, reference_name} from
+	           the instance context doc
+
+	The "User and X" scopes key on X plus the requesting user: recall returns
+	that person's memories plus the shared ones, writes are theirs alone. With
+	no requesting user (Guest) they fall back to the shared X scope. Blank is
+	decided by the agent type (``_default_memory_scope``).
 	"""
-	scope = (task_cfg.get("aiMemoryScope") or "Agent").strip() or "Agent"
+	scope = (task_cfg.get("aiMemoryScope") or "").strip() or _default_memory_scope(task_cfg)
+	user = None
+	if scope.startswith("User and "):
+		scope = scope[len("User and ") :]
+		user = _requesting_user()
+
 	if scope == "Agent":
 		agent_element = task_cfg.get("aiMemoryAgentElement") or bpmn_id
-		return ("Agent", agent_element) if agent_element else None
-	if scope == "Process":
+		if not agent_element:
+			return None
+		key = {"agent_element": agent_element}
+	elif scope == "Process":
 		process_model = getattr(instance, "process_model", None)
-		return ("Process", process_model) if process_model else None
-	if scope == "Entity":
-		reference_doctype = getattr(instance, "context_doctype", None)
-		reference_name = getattr(instance, "context_docname", None)
-		if reference_doctype and reference_name:
-			return ("Entity", {"reference_doctype": reference_doctype, "reference_name": reference_name})
+		if not process_model:
+			return None
+		key = {"process": process_model}
+	elif scope == "Entity":
+		if task_data and "memory_reference_name" in task_data:
+			reference_doctype = task_data.get("memory_reference_doctype")
+			reference_name = task_data.get("memory_reference_name")
+		else:
+			reference_doctype = getattr(instance, "context_doctype", None)
+			reference_name = getattr(instance, "context_docname", None)
+		if not (reference_doctype and reference_name):
+			return None
+		key = {"reference_doctype": reference_doctype, "reference_name": reference_name}
+	else:
 		return None
-	return None
+
+	if user:
+		key["user"] = user
+	elif scope == "Agent":
+		return (scope, key["agent_element"])  # the shape every existing caller and test expects
+	elif scope == "Process":
+		return (scope, key["process"])
+	return (scope, key)
+
+
+def _preference_user(task_data: dict | None) -> str | None:
+	"""The requester, when the task data keys memory by a business record; their
+	own preference rows are read and written alongside that record's facts."""
+	if not (task_data or {}).get("memory_reference_name"):
+		return None
+	return _requesting_user()
 
 
 def _format_memory_block(memories: list) -> str:
@@ -63,18 +188,110 @@ def _format_memory_block(memories: list) -> str:
 	(2026-08-09): the ProsAlly orchestrator concluded the requested process
 	already existed, skipped its confirm tool, and every turn fell through
 	to finalize's fallback question."""
-	lines = [
-		MEMORY_BLOCK_HEADER,
-		"(Background notes recalled from PAST, separate conversations. "
-		"They are context only — nothing below has happened in the current "
-		"conversation, and none of it counts as work already done for the "
-		"current request.)",
-	]
+	lines = [MEMORY_BLOCK_HEADER, _MEMORY_BLOCK_PROVENANCE]
 	for m in memories:
 		content = (m.get("content") or "").strip()
 		if content:
 			lines.append(f"- {content}")
 	return "\n".join(lines)
+
+
+def _bound_memories_to_budget(memories: list, token_budget: int) -> list:
+	"""Truncate *memories* (already rank-ordered by memory_search — relevance
+	first on the FULLTEXT path, recency first on the keyword fallback) so the
+	block ``_format_memory_block`` renders from them stays within
+	``token_budget`` estimated tokens.
+
+	A hard ceiling, not a best-effort one: unlike ContextWindowPolicy's history
+	trim (conversation_store.py), which sends an oversized newest exchange
+	rather than lose it, an unbounded block is exactly the defect this exists
+	to close, so even the single best-ranked memory has its content cut to fit
+	rather than going out whole over budget.
+
+	Keeps memories in rank order — added until the next one would exceed
+	budget, then stops, dropping the lower-ranked tail rather than reordering
+	or skipping ahead to something smaller.
+	"""
+	from one_bpmn.agents.memory.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
+
+	if not memories or not token_budget or token_budget <= 0:
+		return memories
+
+	# Measured from the real formatter (header + provenance, no items) rather
+	# than reconstructed by hand, so this can't drift from what
+	# _format_memory_block actually renders.
+	header_cost = estimate_tokens({"content": _format_memory_block([])}, DEFAULT_CHARS_PER_TOKEN)
+	budget = max(token_budget - header_cost, 0)
+	# Each kept memory also costs the "\n- " bullet/join _format_memory_block
+	# adds around it — rounds to a token of its own often enough (short
+	# memories, several of them) that ignoring it would let the rendered block
+	# run over budget by the very margin this function exists to close.
+	per_item_overhead = 1
+
+	kept = []
+	spent = 0
+	for m in memories:
+		content = str((m or {}).get("content") or "")
+		cost = estimate_tokens({"content": content}, DEFAULT_CHARS_PER_TOKEN) + per_item_overhead
+		if spent + cost <= budget:
+			kept.append(m)
+			spent += cost
+			continue
+		if not kept:
+			max_chars = max((budget - per_item_overhead) * DEFAULT_CHARS_PER_TOKEN, 0)
+			if max_chars > 0:
+				kept.append({**m, "content": content[:max_chars]})
+		break
+	return kept
+
+
+def _turn_user_message(instance, task) -> str:
+	"""The person's own words for this turn, as the platform already holds them.
+
+	A chat map seeds the turn store with the user's message (PII already
+	screened by ``invoke_agent``) and its tool scripts read it from there, so
+	the driving prompt never had to carry it. That left the model answering a
+	constant — and left every recorded user step identical, whatever was asked,
+	which is what made a run impossible to judge from its transcript.
+
+	Empty for anything that is not a chat turn, so a Background agent's prompt
+	is untouched.
+	"""
+	if getattr(instance, "context_doctype", "") != "Chat Conversation":
+		return ""
+	if not getattr(instance, "context_docname", ""):
+		return ""
+
+	from one_bpmn.agents.memory.text_clean import strip_html
+
+	data = getattr(task, "data", None)
+	if isinstance(data, dict):
+		text = str(data.get("user_text") or "").strip()
+		if text:
+			return strip_html(text)
+	try:
+		from one_bpmn.agents.turn_state import get_turn
+
+		return strip_html(str((get_turn(instance.context_docname) or {}).get("user_text") or ""))
+	except Exception:
+		return ""
+
+
+def _platform_history(instance, task_cfg: dict, raw_user_message: str) -> tuple[list, str]:
+	"""(prior messages, facts block) for a chat turn, also written to the turn store for tool scripts."""
+	from one_bpmn.agents.memory.turn_context import conversation_of, established_block, load_history
+	from one_bpmn.agents.turn_state import update_turn
+
+	conversation = conversation_of(instance)
+	if not conversation:
+		return [], ""
+	history = load_history(
+		conversation,
+		limit=frappe.utils.cint(task_cfg.get("aiContextMaxMessages")),
+		current_message=raw_user_message,
+	)
+	update_turn(conversation, chat_history=history)
+	return history, established_block(conversation)
 
 
 def _extract_memory_content(output, content_field: str) -> str:
@@ -83,6 +300,17 @@ def _extract_memory_content(output, content_field: str) -> str:
 	if content_field and isinstance(output, dict):
 		return str(output.get(content_field, "") or "")
 	return str(output or "")
+
+
+# Tools whose turn is a canned reply or a question, so there is nothing to learn from it.
+_NON_ANSWER_TOOLS = frozenset({"redirect", "clarify"})
+
+
+def _ended_without_answer(trace) -> bool:
+	"""True when the turn called a redirect or clarify tool."""
+	return any(
+		call.get("name") in _NON_ANSWER_TOOLS for turn in trace or [] for call in turn.get("tool_calls") or []
+	)
 
 
 def _memory_output_from_trace(trace) -> str:
@@ -171,23 +399,13 @@ def _memory_model(task_cfg: dict, key: str, fallback: str | None) -> str | None:
 
 	Resolution happens here, on the dispatch thread, because the distiller runs
 	in a background RQ worker that must be handed the model as a job argument
-	rather than looking it up itself.
+	rather than looking it up itself. The precedence chain itself lives in
+	``model_resolution.resolve_memory_model`` (WI-002168), shared with the
+	config-time "effective model" preview so the two can never disagree.
 	"""
-	model = (task_cfg.get(key) or "").strip() if isinstance(task_cfg.get(key), str) else task_cfg.get(key)
-	if model:
-		return model
+	from one_bpmn.agents.memory.model_resolution import resolve_memory_model
 
-	setting = _MEMORY_MODEL_SETTINGS.get(key)
-	if setting:
-		try:
-			default = frappe.db.get_single_value("Processa Settings", setting)
-			if default:
-				return default
-		except Exception:
-			# A missing/unreadable setting must never break a memory write.
-			pass
-
-	return fallback or None
+	return resolve_memory_model(task_cfg.get(key), _MEMORY_MODEL_SETTINGS.get(key), fallback)
 
 
 # Shape attribute -> the Processa Settings field holding its site-wide default.
@@ -411,6 +629,12 @@ def _resolve_connector_handler(connector_id: str, operation: str):
 	return None
 
 
+# Where dispatch_connector records what happened, read by the tool loop and
+# stripped from what the model sees. Same convention as the connectors' own
+# waiting markers on task.data.
+CONNECTOR_OUTCOME_KEY = "_bpmn_connector_outcome"
+
+
 def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	"""
 	Execute a Service Task with serviceType='connector'.
@@ -439,6 +663,16 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	result_var = (task_cfg.get("resultVariable") or "").strip()
 	fail_on_error = _cfg_truthy(task_cfg.get("failOnError"))
 
+	# What happened, for whoever reads this task afterwards. Failures below are
+	# logged and swallowed unless failOnError is set, which is right for a
+	# process step and invisible to an agent calling this shape as a tool: the
+	# model was being told a failed call had succeeded. Recording the outcome
+	# changes nothing about how the connector runs.
+	def outcome(status, **detail):
+		task.data[CONNECTOR_OUTCOME_KEY] = {
+			"connector": f"{connector_id}/{operation}".strip("/"), "status": status, **detail
+		}
+
 	# Role gate. Hiding a restricted connector in the modeler is convenience;
 	# this is the control. A diagram authored before the restriction — or by
 	# someone who had the role and has since lost it — must not still run it.
@@ -452,6 +686,7 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 				f"{connector_id!r} (operation {operation!r})."
 			),
 		)
+		outcome("not_permitted")
 		if fail_on_error:
 			frappe.throw(f"Not permitted to use connector {connector_id}")
 		return
@@ -466,6 +701,7 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 				f"row names neither an HTTP request nor a Handler Path."
 			),
 		)
+		outcome("not_run", reason="unknown or disabled connector operation")
 		if fail_on_error:
 			frappe.throw(f"Unknown connector {connector_id}/{operation}")
 		return
@@ -480,6 +716,7 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 			title=f"BPMN ServiceTask: connector params invalid ({bpmn_id})",
 			message=f"connectorParams is not a JSON object: {raw_params!r}",
 		)
+		outcome("not_run", reason="connectorParams is not a JSON object")
 		if fail_on_error:
 			raise
 		return
@@ -516,20 +753,241 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		val = _apply_value_transform(transforms.get(key), val, key, bpmn_id)
 		resolved[key] = val
 
-	ctx = {"instance": instance, "task": task, "doc": doc, "task_data": dict(task.data)}
+	# operation is exposed so one handler function can serve several named
+	# operations on the same connector (e.g. agent_sandbox_ops.dispatch_action
+	# serving both "run_tests" and "open_pull_request") — the handler reads
+	# which one it was configured as instead of needing a dedicated function
+	# per operation. Purely additive: no existing handler reads an
+	# "operation" key, so nothing already depends on its absence.
+	ctx = {"instance": instance, "task": task, "doc": doc, "task_data": dict(task.data), "operation": operation}
 	output = None
 	try:
 		output = handler(resolved, ctx)
-	except Exception:
+	except Exception as exc:
 		frappe.log_error(
 			title=f"BPMN ServiceTask: connector {connector_id}/{operation} failed ({bpmn_id})",
 			message=frappe.get_traceback(),
 		)
+		outcome("failed", error=str(exc)[:200])
 		if fail_on_error:
 			raise
+	else:
+		# "returned" is what tells a tool call apart from a fire-and-forget
+		# step: data came back but had no Result Variable to land in.
+		outcome("ok", returned=output is not None, stored=bool(result_var))
 
 	if result_var:
 		task.data[result_var] = output
+
+
+def _addresses_for(values) -> list:
+	"""Turn user ids and plain addresses into addresses, keeping order.
+
+	A User's id is usually its address but is not required to be, so each value
+	is looked up and falls back to itself — which is also what lets a literal
+	address configured by hand work unchanged.
+	"""
+	addresses, seen = [], set()
+	for raw in values:
+		value = str(raw or "").strip()
+		if not value:
+			continue
+		address = frappe.db.get_value("User", value, "email") or value
+		if address not in seen:
+			seen.add(address)
+			addresses.append(address)
+	return addresses
+
+
+def google_chat_recipients(instance, task_cfg: dict) -> tuple:
+	"""Who a direct message goes to, and what to say when that is nobody.
+
+	Three ways to name them, the same three a User Task offers for assignment:
+
+	    User        — ``gchatEmail``, one or more addresses or user ids
+	    DocField    — ``gchatDocField``, a field on the context document holding
+	                  an address or a link to a User (``owner`` included)
+	    Table Field — ``gchatTableField`` rows, each contributing the user named
+	                  by ``gchatTableUserField``
+
+	``gchatDoctype`` says whose fields were picked in the editor; the document
+	itself is always the instance's context. Returns (addresses, problem) where
+	problem is a sentence for the log, empty when there is nothing wrong.
+	"""
+	basis = (task_cfg.get("gchatRecipientBasis") or "User").strip()
+	doctype = (task_cfg.get("gchatDoctype") or "").strip() or (instance.context_doctype or "")
+	docname = instance.context_docname or ""
+
+	if basis == "User":
+		raw = (task_cfg.get("gchatEmail") or "").strip()
+		if not raw:
+			return [], "gchatRecipientBasis=User but gchatEmail is empty."
+		return _addresses_for(raw.split(",")), ""
+
+	if basis not in ("DocField", "Table Field"):
+		return [], f"gchatRecipientBasis={basis!r} is not User, DocField or Table Field."
+
+	if not (doctype and docname):
+		return [], (
+			f"gchatRecipientBasis={basis} needs a context document, and this instance has "
+			f"doctype={doctype!r} docname={docname!r}."
+		)
+
+	try:
+		doc = frappe.get_doc(doctype, docname)
+	except Exception:
+		return [], f"Could not read {doctype} {docname} to resolve the recipient."
+
+	if basis == "DocField":
+		field = (task_cfg.get("gchatDocField") or "").strip()
+		if not field:
+			return [], "gchatRecipientBasis=DocField but gchatDocField is empty."
+		value = doc.get(field)
+		if not value:
+			return [], f"{doctype} {docname} has nothing in {field!r}."
+		return _addresses_for([value]), ""
+
+	table_field = (task_cfg.get("gchatTableField") or "").strip()
+	# "user" is the conventional row field, and defaulting to it keeps a table
+	# whose rows are obvious from needing a second setting.
+	row_field = (task_cfg.get("gchatTableUserField") or "").strip() or "user"
+	if not table_field:
+		return [], "gchatRecipientBasis=Table Field but gchatTableField is empty."
+
+	rows = doc.get(table_field) or []
+	if not rows:
+		return [], f"{doctype} {docname} has no rows in {table_field!r}."
+	addresses = _addresses_for([row.get(row_field) for row in rows])
+	if not addresses:
+		return [], f"No row of {table_field!r} names a user in {row_field!r}."
+	return addresses, ""
+
+
+def _same_name(name: str) -> str:
+	"""A name reduced to what two directories can agree on.
+
+	Frappe builds ``full_name`` by joining first, middle and last, so a user
+	with no middle name carries a double space that Google's display name does
+	not.
+	"""
+	return " ".join((name or "").split()).lower()
+
+
+def chat_user_id(email: str, headers: dict) -> str:
+	"""The Google Chat id behind a one-fm.com address, or "" when unsettled.
+
+	Chat addresses people by an opaque id and refuses an email outright under
+	app authentication ("Service account authentication doesn't support access
+	to user information using email aliases"). The directory answers exactly;
+	matching on name is the fallback for a site that has not been delegated.
+	"""
+	key = f"gchat_user_id::{email.lower()}"
+	cached = frappe.cache().get_value(key)
+	if cached:
+		return cached
+
+	user_id = _directory_user_id(email) or _named_user_id(email, headers)
+	if user_id:
+		# No expiry: an id outlives any TTL worth setting, and passing one skips
+		# frappe's in-process memo, so the next lookup in the worker repeats.
+		frappe.cache().set_value(key, user_id)
+	return user_id
+
+
+def _directory_user_id(email: str) -> str:
+	"""Ask the Workspace directory, which answers by email and is exact."""
+	settings = frappe.get_cached_doc("Processa Settings")
+	subject = (settings.google_directory_account or "").strip()
+	sa_json = settings.get_password("google_chat_service_account_json", raise_exception=False)
+	if not (subject and sa_json):
+		return ""
+
+	import requests
+	from google.auth.transport.requests import Request as GoogleRequest
+	from google.oauth2 import service_account
+
+	try:
+		credentials = service_account.Credentials.from_service_account_info(
+			json.loads(sa_json),
+			scopes=["https://www.googleapis.com/auth/admin.directory.user.readonly"],
+			subject=subject,
+		)
+		credentials.refresh(GoogleRequest())
+		resp = requests.get(
+			f"https://admin.googleapis.com/admin/directory/v1/users/{email}",
+			headers={"Authorization": f"Bearer {credentials.token}"},
+			params={"viewType": "domain_public"},
+			timeout=15,
+		)
+	except Exception:
+		frappe.log_error(
+			title="google_chat: directory lookup failed",
+			message=frappe.get_traceback(),
+		)
+		return ""
+
+	if resp.status_code == 200:
+		return resp.json().get("id") or ""
+	# 404 means the address has no Google account at all, which is an answer,
+	# not a fault. Anything else is worth knowing about.
+	if resp.status_code != 404:
+		frappe.log_error(
+			title="google_chat: directory lookup refused",
+			message=f"{resp.status_code} for {email}: {resp.text[:500]}",
+		)
+	return ""
+
+
+def _named_user_id(email: str, headers: dict) -> str:
+	"""Fall back to the name Frappe holds, against the direct messages the app is in."""
+	full_name = frappe.db.get_value("User", email, "full_name")
+	if not full_name:
+		return ""
+	holders = _chat_dm_directory(headers).get(_same_name(full_name)) or []
+	# Two colleagues sharing a name is the one case worth refusing: a direct
+	# message to the wrong person is worse than one that never arrives.
+	return holders[0] if len(holders) == 1 else ""
+
+
+def _chat_dm_directory(headers: dict) -> dict:
+	"""Display name (lowercased) → the Chat ids answering to it."""
+	import concurrent.futures
+
+	import requests
+
+	spaces, page = [], None
+	while True:
+		params = {"pageSize": 1000}
+		if page:
+			params["pageToken"] = page
+		body = requests.get(
+			"https://chat.googleapis.com/v1/spaces", headers=headers, params=params, timeout=20
+		).json()
+		spaces += [
+			s["name"] for s in body.get("spaces", []) if s.get("spaceType") == "DIRECT_MESSAGE"
+		]
+		page = body.get("nextPageToken")
+		if not page:
+			break
+
+	def members(space):
+		resp = requests.get(
+			f"https://chat.googleapis.com/v1/{space}/members", headers=headers, timeout=20
+		)
+		return resp.json().get("memberships", []) if resp.status_code == 200 else []
+
+	# One request per person in the domain: sequentially this runs into minutes.
+	with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+		batches = list(pool.map(members, spaces))
+
+	directory = {}
+	for batch in batches:
+		for membership in batch:
+			member = membership.get("member", {})
+			name = _same_name(member.get("displayName"))
+			if member.get("type") == "HUMAN" and name:
+				directory.setdefault(name, []).append(member["name"].split("/")[-1])
+	return directory
 
 
 def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
@@ -541,20 +999,24 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 	    space      — post a message to a Google Chat space by space ID
 
 	Configuration keys (from BPMN XML):
-	    gchatType    — "individual" or "space"
-	    gchatEmail   — recipient email (individual mode)
-	    gchatSpaceId — space ID e.g. "spaces/XXXXXXX" (space mode)
-	    gchatMessage — message body; Jinja2 supported
+	    gchatType             — "individual" or "space"
+	    gchatRecipientBasis   — how a DM names its recipients: "User" (default),
+	                            "DocField" or "Table Field"
+	    gchatEmail            — addresses or user ids, comma separated (User)
+	    gchatDoctype          — whose fields were picked in the editor
+	    gchatDocField         — field on the context document (DocField)
+	    gchatTableField       — child table on the context document (Table Field)
+	    gchatTableUserField   — the row field naming the user, default "user"
+	    gchatSpaceId          — space ID e.g. "spaces/XXXXXXX" (space mode)
+	    gchatMessage          — message body; Jinja2 supported
 
-	Credentials: the site must have a Google service account JSON key stored in
-	site_config.json under "google_chat_service_account_json" (the full JSON content
-	as a string or dict).  The service account must have the Google Chat API scope
-	https://www.googleapis.com/auth/chat.bot and be a member of the target space.
+	Credentials: Processa Settings → Google Chat → Service Account JSON. The key
+	needs the https://www.googleapis.com/auth/chat.bot scope, and the app it
+	belongs to must be a member of the target space.
 
 	Failures are non-fatal: the workflow continues and the error is logged.
 	"""
 	gchat_type = task_cfg.get("gchatType", "").strip()
-	gchat_email = (task_cfg.get("gchatEmail") or "").strip()
 	gchat_space_id = (task_cfg.get("gchatSpaceId") or "").strip()
 	raw_message = (task_cfg.get("gchatMessage") or "").strip()
 
@@ -576,12 +1038,15 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		)
 		return
 
-	if gchat_type == "individual" and not gchat_email:
-		frappe.log_error(
-			title=f"BPMN ServiceTask: google_chat misconfigured ({bpmn_id})",
-			message="gchatType=individual but gchatEmail is empty.",
-		)
-		return
+	recipients = []
+	if gchat_type == "individual":
+		recipients, problem = google_chat_recipients(instance, task_cfg)
+		if problem or not recipients:
+			frappe.log_error(
+				title=f"BPMN ServiceTask: google_chat has no recipient ({bpmn_id})",
+				message=problem or "No recipient resolved.",
+			)
+			return
 
 	if gchat_type == "space" and not gchat_space_id:
 		frappe.log_error(
@@ -608,12 +1073,13 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 				message=frappe.get_traceback(),
 			)
 
-	# Load service account credentials from site config
-	sa_json = frappe.conf.get("google_chat_service_account_json")
+	sa_json = frappe.get_cached_doc("Processa Settings").get_password(
+		"google_chat_service_account_json", raise_exception=False
+	)
 	if not sa_json:
 		frappe.log_error(
 			title=f"BPMN ServiceTask: google_chat credentials missing ({bpmn_id})",
-			message="'google_chat_service_account_json' not found in site_config.json.",
+			message="Processa Settings → Google Chat → Service Account JSON is empty.",
 		)
 		return
 
@@ -624,7 +1090,7 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		from google.auth.transport.requests import Request as GoogleRequest
 
 		SCOPES = ["https://www.googleapis.com/auth/chat.bot"]
-		sa_info = sa_json if isinstance(sa_json, dict) else _json.loads(sa_json)
+		sa_info = _json.loads(sa_json)
 		credentials = service_account.Credentials.from_service_account_info(sa_info, scopes=SCOPES)
 		credentials.refresh(GoogleRequest())
 		access_token = credentials.token
@@ -636,33 +1102,57 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		payload = {"text": raw_message}
 
 		if gchat_type == "individual":
-			# Create or find a DM space with the user, then post
-			dm_url = "https://chat.googleapis.com/v1/spaces:findDirectMessage"
-			params = {"name": f"users/{gchat_email}"}
-			dm_resp = requests.get(dm_url, headers=headers, params=params, timeout=10)
-			if dm_resp.status_code == 200:
-				space_name = dm_resp.json().get("name", "")
-			else:
-				# Fall back to setup DM space
-				setup_resp = requests.post(
-					"https://chat.googleapis.com/v1/spaces:setup",
-					headers=headers,
-					json={
-						"space": {"spaceType": "DIRECT_MESSAGE"},
-						"memberships": [{"member": {"name": f"users/{gchat_email}", "type": "HUMAN"}}],
-					},
-					timeout=10,
-				)
-				setup_resp.raise_for_status()
-				space_name = setup_resp.json().get("name", "")
+			# One recipient failing must not silence the others, so each is sent
+			# and logged on its own.
+			for address in recipients:
+				try:
+					user_id = chat_user_id(address, headers) if "@" in address else address
+					if not user_id:
+						raise ValueError(
+							"No single Google Chat user answers to this address. Either they "
+							"have never been sent the app, or two people share their name."
+						)
+					dm_resp = requests.get(
+						"https://chat.googleapis.com/v1/spaces:findDirectMessage",
+						headers=headers,
+						params={"name": f"users/{user_id}"},
+						timeout=10,
+					)
+					if dm_resp.status_code == 200:
+						space_name = dm_resp.json().get("name", "")
+					else:
+						# Fall back to setup DM space
+						setup_resp = requests.post(
+							"https://chat.googleapis.com/v1/spaces:setup",
+							headers=headers,
+							json={
+								"space": {"spaceType": "DIRECT_MESSAGE"},
+								"memberships": [
+									{"member": {"name": f"users/{address}", "type": "HUMAN"}}
+								],
+							},
+							timeout=10,
+						)
+						setup_resp.raise_for_status()
+						space_name = setup_resp.json().get("name", "")
 
-			msg_url = f"https://chat.googleapis.com/v1/{space_name}/messages"
+					resp = requests.post(
+						f"https://chat.googleapis.com/v1/{space_name}/messages",
+						headers=headers, json=payload, timeout=10,
+					)
+					resp.raise_for_status()
+				except Exception:
+					frappe.log_error(
+						title=f"BPMN ServiceTask: google_chat DM failed for {address} ({bpmn_id})",
+						message=frappe.get_traceback(),
+					)
 		else:
 			space_name = gchat_space_id.strip().rstrip("/")
-			msg_url = f"https://chat.googleapis.com/v1/{space_name}/messages"
-
-		resp = requests.post(msg_url, headers=headers, json=payload, timeout=10)
-		resp.raise_for_status()
+			resp = requests.post(
+				f"https://chat.googleapis.com/v1/{space_name}/messages",
+				headers=headers, json=payload, timeout=10,
+			)
+			resp.raise_for_status()
 
 	except Exception:
 		frappe.log_error(
@@ -871,9 +1361,11 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 	"""
 	Send an email notification from a Service Task with serviceType='send_email'.
 
-	Recipient resolution (union of all three sources):
+	Recipient resolution (union of all four sources):
 	  - emailTo          : direct comma-separated email addresses
 	  - emailToDocFields : field names on the context doc that hold email addresses
+	  - emailToTableField: a child table on the context doc; each row names a
+	                       recipient in emailToTableUserField ("user" by default)
 	  - emailToRoles     : roles — all users holding those roles receive the email
 
 	Subject and Body support Jinja2 via frappe.render_template():
@@ -929,7 +1421,14 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 				continue
 			recipients += _emails_from_doc_field(doc.get(field_name))
 
-	# 3. Role members — fetch all users with the configured roles
+	# 3. Rows of a Table or Table MultiSelect field, each naming a recipient
+	table_field = (task_cfg.get("emailToTableField") or "").strip()
+	if table_field and doc:
+		row_field = (task_cfg.get("emailToTableUserField") or "").strip() or "user"
+		for row in doc.get(table_field) or []:
+			recipients += _emails_from_doc_field(row.get(row_field))
+
+	# 4. Role members: fetch all users with the configured roles
 	raw_roles = task_cfg.get("emailToRoles", "")
 	if raw_roles:
 		for role_name in raw_roles.split(","):
@@ -968,19 +1467,6 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 	body = render(_decode_html_attr(_raw_body))
 	cc = task_cfg.get("emailCc", "") or None
 
-	# ── Resolve sender from configured Email Account ──────────────
-	sender = None
-	email_account = task_cfg.get("emailAccount", "")
-	if email_account:
-		sender = frappe.db.get_value("Email Account", email_account, "email_id")
-
-	# ── Send via one_fm.processor.sendemail if available ─────────
-	# Uses the same branded template and notification preference
-	# checks as the rest of the one_fm app (checks if user has
-	# notifications enabled, email notifications enabled, and
-	# preferred company email).
-	# Falls back to frappe.sendmail if one_fm isn't installed.
-
 	# Render AMP info card via the composer (Story 5)
 	if not amp_html:
 		try:
@@ -992,34 +1478,18 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 		except Exception:
 			amp_html = None  # Graceful fallback — send plain HTML
 
-	# Set AMP flag before sending — picked up by our Email Queue before_insert hook
-	if amp_html:
-		frappe.flags.amp_html = amp_html
+	from one_bpmn.email_builder.composer import _send_email
 
-	try:
-		from one_fm.processor import sendemail as onefm_sendemail
-
-		onefm_sendemail(
-			recipients=recipients,
-			subject=subject,
-			sender=sender,
-			header=[subject],
-			message=body,
-			cc=cc,
-			reference_doctype=instance.context_doctype or instance.doctype,
-			reference_name=instance.context_docname or instance.name,
-		)
-	except ImportError:
-		frappe.sendmail(
-			recipients=recipients,
-			sender=sender,
-			subject=subject,
-			message=body,
-			cc=cc.split(",") if cc else [],
-			reference_doctype=instance.context_doctype or instance.doctype,
-			reference_name=instance.context_docname or instance.name,
-			now=False,
-		)
+	_send_email(
+		recipients=recipients,
+		subject=subject,
+		html_body=body,
+		amp_html=amp_html or "",
+		sender_account=task_cfg.get("emailAccount", ""),
+		reference_doctype=instance.context_doctype or instance.doctype,
+		reference_name=instance.context_docname or instance.name,
+		cc=cc,
+	)
 
 
 def dispatch_send_notification(instance, task, task_cfg: dict, bpmn_id: str) -> None:
@@ -1111,6 +1581,43 @@ def _checkpointed_tool_results(resume_payload: dict) -> list:
 	return out
 
 
+# Captured by the stream, never relayed: this is the answer, not a UI event.
+TURN_OUTPUT_EVENT = "ONEFM_TURN_OUTPUT"
+
+
+def _publish_chat_turn_output(instance, output) -> None:
+	"""Send an AI task's own output to a chat request waiting on this turn.
+
+	The request used to learn what the turn said by reading the newest Bot Chat
+	Message, which is a guess: it is only this turn's reply because no other
+	turn wrote one in between. The task's output is the answer itself, so it
+	travels directly and the row is left to confirm it and to name it.
+
+	Only for a conversation. A background agent has nobody waiting, and
+	publishing for one would leave an unread list behind on every run.
+	"""
+	if getattr(instance, "context_doctype", None) != "Chat Conversation":
+		return
+	name = getattr(instance, "name", None)
+	if not name:
+		return
+	try:
+		from one_bpmn.agents import turn_signal
+
+		turn_signal.publish_event(name, {"type": TURN_OUTPUT_EVENT, "output": output})
+	except Exception:
+		# Progress is an accelerator. The reply is still on the message row.
+		pass
+
+
+def _record_ai_failure(task, task_cfg: dict, bpmn_id: str, error_code: str, error_message: str) -> None:
+	"""Write the error code and message, and blank both output names so the previous turn's answer is gone."""
+	task.data[f"{bpmn_id}_error_code"] = error_code
+	task.data[f"{bpmn_id}_error_message"] = error_message
+	task.data[task_cfg.get("aiOutputVariable") or f"{bpmn_id}_output"] = None
+	task.data[f"{bpmn_id}_output"] = None
+
+
 def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: str = None) -> None:
 	"""
 	Execute an AI Agent Task via the executor package.
@@ -1136,7 +1643,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 
 	from one_bpmn.agents.executor import (
 		DEFAULT_MAX_OUTPUT_TOKENS,
+		DEFAULT_MAX_RETRIES,
+		DEFAULT_TEMPERATURE,
 		DEFAULT_TIMEOUT_SECONDS,
+		DEFAULT_TOP_P,
 		ErrorCode,
 		ExecutorConfig,
 		ExecutorContext,
@@ -1190,6 +1700,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		try:
 			return frappe.render_template(text, jinja_ctx)
 		except Exception:
+			frappe.log_error(
+				title=f"BPMN AI Agent Task: prompt template render failed ({bpmn_id})",
+				message=frappe.get_traceback(),
+			)
 			return text
 
 	if resume_payload:
@@ -1237,26 +1751,154 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	# provider's system-prompt cache breakpoint each time.
 	# Failures never block the call.
 	memory_target = None
+	# What the person actually asked. Already screened; empty off the chat path.
+	# It is both what the model should be answering and what memory should be
+	# searched with — a constant driving prompt recalled the same memories for
+	# every request, however different.
+	raw_user_message = "" if resume_payload else _turn_user_message(instance, task)
+	user_message = raw_user_message
+	if user_message and user_message in user_prompt:
+		# A map that renders the message itself keeps its own copy; the platform
+		# does not add a second one.
+		user_message = ""
+
+	# A chat turn whose message could not be resolved AT ALL — raw_user_message
+	# empty, before the dedup reset above — must not fall back to user_prompt
+	# as the recall query. Observed live (instance trpucrg6cs, run trv5ba6h5a):
+	# the first message of a brand-new conversation dispatched before the map's
+	# turn store had been seeded, so _turn_user_message found nothing, and
+	# recall searched with Logix's constant "HARD PIPELINE RULES..." driving
+	# prompt instead of anything the person said — the exact "same memories on
+	# every request" defect this story exists to close, just narrowed to this
+	# one turn. Unaffected by design: a map that renders its OWN copy of the
+	# message into user_prompt (raw_user_message was non-empty there — it's
+	# only user_message that gets deduped away above) still recalls with that
+	# real, rendered user_prompt; a Background agent is never a chat turn, so
+	# this is always False for one and its user_prompt is real content either way.
+	is_chat_turn = (
+		getattr(instance, "context_doctype", "") == "Chat Conversation"
+		and bool(getattr(instance, "context_docname", ""))
+	)
+	recall_query_unresolved = is_chat_turn and not raw_user_message
+
+	memory_block = ""
+	# Captured for observability (AI Agent Run.recall_query /
+	# .memory_injected_tokens) regardless of whether anything was found —
+	# "searched with X, found nothing" and "never searched" are different facts.
+	recall_query = ""
+	memory_injected_tokens = 0
 	if not resume_payload and _cfg_truthy(task_cfg.get("aiLongTermMemory")):
 		try:
-			memory_target = _resolve_memory_target(task_cfg, instance, bpmn_id)
-			if memory_target and user_prompt:
-				from one_bpmn.agents.context_assembler import build_dynamic_preamble
-				from one_bpmn.agents.memory.tools import memory_search
+			memory_target = _resolve_memory_target(task_cfg, instance, bpmn_id, task.data)
+			# raw_user_message, NOT user_message: the de-duplication above blanks
+			# the platform's copy whenever the map has already rendered the
+			# person's words into its own prompt, which every chat map does. The
+			# query then fell back to the whole rendered prompt — the standing
+			# instructions, the datetime, the conversation so far — and the
+			# person's question was a line inside it. Measured on prod-backup on
+			# 2026-09-12: run u343rlto5q searched with 150 characters of driving
+			# prompt wrapped around "Who takes our packages out to customers?"
+			# and recalled nothing; the same question on the next turn, run
+			# uo2qj6333g, recalled the fact and injected 109 tokens. The value
+			# before the reset is the question itself.
+			query = "" if recall_query_unresolved else (raw_user_message or user_prompt)
+			# A greeting/acknowledgement carries nothing to search memory with —
+			# skip entirely rather than risk a coincidental keyword match
+			# injecting an unrelated fact into "hi".
+			if memory_target and query and not _is_small_talk(query):
+				recall_query = query
+				from one_bpmn.agents.memory.tools import memory_list_user_directed, memory_search
 				scope, scope_key = memory_target
 				limit = int(task_cfg.get("aiMemoryLimit", 5) or 5)
-				memories = memory_search(
-					scope, scope_key, user_prompt, limit=limit, ignore_permissions=True
+				# Standing conventions the user asked to be remembered are
+				# fetched unconditionally, ahead of the keyword-matched results
+				# below — they won't share this turn's vocabulary, so relying
+				# on memory_search's FULLTEXT/like matching would silently
+				# drop them (the MEM-1 recall gap). Listed first and deduped
+				# by name so _bound_memories_to_budget (which keeps input
+				# order and drops the tail) can't truncate them away in favor
+				# of a lower-priority keyword match.
+				user_directed = memory_list_user_directed(
+					scope, scope_key, limit=3, ignore_permissions=True
 				)
+				matched = memory_search(
+					scope, scope_key, query, limit=limit, ignore_permissions=True
+				)
+				preference_user = _preference_user(task.data)
+				if preference_user:
+					user_key = {"user": preference_user}
+					user_directed += memory_list_user_directed("User", user_key, limit=3, ignore_permissions=True)
+					matched += memory_search("User", user_key, query, limit=limit, ignore_permissions=True)
+				seen_names = {m.get("name") for m in user_directed}
+				memories = user_directed + [m for m in matched if m.get("name") not in seen_names]
 				if memories:
-					user_prompt = build_dynamic_preamble(
-						memory_block=_format_memory_block(memories),
-						user_prompt=user_prompt,
+					token_budget = int(
+						task_cfg.get("aiMemoryTokenBudget") or DEFAULT_MEMORY_TOKEN_BUDGET
+					)
+					memories = _bound_memories_to_budget(memories, token_budget)
+					memory_block = _format_memory_block(memories)
+					from one_bpmn.agents.memory.conversation_store import (
+						DEFAULT_CHARS_PER_TOKEN,
+						estimate_tokens,
+					)
+					memory_injected_tokens = estimate_tokens(
+						{"content": memory_block}, DEFAULT_CHARS_PER_TOKEN
 					)
 		except Exception:
 			frappe.log_error(
 				title=f"BPMN AI Agent Task: memory_search failed ({bpmn_id})",
 				message=frappe.get_traceback(),
+			)
+
+	# A resumed segment already carries its transcript in the checkpoint.
+	turn_history, turn_established = ([], "") if resume_payload else _platform_history(
+		instance, task_cfg, raw_user_message
+	)
+
+	# WI-000401: skills loaded earlier in this conversation (load_skill wrote
+	# their bodies to a conversation-scoped cache) must actually reach the
+	# model's prompt on the NEXT turn, not just sit in a cache nothing reads.
+	active_skill_bodies = []
+	_conversation_for_skills = None
+	if getattr(instance, "context_doctype", "") == "Chat Conversation":
+		_conversation_for_skills = getattr(instance, "context_docname", None)
+	if _conversation_for_skills and task_cfg.get("aiAgentConfig"):
+		from one_bpmn.api.skill_tools import _skills_cache_key
+
+		active_skill_bodies = frappe.cache().get_value(
+			_skills_cache_key(_conversation_for_skills, task_cfg["aiAgentConfig"])
+		) or []
+		# A resumed checkpoint (resume_payload) is a continuation of the turn
+		# already in progress, not a new one — only a fresh dispatch bumps the
+		# counter, so turn_loaded/turn_unloaded on AI Skill Activation reflect
+		# the actual conversation turn instead of staying stuck at 1.
+		if not resume_payload:
+			from one_bpmn.api.skill_tools import advance_turn
+			advance_turn(_conversation_for_skills)
+
+	if memory_block or user_message or turn_established or active_skill_bodies:
+		from one_bpmn.agents.context_assembler import build_dynamic_preamble
+
+		user_prompt = build_dynamic_preamble(
+			memory_block=memory_block,
+			instructions=user_prompt,
+			user_prompt=user_message,
+			established_block=turn_established,
+			active_skills=active_skill_bodies,
+		)
+
+		# WI-000401: loaded skill bodies are part of the prompt budget the
+		# same way recalled memory is \u2014 counted here so AI Agent Run's
+		# memory_injected_tokens reflects everything injected ahead of the
+		# user's own text, not only the memory half of it.
+		if active_skill_bodies:
+			from one_bpmn.agents.memory.conversation_store import (
+				DEFAULT_CHARS_PER_TOKEN,
+				estimate_tokens,
+			)
+
+			memory_injected_tokens += estimate_tokens(
+				{"content": "\n\n".join(active_skill_bodies)}, DEFAULT_CHARS_PER_TOKEN
 			)
 
 	# ── Tools: the shapes of the referenced ad-hoc sub-process (Camunda "tools
@@ -1279,8 +1921,20 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			tool_specs.extend(skill_tool_specs)
 			
 	# Inject tools for dynamically loaded skills!
+	# WI-000401: scoped to the conversation, not the instance \u2014 a resumed
+	# conversation gets a brand new instance, so state keyed by instance.name
+	# never survived the resume it was needed for.
 	if instance:
-		active_skill_names = frappe.cache().get_value(f"active_skill_names_{instance.name}") or []
+		_conversation_for_tools = None
+		if getattr(instance, "context_doctype", "") == "Chat Conversation":
+			_conversation_for_tools = getattr(instance, "context_docname", None)
+		active_skill_names = []
+		if _conversation_for_tools and agent_name:
+			from one_bpmn.api.skill_tools import _skill_names_cache_key
+
+			active_skill_names = (
+				frappe.cache().get_value(_skill_names_cache_key(_conversation_for_tools, agent_name)) or []
+			)
 		if active_skill_names:
 			import json
 			from one_bpmn.agents.llm_provider.base import ToolSpec
@@ -1371,8 +2025,13 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		model            = task_cfg.get("aiModel", ""),
 		system_prompt    = system_prompt,
 		user_prompt      = user_prompt,
-		temperature      = float(task_cfg.get("aiTemperature", 0.7) or 0.7),
-		top_p            = float(task_cfg.get("aiTopP", 1.0) or 1.0),
+		# Prior turns go as real messages, so the cacheable prefix keeps its shape.
+		messages         = turn_history,
+		# Deferring to the shared defaults, not repeating numbers here:
+		# this line used to say 0.7 while the configuration form said 0.3, so
+		# the same agent behaved differently depending on which path ran it.
+		temperature      = float(task_cfg.get("aiTemperature") or DEFAULT_TEMPERATURE),
+		top_p            = float(task_cfg.get("aiTopP") or DEFAULT_TOP_P),
 		# cint FIRST, then fall back: a shape attribute arrives as a string, and
 		# "0" is truthy — `"0" or DEFAULT` would yield a zero budget. cint also
 		# absorbs "", "  " and junk, which int() would raise on.
@@ -1383,11 +2042,23 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		timeout_seconds  = cint(task_cfg.get("aiTimeout")) or DEFAULT_TIMEOUT_SECONDS,
 		response_format  = task_cfg.get("aiResponseFormat", "text") or "text",
 		response_schema  = task_cfg.get("aiResponseSchema") or None,
-		max_retries      = int(task_cfg.get("aiMaxRetries", 2) or 2),
+		max_retries      = int(task_cfg.get("aiMaxRetries", DEFAULT_MAX_RETRIES) or DEFAULT_MAX_RETRIES),
 		tools            = tool_specs,
 		# "Maximum model calls" (Camunda Limits); caps the tool-calling loop.
 		max_tool_calls   = int(task_cfg.get("aiMaxToolCalls", 10) or 10),
+		# WI-002195: the agent's cap on any one tool result the model sees;
+		# blank falls through to the platform default.
+		tool_result_max_chars = cint(task_cfg.get("aiToolResultMaxChars")) or None,
+		run_token_budget = cint(task_cfg.get("aiRunTokenBudget")) or None,
+		run_cost_budget  = frappe.utils.flt(task_cfg.get("aiRunCostBudget")) or None,
 		resume_state     = _checkpoint.build_resume_state(resume_payload) if resume_payload else None,
+		terminal_tools   = terminal_tools_for(task_cfg),
+		tool_choice      = (task_cfg.get("aiToolChoice") or "auto").strip(),
+		parallel_tool_calls = _cfg_truthy(task_cfg.get("aiParallelToolCalls", 1)),
+		thinking_budget_tokens = cint(task_cfg.get("aiThinkingBudgetTokens")),
+		loop_compaction_threshold = cint(task_cfg.get("aiLoopCompactionThreshold")),
+		loop_compaction_keep_turns = cint(task_cfg.get("aiLoopCompactionKeepTurns")) or 8,
+		compaction_model = task_cfg.get("aiCompactionModel") or "",
 	)
 
 	context = ExecutorContext(
@@ -1398,30 +2069,59 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		jinja_context   = jinja_ctx,
 	)
 
+	# ── WI-002191: no new run on a model whose credentials are known broken ──
+	# One failed run per message is how the July key outage went unnoticed for
+	# four days. Refused here, before an AI Agent Run exists, so the failure
+	# count stops growing; the refusal text says what is wrong and that someone
+	# has been told. A resume is the continuation of a run that already exists
+	# and is never refused.
+	if not resume_payload:
+		from one_bpmn.agents import model_health
+
+		_refusal = model_health.refuse_new_run(config.model)
+		if _refusal:
+			_record_ai_failure(task, task_cfg, bpmn_id, ErrorCode.PROVIDER_DISABLED.value, _refusal)
+			frappe.logger("one_bpmn").warning(
+				f"AI Agent Task {bpmn_id}: refused — {_refusal}"
+			)
+			return
+
 	# ── Observability: create Run (or continue the suspended one) ─────
 	run = None
 	if resume_payload:
 		try:
 			run = frappe.get_doc("AI Agent Run", resume_run)
-			# The human's answer is a real tool result — record it as a step
-			# BEFORE the resumed turns so the Run reads chronologically.
-			from one_bpmn.agents.observability import record_ai_step
+			from one_bpmn.agents.observability import _CURRENT_RUN_FLAG, attach_resolved_call, record_ai_step
+
+			# The resume runs in a new job, so sub-calls such as compaction need the run named again.
+			frappe.flags[_CURRENT_RUN_FLAG] = run.name
+			# The resolved answer belongs on the Step that made the call,
+			# not a new one; a checkpoint with no pending_step falls back to
+			# a standalone step.
 			pending = (resume_payload.get("suspension") or {}).get("pending_call") or {}
 			human_result = _checkpoint.build_resume_state(resume_payload)["human_result"]
-			record_ai_step(
+			attached = attach_resolved_call(
+				resume_payload.get("pending_step") or "",
 				run,
-				# step_index is 1-based: with N steps recorded, the next is N+1
-				frappe.db.count("AI Agent Step", {"run": run.name}) + 1,
-				"tool",
+				pending.get("name") or "",
+				pending.get("arguments") or {},
 				human_result,
-				tool_calls=[{
-					"name": pending.get("name") or "",
-					"tool_source": "diagram_task",
-					"arguments": pending.get("arguments") or {},
-					"result": human_result,
-					"status": "Success",
-				}],
 			)
+			if not attached:
+				record_ai_step(
+					run,
+					# step_index is 1-based: with N steps recorded, the next is N+1
+					frappe.db.count("AI Agent Step", {"run": run.name}) + 1,
+					"tool",
+					human_result,
+					tool_calls=[{
+						"name": pending.get("name") or "",
+						"tool_source": "diagram_task",
+						"arguments": pending.get("arguments") or {},
+						"result": human_result,
+						"status": "Success",
+					}],
+				)
 		except Exception:
 			frappe.log_error(
 				title=f"AI Observability: resume run load error ({bpmn_id})",
@@ -1435,6 +2135,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				instance, bpmn_id, "task", config,
 				bpmn_label=_get_label(task),
 				process_model=instance.process_model or "",
+				recall_query=recall_query,
+				memory_injected_tokens=memory_injected_tokens,
 			)
 		except Exception:
 			frappe.log_error(
@@ -1445,6 +2147,9 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	# ── Executor ───────────────────────────────────────────────────────
 	import time as _time
 	_exec_start = _time.time()
+
+	# Turns seeded from earlier segments are already Steps; count them before the executor runs.
+	already_recorded_turns = len((config.resume_state or {}).get("trace") or [])
 
 	# WI-001645: publish which agent is running so the tool-policy interceptor
 	# can apply that agent's tool grant — including for tools a Server Script
@@ -1468,16 +2173,36 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	# allow-list were both quietly absent on exactly the production path.
 	_prev_delegating_agent = getattr(instance, "_a2a_delegating_agent", None)
 	instance._a2a_delegating_agent = task_cfg.get("aiAgentConfig")
+
+	# WI-002190: on a tool-calling run the system and user steps are written
+	# BEFORE the loop starts. A model call made from inside a tool script is
+	# recorded as a step while the loop runs, numbered after whatever steps
+	# exist at that moment; writing these two afterwards handed them the same
+	# indexes (seen live: two steps numbered 1 on run jt89pn9jur). A resume
+	# recorded them at first dispatch and appends only the resumed turns.
+	if run and not getattr(run, "stub", False) and tool_specs and not resume_payload:
+		try:
+			from one_bpmn.agents.observability import record_ai_step as _record_prompt_step
+
+			_record_prompt_step(run, 1, "system", system_prompt)
+			_record_prompt_step(run, 2, "user", user_prompt)
+		except Exception:
+			frappe.log_error(
+				title=f"AI Observability: prompt step recording failed ({bpmn_id})",
+				message=frappe.get_traceback(),
+			)
 	try:
+		from one_bpmn.agents import turn_signal
+
 		executor_cls = get_executor(config.backend)
-		result = executor_cls().run(config, context)
+		with turn_signal.live_text_scope(instance):
+			result = executor_cls().run(config, context)
 	except Exception as exc:
 		frappe.log_error(
 			title=f"BPMN AI Agent Task: unexpected error ({bpmn_id})",
 			message=frappe.get_traceback(),
 		)
-		task.data[f"{bpmn_id}_error_code"] = "UNEXPECTED_ERROR"
-		task.data[f"{bpmn_id}_error_message"] = "See Frappe Error Log for details."
+		_record_ai_failure(task, task_cfg, bpmn_id, "UNEXPECTED_ERROR", "See Frappe Error Log for details.")
 		# Observability: finalize on exception
 		try:
 			from one_bpmn.agents.observability import finalize_ai_run_on_exception
@@ -1494,22 +2219,17 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		instance._a2a_delegating_agent = _prev_delegating_agent
 	_exec_latency_ms = int((_time.time() - _exec_start) * 1000)
 
-	# ── Durable HITL: token totals are cumulative across suspensions ───
-	if resume_payload and result.token_usage:
-		result.token_usage.prompt_tokens += int(resume_payload.get("prompt_tokens_so_far") or 0)
-		result.token_usage.completion_tokens += int(resume_payload.get("completion_tokens_so_far") or 0)
-		# WI-001643: the cache breakdown must accumulate alongside the prompt
-		# total it is a breakdown OF — otherwise the final segment's small cache
-		# figures would be costed against every earlier segment's prompt tokens.
-		result.token_usage.cache_read_tokens += int(
-			resume_payload.get("cache_read_tokens_so_far") or 0
-		)
-		result.token_usage.cache_write_tokens += int(
-			resume_payload.get("cache_write_tokens_so_far") or 0
-		)
-		result.token_usage.total_tokens = (
-			result.token_usage.prompt_tokens + result.token_usage.completion_tokens
-		)
+	# A stage tool that answers the turn writes the reply to the turn store; the loop's own text is narration.
+	if (
+		result.error_code == ErrorCode.SUCCESS
+		and not isinstance(result.output, dict)
+		and getattr(instance, "context_doctype", "") == "Chat Conversation"
+	):
+		from one_bpmn.agents.turn_state import get_turn
+
+		_turn_output = get_turn(instance.context_docname).get("output")
+		if isinstance(_turn_output, dict) and _turn_output.get("response"):
+			result.output = _turn_output["response"]
 
 	# ── Observability: record Steps + finalize ─────────────────────────
 	try:
@@ -1521,14 +2241,15 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				# carries one turn per LLM call. Record it with the shared
 				# recorder — one Step per turn, one ai_agent_tool_call row per
 				# call, tool_source = diagram_task (the shapes are the tools).
-				# On resume, system/user steps were recorded at dispatch time —
-				# only the resumed segment's turns are appended.
+				# The system and user steps were written before the loop ran
+				# (see above), on first dispatch and on resume alike; only the
+				# turns are appended here.
 				from one_bpmn.agents.observability import record_selector_turns
-				if not resume_payload:
-					record_ai_step(run, 1, "system", system_prompt)
-					record_ai_step(run, 2, "user", user_prompt)
 				source_map = {t.name: "diagram_task" for t in tool_specs}
-				record_selector_turns(run, result.trace or [], source_map)
+				record_selector_turns(
+					run, result.trace or [], source_map,
+					already_recorded=already_recorded_turns,
+				)
 			else:
 				record_ai_step(run, 1, "system", system_prompt)
 
@@ -1549,7 +2270,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 						run, 3, "assistant",
 						str(result.output or ""),
 						completion_tokens=usage.completion_tokens if usage else 0,
-						latency_ms=_exec_latency_ms,
+						# Failed attempts become their own steps in finalize_ai_run.
+						latency_ms=_exec_latency_ms - sum(a.latency_ms for a in result.attempts or []),
 					)
 
 		# A suspension is not an outcome — the run stays open ("Suspended",
@@ -1559,7 +2281,11 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			# naming the reply key that proves it — Logix finishes when it has a
 			# script, ProsAlly when it has a diagram. Left unset, completion
 			# falls back to the generic error/turn-cap/output signals.
-			finalize_ai_run(run, result, goal_key=(task_cfg.get("aiGoalOutputKey") or "").strip() or None)
+			finalize_ai_run(
+				run, result,
+				goal_key=(task_cfg.get("aiGoalOutputKey") or "").strip() or None,
+				request_text=user_prompt,
+			)
 
 		# Commit observability data so AI runs + steps survive even if a
 		# downstream aiStopOnError raise rolls back the outer transaction.
@@ -1613,6 +2339,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# the engine wiring parks the service task and spawns the human task
 		# off this marker. No output/error variables, no retry consumed, no
 		# aiStopOnError: waiting for a person is not a failure.
+		from one_bpmn.agents.observability import latest_ordinary_step
+
 		run = _checkpoint.save_checkpoint(
 			run,
 			instance,
@@ -1621,10 +2349,9 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			system_prompt=system_prompt,
 			wf_task_id=str(getattr(task, "id", "") or ""),
 			human_row_id="",
-			prior_prompt_tokens=int((resume_payload or {}).get("prompt_tokens_so_far") or 0),
-			prior_completion_tokens=int((resume_payload or {}).get("completion_tokens_so_far") or 0),
-			prior_cache_read_tokens=int((resume_payload or {}).get("cache_read_tokens_so_far") or 0),
-			prior_cache_write_tokens=int((resume_payload or {}).get("cache_write_tokens_so_far") or 0),
+			# The Step the deferring turn was just written as - the next
+			# resume attaches its resolved answer here instead of a new Step.
+			pending_step=latest_ordinary_step(run.name) if run else "",
 		)
 		pending = (result.suspension or {}).get("pending_call") or {}
 		pending_name = pending.get("name") or ""
@@ -1654,7 +2381,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			waiting_marker["a2a_task"] = deferred_wait["a2a_task"]
 			waiting_marker["label"] = label or deferred_wait.get("label") or pending_name
 		elif deferred_wait.get("run"):
-			# agent_sandbox_ops.dispatch()'s own waiting-marker shape is
+			# agent_sandbox_ops's own waiting-marker shape (set by
+			# _dispatch_single_action for run_tests/open_pull_request) is
 			# {"run": <Agent Sandbox Run name>, "label": ...} — deliberately
 			# NOT stored under waiting_marker["run"] here, since that key above
 			# already holds this AI Agent Run's own name; reusing it would
@@ -1672,8 +2400,17 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# Completing a resumed run: drop the waiting marker the suspension left
 		if isinstance(task.data, dict):
 			task.data.pop("_bpmn_ai_waiting_human", None)
+			# A failure from an earlier pass of a looping map must not mark this answer as failed.
+			task.data.pop(f"{bpmn_id}_error_code", None)
+			task.data.pop(f"{bpmn_id}_error_message", None)
 		output_var = task_cfg.get("aiOutputVariable") or f"{bpmn_id}_output"
 		task.data[output_var] = result.output
+		# The shape's own name is the key every downstream reader knows: the
+		# tool artifact, the turn state a later tool reads back, the pipeline
+		# scripts. A map that renames the variable must not hide the answer
+		# from them, so the answer is written under both names.
+		task.data[f"{bpmn_id}_output"] = result.output
+		_publish_chat_turn_output(instance, result.output)
 		if result.token_usage:
 			task.data[f"{bpmn_id}_token_usage"] = {
 				"prompt_tokens":     result.token_usage.prompt_tokens,
@@ -1723,13 +2460,59 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# run via a background job; "raw" stores the output verbatim (legacy);
 		# "off" writes nothing. Failures never block the task.
 		write_mode = _memory_write_mode(task_cfg)
-		if write_mode != "off":
+		# Eval runs never write memory; cases that need it seed it with memory_write.
+		if write_mode != "off" and not frappe.flags.get("eval_origin"):
 			try:
-				write_target = memory_target or _resolve_memory_target(task_cfg, instance, bpmn_id)
+				write_target = memory_target or _resolve_memory_target(task_cfg, instance, bpmn_id, task.data)
 				if write_target:
 					scope, scope_key = write_target
 					src = run.name if run and not getattr(run, "stub", False) else None
-					if write_mode == "raw":
+					# Provenance only, not a scope key: an Agent-scoped memory still
+					# keys strictly on agent_element, but the instance already knows
+					# which process produced it -- carry that along the same way
+					# source_run already is. Process scope's scope_key IS the process
+					# model, so nothing to add there.
+					memory_process_model = (
+						getattr(instance, "process_model", None) if scope == "Agent" else None
+					)
+					if raw_user_message and _is_remember_directive(raw_user_message):
+						# An explicit "remember that..." names a standing
+						# convention, not an incidental fact the agent's
+						# output happened to produce — write it verbatim and
+						# skip the raw/distilled branches below entirely.
+						# Neither raw-dumping result.output nor running it
+						# through the salience distiller (licensed to drop
+						# instance-specific wording — see distill.py's system
+						# prompt) is what the user asked for. Still gated on
+						# write_mode != "off" above: an agent with memory
+						# writes disabled stays disabled, no separate bypass.
+						#
+						# raw_user_message, NOT user_message: a map that renders
+						# the person's words into its own prompt has them blanked
+						# above (the platform does not add a second copy), and
+						# testing the blanked variable made this branch
+						# unreachable on every such map. Live on prod-backup
+						# 2026-09-12: all seven memories General Chat had written
+						# carried user_directed = 0 and metadata.distilled = true,
+						# so nothing anybody asked it to remember was ever stored
+						# as they said it, and nothing was protected from pruning.
+						from one_bpmn.agents.memory.tools import memory_write
+						memory_write(
+							scope,
+							scope_key,
+							raw_user_message,
+							source_run=src,
+							ignore_permissions=True,
+							reconcile=True,
+							reconcile_ctx={
+								"provider_name": config.provider_name,
+								"backend": config.backend,
+								"model": config.model,
+							},
+							process_model=memory_process_model,
+							user_directed=True,
+						)
+					elif write_mode == "raw":
 						content = _extract_memory_content(result.output, task_cfg.get("aiMemoryContentField", ""))
 						if content:
 							from one_bpmn.agents.memory.tools import memory_write
@@ -1740,8 +2523,9 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 								dedup_key=(task_cfg.get("aiMemoryDedupKey") or None),
 								source_run=src,
 								ignore_permissions=True,
+								process_model=memory_process_model,
 							)
-					else:  # distilled
+					elif not _ended_without_answer(result.trace):  # distilled
 						# Distill and reconcile with the models the admin chose
 						# (agent -> Processa Settings -> the agent's own model),
 						# resolved here on the dispatch thread and handed to the
@@ -1749,20 +2533,37 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 						# the task so the extraction call is always valid.
 						# Tool-protocol agents leave result.output empty (their
 						# answer lives in tool arguments/results) — distill the
-						# interaction instead: the user message (where standing
-						# rules are stated) plus the trace's tool activity. The
-						# user part leads so a durable rule survives the
-						# distiller's input cap even when the tool payloads are
-						# long; without any tool activity there was no agent
-						# interaction, so memory is skipped as before.
+						# interaction instead: the person's own words plus the
+						# trace's tool activity. The user part leads so a
+						# durable rule survives the distiller's input cap even
+						# when the tool payloads are long; without any tool
+						# activity there was no agent interaction, so memory is
+						# skipped as before.
+						#
+						# WI-002165: the person's own words, via
+						# _turn_user_message — NOT ``user_prompt``, which by
+						# this point is the fully assembled dynamic prompt
+						# (driving template + injected memory + the person's
+						# message, per build_dynamic_preamble above). For a
+						# pipeline-driven agent like Logix, that template IS
+						# the operator-authored "HARD PIPELINE RULES" text, so
+						# splicing it in here labelled "[User message]" fed the
+						# distiller an instruction dressed up as something the
+						# person said — how jrrd68247k/joal5ugdks (paraphrases
+						# of those rules) ended up stored as "learned facts".
+						# _turn_user_message is empty for a map that renders
+						# its own copy (Logix) or a Background agent, in which
+						# case only the tool trace is distilled.
 						memory_src = result.output
 						if not str(memory_src or "").strip():
 							trace_text = _memory_output_from_trace(result.trace)
 							if trace_text:
-								memory_src = (
-									f"[User message]\n{str(user_prompt or '')[:3000]}\n\n"
-									f"[Agent tool activity]\n{trace_text}"
-								)
+								_user_text = _turn_user_message(instance, task)
+								parts = []
+								if _user_text:
+									parts.append(f"[User message]\n{_user_text[:3000]}")
+								parts.append(f"[Agent tool activity]\n{trace_text}")
+								memory_src = "\n\n".join(parts)
 						_distill_model = _memory_model(
 							task_cfg, "aiMemoryDistillModel", config.model
 						)
@@ -1788,6 +2589,20 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 								_reconcile_model, config.provider_name
 							),
 							source_run=src,
+							process_model=memory_process_model,
+							user=_preference_user(task.data),
+							# WI-002165: the agent's own instructions for this run
+							# (the static system prompt) plus the memory block
+							# recalled and injected into the dynamic layer (WI-001639
+							# put it in user_prompt, not system_prompt — so it isn't
+							# already covered by system_prompt alone), so the
+							# distiller can reject a fact that just restates what the
+							# agent was told rather than something it learned.
+							# Belt-and-suspenders alongside the _turn_user_message
+							# fix above, which stops the one observed leak path;
+							# this covers the agent's own output restating its
+							# instructions in prose too.
+							exclude_context="\n\n".join(filter(None, [system_prompt, memory_block])),
 						)
 			except Exception:
 				frappe.log_error(
@@ -1799,7 +2614,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# Primarily for the multi-turn loop; when a backend is configured we
 		# record this single call's turns. process_variable uses the live task.
 		cs_backend = task_cfg.get("aiConversationStore") or ""
-		if cs_backend:
+		# A chat turn is already a Chat Message that the history step reads.
+		if cs_backend and getattr(instance, "context_doctype", "") != "Chat Conversation":
 			try:
 				from one_bpmn.agents.memory.conversation_store import get_conversation_store
 				store = get_conversation_store(cs_backend, task=task)
@@ -1829,15 +2645,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				f"error: {result.error_message}"
 			),
 		)
-		task.data[f"{bpmn_id}_error_code"]    = error_code_name
-		task.data[f"{bpmn_id}_error_message"] = result.error_message
-
-		# Without aiStopOnError the flow continues past the failed task, so
-		# the declared output variable must still exist (as None) — otherwise
-		# a downstream gateway condition referencing it dies on a NameError
-		# instead of routing to its default branch.
-		output_var = task_cfg.get("aiOutputVariable") or f"{bpmn_id}_output"
-		task.data.setdefault(output_var, None)
+		# Without aiStopOnError the flow continues, so gateways still find both output names, as None.
+		_record_ai_failure(task, task_cfg, bpmn_id, error_code_name, result.error_message)
 
 		# If the BPMN task is configured to stop on error, raise so the
 		# engine loop in _run_engine_steps halts and the instance is

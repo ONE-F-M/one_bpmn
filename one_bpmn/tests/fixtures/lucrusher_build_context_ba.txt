@@ -1,0 +1,217 @@
+# LuCrusher – Build Context
+# Seeds the turn store and renders the migration state carried from previous
+# turns. The transcript and the "Established so far" facts come from the
+# platform's history step; the state snapshot is what Save Response recorded
+# in session state.
+import json
+from one_bpmn.agents.turn_state import set_turn
+
+_STATE_KEYS = (
+    "intent", "confirmed_process", "document", "codebase_scan",
+    "topology", "migration_tasks", "prosally_prompts", "last_fetch_error",
+)
+conversation_id = task_data.get("conversation_id", context_docname)
+
+from one_bpmn.agents.memory.session_state import get_state
+session_state = get_state(conversation_id)
+result["session_state"] = session_state
+
+user_text = task_data.get("user_text", "") or ""
+
+context_state = {_k: session_state.get(_k) for _k in _STATE_KEYS if session_state.get(_k) is not None}
+
+
+def _fmt_state(state):
+    # Phase-aware compaction: counts and "already done" markers rather than the
+    # payloads, so the block stays small even at Phase 6.
+    lines = ["Current migration context (carried from previous turns):"]
+    intent = state.get("intent") or ""
+    if intent:
+        lines.append("  Last intent : " + str(intent))
+
+    cp = state.get("confirmed_process")
+    if cp:
+        if isinstance(cp, dict):
+            pname = cp.get("name") or cp.get("process_name") or str(cp)
+        else:
+            pname = str(cp)
+        lines.append("  Confirmed process : " + str(pname))
+    else:
+        lines.append("  Confirmed process : not yet confirmed")
+
+    doc_obj = state.get("document")
+    _failed = state.get("last_fetch_error")
+    if isinstance(doc_obj, dict) and not (doc_obj.get("pages") or doc_obj.get("page_count")):
+        _failed = _failed or {"document_id": doc_obj.get("title")}
+        doc_obj = None
+    if doc_obj and isinstance(doc_obj, dict):
+        title = doc_obj.get("title") or doc_obj.get("document_id") or "(untitled)"
+        raw_pages = doc_obj.get("pages") or []
+        page_count = len(raw_pages) if raw_pages else int(doc_obj.get("page_count") or 0)
+        lines.append(
+            '  Lucidchart document : "' + str(title) + '" (' + str(page_count)
+            + " page(s)) [ALREADY FETCHED — do not re-fetch]"
+        )
+        # What was actually read, not just that it was read. The marker above
+        # told the agent it had the document and the prompt forbids fetching it
+        # again — with no contents in between, so a topology drawn on a later
+        # turn was a guess from the title and the page count, and said so.
+        if _lucid_summary:
+            lines.append("")
+            lines.append("  What that document contains (read once, carried forward):")
+            for _row in _lucid_summary.split("\n"):
+                lines.append("  " + _row)
+            lines.append("")
+    elif doc_obj:
+        lines.append("  Lucidchart document : " + str(doc_obj))
+    elif _failed:
+        _why = (_failed.get("error") if isinstance(_failed, dict) else _failed) or "the document returned 0 pages"
+        _id = _failed.get("document_id") if isinstance(_failed, dict) else None
+        lines.append(
+            "  Lucidchart document : fetch failed (" + str(_why) + ") - retry allowed"
+            + (". Document id: " + str(_id) if _id else "")
+        )
+    else:
+        lines.append("  Lucidchart document : not yet fetched")
+
+    scan = state.get("codebase_scan")
+    if scan and isinstance(scan, dict):
+        raw_apps = scan.get("apps_scanned") or []
+        raw_dt = scan.get("matched_doctypes") or []
+        n_apps = len(raw_apps) if isinstance(raw_apps, list) else int(raw_apps or 0)
+        n_dt = len(raw_dt) if isinstance(raw_dt, list) else int(raw_dt or 0)
+        lines.append(
+            "  Codebase scan : " + str(n_apps) + " apps, " + str(n_dt)
+            + " DocTypes [ALREADY SCANNED — do not re-scan]"
+        )
+    elif scan:
+        lines.append("  Codebase scan : completed")
+    else:
+        lines.append("  Codebase scan : not yet run")
+
+    topo = state.get("topology")
+    if topo and isinstance(topo, dict):
+        confirmed_label = " [proposed, awaiting user confirmation]"
+        if intent in (
+            "TOPOLOGY_CONFIRMED", "MIGRATION_TASKS_DRAFT", "MIGRATION_TASKS_CONFIRMED",
+            "PROSALLY_PROMPT_DRAFT", "PROSALLY_PROMPT_CONFIRMED",
+        ):
+            confirmed_label = " [CONFIRMED by user]"
+        lines.append("  Topology : " + str(topo.get("total_processes", 0)) + " process(es)" + confirmed_label)
+        raw_procs = topo.get("processes") or []
+        proc_names = []
+        if isinstance(raw_procs, list):
+            for p in raw_procs:
+                if isinstance(p, dict):
+                    proc_names.append(p.get("process_name") or p.get("name") or "")
+                else:
+                    proc_names.append(str(p))
+        proc_names = [p for p in proc_names if p]
+        if proc_names:
+            lines.append("  Process names : " + ", ".join(proc_names))
+    elif topo:
+        lines.append("  Topology : completed")
+    else:
+        lines.append("  Topology : not yet analysed")
+
+    mt = state.get("migration_tasks")
+    if mt and isinstance(mt, dict):
+        raw_mt_procs = mt.get("processes") or []
+        n_proc = len(raw_mt_procs) if isinstance(raw_mt_procs, list) else int(raw_mt_procs or 0)
+        task_count = 0
+        if isinstance(raw_mt_procs, list):
+            for p in raw_mt_procs:
+                if not isinstance(p, dict):
+                    continue
+                tasks = p.get("tasks")
+                if isinstance(tasks, list):
+                    task_count += len(tasks)
+                else:
+                    task_count += int(p.get("task_count") or 0)
+        mt_label = " [draft, awaiting user confirmation]"
+        if intent in ("MIGRATION_TASKS_CONFIRMED", "PROSALLY_PROMPT_DRAFT", "PROSALLY_PROMPT_CONFIRMED"):
+            mt_label = " [CONFIRMED by user]"
+        lines.append(
+            "  Migration tasks : " + str(task_count) + " tasks across " + str(n_proc)
+            + " process(es)" + mt_label
+        )
+    elif mt:
+        lines.append("  Migration tasks : generated")
+    else:
+        lines.append("  Migration tasks : not yet generated")
+
+    pp = state.get("prosally_prompts")
+    if pp and isinstance(pp, dict):
+        raw_pp_procs = pp.get("processes") or []
+        n_pp = len(raw_pp_procs) if isinstance(raw_pp_procs, list) else int(raw_pp_procs or 0)
+        lines.append("  ProsAlly prompts : generated for " + str(n_pp) + " process(es)")
+    elif pp:
+        lines.append("  ProsAlly prompts : generated")
+    else:
+        lines.append("  ProsAlly prompts : not yet generated")
+
+    return "\n".join(lines)
+
+
+# The parse itself lives in session state under lucid_doc:<id>; its summary is
+# the per-page swimlanes, steps and decisions. ~5k tokens against a 40k-token
+# full parse, which is why the summary travels and the parse stays put.
+_LUCID_SUMMARY_CAP = 24000
+_lucid_summary = ""
+for _key, _val in (session_state or {}).items():
+    if _key.startswith("lucid_doc:") and isinstance(_val, dict) and not _val.get("error"):
+        _lucid_summary = _val.get("summary") or ""
+if len(_lucid_summary) > _LUCID_SUMMARY_CAP:
+    _lucid_summary = (
+        _lucid_summary[:_LUCID_SUMMARY_CAP]
+        + "\n  … the rest of this document is held server-side; ask for one page with "
+        + "'<document_id>#page=<n>'."
+    )
+
+state_block = _fmt_state(context_state) if context_state else ""
+
+# Preload the next phase's skill and unload the others; load_skill covers a phase not listed here.
+from one_bpmn.api.skill_tools import activate_skill, deactivate_skill
+
+_NEXT_PHASE_SKILL = {
+    "LUCIDCHART_PARSED": "lucrusher-topology-analysis",
+    "CODEBASE_SCAN_RESULT": "lucrusher-topology-analysis",
+    "CODEBASE_SCAN_ERROR": "lucrusher-topology-analysis",
+    "TOPOLOGY_PROPOSAL": "lucrusher-topology-analysis",
+    "TOPOLOGY_CONFIRMED": "lucrusher-migration-tasks",
+    "MIGRATION_TASKS_DRAFT": "lucrusher-migration-tasks",
+    "MIGRATION_TASKS_CONFIRMED": "lucrusher-prosally-prompts",
+    "PROSALLY_PROMPT_DRAFT": "lucrusher-prosally-prompts",
+}
+# A turn closed without finalize records no phase; the furthest result in the state names the next one.
+_PROGRESS_SKILL = (
+    ("prosally_prompts", "lucrusher-prosally-prompts"),
+    ("migration_tasks", "lucrusher-prosally-prompts"),
+    ("topology", "lucrusher-migration-tasks"),
+    ("document", "lucrusher-topology-analysis"),
+)
+_next_skill = _NEXT_PHASE_SKILL.get(context_state.get("intent") or "") or ""
+if not _next_skill:
+    _next_skill = next((_s for _k, _s in _PROGRESS_SKILL if context_state.get(_k)), "")
+_doc_state = context_state.get("document")
+_fetched = isinstance(_doc_state, dict) and bool(_doc_state.get("pages") or _doc_state.get("page_count"))
+if not _fetched and (_doc_state or context_state.get("last_fetch_error")):
+    deactivate_skill("lucrusher-topology-analysis", agent_configuration, instance)
+    if _next_skill == "lucrusher-topology-analysis":
+        _next_skill = ""
+if _next_skill:
+    for _phase_skill in sorted(set(_NEXT_PHASE_SKILL.values()) - {_next_skill}):
+        deactivate_skill(_phase_skill, agent_configuration, instance)
+    if activate_skill(_next_skill, agent_configuration, instance).startswith("Error:"):
+        _next_skill = ""
+result["preloaded_skill"] = _next_skill
+
+set_turn(conversation_id, {
+    "session_state": session_state,
+    "user_text": user_text,
+    "context_state": context_state,
+})
+
+result["context_state"] = context_state
+result["user_text"] = user_text
+result["state_block"] = state_block

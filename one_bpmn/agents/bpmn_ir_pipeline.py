@@ -11,6 +11,8 @@ in gated script bodies. The ProsAlly agent's LLM/prompt/routing logic now lives
 inline in its BPMN tool scripts; these transforms are the shared seam those
 scripts import.
 
+    check_topology        is the flow graph planar (zero crossings possible)?
+    flow_pairs_from_xml   (source, target) pairs of an existing diagram
     compile_ir            IR JSON -> BPMN XML via spiff/pipeline.mjs (subprocess)
     extract_process_name  read the pool/process name out of BPMN XML
     extract_element_ids   the preserve-these-ids table for a modify turn
@@ -100,10 +102,18 @@ _RULE_HINTS: dict[str, str] = {
         "This node's visual position falls outside its lane band. The 'lane' field is likely wrong. "
         "Change the node's 'lane' to the correct lane id for the actor performing this step."
     ),
+    "non-planar": (
+        "The flow graph cannot be drawn without lines crossing; no layout can change that. "
+        "If a returning flow can join at an existing merge gateway with the same behaviour, join there. "
+        "Otherwise keep the IR as it is and tell the user one crossing is unavoidable. "
+        "Do not regenerate to chase a crossing-free drawing."
+    ),
 }
 
 # Rules whose problems are fixed by the compiler, not by LLM IR changes.
-_IR_IGNORABLE_RULES: frozenset[str] = frozenset({"no-bpmndi"})
+_IR_IGNORABLE_RULES: frozenset[str] = frozenset({
+    "no-bpmndi", "edge-crossing", "edge-through-shape", "collinear-overlap", "label-collision",
+})
 
 # Element types that are structural containers / DI / definitions — never part
 # of the "IDs the LLM must preserve" table.
@@ -162,24 +172,199 @@ def _pipeline_path() -> str:
     ))
 
 
+# ── Topology ─────────────────────────────────────────────────────────────────
+def _flow_pairs(flows) -> list[tuple[str, str]]:
+    """IR flow dicts or (from, to) tuples, minus self-loops and blanks."""
+    pairs = []
+    for f in flows or []:
+        a, b = (f.get("from"), f.get("to")) if isinstance(f, dict) else (f[0], f[1])
+        if a and b and a != b:
+            pairs.append((str(a), str(b)))
+    return pairs
+
+
+def flow_pairs_from_xml(xml: str) -> list[tuple[str, str]]:
+    """The (sourceRef, targetRef) of every sequence flow in a BPMN XML string."""
+    pairs = []
+    for m in re.finditer(r"<bpmn2?:sequenceFlow\b([^>]*)>", xml or ""):
+        s = re.search(r'sourceRef="([^"]+)"', m.group(1))
+        t = re.search(r'targetRef="([^"]+)"', m.group(1))
+        if s and t:
+            pairs.append((s.group(1), t.group(1)))
+    return pairs
+
+
+def check_topology(flows) -> dict:
+    """Can the flow graph be drawn with no crossing lines at all?
+
+    A non-planar graph forces a crossing in every layout, so ``planar`` fixes the
+    crossing count the layout audit holds the drawing to. ``obstruction`` names
+    the nodes of the Kuratowski subgraph — the part that cannot be flattened.
+    """
+    pairs = _flow_pairs(flows)
+    if not pairs:
+        return {"planar": True, "obstruction": [], "min_crossings": 0}
+    try:
+        import networkx as nx
+    except ImportError:  # pragma: no cover — networkx ships with the bench env
+        return {"planar": None, "obstruction": [], "min_crossings": 0}
+    graph = nx.Graph()
+    graph.add_edges_from(pairs)
+    planar, cert = nx.check_planarity(graph, counterexample=True)
+    obstruction = [] if planar else sorted(cert.nodes())
+    return {"planar": bool(planar), "obstruction": obstruction, "min_crossings": 0 if planar else 1}
+
+
+def _topology_problem(topo: dict, names: dict) -> dict:
+    who = ", ".join(names.get(n, n) for n in topo.get("obstruction", [])[:6])
+    return {
+        "kind": "topology", "rule": "non-planar", "elementId": "", "nodes": topo.get("obstruction", []),
+        "message": (
+            "This process cannot be drawn without a crossing line: the paths through "
+            f"{who} cannot all be laid flat. One crossing is the minimum."
+        ),
+    }
+
+
+# Node types the generator prompt already tells the model belong in the
+# system lane when no lanes are named (serviceTask/scriptTask). Matches
+# process_generator's own "System (Automatic)" fallback rule verbatim.
+_SYSTEM_LANE_NODE_TYPES = frozenset({"scriptTask", "serviceTask"})
+
+
+def ensure_default_lanes(ir: dict) -> bool:
+    """Apply the generator prompt's own "User" + "System (Automatic)" lane
+    fallback in code, so a missing lane structure skips a repair-pass retry.
+
+    Mutates ``ir`` in place; returns True when it changed anything. Returns
+    False when there are no nodes to assign, so the caller still re-prompts.
+    """
+    if len(ir.get("lanes") or []) >= 2:
+        return False
+    nodes = ir.get("nodes") or []
+    if not nodes:
+        return False
+    ir["lanes"] = [
+        {"id": "user", "name": "User"},
+        {"id": "system", "name": "System (Automatic)"},
+    ]
+    for node in nodes:
+        if not node.get("lane"):
+            node["lane"] = "system" if node.get("type") in _SYSTEM_LANE_NODE_TYPES else "user"
+    return True
+
+
+def auto_fix_ir(ir: dict) -> list[str]:
+    """Fix in place the IR problems the compiler names exactly and return one line per fix: drop flows to
+    or from a missing node, default the last unconditioned flow of an exclusiveGateway split that has
+    none, and give a node with no lane its predecessor's lane."""
+    nodes = {n.get("id"): n for n in ir.get("nodes") or [] if n.get("id")}
+    fixes = []
+    kept = []
+    for flow in ir.get("flows") or []:
+        missing = [end for end in (flow.get("from"), flow.get("to")) if end not in nodes]
+        if missing:
+            gone = ", ".join(map(str, missing))
+            fixes.append(f"Dropped flow {flow.get('from')} -> {flow.get('to')}: no node {gone}")
+        else:
+            kept.append(flow)
+    ir["flows"] = kept
+
+    for node_id, node in nodes.items():
+        outgoing = [f for f in kept if f.get("from") == node_id]
+        if node.get("type") != "exclusiveGateway":
+            continue
+        if len(outgoing) < 2:
+            continue
+        if any(f.get("default") for f in outgoing):
+            continue
+        unconditioned = [f for f in outgoing if not f.get("condition")]
+        if unconditioned:
+            unconditioned[-1]["default"] = True
+            fixes.append(f"Marked flow {node_id} -> {unconditioned[-1].get('to')} as the default of {node_id}")
+
+    if ir.get("lanes"):
+        changed = True
+        while changed:
+            changed = False
+            for flow in kept:
+                source, target = nodes[flow["from"]], nodes[flow["to"]]
+                if source.get("lane") and not target.get("lane"):
+                    target["lane"] = source["lane"]
+                    fixes.append(
+                        f"Put {flow['to']} in lane {source['lane']}, the lane of {flow['from']}"
+                    )
+                    changed = True
+    return fixes
+
+
+def merge_chunked_ir(lanes: list, chunks: list) -> dict:
+    """Combine ordered per-phase IR fragments into one IR sharing one lane set.
+
+    Each chunk is {"nodes": [...], "flows": [...]} for one phase of a process
+    generated in pieces because the whole thing would not fit in one
+    completion. A chunk's own flows already connect its first node from the
+    exit id it was given, so merging is concatenation.
+    """
+    nodes = []
+    flows = []
+    for chunk in chunks:
+        nodes.extend(chunk.get("nodes") or [])
+        flows.extend(chunk.get("flows") or [])
+    return {"lanes": lanes, "nodes": nodes, "flows": flows}
+
+
+def chunk_exit_node_id(chunk: dict) -> str | None:
+    """The node id the next phase's flow should originate from.
+
+    By convention the phase prompt asks for the hand-off node last, so it is
+    the final entry in this chunk's own "nodes" array.
+    """
+    nodes = chunk.get("nodes") or []
+    return nodes[-1].get("id") if nodes else None
+
+
 def compile_ir(ir: dict) -> dict:
     """Compile an IR dict into BPMN XML via ``spiff/pipeline.mjs``.
 
-    Runs the Node pipeline (normalise → compile → layout) in a subprocess and
-    returns its raw JSON result:
+    Runs the Node pipeline (normalise → compile → layout → audit) in a
+    subprocess and returns its JSON result:
 
-        {"ok": bool, "xml": str, "problems": list, "normalizedIR": dict?}
+        {"ok": bool, "xml": str, "problems": list, "normalizedIR": dict?,
+         "layout": dict?, "topology": dict}
+
+    ``topology`` is computed here, before the subprocess, so it is present even
+    when the pipeline fails. A non-planar graph adds a ``topology`` problem
+    without turning ``ok`` off: the XML compiles, and the crossing is a fact
+    about the process rather than a failure. A drawing with more crossings than
+    the graph requires adds a ``layout`` problem — the compiler's defect, never
+    the IR's.
 
     Never raises — a missing node binary, empty output, timeout, or any other
     failure is returned as ``{"ok": False, "xml": "", "problems": [...]}`` so a
     tool-calling loop stays alive.
     """
+    try:
+        topo = check_topology((ir or {}).get("flows"))
+    except Exception:  # noqa: BLE001 — topology must never block compilation
+        topo = {"planar": None, "obstruction": [], "min_crossings": 0}
+
+    def fail(message):
+        return {"ok": False, "xml": "", "topology": topo, "problems": [{"kind": "fatal", "message": message}]}
+
+    # Task configuration is resolved before the subprocess: the compiler writes
+    # the attributes verbatim, so what counts as a real setting is decided in
+    # Python where it can be checked against this site's own workflows.
+    try:
+        from one_bpmn.agents.bpmn_task_config import resolve_ir_config
+
+        config_problems = resolve_ir_config(ir)
+    except Exception:  # noqa: BLE001 — configuration must never block compilation
+        config_problems = []
+
     node = _find_node()
     if not node:
-        return {
-            "ok": False, "xml": "",
-            "problems": [{"kind": "fatal", "message": "node not found in PATH"}],
-        }
+        return fail("node not found in PATH")
     try:
         result = subprocess.run(
             [node, _pipeline_path()],
@@ -190,13 +375,29 @@ def compile_ir(ir: dict) -> dict:
         )
         stdout = result.stdout.strip()
         if not stdout:
-            stderr = result.stderr.strip() or "pipeline produced no output"
-            return {"ok": False, "xml": "", "problems": [{"kind": "fatal", "message": stderr}]}
-        return json.loads(stdout)
+            return fail(result.stderr.strip() or "pipeline produced no output")
+        out = json.loads(stdout)
     except subprocess.TimeoutExpired:
-        return {"ok": False, "xml": "", "problems": [{"kind": "fatal", "message": "pipeline timed out after 30 s"}]}
+        return fail("pipeline timed out after 30 s")
     except Exception as exc:  # noqa: BLE001 — must never propagate into the loop
-        return {"ok": False, "xml": "", "problems": [{"kind": "fatal", "message": str(exc)}]}
+        return fail(str(exc))
+
+    out["topology"] = topo
+    out.setdefault("problems", [])
+    out["problems"].extend(config_problems)
+    if topo.get("planar") is False:
+        names = {n.get("id"): n.get("name") or n.get("id") for n in (ir or {}).get("nodes") or [] if n.get("id")}
+        out["problems"].append(_topology_problem(topo, names))
+    crossings = (out.get("layout") or {}).get("crossings", 0)
+    if out.get("ok") and crossings > topo.get("min_crossings", 0):
+        out["problems"].append({
+            "kind": "layout", "rule": "edge-crossing", "elementId": "",
+            "message": (
+                f"Drawing has {crossings} crossing(s); the flow graph needs {topo.get('min_crossings', 0)}. "
+                "Layout defect, not an IR change."
+            ),
+        })
+    return out
 
 
 # ── Diagram reading (pure string parsing) ────────────────────────────────────
@@ -225,21 +426,23 @@ def extract_element_ids(xml: str) -> str:
     each real element as ``  <type> id="..." name="..."``.
     """
     lines = []
-    tag_pattern = re.compile(r'<bpmn:(\w+)\s([^>]*?)/?>')
-    for m in tag_pattern.finditer(xml or ""):
-        bpmn_type = m.group(1)
-        attrs_str = m.group(2)
-        if bpmn_type in _ID_SKIP_TYPES:
-            continue
-        id_m = re.search(r'id="([^"]+)"', attrs_str)
-        if not id_m:
-            continue
-        elem_id = id_m.group(1)
-        name_m = re.search(r'name="([^"]*)"', attrs_str)
-        elem_name = name_m.group(1) if name_m else None
+    for elem_id, (bpmn_type, elem_name) in element_names(xml).items():
         label = f' name="{elem_name}"' if elem_name else ""
         lines.append(f'  {bpmn_type} id="{elem_id}"{label}')
     return "\n".join(lines)
+
+
+def element_names(xml: str) -> dict[str, tuple[str, str]]:
+    """{id: (type, name)} for every real element of a BPMN XML string; name is "" when it has none."""
+    elements = {}
+    for m in re.finditer(r"<bpmn:(\w+)\s([^>]*?)/?>", xml or ""):
+        if m.group(1) in _ID_SKIP_TYPES:
+            continue
+        id_m = re.search(r'id="([^"]+)"', m.group(2))
+        if id_m:
+            name_m = re.search(r'name="([^"]*)"', m.group(2))
+            elements[id_m.group(1)] = (m.group(1), name_m.group(1) if name_m else "")
+    return elements
 
 
 def has_lanes(xml: str) -> bool:

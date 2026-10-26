@@ -97,6 +97,24 @@ class TestTheToolCarriesItsWiring(FrappeTestCase):
 		self.assertEqual(_with_dispatch_wiring(inst, "x", cfg), cfg)
 		self.assertEqual(_missing_dispatch_wiring(cfg), [])
 
+	def test_a_nested_agent_with_its_own_tools_box_gets_its_compiled_tool_list(self):
+		"""The tool descriptor copies the shape's attributes; the compiled tool
+		list exists only on the shape's own config. Docu's writer stage ran with
+		no tools but the skill tools until the two were merged."""
+		compiled = {
+			"serviceType": "ai_agent",
+			"aiToolsAdhoc": "docu_writer_tools",
+			"aiToolShapes": json.dumps([{"bpmn_id": "list_doctypes", "serverScript": "x"}]),
+		}
+		inst = _Instance({"write_schema": compiled})
+		entry = {"serviceType": "ai_agent", "aiToolsAdhoc": "docu_writer_tools", "aiAgentConfig": "Docu – Schema Writer"}
+		merged = _with_dispatch_wiring(inst, "write_schema", entry)
+		self.assertEqual(merged["aiToolShapes"], compiled["aiToolShapes"])
+		self.assertEqual(merged["aiAgentConfig"], "Docu – Schema Writer")
+		# No Tools box, nothing to fetch: the entry is left alone.
+		plain = {"serviceType": "ai_agent", "aiAgentConfig": "Logix – Script Writer"}
+		self.assertEqual(_with_dispatch_wiring(inst, "write_schema", plain), plain)
+
 	def test_nothing_to_merge_from_is_survivable(self):
 		inst = _Instance({})
 		self.assertEqual(_with_dispatch_wiring(inst, "delegate", dict(TOOL_ENTRY)), TOOL_ENTRY)

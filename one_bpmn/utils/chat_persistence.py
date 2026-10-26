@@ -16,7 +16,7 @@ import frappe
 
 # ── Conversation management ────────────────────────────────────────────────────
 
-def create_conversation(agent_mode: str, title: str, user: str) -> str:
+def create_conversation(agent_mode: str, title: str, user: str, commit: bool = True) -> str:
 	"""Create a new Chat Conversation document and return its name.
 
 	Mirrors the pattern used by Lumina's ``create_conversation()`` but
@@ -31,11 +31,12 @@ def create_conversation(agent_mode: str, title: str, user: str) -> str:
 		"last_updated": frappe.utils.now_datetime(),
 	})
 	doc.insert(ignore_permissions=True)
-	frappe.db.commit()
+	if commit:
+		frappe.db.commit()
 	return doc.name
 
 
-def create_agent_conversation(agent_id: str, title: str = None, user: str = None) -> str:
+def create_agent_conversation(agent_id: str, title: str = None, user: str = None, commit: bool = True) -> str:
 	"""Create a Chat Conversation for an agent purely from its configuration
 	(WI-001619).
 
@@ -55,6 +56,7 @@ def create_agent_conversation(agent_id: str, title: str = None, user: str = None
 		agent_mode=config.get("chat_mode_label") or agent_id,
 		title=title or frappe._("New chat"),
 		user=user or frappe.session.user,
+		commit=commit,
 	)
 
 
@@ -84,15 +86,19 @@ def close_conversation(conversation_name: str) -> None:
 		},
 		"name",
 	)
+	from one_bpmn.api.skill_tools import clear_conversation_skills
+
 	if not inst_name:
 		# No orchestration is running — close the conversation record itself so
 		# it can't be resumed into the same dead end.
 		frappe.db.set_value("Chat Conversation", conversation_name, "status", "Closed")
+		clear_conversation_skills(conversation_name)
 		return
 
 	try:
 		instance = frappe.get_doc("BPMN Process Instance", inst_name)
 		instance.receive_message("ChatConversation_Close_Action", payload={})
+		clear_conversation_skills(conversation_name)
 	except frappe.ValidationError:
 		pass  # instance not waiting for the close message — nothing to do
 	except Exception:
@@ -168,11 +174,19 @@ def _save_message(
 
 # ── History loading ────────────────────────────────────────────────────────────
 
-def load_history(conversation_name: str, limit: int = 30) -> list[dict]:
+def load_history(conversation_name: str, limit: int = 30, before: str = None) -> list[dict]:
 	"""
 	Return the last *limit* User/Bot messages as a list of
 	{"role": "user"|"assistant", "content": "...", "message": "<row name>",
-	"timestamp": "..."} dicts, oldest first.
+	"timestamp": "...", "metadata": {...}} dicts, oldest first.
+
+	``before`` is a Chat Message name: only messages older than it are returned,
+	which is how a reopened conversation pages back past the limit instead of
+	being stuck with whatever fitted in the first read.
+
+	``metadata`` is what the turn stored beside its text — the structured result
+	that became cards and option buttons while the reply was streaming. Returned
+	so a reopened conversation can show those again rather than the words alone.
 
 	``message`` is the Chat Message name (WI-001822). A resumed conversation
 	otherwise redraws its replies with no identity, so a rating the user left
@@ -190,13 +204,22 @@ def load_history(conversation_name: str, limit: int = 30) -> list[dict]:
 	if frappe.db.get_value("Chat Conversation", conversation_name, "owner") != frappe.session.user:
 		return []
 
+	filters = {
+		"conversation": conversation_name,
+		"message_type": ["in", ["User", "Bot"]],
+	}
+	if before:
+		# Paged by creation, not by name: names are hashes and carry no order. A
+		# cursor that has gone reads as no cursor rather than an error — the
+		# caller gets the newest page again instead of a failure.
+		cutoff = frappe.db.get_value("Chat Message", before, "creation")
+		if cutoff:
+			filters["creation"] = ["<", cutoff]
+
 	messages = frappe.db.get_all(
 		"Chat Message",
-		fields=["name", "message_type", "text", "creation"],
-		filters={
-			"conversation": conversation_name,
-			"message_type": ["in", ["User", "Bot"]],
-		},
+		fields=["name", "message_type", "text", "creation", "metadata"],
+		filters=filters,
 		order_by="creation desc",
 		limit=limit,
 	)
@@ -210,9 +233,24 @@ def load_history(conversation_name: str, limit: int = 30) -> list[dict]:
 			"content": m["text"] or "",
 			"message": m["name"],
 			"timestamp": str(m["creation"]) if m["creation"] else None,
+			"metadata": _parsed_metadata(m.get("metadata")),
 		}
 		for m in messages
 	]
+
+
+def _parsed_metadata(raw) -> dict:
+	"""Stored metadata as a dict. Unreadable metadata is no metadata: a turn
+	that saved something malformed must still show its text."""
+	if not raw:
+		return {}
+	if isinstance(raw, dict):
+		return raw
+	try:
+		parsed = json.loads(raw)
+	except Exception:
+		return {}
+	return parsed if isinstance(parsed, dict) else {}
 
 
 # ── Conversation state (stays in Redis — ephemeral per-session) ────────────────

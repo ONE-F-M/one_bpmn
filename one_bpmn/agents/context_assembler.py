@@ -29,12 +29,18 @@ so treat it as part of the contract rather than an implementation detail.
 
 from __future__ import annotations
 
+import json
+
 # Section headers are part of the rendered prompt and appear in AI Agent Run
 # transcripts and eval fixtures. Changing them changes every agent's system
 # prompt — do not edit them casually.
 EXAMPLES_HEADER = "## Examples"
 GUARDRAILS_HEADER = "## Guard Rails"
 SKILLS_HEADER = "## AI Skills"
+# Header for the DYNAMIC-layer block that carries the full bodies of skills
+# loaded via load_skill this conversation \u2014 distinct from SKILLS_HEADER,
+# which only lists names+descriptions in the static system prompt.
+SKILLS_LOADED_HEADER = "## Loaded Skills"
 
 # Prefix for the retrieved-memory block in the DYNAMIC layer. The old
 # system-prompt header lives on as dispatchers.MEMORY_BLOCK_HEADER, which the
@@ -70,6 +76,12 @@ def _render_examples(rows) -> str:
 		if not text:
 			continue
 		lines = [f"### Example {i}", "Input:", text]
+		context = str(get("context_summary", "") or "").strip()
+		if context:
+			lines.append(f"Context: {context}")
+		calls = _trajectory_lines(get("trajectory", None))
+		if calls:
+			lines += ["Tool calls:", *calls]
 		output = str(get("expected_output", "") or "").strip()
 		if output:
 			lines += ["Expected output:", output]
@@ -82,16 +94,47 @@ def _render_examples(rows) -> str:
 	return EXAMPLES_HEADER + "\n\n" + _SECTION_GAP.join(blocks)
 
 
+def _trajectory_lines(trajectory) -> list[str]:
+	"""Each recorded tool call as "-> tool(args) => result", with sorted keys so the prompt stays byte-stable."""
+	if isinstance(trajectory, str):
+		trajectory = json.loads(trajectory) if trajectory.strip() else []
+	lines = []
+	for call in trajectory or []:
+		args = json.dumps(call.get("args") or {}, sort_keys=True, ensure_ascii=False)
+		line = f"-> {call.get('tool', '')}({args})"
+		result = str(call.get("result") or "").strip()
+		if result:
+			line += f" => {result}"
+		lines.append(line)
+	return lines
+
+
 
 def _render_skills_index(skills) -> str:
+	"""The static system-prompt index of skills the agent may load.
+
+	Defensive filter: a skill dict carrying a ``status`` other than "Active"
+	is dropped even though callers (``get_agent_config`` /
+	``load_agent_behaviour``) are expected to have already filtered to
+	Active-only. A Deprecated skill reaching the index would advertise a
+	skill ``load_skill`` itself refuses to load \u2014 that mismatch is exactly
+	what this guards against if an upstream caller ever forgets to filter.
+	Rows with no ``status`` key at all (older callers, tests) are kept, so
+	behaviour is unchanged for anything that never carried the field.
+	"""
 	if not skills:
 		return ""
 	lines = [SKILLS_HEADER, "You have the following skills available. Use the load_skill tool to read a skill's full instructions when needed."]
 	for skill in skills:
+		status = skill.get("status")
+		if status is not None and status != "Active":
+			continue
 		name = skill.get("name", "")
 		desc = skill.get("description", "")
 		if name:
 			lines.append(f"- **{name}**: {desc}")
+	if len(lines) <= 2:
+		return ""
 	return "\n".join(lines)
 
 
@@ -170,12 +213,20 @@ def build_static_context_from_config(config: dict, system_prompt: str = None) ->
 	``config`` is what ``get_agent_config`` returns. ``system_prompt`` overrides
 	the config's own Instructions — the dispatcher passes the Jinja-rendered
 	shape prompt, which is the value that actually runs.
+
+	Every path that sends a system prompt goes through here or through
+	``build_static_context`` itself. That is the whole point: guard rails that
+	depend on which code path happened to run are not guard rails.
 	"""
 	config = config or {}
 	return build_static_context(
 		system_prompt=config.get("system_prompt", "") if system_prompt is None else system_prompt,
 		examples=config.get("examples"),
 		guardrails=config.get("guardrails"),
+		# The skills index was the one section this wrapper dropped, so a path
+		# going through it advertised none of the agent's skills while the two
+		# calling build_static_context directly advertised all of them.
+		skills=config.get("enabled_skills"),
 	)
 
 
@@ -203,7 +254,13 @@ def load_agent_behaviour(config_name: str) -> dict:
 	return get_agent_config(agent_id) or {}
 
 
-def build_dynamic_preamble(memory_block: str = "", user_prompt: str = "", active_skills: list[str] = None) -> str:
+def build_dynamic_preamble(
+	memory_block: str = "",
+	user_prompt: str = "",
+	active_skills: list[str] = None,
+	instructions: str = "",
+	established_block: str = "",
+) -> str:
 	"""Compose the DYNAMIC layer's opening message.
 
 	Retrieved long-term memory is dynamic — it is searched with this turn's
@@ -215,23 +272,49 @@ def build_dynamic_preamble(memory_block: str = "", user_prompt: str = "", active
 	precedes a "User message:"-style marker) still has a stable prefix to
 	attach to.
 
+	``instructions`` is the turn's standing text — what the map tells the agent
+	to do — and it joins that cacheable prefix, leaving the marker immediately
+	before the part that actually varies: the person's own words. Passed alone
+	it is simply the message, so every existing caller composes as it did.
+
 	Returns the user prompt unchanged when there is no memory to inject, so
 	agents without long-term memory send exactly what they sent before.
+
+	``active_skills`` carries the full BODIES of skills loaded via load_skill
+	this conversation (WI-000401) \u2014 not the static index of what is
+	available, which is ``_render_skills_index``'s job in the system prompt.
+	Without this, load_skill's cache write had nothing downstream reading
+	it, so a loaded skill's instructions never reached the model at all.
 	"""
 	memory_block = str(memory_block or "").strip()
 	user_prompt = str(user_prompt or "")
+	instructions = str(instructions or "")
+	established_block = str(established_block or "").strip()
 	skills_block = ""
 	if active_skills:
-		skills_block = "\n\n".join(str(s).strip() for s in active_skills if s)
+		bodies = "\n\n".join(str(s).strip() for s in active_skills if s)
+		if bodies:
+			skills_block = f"{SKILLS_LOADED_HEADER}\n{bodies}"
 
 	parts = []
 	if skills_block:
 		parts.append(skills_block)
 	if memory_block:
 		parts.append(memory_block)
-	
+	# Established facts change rarely, so they sit in the cacheable prefix with memory.
+	if established_block:
+		parts.append(established_block)
+
+	# With both, the instructions are prefix and the message is what the marker
+	# announces. With only one of them, that one IS the message — which is what
+	# every caller sent before there was anything to tell them apart.
+	if instructions and user_prompt.strip():
+		parts.append(instructions)
+	else:
+		user_prompt = user_prompt or instructions
+
 	combined_prefix = _SECTION_GAP.join(parts)
-	
+
 	if not combined_prefix:
 		return user_prompt
 	if not user_prompt.strip():

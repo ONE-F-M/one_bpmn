@@ -20,6 +20,9 @@ from __future__ import annotations
 
 import re
 
+import frappe
+from frappe import _
+
 # ── Field types Docu is allowed to emit ──────────────────────────────────────
 # Deliberately a conservative subset of Frappe's fieldtypes. Layout-only types
 # (Section/Column Break, HTML, Heading) are allowed because a good form needs
@@ -233,11 +236,134 @@ def validate_doctype_ir(ir: dict, existing_fieldnames: set | None = None) -> dic
 	if fields and not has_data_field:
 		violations.append("The DocType has only layout breaks and no real data fields.")
 
+	violations.extend(_permission_violations(ir.get("permissions")))
+	violations.extend(_autoname_violations(ir.get("autoname")))
+	violations.extend(_fetch_from_violations(ir))
+
 	return {
 		"valid": not violations,
 		"violations": violations,
+		"warnings": _child_table_warnings(ir.get("fields")),
 		"fix_hints": [] if not violations else [_FIX_HINT],
 	}
+
+
+def child_table_is_editable(name: str) -> bool:
+	"""True for a custom child DocType, the only kind whose columns Docu may change."""
+	return bool(frappe.db.get_value("DocType", name, "custom") and frappe.db.get_value("DocType", name, "istable"))
+
+
+def _child_table_warnings(fields) -> list:
+	"""One line per inline column change aimed at a table Docu cannot change."""
+	warnings = []
+	for field in fields or []:
+		if not isinstance(field, dict) or field.get("fieldtype") not in _TABLE_FIELDTYPES:
+			continue
+		target = (field.get("options") or "").strip()
+		if field.get("child_fields") and frappe.db.exists("DocType", target) and not child_table_is_editable(target):
+			warnings.append(_("{0} is a standard table, so Docu cannot change its columns.").format(target))
+	return warnings
+
+
+def _autoname_violations(autoname) -> list:
+	"""A format: rule fills only its braces, so a counter outside them names every record the same."""
+	if not isinstance(autoname, str) or not autoname.startswith("format:"):
+		return []
+	if "#" not in re.sub(r"\{[^}]*\}", "", autoname):
+		return []
+	return [
+		f"Naming rule '{autoname}' has its counter outside braces, so every record gets the same name. "
+		"Use 'format:PREFIX-{#####}', or the naming series 'PREFIX-.#####' without 'format:'."
+	]
+
+
+def _fetch_from_violations(ir: dict) -> list:
+	"""A fetch_from must name a Link field on this form and a field the linked DocType has."""
+	from frappe.model import default_fields
+
+	fields = [f for f in ir.get("fields") or [] if isinstance(f, dict)]
+	links, on_site = {}, {}
+	name = (ir.get("doctype_name") or "").strip()
+	if name and frappe.db.exists("DocType", name):
+		site_fields = frappe.get_meta(name).fields
+		links = {df.fieldname: df.options for df in site_fields if df.fieldtype == "Link"}
+		on_site = {df.fieldname: df.fetch_from for df in site_fields if df.fetch_from}
+	for f in fields:
+		if f.get("fieldtype") == "Link" and (f.get("fieldname") or "").strip():
+			links[f["fieldname"].strip()] = (f.get("options") or "").strip()
+
+	out = []
+	for f in fields:
+		fetch = str(f.get("fetch_from") or "").strip()
+		if not fetch or on_site.get(f.get("fieldname")) == fetch:
+			continue
+		label = f.get("label") or f.get("fieldname") or "?"
+		link, _sep, target = fetch.partition(".")
+		if " " in fetch or not link or not target:
+			out.append(_("'{0}': fetch_from '{1}' must read link_field.field_name, with no spaces.").format(label, fetch))
+			continue
+		linked = links.get(link)
+		if not linked:
+			out.append(
+				_("'{0}': fetch_from '{1}' starts with '{2}', which is not a Link field on this form.").format(
+					label, fetch, link
+				)
+			)
+			continue
+		if target not in default_fields and not (
+			frappe.db.exists("DocType", linked) and frappe.get_meta(linked).has_field(target)
+		):
+			out.append(
+				_("'{0}': fetch_from '{1}' reads '{2}', which {3} does not have.").format(label, fetch, target, linked)
+			)
+	return out
+
+
+_MAX_PERMISSIONS = 40
+
+
+def _permission_violations(permissions) -> list:
+	"""Check the IR's permission rules name real roles and grant nothing twice.
+
+	A role that does not exist is the failure worth catching early: Frappe would
+	accept the row and the DocType would then be unreachable by the people the
+	process owner meant to name.
+	"""
+	if permissions in (None, ""):
+		return []
+	if not isinstance(permissions, list):
+		return ["'permissions' must be a list of permission rules."]
+	if len(permissions) > _MAX_PERMISSIONS:
+		return [f"Too many permission rules ({len(permissions)}); maximum is {_MAX_PERMISSIONS}."]
+
+	out, seen = [], set()
+	for i, rule in enumerate(permissions, start=1):
+		if not isinstance(rule, dict):
+			out.append(f"Permission rule {i} must be an object.")
+			continue
+		role = (rule.get("role") or "").strip()
+		if not role:
+			out.append(f"Permission rule {i} has no role.")
+			continue
+		if not frappe.db.exists("Role", role):
+			out.append(f"Permission rule {i}: there is no role named '{role}'.")
+			continue
+		try:
+			level = int(rule.get("permlevel") or 0)
+		except (TypeError, ValueError):
+			out.append(f"Permission rule {i} ('{role}'): level must be a whole number.")
+			continue
+		if level < 0 or level > 9:
+			out.append(f"Permission rule {i} ('{role}'): level must be between 0 and 9.")
+			continue
+		# Frappe pairs two rules for one role at one level to mean "anyone may
+		# read, only the owner may edit", so if_owner is part of what makes a
+		# rule distinct. Note and Kanban Board ship exactly that shape.
+		owner_only = int(bool(rule.get("if_owner")))
+		if (role, level, owner_only) in seen:
+			out.append(f"Permission rule {i}: '{role}' already has this rule at level {level}.")
+		seen.add((role, level, owner_only))
+	return out
 
 
 _FIX_HINT = (

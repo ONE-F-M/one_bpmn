@@ -1,0 +1,382 @@
+// node --test spiff/pipeline.test.mjs
+//
+// The geometry is tested directly; the pipeline is driven the way Python drives
+// it — IR on stdin, JSON on stdout — so the test sees exactly what compile_ir sees.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+import { properCross, collinearOverlap, segHitsBox, auditGeometry } from './src/linting/geometry.js';
+import { auditLayout } from './pipeline.mjs';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const run = (ir) => JSON.parse(spawnSync(process.execPath, [path.join(here, 'pipeline.mjs')],
+  { input: JSON.stringify(ir), encoding: 'utf8' }).stdout);
+
+test('an X is a crossing, a touch at an endpoint is not', () => {
+  assert.equal(properCross([[0, 0], [10, 10]], [[0, 10], [10, 0]]), true);
+  assert.equal(properCross([[0, 0], [10, 0]], [[10, 0], [10, 10]]), false);
+  assert.equal(properCross([[0, 0], [10, 0]], [[0, 5], [10, 5]]), false);
+});
+
+test('lines on the same row that share a stretch overlap', () => {
+  assert.equal(collinearOverlap([[0, 5], [10, 5]], [[5, 5], [20, 5]]), true);
+  assert.equal(collinearOverlap([[0, 5], [10, 5]], [[10, 5], [20, 5]]), false);
+  assert.equal(collinearOverlap([[0, 5], [10, 5]], [[0, 6], [10, 6]]), false);
+});
+
+test('a segment through a box is caught, one along its edge is not', () => {
+  const box = { x: 10, y: 10, w: 20, h: 20 };
+  assert.equal(segHitsBox([[0, 20], [40, 20]], box), true);
+  assert.equal(segHitsBox([[0, 10], [40, 10]], box), false);
+  assert.equal(segHitsBox([[20, 0], [20, 40]], box), true);
+});
+
+test('edges that share a node may fan out from it without a crossing', () => {
+  const shapes = [{ id: 'g', x: 0, y: 0, w: 50, h: 50, container: false }];
+  const edges = [
+    { id: 'a', pts: [[50, 25], [100, 25], [100, 0]], src: 'g', tgt: 'x' },
+    { id: 'b', pts: [[50, 25], [100, 25], [100, 60]], src: 'g', tgt: 'y' },
+  ];
+  const r = auditGeometry({ shapes, edges });
+  assert.equal(r.crossings, 0);
+});
+
+test('a line inside a subprocess may cross its box, but not the steps inside it or other subprocesses', () => {
+  const shapes = [
+    { id: 'sub', x: 100, y: 0, w: 400, h: 100, container: false },
+    { id: 'inner', x: 250, y: 30, w: 50, h: 40, container: false },
+    { id: 'other', x: 600, y: 0, w: 200, h: 100, container: false },
+  ];
+  const edges = [
+    { id: 'inside', pts: [[120, 50], [240, 50]], src: 's', tgt: 't', within: ['sub'] },
+    { id: 'through_inner', pts: [[120, 50], [480, 50]], src: 's', tgt: 'e', within: ['sub'] },
+    { id: 'across', pts: [[0, 50], [900, 50]], src: 'x', tgt: 'y' },
+  ];
+  const through = auditGeometry({ shapes, edges }).throughPairs.map((p) => `${p.edge}>${p.shape}`);
+  assert.deepEqual(through.sort(), ['across>inner', 'across>other', 'across>sub', 'through_inner>inner']);
+});
+
+test('the layout audit reads which subprocess a flow is declared in', () => {
+  const xml = `<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI">
+  <bpmn:process id="p">
+    <bpmn:subProcess id="sub" name="Sub">
+      <bpmn:startEvent id="s"/><bpmn:task id="t"/>
+      <bpmn:sequenceFlow id="f" sourceRef="s" targetRef="t"/>
+    </bpmn:subProcess>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram><bpmndi:BPMNPlane bpmnElement="p">
+    <bpmndi:BPMNShape bpmnElement="sub" isExpanded="true"><dc:Bounds x="100" y="0" width="400" height="100"/></bpmndi:BPMNShape>
+    <bpmndi:BPMNShape bpmnElement="s"><dc:Bounds x="120" y="30" width="36" height="36"/></bpmndi:BPMNShape>
+    <bpmndi:BPMNShape bpmnElement="t"><dc:Bounds x="250" y="10" width="100" height="80"/></bpmndi:BPMNShape>
+    <bpmndi:BPMNEdge bpmnElement="f"><di:waypoint x="156" y="48"/><di:waypoint x="250" y="48"/></bpmndi:BPMNEdge>
+  </bpmndi:BPMNPlane></bpmndi:BPMNDiagram>
+</bpmn:definitions>`;
+  assert.equal(auditLayout(xml).throughShape, 0);
+});
+
+const lanes = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }];
+const node = (id, type = 'userTask', lane = 'a') => ({ id, type, name: id, lane });
+
+test('a planar process is drawn with zero crossings and lines through nothing', () => {
+  const ir = {
+    name: 'Planar', lanes,
+    nodes: [node('s', 'startEvent'), node('t1'), node('g', 'exclusiveGateway'), node('t2'), node('t3', 'userTask', 'b'),
+      node('j', 'exclusiveGateway'), node('t4'), node('e', 'endEvent')],
+    flows: [{ from: 's', to: 't1' }, { from: 't1', to: 'g' }, { from: 'g', to: 't2', name: 'Yes', condition: 'ok' },
+      { from: 'g', to: 't3', name: 'No', default: true }, { from: 't2', to: 'j' }, { from: 't3', to: 'j' },
+      { from: 'j', to: 't4' }, { from: 't4', to: 'e' }],
+  };
+  const r = run(ir);
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+  assert.equal(r.layout.crossings, 0, JSON.stringify(r.layout));
+  assert.equal(r.layout.throughShape, 0, JSON.stringify(r.layout));
+  assert.equal(r.layout.labelCollisions, 0, JSON.stringify(r.layout));
+});
+
+test('every named event and gateway gets an explicit label box', () => {
+  const ir = {
+    name: 'Labels', lanes,
+    nodes: [{ id: 'created', type: 'startEvent', name: 'Work Item Created', lane: 'a' },
+      { id: 'orch', type: 'exclusiveGateway', name: 'Orchestrator?', lane: 'a' },
+      { id: 'go', type: 'userTask', name: 'Go', lane: 'a' }, { id: 'skip', type: 'userTask', name: 'Skip', lane: 'a' },
+      { id: 'join', type: 'exclusiveGateway', name: 'Merge', lane: 'a' }, { id: 'done', type: 'endEvent', name: 'Done', lane: 'a' }],
+    flows: [{ from: 'created', to: 'orch' }, { from: 'orch', to: 'go', name: 'yes', condition: 'orchestrator' },
+      { from: 'orch', to: 'skip', name: 'no', default: true }, { from: 'go', to: 'join' }, { from: 'skip', to: 'join' },
+      { from: 'join', to: 'done' }],
+  };
+  const r = run(ir);
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+  const shapeLabels = (r.xml.match(/<bpmndi:BPMNShape[^>]*>(?:(?!<\/bpmndi:BPMNShape>)[\s\S])*?<bpmndi:BPMNLabel>/g) || []).length;
+  const edgeLabels = (r.xml.match(/<bpmndi:BPMNEdge[^>]*>(?:(?!<\/bpmndi:BPMNEdge>)[\s\S])*?<bpmndi:BPMNLabel>/g) || []).length;
+  assert.equal(shapeLabels, 4, 'start, fork, merge and end each carry a label box');
+  assert.equal(edgeLabels, 2, 'both named branches carry a label box');
+  assert.equal(r.layout.labelCollisions, 0, JSON.stringify(r.layout));
+});
+
+test('a lane-less IR is laid out without a pool and without bpmn-auto-layout', () => {
+  const ir = {
+    name: 'Flat',
+    nodes: [{ id: 's', type: 'startEvent', name: 's' }, { id: 't', type: 'userTask', name: 't' }, { id: 'e', type: 'endEvent', name: 'e' }],
+    flows: [{ from: 's', to: 't' }, { from: 't', to: 'e' }],
+  };
+  const r = run(ir);
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+  assert.match(r.xml, /<bpmndi:BPMNShape/);
+  assert.doesNotMatch(r.xml, /Participant/);
+  assert.equal(r.layout.crossings, 0);
+});
+
+test('a fork inside ONE lane is drawn as a diamond, not a snake', () => {
+  const ir = {
+    name: 'Diamond', lanes,
+    nodes: [node('s', 'startEvent'), node('t1'), node('g', 'exclusiveGateway'), node('t2'), node('t3'),
+      node('j', 'exclusiveGateway'), node('t4'), node('e', 'endEvent')],
+    flows: [{ from: 's', to: 't1' }, { from: 't1', to: 'g' }, { from: 'g', to: 't2', name: 'Yes', condition: 'ok' },
+      { from: 'g', to: 't3', name: 'No', default: true }, { from: 't2', to: 'j' }, { from: 't3', to: 'j' },
+      { from: 'j', to: 't4' }, { from: 't4', to: 'e' }],
+  };
+  const r = run(ir);
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+  assert.equal(r.layout.crossings, 0, JSON.stringify(r.layout));
+  assert.equal(r.layout.labelCollisions, 0, JSON.stringify(r.layout));
+  // t2 and t3 share a column: same x, different y
+  const at = (id) => { const m = new RegExp('bpmnElement="' + id + '">\\s*<dc:Bounds x="(\\d+)" y="(\\d+)"').exec(r.xml); return [+m[1], +m[2]]; };
+  assert.equal(at('t2')[0], at('t3')[0]);
+  assert.notEqual(at('t2')[1], at('t3')[1]);
+});
+
+test('unrelated nodes still take their own column (no pile-up in one cell)', () => {
+  // a chain of six tasks in one lane must stay six columns wide
+  const nodes = [node('s', 'startEvent')].concat(['a', 'b', 'c', 'd', 'e1', 'f'].map(n => node(n))).concat([node('end', 'endEvent')]);
+  const ids = nodes.map(n => n.id);
+  const flows = ids.slice(1).map((to, k) => ({ from: ids[k], to }));
+  const r = run({ name: 'Chain', lanes, nodes, flows });
+  assert.equal(r.ok, true);
+  const xs = [...r.xml.matchAll(/bpmnElement="(?:a|b|c|d|e1|f)">\s*<dc:Bounds x="(\d+)"/g)].map(m => +m[1]);
+  assert.equal(new Set(xs).size, 6, 'six distinct columns');
+});
+
+test('resolved task attributes reach the XML, namespaced', () => {
+  // attrs are what bpmn_task_config.py produces; the compiler writes them as-is.
+  const r = run({
+    name: 'Visa', lanes,
+    nodes: [node('s', 'startEvent'),
+      { id: 'u1', type: 'userTask', name: 'Review', lane: 'a',
+        attrs: { targetDoctype: 'Visa Request', assigneeMode: 'DocField',
+                 taskActions: '[{"action":"Approve","confirmTransition":"true"}]' } },
+      { id: 'v1', type: 'serviceTask', name: 'Send for approval', lane: 'a',
+        attrs: { serviceType: 'apply_workflow', serviceTargetDoctype: 'Visa Request',
+                 workflowState: 'Pending GRD Manager Approval', docStatus: '0' } },
+      node('e', 'endEvent')],
+    flows: [{ from: 's', to: 'u1' }, { from: 'u1', to: 'v1' }, { from: 'v1', to: 'e' }],
+  });
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+  assert.match(r.xml, /xmlns:spiffworkflow="http:\/\/spiffworkflow\.org\/bpmn\/schema\/1\.0\/core"/);
+  assert.match(r.xml, /spiffworkflow:serviceType="apply_workflow"/);
+  assert.match(r.xml, /spiffworkflow:workflowState="Pending GRD Manager Approval"/);
+  assert.match(r.xml, /spiffworkflow:assigneeMode="DocField"/);
+  // JSON survives attribute escaping and comes back parseable.
+  const raw = /spiffworkflow:taskActions="([^"]*)"/.exec(r.xml)[1].replace(/&#34;/g, '"');
+  assert.equal(JSON.parse(raw)[0].action, 'Approve');
+});
+
+test('a diagram with no configured task declares no spiffworkflow namespace', () => {
+  // Every diagram generated before configuration existed must be unchanged.
+  const r = run({
+    name: 'Plain', lanes,
+    nodes: [node('s', 'startEvent'), node('t1'), node('e', 'endEvent')],
+    flows: [{ from: 's', to: 't1' }, { from: 't1', to: 'e' }],
+  });
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+  assert.equal(r.xml.includes('spiffworkflow'), false);
+});
+
+test('shapes that share an id are one node, so every reject path can lead to the same step', () => {
+  const node = (id, type, name) => ({ id, type, name });
+  const reject = { id: 'set_rejected', type: 'serviceTask', name: 'Set Rejected' };
+  const ir = {
+    process_name: 'Shared Reject',
+    nodes: [
+      node('start', 'startEvent', 'Start'),
+      node('t1', 'userTask', 'Manager Review'), node('g1', 'exclusiveGateway', 'Approved by manager?'),
+      node('t2', 'userTask', 'HR Review'), node('g2', 'exclusiveGateway', 'Approved by HR?'),
+      reject, reject,
+      node('end_ok', 'endEvent', 'Approved'), node('end_rej', 'endEvent', 'Rejected'),
+    ],
+    flows: [
+      { from: 'start', to: 't1' }, { from: 't1', to: 'g1' },
+      { from: 'g1', to: 't2', condition: "action == 'Approve'" }, { from: 'g1', to: 'set_rejected', default: true },
+      { from: 't2', to: 'g2' },
+      { from: 'g2', to: 'end_ok', condition: "action == 'Approve'" }, { from: 'g2', to: 'set_rejected', default: true },
+      { from: 'set_rejected', to: 'end_rej' }, { from: 'set_rejected', to: 'end_rej' },
+    ],
+  };
+  const out = run(ir);
+  assert.equal(out.ok, true, JSON.stringify(out.problems));
+  assert.equal(out.xml.match(/id="set_rejected"/g).length, 1);
+});
+
+const subIr = () => ({
+  name: 'Doctype Sync',
+  nodes: [
+    { id: 's', type: 'startEvent', name: 'Start' },
+    { id: 'mid', type: 'intermediateThrowEvent', name: 'Intermediate' },
+    {
+      id: 'sub', type: 'subProcess', name: 'Test Sub Process',
+      children: {
+        nodes: [
+          { id: 'a', type: 'startEvent', name: 'Start' },
+          { id: 't', type: 'userTask', name: 'Open the list' },
+          { id: 'z', type: 'endEvent', name: 'Saved' },
+        ],
+        flows: [{ from: 'a', to: 't' }, { from: 't', to: 'z' }],
+      },
+    },
+    { id: 'e', type: 'endEvent', name: 'End' },
+  ],
+  flows: [{ from: 's', to: 'mid' }, { from: 'mid', to: 'sub' }, { from: 'sub', to: 'e' }],
+});
+
+const between = (xml, open, close) => {
+  const i = xml.indexOf(open);
+  return i < 0 ? '' : xml.slice(i, xml.indexOf(close, i));
+};
+
+test('sub-process steps compile inside the sub-process, with their own flows', () => {
+  const r = run(subIr());
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+  const inner = between(r.xml, '<bpmn:subProcess id="sub"', '</bpmn:subProcess>');
+  for (const id of ['id="a"', 'id="t"', 'id="z"']) assert.ok(inner.includes(id), `${id} missing inside the sub-process`);
+  assert.equal((inner.match(/<bpmn:sequenceFlow /g) || []).length, 2);
+});
+
+test('sub-process steps are drawn on their own plane, not on the main diagram', () => {
+  const r = run(subIr());
+  const planes = [...r.xml.matchAll(/<bpmndi:BPMNPlane id="([^"]+)" bpmnElement="([^"]+)"/g)].map((m) => m[2]);
+  assert.deepEqual(planes, ['Process_1', 'sub']);
+  const [main, sub] = r.xml.split('<bpmndi:BPMNDiagram').slice(1);
+  assert.ok(!main.includes('bpmnElement="t"'), 'inner step leaked onto the main plane');
+  assert.ok(sub.includes('bpmnElement="t"') && sub.includes('bpmnElement="a"') && sub.includes('bpmnElement="z"'));
+  assert.match(main, /bpmnElement="sub"[^>]*isExpanded="false"/);
+});
+
+test('intermediate events keep their type', () => {
+  const r = run(subIr());
+  assert.ok(r.xml.includes('<bpmn:intermediateThrowEvent id="mid"'));
+  const catchIr = subIr();
+  catchIr.nodes[1].type = 'intermediateCatchEvent';
+  assert.ok(run(catchIr).xml.includes('<bpmn:intermediateCatchEvent id="mid"'));
+});
+
+test('a sub-process step that points outside the sub-process is reported, not drawn', () => {
+  const ir = subIr();
+  ir.nodes[2].children.flows.push({ from: 't', to: 'e' });
+  const r = run(ir);
+  assert.equal(r.ok, false);
+  assert.match(JSON.stringify(r.problems), /sub/);
+});
+
+test('the layout audit judges each plane on its own', () => {
+  const r = run(subIr());
+  assert.equal(r.layout.overlaps, 0, JSON.stringify(r.problems));
+  assert.equal(r.layout.labelCollisions, 0, JSON.stringify(r.problems));
+});
+
+// ── Expanded sub-processes: the steps are drawn inside the box, on the main plane ──
+
+const expandedIr = () => {
+  const ir = subIr();
+  ir.nodes[2].expanded = true;
+  return ir;
+};
+const rect = (xml, id) => {
+  const m = new RegExp('bpmnElement="' + id + '"[^>]*>\\s*<dc:Bounds x="([\\d.-]+)" y="([\\d.-]+)" width="([\\d.]+)" height="([\\d.]+)"').exec(xml);
+  return m && { x: +m[1], y: +m[2], w: +m[3], h: +m[4] };
+};
+const inside = (a, b) => a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
+const apart = (a, b) => a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+
+test('an expanded sub-process is drawn on the main plane with its steps inside the box', () => {
+  const r = run(expandedIr());
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+  assert.equal((r.xml.match(/<bpmndi:BPMNPlane /g) || []).length, 1);
+  assert.match(r.xml, /bpmnElement="sub"[^>]*isExpanded="true"/);
+  const box = rect(r.xml, 'sub');
+  for (const id of ['a', 't', 'z']) assert.ok(inside(rect(r.xml, id), box), `${id} is not inside the sub-process box`);
+});
+
+test('an expanded sub-process takes the room its steps need and nothing overlaps it', () => {
+  const r = run(expandedIr());
+  const box = rect(r.xml, 'sub');
+  assert.ok(box.w > 100 && box.h > 80, JSON.stringify(box));
+  for (const id of ['s', 'mid', 'e']) assert.ok(apart(rect(r.xml, id), box), `${id} overlaps the sub-process`);
+  assert.deepEqual([r.layout.crossings, r.layout.throughShape, r.layout.overlaps], [0, 0, 0], JSON.stringify(r.problems));
+});
+
+test('an expanded sub-process inside an expanded sub-process keeps every level inside its parent', () => {
+  const ir = expandedIr();
+  ir.nodes[2].children.nodes[1] = {
+    id: 't', type: 'subProcess', name: 'Inner', expanded: true,
+    children: {
+      nodes: [{ id: 'ia', type: 'startEvent', name: 'S' }, { id: 'it', type: 'userTask', name: 'Deep step' }, { id: 'iz', type: 'endEvent', name: 'E' }],
+      flows: [{ from: 'ia', to: 'it' }, { from: 'it', to: 'iz' }],
+    },
+  };
+  const r = run(ir);
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+  assert.ok(inside(rect(r.xml, 'it'), rect(r.xml, 't')));
+  assert.ok(inside(rect(r.xml, 't'), rect(r.xml, 'sub')));
+});
+
+test('a diagram with no expanded sub-process is laid out exactly as before', () => {
+  const r = run(subIr());
+  const plain = rect(r.xml, 'sub');
+  assert.deepEqual([plain.w, plain.h], [100, 80]);
+  assert.equal((r.xml.match(/<bpmndi:BPMNPlane /g) || []).length, 2);
+});
+
+test('a lane with an expanded sub-process in it is as tall as the box needs', () => {
+  const ir = expandedIr();
+  ir.lanes = [{ id: 'l1', name: 'Payroll' }];
+  ir.nodes.forEach((n) => { n.lane = 'l1'; });
+  const r = run(ir);
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+  const lane = /bpmnElement="l1"[^>]*>\s*<dc:Bounds x="[\d.-]+" y="([\d.-]+)" width="[\d.]+" height="([\d.]+)"/.exec(r.xml);
+  const box = rect(r.xml, 'sub');
+  assert.ok(box.y >= +lane[1] && box.y + box.h <= +lane[1] + +lane[2], 'the box runs out of its lane');
+});
+
+test('steps inside a sub-process carry their incoming and outgoing flow references', () => {
+  for (const ir of [subIr(), expandedIr()]) {
+    const r = run(ir);
+    const inner = between(r.xml, '<bpmn:subProcess id="sub"', '</bpmn:subProcess>');
+    const flows = inner.match(/<bpmn:sequenceFlow /g).length;
+    assert.equal((inner.match(/<bpmn:incoming>/g) || []).length, flows);
+    assert.equal((inner.match(/<bpmn:outgoing>/g) || []).length, flows);
+  }
+});
+
+test('main-process steps do not get references from the compiler, the canvas adds those', () => {
+  const r = run(subIr());
+  const outer = r.xml.replace(between(r.xml, '<bpmn:subProcess id="sub"', '</bpmn:subProcess>'), '');
+  assert.equal((outer.match(/<bpmn:incoming>/g) || []).length, 0);
+});
+
+test('a call activity stays a call activity and keeps the process it calls', () => {
+  const ir = {
+    name: 'P',
+    nodes: [
+      { id: 's', type: 'startEvent', name: 'Start' },
+      { id: 'c', type: 'callActivity', name: 'Run clearance', calledElement: 'Process_Payroll' },
+      { id: 'e', type: 'endEvent', name: 'End' },
+    ],
+    flows: [{ from: 's', to: 'c' }, { from: 'c', to: 'e' }],
+  };
+  const r = run(ir);
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+  assert.match(r.xml, /<bpmn:callActivity id="c"[^>]*calledElement="Process_Payroll"/);
+  assert.ok(!/<bpmn:scriptTask id="c"/.test(r.xml));
+});

@@ -31,7 +31,6 @@ from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
 	dispatch_update_field,
 )
 from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import (
-	_send_assignee_notification,
 	add_frappe_assignment,
 	notify_task_assignee,
 	get_reliever_if_on_leave,
@@ -68,11 +67,7 @@ def call_get_reliever(user):
 
 
 def call_add_assignment(inst, user, task_name="", task_cfg=None):
-	return add_frappe_assignment(inst, user, task_name, task_cfg=task_cfg)
-
-
-def call_send_assignee_notification(inst, user, task_name, task_cfg):
-	return _send_assignee_notification(inst, user, task_name, task_cfg)
+	return add_frappe_assignment(inst, user, task_name)
 
 
 def call_notify_task_assignee(inst, user, task_name, task_cfg):
@@ -240,6 +235,37 @@ class TestDispatchEmail(BaseBPMNHelperTest):
 
 		self.assertFalse(sendemail.called)
 
+	def _send_to_table(self, cfg, rows, table_field="custom_assigned_to"):
+		inst = make_instance(context_doctype="Task", context_docname="TASK-1")
+		doc = frappe._dict({table_field: [frappe._dict(r) for r in rows]})
+		patcher, sendemail = self._patched_sendemail()
+		with patcher, patch.object(frappe, "get_doc", return_value=doc):
+			call_dispatch_email(inst, FakeTask(), {"emailSubject": "Hi", "emailBody": "x", **cfg})
+		return sendemail.call_args.kwargs["recipients"] if sendemail.called else []
+
+	def test_every_row_of_a_table_field_is_a_recipient(self):
+		recipients = self._send_to_table(
+			{"emailToTableField": "custom_assigned_to"},
+			[{"user": "a@x.com"}, {"user": ""}, {"user": "b@x.com"}],
+		)
+		self.assertEqual(recipients, ["a@x.com", "b@x.com"])
+
+	def test_the_row_user_field_is_configurable(self):
+		"""Department's approver tables call the column `approver`, not `user`."""
+		recipients = self._send_to_table(
+			{"emailToTableField": "leave_approvers", "emailToTableUserField": "approver"},
+			[{"approver": "c@x.com"}],
+			table_field="leave_approvers",
+		)
+		self.assertEqual(recipients, ["c@x.com"])
+
+	def test_table_rows_join_the_other_recipients_once(self):
+		recipients = self._send_to_table(
+			{"emailTo": "a@x.com", "emailToTableField": "custom_assigned_to"},
+			[{"user": "a@x.com"}, {"user": "b@x.com"}],
+		)
+		self.assertEqual(recipients, ["a@x.com", "b@x.com"])
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # google_chat dispatcher (guard / validation behavior)
@@ -403,6 +429,114 @@ class TestResolveAssignment(BaseBPMNHelperTest):
 		self.assertEqual(call_resolve_assignment(inst, FakeTask("task_1")), "")
 
 
+class TestResolveAssignmentTableField(BaseBPMNHelperTest):
+	"""Table Field mode: every user in a child table may action the task.
+
+	The resolved value is a comma-joined list, and every caller that reads
+	``assigned_user`` as a set of people goes through ``split_users``.
+	"""
+
+	def _instance(self, **cfg):
+		task_cfg = {
+			"assigneeMode": "Table Field",
+			"targetDoctype": "Task",
+			"assigneeTableField": "custom_assigned_to",
+		}
+		task_cfg.update(cfg)
+		return make_instance(
+			context_doctype="Task",
+			context_docname="TASK-1",
+			user_task_extensions={"task_1": task_cfg},
+		)
+
+	def _doc(self, table_field, rows):
+		doc = frappe._dict({table_field: [frappe._dict(r) for r in rows]})
+		return doc
+
+	def test_every_row_is_assigned(self):
+		inst = self._instance()
+		doc = self._doc("custom_assigned_to", [{"user": "a@x.com"}, {"user": "b@x.com"}])
+
+		with patch.object(frappe, "get_doc", return_value=doc), patch.object(
+			frappe.db, "get_value", return_value=None
+		):
+			result = call_resolve_assignment(inst, FakeTask("task_1"))
+
+		self.assertEqual(result, "a@x.com,b@x.com")
+
+	def test_the_row_user_field_is_configurable(self):
+		"""Department's approver tables call the column `approver`, not `user`."""
+		inst = self._instance(
+			targetDoctype="Department",
+			assigneeTableField="leave_approvers",
+			assigneeTableUserField="approver",
+		)
+		doc = self._doc("leave_approvers", [{"approver": "c@x.com"}])
+
+		with patch.object(frappe, "get_doc", return_value=doc), patch.object(
+			frappe.db, "get_value", return_value=None
+		):
+			self.assertEqual(call_resolve_assignment(inst, FakeTask("task_1")), "c@x.com")
+
+	def test_repeats_and_blanks_are_dropped(self):
+		"""The same person twice must not become two assignees — the list is a
+		membership test at completion time, not a queue."""
+		inst = self._instance()
+		doc = self._doc(
+			"custom_assigned_to",
+			[{"user": "a@x.com"}, {"user": ""}, {"user": "a@x.com"}, {"user": "b@x.com"}],
+		)
+
+		with patch.object(frappe, "get_doc", return_value=doc), patch.object(
+			frappe.db, "get_value", return_value=None
+		):
+			self.assertEqual(call_resolve_assignment(inst, FakeTask("task_1")), "a@x.com,b@x.com")
+
+	def test_an_empty_table_assigns_nobody(self):
+		inst = self._instance()
+		doc = self._doc("custom_assigned_to", [])
+
+		with patch.object(frappe, "get_doc", return_value=doc), patch.object(
+			frappe.db, "get_value", return_value=None
+		):
+			self.assertEqual(call_resolve_assignment(inst, FakeTask("task_1")), "")
+
+	def test_an_unconfigured_table_field_assigns_nobody(self):
+		"""Mode picked, field never chosen — the state a map is in while it is
+		being drawn. It must resolve to nobody rather than raise."""
+		inst = self._instance(assigneeTableField="")
+		self.assertEqual(call_resolve_assignment(inst, FakeTask("task_1")), "")
+
+	def test_a_user_on_leave_is_replaced_by_their_reliever(self):
+		inst = self._instance()
+		doc = self._doc("custom_assigned_to", [{"user": "a@x.com"}, {"user": "b@x.com"}])
+
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import assignment
+
+		with patch.object(frappe, "get_doc", return_value=doc), patch.object(
+			assignment, "get_reliever_if_on_leave",
+			side_effect=lambda u, pairs=None: "stand-in@x.com" if u == "a@x.com" else u,
+		):
+			result = call_resolve_assignment(inst, FakeTask("task_1"))
+
+		self.assertEqual(result, "stand-in@x.com,b@x.com")
+
+	def test_the_resolved_list_reads_back_as_its_members(self):
+		"""What every consumer does with it: permission checks, the pending-task
+		query and ToDo creation all split the field rather than compare it."""
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import split_users
+
+		inst = self._instance()
+		doc = self._doc("custom_assigned_to", [{"user": "a@x.com"}, {"user": "b@x.com"}])
+
+		with patch.object(frappe, "get_doc", return_value=doc), patch.object(
+			frappe.db, "get_value", return_value=None
+		):
+			result = call_resolve_assignment(inst, FakeTask("task_1"))
+
+		self.assertEqual(split_users(result), ["a@x.com", "b@x.com"])
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Frappe assignment (ToDo) management
 # ──────────────────────────────────────────────────────────────────────────────
@@ -479,7 +613,7 @@ class TestAssigneeNotification(BaseBPMNHelperTest):
 
 	def test_notification_sends_rendered_html_email(self):
 		"""When notifyAssignee=true and notifyAssigneeBody has Jinja, send rendered email."""
-		inst = make_instance(name="TEST-PI-NOTIFY", context_doctype="ToDo")
+		inst = make_instance(name="TEST-PI-NOTIFY", context_doctype="ToDo", context_docname="DOC-1")
 		cfg = {
 			"notifyAssignee": "true",
 			"notifyAssigneeBody": "<p>Hello from {{ instance.name }}</p>",
@@ -487,7 +621,7 @@ class TestAssigneeNotification(BaseBPMNHelperTest):
 
 		patcher, sendemail = self._patched_sendemail()
 		with patcher:
-			call_send_assignee_notification(inst, "alice@x.com", "Review Task", cfg)
+			call_notify_task_assignee(inst, "alice@x.com", "Review Task", cfg)
 
 		self.assertTrue(sendemail.called)
 		kwargs = sendemail.call_args.kwargs
@@ -495,9 +629,9 @@ class TestAssigneeNotification(BaseBPMNHelperTest):
 		self.assertIn("TEST-PI-NOTIFY", kwargs["message"])
 		self.assertIn("<p>Hello from", kwargs["message"])
 
-	def test_notification_not_sent_when_body_empty(self):
-		"""When notifyAssigneeBody is empty, no email should be sent."""
-		inst = make_instance(name="TEST-PI-EMPTY")
+	def test_notification_with_empty_body_sends_the_default_text(self):
+		"""Notify Assignee ticked with no body still announces the task."""
+		inst = make_instance(name="TEST-PI-EMPTY", context_doctype="ToDo", context_docname="DOC-1")
 		cfg = {
 			"notifyAssignee": "true",
 			"notifyAssigneeBody": "",
@@ -505,9 +639,10 @@ class TestAssigneeNotification(BaseBPMNHelperTest):
 
 		patcher, sendemail = self._patched_sendemail()
 		with patcher:
-			call_send_assignee_notification(inst, "alice@x.com", "Review Task", cfg)
+			call_notify_task_assignee(inst, "alice@x.com", "Review Task", cfg)
 
-		self.assertFalse(sendemail.called)
+		self.assertTrue(sendemail.called)
+		self.assertIn("Review Task", sendemail.call_args.kwargs["message"])
 
 	def test_notification_not_sent_when_flag_unchecked(self):
 		"""When notifyAssignee is not 'true', the notification helper should be a no-op."""

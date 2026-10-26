@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h3\\\" style=\\\"\\\"><a href=\\\"/processa/process\\\">Visit Processa</a></span>\",\"col\":12}},{\"type\":\"spacer\",\"data\":{\"col\":12}},{\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h4\\\">BPMN Configuration<br></span>\",\"col\":12}},{\"type\":\"card\",\"data\":{\"card_name\":\"BPMN\",\"col\":4}}]",
+ "content": "[{\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h3\\\" style=\\\"\\\"><a href=\\\"/processa/process\\\">Visit Processa</a></span>\",\"col\":12}},{\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"ONE AI\",\"col\":4}},{\"type\":\"spacer\",\"data\":{\"col\":12}},{\"type\":\"paragraph\",\"data\":{\"text\":\"<span class=\\\"h4\\\">BPMN Configuration<br></span>\",\"col\":12}},{\"type\":\"card\",\"data\":{\"card_name\":\"BPMN\",\"col\":4}}]",
  "creation": "2026-03-23 09:50:00",
  "custom_blocks": [],
  "docstatus": 0,
@@ -65,7 +65,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-03-23 10:10:00",
+ "modified": "2026-09-20 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "Processa",
@@ -84,6 +84,14 @@
   }
  ],
  "sequence_id": 10.0,
- "shortcuts": [],
+ "shortcuts": [
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "ONE AI",
+   "type": "URL",
+   "url": "/one-ai"
+  }
+ ],
  "title": "Processa"
 }

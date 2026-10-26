@@ -53,42 +53,69 @@ def _decode_html_attr(value: str) -> str:
 		return value
 
 
-def get_reliever_if_on_leave(user: str) -> str:
+def get_reliever_if_on_leave(user: str, pairs: list = None) -> str:
 	"""
 	If *user* is on approved leave today, return the reliever's User ID
 	from the Leave Application (``reliever_user_id``).  Falls back to the
 	original *user* when no active approved leave exists or no reliever is set.
+
+	``pairs`` collects every (relieved, reliever) redirect this resolution
+	made, so the row can record whose task it originally was — without that,
+	nothing remembers the owner and the task stays with the reliever forever.
 	"""
 	if not user:
 		return user
 
 	try:
-		today = frappe.utils.today()
-		employee = frappe.db.get_value(
-			"Employee",
-			{"user_id": user, "status": ["in", ["Active", "Vacation", "Not Returned from Leave"]]},
-			"name",
-		)
-		if not employee:
+		reliever_user = _current_reliever(user)
+		if not reliever_user:
 			return user
-		reliever_user = frappe.db.get_value(
-			"Leave Application",
-			{
-				"employee": employee,
-				"status": "Approved",
-				"from_date": ["<=", today],
-				"to_date": [">=", today],
-				"reliever_user_id": ["is", "set"],
-			},
-			"reliever_user_id",
-		)
-		return reliever_user if reliever_user else user
+		if pairs is not None:
+			pairs.append((user, reliever_user))
+		return reliever_user
 	except Exception:
 		frappe.log_error(
 			title="BPMN: Leave reliever lookup failed",
 			message=frappe.get_traceback(),
 		)
 		return user
+
+
+def _current_reliever(user: str) -> str | None:
+	"""The reliever named on *user*'s approved leave covering today, or None."""
+	today = frappe.utils.today()
+	employee = frappe.db.get_value(
+		"Employee",
+		{"user_id": user, "status": ["in", ["Active", "Vacation", "Not Returned from Leave"]]},
+		"name",
+	)
+	if not employee:
+		return None
+	return frappe.db.get_value(
+		"Leave Application",
+		{
+			"employee": employee,
+			"status": "Approved",
+			"from_date": ["<=", today],
+			"to_date": [">=", today],
+			"reliever_user_id": ["is", "set"],
+		},
+		"reliever_user_id",
+	)
+
+
+def task_actors(row) -> set:
+	"""Everyone who may action a Waiting task row: its assignees, the recorded relieved/reliever
+	pair, and the live reliever of any assignee or relieved user."""
+	actors = set()
+	for field in (row.assigned_user, row.relieved_user, row.reliever_user):
+		actors.update(split_users(field or ""))
+	owners = set(split_users(row.assigned_user or "")) | set(split_users(row.relieved_user or ""))
+	for owner in owners:
+		reliever = _current_reliever(owner)
+		if reliever:
+			actors.add(reliever)
+	return actors
 
 
 def resolve_assignment(instance, task) -> str:
@@ -125,7 +152,9 @@ def resolve_assignment(instance, task) -> str:
 	        an assignment as a single user must go through ``split_users()``.
 
 	For all modes, if the resolved assignee is on approved leave today the
-	task is redirected to the reliever named in their Leave Application.
+	task is redirected to the reliever named in their Leave Application, and
+	the (relieved, reliever) pair is left on ``instance._relief_pairs`` for the
+	caller to record on the row.
 
 	Returns the resolved user email/name (or comma-joined list for Table
 	Field mode), or empty string if unresolvable.
@@ -134,11 +163,16 @@ def resolve_assignment(instance, task) -> str:
 	bpmn_id = getattr(task.task_spec, "bpmn_id", None) or ""
 	task_cfg = extensions.get(bpmn_id, {})
 
+	# Reset per resolution: the caller reads it straight after to fill the row's
+	# Relieved User / Reliever User, and a stale list would mislabel the next task.
+	pairs = []
+	instance._relief_pairs = pairs
+
 	mode = task_cfg.get("assigneeMode", "")
 
 	# ── User ──────────────────────────────────────────────────────────────
 	if mode == "User":
-		return get_reliever_if_on_leave(task_cfg.get("assigneeUser", ""))
+		return get_reliever_if_on_leave(task_cfg.get("assigneeUser", ""), pairs)
 
 	# ── DocField ──────────────────────────────────────────────────────────
 	if mode == "DocField":
@@ -147,7 +181,7 @@ def resolve_assignment(instance, task) -> str:
 		if doctype and docfield and instance.context_docname:
 			try:
 				user = frappe.db.get_value(doctype, instance.context_docname, docfield)
-				return get_reliever_if_on_leave(user or "")
+				return get_reliever_if_on_leave(user or "", pairs)
 			except Exception:
 				return ""
 		return ""
@@ -183,13 +217,13 @@ def resolve_assignment(instance, task) -> str:
 			except Exception:
 				pass
 
-			return get_reliever_if_on_leave(assignee)
+			return get_reliever_if_on_leave(assignee, pairs)
 		except Exception:
 			frappe.log_error(
 				title="BPMN: Round Robin assignment failed",
 				message=frappe.get_traceback(),
 			)
-			return get_reliever_if_on_leave(users[0]) if users else ""
+			return get_reliever_if_on_leave(users[0], pairs) if users else ""
 
 	# ── Load Balancing ─────────────────────────────────────────────────────
 	# Correct logic (per spec):
@@ -224,14 +258,14 @@ def resolve_assignment(instance, task) -> str:
 			# User with fewest active assignments wins; ties → first in list
 			minimum = min(loads.values())
 			assignee = next(u for u in users if loads[u] == minimum)
-			return get_reliever_if_on_leave(assignee)
+			return get_reliever_if_on_leave(assignee, pairs)
 
 		except Exception:
 			frappe.log_error(
 				title="BPMN: Load Balancing assignment failed",
 				message=frappe.get_traceback(),
 			)
-			return get_reliever_if_on_leave(users[0]) if users else ""
+			return get_reliever_if_on_leave(users[0], pairs) if users else ""
 
 	# ── Table Field ────────────────────────────────────────────────────────
 	if mode == "Table Field":
@@ -249,7 +283,7 @@ def resolve_assignment(instance, task) -> str:
 				u = row.get(user_field)
 				if u and u not in seen:
 					seen.add(u)
-					users.append(get_reliever_if_on_leave(u))
+					users.append(get_reliever_if_on_leave(u, pairs))
 			return ",".join(users)
 		except Exception:
 			frappe.log_error(
@@ -261,115 +295,7 @@ def resolve_assignment(instance, task) -> str:
 	return ""
 
 
-def _send_assignee_notification(instance, user: str, task_name: str, task_cfg: dict) -> None:
-	"""
-	Send a custom HTML email notification to the assignee when
-	``notifyAssignee`` is checked and ``notifyAssigneeBody`` is configured
-	on the BPMN User Task.
-
-	The HTML body supports Jinja2 rendering with ``{{ doc }}``,
-	``{{ instance }}``, and ``{{ frappe }}`` as template context variables.
-
-	``notifyAssigneeAccount`` names an Email Account to send FROM, resolved to
-	its ``email_id`` exactly as the ``send_email`` Service Task resolves
-	``emailAccount``. Without it the site default sender is used. This exists so
-	a notification can be moved off a Service Task and onto the User Task it
-	belongs to without silently changing which mailbox it comes from — a reply
-	going to the wrong inbox is the kind of regression nobody notices for weeks.
-
-	Sent via ``one_fm.processor.sendemail`` with ``is_external_mail=True`` —
-	"Notify Assignee" is an explicit per-task opt-in in the BPMN diagram, so
-	it must NOT be filtered by the recipient's general notification
-	preferences.  Passing ``is_external_mail=True`` bypasses the
-	``is_email_notifications_allowed`` recipient filter that otherwise drops
-	any user who isn't an Active Employee with their user_id set as the
-	Company Email preferred contact — the filter that silently suppressed
-	this notification.
-
-	Non-fatal: failures are logged but never break the workflow.
-	"""
-	body_html = _decode_html_attr(task_cfg.get("notifyAssigneeBody") or "").strip()
-	if not body_html:
-		return
-
-	# ── Resolve the context document for Jinja rendering ──────────
-	doc = frappe._dict()
-	if instance.context_doctype and instance.context_docname:
-		try:
-			doc = frappe.get_doc(instance.context_doctype, instance.context_docname)
-		except Exception:
-			pass
-
-	jinja_ctx = {
-		"doc": doc,
-		"instance": instance,
-		"frappe": frappe,
-	}
-
-	# Render the HTML body through Jinja2
-	try:
-		rendered_body = frappe.render_template(body_html, jinja_ctx)
-	except Exception:
-		rendered_body = body_html  # fall back to raw HTML on template error
-
-	# Subject: use the configured notifyAssigneeSubject (Jinja-rendered) when
-	# set, otherwise fall back to the default BPMN task subject.
-	subject_tpl = (task_cfg.get("notifyAssigneeSubject") or "").strip()
-	default_subject = _("BPMN Task: \"{0}\"").format(task_name or "User Task")
-	if subject_tpl:
-		try:
-			subject = (frappe.render_template(subject_tpl, jinja_ctx) or "").strip()
-		except Exception:
-			subject = subject_tpl  # fall back to raw subject on template error
-		subject = (subject or "").strip() or default_subject
-	else:
-		subject = default_subject
-
-	# Which mailbox it comes FROM. Same resolution as the send_email Service
-	# Task: the account's email_id, or None for the site default.
-	sender = None
-	account = (task_cfg.get("notifyAssigneeAccount") or "").strip()
-	if account:
-		sender = frappe.db.get_value("Email Account", account, "email_id") or None
-		if not sender:
-			frappe.log_error(
-				title="BPMN: Notify Assignee email account not found",
-				message=(
-					f"Task {task_name!r} names Email Account {account!r}, which has no "
-					f"email_id (or does not exist). Falling back to the default sender."
-				),
-			)
-
-	try:
-		from one_fm.processor import sendemail as onefm_sendemail
-
-		onefm_sendemail(
-			recipients=[user],
-			subject=subject,
-			sender=sender,
-			header=[subject],
-			message=rendered_body,
-			reference_doctype=instance.context_doctype or instance.doctype,
-			reference_name=instance.context_docname or instance.name,
-			is_external_mail=True,
-		)
-	except ImportError:
-		frappe.sendmail(
-			recipients=[user],
-			subject=subject,
-			sender=sender,
-			message=rendered_body,
-			reference_doctype=instance.context_doctype or instance.doctype,
-			reference_name=instance.context_docname or instance.name,
-			now=False,
-		)
-
-
-def add_frappe_assignment(
-	instance, user: str, task_name: str = "",
-	bpmn_id: str = "", task_id: str = "",
-	task_cfg: dict = None,
-) -> None:
+def add_frappe_assignment(instance, user: str, task_name: str = "") -> None:
 	"""
 	Create a Frappe Assignment (ToDo) on the context document for the
 	resolved user.  This makes the assignment visible in Frappe's sidebar
@@ -383,25 +309,11 @@ def add_frappe_assignment(
 	so that:
 
 	1. ``type`` is set to ``"Process"`` on insert (no post-hoc ``db_set``).
-	2. The generic Frappe notification email is **suppressed** — the composer
-	   sends a custom AMP email instead when ``notifyAssignee`` is configured.
-
-	Respects the ``notifyAssignee`` setting from the BPMN diagram:
-	  - If ``notifyAssignee`` is ``"true"``, a custom email notification
-	    is sent using the ``notifyAssigneeBody`` HTML template (Jinja2).
-	    The HTML body is rendered with ``{{ doc }}``, ``{{ instance }}``,
-	    and ``{{ frappe }}`` context variables.
-	  - Otherwise, no notification is sent (``notify=0``).
+	2. The generic Frappe notification email is **suppressed**. The task
+	   email is ``notify_task_assignee``'s job.
 
 	Silently skips if no context document is linked or if the user is
 	already assigned.  Failures are logged but never break the workflow.
-
-	Args:
-		instance:  The BPMN Process Instance document.
-		user:      The user email to assign the task to.
-		task_name: Human-readable name of the BPMN task.
-		bpmn_id:   BPMN element ID — used to read ``_user_task_extensions``.
-		task_id:   SpiffWorkflow task UUID — used for HMAC token generation.
 	"""
 	if not (instance.context_doctype and instance.context_docname and user):
 		return
@@ -419,8 +331,6 @@ def add_frappe_assignment(
 		)
 		if existing:
 			return
-
-		cfg = task_cfg or {}
 
 		# The ToDo description is always the standard BPMN task message.
 		# notifyAssigneeBody is for email notification only — NOT the ToDo.
@@ -466,23 +376,6 @@ def add_frappe_assignment(
 		except Exception:
 			pass  # Non-critical — don't block on follow failures
 
-		# ── Send interactive AMP email (Story 5) ──────────────────────
-		try:
-			from one_bpmn.email_builder.composer import compose_and_send_task_email
-
-			compose_and_send_task_email(
-				instance=instance,
-				user=user,
-				task_name=task_name,
-				task_id=task_id,
-				bpmn_id=bpmn_id,
-			)
-		except Exception:
-			frappe.log_error(
-				title="BPMN: AMP email send failed",
-				message=frappe.get_traceback(),
-			)
-
 	except Exception:
 		frappe.log_error(
 			title=f"BPMN: Failed to assign {instance.context_doctype} to {user}",
@@ -491,7 +384,10 @@ def add_frappe_assignment(
 
 
 
-def notify_task_assignee(instance, user: str, task_name: str, task_cfg: dict | None) -> None:
+def notify_task_assignee(
+	instance, user: str, task_name: str, task_cfg: dict | None,
+	task_id: str = "", bpmn_id: str = "",
+) -> None:
 	"""Email the assignee that a User Task with Notify Assignee ticked is theirs.
 
 	Deliberately NOT part of ``add_frappe_assignment``. A ToDo belongs to a
@@ -514,7 +410,16 @@ def notify_task_assignee(instance, user: str, task_name: str, task_cfg: dict | N
 	if not (instance.context_doctype and instance.context_docname and user):
 		return
 	try:
-		_send_assignee_notification(instance, user, task_name, cfg)
+		from one_bpmn.email_builder.composer import compose_and_send_task_email
+
+		compose_and_send_task_email(
+			instance=instance,
+			user=user,
+			task_name=task_name,
+			task_id=task_id,
+			bpmn_id=bpmn_id,
+			task_cfg=cfg,
+		)
 	except Exception:
 		frappe.log_error(
 			title=f"BPMN: Assignee notification email failed for {user}",
@@ -557,3 +462,79 @@ def remove_frappe_assignment(instance, user: str, status: str = "Closed") -> Non
 			title=f"BPMN: Failed to close assignment on {instance.context_doctype} for {user}",
 			message=frappe.get_traceback(),
 		)
+
+
+def _swap_user(value: str, old_user: str, new_user: str) -> str:
+	"""Replace one entry of a comma-separated assignee list, leaving the rest.
+
+	``assigned_user`` often holds several people (Table Field mode). Only the
+	reliever's own entry may change hands — the others never went anywhere.
+	"""
+	users = split_users(value)
+	if old_user not in users or new_user in users:
+		return value
+	return ",".join(new_user if u == old_user else u for u in users)
+
+
+def restore_tasks_on_return(user: str) -> int:
+	"""Hand every task held by a reliever back to *user*, who is back from leave.
+
+	Reads the Relieved User / Reliever User pair recorded when the task was
+	redirected, swaps the reliever out of ``assigned_user`` and *user* back in,
+	and re-points the Frappe assignment so the task reappears in the right
+	person's list. The pair itself is left in place as history, so a row this
+	has already run on is skipped by the ``user in assigned_user`` guard rather
+	than by forgetting what happened.
+
+	Returns the number of rows handed back.
+	"""
+	if not user:
+		return 0
+
+	rows = frappe.db.sql(
+		"""
+		SELECT t.name, t.parent, t.assigned_user, t.relieved_user, t.reliever_user
+		FROM `tabBPMN Active Task` t
+		INNER JOIN `tabBPMN Process Instance` i ON i.name = t.parent
+		WHERE t.status = 'Waiting'
+		  AND i.status = 'Active'
+		  AND FIND_IN_SET(%s, REPLACE(t.relieved_user, ' ', '')) > 0
+		""",
+		user,
+		as_dict=True,
+	)
+
+	restored = 0
+	for row in rows:
+		relieved = split_users(row.relieved_user)
+		relievers = split_users(row.reliever_user)
+		if user not in relieved:
+			continue
+		idx = relieved.index(user)
+		if idx >= len(relievers):
+			continue
+		reliever = relievers[idx]
+
+		new_assigned = _swap_user(row.assigned_user, reliever, user)
+		if new_assigned == row.assigned_user:
+			continue  # already back with them, or the reliever has since moved on
+
+		frappe.db.set_value("BPMN Active Task", row.name, "assigned_user", new_assigned)
+
+		try:
+			instance = frappe.get_doc("BPMN Process Instance", row.parent)
+			remove_frappe_assignment(instance, reliever, status="Cancelled")
+			add_frappe_assignment(
+				instance,
+				user,
+				task_name=frappe.db.get_value("BPMN Active Task", row.name, "task_name") or "",
+			)
+		except Exception:
+			frappe.log_error(
+				title=f"BPMN: Could not re-point assignment on {row.parent} to {user}",
+				message=frappe.get_traceback(),
+			)
+
+		restored += 1
+
+	return restored

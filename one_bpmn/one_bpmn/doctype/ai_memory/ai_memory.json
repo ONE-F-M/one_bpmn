@@ -11,12 +11,19 @@
   "process_model",
   "reference_doctype",
   "reference_name",
+  "user",
   "section_break_content",
   "content",
+  "importance",
   "dedup_key",
   "metadata",
+  "user_directed",
   "section_break_provenance",
   "source_run",
+  "source_type",
+  "confidence",
+  "corroboration_count",
+  "last_corroborated",
   "expires_on"
  ],
  "fields": [
@@ -26,9 +33,9 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Memory Scope",
-   "options": "\nAgent\nProcess\nEntity",
+   "options": "\nAgent\nProcess\nEntity\nUser",
    "reqd": 1,
-   "description": "Agent = one BPMN agent element; Process = one process model; Entity = one business document"
+   "description": "Agent = one BPMN agent element; Process = one process model; Entity = one business document; User = one person's own preferences"
   },
   {
    "depends_on": "eval:doc.memory_scope=='Agent'",
@@ -40,13 +47,13 @@
    "description": "The BPMN element id (e.g. Activity_1a2b3c). Required for Agent scope."
   },
   {
-   "depends_on": "eval:doc.memory_scope=='Process'",
+   "depends_on": "eval:doc.memory_scope=='Process' || doc.memory_scope=='Agent'",
    "fieldname": "process_model",
    "fieldtype": "Link",
    "label": "Process",
    "mandatory_depends_on": "eval:doc.memory_scope=='Process'",
    "options": "BPMN Process Model",
-   "description": "The process model this memory is scoped to. Required for Process scope."
+   "description": "The process model this memory is scoped to (required for Process scope) or, for Agent scope, the process the writing run belonged to (optional provenance, not a scope key)."
   },
   {
    "depends_on": "eval:doc.memory_scope=='Entity'",
@@ -67,6 +74,15 @@
    "description": "The specific business document this memory is about. Required for Entity scope."
   },
   {
+   "description": "Set when the memory belongs to one person. Recall for that person returns their own memories plus the shared ones (no user); nobody else ever sees them. Empty means shared within the scope.",
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "User",
+   "options": "User"
+  },
+  {
    "fieldname": "section_break_content",
    "fieldtype": "Section Break",
    "label": "Memory"
@@ -74,10 +90,19 @@
   {
    "fieldname": "content",
    "fieldtype": "Long Text",
+   "ignore_xss_filter": 1,
    "in_global_search": 1,
    "label": "Content",
    "reqd": 1,
-   "description": "The memory text — the single source of truth for v1 keyword search."
+   "description": "The memory text — the single source of truth for v1 keyword search. ignore_xss_filter is required here: without it, Frappe's core save-time sanitizer (Document._sanitize_content, bleach-based) treats any '<...>'-shaped substring as an unrecognized HTML tag and HTML-escapes it (observed live: a '<PROJECT>-<YEAR>-<SEQ>' naming convention was stored as '&lt;PROJECT&gt;-...' verbatim) — this field holds arbitrary plain text, not markup, and must round-trip unchanged."
+  },
+  {
+   "default": "3",
+   "description": "How much this fact matters when it competes for recall, 1 (minor) to 5 (critical). Set by the distiller; a higher value lifts the memory in ranking.",
+   "fieldname": "importance",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Importance"
   },
   {
    "fieldname": "dedup_key",
@@ -93,6 +118,15 @@
    "description": "Arbitrary structured data (JSON)."
   },
   {
+   "default": "0",
+   "fieldname": "user_directed",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "User Directed",
+   "no_copy": 1,
+   "description": "Set when a user explicitly asked the agent to remember this (e.g. \"remember that...\"). Written verbatim, bypassing the salience distiller, and exempt from Log Settings auto-cleanup and keyword-only recall."
+  },
+  {
    "fieldname": "section_break_provenance",
    "fieldtype": "Section Break",
    "label": "Provenance & Retention"
@@ -104,6 +138,37 @@
    "no_copy": 1,
    "options": "AI Agent Run",
    "description": "The AI Agent Run that wrote this memory, when written by an agent."
+  },
+  {
+   "default": "Agent Inference",
+   "description": "Where the fact came from. A User Statement is something a person said or asked for; an Agent Inference is the agent's own conclusion; a Tool Output is read off data a tool returned. The trust hierarchy on Processa Settings decides which wins a contradiction.",
+   "fieldname": "source_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Source Type",
+   "options": "User Statement\nAgent Inference\nTool Output"
+  },
+  {
+   "default": "0.6",
+   "description": "How sure the store is of this fact, 0 to 1. Starts from the source type, rises when a later fact corroborates it, and decays with age when compared.",
+   "fieldname": "confidence",
+   "fieldtype": "Float",
+   "label": "Confidence",
+   "precision": "2"
+  },
+  {
+   "default": "0",
+   "fieldname": "corroboration_count",
+   "fieldtype": "Int",
+   "label": "Corroboration Count",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_corroborated",
+   "fieldtype": "Datetime",
+   "label": "Last Corroborated",
+   "read_only": 1
   },
   {
    "fieldname": "expires_on",
@@ -118,7 +183,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-07-05 00:00:00.000000",
+ "modified": "2026-09-11 23:30:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Memory",
@@ -142,6 +207,12 @@
    "read": 1,
    "report": 1,
    "role": "Process Designer"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "write": 1
   }
  ],
  "sort_field": "modified",

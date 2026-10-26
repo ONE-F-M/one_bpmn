@@ -1,0 +1,36 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-10-24 01:05:20.036287",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "keyword"
+ ],
+ "fields": [
+  {
+   "fieldname": "keyword",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_preview": 1,
+   "label": "Keyword",
+   "options": "Threat Keyword",
+   "reqd": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-10-28 19:39:48.439560",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "Threat Feed Keyword",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

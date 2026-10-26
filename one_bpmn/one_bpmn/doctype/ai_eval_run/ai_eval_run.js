@@ -17,6 +17,12 @@ frappe.ui.form.on("AI Eval Run", {
 				frm.reload_doc();
 			}
 		});
+		// Each finished case is committed on its own, so the results table can grow as they land.
+		frappe.realtime.on("eval_case_completed", function (data) {
+			if (data && data.run_name === frm.doc.name) {
+				frm.reload_doc();
+			}
+		});
 	},
 
 	onload(frm) {
@@ -24,6 +30,7 @@ frappe.ui.form.on("AI Eval Run", {
 		// multiple listeners across page loads.
 		frm.page.wrapper.on("page-change", function () {
 			frappe.realtime.off("eval_run_completed");
+			frappe.realtime.off("eval_case_completed");
 		});
 	},
 });

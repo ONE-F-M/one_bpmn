@@ -172,5 +172,14 @@ class TestFormActionsClientContract(FrappeTestCase):
 		self.assertIn("frm.layout.message", self.source)
 
 	def test_asset_cache_buster_bumped(self):
+		# Pinned to the exact value on purpose: the point of the test is that
+		# editing bpmn_form_actions.js without bumping the query string fails
+		# here, so the pin has to be updated deliberately alongside the file.
+		#
+		# v=4 rather than the v=3 this feature first shipped as. The revert
+		# (416bc6a) dropped the query string entirely, so version-15 has been
+		# serving the bare URL — and /assets carries a 12h Cache-Control, so
+		# desks hold a cached copy under that URL. Going back to v=3 would be a
+		# value some browsers have already seen; v=4 has never been served.
 		hooks_py = (Path(frappe.get_app_path("one_bpmn")) / "hooks.py").read_text()
-		self.assertIn("bpmn_form_actions.js?v=3", hooks_py)
+		self.assertIn("bpmn_form_actions.js?v=4", hooks_py)

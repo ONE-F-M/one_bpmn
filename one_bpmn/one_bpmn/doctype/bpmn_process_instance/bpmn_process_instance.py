@@ -6,11 +6,15 @@ import uuid
 
 import frappe
 
-from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
+from one_bpmn.agents import turn_signal
+from one_bpmn.agents.executor import DEFAULT_MAX_RETRIES
+from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT, AI_AGENT_QUEUE, ai_agent_queue
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime
+from frappe.utils.background_jobs import get_queues_timeout
 
+from SpiffWorkflow.bpmn.specs.mixins.multiinstance_task import MultiInstanceTask
 from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
 from SpiffWorkflow.util.task import TaskState
 
@@ -135,6 +139,7 @@ class BPMNProcessInstance(Document):
 			instance=self,
 		)
 
+		previous_flag = frappe.flags.bpmn_engine_action
 		frappe.flags.bpmn_engine_action = True
 		try:
 			self._run_engine(wf)
@@ -142,7 +147,7 @@ class BPMNProcessInstance(Document):
 			# Script/service/gateway failure — halt + sanitized Reference-ID error.
 			self._fail_runtime(phase="start")
 		finally:
-			frappe.flags.bpmn_engine_action = False
+			frappe.flags.bpmn_engine_action = previous_flag
 
 		# Persist state
 		# Strip non-serializable Frappe doc objects before persisting state
@@ -212,7 +217,7 @@ class BPMNProcessInstance(Document):
 		Raises:
 		    frappe.ValidationError: if task not found or not in READY state
 		"""
-		if self.status in ("Completed", "Cancelled"):
+		if self.status in ("Completed", "Cancelled", "Suspended"):
 			frappe.throw(
 				_('Instance "{0}" is already {1} and cannot be advanced.').format(self.name, self.status)
 			)
@@ -314,6 +319,7 @@ class BPMNProcessInstance(Document):
 			data=data,
 		)
 
+		previous_flag = frappe.flags.bpmn_engine_action
 		frappe.flags.bpmn_engine_action = True
 		try:
 			task.run()
@@ -322,7 +328,7 @@ class BPMNProcessInstance(Document):
 			# Script/service/gateway failure — halt + sanitized Reference-ID error.
 			self._fail_runtime(phase="advance")
 		finally:
-			frappe.flags.bpmn_engine_action = False
+			frappe.flags.bpmn_engine_action = previous_flag
 
 		# Persist updated state
 		# Strip non-serializable Frappe doc objects before persisting state
@@ -445,6 +451,18 @@ class BPMNProcessInstance(Document):
 			if isinstance(in_flight, AgentRefusal):
 				raise in_flight
 
+			# A permission error names only what the user lacks: show it and keep the instance running.
+			if isinstance(in_flight, frappe.PermissionError):
+				if not str(in_flight).strip():
+					frappe.throw(
+						_(
+							"You do not have permission to complete this step. "
+							"Ask your administrator for access, then try again."
+						),
+						exc=frappe.PermissionError,
+					)
+				raise in_flight
+
 		ref_id = self._record_runtime_failure(phase)
 		frappe.throw(
 			_(
@@ -497,7 +515,7 @@ class BPMNProcessInstance(Document):
 		        ignored, because a document event firing while an instance sits
 		        elsewhere is normal.
 		"""
-		if self.status in ("Completed", "Cancelled"):
+		if self.status in ("Completed", "Cancelled", "Suspended"):
 			frappe.throw(
 				_('Instance "{0}" is already {1} and cannot receive messages.').format(
 					self.name, self.status
@@ -549,6 +567,7 @@ class BPMNProcessInstance(Document):
 			# while the instance isn't parked at a matching catch node). This is
 			# benign, so skip quietly and return the unchanged task summary rather
 			# than surfacing an alarming error to the user.
+			self._buffer_message(wf, message_name, payload)
 			frappe.logger("one_bpmn").debug(
 				f'No task in instance "{self.name}" is waiting for message "{message_name}".'
 			)
@@ -562,6 +581,7 @@ class BPMNProcessInstance(Document):
 		)
 
 		# ── Run engine to process tasks that became READY ────────────────────
+		previous_flag = frappe.flags.bpmn_engine_action
 		frappe.flags.bpmn_engine_action = True
 		try:
 			self._run_engine(wf)
@@ -569,7 +589,7 @@ class BPMNProcessInstance(Document):
 			# Script/service/gateway failure — halt + sanitized Reference-ID error.
 			self._fail_runtime(phase="receive_message")
 		finally:
-			frappe.flags.bpmn_engine_action = False
+			frappe.flags.bpmn_engine_action = previous_flag
 
 		# ── Persist (same as advance) ────────────────────────────────────────
 		bpmn_engine.clean_doc_from_wf_data(wf)
@@ -602,14 +622,15 @@ class BPMNProcessInstance(Document):
 		    decision inline; the next decision parks again (one job per turn).
 		kind == "agent_sandbox_result" — task_id is the SpiffWorkflow UUID
 		    of a parked Service Task waiting on the external Cloud Run sandbox
-		    (agent_sandbox_ops.dispatch): apply the Agent Sandbox Run's
-		    outcome and complete it. A still-running sandbox leaves it parked.
+		    (agent_sandbox_ops.run_tests / open_pull_request): apply the Agent
+		    Sandbox Run's outcome and complete it. A still-running sandbox
+		    leaves it parked.
 
 		Downstream non-AI tasks reached after the AI completes run in this
 		worker pass — there is no open request to return them to. Further AI
 		tasks reached here park again as fresh jobs.
 		"""
-		if self.status in ("Completed", "Cancelled"):
+		if self.status in ("Completed", "Cancelled", "Suspended"):
 			return
 		if not self.workflow_state:
 			return
@@ -641,6 +662,7 @@ class BPMNProcessInstance(Document):
 			if row.status == "Waiting" and row.assigned_user
 		}
 
+		previous_flag = frappe.flags.bpmn_engine_action
 		frappe.flags.bpmn_engine_action = True
 		try:
 			if kind == "a2a_result":
@@ -726,7 +748,7 @@ class BPMNProcessInstance(Document):
 
 			self._run_engine(wf)
 		finally:
-			frappe.flags.bpmn_engine_action = False
+			frappe.flags.bpmn_engine_action = previous_flag
 			frappe.flags.bpmn_ai_resume_target = None
 
 		# ── Persist (same as advance) ────────────────────────────────────────
@@ -743,6 +765,70 @@ class BPMNProcessInstance(Document):
 		self.update_children()
 		self.run_method("on_update")
 
+	def retry_failed_step(self):
+		"""Run an Errored instance again from its last saved state, so the step that failed runs again."""
+		if not self.workflow_state:
+			# A failure in the first engine pass saved no state, so the run starts over from the context document.
+			initiated_by = self.initiated_by
+			self.start()
+			if initiated_by:
+				self.db_set("initiated_by", initiated_by, update_modified=False)
+			return
+
+		_spec_snap = self._load_json(self.serialized_spec or "{}") or {}
+		_script_exts = _spec_snap.get("script_task_extensions", {})
+		self._service_task_extensions = _spec_snap.get("service_task_extensions", {})
+		self._user_task_extensions = _spec_snap.get("user_task_extensions", {})
+		self._script_task_extensions = _script_exts
+		self._refresh_user_task_extensions_from_model()
+
+		wf = bpmn_engine.restore_workflow(
+			workflow_state=self._load_json(self.workflow_state),
+			context_doctype=self.context_doctype,
+			context_docname=self.context_docname,
+			script_task_extensions=_script_exts,
+			initiated_by=self.initiated_by or "Administrator",
+			instance=self,
+		)
+		if self.context_doctype and self.context_docname:
+			bpmn_engine.refresh_context_doc(wf, self.context_doctype, self.context_docname)
+
+		prev_assigned = {
+			row.assigned_user for row in self.active_tasks if row.status == "Waiting" and row.assigned_user
+		}
+
+		self.status = "Active"
+		previous_flag = frappe.flags.bpmn_engine_action
+		frappe.flags.bpmn_engine_action = True
+		try:
+			self._run_engine(wf)
+		except Exception:
+			self._fail_runtime(phase="retry_failed_step")
+		finally:
+			frappe.flags.bpmn_engine_action = previous_flag
+
+		bpmn_engine.clean_doc_from_wf_data(wf)
+		self.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
+		self._sync_call_activity_rows(wf)
+		self._sync_active_tasks(wf, prev_assigned=prev_assigned)
+		self._check_completion(wf)
+
+		self.modified = frappe.utils.now()
+		self.modified_by = frappe.session.user
+		self.db_update()
+		self.update_children()
+		self.run_method("on_update")
+
+	def log_operator_action(self, action: str, reason: str) -> None:
+		"""Record an operator's cancel, suspend, resume or retry with who did it and why."""
+		# _log_task drops a repeat of the same task_id and action, so every operator action gets its own id.
+		self._log_task(
+			task_id=f"instance-{action.lower()}::{frappe.generate_hash(length=10)}",
+			task_name=_("Instance {0}").format(action.lower()),
+			action=action,
+			data={"reason": reason},
+		)
+
 	def get_parked_ai_units(self) -> list:
 		"""
 		WI-001499: the AI units currently parked on this instance.
@@ -752,8 +838,10 @@ class BPMNProcessInstance(Document):
 		- ai_task_selector ad-hoc subprocesses waiting for a DECISION
 		  (container STARTED with no active inner head)
 
-		Returns: list of {kind, task_id, bpmn_id, label} — task_id is what
-		retry_ai_task / run_parked_ai_task expect for that kind.
+		Returns: list of {kind, task_id, bpmn_id, label, since} — task_id is what
+		retry_ai_task / run_parked_ai_task expect for that kind, and since is when
+		the task last changed state, in epoch seconds. A service_task unit also
+		carries waits_on, naming the delegation or sandbox run it is waiting for.
 		"""
 		if not self.workflow_state:
 			return []
@@ -789,6 +877,7 @@ class BPMNProcessInstance(Document):
 						"task_id": bpmn_id,
 						"bpmn_id": bpmn_id,
 						"label": bpmn_engine.get_task_display_name(t),
+						"since": t.last_state_change,
 					}
 				)
 			elif self._ai_service_type(t) in self._AI_SERVICE_TYPES:
@@ -803,9 +892,17 @@ class BPMNProcessInstance(Document):
 						"task_id": str(t.id),
 						"bpmn_id": bpmn_id,
 						"label": bpmn_engine.get_task_display_name(t),
+						"since": t.last_state_change,
+						"waits_on": self._parked_task_waits_on(t),
 					}
 				)
 		return units
+
+	def _parked_task_waits_on(self, task) -> str:
+		"""What a parked AI task is waiting for: "a2a", "agent_sandbox", or "" when it is waiting for its own job."""
+		if self._task_waiting_a2a(task):
+			return "a2a"
+		return "agent_sandbox" if self._task_waiting_agent_sandbox(task) else ""
 
 	def get_active_tasks_summary(self) -> list:
 		"""
@@ -906,6 +1003,7 @@ class BPMNProcessInstance(Document):
 		self._pending_ai_jobs = []
 		try:
 			self._run_engine_inner(wf)
+			self._deliver_buffered_messages(wf)
 		finally:
 			bpmn_engine.adhoc_next_task_decider = None
 			bpmn_engine.adhoc_task_activated_logger = None
@@ -919,6 +1017,50 @@ class BPMNProcessInstance(Document):
 			1 if (self._pending_ai_jobs or self._has_parked_ai_tasks(wf)) else 0
 		)
 		self._enqueue_parked_ai_jobs()
+
+	BUFFERED_MESSAGE_TTL_HOURS = 24
+	BUFFERED_MESSAGES_KEPT = 20
+
+	def _live_buffered_messages(self) -> list:
+		"""Buffered messages still inside their time limit, oldest first."""
+		return [
+			m
+			for m in self._load_json(self.buffered_messages) or []
+			if frappe.utils.time_diff_in_hours(frappe.utils.now(), m["received_at"]) < self.BUFFERED_MESSAGE_TTL_HOURS
+		]
+
+	def _buffer_message(self, wf, message_name: str, payload: dict | None):
+		"""Keep a message that arrived with nothing waiting for it, when the diagram declares it and its name is buffered."""
+		if not (
+			message_name.startswith(bpmn_engine.BUFFERED_MESSAGE_PREFIXES)
+			and bpmn_engine.declares_message(wf, message_name)
+		):
+			return
+		kept = self._live_buffered_messages()
+		entry = {"name": message_name, "payload": payload or {}, "received_at": frappe.utils.now()}
+		if any(m["name"] == message_name and m["payload"] == entry["payload"] for m in kept):
+			return
+		kept = (kept + [entry])[-self.BUFFERED_MESSAGES_KEPT :]
+		self.db_set("buffered_messages", json.dumps(kept), update_modified=False)
+
+	def _deliver_buffered_messages(self, wf):
+		"""Hand each buffered message to the wait that now catches it, until no more are taken."""
+		pending = self._live_buffered_messages()
+		delivered = True
+		while delivered and pending:
+			delivered = False
+			for message in list(pending):
+				if bpmn_engine.send_message(wf, message["name"], message["payload"]):
+					pending.remove(message)
+					self._log_task(
+						f"buffered:{message['received_at']}:{message['name']}",
+						f"Message: {message['name']}",
+						"Message Received",
+						message["payload"],
+					)
+					self._run_engine_inner(wf)
+					delivered = True
+		self.buffered_messages = json.dumps(pending) if pending else None
 
 	# ── WI-001495: park-and-enqueue seam for AI tasks ─────────────────────────
 
@@ -957,7 +1099,8 @@ class BPMNProcessInstance(Document):
 
 	@staticmethod
 	def _task_waiting_agent_sandbox(task) -> dict | None:
-		"""The waiting-for-sandbox marker agent_sandbox_ops.dispatch left
+		"""The waiting-for-sandbox marker agent_sandbox_ops's
+		_dispatch_single_action (run_tests/open_pull_request) left
 		on task.data, or None. A marked task must not be re-dispatched or
 		completed — it leaves this state only through the
 		agent_sandbox_result resume path."""
@@ -1036,15 +1179,16 @@ class BPMNProcessInstance(Document):
 		return False
 
 	def _enqueue_parked_ai_jobs(self):
-		"""One bpmn_ai_agent job per parked AI unit, deduplicated by job_id."""
+		"""One AI job per parked AI unit, deduplicated by job_id, on the queue of the instance's agent."""
 		jobs, self._pending_ai_jobs = getattr(self, "_pending_ai_jobs", []), []
+		queue = ai_job_queue(self.process_model) if jobs else AI_AGENT_QUEUE
 		for kind, ident in jobs:
 			frappe.enqueue(
 				"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 				".bpmn_process_instance.run_parked_ai_task",
 				# AI-only jobs — the rest of the pass already ran inline
 				# (WI-001494/WI-001495).
-				queue="bpmn_ai_agent",
+				queue=queue,
 				timeout=AI_AGENT_JOB_TIMEOUT,
 				enqueue_after_commit=True,
 				job_id=f"bpmn-ai-{self.name}-{ident}",
@@ -1077,7 +1221,7 @@ class BPMNProcessInstance(Document):
 
 		# Mirrors the "waits_on" == "a2a" case exactly, for a connector that
 		# parks the caller instead of delegating to another local agent —
-		# agent_sandbox_ops.dispatch(), called as an ai_agent tool.
+		# agent_sandbox_ops.run_tests/open_pull_request, called as ai_agent tools.
 		if marker.get("waits_on") == "agent_sandbox":
 			self._bind_agent_sandbox_wait(task, marker)
 			return
@@ -1137,7 +1281,7 @@ class BPMNProcessInstance(Document):
 
 		for u in split_users(assigned_user):
 			try:
-				add_frappe_assignment(self, u, label, shape_id, task_id=row_id, task_cfg=shape_cfg)
+				add_frappe_assignment(self, u, label)
 			except Exception:
 				frappe.log_error(
 					title=f"AI HITL: assignment creation failed ({shape_id})",
@@ -1145,7 +1289,7 @@ class BPMNProcessInstance(Document):
 				)
 			# This path builds its own row rather than going through
 			# _sync_active_tasks, so it asks for the notification itself.
-			notify_task_assignee(self, u, label, shape_cfg)
+			notify_task_assignee(self, u, label, shape_cfg, task_id=row_id, bpmn_id=shape_id)
 
 		self._log_task(
 			task_id=row_id,
@@ -1299,7 +1443,7 @@ class BPMNProcessInstance(Document):
 		frappe.enqueue(
 			"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 			".bpmn_process_instance.run_parked_ai_task",
-			queue="bpmn_ai_agent",
+			queue=ai_job_queue(self.process_model),
 			timeout=AI_AGENT_JOB_TIMEOUT,
 			enqueue_after_commit=True,
 			job_id=f"bpmn-ai-{self.name}-hr-{task_id}",
@@ -1560,7 +1704,7 @@ class BPMNProcessInstance(Document):
 		)
 		for user in split_users(assigned_user):
 			try:
-				add_frappe_assignment(self, user, label, a2a_task_name, task_id=row_id)
+				add_frappe_assignment(self, user, label)
 			except Exception:
 				frappe.log_error(
 					title=f"A2A HITL: assignment creation failed ({a2a_task_name})",
@@ -1730,6 +1874,19 @@ class BPMNProcessInstance(Document):
 				for t in wf.get_tasks(state=TaskState.STARTED)
 				if not getattr(t.task_spec, "manual", False)
 				and not isinstance(t.task_spec, SubWorkflowTask)
+				# A Multi-Instance parent (Service/Script Task wrapped in
+				# bpmn:multiInstanceLoopCharacteristics) also sits in STARTED
+				# while its per-iteration children run — same shape as a
+				# Sub-Process container above. It is not itself a dispatchable
+				# unit: dispatching it directly would run e.g. a connector call
+				# against the parent's own task data, colliding with the
+				# resultVariable/outputDataItem key its children use (raises
+				# SpiffWorkflow's "Multiinstance output item ... already
+				# exists" on the next iteration). Its children carry the real,
+				# un-wrapped task spec and dispatch normally; SpiffWorkflow's
+				# own merge_child chains the next child forward with no help
+				# needed from this loop.
+				and not isinstance(t.task_spec, MultiInstanceTask)
 				and not self._task_waiting_human(t)
 				and not self._task_waiting_a2a(t)
 				and not self._task_waiting_agent_sandbox(t)
@@ -2118,8 +2275,6 @@ class BPMNProcessInstance(Document):
 		existing_waiting_ids = {row.task_id for row in self.active_tasks if row.status == "Waiting"}
 
 		# Map of user → (task_name, task_cfg) for newly created rows
-		# Used to pass notification settings to add_frappe_assignment
-		new_user_task_cfgs = {}
 		# Every (user, task) pair opened this pass — the basis for notifications.
 		newly_opened = []
 
@@ -2137,6 +2292,7 @@ class BPMNProcessInstance(Document):
 
 			# Resolve assignment from the task's configuration -------------------
 			async_user = resolve_assignment(self, task)
+			relief_pairs = getattr(self, "_relief_pairs", []) if async_user else []
 			if async_user:
 				assigned_user = async_user
 
@@ -2156,6 +2312,8 @@ class BPMNProcessInstance(Document):
 					"status": "Waiting",
 					"started_at": now_datetime(),
 					"assigned_user": assigned_user,
+					"relieved_user": ",".join(p[0] for p in relief_pairs),
+					"reliever_user": ",".join(p[1] for p in relief_pairs),
 					"assigned_role": assigned_role,
 					"task_actions": task_actions,
 					"target_doctype": target_doctype,
@@ -2166,15 +2324,10 @@ class BPMNProcessInstance(Document):
 			# add_frappe_assignment to read the user_task_extensions config.
 			self.active_tasks[-1]._bpmn_id = bpmn_id_key
 
-			# Track the task_cfg so we can pass notification settings below.
-			# assigned_user may be a comma-joined list (Table Field mode) —
-			# every one of those users gets the same task_cfg for notifications.
+			# assigned_user may be a comma-joined list (Table Field mode);
+			# notifications are per (user, task), so every user gets a row.
 			for u in split_users(assigned_user):
-				new_user_task_cfgs[u] = (task_name, task_cfg)
-				# Keyed by user, the map above keeps only the LAST task when one
-				# person opens two at once. Notifications are per task, so they
-				# are collected as a list instead of overwriting.
-				newly_opened.append((u, task_name, task_cfg))
+				newly_opened.append((u, task_name, task_cfg, tid, bpmn_id_key))
 
 			self._log_task(
 				task_id=tid,
@@ -2225,21 +2378,15 @@ class BPMNProcessInstance(Document):
 		# Create ToDos for users who are newly assigned
 		for user, info in curr_assigned.items():
 			if user not in prev_assigned:
-				task_name_cfg = new_user_task_cfgs.get(user, (info["task_name"], {}))
-				add_frappe_assignment(
-					self, user, info["task_name"],
-					info.get("bpmn_id", ""),
-					task_id=info.get("task_id", ""),
-					task_cfg=task_name_cfg[1] if isinstance(task_name_cfg, tuple) else {},
-				)
+				add_frappe_assignment(self, user, info["task_name"])
 
 		# Notify for every task that just opened — NOT only for the users who
 		# gained a ToDo above. Someone who already held one (the common case
 		# when consecutive tasks belong to one person) is skipped by that diff
 		# by design, and while the email lived inside it they were silently
 		# skipped too.
-		for user, task_name, task_cfg in newly_opened:
-			notify_task_assignee(self, user, task_name, task_cfg)
+		for user, task_name, task_cfg, task_id, bpmn_id in newly_opened:
+			notify_task_assignee(self, user, task_name, task_cfg, task_id=task_id, bpmn_id=bpmn_id)
 
 	def _check_completion(self, wf):
 		"""
@@ -2393,9 +2540,28 @@ def _job_retry_cap(instance, kind: str, task_id: str) -> int:
 				c for c in exts.values() if (c or {}).get("serviceType") == "ai_agent"
 			]
 			cfg = ai_cfgs[0] if len(ai_cfgs) == 1 else {}
-		return int(cfg.get("aiMaxRetries", 2) or 2)
+		return int(cfg.get("aiMaxRetries", DEFAULT_MAX_RETRIES) or DEFAULT_MAX_RETRIES)
 	except Exception:
-		return 2
+		return DEFAULT_MAX_RETRIES
+
+
+def ai_job_queue(process_model: str | None) -> str:
+	"""The queue an AI job for an instance of this process model runs on: its agent's own, else the shared one.
+
+	Frappe refuses a queue the site has not registered under "workers", so until it is the shared queue is used."""
+	agent_id = None
+	if process_model:
+		agent_id = frappe.db.get_value("AI Agent Configuration", {"process_model": process_model}, "agent_id")
+	queue = ai_agent_queue(agent_id)
+	if queue not in get_queues_timeout():
+		frappe.logger("one_bpmn").warning(f"Queue {queue} is not under workers in the site config; using {AI_AGENT_QUEUE}")
+		return AI_AGENT_QUEUE
+	return queue
+
+
+def ai_job_queue_of(instance_name: str) -> str:
+	"""The queue an AI job for this instance runs on."""
+	return ai_job_queue(frappe.db.get_value("BPMN Process Instance", instance_name, "process_model"))
 
 
 def _enqueue_a2a_resume(instance_name: str, wf_task_id: str, a2a_task_name: str) -> None:
@@ -2413,7 +2579,7 @@ def _enqueue_a2a_resume(instance_name: str, wf_task_id: str, a2a_task_name: str)
 	frappe.enqueue(
 		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 		".bpmn_process_instance.run_parked_ai_task",
-		queue="bpmn_ai_agent",
+		queue=ai_job_queue_of(instance_name),
 		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,
 		job_id=f"bpmn-ai-{instance_name}-a2a-{a2a_task_name}",
@@ -2440,7 +2606,7 @@ def _enqueue_agent_sandbox_resume(instance_name: str, wf_task_id: str, run_name:
 	frappe.enqueue(
 		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 		".bpmn_process_instance.run_parked_ai_task",
-		queue="bpmn_ai_agent",
+		queue=ai_job_queue_of(instance_name),
 		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,
 		job_id=f"bpmn-ai-{instance_name}-agent-sandbox-{run_name}",
@@ -2474,7 +2640,10 @@ def run_parked_ai_task(
 	  the task's activity log, and the task stays parked so retry_ai_task
 	  (manual retry) can re-kick it.
 	"""
-	if run_as_user:
+	# Only switch when the identity really differs: set_user rewrites session.sid
+	# and wipes session.data, which guts the caller's session if this ever runs
+	# inline in a web request.
+	if run_as_user and run_as_user != frappe.session.user:
 		frappe.set_user(run_as_user)
 
 	# Row lock serializes concurrent engine passes on the same instance
@@ -2504,7 +2673,7 @@ def run_parked_ai_task(
 			frappe.enqueue(
 				"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 				".bpmn_process_instance.run_parked_ai_task",
-				queue="bpmn_ai_agent",
+				queue=ai_job_queue_of(instance_name),
 				timeout=AI_AGENT_JOB_TIMEOUT,
 				enqueue_after_commit=True,
 				job_id=f"bpmn-ai-{instance_name}-{task_id}-r{attempt + 1}",
@@ -2546,6 +2715,11 @@ def run_parked_ai_task(
 			0,
 			update_modified=False,
 		)
+		# In the finally block on purpose: a failed job has to end the waiting
+		# request too. The reply itself is read from the database.
+		# nosemgrep: frappe-semgrep-rules.rules.frappe-manual-commit
+		frappe.db.commit()
+		turn_signal.publish(instance_name)
 		frappe.publish_realtime(
 			"bpmn_instance_updated",
 			{

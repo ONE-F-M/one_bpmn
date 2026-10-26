@@ -6,6 +6,10 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_to_date, cint, now_datetime
 
+# Size of the embedding VECTOR column. Must match the embedding model
+# (one_bpmn.agents.llm_provider.embedding); all-MiniLM-L6-v2 is 384.
+EMBEDDING_DIMENSIONS = 384
+
 
 class AIMemory(Document):
 	@staticmethod
@@ -19,12 +23,22 @@ class AIMemory(Document):
 		``days <= 0`` (the default configured in hooks) means retain
 		indefinitely, so nothing is deleted until an administrator sets a
 		positive retention in Log Settings.
+
+		A ``user_directed`` memory (the user explicitly asked the agent to
+		remember it) is never swept here — a global retention setting turned
+		on for cleanup elsewhere must not silently delete a standing
+		convention nobody asked to expire.
 		"""
 		days = cint(days)
 		if days <= 0:
 			return
 		cutoff = add_to_date(now_datetime(), days=-days)
-		frappe.db.delete("AI Memory", {"modified": ("<", cutoff)})
+		# frappe.delete_doc (not a raw frappe.db.delete) so each pruned row still
+		# gets its automatic Deleted Document audit record — a raw SQL delete
+		# bypasses that entirely.
+		filters = {"modified": ("<", cutoff), "user_directed": 0}
+		for name in frappe.get_all("AI Memory", filters=filters, pluck="name"):
+			frappe.delete_doc("AI Memory", name, ignore_permissions=True)
 
 	def validate(self):
 		self._normalize_scope_keys()
@@ -36,11 +50,15 @@ class AIMemory(Document):
 		enforce that the key(s) required by ``memory_scope`` are present.
 
 		Clearing irrelevant keys keeps records clean and makes dedup matching
-		precise even when a record's scope changes.
+		precise even when a record's scope changes. ``process_model`` is the one
+		exception: on an Agent-scoped row it isn't a scope key (the row is still
+		looked up by ``agent_element`` alone) but optional provenance — which
+		process run produced this fact — so it is only cleared for Entity scope,
+		where a memory isn't tied to a single process run.
 		"""
 		if self.memory_scope != "Agent":
 			self.agent_element = None
-		if self.memory_scope != "Process":
+		if self.memory_scope == "Entity":
 			self.process_model = None
 		if self.memory_scope != "Entity":
 			self.reference_doctype = None
@@ -57,6 +75,9 @@ class AIMemory(Document):
 				frappe.throw(
 					_("An Entity-scoped memory requires a Reference Doctype and Reference Name.")
 				)
+		elif self.memory_scope == "User":
+			if not self.user:
+				frappe.throw(_("A User-scoped memory requires a User."))
 
 	def _dedup_overwrite(self):
 		"""When ``dedup_key`` is set, a new memory sharing the same scope, scope
@@ -70,7 +91,10 @@ class AIMemory(Document):
 		# Only the keys relevant to this scope are populated (the rest were
 		# cleared in _normalize_scope_keys), so matching on scope + the relevant
 		# key(s) + dedup_key is both correct and avoids NULL-filter pitfalls.
-		filters = {"memory_scope": self.memory_scope, "dedup_key": self.dedup_key}
+		# A person's memory only ever replaces that same person's; a shared
+		# memory (no user) only replaces a shared one. Frappe turns "" into
+		# ifnull(user, '') = '' so NULL and empty both read as shared.
+		filters = {"memory_scope": self.memory_scope, "dedup_key": self.dedup_key, "user": self.user or ""}
 		if self.memory_scope == "Agent":
 			filters["agent_element"] = self.agent_element
 		elif self.memory_scope == "Process":
@@ -82,12 +106,15 @@ class AIMemory(Document):
 		for name in frappe.get_all("AI Memory", filters=filters, pluck="name"):
 			if name == self.name:
 				continue
+			# ignore_permissions + force (skip the link-checker), but NOT
+			# delete_permanently: leaving that off lets Frappe's normal delete
+			# path capture the superseded row in the Deleted Document table
+			# before removing it, so an overwrite still leaves an audit trail.
 			frappe.delete_doc(
 				"AI Memory",
 				name,
 				ignore_permissions=True,
 				force=True,
-				delete_permanently=True,
 			)
 
 
@@ -100,7 +127,9 @@ def on_doctype_update():
 	"""
 	frappe.db.add_index("AI Memory", ["memory_scope", "agent_element"])
 	frappe.db.add_index("AI Memory", ["reference_doctype", "reference_name"])
+	frappe.db.add_index("AI Memory", ["user", "memory_scope"])
 	_add_content_fulltext_index()
+	add_embedding_column()
 
 
 def _add_content_fulltext_index():
@@ -120,4 +149,31 @@ def _add_content_fulltext_index():
 		frappe.logger("one_bpmn").warning(
 			f"AI Memory: could not create FULLTEXT index on content; "
 			f"keyword search will use `like` filters. {e}"
+		)
+
+
+def add_embedding_column():
+	"""Add the ``embedding`` VECTOR column on MariaDB 11.7+.
+
+	The column is deliberately NOT declared in ``ai_memory.json``: Frappe has no
+	VECTOR fieldtype and would rewrite the column type on every migrate. Frappe
+	ignores table columns it does not know about (``Meta.get_valid_columns``),
+	so the column is invisible to ``get_doc``/``as_dict`` and only the raw SQL in
+	``agents.memory.tools`` touches it.
+
+	On an older MariaDB the ALTER fails, the warning is logged and semantic
+	search stays off; keyword retrieval is unaffected. Idempotent, so the
+	backfill job can call it too.
+	"""
+	table = "tabAI Memory"
+	try:
+		if not frappe.db.has_column("AI Memory", "embedding"):
+			frappe.db.sql_ddl(f"ALTER TABLE `{table}` ADD COLUMN `embedding` VECTOR({EMBEDDING_DIMENSIONS}) NULL")
+			# has_column reads a cached column list; drop it so the new column
+			# is seen by the next search or write without waiting for a restart.
+			frappe.cache.hdel("table_columns", table)
+	except Exception as e:
+		frappe.logger("one_bpmn").warning(
+			f"AI Memory: could not add the embedding VECTOR column (MariaDB 11.7+ required); "
+			f"semantic search is off, keyword search continues. {e}"
 		)

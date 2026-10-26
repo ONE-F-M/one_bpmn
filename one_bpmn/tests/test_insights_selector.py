@@ -80,11 +80,12 @@ class TestInsightsSelectorSupport(FrappeTestCase):
 	# ── Scenario 1: subprocess runs included, Steps never counted as runs ──
 
 	def test_overview_counts_subprocess_run_once(self):
-		overview = get_agent_overview(days=1)
-		self.assertGreaterEqual(overview["runs_today"], 1)
+		today = frappe.utils.today()
+		overview = get_agent_overview(from_date=today, to_date=today)
+		self.assertGreaterEqual(overview["current"]["runs"], 1)
 		# Steps contribute tokens through the Run rollup, not as extra runs:
 		# the overview token total must include this run's rolled-up figure.
-		self.assertGreaterEqual(overview["total_tokens"], 180)
+		self.assertGreaterEqual(overview["current"]["tokens"], 180)
 
 	# ── Scenario 2: Run → Steps → expandable Tool Call rows ──
 

@@ -1,0 +1,237 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-10-12 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_run",
+  "state",
+  "agent_name",
+  "work_item",
+  "call_count",
+  "column_break_run",
+  "target_app",
+  "git_branch",
+  "caller_instance",
+  "started_at",
+  "ended_at",
+  "pr_url",
+  "last_commit_sha",
+  "section_totals",
+  "edit_count",
+  "test_runs",
+  "repeat_edits",
+  "failed_calls",
+  "column_break_totals",
+  "http_ms",
+  "sandbox_ms",
+  "git_ms",
+  "tool_ms",
+  "test_ms",
+  "pr_ms",
+  "last_error",
+  "section_calls",
+  "calls"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_run",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "state",
+   "fieldtype": "Select",
+   "label": "State",
+   "read_only": 1,
+   "options": "running\nfinished",
+   "default": "running",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "agent_name",
+   "fieldtype": "Data",
+   "label": "Agent Name",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "work_item",
+   "fieldtype": "Data",
+   "label": "Work Item",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "call_count",
+   "fieldtype": "Int",
+   "label": "Call Count",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_run",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "target_app",
+   "fieldtype": "Data",
+   "label": "Target App",
+   "read_only": 1
+  },
+  {
+   "fieldname": "git_branch",
+   "fieldtype": "Data",
+   "label": "Git Branch",
+   "read_only": 1
+  },
+  {
+   "fieldname": "caller_instance",
+   "fieldtype": "Link",
+   "label": "Caller Instance",
+   "read_only": 1,
+   "options": "BPMN Process Instance",
+   "search_index": 1,
+   "description": "The agent's own process instance. One trace per agent run."
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ended_at",
+   "fieldtype": "Datetime",
+   "label": "Ended At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pr_url",
+   "fieldtype": "Data",
+   "label": "Pr Url",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_commit_sha",
+   "fieldtype": "Data",
+   "label": "Last Commit Sha",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_totals",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "edit_count",
+   "fieldtype": "Int",
+   "label": "Edit Count",
+   "read_only": 1
+  },
+  {
+   "fieldname": "test_runs",
+   "fieldtype": "Int",
+   "label": "Test Runs",
+   "read_only": 1
+  },
+  {
+   "description": "Back-to-back edit_file calls on the same file. Each could have joined an apply_edits call.",
+   "fieldname": "repeat_edits",
+   "fieldtype": "Int",
+   "label": "Repeat Edits",
+   "read_only": 1
+  },
+  {
+   "fieldname": "failed_calls",
+   "fieldtype": "Int",
+   "label": "Failed Calls",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_totals",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "http_ms",
+   "fieldtype": "Int",
+   "label": "Http Ms",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sandbox_ms",
+   "fieldtype": "Int",
+   "label": "Sandbox Ms",
+   "read_only": 1
+  },
+  {
+   "fieldname": "git_ms",
+   "fieldtype": "Int",
+   "label": "Git Ms",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tool_ms",
+   "fieldtype": "Int",
+   "label": "Tool Ms",
+   "read_only": 1
+  },
+  {
+   "fieldname": "test_ms",
+   "fieldtype": "Int",
+   "label": "Test Ms",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pr_ms",
+   "fieldtype": "Int",
+   "label": "Pr Ms",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_error",
+   "fieldtype": "Small Text",
+   "label": "Last Error",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_calls",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "calls",
+   "fieldtype": "Table",
+   "label": "Calls",
+   "read_only": 1,
+   "options": "Agent Sandbox Trace Call"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-12 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "Agent Sandbox Trace",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

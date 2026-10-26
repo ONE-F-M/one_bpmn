@@ -1,11 +1,13 @@
 # Copyright (c) 2026, kartiksharma9319@gmail.com and contributors
 # For license information, please see license.txt
 
+import re
+import ast
 import json
 
 import frappe
 from frappe import _
-from frappe.utils import cint
+from frappe.utils import cint, flt
 
 
 def _sanitize_bpmn_xml(bpmn_xml: str) -> str:
@@ -347,11 +349,115 @@ def _validate_timer_granularity(bpmn_xml: str) -> None:
 	if errors:
 		frappe.throw(
 			_(
-				"Timer validation failed — Frappe scheduler only supports minute-level precision:<br><br>"
-				+ "<br>".join(f"• {e}" for e in errors)
+				"Timer validation failed — Frappe scheduler only supports minute-level precision:\n\n"
+				+ "\n".join(f"• {e}" for e in errors)
 			),
 			title=_("Invalid Timer Configuration"),
 		)
+
+
+def _validate_start_event_timers(bpmn_xml: str) -> None:
+	"""Every Timer Start Event must carry a cycle the sweep can actually read.
+
+	``process_timer_start_events`` is what starts these instances, and it reads
+	the cycle as either a cron expression or an ISO 8601 repeating interval. A
+	timer it cannot read never fires, and nothing on the diagram says so.
+	"""
+	import xml.etree.ElementTree as _ET
+
+	from one_bpmn.tasks import timer_start_is_due
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+
+	if not bpmn_xml or not bpmn_xml.strip():
+		return
+
+	try:
+		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml)
+	except Exception:
+		return  # XML errors are caught elsewhere
+
+	errors = []
+	now = frappe.utils.now_datetime()
+
+	for start_event in root.iter(f"{{{BPMN_NS}}}startEvent"):
+		timer_def = start_event.find(f"{{{BPMN_NS}}}timerEventDefinition")
+		if timer_def is None:
+			continue
+
+		label = start_event.get("name") or start_event.get("id", "unknown")
+		expression = timer_def.get(f"{{{SPIFF_NS}}}cronExpression", "")
+		if not expression:
+			cycle_el = timer_def.find(f"{{{BPMN_NS}}}timeCycle")
+			expression = (cycle_el.text or "").strip() if cycle_el is not None else ""
+
+		if not expression:
+			errors.append(
+				_('Timer Start Event "{0}" has no cycle. Give it a cron expression '
+					'(e.g. "*/5 * * * *") or an ISO repeating interval '
+					'(e.g. "R/2026-01-01T06:00:00+03:00/P1D").').format(label)
+			)
+			continue
+
+		try:
+			timer_start_is_due(expression, now)  # raises on a cycle it cannot read
+		except Exception:
+			errors.append(
+				_('Timer Start Event "{0}": cycle "{1}" is neither a cron expression '
+					"nor an ISO repeating interval, so the scheduler can never fire it.").format(
+					label, expression
+				)
+			)
+
+	if errors:
+		frappe.throw(
+			"\n\n".join(errors),
+			title=_("Invalid Timer Start Event"),
+		)
+
+
+def _detach_start_timer_definitions(bpmn_xml: str) -> str:
+	"""Drop ``<bpmn:timerEventDefinition>`` from start events before parsing.
+
+	The scheduler decides when a timer-started process begins; the engine then
+	runs it from the top. Left in the executable spec, the same cycle becomes a
+	SpiffWorkflow cycle timer that evaluates the expression as Python — so the
+	instance errors out on its first step. The diagram keeps the timer: this
+	rewrite only touches the copy handed to the parser.
+	"""
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+
+	if not bpmn_xml or not bpmn_xml.strip():
+		return bpmn_xml
+
+	_ET.register_namespace("bpmn", BPMN_NS)
+	_ET.register_namespace("bpmndi", "http://www.omg.org/spec/BPMN/20100524/DI")
+	_ET.register_namespace("dc", "http://www.omg.org/spec/DD/20100524/DC")
+	_ET.register_namespace("di", "http://www.omg.org/spec/DD/20100524/DI")
+	_ET.register_namespace("spiffworkflow", "http://spiffworkflow.org/bpmn/schema/1.0/core")
+
+	try:
+		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml)
+	except Exception:
+		return bpmn_xml  # XML errors are caught elsewhere
+
+	detached = False
+	for start_event in root.iter(f"{{{BPMN_NS}}}startEvent"):
+		for timer_def in start_event.findall(f"{{{BPMN_NS}}}timerEventDefinition"):
+			start_event.remove(timer_def)
+			detached = True
+
+	if not detached:
+		return bpmn_xml
+
+	rewritten = _ET.tostring(root, encoding="unicode", xml_declaration=False)
+	if bpmn_xml.strip().startswith("<?xml"):
+		decl_end = bpmn_xml.index("?>") + 2
+		return bpmn_xml[:decl_end] + "\n" + rewritten
+	return rewritten
 
 
 # ── Prohibited shapes — shapes that must NOT appear in executable processes ──
@@ -473,8 +579,8 @@ def _validate_prohibited_shapes(bpmn_xml: str) -> None:
 		frappe.throw(
 			_(
 				"Prohibited shapes found — the following BPMN elements are not allowed "
-				"in executable processes:<br><br>"
-				+ "<br>".join(f"• {e}" for e in errors)
+				"in executable processes:\n\n"
+				+ "\n".join(f"• {e}" for e in errors)
 			),
 			title=_("Prohibited Shapes Detected"),
 		)
@@ -623,9 +729,10 @@ def _activate_deployed_model(model, script_extensions: dict) -> None:
 
 	1. Mark the model as active (``is_active = 1``)
 	2. Deactivate sibling models with the same ``process_name``
-	3. Enable Server Scripts linked to the deployed model
-	4. Disable Server Scripts linked to deactivated siblings
-	   (unless shared with the active model)
+	3. Enable Server Scripts linked to the deployed model — including the ones
+	   it reaches through a Call Activity, which its compiled spec embeds
+	4. Disable Server Scripts linked to deactivated siblings, unless the
+	   deployed model or any other active model still runs them
 
 	Modifies the model in-memory — the caller is responsible for
 	calling ``model.save()``.
@@ -639,8 +746,11 @@ def _activate_deployed_model(model, script_extensions: dict) -> None:
 	model.deployed_at = frappe.utils.now()
 	model.deployed_by = frappe.session.user
 
-	# Server scripts referenced by the deployed model
-	active_scripts = set()
+	# Server scripts the deployed model runs: its own Script Tasks plus those a
+	# Call Activity embeds in its compiled spec. Reading only the raw XML missed
+	# the embedded ones, so deploying one Software Development version marked
+	# the Orchestrator's scripts "exclusive" to its sibling and switched them off.
+	active_scripts = _get_linked_server_scripts(model.serialized_spec)
 	for cfg in (script_extensions or {}).values():
 		if cfg.get("serverScript"):
 			active_scripts.add(cfg["serverScript"])
@@ -670,7 +780,8 @@ def _activate_deployed_model(model, script_extensions: dict) -> None:
 			frappe.db.set_value("BPMN Process Model", s.name, "is_active", 0)
 
 		# Disable scripts exclusive to deactivated siblings
-		for script_name in (sibling_scripts - active_scripts):
+		still_used = _scripts_used_by_active_models({model.name, *(s.name for s in siblings)})
+		for script_name in (sibling_scripts - active_scripts - still_used):
 			if frappe.db.exists("Server Script", script_name):
 				frappe.db.set_value("Server Script", script_name, "disabled", 1)
 
@@ -678,6 +789,20 @@ def _activate_deployed_model(model, script_extensions: dict) -> None:
 	for script_name in active_scripts:
 		if frappe.db.exists("Server Script", script_name):
 			frappe.db.set_value("Server Script", script_name, "disabled", 0)
+
+
+def _scripts_used_by_active_models(exclude: set) -> set:
+	"""Server Scripts some other active map still runs, Call Activities included.
+	A script is never disabled while one of these needs it."""
+	used = set()
+	rows = frappe.get_all(
+		"BPMN Process Model",
+		filters={"is_active": 1, "name": ["not in", sorted(exclude)]},
+		fields=["serialized_spec"],
+	)
+	for row in rows:
+		used |= _get_linked_server_scripts(row.serialized_spec)
+	return used
 
 
 def _update_round_robin_in_model(model_name: str, task_bpmn_id: str, last_user: str) -> None:
@@ -924,7 +1049,7 @@ def _validate_workflow_state_field(model, service_extensions: dict) -> None:
 
 	error_lines = [_("Workflow State field is missing on: {0}").format(dt) for dt in missing]
 	frappe.throw(
-		"<br>".join(f"• {line}" for line in error_lines),
+		"\n".join(f"• {line}" for line in error_lines),
 		title=_("Missing Workflow State Field"),
 	)
 
@@ -1135,7 +1260,7 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 	"""
 	Compile-time lint for AI Agent Tasks:
 	1. Rejects raw API keys embedded in any spiffworkflow:ai* attribute.
-	2. Validates that referenced AI Provider records exist in the database.
+	2. Requires a linked, enabled, Live AI Agent Configuration; the shape's copied provider name is not checked.
 	"""
 	import re
 	_RAW_KEY_RE = re.compile(r"^(sk-|key-)", re.IGNORECASE)
@@ -1157,7 +1282,6 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 					exc=frappe.ValidationError,
 				)
 
-		provider_name = (task_cfg.get("aiProvider") or "").strip()
 		agent_config = (task_cfg.get("aiAgentConfig") or "").strip()
 
 		# WI-001637: validate the AI Agent Configuration reference when present.
@@ -1203,14 +1327,61 @@ def _lint_ai_provider_config(_bpmn_xml: str, service_extensions: dict) -> None:
 				exc=frappe.ValidationError,
 			)
 
-		if provider_name and not frappe.db.exists("AI Provider", provider_name):
-			frappe.throw(
-				_(
-					"AI Provider '{0}' not found (task '{1}'). "
-					"Create it in the AI Provider list."
-				).format(provider_name, bpmn_id),
-				exc=frappe.ValidationError,
+
+def _enforce_eval_pass_rate(model_name: str) -> None:
+	"""Refuse activation when a gating suite is below the rate it declares.
+
+	The advisory warnings below are the older, softer half of this: they tell a
+	deployer that a suite has never run or last failed, and deploy proceeds
+	anyway. A suite that names a ``min_pass_rate`` is making a stronger claim —
+	that going live below that rate is not allowed — so it is enforced here, by
+	the number the run actually measured rather than by its pass/fail label.
+
+	A suite that leaves ``min_pass_rate`` at 0 is unchanged: nothing blocks.
+	"""
+	suites = frappe.get_list(
+		"AI Eval Suite",
+		filters={"process_model": model_name, "gate_deployment": 1},
+		fields=["name", "title", "min_pass_rate"],
+		ignore_permissions=True,
+	)
+
+	refusals = []
+	for suite in suites:
+		minimum = flt(suite.min_pass_rate)
+		if not minimum:
+			continue
+
+		latest = frappe.get_list(
+			"AI Eval Run",
+			filters={"suite": suite.name},
+			fields=["name", "status", "pass_rate", "total_executions"],
+			order_by="started_at desc",
+			limit_page_length=1,
+			ignore_permissions=True,
+		)
+		title = suite.title or suite.name
+		if not latest:
+			refusals.append(
+				_("'{0}' requires a {1}% pass rate and has never been run.").format(title, minimum)
 			)
+			continue
+
+		run = latest[0]
+		rate = flt(run.pass_rate)
+		if rate < minimum:
+			refusals.append(
+				_("'{0}' is at {1}% over {2} execution(s) and requires {3}%.").format(
+					title, round(rate, 1), cint(run.total_executions), minimum
+				)
+			)
+
+	if refusals:
+		frappe.throw(
+			_("This map cannot be activated until its gating eval suites pass:\n\n")
+			+ "\n".join(f"• {r}" for r in refusals),
+			title=_("Eval Gate"),
+		)
 
 
 def _check_eval_suite_gating(model_name: str) -> list:
@@ -1333,6 +1504,13 @@ def _extract_tool_shapes(adhoc_el, bpmn_ns: str, spiff_ns: str) -> list:
 			ai_agent_config = child.get(f"{{{spiff_ns}}}aiAgentConfig", "")
 			if ai_agent_config:
 				shape["aiAgentConfig"] = ai_agent_config
+		# A tool that belongs to ONE agent in a shared box: the id of the AI Agent
+		# Task it serves. Docu's writer sits in the same Tools box as the pipeline
+		# tools the orchestrator calls, and its six lookups must not reach the
+		# orchestrator nor the pipeline tools the writer.
+		tool_for = (child.get(f"{{{spiff_ns}}}aiToolFor") or "").strip()
+		if tool_for:
+			shape["toolFor"] = tool_for
 		if service_type:
 			# Copy every spiffworkflow:* attribute (aiToolParams handled below).
 			for attr_name, attr_value in child.attrib.items():
@@ -1430,16 +1608,30 @@ def _resolve_ai_agent_tool_shapes(bpmn_xml: str, service_extensions: dict) -> No
 	adhocs = _index_adhoc_subprocesses(bpmn_xml, BPMN_NS)
 	if adhocs is None:
 		return
-	for cfg in agents.values():
+	for agent_id, cfg in agents.items():
 		adhoc = adhocs.get((cfg.get("aiToolsAdhoc") or "").strip())
 		if adhoc is None:
 			continue  # _validate_ai_agent_tools reports the missing reference
-		cfg["aiToolShapes"] = json.dumps(_extract_tool_shapes(adhoc, BPMN_NS, SPIFF_NS))
+		cfg["aiToolShapes"] = json.dumps(_tools_for_agent(_extract_tool_shapes(adhoc, BPMN_NS, SPIFF_NS), agent_id))
 	for bpmn_id, cfg in selectors.items():
 		adhoc = adhocs.get(bpmn_id)
 		if adhoc is None:
 			continue
-		cfg["aiToolShapes"] = json.dumps(_extract_tool_shapes(adhoc, BPMN_NS, SPIFF_NS))
+		cfg["aiToolShapes"] = json.dumps(_tools_for_agent(_extract_tool_shapes(adhoc, BPMN_NS, SPIFF_NS), bpmn_id))
+
+
+def _tools_for_agent(shapes: list, agent_id: str) -> list:
+	"""The shapes of a box that this agent may call.
+
+	A shape marked aiToolFor belongs to the agent it names and to nobody else.
+	An agent that lives inside the box it references (a writer stage among the
+	orchestrator's tools) gets only the shapes marked for it, never itself and
+	never its siblings. Everyone else gets the unmarked shapes.
+	"""
+	own = [s for s in shapes if s.get("toolFor") == agent_id]
+	if own:
+		return own
+	return [s for s in shapes if not s.get("toolFor") and s.get("bpmn_id") != agent_id]
 
 
 def _validate_ai_agent_tools(bpmn_xml: str, service_extensions: dict) -> None:
@@ -1475,86 +1667,126 @@ def _validate_ai_agent_tools(bpmn_xml: str, service_extensions: dict) -> None:
 			)
 
 
-def _resolve_called_process_xml(bpmn_xml: str, model_name: str) -> list:
-	"""XML of every process this diagram's Call Activities reference.
+def _validate_ai_max_tokens(service_extensions: dict) -> None:
+	"""Reject an AI Agent Task whose Max Tokens is set but is not a whole number above 0.
+	An absent attribute means the default and passes."""
+	for bpmn_id, cfg in (service_extensions or {}).items():
+		if (cfg or {}).get("serviceType") != "ai_agent" or cfg.get("aiMaxTokens") is None:
+			continue
+		text = str(cfg.get("aiMaxTokens")).strip()
+		if not text.isdigit() or int(text) <= 0:
+			frappe.throw(
+				_("Max tokens must be a positive number (AI Agent Task {0})").format(bpmn_id),
+				exc=frappe.ValidationError,
+			)
 
-	A Call Activity names another process by id in ``calledElement``, and
-	SpiffWorkflow resolves that id only against processes the SAME parser has
-	parsed. Compiling one model in isolation therefore fails with a raw
-	"The process 'x' was not found" the moment a Call Activity points at a
-	different Process Model — which is why the only Call Activity in the wild
-	had an empty calledElement and had never run.
 
-	So: find each calledElement, look up the Process Model whose ``process_id``
-	matches, and return its XML for parse_bpmn to register. Resolution is
-	transitive (a called process may call another) and cycle-safe — a process
-	that calls back into the caller resolves each participant once rather than
-	recursing forever, which is also what lets SpiffWorkflow parse the pair.
+CALL_BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+CALL_SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
 
-	A calledElement with no matching model is a modelling mistake, not a crash:
-	it throws with the id and the shape, the same way a missing Decision Table
-	does. An EMPTY calledElement is left alone — that is an unconfigured shape,
-	and it fails validation elsewhere with a better message than this one.
+
+def _resolve_called_process_xml(bpmn_xml: str, model_name: str) -> tuple:
+	"""(this diagram with each Call Activity pointed at the map it runs, the XML of every map called).
+
+	SpiffWorkflow resolves calledElement only against processes the same parser has
+	parsed, so each called map's XML is handed over too, transitively and cycle-safe.
 	"""
 	import xml.etree.ElementTree as _ET
 
-	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	_ET.register_namespace("bpmn", CALL_BPMN_NS)
+	_ET.register_namespace("bpmndi", "http://www.omg.org/spec/BPMN/20100524/DI")
+	_ET.register_namespace("dc", "http://www.omg.org/spec/DD/20100524/DC")
+	_ET.register_namespace("di", "http://www.omg.org/spec/DD/20100524/DI")
+	_ET.register_namespace("spiffworkflow", "http://spiffworkflow.org/bpmn/schema/1.0/core")
 
 	try:
 		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8"))
 	except Exception:
-		return []  # a malformed diagram surfaces properly in parse_bpmn
+		return bpmn_xml, []  # a malformed diagram surfaces properly in parse_bpmn
 
-	def _called_ids(xml_root):
-		found = {}
-		for el in xml_root.iter(f"{{{BPMN_NS}}}callActivity"):
-			called = (el.get("calledElement") or "").strip()
-			if called:
-				found.setdefault(called, el.get("id") or "?")
-		return found
+	seen = {p.get("id") for p in root.iter(f"{{{CALL_BPMN_NS}}}process") if p.get("id")}
+	queue: list = []
+	resolved = (
+		_ET.tostring(root, encoding="unicode")
+		if _point_call_activities(root, model_name, queue)
+		else bpmn_xml
+	)
 
 	collected: list = []
-	# The process ids already known to the parser: this diagram's own.
-	seen = {p.get("id") for p in root.iter(f"{{{BPMN_NS}}}process") if p.get("id")}
-	pending = _called_ids(root)
-
-	while pending:
-		called_id, shape_id = pending.popitem()
-		if called_id in seen:
+	while queue:
+		target = queue.pop()
+		if target.process_id in seen:
 			continue
-		seen.add(called_id)
-
-		target = frappe.db.get_value(
-			"BPMN Process Model", {"process_id": called_id}, ["name", "bpmn_xml"], as_dict=True
-		)
-		if not target or not target.bpmn_xml:
-			frappe.throw(
-				_(
-					"Cannot deploy '{0}': the Call Activity '{1}' calls the process "
-					"'{2}', and no BPMN Process Model has that Process ID.<br><br>"
-					"Open the Call Activity and set <b>Called Element</b> to the "
-					"Process ID of the map you want it to run."
-				).format(model_name, shape_id, called_id),
-				title=_("Called Process Not Found"),
-			)
-
-		# The called document has to arrive at the parser in the same shape the
-		# main one does. Script Tasks driven only by the Server Script picker
-		# carry no inline <bpmn:script>, and SpiffWorkflow asserts exactly one —
-		# so a called map full of Server Script tasks fails the parent's compile
-		# with "Invalid Script Task. No Script Provided." even though the called
-		# map compiles perfectly well on its own.
+		seen.add(target.process_id)
+		# A called map's Server Script tasks need the same inline-script stub as the caller's.
 		child_xml = _ensure_script_task_inline_scripts(_sanitize_bpmn_xml(target.bpmn_xml))
-		collected.append(child_xml)
 		try:
 			child_root = _ET.fromstring(child_xml.strip().encode("utf-8"))
 		except Exception:
-			continue  # the called model's own compile is where that gets reported
-		for nested_id, nested_shape in _called_ids(child_root).items():
-			if nested_id not in seen:
-				pending[nested_id] = nested_shape
+			collected.append(child_xml)  # the called model's own compile is where that gets reported
+			continue
+		if _point_call_activities(child_root, target.name, queue):
+			child_xml = _ET.tostring(child_root, encoding="unicode")
+		collected.append(child_xml)
 
-	return collected
+	return resolved, collected
+
+
+def _point_call_activities(root, model_name: str, queue: list) -> bool:
+	"""Point each Call Activity under *root* at the map it runs and queue that map; True when an id changed."""
+	changed = False
+	for call in root.iter(f"{{{CALL_BPMN_NS}}}callActivity"):
+		process = (call.get(f"{{{CALL_SPIFF_NS}}}calledProcess") or "").strip()
+		called = (call.get("calledElement") or "").strip()
+		if not (process or called):
+			continue  # an unconfigured shape fails validation elsewhere with a better message
+		target = _called_model(process, called)
+		if not target or not target.bpmn_xml:
+			_throw_called_process_missing(model_name, call.get("id") or "?", process, called)
+		if called != target.process_id:
+			call.set("calledElement", target.process_id)
+			changed = True
+		queue.append(target)
+	return changed
+
+
+def _called_model(process: str, called: str):
+	"""The active map of the called Process; a Call Activity naming only an old process id runs its Process's active map."""
+	fields = ["name", "process_id", "bpmn_xml"]
+	if process:
+		return frappe.db.get_value(
+			"BPMN Process Model", {"process_name": process, "is_active": 1}, fields, as_dict=True
+		)
+	owner = frappe.db.get_value(
+		"BPMN Process Model", {"process_id": called}, "process_name", order_by="is_active desc"
+	)
+	active = owner and frappe.db.get_value(
+		"BPMN Process Model", {"process_name": owner, "is_active": 1}, fields, as_dict=True
+	)
+	return active or frappe.db.get_value("BPMN Process Model", {"process_id": called}, fields, as_dict=True)
+
+
+def _throw_called_process_missing(model_name: str, shape_id: str, process: str, called: str) -> None:
+	if process:
+		message = _(
+			"Cannot deploy '{0}': the Call Activity '{1}' calls the process '{2}', which has no active "
+			"map. Activate a map of '{2}', or pick another process on the Call Activity."
+		).format(model_name, shape_id, process)
+	else:
+		message = _(
+			"Cannot deploy '{0}': the Call Activity '{1}' calls the process '{2}', and no BPMN Process "
+			"Model has that Process ID. Open the Call Activity and pick the process it should run."
+		).format(model_name, shape_id, called)
+	frappe.throw(message, title=_("Called Process Not Found"))
+
+
+def _drop_stale_flow_node_refs(xml: str) -> str:
+	"""Remove <flowNodeRef> entries whose node id is not defined anywhere in the XML."""
+	if not xml or "flowNodeRef" not in xml:
+		return xml
+	defined = set(re.findall(r'\bid="([^"]+)"', xml))
+	pattern = re.compile(r"\s*<(?:bpmn2?:)?flowNodeRef>\s*([^<\s]+)\s*</(?:bpmn2?:)?flowNodeRef>")
+	return pattern.sub(lambda m: m.group(0) if m.group(1) in defined else "", xml)
 
 
 @frappe.whitelist()
@@ -1582,11 +1814,15 @@ def compile_process_model(model_name: str) -> dict:
 	if not model.bpmn_xml:
 		frappe.throw(_("No BPMN XML found in process model '{0}'").format(model_name))
 
-	# ── Always extract the real process_id from the XML ──────────────────────
-	# The stored process_id field may be a stale UUID assigned at record-create
-	# time, while the BPMN diagram itself uses a different id (e.g. 'Process_1').
-	# SpiffWorkflow will fail if the two don't match, so we re-sync here.
+	# ── Keep the diagram and the record in step before parsing ───────────────
+	# SpiffWorkflow looks the process up by the id it is handed, so a diagram
+	# naming a different one fails to parse. The record owns the id, so the
+	# diagram is rewritten to match; copying the diagram's id back onto the
+	# record is what used to lose the readable one on every save. A record with
+	# no id yet still takes the diagram's, which is the import case.
 	import xml.etree.ElementTree as _ET
+
+	from one_bpmn.one_bpmn.doctype.bpmn_process_model.bpmn_process_model import swap_process_id
 
 	_bpmn_ns = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 	try:
@@ -1594,9 +1830,10 @@ def compile_process_model(model_name: str) -> dict:
 		_process_el = _root.find(f"{{{_bpmn_ns}}}process") or _root.find("process")
 		if _process_el is not None:
 			xml_process_id = _process_el.get("id", "").strip()
-			if xml_process_id and xml_process_id != model.process_id:
-				# Sync the field so it always reflects the XML truth
+			if xml_process_id and not model.process_id:
 				model.process_id = xml_process_id
+			elif xml_process_id and xml_process_id != model.process_id:
+				model.bpmn_xml = swap_process_id(model.bpmn_xml, xml_process_id, model.process_id)
 
 			# Block deploy if process is not marked executable in the diagram
 			is_executable = _process_el.get("isExecutable", "false").strip().lower()
@@ -1630,6 +1867,14 @@ def compile_process_model(model_name: str) -> dict:
 	# and the FrappeScriptEngine will replace it with the configured Server Script.
 	sanitized_xml = _ensure_script_task_inline_scripts(sanitized_xml)
 
+	# A lane may still list a node that was deleted from the diagram. Nothing
+	# reads lanes at runtime, but the modeler's lint reports each stale ref as an
+	# error, so clear them from the stored map on deploy.
+	cleaned_xml = _drop_stale_flow_node_refs(model.bpmn_xml)
+	if cleaned_xml != model.bpmn_xml:
+		model.bpmn_xml = cleaned_xml
+	sanitized_xml = _drop_stale_flow_node_refs(sanitized_xml)
+
 	# ── Scan for Business Rule Tasks and collect DMN XML ─────────────────
 	# Business Rule Tasks reference a calledDecisionId in the spiffworkflow
 	# extension elements.  Each referenced decision must have a corresponding
@@ -1662,18 +1907,18 @@ def compile_process_model(model_name: str) -> dict:
 			frappe.throw(
 				_(
 					"Cannot deploy: Business Rule Tasks reference decisions "
-					"that have no DMN XML in the Decision Tables: {0}.<br><br>"
+					"that have no DMN XML in the Decision Tables: {0}.\n\n"
 					"Open each Business Rule Task in the diagram and create a "
 					"Decision Table using the DMN modeler."
 				).format(", ".join(sorted(missing))),
 				title=_("Missing Decision Tables"),
 			)
 
-	called_xml_list = _resolve_called_process_xml(sanitized_xml, model_name)
+	sanitized_xml, called_xml_list = _resolve_called_process_xml(sanitized_xml, model_name)
 
 	try:
 		spec_dict, sp_dict = bpmn_engine.parse_bpmn(
-			bpmn_xml=sanitized_xml,
+			bpmn_xml=_detach_start_timer_definitions(sanitized_xml),
 			process_id=model.process_id,
 			dmn_xml_list=dmn_xml_list,
 			called_xml_list=called_xml_list,
@@ -1727,10 +1972,15 @@ def compile_process_model(model_name: str) -> dict:
 	_validate_adhoc_structure(sanitized_xml)
 	_validate_adhoc_selector_pool(sanitized_xml, model_name)
 	_validate_ai_agent_tools(sanitized_xml, service_extensions)
+	_validate_ai_max_tokens(service_extensions)
+	_validate_ai_tool_contract(service_extensions)
 
 	# ── Eval suite deployment gating (non-blocking warnings) ──────────
 	deploy_warnings = _check_eval_suite_gating(model_name)
 	deploy_warnings.extend(_check_ai_tasks_have_a_user_prompt(spec_data))
+	deploy_warnings.extend(_validate_turn_store_contract(sanitized_xml, service_extensions))
+	deploy_warnings.extend(_check_connector_tools_can_answer(sanitized_xml))
+	deploy_warnings.extend(_check_shape_config_drift(service_extensions))
 
 	script_extensions = _extract_script_task_config(sanitized_xml)
 	if script_extensions or called_script_extensions:
@@ -1749,6 +1999,9 @@ def compile_process_model(model_name: str) -> dict:
 	user_extensions = _extract_user_task_config(sanitized_xml)
 	if user_extensions:
 		spec_data["user_task_extensions"] = user_extensions
+	deploy_warnings.extend(_check_email_settings(service_extensions, user_extensions))
+	deploy_warnings.extend(_check_notification_senders(service_extensions, user_extensions))
+	deploy_warnings.extend(_check_script_tasks_have_a_script(model.bpmn_xml))
 
 	model.serialized_spec = json.dumps(spec_data)
 
@@ -1756,6 +2009,7 @@ def compile_process_model(model_name: str) -> dict:
 	# Frappe scheduler only runs at minute intervals — reject any timer value
 	# that uses seconds (e.g. PT15S, R5/PT10S).
 	_validate_timer_granularity(sanitized_xml)
+	_validate_start_event_timers(sanitized_xml)
 
 	# ── Validate prohibited shapes (block unsupported elements) ──────────
 	# Reject any BPMN element type that OneFM has marked as prohibited for
@@ -1775,6 +2029,9 @@ def compile_process_model(model_name: str) -> dict:
 	# When the process uses a workflow-state trigger or apply_workflow service
 	# task, every referenced doctype must have the field — create it if absent.
 	_validate_workflow_state_field(model, service_extensions)
+
+	# ── Eval gate: a gating suite below its declared rate blocks activation ──
+	_enforce_eval_pass_rate(model_name)
 
 	# ── Activate this model and manage deployment lifecycle ───────────────
 	_activate_deployed_model(model, script_extensions)
@@ -1800,9 +2057,12 @@ def compile_process_model(model_name: str) -> dict:
 	# old native controller code can still reject or mutate a document even
 	# after the BPMN process is active. Warn — but never block — if the
 	# designer hasn't confirmed the backend code was removed on Production.
-	# Absent field (pre-schema-change records) or "Removed on Production"
-	# suppresses the warning.
-	removal_status = model.get("backend_code_removal_status")
+	# A model with no Process, or a Process marked "Removed on Production", shows no warning.
+	removal_status = None
+	if model.get("process_name"):
+		removal_status = frappe.db.get_value(
+			"Process", model.process_name, "backend_code_removal_status"
+		)
 	if removal_status and removal_status not in ("Removed on Production",):
 		deploy_warnings.append({
 			"label": "Backend Code Removal",
@@ -1837,7 +2097,8 @@ def disable_process_model(model_name: str) -> dict:
 	1. Sets ``is_active = 0`` — trigger.py will stop creating new instances.
 	2. Clears ``serialized_spec`` and ``subprocess_specs`` to prevent
 	   stale instantiation.
-	3. Disables all Server Scripts linked to this model's script tasks.
+	3. Disables the Server Scripts linked to this model's script tasks that no
+	   other active model still runs.
 
 	Running instances are NOT affected — they continue to completion with
 	their own ``workflow_state``.
@@ -1870,8 +2131,8 @@ def disable_process_model(model_name: str) -> dict:
 	model.serialized_spec = None
 	model.subprocess_specs = None
 
-	# ── Disable linked Server Scripts ─────────────────────────────────────
-	for script_name in linked_scripts:
+	# ── Disable linked Server Scripts nobody else runs ───────────────────
+	for script_name in linked_scripts - _scripts_used_by_active_models({model_name}):
 		if frappe.db.exists("Server Script", script_name):
 			frappe.db.set_value("Server Script", script_name, "disabled", 1)
 
@@ -1893,6 +2154,310 @@ def disable_process_model(model_name: str) -> dict:
 		"model": model_name,
 		"running_instances": running_count,
 	}
+
+
+# A prompt telling the model to "call X" where X is not in the Tools box. Only a
+# name in a calling position counts — bare snake_case words are app names and
+# domain vocabulary far more often than tools.
+_TOOL_CALL_RE = re.compile(
+	r"\b(?:call|calls|calling|called|use|uses|using|invoke|invokes|invoking)\s+`?([a-z][a-z0-9_]{2,})`?",
+	re.I,
+)
+# A name in backticks is being quoted as an identifier, so it needs no verb in
+# front of it. Kept to snake_case: a single word in backticks is as often a
+# field or a status as a tool.
+_TOOL_BACKTICK_RE = re.compile(r"`([a-z][a-z0-9]*(?:_[a-z0-9]+)+)`")
+
+
+def _known_tool_ids() -> set:
+	"""Every tool id in any active map's compiled spec. A bare word like
+	``finalize`` is only treated as a tool reference when some map really has
+	a tool of that name — otherwise ordinary English after "call" would trip it."""
+	ids = set()
+	for spec in frappe.get_all("BPMN Process Model", filters={"is_active": 1}, pluck="serialized_spec"):
+		try:
+			exts = (json.loads(spec or "{}") or {}).get("service_task_extensions") or {}
+		except ValueError:
+			continue
+		for cfg in exts.values():
+			for shape in json.loads((cfg or {}).get("aiToolShapes") or "[]"):
+				if shape.get("bpmn_id"):
+					ids.add(shape["bpmn_id"])
+	return ids
+
+
+def _tool_contract_gaps(prompt: str, tool_ids: set, known_ids: set) -> list:
+	"""Names the prompt tells the model to call that are not in its own Tools box."""
+	from one_bpmn.api.skill_tools import SKILL_TOOL_NAMES
+
+	# The skill tools are injected at dispatch for any linked configuration, so
+	# a prompt that says "call load_skill" is right even though no box holds it.
+	tool_ids = set(tool_ids) | SKILL_TOOL_NAMES
+	called = {m.lower() for m in _TOOL_CALL_RE.findall(prompt or "")}
+	gaps = {n for n in called if n not in tool_ids and ("_" in n or n in known_ids)}
+	# A backticked name has no verb vouching for it, and prompts quote argument
+	# names and field names in backticks far more often than tools. So it only
+	# counts when some map really does have a tool of that name.
+	quoted = {m.lower() for m in _TOOL_BACKTICK_RE.findall(prompt or "")}
+	gaps |= {n for n in quoted if n not in tool_ids and n in known_ids}
+	return sorted(gaps)
+
+
+def _validate_ai_tool_contract(service_extensions: dict) -> None:
+	"""Every tool a prompt names must exist in that agent's Tools box.
+
+	The Frontend Agent shipped for weeks with a prompt ordering draft_change,
+	review_change and propose_pull_request — none of which existed — and every
+	delegation ended "staged but never delivered". An order the agent cannot
+	carry out is broken whoever is watching, so this refuses the deploy for chat
+	and background agents alike."""
+	agents = _ai_agents_with_tools(service_extensions)
+	if not agents:
+		return
+	known = _known_tool_ids()
+	blocking = []
+	for agent_id, cfg in agents.items():
+		tool_ids = {s.get("bpmn_id") for s in json.loads(cfg.get("aiToolShapes") or "[]")}
+		shape_prompt = cfg.get("aiSystemPrompt") or ""
+		config_prompt = ""
+		config_name = (cfg.get("aiAgentConfig") or "").strip()
+		if config_name and frappe.db.exists("AI Agent Configuration", config_name):
+			config_prompt = (
+				frappe.db.get_value("AI Agent Configuration", config_name, "system_prompt") or ""
+			)
+		# Whichever prompt actually reaches the model: the configuration's when
+		# one is linked (agent_config_resolver), else the shape's own copy. A
+		# linked shape keeps a copy nothing reads and the editor no longer shows,
+		# and refusing a deploy over invisible text is worse than not checking it.
+		# The turn's own instructions name tools the same way, so they count too.
+		instructions = "\n".join(
+			p for p in (config_prompt or shape_prompt, cfg.get("aiUserPrompt") or "") if p
+		)
+		gaps = _tool_contract_gaps(instructions, tool_ids, known)
+		if not gaps:
+			continue
+		adhoc_id = (cfg.get("aiToolsAdhoc") or "").strip() or "?"
+		detail = _(
+			"Instructions for '{0}' reference tool {1}, which does not exist in Tools box '{2}'. "
+			"Fix the instructions or add the shape."
+		).format(agent_id, ", ".join(f"'{g}'" for g in gaps), adhoc_id)
+		blocking.append(detail)
+	if blocking:
+		frappe.throw(
+			_("The prompt and the Tools box disagree:") + "\n" + "\n".join(f"• {b}" for b in blocking),
+			exc=frappe.ValidationError,
+		)
+
+
+# ── The turn store: what the closing script reads vs what the tools write ────
+# A tool hands its result to the next step through the turn store, and the
+# closing script (Save Response, Answer the Caller) reads it back out. Nothing
+# connected the two, so a script could read a key nothing on the map ever wrote
+# would end with an empty answer and no error anywhere.
+#
+# Two levels, because that is how the scripts are written: update_turn(doc, k=v)
+# sets a top-level key, and update_turn(doc, output={...}) sets the payload the
+# closing script reads through `_out`.
+_TURN_READ_RE = re.compile(r"\b(?:_?turn|_?out)\.get\(\s*['\"]([a-zA-Z_][\w]*)['\"]")
+
+
+def _turn_keys_read(script: str) -> tuple:
+	"""(top-level keys, output keys) a script reads out of the turn store."""
+	top, out = set(), set()
+	try:
+		tree = ast.parse(script or "")
+	except SyntaxError:
+		# Fall back to the pattern: a script we cannot parse still tells us what
+		# it reads, and half an answer beats refusing to look.
+		return set(_TURN_READ_RE.findall(script or "")), set()
+	for node in ast.walk(tree):
+		if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+			continue
+		if node.func.attr != "get" or not node.args:
+			continue
+		key = node.args[0]
+		if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
+			continue
+		base = node.func.value
+		name = base.id if isinstance(base, ast.Name) else None
+		if name in ("turn", "_turn"):
+			# `output` is the envelope every closing script opens to reach the
+			# payload, not a key a tool sets.
+			if key.value != "output":
+				top.add(key.value)
+		elif name in ("out", "_out"):
+			out.add(key.value)
+	return top, out
+
+
+def _turn_keys_written(script: str) -> tuple:
+	"""(top-level keys, output keys) a script writes into the turn store."""
+	top, out = set(), set()
+	try:
+		tree = ast.parse(script or "")
+	except SyntaxError:
+		return top, out
+	# Scripts build the payload as a named dict and pass it by name, so the keys
+	# are one hop from the call. ProsAlly's finalize does exactly this, and
+	# reading only inline literals reported its every key as unwritten.
+	literals = {}
+	for node in ast.walk(tree):
+		if isinstance(node, ast.Assign) and isinstance(node.value, ast.Dict):
+			for target in node.targets:
+				if isinstance(target, ast.Name):
+					literals[target.id] = _dict_literal_keys(node.value)
+	for node in ast.walk(tree):
+		if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+			continue
+		if node.func.id not in ("update_turn", "set_turn"):
+			continue
+		for kw in node.keywords:
+			if kw.arg is None:
+				continue  # **kwargs — nothing static to read
+			if kw.arg == "output":
+				out |= _keys_of(kw.value, literals)
+			else:
+				top.add(kw.arg)
+		# set_turn(docname, {"a": 1}) seeds keys positionally.
+		for arg in node.args[1:]:
+			top |= _keys_of(arg, literals)
+	return top, out
+
+
+def _keys_of(node, literals: dict) -> set:
+	"""Keys of a dict argument, whether written inline or passed by name."""
+	if isinstance(node, ast.Name):
+		return set(literals.get(node.id) or ())
+	return _dict_literal_keys(node)
+
+
+def _dict_literal_keys(node) -> set:
+	if not isinstance(node, ast.Dict):
+		return set()
+	return {
+		k.value for k in node.keys
+		if isinstance(k, ast.Constant) and isinstance(k.value, str)
+	}
+
+
+def _script_bodies(names: set) -> dict:
+	"""Server Script sources by name, skipping any that no longer exist."""
+	if not names:
+		return {}
+	rows = frappe.get_all(
+		"Server Script", filters={"name": ["in", list(names)]}, fields=["name", "script"]
+	)
+	return {r["name"]: r["script"] or "" for r in rows}
+
+
+def _agent_script_names(bpmn_xml: str, adhoc_id: str) -> tuple:
+	"""(tool scripts inside the Tools box, scripts everywhere else on the map)."""
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+	try:
+		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml)
+	except Exception:
+		return set(), {}
+
+	tool_scripts, inside = set(), set()
+	for adhoc in root.iter(f"{{{BPMN_NS}}}adHocSubProcess"):
+		for child in adhoc.iter():
+			name = child.get(f"{{{SPIFF_NS}}}serverScript")
+			if child.get("id"):
+				inside.add(child.get("id"))
+			if name and adhoc.get("id") == adhoc_id:
+				tool_scripts.add(name)
+
+	others = {}
+	for el in root.iter():
+		name = el.get(f"{{{SPIFF_NS}}}serverScript")
+		if name and el.get("id") not in inside:
+			others[el.get("id")] = name
+	return tool_scripts, others
+
+
+def _validate_turn_store_contract(bpmn_xml: str, service_extensions: dict) -> list:
+	"""Warn when the closing script reads a turn-store key no tool writes.
+
+	A warning, not a block: the reader always uses .get, so a missing key is an
+	empty answer rather than a crash, and a map can legitimately read a key a
+	person sets elsewhere. The Frontend Agent's Answer the Caller read delivered,
+	build and pull_request, none of which any tool wrote, and every run ended
+	"staged but never delivered" with nothing in the logs to say why.
+	"""
+	agents = _ai_agents_with_tools(service_extensions)
+	if not agents:
+		return []
+
+	warnings = []
+	for agent_id, cfg in agents.items():
+		adhoc_id = (cfg.get("aiToolsAdhoc") or "").strip()
+		tool_names, closing = _agent_script_names(bpmn_xml, adhoc_id)
+		if not closing:
+			continue
+		bodies = _script_bodies(tool_names | set(closing.values()))
+
+		# Every script on the map counts as a writer, not only the tools. Build
+		# Context seeds the turn before the agent runs, so treating tools as the
+		# only source reported keys that are set on every single turn.
+		wrote_top, wrote_out = set(), set()
+		for name in bodies:
+			t, o = _turn_keys_written(bodies[name])
+			wrote_top |= t
+			wrote_out |= o
+		# finalize declares its payload as tool parameters, so those count as
+		# written even though no script literally assigns them.
+		for shape in json.loads(cfg.get("aiToolShapes") or "[]"):
+			wrote_out |= set((shape.get("parameters") or {}).keys())
+
+		for shape_id, script_name in sorted(closing.items()):
+			body = bodies.get(script_name, "")
+			# A script that writes as well as reads supplies its own keys.
+			read_top, read_out = _turn_keys_read(body)
+			missing = sorted(
+				[k for k in read_top if k not in wrote_top]
+				+ [k for k in read_out if k not in wrote_out]
+			)
+			if not missing:
+				continue
+			warnings.append({
+				"label": _("Turn Store"),
+				"icon": "unplug",
+				"type": "warning",
+				"detail": _(
+					"'{0}' ({1}) reads {2} from the turn store, which no tool of '{3}' writes. "
+					"The answer will come back empty."
+				).format(shape_id, script_name, ", ".join(f"'{k}'" for k in missing), agent_id),
+			})
+	return warnings
+
+
+def _check_connector_tools_can_answer(bpmn_xml: str) -> list:
+	"""A connector tool with no Result Variable runs and tells the agent nothing.
+
+	The dispatcher writes a connector's output to task.data[resultVariable] and
+	does nothing when that is empty, so the side effect happens and the model
+	learns nothing — which looks exactly like a broken integration. The deploy
+	checklist already names these; a compile that skipped the checklist (an
+	import, a call from the API) did not, and an import is precisely where a
+	shape arrives from another site with the field dropped.
+	"""
+	from one_bpmn.api.process_map_api import _connector_tools_without_result_variable
+
+	return [
+		{
+			"label": _("Connector tool returns nothing"),
+			"icon": "plug",
+			"type": "warning",
+			"detail": _(
+				"'{0}' has no Result Variable, so the {1} connector will run for the "
+				"'{2}' agent but return no data to it. Set a Result Variable on that shape."
+			).format(g["shape"] or g["bpmn_id"], g["connector"] or _("connector"), g["agent"]),
+		}
+		for g in _connector_tools_without_result_variable(bpmn_xml)
+	]
 
 
 def _check_ai_tasks_have_a_user_prompt(spec_data: dict) -> list:
@@ -1929,6 +2494,164 @@ def _check_ai_tasks_have_a_user_prompt(spec_data: dict) -> list:
 	return warnings
 
 
+def _check_email_settings(service_extensions: dict, user_extensions: dict) -> list:
+	"""One warning per Send Email task or notifying User Task whose recipients, subject or body are empty."""
+	return [_email_warning(bpmn_id, missing) for bpmn_id, missing in _email_setting_gaps(service_extensions, user_extensions)]
+
+
+def _email_setting_gaps(service_extensions: dict, user_extensions: dict) -> list:
+	"""(bpmn_id, missing parts) for each Send Email task or notifying User Task with an empty recipient, subject or body."""
+	recipient_keys = ("emailTo", "emailToDocFields", "emailToTableField", "emailToRoles")
+	gaps = []
+	for bpmn_id, cfg in service_extensions.items():
+		if cfg.get("serviceType") != "send_email":
+			continue
+		missing = []
+		if not any(str(cfg.get(key) or "").strip() for key in recipient_keys):
+			missing.append(_("recipients"))
+		if not str(cfg.get("emailSubject") or "").strip():
+			missing.append(_("subject"))
+		if not str(cfg.get("emailBody") or "").strip():
+			missing.append(_("body"))
+		if missing:
+			gaps.append((bpmn_id, missing))
+	for bpmn_id, cfg in user_extensions.items():
+		if cfg.get("notifyAssignee") != "true":
+			continue
+		template = str(cfg.get("notifyAssigneeTemplate") or cfg.get("notifyTemplate") or "").strip()
+		subject = str(cfg.get("notifyAssigneeSubject") or cfg.get("notifySubject") or "").strip()
+		body = str(cfg.get("notifyAssigneeBody") or cfg.get("notifyBody") or "").strip()
+		missing = []
+		if not (template or subject):
+			missing.append(_("subject"))
+		if not (template or body):
+			missing.append(_("body"))
+		if missing:
+			gaps.append((bpmn_id, missing))
+	return gaps
+
+
+def _check_notification_senders(service_extensions: dict, user_extensions: dict) -> list:
+	"""On a Production instance, one warning per notification that does not send from the configured address."""
+	expected, gaps = _notification_sender_gaps(service_extensions, user_extensions)
+	return [
+		{
+			"label": _("Notification sender is not {0}").format(expected),
+			"icon": "mail-warning",
+			"type": "warning",
+			"detail": _("'{0}' sends from {1}. On this Production site notifications should send from {2}.").format(
+				bpmn_id, sender, expected
+			),
+		}
+		for bpmn_id, sender in gaps
+	]
+
+
+def _notification_sender_gaps(service_extensions: dict, user_extensions: dict) -> tuple:
+	"""(expected address, [(bpmn_id, sender)]) for notifications sending from another address; empty off Production."""
+	from one_bpmn.api.editability import get_instance_type
+
+	account = frappe.db.get_single_value("Processa Settings", "production_notification_account")
+	if get_instance_type() != "Production" or not account:
+		return "", []
+	expected = frappe.db.get_value("Email Account", account, "email_id") or ""
+	accounts = [
+		(bpmn_id, cfg.get("emailAccount"))
+		for bpmn_id, cfg in service_extensions.items()
+		if cfg.get("serviceType") == "send_email"
+	]
+	accounts += [
+		(bpmn_id, cfg.get("notifyAssigneeAccount") or cfg.get("emailAccount"))
+		for bpmn_id, cfg in user_extensions.items()
+		if cfg.get("notifyAssignee") == "true"
+	]
+	default_sender = frappe.db.get_value("Email Account", {"default_outgoing": 1}, "email_id")
+	gaps = []
+	for bpmn_id, account in accounts:
+		account = str(account or "").strip()
+		sender = frappe.db.get_value("Email Account", account, "email_id") if account else default_sender
+		if (sender or "").strip().lower() != expected.lower():
+			gaps.append((bpmn_id, sender or account or _("no email account")))
+	return expected, gaps
+
+
+def _email_warning(bpmn_id: str, missing: list) -> dict:
+	return {
+		"label": _("Email settings are empty"),
+		"icon": "mail-warning",
+		"type": "warning",
+		"detail": _("'{0}' sends an email with no {1}. Fill these in so the email goes out as intended.").format(
+			bpmn_id, ", ".join(missing)
+		),
+	}
+
+
+def _check_script_tasks_have_a_script(bpmn_xml: str) -> list:
+	"""One warning per Script Task with no Server Script and no inline script."""
+	import xml.etree.ElementTree as _ET
+
+	return [
+		{
+			"label": _("Script is empty"),
+			"icon": "file-warning",
+			"type": "warning",
+			"detail": _("'{0}' has no script, so it does nothing when it runs. Pick a Server Script or write one.").format(
+				bpmn_id
+			),
+		}
+		for bpmn_id in _empty_script_tasks(_ET.fromstring(bpmn_xml.strip().encode("utf-8")))
+	]
+
+
+def _empty_script_tasks(root) -> list:
+	"""Ids of the Script Tasks under *root* that have neither a Server Script nor an inline script."""
+	bpmn_ns = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	spiff_ns = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+	empty = []
+	for task in root.iter(f"{{{bpmn_ns}}}scriptTask"):
+		script = task.find(f"{{{bpmn_ns}}}script")
+		if (task.get(f"{{{spiff_ns}}}serverScript") or "").strip():
+			continue
+		if script is not None and (script.text or "").strip():
+			continue
+		empty.append(task.get("id"))
+	return empty
+
+
+def _check_shape_config_drift(service_extensions: dict) -> list:
+	"""One warning per AI shape whose prompt, model, temperature or max tokens differ from its linked configuration."""
+	from one_bpmn.agents.agent_config_resolver import config_field_map, shape_config_drift
+
+	warnings = []
+	live_by_config = {}
+	for bpmn_id, cfg in service_extensions.items():
+		if cfg.get("serviceType") not in ("ai_agent", "ai_task_selector"):
+			continue
+		config_name = cfg.get("aiAgentConfig") or ""
+		if config_name not in live_by_config:
+			live_by_config[config_name] = config_field_map(config_name)
+		drift = shape_config_drift(cfg, live_by_config[config_name])
+		if not drift:
+			continue
+		warnings.append({
+			"label": _("AI task differs from its configuration"),
+			"icon": "git-compare",
+			"type": "warning",
+			"detail": _("'{0}' differs from AI Agent Configuration '{1}'. What runs: {2}").format(
+				bpmn_id, config_name, "; ".join(_drift_line(d) for d in drift)
+			),
+		})
+	return warnings
+
+
+def _drift_line(drift: dict) -> str:
+	if drift["field"] == "aiSystemPrompt":
+		return _("{0} is the configuration's ({1} characters, the shape has {2})").format(
+			drift["label"], len(drift["live"]), len(drift["shape"])
+		)
+	return _("{0} {1} (the shape says {2})").format(drift["label"], drift["live"], drift["shape"] or _("nothing"))
+
+
 def _recompile_callers_of(process_id: str, model_name: str, _seen: set | None = None) -> None:
 	"""Recompile every map whose Call Activity calls this one.
 
@@ -1954,10 +2677,15 @@ def _recompile_callers_of(process_id: str, model_name: str, _seen: set | None = 
 		return
 	seen.add(model_name)
 
-	needle = f'calledElement="{process_id}"'
+	# Active callers only. compile_process_model activates whatever it compiles,
+	# so recompiling an inactive version of a process deactivated the version a
+	# person had just deployed — the last caller in the list won.
 	for caller in frappe.get_all(
 		"BPMN Process Model",
-		filters={"name": ["!=", model_name], "bpmn_xml": ["like", f"%{needle}%"]},
+		filters={"name": ["!=", model_name], "is_active": 1},
+		or_filters=[
+			["bpmn_xml", "like", f"%{needle}%"] for needle in _caller_needles(process_id, model_name)
+		],
 		fields=["name", "process_id"],
 	):
 		if caller.name in seen:
@@ -1978,3 +2706,17 @@ def _recompile_callers_of(process_id: str, model_name: str, _seen: set | None = 
 			)
 		# Its own callers embed it in turn, so the refresh has to travel up.
 		_recompile_callers_of(caller.process_id, caller.name, seen)
+
+
+def _caller_needles(process_id: str, model_name: str) -> list:
+	"""Text a caller's XML holds when it calls this map: its Process, or the process id of any version of it."""
+	from xml.sax.saxutils import quoteattr
+
+	process = frappe.db.get_value("BPMN Process Model", model_name, "process_name")
+	if not process:
+		return [f'calledElement="{process_id}"']
+	process_ids = set(
+		frappe.get_all("BPMN Process Model", filters={"process_name": process}, pluck="process_id")
+	)
+	process_ids.add(process_id)
+	return [f"calledProcess={quoteattr(process)}"] + [f'calledElement="{pid}"' for pid in process_ids if pid]

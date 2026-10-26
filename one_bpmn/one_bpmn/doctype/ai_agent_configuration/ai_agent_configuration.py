@@ -45,25 +45,125 @@ class AIAgentConfiguration(Document):
 		self.validate_chat_label_against_map()
 		self.validate_agent_creation_grant()
 		self.validate_a2a_exposure()
-		self.validate_delegation_grant()
+		self.validate_memory_config()
+		self.validate_thinking_budget()
+		self.validate_loop_compaction()
+		self.validate_top_p()
+		self.warn_unsupported_temperature()
 
-	def validate_delegation_grant(self):
-		"""Say so when the list is inert.
+	def validate_top_p(self):
+		"""Top P is 0 (not set here) or a fraction above 0 and at most 1."""
+		if self.top_p and not 0 < self.top_p <= 1:
+			frappe.throw(_("Top P must be above 0 and at most 1, or 0 to leave it to the task."))
 
-		Exposure is what grants an agent delegated work; this list only
-		narrows the set, and only while the restriction is on. Rows sitting
-		under an unticked restriction do nothing — which is easy to
-		misread as "delegation is locked down" when it is not.
-		"""
-		if self.allowed_delegates and not self.restrict_delegates:
+	def warn_unsupported_temperature(self):
+		"""Warn, without blocking the save, when a temperature is set on a model that is never sent one."""
+		from one_bpmn.agents.executor.direct_api import _supports_temperature
+
+		if self.temperature and self.ai_model and not _supports_temperature(self.ai_model):
 			frappe.msgprint(
 				_(
-					"This list is ignored while 'Restrict Delegation to Specific Agents' is off — "
-					"the agent may currently hand work to any agent exposed over A2A."
-				),
-				alert=True,
+					"AI Model {0} does not accept a temperature, so the temperature {1} is not sent to it."
+				).format(self.ai_model, self.temperature),
+				title=_("Temperature not used"),
 				indicator="orange",
 			)
+
+	def validate_thinking_budget(self):
+		"""Anthropic needs a thinking budget of at least 1,024 tokens and below Max Tokens."""
+		from one_bpmn.agents.executor import DEFAULT_MAX_OUTPUT_TOKENS
+
+		budget = self.get("thinking_budget_tokens") or 0
+		limit = self.max_tokens or DEFAULT_MAX_OUTPUT_TOKENS
+		if budget and not 1024 <= budget < limit:
+			frappe.throw(
+				_("Thinking Budget Tokens must be 0, or at least 1,024 and below Max Tokens ({0}).").format(limit),
+				title=_("Invalid Thinking Budget"),
+			)
+
+	def validate_loop_compaction(self):
+		"""A tool loop compacted down to one or two turns loses track of what it was doing."""
+		if self.get("loop_compaction_threshold") and (self.get("loop_compaction_keep_turns") or 0) < 3:
+			frappe.throw(
+				_("Tool Loop Keep Turns must be at least 3 when the Tool Loop Threshold is set."),
+				title=_("Invalid Tool Loop Compaction"),
+			)
+
+	def validate_memory_config(self):
+		"""WI-002168: an Enabled config with no resolvable model silently drops
+		half the memory pipeline — distillation skips, or reconciliation
+		degrades — with nothing on the form to say so (see model_resolution.py
+		for the shared chain this checks against the dispatch path).
+
+		Only fires when Long-Term Memory is explicitly Enabled; blank (inherit
+		the diagram's value) is untouched, same as every other memory field.
+		"""
+		if self.long_term_memory != "Enabled":
+			return
+
+		self.warn_if_memory_has_no_map()
+
+		if not self.memory_scope:
+			frappe.throw(
+				_("Memory Scope is required when Long-Term Memory is Enabled."),
+				title=_("Memory Configuration"),
+			)
+		if not self.memory_write_mode:
+			frappe.throw(
+				_("Memory Write Mode is required when Long-Term Memory is Enabled."),
+				title=_("Memory Configuration"),
+			)
+		if self.memory_write_mode != "distilled":
+			return
+
+		from one_bpmn.agents.memory.model_resolution import resolve_memory_model
+
+		distill = resolve_memory_model(
+			self.memory_distill_model, "default_memory_distill_model", self.ai_model
+		)
+		if not distill:
+			frappe.throw(
+				_(
+					"No Distillation Model is resolvable for this agent — set one here, "
+					"a site-wide default in Processa Settings, or link an AI Model above."
+				),
+				title=_("Memory Configuration"),
+			)
+
+		reconcile = resolve_memory_model(
+			self.memory_reconcile_model, "default_memory_reconcile_model", distill
+		)
+		if not reconcile:
+			frappe.throw(
+				_("No Reconciliation Model is resolvable for this agent."),
+				title=_("Memory Configuration"),
+			)
+
+	def warn_if_memory_has_no_map(self):
+		"""Say so when the memory settings cannot do anything.
+
+		Recall and writeback live in the map dispatcher. A chat agent with no
+		Process Model runs on the single-shot path instead (see ``_runner_for``
+		in api/agent_invocation.py), which never reads a memory and never writes
+		one. The settings still save and the form still shows them Enabled, so
+		the only visible symptom is an agent that forgets everything, which is
+		what it looks like when memory is simply not working.
+
+		A warning and not a block: linking the map afterwards is a normal order
+		to do this in, and a Background config carries no map of its own.
+		"""
+		if self.agent_type != "Chat" or self.process_model:
+			return
+
+		frappe.msgprint(
+			_(
+				"Memory is Enabled, but this agent has no Process Model. "
+				"Memories are read and written by the process map, so this agent will not "
+				"recall anything and will not store anything until a map is linked."
+			),
+			title=_("Memory Configuration"),
+			indicator="orange",
+		)
 
 	def validate_a2a_exposure(self):
 		"""WI-001931: exposure is an admin grant on an operating agent. A
@@ -208,6 +308,13 @@ class AIAgentConfiguration(Document):
 		provider = frappe.db.get_value("AI Model", self.ai_model, "provider")
 		if provider:
 			self.ai_provider = provider
+		if not self.ai_provider:
+			frappe.throw(
+				_("AI Model {0} has no provider. Link a provider on the model before saving this agent.").format(
+					frappe.bold(self.ai_model)
+				),
+				title=_("No provider for model"),
+			)
 
 	def validate_unique_chat_mode_label(self):
 		"""Two enabled chat agents must never claim the same conversation mode —
@@ -302,6 +409,7 @@ class AIAgentConfiguration(Document):
 			except Exception:
 				pass
 		self.revalidate_credentials_on_save()
+		self.sync_linked_shapes()
 
 		# The agent's identity is NOT provisioned here. It is a step in the Agent
 		# creation process ("Provision Agent User"), because minting a User as a
@@ -309,6 +417,13 @@ class AIAgentConfiguration(Document):
 		# database write — and the process is where this system keeps behaviour.
 		# The map runs it on the edited-config loop as well as the first pass, so
 		# a change to the roles still reaches the agent's user.
+
+	def sync_linked_shapes(self):
+		"""Copy a changed setting the map shapes mirror onto the shapes that link this agent."""
+		from one_bpmn.agents.agent_config_resolver import DRIFT_CONFIG_FIELDS, sync_shapes_to_config
+
+		if any(self.has_value_changed(f) for f in DRIFT_CONFIG_FIELDS):
+			sync_shapes_to_config(self.name)
 
 	def revalidate_credentials_on_save(self):
 		"""Re-prove the agent on EVERY save — assume nothing (user ruling,
@@ -319,6 +434,7 @@ class AIAgentConfiguration(Document):
 		Runs the full validation including the live provider test call:
 		  * Live agent that fails    → parked Needs Attention, with the reason
 		  * Needs Attention that passes → promoted back to Live (self-healing)
+		  * Needs Attention that fails with new errors → the reason is replaced
 		  * Draft is the creation process's to advance, Retired is a manual
 		    state — neither is touched.
 
@@ -377,8 +493,10 @@ class AIAgentConfiguration(Document):
 			from one_bpmn.agents.agent_config_resolver import _start_reprovision
 
 			_start_reprovision(self.name)
-		elif not result["ok"] and self.lifecycle_status == "Live":
-			self._stamp_lifecycle("Needs Attention", "; ".join(result["errors"]))
+		elif not result["ok"]:
+			reason = "; ".join(result["errors"])
+			if self.lifecycle_status == "Live" or reason != self.needs_attention_reason:
+				self._stamp_lifecycle("Needs Attention", reason)
 
 	def _stamp_lifecycle(self, status: str, reason: str):
 		"""Post-save lifecycle stamp: the doc row is already written, so this
@@ -397,6 +515,21 @@ class AIAgentConfiguration(Document):
 				self.add_comment("Comment", _("Needs Attention: {0}").format(reason))
 			except Exception:
 				pass
+
+
+@frappe.whitelist()
+def get_effective_memory_models(memory_distill_model=None, memory_reconcile_model=None, ai_model=None):
+	"""WI-002168: what the dispatch path would actually resolve, computed against
+	the form's CURRENT (possibly unsaved) values so an admin can see the effect
+	of a field before saving. Mirrors ``validate_memory_config`` and dispatch's
+	``_memory_model`` — same shared chain, so this can never show one answer
+	while the agent runs another.
+	"""
+	from one_bpmn.agents.memory.model_resolution import resolve_memory_model
+
+	distill = resolve_memory_model(memory_distill_model, "default_memory_distill_model", ai_model)
+	reconcile = resolve_memory_model(memory_reconcile_model, "default_memory_reconcile_model", distill)
+	return {"distill_model": distill, "reconcile_model": reconcile}
 
 
 def get_agent_config(agent_id: str) -> dict | None:
@@ -457,7 +590,7 @@ def get_agent_config(agent_id: str) -> dict | None:
 	examples = frappe.get_all(
 		"AI Agent Example",
 		filters={"parent": config.name, "parenttype": "AI Agent Configuration"},
-		fields=["input", "expected_output", "note", "enabled"],
+		fields=["input", "context_summary", "trajectory", "expected_output", "note", "enabled"],
 		order_by="idx asc",
 	)
 	guardrails = frappe.get_all(
@@ -477,10 +610,15 @@ def get_agent_config(agent_id: str) -> dict | None:
 		order_by="idx asc",
 	):
 		skill_doc = frappe.db.get_value("AI Skill", skill.skill, ["skill_name", "description", "status"], as_dict=True)
-		if skill_doc and skill_doc.status != "Draft":
+		# WI-000401: the index must match what load_skill will actually serve.
+		# load_skill refuses anything whose status isn't "Active" (Draft AND
+		# Deprecated both refused) \u2014 filtering here to != "Draft" advertised
+		# Deprecated skills the tool would then refuse to load.
+		if skill_doc and skill_doc.status == "Active":
 			enabled_skills.append({
 				"name": skill_doc.skill_name,
 				"description": skill_doc.description,
+				"status": skill_doc.status,
 			})
 
 	# Load constants keyed by constant_name, cast to proper types
@@ -493,6 +631,14 @@ def get_agent_config(agent_id: str) -> dict | None:
 		constants[c.constant_name] = _cast_constant(c.constant_value, c.constant_type)
 
 	result = {
+		# The record's own name. Queried above and used for every child-table
+		# lookup in this function, then dropped from what callers got back, the
+		# same way ai_model was. The direct chat path pays for it: it builds its
+		# AI Agent Run from this dict, so every run on that path was left with
+		# no agent_configuration and could not be attributed to an agent in
+		# Insights or anywhere else. It has no BPMN instance and no process
+		# model either, so neither of create_ai_run's fallbacks could rescue it.
+		"name": config.name,
 		"agent_id": config.agent_id,
 		"system_prompt": config.system_prompt,
 		"temperature": config.temperature,

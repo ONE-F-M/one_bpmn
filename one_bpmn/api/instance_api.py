@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import json
+import re
 
 import frappe
 
@@ -9,6 +10,7 @@ from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
 from frappe import _
 
 from one_bpmn.api.utils import _is_bpmn_super_user
+from one_bpmn.utils.session import as_user
 
 
 @frappe.whitelist()
@@ -18,9 +20,14 @@ def list_process_instances(
 	limit_page_length=20,
 	order_by="creation desc",
 	pending_action_by=None,
+	search=None,
 ) -> list:
 	"""
 	List BPMN process instances with their active tasks joined as 'current_step'.
+
+	``search`` is a search-bar style query ("SD5", "s d 5") matched against the
+	process model, instance id, context and initiator; results come back ranked
+	by match quality (see ``_search_rank``) instead of ``order_by``.
 
 	``pending_action_by`` is not a field on the instance — it is resolved from
 	the active task rows (see ``_instances_pending_on``) and narrows the list to
@@ -48,6 +55,17 @@ def list_process_instances(
 			filters["name"] = ["in", pending]
 			filters["status"] = "Active"
 
+	ranked_names = None
+	if search and search.strip():
+		ranked_names = _rank_instances(filters, search)[limit_start : limit_start + limit_page_length]
+		if not ranked_names:
+			return []
+		if isinstance(filters, list):
+			filters = filters + [["name", "in", ranked_names]]
+		else:
+			filters = {**(filters or {}), "name": ["in", ranked_names]}
+		limit_start = 0
+
 	instances = frappe.get_list(
 		"BPMN Process Instance",
 		fields=[
@@ -65,6 +83,9 @@ def list_process_instances(
 		limit_page_length=limit_page_length,
 		order_by=order_by,
 	)
+
+	if ranked_names:
+		instances.sort(key=lambda d: ranked_names.index(d.name))
 
 	if instances:
 		instance_names = [d.name for d in instances]
@@ -108,6 +129,61 @@ def list_process_instances(
 	return instances
 
 
+SEARCH_FIELDS = ("process_model", "name", "context_doctype", "context_docname", "initiated_by")
+
+
+def _words(text: str) -> list:
+	return re.findall(r"[a-z0-9]+", (text or "").lower())
+
+
+def _is_subsequence(needle: str, haystack: str) -> bool:
+	chars = iter(haystack)
+	return all(c in chars for c in needle)
+
+
+def _search_rank(query: str, row: dict):
+	"""Rank of a search match, lower is better, None for no match: 0 substring, 1 token prefixes, 2 initials."""
+	query = (query or "").strip().lower()
+	values = [str(row.get(f) or "") for f in SEARCH_FIELDS]
+	text = " ".join(values).lower()
+	if query in text:
+		return 0
+
+	compact = "".join(query.split())
+	if len(compact) < 2:
+		return None
+
+	words = _words(text)
+	tokens = _words(query)
+	unused = list(words)
+	for token in tokens:
+		match = next((w for w in unused if w.startswith(token)), None)
+		if match is None:
+			break
+		unused.remove(match)
+	else:
+		return 1
+
+	for value in values:
+		initials = "".join(w[0] + "".join(c for c in w[1:] if c.isdigit()) for w in _words(value))
+		if _is_subsequence(compact, initials):
+			return 2
+	return None
+
+
+def _rank_instances(filters, search: str) -> list:
+	"""Names of the instances matching ``search`` under ``filters``, best match first."""
+	rows = frappe.get_list(
+		"BPMN Process Instance",
+		fields=list(SEARCH_FIELDS),
+		filters=filters,
+		limit_page_length=0,
+		order_by="creation desc",
+	)
+	scored = [(_search_rank(search, row), i, row.name) for i, row in enumerate(rows)]
+	return [name for rank, _, name in sorted(r for r in scored if r[0] is not None)]
+
+
 def _instances_pending_on(user: str) -> list:
 	"""Names of process instances holding a Waiting task ``user`` must act on.
 
@@ -125,19 +201,23 @@ def _instances_pending_on(user: str) -> list:
 	"""
 	# Imported lazily for the same reason as in complete_user_task: assignment.py
 	# pulls in engine.py, which is fragile across SpiffWorkflow versions.
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import split_users
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import task_actors
 
 	roles = frappe.get_roles(user)
 
-	or_filters = {"assigned_user": ["like", f"%{user}%"]}
+	or_filters = [
+		["BPMN Active Task", field, "like", f"%{name}%"]
+		for name in {user, *_users_covered_by(user)}
+		for field in ("assigned_user", "relieved_user", "reliever_user")
+	]
 	if roles:
-		or_filters["assigned_role"] = ["in", roles]
+		or_filters.append(["BPMN Active Task", "assigned_role", "in", roles])
 
 	rows = frappe.get_all(
 		"BPMN Active Task",
 		filters={"parenttype": "BPMN Process Instance", "status": "Waiting"},
 		or_filters=or_filters,
-		fields=["parent", "assigned_user", "assigned_role"],
+		fields=["parent", "assigned_user", "relieved_user", "reliever_user", "assigned_role"],
 	)
 
 	role_set = set(roles)
@@ -145,9 +225,31 @@ def _instances_pending_on(user: str) -> list:
 		{
 			row.parent
 			for row in rows
-			if user in split_users(row.assigned_user)
+			if user in task_actors(row)
 			or (not (row.assigned_user or "").strip() and row.assigned_role in role_set)
 		}
+	)
+
+
+def _users_covered_by(user: str) -> list:
+	"""User IDs of employees whose approved leave today names ``user`` as their reliever."""
+	today = frappe.utils.today()
+	employees = frappe.get_all(
+		"Leave Application",
+		filters={
+			"status": "Approved",
+			"reliever_user_id": user,
+			"from_date": ["<=", today],
+			"to_date": [">=", today],
+		},
+		pluck="employee",
+	)
+	if not employees:
+		return []
+	return frappe.get_all(
+		"Employee",
+		filters={"name": ["in", employees], "user_id": ["is", "set"]},
+		pluck="user_id",
 	)
 
 
@@ -258,6 +360,10 @@ def start_process(
 		# halted + surfaced as a sanitized Reference-ID message, and pre-engine
 		# validation (e.g. no compiled spec) already carries a safe message.
 		# Re-raise as-is — never wrap raw internals (the old wrapper leaked str(exc)).
+		# A caller that catches this keeps the instance row, which must not stay Active with no state.
+		frappe.db.set_value(
+			"BPMN Process Instance", instance.name, "status", "Errored", update_modified=False
+		)
 		raise
 	except Exception:
 		# Backstop for failures OUTSIDE the engine seam (e.g. building or
@@ -330,18 +436,13 @@ def _start_process_as_user(
 	Used by start_process_async to preserve the caller's user context.
 	Restores the original user afterwards to avoid leaking into subsequent jobs.
 	"""
-	original_user = frappe.session.user
-	try:
-		if run_as_user:
-			frappe.set_user(run_as_user)
+	with as_user(run_as_user):
 		start_process(
 			model_name=model_name,
 			context_doctype=context_doctype,
 			context_docname=context_docname,
 			initial_data=initial_data,
 		)
-	finally:
-		frappe.set_user(original_user)
 
 
 @frappe.whitelist()
@@ -405,73 +506,11 @@ def complete_task(
 		frappe.throw(_("Task '{0}' is not in Waiting status.").format(active_row.task_name or task_id))
 
 	current_user = frappe.session.user
-	approved_ctc_name = None
 
 	# ── 1. USER ASSIGNMENT CHECK ─────────────────────────────────────────────
-	# Same as Frappe's "allow_edit" on workflow states — only the assigned
-	# user (or Administrator) can complete the task.
-	assigned_user = active_row.assigned_user or ""
-	assigned_role = active_row.assigned_role or ""
-
-	# assigned_user may list multiple people (Table Field / multi-assignee
-	# mode, e.g. Task.custom_assigned_to) — completion by any one of them
-	# is authorized, not just an exact string match.
-	# Imported lazily: assignment.py pulls in engine.py, which is fragile
-	# (SpiffWorkflow version drift) — importing it at module load time would
-	# take down every whitelisted method in this file, not just this one.
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import split_users
-
-	assigned_users_list = split_users(assigned_user)
-
-	if assigned_users_list and current_user not in assigned_users_list and not _is_bpmn_super_user(current_user):
-		# Also allow the document owner (they initiated the process)
-		is_doc_owner = False
-		if instance.context_doctype and instance.context_docname:
-			doc_owner = frappe.db.get_value(instance.context_doctype, instance.context_docname, "owner")
-			is_doc_owner = doc_owner == current_user
-
-		if not is_doc_owner:
-			# Allow if this specific user has an approved Contingency Task Completion
-			# for this context document.  Any other user's CTC does not grant access.
-			# Check workflow_state OR status since the BPMN process sets
-			# workflow_state via apply_workflow and status via update_field.
-			if instance.context_doctype and instance.context_docname:
-				from frappe.query_builder import DocType
-
-				CTC = DocType("Contingency Task Completion")
-				ctc_result = (
-					frappe.qb.from_(CTC)
-					.select(CTC.name)
-					.where(CTC.context_doctype == instance.context_doctype)
-					.where(CTC.context_docname == instance.context_docname)
-					.where(CTC.process_owner_user == current_user)
-					.where(
-						(CTC.workflow_state == "Approved") | (CTC.status == "Approved")
-					)
-					.where(CTC.status != "Expired")
-					.where(CTC.docstatus == 1)
-					.limit(1)
-				).run()
-				approved_ctc_name = ctc_result[0][0] if ctc_result else None
-
-			if not approved_ctc_name:
-				assignee_names = ", ".join(
-					frappe.utils.get_fullname(u) or u for u in assigned_users_list
-				)
-				frappe.throw(
-					_("You are not authorized to complete this task. It is assigned to {0}.").format(
-						assignee_names
-					),
-					frappe.PermissionError,
-				)
-
-	if assigned_role and not _is_bpmn_super_user(current_user):
-		user_roles = frappe.get_roles(current_user)
-		if assigned_role not in user_roles:
-			frappe.throw(
-				_("Only users with the role '{0}' can complete this task.").format(assigned_role),
-				frappe.PermissionError,
-			)
+	refusal, approved_ctc_name = _task_authorization(instance, active_row, current_user)
+	if refusal:
+		frappe.throw(refusal, frappe.PermissionError)
 
 	# ── 2. ACTION VALIDATION ─────────────────────────────────────────────────
 	# Same as Frappe's workflow transition validation — the submitted action
@@ -599,7 +638,7 @@ def get_parked_ai_tasks(instance_name: str) -> list:
 	viewer highlights as "Waiting for AI execution" and the targets the
 	manual retry button re-kicks.
 
-	Returns: list of {kind, task_id, bpmn_id, label}.
+	Returns: list of {kind, task_id, bpmn_id, label, since}.
 	"""
 	if not instance_name:
 		frappe.throw(_("instance_name is required"))
@@ -761,6 +800,9 @@ def _complete_task_job(
 			title="BPMN complete_task job: validation error",
 			message=frappe.get_traceback(),
 		)
+	except frappe.PermissionError:
+		# The user sees what they lack; the request rollback leaves the task waiting for a retry.
+		raise
 	except Exception:
 		frappe.db.set_value("BPMN Process Instance", instance_name, "status", "Errored")
 		frappe.log_error(
@@ -963,6 +1005,7 @@ def get_active_bpmn_tasks(doctype: str, docname: str) -> list:
 		task_actions   – Comma-separated action labels (e.g. "Submit,Return to Draft")
 		assigned_user  – User the task is assigned to (or '' for role-based)
 		assigned_role  – Role the task is assigned to (or '')
+		can_action     - Whether the current user may complete it
 	"""
 	if not doctype or not docname:
 		return []
@@ -1013,6 +1056,7 @@ def get_active_bpmn_tasks(doctype: str, docname: str) -> list:
 						"task_actions_detail": actions_detail,
 						"assigned_user": row.assigned_user or "",
 						"assigned_role": row.assigned_role or "",
+						"can_action": not _task_authorization(instance, row, frappe.session.user)[0],
 					}
 				)
 
@@ -1023,6 +1067,51 @@ def get_active_bpmn_tasks(doctype: str, docname: str) -> list:
 			)
 
 	return result
+
+
+def _task_authorization(instance, row, user: str) -> tuple[str | None, str | None]:
+	"""Why ``user`` may not complete this Waiting task, or None; and the approved CTC that lets them.
+
+	Assignees and their relievers may act, and so may a super user or the holder of an approved Contingency Task Completion.
+	"""
+	# Imported lazily: assignment.py pulls in engine.py, which is fragile across SpiffWorkflow versions.
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import split_users, task_actors
+
+	super_user = _is_bpmn_super_user(user)
+	assigned_users = split_users(row.assigned_user or "")
+	approved_ctc_name = None
+
+	if assigned_users and user not in task_actors(row) and not super_user:
+		if instance.context_doctype and instance.context_docname:
+			from frappe.query_builder import DocType
+
+			CTC = DocType("Contingency Task Completion")
+			ctc_result = (
+				frappe.qb.from_(CTC)
+				.select(CTC.name)
+				.where(CTC.context_doctype == instance.context_doctype)
+				.where(CTC.context_docname == instance.context_docname)
+				.where(CTC.process_owner_user == user)
+				# The process sets workflow_state via apply_workflow and status via update_field.
+				.where((CTC.workflow_state == "Approved") | (CTC.status == "Approved"))
+				.where(CTC.status != "Expired")
+				.where(CTC.docstatus == 1)
+				.limit(1)
+			).run()
+			approved_ctc_name = ctc_result[0][0] if ctc_result else None
+
+		if not approved_ctc_name:
+			assignee_names = ", ".join(frappe.utils.get_fullname(u) or u for u in assigned_users)
+			return (
+				_("You are not authorized to complete this task. It is assigned to {0}.").format(assignee_names),
+				None,
+			)
+
+	assigned_role = row.assigned_role or ""
+	if assigned_role and not super_user and assigned_role not in frappe.get_roles(user):
+		return _("Only users with the role '{0}' can complete this task.").format(assigned_role), None
+
+	return None, approved_ctc_name
 
 
 # ============================================================================
@@ -1127,10 +1216,7 @@ def _start_and_deliver_message(
 	— the sync they trigger is per-user, and attribution on anything they write
 	should name the person who pressed the button, not the worker.
 	"""
-	original_user = frappe.session.user
-	try:
-		if run_as_user:
-			frappe.set_user(run_as_user)
+	with as_user(run_as_user):
 
 		started = start_process(
 			model_name=model_name,
@@ -1156,23 +1242,23 @@ def _start_and_deliver_message(
 					"The instance is left Active and will not progress."
 				),
 			)
-	finally:
-		frappe.set_user(original_user)
+		return instance.name
 
 
 def _models_listening_for(message_name: str) -> list:
-	"""Active models with a Message Start Event bound to ``message_name``.
+	"""Active models with a Message Start Event bound to ``message_name``."""
+	return message_start_index().get((message_name or "").strip(), [])
 
-	Two hops on purpose. ``<bpmn:message>`` declares the name; a start event
-	opts in by pointing its ``messageRef`` at that declaration's id. Matching on
-	the declaration alone would also match a map that merely CATCHES the message
-	part-way through, which must not be started by it.
+
+def message_start_index() -> dict:
+	"""Message name to the active maps a start event of theirs takes it on.
+
+	Only a start event's messageRef counts, so a map that merely catches the message part-way is not listed.
 	"""
 	from lxml import etree as ET
 
 	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
-	wanted = (message_name or "").strip()
-	found = []
+	index = {}
 
 	for name, xml in frappe.get_all(
 		"BPMN Process Model",
@@ -1180,7 +1266,7 @@ def _models_listening_for(message_name: str) -> list:
 		fields=["name", "bpmn_xml"],
 		as_list=True,
 	):
-		if not xml or wanted not in xml:
+		if not xml or "messageEventDefinition" not in xml:
 			# Cheap reject before paying for a parse.
 			continue
 		try:
@@ -1191,24 +1277,21 @@ def _models_listening_for(message_name: str) -> list:
 			# compiler already reports that, so stay quiet and skip it.
 			continue
 
-		ids = {
-			el.get("id")
+		names_by_id = {
+			el.get("id"): (el.get("name") or "").strip()
 			for el in root.iter(f"{{{BPMN_NS}}}message")
-			if (el.get("name") or "").strip() == wanted and el.get("id")
+			if el.get("id") and (el.get("name") or "").strip()
 		}
-		if not ids:
-			continue
+		started_by = {
+			names_by_id[med.get("messageRef")]
+			for start in root.iter(f"{{{BPMN_NS}}}startEvent")
+			for med in start.iter(f"{{{BPMN_NS}}}messageEventDefinition")
+			if med.get("messageRef") in names_by_id
+		}
+		for message in started_by:
+			index.setdefault(message, []).append(name)
 
-		for start in root.iter(f"{{{BPMN_NS}}}startEvent"):
-			for med in start.iter(f"{{{BPMN_NS}}}messageEventDefinition"):
-				if med.get("messageRef") in ids:
-					found.append(name)
-					break
-			else:
-				continue
-			break
-
-	return found
+	return index
 
 
 @frappe.whitelist()

@@ -36,6 +36,7 @@ from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import (
 NOTIFY_CFG = {
 	"notifyAssignee": "true",
 	"notifyAssigneeBody": "<p>Task {{ instance.name }} is yours</p>",
+	"notifyAssigneeAccount": "Notifications",
 }
 
 
@@ -67,6 +68,8 @@ class TestNotifyAssigneePerTask(FrappeTestCase):
 		"""The regression. An open ToDo must not suppress the next task's email."""
 		inst = _instance()
 		patcher, sendemail = self._patched_sendemail()
+		amp_at_send = []
+		sendemail.side_effect = lambda **kw: amp_at_send.append(frappe.flags.amp_html)
 		with patcher, patch.object(
 			frappe.db, "exists", return_value="an-open-todo"
 		):
@@ -74,6 +77,11 @@ class TestNotifyAssigneePerTask(FrappeTestCase):
 		self.assertTrue(
 			sendemail.called,
 			"an already-assigned user stopped being notified — the original defect",
+		)
+		self.assertIn("Task TEST-NOTIFY-PI is yours", sendemail.call_args.kwargs["message"])
+		self.assertIn(
+			"Task TEST-NOTIFY-PI is yours", amp_at_send[0] or "",
+			"the authored body must be inside the AMP document, not only the plain fallback",
 		)
 
 	def test_three_consecutive_tasks_for_one_person_send_three_emails(self):
@@ -118,9 +126,8 @@ class TestNotifyAssigneePerTask(FrappeTestCase):
 			patch.object(frappe, "get_doc", side_effect=get_doc_side), \
 			patch.object(frappe, "has_permission", return_value=True), \
 			patch.object(frappe, "get_system_settings", return_value=False), \
-			patch.object(frappe, "get_cached_value", return_value=False), \
-			patch("one_bpmn.email_builder.composer.compose_and_send_task_email"):
-			add_frappe_assignment(inst, "dev@x.com", "Start Work", task_cfg=NOTIFY_CFG)
+			patch.object(frappe, "get_cached_value", return_value=False):
+			add_frappe_assignment(inst, "dev@x.com", "Start Work")
 
 		self.assertFalse(
 			sendemail.called,
@@ -139,7 +146,7 @@ class TestNotifyAssigneePerTask(FrappeTestCase):
 		"""A task must not be stranded because its announcement failed."""
 		inst = _instance()
 		with patch(
-			"one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment._send_assignee_notification",
+			"one_bpmn.email_builder.composer.compose_and_send_task_email",
 			side_effect=RuntimeError("smtp down"),
 		), patch.object(frappe, "log_error") as logged:
 			notify_task_assignee(inst, "dev@x.com", "Start Work", NOTIFY_CFG)

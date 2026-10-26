@@ -14,6 +14,7 @@ import json
 
 import frappe
 
+from one_bpmn.agents import observability
 from one_bpmn.agents.llm_provider.base import ToolSpec
 
 
@@ -109,6 +110,10 @@ def compile_shape_tools(tool_shapes, instance) -> list:
 PAUSE_HELD_FLAG = "a2a_pause_held_this_turn"
 
 
+class BudgetExceeded(Exception):
+	"""A tool found the run has spent its budget; the step loop ends the run with BUDGET_EXCEEDED."""
+
+
 class ToolDeferred(Exception):
 	"""A tool started work that finishes later, so it has no result yet.
 
@@ -173,6 +178,29 @@ def _make_shape_fn(instance, bpmn_id: str, task_cfg: dict):
 # returns in silence.
 _DISPATCH_WIRING = {"connector": ("connectorId", "operation")}
 
+# Connectors whose answer does not travel through resultVariable: they park
+# and reply through a waiting marker (see _waiting_marker) or write straight
+# onto task.data. A tool on one of these needs no Result Variable, so the
+# readiness check does not ask for one.
+ANSWERS_OUT_OF_BAND = frozenset({"a2a", "agent_sandbox"})
+
+# Names a Server Script receives without importing them: (name, meaning, Script Task, agent tool).
+SCRIPT_NAMES = (
+	("frappe", "The frappe module.", True, True),
+	("task_data", "A copy of the workflow variables, read with task_data.get(...).", True, True),
+	("result", "A dict; what the script puts here becomes workflow variables (or the tool's reply).", True, True),
+	("context_doctype", "DocType of the record the process runs for.", True, True),
+	("context_docname", "Name of that record; for a chat agent, the Chat Conversation.", True, True),
+	("doc", "That record, loaded; an empty dict when there is none.", True, True),
+	("instance", "The BPMN Process Instance.", True, True),
+	("bpmn_id", "Id of the shape the script runs for.", True, True),
+	("agent_configuration", "The AI Agent Configuration that owns the map, or empty.", True, False),
+	("ai_agent_config", "The AI Agent Configuration set on the calling AI Agent Task.", False, True),
+	("shape_config", "The tool shape's own compiled settings.", False, True),
+	("<workflow variables>", "Each workflow variable, also as a plain name.", True, False),
+	("<tool arguments>", "Each argument the model passed to the tool, as a plain name.", False, True),
+)
+
 
 def _with_dispatch_wiring(instance, bpmn_id: str, task_cfg: dict) -> dict:
 	"""Fill a tool descriptor's gaps from the shape's own compiled descriptor.
@@ -187,7 +215,17 @@ def _with_dispatch_wiring(instance, bpmn_id: str, task_cfg: dict) -> dict:
 	the two, and a shape used as a tool may deliberately differ.
 	"""
 	needed = _DISPATCH_WIRING.get((task_cfg or {}).get("serviceType") or "")
-	if not needed or all(str((task_cfg or {}).get(k) or "").strip() for k in needed):
+	# A nested AI Agent Task with a Tools box of its own: the descriptor copies
+	# the shape's attributes, but its compiled tool list (aiToolShapes) exists
+	# only on the shape's own config. Without this merge the writer stage ran
+	# with no tools but the skill tools, and every list_doctypes it called came
+	# back "Unknown tool".
+	wants_tools = (
+		(task_cfg or {}).get("serviceType") == "ai_agent"
+		and str((task_cfg or {}).get("aiToolsAdhoc") or "").strip()
+		and not (task_cfg or {}).get("aiToolShapes")
+	)
+	if not wants_tools and (not needed or all(str((task_cfg or {}).get(k) or "").strip() for k in needed)):
 		return task_cfg
 	shape_cfg = (getattr(instance, "_service_task_extensions", {}) or {}).get(bpmn_id) or {}
 	if not shape_cfg:
@@ -203,6 +241,25 @@ def _missing_dispatch_wiring(task_cfg: dict) -> list:
 	if not needed:
 		return []
 	return [k for k in needed if not str((task_cfg or {}).get(k) or "").strip()]
+
+
+def _announce(instance, event_type: str, bpmn_id: str) -> None:
+	"""Tell a request waiting on this turn which tool is running.
+
+	A map-driven agent runs its tools here, so this is the one place that knows
+	both the shape being called and the instance a chat request is waiting on.
+	Progress only: it never carries a result, and a failure to publish is not
+	allowed to disturb the tool.
+	"""
+	name = getattr(instance, "name", None)
+	if not name:
+		return
+	try:
+		from one_bpmn.agents import turn_signal
+
+		turn_signal.publish_event(name, {"type": event_type, "toolCallName": bpmn_id})
+	except Exception:
+		pass
 
 
 def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -> str:
@@ -221,11 +278,30 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 	that is its ``result`` dict; for a Service Task it is whatever the dispatch
 	handler wrote to ``task.data`` — excluding the arguments the LLM supplied.
 
-	Never raises, with one exception: ``ToolDeferred``, which is not a failure
-	but "no answer yet" and must reach the loop so it can suspend. Ordinary
+	Never raises, with two exceptions that must reach the loop: ``ToolDeferred``,
+	which is not a failure but "no answer yet", so the loop can suspend, and
+	``BudgetExceeded``, so the loop can end the run. Ordinary
 	failures are logged and returned as a structured ``{"error": ...}`` payload
 	so the tool-calling loop stays alive.
 	"""
+	_announce(instance, "TOOL_CALL_START", bpmn_id)
+	still_running = False
+	from one_bpmn.agents import turn_signal
+
+	try:
+		with turn_signal.mask_live_text():
+			return _execute_shape_body(instance, bpmn_id, task_cfg, kwargs)
+	except ToolDeferred:
+		# Waiting, not finished: an end here would clear a live status line.
+		still_running = True
+		raise
+	finally:
+		# Every exit reports, or a status line is left hanging.
+		if not still_running:
+			_announce(instance, "TOOL_CALL_END", bpmn_id)
+
+
+def _execute_shape_body(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -> str:
 	try:
 		if task_cfg is None:
 			task_cfg = (getattr(instance, "_service_task_extensions", {}) or {}).get(bpmn_id, {})
@@ -256,6 +332,13 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 					),
 					"retryable": False,
 				})
+			if service_type == "connector":
+				# Asked before dispatch so the answer can be reported: the dispatcher
+				# enforces the same gate but logs and returns, which reaches the
+				# model as an ordinary empty result.
+				refused = _connector_not_permitted(task_cfg)
+				if refused:
+					return json.dumps(refused)
 			instance._dispatch_service_task(task, task_cfg)
 		else:
 			return json.dumps(
@@ -270,8 +353,24 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 		if waiting:
 			raise ToolDeferred(waiting)
 
+		# A connector reports its own outcome, read from what the dispatcher left
+		# behind — it swallows failures unless failOnError is set, and the model
+		# was being told a failed call had succeeded.
+		if service_type == "connector":
+			return json.dumps(_connector_tool_result(task, task_cfg, kwargs), default=str)
+
 		# The tool result is what the shape produced, not the args we injected.
 		produced = {k: v for k, v in task.data.items() if k not in kwargs}
+
+		# An AI shape's answer IS its work product — the script, the schema, the
+		# draft. The Server Script shapes hand theirs over themselves; this is the
+		# same record for the shapes that are a model call rather than a script.
+		if service_type == "ai_agent":
+			from one_bpmn.agents.observability import record_tool_artifact
+
+			answer = produced.get(f"{bpmn_id}_output")
+			if isinstance(answer, str):
+				record_tool_artifact(bpmn_id, answer)
 
 		# Persist the result so a downstream tool can read it back via the
 		# get_turn Jinja global (hooks.py).
@@ -286,27 +385,146 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 					message=frappe.get_traceback(),
 				)
 
+		# An AI shape that could not reach its model left an error code instead of an answer.
+		failed_code = produced.get(f"{bpmn_id}_error_code") if service_type == "ai_agent" else None
+		if failed_code:
+			message = produced.get(f"{bpmn_id}_error_message") or failed_code
+			_record_tool_error(instance, bpmn_id, message, error_code=failed_code)
+			return json.dumps(
+				{"error": f"{failed_code}: {message}", "error_code": failed_code, "retryable": False}
+			)
+
 		return json.dumps(produced or {"ok": True}, default=str)
-	except ToolDeferred:
+	except (ToolDeferred, BudgetExceeded):
 		raise
 	except frappe.PermissionError as refused:
 		# Refusals carry their reason to the model. "See Error Log for details" is
 		# useless to an agent — it cannot read the Error Log, so it invents an
 		# explanation, and the explanation it invents is usually that the work is
 		# done or that retrying will help.
+		_record_tool_error(instance, bpmn_id, refused)
 		return json.dumps({"error": str(refused), "retryable": False})
 	except frappe.ValidationError as invalid:
 		# Same reasoning for a rule the document itself enforced. A Work Item save
 		# can fail for reasons nothing to do with what the tool changed — no
 		# sprint, a completed sprint, an Epic — and the agent has to be able to
 		# say which rule stopped it instead of reporting the change as made.
+		_record_tool_error(instance, bpmn_id, invalid)
 		return json.dumps({"error": str(invalid), "retryable": False})
-	except Exception:
+	except Exception as unexpected:
 		frappe.log_error(
 			title=f"AI Agent shape tool '{bpmn_id}' failed",
 			message=frappe.get_traceback(),
 		)
-		return json.dumps({"error": f"Shape '{bpmn_id}' failed — see Error Log for details."})
+		_record_tool_error(instance, bpmn_id, unexpected)
+		# The model cannot read the Error Log, so the class and message travel
+		# with the refusal.
+		return json.dumps({
+			"error": (
+				f"Shape '{bpmn_id}' failed — {type(unexpected).__name__}: {unexpected}"
+			),
+		})
+
+
+def _record_tool_error(instance, bpmn_id: str, exc: Exception | str, error_code: str | None = None) -> None:
+	"""Put the failed tool in the chat turn store, so the turn's closing script can report the failure."""
+	if getattr(instance, "context_doctype", None) != "Chat Conversation":
+		return
+	from one_bpmn.agents.turn_state import update_turn
+
+	tool_error = {"tool": bpmn_id, "error": str(exc), "error_class": error_code or type(exc).__name__}
+	if error_code:
+		tool_error["error_code"] = error_code
+	update_turn(instance.context_docname, tool_error=tool_error)
+
+
+def _connector_not_permitted(task_cfg: dict) -> dict | None:
+	"""The role gate, asked BEFORE dispatch so the answer can be reported.
+
+	``dispatch_connector`` already enforces this — it logs and returns, which is
+	correct as a control but reaches the model as an ordinary empty result,
+	indistinguishable from a connector that simply returned nothing. Asking the
+	same question here changes no behaviour; it only lets the tool result say
+	which of the two happened (WI-002007). Returns None when permitted.
+	"""
+	from one_bpmn.one_bpmn.connectors import manifest as _manifest
+
+	connector_id = (task_cfg.get("connectorId") or "").strip()
+	if not connector_id or _manifest.user_may_use_connector(connector_id):
+		return None
+	return _not_permitted(connector_id)
+
+
+def _connector_tool_result(task, task_cfg: dict, kwargs: dict) -> dict:
+	"""What a connector tool call should tell the model.
+
+	Read from the outcome ``dispatch_connector`` records on the task, because it
+	swallows failures unless ``failOnError`` is set and the model was therefore
+	being told a failed call had succeeded. A connector that produced variables
+	hands them back as before. One that produced nothing is still ``ok`` — a
+	fire-and-forget shape is not an error, and a delegation that parked never
+	gets this far — but if it *returned* data with no Result Variable to put it
+	in, the model is told that the data was discarded rather than that there
+	was none.
+	"""
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import CONNECTOR_OUTCOME_KEY
+
+	outcome = task.data.pop(CONNECTOR_OUTCOME_KEY, None) or {}
+	called = outcome.get("connector") or "/".join(
+		p for p in ((task_cfg.get("connectorId") or "").strip(), (task_cfg.get("operation") or "").strip()) if p
+	)
+	status = outcome.get("status")
+
+	if status == "not_permitted":
+		return _not_permitted(called)
+	if status == "not_run":
+		return {
+			"error": "call_did_not_complete",
+			"connector": called,
+			"message": (
+				f"The '{called}' connector did not run: {outcome.get('reason')}. See the Error Log. "
+				"Retrying will not help."
+			),
+			"retryable": False,
+		}
+	if status == "failed":
+		return {
+			"error": "connector_failed",
+			"connector": called,
+			"message": (
+				f"The '{called}' connector was called and failed ({outcome.get('error')}); the error "
+				"was logged and the process was allowed to continue. You did NOT receive its data — "
+				"do not report this call as successful."
+			),
+		}
+
+	produced = {k: v for k, v in task.data.items() if k not in kwargs}
+	if produced:
+		return produced
+	if outcome.get("returned") and not outcome.get("stored"):
+		return {
+			"ok": True,
+			"warning": "no_result_variable",
+			"message": (
+				f"The '{called}' connector ran and returned data, but this shape has no Result "
+				"Variable, so the data was discarded before it reached you. Do not assume you know "
+				"what it returned; the process map needs a Result Variable on this shape."
+			),
+		}
+	return {"ok": True}
+
+
+def _not_permitted(called: str) -> dict:
+	return {
+		"error": "not_permitted",
+		"connector": called,
+		"message": (
+			f"You are not permitted to use the '{called}' connector, so it was not called. "
+			"This is a permission decision, not a failure of the integration — do not retry it, "
+			"and say so rather than reporting that the data is unavailable."
+		),
+		"retryable": False,
+	}
 
 
 def _waiting_marker(task) -> dict | None:
@@ -398,7 +616,16 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 
 	# Trusted, pre-deployed BPMN code — plain exec (mirrors engine.py), not
 	# safe_exec (which is for untrusted browser-submitted scripts).
-	exec_globals = {"frappe": frappe, "__builtins__": __builtins__}  # noqa: S102
+	#
+	# ONE namespace for globals AND locals — mirrors engine.py's own exec()
+	# exactly, and for the same reason: with separate dicts, a top-level
+	# `def` in the script lands in locals but its own __globals__ is still
+	# exec_globals, so it can't see another top-level function or import in
+	# the same script and dies with NameError at runtime the moment two are
+	# actually called together. A tool author has no way to predict or work
+	# around that from the Server Script editor.
+	exec_ns = {"frappe": frappe, "__builtins__": __builtins__}  # noqa: S102
+	exec_ns.update(local_vars)
 
 	# ── WI-002054: run as the AGENT, with permissions on ──────────────────
 	#
@@ -431,7 +658,11 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 		# somebody else's permissions and told they are its own.
 		if agent_user:
 			frappe.flags.ignore_permissions = False
-		exec(script_doc.script, exec_globals, local_vars)  # noqa: S102
+		# WI-002190: model calls this script makes are metered against the run
+		# and tagged with this shape. ProsAlly, Docu and Logix all reach the
+		# model from here, and none of those calls was recorded anywhere.
+		with observability.sub_call_scope(observability.current_run_name(), bpmn_id):
+			exec(script_doc.script, exec_ns)  # noqa: S102
 	except frappe.PermissionError as refused:
 		# The reason has to reach the MODEL. WI-002053 showed twice what happens
 		# when it does not: the agent reports the work as done, or blames

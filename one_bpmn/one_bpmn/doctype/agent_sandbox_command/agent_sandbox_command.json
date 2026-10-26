@@ -1,0 +1,84 @@
+{
+ "actions": [],
+ "creation": "2026-10-11 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sequence",
+  "action",
+  "status",
+  "started_at",
+  "ended_at",
+  "duration_ms",
+  "summary",
+  "error_tail"
+ ],
+ "fields": [
+  {
+   "fieldname": "sequence",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Sequence",
+   "read_only": 1
+  },
+  {
+   "fieldname": "action",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Action",
+   "read_only": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "ok\nerror",
+   "read_only": 1
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ended_at",
+   "fieldtype": "Datetime",
+   "label": "Ended At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "duration_ms",
+   "fieldtype": "Int",
+   "label": "Duration Ms",
+   "read_only": 1
+  },
+  {
+   "description": "What the command did, in about 2 KB. Paths and sizes, never file contents or credentials.",
+   "fieldname": "summary",
+   "fieldtype": "Small Text",
+   "label": "Summary",
+   "read_only": 1
+  },
+  {
+   "description": "The error line and the last frames or output, about 4 KB.",
+   "fieldname": "error_tail",
+   "fieldtype": "Small Text",
+   "label": "Error Tail",
+   "read_only": 1
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "ONE BPMN",
+ "name": "Agent Sandbox Command",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

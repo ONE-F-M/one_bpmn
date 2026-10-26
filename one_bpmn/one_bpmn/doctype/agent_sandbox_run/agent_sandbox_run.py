@@ -19,8 +19,42 @@ any changed files, and the PR URL once open_customization_pr() succeeds.
 import frappe
 from frappe.model.document import Document
 
+TERMINAL_STATES = ("completed", "failed", "stale", "timed_out", "cancelled")
+ERROR_LIMIT = 2000
+
+
+def bounded_error(text: str | None, limit: int = ERROR_LIMIT) -> str:
+	"""The end of an error text, where the exception line is, cut from the front when too long."""
+	text = (text or "").strip()
+	return text if len(text) <= limit else "..." + text[-(limit - 3) :]
+
+
+def identity_from_payload(request_payload) -> dict:
+	"""The action, Work Item and agent a request payload carries, for the columns that make runs queryable."""
+	payload = frappe.parse_json(request_payload or "{}") or {}
+	found = {"action": payload.get("action"), "work_item": payload.get("work_item_id"), "agent_name": payload.get("agent_name")}
+	return {field: value for field, value in found.items() if value}
+
 
 class AgentSandboxRun(Document):
+	def before_insert(self):
+		self.started_at = self.started_at or frappe.utils.now_datetime()
+
 	def validate(self):
-		if self.state in ("completed", "failed") and not self.completed_at:
+		if self.state in TERMINAL_STATES and not self.completed_at:
 			self.completed_at = frappe.utils.now_datetime()
+		for field, value in identity_from_payload(self.request_payload).items():
+			if not self.get(field):
+				self.set(field, value)
+
+	def on_update(self):
+		from one_bpmn.one_bpmn.connectors.agent_sandbox_trace import sync
+
+		sync(self)
+
+	def db_set(self, fieldname, value=None, update_modified=True, notify=False, commit=False):
+		"""Settlement writes through db_set, so the trace is refreshed here as well as on save."""
+		super().db_set(fieldname, value, update_modified=update_modified, notify=notify, commit=commit)
+		from one_bpmn.one_bpmn.connectors.agent_sandbox_trace import sync
+
+		sync(self)

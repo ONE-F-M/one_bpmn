@@ -25,6 +25,8 @@ Rules implemented (mirrors https://github.com/bpmn-io/bpmnlint/tree/main/docs/ru
   R16  no-duplicate-sequence-flows — no two flows with same source+target
 """
 
+import copy
+from collections import Counter
 from xml.etree import ElementTree as ET
 
 # ── Namespace constants ───────────────────────────────────────────────────────
@@ -78,9 +80,63 @@ def _element_type_hint(el: ET.Element) -> str:
 
 # ── Main validator ────────────────────────────────────────────────────────────
 
+def _sub_process_document(root: ET.Element, sub: ET.Element) -> str:
+    """The sub-process as a document of its own, drawn on its own plane or else on the main one."""
+    definitions = ET.Element(_t("definitions"))
+    process = ET.SubElement(definitions, _t("process"), {"id": sub.get("id", ""), "name": sub.get("name", "")})
+    for child in sub:
+        process.append(copy.deepcopy(child))
+    diagrams = root.findall(f"{{{BPMNDI}}}BPMNDiagram")
+    own = [d for d in diagrams if d.find(f"{{{BPMNDI}}}BPMNPlane").get("bpmnElement") == sub.get("id")]
+    if own or diagrams:
+        definitions.append(copy.deepcopy((own or diagrams)[0]))
+    return ET.tostring(definitions, encoding="unicode")
+
+
+def _nested_violations(root: ET.Element, process_el: ET.Element) -> list[str]:
+    """Violations inside each direct sub-process, checked as a process of its own."""
+    found: list[str] = []
+    for sub in process_el.findall(_t("subProcess")):
+        if not any(child.tag in _FLOW_NODES for child in sub):
+            continue
+        scope = f"In sub-process '{sub.get('name') or sub.get('id')}': "
+        for violation in _validate_process(_sub_process_document(root, sub), nested=True)["violations"]:
+            found.append(violation.replace("] ", "] " + scope, 1))
+    return found
+
+
+def _document_violations(root: ET.Element, process_el: ET.Element) -> list[str]:
+    """Violations that only show across the whole document: repeated ids and flows that leave their scope."""
+    found: list[str] = []
+    counts = Counter(el.get("id") for el in root.iter() if el.get("id"))
+    for element_id, count in counts.items():
+        if count > 1:
+            found.append(
+                f"[unique-ids] Id '{element_id}' is used by {count} elements. Give each element its own id."
+            )
+    containers = [process_el, *process_el.iter(_t("subProcess"))]
+    scope_of = {
+        child.get("id"): box.get("id")
+        for box in containers
+        for child in box
+        if child.get("id") and child.tag != _SEQUENCE_FLOW
+    }
+    for box in containers:
+        for flow in box.findall(_SEQUENCE_FLOW):
+            for end in (flow.get("sourceRef"), flow.get("targetRef")):
+                if end in scope_of and scope_of[end] != box.get("id"):
+                    found.append(
+                        f"[subprocess-scope] Flow '{flow.get('id')}' joins '{end}', which belongs to a different "
+                        "sub-process. Keep the flows of a sub-process between its own steps."
+                    )
+    return found
+
+
+# ── Main validator ────────────────────────────────────────────────────────────
+
 def validate_bpmn_xml(xml_string: str) -> dict:
     """
-    Parse xml_string and check all implemented bpmnlint rules.
+    Parse xml_string and check all implemented bpmnlint rules, in the main process and in each sub-process.
 
     Returns:
         {
@@ -88,6 +144,11 @@ def validate_bpmn_xml(xml_string: str) -> dict:
             "violations": [str],   # human-readable, LLM-injectable
         }
     """
+    return _validate_process(xml_string)
+
+
+def _validate_process(xml_string: str, nested: bool = False) -> dict:
+    """The rules for one process; the whole-document rules run once, from the outermost call."""
     violations: list[str] = []
 
     # ── Parse ─────────────────────────────────────────────────────────────────
@@ -309,6 +370,10 @@ def validate_bpmn_xml(xml_string: str) -> dict:
                 )
             else:
                 seen_pairs[pair] = eid
+
+    violations.extend(_nested_violations(root, process_el))
+    if not nested:
+        violations.extend(_document_violations(root, process_el))
 
     return {
         "valid":      len(violations) == 0,

@@ -34,10 +34,7 @@
   "deployed_at",
   "deployed_by",
   "section_start_events",
-  "start_events",
-  "section_deployment_checklist",
-  "backend_code_removal_status",
-  "backend_code_removal_notes"
+  "start_events"
  ],
  "fields": [
   {
@@ -204,24 +201,6 @@
    "label": "Start Events",
    "options": "BPMN Start Event Config",
    "read_only": 1
-  },
-  {
-   "collapsible": 1,
-   "fieldname": "section_deployment_checklist",
-   "fieldtype": "Section Break",
-   "label": "Deployment Checklist"
-  },
-  {
-   "default": "Not Started",
-   "fieldname": "backend_code_removal_status",
-   "fieldtype": "Select",
-   "label": "Backend Code Removal Status",
-   "options": "Not Started\nRemoved on BA\nRemoved on Production\nMigrated"
-  },
-  {
-   "fieldname": "backend_code_removal_notes",
-   "fieldtype": "Small Text",
-   "label": "Backend Code Removal Notes"
   },
   {
    "fieldname": "column_break_pbtg",

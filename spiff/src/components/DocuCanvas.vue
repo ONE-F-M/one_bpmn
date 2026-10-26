@@ -1,6 +1,9 @@
 <template>
 	<Teleport to="body">
-		<div class="dc-overlay" @click.self="close">
+		<div
+			v-show="open"
+			class="dc-overlay"
+		>
 			<div class="dc-window">
 
 				<!-- Window header -->
@@ -10,7 +13,16 @@
 						<span class="dc-subtitle">DocType Builder</span>
 						<span v-if="dtName" class="dc-dt-chip" :title="dtName">{{ dtName }}</span>
 					</div>
-					<button class="dc-icon-btn" @click="close" title="Close">✕</button>
+					<button
+						class="dc-icon-btn"
+						title="Close"
+						@click="emit('close')"
+					>
+						<Icon
+							icon="lucide:x"
+							class="w-4 h-4"
+						/>
+					</button>
 				</div>
 
 				<div class="dc-root">
@@ -26,7 +38,7 @@
 							agent-id="docu_agent"
 							variant="docked"
 							layout="conversation"
-							:apply-targets="['apply-schema']"
+							:apply-targets="['apply-schema', 'apply-script']"
 							:context="docuTurnContext"
 							:host-context-line="hostContextLine"
 							:cards="cardRegistry"
@@ -35,7 +47,10 @@
 					</div>
 
 					<!-- ── MIDDLE: Visual form builder ─────────────────── -->
-					<div class="dc-builder-panel">
+					<div
+						class="dc-builder-panel"
+						:inert="!canChange"
+					>
 						<!-- Top-level view tabs (mirrors Frappe's Form / Settings) -->
 						<div class="dc-view-tabs">
 							<button class="dc-view-tab" :class="{ active: view === 'form' }" @click="view = 'form'">Form</button>
@@ -239,13 +254,83 @@
 									</div>
 								</div>
 
+								<!-- Permission Rules -->
+								<div v-if="!isChild" class="dc-settings-section">
+									<div class="dc-settings-title">Permission Rules</div>
+									<div class="dc-perm-scroll">
+										<table class="dc-perm-table">
+											<thead>
+												<tr>
+													<th class="dc-perm-no">No.</th>
+													<th class="dc-perm-role">Role</th>
+													<th class="dc-perm-lvl">Level</th>
+													<th v-for="c in PERMISSION_COLUMNS" :key="c.key">{{ c.label }}</th>
+													<th class="dc-perm-x"><span class="sr-only">Remove</span></th>
+												</tr>
+											</thead>
+											<tbody>
+												<tr v-for="(p, i) in permissions" :key="i">
+													<td class="dc-perm-no">{{ i + 1 }}</td>
+													<td class="dc-perm-role">
+														<select
+															v-model="p.role"
+															class="dc-prop-input"
+															:aria-label="`Role for rule ${i + 1}`"
+															@change="scheduleAutosave()"
+														>
+															<option value="">Select a role…</option>
+															<option v-for="r in roleOptions(p.role)" :key="r" :value="r">{{ r }}</option>
+														</select>
+													</td>
+													<td class="dc-perm-lvl">
+														<input
+															v-model.number="p.permlevel"
+															type="number"
+															min="0"
+															max="9"
+															class="dc-prop-input"
+															:aria-label="`Level for rule ${i + 1}`"
+															@change="scheduleAutosave()"
+														/>
+													</td>
+													<td v-for="c in PERMISSION_COLUMNS" :key="c.key" class="dc-perm-check">
+														<input
+															type="checkbox"
+															:checked="!!p[c.key]"
+															:aria-label="`${c.label} for rule ${i + 1}`"
+															@change="p[c.key] = $event.target.checked ? 1 : 0; scheduleAutosave()"
+														/>
+													</td>
+													<td class="dc-perm-x">
+														<button
+															class="dc-perm-remove"
+															:title="`Remove rule ${i + 1}`"
+															@click="removePermission(i)"
+														>✕</button>
+													</td>
+												</tr>
+												<tr v-if="!permissions.length">
+													<td :colspan="PERMISSION_COLUMNS.length + 4" class="dc-perm-empty">
+														No rules yet. Without one, only System Manager can open this form.
+													</td>
+												</tr>
+											</tbody>
+										</table>
+									</div>
+									<button class="dc-perm-add" @click="addPermission()">Add Row</button>
+								</div>
+
 								<p class="dc-hint">These settings apply to the whole DocType. Switch to the <strong>Form</strong> tab to design its fields.</p>
 							</div>
 						</div>
 					</div>
 
 					<!-- ── RIGHT: Properties sidebar ───────────────────── -->
-					<div class="dc-props-panel" v-if="view === 'form'">
+					<div
+						v-if="view === 'form'"
+						class="dc-props-panel"
+						:inert="!canChange"
+					>
 
 						<!-- Field properties (Frappe-style: searchable + scrollable) -->
 						<template v-if="sel.type === 'field' && sel.node">
@@ -326,11 +411,16 @@
 
 				</div>
 
+				<ul v-if="childChanges.length" class="dc-child-changes">
+					<li v-for="line in childChanges" :key="line">{{ line }}</li>
+				</ul>
+
 				<!-- Footer — changes auto-save to the system -->
 				<div class="dc-window-footer">
 					<span class="dc-count">{{ contentCount }} field{{ contentCount === 1 ? "" : "s" }}</span>
 					<span class="dc-save-status" :class="'st-' + saveState">
-						<template v-if="saveState === 'saving'">Saving…</template>
+						<template v-if="!canChange">Read only: you are not allowed to change forms</template>
+						<template v-else-if="saveState === 'saving'">Saving…</template>
 						<template v-else-if="saveState === 'saved'">✓ Saved{{ appliedName ? ' “' + appliedName + '”' : '' }}</template>
 						<template v-else-if="saveState === 'error'">⚠ {{ saveError }}</template>
 						<template v-else-if="saveState === 'pending'">{{ pendingNotice }}</template>
@@ -341,6 +431,14 @@
 							</template>
 							<template v-else>Changes save automatically</template>
 					</span>
+					<span v-if="saveNotes" class="dc-save-status">{{ saveNotes }}</span>
+					<Button
+						v-if="unsavedDesign"
+						size="sm"
+						@click="restoreUnsavedDesign"
+					>
+						Restore my unsaved design
+					</Button>
 				</div>
 			</div>
 		</div>
@@ -349,7 +447,9 @@
 
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from "vue";
-import { frappeRequest } from "frappe-ui";
+import { Button, frappeRequest } from "frappe-ui";
+import { serverMessage } from "@/utils/serverMessage.js";
+import { Icon } from "@iconify/vue";
 import draggable from "vuedraggable";
 // WI-001676: the chat half is the shared panel; schemas arrive as cards.
 import { AgentChatPanel } from "@/components/chat";
@@ -361,6 +461,7 @@ const props = defineProps({
 	doctype:        { type: String, default: "" },
 	attr:           { type: String, default: "" },
 	processContext: { type: Object, default: null },
+	open:           { type: Boolean, default: true },
 });
 const emit = defineEmits(["close", "applied"]);
 
@@ -422,10 +523,6 @@ function previewPlaceholder(df) {
 	return "";
 }
 
-// ── Chat (WI-001676: the shared AgentChatPanel owns transcript, composer,
-//     conversation lifecycle and history — see @/components/chat) ─────────
-const conversationName = ref(null);   // mirrored from the panel for close()
-
 // ── DocType state ──────────────────────────────────────────────────────
 const dtName     = ref(props.doctype || "");
 const dtModule   = ref("ONE BPMN");
@@ -457,6 +554,53 @@ function defaultSettings() {
 	return s;
 }
 const dtSettings = reactive(defaultSettings());
+
+// ── Permission rules ───────────────────────────────────────────────────
+// Every right Frappe records, so a rule read off a live DocType survives being
+// written back. The grid shows the six a process owner actually decides;
+// the rest ride along untouched.
+const PERMISSION_RIGHTS = [
+	"select", "read", "write", "create", "delete", "submit", "cancel", "amend",
+	"report", "export", "import", "share", "print", "email", "if_owner",
+];
+const PERMISSION_COLUMNS = [
+	{ key: "select", label: "Select" },
+	{ key: "read", label: "Read" },
+	{ key: "write", label: "Write" },
+	{ key: "create", label: "Create" },
+	{ key: "delete", label: "Delete" },
+	{ key: "submit", label: "Submit" },
+];
+const permissions = ref([]);
+const roles = ref([]);
+
+function normalizePermission(p) {
+	const out = { role: (p?.role || "").trim(), permlevel: Number(p?.permlevel) || 0 };
+	for (const r of PERMISSION_RIGHTS) out[r] = p?.[r] ? 1 : 0;
+	return out;
+}
+
+// Keep a role the agent named selectable even before the list arrives, and even
+// if it is disabled — dropping it silently would look like the rule was ignored.
+function roleOptions(current) {
+	const list = roles.value.slice();
+	if (current && !list.includes(current)) list.unshift(current);
+	return list;
+}
+
+function addPermission() {
+	// A new rule starts as plain read access: the least it can grant and still
+	// mean something, so nobody hands out write by clicking Add Row.
+	permissions.value.push(normalizePermission({ read: 1 }));
+	scheduleSnapshot();
+	scheduleAutosave();
+}
+
+function removePermission(index) {
+	permissions.value.splice(index, 1);
+	scheduleSnapshot();
+	scheduleAutosave();
+}
 // Always include the current module (e.g. an agent-supplied one) so it stays selectable.
 const moduleOptions = computed(() => {
 	const list = modules.value.slice();
@@ -492,10 +636,15 @@ const appliedName = ref("");
 
 // Auto-save: changes persist to the system automatically (no "Apply" button).
 const saveState  = ref("idle");   // idle | saving | saved | error
+const canChange  = ref(false);
 const saveError  = ref("");
 const listingQuestion = ref("");
 const listingAnswer   = ref(null);
 const pendingNotice   = ref("");
+const saveNotes  = ref("");
+const childChanges = ref([]);
+// A design that failed to save, kept in this browser so the canvas can show the site's form and still offer it back.
+const unsavedDesign = ref("");
 let autosaveTimer = null;
 let autosaveInFlight = false;
 let autosaveQueued = false;
@@ -958,6 +1107,9 @@ function loadIr(ir) {
 	for (const k of SETTING_FLAG_KEYS) if (k in ir) dtSettings[k] = !!ir[k];
 	for (const k of SETTING_INT_KEYS) if (k in ir) dtSettings[k] = Number(ir[k]) || 0;
 	for (const k of SETTING_STR_KEYS) if (k in ir) dtSettings[k] = ir[k] || "";
+	// Same rule as settings: a turn that says nothing about permissions leaves
+	// the ones on screen alone, so the agent adding a field cannot wipe them.
+	if (Array.isArray(ir.permissions)) permissions.value = ir.permissions.map(normalizePermission);
 	buildTree(ir.fields || []);
 	selectForm();
 	appliedName.value = "";
@@ -979,6 +1131,7 @@ function currentIr() {
 		is_child_table: isChild.value,
 		autoname: dtAutoname.value || "",
 		...settingsPayload(),
+		permissions: permissions.value.filter((p) => (p.role || "").trim()).map(normalizePermission),
 		fields: flatten().map((f) => {
 			const out = { ...f };  // preserve all properties, incl. ones the builder doesn't show
 			const structural = STRUCTURAL.has(f.fieldtype);
@@ -999,6 +1152,21 @@ async function loadSchema(dt) {
 		const res = await frappeRequest({ url: `${API}get_doctype_schema`, params: { doctype: dt } });
 		if (res?.exists && res.doctype_ir) loadIr(res.doctype_ir);
 	} catch (e) { /* new doctype — nothing to load */ }
+}
+
+async function loadCanChange() {
+	try {
+		canChange.value = Boolean(await frappeRequest({ url: `${API}can_change_forms` }));
+	} catch (e) {
+		canChange.value = false;
+	}
+}
+
+async function loadRoles() {
+	try {
+		const res = await frappeRequest({ url: `${API}list_roles` });
+		if (Array.isArray(res)) roles.value = res;
+	} catch (e) { /* the rule keeps whatever role it already names */ }
 }
 
 async function loadModules() {
@@ -1030,9 +1198,37 @@ const hostContextLine = computed(() =>
 		: ""
 );
 
-function onDocuCardAction({ name, action, value }) {
+function onDocuCardAction({ name, action, value, fail }) {
 	if (name === "onefm.doctype_schema" && action === "apply-schema" && value.doctype_ir) {
 		loadIr(value.doctype_ir);
+		loadChildChanges(value.doctype_ir);
+	}
+	if (name === "onefm.script_diff" && action === "apply-script") applyFormScript(value, fail);
+}
+
+async function applyFormScript({ apply_target: doctype, modified_script: script }, fail) {
+	try {
+		saveNotes.value = await frappeRequest({
+			url: `${API}apply_client_script`,
+			method: "POST",
+			params: { doctype, script },
+		});
+	} catch (e) {
+		fail(serverMessage(e));
+	}
+}
+
+async function loadChildChanges(ir) {
+	childChanges.value = [];
+	try {
+		const res = await frappeRequest({ url: `${API}preview_doctype`, params: { ir: JSON.stringify(ir) } });
+		childChanges.value = [
+			...(res?.child_changes || []).map((c) => `${c.table}: ${c.lines.join(" ")}`),
+			...(res?.warnings || []),
+		];
+	} catch (e) {
+		saveError.value = serverMessage(e);
+		saveState.value = "error";
 	}
 }
 
@@ -1044,11 +1240,12 @@ function scheduleAutosave() {
 }
 async function runAutosave() {
 	// Only save a valid design (a name + at least one real field).
-	if (!dtName.value.trim() || !contentCount.value) return;
+	if (!canChange.value || !dtName.value.trim() || !contentCount.value) return;
 	if (autosaveInFlight) { autosaveQueued = true; return; }
 	autosaveInFlight = true;
 	saveState.value = "saving";
 	saveError.value = "";
+	saveNotes.value = "";
 	try {
 		const res = await frappeRequest({
 			url: `${API}apply_doctype`,
@@ -1076,10 +1273,13 @@ async function runAutosave() {
 			appliedName.value = res.name;
 			emit("applied", res.name);   // write the DocType name back onto the shape
 		}
+		saveNotes.value = (res?.notes || []).join(" ");
+		storeUnsaved(null);
 		saveState.value = "saved";
 	} catch (e) {
-		saveError.value = errText(e) || "Could not save.";
+		saveError.value = serverMessage(e);
 		saveState.value = "error";
+		storeUnsaved(JSON.stringify(currentIr()));
 	} finally {
 		autosaveInFlight = false;
 		if (autosaveQueued) { autosaveQueued = false; scheduleAutosave(); }
@@ -1090,8 +1290,29 @@ function answerListing(listIt) {
 	listingAnswer.value = listIt ? 1 : 0;
 	runAutosave();
 }
-function errText(e) {
-	return e?.messages?.join(" ") || e?.message || "";
+function unsavedKey() {
+	return `docu-unsaved:${dtName.value.trim()}`;
+}
+const STORAGE_REFUSED = "This browser does not allow Docu to keep an unsaved design.";
+function storeUnsaved(design) {
+	try {
+		if (design) localStorage.setItem(unsavedKey(), design);
+		else localStorage.removeItem(unsavedKey());
+	} catch (e) {
+		saveNotes.value = STORAGE_REFUSED;
+	}
+}
+function readUnsaved() {
+	try {
+		return localStorage.getItem(unsavedKey());
+	} catch (e) {
+		saveNotes.value = STORAGE_REFUSED;
+		return null;
+	}
+}
+function restoreUnsavedDesign() {
+	loadIr(JSON.parse(unsavedDesign.value));
+	unsavedDesign.value = "";
 }
 
 // ── Undo / redo (#12) ──────────────────────────────────────────────────
@@ -1138,18 +1359,11 @@ function stopPolling() {
 	window.removeEventListener("keydown", onGlobalKeydown, true);
 }
 
-function close() {
-	stopPolling();
-	// Hand control to the process map's close branch (Cleanup → Conversation Ended).
-	if (conversationName.value) {
-		frappeRequest({
-			url: "/api/method/one_bpmn.api.server_script_api.end_chat_conversation",
-			method: "POST",
-			params: { conversation_name: conversationName.value },
-		}).catch(() => {});
-	}
-	emit("close");
-}
+// Undo/redo shortcuts belong to the diagram while the canvas is hidden.
+watch(() => props.open, (open) => {
+	if (open) window.addEventListener("keydown", onGlobalKeydown, true);
+	else window.removeEventListener("keydown", onGlobalKeydown, true);
+});
 
 onBeforeUnmount(stopPolling);
 
@@ -1158,11 +1372,15 @@ onMounted(async () => {
 	buildTree([]);  // start with an empty tab/section/column so the canvas is usable
 	selectForm();
 	loadModules();  // populate the module picker (fire-and-forget)
+	loadRoles();    // populate the permission-rule role picker
+	await loadCanChange();
 	if (props.doctype) {
 		// A doctype is already selected on the shape — load its form builder
 		// view. The greeting comes from the docu_agent configuration
 		// (WI-001996); the change-focused line rides as host context.
 		await loadSchema(props.doctype);
+		const stored = readUnsaved();
+		if (stored && stored !== JSON.stringify(currentIr())) unsavedDesign.value = stored;
 	}
 
 	// Undo/redo: seed the baseline snapshot, then record on every edit.
@@ -1309,6 +1527,40 @@ onMounted(async () => {
 .dc-settings-grid .dc-prop-input:focus { outline: none; border-color: var(--md-primary); box-shadow: inset 0 0 0 1px var(--md-primary); }
 .dc-settings-grid .fb-prop-check { align-self: center; }
 
+/* ── Permission rules grid ── */
+.dc-perm-scroll { overflow-x: auto; border: 1px solid var(--md-outline-variant); border-radius: 8px; }
+.dc-perm-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.dc-perm-table th {
+	text-align: center; font-weight: 600; color: #525252; white-space: nowrap;
+	padding: 9px 10px; background: var(--md-surface-container-low);
+	border-bottom: 1px solid var(--md-outline-variant);
+}
+.dc-perm-table td { padding: 7px 10px; border-bottom: 1px solid var(--md-outline-variant); text-align: center; }
+.dc-perm-table tr:last-child td { border-bottom: none; }
+.dc-perm-table th.dc-perm-role, .dc-perm-table td.dc-perm-role { text-align: left; min-width: 190px; }
+.dc-perm-no { width: 44px; color: var(--md-on-surface-variant); }
+.dc-perm-lvl { width: 84px; }
+.dc-perm-x { width: 40px; }
+.dc-perm-table .dc-prop-input { width: 100%; padding: 6px 9px; font-size: 13px; }
+.dc-perm-check input { width: 15px; height: 15px; cursor: pointer; }
+.dc-perm-empty { color: var(--md-on-surface-variant); font-size: 12px; padding: 14px 10px; }
+.dc-perm-remove {
+	border: none; background: transparent; color: var(--md-on-surface-variant);
+	cursor: pointer; font-size: 12px; padding: 4px 6px; border-radius: var(--md-corner-full);
+}
+.dc-perm-remove:hover { background: rgba(186,26,26,var(--md-state-hover)); color: var(--md-error); }
+.dc-perm-add {
+	margin-top: 10px; border: 1px solid var(--md-outline); background: var(--md-surface-container-lowest);
+	color: var(--md-on-surface); border-radius: var(--md-corner-full);
+	padding: 7px 16px; font-size: 13px; font-weight: 500; cursor: pointer;
+	transition: background-color var(--md-dur) var(--md-ease);
+}
+.dc-perm-add:hover { background: var(--md-surface-container-high); }
+.sr-only {
+	position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+	overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
 /* ══════════════════════════════════════════════════════════════════════
    Frappe form-builder canvas — matched to the desk Form Builder look/feel.
    Frappe's CSS variables aren't present on /processa, so they're defined
@@ -1413,6 +1665,7 @@ onMounted(async () => {
 
 /* Auto-save status */
 .dc-save-status { font-size: 13px; color: var(--md-on-surface-variant); }
+.dc-child-changes { margin: 0; padding: 8px 16px 8px 32px; min-width: 0; font-size: 12px; overflow-wrap: anywhere; white-space: normal; }
 .dc-save-status.st-saving { color: var(--md-primary); }
 .dc-save-status.st-saved { color: var(--md-success); }
 .dc-save-status.st-error { color: var(--md-error); }

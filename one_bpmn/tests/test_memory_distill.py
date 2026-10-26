@@ -27,7 +27,7 @@ class _FakeCurator(Executor):
 register_executor("curatortest", _FakeCurator)
 
 
-def _distill(output_text, model="test-model"):
+def _distill(output_text, model="test-model", exclude_context=None):
 	return DZ.distill_memories(
 		output_text,
 		agent="prosally",
@@ -36,6 +36,7 @@ def _distill(output_text, model="test-model"):
 		provider_name="",
 		backend="curatortest",
 		model=model,
+		exclude_context=exclude_context,
 	)
 
 
@@ -97,3 +98,93 @@ class TestDistillSalienceGate(FrappeTestCase):
 		_FAKE["error"] = ErrorCode.SUCCESS
 		facts = _distill("out")
 		self.assertEqual(facts[0]["dedup_key"], "prosally:t")
+
+
+# WI-002165: the curator can still hand back a fact that just paraphrases the
+# agent's own instructions (the prompt guardrail alone left confirmed echo
+# rows in the store — see cleanup_ai_memory_store.py); exclude_context is the
+# deterministic backstop that rejects those regardless of what the curator
+# returned.
+_LOGIX_DRIVING_PROMPT = (
+	"The user's message is at the end of this prompt, and your tools read the "
+	"conversation server-side, so NEVER ask them to repeat or provide it. "
+	"HARD PIPELINE RULES: "
+	"(1) ALWAYS call classify_intent first; it reads the user's message "
+	"server-side and returns the intent plus a next field. "
+	"(2) Follow next: write_script for CREATE or MODIFY, review_script after "
+	"every write, clarify for DISAMBIGUATE. "
+	"(3) Every turn MUST end by calling finalize — what finalize produces is "
+	"the ONLY thing the user ever sees. "
+	"(4) Never answer in plain text: text outside tool calls is discarded and "
+	"the user sees an error instead of your words."
+)
+# The confirmed live echo (jrrd68247k) — a paraphrase, not a verbatim copy, of
+# the driving prompt above.
+_ECHOED_CONTENT = (
+	"Always call classify_intent first to read the user's message and get "
+	"intent plus next field. Follow the next instruction: write_script for "
+	"CREATE or MODIFY, review_script after every write, clarify for "
+	"DISAMBIGUATE. Every turn must end with finalize."
+)
+
+
+class TestDistillExcludeContext(FrappeTestCase):
+	def test_echo_of_driving_prompt_is_rejected(self):
+		_FAKE["output"] = {"memories": [{"content": _ECHOED_CONTENT, "topic": "pipeline order"}]}
+		_FAKE["error"] = ErrorCode.SUCCESS
+		facts = _distill("some run output", exclude_context=_LOGIX_DRIVING_PROMPT)
+		self.assertEqual(facts, [])
+
+	def test_genuine_fact_survives_alongside_exclude_context(self):
+		# A real durable fact, unrelated to the driving prompt, must not be
+		# collateral damage from the exclusion check.
+		genuine = "When severity is marked as critical, records require approval from a designated approver before submission."
+		_FAKE["output"] = {"memories": [{"content": genuine, "topic": "approval rule"}]}
+		_FAKE["error"] = ErrorCode.SUCCESS
+		facts = _distill("some run output", exclude_context=_LOGIX_DRIVING_PROMPT)
+		self.assertEqual(len(facts), 1)
+		self.assertEqual(facts[0]["content"], genuine)
+
+	def test_verbatim_echo_is_rejected(self):
+		# The exact system prompt text handed back as a "fact" (the false
+		# qq9gekd7ah-style case) — verbatim, not just similar.
+		_FAKE["output"] = {"memories": [{"content": _LOGIX_DRIVING_PROMPT, "topic": "rules"}]}
+		_FAKE["error"] = ErrorCode.SUCCESS
+		facts = _distill("some run output", exclude_context=_LOGIX_DRIVING_PROMPT)
+		self.assertEqual(facts, [])
+
+	def test_no_exclude_context_skips_the_check(self):
+		# Back-compat: callers that don't pass exclude_context (the previous
+		# behaviour) get no echo filtering at all.
+		_FAKE["output"] = {"memories": [{"content": _ECHOED_CONTENT, "topic": "pipeline order"}]}
+		_FAKE["error"] = ErrorCode.SUCCESS
+		facts = _distill("some run output")
+		self.assertEqual(len(facts), 1)
+
+
+class TestIsEcho(FrappeTestCase):
+	"""Direct coverage of the deterministic similarity check, independent of
+	the curator — see distill.py's threshold rationale for the numbers below."""
+
+	def test_paraphrase_of_driving_prompt_flagged(self):
+		self.assertTrue(DZ._is_echo(_ECHOED_CONTENT, _LOGIX_DRIVING_PROMPT))
+
+	def test_unrelated_fact_not_flagged(self):
+		unrelated = "When severity is marked as critical, records require approval from a designated approver before submission."
+		self.assertFalse(DZ._is_echo(unrelated, _LOGIX_DRIVING_PROMPT))
+
+	def test_domain_adjacent_but_genuine_fact_not_flagged(self):
+		# Shares vocabulary with a gateway-heavy prompt without being an echo
+		# of it — the false-positive case the threshold is tuned against.
+		prosally_gateway_rules = (
+			"exclusiveGateway - decision point: exactly ONE outgoing path is "
+			"taken. Use for: if/else branches, approval decisions, re-check "
+			"loops. Every exclusiveGateway with multiple outgoing flows MUST "
+			"have exactly one outgoing flow marked default true and a "
+			"condition field on every other outgoing flow."
+		)
+		genuine = "Use exclusive gateways for yes/no decisions."
+		self.assertFalse(DZ._is_echo(genuine, prosally_gateway_rules))
+
+	def test_empty_exclude_context_never_flags(self):
+		self.assertFalse(DZ._is_echo(_ECHOED_CONTENT, ""))

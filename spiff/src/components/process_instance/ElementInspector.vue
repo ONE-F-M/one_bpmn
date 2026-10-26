@@ -50,6 +50,13 @@
 							class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[12px] font-semibold"
 							:class="aiRun.status === 'Success' ? 'bg-green-100 text-green-700' : aiRun.status === 'Error' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700 animate-pulse'"
 						>{{ aiRun.status }}</span>
+						<router-link
+							:to="`/processa/runs/${aiRun.name}`"
+							class="ml-auto text-[12px] text-purple-700 hover:underline flex items-center gap-1"
+							title="Every step, tool call and sub-run of this run on its own page"
+						>
+							Open full run <Icon icon="lucide:arrow-up-right" class="w-3 h-3" />
+						</router-link>
 					</div>
 
 					<!-- Error details -->
@@ -124,7 +131,10 @@
 											class="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono bg-purple-100 text-purple-700"
 											:title="step.toolCalls.map(tc => toolLabel(tc.tool_name)).join(', ')"
 										>🔧 {{ step.toolCalls.map(tc => toolLabel(tc.tool_name)).join(", ").substring(0, 40) }}</span>
-										<span class="text-gray-600 truncate max-w-[150px]">{{ step.content ? step.content.substring(0, 80) : '(empty)' }}</span>
+										<span
+											v-if="step.content || !(step.toolCalls && step.toolCalls.length)"
+											class="text-gray-600 truncate max-w-[150px]"
+										>{{ step.content ? step.content.substring(0, 80) : '(empty)' }}</span>
 									</span>
 									<span class="text-gray-400 text-[10px] whitespace-nowrap">
 									<template v-if="step.prompt_tokens">{{ step.prompt_tokens }}t in<span v-if="step.cost"> · ${{ formatCost(step.cost) }}</span></template>
@@ -136,7 +146,10 @@
 								</span>
 								</button>
 								<div v-if="expandedSteps.has(step.name)" class="border-t border-gray-200 px-2 py-1.5">
-									<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto bg-gray-50 rounded p-2">{{ step.content || '(empty)' }}</pre>
+									<pre
+										v-if="step.content || !(step.toolCalls && step.toolCalls.length)"
+										class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto bg-gray-50 rounded p-2"
+									>{{ step.content || '(empty)' }}</pre>
 									<!-- Tool calls made in this turn (AI Agent Tool Call rows) -->
 									<div
 										v-for="tc in step.toolCalls || []"
@@ -159,6 +172,13 @@
 										<div v-if="tc.tool_result" class="mt-1">
 											<div class="text-[10px] uppercase tracking-wide text-gray-400">Result <span class="normal-case">(what the model was told)</span></div>
 											<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-32 overflow-y-auto bg-white rounded p-1.5 border border-gray-100">{{ tc.tool_result }}</pre>
+										</div>
+										<div v-if="tc.tool_artifact" class="mt-1">
+											<div class="text-[10px] uppercase tracking-wide text-gray-400">Artifact <span class="normal-case">(what the tool produced, in full)</span></div>
+											<pre class="text-[11px] text-gray-600 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto bg-white rounded p-1.5 border border-gray-100">{{ tc.tool_artifact }}</pre>
+										</div>
+										<div v-else-if="tc.artifact_file" class="mt-1 text-[11px]">
+											<a :href="`/app/file/${tc.artifact_file}`" target="_blank" class="text-purple-700 underline">Artifact too large to show here — open the file</a>
 										</div>
 										<div v-if="tc.outcome" class="mt-1">
 											<div class="text-[10px] uppercase tracking-wide text-green-600">Outcome <span class="normal-case">(what actually happened)</span></div>
@@ -544,7 +564,7 @@ async function fetchSteps() {
 					params: {
 						doctype: "AI Agent Tool Call",
 						parent: "AI Agent Step",
-						fields: JSON.stringify(["parent", "tool_name", "tool_source", "status", "tool_args", "tool_result", "outcome"]),
+						fields: JSON.stringify(["parent", "tool_name", "tool_source", "status", "tool_args", "tool_result", "tool_artifact", "artifact_file", "outcome"]),
 						filters: JSON.stringify([
 							["parenttype", "=", "AI Agent Step"],
 							["parent", "in", steps.map((s) => s.name)],

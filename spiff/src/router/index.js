@@ -40,9 +40,26 @@ const routes = [
 		component: InstanceDetail,
 	},
 	{
+		path: "/processa/runs",
+		name: "Runs",
+		component: () => import("@/views/Runs.vue"),
+	},
+	{
+		path: "/processa/runs/:run",
+		name: "RunDetail",
+		component: () => import("@/views/RunDetail.vue"),
+	},
+	{
 		path: "/processa/insights",
 		name: "Insights",
 		component: () => import("@/views/Insights.vue"),
+	},
+	{
+		// What the checks found, ordered by time — the read-only counterpart to
+		// the suites list, which is ordered by what you configure.
+		path: "/processa/evals/results",
+		name: "EvalResults",
+		component: () => import("@/views/EvalResults.vue"),
 	},
 	{
 		path: "/processa/evals",
@@ -93,6 +110,11 @@ const routes = [
 		path: "/processa/sessions",
 		name: "Sessions",
 		component: () => import("@/views/Sessions.vue"),
+	},
+	{
+		path: "/processa/memory",
+		name: "Memory",
+		component: () => import("@/views/Memory.vue"),
 	},
 	{
 		path: "/:pathMatch(.*)*",

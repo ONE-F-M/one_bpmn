@@ -61,6 +61,7 @@ CLOCK_METHODS = frozenset({
 	"one_bpmn.tasks.poll_a2a_tasks",
 	"one_bpmn.tasks.process_timer_catch_events",
 	"one_bpmn.tasks.process_timer_start_events",
+	"one_bpmn.tasks.requeue_stranded_ai_steps",
 })
 
 

@@ -1,12 +1,22 @@
 import { SelectEntry, isSelectEntryEdited } from "@bpmn-io/properties-panel";
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
-import { h, Component } from "preact";
-import { frappeGet } from "../shared/frappeResource";
+import { h } from "preact";
+import { frappeGet, frappePost } from "../shared/frappeResource";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
 import { decodeHtmlAttr } from "../shared/htmlAttrCodec";
+import { NOTIFY_EDITOR_ATTRS, contextDoctype } from "../shared/notifyAssigneeAttrs";
+import { NotifySummaryBox } from "./notifySummaryBox";
 import { makeLaunchDocuButton } from "../shared/launchDocuButton";
+import { RecordCombobox } from "../shared/RecordCombobox";
+import { cachedRecordList } from "../shared/cachedRecordList";
+import { CLOSE, icon } from "../shared/recordIcons";
+import { createWorkflowActionMaster } from "./workflowActionCreate";
+import { makeGatewayCheckComponent } from "./gatewayCheckComponent";
+
+// Read-only check of the task's actions against the next gateway's branches
+const GatewayCheckComponent = makeGatewayCheckComponent((raw) => parseTaskActions(raw));
 
 // Helpers
 function getAttr(bo, attr) {
@@ -88,6 +98,13 @@ export function UserTaskProps(props) {
 		element,
 		component: TaskActionsTableComponent,
 		isEdited: isSelectEntryEdited,
+	});
+
+	// Gateway check: read-only, writes nothing, never blocks deploy
+	entries.push({
+		id: "spiffworkflow-gatewayCheck",
+		element,
+		component: GatewayCheckComponent,
 	});
 
 	// Notify Assignee — checkbox + conditional Launch Editor button
@@ -761,177 +778,69 @@ function TaskActionsTableComponent(props) {
  *   - Require Digital Signature checkbox
  *   - Remove button
  */
-class ActionRowComponent extends Component {
-	constructor(props) {
-		super(props);
-		this.state = {
-			inputText: props.row.action || "",
-			options: [],
-			isOpen: false,
-			loading: false,
-		};
-		this.containerRef  = null;
-		this.debounceTimer = null;
-		this.handleDocClick = this.handleDocClick.bind(this);
-	}
+const ACTIONS = cachedRecordList("Workflow Action Master", ["name"]);
 
-	componentDidMount() {
-		document.addEventListener("mousedown", this.handleDocClick);
-	}
+async function createAction(name) {
+	const created = await createWorkflowActionMaster(frappePost, name);
+	ACTIONS.add({ name: created });
+	return created;
+}
 
-	componentWillUnmount() {
-		document.removeEventListener("mousedown", this.handleDocClick);
-		if (this.debounceTimer) clearTimeout(this.debounceTimer);
-	}
-
-	handleDocClick(e) {
-		if (this.containerRef && !this.containerRef.contains(e.target)) {
-			this.setState({ isOpen: false });
-		}
-	}
-
-	componentDidUpdate(prevProps) {
-		// Sync input text when the action name changes externally (undo/redo)
-		if (prevProps.row.action !== this.props.row.action) {
-			this.setState({ inputText: this.props.row.action || "" });
-		}
-	}
-
-	fetchOptions(txt) {
-		this.setState({ loading: true });
-		const params = {
-			fields: '["name"]',
-			limit_page_length: 50,
-			order_by: "name asc",
-		};
-		if (txt) {
-			params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
-		}
-		frappeGet("/api/resource/Workflow Action Master", params)
-			.then((list) => {
-				this.setState({ options: list || [], loading: false, isOpen: true });
-			})
-			.catch(() => this.setState({ loading: false }));
-	}
-
-	onInput(e) {
-		const val = e.target.value;
-		this.setState({ inputText: val });
-		if (this.debounceTimer) clearTimeout(this.debounceTimer);
-		this.debounceTimer = setTimeout(() => this.fetchOptions(val), 300);
-	}
-
-	onFocus() {
-		this.fetchOptions(this.state.inputText);
-	}
-
-	selectOption(name) {
-		this.setState({ inputText: name, isOpen: false });
-		this.props.onUpdate(this.props.idx, "action", name);
-	}
-
-	onBlur() {
-		// If the user typed a manual value, commit it on blur
-		setTimeout(() => {
-			const { inputText } = this.state;
-			if (inputText !== this.props.row.action) {
-				this.props.onUpdate(this.props.idx, "action", inputText);
-			}
-		}, 200);  // delay to allow dropdown click to register first
-	}
-
-	render() {
-		const { row, idx, translate, onUpdate, onRemove } = this.props;
-		const { inputText, options, isOpen, loading } = this.state;
-
-		return h(
+function ActionRowComponent({ row, idx, translate, onUpdate, onRemove }) {
+	return h("div", { class: "bpmn-action-row" }, [
+		h(
 			"div",
+			{ class: "bpmn-action-name" },
+			h(RecordCombobox, {
+				id: `task-action-${idx}`,
+				compact: true,
+				keepTyped: true,
+				value: row.action || "",
+				translate,
+				onChange: (name) => onUpdate(idx, "action", name),
+				loadOptions: ACTIONS.load,
+				createRecord: createAction,
+				recordLabel: translate("Workflow Action Master"),
+				placeholder: translate("Choose or type a Workflow Action Master"),
+				emptyText: translate("No Workflow Action Master matches"),
+				missingText: translate("Not a Workflow Action Master yet, so deploy will flag it."),
+			})
+		),
+
+		h(
+			"div",
+			{ class: "bpmn-action-checkbox-cell" },
+			h("input", {
+				type: "checkbox",
+				checked: row.confirmTransition === "true",
+				title: translate("Confirm Transition"),
+				onChange: (e) => onUpdate(idx, "confirmTransition", e.target.checked ? "true" : undefined),
+			})
+		),
+
+		h(
+			"div",
+			{ class: "bpmn-action-checkbox-cell" },
+			h("input", {
+				type: "checkbox",
+				checked: row.requireDigitalSignature === "true",
+				title: translate("Require Digital Signature"),
+				onChange: (e) => onUpdate(idx, "requireDigitalSignature", e.target.checked ? "true" : undefined),
+			})
+		),
+
+		h(
+			"button",
 			{
-				class: "bpmn-action-row",
-				ref: (c) => (this.containerRef = c),
+				type: "button",
+				class: "bpmn-action-remove-btn",
+				title: translate("Remove action"),
+				"aria-label": translate("Remove action"),
+				onClick: () => onRemove(idx),
 			},
-			[
-				// ── Action Name cell ────────────────────────────
-				h("div", { class: "bpmn-action-name" }, [
-					h("input", {
-						type: "text",
-						class: "bpmn-action-name-input",
-						value: inputText,
-						placeholder: translate("Type action…"),
-						onInput: (e) => this.onInput(e),
-						onFocus: () => this.onFocus(),
-						onBlur: () => this.onBlur(),
-						autoComplete: "off",
-						spellCheck: "false",
-					}),
-					// Dropdown
-					isOpen &&
-						h(
-							"ul",
-							{ class: "bpmn-action-dropdown" },
-							[
-								loading &&
-									h("li", { class: "bpmn-action-dropdown-loading" }, "Loading…"),
-								!loading && options.length === 0 &&
-									h("li", { class: "bpmn-action-dropdown-empty" }, "No results"),
-								!loading &&
-									options.map((opt) =>
-										h(
-											"li",
-											{
-												key: opt.name,
-												onMouseDown: (e) => {
-													e.preventDefault();
-													this.selectOption(opt.name);
-												},
-											},
-											opt.name
-										)
-									),
-							]
-						),
-				]),
-
-				// ── Confirm Transition checkbox ─────────────────
-				h(
-					"div",
-					{ class: "bpmn-action-checkbox-cell" },
-					h("input", {
-						type: "checkbox",
-						checked: row.confirmTransition === "true",
-						title: translate("Confirm Transition"),
-						onChange: (e) =>
-							onUpdate(idx, "confirmTransition", e.target.checked ? "true" : undefined),
-					})
-				),
-
-				// ── Require Digital Signature checkbox ───────────
-				h(
-					"div",
-					{ class: "bpmn-action-checkbox-cell" },
-					h("input", {
-						type: "checkbox",
-						checked: row.requireDigitalSignature === "true",
-						title: translate("Require Digital Signature"),
-						onChange: (e) =>
-							onUpdate(idx, "requireDigitalSignature", e.target.checked ? "true" : undefined),
-					})
-				),
-
-				// ── Remove button ───────────────────────────────
-				h(
-					"button",
-					{
-						type: "button",
-						class: "bpmn-action-remove-btn",
-						title: translate("Remove action"),
-						onClick: () => onRemove(idx),
-					},
-					"×"
-				),
-			]
-		);
-	}
+			icon(CLOSE)
+		),
+	]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -950,11 +859,9 @@ function NotifyAssigneeCheckboxComponent(props) {
 		const updates = {
 			"spiffworkflow:notifyAssignee": e.target.checked ? "true" : undefined,
 		};
-		// Clear the body + subject + template when unchecking
+		// Clear every Notification Editor value and the account when unchecking
 		if (!e.target.checked) {
-			updates["spiffworkflow:notifyAssigneeBody"] = undefined;
-			updates["spiffworkflow:notifyAssigneeSubject"] = undefined;
-			updates["spiffworkflow:notifyAssigneeTemplate"] = undefined;
+			for (const name of NOTIFY_EDITOR_ATTRS) updates[`spiffworkflow:${name}`] = undefined;
 			updates["spiffworkflow:notifyAssigneeAccount"] = undefined;
 		}
 		modeling.updateModdleProperties(element, bo, updates);
@@ -1001,44 +908,22 @@ function NotifyAssigneeEditorButtonComponent(props) {
 	const bo        = getBusinessObject(element);
 	const eventBus  = useService("eventBus");
 
-	const handleClick = () => {
-		eventBus.fire("spiff.userTask.notifyAssignee.edit", {
-			element,
-			eventBus,
-			body: getAttr(bo, "notifyAssigneeBody"),
-			subject: getAttr(bo, "notifyAssigneeSubject"),
-			template: getAttr(bo, "notifyAssigneeTemplate"),
-		});
-	};
+	const values = Object.fromEntries(NOTIFY_EDITOR_ATTRS.map((name) => [name, getAttr(bo, name)]));
+	const taskActions = parseTaskActions(getAttr(bo, "taskActions"));
 
-	const hasBody = !!decodeHtmlAttr(getAttr(bo, "notifyAssigneeBody"));
-	const template = getAttr(bo, "notifyAssigneeTemplate");
+	const handleClick = () => {
+		eventBus.fire("spiff.userTask.notifyAssignee.edit", { element, eventBus, values, taskActions });
+	};
 
 	return h(
 		"div",
 		{ class: "bio-properties-panel-entry", "data-entry-id": id },
-		[
-			h(
-				"button",
-				{
-					class: "spiffworkflow-properties-panel-button bpmn-notify-editor-btn",
-					onClick: handleClick,
-					type: "button",
-				},
-				[
-					h("span", {}, translate("Launch Editor")),
-					hasBody &&
-						h("span", { class: "bpmn-notify-editor-badge" }, "✓"),
-				]
-			),
-			// Template-attached indicator
-			h(
-				"div",
-				{ class: "bio-properties-panel-description bpmn-mt-6" },
-				template
-					? h("span", {}, `${translate("Template attached")}: ${template}`)
-					: h("span", {}, translate("No template attached"))
-			),
-		]
+		h(NotifySummaryBox, {
+			values: { ...values, notifyAssigneeBody: decodeHtmlAttr(values.notifyAssigneeBody) },
+			taskActions,
+			doctype: contextDoctype(bo),
+			translate,
+			onLaunch: handleClick,
+		})
 	);
 }

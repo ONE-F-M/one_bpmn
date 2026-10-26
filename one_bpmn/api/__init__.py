@@ -4,7 +4,7 @@
 #   process_map_api    — CRUD for BPMN Process Model and Process records
 #   compilation        — compile/deploy/disable process models
 #   workflow_state     — apply workflow states and docstatus transitions
-#   editability        — Pathfinder Log cross-site editability checks
+#   editability        — Process Implementation cross-site editability checks
 #   instance_api       — process instance lifecycle (start, complete, list)
 #   server_script_api  — server script CRUD, Logix/ProSally integration
 #   canvas_comments    — canvas comment and element asset management

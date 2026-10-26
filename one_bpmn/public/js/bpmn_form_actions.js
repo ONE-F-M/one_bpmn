@@ -208,6 +208,35 @@ frappe.provide('one_bpmn');
 		}
 	}
 
+	// Opens the newest Process Instance of this document in the Processa page
+	async function _open_process_instance(frm) {
+		const instances = await frappe.db.get_list('BPMN Process Instance', {
+			filters: { context_doctype: frm.doctype, context_docname: frm.docname },
+			fields: ['name'],
+			order_by: 'creation desc',
+			limit: 1,
+		});
+		if (!instances.length) {
+			frappe.show_alert({
+				message: __('No Process Instance found for this document'),
+				indicator: 'orange',
+			});
+			return;
+		}
+		window.open(`/processa/instances/${encodeURIComponent(instances[0].name)}`, '_blank');
+	}
+
+	// Standard items survive toolbar.set_primary_action, which clears user-action items
+	function _add_instance_menu_item(frm) {
+		if (!frm.page || !frm.page.menu) return;
+		const label = __('Go to Process Instance');
+		const exists = frm.page.menu
+			.find('.menu-item-label')
+			.filter((i, el) => $(el).text() === label).length;
+		if (exists) return;
+		frm.page.add_menu_item(label, () => _open_process_instance(frm), true);
+	}
+
 	// load_bpmn_actions — fires on every form-refresh
 	async function load_bpmn_actions(frm) {
 		if (!frm || frm.is_new()) {
@@ -215,7 +244,7 @@ frappe.provide('one_bpmn');
 		}
 		if (BPMN_INTERNAL_DOCTYPES.has(frm.doctype)) return;
 
-
+		_add_instance_menu_item(frm);
 
 		// Always clear previously injected items first
 		_clear_bpmn_actions(frm);
@@ -266,24 +295,9 @@ frappe.provide('one_bpmn');
 			_hide_native_frappe_ui(frm);
 
 			tasks.forEach(function (task) {
-				// assigned_user may list multiple people, comma-joined
-				// (Table Field / multi-assignee mode, e.g. Task.custom_assigned_to)
-				// — mirrors the Python split_users() helper. An exact string
-				// match against the whole joined value would never match any
-				// individual assignee once there's more than one.
-				const assigned_users_list = (task.assigned_user || '')
-					.split(',')
-					.map(function (u) { return u.trim(); })
-					.filter(Boolean);
-
-				const is_for_me = (
-					assigned_users_list.length === 0 ||
-					assigned_users_list.indexOf(frappe.session.user) !== -1 ||
-					frm.doc.owner === frappe.session.user
-				);
-
-				if (!is_for_me) {
-					pending_assignee = task.assigned_user;
+				// The server decides with the same rule complete_task enforces.
+				if (!task.can_action) {
+					pending_assignee = task.assigned_user || task.assigned_role;
 					return;
 				}
 
@@ -443,7 +457,7 @@ frappe.provide('one_bpmn');
 		// Confirmation dialog
 		if (needsConfirm) {
 			const msg = action
-				? __('Apply BPMN action <b>{0}</b> on this document?', [action])
+				? __('Confirm selected workflow action "{0}"?', [action])
 				: __('Complete task <b>{0}</b>?', [task.task_name || 'Task']);
 			frappe.confirm(msg, function () {
 				doSignatureCheck();

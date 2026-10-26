@@ -67,6 +67,10 @@ export function injectProcessNameField(element, propertiesContainer, { delay = 1
 
 		if (!calledElement) {
 			_lastCalledElement = null;
+			const calledProcess = element.businessObject?.get("spiffworkflow:calledProcess");
+			if (calledProcess) {
+				wrapper.querySelector("[data-process-name]").textContent = calledProcess;
+			}
 			return;
 		}
 

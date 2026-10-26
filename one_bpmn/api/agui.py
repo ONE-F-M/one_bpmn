@@ -21,7 +21,11 @@ from one_bpmn.agents.agui_stream import agent_event_stream
 
 @frappe.whitelist()
 def stream_agent_turn(
-	agent_id: str, message: str, conversation: str = None, context: str = None
+	agent_id: str,
+	message: str,
+	conversation: str = None,
+	context: str = None,
+	client_message_id: str = None,
 ):
 	"""Stream one agent turn as AG-UI events (SSE).
 
@@ -32,6 +36,9 @@ def stream_agent_turn(
 	        the agent's configuration when omitted (WI-001619 path).
 	    context: optional JSON dict merged into the turn payload
 	        (editor state, dialog grounding, etc.).
+	    client_message_id: id minted by the client for this message. A retry
+	        carrying the same id replays the first reply instead of running the
+	        agent again.
 
 	Returns:
 	    text/event-stream response: RunStarted → content events →
@@ -53,24 +60,130 @@ def stream_agent_turn(
 		frappe.db.commit()
 
 	return Response(
-		agent_event_stream(agent_id, message, conversation, parsed_context),
+		agent_event_stream(
+			agent_id, message, conversation, parsed_context, client_message_id=client_message_id
+		),
 		mimetype="text/event-stream",
 		headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
 	)
 
 
 @frappe.whitelist()
-def conversation_history(conversation: str, limit: int = 30) -> list:
+def conversation_history(conversation: str, limit: int = 30, before: str = None) -> list:
 	"""Prior turns for the shared panel's resume-or-create lifecycle
 	(WI-001672). load_history already enforces owner-only access — an
-	unknown or foreign conversation reads as empty, never as an error."""
+	unknown or foreign conversation reads as empty, never as an error.
+
+	Each assistant turn carries the ``events`` it produced while streaming, so a
+	reopened conversation shows the cards and option buttons it showed the first
+	time. They are rebuilt here by replaying the same translators the live
+	stream uses over the stored result — one definition of what a reply renders
+	as, rather than a second one in the browser that drifts from it.
+
+	``before`` pages backwards: pass the oldest message already on screen and
+	the previous page comes back. A page shorter than ``limit`` is the end.
+	"""
 	from frappe.utils import cint
 
 	from one_bpmn.utils.chat_persistence import load_history
 
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Authentication required"))
-	return load_history(conversation, limit=min(cint(limit) or 30, 100))
+
+	messages = load_history(conversation, limit=min(cint(limit) or 30, 100), before=before)
+	notes = _working_notes(conversation, messages)
+	for message in messages:
+		metadata = message.pop("metadata", None) or {}
+		message["events"] = _replayed_events(metadata) if message["role"] == "assistant" else []
+		message["notes"] = notes.get(message["message"], [])
+	return messages
+
+
+def _working_notes(conversation: str, messages: list) -> dict:
+	"""What the agent said before each tool call, keyed by the reply it led to.
+
+	load_history has checked the conversation is the caller's, so runs are read without a permission filter.
+	"""
+	from frappe.utils import get_datetime
+
+	windows = []
+	for i, message in enumerate(messages):
+		if message["role"] != "assistant":
+			continue
+		start = messages[i - 1]["timestamp"] if i else _time_before(conversation, message["timestamp"])
+		if start:
+			windows.append((message["message"], get_datetime(start), get_datetime(message["timestamp"])))
+	instances = frappe.get_all(
+		"BPMN Process Instance",
+		filters={"context_doctype": "Chat Conversation", "context_docname": conversation},
+		pluck="name",
+	)
+	if not windows or not instances:
+		return {}
+
+	runs = frappe.get_all(
+		"AI Agent Run",
+		filters={
+			"instance": ["in", instances],
+			"parent_run": ["is", "not set"],
+			"creation": ["between", [windows[0][1], windows[-1][2]]],
+		},
+		fields=["name", "creation"],
+		order_by="creation asc",
+	)
+	if not runs:
+		return {}
+	steps_by_run = {}
+	for step in frappe.get_all(
+		"AI Agent Step",
+		filters={"run": ["in", [run.name for run in runs]], "role": "tool"},
+		fields=["run", "content"],
+		order_by="step_index asc",
+	):
+		if (step.content or "").strip():
+			steps_by_run.setdefault(step.run, []).append(step.content)
+
+	notes = {}
+	for message_name, start, end in windows:
+		turn_runs = [run.name for run in runs if start < run.creation <= end]
+		said = [content for run_name in turn_runs for content in steps_by_run.get(run_name, [])]
+		if said:
+			notes[message_name] = said
+	return notes
+
+
+def _time_before(conversation: str, timestamp) -> str | None:
+	"""When the message before *timestamp* was written, for a reply that opens its history page."""
+	previous = frappe.get_all(
+		"Chat Message",
+		filters={"conversation": conversation, "message_type": ["in", ["User", "Bot"]], "creation": ["<", timestamp]},
+		fields=["creation"],
+		order_by="creation desc",
+		limit=1,
+	)
+	return str(previous[0].creation) if previous else None
+
+
+def _replayed_events(metadata: dict) -> list:
+	"""The custom events a stored turn would emit again, as {name, value}.
+
+	The result the turn produced is kept under ``agent_result`` — the same place
+	the live runner reads it back from. Anything else stored there is not a
+	reply and is ignored.
+	"""
+	result = metadata.get("agent_result")
+	if not isinstance(result, dict):
+		return []
+
+	from one_bpmn.agents.agui_stream import _extension_events
+
+	events = []
+	for event in _extension_events(result):
+		name = getattr(event, "name", "")
+		if not name:
+			continue
+		events.append({"name": name, "value": getattr(event, "value", None) or {}})
+	return events
 
 
 @frappe.whitelist()
@@ -92,7 +205,11 @@ def list_conversations(limit: int = 30) -> list:
 		frappe.throw(_("Authentication required"))
 	return frappe.get_all(
 		"Chat Conversation",
-		filters={"owner": frappe.session.user, "agent_mode": ["in", one_ai_conversation_modes()]},
+		filters={
+			"owner": frappe.session.user,
+			"agent_mode": ["in", one_ai_conversation_modes()],
+			"is_eval": 0,
+		},
 		fields=["name", "title", "agent_mode", "last_updated", "status"],
 		order_by="last_updated desc",
 		limit=min(cint(limit) or 30, 100),

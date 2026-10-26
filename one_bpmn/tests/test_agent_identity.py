@@ -30,6 +30,7 @@ def _work_item():
 	doc.title = f"_Test agent tools {frappe.generate_hash(length=8)}"
 	doc.orchestrator = 0
 	doc.assignee_user = None
+	doc.pr_link = None  # the source's pull request is not this item's
 	doc.flags.ignore_permissions = True
 	doc.insert(ignore_permissions=True)
 	return doc.name

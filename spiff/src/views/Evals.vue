@@ -19,6 +19,9 @@
 				<Button icon-left="message-square" @click="$router.push('/processa/evals/feedback')">
 					Feedback
 				</Button>
+				<Button icon-left="list" @click="$router.push('/processa/evals/results')">
+					Results
+				</Button>
 				<Button icon-left="plus" @click="openNewSuite">New suite</Button>
 				<Button icon-left="refresh-cw" @click="refreshAll" :loading="loading">Refresh</Button>
 			</div>
@@ -26,6 +29,7 @@
 
 		<!-- Content -->
 		<main class="flex-1 p-6 overflow-auto space-y-6">
+			<div v-if="inProgressMessage" class="bg-blue-50 text-blue-700 text-sm rounded-lg px-4 py-3">{{ inProgressMessage }}</div>
 			<!-- Dashboard -->
 			<div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
 				<div v-for="c in overviewCards" :key="c.key" class="bg-white rounded-lg shadow-sm p-4 border-l-4" :class="c.border">
@@ -104,7 +108,7 @@
 					</div>
 					<FormControl type="select" label="Eval type" :options="evalTypeOptions" v-model="newSuite.eval_type" />
 					<p class="text-xs text-gray-400">
-						{{ newSuite.eval_type === "Agent" ? "Invokes the full agent through its process map." : "A simple LLM call using the agent's provider, model and system prompt." }}
+						{{ evalTypeHelp[newSuite.eval_type] }}
 					</p>
 					<FormControl type="select" label="Process (optional)" :options="processOptions" v-model="newSuite.process_model" />
 				</div>
@@ -140,15 +144,18 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted } from "vue"
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from "vue"
 import { frappeRequest, Button, Dialog, FormControl, Autocomplete } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
+
+const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s
 
 const loading = ref(true)
 const suites = ref([])
 const isSystemManager = ref(false)
 const running = reactive({})
+const inProgressMessage = ref("")
 
 const fromDate = ref(dayjs().subtract(29, "day").format("YYYY-MM-DD"))
 const toDate = ref(dayjs().format("YYYY-MM-DD"))
@@ -175,9 +182,15 @@ const processOptions = ref([])
 const showNewSuite = ref(false)
 const savingSuite = ref(false)
 const evalTypeOptions = [
-	{ label: "Direct — simple LLM call", value: "Direct" },
-	{ label: "Agent — invoke the process map", value: "Agent" },
+	{ label: "Direct (a simple LLM call)", value: "Direct" },
+	{ label: "Agent (invokes the process map)", value: "Agent" },
+	{ label: "Memory (scores what the agent remembers)", value: "Memory" },
 ]
+const evalTypeHelp = {
+	Direct: "A simple LLM call using the agent's provider, model and system prompt.",
+	Agent: "Invokes the full agent through its process map.",
+	Memory: "No model call. Scores distillation precision and recall, Recall@K and retrieval latency against golden memories.",
+}
 const newSuite = reactive({ title: "", process_model: "", agent_configuration: "", eval_type: "Direct" })
 
 const showReassign = ref(false)
@@ -227,7 +240,7 @@ function runLabel(run) {
 function runPill(run) {
 	const status = run?.status
 	if (status === "Passed") return "bg-green-50 text-green-700"
-	if (status === "Failed" || status === "Error") return "bg-red-50 text-red-700"
+	if (status === "Failed" || status === "Error" || status === "Timed Out" || status === "Invalid") return "bg-red-50 text-red-700"
 	if (status === "Running") return "bg-yellow-50 text-yellow-700 animate-pulse"
 	return "bg-gray-100 text-gray-500"
 }
@@ -303,14 +316,20 @@ function sleep(ms) { return new Promise((r) => setTimeout(r, ms)) }
 
 async function runSuite(s) {
 	running[s.name] = true
+	inProgressMessage.value = ""
 	try {
-		await frappeRequest({
+		const runName = await frappeRequest({
 			url: "/api/method/one_bpmn.agents.eval_runner.run_eval_cases",
 			method: "POST",
 			params: { suite_name: s.name },
 		})
-		// Optimistic: mark the row Running immediately, then poll quietly.
-		s.latest_run = { status: "Running", passed_cases: 0, total_cases: s.case_count }
+		// A row already Running means the backend handed back that same run.
+		if (s.latest_run?.status === "Running") {
+			inProgressMessage.value = __("A run of this suite is already in progress")
+		} else {
+			// Optimistic: mark the row Running immediately, then poll quietly.
+			s.latest_run = { name: runName, status: "Running", passed_cases: 0, total_cases: s.case_count }
+		}
 		pollRunning(s.name)
 	} catch (e) {
 		console.error("Failed to start run:", e)
@@ -373,10 +392,20 @@ async function doReassign() {
 	}
 }
 
+// Refresh as each case lands; pollRunning stays as the fallback when realtime is down.
+function onEvalCaseCompleted() {
+	if (suites.value.some((s) => s.latest_run?.status === "Running")) fetchSuites(true)
+}
+
 onMounted(() => {
 	fetchSuites()
 	fetchOverview()
 	fetchAgents()
 	fetchProcesses()
+	window.frappe?.realtime?.on("eval_case_completed", onEvalCaseCompleted)
+})
+
+onUnmounted(() => {
+	window.frappe?.realtime?.off("eval_case_completed", onEvalCaseCompleted)
 })
 </script>

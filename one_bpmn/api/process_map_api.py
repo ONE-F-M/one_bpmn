@@ -122,8 +122,12 @@ def save_process_model(
 		doc.is_active = 0
 
 		doc.check_permission("create")
-		# The Processa editor's blank-create flow already embeds a unique
-		# process_id in the XML — skip re-generation.
+		# Name the process after itself rather than keeping the anonymous id the
+		# editor mints for a blank diagram; validate() rewrites the diagram to
+		# match, so the two agree from the first save.
+		from one_bpmn.one_bpmn.doctype.bpmn_process_model.bpmn_process_model import new_process_id
+
+		doc.process_id = new_process_id(process or model_name)
 		doc.flags.skip_process_id_regeneration = True
 		doc.insert()
 
@@ -492,6 +496,11 @@ def _extract_bpmn_references(xml_content: str) -> dict:
 			except (json.JSONDecodeError, ValueError):
 				pass
 
+		notify_dt = min(context_doctypes, default="") or target_dt
+		if notify_dt:
+			for fieldname in _notify_fieldnames(attrs, user_task.get("id", "")):
+				referenced_fields.append((notify_dt, fieldname))
+
 	# ── Parse Script Tasks ────────────────────────────────────────────────
 	for script_task in root.iter(f"{{{BPMN_NS}}}scriptTask"):
 		script_name = script_task.get(f"{{{SPIFF_NS}}}serverScript", "")
@@ -520,6 +529,10 @@ def _extract_bpmn_references(xml_content: str) -> dict:
 					field = field.strip()
 					if field:
 						referenced_fields.append((email_dt, field))
+
+				table_field = attrs.get("emailToTableField", "").strip()
+				if table_field:
+					referenced_fields.append((email_dt, table_field))
 
 				cc_fields = attrs.get("emailCcDocFields", "")
 				for field in cc_fields.split(","):
@@ -550,6 +563,32 @@ def _extract_bpmn_references(xml_content: str) -> dict:
 		"root": root,
 		"process_el": _process_el,
 	}
+
+
+def _notify_fieldnames(attrs: dict, element_id: str) -> list[str]:
+	"""Fields on the context DocType that a task's Notification Editor settings name."""
+	names = []
+	for key in ("notifyFacts", "notifyDetails"):
+		for entry in _notify_json(attrs, key, element_id) or []:
+			for name in entry if isinstance(entry, list) else [entry]:
+				# A linked field "employee.employee_name" needs the link field on this DocType
+				names.append(name.split(".")[0])
+	for action in (_notify_json(attrs, "notifyActions", element_id) or {}).values():
+		if action.get("reasonField"):
+			names.append(action["reasonField"])
+	return names
+
+
+def _notify_json(attrs: dict, key: str, element_id: str):
+	raw = attrs.get(key, "")
+	if not raw:
+		return None
+	try:
+		return json.loads(raw)
+	except ValueError as exc:
+		raise frappe.ValidationError(
+			_("Task {0} has an unreadable {1} setting: {2}").format(element_id, key, exc)
+		) from exc
 
 
 def _controller_lifecycle_overrides(doctype: str) -> list:
@@ -749,6 +788,67 @@ def _extract_ai_shapes(xml_content: str) -> list:
 					"config": (el.get(f"{{{SPIFF_NS}}}aiAgentConfig") or "").strip(),
 				})
 	return shapes
+
+
+def _connector_tools_without_result_variable(xml_content: str) -> list:
+	"""Connector tool shapes that will run but can return nothing to the agent.
+
+	A Connector Service Task modelled inside an AI Agent Task's ad-hoc Tools
+	sub-process only reaches the model through its Result Variable: the
+	dispatcher writes the handler's return to ``task.data[resultVariable]`` and
+	does nothing at all when it is empty. Without it the connector still fires
+	and its side effect still happens — the agent is simply told nothing, which
+	looks exactly like an integration that is broken (WI-002007).
+
+	Only shapes inside a Tools sub-process an agent actually references are
+	reported; a connector elsewhere in the map is an ordinary process step whose
+	output is genuinely optional. So is one on a connector that answers out of
+	band — a delegation or a sandbox run parks and replies later, and every Dev,
+	Frontend and Mobile agent map carries two of those with no Result Variable
+	by design.
+	"""
+	import xml.etree.ElementTree as _ET
+
+	from one_bpmn.agents.shape_tools import ANSWERS_OUT_OF_BAND
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+
+	try:
+		root = _ET.fromstring(xml_content.strip().encode("utf-8"))
+	except Exception:
+		return []  # unparseable XML is already reported by the caller's own checks
+
+	adhocs = {el.get("id"): el for el in root.iter(f"{{{BPMN_NS}}}adHocSubProcess") if el.get("id")}
+	if not adhocs:
+		return []
+
+	findings = []
+	for st in root.iter(f"{{{BPMN_NS}}}serviceTask"):
+		if st.get(f"{{{SPIFF_NS}}}serviceType") != "ai_agent":
+			continue
+		adhoc = adhocs.get((st.get(f"{{{SPIFF_NS}}}aiToolsAdhoc") or "").strip())
+		if adhoc is None:
+			continue  # missing reference is reported by the compiler's own check
+		agent_label = (st.get("name") or st.get("id") or "").strip()
+		for child in list(adhoc):
+			if child.tag.split("}")[-1] != "serviceTask":
+				continue
+			if child.get(f"{{{SPIFF_NS}}}serviceType") != "connector":
+				continue
+			if (child.get(f"{{{SPIFF_NS}}}resultVariable") or "").strip():
+				continue
+			connector = (child.get(f"{{{SPIFF_NS}}}connectorId") or "").strip()
+			operation = (child.get(f"{{{SPIFF_NS}}}operation") or "").strip()
+			if connector in ANSWERS_OUT_OF_BAND:
+				continue
+			findings.append({
+				"shape": (child.get("name") or child.get("id") or "").strip(),
+				"bpmn_id": child.get("id") or "",
+				"agent": agent_label,
+				"connector": f"{connector}/{operation}".strip("/"),
+			})
+	return findings
 
 
 @frappe.whitelist()
@@ -1103,9 +1203,12 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 	# methods. Marking "Removed on Production" is the deliberate escape hatch
 	# for validation that must stay in code (couldn't move to a script).
 	if model_name:
-		removal_status = frappe.db.get_value(
-			"BPMN Process Model", model_name, "backend_code_removal_status"
-		)
+		removal_status = None
+		process_name = frappe.db.get_value("BPMN Process Model", model_name, "process_name")
+		if process_name:
+			removal_status = frappe.db.get_value(
+				"Process", process_name, "backend_code_removal_status"
+			)
 		if removal_status and removal_status not in ("Removed on Production",):
 			backend_items = [{
 				"name": _("Backend code removal not confirmed"),
@@ -1142,6 +1245,44 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 				"items": backend_items,
 			})
 
+	# 13. Connector Tools (deploy readiness — non-blocking warnings)
+	# A Connector Service Task inside an AI Agent Task's Tools sub-process
+	# reaches the model only through its Result Variable. Without one the
+	# connector runs, its side effect happens, and the agent is told nothing —
+	# the one way this path fails invisibly (WI-002007).
+	connector_tool_gaps = _connector_tools_without_result_variable(xml_content)
+	if connector_tool_gaps:
+		categories.append({
+			"label": "Connector Tools",
+			"icon": "plug",
+			"items": [{
+				"name": g["shape"] or g["bpmn_id"],
+				"exists": True,
+				"type": "warning",
+				"detail": _(
+					"No Result Variable. The {0} connector will run and its side effect will "
+					"happen, but nothing is returned to the '{1}' agent — which is "
+					"indistinguishable from a broken integration. Set a Result Variable on "
+					"this shape."
+				).format(g["connector"] or _("connector"), g["agent"]),
+			} for g in connector_tool_gaps],
+		})
+
+	# 14. Email Settings (deploy readiness, non-blocking warnings)
+	email_category = _email_settings_category(xml_content, refs["root"])
+	if email_category:
+		categories.append(email_category)
+
+	# 15. Script Tasks with no script (deploy readiness, non-blocking warnings)
+	script_category = _empty_script_category(refs["root"])
+	if script_category:
+		categories.append(script_category)
+
+	# 16. Notification sender on a Production site (deploy readiness, non-blocking warnings)
+	sender_category = _notification_sender_category(xml_content, refs["root"])
+	if sender_category:
+		categories.append(sender_category)
+
 	# ── Compute summary ──────────────────────────────────────────────────
 	total_checked = 0
 	total_missing = 0
@@ -1163,6 +1304,88 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 		"is_executable": is_executable,
 		"all_ready": total_missing == 0 and is_executable,
 	}
+
+
+def _email_settings_category(xml_content: str, root) -> dict | None:
+	"""The Email Settings readiness category, one warning per email step with empty settings, or None."""
+	from one_bpmn.api.compilation import _email_setting_gaps, _extract_service_task_config, _extract_user_task_config
+
+	email_gaps = _email_setting_gaps(_extract_service_task_config(xml_content), _extract_user_task_config(xml_content))
+	if not email_gaps:
+		return None
+	names = _step_names(root, [bpmn_id for bpmn_id, _missing in email_gaps])
+	items = [
+		{
+			"name": name,
+			"exists": True,
+			"type": "warning",
+			"detail": _("Sends an email with no {0}. Fill these in so the email goes out as intended.").format(
+				", ".join(missing)
+			),
+		}
+		for name, (_bpmn_id, missing) in zip(names, email_gaps)
+	]
+	return {"label": _("Email Settings"), "icon": "mail-warning", "items": items}
+
+
+def _notification_sender_category(xml_content: str, root) -> dict | None:
+	"""The Notification Sender readiness category for a Production site, or None."""
+	from one_bpmn.api.compilation import (
+		_extract_service_task_config,
+		_extract_user_task_config,
+		_notification_sender_gaps,
+	)
+
+	expected, gaps = _notification_sender_gaps(
+		_extract_service_task_config(xml_content), _extract_user_task_config(xml_content)
+	)
+	if not gaps:
+		return None
+	items = [
+		{
+			"name": name,
+			"exists": True,
+			"type": "warning",
+			"detail": _("Sends from {0}. On this Production site notifications should send from {1}.").format(
+				sender, expected
+			),
+		}
+		for name, (_bpmn_id, sender) in zip(_step_names(root, [bpmn_id for bpmn_id, _sender in gaps]), gaps)
+	]
+	return {"label": _("Notification Sender"), "icon": "mail-warning", "items": items}
+
+
+def _empty_script_category(root) -> dict | None:
+	"""The Script Tasks readiness category, one warning per Script Task with no script, or None."""
+	from one_bpmn.api.compilation import _empty_script_tasks
+
+	empty = _empty_script_tasks(root)
+	if not empty:
+		return None
+	items = [
+		{
+			"name": name,
+			"exists": True,
+			"type": "warning",
+			"detail": _("Has no script, so it does nothing when it runs. Pick a Server Script or write one."),
+		}
+		for name in _step_names(root, empty)
+	]
+	return {"label": _("Script Tasks"), "icon": "file-warning", "items": items}
+
+
+def _step_names(root, bpmn_ids: list) -> list:
+	"""Each step's name as drawn on the canvas, with its id added when two steps share a name."""
+	drawn = {el.get("id"): (el.get("name") or "").strip() for el in root.iter() if el.get("id")}
+	seen = set()
+	names = []
+	for bpmn_id in bpmn_ids:
+		name = drawn.get(bpmn_id) or bpmn_id
+		if name in seen:
+			name = f"{name} ({bpmn_id})"
+		seen.add(name)
+		names.append(name)
+	return names
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1290,6 +1513,7 @@ def get_process_model(name: str) -> dict:
 		"model_name": doc.title,
 		"title": doc.title,
 		"process_id": doc.process_id,
+		"process_name": doc.process_name,
 		"description": doc.description,
 		"xml_content": xml_content,
 		"bpmn_xml": xml_content,
@@ -1395,9 +1619,10 @@ def list_processes() -> list:
 		active_model = frappe.db.get_value(
 			"BPMN Process Model",
 			filters={"process_name": proc["name"], "is_active": 1},
-			fieldname=["name", "modified"],
+			fieldname=["name", "modified", "process_id"],
 			as_dict=True,
 		)
+		proc["active_process_id"] = active_model.process_id if active_model else None
 
 		if active_model:
 			proc["status"] = "Active"

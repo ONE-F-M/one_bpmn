@@ -40,7 +40,27 @@ DEFAULT_MAX_OUTPUT_TOKENS = 16384
 # Exported so the BPMN dispatcher can defer to it. It used to hardcode its own
 # 30 instead, which meant raising the value below changed nothing for any AI
 # task in any process map — the fix was dead on arrival. See dispatch_ai_agent.
+#
+# The AI Task Selector hardcoded 60, so the same agent waited three times longer
+# on one path than the other for no reason anybody chose.
 DEFAULT_TIMEOUT_SECONDS = 180
+
+# How random the model is allowed to be when nothing says otherwise.
+#
+# This is the number the AI Agent Configuration form has always shown as its
+# default, so it is the one an administrator reading the form expects to be
+# running. The AI Agent Task path used its own 0.7, which meant the same agent
+# was measurably more inventive through a process map than through a chat, and
+# the form was quietly wrong about it either way.
+DEFAULT_TEMPERATURE = 0.3
+
+# Nucleus sampling. 1.0 means "do not narrow the choices", which leaves
+# temperature as the single dial; two dials doing overlapping jobs is how a
+# prompt becomes impossible to reason about.
+DEFAULT_TOP_P = 1.0
+
+# Retries of a failed model call before the task gives up.
+DEFAULT_MAX_RETRIES = 2
 
 
 # ---------------------------------------------------------------------------
@@ -53,7 +73,11 @@ class ErrorCode(Enum):
     SCHEMA_VALIDATION_FAILED = "SCHEMA_VALIDATION_FAILED"
     PROVIDER_NOT_FOUND = "PROVIDER_NOT_FOUND"
     PROVIDER_DISABLED = "PROVIDER_DISABLED"
+    MODEL_NOT_CONFIGURED = "MODEL_NOT_CONFIGURED"
     TIMEOUT = "TIMEOUT"
+    TURN_CAP_REACHED = "TURN_CAP_REACHED"
+    BUDGET_EXCEEDED = "BUDGET_EXCEEDED"
+    REPEATED_TOOL_ERROR = "REPEATED_TOOL_ERROR"
     UNEXPECTED_ERROR = "UNEXPECTED_ERROR"
     # Durable AI Agent HITL: the model selected a human tool — the run is
     # neither success nor failure; it is waiting for a person. Callers MUST
@@ -115,12 +139,11 @@ class ExecutorConfig:
     backend: str = "direct_api"
     provider_name: str = ""
     agent_config_name: str = ""
-    active_skill_name: str = ""
     model: str = ""
     system_prompt: str = ""
     user_prompt: str = ""
-    temperature: float = 0.7
-    top_p: float = 1.0
+    temperature: float = DEFAULT_TEMPERATURE
+    top_p: float = DEFAULT_TOP_P
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
     # 30s was set when models answered without thinking. Every current Claude
     # model reasons before it writes, and a task like drafting a full bilingual
@@ -137,7 +160,7 @@ class ExecutorConfig:
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
     response_format: str = "text"        # "text" | "json"
     response_schema: Optional[str] = None  # JSON Schema string
-    max_retries: int = 2
+    max_retries: int = DEFAULT_MAX_RETRIES
     retry_backoff_ms: int = 1000
     # Optional prior message history to prime the call, same {role, content, ...}
     # shape as the conversation store. Provisional — the multi-turn loop may
@@ -150,11 +173,34 @@ class ExecutorConfig:
     # WI-001422: cap on tool-calling turns ("Maximum model calls" in Camunda);
     # None uses the adapter default. dispatch_ai_agent sets it from aiMaxToolCalls.
     max_tool_calls: int | None = None
+    # WI-002195: cap on the characters of any one tool result the MODEL sees
+    # (the audit copy is never cut). None uses the platform default in
+    # executor/tool_bounds; dispatch_ai_agent sets it from aiToolResultMaxChars,
+    # which the agent's configuration supplies.
+    tool_result_max_chars: int | None = None
     # Durable AI Agent HITL: persisted AgentSuspension fields + "human_result".
     # When set, the step loop re-enters the checkpointed conversation instead
     # of starting fresh (system_prompt/user_prompt are NOT re-rendered — the
     # transcript already contains the rendered originals).
     resume_state: dict | None = None
+    # WI-002187: tool names that END the turn the moment the model calls one —
+    # its call ARGUMENTS are the reply (the "response" key), not whatever the
+    # model narrates afterwards. "finalize" is always included even when a
+    # shape/config sets this, since dropping the default by mistake would
+    # silently undo the fix this field exists for.
+    terminal_tools: list = field(default_factory=lambda: ["finalize"])
+    # "auto", "required" or a tool name, for the first model call of a fresh run.
+    tool_choice: str = "auto"
+    parallel_tool_calls: bool = True
+    # Anthropic and Gemini only; 0 leaves thinking to the model.
+    thinking_budget_tokens: int = 0
+    # Tool-loop compaction: 0 is off; otherwise the prompt size, in tokens, that triggers it.
+    loop_compaction_threshold: int = 0
+    loop_compaction_keep_turns: int = 8
+    compaction_model: str = ""
+    # A run stops once it passes either budget; None means no budget.
+    run_token_budget: int | None = None
+    run_cost_budget: float | None = None
 
 
 @dataclass
@@ -184,10 +230,14 @@ class ExecutorResult:
     # checkpoint layer persists.
     suspension: dict | None = None
     # WI-001823: the tool-calling loop ran out of turns without reaching a final
-    # answer. It arrives as a FAILED_MODEL_CALL like any other model failure, but
-    # it is a distinct outcome — the agent was still working, not broken — and
-    # goal completion needs to tell them apart without matching on message text.
+    # answer. It arrives as TURN_CAP_REACHED: the agent was still working, not
+    # broken, and goal completion tells the two apart without matching on text.
     hit_turn_cap: bool = False
+    # WI-002187: True when `output` came from the model's own narration rather
+    # than a terminal tool call's arguments — a plain-text final answer, or the
+    # turn cap forcing out the last thing said. Mirrors CompletionResult's field
+    # of the same name; see agents/llm_provider/base.py for the full rationale.
+    no_terminal_tool: bool = False
 
 
 # ---------------------------------------------------------------------------

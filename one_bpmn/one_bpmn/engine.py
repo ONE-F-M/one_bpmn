@@ -229,29 +229,29 @@ def get_serializer() -> BpmnWorkflowSerializer:
 # Permission guard — patterns scripts must never contain
 # ─────────────────────────────────────────────────────────────
 
-_FORBIDDEN_SCRIPT_PATTERNS = (
-	"frappe.set_user",
-	"frappe.flags.ignore_permissions",
-)
-
-
 def _check_script_permissions(script_text: str, label: str) -> None:
-	"""
-	Reject scripts that attempt to bypass Frappe permission controls.
+	"""Run the save-time AST validator again right before exec() and throw on any violation.
 
-	Called before exec() for both Server Script tasks and inline <bpmn:script>
-	tasks.  Raises frappe.ValidationError if a forbidden pattern is found.
+	Shared by Server Script tasks, inline <bpmn:script> tasks and run_logix_test_case.
 	"""
 	try:
 		import frappe as _f
 	except ImportError:
 		return
-	for pattern in _FORBIDDEN_SCRIPT_PATTERNS:
-		if pattern in (script_text or ""):
-			_f.throw(
-				f'BPMN Script "{label}": scripts may not use `{pattern}`. '
-				f"Tasks must run under the user's permission context."
+
+	from one_bpmn.security.script_validator import deep_inspect_script
+
+	violations = deep_inspect_script(script_text or "")
+	if violations:
+		_f.log_error(
+			title=f'BPMN Script "{label}": execution blocked',
+			message="\n".join(violations),
+		)
+		_f.throw(
+			_f._('BPMN Script "{0}" was blocked before it ran: {1} ({2} issue(s) in total)').format(
+				label, violations[0], len(violations)
 			)
+		)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1325,6 +1325,24 @@ def clean_doc_from_wf_data(wf: BpmnWorkflow) -> None:
 	for task in wf.get_tasks():
 		if hasattr(task, "data") and isinstance(task.data, dict):
 			task.data.pop("doc", None)
+
+
+# Messages that wait for their catch event when they arrive early. Other messages (a chat turn) are
+# dropped as before, because those processes queue their own turns.
+BUFFERED_MESSAGE_PREFIXES = ("github:",)
+
+
+def declares_message(wf: BpmnWorkflow, message_name: str) -> bool:
+	"""Whether any catch event or receive task in the process, or its sub-processes, waits for this message."""
+	from SpiffWorkflow.bpmn.specs.event_definitions import MessageEventDefinition
+
+	for spec in [wf.spec, *wf.subprocess_specs.values()]:
+		for task_spec in spec.task_specs.values():
+			event = getattr(task_spec, "event_definition", None)
+			for definition in getattr(event, "event_definitions", None) or [event]:
+				if isinstance(definition, MessageEventDefinition) and definition.name == message_name:
+					return True
+	return False
 
 
 def send_message(wf: BpmnWorkflow, message_name: str, payload: dict = None) -> bool:

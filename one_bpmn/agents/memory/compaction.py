@@ -31,10 +31,10 @@ older ones remain as an audit trail.
 
 from __future__ import annotations
 
-import re
-
 import frappe
 from frappe.utils import cint, now_datetime
+
+from one_bpmn.agents.memory.text_clean import strip_html
 
 SUMMARY_DOCTYPE = "Chat Conversation Summary"
 MESSAGE_DOCTYPE = "Chat Message"
@@ -112,21 +112,9 @@ _USER_PROMPT = """{previous}Conversation to compact:
 Write the combined summary now."""
 
 
-def _strip_html(text: str) -> str:
-	"""Chat Message text is stored with markup; a summariser should read prose.
-
-	Mirrors the cleaner already inlined in Lumina's Build Context rather than
-	inventing a second one.
-	"""
-	if not text:
-		return ""
-	clean = re.sub(r"<[^>]+>", " ", text)
-	for entity, char in (
-		("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"),
-		("&quot;", '"'), ("&#39;", "'"), ("&nbsp;", " "),
-	):
-		clean = clean.replace(entity, char)
-	return re.sub(r"\s+", " ", clean).strip()
+# Shared with api.agent_invocation.invoke_agent, which strips the same class
+# of markup contamination at message ingestion (WI: AI Memory cleanup).
+_strip_html = strip_html
 
 
 def _chars_per_token() -> int:
@@ -367,7 +355,9 @@ def _provider_for_model(model: str | None, fallback: str | None) -> str | None:
 	if not model:
 		return fallback
 	try:
-		provider = frappe.db.get_value("AI Model", {"model_name": model}, "provider")
+		# By record name, not by the model_name field: model_name is the readable
+		# label now and no longer holds the identifier that reaches this function.
+		provider = frappe.db.get_value("AI Model", model, "provider")
 		if provider:
 			return provider
 	except Exception:
@@ -390,6 +380,19 @@ def _summarise(transcript: str, previous: str, *, model: str, provider_name: str
                backend: str, max_tokens: int = _MAX_SUMMARY_TOKENS) -> str | None:
 	"""One LLM call. Returns None on any failure — the caller must then leave
 	the conversation uncompacted rather than store a summary it cannot trust."""
+	result = summary_call(
+		transcript, previous, model=model, provider_name=provider_name, backend=backend, max_tokens=max_tokens
+	)
+	if result is None:
+		return None
+	text = result.output if isinstance(result.output, str) else str(result.output or "")
+	return text.strip() or None
+
+
+def summary_call(transcript: str, previous: str, *, model: str, provider_name: str | None, backend: str,
+                 max_tokens: int = _MAX_SUMMARY_TOKENS, system_prompt: str = _SYSTEM_PROMPT,
+                 max_input_chars: int = _MAX_INPUT_CHARS):
+	"""The summariser's ExecutorResult, or None (with an Error Log entry) when the call failed."""
 	from one_bpmn.agents.executor import (
 		ErrorCode,
 		ExecutorConfig,
@@ -406,9 +409,9 @@ def _summarise(transcript: str, previous: str, *, model: str, provider_name: str
 		backend=backend or "direct_api",
 		provider_name=provider_name,
 		model=model,
-		system_prompt=_SYSTEM_PROMPT,
+		system_prompt=system_prompt,
 		user_prompt=_USER_PROMPT.format(
-			previous=previous_block, transcript=transcript[:_MAX_INPUT_CHARS]
+			previous=previous_block, transcript=transcript[:max_input_chars]
 		),
 		temperature=0.0,
 		max_tokens=max_tokens,
@@ -420,8 +423,7 @@ def _summarise(transcript: str, previous: str, *, model: str, provider_name: str
 			message=f"model={model} provider={provider_name} error={result.error_message}",
 		)
 		return None
-	text = result.output if isinstance(result.output, str) else str(result.output or "")
-	return text.strip() or None
+	return result
 
 
 def compact_conversation(

@@ -22,7 +22,6 @@
   "more_information_tab",
   "section_break_qrox",
   "naming_series",
-  "amended_from",
   "workflow_state",
   "column_break_saah",
   "column_break_xmyv",
@@ -131,16 +130,6 @@
    "set_only_once": 1
   },
   {
-   "fieldname": "amended_from",
-   "fieldtype": "Link",
-   "label": "Amended From",
-   "no_copy": 1,
-   "options": "Pathfinder Log",
-   "print_hide": 1,
-   "read_only": 1,
-   "search_index": 1
-  },
-  {
    "fieldname": "workflow_state",
    "fieldtype": "Link",
    "hidden": 1,
@@ -170,12 +159,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
- "links": [
-  {
-   "link_doctype": "BPMN Process Model",
-   "link_fieldname": "pathfinder_log"
-  }
- ],
+ "links": [],
  "modified": "2026-07-16 20:24:09.940868",
  "modified_by": "Administrator",
  "module": "ONE BPMN",

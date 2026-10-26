@@ -15,7 +15,8 @@
   "tool_call_id",
   "metadata",
   "is_reply",
-  "linked_message"
+  "linked_message",
+  "client_message_id"
  ],
  "fields": [
   {
@@ -76,6 +77,15 @@
    "options": "JSON"
   },
   {
+   "description": "Id minted by the chat client for this message. A redelivery carrying an id already used in this conversation returns the first reply instead of running the agent again.",
+   "fieldname": "client_message_id",
+   "fieldtype": "Data",
+   "label": "Client Message ID",
+   "no_copy": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
    "default": "0",
    "fieldname": "is_reply",
    "fieldtype": "Check",
@@ -114,15 +124,15 @@
   },
   {
    "create": 1,
-   "delete": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
    "read": 1,
-   "report": 1,
    "role": "All",
-   "share": 1,
    "write": 1
+  },
+  {
+   "create": 1,
+   "if_owner": 1,
+   "read": 1,
+   "role": "A2A Client"
   }
  ],
  "row_format": "Dynamic",

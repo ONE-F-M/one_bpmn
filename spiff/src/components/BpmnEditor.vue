@@ -1,8 +1,15 @@
 <template>
 	<div class="bpmn-editor-wrapper h-full w-full flex flex-col">
 		<!-- Toolbar (moved natively to parent Editor.vue's header) -->
-		<div ref="toolbarEl" v-show="isMounted" class="flex items-center gap-1.5 w-full h-full text-gray-700 flex-nowrap min-w-0 pr-2">
+		<div
+			ref="toolbarEl"
+			v-show="isMounted"
+			class="bpmn-toolbar relative flex items-center gap-1.5 w-full h-full text-gray-700 flex-nowrap min-w-0 pr-2"
+		>
 			<template v-if="!readonly">
+				<div
+					:class="['bpmn-toolbar-tools flex items-center gap-1.5', { 'bpmn-toolbar-tools--open': showMoreTools }]"
+				>
 				<!-- Undo/Redo buttons -->
 				<button
 					@click="undo"
@@ -75,8 +82,21 @@
 				<FormattingToolbar
 					:selectedElements="selectedElements"
 					:modeler="modelerInstance"
-					class="shrink-0"
+					class="bpmn-toolbar-format shrink-0"
 				/>
+				</div>
+
+				<!-- Shown only when the toolbar is too narrow; opens the folded formatting tools as a panel -->
+				<button
+					@click="showMoreTools = !showMoreTools"
+					title="Formatting"
+					:class="[
+						'bpmn-toolbar-more p-1.5 items-center justify-center rounded transition-colors shrink-0',
+						showMoreTools ? 'bg-blue-100 text-blue-700' : 'hover:bg-gray-100 text-gray-700',
+					]"
+				>
+					<Icon icon="lucide:palette" class="w-4 h-4" />
+				</button>
 			</template>
 
 			<!-- Read-only indicator -->
@@ -86,7 +106,7 @@
 			</div>
 
 
-			<div class="flex-1 min-w-4 flex items-center justify-end gap-2 px-3">
+			<div class="flex-1 flex items-center justify-end gap-2 px-3">
 				<div v-if="saveStatusText && !readonly" class="text-sm font-medium transition-colors" :class="saveStatusColor">
 					{{ saveStatusText }}
 				</div>
@@ -105,7 +125,7 @@
 					]"
 				>
 					<Icon icon="lucide:sparkles" class="w-3.5 h-3.5" />
-					<span class="hidden sm:inline">ProsAlly</span>
+					<span class="bpmn-toolbar-label hidden sm:inline">ProsAlly</span>
 				</button>
 			</div>
 		</div>
@@ -124,12 +144,15 @@
 			<!-- ProsAlly Panel — flex sibling so canvas shrinks instead of being covered -->
 			<transition name="prosally-slide">
 				<div
-					v-if="showProsAllyPanel && !readonly && !isMobile"
+					v-if="prosAllyMounted && !readonly && !isMobile"
+					v-show="showProsAllyPanel"
 					class="prosally-panel-container order-first w-[var(--agui-chat-pane,420px)] shrink-0 border-r border-gray-200 flex flex-col z-[50]"
 				>
 					<ProsAllyPanel
 						:process-name="processNameForPanel"
 						:get-canvas-xml="getCanvasXml"
+						:get-scope-id="getOpenSubProcessId"
+						:get-lint-issues="getLintIssues"
 						@close="showProsAllyPanel = false"
 						@bpmn-generated="onProsAllyBpmnGenerated"
 					/>
@@ -139,7 +162,8 @@
 			<!-- Mobile: ProsAlly as bottom sheet -->
 			<transition name="slide-up">
 				<div
-					v-if="showProsAllyPanel && !readonly && isMobile"
+					v-if="prosAllyMounted && !readonly && isMobile"
+					v-show="showProsAllyPanel"
 					class="fixed inset-x-0 bottom-0 rounded-t-2xl shadow-2xl border-t border-gray-200 bg-white z-[65] flex flex-col"
 					style="height: 70vh;"
 				>
@@ -149,6 +173,8 @@
 					<ProsAllyPanel
 						:process-name="processNameForPanel"
 						:get-canvas-xml="getCanvasXml"
+						:get-scope-id="getOpenSubProcessId"
+						:get-lint-issues="getLintIssues"
 						@close="showProsAllyPanel = false"
 						@bpmn-generated="onProsAllyBpmnGenerated"
 					/>
@@ -308,7 +334,7 @@
 							: !isMobile ? 'w-full md:w-96 overflow-auto' : '',
 						{
 							'properties-panel--readonly': readonly,
-							'properties-panel--reassign': readonly && reassignMode
+							'properties-panel--released': panelReleased
 						}
 					]"
 					:style="isDragging ? { transform: `translateY(${dragOffset}px)`, transition: 'none', willChange: 'transform' } : {}"
@@ -956,16 +982,22 @@
 
 		<!-- AI Agent Task / AI Task Selector config modal -->
 		<AIAgentConfigModal
-			v-if="aiAgentModal.show && aiAgentModal.element"
+			v-if="aiAgentModal.element"
+			v-show="aiAgentModal.show"
+			:key="`${aiAgentModal.element.id}:${aiAgentModal.mode}`"
 			:element="aiAgentModal.element"
 			:modeler="modeler"
 			:mode="aiAgentModal.mode"
-			@close="aiAgentModal.show = false"
+			:readonly="readonly"
+			@hide="aiAgentModal.show = false"
+			@close="aiAgentModal.element = null"
 		/>
 
 		<!-- Docu — AI DocType builder -->
 		<DocuCanvas
-			v-if="docuPanel.show && docuPanel.element"
+			v-if="docuPanel.element"
+			:key="`${docuPanel.element.id}:${docuPanel.attr}`"
+			:open="docuPanel.show"
 			:element="docuPanel.element"
 			:doctype="docuPanel.doctype"
 			:attr="docuPanel.attr"
@@ -1049,11 +1081,21 @@ import lanePropertiesProviderModule from "@/bpmn/lanePropertiesProvider";
 import propertiesPanelFilterModule from "@/bpmn/propertiesPanelFilter";
 import commentContextPadModule from "@/bpmn/commentContextPad";
 import { encodeHtmlAttr, decodeHtmlAttr } from "@/bpmn/shared/htmlAttrCodec";
+import { NOTIFY_EDITOR_ATTRS, contextDoctype } from "@/bpmn/shared/notifyAssigneeAttrs";
+import {
+	PROPERTY_COMMANDS,
+	isLockedElement as isPanelLockedElement,
+	isConditionUpdate,
+	conditionalDefinition,
+	isEditableProperty as isPanelEditableProperty,
+	panelElement,
+} from "@/bpmn/shared/releasedPanel";
 
 // bpmnlint — diagram validation
 import lintModule from "bpmn-js-bpmnlint";
 import "bpmn-js-bpmnlint/dist/assets/css/bpmn-js-bpmnlint.css";
 import bpmnlintConfig from "@/linting/bpmnlintrc.js";
+import { flattenLintIssues } from "@/utils/lintIssues.js";
 
 // Import bpmn-js CSS
 import "bpmn-js/dist/assets/diagram-js.css";
@@ -1082,9 +1124,11 @@ const props = defineProps({
 		type: Boolean,
 		default: false
 	},
-	// "Reassign User Task" mode — while readonly, selectively re-enables the
-	// Assignment Configuration fields of User Tasks (Assignment Mode, User,
-	// DocField, Users, Table Field). All other editing stays blocked.
+	// "Release Property Panel" mode — while readonly, re-enables the properties
+	// panel for flow objects, minus script tasks, AI Agent tasks and the
+	// attributes that would break the map. A sequence flow's condition and name
+	// are editable. Structural editing (moving, deleting, connecting) stays
+	// blocked.
 	reassignMode: {
 		type: Boolean,
 		default: false
@@ -1468,10 +1512,25 @@ const isImporting = ref(false);
 const selectedElements = shallowRef([]);
 const modelerInstance = shallowRef(null);
 
+// Is the panel in front of us actually editable? Released mode is per element:
+// a script task or an AI Agent task keeps its read-only panel even while the
+// rest of the map's properties are open for editing.
+const panelReleased = computed(() => {
+	if (!props.readonly || !props.reassignMode) return false;
+	const element = panelElement(selectedElements.value);
+	return !!element && !isPanelLockedElement(element.businessObject);
+});
+
 // Mobile responsiveness
 const { isMobile } = useWindowSize();
 const showMobileFormatPopover = ref(false);
+const showMoreTools = ref(false);
 const showProsAllyPanel = ref(false);
+// Closing ProsAlly only hides it, so its conversation survives until the editor goes away.
+const prosAllyMounted = ref(false);
+watch(showProsAllyPanel, (show) => {
+	if (show) prosAllyMounted.value = true;
+});
 const internalProcessName = ref("");
 const dragHandleRef = ref(null);
 const { dragOffset, isDragging, attach: attachBottomSheet } = useBottomSheet();
@@ -1603,9 +1662,7 @@ onMounted(async () => {
 						{ name: "roundRobinLastUser",    isAttr: true, type: "String" },
 						{ name: "taskActions",           isAttr: true, type: "String" },
 						{ name: "notifyAssignee",        isAttr: true, type: "String" },
-						{ name: "notifyAssigneeBody",    isAttr: true, type: "String" },
-						{ name: "notifyAssigneeSubject", isAttr: true, type: "String" },
-						{ name: "notifyAssigneeTemplate", isAttr: true, type: "String" }
+						...NOTIFY_EDITOR_ATTRS.map((name) => ({ name, isAttr: true, type: "String" })),
 					]
 				});
 
@@ -1649,6 +1706,8 @@ onMounted(async () => {
 						{ name: "emailSubject",         isAttr: true, type: "String" },
 						{ name: "emailTo",              isAttr: true, type: "String" },
 						{ name: "emailToDocFields",     isAttr: true, type: "String" },
+						{ name: "emailToTableField",    isAttr: true, type: "String" },
+						{ name: "emailToTableUserField", isAttr: true, type: "String" },
 						{ name: "emailToRoles",         isAttr: true, type: "String" },
 						{ name: "emailCc",              isAttr: true, type: "String" },
 						{ name: "emailBcc",             isAttr: true, type: "String" },
@@ -1660,7 +1719,12 @@ onMounted(async () => {
 						{ name: "updateFieldRows",      isAttr: true, type: "String" },
 						// Google Chat attrs
 						{ name: "gchatType",            isAttr: true, type: "String" },
+						{ name: "gchatRecipientBasis",  isAttr: true, type: "String" },
 						{ name: "gchatEmail",           isAttr: true, type: "String" },
+						{ name: "gchatDoctype",         isAttr: true, type: "String" },
+						{ name: "gchatDocField",        isAttr: true, type: "String" },
+						{ name: "gchatTableField",      isAttr: true, type: "String" },
+						{ name: "gchatTableUserField",  isAttr: true, type: "String" },
 						{ name: "gchatSpaceId",         isAttr: true, type: "String" },
 						{ name: "gchatMessage",         isAttr: true, type: "String" },
 						// Push Notification attrs
@@ -2129,6 +2193,7 @@ onMounted(async () => {
 				scriptType: event.scriptType,
 				script: event.script || "",
 				eventBus: event.eventBus,
+				readonly: props.readonly,
 			});
 		});
 
@@ -2214,25 +2279,29 @@ onMounted(async () => {
 
 			// Notify Assignee editor (User Tasks)
 			eventBus.on("spiff.userTask.notifyAssignee.edit", (event) => {
+				const bo = event.element.businessObject || event.element;
 				emit("launch-notify-assignee-editor", {
 					element: event.element,
-					body: decodeHtmlAttr(event.body) || "",
-					subject: event.subject || "",
-					template: event.template || "",
+					values: { ...event.values, notifyAssigneeBody: decodeHtmlAttr(event.values.notifyAssigneeBody) || "" },
+					doctype: contextDoctype(bo),
+					taskName: bo.name || bo.id,
+					taskActions: event.taskActions,
 					eventBus: event.eventBus,
 				});
 			});
 
-			// Write notify-assignee HTML body + subject + template back to BPMN element
+			// Write every Notification Editor value back to the BPMN element in one update
 			eventBus.on("spiff.userTask.notifyAssignee.update", (event) => {
 				if (event.element) {
 					const modeling = modeler.get("modeling");
 					const bo = event.element.businessObject || event.element;
-					modeling.updateModdleProperties(event.element, bo, {
-						"spiffworkflow:notifyAssigneeBody": encodeHtmlAttr(event.body),
-						"spiffworkflow:notifyAssigneeSubject": event.subject || undefined,
-						"spiffworkflow:notifyAssigneeTemplate": event.template || undefined,
-					});
+					const updates = {};
+					for (const name of NOTIFY_EDITOR_ATTRS) {
+						const value = event.values[name];
+						updates[`spiffworkflow:${name}`] =
+							name === "notifyAssigneeBody" ? encodeHtmlAttr(value) : value || undefined;
+					}
+					modeling.updateModdleProperties(event.element, bo, updates);
 				}
 			});
 
@@ -2365,25 +2434,31 @@ onMounted(async () => {
 				// Intercept commandStack to prevent any model mutations
 				const originalExecute = commandStack.execute.bind(commandStack);
 
-				// "Reassign User Task" mode: the ONLY mutation allowed while
-				// readonly is updating the whitelisted assignment attributes
-				// of a User Task from the properties panel.
-				const REASSIGN_ATTRS = [
-					"spiffworkflow:assigneeMode",
-					"spiffworkflow:assigneeUser",
-					"spiffworkflow:assigneeDocfield",
-					"spiffworkflow:assigneeUsers",
-					"spiffworkflow:assigneeTableField",
-					"spiffworkflow:assigneeTableUserField",
-				];
-				const isReassignCommand = (command, context) => {
+				// "Release Property Panel" mode: while readonly, the properties
+				// panel may edit flow objects — but only what a step DOES, never
+				// what the map IS. The carve-outs live in
+				// @/bpmn/shared/releasedPanel and mirror
+				// one_bpmn/api/property_panel.py, which enforces them again on
+				// save; that module's header explains each one.
+				const isPropertyCommand = (command, context) => {
 					if (!props.reassignMode) return false;
-					if (command !== "element.updateModdleProperties") return false;
+					if (!PROPERTY_COMMANDS.includes(command)) return false;
 					const bo = context?.element?.businessObject;
-					if (!bo || bo.$type !== "bpmn:UserTask") return false;
-					if (context.moddleElement !== bo) return false;
+					if (isPanelLockedElement(bo)) return false;
+					// A flow's condition arrives as a moddle update on the
+					// expression element itself, carrying no properties.
+					if (isConditionUpdate(bo, context.moddleElement)) return true;
+					// Any other moddle update on a nested element (an extension
+					// element, a timer definition) is not saved by the endpoint.
+					if (
+						command === "element.updateModdleProperties" &&
+						context.moddleElement !== bo &&
+						context.moddleElement !== conditionalDefinition(bo)
+					) {
+						return false;
+					}
 					const keys = Object.keys(context.properties || {});
-					return keys.length > 0 && keys.every((k) => REASSIGN_ATTRS.includes(k));
+					return keys.length > 0 && keys.every(isPanelEditableProperty);
 				};
 
 				commandStack.execute = (command, context) => {
@@ -2392,14 +2467,20 @@ onMounted(async () => {
 					if (allowedCommands.includes(command)) {
 						return originalExecute(command, context);
 					}
-					if (isReassignCommand(command, context)) {
+					if (isPropertyCommand(command, context)) {
 						const result = originalExecute(command, context);
 						const bo = context.element.businessObject;
-						const assignment = {};
-						REASSIGN_ATTRS.forEach((attr) => {
-							assignment[attr.split(":")[1]] = bo.get(attr) || "";
+						// Send back exactly the keys this command touched, so a
+						// property the panel did not change is never rewritten.
+						const properties = {};
+						if (isConditionUpdate(bo, context.moddleElement)) {
+							properties.conditionExpression = context.moddleElement.body || "";
+						}
+						const target = context.moddleElement || bo;
+						Object.keys(context.properties || {}).forEach((key) => {
+							properties[String(key).split(":").pop()] = target.get(key) || "";
 						});
-						emit("reassign-changed", { taskId: bo.id, assignment });
+						emit("reassign-changed", { taskId: bo.id, assignment: properties });
 						return result;
 					}
 					// Silently ignore all other commands
@@ -3117,6 +3198,17 @@ async function loadXML(xml) {
 	}
 }
 
+function getOpenSubProcessId() {
+	const root = modeler?.get("canvas").getRootElement()?.businessObject;
+	return root?.$type === "bpmn:SubProcess" ? root.id : "";
+}
+
+async function getLintIssues() {
+	const linting = modeler?.get("linting");
+	if (!linting) return [];
+	return flattenLintIssues(linting._formatIssues(await linting.lint()));
+}
+
 async function getCanvasXml() {
 	if (!modeler) return "";
 	try {
@@ -3272,16 +3364,16 @@ function getSelectedElements() {
 }
 
 
-// Directly update calledElement on a Call Activity via the command stack.
+// Directly update a Call Activity's Process and its active map's id via the command stack.
 // This is the reliable way to update the property regardless of SpiffWorkflow's
 // async once-listener state.
-function updateCalledElement(element, processId) {
+function updateCalledElement(element, processId, process) {
 	if (!modeler || !element) return;
 	const cmdStack = modeler.get("commandStack");
 	cmdStack.execute("element.updateProperties", {
 		element,
 		moddleElement: element.businessObject,
-		properties: { calledElement: processId },
+		properties: { calledElement: processId, "spiffworkflow:calledProcess": process },
 	});
 	// Force the properties panel to re-initialize (and re-read getValue)
 	// by cycling the selection. Without this the Preact TextFieldEntry
@@ -3351,6 +3443,69 @@ function getAvatarColor(userName) {
 	return colors[Math.abs(hash) % colors.length];
 }
 </script>
+
+<style scoped>
+/* The toolbar shares the header with the title and actions, so it folds by its own width, not the viewport's. */
+.bpmn-toolbar {
+	container-type: inline-size;
+}
+.bpmn-toolbar-more {
+	display: none;
+}
+@container (max-width: 879px) {
+	.bpmn-toolbar-more {
+		display: flex;
+	}
+	.bpmn-toolbar .bpmn-toolbar-tools {
+		position: relative;
+	}
+	.bpmn-toolbar .bpmn-toolbar-format {
+		display: none;
+	}
+	.bpmn-toolbar .bpmn-toolbar-tools--open .bpmn-toolbar-format {
+		display: flex;
+		position: absolute;
+		top: calc(100% + 4px);
+		left: 0;
+		z-index: 70;
+		padding: 8px;
+		background: #fff;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+	}
+}
+@container (max-width: 469px) {
+	.bpmn-toolbar .bpmn-toolbar-tools {
+		display: none;
+	}
+	.bpmn-toolbar .bpmn-toolbar-tools.bpmn-toolbar-tools--open {
+		display: flex;
+		flex-wrap: wrap;
+		position: absolute;
+		top: calc(100% + 4px);
+		left: 0;
+		z-index: 70;
+		width: 320px;
+		padding: 8px;
+		background: #fff;
+		border: 1px solid #e5e7eb;
+		border-radius: 8px;
+		box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+	}
+	.bpmn-toolbar .bpmn-toolbar-tools--open .bpmn-toolbar-format {
+		flex-wrap: wrap;
+		flex-basis: 100%;
+		position: static;
+		padding: 0;
+		border: 0;
+		box-shadow: none;
+	}
+	.bpmn-toolbar .bpmn-toolbar-label {
+		display: none;
+	}
+}
+</style>
 
 <style>
 .bpmn-editor-wrapper {
@@ -3794,12 +3949,43 @@ function getAvatarColor(userName) {
 	opacity: 1;
 }
 
-/* ── Reassign User Task Mode ────────────────────────
-   While readonly, re-enable ONLY the User Task Assignment Configuration
-   fields (Assignment Mode, User, DocField, Users, Table Field). */
-.properties-panel--reassign [data-entry-id^="spiffworkflow-assignee"] input,
-.properties-panel--reassign [data-entry-id^="spiffworkflow-assignee"] select,
-.properties-panel--reassign [data-entry-id^="spiffworkflow-assignee"] button {
+/* ── Release Property Panel ─────────────────────────
+   The class is only on the panel of an element whose properties may be edited
+   (see panelReleased), so every field in it comes back to life… */
+.properties-panel--released input,
+.properties-panel--released textarea,
+.properties-panel--released select,
+.properties-panel--released button {
+	pointer-events: auto !important;
+	opacity: 1;
+}
+
+/* …except the attributes that stay locked everywhere. The command-stack guard
+   and property_panel.py both refuse these; leaving them lit would invite an
+   edit that is silently dropped. Entry ids are "id" for the plain BPMN
+   attribute, "spiffworkflow-<attr>" for the rest — hence the two spellings of
+   script: "spiffworkflow-preScript" and bpmn-js's own "scriptFormat". */
+.properties-panel--released [data-entry-id="id"] input,
+.properties-panel--released [data-entry-id$="serviceType"] input,
+.properties-panel--released [data-entry-id$="serviceType"] select,
+.properties-panel--released [data-entry-id$="calledElement"] input,
+.properties-panel--released [data-entry-id*="Script"] input,
+.properties-panel--released [data-entry-id*="Script"] textarea,
+.properties-panel--released [data-entry-id*="Script"] select,
+.properties-panel--released [data-entry-id^="script"] input,
+.properties-panel--released [data-entry-id^="script"] textarea,
+.properties-panel--released [data-entry-id^="script"] select {
+	pointer-events: none !important;
+	opacity: 0.7;
+}
+
+/* Read-only "launch a viewer" buttons — the Script Task "Launch Logix"
+   button and the AI Agent Task header button don't mutate the model
+   themselves, they open a viewer (a read-only CodeMirror editor / a
+   read-only AI Agent Config modal) that the launch handlers put into
+   view-only mode when the map is read-only. Exempt them from the
+   blanket disable above so they stay clickable. */
+.properties-panel--readonly .spiffworkflow-properties-panel-button {
 	pointer-events: auto !important;
 	opacity: 1;
 }

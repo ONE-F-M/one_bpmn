@@ -52,9 +52,8 @@ class ToolSpec:
         wave the call through.
 
         Guarding at construction rather than in an execution loop is deliberate:
-        tools run in FOUR loops (the step loop plus the Anthropic/OpenAI/Gemini
-        adapters' own), and some ToolSpecs are built inside Server Script bodies
-        rather than by compile_shape_tools. Construction is the single point all
+        some ToolSpecs are built inside Server Script bodies rather than by
+        compile_shape_tools. Construction is the single point all
         of them pass through, so a new loop — or a new in-script tool — is
         covered without anyone remembering to add a check.
 
@@ -153,6 +152,8 @@ class StepResult:
     # Breakdown of prompt_tokens by billing rate (WI-001643) — see TurnRecord.
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+    # Provider thinking blocks, as JSON, sent back with this turn's tool results.
+    thinking: list = field(default_factory=list)
 
 
 @dataclass
@@ -181,6 +182,15 @@ class TurnRecord:
     # tool executions. Decision latency — NOT the runtime of an activated
     # diagram task (that happens later in the engine).
     latency_ms: int = 0
+    # The provider part of latency_ms, retries included.
+    model_latency_ms: int = 0
+    # 1-based position of this turn in the loop (WI-002190). A model call made
+    # from inside one of this turn's tools is tagged with the same number, which
+    # is how the step writer places that sub-call after the turn that made it
+    # instead of giving both the same step index.
+    turn_no: int = 0
+    started_at: str = ""
+    ended_at: str = ""
 
 
 @dataclass
@@ -190,10 +200,23 @@ class CompletionResult:
     text is the final answer (empty when the tool loop hit its turn cap —
     hit_turn_cap distinguishes that from a legitimately empty answer);
     trace is the full turn-by-turn record, one TurnRecord per real LLM turn.
+
+    no_terminal_tool (WI-002187): True when text came from the model's own
+    narration rather than a declared terminal tool call (finalize, by
+    default) — a plain-text final answer, or the turn cap forcing out the
+    last thing the model said. False whenever a terminal tool call (or the
+    turn_state TURN_ANSWERED_FLAG it can still fire) produced the reply.
+    Recorded on AI Agent Run so evals can tell "the agent answered as
+    instructed" apart from "the platform had to guess".
     """
     text: str = ""
     trace: list = field(default_factory=list)  # list[TurnRecord]
     hit_turn_cap: bool = False
+    no_terminal_tool: bool = False
+    # Why the run stopped at its budget, or "" when it did not.
+    budget_exceeded: str = ""
+    # Why the run stopped on one tool failing the same way twice, or "".
+    repeated_tool_error: str = ""
 
     @property
     def prompt_tokens(self) -> int:
@@ -215,14 +238,10 @@ class CompletionResult:
 class BaseLLMAdapter(ABC):
     """Single async entry-point for any LLM provider.
 
-    Each provider subclass handles its own tool-calling loop internally.
-    complete() returns a CompletionResult carrying both the final answer
-    text and the full turn-by-turn trace — earlier versions returned a bare
-    string and discarded every intermediate turn's tool calls and token
-    usage (contract change made explicitly in scope by WI-001356).
+    Each provider implements step(), one model call. complete() runs the step
+    loop over it, so every caller shares one tool loop.
     """
 
-    @abstractmethod
     async def complete(
         self,
         system: str,
@@ -230,16 +249,31 @@ class BaseLLMAdapter(ABC):
         tools: list[ToolSpec] | None = None,
         max_tokens: int = 16384,
         max_turns: int | None = None,
+        temperature: float | None = None,
+        top_p: float | None = None,
     ) -> CompletionResult:
         """Run one conversation (with optional multi-step tool calls) and
         return the final text plus the per-turn trace."""
+        from one_bpmn.agents.executor.step_loop import run_nested_loop
 
+        return await run_nested_loop(
+            self, system=system, user=user, tools=tools, max_tokens=max_tokens, max_turns=max_turns or 10,
+            temperature=temperature, top_p=top_p,
+        )
+
+    @abstractmethod
     async def step(
         self,
         system: str,
         transcript: list,
         tools: list[ToolSpec] | None = None,
         max_tokens: int = 16384,
+        response_schema: dict | None = None,
+        tool_choice: str | None = None,
+        parallel_tool_calls: bool = True,
+        thinking_budget_tokens: int = 0,
+        temperature: float | None = None,
+        top_p: float | None = None,
     ) -> StepResult:
         """Make ONE model call against a provider-agnostic transcript and
         return its content + requested tool calls WITHOUT executing anything.
@@ -253,8 +287,10 @@ class BaseLLMAdapter(ABC):
             {"role": "tool_results", "results":
              [{"id": str, "name": str, "content": str}]}
 
-        Each adapter converts this to its wire format. complete() keeps its
-        adapter-internal loop for existing callers; the AI Agent Task's
-        step-driven loop (agents/executor/step_loop.py) uses step() only.
+        ``response_schema`` asks the provider's native JSON mode to shape the
+        final text reply; tool calls are unaffected. ``tool_choice`` is "auto",
+        "required" or a tool name; a model that refuses a forced choice gets "auto".
+        ``temperature`` and ``top_p`` are sent when given; None leaves them to the provider.
+
+        Each adapter converts this to its wire format.
         """
-        raise NotImplementedError(f"{type(self).__name__} does not implement step()")

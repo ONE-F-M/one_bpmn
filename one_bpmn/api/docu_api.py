@@ -21,6 +21,7 @@ is never trusted. Elevation uses the ``server_script_api.create_server_script``
 template (narrow ``set_user('Administrator')`` inside try/finally).
 """
 
+import difflib
 import json
 
 import frappe
@@ -32,12 +33,41 @@ from one_bpmn.tools.tool_for_server_scripts import (
 	DOCFIELD_ATTRS,
 	DOCFIELD_FLAGS,
 	DOCFIELD_INTS,
+	DOCTYPE_PERMISSION_FLAGS,
 	DOCTYPE_SETTING_FLAGS,
 	DOCTYPE_SETTING_INTS,
 	DOCTYPE_SETTING_STRS,
 	read_doctype_definition as _read_doctype_ir,
 )
-from one_bpmn.security.doctype_validator import RESERVED_FIELDNAMES, validate_doctype_ir
+from one_bpmn.security.client_script_validator import validate_form_script, validate_list_view_script
+from one_bpmn.security.doctype_validator import (
+	RESERVED_FIELDNAMES,
+	child_table_is_editable,
+	validate_doctype_ir,
+)
+from one_bpmn.utils.session import as_user
+
+DOCU_AGENT = "Docu Agent"
+
+
+def _may_change_forms() -> bool:
+	"""System Manager, or a role on the Docu Agent's allowed roles; an empty list admits nobody else."""
+	from one_bpmn.api.agent_invocation import allowed_roles_for
+
+	roles = set(frappe.get_roles())
+	return "System Manager" in roles or bool(roles & allowed_roles_for(DOCU_AGENT))
+
+
+def _docu_user() -> str:
+	"""The Docu Agent's own user, so form changes are made and recorded as the agent."""
+	from one_bpmn.agents.identity import user_for
+
+	return user_for(DOCU_AGENT) or "Administrator"
+
+
+@frappe.whitelist()
+def can_change_forms() -> bool:
+	return _may_change_forms()
 
 _LAYOUT_FIELDTYPES = ("Section Break", "Column Break", "Tab Break")
 _TABLE_FIELDTYPES = ("Table", "Table MultiSelect")
@@ -82,16 +112,33 @@ def list_modules() -> list:
 
 
 @frappe.whitelist()
-def get_doctype_schema(doctype: str) -> dict:
-	"""Return an existing DocType as a Docu IR so the form builder can render it.
+def list_roles() -> list:
+	"""Role names a permission rule may name — for the permission-rules picker.
 
-	Permission-aware: readable meta only. Returns ``{exists: False}`` when absent.
+	Disabled roles are left out, as is Frappe's "All" pseudo-role, which grants
+	everyone everything and is never what a process owner means to pick.
 	"""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Please sign in to use Docu."), frappe.PermissionError)
+	return frappe.get_all(
+		"Role",
+		filters={"disabled": 0, "name": ["not in", ("All", "Guest")]},
+		pluck="name",
+		order_by="name asc",
+	)
+
+
+@frappe.whitelist()
+def get_doctype_schema(doctype: str) -> dict:
+	"""Return an existing DocType as a Docu IR for anyone who may use the Docu Agent; ``{exists: False}`` when absent."""
 	if not doctype or not frappe.db.exists("DocType", doctype):
 		return {"exists": False, "doctype_ir": None}
-	if not frappe.has_permission("DocType", "read"):
-		frappe.throw(_("You do not have permission to read this form."), frappe.PermissionError)
-	ir = _read_doctype_ir(doctype)
+	from one_bpmn.api.agent_invocation import user_may_use_agent
+
+	if not user_may_use_agent(DOCU_AGENT):
+		frappe.throw(_("You are not allowed to use Docu."), frappe.PermissionError)
+	with as_user(_docu_user()):
+		ir = _read_doctype_ir(doctype)
 	return {"exists": True, "doctype_ir": ir}
 
 
@@ -114,7 +161,15 @@ def preview_doctype(ir: str) -> dict:
 	ir_dict = _parse(ir, None)
 	if not isinstance(ir_dict, dict):
 		return {"valid": False, "violations": [_("Invalid form definition.")]}
-	verdict = validate_doctype_ir(ir_dict)
+
+	# Exempt the DocType's own fields exactly as apply_doctype does. Without it a
+	# submittable DocType fails preview on its own amended_from and the user never
+	# reaches the confirm step, while apply would have accepted the same IR.
+	_name = (ir_dict.get("doctype_name") or "").strip()
+	existing_fieldnames = set()
+	if _name and frappe.db.exists("DocType", _name):
+		existing_fieldnames = {f.fieldname for f in frappe.get_meta(_name).fields if f.fieldname}
+	verdict = validate_doctype_ir(ir_dict, existing_fieldnames=existing_fieldnames)
 	if not verdict["valid"]:
 		return {"valid": False, "violations": verdict["violations"]}
 
@@ -131,6 +186,9 @@ def preview_doctype(ir: str) -> dict:
 
 	exists = bool(frappe.db.exists("DocType", name))
 	custom = bool(frappe.db.get_value("DocType", name, "custom")) if exists else False
+	# Preview must branch the way apply does, or a DocType edited in place is
+	# previewed as an untouched one gaining Custom Fields.
+	reconciles = exists and _reconciles_in_place(name)
 	child_note = (
 		" " + _("It also creates {0} linked list(s): {1}.").format(len(child_tables), ", ".join(child_tables))
 		if child_tables else ""
@@ -147,7 +205,7 @@ def preview_doctype(ir: str) -> dict:
 		out["action"] = "create"
 		out["summary"] = _("Creates a new DocType “{0}” with {1} field(s). Nothing else changes.{2}").format(
 			name, len(content), child_note)
-	elif custom:
+	elif reconciles:
 		d = diff_ir(_read_doctype_ir(name) or {}, ir_dict)
 		out["action"] = "update"
 		out["diff"] = {
@@ -177,6 +235,11 @@ def preview_doctype(ir: str) -> dict:
 		out["summary"] = _(
 			"Adds {0} new field(s) to the standard DocType “{1}” as Custom Fields. "
 			"Existing fields are untouched.{2}").format(len(new_fields), name, child_note)
+
+	changes = _child_table_changes(name, fields)
+	out["child_changes"] = [{"table": c["table"], "lines": _describe_child_change(c["diff"])} for c in changes]
+	out["destructive"] = out["destructive"] or any(c["diff"]["removed"] for c in changes)
+	out["warnings"] += verdict["warnings"]
 	return out
 
 
@@ -185,7 +248,7 @@ def preview_doctype(ir: str) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 @frappe.whitelist()
-def apply_doctype(ir: str, confirm: int = 0, process: str = None, list_in_process=None) -> dict:
+def apply_doctype(ir: str, confirm: int = 0, process: str | None = None, list_in_process: str | int | None = None) -> dict:
 	"""Create or update a real DocType from a Docu IR.
 
 	- new name              → create a custom DocType (table auto-syncs on insert)
@@ -228,13 +291,10 @@ def apply_doctype(ir: str, confirm: int = 0, process: str = None, list_in_proces
 		list_target = process
 
 	# 2) Permission gate.
-	if "System Manager" not in frappe.get_roles() and not frappe.has_permission("DocType", "create"):
-		frappe.throw(
-			_("You need the System Manager role to create or change forms."),
-			frappe.PermissionError,
-		)
+	if not _may_change_forms():
+		frappe.throw(_("You are not allowed to create or change forms through Docu."), frappe.PermissionError)
 
-	result = _apply_ir_now(ir_dict, confirm)
+	result = _apply_ir_now(ir_dict, verdict["warnings"], confirm)
 	result["status"] = "applied"
 	if list_target:
 		_list_doctype_in_process(_target, list_target)
@@ -242,7 +302,7 @@ def apply_doctype(ir: str, confirm: int = 0, process: str = None, list_in_proces
 	return result
 
 
-def _apply_ir_now(ir_dict: dict, confirm=0) -> dict:
+def _apply_ir_now(ir_dict: dict, warnings: list, confirm=0) -> dict:
 	"""Apply an already-validated, already-authorised Docu IR (no routing)."""
 	name = ir_dict["doctype_name"].strip()
 	module = (ir_dict.get("module") or "ONE BPMN").strip()
@@ -254,17 +314,15 @@ def _apply_ir_now(ir_dict: dict, confirm=0) -> dict:
 	autoname = (ir_dict.get("autoname") or "").strip()
 	fields = ir_dict.get("fields") or []
 	settings = _extract_settings(ir_dict)
+	permissions = _extract_permissions(ir_dict)
 
 	# 3) Data-loss guard: block destructive field removals on an existing custom
 	#    DocType unless the client explicitly confirmed (via preview_doctype). This
 	#    runs BEFORE elevation so the message reaches the user cleanly.
-	if (
-		not int(confirm or 0)
-		and frappe.db.exists("DocType", name)
-		and frappe.db.get_value("DocType", name, "custom")
-	):
-		current = _read_doctype_ir(name) or {}
-		removed = diff_ir(current, ir_dict).get("removed") or []
+	if not int(confirm or 0):
+		removed = [x for c in _child_table_changes(name, fields) for x in c["diff"]["removed"]]
+		if frappe.db.exists("DocType", name) and _reconciles_in_place(name):
+			removed += diff_ir(_read_doctype_ir(name) or {}, ir_dict).get("removed") or []
 		if removed:
 			labels = ", ".join((r.get("label") or r.get("fieldname") or "?") for r in removed)
 			frappe.throw(
@@ -273,27 +331,43 @@ def _apply_ir_now(ir_dict: dict, confirm=0) -> dict:
 				title=_("Confirm data loss"),
 			)
 
-	original_user = frappe.session.user
+	# 4) Type changes Customize Form refuses: a Docu-owned empty field is recreated, the rest are refused here.
+	recreate = []
+	customizes = (
+		frappe.db.exists("DocType", name)
+		and not frappe.db.get_value("DocType", name, "issingle")
+		and not _reconciles_in_place(name)
+	)
+	if customizes:
+		recreate = _refused_type_changes(name, fields)
+
 	child_tables: list[str] = []
+	skipped: list[dict] = []
 	try:
-		frappe.set_user("Administrator")
-		# Create any inline child DocTypes first and point the Table fields at them.
-		child_tables = _ensure_child_doctypes(name, module, fields)
-		if not frappe.db.exists("DocType", name):
-			action = _create_custom_doctype(name, module, is_child, autoname, fields, settings)
-		elif frappe.db.get_value("DocType", name, "custom"):
-			action = _reconcile_custom_doctype(name, is_child, autoname, fields, settings, module)
-		else:
-			action = _customize_standard_doctype(name, fields)
-		frappe.db.commit()
+		with as_user(_docu_user()):
+			# Create any inline child DocTypes first and point the Table fields at them.
+			child_tables = _ensure_child_doctypes(name, module, fields)
+			if not frappe.db.exists("DocType", name):
+				action = _create_custom_doctype(name, module, is_child, autoname, fields, settings, permissions)
+			elif frappe.db.get_value("DocType", name, "custom"):
+				action = _reconcile_custom_doctype(name, is_child, autoname, fields, settings, module, permissions)
+			elif _reconciles_in_place(name):
+				action = _reconcile_owned_doctype(name, fields, settings, permissions)
+			else:
+				_recreate_custom_fields(name, recreate)
+				action = _customize_standard_doctype(name, fields, skipped)
+				_apply_standard_doctype_permissions(name, permissions)
+			if permissions is not None:
+				# Cached DocType meta predates the new rules, so roles stay locked out
+				# until it is rebuilt.
+				frappe.clear_cache(doctype=name)
+			frappe.db.commit()
 	except frappe.PermissionError:
 		raise
 	except Exception:
 		frappe.db.rollback()
 		frappe.log_error(title=f"Docu apply_doctype failed ({name})", message=frappe.get_traceback())
 		frappe.throw(_("Could not apply the form: {0}").format(frappe.get_traceback().splitlines()[-1]))
-	finally:
-		frappe.set_user(original_user)
 
 	return {
 		"name": name,
@@ -301,7 +375,103 @@ def _apply_ir_now(ir_dict: dict, confirm=0) -> dict:
 		"is_child_table": bool(is_child),
 		"child_tables": child_tables,
 		"url": f"/app/{frappe.scrub(name).replace('_', '-')}",
+		"notes": warnings
+		+ [
+			_("{0} was not added: {1} already has a field labelled {0} ({2}). Use that field instead.").format(
+				d["label"], name, d["existing"]
+			)
+			for d in skipped
+		],
 	}
+
+
+def _refused_type_changes(doctype: str, fields: list) -> list:
+	"""(Custom Field name, IR field) for each refused type change Docu may recreate; throws for any other."""
+	from frappe.custom.doctype.customize_form.customize_form import ALLOWED_FIELDTYPE_CHANGE
+
+	meta = frappe.get_meta(doctype)
+	docu_user = _docu_user()
+	recreate = []
+	for field in fields:
+		current = meta.get_field((field.get("fieldname") or "").strip())
+		wanted = field.get("fieldtype")
+		if not current or not wanted or wanted == current.fieldtype:
+			continue
+		allowed = sorted(
+			{t for group in ALLOWED_FIELDTYPE_CHANGE if current.fieldtype in group for t in group} - {current.fieldtype}
+		)
+		if wanted in allowed:
+			continue
+		custom_field = frappe.db.get_value(
+			"Custom Field", {"dt": doctype, "fieldname": current.fieldname}, ["name", "owner"], as_dict=True
+		)
+		if (
+			custom_field
+			and custom_field.owner == docu_user
+			and not frappe.db.count(doctype, {current.fieldname: ["is", "set"]})
+		):
+			recreate.append((custom_field.name, field))
+			continue
+		frappe.throw(
+			_("{0} ({1}) is a {2} field and cannot become {3}. A {2} field can only become: {4}.").format(
+				current.label or current.fieldname,
+				current.fieldname,
+				current.fieldtype,
+				wanted,
+				", ".join(allowed) or _("no other type"),
+			),
+			title=_("Field type cannot change"),
+		)
+	return recreate
+
+
+def _recreate_custom_fields(doctype: str, recreate: list) -> None:
+	"""Drop each Custom Field and create it again with the IR's definition, in the same position."""
+	if not recreate:
+		return
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+	for custom_field, field in recreate:
+		insert_after = frappe.db.get_value("Custom Field", custom_field, "insert_after")
+		frappe.delete_doc("Custom Field", custom_field)
+		definition = _docfield_dict(field, 0)
+		definition.pop("idx")
+		definition["insert_after"] = insert_after
+		create_custom_fields({doctype: [definition]}, ignore_validate=False)
+	frappe.clear_cache(doctype=doctype)
+
+
+def _reconciles_in_place(name: str) -> bool:
+	"""True when field changes belong in the DocType's own definition.
+
+	A custom DocType has no source file, so its definition is the only place to
+	write. A standard DocType one of our apps owns already has its schema in
+	source, so a Custom Field there overrides our own JSON — the file says one
+	thing, the override says another, and the effective schema is knowable only
+	on a migrated site. Frappe refuses to save a standard DocType outside
+	developer mode, so a site without it keeps the Customize Form path.
+	"""
+	if frappe.db.get_value("DocType", name, "custom"):
+		return True
+	if not frappe.conf.get("developer_mode"):
+		return False
+
+	from one_bpmn.api.doctype_source_sync import owned_in_source
+
+	return owned_in_source(name)
+
+
+def _field_payloads(fields: list) -> list:
+	"""Project the IR's fields onto DocField rows, numbered in IR order."""
+	payloads = []
+	idx = 0
+	for f in _uniquify_fieldnames(fields):
+		is_layout = f.get("fieldtype") in _LAYOUT_FIELDTYPES
+		if not is_layout and not (f.get("fieldname") or "").strip():
+			continue
+		idx += 1
+		payloads.append(_docfield_dict(f, idx))
+	return payloads
 
 
 def _docfield_dict(field: dict, idx: int) -> dict:
@@ -324,6 +494,90 @@ def _docfield_dict(field: dict, idx: int) -> dict:
 def _extract_settings(ir_dict: dict) -> dict:
 	"""Pull the DocType-level settings the client sent (only keys actually present)."""
 	return {k: ir_dict[k] for k in _DOCTYPE_SETTING_KEYS if k in ir_dict}
+
+
+_DEFAULT_PERMISSION = {
+	"role": "System Manager", "permlevel": 0,
+	"read": 1, "write": 1, "create": 1, "delete": 1,
+	"report": 1, "export": 1, "share": 1, "print": 1, "email": 1,
+}
+
+
+def _extract_permissions(ir_dict: dict):
+	"""The permission rules the client sent, or None when it said nothing.
+
+	None and [] mean different things. None is "I am not describing permissions",
+	which leaves whatever the DocType already has alone. An empty list is a
+	deliberate "no rules", which the caller is entitled to ask for.
+	"""
+	perms = ir_dict.get("permissions")
+	return perms if isinstance(perms, list) else None
+
+
+def _apply_standard_doctype_permissions(name: str, permissions) -> None:
+	"""Set the rules for a DocType whose definition we cannot write.
+
+	Only reached for a DocType an external app ships, or one of ours on a site
+	without developer mode — ``_reconciles_in_place`` takes everything else. Its
+	own rows are rewritten on every migrate, so the change goes to Custom
+	DocPerm, which Frappe reads in preference once any row exists.
+	"""
+	if permissions is None:
+		return
+	from frappe.permissions import setup_custom_perms
+
+	setup_custom_perms(name)  # seeds Custom DocPerm from the shipped rules, once
+	frappe.db.delete("Custom DocPerm", {"parent": name})
+	for rule in permissions:
+		if not isinstance(rule, dict):
+			continue
+		role = (rule.get("role") or "").strip()
+		if not role:
+			continue
+		row = frappe.new_doc("Custom DocPerm")
+		row.parent = name
+		row.permlevel = int(rule.get("permlevel") or 0)
+		row.role = role
+		for flag in DOCTYPE_PERMISSION_FLAGS:
+			setattr(row, flag, int(bool(rule.get(flag))))
+		row.insert(ignore_permissions=True)
+	if not frappe.db.exists("Custom DocPerm", {"parent": name}):
+		# Never leave a DocType nobody can open — the same floor the custom path keeps.
+		row = frappe.new_doc("Custom DocPerm")
+		row.parent = name
+		row.update(_DEFAULT_PERMISSION)
+		row.insert(ignore_permissions=True)
+
+
+def _apply_doctype_permissions(doc, permissions, is_child: int) -> None:
+	"""Replace the DocType's permission rules with the ones in the IR.
+
+	A child table holds no rules of its own — it is read and written through its
+	parent — so anything sent for one is dropped. Roles were checked against the
+	Role table by the validator before this runs.
+	"""
+	if is_child:
+		doc.set("permissions", [])
+		return
+	if permissions is None:
+		if not doc.get("permissions"):
+			doc.append("permissions", dict(_DEFAULT_PERMISSION))
+		return
+
+	rows = []
+	for rule in permissions:
+		if not isinstance(rule, dict):
+			continue
+		role = (rule.get("role") or "").strip()
+		if not role:
+			continue
+		row = {"role": role, "permlevel": int(rule.get("permlevel") or 0)}
+		for flag in DOCTYPE_PERMISSION_FLAGS:
+			row[flag] = int(bool(rule.get(flag)))
+		rows.append(row)
+	# A DocType nobody can reach is almost never what was meant, and it locks the
+	# process owner out of their own form, so fall back to the default rule.
+	doc.set("permissions", rows or [dict(_DEFAULT_PERMISSION)])
 
 
 def _apply_doctype_settings(doc, settings: dict) -> None:
@@ -409,9 +663,13 @@ def _ensure_child_doctypes(parent: str, module: str, fields: list) -> list:
 	"""For each Table/Table MultiSelect field defining rows inline via ``child_fields``,
 	create (or reuse) a child DocType and point the field's ``options`` at it.
 
+	An existing custom child table has its columns brought in line with ``child_fields``;
+	any other existing target is left alone.
+
 	Returns the list of child DocType names that were newly created.
 	"""
 	created = []
+	changed = {c["table"] for c in _child_table_changes(parent, fields)}
 	for f in fields:
 		if not isinstance(f, dict) or f.get("fieldtype") not in _TABLE_FIELDTYPES:
 			continue
@@ -427,17 +685,53 @@ def _ensure_child_doctypes(parent: str, module: str, fields: list) -> list:
 		child_fields = f.get("child_fields")
 		if not (isinstance(child_fields, list) and child_fields):
 			continue
-		# An existing target DocType wins — don't clobber its fields.
 		if opt and frappe.db.exists("DocType", opt):
+			if opt in changed:
+				_reconcile_custom_doctype(opt, 1, "", child_fields, module=module)
 			continue
 		child_name = opt or _child_doctype_name(parent, f)
 		if not frappe.db.exists("DocType", child_name):
 			_create_custom_doctype(child_name, module, 1, "", child_fields)
 			created.append(child_name)
+		elif child_name in changed:
+			_reconcile_custom_doctype(child_name, 1, "", child_fields, module=module)
 		else:
 			_move_custom_doctype(child_name, module)
 		f["options"] = child_name
 	return created
+
+
+def _child_table_changes(parent: str, fields: list) -> list:
+	"""``{table, diff}`` for each existing custom child table whose inline columns differ from the live ones."""
+	changes = []
+	for f in fields:
+		if not isinstance(f, dict) or f.get("fieldtype") not in _TABLE_FIELDTYPES:
+			continue
+		table = (f.get("options") or "").strip() or _child_doctype_name(parent, f)
+		child_fields = f.get("child_fields")
+		if not (isinstance(child_fields, list) and child_fields and table and frappe.db.exists("DocType", table)):
+			continue
+		if not child_table_is_editable(table):
+			continue
+		# Frappe stores a default of "0" on every Check column.
+		wanted = [{**c, "default": c.get("default") or "0"} if c.get("fieldtype") == "Check" else c for c in child_fields]
+		diff = diff_ir(_read_doctype_ir(table) or {}, {"fields": wanted})
+		if diff["added"] or diff["removed"] or diff["changed"]:
+			changes.append({"table": table, "diff": diff})
+	return changes
+
+
+def _describe_child_change(diff: dict) -> list:
+	"""One plain line per column added, removed, renamed or changed."""
+	lines = [_("Adds column {0}.").format(_fld_label(x)) for x in diff["added"]]
+	lines += [_("Removes column {0} and its stored data.").format(_fld_label(x)) for x in diff["removed"]]
+	for c in diff["changed"]:
+		label = c["changes"].get("label")
+		if label:
+			lines.append(_("Renames column {0} to {1}.").format(label["from"], label["to"]))
+		if set(c["changes"]) - {"label"}:
+			lines.append(_("Changes column {0}.").format(c["fieldname"]))
+	return lines
 
 
 def _move_custom_doctype(name: str, module: str) -> None:
@@ -455,7 +749,8 @@ def _move_custom_doctype(name: str, module: str) -> None:
 	frappe.db.set_value("DocType", name, "module", module)
 
 
-def _create_custom_doctype(name: str, module: str, is_child: int, autoname: str, fields: list, settings: dict = None) -> str:
+def _create_custom_doctype(name: str, module: str, is_child: int, autoname: str, fields: list,
+                           settings: dict = None, permissions=None) -> str:
 	doc = frappe.get_doc({
 		"doctype": "DocType",
 		"name": name,
@@ -469,18 +764,13 @@ def _create_custom_doctype(name: str, module: str, is_child: int, autoname: str,
 	_apply_doctype_settings(doc, settings)
 	doc.custom = 1          # never let a setting flip the custom flag
 	doc.istable = is_child  # child-table state is owned by the caller
-	if not doc.istable:
-		doc.append("permissions", {
-			"role": "System Manager",
-			"read": 1, "write": 1, "create": 1, "delete": 1,
-			"report": 1, "export": 1, "share": 1, "print": 1, "email": 1,
-		})
+	_apply_doctype_permissions(doc, permissions, is_child)
 	doc.insert(ignore_permissions=True)
 	return "created"
 
 
 def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: list,
-                              settings: dict = None, module: str = None) -> str:
+                              settings: dict = None, module: str = None, permissions=None) -> str:
 	"""Bring a custom DocType's fields in line with the IR (add / update / remove).
 
 	The IR (seeded from the live schema and echoed back by the writer) is the
@@ -497,16 +787,9 @@ def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: l
 	doc = frappe.get_doc("DocType", name)
 	if module and doc.module != module:
 		doc.module = module
-	payloads = []
-	idx = 0
-	for f in _uniquify_fieldnames(fields):
-		is_layout = f.get("fieldtype") in _LAYOUT_FIELDTYPES
-		if not is_layout and not (f.get("fieldname") or "").strip():
-			continue
-		idx += 1
-		payloads.append(_docfield_dict(f, idx))
-	doc.set("fields", payloads)
+	doc.set("fields", _field_payloads(fields))
 	_apply_doctype_settings(doc, settings)
+	_apply_doctype_permissions(doc, permissions, is_child)
 	doc.istable = is_child
 	if autoname:
 		doc.autoname = autoname
@@ -514,7 +797,28 @@ def _reconcile_custom_doctype(name: str, is_child: int, autoname: str, fields: l
 	return "updated"
 
 
-def _customize_standard_doctype(name: str, fields: list) -> str:
+def _reconcile_owned_doctype(name: str, fields: list, settings: dict = None, permissions=None) -> str:
+	"""Bring a standard DocType we own in line with the IR — fields only.
+
+	Its module, child-table flag and naming rule live in a source directory on
+	disk, not in the IR, so reconciling them here would move or rename files the
+	IR knows nothing about. In developer mode Frappe exports the saved DocType
+	back to that directory, so the change lands in source rather than as an
+	override of it.
+	"""
+	if permissions is not None:
+		# Frappe reads a Custom DocPerm override in preference, so one left from an
+		# earlier edit would beat the file we are about to write.
+		frappe.db.delete("Custom DocPerm", {"parent": name})
+	doc = frappe.get_doc("DocType", name)
+	doc.set("fields", _field_payloads(fields))
+	_apply_doctype_settings(doc, settings)
+	_apply_doctype_permissions(doc, permissions, int(bool(doc.istable)))
+	doc.save(ignore_permissions=True)
+	return "updated"
+
+
+def _customize_standard_doctype(name: str, fields: list, skipped: list) -> str:
 	"""Apply Docu IR field changes to a STANDARD DocType via Customize Form.
 
 	Customize Form is Frappe's supported mechanism for changing a standard
@@ -535,6 +839,14 @@ def _customize_standard_doctype(name: str, fields: list) -> str:
 	cf.fetch_to_customize()
 
 	existing = {row.fieldname: row for row in cf.fields if row.fieldname}
+	# Labels as they will read after this save, so a relabelled field counts under its new label.
+	ir_labels = {(f.get("fieldname") or "").strip(): f.get("label") for f in fields if "label" in f}
+	labelled = {
+		str(ir_labels.get(fieldname, row.label) or "").strip().lower(): fieldname
+		for fieldname, row in existing.items()
+		if row.fieldtype not in _LAYOUT_FIELDTYPES
+	}
+	labelled.pop("", None)
 	changed = False
 	# Brand-new fields, materialised as Custom Fields after the customize pass.
 	new_fields: list = []
@@ -554,6 +866,10 @@ def _customize_standard_doctype(name: str, fields: list) -> str:
 			continue
 		row = existing.get(fieldname)
 		if row is None:
+			same_label = labelled.get(str(field.get("label") or "").strip().lower())
+			if same_label:
+				skipped.append({"label": field.get("label"), "existing": same_label})
+				continue
 			# Brand-new field → collected now, created as a Custom Field below.
 			new_fields.append(_docfield_dict(field, len(new_fields) + 1))
 			changed = True
@@ -695,6 +1011,60 @@ def _norm_prop(prop: str, value, prop_types: dict):
 	return "" if value in (None, "") else value
 
 
+FIELD_PROPERTY_TYPES = {"depends_on": "Code", "hidden": "Check", "reqd": "Check", "read_only": "Check"}
+_FLAG_WORDS = {
+	"hidden": ("{0} is now hidden.", "{0} is now visible."),
+	"reqd": ("{0} is now mandatory.", "{0} is now optional."),
+	"read_only": ("{0} is now read-only.", "{0} can now be edited."),
+}
+
+
+def apply_field_properties(doctype: str, changes: list) -> list:
+	"""Set depends_on, hidden, reqd or read_only on existing fields and return one plain line per change.
+
+	A custom DocType is edited in place; any other DocType gets a Property Setter.
+	"""
+	if not _may_change_forms():
+		frappe.throw(_("You are not allowed to change forms through Docu."), frappe.PermissionError)
+	if not changes:
+		frappe.throw(_("I could not tell which field on {0} to change.").format(doctype))
+	meta = frappe.get_meta(doctype)
+	for change in changes:
+		if change.get("property") not in FIELD_PROPERTY_TYPES:
+			frappe.throw(_("I can only show, hide, require or lock a field, not set {0}.").format(change.get("property")))
+		if not meta.get_field(change.get("fieldname")):
+			frappe.throw(_("{0} has no field named {1}.").format(doctype, change.get("fieldname")))
+
+	lines = []
+	with as_user(_docu_user()):
+		doc = frappe.get_doc("DocType", doctype) if meta.custom else None
+		for change in changes:
+			fieldname, prop = change["fieldname"], change["property"]
+			value = change.get("value")
+			value = (value or "").strip() if prop == "depends_on" else int(bool(frappe.utils.sbool(value)))
+			if doc:
+				doc.get("fields", {"fieldname": fieldname})[0].set(prop, value)
+			else:
+				_force_property_setter(doctype, fieldname, prop, value, FIELD_PROPERTY_TYPES[prop])
+			lines.append(_describe_property(meta, fieldname, prop, value))
+		if doc:
+			doc.save()
+	frappe.clear_cache(doctype=doctype)
+	return lines
+
+
+def _describe_property(meta, fieldname: str, prop: str, value) -> str:
+	label = meta.get_field(fieldname).label or fieldname
+	if prop != "depends_on":
+		return _(_FLAG_WORDS[prop][0 if value else 1]).format(label)
+	if not value:
+		return _("{0} always shows.").format(label)
+	target = meta.get_field(value[len("eval:doc."):]) if value.startswith("eval:doc.") else None
+	if target and target.fieldtype == "Check":
+		return _("{0} shows only when {1} is ticked.").format(label, target.label or target.fieldname)
+	return _("{0} shows only when {1}.").format(label, value)
+
+
 def _force_property_setter(doctype: str, fieldname: str, prop: str, value, property_type: str) -> None:
 	"""Upsert a Property Setter, bypassing Customize Form's soft guards."""
 	if property_type == "Check":
@@ -723,7 +1093,107 @@ def _force_property_setter(doctype: str, fieldname: str, prop: str, value, prope
 		)
 
 
+@frappe.whitelist()
+def preview_client_script(doctype: str, script: str) -> dict:
+	"""Check a proposed Form View script and return its diff against the one saved today."""
+	script = _checked_form_script(doctype, script)
+	name = _form_script_name(doctype)
+	current = (frappe.db.get_value("Client Script", name, "script") if name else "") or ""
+	diff = difflib.unified_diff(current.splitlines(True), script.splitlines(True), "current", "proposed")
+	return {"exists": bool(name), "name": name, "diff": "".join(diff)}
+
+
+@frappe.whitelist(methods=["POST"])
+def apply_client_script(doctype: str, script: str) -> str:
+	"""Create or update the DocType's Form View client script and say which."""
+	script = _checked_form_script(doctype, script)
+	name = _form_script_name(doctype)
+	with as_user(_docu_user()):
+		if name:
+			doc = frappe.get_doc("Client Script", name)
+			doc.update({"script": script, "enabled": 1})
+			doc.save()
+		else:
+			frappe.get_doc(
+				{
+					"doctype": "Client Script",
+					"name": f"{doctype}-Form",
+					"dt": doctype,
+					"view": "Form",
+					"enabled": 1,
+					"script": script,
+					"module": frappe.db.get_value("DocType", doctype, "module"),
+				}
+			).insert()
+	return _("The form script on {0} was updated.").format(doctype) if name else _("The form script on {0} was created.").format(doctype)
+
+
+def _checked_form_script(doctype: str, script: str) -> str:
+	if not _may_change_forms():
+		frappe.throw(_("You are not allowed to change forms through Docu."), frappe.PermissionError)
+	if not frappe.db.exists("DocType", doctype):
+		frappe.throw(_("{0} does not exist.").format(doctype))
+	problems = validate_form_script(doctype, script)
+	if problems:
+		frappe.throw("\n".join(problems))
+	return script.strip() + "\n"
+
+
+def _form_script_name(doctype: str):
+	return frappe.db.get_value("Client Script", {"dt": doctype, "view": "Form"}, "name", order_by="creation")
+
+
 # ── Shared-endpoint integration (WI-001676 follow-up, after 54e9ead/73e7d89) ──
+def _list_script_name(doctype: str) -> str:
+	return f"{doctype}-List"
+
+
+@frappe.whitelist()
+def get_list_view_script(doctype: str) -> dict:
+	"""Return the List View Client Script on a DocType, or an empty script when it has none."""
+	if not _may_change_forms():
+		frappe.throw(_("You are not allowed to change lists through Docu."), frappe.PermissionError)
+	name = frappe.db.get_value("Client Script", {"dt": doctype, "view": "List"}, "name")
+	if not name:
+		return {"name": None, "script": "", "enabled": 0}
+	return frappe.db.get_value("Client Script", name, ["name", "script", "enabled"], as_dict=True)
+
+
+@frappe.whitelist(methods=["POST"])
+def apply_list_view_script(doctype: str, script: str, enabled: int = 1) -> dict:
+	"""Create or update the List View Client Script on a DocType, after the safety gate."""
+	if not _may_change_forms():
+		frappe.throw(_("You are not allowed to change lists through Docu."), frappe.PermissionError)
+	if not frappe.db.exists("DocType", doctype):
+		frappe.throw(_("{0} does not exist.").format(doctype))
+	problems = validate_list_view_script(doctype, script)
+	if problems:
+		frappe.throw(_("The list script cannot be applied:<br>") + "<br>".join(problems))
+
+	enabled = int(bool(frappe.utils.sbool(enabled)))
+	with as_user(_docu_user()):
+		name = frappe.db.get_value("Client Script", {"dt": doctype, "view": "List"}, "name")
+		if name:
+			doc = frappe.get_doc("Client Script", name)
+			doc.update({"script": script, "enabled": enabled})
+			doc.save()
+			action = "updated"
+		else:
+			doc = frappe.get_doc(
+				{
+					"doctype": "Client Script",
+					"__newname": _list_script_name(doctype),
+					"dt": doctype,
+					"view": "List",
+					"script": script,
+					"enabled": enabled,
+				}
+			)
+			doc.insert()
+			action = "created"
+	return {"name": doc.name, "action": action, "enabled": enabled}
+
+
 def _compact_ir(ir: dict) -> dict:
 	"""Strip empty/zero attributes from a round-tripped IR before it rides in
 	dialog_context — the reader emits every DocField attribute (a plain ToDo
@@ -751,19 +1221,14 @@ def build_docu_turn_context(context: dict) -> dict:
 
 	schema_block = ""
 	if doctype and frappe.db.exists("DocType", doctype):
-		if frappe.has_permission("DocType", "read"):
+		with as_user(_docu_user()):
 			ir = _read_doctype_ir(doctype)
-			if ir:
-				schema_block = (
-					"CURRENT DOCTYPE ('%s') AS IR:\n```json\n%s\n```\n"
-					"This form exists — treat the request as a MODIFY of this IR "
-					"unless the user clearly asks for a new form.\n\n"
-				) % (doctype, json.dumps(_compact_ir(ir), indent=1, default=str))
-		else:
-			frappe.log_error(
-				title="Docu: DocType read denied for turn context",
-				message=f"user={frappe.session.user} doctype={doctype}",
-			)
+		if ir:
+			schema_block = (
+				"CURRENT DOCTYPE ('%s') AS IR:\n```json\n%s\n```\n"
+				"This form exists - treat the request as a MODIFY of this IR "
+				"unless the user clearly asks for a new form.\n\n"
+			) % (doctype, json.dumps(_compact_ir(ir), indent=1, default=str))
 	elif doctype:
 		schema_block = (
 			"Named form: '%s' — it does not exist yet, so this is likely a CREATE.\n\n" % doctype
@@ -967,7 +1432,7 @@ def approve_doctype_change(request: str, confirm: int = 0) -> dict:
 	verdict = validate_doctype_ir(ir_dict, existing_fieldnames=existing)
 	if not verdict["valid"]:
 		frappe.throw(_("The form has problems that must be fixed first:<br>") + "<br>".join(verdict["violations"]))
-	result = _apply_ir_now(ir_dict, confirm)
+	result = _apply_ir_now(ir_dict, verdict["warnings"], confirm)
 	_mark_decided(req, "Approved")
 	result["status"] = "applied"
 	result["request"] = req.name

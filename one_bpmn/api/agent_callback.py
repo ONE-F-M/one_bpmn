@@ -10,10 +10,19 @@ was deployed with — see agent-sandbox/deploy.py). Every failure returns
 the same opaque answer: a caller must not be able to use this endpoint to
 learn which correlation ids exist or why a signature was rejected.
 
-The sandbox opens the pull request itself, directly against GitHub, before
-it ever calls back — this endpoint only records what already happened
-(pr_url on a pass, or why one wasn't opened) and resumes whoever is waiting.
-It never talks to GitHub on the sandbox's behalf.
+The sandbox opens the pull request itself, directly against GitHub — as one
+of its own tool calls now (open_pull_request), not automatic post-loop logic
+— before it ever calls back. This endpoint only records what already
+happened (pr_url on a pass, or why one wasn't opened, including "the agent
+never called open_pull_request") and resumes whoever is waiting. It never
+talks to GitHub on the sandbox's behalf.
+
+payload["agent_trace"] (one entry per coding-loop turn, replacing the old
+flat agent_tool_calls list of bare names) is turned into real AI Agent Step
++ AI Agent Tool Call rows here (_record_sandbox_trace) — the same
+observability every other AI Agent Task in the system gets via
+record_ai_step(), for a loop that runs entirely outside Frappe and can only
+ever be recorded from this one callback.
 """
 
 from __future__ import annotations
@@ -21,11 +30,15 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 from datetime import datetime
 
 import frappe
 
+from one_bpmn.agents import identity
+from one_bpmn.agents.observability import record_ai_step
 from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
+from one_bpmn.one_bpmn.doctype.agent_sandbox_run.agent_sandbox_run import bounded_error
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
@@ -76,6 +89,23 @@ def report_result() -> dict:
 	if run.state in ("completed", "failed"):
 		return {"accepted": True}  # already settled — a replayed callback is a no-op
 
+	return settle_as_agent(run, payload)
+
+
+def settle_as_agent(run, payload: dict) -> dict:
+	"""A signed result arrives as Guest; record and resume the run as the agent's user."""
+	caller = frappe.session.user
+	frappe.set_user(identity.user_for("Dev Agent") or run.owner)
+	try:
+		return _settle(run, payload)
+	finally:
+		frappe.set_user(caller)
+
+
+def _settle(run, payload: dict) -> dict:
+	"""Record the sandbox's outcome on the run, then retry or resume the caller."""
+	from one_bpmn.one_bpmn.connectors import agent_sandbox_ops as ops
+
 	status = payload.get("status")
 	run.db_set("result", frappe.as_json(payload), update_modified=False)
 
@@ -93,28 +123,77 @@ def report_result() -> dict:
 	if files:
 		run.db_set("files", frappe.as_json(files), update_modified=False)
 
-	if status == "tests_passed":
-		if pr_url:
-			run.db_set({"state": "completed", "pr_url": pr_url}, update_modified=False)
-		else:
-			error = payload.get("pr_error") or "Sandbox reported tests_passed but did not open a pull request."
-			run.db_set({"state": "failed", "error_message": error[:500]}, update_modified=False)
-	elif status == "tests_passed_no_changes":
-		run.db_set(
-			{"state": "failed", "error_message": "Tests passed but the agent made no changes to submit."},
-			update_modified=False,
-		)
-	else:
-		# A PR opened despite the failure doesn't make this a success — the
-		# run's own state still reflects that tests didn't pass. pr_url is
-		# still recorded above so the diff stays reachable for review.
-		fields = {"error_message": (payload.get("error") or status or "sandbox run failed")[:500]}
-		if pr_url:
-			fields["pr_url"] = pr_url
-		run.db_set({"state": "failed", **fields}, update_modified=False)
+	run.db_set(ops._finished(_settled_fields(_run_action(run), status, pr_url, payload)), update_modified=False)
+
+	timings = ops.timing_fields(payload.get("timings_ms") or {})
+	if timings:
+		run.db_set(timings, update_modified=False)
+	if payload.get("commit"):
+		run.db_set("commit_sha", str(payload["commit"])[:40], update_modified=False)
+
+	# The supervisor decides by the class of the failure: run it again by itself
+	# (infrastructure, model API, a flaky environment) or give the failure to the
+	# waiting agent. ops.retry_dispatch only returns False when the retry itself
+	# could not even be sent (no sandbox URL, no token, the POST itself failed) --
+	# in that case fall through to the normal resume on the ORIGINAL failure
+	# below, or the agent would be left waiting forever for a callback that can
+	# now never arrive.
+	if run.state == "failed":
+		step = ops.supervisor.next_step(run)
+		ops.supervisor.record(run, step)
+		if ops.retry_eligible(run) and ops.retry_dispatch(run, delay=step["delay"]):
+			return {"accepted": True}
 
 	_enqueue_resume(run)
 	return {"accepted": True}
+
+
+def _run_action(run) -> str:
+	return (frappe.parse_json(run.request_payload or "{}") or {}).get("action") or ""
+
+
+_POLICY_MARKERS = ("403", "forbidden", "couldn't find remote ref", "permission denied", "bad credentials")
+_MODEL_API = re.compile(r"\b(429|529)\b|overloaded|rate.?limit", re.IGNORECASE)
+
+
+def classify_failure(status: str, payload: dict) -> str:
+	"""The retry class of a failed sandbox result: gave-up, policy, code, env or infra."""
+	if status == "tests_passed_no_changes":
+		return "gave-up"
+	text = " ".join(str(payload.get(key) or "") for key in ("error", "pr_error", "stderr_tail")).lower()
+	if any(marker in text for marker in _POLICY_MARKERS):
+		return "policy"
+	if _MODEL_API.search(text):
+		return "model-api"
+	if status == "tests_failed" and payload.get("failing_tests"):
+		return "code"
+	return "env" if status in ("tests_failed", "failed") else "infra"
+
+
+def _settled_fields(action: str, status: str, pr_url: str, payload: dict) -> dict:
+	"""The state a finished run settles to. run_tests never opens a PR, so for
+	it tests_passed is completion; every other shape still needs a pr_url."""
+	if status == "tests_passed":
+		if action == "run_tests":
+			return {"state": "completed"}
+		if pr_url:
+			return {"state": "completed", "pr_url": pr_url}
+		error = payload.get("pr_error") or "Sandbox reported tests_passed but did not open a pull request."
+		return {"state": "failed", "failure_class": classify_failure(status, payload), "error_message": bounded_error(error)}
+	if status == "tests_passed_no_changes":
+		return {
+			"state": "failed", "failure_class": classify_failure(status, payload),
+			"error_message": "Tests passed but the agent made no changes to submit.",
+		}
+	# A PR opened despite the failure doesn't make this a success, but its
+	# url is kept so the diff stays reachable for review.
+	error = payload.get("error") or status or "sandbox run failed"
+	if payload.get("pr_error") and not pr_url:
+		error = f"{error}; pull request not opened: {payload['pr_error']}"
+	fields = {"state": "failed", "failure_class": classify_failure(status, payload), "error_message": bounded_error(error)}
+	if pr_url:
+		fields["pr_url"] = pr_url
+	return fields
 
 
 def _create_sandbox_ai_agent_run(run, payload: dict) -> str | None:
@@ -195,16 +274,29 @@ def _create_sandbox_ai_agent_run(run, payload: dict) -> str | None:
 		"completion_basis": completion_basis,
 		"final_output": (payload.get("agent_report") or "")[:65536],
 		"correlation_id": run.name,
+		# The caller's own turn, so cost/tokens roll up to whatever delegated
+		# this work instead of the sandbox's coding loop reading as an
+		# unrelated, unattributed run. Blank when this dispatch came from a
+		# plain top-level Service Task rather than an ai_agent tool call —
+		# there is no caller run to attach to in that case.
+		"parent_run": run.caller_agent_run,
 	})
 	try:
 		agent_run.insert(ignore_permissions=True)
+		trace = payload.get("agent_trace") or []
+		_record_sandbox_trace(agent_run, trace)
 		# Set separately, not in the initial dict above — confirmed the hard
-		# way that this specific field's value is silently dropped somewhere
-		# in insert()'s own pipeline (other fields in the same dict, some
-		# also read_only, save correctly; this one alone came back None on
-		# reload every time). db_set() writes directly and always sticks.
+		# way that a field set only in the initial insert() dict can be
+		# silently dropped somewhere in insert()'s own pipeline (other fields
+		# in the same dict, some also read_only, save correctly; this one
+		# alone came back None on reload every time). db_set() writes
+		# directly and always sticks. tool_calls itself is now a cheap
+		# derived summary (just the names, in call order) — the real detail
+		# lives in the AI Agent Step/AI Agent Tool Call rows just recorded.
 		agent_run.db_set(
-			"tool_calls", frappe.as_json(payload.get("agent_tool_calls") or []), update_modified=False
+			"tool_calls",
+			frappe.as_json([call["name"] for turn in trace for call in turn.get("tool_calls") or []]),
+			update_modified=False,
 		)
 	except Exception:
 		frappe.log_error(
@@ -213,6 +305,52 @@ def _create_sandbox_ai_agent_run(run, payload: dict) -> str | None:
 		)
 		return None
 	return agent_run.name
+
+
+def _record_sandbox_trace(agent_run, trace: list) -> None:
+	"""One AI Agent Step per turn of the sandbox's own coding loop, each
+	carrying one AI Agent Tool Call row per call made in that turn — the
+	same observability every other AI Agent Task in the system already gets
+	via record_ai_step(), now extended to a loop that runs entirely outside
+	Frappe (on Cloud Run) and can only ever be recorded from here.
+
+	Deliberately NOT agents/observability.py's own record_selector_turns,
+	despite the trace shape (dev_agent_server.py's _run_coding_loop was built
+	to match it exactly): that helper re-derives each call's status via
+	_tool_call_status(), which classifies Processa's OWN tool-loop error
+	string conventions ("Blocked by policy:", "Error calling ...") — the
+	sandbox's tool results are {"error": ...} dicts, not those strings, so
+	every sandbox failure would silently re-classify as "Success" if run
+	through that helper instead of trusting the status the loop already
+	computed correctly.
+
+	result is JSON-stringified before it reaches record_ai_step — confirmed
+	the hard way that its tool_result field (Long Text, unlike tool_args'
+	JSON fieldtype which Frappe auto-serializes) has no such handling: a raw
+	dict fails at the SQL parameter-binding layer with "dict can not be used
+	as parameter", silently, since record_ai_step's own insert() call is
+	wrapped in a try/except that logs and swallows it. Processa's own tool
+	loop never hits this because its own results are already strings by the
+	time they reach record_selector_turns — the sandbox's are not."""
+	for step_index, turn in enumerate(trace):
+		tool_calls = []
+		for call in turn.get("tool_calls") or []:
+			call = dict(call)
+			if not isinstance(call.get("result"), str):
+				call["result"] = frappe.as_json(call.get("result"))
+			tool_calls.append(call)
+		record_ai_step(
+			agent_run,
+			step_index,
+			turn.get("role") or "assistant",
+			turn.get("content") or "",
+			prompt_tokens=turn.get("prompt_tokens", 0),
+			completion_tokens=turn.get("completion_tokens", 0),
+			cache_read_tokens=turn.get("cache_read_tokens", 0),
+			cache_write_tokens=turn.get("cache_write_tokens", 0),
+			latency_ms=turn.get("latency_ms", 0),
+			tool_calls=tool_calls,
+		)
 
 
 def _enqueue_resume(run) -> None:
@@ -253,6 +391,7 @@ def _resume_waiting_agent(run) -> None:
 	import json as _json
 
 	from one_bpmn.agents import checkpoint as _checkpoint
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import ai_job_queue_of
 
 	agent_run = run.caller_agent_run
 	if not (agent_run and run.caller_instance):
@@ -266,7 +405,7 @@ def _resume_waiting_agent(run) -> None:
 	frappe.enqueue(
 		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
 		".bpmn_process_instance.run_parked_ai_task",
-		queue="bpmn_ai_agent",
+		queue=ai_job_queue_of(run.caller_instance),
 		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,
 		job_id=f"bpmn-ai-{run.caller_instance}-devagentres-{run.name}",
@@ -279,18 +418,49 @@ def _resume_waiting_agent(run) -> None:
 
 
 def _sandbox_run_answer(run) -> str:
-	"""What the model is told the sandbox tool call returned — same shape
-	as _delegation_answer's reasoning in tasks.py: a failure is reported in
-	words, not hidden, since the agent asked for this work and deserves to
-	know what actually happened.
-
-	A failing run can still carry a pr_url now (the sandbox opens one
-	regardless of test outcome) — that has to be mentioned even on the
-	failure branch, or the caller would never learn a PR exists just
-	because the state isn't "completed"."""
+	"""What the model is told the sandbox tool call returned. A failure comes
+	with the sandbox's own output so the agent can tell its change from the
+	environment, and a PR is mentioned on either branch."""
+	prefix = _retry_prefix(run)
+	if _run_action(run) == "run_tests":
+		verdict = "Tests passed." if run.state == "completed" else f"Tests failed ({run.error_message or 'no reason given'})."
+		return prefix + verdict + _output_tail(run)
 	if run.state == "completed":
-		return f"Pull request opened: {run.pr_url}" if run.pr_url else "Sandbox run completed with no changes to submit."
+		text = f"Pull request opened: {run.pr_url}" if run.pr_url else "Sandbox run completed with no changes to submit."
+		return prefix + text
 	reason = f"The sandbox run did not complete ({run.state}): {run.error_message or 'no reason given'}"
 	if run.pr_url:
 		reason += f" A pull request was still opened for review, despite the failure: {run.pr_url}"
-	return reason
+	elif _run_action(run) == "open_pull_request":
+		reason += " No pull request exists."
+	return prefix + reason + _output_tail(run)
+
+
+def _retry_prefix(run) -> str:
+	"""Tells the agent which attempt it's looking at, once retry_of (set
+	only on the automatic re-dispatch after a real test failure) makes this
+	something other than the very first try — the WI's own acceptance
+	criterion is that the caller is told which attempt succeeded, not left
+	to guess from a result that looks identical to a first-try success."""
+	if not run.retry_of:
+		return ""
+	if run.state == "completed":
+		return "Retry succeeded after the first attempt's tests failed. "
+	return "The automatic retry also failed. "
+
+
+def _output_tail(run, limit: int = 1500) -> str:
+	result = frappe.parse_json(run.result or "{}") or {}
+	parts = []
+	# Named up front, ahead of the raw tail — the whole point of extracting
+	# these sandbox-side (dev_agent_server.py's _extract_failing_tests) is so
+	# the agent doesn't have to re-read a 1500-character truncated dump just
+	# to find out which tests actually broke.
+	failing_tests = result.get("failing_tests") or []
+	if failing_tests:
+		named = "\n".join(f"- {name}" for name in failing_tests)
+		parts.append(f"Failing tests:\n{named}")
+	tail = (result.get("stderr_tail") or result.get("stdout_tail") or "").strip()
+	if tail:
+		parts.append(f"Sandbox output (tail):\n{tail[-limit:]}")
+	return "\n\n" + "\n\n".join(parts) if parts else ""

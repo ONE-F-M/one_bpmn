@@ -180,6 +180,10 @@ def record(task, *, delegating_agent: str | None, instruction: str = "") -> str 
 			"handoff_count": cint(task.handoff_count),
 			"started_at": now_datetime(),
 			"instruction": (instruction or "")[:500],
+			# A Select with no blank first option defaults to its first value, and
+			# Customize Form strips that blank — which made every new row read
+			# "stopped at max_recursion_depth". Nothing has stopped yet.
+			"stopped_reason": "",
 		})
 		doc.flags.ignore_permissions = True
 		doc.insert(ignore_permissions=True)

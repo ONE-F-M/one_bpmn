@@ -26,11 +26,22 @@ Nothing here asks a model to judge itself.
 
 from __future__ import annotations
 
+import json
+
 import frappe
 
 ACHIEVED = "Achieved"
 NOT_ACHIEVED = "Not Achieved"
 UNKNOWN = "Unknown"
+
+
+def _excerpt(text, limit: int = 100) -> str:
+	"""A short, quotable fragment of real content for a basis sentence — never
+	a placeholder. Falsy input excerpts to "", same as everything else here."""
+	text = str(text or "").strip()
+	if len(text) <= limit:
+		return text
+	return text[:limit].rstrip() + "…"
 
 
 def _output_text(output) -> str:
@@ -42,7 +53,15 @@ def _output_text(output) -> str:
 			value = output.get(key)
 			if isinstance(value, str) and value.strip():
 				return value.strip()
-		return "" if not any(output.values()) else "structured"
+		# Some other key carried the content (e.g. a map-specific field with no
+		# declared goal_key) — quote it rather than a placeholder, so the basis
+		# stays specific instead of collapsing every such run to one string.
+		for value in output.values():
+			if isinstance(value, str) and value.strip():
+				return value.strip()
+			if value:
+				return str(value).strip()
+		return ""
 	return str(output).strip()
 
 
@@ -64,11 +83,82 @@ def _declared_goal_met(output, goal_key: str) -> bool:
 	return value is not None and value is not False
 
 
-def determine(result, goal_key: str | None = None) -> tuple[str, str]:
-	"""(state, basis) from what the executor reported. Pure — no database.
+def _field(entry, name):
+	"""A field of a trace entry: a dataclass on a fresh run, a dict on a resumed one."""
+	if isinstance(entry, dict):
+		return entry.get(name)
+	return getattr(entry, name, None)
+
+
+def unsuperseded_tool_failure(calls) -> tuple | None:
+	"""(name, result) of the first tool whose last call failed, or None.
+
+	Each tool is judged by its own last call; a different tool succeeding does not supersede it.
+	"""
+	# Imported here because observability imports this module.
+	from one_bpmn.agents.observability import _tool_call_status
+
+	last_result = {}
+	for call in calls:
+		last_result[_field(call, "name")] = _field(call, "result")
+	for name, result in last_result.items():
+		if _tool_call_status(result) == "Error":
+			return name, result
+	return None
+
+
+# (key, value that means the stage failed, what the basis says happened)
+_STAGE_FAILURES = (
+	("generated", False, "did not produce a diagram"),
+	("modified", False, "made no change"),
+	("truncated", True, "ran out of room (the output was too large)"),
+	("safe", False, "was refused by the safety check"),
+	("fallback", True, "closed the turn with a generic question"),
+)
+
+
+def _stage_reason(result) -> str | None:
+	"""Why a stage tool's JSON reply says it failed, or None."""
+	try:
+		body = json.loads(str(result or ""))
+	except ValueError:
+		return None
+	if not isinstance(body, dict):
+		return None
+	# A removal confirmation is a question to the user, not a failed change.
+	exempt = body.get("needs_removal_confirm") is True
+	for key, bad, reason in _STAGE_FAILURES:
+		if body.get(key) is bad and not (key == "modified" and exempt):
+			return reason
+	return None
+
+
+def stage_failure(calls) -> tuple | None:
+	"""(name, basis) of the first tool whose last call reports a failed stage, or None.
+
+	Each tool is judged by its own last call, as in unsuperseded_tool_failure.
+	"""
+	last_result = {}
+	for call in calls:
+		last_result[_field(call, "name")] = _field(call, "result")
+	for name, result in last_result.items():
+		reason = _stage_reason(result)
+		if reason:
+			return name, f"Tool '{name}' {reason}: {_excerpt(result)}"
+	return None
+
+
+def determine(result, goal_key: str | None = None, request_text: str | None = None) -> tuple[str, str]:
+	"""(state, basis) from what the executor reported. Pure — no database, no
+	model call — request_text/output are quoted verbatim into the basis, never
+	judged by one.
 
 	Deliberately conservative: anything this cannot read confidently returns
 	Unknown with a basis saying why, rather than guessing.
+
+	request_text: what the run was asked to do (e.g. the rendered user prompt),
+	    when the caller has it in scope. Optional — background tasks and other
+	    callers with nothing to quote just get a basis built from the output alone.
 	"""
 	if result is None:
 		return UNKNOWN, "No executor result was recorded for this run."
@@ -86,8 +176,24 @@ def determine(result, goal_key: str | None = None) -> tuple[str, str]:
 			"The tool-calling loop ran out of turns before reaching a final answer.",
 		)
 
+	if code == "BUDGET_EXCEEDED":
+		return NOT_ACHIEVED, f"The run stopped at its budget: {getattr(result, 'error_message', '')}"
+
 	if code and code != "SUCCESS":
 		return NOT_ACHIEVED, f"The run ended with an error ({code})."
+
+	calls = [call for turn in getattr(result, "trace", None) or [] for call in _field(turn, "tool_calls")]
+	hit = unsuperseded_tool_failure(calls)
+	if hit:
+		name, tool_result = hit
+		return (
+			NOT_ACHIEVED,
+			f"Tool '{name}' failed and was not retried successfully: {_excerpt(tool_result)}",
+		)
+
+	stage = stage_failure(calls)
+	if stage:
+		return NOT_ACHIEVED, stage[1]
 
 	output = getattr(result, "output", None)
 
@@ -99,8 +205,12 @@ def determine(result, goal_key: str | None = None) -> tuple[str, str]:
 			f"The run finished without producing '{goal_key}', which this map declares as done.",
 		)
 
-	if _output_text(output):
-		return ACHIEVED, "The run finished without error and produced an answer."
+	out_excerpt = _excerpt(_output_text(output))
+	if out_excerpt:
+		req_excerpt = _excerpt(request_text)
+		if req_excerpt:
+			return ACHIEVED, f'Answered "{req_excerpt}" with: "{out_excerpt}".'
+		return ACHIEVED, f'Produced an answer: "{out_excerpt}".'
 
 	# Finished cleanly but said nothing. That is not a success, and it is not
 	# evidence of failure either — some tasks legitimately write elsewhere.
@@ -124,7 +234,6 @@ def settle_for_instance(instance_name: str, instance_status: str) -> int:
 
 	if instance_status == "Completed":
 		state = ACHIEVED
-		basis = "The process reached its end event."
 	elif instance_status in ("Errored", "Cancelled"):
 		state = NOT_ACHIEVED
 		basis = f"The process {instance_status.lower()} before finishing."
@@ -134,7 +243,7 @@ def settle_for_instance(instance_name: str, instance_status: str) -> int:
 	undecided = frappe.get_all(
 		"AI Agent Run",
 		filters={"instance": instance_name, "goal_completion": UNKNOWN},
-		fields=["name", "status"],
+		fields=["name", "status", "final_output", "bpmn_label"],
 		limit_page_length=0,
 	)
 	settled = 0
@@ -146,10 +255,21 @@ def settle_for_instance(instance_name: str, instance_status: str) -> int:
 		# An errored run is never promoted by the map completing around it.
 		if state == ACHIEVED and row["status"] == "Error":
 			continue
+		if state == ACHIEVED:
+			# The map reaching its end event is not, by itself, evidence this run
+			# achieved anything — a run that produced nothing stays Unknown even
+			# though the process around it finished cleanly.
+			out_excerpt = _excerpt(row.get("final_output"))
+			if not out_excerpt:
+				continue
+			label = row.get("bpmn_label") or "the run"
+			row_basis = f'The process reached its end event; {label} produced: "{out_excerpt}".'
+		else:
+			row_basis = basis
 		frappe.db.set_value(
 			"AI Agent Run",
 			row["name"],
-			{"goal_completion": state, "completion_basis": basis},
+			{"goal_completion": state, "completion_basis": row_basis},
 			update_modified=False,
 		)
 		settled += 1

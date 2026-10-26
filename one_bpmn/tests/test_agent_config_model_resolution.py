@@ -67,5 +67,27 @@ class TestAgentConfigModelResolution(FrappeTestCase):
 		config = get_agent_config(row.agent_id)
 		self.assertIn("ai_model", config)
 
+	def test_the_config_says_which_record_it_came_from(self):
+		"""The direct chat path builds its AI Agent Run from this dict, so a
+		missing name is a run nobody can attribute to an agent. That path has no
+		BPMN instance and no process model either, so neither of create_ai_run's
+		fallbacks can rescue it: every direct chat run on staging carried a
+		prompt hash, a model and a provider, and a blank Agent Configuration."""
+		rows = frappe.get_all(
+			"AI Agent Configuration", filters={"enabled": 1}, fields=["name", "agent_id"], limit=5
+		)
+		rows = [r for r in rows if r.agent_id]
+		if not rows:
+			self.skipTest("no enabled agent configuration on this site")
+
+		wrong = []
+		for row in rows:
+			frappe.cache.delete_value(f"agent_config:{row.agent_id}")
+			got = (get_agent_config(row.agent_id) or {}).get("name")
+			if got != row.name:
+				wrong.append(f"{row.agent_id}: expected {row.name!r}, got {got!r}")
+
+		self.assertFalse(wrong, "get_agent_config dropped the record name: " + "; ".join(wrong))
+
 	def test_unknown_agent_still_returns_none(self):
 		self.assertIsNone(get_agent_config("no-such-agent-id-at-all"))

@@ -13,14 +13,22 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import now_datetime
 
-from one_bpmn.agents.eval_runner import _execute_eval_suite, run_eval_cases, run_eval_suite
 from one_bpmn.agents._eval_test_factories import (
+    make_agent_configuration,
     make_eval_case,
     make_eval_run,
     make_eval_suite,
     patch_executor,
     success_result,
+)
+from one_bpmn.agents.eval_runner import (
+    _execute_case,
+    _execute_eval_suite,
+    _mark_expected_errors,
+    run_eval_cases,
+    run_eval_suite,
 )
 
 
@@ -230,3 +238,182 @@ class TestEvalRunner(FrappeTestCase):
         self.assertEqual(run.total_cases, 2)
         self.assertEqual(run.passed_cases, 1)
         self.assertEqual(run.failed_cases, 1)
+
+
+def _make_agent_run(case: str, eval_run: str, errors: list[tuple[str | None, str | None]]) -> str:
+    """An AI Agent Run tagged to *case* and *eval_run*, with one step per (error_code, error_message)."""
+    run = frappe.get_doc({
+        "doctype": "AI Agent Run",
+        "bpmn_id": "Activity_test",
+        "status": "Success",
+        "started_at": now_datetime(),
+        "element_type": "task",
+        "origin": "eval",
+        "eval_case": case,
+        "eval_run": eval_run,
+    })
+    run.flags.ignore_mandatory = True
+    run.flags.ignore_links = True
+    run.insert(ignore_permissions=True)
+    for index, (code, message) in enumerate(errors, start=1):
+        step = frappe.get_doc({
+            "doctype": "AI Agent Step",
+            "run": run.name,
+            "step_index": index,
+            "role": "tool",
+            "content": "",
+            "error_code": code,
+            "error_message": message,
+        })
+        step.flags.ignore_mandatory = True
+        step.flags.ignore_links = True
+        step.insert(ignore_permissions=True)
+    return run.name
+
+
+def _flags(agent_run: str) -> list[int]:
+    return frappe.get_all(
+        "AI Agent Step", filters={"run": agent_run}, pluck="is_expected_error", order_by="step_index asc"
+    )
+
+
+class TestEvalAttributionAndExpectedErrors(FrappeTestCase):
+
+    def _process_model(self, configurations: int) -> str:
+        model = "_Test Eval Map " + frappe.generate_hash(length=8)
+        for _ in range(configurations):
+            make_agent_configuration(process_model=model)
+        return model
+
+    def _agentless_suite(self, configurations: int):
+        return make_eval_suite(agent_configuration=None, process_model=self._process_model(configurations))
+
+    # -- agent_configuration fallback ------------------------------------
+
+    def test_run_takes_the_only_configuration_on_the_suite_process_model(self):
+        suite = self._agentless_suite(configurations=1)
+        expected = frappe.get_value("AI Agent Configuration", {"process_model": suite.process_model}, "name")
+
+        with patch("frappe.enqueue"):
+            run_name = run_eval_suite(suite.name)
+
+        self.assertEqual(frappe.db.get_value("AI Eval Run", run_name, "agent_configuration"), expected)
+
+    def test_run_stays_unattributed_when_no_configuration_matches(self):
+        suite = self._agentless_suite(configurations=0)
+
+        with patch("frappe.enqueue"):
+            run_name = run_eval_suite(suite.name)
+
+        self.assertFalse(frappe.db.get_value("AI Eval Run", run_name, "agent_configuration"))
+
+    def test_run_stays_unattributed_when_several_configurations_match(self):
+        suite = self._agentless_suite(configurations=2)
+
+        with patch("frappe.enqueue"):
+            run_name = run_eval_suite(suite.name)
+
+        self.assertFalse(frappe.db.get_value("AI Eval Run", run_name, "agent_configuration"))
+
+    def test_suite_agent_wins_over_the_process_model(self):
+        own = make_agent_configuration()
+        suite = make_eval_suite(agent_configuration=own.name, process_model=self._process_model(configurations=1))
+
+        with patch("frappe.enqueue"):
+            run_name = run_eval_suite(suite.name)
+
+        self.assertEqual(frappe.db.get_value("AI Eval Run", run_name, "agent_configuration"), own.name)
+
+    def test_live_run_eval_cases_accepts_a_suite_resolved_through_its_process_model(self):
+        suite = self._agentless_suite(configurations=1)
+        expected = frappe.get_value("AI Agent Configuration", {"process_model": suite.process_model}, "name")
+
+        with patch("frappe.enqueue"):
+            run_name = run_eval_cases(suite.name, backend="live")
+
+        self.assertEqual(frappe.db.get_value("AI Eval Run", run_name, "agent_configuration"), expected)
+
+    def test_live_run_eval_cases_still_refuses_an_unresolvable_suite(self):
+        suite = self._agentless_suite(configurations=2)
+
+        with patch("frappe.enqueue"):
+            self.assertRaises(frappe.ValidationError, run_eval_cases, suite.name, None, "live")
+
+    # -- expected errors -------------------------------------------------
+
+    def test_only_the_matching_step_error_is_marked_expected(self):
+        suite = make_eval_suite()
+        case = make_eval_case(suite=suite.name, expected_error="get_pull_request")
+        eval_run = make_eval_run(suite.name).name
+        agent_run = _make_agent_run(case.name, eval_run, [
+            ("TOOL_ERROR", "get_pull_request: 404 Not Found"),
+            ("TOOL_ERROR", "list_work_items: connection reset"),
+            (None, None),
+        ])
+
+        flagged = _mark_expected_errors(case.name, case.expected_error, eval_run)
+
+        self.assertEqual(flagged, 1)
+        self.assertEqual(_flags(agent_run), [1, 0, 0])
+        self.assertEqual(_mark_expected_errors(case.name, case.expected_error, eval_run), 0)
+
+    def test_a_case_without_expected_error_marks_nothing(self):
+        suite = make_eval_suite()
+        case = make_eval_case(suite=suite.name)
+        eval_run = make_eval_run(suite.name).name
+        agent_run = _make_agent_run(case.name, eval_run, [("TOOL_ERROR", "get_pull_request: 404 Not Found")])
+
+        self.assertEqual(_mark_expected_errors(case.name, case.expected_error, eval_run), 0)
+        self.assertEqual(_flags(agent_run), [0])
+
+    def test_another_eval_run_of_the_same_case_is_left_alone(self):
+        suite = make_eval_suite()
+        case = make_eval_case(suite=suite.name, expected_error="get_pull_request")
+        this_run = make_eval_run(suite.name).name
+        other_run = make_eval_run(suite.name).name
+        other_agent_run = _make_agent_run(case.name, other_run, [("TOOL_ERROR", "get_pull_request: 404")])
+
+        _mark_expected_errors(case.name, case.expected_error, this_run)
+
+        self.assertEqual(_flags(other_agent_run), [0])
+
+    def test_executing_a_case_marks_its_expected_errors(self):
+        suite = make_eval_suite()
+        case = make_eval_case(suite=suite.name, expected_error="get_pull_request")
+        eval_run = make_eval_run(suite.name).name
+        made = {}
+
+        def run_the_agent(case_doc, run_name, agent_cfg):
+            made["run"] = _make_agent_run(case_doc.name, run_name, [("TOOL_ERROR", "get_pull_request: 404")])
+            return {"eval_case": case_doc.name, "status": "Passed"}
+
+        with patch("one_bpmn.agents.eval_runner._execute_case_inner", side_effect=run_the_agent):
+            _execute_case(frappe.get_doc("AI Eval Case", case.name), eval_run)
+
+        self.assertEqual(_flags(made["run"]), [1])
+
+    # -- backfill patch --------------------------------------------------
+
+    def test_patch_attributes_old_runs_and_marks_past_errors_and_is_idempotent(self):
+        from one_bpmn.one_bpmn.patches.v1_0 import (
+            eval_runs_name_their_agent_and_expected_errors_are_marked as backfill,
+        )
+
+        resolvable = self._agentless_suite(configurations=1)
+        ambiguous = self._agentless_suite(configurations=2)
+        expected = frappe.get_value("AI Agent Configuration", {"process_model": resolvable.process_model}, "name")
+        old_run = make_eval_run(resolvable.name).name
+        stuck_run = make_eval_run(ambiguous.name).name
+        case = make_eval_case(suite=resolvable.name, expected_error="get_pull_request")
+        agent_run = _make_agent_run(case.name, old_run, [
+            ("TOOL_ERROR", "get_pull_request: 404"), ("TOOL_ERROR", "get_work_item: timeout"),
+        ])
+
+        backfill.execute()
+        backfill.execute()
+
+        self.assertEqual(frappe.db.get_value("AI Eval Suite", resolvable.name, "agent_configuration"), expected)
+        self.assertEqual(frappe.db.get_value("AI Eval Run", old_run, "agent_configuration"), expected)
+        self.assertFalse(frappe.db.get_value("AI Eval Suite", ambiguous.name, "agent_configuration"))
+        self.assertFalse(frappe.db.get_value("AI Eval Run", stuck_run, "agent_configuration"))
+        self.assertEqual(_flags(agent_run), [1, 0])

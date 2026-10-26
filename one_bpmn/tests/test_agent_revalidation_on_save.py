@@ -86,6 +86,62 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 		doc.reload()
 		return doc
 
+	def test_a_model_the_platform_knows_is_broken_is_not_called_again(self):
+		"""WI-002191 already marks a model whose credentials fail, alerts once and
+		refuses runs on it. Saving an agent on such a model used to make the live
+		call anyway and park the agent on the answer. On prod-backup on
+		2026-09-13 that parked ProsAlly twice, the second time while it was being
+		put back the way it was found."""
+		from one_bpmn.agents.model_health import record_failure
+
+		agent = self._make_agent()
+		record_failure(self.model.name, "INVALID_KEY", "OpenAI rejected the API key (HTTP 401).")
+
+		with patch(TEST_CALL) as call:
+			agent.save(ignore_permissions=True)
+
+		call.assert_not_called()
+		self.assertEqual(agent.lifecycle_status, "Live")
+
+	def test_a_missing_key_names_the_record_not_the_sdk(self):
+		"""What the person saving an agent read was the provider SDK's own words:
+		"Could not resolve authentication method. Expected one of api_key,
+		auth_token, or credentials to be set." The provider is never called: an
+		empty key is answered here, before an adapter is built."""
+		from one_bpmn.agents import agent_provisioning
+
+		agent = self._make_agent()
+		with patch("frappe.utils.password.get_decrypted_password", return_value=""), patch(
+			"one_bpmn.agents.llm_provider.get_llm_adapter_from_settings",
+			side_effect=AssertionError("the provider must not be called"),
+		):
+			ok, detail = agent_provisioning._provider_test_call(agent)
+
+		self.assertFalse(ok)
+		self.assertIn("has no API key set", detail)
+		self.assertIn(self.model.name, detail)
+
+	def test_an_empty_reply_keeps_a_live_agent_live_and_says_why(self):
+		"""It passed, so it must not park the agent, and a pass with nothing to
+		show for it is still worth saying: this and a clean pass should not read
+		the same. Lumina General Chat was parked on staging for this."""
+		from one_bpmn.agents import agent_provisioning
+
+		agent = self._make_agent()
+		with patch(TEST_CALL, return_value=(True, agent_provisioning._TEST_CALL_EMPTY)):
+			agent.save(ignore_permissions=True)
+		self.assertEqual(agent.lifecycle_status, "Live")
+
+		with patch(
+			"one_bpmn.agents.agent_provisioning._provider_test_call",
+			return_value=(True, agent_provisioning._TEST_CALL_EMPTY),
+		):
+			result = agent_provisioning.validate_agent_config(agent.name, test_provider=True)
+
+		self.assertTrue(result["ok"])
+		self.assertEqual(result["errors"], [])
+		self.assertTrue(any(agent_provisioning._TEST_CALL_EMPTY in w for w in result["warnings"]))
+
 	def test_live_agent_parks_when_provider_call_fails(self):
 		agent = self._make_agent()
 		self.assertEqual(agent.lifecycle_status, "Live")
@@ -121,6 +177,31 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 			"Needs Attention",
 			"only the map may promote",
 		)
+
+	def test_a_parked_agent_that_still_fails_shows_the_new_reason_once(self):
+		"""A save that failed again on a parked agent wrote nothing, so the form kept
+		the old reason ("is disabled") after the model had been enabled."""
+		agent = self._make_agent()
+		with patch(TEST_CALL, return_value=(False, "down")):
+			agent.save()
+
+		def comments():
+			return frappe.db.count(
+				"Comment",
+				{"reference_doctype": "AI Agent Configuration", "reference_name": agent.name,
+				 "content": ("like", "Needs Attention:%")},
+			)
+
+		before = comments()
+		with patch(TEST_CALL, return_value=(False, "404 model not found")):
+			agent.save()
+			agent.save()
+
+		self.assertIn(
+			"404 model not found",
+			frappe.db.get_value("AI Agent Configuration", agent.name, "needs_attention_reason"),
+		)
+		self.assertEqual(comments(), before + 1)
 
 	def test_retired_is_untouched(self):
 		# Retired is a deliberate manual state: the on-save revalidation may
@@ -158,3 +239,123 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 			self.assertEqual(agent.lifecycle_status, "Live")
 		finally:
 			frappe.flags.test_agent_revalidation = True
+
+
+class TestProviderTestCall(FrappeTestCase):
+	"""The live test call proves the credentials and the model, not the model's
+	brevity. On 2026-09-08 every save of a Live agent on Claude Sonnet 5 parked
+	it because the reply ran past a 16-token ceiling and the adapter raised."""
+
+	def _call(self, adapter_behaviour):
+		from types import SimpleNamespace
+
+		from one_bpmn.agents import agent_provisioning
+
+		class Adapter:
+			async def complete(self, **kwargs):
+				self.kwargs = kwargs
+				return adapter_behaviour(kwargs)
+
+		adapter = Adapter()
+		cfg = SimpleNamespace(agent_id="probe")
+		with patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter), \
+			patch(
+				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
+				return_value={},
+			):
+			return agent_provisioning._provider_test_call(cfg), adapter
+
+	def test_a_truncated_reply_still_passes(self):
+		from one_bpmn.agents.llm_provider.base import LLMTruncatedError
+
+		def truncated(kwargs):
+			raise LLMTruncatedError("The model hit its 64-token output limit before finishing.")
+
+		(ok, detail), _adapter = self._call(truncated)
+		self.assertTrue(ok)
+		self.assertIn("provider answered", detail)
+
+	def test_a_normal_reply_passes_with_the_text(self):
+		from types import SimpleNamespace
+
+		(ok, detail), adapter = self._call(lambda kw: SimpleNamespace(text="OK"))
+		self.assertTrue(ok)
+		self.assertEqual(detail, "OK")
+		self.assertGreaterEqual(adapter.kwargs["max_tokens"], 64)
+
+	def test_a_rejected_key_still_fails(self):
+		def rejected(kwargs):
+			raise RuntimeError("401 Client Error: Unauthorized")
+
+		(ok, detail), _adapter = self._call(rejected)
+		self.assertFalse(ok)
+		self.assertIn("401", detail)
+
+	def test_an_empty_reply_is_asked_again(self):
+		"""Providers return an empty body now and then. The second ask usually
+		has words in it, and then there is nothing to report."""
+		from types import SimpleNamespace
+
+		replies = ["", "OK"]
+
+		(ok, detail), _adapter = self._call(lambda kw: SimpleNamespace(text=replies.pop(0)))
+		self.assertTrue(ok)
+		self.assertEqual(detail, "OK")
+		self.assertEqual(replies, [])
+
+	def test_two_empty_replies_pass_with_a_note(self):
+		"""An empty reply is not a broken credential: the key was accepted and
+		the model answered. A rejected key raises instead. Failing here parked
+		Lumina General Chat on staging with "empty response"."""
+		from types import SimpleNamespace
+
+		from one_bpmn.agents import agent_provisioning
+
+		(ok, detail), _adapter = self._call(lambda kw: SimpleNamespace(text="   "))
+		self.assertTrue(ok)
+		self.assertEqual(detail, agent_provisioning._TEST_CALL_EMPTY)
+
+
+
+class TestTheFactorySendsTheApiName(FrappeTestCase):
+	"""A per-agent record is named "<Agent> - <model>"; the provider only knows
+	model_api_name. Sending the record name answered 404 on every save."""
+
+	def setUp(self):
+		if not frappe.db.exists("AI Provider", "Anthropic"):
+			frappe.get_doc({"doctype": "AI Provider", "provider": "Anthropic"}).insert()
+		self.model = frappe.get_doc({
+			"doctype": "AI Model",
+			"enable_model": 1,
+			"model_name": f"Factory Agent {frappe.generate_hash(length=6)} - claude-test",
+			"model_api_name": "claude-test-api-id",
+			"provider": "Anthropic",
+			"api_key": "test-key-not-real",
+		}).insert()
+
+	def _sent_model(self, cfg):
+		from one_bpmn.agents.llm_provider import factory
+
+		with patch.object(factory, "get_llm_adapter") as build:
+			factory.get_llm_adapter_from_settings(cfg)
+		return build.call_args.kwargs["model"]
+
+	def test_the_linked_provider_path_sends_the_api_name(self):
+		self.assertEqual(
+			self._sent_model({"ai_provider": "Anthropic", "ai_model": self.model.name}),
+			"claude-test-api-id",
+		)
+
+	def test_the_site_default_path_sends_the_api_name(self):
+		with patch(
+			"one_bpmn.agents.llm_provider.factory._get_provider_credentials",
+			return_value=("test-key-not-real", self.model.name),
+		):
+			self.assertEqual(self._sent_model({}), "claude-test-api-id")
+
+	def test_a_model_that_is_not_a_record_is_sent_as_it_is(self):
+		with patch(
+			"one_bpmn.agents.llm_provider.factory._get_provider_credentials",
+			return_value=("", ""),
+		), patch("frappe.db.get_single_value", return_value="anthropic"):
+			self.assertEqual(self._sent_model({}), "claude-sonnet-4-5")

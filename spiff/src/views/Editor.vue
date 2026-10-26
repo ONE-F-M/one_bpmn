@@ -239,8 +239,8 @@
 						</div>
 					</div>
 
-					<!-- Actions menu (last — primary actions, only for executable processes) -->
-					<template v-if="isExecutable">
+					<!-- Actions menu (last - primary actions; a non-executable map gets only Release Property Panel) -->
+					<template v-if="isExecutable || isProductionInstance">
 						<div class="relative">
 							<button
 								@click="showActionsMenu = !showActionsMenu"
@@ -260,7 +260,7 @@
 							>
 								<!-- Deploy (only when the model is not yet Active) -->
 								<button
-									v-if="!isActiveModel"
+									v-if="isExecutable && !isActiveModel"
 									@click="deployModel(); showActionsMenu = false"
 									class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
 									:disabled="!activeDiagramName || deploying || !!activeVersionName"
@@ -271,7 +271,7 @@
 								</button>
 								<!-- Disable (only when the model is Active) -->
 								<button
-									v-if="isActiveModel"
+									v-if="isExecutable && isActiveModel"
 									@click="disableModel(); showActionsMenu = false"
 									class="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
 									:disabled="!activeDiagramName || disabling"
@@ -281,7 +281,7 @@
 									{{ disabling ? 'Disabling…' : 'Disable' }}
 								</button>
 								<!-- Production review (only on a BA instance) -->
-								<template v-if="isBaInstance">
+								<template v-if="isExecutable && isBaInstance">
 									<div class="border-t border-gray-100 my-1"></div>
 									<button
 										@click="openReview('doctypes'); showActionsMenu = false"
@@ -302,9 +302,12 @@
 										Review Workflow Objects
 									</button>
 								</template>
-								<!-- Reassign User Task (only on a Production instance) -->
+								<!-- Release Property Panel (only on a Production instance) -->
 								<template v-if="isProductionInstance">
-									<div class="border-t border-gray-100 my-1"></div>
+									<div
+										v-if="isExecutable"
+										class="border-t border-gray-100 my-1"
+									></div>
 									<button
 										@click="toggleReassignMode(); showActionsMenu = false"
 										class="w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors"
@@ -314,8 +317,8 @@
 											{ 'opacity-40 cursor-not-allowed': !activeDiagramName }
 										]"
 									>
-										<Icon icon="lucide:user-cog" class="w-4 h-4" />
-										{{ reassignMode ? 'Exit Reassign Mode' : 'Reassign User Task' }}
+										<Icon :icon="reassignMode ? 'lucide:lock' : 'lucide:lock-open'" class="w-4 h-4" />
+										{{ reassignMode ? 'Lock Property Panel' : 'Release Property Panel' }}
 									</button>
 								</template>
 							</div>
@@ -337,9 +340,9 @@
 						v-click-outside="() => showMobileMoreMenu = false"
 						class="absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1"
 					>
-						<template v-if="isExecutable">
+						<template v-if="isExecutable || isProductionInstance">
 							<button
-								v-if="isActiveModel"
+								v-if="isExecutable && isActiveModel"
 								@click="disableModel(); showMobileMoreMenu = false"
 								class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
 								:disabled="!activeDiagramName || disabling"
@@ -349,7 +352,7 @@
 								{{ disabling ? 'Disabling…' : 'Disable' }}
 							</button>
 							<button
-								v-else
+								v-else-if="isExecutable"
 								@click="deployModel(); showMobileMoreMenu = false"
 								class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
 								:disabled="!activeDiagramName || deploying || !!activeVersionName"
@@ -358,7 +361,7 @@
 								<Icon :icon="deploying ? 'lucide:loader-2' : 'lucide:rocket'" class="w-4 h-4" />
 								{{ deploying ? 'Deploying…' : 'Deploy' }}
 							</button>
-							<template v-if="isBaInstance">
+							<template v-if="isExecutable && isBaInstance">
 								<button
 									@click="openReview('doctypes'); showMobileMoreMenu = false"
 									class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
@@ -388,8 +391,8 @@
 										{ 'opacity-40 cursor-not-allowed': !activeDiagramName }
 									]"
 								>
-									<Icon icon="lucide:user-cog" class="w-4 h-4" />
-									{{ reassignMode ? 'Exit Reassign Mode' : 'Reassign User Task' }}
+									<Icon :icon="reassignMode ? 'lucide:lock' : 'lucide:lock-open'" class="w-4 h-4" />
+									{{ reassignMode ? 'Lock Property Panel' : 'Release Property Panel' }}
 								</button>
 							</template>
 						</template>
@@ -667,15 +670,8 @@
 							</div>
 							<div>
 								<label class="block text-xs font-medium text-gray-700 mb-1">Script Type <span class="text-red-500">*</span></label>
-								<select v-model="newScript.script_type" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" :disabled="isScriptTaskElement">
-									<template v-if="isScriptTaskElement"><option value="API">API</option></template>
-									<template v-else>
-										<option value="">Select type...</option>
-										<option value="DocType Event">DocType Event</option>
-										<option value="Scheduler Event">Scheduler Event</option>
-										<option value="Permission Query">Permission Query</option>
-										<option value="API">API</option>
-									</template>
+								<select v-model="newScript.script_type" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400" disabled>
+									<option value="API">API</option>
 								</select>
 							</div>
 						</div>
@@ -786,21 +782,53 @@
 			</template>
 		</Dialog>
 
-		<!-- Logix Canvas (AI Script Editor) -->
-		<Dialog v-model="showLogixCanvas" :options="{ title: 'Logix AI Assistant', size: '7xl' }">
-			<template #body-content>
-				<LogixCanvas
-					:element="logixElement"
-					:script-type="logixScriptType"
-					:current-script="logixCurrentScript"
-					:event-bus="logixEventBus"
-					:process-context="logixProcessContext"
-					@close="showLogixCanvas = false"
-					@script-saved="onLogixScriptSaved"
-					@back="onLogixBack"
-				/>
-			</template>
-		</Dialog>
+		<!-- Logix Canvas (AI Script Editor): only the X hides it, and it stays mounted so reopening keeps the chat and draft -->
+		<Teleport to="body">
+			<div
+				v-if="logixElement"
+				v-show="showLogixCanvas"
+				class="dialog-overlay fixed inset-0 overflow-y-auto bg-black-overlay-200 backdrop-blur-[12px]"
+			>
+				<div class="flex min-h-screen items-start justify-center px-4 py-4">
+					<div
+						class="logix-window my-8 overflow-hidden rounded-xl bg-surface-modal text-left shadow-xl"
+						role="dialog"
+						aria-modal="true"
+						aria-label="Logix AI Assistant"
+					>
+						<div class="mb-6 flex items-center justify-between px-4 pt-5 sm:px-6">
+							<h3 class="text-2xl font-semibold leading-6 text-ink-gray-9">Logix AI Assistant</h3>
+							<Button
+								variant="ghost"
+								title="Close"
+								@click="showLogixCanvas = false"
+							>
+								<template #icon>
+									<Icon
+										icon="lucide:x"
+										class="h-4 w-4 text-ink-gray-9"
+									/>
+								</template>
+							</Button>
+						</div>
+						<div class="px-4 pb-6 sm:px-6">
+							<LogixCanvas
+								:key="`${logixElement.id}:${logixScriptType}`"
+								:element="logixElement"
+								:script-type="logixScriptType"
+								:current-script="logixCurrentScript"
+								:event-bus="logixEventBus"
+								:process-context="logixProcessContext"
+								:readonly="logixReadonly"
+								@close="showLogixCanvas = false"
+								@script-saved="onLogixScriptSaved"
+								@back="onLogixBack"
+							/>
+						</div>
+					</div>
+				</div>
+			</div>
+		</Teleport>
 
 		<!-- DMN Editor Dialog (Business Rule Task) — autosaves on every change -->
 		<Dialog v-model="showDmnEditorDialog" :options="{ title: dmnEditorTitle, size: '7xl' }">
@@ -821,6 +849,7 @@
 		<!-- Call Activity Search Dialog -->
 		<CallActivitySearchDialog
 			v-model="showCallActivitySearchDialog"
+			:caller-executable="isExecutable"
 			:search-event="callActivitySearchEvent"
 			@select="onCallActivitySelected"
 			@cancel="onCancelCallActivitySearch"
@@ -858,9 +887,10 @@
 		<!-- Notify Assignee Editor Dialog (User Task) -->
 		<NotifyAssigneeEditorDialog
 			v-model="showNotifyAssigneeDialog"
-			:initial-body="notifyAssigneeBody"
-			:initial-subject="notifyAssigneeSubject"
-			:initial-template="notifyAssigneeTemplate"
+			:initial-values="notifyAssigneeValues"
+			:doctype="notifyAssigneeDoctype"
+			:task-name="notifyAssigneeTaskName"
+			:task-actions="notifyAssigneeTaskActions"
 			@save="onSaveNotifyAssigneeBody"
 		/>
 		<Dialog v-model="showUnsavedNavigationWarning" :options="{ title: 'Unsaved Changes', size: 'sm' }">
@@ -967,6 +997,11 @@
 									<td class="px-3 py-2 text-gray-800 font-medium">
 										{{ c.name }}
 										<span v-if="c.doctype && c.doctype !== c.name" class="text-gray-400">· {{ c.doctype }}</span>
+										<!-- We own this DocType, so Sync edits its own JSON rather than
+										     minting an override — name the file it lands in. -->
+										<div v-if="c.destination" class="text-[11px] text-gray-400 font-normal font-mono">
+											{{ c.destination }}
+										</div>
 									</td>
 									<td class="px-3 py-2">
 										<span :class="c.action === 'Create' ? 'text-green-600' : 'text-amber-600'">{{ c.action }}</span>
@@ -977,7 +1012,7 @@
 						</table>
 					</div>
 					<p v-if="reviewKind === 'doctypes'" class="text-xs text-gray-500">
-						Sync opens a GitHub pull request (per owning app) with these changes. Merging and deploying migrates Production.
+						Sync opens a GitHub pull request against {{ prBaseBranch }} (per owning app) with these changes. Merging and deploying migrates Production.
 					</p>
 					<p v-else class="text-xs text-gray-500">
 						Sync overwrites existing records and creates new ones on the linked Production system.
@@ -993,7 +1028,7 @@
 				<!-- Syncing -->
 				<div v-else-if="reviewStage === 'syncing'" class="flex items-center gap-3 py-6 text-sm text-gray-600">
 					<Icon icon="lucide:loader-2" class="w-5 h-5 animate-spin" />
-					Syncing to Production…
+					{{ syncingLabel }}
 				</div>
 
 				<!-- Sync result -->
@@ -1004,7 +1039,7 @@
 					</div>
 					<template v-else-if="reviewKind === 'doctypes'">
 						<div v-if="reviewResult && reviewResult.prs && reviewResult.prs.length" class="space-y-2">
-							<div class="text-gray-700">Pull request(s) opened:</div>
+							<div class="text-gray-700">Pull request(s) opened against {{ prBaseBranch }}:</div>
 							<a v-for="(pr, i) in reviewResult.prs" :key="i" :href="pr.pr_url" target="_blank"
 								class="flex items-center gap-2 text-blue-600 hover:underline">
 								<Icon icon="lucide:git-pull-request" class="w-4 h-4" />
@@ -1088,6 +1123,7 @@ import ReadinessChecklistDialog from "@/components/ReadinessChecklistDialog.vue"
 import ExportConfigDialog from "@/components/ExportConfigDialog.vue";
 import ConfigImportResultsDialog from "@/components/ConfigImportResultsDialog.vue";
 import { sanitiseFilename } from "@/utils/downloadBpmn";
+import { serverMessage } from "@/utils/serverMessage";
 import { useNotificationDialog } from "@/composables/useNotificationDialog";
 import { useWindowSize } from "@/composables/useWindowSize";
 import { dayjs } from "@/dayjs";
@@ -1172,12 +1208,17 @@ const showActionsMenu = ref(false);
 const connectToProduction = ref(false);
 // Processa Settings → Instance Type. Gates the environment-specific Actions:
 //   "Review Doctypes" / "Review Workflow Objects" → BA instance only
-//   "Reassign User Task"                          → Production instance only
+//   "Release Property Panel"                      → Production instance only
 const instanceType = ref("");
 const isBaInstance = computed(() => instanceType.value === "BA");
 const isProductionInstance = computed(() => instanceType.value === "Production");
 const showReviewDialog = ref(false);
 const reviewKind = ref("doctypes"); // "doctypes" | "workflow"
+// A doctype sync raises a pull request; only a workflow sync writes to Production itself.
+const prBaseBranch = ref("");
+const syncingLabel = computed(() =>
+	reviewKind.value === "doctypes" ? `Opening pull request against ${prBaseBranch.value}…` : "Syncing to Production…",
+);
 const reviewStage = ref("intro"); // intro | loading | diff | empty | syncing | result
 const reviewChanges = ref([]);
 const reviewResult = ref(null);
@@ -1187,7 +1228,7 @@ const reviewTitle = computed(() =>
 );
 const reviewIntro = computed(() =>
 	reviewKind.value === "doctypes"
-		? "Doctypes referenced in the process model, alongside Custom Fields and Property Setters will be compared to the Production system for changes."
+		? "Doctypes referenced in the process model, alongside Client Scripts, Custom Fields and Property Setters, will be compared to the Production system for changes."
 		: "Workflow Objects (Roles, Server Scripts, Workflow States, and Workflow Action Master) referenced in the process model will be compared to the Production system for changes."
 );
 const reviewEmptyMessage = computed(() =>
@@ -1204,6 +1245,7 @@ async function loadProductionReviewSettings() {
 		const d = r.message || r;
 		connectToProduction.value = !!d.connect_to_production;
 		instanceType.value = d.instance_type || "";
+		prBaseBranch.value = d.pr_base_branch || "";
 	} catch (e) {
 		connectToProduction.value = false;
 		instanceType.value = "";
@@ -1273,12 +1315,13 @@ async function runSync() {
 	}
 }
 
-// --- Reassign User Task (only on a Production instance) ---
-// While enabled, the Assignment Configuration fields of User Tasks become
-// editable on an otherwise read-only canvas. Each change is persisted (and
-// logged) through a dedicated attribute-scoped endpoint (the normal save path
-// is blocked on locked models). The map is recompiled ONCE — a single Deploy —
-// when reassign mode is exited, rather than once per edited task.
+// --- Release Property Panel (only on a Production instance) ---
+// While released, the properties panel can edit flow objects on an otherwise
+// read-only canvas — everything except script tasks, AI Agent tasks, sequence
+// flows and the attributes that would break the map (see
+// one_bpmn/api/property_panel.py). Each change is persisted through that
+// endpoint, because the normal save path is blocked on locked models. The map
+// is recompiled ONCE — a single Deploy — when the panel is locked again.
 const reassignMode = ref(false);
 const pendingReassignments = new Map(); // taskId → { modelName, assignment }
 let reassignSaveTimer = null;
@@ -1291,14 +1334,14 @@ function toggleReassignMode() {
 	if (reassignMode.value) {
 		// Turning OFF → persist anything pending, then deploy once.
 		reassignMode.value = false;
-		showNotification("Reassign mode disabled", "Assignment fields are read-only again.", "gray");
+		showNotification("Property panel locked", "All locked in, we're back to read-only mode.", "gray");
 		finalizeReassignments();
 	} else {
 		reassignMode.value = true;
 		touchedReassignModels.clear();
 		showNotification(
-			"Reassign mode enabled",
-			"Assignment Configuration fields (Assignment Mode, User, DocField, Users, Table Field, Row User Field) on User Tasks are now editable. Changes are saved as you make them and recorded in the map's version history, and the map is redeployed once when you exit reassign mode.",
+			"Property panel released",
+			"Properties of flow objects can now be modified, except for script tasks and AI Agent tasks.",
 			"blue"
 		);
 	}
@@ -1336,12 +1379,12 @@ async function flushReassignments() {
 	for (const [taskId, { modelName, assignment }] of entries) {
 		try {
 			const res = await frappeRequest({
-				url: "/api/method/one_bpmn.api.reassignment.reassign_user_task",
+				url: "/api/method/one_bpmn.api.property_panel.update_element_properties",
 				method: "POST",
 				params: {
 					model_name: modelName,
-					task_id: taskId,
-					assignment: JSON.stringify(assignment),
+					element_id: taskId,
+					properties: JSON.stringify(assignment),
 				},
 			});
 			if (res && res.updated) touchedReassignModels.add(modelName);
@@ -1349,8 +1392,8 @@ async function flushReassignments() {
 			const msg =
 				err.messages && err.messages.length
 					? err.messages.join("\n")
-					: err.message || "Failed to save the reassignment.";
-			showNotification("Reassignment failed", msg, "red", true);
+					: err.message || "Failed to save the property change.";
+			showNotification("Property change failed", msg, "red", true);
 		}
 	}
 }
@@ -1367,28 +1410,23 @@ async function finalizeReassignments() {
 	for (const modelName of models) {
 		try {
 			const res = await frappeRequest({
-				url: "/api/method/one_bpmn.api.reassignment.deploy_reassignments",
+				url: "/api/method/one_bpmn.api.property_panel.deploy_property_changes",
 				method: "POST",
 				params: { model_name: modelName },
 			});
-			if (!res || res.redeployed === false) deployFailed = true;
+			if (!res || res.deploy_error) deployFailed = true;
 		} catch (err) {
 			deployFailed = true;
 		}
 	}
 
+	// Locking the panel already announced itself; only a failed redeploy needs a word.
 	if (deployFailed) {
 		showNotification(
-			"Reassignments saved — redeploy pending",
-			"Assignment changes were saved and recorded in the version history, but automatic redeploy failed. Click Deploy to apply them to new instances.",
+			"Changes saved, redeploy pending",
+			"Property changes were saved and recorded in the version history, but automatic redeploy failed. Click Deploy to apply them to new instances.",
 			"red",
 			true
-		);
-	} else {
-		showNotification(
-			"Reassignments saved & redeployed",
-			"All assignment changes were saved to the map's version history and the map was redeployed once. New process instances use the new assignment; already-running tasks keep their current assignee.",
-			"green"
 		);
 	}
 }
@@ -1615,7 +1653,6 @@ const creatingScript = ref(false);
 const showDoctypeDropdown = ref(false);
 const showModuleDropdown = ref(false);
 let activeScriptEvent = null;
-const isScriptTaskElement = ref(false);
 
 // Script preview state (Select Existing tab)
 const previewScriptContent = ref(null);
@@ -1631,7 +1668,7 @@ const savingEditScript = ref(false);
 // New Script form state
 const newScript = ref({
 	name: "",
-	script_type: "",
+	script_type: "API",
 	script: "",
 	reference_doctype: "",
 	doctype_event: "",
@@ -1658,9 +1695,7 @@ const eventFrequencies = [
 // Computed: filtered scripts based on search (restricted to API for Script Tasks)
 const filteredServerScripts = computed(() => {
 	let list = serverScripts.value;
-	if (isScriptTaskElement.value) {
-		list = list.filter((s) => s.script_type === "API");
-	}
+	list = list.filter((s) => s.script_type === "API");
 	if (!serverScriptSearch.value) return list;
 	const q = serverScriptSearch.value.toLowerCase();
 	return list.filter(
@@ -1678,6 +1713,9 @@ const logixScriptType = ref("bpmn:script");
 const logixCurrentScript = ref("");
 const logixEventBus = ref(null);
 const logixProcessContext = ref(null);
+// True when the script was launched from a read-only map — the editor and
+// chat both open in view-only mode so a locked map can't be edited via Logix.
+const logixReadonly = ref(false);
 
 function extractProcessContext(element) {
 	if (!element?.businessObject) return null;
@@ -1960,15 +1998,20 @@ async function executeDeployment() {
 			// Show deploy readiness warnings (non-blocking). Warnings may be
 			// plain strings (eval suite gating) or structured objects with
 			// { label, detail, type, icon } (e.g. backend code removal).
+			// All of them in ONE banner: the banner holds a single message, so
+			// raising them one by one left only the last one on screen.
 			if (response.warnings && response.warnings.length > 0) {
-				for (const warning of response.warnings) {
-					if (warning && typeof warning === "object") {
-						const title = warning.label ? `${warning.label} Warning` : "Deploy Warning";
-						showNotification(title, warning.detail || warning.label || "", "orange");
-					} else {
-						showNotification("Eval Suite Warning", warning, "orange");
-					}
-				}
+				const lines = response.warnings.map((warning) =>
+					warning && typeof warning === "object"
+						? `${warning.label ? warning.label + ": " : ""}${warning.detail || warning.label || ""}`
+						: `Eval Suite: ${warning}`
+				);
+				showNotification(
+					lines.length === 1 ? "Deploy Warning" : `${lines.length} Deploy Warnings`,
+					lines.join("\n\n"),
+					"orange",
+					true
+				);
 			}
 
 			// Update local state: mark this diagram as active, deactivate siblings
@@ -2438,11 +2481,7 @@ async function saveCurrentDiagram() {
 		// Surface the server-thrown message (e.g. the script-security gate's
 		// summary) rather than the generic HTTP/ValidationError string. Keep it
 		// on screen (stay) since a blocked save needs the author's attention.
-		const serverMsg =
-			(error.messages && error.messages.length > 0)
-				? error.messages.join("\n")
-				: (error.message || String(error));
-		showNotification("Couldn't Save Process", serverMsg, "red", true);
+		showNotification("Couldn't Save Process", serverMessage(error), "red", true);
 	} finally {
 		saving.value = false;
 	}
@@ -2892,6 +2931,13 @@ async function handleImportFile(event) {
 
 		const action = result.action === "updated" ? "updated" : "imported";
 
+		// If the imported map is the one already open, import_bpmn returns the
+		// same name and activeDiagramName won't change below, so
+		// watch(activeDiagramName) never fires and the canvas would keep
+		// showing the stale drawing. Remember this now, before we touch
+		// activeDiagramName, so we can repaint it directly further down.
+		const isReimportOfOpenDiagram = activeDiagramName.value === result.name;
+
 		// Pre-populate cache so the watch(activeDiagramName) handler
 		// gets an instant cache-hit and calls loadXML without a round-trip.
 		diagramDataCache.value[result.name] = xmlContent;
@@ -2922,6 +2968,16 @@ async function handleImportFile(event) {
 			name: "DiagramEditor",
 			params: { process: props.process, diagram: result.name },
 		});
+
+		if (isReimportOfOpenDiagram) {
+			// activeDiagramName did not actually change (same name before and
+			// after), so the watch(activeDiagramName) above never fires and the
+			// canvas is never repainted. Call the load path directly instead —
+			// this is a cache-hit thanks to the pre-populated diagramDataCache
+			// above, so it just calls editorRef.loadXML with the fresh XML. No
+			// page reload (that crashes the Preact properties panel).
+			await loadDiagramContent(result.name);
+		}
 
 		showNotification(
 			"Import Successful",
@@ -3095,6 +3151,7 @@ function onLaunchScriptEditor(event) {
 	logixCurrentScript.value = event.script || "";
 	logixEventBus.value = event.eventBus;
 	logixProcessContext.value = extractProcessContext(event.element);
+	logixReadonly.value = !!event.readonly;
 
 	// Prep dialog state so it's ready if the user goes back from Logix
 	const typeLabels = {
@@ -3111,7 +3168,6 @@ function onLaunchScriptEditor(event) {
 	scriptDialogMode.value = event.script ? "edit" : "select";
 	serverScriptSearch.value = "";
 	selectedServerScript.value = event.script || null;
-	isScriptTaskElement.value = !!(event.element?.type === "bpmn:ScriptTask");
 	if (event.script) loadScriptContent(event.script, "edit");
 
 	// Go straight to Logix canvas — skip the script selector dialog
@@ -3349,37 +3405,34 @@ function onLaunchNotificationEditor(event) {
 
 // --- Notify Assignee Editor (User Task) ---
 const showNotifyAssigneeDialog = ref(false);
-const notifyAssigneeBody = ref("");
-const notifyAssigneeSubject = ref("");
-const notifyAssigneeTemplate = ref("");
+const notifyAssigneeValues = ref({});
+const notifyAssigneeDoctype = ref("");
+const notifyAssigneeTaskName = ref("");
+const notifyAssigneeTaskActions = ref([]);
 let notifyAssigneeEvent = null;
 
 watch(showNotifyAssigneeDialog, (isOpen) => {
 	if (!isOpen) {
 		notifyAssigneeEvent = null;
-		notifyAssigneeBody.value = "";
-		notifyAssigneeSubject.value = "";
-		notifyAssigneeTemplate.value = "";
+		notifyAssigneeValues.value = {};
 	}
 });
 function onLaunchNotifyAssigneeEditor(event) {
 	notifyAssigneeEvent = event;
-	notifyAssigneeBody.value = event.body || "";
-	notifyAssigneeSubject.value = event.subject || "";
-	notifyAssigneeTemplate.value = event.template || "";
+	notifyAssigneeValues.value = event.values;
+	notifyAssigneeDoctype.value = event.doctype;
+	notifyAssigneeTaskName.value = event.taskName;
+	notifyAssigneeTaskActions.value = event.taskActions;
 	showNotifyAssigneeDialog.value = true;
 }
 
-function onSaveNotifyAssigneeBody(payload) {
-	const { body = "", subject = "", template = "" } = payload || {};
+function onSaveNotifyAssigneeBody(values) {
 	// Auto-save fires this repeatedly — keep notifyAssigneeEvent alive until the
 	// dialog closes (the showNotifyAssigneeDialog watcher clears it).
 	if (notifyAssigneeEvent && notifyAssigneeEvent.eventBus) {
 		notifyAssigneeEvent.eventBus.fire("spiff.userTask.notifyAssignee.update", {
 			element: notifyAssigneeEvent.element,
-			body,
-			subject,
-			template,
+			values,
 		});
 	}
 }
@@ -3402,6 +3455,11 @@ function saveMarkdown() {
 }
 
 async function onLaunchCallActivityEditor(event) {
+	const calledProcess = event.element?.businessObject?.get("spiffworkflow:calledProcess");
+	if (!event.processId && calledProcess) {
+		window.open(`/processa/process/${encodeURIComponent(calledProcess)}`, "_blank", "noopener,noreferrer");
+		return;
+	}
 	if (!event.processId) {
 		showNotification(
 			"Call Activity",
@@ -3444,14 +3502,14 @@ function onLaunchCallActivitySearch(event) {
 	showCallActivitySearchDialog.value = true;
 }
 
-function onCallActivitySelected(processId) {
+function onCallActivitySelected({ process, processId }) {
 	const event = callActivitySearchEvent;
 	if (!event) return;
 
 	// Primary: drive the update directly via the modeler's command stack.
 	// Reliable regardless of SpiffWorkflow's async once-listener state.
 	if (editorRef.value && typeof editorRef.value.updateCalledElement === "function") {
-		editorRef.value.updateCalledElement(event.element, processId);
+		editorRef.value.updateCalledElement(event.element, processId, process);
 	}
 
 	// Secondary: also fire spiff.callactivity.update so the once-listener (if still
@@ -3507,10 +3565,9 @@ const totalCommentCount = computed(() => {
 	width: 100% !important;
 }
 
-/* Logix AI Assistant — wider than the standard 7xl cap */
-:deep(.dialog-content:has(.lc-root)) {
-	max-width: min(92vw, 1520px) !important;
-	width: min(92vw, 1520px) !important;
+/* Logix AI Assistant: wider than the standard 7xl cap */
+.logix-window {
+	width: min(92vw, 1520px);
 }
 
 /* DMN Editor Dialog — near-full-screen experience */

@@ -20,14 +20,20 @@ recorded and the runner moves on.
 from __future__ import annotations
 
 import json
+import queue
 import re
+import threading
 from typing import Any, List
 
 import frappe
 from frappe import _
-from frappe.utils import flt, now_datetime
+from frappe.query_builder import DocType, Order
+from frappe.query_builder.functions import Sum
+from frappe.utils import add_to_date, cint, flt, now_datetime
 
 from one_bpmn.agents.executor import (
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_TIMEOUT_SECONDS,
     ErrorCode,
     ExecutorConfig,
     ExecutorContext,
@@ -49,6 +55,29 @@ from one_bpmn.agents.pricing import get_model_pricing
 # bpmn_id markers for the eval LLM calls recorded as AI Agent Runs (origin="eval").
 EVAL_RUN_DIRECT = "direct-eval"
 EVAL_RUN_JUDGE = "eval-judge"
+# input_context keys a chat case uses to seed its conversation's earlier turns.
+SEED_MESSAGES_KEY = "conversation_messages"
+SEED_STATE_KEY = "session_state"
+SEED_MESSAGE_TYPES = ("User", "Bot", "Tool")
+# Reply intents whose bpmn_xml is appended to the output the assertions read.
+DIAGRAM_INTENTS = ("BPMN_GENERATED", "BPMN_MODIFIED")
+
+# live       calls the model.
+# replay     re-scores each case's last stored answer — and still makes a judge
+#            call for every llm_judge assertion, so it is not free and not
+#            deterministic.
+# deterministic
+#            scores the answer recorded ON THE CASE and makes no model call at
+#            all. That is what continuous integration can run before anyone has
+#            decided whose provider key it may spend: it cannot tell you the
+#            agent still behaves, only that the assertions and the evaluators
+#            still do — which is exactly the regression a pull request
+#            introduces.
+EVAL_BACKENDS = ("live", "replay", "deterministic")
+
+# The assertion types that need a model call, and therefore cannot run in a
+# deterministic pass. Everything else is arithmetic or string matching.
+MODEL_BACKED_ASSERTIONS = frozenset({"llm_judge"})
 
 JUDGE_PROMPT_TEMPLATE = """You are an evaluation judge. Score the following AI response based on the given rubric.
 
@@ -70,6 +99,130 @@ Respond with ONLY a JSON object:
 # Whitelisted entry point
 # ---------------------------------------------------------------------------
 
+# RQ kills a job at its timeout, and a run saves its results once, at the end.
+# A fixed 1800 s therefore lost every result of a suite that outgrew half an
+# hour, which twenty-two live cases do.
+# Five minutes per execution is generous for one case run once, and it is a
+# bound, not a target.
+MIN_JOB_TIMEOUT_SECONDS = 1800
+SECONDS_PER_EXECUTION = 300
+
+# One case execution's own worst case: the configured per-call timeout,
+# multiplied by the call plus every retry the executor is allowed. A lane's
+# RQ timeout is built from this, not from SECONDS_PER_EXECUTION's flat
+# estimate, because it has to bound a REAL model call chain, not guess at one.
+CASE_TIMEOUT_SECONDS = DEFAULT_TIMEOUT_SECONDS * (DEFAULT_MAX_RETRIES + 1)
+
+# Slack added on top of the arithmetic sum of lane timeouts when computing a
+# run's overall deadline for the sweep below. Bookkeeping (loading the case,
+# writing the result row, enqueuing the next lane) is not free, and a sweep
+# that fires the instant the last lane's timeout theoretically elapses would
+# race a lane job that is still doing exactly that.
+DEADLINE_MARGIN_SECONDS = 60
+
+SPEND_CEILING_MESSAGE = "Not run - the run reached its spend ceiling."
+
+
+def _case_timeout_seconds() -> int:
+    """Seconds one case execution (all of its own retries) may take."""
+    return CASE_TIMEOUT_SECONDS
+
+
+def _lane_timeout_seconds(lane: List[str], pass_k: int) -> int:
+    """RQ timeout for the job that runs one lane.
+
+    A lane runs its cases, and each case's pass_k repetitions, strictly one
+    after another (that is the whole point of a lane), so the job's timeout is
+    the sum of every case's worst case, repeated pass_k times.
+    """
+    case_count = max(1, len(lane))
+    return max(MIN_JOB_TIMEOUT_SECONDS, _case_timeout_seconds() * case_count * max(1, pass_k))
+
+
+def _suite_max_ai_timeout(suite_name: str) -> int:
+    """The largest ``aiTimeout`` set on any AI Agent Task shape of the suite's
+    map, in seconds, or 0 when the suite has no map or no shape sets one.
+
+    Used only as an extra signal when sizing a run's deadline sweep \u2014 a map
+    author who has already widened one shape's own timeout beyond the
+    executor default is telling us this suite's cases legitimately run long.
+    """
+    process_model = frappe.db.get_value("AI Eval Suite", suite_name, "process_model")
+    if not process_model:
+        return 0
+    serialized_spec = frappe.db.get_value("BPMN Process Model", process_model, "serialized_spec")
+    if not serialized_spec:
+        return 0
+    try:
+        spec = frappe.parse_json(serialized_spec) or {}
+    except Exception:
+        return 0
+    extensions = (
+        (spec.get("script_task_extensions") or {})
+        if isinstance(spec, dict) else {}
+    )
+    best = 0
+    for shape in (extensions or {}).values():
+        if not isinstance(shape, dict):
+            continue
+        try:
+            best = max(best, cint(shape.get("aiTimeout") or 0))
+        except Exception:
+            continue
+    return best
+
+
+def _job_timeout(suite: str, backend: str, case_count: int) -> int:
+    """Seconds RQ allows the run: the floor, or five minutes per execution,
+    whichever is more. An execution is one case run once; pass_k repeats each
+    live case that many times, and a replay repeats nothing."""
+    pass_k = 1 if backend in ("replay", "deterministic") else max(
+        1, cint(frappe.db.get_value("AI Eval Suite", suite, "pass_k"))
+    )
+    return max(MIN_JOB_TIMEOUT_SECONDS, SECONDS_PER_EXECUTION * max(1, case_count) * pass_k)
+
+
+def _resolve_agent_configuration_fallback(agent_cfg: str | None, process_model: str | None) -> str | None:
+    """The suite's own agent, else the only AI Agent Configuration on its process model.
+
+    Zero or several configurations on the process model give None.
+    """
+    if agent_cfg or not process_model:
+        return agent_cfg or None
+    matches = frappe.get_all(
+        "AI Agent Configuration", filters={"process_model": process_model}, pluck="name", limit=2
+    )
+    return matches[0] if len(matches) == 1 else None
+
+
+def _find_reusable_running_run(suite_name: str, agent_cfg: str | None, backend: str) -> str | None:
+    """The Running AI Eval Run for this suite, agent configuration and backend
+    that is still inside its deadline, or None. A run past its deadline is not
+    reused even before the sweep finalises it."""
+    AIEvalRun = DocType("AI Eval Run")
+    candidates = (
+        frappe.qb.from_(AIEvalRun)
+        .select(AIEvalRun.name, AIEvalRun.started_at)
+        .where(AIEvalRun.suite == suite_name)
+        .where(AIEvalRun.status == "Running")
+        .where(AIEvalRun.backend == backend)
+        .where(
+            AIEvalRun.agent_configuration == agent_cfg
+            if agent_cfg
+            else (AIEvalRun.agent_configuration.isnull() | (AIEvalRun.agent_configuration == ""))
+        )
+        .orderby(AIEvalRun.started_at, order=Order.desc)
+    ).run(as_dict=True)
+    for candidate in candidates:
+        if not candidate.started_at:
+            continue
+        run = frappe.get_doc("AI Eval Run", candidate.name)
+        deadline = add_to_date(candidate.started_at, seconds=_run_deadline_seconds(run))
+        if now_datetime() < deadline:
+            return candidate.name
+    return None
+
+
 @frappe.whitelist()
 def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     """
@@ -88,11 +241,23 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     """
     frappe.only_for("System Manager")
 
-    if backend not in ("live", "replay"):
-        frappe.throw(_("backend must be 'live' or 'replay', not '{0}'.").format(backend))
+    if backend not in EVAL_BACKENDS:
+        frappe.throw(_("backend must be one of {0}, not '{1}'.").format(", ".join(EVAL_BACKENDS), backend))
 
     if not frappe.db.exists("AI Eval Suite", suite_name):
         frappe.throw(_("AI Eval Suite '{0}' not found.").format(suite_name))
+
+    # WI-001821: record which agent this run tested. Without it a later
+    # comparison has to assume the suite still points where it did at run time.
+    agent_cfg = _resolve_agent_configuration_fallback(
+        *frappe.db.get_value("AI Eval Suite", suite_name, ["agent_configuration", "process_model"])
+    )
+
+    # One run at a time per suite (same agent, same backend): a second call
+    # while one is still Running reuses it instead of starting a competitor.
+    reusable = _find_reusable_running_run(suite_name, agent_cfg, backend)
+    if reusable:
+        return reusable
 
     run = frappe.new_doc("AI Eval Run")
     run.suite = suite_name
@@ -100,11 +265,7 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     run.backend = backend
     run.started_at = now_datetime()
     run.scope = "Suite"  # this entry point always runs the whole suite
-    # WI-001821: record which agent this run tested. Without it a later
-    # comparison has to assume the suite still points where it did at run time.
-    run.agent_configuration = frappe.db.get_value(
-        "AI Eval Suite", suite_name, "agent_configuration"
-    )
+    run.agent_configuration = agent_cfg
     # The caller is already authorised above (suite read gate + evaluatable
     # check, or System Manager). The AI Eval Run is a system-written record of
     # that action, so it must not additionally demand write rights on the Run
@@ -118,7 +279,10 @@ def run_eval_suite(suite_name: str, backend: str = "live") -> str:
         # compete with production business jobs for the default workers.
         queue="bpmn_ai_agent",
         run_name=run.name,
-        timeout=1800,
+        fan_out=True,
+        job_id=f"eval-run::{run.name}",
+        deduplicate=True,
+        timeout=_job_timeout(suite_name, backend, frappe.db.count("AI Eval Case", {"suite": suite_name})),
     )
 
     return run.name
@@ -161,16 +325,15 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
     user who can read the suite — a process owner may run their own suites.
     The subset is validated to belong to the suite.
     """
-    if backend not in ("live", "replay"):
-        frappe.throw(_("backend must be 'live' or 'replay', not '{0}'.").format(backend))
+    if backend not in EVAL_BACKENDS:
+        frappe.throw(_("backend must be one of {0}, not '{1}'.").format(", ".join(EVAL_BACKENDS), backend))
 
     suite = frappe.get_doc("AI Eval Suite", suite_name)  # 404s if missing
     suite.check_permission("read")  # owner / System Manager gate
 
+    agent_cfg = _resolve_agent_configuration_fallback(suite.agent_configuration, suite.process_model)
     if backend == "live":
-        _assert_agent_evaluatable(
-            suite.agent_configuration, suite.eval_type, suite.process_model
-        )
+        _assert_agent_evaluatable(agent_cfg, suite.eval_type, suite.process_model)
 
     if isinstance(case_names, str):
         case_names = frappe.parse_json(case_names) or None
@@ -184,6 +347,15 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
     else:
         case_names = None  # whole suite
 
+    # One run at a time per suite (same agent, same backend): a second call
+    # while one is still Running reuses it instead of starting a competitor.
+    # Placed after the permission/evaluatable/case-validation gates above, so
+    # a caller who cannot read the suite (or names a foreign case) fails
+    # there, never reaching this dedup lookup.
+    reusable = _find_reusable_running_run(suite_name, agent_cfg, backend)
+    if reusable:
+        return reusable
+
     run = frappe.new_doc("AI Eval Run")
     run.suite = suite_name
     run.status = "Running"
@@ -193,7 +365,7 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
     # even while Running, or if it errors before producing any result.
     run.scope = "Subset" if case_names else "Suite"
     run.requested_cases = json.dumps(case_names) if case_names else None
-    run.agent_configuration = suite.agent_configuration  # WI-001821
+    run.agent_configuration = agent_cfg  # WI-001821
     # The caller is already authorised above (suite read gate + evaluatable
     # check, or System Manager). The AI Eval Run is a system-written record of
     # that action, so it must not additionally demand write rights on the Run
@@ -206,7 +378,12 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
         queue="bpmn_ai_agent",
         run_name=run.name,
         case_names=case_names,
-        timeout=1800,
+        fan_out=True,
+        job_id=f"eval-run::{run.name}",
+        deduplicate=True,
+        timeout=_job_timeout(
+            suite_name, backend, len(case_names) if case_names else frappe.db.count("AI Eval Case", {"suite": suite_name})
+        ),
     )
     return run.name
 
@@ -316,7 +493,10 @@ def run_eval_comparison(
             queue="bpmn_ai_agent",
             run_name=run_name,
             case_names=case_names,
-            timeout=1800,
+            fan_out=True,
+            job_id=f"eval-run::{run_name}",
+            deduplicate=True,
+            timeout=_job_timeout(suite_name, "live", len(case_names)),
         )
 
     return {
@@ -333,11 +513,25 @@ def run_eval_comparison(
 # Background job
 # ---------------------------------------------------------------------------
 
-def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
+def _execute_eval_suite(run_name: str, case_names: list | None = None, fan_out: bool = False) -> None:
     """Run the suite's cases and finalise the AI Eval Run.
 
     ``case_names`` (WI-001746) restricts the run to a chosen subset; when None
     every case in the suite runs.
+
+    ``fan_out=False`` (the default) is the original, synchronous behaviour:
+    this call runs every lane inline (in threads, above a concurrency of one)
+    and returns only once the run is fully finalised. ``adversarial_gate`` and
+    ``eval_ci`` depend on exactly this — they call this function directly and
+    read ``run.results`` the moment it returns.
+
+    ``fan_out=True`` is used by the whitelisted entry points
+    (``run_eval_suite``, ``run_eval_cases``, ``run_eval_comparison``): instead
+    of running lanes itself, this call creates the lane jobs and enqueues as
+    many as the concurrency cap allows, then returns immediately. Each lane
+    runs as its own RQ job (see ``_run_eval_lane_job``); the LAST lane job to
+    finish computes the run's totals and finalises it, exactly as the code
+    below does for the inline case.
 
     WI-001361 Scenario 5: an unexpected exception partway through must
     never leave the Run stuck on "Running" — the run is finalised as
@@ -347,48 +541,102 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
     """
     run = frappe.get_doc("AI Eval Run", run_name)
 
-    try:
-        if case_names is None:
-            case_names = frappe.get_all(
-                "AI Eval Case",
-                filters={"suite": run.suite},
-                pluck="name",
-                order_by="creation asc",
-            )
+    if case_names is None:
+        case_names = frappe.get_all(
+            "AI Eval Case",
+            filters={"suite": run.suite},
+            pluck="name",
+            order_by="creation asc",
+        )
 
-        passed = failed = 0
+    if fan_out:
+        _fan_out_eval_suite(run, case_names)
+        return
+
+    try:
+        passed = failed = skipped = 0
         total_cost = 0.0
         total_tokens = 0
+        executions = passing_executions = 0
+        # How many times each case runs. A replay re-scores one stored answer,
+        # so repeating it would count the same execution k times and report a
+        # consistency the run never demonstrated.
+        pass_k = 1 if run.backend in ("replay", "deterministic") else max(1, cint(
+            frappe.db.get_value("AI Eval Suite", run.suite, "pass_k")
+        ))
         # WI-001821: a run may nominate an agent other than the suite's, so an
         # A/B comparison never has to rebind the suite. Resolved once here
         # rather than per case, so every case in a run is judged against the
         # same agent even if the suite is reassigned mid-run.
         agent_cfg = run.get("agent_configuration") or None
+        # One ceiling for the whole run, drawn on by every lane. 0 means none.
+        budget = {
+            "cap": flt(run.get("spend_cap") or 0),
+            "spent": 0.0,
+            "not_run": 0,
+            "lock": threading.Lock(),
+        }
+        rows = _execute_lanes(
+            case_names, run.name, run.backend, agent_cfg, pass_k, _eval_concurrency(), budget
+        )
+
+        # Results are appended in the order the cases were asked for, never the
+        # order they came back in. Lanes finish out of order — a one-word reply
+        # lands long before a connector build — and a run's history has to read
+        # the same either way, or comparing two runs becomes guesswork.
         for case_name in case_names:
-            case = frappe.get_doc("AI Eval Case", case_name)
-            if run.backend == "replay":
-                result_row = _execute_case_replay(run, case)
-            else:
-                result_row = _execute_case(case, run.name, agent_cfg)
+            result_row = rows.get(case_name)
+            if result_row is None:
+                # A worker that died without recording anything would otherwise
+                # drop the case silently and shrink the denominator.
+                result_row = {
+                    "eval_case": case_name,
+                    "status": "Error",
+                    "error_message": "This case produced no result. See the Error Log.",
+                    "runs": 1, "passes": 0, "consistency_rate": 0,
+                }
             # Snapshot what was evaluated, so later edits to the case don't
             # rewrite this run's history. Set centrally so every path (live,
             # replay, error) records it.
-            result_row.setdefault("input_user_prompt", case.input_user_prompt or "")
-            result_row.setdefault("expected_output", case.expected_output or "")
+            snapshot = frappe.db.get_value(
+                "AI Eval Case", case_name, ["input_user_prompt", "expected_output"], as_dict=True
+            ) or {}
+            result_row.setdefault("input_user_prompt", snapshot.get("input_user_prompt") or "")
+            result_row.setdefault("expected_output", snapshot.get("expected_output") or "")
             run.append("results", result_row)
             if result_row["status"] == "Passed":
                 passed += 1
+            elif result_row["status"] == "Skipped":
+                # Neither column: nothing was checked, so it is not evidence
+                # either way. The caller decides whether a suite that checked
+                # nothing is acceptable — see run_ai_evals.
+                skipped += 1
             else:
                 failed += 1
+            if result_row["status"] != "Skipped":
+                # Nothing ran, so it cannot be in the denominator. Counting it
+                # would drag pass_rate down — and that rate is what the deploy
+                # gate refuses on, so a suite would be blocked for having no
+                # provider key rather than for behaving badly.
+                executions += cint(result_row.get("runs") or 1)
+                passing_executions += cint(result_row.get("passes") or 0)
             total_cost += flt(result_row.get("cost", 0))
             total_tokens += (result_row.get("tokens_used") or 0)
+
+        if budget["not_run"]:
+            run.stop_reason = (
+                f"Stopped on budget: spent {budget['spent']:.4f} of a {budget['cap']:.4f} "
+                f"ceiling; {budget['not_run']} case(s) not run."
+            )
 
         run.total_cases = len(case_names)
         run.passed_cases = passed
         run.failed_cases = failed
+        run.total_executions = executions
+        run.pass_rate = (passing_executions / executions * 100) if executions else 0
         run.total_cost = total_cost
         run.total_tokens = total_tokens
-        run.status = "Passed" if failed == 0 else "Failed"
+        run.status = _suite_run_status(run, failed)
     except Exception:
         frappe.log_error(
             title=f"AI Eval: suite execution failed ({run_name})",
@@ -411,11 +659,754 @@ def _execute_eval_suite(run_name: str, case_names: list | None = None) -> None:
     frappe.publish_realtime(
         "eval_run_completed",
         {"run_name": run.name, "status": run.status},
-        user="all",
+        user=run.owner,
     )
 
 
-def _execute_case_replay(run, case) -> dict:
+# ---------------------------------------------------------------------------
+# Fan-out execution: one RQ job per lane
+# ---------------------------------------------------------------------------
+#
+# Threads share one process; a job that runs too long can only be *waited
+# out*, and a worker restart during a suite loses every result the old loop
+# had not yet written to the run. A lane job fixes both: it is its own RQ job
+# with its own timeout, and it writes and commits each case's AI Eval Result
+# row the moment that case finishes — a killed lane job loses only the one
+# case it was in the middle of, never the ones before it.
+#
+# Lanes are handed out as a static partition, not a shared queue: worker slot
+# ``lane_index`` (0..concurrency-1) runs lane ``lane_index``, then
+# ``lane_index + concurrency``, then ``lane_index + 2 * concurrency``, and so
+# on, each hop enqueued by the job before it. That keeps at most
+# ``concurrency`` lane jobs in flight without any shared mutable cursor to
+# race over. The cost is a lane job that dies stopping its own future lanes
+# too — the deadline sweep is what recovers those as Timed Out.
+
+
+def _eval_result_row_defaults(case_name: str, row: dict) -> dict:
+    """Fill in the snapshot fields every result row needs, whichever path
+    produced it (case, exception, or a never-ran case at finalise time)."""
+    snapshot = frappe.db.get_value(
+        "AI Eval Case", case_name, ["input_user_prompt", "expected_output"], as_dict=True
+    ) or {}
+    row = dict(row)
+    row["eval_case"] = case_name
+    row.setdefault("input_user_prompt", snapshot.get("input_user_prompt") or "")
+    row.setdefault("expected_output", snapshot.get("expected_output") or "")
+    return row
+
+
+def _write_eval_result_row(run_name: str, case_name: str, row: dict, idx: int) -> None:
+    """Insert one case's result directly as a child row of the run, durably.
+
+    Written and committed by the caller immediately after \u2014 this function
+    only builds and inserts the row; it does not commit, so a caller writing
+    several rows in one case's retry chain still controls its own commit
+    point.
+    """
+    payload = _eval_result_row_defaults(case_name, row)
+    payload.update({
+        "doctype": "AI Eval Result",
+        "parent": run_name,
+        "parenttype": "AI Eval Run",
+        "parentfield": "results",
+        "idx": idx,
+    })
+    frappe.get_doc(payload).insert(ignore_permissions=True)
+
+
+def _is_job_timeout_exception(exc: BaseException) -> bool:
+    """True for RQ's own timeout kill, which must never be swallowed as an
+    ordinary case failure \u2014 it has to keep propagating so the job actually
+    dies and leaves its in-flight case for the deadline sweep to record."""
+    try:
+        from rq.timeouts import JobTimeoutException
+    except Exception:
+        return False
+    return isinstance(exc, JobTimeoutException)
+
+
+def _fan_out_eval_suite(run, case_names: list) -> None:
+    """Kick off a run's lanes as background jobs and return immediately.
+
+    Called by ``_execute_eval_suite(fan_out=True)``. Each lane job checks the
+    run's spend ceiling against committed results before every case.
+    """
+    if not case_names:
+        _finalize_eval_run(run.name, case_names)
+        return
+
+    pass_k = 1 if run.backend in ("replay", "deterministic") else max(1, cint(
+        frappe.db.get_value("AI Eval Suite", run.suite, "pass_k")
+    ))
+    agent_cfg = run.get("agent_configuration") or None
+    lanes = _lanes_for(case_names)
+    concurrency = max(1, min(_eval_concurrency(), len(lanes)))
+
+    # The lane jobs read through their own connections; anything this
+    # transaction has not committed does not exist as far as they are
+    # concerned. Skipped under test, where FrappeTestCase's rollback is what
+    # cleans up the fixtures afterwards.
+    if not frappe.flags.in_test:
+        frappe.db.commit()
+
+    for lane_index in range(concurrency):
+        frappe.enqueue(
+            "one_bpmn.agents.eval_runner._run_eval_lane_job",
+            queue="bpmn_ai_agent",
+            run_name=run.name,
+            case_names=case_names,
+            backend=run.backend,
+            agent_cfg=agent_cfg,
+            pass_k=pass_k,
+            lane_index=lane_index,
+            concurrency=concurrency,
+            timeout=_lane_timeout_seconds(lanes[lane_index], pass_k),
+        )
+
+
+def _run_eval_lane_job(run_name: str, case_names: list, backend: str, agent_cfg: str | None,
+                        pass_k: int, lane_index: int, concurrency: int) -> None:
+    """One lane, as its own RQ job.
+
+    Every case this lane runs gets its own AI Eval Result row, written and
+    committed the instant that case finishes \u2014 so a job killed on its
+    timeout loses only the case it was running, never the ones before it.
+    A ``JobTimeoutException`` is deliberately let through: catching it would
+    turn RQ's own kill signal into an ordinary "this case errored" row, which
+    is not what happened and would stop the job from actually dying on
+    schedule.
+    """
+    lanes = _lanes_for(case_names)
+    if lane_index >= len(lanes):
+        return
+    lane = lanes[lane_index]
+    order_index = {name: i + 1 for i, name in enumerate(case_names)}
+    spend_cap, owner = frappe.db.get_value("AI Eval Run", run_name, ["spend_cap", "owner"])
+    spend_cap = flt(spend_cap)
+    AIEvalResult = DocType("AI Eval Result")
+
+    for case_name in lane:
+        # Committed rows are the only spend every lane job can see.
+        spent = flt((
+            frappe.qb.from_(AIEvalResult)
+            .select(Sum(AIEvalResult.cost))
+            .where(AIEvalResult.parent == run_name)
+            .where(AIEvalResult.parenttype == "AI Eval Run")
+        ).run()[0][0]) if spend_cap else 0.0
+        if spend_cap and spent >= spend_cap:
+            row = {
+                "eval_case": case_name,
+                "status": "Skipped",
+                "error_message": SPEND_CEILING_MESSAGE,
+                "runs": 0, "passes": 0, "consistency_rate": 0,
+            }
+        else:
+            try:
+                case = frappe.get_doc("AI Eval Case", case_name)
+                row = _execute_case_k_times(run_name, backend, case, agent_cfg, pass_k)
+            except Exception as exc:
+                if _is_job_timeout_exception(exc):
+                    raise
+                frappe.log_error(
+                    title=f"AI Eval: case execution failed ({case_name})",
+                    message=frappe.get_traceback(),
+                )
+                row = {
+                    "eval_case": case_name,
+                    "status": "Error",
+                    "error_message": "This case could not be executed. See the Error Log.",
+                    "runs": 1, "passes": 0, "consistency_rate": 0,
+                }
+        _write_eval_result_row(run_name, case_name, row, order_index[case_name])
+        # Unconditional: this write has to survive even when the very next
+        # line never runs because the job is killed. Unlike the inline path,
+        # a lane job's whole reason to exist is that its results outlive it.
+        frappe.db.commit()
+        frappe.publish_realtime(
+            "eval_case_completed",
+            {
+                "run_name": run_name,
+                "eval_case": case_name,
+                "status": row["status"],
+                "done": frappe.db.count("AI Eval Result", {"parent": run_name, "parenttype": "AI Eval Run"}),
+                "total": len(case_names),
+            },
+            user=owner,
+        )
+
+    next_index = lane_index + concurrency
+    if next_index < len(lanes):
+        frappe.enqueue(
+            "one_bpmn.agents.eval_runner._run_eval_lane_job",
+            queue="bpmn_ai_agent",
+            run_name=run_name,
+            case_names=case_names,
+            backend=backend,
+            agent_cfg=agent_cfg,
+            pass_k=pass_k,
+            lane_index=next_index,
+            concurrency=concurrency,
+            timeout=_lane_timeout_seconds(lanes[next_index], pass_k),
+        )
+
+    _maybe_finalize_eval_run(run_name, case_names)
+
+
+def _maybe_finalize_eval_run(run_name: str, case_names: list) -> None:
+    """Finalise the run once every case has a result \u2014 and not before."""
+    result_count = frappe.db.count(
+        "AI Eval Result", {"parent": run_name, "parenttype": "AI Eval Run"}
+    )
+    if result_count < len(case_names):
+        return
+    _force_finalize_if_running(run_name, case_names)
+
+
+def _force_finalize_if_running(run_name: str, case_names: list) -> None:
+    """Finalise *run_name* if, and only if, it is still Running \u2014 locked so
+    two lane jobs (or a lane job and the deadline sweep) finishing at once
+    finalise exactly once.
+
+    The row lock is the guard: whichever caller's SELECT ... FOR UPDATE lands
+    first sees status="Running" and finalises (which flips status away from
+    Running before it commits, releasing the lock); the other blocks on the
+    lock, then sees the new status and does nothing.
+    """
+    AIEvalRun = DocType("AI Eval Run")
+    locked = (
+        frappe.qb.from_(AIEvalRun)
+        .select(AIEvalRun.name, AIEvalRun.status)
+        .where(AIEvalRun.name == run_name)
+        .for_update()
+    ).run(as_dict=True)
+    if not locked or locked[0].status != "Running":
+        frappe.db.commit()  # release the lock even when there is nothing to do
+        return
+    _finalize_eval_run(run_name, case_names)
+
+
+def _finalize_eval_run(run_name: str, case_names: list) -> None:
+    """Compute a fanned-out run's totals and status, and publish completion.
+
+    Identical arithmetic to the inline path in ``_execute_eval_suite``: results
+    in case order, Skipped excluded from the denominator, everything else
+    (Failed, Error, Timed Out) counted as failure. A case with no row at all
+    \u2014 its lane job was killed, or the deadline swept it up first \u2014 is
+    recorded here as Timed Out rather than silently shrinking the run.
+    """
+    run = frappe.get_doc("AI Eval Run", run_name)
+    try:
+        existing = {r.eval_case: r for r in (run.results or [])}
+        passed = failed = skipped = 0
+        total_cost = 0.0
+        total_tokens = 0
+        executions = passing_executions = 0
+
+        for idx, case_name in enumerate(case_names, start=1):
+            result_row = existing.get(case_name)
+            if result_row is None:
+                new_row = _eval_result_row_defaults(case_name, {
+                    "status": "Timed Out",
+                    "error_message": (
+                        "This case produced no result before the run was finalised "
+                        "\u2014 its lane job was killed or the run's deadline passed."
+                    ),
+                    "runs": 1, "passes": 0, "consistency_rate": 0,
+                })
+                run.append("results", new_row)
+                result_row = run.results[-1]
+
+            status = result_row.status
+            if status == "Passed":
+                passed += 1
+            elif status == "Skipped":
+                skipped += 1
+            else:
+                # Failed, Error, Timed Out — all count as a failure.
+                failed += 1
+            if status != "Skipped":
+                executions += cint(result_row.get("runs") or 1)
+                passing_executions += cint(result_row.get("passes") or 0)
+            total_cost += flt(result_row.get("cost") or 0)
+            total_tokens += (result_row.get("tokens_used") or 0)
+
+        not_run = sum(
+            1 for r in run.results if r.status == "Skipped" and r.error_message == SPEND_CEILING_MESSAGE
+        )
+        if not_run:
+            run.stop_reason = (
+                f"Stopped on budget: spent {total_cost:.4f} of a {flt(run.spend_cap):.4f} "
+                f"ceiling; {not_run} case(s) not run."
+            )
+
+        run.total_cases = len(case_names)
+        run.passed_cases = passed
+        run.failed_cases = failed
+        run.total_executions = executions
+        run.pass_rate = (passing_executions / executions * 100) if executions else 0
+        run.total_cost = total_cost
+        run.total_tokens = total_tokens
+        run.status = _suite_run_status(run, failed)
+    except Exception:
+        frappe.log_error(
+            title=f"AI Eval: fan-out finalise failed ({run_name})",
+            message=frappe.get_traceback(),
+        )
+        run.status = "Error"
+        run.total_cases = len(run.results or [])
+        run.passed_cases = sum(1 for r in (run.results or []) if r.status == "Passed")
+        run.failed_cases = run.total_cases - run.passed_cases
+
+    run.ended_at = now_datetime()
+    run.save(ignore_permissions=True)
+    frappe.db.commit()
+
+    # Realtime goes to whoever started the run, never "all".
+    frappe.publish_realtime(
+        "eval_run_completed",
+        {"run_name": run.name, "status": run.status},
+        user=run.owner,
+    )
+
+
+def _run_case_names(run) -> list:
+    """The ordered case list a run covers \u2014 its requested subset, or the
+    whole suite when none was requested."""
+    if run.get("requested_cases"):
+        try:
+            cases = frappe.parse_json(run.requested_cases)
+        except Exception:
+            cases = None
+        if cases:
+            return cases
+    return frappe.get_all(
+        "AI Eval Case", filters={"suite": run.suite}, pluck="name", order_by="creation asc"
+    )
+
+
+def _run_deadline_seconds(run) -> float:
+    """How long a fanned-out run may run before the sweep below finalises it:
+    started_at + (sum of every lane's own timeout, divided across however many
+    may run at once) + a fixed margin for the bookkeeping in between."""
+    case_names = _run_case_names(run)
+    if not case_names:
+        return DEADLINE_MARGIN_SECONDS
+    pass_k = 1 if run.backend in ("replay", "deterministic") else max(1, cint(
+        frappe.db.get_value("AI Eval Suite", run.suite, "pass_k")
+    ))
+    lanes = _lanes_for(case_names)
+    if not lanes:
+        return DEADLINE_MARGIN_SECONDS
+    concurrency = max(1, min(_eval_concurrency(), len(lanes)))
+    total_lane_seconds = sum(_lane_timeout_seconds(lane, pass_k) for lane in lanes)
+    return (total_lane_seconds / concurrency) + DEADLINE_MARGIN_SECONDS
+
+
+def sweep_stale_eval_runs() -> None:
+    """Scheduled every five minutes: finalise any Running AI Eval Run whose
+    deadline has passed, recording whatever case never produced a result as
+    Timed Out.
+
+    This is the backstop for a lane job that was killed without ever getting
+    to enqueue its own successor or check whether it was the last lane home
+    \u2014 without it, that run would sit on "Running" forever.
+    """
+    running = frappe.get_all(
+        "AI Eval Run",
+        filters={"status": "Running"},
+        fields=["name", "suite", "backend", "started_at", "requested_cases"],
+    )
+    now = now_datetime()
+    for run in running:
+        try:
+            if not run.started_at:
+                continue
+            deadline = add_to_date(run.started_at, seconds=_run_deadline_seconds(run))
+            if now < deadline:
+                continue
+            case_names = _run_case_names(run)
+            _force_finalize_if_running(run.name, case_names)
+        except Exception:
+            frappe.log_error(
+                title=f"AI Eval: deadline sweep failed ({run.name})",
+                message=frappe.get_traceback(),
+            )
+
+
+def _execute_case_deterministic(case) -> dict:
+    """Score a case's assertions against the answer recorded on the case.
+
+    No model is called, so this runs anywhere — a pull request check with no
+    provider key included. What it proves is narrow, and worth stating: the
+    assertions still hold against a known answer, so a change to an evaluator,
+    an assertion, or the contract a prompt promises is caught before merge. It
+    cannot prove the agent still produces that answer. That is the nightly live
+    run's job.
+
+    ``expected_output`` is the recorded answer. A case with none falls back to
+    its last stored actual output, so a suite captured from real runs works here
+    too.
+
+    Assertions needing a model are SKIPPED, not failed. Failing them would turn
+    "CI has no provider key" into a red check on every pull request; passing
+    them would be a lie. They are reported, counted in neither column, and a
+    case with nothing left to check is itself skipped.
+    """
+    answer = (case.expected_output or "").strip()
+    source = "the case's recorded answer"
+    borrowed = False
+    if not answer:
+        borrowed = True
+        prior = frappe.get_all(
+            "AI Eval Result",
+            filters={"eval_case": case.name, "parenttype": "AI Eval Run"},
+            fields=["actual_output"],
+            order_by="creation desc",
+            limit_page_length=1,
+        )
+        answer = (prior[0].actual_output or "").strip() if prior else ""
+        source = "the last stored answer"
+
+    assertions = case.assertions or []
+    if not assertions:
+        return _invalid_without_assertions(case)
+    checkable = [a for a in assertions if a.assertion_type not in MODEL_BACKED_ASSERTIONS]
+    needs_model = sorted({a.assertion_type for a in assertions if a.assertion_type in MODEL_BACKED_ASSERTIONS})
+
+    if not answer:
+        return {
+            "eval_case": case.name,
+            "status": "Skipped",
+            "error_message": (
+                "Nothing to score against: this case records no expected output and has never run. "
+                "Give it the answer a deterministic check should hold to, or leave its suite out of Smoke."
+            ),
+        }
+
+    if not checkable:
+        return {
+            "eval_case": case.name,
+            "status": "Skipped",
+            "actual_output": answer,
+            "error_message": (
+                "Every assertion here needs a model call (" + ", ".join(needs_model)
+                + "), so a deterministic pass has nothing to check."
+            ),
+        }
+
+    results = [_evaluate_assertion(assertion, answer) for assertion in checkable]
+    passed = all(r["passed"] for r in results)
+    errored = any(r.get("error") for r in results)
+
+    note = f"Scored against {source}, no model call."
+    if needs_model:
+        note += " Skipped " + ", ".join(needs_model) + " — needs a model."
+
+    # The note is kept on a PASSING row too when the answer was borrowed from a
+    # previous run: that a case has no recorded answer of its own is exactly the
+    # thing a reader would otherwise never learn from a green result.
+    worth_saying = errored or not passed or needs_model or borrowed
+
+    return {
+        "eval_case": case.name,
+        "status": "Error" if errored else ("Passed" if passed else "Failed"),
+        "actual_output": answer,
+        "assertion_results": json.dumps(results, default=str),
+        "error_message": note if worth_saying else "",
+        "cost": 0,
+        "tokens_used": 0,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Running a suite's cases side by side
+# ---------------------------------------------------------------------------
+#
+# Nearly all of a suite's wall clock is spent waiting for a model to answer, so
+# the cases can overlap. What CANNOT overlap is two executions that share a
+# document: an agent's scratch notes live under the name of the document it is
+# working on, and its answer is written back onto that same record. Two
+# executions there would trample each other, and the consistency number would
+# be measuring the collision rather than the agent.
+#
+# So the unit of parallelism is a LANE, not a case: cases are grouped by the
+# document they run against, lanes run side by side, and cases inside one lane
+# run one after another. A case's own repetitions are serial for the same
+# reason — they share its document.
+
+# A hard ceiling regardless of configuration. Provider limits are per account,
+# so an eval suite competes with live agent traffic; and spend that used to
+# reveal itself slowly arrives all at once.
+MAX_EVAL_CONCURRENCY = 8
+
+
+def _eval_concurrency() -> int:
+    """How many lanes may be in flight. 1 — the default — is the old behaviour
+    exactly: no pool, no threads, the same single-file loop."""
+    try:
+        configured = cint(frappe.db.get_single_value("Processa Settings", "eval_concurrency"))
+    except Exception:
+        return 1
+    return max(1, min(configured or 1, MAX_EVAL_CONCURRENCY))
+
+
+def _lanes_for(case_names: List[str]) -> List[List[str]]:
+    """Group cases into lanes that may run side by side.
+
+    Two cases naming the same context document land in one lane, so they never
+    overlap. Everything else gets a lane of its own. Lane order follows the
+    order the cases were given, so a serial run and a parallel run schedule the
+    same work in the same sequence.
+    """
+    contexts = {}
+    if case_names:
+        for row in frappe.get_all(
+            "AI Eval Case",
+            filters={"name": ["in", case_names]},
+            fields=["name", "input_context"],
+        ):
+            docname = ""
+            try:
+                docname = (frappe.parse_json(row.input_context or "{}") or {}).get("context_docname") or ""
+            except Exception:
+                docname = ""
+            contexts[row.name] = docname
+
+    lanes: List[List[str]] = []
+    by_document: dict = {}
+    for case_name in case_names:
+        document = contexts.get(case_name) or ""
+        if not document:
+            lanes.append([case_name])
+            continue
+        lane = by_document.get(document)
+        if lane is None:
+            lane = []
+            by_document[document] = lane
+            lanes.append(lane)
+        lane.append(case_name)
+    return lanes
+
+
+def _run_lane(lane: List[str], run_name: str, backend: str, agent_cfg: str | None, pass_k: int,
+              budget: dict | None = None) -> dict:
+    """Execute one lane's cases in order, returning {case: result row}.
+
+    A case that blows up is recorded as an Error and the lane carries on: one
+    bad case must not cost the others their turn, which is the same rule the
+    serial runner has always followed.
+
+    *budget* is the run's spend ceiling, shared with every other lane. It is
+    checked before each case and never mid-case: cutting off an answer already
+    being paid for wastes it. With lanes running side by side, up to one case
+    per lane may already be in flight when the ceiling is reached, so the run
+    can land a little over it — the alternative is refusing to start anything
+    until every lane reports, which is slower for no real protection.
+    """
+    rows = {}
+    for case_name in lane:
+        if _budget_spent(budget):
+            rows[case_name] = {
+                "eval_case": case_name,
+                "status": "Skipped",
+                "error_message": "Not run \u2014 the run reached its spend ceiling.",
+                "runs": 0, "passes": 0, "consistency_rate": 0,
+            }
+            with budget["lock"]:
+                budget["not_run"] += 1
+            continue
+        try:
+            case = frappe.get_doc("AI Eval Case", case_name)
+            rows[case_name] = _execute_case_k_times(run_name, backend, case, agent_cfg, pass_k)
+        except Exception:
+            frappe.log_error(
+                title=f"AI Eval: case execution failed ({case_name})",
+                message=frappe.get_traceback(),
+            )
+            rows[case_name] = {
+                "eval_case": case_name,
+                "status": "Error",
+                "error_message": "This case could not be executed. See the Error Log.",
+                "runs": 1,
+                "passes": 0,
+                "consistency_rate": 0,
+            }
+        _budget_draw(budget, rows[case_name].get("cost"))
+    return rows
+
+
+def _budget_spent(budget: dict | None) -> bool:
+    """True once the run has spent what it was allowed."""
+    if not budget or not budget.get("cap"):
+        return False
+    with budget["lock"]:
+        return budget["spent"] >= budget["cap"]
+
+
+def _budget_draw(budget: dict | None, cost) -> None:
+    """Add what a case cost to the run's running total."""
+    if not budget or not budget.get("cap"):
+        return
+    with budget["lock"]:
+        budget["spent"] += flt(cost)
+
+
+def _lane_worker(site: str, lanes: "queue.Queue", results: dict, lock: "threading.Lock",
+                 run_name: str, backend: str, agent_cfg: str | None, pass_k: int,
+                 budget: dict | None = None) -> None:
+    """One worker: its own Frappe context, then lanes until the queue is empty.
+
+    The context is set up ONCE per worker rather than per lane — a connect is
+    far more expensive than a case — and it has to exist at all, because a
+    thread inherits none of it. Without it there is no database connection and,
+    worse, no eval-origin stamp on the runs the case produces, which is what
+    later attributes a tool-call trace to its case. That failure is silent: the
+    suite passes and the trace assertions quietly find nothing to look at.
+    """
+    frappe.init(site=site)
+    frappe.connect()
+    try:
+        while True:
+            try:
+                lane = lanes.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                rows = _run_lane(lane, run_name, backend, agent_cfg, pass_k, budget)
+                # Each worker owns its own transaction, so its writes are its own
+                # to commit. Without this the case's AI Agent Runs — and every
+                # judge call recorded against them — roll back when the thread
+                # ends, while the row it returns still says it all happened.
+                frappe.db.commit()
+                with lock:
+                    results.update(rows)
+            finally:
+                lanes.task_done()
+    finally:
+        frappe.destroy()
+
+
+def _execute_lanes(case_names: List[str], run_name: str, backend: str,
+                   agent_cfg: str | None, pass_k: int, concurrency: int,
+                   budget: dict | None = None) -> dict:
+    """Run every case, side by side up to ``concurrency`` lanes, and return
+    {case: result row}.
+
+    At concurrency 1 this is the plain loop it has always been: no queue, no
+    threads, no per-worker connect. That is not an optimisation so much as a
+    guarantee — the default configuration runs the code path that has been in
+    production all along.
+    """
+    lanes = _lanes_for(case_names)
+    if concurrency <= 1 or len(lanes) <= 1:
+        rows = {}
+        for lane in lanes:
+            rows.update(_run_lane(lane, run_name, backend, agent_cfg, pass_k, budget))
+        return rows
+
+    # Each worker reads through its OWN database connection, so it cannot see
+    # writes this transaction has not committed — every case would come back
+    # "not found". A background job has nothing pending worth protecting here,
+    # and the runner commits at the end anyway; skipped under test so the
+    # framework's rollback still cleans up fixtures.
+    if not frappe.flags.in_test:
+        frappe.db.commit()
+
+    pending: "queue.Queue" = queue.Queue()
+    for lane in lanes:
+        pending.put(lane)
+
+    results: dict = {}
+    lock = threading.Lock()
+    workers = [
+        threading.Thread(
+            target=_lane_worker,
+            args=(frappe.local.site, pending, results, lock, run_name, backend, agent_cfg,
+                  pass_k, budget),
+            name=f"eval-{run_name}-{index}",
+            daemon=True,
+        )
+        for index in range(min(concurrency, len(lanes)))
+    ]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+    return results
+
+
+def _suite_run_status(run, failed: int) -> str:
+    """Passed needs both bars the suite declares.
+
+    Every case still has to pass — a single failing execution fails its case,
+    which is the point of running it k times. On top of that, a suite that
+    declares a minimum pass rate must meet it, and that rate is the number the
+    deployment gate quotes. The two overlap today because the per-case bar is
+    the stricter one; both are checked because the rate is what a reader is
+    shown and what a gate refuses on, and a suite whose per-case rule is later
+    relaxed must not silently open the gate.
+    """
+    if failed:
+        return "Failed"
+    minimum = flt(frappe.db.get_value("AI Eval Suite", run.suite, "min_pass_rate"))
+    if minimum and flt(run.pass_rate) < minimum:
+        return "Failed"
+    return "Passed"
+
+
+def _invalid_without_assertions(case) -> dict:
+    """The row for a case with no assertions: nothing could make it fail, so it is not a pass."""
+    return {
+        "eval_case": case.name,
+        "status": "Invalid",
+        "error_message": _("This case has no assertions, so nothing can make it fail. Add one before it counts."),
+    }
+
+
+def _execute_case_k_times(run_name: str, backend: str, case, agent_cfg: str | None, pass_k: int) -> dict:
+    """Execute one case ``pass_k`` times and report how it behaved across them.
+
+    A case that passes three times out of four is not a passing case: the fourth
+    is what a user would have hit. So the row keeps the FAILING execution's
+    output and assertions when there is one — a reviewer needs to see what went
+    wrong, not the run that happened to go well — and reports the consistency
+    rate beside it.
+
+    Spend is summed over every execution, because every execution was billed.
+    """
+    attempts = []
+    for _attempt in range(pass_k):
+        if backend == "replay":
+            attempts.append(_execute_case_replay(run_name, case))
+        elif backend == "deterministic":
+            attempts.append(_execute_case_deterministic(case))
+        else:
+            attempts.append(_execute_case(case, run_name, agent_cfg))
+
+    passes = sum(1 for a in attempts if a.get("status") == "Passed")
+    # The first execution that went wrong is the one worth reading; failing that,
+    # the last good one.
+    row = dict(next((a for a in attempts if a.get("status") != "Passed"), attempts[-1]))
+    row["runs"] = len(attempts)
+    row["passes"] = passes
+    row["consistency_rate"] = passes / len(attempts) * 100
+    row["status"] = "Passed" if passes == len(attempts) else row.get("status", "Failed")
+    row["cost"] = sum(flt(a.get("cost")) for a in attempts)
+    row["tokens_used"] = sum(cint(a.get("tokens_used")) for a in attempts)
+    row["prompt_tokens"] = sum(cint(a.get("prompt_tokens")) for a in attempts)
+    row["completion_tokens"] = sum(cint(a.get("completion_tokens")) for a in attempts)
+
+    # A case that flipped says so on the row, so the failure reads as flakiness
+    # rather than as a plain wrong answer.
+    if 0 < passes < len(attempts):
+        note = _("Flaky: passed {0} of {1} runs.").format(passes, len(attempts))
+        row["error_message"] = f"{note}\n{row.get('error_message') or ''}".strip()
+
+    return row
+
+
+def _execute_case_replay(run_name: str, case) -> dict:
     """
     Replay one case (WI-001364): skip the executor entirely and re-run
     evaluate-assertion logic against the case's most recent prior
@@ -426,21 +1417,21 @@ def _execute_case_replay(run, case) -> dict:
     # real tokens through _record_eval_run — stamp them with this case and run so
     # replay spend is attributable too.
     prev_origin = getattr(frappe.flags, "eval_origin", None)
-    frappe.flags.eval_origin = _eval_origin_flag(case, run.name)
+    frappe.flags.eval_origin = _eval_origin_flag(case, run_name)
     try:
-        return _execute_case_replay_inner(run, case)
+        return _execute_case_replay_inner(run_name, case)
     finally:
         frappe.flags.eval_origin = prev_origin
 
 
-def _execute_case_replay_inner(run, case) -> dict:
+def _execute_case_replay_inner(run_name: str, case) -> dict:
     """The body of ``_execute_case_replay``, with ``eval_origin`` already set."""
     prior = frappe.get_all(
         "AI Eval Result",
         filters={
             "eval_case": case.name,
             "parenttype": "AI Eval Run",
-            "parent": ["!=", run.name],
+            "parent": ["!=", run_name],
         },
         fields=["actual_output", "status"],
         order_by="creation desc",
@@ -455,6 +1446,8 @@ def _execute_case_replay_inner(run, case) -> dict:
             "error_message": "Nothing to replay: this case has no prior result. Run it live first.",
         }
 
+    if not case.assertions:
+        return _invalid_without_assertions(case)
     output = prior[0].actual_output or ""
     assertion_results = [
         _evaluate_assertion(assertion, output)
@@ -522,9 +1515,167 @@ def _execute_case(case, eval_run: str = None, agent_cfg: str = None) -> dict:
     prev_origin = getattr(frappe.flags, "eval_origin", None)
     frappe.flags.eval_origin = _eval_origin_flag(case, eval_run)
     try:
-        return _execute_case_inner(case, eval_run, agent_cfg)
+        result = _execute_case_inner(case, eval_run, agent_cfg)
+        _mark_expected_errors(case.name, case.get("expected_error"), eval_run)
+        return result
     finally:
         frappe.flags.eval_origin = prev_origin
+
+
+def _mark_expected_errors(case_name: str, expected_error: str | None, eval_run: str | None = None) -> int:
+    """Flag the case's step errors that contain ``expected_error`` so tool-error alerts skip them.
+
+    ``eval_run`` limits it to one run; None covers every run of the case. Returns the count flagged.
+    """
+    expected = (expected_error or "").strip()
+    if not expected:
+        return 0
+    run_filters = {"eval_case": case_name}
+    if eval_run:
+        run_filters["eval_run"] = eval_run
+    runs = frappe.get_all("AI Agent Run", filters=run_filters, pluck="name")
+    if not runs:
+        return 0
+    steps = frappe.get_all(
+        "AI Agent Step",
+        filters={"run": ["in", runs], "error_code": ["is", "set"], "is_expected_error": 0},
+        fields=["name", "error_code", "error_message"],
+    )
+    flagged = [s.name for s in steps if expected in f"{s.error_code} {s.error_message or ''}"]
+    for step_name in flagged:
+        frappe.db.set_value("AI Agent Step", step_name, "is_expected_error", 1, update_modified=False)
+    return len(flagged)
+
+
+def _memory_case_spec(case) -> dict:
+    """What a Memory case is asking for, read off the case.
+
+    ``input_context`` carries the scope and its key, how many results to look
+    at, and the agent output to distil when generation is being measured.
+    ``expected_output`` holds the golden memories, one per line, because that is
+    the field a person already edits when writing any other case.
+    """
+    spec = case.input_context
+    if isinstance(spec, str):
+        try:
+            spec = json.loads(spec or "{}")
+        except (ValueError, TypeError):
+            spec = {}
+    spec = dict(spec or {})
+    golden = [line.strip() for line in (case.expected_output or "").splitlines() if line.strip()]
+    spec.setdefault("golden_memories", golden)
+    spec.setdefault("expected_recall", golden)
+    # A generation case feeds the agent's own words to the distiller, so its
+    # Input User Prompt is that output, not a question. Reading it as a query
+    # would send the whole agent turn to memory search and measure nothing.
+    if not spec.get("agent_output"):
+        spec.setdefault("query", case.input_user_prompt or "")
+    else:
+        spec.setdefault("query", "")
+    return spec
+
+
+def _distil_for_eval(case, spec, scope, scope_key) -> list:
+    """Run the distiller over the case's agent output and return what it kept.
+
+    Nothing is written to the store: the case is asking what the distiller
+    WOULD keep, and a suite that wrote memories every time it ran would change
+    the thing it is measuring. This is the one part of a memory case that calls
+    a model, so a generation case costs one distillation and a retrieval case
+    still costs nothing.
+    """
+    from one_bpmn.agents.memory.distill import distill_memories
+
+    agent_cfg = frappe.db.get_value("AI Eval Suite", case.suite, "agent_configuration")
+    cfg = frappe.get_cached_doc("AI Agent Configuration", agent_cfg) if agent_cfg else None
+    model = spec.get("model") or (cfg and (cfg.memory_distill_model or cfg.ai_model)) or ""
+    facts = distill_memories(
+        spec["agent_output"],
+        agent=str(scope_key),
+        scope=scope,
+        scope_key=scope_key,
+        provider_name=spec.get("provider_name") or (cfg and cfg.ai_provider) or "",
+        model=model,
+    )
+    return [f.get("content", "") for f in facts]
+
+
+def _memory_case_user(eval_run: str = None) -> str:
+    """Whose memories a case reads when it does not say.
+
+    The run's owner, so a suite handed to a background worker measures what the
+    person who started it would see, and the session user when there is no run
+    to ask.
+    """
+    owner = frappe.db.get_value("AI Eval Run", eval_run, "owner") if eval_run else None
+    return owner or frappe.session.user
+
+
+def _scope_key_with_user(scope: str, scope_key, user: str):
+    """Put a person on the scope key when the case names none.
+
+    Recall always runs as somebody: memory_search returns that person's rows
+    plus the shared ones. A case with no user reads the shared rows only, and
+    on an agent whose memory scope includes User that is no rows at all, so a
+    memory sitting right there scores 0 and the suite reports a retrieval
+    failure that is really a missing filter.
+
+    A case that means the shared rows says so with an explicit empty user; only
+    a key that is silent gets the default.
+    """
+    if not isinstance(scope_key, dict):
+        named = {"Agent": "agent_element", "Process": "process"}.get(scope)
+        if not named:
+            return scope_key
+        scope_key = {named: scope_key}
+    if scope_key.get("user") is None:
+        scope_key = dict(scope_key, user=user)
+    return scope_key
+
+
+def _execute_memory_case(case, eval_run: str = None) -> dict:
+    """Measure the memory pipeline for one case.
+
+    Reports generation precision/recall/F1 when the case says what should have
+    been distilled, Recall@K and the retrieval latency when it asks a question,
+    and passes only when everything it measured came out right and retrieval
+    stayed inside its budget. Costs nothing: no agent is called, so tokens and
+    cost stay at zero and a memory suite can run as often as anyone likes.
+    """
+    from one_bpmn.agents.memory.evals import evaluate_memory_case
+
+    spec = _memory_case_spec(case)
+    scope = spec.get("scope") or "Agent"
+    scope_key = spec.get("scope_key")
+    if not scope_key:
+        return {
+            "eval_case": case.name,
+            "status": "Error",
+            "error_message": "A Memory case needs a scope_key in its Input Context, naming the memories to measure.",
+        }
+
+    produced = spec.get("produced_memories")
+    if produced is None and spec.get("agent_output"):
+        produced = _distil_for_eval(case, spec, scope, scope_key)
+
+    report = evaluate_memory_case(
+        scope=scope,
+        scope_key=_scope_key_with_user(scope, scope_key, _memory_case_user(eval_run)),
+        query=spec.get("query") or "",
+        golden_memories=spec.get("golden_memories"),
+        expected_recall=spec.get("expected_recall"),
+        produced_memories=produced,
+        k=int(spec.get("k") or 5),
+    )
+    return {
+        "eval_case": case.name,
+        "status": "Passed" if report["passed"] else "Failed",
+        # The numbers are the result here, so they go where a reader already
+        # looks for what happened.
+        "actual_output": json.dumps(report, indent=2),
+        "tokens_used": 0,
+        "cost": 0.0,
+    }
 
 
 def _execute_case_inner(case, eval_run: str = None, agent_cfg: str = None) -> dict:
@@ -534,6 +1685,14 @@ def _execute_case_inner(case, eval_run: str = None, agent_cfg: str = None) -> di
     The suite is left untouched — the override lives on the AI Eval Run.
     """
     try:
+        # A memory case measures the memory pipeline, not the agent's answer, so
+        # it needs no provider, no model and no map. Handled before the agent is
+        # resolved for exactly that reason.
+        if (case.get("case_type") or "") == "Memory":
+            return _execute_memory_case(case, eval_run)
+        if not case.assertions:
+            return _invalid_without_assertions(case)
+
         agent_cfg = agent_cfg or frappe.db.get_value(
             "AI Eval Suite", case.suite, "agent_configuration"
         )
@@ -545,13 +1704,15 @@ def _execute_case_inner(case, eval_run: str = None, agent_cfg: str = None) -> di
         eval_type = frappe.db.get_value("AI Eval Suite", case.suite, "eval_type") or "Direct"
         cfg = frappe.get_cached_doc("AI Agent Configuration", agent_cfg)
 
+        started = now_datetime()
         if eval_type == "Agent":
             output, usage = _run_agent_eval(cfg, case, eval_run)
         else:
             output, usage = _run_direct_eval(cfg, case)
 
+        facts = _execution_facts(case, eval_run, usage, since=started)
         assertion_results = [
-            _evaluate_assertion(assertion, output)
+            _evaluate_assertion(assertion, output, facts)
             for assertion in (case.assertions or [])
         ]
         all_passed = all(a["passed"] for a in assertion_results)
@@ -705,6 +1866,26 @@ def _eval_map_for_case(cfg, case) -> str:
     return ""
 
 
+def _instance_failure(instance_name: str) -> str:
+    """What the engine logged when this instance errored.
+
+    The instance keeps no error field — the traceback goes to an Error Log
+    titled "BPMN runtime failure [<ref>] — <instance>" — so the last line of
+    that log is the only thing that says what actually broke.
+    """
+    log = frappe.get_all(
+        "Error Log",
+        filters={"method": ["like", f"BPMN runtime failure%{instance_name}"]},
+        fields=["error"],
+        order_by="creation desc",
+        limit=1,
+    )
+    if not log:
+        return "No BPMN runtime failure was logged for it."
+    lines = [line for line in (log[0].error or "").strip().splitlines() if line.strip()]
+    return f"It failed with: {lines[-1].strip()}" if lines else "Its Error Log is empty."
+
+
 def _eval_context_document(case) -> tuple:
     """The document a map eval runs against, read from the case's input_context.
 
@@ -743,6 +1924,75 @@ def _eval_context_document(case) -> tuple:
             if row and row.context_doctype and row.context_docname:
                 return row.context_doctype, row.context_docname
     return "", ""
+
+
+def _worker_answer(doctype: str, docname: str) -> str:
+    """What a delegated worker handed back to its caller, or "" if it is not one.
+
+    A tool-using worker's last model message is narration — "the test passed, now
+    let me finalize" — while the answer itself is assembled by the map's final
+    script and written onto the worker's own A2A Task. Judging the narration
+    scores the commentary and misses the work: the Connector Agent reported a
+    written, disabled connector on the task while its last message talked about
+    the test it had just run.
+    """
+    if doctype != "A2A Task" or not docname:
+        return ""
+    row = frappe.db.get_value("A2A Task", docname, ["result", "status_message"], as_dict=True) or {}
+    return (row.get("result") or "").strip() or (row.get("status_message") or "").strip()
+
+
+def _parked_answer(run: dict) -> str:
+    """What a run that stopped to ask a person had said, plus the question it asked.
+
+    The executor checkpoints the call it parks on instead of finishing the
+    turn, so a run that asked the story owner has no final_output and, once the
+    eval cancels the instance, never will. The checkpoint is the only witness:
+    the last thing the model said and the tool it reached for.
+    """
+    if run.get("status") != "Suspended":
+        return ""
+    suspension = _suspension_of(run.get("checkpoint"))
+    said = ""
+    for message in reversed(suspension.get("transcript") or []):
+        content = message.get("content")
+        if isinstance(content, list):
+            content = " ".join(b.get("text") or "" for b in content if isinstance(b, dict))
+        if message.get("role") == "assistant" and content:
+            said = content
+            break
+    pending = suspension.get("pending_call") or {}
+    if not pending.get("name"):
+        return said
+    asked = f"Stopped to ask a person through {pending['name']}: {json.dumps(pending.get('arguments') or {})}"
+    return "\n\n".join(filter(None, [said, asked]))
+
+
+def _suspension_of(checkpoint) -> dict:
+    try:
+        return json.loads(checkpoint or "{}").get("suspension") or {}
+    except (ValueError, AttributeError):
+        return {}
+
+
+def _parked_calls(runs: List[str]) -> List[dict]:
+    """The call each Suspended run parked on, read off its checkpoint.
+
+    A model that asks a person has made that call, but the executor records no
+    Tool Call row for it, so a trajectory case saw "Called: nothing" and failed
+    a run that had done exactly what it should.
+    """
+    parked = []
+    for run in frappe.get_all(
+        "AI Agent Run",
+        filters={"name": ["in", runs], "status": "Suspended"},
+        fields=["checkpoint"],
+        order_by="creation asc",
+    ):
+        pending = _suspension_of(run.checkpoint).get("pending_call") or {}
+        if pending.get("name"):
+            parked.append({"tool": pending["name"], "args": pending.get("arguments") or {}, "status": "Parked"})
+    return parked
 
 
 def _run_map_eval(cfg, case) -> tuple:
@@ -810,6 +2060,27 @@ def _run_map_eval(cfg, case) -> tuple:
                 update_modified=False,
             )
 
+    # A script the map ran can call frappe.db.rollback() and take this
+    # transaction with it: the instance inserted above is gone, the run with it,
+    # and the lookup below would blame the map's routing.
+    if not frappe.db.exists("BPMN Process Instance", instance.name):
+        raise ValueError(
+            f"Process map '{model_name}' rolled the transaction back while running on "
+            f"{doctype} '{docname}': the instance this eval inserted no longer exists. A script "
+            f"on the map calls frappe.db.rollback(); it should roll back to a savepoint of its own."
+        )
+
+    # The engine handles its own failures: it logs the traceback, marks the
+    # instance Errored and returns, so an exception escaping start() is NOT what
+    # a failed run looks like. Asked before the run lookup because a run that
+    # never happened is the symptom, and the missing run below would otherwise
+    # be blamed on the map's routing.
+    if frappe.db.get_value("BPMN Process Instance", instance.name, "status") == "Errored":
+        raise ValueError(
+            f"Process map '{model_name}' errored on {doctype} '{docname}' "
+            f"(instance {instance.name}). {_instance_failure(instance.name)}"
+        )
+
     filters = {"instance": instance.name}
     if case.bpmn_id:
         filters["bpmn_id"] = case.bpmn_id
@@ -819,8 +2090,8 @@ def _run_map_eval(cfg, case) -> tuple:
     runs = frappe.get_all(
         "AI Agent Run",
         filters=filters,
-        fields=["final_output", "total_prompt_tokens", "total_completion_tokens",
-                "total_tokens", "estimated_cost"],
+        fields=["final_output", "status", "checkpoint", "total_prompt_tokens",
+                "total_completion_tokens", "total_tokens", "estimated_cost"],
         order_by="creation asc",
     )
     if not runs:
@@ -833,7 +2104,11 @@ def _run_map_eval(cfg, case) -> tuple:
 
     # The last run is the agent's answer; earlier ones (retries, other AI shapes)
     # still count toward spend.
-    output = runs[-1].get("final_output") or ""
+    output = (
+        _worker_answer(doctype, docname)
+        or runs[-1].get("final_output")
+        or _parked_answer(runs[-1])
+    )
     usage = {
         "prompt_tokens": sum((r.get("total_prompt_tokens") or 0) for r in runs),
         "completion_tokens": sum((r.get("total_completion_tokens") or 0) for r in runs),
@@ -863,18 +2138,18 @@ def _run_agent_eval(cfg, case, eval_run: str = None) -> tuple:
     try:
         if _needs_map_eval(cfg):
             return _run_map_eval(cfg, case)
-        return _run_chat_agent_eval(cfg, case)
+        return _run_chat_agent_eval(cfg, case, eval_run)
     finally:
         frappe.flags.eval_origin, frappe.flags.bpmn_disable_ai_parking = prev
 
 
-def _run_chat_agent_eval(cfg, case) -> tuple:
-    """The chat-shaped Agent eval: hand the turn to ``invoke_agent``.
-
-    Only drives a map whose start event triggers on Chat Conversation; for
-    anything else use ``_run_map_eval``. Eval flags are set by the caller.
-    """
+def _run_chat_agent_eval(cfg, case, eval_run: str | None = None) -> tuple:
+    """The chat-shaped Agent eval: hand the turn to ``invoke_agent`` on a fresh conversation.
+    ``input_context`` may seed earlier turns through ``conversation_messages`` and
+    ``session_state``; usage comes from the runs tagged with this case and eval run."""
+    from one_bpmn.agents.memory import session_state
     from one_bpmn.api.agent_invocation import invoke_agent
+    from one_bpmn.utils.chat_persistence import close_conversation, create_agent_conversation
 
     if not cfg.agent_id:
         raise ValueError(f"Agent configuration '{cfg.name}' has no agent_id.")
@@ -885,23 +2160,56 @@ def _run_chat_agent_eval(cfg, case) -> tuple:
             context = frappe.parse_json(case.input_context) or {}
         except Exception:
             context = {}
+    seed_messages = context.pop(SEED_MESSAGES_KEY, None) or []
+    seed_state = context.pop(SEED_STATE_KEY, None) or {}
+
+    # No commit: the eval job commits when its case ends, and a test's rollback must reach this row.
+    conversation = create_agent_conversation(
+        cfg.agent_id, title=(case.title or _("Eval case"))[:140], user=frappe.session.user, commit=False
+    )
+    frappe.db.set_value("Chat Conversation", conversation, "is_eval", 1, update_modified=False)
 
     started = now_datetime()
-    reply = invoke_agent(cfg.agent_id, case.input_user_prompt or "", context=context)
+    try:
+        _seed_conversation(conversation, seed_messages, seed_state)
+        reply = invoke_agent(
+            cfg.agent_id, case.input_user_prompt or "", conversation=conversation, context=context
+        )
+    finally:
+        close_conversation(conversation)
+        session_state.clear_state(conversation)
 
-    output = (reply or {}).get("response") or ""
+    reply = reply or {}
+    output = reply.get("response") or ""
+    # A diagram turn's lanes and shapes live only in its XML, so assertions read it after the reply.
+    if (reply.get("intent") or "").upper() in DIAGRAM_INTENTS and reply.get("bpmn_xml"):
+        output = output + "\n\n" + reply["bpmn_xml"]
+    # A DocType turn's fields live only in its definition, so assertions read it after the reply.
+    doctype_ir = reply.get("doctype_ir") or _saved_doctype_ir(conversation)
+    if doctype_ir:
+        output = output + "\n\n" + json.dumps(doctype_ir, indent=1, default=str)
+
+    # creation >= started keeps each repeated attempt under one eval_run to its own runs.
+    filters = {
+        "eval_case": case.name,
+        "creation": [">=", started],
+        # _execute_case adds judge spend separately.
+        "bpmn_id": ["!=", EVAL_RUN_JUDGE],
+    }
+    if eval_run:
+        filters["eval_run"] = eval_run
     runs = frappe.get_all(
         "AI Agent Run",
-        filters={
-            "agent_configuration": cfg.name,
-            "creation": [">=", started],
-            # Judge runs are recorded separately and their cost is added by
-            # _execute_case; excluding them here keeps execution and judge spend
-            # from being counted twice on the Result row.
-            "bpmn_id": ["!=", EVAL_RUN_JUDGE],
-        },
+        filters=filters,
         fields=["total_prompt_tokens", "total_completion_tokens", "total_tokens", "estimated_cost"],
     )
+    if not runs:
+        raise ValueError(
+            _(
+                "Agent '{0}' ran but produced no AI Agent Run for case '{1}'. "
+                "Check that the agent's map reaches its AI Agent Task for this conversation."
+            ).format(cfg.name, case.name)
+        )
     usage = {
         "prompt_tokens": sum((r.get("total_prompt_tokens") or 0) for r in runs),
         "completion_tokens": sum((r.get("total_completion_tokens") or 0) for r in runs),
@@ -909,6 +2217,47 @@ def _run_chat_agent_eval(cfg, case) -> tuple:
         "cost": sum(flt(r.get("estimated_cost")) for r in runs),
     }
     return output, usage
+
+
+def _saved_doctype_ir(conversation: str):
+    """The DocType definition on the conversation's latest reply, as the schema card shows it."""
+    metadata = frappe.db.get_value(
+        "Chat Message", {"conversation": conversation, "message_type": "Bot"}, "metadata",
+        order_by="creation desc",
+    )
+    agent_result = (frappe.parse_json(metadata) or {}).get("agent_result") if metadata else None
+    return agent_result.get("doctype_ir") if isinstance(agent_result, dict) else None
+
+
+def _seed_conversation(conversation: str, messages: list, state: dict) -> None:
+    """Write earlier turns and session state into an eval conversation, oldest first."""
+    from one_bpmn.agents.memory import session_state
+
+    start = add_to_date(now_datetime(), seconds=-len(messages) - 1)
+    for index, message in enumerate(messages):
+        message_type = message.get("message_type")
+        if message_type not in SEED_MESSAGE_TYPES:
+            raise ValueError(
+                f"Seeded message {index + 1} has message_type {message_type!r}; "
+                f"use one of {', '.join(SEED_MESSAGE_TYPES)}."
+            )
+        metadata = message.get("metadata")
+        doc = frappe.get_doc(
+            {
+                "doctype": "Chat Message",
+                "conversation": conversation,
+                "message_type": message_type,
+                "text": message.get("text") or "",
+                "metadata": json.dumps(metadata) if isinstance(metadata, (dict, list)) else metadata,
+                "sender": frappe.session.user if message_type == "User" else "Administrator",
+            }
+        )
+        doc.creation = doc.modified = add_to_date(start, seconds=index)
+        doc.owner = doc.modified_by = frappe.session.user
+        # db_insert: seeded history is a fixture, not a message sent through the chat's guards.
+        doc.db_insert()
+    if state:
+        session_state.set_state(conversation, state, commit=False)
 
 
 def _run_direct_eval(cfg, case) -> tuple:
@@ -938,6 +2287,8 @@ def _run_direct_eval(cfg, case) -> tuple:
         model=model,
         system_prompt=cfg.system_prompt or "",
         user_prompt=case.input_user_prompt or "",
+        # Pinned to 0.7 on purpose, not DEFAULT_TEMPERATURE.
+        temperature=0.7,
     )
     result = get_executor("direct_api")().run(config, ExecutorContext())
     if result.error_code != ErrorCode.SUCCESS:
@@ -976,9 +2327,14 @@ def _run_direct_eval(cfg, case) -> tuple:
 # Assertion evaluation
 # ---------------------------------------------------------------------------
 
-def _evaluate_assertion(assertion, output: Any) -> dict:
+def _evaluate_assertion(assertion, output: Any, facts: dict = None) -> dict:
     """
     Evaluate one assertion against *output*.
+
+    *facts* describes the execution that produced the output — its token spend
+    and the tools it called — for the assertions that are about the run rather
+    than its text. A replay has no execution, so it passes none, and those
+    assertion types say so instead of guessing.
 
     Returns a dict {assertion_type, value, passed, message} describing the
     outcome. Evaluation never raises — a malformed assertion (e.g. a bad
@@ -1006,6 +2362,21 @@ def _evaluate_assertion(assertion, output: Any) -> dict:
 
         if a_type == "schema_valid":
             return {**base, **_evaluate_schema_valid(value, output)}
+
+        if a_type == "max_tokens":
+            return {**base, **_evaluate_max_tokens(value, facts)}
+
+        if a_type == "no_tool_call":
+            return {**base, **_evaluate_no_tool_call(value, facts)}
+
+        if a_type == "tool_calls":
+            return {**base, **_evaluate_tool_calls(value, facts)}
+
+        if a_type == "tool_artifact":
+            return {**base, **_evaluate_tool_artifact(value, facts)}
+
+        if a_type == "skill_in_prompt":
+            return {**base, **_evaluate_skill_in_prompt(value, facts)}
 
         if a_type == "llm_judge":
             return _evaluate_llm_judge(assertion, output)
@@ -1047,6 +2418,337 @@ def _evaluate_schema_valid(schema_str: str, output: Any) -> dict:
     return {"passed": True, "message": ""}
 
 
+def _evaluate_max_tokens(value: str, facts: dict) -> dict:
+    """Pass if the case's own execution stayed within *value* tokens.
+
+    Judge tokens are left out: they are the cost of measuring the answer, not
+    of producing it, so adding them would make the ceiling depend on how many
+    llm_judge assertions the case happens to carry.
+    """
+    if facts is None:
+        return {"passed": False, "error": True,
+                "message": "Token spend is only measured on a live run, not a replay."}
+    ceiling = cint(value)
+    if ceiling <= 0:
+        return {"passed": False, "error": True,
+                "message": "max_tokens needs a positive number of tokens."}
+    spent = cint(facts.get("tokens"))
+    return {"passed": spent <= ceiling,
+            "message": "" if spent <= ceiling else f"Spent {spent} tokens; the ceiling is {ceiling}."}
+
+
+def _evaluate_no_tool_call(value: str, facts: dict) -> dict:
+    """Pass if none of the tools named in *value* ran during the case.
+
+    The output cannot show this: a greeting that quietly ran the schema writer
+    reads exactly like one that did not, and only the second is cheap.
+    """
+    if facts is None:
+        return {"passed": False, "error": True,
+                "message": "Tool calls are only observed on a live run, not a replay."}
+    banned = {n.strip() for n in value.replace("\n", ",").split(",") if n.strip()}
+    if not banned:
+        return {"passed": False, "error": True,
+                "message": "no_tool_call needs the tool names it forbids."}
+    called = sorted({t for t in (facts.get("tool_calls") or []) if t in banned})
+    return {"passed": not called,
+            "message": "" if not called else "Called " + ", ".join(called) + "."}
+
+
+def _evaluate_skill_in_prompt(value: str, facts: dict) -> dict:
+    """Pass if the body of the skill named in *value* was in a prompt the case sent to the model."""
+    if facts is None:
+        return {"passed": False, "error": True,
+                "message": "Prompts are only observed on a live run, not a replay."}
+    body = (frappe.db.get_value("AI Skill", value.strip(), "body") or "").strip()
+    if not body:
+        return {"passed": False, "error": True,
+                "message": f"No AI Skill named {value.strip()!r} with a body."}
+    passed = any(body in prompt for prompt in facts.get("prompts") or [])
+    return {"passed": passed,
+            "message": "" if passed else f"The {value.strip()} skill was not in any prompt."}
+
+
+TOOL_CALL_MODES = ("EXACT", "IN_ORDER", "ANY_ORDER")
+
+
+def _expected_tool_calls(case) -> List[dict]:
+    """The case's expected calls, one entry per call, matchers grouped onto it.
+
+    Rows are authored flat — a row per argument to check — so several rows share
+    a Call number when a call has more than one matcher. Order is the Call
+    number, not the row order: the grid is a spreadsheet, and re-sorting it must
+    not change what the case means.
+    """
+    grouped: dict = {}
+    for row in case.get("expected_tool_calls") or []:
+        # `.get` so a row works whether it arrived as a child Document or as a
+        # plain dict from a caller that built the table by hand.
+        tool = (row.get("tool_name") or "").strip()
+        if not tool:
+            continue
+        order = cint(row.get("call_order"))
+        entry = grouped.setdefault(order, {"order": order, "tool": tool, "matchers": []})
+        argument = (row.get("argument") or "").strip()
+        if argument:
+            entry["matchers"].append({
+                "argument": argument,
+                "matcher": (row.get("matcher") or "equals").strip(),
+                "expected": row.get("expected_value") or "",
+            })
+    return [grouped[k] for k in sorted(grouped)]
+
+
+def _argument_matches(matcher: dict, args: dict) -> tuple:
+    """Does one argument matcher hold against a call's arguments?
+
+    Returns (passed, why-not). A missing argument fails rather than passing
+    vacuously — a call that never received the argument did not satisfy a
+    constraint on it.
+    """
+    name = matcher["argument"]
+    if name not in (args or {}):
+        return False, f"no argument {name!r}"
+
+    actual = args.get(name)
+    actual = actual if isinstance(actual, str) else json.dumps(actual, default=str, sort_keys=True)
+    expected = matcher["expected"] or ""
+    kind = matcher["matcher"]
+
+    if kind == "equals":
+        return actual.strip() == expected.strip(), f"{name}={actual!r} != {expected!r}"
+    if kind == "contains":
+        return expected.strip().lower() in actual.lower(), f"{name}={actual!r} lacks {expected!r}"
+    if kind == "regex":
+        return bool(re.search(expected, actual)), f"{name}={actual!r} does not match /{expected}/"
+    return False, f"unknown matcher {kind!r}"
+
+
+def _call_matches(expected: dict, actual: dict) -> tuple:
+    """Does one actual call satisfy one expected call — tool and every matcher?"""
+    if actual.get("tool") != expected["tool"]:
+        return False, f"called {actual.get('tool')!r}"
+    for matcher in expected["matchers"]:
+        passed, why = _argument_matches(matcher, actual.get("args") or {})
+        if not passed:
+            return False, why
+    return True, ""
+
+
+def _evaluate_tool_calls(value: str, facts: dict) -> dict:
+    """Score the run's tool-call trace against the case's expected calls.
+
+    A right answer reached the wrong way is the failure this catches: the text
+    reads fine, and only the trace shows that the agent guessed instead of
+    looking, or wrote before it reviewed.
+
+    Three modes, and the difference between them is what they allow:
+      EXACT      the trace IS the expected sequence — same calls, same order,
+                 nothing extra.
+      IN_ORDER   every expected call appears, in the expected order; other
+                 calls may happen in between.
+      ANY_ORDER  every expected call appears somewhere; order is not checked.
+    """
+    if facts is None:
+        return {"passed": False, "error": True,
+                "message": "Tool calls are only observed on a live run, not a replay."}
+
+    mode = (value or "").strip().upper()
+    if mode not in TOOL_CALL_MODES:
+        return {"passed": False, "error": True,
+                "message": f"tool_calls needs one of {', '.join(TOOL_CALL_MODES)}, not {value!r}."}
+
+    expected = facts.get("expected_tool_calls") or []
+    if not expected:
+        return {"passed": False, "error": True,
+                "message": "tool_calls needs Expected Tool Calls on the case."}
+
+    trace = facts.get("tool_trace") or []
+    called = ", ".join(c.get("tool") or "?" for c in trace) or "nothing"
+
+    if mode == "EXACT":
+        if len(trace) != len(expected):
+            return {"passed": False,
+                    "message": f"Expected {len(expected)} call(s), the run made {len(trace)}: {called}."}
+        for position, (want, got) in enumerate(zip(expected, trace), start=1):
+            passed, why = _call_matches(want, got)
+            if not passed:
+                return {"passed": False, "message": f"Call {position} expected {want['tool']}: {why}."}
+        return {"passed": True, "message": ""}
+
+    if mode == "IN_ORDER":
+        cursor = 0
+        for want in expected:
+            while cursor < len(trace) and not _call_matches(want, trace[cursor])[0]:
+                cursor += 1
+            if cursor == len(trace):
+                return {"passed": False,
+                        "message": f"No call to {want['tool']} after the previous expected one. Called: {called}."}
+            cursor += 1
+        return {"passed": True, "message": ""}
+
+    unmatched = []
+    remaining = list(trace)
+    for want in expected:
+        hit = next((i for i, got in enumerate(remaining) if _call_matches(want, got)[0]), None)
+        if hit is None:
+            unmatched.append(want["tool"])
+        else:
+            remaining.pop(hit)
+    return {"passed": not unmatched,
+            "message": "" if not unmatched else f"Never called: {', '.join(unmatched)}. Called: {called}."}
+
+
+def _evaluate_tool_artifact(value: str, facts: dict) -> dict:
+    """Match a dotted path in the JSON a tool recorded as its artifact.
+
+    *value* is {"tool", "path", "matcher", "expected"}. The last call to the tool
+    that recorded an artifact is the one checked.
+    """
+    if facts is None:
+        return {"passed": False, "error": True,
+                "message": "Tool artifacts are only recorded on a live run, not a replay."}
+    spec = json.loads(value or "{}")
+    tool, path = spec.get("tool"), spec.get("path")
+    if not (tool and path):
+        return {"passed": False, "error": True,
+                "message": "tool_artifact needs a tool and a path."}
+
+    calls = [c for c in facts.get("tool_trace") or [] if c.get("tool") == tool
+             and (c.get("artifact") or c.get("artifact_file"))]
+    if not calls:
+        return {"passed": False, "error": True, "message": f"{tool} recorded no artifact."}
+    last = calls[-1]
+    text = last.get("artifact") or frappe.get_doc("File", last["artifact_file"]).get_content()
+
+    resolved = _resolve_path(json.loads(text), path)
+    expected = spec.get("expected")
+    matcher = {
+        "argument": path,
+        "matcher": spec.get("matcher") or "equals",
+        "expected": expected if isinstance(expected, str) else json.dumps(expected, sort_keys=True),
+    }
+    passed, why = _argument_matches(matcher, {path: resolved})
+    return {"passed": passed, "message": "" if passed else why}
+
+
+def _resolve_path(data: Any, path: str) -> Any:
+    """Walk *path* key by key; a list along the way maps the rest of the path over its items."""
+    # ponytail: keys and lists only, no filters or wildcards; add them when a case needs one.
+    for key in path.split("."):
+        if isinstance(data, list):
+            data = [item.get(key) for item in data if isinstance(item, dict)]
+        elif isinstance(data, dict):
+            data = data.get(key)
+        else:
+            return None
+    return data
+
+
+def _execution_facts(case, eval_run: str, usage: dict, since=None) -> dict:
+    """What the assertions may know about the execution itself, not its text.
+
+    ``since`` is when this execution started, so a pass_k repeat is scored on its own calls only."""
+    trace = _tool_trace_for(case, eval_run, since)
+    return {
+        "tokens": cint(usage.get("tokens")),
+        "tool_calls": [c["tool"] for c in trace],
+        "tool_trace": trace,
+        "expected_tool_calls": _expected_tool_calls(case),
+        "prompts": _prompts_for(case, eval_run, since),
+    }
+
+
+def _prompts_for(case, eval_run: str | None = None, since=None) -> list[str]:
+    """The user prompts the case's runs sent to the model, which is where loaded skills are injected."""
+    filters = {"eval_case": case.name}
+    if eval_run:
+        filters["eval_run"] = eval_run
+    if since:
+        filters["creation"] = [">=", since]
+    runs = frappe.get_all("AI Agent Run", filters=filters, pluck="name")
+    if not runs:
+        return []
+    return frappe.get_all("AI Agent Step", filters={"run": ["in", runs], "role": "user"}, pluck="content")
+
+
+def _tool_trace_for(case, eval_run: str = None, since=None) -> List[dict]:
+    """The calls this case made, in the order it made them, with their arguments.
+
+    Order is the step's ``step_index`` and then the row's position within that
+    step, which is the order the model asked for them. Reading the child rows
+    without that ordering returns them in whatever order the database offers,
+    which is exactly what an IN_ORDER assertion must not depend on.
+    """
+    filters = {"eval_case": case.name}
+    if eval_run:
+        filters["eval_run"] = eval_run
+    if since:
+        filters["creation"] = [">=", since]
+    runs = frappe.get_all("AI Agent Run", filters=filters, pluck="name", order_by="creation asc")
+    if not runs:
+        return []
+    steps = frappe.get_all(
+        "AI Agent Step", filters={"run": ["in", runs]}, pluck="name", order_by="step_index asc, creation asc"
+    )
+    rows = frappe.get_all(
+        "AI Agent Tool Call",
+        filters={"parenttype": "AI Agent Step", "parent": ["in", steps]},
+        fields=["parent", "idx", "tool_name", "tool_args", "status", "tool_artifact", "artifact_file"],
+    ) if steps else []
+    position = {name: index for index, name in enumerate(steps)}
+    rows.sort(key=lambda r: (position.get(r["parent"], 0), cint(r["idx"])))
+
+    trace = []
+    for row in rows:
+        try:
+            args = frappe.parse_json(row["tool_args"]) if row["tool_args"] else {}
+        except Exception:
+            args = {}
+        trace.append({
+            "tool": row["tool_name"],
+            "args": args if isinstance(args, dict) else {"": args},
+            "status": row["status"],
+            "artifact": row["tool_artifact"] or "",
+            "artifact_file": row["artifact_file"],
+        })
+    # A parked call is the last thing the model did.
+    return trace + _parked_calls(runs)
+
+
+def _tool_calls_for(case, eval_run: str = None) -> List[str]:
+    """Tool names called while this case ran, read off the runs tagged with it."""
+    filters = {"eval_case": case.name}
+    if eval_run:
+        filters["eval_run"] = eval_run
+    runs = frappe.get_all("AI Agent Run", filters=filters, pluck="name")
+    if not runs:
+        return []
+    steps = frappe.get_all("AI Agent Step", filters={"run": ["in", runs]}, pluck="name")
+    called = frappe.get_all(
+        "AI Agent Tool Call",
+        filters={"parenttype": "AI Agent Step", "parent": ["in", steps]},
+        pluck="tool_name",
+    ) if steps else []
+    return called + [call["tool"] for call in _parked_calls(runs)]
+
+
+def _judge_model_for(assertion) -> tuple[str, str]:
+    """The model that grades an answer, and its provider.
+
+    The assertion's own choice wins; failing that, Processa Settings names the
+    grading model for scheduled runs. ``resolve_memory_model`` already
+    implements that precedence, so it is reused rather than copied.
+    """
+    from one_bpmn.agents.memory.model_resolution import resolve_memory_model
+
+    model = resolve_memory_model(assertion.judge_model, "nightly_eval_grading_model", None) or ""
+    provider = (assertion.judge_provider or "").strip()
+    if model and not provider:
+        provider = frappe.db.get_value("AI Model", model, "provider") or ""
+    return model, provider
+
+
 def _evaluate_llm_judge(assertion, output: Any) -> dict:
     """
     Call a judge LLM to score *output* against the rubric in *assertion.value*.
@@ -1063,13 +2765,20 @@ def _evaluate_llm_judge(assertion, output: Any) -> dict:
         actual_output=_stringify(output),
     )
 
+    # An assertion may name its own grader; when it does not, the site's
+    # nightly grading model stands in, so a scheduled run does not depend on
+    # every assertion carrying a model of its own.
+    judge_model, judge_provider = _judge_model_for(assertion)
+
     judge_config = ExecutorConfig(
         backend="direct_api",
-        provider_name=assertion.judge_provider or "",
-        model=assertion.judge_model or "",
+        provider_name=judge_provider,
+        model=judge_model,
         system_prompt="",
         user_prompt=judge_prompt,
         response_format="json",
+        # Pinned to 0.7 on purpose, not DEFAULT_TEMPERATURE.
+        temperature=0.7,
     )
     judge_context = ExecutorContext()
 

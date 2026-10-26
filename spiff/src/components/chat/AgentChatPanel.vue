@@ -15,9 +15,18 @@
 		<div class="acp-main">
 		<!-- ── transcript ─────────────────────────────────────────────── -->
 		<div ref="log" class="acp-log">
+			<!-- older messages live behind this; the transcript opens at the
+			     newest page (chat-history-paging scope) -->
+			<div v-if="hasOlder" class="acp-older">
+				<button class="acp-btn acp-btn--subtle" :disabled="loadingOlder" @click="loadOlder">
+					{{ loadingOlder ? __("Loading…") : __("Load older messages") }}
+				</button>
+			</div>
 			<template v-for="(item, i) in transcriptItems" :key="i">
 				<!-- plain text bubbles -->
-				<div v-if="item.kind === 'user'" class="acp-msg acp-msg--user">{{ item.text }}<span v-if="item.file" class="acp-filechip">📎 {{ item.file }}</span></div>
+				<div v-if="item.kind === 'user'" class="acp-msg acp-msg--user" :class="{ 'acp-msg--failed': item.failed }">{{ item.text }}<span v-if="item.file" class="acp-filechip">📎 {{ item.file }}</span>
+					<button v-if="item.failed" class="acp-retry" :disabled="busy" @click="retrySend(item)">{{ __("Not sent — Retry") }}</button>
+				</div>
 				<div v-else-if="item.kind === 'agent'" class="acp-agent-block">
 					<div class="acp-msg acp-msg--agent" v-html="renderMarkdown(item.text)" />
 					<!-- Rating lives on agent replies only, and only where the
@@ -29,6 +38,14 @@
 						@rated="onRated"
 					/>
 				</div>
+				<!-- a rate-limit refusal (role=system) is the platform
+				     pushing back, not the agent talking — a distinct notice, no
+				     rating control, so it never reads as an assistant reply. -->
+				<div v-else-if="item.kind === 'system'" class="acp-msg acp-msg--system">{{ item.text }}</div>
+				<details v-else-if="item.kind === 'narration'" class="acp-narration">
+					<summary>{{ __("Working notes") }}</summary>
+					<div v-html="renderMarkdown(item.text)" />
+				</details>
 				<!-- choice buttons (panel feature, onefm.choice) -->
 				<div v-else-if="item.kind === 'choice'" class="acp-card">
 					<div v-if="item.value.prompt" class="acp-card-head" v-html="renderMarkdown(item.value.prompt)" />
@@ -37,7 +54,7 @@
 							v-for="opt in item.value.options"
 							:key="opt"
 							class="acp-btn acp-btn--subtle"
-							:disabled="busy || !!item.answered"
+							:disabled="busy || !!item.answered || item.restored"
 							:class="{ 'acp-btn--solid': item.answered === opt }"
 							@click="answerChoice(item, opt)"
 						>
@@ -73,7 +90,13 @@
 				<div v-if="item.ts" class="acp-time" :class="{ 'acp-time--user': item.kind === 'user' }">{{ formatTime(item.ts) }}</div>
 			</template>
 
-			<div v-if="busy" class="acp-thinking">{{ streamingText ? "" : __("Thinking…") }}</div>
+			<div
+				v-if="busy"
+				class="acp-thinking"
+			>
+				{{ thinkingLabel }}
+			</div>
+			<div v-if="busy && progressLine" class="acp-progress" role="status">{{ progressLine }}</div>
 			<div v-if="streamingText" class="acp-msg acp-msg--agent" v-html="renderMarkdown(streamingText)" />
 			<div v-if="statusLine" class="acp-status">
 				<span class="acp-dot" :class="{ 'acp-dot--err': status === 'error' }" />{{ statusLine }}
@@ -103,9 +126,13 @@
 
 		<!-- ── composer ───────────────────────────────────────────────── -->
 		<div class="acp-toolbar">
-			<button class="acp-tb" :title="__('Bold')" @click="wrapSelection('**')"><b>B</b></button>
-			<button class="acp-tb" :title="__('Italic')" @click="wrapSelection('*')"><i>I</i></button>
-			<button class="acp-tb" :title="__('List')" @click="prefixLine('- ')">≣</button>
+			<button class="acp-tb" :disabled="busy" :title="__('Bold')" @click="wrapSelection('**')"><b>B</b></button>
+			<button class="acp-tb" :disabled="busy" :title="__('Italic')" @click="wrapSelection('*')"><i>I</i></button>
+			<button class="acp-tb" :disabled="busy" :title="__('List')" @click="prefixLine('- ')">≣</button>
+		</div>
+		<!-- the composer is locked for the whole turn; say why -->
+		<div v-if="busy" class="acp-locked-note" role="status">
+			{{ __("Still drawing — you can send another message when this finishes.") }}
 		</div>
 		<div v-if="pendingFile" class="acp-pending-file">
 			<span class="acp-filechip">📎 {{ pendingFile.file_name }}</span>
@@ -129,9 +156,9 @@
 				rows="1"
 				:placeholder="surface.composer_placeholder || __('Type a message…')"
 				:disabled="busy"
-				@keydown.enter.exact.prevent="send()"
+				@keydown.enter.exact.prevent="!busy && send()"
 			/>
-			<button class="acp-btn acp-btn--solid" :disabled="busy || !draft.trim()" @click="send()">
+			<button class="acp-btn acp-btn--solid" :disabled="busy || !draft.trim()" @click="!busy && send()">
 				{{ __("Send") }}
 			</button>
 		</div>
@@ -197,6 +224,8 @@ import { dayjs } from "@/dayjs";
 import { streamAgentTurn } from "./aguiClient";
 import ProposedFieldsTray from "./ProposedFieldsTray.vue";
 import ResponseFeedback from "./ResponseFeedback.vue";
+import { adoptPersistedName } from "./persistedMessage";
+import { progressLineFor } from "./drawProgress";
 
 const props = defineProps({
 	agentId: { type: String, required: true },
@@ -225,7 +254,7 @@ const props = defineProps({
 	applyTargets: { type: Array, default: null },
 });
 
-const emit = defineEmits(["card-action", "conversation", "title", "choice", "turn-complete", "agent-event"]);
+const emit = defineEmits(["card-action", "conversation", "title", "choice", "turn-sent", "turn-complete", "agent-event"]);
 
 const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s;
 
@@ -241,16 +270,46 @@ const streamingText = ref("");
 // message id (WI-001822). Ratings are the user's own — the control shows what
 // you said, not a tally.
 const streamingMessageId = ref("");
+// The role the currently-streaming reply carries: "assistant" normally,
+// "system" for a rate-limit refusal (see TEXT_MESSAGE_START below).
+const streamingRole = ref("assistant");
+// The tool the agent is running right now, so a long turn says what it is
+// doing instead of sitting on "Thinking…". Cleared when the tool ends and
+// again when the turn does, because a stream can close mid-tool.
+const runningTool = ref("");
+// "Still working on your last message…" from a long turn; shown until the turn's next event.
+const progressNote = ref("");
+// the latest `onefm.progress` line ("Drawing part 2 of 6"), shown for the rest of the turn.
+const progressLine = ref("");
+// The bubble the last TEXT_MESSAGE_END closed, until the next event says
+// whether it was the reply or notes before a tool call.
+let endedItem = null;
 const ratings = ref({});
 
 // Whether this agent collects feedback at all. Configuration, like the greeting
 // and the icon: no agent-specific behaviour is hardcoded in a component.
 const feedbackOn = computed(() => surface.value.collect_feedback !== false);
 
+// A shape id reads as a name once its underscores go, which is enough for
+// somebody watching a turn to know which tool is taking the time.
+const runningToolLabel = computed(() =>
+	runningTool.value ? __("Running {0}…").replace("{0}", runningTool.value.replace(/_/g, " ")) : "",
+)
+const thinkingLabel = computed(
+	() => progressNote.value || runningToolLabel.value || (streamingText.value ? "" : __("Thinking…"))
+);
+
 function agentItem(text) {
 	// Both things a finished agent bubble needs: the row id it can be rated by
 	// (WI-001822) and when it arrived (WI-002047). Built in one place so a new
 	// flush site cannot forget either.
+	//
+	// a role of "system" (a rate-limit refusal) flushes as a
+	// system notice instead — no rating control, and it never reads as the
+	// agent itself talking.
+	if (streamingRole.value === "system") {
+		return { kind: "system", text, ts: stampNow() };
+	}
 	return { kind: "agent", text, message: streamingMessageId.value || "", ts: stampNow() };
 }
 
@@ -298,6 +357,13 @@ const WORKSPACE_EVENTS = new Set([
 	"onefm.bpmn_preview",
 	"onefm.doctype_schema",
 	"onefm.proposed_update",
+]);
+
+// Events that exist for the host or the protocol, never for the reader:
+// they carry no message of their own, so drawing them as a card puts
+// plumbing in the transcript. Hosts still receive them through agent-event.
+const HOST_ONLY_EVENTS = new Set([
+	"onefm.created_config",
 ]);
 
 // Each card's PRIMARY action — the one that needs a host-side target.
@@ -440,16 +506,13 @@ onMounted(async () => {
 		try {
 			const history = await frappeRequest({
 				url: "/api/method/one_bpmn.api.agui.conversation_history",
-				params: { conversation: conversationName.value },
+				params: { conversation: conversationName.value, limit: HISTORY_PAGE },
 			}) || [];
-			for (const m of history) {
-				items.value.push({
-					kind: m.role === "user" ? "user" : "agent",
-					text: m.content,
-					message: m.message || "",
-					ts: m.timestamp,
-				});
-			}
+			items.value.push(...restoredItems(history, true));
+			oldestMessage.value = history.length ? history[0].message : "";
+			// A full page means there is probably another behind it. One short
+			// of the page is the end, and the control never appears.
+			hasOlder.value = history.length >= HISTORY_PAGE;
 			// A resumed conversation opens where the user left off — at the
 			// newest message. Without this it opened at the very first line of
 			// a months-old transcript and looked stuck (reported 2026-08-16).
@@ -537,14 +600,27 @@ async function onFilePicked(event) {
 
 // ── sending ─────────────────────────────────────────────────────────────────
 
-async function send(text, extraContext = null) {
+// crypto.randomUUID needs a secure context; a bench served over plain http on a
+// LAN address is not one, and the panel must still send an id there.
+function newMessageId() {
+	if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+	return `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function send(text, extraContext = null, reuseId = null) {
 	const message = (text ?? draft.value).trim();
 	if (!message || busy.value) return;
 	draft.value = "";
-	items.value.push({ kind: "user", text: message, ts: stampNow() });
+	// One id per message the person typed, kept across retries. A stream that
+	// dies after the agent has already answered used to cost a second run and a
+	// second reply; re-sending the same id replays the first one instead.
+	const sent = { kind: "user", text: message, ts: stampNow(), clientMessageId: reuseId || newMessageId() };
+	items.value.push(sent);
 	busy.value = true;
 	status.value = "streaming";
+	progressLine.value = "";
 	streamingText.value = "";
+	streamingRole.value = "assistant";
 	scrollDown();
 
 	// extraContext = per-turn keys the PANEL stages itself (today: the
@@ -555,7 +631,7 @@ async function send(text, extraContext = null) {
 	let turnContext = { ...props.context, ...(extraContext || {}) };
 	if (pendingFile.value) {
 		turnContext.file = pendingFile.value.file_url;
-		items.value[items.value.length - 1].file = pendingFile.value.file_name;
+		sent.file = pendingFile.value.file_name;
 		pendingFile.value = null;
 	}
 	if (props.contextProvider) {
@@ -566,23 +642,41 @@ async function send(text, extraContext = null) {
 		}
 	}
 
+	// The context is now copied: a host that staged per-turn keys (ProsAlly's
+	// confirmed_action) can drop them here so the NEXT turn cannot reuse them.
+	emit("turn-sent");
 	activeStream = streamAgentTurn({
 		agentId: props.agentId,
 		message,
 		conversation: conversationName.value || undefined,
 		context: turnContext,
+		clientMessageId: sent.clientMessageId,
 		onEvent: handleEvent,
 		onError: (msg) => {
 			status.value = "error";
 			errorMessage.value = msg;
 			errorOpen.value = true;
+			// The message is still on screen as though it had been delivered.
+			// Mark the one that failed and keep what it would take to send it
+			// again — a failed turn was otherwise indistinguishable from a
+			// slow one, and retyping was the only way forward.
+			sent.failed = true;
+			sent.retryContext = extraContext || null;
+			// A failed or timed-out turn is over too: hosts clear their
+			// per-turn staging on it, same as on a clean finish.
+			emit("turn-complete");
 		},
 		onDone: () => {
 			if (streamingText.value) {
 				items.value.push(agentItem(streamingText.value));
 				streamingText.value = "";
 			}
+			endedItem = null;
 			streamingMessageId.value = "";
+			streamingRole.value = "assistant";
+			runningTool.value = "";
+			progressNote.value = "";
+			progressLine.value = "";
 			busy.value = false;
 			if (status.value !== "error") status.value = "done";
 			activeStream = null;
@@ -607,17 +701,46 @@ function handleEvent(event) {
 		// the persisted Chat Message name). Held until the buffer is flushed so
 		// the finished bubble carries it and can be rated.
 		streamingMessageId.value = event.messageId || event.message_id || "";
+		// a rate-limit refusal streams with role "system" — a
+		// platform notice, not the agent talking — so the finished bubble
+		// flushes as a system item instead of an agent one.
+		streamingRole.value = event.role || "assistant";
 	} else if (type === "TEXT_MESSAGE_CONTENT") {
+		endedItem = null;
+		progressNote.value = "";
 		streamingText.value += event.delta || "";
 		if (!streamingMessageId.value) {
 			streamingMessageId.value = event.messageId || event.message_id || "";
 		}
 		scrollDown();
+	} else if (type === "TEXT_MESSAGE_END") {
+		// The reply is complete. Flush it now so a second message in the same
+		// turn (a reply composed after the model spoke) gets its own bubble.
+		if (streamingText.value) {
+			endedItem = agentItem(streamingText.value);
+			items.value.push(endedItem);
+			streamingText.value = "";
+		}
+	} else if (type === "TOOL_CALL_START") {
+		// Words before a tool call are the agent talking to itself, not the
+		// reply. Keep them as muted working notes.
+		if (streamingText.value) {
+			items.value.push({ kind: "narration", text: streamingText.value, ts: stampNow() });
+			streamingText.value = "";
+		} else if (endedItem) {
+			endedItem.kind = "narration";
+			delete endedItem.message;
+		}
+		endedItem = null;
+		runningTool.value = event.toolCallName || event.tool_call_name || "";
+		progressNote.value = "";
+	} else if (type === "TOOL_CALL_END") {
+		runningTool.value = "";
+		progressNote.value = "";
 	} else if (type === "CUSTOM") {
 		handleCustom(event.name || "", event.value || {});
 	}
-	// TEXT_MESSAGE_START/END, THINKING_*, TOOL_CALL_*, STATE_* need no
-	// transcript entry today; the streaming buffer covers the visible part.
+	// THINKING_* and STATE_* need no transcript entry today.
 }
 
 function handleCustom(name, value) {
@@ -626,6 +749,17 @@ function handleCustom(name, value) {
 	// agent on the open shape). Emitted before transcript handling so a host
 	// reaction can never depend on how (or whether) the event renders.
 	emit("agent-event", { name, value });
+	if (name === "onefm.turn_progress") {
+		progressNote.value = value.text || "";
+		return;
+	}
+	// a drawing's progress. Only the agreed shape is read; anything
+	// else leaves the line as it was. It is never a transcript card.
+	if (name === "onefm.progress") {
+		const line = progressLineFor(value, __);
+		if (line) progressLine.value = line;
+		return;
+	}
 	// flush any streamed text so events land after the words they follow
 	if (streamingText.value) {
 		items.value.push(agentItem(streamingText.value));
@@ -645,10 +779,113 @@ function handleCustom(name, value) {
 			value = { ...value, prompt: "" };
 		}
 		items.value.push({ kind: "choice", value, answered: "", ts: stampNow() });
-	} else {
+	} else if (name === "onefm.message_persisted") {
+		adoptPersistedName(items.value, value);
+	} else if (!HOST_ONLY_EVENTS.has(name)) {
 		items.value.push({ kind: "custom", name, value, ts: stampNow() });
 	}
 	scrollDown();
+}
+
+// One page is what the endpoint will give us at most, and asking for the cap
+// means a reopened conversation opens with everything it can show.
+const HISTORY_PAGE = 100;
+const hasOlder = ref(false);
+const loadingOlder = ref(false);
+const oldestMessage = ref("");
+
+// Turn stored turns into transcript items: the words, then the cards and
+// option buttons the reply produced when it first streamed.
+//
+// Restored cards do not act. Nothing records whether an apply succeeded, and
+// re-applying a diagram or a schema is destructive — so a card that came back
+// from history is shown concluded. An unanswered question is different: the
+// only thing its buttons do is send a sentence, so the newest reply's options
+// stay live and the conversation can carry on where it stopped.
+function restoredItems(history, isNewestPage) {
+	const out = [];
+	history.forEach((m, index) => {
+		if (m.role === "user") {
+			out.push({ kind: "user", text: m.content, ts: m.timestamp });
+			return;
+		}
+		// a stored rate-limit refusal carries role "system" —
+		// restore it as a system notice, same as when it first streamed.
+		if (m.role === "system") {
+			if (m.content) out.push({ kind: "system", text: m.content, ts: m.timestamp });
+			return;
+		}
+		for (const note of m.notes || []) {
+			out.push({ kind: "narration", text: note, ts: m.timestamp });
+		}
+		if (m.content) {
+			out.push({ kind: "agent", text: m.content, message: m.message || "", ts: m.timestamp });
+		}
+		const isLastOfPage = index === history.length - 1;
+		for (const event of m.events || []) {
+			const value = event.value || {};
+			if (event.name === "onefm.choice") {
+				out.push({
+					kind: "choice",
+					value,
+					// What the user said next, when it was one of the options —
+					// so a reopened conversation shows which way it went.
+					answered: answeredWith(history, index, value.options || []),
+					restored: !(isNewestPage && isLastOfPage),
+					ts: m.timestamp,
+				});
+			} else {
+				out.push({
+					kind: "custom",
+					name: event.name,
+					value,
+					doneAction: "restored",
+					restored: true,
+					ts: m.timestamp,
+				});
+			}
+		}
+	});
+	return out;
+}
+
+function answeredWith(history, index, options) {
+	const next = history[index + 1];
+	if (!next || next.role !== "user") return "";
+	const said = (next.content || "").trim();
+	return options.find((opt) => opt === said) || "";
+}
+
+async function loadOlder() {
+	if (loadingOlder.value || !oldestMessage.value) return;
+	loadingOlder.value = true;
+	try {
+		const older = await frappeRequest({
+			url: "/api/method/one_bpmn.api.agui.conversation_history",
+			params: {
+				conversation: conversationName.value,
+				limit: HISTORY_PAGE,
+				before: oldestMessage.value,
+			},
+		}) || [];
+		if (older.length) {
+			// Keep the reader where they are: measure the scroll height before
+			// the older messages go in, and restore the difference after.
+			const box = log.value;
+			const before = box ? box.scrollHeight - box.scrollTop : 0;
+			items.value.unshift(...restoredItems(older, false));
+			oldestMessage.value = older[0].message;
+			await nextTick();
+			if (box) box.scrollTop = box.scrollHeight - before;
+		}
+		hasOlder.value = older.length >= HISTORY_PAGE;
+	} catch (e) {
+		// Nothing older to show is not an error worth a dialog; the control
+		// simply stops offering.
+		hasOlder.value = false;
+	} finally {
+		loadingOlder.value = false;
+	}
 }
 
 async function answerChoice(item, option) {
@@ -670,6 +907,16 @@ async function answerChoice(item, option) {
 	// first by the confirm tools; "No, let me adjust" follows it).
 	const isApproval = item.value.action_intent && item.value.options[0] === option;
 	send(option, isApproval ? { confirmed_action: item.value.action_intent } : null);
+}
+
+async function retrySend(item) {
+	if (busy.value) return;
+	const index = items.value.indexOf(item);
+	if (index !== -1) items.value.splice(index, 1);
+	errorOpen.value = false;
+	errorMessage.value = "";
+	if (status.value === "error") status.value = "idle";
+	await send(item.text, item.retryContext || null, item.clientMessageId || null);
 }
 
 function onCardAction(item, action, payload) {
@@ -765,6 +1012,28 @@ defineExpose({ send, conversationName });
 .acp-ws-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; }
 .acp-ws-body > * { width: 100%; }
 .acp-ws-empty { color: var(--ig4); font-size: 12px; text-align: center; padding: 32px 12px; }
+.acp-older {
+	display: flex;
+	justify-content: center;
+	padding: 2px 0 8px;
+}
+.acp-msg--failed {
+	opacity: 0.75;
+	border: 1px dashed var(--acp-danger, #c0392b);
+}
+.acp-retry {
+	display: block;
+	margin-top: 6px;
+	padding: 2px 8px;
+	font: inherit;
+	font-size: 11px;
+	color: var(--acp-danger, #c0392b);
+	background: transparent;
+	border: 1px solid currentColor;
+	border-radius: 4px;
+	cursor: pointer;
+}
+.acp-retry[disabled] { opacity: 0.5; cursor: default; }
 .acp-routed { align-self: flex-start; color: var(--ig5); font-size: 11px; font-style: italic; }
 
 .acp-log { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column;
@@ -782,7 +1051,16 @@ defineExpose({ send, conversationName });
 .acp-time--user { align-self: flex-end; }
 .acp-msg--user { align-self: flex-end; background: var(--sg4); color: var(--ig9); white-space: pre-wrap; }
 .acp-msg--agent { align-self: flex-start; background: var(--sw); border: 1px solid var(--og2); }
-.acp-msg--agent :deep(p) { margin: 0 0 6px; } .acp-msg--agent :deep(p:last-child) { margin: 0; }
+/* a rate-limit refusal (role=system) — a platform notice, not
+   the agent talking, so it is visually distinct from both bubble kinds. */
+.acp-msg--system { align-self: center; background: var(--sg2); color: var(--ig6); font-size: 12px;
+	font-style: italic; border: none; }
+.acp-msg--agent :deep(p) { margin: 0 0 8px; } .acp-msg--agent :deep(p:last-child) { margin: 0; }
+/* The global reset strips list bullets and spacing, which runs a list into the paragraph after it. */
+.acp-msg--agent :deep(ul), .acp-msg--agent :deep(ol) { margin: 0 0 8px; padding-left: 18px; }
+.acp-msg--agent :deep(ul) { list-style: disc; } .acp-msg--agent :deep(ol) { list-style: decimal; }
+.acp-msg--agent :deep(li) { margin: 2px 0; } .acp-msg--agent :deep(li > p) { margin: 0; }
+.acp-msg--agent :deep(ul:last-child), .acp-msg--agent :deep(ol:last-child) { margin-bottom: 0; }
 .acp-msg--agent :deep(pre) { background: var(--sg2); border-radius: 8px; padding: 8px; overflow-x: auto; }
 .acp-msg--agent :deep(table) { border-collapse: collapse; }
 .acp-msg--agent :deep(td), .acp-msg--agent :deep(th) { border: 1px solid var(--og2); padding: 3px 8px; }
@@ -792,10 +1070,30 @@ defineExpose({ send, conversationName });
 .acp-card-head { padding: 8px 12px; border-bottom: 1px solid var(--og1); background: var(--sg1);
 	font-weight: 600; color: var(--ig9); font-size: 12px; }
 .acp-card-head--muted { color: var(--ig5); font-family: ui-monospace, Menlo, monospace; font-weight: 400; }
-.acp-card-opts { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 12px; }
+.acp-card-opts { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 12px; min-width: 0; }
+/* Option labels can be full sentences: wrap inside the card instead of
+   running past a 390px panel and over the composer. */
+.acp-card-opts .acp-btn { height: auto; min-height: 28px; max-width: 100%; white-space: normal;
+	text-align: left; padding: 5px 10px; line-height: 1.35; }
+.acp-card { max-width: 100%; box-sizing: border-box; }
+@media (max-width: 480px) {
+	.acp-card { width: 100%; }
+	.acp-card-opts .acp-btn { flex: 1 1 100%; justify-content: flex-start; }
+}
 .acp-fallback { padding: 8px 12px; } .acp-fallback pre { font-size: 11px; overflow-x: auto; }
 
 .acp-thinking { color: var(--ig5); font-style: italic; font-size: 12px; }
+/* progress and lock-note lines wrap inside the panel (390px) and never widen the page. */
+.acp-progress, .acp-locked-note { min-width: 0; max-width: 100%; box-sizing: border-box; white-space: normal;
+	overflow-wrap: anywhere; word-break: break-word; font-size: 12px; color: var(--ig6); }
+.acp-progress { align-self: flex-start; padding: 6px 10px; border-radius: 8px; background: var(--blue-bg);
+	color: var(--blue-ink); }
+.acp-locked-note { padding: 6px 14px 0; background: var(--sw); color: var(--ig5); font-style: italic; }
+.acp { min-width: 0; max-width: 100%; overflow-x: hidden; }
+.acp-input { min-width: 0; }
+.acp-tb:disabled { opacity: 0.4; cursor: default; }
+.acp-narration { align-self: flex-start; color: var(--ig5); font-size: 12px; max-width: 80%; }
+.acp-narration summary { cursor: pointer; font-style: italic; }
 .acp-status { font-size: 11px; color: var(--ig5); display: flex; gap: 6px; align-items: center; }
 .acp-dot { width: 7px; height: 7px; border-radius: 99px; background: var(--green-ink); }
 .acp-dot--err { background: var(--red-ink); }

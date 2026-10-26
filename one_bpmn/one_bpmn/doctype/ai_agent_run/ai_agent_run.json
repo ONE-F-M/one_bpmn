@@ -8,6 +8,8 @@
   "instance",
   "process_model",
   "agent_configuration",
+  "parent_run",
+  "prompt_hash",
   "bpmn_id",
   "bpmn_label",
   "element_type",
@@ -25,6 +27,7 @@
   "retry_count",
   "max_retries",
   "section_break_timing",
+  "queue_wait_ms",
   "started_at",
   "ended_at",
   "duration_ms",
@@ -43,16 +46,19 @@
   "total_output_cost",
   "total_cache_read_cost",
   "total_cache_write_cost",
-  "section_break_checkpoint",
-  "pending_human_task",
-  "checkpoint",
+  "section_break_output",
   "section_break_goal",
   "goal_completion",
   "completion_basis",
-  "section_break_output",
   "final_output",
+  "no_terminal_tool",
   "tool_calls",
-  "correlation_id"
+  "correlation_id",
+  "recall_query",
+  "memory_injected_tokens",
+  "section_break_checkpoint",
+  "pending_human_task",
+  "checkpoint"
  ],
  "fields": [
   {
@@ -78,6 +84,22 @@
    "label": "Agent Configuration",
    "options": "AI Agent Configuration",
    "read_only": 1
+  },
+  {
+   "fieldname": "parent_run",
+   "fieldtype": "Link",
+   "label": "Parent Run",
+   "options": "AI Agent Run",
+   "read_only": 1,
+   "description": "The run whose tool started this one. Empty for a top-level run."
+  },
+  {
+   "fieldname": "prompt_hash",
+   "fieldtype": "Data",
+   "label": "Prompt Hash",
+   "read_only": 1,
+   "search_index": 1,
+   "description": "Fingerprint of the system prompt this run used. Resolves to an AI Prompt Snapshot."
   },
   {
    "description": "The element ID on the diagram (e.g. Activity_1a2b3c)",
@@ -193,6 +215,12 @@
    "label": "Timing"
   },
   {
+   "description": "Time the first background job of this run waited in the queue before it started.",
+   "fieldname": "queue_wait_ms",
+   "fieldtype": "Int",
+   "label": "Queue Wait (ms)"
+  },
+  {
    "fieldname": "started_at",
    "fieldtype": "Datetime",
    "in_list_view": 1,
@@ -211,7 +239,7 @@
    "label": "Duration (ms)"
   },
   {
-   "description": "Time the AGENT actually spent working: the sum of every step's latency (provider round-trips plus inline tool execution). Excludes time parked waiting for a human, so unlike Duration this is comparable across runs and is the figure to use for A/B experiments.",
+   "description": "Time the AGENT actually spent working: the sum of every step's latency (provider round-trips plus inline tool execution), leaving out model calls made inside a tool, which the turn that ran the tool already contains. Excludes time parked waiting for a human, so unlike Duration this is comparable across runs and is the figure to use for A/B experiments.",
    "fieldname": "agent_latency_ms",
    "fieldtype": "Int",
    "label": "Agent Latency (ms)"
@@ -333,7 +361,15 @@
    "label": "Final Output"
   },
   {
-   "description": "Tool names, in call order — a plain JSON list rather than AI Agent Step child records, for runs (like the sandbox's own coding loop) that report their own turn as a single unit rather than step-by-step.",
+   "description": "Set when Final Output came from the model's own narration rather than a terminal tool call's arguments (a plain-text answer, or the turn cap forcing out the last thing said). Unset means a terminal tool (finalize, by default) answered as instructed.",
+   "fieldname": "no_terminal_tool",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "No Terminal Tool",
+   "read_only": 1
+  },
+  {
+   "description": "Tool names, in call order \u2014 a plain JSON list rather than AI Agent Step child records, for runs (like the sandbox's own coding loop) that report their own turn as a single unit rather than step-by-step.",
    "fieldname": "tool_calls",
    "fieldtype": "Code",
    "label": "Tool Calls",
@@ -345,6 +381,19 @@
    "fieldname": "correlation_id",
    "fieldtype": "Data",
    "label": "Correlation ID"
+  },
+  {
+   "description": "The text long-term memory was searched with this run \u2014 the user's actual message, not the driving prompt template. Blank when memory was off, the message was small talk, or nothing was searched.",
+   "fieldname": "recall_query",
+   "fieldtype": "Small Text",
+   "label": "Recall Query",
+   "ignore_xss_filter": 1
+  },
+  {
+   "description": "Estimated size of the recalled memory block actually injected, after aiMemoryTokenBudget truncation. 0 when nothing was injected.",
+   "fieldname": "memory_injected_tokens",
+   "fieldtype": "Int",
+   "label": "Memory Injected Tokens"
   },
   {
    "collapsible": 1,
@@ -380,7 +429,7 @@
   ]
  ],
  "links": [],
- "modified": "2026-08-04 12:00:00.000000",
+ "modified": "2026-10-04 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Agent Run",

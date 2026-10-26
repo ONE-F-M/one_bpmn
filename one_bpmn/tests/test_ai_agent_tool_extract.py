@@ -60,6 +60,32 @@ class TestResolveToolShapes(FrappeTestCase):
 		self.assertNotIn("human", by_id["lookup"])
 		self.assertNotIn("human", by_id["notify"])
 
+	def test_a_tool_marked_for_one_agent_reaches_only_that_agent(self):
+		"""Docu's writer sits in the same Tools box as the pipeline tools the
+		orchestrator calls. Its lookups are marked aiToolFor="write" and must
+		not reach the orchestrator; the pipeline tools must not reach the writer,
+		and the writer must never be offered itself."""
+		xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+    xmlns:spiffworkflow="http://spiffworkflow.org/bpmn/schema/1.0/core"
+    id="Defs" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="P1" isExecutable="true">
+    <bpmn:serviceTask id="orchestrator" spiffworkflow:serviceType="ai_agent" spiffworkflow:aiToolsAdhoc="Tools_1" />
+    <bpmn:adHocSubProcess id="Tools_1">
+      <bpmn:scriptTask id="classify" spiffworkflow:serverScript="Classify" />
+      <bpmn:serviceTask id="write" spiffworkflow:serviceType="ai_agent" spiffworkflow:aiToolsAdhoc="Tools_1" />
+      <bpmn:scriptTask id="finalize" spiffworkflow:serverScript="Finalize" />
+      <bpmn:scriptTask id="lookup" spiffworkflow:serverScript="Lookup" spiffworkflow:aiToolFor="write" />
+      <bpmn:scriptTask id="validate" spiffworkflow:serverScript="Validate" spiffworkflow:aiToolFor="write" />
+    </bpmn:adHocSubProcess>
+  </bpmn:process>
+</bpmn:definitions>"""
+		svc = _extensions(xml)
+		orchestrator = {s["bpmn_id"] for s in json.loads(svc["orchestrator"]["aiToolShapes"])}
+		writer = {s["bpmn_id"] for s in json.loads(svc["write"]["aiToolShapes"])}
+		self.assertEqual(orchestrator, {"classify", "write", "finalize"})
+		self.assertEqual(writer, {"lookup", "validate"})
+
 	def test_no_agents_is_noop(self):
 		xml = _xml("", TOOLS)  # serviceType=ai_agent but no aiToolsAdhoc
 		svc = _extract_service_task_config(xml)
