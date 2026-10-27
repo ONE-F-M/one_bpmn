@@ -117,6 +117,11 @@ class TestWriteListScriptStage(FrappeTestCase):
 		self.assertEqual(recorded[0]["pending_list_script"]["script"], SCRIPT)
 		self.assertIn("Shall I apply it to the Note list?", output["response"])
 
+	def test_a_writer_that_declines_with_an_explanation_has_it_shown(self):
+		explanation = "I can't change that with a list script. Remove the Create permission instead."
+		output, _recorded = _run_stage("remove the add button", {"doctype": "Note", "script": "", "summary": explanation})
+		self.assertEqual(output["response"], explanation)
+
 	def test_no_script_and_no_question_asks_about_the_selected_doctype(self):
 		output, _recorded = _run_stage("do something", {"doctype": "Note", "script": ""})
 		self.assertIn("What should change in the Note list?", output["response"])

@@ -123,7 +123,7 @@ if _draft:
         _target = _data.get("doctype") or doctype
         _script = (_data.get("script") or "").strip()
         if _data.get("question") or not _script:
-            reply = _data.get("question") or ("What should change in the " + (_target or "DocType") + " list?")
+            reply = _data.get("question") or _data.get("summary") or ("What should change in the " + (_target or "DocType") + " list?")
             record(context_docname, {"pending_list_script": {"doctype": _target, "script": "", "request": message}})
         elif not frappe.db.exists("DocType", _target):
             reply = "I could not find a DocType called " + str(_target) + ". Which list do you mean?"
