@@ -1,7 +1,7 @@
 """
 ProsAlly's modify_process / generate_process tool scripts must
-read an explicit max_tokens from agent configuration (floored at 16384,
-capped at the configured model's own ceiling) and must turn a truncated
+budget max_tokens from the configured model's own output ceiling (capped
+at 64000, 16384 when none is known) and must turn a truncated
 completion into a real explanation instead of letting the finalize tool's
 generic fallback question paper over it.
 
@@ -131,6 +131,34 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 
 		_, kwargs = adapter.complete.call_args
 		self.assertEqual(kwargs.get("max_tokens"), 16384)
+
+	def _budget_for(self, script: str, turn: dict, configured: int, ceiling: int) -> int:
+		adapter = self._fake_adapter(raises=LLMTruncatedError("truncated"))
+		cfg = {"sub_prompts": {}, "max_tokens": configured, "ai_model": "M", "agent_id": "prosally_agent"}
+		with (
+			patch("one_bpmn.agents.turn_state.get_turn", return_value=turn),
+			patch("one_bpmn.agents.turn_state.update_turn"),
+			patch(
+				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
+				return_value=cfg,
+			),
+			patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter),
+			patch("frappe.db.get_value", return_value=ceiling),
+		):
+			self._run_script(script)
+		return adapter.complete.call_args.kwargs["max_tokens"]
+
+	def test_budget_is_model_ceiling_capped_at_64000(self):
+		modify_turn = {"process_name": "P", "chat_history": [], "current_xml": ""}
+		generate_turn = {"intent": "GENERATE_NEW", "process_name": "P", "chat_history": []}
+		for script, turn in ((MODIFY, modify_turn), (GENERATE, generate_turn)):
+			self.assertEqual(self._budget_for(script, turn, 1024, 128000), 64000)
+
+	def test_budget_never_exceeds_a_smaller_model_ceiling(self):
+		modify_turn = {"process_name": "P", "chat_history": [], "current_xml": ""}
+		generate_turn = {"intent": "GENERATE_NEW", "process_name": "P", "chat_history": []}
+		for script, turn in ((MODIFY, modify_turn), (GENERATE, generate_turn)):
+			self.assertEqual(self._budget_for(script, turn, 1024, 8192), 8192)
 
 	def test_generate_process_uses_configured_max_tokens(self):
 		turn = {"intent": "GENERATE_NEW", "process_name": "P", "chat_history": []}

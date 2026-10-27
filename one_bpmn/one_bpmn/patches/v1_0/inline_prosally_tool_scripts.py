@@ -635,16 +635,15 @@ _cfg.setdefault("agent_id", "prosally_agent")
 _subs = _cfg.get("sub_prompts") or {}
 _adapter = get_llm_adapter_from_settings(_cfg)
 
-# A configured max_tokens under 16384 cuts a large IR off mid-JSON, so the
-# floor is 16384 and the ceiling is whatever the model itself allows.
-_max_tokens = int(_cfg.get("max_tokens") or 0)
-if _max_tokens < 16384:
-    _max_tokens = 16384
+# The IR shares max_tokens with the model's own thinking, so the budget is the
+# model's output ceiling capped at 64000, or 16384 when no ceiling is known.
 _model_ceiling = 0
 if _cfg.get("ai_model"):
-    _model_ceiling = frappe.db.get_value("AI Model", _cfg.get("ai_model"), "max_output_tokens") or 0
+    _model_ceiling = int(frappe.db.get_value("AI Model", _cfg.get("ai_model"), "max_output_tokens") or 0)
+_max_tokens = min(_model_ceiling, 64000) if _model_ceiling else 16384
+_max_tokens = max(_max_tokens, int(_cfg.get("max_tokens") or 0))
 if _model_ceiling:
-    _max_tokens = min(_max_tokens, int(_model_ceiling))
+    _max_tokens = min(_max_tokens, _model_ceiling)
 _truncated_error = False
 
 action = turn.get("intent", "GENERATE_NEW")
@@ -1141,15 +1140,15 @@ _cfg.setdefault("agent_id", "prosally_agent")
 _subs = _cfg.get("sub_prompts") or {}
 _adapter = get_llm_adapter_from_settings(_cfg)
 
-# A configured max_tokens under 16384 cuts a large modification off mid-JSON.
-_max_tokens = int(_cfg.get("max_tokens") or 0)
-if _max_tokens < 16384:
-    _max_tokens = 16384
+# The IR shares max_tokens with the model's own thinking, so the budget is the
+# model's output ceiling capped at 64000, or 16384 when no ceiling is known.
 _model_ceiling = 0
 if _cfg.get("ai_model"):
-    _model_ceiling = frappe.db.get_value("AI Model", _cfg.get("ai_model"), "max_output_tokens") or 0
+    _model_ceiling = int(frappe.db.get_value("AI Model", _cfg.get("ai_model"), "max_output_tokens") or 0)
+_max_tokens = min(_model_ceiling, 64000) if _model_ceiling else 16384
+_max_tokens = max(_max_tokens, int(_cfg.get("max_tokens") or 0))
 if _model_ceiling:
-    _max_tokens = min(_max_tokens, int(_model_ceiling))
+    _max_tokens = min(_max_tokens, _model_ceiling)
 _truncated_error = False
 
 process_name = turn.get("process_name", "")
