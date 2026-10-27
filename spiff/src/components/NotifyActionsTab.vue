@@ -11,30 +11,9 @@
 			label="Buttons work for (hours)"
 			min="1"
 			max="720"
-			class="[&_input]:max-w-[12rem]"
 			description="Default 72. After this the email hides the buttons and shows Open in ERPNext. Allowed range 1 to 720 hours (30 days): after 30 days Gmail shows the HTML version anyway."
 			@blur="commitHours"
 		/>
-
-		<div
-			v-if="conversationRows.length"
-			class="space-y-2"
-		>
-			<FormLabel label="Finish the task from the conversation" />
-			<FormControl
-				v-for="conv in conversationRows"
-				:key="conv.key"
-				type="select"
-				:label="conv.label"
-				:model-value="conv.completesWith"
-				:options="finishOptions"
-				@update:model-value="(value) => setFinish(conv.key, value)"
-			/>
-			<p class="text-p-sm text-ink-gray-5">
-				Conversation layout only. Picking a button means a reply or note also presses it, so the task ends and takes
-				that button's path.
-			</p>
-		</div>
 
 		<p
 			v-if="!rows.length"
@@ -106,29 +85,10 @@
 
 				<div class="space-y-1.5">
 					<FormLabel label="Reason chips" />
-					<div
-						v-if="row.chips.length"
-						class="flex flex-wrap gap-1.5"
-					>
-						<Badge
-							v-for="(chip, i) in row.chips"
-							:key="`${chip[0]}-${i}`"
-							size="lg"
-						>
-							{{ chip[0] }}
-							<span dir="rtl">{{ chip[1] }}</span>
-							<template #suffix>
-								<Button
-									variant="ghost"
-									size="sm"
-									icon="x"
-									class="!h-5 !w-5"
-									:aria-label="`Remove ${chip[0]}`"
-									@click="removeChip(row, i)"
-								/>
-							</template>
-						</Badge>
-					</div>
+					<NotifyTagBox
+						:tags="chipTags(row)"
+						@remove="(i) => removeChip(row, i)"
+					/>
 					<div class="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
 						<TextInput
 							v-model="drafts[row.name].en"
@@ -142,7 +102,7 @@
 							aria-label="Chip in Arabic"
 						/>
 						<Button
-							variant="solid"
+							variant="outline"
 							label="Add"
 							:disabled="!drafts[row.name].en.trim()"
 							@click="addChip(row)"
@@ -158,20 +118,17 @@
 import { computed, reactive, ref, useId, watch } from "vue";
 import { Badge, Button, ErrorMessage, FormControl, FormLabel, TextInput } from "frappe-ui";
 import { clampTokenHours, serializeTokenHours } from "@/bpmn/shared/notifyActions";
-import { parseConversation } from "@/bpmn/shared/notifyConversation";
 import { useDoctypeFields } from "@/composables/useDoctypeFields";
+import NotifyTagBox from "@/components/NotifyTagBox.vue";
 
 const props = defineProps({
 	taskActions: { type: Array, required: true },
 	doctype: { type: String, default: "" },
-	layout: { type: String, default: "" },
 });
 
 // settings keyed by action name, already merged with the current Task Actions
 const actions = defineModel("actions", { type: Object, required: true });
 const hours = defineModel("hours", { type: String });
-// notifyConversation as a JSON string; the finish settings are shown here for the Conversation layout
-const conversation = defineModel("conversation", { type: String });
 
 const uid = useId();
 const { fields: reasonFields, load: loadReasonFields } = useDoctypeFields(["Text", "Small Text", "Text Editor", "Data"]);
@@ -212,29 +169,12 @@ function addChip(row) {
 	drafts[row.name] = { en: "", ar: "" };
 }
 
-function removeChip(row, index) {
-	update(row.name, { chips: row.chips.filter((_, i) => i !== index) });
+function chipTags(row) {
+	return row.chips.map(([en, ar], i) => ({ key: i, label: en, sub: ar }));
 }
 
-const FINISH_LABELS = { reply: "When the agent replies", note: "When the agent adds a note" };
-
-const finishOptions = computed(() => [
-	{ label: "Don't finish", value: "" },
-	...rows.value.map((row) => ({ label: row.name, value: row.name })),
-]);
-
-const conversationRows = computed(() =>
-	props.layout === "chat"
-		? parseConversation(conversation.value).actions.map((a) => ({ ...a, label: FINISH_LABELS[a.key] }))
-		: []
-);
-
-function setFinish(key, completesWith) {
-	const settings = parseConversation(conversation.value);
-	conversation.value = JSON.stringify({
-		...settings,
-		actions: settings.actions.map((a) => (a.key === key ? { ...a, completesWith } : a)),
-	});
+function removeChip(row, index) {
+	update(row.name, { chips: row.chips.filter((_, i) => i !== index) });
 }
 
 const hoursDraft = ref(String(clampTokenHours(hours.value)));
