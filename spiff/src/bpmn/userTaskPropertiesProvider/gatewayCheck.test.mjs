@@ -62,14 +62,30 @@ test("checkGateway: without a default branch, an action without its own branch i
 test("checkGateway: an action test inside a longer condition still matches the action", () => {
 	const bodies = ['action == "Resolve" and not resolution_details', 'action == "Resolve" and doc.resolution_details', 'action == "Pending Deployment"']
 	assert.deepEqual(checkGateway(["Resolve", "Pending Deployment"], bodies), [
-		{ state: "ok", text: 'action=="Resolve" matches action Resolve (and other conditions)' },
-		{ state: "ok", text: 'action=="Resolve" matches action Resolve (and other conditions)' },
+		{ state: "ok", text: 'action == "Resolve" and not resolution_details matches action Resolve' },
+		{ state: "ok", text: 'action == "Resolve" and doc.resolution_details matches action Resolve' },
 		{ state: "ok", text: 'action=="Pending Deployment" matches action Pending Deployment' },
 	])
 })
 
+test("checkGateway: two longer conditions on one action give two different rows", () => {
+	const rows = checkGateway(["Resolve"], ['action == "Resolve" and doc.a', 'action == "Resolve" and doc.b'])
+	assert.notEqual(rows[0].text, rows[1].text)
+})
+
+test("checkGateway: a long condition is put on one line and cut to 80 characters", () => {
+	const body = `action == "Resolve"\n\tand ${"doc.resolution_details and ".repeat(5)}doc.x`
+	const { text } = checkGateway(["Resolve"], [body])[0]
+	const condition = text.replace(" matches action Resolve", "")
+	assert.equal(condition.length, 80)
+	assert.ok(condition.startsWith('action == "Resolve" and doc.resolution_details'))
+	assert.ok(condition.endsWith("..."))
+})
+
 test("checkGateway: a longer condition naming an unknown action is bad", () => {
-	assert.equal(checkGateway(["Resolve"], ['action == "Close" and doc.x'])[0].state, "bad")
+	const [row] = checkGateway(["Resolve"], ['action == "Close" and doc.x'])
+	assert.equal(row.state, "bad")
+	assert.equal(row.text, 'action == "Close" and doc.x has no action: add Close or remove the branch')
 })
 
 // Plain objects shaped like the bpmn-js business objects the panel reads.

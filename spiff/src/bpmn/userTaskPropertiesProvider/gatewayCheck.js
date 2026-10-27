@@ -40,6 +40,14 @@ export function findActionGateway(first) {
 	return { gateway: first, via: null };
 }
 
+const MAX_CONDITION_LENGTH = 80;
+
+/** A longer condition on one line, cut to MAX_CONDITION_LENGTH so two branches on one action read apart. */
+function shorten(body) {
+	const line = String(body).replace(/\s+/g, " ").trim();
+	return line.length > MAX_CONDITION_LENGTH ? `${line.slice(0, MAX_CONDITION_LENGTH - 3)}...` : line;
+}
+
 // Fallback translator: fills {placeholders}. The panel passes the bpmn-js
 // translate service, which fills them the same way.
 const plain = (template, vars) =>
@@ -66,11 +74,10 @@ export function checkGateway(actionNames, conditionBodies, t = plain, hasDefault
 		}
 		found.forEach((m) => {
 			const name = m[1] !== undefined ? m[1] : m[2];
-			const condition = `action=="${name}"`;
+			const condition = exact ? `action=="${name}"` : shorten(body);
 			if (names.includes(name)) {
 				matched.add(name);
-				const text = exact ? "{condition} matches action {name}" : "{condition} matches action {name} (and other conditions)";
-				rows.push({ state: "ok", text: t(text, { condition, name }) });
+				rows.push({ state: "ok", text: t("{condition} matches action {name}", { condition, name }) });
 			} else {
 				rows.push({
 					state: "bad",
