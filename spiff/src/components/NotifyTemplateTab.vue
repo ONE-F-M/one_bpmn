@@ -1,14 +1,12 @@
 <template>
 	<div class="space-y-4">
-		<div>
-			<label class="flex items-center gap-2 text-sm font-medium text-gray-700">
-				<input
-					v-model="useHtml"
-					type="checkbox"
-				/>
-				Use Email Template or custom HTML
-			</label>
-			<p class="text-xs text-gray-400 mt-1">
+		<div class="space-y-1.5">
+			<FormControl
+				v-model="useHtml"
+				type="checkbox"
+				label="Use Email Template or custom HTML"
+			/>
+			<p class="text-p-sm text-ink-gray-5">
 				For existing tasks. The email is built and sent exactly as today: your HTML in the standard frame, cleaned for
 				AMP, with today's buttons (the first action is filled; Confirm and Sign open ERPNext) and live status. Tasks
 				that already have a template or HTML open with this on.
@@ -16,116 +14,76 @@
 		</div>
 
 		<template v-if="useHtml">
-			<div>
-				<label class="block text-xs font-medium text-gray-700 mb-1">
-					Pre-populate from Email Template
-				</label>
-				<div class="relative">
-					<Icon
-						icon="lucide:search"
-						class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
-					/>
-					<input
-						v-model="templateSearch"
-						type="text"
-						placeholder="Search email templates..."
-						class="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400"
-						@focus="showTemplateDropdown = true"
-						@blur="onBlurTemplate"
-					/>
-					<div
-						v-if="showTemplateDropdown && filteredTemplates.length > 0"
-						class="absolute z-50 w-full mt-1 max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg"
-					>
-						<div
-							v-for="tpl in filteredTemplates"
-							:key="tpl.name"
-							class="px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 text-gray-900 border-b border-gray-50 last:border-b-0"
-							@mousedown.prevent="selectTemplate(tpl)"
-						>
-							<div class="font-medium">{{ tpl.name }}</div>
-							<div
-								v-if="tpl.subject"
-								class="text-xs text-gray-500 mt-0.5"
-							>
-								{{ tpl.subject }}
-							</div>
-						</div>
-					</div>
-					<div
-						v-if="showTemplateDropdown && !loadingTemplates && filteredTemplates.length === 0 && templateSearch"
-						class="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg"
-					>
-						<div class="px-3 py-3 text-sm text-gray-400 text-center">No templates found</div>
-					</div>
-				</div>
-				<div class="mt-2">
-					<span
+			<div class="space-y-1.5">
+				<Autocomplete
+					:compare-fn="compareOption"
+					label="Pre-populate from Email Template"
+					placeholder="Search email templates..."
+					:model-value="template || null"
+					:options="templateOptions"
+					:loading="loadingTemplates"
+					@update:model-value="selectTemplate"
+				/>
+				<div>
+					<Badge
 						v-if="template"
-						class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-green-50 text-green-700 text-xs font-medium border border-green-200"
+						theme="green"
+						size="lg"
 					>
-						<Icon
-							icon="lucide:paperclip"
-							class="w-3.5 h-3.5"
-						/>
-						Template attached: {{ template }}
-						<button
-							type="button"
-							class="ml-1 text-green-600 hover:text-green-900"
-							title="Detach template"
-							@click="detachTemplate"
-						>
-							<Icon
-								icon="lucide:x"
-								class="w-3.5 h-3.5"
+						<template #prefix>
+							<FeatherIcon
+								name="paperclip"
+								class="h-3.5 w-3.5"
 							/>
-						</button>
-					</span>
+						</template>
+						Template attached: {{ template }}
+						<template #suffix>
+							<Button
+								variant="ghost"
+								size="sm"
+								icon="x"
+								class="!h-5 !w-5"
+								aria-label="Detach template"
+								@click="detachTemplate"
+							/>
+						</template>
+					</Badge>
 					<span
 						v-else
-						class="inline-flex items-center gap-1.5 text-xs text-gray-400"
-					>
-						<Icon
-							icon="lucide:paperclip-off"
-							class="w-3.5 h-3.5"
-						/>
-						No template attached
-					</span>
+						class="text-p-sm text-ink-gray-5"
+					>No template attached</span>
 				</div>
-				<p class="text-xs text-gray-400 mt-1">
+				<p class="text-p-sm text-ink-gray-5">
 					The email uses this task's subject and HTML. When either is empty, it uses the attached template's latest subject or HTML at send time. Editing here does not detach the template.
 				</p>
 			</div>
 
-			<div>
-				<label
-					class="block text-xs font-medium text-gray-700 mb-1"
-					:for="`${uid}-body`"
-				>
-					HTML Body
-				</label>
-				<textarea
-					:id="`${uid}-body`"
-					v-model="body"
-					class="w-full h-64 p-3 font-mono text-sm border border-gray-300 rounded-lg bg-gray-50 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 resize-y"
-					placeholder="Enter notification HTML here..."
-					spellcheck="false"
-				></textarea>
-				<p
-					class="text-xs text-gray-400 mt-1"
-					v-pre
-				>
-					Jinja template variables are supported: <code class="bg-gray-100 px-1 rounded">{{ doc.name }}</code>,
-					<code class="bg-gray-100 px-1 rounded">{{ doc.owner }}</code>, etc.
-				</p>
-			</div>
+			<FormControl
+				v-model="body"
+				type="textarea"
+				label="HTML Body"
+				:rows="14"
+				class="[&_textarea]:font-mono"
+				placeholder="Enter notification HTML here..."
+				spellcheck="false"
+			>
+				<template #description>
+					<p
+						class="text-p-sm text-ink-gray-5"
+						v-pre
+					>
+						Jinja template variables are supported: <code>{{ doc.name }}</code>, <code>{{ doc.owner }}</code>, etc.
+					</p>
+				</template>
+			</FormControl>
 		</template>
 	</div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, useId } from "vue";
-import { Icon } from "@iconify/vue";
+import { ref, computed, onMounted } from "vue";
+import { Autocomplete, Badge, Button, FeatherIcon, FormControl } from "frappe-ui";
+import { compareOption } from "@/utils/compareOption";
 import { frappeGet } from "@/bpmn/shared/frappeResource";
 
 const useHtml = defineModel("useHtml", { type: Boolean });
@@ -133,21 +91,12 @@ const template = defineModel("template", { type: String });
 const body = defineModel("body", { type: String });
 const subject = defineModel("subject", { type: String });
 
-const uid = useId();
-const templateSearch = ref("");
-const showTemplateDropdown = ref(false);
 const loadingTemplates = ref(false);
 const templates = ref([]);
 
-const filteredTemplates = computed(() => {
-	const q = (templateSearch.value || "").toLowerCase();
-	if (!q) return templates.value;
-	return templates.value.filter(
-		(t) =>
-			t.name.toLowerCase().includes(q) ||
-			(t.subject && t.subject.toLowerCase().includes(q))
-	);
-});
+const templateOptions = computed(() =>
+	templates.value.map((t) => ({ label: t.name, value: t.name, description: t.subject || "" }))
+);
 
 onMounted(fetchTemplates);
 
@@ -168,13 +117,12 @@ async function fetchTemplates() {
 	}
 }
 
-async function selectTemplate(tpl) {
-	showTemplateDropdown.value = false;
-	templateSearch.value = tpl.name;
+async function selectTemplate(option) {
+	if (!option?.value) return;
 
 	// Fetch the full template to get the HTML body + subject
 	try {
-		const doc = await frappeGet(`/api/resource/Email Template/${encodeURIComponent(tpl.name)}`, {
+		const doc = await frappeGet(`/api/resource/Email Template/${encodeURIComponent(option.value)}`, {
 			fields: JSON.stringify(["subject", "response_html", "response"]),
 		});
 		// Prefer response_html; fall back to response (plain text / markdown)
@@ -185,7 +133,7 @@ async function selectTemplate(tpl) {
 		if (doc?.subject) {
 			subject.value = doc.subject;
 		}
-		template.value = tpl.name;
+		template.value = option.value;
 	} catch (err) {
 		console.error("[NotifyAssigneeEditor] Failed to fetch template content:", err);
 	}
@@ -194,13 +142,6 @@ async function selectTemplate(tpl) {
 function detachTemplate() {
 	// Detach the template marker only; keep the body/subject the user may have edited.
 	template.value = "";
-	templateSearch.value = "";
-}
-
-function onBlurTemplate() {
-	setTimeout(() => {
-		showTemplateDropdown.value = false;
-	}, 200);
 }
 </script>
 
