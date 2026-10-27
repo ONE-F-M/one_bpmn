@@ -48,7 +48,7 @@
 						</button>
 					</template>
 					<template #tab-panel="{ tab }">
-						<div class="pt-4">
+						<div class="px-1 pt-4">
 							<NotifyContentTab
 								v-if="tab.key === 'content'"
 								v-model:layout="values.notifyLayout"
