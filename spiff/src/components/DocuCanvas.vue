@@ -416,7 +416,9 @@
 				</ul>
 
 				<div v-if="saveState === 'pending'" class="dc-pending-banner" role="status">
-					<strong>Awaiting approval.</strong> {{ pendingNotice }}
+					<strong>Awaiting approval.</strong>
+					<template v-if="pendingParts">{{ pendingParts.before }}<a :href="pendingUrl" target="_blank" rel="noopener">{{ pendingRequest }}</a>{{ pendingParts.after }}</template>
+					<template v-else>{{ pendingNotice }}</template>
 				</div>
 
 				<!-- Footer — changes auto-save to the system -->
@@ -427,6 +429,7 @@
 						<template v-else-if="saveState === 'saving'">Saving…</template>
 						<template v-else-if="saveState === 'saved'">✓ Saved{{ appliedName ? ' “' + appliedName + '”' : '' }}</template>
 						<template v-else-if="saveState === 'error'">⚠ {{ saveError }}</template>
+						<template v-else-if="saveState === 'pending' && pendingParts">{{ pendingParts.before }}<a :href="pendingUrl" target="_blank" rel="noopener">{{ pendingRequest }}</a>{{ pendingParts.after }}</template>
 						<template v-else-if="saveState === 'pending'">{{ pendingNotice }}</template>
 							<template v-else-if="saveState === 'question'">
 								{{ listingQuestion }}
@@ -645,6 +648,16 @@ const saveError  = ref("");
 const listingQuestion = ref("");
 const listingAnswer   = ref(null);
 const pendingNotice   = ref("");
+const pendingRequest  = ref("");
+const pendingParts = computed(() => {
+	const at = pendingNotice.value.indexOf(pendingRequest.value);
+	if (!pendingRequest.value || at < 0) return null;
+	return {
+		before: pendingNotice.value.slice(0, at),
+		after: pendingNotice.value.slice(at + pendingRequest.value.length),
+	};
+});
+const pendingUrl = computed(() => `/app/doctype-change-request/${encodeURIComponent(pendingRequest.value)}`);
 const saveNotes  = ref("");
 const childChanges = ref([]);
 // A design that failed to save, kept in this browser so the canvas can show the site's form and still offer it back.
@@ -1270,6 +1283,7 @@ async function runAutosave() {
 		listingQuestion.value = "";
 		if (res?.status === "pending_approval") {
 			pendingNotice.value = res.message;
+			pendingRequest.value = res.request || "";
 			saveState.value = "pending";
 			return;
 		}
@@ -1680,6 +1694,7 @@ onMounted(async () => {
 .dc-save-status.st-saved { color: var(--md-success); }
 .dc-save-status.st-error { color: var(--md-error); }
 .dc-save-status.st-pending { color: var(--md-primary); }
+.dc-pending-banner a, .dc-save-status a { color: inherit; font-weight: 600; text-decoration: underline; }
 .dc-pending-banner { padding: 10px 16px; font-size: 13px; background: var(--md-warning-container); color: var(--md-on-warning-container); border-top: 1px solid var(--md-outline-variant); }
 .dc-save-status .dc-option-btn { margin-left: 8px; }
 
