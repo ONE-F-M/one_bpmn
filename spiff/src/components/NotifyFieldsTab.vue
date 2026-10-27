@@ -6,38 +6,16 @@
 			class="space-y-1.5"
 		>
 			<FormLabel :label="list.label" />
-			<div
-				v-if="list.entries.length"
-				class="flex flex-wrap gap-1.5"
-			>
-				<Badge
-					v-for="entry in list.entries"
-					:key="fieldOf(entry)"
-					size="lg"
-					:label="labelOf(fieldOf(entry))"
-				>
-					<template #suffix>
-						<Button
-							variant="ghost"
-							size="sm"
-							icon="x"
-							class="!h-5 !w-5"
-							:aria-label="`Remove ${labelOf(fieldOf(entry))}`"
-							@click="remove(list.key, entry)"
-						/>
-					</template>
-				</Badge>
-			</div>
-			<Autocomplete
-				:compare-fn="compareOption"
-				:model-value="null"
+			<NotifyTagBox
+				:tags="list.tags"
 				:options="fieldOptions"
 				placeholder="Add field..."
-				@update:model-value="(option) => add(list.key, option)"
+				@add="(option) => add(list.key, option)"
+				@remove="(entry) => remove(list.key, entry)"
 			/>
 			<ErrorMessage
 				v-if="list.key === 'facts' && full"
-				message="Up to 6 fields. Put the rest in Details."
+				:message="fullMessage"
 			/>
 			<p class="text-p-sm text-ink-gray-5">{{ list.help }}</p>
 		</div>
@@ -61,8 +39,8 @@
 
 <script setup>
 import { computed, ref, watch } from "vue";
-import { Autocomplete, Badge, Button, ErrorMessage, FormControl, FormLabel } from "frappe-ui";
-import { compareOption } from "@/utils/compareOption";
+import { ErrorMessage, FormControl, FormLabel } from "frappe-ui";
+import NotifyTagBox from "@/components/NotifyTagBox.vue";
 import { MAX_FACTS, fieldOf, parseFieldList, serializeFieldList } from "@/bpmn/shared/notifyFields";
 import { useDoctypeFields } from "@/composables/useDoctypeFields";
 
@@ -94,13 +72,17 @@ const lists = computed(() => [
 	{
 		key: "facts",
 		label: isChat.value ? "Summary Fields" : "Key Facts",
-		entries: factList.value,
+		tags: factList.value.map(toTag),
 		help: `Up to ${MAX_FACTS}, in this order. Fields of the ${props.doctype}.`,
 	},
 	...(isChat.value
 		? []
-		: [{ key: "details", label: "Details Fields", entries: detailList.value, help: "Folded under Details in the email." }]),
+		: [{ key: "details", label: "Details Fields", tags: detailList.value.map(toTag), help: "Folded under Details in the email." }]),
 ]);
+
+const fullMessage = computed(() =>
+	isChat.value ? `Up to ${MAX_FACTS} fields.` : `Up to ${MAX_FACTS} fields. Put the rest in Details.`
+);
 
 // A field picked in either list is not offered again
 const available = computed(() => {
@@ -110,6 +92,10 @@ const available = computed(() => {
 
 function labelOf(fieldname) {
 	return fields.value.find((f) => f.fieldname === fieldname)?.label || fieldname;
+}
+
+function toTag(entry) {
+	return { key: entry, label: labelOf(fieldOf(entry)) };
 }
 
 const fieldOptions = computed(() => [
