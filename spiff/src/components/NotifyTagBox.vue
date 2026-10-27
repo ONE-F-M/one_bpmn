@@ -26,39 +26,38 @@
 				/>
 			</template>
 		</Badge>
-		<Autocomplete
+		<Combobox
 			v-if="options"
-			class="min-w-[5rem] flex-1"
-			body-classes="min-w-[16rem]"
-			:compare-fn="compareOption"
-			:model-value="null"
+			:key="picks"
+			class="min-w-[10rem] flex-1"
 			:options="options"
-			@update:model-value="(option) => option && emit('add', option)"
-		>
-			<template #target="{ togglePopover }">
-				<button
-					type="button"
-					class="w-full rounded py-0.5 text-left text-base text-ink-gray-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3"
-					@click="togglePopover()"
-				>
-					{{ placeholder }}
-				</button>
-			</template>
-		</Autocomplete>
+			:model-value="null"
+			:placeholder="placeholder"
+			@update:selected-option="pick"
+		/>
 	</div>
 </template>
 
 <script setup>
-import { Autocomplete, Badge, Button } from "frappe-ui";
-import { compareOption } from "@/utils/compareOption";
+import { ref } from "vue";
+import { Badge, Button, Combobox } from "frappe-ui";
 
 defineProps({
 	// [{ key, label, sub }]; sub is shown after the label, right to left
 	tags: { type: Array, required: true },
-	// Autocomplete options; no picker when null
+	// [{ label, value }] for the search box; no search box when null
 	options: { type: Array, default: null },
 	placeholder: { type: String, default: "" },
 });
 
 const emit = defineEmits(["add", "remove"]);
+
+// remounts the search box so it is empty again after each pick
+const picks = ref(0);
+
+function pick(option) {
+	if (!option) return;
+	emit("add", option);
+	picks.value += 1;
+}
 </script>

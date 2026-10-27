@@ -1,5 +1,5 @@
 <template>
-	<div class="space-y-5">
+	<div class="space-y-4">
 		<div
 			v-for="list in lists"
 			:key="list.key"
@@ -9,7 +9,6 @@
 			<NotifyTagBox
 				:tags="list.tags"
 				:options="fieldOptions"
-				placeholder="Add field..."
 				@add="(option) => add(list.key, option)"
 				@remove="(entry) => remove(list.key, entry)"
 			/>
@@ -60,7 +59,7 @@ const facts = defineModel("facts", { type: String });
 const details = defineModel("details", { type: String });
 const attachments = defineModel("attachments", { type: String });
 
-const { fields, load } = useDoctypeFields(VALUE_FIELDTYPES);
+const { fields, loading, load } = useDoctypeFields(VALUE_FIELDTYPES);
 watch(() => props.doctype, load, { immediate: true });
 
 const full = ref(false);
@@ -72,12 +71,12 @@ const lists = computed(() => [
 	{
 		key: "facts",
 		label: isChat.value ? "Summary Fields" : "Key Facts",
-		tags: factList.value.map(toTag),
+		tags: loading.value ? [] : factList.value.map(toTag),
 		help: `Up to ${MAX_FACTS}, in this order. Fields of the ${props.doctype}.`,
 	},
 	...(isChat.value
 		? []
-		: [{ key: "details", label: "Details Fields", tags: detailList.value.map(toTag), help: "Folded under Details in the email." }]),
+		: [{ key: "details", label: "Details Fields", tags: loading.value ? [] : detailList.value.map(toTag), help: "Folded under Details in the email." }]),
 ]);
 
 const fullMessage = computed(() =>
@@ -98,12 +97,7 @@ function toTag(entry) {
 	return { key: entry, label: labelOf(fieldOf(entry)) };
 }
 
-const fieldOptions = computed(() => [
-	{
-		group: `${props.doctype} fields`,
-		items: available.value.map((f) => ({ label: f.label, value: f.fieldname, description: f.fieldname })),
-	},
-]);
+const fieldOptions = computed(() => available.value.map((f) => ({ label: f.label, value: f.fieldname })));
 
 function add(key, option) {
 	const fieldname = option?.value;
