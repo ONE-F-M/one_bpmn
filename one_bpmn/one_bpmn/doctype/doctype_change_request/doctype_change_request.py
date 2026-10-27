@@ -17,30 +17,32 @@ class DoctypeChangeRequest(Document):
 
 
 def get_permission_query_conditions(user: str | None = None) -> str:
-	"""List only requests the user raised or can decide as a Process Owner."""
+	"""List only requests the user raised or is an approver for."""
 	user = user or frappe.session.user
 	if "System Manager" in frappe.get_roles(user):
 		return ""
 	return (
 		f"(`tabDoctype Change Request`.`requested_by` = {frappe.db.escape(user)}"
-		f" or `tabDoctype Change Request`.`target_doctype` in ({_owned_listings(user).get_sql()}))"
+		f" or `tabDoctype Change Request`.`name` in ({_requests_approvable_by(user).get_sql()}))"
 	)
 
 
 def has_permission(doc, ptype=None, user: str | None = None) -> bool:
 	user = user or frappe.session.user
-	if "System Manager" in frappe.get_roles(user) or doc.requested_by == user:
+	roles = set(frappe.get_roles(user))
+	if "System Manager" in roles or doc.requested_by == user:
 		return True
-	return doc.target_doctype in _owned_listings(user).run(pluck=True)
+	return any(r.approver == user or r.approver_role in roles for r in doc.get("approvers") or [])
 
 
-def _owned_listings(user: str):
-	"""Doctypes listed in the Process Doctypes table of a process the user owns."""
-	listing = DocType("Process Doctype")
-	process = DocType("Process")
+def _requests_approvable_by(user: str):
+	"""Names of requests whose approvers table lists the user, or one of their roles."""
+	row = DocType("Doctype Change Approver")
 	return (
-		frappe.qb.from_(listing)
-		.join(process).on(process.name == listing.parent)
-		.select(listing.document_type)
-		.where((listing.parenttype == "Process") & (process.process_owner == user))
+		frappe.qb.from_(row)
+		.select(row.parent)
+		.where(
+			(row.parenttype == "Doctype Change Request")
+			& ((row.approver == user) | row.approver_role.isin(frappe.get_roles(user)))
+		)
 	)
