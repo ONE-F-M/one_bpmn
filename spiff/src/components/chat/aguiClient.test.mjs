@@ -114,3 +114,97 @@ test("regular keep-alive comments reset the idle timer — a long turn completes
 	assert.equal(errorMessage, null, "keep-alives must have kept the connection from timing out");
 	assert.equal(done, true);
 });
+
+// A stream that dies mid-turn: the first read delivers RUN_STARTED, the second
+// throws. `statuses` are what turn_status answers, one per poll.
+function droppedStreamFetch({ statuses, runStarted = true }) {
+	let polls = 0;
+	return (url) => {
+		if (String(url).includes("turn_status")) {
+			const status = statuses[Math.min(polls++, statuses.length - 1)];
+			return Promise.resolve({ ok: true, json: () => Promise.resolve({ message: status }) });
+		}
+		let reads = 0;
+		const frame = runStarted ? 'data: {"type":"RUN_STARTED","threadId":"conv-1"}\n\n' : ": keep-alive\n\n";
+		return Promise.resolve({
+			ok: true,
+			body: {
+				getReader: () => ({
+					read: () =>
+						reads++ === 0
+							? Promise.resolve({ done: false, value: encoder.encode(frame) })
+							: Promise.reject(new TypeError("network error")),
+				}),
+			},
+		});
+	};
+}
+
+function runDropped(fetchStub) {
+	globalThis.fetch = fetchStub;
+	const result = { events: [], error: null, done: false };
+	streamAgentTurn({
+		agentId: "a",
+		message: "hi",
+		clientMessageId: "m-1",
+		recoverIntervalMs: 5,
+		onEvent: (e) => result.events.push(e),
+		onError: (msg) => (result.error = msg),
+		onDone: () => (result.done = true),
+	});
+	return result;
+}
+
+test("a dropped stream waits for the running turn and replays its reply instead of failing", async () => {
+	const result = runDropped(
+		droppedStreamFetch({
+			statuses: [
+				{ state: "running" },
+				{
+					state: "done",
+					replies: [
+						{
+							message: "msg-1",
+							text: "Redrawn.",
+							events: [{ name: "onefm.choice", value: { options: ["Yes"] } }],
+						},
+					],
+				},
+			],
+		})
+	);
+
+	await new Promise((r) => setTimeout(r, 120));
+
+	assert.equal(result.error, null, "a reply that was saved must not surface as 'Connection lost'");
+	assert.equal(result.done, true);
+	assert.deepEqual(
+		result.events.map((e) => e.type),
+		["RUN_STARTED", "TEXT_MESSAGE_START", "TEXT_MESSAGE_CONTENT", "TEXT_MESSAGE_END", "CUSTOM"]
+	);
+	assert.equal(result.events[2].delta, "Redrawn.");
+	assert.equal(result.events[1].messageId, "msg-1");
+});
+
+test("a dropped stream whose turn is lost still reports 'Connection lost'", async () => {
+	const result = runDropped(droppedStreamFetch({ statuses: [{ state: "lost" }] }));
+
+	await new Promise((r) => setTimeout(r, 80));
+
+	assert.equal(result.error, "Connection lost. Please try again.");
+	assert.equal(result.done, true);
+});
+
+test("a stream that drops before the conversation is known fails without polling", async () => {
+	let polled = false;
+	const inner = droppedStreamFetch({ statuses: [{ state: "done", replies: [] }], runStarted: false });
+	const result = runDropped((url) => {
+		if (String(url).includes("turn_status")) polled = true;
+		return inner(url);
+	});
+
+	await new Promise((r) => setTimeout(r, 60));
+
+	assert.equal(result.error, "Connection lost. Please try again.");
+	assert.equal(polled, false);
+});

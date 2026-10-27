@@ -22,11 +22,20 @@
 // JSON event; RUN_FINISHED / RUN_ERROR terminate the turn; comment lines
 // (keep-alives) are transport and never reach the callbacks.
 
-import { getCsrfToken } from "../../bpmn/shared/frappeResource.js";
+import { frappeGet, getCsrfToken } from "../../bpmn/shared/frappeResource.js";
 
 const ENDPOINT = "/api/method/one_bpmn.api.agui.stream_agent_turn";
 
+const STATUS_ENDPOINT = "/api/method/one_bpmn.api.agui.turn_status";
+
 const GENERIC_FAILURE = "Connection lost. Please try again.";
+
+// A dropped stream does not stop the turn: it keeps running on the worker and
+// saves its reply. The client asks for that reply instead of reporting a failure,
+// for as long as a queued AI job may live (30 min job limit plus a minute).
+const RECOVER_INTERVAL_MS = 3000;
+const RECOVER_MAX_MS = 31 * 60 * 1000;
+const RECOVER_MAX_STATUS_ERRORS = 10;
 
 // the server sends a `: keep-alive` SSE comment every 10s during a
 // buffered turn, on top of whatever real events it produces. If NEITHER kind
@@ -52,6 +61,8 @@ const TIMEOUT_FAILURE = "The agent did not respond";
  * @param {number} [opts.idleTimeoutMs] no event/keep-alive for this long
  *        fails the turn; defaults to 60000 (60s), well past the server's
  *        10s keep-alive cadence.
+ * @param {number} [opts.recoverIntervalMs] how often a dropped stream asks
+ *        whether its turn has a reply; defaults to 3000.
  * @returns {{ close: () => void }}
  */
 export function streamAgentTurn({
@@ -64,9 +75,11 @@ export function streamAgentTurn({
 	onError,
 	onDone,
 	idleTimeoutMs,
+	recoverIntervalMs,
 }) {
 	const controller = new AbortController();
 	let finished = false;
+	let threadId = conversation || "";
 
 	const IDLE_TIMEOUT_MS = idleTimeoutMs || DEFAULT_IDLE_TIMEOUT_MS;
 	let idleTimer = null;
@@ -115,6 +128,7 @@ export function streamAgentTurn({
 		}
 
 		const type = (event.type || "").toUpperCase();
+		if (type === "RUN_STARTED") threadId = event.threadId || event.thread_id || threadId;
 		if (type === "RUN_ERROR") {
 			onError && onError(event.message || "The agent failed to reply.");
 			// RUN_FINISHED still follows per contract; wait for it.
@@ -122,6 +136,58 @@ export function streamAgentTurn({
 		}
 		onEvent && onEvent(event);
 		if (type === "RUN_FINISHED") finish();
+	};
+
+	// Replays a turn that finished while the stream was down, as the events it
+	// would have streamed.
+	const replay = (replies) => {
+		replies.forEach(({ message: messageId, text, events }) => {
+			if (text) {
+				onEvent && onEvent({ type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
+				onEvent && onEvent({ type: "TEXT_MESSAGE_CONTENT", messageId, delta: text });
+				onEvent && onEvent({ type: "TEXT_MESSAGE_END", messageId });
+			}
+			(events || []).forEach(({ name, value }) => onEvent && onEvent({ type: "CUSTOM", name, value }));
+		});
+	};
+
+	// Ask the server for the reply of a turn whose stream dropped. True when the
+	// turn was settled here (replayed); false when there is nothing to recover.
+	const recover = async () => {
+		if (!threadId || !clientMessageId) return false;
+		clearIdleTimer();
+		const waitMs = recoverIntervalMs || RECOVER_INTERVAL_MS;
+		const deadline = Date.now() + RECOVER_MAX_MS;
+		let statusErrors = 0;
+		while (!finished && Date.now() < deadline) {
+			await new Promise((resolve) => setTimeout(resolve, waitMs));
+			if (finished) return true;
+			let status;
+			try {
+				status = await frappeGet(STATUS_ENDPOINT, {
+					conversation: threadId,
+					client_message_id: clientMessageId,
+				});
+			} catch (e) {
+				status = null;
+			}
+			if (!status || !status.state) {
+				statusErrors += 1;
+				if (statusErrors >= RECOVER_MAX_STATUS_ERRORS) return false;
+				continue;
+			}
+			statusErrors = 0;
+			if (status.state === "running") continue;
+			if (status.state !== "done") return false;
+			replay(status.replies || []);
+			finish();
+			return true;
+		}
+		return false;
+	};
+
+	const recoverOrFail = async () => {
+		if (!(await recover())) fail(GENERIC_FAILURE);
 	};
 
 	const body = new URLSearchParams({ agent_id: agentId, message: message ?? "" });
@@ -144,7 +210,7 @@ export function streamAgentTurn({
 				signal: controller.signal,
 			});
 		} catch (e) {
-			fail(GENERIC_FAILURE);
+			await recoverOrFail();
 			return;
 		}
 
@@ -181,7 +247,7 @@ export function streamAgentTurn({
 			}
 		} catch (e) {
 			if (finished) return; // our own abort unwinding the reader
-			fail(GENERIC_FAILURE);
+			await recoverOrFail();
 			return;
 		}
 
