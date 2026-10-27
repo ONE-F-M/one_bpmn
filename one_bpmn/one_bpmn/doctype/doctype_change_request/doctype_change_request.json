@@ -14,6 +14,8 @@
   "section_break_dcr1",
   "change_summary",
   "requested_ir",
+  "section_break_dcr3",
+  "approvers",
   "section_break_dcr2",
   "reviewed_by",
   "reviewed_on",
@@ -87,6 +89,19 @@
    "reqd": 1
   },
   {
+   "fieldname": "section_break_dcr3",
+   "fieldtype": "Section Break",
+   "label": "Approvers"
+  },
+  {
+   "description": "Who can approve this request, resolved from the Process Doctypes tables when it was logged.",
+   "fieldname": "approvers",
+   "fieldtype": "Table",
+   "label": "Approvers",
+   "options": "Doctype Change Approver",
+   "read_only": 1
+  },
+  {
    "fieldname": "section_break_dcr2",
    "fieldtype": "Section Break",
    "label": "Decision"
@@ -113,7 +128,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-26 15:00:00.000000",
+ "modified": "2026-10-27 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "Doctype Change Request",

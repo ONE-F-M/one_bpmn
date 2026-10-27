@@ -142,6 +142,89 @@ class TestDocuChangeGovernance(FrappeTestCase):
 		with self.assertRaises(frappe.ValidationError):
 			approve_doctype_change(out["request"], confirm=1)
 
+	# ── approvers ──────────────────────────────────────────────────────────
+	def test_the_request_lists_every_owner_as_an_approver(self):
+		self._process("one", "a")
+		self._process("two", "c")
+		frappe.set_user(self.users["b"])
+		out = apply_doctype(self._ir(extra=True), confirm=1)
+
+		rows = frappe.get_doc(REQUEST, out["request"]).approvers
+		self.assertEqual(
+			sorted((r.process_name, r.approver, r.source) for r in rows),
+			sorted((p, self.users[k], "Listed") for p, k in zip(self.processes, ("a", "c"))),
+		)
+		self.assertIn(self.processes[0], out["message"])
+
+	def test_the_approvers_follow_a_change_of_owner(self):
+		process = self._process("one", "a")
+		frappe.set_user(self.users["b"])
+		out = apply_doctype(self._ir(), confirm=1)
+
+		frappe.set_user("Administrator")
+		frappe.db.set_value("Process", process, "process_owner", self.users["c"])
+		frappe.set_user(self.users["b"])
+		apply_doctype(self._ir(extra=True), confirm=1)
+
+		rows = frappe.get_doc(REQUEST, out["request"]).approvers
+		self.assertEqual([(r.process_name, r.approver) for r in rows], [(process, self.users["c"])])
+
+	def test_an_unlisted_existing_doctype_goes_to_the_fallback_approvers(self):
+		requester = self._plain_user("j")
+		process = self._process("one", "j", lists_doctype=False)
+		frappe.set_user(requester)
+		out = apply_doctype(self._ir(extra=True), confirm=1, process=process, list_in_process="0")
+
+		self.assertEqual(out["status"], "pending_approval")
+		self.assertFalse(self._has_extra())
+		rows = frappe.get_doc(REQUEST, out["request"]).approvers
+		self.assertEqual([(r.approver_role, r.source) for r in rows], [("System Manager", "Fallback")])
+
+		frappe.set_user(self.users["a"])
+		self.assertEqual(approve_doctype_change(out["request"], confirm=1)["status"], "applied")
+		self.assertTrue(self._has_extra())
+
+	def test_an_unlisted_doctype_without_a_process_also_goes_to_the_fallback(self):
+		requester = self._plain_user("k")
+		frappe.set_user(requester)
+		out = apply_doctype(self._ir(extra=True), confirm=1)
+
+		self.assertEqual(out["status"], "pending_approval")
+		self.assertFalse(self._has_extra())
+
+	def test_a_new_doctype_is_created_without_an_approval(self):
+		creator = self._plain_user("l")
+		self._process("one", "l", lists_doctype=False)
+		new_name = self.doctype + " New"
+		self.addCleanup(self._drop_doctype, new_name)
+		frappe.set_user(creator)
+		ir = json.dumps({
+			"doctype_name": new_name, "module": "ONE BPMN",
+			"fields": [{"fieldname": "title", "fieldtype": "Data", "label": "Title"}],
+		})
+
+		self.assertEqual(apply_doctype(ir, confirm=1)["status"], "applied")
+
+	def _drop_doctype(self, name):
+		frappe.set_user("Administrator")
+		if frappe.db.exists("DocType", name):
+			frappe.delete_doc("DocType", name, force=True, ignore_permissions=True)
+
+	def test_the_patch_fills_the_approvers_of_a_pending_request(self):
+		self._process("one", "a")
+		request = frappe.get_doc({
+			"doctype": REQUEST, "target_doctype": self.doctype, "requested_by": self.users["b"],
+			"status": "Pending", "requested_ir": self._ir(extra=True),
+		}).insert(ignore_permissions=True)
+		self.assertEqual(request.approvers, [])
+
+		from one_bpmn.one_bpmn.patches.v1_0.fill_doctype_change_approvers import execute
+
+		execute()
+
+		rows = frappe.get_doc(REQUEST, request.name).approvers
+		self.assertEqual([(r.approver, r.source) for r in rows], [(self.users["a"], "Listed")])
+
 	# ── who can see a request ──────────────────────────────────────────────
 	def _plain_user(self, key):
 		email = f"zz_gov_{key}_{self.tag}@example.com"

@@ -1279,6 +1279,7 @@ def shape_docu_reply(result: dict) -> dict:
 _PROCESS = "Process"
 _PROCESS_DOCTYPE = "Process Doctype"  # the Process.process_doctypes child table
 _CHANGE_REQUEST = "Doctype Change Request"
+_FALLBACK_APPROVER_ROLE = "System Manager"
 
 
 def _as_decision(value):
@@ -1311,6 +1312,29 @@ def _processes_listing(doctype: str) -> list:
 	)
 
 
+def _approvers_for(doctype: str) -> list:
+	"""Approver rows for ``doctype``: each listing process's owner, else the fallback role."""
+	rows = [
+		{"process_name": p.name, "approver": p.process_owner, "source": "Listed"}
+		for p in _processes_listing(doctype)
+		if p.process_owner
+	]
+	return rows or [{"approver_role": _FALLBACK_APPROVER_ROLE, "source": "Fallback"}]
+
+
+def _may_decide(rows: list, user: str) -> bool:
+	"""Whether ``user`` is one of the approver rows, by name or by role."""
+	roles = set(frappe.get_roles(user))
+	return any(r.get("approver") == user or r.get("approver_role") in roles for r in rows)
+
+
+def _gate_unlisted(name: str, ir_dict: dict):
+	"""A DocType no process lists is changed directly only by a fallback approver, or when new."""
+	if not frappe.db.exists("DocType", name) or _may_decide(_approvers_for(name), frappe.session.user):
+		return None
+	return _log_change_request(name, ir_dict)
+
+
 def _route_change(ir_dict: dict, process, list_in_process):
 	"""Decide whether a requested change may be applied now.
 
@@ -1320,6 +1344,8 @@ def _route_change(ir_dict: dict, process, list_in_process):
 	  Request, ``status: pending_approval``
 	- listed nowhere and a current ``process`` is given -> ``needs_listing_decision``
 	  until the client answers ``list_in_process``; a yes needs the user to own it.
+	- listed nowhere and not listed now -> a new DocType is applied; an existing one is
+	  logged for the fallback approvers unless the user is one.
 	"""
 	user = frappe.session.user
 	if user == "Guest":
@@ -1330,10 +1356,10 @@ def _route_change(ir_dict: dict, process, list_in_process):
 	if listed:
 		if any(p.process_owner == user for p in listed):
 			return None
-		return _log_change_request(name, ir_dict, listed)
+		return _log_change_request(name, ir_dict)
 
 	if not process:
-		return None
+		return _gate_unlisted(name, ir_dict)
 	owner = frappe.db.get_value(_PROCESS, process, "process_owner") if frappe.db.exists(_PROCESS, process) else None
 	if not owner:
 		frappe.throw(_("Process {0} was not found.").format(process))
@@ -1351,20 +1377,22 @@ def _route_change(ir_dict: dict, process, list_in_process):
 			_("Only the Process Owner of {0} can list a form in it.").format(process),
 			frappe.PermissionError,
 		)
-	return None
+	return None if decision else _gate_unlisted(name, ir_dict)
 
 
-def _log_change_request(name: str, ir_dict: dict, listed: list) -> dict:
+def _log_change_request(name: str, ir_dict: dict) -> dict:
 	"""Record the change as a pending Doctype Change Request instead of applying it."""
 	current = _read_doctype_ir(name) if frappe.db.exists("DocType", name) else {}
 	d = diff_ir(current or {}, ir_dict)
+	approvers = _approvers_for(name)
+	processes = [r["process_name"] for r in approvers if r.get("process_name")]
 	values = {
 		"target_doctype": name,
 		"requested_by": frappe.session.user,
 		"status": "Pending",
 		"destructive": int(bool(d.get("removed"))),
 		"change_summary": d.get("summary") or _("No field changes"),
-		"processes": "\n".join(p.name for p in listed),
+		"processes": "\n".join(processes),
 		"requested_ir": json.dumps(ir_dict, default=str),
 	}
 	# Autosave re-sends every edit; keep one Pending request per requester and doctype.
@@ -1373,16 +1401,25 @@ def _log_change_request(name: str, ir_dict: dict, listed: list) -> dict:
 	if pending:
 		doc = frappe.get_doc(_CHANGE_REQUEST, pending)
 		doc.update(values)
+		doc.set("approvers", [])
+		for row in approvers:
+			doc.append("approvers", row)
 		doc.save(ignore_permissions=True)
 	else:
-		doc = frappe.get_doc({"doctype": _CHANGE_REQUEST, **values})
+		doc = frappe.get_doc({"doctype": _CHANGE_REQUEST, **values, "approvers": approvers})
 		doc.insert(ignore_permissions=True)
+	names = ", ".join(
+		f"{frappe.utils.get_fullname(r['approver'])} ({r['process_name']})" if r.get("approver") else r["approver_role"]
+		for r in approvers
+	)
 	return {
 		"status": "pending_approval",
 		"request": doc.name,
 		"name": name,
-		"processes": [p.name for p in listed],
-		"message": _("You are not a Process Owner for {0}, so this change was logged as {1} and will be applied once a Process Owner approves it.").format(name, doc.name),
+		"processes": processes,
+		"message": _("You are not a Process Owner for {0}, so this change was logged as {1} and will be applied once a Process Owner approves it.").format(name, doc.name)
+		+ " "
+		+ _("Approvers: {0}.").format(names),
 	}
 
 
@@ -1402,12 +1439,9 @@ def _load_decidable_request(request: str):
 	req = frappe.get_doc(_CHANGE_REQUEST, request)
 	if req.status != "Pending":
 		frappe.throw(_("This request has already been decided."))
-	# Live check: whoever owns a process listing the DocType right now decides.
-	if not any(p.process_owner == frappe.session.user for p in _processes_listing(req.target_doctype)):
-		frappe.throw(
-			_("Only a Process Owner of a process that lists {0} can decide this request.").format(req.target_doctype),
-			frappe.PermissionError,
-		)
+	# Live check: whoever is an approver for the DocType right now decides.
+	if not _may_decide(_approvers_for(req.target_doctype), frappe.session.user):
+		frappe.throw(_("Only an approver of this request can decide it."), frappe.PermissionError)
 	return req
 
 

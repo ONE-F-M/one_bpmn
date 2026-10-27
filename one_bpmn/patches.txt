@@ -324,3 +324,4 @@ one_bpmn.one_bpmn.patches.v1_0.docu_settings_are_bounded #27-10-2026 Docu has on
 one_bpmn.one_bpmn.patches.v1_0.seed_docu_help_text_and_child_table_cases #27-10-2026 Docu Baseline gains a help text in description case and an edit to an existing child table case
 one_bpmn.one_bpmn.patches.v1_0.docu_list_script_remembers_its_question #27-10-2026 Docu remembers the question it asked about a list script so the answer goes back to the list script stage instead of the generic clarifier, never asks which DocType when one is selected, and knows how to remove the Add button from a list
 one_bpmn.one_bpmn.patches.v1_0.docu_list_script_offers_buttons #27-10-2026 Docu shows Yes, apply it and No, cancel buttons under a drafted list script: the stage reports an intent the chat renders options for
+one_bpmn.one_bpmn.patches.v1_0.fill_doctype_change_approvers #27-10-2026 Pending Doctype Change Requests get the approvers table, resolved from the Process Doctypes tables
