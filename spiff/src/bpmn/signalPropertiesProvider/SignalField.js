@@ -1,10 +1,8 @@
 import { h } from "preact";
-import { cachedRecordList } from "../shared/cachedRecordList";
 import { frappePost } from "../shared/frappeResource";
 import { RecordCombobox } from "../shared/RecordCombobox";
 import { createBpmnSignalMaster, findOrCreateSignal } from "./signalPick";
-
-const SIGNALS = cachedRecordList("BPMN Signal Master", ["name"]);
+import { SIGNALS } from "./signalRecords";
 
 async function createSignal(name) {
 	const created = await createBpmnSignalMaster(frappePost, name);

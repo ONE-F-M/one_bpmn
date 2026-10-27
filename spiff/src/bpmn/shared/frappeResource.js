@@ -50,3 +50,7 @@ export function frappePost(path, body = {}) {
 		params: body,
 	});
 }
+
+export function frappeDelete(path) {
+	return frappeRequest({ url: path, method: "DELETE" });
+}
