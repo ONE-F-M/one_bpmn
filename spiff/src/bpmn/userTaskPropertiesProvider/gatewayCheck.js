@@ -12,11 +12,12 @@ const plain = (template, vars) =>
 
 /**
  * @param {string[]} actionNames     action names on the task
- * @param {string[]} conditionBodies one condition body per gateway branch
+ * @param {string[]} conditionBodies one condition body per gateway branch, the default branch left out
  * @param {Function} [t]             translate(template, vars)
+ * @param {boolean} [hasDefault]     the gateway has a default branch, which takes any other action
  * @returns {{state: "ok" | "bad" | "other", text: string}[]}
  */
-export function checkGateway(actionNames, conditionBodies, t = plain) {
+export function checkGateway(actionNames, conditionBodies, t = plain, hasDefault = false) {
 	const names = (actionNames || []).map((n) => String(n || "").trim()).filter(Boolean);
 	const matched = new Set();
 	const rows = [];
@@ -40,11 +41,14 @@ export function checkGateway(actionNames, conditionBodies, t = plain) {
 		}
 	});
 
+	if (hasDefault) rows.push({ state: "other", text: t("Default branch: takes any action without its own branch") });
+
 	[...new Set(names)].filter((n) => !matched.has(n)).forEach((name) => {
-		rows.push({
-			state: "bad",
-			text: t("Action {name} has no gateway branch; the task cannot continue on it", { name }),
-		});
+		rows.push(
+			hasDefault
+				? { state: "other", text: t("Action {name} takes the default branch", { name }) }
+				: { state: "bad", text: t("Action {name} has no gateway branch; the task cannot continue on it", { name }) }
+		);
 	});
 
 	return rows;

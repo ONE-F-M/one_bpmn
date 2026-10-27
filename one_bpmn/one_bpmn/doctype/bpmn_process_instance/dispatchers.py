@@ -26,6 +26,8 @@ _MEMORY_BLOCK_PROVENANCE = "Possibly relevant notes from earlier work; use them 
 # all. This is the per-agent default (aiMemoryTokenBudget overrides it); see
 # _bound_memories_to_budget.
 DEFAULT_MEMORY_TOKEN_BUDGET = 800
+KEYED_PROCESS_ROWS = 5
+KEYED_USER_ROWS = 3
 
 # Greetings/acknowledgements carry no signal worth searching memory with, and
 # searching anyway risks a coincidental keyword match injecting an unrelated
@@ -1807,7 +1809,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			# injecting an unrelated fact into "hi".
 			if memory_target and query and not _is_small_talk(query):
 				recall_query = query
-				from one_bpmn.agents.memory.tools import memory_list_user_directed, memory_search
+				from one_bpmn.agents.memory.tools import memory_list_top, memory_list_user_directed, memory_search
 				scope, scope_key = memory_target
 				limit = int(task_cfg.get("aiMemoryLimit", 5) or 5)
 				# Standing conventions the user asked to be remembered are
@@ -1825,12 +1827,21 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 					scope, scope_key, query, limit=limit, ignore_permissions=True
 				)
 				preference_user = _preference_user(task.data)
+				standing = []
 				if preference_user:
+					# A process keyed turn always carries the process's top facts and the
+					# person's own preferences, whatever words the question uses.
 					user_key = {"user": preference_user}
 					user_directed += memory_list_user_directed("User", user_key, limit=3, ignore_permissions=True)
+					standing = memory_list_top(scope, scope_key, limit=KEYED_PROCESS_ROWS, ignore_permissions=True)
+					standing += memory_list_top("User", user_key, limit=KEYED_USER_ROWS, ignore_permissions=True)
 					matched += memory_search("User", user_key, query, limit=limit, ignore_permissions=True)
-				seen_names = {m.get("name") for m in user_directed}
-				memories = user_directed + [m for m in matched if m.get("name") not in seen_names]
+				memories = list(user_directed)
+				seen_names = {m.get("name") for m in memories}
+				for m in standing + matched:
+					if m.get("name") not in seen_names:
+						seen_names.add(m.get("name"))
+						memories.append(m)
 				if memories:
 					token_budget = int(
 						task_cfg.get("aiMemoryTokenBudget") or DEFAULT_MEMORY_TOKEN_BUDGET

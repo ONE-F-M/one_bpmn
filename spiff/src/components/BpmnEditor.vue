@@ -1027,6 +1027,7 @@ import AIAgentConfigModal from "@/components/AIAgentConfigModal.vue";
 import DocuCanvas from "@/components/DocuCanvas.vue";
 import { layoutBpmnXml } from "@/utils/bpmnLayout.js";
 import { initModeler } from "@/composables/useModelerInit";
+import { watchAgentConfigLint } from "@/composables/useAgentConfigLintState";
 import { useBpmnContextMenu } from "@/composables/useBpmnContextMenu";
 // Properties panel
 import {
@@ -1078,6 +1079,7 @@ import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
 import conditionalStartEventPropertiesProviderModule from "@/bpmn/conditionalStartEventPropertiesProvider";
 import lanePropertiesProviderModule from "@/bpmn/lanePropertiesProvider";
+import signalPropertiesProviderModule from "@/bpmn/signalPropertiesProvider";
 import propertiesPanelFilterModule from "@/bpmn/propertiesPanelFilter";
 import commentContextPadModule from "@/bpmn/commentContextPad";
 import { encodeHtmlAttr, decodeHtmlAttr } from "@/bpmn/shared/htmlAttrCodec";
@@ -1833,6 +1835,7 @@ onMounted(async () => {
 				startEventPropertiesProviderModule,
 				conditionalStartEventPropertiesProviderModule,
 				lanePropertiesProviderModule,
+				signalPropertiesProviderModule,
 				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
@@ -1995,6 +1998,7 @@ onMounted(async () => {
 				eventBus.on("root.set", () => {
 					linting.update();
 				});
+				watchAgentConfigLint(modeler);
 			}
 
 			// Clear custom trigger attributes if a StartEvent is converted into something else
@@ -2149,6 +2153,21 @@ onMounted(async () => {
 
 			onUnmounted(() => {
 				document.removeEventListener("mousedown", handleGlobalClick);
+			});
+
+			// The drilldown arrow alerts when calledElement is empty; route a Process-name link instead
+			const canvasContainer = modeler.get("canvas").getContainer();
+			const launchProcessNameLink = (event) => {
+				if (!event.target.closest(".bjs-drilldown")) return;
+				const [element] = modeler.get("selection").get();
+				const businessObject = element?.businessObject;
+				if (businessObject?.calledElement || !businessObject?.get("spiffworkflow:calledProcess")) return;
+				event.stopPropagation();
+				emit("launch-callactivity-editor", { processId: "", element });
+			};
+			canvasContainer.addEventListener("click", launchProcessNameLink, true);
+			onUnmounted(() => {
+				canvasContainer.removeEventListener("click", launchProcessNameLink, true);
 			});
 
 			// Re-inject only when calledElement actually changed
@@ -3542,6 +3561,10 @@ function getAvatarColor(userName) {
 .bpmn-process-name-empty {
 	color: var(--gray-400, #9ca3af);
 	font-style: italic;
+}
+
+.bio-properties-panel-entry[data-entry-id="process_id"] {
+	display: none;
 }
 /* ─────────────────────────────────────────────────── */
 

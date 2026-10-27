@@ -50,13 +50,14 @@ The script must be one assignment, frappe.listview_settings["<DocType>"] = { ...
 - filters: [["fieldname", "=", "value"]] a default filter.
 - onload: function(listview) { listview.page.add_inner_button(__("Label"), function() { ... }); } a button above the list.
 - button: { show: function(doc) { return ...; }, get_label: function() { return __("Label"); }, get_description: function(doc) { return __("Text"); }, action: function(doc) { ... } } a button on each row.
+- To remove the Add button above the list: onload: function(listview) { listview.can_create = false; listview.set_primary_action(); } (clear_primary_action alone comes back when a row is deselected).
 
 What the list can show: formatters and get_indicator only change columns the list already shows, which are marked "shown in list" in the field list; add_fields only loads data. hide_name_column only does something when a Title field is given. When the request depends on a field that is not shown in the list, or on a Title field that is missing, say in the summary what the person will not see and what they would change (add the field as a list column), instead of promising it.
 
 Hard limits: no network calls, eval, cookies, storage, redirects, external URLs or script tags. Use only fieldnames from the list. Wrap every label in __().
 When there is a current script, return the COMPLETE new script: keep every setting the request does not change.
 
-Ask a question instead of writing when the request does not say which DocType, or which fields or values it means. One short plain English question, never mentioning code.
+Ask a question instead of writing only when the request does not say which fields or values it means. When a DocType is given at the top, it is the one to change: never ask which DocType. A request that is not one of the settings above is still one you can try; ask only when you truly cannot. One short plain English question, never mentioning code.
 
 Respond with ONLY a JSON object:
 {"doctype": "the DocType name", "script": "the full script, or an empty string when you ask a question", "summary": "one or two plain English sentences saying what the list will do once applied, for a non-technical person; nothing has been changed yet, so never say it is already changed", "question": "your question, or an empty string"}"""
@@ -84,7 +85,7 @@ reply = ""
 _draft = True
 
 if _pending:
-    if re.match(r"\s*(yes|yep|yeah|ok|okay|correct|confirm|go ahead|apply|looks good)\b", message, re.IGNORECASE):
+    if _pending.get("script") and re.match(r"\s*(yes|yep|yeah|ok|okay|correct|confirm|go ahead|apply|looks good)\b", message, re.IGNORECASE):
         _draft = False
         record(context_docname, {"pending_list_script": None})
         try:
@@ -97,7 +98,7 @@ if _pending:
         record(context_docname, {"pending_list_script": None})
         reply = "Okay, I have not changed the list on " + _pending["doctype"] + "."
     else:
-        message = (_pending.get("request") or "") + "\n\nChange to the draft: " + message
+        message = (_pending.get("request") or "") + ("\n\nChange to the draft: " if _pending.get("script") else "\n\nMy answer to your question: ") + message
         doctype = _pending["doctype"]
 
 if _draft:
@@ -122,7 +123,8 @@ if _draft:
         _target = _data.get("doctype") or doctype
         _script = (_data.get("script") or "").strip()
         if _data.get("question") or not _script:
-            reply = _data.get("question") or "Which DocType's list should I change, and how?"
+            reply = _data.get("question") or _data.get("summary") or ("What should change in the " + (_target or "DocType") + " list?")
+            record(context_docname, {"pending_list_script": {"doctype": _target, "script": "", "request": message}})
         elif not frappe.db.exists("DocType", _target):
             reply = "I could not find a DocType called " + str(_target) + ". Which list do you mean?"
         else:
@@ -140,7 +142,7 @@ update_turn(
     context_docname,
     intent="LIST_VIEW_SCRIPT",
     output={
-        "intent": "LIST_VIEW_SCRIPT",
+        "intent": "DISAMBIGUATE" if _options else "LIST_VIEW_SCRIPT",
         "response": reply,
         "doctype_ir": None,
         "diff": None,

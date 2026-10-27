@@ -13,14 +13,6 @@
 							{{ CONVERSATION_ACTIONS[action.key].label }}
 							<span class="text-gray-500"> · {{ CONVERSATION_ACTIONS[action.key].detail }}</span>
 						</span>
-						<label class="flex items-center gap-2 text-xs text-gray-600">
-							<input
-								type="checkbox"
-								:checked="action.completes"
-								@change="setCompletes(action.key, $event.target.checked)"
-							/>
-							Completes task
-						</label>
 						<button
 							type="button"
 							class="text-gray-400 hover:text-gray-700"
@@ -33,12 +25,6 @@
 							/>
 						</button>
 					</div>
-					<p
-						v-if="action.completes"
-						class="text-xs text-gray-400 mt-1"
-					>
-						The task ends when this is used. Conversation actions do not route the gateway or set a state.
-					</p>
 				</div>
 			</div>
 			<button
@@ -50,8 +36,8 @@
 				+ Add conversation action
 			</button>
 			<p class="text-xs text-gray-400 mt-2">
-				Email only. Reply sends a Communication to the sender; Add Note adds a Comment. They do not route the gateway
-				or set a state. Tick Completes task only if the task should end on that action.
+				Email only. Reply sends a Communication to the sender; Add Note adds a Comment. To also finish the task when
+				one is used, pick a button under "Finish the task from the conversation" on the Actions tab.
 			</p>
 		</div>
 
@@ -164,16 +150,12 @@ function update(changes) {
 	conversation.value = JSON.stringify({ ...settings.value, ...changes });
 }
 
-function setCompletes(key, completes) {
-	update({ actions: settings.value.actions.map((a) => (a.key === key ? { ...a, completes } : a)) });
-}
-
 function removeAction(key) {
 	update({ actions: settings.value.actions.filter((a) => a.key !== key) });
 }
 
 function addAction() {
-	update({ actions: [...settings.value.actions, { key: missing.value, completes: false }] });
+	update({ actions: [...settings.value.actions, { key: missing.value, completesWith: "" }] });
 }
 
 function addReply(event) {

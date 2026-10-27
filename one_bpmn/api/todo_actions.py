@@ -214,7 +214,6 @@ def handle_amp_action(token: str | None = None, comment: str | None = None) -> d
 # ---------------------------------------------------------------------------
 
 _THREAD_LIMIT = 10
-_DEFAULT_CONVERSATION_KEY = {"reply": "Reply", "note": "Note"}
 
 
 def _truthy(value) -> bool:
@@ -283,9 +282,8 @@ def _get_instance_context(instance_name: str):
 def _get_conversation_config(instance, task_id: str) -> dict:
 	"""``notifyConversation`` of the task, as a dict (empty when absent).
 
-	Accepts the setting as a dict or a JSON string. Understood keys:
-	``key`` (action key sent to complete_task), ``completesTask`` and
-	``internalNotes``.
+	Saved as ``{actions: [{key, completesWith}], internalNotes, canned}``, as a dict or a JSON
+	string; ``completesWith`` is the Task Action a reply or note also completes the task with.
 	"""
 	try:
 		state = json.loads(instance.workflow_state or "{}")
@@ -417,12 +415,12 @@ def _handled_by_message(instance_name: str, task_id: str) -> str | None:
 
 
 def _complete_with_conversation(payload: dict, conv: dict, kind: str, text: str) -> bool:
-	"""Complete the task when the conversation action completes it."""
-	completes = conv.get("completesTask", conv.get("completes"))
-	if not _truthy(completes):
+	"""Complete the task with the Task Action picked for this conversation action, if any."""
+	action = next((a for a in conv.get("actions") or [] if a.get("key") == kind), {})
+	key = (action.get("completesWith") or "").strip()
+	if not key:
 		return False
 
-	key = conv.get("key") or _DEFAULT_CONVERSATION_KEY[kind]
 	try:
 		from one_bpmn.api.instance_api import complete_task
 
@@ -492,7 +490,7 @@ def _send_reply(doc, text: str, user: str) -> dict:
 	"""Send ``text`` as a Communication to the document's sender_field address."""
 	if doc.doctype == "HD Ticket":
 		# Sends to the ticket's customer and sets the status to Replied.
-		doc.reply_via_agent(message=text)
+		doc.reply_via_agent(message=text, to=doc.raised_by)
 	else:
 		sender_field = frappe.get_meta(doc.doctype).sender_field
 		recipient = doc.get(sender_field) if sender_field else None
@@ -587,9 +585,8 @@ def post_amp_reply(token: str = "", text: str = "") -> dict:
 
 	For HD Ticket this goes through ``HD Ticket.reply_via_agent`` (status
 	becomes Replied); other DocTypes get a Communication to their
-	``sender_field`` address. When the task's conversation action completes
-	the task, ``complete_task`` runs with the conversation key and the text
-	as comment.
+	``sender_field`` address. When a Task Action is picked for replies,
+	``complete_task`` runs with that action and the text as comment.
 	"""
 	return _post_conversation(token, text, "reply")
 

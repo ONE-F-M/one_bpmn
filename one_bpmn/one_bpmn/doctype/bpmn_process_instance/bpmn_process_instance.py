@@ -2554,7 +2554,10 @@ def ai_job_queue(process_model: str | None) -> str:
 		agent_id = frappe.db.get_value("AI Agent Configuration", {"process_model": process_model}, "agent_id")
 	queue = ai_agent_queue(agent_id)
 	if queue not in get_queues_timeout():
-		frappe.logger("one_bpmn").warning(f"Queue {queue} is not under workers in the site config; using {AI_AGENT_QUEUE}")
+		frappe.log_error(
+			title="AI queue not registered, using the shared queue",
+			message=f"Queue {queue} is not under workers in the site config; using {AI_AGENT_QUEUE}",
+		)
 		return AI_AGENT_QUEUE
 	return queue
 

@@ -16,6 +16,7 @@ class BPMNStartEventConfig(Document):
 		bpmn_element_id: DF.Data | None
 		cron_expression: DF.Data | None
 		event_type: DF.Literal["", "None", "Conditional", "Timer", "Signal"]
+		last_started_at: DF.Datetime | None
 		parent: DF.Data
 		parentfield: DF.Data
 		parenttype: DF.Data

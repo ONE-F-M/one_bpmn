@@ -645,6 +645,33 @@ def get_agent_config_for_shape(config_name: str) -> dict:
 	}
 
 
+LINT_STATE_MAX_NAMES = 50
+
+
+@frappe.whitelist()
+def get_agent_config_lint_state(config_names: str) -> dict:
+	"""Whitelisted: lifecycle stage and mandatory-setting gaps the editor lints AI shapes against."""
+	frappe.has_permission("AI Agent Configuration", "read", throw=True)
+	from one_bpmn.agents.agent_provisioning import validate_agent_config
+
+	states = {}
+	for name in list(dict.fromkeys(frappe.parse_json(config_names)))[:LINT_STATE_MAX_NAMES]:
+		row = frappe.db.get_value(
+			"AI Agent Configuration", name, ["enabled", "lifecycle_status", "agent_type"], as_dict=True
+		)
+		if not row:
+			states[name] = {"exists": False}
+			continue
+		result = validate_agent_config(name, test_provider=False, require_prompt=row.agent_type != "Background")
+		states[name] = {
+			"exists": True,
+			"enabled": bool(row.enabled),
+			"lifecycle_status": row.lifecycle_status or "Draft",
+			"problems": result["errors"],
+		}
+	return states
+
+
 def grantable_roles() -> list[str]:
 	"""The roles the CURRENT user is allowed to hand to an agent.
 

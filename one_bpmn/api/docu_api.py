@@ -51,11 +51,13 @@ DOCU_AGENT = "Docu Agent"
 
 
 def _may_change_forms() -> bool:
-	"""System Manager, or a role on the Docu Agent's allowed roles; an empty list admits nobody else."""
+	"""System Manager, a role on the Docu Agent's allowed roles, or any Process Owner."""
 	from one_bpmn.api.agent_invocation import allowed_roles_for
 
 	roles = set(frappe.get_roles())
-	return "System Manager" in roles or bool(roles & allowed_roles_for(DOCU_AGENT))
+	if "System Manager" in roles or roles & allowed_roles_for(DOCU_AGENT):
+		return True
+	return bool(frappe.db.exists("Process", {"process_owner": frappe.session.user}))
 
 
 def _docu_user() -> str:
