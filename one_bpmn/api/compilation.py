@@ -614,7 +614,7 @@ def _populate_start_events(model, bpmn_xml: str) -> None:
 	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
 
-	# Clear existing rows
+	last_started = {row.bpmn_element_id: row.last_started_at for row in (model.start_events or [])}
 	model.start_events = []
 
 	if not bpmn_xml or not bpmn_xml.strip():
@@ -687,6 +687,7 @@ def _populate_start_events(model, bpmn_xml: str) -> None:
 				"trigger_event": trigger_event,
 				"workflow_state_condition": workflow_state,
 				"cron_expression": cron_expr,
+				"last_started_at": last_started.get(bpmn_id),
 			},
 		)
 
