@@ -1027,6 +1027,7 @@ import AIAgentConfigModal from "@/components/AIAgentConfigModal.vue";
 import DocuCanvas from "@/components/DocuCanvas.vue";
 import { layoutBpmnXml } from "@/utils/bpmnLayout.js";
 import { initModeler } from "@/composables/useModelerInit";
+import { watchAgentConfigLint } from "@/composables/useAgentConfigLintState";
 import { useBpmnContextMenu } from "@/composables/useBpmnContextMenu";
 // Properties panel
 import {
@@ -1997,6 +1998,7 @@ onMounted(async () => {
 				eventBus.on("root.set", () => {
 					linting.update();
 				});
+				watchAgentConfigLint(modeler);
 			}
 
 			// Clear custom trigger attributes if a StartEvent is converted into something else
