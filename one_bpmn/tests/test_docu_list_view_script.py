@@ -22,6 +22,10 @@ class TestValidateListViewScript(FrappeTestCase):
 		self.assertEqual(validate_list_view_script(DOCTYPE, script), [])
 		self.assertTrue(validate_list_view_script(DOCTYPE, script + "\nnew Function('1')"))
 
+	def test_a_script_that_removes_the_add_button_passes(self):
+		script = 'frappe.listview_settings["Note"] = { onload: function(listview) { listview.can_create = false; listview.set_primary_action(); } };'
+		self.assertEqual(validate_list_view_script(DOCTYPE, script), [])
+
 	def test_an_empty_script_is_refused(self):
 		self.assertEqual(len(validate_list_view_script(DOCTYPE, "  ")), 1)
 
