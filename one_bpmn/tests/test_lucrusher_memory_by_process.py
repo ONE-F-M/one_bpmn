@@ -59,7 +59,7 @@ def _task(data):
 	return SimpleNamespace(data=data, task_spec=SimpleNamespace(bpmn_id="Act_1", name="Act_1"))
 
 
-def _entity_row(reference_name, content):
+def _entity_row(reference_name, content, **extra):
 	frappe.get_doc(
 		{
 			"doctype": "AI Memory",
@@ -67,14 +67,15 @@ def _entity_row(reference_name, content):
 			"reference_doctype": KEY_DOCTYPE,
 			"reference_name": reference_name,
 			"content": content,
+			**extra,
 		}
 	).insert(ignore_permissions=True)
 
 
-def _user_row(user, content):
-	frappe.get_doc({"doctype": "AI Memory", "memory_scope": "User", "user": user, "content": content}).insert(
-		ignore_permissions=True
-	)
+def _user_row(user, content, **extra):
+	frappe.get_doc(
+		{"doctype": "AI Memory", "memory_scope": "User", "user": user, "content": content, **extra}
+	).insert(ignore_permissions=True)
 
 
 class TestMemoryTargetFromTaskData(FrappeTestCase):
@@ -142,6 +143,30 @@ class TestDispatchRecall(FrappeTestCase):
 		self.assertIn("administrator prefers short answers", prompt)
 		self.assertNotIn("promotion rule two", prompt)
 		self.assertNotIn("guest prefers long answers", prompt)
+
+	def test_keyed_turn_recalls_rows_that_share_no_word_with_the_question(self):
+		_entity_row(ABSENCE, "zebra giraffe habitat note")
+		_entity_row(PROMOTION, "okapi savanna note")
+		_user_row("Administrator", "prefers terse bullets")
+		_user_row(OTHER_USER, "prefers essays")
+		_entity_row(ABSENCE, "expired quokka note", expires_on="2020-01-01 00:00:00")
+		data = {"memory_reference_doctype": KEY_DOCTYPE, "memory_reference_name": ABSENCE}
+		cfg = dict(CFG, aiUserPrompt="what happens next in the workflow")
+		with patch("one_bpmn.agents.memory.writeback.distill_and_write"):
+			D.dispatch_ai_agent(_instance("", ""), _task(data), cfg, "Act_1")
+		prompt = _CAPTURED["config"].user_prompt
+		self.assertIn("zebra giraffe habitat note", prompt)
+		self.assertIn("prefers terse bullets", prompt)
+		self.assertNotIn("okapi savanna note", prompt)
+		self.assertNotIn("prefers essays", prompt)
+		self.assertNotIn("expired quokka note", prompt)
+
+	def test_list_top_orders_by_importance_then_recency(self):
+		_entity_row("System Manager", "minor detail", importance=1)
+		_entity_row("System Manager", "hard rule", importance=5)
+		key = {"reference_doctype": KEY_DOCTYPE, "reference_name": "System Manager"}
+		rows = tools.memory_list_top("Entity", key, limit=2, ignore_permissions=True)
+		self.assertEqual([r["content"] for r in rows], ["hard rule", "minor detail"])
 
 	def test_unconfirmed_process_reads_and_writes_nothing(self):
 		data = {"memory_reference_doctype": "", "memory_reference_name": ""}
