@@ -1,103 +1,85 @@
 <template>
 	<div class="space-y-5">
-		<div>
-			<span class="block text-xs font-medium text-gray-700 mb-2">Conversation actions</span>
-			<div class="space-y-2">
-				<div
-					v-for="action in settings.actions"
-					:key="action.key"
-					class="border border-gray-200 rounded-lg px-3 py-2"
-				>
-					<div class="flex items-center gap-3">
-						<span class="flex-1 text-sm text-gray-900">
-							{{ CONVERSATION_ACTIONS[action.key].label }}
-							<span class="text-gray-500"> · {{ CONVERSATION_ACTIONS[action.key].detail }}</span>
-						</span>
-						<button
-							type="button"
-							class="text-gray-400 hover:text-gray-700"
-							:aria-label="`Remove ${CONVERSATION_ACTIONS[action.key].label}`"
-							@click="removeAction(action.key)"
-						>
-							<Icon
-								icon="lucide:x"
-								class="w-4 h-4"
-							/>
-						</button>
-					</div>
-				</div>
-			</div>
-			<button
-				v-if="missing"
-				type="button"
-				class="mt-2 text-sm text-blue-600 hover:text-blue-800"
-				@click="addAction"
+		<div class="space-y-2">
+			<FormLabel label="Conversation actions" />
+			<div
+				v-for="action in settings.actions"
+				:key="action.key"
+				class="flex items-center gap-3 rounded-lg border border-outline-gray-2 px-3 py-2"
 			>
-				+ Add conversation action
-			</button>
-			<p class="text-xs text-gray-400 mt-2">
+				<span class="flex-1 text-base text-ink-gray-9">
+					{{ CONVERSATION_ACTIONS[action.key].label }}
+					<span class="text-ink-gray-5"> · {{ CONVERSATION_ACTIONS[action.key].detail }}</span>
+				</span>
+				<Button
+					variant="ghost"
+					icon="x"
+					:aria-label="`Remove ${CONVERSATION_ACTIONS[action.key].label}`"
+					@click="removeAction(action.key)"
+				/>
+			</div>
+			<Button
+				v-if="missing"
+				variant="subtle"
+				icon-left="plus"
+				label="Add conversation action"
+				@click="addAction"
+			/>
+			<p class="text-p-sm text-ink-gray-5">
 				Email only. Reply sends a Communication to the sender; Add Note adds a Comment. To also finish the task when
 				one is used, pick a button under "Finish the task from the conversation" on the Actions tab.
 			</p>
 		</div>
 
-		<div>
-			<label class="flex items-center gap-2 text-sm font-medium text-gray-700">
-				<input
-					type="checkbox"
-					:checked="settings.internalNotes"
-					@change="update({ internalNotes: $event.target.checked })"
-				/>
-				Include internal notes
-			</label>
-			<p class="text-xs text-gray-400 mt-1">{{ notesHelp }}</p>
+		<div class="space-y-1.5">
+			<FormControl
+				type="checkbox"
+				label="Include internal notes"
+				:model-value="settings.internalNotes"
+				@update:model-value="(on) => update({ internalNotes: on })"
+			/>
+			<p class="text-p-sm text-ink-gray-5">{{ notesHelp }}</p>
 		</div>
 
-		<div>
-			<span class="block text-xs font-medium text-gray-700 mb-1">Saved Replies</span>
+		<div class="space-y-1.5">
+			<FormLabel label="Saved Replies" />
 			<p
 				v-if="!isTicket"
-				class="text-xs text-gray-400"
+				class="text-p-sm text-ink-gray-5"
 			>
 				Not offered: saved replies come from HD Saved Reply, a Helpdesk doctype, so they are shown for HD Ticket only.
 			</p>
 			<template v-else>
-				<div class="flex flex-wrap gap-2 mb-2">
-					<span
+				<div
+					v-if="settings.canned.length"
+					class="flex flex-wrap gap-1.5"
+				>
+					<Badge
 						v-for="name in settings.canned"
 						:key="name"
-						class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-100 text-xs text-gray-800"
+						size="lg"
+						:label="titleOf(name)"
 					>
-						{{ titleOf(name) }}
-						<button
-							type="button"
-							class="text-gray-500 hover:text-gray-900"
-							:aria-label="`Remove ${titleOf(name)}`"
-							@click="update({ canned: settings.canned.filter((n) => n !== name) })"
-						>
-							<Icon
-								icon="lucide:x"
-								class="w-3 h-3"
+						<template #suffix>
+							<Button
+								variant="ghost"
+								size="sm"
+								icon="x"
+								class="!h-5 !w-5"
+								:aria-label="`Remove ${titleOf(name)}`"
+								@click="update({ canned: settings.canned.filter((n) => n !== name) })"
 							/>
-						</button>
-					</span>
+						</template>
+					</Badge>
 				</div>
-				<select
-					aria-label="Add saved reply"
-					class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
-					:value="''"
-					@change="addReply($event)"
-				>
-					<option value="">Add saved reply...</option>
-					<option
-						v-for="reply in available"
-						:key="reply.name"
-						:value="reply.name"
-					>
-						{{ reply.title }}: {{ reply.preview }}
-					</option>
-				</select>
-				<p class="text-xs text-gray-400 mt-1">
+				<Autocomplete
+					:compare-fn="compareOption"
+					:model-value="null"
+					:options="available"
+					placeholder="Add saved reply..."
+					@update:model-value="addReply"
+				/>
+				<p class="text-p-sm text-ink-gray-5">
 					Picked from HD Saved Reply. Shown as one-tap replies when Reply is a conversation action.
 				</p>
 			</template>
@@ -107,7 +89,8 @@
 
 <script setup>
 import { computed, watch } from "vue";
-import { Icon } from "@iconify/vue";
+import { Autocomplete, Badge, Button, FormControl, FormLabel } from "frappe-ui";
+import { compareOption } from "@/utils/compareOption";
 import { CONVERSATION_ACTIONS, missingConversationAction, parseConversation } from "@/bpmn/shared/notifyConversation";
 import { useSavedReplies } from "@/composables/useSavedReplies";
 
@@ -134,7 +117,7 @@ watch(isTicket, (ticket) => ticket && loadReplies(), { immediate: true });
 const available = computed(() =>
 	replies.value
 		.filter((r) => !settings.value.canned.includes(r.name))
-		.map((r) => ({ name: r.name, title: r.title || r.name, preview: plainText(r.message).slice(0, 60) }))
+		.map((r) => ({ label: r.title || r.name, value: r.name, description: plainText(r.message).slice(0, 60) }))
 );
 
 // saved replies are stored by record name, which can differ from the title shown
@@ -158,9 +141,7 @@ function addAction() {
 	update({ actions: [...settings.value.actions, { key: missing.value, completesWith: "" }] });
 }
 
-function addReply(event) {
-	const name = event.target.value;
-	event.target.value = "";
-	if (name) update({ canned: [...settings.value.canned, name] });
+function addReply(option) {
+	if (option?.value) update({ canned: [...settings.value.canned, option.value] });
 }
 </script>
