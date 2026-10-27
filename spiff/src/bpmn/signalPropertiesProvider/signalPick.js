@@ -6,6 +6,11 @@ export function createBpmnSignalMaster(post, name) {
 	return post("/api/resource/BPMN Signal Master", { bpmn_signal_name: name }).then(() => name);
 }
 
+// Resolves once the record is deleted; maps that still use the name keep it but it leaves the picker.
+export function deleteBpmnSignalMaster(del, name) {
+	return del(`/api/resource/BPMN Signal Master/${encodeURIComponent(name)}`);
+}
+
 function getDefinitions(businessObject) {
 	let node = businessObject;
 	while (node.$parent) node = node.$parent;

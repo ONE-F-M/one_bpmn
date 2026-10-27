@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { createBpmnSignalMaster, findOrCreateSignal } from "./signalPick.js";
+import { createBpmnSignalMaster, deleteBpmnSignalMaster, findOrCreateSignal } from "./signalPick.js";
 
 const moddle = { create: (type, attrs) => ({ $type: type, ...attrs }) };
 
@@ -39,4 +39,14 @@ test("an existing signal with the same name is reused, other types are ignored",
 	const { event, definitions } = diagram([message, signal]);
 	assert.equal(findOrCreateSignal(event, moddle, "Client Event Decision"), signal);
 	assert.equal(definitions.rootElements.length, 2);
+});
+
+test("deleting a signal sends the encoded record name to the delete call", async () => {
+	const paths = [];
+	await deleteBpmnSignalMaster((path) => (paths.push(path), Promise.resolve()), "Client Event/Decision");
+	assert.deepEqual(paths, ["/api/resource/BPMN Signal Master/Client%20Event%2FDecision"]);
+});
+
+test("a delete the server refuses reaches the caller", async () => {
+	await assert.rejects(deleteBpmnSignalMaster(() => Promise.reject(new Error("no permission")), "X"), /no permission/);
 });

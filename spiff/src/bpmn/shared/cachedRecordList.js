@@ -27,5 +27,14 @@ export function cachedRecordList(doctype, fields) {
 		records = [...(records || []), record];
 	}
 
-	return { load, add };
+	// The loaded records, or null before the first load finishes.
+	function get() {
+		return records;
+	}
+
+	function remove(name) {
+		records = (records || []).filter((r) => r.name !== name);
+	}
+
+	return { load, add, get, remove };
 }
