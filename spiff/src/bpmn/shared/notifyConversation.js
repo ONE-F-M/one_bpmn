@@ -1,11 +1,11 @@
 /**
  * notifyConversation holds the Conversation layout settings:
- * { actions: [{ key: "reply" | "note", completesWith }], internalNotes, canned: [HD Saved Reply names] }.
- * completesWith is the Task Action a reply or note also presses, or "" to leave the task open.
+ * { actions: [{ key: "reply" | "note", label }], internalNotes, canned: [HD Saved Reply names] }.
+ * label is the button text the email shows for the action.
  */
 export const CONVERSATION_ACTIONS = {
-	reply: { label: "Reply", detail: "Communication to the sender" },
-	note: { label: "Add Note", detail: "Comment on the document" },
+	reply: { label: "Reply", detail: "Message to the sender" },
+	note: { label: "Add Note", detail: "Internal note on the document" },
 };
 
 /** Saved settings, or Reply and Add Note with nothing else ticked. */
@@ -15,11 +15,16 @@ export function parseConversation(raw) {
 		actions: Array.isArray(saved.actions)
 			? saved.actions
 					.filter((a) => CONVERSATION_ACTIONS[a.key])
-					.map((a) => ({ key: a.key, completesWith: typeof a.completesWith === "string" ? a.completesWith : "" }))
-			: Object.keys(CONVERSATION_ACTIONS).map((key) => ({ key, completesWith: "" })),
+					.map((a) => ({ key: a.key, label: labelOf(a) }))
+			: Object.keys(CONVERSATION_ACTIONS).map((key) => ({ key, label: CONVERSATION_ACTIONS[key].label })),
 		internalNotes: !!saved.internalNotes,
 		canned: Array.isArray(saved.canned) ? saved.canned : [],
 	};
+}
+
+function labelOf(action) {
+	const label = typeof action.label === "string" ? action.label.trim() : "";
+	return label || CONVERSATION_ACTIONS[action.key].label;
 }
 
 /** The conversation action not yet on the list, or undefined when both are. */
