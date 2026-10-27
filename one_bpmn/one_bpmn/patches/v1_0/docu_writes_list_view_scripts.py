@@ -142,7 +142,7 @@ update_turn(
     context_docname,
     intent="LIST_VIEW_SCRIPT",
     output={
-        "intent": "LIST_VIEW_SCRIPT",
+        "intent": "DISAMBIGUATE" if _options else "LIST_VIEW_SCRIPT",
         "response": reply,
         "doctype_ir": None,
         "diff": None,
