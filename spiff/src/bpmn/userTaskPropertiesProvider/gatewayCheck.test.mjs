@@ -58,3 +58,16 @@ test("checkGateway: with a default branch, an action without its own branch take
 test("checkGateway: without a default branch, an action without its own branch is still bad", () => {
 	assert.equal(checkGateway(["Accept"], [], undefined, false)[0].state, "bad")
 })
+
+test("checkGateway: an action test inside a longer condition still matches the action", () => {
+	const bodies = ['action == "Resolve" and not resolution_details', 'action == "Resolve" and doc.resolution_details', 'action == "Pending Deployment"']
+	assert.deepEqual(checkGateway(["Resolve", "Pending Deployment"], bodies), [
+		{ state: "ok", text: 'action=="Resolve" matches action Resolve (and other conditions)' },
+		{ state: "ok", text: 'action=="Resolve" matches action Resolve (and other conditions)' },
+		{ state: "ok", text: 'action=="Pending Deployment" matches action Pending Deployment' },
+	])
+})
+
+test("checkGateway: a longer condition naming an unknown action is bad", () => {
+	assert.equal(checkGateway(["Resolve"], ['action == "Close" and doc.x'])[0].state, "bad")
+})

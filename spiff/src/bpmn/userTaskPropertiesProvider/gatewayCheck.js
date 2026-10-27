@@ -4,6 +4,8 @@
 
 // action == "Name", spaces optional, either quote. Real maps write action == "Approve".
 const ACTION_CONDITION = /^\s*action\s*==\s*(?:"([^"]*)"|'([^']*)')\s*$/;
+// The same test inside a longer condition, for example action == "Resolve" and doc.resolution_details.
+const ACTION_IN_CONDITION = /\baction\s*==\s*(?:"([^"]*)"|'([^']*)')/g;
 
 // Fallback translator: fills {placeholders}. The panel passes the bpmn-js
 // translate service, which fills them the same way.
@@ -23,22 +25,26 @@ export function checkGateway(actionNames, conditionBodies, t = plain, hasDefault
 	const rows = [];
 
 	(conditionBodies || []).forEach((body) => {
-		const m = ACTION_CONDITION.exec(body || "");
-		if (!m) {
+		const exact = ACTION_CONDITION.exec(body || "");
+		const found = exact ? [exact] : [...String(body || "").matchAll(ACTION_IN_CONDITION)];
+		if (!found.length) {
 			rows.push({ state: "other", text: t("Other condition, not checked") });
 			return;
 		}
-		const name = m[1] !== undefined ? m[1] : m[2];
-		const condition = `action=="${name}"`;
-		if (names.includes(name)) {
-			matched.add(name);
-			rows.push({ state: "ok", text: t("{condition} matches action {name}", { condition, name }) });
-		} else {
-			rows.push({
-				state: "bad",
-				text: t("{condition} has no action: add {name} or remove the branch", { condition, name }),
-			});
-		}
+		found.forEach((m) => {
+			const name = m[1] !== undefined ? m[1] : m[2];
+			const condition = `action=="${name}"`;
+			if (names.includes(name)) {
+				matched.add(name);
+				const text = exact ? "{condition} matches action {name}" : "{condition} matches action {name} (and other conditions)";
+				rows.push({ state: "ok", text: t(text, { condition, name }) });
+			} else {
+				rows.push({
+					state: "bad",
+					text: t("{condition} has no action: add {name} or remove the branch", { condition, name }),
+				});
+			}
+		});
 	});
 
 	if (hasDefault) rows.push({ state: "other", text: t("Default branch: takes any action without its own branch") });
