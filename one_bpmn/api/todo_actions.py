@@ -282,8 +282,7 @@ def _get_instance_context(instance_name: str):
 def _get_conversation_config(instance, task_id: str) -> dict:
 	"""``notifyConversation`` of the task, as a dict (empty when absent).
 
-	Saved as ``{actions: [{key, completesWith}], internalNotes, canned}``, as a dict or a JSON
-	string; ``completesWith`` is the Task Action a reply or note also completes the task with.
+	Saved as ``{actions: [{key, label}], internalNotes, canned}``, as a dict or a JSON string.
 	"""
 	try:
 		state = json.loads(instance.workflow_state or "{}")
@@ -414,31 +413,6 @@ def _handled_by_message(instance_name: str, task_id: str) -> str | None:
 	return _("This task was already handled by someone else.")
 
 
-def _complete_with_conversation(payload: dict, conv: dict, kind: str, text: str) -> bool:
-	"""Complete the task with the Task Action picked for this conversation action, if any."""
-	action = next((a for a in conv.get("actions") or [] if a.get("key") == kind), {})
-	key = (action.get("completesWith") or "").strip()
-	if not key:
-		return False
-
-	try:
-		from one_bpmn.api.instance_api import complete_task
-
-		complete_task(
-			instance_name=payload["instance_name"],
-			task_id=payload["task_id"],
-			data=json.dumps({"action": key, "comment": text}),
-		)
-		return True
-	except Exception:
-		# The message is already posted; do not report it as failed.
-		frappe.log_error(
-			title="AMP conversation: completing the task failed",
-			message=frappe.get_traceback(),
-		)
-		return False
-
-
 def _post_conversation(token: str | None, text: str | None, kind: str) -> dict:
 	"""Shared body of :func:`post_amp_reply` and :func:`post_amp_note`."""
 	_set_amp_cors_headers()
@@ -482,8 +456,7 @@ def _post_conversation(token: str | None, text: str | None, kind: str) -> dict:
 		)
 		return _conversation_error(500, _("An error occurred. Please try in ERPNext."))
 
-	completed = _complete_with_conversation(payload, ctx.conv, kind, text)
-	return {"message": item.get("message") or text, "item": item, "completed": completed}
+	return {"message": item.get("message") or text, "item": item}
 
 
 def _send_reply(doc, text: str, user: str) -> dict:

@@ -1,20 +1,26 @@
 <template>
-	<div class="space-y-5">
+	<div class="space-y-4">
 		<div class="space-y-2">
 			<FormLabel label="Conversation actions" />
 			<div
 				v-for="action in settings.actions"
 				:key="action.key"
-				class="flex items-center gap-3 rounded-lg border border-outline-gray-2 px-3 py-2"
+				class="flex items-start gap-3 rounded-lg border border-outline-gray-2 p-3"
 			>
-				<span class="flex-1 text-base text-ink-gray-9">
-					{{ CONVERSATION_ACTIONS[action.key].label }}
-					<span class="text-ink-gray-5"> · {{ CONVERSATION_ACTIONS[action.key].detail }}</span>
-				</span>
+				<FormControl
+					class="flex-1"
+					type="text"
+					:label="CONVERSATION_ACTIONS[action.key].label"
+					:placeholder="CONVERSATION_ACTIONS[action.key].label"
+					:description="`${CONVERSATION_ACTIONS[action.key].detail}. The text is the button label in the email.`"
+					:model-value="action.label"
+					@change="(event) => setLabel(action.key, event.target.value)"
+				/>
 				<Button
+					class="mt-5"
 					variant="ghost"
 					icon="x"
-					:aria-label="`Remove ${CONVERSATION_ACTIONS[action.key].label}`"
+					:label="`Remove ${action.label}`"
 					@click="removeAction(action.key)"
 				/>
 			</div>
@@ -26,8 +32,8 @@
 				@click="addAction"
 			/>
 			<p class="text-p-sm text-ink-gray-5">
-				Email only. Reply sends a Communication to the sender; Add Note adds a Comment. To also finish the task when
-				one is used, pick a button under "Finish the task from the conversation" on the Actions tab.
+				Email only. The reply goes to the sender as a Communication; the note is added as a Comment. Neither finishes
+				the task: the task's own action buttons do that.
 			</p>
 		</div>
 
@@ -118,7 +124,11 @@ function removeAction(key) {
 }
 
 function addAction() {
-	update({ actions: [...settings.value.actions, { key: missing.value, completesWith: "" }] });
+	update({ actions: [...settings.value.actions, { key: missing.value, label: CONVERSATION_ACTIONS[missing.value].label }] });
+}
+
+function setLabel(key, label) {
+	update({ actions: settings.value.actions.map((a) => (a.key === key ? { ...a, label: label.trim() } : a)) });
 }
 
 function addReply(option) {
