@@ -1,28 +1,32 @@
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
-import { checkGateway } from "./gatewayCheck";
+import { branchBodies, checkGateway, findActionGateway } from "./gatewayCheck";
 
 // Read-only "Gateway check" entry shown under Task Actions. It reads the
 // diagram and writes nothing, so it can never block a deploy.
 
-// The exclusive gateway directly after the task, with one condition body per
+// The exclusive gateway that tests the task's action, with one condition body per
 // outgoing branch other than the default one. null when no exclusive gateway follows the task.
 function readGateway(element) {
 	const bo = getBusinessObject(element);
-	const gateway = (bo.outgoing || [])
+	const first = (bo.outgoing || [])
 		.map((flow) => flow.targetRef)
 		.find((target) => target && target.$type === "bpmn:ExclusiveGateway");
-	if (!gateway) return null;
-	const bodies = (gateway.outgoing || [])
-		.filter((flow) => flow !== gateway.default)
-		.map((flow) => (flow.conditionExpression && flow.conditionExpression.body) || "");
-	return { gateway, bodies, hasDefault: !!gateway.default };
+	if (!first) return null;
+	const { gateway, via } = findActionGateway(first);
+	return { gateway, via, bodies: branchBodies(gateway), hasDefault: !!gateway.default };
 }
 
 function signatureOf(element) {
 	const found = readGateway(element);
-	return found ? JSON.stringify([found.gateway.id, found.gateway.name, found.bodies, found.hasDefault]) : "";
+	return found
+		? JSON.stringify([found.via && found.via.id, found.via && found.via.name, found.gateway.id, found.gateway.name, found.bodies, found.hasDefault])
+		: "";
+}
+
+function gatewayLabel(gateway) {
+	return gateway.name || gateway.id;
 }
 
 // The panel only re-renders when the selected element changes, and a branch
@@ -67,7 +71,9 @@ export function makeGatewayCheckComponent(parseActions) {
 
 		return h("div", { class: "bio-properties-panel-entry", "data-entry-id": id }, [
 			h("label", { class: "bio-properties-panel-label" },
-				translate('Gateway "{name}"', { name: found.gateway.name || found.gateway.id })),
+				found.via
+					? translate('Gateway "{name}", after "{via}"', { name: gatewayLabel(found.gateway), via: gatewayLabel(found.via) })
+					: translate('Gateway "{name}"', { name: gatewayLabel(found.gateway) })),
 			h("div", { class: "bpmn-link-list" },
 				rows.map((row, idx) =>
 					h("div", { key: `gateway-check-${idx}`, class: `bpmn-link bpmn-link-${row.state}` }, [

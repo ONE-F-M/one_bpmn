@@ -1,11 +1,44 @@
 // Gateway check: pure comparison of a User Task's actions against the
-// conditions on the outgoing flows of the exclusive gateway that follows it.
+// conditions on the outgoing flows of the exclusive gateway that tests them.
 // No imports and no DOM, so it runs under `node --test`.
 
 // action == "Name", spaces optional, either quote. Real maps write action == "Approve".
 const ACTION_CONDITION = /^\s*action\s*==\s*(?:"([^"]*)"|'([^']*)')\s*$/;
 // The same test inside a longer condition, for example action == "Resolve" and doc.resolution_details.
 const ACTION_IN_CONDITION = /\baction\s*==\s*(?:"([^"]*)"|'([^']*)')/g;
+
+// How many gateways past the first one the search follows to find the action test.
+const MAX_GATEWAY_HOPS = 3;
+
+/** Condition bodies of a gateway's branches, the default branch left out. */
+export function branchBodies(gateway) {
+	return (gateway.outgoing || [])
+		.filter((flow) => flow !== gateway.default)
+		.map((flow) => (flow.conditionExpression && flow.conditionExpression.body) || "");
+}
+
+function testsAction(gateway) {
+	return branchBodies(gateway).some((body) => new RegExp(ACTION_IN_CONDITION.source).test(body));
+}
+
+/**
+ * The exclusive gateway whose branches test the task's action. When the first gateway tests none,
+ * follows its branches straight into further exclusive gateways, up to MAX_GATEWAY_HOPS deep.
+ * Returns { gateway, via }: via is the first gateway when the search moved past it, else null.
+ */
+export function findActionGateway(first) {
+	const seen = new Set([first]);
+	let level = [first];
+	for (let hop = 0; hop <= MAX_GATEWAY_HOPS && level.length; hop++) {
+		const hit = level.find(testsAction);
+		if (hit) return { gateway: hit, via: hit === first ? null : first };
+		level = level
+			.flatMap((gateway) => (gateway.outgoing || []).map((flow) => flow.targetRef))
+			.filter((target) => target && target.$type === "bpmn:ExclusiveGateway" && !seen.has(target));
+		level.forEach((gateway) => seen.add(gateway));
+	}
+	return { gateway: first, via: null };
+}
 
 // Fallback translator: fills {placeholders}. The panel passes the bpmn-js
 // translate service, which fills them the same way.

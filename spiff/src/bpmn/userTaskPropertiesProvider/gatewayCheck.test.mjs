@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 
-import { checkGateway } from "./gatewayCheck.js"
+import { checkGateway, findActionGateway } from "./gatewayCheck.js"
 
 test("checkGateway: a branch matching an action is ok", () => {
 	assert.deepEqual(checkGateway(["Approve"], ['action == "Approve"']), [
@@ -70,4 +70,51 @@ test("checkGateway: an action test inside a longer condition still matches the a
 
 test("checkGateway: a longer condition naming an unknown action is bad", () => {
 	assert.equal(checkGateway(["Resolve"], ['action == "Close" and doc.x'])[0].state, "bad")
+})
+
+// Plain objects shaped like the bpmn-js business objects the panel reads.
+function gateway(id, bodies = []) {
+	return { id, $type: "bpmn:ExclusiveGateway", outgoing: bodies.map((body) => ({ conditionExpression: { body } })) }
+}
+
+function link(from, to, body = "") {
+	from.outgoing.push({ targetRef: to, conditionExpression: { body } })
+}
+
+test("findActionGateway: the first gateway is used when it tests the action", () => {
+	const first = gateway("G1", ['action == "Approve"'])
+	assert.deepEqual(findActionGateway(first), { gateway: first, via: null })
+})
+
+test("findActionGateway: moves past a gateway that tests only the document", () => {
+	const first = gateway("G1")
+	const next = gateway("G2", ['action == "Resolve" and doc.resolution_details', 'action == "Reviewed"'])
+	link(first, next, "doc.first_responded_on and doc.ticket_type")
+	link(first, { id: "T1", $type: "bpmn:ScriptTask" }, "not first_responded_on")
+	assert.deepEqual(findActionGateway(first), { gateway: next, via: first })
+})
+
+test("findActionGateway: does not pass through a task", () => {
+	const first = gateway("G1")
+	const task = { id: "T1", $type: "bpmn:ScriptTask", outgoing: [] }
+	link(first, task, "amount > 100")
+	task.outgoing.push({ targetRef: gateway("G2", ['action == "Approve"']) })
+	assert.deepEqual(findActionGateway(first), { gateway: first, via: null })
+})
+
+test("findActionGateway: stops after three gateways", () => {
+	const chain = ["G1", "G2", "G3", "G4", "G5"].map((id) => gateway(id))
+	chain.slice(1).forEach((g, i) => link(chain[i], g, "x"))
+	chain[4].outgoing.push({ conditionExpression: { body: 'action == "Approve"' } })
+	assert.deepEqual(findActionGateway(chain[0]), { gateway: chain[0], via: null })
+	chain[3].outgoing.push({ conditionExpression: { body: 'action == "Approve"' } })
+	assert.deepEqual(findActionGateway(chain[0]), { gateway: chain[3], via: chain[0] })
+})
+
+test("findActionGateway: a loop between gateways ends", () => {
+	const first = gateway("G1")
+	const next = gateway("G2")
+	link(first, next, "x")
+	link(next, first, "y")
+	assert.deepEqual(findActionGateway(first), { gateway: first, via: null })
 })
