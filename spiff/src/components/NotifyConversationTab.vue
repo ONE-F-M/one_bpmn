@@ -50,34 +50,12 @@
 				Not offered: saved replies come from HD Saved Reply, a Helpdesk doctype, so they are shown for HD Ticket only.
 			</p>
 			<template v-else>
-				<div
-					v-if="settings.canned.length"
-					class="flex flex-wrap gap-1.5"
-				>
-					<Badge
-						v-for="name in settings.canned"
-						:key="name"
-						size="lg"
-						:label="titleOf(name)"
-					>
-						<template #suffix>
-							<Button
-								variant="ghost"
-								size="sm"
-								icon="x"
-								class="!h-5 !w-5"
-								:aria-label="`Remove ${titleOf(name)}`"
-								@click="update({ canned: settings.canned.filter((n) => n !== name) })"
-							/>
-						</template>
-					</Badge>
-				</div>
-				<Autocomplete
-					:compare-fn="compareOption"
-					:model-value="null"
+				<NotifyTagBox
+					:tags="cannedTags"
 					:options="available"
 					placeholder="Add saved reply..."
-					@update:model-value="addReply"
+					@add="addReply"
+					@remove="(name) => update({ canned: settings.canned.filter((n) => n !== name) })"
 				/>
 				<p class="text-p-sm text-ink-gray-5">
 					Picked from HD Saved Reply. Shown as one-tap replies when Reply is a conversation action.
@@ -89,8 +67,8 @@
 
 <script setup>
 import { computed, watch } from "vue";
-import { Autocomplete, Badge, Button, FormControl, FormLabel } from "frappe-ui";
-import { compareOption } from "@/utils/compareOption";
+import { Button, FormControl, FormLabel } from "frappe-ui";
+import NotifyTagBox from "@/components/NotifyTagBox.vue";
 import { CONVERSATION_ACTIONS, missingConversationAction, parseConversation } from "@/bpmn/shared/notifyConversation";
 import { useSavedReplies } from "@/composables/useSavedReplies";
 
@@ -119,6 +97,8 @@ const available = computed(() =>
 		.filter((r) => !settings.value.canned.includes(r.name))
 		.map((r) => ({ label: r.title || r.name, value: r.name, description: plainText(r.message).slice(0, 60) }))
 );
+
+const cannedTags = computed(() => settings.value.canned.map((name) => ({ key: name, label: titleOf(name) })));
 
 // saved replies are stored by record name, which can differ from the title shown
 function titleOf(name) {
