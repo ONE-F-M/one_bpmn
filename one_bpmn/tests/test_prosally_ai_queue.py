@@ -228,8 +228,10 @@ class TestAnUnregisteredQueueFallsBack(FrappeTestCase):
 		with (
 			patch(f"{MODULE}.get_queues_timeout", return_value=without),
 			patch(f"{MODULE}.frappe.db.get_value", side_effect=_get_value("unused")),
+			patch(f"{MODULE}.frappe.log_error") as log_error,
 		):
 			self.assertEqual(controller.ai_job_queue("ProsAlly Map"), AI_AGENT_QUEUE)
+		self.assertIn(PROSALLY_AI_QUEUE, log_error.call_args.kwargs["message"])
 
 	def test_the_queue_chosen_is_one_frappe_accepts_on_this_site(self):
 		from frappe.utils.background_jobs import validate_queue
