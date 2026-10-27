@@ -76,7 +76,13 @@ class TestWriteListScriptStage(FrappeTestCase):
 		self.assertEqual(recorded[0]["pending_list_script"]["script"], SCRIPT)
 		self.assertIn("Shall I apply it to the Note list?", output["response"])
 		self.assertEqual(output["options"], ["Yes, apply it", "No, cancel"])
+		self.assertEqual(output["intent"], "DISAMBIGUATE")
 		self.assertIsNone(_list_script())
+
+	def test_a_reply_without_options_keeps_the_list_script_intent(self):
+		output, _recorded = _run_stage("yes, go ahead", pending=PENDING)
+		self.assertIsNone(output["options"])
+		self.assertEqual(output["intent"], "LIST_VIEW_SCRIPT")
 
 	def test_a_yes_applies_the_pending_script(self):
 		output, recorded = _run_stage("yes, go ahead", pending=PENDING)
