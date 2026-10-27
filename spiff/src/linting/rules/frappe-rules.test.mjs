@@ -96,7 +96,10 @@ test("a send task with no notification is reported", async () => {
 test("a user task needs the value its assignee mode reads", async () => {
 	const task = (attrs) => diagram(`<bpmn:userTask id="ut" name="Review" ${attrs} />`)
 	assert.deepEqual(await problems(userTaskMissingAssignee, task("")), [])
-	assert.equal((await problems(userTaskMissingAssignee, task('spiffworkflow:assigneeMode="User"'))).length, 1)
+	assert.deepEqual(await problems(userTaskMissingAssignee, task('spiffworkflow:assigneeMode="User"')), [
+		'User Task "Review" assigns by User but its user is empty, so it is left unassigned.',
+	])
+	assert.match((await problems(userTaskMissingAssignee, task('spiffworkflow:assigneeMode="Round Robin"')))[0], /but its list of users is empty/)
 	assert.equal((await problems(userTaskMissingAssignee, task('spiffworkflow:assigneeMode="Round Robin"'))).length, 1)
 	assert.equal((await problems(userTaskMissingAssignee, task('spiffworkflow:assigneeMode="Table Field"'))).length, 1)
 	assert.deepEqual(await problems(userTaskMissingAssignee, task('spiffworkflow:assigneeMode="User" spiffworkflow:assigneeUser="a@b.com"')), [])

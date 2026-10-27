@@ -5,11 +5,11 @@ import { is } from "bpmnlint-utils";
 import { attr, isExecutable, label } from "../aiShapes.js";
 
 const ASSIGNEE_FIELD = {
-	User: ["assigneeUser", "a user"],
-	DocField: ["assigneeDocfield", "a document field"],
-	"Round Robin": ["assigneeUsers", "users"],
-	"Load Balancing": ["assigneeUsers", "users"],
-	"Table Field": ["assigneeTableField", "a table field"],
+	User: ["assigneeUser", "user"],
+	DocField: ["assigneeDocfield", "document field"],
+	"Round Robin": ["assigneeUsers", "list of users"],
+	"Load Balancing": ["assigneeUsers", "list of users"],
+	"Table Field": ["assigneeTableField", "table field"],
 };
 
 export default function () {
@@ -20,7 +20,7 @@ export default function () {
 		const mode = attr(node, "assigneeMode");
 		const [field, noun] = ASSIGNEE_FIELD[mode] || [];
 		if (field && !attr(node, field)) {
-			reporter.report(node.id, `User Task "${label(node)}" assigns by ${mode} but no ${noun} is set, so it is left unassigned.`);
+			reporter.report(node.id, `User Task "${label(node)}" assigns by ${mode} but its ${noun} is empty, so it is left unassigned.`);
 		}
 	}
 
