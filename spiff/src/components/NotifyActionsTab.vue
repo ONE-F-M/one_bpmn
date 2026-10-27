@@ -106,29 +106,10 @@
 
 				<div class="space-y-1.5">
 					<FormLabel label="Reason chips" />
-					<div
-						v-if="row.chips.length"
-						class="flex flex-wrap gap-1.5"
-					>
-						<Badge
-							v-for="(chip, i) in row.chips"
-							:key="`${chip[0]}-${i}`"
-							size="lg"
-						>
-							{{ chip[0] }}
-							<span dir="rtl">{{ chip[1] }}</span>
-							<template #suffix>
-								<Button
-									variant="ghost"
-									size="sm"
-									icon="x"
-									class="!h-5 !w-5"
-									:aria-label="`Remove ${chip[0]}`"
-									@click="removeChip(row, i)"
-								/>
-							</template>
-						</Badge>
-					</div>
+					<NotifyTagBox
+						:tags="chipTags(row)"
+						@remove="(i) => removeChip(row, i)"
+					/>
 					<div class="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
 						<TextInput
 							v-model="drafts[row.name].en"
@@ -142,7 +123,7 @@
 							aria-label="Chip in Arabic"
 						/>
 						<Button
-							variant="solid"
+							variant="outline"
 							label="Add"
 							:disabled="!drafts[row.name].en.trim()"
 							@click="addChip(row)"
@@ -160,6 +141,7 @@ import { Badge, Button, ErrorMessage, FormControl, FormLabel, TextInput } from "
 import { clampTokenHours, serializeTokenHours } from "@/bpmn/shared/notifyActions";
 import { parseConversation } from "@/bpmn/shared/notifyConversation";
 import { useDoctypeFields } from "@/composables/useDoctypeFields";
+import NotifyTagBox from "@/components/NotifyTagBox.vue";
 
 const props = defineProps({
 	taskActions: { type: Array, required: true },
@@ -210,6 +192,10 @@ function addChip(row) {
 	const draft = drafts[row.name];
 	update(row.name, { chips: [...row.chips, [draft.en.trim(), draft.ar.trim()]] });
 	drafts[row.name] = { en: "", ar: "" };
+}
+
+function chipTags(row) {
+	return row.chips.map(([en, ar], i) => ({ key: i, label: en, sub: ar }));
 }
 
 function removeChip(row, index) {
