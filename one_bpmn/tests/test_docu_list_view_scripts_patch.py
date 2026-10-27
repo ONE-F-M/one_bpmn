@@ -103,12 +103,33 @@ class TestWriteListScriptStage(FrappeTestCase):
 		self.assertIn("I could not use that script", output["response"])
 		self.assertEqual(recorded, [])
 
-	def test_a_question_from_the_writer_is_passed_on(self):
+	def test_a_question_from_the_writer_is_remembered_so_the_answer_comes_back(self):
 		output, recorded = _run_stage(
 			"make it nicer", {"doctype": "Note", "script": "", "question": "Which column should change?"}
 		)
 		self.assertEqual(output["response"], "Which column should change?")
-		self.assertEqual(recorded, [])
+		self.assertEqual(recorded, [{"pending_list_script": {"doctype": "Note", "script": "", "request": "make it nicer"}}])
+
+	def test_an_answer_to_a_question_goes_to_the_writer_and_applies_nothing(self):
+		asked = {"doctype": "Note", "script": "", "request": "make it nicer"}
+		output, recorded = _run_stage("yes the ID column", {"doctype": "Note", "script": SCRIPT}, pending=asked)
+		self.assertIsNone(_list_script())
+		self.assertEqual(recorded[0]["pending_list_script"]["script"], SCRIPT)
+		self.assertIn("Shall I apply it to the Note list?", output["response"])
+
+	def test_a_writer_that_declines_with_an_explanation_has_it_shown(self):
+		explanation = "I can't change that with a list script. Remove the Create permission instead."
+		output, _recorded = _run_stage("remove the add button", {"doctype": "Note", "script": "", "summary": explanation})
+		self.assertEqual(output["response"], explanation)
+
+	def test_no_script_and_no_question_asks_about_the_selected_doctype(self):
+		output, _recorded = _run_stage("do something", {"doctype": "Note", "script": ""})
+		self.assertIn("What should change in the Note list?", output["response"])
+		self.assertNotIn("Which DocType", output["response"])
+
+	def test_the_writer_prompt_knows_how_to_remove_the_add_button(self):
+		self.assertIn("listview.can_create = false", fix.WRITER_PROMPT)
+		self.assertIn("never ask which DocType", fix.WRITER_PROMPT)
 
 	def test_an_existing_script_is_said_to_be_replaced(self):
 		frappe.get_doc(
