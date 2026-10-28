@@ -166,15 +166,17 @@ class TestRenderHtmlFallback(_RendererTestCase):
 		self.assertNotIn(INFO_ONLY["subject"], html)
 		self.assertNotIn("confidential", html.lower())
 
-	def test_html_fallback_keeps_body_and_signature(self):
-		"""Body, open link and signature are unchanged."""
+	def test_html_fallback_has_no_signature_or_address(self):
+		"""Signature and address blocks are left to the wrapper; body and open link stay."""
 		from one_bpmn.email_builder.renderer import render_html_fallback
 
 		html = render_html_fallback(INFO_ONLY)
 
+		self.assertNotIn("Yours, One Facility Management", html)
+		self.assertNotIn("Humoud Tower", html)
+		self.assertNotIn("facebook.png", html)
 		self.assertIn("<p>The document has been updated.</p>", html)
 		self.assertIn("Open in ERPNext", html)
-		self.assertIn("One Facility Management", html)
 
 	def test_html_fallback_has_working_links(self):
 		"""Action URLs and the open_link appear as clickable <a> elements."""
