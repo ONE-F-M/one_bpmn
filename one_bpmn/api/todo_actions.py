@@ -734,6 +734,7 @@ def _attachment_denied():
 
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
+@rate_limit(limit=60, seconds=60)
 def download_attachment(token: str = "") -> None:
 	"""Download a file attached to a document, from a signed email link.
 

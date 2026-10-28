@@ -25,7 +25,7 @@ def build_attachment_links(doc, expiry_hours: int = 72) -> list[dict]:
 	Returns:
 		One dict per attached file, oldest first. ``url`` is an absolute signed link.
 	"""
-	files = frappe.get_list(
+	files = frappe.get_all(
 		"File",
 		filters={
 			"attached_to_doctype": doc.doctype,
@@ -34,7 +34,6 @@ def build_attachment_links(doc, expiry_hours: int = 72) -> list[dict]:
 		},
 		fields=["name", "file_name"],
 		order_by="creation asc, name asc",
-		ignore_permissions=True,
 	)
 
 	links = []
