@@ -309,7 +309,10 @@ def queue_process_memory(turn: dict, agent_result: dict | None) -> None:
 	"""Queue distillation of a turn that drew or changed a diagram into its Process's memory."""
 	process = (turn or {}).get("memory_process")
 	intent = (agent_result or {}).get("intent")
-	if not process or intent not in DIAGRAM_REPLIES or frappe.flags.get("eval_origin"):
+	if intent not in DIAGRAM_REPLIES or frappe.flags.get("eval_origin"):
+		return
+	if not process:
+		frappe.log_error(title="ProsAlly memory: write skipped", message="The diagram matched no Process.")
 		return
 	from one_bpmn.agents.memory.model_resolution import resolve_memory_model
 	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
@@ -321,6 +324,10 @@ def queue_process_memory(turn: dict, agent_result: dict | None) -> None:
 	cfg = prosally_config()
 	own = _memory_fields(cfg)
 	if own.get("memory_write_mode") != "distilled":
+		frappe.log_error(
+			title="ProsAlly memory: write skipped",
+			message=f"Memory Write Mode is {own.get('memory_write_mode')!r}, process={process}.",
+		)
 		return
 	distill_model = resolve_memory_model(
 		own.get("memory_distill_model"), "default_memory_distill_model", cfg.get("ai_model")
@@ -334,6 +341,10 @@ def queue_process_memory(turn: dict, agent_result: dict | None) -> None:
 			"[ProsAlly reply]\n" + (agent_result.get("response") or ""),
 			"[Conversation]\n" + format_history(turn.get("chat_history")),
 		]
+	)
+	frappe.log_error(
+		title="ProsAlly memory: write queued",
+		message=f"process={process} model={distill_model} reconcile_model={reconcile_model}",
 	)
 	_enqueue_distill(
 		agent_output=source,
