@@ -36,8 +36,8 @@ class TestAttachmentLinks(FrappeTestCase):
 		self.addCleanup(patcher.stop)
 
 		frappe.local.response = frappe._dict()
-		self.todo = frappe.get_doc({"doctype": "ToDo", "description": "attachment link test"}).insert()
-		self.other = frappe.get_doc({"doctype": "ToDo", "description": "other document"}).insert()
+		self.todo = self._make_todo("attachment link test")
+		self.other = self._make_todo("other document")
 		self.file = frappe.get_doc(
 			{
 				"doctype": "File",
@@ -47,6 +47,11 @@ class TestAttachmentLinks(FrappeTestCase):
 				"attached_to_doctype": "ToDo",
 				"attached_to_name": self.todo.name,
 			}
+		).insert()
+
+	def _make_todo(self, description):
+		return frappe.get_doc(
+			{"doctype": "ToDo", "description": description, "allocated_to": "Administrator"}
 		).insert()
 
 	def _token(self, **overrides):
