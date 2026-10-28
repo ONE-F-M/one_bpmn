@@ -87,7 +87,7 @@ class TestAttachmentLinks(FrappeTestCase):
 		self._download(self._token())
 		self.assertEqual(frappe.local.response.type, "download")
 		self.assertEqual(frappe.local.response.filename, "supporting.txt")
-		self.assertEqual(frappe.local.response.filecontent, _CONTENT)
+		self.assertEqual(frappe.safe_encode(frappe.local.response.filecontent), _CONTENT)
 
 	def test_expired_token(self):
 		self._download(_expired(self._token()))
