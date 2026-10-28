@@ -1120,6 +1120,7 @@ import DmnEditor from "@/components/DmnEditor.vue";
 import NotificationLinkDialog from "@/components/NotificationLinkDialog.vue";
 import NotifyAssigneeEditorDialog from "@/components/NotifyAssigneeEditorDialog.vue";
 import ReadinessChecklistDialog from "@/components/ReadinessChecklistDialog.vue";
+import { withLintErrors } from "@/utils/lintIssues.js";
 import ExportConfigDialog from "@/components/ExportConfigDialog.vue";
 import ConfigImportResultsDialog from "@/components/ConfigImportResultsDialog.vue";
 import { sanitiseFilename } from "@/utils/downloadBpmn";
@@ -1853,7 +1854,9 @@ async function runReadinessCheck(xmlContent, mode) {
 			url: "/api/method/one_bpmn.api.process_map_api.validate_bpmn_readiness",
 			params,
 		});
-		readinessChecklist.value = response.message || response;
+		const checklist = response.message || response;
+		readinessChecklist.value =
+			mode === "deploy" ? withLintErrors(checklist, await editorRef.value?.getRawLintIssues()) : checklist;
 	} catch (err) {
 		console.error("Readiness check failed:", err);
 		readinessChecklist.value = {

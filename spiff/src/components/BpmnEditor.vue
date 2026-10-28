@@ -3228,6 +3228,11 @@ async function getLintIssues() {
 	return flattenLintIssues(linting._formatIssues(await linting.lint()));
 }
 
+async function getRawLintIssues() {
+	const linting = modeler?.get("linting");
+	return linting ? await linting.lint() : {};
+}
+
 async function getCanvasXml() {
 	if (!modeler) return "";
 	try {
@@ -3406,6 +3411,7 @@ function updateCalledElement(element, processId, process) {
 
 defineExpose({
 	getXML,
+	getRawLintIssues,
 	loadXML,
 	setProcessName,
 	undo,
