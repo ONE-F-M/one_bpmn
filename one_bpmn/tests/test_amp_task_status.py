@@ -32,10 +32,16 @@ def _expired(token: str) -> str:
 
 class TestGetAmpTaskStatus(FrappeTestCase):
 	def setUp(self):
-		patch("one_bpmn.utils.token._get_secret", return_value=_TEST_SECRET).start()
-		patch("frappe.utils.get_fullname", side_effect=lambda user: f"Name of {user}").start()
-		self.cors = patch("one_bpmn.api.todo_actions._set_amp_cors_headers").start()
-		self.addCleanup(patch.stopall)
+		for patcher in (
+			patch("one_bpmn.utils.token._get_secret", return_value=_TEST_SECRET),
+			patch("frappe.utils.get_fullname", side_effect=lambda user: f"Name of {user}"),
+		):
+			patcher.start()
+			self.addCleanup(patcher.stop)
+
+		cors_patcher = patch("one_bpmn.api.todo_actions._set_amp_cors_headers")
+		self.cors = cors_patcher.start()
+		self.addCleanup(cors_patcher.stop)
 
 		self.task_row = None
 		self.workflow_name = None
@@ -43,6 +49,8 @@ class TestGetAmpTaskStatus(FrappeTestCase):
 
 	def _call(self, token):
 		from one_bpmn.api.todo_actions import get_amp_task_status
+
+		real_get_value = frappe.db.get_value
 
 		def fake_get_value(doctype, filters=None, fieldname=None, *args, **kwargs):
 			self.db_calls.append(doctype)
@@ -54,7 +62,7 @@ class TestGetAmpTaskStatus(FrappeTestCase):
 				return "Success"
 			if doctype == "ToDo":
 				return "Approved" if fieldname == "workflow_state" else "Open"
-			return None
+			return real_get_value(doctype, filters, fieldname, *args, **kwargs)
 
 		with (
 			patch("frappe.db.get_value", side_effect=fake_get_value),
