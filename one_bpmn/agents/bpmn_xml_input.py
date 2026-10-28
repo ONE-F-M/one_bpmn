@@ -645,7 +645,7 @@ def _check_event_definitions(node: dict, signals: set, messages: set, check_refs
 def _check_process(process, partial: bool, issues: list) -> None:
 	process_id = process.get("id") or ""
 	tags = {_local(c.tag) for c in process.iter()}
-	if not tags & FLOW_NODE_TAGS or process.get("isExecutable") is None and False:
+	if not tags & FLOW_NODE_TAGS:
 		return
 	severity = "warning" if partial else "error"
 	for required in ("startEvent", "endEvent"):
