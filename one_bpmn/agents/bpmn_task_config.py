@@ -355,6 +355,8 @@ def match_lane_role(name: str, roles: list[str]) -> list[str]:
 
 def resolve_ir_lane_roles(ir: dict, roles: list[str]) -> list[dict]:
 	"""Rewrite lane names that match a role ignoring case; report lanes with only similar roles."""
+	from frappe import _
+
 	problems: list[dict] = []
 	for lane in (ir or {}).get("lanes") or []:
 		name = (lane.get("name") or "").strip()
@@ -364,6 +366,6 @@ def resolve_ir_lane_roles(ir: dict, roles: list[str]) -> list[dict]:
 		if matches[0].lower() == name.lower():
 			lane["name"] = matches[0]
 		else:
-			message = f"Lane '{name}' is not a Role. Did you mean {', '.join(matches)}?"
+			message = _("Lane '{0}' is not a Role. Did you mean {1}?").format(name, ", ".join(matches))
 			problems.append(_problem(lane.get("id") or "", message, rule="lane-role"))
 	return problems

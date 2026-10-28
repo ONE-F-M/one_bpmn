@@ -2,9 +2,12 @@
 # For license information, please see license.txt
 """Lane names are checked against the site's enabled Roles, with suggestions for near misses."""
 
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from one_bpmn.agents import prosally_helpers
 from one_bpmn.agents.bpmn_task_config import match_lane_role, resolve_ir_lane_roles
 from one_bpmn.api.process_map_api import validate_bpmn_readiness
 
@@ -90,3 +93,21 @@ class TestLaneRoleReadiness(FrappeTestCase):
 		item = _lane_items(_map("Zz Disabled Lane Role"))["Zz Disabled Lane Role"]
 
 		self.assertFalse(item["exists"])
+
+
+class TestDescribeLanesSuggestsRoles(FrappeTestCase):
+	def _reply(self, *lane_names):
+		ir = {"lanes": [{"id": f"l{i}", "name": n} for i, n in enumerate(lane_names)]}
+		with patch.object(prosally_helpers.frappe, "get_all", return_value=ROLES):
+			return prosally_helpers.describe_lanes([], "", ir)
+
+	def test_a_near_miss_lane_gets_a_did_you_mean(self):
+		text = self._reply("HR Manager", "HR Managr")
+
+		self.assertIn("Lane 'HR Managr' is not a Role. Did you mean HR Manager?", text)
+
+	def test_an_exact_role_and_an_unrelated_lane_get_no_suggestion(self):
+		text = self._reply("HR Manager", "System (Automatic)")
+
+		self.assertIn("Lanes drawn:", text)
+		self.assertNotIn("Did you mean", text)
