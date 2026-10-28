@@ -32,6 +32,8 @@ def _expired(token: str) -> str:
 
 class TestGetAmpTaskStatus(FrappeTestCase):
 	def setUp(self):
+		frappe.clear_cache(doctype="ToDo")
+
 		for patcher in (
 			patch("one_bpmn.utils.token._get_secret", return_value=_TEST_SECRET),
 			patch("frappe.utils.get_fullname", side_effect=lambda user: f"Name of {user}"),
@@ -60,7 +62,7 @@ class TestGetAmpTaskStatus(FrappeTestCase):
 				return _CONTEXT
 			if doctype == "Workflow State":
 				return "Success"
-			if doctype == "ToDo":
+			if doctype == "ToDo" and fieldname in ("workflow_state", "status"):
 				return "Approved" if fieldname == "workflow_state" else "Open"
 			return real_get_value(doctype, filters, fieldname, *args, **kwargs)
 

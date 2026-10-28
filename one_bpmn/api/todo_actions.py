@@ -667,6 +667,7 @@ def get_amp_task_status(status_token: str = "") -> dict:
 		)
 		return {"items": [item]}
 	except Exception:
+		frappe.log_error(title="AMP task status failed", message=frappe.get_traceback())
 		return no_access
 
 
