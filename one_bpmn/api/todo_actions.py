@@ -593,57 +593,110 @@ def get_amp_task_status(status_token: str = "") -> dict:
 
 	Returns:
 		AMP-list compatible dict with ``items`` array containing one item
-		with keys: ``is_waiting``, ``is_completed``, ``action_taken``,
-		``completed_by``, ``completed_at``.
+		with keys: ``is_waiting``, ``is_completed``, ``is_expired``,
+		``is_reassigned``, ``assigned_to``, ``action_taken``, ``completed_by``,
+		``completed_at``, ``workflow_state``, ``workflow_state_style``.
 	"""
 	_set_amp_cors_headers()
 
+	item = {
+		"is_waiting": False,
+		"is_completed": False,
+		"is_expired": False,
+		"is_reassigned": False,
+	}
+	no_access = {"items": [{**item, "is_expired": True}]}
+
 	if not status_token:
-		return {"items": [{"is_waiting": True}]}
+		return no_access
 
 	try:
 		from one_bpmn.utils.token import verify_action_token
 
-		payload = verify_action_token(status_token)
+		payload = verify_action_token(status_token, allow_expired=True)
 	except Exception:
-		# Token expired or invalid — assume waiting (safe default)
-		return {"items": [{"is_waiting": True}]}
+		return no_access
 
 	if payload.get("type") != "status":
-		return {"items": [{"is_waiting": True}]}
+		return no_access
 
-	instance_name = payload["instance_name"]
-	task_id = payload["task_id"]
+	instance_name = payload.get("instance_name")
+	task_id = payload.get("task_id")
 
 	try:
-		# Look up the task row
+		if not task_id:
+			# Notice emails have no task: only the document state is shown
+			state, style = _get_workflow_state_and_style(instance_name)
+			return {"items": [{**item, "workflow_state": state, "workflow_state_style": style}]}
+
 		task_row = frappe.db.get_value(
 			"BPMN Active Task",
 			{"parent": instance_name, "task_id": task_id},
 			["status", "task_name", "assigned_user", "end_time", "modified"],
 			as_dict=True,
 		)
+		if not task_row:
+			return no_access
 
-		if not task_row or task_row.status == "Waiting":
-			return {"items": [{"is_waiting": True}]}
+		if task_row.status == "Waiting":
+			expired = bool(payload.get("expired"))
+			recipient = payload.get("user")
+			reassigned = bool(recipient and task_row.assigned_user and task_row.assigned_user != recipient)
+			item.update(
+				is_waiting=not expired and not reassigned,
+				is_expired=expired,
+				is_reassigned=reassigned,
+			)
+			if reassigned:
+				item["assigned_to"] = frappe.utils.get_fullname(task_row.assigned_user)
+			return {"items": [item]}
 
-		# Task is completed
+		# Task is completed: an expired token still shows who decided
 		doc_name, doc_state = _get_context_doc_state(instance_name)
-		return {
-			"items": [{
-				"is_completed": True,
-				"is_waiting": False,
-				"doc_name": doc_name,
-				"doc_state": doc_state,
-				"action_taken": task_row.task_name or "Action",
-				"completed_by": frappe.utils.get_fullname(task_row.assigned_user) if task_row.assigned_user else "",
-				"completed_at": frappe.utils.format_datetime(
-					task_row.end_time or task_row.modified, "d MMM, h:mm a"
-				) if (task_row.end_time or task_row.modified) else "",
-			}]
-		}
+		state, style = _get_workflow_state_and_style(instance_name)
+		time_value = task_row.end_time or task_row.modified
+		item.update(
+			is_completed=True,
+			doc_name=doc_name,
+			doc_state=doc_state,
+			action_taken=task_row.task_name or _("Action"),
+			completed_by=frappe.utils.get_fullname(task_row.assigned_user) if task_row.assigned_user else "",
+			completed_at=frappe.utils.format_datetime(time_value, "d MMM, h:mm a") if time_value else "",
+			workflow_state=state,
+			workflow_state_style=style,
+		)
+		return {"items": [item]}
 	except Exception:
-		return {"items": [{"is_waiting": True}]}
+		return no_access
+
+
+def _get_workflow_state_and_style(instance_name: str) -> tuple[str, str]:
+	"""Return (workflow state, Workflow State style) of the instance's context document.
+
+	Both are empty when the instance has no context document or its DocType has no workflow.
+	"""
+	from frappe.model.workflow import get_workflow_name, get_workflow_state_field
+
+	ctx = frappe.db.get_value(
+		"BPMN Process Instance",
+		instance_name,
+		["context_doctype", "context_docname"],
+		as_dict=True,
+	)
+	if not ctx or not ctx.context_doctype or not ctx.context_docname:
+		return "", ""
+
+	workflow_name = get_workflow_name(ctx.context_doctype)
+	if not workflow_name:
+		return "", ""
+
+	state_field = get_workflow_state_field(workflow_name)
+	state = frappe.db.get_value(ctx.context_doctype, ctx.context_docname, state_field) or ""
+	if not state:
+		return "", ""
+
+	style = frappe.db.get_value("Workflow State", state, "style") or ""
+	return str(state), str(style)
 
 
 def _get_context_doc_state(instance_name: str) -> tuple[str, str]:
