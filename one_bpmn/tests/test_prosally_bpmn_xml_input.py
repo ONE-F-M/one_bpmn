@@ -329,6 +329,17 @@ class TestProsAllyWiring(FrappeTestCase):
 		self.assertNotIn("_turn_message", sent_context)
 		self.assertNotIn("_message_override", sent_context)
 
+	def test_stream_answers_malformed_xml_with_the_parse_failure_and_no_model_turn(self):
+		from one_bpmn.agents import agui_stream
+		from one_bpmn.api import server_script_api  # noqa: F401
+
+		with patch("one_bpmn.api.agent_invocation.invoke_agent") as invoke:
+			chunks = "".join(agui_stream.agent_event_stream("prosally_agent", MALFORMED, "CONV-1", {}))
+		invoke.assert_not_called()
+		self.assertIn("could not be parsed", chunks)
+		self.assertIn("line 5", chunks)
+		self.assertIn("RUN_FINISHED", chunks)
+
 	def test_stream_leaves_ordinary_messages_and_other_agents_alone(self):
 		from one_bpmn.agents import agui_stream
 		from one_bpmn.api import server_script_api  # noqa: F401

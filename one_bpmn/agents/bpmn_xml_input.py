@@ -674,6 +674,15 @@ def format_parse_error(error: dict) -> str:
 	return "\n".join(lines)
 
 
+def parse_failure_reply(error: dict) -> str:
+	"""The parse failure as the chat reply: where it failed and how to correct the pasted XML."""
+	return (
+		format_parse_error(error)
+		+ "\nCorrect that tag (close or rename it, quote the attribute value, or declare the namespace) "
+		"and paste the XML again."
+	)
+
+
 def _format_issue(issue: dict) -> str:
 	where = " ".join(p for p in (issue["tag"], f"id={issue['element_id']}" if issue["element_id"] else "") if p)
 	return f"- [{issue['severity'].upper()}] {where}: {issue['message']}. Fix: {issue['suggestion']}"
@@ -757,8 +766,9 @@ def _fit_message(before: str, xml: str, after: str, error: dict | None) -> str |
 def prepare_turn(message: str) -> dict | None:
 	"""Everything the chat turn needs when the message holds BPMN XML; None when it is ordinary text.
 
-	``{"analysis", "block", "message_override"}`` where ``message_override`` is a size-safe replacement for the
-	message, or None to leave it as typed.
+	``{"analysis", "block", "message_override", "direct_reply"}`` where ``message_override`` is a size-safe
+	replacement for the message, or None to leave it as typed, and ``direct_reply`` is the parse failure written
+	for the user (None when the XML parsed), sent without a model turn.
 	"""
 	if not is_bpmn_xml(message):
 		return None
@@ -768,6 +778,7 @@ def prepare_turn(message: str) -> dict | None:
 		"analysis": analysis,
 		"block": build_analysis_block(analysis),
 		"message_override": _fit_message(before, xml, after, analysis["error"]),
+		"direct_reply": None if analysis["ok"] else parse_failure_reply(analysis["error"]),
 	}
 
 

@@ -275,6 +275,13 @@ def agent_event_stream(
 				context = dict(context)
 				message = context.pop("_message_override", None) or message
 				context.pop("_turn_message", None)
+				direct_reply = context.pop("_direct_reply", None)
+				if direct_reply:
+					# Malformed pasted XML is answered with the parse failure itself, without a model turn.
+					yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
+					yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=direct_reply))
+					yield encoder.encode(TextMessageEndEvent(message_id=message_id))
+					return
 
 		result = yield from _invoke_with_heartbeat(
 			lambda: invoke_agent(
