@@ -29,7 +29,7 @@ function LaneRoleComponent(props) {
 	};
 
 	const fetchRoles = (txt) => {
-		const filters = [["disabled", "=", 0]];
+		const filters = [["disabled", "=", 0], ["name", "!=", "Administrator"]];
 		if (txt) {
 			filters.push(["name", "like", `%${txt}%`]);
 		}

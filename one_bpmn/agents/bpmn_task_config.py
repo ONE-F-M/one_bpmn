@@ -34,6 +34,7 @@ listing the ones that do.
 
 from __future__ import annotations
 
+import difflib
 import json
 
 # Attributes each Service Type accepts, keyed by the serviceType value the panel
@@ -333,4 +334,36 @@ def resolve_ir_config(ir: dict) -> list[dict]:
 		if attrs:
 			node["attrs"] = attrs
 		node.pop("config", None)
+	return problems
+
+
+LANE_ROLE_CUTOFF = 0.75
+LANE_ROLE_EXCLUDED = frozenset({"Administrator"})
+LANE_ROLE_SUGGESTIONS = 3
+
+
+def match_lane_role(name: str, roles: list[str]) -> list[str]:
+	"""The role equal to name ignoring case, else up to three similar roles."""
+	roles = [role for role in roles if role not in LANE_ROLE_EXCLUDED]
+	for role in roles:
+		if role.lower() == name.strip().lower():
+			return [role]
+	by_lower = {role.lower(): role for role in roles}
+	close = difflib.get_close_matches(name.strip().lower(), by_lower, LANE_ROLE_SUGGESTIONS, LANE_ROLE_CUTOFF)
+	return [by_lower[c] for c in close]
+
+
+def resolve_ir_lane_roles(ir: dict, roles: list[str]) -> list[dict]:
+	"""Rewrite lane names that match a role ignoring case; report lanes with only similar roles."""
+	problems: list[dict] = []
+	for lane in (ir or {}).get("lanes") or []:
+		name = (lane.get("name") or "").strip()
+		matches = match_lane_role(name, roles) if name else []
+		if not matches:
+			continue
+		if matches[0].lower() == name.lower():
+			lane["name"] = matches[0]
+		else:
+			message = f"Lane '{name}' is not a Role. Did you mean {', '.join(matches)}?"
+			problems.append(_problem(lane.get("id") or "", message, rule="lane-role"))
 	return problems

@@ -1042,11 +1042,20 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 		})
 
 	# 6. Lane Roles
+	from one_bpmn.agents.bpmn_task_config import LANE_ROLE_EXCLUDED, match_lane_role
+
 	role_items = []
+	enabled_roles = frappe.get_list("Role", filters={"disabled": 0}, pluck="name") if referenced_lane_roles else []
 	for role_name in sorted(referenced_lane_roles):
 		role = frappe.db.get_value("Role", role_name, ["name", "disabled"], as_dict=True)
-		if not role:
-			role_items.append({"name": role_name, "exists": False, "type": "check"})
+		if not role or role.name in LANE_ROLE_EXCLUDED:
+			item = {"name": role_name, "exists": False, "type": "check"}
+			item["suggestions"] = match_lane_role(role_name, enabled_roles)
+			if frappe.db.exists("User", role_name):
+				item["detail"] = _("Not a Role (it matches a User)")
+			elif item["suggestions"]:
+				item["detail"] = _("Not a Role. Did you mean: {0}").format(", ".join(item["suggestions"]))
+			role_items.append(item)
 		elif role.disabled:
 			role_items.append({
 				"name": role_name,

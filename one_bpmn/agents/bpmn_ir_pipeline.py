@@ -356,9 +356,12 @@ def compile_ir(ir: dict) -> dict:
     # the attributes verbatim, so what counts as a real setting is decided in
     # Python where it can be checked against this site's own workflows.
     try:
-        from one_bpmn.agents.bpmn_task_config import resolve_ir_config
+        import frappe
+
+        from one_bpmn.agents.bpmn_task_config import resolve_ir_config, resolve_ir_lane_roles
 
         config_problems = resolve_ir_config(ir)
+        config_problems += resolve_ir_lane_roles(ir, frappe.get_all("Role", filters={"disabled": 0}, pluck="name"))
     except Exception:  # noqa: BLE001 — configuration must never block compilation
         config_problems = []
 
