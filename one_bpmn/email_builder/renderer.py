@@ -6,7 +6,7 @@ render_amp(task_content: dict) -> str
 	AMP4Email document (unbranded, must pass AMP validation).
 
 render_html_fallback(task_content: dict) -> str
-	Branded HTML email via the Frappe Jinja environment.
+	HTML body fragment (no logo, subject header or confidentiality notice).
 
 task_content dict shape
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -66,17 +66,17 @@ def render_amp(task_content: dict) -> str:
 
 
 def render_html_fallback(task_content: dict) -> str:
-	"""Return a branded HTML fallback email.
+	"""Return the HTML fallback as a body fragment.
 
-	Uses the standard Frappe Jinja environment so it picks up the
-	One-FM branded template with logo, signature, social icons, and
-	confidentiality footer.
+	The fragment has no html, head or body tags, no logo, no subject
+	header and no confidentiality notice: the email sender wraps it in
+	the One-FM default email template, which prints those once.
 
 	Args:
 		task_content: See module docstring for the expected shape.
 
 	Returns:
-		A complete HTML email string with One-FM branding.
+		An HTML fragment with the body, actions, open link and signature.
 	"""
 	ctx = _build_context(task_content, for_amp=False)
 	template = _get_template("one_bpmn/templates/emails/html_fallback.html")

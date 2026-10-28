@@ -146,13 +146,34 @@ class TestRenderAmp(_RendererTestCase):
 class TestRenderHtmlFallback(_RendererTestCase):
 	"""Tests for :func:`render_html_fallback`."""
 
-	def test_html_fallback_has_branding(self):
-		"""Fallback email includes the One-FM logo and company name."""
+	def test_html_fallback_is_fragment_without_logo(self):
+		"""Fallback is a body fragment: no document tags and no logo."""
+		from one_bpmn.email_builder.renderer import render_html_fallback
+
+		html = render_html_fallback(INFO_ONLY).lower()
+
+		for tag in ("<!doctype", "<html", "<head", "<body", "<title"):
+			self.assertNotIn(tag, html)
+		self.assertNotIn("onefm_identity.png", html)
+
+	def test_html_fallback_has_no_subject_header_or_notice(self):
+		"""Subject header and confidentiality notice are left to the wrapper."""
 		from one_bpmn.email_builder.renderer import render_html_fallback
 
 		html = render_html_fallback(INFO_ONLY)
 
-		self.assertIn("ONEFM_Identity.png", html)
+		self.assertNotIn("<h2", html)
+		self.assertNotIn(INFO_ONLY["subject"], html)
+		self.assertNotIn("confidential", html.lower())
+
+	def test_html_fallback_keeps_body_and_signature(self):
+		"""Body, open link and signature are unchanged."""
+		from one_bpmn.email_builder.renderer import render_html_fallback
+
+		html = render_html_fallback(INFO_ONLY)
+
+		self.assertIn("<p>The document has been updated.</p>", html)
+		self.assertIn("Open in ERPNext", html)
 		self.assertIn("One Facility Management", html)
 
 	def test_html_fallback_has_working_links(self):
