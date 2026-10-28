@@ -271,3 +271,38 @@ def generate_status_token(
 	encoded = base64.urlsafe_b64encode(payload_json.encode("utf-8")).decode("ascii")
 	return f"{encoded}.{signature}"
 
+
+def generate_file_token(
+	file_name: str,
+	doctype: str,
+	docname: str,
+	expiry_hours: int = 72,
+) -> str:
+	"""Generate an HMAC-signed token that downloads one attached file.
+
+	Same sealing scheme as :func:`generate_action_token`, with ``type``
+	``"file"``. The token grants read access to a single File only while
+	that File stays attached to the signed ``doctype``/``docname``.
+
+	Args:
+		file_name: Name of the File document (not its display file name).
+		doctype: DocType the file must be attached to.
+		docname: Name of the document the file must be attached to.
+		expiry_hours: Hours until the token expires (default 72 = 3 days).
+
+	Returns:
+		A sealed string in the form ``<base64_payload>.<hmac_hex>``.
+	"""
+	payload = {
+		"file_name": file_name,
+		"doctype": doctype,
+		"docname": docname,
+		"type": "file",
+		"expires": int(time.time()) + (expiry_hours * 3600),
+	}
+	payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+	signature = _sign(payload_json)
+	import base64
+	encoded = base64.urlsafe_b64encode(payload_json.encode("utf-8")).decode("ascii")
+	return f"{encoded}.{signature}"
+

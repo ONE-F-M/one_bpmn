@@ -723,3 +723,71 @@ def _get_context_doc_state(instance_name: str) -> tuple[str, str]:
 	state = frappe.db.get_value(ctx.context_doctype, ctx.context_docname, field) or ""
 	return ctx.context_docname, str(state)
 
+
+# ---------------------------------------------------------------------------
+# Signed attachment download
+# ---------------------------------------------------------------------------
+
+
+def _attachment_denied():
+	raise frappe.PermissionError(_("This attachment link is not valid."))
+
+
+@frappe.whitelist(allow_guest=True, methods=["GET"])
+def download_attachment(token: str = "") -> None:
+	"""Download a file attached to a document, from a signed email link.
+
+	The signed token is the only trust anchor: the File is looked up by the
+	signed name and served through the File DocType, never from a request path.
+
+	Args:
+		token: HMAC-signed token from :func:`~one_bpmn.utils.token.generate_file_token`.
+
+	Raises:
+		frappe.PermissionError: Tampered or malformed token, a token of another
+			type, or a File no longer attached to the signed document.
+	"""
+	if not token:
+		_attachment_denied()
+
+	try:
+		from one_bpmn.utils.token import verify_action_token
+
+		payload = verify_action_token(token, allow_expired=True)
+	except Exception:
+		_attachment_denied()
+
+	if payload.get("type") != "file":
+		_attachment_denied()
+
+	doctype = payload.get("doctype")
+	docname = payload.get("docname")
+	file_name = payload.get("file_name")
+	if not (doctype and docname and file_name):
+		_attachment_denied()
+
+	if payload.get("expired"):
+		url = frappe.utils.get_url_to_form(doctype, docname)
+		link = f'<a href="{_html.escape(url)}">{_html.escape(_("Open in ERPNext"))}</a>'
+		frappe.respond_as_web_page(
+			_("Link expired"),
+			"<p>{0}</p><p>{1}</p>".format(_html.escape(_("This attachment link has expired.")), link),
+			http_status_code=410,
+			indicator_color="orange",
+		)
+		return
+
+	attached = frappe.db.get_value(
+		"File",
+		file_name,
+		["attached_to_doctype", "attached_to_name"],
+		as_dict=True,
+	)
+	if not attached or attached.attached_to_doctype != doctype or attached.attached_to_name != docname:
+		_attachment_denied()
+
+	file_doc = frappe.get_doc("File", file_name)
+	frappe.local.response.filename = file_doc.file_name or file_doc.name
+	frappe.local.response.filecontent = file_doc.get_content()
+	frappe.local.response.type = "download"
+
