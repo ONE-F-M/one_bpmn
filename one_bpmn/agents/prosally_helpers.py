@@ -13,6 +13,7 @@ import frappe
 from frappe import _
 
 from one_bpmn.agents.bpmn_ir_pipeline import compile_ir, element_names, has_lanes
+from one_bpmn.agents.bpmn_task_config import resolve_ir_lane_roles
 from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
 from one_bpmn.agents.memory.text_clean import strip_html, unescape_entities
 from one_bpmn.agents.turn_state import run_sync
@@ -1401,6 +1402,10 @@ def describe_lanes(chat_history: list, user_text: str, ir: dict | None) -> str:
 		text += "\n\n" + _("You also asked for {0}, which I did not draw. Ask me to add it.").format(
 			", ".join(missing)
 		)
+	roles = frappe.get_all("Role", filters={"disabled": 0}, pluck="name")
+	hints = [problem["message"] for problem in resolve_ir_lane_roles(copy.deepcopy(ir), roles)]
+	if hints:
+		text += "\n\n" + "\n".join(hints)
 	return text
 
 
