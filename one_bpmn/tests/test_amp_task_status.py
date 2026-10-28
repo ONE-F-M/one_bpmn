@@ -32,16 +32,10 @@ def _expired(token: str) -> str:
 
 class TestGetAmpTaskStatus(FrappeTestCase):
 	def setUp(self):
-		for target, kwargs in (
-			("one_bpmn.utils.token._get_secret", {"return_value": _TEST_SECRET}),
-			("one_bpmn.api.todo_actions._set_amp_cors_headers", {}),
-			("frappe.utils.get_fullname", {"side_effect": lambda user: f"Name of {user}"}),
-		):
-			started = patch(target, **kwargs)
-			self.cors = started.start() if target.endswith("_set_amp_cors_headers") else None
-			if self.cors is None:
-				started.start()
-			self.addCleanup(started.stop)
+		patch("one_bpmn.utils.token._get_secret", return_value=_TEST_SECRET).start()
+		patch("frappe.utils.get_fullname", side_effect=lambda user: f"Name of {user}").start()
+		self.cors = patch("one_bpmn.api.todo_actions._set_amp_cors_headers").start()
+		self.addCleanup(patch.stopall)
 
 		self.task_row = None
 		self.workflow_name = None
