@@ -876,8 +876,33 @@ def build_prosally_turn_context(context: dict) -> dict:
 	generic chat-template clone renders only {{ dialog_context }}."""
 	out = dict(context or {})
 	current_xml = out.get("current_xml") or ""
+
+	# WI-004172: BPMN 2.0 XML pasted into the chat is parsed here, on the
+	# server, and handed to the model as an analysis plus rules for reading it,
+	# so it is never mistaken for conversational text and never answered with a
+	# request to re-type the steps. The raw message arrives as _turn_message
+	# (agui_stream); a very large paste leaves as _message_override, without its
+	# bpmndi layout section.
+	pasted = out.pop("_turn_message", "") or ""
+	xml_input = None
+	if pasted:
+		try:
+			from one_bpmn.agents.bpmn_xml_input import prepare_turn
+
+			xml_input = prepare_turn(pasted)
+		except Exception:
+			frappe.log_error(title="ProsAlly: pasted BPMN XML analysis failed", message=frappe.get_traceback())
+	xml_section = ""
+	if xml_input:
+		from one_bpmn.agents.bpmn_xml_input import XML_INPUT_RULES
+
+		xml_section = xml_input["block"] + "\n\n" + XML_INPUT_RULES + "\n\n"
+		if xml_input["message_override"]:
+			out["_message_override"] = xml_input["message_override"]
+
 	contract = (
-		("CURRENT PROCESS DIAGRAM (BPMN XML):\n```xml\n%s\n```\n\n" % current_xml if current_xml else "")
+		xml_section
+		+ ("CURRENT PROCESS DIAGRAM (BPMN XML):\n```xml\n%s\n```\n\n" % current_xml if current_xml else "")
 		+ "PROSALLY REPLY CONTRACT: respond ONLY with a JSON object: "
 		'{"intent": "BPMN_GENERATED"|"BPMN_MODIFIED"|"CONFIRM_REMOVAL"|"CONFIRM"|"GENERAL", '
 		'"response": "<short human explanation>", '
