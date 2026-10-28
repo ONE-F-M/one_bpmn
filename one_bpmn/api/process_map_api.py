@@ -1283,6 +1283,11 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 	if sender_category:
 		categories.append(sender_category)
 
+	# 17. User Task configuration (blocking)
+	user_task_category = _user_task_config_category(xml_content)
+	if user_task_category:
+		categories.append(user_task_category)
+
 	# ── Compute summary ──────────────────────────────────────────────────
 	total_checked = 0
 	total_missing = 0
@@ -1304,6 +1309,20 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 		"is_executable": is_executable,
 		"all_ready": total_missing == 0 and is_executable,
 	}
+
+
+def _user_task_config_category(xml_content: str) -> dict | None:
+	"""The User Task Configuration readiness category, one missing check per gap, or None."""
+	from one_bpmn.api.compilation import _user_task_config_gaps
+
+	gaps = _user_task_config_gaps(xml_content)
+	if not gaps:
+		return None
+	items = [
+		{"name": message, "exists": False, "type": "check", "detail": _("Set it in the properties panel of the task.")}
+		for _bpmn_id, message in gaps
+	]
+	return {"label": _("User Task Configuration"), "icon": "user-check", "items": items}
 
 
 def _email_settings_category(xml_content: str, root) -> dict | None:
