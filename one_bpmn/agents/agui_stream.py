@@ -173,6 +173,10 @@ def _agent_artifact_type(agent_id: str) -> str:
 
 _CONTEXT_BUILDERS = {}
 _REPLY_SHAPERS = {}
+# Agents whose context builder also needs the user's message (WI-004172: ProsAlly
+# recognises pasted BPMN XML). It rides in the context as ``_turn_message`` and
+# is removed again before the turn runs.
+_MESSAGE_AWARE_AGENTS = frozenset({"prosally_agent"})
 
 
 def register_context_builder(agent_id, fn):
@@ -261,7 +265,16 @@ def agent_event_stream(
 
 		builder = _CONTEXT_BUILDERS.get(agent_id)
 		if builder:
-			context = builder(context or {})
+			builder_input = dict(context or {})
+			if agent_id in _MESSAGE_AWARE_AGENTS:
+				builder_input["_turn_message"] = message
+			context = builder(builder_input)
+			if agent_id in _MESSAGE_AWARE_AGENTS and isinstance(context, dict):
+				# The builder may hand back a size-safe version of a very large
+				# message (pasted BPMN XML without its layout section).
+				context = dict(context)
+				message = context.pop("_message_override", None) or message
+				context.pop("_turn_message", None)
 
 		result = yield from _invoke_with_heartbeat(
 			lambda: invoke_agent(
