@@ -27,10 +27,17 @@ task_content dict shape
 
 from __future__ import annotations
 
+import re
+
 import frappe
 from markupsafe import Markup
 
-from one_bpmn.email_builder.sanitizer import sanitize_for_amp
+from one_bpmn.email_builder.sanitizer import sanitize_for_amp_with_css
+
+# AMP for Email allows at most 75,000 bytes in the style amp-custom block.
+AMP_CUSTOM_CSS_MAX_BYTES = 75_000
+
+_AMP_CUSTOM_RE = re.compile(r"<style amp-custom>(.*?)</style>", re.IGNORECASE | re.DOTALL)
 
 
 # ---------------------------------------------------------------------------
@@ -53,11 +60,28 @@ def render_amp(task_content: dict) -> str:
 		task_content: See module docstring for the expected shape.
 
 	Returns:
-		A complete, valid AMP4Email HTML string.
+		A complete, valid AMP4Email HTML string, or an empty string when the
+		style amp-custom block is over 75,000 bytes; the email is then sent
+		with the HTML part only.
 	"""
 	ctx = _build_context(task_content, for_amp=True)
 	template = _get_template("one_bpmn/templates/emails/amp_shell.html")
-	return template.render(ctx)
+	html = template.render(ctx)
+
+	match = _AMP_CUSTOM_RE.search(html)
+	css_bytes = len(match.group(1).encode("utf-8")) if match else 0
+	if css_bytes > AMP_CUSTOM_CSS_MAX_BYTES:
+		frappe.log_error(
+			title="BPMN: AMP part left out, CSS too large",
+			message=(
+				f"The style amp-custom block is {css_bytes} bytes, over the "
+				f"{AMP_CUSTOM_CSS_MAX_BYTES} byte limit for AMP for Email. "
+				f"The email for {task_content.get('doctype', '')} "
+				f"{task_content.get('name', '')} is sent with the HTML part only."
+			),
+		)
+		return ""
+	return html
 
 
 # ---------------------------------------------------------------------------
@@ -144,8 +168,10 @@ def _build_context(task_content: dict, *, for_amp: bool) -> dict:
 	from one_bpmn.email_builder.sanitizer import _WORKFLOW_BTN_RE
 	body = _WORKFLOW_BTN_RE.sub("", body)
 
+	custom_css = ""
 	if for_amp:
-		body = Markup(sanitize_for_amp(body))
+		clean_body, custom_css = sanitize_for_amp_with_css(body)
+		body = Markup(clean_body)
 
 	# Check if any action has a token (for AMP form rendering)
 	has_token_actions = any(a.get("token") for a in actions)
@@ -181,6 +207,7 @@ def _build_context(task_content: dict, *, for_amp: bool) -> dict:
 	return {
 		"subject": task_content.get("subject", ""),
 		"body": body,
+		"custom_css": Markup(custom_css),
 		"actions": actions,
 		"simple_actions": simple_actions,
 		"complex_actions": complex_actions,
