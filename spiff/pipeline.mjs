@@ -458,7 +458,7 @@ async function compileIRtoBpmn(ir) {
   // 5. Process
   const processEl = moddle.create('bpmn:Process', {
     id:           'Process_1',
-    isExecutable: true,
+    isExecutable: ir.executable !== false,
     flowElements,
     ...(laneSets ? { laneSets } : {}),
   });
