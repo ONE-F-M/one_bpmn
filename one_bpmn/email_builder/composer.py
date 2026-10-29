@@ -324,6 +324,7 @@ def _send_email(
 	reference_doctype: str = "",
 	reference_name: str = "",
 	cc: str | None = None,
+	bcc: list[str] | None = None,
 ) -> None:
 	"""Send the email via the One-FM pipeline with AMP injection.
 
@@ -337,6 +338,9 @@ def _send_email(
 
 	if amp_html:
 		frappe.flags.amp_html = amp_html
+
+	# bcc is only passed when set, so a send without it is unchanged
+	extra = {"bcc": bcc} if bcc else {}
 
 	try:
 		try:
@@ -352,6 +356,7 @@ def _send_email(
 				reference_doctype=reference_doctype,
 				reference_name=reference_name,
 				is_external_mail=True,
+				**extra,
 			)
 		except ImportError:
 			frappe.sendmail(
@@ -363,6 +368,7 @@ def _send_email(
 				reference_doctype=reference_doctype,
 				reference_name=reference_name,
 				now=False,
+				**extra,
 			)
 	finally:
 		frappe.flags.amp_html = None
