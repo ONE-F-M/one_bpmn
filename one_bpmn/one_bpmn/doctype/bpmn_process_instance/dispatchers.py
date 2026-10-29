@@ -1468,6 +1468,7 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import _decode_html_attr
 	body = render(_decode_html_attr(_raw_body))
 	cc = task_cfg.get("emailCc", "") or None
+	bcc = [e.strip() for e in str(task_cfg.get("emailBcc") or "").split(",") if e.strip()] or None
 
 	# Render AMP info card via the composer (Story 5)
 	if not amp_html:
@@ -1491,6 +1492,7 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 		reference_doctype=instance.context_doctype or instance.doctype,
 		reference_name=instance.context_docname or instance.name,
 		cc=cc,
+		bcc=bcc,
 	)
 
 
