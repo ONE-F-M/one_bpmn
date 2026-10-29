@@ -1,47 +1,60 @@
 import re
 
 import frappe
-from deep_translator import GoogleTranslator
+from deep_translator import GoogleTranslator, MyMemoryTranslator
 from frappe import _
 from frappe.utils.caching import redis_cache
 
 MAX_EDITOR_TEXT = 5000
 PLACEHOLDER_RE = re.compile(r"\{\{.*?\}\}", re.DOTALL)
+GOOGLE_MARKER = "__PH{}__"
+MYMEMORY_MARKER = "[{}]"
+MYMEMORY_QUOTA_WARNING = "MYMEMORY WARNING"
 
 
 class TranslationError(frappe.ValidationError):
 	pass
 
 
-def translate_text(text: str, target: str = "ar") -> str:
-	"""Translate English text, keeping every {{ ... }} placeholder exactly as written."""
+def translate_text(text: str) -> str:
+	"""English to Arabic, keeping every {{ ... }} placeholder exactly as written.
+	Tries Google first and MyMemory when Google fails."""
 	if not (text or "").strip():
 		return ""
 
-	placeholders = PLACEHOLDER_RE.findall(text)
-	masked = text
-	for i, placeholder in enumerate(placeholders):
-		masked = masked.replace(placeholder, _marker(i), 1)
-
 	try:
-		translated = GoogleTranslator(source="en", target=target).translate(masked)
-	except Exception as e:
-		frappe.log_error(title="Arabic translation failed", message=frappe.get_traceback())
-		raise TranslationError(_("Translation service failed")) from e
+		return _translate(GoogleTranslator(source="en", target="ar"), text, GOOGLE_MARKER)
+	except Exception:
+		frappe.log_error(title="Arabic translation failed on Google", message=frappe.get_traceback())
 
-	for i, placeholder in enumerate(placeholders):
-		if (translated or "").count(_marker(i)) != 1:
-			frappe.log_error(
-				title="Arabic translation lost a placeholder",
-				message=f"Placeholder {placeholder} did not come back.\nSent: {masked}\nGot: {translated}",
-			)
-			raise TranslationError(_("Translation changed a placeholder"))
-		translated = translated.replace(_marker(i), placeholder)
+	email = frappe.db.get_value("Email Account", {"default_outgoing": 1}, "email_id")
+	try:
+		translated = _translate(
+			MyMemoryTranslator(source="en-GB", target="ar-SA", email=email), text, MYMEMORY_MARKER
+		)
+		if translated.startswith(MYMEMORY_QUOTA_WARNING):
+			raise TranslationError(translated)
+	except Exception as e:
+		frappe.log_error(title="Arabic translation failed on MyMemory", message=frappe.get_traceback())
+		raise TranslationError(_("Translation service failed")) from e
 	return translated
 
 
-def _marker(i: int) -> str:
-	return f"__PH{i}__"
+def _translate(translator, text: str, marker: str) -> str:
+	"""Mask placeholders with marker, translate, and put them back; raise if one did not survive."""
+	placeholders = PLACEHOLDER_RE.findall(text)
+	masked = text
+	for i, placeholder in enumerate(placeholders):
+		masked = masked.replace(placeholder, marker.format(i), 1)
+
+	translated = translator.translate(masked) or ""
+	for i, placeholder in enumerate(placeholders):
+		if translated.count(marker.format(i)) != 1:
+			raise TranslationError(
+				f"Placeholder {placeholder} did not come back.\nSent: {masked}\nGot: {translated}"
+			)
+		translated = translated.replace(marker.format(i), placeholder)
+	return translated
 
 
 @redis_cache(ttl=86400)
