@@ -26,17 +26,18 @@ CFG = {
 class TestProsallyDmsDocuments(FrappeTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
-		self.policy = self.make_document("DMS-PA-POLICY", "Leave Policy", "Policy", LEAVE_TEXT)
-		self.sop = self.make_document("DMS-PA-SOP", "Overtime SOP", "SOP", OVERTIME_TEXT)
+		self.policy = self.make_document("DMS-PA-POLICY", "Leave Policy", "Policy", LEAVE_TEXT, "POL-T1")
+		self.sop = self.make_document("DMS-PA-SOP", "Overtime SOP", "SOP", OVERTIME_TEXT, "SOP-T1")
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
 		frappe.db.rollback()
 
-	def make_document(self, drive_file_id, title, document_type, content):
+	def make_document(self, drive_file_id, title, document_type, content, document_code=None):
 		return frappe.get_doc(
 			{
 				"doctype": "Document Register",
+				"document_code": document_code,
 				"drive_file_id": drive_file_id,
 				"title": title,
 				"drive_file_link": f"https://drive.google.com/file/d/{drive_file_id}/view",
@@ -56,6 +57,14 @@ class TestProsallyDmsDocuments(FrappeTestCase):
 		self.assertIn(f"[Policy] {self.policy.document_code} - Leave Policy", prompt)
 		self.assertIn(LEAVE_TEXT, prompt)
 		self.assertNotIn(OVERTIME_TEXT, prompt)
+
+	def test_document_without_a_code_is_listed_by_title(self):
+		self.policy.db_set("document_code", None)
+
+		prompt = self.prompt("process_generator", {"user_text": "annual leave approval"})
+
+		self.assertIn("[Policy] Leave Policy (v", prompt)
+		self.assertNotIn("None", prompt)
 
 	def test_modify_prompt_carries_the_matching_document(self):
 		prompt = self.prompt("modifier", {"process_name": "Overtime", "user_text": "add supervisor approval"})

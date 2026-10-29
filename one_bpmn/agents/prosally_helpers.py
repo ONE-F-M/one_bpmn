@@ -331,7 +331,7 @@ def dms_documents_block(turn: dict | None) -> str:
 	if not results:
 		return ""
 	entries = [
-		f"[{r['document_type']}] {r['document_code']} - {r['title']} (v{r['version']})\n{r['excerpt']}"
+		f"[{r['document_type']}] {' - '.join(filter(None, (r['document_code'], r['title'])))} (v{r['version']})\n{r['excerpt']}"
 		for r in results
 	]
 	return "\n\n".join([DMS_HEADER, DMS_RULES, *entries])
