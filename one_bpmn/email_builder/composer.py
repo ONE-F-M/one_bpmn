@@ -8,7 +8,7 @@ Ties together Stories 1–4 into two public entry points:
 	body from the task's notification config, builds action buttons
 	(one-click for simple actions, "Open in ERPNext" links for actions
 	that need confirmation or digital signature), generates HMAC tokens,
-	renders AMP + HTML fallback, and sends via the One-FM email pipeline.
+	renders AMP + HTML fallback, and sends with frappe.sendmail.
 
 ``compose_and_send_info_email``
 	**Service Task path** — called from ``dispatch_email`` for
@@ -28,6 +28,8 @@ import json
 
 import frappe
 from frappe import _
+
+EMAIL_LOGO = "https://one-fm.com/files/ONEFM_Identity.png"
 
 
 # ---------------------------------------------------------------------------
@@ -326,12 +328,16 @@ def _send_email(
 	cc: str | None = None,
 	bcc: list[str] | None = None,
 ) -> None:
-	"""Send the email via the One-FM pipeline with AMP injection.
+	"""Send the email wrapped in bpmn_email.html, with the AMP part when given.
 
 	Sets ``frappe.flags.amp_html`` so the Email Queue ``after_insert`` hook
 	picks it up, and clears it afterwards so a send that writes no queue row
 	cannot leak AMP into the next email of the request.
 	"""
+	recipients = [r for r in recipients if r != "Administrator"]
+	if not recipients:
+		return
+
 	sender = None
 	if sender_account:
 		sender = frappe.db.get_value("Email Account", sender_account, "email_id")
@@ -339,36 +345,18 @@ def _send_email(
 	if amp_html:
 		frappe.flags.amp_html = amp_html
 
-	# bcc is only passed when set, so a send without it is unchanged
-	extra = {"bcc": bcc} if bcc else {}
-
 	try:
-		try:
-			from one_fm.processor import sendemail as onefm_sendemail
-
-			onefm_sendemail(
-				recipients=recipients,
-				subject=subject,
-				sender=sender,
-				header=[subject],
-				message=html_body,
-				cc=cc,
-				reference_doctype=reference_doctype,
-				reference_name=reference_name,
-				is_external_mail=True,
-				**extra,
-			)
-		except ImportError:
-			frappe.sendmail(
-				recipients=recipients,
-				sender=sender,
-				subject=subject,
-				message=html_body,
-				cc=cc.split(",") if cc else [],
-				reference_doctype=reference_doctype,
-				reference_name=reference_name,
-				now=False,
-				**extra,
-			)
+		frappe.sendmail(
+			recipients=recipients,
+			sender=sender,
+			subject=subject,
+			cc=cc,
+			bcc=bcc,
+			template="bpmn_email",
+			args={"header": subject, "message": html_body, "logo": EMAIL_LOGO},
+			reference_doctype=reference_doctype,
+			reference_name=reference_name,
+			delayed=False,
+		)
 	finally:
 		frappe.flags.amp_html = None

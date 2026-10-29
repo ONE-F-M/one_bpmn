@@ -13,9 +13,7 @@ Run with:
 from __future__ import annotations
 
 import json
-import sys
-import types
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -152,16 +150,12 @@ class TestUserTaskAssignedToATable(FrappeTestCase):
 	def test_everyone_in_the_table_is_notified(self):
 		"""Notify Assignee is a per-task opt-in, and the task belongs to all of
 		them — so each member gets their own email, not just whoever is first."""
-		fake_processor = types.ModuleType("one_fm.processor")
-		fake_processor.sendemail = Mock()
-		fake_root = sys.modules.get("one_fm") or types.ModuleType("one_fm")
-
-		with patch.dict(sys.modules, {"one_fm": fake_root, "one_fm.processor": fake_processor}):
+		with patch("one_bpmn.email_builder.composer.frappe.sendmail") as sendmail:
 			self._start()
 
 		recipients = {
 			r
-			for call in fake_processor.sendemail.call_args_list
+			for call in sendmail.call_args_list
 			for r in call.kwargs["recipients"]
 		}
 		self.assertEqual(recipients, {USER_A, USER_B})
