@@ -76,7 +76,7 @@ def render_amp(task_content: dict) -> str:
 			message=(
 				f"The style amp-custom block is {css_bytes} bytes, over the "
 				f"{AMP_CUSTOM_CSS_MAX_BYTES} byte limit for AMP for Email. "
-			"The email for {task_content.get('doctype', '')} "
+				f"The email for {task_content.get('doctype', '')} "
 				f"{task_content.get('name', '')} is sent with the HTML part only."
 			),
 		)

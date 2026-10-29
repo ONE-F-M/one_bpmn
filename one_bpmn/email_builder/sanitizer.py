@@ -164,8 +164,8 @@ def _img_to_amp_img(html: str) -> str:
 
 	Only images whose ``src`` starts with ``https://`` are kept; all others
 	are silently dropped (replaced with an empty string).  The image's own
-	numeric ``width`` and ``height`` are kept; a missing or non-numeric one
-	defaults to 600 and 400.  ``layout`` is always set to ``responsive``.
+	numeric ``width`` and ``height`` are kept with ``layout="intrinsic"`` so it never
+	grows past them; otherwise 600 by 400 with ``layout="responsive"``.
 
 	Args:
 		html: Raw HTML string potentially containing ``<img>`` tags.
@@ -187,12 +187,13 @@ def _img_to_amp_img(html: str) -> str:
 			return ""
 
 		alt = attrs.get("alt", "")
-		width = _dimension(attrs.get("width"), "600")
-		height = _dimension(attrs.get("height"), "400")
+		width = _dimension(attrs.get("width"), "")
+		height = _dimension(attrs.get("height"), "")
+		layout = "intrinsic" if width and height else "responsive"
 
 		return (
 			f'<amp-img src="{src}" alt="{alt}" '
-			f'width="{width}" height="{height}" layout="responsive">'
+			f'width="{width or "600"}" height="{height or "400"}" layout="{layout}">'
 			f"</amp-img>"
 		)
 
@@ -200,12 +201,9 @@ def _img_to_amp_img(html: str) -> str:
 
 
 def _clean_declarations(css: str, *, enforce_allowlist: bool) -> str:
-	"""Return the declarations of *css* that are safe for AMP, as ``name: value`` pairs.
+	"""Return the AMP-safe declarations of *css* as ``name: value`` pairs, without !important.
 
-	``!important`` is dropped (the flag is not part of the kept value), as are
-	declarations that load resources and ``position`` fixed or sticky.  The
-	property allowlist is applied here only when *enforce_allowlist* is set;
-	inline styles leave it to bleach's CSSSanitizer.
+	Inline styles pass enforce_allowlist=False because bleach's CSSSanitizer applies the allowlist.
 	"""
 	parsed = tinycss2.parse_declaration_list(css, skip_comments=True, skip_whitespace=True)
 	kept: list[str] = []
@@ -332,21 +330,5 @@ def sanitize_for_amp_with_css(html: str) -> tuple[str, str]:
 
 
 def sanitize_for_amp(html: str) -> str:
-	"""Sanitise arbitrary HTML into an AMP-for-Email safe fragment.
-
-	Same as :func:`sanitize_for_amp_with_css` but returns only the HTML;
-	the rules of style blocks are discarded.
-
-	Args:
-		html: Untrusted HTML string to sanitise.
-
-	Returns:
-		A sanitised HTML string containing only AMP-allowed tags,
-		attributes and inline CSS properties.
-
-	Example::
-
-		>>> sanitize_for_amp('<p style="color:red">Hello <script>alert(1)</script></p>')
-		'<p style="color: red">Hello </p>'
-	"""
+	"""Same as sanitize_for_amp_with_css, returning only the HTML; style block rules are discarded."""
 	return sanitize_for_amp_with_css(html)[0]
