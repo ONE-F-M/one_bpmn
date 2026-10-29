@@ -1,0 +1,8 @@
+{% autoescape true %}{% if details or attachments %}{% set label = _("Details", lang=lang) %}
+{% set rows %}{% for d in details %}<div class="row"><span class="k">{{ d.label[lang] }}</span><span>{{ d.value[lang] }}</span></div>
+{% endfor %}{% for a in attachments %}<div class="row"><a href="{{ a.url }}" target="_blank">{{ a.name }}</a></div>
+{% endfor %}{% endset %}
+{% if is_amp %}<amp-accordion class="acc"><section>
+  <h4>{{ label }} <span class="sign-closed" aria-hidden="true">+</span><span class="sign-open" aria-hidden="true">-</span></h4>
+  <div>{{ rows }}</div>
+</section></amp-accordion>{% else %}<div class="acc"><h4>{{ label }}</h4>{{ rows }}</div>{% endif %}{% endif %}{% endautoescape %}
