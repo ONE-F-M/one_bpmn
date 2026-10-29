@@ -28,15 +28,20 @@ class TestExecutableOrNot(FrappeTestCase):
 	def test_generator_sets_the_flag_and_loads_the_skill(self):
 		prompt = self._prompt("process_generator")
 		self.assertIn('"executable": false', prompt)
-		self.assertIn(patch.SKILL, prompt)
+		self.assertIn(f"The {patch.SKILL} skill below", prompt)
 
-	def test_skill_is_active_and_enabled_on_prosally(self):
-		self.assertEqual(frappe.db.get_value("AI Skill", {"skill_name": patch.SKILL}, "status"), "Active")
-		self.assertTrue(
-			frappe.db.exists("AI Agent Enabled Skill", {"parent": patch.PROSALLY_CONFIG_NAME, "skill": patch.SKILL})
-		)
+	def test_generator_system_prompt_carries_the_skill(self):
+		from one_bpmn.agents.prosally_helpers import prosally_config, stage_system_prompt
+
+		system = stage_system_prompt(prosally_config(), "process_generator", patch.SKILLS_CONSTANT)
+		self.assertIn("## Skill: " + patch.SKILL, system)
+		self.assertIn("Lifecycle of a DocType", system)
 
 	def test_running_twice_edits_each_prompt_once(self):
 		patch.execute()
 		self.assertEqual(self._prompt("intent_classifier").count(patch.CLASSIFIER_MARKER), 1)
-		self.assertEqual(self._prompt("process_generator").count("=== EXECUTABLE OR NOT ==="), 1)
+		self.assertEqual(self._prompt("process_generator").count(patch.GENERATOR_MARKER), 1)
+		names = frappe.db.get_value(
+			"AI Agent Constant", {"parent": self.config, "constant_name": patch.SKILLS_CONSTANT}, "constant_value"
+		)
+		self.assertEqual(names.count(patch.SKILL), 1)

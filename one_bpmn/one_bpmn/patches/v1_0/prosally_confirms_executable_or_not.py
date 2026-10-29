@@ -1,7 +1,8 @@
 """ProsAlly decides whether a process is executable and confirms it before drawing.
 
-Seeds the onefm-bpm-approach-reference skill, tells the classifier to name the kind in its confirmation, and
-tells the generator to set the IR "executable" flag from it. Prompts already carrying the change are skipped.
+Seeds the onefm-bpm-approach-reference skill, adds it to the generator's generate_skills constant, tells the
+classifier to name the kind in its confirmation, and tells the generator to set the IR "executable" flag from it.
+Prompts already carrying the change are skipped.
 """
 
 import json
@@ -9,14 +10,12 @@ import json
 import frappe
 
 from one_bpmn.one_bpmn.patches.v1_0.prosally_turns_a_step_into_a_subprocess import AGENT_ID, SUITE_TITLE, edit_prompt
-from one_bpmn.one_bpmn.patches.v1_0.seed_prosally_and_frontend_skills import (
-	PROSALLY_CONFIG_NAME,
-	_enable_skill,
-	_upsert_skill,
-)
+from one_bpmn.one_bpmn.patches.v1_0.seed_prosally_and_frontend_skills import _upsert_skill
 
 SKILL = "onefm-bpm-approach-reference"
 CLASSIFIER_MARKER = "a guide people follow"
+GENERATOR_MARKER = "=== EXECUTABLE OR NOT ==="
+SKILLS_CONSTANT = "generate_skills"
 
 SKILL_DESCRIPTION = (
 	"The OneFM BPM approach for telling an executable process from a non-executable one: process groups, "
@@ -58,7 +57,7 @@ CLASSIFIER_NEW = (
 GENERATOR_ANCHOR = "=== IR SCHEMA ===\n"
 GENERATOR_NEW = (
 	"=== EXECUTABLE OR NOT ===\n\n"
-	f'Load the {SKILL} skill. Put "executable": false at the top of the IR, next to "name", when the confirmation said '
+	f'The {SKILL} skill below says which kinds there are. Put "executable": false at the top of the IR, next to "name", when the confirmation said '
 	"a guide people follow (process group, creating something, a task done on screen). Leave it out when the process "
 	"is one the system runs. When the confirmation did not say, decide from the skill.\n\n" + GENERATOR_ANCHOR
 )
@@ -79,16 +78,25 @@ CASES = (
 
 def execute():
 	_upsert_skill({"skill_name": SKILL, "description": SKILL_DESCRIPTION, "body": SKILL_BODY})
-	if frappe.db.exists("AI Agent Configuration", PROSALLY_CONFIG_NAME):
-		_enable_skill(PROSALLY_CONFIG_NAME, SKILL)
 	config = frappe.db.get_value("AI Agent Configuration", {"agent_id": AGENT_ID}, "name")
 	if not config:
 		return
 	edit_prompt(config, "intent_classifier", ((CLASSIFIER_ANCHOR, CLASSIFIER_NEW),), CLASSIFIER_MARKER)
-	edit_prompt(config, "process_generator", ((GENERATOR_ANCHOR, GENERATOR_NEW),), SKILL)
+	edit_prompt(config, "process_generator", ((GENERATOR_ANCHOR, GENERATOR_NEW),), GENERATOR_MARKER)
+	add_generator_skill(config)
 	for case in CASES:
 		add_eval_case(case)
 	frappe.cache.delete_value(f"agent_config:{AGENT_ID}")
+
+
+def add_generator_skill(config: str) -> None:
+	"""Append the skill to the generator's skill list unless it is already there."""
+	row = frappe.db.get_value(
+		"AI Agent Constant", {"parent": config, "constant_name": SKILLS_CONSTANT}, ["name", "constant_value"]
+	)
+	names = [n.strip() for n in ((row or ("", ""))[1] or "").split(",") if n.strip()]
+	if row and SKILL not in names:
+		frappe.db.set_value("AI Agent Constant", row[0], "constant_value", ", ".join(names + [SKILL]))
 
 
 def add_eval_case(case: dict) -> None:
