@@ -17,7 +17,7 @@ from one_bpmn.agents.bpmn_task_config import resolve_ir_lane_roles
 from one_bpmn.agents.dms_search import DOCUMENT_TYPES, search_dms_documents
 from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
 from one_bpmn.agents.memory.text_clean import strip_html, unescape_entities
-from one_bpmn.agents.turn_state import run_sync
+from one_bpmn.agents.turn_state import get_turn, run_sync, update_turn
 from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 
 AGENT_ID = "prosally_agent"
@@ -319,15 +319,17 @@ def memory_notes_block(turn: dict | None) -> str:
 	return "\n".join([MEMORY_NOTES_HEADER, MEMORY_NOTES_PROVENANCE] + ["- " + n for n in notes])
 
 
+def search_dms_for_turn(conversation: str, query: str, document_type: str | None = None, instance=None) -> dict:
+	"""The search_dms_documents tool: the read-only search, with its excerpts kept in the turn store for the stage prompts."""
+	found = search_dms_documents(query, document_type, instance=instance)
+	kept = get_turn(conversation).get("dms_documents") or []
+	update_turn(conversation, dms_documents=kept + [r for r in found.get("results") or [] if r not in kept])
+	return found
+
+
 def dms_documents_block(turn: dict | None) -> str:
-	"""Excerpts of the Active Document Register entries the requester can read that match the request; "" when none."""
-	query = _dms_query(turn or {})
-	if not query:
-		return ""
-	try:
-		results = search_dms_documents(query)["results"]
-	except frappe.PermissionError:
-		return ""
+	"""The excerpts the search_dms_documents tool found this turn, with how to read each type; "" when none."""
+	results = (turn or {}).get("dms_documents") or []
 	if not results:
 		return ""
 	entries = [
@@ -335,23 +337,6 @@ def dms_documents_block(turn: dict | None) -> str:
 		for r in results
 	]
 	return "\n\n".join([DMS_HEADER, DMS_RULES, *entries])
-
-
-def _dms_query(turn: dict) -> str:
-	"""The process name and the request; a bare "yes" is replaced by the last request before it."""
-	text = turn.get("user_text") or ""
-	if confirmation_reply(text) == "yes":
-		text = next(
-			(
-				(e.get("content") or "")
-				for e in reversed(turn.get("chat_history") or [])
-				if (e.get("role") or e.get("type", "user")) == "user"
-				and (e.get("content") or "").strip()
-				and not confirmation_reply(e.get("content"))
-			),
-			"",
-		)
-	return f"{turn.get('process_name') or ''} {text}".strip()
 
 
 def queue_process_memory(turn: dict, agent_result: dict | None) -> None:
