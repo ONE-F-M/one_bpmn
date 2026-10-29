@@ -380,3 +380,10 @@ test('a call activity stays a call activity and keeps the process it calls', () 
   assert.match(r.xml, /<bpmn:callActivity id="c"[^>]*calledElement="Process_Payroll"/);
   assert.ok(!/<bpmn:scriptTask id="c"/.test(r.xml));
 });
+
+test('a process is executable unless the IR says executable is false', () => {
+  const base = { name: 'Flag', lanes, nodes: [node('s', 'startEvent'), node('t1'), node('e', 'endEvent')],
+    flows: [{ from: 's', to: 't1' }, { from: 't1', to: 'e' }] };
+  assert.match(run(base).xml, /isExecutable="true"/);
+  assert.match(run({ ...base, executable: false }).xml, /isExecutable="false"/);
+});
