@@ -93,8 +93,8 @@ def render_html_fallback(task_content: dict) -> str:
 	"""Return the HTML fallback as a body fragment.
 
 	The fragment has no html, head or body tags, no logo, no subject
-	header and no confidentiality notice: the email sender wraps it in
-	the One-FM default email template, which prints those once.
+	header and no confidentiality notice: composer._send_email wraps it in
+	bpmn_email.html, which prints those once.
 
 	Args:
 		task_content: See module docstring for the expected shape.
