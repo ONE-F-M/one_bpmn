@@ -66,6 +66,7 @@ declare module 'vue' {
     MetricTile: typeof import('./src/components/insights/MetricTile.vue')['default']
     NotificationLinkDialog: typeof import('./src/components/NotificationLinkDialog.vue')['default']
     NotifyActionsTab: typeof import('./src/components/NotifyActionsTab.vue')['default']
+    NotifyArabicInput: typeof import('./src/components/NotifyArabicInput.vue')['default']
     NotifyAssigneeEditorDialog: typeof import('./src/components/NotifyAssigneeEditorDialog.vue')['default']
     NotifyContentTab: typeof import('./src/components/NotifyContentTab.vue')['default']
     NotifyConversationTab: typeof import('./src/components/NotifyConversationTab.vue')['default']

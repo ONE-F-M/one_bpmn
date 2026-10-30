@@ -49,11 +49,13 @@ def _translate(translator, text: str, marker: str) -> str:
 
 	translated = translator.translate(masked) or ""
 	for i, placeholder in enumerate(placeholders):
-		if translated.count(marker.format(i)) != 1:
+		# services sometimes return a marker with spaces inside it, such as "[0 ]"
+		returned = re.compile(r"\s*".join(map(re.escape, marker.format(i))))
+		if len(returned.findall(translated)) != 1:
 			raise TranslationError(
 				f"Placeholder {placeholder} did not come back.\nSent: {masked}\nGot: {translated}"
 			)
-		translated = translated.replace(marker.format(i), placeholder)
+		translated = returned.sub(lambda _match: placeholder, translated)
 	return translated
 
 
