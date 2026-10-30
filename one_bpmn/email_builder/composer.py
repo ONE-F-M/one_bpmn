@@ -378,10 +378,10 @@ _ACTION_CONDITION_RE = re.compile(r"""action\s*==\s*["']([^"']+)["']""")
 
 
 def _sends_decision_card(task_cfg: dict) -> bool:
-	"""Layout "card", or no layout on a task that has no body and no template."""
+	"""Layout "card" or "steps", or no layout on a task that has no body and no template."""
 	layout = task_cfg.get("notifyLayout") or ""
 	if layout:
-		return layout == "card"
+		return layout in ("card", "steps")
 	has_body = task_cfg.get("notifyAssigneeBody") or task_cfg.get("notifyBody")
 	has_template = task_cfg.get("notifyAssigneeTemplate") or task_cfg.get("notifyTemplate")
 	return not has_body and not has_template
@@ -439,7 +439,7 @@ def _build_layout_context(
 	site_url = frappe.utils.get_url()
 	open_link = _build_open_link(instance)
 	return {
-		"layout": "decision_card",
+		"layout": "steps" if task_cfg.get("notifyLayout") == "steps" else "decision_card",
 		"subject_line": f"{subject_en} || {subject_ar}" if subject_ar else subject_en,
 		"kick": build_kick(doctype or instance.doctype, task_name),
 		"question": {"en": question_en, "ar": question_ar},

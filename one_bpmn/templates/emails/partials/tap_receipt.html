@@ -1,0 +1,7 @@
+{% autoescape true %}{% if is_amp %}<div class="receipt" hidden [hidden]="!ui.done" [class]="'receipt st-' + ui.result.state_style">
+  <span class="rico"></span>
+  <p class="rt" [text]="ui.result.state_label.{{ lang }} || ui.result.action"></p>
+  <p class="rd" [text]="ui.result.receipt.{{ lang }}"></p>
+  <p class="rd" [text]="ui.result.reason_saved.{{ lang }}"></p>
+  <p class="rtime" [text]="ui.result.completed_at"></p>
+</div>{% endif %}{% endautoescape %}
