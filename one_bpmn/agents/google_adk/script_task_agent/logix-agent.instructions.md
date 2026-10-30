@@ -83,7 +83,7 @@ All tools return strings (JSON or plain text). They never raise — errors are e
 - Credentials: read from `AI Chat Settings` DocType (`google_vertex_ai_api_key`, `gemini_model`).
 - Sub-prompt overrides: loaded from `AI Agent Configuration` via `get_agent_config(AGENT_ID)`.
   Key names: `intent_classifier`, `clarifier`, `script_writer`, `script_reviewer`.
-- `AGENT_ID = "logix_agent"`. Falls back to hardcoded `_DEFAULT_*_INSTRUCTION` strings if config is absent.
+- `AGENT_ID = "logix_script_agent"`. Falls back to hardcoded `_DEFAULT_*_INSTRUCTION` strings if config is absent.
 
 ## Return Shape
 
