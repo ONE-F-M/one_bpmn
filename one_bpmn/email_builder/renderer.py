@@ -42,6 +42,8 @@ LAYOUT_TEMPLATES = {
 	for name in ("decision_card", "steps", "conversation", "notice")
 }
 LAYOUT_LANGS = ("en", "ar")
+# Rendered outside the status list: AMP email allows no amp-list inside another
+LAYOUT_HEADS = {"conversation": "one_bpmn/templates/emails/layouts/conversation_head.html"}
 CONFIDENTIALITY_NOTICE = (
 	"The content of this email is confidential and intended for the recipient specified in the message "
 	"only. It is strictly forbidden to share any part of this message with any third party, without the "
@@ -154,6 +156,7 @@ def _layout_context(ctx: dict, *, is_amp: bool) -> dict:
 		"open_link": "",
 		**ctx,
 		"layout_template": LAYOUT_TEMPLATES[layout],
+		"head_template": LAYOUT_HEADS.get(layout, ""),
 		"langs": LAYOUT_LANGS,
 		"is_amp": is_amp,
 		"has_status": bool(is_amp and status_url),

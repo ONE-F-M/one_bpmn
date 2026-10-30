@@ -378,10 +378,10 @@ _ACTION_CONDITION_RE = re.compile(r"""action\s*==\s*["']([^"']+)["']""")
 
 
 def _sends_decision_card(task_cfg: dict) -> bool:
-	"""Layout "card" or "steps", or no layout on a task that has no body and no template."""
+	"""Layout "card", "steps" or "chat", or no layout on a task that has no body and no template."""
 	layout = task_cfg.get("notifyLayout") or ""
 	if layout:
-		return layout in ("card", "steps")
+		return layout in ("card", "steps", "chat")
 	has_body = task_cfg.get("notifyAssigneeBody") or task_cfg.get("notifyBody")
 	has_template = task_cfg.get("notifyAssigneeTemplate") or task_cfg.get("notifyTemplate")
 	return not has_body and not has_template
@@ -438,7 +438,7 @@ def _build_layout_context(
 	status_token = generate_status_token(instance.name, task_id, expiry_hours=hours, user=user)
 	site_url = frappe.utils.get_url()
 	open_link = _build_open_link(instance)
-	return {
+	ctx = {
 		"layout": "steps" if task_cfg.get("notifyLayout") == "steps" else "decision_card",
 		"subject_line": f"{subject_en} || {subject_ar}" if subject_ar else subject_en,
 		"kick": build_kick(doctype or instance.doctype, task_name),
@@ -451,6 +451,80 @@ def _build_layout_context(
 		"action_endpoint": f"{site_url}{ACTION_ENDPOINT}",
 		"actions": _build_layout_actions(instance, user, task_id, bpmn_id, task_cfg, hours, open_link),
 	}
+	if task_cfg.get("notifyLayout") == "chat":
+		_add_conversation(ctx, instance, doc, user, task_id, task_cfg, hours)
+	return ctx
+
+
+def _add_conversation(ctx: dict, instance, doc, user: str, task_id: str, task_cfg: dict, hours: int) -> None:
+	"""Turn the card context into the Conversation layout when the DocType keeps an email thread."""
+	from one_bpmn.api.todo_actions import _plain_text, thread_items
+	from one_bpmn.utils.token import generate_conversation_token
+
+	doctype = instance.context_doctype or ""
+	meta = frappe.get_meta(doctype) if doctype else None
+	if not (meta and meta.email_append_to and getattr(doc, "meta", None)):
+		frappe.log_error(
+			title="BPMN: Conversation layout needs an email thread",
+			message=f"{doctype or 'No DocType'} has no email thread (Email Append To), so the task email "
+			f"on {instance.name} was sent as the Decision card.",
+		)
+		return
+
+	conv = json.loads(task_cfg.get("notifyConversation") or "{}")
+	labels = {"reply": "Reply", "note": "Add Note"}
+	conv_actions = []
+	for action in conv.get("actions") or [{"key": key} for key in labels]:
+		key = action.get("key")
+		if key not in labels:
+			continue
+		label = action.get("label") or labels[key]
+		conv_actions.append(
+			{
+				"key": key,
+				"label": {"en": label, "ar": _arabic(label)},
+				"endpoint": f"{frappe.utils.get_url()}/api/method/one_bpmn.api.todo_actions.post_amp_{key}",
+				"token": generate_conversation_token(instance.name, task_id, user, key, hours),
+				"sent": {
+					lang: _("Reply sent" if key == "reply" else "Note added", lang=lang)
+					for lang in ("en", "ar")
+				},
+				"placeholder": {
+					lang: _("Write a reply" if key == "reply" else "Write a note", lang=lang)
+					for lang in ("en", "ar")
+				},
+			}
+		)
+
+	saved_replies = []
+	if doctype == "HD Ticket" and any(a["key"] == "reply" for a in conv_actions) and conv.get("canned"):
+		rows = frappe.get_all(
+			"HD Saved Reply", filters={"name": ["in", conv["canned"]]}, fields=["name", "title", "message"]
+		)
+		by_name = {row.name: row for row in rows}
+		saved_replies = [
+			{"title": by_name[name].title or name, "message": _plain_text(by_name[name].message)}
+			for name in conv["canned"]
+			if name in by_name
+		]
+
+	if not task_cfg.get("notifyQuestionEn") and meta.subject_field and doc.get(meta.subject_field):
+		ctx["question"] = {"en": doc.get(meta.subject_field), "ar": doc.get(meta.subject_field)}
+	if doctype == "HD Ticket":
+		ctx["kick"] = {
+			lang: f"{_('Helpdesk', lang=lang)} · {_('Ticket {0}', lang=lang).format(doc.name)}"
+			for lang in ("en", "ar")
+		}
+
+	thread_token = generate_conversation_token(instance.name, task_id, user, "thread", hours)
+	ctx.update(
+		layout="conversation",
+		is_ticket=doctype == "HD Ticket",
+		thread_url=f"{frappe.utils.get_url()}/api/method/one_bpmn.api.todo_actions.get_amp_thread?token={thread_token}",
+		thread=thread_items(doctype, doc.name, conv, user),
+		conv_actions=conv_actions,
+		saved_replies=saved_replies,
+	)
 
 
 def _build_layout_actions(

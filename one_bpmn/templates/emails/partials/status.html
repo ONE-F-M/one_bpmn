@@ -9,9 +9,9 @@
 {%- endmacro %}
 
 {# The list placeholder holds both the buttons and the expired note: AMP shrinks a list in view but never grows it. #}
-{% macro action_block() -%}
-{% if has_status %}{% raw %}{{#is_waiting}}{% endraw %}{{ caller() }}{% raw %}{{/is_waiting}}{{#is_expired}}{% endraw %}{{ expired_note() }}{% raw %}{{/is_expired}}{% endraw %}
-{%- elif in_placeholder %}{{ caller() }}{{ expired_note() }}{% else %}{{ caller() }}{% endif %}
+{% macro action_block(expired=none) -%}
+{% if has_status %}{% raw %}{{#is_waiting}}{% endraw %}{{ caller() }}{% raw %}{{/is_waiting}}{{#is_expired}}{% endraw %}{{ expired or expired_note() }}{% raw %}{{/is_expired}}{% endraw %}
+{%- elif in_placeholder %}{{ caller() }}{{ expired or expired_note() }}{% else %}{{ caller() }}{% endif %}
 {%- endmacro %}
 
 {% if has_status %}{% include "one_bpmn/templates/emails/partials/receipt.html" %}{% endif %}
