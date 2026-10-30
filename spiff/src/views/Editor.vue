@@ -900,6 +900,7 @@
 		<EmailNotificationEditorDialog
 			v-model="showEmailNotificationDialog"
 			:initial-values="emailNotificationValues"
+			:process-model="activeDiagramName"
 			@save="onSaveEmailNotification"
 		/>
 		<Dialog v-model="showUnsavedNavigationWarning" :options="{ title: 'Unsaved Changes', size: 'sm' }">

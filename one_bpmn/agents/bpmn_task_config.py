@@ -46,6 +46,9 @@ SERVICE_TASK_KEYS: dict[str, tuple[str, ...]] = {
 		"emailAccount", "emailUseDoctype", "emailDoctype", "emailSubject",
 		"emailTo", "emailToDocFields", "emailToTableField", "emailToTableUserField",
 		"emailToRoles", "emailCc", "emailBcc", "emailBody",
+		"emailLayout", "emailSubjectAr", "emailHeadingEn", "emailHeadingAr", "emailMessageEn",
+		"emailMessageAr", "emailShowStatus", "emailFacts", "emailDetails", "emailAttachments",
+		"emailArabicEdited",
 	),
 	"update_field": ("updateFieldDoctype", "updateFieldRows"),
 	"google_chat": (

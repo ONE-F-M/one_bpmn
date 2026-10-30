@@ -540,6 +540,12 @@ def _extract_bpmn_references(xml_content: str) -> dict:
 					if field:
 						referenced_fields.append((email_dt, field))
 
+				for key in ("emailFacts", "emailDetails"):
+					for entry in _notify_json(attrs, key, service_task.get("id", "")) or []:
+						for name in entry if isinstance(entry, list) else [entry]:
+							# A linked field "employee.employee_name" needs the link field on this DocType
+							referenced_fields.append((email_dt, name.split(".")[0]))
+
 	# ── workflow_state field check for apply_workflow doctypes ─────────────
 	for dt in apply_workflow_doctypes:
 		referenced_fields.append((dt, "workflow_state"))

@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 
 import {
 	EMAIL_ERRORS,
+	emailLayout,
 	changedAttrs,
 	emailSummary,
 	hasRecipient,
@@ -60,15 +61,18 @@ test("emailSummary: rows, recipients in field, table, role, address order, and t
 			emailToRoles: "HR Manager",
 			emailCc: "c@x.com, d@x.com",
 			emailBcc: "e@x.com",
+			emailFacts: '["owner", ["employee_name", "employee.employee_name_in_arabic"]]',
 		},
-		{ owner: "Created By", approvers: "Approvers" }
+		{ owner: "Created By", approvers: "Approvers", employee_name: "Employee Name" }
 	)
 	assert.deepEqual(summary.rows, [
+		{ k: "Layout", v: "Notice" },
 		{ k: "Email Account", v: "Notifications", warn: false },
 		{ k: "DocType", v: "Leave Application" },
 		{ k: "Recipients", v: "Created By, leave_approver, Approvers, HR Manager role, a@x.com", warn: false },
 		{ k: "CC / BCC", v: "CC 2 · BCC 1" },
 		{ k: "Subject", v: "Leave {{ doc.name }}", warn: false },
+		{ k: "Key facts", v: "Created By, Employee Name" },
 	])
 	assert.equal(summary.configured, true)
 })
@@ -78,12 +82,24 @@ test("emailSummary: empty values show the required markers and no badge", () => 
 	assert.deepEqual(
 		summary.rows.map((r) => [r.k, r.v, !!r.warn]),
 		[
+			["Layout", "Notice", false],
 			["Email Account", "Not set · required", true],
 			["DocType", "Not based on a record", false],
 			["Recipients", "None · required", true],
 			["CC / BCC", "None", false],
 			["Subject", "Not set · required", true],
+			["Key facts", "None", false],
 		]
 	)
 	assert.equal(summary.configured, false)
+})
+
+test("emailLayout: saved value wins, else html when a body exists, else notice", () => {
+	assert.equal(emailLayout({ emailLayout: "notice", emailBody: "<p>x</p>" }), "notice")
+	assert.equal(emailLayout({ emailBody: "<p>x</p>" }), "html")
+	assert.equal(emailLayout({}), "notice")
+	assert.deepEqual(
+		emailSummary({ emailBody: "<p>x</p>" }).rows.map((r) => r.k),
+		["Layout", "Email Account", "DocType", "Recipients", "CC / BCC", "Subject"]
+	)
 })
