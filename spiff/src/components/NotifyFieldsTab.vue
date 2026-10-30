@@ -40,7 +40,7 @@
 				@update:model-value="(on) => (attachments = on ? 'true' : '')"
 			/>
 			<p class="text-p-sm text-ink-gray-5">
-				Private files open the login page from an email. The composer sends signed links that expire with the task.
+				Private files open the login page from an email. The composer sends signed links that {{ linkLife }}.
 			</p>
 		</div>
 	</div>
@@ -71,6 +71,8 @@ const VALUE_FIELDTYPES = [
 const props = defineProps({
 	doctype: { type: String, default: "" },
 	layout: { type: String, default: "" },
+	// how long the signed attachment links work, as the hint words it
+	linkLife: { type: String, default: "expire with the task" },
 });
 
 // JSON lists as strings, and "true" or "" for attachments

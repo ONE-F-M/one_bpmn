@@ -1,6 +1,6 @@
 <template>
 	<FormControl
-		type="text"
+		:type="type"
 		dir="rtl"
 		:label="label"
 		:model-value="modelValue"
@@ -43,6 +43,8 @@ defineProps({
 	edited: { type: Boolean, default: false },
 	error: { type: String, default: "" },
 	hint: { type: String, default: "" },
+	// "text" or "textarea"
+	type: { type: String, default: "text" },
 });
 
 const emit = defineEmits(["update:modelValue", "translateAgain"]);

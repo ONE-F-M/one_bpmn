@@ -43,6 +43,7 @@ declare module 'vue' {
     EditorSidebar: typeof import('./src/components/EditorSidebar.vue')['default']
     EditorTabs: typeof import('./src/components/EditorTabs.vue')['default']
     ElementInspector: typeof import('./src/components/process_instance/ElementInspector.vue')['default']
+    EmailNoticeContentTab: typeof import('./src/components/EmailNoticeContentTab.vue')['default']
     EmailNotificationEditorDialog: typeof import('./src/components/EmailNotificationEditorDialog.vue')['default']
     EmailRecipientsTab: typeof import('./src/components/EmailRecipientsTab.vue')['default']
     ErrorReport: typeof import('./src/components/insights/ErrorReport.vue')['default']

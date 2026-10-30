@@ -15,7 +15,23 @@ export const EMAIL_EDITOR_ATTRS = [
 	"emailCc",
 	"emailBcc",
 	"emailBody",
+	"emailLayout",
+	"emailSubjectAr",
+	"emailHeadingEn",
+	"emailHeadingAr",
+	"emailMessageEn",
+	"emailMessageAr",
+	"emailShowStatus",
+	"emailFacts",
+	"emailDetails",
+	"emailAttachments",
+	"emailArabicEdited",
 ];
+
+/** "html" sends the Email Body as today, "notice" the Notice layout; empty follows whether a body exists. */
+export function emailLayout(values) {
+	return values.emailLayout || (filled(values.emailBody) ? "html" : "notice");
+}
 
 export const EMAIL_ERRORS = {
 	emailAccount: "Pick the account the email is sent from. Deploy rejects an Email Notification with no account.",
@@ -68,6 +84,9 @@ export function changedAttrs(saved, edited) {
 /** Rows under Launch Editor; fieldLabels maps fieldname to label for the task's DocType. */
 export function emailSummary(values, fieldLabels = {}) {
 	const label = (fieldname) => fieldLabels[fieldname] || fieldname;
+	const facts = (values.emailFacts ? JSON.parse(values.emailFacts) : []).map((entry) =>
+		label(Array.isArray(entry) ? entry[0] : entry)
+	);
 	const recipients = [
 		...splitList(values.emailToDocFields).map(label),
 		...(filled(values.emailToTableField) ? [label(values.emailToTableField)] : []),
@@ -81,11 +100,13 @@ export function emailSummary(values, fieldLabels = {}) {
 
 	return {
 		rows: [
+			{ k: "Layout", v: emailLayout(values) === "html" ? "Custom HTML" : "Notice" },
 			{ k: "Email Account", v: values.emailAccount || "Not set · required", warn: !filled(values.emailAccount) },
 			{ k: "DocType", v: useDoctype ? values.emailDoctype || "Not set" : "Not based on a record" },
 			{ k: "Recipients", v: recipients.join(", ") || "None · required", warn: !recipients.length },
 			{ k: "CC / BCC", v: copies || "None" },
 			{ k: "Subject", v: values.emailSubject || "Not set · required", warn: !filled(values.emailSubject) },
+			...(emailLayout(values) === "notice" ? [{ k: "Key facts", v: facts.join(", ") || "None" }] : []),
 		],
 		configured: !Object.keys(validateEmailNotification(values).errors).length,
 	};
