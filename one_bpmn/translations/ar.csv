@@ -14,3 +14,7 @@ Nothing changed in ERPNext. Try again.,لم يتغير شيء في ERPNext. حا
 {0} is now {1},{0} الآن {1}
 Notice,إشعار
 Status,الحالة
+Reason for {0},سبب {0}
+Or write your own,أو اكتب سببك
+Pick a reason or write one.,اختر سبباً أو اكتب واحداً.
+Reason saved to {0},تم حفظ السبب في {0}
