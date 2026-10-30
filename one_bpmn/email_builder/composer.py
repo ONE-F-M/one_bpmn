@@ -576,3 +576,82 @@ def _arabic(text: str) -> str:
 		return translate_cached(text)
 	except TranslationError:
 		return text
+
+
+# ---------------------------------------------------------------------------
+# Notice layout
+# ---------------------------------------------------------------------------
+
+NOTICE_LINK_HOURS = 30 * 24
+
+
+def sends_notice(task_cfg: dict) -> bool:
+	"""Layout "notice", or no layout on a task with no Email Body."""
+	layout = task_cfg.get("emailLayout") or ""
+	if layout:
+		return layout == "notice"
+	return not task_cfg.get("emailBody")
+
+
+def compose_notice(instance, task_cfg: dict, doc, render) -> tuple[str, str, str]:
+	"""Subject, HTML part and AMP part of a Notice; a failed AMP part is logged and left out."""
+	from one_bpmn.email_builder.renderer import render_layout_amp, render_layout_html
+
+	try:
+		ctx = _build_notice_context(instance, task_cfg, doc, render)
+		html_body = render_layout_html(ctx)
+	except Exception:
+		frappe.log_error(title="BPMN: Notice email render failed", message=frappe.get_traceback())
+		raise
+
+	try:
+		amp_html = render_layout_amp(ctx)
+	except Exception:
+		frappe.log_error(title="BPMN: Notice AMP render failed", message=frappe.get_traceback())
+		amp_html = ""
+	return ctx["subject_line"], html_body, amp_html
+
+
+def _build_notice_context(instance, task_cfg: dict, doc, render) -> dict:
+	"""Everything notice.html reads, in both languages."""
+	from one_bpmn.email_builder.fields import build_attachment_links, build_field_rows
+	from one_bpmn.utils.token import generate_status_token
+
+	has_doc = bool(getattr(doc, "meta", None))
+	doctype = doc.doctype if has_doc else instance.context_doctype or instance.doctype
+
+	subject_en = render(task_cfg.get("emailSubject", "")) or f"Notification from {instance.name}"
+	subject_ar = render(task_cfg.get("emailSubjectAr", ""))
+	heading_en = render(task_cfg.get("emailHeadingEn", ""))
+	heading_ar = render(task_cfg.get("emailHeadingAr", ""))
+	message_en = render(task_cfg.get("emailMessageEn", ""))
+
+	status_url = ""
+	if has_doc and task_cfg.get("emailShowStatus") == "true":
+		status_token = generate_status_token(instance.name)
+		status_url = f"{frappe.utils.get_url()}/api/method/one_bpmn.api.todo_actions.get_amp_task_status?status_token={status_token}"
+
+	attachments = []
+	if has_doc and task_cfg.get("emailAttachments") == "true":
+		attachments = [
+			{"name": a["file_name"], "url": a["url"]} for a in build_attachment_links(doc, NOTICE_LINK_HOURS)
+		]
+
+	return {
+		"layout": "notice",
+		"subject_line": f"{subject_en} || {subject_ar}" if subject_ar else subject_en,
+		"kick": {
+			"en": f"{doctype} · {_('Notice', lang='en')}",
+			"ar": f"{_(doctype, lang='ar')} · {_('Notice', lang='ar')}",
+		},
+		"heading": {
+			"en": heading_en or subject_en,
+			"ar": heading_ar or heading_en or subject_ar or subject_en,
+		},
+		"message": {"en": message_en, "ar": render(task_cfg.get("emailMessageAr", "")) or message_en},
+		"facts": build_field_rows(doc, json.loads(task_cfg.get("emailFacts") or "[]")) if has_doc else [],
+		"details": build_field_rows(doc, json.loads(task_cfg.get("emailDetails") or "[]")) if has_doc else [],
+		"attachments": attachments,
+		"status_url": status_url,
+		"open_link": _build_open_link(instance),
+	}
