@@ -37,6 +37,18 @@ from one_bpmn.email_builder.sanitizer import sanitize_for_amp_with_css
 # AMP for Email allows at most 75,000 bytes in the style amp-custom block.
 AMP_CUSTOM_CSS_MAX_BYTES = 75_000
 
+LAYOUT_TEMPLATES = {
+	name: f"one_bpmn/templates/emails/layouts/{name}.html"
+	for name in ("decision_card", "steps", "conversation", "notice")
+}
+LAYOUT_LANGS = ("en", "ar")
+CONFIDENTIALITY_NOTICE = (
+	"The content of this email is confidential and intended for the recipient specified in the message "
+	"only. It is strictly forbidden to share any part of this message with any third party, without the "
+	"written consent of the sender. If you received this message by mistake, please reply to this message "
+	"and follow with its deletion, so that we can ensure such a mistake does not occur in the future."
+)
+
 _AMP_CUSTOM_RE = re.compile(r"<style amp-custom>(.*?)</style>", re.IGNORECASE | re.DOTALL)
 
 
@@ -105,6 +117,62 @@ def render_html_fallback(task_content: dict) -> str:
 	ctx = _build_context(task_content, for_amp=False)
 	template = _get_template("one_bpmn/templates/emails/html_fallback.html")
 	return template.render(ctx)
+
+
+# ---------------------------------------------------------------------------
+# Layout renderers
+# ---------------------------------------------------------------------------
+
+
+def render_layout_amp(ctx: dict) -> str:
+	"""Return the AMP4EMAIL document: layout_shell.html around the context's layout, in both languages."""
+	if ctx.get("status_url"):
+		# The layout renders inside the status amp-list template, so text must not open a mustache tag
+		ctx = _break_mustache(ctx)
+	shell_ctx = _layout_context(ctx, is_amp=True)
+	return _get_template("one_bpmn/templates/emails/layout_shell.html").render(shell_ctx)
+
+
+def render_layout_html(ctx: dict) -> str:
+	"""Return the HTML part as a body fragment: the same blocks, English first and the Arabic below."""
+	fragment_ctx = _layout_context(ctx, is_amp=False)
+	return _get_template("one_bpmn/templates/emails/layout_fallback.html").render(fragment_ctx)
+
+
+def _layout_context(ctx: dict, *, is_amp: bool) -> dict:
+	from one_bpmn.email_builder.composer import EMAIL_LOGO
+
+	layout = ctx.get("layout")
+	if layout not in LAYOUT_TEMPLATES:
+		raise ValueError(f"Unknown email layout: {layout!r}")
+
+	status_url = ctx.get("status_url") or ""
+	return {
+		"facts": [],
+		"details": [],
+		"attachments": [],
+		"open_link": "",
+		**ctx,
+		"layout_template": LAYOUT_TEMPLATES[layout],
+		"langs": LAYOUT_LANGS,
+		"is_amp": is_amp,
+		"has_status": bool(is_amp and status_url),
+		"in_placeholder": False,
+		"status_url": status_url,
+		"logo": EMAIL_LOGO,
+		"CONFIDENTIALITY_NOTICE": CONFIDENTIALITY_NOTICE,
+	}
+
+
+def _break_mustache(value):
+	"""Put a zero-width space between doubled braces in every string so amp-mustache prints them as text."""
+	if isinstance(value, str):
+		return value.replace("{{", "{\u200b{").replace("}}", "}\u200b}")
+	if isinstance(value, dict):
+		return {k: _break_mustache(v) for k, v in value.items()}
+	if isinstance(value, list | tuple):
+		return [_break_mustache(v) for v in value]
+	return value
 
 
 # ---------------------------------------------------------------------------
