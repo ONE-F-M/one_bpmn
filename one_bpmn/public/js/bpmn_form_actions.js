@@ -22,8 +22,6 @@ frappe.provide('one_bpmn');
 		'BPMN Process Instance',
 		'BPMN Active Task',
 		'BPMN Activity Log',
-		'BPMN Custom Shape',
-		'BPMN Shape Library',
 		'BPMN Process DocType',
 	]);
 

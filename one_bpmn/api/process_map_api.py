@@ -522,6 +522,31 @@ def validate_bpmn_readiness(xml_content: str) -> dict:
 			"items": assignment_items,
 		})
 
+	# 9. Prohibited Shapes (shapes that must not appear in an executable process)
+	from one_bpmn.api.compilation import PROHIBITED_SHAPES
+
+	prohibited_items = []
+	if PROHIBITED_SHAPES:
+		for child in _process_el or []:
+			local_tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+			if local_tag in PROHIBITED_SHAPES:
+				shape_info = PROHIBITED_SHAPES[local_tag]
+				el_name = child.get("name", "").strip()
+				el_id = child.get("id", "?")
+				display_name = f'{shape_info["label"]}: "{el_name}"' if el_name else f'{shape_info["label"]} ({el_id})'
+				prohibited_items.append({
+					"name": display_name,
+					"exists": False,
+					"type": "check",
+					"detail": shape_info.get("suggestion", ""),
+				})
+	if prohibited_items:
+		categories.append({
+			"label": "Prohibited Shapes",
+			"icon": "ban",
+			"items": prohibited_items,
+		})
+
 	# ── Compute summary ──────────────────────────────────────────────────
 	total_checked = 0
 	total_missing = 0
@@ -659,10 +684,16 @@ def list_processes() -> list:
 		order_by="modified desc",
 	)
 
-	# Get diagram counts per process
-	diagram_counts = frappe.get_all(
-		"BPMN Process Model", fields=["process_name", "count(*) as count"], group_by="process_name"
-	)
+	# Get diagram counts per process (v16 rejects raw SQL in fields — use Query Builder)
+	from frappe.query_builder import DocType
+	from frappe.query_builder.functions import Count
+
+	BPM = DocType("BPMN Process Model")
+	diagram_counts = (
+		frappe.qb.from_(BPM)
+		.select(BPM.process_name, Count("*").as_("count"))
+		.groupby(BPM.process_name)
+	).run(as_dict=True)
 	count_map = {d["process_name"]: d["count"] for d in diagram_counts}
 
 	for proc in processes:

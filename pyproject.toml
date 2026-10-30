@@ -4,13 +4,13 @@ authors = [
     { name = "kartiksharma9319@gmail.com", email = "kartiksharma9319@gmail.com"}
 ]
 description = "Spiffworkflow integration with Frappe"
-requires-python = ">=3.10"
+requires-python = ">=3.14,<3.15"
 readme = "README.md"
 dynamic = ["version"]
 dependencies = [
     # "frappe~=15.0.0" # Installed and managed by bench.
     "spiffworkflow",
-    "google-auth>=2.0.0",
+    "google-auth~=2.48.0",  # Pinned to align with frappe v16 (frappe requires ~=2.48.0)
     "anthropic",
     "openai>=1.0.0",
     "google-genai",
@@ -29,7 +29,7 @@ types-requests = "~=2.31.0"
 
 [tool.ruff]
 line-length = 110
-target-version = "py310"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = [

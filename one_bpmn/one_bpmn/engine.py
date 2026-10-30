@@ -7,7 +7,7 @@
 import io
 from datetime import datetime
 
-from SpiffWorkflow.bpmn.parser.BpmnParser import BpmnParser
+from SpiffWorkflow.dmn.parser import BpmnDmnParser
 from SpiffWorkflow.bpmn.parser.ValidationException import ValidationException
 from SpiffWorkflow.bpmn.serializer.workflow import BpmnWorkflowSerializer
 from SpiffWorkflow.bpmn.script_engine import TaskDataEnvironment, PythonScriptEngine
@@ -26,6 +26,22 @@ from SpiffWorkflow.bpmn.specs.defaults import (
 	EventBasedGateway,
 )
 
+# ── DMN (Business Rule Task) support ─────────────────────────
+# bpmn-js-spiffworkflow writes <spiffworkflow:calledDecisionId> so we
+# use the spiff parser variant (not camunda) for the businessRuleTask.
+from SpiffWorkflow.spiff.parser.task_spec import (
+	BusinessRuleTaskParser as SpiffBusinessRuleTaskParser,
+)
+from SpiffWorkflow.spiff.specs.defaults import (
+	BusinessRuleTask as SpiffBusinessRuleTask,
+)
+from SpiffWorkflow.dmn.serializer.task_spec import (
+	BaseBusinessRuleTaskConverter,
+)
+
+_BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+_BRT_TAG = f"{{{_BPMN_NS}}}businessRuleTask"
+
 # ─────────────────────────────────────────────────────────────
 # Singleton serializer — stateless, safe to share across calls
 # ─────────────────────────────────────────────────────────────
@@ -43,6 +59,11 @@ def get_serializer() -> BpmnWorkflowSerializer:
 		# BpmnTaskSpecConverter handles it correctly.
 		patched_config = dict(DEFAULT_CONFIG)
 		patched_config[ServiceTask] = BpmnTaskSpecConverter
+
+		# Register BusinessRuleTask ↔ BaseBusinessRuleTaskConverter so the
+		# serializer can persist/restore DMN decision table data embedded in
+		# the spec by the BpmnDmnParser.
+		patched_config[SpiffBusinessRuleTask] = BaseBusinessRuleTaskConverter
 
 		registry = BpmnWorkflowSerializer.configure(config=patched_config)
 		_serializer = BpmnWorkflowSerializer(registry=registry)
@@ -280,7 +301,7 @@ def _make_script_engine(
 # ─────────────────────────────────────────────────────────────
 
 
-def parse_bpmn(bpmn_xml: str, process_id: str, dmn_xml: str = None) -> tuple:
+def parse_bpmn(bpmn_xml: str, process_id: str, dmn_xml_list: list = None) -> tuple:
 	"""
 	Parse a BPMN XML string into serialised spec dicts.
 
@@ -288,28 +309,48 @@ def parse_bpmn(bpmn_xml: str, process_id: str, dmn_xml: str = None) -> tuple:
 	Returns two plain dicts that are JSON-safe and ready to store in
 	BPMN Process Model.serialized_spec / subprocess_specs.
 
+	When the BPMN diagram contains Business Rule Tasks, the corresponding
+	DMN XML strings must be passed via ``dmn_xml_list`` so the parser can
+	build DMNEngine instances for each referenced decision table.
+
 	Args:
-	    bpmn_xml:   Raw BPMN 2.0 XML string (may contain <?xml …?> declaration)
-	    process_id: The <bpmn:process id="…"> value to use as the entry point
-	    dmn_xml:    Optional DMN XML string (reserved for future use)
+	    bpmn_xml:      Raw BPMN 2.0 XML string (may contain <?xml …?> declaration)
+	    process_id:    The <bpmn:process id="…"> value to use as the entry point
+	    dmn_xml_list:  Optional list of DMN XML strings. Each string is a
+	                   complete DMN 1.3 document whose <decision id="…"> must
+	                   match a calledDecisionId in the BPMN.
 
 	Returns:
 	    (spec_dict, sp_specs_dict)
 
 	Raises:
-	    ValidationException: if the BPMN XML is invalid
+	    ValidationException: if the BPMN or DMN XML is invalid
 	    frappe.ValidationError: if process_id not found
 	"""
-	parser = BpmnParser()
+	# Use BpmnDmnParser instead of plain BpmnParser — it extends the base
+	# parser with DMN loading/correlation and businessRuleTask support.
+	parser = BpmnDmnParser()
+
+	# Register the businessRuleTask parser+spec so SpiffWorkflow knows how
+	# to parse <bpmn:businessRuleTask> elements.  Uses the spiff variant
+	# because bpmn-js-spiffworkflow writes <spiffworkflow:calledDecisionId>.
+	parser.PARSER_CLASSES[_BRT_TAG] = (
+		SpiffBusinessRuleTaskParser,
+		SpiffBusinessRuleTask,
+	)
 
 	# lxml cannot parse a *string* that contains an encoding declaration,
 	# but it can parse *bytes*.  Using add_bpmn_io(BytesIO) is the safe path.
 	bpmn_bytes = bpmn_xml.strip().encode("utf-8")
 	parser.add_bpmn_io(io.BytesIO(bpmn_bytes), filename="diagram.bpmn")
 
-	if dmn_xml and dmn_xml.strip():
-		# DMN support hook — extend here when needed
-		pass
+	# Feed each DMN XML string into the parser.  The parser registers each
+	# DMN document by its <decision id="…"> attribute, which must match the
+	# calledDecisionId written in the BPMN's <spiffworkflow:calledDecisionId>.
+	for idx, dmn_xml in enumerate(dmn_xml_list or []):
+		dmn_str = dmn_xml.strip() if isinstance(dmn_xml, str) else ""
+		if dmn_str:
+			parser.add_dmn_str(dmn_str.encode("utf-8"), filename=f"decision_{idx}.dmn")
 
 	try:
 		spec = parser.get_spec(process_id)
@@ -487,6 +528,10 @@ def get_task_type_label(task) -> str:
 		return "Manual Task"
 	if isinstance(spec, SendTask):
 		return "Send Task"
+	if isinstance(spec, ReceiveTask):
+		return "Receive Task"
+	if isinstance(spec, SpiffBusinessRuleTask):
+		return "Business Rule Task"
 	if isinstance(spec, ExclusiveGateway):
 		return "Exclusive Gateway"
 	if isinstance(spec, ParallelGateway):

@@ -10,7 +10,6 @@ def get_context(context):
 		frappe.local.flags.redirect_location = "/login?redirect-to=/processa"
 		raise frappe.Redirect
 	
-	frappe.db.commit()
 	context.boot = get_boot()
 	return context
 

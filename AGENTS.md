@@ -15,7 +15,18 @@ Use this file as the first source of context before changing the app.
 
 ## Repository Layout
 
-- `one_bpmn/api.py`: whitelisted backend API surface for process diagrams, process lists, shape libraries, uploads, and diagram ordering.
+- `one_bpmn/api/`: whitelisted backend API surface, organized into domain-specific submodules:
+  - `process_map_api.py`: CRUD for BPMN Process Model and Process records (save, import, list, rename, delete)
+  - `compilation.py`: compile/deploy/disable process models, XML sanitization, timer validation
+  - `workflow_state.py`: apply workflow states and docstatus transitions for BPMN service tasks
+  - `instance_api.py`: process instance lifecycle (start, complete, cancel, list, task actions)
+  - `editability.py`: Pathfinder Log cross-site editability checks and editor lock heartbeats
+  - `server_script_api.py`: server script CRUD, Logix/ProSally AI integration
+  - `canvas_comments.py`: canvas comment and element asset management
+  - `notification_api.py`: in-app notification creation
+  - `version_history.py`: diagram XML version history
+  - `script_version_history.py`: server script version history and restore
+  - `utils.py`: shared helpers (role checks, field lookups, user search)
 - `one_bpmn/hooks.py`: Frappe app hooks, scheduler hooks, fixtures, app metadata, and asset registration.
 - `one_bpmn/tasks.py`: scheduled/background task helpers, especially timer-related BPMN handling.
 - `one_bpmn/one_bpmn/doctype/`: DocType controllers, JSON definitions, and tests for BPMN entities.
@@ -31,9 +42,6 @@ The app centres on these business objects:
 - `BPMN Process Model`: Stores BPMN XML, process metadata, serialized SpiffWorkflow specs, subprocess specs, version, active status, and links to a parent Process where applicable.
 - `BPMN Process Instance`: Represents a running or completed execution of a process model. Treat instance state as business-critical.
 - `BPMN Activity Log`: Records process execution activity and task transitions.
-- `BPMN Shape Library`: Groups reusable custom BPMN/editor shapes.
-- `BPMN Custom Shape`: Stores uploaded custom SVG shapes linked to a shape library.
-
 Expected process lifecycle:
 
 - `Draft`: Process definition is being prepared or edited.
@@ -64,7 +72,7 @@ Security rule: never modify the process execution engine, scheduler, timer handl
 
 ## API Patterns
 
-The primary API surface lives in `one_bpmn/api.py`. Before adding or changing an endpoint:
+The API surface lives in `one_bpmn/api/`, organized into domain-specific submodules. Before adding or changing an endpoint:
 
 - Search for existing `@frappe.whitelist()` functions.
 - Confirm the exact frontend caller in `spiff/src/`.
@@ -78,10 +86,17 @@ Common API groups:
 
 - Process model CRUD: save, fetch, list, import, delete, and version-related operations.
 - Process/diagram navigation: list processes, get diagrams by process, and update diagram order.
-- Shape library management: create/delete libraries and upload/delete custom shapes.
 - Runtime-related operations: task, signal, timer, or instance functions if present in the current branch.
 
 Always verify the current code before naming an endpoint. Documentation and tests must match actual whitelisted functions, not assumed Frappe conventions.
+
+API submodule boundaries:
+
+- `process_map_api`: diagram CRUD, import/export, rename, process listing
+- `compilation`: compile, deploy, disable, XML sanitization and validation
+- `workflow_state`: internal (not whitelisted) - called by the BPMN engine during service task execution
+- `instance_api`: instance start/complete/cancel, task actions, instance listing
+- `utils`: shared helpers consumed by other submodules and the frontend (user search, field lookups, role checks)
 
 ## Frontend Notes
 
@@ -90,7 +105,6 @@ The frontend is a Vue-based BPMN editor. Key areas:
 - `spiff/src/views/Home.vue`: process list and navigation into the editor.
 - `spiff/src/views/Editor.vue`: editor page for process diagrams.
 - `spiff/src/components/BpmnEditor.vue`: bpmn-js integration point.
-- `spiff/src/components/ShapeLibraryPanel.vue`: custom shape drag-and-drop.
 - `spiff/src/components/FormattingToolbar.vue`: visual formatting controls.
 - `spiff/src/router/`: route definitions for `/spiff` and process/diagram routes.
 

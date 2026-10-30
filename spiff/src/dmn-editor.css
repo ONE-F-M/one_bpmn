@@ -1,0 +1,303 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   DMN Editor — Processa Design System Overrides
+   Styles for dmn-js modeler, DRD canvas, and Decision Table views
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Container ─────────────────────────────────────────────────────── */
+.dmn-editor-root {
+	width: 100%;
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	position: relative;
+	background: #ffffff;
+}
+
+.dmn-editor-root .dmn-container {
+	flex: 1;
+	min-height: 0;
+	position: relative;
+}
+
+/* ── View Tabs (DRD / Decision Table switch) ──────────────────────── */
+.dmn-editor-root .dmn-definitions-bar {
+	background: #f9fafb;
+	border-bottom: 1px solid #e5e7eb;
+	padding: 0 8px;
+	display: flex;
+	align-items: stretch;
+	min-height: 40px;
+}
+
+.dmn-editor-root .dmn-definitions-bar .dmn-definitions-tabs {
+	display: flex;
+	align-items: stretch;
+	gap: 0;
+}
+
+.dmn-editor-root .dmn-definitions-bar .dmn-tab {
+	padding: 8px 16px;
+	font-size: 13px;
+	font-weight: 500;
+	color: #6b7280;
+	border-bottom: 2px solid transparent;
+	cursor: pointer;
+	transition: all 0.15s ease;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	white-space: nowrap;
+	background: transparent;
+	border-top: none;
+	border-left: none;
+	border-right: none;
+}
+
+.dmn-editor-root .dmn-definitions-bar .dmn-tab:hover {
+	color: #374151;
+	background: #f3f4f6;
+}
+
+.dmn-editor-root .dmn-definitions-bar .dmn-tab.active {
+	color: #1e40af;
+	border-bottom-color: #3b82f6;
+	font-weight: 600;
+}
+
+/* ── DRD Canvas ───────────────────────────────────────────────────── */
+.dmn-editor-root .dmn-drd-container {
+	background: #fafbfc;
+}
+
+.dmn-editor-root .dmn-drd-container .djs-palette {
+	background: #f8f9fa;
+	border-right: 1px solid #e5e7eb;
+	border-radius: 0;
+}
+
+.dmn-editor-root .dmn-drd-container .djs-palette .entry:hover {
+	background: #e5e7eb;
+}
+
+.dmn-editor-root .dmn-drd-container .djs-palette .separator {
+	border-top-color: #e5e7eb;
+}
+
+/* DRD Element Selection */
+.dmn-editor-root .djs-element.selected .djs-outline {
+	stroke: #3b82f6 !important;
+	stroke-width: 2px !important;
+}
+
+.dmn-editor-root .djs-element.hover .djs-outline {
+	stroke: #60a5fa !important;
+	stroke-width: 1.5px !important;
+}
+
+/* DRD Context Pad */
+.dmn-editor-root .djs-context-pad .entry:hover {
+	background: #3b82f6 !important;
+}
+
+.dmn-editor-root .djs-context-pad .entry:hover svg {
+	fill: white;
+}
+
+/* ── Decision Table ───────────────────────────────────────────────── */
+.dmn-editor-root .dmn-decision-table-container {
+	background: #ffffff;
+}
+
+/* Table header styling */
+.dmn-editor-root .tjs-table th,
+.dmn-editor-root .decision-table-container th {
+	background: #f9fafb;
+	color: #374151;
+	font-size: 12px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.025em;
+	border-bottom: 2px solid #e5e7eb;
+	padding: 10px 12px;
+}
+
+/* Input columns header */
+.dmn-editor-root .input-cell.header {
+	background: #eef2ff !important;
+	color: #4338ca;
+	border-right: 1px solid #c7d2fe;
+}
+
+/* Output columns header */
+.dmn-editor-root .output-cell.header {
+	background: #f0fdf4 !important;
+	color: #166534;
+	border-right: 1px solid #bbf7d0;
+}
+
+/* Table cells */
+.dmn-editor-root .tjs-table td,
+.dmn-editor-root .decision-table-container td {
+	font-size: 13px;
+	color: #374151;
+	padding: 8px 12px;
+	border-bottom: 1px solid #f3f4f6;
+	border-right: 1px solid #f3f4f6;
+	transition: background 0.1s ease;
+}
+
+.dmn-editor-root .tjs-table td:hover,
+.dmn-editor-root .decision-table-container td:hover {
+	background: #fafbff;
+}
+
+/* Cell editing */
+.dmn-editor-root .tjs-cell.focused,
+.dmn-editor-root .tjs-table td.focused {
+	outline: 2px solid #3b82f6 !important;
+	outline-offset: -1px;
+	background: #eff6ff;
+}
+
+/* Rule index column */
+.dmn-editor-root .tjs-table .rule-index,
+.dmn-editor-root .decision-table-container .index-column {
+	background: #f9fafb;
+	color: #9ca3af;
+	font-size: 11px;
+	font-weight: 600;
+	width: 40px;
+	text-align: center;
+	border-right: 1px solid #e5e7eb;
+}
+
+/* Add rule button */
+.dmn-editor-root .tjs-table .add-rule,
+.dmn-editor-root .decision-table-container .add-rule {
+	background: transparent;
+	border: 1px dashed #d1d5db;
+	color: #9ca3af;
+	font-size: 12px;
+	padding: 6px 12px;
+	cursor: pointer;
+	transition: all 0.15s ease;
+}
+
+.dmn-editor-root .tjs-table .add-rule:hover,
+.dmn-editor-root .decision-table-container .add-rule:hover {
+	background: #f0f9ff;
+	border-color: #93c5fd;
+	color: #3b82f6;
+}
+
+/* ── Literal Expression ───────────────────────────────────────────── */
+.dmn-editor-root .dmn-literal-expression-container textarea,
+.dmn-editor-root .dmn-literal-expression-container input {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	font-size: 13px;
+	color: #374151;
+	background: #f9fafb;
+	border: 1px solid #e5e7eb;
+	border-radius: 6px;
+	padding: 12px;
+}
+
+.dmn-editor-root .dmn-literal-expression-container textarea:focus,
+.dmn-editor-root .dmn-literal-expression-container input:focus {
+	outline: none;
+	border-color: #3b82f6;
+	box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* ── Properties Panel (if used) ───────────────────────────────────── */
+.dmn-editor-root .dmn-properties-panel {
+	border-left: 1px solid #e5e7eb;
+	background: #fafbfc;
+}
+
+/* ── Toolbar / Action Bar ─────────────────────────────────────────── */
+.dmn-editor-root .dmn-toolbar {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 8px 12px;
+	background: #ffffff;
+	border-bottom: 1px solid #e5e7eb;
+}
+
+.dmn-editor-root .dmn-toolbar button {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 6px 8px;
+	font-size: 12px;
+	font-weight: 500;
+	color: #374151;
+	background: #f3f4f6;
+	border: 1px solid #d1d5db;
+	border-radius: 6px;
+	cursor: pointer;
+	transition: all 0.15s ease;
+}
+
+.dmn-editor-root .dmn-toolbar button:hover {
+	background: #e5e7eb;
+	border-color: #9ca3af;
+}
+
+/* ── Status Bar ───────────────────────────────────────────────────── */
+.dmn-save-status {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 12px;
+	font-size: 12px;
+	font-weight: 500;
+	transition: color 0.3s ease;
+}
+
+.dmn-save-status.saving {
+	color: #d97706;
+}
+
+.dmn-save-status.saved {
+	color: #059669;
+}
+
+.dmn-save-status.error {
+	color: #dc2626;
+}
+
+/* ── Responsive: dialog body override ─────────────────────────────── */
+.dmn-dialog-body {
+	height: 70vh;
+	min-height: 500px;
+	display: flex;
+	flex-direction: column;
+	padding: 0 !important;
+	overflow: hidden;
+}
+
+/* ── Boxed Expression View ────────────────────────────────────────── */
+.dmn-editor-root .dmn-boxed-expression-container {
+	background: #ffffff;
+}
+
+/* ── Override dmn-js default scrollbar styling ────────────────────── */
+.dmn-editor-root ::-webkit-scrollbar {
+	width: 6px;
+	height: 6px;
+}
+
+.dmn-editor-root ::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.dmn-editor-root ::-webkit-scrollbar-thumb {
+	background: #d1d5db;
+	border-radius: 3px;
+}
+
+.dmn-editor-root ::-webkit-scrollbar-thumb:hover {
+	background: #9ca3af;
+}

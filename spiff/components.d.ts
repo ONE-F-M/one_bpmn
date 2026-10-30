@@ -12,6 +12,7 @@ declare module 'vue' {
     BpmnEditor: typeof import('./src/components/BpmnEditor.vue')['default']
     CallActivitySearchDialog: typeof import('./src/components/CallActivitySearchDialog.vue')['default']
     DiffViewer: typeof import('./src/components/DiffViewer.vue')['default']
+    DmnEditor: typeof import('./src/components/DmnEditor.vue')['default']
     EditorSidebar: typeof import('./src/components/EditorSidebar.vue')['default']
     EditorTabs: typeof import('./src/components/EditorTabs.vue')['default']
     ElementInspector: typeof import('./src/components/process_instance/ElementInspector.vue')['default']
@@ -26,7 +27,6 @@ declare module 'vue' {
     ReadinessChecklistDialog: typeof import('./src/components/ReadinessChecklistDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
-    ShapeLibraryPanel: typeof import('./src/components/ShapeLibraryPanel.vue')['default']
     VersionDiffDialog: typeof import('./src/components/VersionDiffDialog.vue')['default']
   }
 }

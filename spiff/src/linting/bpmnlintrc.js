@@ -39,6 +39,9 @@ import subProcessBlankStartEvent from "bpmnlint/rules/sub-process-blank-start-ev
 import superfluousGateway from "bpmnlint/rules/superfluous-gateway";
 import superfluousTermination from "bpmnlint/rules/superfluous-termination";
 
+// --- Custom OneFM rules ---
+import noProhibitedShapes from "@/linting/rules/no-prohibited-shapes.js";
+
 /**
  * Map rule names → rule factory functions.
  * The resolver uses this to look up rules by name at runtime.
@@ -69,6 +72,9 @@ const ruleMapping = {
 	"bpmnlint/sub-process-blank-start-event": subProcessBlankStartEvent,
 	"bpmnlint/superfluous-gateway": superfluousGateway,
 	"bpmnlint/superfluous-termination": superfluousTermination,
+
+	// Custom OneFM rules
+	"custom/no-prohibited-shapes": noProhibitedShapes,
 };
 
 const config = {
@@ -107,12 +113,16 @@ const config = {
 		"bpmnlint/link-event": "warn",
 		"bpmnlint/single-event-definition": "warn",
 		"bpmnlint/superfluous-termination": "warn",
+
+		// OneFM custom rules — prohibited shapes (executable processes only)
+		"custom/no-prohibited-shapes": "error",
 	},
 };
 
 const resolver = {
 	resolveRule(pkg, name) {
 		// bpmnlint resolves rules as resolveRule('bpmnlint', 'rule-name')
+		// Custom rules use the 'custom' package prefix.
 		const key = pkg + "/" + name;
 		return ruleMapping[key] || null;
 	},

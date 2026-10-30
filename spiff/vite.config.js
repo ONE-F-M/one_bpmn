@@ -31,11 +31,15 @@ export default defineConfig({
 		// crashing with "Cannot read properties of undefined (reading '__H')".
 		// Deduplicating @bpmn-io/properties-panel forces a single copy (and
 		// therefore a single bundled Preact) across the entire build.
+		// dmn-js shares diagram-js with bpmn-js — dedupe to avoid dual instances.
 		dedupe: [
 			"@bpmn-io/properties-panel",
 			"preact",
 			"preact/hooks",
 			"preact/compat",
+			"diagram-js",
+			"dmn-js-shared",
+			"inferno",
 		],
 	},
 	optimizeDeps: {
@@ -43,6 +47,7 @@ export default defineConfig({
 			"feather-icons",
 			"bpmnlint",
 			"bpmnlint-utils",
+			"dmn-js/lib/Modeler",
 		],
 	},
 	build: {
