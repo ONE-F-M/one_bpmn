@@ -33,8 +33,7 @@
 			class="h-[32rem] w-full rounded border border-outline-gray-2 bg-surface-white"
 		/>
 		<p class="text-p-sm text-ink-gray-5">
-			The preview shows the draft in the editor, not what is saved. No buttons: an Email Notification has no task
-			to complete, so readers act in ERPNext.
+			{{ note }}
 		</p>
 	</div>
 </template>
@@ -46,5 +45,10 @@ defineProps({
 	// { html, subject, message, error, docname } from preview_notification
 	preview: { type: Object, required: true },
 	loading: { type: Boolean, default: false },
+	note: {
+		type: String,
+		default:
+			"The preview shows the draft in the editor, not what is saved. No buttons: an Email Notification has no task to complete, so readers act in ERPNext.",
+	},
 });
 </script>

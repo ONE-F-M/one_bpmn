@@ -34,75 +34,85 @@
 					</span>
 				</div>
 
-				<Tabs
-					:key="tabs.length"
-					v-model="activeTab"
-					:tabs="tabs"
-				>
-					<template #tab-item="{ tab, selected }">
-						<button
-							class="py-2 text-sm font-medium whitespace-nowrap border-b-2"
-							:class="selected ? 'text-gray-900 border-gray-900' : 'text-gray-500 border-transparent hover:text-gray-700'"
+				<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+					<div class="min-w-0">
+						<Tabs
+							:key="tabs.length"
+							v-model="activeTab"
+							:tabs="tabs"
 						>
-							{{ tab.label }}
-						</button>
-					</template>
-					<template #tab-panel="{ tab }">
-						<div class="px-1 pt-4">
-							<NotifyContentTab
-								v-if="tab.key === 'content'"
-								v-model:layout="values.notifyLayout"
-								v-model:subject="values.notifyAssigneeSubject"
-								v-model:subject-ar="values.notifySubjectAr"
-								v-model:question-en="values.notifyQuestionEn"
-								v-model:question-ar="values.notifyQuestionAr"
-								v-model:arabic-edited="values.notifyArabicEdited"
-								:html-mode="useHtml"
-								:process-model="processModel"
-								:doctype="doctype"
-								:task-name="taskName"
-								:email-thread="thread"
-							/>
-							<NotifyFieldsTab
-								v-if="tab.key === 'fields'"
-								v-model:facts="values.notifyFacts"
-								v-model:details="values.notifyDetails"
-								v-model:attachments="values.notifyAttachments"
-								:doctype="doctype"
-								:layout="values.notifyLayout"
-							/>
-							<NotifyActionsTab
-								v-if="tab.key === 'actions'"
-								v-model:actions="actionsModel"
-								v-model:hours="values.notifyTokenHours"
-								:task-actions="taskActions"
-								:doctype="doctype"
-								:process-model="processModel"
-							/>
-							<NotifyConversationTab
-								v-if="tab.key === 'conv'"
-								v-model:conversation="values.notifyConversation"
-								:doctype="doctype"
-							/>
-							<NotifyTemplateTab
-								v-if="tab.key === 'html'"
-								v-model:use-html="useHtml"
-								v-model:template="values.notifyAssigneeTemplate"
-								v-model:body="values.notifyAssigneeBody"
-								v-model:subject="values.notifyAssigneeSubject"
-							/>
-						</div>
-					</template>
-				</Tabs>
+							<template #tab-item="{ tab, selected }">
+								<button
+									class="py-2 text-sm font-medium whitespace-nowrap border-b-2"
+									:class="selected ? 'text-gray-900 border-gray-900' : 'text-gray-500 border-transparent hover:text-gray-700'"
+								>
+									{{ tab.label }}
+								</button>
+							</template>
+							<template #tab-panel="{ tab }">
+								<div class="px-1 pt-4">
+									<NotifyContentTab
+										v-if="tab.key === 'content'"
+										v-model:layout="values.notifyLayout"
+										v-model:subject="values.notifyAssigneeSubject"
+										v-model:subject-ar="values.notifySubjectAr"
+										v-model:question-en="values.notifyQuestionEn"
+										v-model:question-ar="values.notifyQuestionAr"
+										v-model:arabic-edited="values.notifyArabicEdited"
+										:html-mode="useHtml"
+										:process-model="processModel"
+										:doctype="doctype"
+										:task-name="taskName"
+										:email-thread="thread"
+									/>
+									<NotifyFieldsTab
+										v-if="tab.key === 'fields'"
+										v-model:facts="values.notifyFacts"
+										v-model:details="values.notifyDetails"
+										v-model:attachments="values.notifyAttachments"
+										:doctype="doctype"
+										:layout="values.notifyLayout"
+									/>
+									<NotifyActionsTab
+										v-if="tab.key === 'actions'"
+										v-model:actions="actionsModel"
+										v-model:hours="values.notifyTokenHours"
+										:task-actions="taskActions"
+										:doctype="doctype"
+										:process-model="processModel"
+									/>
+									<NotifyConversationTab
+										v-if="tab.key === 'conv'"
+										v-model:conversation="values.notifyConversation"
+										:doctype="doctype"
+									/>
+									<NotifyTemplateTab
+										v-if="tab.key === 'html'"
+										v-model:use-html="useHtml"
+										v-model:template="values.notifyAssigneeTemplate"
+										v-model:body="values.notifyAssigneeBody"
+										v-model:subject="values.notifyAssigneeSubject"
+									/>
+								</div>
+							</template>
+						</Tabs>
+					</div>
+					<EmailPreviewPanel
+						:preview="preview"
+						:loading="previewLoading"
+						note="The task email for the latest record, as saved. Buttons are links here; the email the assignee gets has working buttons."
+					/>
+				</div>
 			</div>
 		</template>
 	</Dialog>
 </template>
 
 <script setup>
-import { ref, reactive, watch, computed } from "vue";
+import { ref, reactive, watch, computed, toRef } from "vue";
 import { Dialog, Tabs } from "frappe-ui";
 import { Icon } from "@iconify/vue";
+import EmailPreviewPanel from "@/components/EmailPreviewPanel.vue";
 import NotifyContentTab from "@/components/NotifyContentTab.vue";
 import NotifyActionsTab from "@/components/NotifyActionsTab.vue";
 import NotifyFieldsTab from "@/components/NotifyFieldsTab.vue";
@@ -112,6 +122,7 @@ import { NOTIFY_EDITOR_ATTRS, isHtmlMode } from "@/bpmn/shared/notifyAssigneeAtt
 import { mergeNotifyActions, serializeNotifyActions } from "@/bpmn/shared/notifyActions";
 import { fieldsTabCount, parseFieldList } from "@/bpmn/shared/notifyFields";
 import { useDoctypeEmailThread } from "@/composables/useDoctypeEmailThread";
+import { useEmailPreview } from "@/composables/useEmailPreview";
 
 const props = defineProps({
 	modelValue: { type: Boolean, default: false },
@@ -136,6 +147,16 @@ const open = computed({
 const values = reactive(Object.fromEntries(NOTIFY_EDITOR_ATTRS.map((name) => [name, ""])));
 const activeTab = ref(0);
 const { thread, load: loadThread } = useDoctypeEmailThread();
+const { preview, loading: previewLoading } = useEmailPreview({
+	values,
+	open,
+	processModel: toRef(props, "processModel"),
+	request: () => ({
+		element_type: "userTask",
+		doctype: props.doctype,
+		settings: JSON.stringify({ ...values, taskName: props.taskName, taskActions: JSON.stringify(props.taskActions) }),
+	}),
+});
 let lastLayout = "card";
 
 const useHtml = computed({
