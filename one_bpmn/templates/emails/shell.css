@@ -51,6 +51,30 @@ a{color:#0475d3;text-decoration:none}
 .chip{display:inline-block;padding:9px 14px;border:1px solid #e2e2e2;border-radius:999px;background:#ffffff;font-size:14px;cursor:pointer;outline:none}
 .chip[selected]{background:#171717;border-color:#171717;color:#ffffff;outline:none}
 .reason textarea{display:block;box-sizing:border-box;width:100%;margin-bottom:10px;padding:10px 12px;border:1px solid #e2e2e2;border-radius:10px;font-family:Arial, Helvetica, sans-serif;font-size:14.5px}
+button.chip{font-family:Arial, Helvetica, sans-serif;color:#171717}
+.chip.solid{background:#171717;border-color:#171717;color:#ffffff}
+.thread{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
+.thread-list > div{display:flex;flex-direction:column;gap:10px}
+.thread-list > [overflow]{position:absolute;right:0;bottom:0;left:0}
+.msg{display:flex;flex-direction:column;gap:3px;box-sizing:border-box;max-width:84%;padding:10px 13px;border-radius:18px;font-size:14px;line-height:1.45;overflow-wrap:anywhere}
+.msg.them{align-self:flex-start;background:#ffffff;border:1px solid #e2e2e2;border-top-left-radius:6px}
+.msg.sys{align-self:flex-start;background:#f3f3f3;border-top-left-radius:6px}
+.msg.me{align-self:flex-end;background:#171717;color:#ffffff;border-bottom-right-radius:6px}
+.msg.note{background:#fff8e6;color:#171717;border:1px solid #f1dfb4}
+.msg.err{align-self:flex-start;background:#fff5f5;color:#941f1f}
+[dir=rtl] .msg.them,[dir=rtl] .msg.sys{border-top-left-radius:18px;border-top-right-radius:6px}
+[dir=rtl] .msg.me{border-bottom-right-radius:18px;border-bottom-left-radius:6px}
+.mname{font-size:12.5px;font-weight:700}
+.ntag{align-self:flex-start;padding:1px 8px;border-radius:999px;background:#fdf1d6;color:#7a4700;font-size:11.5px;font-weight:500}
+.mtext{white-space:pre-line}
+.mtime{font-size:11.5px;color:#7c7c7c}
+.msg.me .mtime{color:#c9ccd0}
+.msg.me.note .mtime{color:#7c7c7c}
+.cardmsg b{font-weight:500}
+.qr-lbl{display:block;margin-bottom:6px;font-size:13px;color:#525252}
+.quick .chips{margin-bottom:10px}
+.sumline{margin:0;font-size:13px;color:#525252;text-align:center}
+@media (min-width:700px){.msg{max-width:70%}}
 .prog{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:14px}
 .seg{height:6px;border:0;border-radius:3px;padding:0;background:#e2e2e2;cursor:pointer}
 .seg.on{background:#171717}

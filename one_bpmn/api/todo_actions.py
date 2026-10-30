@@ -580,22 +580,27 @@ def get_amp_thread(token: str = "") -> dict:
 	if error:
 		return error
 
+	return {"items": thread_items(ctx.doctype, ctx.docname, ctx.conv, payload["user"])}
+
+
+def thread_items(doctype: str, docname: str, conv: dict, user: str) -> list[dict]:
+	"""The latest Communications and, with internal notes on, Comments, oldest first; is_mine marks user's own."""
 	entries = []
 	comms = frappe.get_all(
 		"Communication",
 		filters={
-			"reference_doctype": ctx.doctype,
-			"reference_name": ctx.docname,
+			"reference_doctype": doctype,
+			"reference_name": docname,
 			"communication_type": "Communication",
 		},
-		fields=["name", "sender", "sender_full_name", "content", "creation"],
+		fields=["name", "sender", "sender_full_name", "owner", "content", "creation"],
 		order_by="creation desc",
 		limit=_THREAD_LIMIT,
 	)
-	entries += [(row.creation, _communication_item(row)) for row in comms]
+	entries += [(row, _communication_item(row)) for row in comms]
 
-	if _truthy(ctx.conv.get("internalNotes")):
-		comment_dt, filters, author_field = _comment_source(ctx.doctype, ctx.docname)
+	if _truthy(conv.get("internalNotes")):
+		comment_dt, filters, author_field = _comment_source(doctype, docname)
 		notes = frappe.get_all(
 			comment_dt,
 			filters=filters,
@@ -603,10 +608,10 @@ def get_amp_thread(token: str = "") -> dict:
 			order_by="creation desc",
 			limit=_THREAD_LIMIT,
 		)
-		entries += [(row.creation, _note_item(row, author_field)) for row in notes]
+		entries += [(row, _note_item(row, author_field)) for row in notes]
 
-	entries.sort(key=lambda entry: str(entry[0]))
-	return {"items": [item for _created, item in entries]}
+	entries.sort(key=lambda entry: str(entry[0].creation))
+	return [{**item, "is_mine": row.owner == user} for row, item in entries]
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST", "OPTIONS"])

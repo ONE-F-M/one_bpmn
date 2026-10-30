@@ -1,6 +1,7 @@
 {% autoescape true %}<style>{% include "one_bpmn/templates/emails/shell.css" %}</style>
 <div class="em">
 {% for lang in langs %}<div lang="{{ lang }}" dir="{{ 'rtl' if lang == 'ar' else 'ltr' }}">
+{% if head_template %}{% include head_template %}{% endif %}
 {% include layout_template %}
 {% include "one_bpmn/templates/emails/partials/footer.html" %}
 </div>

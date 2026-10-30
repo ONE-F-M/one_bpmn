@@ -25,3 +25,15 @@ Step {0} of 3,الخطوة {0} من 3
 Back,السابق
 Next,التالي
 Tap Next,اضغط التالي
+Helpdesk,مكتب المساعدة
+Ticket {0},التذكرة {0}
+Saved replies,ردود جاهزة
+Internal note,ملاحظة داخلية
+Reply sent,تم إرسال الرد
+Note added,تمت إضافة الملاحظة
+Write a reply,اكتب رداً
+Write a note,اكتب ملاحظة
+Replies from this email have expired.,انتهت مدة الرد من هذه الرسالة.
+Open ticket in Helpdesk,فتح التذكرة في مكتب المساعدة
+Not sent. Nothing changed in ERPNext. Try again.,لم يتم الإرسال. لم يتغير شيء في ERPNext. حاول مرة أخرى.
+Show newer messages,عرض الرسائل الأحدث
