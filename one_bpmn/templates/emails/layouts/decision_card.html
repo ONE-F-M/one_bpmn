@@ -1,0 +1,30 @@
+{% autoescape true %}{% from "one_bpmn/templates/emails/partials/status.html" import hideable, action_block with context %}
+{% if is_amp %}<div class="receipt" hidden [hidden]="!ui.done" [class]="'receipt st-' + ui.result.state_style">
+  <span class="rico"></span>
+  <p class="rt" [text]="ui.result.state_label.{{ lang }} || ui.result.action"></p>
+  <p class="rd" [text]="ui.result.receipt.{{ lang }}"></p>
+  <p class="rtime" [text]="ui.result.completed_at"></p>
+</div>{% endif %}
+<div{% if is_amp %} [hidden]="ui.done"{% endif %}>
+{% call hideable() %}<p class="kick">{{ kick[lang] }}</p>
+<h3 class="hero">{{ question[lang] }}</h3>
+{% include "one_bpmn/templates/emails/partials/facts.html" %}
+{% include "one_bpmn/templates/emails/partials/details.html" %}{% endcall %}
+{% call action_block() %}{% if is_amp %}<form method="post" action-xhr="{{ action_endpoint }}" on="submit-success:AMP.setState({ui: {done: true, result: event.response}})">
+  <div class="acts">
+    {% for a in actions %}{% set cls = (a.style or "") if a.primary else "subtle" %}
+    {% if a.sign %}<a class="btn {{ cls }}" href="{{ a.url }}" target="_blank">{{ a.label[lang] }}</a>
+    {% elif a.confirm %}<button type="button" class="btn {{ cls }}" on="tap:AMP.setState({ui: {armed: '{{ a.key }}'}})">{{ a.label[lang] }}</button>
+    {% else %}<button type="submit" name="token" value="{{ a.token }}" class="btn {{ cls }}">{{ a.label[lang] }}</button>
+    {% endif %}{% endfor %}
+  </div>
+  {% for a in actions if a.confirm and not a.sign %}<div class="armed" hidden [hidden]="ui.armed != '{{ a.key }}'">
+    <button type="submit" name="token" value="{{ a.token }}" class="btn {{ a.style }}">{{ _("Tap again to confirm", lang=lang) }}</button>
+    <button type="button" class="btn subtle" on="tap:AMP.setState({ui: {armed: ''}})">{{ _("Cancel", lang=lang) }}</button>
+  </div>{% endfor %}
+  <div submit-error><div class="err"><b>{{ _("Not saved.", lang=lang) }}</b> {{ _("Nothing changed in ERPNext. Try again.", lang=lang) }}</div></div>
+</form>{% else %}<div class="acts">
+  {% for a in actions %}<a class="btn {{ (a.style or '') if a.primary else 'subtle' }}" href="{{ open_link }}" target="_blank">{{ a.label[lang] }}</a>
+  {% endfor %}
+</div>{% endif %}{% endcall %}
+</div>{% endautoescape %}

@@ -25,6 +25,7 @@ Both paths reuse:
 from __future__ import annotations
 
 import json
+import re
 
 import frappe
 from frappe import _
@@ -55,6 +56,10 @@ def compose_and_send_task_email(
 		task_cfg = getattr(instance, "_user_task_extensions", {}).get(bpmn_id, {})
 
 	if task_cfg.get("notifyAssignee") != "true":
+		return
+
+	if _sends_decision_card(task_cfg):
+		_send_decision_card(instance, user, task_name, task_id, bpmn_id, task_cfg)
 		return
 
 	# ── Resolve context document ──────────────────────────────────────
@@ -360,3 +365,214 @@ def _send_email(
 		)
 	finally:
 		frappe.flags.amp_html = None
+
+
+# ---------------------------------------------------------------------------
+# Decision card layout
+# ---------------------------------------------------------------------------
+
+DEFAULT_TOKEN_HOURS = 72
+MAX_TOKEN_HOURS = 720
+ACTION_ENDPOINT = "/api/method/one_bpmn.api.todo_actions.handle_amp_action"
+_ACTION_CONDITION_RE = re.compile(r"""action\s*==\s*["']([^"']+)["']""")
+
+
+def _sends_decision_card(task_cfg: dict) -> bool:
+	"""Layout "card", or no layout on a task that has no body and no template."""
+	layout = task_cfg.get("notifyLayout") or ""
+	if layout:
+		return layout == "card"
+	has_body = task_cfg.get("notifyAssigneeBody") or task_cfg.get("notifyBody")
+	has_template = task_cfg.get("notifyAssigneeTemplate") or task_cfg.get("notifyTemplate")
+	return not has_body and not has_template
+
+
+def _send_decision_card(
+	instance, user: str, task_name: str, task_id: str, bpmn_id: str, task_cfg: dict
+) -> None:
+	from one_bpmn.email_builder.renderer import render_layout_amp, render_layout_html
+
+	ctx = _build_layout_context(instance, user, task_name, task_id, bpmn_id, task_cfg)
+	_send_email(
+		recipients=[user],
+		subject=ctx["subject_line"],
+		html_body=render_layout_html(ctx),
+		amp_html=render_layout_amp(ctx),
+		sender_account=task_cfg.get("notifyAssigneeAccount") or task_cfg.get("emailAccount", ""),
+		reference_doctype=instance.context_doctype or instance.doctype,
+		reference_name=instance.context_docname or instance.name,
+	)
+
+
+def _build_layout_context(
+	instance, user: str, task_name: str, task_id: str, bpmn_id: str, task_cfg: dict
+) -> dict:
+	"""Everything decision_card.html reads, in both languages."""
+	from one_bpmn.email_builder.fields import (
+		build_attachment_links,
+		build_field_rows,
+		build_kick,
+		default_fact_fields,
+	)
+	from one_bpmn.utils.token import generate_status_token
+
+	doc = _get_context_doc(instance)
+	jinja_ctx = _jinja_context(doc, instance)
+	hours = _token_hours(task_cfg.get("notifyTokenHours"))
+	doctype = instance.context_doctype or ""
+
+	subject_en = _render_template(task_cfg.get("notifyAssigneeSubject", ""), jinja_ctx) or task_name
+	subject_ar = _render_template(task_cfg.get("notifySubjectAr", ""), jinja_ctx)
+	question_en = _render_template(task_cfg.get("notifyQuestionEn", ""), jinja_ctx) or task_name
+	question_ar = _render_template(task_cfg.get("notifyQuestionAr", ""), jinja_ctx) or _arabic(task_name)
+
+	has_doc = bool(getattr(doc, "meta", None))
+	facts = json.loads(task_cfg.get("notifyFacts") or "[]") or (
+		default_fact_fields(doctype) if has_doc else []
+	)
+	details = json.loads(task_cfg.get("notifyDetails") or "[]")
+	attachments = []
+	if has_doc and task_cfg.get("notifyAttachments") == "true":
+		attachments = [{"name": a["file_name"], "url": a["url"]} for a in build_attachment_links(doc, hours)]
+
+	status_token = generate_status_token(instance.name, task_id, expiry_hours=hours, user=user)
+	site_url = frappe.utils.get_url()
+	open_link = _build_open_link(instance)
+	return {
+		"layout": "decision_card",
+		"subject_line": f"{subject_en} || {subject_ar}" if subject_ar else subject_en,
+		"kick": build_kick(doctype or instance.doctype, task_name),
+		"question": {"en": question_en, "ar": question_ar},
+		"facts": build_field_rows(doc, facts) if has_doc else [],
+		"details": build_field_rows(doc, details) if has_doc else [],
+		"attachments": attachments,
+		"status_url": f"{site_url}/api/method/one_bpmn.api.todo_actions.get_amp_task_status?status_token={status_token}",
+		"open_link": open_link,
+		"action_endpoint": f"{site_url}{ACTION_ENDPOINT}",
+		"actions": _build_layout_actions(instance, user, task_id, bpmn_id, task_cfg, hours, open_link),
+	}
+
+
+def _build_layout_actions(
+	instance, user: str, task_id: str, bpmn_id: str, task_cfg: dict, hours: int, open_link: str
+) -> list[dict]:
+	"""Task Actions in order: labels in both languages, primary, confirm, sign, the state each leads to, a token."""
+	from one_bpmn.utils.token import generate_action_token
+
+	try:
+		task_actions = json.loads(task_cfg.get("taskActions") or "[]")
+	except ValueError:
+		task_actions = [
+			{"action": a.strip()} for a in task_cfg.get("taskActions", "").split(",") if a.strip()
+		]
+	settings = json.loads(task_cfg.get("notifyActions") or "{}")
+	names = [a.get("action") for a in task_actions if a.get("action")]
+	primary = next((n for n in names if settings.get(n, {}).get("primary")), names[0] if names else "")
+	states = _action_states(instance, bpmn_id, names)
+
+	actions = []
+	for act in task_actions:
+		name = act.get("action")
+		if not name:
+			continue
+		sign = act.get("requireDigitalSignature") == "true"
+		state, style = states.get(name, ("", ""))
+		actions.append(
+			{
+				"key": frappe.scrub(name),
+				"label": {"en": name, "ar": _arabic(name)},
+				"primary": name == primary,
+				"confirm": act.get("confirmTransition") == "true",
+				"sign": sign,
+				"state": state,
+				"style": style,
+				"url": open_link if sign else "",
+				"token": ""
+				if sign
+				else generate_action_token(instance.name, task_id, name, user, expiry_hours=hours),
+			}
+		)
+	return actions
+
+
+def _action_states(instance, bpmn_id: str, action_names: list[str]) -> dict:
+	"""{action: (workflow state, Workflow State style)} for actions whose branch reaches an Apply Workflow task.
+
+	Reads the gateway right after the user task: a branch with condition action == "Name",
+	else the gateway's default branch, followed to the first apply_workflow service task.
+	"""
+	import xml.etree.ElementTree as ET
+
+	model = (
+		frappe.db.get_value("BPMN Process Instance", instance.name, "process_model")
+		if instance.name
+		else None
+	)
+	xml = frappe.db.get_value("BPMN Process Model", model, "bpmn_xml") if model else None
+	if not xml:
+		return {}
+
+	elements = {el.get("id"): el for el in ET.fromstring(xml).iter() if el.get("id")}
+	flows = [el for el in elements.values() if el.tag.endswith("sequenceFlow")]
+
+	def outgoing(node_id):
+		return [f for f in flows if f.get("sourceRef") == node_id]
+
+	after_task = outgoing(bpmn_id)
+	if len(after_task) != 1:
+		return {}
+	gateway = elements.get(after_task[0].get("targetRef"))
+	if gateway is None or not gateway.tag.endswith("Gateway"):
+		return {}
+
+	branches = {}
+	for flow in outgoing(gateway.get("id")):
+		condition = next((c.text or "" for c in flow if c.tag.endswith("conditionExpression")), "")
+		match = _ACTION_CONDITION_RE.search(condition)
+		if match:
+			branches[match.group(1)] = flow.get("targetRef")
+	default_target = (
+		elements.get(gateway.get("default"), {}).get("targetRef") if gateway.get("default") else None
+	)
+
+	states = {}
+	for name in action_names:
+		state = _first_workflow_state(elements, outgoing, branches.get(name) or default_target)
+		if state:
+			states[name] = (state, frappe.db.get_value("Workflow State", state, "style") or "")
+	return states
+
+
+def _first_workflow_state(elements: dict, outgoing, node_id: str | None, steps: int = 10) -> str:
+	"""Follow single-path nodes from node_id to the first apply_workflow service task's workflowState."""
+	for _step in range(steps):
+		node = elements.get(node_id)
+		if node is None:
+			return ""
+		if node.tag.endswith("serviceTask"):
+			attrs = {key.split("}")[-1]: value for key, value in node.attrib.items()}
+			if attrs.get("serviceType") == "apply_workflow":
+				return attrs.get("workflowState", "")
+		next_flows = outgoing(node_id)
+		if len(next_flows) != 1 or node.tag.endswith(("userTask", "Gateway")):
+			return ""
+		node_id = next_flows[0].get("targetRef")
+	return ""
+
+
+def _token_hours(raw) -> int:
+	hours = frappe.utils.cint(raw)
+	return hours if 1 <= hours <= MAX_TOKEN_HOURS else DEFAULT_TOKEN_HOURS
+
+
+def _arabic(text: str) -> str:
+	"""Frappe's Arabic for text, else the cached machine translation, else text."""
+	from one_bpmn.utils.translation import TranslationError, translate_cached
+
+	translated = _(text, lang="ar")
+	if translated != text:
+		return translated
+	try:
+		return translate_cached(text)
+	except TranslationError:
+		return text
