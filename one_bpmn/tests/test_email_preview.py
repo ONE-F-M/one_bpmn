@@ -114,6 +114,67 @@ class TestEmailPreview(FrappeTestCase):
 			with self.assertRaises(frappe.PermissionError):
 				preview_notification("", "send_email", "ToDo", json.dumps(NOTICE))
 
-	def test_other_element_types_are_not_previewed_yet(self):
+	def test_other_element_types_are_not_previewed(self):
 		with self.assertRaises(frappe.ValidationError):
-			preview_notification("", "userTask", "ToDo", json.dumps(NOTICE))
+			preview_notification("", "startEvent", "ToDo", json.dumps(NOTICE))
+
+
+TASK_ACTIONS = json.dumps([{"action": "Approve"}, {"action": "Reject", "confirmTransition": "true"}])
+
+
+class TestTaskEmailPreview(FrappeTestCase):
+	def setUp(self):
+		clear_cache()
+		self.todo = frappe.get_doc(
+			{"doctype": "ToDo", "description": "Fix the gate", "allocated_to": "Administrator"}
+		).insert()
+
+	def _preview(self, cfg):
+		settings = {"taskName": "Review", "taskActions": TASK_ACTIONS, **cfg}
+		with patch("one_bpmn.utils.translation.translate_cached", side_effect=lambda text: text):
+			return preview_notification("", "userTask", "ToDo", json.dumps(settings))
+
+	def test_the_card_is_rendered_for_the_latest_record_with_links_and_no_token(self):
+		with (
+			patch("one_bpmn.utils.token.generate_action_token") as action_token,
+			patch("one_bpmn.utils.token.generate_status_token") as status_token,
+			patch("one_bpmn.email_builder.fields.generate_file_token") as file_token,
+			patch.object(frappe, "sendmail") as sendmail,
+		):
+			result = self._preview(
+				{
+					"notifyLayout": "card",
+					"notifyAssigneeSubject": "Review {{ doc.name }}",
+					"notifyQuestionEn": "Close {{ doc.description }}?",
+					"notifyFacts": json.dumps(["description"]),
+					"notifyAttachments": "true",
+				}
+			)
+
+		self.assertEqual(result["docname"], self.todo.name)
+		self.assertEqual(result["subject"], f"Review {self.todo.name}")
+		html = result["html"]
+		self.assertIn("Close Fix the gate?", html)
+		self.assertIn('class="facts"', html)
+		self.assertIn(
+			f'href="{frappe.utils.get_url()}/app/todo/{self.todo.name}" target="_blank">Approve</a>', html
+		)
+		self.assertNotIn("<button", html)
+		self.assertNotIn("token=", html)
+		for mock in (action_token, status_token, file_token, sendmail):
+			mock.assert_not_called()
+
+	def test_html_mode_renders_todays_body_with_the_actions_as_links(self):
+		result = self._preview(
+			{
+				"notifyLayout": "html",
+				"notifyAssigneeSubject": "Review {{ doc.name }}",
+				"notifyAssigneeBody": "<p>Please look at {{ doc.description }}</p>",
+			}
+		)
+
+		html = result["html"]
+		self.assertIn("Please look at Fix the gate", html)
+		self.assertRegex(html, r"<a href=\"[^\"]+/app/todo/[^\"]+\"[^>]*>\s*Approve\s*</a>")
+		self.assertRegex(html, r">\s*Reject\s*</a>")
+		self.assertNotIn("Close Fix the gate?", html)

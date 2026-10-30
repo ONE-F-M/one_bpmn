@@ -405,9 +405,9 @@ def _send_decision_card(
 
 
 def _build_layout_context(
-	instance, user: str, task_name: str, task_id: str, bpmn_id: str, task_cfg: dict
+	instance, user: str, task_name: str, task_id: str, bpmn_id: str, task_cfg: dict, preview: bool = False
 ) -> dict:
-	"""Everything decision_card.html reads, in both languages."""
+	"""Everything decision_card.html reads, in both languages; a preview makes no token and no working link."""
 	from one_bpmn.email_builder.fields import (
 		build_attachment_links,
 		build_field_rows,
@@ -433,9 +433,15 @@ def _build_layout_context(
 	details = json.loads(task_cfg.get("notifyDetails") or "[]")
 	attachments = []
 	if has_doc and task_cfg.get("notifyAttachments") == "true":
-		attachments = [{"name": a["file_name"], "url": a["url"]} for a in build_attachment_links(doc, hours)]
+		attachments = (
+			[{"name": name, "url": ""} for name in _attachment_names(doc)]
+			if preview
+			else [{"name": a["file_name"], "url": a["url"]} for a in build_attachment_links(doc, hours)]
+		)
 
-	status_token = generate_status_token(instance.name, task_id, expiry_hours=hours, user=user)
+	status_token = (
+		"" if preview else generate_status_token(instance.name, task_id, expiry_hours=hours, user=user)
+	)
 	site_url = frappe.utils.get_url()
 	open_link = _build_open_link(instance)
 	return {
@@ -446,15 +452,35 @@ def _build_layout_context(
 		"facts": build_field_rows(doc, facts) if has_doc else [],
 		"details": build_field_rows(doc, details) if has_doc else [],
 		"attachments": attachments,
-		"status_url": f"{site_url}/api/method/one_bpmn.api.todo_actions.get_amp_task_status?status_token={status_token}",
+		"status_url": f"{site_url}/api/method/one_bpmn.api.todo_actions.get_amp_task_status?status_token={status_token}"
+		if status_token
+		else "",
 		"open_link": open_link,
 		"action_endpoint": f"{site_url}{ACTION_ENDPOINT}",
-		"actions": _build_layout_actions(instance, user, task_id, bpmn_id, task_cfg, hours, open_link),
+		"actions": _build_layout_actions(
+			instance, user, task_id, bpmn_id, task_cfg, hours, open_link, preview
+		),
 	}
 
 
+def _attachment_names(doc) -> list[str]:
+	return frappe.get_all(
+		"File",
+		filters={"attached_to_doctype": doc.doctype, "attached_to_name": doc.name, "is_folder": 0},
+		order_by="creation asc, name asc",
+		pluck="file_name",
+	)
+
+
 def _build_layout_actions(
-	instance, user: str, task_id: str, bpmn_id: str, task_cfg: dict, hours: int, open_link: str
+	instance,
+	user: str,
+	task_id: str,
+	bpmn_id: str,
+	task_cfg: dict,
+	hours: int,
+	open_link: str,
+	preview: bool = False,
 ) -> list[dict]:
 	"""Task Actions in order: labels in both languages, primary, confirm, sign, the state each leads to, a token."""
 	from one_bpmn.utils.token import generate_action_token
@@ -496,7 +522,7 @@ def _build_layout_actions(
 				"style": style,
 				"url": open_link if sign else "",
 				"token": ""
-				if sign
+				if sign or preview
 				else generate_action_token(instance.name, task_id, name, user, expiry_hours=hours),
 			}
 		)
