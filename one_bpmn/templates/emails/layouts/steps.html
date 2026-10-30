@@ -1,0 +1,20 @@
+{% autoescape true %}{% from "one_bpmn/templates/emails/partials/status.html" import hideable, action_block with context %}
+{% set titles = [_("The request", lang=lang), _("What it changes", lang=lang), _("Your call", lang=lang)] %}
+{% include "one_bpmn/templates/emails/partials/tap_receipt.html" %}
+<div{% if is_amp %} [hidden]="ui.done"{% endif %}>
+{% call hideable() %}{% if is_amp %}<div class="prog">{% for i in range(1, 4) %}<button type="button" class="seg{{ ' on' if i == 1 else '' }}" [class]="(ui.step || 1) >= {{ i }} ? 'seg on' : 'seg'" aria-label="{{ titles[i - 1] }}" on="tap:AMP.setState({ui: {step: {{ i }}}})"></button>{% endfor %}</div>{% endif %}
+{% for i in range(1, 4) %}<div class="screen"{% if is_amp %}{% if i != 1 %} hidden{% endif %} [hidden]="(ui.step || 1) != {{ i }}"{% endif %}>
+  <div class="step-h"><span class="step-t">{{ titles[i - 1] }}</span><span class="step-n">{{ _("Step {0} of 3", lang=lang).format(i) }}</span></div>
+  {% if i == 1 %}<p class="kick">{{ kick[lang] }}</p>
+  <h3 class="hero">{{ question[lang] }}</h3>
+  {% include "one_bpmn/templates/emails/partials/facts.html" %}
+  {% elif i == 2 %}{% with unfold = true %}{% include "one_bpmn/templates/emails/partials/details.html" %}{% endwith %}
+  {% else %}<h3 class="hero">{{ question[lang] }}</h3>
+  {% call action_block() %}{% with error_above = true %}{% include "one_bpmn/templates/emails/partials/action_form.html" %}{% endwith %}{% endcall %}
+  {% endif %}
+  {% if is_amp %}<div class="stepnav">{% if i > 1 %}<button type="button" class="btn outline" on="tap:AMP.setState({ui: {step: {{ i - 1 }}}})">{{ _("Back", lang=lang) }}</button>{% else %}<span></span>{% endif %}
+    {% if i < 3 %}<button type="button" class="btn" on="tap:AMP.setState({ui: {step: {{ i + 1 }}}})">{{ _("Next", lang=lang) }}</button>{% endif %}</div>
+  {% if i == 1 %}<p class="swipe">{{ _("Tap Next", lang=lang) }}</p>{% endif %}{% endif %}
+</div>
+{% endfor %}{% endcall %}
+</div>{% endautoescape %}
