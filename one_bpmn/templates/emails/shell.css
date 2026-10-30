@@ -21,6 +21,10 @@ a{color:#0475d3;text-decoration:none}
 .acc section[expanded] .sign-closed{display:none}
 .row{display:flex;gap:12px;font-size:14px;padding-bottom:10px}
 .row .k{color:#7c7c7c;min-width:40%}
+.msg{margin:0 0 16px;white-space:pre-line}
+.live{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:12px;margin-bottom:16px;background:#f3f3f3}
+.live .rico{width:10px;height:10px;margin:0}
+.live .rt{font-size:15px}
 .receipt{text-align:center;padding:24px 16px 20px;border-radius:16px;margin-bottom:16px;background:#f3f3f3}
 .rico{display:inline-block;width:52px;height:52px;border-radius:50%;background:#7c7c7c;margin-bottom:6px}
 .rt{margin:0;font-size:19px;font-weight:700}
