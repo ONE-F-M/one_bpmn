@@ -88,12 +88,21 @@ def apply_amp_headers(response, **kwargs):
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST", "OPTIONS"])
-def handle_amp_action(token: str | None = None, comment: str | None = None) -> dict:
+def handle_amp_action(
+	token: str | None = None,
+	comment: str | None = None,
+	reason_chip: str | None = None,
+	reason_text: str | None = None,
+	reason_lang: str | None = None,
+) -> dict:
 	"""Process an action submitted from an AMP email button.
 
 	Args:
 		token: HMAC-signed token from :func:`~one_bpmn.utils.token.generate_action_token`.
 		comment: Optional comment text submitted with the action.
+		reason_chip: Index of the reason chip picked in the email's reason panel.
+		reason_text: Reason typed in the reason panel.
+		reason_lang: Language the reader had the email in; the reason panel always posts it.
 
 	Returns:
 		dict with ``message`` (success) or ``error`` (failure) key,
@@ -150,6 +159,12 @@ def handle_amp_action(token: str | None = None, comment: str | None = None) -> d
 	try:
 		from one_bpmn.api.instance_api import complete_task
 
+		saved_reason = None
+		if reason_lang is not None:
+			saved_reason = _save_reason(instance_name, task_id, action, reason_chip, reason_text, reason_lang)
+		if saved_reason:
+			task_data["comment"] = saved_reason["reason"]
+
 		result = complete_task(
 			instance_name=instance_name,
 			task_id=task_id,
@@ -183,6 +198,7 @@ def handle_amp_action(token: str | None = None, comment: str | None = None) -> d
 			"action": action,
 			"status": result.get("status", ""),
 			**_receipt(instance_name, ctx_dt),
+			"reason_saved": saved_reason["saved"] if saved_reason else {"en": "", "ar": ""},
 		}
 
 	except frappe.ValidationError as e:
@@ -208,6 +224,44 @@ def handle_amp_action(token: str | None = None, comment: str | None = None) -> d
 		)
 		frappe.local.response.http_status_code = 500
 		return {"error": _("An error occurred. Please try in ERPNext.")}
+
+
+def _save_reason(
+	instance_name: str, task_id: str, action: str, reason_chip: str | None, reason_text: str | None, lang: str
+) -> dict | None:
+	"""Write the reason the action asks for to its field, as the token user; None when it asks for none."""
+	instance = _get_instance_context(instance_name)
+	task_cfg = _get_task_config(instance, task_id)
+	settings = json.loads(task_cfg.get("notifyActions") or "{}").get(action) or {}
+	if not settings.get("reason"):
+		return None
+
+	lang = lang if lang in ("en", "ar") else "en"
+	chips = settings.get("chips") or []
+	chip = chips[int(reason_chip)] if (reason_chip or "").isdigit() and int(reason_chip) < len(chips) else None
+	chip_text = ((chip[1] if lang == "ar" else "") or chip[0]) if chip else ""
+	reason = "\n".join(text for text in (chip_text, (reason_text or "").strip()) if text)
+	if not reason:
+		frappe.throw(_("A reason is required for {0}.").format(action))
+
+	doctype = instance.context_doctype
+	fieldname = settings.get("reasonField") or ""
+	df = frappe.get_meta(doctype).get_field(fieldname) if doctype and fieldname else None
+	if not df:
+		message = _("The reason field {0} is not on {1}.").format(fieldname, doctype)
+		frappe.log_error(title="AMP: reason field missing", message=message)
+		frappe.throw(message)
+
+	doc = frappe.get_doc(doctype, instance.context_docname)
+	doc.check_permission("write")
+	doc.db_set(fieldname, reason)
+	return {
+		"reason": reason,
+		"saved": {
+			"en": _("Reason saved to {0}", lang="en").format(df.label),
+			"ar": _("Reason saved to {0}", lang="ar").format(_(df.label, lang="ar")),
+		},
+	}
 
 
 # ---------------------------------------------------------------------------
@@ -280,20 +334,23 @@ def _get_instance_context(instance_name: str):
 	)
 
 
+def _get_task_config(instance, task_id: str) -> dict:
+	"""The user task extensions of the task's BPMN element, as compiled (empty when absent)."""
+	try:
+		state = json.loads(instance.workflow_state or "{}")
+		bpmn_id = state["tasks"][task_id]["task_spec"]
+		spec = json.loads(instance.serialized_spec or "{}")
+		return spec["user_task_extensions"][bpmn_id] or {}
+	except (KeyError, TypeError, ValueError):
+		return {}
+
+
 def _get_conversation_config(instance, task_id: str) -> dict:
 	"""``notifyConversation`` of the task, as a dict (empty when absent).
 
 	Saved as ``{actions: [{key, label}], internalNotes, canned}``, as a dict or a JSON string.
 	"""
-	try:
-		state = json.loads(instance.workflow_state or "{}")
-		bpmn_id = state["tasks"][task_id]["task_spec"]
-		spec = json.loads(instance.serialized_spec or "{}")
-		cfg = spec["user_task_extensions"][bpmn_id]
-	except (KeyError, TypeError, ValueError):
-		return {}
-
-	conv = (cfg or {}).get("notifyConversation")
+	conv = _get_task_config(instance, task_id).get("notifyConversation")
 	if isinstance(conv, str):
 		try:
 			conv = json.loads(conv)

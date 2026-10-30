@@ -477,10 +477,18 @@ def _build_layout_actions(
 			continue
 		sign = act.get("requireDigitalSignature") == "true"
 		state, style = states.get(name, ("", ""))
+		label = {"en": name, "ar": _arabic(name)}
+		reason = settings.get(name, {})
 		actions.append(
 			{
 				"key": frappe.scrub(name),
-				"label": {"en": name, "ar": _arabic(name)},
+				"label": label,
+				"reason": bool(reason.get("reason")) and not sign,
+				"reason_question": {
+					"en": _("Reason for {0}", lang="en").format(name),
+					"ar": _("Reason for {0}", lang="ar").format(label["ar"]),
+				},
+				"chips": [{"en": en, "ar": ar or en} for en, ar in reason.get("chips") or []],
 				"primary": name == primary,
 				"confirm": act.get("confirmTransition") == "true",
 				"sign": sign,
