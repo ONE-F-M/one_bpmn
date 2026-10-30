@@ -5,117 +5,125 @@
 		disable-outside-click-to-close
 	>
 		<template #body-content>
-			<Tabs
-				:key="tabs.length"
-				v-model="activeTab"
-				:tabs="tabs"
-			>
-				<template #tab-item="{ tab, selected }">
-					<span
-						class="block cursor-pointer whitespace-nowrap border-b-2 py-2 text-sm font-medium"
-						:class="tabClass(tab, selected)"
+			<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+				<div class="min-w-0">
+					<Tabs
+						:key="tabs.length"
+						v-model="activeTab"
+						:tabs="tabs"
 					>
-						{{ tab.failing ? `${tab.label} ·!` : tab.label }}
-					</span>
-				</template>
-				<template #tab-panel="{ tab }">
-					<div class="space-y-4 px-1 pt-4">
-						<template v-if="tab.key === 'sending'">
-							<Autocomplete
-								:compare-fn="compareOption"
-								label="Email Account · required"
-								placeholder="Select an account"
-								:options="toOptions(options.accounts.value)"
-								:loading="options.loading.value"
-								:model-value="values.emailAccount || null"
-								@update:model-value="(option) => (values.emailAccount = option?.value || '')"
-							/>
-							<ErrorMessage
-								v-if="errors.emailAccount"
-								:message="errors.emailAccount"
-							/>
-							<FormControl
-								type="checkbox"
-								label="Based on a Specific Doctype Record"
-								:model-value="useDoctype"
-								@update:model-value="setUseDoctype"
-							/>
-							<p class="text-p-sm text-ink-gray-5">
-								Uses the process's document for placeholders, Document Field recipients, key facts and the live
-								status.
-							</p>
-							<Autocomplete
-								v-if="useDoctype"
-								:compare-fn="compareOption"
-								label="DocType"
-								:options="toOptions(options.doctypes.value)"
-								:model-value="values.emailDoctype || null"
-								@update:model-value="setDoctype"
-							/>
-						</template>
-
-						<EmailRecipientsTab
-							v-if="tab.key === 'recipients'"
-							:values="values"
-							:doctype="useDoctype ? values.emailDoctype : ''"
-							:options="options"
-							:error="errors.recipients"
-							@update="(name, value) => (values[name] = value)"
-						/>
-
-						<EmailNoticeContentTab
-							v-if="tab.key === 'content'"
-							:values="values"
-							:doctype="values.emailDoctype"
-							:use-html="useHtml"
-							:use-doctype="useDoctype"
-							:process-model="processModel"
-							:subject-error="errors.emailSubject"
-							@update="(name, value) => (values[name] = value)"
-						/>
-
-						<NotifyFieldsTab
-							v-if="tab.key === 'fields'"
-							v-model:facts="values.emailFacts"
-							v-model:details="values.emailDetails"
-							v-model:attachments="values.emailAttachments"
-							:doctype="values.emailDoctype"
-							link-life="expire after 30 days"
-						/>
-
-						<template v-if="tab.key === 'html'">
-							<FormControl
-								type="checkbox"
-								label="Use custom HTML"
-								:model-value="useHtml"
-								@update:model-value="(on) => (useHtml = on)"
-							/>
-							<p class="text-p-sm text-ink-gray-5">
-								For existing tasks. The email is built and sent exactly as today: the Email Body in the standard frame with
-								Open in ERPNext, cleaned for AMP. Tasks that already have an Email Body open with this on.
-							</p>
-							<FormControl
-								v-if="useHtml"
-								v-model="values.emailBody"
-								type="textarea"
-								label="Email Body"
-								:rows="14"
-								class="[&_textarea]:font-mono"
-								spellcheck="false"
+						<template #tab-item="{ tab, selected }">
+							<span
+								class="block cursor-pointer whitespace-nowrap border-b-2 py-2 text-sm font-medium"
+								:class="tabClass(tab, selected)"
 							>
-								<template #description>
-									<p
-										v-pre
-										class="text-p-sm text-ink-gray-5"
-									>
-										Supports Jinja2: {{ doc.field_name }}, {{ instance.name }}, etc.
-									</p>
-								</template>
-							</FormControl>
+								{{ tab.failing ? `${tab.label} ·!` : tab.label }}
+							</span>
 						</template>
-					</div>
-				</template>
-			</Tabs>
+						<template #tab-panel="{ tab }">
+							<div class="space-y-4 px-1 pt-4">
+								<template v-if="tab.key === 'sending'">
+									<Autocomplete
+										:compare-fn="compareOption"
+										label="Email Account · required"
+										placeholder="Select an account"
+										:options="toOptions(options.accounts.value)"
+										:loading="options.loading.value"
+										:model-value="values.emailAccount || null"
+										@update:model-value="(option) => (values.emailAccount = option?.value || '')"
+									/>
+									<ErrorMessage
+										v-if="errors.emailAccount"
+										:message="errors.emailAccount"
+									/>
+									<FormControl
+										type="checkbox"
+										label="Based on a Specific Doctype Record"
+										:model-value="useDoctype"
+										@update:model-value="setUseDoctype"
+									/>
+									<p class="text-p-sm text-ink-gray-5">
+										Uses the process's document for placeholders, Document Field recipients, key facts and the live
+										status.
+									</p>
+									<Autocomplete
+										v-if="useDoctype"
+										:compare-fn="compareOption"
+										label="DocType"
+										:options="toOptions(options.doctypes.value)"
+										:model-value="values.emailDoctype || null"
+										@update:model-value="setDoctype"
+									/>
+								</template>
+
+								<EmailRecipientsTab
+									v-if="tab.key === 'recipients'"
+									:values="values"
+									:doctype="useDoctype ? values.emailDoctype : ''"
+									:options="options"
+									:error="errors.recipients"
+									@update="(name, value) => (values[name] = value)"
+								/>
+
+								<EmailNoticeContentTab
+									v-if="tab.key === 'content'"
+									:values="values"
+									:doctype="values.emailDoctype"
+									:use-html="useHtml"
+									:use-doctype="useDoctype"
+									:process-model="processModel"
+									:subject-error="errors.emailSubject"
+									@update="(name, value) => (values[name] = value)"
+								/>
+
+								<NotifyFieldsTab
+									v-if="tab.key === 'fields'"
+									v-model:facts="values.emailFacts"
+									v-model:details="values.emailDetails"
+									v-model:attachments="values.emailAttachments"
+									:doctype="values.emailDoctype"
+									link-life="expire after 30 days"
+								/>
+
+								<template v-if="tab.key === 'html'">
+									<FormControl
+										type="checkbox"
+										label="Use custom HTML"
+										:model-value="useHtml"
+										@update:model-value="(on) => (useHtml = on)"
+									/>
+									<p class="text-p-sm text-ink-gray-5">
+										For existing tasks. The email is built and sent exactly as today: the Email Body in the standard frame with
+										Open in ERPNext, cleaned for AMP. Tasks that already have an Email Body open with this on.
+									</p>
+									<FormControl
+										v-if="useHtml"
+										v-model="values.emailBody"
+										type="textarea"
+										label="Email Body"
+										:rows="14"
+										class="[&_textarea]:font-mono"
+										spellcheck="false"
+									>
+										<template #description>
+											<p
+												v-pre
+												class="text-p-sm text-ink-gray-5"
+											>
+												Supports Jinja2: {{ doc.field_name }}, {{ instance.name }}, etc.
+											</p>
+										</template>
+									</FormControl>
+								</template>
+							</div>
+						</template>
+					</Tabs>
+				</div>
+				<EmailPreviewPanel
+					:preview="preview"
+					:loading="previewLoading"
+				/>
+			</div>
 		</template>
 		<template #actions>
 			<div class="flex flex-wrap items-center justify-end gap-2">
@@ -140,13 +148,15 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from "vue";
+import { computed, reactive, ref, toRef, watch } from "vue";
 import { Autocomplete, Button, Dialog, ErrorMessage, FormControl, Tabs } from "frappe-ui";
 import EmailNoticeContentTab from "@/components/EmailNoticeContentTab.vue";
+import EmailPreviewPanel from "@/components/EmailPreviewPanel.vue";
 import EmailRecipientsTab from "@/components/EmailRecipientsTab.vue";
 import NotifyFieldsTab from "@/components/NotifyFieldsTab.vue";
 import { EMAIL_EDITOR_ATTRS, changedAttrs, emailLayout, validateEmailNotification } from "@/bpmn/shared/emailNotification";
 import { useEmailNotificationOptions } from "@/composables/useEmailNotificationOptions";
+import { useEmailPreview } from "@/composables/useEmailPreview";
 import { compareOption } from "@/utils/compareOption";
 
 const props = defineProps({
@@ -178,6 +188,11 @@ const values = reactive(Object.fromEntries(EMAIL_EDITOR_ATTRS.map((name) => [nam
 // the selected tab by key, since the Fields tab comes and goes and shifts the indexes
 const activeKey = ref("sending");
 const tried = ref(false);
+const { preview, loading: previewLoading } = useEmailPreview({
+	values,
+	open,
+	processModel: toRef(props, "processModel"),
+});
 
 watch(open, (isOpen) => {
 	if (!isOpen) return;
