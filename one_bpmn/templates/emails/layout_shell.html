@@ -22,6 +22,7 @@
   <script async custom-element="amp-bind" src="https://cdn.ampproject.org/v0/amp-bind-0.1.js"></script>
   {% if has_status %}<script async custom-element="amp-list" src="https://cdn.ampproject.org/v0/amp-list-0.1.js"></script>{% endif %}
   {% if "<form" in body %}<script async custom-element="amp-form" src="https://cdn.ampproject.org/v0/amp-form-0.1.js"></script>{% endif %}
+  {% if "<amp-selector" in body %}<script async custom-element="amp-selector" src="https://cdn.ampproject.org/v0/amp-selector-0.1.js"></script>{% endif %}
   {% if "<amp-accordion" in body %}<script async custom-element="amp-accordion" src="https://cdn.ampproject.org/v0/amp-accordion-0.1.js"></script>{% endif %}
   {% if 'type="amp-mustache"' in body %}<script async custom-template="amp-mustache" src="https://cdn.ampproject.org/v0/amp-mustache-0.2.js"></script>{% endif %}
   <style amp-custom>{% include "one_bpmn/templates/emails/shell.css" %}</style>
