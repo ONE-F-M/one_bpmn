@@ -11,7 +11,17 @@
 				:options="fieldOptions"
 				@add="(option) => add(list.key, option)"
 				@remove="(entry) => remove(list.key, entry)"
-			/>
+			>
+				<template #tag="{ tag }">
+					<ArabicFieldPicker
+						v-if="needsArabic(tag.key)"
+						:field="{ fieldname: fieldOf(tag.key), label: tag.label }"
+						:candidates="arabicCandidates(fields, fieldOf(tag.key))"
+						:model-value="tag.key"
+						@update:model-value="(entry) => setArabic(list.key, entry)"
+					/>
+				</template>
+			</NotifyTagBox>
 			<ErrorMessage
 				v-if="list.key === 'facts' && full"
 				:message="fullMessage"
@@ -39,9 +49,18 @@
 <script setup>
 import { computed, ref, watch } from "vue";
 import { ErrorMessage, FormControl, FormLabel } from "frappe-ui";
+import ArabicFieldPicker from "@/components/ArabicFieldPicker.vue";
 import NotifyTagBox from "@/components/NotifyTagBox.vue";
-import { MAX_FACTS, fieldOf, parseFieldList, serializeFieldList } from "@/bpmn/shared/notifyFields";
-import { useDoctypeFields } from "@/composables/useDoctypeFields";
+import {
+	MAX_FACTS,
+	arabicCandidates,
+	fieldOf,
+	fieldOptionGroups,
+	parseFieldList,
+	replaceEntry,
+	serializeFieldList,
+} from "@/bpmn/shared/notifyFields";
+import { useEmailFields } from "@/composables/useEmailFields";
 
 const VALUE_FIELDTYPES = [
 	"Data", "Link", "Dynamic Link", "Select", "Autocomplete", "Date", "Datetime", "Time", "Duration",
@@ -59,7 +78,7 @@ const facts = defineModel("facts", { type: String });
 const details = defineModel("details", { type: String });
 const attachments = defineModel("attachments", { type: String });
 
-const { fields, loading, load } = useDoctypeFields(VALUE_FIELDTYPES);
+const { fields, loading, load } = useEmailFields(VALUE_FIELDTYPES);
 watch(() => props.doctype, load, { immediate: true });
 
 const full = ref(false);
@@ -72,7 +91,7 @@ const lists = computed(() => [
 		key: "facts",
 		label: isChat.value ? "Summary Fields" : "Key Facts",
 		tags: loading.value ? [] : factList.value.map(toTag),
-		help: `Up to ${MAX_FACTS}, in this order. Fields of the ${props.doctype}.`,
+		help: `Up to ${MAX_FACTS}, in this order. Own fields and fields on linked documents. Tap AR on a text field to pick the field that holds its Arabic value: blue AR means one is picked, grey means the Arabic email shows the English value. Dates, numbers and options are put in Arabic automatically, so they have no AR.`,
 	},
 	...(isChat.value
 		? []
@@ -83,12 +102,6 @@ const fullMessage = computed(() =>
 	isChat.value ? `Up to ${MAX_FACTS} fields.` : `Up to ${MAX_FACTS} fields. Put the rest in Details.`
 );
 
-// A field picked in either list is not offered again
-const available = computed(() => {
-	const used = [...factList.value, ...detailList.value].map(fieldOf);
-	return fields.value.filter((f) => !used.includes(f.fieldname));
-});
-
 function labelOf(fieldname) {
 	return fields.value.find((f) => f.fieldname === fieldname)?.label || fieldname;
 }
@@ -97,7 +110,22 @@ function toTag(entry) {
 	return { key: entry, label: labelOf(fieldOf(entry)) };
 }
 
-const fieldOptions = computed(() => available.value.map((f) => ({ label: f.label, value: f.fieldname })));
+// A field picked in either list is not offered again
+const fieldOptions = computed(() =>
+	fieldOptionGroups(fields.value, props.doctype, [...factList.value, ...detailList.value].map(fieldOf))
+);
+
+function needsArabic(entry) {
+	return fields.value.find((f) => f.fieldname === fieldOf(entry))?.needs_arabic;
+}
+
+function setArabic(key, entry) {
+	if (key === "facts") {
+		facts.value = serializeFieldList(replaceEntry(factList.value, fieldOf(entry), entry));
+	} else {
+		details.value = serializeFieldList(replaceEntry(detailList.value, fieldOf(entry), entry));
+	}
+}
 
 function add(key, option) {
 	const fieldname = option?.value;
