@@ -1157,6 +1157,7 @@ const emit = defineEmits([
 	"launch-notification-editor",
 	"launch-dmn-editor",
 	"launch-notify-assignee-editor",
+	"launch-email-notification-editor",
 	"reassign-changed",
 ]);
 
@@ -2322,6 +2323,25 @@ onMounted(async () => {
 					}
 					modeling.updateModdleProperties(event.element, bo, updates);
 				}
+			});
+
+			// Email Notification editor (Service Tasks): the dialog edits a copy, Save sends the changed attributes
+			eventBus.on("spiff.serviceTask.emailNotification.edit", (event) => {
+				emit("launch-email-notification-editor", {
+					element: event.element,
+					values: { ...event.values, emailBody: decodeHtmlAttr(event.values.emailBody) || "" },
+					eventBus: event.eventBus,
+				});
+			});
+
+			eventBus.on("spiff.serviceTask.emailNotification.update", (event) => {
+				const bo = event.element.businessObject || event.element;
+				const updates = {};
+				for (const name of event.changed) {
+					const value = event.values[name];
+					updates[`spiffworkflow:${name}`] = name === "emailBody" ? encodeHtmlAttr(value) : value || undefined;
+				}
+				if (Object.keys(updates).length) modeler.get("modeling").updateModdleProperties(event.element, bo, updates);
 			});
 
 			eventBus.on("spiff.service_tasks.requested", (event) => {
