@@ -182,6 +182,7 @@ def handle_amp_action(token: str | None = None, comment: str | None = None) -> d
 			"message": _("{0} completed successfully.").format(action),
 			"action": action,
 			"status": result.get("status", ""),
+			**_receipt(instance_name, ctx_dt),
 		}
 
 	except frappe.ValidationError as e:
@@ -698,6 +699,23 @@ def _get_workflow_state_and_style(instance_name: str) -> tuple[str, str]:
 
 	style = frappe.db.get_value("Workflow State", state, "style") or ""
 	return str(state), str(style)
+
+
+def _receipt(instance_name: str, doctype: str) -> dict:
+	"""The state the document reached, its style, and "<DocType> is now <state>" in both languages."""
+	state, style = _get_workflow_state_and_style(instance_name)
+	if not state:
+		return {"state": "", "state_label": {"en": "", "ar": ""}, "state_style": "", "receipt": {"en": "", "ar": ""}, "completed_at": ""}
+	return {
+		"state": state,
+		"state_label": {"en": state, "ar": _(state, lang="ar")},
+		"state_style": style,
+		"receipt": {
+			"en": _("{0} is now {1}", lang="en").format(doctype, state),
+			"ar": _("{0} is now {1}", lang="ar").format(_(doctype, lang="ar"), _(state, lang="ar")),
+		},
+		"completed_at": frappe.utils.format_datetime(frappe.utils.now_datetime(), "d MMM, h:mm a"),
+	}
 
 
 def _get_context_doc_state(instance_name: str) -> tuple[str, str]:
