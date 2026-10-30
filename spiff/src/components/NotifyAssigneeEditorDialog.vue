@@ -56,7 +56,9 @@
 								v-model:subject-ar="values.notifySubjectAr"
 								v-model:question-en="values.notifyQuestionEn"
 								v-model:question-ar="values.notifyQuestionAr"
+								v-model:arabic-edited="values.notifyArabicEdited"
 								:html-mode="useHtml"
+								:process-model="processModel"
 								:doctype="doctype"
 								:task-name="taskName"
 								:email-thread="thread"
@@ -75,6 +77,7 @@
 								v-model:hours="values.notifyTokenHours"
 								:task-actions="taskActions"
 								:doctype="doctype"
+								:process-model="processModel"
 							/>
 							<NotifyConversationTab
 								v-if="tab.key === 'conv'"
@@ -116,6 +119,7 @@ const props = defineProps({
 	doctype: { type: String, default: "" },
 	taskName: { type: String, default: "" },
 	taskActions: { type: Array, default: () => [] },
+	processModel: { type: String, default: "" },
 });
 
 const emit = defineEmits(["update:modelValue", "save"]);

@@ -891,6 +891,7 @@
 			:doctype="notifyAssigneeDoctype"
 			:task-name="notifyAssigneeTaskName"
 			:task-actions="notifyAssigneeTaskActions"
+			:process-model="activeDiagramName"
 			@save="onSaveNotifyAssigneeBody"
 		/>
 		<Dialog v-model="showUnsavedNavigationWarning" :options="{ title: 'Unsaved Changes', size: 'sm' }">
