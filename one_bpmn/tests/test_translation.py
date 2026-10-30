@@ -63,11 +63,24 @@ class TestTranslateText(FrappeTestCase):
 	def test_changed_marker_raises(self):
 		with (
 			_fake(lambda masked: masked.replace("__PH0__", "__ph0__")),
-			_fallback(lambda masked: masked.replace("[0]", "[ 0 ]")),
+			_fallback(lambda masked: masked.replace("[0]", "[O]")),
 			patch("frappe.log_error"),
 		):
 			with self.assertRaises(TranslationError):
 				translate_text("Hi {{ name }}")
+
+	def test_marker_returned_with_spaces_still_restores_the_placeholder(self):
+		with _fake(lambda masked: "مرحبا __ PH0 __؟"):
+			self.assertEqual(translate_text("Hi {{ name }}?"), "مرحبا {{ name }}؟")
+		with (
+			_fake(ConnectionError("captcha")),
+			_fallback(lambda masked: "هل توافق على الموعد لـ [0 ]؟"),
+			patch("frappe.log_error"),
+		):
+			self.assertEqual(
+				translate_text("Approve the appointment for {{ doc.full_name }}?"),
+				"هل توافق على الموعد لـ {{ doc.full_name }}؟",
+			)
 
 	def test_service_error_logged_and_raised_from_cause(self):
 		with (
