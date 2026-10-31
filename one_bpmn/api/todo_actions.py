@@ -766,8 +766,9 @@ def _get_workflow_state_and_style(instance_name: str) -> tuple[str, str]:
 def _receipt(instance_name: str, doctype: str) -> dict:
 	"""The state the document reached, its style, and "<DocType> is now <state>" in both languages."""
 	state, style = _get_workflow_state_and_style(instance_name)
+	completed_at = frappe.utils.format_datetime(frappe.utils.now_datetime(), "d MMM, h:mm a")
 	if not state:
-		return {"state": "", "state_label": {"en": "", "ar": ""}, "state_style": "", "receipt": {"en": "", "ar": ""}, "completed_at": ""}
+		return {"state": "", "state_label": {"en": "", "ar": ""}, "state_style": "", "receipt": {"en": "", "ar": ""}, "completed_at": completed_at}
 	return {
 		"state": state,
 		"state_label": {"en": state, "ar": _(state, lang="ar")},
@@ -776,7 +777,7 @@ def _receipt(instance_name: str, doctype: str) -> dict:
 			"en": _("{0} is now {1}", lang="en").format(doctype, state),
 			"ar": _("{0} is now {1}", lang="ar").format(_(doctype, lang="ar"), _(state, lang="ar")),
 		},
-		"completed_at": frappe.utils.format_datetime(frappe.utils.now_datetime(), "d MMM, h:mm a"),
+		"completed_at": completed_at,
 	}
 
 

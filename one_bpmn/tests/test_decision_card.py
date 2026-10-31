@@ -164,6 +164,12 @@ class TestDecisionCardActions(FrappeTestCase):
 		self.assertTrue(receipt["receipt"]["ar"])
 		self.assertTrue(receipt["completed_at"])
 
+	def test_receipt_without_a_state_still_has_the_time(self):
+		with patch.object(todo_actions, "_get_workflow_state_and_style", return_value=("", "")):
+			receipt = todo_actions._receipt("INST", "HD Ticket")
+		self.assertEqual(receipt["state_label"]["en"], "")
+		self.assertTrue(receipt["completed_at"])
+
 
 def _card_ctx(**extra):
 	actions = [
