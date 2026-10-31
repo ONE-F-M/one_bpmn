@@ -170,7 +170,8 @@ class TestReasonPanel(FrappeTestCase):
 		self.assertIn('<textarea name="reason_text"', html)
 		self.assertIn("Pick a reason or write one.", html)
 		self.assertIn("اختر سبباً أو اكتب واحداً.", html)
-		self.assertIn('[text]="ui.result.reason_saved.en"', html)
+		self.assertIn('[text]="ui.result.reason_saved.en || \'\'"', html)
+		self.assertIn("result: event.response.message}})", html)
 		self.assertIn('custom-element="amp-selector"', html)
 
 	def test_the_html_part_has_no_panel(self):
