@@ -54,6 +54,7 @@ a{color:#0475d3;text-decoration:none}
 button.chip{font-family:Arial, Helvetica, sans-serif;color:#171717}
 .chip.solid{background:#171717;border-color:#171717;color:#ffffff}
 .thread{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
+.thread-list{min-height:54px}
 .thread-list > div{display:flex;flex-direction:column;gap:10px}
 .thread-list > [overflow]{position:absolute;right:0;bottom:0;left:0}
 .msg{display:flex;flex-direction:column;gap:3px;box-sizing:border-box;max-width:84%;padding:10px 13px;border-radius:18px;font-size:14px;line-height:1.45;overflow-wrap:anywhere}
