@@ -1,4 +1,4 @@
-{% autoescape true %}{% set k = a.key %}{% set ready = "ui.chip_" ~ k ~ " != null || ui.text_" ~ k %}<form class="reason" method="post" action-xhr="{{ action_endpoint }}" hidden [hidden]="ui.open != '{{ k }}'" on="submit-success:AMP.setState({ui: {done: true, result: event.response}})">
+{% autoescape true %}{% set k = a.key %}{% set ready = "ui.chip_" ~ k ~ " != null || ui.text_" ~ k %}<form class="reason" method="post" action-xhr="{{ action_endpoint }}" hidden [hidden]="ui.open != '{{ k }}'" on="submit-success:AMP.setState({ui: {done: true, result: event.response.message}})">
   <input type="hidden" name="token" value="{{ a.token }}">
   <input type="hidden" name="reason_lang" value="{{ lang }}" [value]="ui.lang">
   <p class="rq">{{ a.reason_question[lang] }}</p>

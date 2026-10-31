@@ -1,4 +1,4 @@
-{% autoescape true %}{% set submit_error %}<div submit-error><div class="err"><b>{{ _("Not saved.", lang=lang) }}</b> {{ _("Nothing changed in ERPNext. Try again.", lang=lang) }}</div></div>{% endset %}{% if is_amp %}<form method="post" action-xhr="{{ action_endpoint }}" on="submit-success:AMP.setState({ui: {done: true, result: event.response}})">
+{% autoescape true %}{% set submit_error %}<div submit-error><div class="err"><b>{{ _("Not saved.", lang=lang) }}</b> {{ _("Nothing changed in ERPNext. Try again.", lang=lang) }}</div></div>{% endset %}{% if is_amp %}<form method="post" action-xhr="{{ action_endpoint }}" on="submit-success:AMP.setState({ui: {done: true, result: event.response.message}})">
   {% if error_above %}{{ submit_error }}{% endif %}
   <div class="acts">
     {% for a in actions %}{% set cls = (a.style or "") if a.primary else "subtle" %}
