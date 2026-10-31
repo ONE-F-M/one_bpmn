@@ -144,6 +144,12 @@ class TestConversationLayout(FrappeTestCase):
 		self.assertIn("The new card is printed.\\nIt reaches the site by 9.", with_status)
 		self.assertIn("post_amp_reply", with_status)
 		self.assertIn("post_amp_note", with_status)
+		# Frappe returns get_amp_thread and post_amp_* under "message"
+		self.assertIn('items="message.items"', with_status)
+		# AMP loads only an element with a size, so an empty send-time thread still gets one
+		self.assertIn(".thread-list{min-height:54px}", with_status)
+		self.assertIn("posted: event.response.message.item.message", with_status)
+		self.assertIn("posted_line: event.response.message.handled ? event.response.message.message", with_status)
 		self.assertIn('value="tok-resolve"', with_status)
 		self.assertIn("Replies from this email have expired.", with_status)
 		self.assertIn("Open ticket in Helpdesk", with_status)
