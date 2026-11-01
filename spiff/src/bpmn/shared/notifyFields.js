@@ -36,7 +36,7 @@ export function flattenEmailFields(result, fieldtypes) {
 
 /** Search box options: the doctype's fields, then a Linked documents group; fields in use are left out. */
 export function fieldOptionGroups(fields, doctype, used) {
-	const option = (f) => ({ label: f.label, value: f.fieldname });
+	const option = (f) => ({ label: f.label, value: f.fieldname, description: f.fieldname });
 	const free = fields.filter((f) => !used.includes(f.fieldname));
 	return [
 		{ group: `${doctype} fields`, items: free.filter((f) => !f.linked).map(option) },

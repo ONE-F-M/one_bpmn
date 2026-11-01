@@ -9,6 +9,7 @@
 			<NotifyTagBox
 				:tags="list.tags"
 				:options="fieldOptions"
+				placeholder="Add field..."
 				@add="(option) => add(list.key, option)"
 				@remove="(entry) => remove(list.key, entry)"
 			>
