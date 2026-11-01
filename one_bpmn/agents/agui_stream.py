@@ -277,7 +277,13 @@ def agent_event_stream(
 				context.pop("_turn_message", None)
 				direct_reply = context.pop("_direct_reply", None)
 				if direct_reply:
-					# Malformed pasted XML is answered with the parse failure itself, without a model turn.
+					# Pasted XML is answered by the server itself (parse failure or analysis), without a model turn.
+					from one_bpmn.utils.chat_persistence import save_bot_message, save_user_message
+
+					save_user_message(conversation, builder_input["_turn_message"])
+					save_bot_message(conversation, direct_reply)
+					if not frappe.flags.in_test:
+						frappe.db.commit()
 					yield encoder.encode(TextMessageStartEvent(message_id=message_id, role="assistant"))
 					yield encoder.encode(TextMessageContentEvent(message_id=message_id, delta=direct_reply))
 					yield encoder.encode(TextMessageEndEvent(message_id=message_id))
