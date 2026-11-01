@@ -30,21 +30,24 @@
 				/>
 			</template>
 		</Badge>
-		<Combobox
+		<div
 			v-if="options"
-			:key="picks"
 			class="min-w-[10rem] flex-1"
-			:options="options"
-			:model-value="null"
-			:placeholder="placeholder"
-			@update:selected-option="pick"
-		/>
+		>
+			<Autocomplete
+				:key="picks"
+				:options="options"
+				:model-value="null"
+				:placeholder="placeholder"
+				@update:model-value="pick"
+			/>
+		</div>
 	</div>
 </template>
 
 <script setup>
 import { ref } from "vue";
-import { Badge, Button, Combobox } from "frappe-ui";
+import { Autocomplete, Badge, Button } from "frappe-ui";
 
 defineProps({
 	// [{ key, label, sub }]; sub is shown after the label, right to left
