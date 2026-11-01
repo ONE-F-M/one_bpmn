@@ -1095,7 +1095,7 @@ def _moved_arrows(previous_xml: str, xml: str) -> list[str]:
 
 IR_NODE_TYPES = frozenset(
 	{
-		"startEvent", "endEvent", "intermediateThrowEvent", "intermediateCatchEvent", "userTask", "scriptTask",
+		"startEvent", "endEvent", "intermediateThrowEvent", "intermediateCatchEvent", "task", "userTask", "scriptTask",
 		"serviceTask", "manualTask", "businessRuleTask", "exclusiveGateway", "parallelGateway", "inclusiveGateway",
 		"subProcess", "callActivity",
 	}
@@ -1148,7 +1148,8 @@ def xml_to_ir(xml: str) -> dict | None:
 	body = scope(process)
 	if body is None:
 		return None
-	return {"name": process.get("name") or "", "lanes": lanes, **body}
+	kind = {} if process.get("isExecutable", "false").strip().lower() == "true" else {"executable": False}
+	return {"name": process.get("name") or "", "lanes": lanes, **kind, **body}
 
 
 def diagram_geometry(xml: str) -> list:
@@ -1243,6 +1244,55 @@ def relayout_output(xml: str) -> dict:
 	else:
 		say = _("I could not lay the diagram out again without risking your steps, so I changed nothing.")
 	return {"intent": "CLARIFY", "response": say}
+
+
+NONE_TASK_KEPT_ATTRIBUTES = ("id", "name", "default")
+NONE_TASK_KEPT_CHILDREN = ("incoming", "outgoing", "documentation")
+
+
+def none_tasks_output(xml: str) -> dict:
+	"""The reply to a confirmed replace-all-with-None: every typed task made a plain task, or why nothing changed."""
+	if not (xml or "").strip():
+		return {"intent": "CLARIFY", "response": _("There is no diagram yet, so I changed nothing.")}
+	root = ET.fromstring(xml)
+	bpmn = "{" + NS["bpmn"] + "}"
+	if any(p.get("isExecutable", "false").strip().lower() == "true" for p in root.iter(bpmn + "process")):
+		return {
+			"intent": "CLARIFY",
+			"response": _("Only a non-executable process can use None tasks. This process is executable, so I changed nothing."),
+		}
+	_register_namespaces()
+	typed = [bpmn + tag for tag in ("userTask", "serviceTask", "scriptTask", "manualTask", "businessRuleTask")]
+	changed = 0
+	for elem in root.iter():
+		if elem.tag not in typed:
+			continue
+		elem.tag = bpmn + "task"
+		for attr in [a for a in elem.attrib if a not in NONE_TASK_KEPT_ATTRIBUTES]:
+			del elem.attrib[attr]
+		for child in [c for c in elem if c.tag.removeprefix(bpmn) not in NONE_TASK_KEPT_CHILDREN]:
+			elem.remove(child)
+		changed += 1
+	if not changed:
+		return {"intent": "CLARIFY", "response": _("Every task is already a None task, so I changed nothing.")}
+	new_xml = ET.tostring(root, encoding="unicode", xml_declaration=True)
+	new_xml = re.sub(r"^<\?xml\s[^?]*\?>", '<?xml version="1.0" encoding="UTF-8"?>', new_xml)
+	return {
+		"intent": "BPMN_MODIFIED",
+		"action_intent": "TASKS_TO_NONE",
+		"bpmn_xml": new_xml,
+		"response": _("I made {0} tasks None tasks. Every step, arrow and name is kept, and the task settings are removed. Review it on the canvas.").format(changed),
+		"options": [],
+	}
+
+
+def keep_process_kind(ir: dict, xml: str) -> None:
+	"""Mark ir non-executable, in place, when the diagram being modified is, so its tasks stay None tasks."""
+	if not (xml or "").strip():
+		return
+	flags = [p.get("isExecutable", "false").strip().lower() for p in ET.fromstring(xml).iter("{" + NS["bpmn"] + "}process")]
+	if flags and "true" not in flags:
+		ir["executable"] = False
 
 
 def similar_steps(xml: str, texts: list, skip: str = "") -> list[str]:

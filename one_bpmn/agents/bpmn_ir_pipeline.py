@@ -358,8 +358,9 @@ def compile_ir(ir: dict) -> dict:
     try:
         import frappe
 
-        from one_bpmn.agents.bpmn_task_config import resolve_ir_config, resolve_ir_lane_roles
+        from one_bpmn.agents.bpmn_task_config import resolve_ir_config, resolve_ir_lane_roles, use_none_tasks
 
+        use_none_tasks(ir)
         config_problems = resolve_ir_config(ir)
         config_problems += resolve_ir_lane_roles(ir, frappe.get_all("Role", filters={"disabled": 0}, pluck="name"))
     except Exception:  # noqa: BLE001 — configuration must never block compilation

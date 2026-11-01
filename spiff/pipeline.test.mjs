@@ -387,3 +387,18 @@ test('a process is executable unless the IR says executable is false', () => {
   assert.match(run(base).xml, /isExecutable="true"/);
   assert.match(run({ ...base, executable: false }).xml, /isExecutable="false"/);
 });
+
+test('a task in a non-executable process stays a plain None task', () => {
+  const ir = { name: 'Guide', executable: false, lanes, nodes: [node('s', 'startEvent'), node('t1', 'task'), node('e', 'endEvent')],
+    flows: [{ from: 's', to: 't1' }, { from: 't1', to: 'e' }] };
+  const r = run(ir);
+  assert.equal(r.ok, true, JSON.stringify(r.problems));
+  assert.match(r.xml, /<bpmn:task id="t1"/);
+  assert.ok(!/<bpmn:scriptTask id="t1"/.test(r.xml));
+});
+
+test('a bare task in an executable process still falls back to a script task', () => {
+  const ir = { name: 'Run', lanes, nodes: [node('s', 'startEvent'), node('t1', 'task'), node('e', 'endEvent')],
+    flows: [{ from: 's', to: 't1' }, { from: 't1', to: 'e' }] };
+  assert.match(run(ir).xml, /<bpmn:scriptTask id="t1"/);
+});
