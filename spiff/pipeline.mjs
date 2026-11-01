@@ -393,7 +393,8 @@ async function compileIRtoBpmn(ir) {
     // sourceRef/targetRef inverse associations when it processes the flowElements.
     // Passing them AND manually pushing causes each flow to appear twice in the output.
     for (const n of nodes) {
-      const bpmnType = BPMN_TYPE_MAP[n.type] || 'bpmn:ScriptTask';
+      const isNoneTask = n.type === 'task' && ir.executable === false;
+      const bpmnType = isNoneTask ? 'bpmn:Task' : BPMN_TYPE_MAP[n.type] || 'bpmn:ScriptTask';
       const el = moddle.create(bpmnType, { id: n.id, name: n.name });
       if (n.type === 'callActivity' && n.calledElement) el.calledElement = n.calledElement;
       // Task configuration, already resolved to final attribute names by

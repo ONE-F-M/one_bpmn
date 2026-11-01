@@ -1095,7 +1095,7 @@ def _moved_arrows(previous_xml: str, xml: str) -> list[str]:
 
 IR_NODE_TYPES = frozenset(
 	{
-		"startEvent", "endEvent", "intermediateThrowEvent", "intermediateCatchEvent", "userTask", "scriptTask",
+		"startEvent", "endEvent", "intermediateThrowEvent", "intermediateCatchEvent", "task", "userTask", "scriptTask",
 		"serviceTask", "manualTask", "businessRuleTask", "exclusiveGateway", "parallelGateway", "inclusiveGateway",
 		"subProcess", "callActivity",
 	}
@@ -1148,7 +1148,8 @@ def xml_to_ir(xml: str) -> dict | None:
 	body = scope(process)
 	if body is None:
 		return None
-	return {"name": process.get("name") or "", "lanes": lanes, **body}
+	kind = {} if process.get("isExecutable", "false").strip().lower() == "true" else {"executable": False}
+	return {"name": process.get("name") or "", "lanes": lanes, **kind, **body}
 
 
 def diagram_geometry(xml: str) -> list:
