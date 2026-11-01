@@ -46,6 +46,7 @@ class TestGetAmpTaskStatus(FrappeTestCase):
 		self.addCleanup(cors_patcher.stop)
 
 		self.task_row = None
+		self.log_data = None
 		self.workflow_name = None
 		self.db_calls = []
 
@@ -58,6 +59,8 @@ class TestGetAmpTaskStatus(FrappeTestCase):
 			self.db_calls.append(doctype)
 			if doctype == "BPMN Active Task":
 				return self.task_row
+			if doctype == "BPMN Activity Log":
+				return self.log_data
 			if doctype == "BPMN Process Instance":
 				return _CONTEXT
 			if doctype == "Workflow State":
@@ -117,6 +120,14 @@ class TestGetAmpTaskStatus(FrappeTestCase):
 		self.assertEqual(item["action_taken"], "Approve Leave")
 		self.assertTrue(item["completed_at"])
 		self.assertEqual(item["workflow_state"], "Approved")
+
+	def test_completed_shows_the_chosen_action(self):
+		from one_bpmn.utils.token import generate_status_token
+
+		self.task_row = self._row("Completed")
+		self.log_data = json.dumps({"action": "Approve", "comment": "ok"})
+		item = self._call(generate_status_token("INST-1", "t1", user="user@test.com"))
+		self.assertEqual(item["action_taken"], "Approve")
 
 	def test_tampered(self):
 		from one_bpmn.utils.token import generate_status_token
