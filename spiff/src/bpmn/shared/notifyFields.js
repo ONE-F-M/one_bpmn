@@ -34,10 +34,11 @@ export function flattenEmailFields(result, fieldtypes) {
 	return [...own, ...linked];
 }
 
-/** Search box options: the doctype's fields, then a Linked documents group; fields in use are left out. */
+/** Search box options: the doctype's fields, then a Linked documents group; fields in use and Arabic fields (offered under AR) are left out. */
 export function fieldOptionGroups(fields, doctype, used) {
 	const option = (f) => ({ label: f.label, value: f.fieldname, description: f.fieldname });
-	const free = fields.filter((f) => !used.includes(f.fieldname));
+	const arabic = new Set(fields.flatMap((f) => f.arabic_candidates || []));
+	const free = fields.filter((f) => !used.includes(f.fieldname) && !arabic.has(f.fieldname));
 	return [
 		{ group: `${doctype} fields`, items: free.filter((f) => !f.linked).map(option) },
 		{ group: "Linked documents", items: free.filter((f) => f.linked).map(option) },

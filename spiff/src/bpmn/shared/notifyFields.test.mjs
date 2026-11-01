@@ -56,25 +56,27 @@ test("flattenEmailFields: own then linked, linked labelled with the link, other 
 	assert.deepEqual(flattenEmailFields(null, TYPES), [])
 })
 
-test("fieldOptionGroups: own group, then Linked documents, used fields and empty groups left out", () => {
+test("fieldOptionGroups: own group, then Linked documents, used fields, Arabic fields and empty groups left out", () => {
 	const fields = flattenEmailFields(RESULT, TYPES)
-	assert.deepEqual(fieldOptionGroups(fields, "Leave Application", ["employee_name"]), [
-		{ group: "Leave Application fields", items: [{ label: "From Date", value: "from_date", description: "from_date" }] },
+	assert.deepEqual(fieldOptionGroups(fields, "Leave Application", []), [
 		{
-			group: "Linked documents",
+			group: "Leave Application fields",
 			items: [
-				{
-					label: "Employee · Full Name in Arabic",
-					value: "employee.employee_name_in_arabic",
-					description: "employee.employee_name_in_arabic",
-				},
+				{ label: "Employee Name", value: "employee_name", description: "employee_name" },
+				{ label: "From Date", value: "from_date", description: "from_date" },
 			],
 		},
 	])
-	assert.deepEqual(
-		fieldOptionGroups(fields, "Leave Application", ["employee.employee_name_in_arabic"]).map((g) => g.group),
-		["Leave Application fields"]
-	)
+	assert.deepEqual(fieldOptionGroups(fields, "Leave Application", ["employee_name"]), [
+		{ group: "Leave Application fields", items: [{ label: "From Date", value: "from_date", description: "from_date" }] },
+	])
+	const linkedFields = fields.concat({ fieldname: "employee.department", label: "Employee · Department", linked: true })
+	assert.deepEqual(fieldOptionGroups(linkedFields, "Leave Application", ["employee_name", "from_date"]), [
+		{
+			group: "Linked documents",
+			items: [{ label: "Employee · Department", value: "employee.department", description: "employee.department" }],
+		},
+	])
 })
 
 test("arabicCandidates: the field's candidates with labels, none for a field without", () => {
