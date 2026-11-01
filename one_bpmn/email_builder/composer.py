@@ -349,6 +349,8 @@ def _send_email(
 
 	if amp_html:
 		frappe.flags.amp_html = amp_html
+	# one_fm renames HD Ticket emails unless this is set
+	frappe.flags.keep_email_subject = True
 
 	try:
 		frappe.sendmail(
@@ -365,6 +367,7 @@ def _send_email(
 		)
 	finally:
 		frappe.flags.amp_html = None
+		frappe.flags.keep_email_subject = None
 
 
 # ---------------------------------------------------------------------------

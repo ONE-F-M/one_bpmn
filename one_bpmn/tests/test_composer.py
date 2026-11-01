@@ -231,6 +231,15 @@ class TestSendEmail(_ComposerTestCase):
 		self.assertIsNone(mock_frappe.flags.amp_html)
 
 	@patch("one_bpmn.email_builder.composer.frappe")
+	def test_asks_to_keep_the_subject_only_while_sending(self, mock_frappe):
+		seen = []
+		mock_frappe.sendmail = MagicMock(side_effect=lambda **kw: seen.append(mock_frappe.flags.keep_email_subject))
+		from one_bpmn.email_builder.composer import _send_email
+		_send_email(["user@test.com"], "Subject", "<p>Body</p>", "")
+		self.assertEqual(seen, [True])
+		self.assertIsNone(mock_frappe.flags.keep_email_subject)
+
+	@patch("one_bpmn.email_builder.composer.frappe")
 	def test_clears_amp_flag_even_when_the_send_raises(self, mock_frappe):
 		mock_frappe.sendmail = MagicMock(side_effect=RuntimeError("smtp down"))
 		from one_bpmn.email_builder.composer import _send_email
