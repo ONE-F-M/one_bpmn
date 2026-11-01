@@ -39,9 +39,9 @@ export function fieldOptionGroups(fields, doctype, used) {
 	const option = (f) => ({ label: f.label, value: f.fieldname });
 	const free = fields.filter((f) => !used.includes(f.fieldname));
 	return [
-		{ group: `${doctype} fields`, options: free.filter((f) => !f.linked).map(option) },
-		{ group: "Linked documents", options: free.filter((f) => f.linked).map(option) },
-	].filter((g) => g.options.length);
+		{ group: `${doctype} fields`, items: free.filter((f) => !f.linked).map(option) },
+		{ group: "Linked documents", items: free.filter((f) => f.linked).map(option) },
+	].filter((g) => g.items.length);
 }
 
 /** The Arabic fields that can hold a field's Arabic value, with their labels. */
