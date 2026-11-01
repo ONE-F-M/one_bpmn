@@ -22,6 +22,7 @@ def create_conversation(agent_mode: str, title: str, user: str, commit: bool = T
 	Mirrors the pattern used by Lumina's ``create_conversation()`` but
 	sets ``agent_mode`` to "Logix" or "ProsAlly" for proper isolation.
 	"""
+	title = frappe.utils.strip_html_tags(title).strip() or frappe._("New chat")
 	doc = frappe.get_doc({
 		"doctype": "Chat Conversation",
 		"title": title[:140],
