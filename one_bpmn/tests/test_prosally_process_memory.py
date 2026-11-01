@@ -21,7 +21,6 @@ OFFBOARDING = "Zz Test Employee Offboarding"
 ABSENCE = "Zz Test Absence"
 OTHER_USER = "Guest"
 BUILD_CONTEXT = f"ProsAlly {memory_patch.DASH} Build Context"
-MEMORY_ON = {"long_term_memory": "Enabled", "memory_write_mode": "distilled"}
 
 
 def _process(name):
@@ -78,11 +77,6 @@ class TestRecall(FrappeTestCase):
 		_user_row("Administrator", "administrator prefers short names")
 		_user_row(OTHER_USER, "guest prefers long names")
 
-	def setUp(self):
-		patcher = patch.object(helpers, "_memory_fields", return_value=MEMORY_ON)
-		patcher.start()
-		self.addCleanup(patcher.stop)
-
 	def test_recall_is_the_process_plus_the_requesters_own_rows(self):
 		recalled = helpers.recall_process_memory(PROMOTION + " - v1")
 		self.assertEqual(recalled["memory_process"], PROMOTION)
@@ -127,11 +121,11 @@ class TestPrompt(FrappeTestCase):
 class TestQueueProcessMemory(FrappeTestCase):
 	TURN = {"memory_process": PROMOTION, "user_text": "yes", "memory_notes": ["a note"], "chat_history": []}
 
-	def _queue(self, turn, intent, fields=MEMORY_ON):
+	def _queue(self, turn, intent):
 		cfg = {"name": "CFG", "ai_model": "m", "ai_provider": "p"}
 		with patch.object(helpers, "prosally_config", return_value=cfg), patch.object(
-			helpers, "_memory_fields", return_value=fields
-		), patch.object(D, "_enqueue_distill") as enqueue:
+			D, "_enqueue_distill"
+		) as enqueue:
 			helpers.queue_process_memory(turn, {"intent": intent, "response": "Drew it."})
 		return enqueue
 

@@ -253,35 +253,15 @@ def process_for_diagram(diagram_name: str) -> str:
 	return name if name and frappe.db.exists("Process", name) else ""
 
 
-def _memory_fields(cfg: dict) -> dict:
-	"""The memory fields of the agent's configuration record."""
-	return frappe.db.get_value(
-		"AI Agent Configuration",
-		cfg.get("name"),
-		[
-			"long_term_memory",
-			"memory_write_mode",
-			"memory_token_budget",
-			"memory_distill_model",
-			"memory_reconcile_model",
-		],
-		as_dict=True,
-	) or {}
-
-
 def recall_process_memory(diagram_name: str) -> dict:
 	"""The diagram's Process and the notes recalled for it and the requester, for the turn store."""
 	from one_bpmn.agents.memory.tools import memory_search
 	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
 		DEFAULT_MEMORY_TOKEN_BUDGET,
 		_bound_memories_to_budget,
-		_cfg_truthy,
 		_requesting_user,
 	)
 
-	fields = _memory_fields(prosally_config())
-	if not _cfg_truthy(fields.get("long_term_memory")):
-		return {"memory_process": "", "memory_notes": []}
 	process = process_for_diagram(diagram_name)
 	user = _requesting_user()
 	rows = []
@@ -292,8 +272,7 @@ def recall_process_memory(diagram_name: str) -> dict:
 	if user:
 		rows += memory_search("User", {"user": user}, "", limit=MEMORY_NOTES_LIMIT, ignore_permissions=True)
 	notes = list(dict.fromkeys((r.get("content") or "").strip() for r in rows))
-	budget = fields.get("memory_token_budget") or DEFAULT_MEMORY_TOKEN_BUDGET
-	kept = _bound_memories_to_budget([{"content": n} for n in notes if n], budget)
+	kept = _bound_memories_to_budget([{"content": n} for n in notes if n], DEFAULT_MEMORY_TOKEN_BUDGET)
 	return {"memory_process": process, "memory_notes": [r["content"] for r in kept]}
 
 
@@ -319,9 +298,9 @@ def queue_process_memory(turn: dict, agent_result: dict | None) -> None:
 	)
 
 	cfg = prosally_config()
-	own = _memory_fields(cfg)
-	if own.get("memory_write_mode") != "distilled":
-		return
+	own = frappe.db.get_value(
+		"AI Agent Configuration", cfg.get("name"), ["memory_distill_model", "memory_reconcile_model"], as_dict=True
+	) or {}
 	distill_model = resolve_memory_model(
 		own.get("memory_distill_model"), "default_memory_distill_model", cfg.get("ai_model")
 	)
