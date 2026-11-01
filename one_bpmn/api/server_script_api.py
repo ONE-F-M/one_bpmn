@@ -899,6 +899,8 @@ def build_prosally_turn_context(context: dict) -> dict:
 		xml_section = xml_input["block"] + "\n\n" + XML_INPUT_RULES + "\n\n"
 		if xml_input["message_override"]:
 			out["_message_override"] = xml_input["message_override"]
+		if xml_input["direct_reply"]:
+			out["_direct_reply"] = xml_input["direct_reply"]
 
 	contract = (
 		xml_section

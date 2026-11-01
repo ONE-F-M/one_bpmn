@@ -314,7 +314,7 @@ class TestProsAllyWiring(FrappeTestCase):
 		from one_bpmn.agents import agui_stream
 		from one_bpmn.api import server_script_api  # registers the ProsAlly context builder  # noqa: F401
 
-		message = _document(shapes=400)
+		message = "add a step\n" + _document(shapes=400)
 		with patch(
 			"one_bpmn.api.agent_invocation.invoke_agent",
 			return_value={"response": "ok", "conversation": "CONV-1"},
@@ -328,6 +328,53 @@ class TestProsAllyWiring(FrappeTestCase):
 		self.assertEqual(sent_context["process_name"], "P")
 		self.assertNotIn("_turn_message", sent_context)
 		self.assertNotIn("_message_override", sent_context)
+
+	def test_stream_answers_malformed_xml_with_the_parse_failure_and_no_model_turn(self):
+		from one_bpmn.agents import agui_stream
+		from one_bpmn.api import server_script_api  # noqa: F401
+
+		with (
+			patch("one_bpmn.api.agent_invocation.invoke_agent") as invoke,
+			patch("one_bpmn.utils.chat_persistence.save_user_message"),
+			patch("one_bpmn.utils.chat_persistence.save_bot_message") as save_bot,
+		):
+			chunks = "".join(agui_stream.agent_event_stream("prosally_agent", MALFORMED, "CONV-1", {}))
+		invoke.assert_not_called()
+		self.assertIn("could not be parsed", save_bot.call_args.args[1])
+		self.assertIn("could not be parsed", chunks)
+		self.assertIn("line 5", chunks)
+		self.assertIn("RUN_FINISHED", chunks)
+
+	def test_review_paste_is_answered_directly_with_findings_by_element_id(self):
+		reply = bx.prepare_turn("check this xml\n" + _document(BROKEN_STRUCTURE))["direct_reply"]
+		self.assertIn("End_9", reply)
+		self.assertIn("F4", reply)
+		self.assertIn("Catch_1", reply)
+		self.assertIn("bpmn:eventBasedGateway", reply)
+
+	def test_paste_with_a_change_request_goes_to_the_model(self):
+		for text in ("add a review step after Task_1", "please fix this and update the diagram"):
+			self.assertIsNone(bx.prepare_turn(text + "\n" + _document(BROKEN_STRUCTURE))["direct_reply"])
+
+	def test_clean_xml_only_paste_gets_a_summary_reply(self):
+		reply = bx.prepare_turn(_document())["direct_reply"]
+		self.assertIn("no problems found", reply.lower())
+
+	def test_stream_answers_a_review_paste_without_the_agent_and_saves_the_turn(self):
+		from one_bpmn.agents import agui_stream
+		from one_bpmn.api import server_script_api  # noqa: F401
+
+		message = "review this\n" + _document(BROKEN_STRUCTURE)
+		with (
+			patch("one_bpmn.api.agent_invocation.invoke_agent") as invoke,
+			patch("one_bpmn.utils.chat_persistence.save_user_message") as save_user,
+			patch("one_bpmn.utils.chat_persistence.save_bot_message") as save_bot,
+		):
+			chunks = "".join(agui_stream.agent_event_stream("prosally_agent", message, "CONV-1", {}))
+		invoke.assert_not_called()
+		save_user.assert_called_once_with("CONV-1", message)
+		self.assertIn("End_9", save_bot.call_args.args[1])
+		self.assertIn("End_9", chunks)
 
 	def test_stream_leaves_ordinary_messages_and_other_agents_alone(self):
 		from one_bpmn.agents import agui_stream

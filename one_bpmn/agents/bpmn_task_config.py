@@ -372,3 +372,19 @@ def resolve_ir_lane_roles(ir: dict, roles: list[str]) -> list[dict]:
 			message = _("Lane '{0}' is not a Role. Did you mean {1}?").format(name, ", ".join(matches))
 			problems.append(_problem(lane.get("id") or "", message, rule="lane-role"))
 	return problems
+
+
+NONE_TASK_SOURCES = frozenset({"userTask", "serviceTask", "scriptTask", "manualTask", "businessRuleTask"})
+
+
+def use_none_tasks(ir: dict) -> None:
+	"""In a non-executable IR, make every task a plain None task and drop its task settings, in place."""
+	if (ir or {}).get("executable") is not False:
+		return
+	for node in ir.get("nodes") or []:
+		if node.get("type") in NONE_TASK_SOURCES:
+			node["type"] = "task"
+			node.pop("config", None)
+			node.pop("attrs", None)
+		if node.get("type") == "subProcess":
+			use_none_tasks({"executable": False, **(node.get("children") or {})})
