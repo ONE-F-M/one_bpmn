@@ -14,7 +14,8 @@
   "trigger_event",
   "column_break_2",
   "workflow_state_condition",
-  "cron_expression"
+  "cron_expression",
+  "last_started_at"
  ],
  "fields": [
   {
@@ -23,14 +24,16 @@
    "in_list_view": 1,
    "label": "Event Type",
    "options": "\nNone\nConditional\nTimer\nSignal",
-   "reqd": 1
+   "reqd": 1,
+   "columns": 1
   },
   {
    "fieldname": "bpmn_element_id",
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "BPMN Element ID",
-   "read_only": 1
+   "read_only": 1,
+   "columns": 2
   },
   {
    "fieldname": "column_break_1",
@@ -41,14 +44,16 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Trigger DocType",
-   "options": "DocType"
+   "options": "DocType",
+   "columns": 2
   },
   {
    "fieldname": "trigger_event",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Trigger Event",
-   "options": "After Insert\nValidate\nBefore Save\nOn Update\nBefore Submit\nOn Submit\nBefore Cancel\nOn Cancel\nBefore Update After Submit\nOn Update After Submit"
+   "options": "After Insert\nValidate\nBefore Save\nOn Update\nBefore Submit\nOn Submit\nBefore Cancel\nOn Cancel\nBefore Update After Submit\nOn Update After Submit",
+   "columns": 2
   },
   {
    "fieldname": "column_break_2",
@@ -58,7 +63,8 @@
    "fieldname": "workflow_state_condition",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Workflow State Condition"
+   "label": "Workflow State Condition",
+   "columns": 1
   },
   {
    "fieldname": "cron_expression",
@@ -70,6 +76,15 @@
    "fieldtype": "Select",
    "label": "Trigger Type",
    "options": "DocType Event\nScheduler Event\nAPI"
+  },
+  {
+   "fieldname": "last_started_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Last Started At",
+   "no_copy": 1,
+   "read_only": 1,
+   "columns": 2
   }
  ],
  "index_web_pages_for_search": 1,

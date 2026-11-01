@@ -38,7 +38,7 @@
 							agent-id="docu_agent"
 							variant="docked"
 							layout="conversation"
-							:apply-targets="['apply-schema']"
+							:apply-targets="['apply-schema', 'apply-script']"
 							:context="docuTurnContext"
 							:host-context-line="hostContextLine"
 							:cards="cardRegistry"
@@ -415,6 +415,12 @@
 					<li v-for="line in childChanges" :key="line">{{ line }}</li>
 				</ul>
 
+				<div v-if="saveState === 'pending'" class="dc-pending-banner" role="status">
+					<strong>Awaiting approval.</strong>
+					<template v-if="pendingParts">{{ pendingParts.before }}<a :href="pendingUrl" target="_blank" rel="noopener">{{ pendingRequest }}</a>{{ pendingParts.after }}</template>
+					<template v-else>{{ pendingNotice }}</template>
+				</div>
+
 				<!-- Footer — changes auto-save to the system -->
 				<div class="dc-window-footer">
 					<span class="dc-count">{{ contentCount }} field{{ contentCount === 1 ? "" : "s" }}</span>
@@ -423,7 +429,14 @@
 						<template v-else-if="saveState === 'saving'">Saving…</template>
 						<template v-else-if="saveState === 'saved'">✓ Saved{{ appliedName ? ' “' + appliedName + '”' : '' }}</template>
 						<template v-else-if="saveState === 'error'">⚠ {{ saveError }}</template>
-						<template v-else>Changes save automatically</template>
+						<template v-else-if="saveState === 'pending' && pendingParts">{{ pendingParts.before }}<a :href="pendingUrl" target="_blank" rel="noopener">{{ pendingRequest }}</a>{{ pendingParts.after }}</template>
+						<template v-else-if="saveState === 'pending'">{{ pendingNotice }}</template>
+							<template v-else-if="saveState === 'question'">
+								{{ listingQuestion }}
+								<button class="dc-option-btn" @click="answerListing(true)">Yes</button>
+								<button class="dc-option-btn" @click="answerListing(false)">No</button>
+							</template>
+							<template v-else>Changes save automatically</template>
 					</span>
 					<span v-if="saveNotes" class="dc-save-status">{{ saveNotes }}</span>
 					<Button
@@ -632,6 +645,19 @@ const appliedName = ref("");
 const saveState  = ref("idle");   // idle | saving | saved | error
 const canChange  = ref(false);
 const saveError  = ref("");
+const listingQuestion = ref("");
+const listingAnswer   = ref(null);
+const pendingNotice   = ref("");
+const pendingRequest  = ref("");
+const pendingParts = computed(() => {
+	const at = pendingNotice.value.indexOf(pendingRequest.value);
+	if (!pendingRequest.value || at < 0) return null;
+	return {
+		before: pendingNotice.value.slice(0, at),
+		after: pendingNotice.value.slice(at + pendingRequest.value.length),
+	};
+});
+const pendingUrl = computed(() => `/app/doctype-change-request/${encodeURIComponent(pendingRequest.value)}`);
 const saveNotes  = ref("");
 const childChanges = ref([]);
 // A design that failed to save, kept in this browser so the canvas can show the site's form and still offer it back.
@@ -1189,10 +1215,23 @@ const hostContextLine = computed(() =>
 		: ""
 );
 
-function onDocuCardAction({ name, action, value }) {
+function onDocuCardAction({ name, action, value, fail }) {
 	if (name === "onefm.doctype_schema" && action === "apply-schema" && value.doctype_ir) {
 		loadIr(value.doctype_ir);
 		loadChildChanges(value.doctype_ir);
+	}
+	if (name === "onefm.script_diff" && action === "apply-script") applyFormScript(value, fail);
+}
+
+async function applyFormScript({ apply_target: doctype, modified_script: script }, fail) {
+	try {
+		saveNotes.value = await frappeRequest({
+			url: `${API}apply_client_script`,
+			method: "POST",
+			params: { doctype, script },
+		});
+	} catch (e) {
+		fail(serverMessage(e));
 	}
 }
 
@@ -1229,8 +1268,25 @@ async function runAutosave() {
 			url: `${API}apply_doctype`,
 			method: "POST",
 			// confirm=1: the builder edits are the user's intent — no extra prompt.
-			params: { ir: JSON.stringify(currentIr()), confirm: 1 },
+			params: {
+				ir: JSON.stringify(currentIr()),
+				confirm: 1,
+				process: props.processContext?.process || undefined,
+				list_in_process: listingAnswer.value ?? undefined,
+			},
 		});
+		if (res?.status === "needs_listing_decision") {
+			listingQuestion.value = res.message;
+			saveState.value = "question";
+			return;
+		}
+		listingQuestion.value = "";
+		if (res?.status === "pending_approval") {
+			pendingNotice.value = res.message;
+			pendingRequest.value = res.request || "";
+			saveState.value = "pending";
+			return;
+		}
 		if (res?.name) {
 			appliedName.value = res.name;
 			emit("applied", res.name);   // write the DocType name back onto the shape
@@ -1248,6 +1304,10 @@ async function runAutosave() {
 	}
 }
 
+function answerListing(listIt) {
+	listingAnswer.value = listIt ? 1 : 0;
+	runAutosave();
+}
 function unsavedKey() {
 	return `docu-unsaved:${dtName.value.trim()}`;
 }
@@ -1323,10 +1383,14 @@ watch(() => props.open, (open) => {
 	else window.removeEventListener("keydown", onGlobalKeydown, true);
 });
 
-onBeforeUnmount(stopPolling);
+onBeforeUnmount(() => {
+	stopPolling();
+	document.body.classList.remove("docu-open");
+});
 
 // ── Init ──────────────────────────────────────────────────────────────
 onMounted(async () => {
+	document.body.classList.add("docu-open");
 	buildTree([]);  // start with an empty tab/section/column so the canvas is usable
 	selectForm();
 	loadModules();  // populate the module picker (fire-and-forget)
@@ -1382,6 +1446,8 @@ onMounted(async () => {
 	--md-error-container: #ffdad6;
 	--md-on-error-container: #410002;
 	--md-success: #106b34;
+	--md-warning-container: #ffe9b8;
+	--md-on-warning-container: #3b2a00;
 	/* state-layer opacities */
 	--md-state-hover: 0.08;
 	--md-state-focus: 0.12;
@@ -1627,6 +1693,10 @@ onMounted(async () => {
 .dc-save-status.st-saving { color: var(--md-primary); }
 .dc-save-status.st-saved { color: var(--md-success); }
 .dc-save-status.st-error { color: var(--md-error); }
+.dc-save-status.st-pending { color: var(--md-primary); }
+.dc-pending-banner a, .dc-save-status a { color: inherit; font-weight: 600; text-decoration: underline; }
+.dc-pending-banner { padding: 10px 16px; font-size: 13px; background: var(--md-warning-container); color: var(--md-on-warning-container); border-top: 1px solid var(--md-outline-variant); }
+.dc-save-status .dc-option-btn { margin-left: 8px; }
 
 /* ── Properties (right) ── */
 .dc-props-panel { width: clamp(250px, 22%, 312px); flex: none; border-left: 1px solid var(--md-outline-variant); background: var(--md-surface-container-low); overflow-y: auto; scrollbar-gutter: stable; padding: 18px 16px; }
@@ -1709,4 +1779,9 @@ onMounted(async () => {
 @media (max-width: 420px) {
 	.dc-dt-chip { max-width: 120px; }
 }
+</style>
+
+<style>
+/* The chat's error dialog is portalled to the body; lift it above the Docu window while open. */
+body.docu-open #headlessui-portal-root { position: relative; z-index: 2100; }
 </style>

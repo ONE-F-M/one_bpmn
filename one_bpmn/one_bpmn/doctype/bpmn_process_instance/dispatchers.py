@@ -26,6 +26,8 @@ _MEMORY_BLOCK_PROVENANCE = "Possibly relevant notes from earlier work; use them 
 # all. This is the per-agent default (aiMemoryTokenBudget overrides it); see
 # _bound_memories_to_budget.
 DEFAULT_MEMORY_TOKEN_BUDGET = 800
+KEYED_PROCESS_ROWS = 5
+KEYED_USER_ROWS = 3
 
 # Greetings/acknowledgements carry no signal worth searching memory with, and
 # searching anyway risks a coincidental keyword match injecting an unrelated
@@ -116,14 +118,16 @@ def _requesting_user() -> str | None:
 	return None if not user or user == "Guest" else user
 
 
-def _resolve_memory_target(task_cfg: dict, instance, bpmn_id: str):
+def _resolve_memory_target(task_cfg: dict, instance, bpmn_id: str, task_data: dict | None = None):
 	"""Resolve (scope, scope_key) for memory search/write from task config and
 	the instance context. Returns None when the scope key can't be built (e.g.
 	Entity scope with no context document) so the caller safely skips memory.
 
 	Agent   -> agent_element (defaults to the task's bpmn_id)
 	Process -> the instance's process_model
-	Entity  -> {reference_doctype, reference_name} from the instance context doc
+	Entity  -> {memory_reference_doctype, memory_reference_name} from the task data,
+	           (blank means no memory), else {reference_doctype, reference_name} from
+	           the instance context doc
 
 	The "User and X" scopes key on X plus the requesting user: recall returns
 	that person's memories plus the shared ones, writes are theirs alone. With
@@ -147,8 +151,12 @@ def _resolve_memory_target(task_cfg: dict, instance, bpmn_id: str):
 			return None
 		key = {"process": process_model}
 	elif scope == "Entity":
-		reference_doctype = getattr(instance, "context_doctype", None)
-		reference_name = getattr(instance, "context_docname", None)
+		if task_data and "memory_reference_name" in task_data:
+			reference_doctype = task_data.get("memory_reference_doctype")
+			reference_name = task_data.get("memory_reference_name")
+		else:
+			reference_doctype = getattr(instance, "context_doctype", None)
+			reference_name = getattr(instance, "context_docname", None)
 		if not (reference_doctype and reference_name):
 			return None
 		key = {"reference_doctype": reference_doctype, "reference_name": reference_name}
@@ -162,6 +170,14 @@ def _resolve_memory_target(task_cfg: dict, instance, bpmn_id: str):
 	elif scope == "Process":
 		return (scope, key["process"])
 	return (scope, key)
+
+
+def _preference_user(task_data: dict | None) -> str | None:
+	"""The requester, when the task data keys memory by a business record; their
+	own preference rows are read and written alongside that record's facts."""
+	if not (task_data or {}).get("memory_reference_name"):
+		return None
+	return _requesting_user()
 
 
 def _format_memory_block(memories: list) -> str:
@@ -1775,7 +1791,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	memory_injected_tokens = 0
 	if not resume_payload and _cfg_truthy(task_cfg.get("aiLongTermMemory")):
 		try:
-			memory_target = _resolve_memory_target(task_cfg, instance, bpmn_id)
+			memory_target = _resolve_memory_target(task_cfg, instance, bpmn_id, task.data)
 			# raw_user_message, NOT user_message: the de-duplication above blanks
 			# the platform's copy whenever the map has already rendered the
 			# person's words into its own prompt, which every chat map does. The
@@ -1793,7 +1809,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			# injecting an unrelated fact into "hi".
 			if memory_target and query and not _is_small_talk(query):
 				recall_query = query
-				from one_bpmn.agents.memory.tools import memory_list_user_directed, memory_search
+				from one_bpmn.agents.memory.tools import memory_list_top, memory_list_user_directed, memory_search
 				scope, scope_key = memory_target
 				limit = int(task_cfg.get("aiMemoryLimit", 5) or 5)
 				# Standing conventions the user asked to be remembered are
@@ -1810,8 +1826,22 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				matched = memory_search(
 					scope, scope_key, query, limit=limit, ignore_permissions=True
 				)
-				seen_names = {m.get("name") for m in user_directed}
-				memories = user_directed + [m for m in matched if m.get("name") not in seen_names]
+				preference_user = _preference_user(task.data)
+				standing = []
+				if preference_user:
+					# A process keyed turn always carries the process's top facts and the
+					# person's own preferences, whatever words the question uses.
+					user_key = {"user": preference_user}
+					user_directed += memory_list_user_directed("User", user_key, limit=3, ignore_permissions=True)
+					standing = memory_list_top(scope, scope_key, limit=KEYED_PROCESS_ROWS, ignore_permissions=True)
+					standing += memory_list_top("User", user_key, limit=KEYED_USER_ROWS, ignore_permissions=True)
+					matched += memory_search("User", user_key, query, limit=limit, ignore_permissions=True)
+				memories = list(user_directed)
+				seen_names = {m.get("name") for m in memories}
+				for m in standing + matched:
+					if m.get("name") not in seen_names:
+						seen_names.add(m.get("name"))
+						memories.append(m)
 				if memories:
 					token_budget = int(
 						task_cfg.get("aiMemoryTokenBudget") or DEFAULT_MEMORY_TOKEN_BUDGET
@@ -2444,7 +2474,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# Eval runs never write memory; cases that need it seed it with memory_write.
 		if write_mode != "off" and not frappe.flags.get("eval_origin"):
 			try:
-				write_target = memory_target or _resolve_memory_target(task_cfg, instance, bpmn_id)
+				write_target = memory_target or _resolve_memory_target(task_cfg, instance, bpmn_id, task.data)
 				if write_target:
 					scope, scope_key = write_target
 					src = run.name if run and not getattr(run, "stub", False) else None
@@ -2571,6 +2601,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 							),
 							source_run=src,
 							process_model=memory_process_model,
+							user=_preference_user(task.data),
 							# WI-002165: the agent's own instructions for this run
 							# (the static system prompt) plus the memory block
 							# recalled and injected into the dynamic layer (WI-001639

@@ -31,7 +31,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, cint, get_datetime, now, now_datetime
 
-VALID_SCOPES = ("Agent", "Process", "Entity")
+VALID_SCOPES = ("Agent", "Process", "Entity", "User")
 _DEFAULT_LIMIT = 5
 # Extra rows fetched on the keyword (`like`) path before dropping expired/
 # superseded ones in Python, so the post-filter still fills `limit` in the common
@@ -192,6 +192,10 @@ def _resolve_scope(scope: str, scope_key) -> dict:
 			frappe.throw(_("Process scope requires a process."))
 		keys["process_model"] = process_model
 
+	elif scope == "User":
+		if not (isinstance(scope_key, dict) and scope_key.get("user")):
+			frappe.throw(_("User scope requires a user."))
+
 	else:  # Entity
 		if not isinstance(scope_key, dict):
 			frappe.throw(_("Entity scope requires reference_doctype and reference_name."))
@@ -214,6 +218,8 @@ def _read_filters(keys: dict) -> dict:
 	the empty string into ``ifnull(user, '') = ''`` so NULL reads as shared."""
 	filters = dict(keys)
 	user = keys.get("user") or ""
+	if keys["memory_scope"] == "User":
+		return filters
 	filters["user"] = ("in", [user, ""] if user else [""])
 	return filters
 
@@ -475,6 +481,21 @@ def memory_search(scope: str, scope_key, query: str, limit: int = 5, *, ignore_p
 	return [_row_dict(r) for r in valid[:page_length]]
 
 
+def _list_valid(filters: dict, limit: int, order_by: str, ignore_permissions: bool) -> list[dict]:
+	page_length = limit if isinstance(limit, int) and limit > 0 else _DEFAULT_LIMIT
+	rows = frappe.get_list(
+		"AI Memory",
+		filters=filters,
+		fields=["name", "content", "metadata", "expires_on"],
+		order_by=order_by,
+		limit_page_length=page_length + _EXPIRY_HEADROOM,
+		ignore_permissions=ignore_permissions,
+	)
+	cutoff = now_datetime()
+	valid = [r for r in rows if not r.get("expires_on") or get_datetime(r["expires_on"]) > cutoff]
+	return [_row_dict(r) for r in valid[:page_length]]
+
+
 def memory_list_user_directed(scope: str, scope_key, limit: int = 3, *, ignore_permissions: bool = False) -> list[dict]:
 	"""Currently-valid user-directed memories for exactly one scope key, most
 	recent first — unconditionally, with no keyword/relevance filter.
@@ -486,18 +507,14 @@ def memory_list_user_directed(scope: str, scope_key, limit: int = 3, *, ignore_p
 	``memory_search``, not instead of it; the caller merges both result sets.
 	"""
 	filters = dict(_read_filters(_resolve_scope(scope, scope_key)), user_directed=1)
-	page_length = limit if isinstance(limit, int) and limit > 0 else _DEFAULT_LIMIT
-	rows = frappe.get_list(
-		"AI Memory",
-		filters=filters,
-		fields=["name", "content", "metadata", "expires_on"],
-		order_by="modified desc",
-		limit_page_length=page_length + _EXPIRY_HEADROOM,
-		ignore_permissions=ignore_permissions,
-	)
-	cutoff = now_datetime()
-	valid = [r for r in rows if not r.get("expires_on") or get_datetime(r["expires_on"]) > cutoff]
-	return [_row_dict(r) for r in valid[:page_length]]
+	return _list_valid(filters, limit, "modified desc", ignore_permissions)
+
+
+def memory_list_top(scope: str, scope_key, limit: int = 3, *, ignore_permissions: bool = False) -> list[dict]:
+	"""Currently-valid memories for exactly one scope key, most important then most
+	recent first, with no keyword filter, so a fact shares no words with the turn still surfaces."""
+	filters = _read_filters(_resolve_scope(scope, scope_key))
+	return _list_valid(filters, limit, "importance desc, modified desc", ignore_permissions)
 
 
 def _valid_rows(rows: list) -> list:
@@ -1035,7 +1052,7 @@ def _memory_write(
 # ── MCP-compatible tool registry ────────────────────────────────────────────
 # A JSON-Schema object describing a scope key. Which properties apply depends on
 # `scope`; the tool validates the combination at runtime.
-_SCOPE_ENUM = {"type": "string", "enum": list(VALID_SCOPES), "description": "Memory scope."}
+_SCOPE_ENUM = {"type": "string", "enum": ["Agent", "Process", "Entity"], "description": "Memory scope."}
 _SCOPE_KEY_SCHEMA = {
 	"type": "object",
 	"description": (

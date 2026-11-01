@@ -75,6 +75,9 @@ class AIMemory(Document):
 				frappe.throw(
 					_("An Entity-scoped memory requires a Reference Doctype and Reference Name.")
 				)
+		elif self.memory_scope == "User":
+			if not self.user:
+				frappe.throw(_("A User-scoped memory requires a User."))
 
 	def _dedup_overwrite(self):
 		"""When ``dedup_key`` is set, a new memory sharing the same scope, scope

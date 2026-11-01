@@ -223,6 +223,16 @@ def test_get_process_model_requires_read_permission(mock_frappe):
 
 
 @patch("one_bpmn.api.process_map_api.frappe")
+def test_get_process_model_returns_owning_process_name(mock_frappe):
+	doc = MagicMock()
+	doc.process_name = "Dev Agent"
+	doc.bpmn_xml = ""
+	mock_frappe.get_doc.return_value = doc
+	result = process_map_api.get_process_model("MODEL-1")
+	assert result["process_name"] == "Dev Agent"
+
+
+@patch("one_bpmn.api.process_map_api.frappe")
 def test_delete_process_model_calls_delete(mock_frappe):
 	doc = MagicMock()
 	mock_frappe.get_doc.return_value = doc

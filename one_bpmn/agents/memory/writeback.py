@@ -152,6 +152,7 @@ def distill_and_write(
 	reconcile_provider=None,
 	process_model=None,
 	exclude_context: str | None = None,
+	user: str | None = None,
 ) -> list[str]:
 	"""Distill ``agent_output`` into durable facts and ``memory_write`` each one.
 
@@ -179,6 +180,10 @@ def distill_and_write(
 	injected memory block, passed straight through to ``distill_memories`` so
 	it can reject facts that just restate what the agent was told rather than
 	something it learned.
+
+	``user`` is the requesting person. With it, facts the curator tags as the
+	person's own preferences are written to User scope under that person; without
+	it every fact goes to ``scope``/``scope_key`` as before.
 	"""
 	try:
 		from one_bpmn.agents.memory.tools import memory_write
@@ -194,6 +199,7 @@ def distill_and_write(
 			exclude_context=exclude_context,
 			source_run=source_run,
 			process_model=process_model,
+			split_user=bool(user),
 		)
 		# The reconciler runs on its own model, so the two can be tuned apart —
 		# and therefore on its own provider, because a model only works against
@@ -209,9 +215,10 @@ def distill_and_write(
 		facts = _reconcile_batch(facts, reconcile_ctx)
 		written: list[str] = []
 		for f in facts:
+			is_preference = bool(user) and f.get("audience") == "user"
 			rec = memory_write(
-				scope,
-				scope_key,
+				"User" if is_preference else scope,
+				{"user": user} if is_preference else scope_key,
 				f["content"],
 				dedup_key=f["dedup_key"],
 				# "agent" is enough on its own: for Agent scope it duplicates

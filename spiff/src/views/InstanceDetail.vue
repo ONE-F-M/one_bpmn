@@ -4,6 +4,7 @@
 			:details="details"
 			:refreshing="refreshing"
 			:parked-ai="parkedAiTasks.length > 0"
+			:model-process-name="modelProcessName"
 			@refresh="refresh"
 			@notice="controlNotice = $event"
 		/>
@@ -140,6 +141,7 @@ const instanceId = computed(() => route.params.instance)
 const loading = ref(true)
 const refreshing = ref(false)
 const details = ref(null)
+const modelProcessName = ref("")
 const activeTasks = ref([])
 const completingTask = ref(null)
 const completingAction = ref(null)
@@ -690,6 +692,7 @@ async function loadProcessModelXml(modelName) {
 			params: { name: modelName },
 		})
 		const data = res
+		modelProcessName.value = data?.process_name || ""
 		if (data?.xml_content) {
 			// Assign the XML verbatim. bpmn-js parses XML entities itself, so we
 			// must NOT HTML-decode it first — doing so turns required escaping like

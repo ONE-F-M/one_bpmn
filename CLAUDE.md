@@ -6,6 +6,7 @@ BPMN editor integration for Frappe, powered by [bpmn-js](https://bpmn.io/toolkit
 
 - Frappe v15 backend (Python)
 - Vue.js frontend (bpmn-js + SpiffWorkflow properties panel)
+- frappe-ui for every control in Vue dialogs, pages and tabs (rule E9). The bpmn-js properties panel is Preact and keeps its shared components in `spiff/src/bpmn/shared/`.
 - Node.js 20.x, Yarn
 
 ## Features

@@ -5,43 +5,53 @@
 # These run at minute-level intervals via Frappe's scheduler.
 
 import time
+from datetime import datetime
 
 import frappe
 
 from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
 from frappe import _
-from frappe.utils import add_to_date, get_system_timezone, now_datetime
+from frappe.utils import add_to_date, get_datetime, get_system_timezone, now_datetime
 
 
 # 1. Timer Start Events — create new instances on schedule
 
 
-def timer_start_is_due(expression: str, now) -> bool:
-	"""Does a Timer Start Event's cycle fall in the minute ``now`` sits in?
+def timer_start_is_due(expression: str, now, last_started_at=None) -> bool:
+	"""Has a Timer Start Event's cycle come due since it last started a run?
 
 	A modeller writes one of two things into ``<bpmn:timeCycle>``: a cron
 	expression, or the BPMN-standard ISO 8601 repeating interval
 	(``R[n]/<start>/<period>``). Both are accepted here; anything else raises,
 	which is what the deploy-time check reports.
 	"""
-	from croniter import croniter
-
-	expression = (expression or "").strip()
-	if not expression:
+	slot = _latest_slot(expression, now)
+	if slot is None:
 		return False
 
+	if last_started_at is None:
+		return slot == now.replace(second=0, microsecond=0)
+
+	return slot > get_datetime(last_started_at)
+
+
+def _latest_slot(expression: str, now):
+	"""The most recent scheduled minute at or before ``now``, or None if there is none."""
+	expression = (expression or "").strip()
+	if not expression:
+		return None
+
 	if expression.upper().startswith("R"):
-		return _iso_cycle_is_due(expression, now)
+		return _iso_latest_slot(expression, now)
 
-	return croniter.match(expression, now)
+	from croniter import croniter
+
+	minute = now.replace(second=0, microsecond=0)
+	return croniter(expression, add_to_date(minute, minutes=1)).get_prev(datetime)
 
 
-def _iso_cycle_is_due(expression: str, now) -> bool:
-	"""Match an ISO 8601 repeating interval against the current minute.
-
-	Occurrences are ``start + n × period``; the sweep runs once a minute, so an
-	occurrence counts as due when it lands in the same minute as ``now``.
-	"""
+def _iso_latest_slot(expression: str, now):
+	"""Latest ``start + n x period`` at or before ``now``, as a naive local minute."""
 	from datetime import timezone
 	from zoneinfo import ZoneInfo
 
@@ -51,19 +61,20 @@ def _iso_cycle_is_due(expression: str, now) -> bool:
 	seconds = period.total_seconds()
 	if seconds < 60:
 		# The scheduler itself only runs every minute; deploy rejects these.
-		return False
+		return None
 
-	now_utc = now.replace(tzinfo=ZoneInfo(get_system_timezone())).astimezone(timezone.utc)
+	local_tz = ZoneInfo(get_system_timezone())
+	now_utc = now.replace(tzinfo=local_tz).astimezone(timezone.utc)
 	elapsed = (now_utc - start).total_seconds()
 	if elapsed < 0:
-		return False
+		return None
 
 	n = int(elapsed // seconds)
-	if cycles >= 0 and n >= cycles:
-		return False
+	if cycles >= 0:
+		n = min(n, cycles - 1)
 
-	occurrence = start + n * period
-	return occurrence.replace(second=0, microsecond=0) == now_utc.replace(second=0, microsecond=0)
+	occurrence = (start + n * period).astimezone(local_tz)
+	return occurrence.replace(second=0, microsecond=0, tzinfo=None)
 
 
 def process_timer_start_events():
@@ -75,7 +86,7 @@ def process_timer_start_events():
 
 	For each active BPMN Process Model with a Timer start event:
 	  1. Read the cycle from the BPMN Start Event Config row
-	  2. Check whether it falls due in the current minute
+	  2. Check whether a scheduled time has come due since it last started a run
 	  3. If yes, create and start a new BPMN Process Instance (unless
 	     a duplicate-prevention check fails)
 
@@ -93,7 +104,7 @@ def process_timer_start_events():
 			"parenttype": "BPMN Process Model",
 			"cron_expression": ["!=", ""],
 		},
-		fields=["name", "parent", "cron_expression", "bpmn_element_id"],
+		fields=["name", "parent", "cron_expression", "bpmn_element_id", "last_started_at"],
 	)
 	# Legacy rows: created before trigger_type was introduced — event_type is
 	# "Timer" but trigger_type has not been backfilled yet.  We omit the
@@ -106,7 +117,7 @@ def process_timer_start_events():
 			"parenttype": "BPMN Process Model",
 			"cron_expression": ["!=", ""],
 		},
-		fields=["name", "parent", "cron_expression", "bpmn_element_id"],
+		fields=["name", "parent", "cron_expression", "bpmn_element_id", "last_started_at"],
 	)
 	# Merge and deduplicate by child-row name.
 	seen = set()
@@ -137,6 +148,7 @@ def process_timer_start_events():
 			"model_name": cfg.parent,
 			"cron_expression": cfg.cron_expression,
 			"bpmn_element_id": cfg.bpmn_element_id,
+			"last_started_at": cfg.last_started_at,
 		}
 		for cfg in timer_configs_raw
 		if cfg.parent in active_models
@@ -144,7 +156,7 @@ def process_timer_start_events():
 
 	for cfg in timer_configs:
 		try:
-			if not timer_start_is_due(cfg["cron_expression"], now):
+			if not timer_start_is_due(cfg["cron_expression"], now, cfg["last_started_at"]):
 				continue
 
 			# Duplicate prevention: don't start if an Active instance already
@@ -163,7 +175,7 @@ def process_timer_start_events():
 			if existing:
 				continue
 
-			_start_timer_instance(cfg["model_name"])
+			_start_timer_instance(cfg["model_name"], cfg["config_name"], now)
 
 		except Exception:
 			# One unschedulable model must not cost the others their turn: an
@@ -175,7 +187,7 @@ def process_timer_start_events():
 			)
 
 
-def _start_timer_instance(model_name: str):
+def _start_timer_instance(model_name: str, config_name: str, now):
 	"""
 	Create and start a new BPMN Process Instance triggered by a timer.
 
@@ -202,6 +214,9 @@ def _start_timer_instance(model_name: str):
 		}
 	)
 
+	frappe.db.set_value(
+		"BPMN Start Event Config", config_name, "last_started_at", now, update_modified=False
+	)
 	frappe.db.commit()
 
 

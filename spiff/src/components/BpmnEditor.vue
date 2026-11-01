@@ -1027,6 +1027,7 @@ import AIAgentConfigModal from "@/components/AIAgentConfigModal.vue";
 import DocuCanvas from "@/components/DocuCanvas.vue";
 import { layoutBpmnXml } from "@/utils/bpmnLayout.js";
 import { initModeler } from "@/composables/useModelerInit";
+import { watchAgentConfigLint } from "@/composables/useAgentConfigLintState";
 import { useBpmnContextMenu } from "@/composables/useBpmnContextMenu";
 // Properties panel
 import {
@@ -1078,9 +1079,11 @@ import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider";
 import conditionalStartEventPropertiesProviderModule from "@/bpmn/conditionalStartEventPropertiesProvider";
 import lanePropertiesProviderModule from "@/bpmn/lanePropertiesProvider";
+import signalPropertiesProviderModule from "@/bpmn/signalPropertiesProvider";
 import propertiesPanelFilterModule from "@/bpmn/propertiesPanelFilter";
 import commentContextPadModule from "@/bpmn/commentContextPad";
 import { encodeHtmlAttr, decodeHtmlAttr } from "@/bpmn/shared/htmlAttrCodec";
+import { NOTIFY_EDITOR_ATTRS, contextDoctype } from "@/bpmn/shared/notifyAssigneeAttrs";
 import {
 	PROPERTY_COMMANDS,
 	isLockedElement as isPanelLockedElement,
@@ -1133,6 +1136,10 @@ const props = defineProps({
 		default: false
 	},
 	modelName: {
+		type: String,
+		default: ""
+	},
+	process: {
 		type: String,
 		default: ""
 	}
@@ -1213,6 +1220,7 @@ const docuProcessContext = computed(() => {
 	const doc = bo?.documentation?.[0];
 	return {
 		process_name: props.modelName || "",
+		process: props.process || "",
 		element_id: bo?.id || "",
 		element_name: bo?.name || "",
 		element_type: _elementTypeLabel(bo),
@@ -1656,9 +1664,7 @@ onMounted(async () => {
 						{ name: "roundRobinLastUser",    isAttr: true, type: "String" },
 						{ name: "taskActions",           isAttr: true, type: "String" },
 						{ name: "notifyAssignee",        isAttr: true, type: "String" },
-						{ name: "notifyAssigneeBody",    isAttr: true, type: "String" },
-						{ name: "notifyAssigneeSubject", isAttr: true, type: "String" },
-						{ name: "notifyAssigneeTemplate", isAttr: true, type: "String" }
+						...NOTIFY_EDITOR_ATTRS.map((name) => ({ name, isAttr: true, type: "String" })),
 					]
 				});
 
@@ -1829,6 +1835,7 @@ onMounted(async () => {
 				startEventPropertiesProviderModule,
 				conditionalStartEventPropertiesProviderModule,
 				lanePropertiesProviderModule,
+				signalPropertiesProviderModule,
 				// minimapModule, // DISABLED
 				translateModule,
 				customTextStyleModule,
@@ -1991,6 +1998,7 @@ onMounted(async () => {
 				eventBus.on("root.set", () => {
 					linting.update();
 				});
+				watchAgentConfigLint(modeler);
 			}
 
 			// Clear custom trigger attributes if a StartEvent is converted into something else
@@ -2147,6 +2155,21 @@ onMounted(async () => {
 				document.removeEventListener("mousedown", handleGlobalClick);
 			});
 
+			// The drilldown arrow alerts when calledElement is empty; route a Process-name link instead
+			const canvasContainer = modeler.get("canvas").getContainer();
+			const launchProcessNameLink = (event) => {
+				if (!event.target.closest(".bjs-drilldown")) return;
+				const [element] = modeler.get("selection").get();
+				const businessObject = element?.businessObject;
+				if (businessObject?.calledElement || !businessObject?.get("spiffworkflow:calledProcess")) return;
+				event.stopPropagation();
+				emit("launch-callactivity-editor", { processId: "", element });
+			};
+			canvasContainer.addEventListener("click", launchProcessNameLink, true);
+			onUnmounted(() => {
+				canvasContainer.removeEventListener("click", launchProcessNameLink, true);
+			});
+
 			// Re-inject only when calledElement actually changed
 			// churn and repeated network requests on every command stack event.
 			eventBus.on("commandStack.changed", () => {
@@ -2275,25 +2298,29 @@ onMounted(async () => {
 
 			// Notify Assignee editor (User Tasks)
 			eventBus.on("spiff.userTask.notifyAssignee.edit", (event) => {
+				const bo = event.element.businessObject || event.element;
 				emit("launch-notify-assignee-editor", {
 					element: event.element,
-					body: decodeHtmlAttr(event.body) || "",
-					subject: event.subject || "",
-					template: event.template || "",
+					values: { ...event.values, notifyAssigneeBody: decodeHtmlAttr(event.values.notifyAssigneeBody) || "" },
+					doctype: contextDoctype(bo),
+					taskName: bo.name || bo.id,
+					taskActions: event.taskActions,
 					eventBus: event.eventBus,
 				});
 			});
 
-			// Write notify-assignee HTML body + subject + template back to BPMN element
+			// Write every Notification Editor value back to the BPMN element in one update
 			eventBus.on("spiff.userTask.notifyAssignee.update", (event) => {
 				if (event.element) {
 					const modeling = modeler.get("modeling");
 					const bo = event.element.businessObject || event.element;
-					modeling.updateModdleProperties(event.element, bo, {
-						"spiffworkflow:notifyAssigneeBody": encodeHtmlAttr(event.body),
-						"spiffworkflow:notifyAssigneeSubject": event.subject || undefined,
-						"spiffworkflow:notifyAssigneeTemplate": event.template || undefined,
-					});
+					const updates = {};
+					for (const name of NOTIFY_EDITOR_ATTRS) {
+						const value = event.values[name];
+						updates[`spiffworkflow:${name}`] =
+							name === "notifyAssigneeBody" ? encodeHtmlAttr(value) : value || undefined;
+					}
+					modeling.updateModdleProperties(event.element, bo, updates);
 				}
 			});
 
@@ -3534,6 +3561,10 @@ function getAvatarColor(userName) {
 .bpmn-process-name-empty {
 	color: var(--gray-400, #9ca3af);
 	font-style: italic;
+}
+
+.bio-properties-panel-entry[data-entry-id="process_id"] {
+	display: none;
 }
 /* ─────────────────────────────────────────────────── */
 

@@ -496,6 +496,11 @@ def _extract_bpmn_references(xml_content: str) -> dict:
 			except (json.JSONDecodeError, ValueError):
 				pass
 
+		notify_dt = min(context_doctypes, default="") or target_dt
+		if notify_dt:
+			for fieldname in _notify_fieldnames(attrs, user_task.get("id", "")):
+				referenced_fields.append((notify_dt, fieldname))
+
 	# ── Parse Script Tasks ────────────────────────────────────────────────
 	for script_task in root.iter(f"{{{BPMN_NS}}}scriptTask"):
 		script_name = script_task.get(f"{{{SPIFF_NS}}}serverScript", "")
@@ -558,6 +563,32 @@ def _extract_bpmn_references(xml_content: str) -> dict:
 		"root": root,
 		"process_el": _process_el,
 	}
+
+
+def _notify_fieldnames(attrs: dict, element_id: str) -> list[str]:
+	"""Fields on the context DocType that a task's Notification Editor settings name."""
+	names = []
+	for key in ("notifyFacts", "notifyDetails"):
+		for entry in _notify_json(attrs, key, element_id) or []:
+			for name in entry if isinstance(entry, list) else [entry]:
+				# A linked field "employee.employee_name" needs the link field on this DocType
+				names.append(name.split(".")[0])
+	for action in (_notify_json(attrs, "notifyActions", element_id) or {}).values():
+		if action.get("reasonField"):
+			names.append(action["reasonField"])
+	return names
+
+
+def _notify_json(attrs: dict, key: str, element_id: str):
+	raw = attrs.get(key, "")
+	if not raw:
+		return None
+	try:
+		return json.loads(raw)
+	except ValueError as exc:
+		raise frappe.ValidationError(
+			_("Task {0} has an unreadable {1} setting: {2}").format(element_id, key, exc)
+		) from exc
 
 
 def _controller_lifecycle_overrides(doctype: str) -> list:
@@ -1482,6 +1513,7 @@ def get_process_model(name: str) -> dict:
 		"model_name": doc.title,
 		"title": doc.title,
 		"process_id": doc.process_id,
+		"process_name": doc.process_name,
 		"description": doc.description,
 		"xml_content": xml_content,
 		"bpmn_xml": xml_content,
