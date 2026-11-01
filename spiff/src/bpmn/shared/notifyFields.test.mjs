@@ -59,8 +59,8 @@ test("flattenEmailFields: own then linked, linked labelled with the link, other 
 test("fieldOptionGroups: own group, then Linked documents, used fields and empty groups left out", () => {
 	const fields = flattenEmailFields(RESULT, TYPES)
 	assert.deepEqual(fieldOptionGroups(fields, "Leave Application", ["employee_name"]), [
-		{ group: "Leave Application fields", options: [{ label: "From Date", value: "from_date" }] },
-		{ group: "Linked documents", options: [{ label: "Employee · Full Name in Arabic", value: "employee.employee_name_in_arabic" }] },
+		{ group: "Leave Application fields", items: [{ label: "From Date", value: "from_date" }] },
+		{ group: "Linked documents", items: [{ label: "Employee · Full Name in Arabic", value: "employee.employee_name_in_arabic" }] },
 	])
 	assert.deepEqual(
 		fieldOptionGroups(fields, "Leave Application", ["employee.employee_name_in_arabic"]).map((g) => g.group),
