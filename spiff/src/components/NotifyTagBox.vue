@@ -36,6 +36,7 @@
 		>
 			<Autocomplete
 				:key="picks"
+				:compare-fn="compareOption"
 				:options="options"
 				:model-value="null"
 				:placeholder="placeholder"
@@ -48,6 +49,7 @@
 <script setup>
 import { ref } from "vue";
 import { Autocomplete, Badge, Button } from "frappe-ui";
+import { compareOption } from "@/utils/compareOption";
 
 defineProps({
 	// [{ key, label, sub }]; sub is shown after the label, right to left
