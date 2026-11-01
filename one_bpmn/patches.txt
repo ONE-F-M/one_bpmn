@@ -330,3 +330,4 @@ one_bpmn.one_bpmn.patches.v1_0.prosally_reads_dms_documents #29-10-2026 ProsAlly
 one_bpmn.one_bpmn.patches.v1_0.prosally_asks_executable_or_not #01-11-2026 ProsAlly asks whether to draw a new or redrawn process as executable or non-executable, and confirms the kind the person chose
 one_bpmn.one_bpmn.patches.v1_0.prosally_diagnoses_errors #01-11-2026 ProsAlly diagnoses a pasted error or lint finding and proposes a fix for the map, a server script, or a fallback, instead of declining it
 one_bpmn.one_bpmn.patches.v1_0.prosally_draws_none_tasks #01-11-2026 ProsAlly keeps None tasks when it modifies a non-executable process, and replaces every task with them when asked
+one_bpmn.one_bpmn.patches.v1_0.prosally_reads_related_processes #01-11-2026 ProsAlly gets a read-only get_process_links tool over the message and signal links to related process maps, and its generate and modify stages read what it finds

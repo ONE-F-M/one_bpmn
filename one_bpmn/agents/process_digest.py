@@ -29,7 +29,14 @@ STEP_TAGS = (
 	"subProcess",
 	"adHocSubProcess",
 	"callActivity",
+	"intermediateCatchEvent",
+	"intermediateThrowEvent",
+	"boundaryEvent",
 )
+EVENT_DEFINITIONS = {
+	"messageEventDefinition": ("message", "messageRef"),
+	"signalEventDefinition": ("signal", "signalRef"),
+}
 GATEWAY_TAGS = ("exclusiveGateway", "parallelGateway", "inclusiveGateway", "eventBasedGateway")
 
 
@@ -135,21 +142,34 @@ def _flow_lines(root) -> list[str]:
 	for el in root.iter():
 		kind = _local(el.tag)
 		if kind in STEP_TAGS:
-			lines.append(_step_line(el, kind, lanes))
+			lines.append(_step_line(el, kind, lanes, names))
 		elif kind in GATEWAY_TAGS:
 			lines.append(_gateway_line(el, kind, outgoing, names))
 	return lines
 
 
-def _step_line(el, kind: str, lanes: dict) -> str:
+def _step_line(el, kind: str, lanes: dict, names: dict) -> str:
 	lane = lanes.get(el.get("id"))
 	text = f"- {kind}: {el.get('name') or el.get('id')}"
+	event = _event_note(el, names)
+	if event:
+		text += f" [{event}]"
 	if lane:
 		text += f" (lane: {lane})"
 	documentation = el.find(_tag("documentation"))
 	if documentation is not None and (documentation.text or "").strip():
 		text += f" - {strip_html(documentation.text).strip()[:MAX_DOC_CHARS]}"
 	return text
+
+
+def _event_note(el, names: dict) -> str:
+	for child in el:
+		kind, ref_attr = EVENT_DEFINITIONS.get(_local(child.tag), (None, None))
+		if kind:
+			return f"{kind}: {names.get(child.get(ref_attr), '?')}"
+	if el.get("messageRef"):
+		return f"message: {names.get(el.get('messageRef'), '?')}"
+	return ""
 
 
 def _gateway_line(el, kind: str, outgoing: dict, names: dict) -> str:
