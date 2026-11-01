@@ -113,7 +113,6 @@ const actionableTasks = computed(() => {
 	}
 	return props.activeTasks.filter((task) => {
 		if (!task.assigned_user && !task.assigned_role) return true
-		if (task.can_action) return true
 		if (task.assigned_user && task.assigned_user === user) return true
 		if (task.assigned_role && roles.includes(task.assigned_role)) return true
 		return false

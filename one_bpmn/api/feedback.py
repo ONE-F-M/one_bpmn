@@ -451,11 +451,9 @@ def get_my_pending_task(feedback: str) -> dict | None:
 	if not instance_name:
 		return None
 
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import task_actors
-
 	instance = frappe.get_doc("BPMN Process Instance", instance_name)
 	for row in instance.active_tasks:
-		if row.status == "Completed" or frappe.session.user not in task_actors(row):
+		if row.status == "Completed" or row.assigned_user != frappe.session.user:
 			continue
 		actions = []
 		if row.task_actions:
