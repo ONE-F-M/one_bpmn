@@ -5,13 +5,13 @@ import { notifySummary } from "../shared/notifySummary";
 // fieldname to label per DocType, fetched once per page
 const labelsByDoctype = {};
 
-function loadLabels(doctype) {
+export function loadLabels(doctype) {
 	labelsByDoctype[doctype] ||= frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", { doctype })
 		.then((fields) => Object.fromEntries((Array.isArray(fields) ? fields : []).map((f) => [f.fieldname, f.label])));
 	return labelsByDoctype[doctype];
 }
 
-const BADGE = h("svg", { width: 10, height: 10, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 3, "aria-hidden": "true" },
+export const BADGE = h("svg", { width: 10, height: 10, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 3, "aria-hidden": "true" },
 	h("path", { d: "M5 12l5 5L20 7" }));
 
 // Class component, not hooks: a separate bundled Preact instance here crashes on useState.

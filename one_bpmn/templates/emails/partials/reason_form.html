@@ -1,0 +1,16 @@
+{% autoescape true %}{% set k = a.key %}{% set ready = "ui.chip_" ~ k ~ " != null || ui.text_" ~ k %}<form class="reason" method="post" action-xhr="{{ action_endpoint }}" hidden [hidden]="ui.open != '{{ k }}'" on="submit-success:AMP.setState({ui: {done: true, result: event.response.message}})">
+  <input type="hidden" name="token" value="{{ a.token }}">
+  <input type="hidden" name="reason_lang" value="{{ lang }}" [value]="ui.lang">
+  <p class="rq">{{ a.reason_question[lang] }}</p>
+  {% if a.chips %}<amp-selector name="reason_chip" layout="container" class="chips" on="select:AMP.setState({ui: {chip_{{ k }}: event.targetOption, empty_{{ k }}: false}})">
+    {% for c in a.chips %}<span class="chip" option="{{ loop.index0 }}">{{ c[lang] }}</span>
+    {% endfor %}</amp-selector>{% endif %}
+  <textarea name="reason_text" rows="3" placeholder="{{ _('Or write your own', lang=lang) }}" on="input-throttled:AMP.setState({ui: {text_{{ k }}: event.value, empty_{{ k }}: false}})"></textarea>
+  <div class="err" hidden [hidden]="!ui.empty_{{ k }}">{{ _("Pick a reason or write one.", lang=lang) }}</div>
+  <div class="armed">
+    <button type="submit" class="btn {{ a.style }}" hidden [hidden]="!({{ ready }})">{{ a.label[lang] }}</button>
+    <button type="button" class="btn {{ a.style }}" [hidden]="{{ ready }}" on="tap:AMP.setState({ui: {empty_{{ k }}: true}})">{{ a.label[lang] }}</button>
+    <button type="button" class="btn subtle" on="tap:AMP.setState({ui: {open: ''}})">{{ _("Cancel", lang=lang) }}</button>
+  </div>
+  <div submit-error><div class="err"><b>{{ _("Not saved.", lang=lang) }}</b> {{ _("Nothing changed in ERPNext. Try again.", lang=lang) }}</div></div>
+</form>{% endautoescape %}

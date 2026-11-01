@@ -586,6 +586,55 @@ def _validate_prohibited_shapes(bpmn_xml: str) -> None:
 		)
 
 
+def _user_task_config_gaps(bpmn_xml: str) -> list:
+	"""(bpmn_id, message) for each executable User Task with no Assignment Mode or no Task Action."""
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+
+	if not bpmn_xml or not bpmn_xml.strip():
+		return []
+	try:
+		root = _ET.fromstring(bpmn_xml.strip().encode("utf-8") if isinstance(bpmn_xml, str) else bpmn_xml)
+	except _ET.ParseError:
+		return []
+
+	gaps = []
+	for process in root.iter(f"{{{BPMN_NS}}}process"):
+		if process.get("isExecutable", "false").strip().lower() != "true":
+			continue
+		for user_task in process.iter(f"{{{BPMN_NS}}}userTask"):
+			bpmn_id = user_task.get("id")
+			name = user_task.get("name") or bpmn_id
+			if not (user_task.get(f"{{{SPIFF_NS}}}assigneeMode") or "").strip():
+				gaps.append((bpmn_id, _('User Task "{0}" requires an Assignment Mode.').format(name)))
+			if not _has_task_action(user_task.get(f"{{{SPIFF_NS}}}taskActions")):
+				gaps.append((bpmn_id, _('User Task "{0}" requires at least one Task Action.').format(name)))
+	return gaps
+
+
+def _has_task_action(raw: str | None) -> bool:
+	"""True when the stored taskActions JSON holds at least one row with a non-empty action."""
+	try:
+		actions = json.loads(raw or "[]")
+	except ValueError:
+		return False
+	return isinstance(actions, list) and any(
+		isinstance(row, dict) and str(row.get("action") or "").strip() for row in actions
+	)
+
+
+def _validate_user_task_config(bpmn_xml: str) -> None:
+	"""Block deployment when an executable User Task has no Assignment Mode or no Task Action."""
+	gaps = _user_task_config_gaps(bpmn_xml)
+	if gaps:
+		frappe.throw(
+			"<br>".join(message for _bpmn_id, message in gaps),
+			title=_("User Task Configuration Missing"),
+		)
+
+
 def _populate_start_events(model, bpmn_xml: str) -> None:
 	"""
 	Parse the BPMN XML and populate the ``start_events`` child table on the
@@ -2016,6 +2065,7 @@ def compile_process_model(model_name: str) -> dict:
 	# Reject any BPMN element type that OneFM has marked as prohibited for
 	# executable processes (e.g. manual tasks, none-type tasks).
 	_validate_prohibited_shapes(sanitized_xml)
+	_validate_user_task_config(sanitized_xml)
 
 	_validate_notify_assignee_account(sanitized_xml)
 

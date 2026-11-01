@@ -1,0 +1,2 @@
+{% autoescape true %}<div class="msg{{ ' note' if m.is_note else '' }} {{ 'me' if m.is_mine else 'them' }}"><span class="mname">{{ m.who }}</span>{% if m.is_note %}<span class="ntag">{{ _("Internal note", lang=lang) }}</span>{% endif %}<span class="mtext">{{ m.message }}</span><span class="mtime">{{ m.time }}</span></div>
+{% endautoescape %}

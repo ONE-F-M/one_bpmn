@@ -1157,6 +1157,7 @@ const emit = defineEmits([
 	"launch-notification-editor",
 	"launch-dmn-editor",
 	"launch-notify-assignee-editor",
+	"launch-email-notification-editor",
 	"reassign-changed",
 ]);
 
@@ -1714,6 +1715,17 @@ onMounted(async () => {
 						{ name: "emailCc",              isAttr: true, type: "String" },
 						{ name: "emailBcc",             isAttr: true, type: "String" },
 						{ name: "emailBody",            isAttr: true, type: "String" },
+						{ name: "emailLayout",          isAttr: true, type: "String" },
+						{ name: "emailSubjectAr",       isAttr: true, type: "String" },
+						{ name: "emailHeadingEn",       isAttr: true, type: "String" },
+						{ name: "emailHeadingAr",       isAttr: true, type: "String" },
+						{ name: "emailMessageEn",       isAttr: true, type: "String" },
+						{ name: "emailMessageAr",       isAttr: true, type: "String" },
+						{ name: "emailShowStatus",      isAttr: true, type: "String" },
+						{ name: "emailFacts",           isAttr: true, type: "String" },
+						{ name: "emailDetails",         isAttr: true, type: "String" },
+						{ name: "emailAttachments",     isAttr: true, type: "String" },
+						{ name: "emailArabicEdited",    isAttr: true, type: "String" },
 						{ name: "updateFieldDoctype",   isAttr: true, type: "String" },
 						{ name: "updateFieldName",      isAttr: true, type: "String" },
 						{ name: "updateFieldValue",     isAttr: true, type: "String" },
@@ -2322,6 +2334,25 @@ onMounted(async () => {
 					}
 					modeling.updateModdleProperties(event.element, bo, updates);
 				}
+			});
+
+			// Email Notification editor (Service Tasks): the dialog edits a copy, Save sends the changed attributes
+			eventBus.on("spiff.serviceTask.emailNotification.edit", (event) => {
+				emit("launch-email-notification-editor", {
+					element: event.element,
+					values: { ...event.values, emailBody: decodeHtmlAttr(event.values.emailBody) || "" },
+					eventBus: event.eventBus,
+				});
+			});
+
+			eventBus.on("spiff.serviceTask.emailNotification.update", (event) => {
+				const bo = event.element.businessObject || event.element;
+				const updates = {};
+				for (const name of event.changed) {
+					const value = event.values[name];
+					updates[`spiffworkflow:${name}`] = name === "emailBody" ? encodeHtmlAttr(value) : value || undefined;
+				}
+				if (Object.keys(updates).length) modeler.get("modeling").updateModdleProperties(event.element, bo, updates);
 			});
 
 			eventBus.on("spiff.service_tasks.requested", (event) => {
@@ -3228,6 +3259,11 @@ async function getLintIssues() {
 	return flattenLintIssues(linting._formatIssues(await linting.lint()));
 }
 
+async function getRawLintIssues() {
+	const linting = modeler?.get("linting");
+	return linting ? await linting.lint() : {};
+}
+
 async function getCanvasXml() {
 	if (!modeler) return "";
 	try {
@@ -3406,6 +3442,7 @@ function updateCalledElement(element, processId, process) {
 
 defineExpose({
 	getXML,
+	getRawLintIssues,
 	loadXML,
 	setProcessName,
 	undo,

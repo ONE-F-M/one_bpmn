@@ -540,6 +540,12 @@ def _extract_bpmn_references(xml_content: str) -> dict:
 					if field:
 						referenced_fields.append((email_dt, field))
 
+				for key in ("emailFacts", "emailDetails"):
+					for entry in _notify_json(attrs, key, service_task.get("id", "")) or []:
+						for name in entry if isinstance(entry, list) else [entry]:
+							# A linked field "employee.employee_name" needs the link field on this DocType
+							referenced_fields.append((email_dt, name.split(".")[0]))
+
 	# ── workflow_state field check for apply_workflow doctypes ─────────────
 	for dt in apply_workflow_doctypes:
 		referenced_fields.append((dt, "workflow_state"))
@@ -1042,11 +1048,20 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 		})
 
 	# 6. Lane Roles
+	from one_bpmn.agents.bpmn_task_config import LANE_ROLE_EXCLUDED, match_lane_role
+
 	role_items = []
+	enabled_roles = frappe.get_list("Role", filters={"disabled": 0}, pluck="name") if referenced_lane_roles else []
 	for role_name in sorted(referenced_lane_roles):
 		role = frappe.db.get_value("Role", role_name, ["name", "disabled"], as_dict=True)
-		if not role:
-			role_items.append({"name": role_name, "exists": False, "type": "check"})
+		if not role or role.name in LANE_ROLE_EXCLUDED:
+			item = {"name": role_name, "exists": False, "type": "check"}
+			item["suggestions"] = match_lane_role(role_name, enabled_roles)
+			if frappe.db.exists("User", role_name):
+				item["detail"] = _("Not a Role (it matches a User)")
+			elif item["suggestions"]:
+				item["detail"] = _("Not a Role. Did you mean: {0}").format(", ".join(item["suggestions"]))
+			role_items.append(item)
 		elif role.disabled:
 			role_items.append({
 				"name": role_name,
@@ -1283,6 +1298,11 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 	if sender_category:
 		categories.append(sender_category)
 
+	# 17. User Task configuration (blocking)
+	user_task_category = _user_task_config_category(xml_content)
+	if user_task_category:
+		categories.append(user_task_category)
+
 	# ── Compute summary ──────────────────────────────────────────────────
 	total_checked = 0
 	total_missing = 0
@@ -1304,6 +1324,20 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 		"is_executable": is_executable,
 		"all_ready": total_missing == 0 and is_executable,
 	}
+
+
+def _user_task_config_category(xml_content: str) -> dict | None:
+	"""The User Task Configuration readiness category, one missing check per gap, or None."""
+	from one_bpmn.api.compilation import _user_task_config_gaps
+
+	gaps = _user_task_config_gaps(xml_content)
+	if not gaps:
+		return None
+	items = [
+		{"name": message, "exists": False, "type": "check", "detail": _("Set it in the properties panel of the task.")}
+		for _bpmn_id, message in gaps
+	]
+	return {"label": _("User Task Configuration"), "icon": "user-check", "items": items}
 
 
 def _email_settings_category(xml_content: str, root) -> dict | None:
