@@ -47,6 +47,7 @@ from urllib.parse import quote
 import frappe
 from frappe.utils import cint
 
+from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG
 from one_bpmn.agents.shape_tools import BudgetExceeded
 from one_bpmn.one_bpmn.connectors import agent_sandbox_session as sessions
 from one_bpmn.one_bpmn.connectors import agent_sandbox_supervisor as supervisor
@@ -255,8 +256,9 @@ def _reads_since_last_edit(instance, limit: int) -> int:
 
 def read_budget_exceeded(instance) -> str | None:
 	"""None if there's room for another read_file/list_files call this run;
-	otherwise the error to return instead of dispatching one. The call after
-	that error raises BudgetExceeded, which ends the run.
+	otherwise the error to return instead of dispatching one. A read in a later
+	turn than that error raises BudgetExceeded, which ends the run; reads in the
+	same turn get the same error.
 
 	Confirmed live (2026-09-13/14): once a per-file re-read cap (the read_file
 	Server Script's own dedup-then-refuse logic) forecloses looping on any one
@@ -274,11 +276,15 @@ def read_budget_exceeded(instance) -> str | None:
 		frappe.cache.delete_value(warned_key)
 		return None
 	# A refused read sends nothing to the sandbox, so the count cannot show a second refusal.
-	if frappe.cache.get_value(warned_key, expires=True):
+	# The model sees none of a turn's results until the turn ends, so only a read in a later turn ignored the warning.
+	turn = frappe.flags.get(SUB_CALL_TURN_FLAG)
+	warned_turn = frappe.cache.get_value(warned_key, expires=True)
+	if warned_turn is not None and (turn is None or turn != warned_turn):
 		raise BudgetExceeded(
 			f"the run kept reading after it was told to stop at {_READ_BUDGET} read-only calls without an edit"
 		)
-	frappe.cache.set_value(warned_key, 1, expires_in_sec=_READ_WARNING_TTL_SECONDS)
+	if warned_turn is None:
+		frappe.cache.set_value(warned_key, -1 if turn is None else turn, expires_in_sec=_READ_WARNING_TTL_SECONDS)
 	return (
 		f"You have made {_READ_BUDGET} read-only calls this run without attempting "
 		"a single edit. Stop exploring: either attempt the edit now with what "
