@@ -579,8 +579,11 @@ def resolve_scope(xml: str, texts: list, scope_id: str = "") -> dict | None:
 		if chosen is not None:
 			break
 		named = [e for e in subs.values() if e.get("name") and _is_named(text or "", e.get("name"))]
-		if named:
-			chosen = max(named, key=lambda e: len(e.get("name")))
+		outermost = [e for e in named if not any(e is not o and e.get("name").lower() in o.get("name").lower() for o in named)]
+		if len(outermost) > 1:
+			return None
+		if outermost:
+			chosen = outermost[0]
 	if chosen is None:
 		return None
 	return {"id": chosen.get("id"), "name": chosen.get("name") or chosen.get("id"), "xml": ET.tostring(chosen, encoding="unicode")}
@@ -1060,9 +1063,70 @@ def describe_changes(previous_xml: str, xml: str) -> str:
 	for name in (old_paths - new_paths).elements():
 		lines.append(_("Removed {0}.").format(_element_label("sequenceFlow", name)))
 	lines += _moved_arrows(previous_xml, xml)
+	lines += _changed_kinds(before, after)
+	lines += _lane_lines(previous_xml, xml)
+	lines += _config_lines(previous_xml, xml)
 	if not lines:
 		return "\n\n" + _("I could not find any change on the diagram. Check that your request was applied.")
 	return "\n\n" + _("What changed:") + "\n" + "\n".join("- " + line for line in lines)
+
+
+def _changed_kinds(before: dict, after: dict) -> list[str]:
+	"""Steps present before and after whose element type changed, as plain lines."""
+	return [
+		_("Changed {0} to {1}.").format(_element_label(kind, name), _ELEMENT_WORDS.get(after[elem_id][0], "another kind of element"))
+		for elem_id, (kind, name) in before.items()
+		if elem_id in after and kind != "sequenceFlow" and after[elem_id][0] != kind
+	]
+
+
+def _lanes(xml: str) -> dict:
+	"""{lane name: set of step ids} in diagram order; empty when the diagram has no lanes."""
+	lanes = {}
+	for attrs, body in re.findall(r"<bpmn:lane\s([^>]*)>(.*?)</bpmn:lane>", xml or "", re.S):
+		values = dict(re.findall(r'(\w+)="([^"]*)"', attrs))
+		lanes[values.get("name") or values.get("id")] = set(re.findall(r"<bpmn:flowNodeRef>([^<]+)</bpmn:flowNodeRef>", body))
+	return lanes
+
+
+def _lane_lines(previous_xml: str, xml: str) -> list[str]:
+	"""Lanes added, removed, reordered and steps moved between lanes, as plain lines."""
+	old, new = _lanes(previous_xml), _lanes(xml)
+	lines = [_("Added the lane {0}.").format(_quoted(name)) for name in new if name not in old]
+	lines += [_("Removed the lane {0}.").format(_quoted(name)) for name in old if name not in new]
+	kept_old = [name for name in old if name in new]
+	kept_new = [name for name in new if name in old]
+	if kept_old != kept_new:
+		lines.append(_("Reordered the lanes: {0}.").format(", ".join(new)))
+	names = {elem_id: name for elem_id, (_kind, name) in element_names(xml).items()}
+	for lane in kept_new:
+		for elem_id in sorted(new[lane] - old[lane]):
+			home = next((other for other in old if elem_id in old[other]), None)
+			if home and elem_id in names:
+				lines.append(_("Moved {0} from the lane {1} to {2}.").format(_quoted(names[elem_id]), _quoted(home), _quoted(lane)))
+	return lines
+
+
+def _settings(xml: str) -> dict:
+	"""{element id: its prefixed attributes such as spiffworkflow:workflowState} for elements that have any."""
+	found = {}
+	for attrs in re.findall(r"<bpmn:\w+\s([^>]*?)/?>", xml or ""):
+		values = dict(re.findall(r'([\w.-]+:[\w.-]+)="([^"]*)"', attrs))
+		values = {key: val for key, val in values.items() if not key.startswith("xmlns")}
+		elem_id = re.search(r'\bid="([^"]+)"', attrs)
+		if values and elem_id:
+			found[elem_id.group(1)] = values
+	return found
+
+
+def _config_lines(previous_xml: str, xml: str) -> list[str]:
+	"""Steps present before and after whose settings changed, as plain lines."""
+	before, names = _settings(previous_xml), element_names(xml)
+	return [
+		_("Changed the settings of {0}.").format(_quoted(names[elem_id][1] or elem_id))
+		for elem_id, values in _settings(xml).items()
+		if elem_id in before and before[elem_id] != values and elem_id in names
+	]
 
 
 def _moved_arrows(previous_xml: str, xml: str) -> list[str]:

@@ -105,6 +105,14 @@ class TestResolveScope(FrappeTestCase):
 		scope = resolve_scope(xml, ["After Test Sub Process, add steps to the Approval sub-process"], "")
 		self.assertEqual(scope["id"], "other")
 
+	def test_a_message_naming_several_sub_processes_is_not_narrowed_to_one(self):
+		xml = DIAGRAM.replace("</bpmn:process>", '<bpmn:subProcess id="other" name="Approval"/></bpmn:process>')
+		self.assertIsNone(resolve_scope(xml, ["Change Approval and Test Sub Process to user tasks"], ""))
+
+	def test_a_message_naming_several_sub_processes_is_not_narrowed_to_one(self):
+		xml = DIAGRAM.replace("</bpmn:process>", '<bpmn:subProcess id="other" name="Approval"/></bpmn:process>')
+		self.assertIsNone(resolve_scope(xml, ["Change Approval and Test Sub Process to user tasks"], ""))
+
 	def test_scope_carries_the_current_inner_xml(self):
 		self.assertIn('id="old_step"', resolve_scope(DIAGRAM, [], "sub")["xml"])
 
