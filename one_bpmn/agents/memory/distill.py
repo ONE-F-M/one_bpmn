@@ -82,6 +82,30 @@ _DISTILL_SCHEMA = json.dumps(
 	}
 )
 
+_SPLIT_SCHEMA = json.dumps(
+	{
+		**json.loads(_DISTILL_SCHEMA),
+		"properties": {
+			"memories": {
+				"type": "array",
+				"items": {
+					"type": "object",
+					"properties": {
+						**json.loads(_DISTILL_SCHEMA)["properties"]["memories"]["items"]["properties"],
+						"audience": {"type": "string", "enum": ["process", "user"]},
+					},
+					"required": ["content", "topic", "importance", "source_type", "audience"],
+				},
+			},
+		},
+	}
+)
+
+_AUDIENCE_SUFFIX = """
+Give each fact an "audience": "user" when it is about how this person likes to
+work, answer or be addressed; "process" when it is about the process, its code,
+rules or data."""
+
 _SYSTEM_PROMPT = """You are the memory curator for an AI agent named "{agent}".
 From the agent's latest output, extract ONLY durable facts worth recalling on
 FUTURE, DIFFERENT runs of this agent.
@@ -223,6 +247,7 @@ def distill_memories(
 	conversation=None,
 	exclude_context: str | None = None,
 	raise_on_failure: bool = False,
+	split_user: bool = False,
 ) -> list[dict]:
 	"""Extract 0..N durable facts from one interaction.
 
@@ -247,6 +272,9 @@ def distill_memories(
 	quiet turn from a broken model and had nothing to retry. Left ``False`` the
 	contract is unchanged and this never raises. The writeback passes ``True``
 	so it can retry, and record what it gave up on.
+
+	``split_user`` asks the curator to tag each fact with an ``audience`` so the
+	caller can store the person's own preferences apart from the subject's facts.
 	"""
 	text = agent_output if isinstance(agent_output, str) else str(agent_output or "")
 	if not text.strip():
@@ -282,12 +310,12 @@ def distill_memories(
 			backend=backend or "direct_api",
 			provider_name=provider_name,
 			model=model,
-			system_prompt=_SYSTEM_PROMPT.format(agent=agent),
+			system_prompt=_SYSTEM_PROMPT.format(agent=agent) + (_AUDIENCE_SUFFIX if split_user else ""),
 			user_prompt=user_prompt,
 			temperature=0.0,
 			max_tokens=800,
 			response_format="json",
-			response_schema=_DISTILL_SCHEMA,
+			response_schema=_SPLIT_SCHEMA if split_user else _DISTILL_SCHEMA,
 		)
 		result = get_executor(config.backend)().run(config, ExecutorContext())
 		if result.error_code != ErrorCode.SUCCESS:
@@ -326,13 +354,14 @@ def distill_memories(
 		if dedup_key in seen:
 			continue
 		seen.add(dedup_key)
-		facts.append(
-			{
-				"content": content,
-				"topic": topic,
-				"dedup_key": dedup_key,
-				"importance": _importance(m.get("importance")),
-				"source_type": _source_type(m.get("source_type")),
-			}
-		)
+		fact = {
+			"content": content,
+			"topic": topic,
+			"dedup_key": dedup_key,
+			"importance": _importance(m.get("importance")),
+			"source_type": _source_type(m.get("source_type")),
+		}
+		if split_user:
+			fact["audience"] = "user" if m.get("audience") == "user" else "process"
+		facts.append(fact)
 	return facts

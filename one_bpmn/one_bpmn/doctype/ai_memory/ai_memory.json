@@ -33,9 +33,9 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Memory Scope",
-   "options": "\nAgent\nProcess\nEntity",
+   "options": "\nAgent\nProcess\nEntity\nUser",
    "reqd": 1,
-   "description": "Agent = one BPMN agent element; Process = one process model; Entity = one business document"
+   "description": "Agent = one BPMN agent element; Process = one process model; Entity = one business document; User = one person's own preferences"
   },
   {
    "depends_on": "eval:doc.memory_scope=='Agent'",
