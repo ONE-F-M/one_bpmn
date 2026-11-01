@@ -6,7 +6,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.bpmn_ir_pipeline import compile_ir
 from one_bpmn.agents.bpmn_task_config import use_none_tasks
-from one_bpmn.agents.prosally_helpers import xml_to_ir
+from one_bpmn.agents.prosally_helpers import keep_process_kind, none_tasks_output, xml_to_ir
 from one_bpmn.security.bpmn_validator import validate_bpmn_xml
 
 
@@ -165,3 +165,57 @@ class TestXmlToIrKeepsTheKind(FrappeTestCase):
 		self.assertTrue(result["ok"], result["problems"])
 		self.assertIn("<bpmn:task ", result["xml"])
 		self.assertIn('isExecutable="false"', result["xml"])
+
+
+def _configured(executable: bool) -> str:
+	xml = _document(executable=executable, task_tag="userTask")
+	xml = xml.replace('xmlns:di=', 'xmlns:spiffworkflow="http://spiffworkflow.org/bpmn/schema/1.0/core" xmlns:di=', 1)
+	return xml.replace('<bpmn:userTask id="t" name="Do it"/>', '<bpmn:userTask id="t" name="Do it" spiffworkflow:assigneeMode="Fixed User"/>')
+
+
+class TestNoneTasksOutput(FrappeTestCase):
+	def test_every_typed_task_becomes_a_none_task_and_keeps_its_id_and_name(self):
+		out = none_tasks_output(_configured(executable=False))
+
+		self.assertEqual(out["intent"], "BPMN_MODIFIED")
+		self.assertIn('<bpmn:task id="t" name="Do it"', out["bpmn_xml"])
+		self.assertNotIn("userTask", out["bpmn_xml"])
+
+	def test_the_task_settings_are_removed(self):
+		out = none_tasks_output(_configured(executable=False))
+
+		self.assertNotIn("assigneeMode", out["bpmn_xml"])
+
+	def test_an_executable_process_is_left_alone(self):
+		out = none_tasks_output(_configured(executable=True))
+
+		self.assertNotIn("bpmn_xml", out)
+		self.assertIn("non-executable", out["response"])
+
+	def test_a_process_with_only_none_tasks_changes_nothing(self):
+		out = none_tasks_output(_document(executable=False))
+
+		self.assertNotIn("bpmn_xml", out)
+
+
+class TestKeepProcessKind(FrappeTestCase):
+	def test_a_non_executable_diagram_marks_the_ir_non_executable(self):
+		ir = {"nodes": []}
+
+		keep_process_kind(ir, _document(executable=False))
+
+		self.assertIs(ir["executable"], False)
+
+	def test_an_executable_diagram_leaves_the_ir_alone(self):
+		ir = {"nodes": []}
+
+		keep_process_kind(ir, _document(executable=True, task_tag="userTask"))
+
+		self.assertNotIn("executable", ir)
+
+	def test_an_empty_diagram_leaves_the_ir_alone(self):
+		ir = {"nodes": []}
+
+		keep_process_kind(ir, "")
+
+		self.assertNotIn("executable", ir)
