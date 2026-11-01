@@ -201,6 +201,11 @@ def distill_and_write(
 			process_model=process_model,
 			split_user=bool(user),
 		)
+		if not facts:
+			frappe.log_error(
+				title="AI Memory: distiller returned no facts",
+				message=f"agent={agent} scope={scope} scope_key={scope_key} model={model}",
+			)
 		# The reconciler runs on its own model, so the two can be tuned apart —
 		# and therefore on its own provider, because a model only works against
 		# the credentials that serve it. Defaults to distillation's provider,
@@ -238,6 +243,7 @@ def distill_and_write(
 				process_model=process_model,
 			)
 			written.append(rec.get("name"))
+		frappe.logger("one_bpmn").info(f"AI Memory: agent={agent} scope={scope} wrote {len(written)} row(s)")
 		return written
 	except Exception:
 		frappe.log_error(title="AI Memory: distill_and_write failed", message=frappe.get_traceback())
