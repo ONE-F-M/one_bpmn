@@ -149,6 +149,7 @@
 					class="prosally-panel-container order-first w-[var(--agui-chat-pane,420px)] shrink-0 border-r border-gray-200 flex flex-col z-[50]"
 				>
 					<ProsAllyPanel
+						ref="prosAllyPanel"
 						:process-name="processNameForPanel"
 						:get-canvas-xml="getCanvasXml"
 						:get-scope-id="getOpenSubProcessId"
@@ -171,6 +172,7 @@
 						<div class="w-10 h-1 bg-gray-300 rounded-full"></div>
 					</div>
 					<ProsAllyPanel
+						ref="prosAllyPanel"
 						:process-name="processNameForPanel"
 						:get-canvas-xml="getCanvasXml"
 						:get-scope-id="getOpenSubProcessId"
@@ -180,7 +182,7 @@
 					/>
 				</div>
 			</transition>
-			
+
 			<!-- Inline Comment Popover (Teleported to bpmn-js overlay) -->
 			<Teleport v-if="showInlineCommentPopover && inlineCommentOverlayTarget" :to="inlineCommentOverlayTarget">
 				<div 
@@ -1529,6 +1531,7 @@ const { isMobile } = useWindowSize();
 const showMobileFormatPopover = ref(false);
 const showMoreTools = ref(false);
 const showProsAllyPanel = ref(false);
+const prosAllyPanel = ref(null);
 // Closing ProsAlly only hides it, so its conversation survives until the editor goes away.
 const prosAllyMounted = ref(false);
 watch(showProsAllyPanel, (show) => {
@@ -2004,6 +2007,20 @@ onMounted(async () => {
 					}
 
 					return formattedIssues;
+				};
+
+				const originalAddEntry = linting._addEntry;
+				linting._addEntry = function ($ul, state, entry) {
+					originalAddEntry.call(this, $ul, state, entry);
+					const button = document.createElement("button");
+					button.type = "button";
+					button.className = "bjsl-explain btn btn-xs btn-default";
+					button.textContent = window.__ ? window.__("Explain this error") : "Explain this error";
+					button.addEventListener("click", (event) => {
+						event.stopPropagation();
+						explainLintFinding(entry);
+					});
+					$ul.lastElementChild?.appendChild(button);
 				};
 
 				// Rerun linting when drilling down/up so the panel stays relevant to current plane
@@ -3274,6 +3291,17 @@ async function getCanvasXml() {
 	}
 }
 
+async function explainLintFinding(entry) {
+	if (props.readonly) return;
+	showProsAllyPanel.value = true;
+	await nextTick();
+	await nextTick();
+	const id = entry.actualElementId || entry.id;
+	await prosAllyPanel.value?.ask(
+		`Diagnose this lint finding on ${id} and suggest a remedy: ${entry.message} (${entry.rule})`,
+	);
+}
+
 async function onProsAllyBpmnGenerated(xml) {
 	if (!xml) return;
 	await loadXML(layoutBpmnXml(xml));
@@ -3566,6 +3594,16 @@ function getAvatarColor(userName) {
 <style>
 .bpmn-editor-wrapper {
 	background: #fff;
+}
+
+.bjsl-explain {
+	margin-left: 8px;
+	padding: 0 6px;
+	border: 1px solid #c9c9c9;
+	border-radius: 4px;
+	background: #fff;
+	font-size: 11px;
+	cursor: pointer;
 }
 
 .bpmn-canvas {

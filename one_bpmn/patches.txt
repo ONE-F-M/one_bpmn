@@ -328,3 +328,4 @@ one_bpmn.one_bpmn.patches.v1_0.fill_doctype_change_approvers #27-10-2026 Pending
 one_bpmn.one_bpmn.patches.v1_0.prosally_confirms_executable_or_not #29-10-2026 ProsAlly names whether a process is executable in its confirmation, draws a non-executable one with executable false, and reads the OneFM BPM approach reference skill
 one_bpmn.one_bpmn.patches.v1_0.prosally_reads_dms_documents #29-10-2026 ProsAlly gets a read-only search_dms_documents tool over the Document Register, and its generate and modify stages read what it finds
 one_bpmn.one_bpmn.patches.v1_0.prosally_asks_executable_or_not #01-11-2026 ProsAlly asks whether to draw a new or redrawn process as executable or non-executable, and confirms the kind the person chose
+one_bpmn.one_bpmn.patches.v1_0.prosally_diagnoses_errors #01-11-2026 ProsAlly diagnoses a pasted error or lint finding and proposes a fix for the map, a server script, or a fallback, instead of declining it

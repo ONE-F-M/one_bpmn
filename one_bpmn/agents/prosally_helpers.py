@@ -26,6 +26,10 @@ MIN_STAGE_TOKENS = 16384
 # The most steps and settings a confirmation summary lists.
 MAX_CONFIRMATION_STEPS = 8
 MAX_CONFIRMATION_SETTINGS = 6
+DIAGNOSE_ERROR_CHARS = 3000
+DIAGNOSE_ELEMENT_CHARS = 1500
+DIAGNOSE_MAX_ELEMENTS = 5
+DIAGNOSE_ORIGINS = frozenset({"map", "server_script", "unknown"})
 
 # Whole replies that approve a pending confirmation, after punctuation and "please" or "thanks" are dropped.
 AFFIRMATIONS = frozenset(
@@ -1223,6 +1227,60 @@ def compare_output(xml: str, texts: list) -> dict:
 		"response": _("These items from your list are not on the diagram:") + "\n" + listing + "\n\n" + _("Shall I add them?"),
 		"options": [_("Yes, proceed"), _("No, let me adjust")],
 	}
+
+
+def diagnose_inputs(xml: str, error_text: str, lint_issues: list) -> dict:
+	"""The pasted error, the lint findings and the diagram elements it names, each capped."""
+	elements = {}
+	if (xml or "").strip():
+		_register_namespaces()
+		elements = {e.get("id"): e for e in ET.fromstring(xml).iter() if e.get("id")}
+	named = [element_id for element_id in elements if element_id in error_text]
+	findings = [i for i in lint_issues or [] if i.get("id") in named]
+	return {
+		"error": error_text[-DIAGNOSE_ERROR_CHARS:],
+		"lint_findings": findings,
+		"elements": [ET.tostring(elements[i], encoding="unicode")[:DIAGNOSE_ELEMENT_CHARS] for i in named[:DIAGNOSE_MAX_ELEMENTS]],
+	}
+
+
+def diagnose_output(xml: str, texts: list, lint_issues: list) -> dict:
+	"""The reply to a pasted error or a lint finding: the cause and the fix, or a fallback with manual steps."""
+	error_text = next((strip_html(text) for text in texts if text and not confirmation_reply(text)), "")
+	diagnosis = None
+	try:
+		raw = complete_sub_prompt(
+			prosally_config(), "error_diagnoser", json.dumps(diagnose_inputs(xml, error_text, lint_issues))
+		)
+		diagnosis = extract_json(raw)
+	except Exception:
+		frappe.log_error(title="ProsAlly could not diagnose an error")
+	if not diagnosis or diagnosis.get("origin") not in DIAGNOSE_ORIGINS or not diagnosis.get("root_cause"):
+		return {"intent": "CLARIFY", "response": diagnose_fallback_reply()}
+	steps = [str(step) for step in diagnosis.get("fix_steps") or []]
+	body = diagnosis["root_cause"] + ("\n\n" + "\n".join("- " + step for step in steps) if steps else "")
+	if diagnosis["origin"] == "server_script":
+		lead = _("This error comes from a server script, not from the process map, so changing the map will not fix it.")
+		return {"intent": "CLARIFY", "response": lead + "\n\n" + body + "\n\n" + _("Open the script in Logix to make this change.")}
+	if diagnosis["origin"] == "unknown":
+		return {"intent": "CLARIFY", "response": body + "\n\n" + diagnose_fallback_reply()}
+	return {
+		"intent": "CONFIRM",
+		"action_intent": "MODIFY_EXISTING",
+		"response": _("The cause is in the process map.") + "\n\n" + body + "\n\n" + _("Shall I apply this fix to the diagram?"),
+		"options": [_("Yes, proceed"), _("No, let me adjust")],
+	}
+
+
+def diagnose_fallback_reply() -> str:
+	"""What to try when ProsAlly cannot find the cause of an error."""
+	return _(
+		"I could not work out the cause of this error. You can:\n"
+		"- Open the Error Log for this process and paste the full traceback here.\n"
+		"- Check the configuration of the task, event or gateway named in the error.\n"
+		"- Ask Logix if the error mentions a server script.\n"
+		"- Contact your Processa administrator with the error text."
+	)
 
 
 def relayout_output(xml: str) -> dict:
