@@ -87,7 +87,12 @@ _FENCE = re.compile(r"```[ \t]*(?:xml|bpmn)?[ \t]*\r?\n?(.*?)```", re.S | re.I)
 _DIAGRAM = re.compile(r"<(?:[\w.-]+:)?BPMNDiagram\b.*?</(?:[\w.-]+:)?BPMNDiagram\s*>", re.S)
 _DECLARATION = re.compile(r"^\s*<\?xml[^?]*\?>")
 _DTD = re.compile(r"<!\s*(?:DOCTYPE|ENTITY)", re.I)
-_POSITION_SUFFIX = re.compile(r":?\s*line \d+, column \d+\s*$")
+# Words around a paste that ask for the diagram to change; without one the paste is only analysed.
+CHANGE_REQUEST = re.compile(
+	r"\b(add|remove|delete|change|modify|update|replace|create|draw|generate|build|apply|fix|convert|rename|insert|redraw)\b",
+	re.I,
+)
+_POSITION_SUFFIX =re.compile(r":?\s*line \d+, column \d+\s*$")
 
 
 # ── Detection and extraction ─────────────────────────────────────────────────
@@ -674,6 +679,31 @@ def format_parse_error(error: dict) -> str:
 	return "\n".join(lines)
 
 
+def parse_failure_reply(error: dict) -> str:
+	"""The parse failure as the chat reply: where it failed and how to correct the pasted XML."""
+	return (
+		format_parse_error(error)
+		+ "\nCorrect that tag (close or rename it, quote the attribute value, or declare the namespace) "
+		"and paste the XML again."
+	)
+
+
+def analysis_reply(analysis: dict) -> str:
+	"""The analysis of parsed XML as the chat reply: what was found, then each finding by element id."""
+	issues = analysis["issues"]
+	counts = ", ".join(f"{n} {t}" for t, n in analysis["counts"].items()) or "no BPMN flow elements"
+	kind = "a partial fragment" if analysis["partial"] else "a BPMN 2.0 document"
+	head = f"I parsed the pasted BPMN XML ({kind}): {counts}."
+	if not issues:
+		return head + "\nNo problems found."
+	lines = [head, f"{len(issues)} finding(s):"]
+	lines += [_format_issue(i) for i in issues[:MAX_LISTED_ISSUES]]
+	if len(issues) > MAX_LISTED_ISSUES:
+		lines.append(f"- ... and {len(issues) - MAX_LISTED_ISSUES} more findings not listed")
+	lines.append("Ask me to apply any of these fixes and I will update the diagram.")
+	return "\n".join(lines)[:MAX_ANALYSIS_CHARS]
+
+
 def _format_issue(issue: dict) -> str:
 	where = " ".join(p for p in (issue["tag"], f"id={issue['element_id']}" if issue["element_id"] else "") if p)
 	return f"- [{issue['severity'].upper()}] {where}: {issue['message']}. Fix: {issue['suggestion']}"
@@ -757,17 +787,24 @@ def _fit_message(before: str, xml: str, after: str, error: dict | None) -> str |
 def prepare_turn(message: str) -> dict | None:
 	"""Everything the chat turn needs when the message holds BPMN XML; None when it is ordinary text.
 
-	``{"analysis", "block", "message_override"}`` where ``message_override`` is a size-safe replacement for the
-	message, or None to leave it as typed.
+	``{"analysis", "block", "message_override", "direct_reply"}`` where ``message_override`` is a size-safe
+	replacement for the message, or None to leave it as typed, and ``direct_reply`` is the chat reply sent
+	without a model turn: the parse failure, or the analysis when the user asked for no change (None otherwise).
 	"""
 	if not is_bpmn_xml(message):
 		return None
 	xml, before, after = extract_xml(message)
 	analysis = analyze_bpmn_xml(xml)
+	direct_reply = None
+	if not analysis["ok"]:
+		direct_reply = parse_failure_reply(analysis["error"])
+	elif not CHANGE_REQUEST.search(before + " " + after):
+		direct_reply = analysis_reply(analysis)
 	return {
 		"analysis": analysis,
 		"block": build_analysis_block(analysis),
 		"message_override": _fit_message(before, xml, after, analysis["error"]),
+		"direct_reply": direct_reply,
 	}
 
 
