@@ -59,6 +59,14 @@
 			>
 				<Icon icon="lucide:list-tree" class="w-3 h-3" /> AI runs
 			</router-link>
+			<router-link
+				v-if="details.process_model"
+				:to="modelRoute"
+				class="flex items-center gap-1 font-semibold text-blue-600 hover:underline"
+				title="Open this instance's BPMN process model"
+			>
+				<Icon icon="lucide:workflow" class="w-3 h-3" /> Go to Process Model
+			</router-link>
 			<div v-if="details.completed_at" class="flex items-center gap-1.5">
 				<span class="tracking-wide font-bold text-gray-600">Finished</span>
 				<span class="font-mono text-gray-700 flex items-center gap-1">
@@ -80,6 +88,7 @@ const props = defineProps({
 	details: { type: Object, default: null },
 	refreshing: { type: Boolean, default: false },
 	parkedAi: { type: Boolean, default: false },
+	modelProcessName: { type: String, default: "" },
 })
 
 defineEmits(["refresh", "notice"])
@@ -93,6 +102,12 @@ const contextLink = computed(() => {
 		return `/app/${d.context_doctype.toLowerCase().replace(/ /g, "-")}/${d.context_docname}`
 	}
 	return "#"
+})
+
+const modelRoute = computed(() => {
+	const model = encodeURIComponent(props.details?.process_model || "")
+	if (!props.modelProcessName) return `/processa/process/${model}`
+	return `/processa/process/${encodeURIComponent(props.modelProcessName)}/diagram/${model}`
 })
 
 function formatDateTime(d) {

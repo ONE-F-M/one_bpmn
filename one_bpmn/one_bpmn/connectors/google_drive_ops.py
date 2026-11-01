@@ -105,6 +105,7 @@ def revoke_permissions(params, ctx):
         params["file"],
         scope=(params.get("scope") or "all").strip(),
         match=(params.get("match") or "").strip() or None,
+        email_address=(params.get("emailAddress") or "").strip() or None,
     )
     # `skipped` is reported, not hidden: on a Shared Drive some grants cannot be
     # removed on the item at all, and a caller reading only a count would take

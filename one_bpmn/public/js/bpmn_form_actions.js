@@ -208,6 +208,35 @@ frappe.provide('one_bpmn');
 		}
 	}
 
+	// Opens the newest Process Instance of this document in the Processa page
+	async function _open_process_instance(frm) {
+		const instances = await frappe.db.get_list('BPMN Process Instance', {
+			filters: { context_doctype: frm.doctype, context_docname: frm.docname },
+			fields: ['name'],
+			order_by: 'creation desc',
+			limit: 1,
+		});
+		if (!instances.length) {
+			frappe.show_alert({
+				message: __('No Process Instance found for this document'),
+				indicator: 'orange',
+			});
+			return;
+		}
+		window.open(`/processa/instances/${encodeURIComponent(instances[0].name)}`, '_blank');
+	}
+
+	// Standard items survive toolbar.set_primary_action, which clears user-action items
+	function _add_instance_menu_item(frm) {
+		if (!frm.page || !frm.page.menu) return;
+		const label = __('Go to Process Instance');
+		const exists = frm.page.menu
+			.find('.menu-item-label')
+			.filter((i, el) => $(el).text() === label).length;
+		if (exists) return;
+		frm.page.add_menu_item(label, () => _open_process_instance(frm), true);
+	}
+
 	// load_bpmn_actions — fires on every form-refresh
 	async function load_bpmn_actions(frm) {
 		if (!frm || frm.is_new()) {
@@ -215,7 +244,7 @@ frappe.provide('one_bpmn');
 		}
 		if (BPMN_INTERNAL_DOCTYPES.has(frm.doctype)) return;
 
-
+		_add_instance_menu_item(frm);
 
 		// Always clear previously injected items first
 		_clear_bpmn_actions(frm);

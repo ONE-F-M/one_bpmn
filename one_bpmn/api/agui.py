@@ -69,6 +69,66 @@ def stream_agent_turn(
 
 
 @frappe.whitelist()
+def turn_status(conversation: str, client_message_id: str) -> dict:
+	"""Where a turn stands after its stream dropped: running, done with its replies, or lost.
+
+	The turn keeps running on the worker when the browser loses the stream, so the reply is read from the transcript.
+	"""
+	from one_bpmn.agents import turn_signal
+	from one_bpmn.utils.chat_persistence import load_history
+
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Authentication required"))
+
+	if not load_history(conversation, limit=1):
+		return {"state": "lost"}
+
+	asked = frappe.db.get_value(
+		"Chat Message",
+		{"conversation": conversation, "client_message_id": client_message_id, "message_type": "User"},
+		"creation",
+	)
+	if not asked:
+		return {"state": "lost"}
+
+	instance = frappe.db.get_value(
+		"BPMN Process Instance",
+		{"context_doctype": "Chat Conversation", "context_docname": conversation},
+		"name",
+		order_by="creation desc",
+	)
+	if instance and turn_signal.ai_job_running(instance):
+		return {"state": "running"}
+
+	replies = _replies_after(conversation, asked)
+	if not replies:
+		return {"state": "lost"}
+	return {"state": "done", "replies": replies}
+
+
+def _replies_after(conversation: str, asked) -> list:
+	"""The Bot messages written after *asked* and before the next User message, with the events each replays.
+
+	The caller has checked the conversation is the user's, so rows are read without a permission filter.
+	"""
+	filters = {"conversation": conversation, "message_type": ["in", ["User", "Bot"]], "creation": [">", asked]}
+	replies = []
+	for row in frappe.get_all(
+		"Chat Message", filters=filters, fields=["name", "message_type", "text", "metadata"], order_by="creation asc"
+	):
+		if row.message_type == "User":
+			break
+		replies.append(
+			{
+				"message": row.name,
+				"text": row.text or "",
+				"events": _replayed_events(frappe.parse_json(row.metadata) if row.metadata else {}),
+			}
+		)
+	return replies
+
+
+@frappe.whitelist()
 def conversation_history(conversation: str, limit: int = 30, before: str = None) -> list:
 	"""Prior turns for the shared panel's resume-or-create lifecycle
 	(WI-001672). load_history already enforces owner-only access — an

@@ -10,7 +10,10 @@ panel does with the agent's answer.
 
 - ``get_doctype_schema``  read an existing DocType into the Docu IR (form builder)
 - ``check_doctype_exists``{exists, custom}
-- ``apply_doctype``       create / update a real (custom) DocType from a Docu IR
+- ``apply_doctype``       create / update a real (custom) DocType from a Docu IR,
+                          routed by process ownership (see ``_route_change``)
+- ``approve_doctype_change`` / ``reject_doctype_change``  decide a logged
+                          Doctype Change Request (Process Owners only)
 
 SECURITY: ``apply_doctype`` re-runs the schema validator server-side and gates on
 the System Manager / DocType-create permission before elevating — the client IR
@@ -18,6 +21,7 @@ is never trusted. Elevation uses the ``server_script_api.create_server_script``
 template (narrow ``set_user('Administrator')`` inside try/finally).
 """
 
+import difflib
 import json
 
 import frappe
@@ -35,6 +39,7 @@ from one_bpmn.tools.tool_for_server_scripts import (
 	DOCTYPE_SETTING_STRS,
 	read_doctype_definition as _read_doctype_ir,
 )
+from one_bpmn.security.client_script_validator import validate_form_script, validate_list_view_script
 from one_bpmn.security.doctype_validator import (
 	RESERVED_FIELDNAMES,
 	child_table_is_editable,
@@ -46,11 +51,13 @@ DOCU_AGENT = "Docu Agent"
 
 
 def _may_change_forms() -> bool:
-	"""System Manager, or a role on the Docu Agent's allowed roles; an empty list admits nobody else."""
+	"""System Manager, a role on the Docu Agent's allowed roles, or any Process Owner."""
 	from one_bpmn.api.agent_invocation import allowed_roles_for
 
 	roles = set(frappe.get_roles())
-	return "System Manager" in roles or bool(roles & allowed_roles_for(DOCU_AGENT))
+	if "System Manager" in roles or roles & allowed_roles_for(DOCU_AGENT):
+		return True
+	return bool(frappe.db.exists("Process", {"process_owner": frappe.session.user}))
 
 
 def _docu_user() -> str:
@@ -243,7 +250,7 @@ def preview_doctype(ir: str) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 @frappe.whitelist()
-def apply_doctype(ir: str, confirm: int = 0) -> dict:
+def apply_doctype(ir: str, confirm: int = 0, process: str | None = None, list_in_process: str | int | None = None) -> dict:
 	"""Create or update a real DocType from a Docu IR.
 
 	- new name              → create a custom DocType (table auto-syncs on insert)
@@ -274,10 +281,31 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 	if not verdict["valid"]:
 		frappe.throw(_("The form has problems that must be fixed first:<br>") + "<br>".join(verdict["violations"]))
 
+	# 1b) Process-ownership routing from the Process Doctypes tables: an owner
+	#     applies at once, anyone else is logged as a Doctype Change Request,
+	#     and an unlisted DocType asks "list it in the current process?".
+	_target = (ir_dict.get("doctype_name") or "").strip()
+	outcome = _route_change(ir_dict, process, list_in_process)
+	if outcome:
+		return outcome
+	list_target = None
+	if process and _as_decision(list_in_process) and not _processes_listing(_target):
+		list_target = process
+
 	# 2) Permission gate.
 	if not _may_change_forms():
 		frappe.throw(_("You are not allowed to create or change forms through Docu."), frappe.PermissionError)
 
+	result = _apply_ir_now(ir_dict, verdict["warnings"], confirm)
+	result["status"] = "applied"
+	if list_target:
+		_list_doctype_in_process(_target, list_target)
+		result["listed_in_process"] = list_target
+	return result
+
+
+def _apply_ir_now(ir_dict: dict, warnings: list, confirm=0) -> dict:
+	"""Apply an already-validated, already-authorised Docu IR (no routing)."""
 	name = ir_dict["doctype_name"].strip()
 	module = (ir_dict.get("module") or "ONE BPMN").strip()
 	# The module must be a real Frappe Module — the agent can mistake the business
@@ -349,7 +377,7 @@ def apply_doctype(ir: str, confirm: int = 0) -> dict:
 		"is_child_table": bool(is_child),
 		"child_tables": child_tables,
 		"url": f"/app/{frappe.scrub(name).replace('_', '-')}",
-		"notes": verdict["warnings"]
+		"notes": warnings
 		+ [
 			_("{0} was not added: {1} already has a field labelled {0} ({2}). Use that field instead.").format(
 				d["label"], name, d["existing"]
@@ -1067,7 +1095,107 @@ def _force_property_setter(doctype: str, fieldname: str, prop: str, value, prope
 		)
 
 
+@frappe.whitelist()
+def preview_client_script(doctype: str, script: str) -> dict:
+	"""Check a proposed Form View script and return its diff against the one saved today."""
+	script = _checked_form_script(doctype, script)
+	name = _form_script_name(doctype)
+	current = (frappe.db.get_value("Client Script", name, "script") if name else "") or ""
+	diff = difflib.unified_diff(current.splitlines(True), script.splitlines(True), "current", "proposed")
+	return {"exists": bool(name), "name": name, "diff": "".join(diff)}
+
+
+@frappe.whitelist(methods=["POST"])
+def apply_client_script(doctype: str, script: str) -> str:
+	"""Create or update the DocType's Form View client script and say which."""
+	script = _checked_form_script(doctype, script)
+	name = _form_script_name(doctype)
+	with as_user(_docu_user()):
+		if name:
+			doc = frappe.get_doc("Client Script", name)
+			doc.update({"script": script, "enabled": 1})
+			doc.save()
+		else:
+			frappe.get_doc(
+				{
+					"doctype": "Client Script",
+					"name": f"{doctype}-Form",
+					"dt": doctype,
+					"view": "Form",
+					"enabled": 1,
+					"script": script,
+					"module": frappe.db.get_value("DocType", doctype, "module"),
+				}
+			).insert()
+	return _("The form script on {0} was updated.").format(doctype) if name else _("The form script on {0} was created.").format(doctype)
+
+
+def _checked_form_script(doctype: str, script: str) -> str:
+	if not _may_change_forms():
+		frappe.throw(_("You are not allowed to change forms through Docu."), frappe.PermissionError)
+	if not frappe.db.exists("DocType", doctype):
+		frappe.throw(_("{0} does not exist.").format(doctype))
+	problems = validate_form_script(doctype, script)
+	if problems:
+		frappe.throw("\n".join(problems))
+	return script.strip() + "\n"
+
+
+def _form_script_name(doctype: str):
+	return frappe.db.get_value("Client Script", {"dt": doctype, "view": "Form"}, "name", order_by="creation")
+
+
 # ── Shared-endpoint integration (WI-001676 follow-up, after 54e9ead/73e7d89) ──
+def _list_script_name(doctype: str) -> str:
+	return f"{doctype}-List"
+
+
+@frappe.whitelist()
+def get_list_view_script(doctype: str) -> dict:
+	"""Return the List View Client Script on a DocType, or an empty script when it has none."""
+	if not _may_change_forms():
+		frappe.throw(_("You are not allowed to change lists through Docu."), frappe.PermissionError)
+	name = frappe.db.get_value("Client Script", {"dt": doctype, "view": "List"}, "name")
+	if not name:
+		return {"name": None, "script": "", "enabled": 0}
+	return frappe.db.get_value("Client Script", name, ["name", "script", "enabled"], as_dict=True)
+
+
+@frappe.whitelist(methods=["POST"])
+def apply_list_view_script(doctype: str, script: str, enabled: int = 1) -> dict:
+	"""Create or update the List View Client Script on a DocType, after the safety gate."""
+	if not _may_change_forms():
+		frappe.throw(_("You are not allowed to change lists through Docu."), frappe.PermissionError)
+	if not frappe.db.exists("DocType", doctype):
+		frappe.throw(_("{0} does not exist.").format(doctype))
+	problems = validate_list_view_script(doctype, script)
+	if problems:
+		frappe.throw(_("The list script cannot be applied:<br>") + "<br>".join(problems))
+
+	enabled = int(bool(frappe.utils.sbool(enabled)))
+	with as_user(_docu_user()):
+		name = frappe.db.get_value("Client Script", {"dt": doctype, "view": "List"}, "name")
+		if name:
+			doc = frappe.get_doc("Client Script", name)
+			doc.update({"script": script, "enabled": enabled})
+			doc.save()
+			action = "updated"
+		else:
+			doc = frappe.get_doc(
+				{
+					"doctype": "Client Script",
+					"__newname": _list_script_name(doctype),
+					"dt": doctype,
+					"view": "List",
+					"script": script,
+					"enabled": enabled,
+				}
+			)
+			doc.insert()
+			action = "created"
+	return {"name": doc.name, "action": action, "enabled": enabled}
+
+
 def _compact_ir(ir: dict) -> dict:
 	"""Strip empty/zero attributes from a round-tripped IR before it rides in
 	dialog_context — the reader emits every DocField attribute (a plain ToDo
@@ -1145,6 +1273,214 @@ def shape_docu_reply(result: dict) -> dict:
 		if parsed.get(key):
 			shaped[key] = parsed[key]
 	return shaped
+
+
+# ── Process-ownership governance ──
+_PROCESS = "Process"
+_PROCESS_DOCTYPE = "Process Doctype"  # the Process.process_doctypes child table
+_CHANGE_REQUEST = "Doctype Change Request"
+_FALLBACK_APPROVER_ROLE = "System Manager"
+
+
+def _as_decision(value):
+	"""Tri-state from a client value: None (not answered), True or False."""
+	if value is None or value == "":
+		return None
+	if isinstance(value, str):
+		return value.strip().lower() in ("1", "true", "yes")
+	return bool(value)
+
+
+def _processes_listing(doctype: str) -> list:
+	"""Processes whose Process Doctypes table lists ``doctype`` (name + owner)."""
+	if not doctype:
+		return []
+	parents = frappe.get_all(
+		_PROCESS_DOCTYPE,
+		filters={"document_type": doctype, "parenttype": _PROCESS},
+		pluck="parent",
+		limit_page_length=0,
+	)
+	if not parents:
+		return []
+	return frappe.get_all(
+		_PROCESS,
+		filters={"name": ["in", sorted(set(parents))]},
+		fields=["name", "process_owner"],
+		order_by="name asc",
+		limit_page_length=0,
+	)
+
+
+def _approvers_for(doctype: str) -> list:
+	"""Approver rows for ``doctype``: each listing process's owner, else the fallback role."""
+	rows = [
+		{"process_name": p.name, "approver": p.process_owner, "source": "Listed"}
+		for p in _processes_listing(doctype)
+		if p.process_owner
+	]
+	return rows or [{"approver_role": _FALLBACK_APPROVER_ROLE, "source": "Fallback"}]
+
+
+def _may_decide(rows: list, user: str) -> bool:
+	"""Whether ``user`` is one of the approver rows, by name or by role."""
+	roles = set(frappe.get_roles(user))
+	return any(r.get("approver") == user or r.get("approver_role") in roles for r in rows)
+
+
+def _gate_unlisted(name: str, ir_dict: dict):
+	"""A DocType no process lists is changed directly only by a fallback approver, or when new."""
+	if not frappe.db.exists("DocType", name) or _may_decide(_approvers_for(name), frappe.session.user):
+		return None
+	return _log_change_request(name, ir_dict)
+
+
+def _route_change(ir_dict: dict, process, list_in_process):
+	"""Decide whether a requested change may be applied now.
+
+	Returns ``None`` when it may (caller applies), else a response dict:
+	- listed in a process the user owns        -> None (apply immediately)
+	- listed only in processes the user doesn't own -> logged as a Doctype Change
+	  Request, ``status: pending_approval``
+	- listed nowhere and a current ``process`` is given -> ``needs_listing_decision``
+	  until the client answers ``list_in_process``; a yes needs the user to own it.
+	- listed nowhere and not listed now -> a new DocType is applied; an existing one is
+	  logged for the fallback approvers unless the user is one.
+	"""
+	user = frappe.session.user
+	if user == "Guest":
+		frappe.throw(_("Please sign in to use Docu."), frappe.PermissionError)
+	name = (ir_dict.get("doctype_name") or "").strip()
+
+	listed = _processes_listing(name)
+	if listed:
+		if any(p.process_owner == user for p in listed):
+			return None
+		return _log_change_request(name, ir_dict)
+
+	if not process:
+		return _gate_unlisted(name, ir_dict)
+	owner = frappe.db.get_value(_PROCESS, process, "process_owner") if frappe.db.exists(_PROCESS, process) else None
+	if not owner:
+		frappe.throw(_("Process {0} was not found.").format(process))
+
+	decision = _as_decision(list_in_process)
+	if decision is None:
+		return {
+			"status": "needs_listing_decision",
+			"doctype": name,
+			"process": process,
+			"message": _("“{0}” is not listed under any process. Should it be listed in {1}?").format(name, process),
+		}
+	if decision and owner != user:
+		frappe.throw(
+			_("Only the Process Owner of {0} can list a form in it.").format(process),
+			frappe.PermissionError,
+		)
+	return None if decision else _gate_unlisted(name, ir_dict)
+
+
+def _log_change_request(name: str, ir_dict: dict) -> dict:
+	"""Record the change as a pending Doctype Change Request instead of applying it."""
+	current = _read_doctype_ir(name) if frappe.db.exists("DocType", name) else {}
+	d = diff_ir(current or {}, ir_dict)
+	approvers = _approvers_for(name)
+	processes = [r["process_name"] for r in approvers if r.get("process_name")]
+	values = {
+		"target_doctype": name,
+		"requested_by": frappe.session.user,
+		"status": "Pending",
+		"destructive": int(bool(d.get("removed"))),
+		"change_summary": d.get("summary") or _("No field changes"),
+		"processes": "\n".join(processes),
+		"requested_ir": json.dumps(ir_dict, default=str),
+	}
+	# Autosave re-sends every edit; keep one Pending request per requester and doctype.
+	pending = frappe.db.get_value(_CHANGE_REQUEST, {
+		"target_doctype": name, "requested_by": frappe.session.user, "status": "Pending"})
+	if pending:
+		doc = frappe.get_doc(_CHANGE_REQUEST, pending)
+		doc.update(values)
+		doc.set("approvers", [])
+		for row in approvers:
+			doc.append("approvers", row)
+		doc.save(ignore_permissions=True)
+	else:
+		doc = frappe.get_doc({"doctype": _CHANGE_REQUEST, **values, "approvers": approvers})
+		doc.insert(ignore_permissions=True)
+	names = ", ".join(
+		f"{frappe.utils.get_fullname(r['approver'])} ({r['process_name']})" if r.get("approver") else r["approver_role"]
+		for r in approvers
+	)
+	return {
+		"status": "pending_approval",
+		"request": doc.name,
+		"name": name,
+		"processes": processes,
+		"message": _("You are not a Process Owner for {0}, so this change was logged as {1} and will be applied once a Process Owner approves it.").format(name, doc.name)
+		+ " "
+		+ _("Approvers: {0}.").format(names),
+	}
+
+
+def _list_doctype_in_process(doctype: str, process: str) -> None:
+	"""Add ``doctype`` to the Process's Process Doctypes table (once)."""
+	doc = frappe.get_doc(_PROCESS, process)
+	if any(r.document_type == doctype for r in (doc.get("process_doctypes") or [])):
+		return
+	doc.append("process_doctypes", {"document_type": doctype})
+	doc.save(ignore_permissions=True)
+
+
+def _load_decidable_request(request: str):
+	"""Load a pending request and check the user may decide it."""
+	if frappe.session.user == "Guest":
+		frappe.throw(_("Please sign in to use Docu."), frappe.PermissionError)
+	req = frappe.get_doc(_CHANGE_REQUEST, request)
+	if req.status != "Pending":
+		frappe.throw(_("This request has already been decided."))
+	# Live check: whoever is an approver for the DocType right now decides.
+	if not _may_decide(_approvers_for(req.target_doctype), frappe.session.user):
+		frappe.throw(_("Only an approver of this request can decide it."), frappe.PermissionError)
+	return req
+
+
+def _mark_decided(req, status: str, reason: str = None) -> None:
+	req.status = status
+	req.reviewed_by = frappe.session.user
+	req.reviewed_on = frappe.utils.now_datetime()
+	if reason:
+		req.decision_note = reason
+	req.save(ignore_permissions=True)
+
+
+@frappe.whitelist()
+def approve_doctype_change(request: str, confirm: int = 0) -> dict:
+	"""Apply a pending Doctype Change Request (a Process Owner of the doctype only)."""
+	req = _load_decidable_request(request)
+	ir_dict = _parse(req.requested_ir, None)
+	if not isinstance(ir_dict, dict):
+		frappe.throw(_("Invalid form definition."))
+	name = (ir_dict.get("doctype_name") or "").strip()
+	existing = set()
+	if name and frappe.db.exists("DocType", name):
+		existing = {f.fieldname for f in frappe.get_meta(name).fields if f.fieldname}
+	verdict = validate_doctype_ir(ir_dict, existing_fieldnames=existing)
+	if not verdict["valid"]:
+		frappe.throw(_("The form has problems that must be fixed first:<br>") + "<br>".join(verdict["violations"]))
+	result = _apply_ir_now(ir_dict, verdict["warnings"], confirm)
+	_mark_decided(req, "Approved")
+	result["status"] = "applied"
+	result["request"] = req.name
+	return result
+
+
+@frappe.whitelist()
+def reject_doctype_change(request: str, reason: str = None) -> dict:
+	"""Reject a pending Doctype Change Request; nothing is applied."""
+	req = _load_decidable_request(request)
+	_mark_decided(req, "Rejected", reason)
+	return {"status": "rejected", "request": req.name}
 
 
 def _register_agui_hooks():

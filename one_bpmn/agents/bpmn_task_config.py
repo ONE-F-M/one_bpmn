@@ -65,6 +65,9 @@ USER_TASK_KEYS: tuple[str, ...] = (
 	"assigneeTableField", "assigneeTableUserField", "taskActions",
 	"notifyAssignee", "notifyAssigneeAccount", "notifyAssigneeSubject",
 	"notifyAssigneeBody", "notifyAssigneeTemplate",
+	"notifyLayout", "notifySubjectAr", "notifyQuestionEn", "notifyQuestionAr",
+	"notifyFacts", "notifyDetails", "notifyAttachments", "notifyActions",
+	"notifyConversation", "notifyTokenHours", "notifyArabicEdited",
 )
 
 # What starts the process. The trigger is the one setting that decides whether a

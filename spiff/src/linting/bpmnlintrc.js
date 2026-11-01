@@ -45,6 +45,20 @@ import callActivityMissingProcess from "@/linting/rules/call-activity-missing-pr
 import noCrossingEdges from "@/linting/rules/no-crossing-edges.js";
 import exemptToolCatalogues from "@/linting/rules/tool-catalogue.js";
 import scriptTaskMissingScript from "@/linting/rules/script-task-missing-script.js";
+import aiTaskMissingConfig from "@/linting/rules/ai-task-missing-config.js";
+import aiTaskMissingUserPrompt from "@/linting/rules/ai-task-missing-user-prompt.js";
+import aiTaskInvalidSettings from "@/linting/rules/ai-task-invalid-settings.js";
+import aiToolsBoxNotFound from "@/linting/rules/ai-tools-box-not-found.js";
+import aiToolsBoxUnreferenced from "@/linting/rules/ai-tools-box-unreferenced.js";
+import aiToolMissingDescription from "@/linting/rules/ai-tool-missing-description.js";
+import aiToolParamsInvalidJson from "@/linting/rules/ai-tool-params-invalid-json.js";
+import serviceTaskMissingConfig from "@/linting/rules/service-task-missing-config.js";
+import sendEmailMissingContent from "@/linting/rules/send-email-missing-content.js";
+import sendTaskMissingNotification from "@/linting/rules/send-task-missing-notification.js";
+import userTaskMissingAssignee from "@/linting/rules/user-task-missing-assignee.js";
+import aiTaskConfigUnavailable from "@/linting/rules/ai-task-config-unavailable.js";
+import aiTaskConfigIncomplete from "@/linting/rules/ai-task-config-incomplete.js";
+import aiTaskConfigNotLive from "@/linting/rules/ai-task-config-not-live.js";
 
 /**
  * Map rule names → rule factory functions.
@@ -82,6 +96,20 @@ const ruleMapping = {
 	"custom/call-activity-missing-process": callActivityMissingProcess,
 	"custom/no-crossing-edges": noCrossingEdges,
 	"custom/script-task-missing-script": scriptTaskMissingScript,
+	"custom/ai-task-missing-config": aiTaskMissingConfig,
+	"custom/ai-task-missing-user-prompt": aiTaskMissingUserPrompt,
+	"custom/ai-task-invalid-settings": aiTaskInvalidSettings,
+	"custom/ai-tools-box-not-found": aiToolsBoxNotFound,
+	"custom/ai-tools-box-unreferenced": aiToolsBoxUnreferenced,
+	"custom/ai-tool-missing-description": aiToolMissingDescription,
+	"custom/ai-tool-params-invalid-json": aiToolParamsInvalidJson,
+	"custom/service-task-missing-config": serviceTaskMissingConfig,
+	"custom/send-email-missing-content": sendEmailMissingContent,
+	"custom/send-task-missing-notification": sendTaskMissingNotification,
+	"custom/user-task-missing-assignee": userTaskMissingAssignee,
+	"custom/ai-task-config-unavailable": aiTaskConfigUnavailable,
+	"custom/ai-task-config-incomplete": aiTaskConfigIncomplete,
+	"custom/ai-task-config-not-live": aiTaskConfigNotLive,
 };
 
 const config = {
@@ -134,6 +162,26 @@ const config = {
 
 		// OneFM custom rules: a Script Task with nothing to run
 		"custom/script-task-missing-script": "warn",
+
+		// OneFM custom rules: AI Agent Task and Tools box setup (deploy refuses the same gaps)
+		"custom/ai-task-missing-config": "error",
+		"custom/ai-task-missing-user-prompt": "error",
+		"custom/ai-task-invalid-settings": "error",
+		"custom/ai-tools-box-not-found": "error",
+		"custom/ai-tools-box-unreferenced": "error",
+		"custom/ai-tool-params-invalid-json": "error",
+		"custom/ai-tool-missing-description": "warn",
+
+		// OneFM custom rules: Frappe task properties the engine needs (it skips the task without them)
+		"custom/service-task-missing-config": "error",
+		"custom/send-task-missing-notification": "error",
+		"custom/user-task-missing-assignee": "error",
+		"custom/send-email-missing-content": "warn",
+
+		// OneFM custom rules: the linked AI Agent Configuration, read from the server by useAgentConfigLintState
+		"custom/ai-task-config-unavailable": "error",
+		"custom/ai-task-config-incomplete": "error",
+		"custom/ai-task-config-not-live": "warn",
 	},
 };
 
