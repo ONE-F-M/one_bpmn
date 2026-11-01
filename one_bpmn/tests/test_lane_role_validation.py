@@ -105,9 +105,11 @@ class TestDescribeLanesSuggestsRoles(FrappeTestCase):
 		text = self._reply("HR Manager", "HR Managr")
 
 		self.assertIn("Lane 'HR Managr' is not a Role. Did you mean HR Manager?", text)
+		self.assertIn("Lane Role field", text)
 
 	def test_an_exact_role_and_an_unrelated_lane_get_no_suggestion(self):
 		text = self._reply("HR Manager", "System (Automatic)")
 
 		self.assertIn("Lanes drawn:", text)
 		self.assertNotIn("Did you mean", text)
+		self.assertNotIn("Lane Role field", text)

@@ -1438,7 +1438,7 @@ def describe_lanes(chat_history: list, user_text: str, ir: dict | None) -> str:
 	roles = frappe.get_all("Role", filters={"disabled": 0}, pluck="name")
 	hints = [problem["message"] for problem in resolve_ir_lane_roles(copy.deepcopy(ir), roles)]
 	if hints:
-		text += "\n\n" + "\n".join(hints)
+		text += "\n\n" + "\n".join(hints) + "\n" + _("Select the role in the lane's Lane Role field in the properties panel.")
 	return text
 
 
