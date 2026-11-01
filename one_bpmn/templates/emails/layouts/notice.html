@@ -1,0 +1,7 @@
+{% autoescape true %}{% if in_placeholder %}<div class="live"><span class="rico"></span><span class="rt">{{ _("Status", lang=lang) }}</span></div>
+{% elif has_status %}{% raw %}{{#workflow_state}}<div class="live st-{{workflow_state_style}}"><span class="rico"></span><span class="rt">{{workflow_state}}</span></div>{{/workflow_state}}{% endraw %}
+{% endif %}<p class="kick">{{ kick[lang] }}</p>
+<h3 class="hero">{{ heading[lang] }}</h3>
+{% if message[lang] %}<p class="msg">{{ message[lang] }}</p>{% endif %}
+{% include "one_bpmn/templates/emails/partials/facts.html" %}
+{% include "one_bpmn/templates/emails/partials/details.html" %}{% endautoescape %}

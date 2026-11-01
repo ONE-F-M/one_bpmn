@@ -181,3 +181,115 @@ def create_notification(
 		doc.insert(ignore_permissions=True)
 
 	return {"name": doc.name, "channel": doc.channel}
+
+
+@frappe.whitelist(methods=["POST"])
+def preview_notification(process_model: str, element_type: str, doctype: str, settings: str) -> dict:
+	"""The HTML version of the draft email for the latest record of doctype; nothing is sent and no token is made."""
+	if process_model:
+		frappe.get_doc("BPMN Process Model", process_model).check_permission("write")
+	else:
+		frappe.has_permission("BPMN Process Model", "create", throw=True)
+	if element_type not in ("send_email", "userTask"):
+		frappe.throw(_("Preview is not available for {0}.").format(element_type))
+
+	doc = frappe._dict()
+	if doctype:
+		frappe.has_permission(doctype, "read", throw=True)
+		latest = frappe.get_list(doctype, order_by="modified desc", limit=1, pluck="name")
+		if not latest:
+			return {"message": _("No {0} record to preview yet").format(_(doctype))}
+		doc = frappe.get_doc(doctype, latest[0])
+
+	try:
+		cfg = _json.loads(settings or "{}")
+		if element_type == "userTask":
+			return _render_task_preview(doc, doctype, cfg)
+		return _render_email_preview(doc, doctype, cfg)
+	except Exception as e:
+		frappe.log_error(title="BPMN: email preview failed", message=frappe.get_traceback())
+		frappe.clear_messages()
+		# frappe.render_template wraps the Jinja error in HTML with the traceback; show the Jinja error alone
+		return {"error": str(e.__context__ or e)}
+
+
+def _render_email_preview(doc, doctype: str, cfg: dict) -> dict:
+	from one_bpmn.email_builder.composer import EMAIL_LOGO, _build_notice_context, sends_notice
+	from one_bpmn.email_builder.renderer import render_layout_html
+	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import _decode_html_attr
+
+	instance = frappe._dict(
+		name=_("Preview"),
+		doctype="BPMN Process Instance",
+		context_doctype=doctype,
+		context_docname=doc.get("name"),
+	)
+	jinja_ctx = {"doc": doc, "instance": instance, "frappe": frappe}
+
+	def render(text):
+		return frappe.render_template(text, jinja_ctx) if text else ""
+
+	if sends_notice(cfg):
+		ctx = _build_notice_context(
+			instance, {**cfg, "emailShowStatus": "", "emailAttachments": ""}, doc, render
+		)
+		if doc.get("name") and cfg.get("emailAttachments") == "true":
+			ctx["attachments"] = [
+				{"name": name, "url": ""}
+				for name in frappe.get_list(
+					"File",
+					filters={"attached_to_doctype": doctype, "attached_to_name": doc.name, "is_folder": 0},
+					order_by="creation asc",
+					pluck="file_name",
+				)
+			]
+		subject, body = ctx["subject_line"], render_layout_html(ctx)
+	else:
+		subject = render(cfg.get("emailSubject", "")) or _("Notification from {0}").format(instance.name)
+		body = render(_decode_html_attr(cfg.get("emailBody", "")))
+
+	html = frappe.render_template(
+		"one_bpmn/templates/emails/bpmn_email.html", {"header": subject, "message": body, "logo": EMAIL_LOGO}
+	)
+	return {"subject": subject, "html": html, "docname": doc.get("name") or ""}
+
+
+def _render_task_preview(doc, doctype: str, cfg: dict) -> dict:
+	"""The Notify Assignee email for doc, with buttons as links and no token."""
+	from one_bpmn.email_builder.composer import (
+		EMAIL_LOGO,
+		_build_layout_context,
+		_build_open_link,
+		_resolve_subject_body,
+		_sends_decision_card,
+	)
+	from one_bpmn.email_builder.renderer import render_html_fallback, render_layout_html
+
+	instance = frappe._dict(
+		name=_("Preview"),
+		doctype="BPMN Process Instance",
+		context_doctype=doctype,
+		context_docname=doc.get("name"),
+	)
+	task_name = cfg.get("taskName") or _("Task")
+	if _sends_decision_card(cfg):
+		ctx = _build_layout_context(instance, frappe.session.user, task_name, "", "", cfg, preview=True)
+		subject, body = ctx["subject_line"], render_layout_html(ctx)
+	else:
+		jinja_ctx = {"doc": doc, "instance": instance, "frappe": frappe}
+		subject, body = _resolve_subject_body(cfg, jinja_ctx, task_name, instance)
+		open_link = _build_open_link(instance)
+		names = [a.get("action") for a in _json.loads(cfg.get("taskActions") or "[]") if a.get("action")]
+		body = render_html_fallback(
+			{
+				"subject": subject,
+				"body": body,
+				"actions": [{"label": n, "url": open_link, "primary": i == 0} for i, n in enumerate(names)],
+				"open_link": open_link,
+			}
+		)
+
+	html = frappe.render_template(
+		"one_bpmn/templates/emails/bpmn_email.html", {"header": subject, "message": body, "logo": EMAIL_LOGO}
+	)
+	return {"subject": subject, "html": html, "docname": doc.get("name") or ""}

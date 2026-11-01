@@ -1,0 +1,8 @@
+{% autoescape true %}{% from "one_bpmn/templates/emails/partials/status.html" import hideable, action_block with context %}
+{% call hideable() %}<p class="kick">{{ kick[lang] }}</p>
+<h3 class="hero">{{ question[lang] }}</h3>
+{% include "one_bpmn/templates/emails/partials/facts.html" %}
+{% include "one_bpmn/templates/emails/partials/details.html" %}{% endcall %}
+{% call action_block() %}{% if is_amp %}<form method="post" action-xhr="https://example.com/api/method/act">
+<button class="btn Success" type="submit" name="token" value="t1">{{ action_label[lang] }}</button>
+</form>{% else %}<a class="btn Success" href="{{ open_link }}" target="_blank">{{ action_label[lang] }}</a>{% endif %}{% endcall %}{% endautoescape %}

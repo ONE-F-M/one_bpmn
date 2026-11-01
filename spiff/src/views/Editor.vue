@@ -512,6 +512,7 @@
 						@launch-notification-editor="onLaunchNotificationEditor"
 						@launch-dmn-editor="onLaunchDmnEditor"
 						@launch-notify-assignee-editor="onLaunchNotifyAssigneeEditor"
+						@launch-email-notification-editor="onLaunchEmailNotificationEditor"
 					/>
 
 					<!-- No-diagram placeholder: only shown when not loading and no diagram is selected -->
@@ -891,7 +892,16 @@
 			:doctype="notifyAssigneeDoctype"
 			:task-name="notifyAssigneeTaskName"
 			:task-actions="notifyAssigneeTaskActions"
+			:process-model="activeDiagramName"
 			@save="onSaveNotifyAssigneeBody"
+		/>
+
+		<!-- Email Notification Editor Dialog (Service Task) -->
+		<EmailNotificationEditorDialog
+			v-model="showEmailNotificationDialog"
+			:initial-values="emailNotificationValues"
+			:process-model="activeDiagramName"
+			@save="onSaveEmailNotification"
 		/>
 		<Dialog v-model="showUnsavedNavigationWarning" :options="{ title: 'Unsaved Changes', size: 'sm' }">
 			<template #body-content>
@@ -1119,6 +1129,7 @@ import LogixCanvas from "@/components/LogixCanvas.vue";
 import DmnEditor from "@/components/DmnEditor.vue";
 import NotificationLinkDialog from "@/components/NotificationLinkDialog.vue";
 import NotifyAssigneeEditorDialog from "@/components/NotifyAssigneeEditorDialog.vue";
+import EmailNotificationEditorDialog from "@/components/EmailNotificationEditorDialog.vue";
 import ReadinessChecklistDialog from "@/components/ReadinessChecklistDialog.vue";
 import { withLintErrors } from "@/utils/lintIssues.js";
 import ExportConfigDialog from "@/components/ExportConfigDialog.vue";
@@ -3438,6 +3449,26 @@ function onSaveNotifyAssigneeBody(values) {
 			values,
 		});
 	}
+}
+
+// --- Email Notification Editor (Service Task) ---
+const showEmailNotificationDialog = ref(false);
+const emailNotificationValues = ref({});
+let emailNotificationEvent = null;
+
+function onLaunchEmailNotificationEditor(event) {
+	emailNotificationEvent = event;
+	emailNotificationValues.value = event.values;
+	showEmailNotificationDialog.value = true;
+}
+
+function onSaveEmailNotification({ values, changed }) {
+	emailNotificationEvent?.eventBus.fire("spiff.serviceTask.emailNotification.update", {
+		element: emailNotificationEvent.element,
+		values,
+		changed,
+	});
+	showEmailNotificationDialog.value = false;
 }
 
 function onLaunchMarkdownEditor(event) {

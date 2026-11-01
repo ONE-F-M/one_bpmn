@@ -10,6 +10,10 @@
 			class="max-w-full !rounded !border-outline-gray-2 !bg-surface-white !text-ink-gray-8 shadow-sm"
 		>
 			<span class="max-w-[150px] truncate">{{ tag.label }}</span>
+			<slot
+				name="tag"
+				:tag="tag"
+			/>
 			<span
 				v-if="tag.sub"
 				dir="rtl"

@@ -1,0 +1,25 @@
+{% autoescape true %}{% from "one_bpmn/templates/emails/partials/status.html" import action_block with context %}
+{% set saved_texts = saved_replies | map(attribute="message") | list | tojson | forceescape %}
+{% set open_label = _("Open ticket in Helpdesk", lang=lang) if is_ticket else _("Open in ERPNext", lang=lang) %}
+{% set expired %}<div class="thread"><div class="msg sys"><span class="mtext">{{ _("Replies from this email have expired.", lang=lang) }}</span></div></div>
+<a class="btn" href="{{ open_link }}" target="_blank">{{ open_label }}</a>{% endset %}
+{% include "one_bpmn/templates/emails/partials/tap_receipt.html" %}
+<div{% if is_amp %} [hidden]="ui.done"{% endif %}>
+{% call action_block(expired) %}{% if is_amp %}<div class="quick">
+  {% if saved_replies %}<span class="qr-lbl">{{ _("Saved replies", lang=lang) }}</span>
+  <div class="chips">{% for s in saved_replies %}<button type="button" class="chip" on="tap:AMP.setState({ui: {open: 'conv_reply', reply_text: {{ saved_texts }}[{{ loop.index0 }}]}})">{{ s.title }}</button>{% endfor %}</div>{% endif %}
+  <div class="chips">{% for c in conv_actions %}<button type="button" class="chip solid" on="tap:AMP.setState({ui: {open: 'conv_{{ c.key }}'}})">{{ c.label[lang] }}</button>{% endfor %}</div>
+</div>
+{% for c in conv_actions %}<form class="reason" method="post" action-xhr="{{ c.endpoint }}" hidden [hidden]="ui.open != 'conv_{{ c.key }}'" on="submit-success:AMP.setState({ui: {open: '', reply_text: '', posted: event.response.message.item.message, posted_line: event.response.message.handled ? event.response.message.message : '{{ c.sent[lang] }}'}})">
+  <input type="hidden" name="token" value="{{ c.token }}">
+  <textarea name="text" rows="4" placeholder="{{ c.placeholder[lang] }}"{% if c.key == 'reply' %} [text]="ui.reply_text"{% endif %}></textarea>
+  <div class="armed">
+    <button type="submit" class="btn">{{ c.label[lang] }}</button>
+    <button type="button" class="btn subtle" on="tap:AMP.setState({ui: {open: ''}})">{{ _("Cancel", lang=lang) }}</button>
+  </div>
+  <div submit-error><div class="msg err"><span class="mtext">{{ _("Not sent. Nothing changed in ERPNext. Try again.", lang=lang) }}</span></div></div>
+</form>
+{% endfor %}{% include "one_bpmn/templates/emails/partials/action_form.html" %}{% else %}<div class="acts">
+  <a class="btn" href="{{ open_link }}" target="_blank">{{ open_label }}</a>
+</div>{% endif %}{% endcall %}
+</div>{% endautoescape %}

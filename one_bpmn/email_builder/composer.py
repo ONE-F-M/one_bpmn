@@ -8,7 +8,7 @@ Ties together Stories 1–4 into two public entry points:
 	body from the task's notification config, builds action buttons
 	(one-click for simple actions, "Open in ERPNext" links for actions
 	that need confirmation or digital signature), generates HMAC tokens,
-	renders AMP + HTML fallback, and sends via the One-FM email pipeline.
+	renders AMP + HTML fallback, and sends with frappe.sendmail.
 
 ``compose_and_send_info_email``
 	**Service Task path** — called from ``dispatch_email`` for
@@ -25,9 +25,12 @@ Both paths reuse:
 from __future__ import annotations
 
 import json
+import re
 
 import frappe
 from frappe import _
+
+EMAIL_LOGO = "https://one-fm.com/files/ONEFM_Identity.png"
 
 
 # ---------------------------------------------------------------------------
@@ -53,6 +56,10 @@ def compose_and_send_task_email(
 		task_cfg = getattr(instance, "_user_task_extensions", {}).get(bpmn_id, {})
 
 	if task_cfg.get("notifyAssignee") != "true":
+		return
+
+	if _sends_decision_card(task_cfg):
+		_send_decision_card(instance, user, task_name, task_id, bpmn_id, task_cfg)
 		return
 
 	# ── Resolve context document ──────────────────────────────────────
@@ -324,13 +331,18 @@ def _send_email(
 	reference_doctype: str = "",
 	reference_name: str = "",
 	cc: str | None = None,
+	bcc: list[str] | None = None,
 ) -> None:
-	"""Send the email via the One-FM pipeline with AMP injection.
+	"""Send the email wrapped in bpmn_email.html, with the AMP part when given.
 
 	Sets ``frappe.flags.amp_html`` so the Email Queue ``after_insert`` hook
 	picks it up, and clears it afterwards so a send that writes no queue row
 	cannot leak AMP into the next email of the request.
 	"""
+	recipients = [r for r in recipients if r != "Administrator"]
+	if not recipients:
+		return
+
 	sender = None
 	if sender_account:
 		sender = frappe.db.get_value("Email Account", sender_account, "email_id")
@@ -339,30 +351,415 @@ def _send_email(
 		frappe.flags.amp_html = amp_html
 
 	try:
-		try:
-			from one_fm.processor import sendemail as onefm_sendemail
-
-			onefm_sendemail(
-				recipients=recipients,
-				subject=subject,
-				sender=sender,
-				header=[subject],
-				message=html_body,
-				cc=cc,
-				reference_doctype=reference_doctype,
-				reference_name=reference_name,
-				is_external_mail=True,
-			)
-		except ImportError:
-			frappe.sendmail(
-				recipients=recipients,
-				sender=sender,
-				subject=subject,
-				message=html_body,
-				cc=cc.split(",") if cc else [],
-				reference_doctype=reference_doctype,
-				reference_name=reference_name,
-				now=False,
-			)
+		frappe.sendmail(
+			recipients=recipients,
+			sender=sender,
+			subject=subject,
+			cc=cc,
+			bcc=bcc,
+			template="bpmn_email",
+			args={"header": subject, "message": html_body, "logo": EMAIL_LOGO},
+			reference_doctype=reference_doctype,
+			reference_name=reference_name,
+			delayed=False,
+		)
 	finally:
 		frappe.flags.amp_html = None
+
+
+# ---------------------------------------------------------------------------
+# Decision card layout
+# ---------------------------------------------------------------------------
+
+DEFAULT_TOKEN_HOURS = 72
+MAX_TOKEN_HOURS = 720
+ACTION_ENDPOINT = "/api/method/one_bpmn.api.todo_actions.handle_amp_action"
+_ACTION_CONDITION_RE = re.compile(r"""action\s*==\s*["']([^"']+)["']""")
+
+
+def _sends_decision_card(task_cfg: dict) -> bool:
+	"""Layout "card", "steps" or "chat", or no layout on a task that has no body and no template."""
+	layout = task_cfg.get("notifyLayout") or ""
+	if layout:
+		return layout in ("card", "steps", "chat")
+	has_body = task_cfg.get("notifyAssigneeBody") or task_cfg.get("notifyBody")
+	has_template = task_cfg.get("notifyAssigneeTemplate") or task_cfg.get("notifyTemplate")
+	return not has_body and not has_template
+
+
+def _send_decision_card(
+	instance, user: str, task_name: str, task_id: str, bpmn_id: str, task_cfg: dict
+) -> None:
+	from one_bpmn.email_builder.renderer import render_layout_amp, render_layout_html
+
+	ctx = _build_layout_context(instance, user, task_name, task_id, bpmn_id, task_cfg)
+	_send_email(
+		recipients=[user],
+		subject=ctx["subject_line"],
+		html_body=render_layout_html(ctx),
+		amp_html=render_layout_amp(ctx),
+		sender_account=task_cfg.get("notifyAssigneeAccount") or task_cfg.get("emailAccount", ""),
+		reference_doctype=instance.context_doctype or instance.doctype,
+		reference_name=instance.context_docname or instance.name,
+	)
+
+
+def _build_layout_context(
+	instance, user: str, task_name: str, task_id: str, bpmn_id: str, task_cfg: dict, preview: bool = False
+) -> dict:
+	"""Everything decision_card.html reads, in both languages; a preview makes no token and no working link."""
+	from one_bpmn.email_builder.fields import (
+		build_attachment_links,
+		build_field_rows,
+		build_kick,
+		default_fact_fields,
+	)
+	from one_bpmn.utils.token import generate_status_token
+
+	doc = _get_context_doc(instance)
+	jinja_ctx = _jinja_context(doc, instance)
+	hours = _token_hours(task_cfg.get("notifyTokenHours"))
+	doctype = instance.context_doctype or ""
+
+	subject_en = _render_template(task_cfg.get("notifyAssigneeSubject", ""), jinja_ctx) or task_name
+	subject_ar = _render_template(task_cfg.get("notifySubjectAr", ""), jinja_ctx)
+	question_en = _render_template(task_cfg.get("notifyQuestionEn", ""), jinja_ctx) or task_name
+	question_ar = _render_template(task_cfg.get("notifyQuestionAr", ""), jinja_ctx) or _arabic(task_name)
+
+	has_doc = bool(getattr(doc, "meta", None))
+	facts = json.loads(task_cfg.get("notifyFacts") or "[]") or (
+		default_fact_fields(doctype) if has_doc else []
+	)
+	details = json.loads(task_cfg.get("notifyDetails") or "[]")
+	attachments = []
+	if has_doc and task_cfg.get("notifyAttachments") == "true":
+		attachments = (
+			[{"name": name, "url": ""} for name in _attachment_names(doc)]
+			if preview
+			else [{"name": a["file_name"], "url": a["url"]} for a in build_attachment_links(doc, hours)]
+		)
+
+	status_token = (
+		"" if preview else generate_status_token(instance.name, task_id, expiry_hours=hours, user=user)
+	)
+	site_url = frappe.utils.get_url()
+	open_link = _build_open_link(instance)
+	ctx = {
+		"layout": "steps" if task_cfg.get("notifyLayout") == "steps" else "decision_card",
+		"subject_line": f"{subject_en} || {subject_ar}" if subject_ar else subject_en,
+		"kick": build_kick(doctype or instance.doctype, task_name),
+		"question": {"en": question_en, "ar": question_ar},
+		"facts": build_field_rows(doc, facts) if has_doc else [],
+		"details": build_field_rows(doc, details) if has_doc else [],
+		"attachments": attachments,
+		"status_url": f"{site_url}/api/method/one_bpmn.api.todo_actions.get_amp_task_status?status_token={status_token}"
+		if status_token
+		else "",
+		"open_link": open_link,
+		"action_endpoint": f"{site_url}{ACTION_ENDPOINT}",
+		"actions": _build_layout_actions(
+			instance, user, task_id, bpmn_id, task_cfg, hours, open_link, preview
+		),
+	}
+	if task_cfg.get("notifyLayout") == "chat":
+		_add_conversation(ctx, instance, doc, user, task_id, task_cfg, hours)
+	return ctx
+
+
+def _add_conversation(ctx: dict, instance, doc, user: str, task_id: str, task_cfg: dict, hours: int) -> None:
+	"""Turn the card context into the Conversation layout when the DocType keeps an email thread."""
+	from one_bpmn.api.todo_actions import _plain_text, thread_items
+	from one_bpmn.utils.token import generate_conversation_token
+
+	doctype = instance.context_doctype or ""
+	meta = frappe.get_meta(doctype) if doctype else None
+	if not (meta and meta.email_append_to and getattr(doc, "meta", None)):
+		frappe.log_error(
+			title="BPMN: Conversation layout needs an email thread",
+			message=f"{doctype or 'No DocType'} has no email thread (Email Append To), so the task email "
+			f"on {instance.name} was sent as the Decision card.",
+		)
+		return
+
+	conv = json.loads(task_cfg.get("notifyConversation") or "{}")
+	labels = {"reply": "Reply", "note": "Add Note"}
+	conv_actions = []
+	for action in conv.get("actions") or [{"key": key} for key in labels]:
+		key = action.get("key")
+		if key not in labels:
+			continue
+		label = action.get("label") or labels[key]
+		conv_actions.append(
+			{
+				"key": key,
+				"label": {"en": label, "ar": _arabic(label)},
+				"endpoint": f"{frappe.utils.get_url()}/api/method/one_bpmn.api.todo_actions.post_amp_{key}",
+				"token": generate_conversation_token(instance.name, task_id, user, key, hours),
+				"sent": {
+					lang: _("Reply sent" if key == "reply" else "Note added", lang=lang)
+					for lang in ("en", "ar")
+				},
+				"placeholder": {
+					lang: _("Write a reply" if key == "reply" else "Write a note", lang=lang)
+					for lang in ("en", "ar")
+				},
+			}
+		)
+
+	saved_replies = []
+	if doctype == "HD Ticket" and any(a["key"] == "reply" for a in conv_actions) and conv.get("canned"):
+		rows = frappe.get_all(
+			"HD Saved Reply", filters={"name": ["in", conv["canned"]]}, fields=["name", "title", "message"]
+		)
+		by_name = {row.name: row for row in rows}
+		saved_replies = [
+			{"title": by_name[name].title or name, "message": _plain_text(by_name[name].message)}
+			for name in conv["canned"]
+			if name in by_name
+		]
+
+	if not task_cfg.get("notifyQuestionEn") and meta.subject_field and doc.get(meta.subject_field):
+		ctx["question"] = {"en": doc.get(meta.subject_field), "ar": doc.get(meta.subject_field)}
+	if doctype == "HD Ticket":
+		ctx["kick"] = {
+			lang: f"{_('Helpdesk', lang=lang)} · {_('Ticket {0}', lang=lang).format(doc.name)}"
+			for lang in ("en", "ar")
+		}
+
+	thread_token = generate_conversation_token(instance.name, task_id, user, "thread", hours)
+	ctx.update(
+		layout="conversation",
+		is_ticket=doctype == "HD Ticket",
+		thread_url=f"{frappe.utils.get_url()}/api/method/one_bpmn.api.todo_actions.get_amp_thread?token={thread_token}",
+		thread=thread_items(doctype, doc.name, conv, user),
+		conv_actions=conv_actions,
+		saved_replies=saved_replies,
+	)
+
+
+def _attachment_names(doc) -> list[str]:
+	return frappe.get_all(
+		"File",
+		filters={"attached_to_doctype": doc.doctype, "attached_to_name": doc.name, "is_folder": 0},
+		order_by="creation asc, name asc",
+		pluck="file_name",
+	)
+
+
+def _build_layout_actions(
+	instance,
+	user: str,
+	task_id: str,
+	bpmn_id: str,
+	task_cfg: dict,
+	hours: int,
+	open_link: str,
+	preview: bool = False,
+) -> list[dict]:
+	"""Task Actions in order: labels in both languages, primary, confirm, sign, the state each leads to, a token."""
+	from one_bpmn.utils.token import generate_action_token
+
+	try:
+		task_actions = json.loads(task_cfg.get("taskActions") or "[]")
+	except ValueError:
+		task_actions = [
+			{"action": a.strip()} for a in task_cfg.get("taskActions", "").split(",") if a.strip()
+		]
+	settings = json.loads(task_cfg.get("notifyActions") or "{}")
+	names = [a.get("action") for a in task_actions if a.get("action")]
+	primary = next((n for n in names if settings.get(n, {}).get("primary")), names[0] if names else "")
+	states = _action_states(instance, bpmn_id, names)
+
+	actions = []
+	for act in task_actions:
+		name = act.get("action")
+		if not name:
+			continue
+		sign = act.get("requireDigitalSignature") == "true"
+		state, style = states.get(name, ("", ""))
+		label = {"en": name, "ar": _arabic(name)}
+		reason = settings.get(name, {})
+		actions.append(
+			{
+				"key": frappe.scrub(name),
+				"label": label,
+				"reason": bool(reason.get("reason")) and not sign,
+				"reason_question": {
+					"en": _("Reason for {0}", lang="en").format(name),
+					"ar": _("Reason for {0}", lang="ar").format(label["ar"]),
+				},
+				"chips": [{"en": en, "ar": ar or en} for en, ar in reason.get("chips") or []],
+				"primary": name == primary,
+				"confirm": act.get("confirmTransition") == "true",
+				"sign": sign,
+				"state": state,
+				"style": style,
+				"url": open_link if sign else "",
+				"token": ""
+				if sign or preview
+				else generate_action_token(instance.name, task_id, name, user, expiry_hours=hours),
+			}
+		)
+	return actions
+
+
+def _action_states(instance, bpmn_id: str, action_names: list[str]) -> dict:
+	"""{action: (workflow state, Workflow State style)} for actions whose branch reaches an Apply Workflow task.
+
+	Reads the gateway right after the user task: a branch with condition action == "Name",
+	else the gateway's default branch, followed to the first apply_workflow service task.
+	"""
+	import xml.etree.ElementTree as ET
+
+	model = (
+		frappe.db.get_value("BPMN Process Instance", instance.name, "process_model")
+		if instance.name
+		else None
+	)
+	xml = frappe.db.get_value("BPMN Process Model", model, "bpmn_xml") if model else None
+	if not xml:
+		return {}
+
+	elements = {el.get("id"): el for el in ET.fromstring(xml).iter() if el.get("id")}
+	flows = [el for el in elements.values() if el.tag.endswith("sequenceFlow")]
+
+	def outgoing(node_id):
+		return [f for f in flows if f.get("sourceRef") == node_id]
+
+	after_task = outgoing(bpmn_id)
+	if len(after_task) != 1:
+		return {}
+	gateway = elements.get(after_task[0].get("targetRef"))
+	if gateway is None or not gateway.tag.endswith("Gateway"):
+		return {}
+
+	branches = {}
+	for flow in outgoing(gateway.get("id")):
+		condition = next((c.text or "" for c in flow if c.tag.endswith("conditionExpression")), "")
+		match = _ACTION_CONDITION_RE.search(condition)
+		if match:
+			branches[match.group(1)] = flow.get("targetRef")
+	default_target = (
+		elements.get(gateway.get("default"), {}).get("targetRef") if gateway.get("default") else None
+	)
+
+	states = {}
+	for name in action_names:
+		state = _first_workflow_state(elements, outgoing, branches.get(name) or default_target)
+		if state:
+			states[name] = (state, frappe.db.get_value("Workflow State", state, "style") or "")
+	return states
+
+
+def _first_workflow_state(elements: dict, outgoing, node_id: str | None, steps: int = 10) -> str:
+	"""Follow single-path nodes from node_id to the first apply_workflow service task's workflowState."""
+	for _step in range(steps):
+		node = elements.get(node_id)
+		if node is None:
+			return ""
+		if node.tag.endswith("serviceTask"):
+			attrs = {key.split("}")[-1]: value for key, value in node.attrib.items()}
+			if attrs.get("serviceType") == "apply_workflow":
+				return attrs.get("workflowState", "")
+		next_flows = outgoing(node_id)
+		if len(next_flows) != 1 or node.tag.endswith(("userTask", "Gateway")):
+			return ""
+		node_id = next_flows[0].get("targetRef")
+	return ""
+
+
+def _token_hours(raw) -> int:
+	hours = frappe.utils.cint(raw)
+	return hours if 1 <= hours <= MAX_TOKEN_HOURS else DEFAULT_TOKEN_HOURS
+
+
+def _arabic(text: str) -> str:
+	"""Frappe's Arabic for text, else the cached machine translation, else text."""
+	from one_bpmn.utils.translation import TranslationError, translate_cached
+
+	translated = _(text, lang="ar")
+	if translated != text:
+		return translated
+	try:
+		return translate_cached(text)
+	except TranslationError:
+		return text
+
+
+# ---------------------------------------------------------------------------
+# Notice layout
+# ---------------------------------------------------------------------------
+
+NOTICE_LINK_HOURS = 30 * 24
+
+
+def sends_notice(task_cfg: dict) -> bool:
+	"""Layout "notice", or no layout on a task with no Email Body."""
+	layout = task_cfg.get("emailLayout") or ""
+	if layout:
+		return layout == "notice"
+	return not task_cfg.get("emailBody")
+
+
+def compose_notice(instance, task_cfg: dict, doc, render) -> tuple[str, str, str]:
+	"""Subject, HTML part and AMP part of a Notice; a failed AMP part is logged and left out."""
+	from one_bpmn.email_builder.renderer import render_layout_amp, render_layout_html
+
+	try:
+		ctx = _build_notice_context(instance, task_cfg, doc, render)
+		html_body = render_layout_html(ctx)
+	except Exception:
+		frappe.log_error(title="BPMN: Notice email render failed", message=frappe.get_traceback())
+		raise
+
+	try:
+		amp_html = render_layout_amp(ctx)
+	except Exception:
+		frappe.log_error(title="BPMN: Notice AMP render failed", message=frappe.get_traceback())
+		amp_html = ""
+	return ctx["subject_line"], html_body, amp_html
+
+
+def _build_notice_context(instance, task_cfg: dict, doc, render) -> dict:
+	"""Everything notice.html reads, in both languages."""
+	from one_bpmn.email_builder.fields import build_attachment_links, build_field_rows
+	from one_bpmn.utils.token import generate_status_token
+
+	has_doc = bool(getattr(doc, "meta", None))
+	doctype = doc.doctype if has_doc else instance.context_doctype or instance.doctype
+
+	subject_en = render(task_cfg.get("emailSubject", "")) or f"Notification from {instance.name}"
+	subject_ar = render(task_cfg.get("emailSubjectAr", ""))
+	heading_en = render(task_cfg.get("emailHeadingEn", ""))
+	heading_ar = render(task_cfg.get("emailHeadingAr", ""))
+	message_en = render(task_cfg.get("emailMessageEn", ""))
+
+	status_url = ""
+	if has_doc and task_cfg.get("emailShowStatus") == "true":
+		status_token = generate_status_token(instance.name)
+		status_url = f"{frappe.utils.get_url()}/api/method/one_bpmn.api.todo_actions.get_amp_task_status?status_token={status_token}"
+
+	attachments = []
+	if has_doc and task_cfg.get("emailAttachments") == "true":
+		attachments = [
+			{"name": a["file_name"], "url": a["url"]} for a in build_attachment_links(doc, NOTICE_LINK_HOURS)
+		]
+
+	return {
+		"layout": "notice",
+		"subject_line": f"{subject_en} || {subject_ar}" if subject_ar else subject_en,
+		"kick": {
+			"en": f"{doctype} · {_('Notice', lang='en')}",
+			"ar": f"{_(doctype, lang='ar')} · {_('Notice', lang='ar')}",
+		},
+		"heading": {
+			"en": heading_en or subject_en,
+			"ar": heading_ar or heading_en or subject_ar or subject_en,
+		},
+		"message": {"en": message_en, "ar": render(task_cfg.get("emailMessageAr", "")) or message_en},
+		"facts": build_field_rows(doc, json.loads(task_cfg.get("emailFacts") or "[]")) if has_doc else [],
+		"details": build_field_rows(doc, json.loads(task_cfg.get("emailDetails") or "[]")) if has_doc else [],
+		"attachments": attachments,
+		"status_url": status_url,
+		"open_link": _build_open_link(instance),
+	}
