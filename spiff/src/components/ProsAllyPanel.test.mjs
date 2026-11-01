@@ -24,11 +24,12 @@ function mountLogic() {
 		"ref",
 		"computed",
 		"window",
+		"defineExpose",
 		`${body}\nreturn { confirmedAction, turnContext, onChoice };`,
 	)
 	const ref = (value) => ({ value })
 	const computed = (fn) => ({ get value() { return fn() } })
-	const logic = factory(ref, computed, {})
+	const logic = factory(ref, computed, {}, () => {})
 	// the <template> wires these two events to the same reset
 	const clearOn = (event) => new RegExp(`@${event}="confirmedAction = ''"`).test(panel)
 	return { ...logic, clearOn }
@@ -96,4 +97,10 @@ test("each turn carries the lint findings the editor shows", () => {
 	const editor = source("BpmnEditor.vue")
 	assert.equal(editor.match(/:get-lint-issues="getLintIssues"/g).length, 2)
 	assert.match(editor, /flattenLintIssues\(linting\._formatIssues\(await linting\.lint\(\)\)\)/)
+})
+
+test("ProsAllyPanel exposes ask, which sends through the chat panel", () => {
+	assert.match(panel, /defineExpose\(\{ ask \}\)/)
+	assert.match(panel, /chat\.value\?\.send\(text\)/)
+	assert.match(panel, /<AgentChatPanel\s+ref="chat"/)
 })
