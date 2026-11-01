@@ -718,11 +718,17 @@ def get_amp_task_status(status_token: str = "") -> dict:
 		doc_name, doc_state = _get_context_doc_state(instance_name)
 		state, style = _get_workflow_state_and_style(instance_name)
 		time_value = task_row.end_time or task_row.modified
+		log_data = frappe.db.get_value(
+			"BPMN Activity Log",
+			{"instance": instance_name, "task_id": task_id, "action": "Completed"},
+			"data",
+		)
+		chosen_action = frappe.parse_json(log_data).get("action") if log_data else None
 		item.update(
 			is_completed=True,
 			doc_name=doc_name,
 			doc_state=doc_state,
-			action_taken=task_row.task_name or _("Action"),
+			action_taken=chosen_action or task_row.task_name or _("Action"),
 			completed_by=frappe.utils.get_fullname(task_row.assigned_user) if task_row.assigned_user else "",
 			completed_at=frappe.utils.format_datetime(time_value, "d MMM, h:mm a") if time_value else "",
 			workflow_state=state,
