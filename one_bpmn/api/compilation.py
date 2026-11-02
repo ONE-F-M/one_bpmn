@@ -2207,6 +2207,53 @@ def disable_process_model(model_name: str) -> dict:
 	}
 
 
+@frappe.whitelist(methods=["POST"])
+def activate_non_executable_model(model_name: str) -> dict:
+	"""Mark a non-executable process model Active; saving it deactivates its siblings."""
+	model = _load_non_executable_model(model_name)
+	if model.is_active:
+		frappe.throw(_("Process model '{0}' is already active.").format(model_name))
+
+	model.is_active = 1
+	model.flags.skip_editability_check = True
+	model.save()
+
+	return {"success": True, "model": model_name}
+
+
+@frappe.whitelist(methods=["POST"])
+def deactivate_non_executable_model(model_name: str) -> dict:
+	"""Mark a non-executable process model Inactive."""
+	model = _load_non_executable_model(model_name)
+	if not model.is_active:
+		frappe.throw(_("Process model '{0}' is already inactive.").format(model_name))
+
+	model.is_active = 0
+	model.flags.skip_editability_check = True
+	model.save()
+
+	return {"success": True, "model": model_name}
+
+
+def _load_non_executable_model(model_name: str):
+	"""Return the model after a write-permission check; throw if its process is executable."""
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+
+	model = frappe.get_doc("BPMN Process Model", model_name)
+	model.check_permission("write")
+
+	root = _ET.fromstring(model.bpmn_xml.strip().encode("utf-8"))
+	for process in root.iter(f"{{{BPMN_NS}}}process"):
+		if process.get("isExecutable", "false").strip().lower() == "true":
+			frappe.throw(
+				_("Process model '{0}' is executable. Use Deploy and Disable instead.").format(model_name),
+				title=_("Process Executable"),
+			)
+	return model
+
+
 # A prompt telling the model to "call X" where X is not in the Tools box. Only a
 # name in a calling position counts — bare snake_case words are app names and
 # domain vocabulary far more often than tools.

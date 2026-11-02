@@ -239,8 +239,7 @@
 						</div>
 					</div>
 
-					<!-- Actions menu (last - primary actions; a non-executable map gets only Release Property Panel) -->
-					<template v-if="isExecutable || isProductionInstance">
+					<!-- Actions menu (last - primary actions) -->
 						<div class="relative">
 							<button
 								@click="showActionsMenu = !showActionsMenu"
@@ -260,7 +259,7 @@
 							>
 								<!-- Deploy (only when the model is not yet Active) -->
 								<button
-									v-if="isExecutable && !isActiveModel"
+									v-if="!isActiveModel"
 									@click="deployModel(); showActionsMenu = false"
 									class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
 									:disabled="!activeDiagramName || deploying || !!activeVersionName"
@@ -271,7 +270,7 @@
 								</button>
 								<!-- Disable (only when the model is Active) -->
 								<button
-									v-if="isExecutable && isActiveModel"
+									v-if="isActiveModel"
 									@click="disableModel(); showActionsMenu = false"
 									class="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
 									:disabled="!activeDiagramName || disabling"
@@ -323,7 +322,6 @@
 								</template>
 							</div>
 						</div>
-					</template>
 				</template>
 
 				<!-- Mobile: "More" overflow dropdown -->
@@ -340,9 +338,8 @@
 						v-click-outside="() => showMobileMoreMenu = false"
 						class="absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1"
 					>
-						<template v-if="isExecutable || isProductionInstance">
 							<button
-								v-if="isExecutable && isActiveModel"
+								v-if="isActiveModel"
 								@click="disableModel(); showMobileMoreMenu = false"
 								class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
 								:disabled="!activeDiagramName || disabling"
@@ -352,7 +349,7 @@
 								{{ disabling ? 'Disabling…' : 'Disable' }}
 							</button>
 							<button
-								v-else-if="isExecutable"
+								v-else
 								@click="deployModel(); showMobileMoreMenu = false"
 								class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
 								:disabled="!activeDiagramName || deploying || !!activeVersionName"
@@ -395,7 +392,6 @@
 									{{ reassignMode ? 'Lock Property Panel' : 'Release Property Panel' }}
 								</button>
 							</template>
-						</template>
 						<button
 							@click="toggleVersionHistory(); showMobileMoreMenu = false"
 							class="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
@@ -972,6 +968,33 @@
 			</template>
 		</Dialog>
 
+		<!-- Non-executable process Deploy / Disable confirmation -->
+		<Dialog
+			v-model="showNonExecutableDialog"
+			:options="{ title: nonExecutableActivating ? 'Deploy Process Model' : 'Disable Process Model', size: 'sm' }"
+		>
+			<template #body-content>
+				<div class="text-sm text-gray-700">
+					{{ nonExecutableActivating
+						? "This is a non-executable process mode, process instances will not be created. Any other process model for this process will become inactive."
+						: "This will mark this process as inactive." }}
+				</div>
+			</template>
+			<template #actions>
+				<div class="flex gap-2 justify-end w-full">
+					<Button variant="subtle" @click="showNonExecutableDialog = false">Cancel</Button>
+					<Button
+						variant="solid"
+						:theme="nonExecutableActivating ? 'gray' : 'red'"
+						:loading="nonExecutableBusy"
+						@click="executeNonExecutableToggle"
+					>
+						{{ nonExecutableActivating ? "Deploy" : "Disable" }}
+					</Button>
+				</div>
+			</template>
+		</Dialog>
+
 		<!-- Production Review dialog (Review Doctypes / Review Workflow Objects) -->
 		<Dialog v-model="showReviewDialog" :options="{ title: reviewTitle, size: 'xl' }">
 			<template #body-content>
@@ -1189,6 +1212,7 @@ const isAnyDialogOpen = computed(() => {
 		showCallActivitySearchDialog.value ||
 		showReadinessDialog.value ||
 		showDisableDialog.value ||
+		showNonExecutableDialog.value ||
 		showDmnEditorDialog.value ||
 		showExportConfigDialog.value ||
 		showConfigImportResults.value ||
@@ -1213,6 +1237,9 @@ const deploying = ref(false);
 const disabling = ref(false);
 const showDisableDialog = ref(false);
 const disableRunningCount = ref(0);
+const showNonExecutableDialog = ref(false);
+const nonExecutableActivating = ref(true);
+const nonExecutableBusy = ref(false);
 
 // --- Actions menu + Production Review state ---
 const showActionsMenu = ref(false);
@@ -1975,6 +2002,12 @@ async function deployModel() {
 		return;
 	}
 
+	if (!isExecutable.value) {
+		nonExecutableActivating.value = true;
+		showNonExecutableDialog.value = true;
+		return;
+	}
+
 	// Get current XML for readiness check
 	let xml = "";
 	if (editorRef.value) {
@@ -2062,6 +2095,12 @@ async function executeDeployment() {
 async function disableModel() {
 	if (!activeDiagramName.value || disabling.value) return;
 
+	if (!isExecutable.value) {
+		nonExecutableActivating.value = false;
+		showNonExecutableDialog.value = true;
+		return;
+	}
+
 	// Fetch running instance count for the confirmation dialog
 	disableRunningCount.value = 0;
 	try {
@@ -2130,6 +2169,47 @@ async function executeDisable() {
 		);
 	} finally {
 		disabling.value = false;
+	}
+}
+
+// Activate or deactivate a non-executable process model (called from its confirmation dialog)
+async function executeNonExecutableToggle() {
+	if (!activeDiagramName.value || nonExecutableBusy.value) return;
+
+	const activating = nonExecutableActivating.value;
+	nonExecutableBusy.value = true;
+	try {
+		await frappeRequest({
+			url: `/api/method/one_bpmn.api.compilation.${activating ? "activate" : "deactivate"}_non_executable_model`,
+			method: "POST",
+			params: { model_name: activeDiagramName.value },
+		});
+
+		showNonExecutableDialog.value = false;
+		showNotification(
+			activating ? "Deployed" : "Disabled",
+			activating ? "Process model marked active." : "Process model marked inactive.",
+			activating ? "green" : "orange"
+		);
+
+		for (const d of diagrams.value) {
+			if (d.name === activeDiagramName.value) {
+				d.is_active = activating ? 1 : 0;
+				d.status = activating ? "Active" : "Inactive";
+			} else if (activating) {
+				d.is_active = 0;
+				d.status = "Inactive";
+			}
+		}
+	} catch (err) {
+		showNonExecutableDialog.value = false;
+		const serverMessage =
+			(err.messages && err.messages.length > 0)
+				? err.messages.join("\n")
+				: err.message || "An error occurred while updating the process model.";
+		showNotification(activating ? "Deploy Failed" : "Disable Failed", serverMessage, "red", true);
+	} finally {
+		nonExecutableBusy.value = false;
 	}
 }
 
