@@ -127,7 +127,10 @@ class TestTranslateText(FrappeTestCase):
 		url = post.call_args.args[0]
 		self.assertEqual(url, translation.GOOGLE_TRANSLATE_URL)
 		self.assertNotIn("test-key", url)
-		self.assertEqual(post.call_args.kwargs["headers"], {"X-goog-api-key": "test-key"})
+		self.assertEqual(
+			post.call_args.kwargs["headers"],
+			{"X-goog-api-key": "test-key", "Referer": frappe.utils.get_url() + "/"},
+		)
 		self.assertEqual(
 			post.call_args.kwargs["json"],
 			{"q": "Hello __PH0__", "source": "en", "target": "ar", "format": "text"},

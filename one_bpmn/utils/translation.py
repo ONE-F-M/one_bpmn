@@ -66,10 +66,11 @@ def _translate(translate, text: str, marker: str) -> str:
 
 
 def _google_translate(text: str, key: str) -> str:
-	"""One Cloud Translation v2 call; the key goes in a header so it never reaches a logged URL."""
+	"""One Cloud Translation v2 call; the key goes in a header so it never reaches a logged URL.
+	Referer is this site's URL, which a key restricted to websites needs."""
 	response = make_post_request(
 		GOOGLE_TRANSLATE_URL,
-		headers={"X-goog-api-key": key},
+		headers={"X-goog-api-key": key, "Referer": frappe.utils.get_url() + "/"},
 		json={"q": text, "source": "en", "target": "ar", "format": "text"},
 	)
 	return response["data"]["translations"][0]["translatedText"]
