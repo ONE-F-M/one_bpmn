@@ -150,7 +150,7 @@ class TestEmailFieldsOnToDo(FrappeTestCase):
 	def test_kick_falls_back_to_the_english_task_name_and_logs(self):
 		translate_cached.clear_cache()
 		with (
-			patch("one_bpmn.utils.translation.GoogleTranslator", side_effect=ConnectionError("blocked")),
+			patch("one_bpmn.utils.translation._google_translate", side_effect=ConnectionError("blocked")),
 			patch("one_bpmn.utils.translation.MyMemoryTranslator", side_effect=ConnectionError("blocked")),
 			patch("frappe.log_error") as log_error,
 		):
