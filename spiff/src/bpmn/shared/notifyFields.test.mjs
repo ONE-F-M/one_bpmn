@@ -62,19 +62,19 @@ test("fieldOptionGroups: own group, then Linked documents, used fields, Arabic f
 		{
 			group: "Leave Application fields",
 			items: [
-				{ label: "Employee Name", value: "employee_name", description: "employee_name" },
-				{ label: "From Date", value: "from_date", description: "from_date" },
+				{ label: "Employee Name", value: "employee_name" },
+				{ label: "From Date", value: "from_date" },
 			],
 		},
 	])
 	assert.deepEqual(fieldOptionGroups(fields, "Leave Application", ["employee_name"]), [
-		{ group: "Leave Application fields", items: [{ label: "From Date", value: "from_date", description: "from_date" }] },
+		{ group: "Leave Application fields", items: [{ label: "From Date", value: "from_date" }] },
 	])
 	const linkedFields = fields.concat({ fieldname: "employee.department", label: "Employee · Department", linked: true })
 	assert.deepEqual(fieldOptionGroups(linkedFields, "Leave Application", ["employee_name", "from_date"]), [
 		{
 			group: "Linked documents",
-			items: [{ label: "Employee · Department", value: "employee.department", description: "employee.department" }],
+			items: [{ label: "Employee · Department", value: "employee.department" }],
 		},
 	])
 })
