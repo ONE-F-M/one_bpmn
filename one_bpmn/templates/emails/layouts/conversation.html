@@ -5,8 +5,10 @@
 <a class="btn" href="{{ open_link }}" target="_blank">{{ open_label }}</a>{% endset %}
 {% include "one_bpmn/templates/emails/partials/tap_receipt.html" %}
 <div{% if is_amp %} [hidden]="ui.done"{% endif %}>
-{% call action_block(expired) %}{% if is_amp %}{% set lead_chips %}{% for s in saved_replies %}<button type="button" class="chip" on="tap:AMP.setState({ui: {open: 'conv_reply', reply_text: {{ saved_texts }}[{{ loop.index0 }}]}})">{{ s.title }}</button>{% endfor %}{% for c in conv_actions %}<button type="button" class="chip" on="tap:AMP.setState({ui: {open: 'conv_{{ c.key }}'}})">{{ c.label[lang] }}</button>{% endfor %}{% endset %}
-{% if saved_replies %}<span class="qr-lbl" [hidden]="!!(ui.armed || ui.open)">{{ _("Saved replies", lang=lang) }}</span>{% endif %}
+{% call action_block(expired) %}{% if is_amp %}{% if saved_replies %}<div [hidden]="!!(ui.armed || ui.open)"><span class="qr-lbl">{{ _("Saved replies", lang=lang) }}</span>
+<div class="chips">{% for s in saved_replies %}<button type="button" class="chip" on="tap:AMP.setState({ui: {open: 'conv_reply', reply_text: {{ saved_texts }}[{{ loop.index0 }}]}})">{{ s.title }}</button>{% endfor %}</div></div>{% endif %}
+{% if conv_actions %}<div [hidden]="!!(ui.armed || ui.open)"><span class="qr-lbl">{{ _("Reply", lang=lang) }}</span>
+<div class="two">{% for c in conv_actions %}<button type="button" class="btn outline" on="tap:AMP.setState({ui: {open: 'conv_{{ c.key }}'}})">{{ c.label[lang] }}</button>{% endfor %}</div></div>{% endif %}
 {% for c in conv_actions %}<form class="reason" method="post" action-xhr="{{ c.endpoint }}" hidden [hidden]="ui.open != 'conv_{{ c.key }}'" on="submit-success:AMP.setState({ui: {open: '', reply_text: '', posted: event.response.message.item.message, posted_line: event.response.message.handled ? event.response.message.message : '{{ c.sent[lang] }}'}})">
   <input type="hidden" name="token" value="{{ c.token }}">
   <label class="qr-lbl">{{ _("Reply (sent by email)", lang=lang) if c.key == 'reply' else _("Internal note (agents only)", lang=lang) }}</label>
@@ -17,7 +19,7 @@
   </div>
   <div submit-error><div class="msg err"><span class="mtext">{{ _("Not sent. Nothing changed in ERPNext. Try again.", lang=lang) }}</span></div></div>
 </form>
-{% endfor %}{% with chip_row = true %}{% include "one_bpmn/templates/emails/partials/action_form.html" %}{% endwith %}{% else %}<div class="acts">
+{% endfor %}{% if actions %}<div class="task-acts" [hidden]="!!ui.open && ui.open.indexOf('conv_') == 0">{% include "one_bpmn/templates/emails/partials/action_form.html" %}</div>{% endif %}{% else %}<div class="acts">
   <a class="btn" href="{{ open_link }}" target="_blank">{{ open_label }}</a>
 </div>{% endif %}{% endcall %}
 </div>{% endautoescape %}

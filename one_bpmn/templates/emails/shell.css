@@ -52,6 +52,8 @@ a{color:#0475d3;text-decoration:none}
 .confirm .btn{margin:0}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
 .two .btn{margin:0;min-height:50px}
+.two > :only-child{grid-column:1 / -1}
+.task-acts{border-top:1px solid #ededed;padding-top:14px;margin-top:6px}
 .screen .acts{grid-template-columns:1fr}
 .btn.go{box-shadow:inset 0 0 0 999px rgba(0,0,0,.28)}
 .link{display:block;margin:0 auto;padding:6px 12px;border:0;background:transparent;color:#077ddf;font-family:Arial, Helvetica, sans-serif;font-size:14.5px;cursor:pointer}
@@ -62,7 +64,6 @@ a{color:#0475d3;text-decoration:none}
 .chip[selected]{background:#077ddf;border-color:#077ddf;color:#ffffff;font-weight:700;outline:none}
 .reason textarea{display:block;box-sizing:border-box;width:100%;margin-bottom:10px;padding:10px 12px;border:1px solid #e2e2e2;border-radius:10px;font-family:Arial, Helvetica, sans-serif;font-size:14.5px}
 button.chip{font-family:Arial, Helvetica, sans-serif;color:#171717}
-.chip.solid{background:#171717;border-color:#171717;color:#ffffff}
 .thread{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
 .thread-list{min-height:54px}
 .thread-list > div{display:flex;flex-direction:column;gap:10px}

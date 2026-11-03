@@ -156,15 +156,22 @@ class TestConversationLayout(FrappeTestCase):
 		self.assertIn("Replies from this email have expired.", with_status)
 		self.assertIn("Open ticket in Helpdesk", with_status)
 
-	def test_quick_actions_share_one_chip_row_and_the_reply_box_starts_empty(self):
+	def test_saved_replies_conversation_buttons_and_the_task_action_are_three_groups(self):
 		self._comm("My printer is on fire.", "Administrator")
 		ctx = self._ctx({"notifyLayout": "chat", "notifyConversation": json.dumps(CONV)})
 		html = render_layout_amp(ctx)
-		row = html[html.index('<div class="chips" [hidden]="!!(ui.armed || ui.open)">') :]
-		row = row[: row.index("</div>")]
-		self.assertIn("Card printed</button>", row)
-		self.assertIn('class="chip" on="tap:AMP.setState({ui: {open: \'conv_reply\'}})"', row)
-		self.assertIn('value="tok-resolve" class="chip solid"', row)
+
+		saved = html.index('<span class="qr-lbl">Saved replies</span>')
+		reply = html.index('<span class="qr-lbl">Reply</span>')
+		task = html.index('<div class="task-acts"')
+		self.assertLess(saved, reply)
+		self.assertLess(reply, task)
+		self.assertIn("Card printed</button>", html[saved:reply])
+		self.assertIn('class="btn outline" on="tap:AMP.setState({ui: {open: \'conv_reply\'}})"', html[reply:task])
+		self.assertNotIn("tok-resolve", html[saved:task])
+		self.assertIn('value="tok-resolve" class="btn ok"', html[task:])
+		self.assertNotIn("chip solid", html)
+		self.assertIn("[hidden]=\"!!ui.open && ui.open.indexOf('conv_') == 0\"", html)
 		self.assertIn("[text]=\"ui.reply_text || ''\"", html)
 		self.assertLess(
 			html.index('>Cancel</button>\n    <button type="submit" class="btn">Send</button>'),
