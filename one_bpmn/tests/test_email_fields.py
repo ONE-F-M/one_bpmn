@@ -149,6 +149,12 @@ class TestEmailFieldsOnToDo(FrappeTestCase):
 		self.assertEqual(kick["en"], "ToDo · Review")
 		self.assertEqual(kick["ar"], f"{todo_ar if todo_ar != 'ToDo' else 'ar:ToDo'} · ar:Review")
 
+	def test_hd_ticket_uses_our_arabic_not_the_machine_translation(self):
+		clear_cache()
+		with patch("one_bpmn.utils.translation.translate_cached", side_effect=lambda text: f"ar:{text}"):
+			kick = build_kick("HD Ticket", "Review")
+		self.assertEqual(kick["ar"], "تذكرة مكتب المساعدة · ar:Review")
+
 	def test_a_label_frappe_cannot_translate_falls_back_to_machine_translation(self):
 		meta = frappe.get_meta("ToDo")
 		untranslated = next(
