@@ -273,10 +273,13 @@ def stage_system_prompt(cfg: dict, sub_id: str, skills_constant: str, turn: dict
 	return "\n\n".join(sections)
 
 
-def process_for_diagram(diagram_name: str) -> str:
-	"""The Process a diagram is named after, with its version suffix removed; "" when there is none."""
-	name = DIAGRAM_VERSION_SUFFIX.sub("", diagram_name or "").strip()
-	return name if name and frappe.db.exists("Process", name) else ""
+def process_for_diagram(diagram_name: str, process_name: str = "") -> str:
+	"""The Process the diagram names (version removed), else the one process_name names; "" when neither exists."""
+	for candidate in (DIAGRAM_VERSION_SUFFIX.sub("", diagram_name or ""), process_name or ""):
+		name = candidate.strip()
+		if name and frappe.db.exists("Process", name):
+			return name
+	return ""
 
 
 def _memory_fields(cfg: dict) -> dict:
@@ -295,7 +298,7 @@ def _memory_fields(cfg: dict) -> dict:
 	) or {}
 
 
-def recall_process_memory(diagram_name: str) -> dict:
+def recall_process_memory(diagram_name: str, process_name: str = "") -> dict:
 	"""The diagram's Process and the notes recalled for it and the requester, for the turn store."""
 	from one_bpmn.agents.memory.tools import memory_search
 	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
@@ -308,7 +311,7 @@ def recall_process_memory(diagram_name: str) -> dict:
 	fields = _memory_fields(prosally_config())
 	if not _cfg_truthy(fields.get("long_term_memory")):
 		return {"memory_process": "", "memory_notes": []}
-	process = process_for_diagram(diagram_name)
+	process = process_for_diagram(diagram_name, process_name)
 	user = _requesting_user()
 	rows = []
 	# An empty query lists the key's newest rows: a confirmation turn's text matches nothing.
