@@ -334,3 +334,5 @@ one_bpmn.one_bpmn.patches.v1_0.prosally_reads_related_processes #01-11-2026 Pros
 one_bpmn.one_bpmn.patches.v1_0.lucrusher_reads_dms_documents #02-11-2026 LuCrusher gets a read-only search_dms_documents tool over the Document Register and the prompt rules for the five document types and their precedence
 one_bpmn.one_bpmn.patches.v1_0.lucrusher_drafts_cross_process_links #02-11-2026 LuCrusher records links between processes and drafts them as message, signal and call activity objects
 one_bpmn.one_bpmn.patches.v1_0.prosally_recall_falls_back_to_process_name #03-11-2026 ProsAlly Build Context passes the process name to the memory recall, so a turn whose diagram name did not arrive still recalls and saves memory for the process
+one_bpmn.one_bpmn.patches.v1_0.prosally_reviews_process_links #03-11-2026 ProsAlly answers a review of the links between its map and related maps from get_process_links, skipping the intent classifier
+one_bpmn.one_bpmn.patches.v1_0.prosally_reads_process_maps #03-11-2026 ProsAlly gets a read-only read_process_map tool over the process maps the designer can read, and its generate and modify stages read what it finds
