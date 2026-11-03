@@ -6,7 +6,7 @@ const PREVIEW_DELAY_MS = 1000
 // Server-rendered HTML version of the draft email, refreshed once the draft stops changing.
 // request() gives the element type, DocType and settings to preview; by default the Email Notification draft.
 export function useEmailPreview({ values, open, processModel, request = () => emailNotificationRequest(values) }) {
-	const preview = ref({ html: "", message: "", error: "", docname: "" })
+	const preview = ref({ html: "", html_ar: "", sender: "", message: "", error: "", docname: "" })
 	const loading = ref(false)
 	let timer = null
 	let latest = 0
@@ -19,9 +19,9 @@ export function useEmailPreview({ values, open, processModel, request = () => em
 				process_model: processModel.value,
 				...request(),
 			})
-			if (call === latest) preview.value = { html: "", message: "", error: "", docname: "", ...result }
+			if (call === latest) preview.value = { html: "", html_ar: "", sender: "", message: "", error: "", docname: "", ...result }
 		} catch (e) {
-			if (call === latest) preview.value = { html: "", message: "", error: e.message || String(e), docname: "" }
+			if (call === latest) preview.value = { html: "", html_ar: "", sender: "", message: "", error: e.message || String(e), docname: "" }
 		} finally {
 			if (call === latest) loading.value = false
 		}
