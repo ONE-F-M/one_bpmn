@@ -125,6 +125,8 @@ import { ref, computed, watch, onMounted, onUnmounted } from "vue"
 import { useRoute } from "vue-router"
 import { Button, frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
+import { useDssSigning } from "@/composables/useDssSigning"
+import { serverMessage } from "@/utils/serverMessage"
 
 
 import InstanceHeader from "@/components/process_instance/InstanceHeader.vue"
@@ -146,6 +148,7 @@ const activeTasks = ref([])
 const completingTask = ref(null)
 const completingAction = ref(null)
 const taskError = ref(null)
+const { sign } = useDssSigning()
 const controlNotice = ref("")
 const logs = ref([])
 const bpmnXml = ref(null)
@@ -785,14 +788,26 @@ async function completeTask(task, detail) {
 		}
 	}
 
-	const doSig = () => {
-		if (needsSignature) {
-			if (window.confirm("Digital Signature Required\n\nBy clicking OK you authorize this action.")) {
-				doComplete()
-			}
-		} else {
+	const doSig = async () => {
+		if (!needsSignature) {
 			doComplete()
+			return
 		}
+		completingTask.value = task.task_id
+		completingAction.value = actionName
+		taskError.value = null
+		let signed = false
+		try {
+			const outcome = await sign(instanceId.value, task.task_id, actionName)
+			signed = outcome.ok
+			if (!signed) taskError.value = outcome.reason || "The document was not signed. Please try again."
+		} catch (err) {
+			taskError.value = serverMessage(err)
+		} finally {
+			completingTask.value = null
+			completingAction.value = null
+		}
+		if (signed) doComplete()
 	}
 
 	if (needsConfirm) {
