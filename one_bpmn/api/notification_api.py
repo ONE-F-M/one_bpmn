@@ -322,9 +322,8 @@ def _sender(account: str | None) -> str:
 
 
 def _preview_state(doc) -> str:
-	"""The workflow state, else the status, that the live status line shows for doc."""
-	if not doc.get("doctype"):
-		return ""
-	meta = frappe.get_meta(doc.doctype)
-	field = next((f for f in ("workflow_state", "status") if meta.has_field(f)), None)
-	return str(doc.get(field) or "") if field else ""
+	"""The workflow state the live status line shows for doc; empty when its DocType has no workflow."""
+	from frappe.model.workflow import get_workflow_name, get_workflow_state_field
+
+	workflow_name = get_workflow_name(doc.get("doctype")) if doc.get("doctype") else None
+	return str(doc.get(get_workflow_state_field(workflow_name)) or "") if workflow_name else ""
