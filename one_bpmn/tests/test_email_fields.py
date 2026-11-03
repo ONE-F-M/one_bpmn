@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import patch
 
 import frappe
+from frappe.model import no_value_fields
 from frappe.tests.utils import FrappeTestCase
 from frappe.translate import clear_cache
 
@@ -142,10 +143,29 @@ class TestEmailFieldsOnToDo(FrappeTestCase):
 
 	def test_kick_in_both_languages(self):
 		translate_cached.clear_cache()
-		with patch("one_bpmn.utils.translation.translate_cached", return_value="مراجعة"):
+		with patch("one_bpmn.utils.translation.translate_cached", side_effect=lambda text: f"ar:{text}"):
 			kick = build_kick("ToDo", "Review")
+		todo_ar = frappe._("ToDo", lang="ar")
 		self.assertEqual(kick["en"], "ToDo · Review")
-		self.assertEqual(kick["ar"], f"{frappe._('ToDo', lang='ar')} · مراجعة")
+		self.assertEqual(kick["ar"], f"{todo_ar if todo_ar != 'ToDo' else 'ar:ToDo'} · ar:Review")
+
+	def test_a_label_frappe_cannot_translate_falls_back_to_machine_translation(self):
+		meta = frappe.get_meta("ToDo")
+		untranslated = next(
+			df
+			for df in meta.fields
+			if df.label and df.fieldtype not in no_value_fields and frappe._(df.label, lang="ar") == df.label
+		)
+		translated = next(
+			df
+			for df in meta.fields
+			if df.label and df.fieldtype not in no_value_fields and frappe._(df.label, lang="ar") != df.label
+		)
+		todo = frappe.get_doc({"doctype": "ToDo", "description": "x", "status": "Open"})
+		with patch("one_bpmn.utils.translation.translate_cached", side_effect=lambda text: f"ar:{text}"):
+			rows = build_field_rows(todo, [untranslated.fieldname, translated.fieldname])
+		self.assertEqual(rows[0]["label"]["ar"], f"ar:{untranslated.label}")
+		self.assertEqual(rows[1]["label"]["ar"], frappe._(translated.label, lang="ar"))
 
 	def test_kick_falls_back_to_the_english_task_name_and_logs(self):
 		translate_cached.clear_cache()

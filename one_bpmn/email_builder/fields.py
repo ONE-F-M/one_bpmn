@@ -59,6 +59,8 @@ MAX_FACTS = 6
 
 def build_field_rows(doc, entries: list) -> list[dict]:
 	"""Rows of label and value in English and Arabic for the given fieldnames or [fieldname, arabic_fieldname] pairs."""
+	from one_bpmn.email_builder.composer import _arabic
+
 	rows = []
 	for entry in entries:
 		fieldname, arabic_fieldname = entry if isinstance(entry, list | tuple) else (entry, "")
@@ -79,7 +81,7 @@ def build_field_rows(doc, entries: list) -> list[dict]:
 			value_ar = _format_in(arabic[1], arabic[0], "ar") if arabic and arabic[1] else value_en
 		rows.append(
 			{
-				"label": {"en": df.label, "ar": frappe._(df.label, lang="ar")},
+				"label": {"en": df.label, "ar": _arabic(df.label)},
 				"value": {"en": value_en, "ar": value_ar},
 			}
 		)
@@ -96,6 +98,7 @@ def default_fact_fields(doctype: str) -> list[str]:
 
 def build_kick(doctype: str, task_name: str) -> dict:
 	"""The context line: DocType label and task name in both languages."""
+	from one_bpmn.email_builder.composer import _arabic
 	from one_bpmn.utils.translation import TranslationError, translate_cached
 
 	try:
@@ -105,7 +108,7 @@ def build_kick(doctype: str, task_name: str) -> dict:
 		task_name_ar = task_name
 	return {
 		"en": f"{doctype} · {task_name}",
-		"ar": f"{frappe._(doctype, lang='ar')} · {task_name_ar}",
+		"ar": f"{_arabic(doctype)} · {task_name_ar}",
 	}
 
 
