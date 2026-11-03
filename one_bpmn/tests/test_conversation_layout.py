@@ -149,10 +149,27 @@ class TestConversationLayout(FrappeTestCase):
 		# AMP loads only an element with a size, so an empty send-time thread still gets one
 		self.assertIn(".thread-list{min-height:54px}", with_status)
 		self.assertIn("posted: event.response.message.item.message", with_status)
-		self.assertIn("posted_line: event.response.message.handled ? event.response.message.message", with_status)
+		self.assertIn(
+			"posted_line: event.response.message.handled ? event.response.message.message", with_status
+		)
 		self.assertIn('value="tok-resolve"', with_status)
 		self.assertIn("Replies from this email have expired.", with_status)
 		self.assertIn("Open ticket in Helpdesk", with_status)
+
+	def test_quick_actions_share_one_chip_row_and_the_reply_box_starts_empty(self):
+		self._comm("My printer is on fire.", "Administrator")
+		ctx = self._ctx({"notifyLayout": "chat", "notifyConversation": json.dumps(CONV)})
+		html = render_layout_amp(ctx)
+		row = html[html.index('<div class="chips" [hidden]="!!(ui.armed || ui.open)">') :]
+		row = row[: row.index("</div>")]
+		self.assertIn("Card printed</button>", row)
+		self.assertIn('class="chip" on="tap:AMP.setState({ui: {open: \'conv_reply\'}})"', row)
+		self.assertIn('value="tok-resolve" class="chip solid"', row)
+		self.assertIn("[text]=\"ui.reply_text || ''\"", html)
+		self.assertLess(
+			html.index('>Cancel</button>\n    <button type="submit" class="btn">Send</button>'),
+			html.index("post_amp_note"),
+		)
 
 	def test_html_part_is_a_transcript_with_a_helpdesk_link(self):
 		self._comm("My printer is on fire.", "Administrator")

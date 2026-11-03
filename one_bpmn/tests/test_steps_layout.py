@@ -61,7 +61,7 @@ class TestStepsLayout(FrappeTestCase):
 			english.index('<span class="step-t">The request'),
 			english.index("Approve 3 days for Fatima?"),
 			english.index('class="facts"'),
-			english.index('<span class="step-t">What it changes'),
+			english.index('<span class="step-t">Details'),
 			english.index("Family travel"),
 			english.index("Booking.pdf"),
 			english.index('<span class="step-t">Your call'),
@@ -101,8 +101,20 @@ class TestStepsLayout(FrappeTestCase):
 		self.assertNotIn("[hidden]", html)
 		self.assertNotIn(" hidden ", html)
 		english = html.split('lang="ar"')[0]
-		self.assertLess(english.index('<span class="step-t">The request'), english.index("What it changes"))
-		self.assertLess(english.index('<span class="step-t">What it changes'), english.index("Your call"))
+		self.assertLess(
+			english.index('<span class="step-t">The request'), english.index('<span class="step-t">Details')
+		)
+		self.assertLess(english.index('<span class="step-t">Details'), english.index("Your call"))
 		self.assertIn(
 			'<a class="btn Success" href="https://erp.example.com/app/leave-application/LA-1"', english
 		)
+
+	def test_screen_two_boxes_the_details_and_every_screen_says_tap_next(self):
+		english = render_layout_amp(_steps_ctx()).split('lang="ar"')[0]
+		screen_two = english[
+			english.index('<span class="step-t">Details') : english.index('<span class="step-t">Your call')
+		]
+		self.assertIn('<table class="facts" role="presentation">', screen_two)
+		self.assertNotIn("<h4>", screen_two)
+		self.assertEqual(english.count('<p class="swipe">Tap Next</p>'), 3)
+		self.assertIn(".screen .acts{grid-template-columns:1fr}", english)
