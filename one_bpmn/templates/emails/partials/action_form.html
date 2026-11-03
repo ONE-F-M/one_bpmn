@@ -1,7 +1,7 @@
 {% autoescape true %}{% set submit_error %}<div submit-error><div class="err"><b>{{ _("Not saved.", lang=lang) }}</b> {{ _("Nothing changed in ERPNext. Try again.", lang=lang) }}</div></div>{% endset %}{% if is_amp %}<form method="post" action-xhr="{{ action_endpoint }}" on="submit-success:AMP.setState({ui: {done: true, result: event.response.message}})">
   {% if error_above %}{{ submit_error }}{% endif %}
-  <div class="{{ 'chips' if chip_row else 'acts' }}" [hidden]="!!(ui.armed || ui.open)">{% if chip_row %}{{ lead_chips }}{% endif %}
-    {% for a in actions | sort(attribute="primary", reverse=True) %}{% set cls = ("chip solid" if a.primary else "chip") if chip_row else ("btn " ~ (a.style or "ok") if a.primary else "btn outline") %}
+  <div class="acts" [hidden]="!!(ui.armed || ui.open)">
+    {% for a in actions | sort(attribute="primary", reverse=True) %}{% set cls = "btn " ~ (a.style or "ok") if a.primary else "btn outline" %}
     {% if a.sign %}<a class="{{ cls }}" href="{{ a.url }}" target="_blank">{{ a.label[lang] }}</a>
     {% elif a.reason %}<button type="button" class="{{ cls }}" on="tap:AMP.setState({ui: {open: '{{ a.key }}', armed: ''}})">{{ a.label[lang] }}</button>
     {% elif a.confirm %}<button type="button" class="{{ cls }}" on="tap:AMP.setState({ui: {armed: '{{ a.key }}'}})">{{ a.label[lang] }}</button>
