@@ -5,11 +5,20 @@ import re
 import frappe
 from frappe import _
 
-from one_bpmn.agents.process_digest import DOCTYPE, EVENT_DEFINITIONS, _local, _parse, _tag
+from one_bpmn.agents.process_digest import (
+	DOCTYPE,
+	EVENT_DEFINITIONS,
+	_local,
+	_parse,
+	_tag,
+	find_process_models,
+	get_process_model_digest,
+)
 from one_bpmn.agents.turn_state import get_turn, update_turn
 from one_bpmn.api.compilation import CALL_SPIFF_NS, _called_model
 
 MAX_RELATED_MODELS = 15
+MAX_TURN_MAPS = 3
 CACHE_TTL = 3600
 CATCHING_TAGS = ("startEvent", "intermediateCatchEvent", "boundaryEvent", "receiveTask")
 THROWING_TAGS = ("intermediateThrowEvent", "endEvent", "sendTask")
@@ -69,6 +78,18 @@ def process_links_for_turn(conversation: str) -> dict:
 	if "error" not in found:
 		keep = {key: found[key] for key in ("process_model", "related", "gaps", "truncated")}
 		update_turn(conversation, process_links=keep)
+	return found
+
+
+def read_process_map_for_turn(conversation: str, process_model: str) -> dict:
+	"""The digest of one readable map, or the maps matching the words given; a digest is kept on the turn for the stage prompts."""
+	if not frappe.db.exists(DOCTYPE, process_model or ""):
+		return find_process_models(process_model or "")
+
+	found = get_process_model_digest(process_model)
+	kept = [row for row in get_turn(conversation).get("process_maps") or [] if row["process_model"] != process_model]
+	kept.append({"process_model": process_model, "digest": found["digest"]})
+	update_turn(conversation, process_maps=kept[-MAX_TURN_MAPS:])
 	return found
 
 
