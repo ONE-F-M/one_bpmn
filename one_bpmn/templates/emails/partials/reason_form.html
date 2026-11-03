@@ -12,5 +12,6 @@
     <button type="button" class="btn {{ a.style }}" [hidden]="{{ ready }}" on="tap:AMP.setState({ui: {empty_{{ k }}: true}})">{{ a.label[lang] }}</button>
     <button type="button" class="link" on="tap:AMP.setState({ui: {open: ''}})">{{ _("Cancel", lang=lang) }}</button>
   </div>
+  <div submitting><div class="saving">{{ _("Saving...", lang=lang) }}</div></div>
   <div submit-error><div class="err"><b>{{ _("Not saved.", lang=lang) }}</b> {{ _("Nothing changed in ERPNext. Try again.", lang=lang) }}</div></div>
 </form>{% endautoescape %}

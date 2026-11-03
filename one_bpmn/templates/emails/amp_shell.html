@@ -223,6 +223,14 @@
       font-size: 14px;
       margin-top: 8px;
     }
+    .saving {
+      margin: 12px 0 0;
+      color: #525252;
+      font-size: 14px;
+    }
+    form.amp-form-submitting button {
+      opacity: 0.5;
+    }
     .submit-error {
       color: #cb2431;
       font-size: 14px;
@@ -364,6 +372,7 @@
           </div>
           {% endif %}
         </div>
+        <div submitting><p class="saving">Saving...</p></div>
         <div submit-error>
           {% if templated %}
           <template type="amp-mustache">
@@ -430,6 +439,7 @@
             </div>
           </template>
         </div>
+        <div submitting><p class="saving">Saving...</p></div>
         <div submit-error>
           <template type="amp-mustache">
             <p class="submit-error">{{'{{'}} message.error {{'}}'}}</p>
@@ -460,7 +470,8 @@
               <p class="submit-success">✓ Comment submitted.</p>
             </template>
           </div>
-          <div submit-error>
+          <div submitting><p class="saving">Saving...</p></div>
+        <div submit-error>
             <template type="amp-mustache">
               <p class="submit-error">⚠ Could not submit comment. Please try in ERPNext.</p>
             </template>

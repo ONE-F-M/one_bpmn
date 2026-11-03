@@ -279,6 +279,12 @@ class TestDecisionCardRender(FrappeTestCase):
 		for arabic in ("اضغط مرة أخرى لتأكيد: رفض", "إلغاء", "لم يتم الحفظ."):
 			self.assertIn(arabic, html)
 
+	def test_a_tap_shows_saving_while_the_server_answers(self):
+		html = render_layout_amp(_card_ctx())
+		form = html[html.index("<form") : html.index("</form>")]
+		self.assertIn('<div submitting><div class="saving">Saving...</div></div>', form)
+		self.assertIn("form.amp-form-submitting button{opacity:.5}", html)
+
 	def test_html_part_links_every_button_to_the_document(self):
 		html = render_layout_html(_card_ctx())
 		self.assertNotIn("<button", html)

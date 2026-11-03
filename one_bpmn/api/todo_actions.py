@@ -179,7 +179,9 @@ def handle_amp_action(
 		ctx_dt = instance_doc.context_doctype
 		ctx_dn = instance_doc.context_docname
 
-		if ctx_dt and ctx_dn:
+		from frappe.model.workflow import get_workflow_name
+
+		if ctx_dt and ctx_dn and get_workflow_name(ctx_dt):
 			try:
 				from frappe.model.workflow import apply_workflow
 				doc = frappe.get_doc(ctx_dt, ctx_dn)

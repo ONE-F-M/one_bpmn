@@ -338,3 +338,4 @@ one_bpmn.one_bpmn.patches.v1_0.prosally_answers_dms_questions #03-11-2026 ProsAl
 one_bpmn.one_bpmn.patches.v1_0.prosally_diagnoses_errors_in_any_order #03-11-2026 ProsAlly diagnose edits apply whichever ProsAlly classifier patch ran first, and the error_diagnoser prompt reads the script task an error came from
 one_bpmn.one_bpmn.patches.v1_0.prosally_reviews_process_links #03-11-2026 ProsAlly answers a review of the links between its map and related maps from get_process_links, skipping the intent classifier
 one_bpmn.one_bpmn.patches.v1_0.prosally_reads_process_maps #03-11-2026 ProsAlly gets a read-only read_process_map tool over the process maps the designer can read, and its generate and modify stages read what it finds
+one_bpmn.one_bpmn.patches.v1_0.add_activity_log_lookup_index #03-11-2026 Create the BPMN Activity Log index on instance, task and action that the duplicate check before every log row needs

@@ -38,7 +38,7 @@ class TestReasonSaved(FrappeTestCase):
 	def tearDown(self):
 		frappe.set_user("Administrator")
 
-	def _act(self, cfg=None, user="Administrator", **form):
+	def _act(self, cfg=None, user="Administrator", context=None, **form):
 		"""Post a Reject from the email; returns the response, the complete_task mock and the status code."""
 		_setup_request()
 		frappe.local.response.http_status_code = None
@@ -47,7 +47,7 @@ class TestReasonSaved(FrappeTestCase):
 
 		def get_doc(*args, **kwargs):
 			if args and args[0] == "BPMN Process Instance":
-				return frappe._dict(context_doctype="", context_docname="")
+				return frappe._dict(context or {"context_doctype": "", "context_docname": ""})
 			return real_get_doc(*args, **kwargs)
 
 		with (
@@ -75,6 +75,27 @@ class TestReasonSaved(FrappeTestCase):
 		self.assertEqual(self._comment(complete), "تعارض التواريخ")
 		self.assertEqual(result["reason_saved"]["en"], "Reason saved to Description")
 		self.assertTrue(result["reason_saved"]["ar"].startswith("تم حفظ السبب في"))
+
+	def test_no_workflow_call_and_no_error_log_on_a_doctype_without_a_workflow(self):
+		context = {"context_doctype": "ToDo", "context_docname": self.todo.name}
+		with (
+			patch("frappe.model.workflow.apply_workflow") as apply_workflow,
+			patch.object(frappe, "log_error") as log_error,
+		):
+			result, _complete, _status = self._act(context=context, reason_chip="0", reason_lang="en")
+		self.assertEqual(result["message"], "You chose Reject.")
+		apply_workflow.assert_not_called()
+		log_error.assert_not_called()
+
+	def test_a_doctype_with_a_workflow_still_gets_the_transition(self):
+		context = {"context_doctype": "ToDo", "context_docname": self.todo.name}
+		with (
+			patch("frappe.model.workflow.get_workflow_name", return_value="ToDo Flow"),
+			patch("frappe.model.workflow.apply_workflow") as apply_workflow,
+			patch.object(frappe.db, "commit"),
+		):
+			self._act(context=context, reason_chip="0", reason_lang="en")
+		self.assertEqual(apply_workflow.call_args.args[1], "Reject")
 
 	def test_an_english_reader_saves_the_english_chip(self):
 		self._act(reason_chip="0", reason_lang="en")

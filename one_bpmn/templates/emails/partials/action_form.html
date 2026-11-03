@@ -12,6 +12,7 @@
     <button type="submit" name="token" value="{{ a.token }}" class="btn {{ a.style or ('ok' if a.primary else '') }} go">{{ _("Tap again to {0}", lang=lang).format(verb) }}</button>
     <button type="button" class="link" on="tap:AMP.setState({ui: {armed: ''}})">{{ _("Cancel", lang=lang) }}</button>
   </div>{% endfor %}
+  <div submitting><div class="saving">{{ _("Saving...", lang=lang) }}</div></div>
   {% if not error_above %}{{ submit_error }}{% endif %}
 </form>
 {% for a in actions if a.reason %}{% include "one_bpmn/templates/emails/partials/reason_form.html" %}{% endfor %}{% else %}<div class="acts">
