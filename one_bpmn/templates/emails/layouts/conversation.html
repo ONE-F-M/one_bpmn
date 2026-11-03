@@ -5,21 +5,19 @@
 <a class="btn" href="{{ open_link }}" target="_blank">{{ open_label }}</a>{% endset %}
 {% include "one_bpmn/templates/emails/partials/tap_receipt.html" %}
 <div{% if is_amp %} [hidden]="ui.done"{% endif %}>
-{% call action_block(expired) %}{% if is_amp %}<div class="quick">
-  {% if saved_replies %}<span class="qr-lbl">{{ _("Saved replies", lang=lang) }}</span>
-  <div class="chips">{% for s in saved_replies %}<button type="button" class="chip" on="tap:AMP.setState({ui: {open: 'conv_reply', reply_text: {{ saved_texts }}[{{ loop.index0 }}]}})">{{ s.title }}</button>{% endfor %}</div>{% endif %}
-  <div class="chips">{% for c in conv_actions %}<button type="button" class="chip solid" on="tap:AMP.setState({ui: {open: 'conv_{{ c.key }}'}})">{{ c.label[lang] }}</button>{% endfor %}</div>
-</div>
+{% call action_block(expired) %}{% if is_amp %}{% set lead_chips %}{% for s in saved_replies %}<button type="button" class="chip" on="tap:AMP.setState({ui: {open: 'conv_reply', reply_text: {{ saved_texts }}[{{ loop.index0 }}]}})">{{ s.title }}</button>{% endfor %}{% for c in conv_actions %}<button type="button" class="chip" on="tap:AMP.setState({ui: {open: 'conv_{{ c.key }}'}})">{{ c.label[lang] }}</button>{% endfor %}{% endset %}
+{% if saved_replies %}<span class="qr-lbl" [hidden]="!!(ui.armed || ui.open)">{{ _("Saved replies", lang=lang) }}</span>{% endif %}
 {% for c in conv_actions %}<form class="reason" method="post" action-xhr="{{ c.endpoint }}" hidden [hidden]="ui.open != 'conv_{{ c.key }}'" on="submit-success:AMP.setState({ui: {open: '', reply_text: '', posted: event.response.message.item.message, posted_line: event.response.message.handled ? event.response.message.message : '{{ c.sent[lang] }}'}})">
   <input type="hidden" name="token" value="{{ c.token }}">
-  <textarea name="text" rows="4" placeholder="{{ c.placeholder[lang] }}"{% if c.key == 'reply' %} [text]="ui.reply_text"{% endif %}></textarea>
-  <div class="armed">
-    <button type="submit" class="btn">{{ c.label[lang] }}</button>
-    <button type="button" class="btn subtle" on="tap:AMP.setState({ui: {open: ''}})">{{ _("Cancel", lang=lang) }}</button>
+  <label class="qr-lbl">{{ _("Reply (sent by email)", lang=lang) if c.key == 'reply' else _("Internal note (agents only)", lang=lang) }}</label>
+  <textarea name="text" rows="4" placeholder="{{ c.placeholder[lang] }}"{% if c.key == 'reply' %} [text]="ui.reply_text || ''"{% endif %}></textarea>
+  <div class="two">
+    <button type="button" class="btn outline" on="tap:AMP.setState({ui: {open: ''}})">{{ _("Cancel", lang=lang) }}</button>
+    <button type="submit" class="btn">{{ _("Send", lang=lang) if c.key == 'reply' else c.label[lang] }}</button>
   </div>
   <div submit-error><div class="msg err"><span class="mtext">{{ _("Not sent. Nothing changed in ERPNext. Try again.", lang=lang) }}</span></div></div>
 </form>
-{% endfor %}{% include "one_bpmn/templates/emails/partials/action_form.html" %}{% else %}<div class="acts">
+{% endfor %}{% with chip_row = true %}{% include "one_bpmn/templates/emails/partials/action_form.html" %}{% endwith %}{% else %}<div class="acts">
   <a class="btn" href="{{ open_link }}" target="_blank">{{ open_label }}</a>
 </div>{% endif %}{% endcall %}
 </div>{% endautoescape %}

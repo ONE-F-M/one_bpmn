@@ -230,24 +230,43 @@ class TestDecisionCardRender(FrappeTestCase):
 		_validate_amp4email(render_layout_amp(_card_ctx(status_url=status)), "card_status")
 		_validate_amp4email(render_layout_amp(_card_ctx()), "card_plain")
 
+	def test_the_primary_action_comes_first_and_is_green_without_a_state_colour(self):
+		ctx = _card_ctx()
+		approve, reject, sign_off = ctx["actions"]
+		approve.update(primary=False, style="")
+		sign_off.update(primary=False)
+		reject.update(primary=True, style="", confirm=False)
+		ctx["actions"] = [approve, sign_off, reject]
+		html = render_layout_amp(ctx)
+		row = html[html.index('<div class="acts"') : html.index("</div>", html.index('<div class="acts"'))]
+		self.assertLess(row.index('class="btn ok">Reject</button>'), row.index(">Approve</button>"))
+		self.assertIn('class="btn outline">Approve</button>', row)
+		self.assertIn(".btn.ok{background:#1b7d40}", html)
+		self.assertIn(".acts > :first-child,.acts > :last-child:nth-child(even){grid-column:1 / -1}", html)
+
 	def test_amp_card_blocks_buttons_and_confirm(self):
 		html = render_layout_amp(_card_ctx())
 		self.assertLess(html.index("Leave Application · Review"), html.index("Approve 3 days for Fatima?"))
 		self.assertLess(html.index("Approve 3 days for Fatima?"), html.index('value="tok-a"'))
 		self.assertIn('class="btn Success">Approve</button>', html)
 		self.assertIn(
-			'class="btn subtle" on="tap:AMP.setState({ui: {armed: \'reject\'}})">Reject</button>', html
+			'class="btn outline" on="tap:AMP.setState({ui: {armed: \'reject\'}})">Reject</button>', html
 		)
 		self.assertIn("hidden [hidden]=\"ui.armed != 'reject'\"", html)
 		self.assertIn('value="tok-r" class="btn Danger go">Tap again to reject</button>', html)
-		self.assertIn('<div class="acts" [hidden]="ui.armed || ui.open">', html)
-		self.assertIn('<button type="button" class="link" on="tap:AMP.setState({ui: {armed: \'\'}})">Cancel</button>', html)
-		self.assertIn('<a class="btn subtle" href="https://erp.example.com/app/leave-application/LA-1"', html)
+		self.assertIn('<div class="acts" [hidden]="!!(ui.armed || ui.open)">', html)
+		self.assertIn(
+			'<button type="button" class="link" on="tap:AMP.setState({ui: {armed: \'\'}})">Cancel</button>',
+			html,
+		)
+		self.assertIn(
+			'<a class="btn outline" href="https://erp.example.com/app/leave-application/LA-1"', html
+		)
 		# Frappe returns a whitelisted method's dict under "message"
 		self.assertIn("submit-success:AMP.setState({ui: {done: true, result: event.response.message}})", html)
 		# An "already actioned" reply has no receipt fields; nothing may print "null"
-		self.assertIn('[text]="ui.result.receipt.en || ui.result.message || \'\'"', html)
-		self.assertIn('[text]="ui.result.completed_at || \'\'"', html)
+		self.assertIn("[text]=\"ui.result.receipt.en || ui.result.message || ''\"", html)
+		self.assertIn("[text]=\"ui.result.completed_at || ''\"", html)
 		self.assertIn("Nothing changed in ERPNext. Try again.", html)
 		for arabic in ("اضغط مرة أخرى لتأكيد: رفض", "إلغاء", "لم يتم الحفظ."):
 			self.assertIn(arabic, html)

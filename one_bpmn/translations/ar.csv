@@ -38,3 +38,5 @@ Open ticket in Helpdesk,فتح التذكرة في مكتب المساعدة
 Not sent. Nothing changed in ERPNext. Try again.,لم يتم الإرسال. لم يتغير شيء في ERPNext. حاول مرة أخرى.
 Show newer messages,عرض الرسائل الأحدث
 Tap again to {0},اضغط مرة أخرى لتأكيد: {0}
+Reply (sent by email),رد (يُرسل بالبريد الإلكتروني)
+Internal note (agents only),ملاحظة داخلية (للموظفين فقط)
