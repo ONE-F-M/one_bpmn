@@ -29,6 +29,8 @@ MAX_CONFIRMATION_SETTINGS = 6
 DIAGNOSE_ERROR_CHARS = 3000
 DIAGNOSE_ELEMENT_CHARS = 1500
 DIAGNOSE_MAX_ELEMENTS = 5
+DIAGNOSE_SCRIPT_CHARS = 4000
+DIAGNOSE_MIN_NAME_CHARS = 3
 DIAGNOSE_ORIGINS = frozenset({"map", "server_script", "unknown"})
 
 # Whole replies that approve a pending confirmation, after punctuation and "please" or "thanks" are dropped.
@@ -1335,23 +1337,52 @@ def diagnose_inputs(xml: str, error_text: str, lint_issues: list) -> dict:
 	if (xml or "").strip():
 		_register_namespaces()
 		elements = {e.get("id"): e for e in ET.fromstring(xml).iter() if e.get("id")}
-	named = [element_id for element_id in elements if element_id in error_text]
+	named = [i for i, e in elements.items() if _mentions(error_text, i) or _mentions(error_text, e.get("name"))]
 	findings = [i for i in lint_issues or [] if i.get("id") in named]
 	return {
 		"error": error_text[-DIAGNOSE_ERROR_CHARS:],
 		"lint_findings": findings,
 		"elements": [ET.tostring(elements[i], encoding="unicode")[:DIAGNOSE_ELEMENT_CHARS] for i in named[:DIAGNOSE_MAX_ELEMENTS]],
+		"script_task": script_task_for_error(xml, error_text),
 	}
+
+
+def _mentions(text: str, value: str | None) -> bool:
+	"""True when a name or id of at least a few characters appears in the text."""
+	return bool(value) and len(value) >= DIAGNOSE_MIN_NAME_CHARS and value in text
+
+
+def script_task_for_error(xml: str, error_text: str) -> dict | None:
+	"""The script task an error names by task id, task name or Server Script, with the script source when readable."""
+	if not (xml or "").strip():
+		return None
+	_register_namespaces()
+	script_attribute = "{" + NS["spiffworkflow"] + "}serverScript"
+	for task in ET.fromstring(xml).iter("{" + NS["bpmn"] + "}scriptTask"):
+		script_name = task.get(script_attribute) or ""
+		if not any(_mentions(error_text, value) for value in (task.get("id"), task.get("name"), script_name)):
+			continue
+		readable = frappe.db.exists("Server Script", script_name) and frappe.has_permission(
+			"Server Script", "read", doc=script_name
+		)
+		source = frappe.db.get_value("Server Script", script_name, "script") if readable else ""
+		return {
+			"id": task.get("id"),
+			"name": task.get("name") or "",
+			"script_name": script_name,
+			"script": (source or "")[:DIAGNOSE_SCRIPT_CHARS],
+		}
+	return None
 
 
 def diagnose_output(xml: str, texts: list, lint_issues: list) -> dict:
 	"""The reply to a pasted error or a lint finding: the cause and the fix, or a fallback with manual steps."""
 	error_text = next((strip_html(text) for text in texts if text and not confirmation_reply(text)), "")
+	inputs = {}
 	diagnosis = None
 	try:
-		raw = complete_sub_prompt(
-			prosally_config(), "error_diagnoser", json.dumps(diagnose_inputs(xml, error_text, lint_issues))
-		)
+		inputs = diagnose_inputs(xml, error_text, lint_issues)
+		raw = complete_sub_prompt(prosally_config(), "error_diagnoser", json.dumps(inputs))
 		diagnosis = extract_json(raw)
 	except Exception:
 		frappe.log_error(title="ProsAlly could not diagnose an error")
@@ -1360,7 +1391,12 @@ def diagnose_output(xml: str, texts: list, lint_issues: list) -> dict:
 	steps = [str(step) for step in diagnosis.get("fix_steps") or []]
 	body = diagnosis["root_cause"] + ("\n\n" + "\n".join("- " + step for step in steps) if steps else "")
 	if diagnosis["origin"] == "server_script":
+		task = inputs.get("script_task")
 		lead = _("This error comes from a server script, not from the process map, so changing the map will not fix it.")
+		if task:
+			lead = _(
+				'This error comes from the script behind the task "{0}", not from the process map configuration, so changing the map will not fix it.'
+			).format(task["name"] or task["id"])
 		return {"intent": "CLARIFY", "response": lead + "\n\n" + body + "\n\n" + _("Open the script in Logix to make this change.")}
 	if diagnosis["origin"] == "unknown":
 		return {"intent": "CLARIFY", "response": body + "\n\n" + diagnose_fallback_reply()}
