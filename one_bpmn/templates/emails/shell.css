@@ -45,6 +45,10 @@ a{color:#0475d3;text-decoration:none}
 .acts > :last-child:nth-child(odd){grid-column:1 / -1}
 .armed{display:grid;grid-template-columns:1fr auto;gap:10px;margin-bottom:10px}
 .armed .btn{margin:0}
+.confirm{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+.confirm .btn{margin:0}
+.btn.go{box-shadow:inset 0 0 0 999px rgba(0,0,0,.28)}
+.link{display:block;margin:0 auto;padding:6px 12px;border:0;background:transparent;color:#077ddf;font-family:Arial, Helvetica, sans-serif;font-size:14.5px;cursor:pointer}
 .reason{padding:14px;border:1px solid #ededed;border-radius:12px;margin-bottom:10px}
 .rq{margin:0 0 10px;font-size:16px;font-weight:700}
 .chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}

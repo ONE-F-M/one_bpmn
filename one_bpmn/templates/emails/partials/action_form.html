@@ -1,6 +1,6 @@
 {% autoescape true %}{% set submit_error %}<div submit-error><div class="err"><b>{{ _("Not saved.", lang=lang) }}</b> {{ _("Nothing changed in ERPNext. Try again.", lang=lang) }}</div></div>{% endset %}{% if is_amp %}<form method="post" action-xhr="{{ action_endpoint }}" on="submit-success:AMP.setState({ui: {done: true, result: event.response.message}})">
   {% if error_above %}{{ submit_error }}{% endif %}
-  <div class="acts">
+  <div class="acts" [hidden]="ui.armed || ui.open">
     {% for a in actions %}{% set cls = (a.style or "") if a.primary else "subtle" %}
     {% if a.sign %}<a class="btn {{ cls }}" href="{{ a.url }}" target="_blank">{{ a.label[lang] }}</a>
     {% elif a.reason %}<button type="button" class="btn {{ cls }}" on="tap:AMP.setState({ui: {open: '{{ a.key }}', armed: ''}})">{{ a.label[lang] }}</button>
@@ -8,9 +8,9 @@
     {% else %}<button type="submit" name="token" value="{{ a.token }}" class="btn {{ cls }}">{{ a.label[lang] }}</button>
     {% endif %}{% endfor %}
   </div>
-  {% for a in actions if a.confirm and not a.sign and not a.reason %}<div class="armed" hidden [hidden]="ui.armed != '{{ a.key }}'">
-    <button type="submit" name="token" value="{{ a.token }}" class="btn {{ a.style }}">{{ _("Tap again to confirm", lang=lang) }}</button>
-    <button type="button" class="btn subtle" on="tap:AMP.setState({ui: {armed: ''}})">{{ _("Cancel", lang=lang) }}</button>
+  {% for a in actions if a.confirm and not a.sign and not a.reason %}{% set verb = a.label[lang][:1].lower() ~ a.label[lang][1:] if lang == "en" else a.label[lang] %}<div class="confirm" hidden [hidden]="ui.armed != '{{ a.key }}'">
+    <button type="submit" name="token" value="{{ a.token }}" class="btn {{ a.style }} go">{{ _("Tap again to {0}", lang=lang).format(verb) }}</button>
+    <button type="button" class="link" on="tap:AMP.setState({ui: {armed: ''}})">{{ _("Cancel", lang=lang) }}</button>
   </div>{% endfor %}
   {% if not error_above %}{{ submit_error }}{% endif %}
 </form>
