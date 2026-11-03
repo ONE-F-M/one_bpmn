@@ -17,6 +17,7 @@
     <button type="button" class="btn outline" on="tap:AMP.setState({ui: {open: ''}})">{{ _("Cancel", lang=lang) }}</button>
     <button type="submit" class="btn">{{ _("Send", lang=lang) if c.key == 'reply' else c.label[lang] }}</button>
   </div>
+  <div submitting><div class="saving">{{ _("Saving...", lang=lang) }}</div></div>
   <div submit-error><div class="msg err"><span class="mtext">{{ _("Not sent. Nothing changed in ERPNext. Try again.", lang=lang) }}</span></div></div>
 </form>
 {% endfor %}{% if actions %}<div class="task-acts" [hidden]="!!ui.open && ui.open.indexOf('conv_') == 0">{% include "one_bpmn/templates/emails/partials/action_form.html" %}</div>{% endif %}{% else %}<div class="acts">
