@@ -36,7 +36,7 @@ export function flattenEmailFields(result, fieldtypes) {
 
 /** Search box options: the doctype's fields, then a Linked documents group; fields in use and Arabic fields (offered under AR) are left out. */
 export function fieldOptionGroups(fields, doctype, used) {
-	const option = (f) => ({ label: f.label, value: f.fieldname, description: f.fieldname });
+	const option = (f) => ({ label: f.label, value: f.fieldname });
 	const arabic = new Set(fields.flatMap((f) => f.arabic_candidates || []));
 	const free = fields.filter((f) => !used.includes(f.fieldname) && !arabic.has(f.fieldname));
 	return [

@@ -19,6 +19,9 @@ a{color:#0475d3;text-decoration:none}
 .acc .sign-open{display:none}
 .acc section[expanded] .sign-open{display:inline}
 .acc section[expanded] .sign-closed{display:none}
+.acc summary{list-style:none;cursor:pointer}
+.acc[open] .sign-open{display:inline}
+.acc[open] .sign-closed{display:none}
 .row{display:flex;gap:12px;font-size:14px;padding-bottom:10px}
 .row .k{color:#7c7c7c;min-width:40%}
 .msg{margin:0 0 16px;white-space:pre-line}

@@ -199,15 +199,25 @@ class TestBuildActionsForEmail(_ComposerTestCase):
 		self.assertEqual(actions[1]["label"], "Reject")
 
 	@patch("one_bpmn.email_builder.composer.frappe")
-	def test_confirm_actions_get_links(self, mock_frappe):
-		"""Actions with confirmTransition=true get plain URLs, no tokens."""
+	def test_confirm_actions_get_tokens_and_ask_for_a_second_tap(self, mock_frappe):
+		mock_frappe.utils.get_url.return_value = "https://erp.test.com"
+		mock_frappe.scrub.side_effect = lambda text: text.lower().replace(" ", "_")
+		from one_bpmn.email_builder.composer import _build_actions_for_email
+		task_cfg = {"taskActions": json.dumps([{"action": "Approve", "confirmTransition": "true"}, {"action": "Reject"}])}
+		actions = _build_actions_for_email(task_cfg, _make_instance(), "task-uuid", "user@test.com", "https://erp.test.com/app/leave")
+		self.assertEqual([(a["label"], a["key"], a["confirm"]) for a in actions], [("Approve", "approve", True), ("Reject", "reject", False)])
+		self.assertTrue(all(a["token"] for a in actions))
+		self.assertNotIn("url", actions[0])
+
+	@patch("one_bpmn.email_builder.composer.frappe")
+	def test_signature_actions_get_links(self, mock_frappe):
+		"""Actions that need a digital signature get plain URLs, no tokens."""
 		mock_frappe.utils.get_url.return_value = "https://erp.test.com"
 		from one_bpmn.email_builder.composer import _build_actions_for_email
-		task_cfg = {"taskActions": json.dumps([{"action": "Approve", "confirmTransition": "true"}])}
+		task_cfg = {"taskActions": json.dumps([{"action": "Approve", "confirmTransition": "true", "requireDigitalSignature": "true"}])}
 		actions = _build_actions_for_email(task_cfg, _make_instance(), "task-uuid", "user@test.com", "https://erp.test.com/app/leave")
 		self.assertEqual(len(actions), 1)
 		self.assertNotIn("token", actions[0])
-		self.assertIn("url", actions[0])
 		self.assertEqual(actions[0]["url"], "https://erp.test.com/app/leave")
 
 	@patch("one_bpmn.email_builder.composer.frappe")

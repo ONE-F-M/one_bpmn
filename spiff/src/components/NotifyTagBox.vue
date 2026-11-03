@@ -32,7 +32,7 @@
 		</Badge>
 		<div
 			v-if="options"
-			class="min-w-[10rem] flex-1"
+			class="w-full"
 		>
 			<Autocomplete
 				:key="picks"

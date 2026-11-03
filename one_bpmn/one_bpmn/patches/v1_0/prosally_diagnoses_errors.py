@@ -12,12 +12,12 @@ SUB_AGENT_ID = "error_diagnoser"
 
 SCRIPT_EDITS = (
 	(
-		"compare_output, relayout_output, ",
-		"compare_output, diagnose_output, relayout_output, ",
+		"import asks_to_make_call_activity, ",
+		"import asks_to_make_call_activity, diagnose_output, ",
 	),
 	(
-		'frozenset({"IRRELEVANT", "RELAYOUT", "COMPARE"})',
-		'frozenset({"IRRELEVANT", "RELAYOUT", "COMPARE", "DIAGNOSE"})',
+		"if intent not in (_ACTION_INTENTS | _NEEDS_CLARIFICATION | ",
+		'if intent not in (_ACTION_INTENTS | _NEEDS_CLARIFICATION | frozenset({"DIAGNOSE"}) | ',
 	),
 	(
 		'    if intent == "COMPARE":\n',
@@ -45,11 +45,11 @@ PROMPT_EDITS = (
 		"For AMBIGUOUS, INCOMPLETE, IRRELEVANT, and COMPARE, leave",
 		"For AMBIGUOUS, INCOMPLETE, IRRELEVANT, COMPARE, and DIAGNOSE, leave",
 	),
-	("RELAYOUT|COMPARE|AMBIGUOUS", "RELAYOUT|COMPARE|DIAGNOSE|AMBIGUOUS"),
+	("|AMBIGUOUS|INCOMPLETE|IRRELEVANT", "|DIAGNOSE|AMBIGUOUS|INCOMPLETE|IRRELEVANT"),
 )
 PROMPT_MARKER = "classify as DIAGNOSE"
 
-DIAGNOSER_PROMPT = """You diagnose an error in a process map. You get a JSON object with the pasted "error" text, the "lint_findings" for the elements it names, and the BPMN XML of those "elements".
+DIAGNOSER_PROMPT = """You diagnose an error in a process map. You get a JSON object with the pasted "error" text, the "lint_findings" for the elements it names, and the BPMN XML of those "elements". When the error came from a script task you also get "script_task": its id, its name, the Server Script it runs and, when the person may read it, that script's source.
 
 Find the cause and say what to change. Reply with one JSON object and nothing else:
 {"origin": "map" | "server_script" | "unknown", "element_id": "", "root_cause": "", "fix_steps": []}
@@ -59,7 +59,7 @@ Find the cause and say what to change. Reply with one JSON object and nothing el
 - origin is "unknown" when the text does not show the cause. Say in root_cause what is missing.
 - element_id is the id of the element at fault, or "" when there is none.
 - root_cause is two or three plain sentences for a process owner: what goes wrong and why. No function names.
-- fix_steps are short, concrete instructions naming the element and the setting to change. For "server_script", say what the script must do differently. Leave it empty when origin is "unknown"."""
+- fix_steps are short, concrete instructions naming the element and the setting to change. For "server_script", name the script task and say what the script must do differently, pointing at the failing line when the source is given. Leave it empty when origin is "unknown"."""
 
 
 def execute():
@@ -107,11 +107,15 @@ def _edit_agent():
 			continue
 		row.prompt_text = edited
 		changed = True
-	if not any(row.sub_agent_id == SUB_AGENT_ID for row in agent.sub_prompts):
+	diagnoser = next((row for row in agent.sub_prompts if row.sub_agent_id == SUB_AGENT_ID), None)
+	if diagnoser is None:
 		agent.append(
 			"sub_prompts",
 			{"sub_agent_id": SUB_AGENT_ID, "sub_agent_name": "Error Diagnoser", "prompt_text": DIAGNOSER_PROMPT},
 		)
+		changed = True
+	elif diagnoser.prompt_text != DIAGNOSER_PROMPT:
+		diagnoser.prompt_text = DIAGNOSER_PROMPT
 		changed = True
 	if changed:
 		agent.save(ignore_permissions=True)

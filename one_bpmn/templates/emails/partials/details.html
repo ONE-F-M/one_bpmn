@@ -8,4 +8,4 @@
   {% endfor %}</table>{% elif is_amp %}<amp-accordion class="acc"><section>
   <h4>{{ label }} <span class="sign-closed" aria-hidden="true">+</span><span class="sign-open" aria-hidden="true">-</span></h4>
   <div>{{ rows }}</div>
-</section></amp-accordion>{% else %}<div class="acc"><h4>{{ label }}</h4>{{ rows }}</div>{% endif %}{% endif %}{% endautoescape %}
+</section></amp-accordion>{% elif preview %}<details class="acc"><summary><h4>{{ label }} <span class="sign-closed" aria-hidden="true">+</span><span class="sign-open" aria-hidden="true">-</span></h4></summary>{{ rows }}</details>{% else %}<div class="acc"><h4>{{ label }}</h4>{{ rows }}</div>{% endif %}{% endif %}{% endautoescape %}
