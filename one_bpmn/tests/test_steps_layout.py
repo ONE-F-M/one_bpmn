@@ -84,10 +84,10 @@ class TestStepsLayout(FrappeTestCase):
 
 	def test_the_error_banner_sits_above_the_buttons(self):
 		steps = render_layout_amp(_steps_ctx())
-		self.assertLess(steps.index("<div submit-error>"), steps.index('<div class="acts">'))
+		self.assertLess(steps.index("<div submit-error>"), steps.index('<div class="acts"'))
 
 		card = render_layout_amp(_card_ctx())
-		self.assertLess(card.index('<div class="acts">'), card.index("<div submit-error>"))
+		self.assertLess(card.index('<div class="acts"'), card.index("<div submit-error>"))
 
 	def test_completed_or_reassigned_on_open_skips_the_screens(self):
 		html = render_layout_amp(_steps_ctx(status_url=STATUS_URL))

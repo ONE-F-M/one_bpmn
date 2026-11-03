@@ -239,7 +239,9 @@ class TestDecisionCardRender(FrappeTestCase):
 			'class="btn subtle" on="tap:AMP.setState({ui: {armed: \'reject\'}})">Reject</button>', html
 		)
 		self.assertIn("hidden [hidden]=\"ui.armed != 'reject'\"", html)
-		self.assertIn('value="tok-r" class="btn Danger">Tap again to confirm</button>', html)
+		self.assertIn('value="tok-r" class="btn Danger go">Tap again to reject</button>', html)
+		self.assertIn('<div class="acts" [hidden]="ui.armed || ui.open">', html)
+		self.assertIn('<button type="button" class="link" on="tap:AMP.setState({ui: {armed: \'\'}})">Cancel</button>', html)
 		self.assertIn('<a class="btn subtle" href="https://erp.example.com/app/leave-application/LA-1"', html)
 		# Frappe returns a whitelisted method's dict under "message"
 		self.assertIn("submit-success:AMP.setState({ui: {done: true, result: event.response.message}})", html)
@@ -247,7 +249,7 @@ class TestDecisionCardRender(FrappeTestCase):
 		self.assertIn('[text]="ui.result.receipt.en || ui.result.message || \'\'"', html)
 		self.assertIn('[text]="ui.result.completed_at || \'\'"', html)
 		self.assertIn("Nothing changed in ERPNext. Try again.", html)
-		for arabic in ("اضغط مرة أخرى للتأكيد", "إلغاء", "لم يتم الحفظ."):
+		for arabic in ("اضغط مرة أخرى لتأكيد: رفض", "إلغاء", "لم يتم الحفظ."):
 			self.assertIn(arabic, html)
 
 	def test_html_part_links_every_button_to_the_document(self):
