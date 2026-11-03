@@ -146,7 +146,8 @@
     }
     /* Hide buttons after successful submission (Calendar-invite behavior) */
     form.amp-form-submit-success > button,
-    form.amp-form-submit-success > a {
+    form.amp-form-submit-success > a,
+    form.amp-form-submit-success > .tap-row {
       display: none;
     }
     .completed-badge {
@@ -311,7 +312,7 @@
       <form method="post"
             action-xhr="{{ action_endpoint or (site_url + '/api/method/one_bpmn.api.todo_actions.handle_amp_action') }}"
             class="actions">
-        <div [hidden]="!!armed">
+        <div class="tap-row" [hidden]="!!armed">
         {% for action in simple_actions %}
         {% if action.token and action.confirm %}
         <button type="button"
@@ -336,7 +337,7 @@
         {% endfor %}
         </div>
         {% for action in simple_actions if action.token and action.confirm %}
-        <div hidden [hidden]="armed != '{{ action.key }}'">
+        <div class="tap-row" hidden [hidden]="armed != '{{ action.key }}'">
           <button type="submit"
                   name="token"
                   value="{{ action.token | e }}"

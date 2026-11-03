@@ -207,6 +207,9 @@ class TestRenderedAmpValidation(FrappeTestCase):
 		assert "[hidden]=\"armed != 'approve'\"" in html
 		assert "Tap again to approve" in html
 		assert html.count('name="token"') == 2
+		# Both button rows sit inside a wrapper, so the hide-after-success rule must target the wrapper
+		assert html.count('class="tap-row"') == 2
+		assert "form.amp-form-submit-success > .tap-row" in html
 		_validate_amp4email(html, label="confirm_actions")
 
 	def test_comment_renders_valid_amp(self) -> None:
