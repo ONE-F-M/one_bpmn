@@ -111,19 +111,20 @@ const childDoctype = computed(
 );
 watch(childDoctype, (doctype) => props.options.loadRowUserFields(doctype), { immediate: true });
 
-const fieldLabel = (f) => `${f.label || f.fieldname} (${f.fieldname})`;
+const fieldLabel = (f) => f.label || f.fieldname;
 
 const docFieldTags = computed(() =>
 	splitList(props.values.emailToDocFields).map((fieldname) => {
 		const field = props.options.docFields.value.find((f) => f.fieldname === fieldname);
-		return { key: fieldname, label: field?.label || fieldname };
+		return { key: fieldname, label: field ? fieldLabel(field) : fieldname };
 	})
 );
 const docFieldOptions = computed(() => {
 	const used = splitList(props.values.emailToDocFields);
-	return props.options.docFields.value
+	const items = props.options.docFields.value
 		.filter((f) => !used.includes(f.fieldname))
-		.map((f) => ({ label: f.kind === "user" ? `${fieldLabel(f)} · user` : fieldLabel(f), value: f.fieldname }));
+		.map((f) => ({ label: fieldLabel(f), value: f.fieldname }));
+	return items.length ? [{ group: `${props.doctype} fields`, items }] : [];
 });
 
 const roleTags = computed(() => splitList(props.values.emailToRoles).map((role) => ({ key: role, label: role })));
@@ -138,7 +139,7 @@ const rowUserOptions = computed(() =>
 );
 const tablePlaceholder = computed(() => {
 	if (!props.doctype) return "Select a DocType first";
-	return tableOptions.value.length ? "Select a Table Field..." : "No Table/Table MultiSelect fields found";
+	return tableOptions.value.length ? "Select a Table Field..." : "No table fields";
 });
 
 function addTo(name, value) {

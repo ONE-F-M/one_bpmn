@@ -259,9 +259,9 @@ def _build_actions_for_email(
 ) -> list[dict]:
 	"""Build the action list for the email template.
 
-	Actions that require confirmation or digital signature are rendered as
-	"Open in ERPNext" links.  Simple actions get HMAC tokens for one-click
-	AMP form submissions.
+	Actions that require a digital signature are rendered as "Open in ERPNext"
+	links. The others get HMAC tokens for AMP form submissions; a confirm action
+	asks for a second tap.
 	"""
 	raw_actions = task_cfg.get("taskActions", "")
 	if not raw_actions:
@@ -289,10 +289,9 @@ def _build_actions_for_email(
 		if not action_name:
 			continue
 
-		needs_confirm = act.get("confirmTransition") == "true"
 		needs_sign = act.get("requireDigitalSignature") == "true"
 
-		if needs_confirm or needs_sign:
+		if needs_sign:
 			# Render as "Open in ERPNext" link (not one-click)
 			link_actions.append({
 				"label": action_name,
@@ -303,6 +302,8 @@ def _build_actions_for_email(
 			# Eligible for one-click AMP button
 			simple_actions.append({
 				"label": action_name,
+				"key": frappe.scrub(action_name),
+				"confirm": act.get("confirmTransition") == "true",
 				"primary": i == 0 and not link_actions,  # first overall is primary
 			})
 

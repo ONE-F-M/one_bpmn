@@ -190,6 +190,28 @@ class TestRenderedAmpValidation(FrappeTestCase):
 		assert html.index("<amp-list") < html.index('name="token"') < html.index("</amp-list>")
 		_validate_amp4email(html, label="token_actions")
 
+	def test_a_confirm_action_asks_for_a_second_tap_and_validates(self) -> None:
+		from one_bpmn.email_builder.email_actions import build_email_actions
+		from one_bpmn.email_builder.renderer import _get_template, render_amp
+
+		_get_template("one_bpmn/templates/emails/amp_shell.html").environment.globals["_"] = lambda text: text
+		actions = build_email_actions(
+			"INST-VALID", "task-valid",
+			[{"label": "Approve", "key": "approve", "confirm": True, "primary": True}, {"label": "Reject"}],
+			"admin@test.com",
+		)
+		html = render_amp({**ACTION_CONTENT, "actions": actions})
+
+		assert 'custom-element="amp-bind"' in html
+		assert "on=\"tap:AMP.setState({armed: 'approve'})\"" in html
+		assert "[hidden]=\"armed != 'approve'\"" in html
+		assert "Tap again to approve" in html
+		assert html.count('name="token"') == 2
+		# Both button rows sit inside a wrapper, so the hide-after-success rule must target the wrapper
+		assert html.count('class="tap-row"') == 2
+		assert "form.amp-form-submit-success > .tap-row" in html
+		_validate_amp4email(html, label="confirm_actions")
+
 	def test_comment_renders_valid_amp(self) -> None:
 		from one_bpmn.email_builder.renderer import render_amp
 

@@ -141,6 +141,12 @@ def render_layout_html(ctx: dict) -> str:
 	return _get_template("one_bpmn/templates/emails/layout_fallback.html").render(fragment_ctx)
 
 
+def render_layout_preview(ctx: dict, lang: str) -> str:
+	"""Return the HTML part in one language, with the logo row and a foldable Details, for the editor preview."""
+	fragment_ctx = {**_layout_context(ctx, is_amp=False), "langs": (lang,), "preview": True}
+	return _get_template("one_bpmn/templates/emails/layout_fallback.html").render(fragment_ctx)
+
+
 def _layout_context(ctx: dict, *, is_amp: bool) -> dict:
 	from one_bpmn.email_builder.composer import EMAIL_LOGO
 

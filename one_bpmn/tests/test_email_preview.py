@@ -56,10 +56,37 @@ class TestEmailPreview(FrappeTestCase):
 			">Closed</h3>",
 			"Fix the gate is closed.",
 			'class="facts"',
-			"تم الإغلاق",
 		):
 			self.assertIn(text, html)
 		self.assertIn('<div class="row">plan.pdf</div>', html)
+
+	def test_each_language_is_its_own_email_with_the_logo_status_and_a_folding_details(self):
+		with (
+			patch("frappe.model.workflow.get_workflow_name", return_value="ToDo Flow"),
+			patch("frappe.model.workflow.get_workflow_state_field", return_value="status"),
+		):
+			result = self._preview(NOTICE)
+
+		english, arabic = result["html"], result["html_ar"]
+		self.assertIn('lang="en"', english)
+		self.assertNotIn('lang="ar"', english)
+		self.assertIn('lang="ar" dir="rtl"', arabic)
+		self.assertNotIn('lang="en"', arabic)
+		for html in (english, arabic):
+			self.assertIn('<div class="top"><img src=', html)
+			self.assertIn('<div class="live"><span class="rico"></span><span class="rt">Open</span></div>', html)
+			self.assertIn('<details class="acc">', html)
+			self.assertNotIn("brand_logo", html)
+
+	def test_the_live_status_is_left_out_without_a_workflow_as_in_the_sent_email(self):
+		result = self._preview(NOTICE)
+
+		self.assertNotIn('class="live"', result["html"])
+
+	def test_the_live_status_is_left_out_when_it_is_off(self):
+		result = self._preview({**NOTICE, "emailShowStatus": ""})
+
+		self.assertNotIn('class="live"', result["html"])
 
 	def test_custom_html_is_rendered_as_today(self):
 		result = self._preview(
