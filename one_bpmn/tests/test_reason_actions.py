@@ -174,6 +174,11 @@ class TestReasonPanel(FrappeTestCase):
 		self.assertIn("result: event.response.message}})", html)
 		self.assertIn('custom-element="amp-selector"', html)
 
+	def test_a_picked_chip_stands_out_in_dark_mode(self):
+		html = render_layout_amp(_reason_card())
+
+		self.assertIn(".chip[selected]{background:#077ddf;border-color:#077ddf;color:#ffffff;font-weight:700", html)
+
 	def test_the_html_part_has_no_panel(self):
 		self.assertNotIn("reason_chip", render_layout_html(_reason_card()))
 
