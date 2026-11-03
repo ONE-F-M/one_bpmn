@@ -194,10 +194,10 @@ def handle_amp_action(
 				)
 
 		return {
-			"message": _("{0} completed successfully.").format(action),
+			"message": _("You chose {0}.").format(action),
 			"action": action,
 			"status": result.get("status", ""),
-			**_receipt(instance_name, ctx_dt),
+			**_receipt(instance_name, ctx_dt, ctx_dn, action),
 			"reason_saved": saved_reason["saved"] if saved_reason else {"en": "", "ar": ""},
 		}
 
@@ -206,7 +206,7 @@ def handle_amp_action(
 		error_msg = str(e)
 		if "not found in the active tasks" in error_msg or "not in Waiting status" in error_msg:
 			return {
-				"message": _("This task has already been actioned."),
+				"message": _("Someone has already acted on this task."),
 				"action": "Completed",
 			}
 		# Other validation errors (bad action name, etc.)
@@ -769,19 +769,31 @@ def _get_workflow_state_and_style(instance_name: str) -> tuple[str, str]:
 	return str(state), str(style)
 
 
-def _receipt(instance_name: str, doctype: str) -> dict:
-	"""The state the document reached, its style, and "<DocType> is now <state>" in both languages."""
+def _receipt(instance_name: str, doctype: str, docname: str, action: str) -> dict:
+	"""The state the document reached and "<DocType> <name> is now <state>.", else "You chose <action>.", in both languages."""
+	from one_bpmn.email_builder.composer import _arabic
+
 	state, style = _get_workflow_state_and_style(instance_name)
 	completed_at = frappe.utils.format_datetime(frappe.utils.now_datetime(), "d MMM, h:mm a")
 	if not state:
-		return {"state": "", "state_label": {"en": "", "ar": ""}, "state_style": "", "receipt": {"en": "", "ar": ""}, "completed_at": completed_at}
+		action_ar = _arabic(action)
+		return {
+			"state": "",
+			"state_label": {"en": action, "ar": action_ar},
+			"state_style": "",
+			"receipt": {
+				"en": _("You chose {0}.", lang="en").format(action),
+				"ar": _("You chose {0}.", lang="ar").format(action_ar),
+			},
+			"completed_at": completed_at,
+		}
 	return {
 		"state": state,
 		"state_label": {"en": state, "ar": _(state, lang="ar")},
 		"state_style": style,
 		"receipt": {
-			"en": _("{0} is now {1}", lang="en").format(doctype, state),
-			"ar": _("{0} is now {1}", lang="ar").format(_(doctype, lang="ar"), _(state, lang="ar")),
+			"en": _("{0} {1} is now {2}.", lang="en").format(doctype, docname, state),
+			"ar": _("{0} {1} is now {2}.", lang="ar").format(_arabic(doctype), docname, _(state, lang="ar")),
 		},
 		"completed_at": completed_at,
 	}

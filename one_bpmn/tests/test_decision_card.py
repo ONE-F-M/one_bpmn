@@ -157,17 +157,25 @@ class TestDecisionCardActions(FrappeTestCase):
 
 	def test_receipt_names_the_state_in_both_languages(self):
 		with patch.object(todo_actions, "_get_workflow_state_and_style", return_value=(APPROVED, "Success")):
-			receipt = todo_actions._receipt("INST", "Leave Application")
+			receipt = todo_actions._receipt("INST", "Leave Application", "HR-LAP-0001", "Approve")
 		self.assertEqual(receipt["state_style"], "Success")
 		self.assertEqual(receipt["state_label"]["en"], APPROVED)
-		self.assertEqual(receipt["receipt"]["en"], f"Leave Application is now {APPROVED}")
+		self.assertEqual(receipt["receipt"]["en"], f"Leave Application HR-LAP-0001 is now {APPROVED}.")
 		self.assertTrue(receipt["receipt"]["ar"])
 		self.assertTrue(receipt["completed_at"])
 
-	def test_receipt_without_a_state_still_has_the_time(self):
-		with patch.object(todo_actions, "_get_workflow_state_and_style", return_value=("", "")):
-			receipt = todo_actions._receipt("INST", "HD Ticket")
-		self.assertEqual(receipt["state_label"]["en"], "")
+	def test_receipt_without_a_state_says_what_was_chosen(self):
+		clear_cache()
+		with (
+			patch.object(todo_actions, "_get_workflow_state_and_style", return_value=("", "")),
+			patch("one_bpmn.utils.translation.translate_cached", side_effect=lambda text: f"ar:{text}"),
+		):
+			receipt = todo_actions._receipt("INST", "HD Ticket", "257055", "Request more information")
+		self.assertEqual(receipt["state_label"], {"en": "Request more information", "ar": "ar:Request more information"})
+		self.assertEqual(
+			receipt["receipt"],
+			{"en": "You chose Request more information.", "ar": "اخترت: ar:Request more information."},
+		)
 		self.assertTrue(receipt["completed_at"])
 
 

@@ -214,8 +214,8 @@ def preview_notification(process_model: str, element_type: str, doctype: str, se
 
 
 def _render_email_preview(doc, doctype: str, cfg: dict) -> dict:
-	from one_bpmn.email_builder.composer import EMAIL_LOGO, _build_notice_context, sends_notice
-	from one_bpmn.email_builder.renderer import render_layout_html
+	from one_bpmn.email_builder.composer import _build_notice_context, sends_notice
+	from one_bpmn.email_builder.renderer import render_layout_preview
 	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import _decode_html_attr
 
 	instance = frappe._dict(
@@ -243,27 +243,24 @@ def _render_email_preview(doc, doctype: str, cfg: dict) -> dict:
 					pluck="file_name",
 				)
 			]
-		subject, body = ctx["subject_line"], render_layout_html(ctx)
-	else:
-		subject = render(cfg.get("emailSubject", "")) or _("Notification from {0}").format(instance.name)
-		body = render(_decode_html_attr(cfg.get("emailBody", "")))
+		if cfg.get("emailShowStatus") == "true":
+			ctx["preview_state"] = _preview_state(doc)
+		return _layout_preview(ctx, doc, cfg.get("emailAccount"))
 
-	html = frappe.render_template(
-		"one_bpmn/templates/emails/bpmn_email.html", {"header": subject, "message": body, "logo": EMAIL_LOGO}
-	)
-	return {"subject": subject, "html": html, "docname": doc.get("name") or ""}
+	subject = render(cfg.get("emailSubject", "")) or _("Notification from {0}").format(instance.name)
+	body = render(_decode_html_attr(cfg.get("emailBody", "")))
+	return _framed_preview(subject, body, doc, cfg.get("emailAccount"))
 
 
 def _render_task_preview(doc, doctype: str, cfg: dict) -> dict:
 	"""The Notify Assignee email for doc, with buttons as links and no token."""
 	from one_bpmn.email_builder.composer import (
-		EMAIL_LOGO,
 		_build_layout_context,
 		_build_open_link,
 		_resolve_subject_body,
 		_sends_decision_card,
 	)
-	from one_bpmn.email_builder.renderer import render_html_fallback, render_layout_html
+	from one_bpmn.email_builder.renderer import render_html_fallback
 
 	instance = frappe._dict(
 		name=_("Preview"),
@@ -274,22 +271,60 @@ def _render_task_preview(doc, doctype: str, cfg: dict) -> dict:
 	task_name = cfg.get("taskName") or _("Task")
 	if _sends_decision_card(cfg):
 		ctx = _build_layout_context(instance, frappe.session.user, task_name, "", "", cfg, preview=True)
-		subject, body = ctx["subject_line"], render_layout_html(ctx)
-	else:
-		jinja_ctx = {"doc": doc, "instance": instance, "frappe": frappe}
-		subject, body = _resolve_subject_body(cfg, jinja_ctx, task_name, instance)
-		open_link = _build_open_link(instance)
-		names = [a.get("action") for a in _json.loads(cfg.get("taskActions") or "[]") if a.get("action")]
-		body = render_html_fallback(
-			{
-				"subject": subject,
-				"body": body,
-				"actions": [{"label": n, "url": open_link, "primary": i == 0} for i, n in enumerate(names)],
-				"open_link": open_link,
-			}
-		)
+		return _layout_preview(ctx, doc, cfg.get("notifyAssigneeAccount"))
+
+	jinja_ctx = {"doc": doc, "instance": instance, "frappe": frappe}
+	subject, body = _resolve_subject_body(cfg, jinja_ctx, task_name, instance)
+	open_link = _build_open_link(instance)
+	names = [a.get("action") for a in _json.loads(cfg.get("taskActions") or "[]") if a.get("action")]
+	body = render_html_fallback(
+		{
+			"subject": subject,
+			"body": body,
+			"actions": [{"label": n, "url": open_link, "primary": i == 0} for i, n in enumerate(names)],
+			"open_link": open_link,
+		}
+	)
+	return _framed_preview(subject, body, doc, cfg.get("notifyAssigneeAccount"))
+
+
+def _layout_preview(ctx: dict, doc, account: str | None) -> dict:
+	"""A layout email as Gmail shows it, one HTML per language for the preview's language switch."""
+	from one_bpmn.email_builder.renderer import render_layout_preview
+
+	return {
+		"subject": ctx["subject_line"],
+		"sender": _sender(account),
+		"html": render_layout_preview(ctx, "en"),
+		"html_ar": render_layout_preview(ctx, "ar"),
+		"docname": doc.get("name") or "",
+	}
+
+
+def _framed_preview(subject: str, body: str, doc, account: str | None) -> dict:
+	"""A custom body or template in the standard frame; it has one language, so no html_ar."""
+	from one_bpmn.email_builder.composer import EMAIL_LOGO
 
 	html = frappe.render_template(
 		"one_bpmn/templates/emails/bpmn_email.html", {"header": subject, "message": body, "logo": EMAIL_LOGO}
 	)
-	return {"subject": subject, "html": html, "docname": doc.get("name") or ""}
+	return {
+		"subject": subject,
+		"sender": _sender(account),
+		"html": html,
+		"html_ar": "",
+		"docname": doc.get("name") or "",
+	}
+
+
+def _sender(account: str | None) -> str:
+	return (frappe.db.get_value("Email Account", account, "email_id") or account) if account else ""
+
+
+def _preview_state(doc) -> str:
+	"""The workflow state, else the status, that the live status line shows for doc."""
+	if not doc.get("doctype"):
+		return ""
+	meta = frappe.get_meta(doc.doctype)
+	field = next((f for f in ("workflow_state", "status") if meta.has_field(f)), None)
+	return str(doc.get(field) or "") if field else ""

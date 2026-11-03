@@ -137,7 +137,7 @@ def handle_workflow_action(token: str | None = None, **extra) -> dict:
 		from_state = config.get("from_state")
 		if from_state and _get_workflow_state(doc) != from_state:
 			return {
-				"message": _("This item has already been actioned."),
+				"message": _("Someone has already acted on this item."),
 				"action": "Completed",
 			}
 
@@ -177,7 +177,7 @@ def handle_workflow_action(token: str | None = None, **extra) -> dict:
 				)
 
 		return {
-			"message": _("{0} completed successfully.").format(action),
+			"message": _("You chose {0}.").format(action),
 			"action": action,
 		}
 
