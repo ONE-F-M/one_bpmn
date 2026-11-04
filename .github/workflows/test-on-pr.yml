@@ -2,7 +2,7 @@ name: Server Tests
 
 on:
   pull_request:
-    branches: [staging, test-production, version-15]
+    branches: [staging, test-production, version-15, processa-refactor]
   workflow_dispatch:
 
 permissions:
