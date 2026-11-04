@@ -1,0 +1,320 @@
+{
+  "src/App.vue": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/bpmn/aiTaskSelectorPropertiesProvider/AiTaskSelectorProps.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/bpmn/businessRuleTaskPropertiesProvider/BusinessRuleTaskProps.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/bpmn/conditionalStartEventPropertiesProvider/ConditionalStartEventProps.js": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/bpmn/sendTaskPropertiesProvider/SendTaskProps.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/bpmn/serviceTaskPropertiesProvider/ServiceTaskProps.js": {
+    "no-unused-vars": {
+      "count": 3
+    }
+  },
+  "src/bpmn/serviceTaskPropertiesProvider/connectorEntries.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/bpmn/shared/connectorManifests.js": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/bpmn/shared/htmlAttrCodec.js": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/bpmn/startEventPropertiesProvider/StartEventProps.js": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/bpmn/userTaskPropertiesProvider/UserTaskProps.js": {
+    "no-dupe-keys": {
+      "count": 2
+    },
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/components/AIAgentConfigModal.vue": {
+    "no-unused-vars": {
+      "count": 9
+    }
+  },
+  "src/components/BpmnEditor.vue": {
+    "no-unused-vars": {
+      "count": 8
+    }
+  },
+  "src/components/CallActivitySearchDialog.vue": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/components/DiffViewer.vue": {
+    "no-empty": {
+      "count": 4
+    },
+    "no-unused-vars": {
+      "count": 4
+    }
+  },
+  "src/components/DocuCanvas.vue": {
+    "no-unused-vars": {
+      "count": 9
+    }
+  },
+  "src/components/EditorSidebar.vue": {
+    "vue/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/components/LogixCanvas.vue": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/components/LogixChat.vue": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/components/ProsAllyPanel.vue": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/components/UserFilter.vue": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/components/chat/AgentChatPanel.vue": {
+    "no-unused-vars": {
+      "count": 6
+    }
+  },
+  "src/components/chat/OneAiApp.vue": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/components/chat/aguiClient.js": {
+    "no-unused-vars": {
+      "count": 6
+    }
+  },
+  "src/components/chat/primitives/DiagramThumb.vue": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/components/process_instance/BpmnDiagramViewer.vue": {
+    "no-empty": {
+      "count": 8
+    },
+    "no-unused-vars": {
+      "count": 14
+    }
+  },
+  "src/components/process_instance/ElementInspector.vue": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/components/process_instance/PendingActions.vue": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/composables/useBpmnContextMenu.js": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/composables/useBpmnDiff.js": {
+    "no-empty": {
+      "count": 3
+    },
+    "no-unused-vars": {
+      "count": 5
+    }
+  },
+  "src/composables/useCallActivityName.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/composables/useModelerInit.js": {
+    "no-empty": {
+      "count": 1
+    },
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/main.js": {
+    "vue/no-reserved-component-names": {
+      "count": 3
+    }
+  },
+  "src/utils/arabicTranslation.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/utils/canvasTouchHandler.js": {
+    "no-empty": {
+      "count": 2
+    }
+  },
+  "src/utils/nativeCopyPaste.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/views/A2A.vue": {
+    "no-unused-vars": {
+      "count": 5
+    }
+  },
+  "src/views/Editor.vue": {
+    "no-undef": {
+      "count": 1
+    },
+    "no-unused-vars": {
+      "count": 13
+    }
+  },
+  "src/views/EvalComparison.vue": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/views/EvalFeedback.vue": {
+    "no-unused-vars": {
+      "count": 3
+    }
+  },
+  "src/views/EvalResults.vue": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/views/EvalSuiteDetail.vue": {
+    "no-unused-vars": {
+      "count": 6
+    }
+  },
+  "src/views/Evals.vue": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/views/Home.vue": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/views/InstanceDetail.vue": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/views/Memory.vue": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/views/Runs.vue": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/views/Security.vue": {
+    "no-unused-vars": {
+      "count": 3
+    }
+  },
+  "src/views/Sessions.vue": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/views/VersionHistory.vue": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tests/unit/ProsAllyPanel.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tests/unit/aguiClient.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tests/unit/callActivityLaunch.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tests/unit/cardExpand.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tests/unit/diagramPreviewScope.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tests/unit/docTypeSchemaCardExpand.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tests/unit/drawProgress.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tests/unit/lintExplainButton.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tests/unit/scriptDiffCardExpand.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tests/unit/uiPolish.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  }
+}

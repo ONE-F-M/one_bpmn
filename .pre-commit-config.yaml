@@ -39,6 +39,7 @@ repos:
         # Ignore any files that might contain jinja / bundles
         exclude: |
             (?x)^(
+                spiff/.*|
                 one_bpmn/public/dist/.*|
                 .*node_modules.*|
                 .*boilerplate.*|
@@ -58,6 +59,7 @@ repos:
         # Ignore any files that might contain jinja / bundles
         exclude: |
             (?x)^(
+                spiff/.*|
                 one_bpmn/public/dist/.*|
                 cypress/.*|
                 .*node_modules.*|
