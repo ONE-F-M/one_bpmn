@@ -130,14 +130,12 @@ jobs:
             fi
           done
 
-  # Merged from the former agent-trigger-beta.yml (WI-004344).
   invoke-agent-v2:
     concurrency:
       group: ${{ github.workflow }}-v2-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.issue_number || github.event.issue.number }}
       cancel-in-progress: true
 
     if: >-
-      github.event_name == 'workflow_dispatch' || 
       (github.event_name == 'issues' && github.event.action != 'labeled' && (contains(github.event.issue.labels.*.name, 'onefm_beta_staging') || contains(github.event.issue.labels.*.name, 'onefm_beta_hotfix'))) ||
       (github.event_name == 'issues' && github.event.action == 'labeled' && (github.event.label.name == 'onefm_beta_staging' || github.event.label.name == 'onefm_beta_hotfix'))
 
