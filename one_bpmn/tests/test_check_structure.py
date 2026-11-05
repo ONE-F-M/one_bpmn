@@ -15,6 +15,8 @@ SCRIPT = os.path.join(ROOT, ".github", "scripts", "check_structure.py")
 
 _spec = importlib.util.spec_from_file_location("check_structure", SCRIPT)
 cs = importlib.util.module_from_spec(_spec)
+# dataclasses looks the module up in sys.modules while the class is built
+sys.modules["check_structure"] = cs
 _spec.loader.exec_module(cs)
 
 WORK_ITEM = "WI" + "-" + "004347"
