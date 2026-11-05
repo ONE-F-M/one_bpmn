@@ -104,7 +104,7 @@ incremental = true
 sqlite_cache = true
 files = [
     "one_bpmn/__init__.py",
-    "one_bpmn/api.py",
+    "one_bpmn/api/__init__.py",
     "one_bpmn/tasks.py",
 ]
 exclude = '^one_bpmn/one_bpmn/patches|/test_.*\.py$'
