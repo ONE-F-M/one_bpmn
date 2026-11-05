@@ -14,7 +14,7 @@ from one_bpmn.agents import agui_contract
 
 APP_ROOT = Path(__file__).resolve().parents[2]
 CHAT_DIR = APP_ROOT / "spiff" / "src" / "components" / "chat"
-FIXTURES = CHAT_DIR / "fixtures"
+FIXTURES = APP_ROOT / "spiff" / "tests" / "fixtures" / "chat"
 REGISTRY = CHAT_DIR / "cards" / "registry.js"
 
 # Panel chrome — deliberately not cards, so not in the registry.
