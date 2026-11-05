@@ -5,6 +5,10 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
+		"test": "vitest run",
+		"lint": "eslint .",
+		"format": "prettier --write .",
+		"format:check": "prettier --check .",
 		"build": "npm run build:spa && npm run build:oneai",
 		"build:spa": "NODE_OPTIONS='--max-old-space-size=8192' vite build",
 		"build:oneai": "vite build --config vite.oneai.config.js"
@@ -42,10 +46,17 @@
 		"vuedraggable": "^4.1.0"
 	},
 	"devDependencies": {
+		"@eslint/js": "^9",
 		"autoprefixer": "^10.4.20",
+		"eslint": "^9.24",
+		"eslint-config-prettier": "^9",
+		"eslint-plugin-vue": "^9",
+		"globals": "^15",
 		"postcss": "^8.5.1",
+		"prettier": "^3",
 		"tailwindcss": "^3.4.17",
-		"vite": "^5.4.21"
+		"vite": "^5.4.21",
+		"vitest": "^2"
 	},
 	"packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e",
 	"resolutions": {
@@ -63,6 +74,6 @@
 		"@lezer/highlight": "1.2.3"
 	},
 	"_comments": {
-		"resolutions/@iconify/utils": "Pinned to 2.2.1 \u2014 frappe-ui ships a nested @iconify/utils@3.x which uses node:util styleText (Node 20+ only). This pin forces v2 for Node 18 compatibility."
+		"resolutions/@iconify/utils": "Pinned to 2.2.1 — frappe-ui ships a nested @iconify/utils@3.x which uses node:util styleText (Node 20+ only). This pin forces v2 for Node 18 compatibility."
 	}
 }
