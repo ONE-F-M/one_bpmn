@@ -13,5 +13,5 @@ bash .claude/open-pr-via-github-app.sh <work-item-id> <base-branch> --title "<ti
 Follow-up commits to an existing PR (only after the developer approves):
 
 ```bash
-bash scripts/claude-pr.sh --update <work-item-id> <base-branch>
+bash .claude/open-pr-via-github-app.sh --update <work-item-id> <base-branch>
 ```
