@@ -15,6 +15,4 @@ def execute():
 	"""
 	from one_bpmn.api.editability import ensure_instance_type_seeded
 
-	frappe.reload_doc("one_bpmn", "doctype", "processa_settings")
-	instance_type = ensure_instance_type_seeded()
-	print(f"Processa Settings → Instance Type: {instance_type}")
+	ensure_instance_type_seeded()
