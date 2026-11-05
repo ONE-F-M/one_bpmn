@@ -16,9 +16,6 @@
   "business_analyst",
   "column_break_cccw",
   "goal_description",
-  "change_requests_tab",
-  "section_break_gamf",
-  "change_requests",
   "more_information_tab",
   "section_break_qrox",
   "naming_series",
@@ -98,21 +95,6 @@
    "reqd": 1
   },
   {
-   "fieldname": "change_requests_tab",
-   "fieldtype": "Tab Break",
-   "label": "Change Requests"
-  },
-  {
-   "fieldname": "section_break_gamf",
-   "fieldtype": "Section Break"
-  },
-  {
-   "fieldname": "change_requests",
-   "fieldtype": "Table",
-   "label": "Change Requests",
-   "options": "Pathfinder Log Change Request"
-  },
-  {
    "fieldname": "more_information_tab",
    "fieldtype": "Tab Break",
    "label": "More Information"
@@ -160,7 +142,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-07-16 20:24:09.940868",
+ "modified": "2026-11-05 13:11:54.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "Process Implementation",
