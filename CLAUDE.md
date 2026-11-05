@@ -7,7 +7,7 @@ Never run `git push` or `gh pr create` directly. Commit your work, then run one 
 New PR:
 
 ```bash
-bash scripts/claude-pr.sh <work-item-id> <base-branch> --title "<title>" --body-file <file>
+bash .claude/open-pr-via-github-app.sh <work-item-id> <base-branch> --title "<title>" --body-file <file>
 ```
 
 Follow-up commits to an existing PR (only after the developer approves):
