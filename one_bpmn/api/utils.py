@@ -169,6 +169,24 @@ def get_recipient_docfields(doctype: str, search_text: str = "") -> list:
 
 
 @frappe.whitelist()
+def get_push_recipient_fields(doctype: str, search_text: str = "") -> list:
+	"""Recipient fields for a push: the doctype's own, plus "link.user_field" for each Link to a record with a User link."""
+	frappe.has_permission("BPMN Process Model", "write", throw=True)
+	fields = get_recipient_docfields(doctype)
+	for link_df in frappe.get_meta(doctype).fields:
+		if link_df.fieldtype != "Link" or link_df.options == "User":
+			continue
+		for df in frappe.get_meta(link_df.options).fields:
+			if df.fieldtype == "Link" and df.options == "User":
+				fields.append({
+					"fieldname": f"{link_df.fieldname}.{df.fieldname}",
+					"label": f"{link_df.label or link_df.fieldname} > {df.label or df.fieldname}",
+				})
+	needle = search_text.strip().lower()
+	return [f for f in fields if needle in f["fieldname"].lower() or needle in f["label"].lower()]
+
+
+@frappe.whitelist()
 def get_workflow_states_for_doctype(doctype: str) -> list:
 	"""
 	Return the workflow states (name + style) for the Workflow configured on

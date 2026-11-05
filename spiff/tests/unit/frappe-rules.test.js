@@ -40,6 +40,7 @@ test("send email and push notification need a recipient", async () => {
 	assert.deepEqual(await problems(serviceTaskMissingConfig, diagram(service("send_email", 'spiffworkflow:emailToRoles="HR Manager"'))), [])
 	assert.equal((await problems(serviceTaskMissingConfig, diagram(service("push_notification")))).length, 1)
 	assert.deepEqual(await problems(serviceTaskMissingConfig, diagram(service("push_notification", 'spiffworkflow:pushToDocFields="owner"'))), [])
+	assert.deepEqual(await problems(serviceTaskMissingConfig, diagram(service("push_notification", 'spiffworkflow:pushToTableField="items"'))), [])
 })
 
 test("update field needs at least one named field", async () => {

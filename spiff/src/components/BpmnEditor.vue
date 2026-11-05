@@ -1751,6 +1751,10 @@ onMounted(async () => {
 						{ name: "pushToUsers",          isAttr: true, type: "String" },
 						{ name: "pushToDocFields",      isAttr: true, type: "String" },
 						{ name: "pushToRoles",          isAttr: true, type: "String" },
+						{ name: "pushToTableField",     isAttr: true, type: "String" },
+						{ name: "pushToTableUserField", isAttr: true, type: "String" },
+						{ name: "pushLinkToDocument",   isAttr: true, type: "String" },
+						{ name: "pushFallbackInApp",    isAttr: true, type: "String" },
 						// AI Agent Task attrs
 						{ name: "aiBackend",            isAttr: true, type: "String" },
 						{ name: "aiProvider",           isAttr: true, type: "String" },

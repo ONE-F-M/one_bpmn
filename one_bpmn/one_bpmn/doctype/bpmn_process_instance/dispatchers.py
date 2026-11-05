@@ -12,6 +12,9 @@ import re
 
 import frappe
 import frappe.utils
+import requests
+from frappe import _
+from frappe.utils import get_url_to_form, sbool
 
 
 # ── AI Agent long-term memory integration ──────────────────────────────────
@@ -1164,161 +1167,104 @@ def dispatch_google_chat(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 
 
 def dispatch_push_notification(instance, task, task_cfg: dict, bpmn_id: str) -> None:
+	"""Send a mobile push from a Service Task with serviceType='push_notification'.
+
+	Recipients are the union of pushToUsers, pushToRoles, pushToDocFields and the
+	rows of pushToTableField. Counts land in task.data["<bpmn_id>_push"].
 	"""
-	Send push notifications from a Service Task with serviceType='push_notification'.
+	from one_bpmn.one_bpmn.push_notification import FcmSender, tokens_for
 
-	Recipient resolution (union of all three sources):
-	  - pushToUsers      : comma-separated Frappe User IDs (email)
-	  - pushToDocFields  : field names on the context doc that hold User IDs
-	  - pushToRoles      : roles — all users holding those roles receive the push
-
-	Title and Message support Jinja2 via frappe.render_template():
-	  {{ doc.field_name }}    — context document fields
-	  {{ instance.name }}     — BPMN instance name
-
-	Uses one_fm.utils.send_push_notification() which sends via Firebase Cloud
-	Messaging.  Falls back gracefully if one_fm is not installed.
-
-	Failures are non-fatal: the workflow continues and the error is logged.
-	"""
-
-	# ── Resolve the template context document ─────────────────────────
 	doc = frappe._dict()
 	if instance.context_doctype and instance.context_docname:
-		try:
-			doc = frappe.get_doc(instance.context_doctype, instance.context_docname)
-		except Exception:
-			pass
+		doc = frappe.get_doc(instance.context_doctype, instance.context_docname)
 
-	# ── Jinja helper ──────────────────────────────────────────────────
-	jinja_ctx = {
-		"doc": doc,
-		"instance": instance,
-		"frappe": frappe,
-	}
-
-	def render(text):
-		if not text:
-			return ""
-		try:
-			return frappe.render_template(text, jinja_ctx)
-		except Exception:
-			return text  # return raw on template error
-
-	# ── Build recipient user list ─────────────────────────────────────
-	recipient_users = []
-
-	# 1. Direct user IDs (comma-separated Frappe User emails)
-	raw_users = task_cfg.get("pushToUsers", "")
-	if raw_users:
-		recipient_users += [u.strip() for u in raw_users.split(",") if u.strip()]
-
-	# 2. Document field values (fields on doc that hold User IDs)
-	raw_fields = task_cfg.get("pushToDocFields", "")
-	if raw_fields and doc:
-		for field_name in raw_fields.split(","):
-			field_name = field_name.strip()
-			if not field_name:
-				continue
-			val = doc.get(field_name, "")
-			if val:
-				recipient_users.append(str(val).strip())
-
-	# 3. Role members — fetch all users with the configured roles
-	raw_roles = task_cfg.get("pushToRoles", "")
-	if raw_roles:
-		for role_name in raw_roles.split(","):
-			role_name = role_name.strip()
-			if not role_name:
-				continue
-			user_roles = frappe.get_all(
-				"Has Role",
-				filters={"role": role_name, "parenttype": "User"},
-				fields=["parent"],
-			)
-			for ur in user_roles:
-				if ur.parent:
-					recipient_users.append(ur.parent)
-
-	# De-duplicate preserving order
-	seen = set()
-	recipient_users = [u for u in recipient_users if u not in seen and not seen.add(u)]
-
-	if not recipient_users:
+	users = push_recipients(doc, task_cfg)
+	if not users:
 		frappe.log_error(
 			title=f"BPMN push_notification: No recipients resolved ({bpmn_id})",
-			message=(
-				f"Service Task {task_cfg} on instance {instance.name} produced "
-				f"no recipient users. Push notification will not be sent."
-			),
+			message=f"Service Task {task_cfg} on instance {instance.name} resolved no users.",
 		)
 		return
 
-	# ── Resolve User → Employee mapping ───────────────────────────────
-	# one_fm's send_push_notification requires an Employee ID, not a User email.
-	employee_map = {}
-	for user_id in recipient_users:
-		emp_id = frappe.db.get_value("Employee", {"user_id": user_id, "status": "Active"}, "name")
-		if emp_id:
-			employee_map[user_id] = emp_id
+	jinja_ctx = {"doc": doc, "instance": instance, "frappe": frappe}
+	default_title = _("Notification from {0}").format(instance.name)
+	title = frappe.render_template(task_cfg.get("pushTitle") or "", jinja_ctx) or default_title
+	body = frappe.render_template(task_cfg.get("pushMessage") or "", jinja_ctx) or title
+	data = {"url": "/notification"}
+	if sbool(task_cfg.get("pushLinkToDocument")) and doc.get("name"):
+		data.update(doctype=doc.doctype, docname=doc.name, link=get_url_to_form(doc.doctype, doc.name))
+	fall_back = sbool(task_cfg.get("pushFallbackInApp"))
 
-	if not employee_map:
-		frappe.log_error(
-			title=f"BPMN push_notification: No employees resolved ({bpmn_id})",
-			message=(
-				f"None of the {len(recipient_users)} recipient users have "
-				f"linked active Employee records. Push notification will not be sent."
-			),
-		)
-		return
-
-	# ── Render title + message ────────────────────────────────────────
-	title = render(task_cfg.get("pushTitle", "")) or f"Notification from {instance.name}"
-	message = render(task_cfg.get("pushMessage", "")) or title
-
-	# ── Import push notification sender ───────────────────────────────
-	try:
-		from one_fm.utils import send_push_notification
-	except ImportError:
-		frappe.log_error(
-			title=f"BPMN push_notification: one_fm not installed ({bpmn_id})",
-			message=(
-				"Cannot send push notifications — one_fm app is not installed. "
-				"The send_push_notification function is required."
-			),
-		)
-		return
-
-	# ── Send to each employee ─────────────────────────────────────────
-	sent_count = 0
-	failed = []  # (emp_id, reason)
-	for user_id, emp_id in employee_map.items():
-		try:
-			result = send_push_notification(emp_id, title, message)
-			if result:
-				sent_count += 1
+	sender = None
+	counts = {"sent": 0, "fell_back": 0, "failed": 0}
+	failures = []
+	for user in users:
+		tokens = tokens_for(user)
+		if not tokens:
+			if fall_back:
+				_push_in_app(user, title, body, doc)
+				counts["fell_back"] += 1
 			else:
-				failed.append((emp_id, "returned False"))
-		except Exception:
-			failed.append((emp_id, "exception"))
-			frappe.log_error(
-				title=f"BPMN push_notification: exception for {emp_id} ({bpmn_id})",
-				message=frappe.get_traceback(),
-			)
+				counts["failed"] += 1
+				failures.append(f"{user}: no device token")
+			continue
+		sender = sender or FcmSender()
+		reasons = [_push_one(sender, token, title, body, data) for token in tokens]
+		if all(reasons):
+			counts["failed"] += 1
+			failures.append(f"{user}: {'; '.join(reasons)}")
+		else:
+			counts["sent"] += 1
 
-	# ── Single summary log when there are failures ────────────────────
-	if failed:
-		fail_details = ", ".join(f"{eid} ({reason})" for eid, reason in failed)
+	task.data[f"{bpmn_id}_push"] = counts
+	if failures:
 		frappe.log_error(
-			title=f"BPMN push_notification: {len(failed)} failed, {sent_count} sent ({bpmn_id})",
-			message=(
-				f"Push notification summary for task {bpmn_id}:\n"
-				f"  Sent: {sent_count}, Failed: {len(failed)}\n"
-				f"  Failed employees: {fail_details}\n\n"
-				f"For 'returned False' failures, check earlier Error Log entries "
-				f"from send_push_notification for the specific reason."
-			),
+			title=f"BPMN push_notification: {counts['failed']} failed, {counts['sent']} sent ({bpmn_id})",
+			message="\n".join(failures),
 		)
+
+
+def push_recipients(doc, task_cfg: dict) -> list:
+	"""Users a push task names, in order and without duplicates."""
+	from one_bpmn.one_bpmn.push_notification import users_from, users_in
+
+	users = users_from(task_cfg.get("pushToUsers"))
+	for role in _split(task_cfg.get("pushToRoles")):
+		users += frappe.get_all("Has Role", filters={"role": role, "parenttype": "User"}, pluck="parent")
+	if doc:
+		for path in _split(task_cfg.get("pushToDocFields")):
+			users += users_in(doc, path)
+		row_path = (task_cfg.get("pushToTableUserField") or "").strip() or "user"
+		for row in doc.get((task_cfg.get("pushToTableField") or "").strip()) or []:
+			users += users_in(row, row_path)
+	return list(dict.fromkeys(users))
+
+
+def _split(value) -> list:
+	return [part.strip() for part in (value or "").split(",") if part.strip()]
+
+
+def _push_one(sender, token: str, title: str, body: str, data: dict) -> str:
+	"""Send to one device; a network error counts as Firebase's reason."""
+	try:
+		return sender.send(token, title, body, data)
+	except requests.RequestException as e:
+		return str(e)
+
+
+def _push_in_app(user: str, title: str, body: str, doc) -> None:
+	from frappe.desk.doctype.notification_log.notification_log import make_notification_logs
+
+	make_notification_logs(
+		frappe._dict(
+			type="Alert",
+			subject=title,
+			email_content=body,
+			document_type=doc.get("doctype"),
+			document_name=doc.get("name"),
+		),
+		[frappe.db.get_value("User", user, "email")],
+	)
 
 
 def _emails_from_doc_field(val) -> list:
