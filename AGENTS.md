@@ -1,175 +1,106 @@
 # AGENTS.md
 
-This repository contains the `one_bpmn` Frappe app. It provides BPMN process modelling and execution support for Frappe v15, with backend APIs in Python and a Vue/bpmn-js frontend under `spiff/`.
+This repository holds `one_bpmn` (Processa), a Frappe v15 app for BPMN process modelling and execution: a Python backend with a SpiffWorkflow engine, and a Vue and bpmn-js editor under `spiff/`.
 
-Use this file as the first source of context before changing the app.
+These are the only instructions coding agents read. Folder-specific rules live in nested files:
+
+- [`one_bpmn/agents/AGENTS.md`](one_bpmn/agents/AGENTS.md): the AI agent runtime, Logix and ProsAlly.
+- [`spiff/AGENTS.md`](spiff/AGENTS.md): the Vue frontend and the bpmn-js extensions.
+
+House style lives in `frappe-bench/.claude/rules/`: `house-style.md` always, `python-frappe.md` for Python, `vue-js.md` for JavaScript and Vue. The numbered rule set (A1 to F8) is `frappe-bench/.claude/rules/RULES.md`; cite an id when a PR body justifies an exception. Before you say a task is done, re-read your diff against `house-style.md`.
 
 ## Stack
 
-- Frappe v15 / ERPNext-compatible custom app
-- Python 3.10+
-- SpiffWorkflow for BPMN execution concepts and serialization
-- Vue frontend source in `spiff/`
-- Public app module in `one_bpmn/`
-- Standard branch flow: PRs target `staging`, then `test-production`, then `version-15`
+- Frappe v15, Python 3.10 or later (`requires-python` in `pyproject.toml`).
+- SpiffWorkflow for BPMN execution and serialization.
+- Vue 3, Vite, frappe-ui, TailwindCSS and bpmn-js in `spiff/`. Node.js 20, Yarn.
+- The editor is served at `/processa` from `one_bpmn/www/processa/`.
 
-## Repository Layout
+## Repository layout
 
-- `one_bpmn/api/`: whitelisted backend API surface, organized into domain-specific submodules:
-  - `process_map_api.py`: CRUD for BPMN Process Model and Process records (save, import, list, rename, delete)
-  - `compilation.py`: compile/deploy/disable process models, XML sanitization, timer validation
-  - `workflow_state.py`: apply workflow states and docstatus transitions for BPMN service tasks
-  - `instance_api.py`: process instance lifecycle (start, complete, cancel, list, task actions)
-  - `editability.py`: Pathfinder Log cross-site editability checks and editor lock heartbeats
-  - `server_script_api.py`: server script CRUD, Logix/ProSally AI integration
-  - `canvas_comments.py`: canvas comment and element asset management
-  - `notification_api.py`: in-app notification creation
-  - `version_history.py`: diagram XML version history
-  - `script_version_history.py`: server script version history and restore
-  - `utils.py`: shared helpers (role checks, field lookups, user search)
-- `one_bpmn/hooks.py`: Frappe app hooks, scheduler hooks, fixtures, app metadata, and asset registration.
-- `one_bpmn/tasks.py`: scheduled/background task helpers, especially timer-related BPMN handling.
-- `one_bpmn/one_bpmn/doctype/`: DocType controllers, JSON definitions, and tests for BPMN entities.
-- `one_bpmn/www/spiff/`: Frappe web route used to serve the BPMN UI.
-- `one_bpmn/public/`: built assets copied into the Frappe public path.
-- `spiff/`: Vue, bpmn-js, Vite, Tailwind, and editor source files.
-- `.github/workflows/`: CI, deployment, linting, test, and type-check workflows.
+- `one_bpmn/api/`: whitelisted endpoints, one module per domain:
+  - `process_map_api.py`: process model and Process CRUD (save, import, list, rename, delete).
+  - `compilation.py`: compile, deploy and disable process models; XML sanitization; timer validation.
+  - `workflow_state.py`: applies workflow states and docstatus for BPMN service tasks. Internal, not whitelisted.
+  - `instance_api.py`: instance lifecycle and task actions (start, complete, send message, list).
+  - `editability.py`: cross-site editability checks and editor lock heartbeats.
+  - `server_script_api.py`: Server Script CRUD and the Logix and ProsAlly turn-context builders.
+  - `agui.py`: `stream_agent_turn`, the one chat endpoint every agent uses.
+  - `canvas_comments.py`, `notification_api.py`, `version_history.py`, `script_version_history.py`, `utils.py`.
+- `one_bpmn/one_bpmn/doctype/`: DocType JSON, controllers and tests.
+- `one_bpmn/one_bpmn/engine.py`: the SpiffWorkflow script engine.
+- `one_bpmn/one_bpmn/connectors/`: outbound connectors and the agent sandbox client.
+- `one_bpmn/agents/`: the AI agent runtime. See its `AGENTS.md`.
+- `one_bpmn/security/`: the generated-script validator.
+- `one_bpmn/email_builder/`: AMP and HTML task emails. See its `README.md`.
+- `one_bpmn/commands/`: bench commands.
+- `one_bpmn/overrides/`: overridden Frappe classes, such as the scheduler queue for timer jobs.
+- `one_bpmn/templates/`: email and deployment templates.
+- `one_bpmn/hooks.py`: app hooks, the universal document-event trigger, scheduler events and fixtures.
+- `one_bpmn/tasks.py`: scheduled timer and A2A polling jobs.
+- `spiff/`: the Vue frontend. See its `AGENTS.md`.
+- `docs/`: operations notes and retros.
 
-## BPMN Data Model
+## Data model
 
-The app centres on these business objects:
+- `BPMN Process Model`: BPMN XML, the serialized SpiffWorkflow spec, subprocess specs, version, active flag and its parent Process. Only one model per Process is active.
+- `BPMN Process Instance`: one execution. Status is `Queued`, `Active`, `Completed`, `Errored`, `Cancelled` or `Suspended`. Treat instance state as business-critical.
+- `BPMN Active Task`: a task slot on an instance. Status is `Waiting`, `Completed`, `Errored` or `Cancelled`.
+- `BPMN Activity Log`: the audit trail of task transitions.
 
-- `BPMN Process Model`: Stores BPMN XML, process metadata, serialized SpiffWorkflow specs, subprocess specs, version, active status, and links to a parent Process where applicable.
-- `BPMN Process Instance`: Represents a running or completed execution of a process model. Treat instance state as business-critical.
-- `BPMN Activity Log`: Records process execution activity and task transitions.
-Expected process lifecycle:
+Do not add a status without checking the DocType JSON and every consumer.
 
-- `Draft`: Process definition is being prepared or edited.
-- `Active`: Process definition is ready for use or an instance is currently running.
-- `Completed`: Execution finished successfully.
-- `Cancelled`: Execution was intentionally stopped.
+## SpiffWorkflow and the engine
 
-Expected task lifecycle:
+- Keep BPMN XML valid; invalid XML breaks both the editor and the engine.
+- Keep serialized specs compatible with existing records. A map edit takes effect on new instances only after `compile_process_model`.
+- Treat subprocess, timer, message and signal behaviour as engine logic, not UI data.
+- Re-running a step must not repeat its side effects.
+- Handle SpiffWorkflow exceptions explicitly; never catch them silently.
+- Changes to the engine, the scheduler, timers, signals or permission checks need focused review, because they affect live instances.
 
-- `Ready`: Task is available for action.
-- `Claimed`: A user or process actor has taken ownership.
-- `Completed`: Task finished and process should advance.
-- `Delegated`: Ownership moved to another user or actor.
+## Backend rules
 
-Do not invent new lifecycle states without checking the DocType schema and downstream consumers.
+- Every endpoint: `@frappe.whitelist()`, a type on every parameter, a docstring, and a permission check before work (`frappe.has_permission`, `frappe.only_for` or `doc.check_permission()`).
+- Use the ORM or `frappe.qb`; no raw SQL.
+- Use `frappe.throw(_(...))` for user-facing errors.
+- Use `frappe.db.exists()` for existence checks, not try/except.
+- Return stable dict and list shapes; the Vue app reads them directly. Change a response shape and its caller in `spiff/src/` together.
+- Never return tracebacks, private fields or file paths.
+- Name only endpoints that exist; search for `@frappe.whitelist()` before documenting or calling one.
+- Ruff enforces tabs, double quotes and a 110-character line.
 
-## SpiffWorkflow Integration
+## Code review focus
 
-SpiffWorkflow concepts appear in model serialization, subprocess handling, timers, events, and runtime execution helpers. When working in this area:
+Much of this code was generated, so review for what can be deleted: dead code, unused imports and variables, unreachable branches, wrappers that only delegate, one-use abstractions, and comments that restate the code. Prefer a built-in or library call over a hand-written helper.
 
-- Preserve BPMN XML validity. Invalid XML can break both the frontend modeller and backend execution.
-- Keep serialized process specs compatible with existing records.
-- Treat subprocess, timer, and signal behaviour as execution-engine logic, not simple UI data.
-- Avoid changing scheduler/timer semantics unless the task explicitly requires it.
-- Verify any change against both process definition data and process instance behaviour.
+## Working on an AI agent story
 
-Security rule: never modify the process execution engine, scheduler, timer handling, signal handling, or permission checks casually. These changes require focused review because they can affect live process state.
+Settle two things before designing anything, because changing either later is a rebuild:
 
-## API Patterns
+1. **Which kind of agent is it?** `agent_type` on AI Agent Configuration is `Chat` or `Background`. A Chat agent needs a `chat_mode_label`, a conversation loop in its map, and faces the go-live gate. A Background agent is started by a record insert (an `A2A Task` for a delegated worker), reads its brief from that record and writes its answer back to it.
+2. **How is it invoked?** A chat surface, an orchestrator delegating over A2A, a record trigger, or a step inside a larger process. This decides the start event and so the map.
 
-The API surface lives in `one_bpmn/api/`, organized into domain-specific submodules. Before adding or changing an endpoint:
+Ask for both if the story does not say.
 
-- Search for existing `@frappe.whitelist()` functions.
-- Confirm the exact frontend caller in `spiff/src/`.
-- Check permission handling before returning or mutating documents.
-- Prefer Frappe ORM methods over raw SQL.
-- Use `frappe.throw` for user-facing validation failures.
-- Return stable dict/list shapes because the Vue app consumes these responses directly.
-- Do not expose raw tracebacks, private document fields, or unrestricted file paths.
+Read the live examples before inventing a pattern. The BA site (see the BA Sync block on Processa Settings) runs working agents for most shapes, including a delegating orchestrator, four delegated specialists and the chat agents. Copy a map that already runs. The layout conventions come from those maps: lane at y=180, 100x80 tasks 130 apart, 50x50 gateways, and a 550x240 ad-hoc Tools sub-process under the agent task.
 
-Common API groups:
+When copying a map, set `process_name` before `is_active`. A copy inherits its source's Process, and activating it deactivates the map it was copied from.
 
-- Process model CRUD: save, fetch, list, import, delete, and version-related operations.
-- Process/diagram navigation: list processes, get diagrams by process, and update diagram order.
-- Runtime-related operations: task, signal, timer, or instance functions if present in the current branch.
-
-Always verify the current code before naming an endpoint. Documentation and tests must match actual whitelisted functions, not assumed Frappe conventions.
-
-API submodule boundaries:
-
-- `process_map_api`: diagram CRUD, import/export, rename, process listing
-- `compilation`: compile, deploy, disable, XML sanitization and validation
-- `workflow_state`: internal (not whitelisted) - called by the BPMN engine during service task execution
-- `instance_api`: instance start/complete/cancel, task actions, instance listing
-- `utils`: shared helpers consumed by other submodules and the frontend (user search, field lookups, role checks)
-
-## Frontend Notes
-
-The frontend is a Vue-based BPMN editor. Key areas:
-
-- `spiff/src/views/Home.vue`: process list and navigation into the editor.
-- `spiff/src/views/Editor.vue`: editor page for process diagrams.
-- `spiff/src/components/BpmnEditor.vue`: bpmn-js integration point.
-- `spiff/src/components/FormattingToolbar.vue`: visual formatting controls.
-- `spiff/src/router/`: route definitions for `/spiff` and process/diagram routes.
-
-When changing frontend API calls, update backend response shapes or callers together. Do not silently change payload names used by existing views/components.
-
-## Testing Conventions
-
-Use Frappe test commands when validating app behaviour:
+## Testing
 
 ```bash
 bench --site <site> run-tests --app one_bpmn --failfast
 ```
 
-Shared tests can live under `one_bpmn/tests/`. DocType-specific tests should remain near the relevant DocType controller unless a task asks for shared integration coverage.
+- Tests inherit `frappe.tests.utils.FrappeTestCase`; plain pytest classes report "Ran 0 tests" under `bench run-tests`.
+- Shared tests go in `one_bpmn/tests/`; DocType tests sit next to their DocType.
+- Keep fixture BPMN XML small. When you touch them, cover sequential flow, gateways, subprocesses, timers, signals, cancellation and restart.
+- Assert state transitions, not file existence. Test both the happy path and the validation failure, and assert permission checks on write and delete paths.
 
-For BPMN execution tests:
+## Branches and commits
 
-- Keep fixture BPMN XML small and readable.
-- Cover sequential flow, gateway paths, subprocess behaviour, timer events, signal events, cancellation, and restart behaviour when those features are touched.
-- Mock external or scheduler behaviour where full Frappe execution would make tests slow or brittle.
-- Prefer tests that assert process state transitions over tests that only assert files exist.
-
-For API tests:
-
-- Group by process CRUD, instance management, task operations, signal handling, timer management, and authorization.
-- Patch `frappe` carefully; assert permission checks on write/delete paths.
-- Test both happy paths and validation failures.
-
-## Code Quality
-
-- Follow the repo's `.editorconfig`, Ruff, pre-commit, commitlint, and type-check configuration.
-- Keep Python compatible with 3.10+.
-- Use concise type hints where they improve API/test clarity.
-- Keep commits scoped to the task branch. Do not mix unrelated workflow, deployment, or formatting changes into a branch.
-- If a branch is only for documentation, avoid touching CI or runtime files.
-
-## Branch And PR Workflow
-
-Each sprint task branch should match the work item ID, for example `WI-000768`.
-
-Standard flow:
-
-1. Checkout the task branch.
-2. Fetch/pull latest upstream for that exact branch.
-3. Compare implementation against the sprint description and acceptance criteria.
-4. If it already matches, do not change it.
-5. If it does not match, fix only the mismatch.
-6. Commit with the work item ID in the subject.
-7. Push back to `upstream`.
-
-Use conventional commits:
-
-```text
-docs(WI-000768): expand agent guidance
-fix(WI-000771): read typed files from mypy config
-ci(WI-000762): align Frappe linter workflow
-```
-
-## Review Checklist
-
-Before pushing:
-
-- The changed files match the task scope.
-- No secrets, tokens, or local paths are added.
-- Workflows target `staging`, `test-production`, and `version-15` when the task says protected branches.
-- BPMN execution changes preserve existing lifecycle and permission behaviour.
-- Documentation names only current files/endpoints/features.
-- Tests or direct file/config checks were run where practical.
+- One branch per work item, named after it (for example `WI-000768`). The PR targets the branch the work item names.
+- Conventional commit subjects with the work item id: `feat(WI-000768): ...`, `fix(WI-000771): ...`. The Semantic Commits check requires this form.
+- Keep a branch to its work item. A documentation change touches no CI or runtime file.
+- Open PRs only through `scripts/claude-pr.sh`; see `CLAUDE.md`.

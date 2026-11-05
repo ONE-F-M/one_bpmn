@@ -1,94 +1,17 @@
-# one_bpmn
-
-BPMN editor integration for Frappe, powered by [bpmn-js](https://bpmn.io/toolkit/bpmn-js/) and [SpiffWorkflow](https://www.spiffworkflow.org/). Accessible at `/spiff`.
-
-## Stack
-
-- Frappe v15 backend (Python)
-- Vue.js frontend (bpmn-js + SpiffWorkflow properties panel)
-- frappe-ui for every control in Vue dialogs, pages and tabs (rule E9). The bpmn-js properties panel is Preact and keeps its shared components in `spiff/src/bpmn/shared/`.
-- Node.js 20.x, Yarn
-
-## Features
-
-- Multiple diagrams per process
-- Tabbed editing interface
-- Formatting toolbar + custom shape library
-- SpiffWorkflow properties panel integration
-
-## Key Paths
-
-- `one_bpmn/` — Python app (controllers, hooks, API)
-- `spiff/` — Vue.js frontend source
-
-## Commands
-
-```bash
-yarn build        # Build Vue frontend
-bench migrate     # Apply schema changes
-bench restart     # Restart after Python changes
-```
-
-## Working on an AI agent story
-
-Two things decide the whole shape of an agent, so settle them **before** designing
-or researching anything:
-
-1. **Which kind of agent is it?** `agent_type` is `Chat` or `Background`, and they
-   share almost nothing. A Chat agent needs a `chat_mode_label`, a conversation
-   loop in its map, and it faces the adversarial go-live gate. A Background agent
-   has none of those: it is started by a record insert (an `A2A Task` for a
-   delegated worker), reads its brief off that record, and writes its answer back
-   onto it. Building the wrong one is a rebuild, not an edit.
-2. **How is it invoked?** A chat surface, an orchestrator delegating over A2A, a
-   record trigger, or a step inside a larger process. This determines the start
-   event, and therefore the map.
-
-Ask for both if a story does not say. Everything else — prompts, tools, model —
-is cheap to change afterwards; these two are not.
-
-**Read the live examples before inventing a pattern.** Staging (the BA site — see
-`Processa Settings` → BA Sync block, read-only) carries working agents for most
-shapes: a delegating orchestrator and four delegated specialists for A2A, plus the
-chat agents. Copying a map that already runs beats deriving one from the code, and
-the layout conventions (lane at y=180, 100x80 tasks 130 apart, 50x50 gateways,
-ad-hoc Tools sub-process 550x240 under the agent task) come from those maps too.
-
-When copying a map, **fix `process_name` before touching `is_active`** — a copy
-inherits its source's `Process`, and activating it silently deactivates the map it
-was cloned from.
-
-Follow root [`CLAUDE.md`](../CLAUDE.md) for Frappe conventions.
-
-## House style
-
-Every checkable rule lives in `frappe-bench/.claude/rules/` and loads automatically: `house-style.md` always, `python-frappe.md` for Python, `vue-js.md` for JavaScript and Vue. The numbered set with ids A1 to F8 is `frappe-bench/.claude/rules/RULES.md`; cite an id when a PR body justifies an exception. Before you say a task is done, re-read your diff against `house-style.md`.
+Read [AGENTS.md](AGENTS.md). It is the single set of instructions for this repo.
 
 ## Pull requests
 
-Never run `git push` or `gh pr create` directly. Commit your work, then run the script
-below from the root of this repo.
+Never run `git push` or `gh pr create` directly. Commit your work, then run one of the commands below from the root of this repo. Ask the developer for the work item id and the base branch first; never guess either.
 
-Before running it, always ask the developer for the work item id and the base branch.
-Never guess or assume either one. Common bases: `staging` for features, `version-15` for hotfixes.
-
-**New PR**
+New PR:
 
 ```bash
 bash scripts/claude-pr.sh <work-item-id> <base-branch> --title "<title>" --body-file <file>
 ```
 
-This creates a new branch named after the work item (e.g. `WI-001234`) and opens the PR from it.
-Write the PR body to a temporary file first. If the repo has a `pull_request_template.md`,
-follow its structure.
-
-**Follow-up commits to an existing PR**
-
-If the script says the branch already exists, ask the developer whether to add the commits
-to that PR. Only if they approve, run:
+Follow-up commits to an existing PR (only after the developer approves):
 
 ```bash
 bash scripts/claude-pr.sh --update <work-item-id> <base-branch>
 ```
-
-This only works when the open PR was opened by the developer's own bot. It never force-pushes.
