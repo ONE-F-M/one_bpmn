@@ -7,10 +7,8 @@ from frappe.model.document import Document
 
 class ContingencyTaskCompletion(Document):
 	def before_insert(self):
-		if not self.process_owner:
-			employee = frappe.db.get_value("Employee", {"user_id": frappe.session.user}, "name")
-			if employee:
-				self.process_owner = employee
+		if not self.process_owner_user:
+			self.process_owner_user = frappe.session.user
 
 
 

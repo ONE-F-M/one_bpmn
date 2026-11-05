@@ -649,14 +649,9 @@ def _notify(recipient: str | None, message: str, *, a2a_task=None, delegation=No
 		)
 
 	try:
-		from one_fm.processor import sendemail
+		from one_bpmn.email_builder.composer import send_platform_email
 
-		sendemail(
-			recipients=[recipient],
-			subject=subject,
-			message=message,
-			is_external_mail=True,
-		)
+		send_platform_email([recipient], subject, message)
 	except Exception:
 		# The in-app alert above still stands, so a mail failure is logged and
 		# swallowed rather than losing the escalation entirely.

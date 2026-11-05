@@ -590,12 +590,9 @@ def _deliver(recipients: list[str], subject: str, body: str, model: str) -> list
 
 
 def _send_email(recipients: list[str], subject: str, body: str) -> None:
-	try:
-		from one_fm.processor import sendemail
+	from one_bpmn.email_builder.composer import send_platform_email
 
-		sendemail(recipients=recipients, subject=subject, message=body, is_external_mail=True)
-	except ImportError:
-		frappe.sendmail(recipients=recipients, subject=subject, message=body)
+	send_platform_email(recipients, subject, body)
 
 
 def _notify_recovery(model: str, previous: dict) -> None:

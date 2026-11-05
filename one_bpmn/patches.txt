@@ -339,3 +339,4 @@ one_bpmn.one_bpmn.patches.v1_0.prosally_diagnoses_errors_in_any_order #03-11-202
 one_bpmn.one_bpmn.patches.v1_0.prosally_reviews_process_links #03-11-2026 ProsAlly answers a review of the links between its map and related maps from get_process_links, skipping the intent classifier
 one_bpmn.one_bpmn.patches.v1_0.prosally_reads_process_maps #03-11-2026 ProsAlly gets a read-only read_process_map tool over the process maps the designer can read, and its generate and modify stages read what it finds
 one_bpmn.one_bpmn.patches.v1_0.add_activity_log_lookup_index #03-11-2026 Create the BPMN Activity Log index on instance, task and action that the duplicate check before every log row needs
+one_bpmn.one_bpmn.patches.v1_0.set_ticket_doctype_on_change_requests #05-11-2026 Change requests whose hd_ticket became a Dynamic Link name HD Ticket as the ticket DocType

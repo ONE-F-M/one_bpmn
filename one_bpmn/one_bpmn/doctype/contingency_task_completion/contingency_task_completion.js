@@ -3,20 +3,8 @@
 
 frappe.ui.form.on("Contingency Task Completion", {
 	refresh(frm) {
-		if (frm.is_new()) {
-			frappe.call({
-				method: "frappe.client.get_value",
-				args: {
-					doctype: "Employee",
-					filters: { user_id: frappe.session.user },
-					fieldname: "name"
-				},
-				callback(r) {
-					if (r.message) {
-						frm.set_value("process_owner", r.message.name);
-					}
-				}
-			});
+		if (frm.is_new() && !frm.doc.process_owner_user) {
+			frm.set_value("process_owner_user", frappe.session.user);
 		}
 
 		frm.set_query("process_name", function () {

@@ -371,6 +371,12 @@ def _send_email(
 		frappe.flags.keep_email_subject = None
 
 
+def send_platform_email(recipients: list[str], subject: str, body: str) -> None:
+	"""A platform alert in the bpmn_email frame, sent from the Notification Email Account on Processa Settings."""
+	account = frappe.db.get_single_value("Processa Settings", "production_notification_account") or ""
+	_send_email(recipients, subject, html_body=body, amp_html="", sender_account=account)
+
+
 # ---------------------------------------------------------------------------
 # Decision card layout
 # ---------------------------------------------------------------------------

@@ -362,12 +362,10 @@ def _get_conversation_config(instance, task_id: str) -> dict:
 
 
 def _is_helpdesk_agent(user: str) -> bool:
-	try:
-		from helpdesk.utils import is_agent
-
-		return bool(is_agent(user))
-	except Exception:
-		return bool(frappe.db.exists("HD Agent", user))
+	"""Same rule as Helpdesk's is_agent, read from roles and HD Agent so Helpdesk need not be installed."""
+	if user == "Administrator" or {"Agent", "Agent Manager"} & set(frappe.get_roles(user)):
+		return True
+	return bool(frappe.db.exists("HD Agent", user))
 
 
 def _check_conversation_access(doctype: str, docname: str, ptype: str) -> None:
