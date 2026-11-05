@@ -207,10 +207,10 @@ Connectors move between sites as **data**, not patches:
   fieldname that say where to read them.
 - `api.import_connector(manifest, overwrite=False)` → creates/updates a connector.
 
-The JSON files in `manifests/` are the shipped seed: the patch
-`import_connector_manifests_to_doctype` imports them, skipping any connector that
-already exists, so a site's own edits survive a re-run. They are also the fallback
-when no connector rows exist (fresh install, bench console with no site).
+The shipped Google connectors are defined in `patches/v1_0/seed_google_connectors.py`.
+That patch and the app's `after_install` hook both import them through
+`seed.import_seed_manifests`, skipping any connector that already exists, so a
+site's own edits survive a re-run.
 
 ## Shipped connectors
 

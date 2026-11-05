@@ -68,7 +68,7 @@ class TestManifestAndRegistry(FrappeTestCase):
         """Everything an HTTP template can express is configuration now.
 
         What is left needs multipart upload, binary parsing, or several calls
-        with reasoning in between — see the google_connectors_to_http patch.
+        with reasoning in between.
         """
         from one_bpmn.one_bpmn.connectors.manifest import get_execution_spec, load_manifests
 
