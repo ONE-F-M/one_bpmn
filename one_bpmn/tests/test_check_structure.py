@@ -8,6 +8,7 @@ imports) is built from pieces so that this file passes the check itself.
 
 import importlib.util
 import os
+import sys
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
