@@ -25,7 +25,7 @@ function sendEmailProblems(node) {
 }
 
 function pushNotificationProblems(node) {
-	return hasAny(node, ["pushToUsers", "pushToDocFields", "pushToRoles"]) ? [] : ["has no recipients"];
+	return hasAny(node, ["pushToUsers", "pushToDocFields", "pushToTableField", "pushToRoles"]) ? [] : ["has no recipients"];
 }
 
 function updateFieldProblems(node) {

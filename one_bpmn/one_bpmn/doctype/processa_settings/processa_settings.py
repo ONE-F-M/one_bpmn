@@ -9,6 +9,19 @@ from frappe.model.document import Document
 class ProcessaSettings(Document):
 	def validate(self):
 		self._validate_embedding_model()
+		self._validate_push_token_source()
+
+	def _validate_push_token_source(self):
+		"""Refuse token source fields that the Token DocType does not have."""
+		if not self.push_token_doctype:
+			return
+		meta = frappe.get_meta(self.push_token_doctype)
+		for fieldname in (self.push_token_user_field, self.push_token_field):
+			if not meta.has_field(fieldname):
+				frappe.throw(
+					_("{0} has no field {1}.").format(self.push_token_doctype, frappe.bold(fieldname)),
+					title=_("Push Token Source"),
+				)
 
 	def _validate_embedding_model(self):
 		"""Refuse an embedding model that cannot produce the width of the stored

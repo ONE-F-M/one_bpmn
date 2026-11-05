@@ -41,6 +41,13 @@
   "section_break_google_chat",
   "google_chat_service_account_json",
   "google_directory_account",
+  "section_break_push",
+  "push_service_account_json",
+  "push_send_test",
+  "column_break_push",
+  "push_token_doctype",
+  "push_token_user_field",
+  "push_token_field",
   "section_break_google_translation",
   "google_translate_api_key",
   "section_break_script_security",
@@ -309,6 +316,49 @@
    "fieldtype": "Data",
    "label": "Directory Lookup Account",
    "options": "Email"
+  },
+  {
+   "fieldname": "section_break_push",
+   "fieldtype": "Section Break",
+   "label": "Push Notifications"
+  },
+  {
+   "description": "Firebase service account key the Push Notification task sends with. The project id is read from it.",
+   "fieldname": "push_service_account_json",
+   "fieldtype": "Password",
+   "label": "Firebase Service Account JSON"
+  },
+  {
+   "fieldname": "push_send_test",
+   "fieldtype": "Button",
+   "label": "Send Test Push"
+  },
+  {
+   "fieldname": "column_break_push",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The DocType that holds each user's device token, for example Employee.",
+   "fieldname": "push_token_doctype",
+   "fieldtype": "Link",
+   "label": "Token DocType",
+   "options": "DocType"
+  },
+  {
+   "depends_on": "push_token_doctype",
+   "description": "Its field that links to User, for example user_id.",
+   "fieldname": "push_token_user_field",
+   "fieldtype": "Data",
+   "label": "User Field",
+   "mandatory_depends_on": "push_token_doctype"
+  },
+  {
+   "depends_on": "push_token_doctype",
+   "description": "Its field that holds the device token, for example fcm_token.",
+   "fieldname": "push_token_field",
+   "fieldtype": "Data",
+   "label": "Token Field",
+   "mandatory_depends_on": "push_token_doctype"
   },
   {
    "fieldname": "section_break_google_translation",
@@ -819,7 +869,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-11-02 12:00:00.000000",
+ "modified": "2026-11-05 15:00:00.000000",
  "modified_by": "s.shariff@one-fm.com",
  "module": "ONE BPMN",
  "name": "Processa Settings",

@@ -16,8 +16,6 @@ module-level functions (e.g. `inst._dispatch_email_notification(...)` becomes
 """
 
 import json
-import sys
-import types
 from unittest.mock import Mock, patch
 
 import frappe
@@ -284,41 +282,58 @@ class TestDispatchGoogleChat(BaseBPMNHelperTest):
 # push_notification dispatcher
 # ──────────────────────────────────────────────────────────────────────────────
 class TestDispatchPush(BaseBPMNHelperTest):
-	def _inject_one_fm_utils(self):
-		fake_utils = types.ModuleType("one_fm.utils")
-		fake_utils.send_push_notification = Mock(return_value=True)
-		fake_root = sys.modules.get("one_fm") or types.ModuleType("one_fm")
-		patcher = patch.dict(
-			sys.modules, {"one_fm": fake_root, "one_fm.utils": fake_utils}
-		)
-		return patcher, fake_utils.send_push_notification
+	PUSH = "one_bpmn.one_bpmn.push_notification"
+
+	def _run(self, cfg, tokens, send=None, inst=None):
+		task = FakeTask()
+		sender = Mock()
+		sender.return_value.send = send or Mock(return_value="")
+		with patch(f"{self.PUSH}.FcmSender", sender), patch(f"{self.PUSH}.tokens_for", side_effect=tokens):
+			call_dispatch_push(inst or make_instance(), task, cfg, "task_1")
+		return task, sender.return_value.send
 
 	def test_push_no_recipients_is_noop(self):
-		inst = make_instance()
-		cfg = {"pushTitle": "T", "pushMessage": "M"}
-		# No recipients resolved -> logs and returns
-		call_dispatch_push(inst, FakeTask(), cfg, "task_1")
+		task, send = self._run({"pushTitle": "T", "pushMessage": "M"}, lambda user: ["tok"])
+		send.assert_not_called()
+		self.assertNotIn("task_1_push", task.data)
 
-	def test_push_recipient_without_employee_is_noop(self):
-		inst = make_instance()
-		cfg = {"pushToUsers": "nobody@x.com", "pushTitle": "T", "pushMessage": "M"}
-		# No Employee linked -> "no employees resolved", returns
-		with patch.object(frappe.db, "get_value", return_value=None):
-			call_dispatch_push(inst, FakeTask(), cfg, "task_1")
+	def test_push_sends_to_resolved_user(self):
+		cfg = {"pushToUsers": "Administrator", "pushTitle": "Hi {{ instance.name }}", "pushMessage": "Msg"}
+		task, send = self._run(cfg, lambda user: ["tok-admin"], inst=make_instance(name="TEST-PI-PUSH"))
+		send.assert_called_once_with("tok-admin", "Hi TEST-PI-PUSH", "Msg", {"url": "/notification"})
+		self.assertEqual(task.data["task_1_push"], {"sent": 1, "fell_back": 0, "failed": 0})
 
-	def test_push_sends_to_resolved_employee(self):
-		inst = make_instance(name="TEST-PI-PUSH")
-		cfg = {
-			"pushToUsers": "u1@x.com",
-			"pushTitle": "Hi {{ instance.name }}",
-			"pushMessage": "Msg",
-		}
+	def test_child_table_rows_get_one_push_each(self):
+		event = frappe.get_doc({
+			"doctype": "Event",
+			"subject": "push test",
+			"starts_on": frappe.utils.now(),
+			"event_participants": [
+				{"reference_doctype": "User", "reference_docname": "Administrator", "email": "admin@example.com"},
+				{"reference_doctype": "User", "reference_docname": "Administrator", "email": "Administrator"},
+				{"reference_doctype": "User", "reference_docname": "Guest", "email": "Guest"},
+			],
+		}).insert(ignore_permissions=True)
+		inst = make_instance(context_doctype="Event", context_docname=event.name)
+		cfg = {"pushToTableField": "event_participants", "pushToTableUserField": "email"}
+		task, send = self._run(cfg, lambda user: [f"tok-{user}"], inst=inst)
+		self.assertEqual([c.args[0] for c in send.call_args_list], ["tok-Administrator", "tok-Guest"])
+		self.assertEqual(task.data["task_1_push"]["sent"], 2)
 
-		patcher, send = self._inject_one_fm_utils()
-		with patcher, patch.object(frappe.db, "get_value", return_value="EMP-1"):
-			call_dispatch_push(inst, FakeTask(), cfg, "task_1")
+	def test_no_token_falls_back_to_in_app(self):
+		cfg = {"pushToUsers": "Guest", "pushTitle": "Fallback title", "pushFallbackInApp": "1"}
+		task, send = self._run(cfg, lambda user: [])
+		send.assert_not_called()
+		self.assertEqual(task.data["task_1_push"], {"sent": 0, "fell_back": 1, "failed": 0})
+		self.assertTrue(frappe.db.exists("Notification Log", {"for_user": "Guest", "subject": "Fallback title"}))
 
-		send.assert_called_once_with("EMP-1", "Hi TEST-PI-PUSH", "Msg")
+	def test_one_rejected_send_does_not_stop_the_rest(self):
+		send = Mock(side_effect=lambda token, *args: "Requested entity was not found." if token == "bad" else "")
+		cfg = {"pushToUsers": "Administrator,Guest"}
+		task, _send = self._run(cfg, lambda user: ["bad"] if user == "Administrator" else ["good"], send=send)
+		self.assertEqual(task.data["task_1_push"], {"sent": 1, "fell_back": 0, "failed": 1})
+		frappe.log_error.assert_called_once()
+		self.assertIn("Administrator: Requested entity was not found.", frappe.log_error.call_args.kwargs["message"])
 
 
 # ──────────────────────────────────────────────────────────────────────────────

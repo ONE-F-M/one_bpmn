@@ -12,7 +12,6 @@ OTHER_APPS = {"one_fm", "onefm_mcp", "helpdesk", "erpnext", "hrms"}
 
 # Imports that other stories remove; each key is a path under one_bpmn/.
 KNOWN_IMPORTS = {
-	"one_bpmn/doctype/bpmn_process_instance/dispatchers.py": {"one_fm"},
 	"agents/mcp_tool_shapes.py": {"onefm_mcp"},
 }
 

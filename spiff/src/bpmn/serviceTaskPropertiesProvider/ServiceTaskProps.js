@@ -1,4 +1,4 @@
-import { SelectEntry, isSelectEntryEdited } from "@bpmn-io/properties-panel";
+import { CheckboxEntry, SelectEntry, isSelectEntryEdited } from "@bpmn-io/properties-panel";
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
@@ -169,8 +169,12 @@ export function ServiceTaskProps(props) {
 			{ id: "spiffworkflow-push-recipients-header",  element, component: PushRecipientsHeaderComponent },
 			{ id: "spiffworkflow-pushToUsers",             element, component: PushToUsersComponent },
 			{ id: "spiffworkflow-pushToDocFields",         element, component: PushToDocFieldsComponent },
+			{ id: "spiffworkflow-pushToTableField",        element, component: PushTableFieldComponent },
+			{ id: "spiffworkflow-pushToTableUserField",    element, component: PushTableUserFieldComponent },
 			{ id: "spiffworkflow-pushToRoles",             element, component: PushToRolesComponent },
 			{ id: "spiffworkflow-pushMessage",             element, component: PushMessageComponent },
+			{ id: "spiffworkflow-pushLinkToDocument",      element, component: PushLinkToDocumentComponent },
+			{ id: "spiffworkflow-pushFallbackInApp",       element, component: PushFallbackInAppComponent },
 		);
 	}
 
@@ -239,6 +243,10 @@ function ServiceTypeComponent(props) {
 			"spiffworkflow:pushToUsers":          undefined,
 			"spiffworkflow:pushToDocFields":      undefined,
 			"spiffworkflow:pushToRoles":          undefined,
+			"spiffworkflow:pushToTableField":     undefined,
+			"spiffworkflow:pushToTableUserField": undefined,
+			"spiffworkflow:pushLinkToDocument":   undefined,
+			"spiffworkflow:pushFallbackInApp":    undefined,
 			// Clear connector attrs
 			"spiffworkflow:connectorId":          undefined,
 			"spiffworkflow:operation":            undefined,
@@ -832,7 +840,7 @@ function GchatDocFieldComponent(props) {
 }
 
 // Table Field and Row User Field pickers for recipients listed in a Table or Table MultiSelect.
-function makeTableRecipientComponents(doctypeOf, tableAttr, userAttr) {
+function makeTableRecipientComponents(doctypeOf, tableAttr, userAttr, rowFieldsApi) {
 	function TableFieldComponent(props) {
 		const { element, id } = props;
 		const modeling  = useService("modeling");
@@ -901,6 +909,7 @@ function makeTableRecipientComponents(doctypeOf, tableAttr, userAttr) {
 				);
 				const childDoctype = match && match.options;
 				if (!childDoctype) return [];
+				if (rowFieldsApi) return frappeGet(rowFieldsApi, { doctype: childDoctype });
 				return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
 					doctype: childDoctype, fieldtype_in: '["Link"]', include_options: true,
 				}).then((childFields) =>
@@ -1016,6 +1025,8 @@ function PushDoctypeComponent(props) {
 			"spiffworkflow:pushDoctype": val || undefined,
 			// Clear doc fields selection when DocType changes
 			"spiffworkflow:pushToDocFields": undefined,
+			"spiffworkflow:pushToTableField": undefined,
+			"spiffworkflow:pushToTableUserField": undefined,
 		}),
 		fetchApi: fetchDoctypes,
 		valueField: "name",
@@ -1101,30 +1112,12 @@ function PushToDocFieldsComponent(props) {
 		});
 	}
 
-	// Fetch user-type fields from the Reference DocType + synthetic Owner entry
-	const fetchDocFields = (txt) => {
-		return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+	// User fields, email fields, and "link.user_field" paths through linked records
+	const fetchDocFields = (txt) =>
+		frappeGet("/api/method/one_bpmn.api.utils.get_push_recipient_fields", {
 			doctype: sourceDoctype,
 			search_text: txt || "",
-			fieldtype_in: JSON.stringify(["Link", "Data", "Read Only"]),
-			include_options: 1,
-		}).then((fields) => {
-			// Filter: Link fields must link to User
-			let filtered = (fields || []).filter((f) => {
-				if (f.fieldtype === "Link") return f.options === "User";
-				return true;
-			});
-
-			// Prepend synthetic "Owner" field (built-in, not in DocField)
-			const ownerEntry = { fieldname: "owner", label: "Owner", fieldtype: "Link", options: "User" };
-			const ownerMatch = !txt || "owner".includes(txt.toLowerCase());
-			if (ownerMatch) {
-				filtered = [ownerEntry, ...filtered];
-			}
-
-			return filtered;
 		});
-	};
 
 	return h(FrappeMultiSelect, {
 		id,
@@ -1136,10 +1129,42 @@ function PushToDocFieldsComponent(props) {
 		fetchApi: fetchDocFields,
 		valueField: "fieldname",
 		renderOption: (opt) => `${opt.label || opt.fieldname} (${opt.fieldname})`,
-		placeholder: translate("Select fields that contain User IDs"),
+		placeholder: translate("Select fields that name a user"),
 		itemLabel: "field",
 	});
 }
+
+const [PushTableFieldComponent, PushTableUserFieldComponent] = makeTableRecipientComponents(
+	(bo) => getAttr(bo, "pushDoctype"), "pushToTableField", "pushToTableUserField",
+	"/api/method/one_bpmn.api.utils.get_push_recipient_fields"
+);
+
+function makePushCheckbox(attr, label, description) {
+	return function PushCheckboxComponent(props) {
+		const { element, id } = props;
+		const modeling  = useService("modeling");
+		const translate = useService("translate");
+		const bo        = getBusinessObject(element);
+
+		return h(CheckboxEntry, {
+			element,
+			id,
+			label: translate(label),
+			description: translate(description),
+			getValue: () => getAttr(bo, attr) === "1",
+			setValue: (v) => modeling.updateModdleProperties(element, bo, {
+				[`spiffworkflow:${attr}`]: v ? "1" : undefined,
+			}),
+		});
+	};
+}
+
+const PushLinkToDocumentComponent = makePushCheckbox(
+	"pushLinkToDocument", "Link to the Document", "Sends the document's DocType, name and URL in the push data."
+);
+const PushFallbackInAppComponent = makePushCheckbox(
+	"pushFallbackInApp", "Fall Back to In-App", "Recipients with no device token get an in-app notification."
+);
 
 // ── PN4: Roles (multi-select from Role doctype) ──────────────────────────
 function PushToRolesComponent(props) {

@@ -57,7 +57,8 @@ SERVICE_TASK_KEYS: dict[str, tuple[str, ...]] = {
 	),
 	"push_notification": (
 		"pushDoctype", "pushTitle", "pushToUsers", "pushToDocFields",
-		"pushToRoles", "pushMessage",
+		"pushToRoles", "pushMessage", "pushToTableField", "pushToTableUserField",
+		"pushLinkToDocument", "pushFallbackInApp",
 	),
 	# Connector parameters are manifest-driven, so the params blob is passed
 	# through as given rather than checked key by key here.
