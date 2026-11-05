@@ -89,7 +89,7 @@ class TestWorkItemIdRule(unittest.TestCase):
 		self.assertEqual(rules(result), ["work-item-id"])
 
 	def test_id_in_an_added_file_name_fails(self):
-		result = run([cs.Change.new_file(f"one_bpmn/tests/test_{WORK_ITEM.lower()}.py", "x = 1\n")])
+		result = run([cs.Change.new_file(f"one_bpmn/tests/test_{WORK_ITEM}.py", "x = 1\n")])
 		self.assertEqual(rules(result), ["work-item-id"])
 
 	def test_lines_without_an_id_pass(self):

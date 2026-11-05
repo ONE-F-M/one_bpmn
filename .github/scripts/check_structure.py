@@ -53,7 +53,7 @@ CODEOWNERS_PATH = ".github/CODEOWNERS"
 ENGINE_PREFIXES = ("one_bpmn/one_bpmn/engine.py", "one_bpmn/one_bpmn/engine/")
 ADAPTER_PREFIXES = ("one_bpmn/agents/llm_provider/",)
 
-WORK_ITEM_ID = re.compile(r"\bWI-\d+\b")
+WORK_ITEM_ID = re.compile(r"(?<![A-Za-z0-9])WI-\d+")
 IGNORE_PERMISSIONS = re.compile(r"ignore_permissions\s*=\s*True")
 RAW_SQL = re.compile(r"frappe\.db\.sql\s*\(")
 PRAGMA_ONLY = re.compile(r"^(noqa|nosec|type:\s*ignore|pylint:|fmt:|pragma)", re.IGNORECASE)
