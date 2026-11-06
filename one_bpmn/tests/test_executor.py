@@ -185,114 +185,133 @@ class TestDirectApiExecutor(FrappeTestCase):
         self.assertEqual(result.error_code, ErrorCode.PROVIDER_DISABLED)
 
 
-def _fake_antigravity(agent):
-    """
-    Build a stand-in `antigravity` module exposing an Agent factory.
+class _FakeAgent:
+    """Stands in for google.antigravity.Agent: records its config and replays canned replies."""
 
-    The executor does `import antigravity` and calls `antigravity.Agent(...)`.
-    Python ships a built-in `antigravity` stdlib module (the xkcd easter egg)
-    that has no `Agent`, so a find_spec-based skip guard never skips and a real
-    import resolves to the wrong module. Injecting a fake module into
-    sys.modules makes these tests deterministic regardless of whether the real
-    google-antigravity SDK is installed.
-    """
-    mod = types.ModuleType("antigravity")
-    mod.Agent = MagicMock(return_value=agent)
-    return mod
+    def __init__(self, replies, error=None):
+        self.replies = list(replies)
+        self.error = error
+        self.configs = []
+
+    def __call__(self, config):
+        self.configs.append(config)
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def chat(self, prompt):
+        if self.error:
+            raise self.error
+        text = self.replies.pop(0)
+        usage = types.SimpleNamespace(
+            prompt_token_count=10, candidates_token_count=5, thoughts_token_count=2,
+            total_token_count=17, cached_content_token_count=4,
+        )
+
+        async def _text():
+            return text
+
+        return types.SimpleNamespace(text=_text, usage_metadata=usage)
+
+
+def _fake_sdk(agent):
+    """sys.modules entries for google.antigravity and its policy module, backed by *agent*."""
+    sdk = types.ModuleType("google.antigravity")
+    sdk.Agent = agent
+    sdk.LocalAgentConfig = lambda **kw: types.SimpleNamespace(**kw)
+    sdk.CapabilitiesConfig = lambda **kw: types.SimpleNamespace(**kw)
+    hooks = types.ModuleType("google.antigravity.hooks")
+    policy = types.ModuleType("google.antigravity.hooks.policy")
+    policy.deny_all = lambda: "deny_all"
+    hooks.policy = policy
+    sdk.hooks = hooks
+    return {
+        "google.antigravity": sdk,
+        "google.antigravity.hooks": hooks,
+        "google.antigravity.hooks.policy": policy,
+    }
+
+
+def _gemini_model():
+    if not frappe.db.exists("AI Provider", "Google"):
+        frappe.get_doc({"doctype": "AI Provider", "provider": "Google"}).insert(ignore_permissions=True)  # test fixture
+    if not frappe.db.exists("AI Model", "test-gemini-antigravity"):
+        frappe.get_doc({
+            "doctype": "AI Model",
+            "model_name": "test-gemini-antigravity",
+            "provider": "Google",
+            "enable_model": 1,
+            "api_key": "test-key-not-real",
+        }).insert(ignore_permissions=True)  # test fixture
+    return "test-gemini-antigravity"
 
 
 class TestAntigravityExecutor(FrappeTestCase):
 
+    def _run(self, agent, **kwargs):
+        cfg = _make_config(backend="antigravity", provider_name="Google", model=_gemini_model(), **kwargs)
+        with patch.dict(sys.modules, _fake_sdk(agent)):
+            return get_executor("antigravity")().run(cfg, _make_context())
+
     def test_antigravity_success(self):
-        cfg = _make_config(backend="antigravity")
-        ctx = _make_context()
-
-        fake_usage = MagicMock()
-        fake_usage.prompt_tokens = 10
-        fake_usage.completion_tokens = 5
-        fake_usage.total_tokens = 15
-
-        fake_response = MagicMock()
-        fake_response.text = "AI answer"
-        fake_response.usage = fake_usage
-
-        fake_agent = MagicMock()
-        fake_agent.send.return_value = fake_response
-
-        with patch.dict(sys.modules, {"antigravity": _fake_antigravity(fake_agent)}):
-            result = AntigravityExecutor().run(cfg, ctx)
+        agent = _FakeAgent(["AI answer"])
+        result = self._run(agent)
         self.assertEqual(result.error_code, ErrorCode.SUCCESS)
         self.assertEqual(result.output, "AI answer")
-        self.assertEqual(result.token_usage.total_tokens, 15)
+        self.assertEqual(result.token_usage.prompt_tokens, 10)
+        self.assertEqual(result.token_usage.completion_tokens, 7)
+        self.assertEqual(result.token_usage.total_tokens, 17)
+
+    def test_antigravity_session_has_no_tools(self):
+        agent = _FakeAgent(["AI answer"])
+        self._run(agent)
+        config = agent.configs[0]
+        self.assertEqual(config.model, "test-gemini-antigravity")
+        self.assertEqual(config.api_key, "test-key-not-real")
+        self.assertEqual(config.capabilities.enabled_tools, [])
+        self.assertFalse(config.capabilities.enable_subagents)
+        self.assertEqual(config.policies, ["deny_all"])
+        self.assertEqual(config.workspaces, [config.app_data_dir])
 
     def test_antigravity_sdk_exception(self):
-        cfg = _make_config(backend="antigravity")
-        ctx = _make_context()
-
-        fake_agent = MagicMock()
-        fake_agent.send.side_effect = RuntimeError("SDK error")
-        with patch.dict(sys.modules, {"antigravity": _fake_antigravity(fake_agent)}), \
-             patch("time.sleep"):
-            result = AntigravityExecutor().run(cfg, ctx)
+        with patch("time.sleep"):
+            result = self._run(_FakeAgent([], error=RuntimeError("SDK error")))
         self.assertEqual(result.error_code, ErrorCode.FAILED_MODEL_CALL)
         self.assertIn("SDK error", result.error_message)
+        self.assertEqual(len(result.attempts), 3)
 
     def test_antigravity_json_success_with_schema(self):
-        try:
-            import jsonschema  # noqa: F401
-        except ImportError:
-            self.skipTest("jsonschema not installed")
-
         schema = json.dumps(
             {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}
         )
-        cfg = _make_config(backend="antigravity", response_format="json", response_schema=schema)
-        ctx = _make_context()
-
-        fake_response = MagicMock()
-        fake_response.text = json.dumps({"name": "Alice"})
-        fake_response.usage = MagicMock(prompt_tokens=1, completion_tokens=1, total_tokens=2)
-
-        fake_agent = MagicMock()
-        fake_agent.send.return_value = fake_response
-
-        with patch.dict(sys.modules, {"antigravity": _fake_antigravity(fake_agent)}):
-            result = AntigravityExecutor().run(cfg, ctx)
+        result = self._run(_FakeAgent([json.dumps({"name": "Alice"})]), response_format="json", response_schema=schema)
         self.assertEqual(result.error_code, ErrorCode.SUCCESS)
-        self.assertIsInstance(result.output, dict)
-        self.assertEqual(result.output["name"], "Alice")
+        self.assertEqual(result.output, {"name": "Alice"})
 
     def test_antigravity_json_schema_validation_failed(self):
-        try:
-            import jsonschema  # noqa: F401
-        except ImportError:
-            self.skipTest("jsonschema not installed")
-
         schema = json.dumps(
             {"type": "object", "properties": {"age": {"type": "integer"}}, "required": ["age"]}
         )
-        cfg = _make_config(backend="antigravity", response_format="json", response_schema=schema)
-        ctx = _make_context()
-
-        fake_response = MagicMock()
-        fake_response.text = json.dumps({"name": "missing age"})
-        fake_response.usage = MagicMock(prompt_tokens=1, completion_tokens=1, total_tokens=2)
-
-        fake_agent = MagicMock()
-        fake_agent.send.return_value = fake_response
-
-        with patch.dict(sys.modules, {"antigravity": _fake_antigravity(fake_agent)}), \
-             patch("time.sleep"):
-            result = AntigravityExecutor().run(cfg, ctx)
+        reply = json.dumps({"name": "missing age"})
+        result = self._run(_FakeAgent([reply, reply]), response_format="json", response_schema=schema)
         self.assertEqual(result.error_code, ErrorCode.SCHEMA_VALIDATION_FAILED)
 
-    def test_antigravity_sdk_not_installed(self):
+    def test_antigravity_needs_a_google_provider(self):
         cfg = _make_config(backend="antigravity")
-        ctx = _make_context()
-        with patch.dict("sys.modules", {"antigravity": None}):
-            result = AntigravityExecutor().run(cfg, ctx)
+        with patch.dict(sys.modules, _fake_sdk(_FakeAgent(["unused"]))):
+            result = AntigravityExecutor().run(cfg, _make_context())
+        self.assertEqual(result.error_code, ErrorCode.PROVIDER_NOT_FOUND)
+
+    def test_antigravity_sdk_not_installed(self):
+        cfg = _make_config(backend="antigravity", provider_name="Google", model=_gemini_model())
+        with patch.dict(sys.modules, {"google.antigravity": None}):
+            result = AntigravityExecutor().run(cfg, _make_context())
         self.assertEqual(result.error_code, ErrorCode.FAILED_MODEL_CALL)
-        self.assertIn("google-antigravity", result.error_message)
+        self.assertIn("bench setup requirements", result.error_message)
 
 
 class TestExecutorRegistry(FrappeTestCase):

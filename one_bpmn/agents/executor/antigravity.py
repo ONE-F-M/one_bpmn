@@ -3,16 +3,18 @@
 """
 Antigravity SDK executor backend.
 
-Registered as "antigravity". Wraps the google-antigravity SDK in
-single-call (no tools, no multi-turn) mode.
-
-If the SDK is not installed the executor returns FAILED_MODEL_CALL with a
-clear message — the bench continues to function for all other task types.
+Registered as "antigravity". Runs one Gemini turn through the google-antigravity
+SDK with every builtin tool, sub-agent and MCP server switched off.
 """
 from __future__ import annotations
 
+import asyncio
 import random
+import tempfile
 import time
+
+import frappe
+from frappe import _
 
 from . import (
     AttemptRecord,
@@ -24,29 +26,52 @@ from . import (
     TokenUsage,
     register_executor,
 )
+from .direct_api import DirectApiExecutor, _run_coro_blocking
 from one_bpmn.agents.llm_provider import structured_output
 
 
 class AntigravityExecutor(Executor):
-    """Single-call Google Antigravity SDK executor."""
+    """Single-turn Google Antigravity SDK executor."""
 
     def run(self, config: ExecutorConfig, context: ExecutorContext) -> ExecutorResult:
-        # ── Feature-detect the SDK ──────────────────────────────────
-        # NOTE: Python ships a stdlib module named "antigravity", so a bare
-        # `import antigravity` always succeeds. Verify the real SDK API
-        # (the Agent class) is present before using it.
         try:
-            import antigravity as _sdk
+            from google import antigravity as sdk
+            from google.antigravity.hooks import policy
         except ImportError:
-            _sdk = None
-        if _sdk is None or not hasattr(_sdk, "Agent"):
             return ExecutorResult(
                 error_code=ErrorCode.FAILED_MODEL_CALL,
-                error_message=(
-                    "google-antigravity SDK is not installed. "
-                    "Run: pip install google-antigravity"
+                error_message=_(
+                    "The google-antigravity SDK is not installed on this bench. Run bench setup requirements."
                 ),
             )
+
+        if DirectApiExecutor._DIALECTS.get((config.provider_name or "").strip().lower()) != "Google":
+            return ExecutorResult(
+                error_code=ErrorCode.PROVIDER_NOT_FOUND,
+                error_message=_(
+                    "The Antigravity backend runs Gemini models only, so the AI Provider must be Google, not '{0}'."
+                ).format(config.provider_name),
+            )
+
+        model_name = config.model or frappe.db.get_value(
+            "AI Model", {"provider": config.provider_name, "enable_model": 1}, "name"
+        )
+        if not model_name or not frappe.db.get_value("AI Model", model_name, "enable_model"):
+            return ExecutorResult(
+                error_code=ErrorCode.MODEL_NOT_CONFIGURED,
+                error_message=_("No enabled Google model is configured for this agent."),
+            )
+        api_key = frappe.utils.password.get_decrypted_password(
+            "AI Model", model_name, "api_key", raise_exception=False
+        )
+        if not api_key:
+            return ExecutorResult(
+                error_code=ErrorCode.PROVIDER_DISABLED,
+                error_message=_(
+                    "AI Model '{0}' has no API key set. Open that record and enter the Gemini API key."
+                ).format(model_name),
+            )
+        model = frappe.db.get_value("AI Model", model_name, "model_api_name") or model_name
 
         schema = None
         system_prompt = config.system_prompt
@@ -60,114 +85,96 @@ class AntigravityExecutor(Executor):
                 )
             system_prompt = structured_output.system_prompt_with_format(system_prompt, schema, native=False)
 
+        def agent_config(workspace: str):
+            return sdk.LocalAgentConfig(
+                model=model,
+                api_key=api_key,
+                system_instructions=system_prompt or None,
+                capabilities=sdk.CapabilitiesConfig(enabled_tools=[], enable_subagents=False),
+                policies=[policy.deny_all()],
+                workspaces=[workspace],
+                save_dir=workspace,
+                app_data_dir=workspace,
+            )
+
         attempts = []
         last_error_result = None
-
         for attempt in range(config.max_retries + 1):
             attempt_start = time.time()
-            error_result = None
-            content = None
-            token_usage = None
-
             try:
-                agent = _sdk.Agent(
-                    model=config.model,
-                    system_prompt=system_prompt,
-                )
-                response = agent.send(config.user_prompt)
-                content = getattr(response, "text", "") or str(response)
-
-                usage_obj = getattr(response, "usage", None)
-                token_usage = TokenUsage(
-                    prompt_tokens=int(getattr(usage_obj, "prompt_tokens", 0) or 0),
-                    completion_tokens=int(getattr(usage_obj, "completion_tokens", 0) or 0),
-                    total_tokens=int(getattr(usage_obj, "total_tokens", 0) or 0),
-                )
-                if not token_usage.total_tokens:
-                    token_usage.total_tokens = (
-                        token_usage.prompt_tokens + token_usage.completion_tokens
+                return _run_coro_blocking(
+                    asyncio.wait_for(
+                        _one_turn(sdk, agent_config, config.user_prompt, config.response_format, schema, attempts),
+                        timeout=config.timeout_seconds,
                     )
+                )
             except Exception as exc:
-                error_result = ExecutorResult(
+                last_error_result = ExecutorResult(
                     error_code=ErrorCode.FAILED_MODEL_CALL,
-                    error_message=str(exc),
+                    error_message=str(exc) or type(exc).__name__,
                 )
 
-            # ── JSON validation ───────────────────────────────────
-            if error_result is None and config.response_format == "json":
-                return self._json_result(agent, content, schema, token_usage, attempts)
-
-            # ── Success (text format) ─────────────────────────────
-            if error_result is None:
-                return ExecutorResult(
-                    output=content,
-                    token_usage=token_usage,
-                    error_code=ErrorCode.SUCCESS,
-                    attempts=list(attempts),
-                )
-
-            # ── Record failed attempt and retry ───────────────────
-            latency_ms = int((time.time() - attempt_start) * 1000)
             attempts.append(AttemptRecord(
                 attempt_index=attempt,
-                content=content or "",
-                error_code=error_result.error_code.value,
-                error_message=error_result.error_message,
-                token_usage=token_usage,
-                latency_ms=latency_ms,
+                error_code=last_error_result.error_code.value,
+                error_message=last_error_result.error_message,
+                latency_ms=int((time.time() - attempt_start) * 1000),
             ))
-            last_error_result = error_result
-
             if attempt < config.max_retries:
-                self._sleep_backoff(config, attempt)
+                time.sleep((config.retry_backoff_ms / 1000.0) * (2 ** attempt) + random.uniform(0, 0.1))
 
-        # All retries exhausted
         last_error_result.attempts = list(attempts)
         return last_error_result
 
-    @staticmethod
-    def _sleep_backoff(config: ExecutorConfig, attempt: int) -> None:
-        base_s = (config.retry_backoff_ms / 1000.0) * (2 ** attempt)
-        jitter = random.uniform(0, 0.1)
-        time.sleep(base_s + jitter)
 
-    @staticmethod
-    def _json_result(agent, content: str, schema: dict | None, token_usage, attempts: list) -> ExecutorResult:
-        """Parse the reply, asking the same agent once more with the error when it can be corrected."""
-        try:
-            parsed = structured_output.read_json_reply(content, schema)
-        except structured_output.ReplyRejected as exc:
-            if not exc.retry:
+async def _one_turn(sdk, agent_config, user_prompt: str, response_format: str, schema, attempts: list) -> ExecutorResult:
+    """Open a tool-less session, send the prompt and read the reply, asking once more when JSON can be corrected."""
+    with tempfile.TemporaryDirectory(prefix="antigravity_") as workspace:
+        async with sdk.Agent(agent_config(workspace)) as agent:
+            response = await agent.chat(user_prompt)
+            content = await response.text()
+            token_usage = _usage(response.usage_metadata)
+            if response_format != "json":
                 return ExecutorResult(
-                    error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
-                    error_message=f"The reply is not the declared JSON: {exc}",
-                    token_usage=token_usage,
-                    attempts=list(attempts),
+                    output=content, token_usage=token_usage, error_code=ErrorCode.SUCCESS, attempts=list(attempts)
                 )
+
             try:
-                retry_text = getattr(agent.send(structured_output.retry_note(str(exc))), "text", "") or ""
-            except Exception as send_exc:
-                return ExecutorResult(
-                    error_code=ErrorCode.FAILED_MODEL_CALL,
-                    error_message=str(send_exc),
-                    token_usage=token_usage,
-                    attempts=list(attempts),
-                )
-            try:
-                parsed = structured_output.read_json_reply(retry_text, schema)
-            except structured_output.ReplyRejected as retry_exc:
-                return ExecutorResult(
-                    error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
-                    error_message=f"The reply is not the declared JSON: {retry_exc}",
-                    token_usage=token_usage,
-                    attempts=list(attempts),
-                )
-        return ExecutorResult(
-            output=parsed,
-            token_usage=token_usage,
-            error_code=ErrorCode.SUCCESS,
-            attempts=list(attempts),
-        )
+                parsed = structured_output.read_json_reply(content, schema)
+            except structured_output.ReplyRejected as exc:
+                if not exc.retry:
+                    return _schema_failure(exc, token_usage, attempts)
+                retry = await agent.chat(structured_output.retry_note(str(exc)))
+                try:
+                    parsed = structured_output.read_json_reply(await retry.text(), schema)
+                except structured_output.ReplyRejected as retry_exc:
+                    return _schema_failure(retry_exc, token_usage, attempts)
+            return ExecutorResult(
+                output=parsed, token_usage=token_usage, error_code=ErrorCode.SUCCESS, attempts=list(attempts)
+            )
+
+
+def _schema_failure(exc, token_usage, attempts: list) -> ExecutorResult:
+    return ExecutorResult(
+        error_code=ErrorCode.SCHEMA_VALIDATION_FAILED,
+        error_message=f"The reply is not the declared JSON: {exc}",
+        token_usage=token_usage,
+        attempts=list(attempts),
+    )
+
+
+def _usage(meta) -> TokenUsage:
+    prompt = int(getattr(meta, "prompt_token_count", 0) or 0)
+    completion = int(getattr(meta, "candidates_token_count", 0) or 0) + int(
+        getattr(meta, "thoughts_token_count", 0) or 0
+    )
+    total = int(getattr(meta, "total_token_count", 0) or 0) or prompt + completion
+    return TokenUsage(
+        prompt_tokens=prompt,
+        completion_tokens=completion,
+        total_tokens=total,
+        cache_read_tokens=int(getattr(meta, "cached_content_token_count", 0) or 0),
+    )
+
 
 register_executor("antigravity", AntigravityExecutor)
-
