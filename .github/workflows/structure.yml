@@ -1,0 +1,51 @@
+name: Structure Check
+
+# Runs on pull requests into staging and processa-refactor. It also runs when a review is
+# submitted or dismissed, so a code owner's approval of a baseline change turns it green.
+on:
+  pull_request:
+    branches: [staging, processa-refactor]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: structure-one_bpmn-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  structure:
+    name: Structure check
+    if: contains(fromJSON('["staging", "processa-refactor"]'), github.event.pull_request.base.ref)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Fetch base branch
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          git fetch --no-tags origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+      - name: Collect approving reviewers
+        id: approvers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          approvers=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" --paginate --slurp \
+            | jq -r '[flatten[] | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED")]
+                     | group_by(.user.login) | map(last) | map(select(.state == "APPROVED") | .user.login) | join(",")')
+          echo "logins=$approvers" >> "$GITHUB_OUTPUT"
+      - name: Run structure check
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          APPROVERS: ${{ steps.approvers.outputs.logins }}
+        run: |
+          python .github/scripts/check_structure.py --base "origin/$BASE_REF" --approvers "$APPROVERS"

@@ -262,22 +262,24 @@ class TestBrandedDeckFill(FrappeTestCase):
 
 
 class TestTheDeckOperationShipsWithTheApp(FrappeTestCase):
-    """A site that never had the record made by hand gets it from migrate."""
+    """A fresh site gets the Slides connector, deck operation included, from install."""
 
-    def test_the_missing_operations_patch_creates_it(self):
+    def test_after_install_seeds_it(self):
         import importlib
 
         import frappe
 
-        from one_bpmn.one_bpmn.patches.v1_0 import add_missing_connector_operations
+        for name in frappe.get_all(
+            "BPMN Connector Operation", filters={"connector": "google_slides"}, pluck="name"
+        ):
+            frappe.delete_doc("BPMN Connector Operation", name, force=True)
+        if frappe.db.exists("BPMN Connector", "google_slides"):
+            frappe.delete_doc("BPMN Connector", "google_slides", force=True)
+
+        for hook in frappe.get_hooks("after_install", app_name="one_bpmn"):
+            frappe.get_attr(hook)()
 
         filters = {"connector": "google_slides", "operation_id": "fillBrandedDeck"}
-        name = frappe.db.get_value("BPMN Connector Operation", filters, "name")
-        if name:
-            frappe.delete_doc("BPMN Connector Operation", name, force=True)
-
-        add_missing_connector_operations.execute()
-
         name = frappe.db.get_value("BPMN Connector Operation", filters, "name")
         row = frappe.get_doc("BPMN Connector Operation", name)
         self.assertEqual(row.execution_type, "Python Handler")
