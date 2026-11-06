@@ -12,13 +12,6 @@ NOT_EDITABLE_REASON = (
 	'actioned to "Active" state to enable editing.'
 )
 
-# Source-of-truth methods, executed on the site where the Process
-# Implementation records live (Production when connect_to_production is
-# enabled, the local site otherwise).
-SOURCE_IS_PROCESS_EDITABLE = "one_bpmn.api.editability.is_process_editable"
-SOURCE_BULK_CHECK = "one_bpmn.api.editability.bulk_check_process_editable"
-SOURCE_IMPLEMENTATIONS_EDITABLE = "one_bpmn.api.editability.check_implementations_editable"
-
 
 def get_instance_type() -> str:
 	"""Return Processa Settings → Instance Type ("Local" / "Production" /
@@ -123,40 +116,31 @@ def _site_lock_override() -> dict | None:
 	return None
 
 
+def _production_creds() -> tuple[str, str, str]:
+	"""Return (url, key, secret) for the Production site.
+
+	Processa Settings win when connect_to_production is set and all three
+	values are filled; otherwise the frappe.conf values are used.
+	"""
+	settings = frappe.get_single("Processa Settings")
+	if settings.connect_to_production:
+		url = (settings.production_url or "").rstrip("/")
+		key = settings.get_password("production_api_key", raise_exception=False)
+		secret = settings.get_password("production_api_secret", raise_exception=False)
+		if url and key and secret:
+			return url, key, secret
+
+	url = (frappe.conf.get("production_url") or "").rstrip("/")
+	return url, frappe.conf.get("production_api_key"), frappe.conf.get("production_api_secret")
+
+
 def _is_local_dev_mode() -> bool:
 	"""Return True when production API credentials are NOT configured.
 
 	In local dev the Process Implementation records live on the same
 	bench, so we can call the source API directly without HTTP.
 	"""
-	settings = frappe.get_single("Processa Settings")
-	if settings.connect_to_production:
-		production_url = settings.production_url
-		api_key = settings.get_password("production_api_key")
-		api_secret = settings.get_password("production_api_secret")
-		if production_url and api_key and api_secret:
-			return False
-
-	# Fallback to site_config.json (frappe.conf)
-	production_url = frappe.conf.get("production_url")
-	api_key = frappe.conf.get("production_api_key")
-	api_secret = frappe.conf.get("production_api_secret")
-	return not (production_url and api_key and api_secret)
-
-
-def _call_local_api(method_path: str, params: dict) -> dict:
-	"""Call a source API method directly (same bench, no HTTP).
-
-	Used when connect_to_production is disabled, and as a fallback in
-	local dev when production credentials are not configured.
-	"""
-	import importlib
-
-	# method_path looks like "one_bpmn.api.editability.is_process_editable"
-	module_path, func_name = method_path.rsplit(".", 1)
-	module = importlib.import_module(module_path)
-	func = getattr(module, func_name)
-	return func(**params)
+	return not all(_production_creds())
 
 
 def _call_production_api(method: str, params: dict) -> dict:
@@ -165,31 +149,10 @@ def _call_production_api(method: str, params: dict) -> dict:
 
 	Reads `production_url`, `production_api_key`, and
 	`production_api_secret` from Processa Settings DocType.
-
-	Falls back to a direct local call when credentials are not configured
-	(local development mode).
 	"""
 	import requests
 
-	# Local dev fallback — call directly on the same bench
-	if _is_local_dev_mode():
-		return _call_local_api(method, params)
-
-	settings = frappe.get_single("Processa Settings")
-	production_url = None
-	api_key = None
-	api_secret = None
-
-	if settings.connect_to_production:
-		production_url = (settings.production_url or "").rstrip("/")
-		api_key = settings.get_password("production_api_key")
-		api_secret = settings.get_password("production_api_secret")
-
-	# Fallback to site_config.json if settings are disabled or incomplete
-	if not (production_url and api_key and api_secret):
-		production_url = (frappe.conf.get("production_url") or "").rstrip("/")
-		api_key = frappe.conf.get("production_api_key")
-		api_secret = frappe.conf.get("production_api_secret")
+	production_url, api_key, api_secret = _production_creds()
 
 	if not production_url or not api_key or not api_secret:
 		frappe.throw(
@@ -226,7 +189,7 @@ def _call_production_api(method: str, params: dict) -> dict:
 		frappe.throw(_("Failed to check process editability. Please try again or contact support."))
 
 
-def _route_to_source(method: str, params: dict) -> dict:
+def _route_to_source(func, params: dict) -> dict:
 	"""Route a source-of-truth call to where Process Implementations live.
 
 	connect_to_production checked   →  Production API (HTTP, with local
@@ -234,9 +197,9 @@ def _route_to_source(method: str, params: dict) -> dict:
 	connect_to_production unchecked →  direct call on the same bench
 	"""
 	settings = frappe.get_cached_doc("Processa Settings")
-	if settings.connect_to_production:
-		return _call_production_api(method, params)
-	return _call_local_api(method, params)
+	if settings.connect_to_production and not _is_local_dev_mode():
+		return _call_production_api(f"{func.__module__}.{func.__name__}", params)
+	return func(**params)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -417,7 +380,7 @@ def is_implementation_editable(pi_name: str) -> bool:
 	if not pi_name:
 		return False
 	result = _route_to_source(
-		SOURCE_IMPLEMENTATIONS_EDITABLE, {"pi_names": json.dumps([pi_name])}
+		check_implementations_editable, {"pi_names": json.dumps([pi_name])}
 	) or {}
 	return bool(result.get(pi_name))
 
@@ -439,7 +402,7 @@ def annotate_model_editability(models: list[dict]) -> None:
 	editable_map = {}
 	if pi_names:
 		editable_map = _route_to_source(
-			SOURCE_IMPLEMENTATIONS_EDITABLE, {"pi_names": json.dumps(pi_names)}
+			check_implementations_editable, {"pi_names": json.dumps(pi_names)}
 		) or {}
 	for m in models:
 		m["implementation_editable"] = bool(editable_map.get(m.get("process_implementation")))
@@ -519,9 +482,10 @@ def check_process_editable(process_name: str) -> dict:
 	if override is not None:
 		return override
 
-	result = dict(
-		_route_to_source(SOURCE_IS_PROCESS_EDITABLE, {"process_name": process_name}) or {}
+	entries = (
+		_route_to_source(bulk_check_process_editable, {"process_names": json.dumps([process_name])}) or {}
 	)
+	result = dict(entries.get(process_name) or _format_editability(None))
 
 	# Add a human-readable reason for the frontend
 	result["override"] = False
@@ -566,7 +530,7 @@ def bulk_check_processes_editable(process_names: str) -> dict:
 		return {pname: dict(override) for pname in process_names_list}
 
 	results = _route_to_source(
-		SOURCE_BULK_CHECK, {"process_names": json.dumps(process_names_list)}
+		bulk_check_process_editable, {"process_names": json.dumps(process_names_list)}
 	) or {}
 
 	decorated = {}
