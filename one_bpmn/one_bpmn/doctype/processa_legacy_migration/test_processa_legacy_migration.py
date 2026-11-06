@@ -1,8 +1,8 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 
-from frappe.tests import IntegrationTestCase
+from frappe.tests.utils import FrappeTestCase
 
 
-class TestProcessaLegacyMigration(IntegrationTestCase):
+class TestProcessaLegacyMigration(FrappeTestCase):
 	pass
