@@ -1,4 +1,3 @@
-import tomllib
 from pathlib import Path
 
 import frappe
@@ -12,7 +11,6 @@ class TestAppMetadata(FrappeTestCase):
 		self.assertTrue(frappe.get_hooks("export_python_type_annotations"))
 
 	def test_supported_frappe_range_is_declared(self):
-		with open(PYPROJECT, "rb") as f:
-			data = tomllib.load(f)
-		declared = data["tool"]["bench"]["frappe-dependencies"]["frappe"]
-		self.assertEqual(declared, ">=15.0.0,<16.0.0")
+		text = PYPROJECT.read_text()
+		self.assertIn("[tool.bench.frappe-dependencies]", text)
+		self.assertIn('frappe = ">=15.0.0,<16.0.0"', text)
