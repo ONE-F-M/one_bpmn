@@ -30,11 +30,7 @@ def get_instance_type() -> str:
 
 
 def ensure_instance_type_seeded() -> str:
-	"""Give Processa Settings an Instance Type if it has none, and return it.
-
-	An existing value is returned unchanged. Otherwise a site that connects to
-	Production is "BA" and any other site is "Local".
-	"""
+	"""Return the Instance Type, storing "BA" or "Local" first when it is empty."""
 	current = frappe.db.get_single_value("Processa Settings", "instance_type")
 	if current:
 		return current

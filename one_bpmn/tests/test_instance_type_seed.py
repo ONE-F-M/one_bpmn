@@ -7,9 +7,7 @@ SETTINGS = "Processa Settings"
 
 
 def _stored(field):
-	return frappe.db.sql(
-		"select value from tabSingles where doctype = %s and field = %s", (SETTINGS, field)
-	)
+	return frappe.db.get_single_value(SETTINGS, field, cache=False)
 
 
 class TestInstanceTypeSeed(FrappeTestCase):
@@ -30,23 +28,23 @@ class TestInstanceTypeSeed(FrappeTestCase):
 	def test_seeds_local_when_not_connected_to_production(self):
 		self._set("", 0)
 		self.assertEqual(ensure_instance_type_seeded(), "Local")
-		self.assertEqual(_stored("instance_type")[0][0], "Local")
+		self.assertEqual(_stored("instance_type"), "Local")
 
 	def test_seeds_ba_when_connected_to_production(self):
 		self._set("", 1)
 		self.assertEqual(ensure_instance_type_seeded(), "BA")
-		self.assertEqual(_stored("instance_type")[0][0], "BA")
+		self.assertEqual(_stored("instance_type"), "BA")
 
 	def test_existing_value_is_left_alone(self):
 		self._set("Production", 1)
 		self.assertEqual(ensure_instance_type_seeded(), "Production")
-		self.assertEqual(_stored("instance_type")[0][0], "Production")
+		self.assertEqual(_stored("instance_type"), "Production")
 
 	def test_second_run_changes_nothing(self):
 		self._set("", 0)
 		first = ensure_instance_type_seeded()
 		self.assertEqual(ensure_instance_type_seeded(), first)
-		self.assertEqual(_stored("instance_type")[0][0], first)
+		self.assertEqual(_stored("instance_type"), first)
 
 	def test_after_install_hook_is_registered(self):
 		self.assertIn("one_bpmn.install.after_install", frappe.get_hooks("after_install"))
