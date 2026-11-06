@@ -29,7 +29,7 @@
 					@clear-selection="clearSelection"
 				/>
 
-				<!-- Waiting for AI execution (WI-001499) -->
+				<!-- Waiting for AI execution -->
 				<div v-if="waitingForAi" class="flex items-center gap-3 bg-blue-50 border border-blue-200 text-blue-800 text-sm px-4 py-2.5 mx-4 mt-2 rounded-lg">
 					<span class="text-blue-600 animate-pulse text-base leading-none">✦</span>
 					<div class="flex-1">
@@ -49,7 +49,7 @@
 					<span class="text-amber-500 animate-pulse text-base leading-none">✦</span>
 				</div>
 
-				<!-- AI job failed after retries (WI-001497/WI-001499) -->
+				<!-- AI job failed after retries -->
 				<div v-else-if="details.status === 'Errored' && parkedAiTasks.length" class="flex items-start gap-3 bg-red-50 border border-red-200 text-red-800 text-sm px-4 py-3 mx-4 mt-2 rounded-lg">
 					<span class="text-red-500 text-base leading-none mt-0.5">✦</span>
 					<div class="flex-1">
@@ -295,7 +295,7 @@ const taskList = computed(() => {
 			for (let i = 0; i < nodes.length; i++) {
 				const n = nodes[i]
 				flat.push(n)
-				// WI-001426: an AI Agent Task's tool calls happen inside the
+				// An AI Agent Task's tool calls happen inside the
 				// LLM loop, not as engine tasks — inject synthetic nested rows
 				// (from ai_agent_tool_call records) so the history shows what
 				// the agent did. AI Agent Runs are zipped to the task's visits
@@ -409,7 +409,7 @@ const selectedNode = computed(() => {
 
 
 
-// ── AI Agent tool calls (WI-001426) ──
+// ── AI Agent tool calls ──
 // Tool calls made by an AI Agent Task run inside the LLM loop, not as engine
 // tasks — fetch them from the observability records (AI Agent Run → Step →
 // Tool Call) so the history and diagram can show what the agent did.
@@ -510,7 +510,7 @@ async function loadAiToolCalls() {
 	}
 }
 
-// Diagram highlight: toolbox shapes the agent actually called (WI-001426).
+// Diagram highlight: toolbox shapes the agent actually called.
 // bpmnId → "Success" | "Error" (an Error anywhere wins for that shape).
 // Shape ids present in the diagram currently on screen. Used to keep a caller's
 // tool calls off a called process's page and vice versa. Derived from the XML
@@ -550,11 +550,11 @@ const aiCalledTools = computed(() => {
 	return map
 })
 
-// ── Waiting for AI execution (WI-001499) ──
+// ── Waiting for AI execution ──
 // AI tasks reached by an engine pass are parked (STARTED) while ONLY their
 // LLM work runs as a bpmn_ai_agent job. waiting_for_ai flags the instance;
 // get_parked_ai_tasks names the parked units for the banner, the diagram
-// highlight, and the manual retry (WI-001497) after exhausted retries.
+// highlight, and the manual retry after exhausted retries.
 
 const parkedAiTasks = ref([])
 const retryingAi = ref(false)
@@ -843,10 +843,10 @@ const engineBusy = computed(
 	() => details.value?.status === "Queued" || Boolean(details.value?.engine_in_progress)
 )
 
-// WI-001499: also poll while waiting on an AI job — realtime is primary,
+// Also poll while waiting on an AI job — realtime is primary,
 // this is the fallback if the job's completion event is missed. NOTE:
 // waitingForAi deliberately does NOT feed engineBusy — the gate is clear
-// while waiting, so pending human actions stay enabled (WI-001498).
+// while waiting, so pending human actions stay enabled.
 const enginePolling = computed(() => engineBusy.value || waitingForAi.value)
 
 let enginePollTimer = null

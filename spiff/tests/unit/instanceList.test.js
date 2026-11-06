@@ -1,6 +1,6 @@
 import { test } from "vitest"
 import assert from "node:assert/strict"
-import { loadInstanceListState, saveInstanceListState } from "@/views/instanceListState.js"
+import { loadInstanceListState, saveInstanceListState } from "@/stores/instanceList.js"
 
 function fakeStorage(initial = {}) {
 	const data = { ...initial }

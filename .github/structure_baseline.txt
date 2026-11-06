@@ -47,15 +47,15 @@ size spiff/src/components/LogixCanvas.vue 1433
 size spiff/src/components/chat/AgentChatPanel.vue 1129
 size spiff/src/components/process_instance/BpmnDiagramViewer.vue 808
 size spiff/src/components/process_instance/ElementInspector.vue 799
-size spiff/src/views/A2A.vue 1970
-size spiff/src/views/Editor.vue 3709
-size spiff/src/views/EvalRunReview.vue 516
-size spiff/src/views/EvalSuiteDetail.vue 1608
-size spiff/src/views/Home.vue 525
-size spiff/src/views/InstanceDetail.vue 891
-size spiff/src/views/InstanceList.vue 559
-size spiff/src/views/Security.vue 1216
-size spiff/src/views/skills/SkillsManager.vue 796
+size spiff/src/pages/A2A.vue 1970
+size spiff/src/pages/EvalRun.vue 516
+size spiff/src/pages/EvalSuite.vue 1608
+size spiff/src/pages/Instance.vue 891
+size spiff/src/pages/Instances.vue 559
+size spiff/src/pages/Process.vue 3709
+size spiff/src/pages/Processes.vue 525
+size spiff/src/pages/Security.vue 1216
+size spiff/src/pages/Skills.vue 796
 test-location one_bpmn/agents/test_agent_provisioning.py
 test-location one_bpmn/agents/test_deterministic_evals.py
 test-location one_bpmn/agents/test_direct_eval_model.py

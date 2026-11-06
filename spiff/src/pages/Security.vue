@@ -723,7 +723,7 @@
 </template>
 
 <script setup>
-// WI-001970: the security operation, in the SPA.
+// The security operation, in the SPA.
 //
 // Read-mostly by design. Every write here is a call into the module that owns
 // the behaviour — the pattern doctype, 15.2's promote method, 15.3's release
@@ -791,7 +791,7 @@ const savingPattern = ref(false)
 const patternError = ref("")
 const busyPattern = ref("")
 
-// WI-001645: what an agent may DO, alongside what may be said to it.
+// What an agent may DO, alongside what may be said to it.
 const policies = ref([])
 const policyDraft = ref(null)
 const savingPolicy = ref(false)

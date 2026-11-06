@@ -5,7 +5,7 @@
 # AC2 - the review diff reports Client Script differences.
 # AC3 - the generated patch applies Client Scripts, the same way it applies the
 #       Custom Fields and Property Setters.
-# (AC1, the preliminary message, lives in spiff/src/views/Editor.vue - front end,
+# (AC1, the preliminary message, lives in spiff/src/pages/Process.vue - front end,
 # not covered here.)
 
 from __future__ import annotations

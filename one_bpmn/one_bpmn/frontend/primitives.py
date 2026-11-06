@@ -264,7 +264,7 @@ _PROBE = "src/__candidate_probe.js"
 def run_build(files: dict | None = None) -> dict:
 	"""Compile the SPA with ``files`` applied, in a throwaway copy of the tree.
 
-	``files`` maps SPA-relative paths (``src/views/Thing.vue``) to their content.
+	``files`` maps SPA-relative paths (``src/pages/Thing.vue``) to their content.
 
 	TWO THINGS THIS HAS TO GET RIGHT, both learned the hard way:
 

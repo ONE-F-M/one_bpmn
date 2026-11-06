@@ -206,7 +206,7 @@
 </template>
 
 <script setup>
-// WI-001821: two runs of one suite, side by side, so an agent can be chosen on
+// Two runs of one suite, side by side, so an agent can be chosen on
 // evidence instead of on impression. Reads only — the runs themselves were
 // produced by run_eval_comparison (or by two ordinary runs the user pairs here).
 import { computed, h, onBeforeUnmount, onMounted, ref, watch } from "vue"

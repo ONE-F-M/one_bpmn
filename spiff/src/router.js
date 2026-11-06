@@ -1,9 +1,9 @@
 import { createRouter, createWebHistory } from "vue-router"
-import Home from "@/views/Home.vue"
-import Editor from "@/views/Editor.vue"
-import VersionHistory from "@/views/VersionHistory.vue"
-import InstanceList from "@/views/InstanceList.vue"
-import InstanceDetail from "@/views/InstanceDetail.vue"
+import Home from "@/pages/Processes.vue"
+import Editor from "@/pages/Process.vue"
+import VersionHistory from "@/pages/VersionHistory.vue"
+import InstanceList from "@/pages/Instances.vue"
+import InstanceDetail from "@/pages/Instance.vue"
 
 const routes = [
 	{
@@ -42,79 +42,79 @@ const routes = [
 	{
 		path: "/processa/runs",
 		name: "Runs",
-		component: () => import("@/views/Runs.vue"),
+		component: () => import("@/pages/Runs.vue"),
 	},
 	{
 		path: "/processa/runs/:run",
 		name: "RunDetail",
-		component: () => import("@/views/RunDetail.vue"),
+		component: () => import("@/pages/Run.vue"),
 	},
 	{
 		path: "/processa/insights",
 		name: "Insights",
-		component: () => import("@/views/Insights.vue"),
+		component: () => import("@/pages/Insights.vue"),
 	},
 	{
 		// What the checks found, ordered by time — the read-only counterpart to
 		// the suites list, which is ordered by what you configure.
 		path: "/processa/evals/results",
 		name: "EvalResults",
-		component: () => import("@/views/EvalResults.vue"),
+		component: () => import("@/pages/EvalResults.vue"),
 	},
 	{
 		path: "/processa/evals",
 		name: "Evals",
-		component: () => import("@/views/Evals.vue"),
+		component: () => import("@/pages/Evals.vue"),
 	},
 	{
 		path: "/processa/evals/feedback",
 		name: "EvalFeedback",
-		component: () => import("@/views/EvalFeedback.vue"),
+		component: () => import("@/pages/EvalFeedback.vue"),
 	},
 	{
 		path: "/processa/evals/suite/:suite",
 		name: "EvalSuiteDetail",
-		component: () => import("@/views/EvalSuiteDetail.vue"),
+		component: () => import("@/pages/EvalSuite.vue"),
 		props: true,
 	},
 	{
 		path: "/processa/evals/run/:run",
 		name: "EvalRunReview",
-		component: () => import("@/views/EvalRunReview.vue"),
+		component: () => import("@/pages/EvalRun.vue"),
 		props: true,
 	},
 	{
-		// WI-001821: run B is optional — a run created as half of an A/B pair
+		// Run B is optional — a run created as half of an A/B pair
 		// finds its own other side, so the pair is reachable from one id.
 		path: "/processa/evals/compare/:runA/:runB?",
 		name: "EvalComparison",
-		component: () => import("@/views/EvalComparison.vue"),
+		component: () => import("@/pages/EvalComparison.vue"),
 		props: true,
 	},
 	{
 		path: "/processa/security",
 		name: "Security",
-		component: () => import("@/views/Security.vue"),
+		component: () => import("@/pages/Security.vue"),
 	},
 	{
 		path: '/processa/skills',
 		name: 'Skills',
-		component: () => import('../views/skills/SkillsManager.vue'),
+		component: () => import('@/pages/Skills.vue'),
 	},
 	{
 		path: "/processa/a2a",
 		name: "A2A",
-		component: () => import("@/views/A2A.vue"),
+		component: () => import("@/pages/A2A.vue"),
 	},
 	{
 		path: "/processa/sessions",
 		name: "Sessions",
-		component: () => import("@/views/Sessions.vue"),
+		component: () => import("@/pages/Sessions.vue"),
 	},
 	{
 		path: "/processa/memory",
 		name: "Memory",
-		component: () => import("@/views/Memory.vue"),
+		component: () => import("@/pages/Memory.vue"),
 	},
 	{
 		path: "/:pathMatch(.*)*",

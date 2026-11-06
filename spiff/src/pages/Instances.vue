@@ -306,7 +306,7 @@ import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 import { useWindowSize } from "@/composables/useWindowSize"
 import UserFilter from "@/components/UserFilter.vue"
-import { loadInstanceListState, saveInstanceListState } from "./instanceListState"
+import { loadInstanceListState, saveInstanceListState } from "@/stores/instanceList"
 
 const { isMobile } = useWindowSize()
 

@@ -190,7 +190,7 @@
 </template>
 
 <script setup>
-// The triage queue for response feedback (WI-002068).
+// The triage queue for response feedback.
 //
 // One job: decide which complaints are real regressions, and turn those into
 // tests. Everything on the page serves that decision — which is why the question
