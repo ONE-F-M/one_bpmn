@@ -676,7 +676,7 @@ async function loadDetails() {
 		activeTasks.value = res?.active_tasks
 			? res.active_tasks.filter((t) => !t.status || t.status === "Waiting")
 			: []
-		if (res?.process_model) loadProcessModelXml(res.process_model)
+		if (res?.process_model && res.process_model !== loadedModelName) loadProcessModelXml(res.process_model)
 		loadAiToolCalls()
 		loadParkedAiTasks()
 		loadSuspendedAiTasks()
@@ -685,6 +685,8 @@ async function loadDetails() {
 	}
 }
 
+let loadedModelName = null
+
 async function loadProcessModelXml(modelName) {
 	try {
 		const res = await frappeRequest({
@@ -692,6 +694,7 @@ async function loadProcessModelXml(modelName) {
 			params: { name: modelName },
 		})
 		const data = res
+		loadedModelName = modelName
 		modelProcessName.value = data?.process_name || ""
 		if (data?.xml_content) {
 			// Assign the XML verbatim. bpmn-js parses XML entities itself, so we
@@ -715,7 +718,7 @@ async function loadLogs() {
 			method: "POST",
 			params: {
 				doctype: "BPMN Activity Log",
-				fields: '["name", "task_id", "task_name", "action", "timestamp", "user", "data"]',
+				fields: '["name", "task_id", "task_name", "action", "timestamp", "user"]',
 				filters: JSON.stringify({ instance: instanceId.value }),
 				order_by: "timestamp desc",
 				limit_start: limitStart.value,
@@ -849,11 +852,22 @@ const engineBusy = computed(
 // while waiting, so pending human actions stay enabled (WI-001498).
 const enginePolling = computed(() => engineBusy.value || waitingForAi.value)
 
+const POLL_IDLE_LIMIT_MS = 15 * 60 * 1000
 let enginePollTimer = null
+let lastChangeAt = 0
 watch(enginePolling, (busy) => {
 	if (busy && !enginePollTimer) {
+		lastChangeAt = Date.now()
 		enginePollTimer = setInterval(async () => {
+			const modifiedBefore = details.value?.modified
 			await loadDetails()
+			if (details.value?.modified !== modifiedBefore) {
+				lastChangeAt = Date.now()
+			} else if (Date.now() - lastChangeAt > POLL_IDLE_LIMIT_MS) {
+				clearInterval(enginePollTimer)
+				enginePollTimer = null
+				return
+			}
 			if (!enginePolling.value) {
 				logs.value = []
 				limitStart.value = 0
@@ -872,8 +886,8 @@ watch(enginePolling, (busy) => {
 onMounted(async () => {
 
 	await loadDetails()
-	await loadLogs()
 	loading.value = false
+	loadLogs()
 	if (window.frappe?.realtime) {
 		window.frappe.realtime.on("bpmn_instance_updated", handleRealtimeUpdate)
 	}

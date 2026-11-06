@@ -172,11 +172,29 @@ def _search_rank(query: str, row: dict):
 
 
 def _rank_instances(filters, search: str) -> list:
-	"""Names of the instances matching ``search`` under ``filters``, best match first."""
+	"""Names of the instances matching ``search`` under ``filters``, best match first.
+	The database narrows to rows holding the longest search word or a matching process
+	model; ``_search_rank`` orders that set."""
+	tokens = _words(search)
+	if not tokens:
+		return []
+	models = frappe.get_list(
+		"BPMN Process Instance",
+		fields=["process_model"],
+		filters=filters,
+		distinct=True,
+		limit_page_length=0,
+		pluck="process_model",
+	)
+	or_filters = [[field, "like", f"%{max(tokens, key=len)}%"] for field in SEARCH_FIELDS]
+	matched_models = [m for m in models if m and _search_rank(search, {"process_model": m}) is not None]
+	if matched_models:
+		or_filters.append(["process_model", "in", matched_models])
 	rows = frappe.get_list(
 		"BPMN Process Instance",
 		fields=list(SEARCH_FIELDS),
 		filters=filters,
+		or_filters=or_filters,
 		limit_page_length=0,
 		order_by="creation desc",
 	)

@@ -67,7 +67,8 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "BPMN Process Instance",
-   "options": "BPMN Process Instance"
+   "options": "BPMN Process Instance",
+   "search_index": 1
   },
   {
    "description": "The BPMN Process Model this run belongs to",
@@ -429,7 +430,7 @@
   ]
  ],
  "links": [],
- "modified": "2026-10-04 12:00:00.000000",
+ "modified": "2026-11-06 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Agent Run",
