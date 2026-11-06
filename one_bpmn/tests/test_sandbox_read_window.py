@@ -19,7 +19,7 @@ from one_bpmn.one_bpmn.patches.v1_0 import frontend_agent_reads_in_windows as fi
 
 REPO = frappe.get_app_source_path("one_bpmn")
 BPMN_EDITOR = "spiff/src/components/BpmnEditor.vue"
-EDITOR = "spiff/src/views/Editor.vue"
+EDITOR = "spiff/src/pages/Process.vue"
 ARGS = {"target_app": "one_bpmn", "git_branch": "staging", "work_item_description": "Fix the panel."}
 
 

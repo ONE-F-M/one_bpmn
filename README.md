@@ -85,7 +85,7 @@ one_bpmn/                      # Frappe app (repo root)
 │
 └── spiff/                     # Vue.js frontend source
     └── src/
-        ├── views/             # Home, Editor, Instance list/detail
+        ├── pages/             # Processes, Process, Instances, Instance, agent pages
         ├── components/        # Editor, toolbar, ProsAlly panel, instance views, dialogs
         ├── bpmn|renderers|rules|moddle|resize/  # bpmn-js extension modules
         ├── composables|utils/ # Shared logic & helpers (incl. ProsAlly auto-layout)
@@ -295,7 +295,7 @@ bench --site your-site.local clear-cache
 ### Adding New Features
 
 - **API endpoint**: add to the appropriate submodule in `one_bpmn/api/` with `@frappe.whitelist()` (e.g. process CRUD in `process_map_api.py`, instance logic in `instance_api.py`).
-- **Vue component / view**: add under `spiff/src/components/` or `spiff/src/views/` and register routes in `router/index.js`.
+- **Vue component / view**: add under `spiff/src/components/` or `spiff/src/pages/` and register routes in `spiff/src/router.js`.
 - **bpmn-js module**: add under `spiff/src/bpmn/`, `renderers/`, `rules/`, or `resize/` and register in `BpmnEditor.vue`'s `additionalModules`.
 - **Moddle extension**: add under `spiff/src/moddle/` and register in `BpmnEditor.vue`'s `moddleExtensions`.
 

@@ -1673,7 +1673,7 @@ const notification = ref({
 const showUnsavedNavigationWarning = ref(false);
 let pendingNavigationNext = null;
 
-// WI-002041: there is no new-diagram dialog. Process maps are created only by
+// There is no new-diagram dialog. Process maps are created only by
 // the Process Implementation process, so the editor has no creation path — the
 // version history (named + restorable) covers everything it used to offer.
 

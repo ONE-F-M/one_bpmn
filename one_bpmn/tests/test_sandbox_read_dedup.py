@@ -119,7 +119,7 @@ class TestRepeatReadIsElided(FrappeTestCase):
 		self.assertEqual(out["content"], BIG)
 
 	def test_a_read_of_a_different_path_does_not_match(self):
-		_earlier_read("i-test", "spiff/src/views/Editor.vue", BIG)
+		_earlier_read("i-test", "spiff/src/pages/Process.vue", BIG)
 		out = _run(self.args, self._dispatch(BIG))
 		self.assertEqual(out["content"], BIG)
 

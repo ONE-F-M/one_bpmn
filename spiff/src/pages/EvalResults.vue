@@ -94,7 +94,7 @@
 </template>
 
 <script setup>
-// Eval results (WI-002537) — what the checks found, ordered by time.
+// Eval results — what the checks found, ordered by time.
 //
 // The suites page is organised around what you configure; this one is
 // organised around what happened, because those are different questions and

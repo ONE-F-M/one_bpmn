@@ -11,7 +11,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.one_bpmn.connectors import agent_sandbox_ops as ops
 
-VUE = "one_bpmn/spiff/src/views/Home.vue"
+VUE = "one_bpmn/spiff/src/pages/Processes.vue"
 FRONTEND = frappe._dict(name="inst-1", process_model="Frontend Agent")
 
 
@@ -56,14 +56,14 @@ class TestHasRead(FrappeTestCase):
 			return ops._has_read(FRONTEND, path)
 
 	def test_a_read_of_the_same_file_under_either_path_form_counts(self):
-		self.assertTrue(self._has_read(VUE, ("read_file", "spiff/src/views/Home.vue")))
-		self.assertTrue(self._has_read("spiff/src/views/Home.vue", ("read_file", VUE)))
+		self.assertTrue(self._has_read(VUE, ("read_file", "spiff/src/pages/Processes.vue")))
+		self.assertTrue(self._has_read("spiff/src/pages/Processes.vue", ("read_file", VUE)))
 
 	def test_a_file_this_run_wrote_counts_as_read(self):
 		self.assertTrue(self._has_read(VUE, ("write_file", VUE)))
 
 	def test_a_different_file_or_a_listing_does_not_count(self):
-		self.assertFalse(self._has_read(VUE, ("read_file", "spiff/src/views/Runs.vue"), ("list_files", VUE)))
+		self.assertFalse(self._has_read(VUE, ("read_file", "spiff/src/pages/Runs.vue"), ("list_files", VUE)))
 
 
 class TestSandboxDispatchRefuses(FrappeTestCase):

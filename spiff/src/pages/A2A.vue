@@ -23,7 +23,7 @@
 			</div>
 		</header>
 
-		<!-- WI-002055: a starved reconciler and a hung agent look identical from
+		<!-- A starved reconciler and a hung agent look identical from
 		     the lists below — both leave delegations sitting in Working. So the
 		     reconciler's own state is stated here, above them, with the CAUSE
 		     rather than the symptom. Hidden when it is running: a banner that is
@@ -1148,7 +1148,7 @@
 </template>
 
 <script setup>
-// WI-001934: the A2A operation, in the SPA.
+// The A2A operation, in the SPA.
 //
 // Read-mostly. Approvals, card fetches and credential reads all call the
 // modules that own those rules, so this screen cannot become a second
@@ -1159,7 +1159,7 @@ import AgentPicker from "@/components/a2a/AgentPicker.vue"
 
 const API = "/api/method/one_bpmn.api.a2a_admin_api."
 
-// WI-002055: whether the job that wakes parked agent work is actually running.
+// Whether the job that wakes parked agent work is actually running.
 const reconciler = ref(null)
 
 function describeAgo(seconds) {
@@ -1472,7 +1472,7 @@ function initiator(task) {
 }
 
 
-// ── Registering and editing (WI-001934) ─────────────────────────────────────
+// ── Registering and editing ─────────────────────────────────────
 const authSchemes = [
 	{ label: "None", value: "None" },
 	{ label: "Bearer", value: "Bearer" },

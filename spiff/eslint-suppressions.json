@@ -194,12 +194,12 @@
       "count": 1
     }
   },
-  "src/views/A2A.vue": {
+  "src/pages/A2A.vue": {
     "no-unused-vars": {
       "count": 5
     }
   },
-  "src/views/Editor.vue": {
+  "src/pages/Process.vue": {
     "no-undef": {
       "count": 1
     },
@@ -207,62 +207,62 @@
       "count": 13
     }
   },
-  "src/views/EvalComparison.vue": {
+  "src/pages/EvalComparison.vue": {
     "no-unused-vars": {
       "count": 1
     }
   },
-  "src/views/EvalFeedback.vue": {
+  "src/pages/EvalFeedback.vue": {
     "no-unused-vars": {
       "count": 3
     }
   },
-  "src/views/EvalResults.vue": {
+  "src/pages/EvalResults.vue": {
     "no-unused-vars": {
       "count": 1
     }
   },
-  "src/views/EvalSuiteDetail.vue": {
+  "src/pages/EvalSuite.vue": {
     "no-unused-vars": {
       "count": 6
     }
   },
-  "src/views/Evals.vue": {
+  "src/pages/Evals.vue": {
     "no-unused-vars": {
       "count": 2
     }
   },
-  "src/views/Home.vue": {
+  "src/pages/Processes.vue": {
     "no-unused-vars": {
       "count": 2
     }
   },
-  "src/views/InstanceDetail.vue": {
+  "src/pages/Instance.vue": {
     "no-unused-vars": {
       "count": 1
     }
   },
-  "src/views/Memory.vue": {
+  "src/pages/Memory.vue": {
     "no-unused-vars": {
       "count": 1
     }
   },
-  "src/views/Runs.vue": {
+  "src/pages/Runs.vue": {
     "no-unused-vars": {
       "count": 1
     }
   },
-  "src/views/Security.vue": {
+  "src/pages/Security.vue": {
     "no-unused-vars": {
       "count": 3
     }
   },
-  "src/views/Sessions.vue": {
+  "src/pages/Sessions.vue": {
     "no-unused-vars": {
       "count": 1
     }
   },
-  "src/views/VersionHistory.vue": {
+  "src/pages/VersionHistory.vue": {
     "no-unused-vars": {
       "count": 1
     }

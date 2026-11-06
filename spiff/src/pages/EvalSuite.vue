@@ -599,7 +599,7 @@
 		</Dialog>
 
 		<!-- From run modal -->
-		<!-- WI-001821: pick a challenger and run the suite twice. The suite's own
+		<!-- Pick a challenger and run the suite twice. The suite's own
 		     agent stays bound to the suite throughout — the nominated agent is
 		     recorded on the RUN, not on the suite. -->
 		<Dialog v-model="showCompare" :options="{ title: 'Compare against another agent' }">
@@ -1150,7 +1150,7 @@ watch(showFromRun, (open) => {
 	if (open) loadAgentRuns()
 })
 
-// ── A/B comparison (WI-001821) ───────────────────────────────────────────────
+// ── A/B comparison ───────────────────────────────────────────────
 const showCompare = ref(false)
 const challenger = ref("")
 const challengerOptions = ref([])

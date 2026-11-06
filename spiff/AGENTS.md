@@ -4,7 +4,7 @@ Rules for `spiff/`: Vue 3, Vite, Composition API, frappe-ui, TailwindCSS and bpm
 
 ## Layout
 
-- `src/views/`: routed pages (`Home.vue`, `Editor.vue`, `InstanceList.vue`, `InstanceDetail.vue`, and the agent pages such as `Runs.vue`, `Evals.vue`, `A2A.vue`). Routes are in `src/router/index.js`.
+- `src/pages/`: routed pages (`Processes.vue`, `Process.vue`, `Instances.vue`, `Instance.vue`, and the agent pages such as `Runs.vue`, `Evals.vue`, `A2A.vue`). Routes are in `src/router.js`.
 - `src/components/`: the editor (`BpmnEditor.vue`, `FormattingToolbar.vue`), dialogs, Logix (`LogixCanvas.vue`, `LogixChat.vue`), ProsAlly (`ProsAllyPanel.vue`) and the shared chat panel under `components/chat/`.
 - `src/composables/`: shared logic, named `use<Name>`.
 - `src/bpmn/`, `src/moddle/`, `src/renderers/`, `src/rules/`, `src/resize/`: bpmn-js extensions. The properties panel is Preact and keeps its shared components in `src/bpmn/shared/`.
