@@ -1,23 +1,8 @@
 # Copyright (c) 2026, kartiksharma9319@gmail.com and Contributors
 # See license.txt
 
-# import frappe
-from frappe.tests import IntegrationTestCase, UnitTestCase
+from frappe.tests.utils import FrappeTestCase
 
 
-class UnitTestBPMNProcessModel(UnitTestCase):
-	"""
-	Unit tests for BPMNProcessModel.
-	Use this class for testing individual functions and methods.
-	"""
-
-	pass
-
-
-class IntegrationTestBPMNProcessModel(IntegrationTestCase):
-	"""
-	Integration tests for BPMNProcessModel.
-	Use this class for testing interactions between multiple components.
-	"""
-
+class TestBPMNProcessModel(FrappeTestCase):
 	pass
