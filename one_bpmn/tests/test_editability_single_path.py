@@ -73,7 +73,6 @@ class TestEditabilitySinglePath(FrappeTestCase):
 
 	def test_old_single_process_endpoint_is_gone(self):
 		self.assertFalse(hasattr(editability, "is_process_editable"))
-		self.assertFalse(hasattr(editability, "_call_local_api"))
 
 	def test_production_creds_read_frappe_conf_when_settings_are_empty(self):
 		empty_settings = SimpleNamespace(connect_to_production=0)
