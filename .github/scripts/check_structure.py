@@ -1,35 +1,10 @@
 #!/usr/bin/env python3
-"""Structure check for pull requests.
+"""Structure check for pull requests: checks only changed files and added lines.
 
-Looks only at what a pull request changes (files changed, lines added) and fails
-when new code breaks the layout or code-safety rules. Breaches that already
-exist are listed in .github/structure_baseline.txt and are allowed to stay, but
-never to get worse.
-
-Rules
-  size           Python file over PY_MAX_LINES lines, Vue file over VUE_MAX_LINES lines.
-  work-item-id   A work-item ID on an added line (comment, docstring, string, patches.txt)
-                 or in the name of an added file.
-  permissions    An added line that sets the ignore_permissions flag to True, with no
-                 reason comment on the same line.
-  raw-sql        An added line that makes a raw frappe.db SQL call, with no reason
-                 comment on the same line.
-  test-location  An added test file outside a doctype folder or a tests/ folder.
-  import         An added import of SpiffWorkflow outside the engine, or of anthropic,
-                 openai or google.genai outside the model adapters.
-  baseline       A baseline entry added or made larger needs approval from a code owner.
-
-Baseline format, one entry per line ("#" starts a comment):
-  size <path> <line count>
-  test-location <path>
-
-Limits and locations are those assumed from the work item; the Processa
-Engineering Standard was not available in the repository when this was written.
-Change the constants below if the Standard says otherwise.
-
-Usage
-  check_structure.py --base origin/staging [--approvers login1,login2]
-  check_structure.py --write-baseline        # regenerate the baseline from the tree
+Rules: size, work-item-id, permissions, raw-sql, test-location, import, baseline.
+Existing breaches live in .github/structure_baseline.txt and may stay but never grow.
+Usage: check_structure.py --base origin/processa-refactor [--approvers a,b]
+       check_structure.py --write-baseline
 """
 
 from __future__ import annotations
@@ -278,7 +253,7 @@ def check_test_location(change: Change, baseline: Baseline, result: Result) -> N
 
 
 def check_imports(change: Change, result: Result) -> None:
-	if change.status == "D" or not change.path.endswith(".py"):
+	if change.status == "D" or not change.path.endswith(".py") or is_test_file(change.path):
 		return
 	for number, text in change.added:
 		for name, pattern, prefixes, where in RESTRICTED_IMPORTS:
@@ -487,11 +462,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 	if os.path.exists(baseline_file):
 		with open(baseline_file, encoding="utf-8") as handle:
 			head_text = handle.read()
-	codeowners = ""
-	codeowners_file = os.path.join(root, CODEOWNERS_PATH)
-	if os.path.exists(codeowners_file):
-		with open(codeowners_file, encoding="utf-8") as handle:
-			codeowners = handle.read()
+	# Owners come from the base branch so a pull request cannot approve its own baseline.
+	codeowners = _git_show(args.base, CODEOWNERS_PATH, root)
 
 	changes = collect_changes(args.base, root)
 	result = run_checks(

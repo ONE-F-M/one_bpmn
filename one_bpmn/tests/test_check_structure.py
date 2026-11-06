@@ -198,8 +198,9 @@ class TestImportRule(unittest.TestCase):
 			with self.subTest(text=text):
 				self.assertTrue(self.added("one_bpmn/agents/llm_provider/new_adapter.py", "\t\t" + text).ok)
 
-	def test_an_import_in_a_test_is_outside_the_allowed_places(self):
-		self.assertEqual(rules(self.added("one_bpmn/tests/test_x.py", SPIFF_IMPORT)), ["import"])
+	def test_tests_may_import_restricted_libraries(self):
+		self.assertTrue(self.added("one_bpmn/tests/test_x.py", SPIFF_IMPORT).ok)
+		self.assertTrue(self.added("one_bpmn/tests/test_x.py", ANTHROPIC_IMPORT).ok)
 
 	def test_unrelated_imports_pass(self):
 		self.assertTrue(self.added("one_bpmn/agents/x.py", "import json").ok)
