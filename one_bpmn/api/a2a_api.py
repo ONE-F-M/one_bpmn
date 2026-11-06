@@ -50,7 +50,7 @@ def push_callback() -> dict:
 	already reached a terminal state changes nothing.
 	"""
 	from one_bpmn.agents.a2a_contract import terminal_states
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
+	from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import (
 		_enqueue_a2a_resume,
 	)
 	from one_bpmn.one_bpmn.integrations import a2a_client

@@ -20,7 +20,7 @@ from one_bpmn.agents.executor import (
 	TokenUsage,
 	register_executor,
 )
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers as D
+from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers as D
 
 _CAPTURED = {}
 

@@ -1872,7 +1872,7 @@ def compile_process_model(model_name: str) -> dict:
 	# no id yet still takes the diagram's, which is the import case.
 	import xml.etree.ElementTree as _ET
 
-	from one_bpmn.one_bpmn.doctype.bpmn_process_model.bpmn_process_model import swap_process_id
+	from one_bpmn.processa_engine.doctype.bpmn_process_model.bpmn_process_model import swap_process_id
 
 	_bpmn_ns = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 	try:

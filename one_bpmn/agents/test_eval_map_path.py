@@ -40,7 +40,7 @@ from one_bpmn.agents.eval_runner import (
 )
 
 INSTANCE_START = (
-    "one_bpmn.one_bpmn.doctype.bpmn_process_instance"
+    "one_bpmn.processa_engine.doctype.bpmn_process_instance"
     ".bpmn_process_instance.BPMNProcessInstance.start"
 )
 

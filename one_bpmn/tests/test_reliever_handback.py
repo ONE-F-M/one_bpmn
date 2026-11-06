@@ -13,7 +13,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import (
+from one_bpmn.processa_engine.doctype.bpmn_process_instance.assignment import (
 	_swap_user,
 	get_reliever_if_on_leave,
 	restore_tasks_on_return,
@@ -138,7 +138,7 @@ class TestRestoreTasksOnReturn(FrappeTestCase):
 		sql.assert_not_called()
 
 
-LEAVE_RELIEVER = "one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment._current_reliever"
+LEAVE_RELIEVER = "one_bpmn.processa_engine.doctype.bpmn_process_instance.assignment._current_reliever"
 
 
 class TestTaskActors(FrappeTestCase):

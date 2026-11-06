@@ -16,7 +16,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
+from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import (
 	BPMNProcessInstance,
 	run_parked_ai_task,
 )

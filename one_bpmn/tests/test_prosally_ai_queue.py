@@ -13,9 +13,9 @@ from one_bpmn.agents.job_limits import (
 	PROSALLY_AI_QUEUE,
 	ai_agent_queue,
 )
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance import bpmn_process_instance as controller
+from one_bpmn.processa_engine.doctype.bpmn_process_instance import bpmn_process_instance as controller
 
-MODULE = "one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance"
+MODULE = "one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance"
 AGENTS = {"ProsAlly Map": "prosally_agent", "Docu Map": "docu_agent"}
 REGISTERED = {"short": 300, "default": 300, "long": 1500, AI_AGENT_QUEUE: 600, PROSALLY_AI_QUEUE: 1800}
 

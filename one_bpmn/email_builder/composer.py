@@ -199,7 +199,7 @@ def _resolve_subject_body(
 	3. Email Template (``notifyAssigneeTemplate``, or ``notifyTemplate`` on older maps) fields
 	4. Default fallback
 	"""
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import _decode_html_attr
+	from one_bpmn.processa_engine.doctype.bpmn_process_instance.assignment import _decode_html_attr
 
 	subject = task_cfg.get("notifyAssigneeSubject", "") or task_cfg.get("notifySubject", "")
 	body = _decode_html_attr(task_cfg.get("notifyAssigneeBody", "")) or task_cfg.get("notifyBody", "")

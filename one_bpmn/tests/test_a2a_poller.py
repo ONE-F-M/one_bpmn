@@ -97,7 +97,7 @@ class TestA2APoller(FrappeTestCase):
 	def _run_poller(self, patches, enqueue=None):
 		enqueue = enqueue or MagicMock()
 		with patch.multiple(a2a_client, **patches), patch(
-			"one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance._enqueue_a2a_resume",
+			"one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance._enqueue_a2a_resume",
 			enqueue,
 		):
 			tasks.poll_a2a_tasks()

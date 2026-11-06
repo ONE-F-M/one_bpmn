@@ -14,7 +14,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import prosally_helpers as helpers
 from one_bpmn.agents.memory import writeback
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers as D
+from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers as D
 
 TURN = {"memory_process": "Zz Process", "user_text": "yes", "memory_notes": [], "chat_history": []}
 DRAWN = {"intent": "BPMN_MODIFIED", "response": "Drew it."}

@@ -20,7 +20,7 @@ from one_bpmn.agents.executor import (
 	register_executor,
 )
 from one_bpmn.agents.executor.direct_api import DirectApiExecutor
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers as D
+from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers as D
 
 _CAPTURED = {}
 
@@ -989,7 +989,7 @@ class TestMemoryTargetUserScope(FrappeTestCase):
 	default follows the agent type, and Agent-only never carries a user."""
 
 	def _target(self, scope, agent_type="Chat", user="alice@example.com"):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers as D
+		from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers as D
 
 		instance = SimpleNamespace(process_model="PM-1", context_doctype="Employee", context_docname="EMP-1")
 		cfg = {"aiMemoryScope": scope, "aiAgentConfig": "CFG-1"}

@@ -243,7 +243,7 @@ class TestProcessModelDeployedMessage(FrappeTestCase):
 		)
 
 		target = (
-			"one_bpmn.one_bpmn.doctype.bpmn_process_instance."
+			"one_bpmn.processa_engine.doctype.bpmn_process_instance."
 			"bpmn_process_instance.BPMNProcessInstance.receive_message"
 		)
 		with patch(target, side_effect=RuntimeError("engine on fire")):

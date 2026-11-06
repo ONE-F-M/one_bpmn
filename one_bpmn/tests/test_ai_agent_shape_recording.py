@@ -30,7 +30,7 @@ class TestAgentShapeRecording(FrappeTestCase):
 		)
 
 	def test_tool_calls_recorded_with_diagram_source(self):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers
 
 		task_cfg = {
 			"serviceType": "ai_agent",

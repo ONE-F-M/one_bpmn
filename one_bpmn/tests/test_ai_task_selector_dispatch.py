@@ -13,7 +13,7 @@ from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.util.task import TaskState
 
 from one_bpmn.one_bpmn import engine
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance import ai_task_selector
+from one_bpmn.processa_engine.doctype.bpmn_process_instance import ai_task_selector
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

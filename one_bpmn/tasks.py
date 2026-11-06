@@ -437,7 +437,7 @@ def poll_a2a_tasks():
 	from frappe.utils import cint
 
 	from one_bpmn.agents.a2a.push import PUSH_RECONCILE_SECONDS
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
+	from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import (
 		_enqueue_a2a_resume,
 	)
 	from one_bpmn.one_bpmn.integrations import a2a_client
@@ -682,7 +682,7 @@ def _escalate_deadline(task_name: str, agent_configuration=None, caller_instance
 def _time_out_task(row, remote) -> None:
 	"""Past the deadline: tell the remote to stop if it will listen, then
 	fail through the normal BPMN error path."""
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
+	from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import (
 		_enqueue_a2a_resume,
 	)
 	from one_bpmn.one_bpmn.integrations import a2a_client
@@ -865,7 +865,7 @@ def _wake_a2a_caller(row) -> None:
 	- an agent suspended mid-turn because it delegated from inside a tool call
 	  → hand the answer to its checkpoint and resume the agent.
 	"""
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
+	from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import (
 		_enqueue_a2a_resume,
 	)
 
@@ -885,7 +885,7 @@ def _resume_waiting_agent(row) -> None:
 	import json
 
 	from one_bpmn.agents import checkpoint as _checkpoint
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import ai_job_queue_of
+	from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import ai_job_queue_of
 
 	run = row.caller_agent_run
 	if not (run and row.caller_instance):
@@ -898,7 +898,7 @@ def _resume_waiting_agent(row) -> None:
 
 	payload = json.loads(frappe.db.get_value("AI Agent Run", run, "checkpoint") or "{}")
 	frappe.enqueue(
-		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
+		"one_bpmn.processa_engine.doctype.bpmn_process_instance"
 		".bpmn_process_instance.run_parked_ai_task",
 		queue=ai_job_queue_of(row.caller_instance),
 		timeout=AI_AGENT_JOB_TIMEOUT,
@@ -1108,7 +1108,7 @@ def _a_job_is_alive(instance, unit: dict) -> bool:
 	"""Whether the unit's own job, one of its retries or an earlier re-queue is still queued or started."""
 	from frappe.utils.background_jobs import is_job_enqueued
 
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import _job_retry_cap
+	from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import _job_retry_cap
 
 	base = f"bpmn-ai-{instance.name}-{unit['task_id']}"
 	retries = _job_retry_cap(instance, unit["kind"], unit["task_id"])
@@ -1121,7 +1121,7 @@ def _a_job_is_alive(instance, unit: dict) -> bool:
 
 
 def _requeue_or_error(instance, unit: dict, minutes: int) -> None:
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import ai_job_queue_of
+	from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import ai_job_queue_of
 
 	done = frappe.db.count(
 		"BPMN Activity Log",
@@ -1136,7 +1136,7 @@ def _requeue_or_error(instance, unit: dict, minutes: int) -> None:
 		return
 	attempt = done + 1
 	frappe.enqueue(
-		"one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance.run_parked_ai_task",
+		"one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance.run_parked_ai_task",
 		queue=ai_job_queue_of(instance.name),
 		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,

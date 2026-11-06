@@ -648,7 +648,7 @@ class TestGates(HealthCase):
 	def test_dispatch_refuses_without_creating_a_run(self):
 		"""The dispatcher's gate: task variables carry the refusal, no AI Agent
 		Run is created, the executor is never reached."""
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers
 
 		name = self._model()
 		record_failure(name, "INVALID_KEY", "rejected")

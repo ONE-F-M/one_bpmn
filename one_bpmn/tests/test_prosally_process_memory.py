@@ -13,7 +13,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import prosally_helpers as helpers
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers as D
+from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers as D
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_stage_tools_read_process_memory as memory_patch
 
 PROMOTION = "Zz Test Employee Promotion"

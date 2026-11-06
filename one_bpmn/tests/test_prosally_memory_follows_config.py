@@ -14,7 +14,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import prosally_helpers as helpers
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers as D
+from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers as D
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_memory_follows_agent_configuration as config_patch
 
 ON = {"long_term_memory": "Enabled", "memory_write_mode": "distilled"}

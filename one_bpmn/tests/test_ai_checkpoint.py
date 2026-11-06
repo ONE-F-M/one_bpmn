@@ -163,7 +163,7 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 		}
 
 	def _dispatch(self, result, resume_run=None):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers
 
 		def fake_run(_self, config, context):
 			fake_run.config = config
@@ -207,7 +207,7 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 		self.assertIn("_bpmn_ai_waiting_human", self.task.data)
 
 	def test_resume_injects_human_result_and_completes(self):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers
 
 		# 1. Suspend
 		self._dispatch(ExecutorResult(
@@ -320,7 +320,7 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 			seen["run"] = observability.current_run_name()
 			return ExecutorResult(output="done")
 
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers
 
 		with patch("one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", new=fake_run):
 			dispatchers.dispatch_ai_agent(
@@ -347,7 +347,7 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 		self._dispatch(ExecutorResult(error_code=ErrorCode.SUSPENDED, suspension=_suspension()))
 		run_name = self.task.data["_bpmn_ai_waiting_human"]["run"]
 
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers
 
 		final = ExecutorResult(output="ok")
 

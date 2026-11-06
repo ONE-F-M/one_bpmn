@@ -78,7 +78,7 @@ class TestEveryPathComposesTheSameWay(FrappeTestCase):
 		"""A composer test that fails if somebody adds a fourth path that sends
 		a raw prompt. The three known senders are named here on purpose."""
 		from one_bpmn.api import agent_invocation
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import ai_task_selector, dispatchers
+		from one_bpmn.processa_engine.doctype.bpmn_process_instance import ai_task_selector, dispatchers
 
 		for module in (dispatchers, ai_task_selector, agent_invocation):
 			source = inspect.getsource(module)
@@ -113,7 +113,7 @@ class TestEveryPathStartsFromTheSameDefaults(FrappeTestCase):
 			self.assertIn("temperature=0.7", inspect.getsource(fn), f"{fn.__name__} lost its pinned temperature")
 
 	def test_no_path_repeats_a_number_the_shared_module_owns(self):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import (
+		from one_bpmn.processa_engine.doctype.bpmn_process_instance import (
 			ai_task_selector,
 			bpmn_process_instance,
 			dispatchers,

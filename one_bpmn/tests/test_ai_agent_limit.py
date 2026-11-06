@@ -23,7 +23,7 @@ class TestAgentMaxToolCalls(FrappeTestCase):
 		self.task = frappe._dict({"data": {}, "task_spec": frappe._dict({"name": "A", "description": "A"})})
 
 	def _captured_config(self, task_cfg):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers
 
 		captured = {}
 		result = ExecutorResult(

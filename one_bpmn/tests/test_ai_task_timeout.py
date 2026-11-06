@@ -59,7 +59,7 @@ class TestResolvedTimeout(FrappeTestCase):
 
 	def _resolved(self, task_cfg):
 		"""Dispatch and return the ExecutorConfig the dispatcher built."""
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers
 
 		captured = {}
 
@@ -111,7 +111,7 @@ class TestResolvedTimeout(FrappeTestCase):
 		one of them silently authoritative."""
 		import inspect
 
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers
 
 		src = inspect.getsource(dispatchers.dispatch_ai_agent)
 		line = next(l for l in src.splitlines() if "timeout_seconds" in l)

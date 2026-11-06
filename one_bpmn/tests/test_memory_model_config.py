@@ -14,7 +14,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.agent_config_resolver import config_field_map
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers as D
+from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers as D
 
 AGENT = "ZZ WI1793 Memory Agent"
 MODEL_CHAT = "ZZ-wi1793-chat"
@@ -498,7 +498,7 @@ class TestTheMemoryModelBringsItsOwnProvider(FrappeTestCase):
 	MODEL = "zz-probe-model"
 
 	def setUp(self):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
+		from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import (
 			_provider_for_model,
 		)
 
@@ -557,7 +557,7 @@ class TestTheMemoryModelBringsItsOwnProvider(FrappeTestCase):
 	def test_the_dispatcher_resolves_both(self):
 		import inspect
 
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers
 
 		src = inspect.getsource(dispatchers)
 		self.assertIn("provider_name=_provider_for_model(", src)
