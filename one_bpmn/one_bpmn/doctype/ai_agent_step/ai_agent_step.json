@@ -39,7 +39,8 @@
    "in_list_view": 1,
    "label": "AI Agent Run",
    "options": "AI Agent Run",
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "fieldname": "step_index",
@@ -209,7 +210,7 @@
   ]
  ],
  "links": [],
- "modified": "2026-10-04 12:00:00.000000",
+ "modified": "2026-11-06 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "ONE BPMN",
  "name": "AI Agent Step",

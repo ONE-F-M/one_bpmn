@@ -231,15 +231,28 @@ def process_timer_catch_events():
 	Called every minute by the Frappe scheduler.
 
 	SpiffWorkflow tracks timer state internally. The approach:
-	  1. Find all Active instances
+	  1. Find Active instances whose process model has a timer event
 	  2. Restore the SpiffWorkflow engine
 	  3. Call wf.refresh_waiting_tasks() — this checks all WAITING tasks
 	     and transitions timer tasks to READY if their time has elapsed
 	  4. If any tasks became READY, run the engine forward and save
 	"""
+	timer_models = frappe.get_all(
+		"BPMN Process Model",
+		or_filters=[
+			[field, "like", f"%{typename}%"]
+			for field in ("serialized_spec", "subprocess_specs")
+			for typename in ("TimerEventDefinition", "TimeDateEventDefinition")
+		],
+		pluck="name",
+	)
+	if not timer_models:
+		return
+
+	# Uses the model's current spec, so an instance whose map later dropped its timer is skipped.
 	active_instances = frappe.get_all(
 		"BPMN Process Instance",
-		filters={"status": "Active"},
+		filters={"status": "Active", "process_model": ["in", timer_models]},
 		pluck="name",
 	)
 
