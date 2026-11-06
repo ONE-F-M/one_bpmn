@@ -71,11 +71,7 @@ one_bpmn.one_bpmn.patches.v1_0.add_eval_suite_inline_cases #02-08-2026 WI-001751
 one_bpmn.one_bpmn.patches.v1_0.fix_assistant_prompt_routing #02-08-2026 WI-001751 follow-up
 one_bpmn.one_bpmn.patches.v1_0.raise_assistant_token_ceiling #02-08-2026 WI-001751 follow-up
 
-one_bpmn.one_bpmn.patches.v1_0.import_connector_manifests_to_doctype #29-07-2026 connectors become configuration
-one_bpmn.one_bpmn.patches.v1_0.degoogle_connector_field_types #29-07-2026 Drive field types -> configurable Value Transform
 one_bpmn.one_bpmn.patches.v1_0.set_connector_credential_source #29-07-2026 connector holds its own credential
-one_bpmn.one_bpmn.patches.v1_0.add_missing_connector_operations #03-08-2026 operations added to shipped manifests reach already-imported sites
-one_bpmn.one_bpmn.patches.v1_0.google_connectors_to_http #03-08-2026 WI-001811
 one_bpmn.one_bpmn.patches.v1_0.move_google_credential_to_connectors #04-08-2026 WI-001811 per-connector Google credentials
 one_bpmn.one_bpmn.patches.v1_0.seed_google_connectors #04-08-2026 WI-001811 connector definitions live in the patch, not JSON files
 one_bpmn.one_bpmn.patches.v1_0.drop_legacy_google_credential_field #04-08-2026 the connector's own Secret is the only credential
@@ -189,7 +185,6 @@ one_bpmn.one_bpmn.patches.v1_0.agent_prompts_for_awkward_orders #22-09-2026 the 
 one_bpmn.one_bpmn.patches.v1_0.orchestrator_baseline_covers_delegation #23-09-2026 four positive routing cases, one per sandbox specialist, now that a delegation under eval is recorded and stopped; re-run: the work items were titled after the route the case tests, so the model read the answer before the brief
 one_bpmn.one_bpmn.patches.v1_0.chat_permissions_live_in_code #22-09-2026 drop the Custom DocPerm copies add_permission left on both chat doctypes so the JSON, now carrying if_owner and the A2A Client role, governs
 one_bpmn.one_bpmn.patches.v1_0.chat_conversation_owner_is_the_person #22-09-2026 conversations the frontend saved as Administrator go back to the participant or first sender, so if_owner does not hide them from their own person
-one_bpmn.one_bpmn.patches.v1_0.add_missing_connector_operations #30-09-2026 the Slides fillBrandedDeck operation joins the shipped manifest, so a site that never got its record by hand gets it on migrate
 one_bpmn.one_bpmn.patches.v1_0.mobile_app_agent_baseline_covers_every_tool #22-09-2026 WI-002244 three cases, one rule and one fitting assertion each, mirroring connector_agent_baseline_covers_every_tool: a work order tries to redirect the change into the backend repo, the work item is read first, a change request with no review comments changes nothing; pass_k reset to 1, matching the Connector Agent's own reverted pass_k=2 experiment
 one_bpmn.one_bpmn.patches.v1_0.backfill_frontend_agent_eval_fixtures #23-09-2026 WI-002245 Patch Log tracks execution by name, not content, so seed_frontend_agent_eval_suite's cases 5-7 (added after it first ran) never get a fixture on a site that already logged it, and the three newer suites seeded directly via BA's API have none by design; this re-invokes all four modules' own idempotent execute(), a no-op wherever every fixture already resolves
 one_bpmn.one_bpmn.patches.v1_0.prosally_deterministic_lane_repair #23-09-2026 WI-002812 Generate Process calls bpmn_ir_pipeline.ensure_default_lanes before spending a repair-pass round-trip on a missing lane structure the prompt already told the model how to fall back on; real run timing showed the fix-pass loop, not any single call, behind ProsAlly's 17s-179s spread
