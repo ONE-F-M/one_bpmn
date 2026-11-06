@@ -247,36 +247,6 @@ def _format_editability(pi: dict | None) -> dict:
 
 
 @frappe.whitelist()
-def is_process_editable(process_name: str) -> dict:
-	"""
-	Check if a process has an editable Process Implementation.
-
-	Called by the BA site (or locally) to determine whether the Processa
-	editor should allow editing for a given process.
-
-	A process is editable only if a Process Implementation exists for it
-	whose workflow state is 'Active' and whose 'Editable' flag is checked.
-
-	Args:
-		process_name: The name of the Process record.
-
-	Returns:
-		dict with:
-			- editable (bool): True if an editable implementation exists
-			- process_implementation (str|None): Name of the most recent one
-			- workflow_state (str|None): Its current workflow state
-	"""
-	if not process_name:
-		frappe.throw(_("Process name is required"))
-
-	# Permission check — caller must have read access to both doctypes
-	frappe.has_permission("Process", "read", throw=True)
-	frappe.has_permission("Process Implementation", "read", throw=True)
-
-	return _format_editability(_get_editable_implementation_local(process_name))
-
-
-@frappe.whitelist()
 def bulk_check_process_editable(process_names: str) -> dict:
 	"""
 	Batch check editability for multiple processes in a single call.
