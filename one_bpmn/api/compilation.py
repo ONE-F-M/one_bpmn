@@ -365,7 +365,7 @@ def _validate_start_event_timers(bpmn_xml: str) -> None:
 	"""
 	import xml.etree.ElementTree as _ET
 
-	from one_bpmn.tasks import timer_start_is_due
+	from one_bpmn.processa_engine.timers import timer_start_is_due
 
 	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
@@ -653,7 +653,7 @@ def _populate_start_events(model, bpmn_xml: str) -> None:
 	  - cronExpression       → cron_expression (on timer definitions)
 
 	Also syncs model-level trigger fields (trigger_type, trigger_doctype,
-	trigger_event) so that trigger.py can fire process instances.
+	trigger_event) so that triggers.py can fire process instances.
 
 	Note: This function modifies the model in-memory only — the caller is
 	responsible for calling model.save().
@@ -742,7 +742,7 @@ def _populate_start_events(model, bpmn_xml: str) -> None:
 
 	# ── Sync spec → model-level trigger fields (DECOMMISSIONED) ────────────────
 	# Note: Model-level trigger fields are now kept for backward compatibility
-	# but are no longer updated. trigger.py and tasks.py now look at the
+	# but are no longer updated. triggers.py and timers.py now look at the
 	# start_events child table directly to support multiple start triggers.
 	pass
 
@@ -2073,7 +2073,7 @@ def compile_process_model(model_name: str) -> dict:
 	# Parse all <bpmn:startEvent> elements from the XML and capture their type
 	# (None, Conditional, Timer, Signal) and configuration into the child table.
 	# Also syncs model-level trigger fields (trigger_type, trigger_doctype,
-	# trigger_event) from the BPMN XML so trigger.py can fire instances.
+	# trigger_event) from the BPMN XML so triggers.py can fire instances.
 	_populate_start_events(model, sanitized_xml)
 
 	# ── Ensure workflow_state field exists on all reference doctypes ──────
@@ -2099,7 +2099,7 @@ def compile_process_model(model_name: str) -> dict:
 	# Implementation instance to its end, and that instance reads the model, so
 	# the deployment has to be a fact in the database before anyone is told
 	# about it. Best-effort — a deploy is not undone because nothing listened.
-	from one_bpmn.one_bpmn.trigger import send_process_model_deployed_message
+	from one_bpmn.processa_engine.triggers import send_process_model_deployed_message
 
 	send_process_model_deployed_message(model)
 
@@ -2145,7 +2145,7 @@ def disable_process_model(model_name: str) -> dict:
 	Disable a deployed BPMN Process Model.
 
 	This is the inverse of ``compile_process_model`` (Deploy).  It:
-	1. Sets ``is_active = 0`` — trigger.py will stop creating new instances.
+	1. Sets ``is_active = 0`` — triggers.py will stop creating new instances.
 	2. Clears ``serialized_spec`` and ``subprocess_specs`` to prevent
 	   stale instantiation.
 	3. Disables the Server Scripts linked to this model's script tasks that no

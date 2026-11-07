@@ -1,15 +1,8 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001352 (2-02): dispatch_ai_task_selector — the AI-driven "decide" step
-# of the ad-hoc subprocess dispatch loop.
-#
-# WI-001350 established a deterministic decide/activate/wait/re-decide loop
-# whose default decision is "next task in diagram order". This module does
-# NOT add a second loop: it replaces that decision function with an LLM call
-# when an AI Task Selector (WI-001351) is configured on the subprocess —
-# mirroring how Camunda's AI Agent connector reuses the same job-worker
-# re-entry loop with a different decision function. One-task-at-a-time
-# enforcement still applies: the LLM picks which SINGLE diagram task runs
-# next; it never activates several at once.
+"""AI Task Selector: the LLM decision step that picks the next task of an ad-hoc subprocess.
+
+It replaces the diagram-order decision of the dispatch loop and activates at most one task per decision.
+"""
 
 import frappe
 
@@ -21,19 +14,9 @@ from one_bpmn.processa_engine.runtime.dispatch import log_ai_task_selected
 
 
 def make_adhoc_decider(instance, wf):
-	"""
-	Build the decider installed into engine.adhoc.adhoc_next_task_decider for the
-	duration of one run_engine() call.
+	"""Build the adhoc_next_task_decider installed for one run_engine() call.
 
-	The returned callable receives (subworkflow, pending_tasks) from the
-	gate's promotion step and returns:
-	- None                       — no selector configured; gate uses diagram order
-	- a Task from pending        — the LLM's choice, arguments merged into task.data
-	- engine.NO_ACTIVATION       — decision made but nothing to activate
-	                               (registry-only actions, invalid tool, or
-	                               executor failure) — fail-safe, the gate
-	                               promotes nothing and the completion
-	                               condition governs
+	The decider returns None (diagram order), the chosen pending Task, or engine.NO_ACTIVATION.
 	"""
 
 	def decider(sp, pending):
@@ -42,11 +25,7 @@ def make_adhoc_decider(instance, wf):
 		if task_cfg.get("serviceType") != "ai_task_selector":
 			return None
 
-		# WI-001495: park the decision — ONLY the LLM turn goes to the
-		# bpmn_ai_agent worker. The resume job (run_parked_ai_task) sets
-		# bpmn_ai_resume_target to this subprocess so exactly one decision
-		# runs inline there; the target is consumed so the NEXT decision of
-		# the same loop parks again (one job per selector turn).
+		# The resume job sets the target for one inline decision; clearing it parks the next one.
 		if ai_parking_active():
 			if frappe.flags.bpmn_ai_resume_target == bpmn_id:
 				frappe.flags.bpmn_ai_resume_target = None
@@ -65,16 +44,13 @@ def make_adhoc_decider(instance, wf):
 			if candidate_name == chosen_name:
 				if arguments:
 					task.data.update(arguments)
-				# WI-001359: audit the decision itself; the activation is
-				# logged separately by the gate's activation hook.
 				try:
 					log_ai_task_selected(instance, bpmn_id, [chosen_name], arguments)
 				except Exception:
 					pass
 				return task
 
-		# The LLM picked a diagram task that is not pending (already ran or
-		# never existed) — same fail-safe as an unknown tool name.
+		# The chosen task is not pending, so nothing is activated.
 		frappe.log_error(
 			title=f"AI Task Selector: chosen task not pending ({bpmn_id})",
 			message=f"Chosen '{chosen_name}'; pending: "
@@ -86,24 +62,9 @@ def make_adhoc_decider(instance, wf):
 
 
 def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tuple:
-	"""
-	Run one selector decision for an ad-hoc subprocess.
+	"""Run one selector decision for an ad-hoc subprocess and return (action, bpmn_id, arguments).
 
-	Builds the tool pool (WI-001353), calls the executor with tools attached
-	(WI-001356), lets registry tools execute inline within the adapter's
-	loop, and reports which diagram task (if any) the LLM selected.
-
-	Follows dispatch_ai_agent's structure: Jinja-rendered prompts with the
-	same {"doc": doc, "instance": instance, "frappe": frappe} context, and
-	an error fallback that keeps the loop safe — failures write
-	{bpmn_id}_error_code/{bpmn_id}_error_message into the subprocess data
-	and never raise.
-
-	Returns:
-	    ("activate", chosen_bpmn_id, arguments) — a diagram task was selected
-	    ("idle", None, None)                    — no diagram activation
-	                                              (final answer or registry-only)
-	    ("error", None, None)                   — executor failure
+	Action is "activate", "idle" or "error"; failures write {bpmn_id}_error_code and _error_message and never raise.
 	"""
 	from frappe.utils import cint
 
@@ -121,9 +82,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 	from one_bpmn.agents.llm_provider.base import ToolSpec
 	from one_bpmn.agents.tool_pool import DIAGRAM_TASK, resolve_tool_pool
 
-	# WI-001637 (live link): a linked AI Agent Configuration is authoritative
-	# for agent-level fields; the shape's copies are the fallback. Tools stay
-	# the subprocess's own shapes — never sourced from the config.
+	# A linked AI Agent Configuration overrides the shape's agent fields; tools stay the subprocess's own.
 	if task_cfg.get("aiAgentConfig"):
 		from one_bpmn.agents.agent_config_resolver import resolve_dispatch_overrides
 		task_cfg = {**task_cfg, **resolve_dispatch_overrides(task_cfg["aiAgentConfig"])}
@@ -136,19 +95,12 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 
 	pool = resolve_tool_pool(sp, task_cfg, instance.process_model or "", instance)
 
-	# Runtime availability: the pool is spec-derived (every candidate on the
-	# diagram), but at a decision point only PARKED heads can actually be
-	# activated. Offering completed tasks as tools invited the model to
-	# re-pick them — a safe no-op that stalled the subprocess (the dominant
-	# failure in UAT). Filter diagram candidates to the pending heads and
-	# tell the model what already ran instead.
+	# Only pending heads are offered as diagram tools; finished ones go into the prompt as progress.
 	from one_bpmn.processa_engine.engine import TaskState
 
 	heads = bpmn_engine.adhoc_head_tasks(sp)
 	head_name = lambda t: getattr(t.task_spec, "bpmn_id", None) or t.task_spec.name  # noqa: E731
-	# Activatable = not yet run: parked (FUTURE, the normal decision-time
-	# state) or freshly readied (READY, subprocess entry before the gate
-	# parks). Finished heads are excluded and reported as progress instead.
+	# READY covers subprocess entry, before the gate parks heads as FUTURE.
 	pending_names = {
 		head_name(t) for t in heads if t.state & (TaskState.FUTURE | TaskState.READY)
 	}
@@ -158,10 +110,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		if t.state & (TaskState.COMPLETED | TaskState.CANCELLED)
 	}
 
-	# Diagram-task candidates cannot execute inline the way registry tools
-	# do — activation happens in the engine after this decision. Their fn
-	# records the FIRST selection and tells the model to stop selecting,
-	# preserving one-task-at-a-time.
+	# Diagram tools only record the first selection; the engine activates it after this decision.
 	selection = {}
 
 	def make_activation_fn(candidate_name):
@@ -185,7 +134,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		spec = candidate.spec
 		if candidate.source == DIAGRAM_TASK:
 			if spec.name not in pending_names:
-				continue  # completed/cancelled/in-flight — not activatable
+				continue
 			spec = ToolSpec(
 				fn=make_activation_fn(spec.name),
 				name=spec.name,
@@ -195,27 +144,19 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 			)
 		tools.append(spec)
 
-	# Auto-appended progress block: authoritative memory the prompt author
-	# doesn't have to engineer evidence for (send tasks leave no data trace).
+	# Send tasks leave no data trace, so the prompt lists finished tasks explicitly.
 	user_prompt = render(task_cfg.get("aiUserPrompt", ""))
 	if finished_names:
 		user_prompt += (
 			"\n\nProcess progress (authoritative): these tasks have ALREADY RUN "
 			"and are no longer offered: " + ", ".join(sorted(finished_names)) + "."
 		)
-	# Engine-level guard rail for every prompt: when a procedure's prescribed
-	# task is unavailable (already ran, filtered out), improvising is worse
-	# than waiting — a UAT run escalated to the wrong team this way.
 	user_prompt += (
 		"\n\nIf the task your rules prescribe is not among your offered tools, "
 		"activate nothing and give your final answer."
 	)
 
-	# Static context layer (WI-001639): a selector driven by a linked AI Agent
-	# Configuration gets that agent's examples + guard rails too — otherwise
-	# rules an author entered on the agent would silently not apply here.
-	# Selector-specific dynamic text (progress, the improvisation rule above)
-	# stays on the user prompt where it belongs.
+	# A linked agent's examples and guard rails go into the system prompt; selector text stays in the user prompt.
 	from one_bpmn.agents.context_assembler import build_static_context, load_agent_behaviour
 
 	behaviour = {}
@@ -230,8 +171,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 
 	config = ExecutorConfig(
 		backend="direct_api",
-		# The provider a model is served by lives on the model's own record,
-		# so naming just the model is enough.
+		# Without aiProvider, the provider comes from the AI Model record.
 		provider_name=task_cfg.get("aiProvider", "")
 		or frappe.db.get_value("AI Model", task_cfg.get("aiModel", ""), "provider")
 		or "",
@@ -243,12 +183,10 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 			skills=behaviour.get("enabled_skills"),
 		),
 		user_prompt=user_prompt,
-		# cint first — a shape attribute is a string and "0" is truthy.
+		# Shape attributes are strings, so cint turns "0" into the default.
 		max_tokens=cint(task_cfg.get("aiMaxTokens")) or DEFAULT_MAX_OUTPUT_TOKENS,
 		temperature=float(task_cfg.get("aiTemperature") or DEFAULT_TEMPERATURE),
 		top_p=float(task_cfg.get("aiTopP") or DEFAULT_TOP_P),
-		# This said 60 while the other two paths said 180, so the same agent
-		# had three times less to answer in depending on which shape ran it.
 		timeout_seconds=cint(task_cfg.get("aiTimeout")) or DEFAULT_TIMEOUT_SECONDS,
 		tools=tools,
 		terminal_tools=terminal_tools_for(task_cfg),
@@ -264,8 +202,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		jinja_context=jinja_ctx,
 	)
 
-	# ── Observability (WI-001358): one Run per subprocess, reused across
-	# decision points. Instrumentation failures never block dispatch.
+	# One observability Run per subprocess, reused across decisions; its failures never block dispatch.
 	run = None
 	try:
 		from one_bpmn.agents.observability import get_or_create_selector_run
@@ -279,8 +216,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 			message=frappe.get_traceback(),
 		)
 
-	# WI-001645: the selector runs tools too — publish the agent so its tool
-	# grant applies here as well, not only on AI Agent Tasks.
+	# Publish the agent so its tool grant applies to the selector's tool calls.
 	from one_bpmn.security.tool_policy import reset_current_agent, set_current_agent
 
 	_policy_token = set_current_agent(task_cfg.get("aiAgentConfig"))
@@ -312,8 +248,6 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		)
 
 	if result.error_code != ErrorCode.SUCCESS:
-		# Same pattern as dispatch_ai_agent: log, write error variables,
-		# leave the subprocess's other inner tasks unaffected.
 		frappe.log_error(
 			title=f"BPMN AI Task Selector: executor failed ({bpmn_id})",
 			message=f"{result.error_code.value}: {result.error_message}",
@@ -324,13 +258,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 
 	_record_tool_outcomes(sp, bpmn_id, result)
 
-	# An idle decision does NOT close the run — earlier code finalized here
-	# unconditionally, so a correct "wait for the agent" decision marked the
-	# run Success mid-flight and the next decision opened a second run. The
-	# run is finalized when the subprocess itself completes
-	# (on_engine_task_complete → finalize_open_selector_runs). Belt: if the
-	# completion condition is already satisfied at an idle decision, the
-	# subprocess is about to close, so finalizing here is safe and correct.
+	# An idle decision finalizes the run only when the completion condition is already met.
 	if not selection:
 		try:
 			from one_bpmn.agents.observability import finalize_selector_run
@@ -349,15 +277,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 
 
 def _record_tool_outcomes(sp, bpmn_id: str, result) -> None:
-	"""
-	Post-process the executor trace (WI-001356):
-	- registry tool results are written back to a toolCallResult process
-	  variable ({bpmn_id}_toolCallResult, the naming borrowed from Camunda's
-	  AI Agent Sub-Process connector) — the last result wins;
-	- tool names the adapters flagged as unknown are logged via
-	  frappe.log_error (fail-safe, not fail-stop — the completion condition
-	  is simply re-evaluated without activating anything).
-	"""
+	"""Write registry tool results to toolCallResult process variables and log unknown tool names."""
 	sp.data[f"{bpmn_id}_selector_output"] = result.output or ""
 
 	for turn in result.trace or []:
@@ -370,12 +290,8 @@ def _record_tool_outcomes(sp, bpmn_id: str, result) -> None:
 					f"nor a registry entry. Arguments: {call.get('arguments')}",
 				)
 			elif not call_result.startswith("Task '"):
-				# A registry tool actually executed inside the adapter loop.
-				# Legacy combined variable (last call wins) …
+				# Combined variable keeps the last call; the per-tool variable keeps each tool's result.
 				sp.data[f"{bpmn_id}_toolCallResult"] = call_result
-				# … plus a per-tool variable, so one decision calling several
-				# registry tools (lookup + send email) doesn't clobber the
-				# evidence later decisions route on.
 				tool_name = call.get("name") or ""
 				if tool_name:
 					sp.data[f"{tool_name}_toolCallResult"] = call_result

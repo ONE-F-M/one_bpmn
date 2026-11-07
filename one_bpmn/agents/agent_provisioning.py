@@ -516,7 +516,7 @@ def rerun_creation_process(agent: str) -> dict:
 		)
 
 	from one_bpmn.agents.agent_config_resolver import get_creation_process_model
-	from one_bpmn.one_bpmn.trigger import _maybe_send_message
+	from one_bpmn.processa_engine.triggers import _maybe_send_message
 
 	if not get_creation_process_model():
 		frappe.throw(

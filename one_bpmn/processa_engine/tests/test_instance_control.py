@@ -10,7 +10,7 @@ from frappe.tests.utils import FrappeTestCase
 from one_bpmn.api import instance_control
 from one_bpmn.api.compilation import compile_process_model
 from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import BPMNProcessInstance
-from one_bpmn.tasks import _refresh_timer_tasks, process_timer_catch_events
+from one_bpmn.processa_engine.timers import _refresh_timer_tasks, process_timer_catch_events
 from one_bpmn.tests.test_timer_sweep import TIMER_XML
 
 SCRIPT = "_Test Instance Control Divide"
@@ -236,7 +236,7 @@ class TestSuspendAndResume(InstanceControlTestCase):
 			instance.receive_message("Any Message")
 
 		time.sleep(1.2)
-		with patch("one_bpmn.tasks._refresh_timer_tasks") as sweep:
+		with patch("one_bpmn.processa_engine.timers._refresh_timer_tasks") as sweep:
 			process_timer_catch_events()
 		self.assertNotIn(instance.name, [call.args[0] for call in sweep.call_args_list])
 

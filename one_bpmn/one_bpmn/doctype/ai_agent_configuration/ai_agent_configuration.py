@@ -211,7 +211,7 @@ class AIAgentConfiguration(Document):
 	def _validate_map_condition_matches_label(self):
 		import re
 
-		from one_bpmn.one_bpmn.trigger import (
+		from one_bpmn.processa_engine.triggers import (
 			_get_conditional_start_condition,
 			_get_trigger_field_condition,
 		)

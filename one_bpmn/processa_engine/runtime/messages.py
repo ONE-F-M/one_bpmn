@@ -7,7 +7,7 @@ import frappe
 from frappe import _
 
 from one_bpmn.processa_engine import engine as bpmn_engine
-from one_bpmn.processa_engine.doctype.bpmn_process_instance.assignment import split_users
+from one_bpmn.processa_engine.assignment import split_users
 from one_bpmn.processa_engine.runtime.active_tasks import get_active_tasks_summary, persist_workflow
 from one_bpmn.processa_engine.runtime.common import log_task, restore_instance_workflow
 from one_bpmn.processa_engine.runtime.engine_loop import (

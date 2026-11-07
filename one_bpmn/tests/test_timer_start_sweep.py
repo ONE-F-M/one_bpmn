@@ -14,7 +14,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.api.compilation import compile_process_model
-from one_bpmn.tasks import process_timer_start_events, timer_start_is_due
+from one_bpmn.processa_engine.timers import process_timer_start_events, timer_start_is_due
 
 TIMER_START_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -181,8 +181,8 @@ class TestTimerStartSweep(FrappeTestCase):
 			return get_all(doctype, *args, **kwargs)
 
 		with (
-			patch("one_bpmn.tasks.now_datetime", return_value=now),
-			patch("one_bpmn.tasks.frappe.get_all", side_effect=get_own_configs),
+			patch("one_bpmn.processa_engine.timers.now_datetime", return_value=now),
+			patch("one_bpmn.processa_engine.timers.frappe.get_all", side_effect=get_own_configs),
 		):
 			process_timer_start_events()
 

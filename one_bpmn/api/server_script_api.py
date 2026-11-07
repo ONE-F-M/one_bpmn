@@ -167,7 +167,7 @@ def _delegate_to_bpmn_instance(
 	# runs first wins and the other returns immediately.
 	if inst.status == "Queued":
 		try:
-			from one_bpmn.one_bpmn.trigger import start_queued_instance
+			from one_bpmn.processa_engine.triggers import start_queued_instance
 
 			start_queued_instance(inst_name)
 		except Exception:

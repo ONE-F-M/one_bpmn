@@ -135,33 +135,33 @@ class TestEveryEnqueueSiteUsesIt(QueueCase):
 
 class TestTheOtherEnqueueSitesUseIt(QueueCase):
 	def test_the_watchdog_requeues_a_stranded_prosally_job_on_its_queue(self):
-		from one_bpmn import tasks
+		from one_bpmn.processa_engine import timers
 
 		instance = MagicMock()
 		instance.name = "INST-1"
 		unit = {"task_id": "task_1", "kind": "ai_agent", "label": "Draw"}
 		with (
-			patch("one_bpmn.tasks.frappe.db.count", return_value=0),
-			patch("one_bpmn.tasks.log_task"),
-			patch("one_bpmn.tasks.frappe.db.get_value", side_effect=_get_value("ProsAlly Map")),
-			patch("one_bpmn.tasks.frappe.enqueue") as enqueue,
+			patch("one_bpmn.processa_engine.timers.frappe.db.count", return_value=0),
+			patch("one_bpmn.processa_engine.timers.log_task"),
+			patch("one_bpmn.processa_engine.timers.frappe.db.get_value", side_effect=_get_value("ProsAlly Map")),
+			patch("one_bpmn.processa_engine.timers.frappe.enqueue") as enqueue,
 		):
-			tasks._requeue_or_error(instance, unit, 30)
+			timers._requeue_or_error(instance, unit, 30)
 		self.assertEqual(enqueue.call_args.kwargs["queue"], PROSALLY_AI_QUEUE)
 
 	def test_the_watchdog_keeps_another_agents_job_on_the_shared_queue(self):
-		from one_bpmn import tasks
+		from one_bpmn.processa_engine import timers
 
 		instance = MagicMock()
 		instance.name = "INST-2"
 		unit = {"task_id": "task_1", "kind": "ai_agent", "label": "Draw"}
 		with (
-			patch("one_bpmn.tasks.frappe.db.count", return_value=0),
-			patch("one_bpmn.tasks.log_task"),
-			patch("one_bpmn.tasks.frappe.db.get_value", side_effect=_get_value("Docu Map")),
-			patch("one_bpmn.tasks.frappe.enqueue") as enqueue,
+			patch("one_bpmn.processa_engine.timers.frappe.db.count", return_value=0),
+			patch("one_bpmn.processa_engine.timers.log_task"),
+			patch("one_bpmn.processa_engine.timers.frappe.db.get_value", side_effect=_get_value("Docu Map")),
+			patch("one_bpmn.processa_engine.timers.frappe.enqueue") as enqueue,
 		):
-			tasks._requeue_or_error(instance, unit, 30)
+			timers._requeue_or_error(instance, unit, 30)
 		self.assertEqual(enqueue.call_args.kwargs["queue"], AI_AGENT_QUEUE)
 
 	def test_a_delegated_answer_resumes_a_prosally_instance_on_its_queue(self):

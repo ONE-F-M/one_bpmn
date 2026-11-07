@@ -78,10 +78,10 @@ class TestEveryPathComposesTheSameWay(FrappeTestCase):
 		"""A composer test that fails if somebody adds a fourth path that sends
 		a raw prompt. The three known senders are named here on purpose."""
 		from one_bpmn.api import agent_invocation
-		from one_bpmn.processa_engine.doctype.bpmn_process_instance import ai_task_selector
+		from one_bpmn.processa_engine import task_selector
 		from one_bpmn.processa_engine.dispatch import ai_agent
 
-		for module in (ai_agent, ai_task_selector, agent_invocation):
+		for module in (ai_agent, task_selector, agent_invocation):
 			source = inspect.getsource(module)
 			self.assertIn("build_static_context", source, f"{module.__name__} sends a prompt it did not compose")
 
@@ -115,14 +115,12 @@ class TestEveryPathStartsFromTheSameDefaults(FrappeTestCase):
 
 	def test_no_path_repeats_a_number_the_shared_module_owns(self):
 		from one_bpmn.processa_engine.dispatch import ai_agent
-		from one_bpmn.processa_engine.doctype.bpmn_process_instance import (
-			ai_task_selector,
-			bpmn_process_instance,
-		)
+		from one_bpmn.processa_engine import task_selector
+		from one_bpmn.processa_engine.doctype.bpmn_process_instance import bpmn_process_instance
 
 		for module, forbidden in (
 			(ai_agent, ('aiTemperature", 0.7', 'aiTopP", 1.0', 'aiMaxRetries", 2)')),
-			(ai_task_selector, ('aiTimeout", 60',)),
+			(task_selector, ('aiTimeout", 60',)),
 			(bpmn_process_instance, ('aiMaxRetries", 2)',)),
 		):
 			source = inspect.getsource(module)

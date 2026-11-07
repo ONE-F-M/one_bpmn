@@ -202,7 +202,7 @@ def _instances_pending_on(user: str) -> list:
 	"""
 	# Imported lazily for the same reason as in complete_user_task: assignment.py
 	# pulls in engine.py, which is fragile across SpiffWorkflow versions.
-	from one_bpmn.processa_engine.doctype.bpmn_process_instance.assignment import task_actors
+	from one_bpmn.processa_engine.assignment import task_actors
 
 	roles = frappe.get_roles(user)
 
@@ -1075,7 +1075,7 @@ def _task_authorization(instance, row, user: str) -> tuple[str | None, str | Non
 	Assignees and their relievers may act, and so may a super user or the holder of an approved Contingency Task Completion.
 	"""
 	# Imported lazily: assignment.py pulls in engine.py, which is fragile across SpiffWorkflow versions.
-	from one_bpmn.processa_engine.doctype.bpmn_process_instance.assignment import split_users, task_actors
+	from one_bpmn.processa_engine.assignment import split_users, task_actors
 
 	super_user = _is_bpmn_super_user(user)
 	assigned_users = split_users(row.assigned_user or "")

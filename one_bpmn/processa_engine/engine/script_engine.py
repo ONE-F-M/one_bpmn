@@ -116,7 +116,7 @@ class FrappeScriptEngine(PythonScriptEngine):
 		#     (the common inline case - session is never touched), and
 		#   - for a genuine switch, snapshot sid+data and restore them in the
 		#     finally so end-of-request persistence keeps the real session.
-		# Same hazard the trigger.py inline-start path guards against.
+		# Same hazard the triggers.py inline-start path guards against.
 		original_user = _frappe.session.user
 		need_switch = bool(self._initiated_by) and self._initiated_by != original_user
 		saved_sid = _frappe.session.sid

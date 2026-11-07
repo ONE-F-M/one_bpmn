@@ -25,7 +25,7 @@ class TestProcessaLegacyMigrationValidation(FrappeTestCase):
 	def test_the_same_old_and_target_status_is_saved(self):
 		migration = self._migration("Draft", "Draft")
 		migration.flags.ignore_links = True
-		with patch("one_bpmn.one_bpmn.trigger.on_doc_event"):
+		with patch("one_bpmn.processa_engine.triggers.on_doc_event"):
 			name = migration.insert().name
 
 		stored = frappe.db.get_value("Processa Legacy Migration", name, ["old_status", "target_status"])

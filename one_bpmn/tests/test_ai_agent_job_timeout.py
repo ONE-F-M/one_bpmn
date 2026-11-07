@@ -25,7 +25,8 @@ ENQUEUE_SITES = [
 	"tasks.py",
 	"api/instance_api.py",
 	"api/agent_callback.py",
-	"one_bpmn/doctype/bpmn_process_instance/bpmn_process_instance.py",
+	"processa_engine/runtime/ai_jobs.py",
+	"processa_engine/timers.py",
 ]
 
 
