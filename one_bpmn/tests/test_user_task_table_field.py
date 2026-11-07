@@ -152,7 +152,7 @@ class TestUserTaskAssignedToATable(FrappeTestCase):
 	def test_everyone_in_the_table_is_notified(self):
 		"""Notify Assignee is a per-task opt-in, and the task belongs to all of
 		them — so each member gets their own email, not just whoever is first."""
-		with patch("one_bpmn.email_builder.composer.frappe.sendmail") as sendmail:
+		with patch("one_bpmn.processa_engine.notifications.composer.frappe.sendmail") as sendmail:
 			self._start()
 
 		recipients = {

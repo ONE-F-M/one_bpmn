@@ -16,7 +16,7 @@ def split_users(value: str) -> list:
 	return list(dict.fromkeys(split_config(value)))
 
 
-def _decode_html_attr(value: str) -> str:
+def decode_html_attr(value: str) -> str:
 	"""Decode a base64 HTML attribute written by the BPMN editor; a value that is not base64 is returned as is."""
 	if not value:
 		return ""
@@ -320,7 +320,7 @@ def notify_task_assignee(
 	if not (instance.context_doctype and instance.context_docname and user):
 		return
 	try:
-		from one_bpmn.email_builder.composer import compose_and_send_task_email
+		from one_bpmn.processa_engine.notifications.composer import compose_and_send_task_email
 
 		compose_and_send_task_email(
 			instance=instance,

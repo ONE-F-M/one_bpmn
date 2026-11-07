@@ -54,29 +54,29 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 	cc = task_cfg.get("emailCc", "") or None
 	bcc = split_config(task_cfg.get("emailBcc")) or None
 
-	from one_bpmn.email_builder.composer import compose_notice, sends_notice
+	from one_bpmn.processa_engine.notifications.composer import compose_notice, sends_notice
 
 	if sends_notice(task_cfg):
 		subject, body, amp_html = compose_notice(instance, task_cfg, doc, render)
 	else:
 		subject = render(task_cfg.get("emailSubject", "") or f"Notification from {instance.name}")
 		raw_body = task_cfg.get("emailBody", "") or subject
-		from one_bpmn.processa_engine.assignment import _decode_html_attr
+		from one_bpmn.processa_engine.assignment import decode_html_attr
 
-		body = render(_decode_html_attr(raw_body))
+		body = render(decode_html_attr(raw_body))
 
 		if not amp_html:
 			try:
-				from one_bpmn.email_builder.composer import compose_and_send_info_email
+				from one_bpmn.processa_engine.notifications.composer import compose_and_send_info_email
 
 				amp_html = compose_and_send_info_email(instance, task_cfg, subject, body)
 			except Exception:
 				frappe.log_error(title="BPMN send_email: AMP card failed, sending plain HTML", message=frappe.get_traceback())
 				amp_html = None
 
-	from one_bpmn.email_builder.composer import _send_email
+	from one_bpmn.processa_engine.notifications.composer import send_email
 
-	_send_email(
+	send_email(
 		recipients=recipients,
 		subject=subject,
 		html_body=body,

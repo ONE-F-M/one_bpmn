@@ -1,22 +1,6 @@
-"""AMP-safe HTML sanitiser for One BPMN email builder.
+"""Clean email HTML for AMP with bleach and explicit AMP-for-Email allowlists of tags, attributes and CSS properties.
 
-Uses ``bleach`` with an explicit AMP-for-Email allowlist so that every
-outgoing HTML email body is guaranteed to contain *only* tags, attributes,
-CSS properties and URL schemes that AMP email providers accept.
-
-Typical usage::
-
-	from one_bpmn.email_builder.sanitizer import sanitize_for_amp
-
-	clean_html = sanitize_for_amp(raw_html)
-
-Use :func:`sanitize_for_amp_with_css` when the rules of ``<style>`` blocks
-are needed as well; they are returned separately so they can be printed in
-the single ``<style amp-custom>`` of the AMP shell.
-
-The module also exposes the allowlist constants (``AMP_ALLOWED_TAGS``,
-``AMP_ALLOWED_ATTRIBUTES``, ``AMP_ALLOWED_CSS_PROPERTIES``) for reuse in
-tests or downstream tooling.
+sanitize_for_amp_with_css also returns the cleaned style block rules for the single style amp-custom of the AMP shell.
 """
 
 from __future__ import annotations
@@ -28,10 +12,6 @@ from typing import Match
 import bleach
 import tinycss2
 from bleach.css_sanitizer import CSSSanitizer
-
-# ---------------------------------------------------------------------------
-# AMP-for-Email tag allowlist
-# ---------------------------------------------------------------------------
 
 AMP_ALLOWED_TAGS: frozenset[str] = frozenset(
 	{
@@ -57,10 +37,6 @@ AMP_ALLOWED_TAGS: frozenset[str] = frozenset(
 	}
 )
 
-# ---------------------------------------------------------------------------
-# AMP-for-Email attribute allowlist
-# ---------------------------------------------------------------------------
-
 AMP_ALLOWED_ATTRIBUTES: dict[str, list[str]] = {
 	"*": [
 		"class", "id", "dir", "lang", "title", "style",
@@ -77,10 +53,6 @@ AMP_ALLOWED_ATTRIBUTES: dict[str, list[str]] = {
 	"blockquote": ["cite"],
 	"q": ["cite"],
 }
-
-# ---------------------------------------------------------------------------
-# AMP-for-Email CSS property allowlist
-# ---------------------------------------------------------------------------
 
 # ``position`` is listed but its fixed and sticky values are removed separately.
 AMP_ALLOWED_CSS_PROPERTIES: frozenset[str] = frozenset(
@@ -117,10 +89,6 @@ _BLOCKED_CSS_VALUE_PARTS: tuple[str, ...] = (
 # Class names and ids that AMP reserves for itself.
 _RESERVED_SELECTOR_RE = re.compile(r"(-amp-|i-amphtml)", re.IGNORECASE)
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
 _IMG_RE = re.compile(
 	r"<img\b([^>]*)\/?>",
 	re.IGNORECASE | re.DOTALL,
@@ -143,7 +111,7 @@ _STYLE_ATTR_RE = re.compile(
 _EMPTY_STYLE_ATTR_RE = re.compile(r'\s+style=(?:""|\'\')')
 
 # Strip Frappe workflow action buttons (e.g. <a href="...confirm_action..." class="btn btn-primary btn-action">Approve</a>)
-_WORKFLOW_BTN_RE = re.compile(
+WORKFLOW_BTN_RE = re.compile(
 	r'<a\s[^>]*class\s*=\s*"[^"]*btn-action[^"]*"[^>]*>.*?</a>',
 	re.IGNORECASE | re.DOTALL,
 )
@@ -160,18 +128,9 @@ def _dimension(value: str | None, default: str) -> str:
 
 
 def _img_to_amp_img(html: str) -> str:
-	"""Rewrite ``<img>`` tags to ``<amp-img>`` with HTTPS enforcement.
+	"""Rewrite img tags to amp-img, dropping any whose src is not https.
 
-	Only images whose ``src`` starts with ``https://`` are kept; all others
-	are silently dropped (replaced with an empty string).  The image's own
-	numeric ``width`` and ``height`` are kept with ``layout="intrinsic"`` so it never
-	grows past them; otherwise 600 by 400 with ``layout="responsive"``.
-
-	Args:
-		html: Raw HTML string potentially containing ``<img>`` tags.
-
-	Returns:
-		HTML with ``<img>`` replaced by AMP-compatible ``<amp-img>`` tags.
+	Numeric width and height are kept with layout intrinsic; otherwise 600 by 400 with layout responsive.
 	"""
 
 	def _replace(match: Match[str]) -> str:
@@ -261,37 +220,11 @@ def _prepare_inline_styles(html: str) -> str:
 	return _STYLE_ATTR_RE.sub(_replace, html)
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
 
 def sanitize_for_amp_with_css(html: str) -> tuple[str, str]:
-	"""Sanitise arbitrary HTML into an AMP-for-Email safe fragment plus its CSS.
+	"""(html, css) for untrusted HTML: an AMP-safe fragment and the cleaned rules of its style blocks.
 
-	Processing pipeline:
-
-	1. **Unescape** HTML entities so bleach sees real characters.
-	2. **Rewrite** ``<img>`` to ``<amp-img>`` (HTTPS only, others dropped).
-	3. **Strip** ``<script>`` blocks entirely.
-	4. **Extract** ``<style>`` blocks; their rules are cleaned and returned.
-	5. **Clean** inline ``style="..."`` attributes (no ``!important``, no
-	   position fixed or sticky, no urls).
-	6. **Bleach-clean** using the AMP tag, attribute and CSS property
-	   allowlists (unknown tags, attributes and properties removed).
-	7. **Strip** leading/trailing whitespace.
-
-	Args:
-		html: Untrusted HTML string to sanitise.
-
-	Returns:
-		A tuple ``(html, css)``: the sanitised fragment, and the cleaned rules
-		of its style blocks for the ``<style amp-custom>`` of the AMP shell.
-
-	Example::
-
-		>>> sanitize_for_amp_with_css('<style>p{color:red}</style><p>Hello</p>')
-		('<p>Hello</p>', 'p { color: red }')
+	Unescapes, rewrites images, drops scripts, lifts style blocks, cleans inline styles, then bleaches with the allowlists.
 	"""
 	if not html:
 		return "", ""
@@ -312,8 +245,8 @@ def sanitize_for_amp_with_css(html: str) -> tuple[str, str]:
 
 	html = _prepare_inline_styles(html)
 
-	# Strip Frappe workflow action buttons (avoid duplicating our AMP buttons)
-	html = _WORKFLOW_BTN_RE.sub("", html)
+	# Frappe's own workflow buttons are stripped; the email renders its own
+	html = WORKFLOW_BTN_RE.sub("", html)
 
 	html = bleach.clean(
 		html,

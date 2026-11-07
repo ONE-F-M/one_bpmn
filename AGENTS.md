@@ -32,7 +32,7 @@ House style lives in `frappe-bench/.claude/rules/`: `house-style.md` always, `py
 - `one_bpmn/one_bpmn/connectors/`: outbound connectors and the agent sandbox client.
 - `one_bpmn/agents/`: the AI agent runtime. See its `AGENTS.md`.
 - `one_bpmn/security/`: the generated-script validator.
-- `one_bpmn/email_builder/`: AMP and HTML task emails. See its `README.md`.
+- `one_bpmn/processa_engine/notifications/`: AMP and HTML task emails and their tokens; `one_bpmn/api/email_actions.py` holds the endpoints the emails call. See its `README.md`.
 - `one_bpmn/commands/`: bench commands.
 - `one_bpmn/overrides/`: overridden Frappe classes, such as the scheduler queue for timer jobs.
 - `one_bpmn/templates/`: email and deployment templates.

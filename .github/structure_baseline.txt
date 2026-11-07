@@ -43,7 +43,6 @@ private-import one_bpmn/api/agent_invocation.py one_bpmn.agents.executor.direct_
 private-import one_bpmn/api/agent_invocation.py one_bpmn.processa_engine.triggers._maybe_start_instance
 private-import one_bpmn/api/agent_invocation.py one_bpmn.security.pii._config_name
 private-import one_bpmn/api/agui.py one_bpmn.agents.agui_stream._extension_events
-private-import one_bpmn/api/comment.py one_bpmn.api.todo_actions._set_amp_cors_headers
 private-import one_bpmn/api/config_export_import.py one_bpmn.api.process_map_api._extract_bpmn_references
 private-import one_bpmn/api/doctype_source_sync.py one_bpmn.api.production_review._app_for_doctype
 private-import one_bpmn/api/doctype_source_sync.py one_bpmn.api.production_review._same_owner
@@ -52,12 +51,6 @@ private-import one_bpmn/api/eval_api.py one_bpmn.agents.eval_ci._why
 private-import one_bpmn/api/eval_api.py one_bpmn.agents.eval_permissions._is_system_manager
 private-import one_bpmn/api/eval_api.py one_bpmn.agents.eval_permissions._process_model_owned_by
 private-import one_bpmn/api/instance_api.py one_bpmn.api.utils._is_bpmn_super_user
-private-import one_bpmn/api/notification_api.py one_bpmn.email_builder.composer._build_layout_context
-private-import one_bpmn/api/notification_api.py one_bpmn.email_builder.composer._build_notice_context
-private-import one_bpmn/api/notification_api.py one_bpmn.email_builder.composer._build_open_link
-private-import one_bpmn/api/notification_api.py one_bpmn.email_builder.composer._resolve_subject_body
-private-import one_bpmn/api/notification_api.py one_bpmn.email_builder.composer._sends_decision_card
-private-import one_bpmn/api/notification_api.py one_bpmn.processa_engine.assignment._decode_html_attr
 private-import one_bpmn/api/production_review.py one_bpmn.api.editability._call_production_api
 private-import one_bpmn/api/production_review.py one_bpmn.api.editability._is_ba_instance
 private-import one_bpmn/api/production_review.py one_bpmn.api.process_map_api._extract_bpmn_references
@@ -66,13 +59,7 @@ private-import one_bpmn/api/server_script_api.py one_bpmn.api.ai_assistant._extr
 private-import one_bpmn/api/server_script_api.py one_bpmn.processa_engine.engine._check_script_permissions
 private-import one_bpmn/api/sessions_api.py one_bpmn.agents.memory.compaction_triggers._is_inflight
 private-import one_bpmn/api/sessions_api.py one_bpmn.agents.memory.compaction_triggers._resolve_agent_id
-private-import one_bpmn/api/todo_actions.py one_bpmn.email_builder.composer._arabic
-private-import one_bpmn/api/workflow_actions.py one_bpmn.api.todo_actions._set_amp_cors_headers
 private-import one_bpmn/processa_engine/audit.py one_bpmn.api.utils._is_bpmn_super_user
-private-import one_bpmn/email_builder/composer.py one_bpmn.api.todo_actions._plain_text
-private-import one_bpmn/email_builder/composer.py one_bpmn.processa_engine.assignment._decode_html_attr
-private-import one_bpmn/email_builder/fields.py one_bpmn.email_builder.composer._arabic
-private-import one_bpmn/email_builder/renderer.py one_bpmn.email_builder.sanitizer._WORKFLOW_BTN_RE
 private-import one_bpmn/one_bpmn/a2a_agent_tool_fixtures.py one_bpmn.one_bpmn.a2a_scenario_fixtures._script_step
 private-import one_bpmn/one_bpmn/a2a_agent_tool_fixtures.py one_bpmn.one_bpmn.a2a_scenario_fixtures._upsert_agent
 private-import one_bpmn/one_bpmn/a2a_agent_tool_fixtures.py one_bpmn.one_bpmn.a2a_scenario_fixtures._upsert_model
@@ -179,8 +166,6 @@ private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.agents.sha
 private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.agents.shape_tools._synthetic_task
 private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.api.skill_tools._skill_names_cache_key
 private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.api.skill_tools._skills_cache_key
-private-import one_bpmn/processa_engine/dispatch/email.py one_bpmn.email_builder.composer._send_email
-private-import one_bpmn/processa_engine/dispatch/email.py one_bpmn.processa_engine.assignment._decode_html_attr
 private-import one_bpmn/processa_engine/doctype/bpmn_process_model/bpmn_process_model.py one_bpmn.agents.executor.direct_api._supports_temperature
 private-import one_bpmn/processa_engine/doctype/bpmn_process_model/bpmn_process_model.py one_bpmn.api.editability._site_lock_override
 private-import one_bpmn/processa_engine/engine/__init__.py one_bpmn.processa_engine.engine.adhoc._adhoc_completion_met
@@ -212,7 +197,6 @@ size one_bpmn/api/instance_api.py 1417
 size one_bpmn/api/process_map_api.py 1865
 size one_bpmn/api/production_review.py 871
 size one_bpmn/api/server_script_api.py 955
-size one_bpmn/api/todo_actions.py 893
 size one_bpmn/one_bpmn/a2a_scenario_fixtures.py 983
 size one_bpmn/one_bpmn/connectors/agent_sandbox_ops.py 1222
 size one_bpmn/one_bpmn/patches/v1_0/inline_logix_tool_scripts.py 835

@@ -20,7 +20,7 @@ _CONTENT = b"attachment body"
 
 def _expired(token: str) -> str:
 	"""Re-sign the token's payload with an expiry in the past."""
-	from one_bpmn.utils.token import _sign
+	from one_bpmn.processa_engine.notifications.token import _sign
 
 	payload = json.loads(base64.urlsafe_b64decode(token.rsplit(".", 1)[0].encode("ascii")))
 	payload["expires"] = int(time.time()) - 3600
@@ -31,7 +31,7 @@ def _expired(token: str) -> str:
 
 class TestAttachmentLinks(FrappeTestCase):
 	def setUp(self):
-		patcher = patch("one_bpmn.utils.token._get_secret", return_value=_TEST_SECRET)
+		patcher = patch("one_bpmn.processa_engine.notifications.token._get_secret", return_value=_TEST_SECRET)
 		patcher.start()
 		self.addCleanup(patcher.stop)
 
@@ -55,14 +55,14 @@ class TestAttachmentLinks(FrappeTestCase):
 		).insert()
 
 	def _token(self, **overrides):
-		from one_bpmn.utils.token import generate_file_token
+		from one_bpmn.processa_engine.notifications.token import generate_file_token
 
 		args = {"file_name": self.file.name, "doctype": "ToDo", "docname": self.todo.name, "expiry_hours": 1}
 		args.update(overrides)
 		return generate_file_token(**args)
 
 	def _download(self, token):
-		from one_bpmn.api.todo_actions import download_attachment
+		from one_bpmn.api.email_actions import download_attachment
 
 		return download_attachment(token)
 
@@ -71,7 +71,7 @@ class TestAttachmentLinks(FrappeTestCase):
 		self.assertNotEqual(frappe.local.response.get("type"), "download")
 
 	def test_build_attachment_links(self):
-		from one_bpmn.email_builder.fields import build_attachment_links
+		from one_bpmn.processa_engine.notifications.fields import build_attachment_links
 
 		links = build_attachment_links(self.todo, 1)
 		self.assertEqual(len(links), 1)
@@ -122,7 +122,7 @@ class TestAttachmentLinks(FrappeTestCase):
 		self._assert_nothing_served()
 
 	def test_wrong_token_type(self):
-		from one_bpmn.utils.token import (
+		from one_bpmn.processa_engine.notifications.token import (
 			generate_action_token,
 			generate_conversation_token,
 			generate_status_token,

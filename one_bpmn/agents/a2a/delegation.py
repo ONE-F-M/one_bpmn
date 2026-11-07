@@ -649,7 +649,7 @@ def _notify(recipient: str | None, message: str, *, a2a_task=None, delegation=No
 		)
 
 	try:
-		from one_bpmn.email_builder.composer import send_platform_email
+		from one_bpmn.processa_engine.notifications.composer import send_platform_email
 
 		send_platform_email([recipient], subject, message)
 	except Exception:
