@@ -1155,7 +1155,7 @@
 // implementation of them.
 import { computed, onMounted, reactive, ref, watch } from "vue"
 import { Badge, Button, Dialog, ErrorMessage, FormControl, frappeRequest } from "frappe-ui"
-import AgentPicker from "@/components/a2a/AgentPicker.vue"
+import AgentPicker from "@/components/A2A/AgentPicker.vue"
 
 const API = "/api/method/one_bpmn.api.a2a_admin_api."
 

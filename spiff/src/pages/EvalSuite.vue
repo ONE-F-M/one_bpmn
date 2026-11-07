@@ -700,7 +700,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from "vue"
-import EvalCaseContextField from "@/components/evals/EvalCaseContextField.vue"
+import EvalCaseContextField from "@/components/Evals/EvalCaseContextField.vue"
 import { midConversationError } from "@/utils/evalContext"
 import { ASSERTION_TYPES, MATCHERS, TOOL_CALL_MODES, assertionTypeLabel } from "@/utils/evalLabels"
 import { useRoute, useRouter } from "vue-router"

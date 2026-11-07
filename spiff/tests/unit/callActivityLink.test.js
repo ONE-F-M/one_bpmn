@@ -1,6 +1,6 @@
 import { test } from "vitest"
 import assert from "node:assert/strict"
-import { isLinkable } from "@/components/callActivityLink.js"
+import { isLinkable } from "@/utils/callActivityLink.js"
 
 test("a non-executable caller can link a process with no active map", () => {
 	assert.equal(isLinkable({ name: "Daily", active_process_id: null }, false), true)

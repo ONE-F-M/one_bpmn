@@ -127,11 +127,11 @@ import { Button, frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 
 
-import InstanceHeader from "@/components/process_instance/InstanceHeader.vue"
-import BpmnDiagramViewer from "@/components/process_instance/BpmnDiagramViewer.vue"
-import InstanceHistory from "@/components/process_instance/InstanceHistory.vue"
-import ElementInspector from "@/components/process_instance/ElementInspector.vue"
-import PendingActions from "@/components/process_instance/PendingActions.vue"
+import InstanceHeader from "@/components/Instances/InstanceHeader.vue"
+import BpmnDiagramViewer from "@/components/Instances/BpmnDiagramViewer.vue"
+import InstanceHistory from "@/components/Instances/InstanceHistory.vue"
+import ElementInspector from "@/components/Instances/ElementInspector.vue"
+import PendingActions from "@/components/Instances/PendingActions.vue"
 
 const route = useRoute()
 const instanceId = computed(() => route.params.instance)
