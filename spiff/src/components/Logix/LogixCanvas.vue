@@ -366,7 +366,7 @@ async function runSecurityLint() {
 			params: { code },
 		});
 		lintViolations.value = res && res.violations ? res.violations : [];
-	} catch (e) {
+	} catch {
 		// Never let a lint failure disrupt editing.
 		lintViolations.value = [];
 	}
@@ -580,7 +580,7 @@ async function runTestCase(payload) {
 			passed: result?.passed ?? false,
 			summary: result?.summary || (result?.passed ? "Test passed." : "Test failed."),
 		});
-	} catch (err) {
+	} catch {
 		report({ passed: false, summary: "Could not run the test — network error." });
 	}
 }

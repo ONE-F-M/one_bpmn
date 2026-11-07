@@ -131,7 +131,7 @@ function getActionDetails(task) {
 		try {
 			const parsed = JSON.parse(raw)
 			if (Array.isArray(parsed)) return parsed.filter((d) => d && d.action)
-		} catch (_) {
+		} catch {
 			// fall through
 		}
 	}

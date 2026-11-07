@@ -671,9 +671,9 @@ async function loadDocumentStoreConversation(bpmnId) {
 	)
 	const parsed = rows.map((r) => {
 		let meta = {}
-		try { meta = JSON.parse(r.metadata || "{}") } catch (e) { meta = {} }
+		try { meta = JSON.parse(r.metadata || "{}") } catch { meta = {} }
 		let toolCalls = null
-		try { toolCalls = r.tool_calls ? JSON.parse(r.tool_calls) : null } catch (e) { toolCalls = null }
+		try { toolCalls = r.tool_calls ? JSON.parse(r.tool_calls) : null } catch { toolCalls = null }
 		return {
 			seq: meta.seq ?? 0,
 			role: meta.role || MESSAGE_TYPE_TO_ROLE[r.message_type] || "assistant",

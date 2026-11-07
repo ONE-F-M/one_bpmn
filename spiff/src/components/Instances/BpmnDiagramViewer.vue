@@ -240,7 +240,7 @@ async function initViewer() {
 			try {
 				viewer.value.get("canvas").zoom("fit-viewport", "auto")
 				applyHighlights()
-			} catch (e) {
+			} catch {
 				// ignore zoom errors
 			}
 		}, 100)
@@ -314,12 +314,12 @@ function updateSelectionMarker(bpmnId) {
 	try {
 		const canvas = viewer.value.get("canvas")
 		viewer.value.get("elementRegistry").forEach((el) => {
-			try { canvas.removeMarker(el.id, "highlight-selected") } catch (_) {}
+			try { canvas.removeMarker(el.id, "highlight-selected") } catch { /* ignore */ }
 		})
 		if (bpmnId) {
 			canvas.addMarker(bpmnId, "highlight-selected")
 		}
-	} catch (e) {
+	} catch {
 		// ignore
 	}
 }
@@ -430,7 +430,7 @@ function applyHighlights() {
 				for (const sub of Object.values(subprocesses)) {
 					classify(sub.tasks)
 				}
-			} catch (e) {
+			} catch {
 				// ignore parse errors
 			}
 		}
@@ -459,7 +459,7 @@ function applyHighlights() {
 				} else {
 					canvas.addMarker(bpmnId, "highlight-done")
 				}
-			} catch (e) {
+			} catch {
 				// ignore
 			}
 		})
@@ -477,11 +477,11 @@ function applyHighlights() {
 					token.title = "Process token — the active task"
 					overlays.add(bpmnId, "token-badge", { position: { bottom: 6, left: -7 }, html: token })
 				}
-			} catch (e) {}
+			} catch { /* ignore */ }
 		})
 		// Waiting markers (boundary events / timers listening — show as active on element only)
 		waitingBpmnIds.forEach((bpmnId) => {
-			try { canvas.addMarker(bpmnId, "highlight-active") } catch (e) {}
+			try { canvas.addMarker(bpmnId, "highlight-active") } catch { /* ignore */ }
 		})
 
 		// AI-called toolbox shapes (WI-001426): the agent invoked these as
@@ -516,7 +516,7 @@ function applyHighlights() {
 				// valve edges get the same executed-flow colouring.
 				const parent = elementRegistry.get(bpmnId)?.parent
 				if (parent?.type === "bpmn:AdHocSubProcess") aiToolboxIds.add(parent.id)
-			} catch (e) {}
+			} catch { /* ignore */ }
 		}
 
 		// Edges touching an AI-used toolbox: coloured like every other
@@ -532,7 +532,7 @@ function applyHighlights() {
 				.forEach((element) => {
 					try {
 						canvas.addMarker(element.id, "highlight-flow-ai")
-					} catch (e) {}
+					} catch { /* ignore */ }
 				})
 		}
 
@@ -550,7 +550,7 @@ function applyHighlights() {
 							? "highlight-ai-human"
 							: "highlight-ai-waiting",
 				)
-			} catch (e) {}
+			} catch { /* ignore */ }
 		}
 
 		// Sequence flows, start events, and gateways
@@ -578,7 +578,7 @@ function applyHighlights() {
 								canvas.addMarker(element.id, srcFreq > 1 && tgtFreq > 1 ? "highlight-flow-hot" : "highlight-flow-done")
 							}
 						}
-					} catch (e) {}
+					} catch { /* ignore */ }
 				})
 
 			elementRegistry
@@ -600,7 +600,7 @@ function applyHighlights() {
 						} else if (activeBpmnIds.has(gw.id)) {
 							canvas.addMarker(gw.id, "highlight-active")
 						}
-					} catch (e) {}
+					} catch { /* ignore */ }
 				})
 		}
 
@@ -618,7 +618,7 @@ function applyHighlights() {
 						? JSON.parse(props.details.serialized_spec)
 						: props.details.serialized_spec
 					svcExt = spec?.service_task_extensions || {}
-				} catch (e) { /* ignore */ }
+				} catch { /* ignore */ }
 				const tasks = wfState.tasks || {}
 				// Clear any previous AI badge overlays before re-applying
 				try { overlays.remove({ type: "ai-badge" }) } catch { /* no existing overlays */ }
@@ -646,7 +646,7 @@ function applyHighlights() {
 						overlays.add(taskSpec, "ai-badge", { position: { top: -10, left: -10 }, html: badge })
 					}
 				}
-			} catch (e) {
+			} catch {
 				// ignore AI badge errors
 			}
 		}

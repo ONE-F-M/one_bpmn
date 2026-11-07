@@ -1047,7 +1047,6 @@ import spiffworkflow, { spiffModdleExtension } from "bpmn-js-spiffworkflow";
 import translateModule from "@/bpmn/aiAgentTranslate";
 
 // Custom modeling rules
-import customRulesModule from "@/rules";
 
 // Custom text styling module
 import { customTextStyleModule, stickyNoteModule, serviceTaskIconModule } from "@/renderers";
@@ -1170,7 +1169,6 @@ const showTimeline = ref(false);
 const timelineFilterMode = ref("element"); // 'element' or 'all'
 const timelineTaskFilter = ref(false);
 const timelineAssignedFilter = ref(false);
-const timelineCollapsed = ref(false);
 const showCommentDialog = ref(false);
 const showViewCommentsDialog = ref(false);
 const activeCommentElement = ref(null);
@@ -2272,7 +2270,7 @@ onMounted(async () => {
 				});
 			});
 
-			eventBus.on("spiff.file.edit", (_event) => {
+			eventBus.on("spiff.file.edit", () => {
 				// Not implemented — file editing is handled externally
 			});
 
@@ -2563,19 +2561,17 @@ onMounted(async () => {
 					const directEditing = modeler.get('directEditing');
 					if (directEditing) {
 						directEditing.cancel();
-						const origActivate = directEditing.activate;
 						directEditing.activate = () => false;
 					}
-				} catch (_) { /* module may not exist */ }
+				} catch { /* module may not exist */ }
 
 				// Disable dragging
 				try {
 					const dragging = modeler.get('dragging');
 					if (dragging) {
-						const origInit = dragging.init;
 						dragging.init = () => {};
 					}
-				} catch (_) { /* module may not exist */ }
+				} catch { /* module may not exist */ }
 			}
 
 			emit("ready");
@@ -3125,13 +3121,6 @@ watch(() => props.modelName, (newVal) => {
 });
 
 // --- End Commenting Methods ---
-
-// Decode HTML entities
-function decodeHtmlEntities(text) {
-	const textarea = document.createElement("textarea");
-	textarea.innerHTML = text;
-	return textarea.value;
-}
 
 // Expose methods for parent component
 async function getXML() {

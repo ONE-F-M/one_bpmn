@@ -189,7 +189,7 @@ async function fetchModels() {
 			url: "/api/method/one_bpmn.api.process_map_api.list_processes",
 		});
 		allModels.value = response.message || response || [];
-	} catch (err) {
+	} catch {
 		error.value = "Failed to load processes. Please try again.";
 	} finally {
 		loading.value = false;

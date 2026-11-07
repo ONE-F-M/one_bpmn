@@ -175,7 +175,7 @@ async function runTestCase(payload) {
 			passed: result?.passed ?? false,
 			summary: result?.summary || (result?.passed ? "Test passed." : "Test failed."),
 		});
-	} catch (err) {
+	} catch {
 		report({ passed: false, summary: "Could not run the test — network error." });
 	}
 }

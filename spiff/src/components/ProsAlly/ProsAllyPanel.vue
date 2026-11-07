@@ -81,7 +81,7 @@ async function withCanvasXml() {
 			scope_id: props.getScopeId ? props.getScopeId() : "",
 			lint_issues: props.getLintIssues ? await props.getLintIssues() : [],
 		};
-	} catch (e) {
+	} catch {
 		return {};
 	}
 }

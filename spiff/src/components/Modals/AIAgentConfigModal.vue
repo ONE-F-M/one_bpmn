@@ -889,7 +889,7 @@ async function loadAgentUser(configName) {
       },
     });
     agentUserEmail.value = res?.agent_user || "";
-  } catch (e) {
+  } catch {
     agentUserEmail.value = "";
   }
 }
@@ -1042,7 +1042,7 @@ async function refreshLinkedAgentStatus() {
       },
     });
     linkedAgentStatus.value = (r && r.lifecycle_status) || "";
-  } catch (e) {
+  } catch {
     /* badge stays blank */
   }
 }
@@ -1101,7 +1101,7 @@ async function loadScreening() {
       params: { agent: name },
     });
     screeningControls.value = (r && r.controls) || [];
-  } catch (e) {
+  } catch {
     /* an unreadable agent simply shows no screening section */
   }
 }
@@ -1292,7 +1292,7 @@ async function loadLinkedAgent() {
       params: { config_name: form.value.aiAgentConfig },
     });
     await applyLinkedAgentFields(fields);
-  } catch (e) {
+  } catch {
     // Unreadable agent — the shape's own values stay on screen, which is also
     // what dispatch falls back to, and Save leaves the agent's tables alone.
     return;
@@ -1427,11 +1427,6 @@ const triggerDoctype = ref("");
 
 const NUMERIC_FIELDS = ["aiTemperature", "aiTopP", "aiMaxTokens", "aiTimeout", "aiMaxRetries"];
 
-const providerLabel = computed(() => {
-  const p = providers.value.find((x) => x.name === form.value.aiProvider);
-  return p ? p.provider_name : form.value.aiProvider;
-});
-
 // An earlier onProviderChange (WI-001655) lived here and copied the provider's
 // Default Model into the Model field; it went when provider-level default_model
 // did. The one above shares only the name: a provider narrows the list and
@@ -1481,7 +1476,7 @@ onMounted(async () => {
     providers.value = Array.from(
       new Set(catalogModels.value.map((m) => m.provider).filter(Boolean)),
     ).map((name) => ({ name, provider_name: name }));
-  } catch (e) {
+  } catch {
     catalogModels.value = [];
     providers.value = [];
   }
@@ -1499,7 +1494,7 @@ onMounted(async () => {
       distill: settings?.default_memory_distill_model || "",
       reconcile: settings?.default_memory_reconcile_model || "",
     };
-  } catch (e) {
+  } catch {
     siteDefaults.value = { compaction: "", distill: "", reconcile: "" };
   }
 
@@ -1512,7 +1507,7 @@ onMounted(async () => {
       order_by: "name asc",
     });
     agentConfigs.value = Array.isArray(cfgs) ? cfgs : [];
-  } catch (e) {
+  } catch {
     agentConfigs.value = [];
   }
 
@@ -1612,7 +1607,7 @@ onMounted(async () => {
         }
         if (triggerDoctype.value) break;
       }
-    } catch (e) { /* best effort */ }
+    } catch { /* best effort */ }
   }
 
   // WI-001652: show the linked agent's lifecycle so "why can't I deploy"
