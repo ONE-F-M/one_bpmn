@@ -185,7 +185,7 @@ class TestTheOtherWaysAModelIsCreated(FrappeTestCase):
 				frappe.delete_doc("BPMN Process Model", name, force=1, ignore_permissions=True)
 
 	def test_an_import_keeps_the_id_the_file_carries(self):
-		from one_bpmn.api.process_map_api import import_bpmn
+		from one_bpmn.api.process_maps import import_bpmn
 		from one_bpmn.tests.test_call_activity import _child_xml
 
 		file_id = f"imported_{frappe.generate_hash(length=6)}"
@@ -195,7 +195,7 @@ class TestTheOtherWaysAModelIsCreated(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value("BPMN Process Model", out["name"], "process_id"), file_id)
 
 	def test_a_map_drawn_in_the_editor_is_named_after_its_process(self):
-		from one_bpmn.api.process_map_api import save_process_model
+		from one_bpmn.api.process_maps import save_process_model
 		from one_bpmn.tests.test_call_activity import _child_xml
 
 		title = f"PID Editor {frappe.generate_hash(length=6)}"

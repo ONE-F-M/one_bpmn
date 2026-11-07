@@ -7,7 +7,8 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.bpmn_task_config import resolve_node_attrs
 from one_bpmn.processa_engine.compiler.extensions import extract_user_task_config
-from one_bpmn.api.process_map_api import _extract_bpmn_references, validate_bpmn_readiness
+from one_bpmn.api.process_maps import validate_bpmn_readiness
+from one_bpmn.processa_engine.maps.references import extract_bpmn_references
 from one_bpmn.api.utils import get_doctype_email_thread
 
 FACTS = "[&quot;description&quot;, [&quot;allocated_to&quot;, &quot;assigned_by.full_name&quot;]]"
@@ -39,7 +40,7 @@ SETTINGS = (
 
 class TestNotifyAssigneeAttributes(FrappeTestCase):
 	def test_facts_details_and_reason_fields_are_referenced_on_the_trigger_doctype(self):
-		refs = _extract_bpmn_references(_map('spiffworkflow:triggerDoctype="ToDo"', SETTINGS))
+		refs = extract_bpmn_references(_map('spiffworkflow:triggerDoctype="ToDo"', SETTINGS))
 
 		fields = {f for dt, f in refs["fields"] if dt == "ToDo"}
 		self.assertEqual(
@@ -47,7 +48,7 @@ class TestNotifyAssigneeAttributes(FrappeTestCase):
 		)
 
 	def test_the_task_target_doctype_is_used_when_the_start_event_has_none(self):
-		refs = _extract_bpmn_references(_map(task_attrs=f'spiffworkflow:targetDoctype="ToDo" {SETTINGS}'))
+		refs = extract_bpmn_references(_map(task_attrs=f'spiffworkflow:targetDoctype="ToDo" {SETTINGS}'))
 
 		self.assertIn(("ToDo", "no_such_reason"), refs["fields"])
 
@@ -55,7 +56,7 @@ class TestNotifyAssigneeAttributes(FrappeTestCase):
 		xml = _map('spiffworkflow:triggerDoctype="ToDo"', 'spiffworkflow:notifyFacts="[broken"')
 
 		with self.assertRaises(frappe.ValidationError) as ctx:
-			_extract_bpmn_references(xml)
+			extract_bpmn_references(xml)
 		self.assertIn("Activity_review", str(ctx.exception))
 		self.assertIn("notifyFacts", str(ctx.exception))
 

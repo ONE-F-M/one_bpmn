@@ -20,7 +20,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.shape_tools import execute_shape
-from one_bpmn.api.process_map_api import _connector_tools_without_result_variable
+from one_bpmn.processa_engine.maps.readiness import connector_tools_without_result_variable
 from one_bpmn.processa_engine.dispatch.connector import CONNECTOR_OUTCOME_KEY
 
 CONNECTOR_CFG = {"serviceType": "connector", "connectorId": "google_drive",
@@ -173,14 +173,14 @@ class TestTheEndpointStaysReachable(FrappeTestCase):
 	"""
 
 	def test_validate_bpmn_readiness_is_whitelisted(self):
-		from one_bpmn.api.process_map_api import validate_bpmn_readiness
+		from one_bpmn.api.process_maps import validate_bpmn_readiness
 
 		self.assertIn(validate_bpmn_readiness, frappe.whitelisted)
 
-	def test_the_private_helper_is_not_exposed_over_http(self):
-		from one_bpmn.api.process_map_api import _connector_tools_without_result_variable
+	def test_the_helper_is_not_exposed_over_http(self):
+		from one_bpmn.processa_engine.maps.readiness import connector_tools_without_result_variable
 
-		self.assertNotIn(_connector_tools_without_result_variable, frappe.whitelisted)
+		self.assertNotIn(connector_tools_without_result_variable, frappe.whitelisted)
 
 
 class TestDeployReadinessFlagsTheGap(FrappeTestCase):
@@ -206,12 +206,12 @@ class TestDeployReadinessFlagsTheGap(FrappeTestCase):
 </bpmn:definitions>"""
 
 	def test_only_the_tool_without_a_result_variable_is_flagged(self):
-		found = _connector_tools_without_result_variable(self.BPMN)
+		found = connector_tools_without_result_variable(self.BPMN)
 
 		self.assertEqual([f["bpmn_id"] for f in found], ["tool_no_var"])
 
 	def test_the_finding_names_the_shape_the_agent_and_the_connector(self):
-		f = _connector_tools_without_result_variable(self.BPMN)[0]
+		f = connector_tools_without_result_variable(self.BPMN)[0]
 
 		self.assertEqual(f["shape"], "Create File")
 		self.assertEqual(f["agent"], "Run Agent")
@@ -219,12 +219,12 @@ class TestDeployReadinessFlagsTheGap(FrappeTestCase):
 
 	def test_a_connector_outside_a_tools_subprocess_is_not_flagged(self):
 		"""An ordinary process step's output is genuinely optional."""
-		found = _connector_tools_without_result_variable(self.BPMN)
+		found = connector_tools_without_result_variable(self.BPMN)
 
 		self.assertNotIn("plain_connector", [f["bpmn_id"] for f in found])
 
 	def test_unparseable_xml_reports_nothing_rather_than_raising(self):
-		self.assertEqual(_connector_tools_without_result_variable("<not-xml"), [])
+		self.assertEqual(connector_tools_without_result_variable("<not-xml"), [])
 
 
 class TestConnectorsThatAnswerOutOfBandAreNotFlagged(FrappeTestCase):
@@ -240,7 +240,7 @@ class TestConnectorsThatAnswerOutOfBandAreNotFlagged(FrappeTestCase):
 			'spiffworkflow:connectorId="agent_sandbox" spiffworkflow:operation="run_tests"',
 		) % ""
 
-		self.assertEqual(_connector_tools_without_result_variable(xml), [])
+		self.assertEqual(connector_tools_without_result_variable(xml), [])
 		self.assertEqual(check_connector_tools_can_answer(xml), [])
 
 

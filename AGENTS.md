@@ -19,7 +19,7 @@ House style lives in `frappe-bench/.claude/rules/`: `house-style.md` always, `py
 ## Repository layout
 
 - `one_bpmn/api/`: whitelisted endpoints, one module per domain:
-  - `process_map_api.py`: process model and Process CRUD (save, import, list, rename, delete).
+  - `process_maps.py`: process model and Process endpoints (save, import, list, rename, delete); the work is in `processa_engine/maps/`.
   - `deploy.py`: the deploy, disable, activate and deactivate endpoints; the work is in `processa_engine/compiler/`.
   - `instance_api.py`: instance lifecycle and task actions (start, complete, send message, list).
   - `editability.py`: cross-site editability checks and editor lock heartbeats.

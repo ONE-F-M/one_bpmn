@@ -688,7 +688,7 @@ async function loadDetails() {
 async function loadProcessModelXml(modelName) {
 	try {
 		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.get_process_model",
+			url: "/api/method/one_bpmn.api.process_maps.get_process_model",
 			params: { name: modelName },
 		})
 		const data = res

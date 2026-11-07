@@ -100,16 +100,14 @@ one_bpmn/                      # Frappe app (repo root)
 
 All endpoints are `@frappe.whitelist()` methods organized into domain submodules under `one_bpmn/api/`. Below is the endpoint surface by module.
 
-### Process Model CRUD (`process_map_api`)
+### Process Model CRUD (`process_maps`)
 
 | Method | Endpoint | Description |
 | ------ | -------- | ----------- |
 | POST | `save_process_model` | Save or update a BPMN diagram |
 | POST | `import_bpmn` | Import a .bpmn file (upsert by process_id) |
 | POST | `rename_process_model` | Rename a diagram (fast path) |
-| POST | `update_diagram_order` | Reorder diagrams within a process |
 | GET | `get_process_model` | Get a diagram by name |
-| GET | `list_process_models` | List all diagrams |
 | GET | `list_processes` | List Process records with diagram counts |
 | GET | `get_process_diagrams` | Get all diagrams for a process |
 | GET | `resolve_process_model_by_id` | Resolve process_id to model |
@@ -295,7 +293,7 @@ bench --site your-site.local clear-cache
 
 ### Adding New Features
 
-- **API endpoint**: add to the appropriate submodule in `one_bpmn/api/` with `@frappe.whitelist()` (e.g. process CRUD in `process_map_api.py`, instance logic in `instance_api.py`).
+- **API endpoint**: add to the appropriate submodule in `one_bpmn/api/` with `@frappe.whitelist()` (e.g. process CRUD in `process_maps.py`, instance logic in `instance_api.py`).
 - **Vue component / view**: add under `spiff/src/components/` or `spiff/src/pages/` and register routes in `spiff/src/router.js`.
 - **bpmn-js module**: add under `spiff/src/bpmn/`, `renderers/`, `rules/`, or `resize/` and register in `BpmnEditor.vue`'s `additionalModules`.
 - **Moddle extension**: add under `spiff/src/moddle/` and register in `BpmnEditor.vue`'s `moddleExtensions`.

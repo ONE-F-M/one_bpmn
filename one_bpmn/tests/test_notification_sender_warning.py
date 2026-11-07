@@ -8,7 +8,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.processa_engine.compiler.deploy_warnings import check_notification_senders
-from one_bpmn.api.process_map_api import validate_bpmn_readiness
+from one_bpmn.api.process_maps import validate_bpmn_readiness
 
 NOTIFICATIONS = "Processa Test Notifications"
 STAGING = "Processa Test Staging"

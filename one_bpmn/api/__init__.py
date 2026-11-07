@@ -1,7 +1,7 @@
 # one_bpmn/api/__init__.py
 # This package contains the one_bpmn API, organized into submodules:
 #
-#   process_map_api    — CRUD for BPMN Process Model and Process records
+#   process_maps       - process map endpoints; the logic is in processa_engine.maps
 #   deploy             - deploy, disable, activate and deactivate process models
 #   workflow_state     — apply workflow states and docstatus transitions
 #   editability        — Process Implementation cross-site editability checks

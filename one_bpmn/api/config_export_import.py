@@ -38,9 +38,9 @@ def export_bpmn_config(xml_content: str) -> dict:
 	if not xml_content or not xml_content.strip():
 		frappe.throw(_("BPMN XML content is required"))
 
-	from one_bpmn.api.process_map_api import _extract_bpmn_references
+	from one_bpmn.processa_engine.maps.references import extract_bpmn_references
 
-	refs = _extract_bpmn_references(xml_content)
+	refs = extract_bpmn_references(xml_content)
 
 	# ── Collect Server Scripts ────────────────────────────────────────────
 	server_scripts = []
