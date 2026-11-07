@@ -2,7 +2,7 @@ import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
 import { HeaderButton } from "@bpmn-io/properties-panel";
-import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
+import { RecordPickerField } from "../shared/RecordPickerField";
 import { frappeGet } from "../shared/frappeResource";
 
 /**
@@ -93,7 +93,7 @@ function DecisionTablePicker(props) {
 		{ class: "bio-properties-panel-entry", "data-entry-id": id },
 		h("div", { class: "bio-properties-panel-textfield" }, [
 			h("label", { class: "bio-properties-panel-label" }, translate("Select Decision Table")),
-			h(FrappeAutocomplete, {
+			h(RecordPickerField, {
 				value: currentValue,
 				placeholder: translate("Search by ID or name…"),
 				fetchApi: fetchDecisions,

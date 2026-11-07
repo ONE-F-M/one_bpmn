@@ -8,7 +8,7 @@ import { SelectEntry, isSelectEntryEdited } from "@bpmn-io/properties-panel";
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
-import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
+import { RecordPickerField } from "../shared/RecordPickerField";
 import { makeLaunchDocuButton } from "../shared/launchDocuButton";
 
 // ---------------------------------------------------------------------------
@@ -73,7 +73,7 @@ function TriggerDoctypeAutocompleteComponent(props) {
 		});
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		label: translate("Trigger DocType"),
 		value,

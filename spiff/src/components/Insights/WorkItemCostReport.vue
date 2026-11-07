@@ -3,13 +3,10 @@
 		<!-- Work Item picker -->
 		<div class="flex flex-wrap gap-3 items-center">
 			<div class="w-80">
-				<Autocomplete
+				<RecordPicker
 					v-model="selectedWorkItem"
-					:options="workItemOptions"
-					:loading="searching"
-					:compare-fn="compareOption"
+					:fetch-options="searchWorkItems"
 					placeholder="Search Orchestrator Work Items…"
-					@update:query="debouncedSearch"
 				/>
 			</div>
 		</div>
@@ -132,48 +129,26 @@
 
 <script setup>
 import { ref, watch } from "vue"
-import { frappeRequest, Autocomplete } from "frappe-ui"
+import RecordPicker from "@/components/Controls/RecordPicker.vue"
+import { frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 import { fmtInt as fmtNum, fmtCompact, fmtCurrency as fmtCost, fmtCurrencyExact } from "@/utils/formatters"
 
-const searching = ref(false)
-const workItemOptions = ref([])
-const selectedWorkItem = ref(null)
-let searchTimer = null
+const selectedWorkItem = ref("")
 
 const loading = ref(false)
 const report = ref({ total_cost: 0, total_tokens: 0, breakdown: [], chain_truncated: false })
 
-// frappe-ui's default comparator is `(a, b) => a.value === b.value`, which
-// throws the moment either side is null — the same trap UserFilter and
-// Evals.vue guard against for their own Autocompletes.
-function compareOption(a, b) {
-	return a?.value === b?.value
-}
-
-function debouncedSearch(query) {
-	clearTimeout(searchTimer)
-	searchTimer = setTimeout(() => searchWorkItems(query), 300)
-}
-
 async function searchWorkItems(query = "") {
-	searching.value = true
-	try {
-		const result = await frappeRequest({
-			url: "/api/method/one_bpmn.api.insights_api.search_orchestrator_work_items",
-			method: "POST",
-			params: { query },
-		})
-		workItemOptions.value = (result || []).map((w) => ({
-			label: w.title ? `${w.name} — ${w.title}` : w.name,
-			value: w.name,
-		}))
-	} catch (e) {
-		console.error("Failed to search work items:", e)
-		workItemOptions.value = []
-	} finally {
-		searching.value = false
-	}
+	const result = await frappeRequest({
+		url: "/api/method/one_bpmn.api.insights_api.search_orchestrator_work_items",
+		method: "POST",
+		params: { query },
+	})
+	return (result || []).map((w) => ({
+		label: w.title ? `${w.name} — ${w.title}` : w.name,
+		value: w.name,
+	}))
 }
 
 async function fetchReport(workItemName) {
@@ -202,7 +177,5 @@ async function fetchReport(workItemName) {
 	}
 }
 
-watch(selectedWorkItem, (opt) => fetchReport(opt?.value))
-
-searchWorkItems()
+watch(selectedWorkItem, fetchReport)
 </script>

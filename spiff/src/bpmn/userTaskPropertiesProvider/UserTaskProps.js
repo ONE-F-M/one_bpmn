@@ -3,13 +3,11 @@ import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
 import { frappeGet, frappePost } from "../shared/frappeResource";
-import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
-import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
+import { RecordPickerField } from "../shared/RecordPickerField";
 import { decodeHtmlAttr } from "../shared/htmlAttrCodec";
 import { NOTIFY_EDITOR_ATTRS, contextDoctype } from "../shared/notifyAssigneeAttrs";
 import { NotifySummaryBox } from "./notifySummaryBox";
 import { makeLaunchDocuButton } from "../shared/launchDocuButton";
-import { RecordCombobox } from "../shared/RecordCombobox";
 import { cachedRecordList } from "../shared/cachedRecordList";
 import { CLOSE, icon } from "../shared/recordIcons";
 import { createWorkflowActionMaster } from "./workflowActionCreate";
@@ -149,7 +147,7 @@ function NotifyAssigneeAccountComponent(props) {
 		return frappeGet("/api/resource/Email Account", params);
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		// Deploy rejects Notify Assignee with no account, so the field says so
 		// here rather than letting the designer find out at deploy.
@@ -197,7 +195,7 @@ function TargetDoctypeComponent(props) {
 		return frappeGet("/api/resource/DocType", params);
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		label: translate("DocType"),
 		value,
@@ -303,7 +301,7 @@ function AssigneeUserComponent(props) {
 		});
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		label: translate("User"),
 		value,
@@ -350,7 +348,7 @@ function AssigneeDocfieldComponent(props) {
 			});
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		label: translate("DocField"),
 		value,
@@ -409,7 +407,7 @@ function AssigneeTableFieldComponent(props) {
 		});
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		label: translate("Table Field"),
 		value,
@@ -474,7 +472,7 @@ function AssigneeTableUserFieldComponent(props) {
 		});
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		label: translate("Row User Field"),
 		value,
@@ -533,7 +531,8 @@ function RoundRobinUsersComponent(props) {
 		"div",
 		{},
 		[
-			h(FrappeMultiSelect, {
+			h(RecordPickerField, {
+				multiple: true,
 				id,
 				label: translate("Users (Round Robin)"),
 				value,
@@ -610,7 +609,8 @@ function LoadBalancingUsersComponent(props) {
 		"div",
 		{},
 		[
-			h(FrappeMultiSelect, {
+			h(RecordPickerField, {
+				multiple: true,
 				id,
 				label: translate("Users (Load Balancing)"),
 				value,
@@ -791,7 +791,7 @@ function ActionRowComponent({ row, idx, translate, onUpdate, onRemove }) {
 		h(
 			"div",
 			{ class: "bpmn-action-name" },
-			h(RecordCombobox, {
+			h(RecordPickerField, {
 				id: `task-action-${idx}`,
 				compact: true,
 				keepTyped: true,

@@ -2,7 +2,7 @@ import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h, Component } from "preact";
 import { HeaderButton } from "@bpmn-io/properties-panel";
-import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
+import { RecordPickerField } from "../shared/RecordPickerField";
 import { frappeGet, frappePost } from "../shared/frappeResource";
 import { listenForScriptLink } from "./listenForScriptLink";
 
@@ -95,7 +95,7 @@ function ServerScriptComponent(props) {
 		{ class: "bio-properties-panel-entry", "data-entry-id": id },
 		h("div", { class: "bio-properties-panel-textfield" }, [
 			h("label", { class: "bio-properties-panel-label" }, translate("Server Script")),
-			h(FrappeAutocomplete, {
+			h(RecordPickerField, {
 				value: currentValue,
 				placeholder: translate("Select a Frappe Server Script (API type)…"),
 				fetchApi: fetchServerScripts,
@@ -223,7 +223,7 @@ class CreateAgentConfigForm extends Component {
 				value: system_prompt,
 				onInput: (e) => this.setState({ system_prompt: e.target.value }),
 			}),
-			h(FrappeAutocomplete, {
+			h(RecordPickerField, {
 				label: translate("AI Provider"),
 				value: ai_provider,
 				placeholder: translate("Optional…"),
@@ -232,7 +232,7 @@ class CreateAgentConfigForm extends Component {
 				renderOption: (opt) => opt.name,
 				onChange: (v) => this.setState({ ai_provider: v }),
 			}),
-			h(FrappeAutocomplete, {
+			h(RecordPickerField, {
 				label: translate("AI Model"),
 				value: ai_model,
 				placeholder: translate("Optional…"),
@@ -295,7 +295,7 @@ function AiAgentConfigOverrideComponent(props) {
 				},
 				translate("Internal AI Agent Configuration")
 			),
-			h(FrappeAutocomplete, {
+			h(RecordPickerField, {
 				value: currentValue,
 				placeholder: translate("Uses the script's default…"),
 				fetchApi: fetchAgentConfigs,

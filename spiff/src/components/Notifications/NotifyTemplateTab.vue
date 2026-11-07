@@ -15,11 +15,10 @@
 
 		<template v-if="useHtml">
 			<div class="space-y-1.5">
-				<Autocomplete
-					:compare-fn="compareOption"
+				<RecordPicker
 					label="Pre-populate from Email Template"
 					placeholder="Search email templates..."
-					:model-value="template || null"
+					:model-value="template || ''"
 					:options="templateOptions"
 					:loading="loadingTemplates"
 					@update:model-value="selectTemplate"
@@ -82,8 +81,8 @@
 
 <script setup>
 import { ref, computed, onMounted } from "vue";
-import { Autocomplete, Badge, Button, FeatherIcon, FormControl } from "frappe-ui";
-import { compareOption } from "@/utils/compareOption";
+import { Badge, Button, FeatherIcon, FormControl } from "frappe-ui";
+import RecordPicker from "@/components/Controls/RecordPicker.vue";
 import { frappeGet } from "@/bpmn/shared/frappeResource";
 
 const useHtml = defineModel("useHtml", { type: Boolean });
@@ -117,12 +116,12 @@ async function fetchTemplates() {
 	}
 }
 
-async function selectTemplate(option) {
-	if (!option?.value) return;
+async function selectTemplate(name) {
+	if (!name) return;
 
 	// Fetch the full template to get the HTML body + subject
 	try {
-		const doc = await frappeGet(`/api/resource/Email Template/${encodeURIComponent(option.value)}`, {
+		const doc = await frappeGet(`/api/resource/Email Template/${encodeURIComponent(name)}`, {
 			fields: JSON.stringify(["subject", "response_html", "response"]),
 		});
 		// Prefer response_html; fall back to response (plain text / markdown)
@@ -133,7 +132,7 @@ async function selectTemplate(option) {
 		if (doc?.subject) {
 			subject.value = doc.subject;
 		}
-		template.value = option.value;
+		template.value = name;
 	} catch (err) {
 		console.error("[NotifyAssigneeEditor] Failed to fetch template content:", err);
 	}
