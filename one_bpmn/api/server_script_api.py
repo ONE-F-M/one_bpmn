@@ -667,7 +667,7 @@ def run_logix_test_case(script_name: str, inputs: str = "{}") -> dict:
 		if script_doc.script_type != "API":
 			return {"passed": False, "result": None, "summary": "This script is not an API-type script and cannot be run as a test."}
 
-		from one_bpmn.one_bpmn.engine import _check_script_permissions
+		from one_bpmn.processa_engine.engine import _check_script_permissions
 
 		_check_script_permissions(script_doc.script, script_name)
 

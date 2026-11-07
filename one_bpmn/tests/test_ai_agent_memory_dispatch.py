@@ -60,7 +60,7 @@ class TestDispatcherMemory(FrappeTestCase):
 			patch("one_bpmn.agents.observability.record_ai_step"),
 			patch("one_bpmn.agents.observability.finalize_ai_run"),
 			patch("one_bpmn.agents.observability.finalize_ai_run_on_exception"),
-			patch("one_bpmn.one_bpmn.engine.get_task_display_name", return_value="AI Task"),
+			patch("one_bpmn.processa_engine.engine.get_task_display_name", return_value="AI Task"),
 			patch("frappe.db.commit"),
 		]
 		for p in patches:
@@ -351,7 +351,7 @@ class TestRememberDirectiveWrite(FrappeTestCase):
 			patch("one_bpmn.agents.observability.record_ai_step"),
 			patch("one_bpmn.agents.observability.finalize_ai_run"),
 			patch("one_bpmn.agents.observability.finalize_ai_run_on_exception"),
-			patch("one_bpmn.one_bpmn.engine.get_task_display_name", return_value="AI Task"),
+			patch("one_bpmn.processa_engine.engine.get_task_display_name", return_value="AI Task"),
 			patch("frappe.db.commit"),
 		]
 		for p in patches:
@@ -550,7 +550,7 @@ class TestTheUserMessageReachesTheModel(FrappeTestCase):
 			patch("one_bpmn.agents.observability.record_ai_step"),
 			patch("one_bpmn.agents.observability.finalize_ai_run"),
 			patch("one_bpmn.agents.observability.finalize_ai_run_on_exception"),
-			patch("one_bpmn.one_bpmn.engine.get_task_display_name", return_value="AI Task"),
+			patch("one_bpmn.processa_engine.engine.get_task_display_name", return_value="AI Task"),
 			patch("frappe.db.commit"),
 		]
 		for p in patches:
@@ -929,7 +929,7 @@ class TestRecallObservability(FrappeTestCase):
 			"frappe.db.commit",
 		):
 			patch(target).start()
-		patch("one_bpmn.one_bpmn.engine.get_task_display_name", return_value="AI Task").start()
+		patch("one_bpmn.processa_engine.engine.get_task_display_name", return_value="AI Task").start()
 
 	def _dispatch(self, task_data=None, **cfg):
 		task = SimpleNamespace(

@@ -25,7 +25,7 @@ from one_bpmn.api.compilation import (
 	_extract_user_task_config,
 	_resolve_ai_agent_tool_shapes,
 )
-from one_bpmn.one_bpmn import engine as bpmn_engine
+from one_bpmn.processa_engine import engine as bpmn_engine
 
 test_ignore = ["BPMN Process Model"]
 

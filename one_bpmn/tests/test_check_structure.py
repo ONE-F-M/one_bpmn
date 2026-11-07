@@ -185,8 +185,13 @@ class TestImportRule(unittest.TestCase):
 		self.assertEqual(result.failures[0].line, 3)
 
 	def test_spiffworkflow_inside_the_engine_passes(self):
-		self.assertTrue(self.added("one_bpmn/one_bpmn/engine.py", SPIFF_IMPORT).ok)
-		self.assertTrue(self.added("one_bpmn/one_bpmn/engine/parser.py", "\t" + SPIFF_IMPORT).ok)
+		self.assertTrue(self.added("one_bpmn/processa_engine/engine/__init__.py", SPIFF_IMPORT).ok)
+		self.assertTrue(self.added("one_bpmn/processa_engine/engine/parser.py", "\t" + SPIFF_IMPORT).ok)
+
+	def test_spiffworkflow_in_the_old_engine_or_the_instance_folder_fails(self):
+		self.assertEqual(rules(self.added("one_bpmn/one_bpmn/engine.py", SPIFF_IMPORT)), ["import"])
+		instance = "one_bpmn/processa_engine/doctype/bpmn_process_instance/bpmn_process_instance.py"
+		self.assertEqual(rules(self.added(instance, SPIFF_IMPORT)), ["import"])
 
 	def test_model_libraries_outside_the_adapters_fail(self):
 		for text in (ANTHROPIC_IMPORT, OPENAI_IMPORT, GENAI_IMPORT, "from google import genai"):

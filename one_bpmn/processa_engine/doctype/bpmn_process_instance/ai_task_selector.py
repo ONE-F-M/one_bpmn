@@ -13,7 +13,7 @@
 
 import frappe
 
-from one_bpmn.one_bpmn import engine as bpmn_engine
+from one_bpmn.processa_engine import engine as bpmn_engine
 from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import (
 	_cfg_truthy,
 	_provider_for_model,
@@ -23,7 +23,7 @@ from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import (
 
 def make_adhoc_decider(instance, wf):
 	"""
-	Build the decider installed into engine.adhoc_next_task_decider for the
+	Build the decider installed into engine.adhoc.adhoc_next_task_decider for the
 	duration of one _run_engine() call.
 
 	The returned callable receives (subworkflow, pending_tasks) from the
@@ -157,7 +157,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 	# re-pick them — a safe no-op that stalled the subprocess (the dominant
 	# failure in UAT). Filter diagram candidates to the pending heads and
 	# tell the model what already ran instead.
-	from SpiffWorkflow.util.task import TaskState
+	from one_bpmn.processa_engine.engine import TaskState
 
 	heads = bpmn_engine.adhoc_head_tasks(sp)
 	head_name = lambda t: getattr(t.task_spec, "bpmn_id", None) or t.task_spec.name  # noqa: E731

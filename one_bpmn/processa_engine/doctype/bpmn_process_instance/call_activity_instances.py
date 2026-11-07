@@ -137,20 +137,12 @@ def _called_process_models(wf) -> dict:
 	another PROCESS MODEL — they are part of the diagram you are already looking
 	at, so giving them their own instance row would be noise.
 	"""
-	try:
-		from SpiffWorkflow.bpmn.specs.mixins.call_activity import CallActivityMixin
-	except Exception:  # pragma: no cover - import path differs across versions
-		CallActivityMixin = None
+	from one_bpmn.processa_engine.engine import CallActivityMixin
 
 	found = {}
 	for task in wf.get_tasks():
 		spec = task.task_spec
-		is_call = (
-			isinstance(spec, CallActivityMixin)
-			if CallActivityMixin is not None
-			else type(spec).__name__ == "CallActivity"
-		)
-		if not is_call:
+		if not isinstance(spec, CallActivityMixin):
 			continue
 		called = getattr(spec, "spec", None)
 		if not called:

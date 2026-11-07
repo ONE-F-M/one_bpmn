@@ -23,7 +23,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.api.compilation import _resolve_called_process_xml, compile_process_model
-from one_bpmn.one_bpmn import engine
+from one_bpmn.processa_engine import engine
 
 CHILD_ID = "wi2111_child"
 PARENT_ID = "wi2111_parent"

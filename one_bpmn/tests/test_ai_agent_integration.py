@@ -41,7 +41,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from SpiffWorkflow.util.task import TaskState
 
-import one_bpmn.one_bpmn.engine as bpmn_engine
+import one_bpmn.processa_engine.engine as bpmn_engine
 from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
 
 EXECUTOR_TARGET = "one_bpmn.agents.executor.get_executor"

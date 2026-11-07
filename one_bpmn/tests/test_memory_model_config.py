@@ -265,7 +265,7 @@ class TestMemoryModelConfig(FrappeTestCase):
 			("one_bpmn.agents.observability.record_ai_step", {}),
 			("one_bpmn.agents.observability.finalize_ai_run", {}),
 			("one_bpmn.agents.observability.finalize_ai_run_on_exception", {}),
-			("one_bpmn.one_bpmn.engine.get_task_display_name", {"return_value": "AI Task"}),
+			("one_bpmn.processa_engine.engine.get_task_display_name", {"return_value": "AI Task"}),
 			("frappe.db.commit", {}),
 		):
 			p = patch(target, **kwargs)

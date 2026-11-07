@@ -116,7 +116,7 @@ class TestJobLevelRetries(JobHarness):
 		# The parked task is still STARTED in the persisted state…
 		import json as _json
 
-		from one_bpmn.one_bpmn import engine as bpmn_engine
+		from one_bpmn.processa_engine import engine as bpmn_engine
 
 		state = frappe.db.get_value(
 			"BPMN Process Instance", self.instance.name, "workflow_state"

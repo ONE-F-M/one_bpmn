@@ -11,7 +11,7 @@ from frappe.tests.utils import FrappeTestCase
 from one_bpmn.api.compilation import compile_process_model
 from SpiffWorkflow.util.task import TaskState
 
-from one_bpmn.one_bpmn import engine
+from one_bpmn.processa_engine import engine
 
 GATE = "wi_buffer_gate"
 OPENED = "github:pull_request:opened"

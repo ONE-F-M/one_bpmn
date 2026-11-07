@@ -21,7 +21,7 @@ from unittest.mock import Mock, patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-import one_bpmn.one_bpmn.engine as bpmn_engine
+import one_bpmn.processa_engine.engine as bpmn_engine
 from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import (
 	dispatch_email,
 	dispatch_google_chat,

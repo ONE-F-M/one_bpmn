@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.one_bpmn import engine
+from one_bpmn.processa_engine import engine
 
 test_ignore = ["BPMN Process Instance", "BPMN Process Model"]
 
@@ -95,17 +95,17 @@ class TestAdhocActivityLog(FrappeTestCase):
 
 	def test_notify_hook_is_safe_and_scoped(self):
 		calls = []
-		engine.adhoc_task_activated_logger = lambda sp, task: calls.append(task.task_spec.name)
+		engine.adhoc.adhoc_task_activated_logger = lambda sp, task: calls.append(task.task_spec.name)
 		try:
 			engine.notify_adhoc_activation(_fake_sp(), _fake_task("task_a"))
 		finally:
-			engine.adhoc_task_activated_logger = None
+			engine.adhoc.adhoc_task_activated_logger = None
 		self.assertEqual(calls, ["task_a"])
 
 		# Unset hook: no-op. Broken hook: swallowed.
 		engine.notify_adhoc_activation(_fake_sp(), _fake_task())
-		engine.adhoc_task_activated_logger = lambda sp, task: 1 / 0
+		engine.adhoc.adhoc_task_activated_logger = lambda sp, task: 1 / 0
 		try:
 			engine.notify_adhoc_activation(_fake_sp(), _fake_task())  # must not raise
 		finally:
-			engine.adhoc_task_activated_logger = None
+			engine.adhoc.adhoc_task_activated_logger = None

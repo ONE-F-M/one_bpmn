@@ -11,7 +11,7 @@ attribute lookup, or sandbox-escape gadgets; walking the AST catches the
 *shape* of an attack regardless of how it is spelled.
 
 Enforcement model: runs on save, on deploy, and again before every exec()
-(see one_bpmn.one_bpmn.engine._check_script_permissions).
+(see one_bpmn.processa_engine.engine._check_script_permissions).
 
 Tuning (per the agreed decisions):
   * Unambiguous escape vectors are ALWAYS blocked (exec/eval/getattr as bare

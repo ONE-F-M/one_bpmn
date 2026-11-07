@@ -14,12 +14,9 @@ from frappe.model.document import Document
 from frappe.utils import now_datetime
 from frappe.utils.background_jobs import get_queues_timeout
 
-from SpiffWorkflow.bpmn.specs.mixins.multiinstance_task import MultiInstanceTask
-from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
-from SpiffWorkflow.util.task import TaskState
-
-from one_bpmn.one_bpmn import engine as bpmn_engine
-from one_bpmn.one_bpmn.engine import json_safe_doc_fields as _json_safe_doc_fields
+from one_bpmn.processa_engine import engine as bpmn_engine
+from one_bpmn.processa_engine.engine import MultiInstanceTask, SubWorkflowTask, TaskState
+from one_bpmn.processa_engine.engine import json_safe_doc_fields as _json_safe_doc_fields
 from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import dispatch_ai_agent
 
 from .dispatchers import (
@@ -1024,15 +1021,15 @@ class BPMNProcessInstance(Document):
 			make_adhoc_decider,
 		)
 
-		bpmn_engine.adhoc_next_task_decider = make_adhoc_decider(self, wf)
-		bpmn_engine.adhoc_task_activated_logger = self._log_adhoc_activation
+		bpmn_engine.adhoc.adhoc_next_task_decider = make_adhoc_decider(self, wf)
+		bpmn_engine.adhoc.adhoc_task_activated_logger = self._log_adhoc_activation
 		self._pending_ai_jobs = []
 		try:
 			self._run_engine_inner(wf)
 			self._deliver_buffered_messages(wf)
 		finally:
-			bpmn_engine.adhoc_next_task_decider = None
-			bpmn_engine.adhoc_task_activated_logger = None
+			bpmn_engine.adhoc.adhoc_next_task_decider = None
+			bpmn_engine.adhoc.adhoc_task_activated_logger = None
 
 		# WI-001495: reflect parked AI work on the instance and hand ONLY the
 		# AI work to the bpmn_ai_agent worker. The callers (start / advance /

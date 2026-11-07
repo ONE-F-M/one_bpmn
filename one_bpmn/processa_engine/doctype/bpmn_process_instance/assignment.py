@@ -9,7 +9,7 @@
 import frappe
 from frappe import _
 
-from one_bpmn.one_bpmn import engine as bpmn_engine
+from one_bpmn.processa_engine import engine as bpmn_engine
 
 
 def split_users(value: str) -> list:

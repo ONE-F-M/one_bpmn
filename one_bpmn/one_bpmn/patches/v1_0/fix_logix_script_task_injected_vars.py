@@ -5,7 +5,7 @@ Fix Logix sub-prompts to author scripts against the BPMN engine's injected
 variables instead of frappe.form_dict.
 
 BPMN Script Tasks do NOT run inside an HTTP request. The engine
-(FrappeScriptEngine._run_frappe_server_script in one_bpmn/one_bpmn/engine.py)
+(FrappeScriptEngine._run_frappe_server_script in one_bpmn/processa_engine/engine/)
 injects doc / context_doctype / context_docname / task_data / result / frappe
 as local variables. frappe.form_dict is always empty here and frappe.response
 is ignored, so scripts that read inputs from form_dict never see the document.

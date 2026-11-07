@@ -126,7 +126,7 @@ class TestDispatchRecall(FrappeTestCase):
 		)
 		p.start()
 		self.addCleanup(p.stop)
-		p = patch("one_bpmn.one_bpmn.engine.get_task_display_name", return_value="AI Task")
+		p = patch("one_bpmn.processa_engine.engine.get_task_display_name", return_value="AI Task")
 		p.start()
 		self.addCleanup(p.stop)
 
