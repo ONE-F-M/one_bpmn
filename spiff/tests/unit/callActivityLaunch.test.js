@@ -6,7 +6,7 @@ import { dirname, join } from "node:path"
 
 // No component harness in spiff, so this reads the single-file component as text.
 const here = fileURLToPath(new URL("../../src/components/", import.meta.url))
-const editor = readFileSync(join(here, "BpmnEditor.vue"), "utf8")
+const editor = readFileSync(join(here, "Editor/BpmnEditor.vue"), "utf8")
 
 test("the drilldown arrow launches a Process-name link instead of the library alert", () => {
 	const listener = editor.slice(editor.indexOf("const launchProcessNameLink"))
