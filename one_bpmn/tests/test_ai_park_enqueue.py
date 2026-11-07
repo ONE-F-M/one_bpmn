@@ -22,6 +22,7 @@ from SpiffWorkflow.util.task import TaskState
 
 from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
 from one_bpmn.processa_engine import engine as bpmn_engine
+from one_bpmn.processa_engine.runtime.engine_loop import run_engine
 
 test_ignore = ["BPMN Process Model"]
 
@@ -118,7 +119,7 @@ class ParkHarness(FrappeTestCase):
 
 	def _run(self, wf):
 		with patch.object(frappe, "enqueue") as enqueue:
-			self.instance._run_engine(wf)
+			run_engine(self.instance, wf)
 		return enqueue
 
 	@staticmethod

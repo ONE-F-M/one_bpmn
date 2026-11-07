@@ -20,9 +20,7 @@ from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.util.task import TaskState
 
 from one_bpmn.processa_engine import engine as bpmn_engine
-from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import (
-	run_parked_ai_task,
-)
+from one_bpmn.processa_engine.runtime.ai_jobs import run_parked_ai_task
 from one_bpmn.tests.test_ai_park_enqueue import (
 	ParkHarness,
 	_LINEAR_AGENT_XML,

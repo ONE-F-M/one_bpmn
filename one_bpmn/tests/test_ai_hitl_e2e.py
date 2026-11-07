@@ -26,6 +26,8 @@ from one_bpmn.api.compilation import (
 	_resolve_ai_agent_tool_shapes,
 )
 from one_bpmn.processa_engine import engine as bpmn_engine
+from one_bpmn.processa_engine.runtime.common import AI_HUMAN_PREFIX
+from one_bpmn.processa_engine.runtime.engine_loop import run_engine
 
 test_ignore = ["BPMN Process Model"]
 
@@ -136,7 +138,7 @@ class TestDurableAgentHitlEndToEnd(FrappeTestCase):
 		self.instance._script_task_extensions = {}
 		wf = bpmn_engine.create_workflow(spec_dict, sp_specs, initial_data={})
 		with patch.object(frappe, "enqueue"):
-			self.instance._run_engine(wf)
+			run_engine(self.instance, wf)
 		task = next(t for t in wf.get_tasks() if t.task_spec.name == "Agent_1")
 		self.assertEqual(task.state, TaskState.STARTED)
 
@@ -163,7 +165,7 @@ class TestDurableAgentHitlEndToEnd(FrappeTestCase):
 			(
 				r
 				for r in instance.active_tasks
-				if str(r.task_id).startswith(instance.AI_HUMAN_PREFIX)
+				if str(r.task_id).startswith(AI_HUMAN_PREFIX)
 				and r.status == "Waiting"
 			),
 			None,

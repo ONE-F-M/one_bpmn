@@ -4,7 +4,7 @@
 # Standalone functions extracted from the BPMNProcessInstance controller.
 # Each receives the controller document as ``instance`` and reads only simple
 # attributes from it (context_doctype, context_docname, name, process_model,
-# _user_task_extensions).  Invoked from the controller's ``_sync_active_tasks``.
+# _user_task_extensions).  Invoked from runtime.active_tasks ``sync_active_tasks``.
 
 import frappe
 from frappe import _
@@ -439,7 +439,7 @@ def remove_frappe_assignment(instance, user: str, status: str = "Closed") -> Non
 
 	``status`` lets a specific process override the close status (e.g. a
 	process that wants "Cancelled" for a specific transition) via
-	``_sync_active_tasks()``'s ``task.data["todo_close_status"]`` hint —
+	``sync_active_tasks()``'s ``task.data["todo_close_status"]`` hint -
 	every other caller keeps the default and is unaffected.
 
 	Failures are logged but never break the workflow.

@@ -13,6 +13,11 @@ from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
 from frappe import _
 from frappe.utils import add_to_date, get_datetime, get_system_timezone, now_datetime
 
+from one_bpmn.processa_engine.runtime.active_tasks import check_completion, sync_active_tasks
+from one_bpmn.processa_engine.runtime.common import log_task, refresh_user_task_extensions_from_model
+from one_bpmn.processa_engine.runtime.engine_loop import run_engine
+from one_bpmn.processa_engine.runtime.remote_waits import on_a2a_input_required
+
 
 # 1. Timer Start Events — create new instances on schedule
 
@@ -311,14 +316,14 @@ def _refresh_timer_tasks(instance_name: str):
 		instance._service_task_extensions = spec_data.get("service_task_extensions", {})
 		instance._user_task_extensions = spec_data.get("user_task_extensions", {})
 		try:
-			instance._refresh_user_task_extensions_from_model()
+			refresh_user_task_extensions_from_model(instance)
 		except Exception:
 			pass
 
 		previous_flag = frappe.flags.bpmn_engine_action
 		frappe.flags.bpmn_engine_action = True
 		try:
-			instance._run_engine(wf)
+			run_engine(instance, wf)
 		finally:
 			frappe.flags.bpmn_engine_action = previous_flag
 
@@ -327,8 +332,8 @@ def _refresh_timer_tasks(instance_name: str):
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		instance.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
 
-		instance._sync_active_tasks(wf)
-		instance._check_completion(wf)
+		sync_active_tasks(instance, wf)
+		check_completion(instance, wf)
 
 		instance.save(ignore_permissions=True)
 		if not frappe.flags.in_test:
@@ -437,9 +442,7 @@ def poll_a2a_tasks():
 	from frappe.utils import cint
 
 	from one_bpmn.agents.a2a.push import PUSH_RECONCILE_SECONDS
-	from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import (
-		_enqueue_a2a_resume,
-	)
+	from one_bpmn.processa_engine.runtime.ai_jobs import enqueue_wait_resume
 	from one_bpmn.one_bpmn.integrations import a2a_client
 
 	now = now_datetime()
@@ -516,7 +519,7 @@ def poll_a2a_tasks():
 					},
 					update_modified=True,
 				)
-				_enqueue_a2a_resume(row.instance, row.wf_task_id, row.name)
+				enqueue_wait_resume(row.instance, row.wf_task_id, row.name, "A2A Task")
 			elif state in ("failed", "canceled", "rejected"):
 				frappe.db.set_value(
 					"A2A Task",
@@ -528,7 +531,7 @@ def poll_a2a_tasks():
 					},
 					update_modified=True,
 				)
-				_enqueue_a2a_resume(row.instance, row.wf_task_id, row.name)
+				enqueue_wait_resume(row.instance, row.wf_task_id, row.name, "A2A Task")
 			elif state == "input-required":
 				# Stop polling and ask a person. The remote is waiting on us.
 				frappe.db.set_value(
@@ -536,7 +539,7 @@ def poll_a2a_tasks():
 				)
 				if row.instance:
 					instance = frappe.get_doc("BPMN Process Instance", row.instance)
-					instance._on_a2a_input_required(row.name, a2a_client.remote_text(result))
+					on_a2a_input_required(instance, row.name, a2a_client.remote_text(result))
 			else:
 				frappe.db.set_value("A2A Task", row.name, {"state": state}, update_modified=True)
 			frappe.db.commit()
@@ -548,7 +551,7 @@ def poll_a2a_tasks():
 				{"state": "failed", "error_message": str(exc)[:500], "completed_at": now_datetime()},
 				update_modified=True,
 			)
-			_enqueue_a2a_resume(row.instance, row.wf_task_id, row.name)
+			enqueue_wait_resume(row.instance, row.wf_task_id, row.name, "A2A Task")
 			frappe.db.commit()
 		except Exception:
 			frappe.log_error(
@@ -682,9 +685,7 @@ def _escalate_deadline(task_name: str, agent_configuration=None, caller_instance
 def _time_out_task(row, remote) -> None:
 	"""Past the deadline: tell the remote to stop if it will listen, then
 	fail through the normal BPMN error path."""
-	from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import (
-		_enqueue_a2a_resume,
-	)
+	from one_bpmn.processa_engine.runtime.ai_jobs import enqueue_wait_resume
 	from one_bpmn.one_bpmn.integrations import a2a_client
 
 	if row.remote_task_id:
@@ -707,7 +708,7 @@ def _time_out_task(row, remote) -> None:
 		agent_configuration=getattr(row, "agent_configuration", None),
 		caller_instance=getattr(row, "caller_instance", None),
 	)
-	_enqueue_a2a_resume(row.instance, row.wf_task_id, row.name)
+	enqueue_wait_resume(row.instance, row.wf_task_id, row.name, "A2A Task")
 	frappe.db.commit()
 
 
@@ -865,12 +866,10 @@ def _wake_a2a_caller(row) -> None:
 	- an agent suspended mid-turn because it delegated from inside a tool call
 	  → hand the answer to its checkpoint and resume the agent.
 	"""
-	from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import (
-		_enqueue_a2a_resume,
-	)
+	from one_bpmn.processa_engine.runtime.ai_jobs import enqueue_wait_resume
 
 	if row.caller_wf_task_id:
-		_enqueue_a2a_resume(row.caller_instance, row.caller_wf_task_id, row.name)
+		enqueue_wait_resume(row.caller_instance, row.caller_wf_task_id, row.name, "A2A Task")
 		return
 	_resume_waiting_agent(row)
 
@@ -885,7 +884,7 @@ def _resume_waiting_agent(row) -> None:
 	import json
 
 	from one_bpmn.agents import checkpoint as _checkpoint
-	from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import ai_job_queue_of
+	from one_bpmn.processa_engine.runtime.ai_jobs import ai_job_queue_of
 
 	run = row.caller_agent_run
 	if not (run and row.caller_instance):
@@ -898,8 +897,7 @@ def _resume_waiting_agent(row) -> None:
 
 	payload = json.loads(frappe.db.get_value("AI Agent Run", run, "checkpoint") or "{}")
 	frappe.enqueue(
-		"one_bpmn.processa_engine.doctype.bpmn_process_instance"
-		".bpmn_process_instance.run_parked_ai_task",
+		"one_bpmn.processa_engine.runtime.ai_jobs.run_parked_ai_task",
 		queue=ai_job_queue_of(row.caller_instance),
 		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,
@@ -940,7 +938,7 @@ def _delegation_answer(task) -> str:
 
 
 def _mark_resumed(a2a_task: str) -> None:
-	"""Belt and braces beside _enqueue_a2a_resume's own stamp: the reconciler
+	"""Belt and braces beside enqueue_wait_resume's own stamp: the reconciler
 	must never hand the same finished task to the engine twice, even if the
 	enqueue helper changes or fails."""
 	frappe.db.set_value("A2A Task", a2a_task, "resume_enqueued", 1, update_modified=False)
@@ -1108,10 +1106,10 @@ def _a_job_is_alive(instance, unit: dict) -> bool:
 	"""Whether the unit's own job, one of its retries or an earlier re-queue is still queued or started."""
 	from frappe.utils.background_jobs import is_job_enqueued
 
-	from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import _job_retry_cap
+	from one_bpmn.processa_engine.runtime.ai_jobs import job_retry_cap
 
 	base = f"bpmn-ai-{instance.name}-{unit['task_id']}"
-	retries = _job_retry_cap(instance, unit["kind"], unit["task_id"])
+	retries = job_retry_cap(instance, unit["kind"], unit["task_id"])
 	job_ids = [
 		base,
 		*(f"{base}-r{n}" for n in range(1, retries + 1)),
@@ -1121,7 +1119,7 @@ def _a_job_is_alive(instance, unit: dict) -> bool:
 
 
 def _requeue_or_error(instance, unit: dict, minutes: int) -> None:
-	from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import ai_job_queue_of
+	from one_bpmn.processa_engine.runtime.ai_jobs import ai_job_queue_of
 
 	done = frappe.db.count(
 		"BPMN Activity Log",
@@ -1136,7 +1134,7 @@ def _requeue_or_error(instance, unit: dict, minutes: int) -> None:
 		return
 	attempt = done + 1
 	frappe.enqueue(
-		"one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance.run_parked_ai_task",
+		"one_bpmn.processa_engine.runtime.ai_jobs.run_parked_ai_task",
 		queue=ai_job_queue_of(instance.name),
 		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,
@@ -1148,7 +1146,8 @@ def _requeue_or_error(instance, unit: dict, minutes: int) -> None:
 		run_as_user=instance.initiated_by,
 		attempt=0,
 	)
-	instance._log_task(
+	log_task(
+		instance,
 		task_id=f"{unit['task_id']}::watchdog-{attempt}",
 		task_name=unit["label"],
 		action="Retried",
@@ -1161,7 +1160,8 @@ def _error_stranded_instance(instance, unit: dict, minutes: int) -> None:
 	frappe.db.set_value("BPMN Process Instance", instance.name, "status", "Errored")
 	frappe.db.set_value("BPMN Process Instance", instance.name, "waiting_for_ai", 0, update_modified=False)
 	error = f"No job ran for '{unit['label']}' in {minutes} minutes, after {WATCHDOG_MAX_REQUEUES} re-queues."
-	instance._log_task(
+	log_task(
+		instance,
 		task_id=unit["task_id"],
 		task_name=f"AI job ({unit['kind']})",
 		action="Errored",

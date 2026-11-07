@@ -23,7 +23,6 @@ size one_bpmn/api/server_script_api.py 955
 size one_bpmn/api/todo_actions.py 893
 size one_bpmn/one_bpmn/a2a_scenario_fixtures.py 983
 size one_bpmn/one_bpmn/connectors/agent_sandbox_ops.py 1222
-size one_bpmn/processa_engine/doctype/bpmn_process_instance/bpmn_process_instance.py 2765
 size one_bpmn/processa_engine/doctype/bpmn_process_instance/dispatchers.py 2623
 size one_bpmn/one_bpmn/patches/v1_0/inline_logix_tool_scripts.py 835
 size one_bpmn/one_bpmn/patches/v1_0/inline_prosally_tool_scripts.py 1419
@@ -32,7 +31,7 @@ size one_bpmn/one_bpmn/trigger.py 1040
 size one_bpmn/tasks.py 1170
 size one_bpmn/tests/test_agent_delegation.py 1427
 size one_bpmn/tests/test_ai_agent_memory_dispatch.py 1030
-size one_bpmn/tests/test_ai_clarification.py 856
+size one_bpmn/tests/test_ai_clarification.py 855
 size one_bpmn/tests/test_ai_security_event.py 856
 size one_bpmn/tests/test_connector_agent.py 959
 size one_bpmn/tests/test_connector_configuration.py 919

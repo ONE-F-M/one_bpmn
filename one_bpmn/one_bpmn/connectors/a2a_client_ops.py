@@ -358,7 +358,7 @@ def _caller_task_id(task) -> str | None:
 	only for that call and has no id. Stringifying it wrote the literal "None"
 	into the row, so the reconciler would later try to resume a step by that
 	name. Such a delegation is woken through the agent's checkpoint instead —
-	see ``_bind_a2a_wait``.
+	see ``runtime.remote_waits.bind_a2a_wait``.
 	"""
 	task_id = getattr(task, "id", None) if task is not None else None
 	return str(task_id) if task_id else None

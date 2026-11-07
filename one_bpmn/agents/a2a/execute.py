@@ -63,6 +63,8 @@ def fail_to_start(task, config, state: str, message: str) -> None:
 
 
 def _errored_instance(task, process_model: str, message: str) -> str:
+	from one_bpmn.processa_engine.runtime.common import log_task
+
 	instance = frappe.new_doc("BPMN Process Instance")
 	instance.process_model = process_model
 	instance.status = "Errored"
@@ -77,7 +79,8 @@ def _errored_instance(task, process_model: str, message: str) -> str:
 		title=f"A2A delegation could not start [{reference}] - {instance.name}",
 		message=f"Task: {task.name}\nProcess Model: {process_model}\nCaller: {task.caller_instance or '-'}\n\n{message}",
 	)
-	instance._log_task(
+	log_task(
+		instance,
 		task_id=f"delegation-start-failure::{reference}",
 		task_name="Delegation could not start",
 		action="Errored",

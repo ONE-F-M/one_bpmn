@@ -46,7 +46,7 @@ def _states(sp):
 
 def _drive(wf, did_complete_task=None, did_complete_adhoc_task=None):
 	"""
-	Mimic BPMNProcessInstance._run_engine's pass structure: gated engine
+	Mimic runtime.engine_loop.run_engine's pass structure: gated engine
 	steps, then complete non-manual STARTED tasks (script/service tasks end
 	up STARTED because FrappeScriptEngine.execute returns None), repeat.
 	"""
@@ -353,7 +353,7 @@ ADHOC_USER_TASK_MODEL_XML = """<?xml version="1.0" encoding="UTF-8"?>
 
 class TestAdhocInstanceLifecycle(FrappeTestCase):
 	"""Instance-level (doctype) coverage: the engine-level tests above drive
-	the gate directly, which let a bug in BPMNProcessInstance._run_engine_inner
+	the gate directly, which let a bug in runtime.engine_loop.run_engine_inner
 	slip through — its STARTED-dispatch loop force-completed the ad-hoc
 	subprocess PARENT task (STARTED while inner work runs), running the
 	process to the End Event while inner user tasks were still pending."""

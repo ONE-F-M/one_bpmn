@@ -19,12 +19,14 @@ from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import (
 	_provider_for_model,
 	terminal_tools_for,
 )
+from one_bpmn.processa_engine.runtime.ai_jobs import ai_parking_active, queue_parked_ai_job
+from one_bpmn.processa_engine.runtime.dispatch import log_ai_task_selected
 
 
 def make_adhoc_decider(instance, wf):
 	"""
 	Build the decider installed into engine.adhoc.adhoc_next_task_decider for the
-	duration of one _run_engine() call.
+	duration of one run_engine() call.
 
 	The returned callable receives (subworkflow, pending_tasks) from the
 	gate's promotion step and returns:
@@ -48,12 +50,11 @@ def make_adhoc_decider(instance, wf):
 		# bpmn_ai_resume_target to this subprocess so exactly one decision
 		# runs inline there; the target is consumed so the NEXT decision of
 		# the same loop parks again (one job per selector turn).
-		_parking_active = getattr(instance, "_ai_parking_active", None)
-		if _parking_active is not None and _parking_active():
+		if ai_parking_active():
 			if frappe.flags.bpmn_ai_resume_target == bpmn_id:
 				frappe.flags.bpmn_ai_resume_target = None
 			else:
-				instance._queue_parked_ai_job("adhoc_decision", bpmn_id)
+				queue_parked_ai_job(instance, "adhoc_decision", bpmn_id)
 				return bpmn_engine.NO_ACTIVATION
 
 		action, chosen_name, arguments = dispatch_ai_task_selector(
@@ -70,7 +71,7 @@ def make_adhoc_decider(instance, wf):
 				# WI-001359: audit the decision itself; the activation is
 				# logged separately by the gate's activation hook.
 				try:
-					instance.log_ai_task_selected(bpmn_id, [chosen_name], arguments)
+					log_ai_task_selected(instance, bpmn_id, [chosen_name], arguments)
 				except Exception:
 					pass
 				return task
@@ -342,7 +343,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 	# unconditionally, so a correct "wait for the agent" decision marked the
 	# run Success mid-flight and the next decision opened a second run. The
 	# run is finalized when the subprocess itself completes
-	# (_on_engine_task_complete → finalize_open_selector_runs). Belt: if the
+	# (on_engine_task_complete → finalize_open_selector_runs). Belt: if the
 	# completion condition is already satisfied at an idle decision, the
 	# subprocess is about to close, so finalizing here is safe and correct.
 	if not selection:

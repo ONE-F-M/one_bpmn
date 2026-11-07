@@ -366,18 +366,16 @@ def _enqueue_resume(run) -> None:
 	  completing a human task does.
 
 	caller_agent_run is only ever set by the second case (see
-	bpmn_process_instance._bind_agent_sandbox_wait), so checking it
+	runtime.remote_waits.bind_agent_sandbox_wait), so checking it
 	first is the whole routing decision.
 	"""
 	if run.caller_agent_run:
 		_resume_waiting_agent(run)
 		return
 
-	from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import (
-		_enqueue_agent_sandbox_resume,
-	)
+	from one_bpmn.processa_engine.runtime.ai_jobs import enqueue_wait_resume
 
-	_enqueue_agent_sandbox_resume(run.caller_instance, run.caller_wf_task_id, run.name)
+	enqueue_wait_resume(run.caller_instance, run.caller_wf_task_id, run.name, "Agent Sandbox Run")
 
 
 def _resume_waiting_agent(run) -> None:
@@ -391,7 +389,7 @@ def _resume_waiting_agent(run) -> None:
 	import json as _json
 
 	from one_bpmn.agents import checkpoint as _checkpoint
-	from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import ai_job_queue_of
+	from one_bpmn.processa_engine.runtime.ai_jobs import ai_job_queue_of
 
 	agent_run = run.caller_agent_run
 	if not (agent_run and run.caller_instance):
@@ -403,8 +401,7 @@ def _resume_waiting_agent(run) -> None:
 
 	payload = _json.loads(frappe.db.get_value("AI Agent Run", agent_run, "checkpoint") or "{}")
 	frappe.enqueue(
-		"one_bpmn.processa_engine.doctype.bpmn_process_instance"
-		".bpmn_process_instance.run_parked_ai_task",
+		"one_bpmn.processa_engine.runtime.ai_jobs.run_parked_ai_task",
 		queue=ai_job_queue_of(run.caller_instance),
 		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,

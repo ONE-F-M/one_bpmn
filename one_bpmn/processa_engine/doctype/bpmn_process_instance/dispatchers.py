@@ -4,8 +4,8 @@
 # These are standalone functions extracted from the BPMNProcessInstance
 # controller.  Each receives the controller document as ``instance`` and reads
 # only simple attributes from it (context_doctype, context_docname, name,
-# initiated_by, doctype).  They are invoked from the controller's
-# ``_dispatch_service_task`` router.
+# initiated_by, doctype).  They are invoked from the
+# ``runtime.dispatch.dispatch_service_task`` router.
 
 import json
 import re
