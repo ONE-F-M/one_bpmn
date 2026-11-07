@@ -35,14 +35,11 @@ src/bpmn/shared/agentAttrs.js
 src/bpmn/shared/bpmn-panel.css
 src/bpmn/shared/connectorManifests.js
 src/bpmn/shared/emailNotification.js
-src/bpmn/shared/FrappeAutocomplete.js
-src/bpmn/shared/FrappeMultiSelect.js
 src/bpmn/shared/frappeResource.js
 src/bpmn/shared/notifyAssigneeAttrs.js
 src/bpmn/shared/notifyConversation.js
 src/bpmn/shared/notifyFields.js
 src/bpmn/shared/notifySummary.js
-src/bpmn/shared/RecordCombobox.js
 src/bpmn/shared/recordIcons.js
 src/bpmn/shared/releasedPanel.js
 src/bpmn/signalPropertiesProvider/SignalField.js
@@ -284,7 +281,6 @@ tests/unit/notifySummary.test.js
 tests/unit/persistedMessage.test.js
 tests/unit/pipeline.test.js
 tests/unit/ProsAllyPanel.test.js
-tests/unit/recordFilter.test.js
 tests/unit/releasedPanel.test.js
 tests/unit/script-task-missing-script.test.js
 tests/unit/scriptDiffCardExpand.test.js
