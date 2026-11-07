@@ -72,7 +72,7 @@ onMounted(async () => {
 		canvas.resized();
 		fit();
 		ready.value = true;
-	} catch (e) {
+	} catch {
 		error.value = "Preview unavailable";
 	}
 });

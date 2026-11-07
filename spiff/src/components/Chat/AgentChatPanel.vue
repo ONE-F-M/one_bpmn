@@ -499,7 +499,7 @@ onMounted(async () => {
 			url: "/api/method/one_bpmn.api.agent_invocation.get_agent_surface",
 			params: { agent_id: props.agentId },
 		}) || {};
-	} catch (e) {
+	} catch {
 		surface.value = { label: props.agentId };
 	}
 
@@ -528,12 +528,12 @@ onMounted(async () => {
 							url: "/api/method/one_bpmn.api.feedback.get_conversation_ratings",
 							params: { conversation: conversationName.value },
 						})) || {};
-				} catch (e) {
+				} catch {
 					/* no ratings is a normal state, never an error */
 				}
 
 			}
-		} catch (e) {
+		} catch {
 			/* an unreadable conversation resumes as empty, never as an error */
 		}
 	}
@@ -590,7 +590,7 @@ async function onFilePicked(event) {
 		const data = await res.json();
 		const url = data.message && data.message.file_url;
 		if (url) pendingFile.value = { file_url: url, file_name: file.name };
-	} catch (e) {
+	} catch {
 		errorMessage.value = __("The file could not be uploaded.");
 		errorOpen.value = true;
 	} finally {
@@ -638,7 +638,7 @@ async function send(text, extraContext = null, reuseId = null) {
 	if (props.contextProvider) {
 		try {
 			turnContext = { ...turnContext, ...((await props.contextProvider()) || {}) };
-		} catch (e) {
+		} catch {
 			/* a failing provider must not block the turn */
 		}
 	}
@@ -880,7 +880,7 @@ async function loadOlder() {
 			if (box) box.scrollTop = box.scrollHeight - before;
 		}
 		hasOlder.value = older.length >= HISTORY_PAGE;
-	} catch (e) {
+	} catch {
 		// Nothing older to show is not an error worth a dialog; the control
 		// simply stops offering.
 		hasOlder.value = false;

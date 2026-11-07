@@ -123,7 +123,7 @@ export function streamAgentTurn({
 		let event;
 		try {
 			event = JSON.parse(data);
-		} catch (e) {
+		} catch {
 			return; // not ours — ignore, never break the transcript
 		}
 
@@ -168,7 +168,7 @@ export function streamAgentTurn({
 					conversation: threadId,
 					client_message_id: clientMessageId,
 				});
-			} catch (e) {
+			} catch {
 				status = null;
 			}
 			if (!status || !status.state) {
@@ -209,7 +209,7 @@ export function streamAgentTurn({
 				body: body.toString(),
 				signal: controller.signal,
 			});
-		} catch (e) {
+		} catch {
 			await recoverOrFail();
 			return;
 		}
@@ -245,7 +245,7 @@ export function streamAgentTurn({
 					boundary = buffer.indexOf("\n\n");
 				}
 			}
-		} catch (e) {
+		} catch {
 			if (finished) return; // our own abort unwinding the reader
 			await recoverOrFail();
 			return;
@@ -269,7 +269,7 @@ async function describeFailure(response) {
 	let raw = "";
 	try {
 		raw = await response.text();
-	} catch (e) {
+	} catch {
 		return GENERIC_FAILURE;
 	}
 
@@ -282,7 +282,7 @@ async function describeFailure(response) {
 		}
 		if (payload.exception) return stripTags(String(payload.exception));
 		if (payload.message) return stripTags(String(payload.message));
-	} catch (e) {
+	} catch {
 		// not JSON — fall through to the status line
 	}
 

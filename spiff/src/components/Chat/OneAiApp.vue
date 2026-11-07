@@ -98,7 +98,7 @@ onMounted(async () => {
 			}
 		}
 		if (list.length) activeAgent.value = list[0].agent_id || list[0].value;
-	} catch (e) { /* empty picker renders; the page stays usable */ } finally {
+	} catch { /* empty picker renders; the page stays usable */ } finally {
 		loaded.value = true;
 	}
 	refreshList();
@@ -109,7 +109,7 @@ async function refreshList() {
 		conversations.value = await frappeRequest({
 			url: "/api/method/one_bpmn.api.agui.list_conversations",
 		}) || [];
-	} catch (e) { /* sidebar just stays as-is */ }
+	} catch { /* sidebar just stays as-is */ }
 }
 
 function open(c) {
