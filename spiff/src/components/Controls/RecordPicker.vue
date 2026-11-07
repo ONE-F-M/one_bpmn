@@ -1,14 +1,16 @@
 <template>
-	<div class="record-picker w-full">
+	<div
+		class="record-picker w-full"
+	>
 		<label v-if="label" class="mb-1.5 block text-xs text-ink-gray-5">{{ label }}</label>
 		<Autocomplete
 			:modelValue="selection"
-			:options="shown"
+			:options="listed"
 			:multiple="multiple"
 			:loading="loading || fetching"
 			:placeholder="placeholder"
 			:compare-fn="compareOption"
-			body-classes="record-picker-body"
+			:body-classes="multiple ? 'record-picker-body record-picker-body--multi' : 'record-picker-body'"
 			@update:query="onQuery"
 			@update:modelValue="onSelect"
 		>
@@ -23,13 +25,41 @@
 					@keydown.down.prevent="togglePopover()"
 				>
 					<span
+						v-if="multiple"
+						class="record-picker-tags"
+					>
+						<span
+							v-for="value in selected"
+							:key="value"
+							class="record-picker-tag"
+						>
+							<span class="record-picker-tag-text">{{ labelOf(value) }}</span>
+							<button
+								type="button"
+								class="record-picker-tag-remove"
+								:title="translate('Remove')"
+								@mousedown.prevent
+								@click.stop="remove(value)"
+							>
+								x
+							</button>
+						</span>
+						<span
+							v-if="!hasValue"
+							class="record-picker-text record-picker-placeholder"
+						>
+							{{ placeholder }}
+						</span>
+					</span>
+					<span
+						v-else
 						class="record-picker-text"
 						:class="{ 'record-picker-placeholder': !hasValue }"
 					>
 						{{ displayText }}
 					</span>
 					<button
-						v-if="hasValue"
+						v-if="hasValue && !multiple"
 						type="button"
 						class="record-picker-clear"
 						:title="translate('Clear')"
@@ -48,15 +78,9 @@
 					class="wfs-dot"
 					:class="`wfs-dot--${option.style.toLowerCase()}`"
 				/>
-				<FeatherIcon
-					v-else-if="multiple"
-					name="check"
-					class="h-4 w-4"
-					:class="isChosen(option) ? 'text-ink-gray-7' : 'opacity-0'"
-				/>
 			</template>
 
-			<template v-if="canCreate || creating" #footer>
+			<template v-if="canCreate || creating || canUseTyped" #footer="{ togglePopover }">
 				<div v-if="creating" class="p-1">
 					<slot
 						name="create"
@@ -65,16 +89,27 @@
 						:cancel="() => (creating = false)"
 					/>
 				</div>
-				<Button
-					v-else
-					class="w-full"
-					variant="ghost"
-					:loading="saving"
-					@mousedown.prevent
-					@click.stop="startCreate"
-				>
-					{{ translate("Create") }} "{{ query.trim() }}"
-				</Button>
+				<template v-else>
+					<Button
+						v-if="canUseTyped"
+						class="w-full"
+						variant="ghost"
+						@mousedown.prevent
+						@click.stop="useTyped(togglePopover)"
+					>
+						{{ translate("Use") }} "{{ query.trim() }}"
+					</Button>
+					<Button
+						v-if="canCreate"
+						class="w-full"
+						variant="ghost"
+						:loading="saving"
+						@mousedown.prevent
+						@click.stop="startCreate"
+					>
+						{{ translate("Create") }} "{{ query.trim() }}"
+					</Button>
+				</template>
 			</template>
 		</Autocomplete>
 
@@ -107,6 +142,8 @@ const props = defineProps({
 	localSearch: { type: Boolean, default: false },
 	// async (name) => name; shows a Create row for a name that matches no option
 	createRecord: { type: Function, default: null },
+	// Keeps text typed into the search box as the value, like the old panel autocomplete
+	allowFreeText: { type: Boolean, default: false },
 	missingText: { type: String, default: "" },
 	translate: { type: Function, default: (text) => text },
 })
@@ -123,6 +160,10 @@ const error = ref("")
 let timer = null
 
 const selected = computed(() => valuesOf(props.modelValue))
+const listed = computed(() => (props.multiple ? shown.value.filter((o) => !selected.value.includes(o.value)) : shown.value))
+const canUseTyped = computed(
+	() => props.allowFreeText && !props.multiple && Boolean(query.value.trim()) && query.value.trim() !== props.modelValue,
+)
 const hasValue = computed(() => selected.value.length > 0)
 const selection = computed(() => (props.multiple ? selected.value : props.modelValue || null))
 const displayText = computed(() => {
@@ -173,8 +214,21 @@ function clear() {
 	emit("select", props.multiple ? [] : null)
 }
 
-function isChosen(option) {
-	return selected.value.includes(option.value)
+function labelOf(value) {
+	return shown.value.find((o) => o.value === value)?.label || value
+}
+
+function remove(value) {
+	const next = selected.value.filter((v) => v !== value)
+	emit("update:modelValue", next)
+	emit("select", next)
+}
+
+function useTyped(togglePopover) {
+	const text = query.value.trim()
+	emit("update:modelValue", text)
+	emit("select", null)
+	togglePopover()
 }
 
 async function startCreate() {
@@ -243,6 +297,30 @@ onBeforeUnmount(() => clearTimeout(timer))
 .record-picker-placeholder {
 	color: var(--ink-gray-4, #999);
 }
+.record-picker-tags {
+	display: flex;
+	flex: 1;
+	flex-wrap: wrap;
+	gap: 0.25rem;
+	min-width: 0;
+}
+.record-picker-tag {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+	max-width: 100%;
+	padding: 0 0.375rem;
+	border-radius: 0.25rem;
+	background: var(--surface-gray-4, #e2e2e2);
+}
+.record-picker-tag-text {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.record-picker-tag-remove {
+	line-height: 1;
+}
 .record-picker-clear {
 	display: inline-flex;
 	padding: 0.125rem;
@@ -263,6 +341,9 @@ onBeforeUnmount(() => clearTimeout(timer))
 <style>
 .record-picker-body {
 	max-width: calc(100vw - 3rem);
+}
+.record-picker-body--multi .border-t {
+	display: none;
 }
 .record-picker-body [role="listbox"] {
 	max-height: min(15rem, 50vh);

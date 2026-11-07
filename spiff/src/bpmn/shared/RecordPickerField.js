@@ -67,16 +67,17 @@ export class RecordPickerField extends Component {
 	}
 
 	pickerProps() {
-		const { id, value, multiple, translate, placeholder, loadOptions, onChange, createRecord, missingText } = this.props;
+		const { id, value, multiple, translate, placeholder, loadOptions, onChange, createRecord, missingText, keepTyped } = this.props;
 		return {
 			id,
 			multiple: Boolean(multiple),
 			modelValue: multiple ? splitValues(value) : value || "",
-			placeholder: placeholder || "",
+			placeholder: placeholder || (multiple ? "Type to search..." : ""),
 			translate: translate || ((text) => text),
 			localSearch: Boolean(loadOptions),
 			fetchOptions: this.fetchOptions,
 			createRecord,
+			allowFreeText: !multiple && (loadOptions ? Boolean(keepTyped) : true),
 			missingText: missingText || "",
 			"onUpdate:modelValue": (next) => onChange(multiple ? joinValues(next) : next),
 		};
