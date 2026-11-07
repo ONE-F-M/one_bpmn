@@ -14,11 +14,8 @@
 import frappe
 
 from one_bpmn.processa_engine import engine as bpmn_engine
-from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import (
-	_cfg_truthy,
-	_provider_for_model,
-	terminal_tools_for,
-)
+from one_bpmn.processa_engine.dispatch.ai_agent import terminal_tools_for
+from one_bpmn.processa_engine.dispatch.common import cfg_truthy, template_renderer
 from one_bpmn.processa_engine.runtime.ai_jobs import ai_parking_active, queue_parked_ai_job
 from one_bpmn.processa_engine.runtime.dispatch import log_ai_task_selected
 
@@ -131,24 +128,11 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		from one_bpmn.agents.agent_config_resolver import resolve_dispatch_overrides
 		task_cfg = {**task_cfg, **resolve_dispatch_overrides(task_cfg["aiAgentConfig"])}
 
-	doc = frappe._dict()
-	if instance.context_doctype and instance.context_docname:
-		try:
-			doc = frappe.get_doc(instance.context_doctype, instance.context_docname)
-		except Exception:
-			pass
-
-	jinja_ctx = {"doc": doc, "instance": instance, "frappe": frappe}
-	if isinstance(sp.data, dict):
-		jinja_ctx.update({k: v for k, v in sp.data.items() if k != "doc"})
-
-	def render(text):
-		if not text:
-			return ""
-		try:
-			return frappe.render_template(text, jinja_ctx)
-		except Exception:
-			return text
+	render, jinja_ctx = template_renderer(
+		instance,
+		f"BPMN AI Task Selector: prompt template render failed ({bpmn_id})",
+		data={k: v for k, v in sp.data.items() if k != "doc"} if isinstance(sp.data, dict) else None,
+	)
 
 	pool = resolve_tool_pool(sp, task_cfg, instance.process_model or "", instance)
 
@@ -249,7 +233,8 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		# The provider a model is served by lives on the model's own record,
 		# so naming just the model is enough.
 		provider_name=task_cfg.get("aiProvider", "")
-		or _provider_for_model(task_cfg.get("aiModel", ""), ""),
+		or frappe.db.get_value("AI Model", task_cfg.get("aiModel", ""), "provider")
+		or "",
 		model=task_cfg.get("aiModel", ""),
 		system_prompt=build_static_context(
 			system_prompt=render(task_cfg.get("aiSystemPrompt", "")),
@@ -268,7 +253,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		tools=tools,
 		terminal_tools=terminal_tools_for(task_cfg),
 		tool_choice=(task_cfg.get("aiToolChoice") or "auto").strip(),
-		parallel_tool_calls=_cfg_truthy(task_cfg.get("aiParallelToolCalls", 1)),
+		parallel_tool_calls=cfg_truthy(task_cfg.get("aiParallelToolCalls", 1)),
 		thinking_budget_tokens=cint(task_cfg.get("aiThinkingBudgetTokens")),
 	)
 	context = ExecutorContext(

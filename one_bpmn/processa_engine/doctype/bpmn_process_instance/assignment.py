@@ -10,6 +10,7 @@ import frappe
 from frappe import _
 
 from one_bpmn.processa_engine import engine as bpmn_engine
+from one_bpmn.processa_engine.dispatch.common import split_config
 
 
 def split_users(value: str) -> list:
@@ -22,16 +23,7 @@ def split_users(value: str) -> list:
 	``assigned_user`` as a set of members (permission checks, ToDo sync)
 	must go through this instead of comparing/splitting ad hoc.
 	"""
-	if not value:
-		return []
-	seen = set()
-	users = []
-	for part in value.split(","):
-		user = part.strip()
-		if user and user not in seen:
-			seen.add(user)
-			users.append(user)
-	return users
+	return list(dict.fromkeys(split_config(value)))
 
 
 def _decode_html_attr(value: str) -> str:
@@ -188,8 +180,7 @@ def resolve_assignment(instance, task) -> str:
 
 	# ── Round Robin ────────────────────────────────────────────────────────
 	if mode == "Round Robin":
-		users_raw = task_cfg.get("assigneeUsers", "")
-		users = [u.strip() for u in users_raw.split(",") if u.strip()]
+		users = split_config(task_cfg.get("assigneeUsers"))
 		if not users:
 			return ""
 
@@ -234,8 +225,7 @@ def resolve_assignment(instance, task) -> str:
 	#   3. Assign to the user with the fewest such assignments.
 	#   4. Ties → first user in the configured list wins.
 	if mode == "Load Balancing":
-		users_raw = task_cfg.get("assigneeUsers", "")
-		users = [u.strip() for u in users_raw.split(",") if u.strip()]
+		users = split_config(task_cfg.get("assigneeUsers"))
 		if not users:
 			return ""
 

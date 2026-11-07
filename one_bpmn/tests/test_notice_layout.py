@@ -10,7 +10,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.translate import clear_cache
 
 from one_bpmn.email_builder.composer import compose_and_send_info_email, sends_notice
-from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import dispatch_email
+from one_bpmn.processa_engine.dispatch.email import dispatch_email
 from one_bpmn.tests.test_amp_validation import _validate_amp4email
 
 

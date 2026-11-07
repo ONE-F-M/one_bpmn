@@ -13,7 +13,6 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import prosally_helpers as helpers
-from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers as D
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_stage_tools_read_process_memory as memory_patch
 
 PROMOTION = "Zz Test Employee Promotion"
@@ -131,7 +130,7 @@ class TestQueueProcessMemory(FrappeTestCase):
 		cfg = {"name": "CFG", "ai_model": "m", "ai_provider": "p"}
 		with patch.object(helpers, "prosally_config", return_value=cfg), patch.object(
 			helpers, "_memory_fields", return_value=fields
-		), patch.object(D, "_enqueue_distill") as enqueue:
+		), patch.object(frappe, "enqueue") as enqueue:
 			helpers.queue_process_memory(turn, {"intent": intent, "response": "Drew it."})
 		return enqueue
 

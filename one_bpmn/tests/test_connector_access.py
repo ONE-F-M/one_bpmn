@@ -125,7 +125,7 @@ class TestGateIsEnforcedAtRuntime(ConnectorAccessFixtures, unittest.TestCase):
 	"""
 
 	def _dispatch(self, fail_on_error=False):
-		from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import dispatch_connector
+		from one_bpmn.processa_engine.dispatch.connector import dispatch_connector
 
 		task = SimpleNamespace(data={})
 		cfg = {

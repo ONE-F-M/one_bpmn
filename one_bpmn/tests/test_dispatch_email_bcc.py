@@ -9,7 +9,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import dispatch_email
+from one_bpmn.processa_engine.dispatch.email import dispatch_email
 
 
 def _instance():

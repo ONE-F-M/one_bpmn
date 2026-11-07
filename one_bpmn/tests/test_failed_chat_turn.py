@@ -85,13 +85,13 @@ class TurnFixture(FrappeTestCase):
 		}
 
 	def _dispatch(self, result: ExecutorResult, refusal: str | None = None):
-		from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.dispatch import ai_agent
 
 		with (
 			patch("one_bpmn.agents.model_health.refuse_new_run", return_value=refusal),
 			patch("one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", return_value=result),
 		):
-			dispatchers.dispatch_ai_agent(self.instance, self.task, self.task_cfg, BPMN_ID)
+			ai_agent.dispatch_ai_agent(self.instance, self.task, self.task_cfg, BPMN_ID)
 
 
 class TestAFailedTurnBlanksTheOutput(TurnFixture):

@@ -7,15 +7,13 @@ import frappe
 from frappe.utils import now_datetime
 
 from one_bpmn.processa_engine import engine as bpmn_engine
-from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import (
-	dispatch_ai_agent,
-	dispatch_connector,
-	dispatch_email,
-	dispatch_google_chat,
-	dispatch_push_notification,
-	dispatch_send_notification,
-	dispatch_update_field,
-)
+from one_bpmn.processa_engine.dispatch.ai_agent import dispatch_ai_agent
+from one_bpmn.processa_engine.dispatch.connector import dispatch_connector
+from one_bpmn.processa_engine.dispatch.email import dispatch_email
+from one_bpmn.processa_engine.dispatch.google_chat import dispatch_google_chat
+from one_bpmn.processa_engine.dispatch.push_notification import dispatch_push_notification
+from one_bpmn.processa_engine.dispatch.send_notification import dispatch_send_notification
+from one_bpmn.processa_engine.dispatch.update_field import dispatch_update_field
 from one_bpmn.processa_engine.engine import SubWorkflowTask
 from one_bpmn.processa_engine.runtime.common import log_task, refresh_task_data_from_context, task_bpmn_id
 

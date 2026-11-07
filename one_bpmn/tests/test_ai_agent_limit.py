@@ -23,7 +23,7 @@ class TestAgentMaxToolCalls(FrappeTestCase):
 		self.task = frappe._dict({"data": {}, "task_spec": frappe._dict({"name": "A", "description": "A"})})
 
 	def _captured_config(self, task_cfg):
-		from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.dispatch import ai_agent
 
 		captured = {}
 		result = ExecutorResult(
@@ -36,7 +36,7 @@ class TestAgentMaxToolCalls(FrappeTestCase):
 			return result
 
 		with patch("one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", new=fake_run):
-			dispatchers.dispatch_ai_agent(self.instance, self.task, task_cfg, "A")
+			ai_agent.dispatch_ai_agent(self.instance, self.task, task_cfg, "A")
 		return captured["config"]
 
 	def test_explicit_limit_threads_to_config(self):

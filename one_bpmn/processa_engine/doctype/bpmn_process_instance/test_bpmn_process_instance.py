@@ -22,12 +22,10 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 import one_bpmn.processa_engine.engine as bpmn_engine
-from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import (
-	dispatch_email,
-	dispatch_google_chat,
-	dispatch_push_notification,
-	dispatch_update_field,
-)
+from one_bpmn.processa_engine.dispatch.email import dispatch_email
+from one_bpmn.processa_engine.dispatch.google_chat import dispatch_google_chat
+from one_bpmn.processa_engine.dispatch.push_notification import dispatch_push_notification
+from one_bpmn.processa_engine.dispatch.update_field import dispatch_update_field
 from one_bpmn.processa_engine.doctype.bpmn_process_instance.assignment import (
 	add_frappe_assignment,
 	notify_task_assignee,
@@ -38,7 +36,7 @@ from one_bpmn.processa_engine.doctype.bpmn_process_instance.assignment import (
 
 # ──────────────────────────────────────────────────────────────────────────────
 # ADAPTERS — the ONLY lines that change across the refactor.
-# All adapters now call the extracted dispatchers.py / assignment.py functions.
+# All adapters now call the processa_engine.dispatch / assignment.py functions.
 # ──────────────────────────────────────────────────────────────────────────────
 def call_dispatch_update_field(inst, task, cfg, bpmn_id):
 	return dispatch_update_field(inst, task, cfg, bpmn_id)

@@ -59,7 +59,7 @@ class TestResolvedTimeout(FrappeTestCase):
 
 	def _resolved(self, task_cfg):
 		"""Dispatch and return the ExecutorConfig the dispatcher built."""
-		from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.dispatch import ai_agent
 
 		captured = {}
 
@@ -71,7 +71,7 @@ class TestResolvedTimeout(FrappeTestCase):
 		        "aiUserPrompt": "draft it"}
 		base.update(task_cfg)
 		with patch("one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", new=fake_run):
-			dispatchers.dispatch_ai_agent(self.instance, self.task, base, self.bpmn_id)
+			ai_agent.dispatch_ai_agent(self.instance, self.task, base, self.bpmn_id)
 		return captured["config"]
 
 	def test_a_shape_that_sets_no_timeout_gets_the_shared_default(self):
@@ -111,9 +111,9 @@ class TestResolvedTimeout(FrappeTestCase):
 		one of them silently authoritative."""
 		import inspect
 
-		from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.dispatch import ai_agent
 
-		src = inspect.getsource(dispatchers.dispatch_ai_agent)
+		src = inspect.getsource(ai_agent.dispatch_ai_agent)
 		line = next(l for l in src.splitlines() if "timeout_seconds" in l)
 		self.assertIn("DEFAULT_TIMEOUT_SECONDS", line)
 		self.assertNotRegex(line, r"aiTimeout\"?,\s*\d+")

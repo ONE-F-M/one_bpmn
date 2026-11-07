@@ -72,7 +72,7 @@ class TestSkillToolDispatchGating(FrappeTestCase):
 		return skill
 
 	def _dispatch(self, task_cfg, result):
-		from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.dispatch import ai_agent
 
 		captured = {}
 
@@ -84,7 +84,7 @@ class TestSkillToolDispatchGating(FrappeTestCase):
 			patch("one_bpmn.agents.model_health.refuse_new_run", return_value=None),
 			patch("one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", new=fake_run),
 		):
-			dispatchers.dispatch_ai_agent(self.instance, self.task, task_cfg, self.bpmn_id)
+			ai_agent.dispatch_ai_agent(self.instance, self.task, task_cfg, self.bpmn_id)
 		return captured
 
 	def _tool_names(self, captured):

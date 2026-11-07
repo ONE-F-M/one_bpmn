@@ -6,7 +6,7 @@ import uuid
 import frappe
 
 from one_bpmn.processa_engine import engine as bpmn_engine
-from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import dispatch_ai_agent
+from one_bpmn.processa_engine.dispatch.ai_agent import dispatch_ai_agent
 from one_bpmn.processa_engine.engine import SubWorkflowTask, TaskState
 from one_bpmn.processa_engine.runtime.active_tasks import persist_workflow
 from one_bpmn.processa_engine.runtime.common import (

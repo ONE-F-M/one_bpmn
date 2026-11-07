@@ -467,7 +467,7 @@ def _connector_tool_result(task, task_cfg: dict, kwargs: dict) -> dict:
 	in, the model is told that the data was discarded rather than that there
 	was none.
 	"""
-	from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import CONNECTOR_OUTCOME_KEY
+	from one_bpmn.processa_engine.dispatch.connector import CONNECTOR_OUTCOME_KEY
 
 	outcome = task.data.pop(CONNECTOR_OUTCOME_KEY, None) or {}
 	called = outcome.get("connector") or "/".join(

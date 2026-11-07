@@ -503,7 +503,7 @@ def compact_conversation(
 		)
 		return {"compacted": False, "reason": "no model configured"}
 
-	provider_name = _provider_for_model(model, provider_name)
+	provider_name = frappe.db.get_value("AI Model", model, "provider") or provider_name
 
 	try:
 		summary_text = _summarise(
