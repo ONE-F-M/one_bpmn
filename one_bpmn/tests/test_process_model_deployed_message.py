@@ -22,7 +22,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.api.compilation import compile_process_model
-from one_bpmn.one_bpmn.trigger import (
+from one_bpmn.processa_engine.triggers import (
 	PROCESS_MODEL_DEPLOYED_MESSAGE,
 	send_process_model_deployed_message,
 )

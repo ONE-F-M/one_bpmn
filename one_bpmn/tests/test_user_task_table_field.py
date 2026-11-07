@@ -20,7 +20,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.api.compilation import _extract_user_task_config
 from one_bpmn.processa_engine import engine as bpmn_engine
-from one_bpmn.processa_engine.doctype.bpmn_process_instance import assignment
+from one_bpmn.processa_engine import assignment
 from one_bpmn.processa_engine.runtime.active_tasks import sync_active_tasks
 from one_bpmn.processa_engine.runtime.engine_loop import run_engine
 

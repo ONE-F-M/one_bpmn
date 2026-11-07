@@ -287,7 +287,7 @@ class TestParkedAiResume(ParkHarness):
 
 class TestSelectorDecisionParking(ParkHarness):
 	def _decider(self, sp_name="Adhoc_1"):
-		from one_bpmn.processa_engine.doctype.bpmn_process_instance.ai_task_selector import (
+		from one_bpmn.processa_engine.task_selector import (
 			make_adhoc_decider,
 		)
 
@@ -301,7 +301,7 @@ class TestSelectorDecisionParking(ParkHarness):
 	def test_selector_decision_parks_instead_of_calling_llm(self):
 		decider, sp = self._decider()
 		with patch(
-			"one_bpmn.processa_engine.doctype.bpmn_process_instance.ai_task_selector"
+			"one_bpmn.processa_engine.task_selector"
 			".dispatch_ai_task_selector"
 		) as dispatch:
 			chosen = decider(sp, [frappe._dict(task_spec=frappe._dict(name="t1"))])
@@ -313,7 +313,7 @@ class TestSelectorDecisionParking(ParkHarness):
 		decider, sp = self._decider()
 		frappe.flags.bpmn_ai_resume_target = "Adhoc_1"
 		with patch(
-			"one_bpmn.processa_engine.doctype.bpmn_process_instance.ai_task_selector"
+			"one_bpmn.processa_engine.task_selector"
 			".dispatch_ai_task_selector",
 			return_value=("idle", None, None),
 		) as dispatch:

@@ -1,31 +1,12 @@
 # Copyright (c) 2026, one-fm and contributors
-# Universal BPMN trigger — fires for every Frappe document event.
-#
-# Wired up in hooks.py as:
-#   doc_events = { "*": { "after_insert": "one_bpmn.one_bpmn.trigger.on_doc_event", ... } }
-#
-# For each event, this handler:
-#   1. Skips internal/system doctypes to prevent recursion
-#   2. Maps the Frappe hook method name to the trigger_event label stored on the model
-#   3. Finds all active BPMN Process Models configured to fire on this doctype + event
-#   4. Checks a workflow_state condition embedded in the BPMN XML start event
-#   5. Skips models that already have a running instance for this document
-#   6. Creates and starts a new BPMN Process Instance for each matching model
+"""Universal Frappe doc_events handler that starts and advances BPMN process instances.
 
-import io
+Also guards native submit and cancel on Processa-controlled documents, deletes linked instances on trash, and starts instances from messages."""
 
 import frappe
 from frappe.utils import now_datetime
 
-# Doctypes that belong to one_bpmn itself — never trigger workflows on these
-# to avoid infinite recursion.
-#
-# NOTE: "Processa Legacy Migration" is intentionally NOT listed. The
-# "Processa Legacy Migration - v2" process is triggered by its After Insert
-# event, so document events on it must reach on_doc_event. Its own writes are
-# safe: the v2 model only triggers on After Insert (fired once at creation), and
-# the migration run updates status via db_set (no doc events), so there is no
-# recursion.
+# one_bpmn's own doctypes; Processa Legacy Migration is left out because its After Insert event starts a process.
 _INTERNAL_DOCTYPES = frozenset(
 	{
 		"BPMN Process Model",
@@ -37,8 +18,6 @@ _INTERNAL_DOCTYPES = frozenset(
 	}
 )
 
-# Maps Frappe hook method names  →  the label stored in
-# BPMN Process Model.trigger_event (Select field).
 _FRAPPE_TO_TRIGGER_EVENT = {
 	"after_insert": "After Insert",
 	"on_update": "On Update",
@@ -52,76 +31,39 @@ _FRAPPE_TO_TRIGGER_EVENT = {
 	"before_cancel": "Before Cancel",
 }
 
-# Maps Frappe document events  →  the BPMN User Task action they represent.
-# Used by the bidirectional sync: when a document changes outside of the BPMN
-# engine (e.g. user submits the EDA directly from the Frappe form), any active
-# process instance waiting for the corresponding User Task action is advanced.
+# Frappe event to the User Task action it completes when the document changes outside the engine.
 _FRAPPE_EVENT_TO_TASK_ACTION = {
 	"on_submit": "Submit",
 	"on_cancel": "Cancel"
 }
 
-# Generic mapping: Frappe hook event → BPMN message suffix.
-# This is NOT specific to any DocType — it applies universally to every
-# document that has an active BPMN process.  When a user edits any such
-# document, the process needs to know so it can react (e.g. sync changes
-# to Google Tasks, send a notification, etc.).
-#
-# At runtime, _maybe_send_message() combines the DocType name with the
-# suffix to build the full BPMN message name.  Examples:
-#     ToDo        + on_update  →  "ToDo_Edit_Action"
-#     Sales Order + on_update  →  "SalesOrder_Edit_Action"
-#     Work Item   + on_update  →  "WorkItem_Edit_Action"
-#
-# The resulting message must match a <bpmn:message name="..."> defined in
-# the corresponding BPMN diagram.  Only processes that have a matching
-# IntermediateCatchEvent / EventBasedGateway will react to the message.
+# Suffix joined to the space-stripped DocType name to form the BPMN message, e.g. ToDo_Edit_Action.
 _FRAPPE_EVENT_TO_MESSAGE_SUFFIX = {
 	"on_update":   "Edit_Action",
 	"after_save":  "Edit_Action",
 }
 
-# SpiffWorkflow BPMN extension namespace
 _SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
 _BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 
 
-# Entry point — called by every doc_event hook
-
-
 def on_doc_event(doc, method: str):
-	"""
-	Universal handler wired to all Frappe document events via hooks.py.
+	"""Start, advance and notify BPMN Process Instances for a Frappe document event.
 
-	Handles two separate concerns:
-	  A) Start a new BPMN Process Instance when a matching model is configured
-		 to trigger on this doctype + event (e.g. After Insert).
-	  B) Advance an existing active BPMN Process Instance when the document
-		 changes outside of the BPMN engine — bidirectional sync (e.g. the
-		 user submits the EDA directly from the Frappe form).
-
-	Args:
-		doc:    The Frappe Document that just changed
-		method: The hook method name, e.g. 'after_insert', 'on_update'
-	"""
-	# 0. Never fire during migrations, installs, or patch execution
+	Wired to every doctype through hooks.py."""
 	if getattr(frappe.flags, "in_migrate", False) \
 	   or getattr(frappe.flags, "in_install", False) \
 	   or getattr(frappe.flags, "in_patch", False) \
 	   or getattr(frappe.flags, "in_setup_wizard", False):
 		return
 
-
-	# 1. Never trigger on internal BPMN doctypes
 	if doc.doctype in _INTERNAL_DOCTYPES:
 		return
 
-	# 2. Map the Frappe hook name to the trigger_event label
 	trigger_event = _FRAPPE_TO_TRIGGER_EVENT.get(method)
 	if not trigger_event:
-		return  # Event type we don't handle (e.g. autoname, db_insert)
+		return
 
-	# ── A) Start new instances ────────────────────────────────────────────────
 	models = _find_matching_models(doc.doctype, trigger_event)
 	for model_name in models:
 		try:
@@ -132,39 +74,13 @@ def on_doc_event(doc, method: str):
 				message=frappe.get_traceback(),
 			)
 
-
-	# ── B) Advance existing instances (bidirectional sync) ────────────────────
-	# If this event maps to a User Task action (Submit → on_submit, etc.),
-	# auto-complete any waiting task in an existing active instance.
 	task_action = _FRAPPE_EVENT_TO_TASK_ACTION.get(method)
 	if task_action:
 		_maybe_advance_instances(doc, task_action)
 
-
-	# ── C) Notify running processes about document changes ────────────────────
-	# Sections A and B handle *starting* processes and *advancing* user tasks.
-	# This section handles the third case: the document was edited by the user
-	# (or by code) and we need to tell the already-running BPMN process about
-	# the change.  For example, when a ToDo's status changes from Open → Closed,
-	# the process needs that event to decide whether to send a notification or
-	# sync the status to Google Tasks.
-	#
-	# How it works:
-	#   1. Look up whether this Frappe event (on_update / after_save) has a
-	#      corresponding BPMN message suffix ("Edit_Action").
-	#   2. If yes, _maybe_send_message() finds every active BPMN instance
-	#      linked to this document and delivers the message.
-	#   3. The message unblocks the process's EventBasedGateway, which routes
-	#      to the update branch of the BPMN diagram.
-	#
-	# Dedup: Frappe fires after_insert → on_update → after_save in one request.
-	# _maybe_send_message() uses frappe.flags to ensure only one delivery.
 	message_suffix = _FRAPPE_EVENT_TO_MESSAGE_SUFFIX.get(method)
 	if message_suffix:
 		_maybe_send_message(doc, message_suffix)
-
-
-# Internal helpers
 
 
 def _maybe_send_message(doc, message_suffix: str):
@@ -173,15 +89,13 @@ def _maybe_send_message(doc, message_suffix: str):
 	Builds message name as {DocType}_{suffix} and never blocks the save.
 	"""
 
-	# Skip if the document was just created in this request
-	# (the instance is still in its creation flow, not waiting for edits)
+	# An instance started in this request is still in its creation flow, not waiting for edits.
 	bpmn_created = frappe.flags.get("_bpmn_instances_just_started") or set()
 	doc_id = f"{doc.doctype}:{doc.name}"
 	if doc_id in bpmn_created:
 		return
 
-	# Dedup: only deliver once per doc per request
-	# (Frappe fires on_update + after_save back-to-back)
+	# Frappe fires on_update and after_save back to back; deliver once per request.
 	if not frappe.flags._bpmn_message_sent:
 		frappe.flags._bpmn_message_sent = set()
 
@@ -190,12 +104,10 @@ def _maybe_send_message(doc, message_suffix: str):
 		return
 	frappe.flags._bpmn_message_sent.add(doc_key)
 
-	# Build message name: e.g. "ToDo" + "Edit_Action" → "ToDo_Edit_Action"
-	# Must match <bpmn:message name="..."> in the diagram
+	# Must match a <bpmn:message name="..."> in the diagram.
 	doctype_clean = doc.doctype.replace(" ", "")
 	message_name = f"{doctype_clean}_{message_suffix}"
 
-	# Find active BPMN instances for this document
 	try:
 		active_instances = frappe.get_all(
 			"BPMN Process Instance",
@@ -209,11 +121,7 @@ def _maybe_send_message(doc, message_suffix: str):
 	except Exception:
 		return
 
-	# Pass _old_status so scripts can detect status transitions
-	# (by on_update time, the DB already has the new value).
-	# Not every doctype has a `status` field (e.g. AI Agent
-	# Configuration uses lifecycle_status) — use .get(), or the
-	# delivery dies with AttributeError before receive_message.
+	# By on_update the DB holds the new value, so pass the old one; .get() since not every doctype has status.
 	prev_doc = getattr(doc, "_doc_before_save", None)
 	payload = {
 		"triggered_by": frappe.session.user,
@@ -232,11 +140,10 @@ def _maybe_send_message(doc, message_suffix: str):
 			)
 			caught = caught or bool(instance.flags.get("bpmn_message_caught"))
 		except frappe.ValidationError:
-			# "No task is waiting for message" — expected when the instance
-			# is active but not at a matching catch event. Silently skip.
+			# Raised when no task waits for this message, which is normal for an active instance.
 			pass
 		except Exception:
-			# Unexpected error — log but never block the document save
+			# Never block the document save.
 			frappe.log_error(
 				title=f"BPMN message delivery failed: {message_name} → {instance_name}",
 				message=frappe.get_traceback(),
@@ -246,48 +153,16 @@ def _maybe_send_message(doc, message_suffix: str):
 		_start_by_message(doc, message_name, payload)
 
 
-# The message a deployment announces. Follows the {DocType}{Action}_Action
-# convention the diagrams already use (ChatConversation_Message_Action,
-# AIAgentConfiguration_Edit_Action), so a designer adding the catch event does
-# not have to learn a second naming scheme for this one event.
+# Follows the {DocType}{Action}_Action naming the diagrams already use.
 PROCESS_MODEL_DEPLOYED_MESSAGE = "BPMNProcessModel_Deployed_Action"
 
 
 def send_process_model_deployed_message(model) -> list:
-	"""
-	Tell the engine that a process model has been deployed.
-
-	A process owner finishes their model and deploys it. The Process
-	Implementation that commissioned that work is waiting to hear so it can
-	conclude — and until now the only way it learned was a person confirming
-	something the engine already knew.
-
-	Delivered to the Active instance(s) of the model's own
-	``process_implementation``, so a deployment only ever answers the
-	implementation that asked for it.
-
-	**Why this is called explicitly from the deploy path** rather than arriving
-	through ``on_doc_event`` like every other message: ``BPMN Process Model`` is
-	in ``_INTERNAL_DOCTYPES``, so document events on it never reach the
-	universal trigger. That exclusion is deliberate — it stops the engine
-	recursing while it saves its own models — which leaves deployment with no
-	way to announce itself except to say so directly.
-
-	Best-effort by design: a deploy must never fail because nothing was
-	listening. An instance with no matching catch event is normal (the
-	implementation map only grows one when its designer wants to react), and is
-	skipped silently exactly as ``_maybe_send_message`` does.
-
-	Args:
-	    model: the deployed BPMN Process Model document, already saved.
-
-	Returns:
-	    list of instance names that accepted the message (empty is a normal
-	    outcome, not a failure).
-	"""
+	"""Deliver PROCESS_MODEL_DEPLOYED_MESSAGE to the Active instances of the model's process_implementation.
+	Called from the deploy path because BPMN Process Model is internal and never reaches on_doc_event.
+	Returns the instances that caught it; an empty list is normal and never fails the deploy."""
 	implementation = (model.get("process_implementation") or "").strip()
 	if not implementation:
-		# No implementation commissioned this model — nothing is waiting.
 		return []
 
 	try:
@@ -311,7 +186,6 @@ def send_process_model_deployed_message(model) -> list:
 	if not waiting:
 		return []
 
-	# What the implementation map can branch on once the message lands.
 	payload = {
 		"process_model": model.name,
 		"process_name": model.get("process_name"),
@@ -329,14 +203,11 @@ def send_process_model_deployed_message(model) -> list:
 				message_name=PROCESS_MODEL_DEPLOYED_MESSAGE,
 				payload=payload,
 			)
-			# An uncaught message does NOT raise — receive_message logs it and
-			# returns the unchanged task list — so the flag is the only way to
-			# tell "the implementation reacted" from "nothing was listening".
+			# receive_message does not raise on an uncaught message, so this flag is the only signal.
 			if instance.flags.get("bpmn_message_caught"):
 				delivered.append(instance_name)
 		except frappe.ValidationError:
-			# The instance finished or was cancelled between the query and the
-			# delivery. Nothing to answer; not a problem.
+			# The instance finished or was cancelled between the query and the delivery.
 			pass
 		except Exception:
 			frappe.log_error(
@@ -351,16 +222,9 @@ def send_process_model_deployed_message(model) -> list:
 
 
 def _find_matching_models(doctype: str, trigger_event: str) -> list:
-	"""
-	Return names of all active BPMN Process Models whose trigger matches
-	the given doctype + event combination.
+	"""Return active BPMN Process Models triggered by this doctype and event.
 
-	Triggers are now primarily defined in the ``BPMN Start Event Config``
-	child table, allowing multiple start events per model.
-	"""
-	# 1. Search BPMN Start Event Config (Source of Truth)
-	# This catches models where triggerDoctype/triggerEvent are configured
-	# on start events in the BPMN diagram.
+	Candidates come from BPMN Start Event Config and BPMN Process DocType rows."""
 	child_matches = frappe.get_all(
 		"BPMN Start Event Config",
 		filters={
@@ -373,9 +237,6 @@ def _find_matching_models(doctype: str, trigger_event: str) -> list:
 	)
 	candidate_names = [r.parent for r in child_matches if r.parent]
 
-	# 2. Check BPMN Process DocType (Multi-DocType support)
-	# This is a separate child table used for models that apply to a list
-	# of doctypes with the same start event logic.
 	multi_doc_matches = frappe.get_all(
 		"BPMN Process DocType",
 		filters={
@@ -389,7 +250,6 @@ def _find_matching_models(doctype: str, trigger_event: str) -> list:
 	if not candidate_names:
 		return []
 
-	# Final filter for active models and deduplication
 	active_models = frappe.get_all(
 		"BPMN Process Model",
 		filters={
@@ -409,53 +269,38 @@ def _maybe_start_instance(doc, model_name: str):
 	"""
 	model = frappe.get_doc("BPMN Process Model", model_name)
 
-	# Must have a compiled spec — silently skip if not yet compiled
 	if not model.serialized_spec:
 		return
 
-	# The BPMN attribute spiffworkflow:triggerWorkflowState is compared against
-	# both doc.workflow_state (Frappe native workflow) and doc.status (custom
-	# status fields like Work Item.status) so either convention works.
+	# triggerWorkflowState matches either workflow_state or a custom status field.
 	required_state = _get_trigger_workflow_state(model.bpmn_xml)
 	if required_state:
 		doc_state = getattr(doc, "workflow_state", None) or getattr(doc, "status", None)
 		if doc_state != required_state:
 			return
 
-	# Conditional start event gate.
-	# Evaluate the start event's <bpmn:condition> (e.g. agent_mode == "ProsAlly")
-	# against the triggering document, so the instance only spawns when the
-	# condition holds. This is the SAME expression SpiffWorkflow evaluates when the
-	# instance starts, so the gate lives in the process map — not in this code.
-	# Skip (zero-spawn) when the condition is cleanly False; a condition we cannot
-	# evaluate falls through to spawning so legitimate triggers are never dropped.
+	# Same expression SpiffWorkflow evaluates at start; a condition that cannot be evaluated still spawns.
 	start_condition = _get_conditional_start_condition(model.bpmn_xml)
 	if start_condition and start_condition.strip().lower() not in ("true", "1", ""):
 		from one_bpmn.processa_engine.engine import json_safe_doc_fields
 
-		# The same fields, converted the same way, that the instance will see once it
-		# starts — so a start condition and a gateway cannot disagree about the document.
+		# Same fields the started instance sees, so a start condition and a gateway agree.
 		eval_locals = json_safe_doc_fields(doc)
 		try:
 			if not frappe.safe_eval(start_condition, eval_locals=eval_locals):
-				return  # condition not met — do not spawn
+				return
 		except Exception:
 			frappe.log_error(
 				title=f"BPMN trigger: start-condition eval failed ({model_name})",
 				message=f"condition={start_condition!r}\n{frappe.get_traceback()}",
 			)
 
-	# Optional generic field filter on the triggering document (legacy /
-	# defence-in-depth): a start event may also declare
-	# spiffworkflow:triggerFieldName / triggerFieldValue.
 	field_cond = _get_trigger_field_condition(model.bpmn_xml)
 	if field_cond:
 		field_name, field_value = field_cond
 		if str(getattr(doc, field_name, None) or "") != str(field_value):
 			return
 
-	# Prevent duplicate: skip if there's already a Queued/Active instance
-	# for this exact document + model combination
 	existing = frappe.db.exists(
 		"BPMN Process Instance",
 		{
@@ -468,28 +313,18 @@ def _maybe_start_instance(doc, model_name: str):
 	if existing:
 		return
 
-	# All checks passed — create the instance and run the first engine pass
-	# inline in the save request (WI-001494/WI-001496). AI tasks reached by
-	# the pass are parked by the WI-001495 seam and ONLY their LLM work runs
-	# as a bpmn_ai_agent job, so the save never blocks on AI latency.
+	# The first engine pass runs inline; AI tasks it reaches are parked so the save never waits on an LLM.
 	instance = frappe.new_doc("BPMN Process Instance")
 	instance.process_model = model_name
 	instance.context_doctype = doc.doctype
 	instance.context_docname = doc.name
-	# Insert as "Queued", NOT "Active": start_queued_instance() below only runs
-	# start() (which compiles the spec and writes workflow_state) when the row
-	# is Queued. Inserting "Active" makes that guard no-op, leaving an Active
-	# instance with an empty workflow_state — later actions then fail with
-	# "Workflow state is missing". start() flips it to "Active" once state exists.
+	# The start below only runs start() on a Queued row; start() sets Active once workflow_state exists.
 	instance.status = "Queued"
 	instance.initiated_by = frappe.session.user
 	instance.started_at = now_datetime()
-	instance.insert(ignore_permissions=True)
+	instance.insert(ignore_permissions=True)  # the engine owns instance rows
 
-	# Mark the doc BEFORE start() so Section C doesn't send Edit_Action
-	# during creation. start() may execute script tasks that save the doc,
-	# triggering nested on_update → Section C. The flag must be set first.
-	# Use frappe.flags (request-scoped) — survives across all hook calls.
+	# Set before start(), whose script tasks may save the doc and send Edit_Action.
 	if not frappe.flags._bpmn_instances_just_started:
 		frappe.flags._bpmn_instances_just_started = set()
 	frappe.flags._bpmn_instances_just_started.add(f"{doc.doctype}:{doc.name}")
@@ -498,26 +333,17 @@ def _maybe_start_instance(doc, model_name: str):
 
 
 def start_queued_instance(instance_name: str, run_as_user: str = None):
-	"""
-	Second half of _maybe_start_instance: run the first engine pass of a
-	Queued instance, inline in the save request (WI-001494/WI-001496).
-	Kept as a standalone function (with the Queued guard) so stranded
-	Queued instances from the pre-inline era can still be started by a job.
-	"""
+	"""Run the first engine pass of a Queued instance, inline in the save request.
+
+	Standalone so a job can still start a stranded Queued instance."""
 	instance = frappe.get_doc("BPMN Process Instance", instance_name, for_update=True)
 	if instance.status != "Queued":
-		return  # already started (or cancelled) elsewhere
-	# NEVER call frappe.set_user for the current user: set_user() rewrites
-	# local.session.sid and WIPES session.data — inside a web request (the
-	# inline path) the end-of-request session persistence then writes the
-	# gutted data back under the browser's cookie sid, and every following
-	# request fails with "User None is disabled". Only switch identity when
-	# it actually differs (the background-job case).
+		return  # already started or cancelled elsewhere
+	# set_user wipes session.data, which a web request then writes back under the cookie sid; switch only when needed.
 	if run_as_user and run_as_user != frappe.session.user:
 		frappe.set_user(run_as_user)
 
-	# Same guard as the inline path: script tasks inside start() may save the
-	# context doc, which would otherwise self-deliver Edit_Action messages.
+	# Script tasks inside start() may save the context doc and self-deliver Edit_Action.
 	if not frappe.flags._bpmn_instances_just_started:
 		frappe.flags._bpmn_instances_just_started = set()
 	frappe.flags._bpmn_instances_just_started.add(
@@ -526,7 +352,6 @@ def start_queued_instance(instance_name: str, run_as_user: str = None):
 
 	instance.status = "Active"
 	try:
-		# start() runs the engine and saves the instance
 		instance.start(
 			initial_data={
 				"triggered_by": run_as_user or frappe.session.user,
@@ -555,24 +380,10 @@ def start_queued_instance(instance_name: str, run_as_user: str = None):
 
 
 
-# Bidirectional sync — advance existing instances on doc events
-
-
 def _maybe_advance_instances(doc, task_action: str):
-	"""
-	When a document changes outside the BPMN engine (e.g. user submits the EDA
-	directly from the Frappe form), find any active BPMN Process Instance for
-	that document and auto-complete the waiting User Task whose task_actions
-	contains the given action.
+	"""Complete the Waiting User Task that accepts task_action on each Active instance of doc.
 
-	Design notes:
-	  - Only advances tasks in READY state (state=16) — never touches completed
-		or future tasks.
-	  - The advance() call will dispatch the downstream service tasks (e.g.
-		"Set to Submitted") which gracefully no-op if the doc is already in
-		the target state, preventing recursion and duplicate submissions.
-	  - Any failure is logged but never crashes the original document save.
-	"""
+	Runs when the document changes outside the engine; failures are logged and never block the save."""
 	# A save raised by the engine's own service task would advance the running instance a second time from its stale persisted state.
 	if frappe.flags.bpmn_engine_action:
 		return
@@ -600,18 +411,11 @@ def _maybe_advance_instances(doc, task_action: str):
 
 
 def _advance_instance_on_doc_event(instance_name: str, task_action: str):
-	"""
-	Load the instance, find the first Waiting User Task that accepts
-	task_action, and call advance() to complete it and run the engine forward.
+	"""Complete the first Waiting User Task that accepts task_action and run the engine forward.
 
-	task_action is a single action string, e.g. "Submit" or "Cancel".
-	task_actions on the row is either:
-	  - JSON array: [{"action":"Submit"},{"action":"Save"}]
-	  - Legacy CSV:  "Submit,Save"
-	"""
+	A row's task_actions is a JSON array of {"action": ...} objects or a legacy CSV string."""
 	instance = frappe.get_doc("BPMN Process Instance", instance_name)
 
-	# find the matching task row
 	matching_row = None
 	for row in instance.active_tasks:
 		if row.status != "Waiting":
@@ -627,8 +431,7 @@ def _advance_instance_on_doc_event(instance_name: str, task_action: str):
 					if isinstance(a, dict) and a.get("action", "").strip()
 				]
 			except (TypeError, ValueError):
-				# Invalid JSON — fall back to legacy CSV parsing rather than
-				# silently producing an empty list that can never match.
+				# Malformed JSON falls back to CSV parsing so the row can still match.
 				frappe.log_error(
 					title="BPMN trigger: malformed task_actions JSON",
 					message=f"task_actions={raw!r} on instance {instance_name}",
@@ -641,31 +444,14 @@ def _advance_instance_on_doc_event(instance_name: str, task_action: str):
 			break
 
 	if not matching_row:
-		return  # No waiting task matches — nothing to advance
+		return
 
-	# advance() will:
-	#  1. Complete the User Task
-	#  2. Run the engine forward (service tasks, script tasks, etc.)
-	#  3. Save the instance with updated workflow_state
-	# Note: downstream service tasks that try to re-submit the doc will
-	# gracefully no-op because _apply_docstatus_directly guards against
-	# re-submitting an already-submitted document.
-	#
-	# advance() signature: advance(self, task_id: str, data: dict = None)
-	# The action is passed inside data so it matches the API convention.
+	# Downstream service tasks that re-submit the doc no-op because _apply_docstatus_directly skips submitted docs.
 	instance.advance(task_id=matching_row.task_id, data={"action": task_action})
 
 
 def _get_trigger_workflow_state(bpmn_xml: str):
-	"""
-	Parse the BPMN XML and return the value of
-	spiffworkflow:triggerWorkflowState on the start event, if set.
-
-	Example BPMN attribute:
-		<bpmn:startEvent spiffworkflow:triggerWorkflowState="Open" ...>
-
-	Returns None if no condition is set or if parsing fails.
-	"""
+	"""Return spiffworkflow:triggerWorkflowState from the first start event that sets it, or None."""
 	if not bpmn_xml or not bpmn_xml.strip():
 		return None
 	try:
@@ -683,21 +469,9 @@ def _get_trigger_workflow_state(bpmn_xml: str):
 
 
 def _get_trigger_field_condition(bpmn_xml: str):
-	"""
-	Parse the BPMN XML and return a (field_name, field_value) tuple declared via
-	spiffworkflow:triggerFieldName / spiffworkflow:triggerFieldValue on a start
-	event (or its event definition), if set.
+	"""Return (triggerFieldName, triggerFieldValue) from the first element that declares them, or None.
 
-	Example BPMN attributes:
-		<bpmn:conditionalEventDefinition
-			spiffworkflow:triggerFieldName="agent_mode"
-			spiffworkflow:triggerFieldValue="ProsAlly" ... >
-
-	Used to scope a DocType-event trigger to documents whose field equals a value,
-	so multiple models listening on the same DocType + event don't all fire.
-
-	Returns None if not set or if parsing fails.
-	"""
+	Scopes a DocType-event trigger so several models on the same DocType and event do not all fire."""
 	if not bpmn_xml or not bpmn_xml.strip():
 		return None
 	try:
@@ -716,16 +490,7 @@ def _get_trigger_field_condition(bpmn_xml: str):
 
 
 def _get_conditional_start_condition(bpmn_xml: str):
-	"""Return the <bpmn:condition> expression text of the (first) conditional
-	start event in the diagram, or None when there is none.
-
-	Example BPMN:
-		<bpmn:startEvent ...>
-			<bpmn:conditionalEventDefinition ...>
-				<bpmn:condition>agent_mode == "ProsAlly"</bpmn:condition>
-			</bpmn:conditionalEventDefinition>
-		</bpmn:startEvent>
-	"""
+	"""Return the <bpmn:condition> text of the first conditional start event, or None."""
 	if not bpmn_xml or not bpmn_xml.strip():
 		return None
 	try:
@@ -744,35 +509,16 @@ def _get_conditional_start_condition(bpmn_xml: str):
 	return None
 
 
-# BPMN Document Guard
-
-
 def guard_bpmn_document(doc, method: str):
-	"""
-	Blocks native Frappe submit / cancel / workflow transitions when a BPMN
-	Process Instance is actively controlling this document.
+	"""Block native submit, cancel and workflow transitions on a document an Active BPMN Process Instance controls.
 
-	Wired via hooks.py:
-		doc_events = { "*": { "before_submit": _BPMN_GUARD, ... } }
-
-	Decision logic:
-	  1. Skip internal BPMN doctypes (prevent recursion).
-	  2. If frappe.flags.bpmn_engine_action is True, this call originates from
-		 the BPMN engine itself (service task) — allow it through.
-	  3. Query for an Active BPMN Process Instance on this document.
-		 - No instance → Frappe workflow rules apply normally. Allow.
-		 - Active instance found → Block with a user-friendly error asking
-		   the user to use the Actions menu instead.
-	"""
-	# 1. Never guard internal BPMN doctypes
+	The engine's own service tasks pass through via frappe.flags.bpmn_engine_action."""
 	if doc.doctype in _INTERNAL_DOCTYPES:
 		return
 
-	# 2. Allow the BPMN engine's own service tasks to modify documents
 	if getattr(frappe.flags, "bpmn_engine_action", False):
 		return
 
-	# 3. Check for an active BPMN instance controlling this document
 	active_instance = frappe.db.get_value(
 		"BPMN Process Instance",
 		{
@@ -792,7 +538,7 @@ def guard_bpmn_document(doc, method: str):
 
 	if not active_instance:
 		_block_native_action_on_processa_doctype(doc, action_verb)
-		return  # No active BPMN — Frappe can do whatever it likes
+		return
 
 	frappe.throw(
 		frappe._(
@@ -800,7 +546,7 @@ def guard_bpmn_document(doc, method: str):
 			"This document is controlled by a BPMN process (<b>{3}</b>). "
 			"Use the <b>Actions</b> menu to proceed."
 		).format(action_verb, doc.doctype, doc.name, active_instance),
-		title=frappe._("Action Blocked — BPMN Process Active"),
+		title=frappe._("Action Blocked - BPMN Process Active"),
 	)
 
 
@@ -820,20 +566,12 @@ def _block_native_action_on_processa_doctype(doc, action_verb: str) -> None:
 
 
 def delete_linked_bpmn_instances(doc, method: str):
-	"""
-	On document trash:
-	  1. Try to deliver a Delete message to active instances so the BPMN
-	     delete flow can run (e.g. delete the linked Google Task).
-	  2. An instance that caught that message owns the delete story, so it is
-	     kept for the record: cancelled and unlinked, history intact.
-	  3. Every other instance is removed outright, along with its BPMN
-	     Activity Log rows, so deleting a document does not leave the
-	     process instance behind (WI-001990).
-	"""
+	"""On trash, deliver a Delete message to Active instances; those that take it are cancelled and unlinked.
+
+	Every other linked instance is deleted along with its BPMN Activity Log rows."""
 	if doc.doctype in _INTERNAL_DOCTYPES:
 		return
 
-	# Find all BPMN instances linked to this document
 	instances = frappe.get_all(
 		"BPMN Process Instance",
 		filters={
@@ -852,8 +590,7 @@ def delete_linked_bpmn_instances(doc, method: str):
 	if not instances and not message_start_models(delete_message):
 		return
 
-	# Save the current flag state so we don't clobber an outer
-	# BPMN engine operation (e.g. a service task deleting a document)
+	# Restored afterwards so an outer engine operation deleting this document keeps its flag.
 	previous_flag = getattr(frappe.flags, "bpmn_engine_action", False)
 	frappe.flags.bpmn_engine_action = True
 
@@ -861,8 +598,6 @@ def delete_linked_bpmn_instances(doc, method: str):
 		handled = set()
 		caught = False
 
-		# Step 1: Try to deliver Delete message to active instances
-		# so the BPMN delete flow can execute (e.g. delete Google Task)
 		for inst in instances:
 			if inst.status == "Active":
 				try:
@@ -872,17 +607,13 @@ def delete_linked_bpmn_instances(doc, method: str):
 						payload=delete_payload,
 					)
 					caught = caught or bool(instance_doc.flags.get("bpmn_message_caught"))
-					# The diagram has a delete catch event and it fired — this
-					# instance ran its own delete flow, so keep it.
+					# The instance ran its own delete flow, so keep it.
 					handled.add(inst.name)
 				except frappe.ValidationError:
-					# No task waiting for this message - diagram has no delete
-					# catch event. That is fine, fall through to deletion.
+					# The diagram has no delete catch event, so the instance is deleted below.
 					pass
 				except Exception:
-					# Delivery blew up for a reason we don't understand, so we
-					# don't know what state the instance is in. Keep it rather
-					# than destroy it — an orphan is recoverable, a delete isn't.
+					# Unknown instance state: keep it, since an orphan is recoverable and a delete is not.
 					handled.add(inst.name)
 					frappe.log_error(
 						title=f"BPMN delete message failed for {inst.name}",
@@ -892,24 +623,17 @@ def delete_linked_bpmn_instances(doc, method: str):
 		if not caught:
 			handled.update(_start_by_message(doc, delete_message, delete_payload))
 
-		# Step 2: Instances that handled the delete message are kept.
-		# Cancel them so nothing tries to advance them once the context
-		# document is gone, and unlink so Frappe's link check lets the
-		# document deletion through.
-		# Re-fetch status from DB since receive_message() in Step 1 may
-		# have advanced/completed the instance.
+		# Cancel and unlink kept instances so nothing advances them and the link check allows the delete.
 		for inst_name in handled:
 			try:
 				current_status = frappe.db.get_value(
 					"BPMN Process Instance", inst_name, "status"
 				)
 				updates = {"context_doctype": None, "context_docname": None}
-				# Leave a terminal status (Completed/Errored) alone — the delete
-				# flow already finished and that outcome is worth keeping.
+				# A finished delete flow keeps its Completed or Errored status.
 				if current_status == "Active":
 					updates["status"] = "Cancelled"
-					# Cancel orphan BPMN Active Task rows so they don't
-					# surface in get_active_tasks_summary / list_process_instances
+					# Cancel Waiting task rows so they leave get_active_tasks_summary and list_process_instances.
 					waiting_tasks = frappe.get_all(
 						"BPMN Active Task",
 						filters={"parent": inst_name, "status": "Waiting"},
@@ -939,32 +663,24 @@ def delete_linked_bpmn_instances(doc, method: str):
 					message=frappe.get_traceback(),
 				)
 
-		# Step 3: Everything else goes with the document — instances whose
-		# diagram has no delete catch event, plus any that were already
-		# Completed/Errored/Cancelled before the document was trashed.
 		doomed = [i.name for i in instances if i.name not in handled]
 		if not doomed:
 			return
 
-		# BPMN Activity Log points at the instance with a Link field, so the
-		# rows have to go first or Frappe's link check blocks the delete.
-		# BPMN Active Task is a child table and goes with the parent.
+		# BPMN Activity Log links to the instance, so its rows go first or the link check blocks the delete.
 		frappe.db.delete("BPMN Activity Log", {"instance": ["in", doomed]})
 
 		for inst_name in doomed:
-			# ignore_permissions: this is a system cascade behind the trash of a
-			# document the user was already allowed to delete. Failing the
-			# cascade on a BPMN Process Instance permission would leave exactly
-			# the orphan this hook exists to prevent.
+			# System cascade behind a trash the user was allowed to do; a permission failure would leave an orphan.
 			try:
 				frappe.delete_doc(
-					"BPMN Process Instance", inst_name, ignore_permissions=True
+					"BPMN Process Instance", inst_name, ignore_permissions=True  # cascade behind a permitted trash
 				)
 			except Exception:
 				try:
 					frappe.delete_doc(
 						"BPMN Process Instance", inst_name,
-						ignore_permissions=True, force=True,
+						ignore_permissions=True, force=True,  # cascade behind a permitted trash
 					)
 				except Exception:
 					frappe.log_error(

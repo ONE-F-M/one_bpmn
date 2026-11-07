@@ -109,7 +109,7 @@ class TestTheReprovisionGuard(FrappeTestCase):
 				"one_bpmn.agents.agent_config_resolver.get_creation_process_model",
 				return_value="_creation-map",
 			),
-			patch("one_bpmn.one_bpmn.trigger._get_conditional_start_condition", return_value=condition),
+			patch("one_bpmn.processa_engine.triggers._get_conditional_start_condition", return_value=condition),
 			patch("one_bpmn.api.instance_api.start_process") as start,
 		):
 			started = _start_reprovision(self.agent)

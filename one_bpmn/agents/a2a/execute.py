@@ -172,7 +172,7 @@ def run_background(task, config, text: str, *, fresh: bool = False) -> None:
 		# the agent could match — re-fire the same conditional gate the
 		# universal trigger uses.
 		try:
-			from one_bpmn.one_bpmn.trigger import _maybe_start_instance
+			from one_bpmn.processa_engine.triggers import _maybe_start_instance
 
 			_maybe_start_instance(frappe.get_doc("A2A Task", task.name), process_model)
 			instance = task_store.find_instance_for_task(task.name)
@@ -224,7 +224,7 @@ def _start_another_attempt(task, process_model: str) -> str | None:
 	retire_instance(previous)
 
 	try:
-		from one_bpmn.one_bpmn.trigger import _maybe_start_instance
+		from one_bpmn.processa_engine.triggers import _maybe_start_instance
 
 		_maybe_start_instance(frappe.get_doc("A2A Task", task.name), process_model)
 	except Exception:

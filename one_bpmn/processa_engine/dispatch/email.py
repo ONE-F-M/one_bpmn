@@ -61,7 +61,7 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 	else:
 		subject = render(task_cfg.get("emailSubject", "") or f"Notification from {instance.name}")
 		raw_body = task_cfg.get("emailBody", "") or subject
-		from one_bpmn.processa_engine.doctype.bpmn_process_instance.assignment import _decode_html_attr
+		from one_bpmn.processa_engine.assignment import _decode_html_attr
 
 		body = render(_decode_html_attr(raw_body))
 

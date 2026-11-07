@@ -5,7 +5,7 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
-from one_bpmn.processa_engine.doctype.bpmn_process_instance.assignment import (
+from one_bpmn.processa_engine.assignment import (
 	add_frappe_assignment,
 	split_users,
 )

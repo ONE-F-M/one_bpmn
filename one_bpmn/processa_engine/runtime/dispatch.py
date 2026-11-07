@@ -97,9 +97,9 @@ def _apply_workflow(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 		)
 		return
 
-	from one_bpmn.api.workflow_state import _apply_bpmn_workflow_state
+	from one_bpmn.processa_engine.audit import apply_bpmn_workflow_state
 
-	_apply_bpmn_workflow_state(
+	apply_bpmn_workflow_state(
 		doctype=doctype,
 		docname=docname,
 		target_state=target_state,

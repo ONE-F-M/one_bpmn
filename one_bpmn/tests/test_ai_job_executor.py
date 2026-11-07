@@ -255,7 +255,7 @@ class TestSelectorJobTurns(JobHarness):
 			return ("activate", "task_a", {})
 
 		with patch(
-			"one_bpmn.processa_engine.doctype.bpmn_process_instance.ai_task_selector"
+			"one_bpmn.processa_engine.task_selector"
 			".dispatch_ai_task_selector",
 			side_effect=choose_task_a,
 		) as dispatch:
@@ -287,7 +287,7 @@ class TestSelectorJobTurns(JobHarness):
 			return ("activate", "user_a", {})
 
 		with patch(
-			"one_bpmn.processa_engine.doctype.bpmn_process_instance.ai_task_selector"
+			"one_bpmn.processa_engine.task_selector"
 			".dispatch_ai_task_selector",
 			side_effect=choose_user_a,
 		) as dispatch:

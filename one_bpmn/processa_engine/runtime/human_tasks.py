@@ -8,7 +8,7 @@ from frappe import _
 from frappe.utils import now_datetime
 
 from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
-from one_bpmn.processa_engine.doctype.bpmn_process_instance.assignment import (
+from one_bpmn.processa_engine.assignment import (
 	add_frappe_assignment,
 	notify_task_assignee,
 	resolve_assignment,

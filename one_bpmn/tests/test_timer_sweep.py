@@ -12,7 +12,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.api.compilation import compile_process_model
-from one_bpmn.tasks import _refresh_timer_tasks
+from one_bpmn.processa_engine.timers import _refresh_timer_tasks
 
 TIMER_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"

@@ -13,7 +13,7 @@ from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.util.task import TaskState
 
 from one_bpmn.processa_engine import engine
-from one_bpmn.processa_engine.doctype.bpmn_process_instance import ai_task_selector
+from one_bpmn.processa_engine import task_selector
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -160,7 +160,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 			return ExecutorResult(output="", token_usage=TokenUsage(), trace=[])
 
 		_FakeExecutor.result_factory = factory
-		ai_task_selector.dispatch_ai_task_selector(
+		task_selector.dispatch_ai_task_selector(
 			_instance(), sp, dict(SELECTOR_CFG), "AdhocSub_1"
 		)
 		# The engine appends the standing idle-guard line to every prompt.
@@ -178,7 +178,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 			return ExecutorResult(output="", token_usage=TokenUsage(), trace=[])
 
 		_FakeExecutor.result_factory = factory
-		ai_task_selector.dispatch_ai_task_selector(
+		task_selector.dispatch_ai_task_selector(
 			_instance(), sp, {**SELECTOR_CFG, "aiTemperature": "0.4", "aiTopP": "0.8"}, "AdhocSub_1"
 		)
 		self.assertEqual(captured["sampling"], (0.4, 0.8))
@@ -206,7 +206,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 			"aiThinkingBudgetTokens": "2048",
 			"aiTerminalTools": "task_b",
 		}
-		ai_task_selector.dispatch_ai_task_selector(_instance(), sp, cfg, "AdhocSub_1")
+		task_selector.dispatch_ai_task_selector(_instance(), sp, cfg, "AdhocSub_1")
 		self.assertEqual(captured["controls"], ("required", False, 2048, ["finalize", "task_b"]))
 
 	# ── Scenario 2: diagram-task selection → activation, args merged ──
@@ -215,7 +215,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 		sp, _ = _adhoc_subworkflow()
 		_FakeExecutor.scripted_calls = [("task_b", {"note": "chosen"})]
 
-		action, chosen, args = ai_task_selector.dispatch_ai_task_selector(
+		action, chosen, args = task_selector.dispatch_ai_task_selector(
 			_instance(), sp, dict(SELECTOR_CFG), "AdhocSub_1"
 		)
 		self.assertEqual(action, "activate")
@@ -225,7 +225,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 	def test_only_first_selection_wins(self):
 		sp, _ = _adhoc_subworkflow()
 		_FakeExecutor.scripted_calls = [("task_b", {}), ("task_c", {})]
-		action, chosen, _ = ai_task_selector.dispatch_ai_task_selector(
+		action, chosen, _ = task_selector.dispatch_ai_task_selector(
 			_instance(), sp, dict(SELECTOR_CFG), "AdhocSub_1"
 		)
 		self.assertEqual((action, chosen), ("activate", "task_b"))
@@ -236,7 +236,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 		sp, _ = _adhoc_subworkflow()
 		_FakeExecutor.scripted_calls = [("no_such_tool", {})]
 		with patch.object(frappe, "log_error") as log_error:
-			action, _, _ = ai_task_selector.dispatch_ai_task_selector(
+			action, _, _ = task_selector.dispatch_ai_task_selector(
 				_instance(), sp, dict(SELECTOR_CFG), "AdhocSub_1"
 			)
 		self.assertEqual(action, "idle")
@@ -257,7 +257,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 
 		_FakeExecutor.result_factory = factory
 		with patch.object(frappe, "log_error"):
-			action, _, _ = ai_task_selector.dispatch_ai_task_selector(
+			action, _, _ = task_selector.dispatch_ai_task_selector(
 				_instance(), sp, dict(SELECTOR_CFG), "AdhocSub_1"
 			)
 		self.assertEqual(action, "error")
@@ -269,10 +269,10 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 	def test_decider_maps_choice_to_pending_task(self):
 		sp, heads = _adhoc_subworkflow()
 		instance = _instance()
-		decider = ai_task_selector.make_adhoc_decider(instance, None)
+		decider = task_selector.make_adhoc_decider(instance, None)
 
 		with patch.object(
-			ai_task_selector,
+			task_selector,
 			"dispatch_ai_task_selector",
 			return_value=("activate", "task_b", {"x": 1}),
 		):
@@ -282,15 +282,15 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 
 	def test_decider_idle_returns_no_activation(self):
 		sp, heads = _adhoc_subworkflow()
-		decider = ai_task_selector.make_adhoc_decider(_instance(), None)
+		decider = task_selector.make_adhoc_decider(_instance(), None)
 		with patch.object(
-			ai_task_selector, "dispatch_ai_task_selector", return_value=("idle", None, None)
+			task_selector, "dispatch_ai_task_selector", return_value=("idle", None, None)
 		):
 			self.assertIs(decider(sp, heads), engine.NO_ACTIVATION)
 
 	def test_decider_ignores_non_selector_subprocesses(self):
 		sp, heads = _adhoc_subworkflow()
-		decider = ai_task_selector.make_adhoc_decider(_instance(extensions={}), None)
+		decider = task_selector.make_adhoc_decider(_instance(extensions={}), None)
 		self.assertIsNone(decider(sp, heads))
 
 
@@ -334,7 +334,7 @@ class TestCompletedTasksNotOffered(FrappeTestCase):
 			return ExecutorResult(output="", token_usage=TokenUsage(), trace=[])
 
 		_FakeExecutor.result_factory = factory
-		ai_task_selector.dispatch_ai_task_selector(
+		task_selector.dispatch_ai_task_selector(
 			_instance(), sp, dict(SELECTOR_CFG), "AdhocSub_1"
 		)
 
@@ -364,7 +364,7 @@ class TestPerToolResultVariables(FrappeTestCase):
 				],
 			}],
 		)
-		ai_task_selector._record_tool_outcomes(sp, "Triage", result)
+		task_selector._record_tool_outcomes(sp, "Triage", result)
 
 		self.assertEqual(sp.data["check_sales_order_toolCallResult"], '{"is_sales": 1}')
 		self.assertEqual(sp.data["send_ticket_email_toolCallResult"], '{"sent": 1}')
@@ -480,7 +480,7 @@ class TestIdleDoesNotFinalizeRun(FrappeTestCase):
 		)
 		_FakeExecutor.scripted_calls = []  # idle: no tool calls
 
-		action, _, _ = ai_task_selector.dispatch_ai_task_selector(
+		action, _, _ = task_selector.dispatch_ai_task_selector(
 			instance, sp, dict(SELECTOR_CFG), "AdhocSub_1"
 		)
 		self.assertEqual(action, "idle")
@@ -532,7 +532,7 @@ class TestIdleGuardInPrompt(FrappeTestCase):
 			return ExecutorResult(output="", token_usage=TokenUsage(), trace=[])
 
 		_FakeExecutor.result_factory = factory
-		ai_task_selector.dispatch_ai_task_selector(
+		task_selector.dispatch_ai_task_selector(
 			_instance(), sp, dict(SELECTOR_CFG), "AdhocSub_1"
 		)
 		self.assertIn(

@@ -34,7 +34,7 @@ def execute():
 	rows. Each instance is committed independently and failures are logged, so a
 	single bad instance cannot abort the migrate.
 	"""
-	from one_bpmn.one_bpmn.trigger import start_queued_instance
+	from one_bpmn.processa_engine.triggers import start_queued_instance
 
 	# Only these process models are revived; all other empty instances are
 	# cancelled. Keep this tight — restart re-runs a process from its start.
