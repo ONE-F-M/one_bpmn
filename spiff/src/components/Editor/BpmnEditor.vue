@@ -1046,7 +1046,7 @@ import translateModule from "@/bpmn/aiAgentTranslate";
 // Custom modeling rules
 
 // Custom text styling module
-import { customTextStyleModule, stickyNoteModule, serviceTaskIconModule } from "@/renderers";
+import { customTextStyleModule, stickyNoteModule, serviceTaskIconModule } from "@/bpmn/renderers";
 
 // Native system-clipboard module — enables copy/paste across browser tabs.
 // Inlined from https://github.com/nikku/bpmn-js-native-copy-paste (MIT)
@@ -1055,10 +1055,10 @@ import nativeCopyPasteModule from "@/utils/nativeCopyPaste";
 import clipboardModule from "@/utils/clipboard";
 
 // Custom moddle extension for text style attributes
-import customTextStyleModdle from "@/moddle/customTextStyleModdle";
+import customTextStyleModdle from "@/bpmn/moddle/customTextStyleModdle";
 
 // Task resize + auto-label-fit module
-import resizeModule from "@/resize";
+import resizeModule from "@/bpmn/resize";
 
 import userTaskPropertiesProviderModule from "@/bpmn/userTaskPropertiesProvider";
 import sendTaskPropertiesProviderModule from "@/bpmn/sendTaskPropertiesProvider";
@@ -1094,7 +1094,7 @@ import {
 // bpmnlint — diagram validation
 import lintModule from "bpmn-js-bpmnlint";
 import "bpmn-js-bpmnlint/dist/assets/css/bpmn-js-bpmnlint.css";
-import bpmnlintConfig from "@/linting/bpmnlintrc.js";
+import bpmnlintConfig from "@/bpmn/lint/bpmnlintrc.js";
 import { flattenLintIssues } from "@/utils/lintIssues.js";
 
 // Import bpmn-js CSS
