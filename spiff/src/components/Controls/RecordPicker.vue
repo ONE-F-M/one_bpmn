@@ -20,9 +20,9 @@
 					class="record-picker-field"
 					role="combobox"
 					tabindex="0"
-					@click="togglePopover()"
-					@keydown.enter.prevent="togglePopover()"
-					@keydown.down.prevent="togglePopover()"
+					@click="toggle(togglePopover)"
+					@keydown.enter.prevent="toggle(togglePopover)"
+					@keydown.down.prevent="toggle(togglePopover)"
 				>
 					<span
 						v-if="multiple"
@@ -80,7 +80,7 @@
 				/>
 			</template>
 
-			<template v-if="canCreate || creating || canUseTyped" #footer="{ togglePopover }">
+			<template v-if="canCreate || creating" #footer>
 				<div v-if="creating" class="p-1">
 					<slot
 						name="create"
@@ -90,15 +90,6 @@
 					/>
 				</div>
 				<template v-else>
-					<Button
-						v-if="canUseTyped"
-						class="w-full"
-						variant="ghost"
-						@mousedown.prevent
-						@click.stop="useTyped(togglePopover)"
-					>
-						{{ translate("Use") }} "{{ query.trim() }}"
-					</Button>
 					<Button
 						v-if="canCreate"
 						class="w-full"
@@ -142,8 +133,8 @@ const props = defineProps({
 	localSearch: { type: Boolean, default: false },
 	// async (name) => name; shows a Create row for a name that matches no option
 	createRecord: { type: Function, default: null },
-	// Keeps text typed into the search box as the value, like the old panel autocomplete
-	allowFreeText: { type: Boolean, default: false },
+	// "live" stores the text on every keystroke; "blur" stores it when the picker closes without a pick
+	allowFreeText: { type: String, default: "" },
 	missingText: { type: String, default: "" },
 	translate: { type: Function, default: (text) => text },
 })
@@ -158,12 +149,12 @@ const createName = ref("")
 const saving = ref(false)
 const error = ref("")
 let timer = null
+let closeWatcher = null
+let toggler = null
+let justPicked = false
 
 const selected = computed(() => valuesOf(props.modelValue))
 const listed = computed(() => (props.multiple ? shown.value.filter((o) => !selected.value.includes(o.value)) : shown.value))
-const canUseTyped = computed(
-	() => props.allowFreeText && !props.multiple && Boolean(query.value.trim()) && query.value.trim() !== props.modelValue,
-)
 const hasValue = computed(() => selected.value.length > 0)
 const selection = computed(() => (props.multiple ? selected.value : props.modelValue || null))
 const displayText = computed(() => {
@@ -196,13 +187,67 @@ async function load(text = "") {
 }
 
 function onQuery(text) {
+	const previous = query.value
 	query.value = text
+	if (props.allowFreeText && !props.multiple) keepTyped(previous, text)
 	if (props.localSearch || props.options) return
 	clearTimeout(timer)
 	timer = setTimeout(() => load(text), SEARCH_DELAY)
 }
 
+// Typing alone changes the value: the Autocomplete empties its query only after a pick.
+function keepTyped(previous, text) {
+	if (text === "" && justPicked) {
+		justPicked = false
+		return
+	}
+	if (props.allowFreeText === "live") {
+		emit("update:modelValue", text)
+		emit("select", null)
+	} else if (text.trim()) {
+		watchForClose()
+	}
+}
+
+function watchForClose() {
+	if (closeWatcher) return
+	closeWatcher = setInterval(() => {
+		if (document.querySelector(".record-picker-body")) return
+		clearInterval(closeWatcher)
+		closeWatcher = null
+		commitTyped()
+	}, 100)
+}
+
+function commitTyped() {
+	const typed = query.value.trim()
+	const cancelled = justPicked || creating.value || saving.value
+	justPicked = false
+	if (!cancelled && typed && typed !== props.modelValue) {
+		emit("update:modelValue", typed)
+		emit("select", null)
+	}
+}
+
+function onKeydown(event) {
+	if (props.allowFreeText !== "blur" || !closeWatcher || !toggler) return
+	if (event.key !== "Escape" && event.key !== "Tab") return
+	event.preventDefault()
+	event.stopPropagation()
+	clearInterval(closeWatcher)
+	closeWatcher = null
+	if (event.key === "Tab") commitTyped()
+	else query.value = ""
+	toggler()
+}
+
+function toggle(togglePopover) {
+	toggler = togglePopover
+	togglePopover()
+}
+
 function onSelect(next) {
+	justPicked = query.value !== ""
 	const values = valuesOf(next)
 	const picked = props.multiple ? next || [] : next || null
 	emit("update:modelValue", props.multiple ? values : values[0] || "")
@@ -222,13 +267,6 @@ function remove(value) {
 	const next = selected.value.filter((v) => v !== value)
 	emit("update:modelValue", next)
 	emit("select", next)
-}
-
-function useTyped(togglePopover) {
-	const text = query.value.trim()
-	emit("update:modelValue", text)
-	emit("select", null)
-	togglePopover()
 }
 
 async function startCreate() {
@@ -266,8 +304,15 @@ watch(
 	() => props.fetchOptions,
 	() => load(query.value),
 )
-onMounted(() => load())
-onBeforeUnmount(() => clearTimeout(timer))
+onMounted(() => {
+	load()
+	document.addEventListener("keydown", onKeydown, true)
+})
+onBeforeUnmount(() => {
+	clearTimeout(timer)
+	clearInterval(closeWatcher)
+	document.removeEventListener("keydown", onKeydown, true)
+})
 </script>
 
 <style scoped>
@@ -340,7 +385,7 @@ onBeforeUnmount(() => clearTimeout(timer))
 
 <style>
 .record-picker-body {
-	max-width: calc(100vw - 3rem);
+	max-width: min(var(--reka-popover-trigger-width, 100vw), calc(100vw - 3rem));
 }
 .record-picker-body--multi .border-t {
 	display: none;
