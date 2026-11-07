@@ -1,7 +1,5 @@
 <template>
-	<div
-		class="record-picker w-full"
-	>
+	<div class="record-picker w-full">
 		<label v-if="label" class="mb-1.5 block text-xs text-ink-gray-5">{{ label }}</label>
 		<Autocomplete
 			:modelValue="selection"
@@ -10,7 +8,9 @@
 			:loading="loading || fetching"
 			:placeholder="placeholder"
 			:compare-fn="compareOption"
-			:body-classes="multiple ? 'record-picker-body record-picker-body--multi' : 'record-picker-body'"
+			:body-classes="
+				multiple ? 'record-picker-body record-picker-body--multi' : 'record-picker-body'
+			"
 			@update:query="onQuery"
 			@update:modelValue="onSelect"
 		>
@@ -24,15 +24,8 @@
 					@keydown.enter.prevent="toggle(togglePopover)"
 					@keydown.down.prevent="toggle(togglePopover)"
 				>
-					<span
-						v-if="multiple"
-						class="record-picker-tags"
-					>
-						<span
-							v-for="value in selected"
-							:key="value"
-							class="record-picker-tag"
-						>
+					<span v-if="multiple" class="record-picker-tags">
+						<span v-for="value in selected" :key="value" class="record-picker-tag">
 							<span class="record-picker-tag-text">{{ labelOf(value) }}</span>
 							<button
 								type="button"
@@ -68,7 +61,10 @@
 					>
 						<FeatherIcon name="x" class="h-3 w-3" />
 					</button>
-					<FeatherIcon name="chevron-down" class="h-4 w-4 flex-shrink-0 text-ink-gray-5" />
+					<FeatherIcon
+						name="chevron-down"
+						class="h-4 w-4 flex-shrink-0 text-ink-gray-5"
+					/>
 				</div>
 			</template>
 
@@ -107,17 +103,19 @@
 		<p v-if="error" class="record-picker-error" role="alert">{{ error }}</p>
 		<p v-else-if="missing" class="record-picker-warn">
 			{{ missingText }}
-			<button v-if="createRecord" type="button" class="underline" @click="startCreate">{{ translate("Create it") }}</button>
+			<button v-if="createRecord" type="button" class="underline" @click="startCreate">
+				{{ translate("Create it") }}
+			</button>
 		</p>
 	</div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, useSlots, watch } from "vue"
-import { Autocomplete, Button, FeatherIcon } from "frappe-ui"
-import { compareOption } from "@/utils/compareOption"
-import { serverMessage } from "@/utils/serverMessage"
-import { SEARCH_DELAY, canCreateRecord, isMissing, valuesOf } from "@/utils/recordPicker"
+import { computed, onBeforeUnmount, onMounted, ref, useSlots, watch } from "vue";
+import { Autocomplete, Button, FeatherIcon } from "frappe-ui";
+import { compareOption } from "@/utils/compareOption";
+import { serverMessage } from "@/utils/serverMessage";
+import { SEARCH_DELAY, canCreateRecord, isMissing, valuesOf } from "@/utils/recordPicker";
 
 const props = defineProps({
 	modelValue: { type: [String, Array], default: "" },
@@ -137,182 +135,189 @@ const props = defineProps({
 	allowFreeText: { type: String, default: "" },
 	missingText: { type: String, default: "" },
 	translate: { type: Function, default: (text) => text },
-})
-const emit = defineEmits(["update:modelValue", "select"])
-const slots = useSlots()
+});
+const emit = defineEmits(["update:modelValue", "select"]);
+const slots = useSlots();
 
-const shown = ref([])
-const fetching = ref(false)
-const query = ref("")
-const creating = ref(false)
-const createName = ref("")
-const saving = ref(false)
-const error = ref("")
-let timer = null
-let closeWatcher = null
-let toggler = null
-let justPicked = false
+const shown = ref([]);
+const fetching = ref(false);
+const query = ref("");
+const creating = ref(false);
+const createName = ref("");
+const saving = ref(false);
+const error = ref("");
+let timer = null;
+let closeWatcher = null;
+let toggler = null;
+let justPicked = false;
 
-const selected = computed(() => valuesOf(props.modelValue))
-const listed = computed(() => (props.multiple ? shown.value.filter((o) => !selected.value.includes(o.value)) : shown.value))
-const hasValue = computed(() => selected.value.length > 0)
-const selection = computed(() => (props.multiple ? selected.value : props.modelValue || null))
+const selected = computed(() => valuesOf(props.modelValue));
+const listed = computed(() =>
+	props.multiple ? shown.value.filter((o) => !selected.value.includes(o.value)) : shown.value,
+);
+const hasValue = computed(() => selected.value.length > 0);
+const selection = computed(() => (props.multiple ? selected.value : props.modelValue || null));
 const displayText = computed(() => {
-	if (!hasValue.value) return props.placeholder
-	return selected.value.map((v) => shown.value.find((o) => o.value === v)?.label || v).join(", ")
-})
+	if (!hasValue.value) return props.placeholder;
+	return selected.value
+		.map((v) => shown.value.find((o) => o.value === v)?.label || v)
+		.join(", ");
+});
 const canCreate = computed(
 	() => Boolean(props.createRecord || slots.create) && canCreateRecord(query.value, shown.value),
-)
+);
 const missing = computed(
 	() =>
 		(props.localSearch || Boolean(props.options)) &&
 		!props.multiple &&
 		Boolean(props.missingText) &&
 		isMissing(props.modelValue, shown.value),
-)
+);
 
 async function load(text = "") {
-	if (!props.fetchOptions) return
-	fetching.value = true
+	if (!props.fetchOptions) return;
+	fetching.value = true;
 	try {
-		shown.value = (await props.fetchOptions(text)) || []
-		error.value = ""
+		shown.value = (await props.fetchOptions(text)) || [];
+		error.value = "";
 	} catch (err) {
-		shown.value = []
-		error.value = serverMessage(err)
+		shown.value = [];
+		error.value = serverMessage(err);
 	} finally {
-		fetching.value = false
+		fetching.value = false;
 	}
 }
 
 function onQuery(text) {
-	const previous = query.value
-	query.value = text
-	if (props.allowFreeText && !props.multiple) keepTyped(previous, text)
-	if (props.localSearch || props.options) return
-	clearTimeout(timer)
-	timer = setTimeout(() => load(text), SEARCH_DELAY)
+	const previous = query.value;
+	query.value = text;
+	if (props.allowFreeText && !props.multiple) keepTyped(previous, text);
+	if (props.localSearch || props.options) return;
+	clearTimeout(timer);
+	timer = setTimeout(() => load(text), SEARCH_DELAY);
 }
 
 // Typing alone changes the value: the Autocomplete empties its query only after a pick.
 function keepTyped(previous, text) {
 	if (text === "" && justPicked) {
-		justPicked = false
-		return
+		justPicked = false;
+		return;
 	}
 	if (props.allowFreeText === "live") {
-		emit("update:modelValue", text)
-		emit("select", null)
+		emit("update:modelValue", text);
+		emit("select", null);
 	} else if (text.trim()) {
-		watchForClose()
+		watchForClose();
 	}
 }
 
 function watchForClose() {
-	if (closeWatcher) return
+	if (closeWatcher) return;
 	closeWatcher = setInterval(() => {
-		if (document.querySelector(".record-picker-body")) return
-		clearInterval(closeWatcher)
-		closeWatcher = null
-		commitTyped()
-	}, 100)
+		if (document.querySelector(".record-picker-body")) return;
+		clearInterval(closeWatcher);
+		closeWatcher = null;
+		commitTyped();
+	}, 100);
 }
 
 function commitTyped() {
-	const typed = query.value.trim()
-	const cancelled = justPicked || creating.value || saving.value
-	justPicked = false
+	const typed = query.value.trim();
+	const cancelled = justPicked || creating.value || saving.value;
+	justPicked = false;
 	if (!cancelled && typed && typed !== props.modelValue) {
-		emit("update:modelValue", typed)
-		emit("select", null)
+		emit("update:modelValue", typed);
+		emit("select", null);
 	}
 }
 
 function onKeydown(event) {
-	if (props.allowFreeText !== "blur" || !closeWatcher || !toggler) return
-	if (event.key !== "Escape" && event.key !== "Tab") return
-	event.preventDefault()
-	event.stopPropagation()
-	clearInterval(closeWatcher)
-	closeWatcher = null
-	if (event.key === "Tab") commitTyped()
-	else query.value = ""
-	toggler()
+	if (props.allowFreeText !== "blur" || !closeWatcher || !toggler) return;
+	if (event.key !== "Escape" && event.key !== "Tab") return;
+	event.preventDefault();
+	event.stopPropagation();
+	clearInterval(closeWatcher);
+	closeWatcher = null;
+	if (event.key === "Tab") commitTyped();
+	else query.value = "";
+	toggler();
 }
 
 function toggle(togglePopover) {
-	toggler = togglePopover
-	togglePopover()
+	toggler = togglePopover;
+	togglePopover();
 }
 
 function onSelect(next) {
-	justPicked = query.value !== ""
-	const values = valuesOf(next)
-	const picked = props.multiple ? next || [] : next || null
-	emit("update:modelValue", props.multiple ? values : values[0] || "")
-	emit("select", picked)
+	justPicked = query.value !== "";
+	const values = valuesOf(next);
+	const picked = props.multiple ? next || [] : next || null;
+	emit("update:modelValue", props.multiple ? values : values[0] || "");
+	emit("select", picked);
 }
 
 function clear() {
-	emit("update:modelValue", props.multiple ? [] : "")
-	emit("select", props.multiple ? [] : null)
+	emit("update:modelValue", props.multiple ? [] : "");
+	emit("select", props.multiple ? [] : null);
 }
 
 function labelOf(value) {
-	return shown.value.find((o) => o.value === value)?.label || value
+	return shown.value.find((o) => o.value === value)?.label || value;
 }
 
 function remove(value) {
-	const next = selected.value.filter((v) => v !== value)
-	emit("update:modelValue", next)
-	emit("select", next)
+	const next = selected.value.filter((v) => v !== value);
+	emit("update:modelValue", next);
+	emit("select", next);
 }
 
 async function startCreate() {
-	createName.value = (query.value || props.modelValue || "").trim()
+	createName.value = (query.value || props.modelValue || "").trim();
 	if (slots.create) {
-		creating.value = true
-		return
+		creating.value = true;
+		return;
 	}
-	saving.value = true
-	error.value = ""
+	saving.value = true;
+	error.value = "";
 	try {
-		const name = await props.createRecord(createName.value)
-		onCreated({ name })
+		const name = await props.createRecord(createName.value);
+		onCreated({ name });
 	} catch (err) {
-		error.value = serverMessage(err)
+		error.value = serverMessage(err);
 	} finally {
-		saving.value = false
+		saving.value = false;
 	}
 }
 
 function onCreated(record) {
-	creating.value = false
-	shown.value = [...shown.value, { label: record.name, value: record.name, style: record.style }]
-	const value = props.multiple ? [...selected.value, record.name] : record.name
-	emit("update:modelValue", value)
-	emit("select", value)
+	creating.value = false;
+	shown.value = [
+		...shown.value,
+		{ label: record.name, value: record.name, style: record.style },
+	];
+	const value = props.multiple ? [...selected.value, record.name] : record.name;
+	emit("update:modelValue", value);
+	emit("select", value);
 }
 
 watch(
 	() => props.options,
 	(next) => (shown.value = next || []),
 	{ immediate: true },
-)
+);
 watch(
 	() => props.fetchOptions,
 	() => load(query.value),
-)
+);
 onMounted(() => {
-	load()
-	document.addEventListener("keydown", onKeydown, true)
-})
+	load();
+	document.addEventListener("keydown", onKeydown, true);
+});
 onBeforeUnmount(() => {
-	clearTimeout(timer)
-	clearInterval(closeWatcher)
-	document.removeEventListener("keydown", onKeydown, true)
-})
+	clearTimeout(timer);
+	clearInterval(closeWatcher);
+	document.removeEventListener("keydown", onKeydown, true);
+});
 </script>
 
 <style scoped>

@@ -38,7 +38,11 @@ export class RecordPickerField extends Component {
 	// One stable function, so the picker does not reload on every panel re-render.
 	fetchOptions = async (txt) => {
 		const { loadOptions, fetchApi, valueField, renderOption } = this.props;
-		return toOptions(await (loadOptions || fetchApi || fetchDocTypes)(txt), valueField, renderOption);
+		return toOptions(
+			await (loadOptions || fetchApi || fetchDocTypes)(txt),
+			valueField,
+			renderOption,
+		);
 	};
 
 	componentDidMount() {
@@ -61,13 +65,25 @@ export class RecordPickerField extends Component {
 		return {
 			create: ({ query, done, cancel }) =>
 				vueH(PREACT_HOST, {
-					build: () => renderCreate({ initialName: query, onCreated: done, onCancel: cancel }),
+					build: () =>
+						renderCreate({ initialName: query, onCreated: done, onCancel: cancel }),
 				}),
 		};
 	}
 
 	pickerProps() {
-		const { id, value, multiple, translate, placeholder, loadOptions, onChange, createRecord, missingText, keepTyped } = this.props;
+		const {
+			id,
+			value,
+			multiple,
+			translate,
+			placeholder,
+			loadOptions,
+			onChange,
+			createRecord,
+			missingText,
+			keepTyped,
+		} = this.props;
 		return {
 			id,
 			multiple: Boolean(multiple),
@@ -88,7 +104,12 @@ export class RecordPickerField extends Component {
 		return h("div", { class: "bio-properties-panel-entry", "data-entry-id": id }, [
 			label && h("label", { for: id, class: "bio-properties-panel-label" }, label),
 			h("div", { ref: (el) => (this.mountEl = el) }),
-			count > 0 && h("div", { class: "bio-properties-panel-description" }, `${count} ${itemLabel}${count !== 1 ? "s" : ""} selected`),
+			count > 0 &&
+				h(
+					"div",
+					{ class: "bio-properties-panel-description" },
+					`${count} ${itemLabel}${count !== 1 ? "s" : ""} selected`,
+				),
 		]);
 	}
 }
