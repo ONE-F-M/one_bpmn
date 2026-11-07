@@ -31,7 +31,7 @@ class TestEditabilitySinglePath(FrappeTestCase):
 				"description": "editability test",
 				"process_owner": "Administrator",
 			}
-		).insert(ignore_permissions=True)
+		).insert()
 		return name
 
 	def _implementation(self, process):
@@ -43,7 +43,7 @@ class TestEditabilitySinglePath(FrappeTestCase):
 				"business_analyst": "Administrator",
 				"goal_description": "editability test",
 			}
-		).insert(ignore_permissions=True, ignore_links=True)
+		).insert(ignore_links=True)
 		frappe.db.set_value(
 			"Process Implementation",
 			doc.name,
