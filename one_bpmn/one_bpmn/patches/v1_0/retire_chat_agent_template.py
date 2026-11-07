@@ -31,7 +31,7 @@ PROVISION_SCRIPT = '''# AAC – Provision (WI-001997): the agent's map is its ow
 # link and make sure the map is compiled; a mapless agent (Direct-API chat)
 # provisions as-is.
 from one_bpmn.agents.agent_provisioning import _set_status
-from one_bpmn.api.compilation import compile_process_model
+from one_bpmn.api.deploy import compile_process_model
 
 _set_status(context_docname, "Provisioning")
 

@@ -31,7 +31,7 @@ class TestEngineFlagRestoredAfterNestedRun(FrappeTestCase):
 		self.addCleanup(setattr, frappe.flags, "bpmn_engine_action", frappe.flags.bpmn_engine_action)
 
 	def _instance(self):
-		from one_bpmn.api.compilation import compile_process_model
+		from one_bpmn.api.deploy import compile_process_model
 
 		suffix = frappe.generate_hash(length=6)
 		process = frappe.get_doc(

@@ -59,22 +59,22 @@ class TestInlineSessionSafety(FrappeTestCase):
 		set_user.assert_called_once_with("someone.else@one-fm.com")
 
 	def test_start_queued_instance_skips_set_user_for_current_user(self):
-		from one_bpmn.one_bpmn import trigger
+		from one_bpmn.processa_engine import triggers
 
 		instance = self._bare_instance("Queued")
 		with patch.object(frappe, "set_user") as set_user:
 			# start() fails on the missing model — caught inside (→ Errored).
-			trigger.start_queued_instance(instance.name, run_as_user=frappe.session.user)
+			triggers.start_queued_instance(instance.name, run_as_user=frappe.session.user)
 		set_user.assert_not_called()
 
 	def test_both_entry_points_guard_in_source(self):
 		# The guard must survive refactors: no bare `if run_as_user:` before a
 		# set_user in either function.
 		from one_bpmn.api import instance_api
-		from one_bpmn.one_bpmn import trigger
+		from one_bpmn.processa_engine import triggers
 
 		for module, func in (
-			(trigger, "def start_queued_instance"),
+			(triggers, "def start_queued_instance"),
 			(instance_api, "def _complete_task_job"),
 		):
 			source = open(module.__file__.replace(".pyc", ".py")).read()

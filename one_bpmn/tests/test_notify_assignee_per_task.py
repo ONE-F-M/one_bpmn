@@ -26,7 +26,7 @@ from unittest.mock import Mock, patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import (
+from one_bpmn.processa_engine.assignment import (
 	add_frappe_assignment,
 	notify_task_assignee,
 )
@@ -51,7 +51,7 @@ class TestNotifyAssigneePerTask(FrappeTestCase):
 	def _patched_sendemail(self):
 		"""Patch frappe.sendmail as the composer calls it."""
 		sendmail = Mock()
-		return patch("one_bpmn.email_builder.composer.frappe.sendmail", sendmail), sendmail
+		return patch("one_bpmn.processa_engine.notifications.composer.frappe.sendmail", sendmail), sendmail
 
 	def test_notifies_even_when_the_user_already_holds_an_open_todo(self):
 		"""The regression. An open ToDo must not suppress the next task's email."""
@@ -135,7 +135,7 @@ class TestNotifyAssigneePerTask(FrappeTestCase):
 		"""A task must not be stranded because its announcement failed."""
 		inst = _instance()
 		with patch(
-			"one_bpmn.email_builder.composer.compose_and_send_task_email",
+			"one_bpmn.processa_engine.notifications.composer.compose_and_send_task_email",
 			side_effect=RuntimeError("smtp down"),
 		), patch.object(frappe, "log_error") as logged:
 			notify_task_assignee(inst, "dev@x.com", "Start Work", NOTIFY_CFG)

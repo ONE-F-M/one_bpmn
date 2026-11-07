@@ -277,7 +277,7 @@ def deploy_property_changes(model_name: str) -> dict:
 	redeployed = False
 	deploy_error = None
 	try:
-		from one_bpmn.api.compilation import compile_process_model
+		from one_bpmn.api.deploy import compile_process_model
 
 		compile_process_model(model_name)
 		redeployed = True

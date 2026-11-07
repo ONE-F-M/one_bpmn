@@ -163,14 +163,14 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 		}
 
 	def _dispatch(self, result, resume_run=None):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.dispatch import ai_agent
 
 		def fake_run(_self, config, context):
 			fake_run.config = config
 			return result
 
 		with patch("one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", new=fake_run):
-			dispatchers.dispatch_ai_agent(
+			ai_agent.dispatch_ai_agent(
 				self.instance, self.task, self.task_cfg, self.bpmn_id, resume_run=resume_run
 			)
 		return fake_run
@@ -207,8 +207,6 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 		self.assertIn("_bpmn_ai_waiting_human", self.task.data)
 
 	def test_resume_injects_human_result_and_completes(self):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
-
 		# 1. Suspend
 		self._dispatch(ExecutorResult(
 			error_code=ErrorCode.SUSPENDED,
@@ -320,10 +318,10 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 			seen["run"] = observability.current_run_name()
 			return ExecutorResult(output="done")
 
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.dispatch import ai_agent
 
 		with patch("one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", new=fake_run):
-			dispatchers.dispatch_ai_agent(
+			ai_agent.dispatch_ai_agent(
 				self.instance, self.task, self.task_cfg, self.bpmn_id, resume_run=run_name
 			)
 		self.assertEqual(seen["run"], run_name)
@@ -347,7 +345,7 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 		self._dispatch(ExecutorResult(error_code=ErrorCode.SUSPENDED, suspension=_suspension()))
 		run_name = self.task.data["_bpmn_ai_waiting_human"]["run"]
 
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.dispatch import ai_agent
 
 		final = ExecutorResult(output="ok")
 
@@ -355,13 +353,13 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 			return final
 
 		with patch("one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", new=fake_run):
-			ran = dispatchers.resume_ai_agent(
+			ran = ai_agent.resume_ai_agent(
 				self.instance, self.task, self.task_cfg, self.bpmn_id,
 				human_result={"action": "Reject", "reason": "too costly"},
 			)
 			self.assertTrue(ran)
 			# exactly-once: second call finds nothing to resume
-			again = dispatchers.resume_ai_agent(
+			again = ai_agent.resume_ai_agent(
 				self.instance, self.task, self.task_cfg, self.bpmn_id, human_result="x"
 			)
 			self.assertFalse(again)

@@ -37,7 +37,7 @@ class TurnContextCase(FrappeTestCase):
 
 	def _conversation(self, turns=0, mode="Turn context test"):
 		# A new conversation or message is a doc event every live map may start on.
-		with patch("frappe.enqueue"), patch("one_bpmn.one_bpmn.trigger.on_doc_event"):
+		with patch("frappe.enqueue"), patch("one_bpmn.processa_engine.triggers.on_doc_event"):
 			name = create_conversation(
 				agent_mode=mode, title=f"Turn ctx {frappe.generate_hash(length=8)}",
 				user="Administrator",
@@ -220,10 +220,10 @@ class TestRecordTurnResult(TurnContextCase):
 class TestPlatformHistoryStep(TurnContextCase):
 	def test_a_chat_turn_gets_its_window_and_the_turn_store_gets_the_same(self):
 		from one_bpmn.agents.turn_state import clear_turn, get_turn
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import _platform_history
+		from one_bpmn.processa_engine.dispatch.ai_agent import _platform_history
 
 		name = self._conversation(turns=3)
-		with patch("frappe.enqueue"), patch("one_bpmn.one_bpmn.trigger.on_doc_event"):
+		with patch("frappe.enqueue"), patch("one_bpmn.processa_engine.triggers.on_doc_event"):
 			save_user_message(name, "question 3")
 		record(name, {"process_name": "Onboarding"})
 		instance = SimpleNamespace(context_doctype="Chat Conversation", context_docname=name)
@@ -237,7 +237,7 @@ class TestPlatformHistoryStep(TurnContextCase):
 			clear_turn(name)
 
 	def test_anything_but_a_chat_turn_gets_nothing(self):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import _platform_history
+		from one_bpmn.processa_engine.dispatch.ai_agent import _platform_history
 
 		instance = SimpleNamespace(context_doctype="Work Item", context_docname="WI-1")
 		self.assertEqual(_platform_history(instance, {}, ""), ([], ""))
@@ -245,7 +245,7 @@ class TestPlatformHistoryStep(TurnContextCase):
 
 class TestCurrentMessageMarkup(FrappeTestCase):
 	def test_the_persons_words_reach_the_model_without_markup(self):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import _turn_user_message
+		from one_bpmn.processa_engine.dispatch.ai_agent import _turn_user_message
 
 		instance = SimpleNamespace(context_doctype="Chat Conversation", context_docname="conv-1")
 		task = SimpleNamespace(data={"user_text": '<p>crush <a href="https://lucid.app/x">https://lucid.app/x</a>&nbsp;now</p>'})

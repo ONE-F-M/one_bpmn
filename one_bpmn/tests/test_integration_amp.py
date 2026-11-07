@@ -76,7 +76,7 @@ class TestAmpEmailIntegration(FrappeTestCase):
 
 	def test_token_roundtrip_with_site_key(self):
 		"""Token generation and verification work with the real site key."""
-		from one_bpmn.utils.token import generate_action_token, verify_action_token
+		from one_bpmn.processa_engine.notifications.token import generate_action_token, verify_action_token
 
 		token = generate_action_token("INST-TEST", "task-test", "Approve", "admin@test.com")
 		payload = verify_action_token(token)
@@ -87,7 +87,7 @@ class TestAmpEmailIntegration(FrappeTestCase):
 
 	def test_stale_token_rejected(self):
 		"""Expired token raises ValidationError."""
-		from one_bpmn.utils.token import generate_action_token, verify_action_token, _sign
+		from one_bpmn.processa_engine.notifications.token import generate_action_token, verify_action_token, _sign
 
 		# Create an expired token
 		payload = {
@@ -105,7 +105,7 @@ class TestAmpEmailIntegration(FrappeTestCase):
 
 	def test_tampered_token_rejected(self):
 		"""Tampered token raises AuthenticationError."""
-		from one_bpmn.utils.token import generate_action_token, verify_action_token
+		from one_bpmn.processa_engine.notifications.token import generate_action_token, verify_action_token
 
 		token = generate_action_token("INST-TEST", "task-test", "Approve", "admin@test.com")
 		tampered = token[:-4] + "XXXX"

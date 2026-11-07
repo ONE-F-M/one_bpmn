@@ -174,7 +174,7 @@ else:
 _XML_TOOL_ANCHOR = "<bpmn:completionCondition"
 
 # aiToolParams is a JSON Schema ({properties, required}) read by
-# api/compilation.py::_extract_tool_shapes. Without it the LLM sees a zero-arg
+# compiler/agent_tools.py::_extract_tool_shapes. Without it the LLM sees a zero-arg
 # function and cannot pass anything. It is not authorable from the properties
 # panel, which is why it is written here as escaped XML.
 _TOOL_SHAPES = [
@@ -489,7 +489,7 @@ def _update_process_model() -> None:
 
 	# Recompile so serialized_spec embeds the new tools in aiToolShapes. New
 	# conversations pick them up; running instances keep their old spec.
-	from one_bpmn.api.compilation import compile_process_model
+	from one_bpmn.api.deploy import compile_process_model
 
 	try:
 		compile_process_model(MODEL_NAME)

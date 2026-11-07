@@ -131,7 +131,7 @@ class TestReadProcessMapPatch(FrappeTestCase):
 		self.assertIsNone(maps_patch.splice_shape("<bpmn:process id='p'></bpmn:process>"))
 
 	def test_a_refused_recompile_is_logged_and_does_not_stop_the_patch(self):
-		refused = patch("one_bpmn.api.compilation.compile_process_model", side_effect=frappe.ValidationError("not Live"))
+		refused = patch("one_bpmn.api.deploy.compile_process_model", side_effect=frappe.ValidationError("not Live"))
 		with patch.object(frappe.db, "get_value", side_effect=["Model", TOOLS_MAP]), patch.object(
 			frappe.db, "set_value"
 		) as set_value, refused, patch.object(frappe, "log_error") as log_error:

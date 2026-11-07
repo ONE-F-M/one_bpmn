@@ -16,7 +16,7 @@ from SpiffWorkflow.bpmn.parser.ValidationException import ValidationException
 from SpiffWorkflow.bpmn.specs.bpmn_process_spec import AdHocSubprocessSpec
 from SpiffWorkflow.util.task import TaskState
 
-from one_bpmn.one_bpmn import engine
+from one_bpmn.processa_engine import engine
 
 FIXTURES = Path(__file__).parent / "fixtures"
 ADHOC_PROCESS_ID = "Process_AdhocThree"

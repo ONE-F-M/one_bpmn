@@ -2,7 +2,7 @@
 # This package contains the one_bpmn API, organized into submodules:
 #
 #   process_map_api    — CRUD for BPMN Process Model and Process records
-#   compilation        — compile/deploy/disable process models
+#   deploy             - deploy, disable, activate and deactivate process models
 #   workflow_state     — apply workflow states and docstatus transitions
 #   editability        — Process Implementation cross-site editability checks
 #   instance_api       — process instance lifecycle (start, complete, list)

@@ -11,12 +11,11 @@ wolf on every agent gets ignored.
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.compilation import (
-	_tool_contract_gaps,
-	_validate_ai_tool_contract,
+from one_bpmn.processa_engine.compiler.ai_checks import _tool_contract_gaps, validate_ai_tool_contract
+from one_bpmn.processa_engine.compiler.turn_store import (
 	_turn_keys_read,
 	_turn_keys_written,
-	_validate_turn_store_contract,
+	validate_turn_store_contract,
 )
 
 BPMN = "http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -73,28 +72,28 @@ class TestThePromptThatRunsIsRead(FrappeTestCase):
 
 	def test_a_tool_named_only_on_the_shape_is_caught(self):
 		with self.assertRaises(frappe.ValidationError) as caught:
-			_validate_ai_tool_contract(self._exts(shape_prompt="Then call propose_pull_request once."))
+			validate_ai_tool_contract(self._exts(shape_prompt="Then call propose_pull_request once."))
 		self.assertIn("propose_pull_request", str(caught.exception))
 		self.assertIn("demo_tools", str(caught.exception))
 
 	def test_a_tool_named_only_in_the_turn_instructions_is_caught(self):
 		with self.assertRaises(frappe.ValidationError) as caught:
-			_validate_ai_tool_contract(self._exts(user_prompt="Finish by calling propose_pull_request."))
+			validate_ai_tool_contract(self._exts(user_prompt="Finish by calling propose_pull_request."))
 		self.assertIn("propose_pull_request", str(caught.exception))
 
 	def test_a_shape_naming_only_real_tools_is_quiet(self):
-		_validate_ai_tool_contract(self._exts(shape_prompt="Call do_work once."))
+		validate_ai_tool_contract(self._exts(shape_prompt="Call do_work once."))
 
 	def test_a_linked_configuration_replaces_the_shape_copy(self):
 		from unittest.mock import patch
 
-		from one_bpmn.api import compilation as comp
+		from one_bpmn.processa_engine.compiler import ai_checks as comp
 
 		exts = self._exts(shape_prompt="Then call propose_pull_request once.", config="Demo Agent")
 		with patch.object(comp, "_known_tool_ids", return_value={"do_work", "propose_pull_request"}), patch.object(
 			frappe.db, "exists", return_value=True
 		), patch.object(frappe.db, "get_value", return_value="Call do_work once."):
-			_validate_ai_tool_contract(exts)
+			validate_ai_tool_contract(exts)
 
 class TestTurnStoreKeys(FrappeTestCase):
 	def test_keys_written_inline_and_by_name(self):
@@ -176,7 +175,7 @@ class TestTurnStoreContract(FrappeTestCase):
 	def test_a_key_nothing_writes_is_reported_with_the_script_and_the_key(self):
 		tool = self._script("_Test Probe Tool", 'update_turn(c, output={"summary": 1})')
 		closing = self._script("_Test Probe Answer", '_t = get_turn(c)\n_out = _t.get("output")\nx = _out.get("pull_request")')
-		warnings = _validate_turn_store_contract(self._map(tool, closing), self._exts())
+		warnings = validate_turn_store_contract(self._map(tool, closing), self._exts())
 		self.assertEqual(len(warnings), 1)
 		detail = warnings[0]["detail"]
 		self.assertIn("pull_request", detail)
@@ -187,7 +186,7 @@ class TestTurnStoreContract(FrappeTestCase):
 	def test_a_key_the_tool_writes_is_not_reported(self):
 		tool = self._script("_Test Probe Tool", 'update_turn(c, output={"summary": 1})')
 		closing = self._script("_Test Probe Answer", '_t = get_turn(c)\n_out = _t.get("output")\nx = _out.get("summary")')
-		self.assertEqual(_validate_turn_store_contract(self._map(tool, closing), self._exts()), [])
+		self.assertEqual(validate_turn_store_contract(self._map(tool, closing), self._exts()), [])
 
 	def test_a_key_a_main_flow_script_writes_is_not_reported(self):
 		"""Build Context seeds the turn before the agent runs.
@@ -200,4 +199,4 @@ class TestTurnStoreContract(FrappeTestCase):
 			"_Test Probe Answer",
 			'set_turn(c, {"session_state": s})\n_t = get_turn(c)\nx = _t.get("session_state")',
 		)
-		self.assertEqual(_validate_turn_store_contract(self._map(tool, closing), self._exts()), [])
+		self.assertEqual(validate_turn_store_contract(self._map(tool, closing), self._exts()), [])

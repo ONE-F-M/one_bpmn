@@ -467,7 +467,7 @@ def _connector_tool_result(task, task_cfg: dict, kwargs: dict) -> dict:
 	in, the model is told that the data was discarded rather than that there
 	was none.
 	"""
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import CONNECTOR_OUTCOME_KEY
+	from one_bpmn.processa_engine.dispatch.connector import CONNECTOR_OUTCOME_KEY
 
 	outcome = task.data.pop(CONNECTOR_OUTCOME_KEY, None) or {}
 	called = outcome.get("connector") or "/".join(
@@ -571,7 +571,7 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 	but invoked directly so the agent can call it as a tool. LLM-supplied
 	arguments are visible to the script as locals.
 	"""
-	from one_bpmn.one_bpmn.engine import _check_script_permissions
+	from one_bpmn.processa_engine.engine import _check_script_permissions
 
 	script_doc = frappe.get_doc("Server Script", script_name)
 	if not script_doc or script_doc.disabled:

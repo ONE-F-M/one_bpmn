@@ -97,7 +97,7 @@ class TestA2APoller(FrappeTestCase):
 	def _run_poller(self, patches, enqueue=None):
 		enqueue = enqueue or MagicMock()
 		with patch.multiple(a2a_client, **patches), patch(
-			"one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance._enqueue_a2a_resume",
+			"one_bpmn.processa_engine.runtime.ai_jobs.enqueue_wait_resume",
 			enqueue,
 		):
 			tasks.poll_a2a_tasks()
@@ -179,7 +179,7 @@ class TestA2APoller(FrappeTestCase):
 		task = self.outbound(remote, instance="FAKE-INSTANCE")
 		asked = MagicMock()
 		instance = MagicMock()
-		instance._on_a2a_input_required = asked
+		self.enterContext(patch.object(tasks, "on_a2a_input_required", asked))
 		with patch.multiple(
 			a2a_client,
 			**stub_client(
@@ -202,7 +202,7 @@ class TestA2APoller(FrappeTestCase):
 		task.reload()
 		self.assertEqual(task.state, "input-required")
 		asked.assert_called_once()
-		self.assertIn("which repo", asked.call_args[0][1])
+		self.assertIn("which repo", asked.call_args[0][2])
 
 	def test_terminal_tasks_are_not_polled(self):
 		remote = self.remote()

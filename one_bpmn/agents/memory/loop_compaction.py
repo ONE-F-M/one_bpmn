@@ -13,7 +13,9 @@ import json
 import time
 from types import SimpleNamespace
 
-from one_bpmn.agents.memory.compaction import _provider_for_model, resolve_compaction_model, summary_call
+import frappe
+
+from one_bpmn.agents.memory.compaction import resolve_compaction_model, summary_call
 
 LOOP_SUMMARY_PROMPT = """You are compacting the earlier turns of an agent's tool loop so they can be
 dropped from its context while it keeps working on the same task.
@@ -57,7 +59,7 @@ def compact_transcript(
 		f"Task: {task[:_TASK_CHARS]}\n\nTurns:\n{_render(middle)}",
 		previous.get("summary") or "",
 		model=model,
-		provider_name=_provider_for_model(model, provider),
+		provider_name=frappe.db.get_value("AI Model", model, "provider") or provider,
 		backend="direct_api",
 		max_tokens=_SUMMARY_TOKENS,
 		system_prompt=LOOP_SUMMARY_PROMPT,

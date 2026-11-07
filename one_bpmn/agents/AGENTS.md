@@ -32,7 +32,7 @@ To add a provider, add an adapter class and its branch in `get_llm_adapter()`.
 
 The shape a script backs decides how it runs (`shape_kind` in the turn context).
 
-**script_task**: runs inside the SpiffWorkflow engine (`FrappeScriptEngine` in `one_bpmn/one_bpmn/engine.py`), not inside an HTTP request, in one merged exec namespace.
+**script_task**: runs inside the SpiffWorkflow engine (`FrappeScriptEngine` in `one_bpmn/processa_engine/engine/`), not inside an HTTP request, in one merged exec namespace.
 
 - Injected: `doc`, `context_doctype`, `context_docname`, `task_data`, `result`, `frappe`. Do not redefine them.
 - Read inputs from `doc` and `task_data`; write outputs to `result`, which the engine merges into the task data for later steps and gateways.

@@ -21,7 +21,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.shape_tools import execute_shape
 from one_bpmn.api.process_map_api import _connector_tools_without_result_variable
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import CONNECTOR_OUTCOME_KEY
+from one_bpmn.processa_engine.dispatch.connector import CONNECTOR_OUTCOME_KEY
 
 CONNECTOR_CFG = {"serviceType": "connector", "connectorId": "google_drive",
                  "operation": "createFile", "resultVariable": "connector_result"}
@@ -233,7 +233,7 @@ class TestConnectorsThatAnswerOutOfBandAreNotFlagged(FrappeTestCase):
 		open_pull_request with no Result Variable: they park and answer through
 		the callback. Flagging them would put a warning on every deploy of every
 		sandbox agent, and a warning that is always there is one nobody reads."""
-		from one_bpmn.api.compilation import _check_connector_tools_can_answer
+		from one_bpmn.processa_engine.compiler.deploy_warnings import check_connector_tools_can_answer
 
 		xml = TestCompileSaysSoToo.XML.replace(
 			'spiffworkflow:connectorId="google_drive" spiffworkflow:operation="getFile"',
@@ -241,7 +241,7 @@ class TestConnectorsThatAnswerOutOfBandAreNotFlagged(FrappeTestCase):
 		) % ""
 
 		self.assertEqual(_connector_tools_without_result_variable(xml), [])
-		self.assertEqual(_check_connector_tools_can_answer(xml), [])
+		self.assertEqual(check_connector_tools_can_answer(xml), [])
 
 
 class TestCompileSaysSoToo(FrappeTestCase):
@@ -263,9 +263,9 @@ class TestCompileSaysSoToo(FrappeTestCase):
 </bpmn:definitions>"""
 
 	def test_a_tool_without_a_result_variable_is_a_compile_warning(self):
-		from one_bpmn.api.compilation import _check_connector_tools_can_answer
+		from one_bpmn.processa_engine.compiler.deploy_warnings import check_connector_tools_can_answer
 
-		warnings = _check_connector_tools_can_answer(self.XML % "")
+		warnings = check_connector_tools_can_answer(self.XML % "")
 
 		self.assertEqual(len(warnings), 1)
 		self.assertEqual(warnings[0]["type"], "warning")
@@ -273,10 +273,10 @@ class TestCompileSaysSoToo(FrappeTestCase):
 			self.assertIn(expected, warnings[0]["detail"])
 
 	def test_a_tool_with_one_is_not(self):
-		from one_bpmn.api.compilation import _check_connector_tools_can_answer
+		from one_bpmn.processa_engine.compiler.deploy_warnings import check_connector_tools_can_answer
 
 		self.assertEqual(
-			_check_connector_tools_can_answer(self.XML % 'spiffworkflow:resultVariable="file"'), []
+			check_connector_tools_can_answer(self.XML % 'spiffworkflow:resultVariable="file"'), []
 		)
 
 
@@ -302,7 +302,7 @@ class TestThroughTheRealDispatcher(FrappeTestCase):
 
 	def _run(self, handler, cfg=None):
 		with patch(
-			"one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers._resolve_connector_handler",
+			"one_bpmn.processa_engine.dispatch.connector._resolve_connector_handler",
 			return_value=handler,
 		), patch("one_bpmn.one_bpmn.connectors.manifest.user_may_use_connector", return_value=True):
 			return json.loads(execute_shape(self.instance, "Tool_Connector_1", cfg or dict(CONNECTOR_CFG), {"q": 1}))
@@ -342,7 +342,7 @@ class TestThroughTheRealDispatcher(FrappeTestCase):
 		"""If the gate ever moves or the pre-check is skipped, the dispatcher's
 		own record still names it a permission decision, not missing data."""
 		with patch(
-			"one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers._resolve_connector_handler",
+			"one_bpmn.processa_engine.dispatch.connector._resolve_connector_handler",
 			return_value=lambda params, ctx: {"id": "x"},
 		), patch("one_bpmn.agents.shape_tools._connector_not_permitted", return_value=None), patch(
 			"one_bpmn.one_bpmn.connectors.manifest.user_may_use_connector", return_value=False

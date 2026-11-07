@@ -9,8 +9,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.translate import clear_cache
 
-from one_bpmn.email_builder.composer import compose_and_send_info_email, sends_notice
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import dispatch_email
+from one_bpmn.processa_engine.notifications.composer import compose_and_send_info_email, sends_notice
+from one_bpmn.processa_engine.dispatch.email import dispatch_email
 from one_bpmn.tests.test_amp_validation import _validate_amp4email
 
 
@@ -53,7 +53,7 @@ class TestNoticeLayout(FrappeTestCase):
 		def capture(**kwargs):
 			sent.append((kwargs, frappe.flags.amp_html))
 
-		with patch("one_bpmn.email_builder.composer.frappe.sendmail", side_effect=capture):
+		with patch("one_bpmn.processa_engine.notifications.composer.frappe.sendmail", side_effect=capture):
 			dispatch_email(self.instance, None, cfg)
 		self.assertEqual(len(sent), 1)
 		return sent[0]
@@ -97,7 +97,7 @@ class TestNoticeLayout(FrappeTestCase):
 			self.assertNotIn(absent, amp)
 
 	def test_live_status_is_a_status_token_without_a_task(self):
-		from one_bpmn.utils.token import verify_action_token
+		from one_bpmn.processa_engine.notifications.token import verify_action_token
 
 		_kwargs, amp = self._send(_notice_cfg())
 		token = amp.split("status_token=")[1].split('"')[0]
@@ -121,7 +121,7 @@ class TestNoticeLayout(FrappeTestCase):
 
 	def test_attachments_are_listed_with_links_that_last_30_days(self):
 		links = [{"file_name": "plan.pdf", "url": "https://erp.example.com/file?token=t"}]
-		with patch("one_bpmn.email_builder.fields.build_attachment_links", return_value=links) as build:
+		with patch("one_bpmn.processa_engine.notifications.fields.build_attachment_links", return_value=links) as build:
 			kwargs, amp = self._send(_notice_cfg(emailAttachments="true"))
 
 		self.assertEqual(build.call_args.args[1], 720)
@@ -134,8 +134,8 @@ class TestNoticeLayout(FrappeTestCase):
 
 	def test_a_failed_amp_part_sends_the_html_part_only(self):
 		with (
-			patch("one_bpmn.email_builder.renderer.render_layout_amp", side_effect=ValueError("bad")),
-			patch("one_bpmn.email_builder.composer.frappe.log_error") as log_error,
+			patch("one_bpmn.processa_engine.notifications.renderer.render_layout_amp", side_effect=ValueError("bad")),
+			patch("one_bpmn.processa_engine.notifications.composer.frappe.log_error") as log_error,
 		):
 			kwargs, amp = self._send(_notice_cfg())
 
@@ -145,9 +145,9 @@ class TestNoticeLayout(FrappeTestCase):
 
 	def test_a_failed_html_part_is_logged_and_raised(self):
 		with (
-			patch("one_bpmn.email_builder.renderer.render_layout_html", side_effect=ValueError("bad")),
-			patch("one_bpmn.email_builder.composer.frappe.log_error") as log_error,
-			patch("one_bpmn.email_builder.composer.frappe.sendmail") as sendmail,
+			patch("one_bpmn.processa_engine.notifications.renderer.render_layout_html", side_effect=ValueError("bad")),
+			patch("one_bpmn.processa_engine.notifications.composer.frappe.log_error") as log_error,
+			patch("one_bpmn.processa_engine.notifications.composer.frappe.sendmail") as sendmail,
 		):
 			with self.assertRaises(ValueError):
 				dispatch_email(self.instance, None, _notice_cfg())

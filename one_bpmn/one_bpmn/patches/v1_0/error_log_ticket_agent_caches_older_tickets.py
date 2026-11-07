@@ -119,7 +119,7 @@ def execute():
 	frappe.cache.delete_value(f"agent_config:{AGENT_ID}")
 	model = frappe.get_doc("BPMN Process Model", MAP)
 	if model.bpmn_xml != edited["BPMN Process Model"]:
-		from one_bpmn.api.compilation import compile_process_model
+		from one_bpmn.api.deploy import compile_process_model
 
 		model.bpmn_xml = edited["BPMN Process Model"]
 		model.save(ignore_permissions=True)

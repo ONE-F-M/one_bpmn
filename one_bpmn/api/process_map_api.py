@@ -125,7 +125,7 @@ def save_process_model(
 		# Name the process after itself rather than keeping the anonymous id the
 		# editor mints for a blank diagram; validate() rewrites the diagram to
 		# match, so the two agree from the first save.
-		from one_bpmn.one_bpmn.doctype.bpmn_process_model.bpmn_process_model import new_process_id
+		from one_bpmn.processa_engine.doctype.bpmn_process_model.bpmn_process_model import new_process_id
 
 		doc.process_id = new_process_id(process or model_name)
 		doc.flags.skip_process_id_regeneration = True
@@ -330,7 +330,7 @@ def import_bpmn(
 	# last place that can say so before a person is misled by the answer.
 	compile_result = {}
 	try:
-		from one_bpmn.api.compilation import compile_process_model
+		from one_bpmn.api.deploy import compile_process_model
 
 		compile_result = compile_process_model(doc.name) or {}
 	except Exception:
@@ -1126,7 +1126,7 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 		})
 
 	# 9. Prohibited Shapes (shapes that must not appear in an executable process)
-	from one_bpmn.api.compilation import PROHIBITED_SHAPES
+	from one_bpmn.processa_engine.compiler.checks import PROHIBITED_SHAPES
 
 	prohibited_items = []
 	if PROHIBITED_SHAPES:
@@ -1177,7 +1177,7 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 				order_by="started_at desc",
 				limit_page_length=1,
 			)
-			# Mirror compile_process_model's _check_eval_suite_gating logic:
+			# Mirror compile_model's check_eval_suite_gating logic:
 			# only a Failed last run or no run at all is a warning.
 			if not latest_runs:
 				eval_suite_items.append({
@@ -1328,9 +1328,9 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 
 def _user_task_config_category(xml_content: str) -> dict | None:
 	"""The User Task Configuration readiness category, one missing check per gap, or None."""
-	from one_bpmn.api.compilation import _user_task_config_gaps
+	from one_bpmn.processa_engine.compiler.checks import user_task_config_gaps
 
-	gaps = _user_task_config_gaps(xml_content)
+	gaps = user_task_config_gaps(xml_content)
 	if not gaps:
 		return None
 	items = [
@@ -1342,9 +1342,10 @@ def _user_task_config_category(xml_content: str) -> dict | None:
 
 def _email_settings_category(xml_content: str, root) -> dict | None:
 	"""The Email Settings readiness category, one warning per email step with empty settings, or None."""
-	from one_bpmn.api.compilation import _email_setting_gaps, _extract_service_task_config, _extract_user_task_config
+	from one_bpmn.processa_engine.compiler.deploy_warnings import email_setting_gaps
+	from one_bpmn.processa_engine.compiler.extensions import extract_service_task_config, extract_user_task_config
 
-	email_gaps = _email_setting_gaps(_extract_service_task_config(xml_content), _extract_user_task_config(xml_content))
+	email_gaps = email_setting_gaps(extract_service_task_config(xml_content), extract_user_task_config(xml_content))
 	if not email_gaps:
 		return None
 	names = _step_names(root, [bpmn_id for bpmn_id, _missing in email_gaps])
@@ -1364,14 +1365,11 @@ def _email_settings_category(xml_content: str, root) -> dict | None:
 
 def _notification_sender_category(xml_content: str, root) -> dict | None:
 	"""The Notification Sender readiness category for a Production site, or None."""
-	from one_bpmn.api.compilation import (
-		_extract_service_task_config,
-		_extract_user_task_config,
-		_notification_sender_gaps,
-	)
+	from one_bpmn.processa_engine.compiler.deploy_warnings import notification_sender_gaps
+	from one_bpmn.processa_engine.compiler.extensions import extract_service_task_config, extract_user_task_config
 
-	expected, gaps = _notification_sender_gaps(
-		_extract_service_task_config(xml_content), _extract_user_task_config(xml_content)
+	expected, gaps = notification_sender_gaps(
+		extract_service_task_config(xml_content), extract_user_task_config(xml_content)
 	)
 	if not gaps:
 		return None
@@ -1391,9 +1389,9 @@ def _notification_sender_category(xml_content: str, root) -> dict | None:
 
 def _empty_script_category(root) -> dict | None:
 	"""The Script Tasks readiness category, one warning per Script Task with no script, or None."""
-	from one_bpmn.api.compilation import _empty_script_tasks
+	from one_bpmn.processa_engine.compiler.deploy_warnings import empty_script_tasks
 
-	empty = _empty_script_tasks(root)
+	empty = empty_script_tasks(root)
 	if not empty:
 		return None
 	items = [

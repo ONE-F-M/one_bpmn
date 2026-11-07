@@ -19,10 +19,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.util.task import TaskState
 
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
-	BPMNProcessInstance,
-	run_parked_ai_task,
-)
+from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import BPMNProcessInstance
+from one_bpmn.processa_engine.runtime.ai_jobs import run_parked_ai_task
 from one_bpmn.tests.test_ai_job_executor import JobHarness, _executor_with_tools
 
 test_ignore = ["BPMN Process Model"]
@@ -87,27 +85,25 @@ class TestJobLevelRetries(JobHarness):
 		)
 
 	def test_retry_cap_reads_panel_ai_max_retries(self):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
-			_job_retry_cap,
-		)
+		from one_bpmn.processa_engine.runtime.ai_jobs import job_retry_cap
 
 		task_id = self._park_linear_with_tools()
 		# Single-agent model resolves the ai_agent cfg (default 2)…
-		self.assertEqual(_job_retry_cap(self.instance, "service_task", task_id), 2)
+		self.assertEqual(job_retry_cap(self.instance, "service_task", task_id), 2)
 		# …and honours a configured aiMaxRetries.
 		import json as _json
 
 		spec = _json.loads(self.instance.serialized_spec)
 		spec["service_task_extensions"]["Agent_1"]["aiMaxRetries"] = 5
 		self.instance.serialized_spec = _json.dumps(spec)
-		self.assertEqual(_job_retry_cap(self.instance, "service_task", task_id), 5)
+		self.assertEqual(job_retry_cap(self.instance, "service_task", task_id), 5)
 		# adhoc_decision resolves by bpmn id directly.
 		spec["service_task_extensions"]["Sel_1"] = {
 			"serviceType": "ai_task_selector",
 			"aiMaxRetries": 4,
 		}
 		self.instance.serialized_spec = _json.dumps(spec)
-		self.assertEqual(_job_retry_cap(self.instance, "adhoc_decision", "Sel_1"), 4)
+		self.assertEqual(job_retry_cap(self.instance, "adhoc_decision", "Sel_1"), 4)
 
 	def test_exhausted_task_stays_parked_for_manual_retry(self):
 		task_id = self._park_linear_with_tools()
@@ -116,7 +112,7 @@ class TestJobLevelRetries(JobHarness):
 		# The parked task is still STARTED in the persisted state…
 		import json as _json
 
-		from one_bpmn.one_bpmn import engine as bpmn_engine
+		from one_bpmn.processa_engine import engine as bpmn_engine
 
 		state = frappe.db.get_value(
 			"BPMN Process Instance", self.instance.name, "workflow_state"

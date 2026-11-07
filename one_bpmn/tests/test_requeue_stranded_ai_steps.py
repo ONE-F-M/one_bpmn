@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 import frappe
 
-from one_bpmn import tasks
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import BPMNProcessInstance
+from one_bpmn.processa_engine import timers
+from one_bpmn.processa_engine.runtime.common import A2A_WAITING_KEY
 from one_bpmn.tests.test_ai_job_executor import JobHarness
 
 IS_ENQUEUED = "frappe.utils.background_jobs.is_job_enqueued"
@@ -40,7 +40,7 @@ class WatchdogCase(JobHarness):
 			patch.object(frappe.db, "rollback"),
 			patch(IS_ENQUEUED, side_effect=alive),
 		):
-			tasks.requeue_stranded_ai_steps()
+			timers.requeue_stranded_ai_steps()
 		return [
 			call.kwargs
 			for call in enqueue.call_args_list
@@ -83,7 +83,7 @@ class TestAStrandedStep(WatchdogCase):
 
 class TestAStepThatIsLeftAlone(WatchdogCase):
 	def test_one_parked_for_less_than_the_threshold(self):
-		self.age(tasks.STRANDED_AI_STEP_MINUTES - 5)
+		self.age(timers.STRANDED_AI_STEP_MINUTES - 5)
 		self.assertEqual(self.run_watchdog(), [])
 
 	def test_one_whose_job_is_queued_or_started(self):
@@ -95,11 +95,14 @@ class TestAStepThatIsLeftAlone(WatchdogCase):
 		self.assertEqual(self.run_watchdog(alive=lambda job_id: job_id == f"{base}-r1"), [])
 
 	def test_one_whose_job_is_running_and_holds_the_instance_row(self):
-		with patch.object(tasks, "_instance_job_is_running", return_value=True):
+		with patch.object(timers, "_instance_job_is_running", return_value=True):
 			self.assertEqual(self.run_watchdog(), [])
 
 	def test_one_waiting_for_a_delegated_agent(self):
-		with patch.object(BPMNProcessInstance, "_task_waiting_a2a", return_value={"a2a_task": "A2A-1"}):
+		with patch(
+			"one_bpmn.processa_engine.runtime.parked_ai.waiting_marker",
+			side_effect=lambda task, key: {"a2a_task": "A2A-1"} if key == A2A_WAITING_KEY else None,
+		):
 			self.assertEqual(self.run_watchdog(), [])
 
 	def test_an_instance_that_is_not_active(self):

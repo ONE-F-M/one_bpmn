@@ -17,7 +17,10 @@ from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.util.task import TaskState
 
 from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
-from one_bpmn.one_bpmn import engine as bpmn_engine
+from one_bpmn.processa_engine import engine as bpmn_engine
+from one_bpmn.processa_engine.runtime.active_tasks import sync_active_tasks
+from one_bpmn.processa_engine.runtime.common import AI_HUMAN_PREFIX
+from one_bpmn.processa_engine.runtime.engine_loop import run_engine
 
 test_ignore = ["BPMN Process Model"]
 
@@ -115,7 +118,7 @@ class HitlHarness(FrappeTestCase):
 		self.instance._script_task_extensions = {}
 		wf = bpmn_engine.create_workflow(spec_dict, sp_specs, initial_data={})
 		with patch.object(frappe, "enqueue"):
-			self.instance._run_engine(wf)
+			run_engine(self.instance, wf)
 		task = next(t for t in wf.get_tasks() if t.task_spec.name == "Agent_1")
 		self._persist(wf)
 		return str(task.id)
@@ -145,7 +148,7 @@ class HitlHarness(FrappeTestCase):
 			(
 				r
 				for r in self.instance.active_tasks
-				if str(r.task_id).startswith(self.instance.AI_HUMAN_PREFIX)
+				if str(r.task_id).startswith(AI_HUMAN_PREFIX)
 			),
 			None,
 		)
@@ -204,7 +207,7 @@ class TestSuspension(HitlHarness):
 		# still exactly one human row
 		rows = [
 			r for r in self.instance.active_tasks
-			if str(r.task_id).startswith(self.instance.AI_HUMAN_PREFIX)
+			if str(r.task_id).startswith(AI_HUMAN_PREFIX)
 		]
 		self.assertEqual(len(rows), 1)
 
@@ -217,7 +220,7 @@ class TestSuspension(HitlHarness):
 		)
 		self.instance._service_task_extensions = {"Agent_1": dict(_AGENT_CFG)}
 		with patch.object(frappe, "enqueue") as enqueue:
-			self.instance._run_engine(wf)
+			run_engine(self.instance, wf)
 		enqueue.assert_not_called()
 		self.assertEqual(self.instance.waiting_for_ai, 0)
 
@@ -227,7 +230,7 @@ class TestSuspension(HitlHarness):
 		wf = bpmn_engine.restore_workflow(
 			workflow_state=json.loads(self.instance.workflow_state)
 		)
-		self.instance._sync_active_tasks(wf)
+		sync_active_tasks(self.instance, wf)
 		self.assertIsNotNone(self._human_row())
 
 
@@ -333,7 +336,7 @@ class TestHumanCompletionAndResume(HitlHarness):
 		self.assertEqual(self.instance.waiting_for_human, "Approve Refund")
 		rows = [
 			r for r in self.instance.active_tasks
-			if str(r.task_id).startswith(self.instance.AI_HUMAN_PREFIX)
+			if str(r.task_id).startswith(AI_HUMAN_PREFIX)
 			and r.status == "Waiting"
 		]
 		self.assertEqual(len(rows), 1)  # a fresh waiting row for the new pause

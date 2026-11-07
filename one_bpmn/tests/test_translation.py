@@ -4,7 +4,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.one_bpmn.doctype.processa_settings.processa_settings import ProcessaSettings
+from one_bpmn.processa_engine.doctype.processa_settings.processa_settings import ProcessaSettings
 from one_bpmn.utils import translation
 from one_bpmn.utils.translation import TranslationError, translate, translate_cached, translate_text
 

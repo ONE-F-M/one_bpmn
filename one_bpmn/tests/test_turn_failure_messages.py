@@ -8,7 +8,7 @@ from frappe.utils import add_to_date, now_datetime
 
 from one_bpmn.api import agent_invocation
 from one_bpmn.api import server_script_api as SSA
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import BPMNProcessInstance
+from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import BPMNProcessInstance
 
 test_ignore = ["BPMN Process Instance", "BPMN Process Model"]
 

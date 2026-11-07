@@ -15,7 +15,7 @@ from markupsafe import Markup
 APP_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(APP_ROOT))
 
-from one_bpmn.email_builder.sanitizer import sanitize_for_amp
+from one_bpmn.processa_engine.notifications.sanitizer import sanitize_for_amp
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
@@ -42,8 +42,8 @@ def _render_amp(template_path: str, task_content: dict) -> str:
 		# Deterministic dummy secret so this script needs no Frappe site.
 		from unittest.mock import patch
 
-		with patch("one_bpmn.utils.token._get_secret", return_value="golden-sample-secret"):
-			from one_bpmn.utils.token import generate_doc_action_token
+		with patch("one_bpmn.processa_engine.notifications.token._get_secret", return_value="golden-sample-secret"):
+			from one_bpmn.processa_engine.notifications.token import generate_doc_action_token
 
 			comment_token = generate_doc_action_token(
 				task_content.get("doctype", ""),
@@ -52,7 +52,7 @@ def _render_amp(template_path: str, task_content: dict) -> str:
 				"golden-sample-user@one-fm.com",
 			)
 
-	# Mirrors one_bpmn.email_builder.renderer._build_context — kept in sync
+	# Mirrors one_bpmn.processa_engine.notifications.renderer._build_context — kept in sync
 	# manually since this script must run without a Frappe site.
 	simple_actions = [a for a in actions if not a.get("extra_fields")]
 	complex_actions = [a for a in actions if a.get("extra_fields")]

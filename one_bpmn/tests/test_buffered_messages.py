@@ -8,10 +8,12 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.compilation import compile_process_model
+from one_bpmn.api.deploy import compile_process_model
 from SpiffWorkflow.util.task import TaskState
 
-from one_bpmn.one_bpmn import engine
+from one_bpmn.processa_engine import engine
+from one_bpmn.processa_engine.runtime.common import load_json
+from one_bpmn.processa_engine.runtime.engine_loop import BUFFERED_MESSAGES_KEPT
 
 GATE = "wi_buffer_gate"
 OPENED = "github:pull_request:opened"
@@ -89,7 +91,7 @@ class TestBufferedMessages(FrappeTestCase):
 	def _waiting_on(self, inst):
 		inst.reload()
 		wf = engine.restore_workflow(
-			workflow_state=inst._load_json(inst.workflow_state),
+			workflow_state=load_json(inst.workflow_state),
 			context_doctype=inst.context_doctype,
 			context_docname=inst.context_docname,
 		)
@@ -155,12 +157,12 @@ class TestBufferedMessages(FrappeTestCase):
 
 	def test_only_the_newest_messages_are_kept(self):
 		inst = self._instance()
-		for number in range(inst.BUFFERED_MESSAGES_KEPT + 3):
+		for number in range(BUFFERED_MESSAGES_KEPT + 3):
 			inst.reload()
 			inst.receive_message(OPENED, {"pr_url": str(number)})
 		kept = [m["payload"]["pr_url"] for m in self._buffered(inst)]
-		self.assertEqual(len(kept), inst.BUFFERED_MESSAGES_KEPT)
-		self.assertEqual(kept[-1], str(inst.BUFFERED_MESSAGES_KEPT + 2))
+		self.assertEqual(len(kept), BUFFERED_MESSAGES_KEPT)
+		self.assertEqual(kept[-1], str(BUFFERED_MESSAGES_KEPT + 2))
 
 	def test_a_message_for_one_instance_never_reaches_another(self):
 		first = self._instance("WI-BUFFER-A")

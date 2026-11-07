@@ -405,7 +405,7 @@ def _update_process_model() -> None:
 
 	# Recompile so serialized_spec embeds the new tool in aiToolShapes. New
 	# conversations pick it up; running instances keep their old spec.
-	from one_bpmn.api.compilation import compile_process_model
+	from one_bpmn.api.deploy import compile_process_model
 
 	try:
 		compile_process_model(MODEL_NAME)

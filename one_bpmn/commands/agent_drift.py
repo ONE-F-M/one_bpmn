@@ -24,15 +24,15 @@ def list_agent_drift(context):
 
 
 def drift_lines() -> list[str]:
-	from one_bpmn.api.compilation import (
-		_check_shape_config_drift,
-		_extract_adhoc_selector_config,
-		_extract_service_task_config,
+	from one_bpmn.processa_engine.compiler.deploy_warnings import check_shape_config_drift
+	from one_bpmn.processa_engine.compiler.extensions import (
+		extract_adhoc_selector_config,
+		extract_service_task_config,
 	)
 
 	lines = []
 	for model in frappe.get_all("BPMN Process Model", filters={"is_active": 1}, fields=["name", "bpmn_xml"], order_by="name"):
-		extensions = _extract_service_task_config(model.bpmn_xml or "")
-		extensions.update(_extract_adhoc_selector_config(model.bpmn_xml or ""))
-		lines.extend(f"{model.name}: {w['detail']}" for w in _check_shape_config_drift(extensions))
+		extensions = extract_service_task_config(model.bpmn_xml or "")
+		extensions.update(extract_adhoc_selector_config(model.bpmn_xml or ""))
+		lines.extend(f"{model.name}: {w['detail']}" for w in check_shape_config_drift(extensions))
 	return lines

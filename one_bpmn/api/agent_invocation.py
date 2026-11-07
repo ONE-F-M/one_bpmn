@@ -572,7 +572,7 @@ def _rearm_and_deliver(config, conversation, message, context, wait: bool = True
 	if not config.get("process_model"):
 		return None
 	try:
-		from one_bpmn.one_bpmn.trigger import _maybe_start_instance
+		from one_bpmn.processa_engine.triggers import _maybe_start_instance
 
 		_maybe_start_instance(
 			frappe.get_doc("Chat Conversation", conversation), config["process_model"]
@@ -626,7 +626,7 @@ def _bpmn_turn_stream(config, conversation, message, context):
 	from one_bpmn.agents.agui_stream import HANDOVER_EVENT
 	from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
 	from one_bpmn.api.server_script_api import collect_chat_turn_reply, delegate_chat_turn
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import TURN_OUTPUT_EVENT
+	from one_bpmn.processa_engine.dispatch.ai_agent import TURN_OUTPUT_EVENT
 
 	handle = delegate_chat_turn(conversation, message, context=context, wait=False)
 	if handle is None:

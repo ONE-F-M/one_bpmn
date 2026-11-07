@@ -22,6 +22,8 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from one_bpmn.processa_engine.runtime.failures import fail_runtime, record_runtime_failure
+
 _REF_ID_RE = re.compile(r"[0-9A-F]{12}")
 
 
@@ -37,11 +39,11 @@ class TestRuntimeFailureHandling(FrappeTestCase):
 		inst = self._make_instance()
 		with patch.object(frappe.db, "set_value") as m_set, \
 			patch.object(frappe.db, "commit") as m_commit, \
-			patch.object(inst, "_log_task") as m_log:
+			patch("one_bpmn.processa_engine.runtime.failures.log_task") as m_log:
 			try:
 				raise ValueError("tabUser secret schema — exec blocked keyword")
 			except Exception:
-				ref_id = inst._record_runtime_failure(phase="start")
+				ref_id = record_runtime_failure(inst, phase="start")
 
 		# A Reference ID is minted and the instance is halted durably.
 		self.assertRegex(ref_id, r"^[0-9A-F]{12}$")
@@ -62,12 +64,12 @@ class TestRuntimeFailureHandling(FrappeTestCase):
 		inst = self._make_instance()
 		with patch.object(frappe.db, "set_value"), \
 			patch.object(frappe.db, "commit"), \
-			patch.object(inst, "_log_task"), \
+			patch("one_bpmn.processa_engine.runtime.failures.log_task"), \
 			patch.object(frappe, "log_error") as m_err:
 			try:
 				raise ValueError("tabUser secret schema")
 			except Exception:
-				ref_id = inst._record_runtime_failure(phase="advance")
+				ref_id = record_runtime_failure(inst, phase="advance")
 
 		# The deep log carries the Reference ID and the full traceback (admin-only).
 		self.assertTrue(m_err.called)
@@ -81,12 +83,12 @@ class TestRuntimeFailureHandling(FrappeTestCase):
 		secret = "tabUser permission wall — exec getattr keyword"
 		with patch.object(frappe.db, "set_value"), \
 			patch.object(frappe.db, "commit"), \
-			patch.object(inst, "_log_task"):
+			patch("one_bpmn.processa_engine.runtime.failures.log_task"):
 			with self.assertRaises(frappe.ValidationError) as ctx:
 				try:
 					raise ValueError(secret)
 				except Exception:
-					inst._fail_runtime(phase="advance")
+					fail_runtime(inst, phase="advance")
 
 		msg = str(ctx.exception)
 		# Generic message carries the Reference ID …
@@ -101,13 +103,13 @@ class TestRuntimeFailureHandling(FrappeTestCase):
 		message = "Only users with the role 'Employee' can perform this workflow action."
 		with patch.object(frappe.db, "set_value") as m_set, \
 			patch.object(frappe.db, "commit"), \
-			patch.object(inst, "_log_task"), \
-			patch.object(inst, "_record_runtime_failure") as m_record:
+			patch("one_bpmn.processa_engine.runtime.failures.log_task"), \
+			patch("one_bpmn.processa_engine.runtime.failures.record_runtime_failure") as m_record:
 			with self.assertRaises(frappe.PermissionError) as ctx:
 				try:
 					raise frappe.PermissionError(message)
 				except Exception:
-					inst._fail_runtime(phase="advance")
+					fail_runtime(inst, phase="advance")
 
 		self.assertIn(message, str(ctx.exception))
 		m_record.assert_not_called()
@@ -118,13 +120,13 @@ class TestRuntimeFailureHandling(FrappeTestCase):
 		inst = self._make_instance()
 		with patch.object(frappe.db, "set_value") as m_set, \
 			patch.object(frappe.db, "commit"), \
-			patch.object(inst, "_log_task"), \
-			patch.object(inst, "_record_runtime_failure") as m_record:
+			patch("one_bpmn.processa_engine.runtime.failures.log_task"), \
+			patch("one_bpmn.processa_engine.runtime.failures.record_runtime_failure") as m_record:
 			with self.assertRaises(frappe.PermissionError) as ctx:
 				try:
 					raise frappe.PermissionError()
 				except Exception:
-					inst._fail_runtime(phase="advance")
+					fail_runtime(inst, phase="advance")
 
 		self.assertIn(
 			"You do not have permission to complete this step. "
@@ -139,17 +141,17 @@ class TestRuntimeFailureHandling(FrappeTestCase):
 		inst = self._make_instance()
 		with patch.object(frappe.db, "set_value"), \
 			patch.object(frappe.db, "commit"), \
-			patch.object(inst, "_log_task"), \
-			patch.object(
-				inst, "_record_runtime_failure", return_value="ABCDEF012345"
+			patch("one_bpmn.processa_engine.runtime.failures.log_task"), \
+			patch(
+				"one_bpmn.processa_engine.runtime.failures.record_runtime_failure", return_value="ABCDEF012345"
 			) as m_record:
 			with self.assertRaises(frappe.ValidationError) as ctx:
 				try:
 					raise ValueError("boom")
 				except Exception:
-					inst._fail_runtime(phase="advance")
+					fail_runtime(inst, phase="advance")
 
-		m_record.assert_called_once_with("advance")
+		m_record.assert_called_once_with(inst, "advance")
 		self.assertIn("ABCDEF012345", str(ctx.exception))
 		self.assertNotIn("boom", str(ctx.exception))
 
@@ -164,7 +166,7 @@ class TestCompleteTaskPermissionError(FrappeTestCase):
 
 	def _complete(self, instance, error):
 		from one_bpmn.api import instance_api
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import BPMNProcessInstance
+		from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import BPMNProcessInstance
 
 		with patch.object(BPMNProcessInstance, "advance", side_effect=error):
 			instance_api._complete_task_job(

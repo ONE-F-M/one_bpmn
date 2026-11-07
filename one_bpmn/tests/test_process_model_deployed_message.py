@@ -21,8 +21,8 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.compilation import compile_process_model
-from one_bpmn.one_bpmn.trigger import (
+from one_bpmn.api.deploy import compile_process_model
+from one_bpmn.processa_engine.triggers import (
 	PROCESS_MODEL_DEPLOYED_MESSAGE,
 	send_process_model_deployed_message,
 )
@@ -243,7 +243,7 @@ class TestProcessModelDeployedMessage(FrappeTestCase):
 		)
 
 		target = (
-			"one_bpmn.one_bpmn.doctype.bpmn_process_instance."
+			"one_bpmn.processa_engine.doctype.bpmn_process_instance."
 			"bpmn_process_instance.BPMNProcessInstance.receive_message"
 		)
 		with patch(target, side_effect=RuntimeError("engine on fire")):

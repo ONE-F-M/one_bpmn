@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Structure check for pull requests: checks only changed files and added lines.
 
-Rules: size, work-item-id, permissions, raw-sql, test-location, import, baseline.
+Rules: size, work-item-id, permissions, raw-sql, test-location, import, private-import,
+definitions-file, definitions-name, definitions-import, component-js, fetch, baseline.
 Existing breaches live in .github/structure_baseline.txt and may stay but never grow.
 Usage: check_structure.py --base origin/processa-refactor [--approvers a,b]
        check_structure.py --write-baseline
@@ -25,7 +26,7 @@ BASELINE_PATH = ".github/structure_baseline.txt"
 CODEOWNERS_PATH = ".github/CODEOWNERS"
 
 # Where the restricted imports are allowed (path prefixes, repo-relative).
-ENGINE_PREFIXES = ("one_bpmn/one_bpmn/engine.py", "one_bpmn/one_bpmn/engine/")
+ENGINE_PREFIXES = ("one_bpmn/processa_engine/engine/",)
 ADAPTER_PREFIXES = ("one_bpmn/agents/llm_provider/",)
 
 WORK_ITEM_ID = re.compile(r"(?<![A-Za-z0-9])WI-\d+")
@@ -46,6 +47,24 @@ RESTRICTED_IMPORTS = (
 )
 
 ID_EXTENSIONS = (".py", ".vue", ".js", ".ts", ".jsx", ".tsx")
+
+APP_PACKAGE = "one_bpmn"
+DEFINITIONS_PREFIX = "one_bpmn/ai_agent_registry/definitions/"
+DEFINITIONS_MODULE = "one_bpmn.ai_agent_registry.definitions"
+SHARED_FOLDER = "shared"
+DEFINITION_NAMES = ("tools.py", "helpers.py", "validators.py", "__init__.py", "AGENTS.md")
+DEFINITION_NAME_PREFIXES = ("tools_", "helpers_", "validators_")
+
+FRONTEND_PREFIXES = ("spiff/src/", "frontend/src/")
+COMPONENT_PREFIXES = ("spiff/src/components/", "frontend/src/components/")
+FRONTEND_EXTENSIONS = (".js", ".ts", ".jsx", ".tsx", ".vue")
+# A bare or window-level fetch call; resource.fetch() is not the browser API.
+FETCH_CALL = re.compile(r"(?:(?<![\w.$])|\b(?:window|globalThis|self)\.)fetch\s*\(")
+FETCH_CLIENT_SUFFIX = "/utils/aguiClient.js"
+
+FROM_IMPORT = re.compile(r"^[ \t]*from[ \t]+(\.*)([\w.]*)[ \t]+import[ \t]+(\([^)]*\)|[^\n]*)", re.MULTILINE)
+PLAIN_IMPORT = re.compile(r"^[ \t]*import[ \t]+([^\n#]*)", re.MULTILINE)
+IMPORTED_NAME = re.compile(r"([\w.]+)(?:\s+as\s+\w+)?")
 
 Baseline = Dict[Tuple[str, str], int]
 
@@ -103,11 +122,13 @@ def parse_baseline(text: str) -> Baseline:
 		line = raw.strip()
 		if not line or line.startswith("#"):
 			continue
-		parts = line.split()
-		if len(parts) < 2:
+		rule, *rest = line.split()
+		if not rest:
 			continue
-		value = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
-		entries[(parts[0], parts[1])] = value
+		if rule == "size" and len(rest) > 1 and rest[1].isdigit():
+			entries[(rule, rest[0])] = int(rest[1])
+		else:
+			entries[(rule, " ".join(rest))] = 0
 	return entries
 
 
@@ -116,7 +137,8 @@ def format_baseline(entries: Baseline) -> str:
 		"# Known structure breaches. The structure check lets these stay but never get worse.",
 		"# Delete an entry when the breach is fixed. Adding or raising an entry needs a code owner's approval.",
 		"# Regenerate with: python .github/scripts/check_structure.py --write-baseline",
-		"# Formats: size <path> <line count>   |   test-location <path>",
+		"# Formats: size <path> <line count>   |   test-location <path>   |   component-js <path>",
+		"#          private-import <importing path> <module>.<name>",
 	]
 	lines = []
 	for (rule, path), value in sorted(entries.items(), key=lambda item: (item[0][0], item[0][1])):
@@ -166,6 +188,55 @@ def allowed_prefix(path: str, prefixes: Sequence[str]) -> bool:
 
 def carries_work_item_ids(path: str) -> bool:
 	return path.endswith(ID_EXTENSIONS) or path.rsplit("/", 1)[-1] == "patches.txt"
+
+
+def is_component_js(path: str) -> bool:
+	return path.endswith(".js") and allowed_prefix(path, COMPONENT_PREFIXES)
+
+
+def checks_private_imports(path: str) -> bool:
+	"""App code outside tests: tests may import the private names they test."""
+	if not (path.startswith(APP_PACKAGE + "/") and path.endswith(".py")) or is_test_file(path):
+		return False
+	return "tests" not in path.split("/")[:-1]
+
+
+def module_name(path: str) -> str:
+	dotted = path[: -len(".py")].replace("/", ".")
+	return dotted[: -len(".__init__")] if dotted.endswith(".__init__") else dotted
+
+
+def app_imports(path: str, text: str) -> List[Tuple[int, str, str]]:
+	"""(line, absolute module, name) for each import from the app package; name is "" for a plain import."""
+	package = module_name(path).split(".")
+	if not path.endswith("/__init__.py"):
+		package = package[:-1]
+	found = []
+	for match in FROM_IMPORT.finditer(text):
+		level, module = len(match.group(1)), match.group(2)
+		if level:
+			module = ".".join(package[: len(package) - (level - 1)] + ([module] if module else []))
+		names = re.sub(r"#[^\n]*", "", match.group(3))
+		for name in IMPORTED_NAME.finditer(names):
+			found.append((text.count("\n", 0, match.start(3) + name.start()) + 1, module, name.group(1)))
+	for match in PLAIN_IMPORT.finditer(text):
+		for name in IMPORTED_NAME.finditer(match.group(1)):
+			found.append((text.count("\n", 0, match.start(1)) + 1, name.group(1), ""))
+	return [item for item in found if item[1] == APP_PACKAGE or item[1].startswith(APP_PACKAGE + ".")]
+
+
+def private_imports(path: str, text: str) -> List[Tuple[int, str]]:
+	"""(line, module.name) for each single-underscore name imported from another app module."""
+	own = module_name(path)
+	return [
+		(line, f"{module}.{name}")
+		for line, module, name in app_imports(path, text)
+		if name.startswith("_") and not name.startswith("__") and module != own
+	]
+
+
+def allowed_definition_name(name: str) -> bool:
+	return name in DEFINITION_NAMES or name.startswith(DEFINITION_NAME_PREFIXES)
 
 
 # ---------------------------------------------------------------- rules
@@ -263,11 +334,115 @@ def check_imports(change: Change, result: Result) -> None:
 				)
 
 
+def check_private_imports(change: Change, baseline: Baseline, result: Result) -> None:
+	if change.status == "D" or not checks_private_imports(change.path):
+		return
+	found = private_imports(change.path, change.text or "")
+	added = {number for number, _ in change.added}
+	for number, target in found:
+		if number in added and ("private-import", f"{change.path} {target}") not in baseline:
+			result.failures.append(
+				Finding(
+					change.path,
+					number,
+					"private-import",
+					f"imports the private name {target} from another file; make it public or move the caller",
+				)
+			)
+	present = {target for _, target in found}
+	for rule, key in baseline:
+		path, _, target = key.partition(" ")
+		if rule == "private-import" and path == change.path and target not in present:
+			result.notices.append(
+				f"{change.path} no longer imports {target}. Please delete its baseline entry from {BASELINE_PATH}."
+			)
+
+
+def check_definitions(change: Change, result: Result) -> None:
+	if change.status == "D" or not change.path.startswith(DEFINITIONS_PREFIX):
+		return
+	parts = change.path[len(DEFINITIONS_PREFIX) :].split("/")
+	if len(parts) < 2:
+		return
+	folder, name = parts[0], parts[-1]
+	if change.status == "A" and not allowed_definition_name(name):
+		result.failures.append(
+			Finding(
+				change.path,
+				None,
+				"definitions-file",
+				f"{name} is not allowed in an agent folder; use tools.py, helpers.py, validators.py, "
+				"a tools_, helpers_ or validators_ file, __init__.py or AGENTS.md",
+			)
+		)
+	if folder == SHARED_FOLDER:
+		return
+	stem = name.rsplit(".", 1)[0]
+	if change.status == "A" and re.search(rf"(?:^|_){re.escape(folder)}(?:_|$)", stem):
+		result.failures.append(
+			Finding(
+				change.path,
+				None,
+				"definitions-name",
+				f"file name {name} repeats the agent folder name {folder}",
+			)
+		)
+	if not name.endswith(".py"):
+		return
+	added = {number for number, _ in change.added}
+	for number, module, imported in app_imports(change.path, change.text or ""):
+		target = f"{module}.{imported}" if imported else module
+		if number not in added or not target.startswith(DEFINITIONS_MODULE + "."):
+			continue
+		other = target[len(DEFINITIONS_MODULE) + 1 :].split(".")[0]
+		if other not in (folder, SHARED_FOLDER):
+			result.failures.append(
+				Finding(
+					change.path,
+					number,
+					"definitions-import",
+					f"imports from the {other} agent folder; move the function to definitions/{SHARED_FOLDER}/",
+				)
+			)
+
+
+def check_component_js(change: Change, baseline: Baseline, result: Result) -> None:
+	if change.status != "A" or not is_component_js(change.path) or ("component-js", change.path) in baseline:
+		return
+	result.failures.append(
+		Finding(
+			change.path,
+			None,
+			"component-js",
+			"plain .js file under components/; components/ holds .vue files, put the code in utils/ or a composable",
+		)
+	)
+
+
+def check_fetch(change: Change, result: Result) -> None:
+	if change.status == "D" or not allowed_prefix(change.path, FRONTEND_PREFIXES):
+		return
+	if not change.path.endswith(FRONTEND_EXTENSIONS) or change.path.endswith(FETCH_CLIENT_SUFFIX):
+		return
+	for number, text in change.added:
+		if text.lstrip().startswith(("//", "*")):
+			continue
+		if FETCH_CALL.search(text):
+			result.failures.append(
+				Finding(
+					change.path,
+					number,
+					"fetch",
+					"fetch( outside utils/aguiClient.js; call Frappe through the request wrapper",
+				)
+			)
+
+
 def check_deleted(change: Change, baseline: Baseline, result: Result) -> None:
 	if change.status != "D":
 		return
-	for (rule, path) in baseline:
-		if path == change.path:
+	for rule, key in baseline:
+		if key.split(" ", 1)[0] == change.path:
 			result.notices.append(
 				f"{change.path} was removed, so its '{rule}' breach is gone. "
 				f"Please delete its baseline entry from {BASELINE_PATH}."
@@ -348,13 +523,17 @@ def run_checks(
 		check_unsafe_calls(change, result)
 		check_test_location(change, baseline, result)
 		check_imports(change, result)
+		check_private_imports(change, baseline, result)
+		check_definitions(change, result)
+		check_component_js(change, baseline, result)
+		check_fetch(change, result)
 		check_deleted(change, baseline, result)
 	check_baseline_approval(baseline, base_baseline or {}, approvers, codeowners, result)
 	return result
 
 
 def generate_baseline(files: Dict[str, str]) -> Baseline:
-	"""The baseline for a whole tree: every file over its limit, every misplaced test file."""
+	"""The baseline for a whole tree: oversize files, misplaced tests, private imports, plain .js components."""
 	entries: Baseline = {}
 	for path, text in files.items():
 		limit = size_limit(path)
@@ -362,6 +541,11 @@ def generate_baseline(files: Dict[str, str]) -> Baseline:
 			entries[("size", path)] = line_count(text)
 		if is_test_file(path) and not in_allowed_test_location(path):
 			entries[("test-location", path)] = 0
+		if is_component_js(path):
+			entries[("component-js", path)] = 0
+		if checks_private_imports(path):
+			for _, target in private_imports(path, text):
+				entries[("private-import", f"{path} {target}")] = 0
 	return entries
 
 
@@ -425,7 +609,7 @@ def collect_changes(base: str, root: str) -> List[Change]:
 def write_baseline(root: str) -> None:
 	files: Dict[str, str] = {}
 	for path in _git(["ls-files"], root).splitlines():
-		if size_limit(path) is None and not is_test_file(path):
+		if size_limit(path) is None and not is_test_file(path) and not is_component_js(path):
 			continue
 		try:
 			with open(os.path.join(root, path), encoding="utf-8", errors="replace") as handle:

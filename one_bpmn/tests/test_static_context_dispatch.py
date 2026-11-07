@@ -20,7 +20,7 @@ from one_bpmn.agents.executor import (
 	TokenUsage,
 	register_executor,
 )
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers as D
+from one_bpmn.processa_engine.dispatch import ai_agent as D
 
 _CAPTURED = {}
 
@@ -67,7 +67,7 @@ class TestDispatcherStaticContext(FrappeTestCase):
 			patch("one_bpmn.agents.observability.record_ai_step"),
 			patch("one_bpmn.agents.observability.finalize_ai_run"),
 			patch("one_bpmn.agents.observability.finalize_ai_run_on_exception"),
-			patch("one_bpmn.one_bpmn.engine.get_task_display_name", return_value="AI Task"),
+			patch("one_bpmn.processa_engine.engine.get_task_display_name", return_value="AI Task"),
 			patch("frappe.db.commit"),
 		]
 		for p in patches:
@@ -174,7 +174,7 @@ class TestLiveLogixShape(FrappeTestCase):
 			),
 			patch("one_bpmn.agents.observability.record_ai_step"),
 			patch("one_bpmn.agents.observability.finalize_ai_run"),
-			patch("one_bpmn.one_bpmn.engine.get_task_display_name", return_value="Call Agent"),
+			patch("one_bpmn.processa_engine.engine.get_task_display_name", return_value="Call Agent"),
 			patch("frappe.db.commit"),
 		]
 		for p in patches:
@@ -193,7 +193,7 @@ class TestLiveLogixShape(FrappeTestCase):
 		with patch(
 			"one_bpmn.agents.memory.tools.memory_search",
 			return_value=[{"content": "prefers frappe.sendmail"}],
-		), patch.object(D, "_enqueue_distill"):
+		), patch.object(frappe, "enqueue"):
 			D.dispatch_ai_agent(_instance(), _task(self.SHAPE), task_cfg, self.SHAPE)
 
 		config = _CAPTURED["config"]

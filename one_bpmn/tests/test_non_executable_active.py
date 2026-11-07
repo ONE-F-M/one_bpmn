@@ -4,10 +4,7 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.compilation import (
-	activate_non_executable_model,
-	deactivate_non_executable_model,
-)
+from one_bpmn.api.deploy import activate_non_executable_model, deactivate_non_executable_model
 
 PROCESS = "Non Executable Active Process"
 MODEL_A = "Non Executable Active A"

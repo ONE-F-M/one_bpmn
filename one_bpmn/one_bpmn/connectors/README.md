@@ -32,7 +32,7 @@ A connector that talks plain HTTP/REST needs **no Python at all**.
 
 At runtime the engine leaves the Service Task `STARTED`; `_dispatch_service_task`
 routes `serviceType == "connector"` to `dispatch_connector`
-(`doctype/bpmn_process_instance/dispatchers.py`), which:
+(`processa_engine/dispatch/connector.py`), which:
 
 1. resolves the executor for `(connectorId, operation)` — see below,
 2. parses `connectorParams` (a JSON object),

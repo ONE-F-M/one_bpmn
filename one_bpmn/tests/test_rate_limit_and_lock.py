@@ -973,19 +973,19 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 		reference id instead of the reason, and the conversation stayed broken
 		even after a reviewer released the lock.
 		"""
-		from unittest.mock import patch
+		from one_bpmn.processa_engine.runtime import failures
 
 		from one_bpmn.security.rate_limit import RateLimited
 
 		instance = frappe.new_doc("BPMN Process Instance")
 		instance.name = "ZZ-INST"
 
-		with patch.object(instance, "_record_runtime_failure") as recorded:
+		with patch.object(failures, "record_runtime_failure") as recorded:
 			try:
 				frappe.throw("frozen", RateLimited)
 			except RateLimited:
 				with self.assertRaises(RateLimited):
-					instance._fail_runtime("test")
+					failures.fail_runtime(instance, "test")
 		self.assertFalse(
 			recorded.called,
 			"a refusal must not be logged as a runtime failure or halt the instance",
@@ -993,17 +993,17 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 
 	def test_the_engine_still_halts_on_a_real_fault(self):
 		"""The sanitising path is untouched for anything that is genuinely broken."""
-		from unittest.mock import patch
+		from one_bpmn.processa_engine.runtime import failures
 
 		instance = frappe.new_doc("BPMN Process Instance")
 		instance.name = "ZZ-INST"
 
-		with patch.object(instance, "_record_runtime_failure", return_value="REF123") as recorded:
+		with patch.object(failures, "record_runtime_failure", return_value="REF123") as recorded:
 			try:
 				raise RuntimeError("something actually broke")
 			except RuntimeError:
 				with self.assertRaises(frappe.ValidationError) as ctx:
-					instance._fail_runtime("test")
+					failures.fail_runtime(instance, "test")
 		self.assertTrue(recorded.called)
 		self.assertIn("REF123", str(ctx.exception))
 

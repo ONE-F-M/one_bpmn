@@ -12,7 +12,7 @@ from __future__ import annotations
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.one_bpmn.engine import _make_script_engine
+from one_bpmn.processa_engine.engine import _make_script_engine
 
 test_ignore = ["BPMN Process Model"]
 

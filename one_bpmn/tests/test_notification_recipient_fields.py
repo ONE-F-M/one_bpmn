@@ -19,9 +19,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.api.utils import get_recipient_docfields
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
-	_emails_from_doc_field,
-)
+from one_bpmn.processa_engine.dispatch.email import _emails_from_doc_field
 
 
 class TestRecipientFieldPicker(FrappeTestCase):

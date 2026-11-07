@@ -19,7 +19,8 @@ import decimal
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.one_bpmn.engine import json_safe_doc_fields
+from one_bpmn.processa_engine.engine import json_safe_doc_fields
+from one_bpmn.processa_engine.runtime.common import refresh_task_data_from_context
 
 
 class _Field:
@@ -131,7 +132,7 @@ class TestRefreshTaskDataFromContext(FrappeTestCase):
 		# Exactly what a Service Task does: change the document, not task data.
 		frappe.db.set_value("ToDo", todo.name, "status", "Closed")
 
-		instance._refresh_task_data_from_context(task)
+		refresh_task_data_from_context(instance, task)
 		self.assertEqual(
 			task.data["status"],
 			"Closed",
@@ -147,7 +148,7 @@ class TestRefreshTaskDataFromContext(FrappeTestCase):
 			data = {"untouched": True}
 
 		task = _Task()
-		instance._refresh_task_data_from_context(task)
+		refresh_task_data_from_context(instance, task)
 		self.assertEqual(task.data, {"untouched": True})
 
 	def test_refresh_never_raises_when_the_document_is_gone(self):
@@ -160,4 +161,4 @@ class TestRefreshTaskDataFromContext(FrappeTestCase):
 			data = {}
 
 		task = _Task()
-		instance._refresh_task_data_from_context(task)  # must not raise
+		refresh_task_data_from_context(instance, task)  # must not raise

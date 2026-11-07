@@ -12,7 +12,7 @@ import { ref, computed, onBeforeUnmount } from "vue";
  *
  * @param {Object} options
  * @param {import('vue').Ref<boolean>} options.readonly  - Whether the editor is in read-only mode
- * @param {import('vue').Ref<Array>}   options.comments  - Reactive list of all Processa Comments for this model
+ * @param {import('vue').Ref<Array>}   options.comments  - Reactive list of all canvas comments for this model
  * @param {Function} options.selectCommentElement        - Opens the "Add Comment" dialog for an element
  * @param {Function} options.openViewCommentsDialog      - Opens the "View Comments" dialog for an element
  */
