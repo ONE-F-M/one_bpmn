@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 
 const here = fileURLToPath(new URL("../../src/components/", import.meta.url))
-const editor = readFileSync(join(here, "Editor/BpmnEditor.vue"), "utf8")
+const editor = readFileSync(join(here, "Editor/useEditorLint.js"), "utf8")
 
 test("every lint entry gets an Explain this error button that asks ProsAlly", () => {
 	assert.match(editor, /linting\._addEntry = function/)
