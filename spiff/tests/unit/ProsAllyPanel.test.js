@@ -94,9 +94,9 @@ test("choice buttons wrap inside the panel on a 390px phone and never cover the 
 test("each turn carries the lint findings the editor shows", () => {
 	assert.match(panel, /getLintIssues: \{ type: Function, default: null \}/)
 	assert.match(panel, /lint_issues: props\.getLintIssues \? await props\.getLintIssues\(\) : \[\]/)
-	const editor = source("Editor/BpmnEditor.vue")
+	const editor = source("Editor/BpmnProsAlly.vue")
 	assert.equal(editor.match(/:get-lint-issues="getLintIssues"/g).length, 2)
-	assert.match(editor, /flattenLintIssues\(linting\._formatIssues\(await linting\.lint\(\)\)\)/)
+	assert.match(source("Editor/useEditorLint.js"), /flattenLintIssues\(linting\._formatIssues\(await linting\.lint\(\)\)\)/)
 })
 
 test("ProsAllyPanel exposes ask, which sends through the chat panel", () => {
