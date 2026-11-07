@@ -124,7 +124,7 @@ class TestJobLevelRetries(JobHarness):
 
 class TestManualRetry(JobHarness):
 	def test_manual_retry_requeues_and_recovers(self):
-		from one_bpmn.api.instance_api import retry_ai_task
+		from one_bpmn.api.instances import retry_ai_task
 
 		task_id = self._park_linear_with_tools()
 		# Exhaust the automatic retries → Errored.
@@ -160,7 +160,7 @@ class TestManualRetry(JobHarness):
 		)
 
 	def test_manual_retry_rejects_completed_instance(self):
-		from one_bpmn.api.instance_api import retry_ai_task
+		from one_bpmn.api.instances import retry_ai_task
 
 		task_id = self._park_linear_with_tools()
 		frappe.db.set_value(
@@ -171,7 +171,7 @@ class TestManualRetry(JobHarness):
 			retry_ai_task(self.instance.name, task_id, "service_task")
 
 	def test_manual_retry_permission_failure(self):
-		from one_bpmn.api.instance_api import retry_ai_task
+		from one_bpmn.api.instances import retry_ai_task
 
 		task_id = self._park_linear_with_tools()
 		with self.set_user("Guest"):
@@ -179,7 +179,7 @@ class TestManualRetry(JobHarness):
 				retry_ai_task(self.instance.name, task_id, "service_task")
 
 	def test_manual_retry_validates_kind(self):
-		from one_bpmn.api.instance_api import retry_ai_task
+		from one_bpmn.api.instances import retry_ai_task
 
 		with self.assertRaises(frappe.ValidationError):
 			retry_ai_task(self.instance.name, "x", "not_a_kind")

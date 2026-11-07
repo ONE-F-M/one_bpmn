@@ -337,7 +337,7 @@ function AssigneeDocfieldComponent(props) {
 				{ fieldname: "", label: "— Select a DocType first —" },
 			]);
 		}
-		return frappeGet("/api/method/one_bpmn.api.utils.get_assignee_docfields", { doctype })
+		return frappeGet("/api/method/one_bpmn.api.lookups.get_assignee_docfields", { doctype })
 			.then((fields) => {
 				const list = Array.isArray(fields) ? fields : [];
 				if (!txt) return list;
@@ -393,7 +393,7 @@ function AssigneeTableFieldComponent(props) {
 				{ fieldname: "", label: "— Select a DocType first —" },
 			]);
 		}
-		return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+		return frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
 			doctype,
 			fieldtype_in: '["Table MultiSelect","Table"]',
 			include_options: true,
@@ -452,7 +452,7 @@ function AssigneeTableUserFieldComponent(props) {
 				{ fieldname: "", label: "— Select a Table Field first —" },
 			]);
 		}
-		return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+		return frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
 			doctype,
 			fieldtype_in: '["Table MultiSelect","Table"]',
 			include_options: true,
@@ -462,7 +462,7 @@ function AssigneeTableUserFieldComponent(props) {
 			);
 			const childDoctype = match && match.options;
 			if (!childDoctype) return [];
-			return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+			return frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
 				doctype: childDoctype,
 				fieldtype_in: '["Link"]',
 				include_options: true,

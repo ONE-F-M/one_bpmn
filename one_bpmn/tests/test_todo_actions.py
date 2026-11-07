@@ -76,7 +76,7 @@ class TestHandleAmpAction(FrappeTestCase):
 		token = _make_token()
 
 		with _mock_secret():
-			with patch("one_bpmn.api.instance_api.complete_task") as mock_ct:
+			with patch("one_bpmn.api.instances.complete_task") as mock_ct:
 				mock_ct.return_value = {"instance": "INST-001", "status": "Running", "active_tasks": []}
 				with patch.object(frappe, "set_user"):
 					from one_bpmn.api.email_actions import handle_amp_action
@@ -112,7 +112,7 @@ class TestHandleAmpAction(FrappeTestCase):
 		token = _make_token()
 
 		with _mock_secret():
-			with patch("one_bpmn.api.instance_api.complete_task") as mock_ct:
+			with patch("one_bpmn.api.instances.complete_task") as mock_ct:
 				mock_ct.side_effect = frappe.ValidationError(
 					"Task 'task-uuid' not found in the active tasks of this instance."
 				)
@@ -129,7 +129,7 @@ class TestHandleAmpAction(FrappeTestCase):
 		token = _make_token()
 
 		with _mock_secret():
-			with patch("one_bpmn.api.instance_api.complete_task") as mock_ct:
+			with patch("one_bpmn.api.instances.complete_task") as mock_ct:
 				mock_ct.return_value = {"instance": "INST-001", "status": "Running", "active_tasks": []}
 				with patch.object(frappe, "set_user"):
 					from one_bpmn.api.email_actions import handle_amp_action

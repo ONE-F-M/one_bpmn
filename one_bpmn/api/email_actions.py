@@ -64,7 +64,7 @@ def handle_amp_action(
 		task_data["comment"] = comment.strip()
 
 	try:
-		from one_bpmn.api.instance_api import complete_task
+		from one_bpmn.api.instances import complete_task
 
 		saved_reason = None
 		if reason_lang is not None:

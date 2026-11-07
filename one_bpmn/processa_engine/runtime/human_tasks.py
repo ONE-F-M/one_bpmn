@@ -168,7 +168,7 @@ def human_tool_label(instance, task, shape_id: str) -> str:
 def complete_ai_human_task(instance, task_id: str, data: dict | None = None) -> None:
 	"""Complete a pending AI human task and resume the suspended agent in a bpmn_ai_agent job.
 
-	The caller, instance_api.complete_task, has checked assignment, action and document permissions.
+	The caller, task_actions.complete_task, has checked assignment, action and document permissions.
 	"""
 	data = data or {}
 	row = next((r for r in instance.active_tasks if r.task_id == task_id), None)

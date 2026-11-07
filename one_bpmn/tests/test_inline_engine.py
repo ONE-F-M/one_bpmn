@@ -36,9 +36,9 @@ class TestInlineEngineWiring(FrappeTestCase):
 		self.assertNotIn("frappe.enqueue", body)
 
 	def test_complete_task_runs_inline(self):
-		from one_bpmn.api import instance_api
+		from one_bpmn.processa_engine.instances import task_actions
 
-		body = self._func_body(instance_api, "def complete_task")
+		body = self._func_body(task_actions, "def complete_task")
 		self.assertIn("_complete_task_job(", body)
 		self.assertNotIn("frappe.enqueue", body)
 		# The response reports the real resulting state.
@@ -47,12 +47,12 @@ class TestInlineEngineWiring(FrappeTestCase):
 
 	def test_no_in_test_branch_at_entry_points(self):
 		# Inline is unconditional — no environment-dependent branching left.
-		from one_bpmn.api import instance_api
+		from one_bpmn.processa_engine.instances import task_actions
 		from one_bpmn.processa_engine import triggers
 
 		for module, func in (
 			(triggers, "def _maybe_start_instance"),
-			(instance_api, "def complete_task"),
+			(task_actions, "def complete_task"),
 		):
 			body = self._func_body(module, func)
 			self.assertNotIn(

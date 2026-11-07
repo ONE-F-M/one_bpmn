@@ -6,7 +6,7 @@ import { notifySummary } from "../shared/notifySummary";
 const labelsByDoctype = {};
 
 export function loadLabels(doctype) {
-	labelsByDoctype[doctype] ||= frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", { doctype })
+	labelsByDoctype[doctype] ||= frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", { doctype })
 		.then((fields) => Object.fromEntries((Array.isArray(fields) ? fields : []).map((f) => [f.fieldname, f.label])));
 	return labelsByDoctype[doctype];
 }

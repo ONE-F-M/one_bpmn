@@ -23,7 +23,8 @@ APP = Path(__file__).resolve().parents[1]
 # Every module that queues work onto the AI agent queue.
 ENQUEUE_SITES = [
 	"tasks.py",
-	"api/instance_api.py",
+	"processa_engine/instances/starting.py",
+	"processa_engine/instances/task_actions.py",
 	"api/agent_callback.py",
 	"processa_engine/runtime/ai_jobs.py",
 	"processa_engine/timers.py",

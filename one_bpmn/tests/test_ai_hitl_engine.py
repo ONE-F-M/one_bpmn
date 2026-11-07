@@ -348,10 +348,10 @@ class TestCompleteTaskApiRouting(HitlHarness):
 		self._suspend(task_id)
 		row = self._human_row()
 
-		from one_bpmn.api import instance_api
+		from one_bpmn.api import instances
 
 		with patch.object(frappe, "enqueue") as enqueue:
-			response = instance_api.complete_task(
+			response = instances.complete_task(
 				self.instance.name, row.task_id, data=json.dumps({"action": "Approve"})
 			)
 
@@ -365,9 +365,9 @@ class TestCompleteTaskApiRouting(HitlHarness):
 		self._suspend(task_id)
 		row = self._human_row()
 
-		from one_bpmn.api import instance_api
+		from one_bpmn.api import instances
 
-		suspended = instance_api.get_suspended_ai_tasks(self.instance.name)
+		suspended = instances.get_suspended_ai_tasks(self.instance.name)
 		self.assertEqual(len(suspended), 1)
 		self.assertEqual(suspended[0]["bpmn_id"], "Agent_1")
 		self.assertEqual(suspended[0]["human_task_id"], row.task_id)
@@ -378,9 +378,9 @@ class TestCompleteTaskApiRouting(HitlHarness):
 		self._suspend(task_id)
 		row = self._human_row()
 
-		from one_bpmn.api import instance_api
+		from one_bpmn.api import instances
 
 		with self.assertRaises(frappe.ValidationError):
-			instance_api.complete_task(
+			instances.complete_task(
 				self.instance.name, row.task_id, data=json.dumps({"action": "Escalate"})
 			)

@@ -169,11 +169,11 @@ class TestTaskActors(FrappeTestCase):
 
 class TestRelieverCanActionTheTask(FrappeTestCase):
 	def _refusal(self, user, row):
-		from one_bpmn.api.instance_api import _task_authorization
+		from one_bpmn.processa_engine.instances.task_actions import _task_authorization
 
 		instance = frappe._dict(context_doctype="", context_docname="")
 		row.assigned_role = ""
-		with patch("one_bpmn.api.instance_api._is_bpmn_super_user", return_value=False):
+		with patch("one_bpmn.processa_engine.instances.task_actions.is_bpmn_super_user", return_value=False):
 			return _task_authorization(instance, row, user)[0]
 
 	def test_both_users_of_the_pair_are_let_through(self):
@@ -193,9 +193,9 @@ class TestRelieverCanActionTheTask(FrappeTestCase):
 
 class TestPendingListIncludesTheReliever(FrappeTestCase):
 	def _pending(self, user, rows, covered):
-		from one_bpmn.api.instance_api import _instances_pending_on
+		from one_bpmn.processa_engine.instances.listing import _instances_pending_on
 
-		with patch("one_bpmn.api.instance_api._users_covered_by", return_value=covered), patch.object(
+		with patch("one_bpmn.processa_engine.instances.listing._users_covered_by", return_value=covered), patch.object(
 			frappe, "get_roles", return_value=[]
 		), patch.object(frappe, "get_all", return_value=rows), patch(LEAVE_RELIEVER, side_effect=lambda u: "bob@x.com" if u == "alice@x.com" else None):
 			return _instances_pending_on(user)

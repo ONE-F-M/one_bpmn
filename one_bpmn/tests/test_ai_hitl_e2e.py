@@ -193,10 +193,10 @@ class TestDurableAgentHitlEndToEnd(FrappeTestCase):
 		self.assertIn("120 KWD", json.dumps(adapter.transcripts[-1]))
 
 		# The person approves via the real API (validation + routing).
-		from one_bpmn.api import instance_api
+		from one_bpmn.api import instances
 
 		with patch.object(frappe, "enqueue") as enqueue:
-			instance_api.complete_task(
+			instances.complete_task(
 				self.instance.name, row.task_id, data=json.dumps({"action": "Approve"})
 			)
 		self.assertEqual(enqueue.call_args.kwargs["kind"], "human_resume")
@@ -238,10 +238,10 @@ class TestDurableAgentHitlEndToEnd(FrappeTestCase):
 				self.instance.resume_parked_ai(kind="service_task", task_id=task_id)
 		row = self._human_row()
 
-		from one_bpmn.api import instance_api
+		from one_bpmn.api import instances
 
 		with patch.object(frappe, "enqueue"):
-			instance_api.complete_task(
+			instances.complete_task(
 				self.instance.name, row.task_id,
 				data=json.dumps({"action": "Reject", "reason": "amount exceeds policy"}),
 			)

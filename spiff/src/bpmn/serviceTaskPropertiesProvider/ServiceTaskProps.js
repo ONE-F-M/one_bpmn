@@ -555,7 +555,7 @@ function UpdateFieldNameComponent(props) {
 	}
 
 	const fetchFields = (txt) => {
-		return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+		return frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
 			doctype,
 			search_text: txt || "",
 		});
@@ -646,7 +646,7 @@ function UpdateFieldRowsComponent(props) {
 
 	const fetchFields = (txt) => {
 		if (!doctype) return Promise.resolve([]);
-		return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+		return frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
 			doctype,
 			search_text: txt || "",
 		});
@@ -817,7 +817,7 @@ function GchatDocFieldComponent(props) {
 		if (!doctype) {
 			return Promise.resolve([{ fieldname: "", label: "— Select a DocType first —" }]);
 		}
-		return frappeGet("/api/method/one_bpmn.api.utils.get_recipient_docfields", {
+		return frappeGet("/api/method/one_bpmn.api.lookups.get_recipient_docfields", {
 			doctype, search_text: txt || "",
 		});
 	};
@@ -853,7 +853,7 @@ function makeTableRecipientComponents(doctypeOf, tableAttr, userAttr, rowFieldsA
 			if (!doctype) {
 				return Promise.resolve([{ fieldname: "", label: "Select a DocType first" }]);
 			}
-			return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+			return frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
 				doctype, fieldtype_in: '["Table MultiSelect","Table"]', include_options: true,
 			}).then((fields) => {
 				const list = Array.isArray(fields) ? fields : [];
@@ -901,7 +901,7 @@ function makeTableRecipientComponents(doctypeOf, tableAttr, userAttr, rowFieldsA
 			if (!doctype || !tableField) {
 				return Promise.resolve([{ fieldname: "", label: "Select a Table Field first" }]);
 			}
-			return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+			return frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
 				doctype, fieldtype_in: '["Table MultiSelect","Table"]', include_options: true,
 			}).then((tableFields) => {
 				const match = (Array.isArray(tableFields) ? tableFields : []).find(
@@ -910,7 +910,7 @@ function makeTableRecipientComponents(doctypeOf, tableAttr, userAttr, rowFieldsA
 				const childDoctype = match && match.options;
 				if (!childDoctype) return [];
 				if (rowFieldsApi) return frappeGet(rowFieldsApi, { doctype: childDoctype });
-				return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+				return frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
 					doctype: childDoctype, fieldtype_in: '["Link"]', include_options: true,
 				}).then((childFields) =>
 					(Array.isArray(childFields) ? childFields : []).filter((f) => f.options === "User")
@@ -1114,7 +1114,7 @@ function PushToDocFieldsComponent(props) {
 
 	// User fields, email fields, and "link.user_field" paths through linked records
 	const fetchDocFields = (txt) =>
-		frappeGet("/api/method/one_bpmn.api.utils.get_push_recipient_fields", {
+		frappeGet("/api/method/one_bpmn.api.lookups.get_push_recipient_fields", {
 			doctype: sourceDoctype,
 			search_text: txt || "",
 		});
@@ -1136,7 +1136,7 @@ function PushToDocFieldsComponent(props) {
 
 const [PushTableFieldComponent, PushTableUserFieldComponent] = makeTableRecipientComponents(
 	(bo) => getAttr(bo, "pushDoctype"), "pushToTableField", "pushToTableUserField",
-	"/api/method/one_bpmn.api.utils.get_push_recipient_fields"
+	"/api/method/one_bpmn.api.lookups.get_push_recipient_fields"
 );
 
 function makePushCheckbox(attr, label, description) {

@@ -271,8 +271,8 @@ doc_events = {
 	# bpmn_form_actions.js to suppress native Submit/Save/banner) is cached in
 	# Redis — drop it whenever a process model is (de)activated or retargeted.
 	"BPMN Process Model": {
-		"on_update": "one_bpmn.api.instance_api.clear_processa_doctype_cache",
-		"after_delete": "one_bpmn.api.instance_api.clear_processa_doctype_cache",
+		"on_update": "one_bpmn.processa_engine.instances.listing.clear_processa_doctype_cache",
+		"after_delete": "one_bpmn.processa_engine.instances.listing.clear_processa_doctype_cache",
 	},
 }
 

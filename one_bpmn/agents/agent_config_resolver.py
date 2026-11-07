@@ -1134,7 +1134,7 @@ def _start_reprovision(config_name: str) -> bool:
 		return False
 
 	try:
-		from one_bpmn.api.instance_api import start_process
+		from one_bpmn.api.instances import start_process
 
 		start_process(
 			creation_model,

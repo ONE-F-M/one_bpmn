@@ -45,7 +45,6 @@ private-import one_bpmn/api/docu_api.py one_bpmn.api.ai_assistant._extract_json
 private-import one_bpmn/api/eval_api.py one_bpmn.agents.eval_ci._why
 private-import one_bpmn/api/eval_api.py one_bpmn.agents.eval_permissions._is_system_manager
 private-import one_bpmn/api/eval_api.py one_bpmn.agents.eval_permissions._process_model_owned_by
-private-import one_bpmn/api/instance_api.py one_bpmn.api.utils._is_bpmn_super_user
 private-import one_bpmn/api/production_review.py one_bpmn.api.editability._call_production_api
 private-import one_bpmn/api/production_review.py one_bpmn.api.editability._is_ba_instance
 private-import one_bpmn/api/property_panel.py one_bpmn.api.editability._is_production_instance
@@ -53,7 +52,6 @@ private-import one_bpmn/api/server_script_api.py one_bpmn.api.ai_assistant._extr
 private-import one_bpmn/api/server_script_api.py one_bpmn.processa_engine.engine._check_script_permissions
 private-import one_bpmn/api/sessions_api.py one_bpmn.agents.memory.compaction_triggers._is_inflight
 private-import one_bpmn/api/sessions_api.py one_bpmn.agents.memory.compaction_triggers._resolve_agent_id
-private-import one_bpmn/processa_engine/audit.py one_bpmn.api.utils._is_bpmn_super_user
 private-import one_bpmn/one_bpmn/a2a_agent_tool_fixtures.py one_bpmn.one_bpmn.a2a_scenario_fixtures._script_step
 private-import one_bpmn/one_bpmn/a2a_agent_tool_fixtures.py one_bpmn.one_bpmn.a2a_scenario_fixtures._upsert_agent
 private-import one_bpmn/one_bpmn/a2a_agent_tool_fixtures.py one_bpmn.one_bpmn.a2a_scenario_fixtures._upsert_model
@@ -150,7 +148,6 @@ private-import one_bpmn/one_bpmn/patches/v1_0/seed_lucrusher_skills.py one_bpmn.
 private-import one_bpmn/one_bpmn/patches/v1_0/seed_lucrusher_skills.py one_bpmn.one_bpmn.patches.v1_0.seed_prosally_and_frontend_skills._enable_skill
 private-import one_bpmn/one_bpmn/patches/v1_0/seed_lucrusher_skills.py one_bpmn.one_bpmn.patches.v1_0.seed_prosally_and_frontend_skills._upsert_skill
 private-import one_bpmn/one_bpmn/patches/v1_0/seed_prosally_baseline_suite.py one_bpmn.one_bpmn.patches.v1_0.seed_lucrusher_eval_suite._call
-private-import one_bpmn/processa_engine/triggers.py one_bpmn.api.instance_api._start_and_deliver_message
 private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.agents.observability._CURRENT_RUN_FLAG
 private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.agents.shape_tools._run_server_script
 private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.agents.shape_tools._synthetic_task
@@ -181,7 +178,6 @@ size one_bpmn/api/ai_assistant.py 1131
 size one_bpmn/api/docu_api.py 1496
 size one_bpmn/api/eval_api.py 1939
 size one_bpmn/api/insights_api.py 2613
-size one_bpmn/api/instance_api.py 1417
 size one_bpmn/api/production_review.py 871
 size one_bpmn/api/server_script_api.py 955
 size one_bpmn/one_bpmn/a2a_scenario_fixtures.py 983

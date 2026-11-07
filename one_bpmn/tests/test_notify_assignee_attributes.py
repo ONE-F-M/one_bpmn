@@ -9,7 +9,7 @@ from one_bpmn.agents.bpmn_task_config import resolve_node_attrs
 from one_bpmn.processa_engine.compiler.extensions import extract_user_task_config
 from one_bpmn.api.process_maps import validate_bpmn_readiness
 from one_bpmn.processa_engine.maps.references import extract_bpmn_references
-from one_bpmn.api.utils import get_doctype_email_thread
+from one_bpmn.api.lookups import get_doctype_email_thread
 
 FACTS = "[&quot;description&quot;, [&quot;allocated_to&quot;, &quot;assigned_by.full_name&quot;]]"
 DETAILS = "[&quot;reference_type&quot;]"

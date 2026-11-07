@@ -13,7 +13,7 @@ export function useDoctypeFields(fieldtypes) {
 		if (!doctype) return
 		loading.value = true
 		try {
-			const data = await frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+			const data = await frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
 				doctype,
 				fieldtype_in: JSON.stringify(fieldtypes),
 			})

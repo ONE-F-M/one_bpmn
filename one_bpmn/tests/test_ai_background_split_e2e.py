@@ -141,7 +141,7 @@ class TestSplitEndToEnd(SplitE2eHarness):
 		self.assertEqual(runs, ["Success"])
 
 	def test_action_rejected_while_ai_executes_accepted_while_waiting(self):
-		from one_bpmn.api.instance_api import complete_task
+		from one_bpmn.api.instances import complete_task
 
 		wf, enqueue = self._start_uat(route="ai")
 		self._persist(wf, self.instance._service_task_extensions)
@@ -168,7 +168,7 @@ class TestSplitEndToEnd(SplitE2eHarness):
 		self.assertIn("processing", observed["error"].lower())
 
 	def test_forced_failure_retries_then_errors_then_manual_retry_recovers(self):
-		from one_bpmn.api.instance_api import retry_ai_task
+		from one_bpmn.api.instances import retry_ai_task
 
 		wf, enqueue = self._start_uat(route="ai")
 		self._persist(wf, self.instance._service_task_extensions)
