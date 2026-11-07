@@ -82,7 +82,7 @@ class _FakeInstance:
 		# Same routing the real controller performs, reduced to the branch under
 		# test. Reads config by bpmn_id from _service_task_extensions — which is
 		# precisely the behaviour this spike needs to confirm for a NESTED shape.
-		from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import dispatch_connector
+		from one_bpmn.processa_engine.dispatch.connector import dispatch_connector
 
 		bpmn_id = task.task_spec.bpmn_id
 		cfg = self._service_task_extensions.get(bpmn_id, {})

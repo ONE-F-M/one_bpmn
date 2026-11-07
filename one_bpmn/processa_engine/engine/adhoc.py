@@ -148,7 +148,7 @@ def _gate_adhoc_subworkflow(sp) -> bool:
 	else:
 		# Continuation work still awaiting dispatch - a chained service task
 		# (e.g. "set status after escalation") sits in STARTED until
-		# _run_engine_inner's dispatch loop executes it. Consulting the
+		# run_engine_inner's dispatch loop executes it. Consulting the
 		# selector before that write lands feeds it STALE document state
 		# (UAT: a decision saw "Pending Support Confirmation" after the
 		# agent had already resolved). Heads can't be STARTED here (the
@@ -260,7 +260,7 @@ def adhoc_pending_head_tasks(wf: BpmnWorkflow) -> list:
 # The ad-hoc dispatch loop promotes the next inner task in
 # diagram-XML order by default. When an AI Task Selector is configured,
 # bpmn_process_instance installs a decider here for the duration of one
-# _run_engine() call, and the gate's promotion step routes its choice
+# run_engine() call, and the gate's promotion step routes its choice
 # through select_next_adhoc_task() - the same loop, a different decision
 # function.
 # ─────────────────────────────────────────────────────────────
@@ -310,7 +310,7 @@ def select_next_adhoc_task(sp, pending):
 #
 # The ad-hoc dispatch loop activates inner tasks one at a
 # time. bpmn_process_instance installs a logger here for the duration of
-# one _run_engine() call so every activation lands in BPMN Activity Log
+# one run_engine() call so every activation lands in BPMN Activity Log
 # ("Ad-Hoc Task Activated") regardless of whether the decision came from
 # diagram order or the AI Task Selector.
 # ─────────────────────────────────────────────────────────────

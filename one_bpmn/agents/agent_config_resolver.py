@@ -48,7 +48,7 @@ _CONFIG_TO_SHAPE = {
 	# WI-001793: memory settings live on the agent, not the diagram. Every value
 	# here is blank-by-default so an unset field falls through to the shape's
 	# older XML copy rather than silently overriding it with a default.
-	# ``long_term_memory`` needs no translation — the dispatcher's _cfg_truthy
+	# ``long_term_memory`` needs no translation: the dispatcher's cfg_truthy
 	# already reads "Enabled" as true and "Disabled" as false.
 	"conversation_store": "aiConversationStore",
 	"long_term_memory": "aiLongTermMemory",

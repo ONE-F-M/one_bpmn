@@ -21,6 +21,8 @@ from frappe.tests.utils import FrappeTestCase
 from one_bpmn.api.compilation import _extract_user_task_config
 from one_bpmn.processa_engine import engine as bpmn_engine
 from one_bpmn.processa_engine.doctype.bpmn_process_instance import assignment
+from one_bpmn.processa_engine.runtime.active_tasks import sync_active_tasks
+from one_bpmn.processa_engine.runtime.engine_loop import run_engine
 
 _XML = """<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -107,10 +109,10 @@ class TestUserTaskAssignedToATable(FrappeTestCase):
 
 		wf = bpmn_engine.create_workflow(spec_dict, sp_specs, initial_data={})
 		with patch.object(frappe, "enqueue"):
-			instance._run_engine(wf)
+			run_engine(instance, wf)
 			# The controller's own start order: run, then publish the tasks the
 			# run stopped on. Assignment happens in the second step.
-			instance._sync_active_tasks(wf)
+			sync_active_tasks(instance, wf)
 
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		instance.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))

@@ -41,7 +41,7 @@ class TestDispatchObservability(FrappeTestCase):
 
 	def _run_dispatch(self, mock_result: ExecutorResult):
 		"""Run dispatch_ai_agent with a mocked executor."""
-		from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import dispatch_ai_agent
+		from one_bpmn.processa_engine.dispatch.ai_agent import dispatch_ai_agent
 
 		with patch(
 			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
@@ -128,7 +128,7 @@ class TestDispatchObservability(FrappeTestCase):
 
 	def test_log_error_still_called_on_error(self):
 		"""Backward compat: frappe.log_error is still called when the executor errors."""
-		from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import dispatch_ai_agent
+		from one_bpmn.processa_engine.dispatch.ai_agent import dispatch_ai_agent
 
 		result = ExecutorResult(
 			output=None,

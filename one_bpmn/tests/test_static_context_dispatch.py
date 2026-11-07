@@ -20,7 +20,7 @@ from one_bpmn.agents.executor import (
 	TokenUsage,
 	register_executor,
 )
-from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers as D
+from one_bpmn.processa_engine.dispatch import ai_agent as D
 
 _CAPTURED = {}
 
@@ -193,7 +193,7 @@ class TestLiveLogixShape(FrappeTestCase):
 		with patch(
 			"one_bpmn.agents.memory.tools.memory_search",
 			return_value=[{"content": "prefers frappe.sendmail"}],
-		), patch.object(D, "_enqueue_distill"):
+		), patch.object(frappe, "enqueue"):
 			D.dispatch_ai_agent(_instance(), _task(self.SHAPE), task_cfg, self.SHAPE)
 
 		config = _CAPTURED["config"]

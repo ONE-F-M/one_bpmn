@@ -8,6 +8,8 @@ import requests
 from frappe import _
 from frappe.utils import cstr
 
+from one_bpmn.processa_engine.dispatch.common import split_config
+
 FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging"
 FCM_URL = "https://fcm.googleapis.com/v1/projects/{}/messages:send"
 
@@ -95,10 +97,7 @@ def users_in(doc, path: str) -> list[str]:
 def users_from(value) -> list[str]:
 	"""Users for a comma-separated value of user ids or email addresses."""
 	users = []
-	for part in cstr(value).split(","):
-		part = part.strip()
-		if not part:
-			continue
+	for part in split_config(value):
 		user = part if frappe.db.exists("User", part) else frappe.db.get_value("User", {"email": part})
 		if user:
 			users.append(user)

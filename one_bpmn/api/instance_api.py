@@ -10,6 +10,7 @@ from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
 from frappe import _
 
 from one_bpmn.api.utils import _is_bpmn_super_user
+from one_bpmn.processa_engine.runtime import active_tasks as runtime_tasks, common as runtime_common
 from one_bpmn.utils.session import as_user
 
 
@@ -575,7 +576,7 @@ def complete_task(
 	# enqueues the resume job instead of running an engine pass here.
 	# WI-001933: the same shape for a question asked by a REMOTE agent — the
 	# answer goes back over A2A instead of onto a local checkpoint.
-	if task_id.startswith(instance.A2A_HUMAN_PREFIX):
+	if task_id.startswith(runtime_common.A2A_HUMAN_PREFIX):
 		instance.complete_a2a_human_task(task_id, parsed_data)
 		instance.reload()
 		return {
@@ -587,7 +588,7 @@ def complete_task(
 			"active_tasks": instance.get_active_tasks_summary(),
 		}
 
-	if task_id.startswith(instance.AI_HUMAN_PREFIX):
+	if task_id.startswith(runtime_common.AI_HUMAN_PREFIX):
 		instance.complete_ai_human_task(task_id, parsed_data)
 		instance.reload()
 		return {
@@ -677,7 +678,7 @@ def get_suspended_ai_tasks(instance_name: str) -> list:
 	labels = {
 		row.task_id: row.task_name
 		for row in instance.active_tasks
-		if str(row.task_id).startswith(instance.AI_HUMAN_PREFIX)
+		if str(row.task_id).startswith(runtime_common.AI_HUMAN_PREFIX)
 	}
 	return [
 		{
@@ -727,8 +728,7 @@ def retry_ai_task(instance_name: str, task_id: str, kind: str = "service_task") 
 	)
 
 	frappe.enqueue(
-		"one_bpmn.processa_engine.doctype.bpmn_process_instance"
-		".bpmn_process_instance.run_parked_ai_task",
+		"one_bpmn.processa_engine.runtime.ai_jobs.run_parked_ai_task",
 		queue="bpmn_ai_agent",
 		timeout=AI_AGENT_JOB_TIMEOUT,
 		enqueue_after_commit=True,
@@ -1044,8 +1044,8 @@ def get_active_bpmn_tasks(doctype: str, docname: str) -> list:
 					continue
 
 				# Resolve actions — handles both manual and frappe_workflow modes
-				actions_str = instance._resolve_task_actions(row)
-				actions_detail = instance._resolve_task_actions_detail(row)
+				actions_str = runtime_tasks.resolve_task_actions(row)
+				actions_detail = runtime_tasks.resolve_task_actions_detail(row)
 
 				result.append(
 					{

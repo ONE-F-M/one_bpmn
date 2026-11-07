@@ -24,7 +24,7 @@ from one_bpmn.one_bpmn.connectors.manifest import (
     parse_choices,
 )
 from one_bpmn.one_bpmn.connectors.seed import export_manifest, import_manifest, import_seed_manifests
-from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import dispatch_connector
+from one_bpmn.processa_engine.dispatch.connector import dispatch_connector
 
 # A literal public IP keeps the host allow-list check off DNS, so these tests do
 # not depend on name resolution.

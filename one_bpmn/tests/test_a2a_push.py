@@ -99,7 +99,7 @@ class TestPushCallbackGate(CallbackHarness):
 		task = make_outbound(remote, token="s3cret-token")
 		woken = MagicMock()
 		with patch(
-			"one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance._enqueue_a2a_resume",
+			"one_bpmn.processa_engine.runtime.ai_jobs.enqueue_wait_resume",
 			woken,
 		):
 			result = self.post_callback(
@@ -116,7 +116,7 @@ class TestPushCallbackGate(CallbackHarness):
 		task = make_outbound(remote, token="the-real-token")
 		woken = MagicMock()
 		with patch(
-			"one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance._enqueue_a2a_resume",
+			"one_bpmn.processa_engine.runtime.ai_jobs.enqueue_wait_resume",
 			woken,
 		):
 			result = self.post_callback(wire_task(state="completed", text="hijack"), "guessed")
@@ -164,7 +164,7 @@ class TestPushCallbackSemantics(CallbackHarness):
 		task = make_outbound(remote, token="tok", state="completed")
 		woken = MagicMock()
 		with patch(
-			"one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance._enqueue_a2a_resume",
+			"one_bpmn.processa_engine.runtime.ai_jobs.enqueue_wait_resume",
 			woken,
 		):
 			result = self.post_callback(wire_task(state="failed"), "tok")
@@ -178,7 +178,7 @@ class TestPushCallbackSemantics(CallbackHarness):
 		task = make_outbound(remote, token="tok")
 		woken = MagicMock()
 		with patch(
-			"one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance._enqueue_a2a_resume",
+			"one_bpmn.processa_engine.runtime.ai_jobs.enqueue_wait_resume",
 			woken,
 		):
 			self.post_callback(wire_task(state="failed"), "tok")
@@ -191,7 +191,7 @@ class TestPushCallbackSemantics(CallbackHarness):
 		task = make_outbound(remote, token="tok", instance="FAKE-INSTANCE")
 		asked = MagicMock()
 		instance = MagicMock()
-		instance._on_a2a_input_required = asked
+		self.enterContext(patch("one_bpmn.processa_engine.runtime.remote_waits.on_a2a_input_required", asked))
 		real_get_doc = frappe.get_doc
 
 		def fake_get_doc(*args, **kwargs):
@@ -404,7 +404,7 @@ class TestPollerWithPush(FrappeTestCase):
 			tasks_get=MagicMock(return_value=wire_task()),
 			tasks_cancel=MagicMock(),
 		), patch(
-			"one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance._enqueue_a2a_resume",
+			"one_bpmn.processa_engine.runtime.ai_jobs.enqueue_wait_resume",
 			MagicMock(),
 		):
 			scheduled_tasks.poll_a2a_tasks()

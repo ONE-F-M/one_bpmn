@@ -10,7 +10,7 @@ from unittest.mock import patch
 import frappe
 
 from one_bpmn import tasks
-from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import BPMNProcessInstance
+from one_bpmn.processa_engine.runtime.common import A2A_WAITING_KEY
 from one_bpmn.tests.test_ai_job_executor import JobHarness
 
 IS_ENQUEUED = "frappe.utils.background_jobs.is_job_enqueued"
@@ -99,7 +99,10 @@ class TestAStepThatIsLeftAlone(WatchdogCase):
 			self.assertEqual(self.run_watchdog(), [])
 
 	def test_one_waiting_for_a_delegated_agent(self):
-		with patch.object(BPMNProcessInstance, "_task_waiting_a2a", return_value={"a2a_task": "A2A-1"}):
+		with patch(
+			"one_bpmn.processa_engine.runtime.parked_ai.waiting_marker",
+			side_effect=lambda task, key: {"a2a_task": "A2A-1"} if key == A2A_WAITING_KEY else None,
+		):
 			self.assertEqual(self.run_watchdog(), [])
 
 	def test_an_instance_that_is_not_active(self):
