@@ -30,7 +30,7 @@ def _tool_message(conversation: str, metadata: dict, text: str = move_state.STAT
 		"message_type": "Tool",
 		"metadata": json.dumps(metadata),
 	})
-	with patch("frappe.enqueue"), patch("one_bpmn.one_bpmn.trigger.on_doc_event"):
+	with patch("frappe.enqueue"), patch("one_bpmn.processa_engine.triggers.on_doc_event"):
 		msg.insert()
 	return msg.name
 
@@ -43,7 +43,7 @@ class TestHistoryCleanupPatches(FrappeTestCase):
 		drop_conversations(self.made)
 
 	def _conversation(self, mode="Cleanup test"):
-		with patch("one_bpmn.one_bpmn.trigger.on_doc_event"):
+		with patch("one_bpmn.processa_engine.triggers.on_doc_event"):
 			name = create_conversation(agent_mode=mode, title=f"Cleanup {frappe.generate_hash(length=8)}", user="Administrator")
 		self.made.append(name)
 		return name
@@ -51,7 +51,7 @@ class TestHistoryCleanupPatches(FrappeTestCase):
 	def test_shadow_conversations_go_and_real_ones_stay(self):
 		shadow = self._conversation(mode=AGENT_MEMORY_MODE)
 		real = self._conversation(mode="Docu")
-		with patch("frappe.enqueue"), patch("one_bpmn.one_bpmn.trigger.on_doc_event"):
+		with patch("frappe.enqueue"), patch("one_bpmn.processa_engine.triggers.on_doc_event"):
 			save_user_message(shadow, "copy of a prompt")
 			save_user_message(real, "a real question")
 

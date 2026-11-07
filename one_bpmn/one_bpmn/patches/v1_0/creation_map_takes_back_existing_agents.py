@@ -114,7 +114,7 @@ def _server_script_of(xml: str, task_id: str) -> str:
 
 
 def _recompile(model: str) -> None:
-	from one_bpmn.api.compilation import compile_process_model
+	from one_bpmn.api.deploy import compile_process_model
 
 	try:
 		compile_process_model(model)

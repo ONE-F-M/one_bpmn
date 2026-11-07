@@ -7,7 +7,7 @@ import frappe
 from frappe.utils import now_datetime
 
 from one_bpmn.processa_engine import engine as bpmn_engine
-from one_bpmn.processa_engine.doctype.bpmn_process_instance.assignment import (
+from one_bpmn.processa_engine.assignment import (
 	add_frappe_assignment,
 	notify_task_assignee,
 	remove_frappe_assignment,
@@ -112,7 +112,7 @@ def close_human_row(instance, row, task_id: str, data: dict) -> None:
 
 def sync_call_activity_rows(instance, wf) -> None:
 	"""Keep a visible Process Instance row for each Call Activity this run makes. Call after workflow_state is set."""
-	from one_bpmn.processa_engine.doctype.bpmn_process_instance.call_activity_instances import (
+	from one_bpmn.processa_engine.call_activities import (
 		sync_call_activity_instances,
 	)
 

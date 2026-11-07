@@ -5,7 +5,8 @@ from __future__ import annotations
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api import compilation as comp
+from one_bpmn.processa_engine.compiler.ai_checks import validate_ai_max_tokens
+from one_bpmn.processa_engine.compiler.extensions import extract_service_task_config
 from one_bpmn.one_bpmn.patches.v1_0 import drop_non_positive_ai_max_tokens as patch
 
 MAP_XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -32,21 +33,21 @@ class TestCompileRefusesAMaxTokensBelowOne(FrappeTestCase):
 		for value in ("0", "", "-5", "abc", "1.5", "  "):
 			with self.subTest(value=value):
 				with self.assertRaises(frappe.ValidationError) as ctx:
-					comp._validate_ai_max_tokens(_task(value))
+					validate_ai_max_tokens(_task(value))
 				self.assertIn("Max tokens must be a positive number", str(ctx.exception))
 				self.assertIn("agent_task", str(ctx.exception))
 
 	def test_a_positive_value_or_no_value_passes(self):
-		comp._validate_ai_max_tokens(_task("4096"))
-		comp._validate_ai_max_tokens(_task(4096))
-		comp._validate_ai_max_tokens(_task())
+		validate_ai_max_tokens(_task("4096"))
+		validate_ai_max_tokens(_task(4096))
+		validate_ai_max_tokens(_task())
 
 	def test_only_ai_agent_tasks_are_checked(self):
-		comp._validate_ai_max_tokens(_task("0", service_type="script"))
+		validate_ai_max_tokens(_task("0", service_type="script"))
 
 	def test_the_check_runs_on_the_parsed_map(self):
 		with self.assertRaises(frappe.ValidationError):
-			comp._validate_ai_max_tokens(comp._extract_service_task_config(MAP_XML))
+			validate_ai_max_tokens(extract_service_task_config(MAP_XML))
 
 
 class TestExistingMapsAreCleared(FrappeTestCase):
@@ -61,7 +62,7 @@ class TestExistingMapsAreCleared(FrappeTestCase):
 
 	def test_a_cleaned_map_compiles_past_the_check(self):
 		cleaned, _ = patch.strip_non_positive_max_tokens(MAP_XML)
-		comp._validate_ai_max_tokens(comp._extract_service_task_config(cleaned))
+		validate_ai_max_tokens(extract_service_task_config(cleaned))
 
 	def test_a_second_pass_changes_nothing(self):
 		cleaned, _ = patch.strip_non_positive_max_tokens(MAP_XML)

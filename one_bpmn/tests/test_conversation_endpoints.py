@@ -1,4 +1,4 @@
-"""Tests for the AMP conversation endpoints in :mod:`one_bpmn.api.todo_actions`.
+"""Tests for the AMP conversation endpoints in :mod:`one_bpmn.api.email_actions`.
 
 Covers ``get_amp_thread``, ``post_amp_reply`` and ``post_amp_note`` with an
 HD Ticket as the context document (the only configuration tested), and the
@@ -36,7 +36,7 @@ _BOTH_ACTIONS = {"actions": [{"key": "reply", "label": "Reply"}, {"key": "note",
 
 
 def _mock_secret():
-	return patch("one_bpmn.utils.token._get_secret", return_value=_TEST_SECRET)
+	return patch("one_bpmn.processa_engine.notifications.token._get_secret", return_value=_TEST_SECRET)
 
 
 def _setup_request(method="POST"):
@@ -50,7 +50,7 @@ def _setup_request(method="POST"):
 
 def _token(kind: str = "reply", expiry_hours: int = 72) -> str:
 	with _mock_secret():
-		from one_bpmn.utils.token import generate_conversation_token
+		from one_bpmn.processa_engine.notifications.token import generate_conversation_token
 
 		return generate_conversation_token(_INSTANCE, _TASK_ID, _USER, kind, expiry_hours)
 
@@ -59,7 +59,7 @@ def _expired_token(kind: str = "reply") -> str:
 	import base64
 
 	with _mock_secret():
-		from one_bpmn.utils.token import _sign
+		from one_bpmn.processa_engine.notifications.token import _sign
 
 		payload = {
 			"expires": int(time.time()) - 3600,
@@ -80,7 +80,7 @@ def _raw(fn):
 
 class TestConversationToken(FrappeTestCase):
 	def test_payload_carries_type_and_no_action(self):
-		from one_bpmn.utils.token import verify_action_token
+		from one_bpmn.processa_engine.notifications.token import verify_action_token
 
 		for kind in ("thread", "reply", "note"):
 			with _mock_secret():
@@ -92,7 +92,7 @@ class TestConversationToken(FrappeTestCase):
 			self.assertNotIn("action", payload)
 
 	def test_unknown_kind_refused(self):
-		from one_bpmn.utils.token import generate_conversation_token
+		from one_bpmn.processa_engine.notifications.token import generate_conversation_token
 
 		with _mock_secret():
 			with self.assertRaises(ValueError):
@@ -102,7 +102,7 @@ class TestConversationToken(FrappeTestCase):
 class TestConversationTokenRefusedByActionEndpoint(FrappeTestCase):
 	def test_conversation_token_refused_by_handle_amp_action(self):
 		"""AC9: a reply token can never complete the task with an action."""
-		from one_bpmn.api.todo_actions import handle_amp_action
+		from one_bpmn.api.email_actions import handle_amp_action
 
 		for kind in ("thread", "reply", "note"):
 			_setup_request()
@@ -113,7 +113,7 @@ class TestConversationTokenRefusedByActionEndpoint(FrappeTestCase):
 			mock_ct.assert_not_called()
 
 	def test_post_endpoints_are_rate_limited(self):
-		from one_bpmn.api.todo_actions import post_amp_note, post_amp_reply
+		from one_bpmn.api.email_actions import post_amp_note, post_amp_reply
 
 		for fn in (post_amp_reply, post_amp_note):
 			self.assertTrue(hasattr(fn, "__wrapped__"), f"{fn.__name__} has no rate limiter")
@@ -195,11 +195,11 @@ class TestConversationEndpoints(FrappeTestCase):
 			stack.enter_context(_mock_secret())
 			stack.enter_context(patch.object(frappe, "set_user"))
 			stack.enter_context(
-				patch("one_bpmn.api.todo_actions._get_instance_context", return_value=self._instance(conv))
+				patch("one_bpmn.processa_engine.notifications.actions._get_instance_context", return_value=self._instance(conv))
 			)
-			stack.enter_context(patch("one_bpmn.api.todo_actions._is_helpdesk_agent", return_value=agent))
+			stack.enter_context(patch("one_bpmn.processa_engine.notifications.actions._is_helpdesk_agent", return_value=agent))
 			stack.enter_context(
-				patch("one_bpmn.api.todo_actions._handled_by_message", return_value=handled)
+				patch("one_bpmn.processa_engine.notifications.actions._handled_by_message", return_value=handled)
 			)
 			# The sandbox has no outgoing email account; the Communication is still
 			# created, only the actual send is stubbed.
@@ -242,7 +242,7 @@ class TestConversationEndpoints(FrappeTestCase):
 	# -- thread (AC1) -----------------------------------------------------
 
 	def test_thread_without_notes(self):
-		from one_bpmn.api.todo_actions import get_amp_thread
+		from one_bpmn.api.email_actions import get_amp_thread
 
 		self._add_communication()
 		self._add_comment()
@@ -258,7 +258,7 @@ class TestConversationEndpoints(FrappeTestCase):
 		self.assertIn("Access-Control-Expose-Headers", frappe.flags._amp_extra_headers)
 
 	def test_thread_with_notes_oldest_first(self):
-		from one_bpmn.api.todo_actions import get_amp_thread
+		from one_bpmn.api.email_actions import get_amp_thread
 
 		self._add_communication()
 		self._add_comment("Internal only")
@@ -272,7 +272,7 @@ class TestConversationEndpoints(FrappeTestCase):
 		self.assertTrue(items[-1]["is_note"])
 
 	def test_thread_limited_to_latest_ten(self):
-		from one_bpmn.api.todo_actions import get_amp_thread
+		from one_bpmn.api.email_actions import get_amp_thread
 
 		for i in range(12):
 			self._add_communication(f"<p>Message {i}</p>")
@@ -287,7 +287,7 @@ class TestConversationEndpoints(FrappeTestCase):
 	# -- reply (AC2, AC4) -------------------------------------------------
 
 	def test_reply_creates_communication(self):
-		from one_bpmn.api.todo_actions import post_amp_reply
+		from one_bpmn.api.email_actions import post_amp_reply
 
 		self._add_communication()
 		before = self._communications()
@@ -300,7 +300,7 @@ class TestConversationEndpoints(FrappeTestCase):
 		mock_ct.assert_not_called()
 
 	def test_reply_is_addressed_to_the_customer(self):
-		from one_bpmn.api.todo_actions import post_amp_reply
+		from one_bpmn.api.email_actions import post_amp_reply
 
 		self._add_communication()
 		result, _ = self._call(post_amp_reply, _token("reply"), "We are on it.", conv={})
@@ -314,7 +314,7 @@ class TestConversationEndpoints(FrappeTestCase):
 		self.assertEqual(recipients, "customer@example.com")
 
 	def test_reply_never_completes_the_task(self):
-		from one_bpmn.api.todo_actions import post_amp_reply
+		from one_bpmn.api.email_actions import post_amp_reply
 
 		self._add_communication()
 		conv = {"actions": [{"key": "reply", "completesWith": "Resolve"}]}
@@ -327,7 +327,7 @@ class TestConversationEndpoints(FrappeTestCase):
 	# -- note (AC3, AC4) --------------------------------------------------
 
 	def test_note_creates_ticket_comment(self):
-		from one_bpmn.api.todo_actions import post_amp_note
+		from one_bpmn.api.email_actions import post_amp_note
 
 		before = self._comments()
 		result, mock_ct = self._call(post_amp_note, _token("note"), "Called the customer.", conv={})
@@ -337,7 +337,7 @@ class TestConversationEndpoints(FrappeTestCase):
 		mock_ct.assert_not_called()
 
 	def test_note_never_completes_the_task(self):
-		from one_bpmn.api.todo_actions import post_amp_note
+		from one_bpmn.api.email_actions import post_amp_note
 
 		conv = json.dumps({"actions": [{"key": "note", "completesWith": "Reviewed"}]})  # JSON string form
 		result, mock_ct = self._call(post_amp_note, _token("note"), "Done.", conv=conv)
@@ -348,7 +348,7 @@ class TestConversationEndpoints(FrappeTestCase):
 	# -- refusals (AC5-AC8) -----------------------------------------------
 
 	def test_empty_text_is_400_and_creates_nothing(self):
-		from one_bpmn.api.todo_actions import post_amp_note, post_amp_reply
+		from one_bpmn.api.email_actions import post_amp_note, post_amp_reply
 
 		comms, comments = self._communications(), self._comments()
 		for fn, kind in ((post_amp_reply, "reply"), (post_amp_note, "note")):
@@ -360,7 +360,7 @@ class TestConversationEndpoints(FrappeTestCase):
 		self.assertEqual(self._comments(), comments)
 
 	def test_expired_token_is_403_and_creates_nothing(self):
-		from one_bpmn.api.todo_actions import post_amp_reply
+		from one_bpmn.api.email_actions import post_amp_reply
 
 		comms = self._communications()
 		result, mock_ct = self._call(post_amp_reply, _expired_token("reply"), "Hello")
@@ -371,7 +371,7 @@ class TestConversationEndpoints(FrappeTestCase):
 		mock_ct.assert_not_called()
 
 	def test_tampered_token_is_403(self):
-		from one_bpmn.api.todo_actions import post_amp_note
+		from one_bpmn.api.email_actions import post_amp_note
 
 		comments = self._comments()
 		result, _ = self._call(post_amp_note, "tampered.XXXX", "Hello")
@@ -380,7 +380,7 @@ class TestConversationEndpoints(FrappeTestCase):
 		self.assertEqual(self._comments(), comments)
 
 	def test_token_of_wrong_kind_is_403(self):
-		from one_bpmn.api.todo_actions import get_amp_thread, post_amp_note
+		from one_bpmn.api.email_actions import get_amp_thread, post_amp_note
 
 		comments = self._comments()
 		result, _ = self._call(post_amp_note, _token("reply"), "Hello")
@@ -391,7 +391,7 @@ class TestConversationEndpoints(FrappeTestCase):
 		self.assertEqual(self._status(), 403)
 
 	def test_non_agent_is_403_and_creates_nothing(self):
-		from one_bpmn.api.todo_actions import post_amp_note, post_amp_reply
+		from one_bpmn.api.email_actions import post_amp_note, post_amp_reply
 
 		comms, comments = self._communications(), self._comments()
 		for fn, kind in ((post_amp_reply, "reply"), (post_amp_note, "note")):
@@ -403,7 +403,7 @@ class TestConversationEndpoints(FrappeTestCase):
 		self.assertEqual(self._comments(), comments)
 
 	def test_task_not_waiting_says_who_handled_it(self):
-		from one_bpmn.api.todo_actions import post_amp_note, post_amp_reply
+		from one_bpmn.api.email_actions import post_amp_note, post_amp_reply
 
 		comms, comments = self._communications(), self._comments()
 		for fn, kind in ((post_amp_reply, "reply"), (post_amp_note, "note")):
@@ -416,7 +416,7 @@ class TestConversationEndpoints(FrappeTestCase):
 		self.assertEqual(self._comments(), comments)
 
 	def test_handled_by_message_reads_the_active_task_row(self):
-		from one_bpmn.api.todo_actions import _handled_by_message
+		from one_bpmn.processa_engine.notifications.actions import _handled_by_message
 
 		with patch.object(frappe.db, "get_value") as gv:
 			gv.return_value = frappe._dict(status="Waiting", assigned_user="Administrator")
@@ -455,14 +455,14 @@ class TestConversationOnOtherDocTypes(FrappeTestCase):
 		with ExitStack() as stack:
 			stack.enter_context(_mock_secret())
 			stack.enter_context(patch.object(frappe, "set_user"))
-			stack.enter_context(patch("one_bpmn.api.todo_actions._get_instance_context", return_value=instance))
-			stack.enter_context(patch("one_bpmn.api.todo_actions._handled_by_message", return_value=None))
+			stack.enter_context(patch("one_bpmn.processa_engine.notifications.actions._get_instance_context", return_value=instance))
+			stack.enter_context(patch("one_bpmn.processa_engine.notifications.actions._handled_by_message", return_value=None))
 			stack.enter_context(patch.object(frappe, "sendmail"))
 			stack.enter_context(patch("one_bpmn.api.instance_api.complete_task"))
 			return _raw(fn)(**kwargs)
 
 	def test_a_note_is_a_comment_on_the_issue_and_shows_in_the_thread(self):
-		from one_bpmn.api.todo_actions import get_amp_thread, post_amp_note
+		from one_bpmn.api.email_actions import get_amp_thread, post_amp_note
 
 		result = self._call(post_amp_note, _token("note"), "Checked the site.")
 

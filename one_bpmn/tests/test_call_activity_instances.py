@@ -20,7 +20,7 @@ from types import SimpleNamespace
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.processa_engine.doctype.bpmn_process_instance import call_activity_instances as CAI
+from one_bpmn.processa_engine import call_activities as CAI
 
 SPEC = {
 	"name": "called_proc",

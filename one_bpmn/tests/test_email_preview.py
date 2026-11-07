@@ -98,9 +98,9 @@ class TestEmailPreview(FrappeTestCase):
 	def test_nothing_is_sent_and_no_token_is_made(self):
 		queued = frappe.db.count("Email Queue")
 		with (
-			patch("one_bpmn.utils.token.generate_status_token") as status_token,
-			patch("one_bpmn.email_builder.fields.generate_file_token") as file_token,
-			patch("one_bpmn.utils.token.generate_action_token") as action_token,
+			patch("one_bpmn.processa_engine.notifications.token.generate_status_token") as status_token,
+			patch("one_bpmn.processa_engine.notifications.fields.generate_file_token") as file_token,
+			patch("one_bpmn.processa_engine.notifications.token.generate_action_token") as action_token,
 			patch.object(frappe, "sendmail") as sendmail,
 		):
 			result = self._preview(NOTICE)
@@ -163,9 +163,9 @@ class TestTaskEmailPreview(FrappeTestCase):
 
 	def test_the_card_is_rendered_for_the_latest_record_with_links_and_no_token(self):
 		with (
-			patch("one_bpmn.utils.token.generate_action_token") as action_token,
-			patch("one_bpmn.utils.token.generate_status_token") as status_token,
-			patch("one_bpmn.email_builder.fields.generate_file_token") as file_token,
+			patch("one_bpmn.processa_engine.notifications.token.generate_action_token") as action_token,
+			patch("one_bpmn.processa_engine.notifications.token.generate_status_token") as status_token,
+			patch("one_bpmn.processa_engine.notifications.fields.generate_file_token") as file_token,
 			patch.object(frappe, "sendmail") as sendmail,
 		):
 			result = self._preview(

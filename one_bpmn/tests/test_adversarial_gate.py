@@ -485,7 +485,7 @@ class TestReReviewGoesThroughTheGate(FrappeTestCase):
 		from one_bpmn.agents import agent_provisioning as AP
 
 		doc = self._agent()
-		with patch("one_bpmn.one_bpmn.trigger._maybe_send_message"), patch(
+		with patch("one_bpmn.processa_engine.triggers._maybe_send_message"), patch(
 			"one_bpmn.agents.agent_config_resolver.get_creation_process_model",
 			return_value="Some Creation Map",
 		), patch(

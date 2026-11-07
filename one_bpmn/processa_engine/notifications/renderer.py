@@ -1,28 +1,7 @@
-"""AMP + HTML-fallback renderer for One BPMN task emails.
+"""Render the task emails: render_amp gives the AMP4Email document, render_html_fallback the HTML body fragment.
 
-Public API
-----------
-render_amp(task_content: dict) -> str
-	AMP4Email document (unbranded, must pass AMP validation).
-
-render_html_fallback(task_content: dict) -> str
-	HTML body fragment (no logo, subject header or confidentiality notice).
-
-task_content dict shape
-~~~~~~~~~~~~~~~~~~~~~~~
-::
-
-	{
-		"subject": str,
-		"body": str,                # raw HTML from the task
-		"actions": [                # optional
-			{"label": str, "url": str, "primary": bool},
-		],
-		"open_link": str,           # "Open in ERPNext" URL
-		"comment": bool,            # optional — forces comment variant
-		"doctype": str,             # for the form / fallback links
-		"name": str,
-	}
+task_content has subject, body (raw HTML), actions ({label, url, primary} dicts), open_link, doctype, name,
+and an optional comment flag that forces the comment variant.
 """
 
 from __future__ import annotations
@@ -32,7 +11,7 @@ import re
 import frappe
 from markupsafe import Markup
 
-from one_bpmn.email_builder.sanitizer import sanitize_for_amp_with_css
+from one_bpmn.processa_engine.notifications.sanitizer import sanitize_for_amp_with_css
 
 # AMP for Email allows at most 75,000 bytes in the style amp-custom block.
 AMP_CUSTOM_CSS_MAX_BYTES = 75_000
@@ -54,29 +33,11 @@ CONFIDENTIALITY_NOTICE = (
 _AMP_CUSTOM_RE = re.compile(r"<style amp-custom>(.*?)</style>", re.IGNORECASE | re.DOTALL)
 
 
-# ---------------------------------------------------------------------------
-# AMP Renderer
-# ---------------------------------------------------------------------------
-
 
 def render_amp(task_content: dict) -> str:
-	"""Return a complete AMP4Email document.
+	"""The amp_shell.html AMP4Email document around the sanitised body and actions.
 
-	Steps:
-
-	1. Sanitise ``task_content["body"]`` for AMP.
-	2. Wrap the sanitised body in ``Markup`` so Jinja does not
-	   double-escape it (the sanitiser guarantees safety).
-	3. Render ``one_bpmn/templates/emails/amp_shell.html``
-	   with the sanitised body + actions.
-
-	Args:
-		task_content: See module docstring for the expected shape.
-
-	Returns:
-		A complete, valid AMP4Email HTML string, or an empty string when the
-		style amp-custom block is over 75,000 bytes; the email is then sent
-		with the HTML part only.
+	Empty when the style amp-custom block is over 75,000 bytes; the email then goes with the HTML part only.
 	"""
 	ctx = _build_context(task_content, for_amp=True)
 	template = _get_template("one_bpmn/templates/emails/amp_shell.html")
@@ -98,32 +59,16 @@ def render_amp(task_content: dict) -> str:
 	return html
 
 
-# ---------------------------------------------------------------------------
-# HTML Fallback Renderer
-# ---------------------------------------------------------------------------
-
 
 def render_html_fallback(task_content: dict) -> str:
-	"""Return the HTML fallback as a body fragment.
+	"""The HTML fallback body fragment: body, actions, open link and signature.
 
-	The fragment has no html, head or body tags, no logo, no subject
-	header and no confidentiality notice: composer._send_email wraps it in
-	bpmn_email.html, which prints those once.
-
-	Args:
-		task_content: See module docstring for the expected shape.
-
-	Returns:
-		An HTML fragment with the body, actions, open link and signature.
+	It has no logo, subject header or confidentiality notice; composer.send_email wraps it in bpmn_email.html.
 	"""
 	ctx = _build_context(task_content, for_amp=False)
 	template = _get_template("one_bpmn/templates/emails/html_fallback.html")
 	return template.render(ctx)
 
-
-# ---------------------------------------------------------------------------
-# Layout renderers
-# ---------------------------------------------------------------------------
 
 
 def render_layout_amp(ctx: dict) -> str:
@@ -148,7 +93,7 @@ def render_layout_preview(ctx: dict, lang: str) -> str:
 
 
 def _layout_context(ctx: dict, *, is_amp: bool) -> dict:
-	from one_bpmn.email_builder.composer import EMAIL_LOGO
+	from one_bpmn.processa_engine.notifications.composer import EMAIL_LOGO
 
 	layout = ctx.get("layout")
 	if layout not in LAYOUT_TEMPLATES:
@@ -184,24 +129,9 @@ def _break_mustache(value):
 	return value
 
 
-# ---------------------------------------------------------------------------
-# Shared helpers
-# ---------------------------------------------------------------------------
-
 
 def _get_template(template_path: str):
-	"""Load a Jinja template from the Frappe template search path.
-
-	Args:
-		template_path: Dotted-path relative to the Frappe app, e.g.
-			``"one_bpmn/templates/emails/amp_shell.html"``.
-
-	Returns:
-		A Jinja2 ``Template`` object.
-
-	Raises:
-		FileNotFoundError: If the template cannot be found.
-	"""
+	"""The Jinja template at an app-relative path from Frappe's search path; FileNotFoundError when missing."""
 	from frappe.utils.jinja import get_jenv
 
 	env = get_jenv()
@@ -215,50 +145,34 @@ def _get_template(template_path: str):
 
 
 def _build_context(task_content: dict, *, for_amp: bool) -> dict:
-	"""Prepare a Jinja context dict from *task_content*.
-
-	Args:
-		task_content: See module docstring for the expected shape.
-		for_amp: If True the body is sanitised with
-			:func:`sanitize_for_amp` and wrapped in ``Markup``.
-
-	Returns:
-		A dict ready to pass to ``template.render()``.
-	"""
+	"""The Jinja context for task_content; for_amp sanitises the body and wraps it in Markup."""
 	body = task_content.get("body", "")
 	actions = task_content.get("actions") or []
 	open_link = task_content.get("open_link", "")
 
-	# Determine variant
 	has_actions = bool(actions)
 
-	# A "comment" variant is triggered when:
-	#   - task_content explicitly sets comment=True, OR
-	#   - there is exactly 1 action whose label starts with "reply"
+	# Comment variant: comment=True, or a single action whose label starts with "reply"
 	is_comment = task_content.get("comment", False) or (
 		len(actions) == 1
 		and (actions[0].get("label") or "").lower().startswith("reply")
 	)
 
-	# Strip Frappe's built-in workflow action buttons from the body
-	# to avoid duplication — we render our own AMP/HTML action buttons.
-	from one_bpmn.email_builder.sanitizer import _WORKFLOW_BTN_RE
-	body = _WORKFLOW_BTN_RE.sub("", body)
+	# Frappe's own workflow buttons are stripped; the email renders its own
+	from one_bpmn.processa_engine.notifications.sanitizer import WORKFLOW_BTN_RE
+	body = WORKFLOW_BTN_RE.sub("", body)
 
 	custom_css = ""
 	if for_amp:
 		clean_body, custom_css = sanitize_for_amp_with_css(body)
 		body = Markup(clean_body)
 
-	# Check if any action has a token (for AMP form rendering)
 	has_token_actions = any(a.get("token") for a in actions)
 
-	# Build status URL for amp-list (AMP only)
 	status_url = ""
 	if for_amp and has_token_actions:
-		# Find instance_name and task_id from the first token action
 		try:
-			from one_bpmn.utils.token import generate_status_token, verify_action_token
+			from one_bpmn.processa_engine.notifications.token import generate_status_token, verify_action_token
 
 			first_token = next((a["token"] for a in actions if a.get("token")), None)
 			if first_token:
@@ -268,16 +182,13 @@ def _build_context(task_content: dict, *, for_amp: bool) -> dict:
 				)
 				site_url = frappe.utils.get_url()
 				status_url = (
-					f"{site_url}/api/method/one_bpmn.api.todo_actions"
+					f"{site_url}/api/method/one_bpmn.api.email_actions"
 					f".get_amp_task_status?status_token={status_token}"
 				)
 		except Exception:
-			pass  # Non-fatal — buttons still work without live status
+			pass  # The buttons work without the live status
 
-	# Actions with `extra_fields` (e.g. date inputs) need their own <form> —
-	# AMP forms validate all their fields as one atomic unit, so a required
-	# field on one action would block submitting a plain token action if
-	# they shared a form.
+	# AMP validates a form as one unit, so actions with extra_fields get their own form
 	simple_actions = [a for a in actions if not a.get("extra_fields")]
 	complex_actions = [a for a in actions if a.get("extra_fields")]
 

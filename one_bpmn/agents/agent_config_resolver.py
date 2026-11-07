@@ -1153,7 +1153,7 @@ def _start_reprovision(config_name: str) -> bool:
 def _start_condition_rejects(creation_model: str, config_name: str) -> str:
 	"""The map's conditional start expression when it is False for this agent, else ""."""
 	from one_bpmn.processa_engine.engine import json_safe_doc_fields
-	from one_bpmn.one_bpmn.trigger import _get_conditional_start_condition
+	from one_bpmn.processa_engine.triggers import _get_conditional_start_condition
 
 	condition = _get_conditional_start_condition(
 		frappe.db.get_value("BPMN Process Model", creation_model, "bpmn_xml")

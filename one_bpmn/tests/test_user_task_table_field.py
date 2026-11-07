@@ -18,9 +18,9 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.compilation import _extract_user_task_config
+from one_bpmn.processa_engine.compiler.extensions import extract_user_task_config
 from one_bpmn.processa_engine import engine as bpmn_engine
-from one_bpmn.processa_engine.doctype.bpmn_process_instance import assignment
+from one_bpmn.processa_engine import assignment
 from one_bpmn.processa_engine.runtime.active_tasks import sync_active_tasks
 from one_bpmn.processa_engine.runtime.engine_loop import run_engine
 
@@ -90,7 +90,7 @@ class TestUserTaskAssignedToATable(FrappeTestCase):
 
 	def _start(self):
 		"""Run the flow up to the User Task and persist the instance."""
-		extensions = _extract_user_task_config(_XML)
+		extensions = extract_user_task_config(_XML)
 		spec_dict, sp_specs = bpmn_engine.parse_bpmn(_XML, "proc_table_field")
 
 		instance = frappe.get_doc({
@@ -152,7 +152,7 @@ class TestUserTaskAssignedToATable(FrappeTestCase):
 	def test_everyone_in_the_table_is_notified(self):
 		"""Notify Assignee is a per-task opt-in, and the task belongs to all of
 		them — so each member gets their own email, not just whoever is first."""
-		with patch("one_bpmn.email_builder.composer.frappe.sendmail") as sendmail:
+		with patch("one_bpmn.processa_engine.notifications.composer.frappe.sendmail") as sendmail:
 			self._start()
 
 		recipients = {

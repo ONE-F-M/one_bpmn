@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.email_builder.sanitizer import sanitize_for_amp, sanitize_for_amp_with_css
+from one_bpmn.processa_engine.notifications.sanitizer import sanitize_for_amp, sanitize_for_amp_with_css
 
 
 class TestSanitizeForAmp(FrappeTestCase):

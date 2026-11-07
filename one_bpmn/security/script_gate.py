@@ -27,7 +27,7 @@ SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
 def _looks_like_python(text: str) -> bool:
 	"""Heuristic: is ``text`` inline Python rather than a Server Script name?
 
-	Mirrors the compile-time heuristic in ``api.compilation._extract_script_task_config``
+	Mirrors the compile-time heuristic in ``compiler.extensions.extract_script_task_config``
 	so the two agree on which script tasks carry inline code.
 	"""
 	if not text:

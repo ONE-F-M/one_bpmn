@@ -324,7 +324,7 @@ class TestBpmnMapResumeRearm(FrappeTestCase):
 		config = {"agent_id": "x", "name": "X", "process_model": "X — Chat"}
 		with (
 			patch("one_bpmn.api.server_script_api.delegate_chat_turn", side_effect=fake_delegate),
-			patch("one_bpmn.one_bpmn.trigger._maybe_start_instance", side_effect=rearm) as spawn,
+			patch("one_bpmn.processa_engine.triggers._maybe_start_instance", side_effect=rearm) as spawn,
 			patch("frappe.get_doc", return_value=object()),
 			patch("frappe.log_error"),
 		):

@@ -8,7 +8,7 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.compilation import compile_process_model
+from one_bpmn.api.deploy import compile_process_model
 
 MODEL = "WI Retry Wait"
 PROCESS_ID = "wi_retry_wait_process"

@@ -1,10 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
-# BPMN Process Instance — assignment resolution + Frappe ToDo management
-#
-# Standalone functions extracted from the BPMNProcessInstance controller.
-# Each receives the controller document as ``instance`` and reads only simple
-# attributes from it (context_doctype, context_docname, name, process_model,
-# _user_task_extensions).  Invoked from runtime.active_tasks ``sync_active_tasks``.
+"""Resolve task assignees and manage Frappe ToDos for BPMN user tasks."""
+
+import json
 
 import frappe
 from frappe import _
@@ -14,47 +11,25 @@ from one_bpmn.processa_engine.dispatch.common import split_config
 
 
 def split_users(value: str) -> list:
-	"""
-	Split a possibly comma-separated ``assigned_user`` value into individual
-	user names, trimmed and de-duplicated (order preserved).
-
-	``assigned_user`` is normally a single user, but "Table Field" mode
-	(multi-assignee) stores a comma-joined list — every caller that treats
-	``assigned_user`` as a set of members (permission checks, ToDo sync)
-	must go through this instead of comparing/splitting ad hoc.
-	"""
+	"""Split a comma-separated ``assigned_user`` into trimmed, unique user names in order.
+	Table Field mode stores several users comma-joined, so read ``assigned_user`` as a set only through this."""
 	return list(dict.fromkeys(split_config(value)))
 
 
-def _decode_html_attr(value: str) -> str:
-	"""Decode a base64-encoded HTML attribute back to its original HTML.
-
-	The BPMN editor stores HTML content (notifyAssigneeBody, emailBody) as
-	base64 in XML attributes to prevent XML parse failures from raw HTML
-	tags like ``<p>``.  This helper decodes them at runtime.
-
-	Gracefully handles legacy values that were stored as raw HTML.
-	"""
+def decode_html_attr(value: str) -> str:
+	"""Decode a base64 HTML attribute written by the BPMN editor; a value that is not base64 is returned as is."""
 	if not value:
 		return ""
 	import base64
 	try:
 		return base64.b64decode(value).decode("utf-8")
 	except Exception:
-		# Not valid base64 — assume legacy raw HTML
 		return value
 
 
 def get_reliever_if_on_leave(user: str, pairs: list = None) -> str:
-	"""
-	If *user* is on approved leave today, return the reliever's User ID
-	from the Leave Application (``reliever_user_id``).  Falls back to the
-	original *user* when no active approved leave exists or no reliever is set.
-
-	``pairs`` collects every (relieved, reliever) redirect this resolution
-	made, so the row can record whose task it originally was — without that,
-	nothing remembers the owner and the task stays with the reliever forever.
-	"""
+	"""Return the reliever on *user*'s approved leave covering today, else *user*.
+	Each redirect is appended to *pairs* as (relieved, reliever) so the row records the original owner."""
 	if not user:
 		return user
 
@@ -111,62 +86,22 @@ def task_actors(row) -> set:
 
 
 def resolve_assignment(instance, task) -> str:
-	"""
-	Determine which user should be assigned to a UserTask based on the
-	``user_task_extensions`` embedded in the serialized spec at compile time.
-
-	Supported ``assigneeMode`` values:
-
-	    User
-	        A specific user is hard-coded in the diagram (``assigneeUser``).
-
-	    DocField
-	        The assignee is read from a Link/Data field on the context document
-	        (``targetDoctype`` + ``assigneeDocfield``).
-
-	    Round Robin
-	        Cycles through ``assigneeUsers`` (comma-separated) in order.
-	        State (next_idx + last_user) is persisted on the Process Model
-	        so the rotation continues across all instances of the same model.
-	        After each assignment the BPMN XML is patched to show
-	        ``spiffworkflow:roundRobinLastUser`` in the editor.
-
-	    Load Balancing
-	        Assigns to the user in ``assigneeUsers`` with the fewest open
-	        BPMN Process Instance active tasks.  Ties are broken by list order.
-
-	    Table Field
-	        Reads every row of a Table MultiSelect field on the context
-	        document (``assigneeTableField``) and pulls a user out of each
-	        row via ``assigneeTableUserField`` (e.g. Task.custom_assigned_to,
-	        row field "user"). Any one of the resolved users may complete
-	        the task. Returned as a comma-joined string — callers that treat
-	        an assignment as a single user must go through ``split_users()``.
-
-	For all modes, if the resolved assignee is on approved leave today the
-	task is redirected to the reliever named in their Leave Application, and
-	the (relieved, reliever) pair is left on ``instance._relief_pairs`` for the
-	caller to record on the row.
-
-	Returns the resolved user email/name (or comma-joined list for Table
-	Field mode), or empty string if unresolvable.
-	"""
+	"""Resolve a UserTask's assignee by ``assigneeMode``: User, DocField, Round Robin, Load Balancing or Table Field.
+	Table Field returns a comma-joined list; an assignee on leave today is swapped for their reliever.
+	Relief pairs are left on ``instance._relief_pairs``; returns "" when unresolvable."""
 	extensions = getattr(instance, "_user_task_extensions", {})
 	bpmn_id = getattr(task.task_spec, "bpmn_id", None) or ""
 	task_cfg = extensions.get(bpmn_id, {})
 
-	# Reset per resolution: the caller reads it straight after to fill the row's
-	# Relieved User / Reliever User, and a stale list would mislabel the next task.
+	# Reset per call: the caller reads it next to fill the row's relief fields.
 	pairs = []
 	instance._relief_pairs = pairs
 
 	mode = task_cfg.get("assigneeMode", "")
 
-	# ── User ──────────────────────────────────────────────────────────────
 	if mode == "User":
 		return get_reliever_if_on_leave(task_cfg.get("assigneeUser", ""), pairs)
 
-	# ── DocField ──────────────────────────────────────────────────────────
 	if mode == "DocField":
 		doctype = task_cfg.get("targetDoctype") or instance.context_doctype
 		docfield = task_cfg.get("assigneeDocfield", "")
@@ -178,7 +113,7 @@ def resolve_assignment(instance, task) -> str:
 				return ""
 		return ""
 
-	# ── Round Robin ────────────────────────────────────────────────────────
+	# Rotation state lives on the Process Model so it continues across instances.
 	if mode == "Round Robin":
 		users = split_config(task_cfg.get("assigneeUsers"))
 		if not users:
@@ -193,17 +128,14 @@ def resolve_assignment(instance, task) -> str:
 			assignee = users[next_idx % len(users)]
 			next_idx += 1
 
-			# Persist updated state + patch BPMN XML (non-blocking: log on fail)
 			task_state["next_idx"] = next_idx
 			task_state["last_user"] = assignee
 			rr_state[bpmn_id] = task_state
 			model.round_robin_state = frappe.as_json(rr_state)
-			model.save(ignore_permissions=True)
+			model.save(ignore_permissions=True)  # engine writes round-robin state on the model
 
-			# Best-effort: patch the BPMN XML attribute for editor visibility
+			# Best-effort patch of roundRobinLastUser in the BPMN XML for the editor.
 			try:
-				from one_bpmn.api.compilation import _update_round_robin_in_model
-
 				_update_round_robin_in_model(instance.process_model, bpmn_id, assignee)
 			except Exception:
 				pass
@@ -216,22 +148,14 @@ def resolve_assignment(instance, task) -> str:
 			)
 			return get_reliever_if_on_leave(users[0], pairs) if users else ""
 
-	# ── Load Balancing ─────────────────────────────────────────────────────
-	# Correct logic (per spec):
-	#   1. Among ALL running Process Instances, find those where THIS SAME
-	#      User Task is currently an active (Waiting) task.
-	#   2. For each candidate user, count how many of those task slots
-	#      they are already assigned to.
-	#   3. Assign to the user with the fewest such assignments.
-	#   4. Ties → first user in the configured list wins.
+	# Fewest Waiting rows of this same task across all instances wins; ties go to list order.
 	if mode == "Load Balancing":
 		users = split_config(task_cfg.get("assigneeUsers"))
 		if not users:
 			return ""
 
 		try:
-			# Use the BPMN task display name to identify the same task
-			# across different process instances of this model.
+			# The display name identifies the same task across instances of this model.
 			task_name = bpmn_engine.get_task_display_name(task)
 
 			loads = {}
@@ -240,12 +164,11 @@ def resolve_assignment(instance, task) -> str:
 					"BPMN Active Task",
 					filters={
 						"assigned_user": user,
-						"task_name": task_name,  # ← this task only
+						"task_name": task_name,
 						"status": "Waiting",
 					},
 				)
 
-			# User with fewest active assignments wins; ties → first in list
 			minimum = min(loads.values())
 			assignee = next(u for u in users if loads[u] == minimum)
 			return get_reliever_if_on_leave(assignee, pairs)
@@ -257,7 +180,6 @@ def resolve_assignment(instance, task) -> str:
 			)
 			return get_reliever_if_on_leave(users[0], pairs) if users else ""
 
-	# ── Table Field ────────────────────────────────────────────────────────
 	if mode == "Table Field":
 		doctype = task_cfg.get("targetDoctype") or instance.context_doctype
 		table_field = task_cfg.get("assigneeTableField", "")
@@ -285,31 +207,51 @@ def resolve_assignment(instance, task) -> str:
 	return ""
 
 
+def _update_round_robin_in_model(model_name: str, task_bpmn_id: str, last_user: str) -> None:
+	"""Record the last round-robin assignee on the model's state and on the User Task in its XML."""
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+
+	try:
+		model = frappe.get_doc("BPMN Process Model", model_name)
+		state = json.loads(model.round_robin_state or "{}")
+		if task_bpmn_id not in state:
+			state[task_bpmn_id] = {"next_idx": 0, "last_user": ""}
+		state[task_bpmn_id]["last_user"] = last_user
+		model.round_robin_state = json.dumps(state)
+
+		if model.bpmn_xml:
+			try:
+				_ET.register_namespace("", BPMN_NS)
+				_ET.register_namespace("spiffworkflow", SPIFF_NS)
+				root = _ET.fromstring(model.bpmn_xml.strip().encode("utf-8"))
+				attr_key = f"{{{SPIFF_NS}}}roundRobinLastUser"
+				for el in root.iter(f"{{{BPMN_NS}}}userTask"):
+					if el.get("id") == task_bpmn_id:
+						el.set(attr_key, last_user)
+						break
+				model.bpmn_xml = _ET.tostring(root, encoding="unicode", xml_declaration=False)
+			except Exception:
+				pass  # the state field is the record; the XML copy is only for the editor
+
+		model.save(ignore_permissions=True)  # engine writes round-robin state on the model
+	except Exception:
+		frappe.log_error(
+			title="BPMN: round-robin state update failed",
+			message=frappe.get_traceback(),
+		)
+
+
 def add_frappe_assignment(instance, user: str, task_name: str = "") -> None:
-	"""
-	Create a Frappe Assignment (ToDo) on the context document for the
-	resolved user.  This makes the assignment visible in Frappe's sidebar
-	and the user's ToDo list.
-
-	Creates the ToDo directly with ``type="Process"`` so that the OneFM
-	notification system skips the standard assignment email/bell — Processa
-	handles notifications for process tasks independently.
-
-	The ToDo is created directly (bypassing ``frappe.desk.form.assign_to.add``)
-	so that:
-
-	1. ``type`` is set to ``"Process"`` on insert (no post-hoc ``db_set``).
-	2. The generic Frappe notification email is **suppressed**. The task
-	   email is ``notify_task_assignee``'s job.
-
-	Silently skips if no context document is linked or if the user is
-	already assigned.  Failures are logged but never break the workflow.
-	"""
+	"""Create an Open ToDo of type Process on the context document for *user*, unless one exists.
+	Inserted directly, not through assign_to.add, so Frappe's assignment email is skipped.
+	Failures are logged and never break the workflow."""
 	if not (instance.context_doctype and instance.context_docname and user):
 		return
 
 	try:
-		# Check if already assigned to avoid duplicates
 		existing = frappe.db.exists(
 			"ToDo",
 			{
@@ -322,15 +264,11 @@ def add_frappe_assignment(instance, user: str, task_name: str = "") -> None:
 		if existing:
 			return
 
-		# The ToDo description is always the standard BPMN task message.
-		# notifyAssigneeBody is for email notification only — NOT the ToDo.
+		# notifyAssigneeBody is for the email only, never the ToDo description.
 		description = _('BPMN Task: "{0}" on instance {1}').format(
 			task_name or "User Task", instance.name
 		)
 
-		# Create ToDo directly — bypassing assign_add to suppress
-		# the generic Frappe notification email (notify_assignment).
-		# The ToDo's on_update hook still updates the _assign sidebar field.
 		from frappe.utils import nowdate
 
 		todo = frappe.get_doc(
@@ -345,26 +283,22 @@ def add_frappe_assignment(instance, user: str, task_name: str = "") -> None:
 				"date": nowdate(),
 				"assigned_by": (frappe.session.user or getattr(instance, "initiated_by", None) or "Administrator"),
 			}
-		).insert(ignore_permissions=True)
+		).insert(ignore_permissions=True)  # engine creates the ToDo for the assignee
 
-		# Force type="Process" AFTER insert — Frappe's ToDo validate hook
-		# resets the type field to its default ("Action"), so setting it in
-		# the dict above doesn't stick.  db_set bypasses controller hooks.
+		# ToDo validate resets type to Action, so set it after insert.
 		frappe.db.set_value("ToDo", todo.name, "type", "Process")
 
-		# Share document with assignee if they lack permissions
 		doc = frappe.get_doc(instance.context_doctype, instance.context_docname)
 		if not frappe.has_permission(doc=doc, user=user):
 			if not frappe.get_system_settings("disable_document_sharing"):
 				frappe.share.add(doc.doctype, str(doc.name), user)
 
-		# Follow document if user has that setting enabled
 		try:
 			if frappe.get_cached_value("User", user, "follow_assigned_documents"):
 				from frappe.desk.like import follow_document
 				follow_document(instance.context_doctype, instance.context_docname, user)
 		except Exception:
-			pass  # Non-critical — don't block on follow failures
+			pass
 
 	except Exception:
 		frappe.log_error(
@@ -378,29 +312,15 @@ def notify_task_assignee(
 	instance, user: str, task_name: str, task_cfg: dict | None,
 	task_id: str = "", bpmn_id: str = "",
 ) -> None:
-	"""Email the assignee that a User Task with Notify Assignee ticked is theirs.
-
-	Deliberately NOT part of ``add_frappe_assignment``. A ToDo belongs to a
-	PERSON on an instance and is created once — the engine keeps it open while
-	that person still has any Waiting row, rather than closing and recreating it
-	as they move from one task to the next. A notification belongs to a TASK: a
-	diagram that ticks Notify Assignee on three consecutive tasks is asking for
-	three emails.
-
-	While the two lived in one function the ToDo's lifecycle silently governed
-	the email. On the Software Development map, where a developer holds several
-	tasks in a row, only the first of them ever notified — the rest returned at
-	the duplicate-ToDo guard before the notification was even looked at.
-
-	Never raises: a failed email must not strand the task it was announcing.
-	"""
+	"""Email the assignee of a User Task with Notify Assignee ticked; failures are logged, never raised.
+	Kept apart from add_frappe_assignment: one ToDo per person per instance, but one email per notifying task."""
 	cfg = task_cfg or {}
 	if cfg.get("notifyAssignee") != "true":
 		return
 	if not (instance.context_doctype and instance.context_docname and user):
 		return
 	try:
-		from one_bpmn.email_builder.composer import compose_and_send_task_email
+		from one_bpmn.processa_engine.notifications.composer import compose_and_send_task_email
 
 		compose_and_send_task_email(
 			instance=instance,
@@ -418,22 +338,9 @@ def notify_task_assignee(
 
 
 def remove_frappe_assignment(instance, user: str, status: str = "Closed") -> None:
-	"""
-	Close the Frappe Assignment (ToDo) on the context document when
-	the User Task is completed.
-
-	Defaults to "Closed" (task finished) — not "Cancelled" (task removed).
-	Uses ``set_status`` directly instead of ``close()`` because ``close()``
-	asserts ``session.user == assignee``, which fails when the engine runs
-	under a different user context.
-
-	``status`` lets a specific process override the close status (e.g. a
-	process that wants "Cancelled" for a specific transition) via
-	``sync_active_tasks()``'s ``task.data["todo_close_status"]`` hint -
-	every other caller keeps the default and is unaffected.
-
-	Failures are logged but never break the workflow.
-	"""
+	"""Set *user*'s ToDo on the context document to *status*, Closed by default; failures are logged.
+	Uses set_status, not close(), because close() requires session.user to be the assignee.
+	A process can pass another status through the ``todo_close_status`` task data hint."""
 	if not (instance.context_doctype and instance.context_docname and user):
 		return
 
@@ -445,7 +352,7 @@ def remove_frappe_assignment(instance, user: str, status: str = "Closed") -> Non
 			instance.context_docname,
 			assign_to=user,
 			status=status,
-			ignore_permissions=True,
+			ignore_permissions=True,  # engine closes the assignee's ToDo
 		)
 	except Exception:
 		frappe.log_error(
@@ -455,11 +362,7 @@ def remove_frappe_assignment(instance, user: str, status: str = "Closed") -> Non
 
 
 def _swap_user(value: str, old_user: str, new_user: str) -> str:
-	"""Replace one entry of a comma-separated assignee list, leaving the rest.
-
-	``assigned_user`` often holds several people (Table Field mode). Only the
-	reliever's own entry may change hands — the others never went anywhere.
-	"""
+	"""Replace *old_user* with *new_user* in a comma-separated assignee list, leaving the others."""
 	users = split_users(value)
 	if old_user not in users or new_user in users:
 		return value
@@ -467,21 +370,13 @@ def _swap_user(value: str, old_user: str, new_user: str) -> str:
 
 
 def restore_tasks_on_return(user: str) -> int:
-	"""Hand every task held by a reliever back to *user*, who is back from leave.
-
-	Reads the Relieved User / Reliever User pair recorded when the task was
-	redirected, swaps the reliever out of ``assigned_user`` and *user* back in,
-	and re-points the Frappe assignment so the task reappears in the right
-	person's list. The pair itself is left in place as history, so a row this
-	has already run on is skipped by the ``user in assigned_user`` guard rather
-	than by forgetting what happened.
-
-	Returns the number of rows handed back.
-	"""
+	"""Hand every Waiting task a reliever holds back to *user*, who is back from leave, and re-point its ToDo.
+	The relieved/reliever pair stays on the row, and a row already handed back is skipped.
+	Returns the number of rows handed back."""
 	if not user:
 		return 0
 
-	rows = frappe.db.sql(
+	rows = frappe.db.sql(  # FIND_IN_SET over a comma list, parameterised
 		"""
 		SELECT t.name, t.parent, t.assigned_user, t.relieved_user, t.reliever_user
 		FROM `tabBPMN Active Task` t

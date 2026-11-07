@@ -572,7 +572,7 @@ def _rearm_and_deliver(config, conversation, message, context, wait: bool = True
 	if not config.get("process_model"):
 		return None
 	try:
-		from one_bpmn.one_bpmn.trigger import _maybe_start_instance
+		from one_bpmn.processa_engine.triggers import _maybe_start_instance
 
 		_maybe_start_instance(
 			frappe.get_doc("Chat Conversation", conversation), config["process_model"]

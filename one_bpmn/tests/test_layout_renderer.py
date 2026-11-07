@@ -11,13 +11,13 @@ from unittest.mock import patch
 from frappe.tests.utils import FrappeTestCase
 from frappe.translate import clear_cache
 
-from one_bpmn.email_builder import renderer
-from one_bpmn.email_builder.renderer import render_layout_amp, render_layout_html
+from one_bpmn.processa_engine.notifications import renderer
+from one_bpmn.processa_engine.notifications.renderer import render_layout_amp, render_layout_html
 from one_bpmn.tests.test_amp_validation import _validate_amp4email
 
 TEST_LAYOUT = {"decision_card": "one_bpmn/tests/fixtures/layouts/test_layout.html"}
 STATUS_URL = (
-	"https://erp.example.com/api/method/one_bpmn.api.todo_actions.get_amp_task_status?status_token=abc"
+	"https://erp.example.com/api/method/one_bpmn.api.email_actions.get_amp_task_status?status_token=abc"
 )
 
 

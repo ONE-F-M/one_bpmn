@@ -242,7 +242,7 @@ class TestReadDoctypeLogicPatch(FrappeTestCase):
 			patch.object(p.frappe.db, "exists", return_value=True),
 			patch.object(p.frappe.db, "get_value", side_effect=lambda *a: store["xml"]),
 			patch.object(p.frappe.db, "set_value", side_effect=lambda *a: store.update(xml=a[3])) as set_value,
-			patch("one_bpmn.api.compilation.compile_process_model") as compile_model,
+			patch("one_bpmn.api.deploy.compile_process_model") as compile_model,
 		):
 			p._update_process_model()
 			p._update_process_model()

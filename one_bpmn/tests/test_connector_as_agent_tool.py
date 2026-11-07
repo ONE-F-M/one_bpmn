@@ -5,7 +5,7 @@
 #
 # The chain under test:
 #   1. _extract_tool_shapes      — is the connector exposed to the LLM as a tool?
-#   2. _extract_service_task_config — is its config indexed, even though it is
+#   2. extract_service_task_config — is its config indexed, even though it is
 #                                     nested inside an adHocSubProcess?
 #   3. compile_shape_tools       — does it become a callable ToolSpec?
 #   4. execute_shape             — does calling it reach dispatch_connector?
@@ -25,10 +25,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.shape_tools import compile_shape_tools
-from one_bpmn.api.compilation import (
-	_extract_service_task_config,
-	_extract_tool_shapes,
-)
+from one_bpmn.processa_engine.compiler.agent_tools import _extract_tool_shapes
+from one_bpmn.processa_engine.compiler.extensions import extract_service_task_config
 
 BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
@@ -154,7 +152,7 @@ class TestConnectorAsAgentTool(FrappeTestCase):
 
 	# ── 2. Is a NESTED service task's config indexed? ────────────────────────
 	def test_nested_connector_config_is_indexed_by_the_compiler(self):
-		cfg = _extract_service_task_config(XML)
+		cfg = extract_service_task_config(XML)
 
 		self.assertIn("memory_lookup", cfg, "connector inside adHocSubProcess was not indexed")
 		self.assertEqual(cfg["memory_lookup"]["serviceType"], "connector")
@@ -169,7 +167,7 @@ class TestConnectorAsAgentTool(FrappeTestCase):
 		root = ET.fromstring(XML)
 		adhoc = root.find(f".//{{{BPMN_NS}}}adHocSubProcess")
 		shapes = _extract_tool_shapes(adhoc, BPMN_NS, SPIFF_NS)
-		instance = _FakeInstance(_extract_service_task_config(XML))
+		instance = _FakeInstance(extract_service_task_config(XML))
 
 		tools = compile_shape_tools(shapes, instance)
 
@@ -184,7 +182,7 @@ class TestConnectorAsAgentTool(FrappeTestCase):
 		root = ET.fromstring(XML)
 		adhoc = root.find(f".//{{{BPMN_NS}}}adHocSubProcess")
 		shapes = _extract_tool_shapes(adhoc, BPMN_NS, SPIFF_NS)
-		instance = _FakeInstance(_extract_service_task_config(XML))
+		instance = _FakeInstance(extract_service_task_config(XML))
 		tool = compile_shape_tools(shapes, instance)[0]
 
 		# This is the LLM invoking the tool with its own generated search string.

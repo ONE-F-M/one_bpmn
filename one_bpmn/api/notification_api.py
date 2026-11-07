@@ -214,9 +214,9 @@ def preview_notification(process_model: str, element_type: str, doctype: str, se
 
 
 def _render_email_preview(doc, doctype: str, cfg: dict) -> dict:
-	from one_bpmn.email_builder.composer import _build_notice_context, sends_notice
-	from one_bpmn.email_builder.renderer import render_layout_preview
-	from one_bpmn.processa_engine.doctype.bpmn_process_instance.assignment import _decode_html_attr
+	from one_bpmn.processa_engine.notifications.composer import build_notice_context, sends_notice
+	from one_bpmn.processa_engine.notifications.renderer import render_layout_preview
+	from one_bpmn.processa_engine.assignment import decode_html_attr
 
 	instance = frappe._dict(
 		name=_("Preview"),
@@ -230,7 +230,7 @@ def _render_email_preview(doc, doctype: str, cfg: dict) -> dict:
 		return frappe.render_template(text, jinja_ctx) if text else ""
 
 	if sends_notice(cfg):
-		ctx = _build_notice_context(
+		ctx = build_notice_context(
 			instance, {**cfg, "emailShowStatus": "", "emailAttachments": ""}, doc, render
 		)
 		if doc.get("name") and cfg.get("emailAttachments") == "true":
@@ -248,19 +248,19 @@ def _render_email_preview(doc, doctype: str, cfg: dict) -> dict:
 		return _layout_preview(ctx, doc, cfg.get("emailAccount"))
 
 	subject = render(cfg.get("emailSubject", "")) or _("Notification from {0}").format(instance.name)
-	body = render(_decode_html_attr(cfg.get("emailBody", "")))
+	body = render(decode_html_attr(cfg.get("emailBody", "")))
 	return _framed_preview(subject, body, doc, cfg.get("emailAccount"))
 
 
 def _render_task_preview(doc, doctype: str, cfg: dict) -> dict:
 	"""The Notify Assignee email for doc, with buttons as links and no token."""
-	from one_bpmn.email_builder.composer import (
-		_build_layout_context,
-		_build_open_link,
-		_resolve_subject_body,
-		_sends_decision_card,
+	from one_bpmn.processa_engine.notifications.composer import (
+		build_layout_context,
+		build_open_link,
+		resolve_subject_body,
+		sends_decision_card,
 	)
-	from one_bpmn.email_builder.renderer import render_html_fallback
+	from one_bpmn.processa_engine.notifications.renderer import render_html_fallback
 
 	instance = frappe._dict(
 		name=_("Preview"),
@@ -269,13 +269,13 @@ def _render_task_preview(doc, doctype: str, cfg: dict) -> dict:
 		context_docname=doc.get("name"),
 	)
 	task_name = cfg.get("taskName") or _("Task")
-	if _sends_decision_card(cfg):
-		ctx = _build_layout_context(instance, frappe.session.user, task_name, "", "", cfg, preview=True)
+	if sends_decision_card(cfg):
+		ctx = build_layout_context(instance, frappe.session.user, task_name, "", "", cfg, preview=True)
 		return _layout_preview(ctx, doc, cfg.get("notifyAssigneeAccount"))
 
 	jinja_ctx = {"doc": doc, "instance": instance, "frappe": frappe}
-	subject, body = _resolve_subject_body(cfg, jinja_ctx, task_name, instance)
-	open_link = _build_open_link(instance)
+	subject, body = resolve_subject_body(cfg, jinja_ctx, task_name, instance)
+	open_link = build_open_link(instance)
 	names = [a.get("action") for a in _json.loads(cfg.get("taskActions") or "[]") if a.get("action")]
 	body = render_html_fallback(
 		{
@@ -290,7 +290,7 @@ def _render_task_preview(doc, doctype: str, cfg: dict) -> dict:
 
 def _layout_preview(ctx: dict, doc, account: str | None) -> dict:
 	"""A layout email as Gmail shows it, one HTML per language for the preview's language switch."""
-	from one_bpmn.email_builder.renderer import render_layout_preview
+	from one_bpmn.processa_engine.notifications.renderer import render_layout_preview
 
 	return {
 		"subject": ctx["subject_line"],
@@ -303,7 +303,7 @@ def _layout_preview(ctx: dict, doc, account: str | None) -> dict:
 
 def _framed_preview(subject: str, body: str, doc, account: str | None) -> dict:
 	"""A custom body or template in the standard frame; it has one language, so no html_ar."""
-	from one_bpmn.email_builder.composer import EMAIL_LOGO
+	from one_bpmn.processa_engine.notifications.composer import EMAIL_LOGO
 
 	html = frappe.render_template(
 		"one_bpmn/templates/emails/bpmn_email.html", {"header": subject, "message": body, "logo": EMAIL_LOGO}

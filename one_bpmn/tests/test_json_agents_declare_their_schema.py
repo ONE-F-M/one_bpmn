@@ -12,7 +12,7 @@ from frappe.tests.utils import FrappeTestCase
 from one_bpmn.agents.llm_provider import structured_output
 from one_bpmn.one_bpmn.patches.v1_0 import json_agents_declare_their_schema as p
 
-PATCH_COMPILE = "one_bpmn.api.compilation.compile_process_model"
+PATCH_COMPILE = "one_bpmn.api.deploy.compile_process_model"
 
 
 class TestJsonAgentsDeclareTheirSchema(FrappeTestCase):

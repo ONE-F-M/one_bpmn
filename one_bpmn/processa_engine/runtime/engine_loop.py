@@ -40,7 +40,7 @@ def run_engine(instance, wf):
 
 	The caller saves the instance right after; the jobs fire after commit, so they always see the parked state.
 	"""
-	from one_bpmn.processa_engine.doctype.bpmn_process_instance.ai_task_selector import make_adhoc_decider
+	from one_bpmn.processa_engine.task_selector import make_adhoc_decider
 
 	# Process-global engine hooks: the AI Task Selector decider and the ad-hoc activation audit.
 	bpmn_engine.adhoc.adhoc_next_task_decider = make_adhoc_decider(instance, wf)

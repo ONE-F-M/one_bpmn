@@ -20,7 +20,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.shape_tools import compile_shape_tools
-from one_bpmn.api.compilation import _extract_tool_shapes
+from one_bpmn.processa_engine.compiler.agent_tools import _extract_tool_shapes
 from one_bpmn.one_bpmn.patches.v1_0.add_assistant_agent_creation_tool import (
 	_PROMPT_MARKER,
 	_PROMPT_SECTION,

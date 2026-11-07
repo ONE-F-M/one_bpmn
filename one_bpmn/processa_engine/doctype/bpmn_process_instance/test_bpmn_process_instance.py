@@ -26,7 +26,7 @@ from one_bpmn.processa_engine.dispatch.email import dispatch_email
 from one_bpmn.processa_engine.dispatch.google_chat import dispatch_google_chat
 from one_bpmn.processa_engine.dispatch.push_notification import dispatch_push_notification
 from one_bpmn.processa_engine.dispatch.update_field import dispatch_update_field
-from one_bpmn.processa_engine.doctype.bpmn_process_instance.assignment import (
+from one_bpmn.processa_engine.assignment import (
 	add_frappe_assignment,
 	notify_task_assignee,
 	get_reliever_if_on_leave,
@@ -193,7 +193,7 @@ class TestDispatchEmail(BaseBPMNHelperTest):
 	def _patched_sendemail(self):
 		"""Patch frappe.sendmail as the composer calls it."""
 		sendmail = Mock()
-		return patch("one_bpmn.email_builder.composer.frappe.sendmail", sendmail), sendmail
+		return patch("one_bpmn.processa_engine.notifications.composer.frappe.sendmail", sendmail), sendmail
 
 	def test_email_direct_recipient_and_jinja_subject(self):
 		inst = make_instance(name="TEST-PI-EMAIL", context_doctype="ToDo")
@@ -515,7 +515,7 @@ class TestResolveAssignmentTableField(BaseBPMNHelperTest):
 		inst = self._instance()
 		doc = self._doc("custom_assigned_to", [{"user": "a@x.com"}, {"user": "b@x.com"}])
 
-		from one_bpmn.processa_engine.doctype.bpmn_process_instance import assignment
+		from one_bpmn.processa_engine import assignment
 
 		with patch.object(frappe, "get_doc", return_value=doc), patch.object(
 			assignment, "get_reliever_if_on_leave",
@@ -528,7 +528,7 @@ class TestResolveAssignmentTableField(BaseBPMNHelperTest):
 	def test_the_resolved_list_reads_back_as_its_members(self):
 		"""What every consumer does with it: permission checks, the pending-task
 		query and ToDo creation all split the field rather than compare it."""
-		from one_bpmn.processa_engine.doctype.bpmn_process_instance.assignment import split_users
+		from one_bpmn.processa_engine.assignment import split_users
 
 		inst = self._instance()
 		doc = self._doc("custom_assigned_to", [{"user": "a@x.com"}, {"user": "b@x.com"}])
@@ -605,7 +605,7 @@ class TestAssigneeNotification(BaseBPMNHelperTest):
 	def _patched_sendemail(self):
 		"""Patch frappe.sendmail as the composer calls it."""
 		sendmail = Mock()
-		return patch("one_bpmn.email_builder.composer.frappe.sendmail", sendmail), sendmail
+		return patch("one_bpmn.processa_engine.notifications.composer.frappe.sendmail", sendmail), sendmail
 
 	def test_notification_sends_rendered_html_email(self):
 		"""When notifyAssignee=true and notifyAssigneeBody has Jinja, send rendered email."""
