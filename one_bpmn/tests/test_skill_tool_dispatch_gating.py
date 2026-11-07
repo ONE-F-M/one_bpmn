@@ -72,7 +72,7 @@ class TestSkillToolDispatchGating(FrappeTestCase):
 		return skill
 
 	def _dispatch(self, task_cfg, result):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers
 
 		captured = {}
 

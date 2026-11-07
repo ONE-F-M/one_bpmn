@@ -242,7 +242,7 @@ class TestSlowActionDispatch(AgentSandboxCase):
 
 	def test_the_dry_run_answer_reaches_the_model_without_a_result_variable(self):
 		from one_bpmn.agents.shape_tools import _connector_tool_result
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import CONNECTOR_OUTCOME_KEY
+		from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import CONNECTOR_OUTCOME_KEY
 
 		_result, ctx, _post = self._dispatch_in_eval("open_pull_request")
 		task = ctx["task"]

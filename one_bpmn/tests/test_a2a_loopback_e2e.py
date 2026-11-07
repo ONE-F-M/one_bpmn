@@ -238,7 +238,7 @@ class TestA2ALoopback(FrappeTestCase):
 		)
 		woken = MagicMock()
 		with patch.object(a2a_client, "_session", return_value=self.transport), patch(
-			"one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance._enqueue_a2a_resume",
+			"one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance._enqueue_a2a_resume",
 			woken,
 		):
 			tasks.poll_a2a_tasks()

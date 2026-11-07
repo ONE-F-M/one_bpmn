@@ -9,7 +9,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.one_bpmn.connectors.manifest import get_operation_spec, load_manifests
 from one_bpmn.one_bpmn.integrations.google_common import normalize_drive_id
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import dispatch_connector
+from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import dispatch_connector
 
 _GD = "one_bpmn.one_bpmn.integrations.google_drive"
 

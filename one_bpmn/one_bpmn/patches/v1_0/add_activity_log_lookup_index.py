@@ -1,4 +1,4 @@
-from one_bpmn.one_bpmn.doctype.bpmn_activity_log.bpmn_activity_log import on_doctype_update
+from one_bpmn.processa_engine.doctype.bpmn_activity_log.bpmn_activity_log import on_doctype_update
 
 
 def execute():

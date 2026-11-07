@@ -329,7 +329,7 @@ def _memory_fields(cfg: dict) -> dict:
 def recall_process_memory(diagram_name: str, process_name: str = "") -> dict:
 	"""The diagram's Process and the notes recalled for it and the requester, for the turn store."""
 	from one_bpmn.agents.memory.tools import memory_search
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
+	from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import (
 		DEFAULT_MEMORY_TOKEN_BUDGET,
 		_bound_memories_to_budget,
 		_cfg_truthy,
@@ -469,7 +469,7 @@ def queue_process_memory(turn: dict, agent_result: dict | None) -> None:
 		frappe.log_error(title="ProsAlly memory: write skipped", message="The diagram matched no Process.")
 		return
 	from one_bpmn.agents.memory.model_resolution import resolve_memory_model
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
+	from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import (
 		_enqueue_distill,
 		_provider_for_model,
 		_requesting_user,

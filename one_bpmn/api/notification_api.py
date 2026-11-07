@@ -216,7 +216,7 @@ def preview_notification(process_model: str, element_type: str, doctype: str, se
 def _render_email_preview(doc, doctype: str, cfg: dict) -> dict:
 	from one_bpmn.email_builder.composer import _build_notice_context, sends_notice
 	from one_bpmn.email_builder.renderer import render_layout_preview
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import _decode_html_attr
+	from one_bpmn.processa_engine.doctype.bpmn_process_instance.assignment import _decode_html_attr
 
 	instance = frappe._dict(
 		name=_("Preview"),

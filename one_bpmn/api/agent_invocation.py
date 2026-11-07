@@ -626,7 +626,7 @@ def _bpmn_turn_stream(config, conversation, message, context):
 	from one_bpmn.agents.agui_stream import HANDOVER_EVENT
 	from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
 	from one_bpmn.api.server_script_api import collect_chat_turn_reply, delegate_chat_turn
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import TURN_OUTPUT_EVENT
+	from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import TURN_OUTPUT_EVENT
 
 	handle = delegate_chat_turn(conversation, message, context=context, wait=False)
 	if handle is None:

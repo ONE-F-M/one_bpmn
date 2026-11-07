@@ -15,7 +15,7 @@ from __future__ import annotations
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
+from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import (
 	chat_user_id,
 	dispatch_google_chat,
 	google_chat_recipients,
@@ -204,7 +204,7 @@ class TestCredentialSource(FrappeTestCase):
 class TestChatUserId(FrappeTestCase):
 	"""Turning an address into the id Chat will actually accept."""
 
-	MOD = "one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers"
+	MOD = "one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers"
 	DIRECTORY = {"abraham adekunle": ["110011284155291104346"]}
 	EMAIL = "a.adekunle@one-fm.com"
 

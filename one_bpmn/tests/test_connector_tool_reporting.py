@@ -21,7 +21,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.shape_tools import execute_shape
 from one_bpmn.api.process_map_api import _connector_tools_without_result_variable
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import CONNECTOR_OUTCOME_KEY
+from one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers import CONNECTOR_OUTCOME_KEY
 
 CONNECTOR_CFG = {"serviceType": "connector", "connectorId": "google_drive",
                  "operation": "createFile", "resultVariable": "connector_result"}
@@ -302,7 +302,7 @@ class TestThroughTheRealDispatcher(FrappeTestCase):
 
 	def _run(self, handler, cfg=None):
 		with patch(
-			"one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers._resolve_connector_handler",
+			"one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers._resolve_connector_handler",
 			return_value=handler,
 		), patch("one_bpmn.one_bpmn.connectors.manifest.user_may_use_connector", return_value=True):
 			return json.loads(execute_shape(self.instance, "Tool_Connector_1", cfg or dict(CONNECTOR_CFG), {"q": 1}))
@@ -342,7 +342,7 @@ class TestThroughTheRealDispatcher(FrappeTestCase):
 		"""If the gate ever moves or the pre-check is skipped, the dispatcher's
 		own record still names it a permission decision, not missing data."""
 		with patch(
-			"one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers._resolve_connector_handler",
+			"one_bpmn.processa_engine.doctype.bpmn_process_instance.dispatchers._resolve_connector_handler",
 			return_value=lambda params, ctx: {"id": "x"},
 		), patch("one_bpmn.agents.shape_tools._connector_not_permitted", return_value=None), patch(
 			"one_bpmn.one_bpmn.connectors.manifest.user_may_use_connector", return_value=False

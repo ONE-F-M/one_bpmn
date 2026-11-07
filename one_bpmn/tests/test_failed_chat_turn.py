@@ -85,7 +85,7 @@ class TurnFixture(FrappeTestCase):
 		}
 
 	def _dispatch(self, result: ExecutorResult, refusal: str | None = None):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.doctype.bpmn_process_instance import dispatchers
 
 		with (
 			patch("one_bpmn.agents.model_health.refuse_new_run", return_value=refusal),

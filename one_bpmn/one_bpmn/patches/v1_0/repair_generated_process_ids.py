@@ -2,7 +2,7 @@ import re
 
 import frappe
 
-from one_bpmn.one_bpmn.doctype.bpmn_process_model.bpmn_process_model import (
+from one_bpmn.processa_engine.doctype.bpmn_process_model.bpmn_process_model import (
 	new_process_id,
 	swap_process_id,
 )

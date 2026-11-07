@@ -373,7 +373,7 @@ def _enqueue_resume(run) -> None:
 		_resume_waiting_agent(run)
 		return
 
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
+	from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import (
 		_enqueue_agent_sandbox_resume,
 	)
 
@@ -391,7 +391,7 @@ def _resume_waiting_agent(run) -> None:
 	import json as _json
 
 	from one_bpmn.agents import checkpoint as _checkpoint
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import ai_job_queue_of
+	from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import ai_job_queue_of
 
 	agent_run = run.caller_agent_run
 	if not (agent_run and run.caller_instance):
@@ -403,7 +403,7 @@ def _resume_waiting_agent(run) -> None:
 
 	payload = _json.loads(frappe.db.get_value("AI Agent Run", agent_run, "checkpoint") or "{}")
 	frappe.enqueue(
-		"one_bpmn.one_bpmn.doctype.bpmn_process_instance"
+		"one_bpmn.processa_engine.doctype.bpmn_process_instance"
 		".bpmn_process_instance.run_parked_ai_task",
 		queue=ai_job_queue_of(run.caller_instance),
 		timeout=AI_AGENT_JOB_TIMEOUT,
