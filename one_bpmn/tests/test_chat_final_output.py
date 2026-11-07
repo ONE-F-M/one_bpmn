@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import frappe
 
-from one_bpmn.agents import turn_state
-from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+from one_bpmn.processa_engine.agent_runtime import turn_state
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 from one_bpmn.tests.test_failed_chat_turn import BPMN_ID, TurnFixture
 
 STAGE_REPLY = "I added the manager approval step after the request."

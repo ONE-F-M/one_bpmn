@@ -15,7 +15,7 @@ import json
 import frappe
 
 from one_bpmn.agents import observability
-from one_bpmn.agents.llm_provider.base import ToolSpec
+from one_bpmn.processa_engine.agent_runtime.llm_types import ToolSpec
 
 
 def compile_shape_tools(tool_shapes, instance) -> list:
@@ -104,7 +104,7 @@ def compile_shape_tools(tool_shapes, instance) -> list:
 # park can refuse to start rather than being abandoned. It lives here beside
 # ToolDeferred because the two are halves of one rule: the loop tracks one pause
 # per turn, so a second one must never begin work. Written by
-# agents/executor/step_loop.py, read by
+# processa_engine/agent_runtime/step_loop.py, read by
 # connectors/a2a_client_ops.delegate_to_local_agent — kept in this module so
 # neither of those has to import the other.
 PAUSE_HELD_FLAG = "a2a_pause_held_this_turn"
@@ -255,7 +255,7 @@ def _announce(instance, event_type: str, bpmn_id: str) -> None:
 	if not name:
 		return
 	try:
-		from one_bpmn.agents import turn_signal
+		from one_bpmn.processa_engine.agent_runtime import turn_signal
 
 		turn_signal.publish_event(name, {"type": event_type, "toolCallName": bpmn_id})
 	except Exception:
@@ -286,7 +286,7 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 	"""
 	_announce(instance, "TOOL_CALL_START", bpmn_id)
 	still_running = False
-	from one_bpmn.agents import turn_signal
+	from one_bpmn.processa_engine.agent_runtime import turn_signal
 
 	try:
 		with turn_signal.mask_live_text():
@@ -376,7 +376,7 @@ def _execute_shape_body(instance, bpmn_id: str, task_cfg: dict | None, kwargs: d
 		# get_turn Jinja global (hooks.py).
 		if service_type == "ai_agent" and getattr(instance, "context_docname", None):
 			try:
-				from one_bpmn.agents.turn_state import update_turn
+				from one_bpmn.processa_engine.agent_runtime.turn_state import update_turn
 
 				update_turn(instance.context_docname, **{f"{bpmn_id}_result": produced})
 			except Exception:
@@ -430,7 +430,7 @@ def _record_tool_error(instance, bpmn_id: str, exc: Exception | str, error_code:
 	"""Put the failed tool in the chat turn store, so the turn's closing script can report the failure."""
 	if getattr(instance, "context_doctype", None) != "Chat Conversation":
 		return
-	from one_bpmn.agents.turn_state import update_turn
+	from one_bpmn.processa_engine.agent_runtime.turn_state import update_turn
 
 	tool_error = {"tool": bpmn_id, "error": str(exc), "error_class": error_code or type(exc).__name__}
 	if error_code:

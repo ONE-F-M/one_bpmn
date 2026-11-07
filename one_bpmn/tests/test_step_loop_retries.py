@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import step_loop
+from one_bpmn.processa_engine.agent_runtime import step_loop
 
 
 class ProviderError(Exception):

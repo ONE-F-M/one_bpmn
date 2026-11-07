@@ -26,7 +26,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from unittest.mock import patch
 
-from one_bpmn.agents.executor import (
+from one_bpmn.processa_engine.agent_runtime.executor import (
 	DEFAULT_TIMEOUT_SECONDS,
 	ErrorCode,
 	ExecutorResult,
@@ -70,7 +70,7 @@ class TestResolvedTimeout(FrappeTestCase):
 		base = {"serviceType": "ai_agent", "aiProvider": "", "aiModel": "gpt-4o",
 		        "aiUserPrompt": "draft it"}
 		base.update(task_cfg)
-		with patch("one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", new=fake_run):
+		with patch("one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run", new=fake_run):
 			ai_agent.dispatch_ai_agent(self.instance, self.task, base, self.bpmn_id)
 		return captured["config"]
 

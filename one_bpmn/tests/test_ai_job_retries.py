@@ -149,7 +149,7 @@ class TestManualRetry(JobHarness):
 
 		# The fresh job succeeds and the flow completes.
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_with_tools(),
 		):
 			with patch.object(frappe, "enqueue"):
@@ -191,7 +191,7 @@ class TestDispatchFailureParity(JobHarness):
 		error variables and the flow continues — identical to inline
 		dispatch. The job does NOT error the instance for provider failures
 		(the diagram can gateway on the error variables)."""
-		from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+		from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 
 		task_id = self._park_linear_with_tools()
 		failed = ExecutorResult(
@@ -201,7 +201,7 @@ class TestDispatchFailureParity(JobHarness):
 			token_usage=TokenUsage(prompt_tokens=1, completion_tokens=0, total_tokens=1),
 		)
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=failed,
 		):
 			with patch.object(frappe, "enqueue"):

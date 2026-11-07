@@ -96,7 +96,7 @@ class TestGateScope(JobHarness):
 	def test_successful_job_releases_gate(self):
 		task_id = self._park_linear_with_tools()
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_with_tools(),
 		):
 			with patch.object(frappe, "enqueue"):

@@ -216,7 +216,7 @@ after_migrate = ["one_bpmn.agents.agent_config_resolver.sync_all_shapes_to_confi
 # Jinja globals for aiUserPrompt templates.
 jinja = {
 	"methods": [
-		"one_bpmn.agents.turn_state.get_turn",
+		"one_bpmn.processa_engine.agent_runtime.turn_state.get_turn",
 		"one_bpmn.tools.tool_for_server_scripts.compact_ir",
 	]
 }
@@ -375,7 +375,7 @@ scheduler_events = {
 
 # Cache keys that survive frappe.clear_cache()
 # --------------------------------------------
-# The stage tools' per-turn store (agents/turn_state.py) is live state for a running turn.
+# The stage tools' per-turn store (processa_engine/agent_runtime/turn_state.py) is live state for a running turn.
 persistent_cache_keys = ["ait_turn:*"]
 
 # Request Events

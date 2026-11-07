@@ -19,7 +19,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.util.task import TaskState
 
-from one_bpmn.agents.llm_provider.base import StepResult, StepToolCall
+from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall
 from one_bpmn.processa_engine.compiler.agent_tools import resolve_ai_agent_tool_shapes
 from one_bpmn.processa_engine.compiler.extensions import (
 	extract_service_task_config,
@@ -155,7 +155,7 @@ class TestDurableAgentHitlEndToEnd(FrappeTestCase):
 
 	def _adapter_patch(self, adapter):
 		return patch(
-			"one_bpmn.agents.llm_provider.factory.get_llm_adapter",
+			"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter",
 			return_value=adapter,
 		)
 

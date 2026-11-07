@@ -20,12 +20,13 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import shape_tools
-from one_bpmn.agents.llm_provider.base import LLMTruncatedError
+from one_bpmn.processa_engine.agent_runtime.llm_types import LLMTruncatedError
 from one_bpmn.one_bpmn.patches.v1_0.inline_prosally_tool_scripts import (
 	FINALIZE,
 	GENERATE,
 	MODIFY,
 )
+from one_bpmn.tests.site_scripts import as_deployed
 
 
 class TestProsAllyTruncationHandling(FrappeTestCase):
@@ -33,7 +34,7 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 		ns = {"frappe": frappe, "context_docname": context_docname, "result": {}}
 		if extra_globals:
 			ns.update(extra_globals)
-		exec(compile(body, "<prosally-tool>", "exec"), ns)
+		exec(compile(as_deployed(body), "<prosally-tool>", "exec"), ns)
 		return ns
 
 	def _fake_adapter(self, *, raises=None, text="{}"):
@@ -59,13 +60,13 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 		adapter = self._fake_adapter(raises=LLMTruncatedError("hit ceiling"))
 
 		with (
-			patch("one_bpmn.agents.turn_state.get_turn", return_value=turn),
-			patch("one_bpmn.agents.turn_state.update_turn", side_effect=fake_update_turn),
+			patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value=turn),
+			patch("one_bpmn.processa_engine.agent_runtime.turn_state.update_turn", side_effect=fake_update_turn),
 			patch(
 				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
 				return_value={"sub_prompts": {}, "max_tokens": 1024, "agent_id": "prosally_agent"},
 			),
-			patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter),
+			patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=adapter),
 		):
 			ns = self._run_script(MODIFY)
 
@@ -83,8 +84,8 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 		"""Once modify_process has closed the turn with done=True, finalize
 		must report success without emitting its own generic question."""
 		with (
-			patch("one_bpmn.agents.turn_state.get_turn", return_value={"done": True}),
-			patch("one_bpmn.agents.turn_state.update_turn") as mock_update,
+			patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value={"done": True}),
+			patch("one_bpmn.processa_engine.agent_runtime.turn_state.update_turn") as mock_update,
 		):
 			ns = self._run_script(FINALIZE)
 
@@ -98,13 +99,13 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 		adapter = self._fake_adapter(raises=LLMTruncatedError("still truncated"))
 
 		with (
-			patch("one_bpmn.agents.turn_state.get_turn", return_value=turn),
-			patch("one_bpmn.agents.turn_state.update_turn"),
+			patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value=turn),
+			patch("one_bpmn.processa_engine.agent_runtime.turn_state.update_turn"),
 			patch(
 				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
 				return_value={"sub_prompts": {}, "max_tokens": 32000, "agent_id": "prosally_agent"},
 			),
-			patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter),
+			patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=adapter),
 		):
 			self._run_script(MODIFY)
 
@@ -119,13 +120,13 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 		adapter = self._fake_adapter(raises=LLMTruncatedError("truncated"))
 
 		with (
-			patch("one_bpmn.agents.turn_state.get_turn", return_value=turn),
-			patch("one_bpmn.agents.turn_state.update_turn"),
+			patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value=turn),
+			patch("one_bpmn.processa_engine.agent_runtime.turn_state.update_turn"),
 			patch(
 				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
 				return_value={"sub_prompts": {}, "max_tokens": 1024, "agent_id": "prosally_agent"},
 			),
-			patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter),
+			patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=adapter),
 		):
 			self._run_script(MODIFY)
 
@@ -137,13 +138,13 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 		adapter = self._fake_adapter(raises=LLMTruncatedError("truncated"))
 
 		with (
-			patch("one_bpmn.agents.turn_state.get_turn", return_value=turn),
-			patch("one_bpmn.agents.turn_state.update_turn"),
+			patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value=turn),
+			patch("one_bpmn.processa_engine.agent_runtime.turn_state.update_turn"),
 			patch(
 				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
 				return_value={"sub_prompts": {}, "max_tokens": 20000, "agent_id": "prosally_agent"},
 			),
-			patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter),
+			patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=adapter),
 		):
 			ns = self._run_script(GENERATE)
 
@@ -175,13 +176,13 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 		}
 
 		with (
-			patch("one_bpmn.agents.turn_state.get_turn", return_value=turn),
-			patch("one_bpmn.agents.turn_state.update_turn", side_effect=fake_update_turn),
+			patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value=turn),
+			patch("one_bpmn.processa_engine.agent_runtime.turn_state.update_turn", side_effect=fake_update_turn),
 			patch(
 				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
 				return_value={"sub_prompts": {}, "max_tokens": 16384, "agent_id": "prosally_agent"},
 			),
-			patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter),
+			patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=adapter),
 			patch("one_bpmn.agents.bpmn_ir_pipeline.compile_ir", return_value=fake_compile_result),
 			patch("one_bpmn.agents.bpmn_ir_pipeline.extract_process_name", return_value="Onboarding"),
 			patch("one_bpmn.agents.bpmn_ir_pipeline.extract_element_ids", return_value=""),

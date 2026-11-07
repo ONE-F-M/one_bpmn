@@ -27,7 +27,7 @@ CODEOWNERS_PATH = ".github/CODEOWNERS"
 
 # Where the restricted imports are allowed (path prefixes, repo-relative).
 ENGINE_PREFIXES = ("one_bpmn/processa_engine/engine/",)
-ADAPTER_PREFIXES = ("one_bpmn/agents/llm_provider/",)
+ADAPTER_PREFIXES = ("one_bpmn/processa_engine/agent_runtime/llm_",)
 
 WORK_ITEM_ID = re.compile(r"(?<![A-Za-z0-9])WI-\d+")
 IGNORE_PERMISSIONS = re.compile(r"ignore_permissions\s*=\s*True")

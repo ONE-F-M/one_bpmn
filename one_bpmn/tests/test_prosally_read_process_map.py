@@ -12,7 +12,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import prosally_helpers as helpers
 from one_bpmn.agents.process_links import MAX_TURN_MAPS, read_process_map_for_turn
-from one_bpmn.agents.turn_state import clear_turn, get_turn, set_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_reads_process_maps as maps_patch
 from one_bpmn.tests.test_process_links import CATCH_SIGNAL, THROW_SIGNAL, _model
 from one_bpmn.tests.test_prosally_cross_process import CFG, TOOLS_MAP

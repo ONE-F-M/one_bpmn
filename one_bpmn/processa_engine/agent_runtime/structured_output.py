@@ -1,17 +1,12 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Response Format JSON: the schema an agent declares, and reading the reply against it.
-
-One place for every executor and adapter, so a JSON agent behaves the same on
-Anthropic, OpenAI and Gemini.
-"""
+"""Response Format JSON: the schema an agent declares, and reading the reply against it."""
 
 from __future__ import annotations
 
 import json
 from typing import Any
 
-# Rules at least one provider's native JSON mode rejects.
 _UNSUPPORTED_RULES = ("minimum", "maximum", "minLength", "maxLength")
 
 _SCHEMA_KEYWORDS = frozenset(
@@ -89,10 +84,7 @@ def _field_from_example(value: Any) -> dict:
 
 
 def validate_schema_rules(schema: dict) -> None:
-	"""Raise UnsupportedSchemaRule for recursion or additionalProperties other than false.
-
-	Length and range rules pass: provider_schema drops them and read_json_reply still enforces them.
-	"""
+	"""Raise UnsupportedSchemaRule for recursion or additionalProperties other than false."""
 	_check_rules(schema, "", frozenset())
 
 
@@ -119,10 +111,7 @@ def _check_rules(schema: Any, path: str, refs: frozenset) -> None:
 
 
 def provider_schema(schema: dict) -> dict:
-	"""The schema as sent to a native JSON mode: every object closed, and no rule a provider rejects.
-
-	The reply is still checked against the author's schema, so a dropped rule is enforced locally.
-	"""
+	"""The schema as sent to a native JSON mode: every object closed, and no rule a provider rejects."""
 	out = {key: value for key, value in schema.items() if key not in _UNSUPPORTED_RULES}
 	if out.get("type") == "object" or "properties" in out:
 		out.setdefault("additionalProperties", False)

@@ -32,7 +32,7 @@ import pickle
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.turn_state import _key, clear_turn, get_turn, set_turn, update_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import _key, clear_turn, get_turn, set_turn, update_turn
 
 CONVERSATION = "_TestTurnStateMemo"
 ANSWER = {"response": "A full reply, not the word DONE.", "stage": "architect"}

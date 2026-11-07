@@ -11,10 +11,10 @@ from google.genai import types
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.llm_provider.anthropic_adapter import _build_tool_def as _anthropic_tool_def
-from one_bpmn.agents.llm_provider.base import ToolSpec, build_parameter_schema
-from one_bpmn.agents.llm_provider.gemini import _build_fn_decl
-from one_bpmn.agents.llm_provider.openai_adapter import _build_tool_def as _openai_tool_def
+from one_bpmn.processa_engine.agent_runtime.llm_anthropic import _build_tool_def as _anthropic_tool_def
+from one_bpmn.processa_engine.agent_runtime.llm_types import ToolSpec, build_parameter_schema
+from one_bpmn.processa_engine.agent_runtime.llm_gemini import _build_fn_decl
+from one_bpmn.processa_engine.agent_runtime.llm_openai import _build_tool_def as _openai_tool_def
 
 
 def _tool() -> ToolSpec:

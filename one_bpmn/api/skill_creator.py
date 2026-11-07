@@ -69,7 +69,7 @@ def harvest_skill_from_run(run_name: str) -> str:
         ).format(run_name))
 
     from one_bpmn.agents.context_assembler import load_agent_behaviour
-    from one_bpmn.agents.llm_provider.factory import get_llm_adapter_from_settings
+    from one_bpmn.processa_engine.agent_runtime.llm_factory import get_llm_adapter_from_settings
 
     agent_config = {}
     if run.agent_configuration:

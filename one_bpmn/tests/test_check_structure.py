@@ -198,12 +198,13 @@ class TestImportRule(unittest.TestCase):
 	def test_model_libraries_outside_the_adapters_fail(self):
 		for text in (ANTHROPIC_IMPORT, OPENAI_IMPORT, GENAI_IMPORT, "from google import genai"):
 			with self.subTest(text=text):
-				self.assertEqual(rules(self.added("one_bpmn/agents/executor/direct_api.py", text)), ["import"])
+				self.assertEqual(rules(self.added("one_bpmn/processa_engine/agent_runtime/direct_api.py", text)), ["import"])
+				self.assertEqual(rules(self.added("one_bpmn/agents/llm_provider/new_adapter.py", text)), ["import"])
 
 	def test_model_libraries_inside_the_adapters_pass(self):
 		for text in (ANTHROPIC_IMPORT, OPENAI_IMPORT, GENAI_IMPORT):
 			with self.subTest(text=text):
-				self.assertTrue(self.added("one_bpmn/agents/llm_provider/new_adapter.py", "\t\t" + text).ok)
+				self.assertTrue(self.added("one_bpmn/processa_engine/agent_runtime/llm_new.py", "\t\t" + text).ok)
 
 	def test_tests_may_import_restricted_libraries(self):
 		self.assertTrue(self.added("one_bpmn/tests/test_x.py", SPIFF_IMPORT).ok)

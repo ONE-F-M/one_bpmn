@@ -6,7 +6,7 @@ import re
 
 import frappe
 
-from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
+from one_bpmn.processa_engine.agent_runtime.job_limits import AI_AGENT_JOB_TIMEOUT
 from frappe import _
 
 from one_bpmn.api.utils import _is_bpmn_super_user

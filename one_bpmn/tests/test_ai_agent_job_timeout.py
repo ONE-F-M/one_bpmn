@@ -16,7 +16,7 @@ from pathlib import Path
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
+from one_bpmn.processa_engine.agent_runtime.job_limits import AI_AGENT_JOB_TIMEOUT
 
 APP = Path(__file__).resolve().parents[1]
 

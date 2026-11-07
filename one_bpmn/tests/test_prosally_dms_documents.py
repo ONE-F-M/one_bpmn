@@ -12,7 +12,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import prosally_helpers as helpers
 from one_bpmn.agents.dms_search import DOCUMENT_TYPES
-from one_bpmn.agents.turn_state import clear_turn, get_turn, set_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_reads_dms_documents as dms_patch
 
 LEAVE_TEXT = "annual leave requests above five days need director approval"

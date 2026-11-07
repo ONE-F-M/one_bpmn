@@ -135,7 +135,7 @@ def _tool_calls_from_result(result: dict) -> list:
 	from whatever record of the turn's tool calls the reply carries.
 	Prefers an explicit ``tool_calls`` list on the reply; falls back to
 	flattening the AI Agent Run's own per-turn ``trace`` (the
-	TurnRecord/ToolCallRecord shape from agents/llm_provider/base.py) when
+	TurnRecord/ToolCallRecord shape from processa_engine/agent_runtime/llm_types.py) when
 	a runner exposes that instead. Neither present is not an error \u2014 most
 	turns call no tools at all.
 	"""

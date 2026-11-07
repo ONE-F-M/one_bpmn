@@ -68,7 +68,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 	"""
 	from frappe.utils import cint
 
-	from one_bpmn.agents.executor import (
+	from one_bpmn.processa_engine.agent_runtime.executor import (
 		DEFAULT_MAX_OUTPUT_TOKENS,
 		DEFAULT_TEMPERATURE,
 		DEFAULT_TIMEOUT_SECONDS,
@@ -78,8 +78,8 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		ExecutorContext,
 		get_executor,
 	)
-	from one_bpmn.agents.executor.direct_api import DirectApiExecutor
-	from one_bpmn.agents.llm_provider.base import ToolSpec
+	from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
+	from one_bpmn.processa_engine.agent_runtime.llm_types import ToolSpec
 	from one_bpmn.agents.tool_pool import DIAGRAM_TASK, resolve_tool_pool
 
 	# A linked AI Agent Configuration overrides the shape's agent fields; tools stay the subprocess's own.

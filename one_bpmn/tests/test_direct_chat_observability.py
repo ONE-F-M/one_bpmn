@@ -20,13 +20,13 @@ from frappe.tests.utils import FrappeTestCase
 from one_bpmn.api import agent_invocation
 
 PERSIST = "one_bpmn.utils.chat_persistence"
-ADAPTER = "one_bpmn.agents.llm_provider.get_llm_adapter_from_settings"
+ADAPTER = "one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings"
 
 
 def _completion(text="the answer", trace=None):
 	"""A completion shaped the way an adapter really returns one: its trace
 	carries TurnRecord dataclasses, not dicts."""
-	from one_bpmn.agents.llm_provider.base import TurnRecord
+	from one_bpmn.processa_engine.agent_runtime.llm_types import TurnRecord
 
 	if trace is None:
 		trace = [TurnRecord(role="assistant", content=text, prompt_tokens=1200, completion_tokens=48)]

@@ -9,7 +9,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import now_datetime
 
-from one_bpmn.agents.executor import ErrorCode, ExecutorConfig, ExecutorResult, TokenUsage
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorConfig, ExecutorResult, TokenUsage
 
 
 class TestObservability(FrappeTestCase):

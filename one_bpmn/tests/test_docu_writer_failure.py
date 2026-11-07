@@ -11,7 +11,7 @@ from frappe.utils import now_datetime
 
 from one_bpmn.agents.observability import _tool_call_status
 from one_bpmn.agents.shape_tools import execute_shape
-from one_bpmn.agents.turn_state import get_turn, set_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, set_turn
 from one_bpmn.api.server_script_api import turn_failure_text
 from one_bpmn.tests.test_failed_tool_turn import ChatTurnFixture
 

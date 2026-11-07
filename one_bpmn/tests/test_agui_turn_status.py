@@ -19,7 +19,7 @@ from one_bpmn.tests.test_chat_history_restore import CHOICE, _remove
 from one_bpmn.utils.chat_persistence import create_conversation, save_bot_message, save_user_message
 
 MESSAGE_ID = "m-turn-status-1"
-JOB_RUNNING = "one_bpmn.agents.turn_signal.ai_job_running"
+JOB_RUNNING = "one_bpmn.processa_engine.agent_runtime.turn_signal.ai_job_running"
 
 
 def _ask(conversation: str, text: str, client_message_id: str) -> str:

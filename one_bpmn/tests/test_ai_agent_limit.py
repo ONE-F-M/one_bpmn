@@ -10,7 +10,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from unittest.mock import patch
 
-from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 
 
 class TestAgentMaxToolCalls(FrappeTestCase):
@@ -35,7 +35,7 @@ class TestAgentMaxToolCalls(FrappeTestCase):
 			captured["config"] = config
 			return result
 
-		with patch("one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", new=fake_run):
+		with patch("one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run", new=fake_run):
 			ai_agent.dispatch_ai_agent(self.instance, self.task, task_cfg, "A")
 		return captured["config"]
 
@@ -55,9 +55,9 @@ class TestAgentMaxToolCalls(FrappeTestCase):
 		# actually reaches the loop bound.
 		import inspect
 
-		from one_bpmn.agents.llm_provider.anthropic_adapter import AnthropicAdapter
-		from one_bpmn.agents.llm_provider.openai_adapter import OpenAIAdapter
-		from one_bpmn.agents.llm_provider.gemini import GeminiAdapter
+		from one_bpmn.processa_engine.agent_runtime.llm_anthropic import AnthropicAdapter
+		from one_bpmn.processa_engine.agent_runtime.llm_openai import OpenAIAdapter
+		from one_bpmn.processa_engine.agent_runtime.llm_gemini import GeminiAdapter
 
 		for cls in (AnthropicAdapter, OpenAIAdapter, GeminiAdapter):
 			self.assertIn("max_turns", inspect.signature(cls.complete).parameters, cls.__name__)

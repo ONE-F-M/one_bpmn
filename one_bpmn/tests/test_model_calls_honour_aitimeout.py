@@ -15,8 +15,8 @@ from __future__ import annotations
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import DEFAULT_TIMEOUT_SECONDS
-from one_bpmn.agents.llm_provider.factory import get_llm_adapter
+from one_bpmn.processa_engine.agent_runtime.executor import DEFAULT_TIMEOUT_SECONDS
+from one_bpmn.processa_engine.agent_runtime.llm_factory import get_llm_adapter
 
 
 class TestModelCallsHonourAiTimeout(FrappeTestCase):

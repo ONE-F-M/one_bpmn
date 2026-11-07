@@ -10,7 +10,7 @@ from unittest.mock import patch
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import context_assembler as CA
-from one_bpmn.agents.executor import (
+from one_bpmn.processa_engine.agent_runtime.executor import (
 	DEFAULT_MAX_OUTPUT_TOKENS,
 	DEFAULT_MAX_RETRIES,
 	DEFAULT_TEMPERATURE,
@@ -58,12 +58,12 @@ class TestEveryPathComposesTheSameWay(FrappeTestCase):
 				sent["system"] = system
 				return type("C", (), {"text": "ok"})()
 
-		with patch.object(agent_invocation, "_run_coro_blocking", create=True), patch(
-			"one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=FakeAdapter()
+		with patch.object(agent_invocation, "run_coro_blocking", create=True), patch(
+			"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=FakeAdapter()
 		), patch("one_bpmn.utils.chat_persistence.save_user_message"), patch(
 			"one_bpmn.utils.chat_persistence.save_bot_message"
 		), patch(
-			"one_bpmn.agents.executor.direct_api._run_coro_blocking",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.run_coro_blocking",
 			side_effect=lambda coro: (coro.close(), type("C", (), {"text": "ok"})())[1],
 		):
 			# The adapter call is faked, so assert on what the path would build.
@@ -99,7 +99,7 @@ class TestEveryPathStartsFromTheSameDefaults(FrappeTestCase):
 		self.assertEqual(DEFAULT_MAX_RETRIES, 2)
 
 	def test_executor_config_starts_from_the_shared_defaults(self):
-		from one_bpmn.agents.executor import ExecutorConfig
+		from one_bpmn.processa_engine.agent_runtime.executor import ExecutorConfig
 
 		config = ExecutorConfig()
 		self.assertEqual(config.temperature, DEFAULT_TEMPERATURE)

@@ -7,7 +7,7 @@ from datetime import datetime
 import frappe
 from frappe.utils import add_to_date, get_datetime, get_system_timezone, now_datetime
 
-from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
+from one_bpmn.processa_engine.agent_runtime.job_limits import AI_AGENT_JOB_TIMEOUT
 from one_bpmn.processa_engine.runtime.active_tasks import check_completion, sync_active_tasks
 from one_bpmn.processa_engine.runtime.common import log_task, refresh_user_task_extensions_from_model
 from one_bpmn.processa_engine.runtime.engine_loop import run_engine

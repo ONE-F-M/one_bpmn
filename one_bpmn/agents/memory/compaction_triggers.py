@@ -92,7 +92,7 @@ def _is_inflight(conversation: str):
 
 	The memo is dropped before reading regardless, because another execution
 	context may have written the marker since this one last looked — the same
-	reason ``agents/turn_state.py`` reads past it.
+	reason ``processa_engine/agent_runtime/turn_state.py`` reads past it.
 	"""
 	frappe.local.cache.pop(frappe.cache.make_key(_inflight_key(conversation)), None)
 	marked = frappe.cache.get_value(_inflight_key(conversation))

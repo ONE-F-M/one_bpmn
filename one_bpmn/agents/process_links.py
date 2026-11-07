@@ -14,7 +14,7 @@ from one_bpmn.agents.process_digest import (
 	find_process_models,
 	get_process_model_digest,
 )
-from one_bpmn.agents.turn_state import get_turn, update_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, update_turn
 from one_bpmn.processa_engine.compiler.called_processes import CALL_SPIFF_NS, called_model
 
 MAX_RELATED_MODELS = 15

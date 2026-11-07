@@ -13,9 +13,9 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import ErrorCode, ExecutorConfig, ExecutorContext
-from one_bpmn.agents.executor.step_loop import run_agent_loop
-from one_bpmn.agents.llm_provider.base import StepResult, StepToolCall, ToolSpec
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorConfig, ExecutorContext
+from one_bpmn.processa_engine.agent_runtime.step_loop import run_agent_loop
+from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall, ToolSpec
 
 
 class FakeStepAdapter:
@@ -392,7 +392,7 @@ class TestExecutorSuspensionMapping(FrappeTestCase):
 			}).insert(ignore_permissions=True)
 
 	def _execute(self, adapter, tools, resume_state=None):
-		from one_bpmn.agents.executor.direct_api import DirectApiExecutor
+		from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
 
 		config = ExecutorConfig(
 			provider_name="OpenAI",
@@ -402,7 +402,7 @@ class TestExecutorSuspensionMapping(FrappeTestCase):
 			resume_state=resume_state,
 		)
 		with patch(
-			"one_bpmn.agents.llm_provider.factory.get_llm_adapter",
+			"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter",
 			return_value=adapter,
 		):
 			return DirectApiExecutor().run(config, ExecutorContext())

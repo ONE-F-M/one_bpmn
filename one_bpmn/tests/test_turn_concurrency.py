@@ -16,7 +16,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import turn_idempotency as idem
+from one_bpmn.processa_engine.agent_runtime import turn_idempotency as idem
 from one_bpmn.api import agent_invocation, server_script_api
 from one_bpmn.security import turn_lock
 

@@ -111,7 +111,7 @@ class TestSplitEndToEnd(SplitE2eHarness):
 		# Persist the parked state, then the AI-only job runs.
 		self._persist(wf, self.instance._service_task_extensions)
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_with_tools(),
 		):
 			with patch.object(frappe, "enqueue"):
@@ -208,7 +208,7 @@ class TestSplitEndToEnd(SplitE2eHarness):
 		with patch.object(frappe, "enqueue"):
 			retry_ai_task(self.instance.name, task_id, "service_task")
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_with_tools(),
 		):
 			with patch.object(frappe, "enqueue"):

@@ -71,9 +71,10 @@ one_bpmn/                      # Frappe app (repo root)
 │   ├── api/                   # Whitelisted backend endpoints (domain submodules)
 │   ├── one_bpmn/doctype/      # DocTypes + controllers (models, instances, tasks, logs)
 │   ├── one_bpmn/connectors/   # Outbound connectors and the agent sandbox client
-│   ├── agents/                # AI agent runtime (executor, llm_provider, shape tools, memory)
+│   ├── agents/                # AI agents (shape tools, memory, evals, A2A)
 │   ├── security/              # Validator for generated scripts
 │   ├── processa_engine/notifications/  # AMP and HTML task emails
+│   ├── processa_engine/agent_runtime/  # Executors, model adapters, step loop and turn state
 │   ├── commands/              # bench commands
 │   ├── overrides/             # Overridden Frappe classes
 │   ├── templates/             # Email and deployment templates

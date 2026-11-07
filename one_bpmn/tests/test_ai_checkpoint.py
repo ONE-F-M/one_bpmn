@@ -17,8 +17,8 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import checkpoint
-from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+from one_bpmn.processa_engine.agent_runtime import checkpoint
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 
 
 def _suspension(**overrides):
@@ -169,7 +169,7 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 			fake_run.config = config
 			return result
 
-		with patch("one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", new=fake_run):
+		with patch("one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run", new=fake_run):
 			ai_agent.dispatch_ai_agent(
 				self.instance, self.task, self.task_cfg, self.bpmn_id, resume_run=resume_run
 			)
@@ -320,7 +320,7 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 
 		from one_bpmn.processa_engine.dispatch import ai_agent
 
-		with patch("one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", new=fake_run):
+		with patch("one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run", new=fake_run):
 			ai_agent.dispatch_ai_agent(
 				self.instance, self.task, self.task_cfg, self.bpmn_id, resume_run=run_name
 			)
@@ -352,7 +352,7 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 		def fake_run(_self, config, context):
 			return final
 
-		with patch("one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", new=fake_run):
+		with patch("one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run", new=fake_run):
 			ran = ai_agent.resume_ai_agent(
 				self.instance, self.task, self.task_cfg, self.bpmn_id,
 				human_result={"action": "Reject", "reason": "too costly"},

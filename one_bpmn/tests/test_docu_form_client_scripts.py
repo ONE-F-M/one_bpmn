@@ -9,11 +9,12 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.agui_contract.translators import _script_diff
-from one_bpmn.agents.turn_state import clear_turn, get_turn, set_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.api.docu_api import apply_client_script, preview_client_script
 from one_bpmn.one_bpmn.patches.v1_0 import docu_edits_field_properties as previous
 from one_bpmn.one_bpmn.patches.v1_0 import docu_writes_form_client_scripts as patch
 from one_bpmn.security.client_script_validator import validate_form_script
+from one_bpmn.tests.site_scripts import as_deployed
 
 DT = "Note"
 SCRIPT = 'frappe.ui.form.on("Note", {\n\tpublic(frm) {\n\t\tfrm.toggle_reqd("content", frm.doc.public);\n\t},\n});\n'
@@ -146,8 +147,8 @@ class _Adapter:
 def _run_stage(replies, doctype=DT):
 	set_turn(CONVERSATION, {"user_text": REQUEST, "doctype": doctype})
 	adapter = _Adapter(*replies)
-	with mock_patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter):
-		exec(patch.STAGE_SCRIPT_BODY, {"frappe": frappe, "context_docname": CONVERSATION, "result": {}})
+	with mock_patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=adapter):
+		exec(as_deployed(patch.STAGE_SCRIPT_BODY), {"frappe": frappe, "context_docname": CONVERSATION, "result": {}})
 	return get_turn(CONVERSATION)["output"], adapter
 
 

@@ -232,7 +232,7 @@ class TestMemoryModelConfig(FrappeTestCase):
 		"""
 		from types import SimpleNamespace
 
-		from one_bpmn.agents.executor import (
+		from one_bpmn.processa_engine.agent_runtime.executor import (
 			ErrorCode,
 			Executor,
 			ExecutorResult,

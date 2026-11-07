@@ -15,8 +15,8 @@ Either way the invariant downstream cost depends on is the same:
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import TokenUsage
-from one_bpmn.agents.executor.direct_api import DirectApiExecutor
+from one_bpmn.processa_engine.agent_runtime.executor import TokenUsage
+from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
 
 
 class TestParseTokenUsage(FrappeTestCase):
@@ -80,7 +80,7 @@ class TestAdapterUsageHelpers(FrappeTestCase):
 				setattr(self, k, v)
 
 	def test_anthropic_usage_tokens(self):
-		from one_bpmn.agents.llm_provider.anthropic_adapter import _usage_tokens
+		from one_bpmn.processa_engine.agent_runtime.llm_anthropic import _usage_tokens
 
 		resp = self._Obj(usage=self._Obj(
 			input_tokens=10, cache_read_input_tokens=90,
@@ -89,7 +89,7 @@ class TestAdapterUsageHelpers(FrappeTestCase):
 		self.assertEqual(_usage_tokens(resp), (105, 3, 90, 5))
 
 	def test_openai_usage_tokens(self):
-		from one_bpmn.agents.llm_provider.openai_adapter import _usage_tokens
+		from one_bpmn.processa_engine.agent_runtime.llm_openai import _usage_tokens
 
 		resp = self._Obj(usage=self._Obj(
 			prompt_tokens=100, completion_tokens=4,
@@ -98,13 +98,13 @@ class TestAdapterUsageHelpers(FrappeTestCase):
 		self.assertEqual(_usage_tokens(resp), (100, 4, 64, 0))
 
 	def test_openai_usage_tokens_without_details(self):
-		from one_bpmn.agents.llm_provider.openai_adapter import _usage_tokens
+		from one_bpmn.processa_engine.agent_runtime.llm_openai import _usage_tokens
 
 		resp = self._Obj(usage=self._Obj(prompt_tokens=100, completion_tokens=4))
 		self.assertEqual(_usage_tokens(resp), (100, 4, 0, 0))
 
 	def test_gemini_usage_tokens(self):
-		from one_bpmn.agents.llm_provider.gemini import _usage_tokens
+		from one_bpmn.processa_engine.agent_runtime.llm_gemini import _usage_tokens
 
 		resp = self._Obj(usage_metadata=self._Obj(
 			prompt_token_count=200, candidates_token_count=8,
