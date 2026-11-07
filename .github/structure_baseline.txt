@@ -38,14 +38,12 @@ private-import one_bpmn/agents/process_digest.py one_bpmn.agents.memory.tools._q
 private-import one_bpmn/agents/process_links.py one_bpmn.agents.process_digest._local
 private-import one_bpmn/agents/process_links.py one_bpmn.agents.process_digest._parse
 private-import one_bpmn/agents/process_links.py one_bpmn.agents.process_digest._tag
-private-import one_bpmn/agents/process_links.py one_bpmn.api.compilation._called_model
 private-import one_bpmn/agents/shape_tools.py one_bpmn.processa_engine.engine._check_script_permissions
 private-import one_bpmn/api/agent_invocation.py one_bpmn.agents.executor.direct_api._run_coro_blocking
 private-import one_bpmn/api/agent_invocation.py one_bpmn.processa_engine.triggers._maybe_start_instance
 private-import one_bpmn/api/agent_invocation.py one_bpmn.security.pii._config_name
 private-import one_bpmn/api/agui.py one_bpmn.agents.agui_stream._extension_events
 private-import one_bpmn/api/comment.py one_bpmn.api.todo_actions._set_amp_cors_headers
-private-import one_bpmn/api/compilation.py one_bpmn.api.process_map_api._connector_tools_without_result_variable
 private-import one_bpmn/api/config_export_import.py one_bpmn.api.process_map_api._extract_bpmn_references
 private-import one_bpmn/api/doctype_source_sync.py one_bpmn.api.production_review._app_for_doctype
 private-import one_bpmn/api/doctype_source_sync.py one_bpmn.api.production_review._same_owner
@@ -60,12 +58,6 @@ private-import one_bpmn/api/notification_api.py one_bpmn.email_builder.composer.
 private-import one_bpmn/api/notification_api.py one_bpmn.email_builder.composer._resolve_subject_body
 private-import one_bpmn/api/notification_api.py one_bpmn.email_builder.composer._sends_decision_card
 private-import one_bpmn/api/notification_api.py one_bpmn.processa_engine.assignment._decode_html_attr
-private-import one_bpmn/api/process_map_api.py one_bpmn.api.compilation._email_setting_gaps
-private-import one_bpmn/api/process_map_api.py one_bpmn.api.compilation._empty_script_tasks
-private-import one_bpmn/api/process_map_api.py one_bpmn.api.compilation._extract_service_task_config
-private-import one_bpmn/api/process_map_api.py one_bpmn.api.compilation._extract_user_task_config
-private-import one_bpmn/api/process_map_api.py one_bpmn.api.compilation._notification_sender_gaps
-private-import one_bpmn/api/process_map_api.py one_bpmn.api.compilation._user_task_config_gaps
 private-import one_bpmn/api/production_review.py one_bpmn.api.editability._call_production_api
 private-import one_bpmn/api/production_review.py one_bpmn.api.editability._is_ba_instance
 private-import one_bpmn/api/production_review.py one_bpmn.api.process_map_api._extract_bpmn_references
@@ -77,9 +69,6 @@ private-import one_bpmn/api/sessions_api.py one_bpmn.agents.memory.compaction_tr
 private-import one_bpmn/api/todo_actions.py one_bpmn.email_builder.composer._arabic
 private-import one_bpmn/api/workflow_actions.py one_bpmn.api.todo_actions._set_amp_cors_headers
 private-import one_bpmn/processa_engine/audit.py one_bpmn.api.utils._is_bpmn_super_user
-private-import one_bpmn/commands/agent_drift.py one_bpmn.api.compilation._check_shape_config_drift
-private-import one_bpmn/commands/agent_drift.py one_bpmn.api.compilation._extract_adhoc_selector_config
-private-import one_bpmn/commands/agent_drift.py one_bpmn.api.compilation._extract_service_task_config
 private-import one_bpmn/email_builder/composer.py one_bpmn.api.todo_actions._plain_text
 private-import one_bpmn/email_builder/composer.py one_bpmn.processa_engine.assignment._decode_html_attr
 private-import one_bpmn/email_builder/fields.py one_bpmn.email_builder.composer._arabic
@@ -182,6 +171,7 @@ private-import one_bpmn/one_bpmn/patches/v1_0/seed_lucrusher_skills.py one_bpmn.
 private-import one_bpmn/one_bpmn/patches/v1_0/seed_lucrusher_skills.py one_bpmn.one_bpmn.patches.v1_0.seed_prosally_and_frontend_skills._enable_skill
 private-import one_bpmn/one_bpmn/patches/v1_0/seed_lucrusher_skills.py one_bpmn.one_bpmn.patches.v1_0.seed_prosally_and_frontend_skills._upsert_skill
 private-import one_bpmn/one_bpmn/patches/v1_0/seed_prosally_baseline_suite.py one_bpmn.one_bpmn.patches.v1_0.seed_lucrusher_eval_suite._call
+private-import one_bpmn/processa_engine/compiler/deploy_warnings.py one_bpmn.api.process_map_api._connector_tools_without_result_variable
 private-import one_bpmn/processa_engine/triggers.py one_bpmn.api.instance_api._start_and_deliver_message
 private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.agents.checkpoint._human_result_str
 private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.agents.observability._CURRENT_RUN_FLAG
@@ -191,7 +181,6 @@ private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.api.skill_
 private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.api.skill_tools._skills_cache_key
 private-import one_bpmn/processa_engine/dispatch/email.py one_bpmn.email_builder.composer._send_email
 private-import one_bpmn/processa_engine/dispatch/email.py one_bpmn.processa_engine.assignment._decode_html_attr
-private-import one_bpmn/processa_engine/assignment.py one_bpmn.api.compilation._update_round_robin_in_model
 private-import one_bpmn/processa_engine/doctype/bpmn_process_model/bpmn_process_model.py one_bpmn.agents.executor.direct_api._supports_temperature
 private-import one_bpmn/processa_engine/doctype/bpmn_process_model/bpmn_process_model.py one_bpmn.api.editability._site_lock_override
 private-import one_bpmn/processa_engine/engine/__init__.py one_bpmn.processa_engine.engine.adhoc._adhoc_completion_met
@@ -216,12 +205,11 @@ size one_bpmn/agents/observability.py 1301
 size one_bpmn/agents/prosally_helpers.py 1857
 size one_bpmn/api/agent_invocation.py 959
 size one_bpmn/api/ai_assistant.py 1131
-size one_bpmn/api/compilation.py 2820
 size one_bpmn/api/docu_api.py 1496
 size one_bpmn/api/eval_api.py 1939
 size one_bpmn/api/insights_api.py 2613
 size one_bpmn/api/instance_api.py 1417
-size one_bpmn/api/process_map_api.py 1867
+size one_bpmn/api/process_map_api.py 1865
 size one_bpmn/api/production_review.py 871
 size one_bpmn/api/server_script_api.py 955
 size one_bpmn/api/todo_actions.py 893

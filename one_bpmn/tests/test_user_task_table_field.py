@@ -18,7 +18,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.compilation import _extract_user_task_config
+from one_bpmn.processa_engine.compiler.extensions import extract_user_task_config
 from one_bpmn.processa_engine import engine as bpmn_engine
 from one_bpmn.processa_engine import assignment
 from one_bpmn.processa_engine.runtime.active_tasks import sync_active_tasks
@@ -90,7 +90,7 @@ class TestUserTaskAssignedToATable(FrappeTestCase):
 
 	def _start(self):
 		"""Run the flow up to the User Task and persist the instance."""
-		extensions = _extract_user_task_config(_XML)
+		extensions = extract_user_task_config(_XML)
 		spec_dict, sp_specs = bpmn_engine.parse_bpmn(_XML, "proc_table_field")
 
 		instance = frappe.get_doc({

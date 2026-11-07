@@ -99,7 +99,7 @@ def execute():
 	_create_debug_script()
 	_edit_text("Server Script", BUILD_CONTEXT, "script", BUILD_CONTEXT_MARKER, BUILD_CONTEXT_EDITS)
 	if _edit_text("BPMN Process Model", MODEL_NAME, "bpmn_xml", MAP_MARKER, MAP_EDITS):
-		from one_bpmn.api.compilation import compile_process_model
+		from one_bpmn.api.deploy import compile_process_model
 
 		compile_process_model(MODEL_NAME)
 

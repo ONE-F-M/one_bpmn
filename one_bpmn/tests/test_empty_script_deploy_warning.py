@@ -4,7 +4,7 @@
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.compilation import _check_script_tasks_have_a_script
+from one_bpmn.processa_engine.compiler.deploy_warnings import check_script_tasks_have_a_script
 from one_bpmn.api.process_map_api import validate_bpmn_readiness
 
 MAP = """<?xml version="1.0" encoding="UTF-8"?>
@@ -22,7 +22,7 @@ EMPTY_TASK = '<bpmn:scriptTask id="Activity_empty" name="Calculate Total" />'
 
 class TestEmptyScriptDeployWarning(FrappeTestCase):
 	def _details(self, tasks: str) -> list:
-		return [w["detail"] for w in _check_script_tasks_have_a_script(MAP.format(tasks=tasks))]
+		return [w["detail"] for w in check_script_tasks_have_a_script(MAP.format(tasks=tasks))]
 
 	def test_a_script_task_with_no_script_is_flagged(self):
 		details = self._details(EMPTY_TASK)

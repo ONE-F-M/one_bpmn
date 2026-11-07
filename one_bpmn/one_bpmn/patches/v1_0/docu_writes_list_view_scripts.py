@@ -230,7 +230,7 @@ def _route_from_classifier():
 
 def _add_shape():
 	"""Put write_list_script in the map's Tools sub-process, then recompile the map."""
-	from one_bpmn.api.compilation import compile_process_model
+	from one_bpmn.api.deploy import compile_process_model
 
 	xml = frappe.db.get_value("BPMN Process Model", MAP, "bpmn_xml") or ""
 	if not xml or 'id="write_list_script"' in xml:

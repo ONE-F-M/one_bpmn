@@ -1,6 +1,8 @@
 # Copyright (c) 2026, one-fm and contributors
 """Resolve task assignees and manage Frappe ToDos for BPMN user tasks."""
 
+import json
+
 import frappe
 from frappe import _
 
@@ -134,8 +136,6 @@ def resolve_assignment(instance, task) -> str:
 
 			# Best-effort patch of roundRobinLastUser in the BPMN XML for the editor.
 			try:
-				from one_bpmn.api.compilation import _update_round_robin_in_model
-
 				_update_round_robin_in_model(instance.process_model, bpmn_id, assignee)
 			except Exception:
 				pass
@@ -205,6 +205,43 @@ def resolve_assignment(instance, task) -> str:
 			return ""
 
 	return ""
+
+
+def _update_round_robin_in_model(model_name: str, task_bpmn_id: str, last_user: str) -> None:
+	"""Record the last round-robin assignee on the model's state and on the User Task in its XML."""
+	import xml.etree.ElementTree as _ET
+
+	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+
+	try:
+		model = frappe.get_doc("BPMN Process Model", model_name)
+		state = json.loads(model.round_robin_state or "{}")
+		if task_bpmn_id not in state:
+			state[task_bpmn_id] = {"next_idx": 0, "last_user": ""}
+		state[task_bpmn_id]["last_user"] = last_user
+		model.round_robin_state = json.dumps(state)
+
+		if model.bpmn_xml:
+			try:
+				_ET.register_namespace("", BPMN_NS)
+				_ET.register_namespace("spiffworkflow", SPIFF_NS)
+				root = _ET.fromstring(model.bpmn_xml.strip().encode("utf-8"))
+				attr_key = f"{{{SPIFF_NS}}}roundRobinLastUser"
+				for el in root.iter(f"{{{BPMN_NS}}}userTask"):
+					if el.get("id") == task_bpmn_id:
+						el.set(attr_key, last_user)
+						break
+				model.bpmn_xml = _ET.tostring(root, encoding="unicode", xml_declaration=False)
+			except Exception:
+				pass  # the state field is the record; the XML copy is only for the editor
+
+		model.save(ignore_permissions=True)  # engine writes round-robin state on the model
+	except Exception:
+		frappe.log_error(
+			title="BPMN: round-robin state update failed",
+			message=frappe.get_traceback(),
+		)
 
 
 def add_frappe_assignment(instance, user: str, task_name: str = "") -> None:

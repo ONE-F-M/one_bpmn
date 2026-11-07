@@ -87,7 +87,7 @@ def execute():
 	# Recompile so serialized_spec carries the fixed condition. New conversations
 	# pick it up; instances already Errored stay Errored and are simply replaced
 	# when the user reopens the chat.
-	from one_bpmn.api.compilation import compile_process_model
+	from one_bpmn.api.deploy import compile_process_model
 
 	try:
 		compile_process_model(MODEL_NAME)

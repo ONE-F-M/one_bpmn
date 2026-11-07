@@ -13,7 +13,7 @@ from frappe.utils import add_days, now_datetime
 
 from one_bpmn.one_bpmn.patches.v1_0 import error_log_ticket_agent_caches_older_tickets as fix
 
-COMPILE = "one_bpmn.api.compilation.compile_process_model"
+COMPILE = "one_bpmn.api.deploy.compile_process_model"
 
 # The Triage script as it runs on business-analyst.one-fm.com before the patch.
 TRIAGE_BODY = """# Script Task: Triage: Kill Switch + Exact Dedup (error_log_ticket_triage_process)

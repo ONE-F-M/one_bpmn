@@ -6,10 +6,8 @@ from __future__ import annotations
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.compilation import (
-	_extract_adhoc_selector_config,
-	_lint_ai_provider_config,
-)
+from one_bpmn.processa_engine.compiler.ai_checks import lint_ai_provider_config
+from one_bpmn.processa_engine.compiler.extensions import extract_adhoc_selector_config
 
 SELECTOR_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -37,7 +35,7 @@ class TestAiTaskSelectorConfig(FrappeTestCase):
 	# ── Scenario 2: attributes extracted from the subprocess element ──
 
 	def test_extracts_selector_attributes_from_adhoc_element(self):
-		config = _extract_adhoc_selector_config(_xml(provider="My Provider"))
+		config = extract_adhoc_selector_config(_xml(provider="My Provider"))
 		self.assertIn("AdhocSub_1", config)
 		cfg = config["AdhocSub_1"]
 		self.assertEqual(cfg["serviceType"], "ai_task_selector")
@@ -51,40 +49,40 @@ class TestAiTaskSelectorConfig(FrappeTestCase):
 	# diagrams may still carry the attribute; it passes through harmlessly.
 
 	def test_no_tool_sources_default_injected(self):
-		config = _extract_adhoc_selector_config(_xml(provider="My Provider"))
+		config = extract_adhoc_selector_config(_xml(provider="My Provider"))
 		self.assertNotIn("aiToolSources", config["AdhocSub_1"])
 
 	def test_legacy_tool_sources_attr_passes_through(self):
 		xml = _xml(provider="My Provider", extra=' spiffworkflow:aiToolSources="diagram"')
-		config = _extract_adhoc_selector_config(xml)
+		config = extract_adhoc_selector_config(xml)
 		self.assertEqual(config["AdhocSub_1"]["aiToolSources"], "diagram")
 
 	def test_untagged_adhoc_subprocess_ignored(self):
 		xml = _xml(provider="X").replace(
 			' spiffworkflow:serviceType="ai_task_selector"', ""
 		).replace("spiffworkflow:serviceType", "spiffworkflow:ignored")
-		config = _extract_adhoc_selector_config(xml)
+		config = extract_adhoc_selector_config(xml)
 		self.assertEqual(config, {})
 
 	# ── Scenario 4: compiler blocks bad configurations ──
 
 	def test_missing_provider_blocks_save(self):
-		extensions = _extract_adhoc_selector_config(_xml(provider=""))
+		extensions = extract_adhoc_selector_config(_xml(provider=""))
 		with self.assertRaises(frappe.ValidationError):
-			_lint_ai_provider_config("", extensions)
+			lint_ai_provider_config("", extensions)
 
 	def test_unknown_provider_blocks_save(self):
-		extensions = _extract_adhoc_selector_config(
+		extensions = extract_adhoc_selector_config(
 			_xml(provider="Nonexistent Provider XYZ-404")
 		)
 		with self.assertRaises(frappe.ValidationError):
-			_lint_ai_provider_config("", extensions)
+			lint_ai_provider_config("", extensions)
 
 	def test_raw_api_key_blocks_save(self):
 		xml = _xml(provider="sk-live-abc123")
-		extensions = _extract_adhoc_selector_config(xml)
+		extensions = extract_adhoc_selector_config(xml)
 		with self.assertRaises(frappe.ValidationError):
-			_lint_ai_provider_config("", extensions)
+			lint_ai_provider_config("", extensions)
 
 	def test_valid_provider_passes_lint(self):
 		provider = frappe.get_doc(
@@ -97,8 +95,8 @@ class TestAiTaskSelectorConfig(FrappeTestCase):
 			}
 		)
 		provider.insert(ignore_permissions=True)
-		extensions = _extract_adhoc_selector_config(_xml(provider=provider.name))
-		_lint_ai_provider_config("", extensions)  # must not raise
+		extensions = extract_adhoc_selector_config(_xml(provider=provider.name))
+		lint_ai_provider_config("", extensions)  # must not raise
 
 
 ADHOC_STRUCTURE_XML = """<?xml version="1.0" encoding="UTF-8"?>
@@ -114,13 +112,13 @@ ADHOC_STRUCTURE_XML = """<?xml version="1.0" encoding="UTF-8"?>
 
 
 class TestAdhocStructureValidation(FrappeTestCase):
-	"""_validate_adhoc_structure: BPMN-spec constraints on ad-hoc subprocesses
+	"""validate_adhoc_structure: BPMN-spec constraints on ad-hoc subprocesses
 	(no start/end events inside, at least one activity)."""
 
 	def _validate(self, children):
-		from one_bpmn.api.compilation import _validate_adhoc_structure
+		from one_bpmn.processa_engine.compiler.ai_checks import validate_adhoc_structure
 
-		_validate_adhoc_structure(ADHOC_STRUCTURE_XML.replace("{children}", children))
+		validate_adhoc_structure(ADHOC_STRUCTURE_XML.replace("{children}", children))
 
 	def test_activities_only_passes(self):
 		self._validate('<bpmn:userTask id="t1" /><bpmn:scriptTask id="t2" />')
@@ -146,7 +144,7 @@ class TestAdhocStructureValidation(FrappeTestCase):
 		self._validate('<bpmn:intermediateCatchEvent id="ic1" /><bpmn:userTask id="t1" />')
 
 	def test_events_outside_adhoc_untouched(self):
-		from one_bpmn.api.compilation import _validate_adhoc_structure
+		from one_bpmn.processa_engine.compiler.ai_checks import validate_adhoc_structure
 
 		xml = """<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -158,4 +156,4 @@ class TestAdhocStructureValidation(FrappeTestCase):
   </bpmn:process>
 </bpmn:definitions>
 """
-		_validate_adhoc_structure(xml)  # must not raise
+		validate_adhoc_structure(xml)  # must not raise

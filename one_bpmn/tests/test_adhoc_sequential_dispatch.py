@@ -361,7 +361,7 @@ class TestAdhocInstanceLifecycle(FrappeTestCase):
 	def _start_instance(self):
 		import frappe
 
-		from one_bpmn.api.compilation import compile_process_model
+		from one_bpmn.api.deploy import compile_process_model
 
 		process = frappe.get_doc({
 			"doctype": "Process",
@@ -445,7 +445,7 @@ class TestSendTaskDispatch(FrappeTestCase):
 	def _start_instance(self, notification_name):
 		import frappe
 
-		from one_bpmn.api.compilation import compile_process_model
+		from one_bpmn.api.deploy import compile_process_model
 
 		process = frappe.get_doc({
 			"doctype": "Process",

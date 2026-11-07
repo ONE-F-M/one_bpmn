@@ -41,7 +41,7 @@ CLOSE_CATCH_MODEL_XML = """<?xml version="1.0" encoding="UTF-8"?>
 
 class TestStaleChatCleanup(FrappeTestCase):
 	def _start_chat_instance(self):
-		from one_bpmn.api.compilation import compile_process_model
+		from one_bpmn.api.deploy import compile_process_model
 
 		suffix = frappe.generate_hash(length=6)
 

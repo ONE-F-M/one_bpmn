@@ -194,7 +194,7 @@ def _link_and_recompile(model_name: str, xml: str, config: str):
 		return
 	frappe.db.set_value("BPMN Process Model", model_name, "bpmn_xml", new_xml, update_modified=False)
 	try:
-		from one_bpmn.api.compilation import compile_process_model
+		from one_bpmn.api.deploy import compile_process_model
 
 		compile_process_model(model_name)
 	except Exception:

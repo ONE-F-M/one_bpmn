@@ -92,7 +92,7 @@ def _update_process_model():
 
 	frappe.db.set_value("BPMN Process Model", model, "bpmn_xml", patched)
 
-	from one_bpmn.api.compilation import compile_process_model
+	from one_bpmn.api.deploy import compile_process_model
 
 	try:
 		compile_process_model(model)

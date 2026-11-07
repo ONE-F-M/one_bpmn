@@ -13,7 +13,7 @@ from one_bpmn.agents.agent_config_resolver import (
 	shape_config_drift,
 	sync_shapes_to_config,
 )
-from one_bpmn.api.compilation import _check_shape_config_drift
+from one_bpmn.processa_engine.compiler.deploy_warnings import check_shape_config_drift
 from one_bpmn.commands.agent_drift import drift_lines
 
 CONFIG = "ZZ Drift Test Agent"
@@ -92,7 +92,7 @@ class TestDriftAgainstAConfiguration(FrappeTestCase):
 		cls.model_name = model.name
 
 	def test_deploy_warning_names_what_runs(self):
-		warnings = _check_shape_config_drift({"Agent_1": dict(STALE_EXTENSION)})
+		warnings = check_shape_config_drift({"Agent_1": dict(STALE_EXTENSION)})
 		self.assertEqual(len(warnings), 1)
 		detail = warnings[0]["detail"]
 		self.assertIn("Agent_1", detail)

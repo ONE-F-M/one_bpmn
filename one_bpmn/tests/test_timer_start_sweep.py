@@ -13,7 +13,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.compilation import compile_process_model
+from one_bpmn.api.deploy import compile_process_model
 from one_bpmn.processa_engine.timers import process_timer_start_events, timer_start_is_due
 
 TIMER_START_XML = """<?xml version="1.0" encoding="UTF-8"?>

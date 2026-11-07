@@ -7,7 +7,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.compilation import compile_process_model
+from one_bpmn.api.deploy import compile_process_model
 from one_bpmn.one_bpmn.patches.v1_0 import move_backend_code_removal_to_process as move_patch
 
 

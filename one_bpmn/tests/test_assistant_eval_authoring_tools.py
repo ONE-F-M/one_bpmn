@@ -16,7 +16,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.shape_tools import compile_shape_tools
-from one_bpmn.api.compilation import _extract_tool_shapes
+from one_bpmn.processa_engine.compiler.agent_tools import _extract_tool_shapes
 from one_bpmn.one_bpmn.patches.v1_0.add_assistant_eval_authoring_tools import (
 	_ORPHAN_DI,
 	_PROMPT_MARKER,
@@ -34,7 +34,7 @@ SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
 
 def _adhoc_with_tool_shapes() -> "ElementTree.Element":
 	"""Wrap the patch's generated shapes in a minimal ad-hoc sub-process and
-	parse it the way compilation.py sees the real diagram."""
+	parse it the way the compiler sees the real diagram."""
 	body = "".join(_shape_xml(s) for s in _TOOL_SHAPES)
 	xml = (
 		f'<bpmn:adHocSubProcess xmlns:bpmn="{BPMN_NS}" xmlns:spiffworkflow="{SPIFF_NS}" '

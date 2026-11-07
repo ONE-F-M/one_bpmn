@@ -115,7 +115,7 @@ All endpoints are `@frappe.whitelist()` methods organized into domain submodules
 | GET | `validate_bpmn_readiness` | Check deploy prerequisites |
 | DELETE | `delete_diagram` | Delete a diagram |
 
-### Compilation & Deployment (`compilation`)
+### Compilation & Deployment (`deploy`)
 
 | Endpoint | Description |
 | -------- | ----------- |

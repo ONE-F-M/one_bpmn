@@ -132,7 +132,7 @@ def _add_delete_script():
 
 def _add_delete_shape():
 	"""Put delete_file beside the other sandbox tools in the map's ad-hoc sub-process, then recompile the map."""
-	from one_bpmn.api.compilation import compile_process_model
+	from one_bpmn.api.deploy import compile_process_model
 
 	model = frappe.get_doc("BPMN Process Model", MAP)
 	xml = model.bpmn_xml or ""

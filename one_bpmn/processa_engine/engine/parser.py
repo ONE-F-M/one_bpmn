@@ -150,7 +150,7 @@ def parse_bpmn(
 	                   Process Model fails with "The process '…' was not found"
 	                   unless that model's XML is registered here too. The
 	                   caller resolves calledElement → Process Model (see
-	                   api/compilation._resolve_called_process_xml); this
+	                   compiler.called_processes.resolve_called_process_xml); this
 	                   function only has to hand the documents to the parser.
 
 	Returns:

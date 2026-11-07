@@ -8,7 +8,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.api import instance_control
-from one_bpmn.api.compilation import compile_process_model
+from one_bpmn.api.deploy import compile_process_model
 from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import BPMNProcessInstance
 from one_bpmn.processa_engine.timers import _refresh_timer_tasks, process_timer_catch_events
 from one_bpmn.tests.test_timer_sweep import TIMER_XML

@@ -20,10 +20,10 @@ from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.util.task import TaskState
 
 from one_bpmn.agents.llm_provider.base import StepResult, StepToolCall
-from one_bpmn.api.compilation import (
-	_extract_service_task_config,
-	_extract_user_task_config,
-	_resolve_ai_agent_tool_shapes,
+from one_bpmn.processa_engine.compiler.agent_tools import resolve_ai_agent_tool_shapes
+from one_bpmn.processa_engine.compiler.extensions import (
+	extract_service_task_config,
+	extract_user_task_config,
 )
 from one_bpmn.processa_engine import engine as bpmn_engine
 from one_bpmn.processa_engine.runtime.common import AI_HUMAN_PREFIX
@@ -122,10 +122,10 @@ class TestDurableAgentHitlEndToEnd(FrappeTestCase):
 
 	def _start_and_park(self):
 		"""Compile the demo XML for real, start the flow, park the agent."""
-		svc = _extract_service_task_config(_DEMO_XML)
+		svc = extract_service_task_config(_DEMO_XML)
 		svc["Agent_1"]["aiProvider"] = "_Test HITL E2E Provider"
-		_resolve_ai_agent_tool_shapes(_DEMO_XML, svc)
-		usr = _extract_user_task_config(_DEMO_XML)
+		resolve_ai_agent_tool_shapes(_DEMO_XML, svc)
+		usr = extract_user_task_config(_DEMO_XML)
 
 		# Sanity: the compile really extracted both tools, human flagged.
 		shapes = {s["bpmn_id"]: s for s in json.loads(svc["Agent_1"]["aiToolShapes"])}
