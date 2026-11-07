@@ -388,7 +388,7 @@ Intent Classifier
 
 | File | Purpose |
 |---|---|
-| `spiff/src/components/ProsAllyPanel.vue` | Chat UI — messages, option buttons, rich-text input |
+| `spiff/src/components/ProsAlly/ProsAllyPanel.vue` | Chat UI — messages, option buttons, rich-text input |
 | `spiff/src/utils/bpmnLayout.js` | Auto-layout — positions generated BPMN elements left-to-right |
 | `spiff/src/linting/bpmnlintrc.js` | bpmnlint rule configuration (errors vs. warnings) |
 | `one_bpmn/agents/bpmn_ir_pipeline.py` | IR → BPMN XML compilation (`compile_ir`); the pipeline stages themselves are DB Server Scripts driven by the ProsAlly process model |

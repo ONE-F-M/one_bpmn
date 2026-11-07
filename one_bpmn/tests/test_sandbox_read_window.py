@@ -18,7 +18,7 @@ from one_bpmn.agents.executor.tool_bounds import DEFAULT_TOOL_RESULT_MAX_CHARS
 from one_bpmn.one_bpmn.patches.v1_0 import frontend_agent_reads_in_windows as fix
 
 REPO = frappe.get_app_source_path("one_bpmn")
-BPMN_EDITOR = "spiff/src/components/BpmnEditor.vue"
+BPMN_EDITOR = "spiff/src/components/Editor/BpmnEditor.vue"
 EDITOR = "spiff/src/pages/Process.vue"
 ARGS = {"target_app": "one_bpmn", "git_branch": "staging", "work_item_description": "Fix the panel."}
 
