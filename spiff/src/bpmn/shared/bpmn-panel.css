@@ -11,7 +11,7 @@
 .bpmn-dropdown-list {
 	/* Fixed so the list escapes the properties panel's overflow clipping;
 	   left/width and top/bottom come inline from the input's viewport rect
-	   (FrappeAutocomplete._listStyle), flipping above when space runs out. */
+	   (fixedDropdownStyle), flipping above when space runs out. */
 	position: fixed;
 	max-height: 200px;
 	overflow-y: auto;
@@ -341,7 +341,7 @@
 	white-space: pre-wrap;
 }
 
-/* Record pickers (RecordCombobox.js): MD3 outlined field, menu and filter chips. */
+/* Record pickers (RecordPicker create panel): MD3 outlined field, menu and filter chips. */
 .wfs {
 	--wfs-primary: hsl(205, 100%, 40%);
 	--wfs-on-primary: #fff;

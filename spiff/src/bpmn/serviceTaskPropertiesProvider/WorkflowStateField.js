@@ -1,12 +1,12 @@
 import { h } from "preact";
 import { cachedRecordList } from "../shared/cachedRecordList";
-import { RecordCombobox } from "../shared/RecordCombobox";
+import { RecordPickerField } from "../shared/RecordPickerField";
 import { WorkflowStateCreatePanel } from "./WorkflowStateCreatePanel";
 
 const STATES = cachedRecordList("Workflow State", ["name", "style"]);
 
 export function WorkflowStateField({ id, label, value, translate, onChange }) {
-	return h(RecordCombobox, {
+	return h(RecordPickerField, {
 		id,
 		label,
 		value,

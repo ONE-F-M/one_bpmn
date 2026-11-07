@@ -1,6 +1,6 @@
 import { h } from "preact";
 import { frappePost } from "../shared/frappeResource";
-import { RecordCombobox } from "../shared/RecordCombobox";
+import { RecordPickerField } from "../shared/RecordPickerField";
 import { createBpmnSignalMaster, findOrCreateSignal } from "./signalPick";
 import { SIGNALS } from "./signalRecords";
 
@@ -22,7 +22,7 @@ export function signalSelect(translate) {
 			eventDefinition.set("signalRef", name ? findOrCreateSignal(eventDefinition, moddle, name) : undefined);
 			commandStack.execute("element.updateProperties", { element, moddleElement: element.businessObject, properties: {} });
 		};
-		return h(RecordCombobox, {
+		return h(RecordPickerField, {
 			id: "signal-select",
 			label: translate("Signal"),
 			value: eventDefinition.signalRef?.name || "",

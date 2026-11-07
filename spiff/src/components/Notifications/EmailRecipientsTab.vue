@@ -32,21 +32,19 @@
 		</div>
 
 		<div class="space-y-4">
-			<Autocomplete
-				:compare-fn="compareOption"
+			<RecordPicker
 				label="Table Field"
 				:placeholder="tablePlaceholder"
 				:options="tableOptions"
-				:model-value="values.emailToTableField || null"
+				:model-value="values.emailToTableField || ''"
 				@update:model-value="setTable"
 			/>
-			<Autocomplete
-				:compare-fn="compareOption"
+			<RecordPicker
 				label="Row User Field"
 				:placeholder="values.emailToTableField ? 'Rows default to &quot;user&quot;' : 'Select a Table Field first'"
 				:options="rowUserOptions"
-				:model-value="values.emailToTableUserField || null"
-				@update:model-value="(option) => emit('update', 'emailToTableUserField', option?.value || '')"
+				:model-value="values.emailToTableUserField || ''"
+				@update:model-value="(name) => emit('update', 'emailToTableUserField', name)"
 			/>
 		</div>
 
@@ -88,10 +86,10 @@
 
 <script setup>
 import { computed, watch } from "vue";
-import { Autocomplete, ErrorMessage, FormControl, FormLabel } from "frappe-ui";
+import { ErrorMessage, FormControl, FormLabel } from "frappe-ui";
 import NotifyTagBox from "@/components/Notifications/NotifyTagBox.vue";
 import { splitList } from "@/bpmn/shared/emailNotification";
-import { compareOption } from "@/utils/compareOption";
+import RecordPicker from "@/components/Controls/RecordPicker.vue";
 
 const props = defineProps({
 	// the dialog's working copy of the email attributes
@@ -151,8 +149,8 @@ function removeFrom(name, value) {
 }
 
 // the row field belongs to the table it was picked from
-function setTable(option) {
-	emit("update", "emailToTableField", option?.value || "");
+function setTable(name) {
+	emit("update", "emailToTableField", name);
 	emit("update", "emailToTableUserField", "");
 }
 </script>

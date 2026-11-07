@@ -3,8 +3,7 @@ import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
 import { frappeGet } from "../shared/frappeResource";
-import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
-import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
+import { RecordPickerField } from "../shared/RecordPickerField";
 import { EMAIL_EDITOR_ATTRS } from "../shared/emailNotification";
 import { makeLaunchDocuButton } from "../shared/launchDocuButton";
 import { connectorEntries } from "./connectorEntries";
@@ -325,7 +324,7 @@ function ServiceTargetDoctypeComponent(props) {
 		return frappeGet("/api/resource/DocType", params);
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		label: translate("DocType"),
 		value,
@@ -417,7 +416,7 @@ function OnlyAllowEditComponent(props) {
 		return frappeGet("/api/resource/Role", params);
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		label: translate("Only Allow Edit for"),
 		value,
@@ -518,7 +517,7 @@ function UpdateFieldDoctypeComponent(props) {
 		return frappeGet("/api/resource/DocType", params);
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		label: translate("DocType"),
 		value,
@@ -561,7 +560,7 @@ function UpdateFieldNameComponent(props) {
 		});
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		label: translate("Field"),
 		value,
@@ -663,7 +662,7 @@ function UpdateFieldRowsComponent(props) {
 				[
 					...rows.map((row, idx) =>
 						h("div", { key: idx, class: "bpmn-field-row" }, [
-							h(FrappeAutocomplete, {
+							h(RecordPickerField, {
 								id: `${id}-field-${idx}`,
 								label: "",
 								value: row.field,
@@ -787,7 +786,7 @@ function GchatDoctypeComponent(props) {
 		return frappeGet("/api/resource/DocType", params);
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		label: translate("DocType"),
 		value: getAttr(bo, "gchatDoctype"),
@@ -822,7 +821,7 @@ function GchatDocFieldComponent(props) {
 		});
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		label: translate("Recipient Field"),
 		value: getAttr(bo, "gchatDocField"),
@@ -867,7 +866,7 @@ function makeTableRecipientComponents(doctypeOf, tableAttr, userAttr, rowFieldsA
 			});
 		};
 
-		return h(FrappeAutocomplete, {
+		return h(RecordPickerField, {
 			id,
 			label: translate("Table Field"),
 			value: getAttr(bo, tableAttr),
@@ -918,7 +917,7 @@ function makeTableRecipientComponents(doctypeOf, tableAttr, userAttr, rowFieldsA
 			});
 		};
 
-		return h(FrappeAutocomplete, {
+		return h(RecordPickerField, {
 			id,
 			label: translate("Row User Field"),
 			value: getAttr(bo, userAttr),
@@ -1017,7 +1016,7 @@ function PushDoctypeComponent(props) {
 		return frappeGet("/api/resource/DocType", params);
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		label: translate("Reference DocType"),
 		value,
@@ -1072,7 +1071,8 @@ function PushToUsersComponent(props) {
 		return frappeGet("/api/resource/User", params);
 	};
 
-	return h(FrappeMultiSelect, {
+	return h(RecordPickerField, {
+				multiple: true,
 		id,
 		label: translate("Users"),
 		value,
@@ -1119,7 +1119,8 @@ function PushToDocFieldsComponent(props) {
 			search_text: txt || "",
 		});
 
-	return h(FrappeMultiSelect, {
+	return h(RecordPickerField, {
+				multiple: true,
 		id,
 		label: translate("Document Field"),
 		value,
@@ -1180,7 +1181,8 @@ function PushToRolesComponent(props) {
 		return frappeGet("/api/resource/Role", params);
 	};
 
-	return h(FrappeMultiSelect, {
+	return h(RecordPickerField, {
+				multiple: true,
 		id,
 		label: translate("Role"),
 		value,

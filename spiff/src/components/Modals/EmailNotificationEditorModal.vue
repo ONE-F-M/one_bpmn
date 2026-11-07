@@ -23,14 +23,13 @@
 						<template #tab-panel="{ tab }">
 							<div class="space-y-4 px-1 pt-4">
 								<template v-if="tab.key === 'sending'">
-									<Autocomplete
-										:compare-fn="compareOption"
+									<RecordPicker
 										label="Email Account · required"
 										placeholder="Select an account"
 										:options="toOptions(options.accounts.value)"
 										:loading="options.loading.value"
-										:model-value="values.emailAccount || null"
-										@update:model-value="(option) => (values.emailAccount = option?.value || '')"
+										:model-value="values.emailAccount || ''"
+										@update:model-value="(name) => (values.emailAccount = name)"
 									/>
 									<ErrorMessage
 										v-if="errors.emailAccount"
@@ -46,12 +45,11 @@
 										Uses the process's document for placeholders, Document Field recipients, key facts and the live
 										status.
 									</p>
-									<Autocomplete
+									<RecordPicker
 										v-if="useDoctype"
-										:compare-fn="compareOption"
 										label="DocType"
 										:options="toOptions(options.doctypes.value)"
-										:model-value="values.emailDoctype || null"
+										:model-value="values.emailDoctype || ''"
 										@update:model-value="setDoctype"
 									/>
 								</template>
@@ -149,7 +147,7 @@
 
 <script setup>
 import { computed, reactive, ref, toRef, watch } from "vue";
-import { Autocomplete, Button, Dialog, ErrorMessage, FormControl, Tabs } from "frappe-ui";
+import { Button, Dialog, ErrorMessage, FormControl, Tabs } from "frappe-ui";
 import EmailNoticeContentTab from "@/components/Notifications/EmailNoticeContentTab.vue";
 import EmailPreviewPanel from "@/components/Notifications/EmailPreviewPanel.vue";
 import EmailRecipientsTab from "@/components/Notifications/EmailRecipientsTab.vue";
@@ -157,7 +155,7 @@ import NotifyFieldsTab from "@/components/Notifications/NotifyFieldsTab.vue";
 import { EMAIL_EDITOR_ATTRS, changedAttrs, emailLayout, validateEmailNotification } from "@/bpmn/shared/emailNotification";
 import { useEmailNotificationOptions } from "@/composables/useEmailNotificationOptions";
 import { useEmailPreview } from "@/composables/useEmailPreview";
-import { compareOption } from "@/utils/compareOption";
+import RecordPicker from "@/components/Controls/RecordPicker.vue";
 
 const props = defineProps({
 	modelValue: { type: Boolean, default: false },
@@ -244,8 +242,7 @@ function setUseDoctype(on) {
 }
 
 // fields picked from one DocType do not exist on another
-function setDoctype(option) {
-	const doctype = option?.value || "";
+function setDoctype(doctype) {
 	if (values.emailDoctype && doctype !== values.emailDoctype) {
 		values.emailToDocFields = "";
 		values.emailToTableField = "";
