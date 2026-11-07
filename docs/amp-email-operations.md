@@ -1,6 +1,6 @@
 # AMP email: sender registration
 
-Gmail renders the interactive AMP part of an email only for senders Google has registered. Until then every recipient sees the HTML fallback. Registration is a one-time Operations task. Developer notes are in [`one_bpmn/email_builder/README.md`](../one_bpmn/email_builder/README.md).
+Gmail renders the interactive AMP part of an email only for senders Google has registered. Until then every recipient sees the HTML fallback. Registration is a one-time Operations task. Developer notes are in [`one_bpmn/processa_engine/notifications/README.md`](../one_bpmn/processa_engine/notifications/README.md).
 
 The sending domain is `one-fm.com`; task emails come from `notifications@one-fm.com`.
 

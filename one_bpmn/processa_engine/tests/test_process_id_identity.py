@@ -143,7 +143,7 @@ class TestDeployWithAMismatch(FrappeTestCase):
 			update_modified=False,
 		)
 
-		from one_bpmn.api.compilation import compile_process_model
+		from one_bpmn.api.deploy import compile_process_model
 
 		compile_process_model(name)
 
@@ -152,7 +152,7 @@ class TestDeployWithAMismatch(FrappeTestCase):
 		self.assertEqual(xml_process_id(doc.bpmn_xml), "pid_deploy_owned")
 
 	def test_a_call_activity_still_resolves_after_its_target_is_renamed(self):
-		from one_bpmn.api.compilation import compile_process_model
+		from one_bpmn.api.deploy import compile_process_model
 		from one_bpmn.tests.test_call_activity import _child_xml, _parent_xml
 
 		tag = frappe.generate_hash(length=6)

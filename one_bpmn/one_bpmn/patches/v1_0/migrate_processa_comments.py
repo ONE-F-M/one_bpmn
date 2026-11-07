@@ -1,6 +1,6 @@
 import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
-from one_bpmn.one_bpmn.custom.custom_field.comment import get_comment_custom_fields
+from one_bpmn.processa_engine.notifications.comment_fields import get_comment_custom_fields
 
 def execute():
 	logger = frappe.logger("migrate_processa_comments")

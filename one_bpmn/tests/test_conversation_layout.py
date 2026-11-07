@@ -9,9 +9,9 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.translate import clear_cache
 
-from one_bpmn.api.todo_actions import thread_items
-from one_bpmn.email_builder import composer
-from one_bpmn.email_builder.renderer import render_layout_amp, render_layout_html
+from one_bpmn.processa_engine.notifications.actions import thread_items
+from one_bpmn.processa_engine.notifications import composer
+from one_bpmn.processa_engine.notifications.renderer import render_layout_amp, render_layout_html
 from one_bpmn.tests.test_amp_validation import _validate_amp4email
 from one_bpmn.tests.test_conversation_endpoints import _mock_secret, make_hd_ticket
 
@@ -83,7 +83,7 @@ class TestConversationLayout(FrappeTestCase):
 			patch.object(composer.frappe, "get_all", side_effect=get_all),
 			patch("one_bpmn.utils.translation.translate_cached", side_effect=lambda text: text),
 		):
-			return composer._build_layout_context(
+			return composer.build_layout_context(
 				instance, AGENT, "Review the Ticket", "task-1", "review", task_cfg
 			)
 
@@ -109,10 +109,10 @@ class TestConversationLayout(FrappeTestCase):
 		)
 		with (
 			patch.object(composer, "_build_layout_actions", return_value=[]),
-			patch("one_bpmn.email_builder.fields.build_kick", return_value={"en": "k", "ar": "k"}),
+			patch("one_bpmn.processa_engine.notifications.fields.build_kick", return_value={"en": "k", "ar": "k"}),
 			patch.object(composer.frappe, "log_error") as log_error,
 		):
-			ctx = composer._build_layout_context(
+			ctx = composer.build_layout_context(
 				instance, AGENT, "Review", "t", "review", {"notifyLayout": "chat"}
 			)
 

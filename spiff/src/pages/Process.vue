@@ -2030,7 +2030,7 @@ async function executeDeployment() {
 	deploying.value = true;
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.compilation.compile_process_model",
+			url: "/api/method/one_bpmn.api.deploy.compile_process_model",
 			method: "POST",
 			params: { model_name: activeDiagramName.value },
 		});
@@ -2130,7 +2130,7 @@ async function executeDisable() {
 	disabling.value = true;
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.compilation.disable_process_model",
+			url: "/api/method/one_bpmn.api.deploy.disable_process_model",
 			method: "POST",
 			params: { model_name: activeDiagramName.value },
 		});
@@ -2180,7 +2180,7 @@ async function executeNonExecutableToggle() {
 	nonExecutableBusy.value = true;
 	try {
 		await frappeRequest({
-			url: `/api/method/one_bpmn.api.compilation.${activating ? "activate" : "deactivate"}_non_executable_model`,
+			url: `/api/method/one_bpmn.api.deploy.${activating ? "activate" : "deactivate"}_non_executable_model`,
 			method: "POST",
 			params: { model_name: activeDiagramName.value },
 		});

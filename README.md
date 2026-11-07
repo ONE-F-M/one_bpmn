@@ -73,7 +73,7 @@ one_bpmn/                      # Frappe app (repo root)
 │   ├── one_bpmn/connectors/   # Outbound connectors and the agent sandbox client
 │   ├── agents/                # AI agent runtime (executor, llm_provider, shape tools, memory)
 │   ├── security/              # Validator for generated scripts
-│   ├── email_builder/         # AMP and HTML task emails
+│   ├── processa_engine/notifications/  # AMP and HTML task emails
 │   ├── commands/              # bench commands
 │   ├── overrides/             # Overridden Frappe classes
 │   ├── templates/             # Email and deployment templates
@@ -115,7 +115,7 @@ All endpoints are `@frappe.whitelist()` methods organized into domain submodules
 | GET | `validate_bpmn_readiness` | Check deploy prerequisites |
 | DELETE | `delete_diagram` | Delete a diagram |
 
-### Compilation & Deployment (`compilation`)
+### Compilation & Deployment (`deploy`)
 
 | Endpoint | Description |
 | -------- | ----------- |

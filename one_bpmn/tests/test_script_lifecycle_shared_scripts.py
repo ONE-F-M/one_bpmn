@@ -11,12 +11,12 @@ Orchestrator down with it (twice in 24 hours).
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api import compilation as comp
+from one_bpmn.processa_engine.compiler import compile_step, lifecycle
 
 SHARED = {"Orchestrator Agent: Read the Work Item", "Orchestrator Agent: Record the Outcome"}
 OWN_V3 = {"Set PR Link", "Validate Assignee User"}
@@ -47,7 +47,7 @@ class TestDeployKeepsSharedScriptsEnabled(FrappeTestCase):
 		with patch.object(frappe, "get_all", side_effect=get_all), patch.object(frappe.db, "exists", return_value=True), \
 		     patch.object(frappe.db, "set_value", side_effect=set_value):
 			# only the map's OWN script tasks come through script_extensions — the bug's blind spot
-			comp._activate_deployed_model(model, {f"o{i}": {"serverScript": n} for i, n in enumerate(sorted(OWN_V3))})
+			lifecycle.activate_deployed_model(model, {f"o{i}": {"serverScript": n} for i, n in enumerate(sorted(OWN_V3))})
 		return writes
 
 	def test_scripts_the_deployed_map_reaches_through_a_call_activity_stay_enabled(self):
@@ -77,7 +77,7 @@ class TestScriptsUsedByActiveModels(FrappeTestCase):
 			return [frappe._dict(serialized_spec=_spec(SHARED)), frappe._dict(serialized_spec=_spec(OWN_V3))]
 
 		with patch.object(frappe, "get_all", side_effect=get_all):
-			used = comp._scripts_used_by_active_models({"Software Development v3", "Software Development v4"})
+			used = lifecycle._scripts_used_by_active_models({"Software Development v3", "Software Development v4"})
 		self.assertEqual(used, SHARED | OWN_V3)
 		self.assertEqual(seen["is_active"], 1)
 		self.assertEqual(seen["name"], ["not in", ["Software Development v3", "Software Development v4"]])
@@ -97,13 +97,16 @@ class TestRecompileOnlyActiveCallers(FrappeTestCase):
 			return []
 
 		with patch.object(frappe, "get_all", side_effect=get_all):
-			comp._recompile_callers_of("orchestrator_agent", "Orchestrator Agent")
+			compile_step._recompile_callers_of("orchestrator_agent", "Orchestrator Agent")
 		self.assertEqual(captured.get("is_active"), 1)
 		self.assertIn("calledElement=\"orchestrator_agent\"", captured["bpmn_xml"][1])
 
 	def test_active_callers_are_still_recompiled(self):
 		compiled = []
 		with patch.object(frappe, "get_all", return_value=[frappe._dict(name="Software Development v4", process_id="sd")]), \
-		     patch.object(comp, "compile_process_model", side_effect=lambda n: compiled.append(n)):
-			comp._recompile_callers_of("orchestrator_agent", "Orchestrator Agent")
-		self.assertEqual(compiled, ["Software Development v4"])
+		     patch.object(frappe, "get_doc", side_effect=lambda doctype, name: MagicMock(name=name)) as get_doc, \
+		     patch.object(compile_step, "compile_model", side_effect=lambda model: compiled.append(model)):
+			compile_step._recompile_callers_of("orchestrator_agent", "Orchestrator Agent")
+		get_doc.assert_called_once_with("BPMN Process Model", "Software Development v4")
+		self.assertEqual(len(compiled), 1)
+		compiled[0].check_permission.assert_called_once_with("write")

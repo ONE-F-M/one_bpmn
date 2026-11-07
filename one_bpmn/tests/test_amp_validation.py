@@ -147,32 +147,32 @@ class TestRenderedAmpValidation(FrappeTestCase):
 			autoescape=False,
 		)
 
-		frappe_patch = patch("one_bpmn.email_builder.renderer.frappe")
+		frappe_patch = patch("one_bpmn.processa_engine.notifications.renderer.frappe")
 		self.mock_frappe = frappe_patch.start()
 		self.addCleanup(frappe_patch.stop)
 		self.mock_frappe.utils.get_url.return_value = "https://erp.one-fm.com"
 
-		template_patch = patch("one_bpmn.email_builder.renderer._get_template")
+		template_patch = patch("one_bpmn.processa_engine.notifications.renderer._get_template")
 		mock_tmpl = template_patch.start()
 		self.addCleanup(template_patch.stop)
 		mock_tmpl.side_effect = lambda p: env.get_template(p)
 
 	def test_info_only_renders_valid_amp(self) -> None:
-		from one_bpmn.email_builder.renderer import render_amp
+		from one_bpmn.processa_engine.notifications.renderer import render_amp
 
 		html = render_amp(INFO_CONTENT)
 		_validate_amp4email(html, label="info_only")
 
 	def test_action_renders_valid_amp(self) -> None:
-		from one_bpmn.email_builder.renderer import render_amp
+		from one_bpmn.processa_engine.notifications.renderer import render_amp
 
 		html = render_amp(ACTION_CONTENT)
 		_validate_amp4email(html, label="action")
 
 	def test_token_actions_render_live_status_and_validate(self) -> None:
 		"""Token actions go inside an amp-list gated on live task status."""
-		from one_bpmn.email_builder.email_actions import build_email_actions
-		from one_bpmn.email_builder.renderer import render_amp
+		from one_bpmn.processa_engine.notifications.actions import build_email_actions
+		from one_bpmn.processa_engine.notifications.renderer import render_amp
 
 		actions = build_email_actions(
 			"INST-VALID", "task-valid",
@@ -191,8 +191,8 @@ class TestRenderedAmpValidation(FrappeTestCase):
 		_validate_amp4email(html, label="token_actions")
 
 	def test_a_confirm_action_asks_for_a_second_tap_and_validates(self) -> None:
-		from one_bpmn.email_builder.email_actions import build_email_actions
-		from one_bpmn.email_builder.renderer import _get_template, render_amp
+		from one_bpmn.processa_engine.notifications.actions import build_email_actions
+		from one_bpmn.processa_engine.notifications.renderer import _get_template, render_amp
 
 		_get_template("one_bpmn/templates/emails/amp_shell.html").environment.globals["_"] = lambda text: text
 		actions = build_email_actions(
@@ -214,14 +214,14 @@ class TestRenderedAmpValidation(FrappeTestCase):
 		_validate_amp4email(html, label="confirm_actions")
 
 	def test_comment_renders_valid_amp(self) -> None:
-		from one_bpmn.email_builder.renderer import render_amp
+		from one_bpmn.processa_engine.notifications.renderer import render_amp
 
 		html = render_amp(COMMENT_CONTENT)
 		_validate_amp4email(html, label="comment")
 
 	def test_sanitised_body_still_validates(self) -> None:
 		"""A body with dangerous HTML still produces valid AMP after sanitisation."""
-		from one_bpmn.email_builder.renderer import render_amp
+		from one_bpmn.processa_engine.notifications.renderer import render_amp
 
 		dirty_content = {
 			**INFO_CONTENT,
@@ -237,7 +237,7 @@ class TestRenderedAmpValidation(FrappeTestCase):
 
 	def test_styled_body_keeps_its_css_and_validates(self) -> None:
 		"""Inline styles and style block rules reach the AMP part and it still validates."""
-		from one_bpmn.email_builder.renderer import render_amp
+		from one_bpmn.processa_engine.notifications.renderer import render_amp
 
 		styled_content = {
 			**INFO_CONTENT,
@@ -259,7 +259,7 @@ class TestRenderedAmpValidation(FrappeTestCase):
 
 	def test_css_over_limit_leaves_out_the_amp_part(self) -> None:
 		"""Over 75,000 bytes of CSS gives no AMP part and logs why."""
-		from one_bpmn.email_builder.renderer import render_amp
+		from one_bpmn.processa_engine.notifications.renderer import render_amp
 
 		rules = "".join(f".c{i} {{ color: #000000; padding: 1px }}" for i in range(3000))
 		html = render_amp({**INFO_CONTENT, "body": f"<style>{rules}</style><p>Big</p>"})

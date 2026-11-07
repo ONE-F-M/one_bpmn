@@ -1,9 +1,7 @@
-"""Field builders for email content.
+"""Field builders for the email content.
 
-``build_attachment_links`` turns the files attached to a document into
-signed download links that work without an ERPNext session. ``build_field_rows``,
-``default_fact_fields`` and ``build_kick`` fill the layout emails' facts, details
-and context line.
+build_attachment_links signs download links that work without an ERPNext session; build_field_rows,
+default_fact_fields and build_kick fill the layout emails' facts, details and context line.
 """
 
 from __future__ import annotations
@@ -14,21 +12,13 @@ import frappe
 from frappe.model import no_value_fields
 from frappe.utils import cint, cstr, strip_html
 
-from one_bpmn.utils.token import generate_file_token
+from one_bpmn.processa_engine.notifications.token import generate_file_token
 
-DOWNLOAD_METHOD = "/api/method/one_bpmn.api.todo_actions.download_attachment"
+DOWNLOAD_METHOD = "/api/method/one_bpmn.api.email_actions.download_attachment"
 
 
 def build_attachment_links(doc, expiry_hours: int = 72) -> list[dict]:
-	"""Return ``[{file_name, url}]`` for every file attached to ``doc``.
-
-	Args:
-		doc: The document whose attachments are linked (needs ``doctype`` and ``name``).
-		expiry_hours: Hours until each signed link expires.
-
-	Returns:
-		One dict per attached file, oldest first. ``url`` is an absolute signed link.
-	"""
+	"""[{file_name, url}] for every file attached to doc, oldest first; url is an absolute signed link."""
 	files = frappe.get_all(
 		"File",
 		filters={
@@ -59,7 +49,7 @@ MAX_FACTS = 6
 
 def build_field_rows(doc, entries: list) -> list[dict]:
 	"""Rows of label and value in English and Arabic for the given fieldnames or [fieldname, arabic_fieldname] pairs."""
-	from one_bpmn.email_builder.composer import _arabic
+	from one_bpmn.processa_engine.notifications.composer import arabic_text
 
 	rows = []
 	for entry in entries:
@@ -81,7 +71,7 @@ def build_field_rows(doc, entries: list) -> list[dict]:
 			value_ar = _format_in(arabic[1], arabic[0], "ar") if arabic and arabic[1] else value_en
 		rows.append(
 			{
-				"label": {"en": df.label, "ar": _arabic(df.label)},
+				"label": {"en": df.label, "ar": arabic_text(df.label)},
 				"value": {"en": value_en, "ar": value_ar},
 			}
 		)
@@ -98,7 +88,7 @@ def default_fact_fields(doctype: str) -> list[str]:
 
 def build_kick(doctype: str, task_name: str) -> dict:
 	"""The context line: DocType label and task name in both languages."""
-	from one_bpmn.email_builder.composer import _arabic
+	from one_bpmn.processa_engine.notifications.composer import arabic_text
 	from one_bpmn.utils.translation import TranslationError, translate_cached
 
 	try:
@@ -108,7 +98,7 @@ def build_kick(doctype: str, task_name: str) -> dict:
 		task_name_ar = task_name
 	return {
 		"en": f"{doctype} · {task_name}",
-		"ar": f"{_arabic(doctype)} · {task_name_ar}",
+		"ar": f"{arabic_text(doctype)} · {task_name_ar}",
 	}
 
 

@@ -608,7 +608,7 @@ def _upsert_model(name: str, process_id: str, xml: str) -> str:
 	model.flags.ignore_mandatory = True
 	model.save(ignore_permissions=True)
 
-	from one_bpmn.api.compilation import compile_process_model
+	from one_bpmn.api.deploy import compile_process_model
 
 	compile_process_model(model.name)
 	return model.name

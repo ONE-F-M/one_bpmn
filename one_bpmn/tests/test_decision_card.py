@@ -12,11 +12,11 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.translate import clear_cache
 
-from one_bpmn.api import todo_actions
-from one_bpmn.email_builder import composer
-from one_bpmn.email_builder.renderer import render_layout_amp, render_layout_html
+from one_bpmn.processa_engine.notifications import actions as notification_actions
+from one_bpmn.processa_engine.notifications import composer
+from one_bpmn.processa_engine.notifications.renderer import render_layout_amp, render_layout_html
 from one_bpmn.tests.test_amp_validation import _validate_amp4email
-from one_bpmn.utils.token import verify_action_token
+from one_bpmn.processa_engine.notifications.token import verify_action_token
 
 APPROVED, REJECTED = "Test Card Approved", "Test Card Rejected"
 MAP_XML = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -104,11 +104,11 @@ class TestDecisionCardActions(FrappeTestCase):
 
 	def test_arabic_label_falls_back_to_machine_translation_then_english(self):
 		with _no_machine_translation():
-			self.assertEqual(composer._arabic("Zq Custom Step"), "ar:Zq Custom Step")
+			self.assertEqual(composer.arabic_text("Zq Custom Step"), "ar:Zq Custom Step")
 		from one_bpmn.utils.translation import TranslationError
 
 		with patch("one_bpmn.utils.translation.translate_cached", side_effect=TranslationError("down")):
-			self.assertEqual(composer._arabic("Zq Custom Step"), "Zq Custom Step")
+			self.assertEqual(composer.arabic_text("Zq Custom Step"), "Zq Custom Step")
 
 	def test_first_action_is_primary_by_default(self):
 		with _map_reads(), _no_machine_translation():
@@ -123,11 +123,11 @@ class TestDecisionCardActions(FrappeTestCase):
 			self.assertEqual(composer._token_hours(raw), 72, raw)
 
 	def test_card_is_sent_for_card_or_an_empty_task_only(self):
-		self.assertTrue(composer._sends_decision_card({"notifyLayout": "card"}))
-		self.assertTrue(composer._sends_decision_card({}))
-		self.assertFalse(composer._sends_decision_card({"notifyLayout": "html"}))
-		self.assertFalse(composer._sends_decision_card({"notifyAssigneeBody": "PHA+SGk8L3A+"}))
-		self.assertFalse(composer._sends_decision_card({"notifyAssigneeTemplate": "Leave Approval"}))
+		self.assertTrue(composer.sends_decision_card({"notifyLayout": "card"}))
+		self.assertTrue(composer.sends_decision_card({}))
+		self.assertFalse(composer.sends_decision_card({"notifyLayout": "html"}))
+		self.assertFalse(composer.sends_decision_card({"notifyAssigneeBody": "PHA+SGk8L3A+"}))
+		self.assertFalse(composer.sends_decision_card({"notifyAssigneeTemplate": "Leave Approval"}))
 
 	def test_html_layout_keeps_todays_path(self):
 		cfg = {
@@ -138,7 +138,7 @@ class TestDecisionCardActions(FrappeTestCase):
 		}
 		with (
 			patch.object(composer, "_send_decision_card") as card,
-			patch.object(composer, "_send_email") as send,
+			patch.object(composer, "send_email") as send,
 		):
 			composer.compose_and_send_task_email(_instance(), "a@x.com", "Review", "t", "review", cfg)
 		card.assert_not_called()
@@ -147,7 +147,7 @@ class TestDecisionCardActions(FrappeTestCase):
 	def test_card_layout_sends_the_card(self):
 		with (
 			patch.object(composer, "_send_decision_card") as card,
-			patch.object(composer, "_send_email") as send,
+			patch.object(composer, "send_email") as send,
 		):
 			composer.compose_and_send_task_email(
 				_instance(), "a@x.com", "Review", "t", "review", {"notifyAssignee": "true"}
@@ -156,8 +156,8 @@ class TestDecisionCardActions(FrappeTestCase):
 		send.assert_not_called()
 
 	def test_receipt_names_the_state_in_both_languages(self):
-		with patch.object(todo_actions, "_get_workflow_state_and_style", return_value=(APPROVED, "Success")):
-			receipt = todo_actions._receipt("INST", "Leave Application", "HR-LAP-0001", "Approve")
+		with patch.object(notification_actions, "get_workflow_state_and_style", return_value=(APPROVED, "Success")):
+			receipt = notification_actions.receipt("INST", "Leave Application", "HR-LAP-0001", "Approve")
 		self.assertEqual(receipt["state_style"], "Success")
 		self.assertEqual(receipt["state_label"]["en"], APPROVED)
 		self.assertEqual(receipt["receipt"]["en"], f"Leave Application HR-LAP-0001 is now {APPROVED}.")
@@ -167,10 +167,10 @@ class TestDecisionCardActions(FrappeTestCase):
 	def test_receipt_without_a_state_says_what_was_chosen(self):
 		clear_cache()
 		with (
-			patch.object(todo_actions, "_get_workflow_state_and_style", return_value=("", "")),
+			patch.object(notification_actions, "get_workflow_state_and_style", return_value=("", "")),
 			patch("one_bpmn.utils.translation.translate_cached", side_effect=lambda text: f"ar:{text}"),
 		):
-			receipt = todo_actions._receipt("INST", "HD Ticket", "257055", "Request more information")
+			receipt = notification_actions.receipt("INST", "HD Ticket", "257055", "Request more information")
 		self.assertEqual(receipt["state_label"], {"en": "Request more information", "ar": "ar:Request more information"})
 		self.assertEqual(
 			receipt["receipt"],
@@ -223,7 +223,7 @@ def _card_ctx(**extra):
 		"details": [],
 		"attachments": [],
 		"open_link": "https://erp.example.com/app/leave-application/LA-1",
-		"action_endpoint": "https://erp.example.com/api/method/one_bpmn.api.todo_actions.handle_amp_action",
+		"action_endpoint": "https://erp.example.com/api/method/one_bpmn.api.email_actions.handle_amp_action",
 		"actions": actions,
 		**extra,
 	}
@@ -234,7 +234,7 @@ class TestDecisionCardRender(FrappeTestCase):
 		clear_cache()
 
 	def test_amp_card_passes_the_validator_with_and_without_status(self):
-		status = "https://erp.example.com/api/method/one_bpmn.api.todo_actions.get_amp_task_status?status_token=abc"
+		status = "https://erp.example.com/api/method/one_bpmn.api.email_actions.get_amp_task_status?status_token=abc"
 		_validate_amp4email(render_layout_amp(_card_ctx(status_url=status)), "card_status")
 		_validate_amp4email(render_layout_amp(_card_ctx()), "card_plain")
 

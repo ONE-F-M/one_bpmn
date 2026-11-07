@@ -14,7 +14,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api import compilation as comp
+from one_bpmn.processa_engine.compiler import ai_checks as comp
 
 OLD_FRONTEND_PROMPT = (
 	"4. Call draft_change once per file. 6. Call review_change. "
@@ -69,14 +69,14 @@ class TestValidateAiToolContract(FrappeTestCase):
 		self._known.stop()
 
 	def test_a_clean_prompt_passes_silently(self):
-		comp._validate_ai_tool_contract(_agents("Call read_file, then call open_pull_request."))
+		comp.validate_ai_tool_contract(_agents("Call read_file, then call open_pull_request."))
 
 	def test_the_configuration_prompt_is_checked_too(self):
 		with patch.object(frappe.db, "exists", return_value=True), patch.object(
 			frappe.db, "get_value", return_value=OLD_FRONTEND_PROMPT
 		):
 			with self.assertRaises(frappe.ValidationError) as caught:
-				comp._validate_ai_tool_contract(_agents("nothing wrong here", config="Frontend Agent"))
+				comp.validate_ai_tool_contract(_agents("nothing wrong here", config="Frontend Agent"))
 		self.assertIn("draft_change", str(caught.exception))
 		self.assertIn("build_change", str(caught.exception))
 
@@ -85,17 +85,17 @@ class TestValidateAiToolContract(FrappeTestCase):
 			frappe.db, "get_value", return_value="Call publish_stories."
 		):
 			with self.assertRaises(frappe.ValidationError) as caught:
-				comp._validate_ai_tool_contract(_agents("", config="BA Agent"))
+				comp.validate_ai_tool_contract(_agents("", config="BA Agent"))
 		self.assertIn("publish_stories", str(caught.exception))
 
 	def test_without_a_configuration_the_shape_prompt_is_checked(self):
 		with patch.object(frappe.db, "exists", return_value=False):
 			with self.assertRaises(frappe.ValidationError) as caught:
-				comp._validate_ai_tool_contract(_agents("Call review_change."))
+				comp.validate_ai_tool_contract(_agents("Call review_change."))
 		self.assertIn("review_change", str(caught.exception))
 
 	def test_agents_without_a_tools_box_are_ignored(self):
-		comp._validate_ai_tool_contract({"x": {"serviceType": "ai_agent"}})
+		comp.validate_ai_tool_contract({"x": {"serviceType": "ai_agent"}})
 
 
 class TestSeedPromptsMatchTheirMaps(FrappeTestCase):

@@ -53,7 +53,7 @@ def _rewrite(model: str, old: str) -> None:
 	# rationale as compile_process_model's skip_editability_check.
 	frappe.db.set_value("BPMN Process Model", model, "bpmn_xml", xml.replace(old, REPLACEMENT, 1))
 
-	from one_bpmn.api.compilation import compile_process_model
+	from one_bpmn.api.deploy import compile_process_model
 
 	try:
 		compile_process_model(model)

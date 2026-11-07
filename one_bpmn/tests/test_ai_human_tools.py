@@ -14,11 +14,9 @@ from frappe.tests.utils import FrappeTestCase
 from one_bpmn.agents.executor.step_loop import run_agent_loop
 from one_bpmn.agents.llm_provider.base import StepResult, StepToolCall
 from one_bpmn.agents.shape_tools import compile_shape_tools
-from one_bpmn.api.compilation import (
-	_extract_service_task_config,
-	_resolve_ai_agent_tool_shapes,
-	_validate_ai_agent_tools,
-)
+from one_bpmn.processa_engine.compiler.agent_tools import resolve_ai_agent_tool_shapes
+from one_bpmn.processa_engine.compiler.ai_checks import validate_ai_agent_tools
+from one_bpmn.processa_engine.compiler.extensions import extract_service_task_config
 
 
 def _xml(tools_inner: str) -> str:
@@ -37,8 +35,8 @@ def _xml(tools_inner: str) -> str:
 
 def _shapes(tools_inner: str) -> list:
 	xml = _xml(tools_inner)
-	svc = _extract_service_task_config(xml)
-	_resolve_ai_agent_tool_shapes(xml, svc)
+	svc = extract_service_task_config(xml)
+	resolve_ai_agent_tool_shapes(xml, svc)
 	return json.loads(svc["Agent_1"]["aiToolShapes"])
 
 
@@ -75,9 +73,9 @@ class TestHumanToolExtraction(FrappeTestCase):
 
 	def test_human_only_toolbox_passes_validation(self):
 		xml = _xml('<bpmn:userTask id="Approve_1" name="Approve" />')
-		svc = _extract_service_task_config(xml)
-		_resolve_ai_agent_tool_shapes(xml, svc)
-		_validate_ai_agent_tools(xml, svc)  # must not raise
+		svc = extract_service_task_config(xml)
+		resolve_ai_agent_tool_shapes(xml, svc)
+		validate_ai_agent_tools(xml, svc)  # must not raise
 
 	def test_automatic_shapes_unchanged(self):
 		shapes = _shapes(

@@ -6,7 +6,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.bpmn_task_config import resolve_node_attrs
-from one_bpmn.api.compilation import _extract_user_task_config
+from one_bpmn.processa_engine.compiler.extensions import extract_user_task_config
 from one_bpmn.api.process_map_api import _extract_bpmn_references, validate_bpmn_readiness
 from one_bpmn.api.utils import get_doctype_email_thread
 
@@ -67,7 +67,7 @@ class TestNotifyAssigneeAttributes(FrappeTestCase):
 		self.assertEqual(missing, {"no_such_reason on ToDo"})
 
 	def test_a_deployed_task_config_carries_every_setting(self):
-		config = _extract_user_task_config(_map(task_attrs=SETTINGS))["Activity_review"]
+		config = extract_user_task_config(_map(task_attrs=SETTINGS))["Activity_review"]
 
 		self.assertEqual(config["notifyLayout"], "card")
 		self.assertEqual(config["notifyTokenHours"], "24")

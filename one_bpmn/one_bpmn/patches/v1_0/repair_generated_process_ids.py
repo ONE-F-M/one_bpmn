@@ -92,7 +92,7 @@ def execute():
 	# The engine runs the compiled spec, not the diagram, so a repaired map is
 	# only repaired once it is recompiled. Active models only: compiling an
 	# inactive one activates it, which would retire the version now in use.
-	from one_bpmn.api.compilation import compile_process_model
+	from one_bpmn.api.deploy import compile_process_model
 
 	for name in sorted(recompile):
 		try:

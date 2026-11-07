@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`one_bpmn.api.todo_actions`.
+"""Unit tests for :mod:`one_bpmn.api.email_actions`.
 
 Tests the AMP action callback endpoint.
 
@@ -24,7 +24,7 @@ _TEST_SECRET = "test-secret-key-for-unit-tests"
 
 def _mock_secret():
 	"""Context manager to mock the HMAC secret."""
-	return patch("one_bpmn.utils.token._get_secret", return_value=_TEST_SECRET)
+	return patch("one_bpmn.processa_engine.notifications.token._get_secret", return_value=_TEST_SECRET)
 
 
 def _make_token(
@@ -36,14 +36,14 @@ def _make_token(
 ) -> str:
 	"""Generate a valid token for testing."""
 	with _mock_secret():
-		from one_bpmn.utils.token import generate_action_token
+		from one_bpmn.processa_engine.notifications.token import generate_action_token
 		return generate_action_token(instance_name, task_id, action, user, expiry_hours)
 
 
 def _make_expired_token() -> str:
 	"""Generate a token that has already expired."""
 	with _mock_secret():
-		from one_bpmn.utils.token import _sign
+		from one_bpmn.processa_engine.notifications.token import _sign
 		payload = {
 			"action": "Approve",
 			"expires": int(time.time()) - 3600,
@@ -79,7 +79,7 @@ class TestHandleAmpAction(FrappeTestCase):
 			with patch("one_bpmn.api.instance_api.complete_task") as mock_ct:
 				mock_ct.return_value = {"instance": "INST-001", "status": "Running", "active_tasks": []}
 				with patch.object(frappe, "set_user"):
-					from one_bpmn.api.todo_actions import handle_amp_action
+					from one_bpmn.api.email_actions import handle_amp_action
 					result = handle_amp_action(token=token)
 
 		self.assertIn("message", result)
@@ -90,7 +90,7 @@ class TestHandleAmpAction(FrappeTestCase):
 		_setup_request()
 
 		with _mock_secret():
-			from one_bpmn.api.todo_actions import handle_amp_action
+			from one_bpmn.api.email_actions import handle_amp_action
 			result = handle_amp_action(token="tampered.XXXX")
 
 		self.assertIn("error", result)
@@ -101,7 +101,7 @@ class TestHandleAmpAction(FrappeTestCase):
 		token = _make_expired_token()
 
 		with _mock_secret():
-			from one_bpmn.api.todo_actions import handle_amp_action
+			from one_bpmn.api.email_actions import handle_amp_action
 			result = handle_amp_action(token=token)
 
 		self.assertIn("error", result)
@@ -117,7 +117,7 @@ class TestHandleAmpAction(FrappeTestCase):
 					"Task 'task-uuid' not found in the active tasks of this instance."
 				)
 				with patch.object(frappe, "set_user"):
-					from one_bpmn.api.todo_actions import handle_amp_action
+					from one_bpmn.api.email_actions import handle_amp_action
 					result = handle_amp_action(token=token)
 
 		self.assertIn("message", result)
@@ -132,7 +132,7 @@ class TestHandleAmpAction(FrappeTestCase):
 			with patch("one_bpmn.api.instance_api.complete_task") as mock_ct:
 				mock_ct.return_value = {"instance": "INST-001", "status": "Running", "active_tasks": []}
 				with patch.object(frappe, "set_user"):
-					from one_bpmn.api.todo_actions import handle_amp_action
+					from one_bpmn.api.email_actions import handle_amp_action
 					handle_amp_action(token=token)
 
 		headers = frappe.local.response.headers
@@ -143,7 +143,7 @@ class TestHandleAmpAction(FrappeTestCase):
 		"""OPTIONS request returns CORS headers."""
 		_setup_request(method="OPTIONS")
 
-		from one_bpmn.api.todo_actions import handle_amp_action
+		from one_bpmn.api.email_actions import handle_amp_action
 		handle_amp_action()
 
 		headers = frappe.local.response.headers
@@ -154,7 +154,7 @@ class TestHandleAmpAction(FrappeTestCase):
 		"""__amp_source_origin query param is echoed in response header."""
 		_setup_request(method="OPTIONS", source_origin="sender@one-fm.com")
 
-		from one_bpmn.api.todo_actions import handle_amp_action
+		from one_bpmn.api.email_actions import handle_amp_action
 		handle_amp_action()
 
 		headers = frappe.local.response.headers
@@ -168,8 +168,8 @@ class TestAmpEmailSenderHeader(FrappeTestCase):
 		_setup_request(method="OPTIONS")
 		frappe.local.request.headers["AMP-Email-Sender"] = "notifications@one-fm.com"
 
-		from one_bpmn.api.todo_actions import _set_amp_cors_headers
-		_set_amp_cors_headers()
+		from one_bpmn.processa_engine.notifications.actions import set_amp_cors_headers
+		set_amp_cors_headers()
 
 		extra = frappe.flags._amp_extra_headers
 		self.assertEqual(extra["AMP-Email-Allow-Sender"], "notifications@one-fm.com")
@@ -177,10 +177,10 @@ class TestAmpEmailSenderHeader(FrappeTestCase):
 
 
 class TestContextDocState(FrappeTestCase):
-	"""_get_context_doc_state reads workflow_state, else status, else nothing."""
+	"""get_context_doc_state reads workflow_state, else status, else nothing."""
 
 	def test_workflow_state_preferred(self):
-		from one_bpmn.api.todo_actions import _get_context_doc_state
+		from one_bpmn.processa_engine.notifications.actions import get_context_doc_state
 
 		meta = MagicMock()
 		meta.has_field.side_effect = lambda f: f in ("workflow_state", "status")
@@ -188,14 +188,14 @@ class TestContextDocState(FrappeTestCase):
 			frappe.db, "get_value"
 		) as gv:
 			gv.side_effect = [
-				frappe._dict(context_doctype="Work Item", context_docname="WI-1"),
+				frappe._dict(context_doctype="Work Item", context_docname="ITEM-1"),
 				"In Progress",
 			]
-			self.assertEqual(_get_context_doc_state("INST"), ("WI-1", "In Progress"))
-			self.assertEqual(gv.call_args.args[:3], ("Work Item", "WI-1", "workflow_state"))
+			self.assertEqual(get_context_doc_state("INST"), ("ITEM-1", "In Progress"))
+			self.assertEqual(gv.call_args.args[:3], ("Work Item", "ITEM-1", "workflow_state"))
 
 	def test_no_context_doc(self):
-		from one_bpmn.api.todo_actions import _get_context_doc_state
+		from one_bpmn.processa_engine.notifications.actions import get_context_doc_state
 
 		with patch.object(frappe.db, "get_value", return_value=frappe._dict()):
-			self.assertEqual(_get_context_doc_state("INST"), ("", ""))
+			self.assertEqual(get_context_doc_state("INST"), ("", ""))

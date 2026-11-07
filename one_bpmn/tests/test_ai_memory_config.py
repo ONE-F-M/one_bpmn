@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.compilation import _extract_service_task_config
+from one_bpmn.processa_engine.compiler.extensions import extract_service_task_config
 
 MEMORY_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -43,7 +43,7 @@ MEMORY_OFF_XML = """<?xml version="1.0" encoding="UTF-8"?>
 
 class TestAIMemoryConfig(FrappeTestCase):
 	def test_memory_attributes_lifted_into_spec(self):
-		cfg = _extract_service_task_config(MEMORY_XML)["ai_task"]
+		cfg = extract_service_task_config(MEMORY_XML)["ai_task"]
 		self.assertEqual(cfg["aiConversationStore"], "document_store")
 		self.assertEqual(cfg["aiContextMaxMessages"], "20")
 		self.assertEqual(cfg["aiLongTermMemory"], "true")
@@ -52,7 +52,7 @@ class TestAIMemoryConfig(FrappeTestCase):
 		self.assertEqual(cfg["aiMemoryTokenBudget"], "1200")
 
 	def test_memory_off_omits_scope_and_autowrite(self):
-		cfg = _extract_service_task_config(MEMORY_OFF_XML)["ai_task"]
+		cfg = extract_service_task_config(MEMORY_OFF_XML)["ai_task"]
 		# Store + window still present; scope/auto-write absent so the
 		# dispatcher falls back to its safe defaults (long-term memory off).
 		self.assertEqual(cfg["aiConversationStore"], "process_variable")

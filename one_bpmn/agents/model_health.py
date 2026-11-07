@@ -590,7 +590,7 @@ def _deliver(recipients: list[str], subject: str, body: str, model: str) -> list
 
 
 def _send_email(recipients: list[str], subject: str, body: str) -> None:
-	from one_bpmn.email_builder.composer import send_platform_email
+	from one_bpmn.processa_engine.notifications.composer import send_platform_email
 
 	send_platform_email(recipients, subject, body)
 

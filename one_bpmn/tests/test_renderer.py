@@ -1,4 +1,4 @@
-"""Tests for :mod:`one_bpmn.email_builder.renderer`.
+"""Tests for :mod:`one_bpmn.processa_engine.notifications.renderer`.
 
 Covers both the AMP and HTML-fallback rendering paths using real Jinja
 templates loaded from the filesystem, while mocking Frappe-specific
@@ -32,12 +32,12 @@ class _RendererTestCase(FrappeTestCase):
 			autoescape=False,
 		)
 
-		frappe_patch = patch("one_bpmn.email_builder.renderer.frappe")
+		frappe_patch = patch("one_bpmn.processa_engine.notifications.renderer.frappe")
 		self.mock_frappe = frappe_patch.start()
 		self.addCleanup(frappe_patch.stop)
 		self.mock_frappe.utils.get_url.return_value = "https://erp.test.com"
 
-		template_patch = patch("one_bpmn.email_builder.renderer._get_template")
+		template_patch = patch("one_bpmn.processa_engine.notifications.renderer._get_template")
 		mock_get_template = template_patch.start()
 		self.addCleanup(template_patch.stop)
 		mock_get_template.side_effect = lambda path: env.get_template(path)
@@ -80,7 +80,7 @@ class TestRenderAmp(_RendererTestCase):
 
 	def test_amp_info_only(self):
 		"""Info-only variant includes AMP boilerplate and body; no amp-form."""
-		from one_bpmn.email_builder.renderer import render_amp
+		from one_bpmn.processa_engine.notifications.renderer import render_amp
 
 		html = render_amp(INFO_ONLY)
 
@@ -99,7 +99,7 @@ class TestRenderAmp(_RendererTestCase):
 
 	def test_amp_with_actions(self):
 		"""Action variant renders action buttons as links (no tokens = plain links)."""
-		from one_bpmn.email_builder.renderer import render_amp
+		from one_bpmn.processa_engine.notifications.renderer import render_amp
 
 		html = render_amp(WITH_ACTIONS)
 
@@ -111,7 +111,7 @@ class TestRenderAmp(_RendererTestCase):
 
 	def test_amp_comment_variant(self):
 		"""Comment variant renders amp-mustache, textarea and submit_comment endpoint."""
-		from one_bpmn.email_builder.renderer import render_amp
+		from one_bpmn.processa_engine.notifications.renderer import render_amp
 
 		html = render_amp(COMMENT_VARIANT)
 
@@ -121,7 +121,7 @@ class TestRenderAmp(_RendererTestCase):
 
 	def test_amp_sanitises_body(self):
 		"""Script tags in the body are stripped by the sanitiser."""
-		from one_bpmn.email_builder.renderer import render_amp
+		from one_bpmn.processa_engine.notifications.renderer import render_amp
 
 		payload = {**INFO_ONLY, "body": '<p>Hi</p><script>alert(1)</script>'}
 		html = render_amp(payload)
@@ -130,7 +130,7 @@ class TestRenderAmp(_RendererTestCase):
 
 	def test_amp_body_not_double_escaped(self):
 		"""Sanitised body HTML appears literally, not entity-escaped."""
-		from one_bpmn.email_builder.renderer import render_amp
+		from one_bpmn.processa_engine.notifications.renderer import render_amp
 
 		payload = {**INFO_ONLY, "body": "<p>Hello</p>"}
 		html = render_amp(payload)
@@ -148,7 +148,7 @@ class TestRenderHtmlFallback(_RendererTestCase):
 
 	def test_html_fallback_is_fragment_without_logo(self):
 		"""Fallback is a body fragment: no document tags and no logo."""
-		from one_bpmn.email_builder.renderer import render_html_fallback
+		from one_bpmn.processa_engine.notifications.renderer import render_html_fallback
 
 		html = render_html_fallback(INFO_ONLY).lower()
 
@@ -158,7 +158,7 @@ class TestRenderHtmlFallback(_RendererTestCase):
 
 	def test_html_fallback_has_no_subject_header_or_notice(self):
 		"""Subject header and confidentiality notice are left to the wrapper."""
-		from one_bpmn.email_builder.renderer import render_html_fallback
+		from one_bpmn.processa_engine.notifications.renderer import render_html_fallback
 
 		html = render_html_fallback(INFO_ONLY)
 
@@ -168,7 +168,7 @@ class TestRenderHtmlFallback(_RendererTestCase):
 
 	def test_html_fallback_has_no_signature_or_address(self):
 		"""Signature and address blocks are left to the wrapper; body and open link stay."""
-		from one_bpmn.email_builder.renderer import render_html_fallback
+		from one_bpmn.processa_engine.notifications.renderer import render_html_fallback
 
 		html = render_html_fallback(INFO_ONLY)
 
@@ -180,7 +180,7 @@ class TestRenderHtmlFallback(_RendererTestCase):
 
 	def test_html_fallback_has_working_links(self):
 		"""Action URLs and the open_link appear as clickable <a> elements."""
-		from one_bpmn.email_builder.renderer import render_html_fallback
+		from one_bpmn.processa_engine.notifications.renderer import render_html_fallback
 
 		html = render_html_fallback(WITH_ACTIONS)
 
@@ -190,6 +190,6 @@ class TestRenderHtmlFallback(_RendererTestCase):
 
 	def test_html_fallback_comment_shows_open_link(self):
 		"""Comment variant renders an 'Open in ERPNext' link."""
-		from one_bpmn.email_builder.renderer import render_html_fallback
+		from one_bpmn.processa_engine.notifications.renderer import render_html_fallback
 		html = render_html_fallback(COMMENT_VARIANT)
 		self.assertIn("Open in ERPNext", html)

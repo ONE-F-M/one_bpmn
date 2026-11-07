@@ -22,7 +22,8 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.compilation import _resolve_called_process_xml, compile_process_model
+from one_bpmn.api.deploy import compile_process_model
+from one_bpmn.processa_engine.compiler.called_processes import resolve_called_process_xml
 from one_bpmn.processa_engine import engine
 
 CHILD_ID = "wi2111_child"
@@ -149,7 +150,7 @@ class TestCallActivityCompile(FrappeTestCase):
 	def test_resolver_returns_the_called_models_xml(self):
 		self._model("WI2111 Child", CHILD_ID, _child_xml())
 		self._model("WI2111 Parent", PARENT_ID, _parent_xml())
-		_xml, found = _resolve_called_process_xml(_parent_xml(), "WI2111 Parent")
+		_xml, found = resolve_called_process_xml(_parent_xml(), "WI2111 Parent")
 		self.assertEqual(len(found), 1)
 		self.assertIn(f'id="{CHILD_ID}"', found[0])
 
@@ -159,13 +160,13 @@ class TestCallActivityCompile(FrappeTestCase):
 		document must get the same injection the main one does, or the parent
 		fails with 'Invalid Script Task. No Script Provided.'"""
 		self._model("WI2111 Child", CHILD_ID, _child_xml())
-		_xml, found = _resolve_called_process_xml(_parent_xml(), "WI2111 Parent")
+		_xml, found = resolve_called_process_xml(_parent_xml(), "WI2111 Parent")
 		self.assertIn("<bpmn:script>", found[0])
 
 	def test_unknown_called_element_throws_a_readable_error(self):
 		self._model("WI2111 Parent", PARENT_ID, _parent_xml(called="nope_does_not_exist"))
 		with self.assertRaises(frappe.ValidationError) as ctx:
-			_resolve_called_process_xml(
+			resolve_called_process_xml(
 				_parent_xml(called="nope_does_not_exist"), "WI2111 Parent"
 			)
 		message = str(ctx.exception)
@@ -176,7 +177,7 @@ class TestCallActivityCompile(FrappeTestCase):
 		"""An unconfigured Call Activity has nothing to look up, so the resolver
 		must return empty rather than throwing its own error over the top of the
 		parser's (which is the one that actually reports the problem)."""
-		self.assertEqual(_resolve_called_process_xml(_parent_xml(called=""), "WI2111 Parent")[1], [])
+		self.assertEqual(resolve_called_process_xml(_parent_xml(called=""), "WI2111 Parent")[1], [])
 
 	def test_an_ai_task_with_no_user_prompt_warns_at_deploy(self):
 		"""An AI task with a system prompt but no user prompt is a broken map that
@@ -185,17 +186,17 @@ class TestCallActivityCompile(FrappeTestCase):
 		rather than the map missing a field. It cost two test cycles on the same
 		map — the attribute went missing after a properties-panel edit both
 		times — so deploy is where it gets said out loud."""
-		from one_bpmn.api.compilation import _check_ai_tasks_have_a_user_prompt
+		from one_bpmn.processa_engine.compiler.deploy_warnings import check_ai_tasks_have_a_user_prompt
 
 		broken = {"service_task_extensions": {
 			"orchestrate": {"serviceType": "ai_agent", "aiSystemPrompt": "You are..."}
 		}}
-		warnings = _check_ai_tasks_have_a_user_prompt(broken)
+		warnings = check_ai_tasks_have_a_user_prompt(broken)
 		self.assertEqual(len(warnings), 1)
 		self.assertIn("orchestrate", warnings[0]["detail"])
 
 	def test_a_complete_ai_task_does_not_warn(self):
-		from one_bpmn.api.compilation import _check_ai_tasks_have_a_user_prompt
+		from one_bpmn.processa_engine.compiler.deploy_warnings import check_ai_tasks_have_a_user_prompt
 
 		fine = {"service_task_extensions": {
 			"orchestrate": {
@@ -204,15 +205,15 @@ class TestCallActivityCompile(FrappeTestCase):
 				"aiUserPrompt": "{{ brief }}",
 			}
 		}}
-		self.assertEqual(_check_ai_tasks_have_a_user_prompt(fine), [])
+		self.assertEqual(check_ai_tasks_have_a_user_prompt(fine), [])
 
 	def test_a_task_that_is_not_an_ai_agent_is_not_judged(self):
-		from one_bpmn.api.compilation import _check_ai_tasks_have_a_user_prompt
+		from one_bpmn.processa_engine.compiler.deploy_warnings import check_ai_tasks_have_a_user_prompt
 
 		other = {"service_task_extensions": {
 			"send_it": {"serviceType": "send_email", "aiSystemPrompt": "irrelevant"}
 		}}
-		self.assertEqual(_check_ai_tasks_have_a_user_prompt(other), [])
+		self.assertEqual(check_ai_tasks_have_a_user_prompt(other), [])
 
 	def test_recompiling_a_called_map_refreshes_its_callers(self):
 		"""A caller embeds a COPY of the called map, so editing the called map
@@ -224,7 +225,7 @@ class TestCallActivityCompile(FrappeTestCase):
 		the run behaved as though the setting had never been made. Nothing
 		errored, which is what made it invisible.
 		"""
-		from one_bpmn.api.compilation import compile_process_model
+		from one_bpmn.api.deploy import compile_process_model
 
 		child = self._model("WI2111 Child", CHILD_ID, _child_xml())
 		parent = self._model("WI2111 Parent", PARENT_ID, _parent_xml())
@@ -251,7 +252,7 @@ class TestCallActivityCompile(FrappeTestCase):
 	def test_a_caller_that_cannot_compile_does_not_break_the_called_map(self):
 		"""The map the person actually saved has already compiled; a problem in
 		something that calls it must be logged, not rolled back onto them."""
-		from one_bpmn.api.compilation import compile_process_model
+		from one_bpmn.api.deploy import compile_process_model
 
 		child = self._model("WI2111 Child", CHILD_ID, _child_xml())
 		# A caller whose XML is broken enough that its own compile fails.
@@ -271,7 +272,7 @@ class TestCallActivityCompile(FrappeTestCase):
 		)
 		frappe.db.set_value("BPMN Process Model", "WI2111 Child", "bpmn_xml", looping_child)
 		self._model("WI2111 Parent", PARENT_ID, _parent_xml())
-		_xml, found = _resolve_called_process_xml(_parent_xml(), "WI2111 Parent")
+		_xml, found = resolve_called_process_xml(_parent_xml(), "WI2111 Parent")
 		# The parent is already known to the parser, so only the child comes back.
 		self.assertEqual(len(found), 1)
 
@@ -385,7 +386,7 @@ class TestCallActivityRunsTheActiveMapOfItsProcess(FrappeTestCase):
 	def test_a_call_to_a_process_runs_its_active_map(self):
 		self._versions()
 
-		resolved, called = _resolve_called_process_xml(_calling(PROCESS), "Caller")
+		resolved, called = resolve_called_process_xml(_calling(PROCESS), "Caller")
 
 		self.assertIn(f'calledElement="{V2_ID}"', resolved)
 		self.assertEqual(len(called), 1)
@@ -394,7 +395,7 @@ class TestCallActivityRunsTheActiveMapOfItsProcess(FrappeTestCase):
 	def test_an_older_process_id_runs_the_active_map_of_its_process(self):
 		self._versions()
 
-		resolved, called = _resolve_called_process_xml(_calling(called=V1_ID), "Caller")
+		resolved, called = resolve_called_process_xml(_calling(called=V1_ID), "Caller")
 
 		self.assertIn(f'calledElement="{V2_ID}"', resolved)
 		self.assertIn("V2 Script", called[0])
@@ -403,7 +404,7 @@ class TestCallActivityRunsTheActiveMapOfItsProcess(FrappeTestCase):
 		self._model("Called v1", V1_ID, _child_xml(process_id=V1_ID), PROCESS, active=0)
 
 		with self.assertRaises(frappe.ValidationError) as caught:
-			_resolve_called_process_xml(_calling(PROCESS, called=V1_ID), "Caller")
+			resolve_called_process_xml(_calling(PROCESS, called=V1_ID), "Caller")
 
 		self.assertIn(PROCESS, str(caught.exception))
 		self.assertIn("no active map", str(caught.exception))

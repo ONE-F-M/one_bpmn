@@ -242,7 +242,7 @@ def _set_config(name):
 
 def _add_shape():
 	"""Put the stage in a new bottom row of the map's Tools sub-process, recompile, and say whether it is there."""
-	from one_bpmn.api.compilation import compile_process_model
+	from one_bpmn.api.deploy import compile_process_model
 
 	if not frappe.db.exists("BPMN Process Model", MAP):
 		return False

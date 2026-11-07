@@ -6,7 +6,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.bpmn_task_config import resolve_node_attrs
-from one_bpmn.api.compilation import _extract_service_task_config
+from one_bpmn.processa_engine.compiler.extensions import extract_service_task_config
 from one_bpmn.api.process_map_api import _extract_bpmn_references, validate_bpmn_readiness
 
 FACTS = "[&quot;description&quot;, [&quot;allocated_to&quot;, &quot;assigned_by.full_name&quot;]]"
@@ -54,7 +54,7 @@ class TestEmailNoticeAttributes(FrappeTestCase):
 		self.assertIn("no_such_detail on ToDo", missing)
 
 	def test_a_deployed_task_config_carries_the_notice_settings(self):
-		config = _extract_service_task_config(_map())["Activity_notice"]
+		config = extract_service_task_config(_map())["Activity_notice"]
 
 		self.assertEqual(config["emailLayout"], "notice")
 		self.assertEqual(config["emailHeadingAr"], "مغلق")

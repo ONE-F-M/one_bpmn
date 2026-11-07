@@ -376,7 +376,7 @@ def get_email_fields(doctype: str) -> dict:
 	"""Fields an email can show: the doctype's own, and per Link field the linked doctype's, with Arabic candidates."""
 	from frappe.model import no_value_fields
 
-	from one_bpmn.email_builder.fields import FORMATTED_FIELDTYPES
+	from one_bpmn.processa_engine.notifications.fields import FORMATTED_FIELDTYPES
 
 	frappe.has_permission(doctype, "read", throw=True)
 	own = [

@@ -1,6 +1,6 @@
 """Generic AMP-for-Email action endpoint for plain Frappe-Workflow documents.
 
-Mirrors ``one_bpmn.api.todo_actions.handle_amp_action`` (which advances a
+Mirrors ``one_bpmn.api.email_actions.handle_amp_action`` (which advances a
 BPMN Process Instance's task), but for any document whose approval is
 driven by a standard Frappe Workflow instead. Unlike that endpoint, this
 one has no knowledge of any specific doctype — every doctype/action
@@ -8,7 +8,7 @@ combination it's allowed to act on must be explicitly registered via the
 ``amp_workflow_actions`` hook, by whichever app owns that doctype.
 
 Gmail's AMP XHR carries no Frappe session — an HMAC token from
-``one_bpmn.utils.token.generate_doc_action_token`` is the sole trust
+``one_bpmn.processa_engine.notifications.token.generate_doc_action_token`` is the sole trust
 anchor, and is also the *only* source of which document/action is being
 invoked. Extra POST fields (e.g. date inputs) are never written to the
 document unless explicitly named in that action's registration — this
@@ -85,7 +85,7 @@ def handle_workflow_action(token: str | None = None, **extra) -> dict:
 
 	Args:
 		token: HMAC-signed token from
-			:func:`~one_bpmn.utils.token.generate_doc_action_token`.
+			:func:`~one_bpmn.processa_engine.notifications.token.generate_doc_action_token`.
 		**extra: Any additional form fields submitted (e.g. date inputs
 			for an action with registered ``fields``). Anything not
 			explicitly named in the action's registration is ignored.
@@ -94,9 +94,9 @@ def handle_workflow_action(token: str | None = None, **extra) -> dict:
 		dict with ``message`` (success) or ``error`` (failure) key, shaped
 		for the amp-mustache ``submit-success`` / ``submit-error`` templates.
 	"""
-	from one_bpmn.api.todo_actions import _set_amp_cors_headers
+	from one_bpmn.processa_engine.notifications.actions import set_amp_cors_headers
 
-	_set_amp_cors_headers()
+	set_amp_cors_headers()
 
 	if frappe.request.method == "OPTIONS":
 		frappe.response["type"] = "text"
@@ -108,7 +108,7 @@ def handle_workflow_action(token: str | None = None, **extra) -> dict:
 		return {"error": _("Missing action token.")}
 
 	try:
-		from one_bpmn.utils.token import verify_action_token
+		from one_bpmn.processa_engine.notifications.token import verify_action_token
 
 		payload = verify_action_token(token)
 	except frappe.AuthenticationError:

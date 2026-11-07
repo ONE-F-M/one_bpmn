@@ -9,11 +9,9 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.compilation import (
-	_extract_service_task_config,
-	_resolve_ai_agent_tool_shapes,
-	_validate_ai_agent_tools,
-)
+from one_bpmn.processa_engine.compiler.agent_tools import resolve_ai_agent_tool_shapes
+from one_bpmn.processa_engine.compiler.ai_checks import validate_ai_agent_tools
+from one_bpmn.processa_engine.compiler.extensions import extract_service_task_config
 
 
 def _xml(agent_attrs: str, tools_inner: str, adhoc_id: str = "Tools_1") -> str:
@@ -40,8 +38,8 @@ TOOLS = (
 
 
 def _extensions(xml):
-	svc = _extract_service_task_config(xml)
-	_resolve_ai_agent_tool_shapes(xml, svc)
+	svc = extract_service_task_config(xml)
+	resolve_ai_agent_tool_shapes(xml, svc)
 	return svc
 
 
@@ -88,8 +86,8 @@ class TestResolveToolShapes(FrappeTestCase):
 
 	def test_no_agents_is_noop(self):
 		xml = _xml("", TOOLS)  # serviceType=ai_agent but no aiToolsAdhoc
-		svc = _extract_service_task_config(xml)
-		_resolve_ai_agent_tool_shapes(xml, svc)
+		svc = extract_service_task_config(xml)
+		resolve_ai_agent_tool_shapes(xml, svc)
 		self.assertNotIn("aiToolShapes", svc.get("Agent_1", {}))
 
 	def test_embeds_ai_tool_params(self):
@@ -114,20 +112,20 @@ class TestResolveToolShapes(FrappeTestCase):
 class TestValidateAgentTools(FrappeTestCase):
 	def test_valid_reference_passes(self):
 		xml = _xml('spiffworkflow:aiToolsAdhoc="Tools_1"', TOOLS)
-		_validate_ai_agent_tools(xml, _extensions(xml))  # must not raise
+		validate_ai_agent_tools(xml, _extensions(xml))  # must not raise
 
 	def test_missing_reference_rejected(self):
 		xml = _xml('spiffworkflow:aiToolsAdhoc="Nope"', TOOLS)
 		with self.assertRaises(frappe.ValidationError):
-			_validate_ai_agent_tools(xml, _extensions(xml))
+			validate_ai_agent_tools(xml, _extensions(xml))
 
 	def test_empty_toolbox_rejected(self):
 		# adhoc exists but has only ineligible shapes (a User/Manual task
 		# would now count as a HUMAN tool — use an unconfigured script task)
 		xml = _xml('spiffworkflow:aiToolsAdhoc="Tools_1"', '<bpmn:scriptTask id="noconfig" />')
 		with self.assertRaises(frappe.ValidationError):
-			_validate_ai_agent_tools(xml, _extensions(xml))
+			validate_ai_agent_tools(xml, _extensions(xml))
 
 	def test_unset_reference_not_validated(self):
 		xml = _xml("", TOOLS)  # draft agent, no aiToolsAdhoc
-		_validate_ai_agent_tools(xml, _extensions(xml))  # must not raise
+		validate_ai_agent_tools(xml, _extensions(xml))  # must not raise
