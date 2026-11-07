@@ -490,7 +490,6 @@ const STRUCTURAL = new Set(["Section Break", "Column Break", "Tab Break"]);
 // Types the properties-panel dropdown offers (structure is managed via the
 // add-section/column/tab buttons + drag, exactly like Frappe's builder).
 const CONTENT_TYPES = FIELD_TYPES.filter((t) => !STRUCTURAL.has(t));
-const OPTIONS_TYPES = new Set(["Select", "Link", "Dynamic Link", "Table", "Table MultiSelect"]);
 // Field boolean flags coerced to 0/1 on the way to the backend. Every 'check'
 // property surfaced in the field-properties panel must live here so it is a
 // controlled boolean in the UI and serialises to 0/1 for Frappe.
@@ -637,7 +636,6 @@ const sel = reactive({ type: "form", node: null });
 let uid = 0;
 const nid = () => `n${++uid}`;
 
-const applying    = ref(false);
 const applyError  = ref("");
 const appliedName = ref("");
 
@@ -1168,13 +1166,13 @@ async function loadSchema(dt) {
 	try {
 		const res = await frappeRequest({ url: `${API}get_doctype_schema`, params: { doctype: dt } });
 		if (res?.exists && res.doctype_ir) loadIr(res.doctype_ir);
-	} catch (e) { /* new doctype — nothing to load */ }
+	} catch { /* new doctype — nothing to load */ }
 }
 
 async function loadCanChange() {
 	try {
 		canChange.value = Boolean(await frappeRequest({ url: `${API}can_change_forms` }));
-	} catch (e) {
+	} catch {
 		canChange.value = false;
 	}
 }
@@ -1183,7 +1181,7 @@ async function loadRoles() {
 	try {
 		const res = await frappeRequest({ url: `${API}list_roles` });
 		if (Array.isArray(res)) roles.value = res;
-	} catch (e) { /* the rule keeps whatever role it already names */ }
+	} catch { /* the rule keeps whatever role it already names */ }
 }
 
 async function loadModules() {
@@ -1196,7 +1194,7 @@ async function loadModules() {
 			// sanitizeModule: normalise what matches, and only replace what does not.
 			if (dtModule.value) dtModule.value = sanitizeModule(dtModule.value);
 		}
-	} catch (e) { /* fall back to the current module only */ }
+	} catch { /* fall back to the current module only */ }
 }
 
 // WI-001676: chatHistoryPayload / sendMessage / pollTurn / selectOption /
@@ -1316,14 +1314,14 @@ function storeUnsaved(design) {
 	try {
 		if (design) localStorage.setItem(unsavedKey(), design);
 		else localStorage.removeItem(unsavedKey());
-	} catch (e) {
+	} catch {
 		saveNotes.value = STORAGE_REFUSED;
 	}
 }
 function readUnsaved() {
 	try {
 		return localStorage.getItem(unsavedKey());
-	} catch (e) {
+	} catch {
 		saveNotes.value = STORAGE_REFUSED;
 		return null;
 	}
@@ -1350,7 +1348,7 @@ function scheduleSnapshot() {
 }
 function restoreSnapshot(snap) {
 	isRestoring = true;
-	try { loadIr(JSON.parse(snap)); } catch (e) { /* ignore malformed snapshot */ }
+	try { loadIr(JSON.parse(snap)); } catch { /* ignore malformed snapshot */ }
 	nextTick(() => { isRestoring = false; });
 }
 function undo() {

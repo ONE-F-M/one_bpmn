@@ -47,7 +47,7 @@
 import { ref, onMounted, onBeforeUnmount } from "vue"
 import { frappeRequest, Autocomplete, Avatar, Button, FeatherIcon } from "frappe-ui"
 
-const props = defineProps({
+defineProps({
 	// Selected option: { label, value } where value is the user id (email), or null
 	modelValue: {
 		type: Object,
