@@ -21,7 +21,7 @@ from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.util.task import TaskState
 
 from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
-from one_bpmn.one_bpmn import engine as bpmn_engine
+from one_bpmn.processa_engine import engine as bpmn_engine
 
 test_ignore = ["BPMN Process Model"]
 

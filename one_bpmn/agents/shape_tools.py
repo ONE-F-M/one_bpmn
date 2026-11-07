@@ -571,7 +571,7 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 	but invoked directly so the agent can call it as a tool. LLM-supplied
 	arguments are visible to the script as locals.
 	"""
-	from one_bpmn.one_bpmn.engine import _check_script_permissions
+	from one_bpmn.processa_engine.engine import _check_script_permissions
 
 	script_doc = frappe.get_doc("Server Script", script_name)
 	if not script_doc or script_doc.disabled:

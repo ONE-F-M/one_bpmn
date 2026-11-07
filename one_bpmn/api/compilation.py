@@ -1904,7 +1904,7 @@ def compile_process_model(model_name: str) -> dict:
 			_("No process_id found in the BPMN XML for '{0}'. Save the Process Map first.").format(model_name)
 		)
 
-	from one_bpmn.one_bpmn import engine as bpmn_engine
+	from one_bpmn.processa_engine import engine as bpmn_engine
 
 	# Sanitize XML before parsing
 	sanitized_xml = _sanitize_bpmn_xml(model.bpmn_xml)

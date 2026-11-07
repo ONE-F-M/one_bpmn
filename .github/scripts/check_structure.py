@@ -25,7 +25,7 @@ BASELINE_PATH = ".github/structure_baseline.txt"
 CODEOWNERS_PATH = ".github/CODEOWNERS"
 
 # Where the restricted imports are allowed (path prefixes, repo-relative).
-ENGINE_PREFIXES = ("one_bpmn/one_bpmn/engine.py", "one_bpmn/one_bpmn/engine/")
+ENGINE_PREFIXES = ("one_bpmn/processa_engine/engine/",)
 ADAPTER_PREFIXES = ("one_bpmn/agents/llm_provider/",)
 
 WORK_ITEM_ID = re.compile(r"(?<![A-Za-z0-9])WI-\d+")

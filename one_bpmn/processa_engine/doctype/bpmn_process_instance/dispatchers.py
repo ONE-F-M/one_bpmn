@@ -2095,7 +2095,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	else:
 		try:
 			from one_bpmn.agents.observability import create_ai_run
-			from one_bpmn.one_bpmn.engine import get_task_display_name as _get_label
+			from one_bpmn.processa_engine.engine import get_task_display_name as _get_label
 			run = create_ai_run(
 				instance, bpmn_id, "task", config,
 				bpmn_label=_get_label(task),

@@ -18,7 +18,7 @@ from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
 from SpiffWorkflow.util.task import TaskState
 
-from one_bpmn.one_bpmn import engine
+from one_bpmn.processa_engine import engine
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -578,12 +578,12 @@ class TestDeciderChoosesEntryTask(FrappeTestCase):
 	covered by test_single_task_active_at_entry above."""
 
 	def tearDown(self):
-		engine.adhoc_next_task_decider = None
+		engine.adhoc.adhoc_next_task_decider = None
 		super().tearDown()
 
 	def test_decider_picks_the_entry_task(self):
 		wf = _build("adhoc_sequential.bpmn", "Process_AdhocSequential")
-		engine.adhoc_next_task_decider = lambda sp, pending: next(
+		engine.adhoc.adhoc_next_task_decider = lambda sp, pending: next(
 			t for t in pending if t.task_spec.name == "task_c"
 		)
 		_drive(wf)
@@ -595,7 +595,7 @@ class TestDeciderChoosesEntryTask(FrappeTestCase):
 
 	def test_decider_no_activation_parks_everything_at_entry(self):
 		wf = _build("adhoc_sequential.bpmn", "Process_AdhocSequential")
-		engine.adhoc_next_task_decider = lambda sp, pending: engine.NO_ACTIVATION
+		engine.adhoc.adhoc_next_task_decider = lambda sp, pending: engine.NO_ACTIVATION
 		_drive(wf)
 
 		states = _states(_adhoc(wf))

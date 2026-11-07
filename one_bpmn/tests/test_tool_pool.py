@@ -12,7 +12,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.tool_pool import DIAGRAM_TASK, resolve_tool_pool
 from one_bpmn.api.compilation import _validate_adhoc_selector_pool
-from one_bpmn.one_bpmn import engine
+from one_bpmn.processa_engine import engine
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

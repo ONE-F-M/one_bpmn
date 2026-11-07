@@ -67,7 +67,7 @@ class TestDispatcherStaticContext(FrappeTestCase):
 			patch("one_bpmn.agents.observability.record_ai_step"),
 			patch("one_bpmn.agents.observability.finalize_ai_run"),
 			patch("one_bpmn.agents.observability.finalize_ai_run_on_exception"),
-			patch("one_bpmn.one_bpmn.engine.get_task_display_name", return_value="AI Task"),
+			patch("one_bpmn.processa_engine.engine.get_task_display_name", return_value="AI Task"),
 			patch("frappe.db.commit"),
 		]
 		for p in patches:
@@ -174,7 +174,7 @@ class TestLiveLogixShape(FrappeTestCase):
 			),
 			patch("one_bpmn.agents.observability.record_ai_step"),
 			patch("one_bpmn.agents.observability.finalize_ai_run"),
-			patch("one_bpmn.one_bpmn.engine.get_task_display_name", return_value="Call Agent"),
+			patch("one_bpmn.processa_engine.engine.get_task_display_name", return_value="Call Agent"),
 			patch("frappe.db.commit"),
 		]
 		for p in patches:

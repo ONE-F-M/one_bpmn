@@ -19,7 +19,7 @@ import decimal
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.one_bpmn.engine import json_safe_doc_fields
+from one_bpmn.processa_engine.engine import json_safe_doc_fields
 
 
 class _Field:

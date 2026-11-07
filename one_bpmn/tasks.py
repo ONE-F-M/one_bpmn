@@ -55,7 +55,7 @@ def _iso_latest_slot(expression: str, now):
 	from datetime import timezone
 	from zoneinfo import ZoneInfo
 
-	from SpiffWorkflow.bpmn.specs.event_definitions.timer import TimerEventDefinition
+	from one_bpmn.processa_engine.engine import TimerEventDefinition
 
 	cycles, start, period = TimerEventDefinition.parse_iso_recurring_interval(expression)
 	seconds = period.total_seconds()
@@ -267,8 +267,8 @@ def _refresh_timer_tasks(instance_name: str):
 	a fresh copy ever produced fired timers it would have re-run the
 	process from scratch and overwritten the real progress.
 	"""
-	from SpiffWorkflow.util.task import TaskState
-	from one_bpmn.one_bpmn import engine as bpmn_engine
+	from one_bpmn.processa_engine import engine as bpmn_engine
+	from one_bpmn.processa_engine.engine import TaskState
 	import json
 
 	instance = frappe.get_doc("BPMN Process Instance", instance_name)

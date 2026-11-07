@@ -12,7 +12,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.util.task import TaskState
 
-from one_bpmn.one_bpmn import engine
+from one_bpmn.processa_engine import engine
 from one_bpmn.processa_engine.doctype.bpmn_process_instance import ai_task_selector
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -98,7 +98,7 @@ class TestSelectNextAdhocTaskHook(FrappeTestCase):
 	"""engine.select_next_adhoc_task — self-contained on this branch."""
 
 	def tearDown(self):
-		engine.adhoc_next_task_decider = None
+		engine.adhoc.adhoc_next_task_decider = None
 		super().tearDown()
 
 	def test_no_decider_falls_back_to_diagram_order(self):
@@ -107,17 +107,17 @@ class TestSelectNextAdhocTaskHook(FrappeTestCase):
 
 	def test_decider_choice_wins(self):
 		pending = [SimpleNamespace(name="a"), SimpleNamespace(name="b")]
-		engine.adhoc_next_task_decider = lambda sp, p: p[1]
+		engine.adhoc.adhoc_next_task_decider = lambda sp, p: p[1]
 		self.assertIs(engine.select_next_adhoc_task(None, pending), pending[1])
 
 	def test_decider_none_falls_back_to_diagram_order(self):
 		pending = [SimpleNamespace(name="a")]
-		engine.adhoc_next_task_decider = lambda sp, p: None
+		engine.adhoc.adhoc_next_task_decider = lambda sp, p: None
 		self.assertIs(engine.select_next_adhoc_task(None, pending), pending[0])
 
 	def test_no_activation_promotes_nothing(self):
 		pending = [SimpleNamespace(name="a")]
-		engine.adhoc_next_task_decider = lambda sp, p: engine.NO_ACTIVATION
+		engine.adhoc.adhoc_next_task_decider = lambda sp, p: engine.NO_ACTIVATION
 		self.assertIsNone(engine.select_next_adhoc_task(None, pending))
 
 	def test_decider_exception_is_fail_safe(self):
@@ -126,7 +126,7 @@ class TestSelectNextAdhocTaskHook(FrappeTestCase):
 		def broken(sp, p):
 			raise RuntimeError("kaboom")
 
-		engine.adhoc_next_task_decider = broken
+		engine.adhoc.adhoc_next_task_decider = broken
 		# Never silently auto-runs a task the selector was meant to choose.
 		self.assertIsNone(engine.select_next_adhoc_task(None, pending))
 
@@ -405,7 +405,7 @@ class TestSelectorWaitsForChainedDispatch(FrappeTestCase):
 	dispatch loop — the decision would see stale document state."""
 
 	def tearDown(self):
-		engine.adhoc_next_task_decider = None
+		engine.adhoc.adhoc_next_task_decider = None
 		super().tearDown()
 
 	def test_no_promotion_while_continuation_started(self):
@@ -415,7 +415,7 @@ class TestSelectorWaitsForChainedDispatch(FrappeTestCase):
 		sp = next(iter(wf.subprocesses.values()))
 
 		consults = []
-		engine.adhoc_next_task_decider = lambda s, pending: consults.append(
+		engine.adhoc.adhoc_next_task_decider = lambda s, pending: consults.append(
 			[t.task_spec.name for t in pending]
 		) or None
 

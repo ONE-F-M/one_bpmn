@@ -431,7 +431,7 @@ def _maybe_start_instance(doc, model_name: str):
 	# evaluate falls through to spawning so legitimate triggers are never dropped.
 	start_condition = _get_conditional_start_condition(model.bpmn_xml)
 	if start_condition and start_condition.strip().lower() not in ("true", "1", ""):
-		from one_bpmn.one_bpmn.engine import json_safe_doc_fields
+		from one_bpmn.processa_engine.engine import json_safe_doc_fields
 
 		# The same fields, converted the same way, that the instance will see once it
 		# starts — so a start condition and a gateway cannot disagree about the document.
