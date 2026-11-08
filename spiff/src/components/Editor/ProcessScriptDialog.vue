@@ -30,11 +30,12 @@ const {
 	scriptEditorTitle,
 	selectedServerScript,
 	serverScriptSearch,
-	setTimeout,
 	showDoctypeDropdown,
 	showModuleDropdown,
 	showScriptEditorDialog,
 } = pc;
+
+const hideLater = (hide) => setTimeout(hide, 200);
 </script>
 
 <template>
@@ -227,7 +228,7 @@ const {
 										showModuleDropdown = false;
 										doctypeSearch = '';
 									"
-									@blur="setTimeout(() => (showDoctypeDropdown = false), 200)"
+									@blur="hideLater(() => (showDoctypeDropdown = false))"
 								/>
 								<div
 									v-if="showDoctypeDropdown && filteredDoctypeOptions.length > 0"
@@ -327,7 +328,7 @@ const {
 									showDoctypeDropdown = false;
 									moduleSearch = '';
 								"
-								@blur="setTimeout(() => (showModuleDropdown = false), 200)"
+								@blur="hideLater(() => (showModuleDropdown = false))"
 							/>
 							<div
 								v-if="showModuleDropdown && filteredModuleOptions.length > 0"

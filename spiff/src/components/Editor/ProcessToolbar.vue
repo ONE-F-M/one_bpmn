@@ -2,6 +2,7 @@
 import { inject, toRef } from "vue";
 import { Icon } from "@iconify/vue";
 import ProcessActions from "./ProcessActions.vue";
+import { getAvatarColor, getInitials } from "@/utils/avatar";
 import { PROCESS_KEY } from "@/composables/useProcessState";
 
 const pc = inject(PROCESS_KEY);
@@ -12,8 +13,6 @@ const {
 	activeDiagramName,
 	canEditActiveDiagram,
 	diagrams,
-	getAvatarColor,
-	getInitials,
 	getStatusTheme,
 	goBack,
 	lockReason,
