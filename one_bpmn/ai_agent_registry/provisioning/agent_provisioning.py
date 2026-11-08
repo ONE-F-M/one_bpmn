@@ -52,8 +52,8 @@ def is_chat_startable_map(model_name: str) -> bool | None:
 
 
 def is_a2a_startable_map(model_name: str) -> bool | None:
-	"""Whether a BPMN Process Model can be started by an inbound A2A task
-	(WI-001932): a start event whose conditionalEventDefinition triggers on
+	"""Whether a BPMN Process Model can be started by an inbound A2A task:
+	a start event whose conditionalEventDefinition triggers on
 	A2A Task insert (``spiffworkflow:triggerDoctype="A2A Task"``). This is
 	the Background-agent door — the A2A Task row is the trigger document
 	and the instance's context, no Chat Conversation involved. Same
@@ -394,8 +394,8 @@ def _provider_test_call(cfg) -> tuple[bool, str]:
 		# Say which record is empty. Without this the provider SDK answers for
 		# us, and what the person saving an agent read was "Could not resolve
 		# authentication method. Expected one of api_key, auth_token, or
-		# credentials to be set." The dispatch path has carried this guard since
-		# WI-002134; this path did not.
+		# credentials to be set." The dispatch path has carried this guard;
+		# this path did not.
 		from frappe.utils.password import get_decrypted_password
 
 		# getattr, not cfg.get: this is a Document on the save path and a plain

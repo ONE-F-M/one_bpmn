@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-001997: agents own their maps — the clone template is gone.
+"""Agents own their maps — the clone template is gone.
 
 Covers the three behavioural changes:
 
@@ -90,7 +90,7 @@ class TestChatLabelAgainstMap(FrappeTestCase):
 	def setUp(self):
 		super().setUp()
 		# Suppress the After-Insert creation-process trigger — a real run makes
-		# live AI calls; the trigger's own behaviour is covered by WI-001620.
+		# live AI calls; the trigger's own behaviour is covered by its own tests.
 		frappe.flags.in_migrate = True
 
 	def tearDown(self):

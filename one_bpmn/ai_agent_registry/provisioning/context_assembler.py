@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """
-Static context assembly for AI agents (WI-001639).
+Static context assembly for AI agents.
 
 An agent's context has two layers, and the whole point of this module is that
 they never mix:
@@ -14,7 +14,7 @@ they never mix:
     since this story, retrieved long-term memory. Everything that varies is
     appended here.
 
-Before WI-001639 the retrieved memory block was appended to the system prompt
+Previously the retrieved memory block was appended to the system prompt
 at dispatch. Memory is searched with the current user prompt as the query, so
 the system prompt differed from turn to turn: the agent's foundational rules
 arrived in a slightly different context every time (drift), and the provider's
@@ -281,7 +281,7 @@ def build_dynamic_preamble(
 	agents without long-term memory send exactly what they sent before.
 
 	``active_skills`` carries the full BODIES of skills loaded via load_skill
-	this conversation (WI-000401) \u2014 not the static index of what is
+	this conversation \u2014 not the static index of what is
 	available, which is ``_render_skills_index``'s job in the system prompt.
 	Without this, load_skill's cache write had nothing downstream reading
 	it, so a loaded skill's instructions never reached the model at all.

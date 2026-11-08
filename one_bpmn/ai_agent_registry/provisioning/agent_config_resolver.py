@@ -994,7 +994,7 @@ def create_agent_configuration(payload: str | dict) -> dict:
 		and not chat_mode_label
 		and is_chat_startable_map(process_model) is not False
 	):
-		# WI-001997: only a CHAT agent needs a label, and even then an agent
+		# Only a CHAT agent needs a label, and even then an agent
 		# mapped to a NON-chat process map may skip it — it never appears in
 		# the chat picker. Everything else (chat map, or no map at all →
 		# Direct-API chat) fails fast here, because the creation process's
@@ -1023,18 +1023,18 @@ def create_agent_configuration(payload: str | dict) -> dict:
 	doc.lifecycle_status = "Draft"
 	doc.enabled = 1
 	doc.chat_mode_label = chat_mode_label
-	# WI-001997: the map is a designer-chosen link at creation — usually the
+	# The map is a designer-chosen link at creation — usually the
 	# process the agent is being created inside. Nothing clones or overwrites
 	# it; the map stays the designer's own.
 	doc.process_model = process_model or None
-	# WI-001655: the model is the pick; the provider derives from its
+	# The model is the pick; the provider derives from its
 	# credentials link on save. A directly-passed credentials value is kept
 	# only as legacy fallback for model-less payloads.
 	doc.ai_model = payload.get("ai_model") or None
 	doc.ai_provider = payload.get("ai_provider") or None
 	doc.system_prompt = payload.get("system_prompt") or ""
 	doc.description = payload.get("description") or ""
-	# WI-001644: screening and the throttle chosen at creation rather than left
+	# Screening and the throttle chosen at creation rather than left
 	# to a later visit to the desk form. Set only when the field exists on this
 	# site and the value is one the doctype accepts — an unknown value would fail
 	# the whole insert over a setting the agent could perfectly well start with
@@ -1059,7 +1059,7 @@ def create_agent_configuration(payload: str | dict) -> dict:
 				"prompt": row["prompt"],
 				"expected_behaviour": row.get("expected_behaviour") or "",
 			})
-	# WI-001639: the agent's frozen static context. Row order is the order the
+	# The agent's frozen static context. Row order is the order the
 	# proposer gave them — it is the order they reach the model.
 	for row in _clean_example_rows(payload.get("examples")):
 		doc.append("examples", row)

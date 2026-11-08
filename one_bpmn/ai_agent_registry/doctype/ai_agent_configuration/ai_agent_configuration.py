@@ -391,7 +391,7 @@ class AIAgentConfiguration(Document):
 	def validate_unique_chat_mode_label(self):
 		"""Two enabled chat agents must never claim the same conversation mode —
 		the mode label is what the map's start condition and the chat registry
-		key on (WI-001538)."""
+		key on."""
 		if self.agent_type != "Chat" or not self.chat_mode_label:
 			return
 		clash = frappe.db.get_value(

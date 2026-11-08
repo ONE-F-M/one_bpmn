@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-001637 live-link amendment: config authoritative at dispatch + write-back."""
+"""Live-link: config authoritative at dispatch + write-back."""
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -115,7 +115,7 @@ class TestAgentConfigLiveLink(FrappeTestCase):
 		self.assertFalse(result["reprovisioned"])
 
 	def test_write_back_ignores_unknown_fields(self):
-		# WI-001655 inverted the old rule: aiModel IS the updatable pick now,
+		# The old rule is inverted: aiModel IS the updatable pick now,
 		# while aiProvider (derived from the model) and shape-only fields are
 		# ignored. An invalid model name fails link validation on save.
 		result = update_agent_config_from_shape(
@@ -133,7 +133,7 @@ class TestAgentConfigLiveLink(FrappeTestCase):
 
 
 class TestTheModalCanEditWhatTheAgentMayDo(FrappeTestCase):
-	"""WI-002054: the roles an agent holds are editable from the editor modal.
+	"""The roles an agent holds are editable from the editor modal.
 
 	They were only on the desk form, which is not where anyone configures an
 	agent — so "may this agent move a work item to Done" had no answer in the
