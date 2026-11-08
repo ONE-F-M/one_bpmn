@@ -1,5 +1,5 @@
 """
-WI-001751 follow-up: stop the assistant answering "add a user prompt" with a
+Stop the assistant answering "add a user prompt" with a
 system-prompt change.
 
 Symptom: asked to write the task's User Prompt, the assistant replied "I'm
@@ -25,7 +25,7 @@ the small model the assistant runs follows the persona.
 Fix: say it in the prompt that governs behaviour.
 
   * the update bullet is narrowed to the SYSTEM prompt, and names the model
-    rather than the provider (WI-001655 made the model the pick — the provider
+    rather than the provider (the model is the pick — the provider
     is derived from it, so "change the provider" has been wrong since);
   * a WHERE EACH PROMPT LIVES section states the split once, plainly, with the
     reply shape for each.

@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-"""LuCrusher paid twice for its own analysis (WI-002195).
+"""LuCrusher paid twice for its own analysis.
 
 Two of its tools put far more into the model's context than the model used.
 
@@ -39,7 +39,7 @@ _SCAN_OLD = '''result["codebase_scan"] = _lucrusher_trim_scan(_lcr_full_scan)'''
 _SCAN_MARKER = "def _lucrusher_scan_digest(scan):"
 
 _SCAN_NEW = '''def _lucrusher_scan_digest(scan):
-    # What the MODEL is shown (WI-002195). The full scan is already in the turn
+    # What the MODEL is shown. The full scan is already in the turn
     # store (update_turn above) and finalize attaches it to the result itself,
     # so the model needs the ranked summary and the names it can act on — not
     # twenty fully-detailed rows per list under two spellings each. Measured:

@@ -63,7 +63,7 @@ NEW_FALLBACK = (
 
 
 def execute():
-	"""Make the Logix pipeline map's agent actually drive its pipeline (WI-001997 follow-up).
+	"""Make the Logix pipeline map's agent actually drive its pipeline.
 
 	Two halves: the run_logix_agent user prompt now states the tool pipeline
 	as hard rules (always end with finalize, never prose), and Save Response

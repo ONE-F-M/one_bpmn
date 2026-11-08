@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Backfill the chat-surface UI fields on the Live chat agents (WI-001996).
+"""Backfill the chat-surface UI fields on the Live chat agents.
 
 The shared AgentChatPanel reads an agent's greeting, composer placeholder and
 surface classification from its AI Agent Configuration instead of hardcoded

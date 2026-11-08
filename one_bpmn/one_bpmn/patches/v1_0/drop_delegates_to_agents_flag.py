@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-002010: the delegation toggle changed meaning, so its old column goes.
+"""The delegation toggle changed meaning, so its old column goes.
 
 ``delegates_to_agents`` meant "this agent hands work to others, show me the
 delegation fields". It has been replaced by ``restrict_delegates``, which

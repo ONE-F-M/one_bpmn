@@ -1,5 +1,5 @@
 """
-WI-001751: evals now test the suite's AI Agent Configuration end-to-end.
+Evals now test the suite's AI Agent Configuration end-to-end.
 
 - AI Eval Assertion.judge_model became a Link -> AI Model. Ensure an AI Model
   record exists for every judge_model already stored, so the links validate.
