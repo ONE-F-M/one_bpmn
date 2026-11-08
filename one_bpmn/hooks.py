@@ -175,7 +175,7 @@ doc_events = {
 			"one_bpmn.agents.memory.compaction_triggers.on_chat_message",
 		],
 	},
-	# WI-001813: the list of Processa-controlled doctypes (used by
+	# The list of Processa-controlled doctypes (used by
 	# bpmn_form_actions.js to suppress native Submit/Save/banner) is cached in
 	# Redis — drop it whenever a process model is (de)activated or retargeted.
 	"BPMN Process Model": {
@@ -219,7 +219,7 @@ scheduler_events = {
 			"one_bpmn.processa_engine.timers.process_timer_catch_events",
 			"one_bpmn.a2a.poller.poll_a2a_tasks",
 		],
-		# WI-002191: try every enabled model's credentials against its provider
+		# Try every enabled model's credentials against its provider
 		# (a free list call, not a completion), then tell someone about any model
 		# that is Unhealthy and has not been announced yet — once per kind of
 		# problem. Fifteen minutes is often enough that a fixed key lifts the
@@ -240,7 +240,7 @@ scheduler_events = {
 		],
 		"0 * * * *": [
 			"one_bpmn.tasks.close_stale_chat_instances",
-			# WI-002050: chase a question nobody has answered. Hourly rather than
+			# Chase a question nobody has answered. Hourly rather than
 			# by the minute because the thing being waited on is a person reading
 			# their notifications, and it never resolves the question itself.
 			"one_bpmn.tasks.chase_unanswered_clarifications",
