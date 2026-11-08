@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """
-Credential health for AI Models (WI-002191).
+Credential health for AI Models.
 
 WHY THIS EXISTS
 ---------------

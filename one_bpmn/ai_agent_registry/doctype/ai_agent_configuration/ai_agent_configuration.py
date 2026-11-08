@@ -164,7 +164,7 @@ class AIAgentConfiguration(Document):
 			)
 
 	def validate_memory_config(self):
-		"""WI-002168: an Enabled config with no resolvable model silently drops
+		"""An Enabled config with no resolvable model silently drops
 		half the memory pipeline — distillation skips, or reconciliation
 		degrades — with nothing on the form to say so (see model_resolution.py
 		for the shared chain this checks against the dispatch path).
@@ -240,7 +240,7 @@ class AIAgentConfiguration(Document):
 		)
 
 	def validate_a2a_exposure(self):
-		"""WI-001931: exposure is an admin grant on an operating agent. A
+		"""Exposure is an admin grant on an operating agent. A
 		disabled agent cannot be exposed — the card and the A2A door both
 		additionally require Live, so the flag may be set pre-Live harmlessly."""
 		if self.a2a_exposed and not self.enabled:
@@ -250,7 +250,7 @@ class AIAgentConfiguration(Document):
 			)
 
 	def validate_chat_label_against_map(self):
-		"""WI-001997: a chat mode label promises the agent appears in chat,
+		"""A chat mode label promises the agent appears in chat,
 		which only works when its linked map has the chat start pattern (a
 		start event conditioned on Chat Conversation insert). A label on an
 		agent mapped to any other process is a false promise — reject it and
@@ -371,7 +371,7 @@ class AIAgentConfiguration(Document):
 			)
 
 	def derive_provider_from_model(self):
-		"""WI-001655: the model is the pick, the provider is derived. When an
+		"""The model is the pick, the provider is derived. When an
 		AI Model is linked, ai_provider follows the model's own provider — one
 		choice, no model/provider mismatch possible. An agent with no model
 		keeps whatever provider it has (legacy records)."""
@@ -463,7 +463,7 @@ class AIAgentConfiguration(Document):
 			)
 
 	def on_update(self):
-		# WI-001652: leave a timeline trail when a save parks the agent.
+		# Leave a timeline trail when a save parks the agent.
 		# (The creation process's park path writes its own comment — this
 		# covers the controller-driven Background auto-lifecycle.)
 		prev = getattr(self, "_doc_before_save", None)
@@ -533,7 +533,7 @@ class AIAgentConfiguration(Document):
 			result = validate_agent_config(
 				self.name,
 				test_provider=True,
-				# WI-001650 provider-grant Background agents keep an empty
+				# Provider-grant Background agents keep an empty
 				# prompt on purpose — their credentials still get live-tested.
 				require_prompt=(self.agent_type != "Background"),
 			)
@@ -589,7 +589,7 @@ class AIAgentConfiguration(Document):
 
 @frappe.whitelist()
 def get_effective_memory_models(memory_distill_model=None, memory_reconcile_model=None, ai_model=None):
-	"""WI-002168: what the dispatch path would actually resolve, computed against
+	"""What the dispatch path would actually resolve, computed against
 	the form's CURRENT (possibly unsaved) values so an admin can see the effect
 	of a field before saving. Mirrors ``validate_memory_config`` and dispatch's
 	``_memory_model`` — same shared chain, so this can never show one answer

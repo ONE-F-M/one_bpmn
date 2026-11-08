@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001968: per-user per-agent throttling, automatic conversation freeze, and
+# Per-user per-agent throttling, automatic conversation freeze, and
 # reviewer-gated release.
 #
 # The tests that matter most are the ones about who can undo a lock. A freeze
@@ -831,7 +831,7 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 	chat". So a working throttle was reported to the user as "The ProsAlly
 	process orchestration isn't running for this conversation", which is both
 	wrong and unactionable. These pin the real message to each surface — all of
-	which are now the one shared stream (WI-001679).
+	which are now the one shared stream.
 	"""
 
 	SURFACES = ("ProsAlly", "Logix", "Docu")
@@ -1097,7 +1097,7 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 			"doctype": "Chat Conversation", "agent_mode": label, "title": f"{PREFIX} {label}",
 		}).insert(ignore_permissions=True).name
 
-	# WI-001679: these used to call one per-agent chat endpoint each — the very
+	# These used to call one per-agent chat endpoint each — the very
 	# endpoints that carried the "orchestration isn't running" mistranslation.
 	# Those endpoints are gone, so the surfaces are asserted where they now
 	# actually live: the shared stream, once per agent.

@@ -44,7 +44,7 @@ frappe.ui.form.on("AI Agent Configuration", {
 	},
 
 	render_memory_resolution_preview(frm) {
-		// WI-002168: show what dispatch would actually resolve, from the
+		// Show what dispatch would actually resolve, from the
 		// form's current (possibly unsaved) values — same chain the doctype's
 		// validate_memory_config() blocks save against, so the preview and the
 		// enforcement can never disagree.
@@ -84,14 +84,14 @@ frappe.ui.form.on("AI Agent Configuration", {
 	},
 
 	add_chat_surface_buttons(frm) {
-		// WI-001996: the configuration form is where a builder tests their
+		// The configuration form is where a builder tests their
 		// agent. Chat opens the shared AgentChatPanel in a dialog for THIS
 		// record (Chat-type only). The Provision Chat Map button is gone —
-		// WI-001997 retired the template clone; the agent's map is its own
+		// The template clone is retired; the agent's map is its own
 		// designer-chosen process_model link.
 		if (frm.is_new() || frm.doc.agent_type !== "Chat") return;
 
-		// Chat rides the panel bundle WI-001678 ships into Desk. Until that
+		// Chat rides the panel bundle that ships into Desk. Until that
 		// bundle is loaded the button would dead-end, so it only appears
 		// when the mount function exists.
 		if (window.oneAI && typeof window.oneAI.openAgentChat === "function") {
@@ -111,7 +111,7 @@ frappe.ui.form.on("AI Agent Configuration", {
 	},
 
 	show_needs_attention_reason(frm) {
-		// WI-001652: surface WHY the last go-live attempt parked this agent —
+		// Surface WHY the last go-live attempt parked this agent —
 		// as an intro banner, not a field. The reason lives in the hidden
 		// needs_attention_reason field, written by the creation process and
 		// the Background auto-lifecycle, and cleared when the agent moves on.
