@@ -285,13 +285,11 @@ class AIAgentConfiguration(Document):
 	def _validate_map_condition_matches_label(self):
 		import re
 
-		from one_bpmn.processa_engine.triggers import (
-			get_conditional_start_condition,
-			get_trigger_field_condition,
-		)
+		from one_bpmn.processa_engine.triggers import _parse_start_triggers
 
 		xml = frappe.db.get_value("BPMN Process Model", self.process_model, "bpmn_xml") or ""
-		condition = get_conditional_start_condition(xml) or ""
+		triggers = _parse_start_triggers(xml)
+		condition = triggers["conditional_start"] or ""
 		match = re.fullmatch(
 			r"""\s*agent_mode\s*==\s*["']([^"']+)["']\s*""", condition
 		)
@@ -302,7 +300,7 @@ class AIAgentConfiguration(Document):
 		# in the condition editor, survives cloning, and vetoes the spawn
 		# silently AFTER the visible condition passes (diagnosed live
 		# 2026-08-10 — a fixed condition still spawned nothing).
-		field_cond = get_trigger_field_condition(xml)
+		field_cond = triggers["field_condition"]
 		if not expected and field_cond and field_cond[0] == "agent_mode":
 			expected = field_cond[1]
 
