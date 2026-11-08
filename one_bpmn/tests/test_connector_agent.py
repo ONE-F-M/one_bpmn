@@ -782,7 +782,7 @@ class TestBaseBranchResolution(FrappeTestCase):
 	"""
 
 	def _with_probe(self, probe):
-		from one_bpmn.api import github_sync
+		from one_bpmn.agents_sandbox.customization import github_sync
 
 		original = github_sync.branch_exists
 		github_sync.branch_exists = probe

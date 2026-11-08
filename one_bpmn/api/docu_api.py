@@ -458,7 +458,7 @@ def _reconciles_in_place(name: str) -> bool:
 	if not frappe.conf.get("developer_mode"):
 		return False
 
-	from one_bpmn.api.doctype_source_sync import owned_in_source
+	from one_bpmn.agents_sandbox.customization.doctype_source_sync import owned_in_source
 
 	return owned_in_source(name)
 

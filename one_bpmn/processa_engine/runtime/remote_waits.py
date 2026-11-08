@@ -128,7 +128,7 @@ def apply_a2a_result(instance, task, marker: dict) -> bool:
 
 def apply_agent_sandbox_result(instance, task, marker: dict) -> bool:
 	"""Apply a finished Agent Sandbox Run to its parked Service Task. False while it still runs; raises on failOnError."""
-	from one_bpmn.one_bpmn.connectors.agent_sandbox_ops import AGENT_SANDBOX_WAITING_KEY
+	from one_bpmn.agents_sandbox.sandbox.ops import AGENT_SANDBOX_WAITING_KEY
 
 	run_name = marker.get("run")
 	row = (
