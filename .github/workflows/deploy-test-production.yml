@@ -51,6 +51,8 @@ jobs:
             cd $BENCH/apps/one_bpmn/spiff
             yarn install
             export NODE_OPTIONS="--max-old-space-size=4096"
+            # Drop the pre-WI-004390 build output so it cannot shadow www/processa.html.
+            rm -rf ../one_bpmn/public/processa ../one_bpmn/www/processa
             yarn build
             cd $BENCH
 

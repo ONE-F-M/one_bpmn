@@ -16,7 +16,7 @@ export default defineConfig({
 	define: { "process.env.NODE_ENV": JSON.stringify("production") },
 	build: {
 		lib: {
-			entry: path.resolve(__dirname, "src/oneai-entry.js"),
+			entry: path.resolve(__dirname, "src/one-ai.js"),
 			name: "oneAI",
 			formats: ["iife"],
 			fileName: () => "one-ai.iife.js",

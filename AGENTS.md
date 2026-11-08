@@ -14,7 +14,7 @@ House style lives in `frappe-bench/.claude/rules/`: `house-style.md` always, `py
 - Frappe v15, Python 3.10 or later (`requires-python` in `pyproject.toml`).
 - SpiffWorkflow for BPMN execution and serialization.
 - Vue 3, Vite, frappe-ui, TailwindCSS and bpmn-js in `spiff/`. Node.js 20, Yarn.
-- The editor is served at `/processa` from `one_bpmn/www/processa/`.
+- The editor is served at `/processa` from `one_bpmn/www/processa.py` and the built shell `one_bpmn/www/processa.html`.
 
 ## Repository layout
 

@@ -51,7 +51,7 @@ NODE_TIMEOUT = 120
 # Containment. A path that escapes the apps tree, or reaches generated output or
 # vendored code, is refused here rather than anywhere else.
 READABLE_EXT = frozenset({".vue", ".js", ".ts", ".css", ".scss", ".html", ".json", ".cjs", ".md", ".py"})
-EXCLUDED_PARTS = ("node_modules", "/dist/", "/public/processa/", "/public/one_ai/",
+EXCLUDED_PARTS = ("node_modules", "/dist/", "/public/frontend/", "/public/one_ai/",
                   "__pycache__", "/.git/", "site_config.json")
 
 SPA_APP = "one_bpmn"
@@ -271,7 +271,7 @@ def run_build(files: dict | None = None) -> dict:
 	1. It must not be able to damage the running application.
 	   ``spiff/vite.config.js`` points the frappe-ui buildConfig plugin at the LIVE
 	   asset directory with ``emptyOutDir: true``, and the plugin's ``writeBundle``
-	   copies the built index.html over ``www/processa/index.html`` — the shell the
+	   copies the built index.html over ``www/processa.html`` — the shell the
 	   site serves. A build using that config and failing part-way would leave the
 	   SPA empty. So the source is copied to a temp directory, ``node_modules`` is
 	   symlinked, and a config is written whose every output path is temporary.

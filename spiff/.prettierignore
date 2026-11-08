@@ -206,7 +206,7 @@ src/linting/rules/user-task-missing-assignee.js
 src/linting/rules/workflow-state-missing-edit-role.js
 src/main.js
 src/moddle/customTextStyleModdle.js
-src/oneai-entry.js
+src/one-ai.js
 src/renderers/CustomTextStyleRenderer.js
 src/renderers/ServiceTaskIconRenderer.js
 src/renderers/StickyNoteRenderer.js
