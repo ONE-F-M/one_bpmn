@@ -78,4 +78,4 @@ const ac = inject(AGENT_CONFIG_KEY);
 const { screeningControls, form, isSelector, toggleAllowed, visibleIn, controlGroups } = ac;
 </script>
 
-<style scoped src="@/components/AgentConfig/agentConfigModal.css"></style>
+<style scoped src="./AgentConfigScreening.css"></style>

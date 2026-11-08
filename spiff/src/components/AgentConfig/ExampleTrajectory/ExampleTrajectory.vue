@@ -53,8 +53,4 @@ function remove(index) {
 }
 </script>
 
-<style scoped>
-.call-row:first-of-type {
-	border-top-width: 0;
-}
-</style>
+<style scoped src="./ExampleTrajectory.css"></style>

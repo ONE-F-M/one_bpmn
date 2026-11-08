@@ -1,0 +1,129 @@
+.close-btn {
+	background: none;
+	border: none;
+	font-size: 1.1rem;
+	cursor: pointer;
+	color: #7c7c7c;
+}
+.close-btn:hover {
+	color: #171717;
+}
+.field-row {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+.field-row label {
+	font-size: 0.8rem;
+	font-weight: 500;
+	color: #374151;
+}
+.field-row .hint {
+	font-weight: 400;
+	color: #9ca3af;
+}
+.field-row input:not([type="checkbox"]),
+.field-row select,
+.field-row textarea {
+	width: 100%;
+	box-sizing: border-box;
+	padding: 6px 8px;
+	border: 1px solid #d1d5db;
+	border-radius: 4px;
+	font-size: 0.85rem;
+	font-family: inherit;
+}
+.checkbox-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	cursor: pointer;
+	font-size: 0.8rem;
+	font-weight: 500;
+	color: #374151;
+}
+.checkbox-input {
+	width: 16px;
+	height: 16px;
+	accent-color: #171717;
+	cursor: pointer;
+	flex-shrink: 0;
+}
+.field-hint {
+	font-size: 0.75rem;
+	color: #9ca3af;
+	font-weight: 400;
+}
+.field-row textarea {
+	resize: vertical;
+	min-height: 80px;
+}
+.field-row input:focus,
+.field-row select:focus,
+.field-row textarea:focus {
+	outline: none;
+	border-color: #171717;
+	box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+.btn-cancel {
+	padding: 7px 16px;
+	border-radius: 5px;
+	font-size: 0.85rem;
+	cursor: pointer;
+	border: none;
+}
+.btn-cancel {
+	background: #f3f3f3;
+	color: #525252;
+}
+.btn-cancel:hover {
+	background: #e2e2e2;
+}
+/* one editable row of the agent's static context. Stacked rather
+   than the grid the sample-prompt rows use — these fields are prose, and a
+   guard rail or a worked example needs the full width to be readable. */
+.static-row {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 8px;
+	margin-bottom: 8px;
+	border: 1px solid var(--border-color, #d1d8dd);
+	border-radius: 6px;
+}
+.static-row-head {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+.static-row-num {
+	margin-left: auto;
+	font-size: 11px;
+	opacity: 0.6;
+}
+.static-row-inline-label {
+	font-size: 11px;
+	font-weight: 600;
+	opacity: 0.75;
+}
+/* Every input inside a row is captioned. The placeholders these replace
+   vanished the moment anything was typed, leaving a filled-in example as three
+   anonymous boxes with no way to tell the input from the expected output. */
+.static-field {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+.static-field-label {
+	font-size: 11px;
+	font-weight: 600;
+	opacity: 0.75;
+}
+.static-field-label em {
+	font-style: normal;
+	font-weight: 400;
+	opacity: 0.75;
+}
+.static-row-cat {
+	max-width: 160px;
+}

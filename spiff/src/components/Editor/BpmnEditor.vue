@@ -75,7 +75,7 @@
 <script setup>
 import { provide } from "vue";
 import { Icon } from "@iconify/vue";
-import AIAgentConfigModal from "@/components/Modals/AIAgentConfigModal.vue";
+import AIAgentConfigModal from "@/components/Modals/AIAgentConfigModal/AIAgentConfigModal.vue";
 import BpmnEditorToolbar from "./BpmnEditorToolbar.vue";
 import BpmnProsAlly from "./BpmnProsAlly.vue";
 import BpmnInlineComment from "./BpmnInlineComment.vue";

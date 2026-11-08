@@ -84,7 +84,7 @@ test("the expanded diagram height is read on each open, not once", () => {
 
 test("the agent task dialog shows the sandbox settings and saves them on the linked agent", () => {
 	const modal = [
-		"components/AgentConfig/AgentConfigRunSettings.vue",
+		"components/AgentConfig/AgentConfigRunSettings/AgentConfigRunSettings.vue",
 		"composables/useAgentConfigLinked.js",
 		"composables/useAgentConfigSave.js",
 	]

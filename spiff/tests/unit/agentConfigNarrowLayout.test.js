@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const css = readFileSync(
-	new URL("../../src/components/AgentConfig/agentConfigModal.css", import.meta.url),
-	"utf8",
-);
+const css = [
+	"../../src/components/Modals/AIAgentConfigModal/AIAgentConfigModal.css",
+	"../../src/components/AgentConfig/AgentConfigAssistant/AgentConfigAssistant.css",
+]
+	.map((path) => readFileSync(new URL(path, import.meta.url), "utf8"))
+	.join("\n");
 const narrow = css.slice(css.indexOf("@media (max-width: 640px)"));
 
 describe("agent config dialog at narrow widths", () => {
