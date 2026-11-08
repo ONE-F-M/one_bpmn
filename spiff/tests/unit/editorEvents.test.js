@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
-const dir = fileURLToPath(new URL("../../src/components/Editor/", import.meta.url));
+const dir = fileURLToPath(new URL("../../src/composables/", import.meta.url));
 const read = (name) => readFileSync(join(dir, name), "utf8");
 
 test("the command stack listeners subscribe to the real bpmn-js event names", () => {

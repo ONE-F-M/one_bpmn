@@ -15,6 +15,7 @@ from one_bpmn.processa_engine.assignment import (
 	split_users,
 )
 from one_bpmn.processa_engine.engine import TaskState
+from one_bpmn.processa_engine.instances.cancellation import settle_cancellation
 from one_bpmn.processa_engine.runtime.common import AI_HUMAN_PREFIX, log_task, settle_goal_completion
 
 
@@ -238,3 +239,4 @@ def check_completion(instance, wf):
 		instance.status = "Completed"
 		instance.completed_at = now_datetime()
 		settle_goal_completion(instance, "Completed")
+		settle_cancellation(instance, wf)

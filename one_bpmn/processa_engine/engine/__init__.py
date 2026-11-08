@@ -42,6 +42,8 @@ from one_bpmn.processa_engine.engine.script_engine import (
 	FrappeScriptEngine,
 	_check_script_permissions,
 	_make_script_engine,
+	check_server_script,
+	evaluate_condition,
 )
 from one_bpmn.processa_engine.engine.serializer import (
 	create_workflow,
@@ -82,6 +84,8 @@ __all__ = [
 	"FrappeScriptEngine",
 	"_check_script_permissions",
 	"_make_script_engine",
+	"check_server_script",
+	"evaluate_condition",
 	"create_workflow",
 	"get_serializer",
 	"restore_workflow",

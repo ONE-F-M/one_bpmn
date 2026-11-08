@@ -12,7 +12,7 @@ import os
 
 import frappe
 
-from one_bpmn.processa_engine.instances.listing import get_processa_controlled_doctypes
+from one_bpmn.processa_engine.instances.listing import get_cancellation_maps, get_processa_controlled_doctypes
 
 BUNDLE = ("public", "one_ai", "one-ai.iife.js")
 
@@ -20,6 +20,7 @@ BUNDLE = ("public", "one_ai", "one-ai.iife.js")
 def boot_session(bootinfo):
 	bootinfo.one_ai_asset_version = asset_version()
 	bootinfo.processa_doctypes = get_processa_controlled_doctypes()
+	bootinfo.processa_cancellation_doctypes = sorted(get_cancellation_maps())
 
 
 def asset_version() -> str:

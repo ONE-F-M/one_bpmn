@@ -16,9 +16,11 @@ class LegacyMigrationErrorLog(Document):
 		document_doctype: DF.Link | None
 		document_name: DF.DynamicLink | None
 		error_message: DF.SmallText | None
+		old_instance: DF.Link | None
 		parent: DF.Data
 		parentfield: DF.Data
 		parenttype: DF.Data
+		reason: DF.Literal["", "Sub-process running", "Past a new step", "Waiting at removed step", "Already on new map", "No state mapping", "Replay stuck", "State not reached", "Timed out", "Error"]
 		timestamp: DF.Datetime | None
 	# end: auto-generated types
 	pass

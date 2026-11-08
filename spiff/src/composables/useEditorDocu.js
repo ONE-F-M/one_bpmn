@@ -1,7 +1,7 @@
-import { computed } from "vue";
+import { computed, markRaw } from "vue";
 
-export function useEditorDialogs(ed) {
-	const { props, messageDialog, docuPanel } = ed;
+export function useEditorDocu(ed) {
+	const { props, docuPanel } = ed;
 
 	// Human-readable BPMN shape type, and what the DocType *is* at this step (derived
 	// from the property field the Launch-Docu button was placed on). Threaded to the
@@ -69,18 +69,20 @@ export function useEditorDialogs(ed) {
 		}
 	}
 
-	function onMessageDialogSave(close) {
-		const { name, elementId, _eventBus } = messageDialog.value;
-		const trimmedName = name?.trim();
-		if (!trimmedName || !_eventBus) return;
+	ed.onReady(() => {
+		const eventBus = ed.modeler.get("eventBus");
 
-		_eventBus.fire("spiff.add_message.returned", {
-			name: trimmedName,
-			elementId: elementId,
-			correlation_properties: {},
+		// Docu - AI DocType builder (launched from a doctype field's button)
+		eventBus.on("launch-docu-editor", (event) => {
+			docuPanel.value = {
+				show: true,
+				element: markRaw(event.element),
+				doctype: event.doctype || "",
+				attr: event.attr || "",
+				_eventBus: event.eventBus || eventBus,
+			};
 		});
-		close();
-	}
+	});
 
-	Object.assign(ed, { docuProcessContext, onDocuApplied, onMessageDialogSave });
+	Object.assign(ed, { docuProcessContext, onDocuApplied });
 }

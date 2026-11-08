@@ -17,7 +17,7 @@ test("the editor's folded formatting tools open from a palette icon, not an elli
 })
 
 test("locking the property panel announces itself once; a finished redeploy adds no second notice", () => {
-	const editor = source("pages/Process.vue")
+	const editor = source("composables/useProcessReassign.js")
 	const finalize = editor.slice(editor.indexOf("async function finalizeReassignments"))
 	const body = finalize.slice(0, finalize.indexOf("\n}\n"))
 	assert.match(body, /Changes saved, redeploy pending/)

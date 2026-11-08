@@ -52,14 +52,14 @@ frappe.ui.form.on("Processa Legacy Migration", {
 		}
 	},
 
-	process_model(frm) {
+	to_model(frm) {
 		// Derive the target doctype(s) from the selected process model.
-		if (!frm.doc.process_model) {
+		if (!frm.doc.to_model) {
 			frm.set_value("target_doctype", "");
 			return;
 		}
 
-		frappe.db.get_doc("BPMN Process Model", frm.doc.process_model).then((model) => {
+		frappe.db.get_doc("BPMN Process Model", frm.doc.to_model).then((model) => {
 			let doctypes = (model.target_doctypes || []).map((d) => d.doctype_name);
 
 			if (!doctypes.length && model.start_events) {

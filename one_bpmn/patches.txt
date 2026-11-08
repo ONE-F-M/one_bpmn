@@ -5,6 +5,7 @@ one_bpmn.one_bpmn.patches.v1_0.drop_process_id_unique_index
 one_bpmn.one_bpmn.patches.v1_0.create_process_designer_role
 one_bpmn.one_bpmn.patches.v1_0.create_processa_engine_module #06-11-2026 the 18 engine doctypes sync into the Processa Engine module, which must exist first
 one_bpmn.one_bpmn.patches.v1_0.create_processa_connectors_module #07-11-2026 the four connector doctypes sync into the Processa Connectors module, which must exist first
+one_bpmn.one_bpmn.patches.v1_0.plm_version_upgrade_fields
 one_bpmn.one_bpmn.patches.v1_0.create_agents_sandbox_module #08-11-2026 the six sandbox doctypes sync into the Agents Sandbox module, which must exist first
 one_bpmn.one_bpmn.patches.v1_0.create_a2a_module #08-11-2026 the five A2A doctypes sync into the A2A module, which must exist first
 
@@ -347,3 +348,4 @@ one_bpmn.one_bpmn.patches.v1_0.repath_connector_handlers #07-11-2026 stored conn
 one_bpmn.one_bpmn.patches.v1_0.frontend_agent_eval_cases_follow_the_pages_folder #07-11-2026 Frontend Agent eval cases and their A2A Task fixtures name the Processa pages by their spiff/src/pages paths
 one_bpmn.one_bpmn.patches.v1_0.repath_sandbox_handlers #08-11-2026 stored sandbox handler and Choices From paths follow the modules that moved into agents_sandbox
 one_bpmn.one_bpmn.patches.v1_0.repath_a2a_handlers #08-11-2026 stored A2A connector handler and Choices From paths follow a2a_client_ops into one_bpmn.a2a.client_ops
+one_bpmn.one_bpmn.patches.v1_0.add_server_script_approval_fields #08-11-2026 Server Scripts get allowed modules and a System Manager approval with who, when and the approved code hash
