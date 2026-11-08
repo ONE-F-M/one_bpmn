@@ -373,3 +373,25 @@
 	justify-content: flex-end;
 	gap: 8px;
 }
+
+/* Narrow screens: stack the chat pane below the form so the form gets the full width. */
+@media (max-width: 640px) {
+	.ai-agent-modal {
+		width: 95vw;
+		flex-direction: column;
+	}
+
+	.modal-main {
+		flex: 1 1 auto;
+		min-height: 0;
+		max-height: none;
+	}
+
+	.assistant-panel {
+		order: 0;
+		flex: 0 0 40vh;
+		max-height: none;
+		border-right: none;
+		border-top: 1px solid #e2e2e2;
+	}
+}
