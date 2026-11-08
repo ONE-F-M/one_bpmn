@@ -395,4 +395,586 @@ async function compileIRtoBpmn(ir) {
     for (const n of nodes) {
       const isNoneTask = n.type === 'task' && ir.executable === false;
       const bpmnType = isNoneTask ? 'bpmn:Task' : BPMN_TYPE_MAP[n.type] || 'bpmn:ScriptTask';
+      const el = moddle.create(bpmnType, { id: n.id, name: n.name });
+      if (n.type === 'callActivity' && n.calledElement) el.calledElement = n.calledElement;
+      // Task configuration, already resolved to final attribute names by
+      // bpmn_task_config.py. Written through $attrs because the spiffworkflow
+      // descriptor declares none of them - the same way the editor stores them.
+      for (const [key, value] of Object.entries(n.attrs || {})) {
+        if (value !== undefined && value !== null && value !== '') {
+          el.$attrs[`spiffworkflow:${key}`] = String(value);
+          usesSpiffNS = true;
+        }
+      }
+      if (n.type === 'subProcess' && n.children) {
+        el.flowElements = buildScope(n.children.nodes || [], n.children.flows || [], true);
+      }
+      scopeById.set(n.id, el);
+      elementById.set(n.id, el);
+      scopeEls.push(el);
+    }
+
+    // Setting sourceRef/targetRef is sufficient; moddle wires the inverse
+    // incoming/outgoing references automatically via its type descriptors.
+    for (let i = 0; i < flows.length; i++) {
+      const f   = flows[i];
+      const src = scopeById.get(f.from);
+      const tgt = scopeById.get(f.to);
+      if (!src || !tgt) continue;
+
+      const sf = moddle.create('bpmn:SequenceFlow', {
+        id:        f.id || `flow_${f.from}_${f.to}_${i}`,
+        name:      f.name || '',
+        sourceRef: src,
+        targetRef: tgt,
+      });
+
+      if (f.condition) {
+        sf.conditionExpression = moddle.create('bpmn:FormalExpression', { body: f.condition });
+      }
+      if (f.default) src.default = sf;
+      if (nested) {
+        src.outgoing = [...(src.outgoing || []), sf];
+        tgt.incoming = [...(tgt.incoming || []), sf];
+      }
+      scopeEls.push(sf);
+    }
+    return scopeEls;
+  };
+  flowElements.push(...buildScope(ir.nodes, ir.flows));
+
+  // 4. Lane set (optional) — lanes is [{ id, name, role? }]
+  let laneSets;
+  if (ir.lanes && ir.lanes.length) {
+    const laneEls = ir.lanes.map(lane => {
+      const flowNodeRef = (ir.nodes || [])
+        .filter(n => n.lane === lane.id)
+        .map(n => elementById.get(n.id))
+        .filter(Boolean);
+      return moddle.create('bpmn:Lane', { id: lane.id, name: lane.name, flowNodeRef });
+    });
+    laneSets = [moddle.create('bpmn:LaneSet', { id: 'LaneSet_1', lanes: laneEls })];
+  }
+
+  // 5. Process
+  const processEl = moddle.create('bpmn:Process', {
+    id:           'Process_1',
+    isExecutable: ir.executable !== false,
+    flowElements,
+    ...(laneSets ? { laneSets } : {}),
+  });
+
+  // 6. Collaboration + Participant (required for bpmn-js to render swim lanes)
+  const rootElements = [processEl];
+  if (laneSets) {
+    const participantEl = moddle.create('bpmn:Participant', {
+      id:         'Participant_1',
+      name:       ir.name || 'Process',
+      processRef: processEl,
+    });
+    const collaborationEl = moddle.create('bpmn:Collaboration', {
+      id:           'Collaboration_1',
+      participants: [participantEl],
+    });
+    rootElements.unshift(collaborationEl);  // collaboration must come first
+  }
+
+  const definitions = moddle.create('bpmn:Definitions', {
+    id:              'Definitions_1',
+    targetNamespace: 'http://bpmn.io/schema/bpmn',
+    exporter:        'processa-pipeline',
+    exporterVersion: '1.0',
+    rootElements,
+  });
+
+  if (usesSpiffNS) {
+    definitions.$attrs['xmlns:spiffworkflow'] = SPIFF_NS;
+  }
+
+  const { xml } = await moddle.toXML(definitions, { format: true });
+  return xml;
+}
+
+// ── Expanded sub-processes ─────────────────────────────────────────────────
+//
+// An expanded sub-process draws its steps inside its own box on the main plane.
+// Its steps are laid out first, on their own, to learn how big the box must be;
+// the main layout then treats the box as one node of that size.
+
+const EXPANDED_PAD    = 24;   // space between the box and the steps inside it
+const EXPANDED_HEADER = 36;   // room along the top for the sub-process name
+
+function sizeExpandedSubProcesses(ir, problems) {
+  return {
+    ...ir,
+    nodes: ir.nodes.map((n) => {
+      if (n.type !== 'subProcess' || !n.expanded || !n.children) return n;
+      const inner = sizeExpandedSubProcesses({ nodes: n.children.nodes || [], flows: n.children.flows || [] }, problems);
+      const grid = {
+        name: n.name,
+        lanes: [{ id: '__lane', name: n.name || 'Sub-process' }],
+        nodes: inner.nodes.map(c => ({ ...c, lane: '__lane' })),
+        flows: inner.flows,
+      };
+      const { diSection, problems: diProblems } = buildManualLaneDI(grid, { pool: false });
+      problems.push(...(diProblems || []));
+      if (!diSection) return n;
+      const open = diSection.indexOf('>', diSection.indexOf('<bpmndi:BPMNPlane')) + 1;
+      const body = diSection.slice(open, diSection.lastIndexOf('</bpmndi:BPMNPlane>'));
+      const xs = [], ys = [];
+      for (const m of body.matchAll(/<dc:Bounds\s+x="(-?[\d.]+)"\s+y="(-?[\d.]+)"\s+width="([\d.]+)"\s+height="([\d.]+)"/g)) {
+        xs.push(+m[1], +m[1] + +m[3]);
+        ys.push(+m[2], +m[2] + +m[4]);
+      }
+      for (const m of body.matchAll(/<di:waypoint\s+x="(-?[\d.]+)"\s+y="(-?[\d.]+)"/g)) { xs.push(+m[1]); ys.push(+m[2]); }
+      const minX = Math.min(...xs), minY = Math.min(...ys);
+      return {
+        ...n,
+        children: { nodes: inner.nodes, flows: inner.flows },
+        w: Math.max(200, Math.ceil(Math.max(...xs) - minX) + 2 * EXPANDED_PAD),
+        h: Math.max(120, Math.ceil(Math.max(...ys) - minY) + EXPANDED_PAD + EXPANDED_HEADER),
+        _inner: { minX, minY, body },
+      };
+    }),
+  };
+}
+
+// The steps of an expanded sub-process, moved to sit inside its box.
+function innerDiagram(inner, box) {
+  const dx = box.x + EXPANDED_PAD - inner.minX;
+  const dy = box.y + EXPANDED_HEADER - inner.minY;
+  return inner.body.replace(
+    /(<(?:dc:Bounds|di:waypoint)\s+x=")(-?[\d.]+)("\s+y=")(-?[\d.]+)/g,
+    (_, head, x, mid, y) => head + Math.round(+x + dx) + mid + Math.round(+y + dy),
+  );
+}
+
+// ── Manual DI builder for lane-based processes ──────────────────────────────
+//
+// Every diagram is laid out here. bpmn-auto-layout used to take lane-less IR and
+// put 59 crossings on a 47-node map; a hidden single lane on this grid does better.
+//
+// Algorithm:
+//   1. Propagate lane assignments to inferred gateways (no explicit lane field)
+//   2. Topological column assignment: longest-path BFS so elements flow left→right
+//   3. Within each (lane, column) cell, stack elements vertically
+//   4. Emit BPMNDiagram XML: participant → lanes → node shapes → edge waypoints
+
+function buildManualLaneDI(ir, opts = {}) {
+  const pool  = opts.pool !== false;   // false: lane-less diagram laid out on one hidden lane
+  const lanes = ir.lanes || [];   // [{ id, name, role? }]
+  if (!lanes.length) return '';
+
+  const laneIndexById = new Map(lanes.map((l, i) => [l.id, i]));
+  const nodeMap       = new Map(ir.nodes.map(n => [n.id, n]));
+
+  // Build adjacency for lane propagation and column assignment
+  const adjOut = new Map(ir.nodes.map(n => [n.id, []]));
+  const adjInn = new Map(ir.nodes.map(n => [n.id, []]));
+  for (const f of ir.flows) {
+    if (adjOut.has(f.from)) adjOut.get(f.from).push(f.to);
+    if (adjInn.has(f.to))   adjInn.get(f.to).push(f.from);
+  }
+
+  // Propagate lane id to inferred gateways (no explicit lane field).
+  // Iterates until stable so multi-hop chains resolve correctly.
+  const nodeLaneId = new Map();
+  for (const n of ir.nodes) {
+    if (n.lane) nodeLaneId.set(n.id, n.lane);
+  }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const n of ir.nodes) {
+      if (nodeLaneId.has(n.id)) continue;
+      const neighbours = (adjInn.get(n.id) || []).concat(adjOut.get(n.id) || []);
+      for (const nb of neighbours) {
+        if (nodeLaneId.has(nb)) {
+          nodeLaneId.set(n.id, nodeLaneId.get(nb));
+          changed = true;
+          break;
+        }
+      }
+    }
+  }
+  // Final fallback: unresolved nodes go to first lane
+  for (const n of ir.nodes) {
+    if (!nodeLaneId.has(n.id) && lanes.length) nodeLaneId.set(n.id, lanes[0].id);
+  }
+
+  // ── Back-edge detection via iterative DFS from start ─────────────────────
+  // Kahn's topological sort fails on cyclic flows (loops, re-check paths).
+  // We detect back edges first so the column assignment treats the process as a
+  // DAG, placing nodes in a proper left-to-right sequence.  Back edges are still
+  // drawn as arrows; they just arc back to an earlier column.
+  const startNodeId = (ir.nodes.find(n => n.type === 'startEvent') || ir.nodes[0] || {}).id;
+  const backEdges   = new Set();  // "from:to" key strings
+
+  if (startNodeId) {
+    const dfsVisited = new Set([startNodeId]);
+    const dfsInStack = new Set([startNodeId]);
+    // Each frame: [nodeId, nextChildIndex]
+    const dfsStack   = [[startNodeId, 0]];
+
+    while (dfsStack.length) {
+      const frame    = dfsStack[dfsStack.length - 1];
+      const nodeId   = frame[0];
+      const children = adjOut.get(nodeId) || [];
+
+      if (frame[1] >= children.length) {
+        dfsInStack.delete(nodeId);
+        dfsStack.pop();
+      } else {
+        const nextId = children[frame[1]++];
+        if (dfsInStack.has(nextId)) {
+          backEdges.add(nodeId + ':' + nextId);   // cycle → back edge
+        } else if (!dfsVisited.has(nextId)) {
+          dfsVisited.add(nextId);
+          dfsInStack.add(nextId);
+          dfsStack.push([nextId, 0]);
+        }
+      }
+    }
+  }
+
+  // ── Column assignment: one node per (lane, column) cell ──────────────────
+  //
+  // Walk the DAG in topological order (back edges excluded) and place each node
+  // in the first FREE cell at or after max(predecessor column) + 1.
+  //
+  // The previous version was a plain longest-path DP, which let any number of
+  // nodes share a cell and then squeezed them into the lane band by dividing its
+  // height between them. On a real map that is ruinous: 46 nodes over 9 columns
+  // put fifteen nodes in one cell, so the band stretched to ~1700px, every edge
+  // needed long vertical travel, and shapes were metres apart from the lane they
+  // belonged to. Reserving a cell per node keeps the diagram a left-to-right
+  // flow — which is also what makes "no shape overlaps another shape" true by
+  // construction rather than by validation.
+  //
+  // Nodes in DIFFERENT lanes still share a column: that is genuine concurrency
+  // and reads correctly.
+  const laneIdxOf = (id) => {
+    const lid = nodeLaneId.get(id) || lanes[0].id;
+    return laneIndexById.has(lid) ? laneIndexById.get(lid) : 0;
+  };
+
+  const inDeg = new Map(ir.nodes.map(n => [n.id, 0]));
+  for (const f of ir.flows) {
+    if (backEdges.has(f.from + ':' + f.to)) continue;   // skip back edges
+    if (inDeg.has(f.to)) inDeg.set(f.to, (inDeg.get(f.to) || 0) + 1);
+  }
+  const queue = ir.nodes.filter(n => inDeg.get(n.id) === 0).map(n => n.id);
+  const ordered = [];
+  const seen = new Set(queue);
+  let qi = 0;
+  while (qi < queue.length) {
+    const id = queue[qi++];
+    ordered.push(id);
+    for (const succId of (adjOut.get(id) || [])) {
+      if (backEdges.has(id + ':' + succId)) continue;
+      const deg = (inDeg.get(succId) || 1) - 1;
+      inDeg.set(succId, deg);
+      if (deg === 0 && !seen.has(succId)) { seen.add(succId); queue.push(succId); }
+    }
+  }
+  // Anything the walk never reached (a cycle with no acyclic entry point) still
+  // has to be placed, or it would silently pile up in column 0.
+  for (const n of ir.nodes) if (!seen.has(n.id)) ordered.push(n.id);
+
+  // Parallel branches of one fork are SIBLINGS: they share a predecessor and
+  // belong side by side in the same column, one per row, the way a diamond is
+  // drawn. Without this a two-way split inside one lane was laid out in series
+  // (g → a → b → join), and the two branch flows had to detour around the node
+  // each did not touch — detours that crossed by construction. Unrelated nodes
+  // still get their own column, so a wide map cannot collapse into one cell.
+  const MAX_ROWS = 3;
+  const forwardPreds = (id) => (adjInn.get(id) || []).filter(p => !backEdges.has(p + ':' + id));
+  const col   = new Map();
+  const cells = new Map();   // "laneIdx:col" → nodeIds placed there, one per row
+  for (const id of ordered) {
+    let c = 0;
+    for (const predId of forwardPreds(id)) {
+      if (col.has(predId)) c = Math.max(c, col.get(predId) + 1);
+    }
+    const li = laneIdxOf(id);
+    const preds = new Set(forwardPreds(id));
+    const isSibling = (other) => forwardPreds(other).some(p => preds.has(p));
+    for (;;) {
+      const here = cells.get(li + ':' + c) || [];
+      if (!here.length) break;
+      if (here.length < MAX_ROWS && here.every(isSibling)) break;
+      c++;
+    }
+    const key = li + ':' + c;
+    if (!cells.has(key)) cells.set(key, []);
+    cells.get(key).push(id);
+    col.set(id, c);
+  }
+  for (const n of ir.nodes) { if (!col.has(n.id)) col.set(n.id, 0); }
+
+  const maxCol = ir.nodes.reduce((m, n) => Math.max(m, col.get(n.id) || 0), 0);
+
+  // Group nodes by (laneIdx, col) cell for vertical stacking
+  const groups = new Map();  // key "li:c" → { li, c, nodeIds[] }
+  for (const n of ir.nodes) {
+    const lid = nodeLaneId.get(n.id) || lanes[0].id;
+    const li  = laneIndexById.has(lid) ? laneIndexById.get(lid) : 0;
+    const c   = col.get(n.id) || 0;
+    const k   = li + ':' + c;
+    if (!groups.has(k)) groups.set(k, { li, c, nodeIds: [] });
+    groups.get(k).nodeIds.push(n.id);
+  }
+
+  // ── Channel routing model (WI-002042) ────────────────────────────────────
+  //
+  // Nodes sit on a (lane, column, row) grid. The space BETWEEN those cells is
+  // reserved and never occupied by a shape: a vertical GUTTER between adjacent
+  // columns, and a horizontal STRIP along the bottom of each lane. Every pixel
+  // of edge travel happens inside one of them, so an edge can never cross a
+  // shape it does not connect to.
+  //
+  // Two edges sharing a gutter or strip are given different CHANNELS, so they
+  // never render as one line. Channels are allocated by occupancy — greedy
+  // interval colouring over the ordinal grid — not by the flow's array index.
+  // The previous generator offset overlapping edges by `(i % 3) * 10`, giving
+  // three channels 10px apart chosen by position in the array, which is why
+  // return edges piled onto each other and onto the lane's own node rows.
+  //
+  // Allocation runs on ORDINAL coordinates (row ordinals, column indices),
+  // which are monotonic in pixels, so the channel counts are known before any
+  // pixel is computed and the whole layout resolves in a single pass.
+  const CH_SP        = 14;   // gap between neighbouring channels in a gutter/strip
+  const GUTTER_BASE  = 70;   // clear space between node columns before channels
+  const ROW_PITCH    = 110;  // vertical pitch of node rows inside a lane
+  const ROW_BAND     = 80;   // tallest node; rows share this centreline
+  const LANE_PAD_TOP = 28;
+  const LANE_PAD_BOT = 16;
+  const STRIP_BASE   = 28;   // clear space in a lane's routing strip
+
+  // Row index of each node within its (lane, column) cell.
+  const rowOf = new Map();
+  for (const grp of groups.values()) grp.nodeIds.forEach((id, r) => rowOf.set(id, r));
+
+  const laneRows = lanes.map((_, li) => {
+    let m = 1;
+    for (const g of groups.values()) if (g.li === li) m = Math.max(m, g.nodeIds.length);
+    return m;
+  });
+
+  // A row is as tall as its tallest node, so an expanded sub-process gets the room its steps need.
+  const rowBand = lanes.map((_, li) => Array.from({ length: laneRows[li] }, () => ROW_BAND));
+  for (const grp of groups.values()) {
+    grp.nodeIds.forEach((id, r) => { rowBand[grp.li][r] = Math.max(rowBand[grp.li][r], nodeDims(nodeMap.get(id)).h); });
+  }
+  const ROW_GAP   = ROW_PITCH - ROW_BAND;
+  const rowStart  = rowBand.map((rows) => { let y = 0; return rows.map((h) => { const top = y; y += h + ROW_GAP; return top; }); });
+  const rowsTotal = rowBand.map((rows) => rows.reduce((sum, h) => sum + h + ROW_GAP, 0));
+
+  // Column width is the widest node in that column, so every column is a clean
+  // vertical band and the gutters either side of it stay shape-free.
+  const colW = [];
+  for (let c = 0; c <= maxCol; c++) colW[c] = 36;
+  for (const n of ir.nodes) {
+    const c = col.get(n.id) || 0;
+    colW[c] = Math.max(colW[c], nodeDims(n).w);
+  }
+
+  // Ordinal vertical axis: every lane contributes its node rows plus one slot
+  // for its routing strip, so ordinals increase monotonically down the pool.
+  //
+  // Each lane reserves a routing strip on BOTH sides of its node rows, not just
+  // below them. A lane only ever had a strip underneath, so a return loop was
+  // forced into the band that every downward edge in that lane has to cross on
+  // its way to the lane below — the loop and the branch that left for the next
+  // lane crossed by construction, and no channel allocation could help, because
+  // the two are perpendicular. Given the choice, a loop takes the side with less
+  // vertical traffic through it, which for a lane's own rework loop is normally
+  // the top: nothing passes overhead in the first lane at all.
+  const laneRowOffset = [];
+  let ordAcc = 0;
+  for (let li = 0; li < lanes.length; li++) { laneRowOffset.push(ordAcc); ordAcc += laneRows[li] + 2; }
+  const ordOf       = (li, row) => laneRowOffset[li] + 1 + row;
+  const ordTop      = (li)      => laneRowOffset[li];
+  const ordBottom   = (li)      => laneRowOffset[li] + 1 + laneRows[li];
+  const stripKey    = (li, side) => li * 2 + (side === 'top' ? 0 : 1);
+  const ordStripFor = (li, side) => (side === 'top' ? ordTop(li) : ordBottom(li));
+
+  const occupied = new Set();
+  for (const grp of groups.values()) {
+    grp.nodeIds.forEach((id, r) => occupied.add(grp.li + ':' + grp.c + ':' + r));
+  }
+  // Can an edge run straight along this row between these columns?
+  const rowClear = (li, row, cFrom, cTo) => {
+    for (let c = cFrom; c <= cTo; c++) if (occupied.has(li + ':' + c + ':' + row)) return false;
+    return true;
+  };
+
+  // Which nodes sit in each column, by vertical ordinal — for the safety check.
+  const colCells = new Map();
+  for (const grp of groups.values()) {
+    if (!colCells.has(grp.c)) colCells.set(grp.c, []);
+    grp.nodeIds.forEach((id, r) => colCells.get(grp.c).push({ id, ord: ordOf(grp.li, r) }));
+  }
+  // Is column `c` free of nodes strictly between these two ordinals?
+  const colClearBetween = (c, oA, oB, skip) => {
+    const lo = Math.min(oA, oB), hi = Math.max(oA, oB);
+    for (const cell of colCells.get(c) || []) {
+      if (skip.has(cell.id)) continue;
+      if (cell.ord > lo && cell.ord < hi) return false;
+    }
+    return true;
+  };
+
+  // How much vertical traffic passes through a horizontal band?
+  //
+  // Any flow whose ends sit on different ordinals must travel vertically
+  // somewhere between its two columns, so it crosses every band strictly
+  // between them. That is known from the grid alone, before a single route is
+  // chosen, which is what lets a strip pick its side up front instead of
+  // discovering the collision after the fact.
+  const travel = [];
+  for (const f of ir.flows) {
+    if (!nodeMap.has(f.from) || !nodeMap.has(f.to)) continue;
+    const a = ordOf(laneIdxOf(f.from), rowOf.get(f.from) || 0);
+    const b = ordOf(laneIdxOf(f.to), rowOf.get(f.to) || 0);
+    if (a === b) continue;
+    const ca = col.get(f.from) || 0, cb = col.get(f.to) || 0;
+    travel.push({
+      oLo: Math.min(a, b), oHi: Math.max(a, b),
+      cLo: Math.min(ca, cb), cHi: Math.max(ca, cb),
+    });
+  }
+  const trafficThrough = (ord, cLo, cHi) => {
+    let n = 0;
+    for (const t of travel) {
+      if (t.oLo < ord && ord < t.oHi && t.cLo <= cHi && cLo <= t.cHi) n++;
+    }
+    return n;
+  };
+
+  // ── Plan every edge on the grid, before any pixel exists ─────────────────
+  const vRuns = [];   // vertical runs, keyed by gutter index
+  const hRuns = [];   // horizontal runs, keyed by lane index and side (its strips)
+  const cRuns = [];   // vertical runs travelling inside a node column, keyed by column
+  // A docked or face-exiting edge runs its vertical leg inside a node's own
+  // column rather than in a gutter, so those legs need allocating too —
+  // two of them in one column with overlapping spans are two lines on one pixel, which
+  // is the same defect the gutters were built to remove. Spreading them per node
+  // is not enough: the collision is between edges at DIFFERENT nodes of the same
+  // column, which no per-node fan can see.
+  const colRun = (p, c, oA, oB) => {
+    p.cvCol = c;
+    p.cv = { key: c, lo: Math.min(oA, oB), hi: Math.max(oA, oB) };
+    cRuns.push(p.cv);
+  };
+  const plans = [];
+  //
+  // The APPROACH is decided here too, not in a later pass, because a docked
+  // route travels different corridors from the one the planner would otherwise
+  // have given it — deciding afterwards reserved channels the edge then never
+  // used, and left the segments it did use outside the allocation entirely.
+  for (const f of ir.flows) {
+    if (!nodeMap.has(f.from) || !nodeMap.has(f.to)) { plans.push(null); continue; }
+    const sl = laneIdxOf(f.from), tl = laneIdxOf(f.to);
+    const sc = col.get(f.from) || 0, tc = col.get(f.to) || 0;
+    const sr = rowOf.get(f.from) || 0, tr = rowOf.get(f.to) || 0;
+    const p = { f, sl, tl, sc, tc, sr, tr };
+    const so = ordOf(sl, sr), to = ordOf(tl, tr);
+    const ends = new Set([f.from, f.to]);
+
+    if (tc > sc && sl === tl && sr === tr && rowClear(tl, tr, sc + 1, tc - 1)) {
+      // Same row, nothing in the way — the plain left-to-right arrow.
+      p.kind = 'straight';
+    } else if (tc > sc && so !== to
+               && rowClear(sl, sr, sc + 1, tc)
+               && colClearBetween(tc, so, to, ends)) {
+      // Target-side dock: out along the source's own row, then down (or up) the
+      // target's own column into its top or bottom edge. One bend, no arrival
+      // stub, and no corridor used at all.
+      p.kind = 'dock';
+      p.dock = to > so ? 'top' : 'bottom';
+      colRun(p, tc, so, to);
+    } else if (tc > sc && so !== to
+               && colClearBetween(sc, so, to, ends)
+               && rowClear(tl, tr, sc, tc - 1)) {
+      // Source-side exit — the mirror image, and the case the target-side dock
+      // cannot serve: the source's row is blocked (a sibling branch occupies the
+      // column the edge would have crossed) but the source's OWN column is free
+      // and the target's row is clear. Leaving through the source's bottom (or
+      // top) face drops the edge out of that traffic immediately, instead of
+      // pushing a stub out to the right past every sibling that leaves with it.
+      //
+      // This is the shape of a gateway with one branch continuing in its lane
+      // and another dropping to the lane below: routed to the right, the drop
+      // always crosses the branch that carried straight on.
+      p.kind = 'vexit';
+      p.exitFace = to > so ? 'bottom' : 'top';
+      colRun(p, sc, so, to);
+    } else if (tc > sc && (tc === sc + 1 || rowClear(tl, tr, sc + 1, tc - 1))) {
+      // Forward hop: drop through the gutter immediately right of the source,
+      // then run in along the target's own row, which we know is clear.
+      p.kind = 'elbow';
+      p.g1 = sc;
+      p.v1 = {
+        key: sc,
+        lo: Math.min(ordOf(sl, sr), ordOf(tl, tr)),
+        hi: Math.max(ordOf(sl, sr), ordOf(tl, tr)),
+      };
+      vRuns.push(p.v1);
+    } else {
+      // Blocked forward hop, or a back edge. Travel horizontally in a routing
+      // strip rather than across the diagram body: the target's own strip going
+      // forward, and for a back edge the strip of the LOWER of the two lanes, so
+      // a loop inside one lane stays inside that lane instead of arcing over the
+      // whole pool.
+      p.kind = 'strip';
+      // The TARGET lane's strips, forwards and backwards alike: the edge then
+      // makes its long horizontal run in the band it is already heading for and
+      // arrives with a short vertical. Measured against the alternatives on the
+      // Fuel Requisition map (avoidable crossings): target lane 228, source lane
+      // 285, lower of the two 287, one shared bus below the pool 392 — a shared
+      // bus is worst because every lane-changing edge in the diagram then has to
+      // cross it.
+      p.rl = tl;
+      p.g1 = sc;
+      p.g2 = tc - 1;
+      // Pick the side of the lane with less vertical traffic crossing the span
+      // this edge has to cover. Ties go to the bottom, which is the side a
+      // reader expects a return loop on when neither is busier.
+      const span = { lo: Math.min(sc, tc), hi: Math.max(sc, tc) };
+      const topCost = trafficThrough(ordTop(p.rl), span.lo, span.hi);
+      const botCost = trafficThrough(ordBottom(p.rl), span.lo, span.hi);
+      p.side = topCost < botCost ? 'top' : 'bottom';
+      const sto = ordStripFor(p.rl, p.side);
+      // Source-side exit onto the strip, the mirror of the dock below: if the
+      // source's own column is clear down (or up) to the strip, the edge drops
+      // straight out of its bottom face instead of stubbing right to a gutter.
+      // That stub is what crossed the source's OTHER outgoing flow — the normal
+      // continuation leaving the same node — on every rework loop we have drawn.
+      if (colClearBetween(sc, ordOf(sl, sr), sto, ends)) {
+        p.exitFace = sto > ordOf(sl, sr) ? 'bottom' : 'top';
+        p.g1 = sc;   // the strip run starts at the source's own column
+        colRun(p, sc, ordOf(sl, sr), sto);
+      } else {
+        p.v1 = { key: p.g1, lo: Math.min(ordOf(sl, sr), sto), hi: Math.max(ordOf(sl, sr), sto) };
+        vRuns.push(p.v1);
+      }
+      // A strip runs clear of every node row in its lane, so an edge riding one
+      // can finish by turning into the target's near face instead of out to a
+      // gutter and back in along the target's row. That is the return-loop shape:
+      // the leg that used to come up a gutter one column short of the target and
+      // run in sideways is exactly the leg that crossed whatever else entered
+      // that target. Back edges were excluded from docking before, which is why
+      // a rework loop always crossed the flow it was rejoining.
+      if (colClearBetween(tc, ordOf(tl, tr), sto, ends)) {
+        p.dock = p.side === 'top' ? 'top' : 'bottom';
+        p.dockRun = { key: tc, lo: Math.min(ordOf(tl, tr), sto), hi: Math.max(ordOf(tl, tr), sto) };
+        cRuns.push(p.dockRun);
+        p.h1 = { key: stripKey(p.rl, p.side), lo: Math.min(p.g1, tc), hi: Math.max(p.g1, tc) };
+      } else {
+        p.v2 = { key: p.g2, lo: Math.min(ordOf(tl, tr), sto), hi: Math.max(ordOf(tl, tr), sto) };
+        p.h1 = { key: stripKey(p.rl, p.side), lo: Math.min(p.g1, p.g2), hi: Math.max(p.g1, p.g2) };
+        vRuns.push(p.v2);
+      }
+      hRuns.push(p.h1);
 //@@CONTINUE@@
