@@ -111,11 +111,6 @@
       "count": 1
     }
   },
-  "src/pages/EvalSuite.vue": {
-    "no-unused-vars": {
-      "count": 6
-    }
-  },
   "src/pages/Evals.vue": {
     "no-unused-vars": {
       "count": 2
