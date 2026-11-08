@@ -1,5 +1,6 @@
 import os
-import unittest
+
+from frappe.tests.utils import FrappeTestCase
 
 PATCHES_TXT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "patches.txt")
 
@@ -8,7 +9,7 @@ def _count(text, needle):
 	return sum(1 for line in text.splitlines() if needle in line)
 
 
-class TestPatchesTxt(unittest.TestCase):
+class TestPatchesTxt(FrappeTestCase):
 	def setUp(self):
 		with open(PATCHES_TXT, encoding="utf-8") as f:
 			self.text = f.read()
