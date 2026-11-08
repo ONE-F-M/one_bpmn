@@ -1,3 +1,4 @@
+// Needed for gestures canvasTouchHandler lacks: dragging a shape (the handler pans instead), double-tap, palette and tool gestures.
 import touchInteractionModule from "bpmn-js-touch-interaction";
 
 export { touchInteractionModule };
