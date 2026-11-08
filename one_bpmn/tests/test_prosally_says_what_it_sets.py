@@ -4,8 +4,8 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.bpmn_ir_pipeline import compile_ir
-from one_bpmn.agents.prosally_helpers import describe_task_config
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_pipeline import compile_ir
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_properties import describe_task_config
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_says_what_it_sets as patch
 
 START = {

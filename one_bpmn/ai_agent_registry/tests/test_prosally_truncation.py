@@ -183,10 +183,10 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 				return_value={"sub_prompts": {}, "max_tokens": 16384, "agent_id": "prosally_agent"},
 			),
 			patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=adapter),
-			patch("one_bpmn.agents.bpmn_ir_pipeline.compile_ir", return_value=fake_compile_result),
-			patch("one_bpmn.agents.bpmn_ir_pipeline.extract_process_name", return_value="Onboarding"),
-			patch("one_bpmn.agents.bpmn_ir_pipeline.extract_element_ids", return_value=""),
-			patch("one_bpmn.security.bpmn_validator.validate_bpmn_xml", return_value={"valid": True}),
+			patch("one_bpmn.ai_agent_registry.definitions.prosally.tools_pipeline.compile_ir", return_value=fake_compile_result),
+			patch("one_bpmn.ai_agent_registry.definitions.prosally.tools_pipeline.extract_process_name", return_value="Onboarding"),
+			patch("one_bpmn.ai_agent_registry.definitions.prosally.tools_pipeline.extract_element_ids", return_value=""),
+			patch("one_bpmn.ai_agent_registry.definitions.prosally.validators.validate_bpmn_xml", return_value={"valid": True}),
 		):
 			ns = self._run_script(MODIFY)
 

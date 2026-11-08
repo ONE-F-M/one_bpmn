@@ -526,13 +526,11 @@ class TestTheMemoryModelBringsItsOwnProvider(FrappeTestCase):
 
 	def resolve(self, model, fallback):
 		"""The provider ProsAlly's memory write hands the distiller for *model*."""
-		from one_bpmn.agents import prosally_helpers as helpers
-
+		from one_bpmn.ai_agent_registry.definitions.prosally import helpers
 		cfg = {"name": "CFG", "ai_model": model, "ai_provider": fallback}
 		fields = {"memory_write_mode": "distilled", "memory_distill_model": model, "memory_reconcile_model": model}
 		turn = {"memory_process": "Zz Process", "user_text": "yes", "memory_notes": [], "chat_history": []}
-		with patch.object(helpers, "prosally_config", return_value=cfg), patch.object(
-			helpers, "_memory_fields", return_value=fields
+		with patch.object(helpers, "prosally_config", return_value=cfg), patch.object(helpers, "_memory_fields", return_value=fields
 		), patch.object(frappe.db, "get_single_value", return_value=None), patch.object(frappe, "enqueue") as enqueue:
 			helpers.queue_process_memory(turn, {"intent": "BPMN_GENERATED", "response": "Drew it."})
 		kwargs = enqueue.call_args.kwargs

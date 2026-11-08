@@ -2,8 +2,8 @@
 
 Docu's stage tools live in the process map's Server Scripts. The only Python
 left is shared infrastructure: the DocType schema tools in
-``one_bpmn.tools.tool_for_server_scripts`` (which exist because a ToolSpec ``fn``
-must be an importable callable — see that module's docstring) and the
+``one_bpmn.ai_agent_registry.definitions.docu.tools`` (which exist because a ToolSpec ``fn``
+must be an importable callable) and the
 ``api/docu_api.py`` endpoints the DocuCanvas panel calls.
 
 Run with:
@@ -18,7 +18,8 @@ from pathlib import Path
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.tools import tool_for_server_scripts as T
+from one_bpmn.ai_agent_registry.definitions.docu import tools
+from one_bpmn.ai_agent_registry.definitions.shared import tools as shared_tools
 
 # The five stage tools of the Docu map's ad-hoc Tools sub-process.
 DOCU_SCRIPTS = (
@@ -79,7 +80,7 @@ class TestDocuBackendRemoved(FrappeTestCase):
 
 	def test_docu_api_uses_the_shared_module(self):
 		src = (Path(frappe.get_app_path("one_bpmn")) / "api" / "docu_api.py").read_text()
-		self.assertIn("from one_bpmn.tools.tool_for_server_scripts import", src)
+		self.assertIn("from one_bpmn.ai_agent_registry.definitions.docu.tools import", src)
 		self.assertNotIn("google_adk", src)
 
 
@@ -88,33 +89,36 @@ class TestSharedSchemaTools(FrappeTestCase):
 
 	def test_exports_every_name_the_map_imports(self):
 		for name in REQUIRED_CALLABLES:
-			self.assertTrue(callable(getattr(T, name, None)), msg=f"{name} missing/not callable")
+			self.assertTrue(
+				callable(getattr(tools, name, None) or getattr(shared_tools, name, None)),
+				msg=f"{name} missing/not callable",
+			)
 		for name in REQUIRED_TUPLES:
-			self.assertIsInstance(getattr(T, name, None), tuple, msg=f"{name} missing")
+			self.assertIsInstance(getattr(tools, name, None), tuple, msg=f"{name} missing")
 
 	def test_docfield_attrs_covers_flags_ints_and_strs(self):
-		for group in (T.DOCFIELD_STRS, T.DOCFIELD_INTS, T.DOCFIELD_FLAGS):
+		for group in (tools.DOCFIELD_STRS, tools.DOCFIELD_INTS, tools.DOCFIELD_FLAGS):
 			for attr in group:
-				self.assertIn(attr, T.DOCFIELD_ATTRS)
+				self.assertIn(attr, tools.DOCFIELD_ATTRS)
 
 	def test_read_doctype_definition_round_trips_a_real_doctype(self):
-		ir = T.read_doctype_definition("ToDo")
+		ir = tools.read_doctype_definition("ToDo")
 		self.assertEqual(ir["doctype_name"], "ToDo")
 		self.assertTrue(ir["fields"])
 		# every field carries the full attribute set, not a subset
-		for attr in T.DOCFIELD_ATTRS:
+		for attr in tools.DOCFIELD_ATTRS:
 			self.assertIn(attr, ir["fields"][0])
 		# DocType-level settings are present and coerced
 		self.assertIn("is_submittable", ir)
 		self.assertIsInstance(ir["is_submittable"], int)
 
 	def test_read_doctype_definition_missing_is_none(self):
-		self.assertIsNone(T.read_doctype_definition("No Such DocType 9x"))
+		self.assertIsNone(tools.read_doctype_definition("No Such DocType 9x"))
 
 	def test_layout_breaks_keep_an_empty_label(self):
 		"""A layout break must not fall back to its fieldname, or a Customize Form
 		round-trip emits spurious label Property Setters."""
-		ir = T.read_doctype_definition("ToDo")
+		ir = tools.read_doctype_definition("ToDo")
 		breaks = [f for f in ir["fields"] if f["fieldtype"] in ("Section Break", "Column Break", "Tab Break")]
 		if breaks:
 			self.assertTrue(all(b["label"] == "" or b["label"] for b in breaks))
@@ -130,7 +134,7 @@ class TestSharedSchemaTools(FrappeTestCase):
 			{"fieldname": "a", "label": "A", "fieldtype": "Data", "reqd": 1},
 			{"fieldname": "new", "label": "New", "fieldtype": "Small Text"},
 		]}
-		d = T.diff_ir(before, after)
+		d = tools.diff_ir(before, after)
 		self.assertEqual([f["fieldname"] for f in d["added"]], ["new"])
 		self.assertEqual([f["fieldname"] for f in d["removed"]], ["gone"])
 		self.assertEqual(d["changed"][0]["fieldname"], "a")
@@ -140,27 +144,27 @@ class TestSharedSchemaTools(FrappeTestCase):
 
 	def test_diff_ir_skips_fields_without_a_fieldname(self):
 		ir = {"fields": [{"fieldname": "", "label": "break", "fieldtype": "Section Break"}]}
-		self.assertEqual(T.diff_ir(ir, ir), {"added": [], "removed": [], "changed": [], "summary": ""})
+		self.assertEqual(tools.diff_ir(ir, ir), {"added": [], "removed": [], "changed": [], "summary": ""})
 
 	def test_diff_ir_tolerates_none(self):
-		self.assertEqual(T.diff_ir(None, None)["summary"], "")
+		self.assertEqual(tools.diff_ir(None, None)["summary"], "")
 
 	def test_validate_doctype_json_wraps_the_schema_gate(self):
 		import json
 
 		good = json.dumps({"doctype_name": "Rip Probe", "module": "ONE BPMN",
 		                   "fields": [{"fieldname": "x", "label": "X", "fieldtype": "Data"}]})
-		self.assertTrue(json.loads(T.validate_doctype_json(good))["valid"])
-		bad = json.loads(T.validate_doctype_json("{not json"))
+		self.assertTrue(json.loads(tools.validate_doctype_json(good))["valid"])
+		bad = json.loads(tools.validate_doctype_json("{not json"))
 		self.assertFalse(bad["valid"])
 		self.assertTrue(bad["violations"])
 
 	def test_read_tools_return_json_strings(self):
 		import json
 
-		self.assertIsInstance(json.loads(T.list_doctypes("ToDo")), list)
-		self.assertEqual(json.loads(T.doctype_exists("ToDo"))["exists"], True)
-		self.assertEqual(json.loads(T.doctype_exists("No Such DocType 9x"))["exists"], False)
+		self.assertIsInstance(json.loads(tools.list_doctypes("ToDo")), list)
+		self.assertEqual(json.loads(tools.doctype_exists("ToDo"))["exists"], True)
+		self.assertEqual(json.loads(tools.doctype_exists("No Such DocType 9x"))["exists"], False)
 
 
 class TestDocuMapScripts(FrappeTestCase):

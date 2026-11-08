@@ -214,15 +214,15 @@ class TestConfiguratorKnowsTheNewFields(FrappeTestCase):
 		self.assertIn("guardrails", CREATE_PAYLOAD_CONTRACT)
 
 	def test_prerequisites_block_surfaces_them_to_the_assistant(self):
-		from one_bpmn.api.ai_assistant import _creation_prerequisites_block
+		from one_bpmn.ai_agent_registry.definitions.assistant.helpers_prompts import creation_prerequisites_block
 
-		block = _creation_prerequisites_block()
+		block = creation_prerequisites_block()
 
 		self.assertIn("guardrails", block)
 		self.assertIn("examples", block)
 
 	def test_sanitizer_keeps_well_formed_rows(self):
-		from one_bpmn.api.ai_assistant import _sanitize_proposed_config
+		from one_bpmn.ai_agent_registry.definitions.assistant.helpers import _sanitize_proposed_config
 
 		clean = _sanitize_proposed_config({
 			"agent_name": "ZZ Static Ctx Sanitizer Probe",
@@ -236,7 +236,7 @@ class TestConfiguratorKnowsTheNewFields(FrappeTestCase):
 		self.assertEqual(clean["guardrails"], [{"guardrail": "Be brief.", "category": "Output Format"}])
 
 	def test_sanitizer_drops_rows_missing_their_mandatory_field(self):
-		from one_bpmn.api.ai_assistant import _sanitize_proposed_config
+		from one_bpmn.ai_agent_registry.definitions.assistant.helpers import _sanitize_proposed_config
 
 		clean = _sanitize_proposed_config({
 			"agent_name": "ZZ Static Ctx Sanitizer Probe 2",

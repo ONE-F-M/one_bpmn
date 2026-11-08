@@ -9,8 +9,7 @@ from unittest.mock import patch
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import bpmn_xml_input as bx
-
+from one_bpmn.ai_agent_registry.definitions.prosally import helpers_xml_input as bx
 NS = (
 	'xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" '
 	'xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" '

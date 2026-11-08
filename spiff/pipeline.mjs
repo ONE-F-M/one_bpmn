@@ -21,9 +21,9 @@
  * for the guarantees that are pinned.
  *
  * Writes { ok, xml, problems:[{kind, message}] } to stdout.
- * Semantic validation is handled by the Python bpmn_validator layer.
+ * Semantic validation is handled by the Python ProsAlly validator (definitions/prosally/validators.py).
  *
- * Invoked from bpmn_ir_pipeline.compile_ir() via subprocess.
+ * Invoked from definitions/prosally/tools_pipeline.compile_ir() via subprocess.
  */
 
 import { BpmnModdle } from 'bpmn-moddle';
@@ -1696,7 +1696,7 @@ async function main() {
   if (layout.labelCollisions) problems.push({ kind: 'layout', rule: 'label-collision', elementId: '',
     message: layout.labelCollisions + ' label(s) sit on a shape or a line.' });
 
-  // Semantic validation is handled by the Python bpmn_validator layer after this step.
+  // Semantic validation is handled by the Python ProsAlly validator (definitions/prosally/validators.py) after this step.
   // normalizedIR is returned so the repair loop can show the LLM the complete structure
   // (including compiler-inferred gateways) when asking for corrections.
   process.stdout.write(JSON.stringify({ ok: true, xml, problems, normalizedIR: normIR, layout }));

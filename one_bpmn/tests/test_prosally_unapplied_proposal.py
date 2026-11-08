@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.prosally_helpers import unapplied_proposal
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_subprocess import unapplied_proposal
 
 HEAD = '<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="D">'
 BEFORE = (
@@ -41,7 +41,7 @@ def _check(last, canvas, previous=(REQUEST,), message=""):
 		assert filters["creation"] == ["<", "2026-10-15 14:00:00"]
 		return [SimpleNamespace(text=text) for text in previous]
 
-	with patch("one_bpmn.agents.prosally_helpers.frappe.get_all", side_effect=chat):
+	with patch("one_bpmn.ai_agent_registry.definitions.shared.helpers.frappe.get_all", side_effect=chat):
 		return unapplied_proposal("conv", canvas, message)
 
 

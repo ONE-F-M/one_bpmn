@@ -9,15 +9,8 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.prosally_helpers import (
-	describe_flow_references,
-	describe_links,
-	lint_findings,
-	lint_fix_requested,
-	lint_leftovers,
-	lint_prompt,
-	no_lint_fix_reply,
-)
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_replies import describe_flow_references, describe_links
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_lint import lint_findings, lint_fix_requested, lint_leftovers, lint_prompt, no_lint_fix_reply
 from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_counts_rebuilt_flow_references as references_patch
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_fixes_lint_findings as lint_patch
@@ -243,8 +236,8 @@ class TestClassifierFixesLint(LintScriptCase):
 		reply = {"intent": intent, "reason": "r", "summary": {"intro": "I'll fix them", "steps": [], "settings": []}, "question": "Go?"}
 		adapter, result = RecordingAdapter(reply), {}
 		with (
-			patch("one_bpmn.agents.prosally_helpers.get_llm_adapter_from_settings", return_value=adapter),
-			patch("one_bpmn.agents.prosally_helpers.unapplied_proposal", return_value=None),
+			patch("one_bpmn.ai_agent_registry.definitions.prosally.helpers.get_llm_adapter_from_settings", return_value=adapter),
+			patch("one_bpmn.ai_agent_registry.definitions.prosally.tools_subprocess.unapplied_proposal", return_value=None),
 		):
 			exec(script, {"frappe": frappe, "context_docname": CONVERSATION, "result": result})
 		return result, adapter
@@ -299,8 +292,8 @@ class TestModifierFixesLint(LintScriptCase):
 			return '{"nodes": [], "flows": []}'
 
 		with (
-			patch("one_bpmn.agents.prosally_helpers.complete_sub_prompt", side_effect=model),
-			patch("one_bpmn.agents.prosally_helpers.splice_subprocess", lambda xml, child, scope: drawn),
+			patch("one_bpmn.ai_agent_registry.definitions.prosally.helpers.complete_sub_prompt", side_effect=model),
+			patch("one_bpmn.ai_agent_registry.definitions.prosally.tools_subprocess.splice_subprocess", lambda xml, child, scope: drawn),
 		):
 			exec(script, {"frappe": frappe, "context_docname": CONVERSATION, "result": {}, "bpmn_id": "x"})
 		return prompts[0], get_turn(CONVERSATION)["output"]
@@ -354,7 +347,7 @@ class TestModifierFixesLint(LintScriptCase):
 class TestContextCarriesTheFindings(LintScriptCase):
 	def test_the_turn_keeps_the_findings_the_editor_sent(self):
 		script = self._script("ProsAlly%Build Context", marker="scope_id")
-		with patch("one_bpmn.agents.prosally_helpers.answer_to_confirmation", return_value={}):
+		with patch("one_bpmn.ai_agent_registry.definitions.prosally.helpers.answer_to_confirmation", return_value={}):
 			exec(
 				script,
 				{

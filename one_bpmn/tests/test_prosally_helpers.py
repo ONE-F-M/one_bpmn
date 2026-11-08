@@ -8,13 +8,15 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import prosally_helpers as helpers
+from one_bpmn.ai_agent_registry.definitions.prosally import helpers, tools_prompts, tools_properties
+from one_bpmn.ai_agent_registry.definitions.shared import helpers as shared_helpers
 from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn
 from one_bpmn.one_bpmn.patches.v1_0 import (
 	prosally_build_context_confirmed_action_pending_only as build_context_patch,
 )
 from one_bpmn.one_bpmn.patches.v1_0.prosally_merge_classify_and_confirm import CLASSIFY_INTENT
 from one_bpmn.security.script_validator import deep_inspect_script
+from one_bpmn.tests.site_scripts import as_deployed
 
 OLD_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -59,57 +61,57 @@ class TestPreserverMatchesTheInlinedCopy(FrappeTestCase):
 		self.inlined = _inlined_preserver()
 
 	def test_extract_is_unchanged(self):
-		configured = helpers.extract_configured_elements(OLD_XML)
+		configured = tools_properties.extract_configured_elements(OLD_XML)
 		self.assertEqual(configured, self.inlined("extract", OLD_XML))
 		self.assertEqual(sorted(configured), ["approve", "notify"])
 
 	def test_transfer_is_unchanged(self):
-		merged, removed = helpers.transfer_properties(OLD_XML, NEW_XML)
+		merged, removed = tools_properties.transfer_properties(OLD_XML, NEW_XML)
 		self.assertEqual((merged, removed), self.inlined("transfer", OLD_XML, NEW_XML))
 		self.assertIn('spiffworkflow:roundRobinRole="HR Manager"', merged)
 		self.assertIn("The HR manager approves or rejects.", merged)
 		self.assertEqual([r["id"] for r in removed], ["notify"])
 
 	def test_warnings_name_the_configured_shapes(self):
-		_, removed = helpers.transfer_properties(OLD_XML, NEW_XML)
+		_, removed = tools_properties.transfer_properties(OLD_XML, NEW_XML)
 		self.assertIn(
 			"**Notify Employee** (Script Task) - Server Script: Leave Notify",
-			helpers.format_removal_warning(removed),
+			tools_properties.format_removal_warning(removed),
 		)
-		warning = helpers.overwrite_warning(OLD_XML)
+		warning = tools_properties.overwrite_warning(OLD_XML)
 		self.assertIn(
 			"**Approve Leave** (User Task) - Assignment Mode, Round Robin Role, Documentation", warning
 		)
-		self.assertEqual(helpers.overwrite_warning(NEW_XML), "")
+		self.assertEqual(tools_properties.overwrite_warning(NEW_XML), "")
 
 	def test_a_diagram_that_is_not_xml_raises(self):
 		from xml.etree import ElementTree as ET
 
 		with self.assertRaises(ET.ParseError):
-			helpers.extract_configured_elements("<bpmn:definitions")
+			tools_properties.extract_configured_elements("<bpmn:definitions")
 		with self.assertRaises(ET.ParseError):
-			helpers.transfer_properties(OLD_XML, "<bpmn:definitions")
+			tools_properties.transfer_properties(OLD_XML, "<bpmn:definitions")
 
 
 class TestExtractJson(FrappeTestCase):
 	def test_plain_fenced_and_embedded_objects(self):
-		self.assertEqual(helpers.extract_json('{"intent": "GENERATE_NEW"}'), {"intent": "GENERATE_NEW"})
+		self.assertEqual(shared_helpers.extract_json('{"intent": "GENERATE_NEW"}'), {"intent": "GENERATE_NEW"})
 		self.assertEqual(
-			helpers.extract_json('```json\n{"intent": "MODIFY_EXISTING"}\n```'), {"intent": "MODIFY_EXISTING"}
+			shared_helpers.extract_json('```json\n{"intent": "MODIFY_EXISTING"}\n```'), {"intent": "MODIFY_EXISTING"}
 		)
-		self.assertEqual(helpers.extract_json('```{"nodes": []}```'), {"nodes": []})
+		self.assertEqual(shared_helpers.extract_json('```{"nodes": []}```'), {"nodes": []})
 		self.assertEqual(
-			helpers.extract_json('Sure, here it is: {"question": "Which lane?"} Thanks.'),
+			shared_helpers.extract_json('Sure, here it is: {"question": "Which lane?"} Thanks.'),
 			{"question": "Which lane?"},
 		)
 
 	def test_the_first_of_two_objects_in_prose(self):
-		self.assertEqual(helpers.extract_json('First {"a": 1} then {"b": 2}'), {"a": 1})
+		self.assertEqual(shared_helpers.extract_json('First {"a": 1} then {"b": 2}'), {"a": 1})
 
 	def test_no_object(self):
-		self.assertIsNone(helpers.extract_json(""))
-		self.assertIsNone(helpers.extract_json("no json here"))
-		self.assertIsNone(helpers.extract_json("[1, 2]"))
+		self.assertIsNone(shared_helpers.extract_json(""))
+		self.assertIsNone(shared_helpers.extract_json("no json here"))
+		self.assertIsNone(shared_helpers.extract_json("[1, 2]"))
 
 
 class TestHistoryAndBudget(FrappeTestCase):
@@ -117,17 +119,17 @@ class TestHistoryAndBudget(FrappeTestCase):
 		history = [{"role": "user", "content": f"m{i}"} for i in range(12)]
 		history[-1] = {"role": "assistant", "content": "  "}
 		history.append({"type": "assistant", "content": "done"})
-		lines = helpers.format_history(history).split("\n")
+		lines = shared_helpers.format_history(history).split("\n")
 		self.assertEqual(lines[0], "User: m3")
 		self.assertEqual(lines[-1], "ProsAlly: done")
 		self.assertEqual(len(lines), 9)
-		self.assertEqual(helpers.format_history([]), "")
+		self.assertEqual(shared_helpers.format_history([]), "")
 
 	def test_stage_budget_has_a_floor_and_the_model_ceiling(self):
-		self.assertEqual(helpers.stage_max_tokens({"max_tokens": 1024}), helpers.MIN_STAGE_TOKENS)
-		self.assertEqual(helpers.stage_max_tokens({"max_tokens": 40000}), 40000)
+		self.assertEqual(tools_prompts.stage_max_tokens({"max_tokens": 1024}), tools_prompts.MIN_STAGE_TOKENS)
+		self.assertEqual(tools_prompts.stage_max_tokens({"max_tokens": 40000}), 40000)
 		with patch.object(frappe.db, "get_value", return_value=20000):
-			self.assertEqual(helpers.stage_max_tokens({"max_tokens": 40000, "ai_model": "m"}), 20000)
+			self.assertEqual(tools_prompts.stage_max_tokens({"max_tokens": 40000, "ai_model": "m"}), 20000)
 
 
 class TestModelCalls(FrappeTestCase):
@@ -163,7 +165,7 @@ class TestModelCalls(FrappeTestCase):
 						"body": name + " body",
 					}
 				).insert()
-		system = helpers.stage_system_prompt(self._cfg(), "modifier", "modify_skills")
+		system = tools_prompts.stage_system_prompt(self._cfg(), "modifier", "modify_skills")
 		self.assertEqual(
 			system, "You modify BPMN.\n\n## Skill: _Test ProsAlly Rules\n\n_Test ProsAlly Rules body"
 		)
@@ -253,7 +255,7 @@ def _run_build_context(script, metadata, confirmed_action="GENERATE_NEW"):
 		},
 	}
 	with _last_bot_message(metadata):
-		exec(script, namespace)
+		exec(as_deployed(script), namespace)
 	return get_turn(CONVERSATION)
 
 
@@ -449,7 +451,7 @@ class TestClassifyAfterBuildContext(FrappeTestCase):
 			},
 		}
 		with _last_bot_message(metadata):
-			exec(build_context_patch.rewrite(REAL_BUILD_CONTEXT), namespace)
+			exec(as_deployed(build_context_patch.rewrite(REAL_BUILD_CONTEXT)), namespace)
 		result = {}
 		# The script reaches the model through complete_sub_prompt on BA and through the adapter on older sites.
 		with (
@@ -459,7 +461,7 @@ class TestClassifyAfterBuildContext(FrappeTestCase):
 				return_value=FakeAdapter(model_reply),
 			) as adapter,
 		):
-			exec(self.script, {"frappe": frappe, "context_docname": CONVERSATION, "result": result})
+			exec(as_deployed(self.script), {"frappe": frappe, "context_docname": CONVERSATION, "result": result})
 		return result, helper.call_count + adapter.call_count
 
 	def test_a_stale_yes_after_a_clarify_classifies_normally(self):

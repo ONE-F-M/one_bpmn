@@ -161,13 +161,13 @@ def _find_node() -> str | None:
 def _pipeline_path() -> str:
     """Absolute path to spiff/pipeline.mjs, resolved relative to this module.
 
-    This module lives at ``one_bpmn/one_bpmn/agents/bpmn_ir_pipeline.py``; the
-    pipeline lives at ``one_bpmn/spiff/pipeline.mjs`` (the app root's spiff dir),
-    two directories up from ``agents/``.
+    This module lives at ``one_bpmn/one_bpmn/ai_agent_registry/definitions/prosally/tools_pipeline.py``;
+    the pipeline lives at ``one_bpmn/spiff/pipeline.mjs`` (the app root's spiff dir),
+    four directories up from ``prosally/``.
     """
     return os.path.normpath(os.path.join(
         os.path.dirname(__file__),
-        "..", "..",
+        "..", "..", "..", "..",
         "spiff", "pipeline.mjs",
     ))
 
@@ -519,7 +519,7 @@ def validate_bpmn(xml: str) -> dict:
     validator strings and ``fix_hints`` are the IR-level repair instructions a
     self-correcting loop can feed straight back to the model.
     """
-    from one_bpmn.security.bpmn_validator import validate_bpmn_xml
+    from one_bpmn.ai_agent_registry.definitions.prosally.validators import validate_bpmn_xml
 
     result = validate_bpmn_xml(xml)
     violations = result.get("violations", []) or []

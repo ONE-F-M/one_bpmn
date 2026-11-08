@@ -474,7 +474,7 @@ const emit = defineEmits(["close", "applied"]);
 
 const API = "/api/method/one_bpmn.api.docu_api.";
 
-// Field types — mirrors ALLOWED_FIELDTYPES in security/doctype_validator.py.
+// Field types - mirrors ALLOWED_FIELDTYPES in ai_agent_registry/definitions/docu/validators.py.
 const FIELD_TYPES = [
 	"Data", "Small Text", "Text", "Long Text", "Text Editor", "Code", "Markdown Editor",
 	"Int", "Float", "Currency", "Percent", "Check",

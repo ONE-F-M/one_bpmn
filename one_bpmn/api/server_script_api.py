@@ -854,10 +854,10 @@ def shape_logix_reply(result: dict) -> dict:
 	the translator can emit onefm.script_diff and no JSON reaches a bubble."""
 	if result.get("modified_script") or result.get("intent"):
 		return result
-	from one_bpmn.api.ai_assistant import _extract_json
+	from one_bpmn.ai_agent_registry.definitions.shared.helpers import extract_json
 
 	raw = result.get("response") or ""
-	parsed = _extract_json(raw if isinstance(raw, str) else "")
+	parsed = extract_json(raw if isinstance(raw, str) else "")
 	if not isinstance(parsed, dict) or not (parsed.get("intent") or parsed.get("modified_script")):
 		return result
 	shaped = dict(result)
@@ -886,14 +886,14 @@ def build_prosally_turn_context(context: dict) -> dict:
 	xml_input = None
 	if pasted:
 		try:
-			from one_bpmn.agents.bpmn_xml_input import prepare_turn
+			from one_bpmn.ai_agent_registry.definitions.prosally.helpers_xml_input import prepare_turn
 
 			xml_input = prepare_turn(pasted)
 		except Exception:
 			frappe.log_error(title="ProsAlly: pasted BPMN XML analysis failed", message=frappe.get_traceback())
 	xml_section = ""
 	if xml_input:
-		from one_bpmn.agents.bpmn_xml_input import XML_INPUT_RULES
+		from one_bpmn.ai_agent_registry.definitions.prosally.helpers_xml_input import XML_INPUT_RULES
 
 		xml_section = xml_input["block"] + "\n\n" + XML_INPUT_RULES + "\n\n"
 		if xml_input["message_override"]:
@@ -923,10 +923,10 @@ def shape_prosally_reply(result: dict) -> dict:
 	no-op when the purpose-built map already returned structured keys."""
 	if result.get("bpmn_xml") or result.get("pending_xml") or result.get("intent"):
 		return result
-	from one_bpmn.api.ai_assistant import _extract_json
+	from one_bpmn.ai_agent_registry.definitions.shared.helpers import extract_json
 
 	raw = result.get("response") or ""
-	parsed = _extract_json(raw if isinstance(raw, str) else "")
+	parsed = extract_json(raw if isinstance(raw, str) else "")
 	if not isinstance(parsed, dict) or not (
 		parsed.get("intent") or parsed.get("bpmn_xml") or parsed.get("pending_xml")
 	):

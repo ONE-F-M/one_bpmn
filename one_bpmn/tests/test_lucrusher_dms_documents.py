@@ -8,7 +8,7 @@ Run with:
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.dms_search import search_dms_documents
+from one_bpmn.ai_agent_registry.definitions.shared.tools_dms import search_dms_documents
 from one_bpmn.one_bpmn.patches.v1_0 import lucrusher_reads_dms_documents as patch
 
 MAP_XML = """<bpmn:process id="p">

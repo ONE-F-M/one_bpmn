@@ -456,7 +456,7 @@ def sync_doctypes(model_name: str) -> dict:
 	allowed_owners = _allowed_repo_owners()
 	prs, skipped = [], []
 	for app, dts in by_app.items():
-		repo = _repo_for_app(app) if app else None
+		repo = repo_for_app(app) if app else None
 		if not app or not repo or not token:
 			skipped.append({"app": app, "doctypes": dts,
 			                "reason": _("No GitHub token, or no GitHub remote resolved for app '{0}'.").format(app or "?")})
@@ -787,7 +787,7 @@ def _customization_app_for_doctype(dt: str) -> str | None:
 
 def same_owner(app_a: str, app_b: str) -> bool:
 	"""True when both apps' git remotes sit under the same GitHub owner."""
-	repo_a, repo_b = _repo_for_app(app_a), _repo_for_app(app_b)
+	repo_a, repo_b = repo_for_app(app_a), repo_for_app(app_b)
 	if not repo_a or not repo_b:
 		return False
 	return repo_a.split("/")[0].lower() == repo_b.split("/")[0].lower()
@@ -800,11 +800,11 @@ def _allowed_repo_owners() -> tuple:
 	hardcoded, so a fork or a renamed organisation needs no code change.
 	"""
 	configured = (frappe.get_cached_value("Processa Settings", None, "customization_app") or "").strip()
-	repo = _repo_for_app(configured) if configured else None
+	repo = repo_for_app(configured) if configured else None
 	return (repo.split("/")[0],) if repo else ()
 
 
-def _repo_for_app(app: str) -> str | None:
+def repo_for_app(app: str) -> str | None:
 	"""Derive "owner/repo" from the app's git remote (each app is its own repo)."""
 	import subprocess
 

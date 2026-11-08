@@ -10,8 +10,9 @@ import re
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import prosally_helpers as helpers
+from one_bpmn.ai_agent_registry.definitions.shared import helpers
 from one_bpmn.agents.shape_tools import SCRIPT_NAMES, execute_shape
+from one_bpmn.tests.site_scripts import as_deployed
 from one_bpmn.api.server_script_api import get_script_names
 from one_bpmn.processa_engine.engine import _make_script_engine
 from one_bpmn.one_bpmn.patches.v1_0 import chat_agents_post_failed_turn_error as edits
@@ -36,7 +37,7 @@ REPLIES = [
 
 def _run(block: str, **names) -> dict:
 	namespace = {"json": json, "re": re, **names}
-	exec(block, namespace)
+	exec(as_deployed(block), namespace)
 	return namespace
 
 

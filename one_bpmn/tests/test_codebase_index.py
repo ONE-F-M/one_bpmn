@@ -7,8 +7,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import codebase_index
-
+from one_bpmn.ai_agent_registry.definitions.lucrusher import tools as codebase_index
 MSE = "Maintenance Schedule Entry"
 
 
