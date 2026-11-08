@@ -11,8 +11,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.tool_pool import DIAGRAM_TASK, resolve_tool_pool
-from one_bpmn.api.compilation import _validate_adhoc_selector_pool
-from one_bpmn.one_bpmn import engine
+from one_bpmn.processa_engine.compiler.ai_checks import validate_adhoc_selector_pool
+from one_bpmn.processa_engine import engine
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -107,23 +107,23 @@ class TestSelectorPoolCompileValidation(FrappeTestCase):
 		):
 			xml = _selector_xml(f'<bpmn:{tag} id="inner_container_1" />')
 			with self.assertRaises(frappe.ValidationError, msg=label):
-				_validate_adhoc_selector_pool(xml, "Some Model")
+				validate_adhoc_selector_pool(xml, "Some Model")
 
 	def test_connected_container_allowed(self):
 		xml = _selector_xml(
 			'<bpmn:subProcess id="inner_connected"><bpmn:incoming>f1</bpmn:incoming></bpmn:subProcess>'
 		)
-		_validate_adhoc_selector_pool(xml, "Some Model")  # must not raise
+		validate_adhoc_selector_pool(xml, "Some Model")  # must not raise
 
 	def test_leaf_tasks_of_all_kinds_allowed(self):
 		xml = _selector_xml(
 			'<bpmn:scriptTask id="c1" /><bpmn:userTask id="c2" />'
 			'<bpmn:sendTask id="c3" /><bpmn:businessRuleTask id="c4" />'
 		)
-		_validate_adhoc_selector_pool(xml, "Some Model")  # must not raise
+		validate_adhoc_selector_pool(xml, "Some Model")  # must not raise
 
 	def test_untagged_adhoc_not_validated(self):
 		xml = _selector_xml('<bpmn:callActivity id="inner_ca" />').replace(
 			' spiffworkflow:serviceType="ai_task_selector"', ""
 		)
-		_validate_adhoc_selector_pool(xml, "Some Model")  # must not raise
+		validate_adhoc_selector_pool(xml, "Some Model")  # must not raise

@@ -1,6 +1,6 @@
 // Connector service-task panel — renders fields dynamically from the connector
 // configuration served by the backend (BPMN Connector / Operation / Field
-// DocTypes, projected by connectors/api.get_connector_manifests).
+// DocTypes, projected by api/connectors.get_connector_manifests).
 //
 // The panel builds its entry list synchronously, so manifests come from the
 // shared module-level cache in ../shared/connectorManifests (also used by the

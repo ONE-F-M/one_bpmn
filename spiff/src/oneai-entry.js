@@ -8,9 +8,9 @@
 //   window.oneAI.openAgentChat(opts)    — the panel in a dialog for one agent
 //                                          (the WI-001996 Chat button target)
 import { createApp, h } from "vue";
-import AgentChatPanel from "./components/chat/AgentChatPanel.vue";
-import OneAiApp from "./components/chat/OneAiApp.vue";
-import { cardRegistry } from "./components/chat/cards/registry";
+import AgentChatPanel from "./components/Chat/AgentChatPanel.vue";
+import OneAiApp from "./components/Chat/OneAiApp.vue";
+import { cardRegistry } from "./utils/cardRegistry";
 
 // Desk provides the CSRF token on the frappe global; frappe-ui's request
 // helper reads window.csrf_token, which only the SPA's index.html sets.

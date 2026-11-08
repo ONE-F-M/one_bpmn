@@ -608,7 +608,7 @@ def _upsert_model(name: str, process_id: str, xml: str) -> str:
 	model.flags.ignore_mandatory = True
 	model.save(ignore_permissions=True)
 
-	from one_bpmn.api.compilation import compile_process_model
+	from one_bpmn.api.deploy import compile_process_model
 
 	compile_process_model(model.name)
 	return model.name
@@ -801,7 +801,7 @@ ROUTINE_REPORT = "A ceiling tile in the third floor corridor is stained and need
 
 
 def _start(site: str, report: str) -> str:
-	from one_bpmn.api.instance_api import start_process
+	from one_bpmn.api.instances import start_process
 
 	result = start_process(
 		model_name=COORDINATOR,
@@ -846,7 +846,7 @@ def assign_technician():
 	This is the step a human does in the UI. Doing it here keeps the slow
 	path to one command when you only care about the delegation machinery.
 	"""
-	from one_bpmn.api.instance_api import complete_task, get_instance_tasks
+	from one_bpmn.api.instances import complete_task, get_instance_tasks
 
 	rows = frappe.get_all(
 		"BPMN Process Instance",

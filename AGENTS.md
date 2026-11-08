@@ -19,25 +19,28 @@ House style lives in `frappe-bench/.claude/rules/`: `house-style.md` always, `py
 ## Repository layout
 
 - `one_bpmn/api/`: whitelisted endpoints, one module per domain:
-  - `process_map_api.py`: process model and Process CRUD (save, import, list, rename, delete).
-  - `compilation.py`: compile, deploy and disable process models; XML sanitization; timer validation.
-  - `workflow_state.py`: applies workflow states and docstatus for BPMN service tasks. Internal, not whitelisted.
-  - `instance_api.py`: instance lifecycle and task actions (start, complete, send message, list).
+  - `process_maps.py`: process model and Process endpoints (save, import, list, rename, delete); the work is in `processa_engine/maps/`.
+  - `deploy.py`: the deploy, disable, activate and deactivate endpoints; the work is in `processa_engine/compiler/`.
+  - `instances.py`: instance endpoints (start, complete, send message, list, cancel, suspend, resume, retry); the work is in `processa_engine/instances/`.
+  - `lookups.py`: field and user lookups for the editor pickers and the instance list filters.
   - `editability.py`: cross-site editability checks and editor lock heartbeats.
   - `server_script_api.py`: Server Script CRUD and the Logix and ProsAlly turn-context builders.
   - `agui.py`: `stream_agent_turn`, the one chat endpoint every agent uses.
-  - `canvas_comments.py`, `notification_api.py`, `version_history.py`, `script_version_history.py`, `utils.py`.
+  - `canvas_comments.py`, `notification_api.py`, `version_history.py`, `script_version_history.py`.
 - `one_bpmn/one_bpmn/doctype/`: DocType JSON, controllers and tests.
-- `one_bpmn/one_bpmn/engine.py`: the SpiffWorkflow script engine.
-- `one_bpmn/one_bpmn/connectors/`: outbound connectors and the agent sandbox client.
+- `one_bpmn/processa_engine/engine/`: the SpiffWorkflow script engine.
+- `one_bpmn/processa_engine/`: engine services: `triggers.py` (document events), `timers.py` (timer and stranded-step jobs), `assignment.py`, `task_selector.py`, `call_activities.py` and `audit.py` (workflow state changes), and `compiler/` (deploy checks and the compile step).
+- `one_bpmn/processa_connectors/`: the connector doctypes, the HTTP executor and Google operations (`operations/`), the Google clients (`google/`), manifests, seed and validator; `one_bpmn/api/connectors.py` holds the modeler endpoints.
+- `one_bpmn/agents_sandbox/`: the sandbox doctypes, the coding-agent sandbox client (`sandbox/`), acceptance criteria and reproduction gates, and the DocType source, customization and GitHub pull request writers (`customization/`).
+- `one_bpmn/one_bpmn/connectors/`: the A2A connector handlers.
 - `one_bpmn/agents/`: the AI agent runtime. See its `AGENTS.md`.
 - `one_bpmn/security/`: the generated-script validator.
-- `one_bpmn/email_builder/`: AMP and HTML task emails. See its `README.md`.
+- `one_bpmn/processa_engine/notifications/`: AMP and HTML task emails and their tokens; `one_bpmn/api/email_actions.py` holds the endpoints the emails call. See its `README.md`.
 - `one_bpmn/commands/`: bench commands.
 - `one_bpmn/overrides/`: overridden Frappe classes, such as the scheduler queue for timer jobs.
 - `one_bpmn/templates/`: email and deployment templates.
 - `one_bpmn/hooks.py`: app hooks, the universal document-event trigger, scheduler events and fixtures.
-- `one_bpmn/tasks.py`: scheduled timer and A2A polling jobs.
+- `one_bpmn/tasks.py`: scheduled A2A polling, conversation, memory and model jobs.
 - `spiff/`: the Vue frontend. See its `AGENTS.md`.
 - `docs/`: operations notes and retros.
 

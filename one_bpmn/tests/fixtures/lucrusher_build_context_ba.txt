@@ -4,7 +4,7 @@
 # platform's history step; the state snapshot is what Save Response recorded
 # in session state.
 import json
-from one_bpmn.agents.turn_state import set_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import set_turn
 
 _STATE_KEYS = (
     "intent", "confirmed_process", "document", "codebase_scan",

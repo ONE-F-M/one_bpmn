@@ -257,7 +257,7 @@ def _upsert_model(name: str, process_id: str, xml: str) -> str:
 	model.flags.ignore_mandatory = True
 	model.save(ignore_permissions=True)
 
-	from one_bpmn.api.compilation import compile_process_model
+	from one_bpmn.api.deploy import compile_process_model
 
 	compile_process_model(model.name)
 	return model.name
@@ -308,7 +308,7 @@ def execute():
 	print(f"  agents : {WORKER_FAST} | {WORKER_SLOW} | {ORCHESTRATOR}")
 	print("\nRun the FAST scenario:")
 	print(
-		"  bench execute one_bpmn.api.instance_api.start_process --kwargs "
+		"  bench execute one_bpmn.api.instances.start_process --kwargs "
 		f"'{{\"model_name\": \"{ORCHESTRATOR}\", \"initial_data\": "
 		f'"{{\\"target_agent\\": \\"{WORKER_FAST}\\", \\"instruction\\": \\"say hello\\"}}"}}\''
 	)

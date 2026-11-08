@@ -12,7 +12,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import prosally_helpers as helpers
 from one_bpmn.agents.dms_search import DOCUMENT_TYPES
-from one_bpmn.agents.turn_state import clear_turn, get_turn, set_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_reads_dms_documents as dms_patch
 
 LEAVE_TEXT = "annual leave requests above five days need director approval"
@@ -180,7 +180,7 @@ class TestProsallyDmsPatch(FrappeTestCase):
 		self.assertIsNone(dms_patch.splice_shape("<bpmn:process id='p'></bpmn:process>"))
 
 	def test_a_refused_recompile_is_logged_and_does_not_stop_the_patch(self):
-		refused = patch("one_bpmn.api.compilation.compile_process_model", side_effect=frappe.ValidationError("not Live"))
+		refused = patch("one_bpmn.api.deploy.compile_process_model", side_effect=frappe.ValidationError("not Live"))
 		with patch.object(frappe.db, "get_value", side_effect=["Model", TOOLS_MAP]), patch.object(
 			frappe.db, "set_value"
 		) as set_value, refused, patch.object(frappe, "log_error") as log_error:

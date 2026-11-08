@@ -19,10 +19,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.util.task import TaskState
 
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
-	BPMNProcessInstance,
-	run_parked_ai_task,
-)
+from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import BPMNProcessInstance
+from one_bpmn.processa_engine.runtime.ai_jobs import run_parked_ai_task
 from one_bpmn.tests.test_ai_job_executor import JobHarness, _executor_with_tools
 
 test_ignore = ["BPMN Process Model"]
@@ -87,27 +85,25 @@ class TestJobLevelRetries(JobHarness):
 		)
 
 	def test_retry_cap_reads_panel_ai_max_retries(self):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
-			_job_retry_cap,
-		)
+		from one_bpmn.processa_engine.runtime.ai_jobs import job_retry_cap
 
 		task_id = self._park_linear_with_tools()
 		# Single-agent model resolves the ai_agent cfg (default 2)…
-		self.assertEqual(_job_retry_cap(self.instance, "service_task", task_id), 2)
+		self.assertEqual(job_retry_cap(self.instance, "service_task", task_id), 2)
 		# …and honours a configured aiMaxRetries.
 		import json as _json
 
 		spec = _json.loads(self.instance.serialized_spec)
 		spec["service_task_extensions"]["Agent_1"]["aiMaxRetries"] = 5
 		self.instance.serialized_spec = _json.dumps(spec)
-		self.assertEqual(_job_retry_cap(self.instance, "service_task", task_id), 5)
+		self.assertEqual(job_retry_cap(self.instance, "service_task", task_id), 5)
 		# adhoc_decision resolves by bpmn id directly.
 		spec["service_task_extensions"]["Sel_1"] = {
 			"serviceType": "ai_task_selector",
 			"aiMaxRetries": 4,
 		}
 		self.instance.serialized_spec = _json.dumps(spec)
-		self.assertEqual(_job_retry_cap(self.instance, "adhoc_decision", "Sel_1"), 4)
+		self.assertEqual(job_retry_cap(self.instance, "adhoc_decision", "Sel_1"), 4)
 
 	def test_exhausted_task_stays_parked_for_manual_retry(self):
 		task_id = self._park_linear_with_tools()
@@ -116,7 +112,7 @@ class TestJobLevelRetries(JobHarness):
 		# The parked task is still STARTED in the persisted state…
 		import json as _json
 
-		from one_bpmn.one_bpmn import engine as bpmn_engine
+		from one_bpmn.processa_engine import engine as bpmn_engine
 
 		state = frappe.db.get_value(
 			"BPMN Process Instance", self.instance.name, "workflow_state"
@@ -128,7 +124,7 @@ class TestJobLevelRetries(JobHarness):
 
 class TestManualRetry(JobHarness):
 	def test_manual_retry_requeues_and_recovers(self):
-		from one_bpmn.api.instance_api import retry_ai_task
+		from one_bpmn.api.instances import retry_ai_task
 
 		task_id = self._park_linear_with_tools()
 		# Exhaust the automatic retries → Errored.
@@ -153,7 +149,7 @@ class TestManualRetry(JobHarness):
 
 		# The fresh job succeeds and the flow completes.
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_with_tools(),
 		):
 			with patch.object(frappe, "enqueue"):
@@ -164,7 +160,7 @@ class TestManualRetry(JobHarness):
 		)
 
 	def test_manual_retry_rejects_completed_instance(self):
-		from one_bpmn.api.instance_api import retry_ai_task
+		from one_bpmn.api.instances import retry_ai_task
 
 		task_id = self._park_linear_with_tools()
 		frappe.db.set_value(
@@ -175,7 +171,7 @@ class TestManualRetry(JobHarness):
 			retry_ai_task(self.instance.name, task_id, "service_task")
 
 	def test_manual_retry_permission_failure(self):
-		from one_bpmn.api.instance_api import retry_ai_task
+		from one_bpmn.api.instances import retry_ai_task
 
 		task_id = self._park_linear_with_tools()
 		with self.set_user("Guest"):
@@ -183,7 +179,7 @@ class TestManualRetry(JobHarness):
 				retry_ai_task(self.instance.name, task_id, "service_task")
 
 	def test_manual_retry_validates_kind(self):
-		from one_bpmn.api.instance_api import retry_ai_task
+		from one_bpmn.api.instances import retry_ai_task
 
 		with self.assertRaises(frappe.ValidationError):
 			retry_ai_task(self.instance.name, "x", "not_a_kind")
@@ -195,7 +191,7 @@ class TestDispatchFailureParity(JobHarness):
 		error variables and the flow continues — identical to inline
 		dispatch. The job does NOT error the instance for provider failures
 		(the diagram can gateway on the error variables)."""
-		from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+		from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 
 		task_id = self._park_linear_with_tools()
 		failed = ExecutorResult(
@@ -205,7 +201,7 @@ class TestDispatchFailureParity(JobHarness):
 			token_usage=TokenUsage(prompt_tokens=1, completion_tokens=0, total_tokens=1),
 		)
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=failed,
 		):
 			with patch.object(frappe, "enqueue"):

@@ -648,7 +648,7 @@ class TestGates(HealthCase):
 	def test_dispatch_refuses_without_creating_a_run(self):
 		"""The dispatcher's gate: task variables carry the refusal, no AI Agent
 		Run is created, the executor is never reached."""
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.dispatch import ai_agent
 
 		name = self._model()
 		record_failure(name, "INVALID_KEY", "rejected")
@@ -666,9 +666,9 @@ class TestGates(HealthCase):
 
 		runs_before = frappe.db.count("AI Agent Run")
 		with patch("one_bpmn.agents.observability.create_ai_run") as create_run, \
-			patch("one_bpmn.agents.executor.get_executor") as get_executor:
+			patch("one_bpmn.processa_engine.agent_runtime.executor.get_executor") as get_executor:
 			try:
-				dispatchers.dispatch_ai_agent(instance, task, task_cfg, "probe_task")
+				ai_agent.dispatch_ai_agent(instance, task, task_cfg, "probe_task")
 			except Exception as exc:  # pragma: no cover - a fixture gap, not the gate
 				self.fail(f"dispatch raised before reaching the gate: {exc!r}")
 		self.assertEqual(task.data.get("probe_task_error_code"), "PROVIDER_DISABLED")

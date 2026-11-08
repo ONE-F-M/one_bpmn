@@ -63,6 +63,8 @@ def fail_to_start(task, config, state: str, message: str) -> None:
 
 
 def _errored_instance(task, process_model: str, message: str) -> str:
+	from one_bpmn.processa_engine.runtime.common import log_task
+
 	instance = frappe.new_doc("BPMN Process Instance")
 	instance.process_model = process_model
 	instance.status = "Errored"
@@ -77,7 +79,8 @@ def _errored_instance(task, process_model: str, message: str) -> str:
 		title=f"A2A delegation could not start [{reference}] - {instance.name}",
 		message=f"Task: {task.name}\nProcess Model: {process_model}\nCaller: {task.caller_instance or '-'}\n\n{message}",
 	)
-	instance._log_task(
+	log_task(
+		instance,
 		task_id=f"delegation-start-failure::{reference}",
 		task_name="Delegation could not start",
 		action="Errored",
@@ -117,7 +120,7 @@ def run_chat_turn(task, config, text: str) -> None:
 
 	suspended = None
 	if instance:
-		from one_bpmn.agents.checkpoint import get_suspended_run
+		from one_bpmn.processa_engine.agent_runtime.checkpoint import get_suspended_run
 
 		suspended = get_suspended_run(instance)
 	if suspended:
@@ -169,7 +172,7 @@ def run_background(task, config, text: str, *, fresh: bool = False) -> None:
 		# the agent could match — re-fire the same conditional gate the
 		# universal trigger uses.
 		try:
-			from one_bpmn.one_bpmn.trigger import _maybe_start_instance
+			from one_bpmn.processa_engine.triggers import _maybe_start_instance
 
 			_maybe_start_instance(frappe.get_doc("A2A Task", task.name), process_model)
 			instance = task_store.find_instance_for_task(task.name)
@@ -221,7 +224,7 @@ def _start_another_attempt(task, process_model: str) -> str | None:
 	retire_instance(previous)
 
 	try:
-		from one_bpmn.one_bpmn.trigger import _maybe_start_instance
+		from one_bpmn.processa_engine.triggers import _maybe_start_instance
 
 		_maybe_start_instance(frappe.get_doc("A2A Task", task.name), process_model)
 	except Exception:

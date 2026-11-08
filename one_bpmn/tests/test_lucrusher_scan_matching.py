@@ -57,7 +57,7 @@ def _run_scan(doctypes, hooks):
 	with (
 		patch("one_bpmn.agents.codebase_index.get_codebase_index", return_value=index),
 		patch("one_bpmn.agents.codebase_index.find_whitelisted_methods", return_value=[]),
-		patch("one_bpmn.agents.turn_state.update_turn", side_effect=lambda _name, **kw: stored.update(kw)),
+		patch("one_bpmn.processa_engine.agent_runtime.turn_state.update_turn", side_effect=lambda _name, **kw: stored.update(kw)),
 	):
 		exec(script, scope, {})  # noqa: S102 - the patched script text under test
 	return scope["result"]["codebase_scan"], stored["full_scan"]

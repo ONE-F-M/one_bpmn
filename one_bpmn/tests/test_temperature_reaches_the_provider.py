@@ -11,11 +11,11 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import ExecutorConfig, ExecutorContext
-from one_bpmn.agents.executor.direct_api import DirectApiExecutor
-from one_bpmn.agents.executor.step_loop import run_agent_loop
-from one_bpmn.agents.llm_provider.anthropic_adapter import AnthropicAdapter
-from one_bpmn.agents.llm_provider.base import StepResult, ToolSpec
+from one_bpmn.processa_engine.agent_runtime.executor import ExecutorConfig, ExecutorContext
+from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
+from one_bpmn.processa_engine.agent_runtime.step_loop import run_agent_loop
+from one_bpmn.processa_engine.agent_runtime.llm_anthropic import AnthropicAdapter
+from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult, ToolSpec
 from one_bpmn.one_bpmn.patches.v1_0 import ai_models_mark_temperature_support
 from one_bpmn.tests.test_anthropic_sampling_params import _model
 
@@ -107,7 +107,7 @@ class TestTheExecutorDecidesByTheModel(FrappeTestCase):
 			temperature=0.3,
 		)
 		with (
-			patch("one_bpmn.agents.llm_provider.factory.get_llm_adapter", return_value=adapter),
+			patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter", return_value=adapter),
 			patch("frappe.utils.password.get_decrypted_password", return_value="test-key-not-real"),
 		):
 			DirectApiExecutor().run(config, ExecutorContext())

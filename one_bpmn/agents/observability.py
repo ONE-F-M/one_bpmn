@@ -25,7 +25,7 @@ from datetime import timedelta
 from frappe.utils import cint, flt, get_datetime, now_datetime
 from rq import get_current_job
 
-from one_bpmn.agents.executor import ErrorCode, ExecutorConfig, ExecutorResult
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorConfig, ExecutorResult
 from one_bpmn.agents.pricing import compute_token_cost
 
 # Max size for final_output stored on the Run (64 KB)

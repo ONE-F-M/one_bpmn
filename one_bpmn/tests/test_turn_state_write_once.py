@@ -25,7 +25,7 @@ from __future__ import annotations
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.turn_state import clear_turn, get_turn, set_turn, update_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn, update_turn
 
 ANSWERED = {"intent": "CONFIRM_REMOVAL", "response": "removals need approval", "pending_xml": "<bpmn/>"}
 STRAY = {"intent": "CONFIRM", "response": "Shall I go ahead?", "options": ["Yes, proceed"]}

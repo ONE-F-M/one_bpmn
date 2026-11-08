@@ -5,7 +5,7 @@
 # AC2 - the review diff reports Client Script differences.
 # AC3 - the generated patch applies Client Scripts, the same way it applies the
 #       Custom Fields and Property Setters.
-# (AC1, the preliminary message, lives in spiff/src/views/Editor.vue - front end,
+# (AC1, the preliminary message, lives in spiff/src/pages/Process.vue - front end,
 # not covered here.)
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import ast
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api import onefm_customization_codegen as gen
+from one_bpmn.agents_sandbox.customization import customization_codegen as gen
 from one_bpmn.api.production_review import _build_doctype_snapshot, _diff_doctypes
 
 SCRIPT_A = "frappe.ui.form.on('Demo DT', { refresh(frm) {} });"

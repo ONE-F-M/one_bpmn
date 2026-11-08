@@ -5,8 +5,8 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.compilation import _validate_user_task_config
-from one_bpmn.api.process_map_api import validate_bpmn_readiness
+from one_bpmn.processa_engine.compiler.checks import validate_user_task_config
+from one_bpmn.api.process_maps import validate_bpmn_readiness
 
 MAP = """<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -34,13 +34,13 @@ def _user_task_items(xml: str) -> list:
 class TestUserTaskConfigGate(FrappeTestCase):
 	def test_deploy_is_blocked_without_an_assignment_mode(self):
 		with self.assertRaises(frappe.ValidationError) as ctx:
-			_validate_user_task_config(_xml(ACTIONS))
+			validate_user_task_config(_xml(ACTIONS))
 
 		self.assertIn('User Task "Review" requires an Assignment Mode.', str(ctx.exception))
 
 	def test_deploy_is_blocked_without_a_task_action(self):
 		with self.assertRaises(frappe.ValidationError) as ctx:
-			_validate_user_task_config(_xml(MODE))
+			validate_user_task_config(_xml(MODE))
 
 		self.assertIn("requires at least one Task Action", str(ctx.exception))
 
@@ -48,13 +48,13 @@ class TestUserTaskConfigGate(FrappeTestCase):
 		blank = 'spiffworkflow:taskActions="[{&quot;action&quot;:&quot;&quot;}]"'
 
 		with self.assertRaises(frappe.ValidationError):
-			_validate_user_task_config(_xml(f"{MODE} {blank}"))
+			validate_user_task_config(_xml(f"{MODE} {blank}"))
 
 	def test_a_configured_task_passes(self):
-		_validate_user_task_config(_xml(f"{MODE} {ACTIONS}"))
+		validate_user_task_config(_xml(f"{MODE} {ACTIONS}"))
 
 	def test_a_non_executable_process_is_exempt(self):
-		_validate_user_task_config(_xml("", executable="false"))
+		validate_user_task_config(_xml("", executable="false"))
 
 	def test_readiness_check_fails_for_an_unconfigured_task(self):
 		result = validate_bpmn_readiness(_xml(""))

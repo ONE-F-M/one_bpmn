@@ -9,8 +9,8 @@ from types import SimpleNamespace
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.llm_provider.anthropic_adapter import AnthropicAdapter
-from one_bpmn.agents.llm_provider.base import ToolSpec
+from one_bpmn.processa_engine.agent_runtime.llm_anthropic import AnthropicAdapter
+from one_bpmn.processa_engine.agent_runtime.llm_types import ToolSpec
 
 TOOL = ToolSpec(
 	fn=lambda **kw: "ok", name="search", description="Search.", parameters={"q": {"type": "string"}}

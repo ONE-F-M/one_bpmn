@@ -7,8 +7,8 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.compilation import _check_notification_senders
-from one_bpmn.api.process_map_api import validate_bpmn_readiness
+from one_bpmn.processa_engine.compiler.deploy_warnings import check_notification_senders
+from one_bpmn.api.process_maps import validate_bpmn_readiness
 
 NOTIFICATIONS = "Processa Test Notifications"
 STAGING = "Processa Test Staging"
@@ -43,7 +43,7 @@ class TestNotificationSenderWarning(FrappeTestCase):
 
 	def _details(self, instance_type: str = "Production", service=None, user=None) -> list:
 		with patch("one_bpmn.api.editability.get_instance_type", return_value=instance_type):
-			return [w["detail"] for w in _check_notification_senders(service or {}, user or {})]
+			return [w["detail"] for w in check_notification_senders(service or {}, user or {})]
 
 	def test_a_send_email_task_using_another_address_is_flagged_on_production(self):
 		details = self._details(service={"Activity_mail": _send_email(STAGING)})

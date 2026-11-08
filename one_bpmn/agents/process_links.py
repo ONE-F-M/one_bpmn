@@ -14,8 +14,8 @@ from one_bpmn.agents.process_digest import (
 	find_process_models,
 	get_process_model_digest,
 )
-from one_bpmn.agents.turn_state import get_turn, update_turn
-from one_bpmn.api.compilation import CALL_SPIFF_NS, _called_model
+from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, update_turn
+from one_bpmn.processa_engine.compiler.called_processes import CALL_SPIFF_NS, called_model
 
 MAX_RELATED_MODELS = 15
 MAX_TURN_MAPS = 3
@@ -248,7 +248,7 @@ def _same_process(model_name: str) -> list[tuple]:
 def _called_maps(model_name: str, links: dict) -> list[tuple]:
 	found = []
 	for call in links["calls"]:
-		target = _called_model(call["process"], call["called"])
+		target = called_model(call["process"], call["called"])
 		if target and target.name != model_name and frappe.has_permission(DOCTYPE, "read", doc=target.name):
 			found.append((target.name, _("called by {0}").format(call["label"])))
 	return found
@@ -338,7 +338,7 @@ def _near(link: dict, maps: dict, other_side: str) -> list[str]:
 def _call_gaps(calls: list[dict]) -> list[dict]:
 	gaps = []
 	for call in calls:
-		target = _called_model(call["process"], call["called"])
+		target = called_model(call["process"], call["called"])
 		if not target or not target.bpmn_xml:
 			message = _("The call activity '{0}' calls a process that has no active map.").format(call["label"])
 			gaps.append(_gap("call_target_missing", call, message))

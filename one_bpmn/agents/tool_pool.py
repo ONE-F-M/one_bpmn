@@ -11,7 +11,7 @@ from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
 from SpiffWorkflow.specs import MultiChoice
 
 
-from one_bpmn.agents.llm_provider.base import ToolSpec
+from one_bpmn.processa_engine.agent_runtime.llm_types import ToolSpec
 from one_bpmn.api.skill_tools import get_skill_tools
 
 
@@ -22,7 +22,7 @@ DIAGRAM_TASK = "diagram_task"
 class ToolCandidate:
 	"""One selector candidate: a ToolSpec plus where it came from.
 
-	spec is the exact shape the agents/llm_provider tool-calling loops consume
+	spec is the exact shape the agent_runtime tool-calling loops consume
 	(name, description, parameters, required); source is DIAGRAM_TASK — the only
 	source now that the registry is gone.
 	"""

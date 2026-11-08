@@ -15,9 +15,9 @@ from frappe import _
 from one_bpmn.agents.bpmn_ir_pipeline import compile_ir, element_names, has_lanes
 from one_bpmn.agents.bpmn_task_config import resolve_ir_lane_roles
 from one_bpmn.agents.dms_search import DOCUMENT_TYPES, search_dms_documents
-from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
+from one_bpmn.processa_engine.agent_runtime.llm_factory import get_llm_adapter_from_settings
 from one_bpmn.agents.memory.text_clean import strip_html, unescape_entities
-from one_bpmn.agents.turn_state import get_turn, run_sync, update_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, run_sync, update_turn
 from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 
 AGENT_ID = "prosally_agent"
@@ -329,18 +329,14 @@ def _memory_fields(cfg: dict) -> dict:
 def recall_process_memory(diagram_name: str, process_name: str = "") -> dict:
 	"""The diagram's Process and the notes recalled for it and the requester, for the turn store."""
 	from one_bpmn.agents.memory.tools import memory_search
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
-		DEFAULT_MEMORY_TOKEN_BUDGET,
-		_bound_memories_to_budget,
-		_cfg_truthy,
-		_requesting_user,
-	)
+	from one_bpmn.processa_engine.dispatch.ai_agent import DEFAULT_MEMORY_TOKEN_BUDGET, bound_memories_to_budget
+	from one_bpmn.processa_engine.dispatch.common import cfg_truthy
 
 	fields = _memory_fields(prosally_config())
-	if not _cfg_truthy(fields.get("long_term_memory")):
+	if not cfg_truthy(fields.get("long_term_memory")):
 		return {"memory_process": "", "memory_notes": []}
 	process = process_for_diagram(diagram_name, process_name)
-	user = _requesting_user()
+	user = frappe.session.user if frappe.session.user != "Guest" else None
 	rows = []
 	# An empty query lists the key's newest rows: a confirmation turn's text matches nothing.
 	if process:
@@ -350,7 +346,7 @@ def recall_process_memory(diagram_name: str, process_name: str = "") -> dict:
 		rows += memory_search("User", {"user": user}, "", limit=MEMORY_NOTES_LIMIT, ignore_permissions=True)
 	notes = list(dict.fromkeys((r.get("content") or "").strip() for r in rows))
 	budget = fields.get("memory_token_budget") or DEFAULT_MEMORY_TOKEN_BUDGET
-	kept = _bound_memories_to_budget([{"content": n} for n in notes if n], budget)
+	kept = bound_memories_to_budget([{"content": n} for n in notes if n], budget)
 	return {"memory_process": process, "memory_notes": [r["content"] for r in kept]}
 
 
@@ -469,11 +465,6 @@ def queue_process_memory(turn: dict, agent_result: dict | None) -> None:
 		frappe.log_error(title="ProsAlly memory: write skipped", message="The diagram matched no Process.")
 		return
 	from one_bpmn.agents.memory.model_resolution import resolve_memory_model
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
-		_enqueue_distill,
-		_provider_for_model,
-		_requesting_user,
-	)
 
 	cfg = prosally_config()
 	own = _memory_fields(cfg)
@@ -500,18 +491,21 @@ def queue_process_memory(turn: dict, agent_result: dict | None) -> None:
 		title="ProsAlly memory: write queued",
 		message=f"process={process} model={distill_model} reconcile_model={reconcile_model}",
 	)
-	_enqueue_distill(
+	frappe.enqueue(
+		"one_bpmn.agents.memory.writeback.distill_and_write",
+		queue="short",
+		now=frappe.flags.in_test,
 		agent_output=source,
 		agent=AGENT_ID,
 		scope="Entity",
 		scope_key={"reference_doctype": "Process", "reference_name": process},
-		provider_name=_provider_for_model(distill_model, cfg.get("ai_provider")),
+		provider_name=frappe.db.get_value("AI Model", distill_model, "provider") or cfg.get("ai_provider"),
 		backend=MEMORY_BACKEND,
 		model=distill_model,
 		reconcile_model=reconcile_model,
-		reconcile_provider=_provider_for_model(reconcile_model, cfg.get("ai_provider")),
+		reconcile_provider=frappe.db.get_value("AI Model", reconcile_model, "provider") or cfg.get("ai_provider"),
 		source_run=None,
-		user=_requesting_user(),
+		user=frappe.session.user if frappe.session.user != "Guest" else None,
 		exclude_context=memory_notes_block(turn),
 	)
 

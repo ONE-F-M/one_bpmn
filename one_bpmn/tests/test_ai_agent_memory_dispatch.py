@@ -11,7 +11,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import (
+from one_bpmn.processa_engine.agent_runtime.executor import (
 	ErrorCode,
 	Executor,
 	ExecutorConfig,
@@ -19,8 +19,8 @@ from one_bpmn.agents.executor import (
 	TokenUsage,
 	register_executor,
 )
-from one_bpmn.agents.executor.direct_api import DirectApiExecutor
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers as D
+from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
+from one_bpmn.processa_engine.dispatch import ai_agent as D
 
 _CAPTURED = {}
 
@@ -60,7 +60,7 @@ class TestDispatcherMemory(FrappeTestCase):
 			patch("one_bpmn.agents.observability.record_ai_step"),
 			patch("one_bpmn.agents.observability.finalize_ai_run"),
 			patch("one_bpmn.agents.observability.finalize_ai_run_on_exception"),
-			patch("one_bpmn.one_bpmn.engine.get_task_display_name", return_value="AI Task"),
+			patch("one_bpmn.processa_engine.engine.get_task_display_name", return_value="AI Task"),
 			patch("frappe.db.commit"),
 		]
 		for p in patches:
@@ -351,7 +351,7 @@ class TestRememberDirectiveWrite(FrappeTestCase):
 			patch("one_bpmn.agents.observability.record_ai_step"),
 			patch("one_bpmn.agents.observability.finalize_ai_run"),
 			patch("one_bpmn.agents.observability.finalize_ai_run_on_exception"),
-			patch("one_bpmn.one_bpmn.engine.get_task_display_name", return_value="AI Task"),
+			patch("one_bpmn.processa_engine.engine.get_task_display_name", return_value="AI Task"),
 			patch("frappe.db.commit"),
 		]
 		for p in patches:
@@ -550,7 +550,7 @@ class TestTheUserMessageReachesTheModel(FrappeTestCase):
 			patch("one_bpmn.agents.observability.record_ai_step"),
 			patch("one_bpmn.agents.observability.finalize_ai_run"),
 			patch("one_bpmn.agents.observability.finalize_ai_run_on_exception"),
-			patch("one_bpmn.one_bpmn.engine.get_task_display_name", return_value="AI Task"),
+			patch("one_bpmn.processa_engine.engine.get_task_display_name", return_value="AI Task"),
 			patch("frappe.db.commit"),
 		]
 		for p in patches:
@@ -608,7 +608,7 @@ class TestTheUserMessageReachesTheModel(FrappeTestCase):
 	def test_the_turn_store_is_read_when_the_task_does_not_carry_it(self):
 		"""ProsAlly and Logix seed the store and pass nothing down the task."""
 		with patch(
-			"one_bpmn.agents.turn_state.get_turn", return_value={"user_text": "draw an onboarding process"}
+			"one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value={"user_text": "draw an onboarding process"}
 		):
 			prompt = self._dispatch(_chat_instance())
 
@@ -617,7 +617,7 @@ class TestTheUserMessageReachesTheModel(FrappeTestCase):
 	def test_a_background_agent_is_untouched(self):
 		"""Only a chat turn has a person's message; a record-triggered agent's
 		prompt must be exactly what its map rendered."""
-		with patch("one_bpmn.agents.turn_state.get_turn", return_value={"user_text": "not mine"}):
+		with patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value={"user_text": "not mine"}):
 			prompt = self._dispatch(_instance())
 
 		self.assertEqual(prompt, "Process the latest message.")
@@ -724,7 +724,7 @@ class TestRecallSkipsWhenTheTurnMessageIsUnresolved(TestTheUserMessageReachesThe
 		"""task.data carries no user_text and the turn store has nothing either
 		— exactly the turn-1 timing gap. aiUserPrompt is a Logix-style constant
 		driving prompt, not anything the person said."""
-		with patch("one_bpmn.agents.turn_state.get_turn", return_value={}), patch(
+		with patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value={}), patch(
 			"one_bpmn.agents.memory.tools.memory_search"
 		) as ms:
 			self._dispatch(
@@ -737,7 +737,7 @@ class TestRecallSkipsWhenTheTurnMessageIsUnresolved(TestTheUserMessageReachesThe
 		ms.assert_not_called()
 
 	def test_recall_query_is_blank_when_unresolved(self):
-		with patch("one_bpmn.agents.turn_state.get_turn", return_value={}), patch(
+		with patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value={}), patch(
 			"one_bpmn.agents.memory.tools.memory_search"
 		):
 			self._dispatch(
@@ -817,17 +817,17 @@ class TestIsSmallTalk(FrappeTestCase):
 
 
 class TestBoundMemoriesToBudget(FrappeTestCase):
-	"""_bound_memories_to_budget directly — the truncation dispatch applies to
+	"""bound_memories_to_budget directly - the truncation dispatch applies to
 	whatever memory_search returns, before _format_memory_block renders it."""
 
 	def test_under_budget_is_unchanged(self):
 		memories = [{"content": "short fact"}]
-		self.assertEqual(D._bound_memories_to_budget(memories, 800), memories)
+		self.assertEqual(D.bound_memories_to_budget(memories, 800), memories)
 
 	def test_zero_or_blank_budget_is_a_noop(self):
 		memories = [{"content": "x" * 10_000}]
-		self.assertEqual(D._bound_memories_to_budget(memories, 0), memories)
-		self.assertEqual(D._bound_memories_to_budget(memories, None), memories)
+		self.assertEqual(D.bound_memories_to_budget(memories, 0), memories)
+		self.assertEqual(D.bound_memories_to_budget(memories, None), memories)
 
 	def test_lowest_ranked_memories_are_dropped_first(self):
 		# Rank order is memory_search's contract (relevance/recency); the
@@ -841,7 +841,7 @@ class TestBoundMemoriesToBudget(FrappeTestCase):
 		one = estimate_tokens({"content": D._format_memory_block(memories[:1])}, DEFAULT_CHARS_PER_TOKEN)
 		two = estimate_tokens({"content": D._format_memory_block(memories[:2])}, DEFAULT_CHARS_PER_TOKEN)
 		self.assertLess(one, two)
-		kept = D._bound_memories_to_budget(memories, two - 1)
+		kept = D.bound_memories_to_budget(memories, two - 1)
 		self.assertEqual(kept, [memories[0]])
 
 	def test_single_oversized_memory_is_truncated_not_dropped(self):
@@ -849,7 +849,7 @@ class TestBoundMemoriesToBudget(FrappeTestCase):
 		with no size cap of its own — even the sole, best-ranked memory is cut
 		to fit rather than sent whole over budget or left empty."""
 		memories = [{"content": "z" * 10_000}]
-		kept = D._bound_memories_to_budget(memories, 100)
+		kept = D.bound_memories_to_budget(memories, 100)
 		self.assertEqual(len(kept), 1)
 		self.assertLess(len(kept[0]["content"]), 10_000)
 		self.assertGreater(len(kept[0]["content"]), 0)
@@ -859,7 +859,7 @@ class TestBoundMemoriesToBudget(FrappeTestCase):
 
 		memories = [{"content": "word " * 200} for _ in range(5)]
 		budget = 100
-		kept = D._bound_memories_to_budget(memories, budget)
+		kept = D.bound_memories_to_budget(memories, budget)
 		block = D._format_memory_block(kept)
 		self.assertLessEqual(estimate_tokens({"content": block}, DEFAULT_CHARS_PER_TOKEN), budget)
 
@@ -929,7 +929,7 @@ class TestRecallObservability(FrappeTestCase):
 			"frappe.db.commit",
 		):
 			patch(target).start()
-		patch("one_bpmn.one_bpmn.engine.get_task_display_name", return_value="AI Task").start()
+		patch("one_bpmn.processa_engine.engine.get_task_display_name", return_value="AI Task").start()
 
 	def _dispatch(self, task_data=None, **cfg):
 		task = SimpleNamespace(
@@ -989,11 +989,11 @@ class TestMemoryTargetUserScope(FrappeTestCase):
 	default follows the agent type, and Agent-only never carries a user."""
 
 	def _target(self, scope, agent_type="Chat", user="alice@example.com"):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers as D
+		from one_bpmn.processa_engine.dispatch import ai_agent as D
 
 		instance = SimpleNamespace(process_model="PM-1", context_doctype="Employee", context_docname="EMP-1")
 		cfg = {"aiMemoryScope": scope, "aiAgentConfig": "CFG-1"}
-		with patch("frappe.db.get_value", return_value=agent_type), patch.object(D, "_requesting_user", return_value=user):
+		with patch("frappe.db.get_value", return_value=agent_type), patch.dict(frappe.session, {"user": user}):
 			return D._resolve_memory_target(cfg, instance, "Act_1")
 
 	def test_blank_scope_defaults_by_agent_type(self):
@@ -1011,7 +1011,7 @@ class TestMemoryTargetUserScope(FrappeTestCase):
 		)
 
 	def test_guest_falls_back_to_shared(self):
-		self.assertEqual(self._target("User and Agent", user=None), ("Agent", "Act_1"))
+		self.assertEqual(self._target("User and Agent", user="Guest"), ("Agent", "Act_1"))
 
 
 class TestMemoryBlockProvenance(FrappeTestCase):

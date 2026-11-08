@@ -48,7 +48,7 @@ doctype_list_js = {
 
 after_install = [
 	"one_bpmn.install.after_install",
-	"one_bpmn.one_bpmn.connectors.seed.import_seed_manifests",
+	"one_bpmn.processa_connectors.seed.import_seed_manifests",
 ]
 
 # Permissions
@@ -100,17 +100,17 @@ override_doctype_class = {
 # Document Events
 # ---------------
 # Universal BPMN trigger — fires for every DocType.
-# trigger.py checks internally whether a matching active BPMN Process
+# processa_engine/triggers.py checks internally whether a matching active BPMN Process
 # Model is configured for that doctype + event before doing anything.
 # Internal BPMN doctypes are skipped to prevent recursion.
 
-_BPMN_TRIGGER = "one_bpmn.one_bpmn.trigger.on_doc_event"
+_BPMN_TRIGGER = "one_bpmn.processa_engine.triggers.on_doc_event"
 
 # Guard: blocks native Frappe submit/cancel/workflow-action when a BPMN
 # process instance is actively controlling the document.
 # Documents with NO active BPMN instance are completely unaffected.
-_BPMN_GUARD   = "one_bpmn.one_bpmn.trigger.guard_bpmn_document"
-_BPMN_DELETE  = "one_bpmn.one_bpmn.trigger.delete_linked_bpmn_instances"
+_BPMN_GUARD   = "one_bpmn.processa_engine.triggers.guard_bpmn_document"
+_BPMN_DELETE  = "one_bpmn.processa_engine.triggers.delete_linked_bpmn_instances"
 
 # Copies each AI Agent Configuration's prompt, model, temperature and max tokens onto the map shapes that link it.
 after_migrate = ["one_bpmn.agents.agent_config_resolver.sync_all_shapes_to_configs"]
@@ -118,7 +118,7 @@ after_migrate = ["one_bpmn.agents.agent_config_resolver.sync_all_shapes_to_confi
 # Jinja globals for aiUserPrompt templates.
 jinja = {
 	"methods": [
-		"one_bpmn.agents.turn_state.get_turn",
+		"one_bpmn.processa_engine.agent_runtime.turn_state.get_turn",
 		"one_bpmn.tools.tool_for_server_scripts.compact_ir",
 	]
 }
@@ -173,8 +173,8 @@ doc_events = {
 	# bpmn_form_actions.js to suppress native Submit/Save/banner) is cached in
 	# Redis — drop it whenever a process model is (de)activated or retargeted.
 	"BPMN Process Model": {
-		"on_update": "one_bpmn.api.instance_api.clear_processa_doctype_cache",
-		"after_delete": "one_bpmn.api.instance_api.clear_processa_doctype_cache",
+		"on_update": "one_bpmn.processa_engine.instances.listing.clear_processa_doctype_cache",
+		"after_delete": "one_bpmn.processa_engine.instances.listing.clear_processa_doctype_cache",
 	},
 }
 
@@ -205,12 +205,12 @@ scheduler_events = {
 		],
 		# A sandbox run whose callback never arrives would leave its agent waiting for good.
 		"*/2 * * * *": [
-			"one_bpmn.one_bpmn.connectors.agent_sandbox_reaper.reap",
-			"one_bpmn.one_bpmn.connectors.agent_sandbox_reaper.reap_sessions",
+			"one_bpmn.agents_sandbox.sandbox.reaper.reap",
+			"one_bpmn.agents_sandbox.sandbox.reaper.reap_sessions",
 		],
 		"* * * * *": [
-			"one_bpmn.tasks.process_timer_start_events",
-			"one_bpmn.tasks.process_timer_catch_events",
+			"one_bpmn.processa_engine.timers.process_timer_start_events",
+			"one_bpmn.processa_engine.timers.process_timer_catch_events",
 			"one_bpmn.tasks.poll_a2a_tasks",
 		],
 		# WI-002191: try every enabled model's credentials against its provider
@@ -230,7 +230,7 @@ scheduler_events = {
 		"*/5 * * * *": [
 			"one_bpmn.agents.eval_runner.sweep_stale_eval_runs",
 			# A parked AI step whose job was lost from the queue would otherwise wait for the delegation deadline.
-			"one_bpmn.tasks.requeue_stranded_ai_steps",
+			"one_bpmn.processa_engine.timers.requeue_stranded_ai_steps",
 		],
 		"0 * * * *": [
 			"one_bpmn.tasks.close_stale_chat_instances",
@@ -249,12 +249,12 @@ scheduler_events = {
 
 # Cache keys that survive frappe.clear_cache()
 # --------------------------------------------
-# The stage tools' per-turn store (agents/turn_state.py) is live state for a running turn.
+# The stage tools' per-turn store (processa_engine/agent_runtime/turn_state.py) is live state for a running turn.
 persistent_cache_keys = ["ait_turn:*"]
 
 # Request Events
 # ----------------
-after_request = ["one_bpmn.api.todo_actions.apply_amp_headers"]
+after_request = ["one_bpmn.processa_engine.notifications.actions.apply_amp_headers"]
 
 # Automatically update python controller files with type annotations for this app.
 export_python_type_annotations = True

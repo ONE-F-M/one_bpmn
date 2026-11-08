@@ -393,13 +393,13 @@ def summary_call(transcript: str, previous: str, *, model: str, provider_name: s
                  max_tokens: int = _MAX_SUMMARY_TOKENS, system_prompt: str = _SYSTEM_PROMPT,
                  max_input_chars: int = _MAX_INPUT_CHARS):
 	"""The summariser's ExecutorResult, or None (with an Error Log entry) when the call failed."""
-	from one_bpmn.agents.executor import (
+	from one_bpmn.processa_engine.agent_runtime.executor import (
 		ErrorCode,
 		ExecutorConfig,
 		ExecutorContext,
 		get_executor,
 	)
-	from one_bpmn.agents.executor.direct_api import DirectApiExecutor  # noqa: F401
+	from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor  # noqa: F401
 
 	previous_block = ""
 	if previous:
@@ -503,7 +503,7 @@ def compact_conversation(
 		)
 		return {"compacted": False, "reason": "no model configured"}
 
-	provider_name = _provider_for_model(model, provider_name)
+	provider_name = frappe.db.get_value("AI Model", model, "provider") or provider_name
 
 	try:
 		summary_text = _summarise(

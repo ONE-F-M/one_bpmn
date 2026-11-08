@@ -4,8 +4,8 @@
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.compilation import _check_email_settings
-from one_bpmn.api.process_map_api import validate_bpmn_readiness
+from one_bpmn.processa_engine.compiler.deploy_warnings import check_email_settings
+from one_bpmn.api.process_maps import validate_bpmn_readiness
 
 MAP_WITH_EMPTY_EMAIL = """<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -22,7 +22,7 @@ SEND_EMAIL_FULL = {"serviceType": "send_email", "emailToRoles": "HR Manager", "e
 
 class TestEmailSettingsDeployWarning(FrappeTestCase):
 	def _details(self, service=None, user=None):
-		return [w["detail"] for w in _check_email_settings(service or {}, user or {})]
+		return [w["detail"] for w in check_email_settings(service or {}, user or {})]
 
 	def test_an_empty_send_email_task_is_flagged_with_everything_it_lacks(self):
 		details = self._details(service={"Activity_mail": {"serviceType": "send_email"}})

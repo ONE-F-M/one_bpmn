@@ -10,9 +10,9 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import ErrorCode, ExecutorConfig, ExecutorContext
-from one_bpmn.agents.executor.direct_api import DirectApiExecutor
-from one_bpmn.agents.llm_provider.base import StepResult, StepToolCall, ToolSpec
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorConfig, ExecutorContext
+from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
+from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall, ToolSpec
 
 MISS = json.dumps({"error": "old_string not found in the file"})
 
@@ -68,7 +68,7 @@ def _run(results):
 		max_tool_calls=len(results),
 	)
 	adapter = _EditLoopAdapter()
-	with patch("one_bpmn.agents.llm_provider.factory.get_llm_adapter", return_value=adapter):
+	with patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter", return_value=adapter):
 		result = DirectApiExecutor().run(config, ExecutorContext())
 	return result, adapter
 

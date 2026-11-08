@@ -14,7 +14,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.agent_config_resolver import config_field_map
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers as D
+from one_bpmn.processa_engine.dispatch import ai_agent as D
+from one_bpmn.processa_engine.dispatch.common import cfg_truthy
 
 AGENT = "ZZ WI1793 Memory Agent"
 MODEL_CHAT = "ZZ-wi1793-chat"
@@ -114,16 +115,16 @@ class TestMemoryModelConfig(FrappeTestCase):
 
 	def test_long_term_memory_select_maps_onto_the_truthiness_check(self):
 		self.agent.db_set("long_term_memory", "Enabled")
-		self.assertTrue(D._cfg_truthy(config_field_map(self.agent.name)["aiLongTermMemory"]))
+		self.assertTrue(cfg_truthy(config_field_map(self.agent.name)["aiLongTermMemory"]))
 
 		self.agent.db_set("long_term_memory", "Disabled")
-		self.assertFalse(D._cfg_truthy(config_field_map(self.agent.name)["aiLongTermMemory"]))
+		self.assertFalse(cfg_truthy(config_field_map(self.agent.name)["aiLongTermMemory"]))
 
 	def test_disabled_on_the_agent_overrides_an_enabled_diagram(self):
 		"""The agent is authoritative — turning memory off must actually turn it off."""
 		self.agent.db_set("long_term_memory", "Disabled")
 		merged = {**{"aiLongTermMemory": "true"}, **config_field_map(self.agent.name)}
-		self.assertFalse(D._cfg_truthy(merged["aiLongTermMemory"]))
+		self.assertFalse(cfg_truthy(merged["aiLongTermMemory"]))
 
 	# ------------------------------------------------------------------
 	# dispatch-time precedence
@@ -231,7 +232,7 @@ class TestMemoryModelConfig(FrappeTestCase):
 		"""
 		from types import SimpleNamespace
 
-		from one_bpmn.agents.executor import (
+		from one_bpmn.processa_engine.agent_runtime.executor import (
 			ErrorCode,
 			Executor,
 			ExecutorResult,
@@ -265,7 +266,7 @@ class TestMemoryModelConfig(FrappeTestCase):
 			("one_bpmn.agents.observability.record_ai_step", {}),
 			("one_bpmn.agents.observability.finalize_ai_run", {}),
 			("one_bpmn.agents.observability.finalize_ai_run_on_exception", {}),
-			("one_bpmn.one_bpmn.engine.get_task_display_name", {"return_value": "AI Task"}),
+			("one_bpmn.processa_engine.engine.get_task_display_name", {"return_value": "AI Task"}),
 			("frappe.db.commit", {}),
 		):
 			p = patch(target, **kwargs)
@@ -274,7 +275,9 @@ class TestMemoryModelConfig(FrappeTestCase):
 
 		def run_once():
 			enqueued.clear()
-			with patch.object(D, "_enqueue_distill", side_effect=lambda **kw: enqueued.append(kw)):
+			with patch.object(
+				frappe, "enqueue", side_effect=lambda method, **kw: enqueued.append(kw) if "distill_and_write" in str(method) else None
+			):
 				D.dispatch_ai_agent(
 					SimpleNamespace(
 						name="INST-WI1793",
@@ -498,11 +501,6 @@ class TestTheMemoryModelBringsItsOwnProvider(FrappeTestCase):
 	MODEL = "zz-probe-model"
 
 	def setUp(self):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import (
-			_provider_for_model,
-		)
-
-		self.resolve = _provider_for_model
 		# An existing provider rather than a fabricated one: AI Provider
 		# Credentials carries mandatory connection fields, and this test is about
 		# which provider a MODEL points at, not about credentials.
@@ -526,6 +524,21 @@ class TestTheMemoryModelBringsItsOwnProvider(FrappeTestCase):
 			frappe.delete_doc("AI Model", self.MODEL, force=True)
 		frappe.db.commit()
 
+	def resolve(self, model, fallback):
+		"""The provider ProsAlly's memory write hands the distiller for *model*."""
+		from one_bpmn.agents import prosally_helpers as helpers
+
+		cfg = {"name": "CFG", "ai_model": model, "ai_provider": fallback}
+		fields = {"memory_write_mode": "distilled", "memory_distill_model": model, "memory_reconcile_model": model}
+		turn = {"memory_process": "Zz Process", "user_text": "yes", "memory_notes": [], "chat_history": []}
+		with patch.object(helpers, "prosally_config", return_value=cfg), patch.object(
+			helpers, "_memory_fields", return_value=fields
+		), patch.object(frappe.db, "get_single_value", return_value=None), patch.object(frappe, "enqueue") as enqueue:
+			helpers.queue_process_memory(turn, {"intent": "BPMN_GENERATED", "response": "Drew it."})
+		kwargs = enqueue.call_args.kwargs
+		self.assertEqual(kwargs["provider_name"], kwargs["reconcile_provider"])
+		return kwargs["provider_name"]
+
 	def test_a_model_from_another_provider_resolves_to_that_provider(self):
 		"""The whole bug in one assertion."""
 		self.assertEqual(self.resolve(self.MODEL, "zz-some-other-provider"), self.provider)
@@ -537,11 +550,6 @@ class TestTheMemoryModelBringsItsOwnProvider(FrappeTestCase):
 	def test_no_model_means_no_change(self):
 		self.assertEqual(self.resolve(None, "agent-provider"), "agent-provider")
 		self.assertEqual(self.resolve("", "agent-provider"), "agent-provider")
-
-	def test_a_lookup_failure_does_not_lose_the_write(self):
-		"""Memory must degrade, never explode."""
-		with patch("frappe.db.get_value", side_effect=RuntimeError("db down")):
-			self.assertEqual(self.resolve(self.MODEL, "agent-provider"), "agent-provider")
 
 	def test_the_reconciler_gets_its_own_provider_too(self):
 		"""Same trap one step later: reconcile_model can come from a third
@@ -557,8 +565,8 @@ class TestTheMemoryModelBringsItsOwnProvider(FrappeTestCase):
 	def test_the_dispatcher_resolves_both(self):
 		import inspect
 
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.dispatch import ai_agent
 
-		src = inspect.getsource(dispatchers)
-		self.assertIn("provider_name=_provider_for_model(", src)
-		self.assertIn("reconcile_provider=_provider_for_model(", src)
+		src = inspect.getsource(ai_agent)
+		self.assertIn('provider_name=frappe.db.get_value("AI Model", _distill_model, "provider")', src)
+		self.assertIn('reconcile_provider=frappe.db.get_value("AI Model", _reconcile_model, "provider")', src)

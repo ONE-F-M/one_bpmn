@@ -19,10 +19,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.util.task import TaskState
 
-from one_bpmn.one_bpmn import engine as bpmn_engine
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
-	run_parked_ai_task,
-)
+from one_bpmn.processa_engine import engine as bpmn_engine
+from one_bpmn.processa_engine.runtime.ai_jobs import run_parked_ai_task
 from one_bpmn.tests.test_ai_park_enqueue import (
 	ParkHarness,
 	_LINEAR_AGENT_XML,
@@ -71,7 +69,7 @@ _AGENT_CFG = {
 
 
 def _executor_with_tools():
-	from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+	from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 
 	return ExecutorResult(
 		output="all done",
@@ -128,7 +126,7 @@ class TestJobOutputParity(JobHarness):
 		frappe.flags.bpmn_force_ai_parking = False
 		wf_inline = self._wf(_LINEAR_AGENT_XML, "proc_park_linear", dict(_AGENT_CFG))
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_with_tools(),
 		):
 			self._run(wf_inline)
@@ -142,7 +140,7 @@ class TestJobOutputParity(JobHarness):
 		frappe.flags.bpmn_force_ai_parking = True
 		task_id = self._park_linear_with_tools()
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_with_tools(),
 		):
 			with patch.object(frappe, "enqueue"):
@@ -160,7 +158,7 @@ class TestJobOutputParity(JobHarness):
 		frappe.flags.bpmn_force_ai_parking = True
 		task_id = self._park_linear_with_tools()
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_with_tools(),
 		):
 			with patch.object(frappe, "enqueue"):
@@ -179,7 +177,7 @@ class TestJobOutputParity(JobHarness):
 		frappe.flags.bpmn_force_ai_parking = True
 		task_id = self._park_linear_with_tools()
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_with_tools(),
 		) as run:
 			with patch.object(frappe, "enqueue"):
@@ -198,7 +196,7 @@ class TestJobOutputParity(JobHarness):
 		# the instance.
 		frappe.flags.bpmn_force_ai_parking = True
 		task_id = self._park_linear_with_tools()
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
+		from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import (
 			BPMNProcessInstance,
 		)
 
@@ -257,7 +255,7 @@ class TestSelectorJobTurns(JobHarness):
 			return ("activate", "task_a", {})
 
 		with patch(
-			"one_bpmn.one_bpmn.doctype.bpmn_process_instance.ai_task_selector"
+			"one_bpmn.processa_engine.task_selector"
 			".dispatch_ai_task_selector",
 			side_effect=choose_task_a,
 		) as dispatch:
@@ -289,7 +287,7 @@ class TestSelectorJobTurns(JobHarness):
 			return ("activate", "user_a", {})
 
 		with patch(
-			"one_bpmn.one_bpmn.doctype.bpmn_process_instance.ai_task_selector"
+			"one_bpmn.processa_engine.task_selector"
 			".dispatch_ai_task_selector",
 			side_effect=choose_user_a,
 		) as dispatch:

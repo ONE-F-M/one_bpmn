@@ -6,16 +6,17 @@ from unittest.mock import MagicMock, patch
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.job_limits import (
+from one_bpmn.processa_engine.agent_runtime.job_limits import (
 	AI_AGENT_QUEUE,
 	AI_AGENT_QUEUES,
 	PROSALLY_AGENT_ID,
 	PROSALLY_AI_QUEUE,
 	ai_agent_queue,
 )
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance import bpmn_process_instance as controller
+from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import BPMNProcessInstance
+from one_bpmn.processa_engine.runtime import ai_jobs
 
-MODULE = "one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance"
+MODULE = "one_bpmn.processa_engine.runtime.ai_jobs"
 AGENTS = {"ProsAlly Map": "prosally_agent", "Docu Map": "docu_agent"}
 REGISTERED = {"short": 300, "default": 300, "long": 1500, AI_AGENT_QUEUE: 600, PROSALLY_AI_QUEUE: 1800}
 
@@ -57,17 +58,17 @@ class TestQueueForAgent(FrappeTestCase):
 class TestQueueForInstance(QueueCase):
 	def test_an_instance_of_the_agents_map_goes_to_the_agents_queue(self):
 		with patch(f"{MODULE}.frappe.db.get_value", side_effect=_get_value("unused")):
-			self.assertEqual(controller.ai_job_queue("ProsAlly Map"), PROSALLY_AI_QUEUE)
-			self.assertEqual(controller.ai_job_queue("Docu Map"), AI_AGENT_QUEUE)
+			self.assertEqual(ai_jobs.ai_job_queue("ProsAlly Map"), PROSALLY_AI_QUEUE)
+			self.assertEqual(ai_jobs.ai_job_queue("Docu Map"), AI_AGENT_QUEUE)
 
 	def test_a_map_with_no_agent_or_no_map_uses_the_shared_queue(self):
 		with patch(f"{MODULE}.frappe.db.get_value", side_effect=_get_value("unused")):
-			self.assertEqual(controller.ai_job_queue("A Map With No Agent"), AI_AGENT_QUEUE)
-			self.assertEqual(controller.ai_job_queue(None), AI_AGENT_QUEUE)
+			self.assertEqual(ai_jobs.ai_job_queue("A Map With No Agent"), AI_AGENT_QUEUE)
+			self.assertEqual(ai_jobs.ai_job_queue(None), AI_AGENT_QUEUE)
 
 	def test_an_instance_is_followed_to_its_map(self):
 		with patch(f"{MODULE}.frappe.db.get_value", side_effect=_get_value("ProsAlly Map")):
-			self.assertEqual(controller.ai_job_queue_of("INST-1"), PROSALLY_AI_QUEUE)
+			self.assertEqual(ai_jobs.ai_job_queue_of("INST-1"), PROSALLY_AI_QUEUE)
 
 
 class TestEveryEnqueueSiteUsesIt(QueueCase):
@@ -75,7 +76,7 @@ class TestEveryEnqueueSiteUsesIt(QueueCase):
 		return enqueue.call_args.kwargs["queue"]
 
 	def test_parked_jobs(self):
-		instance = controller.BPMNProcessInstance.__new__(controller.BPMNProcessInstance)
+		instance = BPMNProcessInstance.__new__(BPMNProcessInstance)
 		instance.name = "INST-1"
 		instance.process_model = "ProsAlly Map"
 		instance._pending_ai_jobs = [("ai_agent", "task_1")]
@@ -83,7 +84,7 @@ class TestEveryEnqueueSiteUsesIt(QueueCase):
 			patch(f"{MODULE}.frappe.db.get_value", side_effect=_get_value("unused")),
 			patch(f"{MODULE}.frappe.enqueue") as enqueue,
 		):
-			instance._enqueue_parked_ai_jobs()
+			ai_jobs.enqueue_parked_ai_jobs(instance)
 		self.assertEqual(self._queue_of_call(enqueue), PROSALLY_AI_QUEUE)
 
 	def test_a_delegation_resume(self):
@@ -91,7 +92,7 @@ class TestEveryEnqueueSiteUsesIt(QueueCase):
 			patch(f"{MODULE}.frappe.db.get_value", side_effect=_get_value("ProsAlly Map")),
 			patch(f"{MODULE}.frappe.enqueue") as enqueue,
 		):
-			controller._enqueue_a2a_resume("INST-1", "task_1", "")
+			ai_jobs.enqueue_wait_resume("INST-1", "task_1", "", "A2A Task")
 		self.assertEqual(self._queue_of_call(enqueue), PROSALLY_AI_QUEUE)
 
 	def test_a_sandbox_resume(self):
@@ -99,7 +100,7 @@ class TestEveryEnqueueSiteUsesIt(QueueCase):
 			patch(f"{MODULE}.frappe.db.get_value", side_effect=_get_value("ProsAlly Map")),
 			patch(f"{MODULE}.frappe.enqueue") as enqueue,
 		):
-			controller._enqueue_agent_sandbox_resume("INST-1", "task_1", "")
+			ai_jobs.enqueue_wait_resume("INST-1", "task_1", "", "Agent Sandbox Run")
 		self.assertEqual(self._queue_of_call(enqueue), PROSALLY_AI_QUEUE)
 
 	def test_a_retry_after_a_failed_job_stays_on_the_agents_queue(self):
@@ -110,10 +111,10 @@ class TestEveryEnqueueSiteUsesIt(QueueCase):
 			patch(f"{MODULE}.frappe.db.get_value", side_effect=_get_value("ProsAlly Map")),
 			patch(f"{MODULE}.frappe.db.set_value"),
 			patch(f"{MODULE}.frappe.log_error"),
-			patch(f"{MODULE}._job_retry_cap", return_value=2),
+			patch(f"{MODULE}.job_retry_cap", return_value=2),
 			patch(f"{MODULE}.frappe.enqueue") as enqueue,
 		):
-			controller.run_parked_ai_task("INST-1", "ai_agent", "task_1", attempt=0)
+			ai_jobs.run_parked_ai_task("INST-1", "ai_agent", "task_1", attempt=0)
 		self.assertEqual(self._queue_of_call(enqueue), PROSALLY_AI_QUEUE)
 		self.assertEqual(enqueue.call_args.kwargs["attempt"], 1)
 
@@ -125,40 +126,42 @@ class TestEveryEnqueueSiteUsesIt(QueueCase):
 			patch(f"{MODULE}.frappe.db.get_value", side_effect=_get_value("Docu Map")),
 			patch(f"{MODULE}.frappe.db.set_value"),
 			patch(f"{MODULE}.frappe.log_error"),
-			patch(f"{MODULE}._job_retry_cap", return_value=2),
+			patch(f"{MODULE}.job_retry_cap", return_value=2),
 			patch(f"{MODULE}.frappe.enqueue") as enqueue,
 		):
-			controller.run_parked_ai_task("INST-2", "ai_agent", "task_1", attempt=0)
+			ai_jobs.run_parked_ai_task("INST-2", "ai_agent", "task_1", attempt=0)
 		self.assertEqual(self._queue_of_call(enqueue), AI_AGENT_QUEUE)
 
 
 class TestTheOtherEnqueueSitesUseIt(QueueCase):
 	def test_the_watchdog_requeues_a_stranded_prosally_job_on_its_queue(self):
-		from one_bpmn import tasks
+		from one_bpmn.processa_engine import timers
 
 		instance = MagicMock()
 		instance.name = "INST-1"
 		unit = {"task_id": "task_1", "kind": "ai_agent", "label": "Draw"}
 		with (
-			patch("one_bpmn.tasks.frappe.db.count", return_value=0),
-			patch("one_bpmn.tasks.frappe.db.get_value", side_effect=_get_value("ProsAlly Map")),
-			patch("one_bpmn.tasks.frappe.enqueue") as enqueue,
+			patch("one_bpmn.processa_engine.timers.frappe.db.count", return_value=0),
+			patch("one_bpmn.processa_engine.timers.log_task"),
+			patch("one_bpmn.processa_engine.timers.frappe.db.get_value", side_effect=_get_value("ProsAlly Map")),
+			patch("one_bpmn.processa_engine.timers.frappe.enqueue") as enqueue,
 		):
-			tasks._requeue_or_error(instance, unit, 30)
+			timers._requeue_or_error(instance, unit, 30)
 		self.assertEqual(enqueue.call_args.kwargs["queue"], PROSALLY_AI_QUEUE)
 
 	def test_the_watchdog_keeps_another_agents_job_on_the_shared_queue(self):
-		from one_bpmn import tasks
+		from one_bpmn.processa_engine import timers
 
 		instance = MagicMock()
 		instance.name = "INST-2"
 		unit = {"task_id": "task_1", "kind": "ai_agent", "label": "Draw"}
 		with (
-			patch("one_bpmn.tasks.frappe.db.count", return_value=0),
-			patch("one_bpmn.tasks.frappe.db.get_value", side_effect=_get_value("Docu Map")),
-			patch("one_bpmn.tasks.frappe.enqueue") as enqueue,
+			patch("one_bpmn.processa_engine.timers.frappe.db.count", return_value=0),
+			patch("one_bpmn.processa_engine.timers.log_task"),
+			patch("one_bpmn.processa_engine.timers.frappe.db.get_value", side_effect=_get_value("Docu Map")),
+			patch("one_bpmn.processa_engine.timers.frappe.enqueue") as enqueue,
 		):
-			tasks._requeue_or_error(instance, unit, 30)
+			timers._requeue_or_error(instance, unit, 30)
 		self.assertEqual(enqueue.call_args.kwargs["queue"], AI_AGENT_QUEUE)
 
 	def test_a_delegated_answer_resumes_a_prosally_instance_on_its_queue(self):
@@ -177,7 +180,7 @@ class TestTheOtherEnqueueSitesUseIt(QueueCase):
 			patch("one_bpmn.tasks.frappe.db.get_value", side_effect=get_value),
 			patch("one_bpmn.tasks.frappe.get_doc"),
 			patch("one_bpmn.tasks._delegation_answer", return_value="done"),
-			patch("one_bpmn.agents.checkpoint.store_human_result"),
+			patch("one_bpmn.processa_engine.agent_runtime.checkpoint.store_human_result"),
 			patch("one_bpmn.tasks.frappe.enqueue") as enqueue,
 		):
 			tasks._resume_waiting_agent(row)
@@ -198,7 +201,7 @@ class TestTheOtherEnqueueSitesUseIt(QueueCase):
 		with (
 			patch("one_bpmn.api.agent_callback.frappe.db.get_value", side_effect=get_value),
 			patch("one_bpmn.api.agent_callback._sandbox_run_answer", return_value="done"),
-			patch("one_bpmn.agents.checkpoint.store_human_result"),
+			patch("one_bpmn.processa_engine.agent_runtime.checkpoint.store_human_result"),
 			patch("one_bpmn.api.agent_callback.frappe.enqueue") as enqueue,
 		):
 			agent_callback._resume_waiting_agent(run)
@@ -207,7 +210,7 @@ class TestTheOtherEnqueueSitesUseIt(QueueCase):
 
 class TestJobStatusChecksBothQueues(FrappeTestCase):
 	def test_a_job_on_prosallys_queue_counts_as_running(self):
-		from one_bpmn.agents import turn_signal
+		from one_bpmn.processa_engine.agent_runtime import turn_signal
 
 		def get_queue(name):
 			jobs = [SimpleNamespace(id="bpmn-ai-INST-1-task_1")] if name == PROSALLY_AI_QUEUE else []
@@ -230,18 +233,18 @@ class TestAnUnregisteredQueueFallsBack(FrappeTestCase):
 			patch(f"{MODULE}.frappe.db.get_value", side_effect=_get_value("unused")),
 			patch(f"{MODULE}.frappe.log_error") as log_error,
 		):
-			self.assertEqual(controller.ai_job_queue("ProsAlly Map"), AI_AGENT_QUEUE)
+			self.assertEqual(ai_jobs.ai_job_queue("ProsAlly Map"), AI_AGENT_QUEUE)
 		self.assertIn(PROSALLY_AI_QUEUE, log_error.call_args.kwargs["message"])
 
 	def test_the_queue_chosen_is_one_frappe_accepts_on_this_site(self):
 		from frappe.utils.background_jobs import validate_queue
 
 		with patch(f"{MODULE}.frappe.db.get_value", side_effect=_get_value("unused")):
-			validate_queue(controller.ai_job_queue("ProsAlly Map"))
+			validate_queue(ai_jobs.ai_job_queue("ProsAlly Map"))
 
 	def test_a_registered_queue_is_still_used(self):
 		with (
 			patch(f"{MODULE}.get_queues_timeout", return_value=REGISTERED),
 			patch(f"{MODULE}.frappe.db.get_value", side_effect=_get_value("unused")),
 		):
-			self.assertEqual(controller.ai_job_queue("ProsAlly Map"), PROSALLY_AI_QUEUE)
+			self.assertEqual(ai_jobs.ai_job_queue("ProsAlly Map"), PROSALLY_AI_QUEUE)

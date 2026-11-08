@@ -48,7 +48,7 @@ _CONFIG_TO_SHAPE = {
 	# WI-001793: memory settings live on the agent, not the diagram. Every value
 	# here is blank-by-default so an unset field falls through to the shape's
 	# older XML copy rather than silently overriding it with a default.
-	# ``long_term_memory`` needs no translation — the dispatcher's _cfg_truthy
+	# ``long_term_memory`` needs no translation: the dispatcher's cfg_truthy
 	# already reads "Enabled" as true and "Disabled" as false.
 	"conversation_store": "aiConversationStore",
 	"long_term_memory": "aiLongTermMemory",
@@ -1134,7 +1134,7 @@ def _start_reprovision(config_name: str) -> bool:
 		return False
 
 	try:
-		from one_bpmn.api.instance_api import start_process
+		from one_bpmn.api.instances import start_process
 
 		start_process(
 			creation_model,
@@ -1152,8 +1152,8 @@ def _start_reprovision(config_name: str) -> bool:
 
 def _start_condition_rejects(creation_model: str, config_name: str) -> str:
 	"""The map's conditional start expression when it is False for this agent, else ""."""
-	from one_bpmn.one_bpmn.engine import json_safe_doc_fields
-	from one_bpmn.one_bpmn.trigger import _get_conditional_start_condition
+	from one_bpmn.processa_engine.engine import json_safe_doc_fields
+	from one_bpmn.processa_engine.triggers import _get_conditional_start_condition
 
 	condition = _get_conditional_start_condition(
 		frappe.db.get_value("BPMN Process Model", creation_model, "bpmn_xml")

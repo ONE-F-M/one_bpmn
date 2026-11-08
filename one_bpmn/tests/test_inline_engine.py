@@ -27,18 +27,18 @@ class TestInlineEngineWiring(FrappeTestCase):
 		return body[: body.index("\ndef ")]
 
 	def test_trigger_start_runs_inline(self):
-		from one_bpmn.one_bpmn import trigger
+		from one_bpmn.processa_engine import triggers
 
-		body = self._func_body(trigger, "def _maybe_start_instance")
+		body = self._func_body(triggers, "def _maybe_start_instance")
 		# The first engine pass runs inline in the save request…
 		self.assertIn("start_queued_instance(instance.name", body)
 		# …with no whole-pass enqueue left.
 		self.assertNotIn("frappe.enqueue", body)
 
 	def test_complete_task_runs_inline(self):
-		from one_bpmn.api import instance_api
+		from one_bpmn.processa_engine.instances import task_actions
 
-		body = self._func_body(instance_api, "def complete_task")
+		body = self._func_body(task_actions, "def complete_task")
 		self.assertIn("_complete_task_job(", body)
 		self.assertNotIn("frappe.enqueue", body)
 		# The response reports the real resulting state.
@@ -47,12 +47,12 @@ class TestInlineEngineWiring(FrappeTestCase):
 
 	def test_no_in_test_branch_at_entry_points(self):
 		# Inline is unconditional — no environment-dependent branching left.
-		from one_bpmn.api import instance_api
-		from one_bpmn.one_bpmn import trigger
+		from one_bpmn.processa_engine.instances import task_actions
+		from one_bpmn.processa_engine import triggers
 
 		for module, func in (
-			(trigger, "def _maybe_start_instance"),
-			(instance_api, "def complete_task"),
+			(triggers, "def _maybe_start_instance"),
+			(task_actions, "def complete_task"),
 		):
 			body = self._func_body(module, func)
 			self.assertNotIn(
@@ -62,22 +62,22 @@ class TestInlineEngineWiring(FrappeTestCase):
 			)
 
 	def test_doc_event_advance_still_inline(self):
-		from one_bpmn.one_bpmn import trigger
+		from one_bpmn.processa_engine import triggers
 
-		body = self._func_body(trigger, "def _advance_instance_on_doc_event")
+		body = self._func_body(triggers, "def _advance_instance_on_doc_event")
 		self.assertNotIn("frappe.enqueue", body)
 		self.assertIn("instance.advance(", body)
 
 	def test_trigger_has_no_queue_call_sites_left(self):
 		# After WI-001496 the seam (bpmn_process_instance.py) and the explicit
 		# start_process_async API are the only bpmn_ai_agent producers.
-		from one_bpmn.one_bpmn import trigger
+		from one_bpmn.processa_engine import triggers
 
-		self.assertNotIn('queue="bpmn_ai_agent"', self._source(trigger))
+		self.assertNotIn('queue="bpmn_ai_agent"', self._source(triggers))
 
 	def test_start_queued_instance_guard_survives(self):
 		# Stranded pre-inline Queued instances must still be startable.
-		from one_bpmn.one_bpmn import trigger
+		from one_bpmn.processa_engine import triggers
 
-		body = self._func_body(trigger, "def start_queued_instance")
+		body = self._func_body(triggers, "def start_queued_instance")
 		self.assertIn('if instance.status != "Queued":', body)

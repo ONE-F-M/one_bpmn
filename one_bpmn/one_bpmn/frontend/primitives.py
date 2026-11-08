@@ -264,7 +264,7 @@ _PROBE = "src/__candidate_probe.js"
 def run_build(files: dict | None = None) -> dict:
 	"""Compile the SPA with ``files`` applied, in a throwaway copy of the tree.
 
-	``files`` maps SPA-relative paths (``src/views/Thing.vue``) to their content.
+	``files`` maps SPA-relative paths (``src/pages/Thing.vue``) to their content.
 
 	TWO THINGS THIS HAS TO GET RIGHT, both learned the hard way:
 
@@ -396,7 +396,7 @@ def open_pr(*, repo: str, base_branch: str, head_branch: str, files: dict,
 	``allowed_owners`` is passed straight through to github_sync so the caller's
 	decision is also enforced at the point of the write, not only before it.
 	"""
-	from one_bpmn.api.github_sync import branch_exists, open_customization_pr
+	from one_bpmn.agents_sandbox.customization.github_sync import branch_exists, open_customization_pr
 
 	token = frappe.get_cached_doc("Processa Settings").get_password("github_token")
 	if not token:

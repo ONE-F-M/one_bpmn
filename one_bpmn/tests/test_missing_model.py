@@ -8,8 +8,8 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import ErrorCode, ExecutorConfig
-from one_bpmn.agents.executor.direct_api import DirectApiExecutor
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorConfig
+from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
 
 
 class TestMissingModel(FrappeTestCase):

@@ -18,9 +18,11 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.compilation import _extract_user_task_config
-from one_bpmn.one_bpmn import engine as bpmn_engine
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance import assignment
+from one_bpmn.processa_engine.compiler.extensions import extract_user_task_config
+from one_bpmn.processa_engine import engine as bpmn_engine
+from one_bpmn.processa_engine import assignment
+from one_bpmn.processa_engine.runtime.active_tasks import sync_active_tasks
+from one_bpmn.processa_engine.runtime.engine_loop import run_engine
 
 _XML = """<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -88,7 +90,7 @@ class TestUserTaskAssignedToATable(FrappeTestCase):
 
 	def _start(self):
 		"""Run the flow up to the User Task and persist the instance."""
-		extensions = _extract_user_task_config(_XML)
+		extensions = extract_user_task_config(_XML)
 		spec_dict, sp_specs = bpmn_engine.parse_bpmn(_XML, "proc_table_field")
 
 		instance = frappe.get_doc({
@@ -107,10 +109,10 @@ class TestUserTaskAssignedToATable(FrappeTestCase):
 
 		wf = bpmn_engine.create_workflow(spec_dict, sp_specs, initial_data={})
 		with patch.object(frappe, "enqueue"):
-			instance._run_engine(wf)
+			run_engine(instance, wf)
 			# The controller's own start order: run, then publish the tasks the
 			# run stopped on. Assignment happens in the second step.
-			instance._sync_active_tasks(wf)
+			sync_active_tasks(instance, wf)
 
 		bpmn_engine.clean_doc_from_wf_data(wf)
 		instance.workflow_state = json.dumps(bpmn_engine.serialize_workflow(wf))
@@ -150,7 +152,7 @@ class TestUserTaskAssignedToATable(FrappeTestCase):
 	def test_everyone_in_the_table_is_notified(self):
 		"""Notify Assignee is a per-task opt-in, and the task belongs to all of
 		them — so each member gets their own email, not just whoever is first."""
-		with patch("one_bpmn.email_builder.composer.frappe.sendmail") as sendmail:
+		with patch("one_bpmn.processa_engine.notifications.composer.frappe.sendmail") as sendmail:
 			self._start()
 
 		recipients = {
@@ -161,7 +163,7 @@ class TestUserTaskAssignedToATable(FrappeTestCase):
 		self.assertEqual(recipients, {USER_A, USER_B})
 
 	def test_the_task_is_pending_for_each_member_and_nobody_else(self):
-		from one_bpmn.api.instance_api import _instances_pending_on
+		from one_bpmn.processa_engine.instances.listing import _instances_pending_on
 
 		instance = self._start()
 
@@ -172,7 +174,7 @@ class TestUserTaskAssignedToATable(FrappeTestCase):
 	def test_any_member_can_complete_it(self):
 		"""The second member, not the first: completion is a membership test,
 		not a match against the head of the list."""
-		from one_bpmn.api.instance_api import complete_task
+		from one_bpmn.api.instances import complete_task
 
 		instance = self._start()
 		task_id = next(r.task_id for r in instance.active_tasks if r.status == "Waiting")
@@ -188,7 +190,7 @@ class TestUserTaskAssignedToATable(FrappeTestCase):
 		self.assertFalse(self._todos(status="Open"))
 
 	def test_a_non_member_is_refused(self):
-		from one_bpmn.api.instance_api import complete_task
+		from one_bpmn.api.instances import complete_task
 
 		instance = self._start()
 		task_id = next(r.task_id for r in instance.active_tasks if r.status == "Waiting")

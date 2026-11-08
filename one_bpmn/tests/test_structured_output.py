@@ -12,12 +12,12 @@ from unittest.mock import MagicMock, patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import ErrorCode, ExecutorConfig, ExecutorContext
-from one_bpmn.agents.executor.direct_api import DirectApiExecutor
-from one_bpmn.agents.llm_provider import structured_output
-from one_bpmn.agents.llm_provider.anthropic_adapter import AnthropicAdapter
-from one_bpmn.agents.llm_provider.base import StepResult, ToolSpec
-from one_bpmn.agents.llm_provider.openai_adapter import OpenAIAdapter
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorConfig, ExecutorContext
+from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
+from one_bpmn.processa_engine.agent_runtime import structured_output
+from one_bpmn.processa_engine.agent_runtime.llm_anthropic import AnthropicAdapter
+from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult, ToolSpec
+from one_bpmn.processa_engine.agent_runtime.llm_openai import OpenAIAdapter
 
 EXAMPLE = json.dumps({"bible_verse": "", "answer": ""})
 GOOD = {"bible_verse": "John 3:16", "answer": "Love."}
@@ -277,7 +277,7 @@ class TestAgentsWithTools(FrappeTestCase):
 			],
 		)
 		fake = _FakeAdapter(replies)
-		with patch("one_bpmn.agents.llm_provider.factory.get_llm_adapter", return_value=fake):
+		with patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter", return_value=fake):
 			result = DirectApiExecutor().run(cfg, ExecutorContext())
 		return result, fake
 

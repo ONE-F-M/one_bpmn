@@ -2,10 +2,10 @@
 
 import frappe
 
-from one_bpmn.one_bpmn.connectors.seed import _import_operation
+from one_bpmn.processa_connectors.seed import import_operation
 
 CONNECTOR = "agent_sandbox"
-HANDLER = "one_bpmn.one_bpmn.connectors.agent_sandbox_ops.dispatch_action"
+HANDLER = "one_bpmn.agents_sandbox.sandbox.ops.dispatch_action"
 
 _SHARED_FIELDS = [
 	{
@@ -13,7 +13,7 @@ _SHARED_FIELDS = [
 		"label": "Target app",
 		"type": "Dropdown",
 		"required": True,
-		"choicesSourcePath": "one_bpmn.one_bpmn.connectors.agent_sandbox_ops.target_app_choices",
+		"choicesSourcePath": "one_bpmn.agents_sandbox.sandbox.ops.target_app_choices",
 		"help": "Which installed app's working tree this action operates on. Must match the same app used across every call for this work order.",
 	},
 	{
@@ -77,4 +77,4 @@ def execute():
 	if not frappe.db.exists("BPMN Connector", CONNECTOR):
 		return
 	for idx, operation in enumerate(OPERATIONS, start=1):
-		_import_operation(CONNECTOR, operation, idx)
+		import_operation(CONNECTOR, operation, idx)

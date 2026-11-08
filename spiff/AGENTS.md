@@ -4,8 +4,8 @@ Rules for `spiff/`: Vue 3, Vite, Composition API, frappe-ui, TailwindCSS and bpm
 
 ## Layout
 
-- `src/views/`: routed pages (`Home.vue`, `Editor.vue`, `InstanceList.vue`, `InstanceDetail.vue`, and the agent pages such as `Runs.vue`, `Evals.vue`, `A2A.vue`). Routes are in `src/router/index.js`.
-- `src/components/`: the editor (`BpmnEditor.vue`, `FormattingToolbar.vue`), dialogs, Logix (`LogixCanvas.vue`, `LogixChat.vue`), ProsAlly (`ProsAllyPanel.vue`) and the shared chat panel under `components/chat/`.
+- `src/pages/`: routed pages (`Processes.vue`, `Process.vue`, `Instances.vue`, `Instance.vue`, and the agent pages such as `Runs.vue`, `Evals.vue`, `A2A.vue`). Routes are in `src/router.js`.
+- `src/components/`: the editor (`BpmnEditor.vue`, `FormattingToolbar.vue`), dialogs, Logix (`LogixCanvas.vue`, `LogixChat.vue`), ProsAlly (`ProsAllyPanel.vue`) and the shared chat panel under `components/Chat/`.
 - `src/composables/`: shared logic, named `use<Name>`.
 - `src/bpmn/`, `src/moddle/`, `src/renderers/`, `src/rules/`, `src/resize/`: bpmn-js extensions. The properties panel is Preact and keeps its shared components in `src/bpmn/shared/`.
 - `src/utils/bpmnLayout.js`: the auto-layout for generated diagrams. `src/linting/bpmnlintrc.js`: the bpmnlint rules.
@@ -25,7 +25,7 @@ Register a bpmn-js module in `additionalModules` and a moddle extension in `modd
 ## frappe-ui and Tailwind
 
 - Every control in a page, dialog, panel or tab is a frappe-ui component (Dialog, Tabs, Button, FormControl, TextInput, Textarea, Select, Checkbox, Switch, Autocomplete, Badge). No native select, input, textarea or hand-styled chip (rule E9).
-- Call the backend with `frappeRequest`, or `createResource` and `createListResource` when you need a reactive resource. The one exception is the streaming chat client `components/chat/aguiClient.js`, which reads Server-Sent Events with `fetch`.
+- Call the backend with `frappeRequest`, or `createResource` and `createListResource` when you need a reactive resource. The one exception is the streaming chat client `utils/aguiClient.js`, which reads Server-Sent Events with `fetch`.
 - Icons are Lucide, from `@iconify-json/lucide` through `@iconify/vue`. No other icon library.
 - Use Tailwind utilities and the tokens in `tailwind.config.cjs`; no hard-coded colours, and `@apply` only for a truly repeated pattern.
 

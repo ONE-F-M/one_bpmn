@@ -134,7 +134,7 @@ def probe_credentials(
 	``OK``, ``NO_PROVIDER``, ``NO_DIALECT``, ``NO_KEY``, ``INVALID_KEY``,
 	``PROVIDER_ERROR`` or ``UNREACHABLE``. Never raises.
 	"""
-	from one_bpmn.agents.executor.direct_api import DirectApiExecutor
+	from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
 
 	provider = (provider or "").strip()
 	if not provider:
@@ -590,7 +590,7 @@ def _deliver(recipients: list[str], subject: str, body: str, model: str) -> list
 
 
 def _send_email(recipients: list[str], subject: str, body: str) -> None:
-	from one_bpmn.email_builder.composer import send_platform_email
+	from one_bpmn.processa_engine.notifications.composer import send_platform_email
 
 	send_platform_email(recipients, subject, body)
 

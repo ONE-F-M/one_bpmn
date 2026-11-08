@@ -179,7 +179,7 @@ def _route_from_classifier():
 
 def _add_shape():
 	"""Put edit_field_property in the free slot of the map's Tools sub-process, then recompile the map."""
-	from one_bpmn.api.compilation import compile_process_model
+	from one_bpmn.api.deploy import compile_process_model
 
 	if not frappe.db.exists("BPMN Process Model", MAP):
 		return

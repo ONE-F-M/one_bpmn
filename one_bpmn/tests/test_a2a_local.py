@@ -385,7 +385,7 @@ class TestLocalDelegationParking(LocalDelegationCase):
 		woken = MagicMock()
 		session = MagicMock()
 		with patch(
-			"one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance._enqueue_a2a_resume",
+			"one_bpmn.processa_engine.runtime.ai_jobs.enqueue_wait_resume",
 			woken,
 		), patch.object(a2a_client, "_session", return_value=session):
 			scheduled_tasks.poll_a2a_tasks()
@@ -413,7 +413,7 @@ class TestLocalDelegationParking(LocalDelegationCase):
 		)
 		woken = MagicMock()
 		with patch(
-			"one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance._enqueue_a2a_resume",
+			"one_bpmn.processa_engine.runtime.ai_jobs.enqueue_wait_resume",
 			woken,
 		):
 			scheduled_tasks.poll_a2a_tasks()

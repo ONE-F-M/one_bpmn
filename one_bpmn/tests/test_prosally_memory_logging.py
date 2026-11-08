@@ -14,7 +14,6 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import prosally_helpers as helpers
 from one_bpmn.agents.memory import writeback
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers as D
 
 TURN = {"memory_process": "Zz Process", "user_text": "yes", "memory_notes": [], "chat_history": []}
 DRAWN = {"intent": "BPMN_MODIFIED", "response": "Drew it."}
@@ -30,7 +29,7 @@ class TestQueueLogsItsDecision(FrappeTestCase):
 		cfg = {"name": "CFG", "ai_model": "m", "ai_provider": "p"}
 		with patch.object(helpers, "prosally_config", return_value=cfg), patch.object(
 			helpers, "_memory_fields", return_value=fields
-		), patch.object(D, "_enqueue_distill") as enqueue, patch.object(frappe, "log_error") as log_error:
+		), patch.object(frappe, "enqueue") as enqueue, patch.object(frappe, "log_error") as log_error:
 			helpers.queue_process_memory(turn, agent_result)
 		return enqueue, log_error
 

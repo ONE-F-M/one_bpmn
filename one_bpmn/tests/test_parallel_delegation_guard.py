@@ -21,12 +21,12 @@ import asyncio
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor.step_loop import (
+from one_bpmn.processa_engine.agent_runtime.step_loop import (
 	_SECOND_HUMAN_RESULT,
 	_SECOND_PAUSE_RESULT,
 	run_agent_loop,
 )
-from one_bpmn.agents.llm_provider.base import ToolSpec
+from one_bpmn.processa_engine.agent_runtime.llm_types import ToolSpec
 from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG, ToolDeferred
 from one_bpmn.one_bpmn.connectors import a2a_client_ops
 

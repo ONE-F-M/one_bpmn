@@ -1,0 +1,202 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-03-19 12:16:44.067162",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "process_model",
+  "parent_instance",
+  "parent_task_id",
+  "status",
+  "engine_in_progress",
+  "waiting_for_ai",
+  "waiting_for_human",
+  "initiated_by",
+  "started_at",
+  "completed_at",
+  "cb_context",
+  "context_doctype",
+  "context_docname",
+  "section_break_uyli",
+  "active_tasks",
+  "section_break_a38t",
+  "serialized_spec",
+  "workflow_state",
+  "buffered_messages"
+ ],
+ "fields": [
+  {
+   "fieldname": "process_model",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Process Model",
+   "options": "BPMN Process Model",
+   "reqd": 1
+  },
+  {
+   "description": "The instance that started this one — an A2A task that delegated to it, or a Call Activity that called it. A called process runs INSIDE its caller's workflow; this row is the caller's own view of that run, so the chain can be walked in both directions.",
+   "fieldname": "parent_instance",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Parent Instance",
+   "options": "BPMN Process Instance",
+   "read_only": 1
+  },
+  {
+   "description": "The caller's Call Activity task that this run belongs to. Identifies WHICH call a row is for, so a process that calls the same sub-process twice — a loop, a retry — gets a row per call rather than one row overwritten by the next.",
+   "fieldname": "parent_task_id",
+   "fieldtype": "Data",
+   "label": "Parent Task",
+   "read_only": 1
+  },
+  {
+   "default": "Active",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Queued\nActive\nCompleted\nErrored\nCancelled\nSuspended"
+  },
+  {
+   "default": "0",
+   "description": "A background engine pass (task dispatch / AI decision) is currently running for this instance",
+   "fieldname": "engine_in_progress",
+   "fieldtype": "Check",
+   "label": "Engine In Progress",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "An AI task in this instance is parked, waiting for its background AI job (Waiting for AI execution)",
+   "fieldname": "waiting_for_ai",
+   "fieldtype": "Check",
+   "label": "Waiting For AI",
+   "read_only": 1
+  },
+  {
+   "description": "A suspended AI Agent Task in this instance is waiting for a person to complete this human task (task name shown to users)",
+   "fieldname": "waiting_for_human",
+   "fieldtype": "Data",
+   "label": "Waiting For Human",
+   "read_only": 1
+  },
+  {
+   "fieldname": "initiated_by",
+   "fieldtype": "Link",
+   "label": "Initiated By",
+   "options": "User"
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At"
+  },
+  {
+   "fieldname": "completed_at",
+   "fieldtype": "Datetime",
+   "label": "Completed At"
+  },
+  {
+   "fieldname": "cb_context",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "context_doctype",
+   "fieldtype": "Link",
+   "label": "Context DocType",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "context_docname",
+   "fieldtype": "Dynamic Link",
+   "label": "Context DocName",
+   "options": "context_doctype"
+  },
+  {
+   "fieldname": "active_tasks",
+   "fieldtype": "Table",
+   "label": "Active Tasks",
+   "options": "BPMN Active Task"
+  },
+  {
+   "fieldname": "section_break_a38t",
+   "fieldtype": "Section Break",
+   "label": "State Data"
+  },
+  {
+   "fieldname": "serialized_spec",
+   "fieldtype": "JSON",
+   "label": "Serialized Spec"
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "JSON",
+   "label": "Workflow State"
+  },
+  {
+   "fieldname": "section_break_uyli",
+   "fieldtype": "Section Break"
+  },
+  {
+   "description": "Messages that arrived while nothing was waiting for them. Delivered when a wait for them starts, dropped after 24 hours.",
+   "fieldname": "buffered_messages",
+   "fieldtype": "JSON",
+   "hidden": 1,
+   "label": "Buffered Messages",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "in_create": 1,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-04-21 15:46:20.383269",
+ "modified_by": "k.sharma@one-fm.com",
+ "module": "Processa Engine",
+ "name": "BPMN Process Instance",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Process Owner",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Employee",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -109,8 +109,8 @@ class TestTheReprovisionGuard(FrappeTestCase):
 				"one_bpmn.agents.agent_config_resolver.get_creation_process_model",
 				return_value="_creation-map",
 			),
-			patch("one_bpmn.one_bpmn.trigger._get_conditional_start_condition", return_value=condition),
-			patch("one_bpmn.api.instance_api.start_process") as start,
+			patch("one_bpmn.processa_engine.triggers._get_conditional_start_condition", return_value=condition),
+			patch("one_bpmn.api.instances.start_process") as start,
 		):
 			started = _start_reprovision(self.agent)
 		return started, start
@@ -129,7 +129,7 @@ class TestTheReprovisionGuard(FrappeTestCase):
 
 class TestAFailedStartIsNotLeftActive(FrappeTestCase):
 	def test_a_map_without_a_compiled_copy_leaves_an_errored_instance(self):
-		from one_bpmn.api.instance_api import start_process
+		from one_bpmn.api.instances import start_process
 
 		model = frappe.get_doc(
 			{

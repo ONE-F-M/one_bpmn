@@ -15,8 +15,8 @@ from frappe.model import no_value_fields
 from frappe.tests.utils import FrappeTestCase
 from frappe.translate import clear_cache
 
-from one_bpmn.api.utils import get_email_fields
-from one_bpmn.email_builder.fields import build_field_rows, build_kick, default_fact_fields
+from one_bpmn.api.lookups import get_email_fields
+from one_bpmn.processa_engine.notifications.fields import build_field_rows, build_kick, default_fact_fields
 from one_bpmn.utils.translation import translate_cached
 
 EMPLOYEE = {

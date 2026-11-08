@@ -49,7 +49,7 @@ def _a2a_task(agent_configuration, work_item=None, pull_request=None):
 	# Inserting an A2A Task starts the specialist's map, which under the test
 	# runner runs inline — a real model, real sandbox pushes. The fixture is a
 	# record to read, not a delegation to run.
-	with patch("one_bpmn.one_bpmn.trigger.on_doc_event"):
+	with patch("one_bpmn.processa_engine.triggers.on_doc_event"):
 		task.insert(ignore_permissions=True)
 	return task.name
 

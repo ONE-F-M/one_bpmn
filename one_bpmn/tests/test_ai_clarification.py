@@ -20,6 +20,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from one_bpmn.agents import clarification
+from one_bpmn.processa_engine.runtime.human_tasks import human_tool_label
 
 
 def _work_item():
@@ -284,20 +285,18 @@ class TestHowTheQuestionAppearsToAPerson(FrappeTestCase):
 			}
 		}
 		task = frappe._dict(task_spec=frappe._dict(bpmn_id="orchestrate", name="orchestrate"))
-		self.assertEqual(
-			instance._human_tool_label(task, "ask_story_owner"), "Ask the story owner"
-		)
+		self.assertEqual(human_tool_label(instance, task, "ask_story_owner"), "Ask the story owner")
 
 	def test_an_unknown_shape_falls_back_rather_than_breaking(self):
 		instance = frappe.get_doc("BPMN Process Instance", frappe.db.get_value("BPMN Process Instance", {}, "name"))
 		instance._service_task_extensions = {"orchestrate": {"aiToolShapes": "[]"}}
 		task = frappe._dict(task_spec=frappe._dict(bpmn_id="orchestrate", name="orchestrate"))
-		self.assertEqual(instance._human_tool_label(task, "whatever"), "")
+		self.assertEqual(human_tool_label(instance, task, "whatever"), "")
 
 	def test_a_question_is_not_offered_as_a_workflow_action(self):
 		"""Two doors to the same task, where one of them loses the answer, is
 		worse than one."""
-		from one_bpmn.api.instance_api import get_active_bpmn_tasks
+		from one_bpmn.api.instances import get_active_bpmn_tasks
 
 		item = _work_item()
 		instance = frappe.get_doc({

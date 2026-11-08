@@ -6,7 +6,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api import instance_api
+from one_bpmn.processa_engine.instances import task_actions
 
 INSTANCE = frappe._dict(context_doctype="Work Item", context_docname="TEST-CONTEXT-0001")
 
@@ -35,7 +35,7 @@ class TestTaskAuthorization(FrappeTestCase):
 
 def _refusal(user, assigned_user="", assigned_role="", super_user=False, roles=(), instance=INSTANCE):
 	row = frappe._dict(assigned_user=assigned_user, assigned_role=assigned_role)
-	with patch.object(instance_api, "_is_bpmn_super_user", return_value=super_user), patch.object(
+	with patch.object(task_actions, "is_bpmn_super_user", return_value=super_user), patch.object(
 		frappe, "get_roles", return_value=list(roles)
 	):
-		return instance_api._task_authorization(instance, row, user)[0]
+		return task_actions._task_authorization(instance, row, user)[0]

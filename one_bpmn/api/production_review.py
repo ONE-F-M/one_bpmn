@@ -111,7 +111,7 @@ def _refs_for_model(model_name: str, ptype: str = "read") -> dict:
 	``ptype`` is the permission required on the model — ``read`` to review,
 	``write`` to sync (mirrors the Deploy/Disable gate).
 	"""
-	from one_bpmn.api.process_map_api import _extract_bpmn_references
+	from one_bpmn.processa_engine.maps.references import extract_bpmn_references
 
 	if not model_name:
 		frappe.throw(_("Process map name is required."))
@@ -120,7 +120,7 @@ def _refs_for_model(model_name: str, ptype: str = "read") -> dict:
 	xml = doc.bpmn_xml or ""
 	if not xml.strip():
 		frappe.throw(_("This process map has no BPMN content to analyse."))
-	return _extract_bpmn_references(xml)
+	return extract_bpmn_references(xml)
 
 
 def _workflow_targets(refs: dict) -> dict:
@@ -302,7 +302,7 @@ def _sync_destination(dt: str) -> str:
 	it folds the change into the DocType's own JSON instead. So the preview
 	announced an override that was never going to be created.
 	"""
-	from one_bpmn.api import doctype_source_sync as source
+	from one_bpmn.agents_sandbox.customization import doctype_source_sync as source
 
 	if source.owned_in_source(dt):
 		return source.source_json_path(dt) or ""
@@ -393,7 +393,7 @@ def review_doctypes(model_name: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def sync_doctypes(model_name: str) -> dict:
 	"""Open a GitHub PR (per owning app) carrying the changed customizations."""
-	from one_bpmn.api.github_sync import open_customization_pr
+	from one_bpmn.agents_sandbox.customization.github_sync import open_customization_pr
 
 	_require_ba_instance()
 	doctypes = _with_fetch_sources(_refs_for_model(model_name, "write").get("doctypes") or [])
@@ -505,8 +505,8 @@ def _customization_pr_files(app: str, dts: list, model_name: str, stamp: str, pr
 	    the shared custom/<dt>.json. Those cannot be built up front.
 	  * ``artefacts``  — every path touched, for the PR body and the API response.
 	"""
-	from one_bpmn.api import doctype_source_sync as source
-	from one_bpmn.api import onefm_customization_codegen as gen
+	from one_bpmn.agents_sandbox.customization import doctype_source_sync as source
+	from one_bpmn.agents_sandbox.customization import customization_codegen as gen
 
 	# Ownership decides the destination. A DocType whose schema is in a
 	# repository we control is edited in its own JSON; overriding our own source
@@ -751,7 +751,7 @@ def snapshot_doctype_schema(doctypes: str) -> dict:
 	return _build_doctype_snapshot(_parse(doctypes) or [])
 
 
-def _app_for_doctype(dt: str) -> str | None:
+def app_for_doctype(dt: str) -> str | None:
 	module = frappe.db.get_value("DocType", dt, "module")
 	if not module:
 		return None
@@ -776,16 +776,16 @@ def _customization_app_for_doctype(dt: str) -> str | None:
 	Falls back to the owning app when nothing is configured, preserving the old
 	behaviour for a site that has not filled the field in.
 	"""
-	owning = _app_for_doctype(dt)
+	owning = app_for_doctype(dt)
 	configured = (frappe.get_cached_value("Processa Settings", None, "customization_app") or "").strip()
 	if not configured:
 		return owning
-	if owning and owning != configured and _same_owner(owning, configured):
+	if owning and owning != configured and same_owner(owning, configured):
 		return owning
 	return configured
 
 
-def _same_owner(app_a: str, app_b: str) -> bool:
+def same_owner(app_a: str, app_b: str) -> bool:
 	"""True when both apps' git remotes sit under the same GitHub owner."""
 	repo_a, repo_b = _repo_for_app(app_a), _repo_for_app(app_b)
 	if not repo_a or not repo_b:
@@ -845,7 +845,7 @@ def _parse_github_repo(url: str) -> str | None:
 # ``_customization_file`` lived here: it built the single customizations JSON that
 # used to be the whole PR, pathed from the DocType's OWNING module. Both halves are
 # gone — the file set now follows the customization app's own convention
-# (onefm_customization_codegen), and the JSON's path comes from
+# (customization_codegen), and the JSON's path comes from
 # ``customization_json_path``, under a module of the app the PR actually targets.
 
 

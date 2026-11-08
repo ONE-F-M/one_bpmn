@@ -20,8 +20,9 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.util.task import TaskState
 
-from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
-from one_bpmn.one_bpmn import engine as bpmn_engine
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
+from one_bpmn.processa_engine import engine as bpmn_engine
+from one_bpmn.processa_engine.runtime.engine_loop import run_engine
 
 test_ignore = ["BPMN Process Model"]
 
@@ -118,7 +119,7 @@ class ParkHarness(FrappeTestCase):
 
 	def _run(self, wf):
 		with patch.object(frappe, "enqueue") as enqueue:
-			self.instance._run_engine(wf)
+			run_engine(self.instance, wf)
 		return enqueue
 
 	@staticmethod
@@ -207,7 +208,7 @@ class TestAiTaskParking(ParkHarness):
 			{"Agent_1": {"serviceType": "ai_agent", "aiProvider": "", "aiUserPrompt": "hi"}},
 		)
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_ok(),
 		):
 			enqueue = self._run(wf)
@@ -249,7 +250,7 @@ class TestParkedAiResume(ParkHarness):
 		_, task_id = self._park_linear()
 
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_ok("all done"),
 		):
 			with patch.object(frappe, "enqueue"):
@@ -262,7 +263,7 @@ class TestParkedAiResume(ParkHarness):
 	def test_resume_is_idempotent_on_redelivery(self):
 		_, task_id = self._park_linear()
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_ok(),
 		) as run:
 			with patch.object(frappe, "enqueue"):
@@ -276,7 +277,7 @@ class TestParkedAiResume(ParkHarness):
 	def test_resume_unknown_task_is_noop(self):
 		self._park_linear()
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run"
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run"
 		) as run:
 			self.instance.resume_parked_ai(
 				kind="service_task", task_id="00000000-0000-0000-0000-000000000000"
@@ -286,7 +287,7 @@ class TestParkedAiResume(ParkHarness):
 
 class TestSelectorDecisionParking(ParkHarness):
 	def _decider(self, sp_name="Adhoc_1"):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.ai_task_selector import (
+		from one_bpmn.processa_engine.task_selector import (
 			make_adhoc_decider,
 		)
 
@@ -300,7 +301,7 @@ class TestSelectorDecisionParking(ParkHarness):
 	def test_selector_decision_parks_instead_of_calling_llm(self):
 		decider, sp = self._decider()
 		with patch(
-			"one_bpmn.one_bpmn.doctype.bpmn_process_instance.ai_task_selector"
+			"one_bpmn.processa_engine.task_selector"
 			".dispatch_ai_task_selector"
 		) as dispatch:
 			chosen = decider(sp, [frappe._dict(task_spec=frappe._dict(name="t1"))])
@@ -312,7 +313,7 @@ class TestSelectorDecisionParking(ParkHarness):
 		decider, sp = self._decider()
 		frappe.flags.bpmn_ai_resume_target = "Adhoc_1"
 		with patch(
-			"one_bpmn.one_bpmn.doctype.bpmn_process_instance.ai_task_selector"
+			"one_bpmn.processa_engine.task_selector"
 			".dispatch_ai_task_selector",
 			return_value=("idle", None, None),
 		) as dispatch:

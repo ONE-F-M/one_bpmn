@@ -16,9 +16,9 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import ExecutorConfig
-from one_bpmn.agents.executor.step_loop import run_agent_loop
-from one_bpmn.agents.executor.tool_bounds import (
+from one_bpmn.processa_engine.agent_runtime.executor import ExecutorConfig
+from one_bpmn.processa_engine.agent_runtime.step_loop import run_agent_loop
+from one_bpmn.processa_engine.agent_runtime.tool_bounds import (
 	DEFAULT_TOOL_RESULT_MAX_CHARS,
 	MIN_TOOL_RESULT_MAX_CHARS,
 	bound_tool_result,
@@ -26,7 +26,7 @@ from one_bpmn.agents.executor.tool_bounds import (
 	truncation_trailer,
 	validate_tool_arguments,
 )
-from one_bpmn.agents.llm_provider.base import CompletionResult, StepResult, StepToolCall, ToolSpec
+from one_bpmn.processa_engine.agent_runtime.llm_types import CompletionResult, StepResult, StepToolCall, ToolSpec
 from one_bpmn.tests.test_ai_step_loop import FakeStepAdapter
 
 
@@ -255,7 +255,7 @@ class TestCapPlumbing(FrappeTestCase):
 		self.assertEqual(ExecutorConfig(tool_result_max_chars=1234).tool_result_max_chars, 1234)
 
 	def test_direct_api_hands_the_cap_to_the_loop(self):
-		from one_bpmn.agents.executor.direct_api import DirectApiExecutor
+		from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
 
 		seen = {}
 
@@ -264,8 +264,8 @@ class TestCapPlumbing(FrappeTestCase):
 			return CompletionResult(text="ok", trace=[]), None
 
 		config = ExecutorConfig(tools=[_tool()], tool_result_max_chars=777, max_tool_calls=3)
-		with patch("one_bpmn.agents.executor.step_loop.run_agent_loop", fake_loop), \
-			patch("one_bpmn.agents.llm_provider.factory.get_llm_adapter", return_value=object()):
+		with patch("one_bpmn.processa_engine.agent_runtime.step_loop.run_agent_loop", fake_loop), \
+			patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter", return_value=object()):
 			DirectApiExecutor()._run_with_tools(config, "Anthropic", "sk-test", "claude-x")
 		self.assertEqual(seen.get("tool_result_max_chars"), 777)
 

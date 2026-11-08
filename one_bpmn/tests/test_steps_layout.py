@@ -8,13 +8,13 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.translate import clear_cache
 
-from one_bpmn.email_builder import composer
-from one_bpmn.email_builder.renderer import render_layout_amp, render_layout_html
+from one_bpmn.processa_engine.notifications import composer
+from one_bpmn.processa_engine.notifications.renderer import render_layout_amp, render_layout_html
 from one_bpmn.tests.test_amp_validation import _validate_amp4email
 from one_bpmn.tests.test_decision_card import _card_ctx
 
 STATUS_URL = (
-	"https://erp.example.com/api/method/one_bpmn.api.todo_actions.get_amp_task_status?status_token=abc"
+	"https://erp.example.com/api/method/one_bpmn.api.email_actions.get_amp_task_status?status_token=abc"
 )
 
 
@@ -34,17 +34,17 @@ class TestStepsLayout(FrappeTestCase):
 		clear_cache()
 
 	def test_steps_is_sent_with_the_card_context_and_actions(self):
-		self.assertTrue(composer._sends_decision_card({"notifyLayout": "steps", "notifyAssigneeBody": "x"}))
-		self.assertFalse(composer._sends_decision_card({"notifyLayout": "html"}))
+		self.assertTrue(composer.sends_decision_card({"notifyLayout": "steps", "notifyAssigneeBody": "x"}))
+		self.assertFalse(composer.sends_decision_card({"notifyLayout": "html"}))
 
 		instance = frappe._dict(
 			name="INST-S", doctype="BPMN Process Instance", context_doctype="", context_docname=""
 		)
 		with (
 			patch.object(composer, "_build_layout_actions", return_value=[]),
-			patch("one_bpmn.email_builder.fields.build_kick", return_value={"en": "k", "ar": "k"}),
+			patch("one_bpmn.processa_engine.notifications.fields.build_kick", return_value={"en": "k", "ar": "k"}),
 		):
-			ctx = composer._build_layout_context(
+			ctx = composer.build_layout_context(
 				instance, "a@x.com", "Review", "t", "review", {"notifyLayout": "steps"}
 			)
 		self.assertEqual(ctx["layout"], "steps")

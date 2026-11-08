@@ -8,8 +8,8 @@ from __future__ import annotations
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import ExecutorConfig
-from one_bpmn.agents.executor.direct_api import DirectApiExecutor, _supports_temperature
+from one_bpmn.processa_engine.agent_runtime.executor import ExecutorConfig
+from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor, supports_temperature
 
 
 def _model(name: str, support: int) -> str:
@@ -63,5 +63,5 @@ class TestAnthropicSamplingParams(FrappeTestCase):
 		self.assertNotIn("top_p", payload)
 
 	def test_an_unknown_or_missing_model_gets_neither(self):
-		self.assertFalse(_supports_temperature("_no-such-model"))
-		self.assertFalse(_supports_temperature(None))
+		self.assertFalse(supports_temperature("_no-such-model"))
+		self.assertFalse(supports_temperature(None))

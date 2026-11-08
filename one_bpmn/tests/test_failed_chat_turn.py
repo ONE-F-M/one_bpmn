@@ -10,7 +10,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 from one_bpmn.one_bpmn.patches.v1_0 import chat_agents_name_the_failure_reason as reason_fix
 from one_bpmn.one_bpmn.patches.v1_0 import chat_agents_post_failed_turn_error as fix
 
@@ -20,7 +20,7 @@ TURN_ONE_REPLY = "Here is the leave approval diagram you asked for."
 # ProsAlly Save Response as it runs on the BA site, before the patch.
 PROSALLY_SAVE_RESPONSE = """import json
 conversation_id = task_data.get("conversation_id", context_docname)
-from one_bpmn.agents.turn_state import get_turn, clear_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, clear_turn
 _turn = get_turn(conversation_id)
 _out = _turn.get("output") if isinstance(_turn, dict) else None
 
@@ -85,13 +85,13 @@ class TurnFixture(FrappeTestCase):
 		}
 
 	def _dispatch(self, result: ExecutorResult, refusal: str | None = None):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.dispatch import ai_agent
 
 		with (
 			patch("one_bpmn.agents.model_health.refuse_new_run", return_value=refusal),
-			patch("one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", return_value=result),
+			patch("one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run", return_value=result),
 		):
-			dispatchers.dispatch_ai_agent(self.instance, self.task, self.task_cfg, BPMN_ID)
+			ai_agent.dispatch_ai_agent(self.instance, self.task, self.task_cfg, BPMN_ID)
 
 
 class TestAFailedTurnBlanksTheOutput(TurnFixture):

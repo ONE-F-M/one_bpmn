@@ -22,8 +22,8 @@ from frappe import _
 
 from one_bpmn.agents import a2a_contract
 from one_bpmn.agents.a2a.protocol import log_validation_failure
-from one_bpmn.one_bpmn.connectors.http_ops import _assert_host_allowed
-from one_bpmn.one_bpmn.integrations.retry import call_with_retry
+from one_bpmn.processa_connectors.operations.http import assert_host_allowed
+from one_bpmn.processa_connectors.retry import call_with_retry
 
 CARD_PATHS = ("/.well-known/agent-card.json", "/.well-known/agent.json")
 
@@ -68,7 +68,7 @@ def fetch_agent_card(agent) -> dict:
 	for path in CARD_PATHS:
 		url = f"{base}{path}"
 		try:
-			_assert_host_allowed(url, allow_internal=bool(doc.allow_internal_hosts))
+			assert_host_allowed(url, allow_internal=bool(doc.allow_internal_hosts))
 			response = call_with_retry(
 				_session().get, url, timeout=doc.request_timeout or 30, headers=_headers(doc)
 			)
@@ -146,7 +146,7 @@ def set_push_config(agent, remote_task_id: str, url: str, token: str) -> dict:
 def _rpc(agent, method: str, params: dict) -> dict:
 	doc = require_approved(agent)
 	url = (doc.endpoint_url or "").rstrip("/")
-	_assert_host_allowed(url, allow_internal=bool(doc.allow_internal_hosts))
+	assert_host_allowed(url, allow_internal=bool(doc.allow_internal_hosts))
 
 	envelope = {"jsonrpc": "2.0", "id": str(uuid.uuid4()), "method": method, "params": params}
 	response = call_with_retry(

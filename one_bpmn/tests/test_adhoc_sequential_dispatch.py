@@ -18,7 +18,7 @@ from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
 from SpiffWorkflow.util.task import TaskState
 
-from one_bpmn.one_bpmn import engine
+from one_bpmn.processa_engine import engine
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -46,7 +46,7 @@ def _states(sp):
 
 def _drive(wf, did_complete_task=None, did_complete_adhoc_task=None):
 	"""
-	Mimic BPMNProcessInstance._run_engine's pass structure: gated engine
+	Mimic runtime.engine_loop.run_engine's pass structure: gated engine
 	steps, then complete non-manual STARTED tasks (script/service tasks end
 	up STARTED because FrappeScriptEngine.execute returns None), repeat.
 	"""
@@ -353,7 +353,7 @@ ADHOC_USER_TASK_MODEL_XML = """<?xml version="1.0" encoding="UTF-8"?>
 
 class TestAdhocInstanceLifecycle(FrappeTestCase):
 	"""Instance-level (doctype) coverage: the engine-level tests above drive
-	the gate directly, which let a bug in BPMNProcessInstance._run_engine_inner
+	the gate directly, which let a bug in runtime.engine_loop.run_engine_inner
 	slip through — its STARTED-dispatch loop force-completed the ad-hoc
 	subprocess PARENT task (STARTED while inner work runs), running the
 	process to the End Event while inner user tasks were still pending."""
@@ -361,7 +361,7 @@ class TestAdhocInstanceLifecycle(FrappeTestCase):
 	def _start_instance(self):
 		import frappe
 
-		from one_bpmn.api.compilation import compile_process_model
+		from one_bpmn.api.deploy import compile_process_model
 
 		process = frappe.get_doc({
 			"doctype": "Process",
@@ -445,7 +445,7 @@ class TestSendTaskDispatch(FrappeTestCase):
 	def _start_instance(self, notification_name):
 		import frappe
 
-		from one_bpmn.api.compilation import compile_process_model
+		from one_bpmn.api.deploy import compile_process_model
 
 		process = frappe.get_doc({
 			"doctype": "Process",
@@ -578,12 +578,12 @@ class TestDeciderChoosesEntryTask(FrappeTestCase):
 	covered by test_single_task_active_at_entry above."""
 
 	def tearDown(self):
-		engine.adhoc_next_task_decider = None
+		engine.adhoc.adhoc_next_task_decider = None
 		super().tearDown()
 
 	def test_decider_picks_the_entry_task(self):
 		wf = _build("adhoc_sequential.bpmn", "Process_AdhocSequential")
-		engine.adhoc_next_task_decider = lambda sp, pending: next(
+		engine.adhoc.adhoc_next_task_decider = lambda sp, pending: next(
 			t for t in pending if t.task_spec.name == "task_c"
 		)
 		_drive(wf)
@@ -595,7 +595,7 @@ class TestDeciderChoosesEntryTask(FrappeTestCase):
 
 	def test_decider_no_activation_parks_everything_at_entry(self):
 		wf = _build("adhoc_sequential.bpmn", "Process_AdhocSequential")
-		engine.adhoc_next_task_decider = lambda sp, pending: engine.NO_ACTIVATION
+		engine.adhoc.adhoc_next_task_decider = lambda sp, pending: engine.NO_ACTIVATION
 		_drive(wf)
 
 		states = _states(_adhoc(wf))

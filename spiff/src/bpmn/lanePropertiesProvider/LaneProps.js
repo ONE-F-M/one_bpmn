@@ -1,7 +1,7 @@
 import { h } from "preact";
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
-import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
+import { RecordPickerField } from "../shared/RecordPickerField";
 import { frappeGet } from "../shared/frappeResource";
 
 export function LaneProps(props) {
@@ -41,7 +41,7 @@ function LaneRoleComponent(props) {
 		});
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		label: translate("Role"),
 		value,

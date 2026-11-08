@@ -11,9 +11,10 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.turn_state import clear_turn, get_turn, set_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import docu_writes_list_view_scripts as fix
 from one_bpmn.one_bpmn.patches.v1_0.chat_agents_post_failed_turn_error import apply_edit
+from one_bpmn.tests.site_scripts import as_deployed
 
 CONVERSATION = "_test_docu_list_view_script"
 SCRIPT = 'frappe.listview_settings["Note"] = { add_fields: ["public"], hide_name_column: true };'
@@ -51,10 +52,10 @@ def _run_stage(message, reply=None, pending=None, doctype="Note"):
 	set_turn(CONVERSATION, {"user_text": message, "doctype": doctype, "session_state": state})
 	recorded = []
 	with (
-		patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=_Adapter(reply or {})),
+		patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=_Adapter(reply or {})),
 		patch("one_bpmn.agents.memory.session_state.record", side_effect=lambda _c, values: recorded.append(values)),
 	):
-		exec(fix.WRITE_SCRIPT_BODY, {"frappe": frappe, "context_docname": CONVERSATION, "result": {}})
+		exec(as_deployed(fix.WRITE_SCRIPT_BODY), {"frappe": frappe, "context_docname": CONVERSATION, "result": {}})
 	return get_turn(CONVERSATION)["output"], recorded
 
 

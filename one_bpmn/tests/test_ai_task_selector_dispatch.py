@@ -12,8 +12,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.util.task import TaskState
 
-from one_bpmn.one_bpmn import engine
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance import ai_task_selector
+from one_bpmn.processa_engine import engine
+from one_bpmn.processa_engine import task_selector
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -29,7 +29,7 @@ SELECTOR_CFG = {
 
 def _bridge_available() -> bool:
 	"""ExecutorConfig.tools ships on WI-001356; resolve_tool_pool on WI-001353."""
-	from one_bpmn.agents.executor import ExecutorConfig
+	from one_bpmn.processa_engine.agent_runtime.executor import ExecutorConfig
 
 	try:
 		import one_bpmn.agents.tool_pool
@@ -75,8 +75,8 @@ class _FakeExecutor:
 	def run(self, config, context):
 		from dataclasses import asdict
 
-		from one_bpmn.agents.executor import ExecutorResult, TokenUsage
-		from one_bpmn.agents.llm_provider.base import ToolCallRecord, TurnRecord
+		from one_bpmn.processa_engine.agent_runtime.executor import ExecutorResult, TokenUsage
+		from one_bpmn.processa_engine.agent_runtime.llm_types import ToolCallRecord, TurnRecord
 
 		if _FakeExecutor.result_factory is not None:
 			return _FakeExecutor.result_factory(config, context)
@@ -98,7 +98,7 @@ class TestSelectNextAdhocTaskHook(FrappeTestCase):
 	"""engine.select_next_adhoc_task — self-contained on this branch."""
 
 	def tearDown(self):
-		engine.adhoc_next_task_decider = None
+		engine.adhoc.adhoc_next_task_decider = None
 		super().tearDown()
 
 	def test_no_decider_falls_back_to_diagram_order(self):
@@ -107,17 +107,17 @@ class TestSelectNextAdhocTaskHook(FrappeTestCase):
 
 	def test_decider_choice_wins(self):
 		pending = [SimpleNamespace(name="a"), SimpleNamespace(name="b")]
-		engine.adhoc_next_task_decider = lambda sp, p: p[1]
+		engine.adhoc.adhoc_next_task_decider = lambda sp, p: p[1]
 		self.assertIs(engine.select_next_adhoc_task(None, pending), pending[1])
 
 	def test_decider_none_falls_back_to_diagram_order(self):
 		pending = [SimpleNamespace(name="a")]
-		engine.adhoc_next_task_decider = lambda sp, p: None
+		engine.adhoc.adhoc_next_task_decider = lambda sp, p: None
 		self.assertIs(engine.select_next_adhoc_task(None, pending), pending[0])
 
 	def test_no_activation_promotes_nothing(self):
 		pending = [SimpleNamespace(name="a")]
-		engine.adhoc_next_task_decider = lambda sp, p: engine.NO_ACTIVATION
+		engine.adhoc.adhoc_next_task_decider = lambda sp, p: engine.NO_ACTIVATION
 		self.assertIsNone(engine.select_next_adhoc_task(None, pending))
 
 	def test_decider_exception_is_fail_safe(self):
@@ -126,7 +126,7 @@ class TestSelectNextAdhocTaskHook(FrappeTestCase):
 		def broken(sp, p):
 			raise RuntimeError("kaboom")
 
-		engine.adhoc_next_task_decider = broken
+		engine.adhoc.adhoc_next_task_decider = broken
 		# Never silently auto-runs a task the selector was meant to choose.
 		self.assertIsNone(engine.select_next_adhoc_task(None, pending))
 
@@ -139,7 +139,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 		_FakeExecutor.scripted_calls = []
 		_FakeExecutor.result_factory = None
 		self._patch = patch(
-			"one_bpmn.agents.executor.get_executor", return_value=_FakeExecutor
+			"one_bpmn.processa_engine.agent_runtime.executor.get_executor", return_value=_FakeExecutor
 		)
 		self._patch.start()
 
@@ -154,13 +154,13 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 		captured = {}
 
 		def factory(config, context):
-			from one_bpmn.agents.executor import ExecutorResult, TokenUsage
+			from one_bpmn.processa_engine.agent_runtime.executor import ExecutorResult, TokenUsage
 
 			captured["user_prompt"] = config.user_prompt
 			return ExecutorResult(output="", token_usage=TokenUsage(), trace=[])
 
 		_FakeExecutor.result_factory = factory
-		ai_task_selector.dispatch_ai_task_selector(
+		task_selector.dispatch_ai_task_selector(
 			_instance(), sp, dict(SELECTOR_CFG), "AdhocSub_1"
 		)
 		# The engine appends the standing idle-guard line to every prompt.
@@ -172,13 +172,13 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 		captured = {}
 
 		def factory(config, context):
-			from one_bpmn.agents.executor import ExecutorResult, TokenUsage
+			from one_bpmn.processa_engine.agent_runtime.executor import ExecutorResult, TokenUsage
 
 			captured["sampling"] = (config.temperature, config.top_p)
 			return ExecutorResult(output="", token_usage=TokenUsage(), trace=[])
 
 		_FakeExecutor.result_factory = factory
-		ai_task_selector.dispatch_ai_task_selector(
+		task_selector.dispatch_ai_task_selector(
 			_instance(), sp, {**SELECTOR_CFG, "aiTemperature": "0.4", "aiTopP": "0.8"}, "AdhocSub_1"
 		)
 		self.assertEqual(captured["sampling"], (0.4, 0.8))
@@ -188,7 +188,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 		captured = {}
 
 		def factory(config, context):
-			from one_bpmn.agents.executor import ExecutorResult, TokenUsage
+			from one_bpmn.processa_engine.agent_runtime.executor import ExecutorResult, TokenUsage
 
 			captured["controls"] = (
 				config.tool_choice,
@@ -206,7 +206,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 			"aiThinkingBudgetTokens": "2048",
 			"aiTerminalTools": "task_b",
 		}
-		ai_task_selector.dispatch_ai_task_selector(_instance(), sp, cfg, "AdhocSub_1")
+		task_selector.dispatch_ai_task_selector(_instance(), sp, cfg, "AdhocSub_1")
 		self.assertEqual(captured["controls"], ("required", False, 2048, ["finalize", "task_b"]))
 
 	# ── Scenario 2: diagram-task selection → activation, args merged ──
@@ -215,7 +215,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 		sp, _ = _adhoc_subworkflow()
 		_FakeExecutor.scripted_calls = [("task_b", {"note": "chosen"})]
 
-		action, chosen, args = ai_task_selector.dispatch_ai_task_selector(
+		action, chosen, args = task_selector.dispatch_ai_task_selector(
 			_instance(), sp, dict(SELECTOR_CFG), "AdhocSub_1"
 		)
 		self.assertEqual(action, "activate")
@@ -225,7 +225,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 	def test_only_first_selection_wins(self):
 		sp, _ = _adhoc_subworkflow()
 		_FakeExecutor.scripted_calls = [("task_b", {}), ("task_c", {})]
-		action, chosen, _ = ai_task_selector.dispatch_ai_task_selector(
+		action, chosen, _ = task_selector.dispatch_ai_task_selector(
 			_instance(), sp, dict(SELECTOR_CFG), "AdhocSub_1"
 		)
 		self.assertEqual((action, chosen), ("activate", "task_b"))
@@ -236,7 +236,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 		sp, _ = _adhoc_subworkflow()
 		_FakeExecutor.scripted_calls = [("no_such_tool", {})]
 		with patch.object(frappe, "log_error") as log_error:
-			action, _, _ = ai_task_selector.dispatch_ai_task_selector(
+			action, _, _ = task_selector.dispatch_ai_task_selector(
 				_instance(), sp, dict(SELECTOR_CFG), "AdhocSub_1"
 			)
 		self.assertEqual(action, "idle")
@@ -249,7 +249,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 		sp, _ = _adhoc_subworkflow()
 
 		def factory(config, context):
-			from one_bpmn.agents.executor import ErrorCode, ExecutorResult
+			from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult
 
 			return ExecutorResult(
 				error_code=ErrorCode.FAILED_MODEL_CALL, error_message="boom"
@@ -257,7 +257,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 
 		_FakeExecutor.result_factory = factory
 		with patch.object(frappe, "log_error"):
-			action, _, _ = ai_task_selector.dispatch_ai_task_selector(
+			action, _, _ = task_selector.dispatch_ai_task_selector(
 				_instance(), sp, dict(SELECTOR_CFG), "AdhocSub_1"
 			)
 		self.assertEqual(action, "error")
@@ -269,10 +269,10 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 	def test_decider_maps_choice_to_pending_task(self):
 		sp, heads = _adhoc_subworkflow()
 		instance = _instance()
-		decider = ai_task_selector.make_adhoc_decider(instance, None)
+		decider = task_selector.make_adhoc_decider(instance, None)
 
 		with patch.object(
-			ai_task_selector,
+			task_selector,
 			"dispatch_ai_task_selector",
 			return_value=("activate", "task_b", {"x": 1}),
 		):
@@ -282,15 +282,15 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 
 	def test_decider_idle_returns_no_activation(self):
 		sp, heads = _adhoc_subworkflow()
-		decider = ai_task_selector.make_adhoc_decider(_instance(), None)
+		decider = task_selector.make_adhoc_decider(_instance(), None)
 		with patch.object(
-			ai_task_selector, "dispatch_ai_task_selector", return_value=("idle", None, None)
+			task_selector, "dispatch_ai_task_selector", return_value=("idle", None, None)
 		):
 			self.assertIs(decider(sp, heads), engine.NO_ACTIVATION)
 
 	def test_decider_ignores_non_selector_subprocesses(self):
 		sp, heads = _adhoc_subworkflow()
-		decider = ai_task_selector.make_adhoc_decider(_instance(extensions={}), None)
+		decider = task_selector.make_adhoc_decider(_instance(extensions={}), None)
 		self.assertIsNone(decider(sp, heads))
 
 
@@ -306,7 +306,7 @@ class TestCompletedTasksNotOffered(FrappeTestCase):
 		_FakeExecutor.scripted_calls = []
 		_FakeExecutor.result_factory = None
 		self._patch = patch(
-			"one_bpmn.agents.executor.get_executor", return_value=_FakeExecutor
+			"one_bpmn.processa_engine.agent_runtime.executor.get_executor", return_value=_FakeExecutor
 		)
 		self._patch.start()
 
@@ -327,14 +327,14 @@ class TestCompletedTasksNotOffered(FrappeTestCase):
 		captured = {}
 
 		def factory(config, context):
-			from one_bpmn.agents.executor import ExecutorResult, TokenUsage
+			from one_bpmn.processa_engine.agent_runtime.executor import ExecutorResult, TokenUsage
 
 			captured["tools"] = [t.name for t in (config.tools or [])]
 			captured["user_prompt"] = config.user_prompt
 			return ExecutorResult(output="", token_usage=TokenUsage(), trace=[])
 
 		_FakeExecutor.result_factory = factory
-		ai_task_selector.dispatch_ai_task_selector(
+		task_selector.dispatch_ai_task_selector(
 			_instance(), sp, dict(SELECTOR_CFG), "AdhocSub_1"
 		)
 
@@ -364,7 +364,7 @@ class TestPerToolResultVariables(FrappeTestCase):
 				],
 			}],
 		)
-		ai_task_selector._record_tool_outcomes(sp, "Triage", result)
+		task_selector._record_tool_outcomes(sp, "Triage", result)
 
 		self.assertEqual(sp.data["check_sales_order_toolCallResult"], '{"is_sales": 1}')
 		self.assertEqual(sp.data["send_ticket_email_toolCallResult"], '{"sent": 1}')
@@ -405,7 +405,7 @@ class TestSelectorWaitsForChainedDispatch(FrappeTestCase):
 	dispatch loop — the decision would see stale document state."""
 
 	def tearDown(self):
-		engine.adhoc_next_task_decider = None
+		engine.adhoc.adhoc_next_task_decider = None
 		super().tearDown()
 
 	def test_no_promotion_while_continuation_started(self):
@@ -415,7 +415,7 @@ class TestSelectorWaitsForChainedDispatch(FrappeTestCase):
 		sp = next(iter(wf.subprocesses.values()))
 
 		consults = []
-		engine.adhoc_next_task_decider = lambda s, pending: consults.append(
+		engine.adhoc.adhoc_next_task_decider = lambda s, pending: consults.append(
 			[t.task_spec.name for t in pending]
 		) or None
 
@@ -457,7 +457,7 @@ class TestIdleDoesNotFinalizeRun(FrappeTestCase):
 		_FakeExecutor.scripted_calls = []
 		_FakeExecutor.result_factory = None
 		self._patch = patch(
-			"one_bpmn.agents.executor.get_executor", return_value=_FakeExecutor
+			"one_bpmn.processa_engine.agent_runtime.executor.get_executor", return_value=_FakeExecutor
 		)
 		self._patch.start()
 
@@ -480,7 +480,7 @@ class TestIdleDoesNotFinalizeRun(FrappeTestCase):
 		)
 		_FakeExecutor.scripted_calls = []  # idle: no tool calls
 
-		action, _, _ = ai_task_selector.dispatch_ai_task_selector(
+		action, _, _ = task_selector.dispatch_ai_task_selector(
 			instance, sp, dict(SELECTOR_CFG), "AdhocSub_1"
 		)
 		self.assertEqual(action, "idle")
@@ -513,7 +513,7 @@ class TestIdleGuardInPrompt(FrappeTestCase):
 		_FakeExecutor.scripted_calls = []
 		_FakeExecutor.result_factory = None
 		self._patch = patch(
-			"one_bpmn.agents.executor.get_executor", return_value=_FakeExecutor
+			"one_bpmn.processa_engine.agent_runtime.executor.get_executor", return_value=_FakeExecutor
 		)
 		self._patch.start()
 
@@ -526,13 +526,13 @@ class TestIdleGuardInPrompt(FrappeTestCase):
 		captured = {}
 
 		def factory(config, context):
-			from one_bpmn.agents.executor import ExecutorResult, TokenUsage
+			from one_bpmn.processa_engine.agent_runtime.executor import ExecutorResult, TokenUsage
 
 			captured["user_prompt"] = config.user_prompt
 			return ExecutorResult(output="", token_usage=TokenUsage(), trace=[])
 
 		_FakeExecutor.result_factory = factory
-		ai_task_selector.dispatch_ai_task_selector(
+		task_selector.dispatch_ai_task_selector(
 			_instance(), sp, dict(SELECTOR_CFG), "AdhocSub_1"
 		)
 		self.assertIn(

@@ -20,11 +20,9 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.util.task import TaskState
 
-from one_bpmn.one_bpmn import engine as bpmn_engine
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
-	BPMNProcessInstance,
-	run_parked_ai_task,
-)
+from one_bpmn.processa_engine import engine as bpmn_engine
+from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import BPMNProcessInstance
+from one_bpmn.processa_engine.runtime.ai_jobs import run_parked_ai_task
 from one_bpmn.tests.test_ai_job_executor import JobHarness, _executor_with_tools
 
 test_ignore = ["BPMN Process Model"]
@@ -113,7 +111,7 @@ class TestSplitEndToEnd(SplitE2eHarness):
 		# Persist the parked state, then the AI-only job runs.
 		self._persist(wf, self.instance._service_task_extensions)
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_with_tools(),
 		):
 			with patch.object(frappe, "enqueue"):
@@ -143,7 +141,7 @@ class TestSplitEndToEnd(SplitE2eHarness):
 		self.assertEqual(runs, ["Success"])
 
 	def test_action_rejected_while_ai_executes_accepted_while_waiting(self):
-		from one_bpmn.api.instance_api import complete_task
+		from one_bpmn.api.instances import complete_task
 
 		wf, enqueue = self._start_uat(route="ai")
 		self._persist(wf, self.instance._service_task_extensions)
@@ -170,7 +168,7 @@ class TestSplitEndToEnd(SplitE2eHarness):
 		self.assertIn("processing", observed["error"].lower())
 
 	def test_forced_failure_retries_then_errors_then_manual_retry_recovers(self):
-		from one_bpmn.api.instance_api import retry_ai_task
+		from one_bpmn.api.instances import retry_ai_task
 
 		wf, enqueue = self._start_uat(route="ai")
 		self._persist(wf, self.instance._service_task_extensions)
@@ -210,7 +208,7 @@ class TestSplitEndToEnd(SplitE2eHarness):
 		with patch.object(frappe, "enqueue"):
 			retry_ai_task(self.instance.name, task_id, "service_task")
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_with_tools(),
 		):
 			with patch.object(frappe, "enqueue"):

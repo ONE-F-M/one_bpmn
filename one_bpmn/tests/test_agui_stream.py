@@ -324,7 +324,7 @@ class TestBpmnMapResumeRearm(FrappeTestCase):
 		config = {"agent_id": "x", "name": "X", "process_model": "X — Chat"}
 		with (
 			patch("one_bpmn.api.server_script_api.delegate_chat_turn", side_effect=fake_delegate),
-			patch("one_bpmn.one_bpmn.trigger._maybe_start_instance", side_effect=rearm) as spawn,
+			patch("one_bpmn.processa_engine.triggers._maybe_start_instance", side_effect=rearm) as spawn,
 			patch("frappe.get_doc", return_value=object()),
 			patch("frappe.log_error"),
 		):
@@ -685,7 +685,7 @@ class TestStepLoopToolEventCallback(FrappeTestCase):
 	def _run(self, adapter, tools, on_tool_event):
 		import asyncio
 
-		from one_bpmn.agents.executor.step_loop import run_agent_loop
+		from one_bpmn.processa_engine.agent_runtime.step_loop import run_agent_loop
 
 		return asyncio.run(
 			run_agent_loop(
@@ -700,7 +700,7 @@ class TestStepLoopToolEventCallback(FrappeTestCase):
 		)
 
 	def test_start_then_end_fire_around_a_successful_tool_call(self):
-		from one_bpmn.agents.llm_provider.base import StepResult, StepToolCall, ToolSpec
+		from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall, ToolSpec
 
 		events = []
 		adapter = _FakeStepAdapter([
@@ -719,7 +719,7 @@ class TestStepLoopToolEventCallback(FrappeTestCase):
 		self.assertEqual(events, [("start", "lookup"), ("end", "lookup")])
 
 	def test_end_fires_even_when_the_tool_raises(self):
-		from one_bpmn.agents.llm_provider.base import StepResult, StepToolCall, ToolSpec
+		from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall, ToolSpec
 
 		events = []
 
@@ -741,7 +741,7 @@ class TestStepLoopToolEventCallback(FrappeTestCase):
 		self.assertEqual(events, [("start", "breaker"), ("end", "breaker")])
 
 	def test_no_events_for_a_turn_with_no_tool_calls(self):
-		from one_bpmn.agents.llm_provider.base import StepResult
+		from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult
 
 		events = []
 		adapter = _FakeStepAdapter([StepResult(content="just an answer")])
@@ -753,7 +753,7 @@ class TestStepLoopToolEventCallback(FrappeTestCase):
 
 	def test_broken_callback_does_not_fail_the_turn(self):
 		"""A bug in the progress indicator must never break the agent's turn."""
-		from one_bpmn.agents.llm_provider.base import StepResult, StepToolCall, ToolSpec
+		from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall, ToolSpec
 
 		def bad_callback(phase, name):
 			raise RuntimeError("callback bug")
@@ -773,7 +773,7 @@ class TestStepLoopToolEventCallback(FrappeTestCase):
 		self.assertEqual(completion.text, "answer")
 
 	def test_no_callback_at_all_is_the_unchanged_default(self):
-		from one_bpmn.agents.llm_provider.base import StepResult, StepToolCall, ToolSpec
+		from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall, ToolSpec
 
 		adapter = _FakeStepAdapter([
 			StepResult(

@@ -22,7 +22,7 @@ Coverage:
 
 Notes on this bench:
   - get_executor is imported *inside* dispatch_ai_agent from
-    one_bpmn.agents.executor, so that module is the correct patch target
+    one_bpmn.processa_engine.agent_runtime.executor, so that module is the correct patch target
     (patching the dispatchers namespace would not take effect).
   - frappe.log_error is patched in setUp: on this bench an Error Log insert
     triggers an onefm_mcp doc-event hook that imports a broken google.adk
@@ -41,10 +41,10 @@ from frappe.tests.utils import FrappeTestCase
 
 from SpiffWorkflow.util.task import TaskState
 
-import one_bpmn.one_bpmn.engine as bpmn_engine
-from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+import one_bpmn.processa_engine.engine as bpmn_engine
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 
-EXECUTOR_TARGET = "one_bpmn.agents.executor.get_executor"
+EXECUTOR_TARGET = "one_bpmn.processa_engine.agent_runtime.executor.get_executor"
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +243,7 @@ class TestAIAgentTaskIntegration(FrappeTestCase):
     # (1) SUCCESS path → output in task.data, gateway routes to success end
     # -----------------------------------------------------------------------
     def test_success_routes_to_success_end_and_writes_output(self):
-        from one_bpmn.api.compilation import compile_process_model
+        from one_bpmn.api.deploy import compile_process_model
 
         model = _make_process_model(_ai_agent_bpmn(flow="gateway"))
         compile_process_model(model.name)
@@ -265,7 +265,7 @@ class TestAIAgentTaskIntegration(FrappeTestCase):
     # (2) FAILED_MODEL_CALL → error vars, gateway routes to error end, log
     # -----------------------------------------------------------------------
     def test_error_routes_to_error_end_and_writes_error_vars(self):
-        from one_bpmn.api.compilation import compile_process_model
+        from one_bpmn.api.deploy import compile_process_model
 
         model = _make_process_model(_ai_agent_bpmn(flow="gateway"))
         compile_process_model(model.name)
@@ -295,7 +295,7 @@ class TestAIAgentTaskIntegration(FrappeTestCase):
     # (3) Compile-time lint: missing AI Provider
     # -----------------------------------------------------------------------
     def test_compile_fails_for_nonexistent_ai_provider(self):
-        from one_bpmn.api.compilation import compile_process_model
+        from one_bpmn.api.deploy import compile_process_model
 
         model = _make_process_model(
             _ai_agent_bpmn(ai_provider="nonexistent-provider-xyz-9999")
@@ -308,7 +308,7 @@ class TestAIAgentTaskIntegration(FrappeTestCase):
     # (4) Antigravity mock path works identically
     # -----------------------------------------------------------------------
     def test_antigravity_backend_success_path(self):
-        from one_bpmn.api.compilation import compile_process_model
+        from one_bpmn.api.deploy import compile_process_model
 
         model = _make_process_model(_ai_agent_bpmn(ai_backend="antigravity", flow="gateway"))
         compile_process_model(model.name)
@@ -325,7 +325,7 @@ class TestAIAgentTaskIntegration(FrappeTestCase):
     # (5) No double-execution: completed AI task is not re-executed on restore
     # -----------------------------------------------------------------------
     def test_no_double_execution_on_restore_and_advance(self):
-        from one_bpmn.api.compilation import compile_process_model
+        from one_bpmn.api.deploy import compile_process_model
 
         model = _make_process_model(_ai_agent_bpmn(flow="user"))
         compile_process_model(model.name)

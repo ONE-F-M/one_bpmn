@@ -15,13 +15,13 @@ class TestAiAgentQueueRouting(FrappeTestCase):
 	# ── Scenario 2: both call sites enqueue on bpmn_ai_agent explicitly ──
 
 	def test_start_process_async_uses_dedicated_queue(self):
-		from one_bpmn.api import instance_api
+		from one_bpmn.api import instances
 
 		model = frappe.get_all("BPMN Process Model", limit=1, pluck="name")
 		if not model:
 			self.skipTest("No BPMN Process Model on site")
 		with patch.object(frappe, "enqueue") as enqueue:
-			instance_api.start_process_async(model_name=model[0])
+			instances.start_process_async(model_name=model[0])
 		enqueue.assert_called_once()
 		self.assertEqual(enqueue.call_args.kwargs.get("queue"), "bpmn_ai_agent")
 
@@ -52,7 +52,8 @@ class TestAiAgentQueueRouting(FrappeTestCase):
 			text = py.read_text(errors="ignore")
 			if 'queue="bpmn_ai_agent"' in text and py.name not in (
 				# start_process_async — explicit async API
-				"instance_api.py",
+				"starting.py",
+				"task_actions.py",
 				"eval_runner.py",
 				# WI-001495/WI-001496: parked AI units run as AI-only jobs —
 				# the ONLY engine-driven producer after the inline flip

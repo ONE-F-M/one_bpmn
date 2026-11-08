@@ -8,7 +8,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.one_bpmn.patches.v1_0 import seed_logix_baseline_suite as seed
 
-FINALIZE_BODY = 'import json\nfrom one_bpmn.agents.turn_state import get_turn\nresult["finalized"] = True\n'
+FINALIZE_BODY = 'import json\nfrom one_bpmn.processa_engine.agent_runtime.turn_state import get_turn\nresult["finalized"] = True\n'
 
 
 class TestLogixBaselineSuitePatch(FrappeTestCase):
@@ -101,7 +101,7 @@ class TestLogixBaselineSuitePatch(FrappeTestCase):
 		code = frappe.db.get_value("Server Script", seed.FINALIZE_SCRIPT, "script")
 		output = {"intent": "MODIFY", "diff": "@@ -1 +1 @@", "modified_script": "x = 1"}
 		with (
-			patch("one_bpmn.agents.turn_state.get_turn", return_value={"output": output}),
+			patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value={"output": output}),
 			patch("one_bpmn.agents.observability.record_tool_artifact") as record,
 		):
 			exec(code, {"bpmn_id": "finalize", "context_docname": "zz-conv", "result": {}})

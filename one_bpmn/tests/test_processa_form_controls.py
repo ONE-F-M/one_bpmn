@@ -15,7 +15,7 @@ from pathlib import Path
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.instance_api import (
+from one_bpmn.processa_engine.instances.listing import (
 	PROCESSA_DOCTYPES_CACHE_KEY,
 	clear_processa_doctype_cache,
 	get_processa_controlled_doctypes,
@@ -121,7 +121,7 @@ class TestProcessaControlledDoctypes(FrappeTestCase):
 		model_hooks = hooks.get("BPMN Process Model", {})
 		for event in ("on_update", "after_delete"):
 			self.assertIn(
-				"one_bpmn.api.instance_api.clear_processa_doctype_cache",
+				"one_bpmn.processa_engine.instances.listing.clear_processa_doctype_cache",
 				model_hooks.get(event, []),
 				msg=f"clear_processa_doctype_cache not wired to {event}",
 			)
@@ -152,7 +152,7 @@ class TestFormActionsClientContract(FrappeTestCase):
 
 	def test_fetches_the_controlled_doctype_list(self):
 		self.assertIn(
-			"one_bpmn.api.instance_api.get_processa_controlled_doctypes", self.source
+			"one_bpmn.api.instances.get_processa_controlled_doctypes", self.source
 		)
 
 	def test_overrides_can_submit_and_can_save(self):

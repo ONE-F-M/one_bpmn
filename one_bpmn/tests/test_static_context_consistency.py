@@ -10,7 +10,7 @@ from unittest.mock import patch
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import context_assembler as CA
-from one_bpmn.agents.executor import (
+from one_bpmn.processa_engine.agent_runtime.executor import (
 	DEFAULT_MAX_OUTPUT_TOKENS,
 	DEFAULT_MAX_RETRIES,
 	DEFAULT_TEMPERATURE,
@@ -58,12 +58,12 @@ class TestEveryPathComposesTheSameWay(FrappeTestCase):
 				sent["system"] = system
 				return type("C", (), {"text": "ok"})()
 
-		with patch.object(agent_invocation, "_run_coro_blocking", create=True), patch(
-			"one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=FakeAdapter()
+		with patch.object(agent_invocation, "run_coro_blocking", create=True), patch(
+			"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=FakeAdapter()
 		), patch("one_bpmn.utils.chat_persistence.save_user_message"), patch(
 			"one_bpmn.utils.chat_persistence.save_bot_message"
 		), patch(
-			"one_bpmn.agents.executor.direct_api._run_coro_blocking",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.run_coro_blocking",
 			side_effect=lambda coro: (coro.close(), type("C", (), {"text": "ok"})())[1],
 		):
 			# The adapter call is faked, so assert on what the path would build.
@@ -78,9 +78,10 @@ class TestEveryPathComposesTheSameWay(FrappeTestCase):
 		"""A composer test that fails if somebody adds a fourth path that sends
 		a raw prompt. The three known senders are named here on purpose."""
 		from one_bpmn.api import agent_invocation
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import ai_task_selector, dispatchers
+		from one_bpmn.processa_engine import task_selector
+		from one_bpmn.processa_engine.dispatch import ai_agent
 
-		for module in (dispatchers, ai_task_selector, agent_invocation):
+		for module in (ai_agent, task_selector, agent_invocation):
 			source = inspect.getsource(module)
 			self.assertIn("build_static_context", source, f"{module.__name__} sends a prompt it did not compose")
 
@@ -98,7 +99,7 @@ class TestEveryPathStartsFromTheSameDefaults(FrappeTestCase):
 		self.assertEqual(DEFAULT_MAX_RETRIES, 2)
 
 	def test_executor_config_starts_from_the_shared_defaults(self):
-		from one_bpmn.agents.executor import ExecutorConfig
+		from one_bpmn.processa_engine.agent_runtime.executor import ExecutorConfig
 
 		config = ExecutorConfig()
 		self.assertEqual(config.temperature, DEFAULT_TEMPERATURE)
@@ -113,15 +114,13 @@ class TestEveryPathStartsFromTheSameDefaults(FrappeTestCase):
 			self.assertIn("temperature=0.7", inspect.getsource(fn), f"{fn.__name__} lost its pinned temperature")
 
 	def test_no_path_repeats_a_number_the_shared_module_owns(self):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import (
-			ai_task_selector,
-			bpmn_process_instance,
-			dispatchers,
-		)
+		from one_bpmn.processa_engine.dispatch import ai_agent
+		from one_bpmn.processa_engine import task_selector
+		from one_bpmn.processa_engine.doctype.bpmn_process_instance import bpmn_process_instance
 
 		for module, forbidden in (
-			(dispatchers, ('aiTemperature", 0.7', 'aiTopP", 1.0', 'aiMaxRetries", 2)')),
-			(ai_task_selector, ('aiTimeout", 60',)),
+			(ai_agent, ('aiTemperature", 0.7', 'aiTopP", 1.0', 'aiMaxRetries", 2)')),
+			(task_selector, ('aiTimeout", 60',)),
 			(bpmn_process_instance, ('aiMaxRetries", 2)',)),
 		):
 			source = inspect.getsource(module)

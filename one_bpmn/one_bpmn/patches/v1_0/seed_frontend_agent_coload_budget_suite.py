@@ -43,7 +43,7 @@ CASES = [
 		"title": "A routine single-file change stays inside its token budget",
 		"payload": {
 			"instruction": (
-				"On the Home view (spiff/src/views/Home.vue), change the welcome heading text from "
+				"On the Home view (spiff/src/pages/Processes.vue), change the welcome heading text from "
 				"'Welcome' to 'Welcome back' — a single string literal change."
 			),
 			"work_item": "Update the Home welcome heading text",

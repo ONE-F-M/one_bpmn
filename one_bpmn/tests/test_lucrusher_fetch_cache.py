@@ -151,7 +151,7 @@ class TestFetchOncePerConversation(FrappeTestCase):
 	def test_finalize_still_receives_the_full_parse_on_a_hit(self):
 		"""The frontend gets the document from finalize, which reads the turn
 		store. A cache hit must fill it exactly as a fetch would."""
-		from one_bpmn.agents.turn_state import get_turn, set_turn
+		from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, set_turn
 
 		self._seed()
 		set_turn(self.conversation.name, {})

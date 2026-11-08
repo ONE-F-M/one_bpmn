@@ -10,7 +10,7 @@ import frappe
 from frappe import _
 from frappe.utils import escape_html, now_datetime
 
-from one_bpmn.agents import turn_signal
+from one_bpmn.processa_engine.agent_runtime import turn_signal
 from one_bpmn.security.rate_limit import RateLimited
 from one_bpmn.utils.session import as_user
 
@@ -167,7 +167,7 @@ def _delegate_to_bpmn_instance(
 	# runs first wins and the other returns immediately.
 	if inst.status == "Queued":
 		try:
-			from one_bpmn.one_bpmn.trigger import start_queued_instance
+			from one_bpmn.processa_engine.triggers import start_queued_instance
 
 			start_queued_instance(inst_name)
 		except Exception:
@@ -667,7 +667,7 @@ def run_logix_test_case(script_name: str, inputs: str = "{}") -> dict:
 		if script_doc.script_type != "API":
 			return {"passed": False, "result": None, "summary": "This script is not an API-type script and cannot be run as a test."}
 
-		from one_bpmn.one_bpmn.engine import _check_script_permissions
+		from one_bpmn.processa_engine.engine import _check_script_permissions
 
 		_check_script_permissions(script_doc.script, script_name)
 

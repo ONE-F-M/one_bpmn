@@ -9,9 +9,10 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.translate import clear_cache
 
-from one_bpmn.api import todo_actions
-from one_bpmn.email_builder import composer
-from one_bpmn.email_builder.renderer import render_layout_amp, render_layout_html
+from one_bpmn.api import email_actions
+from one_bpmn.processa_engine.notifications import actions
+from one_bpmn.processa_engine.notifications import composer
+from one_bpmn.processa_engine.notifications.renderer import render_layout_amp, render_layout_html
 from one_bpmn.tests.test_amp_validation import _validate_amp4email
 from one_bpmn.tests.test_decision_card import _card_ctx
 from one_bpmn.tests.test_todo_actions import _make_token, _mock_secret, _setup_request
@@ -52,13 +53,13 @@ class TestReasonSaved(FrappeTestCase):
 
 		with (
 			_mock_secret(),
-			patch("one_bpmn.api.instance_api.complete_task", return_value={"status": "Running"}) as complete,
-			patch.object(todo_actions, "_get_instance_context", return_value=self.instance),
-			patch.object(todo_actions, "_get_task_config", return_value=cfg or _reason_cfg()),
-			patch.object(todo_actions, "_get_workflow_state_and_style", return_value=("", "")),
+			patch("one_bpmn.api.instances.complete_task", return_value={"status": "Running"}) as complete,
+			patch.object(actions, "_get_instance_context", return_value=self.instance),
+			patch.object(actions, "_get_task_config", return_value=cfg or _reason_cfg()),
+			patch.object(actions, "get_workflow_state_and_style", return_value=("", "")),
 			patch.object(frappe, "get_doc", side_effect=get_doc),
 		):
-			result = todo_actions.handle_amp_action(token=token, **form)
+			result = email_actions.handle_amp_action(token=token, **form)
 		frappe.set_user("Administrator")
 		return result, complete, frappe.local.response.http_status_code
 
@@ -125,7 +126,7 @@ class TestReasonSaved(FrappeTestCase):
 		self.assertEqual(self._saved(), "Original")
 
 	def test_a_missing_field_is_a_logged_400_and_the_task_stays_open(self):
-		with patch.object(todo_actions.frappe, "log_error") as log_error:
+		with patch.object(email_actions.frappe, "log_error") as log_error:
 			result, complete, status = self._act(
 				_reason_cfg(reasonField="no_such_field"), reason_chip="0", reason_lang="en"
 			)
@@ -174,7 +175,7 @@ class TestReasonPanel(FrappeTestCase):
 		clear_cache()
 
 	def test_the_reason_panel_passes_the_validator_with_and_without_status(self):
-		status = "https://erp.example.com/api/method/one_bpmn.api.todo_actions.get_amp_task_status?status_token=abc"
+		status = "https://erp.example.com/api/method/one_bpmn.api.email_actions.get_amp_task_status?status_token=abc"
 		_validate_amp4email(render_layout_amp(_reason_card(status_url=status)), "reason_status")
 		_validate_amp4email(render_layout_amp(_reason_card()), "reason_plain")
 
@@ -213,7 +214,7 @@ class TestReasonPanel(FrappeTestCase):
 		instance = frappe._dict(name="INST-R", context_doctype="", context_docname="")
 		with (
 			patch.object(composer, "_action_states", return_value={}),
-			patch.object(composer, "_arabic", side_effect=lambda text: f"ar:{text}"),
+			patch.object(composer, "arabic_text", side_effect=lambda text: f"ar:{text}"),
 		):
 			reject, sign = composer._build_layout_actions(
 				instance, "a@x.com", "t", "review", task_cfg, 72, ""

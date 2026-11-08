@@ -183,7 +183,7 @@ class TestPureConfigurationAgent(FrappeTestCase):
 				return _Completion()
 
 		with patch(
-			"one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=_Adapter()
+			"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=_Adapter()
 		):
 			chunks = list(
 				agui_stream.agent_event_stream(self.AGENT_ID, "hello there", conversation)

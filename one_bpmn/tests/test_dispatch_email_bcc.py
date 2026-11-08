@@ -1,4 +1,4 @@
-"""Tests for BCC handling in dispatch_email and composer._send_email.
+"""Tests for BCC handling in dispatch_email and composer.send_email.
 
 Run with: bench --site SITE run-tests --app one_bpmn --module one_bpmn.tests.test_dispatch_email_bcc
 """
@@ -9,7 +9,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.one_bpmn.doctype.bpmn_process_instance.dispatchers import dispatch_email
+from one_bpmn.processa_engine.dispatch.email import dispatch_email
 
 
 def _instance():
@@ -29,8 +29,8 @@ def _cfg(**extra):
 
 class TestDispatchEmailBcc(FrappeTestCase):
 	def _run(self, task_cfg):
-		with patch("one_bpmn.email_builder.composer.compose_and_send_info_email", return_value=""), patch(
-			"one_bpmn.email_builder.composer.frappe.sendmail"
+		with patch("one_bpmn.processa_engine.notifications.composer.compose_and_send_info_email", return_value=""), patch(
+			"one_bpmn.processa_engine.notifications.composer.frappe.sendmail"
 		) as sendmail:
 			dispatch_email(_instance(), None, task_cfg)
 		return sendmail

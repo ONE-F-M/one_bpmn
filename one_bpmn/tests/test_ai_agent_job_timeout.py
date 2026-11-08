@@ -16,16 +16,18 @@ from pathlib import Path
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
+from one_bpmn.processa_engine.agent_runtime.job_limits import AI_AGENT_JOB_TIMEOUT
 
 APP = Path(__file__).resolve().parents[1]
 
 # Every module that queues work onto the AI agent queue.
 ENQUEUE_SITES = [
 	"tasks.py",
-	"api/instance_api.py",
+	"processa_engine/instances/starting.py",
+	"processa_engine/instances/task_actions.py",
 	"api/agent_callback.py",
-	"one_bpmn/doctype/bpmn_process_instance/bpmn_process_instance.py",
+	"processa_engine/runtime/ai_jobs.py",
+	"processa_engine/timers.py",
 ]
 
 

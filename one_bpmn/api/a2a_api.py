@@ -50,9 +50,8 @@ def push_callback() -> dict:
 	already reached a terminal state changes nothing.
 	"""
 	from one_bpmn.agents.a2a_contract import terminal_states
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.bpmn_process_instance import (
-		_enqueue_a2a_resume,
-	)
+	from one_bpmn.processa_engine.runtime.ai_jobs import enqueue_wait_resume
+	from one_bpmn.processa_engine.runtime.remote_waits import on_a2a_input_required
 	from one_bpmn.one_bpmn.integrations import a2a_client
 
 	opaque = {"accepted": False}
@@ -103,7 +102,7 @@ def push_callback() -> dict:
 			},
 			update_modified=True,
 		)
-		_enqueue_a2a_resume(task.instance, task.wf_task_id, task.name)
+		enqueue_wait_resume(task.instance, task.wf_task_id, task.name, "A2A Task")
 	elif state in ("failed", "canceled", "rejected"):
 		task.db_set(
 			{
@@ -113,12 +112,12 @@ def push_callback() -> dict:
 			},
 			update_modified=True,
 		)
-		_enqueue_a2a_resume(task.instance, task.wf_task_id, task.name)
+		enqueue_wait_resume(task.instance, task.wf_task_id, task.name, "A2A Task")
 	elif state == "input-required":
 		task.db_set({"state": "input-required"}, update_modified=True)
 		if task.instance:
 			instance = frappe.get_doc("BPMN Process Instance", task.instance)
-			instance._on_a2a_input_required(task.name, text)
+			on_a2a_input_required(instance, task.name, text)
 	else:
 		task.db_set({"state": state}, update_modified=True)
 
@@ -228,7 +227,7 @@ def _continue_task(message: dict, text: str) -> dict:
 
 	text = _screen_continuation(task, text)
 
-	from one_bpmn.api.instance_api import complete_task
+	from one_bpmn.api.instances import complete_task
 
 	complete_task(task.instance, task.pending_human_task, json.dumps({"response": text}))
 	task.db_set(

@@ -1,4 +1,4 @@
-"""Tests for :func:`one_bpmn.api.todo_actions.get_amp_task_status`.
+"""Tests for :func:`one_bpmn.api.email_actions.get_amp_task_status`.
 
 Database reads are mocked, so no BPMN Process Instance is needed.
 
@@ -21,7 +21,7 @@ _CONTEXT = frappe._dict(context_doctype="ToDo", context_docname="TODO-1")
 
 def _expired(token: str) -> str:
 	"""Re-sign the token's payload with an expiry in the past."""
-	from one_bpmn.utils.token import _sign
+	from one_bpmn.processa_engine.notifications.token import _sign
 
 	payload = json.loads(base64.urlsafe_b64decode(token.rsplit(".", 1)[0].encode("ascii")))
 	payload["expires"] = int(time.time()) - 3600
@@ -35,13 +35,13 @@ class TestGetAmpTaskStatus(FrappeTestCase):
 		frappe.clear_cache(doctype="ToDo")
 
 		for patcher in (
-			patch("one_bpmn.utils.token._get_secret", return_value=_TEST_SECRET),
+			patch("one_bpmn.processa_engine.notifications.token._get_secret", return_value=_TEST_SECRET),
 			patch("frappe.utils.get_fullname", side_effect=lambda user: f"Name of {user}"),
 		):
 			patcher.start()
 			self.addCleanup(patcher.stop)
 
-		cors_patcher = patch("one_bpmn.api.todo_actions._set_amp_cors_headers")
+		cors_patcher = patch("one_bpmn.processa_engine.notifications.actions.set_amp_cors_headers")
 		self.cors = cors_patcher.start()
 		self.addCleanup(cors_patcher.stop)
 
@@ -51,7 +51,7 @@ class TestGetAmpTaskStatus(FrappeTestCase):
 		self.db_calls = []
 
 	def _call(self, token):
-		from one_bpmn.api.todo_actions import get_amp_task_status
+		from one_bpmn.api.email_actions import get_amp_task_status
 
 		real_get_value = frappe.db.get_value
 
@@ -91,7 +91,7 @@ class TestGetAmpTaskStatus(FrappeTestCase):
 		)
 
 	def test_waiting_valid_token(self):
-		from one_bpmn.utils.token import generate_status_token
+		from one_bpmn.processa_engine.notifications.token import generate_status_token
 
 		self.task_row = self._row("Waiting")
 		item = self._call(generate_status_token("INST-1", "t1", user="user@test.com"))
@@ -100,7 +100,7 @@ class TestGetAmpTaskStatus(FrappeTestCase):
 		self.assertFalse(item["is_reassigned"])
 
 	def test_expired_waiting(self):
-		from one_bpmn.utils.token import generate_status_token
+		from one_bpmn.processa_engine.notifications.token import generate_status_token
 
 		self.task_row = self._row("Waiting")
 		item = self._call(_expired(generate_status_token("INST-1", "t1", user="user@test.com")))
@@ -108,7 +108,7 @@ class TestGetAmpTaskStatus(FrappeTestCase):
 		self.assertFalse(item["is_waiting"])
 
 	def test_expired_completed(self):
-		from one_bpmn.utils.token import generate_status_token
+		from one_bpmn.processa_engine.notifications.token import generate_status_token
 
 		self.task_row = self._row("Completed")
 		self.workflow_name = "Leave Flow"
@@ -122,7 +122,7 @@ class TestGetAmpTaskStatus(FrappeTestCase):
 		self.assertEqual(item["workflow_state"], "Approved")
 
 	def test_completed_shows_the_chosen_action(self):
-		from one_bpmn.utils.token import generate_status_token
+		from one_bpmn.processa_engine.notifications.token import generate_status_token
 
 		self.task_row = self._row("Completed")
 		self.log_data = json.dumps({"action": "Approve", "comment": "ok"})
@@ -130,7 +130,7 @@ class TestGetAmpTaskStatus(FrappeTestCase):
 		self.assertEqual(item["action_taken"], "Approve")
 
 	def test_tampered(self):
-		from one_bpmn.utils.token import generate_status_token
+		from one_bpmn.processa_engine.notifications.token import generate_status_token
 
 		item = self._call(generate_status_token("INST-1", "t1")[:-4] + "XXXX")
 		self.assertTrue(item["is_expired"])
@@ -147,7 +147,7 @@ class TestGetAmpTaskStatus(FrappeTestCase):
 		self.assertEqual(self.db_calls, [])
 
 	def test_not_a_status_token(self):
-		from one_bpmn.utils.token import generate_action_token
+		from one_bpmn.processa_engine.notifications.token import generate_action_token
 
 		item = self._call(generate_action_token("INST-1", "t1", "Approve", "user@test.com"))
 		self.assertTrue(item["is_expired"])
@@ -155,7 +155,7 @@ class TestGetAmpTaskStatus(FrappeTestCase):
 		self.assertEqual(self.db_calls, [])
 
 	def test_reassigned(self):
-		from one_bpmn.utils.token import generate_status_token
+		from one_bpmn.processa_engine.notifications.token import generate_status_token
 
 		self.task_row = self._row("Waiting", assigned_user="other@test.com")
 		item = self._call(generate_status_token("INST-1", "t1", user="user@test.com"))
@@ -165,7 +165,7 @@ class TestGetAmpTaskStatus(FrappeTestCase):
 		self.assertFalse(item["is_expired"])
 
 	def test_doc_only_token(self):
-		from one_bpmn.utils.token import generate_status_token
+		from one_bpmn.processa_engine.notifications.token import generate_status_token
 
 		self.workflow_name = "Leave Flow"
 		item = self._call(generate_status_token("INST-1"))
@@ -178,7 +178,7 @@ class TestGetAmpTaskStatus(FrappeTestCase):
 		self.assertNotIn("BPMN Active Task", self.db_calls)
 
 	def test_workflow_style_present(self):
-		from one_bpmn.utils.token import generate_status_token
+		from one_bpmn.processa_engine.notifications.token import generate_status_token
 
 		self.task_row = self._row("Completed")
 		self.workflow_name = "Leave Flow"
@@ -187,7 +187,7 @@ class TestGetAmpTaskStatus(FrappeTestCase):
 		self.assertEqual(item["workflow_state_style"], "Success")
 
 	def test_workflow_style_absent(self):
-		from one_bpmn.utils.token import generate_status_token
+		from one_bpmn.processa_engine.notifications.token import generate_status_token
 
 		self.task_row = self._row("Completed")
 		self.workflow_name = None

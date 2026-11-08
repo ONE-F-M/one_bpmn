@@ -10,7 +10,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from unittest.mock import patch
 
-from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 
 
 class TestAgentShapeRecording(FrappeTestCase):
@@ -30,7 +30,7 @@ class TestAgentShapeRecording(FrappeTestCase):
 		)
 
 	def test_tool_calls_recorded_with_diagram_source(self):
-		from one_bpmn.one_bpmn.doctype.bpmn_process_instance import dispatchers
+		from one_bpmn.processa_engine.dispatch import ai_agent
 
 		task_cfg = {
 			"serviceType": "ai_agent",
@@ -55,8 +55,8 @@ class TestAgentShapeRecording(FrappeTestCase):
 		def fake_run(_self, config, context):
 			return result
 
-		with patch("one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", new=fake_run):
-			dispatchers.dispatch_ai_agent(self.instance, self.task, task_cfg, self.bpmn_id)
+		with patch("one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run", new=fake_run):
+			ai_agent.dispatch_ai_agent(self.instance, self.task, task_cfg, self.bpmn_id)
 
 		runs = frappe.get_all(
 			"AI Agent Run",
