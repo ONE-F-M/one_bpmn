@@ -117,8 +117,7 @@ export function useProcessDmn(pc) {
 		if (pc.activeDmnEventBus && pc.activeDmnElement) {
 			pc.activeDmnEventBus.fire("spiff.dmn.edit.update", {
 				element: pc.activeDmnElement,
-				// eslint-disable-next-line no-undef
-				value: elementId,
+				value: decisionId,
 			});
 		}
 	}
