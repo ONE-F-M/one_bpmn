@@ -1,6 +1,6 @@
 <script setup>
 import { inject, toRef } from "vue";
-import BpmnEditor from "@/components/Editor/BpmnEditor.vue";
+import BpmnEditor from "@/components/Editor/BpmnEditor/BpmnEditor.vue";
 import CompareDialog from "@/components/Modals/CompareModal.vue";
 import EditorTabs from "@/components/Editor/EditorTabs.vue";
 import { Icon } from "@iconify/vue";

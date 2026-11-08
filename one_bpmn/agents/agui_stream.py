@@ -50,7 +50,7 @@ from ag_ui.encoder import EventEncoder
 from frappe import _
 
 from one_bpmn.ai_agent_security.rate_limit import RateLimited
-from one_bpmn.security.refusal import AgentRefusal
+from one_bpmn.ai_agent_guardrails.refusal import AgentRefusal
 
 # ── Extension translators (payload dict → list of CustomEvent) ──────────────
 # Registered callables receive the runner's reply dict and return an iterable

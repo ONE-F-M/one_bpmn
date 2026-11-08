@@ -9,7 +9,7 @@ const here = fileURLToPath(new URL("../../src/", import.meta.url))
 const source = (path) => readFileSync(join(here, path), "utf8")
 
 test("the editor's folded formatting tools open from a palette icon, not an ellipsis", () => {
-	const editor = source("components/Editor/BpmnEditorToolbar.vue")
+	const editor = source("components/Editor/BpmnEditorToolbar/BpmnEditorToolbar.vue")
 	const button = editor.slice(editor.indexOf("bpmn-toolbar-more p-1.5") - 300, editor.indexOf("bpmn-toolbar-more p-1.5") + 400)
 	assert.match(button, /title="Formatting"/)
 	assert.match(button, /lucide:palette/)

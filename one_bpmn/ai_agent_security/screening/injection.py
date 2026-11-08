@@ -46,7 +46,7 @@ from __future__ import annotations
 import frappe
 from frappe import _
 
-from one_bpmn.security.refusal import AgentRefusal
+from one_bpmn.ai_agent_guardrails.refusal import AgentRefusal
 
 
 class InjectionBlocked(AgentRefusal):

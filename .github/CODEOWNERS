@@ -2,4 +2,4 @@
 AGENTS.md @ks093
 /one_bpmn/hooks.py @ks093
 /one_bpmn/patches.txt @ks093
-/one_bpmn/security/ @ks093
+/one_bpmn/ai_agent_guardrails/ @ks093

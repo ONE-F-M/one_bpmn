@@ -39,7 +39,7 @@ import time
 import frappe
 from frappe import _
 
-from one_bpmn.security.refusal import AgentRefusal
+from one_bpmn.ai_agent_guardrails.refusal import AgentRefusal
 
 # The one genuinely site-wide setting left: WHO may release a frozen
 # conversation. That is a statement about roles on this site and means nothing
