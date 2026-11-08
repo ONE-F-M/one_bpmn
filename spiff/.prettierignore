@@ -57,7 +57,7 @@ src/bpmn/userTaskPropertiesProvider/UserTaskProps.js
 src/bpmn/userTaskPropertiesProvider/workflowActionCreate.js
 src/components/A2A/AgentPicker/AgentPicker.vue
 src/components/Notifications/ArabicFieldPicker.vue
-src/components/Editor/BpmnEditor.vue
+src/components/Editor/BpmnEditor/BpmnEditor.vue
 src/utils/callActivityLink.js
 src/components/Modals/CallActivitySearchModal.vue
 src/components/Chat/AgentChatPanel.vue

@@ -1,7 +1,7 @@
 <script setup>
 import { inject, toRef } from "vue";
 import { Icon } from "@iconify/vue";
-import BpmnCommentSection from "./BpmnCommentSection.vue";
+import BpmnCommentSection from "../BpmnCommentSection/BpmnCommentSection.vue";
 import { EDITOR_KEY } from "@/composables/useEditorState";
 
 const ed = inject(EDITOR_KEY);
@@ -110,3 +110,5 @@ const {
 		</div>
 	</transition>
 </template>
+
+<style src="./BpmnPropertiesPanel.css"></style>

@@ -40,3 +40,5 @@ const {
 		</button>
 	</div>
 </template>
+
+<style src="./BpmnContextMenu.css"></style>

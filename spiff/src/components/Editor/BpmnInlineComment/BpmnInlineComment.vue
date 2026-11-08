@@ -107,3 +107,5 @@ const {
 		</div>
 	</Teleport>
 </template>
+
+<style src="./BpmnInlineComment.css"></style>
