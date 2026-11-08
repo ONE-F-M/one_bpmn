@@ -14,7 +14,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor.tool_bounds import DEFAULT_TOOL_RESULT_MAX_CHARS
+from one_bpmn.processa_engine.agent_runtime.tool_bounds import DEFAULT_TOOL_RESULT_MAX_CHARS
 from one_bpmn.one_bpmn.patches.v1_0 import frontend_agent_reads_in_windows as fix
 
 REPO = frappe.get_app_source_path("one_bpmn")

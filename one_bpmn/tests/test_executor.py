@@ -9,15 +9,15 @@ from unittest.mock import MagicMock, patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import (
+from one_bpmn.processa_engine.agent_runtime.executor import (
     ErrorCode,
     ExecutorConfig,
     ExecutorContext,
     get_executor,
     register_executor,
 )
-from one_bpmn.agents.executor.direct_api import DirectApiExecutor
-from one_bpmn.agents.executor.antigravity import AntigravityExecutor
+from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
+from one_bpmn.processa_engine.agent_runtime.antigravity import AntigravityExecutor
 
 
 def _make_config(**kwargs) -> ExecutorConfig:

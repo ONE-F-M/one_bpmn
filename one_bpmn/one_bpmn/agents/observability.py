@@ -17,7 +17,7 @@ from typing import Any, Dict, Optional
 import frappe
 from frappe.utils import flt, now_datetime
 
-from one_bpmn.agents.executor import ErrorCode, ExecutorConfig, ExecutorResult
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorConfig, ExecutorResult
 from one_bpmn.agents.pricing import get_model_pricing
 
 # Max size for final_output stored on the Run (64 KB)

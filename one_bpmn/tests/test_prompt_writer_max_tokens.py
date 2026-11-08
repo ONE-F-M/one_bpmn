@@ -9,7 +9,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import agent_provisioning
-from one_bpmn.agents.executor import DEFAULT_MAX_OUTPUT_TOKENS
+from one_bpmn.processa_engine.agent_runtime.executor import DEFAULT_MAX_OUTPUT_TOKENS
 
 
 def _max_tokens_sent(config_max_tokens: int) -> int:
@@ -27,8 +27,8 @@ def _max_tokens_sent(config_max_tokens: int) -> int:
 		patch(
 			"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config"
 		),
-		patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter),
-		patch("one_bpmn.agents.executor.direct_api._run_coro_blocking", side_effect=lambda c: c),
+		patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=adapter),
+		patch("one_bpmn.processa_engine.agent_runtime.direct_api.run_coro_blocking", side_effect=lambda c: c),
 	):
 		agent_provisioning.generate_system_prompt("stub")
 	return adapter.complete.call_args.kwargs["max_tokens"]

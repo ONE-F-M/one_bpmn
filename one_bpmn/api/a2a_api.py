@@ -227,7 +227,7 @@ def _continue_task(message: dict, text: str) -> dict:
 
 	text = _screen_continuation(task, text)
 
-	from one_bpmn.api.instance_api import complete_task
+	from one_bpmn.api.instances import complete_task
 
 	complete_task(task.instance, task.pending_human_task, json.dumps({"response": text}))
 	task.db_set(

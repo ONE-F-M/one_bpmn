@@ -50,7 +50,7 @@ def check_eval_suite_gating(model_name: str) -> list:
 
 def check_connector_tools_can_answer(bpmn_xml: str) -> list:
 	"""Warn for each connector tool with no Result Variable, which runs but returns nothing to the agent."""
-	from one_bpmn.api.process_map_api import _connector_tools_without_result_variable
+	from one_bpmn.processa_engine.maps.readiness import connector_tools_without_result_variable
 
 	return [
 		{
@@ -62,7 +62,7 @@ def check_connector_tools_can_answer(bpmn_xml: str) -> list:
 				"'{2}' agent but return no data to it. Set a Result Variable on that shape."
 			).format(g["shape"] or g["bpmn_id"], g["connector"] or _("connector"), g["agent"]),
 		}
-		for g in _connector_tools_without_result_variable(bpmn_xml)
+		for g in connector_tools_without_result_variable(bpmn_xml)
 	]
 
 

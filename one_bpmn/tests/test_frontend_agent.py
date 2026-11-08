@@ -19,7 +19,7 @@ import unittest
 
 import frappe
 
-from one_bpmn.agents.turn_state import clear_turn, set_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, set_turn
 from one_bpmn.one_bpmn.frontend import primitives as fs
 
 TURN = "_test_frontend_agent"

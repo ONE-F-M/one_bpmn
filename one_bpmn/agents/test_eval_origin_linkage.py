@@ -133,7 +133,7 @@ class TestCreateAiRunStamps(FrappeTestCase):
 		return doc.insert(ignore_permissions=True, ignore_mandatory=True)
 
 	def _create(self):
-		from one_bpmn.agents.executor import ExecutorConfig
+		from one_bpmn.processa_engine.agent_runtime.executor import ExecutorConfig
 		from one_bpmn.agents.observability import create_ai_run
 
 		# provider_name / model land in Link fields, so they stay empty here.

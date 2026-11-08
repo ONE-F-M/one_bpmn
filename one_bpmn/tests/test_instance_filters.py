@@ -13,7 +13,7 @@ from __future__ import annotations
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.instance_api import list_process_instances
+from one_bpmn.api.instances import list_process_instances
 
 test_ignore = ["BPMN Process Model"]
 

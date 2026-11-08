@@ -1890,7 +1890,7 @@ async function runReadinessCheck(xmlContent, mode) {
 			params.model_name = activeDiagramName.value;
 		}
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.validate_bpmn_readiness",
+			url: "/api/method/one_bpmn.api.process_maps.validate_bpmn_readiness",
 			params,
 		});
 		const checklist = response.message || response;
@@ -1956,7 +1956,7 @@ async function onReadinessUpdateRefs(refItems) {
 	readinessLoading.value = true;
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.update_call_activity_references",
+			url: "/api/method/one_bpmn.api.process_maps.update_call_activity_references",
 			method: "POST",
 			params: { references: JSON.stringify(refItems) },
 		});
@@ -2404,7 +2404,7 @@ async function performHeartbeat(modelName) {
 async function loadProcess() {
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.get_process_diagrams",
+			url: "/api/method/one_bpmn.api.process_maps.get_process_diagrams",
 			params: { process: props.process },
 		});
 		const data = response.message || response;
@@ -2488,7 +2488,7 @@ async function loadDiagramContent(name) {
 
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.get_process_model",
+			url: "/api/method/one_bpmn.api.process_maps.get_process_model",
 			params: { name },
 		});
 
@@ -2557,7 +2557,7 @@ async function saveCurrentDiagram() {
 		const description = diagram?.description || "";
 
 		const data = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.save_process_model",
+			url: "/api/method/one_bpmn.api.process_maps.save_process_model",
 			params: {
 				process: props.process,
 				model_name: modelName,
@@ -2636,7 +2636,7 @@ async function handleDeleteTab(tab) {
 	// ── Server call (no loadProcess round-trip) ──────────────────────
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.delete_diagram",
+			url: "/api/method/one_bpmn.api.process_maps.delete_diagram",
 			params: { name: tab.name },
 		});
 	} catch (error) {
@@ -2705,7 +2705,7 @@ async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.rename_process_model",
+			url: "/api/method/one_bpmn.api.process_maps.rename_process_model",
 			params: {
 				name: tabName,
 				new_title: newModelName,
@@ -3014,7 +3014,7 @@ async function handleImportFile(event) {
 		// Call the backend import endpoint via frappeRequest for consistent
 		// CSRF handling, response parsing, and error surfacing.
 		const result = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.import_bpmn",
+			url: "/api/method/one_bpmn.api.process_maps.import_bpmn",
 			method: "POST",
 			params: {
 				xml_content: xmlContent,
@@ -3562,7 +3562,7 @@ async function onLaunchCallActivityEditor(event) {
 		// Use the dedicated resolve endpoint — returns one record without
 		// fetching the entire model list client-side.
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.resolve_process_model_by_id",
+			url: "/api/method/one_bpmn.api.process_maps.resolve_process_model_by_id",
 			params: { process_id: event.processId },
 		});
 		const linked = response.message || response;

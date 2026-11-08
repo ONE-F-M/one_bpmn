@@ -10,9 +10,9 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import ExecutorResult, TokenUsage
-from one_bpmn.agents.executor.step_loop import run_agent_loop
-from one_bpmn.agents.llm_provider.base import StepResult, StepToolCall, ToolSpec
+from one_bpmn.processa_engine.agent_runtime.executor import ExecutorResult, TokenUsage
+from one_bpmn.processa_engine.agent_runtime.step_loop import run_agent_loop
+from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall, ToolSpec
 from one_bpmn.agents.memory import loop_compaction
 from one_bpmn.agents.observability import _CURRENT_RUN_FLAG
 from one_bpmn.one_bpmn.patches.v1_0 import coding_agents_compact_their_tool_loop

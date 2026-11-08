@@ -13,7 +13,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import ErrorCode, Executor, ExecutorResult, TokenUsage, register_executor
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, Executor, ExecutorResult, TokenUsage, register_executor
 from one_bpmn.agents.memory import tools, writeback
 from one_bpmn.processa_engine.dispatch import ai_agent as D
 from one_bpmn.one_bpmn.patches.v1_0 import lucrusher_memory_keyed_by_process as memory_patch

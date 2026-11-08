@@ -14,7 +14,7 @@ Run with:
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.utils import get_doctype_fields
+from one_bpmn.api.lookups import get_doctype_fields
 
 TABLES = '["Table MultiSelect","Table"]'
 

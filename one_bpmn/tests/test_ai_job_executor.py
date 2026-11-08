@@ -69,7 +69,7 @@ _AGENT_CFG = {
 
 
 def _executor_with_tools():
-	from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+	from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 
 	return ExecutorResult(
 		output="all done",
@@ -126,7 +126,7 @@ class TestJobOutputParity(JobHarness):
 		frappe.flags.bpmn_force_ai_parking = False
 		wf_inline = self._wf(_LINEAR_AGENT_XML, "proc_park_linear", dict(_AGENT_CFG))
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_with_tools(),
 		):
 			self._run(wf_inline)
@@ -140,7 +140,7 @@ class TestJobOutputParity(JobHarness):
 		frappe.flags.bpmn_force_ai_parking = True
 		task_id = self._park_linear_with_tools()
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_with_tools(),
 		):
 			with patch.object(frappe, "enqueue"):
@@ -158,7 +158,7 @@ class TestJobOutputParity(JobHarness):
 		frappe.flags.bpmn_force_ai_parking = True
 		task_id = self._park_linear_with_tools()
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_with_tools(),
 		):
 			with patch.object(frappe, "enqueue"):
@@ -177,7 +177,7 @@ class TestJobOutputParity(JobHarness):
 		frappe.flags.bpmn_force_ai_parking = True
 		task_id = self._park_linear_with_tools()
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_with_tools(),
 		) as run:
 			with patch.object(frappe, "enqueue"):

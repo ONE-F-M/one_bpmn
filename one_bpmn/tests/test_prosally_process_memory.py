@@ -14,6 +14,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import prosally_helpers as helpers
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_stage_tools_read_process_memory as memory_patch
+from one_bpmn.tests.site_scripts import as_deployed
 
 PROMOTION = "Zz Test Employee Promotion"
 OFFBOARDING = "Zz Test Employee Offboarding"
@@ -222,8 +223,8 @@ class TestStageToolsPatch(FrappeTestCase):
 		recalled = {"memory_process": PROMOTION, "memory_notes": ["a note"]}
 		scope = {"conversation_id": "CONV-1", "task_data": {"diagram_name": PROMOTION + " - v1"}}
 		with patch.object(helpers, "recall_process_memory", return_value=recalled) as recall, patch(
-			"one_bpmn.agents.turn_state.update_turn"
+			"one_bpmn.processa_engine.agent_runtime.turn_state.update_turn"
 		) as update:
-			exec(lines, scope)  # nosemgrep
+			exec(as_deployed(lines), scope)  # nosemgrep
 		recall.assert_called_once_with(PROMOTION + " - v1")
 		update.assert_called_once_with("CONV-1", **recalled)

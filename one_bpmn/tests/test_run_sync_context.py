@@ -24,7 +24,7 @@ import threading
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.turn_state import run_sync
+from one_bpmn.processa_engine.agent_runtime.turn_state import run_sync
 
 
 def _read_the_database():
@@ -134,12 +134,12 @@ class TestDirectApiExecutorContext(FrappeTestCase):
     """The executor's own fallback carries the same contract."""
 
     def test_run_coro_blocking_propagates_context(self):
-        from one_bpmn.agents.executor.direct_api import _run_coro_blocking
+        from one_bpmn.processa_engine.agent_runtime.direct_api import run_coro_blocking
 
         async def outer():
             async def inner():
                 return _read_the_database()
 
-            return _run_coro_blocking(inner())
+            return run_coro_blocking(inner())
 
         self.assertTrue(asyncio.run(outer()))

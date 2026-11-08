@@ -11,7 +11,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.shape_tools import execute_shape
-from one_bpmn.agents.turn_state import get_turn, set_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import chat_agents_post_failed_turn_error as turn_fix
 from one_bpmn.one_bpmn.patches.v1_0 import chat_agents_report_failed_tool as fix
 from one_bpmn.tests.test_failed_chat_turn import PROSALLY_SAVE_RESPONSE
@@ -19,7 +19,7 @@ from one_bpmn.tests.test_failed_chat_turn import PROSALLY_SAVE_RESPONSE
 TOOL_FAILED_REPLY = "I could not draw the diagram because a tool failed. The team has been notified."
 
 # ProsAlly Tool Finalize as it runs on the BA site, before the patch.
-PROSALLY_FINALIZE = """from one_bpmn.agents.turn_state import get_turn, update_turn
+PROSALLY_FINALIZE = """from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, update_turn
 
 turn = get_turn(context_docname)
 if turn.get("done"):
@@ -104,7 +104,7 @@ class TestTheFailureIsRecorded(ChatTurnFixture):
 
 	def test_a_failure_outside_a_chat_conversation_writes_no_turn(self):
 		self.instance.context_doctype = "Work Item"
-		with patch("one_bpmn.agents.turn_state.update_turn") as update_turn:
+		with patch("one_bpmn.processa_engine.agent_runtime.turn_state.update_turn") as update_turn:
 			execute_shape(self.instance, "generate_process", {"serverScript": self.script}, {})
 		update_turn.assert_not_called()
 

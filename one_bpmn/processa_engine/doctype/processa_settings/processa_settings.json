@@ -647,7 +647,7 @@
   },
   {
    "default": "anthropic",
-   "description": "Global fallback provider for an agent configuration without a linked AI Provider record. Read by one_bpmn/agents/llm_provider/factory.py as the last resort before the hard-coded \"gemini\" default.",
+   "description": "Global fallback provider for an agent configuration without a linked AI Provider record. Read by one_bpmn/processa_engine/agent_runtime/llm_factory.py as the last resort before the hard-coded \"gemini\" default.",
    "fieldname": "default_llm_provider",
    "fieldtype": "Select",
    "label": "Default LLM Provider",

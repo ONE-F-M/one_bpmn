@@ -10,7 +10,7 @@ import frappe
 from frappe import _
 from frappe.utils import escape_html, now_datetime
 
-from one_bpmn.agents import turn_signal
+from one_bpmn.processa_engine.agent_runtime import turn_signal
 from one_bpmn.security.rate_limit import RateLimited
 from one_bpmn.utils.session import as_user
 

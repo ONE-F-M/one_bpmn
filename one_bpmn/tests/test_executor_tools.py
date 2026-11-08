@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001356 (3-03): bridge agents/executor to agents/llm_provider tool-calling.
+# The agent_runtime executor handing tool calls to the model adapters.
 
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import ErrorCode, ExecutorConfig, ExecutorContext
-from one_bpmn.agents.executor.direct_api import DirectApiExecutor
-from one_bpmn.agents.llm_provider.base import (
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorConfig, ExecutorContext
+from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
+from one_bpmn.processa_engine.agent_runtime.llm_types import (
 	CompletionResult,
 	StepResult,
 	StepToolCall,
@@ -101,7 +101,7 @@ class TestExecutorToolBridge(FrappeTestCase):
 		)
 		fake = _FakeAdapter(steps or [StepResult(content="done")])
 		with patch(
-			"one_bpmn.agents.llm_provider.factory.get_llm_adapter", return_value=fake
+			"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter", return_value=fake
 		) as factory:
 			result = DirectApiExecutor().run(config, ExecutorContext())
 		return result, fake, factory
@@ -176,7 +176,7 @@ class TestExecutorToolBridge(FrappeTestCase):
 
 	def test_no_tools_never_touches_adapter_factory(self):
 		config = ExecutorConfig(provider_name="No Such Provider 404")
-		with patch("one_bpmn.agents.llm_provider.factory.get_llm_adapter") as factory:
+		with patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter") as factory:
 			result = DirectApiExecutor().run(config, ExecutorContext())
 		factory.assert_not_called()
 		self.assertEqual(result.error_code, ErrorCode.PROVIDER_NOT_FOUND)
@@ -200,7 +200,7 @@ class TestOpenAIAdapterTrace(FrappeTestCase):
 
 	def _adapter(self, responses):
 		try:
-			from one_bpmn.agents.llm_provider.openai_adapter import OpenAIAdapter
+			from one_bpmn.processa_engine.agent_runtime.llm_openai import OpenAIAdapter
 		except ImportError:
 			self.skipTest("openai SDK not installed")
 		adapter = OpenAIAdapter.__new__(OpenAIAdapter)

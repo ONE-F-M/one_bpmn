@@ -7,7 +7,7 @@
 # security gate permanently forbids os / glob / open() in a Server Script. That
 # module returns RAW structure only — every keyword, score, threshold, ranking
 # and narrative below is LuCrusher's own analysis and lives here.
-from one_bpmn.agents.turn_state import update_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import update_turn
 
 def _lucrusher_scan_codebase(frappe, process_elements):
     import json

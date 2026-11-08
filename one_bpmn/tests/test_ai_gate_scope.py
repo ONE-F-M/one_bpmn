@@ -49,7 +49,7 @@ class TestGateScope(JobHarness):
 		self.assertEqual(self._gate(), 0)  # released after
 
 	def test_complete_task_rejected_while_gate_held(self):
-		from one_bpmn.api.instance_api import complete_task
+		from one_bpmn.api.instances import complete_task
 
 		self._park_linear_with_tools()
 		frappe.db.set_value(
@@ -64,7 +64,7 @@ class TestGateScope(JobHarness):
 		self.assertIn("processing", str(ctx.exception).lower())
 
 	def test_complete_task_accepted_at_wait_state(self):
-		from one_bpmn.api.instance_api import complete_task
+		from one_bpmn.api.instances import complete_task
 
 		self._park_linear_with_tools()
 		self.assertFalse(self._gate())  # waiting on AI job — gate clear
@@ -96,7 +96,7 @@ class TestGateScope(JobHarness):
 	def test_successful_job_releases_gate(self):
 		task_id = self._park_linear_with_tools()
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_with_tools(),
 		):
 			with patch.object(frappe, "enqueue"):

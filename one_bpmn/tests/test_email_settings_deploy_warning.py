@@ -5,7 +5,7 @@
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.processa_engine.compiler.deploy_warnings import check_email_settings
-from one_bpmn.api.process_map_api import validate_bpmn_readiness
+from one_bpmn.api.process_maps import validate_bpmn_readiness
 
 MAP_WITH_EMPTY_EMAIL = """<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"

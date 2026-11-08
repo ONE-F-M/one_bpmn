@@ -1,14 +1,14 @@
 # Copyright (c) 2026, one-fm and contributors
-# For license information, please see license.txt
 """Operator controls for a process instance: cancel, suspend, resume and retry the failed step."""
 
 import frappe
 from frappe import _
 
+from one_bpmn.processa_engine.instances import task_actions
+
 RECOVERY_ROLES = {"System Manager", "Process Owner"}
 
 
-@frappe.whitelist(methods=["POST"])
 def cancel_instance(instance_name: str, reason: str) -> dict:
 	"""Cancel an unfinished instance and every task still waiting on it."""
 	instance = _instance_for_recovery(instance_name, reason)
@@ -26,7 +26,6 @@ def cancel_instance(instance_name: str, reason: str) -> dict:
 	return {"instance": instance_name, "status": instance.status}
 
 
-@frappe.whitelist(methods=["POST"])
 def suspend_instance(instance_name: str, reason: str) -> dict:
 	"""Pause an Active instance; timers, messages and parked AI jobs leave it alone until resumed."""
 	instance = _instance_for_recovery(instance_name, reason)
@@ -43,11 +42,8 @@ def suspend_instance(instance_name: str, reason: str) -> dict:
 	return {"instance": instance_name, "status": instance.status}
 
 
-@frappe.whitelist(methods=["POST"])
 def resume_instance(instance_name: str, reason: str = "") -> dict:
 	"""Return a Suspended instance to Active and queue again any AI step parked on it."""
-	from one_bpmn.api.instance_api import retry_ai_task
-
 	instance = _instance_for_recovery(instance_name)
 	if instance.status != "Suspended":
 		frappe.throw(
@@ -61,11 +57,10 @@ def resume_instance(instance_name: str, reason: str = "") -> dict:
 	instance.save()
 	# A parked AI job that ran while the instance was suspended returned without doing its work.
 	for unit in instance.get_parked_ai_units():
-		retry_ai_task(instance_name, unit["task_id"], kind=unit["kind"])
+		task_actions.retry_ai_task(instance_name, unit["task_id"], kind=unit["kind"])
 	return {"instance": instance_name, "status": instance.status}
 
 
-@frappe.whitelist(methods=["POST"])
 def retry_failed_step(instance_name: str, reason: str = "") -> dict:
 	"""Run an Errored instance again from its last saved state, so the step that failed runs again."""
 	instance = _instance_for_recovery(instance_name)

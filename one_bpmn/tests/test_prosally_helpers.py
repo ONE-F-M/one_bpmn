@@ -9,7 +9,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import prosally_helpers as helpers
-from one_bpmn.agents.turn_state import clear_turn, get_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn
 from one_bpmn.one_bpmn.patches.v1_0 import (
 	prosally_build_context_confirmed_action_pending_only as build_context_patch,
 )
@@ -180,7 +180,7 @@ for _k in ['process_name', 'diagram_name', 'confirmed_action', 'current_xml']:
 result["agent_response_ready"] = False
 
 from one_bpmn.agents.prosally_helpers import answer_to_confirmation
-from one_bpmn.agents.turn_state import set_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import set_turn
 # A typed reply to the last confirmation counts the same as clicking its button.
 _confirmed = task_data.get("confirmed_action", "") or ""
 _answer = {} if _confirmed else answer_to_confirmation(conversation_id, task_data.get("user_text", "") or "")
@@ -215,7 +215,7 @@ for m in messages:
         chat_history.append({"role": role, "content": m.text})
 result["chat_history"] = chat_history
 result["agent_response_ready"] = False
-from one_bpmn.agents.turn_state import set_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import set_turn
 set_turn(conversation_id, {
     "user_text": task_data.get("user_text", "") or "",
     "chat_history": chat_history,
@@ -455,7 +455,7 @@ class TestClassifyAfterBuildContext(FrappeTestCase):
 		with (
 			patch.object(helpers, "complete_sub_prompt", return_value=model_reply) as helper,
 			patch(
-				"one_bpmn.agents.llm_provider.get_llm_adapter_from_settings",
+				"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings",
 				return_value=FakeAdapter(model_reply),
 			) as adapter,
 		):

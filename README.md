@@ -71,9 +71,10 @@ one_bpmn/                      # Frappe app (repo root)
 │   ├── api/                   # Whitelisted backend endpoints (domain submodules)
 │   ├── one_bpmn/doctype/      # DocTypes + controllers (models, instances, tasks, logs)
 │   ├── one_bpmn/connectors/   # Outbound connectors and the agent sandbox client
-│   ├── agents/                # AI agent runtime (executor, llm_provider, shape tools, memory)
+│   ├── agents/                # AI agents (shape tools, memory, evals, A2A)
 │   ├── security/              # Validator for generated scripts
 │   ├── processa_engine/notifications/  # AMP and HTML task emails
+│   ├── processa_engine/agent_runtime/  # Executors, model adapters, step loop and turn state
 │   ├── commands/              # bench commands
 │   ├── overrides/             # Overridden Frappe classes
 │   ├── templates/             # Email and deployment templates
@@ -99,16 +100,14 @@ one_bpmn/                      # Frappe app (repo root)
 
 All endpoints are `@frappe.whitelist()` methods organized into domain submodules under `one_bpmn/api/`. Below is the endpoint surface by module.
 
-### Process Model CRUD (`process_map_api`)
+### Process Model CRUD (`process_maps`)
 
 | Method | Endpoint | Description |
 | ------ | -------- | ----------- |
 | POST | `save_process_model` | Save or update a BPMN diagram |
 | POST | `import_bpmn` | Import a .bpmn file (upsert by process_id) |
 | POST | `rename_process_model` | Rename a diagram (fast path) |
-| POST | `update_diagram_order` | Reorder diagrams within a process |
 | GET | `get_process_model` | Get a diagram by name |
-| GET | `list_process_models` | List all diagrams |
 | GET | `list_processes` | List Process records with diagram counts |
 | GET | `get_process_diagrams` | Get all diagrams for a process |
 | GET | `resolve_process_model_by_id` | Resolve process_id to model |
@@ -122,7 +121,7 @@ All endpoints are `@frappe.whitelist()` methods organized into domain submodules
 | `compile_process_model` | Compile and deploy a process model |
 | `disable_process_model` | Disable a deployed model |
 
-### Process Instance Lifecycle (`instance_api`)
+### Process Instances (`instances`)
 
 | Endpoint | Description |
 | -------- | ----------- |
@@ -131,8 +130,8 @@ All endpoints are `@frappe.whitelist()` methods organized into domain submodules
 | `send_message` | Deliver a message to a running instance |
 | `list_process_instances` | List instances |
 | `get_instance_tasks` | Active tasks for an instance |
-| `get_instances_for_document` | Instances bound to a context document |
 | `get_active_bpmn_tasks` | Active tasks across instances |
+| `cancel_instance`, `suspend_instance`, `resume_instance`, `retry_failed_step` | Operator controls on an instance |
 
 ### Other modules
 
@@ -144,7 +143,7 @@ All endpoints are `@frappe.whitelist()` methods organized into domain submodules
 | `version_history` | Diagram XML version history | `get_diagram_versions`, `get_diagram_version_xml` |
 | `script_version_history` | Server-script version history | `get_script_version_history`, `get_script_at_version`, `restore_script_version` |
 | `notification_api` | In-app notification creation | `create_notification` |
-| `utils` | Shared lookups (roles, fields, context docs) | `get_users_by_role`, `get_doctype_fields`, `get_context_doctypes`, `get_context_documents`, … |
+| `lookups` | Field and user lookups (fields, users, context docs) | `get_doctype_fields`, `get_system_users`, `get_context_doctypes`, `get_context_documents` |
 | `workflow_state` | Apply Frappe workflow-state transitions for BPMN service tasks (internal helper, not a public endpoint) | — |
 
 ---
@@ -291,7 +290,7 @@ bench --site your-site.local clear-cache
 
 ### Adding New Features
 
-- **API endpoint**: add to the appropriate submodule in `one_bpmn/api/` with `@frappe.whitelist()` (e.g. process CRUD in `process_map_api.py`, instance logic in `instance_api.py`).
+- **API endpoint**: add to the appropriate submodule in `one_bpmn/api/` with `@frappe.whitelist()` (e.g. process CRUD in `process_maps.py`, instance endpoints in `instances.py`).
 - **Vue component / view**: add under `spiff/src/components/` or `spiff/src/pages/` and register routes in `spiff/src/router.js`.
 - **bpmn-js module**: add under `spiff/src/bpmn/`, `renderers/`, `rules/`, or `resize/` and register in `BpmnEditor.vue`'s `additionalModules`.
 - **Moddle extension**: add under `spiff/src/moddle/` and register in `BpmnEditor.vue`'s `moddleExtensions`.
@@ -489,7 +488,7 @@ See `AGENTS.md` for the full working rules.
 
 ## Architecture Overview
 
-- `one_bpmn/api/` — backend endpoints organized into domain-specific submodules (process CRUD, compilation, instance lifecycle, server scripts, comments, editability, version history, notifications, shared utils)
+- `one_bpmn/api/` - backend endpoints organized into domain-specific submodules (process CRUD, compilation, instance lifecycle, server scripts, comments, editability, version history, notifications, lookups)
 - `one_bpmn/one_bpmn/doctype/` — BPMN DocTypes and server logic (process models, instances, active tasks, activity logs, configuration)
 - `one_bpmn/tasks.py` — scheduled A2A, conversation, memory and model jobs
 - `one_bpmn/hooks.py` — universal document-event trigger and scheduler events

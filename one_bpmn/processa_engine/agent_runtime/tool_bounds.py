@@ -1,27 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""
-Bounds on what passes between the model and its tools (WI-002195).
-
-Two controls, both applied in the step loop so every tool of every agent gets
-them — shape tools, skills, delegation, sandbox tools and the answer a person
-gives on a resumed turn alike.
-
-**Results are size-bounded.** A tool's answer is pasted into the conversation
-the model reads on every later call of the turn, and nothing capped it:
-LuCrusher's codebase scan once put 76,893 characters (about 19k tokens) into
-context in a single call. Over the cap, the model-facing copy is cut and told
-so, with the instruction to ask again more narrowly. The audit copy on the AI
-Agent Tool Call row is never cut — the cap is about what the model pays to
-re-read, not about what was recorded.
-
-**Arguments are validated before the script runs.** A shape declares what its
-tool needs (``aiToolParams``), but the platform handed the model's arguments
-straight to the script. A missing argument surfaced as a Python error message,
-or as nothing at all when the script tolerated the gap and produced a wrong
-answer. The declared schema is now checked first, and a violation goes back to
-the model as a tool error naming the field, without the script having run.
-"""
+"""Bounds on what passes between the model and its tools."""
 
 from __future__ import annotations
 
@@ -30,13 +9,9 @@ import re
 import frappe
 from frappe import _
 
-# The default cap when an agent's configuration leaves the field blank. Large
-# enough that an ordinary tool answer is never touched — a Work Item, a search
-# page, a schema — and small enough that a single dump cannot dominate a turn.
 DEFAULT_TOOL_RESULT_MAX_CHARS = 20000
 
-# Never cut below this whatever the configuration says: a cap of 50 characters
-# would leave the model nothing but the trailer.
+# Floor for any configured cap, so the model always gets more than the trailer.
 MIN_TOOL_RESULT_MAX_CHARS = 500
 
 
@@ -56,11 +31,7 @@ def truncation_trailer(omitted: int) -> str:
 
 
 def bound_tool_result(result, max_chars: int | None) -> str:
-	"""The model-facing copy of a tool result, cut at the cap with a trailer.
-
-	Returns a string either way. Under the cap the text comes back unchanged, so
-	an agent whose tools already behave pays nothing for the check.
-	"""
+	"""The model-facing copy of a tool result, cut at the cap with a trailer."""
 	text = result if isinstance(result, str) else str(result)
 	cap = effective_max_chars(max_chars)
 	if len(text) <= cap:
@@ -69,13 +40,10 @@ def bound_tool_result(result, max_chars: int | None) -> str:
 	return text[:cap] + "\n" + truncation_trailer(omitted)
 
 
-def validate_tool_arguments(tool_name: str, parameters: dict | None, required: list | None, arguments) -> str | None:
-	"""Check the model's arguments against the tool's declared schema.
-
-	Returns None when the call may proceed, or the tool error the model should
-	see instead of a result. A tool that declares nothing is not checked — there
-	is no schema to check against, and a zero-argument tool must keep working.
-	"""
+def validate_tool_arguments(
+	tool_name: str, parameters: dict | None, required: list | None, arguments
+) -> str | None:
+	"""Check the model's arguments against the tool's declared schema."""
 	parameters = parameters or {}
 	required = list(required or [])
 	if not parameters and not required:
@@ -88,8 +56,6 @@ def validate_tool_arguments(tool_name: str, parameters: dict | None, required: l
 			tool_name, type(arguments).__name__
 		)
 
-	# Missing required arguments first, in the words the acceptance criterion
-	# uses, because that is the failure the model can most easily repair.
 	for field in required:
 		if field not in arguments or arguments[field] is None:
 			return _("Missing required argument '{0}' for tool {1}").format(field, tool_name)

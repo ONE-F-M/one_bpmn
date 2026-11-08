@@ -666,7 +666,7 @@ class TestGates(HealthCase):
 
 		runs_before = frappe.db.count("AI Agent Run")
 		with patch("one_bpmn.agents.observability.create_ai_run") as create_run, \
-			patch("one_bpmn.agents.executor.get_executor") as get_executor:
+			patch("one_bpmn.processa_engine.agent_runtime.executor.get_executor") as get_executor:
 			try:
 				ai_agent.dispatch_ai_agent(instance, task, task_cfg, "probe_task")
 			except Exception as exc:  # pragma: no cover - a fixture gap, not the gate

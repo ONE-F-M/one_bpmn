@@ -14,7 +14,7 @@ export function useDoctypeEmailThread() {
 		if (!doctype) return
 		loading.value = true
 		try {
-			thread.value = await frappeGet("/api/method/one_bpmn.api.utils.get_doctype_email_thread", { doctype })
+			thread.value = await frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_email_thread", { doctype })
 		} finally {
 			loading.value = false
 		}

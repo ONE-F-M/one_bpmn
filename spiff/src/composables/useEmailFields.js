@@ -14,7 +14,7 @@ export function useEmailFields(fieldtypes) {
 		if (!doctype) return
 		loading.value = true
 		try {
-			const data = await frappeGet("/api/method/one_bpmn.api.utils.get_email_fields", { doctype })
+			const data = await frappeGet("/api/method/one_bpmn.api.lookups.get_email_fields", { doctype })
 			fields.value = flattenEmailFields(data, fieldtypes)
 		} finally {
 			loading.value = false

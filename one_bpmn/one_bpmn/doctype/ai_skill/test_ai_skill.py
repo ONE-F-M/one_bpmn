@@ -39,7 +39,7 @@ class TestAISkill(FrappeTestCase):
 			"suggestion": "Use this skill when doing X; do not use it for Y.",
 		}))
 		with patch(
-			"one_bpmn.agents.llm_provider.factory.get_llm_adapter_from_settings",
+			"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings",
 			return_value=adapter,
 		):
 			with patch("frappe.msgprint") as mock_msgprint:
@@ -51,7 +51,7 @@ class TestAISkill(FrappeTestCase):
 		skill = self._make_skill("Use this skill when reviewing swimlanes; do not use it otherwise.")
 		adapter = self._mock_adapter(json.dumps({"clear": True}))
 		with patch(
-			"one_bpmn.agents.llm_provider.factory.get_llm_adapter_from_settings",
+			"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings",
 			return_value=adapter,
 		):
 			with patch("frappe.msgprint") as mock_msgprint:
@@ -61,7 +61,7 @@ class TestAISkill(FrappeTestCase):
 	def test_ai_review_failure_never_blocks_save(self):
 		skill = self._make_skill("Anything goes here, no magic phrases at all.")
 		with patch(
-			"one_bpmn.agents.llm_provider.factory.get_llm_adapter_from_settings",
+			"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings",
 			side_effect=RuntimeError("no provider configured"),
 		):
 			skill.insert(ignore_permissions=True)  # must not raise

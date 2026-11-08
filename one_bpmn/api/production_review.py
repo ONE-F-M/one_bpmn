@@ -111,7 +111,7 @@ def _refs_for_model(model_name: str, ptype: str = "read") -> dict:
 	``ptype`` is the permission required on the model — ``read`` to review,
 	``write`` to sync (mirrors the Deploy/Disable gate).
 	"""
-	from one_bpmn.api.process_map_api import _extract_bpmn_references
+	from one_bpmn.processa_engine.maps.references import extract_bpmn_references
 
 	if not model_name:
 		frappe.throw(_("Process map name is required."))
@@ -120,7 +120,7 @@ def _refs_for_model(model_name: str, ptype: str = "read") -> dict:
 	xml = doc.bpmn_xml or ""
 	if not xml.strip():
 		frappe.throw(_("This process map has no BPMN content to analyse."))
-	return _extract_bpmn_references(xml)
+	return extract_bpmn_references(xml)
 
 
 def _workflow_targets(refs: dict) -> dict:

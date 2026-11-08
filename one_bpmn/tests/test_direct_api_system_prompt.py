@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import ExecutorConfig
-from one_bpmn.agents.executor.direct_api import DirectApiExecutor
+from one_bpmn.processa_engine.agent_runtime.executor import ExecutorConfig
+from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
 
 ASSEMBLED = "You are the release notes agent.\n\n## Guard rails\n- Never invent a ticket."
 

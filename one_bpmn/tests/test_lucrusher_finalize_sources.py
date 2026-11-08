@@ -13,7 +13,7 @@ import re
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor.tool_bounds import validate_tool_arguments
+from one_bpmn.processa_engine.agent_runtime.tool_bounds import validate_tool_arguments
 from one_bpmn.one_bpmn.patches.v1_0.migrate_lucrusher_agent_to_generic_path import PROCESS_MODEL as MAP
 
 

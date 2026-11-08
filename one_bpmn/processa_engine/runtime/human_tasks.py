@@ -7,7 +7,7 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
-from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
+from one_bpmn.processa_engine.agent_runtime.job_limits import AI_AGENT_JOB_TIMEOUT
 from one_bpmn.processa_engine.assignment import (
 	add_frappe_assignment,
 	notify_task_assignee,
@@ -168,14 +168,14 @@ def human_tool_label(instance, task, shape_id: str) -> str:
 def complete_ai_human_task(instance, task_id: str, data: dict | None = None) -> None:
 	"""Complete a pending AI human task and resume the suspended agent in a bpmn_ai_agent job.
 
-	The caller, instance_api.complete_task, has checked assignment, action and document permissions.
+	The caller, task_actions.complete_task, has checked assignment, action and document permissions.
 	"""
 	data = data or {}
 	row = next((r for r in instance.active_tasks if r.task_id == task_id), None)
 	if row is None or row.status != "Waiting":
 		frappe.throw(_("Task '{0}' is not waiting for completion.").format(task_id))
 
-	from one_bpmn.agents import checkpoint as _checkpoint
+	from one_bpmn.processa_engine.agent_runtime import checkpoint as _checkpoint
 
 	run_name = _checkpoint.get_suspended_run(instance.name, human_row_id=task_id)
 	if not run_name:

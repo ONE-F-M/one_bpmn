@@ -278,9 +278,9 @@ def generate_system_prompt(config_name: str) -> str:
 	created without a prompt, the process generates one here rather than
 	failing validation.
 	"""
-	from one_bpmn.agents.executor import DEFAULT_MAX_OUTPUT_TOKENS
-	from one_bpmn.agents.executor.direct_api import _run_coro_blocking
-	from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
+	from one_bpmn.processa_engine.agent_runtime.executor import DEFAULT_MAX_OUTPUT_TOKENS
+	from one_bpmn.processa_engine.agent_runtime.direct_api import run_coro_blocking
+	from one_bpmn.processa_engine.agent_runtime.llm_factory import get_llm_adapter_from_settings
 	from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 
 	cfg = frappe.get_doc("AI Agent Configuration", config_name)
@@ -293,7 +293,7 @@ def generate_system_prompt(config_name: str) -> str:
 		f"Chat mode: {cfg.chat_mode_label or cfg.agent_id}"
 	)
 	adapter = get_llm_adapter_from_settings(get_agent_config(cfg.agent_id))
-	completion = _run_coro_blocking(
+	completion = run_coro_blocking(
 		adapter.complete(
 			system="You write system prompts.",
 			user=meta_prompt,
@@ -429,9 +429,9 @@ def _provider_test_call(cfg) -> tuple[bool, str]:
 	whole question here — so truncation counts as a pass, with a note.
 	"""
 	try:
-		from one_bpmn.agents.executor.direct_api import _run_coro_blocking
-		from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
-		from one_bpmn.agents.llm_provider.base import LLMTruncatedError
+		from one_bpmn.processa_engine.agent_runtime.direct_api import run_coro_blocking
+		from one_bpmn.processa_engine.agent_runtime.llm_factory import get_llm_adapter_from_settings
+		from one_bpmn.processa_engine.agent_runtime.llm_types import LLMTruncatedError
 		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 
 		# Say which record is empty. Without this the provider SDK answers for
@@ -455,7 +455,7 @@ def _provider_test_call(cfg) -> tuple[bool, str]:
 		adapter = get_llm_adapter_from_settings(get_agent_config(cfg.agent_id))
 
 		def ask() -> str:
-			completion = _run_coro_blocking(
+			completion = run_coro_blocking(
 				adapter.complete(
 					system="Reply with the single word: OK.", user="ping", max_tokens=_TEST_CALL_MAX_TOKENS
 				)

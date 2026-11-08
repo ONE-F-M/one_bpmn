@@ -16,7 +16,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.util.task import TaskState
 
-from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 from one_bpmn.processa_engine import engine as bpmn_engine
 from one_bpmn.processa_engine.runtime.active_tasks import sync_active_tasks
 from one_bpmn.processa_engine.runtime.common import AI_HUMAN_PREFIX
@@ -137,7 +137,7 @@ class HitlHarness(FrappeTestCase):
 	def _suspend(self, task_id):
 		"""Worker pass that suspends the agent for the human tool."""
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_suspended_result(),
 		):
 			with patch.object(frappe, "enqueue"):
@@ -199,7 +199,7 @@ class TestSuspension(HitlHarness):
 		task_id = self._park_linear()
 		self._suspend(task_id)
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run"
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run"
 		) as run:
 			with patch.object(frappe, "enqueue"):
 				self.instance.resume_parked_ai(kind="service_task", task_id=task_id)
@@ -283,7 +283,7 @@ class TestHumanCompletionAndResume(HitlHarness):
 			return _final_result("refund processed")
 
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", new=fake_run
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run", new=fake_run
 		):
 			with patch.object(frappe, "enqueue"):
 				self.instance.resume_parked_ai(kind="human_resume", task_id=task_id)
@@ -307,7 +307,7 @@ class TestHumanCompletionAndResume(HitlHarness):
 		with patch.object(frappe, "enqueue"):
 			self.instance.complete_ai_human_task(row.task_id, {"action": "Approve"})
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_final_result(),
 		) as run:
 			with patch.object(frappe, "enqueue"):
@@ -326,7 +326,7 @@ class TestHumanCompletionAndResume(HitlHarness):
 		second = _suspended_result()
 		second.suspension["pending_call"]["id"] = "h2"
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=second,
 		):
 			with patch.object(frappe, "enqueue"):
@@ -348,10 +348,10 @@ class TestCompleteTaskApiRouting(HitlHarness):
 		self._suspend(task_id)
 		row = self._human_row()
 
-		from one_bpmn.api import instance_api
+		from one_bpmn.api import instances
 
 		with patch.object(frappe, "enqueue") as enqueue:
-			response = instance_api.complete_task(
+			response = instances.complete_task(
 				self.instance.name, row.task_id, data=json.dumps({"action": "Approve"})
 			)
 
@@ -365,9 +365,9 @@ class TestCompleteTaskApiRouting(HitlHarness):
 		self._suspend(task_id)
 		row = self._human_row()
 
-		from one_bpmn.api import instance_api
+		from one_bpmn.api import instances
 
-		suspended = instance_api.get_suspended_ai_tasks(self.instance.name)
+		suspended = instances.get_suspended_ai_tasks(self.instance.name)
 		self.assertEqual(len(suspended), 1)
 		self.assertEqual(suspended[0]["bpmn_id"], "Agent_1")
 		self.assertEqual(suspended[0]["human_task_id"], row.task_id)
@@ -378,9 +378,9 @@ class TestCompleteTaskApiRouting(HitlHarness):
 		self._suspend(task_id)
 		row = self._human_row()
 
-		from one_bpmn.api import instance_api
+		from one_bpmn.api import instances
 
 		with self.assertRaises(frappe.ValidationError):
-			instance_api.complete_task(
+			instances.complete_task(
 				self.instance.name, row.task_id, data=json.dumps({"action": "Escalate"})
 			)

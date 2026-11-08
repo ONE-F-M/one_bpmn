@@ -3,7 +3,7 @@
 # is what delegate_chat_turn hands back to the LUCRUSHER_RESULT AG-UI event) and
 # records the compacted state snapshot in session state for the next turn.
 import json
-from one_bpmn.agents.turn_state import get_turn, clear_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, clear_turn
 
 conversation_id = task_data.get("conversation_id", context_docname)
 _turn = get_turn(conversation_id)

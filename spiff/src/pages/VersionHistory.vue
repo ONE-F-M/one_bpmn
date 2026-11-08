@@ -171,7 +171,7 @@ async function initViewer() {
 async function fetchLatest() {
 	try {
 		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.get_process_model",
+			url: "/api/method/one_bpmn.api.process_maps.get_process_model",
 			params: { name: props.diagram },
 		});
 		const data = res.message || res;

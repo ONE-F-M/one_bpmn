@@ -20,7 +20,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt
 
-from one_bpmn.agents.executor import AttemptRecord, ErrorCode, ExecutorResult, TokenUsage
+from one_bpmn.processa_engine.agent_runtime.executor import AttemptRecord, ErrorCode, ExecutorResult, TokenUsage
 from one_bpmn.agents.observability import finalize_ai_run, record_ai_step, record_failed_attempts
 
 
@@ -118,9 +118,9 @@ class TestTurnCapNotDoubleCounted(RunFixture):
 	def _turn_cap_result(self):
 		from unittest.mock import patch
 
-		from one_bpmn.agents.executor import ExecutorConfig
-		from one_bpmn.agents.executor.direct_api import DirectApiExecutor
-		from one_bpmn.agents.llm_provider.base import CompletionResult, TurnRecord
+		from one_bpmn.processa_engine.agent_runtime.executor import ExecutorConfig
+		from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
+		from one_bpmn.processa_engine.agent_runtime.llm_types import CompletionResult, TurnRecord
 
 		turns = [
 			TurnRecord(role="tool", content="turn 1", prompt_tokens=100, completion_tokens=20),
@@ -131,8 +131,8 @@ class TestTurnCapNotDoubleCounted(RunFixture):
 			return CompletionResult(trace=turns, hit_turn_cap=True), None
 
 		with (
-			patch("one_bpmn.agents.llm_provider.factory.get_llm_adapter", return_value=object()),
-			patch("one_bpmn.agents.executor.step_loop.run_agent_loop", new=capped_loop),
+			patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter", return_value=object()),
+			patch("one_bpmn.processa_engine.agent_runtime.step_loop.run_agent_loop", new=capped_loop),
 		):
 			return DirectApiExecutor()._run_with_tools(ExecutorConfig(), "Anthropic", "key", "model")
 

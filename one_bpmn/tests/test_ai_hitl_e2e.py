@@ -19,7 +19,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.util.task import TaskState
 
-from one_bpmn.agents.llm_provider.base import StepResult, StepToolCall
+from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall
 from one_bpmn.processa_engine.compiler.agent_tools import resolve_ai_agent_tool_shapes
 from one_bpmn.processa_engine.compiler.extensions import (
 	extract_service_task_config,
@@ -155,7 +155,7 @@ class TestDurableAgentHitlEndToEnd(FrappeTestCase):
 
 	def _adapter_patch(self, adapter):
 		return patch(
-			"one_bpmn.agents.llm_provider.factory.get_llm_adapter",
+			"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter",
 			return_value=adapter,
 		)
 
@@ -193,10 +193,10 @@ class TestDurableAgentHitlEndToEnd(FrappeTestCase):
 		self.assertIn("120 KWD", json.dumps(adapter.transcripts[-1]))
 
 		# The person approves via the real API (validation + routing).
-		from one_bpmn.api import instance_api
+		from one_bpmn.api import instances
 
 		with patch.object(frappe, "enqueue") as enqueue:
-			instance_api.complete_task(
+			instances.complete_task(
 				self.instance.name, row.task_id, data=json.dumps({"action": "Approve"})
 			)
 		self.assertEqual(enqueue.call_args.kwargs["kind"], "human_resume")
@@ -238,10 +238,10 @@ class TestDurableAgentHitlEndToEnd(FrappeTestCase):
 				self.instance.resume_parked_ai(kind="service_task", task_id=task_id)
 		row = self._human_row()
 
-		from one_bpmn.api import instance_api
+		from one_bpmn.api import instances
 
 		with patch.object(frappe, "enqueue"):
-			instance_api.complete_task(
+			instances.complete_task(
 				self.instance.name, row.task_id,
 				data=json.dumps({"action": "Reject", "reason": "amount exceeds policy"}),
 			)

@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.llm_provider.base import ToolSpec
+from one_bpmn.processa_engine.agent_runtime.llm_types import ToolSpec
 from one_bpmn.agents.tool_registry import compile_tool_spec
 
 SCHEMA = {
