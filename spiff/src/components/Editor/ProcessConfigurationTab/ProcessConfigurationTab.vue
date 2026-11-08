@@ -56,5 +56,3 @@ const {
 		@done="onConfigImportDone"
 	/>
 </template>
-
-<style scoped src="./processPageDialogs.css"></style>

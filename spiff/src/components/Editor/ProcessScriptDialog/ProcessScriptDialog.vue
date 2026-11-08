@@ -430,5 +430,3 @@ const hideLater = (hide) => setTimeout(hide, 200);
 		</template>
 	</Dialog>
 </template>
-
-<style scoped src="./processPageDialogs.css"></style>

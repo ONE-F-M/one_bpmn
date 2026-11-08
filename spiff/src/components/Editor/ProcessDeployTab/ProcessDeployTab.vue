@@ -316,5 +316,3 @@ const {
 		</template>
 	</Dialog>
 </template>
-
-<style scoped src="./processPageDialogs.css"></style>

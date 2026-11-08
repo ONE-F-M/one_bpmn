@@ -91,4 +91,4 @@ const {
 	/>
 </template>
 
-<style scoped src="./processPageDialogs.css"></style>
+<style scoped src="./ProcessLauncherDialogs.css"></style>

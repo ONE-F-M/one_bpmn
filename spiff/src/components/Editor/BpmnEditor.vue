@@ -83,7 +83,7 @@ import BpmnMobileToolbar from "./BpmnMobileToolbar.vue";
 import BpmnPropertiesPanel from "./BpmnPropertiesPanel.vue";
 import BpmnCommentPanel from "./BpmnCommentPanel.vue";
 import BpmnCommentDialogs from "./BpmnCommentDialogs.vue";
-import BpmnDocuPanel from "./BpmnDocuPanel.vue";
+import BpmnDocuPanel from "./BpmnDocuPanel/BpmnDocuPanel.vue";
 import BpmnContextMenu from "./BpmnContextMenu.vue";
 import BpmnMessageDialog from "./BpmnMessageDialog.vue";
 import { createEditorContext, EDITOR_KEY } from "@/composables/useEditorState";

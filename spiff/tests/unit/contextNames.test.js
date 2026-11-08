@@ -8,6 +8,12 @@ const src = fileURLToPath(new URL("../../src/", import.meta.url));
 const read = (path) => readFileSync(join(src, path), "utf8");
 const list = (dir) => readdirSync(join(src, dir));
 
+// Editor components, flat files and the <Part>/<Part>.vue of each part folder.
+const editorComponents = () =>
+	list("components/Editor").flatMap((entry) =>
+		entry.endsWith(".vue") ? [entry] : [`${entry}/${entry}.vue`],
+	);
+
 // Names a composable puts on the shared context: Object.assign lists plus the state return object.
 function providedNames(files, variable, stateFile, stateMarker) {
 	const names = new Set();
@@ -49,7 +55,7 @@ test("every name a process component reads from the page context is provided by 
 		"const pc = {",
 	);
 	for (const name of ["notifDialog", "props", "router", "route", "isMobile"]) provided.add(name);
-	const components = list("components/Editor").filter((f) => /^Process.*\.vue$/.test(f));
+	const components = editorComponents().filter((f) => /^Process.*\.vue$/.test(f));
 	for (const file of components) {
 		const missing = destructured(read(`components/Editor/${file}`), "pc").filter(
 			(n) => !provided.has(n),
@@ -63,7 +69,7 @@ test("every name an editor component reads from the editor context is provided b
 		.filter((f) => /^useEditor/.test(f))
 		.map((f) => `composables/${f}`);
 	const provided = providedNames(composables, "ed", "composables/useEditorState.js", "return {");
-	const components = list("components/Editor").filter((f) => /^Bpmn.*\.vue$/.test(f));
+	const components = editorComponents().filter((f) => /^Bpmn.*\.vue$/.test(f));
 	for (const file of components) {
 		const missing = destructured(read(`components/Editor/${file}`), "ed").filter(
 			(n) => !provided.has(n),
