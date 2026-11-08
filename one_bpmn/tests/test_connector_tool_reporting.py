@@ -140,7 +140,7 @@ class TestNotPermittedIsNotTheSameAsNoData(FrappeTestCase):
 	def test_a_refused_connector_says_so_and_is_never_dispatched(self):
 		dispatched = []
 
-		with patch("one_bpmn.one_bpmn.connectors.manifest.user_may_use_connector", return_value=False):
+		with patch("one_bpmn.processa_connectors.manifest.user_may_use_connector", return_value=False):
 			res = _run(CONNECTOR_CFG, lambda task: dispatched.append(True))
 
 		self.assertEqual(res["error"], "not_permitted")
@@ -148,7 +148,7 @@ class TestNotPermittedIsNotTheSameAsNoData(FrappeTestCase):
 		self.assertIn("permission", res["message"].lower())
 
 	def test_a_permitted_connector_is_dispatched_normally(self):
-		with patch("one_bpmn.one_bpmn.connectors.manifest.user_may_use_connector", return_value=True):
+		with patch("one_bpmn.processa_connectors.manifest.user_may_use_connector", return_value=True):
 			res = _run(CONNECTOR_CFG, lambda task: task.data.update({"connector_result": {"id": "x"}}))
 
 		self.assertEqual(res, {"connector_result": {"id": "x"}})
@@ -304,7 +304,7 @@ class TestThroughTheRealDispatcher(FrappeTestCase):
 		with patch(
 			"one_bpmn.processa_engine.dispatch.connector._resolve_connector_handler",
 			return_value=handler,
-		), patch("one_bpmn.one_bpmn.connectors.manifest.user_may_use_connector", return_value=True):
+		), patch("one_bpmn.processa_connectors.manifest.user_may_use_connector", return_value=True):
 			return json.loads(execute_shape(self.instance, "Tool_Connector_1", cfg or dict(CONNECTOR_CFG), {"q": 1}))
 
 	def test_a_handler_that_raises_with_fail_on_error_off_is_reported_as_failed(self):
@@ -345,7 +345,7 @@ class TestThroughTheRealDispatcher(FrappeTestCase):
 			"one_bpmn.processa_engine.dispatch.connector._resolve_connector_handler",
 			return_value=lambda params, ctx: {"id": "x"},
 		), patch("one_bpmn.agents.shape_tools._connector_not_permitted", return_value=None), patch(
-			"one_bpmn.one_bpmn.connectors.manifest.user_may_use_connector", return_value=False
+			"one_bpmn.processa_connectors.manifest.user_may_use_connector", return_value=False
 		):
 			res = json.loads(execute_shape(self.instance, "Tool_Connector_1", dict(CONNECTOR_CFG), {}))
 

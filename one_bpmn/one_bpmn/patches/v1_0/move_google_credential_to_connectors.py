@@ -16,7 +16,7 @@ hand.
 THIS IS THE ONLY PLACE THAT STILL KNOWS THE OLD LOCATIONS
 ---------------------------------------------------------
 A migration is allowed to know about the world it is migrating from; runtime
-code is not. ``google_common.load_service_account_info`` reads the connector's
+code is not. ``processa_connectors.google.common.load_service_account_info`` reads the connector's
 Secret and nothing else, so this patch is the last reader of the four historical
 locations. ``drop_legacy_google_credential_field`` runs after it and removes
 what it leaves behind.

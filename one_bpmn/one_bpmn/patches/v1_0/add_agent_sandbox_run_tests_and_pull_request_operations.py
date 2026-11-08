@@ -2,7 +2,7 @@
 
 import frappe
 
-from one_bpmn.one_bpmn.connectors.seed import _import_operation
+from one_bpmn.processa_connectors.seed import import_operation
 
 CONNECTOR = "agent_sandbox"
 HANDLER = "one_bpmn.one_bpmn.connectors.agent_sandbox_ops.dispatch_action"
@@ -77,4 +77,4 @@ def execute():
 	if not frappe.db.exists("BPMN Connector", CONNECTOR):
 		return
 	for idx, operation in enumerate(OPERATIONS, start=1):
-		_import_operation(CONNECTOR, operation, idx)
+		import_operation(CONNECTOR, operation, idx)

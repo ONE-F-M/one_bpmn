@@ -447,7 +447,7 @@ def _connector_not_permitted(task_cfg: dict) -> dict | None:
 	same question here changes no behaviour; it only lets the tool result say
 	which of the two happened (WI-002007). Returns None when permitted.
 	"""
-	from one_bpmn.one_bpmn.connectors import manifest as _manifest
+	from one_bpmn.processa_connectors import manifest as _manifest
 
 	connector_id = (task_cfg.get("connectorId") or "").strip()
 	if not connector_id or _manifest.user_may_use_connector(connector_id):

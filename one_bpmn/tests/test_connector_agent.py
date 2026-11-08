@@ -3,7 +3,7 @@
 Tests for the Connector Agent — run against the code that actually ships.
 
 The agent's rules live in its Server Scripts, not in the codebase: only
-``connectors/agent_primitives.fetch_url`` stayed in Python, because the script
+``processa_connectors/operations/http.fetch_url`` stayed in Python, because the script
 gate forbids ``requests`` and there is no adequate alternative for a capped,
 timed, SSRF-guarded fetch of an attacker-influenced URL.
 
@@ -27,8 +27,8 @@ from types import SimpleNamespace
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.one_bpmn.connectors.manifest import clear_manifest_cache
-from one_bpmn.one_bpmn.connectors.seed import export_manifest, import_manifest
+from one_bpmn.processa_connectors.manifest import clear_manifest_cache
+from one_bpmn.processa_connectors.seed import export_manifest, import_manifest
 
 
 def _relocated(tool: str) -> SimpleNamespace:
@@ -388,8 +388,8 @@ class TestWriteDisabled(FrappeTestCase):
         self.assertFalse(out["enabled"])
         self.assertEqual(frappe.db.get_value("BPMN Connector", "helpdesk_write", "enabled"), 0)
 
-        from one_bpmn.one_bpmn.connectors.api import get_connector_manifests
-        from one_bpmn.one_bpmn.connectors.manifest import get_execution_spec
+        from one_bpmn.api.connectors import get_connector_manifests
+        from one_bpmn.processa_connectors.manifest import get_execution_spec
 
         offered = [m["connectorId"] for m in get_connector_manifests()]
         self.assertNotIn("helpdesk_write", offered, "a disabled draft must not reach the modeler")

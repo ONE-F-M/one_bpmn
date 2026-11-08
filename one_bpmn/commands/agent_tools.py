@@ -14,7 +14,7 @@ from frappe.commands import get_site, pass_context
 
 from one_bpmn.agents import shape_tools
 from one_bpmn.processa_engine.agent_runtime import llm_factory
-from one_bpmn.one_bpmn.connectors import manifest
+from one_bpmn.processa_connectors import manifest
 
 _IMPORT_FAILURE_TYPES = (ImportError, SyntaxError, NameError, AttributeError)
 

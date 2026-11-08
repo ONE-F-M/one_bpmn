@@ -17,7 +17,7 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 
 	The handler's return lands in task.data[resultVariable]. Errors are logged and the flow continues unless failOnError is set.
 	"""
-	from one_bpmn.one_bpmn.connectors import manifest as _manifest
+	from one_bpmn.processa_connectors import manifest as _manifest
 
 	connector_id = (task_cfg.get("connectorId") or "").strip()
 	operation = (task_cfg.get("operation") or "").strip()
@@ -123,7 +123,7 @@ def dispatch_connector(instance, task, task_cfg: dict, bpmn_id: str) -> None:
 
 def _resolve_connector_handler(connector_id: str, operation: str):
 	"""The operation's Handler Path, or the HTTP Request executor; None when the operation names neither."""
-	from one_bpmn.one_bpmn.connectors import manifest as _manifest
+	from one_bpmn.processa_connectors import manifest as _manifest
 
 	try:
 		spec = _manifest.get_execution_spec(connector_id, operation)
@@ -146,7 +146,7 @@ def _resolve_connector_handler(connector_id: str, operation: str):
 				return None
 
 		if spec.execution_type == "HTTP Request":
-			from one_bpmn.one_bpmn.connectors import http_ops
+			from one_bpmn.processa_connectors.operations import http as http_ops
 
 			return lambda params, ctx: http_ops.execute(spec, params, ctx)
 
