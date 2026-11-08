@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Agent Card builder (WI-001931).
+"""Agent Card builder.
 
 Cards are generated fresh from AI Agent Configuration on every request —
 never stored, so they cannot drift from the configuration.

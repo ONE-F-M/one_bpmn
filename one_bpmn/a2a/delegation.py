@@ -10,7 +10,7 @@ instance, the task, the worker's instance and the document being worked on into
 one thing a process owner can open, and ``sync_from_task()`` keeps its status
 following the task's state.
 
-**Escalation.** WI-002008 already notifies when a delegation is refused at the
+**Escalation.** The system already notifies when a delegation is refused at the
 door — depth or hand-off limits, checked before anything starts. Nothing covered
 a limit reached while the worker was already running, and there are three of
 those: the deadline expiring, and the worker ending at its own turn cap. Those
@@ -207,7 +207,7 @@ def record_refusal(
 ) -> str | None:
 	"""A delegation refused at the door: Failed, with the limit that stopped it.
 
-	This is the WI-002008 path. It already created a failed A2A Task and
+	This is the refusal path. It already created a failed A2A Task and
 	notified; all that was missing was the record saying which limit, and what
 	it reached.
 	"""
@@ -312,7 +312,7 @@ def sync_from_task(task) -> None:
 
 # ── Retry: max_delegation_retries, finally wired to something ────────────────
 #
-# The field has existed with a default of 3 since WI-002008 and nothing read it,
+# The field has existed with a default of 3 and nothing read it,
 # because nothing retried a delegation. Four decisions make it a control rather
 # than a setting, and each is a judgement worth stating:
 #
@@ -322,7 +322,7 @@ def sync_from_task(task) -> None:
 #    outcome, and repeating it only delays the escalation.
 # 2. The A2A Task row is REUSED, so one delegation stays one row and Agent
 #    Delegation keeps its single a2a_task link. The count lives on the delegation
-#    record, which is also what WI-002060's dashboard needs.
+#    record, which is also what the dashboard needs.
 # 3. A retry does NOT consume a hand-off and does NOT increase nesting depth. It
 #    is the same hand-off attempted again; counting it otherwise would trip the
 #    loop guards on a delegation that is working correctly.
@@ -876,7 +876,7 @@ def _wake_the_caller(a2a_task: str | None) -> bool:
 		return False
 
 
-# ── Handing stopped work back to the agent (WI-002148) ───────────────────────
+# ── Handing stopped work back to the agent ───────────────────────
 
 # What can be handed back. A delegation that is still running would give two
 # live runs for one piece of work, which is the thing cancellation and retry

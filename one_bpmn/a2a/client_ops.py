@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""The a2a connector's delegate-task operation (WI-001933).
+"""The a2a connector's delegate-task operation.
 
 One generic ``a2a`` connector serves every remote agent; which one is a
 parameter, resolved through the registry. A Service Task using it hires
@@ -14,8 +14,8 @@ and is bound to AI Agent Run checkpoints — and the poller resumes it
 later.
 
 Every delegation passes the guardrails first: the target must be on the
-delegating agent's sub-agent list (WI-002010), and the chain's depth and
-handoff count must be within that agent's limits (WI-002008).
+delegating agent's sub-agent list, and the chain's depth and
+handoff count must be within that agent's limits.
 """
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ def _work_item_refs(instance, params: dict) -> dict:
 
 
 def delegate_to_local_agent(params: dict, ctx: dict) -> dict | None:
-	"""Hand a task to an agent on THIS site (WI-001933, the primary case).
+	"""Hand a task to an agent on THIS site (the primary case).
 
 	No registry, no approved client, no HTTP: the target agent runs here.
 	The delegating agent's allowed-delegates list and its guardrails still
