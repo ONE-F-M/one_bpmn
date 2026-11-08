@@ -432,24 +432,20 @@ def check_component_js(change: Change, baseline: Baseline, result: Result) -> No
 	)
 
 
-def check_component_folder(change: Change, baseline: Baseline, tree: Collection[str], result: Result) -> None:
-	if change.status != "A" or not is_component_asset(change.path) or ("component-folder", change.path) in baseline:
-		return
-	folder, _, name = change.path.rpartition("/")
-	stem, _, ext = name.rpartition(".")
-	if not in_component_folder(change.path):
-		result.failures.append(
-			Finding(
-				change.path,
-				None,
-				"component-folder",
-				f"components/ holds one folder per component: put {change.path} in {folder}/{stem}/{name}",
-			)
-		)
-	elif ext == "css" and f"{folder}/{stem}.vue" not in tree:
-		result.failures.append(
-			Finding(change.path, None, "component-folder", f"a .css needs its {stem}.vue beside it in {folder}")
-		)
+def check_component_folder(baseline: Baseline, tree: Collection[str], result: Result) -> None:
+	"""Every .vue and .css in the tree is in its component folder or in the baseline."""
+	for path in sorted(tree):
+		if not is_component_asset(path) or ("component-folder", path) in baseline:
+			continue
+		folder, _, name = path.rpartition("/")
+		stem, _, ext = name.rpartition(".")
+		if not in_component_folder(path):
+			message = f"components/ holds one folder per component: put {path} in {folder}/{stem}/{name}"
+		elif ext == "css" and f"{folder}/{stem}.vue" not in tree:
+			message = f"a .css needs its {stem}.vue beside it in {folder}"
+		else:
+			continue
+		result.failures.append(Finding(path, None, "component-folder", message))
 
 
 def check_fetch(change: Change, result: Result) -> None:
@@ -562,9 +558,9 @@ def run_checks(
 		check_private_imports(change, baseline, result)
 		check_definitions(change, result)
 		check_component_js(change, baseline, result)
-		check_component_folder(change, baseline, tree, result)
 		check_fetch(change, result)
 		check_deleted(change, baseline, result)
+	check_component_folder(baseline, tree, result)
 	check_baseline_approval(baseline, base_baseline or {}, approvers, codeowners, result)
 	return result
 

@@ -351,6 +351,11 @@ class TestComponentFolderRule(unittest.TestCase):
 	def failing(self, path, tree=None, baseline=None):
 		return run([cs.Change.new_file(path, "x\n")], baseline, baseline, tree=tree)
 
+	def test_a_loose_file_that_is_already_in_the_tree_fails_unless_baselined(self):
+		path = f"{self.BASE}/Modals/CompareModal.vue"
+		self.assertEqual(rules(run([], tree={path})), ["component-folder"])
+		self.assertTrue(run([], {("component-folder", path): 0}, {("component-folder", path): 0}, tree={path}).ok)
+
 	def test_a_component_in_its_own_folder_passes(self):
 		for path in (
 			f"{self.BASE}/Docu/DocuApplyBar/DocuApplyBar.vue",
@@ -376,8 +381,8 @@ class TestComponentFolderRule(unittest.TestCase):
 
 	def test_a_css_needs_its_vue_beside_it(self):
 		css = f"{self.BASE}/Docu/Bar/Bar.css"
-		self.assertEqual(rules(self.failing(css, tree=set())), ["component-folder"])
-		self.assertTrue(self.failing(css, tree={f"{self.BASE}/Docu/Bar/Bar.vue"}).ok)
+		self.assertEqual(rules(self.failing(css, tree={css})), ["component-folder"])
+		self.assertTrue(self.failing(css, tree={css, f"{self.BASE}/Docu/Bar/Bar.vue"}).ok)
 
 	def test_a_css_added_with_its_vue_passes(self):
 		changes = [
@@ -386,10 +391,8 @@ class TestComponentFolderRule(unittest.TestCase):
 		]
 		self.assertTrue(run(changes).ok)
 
-	def test_files_outside_components_and_modified_files_are_ignored(self):
+	def test_files_outside_components_are_ignored(self):
 		self.assertTrue(self.failing("spiff/src/views/Loose.vue").ok)
-		modified = cs.Change.modified(f"{self.BASE}/Modals/CompareModal.vue", "x\n", [])
-		self.assertTrue(run([modified]).ok)
 
 	def test_a_baselined_file_passes_and_deleting_it_asks_for_the_entry_to_go(self):
 		path = f"{self.BASE}/Modals/CompareModal.vue"
@@ -418,7 +421,7 @@ class TestFetchRule(unittest.TestCase):
 
 	def test_fetch_in_frontend_code_fails_and_names_the_line(self):
 		for path, text in (
-			("spiff/src/components/chat/AgentChatPanel.vue", f'\tconst res = await {FETCH}"/api/x")'),
+			("spiff/src/components/chat/AgentChatPanel/AgentChatPanel.vue", f'\tconst res = await {FETCH}"/api/x")'),
 			("frontend/src/bpmn/shared/frappeResource.js", f"\treturn window.{FETCH}path)"),
 		):
 			with self.subTest(path=path):
