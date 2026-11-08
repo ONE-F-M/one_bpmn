@@ -977,4 +977,174 @@ function buildManualLaneDI(ir, opts = {}) {
         vRuns.push(p.v2);
       }
       hRuns.push(p.h1);
+    }
+    plans.push(p);
+  }
+
+  // Channel allocation by interval NESTING, then first fit.
+  //
+  // Runs are sorted narrowest-first, so a run always lands on a channel at or
+  // below any run that contains it. That ordering is what actually removes
+  // crossings: if run A's span is nested inside run B's, A only ever travels out
+  // to its own channel, which is nearer the nodes than B's, so A's two vertical
+  // legs stop short of B's horizontal and the two never meet. Only genuinely
+  // interleaved spans — the ones no planar drawing can separate either — are
+  // left crossing.
+  //
+  // Sorting by position instead (the obvious first-fit) packs channels just as
+  // tightly but shuffles nested runs above their containers, which manufactures
+  // crossings that the geometry did not require: it cost ~460 avoidable
+  // crossings on the Fuel Requisition map.
+  //
+  // Within a channel, runs that do not overlap at all still share it, so the
+  // gutter or strip stays as narrow as the traffic allows.
+  const allocate = (runs) => {
+    const byKey = new Map();
+    for (const r of runs) {
+      if (!byKey.has(r.key)) byKey.set(r.key, []);
+      byKey.get(r.key).push(r);
+    }
+    const counts = new Map();
+    for (const [k, list] of byKey) {
+      list.sort((a, b) => (a.hi - a.lo) - (b.hi - b.lo) || a.lo - b.lo);
+      const channels = [];   // channels[i] = intervals already placed there
+      for (const r of list) {
+        let i = 0;
+        for (; i < channels.length; i++) {
+          if (!channels[i].some(o => o.lo < r.hi && r.lo < o.hi)) break;
+        }
+        if (i === channels.length) channels.push([]);
+        channels[i].push(r);
+        r.ch = i;
+      }
+      counts.set(k, channels.length);
+    }
+    return counts;
+  };
+  const gutterCount = allocate(vRuns);
+  const colVCount   = allocate(cRuns);
+  const stripCount  = allocate(hRuns);
+
+  // ── Pixels: gutters and strips are sized to the channels they must hold ───
+  const gutterW = (g)  => Math.max(GUTTER_BASE, 40 + (gutterCount.get(g) || 0) * CH_SP);
+  const stripH  = (li, side) => {
+    const n = stripCount.get(stripKey(li, side)) || 0;
+    return n ? Math.max(STRIP_BASE, 14 + n * CH_SP) : (side === 'top' ? 0 : STRIP_BASE);
+  };
+
+  const contentLeft = PARTICIPANT_X + POOL_HEADER_W + LANE_HEADER_W;
+  const colLeft = [];
+  let penX = contentLeft + gutterW(-1);
+  for (let c = 0; c <= maxCol; c++) { colLeft[c] = penX; penX += colW[c] + gutterW(c); }
+
+  const gutterStart = (g) => (g < 0 ? contentLeft : colLeft[g] + colW[g]);
+  const gutterX = (g, ch) => Math.round(gutterStart(g) + 20 + ch * CH_SP);
+
+  const laneH = lanes.map((_, li) =>
+    LANE_PAD_TOP + stripH(li, 'top') + rowsTotal[li] + stripH(li, 'bottom') + LANE_PAD_BOT);
+  const laneTopY = [];
+  let yOff = PARTICIPANT_Y;
+  for (let i = 0; i < lanes.length; i++) { laneTopY.push(yOff); yOff += laneH[i]; }
+  const totalH       = yOff - PARTICIPANT_Y;
+  const participantW = penX - PARTICIPANT_X;
+
+  const rowCenterY = (li, row) =>
+    laneTopY[li] + LANE_PAD_TOP + stripH(li, 'top') + rowStart[li][row] + rowBand[li][row] / 2;
+  // Channel 0 is always the one NEAREST the node rows, on both sides. Channel
+  // allocation sorts runs narrowest-first precisely so a nested run sits inside
+  // its container, and "inside" means closer to the nodes — so on a top strip
+  // the channels have to count upwards from the rows, not downwards from the
+  // lane's edge. Numbering it the other way inverts every nesting relationship
+  // in that strip and manufactures exactly the crossings the sort prevents.
+  const stripY = (li, side, ch) => Math.round(
+    side === 'top'
+      ? laneTopY[li] + LANE_PAD_TOP + stripH(li, 'top') - 8 - ch * CH_SP
+      : laneTopY[li] + LANE_PAD_TOP + stripH(li, 'top') + rowsTotal[li] + 14 + ch * CH_SP);
+
+  // Every node centred in its column and on its row's centreline: rows cannot
+  // overlap (ROW_PITCH exceeds the tallest node) and columns cannot either.
+  const nodePos = new Map();  // nodeId → { x, y, w, h }
+  for (const grp of groups.values()) {
+    grp.nodeIds.forEach((nid, r) => {
+      const d = nodeDims(nodeMap.get(nid));
+      nodePos.set(nid, {
+        x: Math.round(colLeft[grp.c] + (colW[grp.c] - d.w) / 2),
+        y: Math.round(rowCenterY(grp.li, r) - d.h / 2),
+        w: d.w,
+        h: d.h,
+      });
+    });
+  }
+
+  // ── Y-bounds validation ─────────────────────────────────────────────────
+  // Every node's rendered shape must fall inside its assigned lane band.
+  // By construction our layout algorithm guarantees this; the check acts as a
+  // safety net that catches wrong lane assignments or future layout-algorithm bugs.
+  const boundProblems = [];
+  for (const n of ir.nodes) {
+    const pos = nodePos.get(n.id);
+    if (!pos) continue;
+    const lid = nodeLaneId.get(n.id) || (lanes.length ? lanes[0].id : '');
+    const li  = laneIndexById.has(lid) ? laneIndexById.get(lid) : 0;
+    const bandTop    = laneTopY[li];
+    const bandBottom = bandTop + laneH[li];
+    if (pos.y < bandTop - 1 || pos.y + pos.h > bandBottom + 1) {
+      boundProblems.push({
+        kind: 'structure', rule: 'lane-bounds', elementId: n.id,
+        message: `Node "${n.id}" Y-bounds [${pos.y}–${pos.y + pos.h}] fall outside ` +
+          `lane "${lid}" band [${bandTop}–${bandBottom}]. ` +
+          `Change this node's "lane" field to the correct lane id.`,
+      });
+    }
+  }
+  if (boundProblems.length) return { diSection: '', problems: boundProblems };
+
+  // ── Serialise BPMNDI XML ────────────────────────────────────────────────
+  const lines = [];
+  lines.push('  <bpmndi:BPMNDiagram id="BPMNDiagram_1">');
+  lines.push('    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="' + (pool ? 'Collaboration_1' : 'Process_1') + '">');
+
+  if (pool) {
+  // Participant (pool) shape
+  lines.push('      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true">');
+  lines.push('        <dc:Bounds x="' + PARTICIPANT_X + '" y="' + PARTICIPANT_Y +
+             '" width="' + participantW + '" height="' + totalH + '" />');
+  lines.push('      </bpmndi:BPMNShape>');
+  }
+
+  // Lane shapes — bands tile exactly (heights sum to pool inner height)
+  for (let i = 0; pool && i < lanes.length; i++) {
+    const lane = lanes[i];
+    const laneX = PARTICIPANT_X + POOL_HEADER_W;
+    const laneW = participantW - POOL_HEADER_W;
+    lines.push('      <bpmndi:BPMNShape id="' + lane.id + '_di" bpmnElement="' + lane.id + '" isHorizontal="true">');
+    lines.push('        <dc:Bounds x="' + laneX + '" y="' + laneTopY[i] +
+               '" width="' + laneW + '" height="' + laneH[i] + '" />');
+    lines.push('      </bpmndi:BPMNShape>');
+  }
+
+  // Node shapes are serialised after the edges (below): an event or gateway
+  // label has to know where every line runs before it can pick a clear side.
+  const edgeLines = [];
+  const allSegs = [];       // [p, q, flowIndex]
+  const edgePts = [];
+
+  // Label collision test: an edge label must not land on another label, nor on
+  // a shape it has nothing to do with. Seeded with every node shape so the very
+  // first label already avoids them.
+  const labelBoxes = [];
+  const boxHit = (a, b) =>
+    a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+  // ── Docking: choose which SIDE of a node each edge attaches to ────────────
+  //
+  // The channel model already keeps corridors apart — measured on these maps
+  // only 3 of 69 overlapping segment pairs were in a gutter or a strip. The
+  // other 66 were the short horizontal STUBS at the nodes: the run from a
+  // shape's right edge out to the gutter, and from the last gutter back in to
+  // the target's left edge.
+  //
+  // Those stubs were collinear BY CONSTRUCTION. Every edge left at (x+w, y+h/2)
+  // and arrived at (x, y+h/2), so seven flows converging on one join gateway
+  // began as seven lines on the same pixel row, differing only in where they
 //@@CONTINUE@@
