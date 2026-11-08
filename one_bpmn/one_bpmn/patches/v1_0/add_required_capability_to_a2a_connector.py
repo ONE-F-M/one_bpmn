@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-002056: the delegate operation gains a declared capability.
+"""The delegate operation gains a declared capability.
 
 The manifest in seed_a2a_connector carries the field for a fresh install; this
 adds it to sites where that patch has already run, because the importer does not

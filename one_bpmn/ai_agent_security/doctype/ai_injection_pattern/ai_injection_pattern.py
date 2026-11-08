@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """
-AI Injection Pattern — the prompt-injection rule pack, held as data (WI-001967).
+AI Injection Pattern — the prompt-injection rule pack, held as data.
 
 A rule is a row, so adding one, tightening one, or switching one off is an edit
 in the desk rather than a code change and a deploy. That is the whole point: the

@@ -1,5 +1,5 @@
 """
-WI-001655: Credentials = connection, Model = catalog entry pointing at its
+Credentials = connection, Model = catalog entry pointing at its
 credentials, Agent = picks a model.
 
 Migration follows the approved "Leave Blank" ruling — nothing is invented:

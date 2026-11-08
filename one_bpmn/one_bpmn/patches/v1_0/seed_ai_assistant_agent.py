@@ -1,5 +1,5 @@
 """
-WI-001622: create the AI Assistant as the first chat agent stood up through
+Create the AI Assistant as the first chat agent stood up through
 the agent-creation process.
 
 Seeds an AI Agent Configuration for the assistant (its system prompt taken

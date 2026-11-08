@@ -1,5 +1,5 @@
 """
-WI-002203: Promote the two Threat Intelligence AI Agent Configurations
+Promote the two Threat Intelligence AI Agent Configurations
 ("Threat Source Expander", "Threat Keyword Generator") from onefm_mcp's
 retired LangGraph pipeline onto the new "Threat Source Discovery" BPMN
 Process Model.
@@ -35,7 +35,7 @@ has been imported yet:
 2. ai_model was never set by either onefm_mcp seed patch either — the old
    pipeline called its own get_llm() rather than the AI Model catalog, so
    there was nothing to migrate. validate_agent_config() (the check this
-   platform's go-live flow runs, WI-001621) hard-fails on a blank ai_model
+   platform's go-live flow runs) hard-fails on a blank ai_model
    ("No AI Model is linked"), so without this these configs can never pass
    validation at all, let alone reach Live. Points at claude-sonnet-5 to
    match Dev Agent, the other Background agent already Live on the BA

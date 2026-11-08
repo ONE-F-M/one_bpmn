@@ -87,7 +87,7 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 		return doc
 
 	def test_a_model_the_platform_knows_is_broken_is_not_called_again(self):
-		"""WI-002191 already marks a model whose credentials fail, alerts once and
+		"""A model whose credentials fail is already marked, alerts once and
 		refuses runs on it. Saving an agent on such a model used to make the live
 		call anyway and park the agent on the answer. On prod-backup on
 		2026-09-13 that parked ProsAlly twice, the second time while it was being
@@ -219,7 +219,7 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 		mocked.assert_not_called()
 
 	def test_empty_prompt_background_agent_is_only_credential_tested(self):
-		# WI-001650 provider-grant pattern: Background agent with a
+		# Provider-grant pattern: Background agent with a
 		# deliberately empty prompt must stay Live while its credentials work.
 		agent = self._make_agent(system_prompt="")
 		self.assertEqual(agent.lifecycle_status, "Live")

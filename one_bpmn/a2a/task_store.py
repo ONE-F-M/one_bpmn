@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""A2A Task store — create, resolve, and derive state (WI-001932).
+"""A2A Task store — create, resolve, and derive state.
 
 State mapping onto the existing machinery, never a parallel runtime:
 
@@ -211,7 +211,7 @@ def store_result(task, text: str) -> None:
 
 
 def _sync_delegation(task) -> None:
-	"""Keep the Agent Delegation row following this task (WI-002053).
+	"""Keep the Agent Delegation row following this task.
 
 	Hung off the same two places that already announce a state change, so the
 	tracking record cannot drift from the task it describes. Import is local to

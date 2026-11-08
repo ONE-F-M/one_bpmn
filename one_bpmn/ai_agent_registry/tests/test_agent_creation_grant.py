@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # See license.txt
-"""The agent-creation grant (WI-001751 follow-up).
+"""The agent-creation grant.
 
 Which process carries a new agent from Draft to Live used to be a hardcoded
 name ("AI Agent Creation Process") that nothing shipped, so a site without that

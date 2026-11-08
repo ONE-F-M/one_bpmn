@@ -1,5 +1,5 @@
 """
-WI-001630: stop AI Agent memory threads masquerading as General Chat.
+Stop AI Agent memory threads masquerading as General Chat.
 
 An AI Agent Task with ``aiConversationStore="document_store"`` persists its own
 transcript as a Chat Conversation titled ``one_bpmn:<instance>:<bpmn_id>``. The

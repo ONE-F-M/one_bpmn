@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""JSON-RPC client for remote A2A agents (WI-001933 / WI-002009).
+"""JSON-RPC client for remote A2A agents.
 
 Every call re-checks approval and re-runs the SSRF guard, not just the
 first one: an entry can be revoked mid-flight, and a host that resolved
@@ -9,7 +9,7 @@ checks, and they are the difference between an allow-list and a
 suggestion.
 
 Outbound messages are validated against the wire contract BEFORE
-dispatch (WI-002009) — an invalid message is never sent.
+dispatch - an invalid message is never sent.
 """
 
 from __future__ import annotations
@@ -105,7 +105,7 @@ def message_send(
 	if metadata:
 		message["metadata"] = metadata
 
-	# WI-002009: validate before dispatch — never send an invalid message.
+	# Validate before dispatch - never send an invalid message.
 	problems = a2a_contract.validate("message", message)
 	if problems:
 		log_validation_failure("output", problems, content=frappe.as_json(message))
@@ -128,7 +128,7 @@ def tasks_cancel(agent, remote_task_id: str) -> dict:
 
 
 def set_push_config(agent, remote_task_id: str, url: str, token: str) -> dict:
-	"""Ask a remote to call us when this task changes (WI-001933 follow-up).
+	"""Ask a remote to call us when this task changes.
 
 	The token is echoed back to us on every callback and is the only thing
 	authenticating it, so it is minted per task and never reused.

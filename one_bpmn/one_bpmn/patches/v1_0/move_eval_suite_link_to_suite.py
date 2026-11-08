@@ -1,5 +1,5 @@
 """
-WI-001743: move the Suite<->Agent link onto AI Eval Suite.
+Move the Suite<->Agent link onto AI Eval Suite.
 
 The link used to live on AI Agent Configuration.eval_suite (one suite per
 agent). It now lives on AI Eval Suite.agent_configuration (the only linkage;

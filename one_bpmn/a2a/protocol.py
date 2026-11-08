@@ -1,12 +1,12 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""JSON-RPC protocol layer for the A2A server (WI-001932 / WI-0012009).
+"""JSON-RPC protocol layer for the A2A server.
 
 JSON-RPC is only the envelope — the fixed grammar for "which operation,
 with what inputs, matched by what id, or which error". Everything after
 the envelope is ordinary Processa.
 
-Strict validation (WI-002009) happens here, before anything downstream
+Strict validation happens here, before anything downstream
 runs: the envelope against the contract's rpc_request schema, the inner
 message against the message schema. Failures are rejected with the
 protocol's standard error and logged to the security event log with
@@ -58,7 +58,7 @@ def parse_rpc_request() -> dict:
 
 
 def validate_message_params(params: dict) -> dict:
-	"""The inner message of message/send, strictly validated (WI-002009)."""
+	"""The inner message of message/send, strictly validated."""
 	message = (params or {}).get("message")
 	if not isinstance(message, dict):
 		raise A2AError("INVALID_PARAMS", "params.message is required")
@@ -88,7 +88,7 @@ def extract_text_parts(message: dict) -> str:
 
 
 def read_trace(message: dict) -> dict:
-	"""Delegation trace from message metadata (WI-002008). Values are
+	"""Delegation trace from message metadata. Values are
 	advisory — limits are enforced locally regardless of what a remote
 	claims — but they let a chain be counted across sites."""
 	metadata = message.get("metadata") or {}
@@ -153,7 +153,7 @@ def _respond(payload: dict) -> None:
 
 
 def log_validation_failure(boundary: str, problems: list[str], content: str | None = None) -> None:
-	"""WI-002009: every schema rejection becomes a security event carrying
+	"""Every schema rejection becomes a security event carrying
 	which fields failed and what was expected — through the one door all
 	screening verdicts use. Never raises."""
 	from one_bpmn.ai_agent_security.events import record_event

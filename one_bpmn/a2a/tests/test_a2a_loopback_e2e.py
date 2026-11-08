@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""A2A loopback: our client side talking to our server side (WI-001931-4).
+"""A2A loopback: our client side talking to our server side.
 
 Building both halves means the whole protocol can be proven without an
 external partner — and this is also the production shape for the

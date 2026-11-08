@@ -1,5 +1,5 @@
 """
-WI-001614: Migrate per-provider LLM credentials and model links out of
+Migrate per-provider LLM credentials and model links out of
 AI Chat Settings (onefm_mcp) into AI Provider Credentials records.
 
 For each provider with a key stored on AI Chat Settings, upsert a
@@ -91,7 +91,7 @@ def execute():
 			doc.provider_name = name
 			doc.provider_type = ptype
 		doc.api_key = api_key
-		# WI-001655 dropped default_model from AI Provider Credentials (the model
+		# default_model was dropped from AI Provider Credentials (the model
 		# is now the agent's own AI Model pick). Only carry the legacy value over
 		# on sites whose schema still has the field: on a new_doc, an attribute
 		# for a field that is not in the meta raises AttributeError rather than

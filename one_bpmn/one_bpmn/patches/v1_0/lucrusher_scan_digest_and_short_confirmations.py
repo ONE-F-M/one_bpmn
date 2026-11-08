@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-"""LuCrusher paid twice for its own analysis (WI-002195).
+"""LuCrusher paid twice for its own analysis.
 
 Two of its tools put far more into the model's context than the model used.
 

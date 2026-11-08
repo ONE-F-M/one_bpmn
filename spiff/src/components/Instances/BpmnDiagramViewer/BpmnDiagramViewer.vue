@@ -85,9 +85,8 @@ import NavigatedViewer from "bpmn-js/lib/NavigatedViewer"
 import "bpmn-js/dist/assets/diagram-js.css"
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css"
 
-// Direct touch handler for mobile — bypasses bpmn-js-touch-interaction module
-// which may fail to initialize on some devices due to (pointer: coarse) guard.
-import { setupCanvasTouchHandler } from "@/utils/canvasTouchHandler"
+// Touch gestures (pan, pinch, tap) come from the same module the editor uses.
+import touchInteractionModule from "bpmn-js-touch-interaction"
 
 // ── AI Agent Task renderer — replaces Service Task gear icon with sparkle ──
 import aiAgentRendererModule from "@/bpmn/aiAgentRenderer"
@@ -211,7 +210,6 @@ const emit = defineEmits(["element-select", "clear-selection"])
 
 const canvasRef = ref(null)
 const viewer = shallowRef(null)
-let touchCleanup = null
 
 // ── Viewer Lifecycle ──
 
@@ -226,6 +224,7 @@ async function initViewer() {
 				aiAgentRendererModule,
 				aiTaskSelectorRendererModule,
 				serviceTaskIconModule,
+				touchInteractionModule,
 			],
 			moddleExtensions: {
 				spiffworkflow: viewerModdleExtension,
@@ -244,13 +243,6 @@ async function initViewer() {
 				// ignore zoom errors
 			}
 		}, 100)
-
-		// Setup direct touch handler for mobile pinch-to-zoom & finger pan
-		// (only on touch-capable devices to avoid no-op listeners on desktop)
-		const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0
-		if (!touchCleanup && canvasRef.value && isTouchDevice) {
-			touchCleanup = setupCanvasTouchHandler(viewer.value, canvasRef.value)
-		}
 	} catch (err) {
 		console.error("Error rendering BPMN:", err)
 	}
@@ -261,10 +253,6 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-	if (touchCleanup) {
-		touchCleanup()
-		touchCleanup = null
-	}
 	if (viewer.value) {
 		viewer.value.destroy()
 		viewer.value = null

@@ -1,4 +1,4 @@
-"""WI-002187: recover final_output for Success runs the old loop left empty.
+"""Recover final_output for Success runs the old loop left empty.
 
 Before this story, a run's final_output came from the model's own narration on
 the closing turn — and a turn that ended with a finalize call routinely had

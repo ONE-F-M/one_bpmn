@@ -1,5 +1,5 @@
 """
-WI-001613: Move the agent + chat doctypes from onefm_mcp into one_bpmn.
+Move the agent + chat doctypes from onefm_mcp into one_bpmn.
 
 Runs pre_model_sync so the module is reassigned BEFORE doctype sync: the
 doctype JSON files now live under one_bpmn, and if the DocType rows still

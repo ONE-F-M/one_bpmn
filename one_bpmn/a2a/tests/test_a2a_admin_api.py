@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-001934: the admin surface — both registries and the task monitor.
+"""The admin surface — both registries and the task monitor.
 
 Every endpoint here is System Manager only: the registries decide who
 may reach our agents, and the monitor shows what those agents are being
@@ -160,7 +160,7 @@ class TestA2AAdminTaskMonitor(FrappeTestCase):
 
 
 class TestRegisteringFromProcessa(FrappeTestCase):
-	"""WI-001934 asks for 'register an endpoint' on this screen, so the whole
+	"""The brief asks for 'register an endpoint' on this screen, so the whole
 	lifecycle has to be reachable without opening Desk: create, edit, and
 	choose which agents a caller may reach."""
 

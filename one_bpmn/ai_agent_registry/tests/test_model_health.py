@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-002191: credential health for AI Models.
+"""Credential health for AI Models.
 
 Three promises, each pinned here:
 

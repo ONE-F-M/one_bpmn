@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Service-user provisioning for A2A Clients (WI-001931).
+"""Service-user provisioning for A2A Clients.
 
 Every action in Frappe is performed by a user, so each approved caller
 gets exactly one dedicated user carrying only the "A2A Client" role.

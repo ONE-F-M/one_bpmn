@@ -1,7 +1,7 @@
 // Copyright (c) 2026, one-fm and contributors
 // For license information, please see license.txt
 
-// WI-002191: the form says whether this model's credentials work, in the
+// The form says whether this model's credentials work, in the
 // same place the person fixing them is already looking. The health_* fields
 // are written by the platform; this only reads them.
 frappe.ui.form.on("AI Model", {

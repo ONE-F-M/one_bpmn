@@ -1,5 +1,5 @@
 """
-WI-001751: stop the AI Assistant's response contract from killing tool turns.
+Stop the AI Assistant's response contract from killing tool turns.
 
 Symptom: asked to build evals, the assistant called list_eval_suites, called
 create_eval_suite (which committed a real suite), then replied "Great! Now I'll
@@ -33,7 +33,7 @@ It also adds a prompt line for the second half of the failure: the model announc
 work it had not done. Tool calls belong in the turn that promises them.
 
 Only the assistant's own map is touched; other agents keep their contracts.
-Diagrams are data, never code (WI-001540), so the change is applied to the site's
+Diagrams are data, never code, so the change is applied to the site's
 copy. Idempotent.
 """
 

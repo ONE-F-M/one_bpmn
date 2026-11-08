@@ -1,5 +1,5 @@
 """
-WI-001539 / per-agent migration: complete the ``docu`` AI Agent Configuration
+Per-agent migration: complete the ``docu`` AI Agent Configuration
 so Docu chat runs through the generic invocation path (create_agent_conversation
 + invoke_agent), and carry it to Live through lifecycle validation.
 

@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-001933: the outbound side — registry, client, delegation.
+"""The outbound side — registry, client, delegation.
 
 Nothing here touches the network: the transport is stubbed, so what is
 under test is our own behaviour — approval enforcement, the SSRF guard,

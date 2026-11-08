@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Is the thing that wakes parked agent work actually running? (WI-002055)
+"""Is the thing that wakes parked agent work actually running?
 
 ``poll_a2a_tasks`` is what notices that a delegated worker has finished, that a
 deadline has passed, that a retry is due. When it stops running, none of that is
