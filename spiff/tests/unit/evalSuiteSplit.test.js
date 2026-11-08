@@ -9,7 +9,9 @@ const read = (file) => readFileSync(join(src, file), "utf8");
 
 const SHELL = "pages/EvalSuite.vue";
 const parts = [
-	...readdirSync(join(src, "components/Evals")).map((f) => `components/Evals/${f}`),
+	...readdirSync(join(src, "components/Evals"), { recursive: true })
+		.filter((f) => f.endsWith(".vue"))
+		.map((f) => `components/Evals/${f}`),
 	...readdirSync(join(src, "composables"))
 		.filter((f) => /^useEval(?!uat)/.test(f) || f === "useAssignableAgents.js")
 		.map((f) => `composables/${f}`),
@@ -44,6 +46,20 @@ test("the eval suite page is a shell under 300 lines that calls no endpoint itse
 	const text = read(SHELL);
 	assert.ok(text.split("\n").length < 300);
 	assert.doesNotMatch(text, /frappeRequest/);
+});
+
+test("every Evals component lives in a folder of its own name", () => {
+	const dir = join(src, "components/Evals");
+	const entries = readdirSync(dir, { withFileTypes: true });
+	assert.ok(entries.length > 0);
+	for (const entry of entries) {
+		assert.ok(entry.isDirectory(), `${entry.name} is loose in components/Evals`);
+		assert.deepEqual(
+			readdirSync(join(dir, entry.name)).filter((f) => f.endsWith(".vue")),
+			[`${entry.name}.vue`],
+			entry.name,
+		);
+	}
 });
 
 test("every eval suite part stays under 500 lines", () => {

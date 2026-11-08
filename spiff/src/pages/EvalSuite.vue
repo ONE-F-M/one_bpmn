@@ -31,17 +31,17 @@
 <script setup>
 import { onMounted, onUnmounted, provide } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import EvalCaseEditorModal from "@/components/Evals/EvalCaseEditorModal.vue";
-import EvalCaseList from "@/components/Evals/EvalCaseList.vue";
-import EvalCompareModal from "@/components/Evals/EvalCompareModal.vue";
-import EvalConsistencyPanel from "@/components/Evals/EvalConsistencyPanel.vue";
-import EvalDatasetModal from "@/components/Evals/EvalDatasetModal.vue";
-import EvalFromRunModal from "@/components/Evals/EvalFromRunModal.vue";
-import EvalReassignModal from "@/components/Evals/EvalReassignModal.vue";
-import EvalRunList from "@/components/Evals/EvalRunList.vue";
-import EvalSuiteHeader from "@/components/Evals/EvalSuiteHeader.vue";
-import EvalSuiteMetrics from "@/components/Evals/EvalSuiteMetrics.vue";
-import EvalThresholdsModal from "@/components/Evals/EvalThresholdsModal.vue";
+import EvalCaseEditorModal from "@/components/Evals/EvalCaseEditorModal/EvalCaseEditorModal.vue";
+import EvalCaseList from "@/components/Evals/EvalCaseList/EvalCaseList.vue";
+import EvalCompareModal from "@/components/Evals/EvalCompareModal/EvalCompareModal.vue";
+import EvalConsistencyPanel from "@/components/Evals/EvalConsistencyPanel/EvalConsistencyPanel.vue";
+import EvalDatasetModal from "@/components/Evals/EvalDatasetModal/EvalDatasetModal.vue";
+import EvalFromRunModal from "@/components/Evals/EvalFromRunModal/EvalFromRunModal.vue";
+import EvalReassignModal from "@/components/Evals/EvalReassignModal/EvalReassignModal.vue";
+import EvalRunList from "@/components/Evals/EvalRunList/EvalRunList.vue";
+import EvalSuiteHeader from "@/components/Evals/EvalSuiteHeader/EvalSuiteHeader.vue";
+import EvalSuiteMetrics from "@/components/Evals/EvalSuiteMetrics/EvalSuiteMetrics.vue";
+import EvalThresholdsModal from "@/components/Evals/EvalThresholdsModal/EvalThresholdsModal.vue";
 import { EVAL_SUITE_KEY, createEvalSuiteContext } from "@/composables/useEvalSuiteState";
 
 const route = useRoute();

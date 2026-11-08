@@ -124,9 +124,9 @@
 <script setup>
 import { inject } from "vue";
 import { Button, Dialog, FormControl } from "frappe-ui";
-import EvalAssertionFields from "@/components/Evals/EvalAssertionFields.vue";
-import EvalCaseContextField from "@/components/Evals/EvalCaseContextField.vue";
-import EvalExpectedToolCalls from "@/components/Evals/EvalExpectedToolCalls.vue";
+import EvalAssertionFields from "@/components/Evals/EvalAssertionFields/EvalAssertionFields.vue";
+import EvalCaseContextField from "@/components/Evals/EvalCaseContextField/EvalCaseContextField.vue";
+import EvalExpectedToolCalls from "@/components/Evals/EvalExpectedToolCalls/EvalExpectedToolCalls.vue";
 import { CASE_TYPE_OPTIONS, VALUE_LABELS } from "@/utils/evalLabels";
 import { EVAL_SUITE_KEY } from "@/composables/useEvalSuiteState";
 
