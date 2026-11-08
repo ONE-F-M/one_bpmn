@@ -1,12 +1,12 @@
 """
-WI-001751: give the AI Assistant tools that author eval suites and cases.
+Give the AI Assistant tools that author eval suites and cases.
 
 The assistant could already call ``add_agent_evals``, but that tool appends rows
 to AI Agent Configuration.sample_prompts and regenerates the agent's single
 "<agent> — Baseline" suite. It can therefore never target a named,
 purpose-specific suite, and it keeps a second copy of the tests on the
 configuration — while the real suite -> agent link lives on
-AI Eval Suite.agent_configuration (WI-001743).
+AI Eval Suite.agent_configuration.
 
 This patch adds three tools that work the other way round, straight against the
 eval doctypes:
@@ -21,7 +21,7 @@ eval doctypes:
 Read first, create only when nothing matches. The prompt section added below
 states that order so the assistant stops at the lookup when a suite already fits.
 
-Diagrams are data, never code (WI-001540) — so the shapes are spliced into the
+Diagrams are data, never code — so the shapes are spliced into the
 site's own copy of the assistant's map rather than shipped as a .bpmn fixture,
 the same way add_logix_agent_tool_authoring does it. Idempotent throughout.
 """
@@ -49,7 +49,7 @@ CREATE_CASE_SCRIPT_NAME = "Assistant Tool – Create Eval Case"
 # driving it could touch by hand.
 
 LIST_EVAL_SUITES_SCRIPT = '''# Tool: the eval suites already attached to an AI Agent Configuration.
-# The link lives on AI Eval Suite.agent_configuration (WI-001743), so this is a
+# The link lives on AI Eval Suite.agent_configuration, so this is a
 # reverse query — the configuration carries no suite field to read.
 _agent = (task_data.get("agent") or "").strip()
 if not _agent:
@@ -304,7 +304,7 @@ _TOOL_SHAPES = [
 	},
 ]
 
-# add_agent_evals was applied straight to the site by WI-001623 and never got a
+# add_agent_evals was applied straight to the site and never got a
 # BPMNShape, so it compiles as a tool but is invisible on the canvas. Give it one
 # while we are here — a tool a designer cannot see is a tool nobody maintains.
 _ORPHAN_DI = {"id": "add_agent_evals", "bounds": (750, 630)}
@@ -348,7 +348,7 @@ def _di_xml(shape_id: str, x: int, y: int) -> str:
 # Appended to the assistant configuration's system_prompt rather than added to
 # api/ai_assistant.py::_build_system_prompt, deliberately: the live prompt on a
 # site is richer than that builder (the YOUR TOOLBOX / CREATING AGENTS sections
-# come from WI-001623, still unmerged), so regenerating from the builder would
+# come from a change still unmerged), so regenerating from the builder would
 # lose text. Appending is additive and survives whichever builder seeded it.
 _PROMPT_MARKER = "AUTHORING EVAL SUITES AND CASES:"
 _PROMPT_SECTION = """

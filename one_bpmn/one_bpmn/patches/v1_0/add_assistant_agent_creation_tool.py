@@ -1,5 +1,5 @@
 """
-WI-001751: let the AI Assistant create an AI Agent Configuration through its
+Let the AI Assistant create an AI Agent Configuration through its
 tools, then offer evals for it.
 
 Until now agent creation lived only on the modal path: recommend_ai_task_config
@@ -27,10 +27,10 @@ confirmation in the conversation before the tool is called, and the tool's own
 documentation says it writes a real record immediately.
 
 Sample prompts are deliberately not part of the payload. Evals belong in an
-AI Eval Suite with its own cases (the link lives on the suite, WI-001743), not
+AI Eval Suite with its own cases (the link lives on the suite), not
 duplicated onto the configuration as sample prompts.
 
-Diagrams are data, never code (WI-001540) — the shape is spliced into the site's
+Diagrams are data, never code — the shape is spliced into the site's
 own copy of the map. Idempotent throughout.
 """
 
@@ -57,9 +57,9 @@ CREATE_AGENT_CONFIGURATION_SCRIPT = '''# Tool: create an AI Agent Configuration 
 # "Create agent" button uses. Chat + Draft; the After-Insert trigger starts the
 # AI Agent Creation Process, which takes the agent to Live.
 #
-# WI-001655: the agent picks an ai_model from the AI Model catalog and its
+# The agent picks an ai_model from the AI Model catalog and its
 # provider is DERIVED from that model's credentials link. Passing a provider
-# directly is the pre-WI-001655 shape and leaves ai_model empty, which the
+# directly is the older shape and leaves ai_model empty, which the
 # creation process's Validate step rejects — so the checks below mirror
 # agent_provisioning.VALIDATION_RULES rather than let a new agent land straight
 # in Needs Attention.
@@ -111,7 +111,7 @@ else:
         "agent_name": _name,
         "chat_mode_label": _label,
         "ai_model": _model,
-        # WI-001997: the designer-chosen map the agent belongs to — usually
+        # The designer-chosen map the agent belongs to — usually
         # the process open in the editor. Nothing clones or overwrites it.
         "process_model": _process_map,
         "system_prompt": _system_prompt,
@@ -264,7 +264,7 @@ _PROMPT_MARKER = "CREATING AN AGENT THROUGH YOUR TOOLS:"
 # than before it. An early draft said "follow AUTHORING EVAL SUITES AND CASES
 # below", which is the wrong direction; repair it in place where it already shipped
 # instead of leaving the model a false pointer.
-# WI-001655 made the MODEL the agent's pick, with the provider derived from that
+# The MODEL is the agent's pick, with the provider derived from that
 # model's credentials link. An earlier draft of this section told the assistant to
 # supply a provider — which leaves ai_model empty and fails the creation process's
 # Validate step — so repair that wording too where it already shipped.
@@ -285,7 +285,7 @@ _STALE_PHRASES = {
 		"  - Gather every one of those in conversation first, asking for what is missing "
 		"rather than guessing."
 	),
-	# WI-001997: the map is a designer-chosen link at creation, and the chat
+	# The map is a designer-chosen link at creation, and the chat
 	# mode label became conditional on it — repair the shipped bullet in place.
 	(
 		"It needs an agent name, a chat mode label that is not already taken, and an exact "
@@ -351,7 +351,7 @@ def _update_process_model() -> None:
 	needs_di = f'bpmnElement="{_TOOL_SHAPE["id"]}"' not in xml
 
 	# An already-present shape may carry a stale argument schema — the contract
-	# moved from ai_provider_credentials to ai_model (WI-001655). Refresh it in
+	# moved from ai_provider_credentials to ai_model. Refresh it in
 	# place rather than leave the LLM calling the tool with arguments the script
 	# no longer reads.
 	stale = None
