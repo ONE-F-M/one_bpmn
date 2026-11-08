@@ -100,7 +100,6 @@ src/components/Modals/CompareModal.vue
 src/components/Modals/ConfigImportResultsModal.vue
 src/components/DiffViewer.vue
 src/components/Editor/DmnEditor.vue
-src/components/Docu/DocuCanvas.vue
 src/components/Editor/EditorTabs.vue
 src/components/Notifications/EmailNoticeContentTab.vue
 src/components/Modals/EmailNotificationEditorModal.vue
