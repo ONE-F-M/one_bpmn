@@ -52,7 +52,7 @@ class TestDistillationReportsFailure(FrappeTestCase):
 		somebody reads. On prod-backup it read "ErrorCode.PROVIDER_DISABLED"."""
 		from types import SimpleNamespace
 
-		from one_bpmn.agents.executor import ErrorCode
+		from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode
 
 		refused = SimpleNamespace(
 			error_code=ErrorCode.PROVIDER_DISABLED,
@@ -60,7 +60,7 @@ class TestDistillationReportsFailure(FrappeTestCase):
 			output="",
 		)
 		with patch(
-			"one_bpmn.agents.executor.get_executor",
+			"one_bpmn.processa_engine.agent_runtime.executor.get_executor",
 			return_value=lambda: SimpleNamespace(run=lambda *a, **k: refused),
 		):
 			with self.assertRaises(D.DistillationFailed) as ctx:

@@ -18,13 +18,14 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.bpmn_ir_pipeline import compile_ir
-from one_bpmn.agents.llm_provider.base import LLMTruncatedError
+from one_bpmn.processa_engine.agent_runtime.llm_types import LLMTruncatedError
 from one_bpmn.agents.observability import record_truncated_calls
 from one_bpmn.one_bpmn.patches.v1_0 import (
 	prosally_generate_process_records_cut_offs_without_getattr as repair_patch,
 )
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_generate_process_splits_cut_off_phases as split_patch
 from one_bpmn.security.script_validator import ValidatorOptions, deep_inspect_script
+from one_bpmn.tests.site_scripts import as_deployed
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SHAPES = ("ba", "staging")
@@ -146,8 +147,8 @@ def run_generate(shape, should_cut=lambda user: False, text="Model a leave reque
 		return model.answer(user, max_tokens)
 
 	patches = [
-		mock.patch("one_bpmn.agents.turn_state.get_turn", return_value=turn),
-		mock.patch("one_bpmn.agents.turn_state.update_turn", ran.update_turn),
+		mock.patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value=turn),
+		mock.patch("one_bpmn.processa_engine.agent_runtime.turn_state.update_turn", ran.update_turn),
 		mock.patch(f"{PIPELINE}.compile_ir", ran.compile_ir),
 		mock.patch(f"{PIPELINE}.auto_fix_ir", ran.auto_fix_ir),
 		mock.patch(f"{PIPELINE}.ensure_default_lanes", return_value=True),
@@ -171,7 +172,7 @@ def run_generate(shape, should_cut=lambda user: False, text="Model a leave reque
 	else:
 		patches += [
 			mock.patch(
-				"one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=FakeAdapter(model)
+				"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=FakeAdapter(model)
 			),
 			mock.patch(
 				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
@@ -184,7 +185,7 @@ def run_generate(shape, should_cut=lambda user: False, text="Model a leave reque
 			stack.enter_context(patcher)
 		# Split globals and locals, as the tool-script runner executes it: names in a def or comprehension body are not visible.
 		exec(
-			script,
+			as_deployed(script),
 			{"frappe": frappe, "context_docname": "TEST-TURN", "result": ran.result, "bpmn_id": "BPMN-1"},
 			{},
 		)

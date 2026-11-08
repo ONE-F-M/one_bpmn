@@ -13,7 +13,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.context_assembler import EXAMPLES_HEADER, GUARDRAILS_HEADER
-from one_bpmn.agents.executor import (
+from one_bpmn.processa_engine.agent_runtime.executor import (
 	ErrorCode,
 	Executor,
 	ExecutorResult,

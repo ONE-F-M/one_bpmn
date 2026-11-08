@@ -9,7 +9,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.llm_provider import structured_output
+from one_bpmn.processa_engine.agent_runtime import structured_output
 from one_bpmn.one_bpmn.patches.v1_0 import json_agents_declare_their_schema as p
 
 PATCH_COMPILE = "one_bpmn.api.deploy.compile_process_model"

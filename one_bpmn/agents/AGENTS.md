@@ -9,11 +9,11 @@ Rules for `one_bpmn/agents/`, the engine pieces that run agents, and the two edi
 - Each stage gets a fresh prompt built from the conversation history; stages share no session state.
 - `get_agent_config(agent_id)` in the AI Agent Configuration controller returns an agent's settings and sub-prompt overrides.
 
-## LLM providers (`llm_provider/`)
+## LLM providers (`processa_engine/agent_runtime/`)
 
-Adapters: `gemini.py` (`GeminiAdapter`), `anthropic_adapter.py` (`AnthropicAdapter`), `openai_adapter.py` (`OpenAIAdapter`), all behind `BaseLLMAdapter`.
+Adapters: `llm_gemini.py` (`GeminiAdapter`), `llm_anthropic.py` (`AnthropicAdapter`), `llm_openai.py` (`OpenAIAdapter`), all behind `BaseLLMAdapter` in `llm_base.py`. The data shapes they and the step loop pass around (`ToolSpec`, `StepResult`, `TurnRecord`, `CompletionResult` and others) are in `llm_types.py`.
 
-`factory.py: get_llm_adapter_from_settings(agent_config)` resolves the adapter:
+`llm_factory.py: get_llm_adapter_from_settings(agent_config)` resolves the adapter:
 
 1. The agent's linked AI Provider and its AI Model. The AI Model holds the key and the API model name; a disabled AI Model is refused.
 2. Otherwise `default_llm_provider` on Processa Settings, with credentials from the matching AI Provider record.

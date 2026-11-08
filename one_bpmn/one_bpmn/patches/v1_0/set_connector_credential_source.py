@@ -40,7 +40,7 @@ def execute():
 			"BPMN Connector", name, "credential_source", "On this connector", update_modified=False
 		)
 
-	from one_bpmn.one_bpmn.connectors.manifest import clear_manifest_cache
+	from one_bpmn.processa_connectors.manifest import clear_manifest_cache
 
 	clear_manifest_cache()
 	if pinned:

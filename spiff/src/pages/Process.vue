@@ -1141,22 +1141,23 @@ import { ref, onMounted, onUnmounted, computed, watch, nextTick, provide, inject
 import { useRouter, useRoute, onBeforeRouteLeave } from "vue-router";
 import { frappeRequest, TextEditor } from "frappe-ui";
 import { Icon } from "@iconify/vue";
-import BpmnEditor from "@/components/BpmnEditor.vue";
-import EditorTabs from "@/components/EditorTabs.vue";
+import BpmnEditor from "@/components/Editor/BpmnEditor.vue";
+import { getInitials, getAvatarColor } from "@/utils/avatar";
+import EditorTabs from "@/components/Editor/EditorTabs.vue";
 
-import VersionDiffDialog from "@/components/VersionDiffDialog.vue";
-import CompareDialog from "@/components/CompareDialog.vue";
+import VersionDiffDialog from "@/components/Modals/VersionDiffModal.vue";
+import CompareDialog from "@/components/Modals/CompareModal.vue";
 import { downloadBpmn } from "@/utils/downloadBpmn";
-import CallActivitySearchDialog from "@/components/CallActivitySearchDialog.vue";
-import LogixCanvas from "@/components/LogixCanvas.vue";
-import DmnEditor from "@/components/DmnEditor.vue";
-import NotificationLinkDialog from "@/components/NotificationLinkDialog.vue";
-import NotifyAssigneeEditorDialog from "@/components/NotifyAssigneeEditorDialog.vue";
-import EmailNotificationEditorDialog from "@/components/EmailNotificationEditorDialog.vue";
-import ReadinessChecklistDialog from "@/components/ReadinessChecklistDialog.vue";
+import CallActivitySearchDialog from "@/components/Modals/CallActivitySearchModal.vue";
+import LogixCanvas from "@/components/Logix/LogixCanvas.vue";
+import DmnEditor from "@/components/Editor/DmnEditor.vue";
+import NotificationLinkDialog from "@/components/Modals/NotificationLinkModal.vue";
+import NotifyAssigneeEditorDialog from "@/components/Modals/NotifyAssigneeEditorModal.vue";
+import EmailNotificationEditorDialog from "@/components/Modals/EmailNotificationEditorModal.vue";
+import ReadinessChecklistDialog from "@/components/Modals/ReadinessChecklistModal.vue";
 import { withLintErrors } from "@/utils/lintIssues.js";
-import ExportConfigDialog from "@/components/ExportConfigDialog.vue";
-import ConfigImportResultsDialog from "@/components/ConfigImportResultsDialog.vue";
+import ExportConfigDialog from "@/components/Modals/ExportConfigModal.vue";
+import ConfigImportResultsDialog from "@/components/Modals/ConfigImportResultsModal.vue";
 import { sanitiseFilename } from "@/utils/downloadBpmn";
 import { serverMessage } from "@/utils/serverMessage";
 import { useNotificationDialog } from "@/composables/useNotificationDialog";
@@ -1889,7 +1890,7 @@ async function runReadinessCheck(xmlContent, mode) {
 			params.model_name = activeDiagramName.value;
 		}
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.validate_bpmn_readiness",
+			url: "/api/method/one_bpmn.api.process_maps.validate_bpmn_readiness",
 			params,
 		});
 		const checklist = response.message || response;
@@ -1955,7 +1956,7 @@ async function onReadinessUpdateRefs(refItems) {
 	readinessLoading.value = true;
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.update_call_activity_references",
+			url: "/api/method/one_bpmn.api.process_maps.update_call_activity_references",
 			method: "POST",
 			params: { references: JSON.stringify(refItems) },
 		});
@@ -2403,7 +2404,7 @@ async function performHeartbeat(modelName) {
 async function loadProcess() {
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.get_process_diagrams",
+			url: "/api/method/one_bpmn.api.process_maps.get_process_diagrams",
 			params: { process: props.process },
 		});
 		const data = response.message || response;
@@ -2487,7 +2488,7 @@ async function loadDiagramContent(name) {
 
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.get_process_model",
+			url: "/api/method/one_bpmn.api.process_maps.get_process_model",
 			params: { name },
 		});
 
@@ -2556,7 +2557,7 @@ async function saveCurrentDiagram() {
 		const description = diagram?.description || "";
 
 		const data = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.save_process_model",
+			url: "/api/method/one_bpmn.api.process_maps.save_process_model",
 			params: {
 				process: props.process,
 				model_name: modelName,
@@ -2635,7 +2636,7 @@ async function handleDeleteTab(tab) {
 	// ── Server call (no loadProcess round-trip) ──────────────────────
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.delete_diagram",
+			url: "/api/method/one_bpmn.api.process_maps.delete_diagram",
 			params: { name: tab.name },
 		});
 	} catch (error) {
@@ -2704,7 +2705,7 @@ async function renameProcessModel({ tabName, oldModelName, newModelName }) {
 
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.rename_process_model",
+			url: "/api/method/one_bpmn.api.process_maps.rename_process_model",
 			params: {
 				name: tabName,
 				new_title: newModelName,
@@ -3013,7 +3014,7 @@ async function handleImportFile(event) {
 		// Call the backend import endpoint via frappeRequest for consistent
 		// CSRF handling, response parsing, and error surfacing.
 		const result = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.import_bpmn",
+			url: "/api/method/one_bpmn.api.process_maps.import_bpmn",
 			method: "POST",
 			params: {
 				xml_content: xmlContent,
@@ -3102,32 +3103,6 @@ function getStatusTheme(status) {
 		default:
 			return "gray";
 	}
-}
-
-// Avatar Helpers
-function getInitials(fullName) {
-	if (!fullName) return "U";
-	const names = fullName.trim().split(/\s+/);
-	if (names.length === 1) return names[0].charAt(0).toUpperCase();
-	return (names[0].charAt(0) + names[names.length - 1].charAt(0)).toUpperCase();
-}
-
-const AVATAR_COLORS = [
-	"bg-red-500", "bg-orange-500", "bg-amber-500", "bg-yellow-500",
-	"bg-lime-500", "bg-green-500", "bg-emerald-500", "bg-teal-500",
-	"bg-cyan-500", "bg-sky-500", "bg-blue-500", "bg-indigo-500",
-	"bg-violet-500", "bg-purple-500", "bg-fuchsia-500", "bg-pink-500",
-	"bg-rose-500",
-];
-
-function getAvatarColor(userName) {
-	if (!userName) return "bg-gray-400";
-	let hash = 0;
-	for (let i = 0; i < userName.length; i++) {
-		hash = userName.charCodeAt(i) + ((hash << 5) - hash);
-	}
-	const colorIndex = Math.abs(hash) % AVATAR_COLORS.length;
-	return AVATAR_COLORS[colorIndex];
 }
 
 // --- DMN Editor Handlers ---
@@ -3587,7 +3562,7 @@ async function onLaunchCallActivityEditor(event) {
 		// Use the dedicated resolve endpoint — returns one record without
 		// fetching the entire model list client-side.
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.resolve_process_model_by_id",
+			url: "/api/method/one_bpmn.api.process_maps.resolve_process_model_by_id",
 			params: { process_id: event.processId },
 		});
 		const linked = response.message || response;

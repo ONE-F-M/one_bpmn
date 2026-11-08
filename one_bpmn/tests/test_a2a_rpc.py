@@ -294,7 +294,7 @@ class TestA2AContinuation(RPCHarness):
 		task.insert(ignore_permissions=True)
 
 		completed = MagicMock(return_value={"status": "ok"})
-		with self.set_user(client.user), patch("one_bpmn.api.instance_api.complete_task", completed):
+		with self.set_user(client.user), patch("one_bpmn.api.instances.complete_task", completed):
 			reply = self.send("here is the answer", agent.agent_id, task_id=task.task_id)
 
 		self.assertEqual(reply["result"]["status"]["state"], "working")

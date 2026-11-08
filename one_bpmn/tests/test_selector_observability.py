@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import ExecutorConfig
+from one_bpmn.processa_engine.agent_runtime.executor import ExecutorConfig
 from one_bpmn.agents.observability import (
 	finalize_selector_run,
 	get_or_create_selector_run,
@@ -318,7 +318,7 @@ class TestTurnLatency(FrappeTestCase):
 	def test_turnrecord_serializes_latency(self):
 		from dataclasses import asdict
 
-		from one_bpmn.agents.llm_provider.base import TurnRecord
+		from one_bpmn.processa_engine.agent_runtime.llm_types import TurnRecord
 
 		turn = asdict(TurnRecord(role="assistant", content="x", latency_ms=875))
 		self.assertEqual(turn["latency_ms"], 875)

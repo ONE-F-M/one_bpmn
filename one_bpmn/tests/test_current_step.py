@@ -14,7 +14,7 @@ class TestDeriveCurrentStep(FrappeTestCase):
 	def _derive(self, state):
 		import json as _json
 
-		from one_bpmn.api.instance_api import _derive_current_step
+		from one_bpmn.processa_engine.instances.listing import _derive_current_step
 
 		return _derive_current_step(_json.dumps(state))
 
@@ -44,10 +44,10 @@ class TestDeriveCurrentStep(FrappeTestCase):
 			"subprocesses": {"p1": {"tasks": {"c2": {"task_spec": "Sub_1.EndJoin", "state": 8}}}},
 			"subprocess_specs": {"Sub_1": {"task_specs": {}}},
 		}
-		self.assertEqual(self._derive(state), "Triage — awaiting task selection")
+		self.assertEqual(self._derive(state), "Triage - awaiting task selection")
 
 	def test_empty_or_bad_state_is_safe(self):
-		from one_bpmn.api.instance_api import _derive_current_step
+		from one_bpmn.processa_engine.instances.listing import _derive_current_step
 
 		self.assertEqual(_derive_current_step(""), "")
 		self.assertEqual(_derive_current_step("not json"), "")

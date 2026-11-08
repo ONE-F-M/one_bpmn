@@ -296,7 +296,7 @@ class TestHowTheQuestionAppearsToAPerson(FrappeTestCase):
 	def test_a_question_is_not_offered_as_a_workflow_action(self):
 		"""Two doors to the same task, where one of them loses the answer, is
 		worse than one."""
-		from one_bpmn.api.instance_api import get_active_bpmn_tasks
+		from one_bpmn.api.instances import get_active_bpmn_tasks
 
 		item = _work_item()
 		instance = frappe.get_doc({

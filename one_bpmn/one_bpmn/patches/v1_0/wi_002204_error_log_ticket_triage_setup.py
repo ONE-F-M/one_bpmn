@@ -25,7 +25,7 @@ because they are DB records rather than diagram content:
 The map's two Script Tasks (Triage, Apply AI Result) are NOT created here —
 they travel with the diagram itself, through the platform's own
 export_bpmn_config/import_bpmn_config (a companion _config.json alongside the
-.bpmn export, same as document_request_config.json). Duplicating them as
+.bpmn export). Duplicating them as
 string literals in this patch would drift the moment either is edited through
 that path instead.
 

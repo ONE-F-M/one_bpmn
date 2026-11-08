@@ -3,8 +3,7 @@ import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
 import { frappeGet } from "../shared/frappeResource";
-import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
-import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
+import { RecordPickerField } from "../shared/RecordPickerField";
 import { EMAIL_EDITOR_ATTRS } from "../shared/emailNotification";
 import { makeLaunchDocuButton } from "../shared/launchDocuButton";
 import { connectorEntries } from "./connectorEntries";
@@ -325,7 +324,7 @@ function ServiceTargetDoctypeComponent(props) {
 		return frappeGet("/api/resource/DocType", params);
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		label: translate("DocType"),
 		value,
@@ -417,7 +416,7 @@ function OnlyAllowEditComponent(props) {
 		return frappeGet("/api/resource/Role", params);
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		label: translate("Only Allow Edit for"),
 		value,
@@ -518,7 +517,7 @@ function UpdateFieldDoctypeComponent(props) {
 		return frappeGet("/api/resource/DocType", params);
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		label: translate("DocType"),
 		value,
@@ -555,13 +554,13 @@ function UpdateFieldNameComponent(props) {
 	}
 
 	const fetchFields = (txt) => {
-		return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+		return frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
 			doctype,
 			search_text: txt || "",
 		});
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		label: translate("Field"),
 		value,
@@ -646,7 +645,7 @@ function UpdateFieldRowsComponent(props) {
 
 	const fetchFields = (txt) => {
 		if (!doctype) return Promise.resolve([]);
-		return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+		return frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
 			doctype,
 			search_text: txt || "",
 		});
@@ -663,7 +662,7 @@ function UpdateFieldRowsComponent(props) {
 				[
 					...rows.map((row, idx) =>
 						h("div", { key: idx, class: "bpmn-field-row" }, [
-							h(FrappeAutocomplete, {
+							h(RecordPickerField, {
 								id: `${id}-field-${idx}`,
 								label: "",
 								value: row.field,
@@ -787,7 +786,7 @@ function GchatDoctypeComponent(props) {
 		return frappeGet("/api/resource/DocType", params);
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		label: translate("DocType"),
 		value: getAttr(bo, "gchatDoctype"),
@@ -817,12 +816,12 @@ function GchatDocFieldComponent(props) {
 		if (!doctype) {
 			return Promise.resolve([{ fieldname: "", label: "— Select a DocType first —" }]);
 		}
-		return frappeGet("/api/method/one_bpmn.api.utils.get_recipient_docfields", {
+		return frappeGet("/api/method/one_bpmn.api.lookups.get_recipient_docfields", {
 			doctype, search_text: txt || "",
 		});
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		label: translate("Recipient Field"),
 		value: getAttr(bo, "gchatDocField"),
@@ -853,7 +852,7 @@ function makeTableRecipientComponents(doctypeOf, tableAttr, userAttr, rowFieldsA
 			if (!doctype) {
 				return Promise.resolve([{ fieldname: "", label: "Select a DocType first" }]);
 			}
-			return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+			return frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
 				doctype, fieldtype_in: '["Table MultiSelect","Table"]', include_options: true,
 			}).then((fields) => {
 				const list = Array.isArray(fields) ? fields : [];
@@ -867,7 +866,7 @@ function makeTableRecipientComponents(doctypeOf, tableAttr, userAttr, rowFieldsA
 			});
 		};
 
-		return h(FrappeAutocomplete, {
+		return h(RecordPickerField, {
 			id,
 			label: translate("Table Field"),
 			value: getAttr(bo, tableAttr),
@@ -901,7 +900,7 @@ function makeTableRecipientComponents(doctypeOf, tableAttr, userAttr, rowFieldsA
 			if (!doctype || !tableField) {
 				return Promise.resolve([{ fieldname: "", label: "Select a Table Field first" }]);
 			}
-			return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+			return frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
 				doctype, fieldtype_in: '["Table MultiSelect","Table"]', include_options: true,
 			}).then((tableFields) => {
 				const match = (Array.isArray(tableFields) ? tableFields : []).find(
@@ -910,7 +909,7 @@ function makeTableRecipientComponents(doctypeOf, tableAttr, userAttr, rowFieldsA
 				const childDoctype = match && match.options;
 				if (!childDoctype) return [];
 				if (rowFieldsApi) return frappeGet(rowFieldsApi, { doctype: childDoctype });
-				return frappeGet("/api/method/one_bpmn.api.utils.get_doctype_fields", {
+				return frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
 					doctype: childDoctype, fieldtype_in: '["Link"]', include_options: true,
 				}).then((childFields) =>
 					(Array.isArray(childFields) ? childFields : []).filter((f) => f.options === "User")
@@ -918,7 +917,7 @@ function makeTableRecipientComponents(doctypeOf, tableAttr, userAttr, rowFieldsA
 			});
 		};
 
-		return h(FrappeAutocomplete, {
+		return h(RecordPickerField, {
 			id,
 			label: translate("Row User Field"),
 			value: getAttr(bo, userAttr),
@@ -1017,7 +1016,7 @@ function PushDoctypeComponent(props) {
 		return frappeGet("/api/resource/DocType", params);
 	};
 
-	return h(FrappeAutocomplete, {
+	return h(RecordPickerField, {
 		id,
 		label: translate("Reference DocType"),
 		value,
@@ -1072,7 +1071,8 @@ function PushToUsersComponent(props) {
 		return frappeGet("/api/resource/User", params);
 	};
 
-	return h(FrappeMultiSelect, {
+	return h(RecordPickerField, {
+				multiple: true,
 		id,
 		label: translate("Users"),
 		value,
@@ -1114,12 +1114,13 @@ function PushToDocFieldsComponent(props) {
 
 	// User fields, email fields, and "link.user_field" paths through linked records
 	const fetchDocFields = (txt) =>
-		frappeGet("/api/method/one_bpmn.api.utils.get_push_recipient_fields", {
+		frappeGet("/api/method/one_bpmn.api.lookups.get_push_recipient_fields", {
 			doctype: sourceDoctype,
 			search_text: txt || "",
 		});
 
-	return h(FrappeMultiSelect, {
+	return h(RecordPickerField, {
+				multiple: true,
 		id,
 		label: translate("Document Field"),
 		value,
@@ -1136,7 +1137,7 @@ function PushToDocFieldsComponent(props) {
 
 const [PushTableFieldComponent, PushTableUserFieldComponent] = makeTableRecipientComponents(
 	(bo) => getAttr(bo, "pushDoctype"), "pushToTableField", "pushToTableUserField",
-	"/api/method/one_bpmn.api.utils.get_push_recipient_fields"
+	"/api/method/one_bpmn.api.lookups.get_push_recipient_fields"
 );
 
 function makePushCheckbox(attr, label, description) {
@@ -1180,7 +1181,8 @@ function PushToRolesComponent(props) {
 		return frappeGet("/api/resource/Role", params);
 	};
 
-	return h(FrappeMultiSelect, {
+	return h(RecordPickerField, {
+				multiple: true,
 		id,
 		label: translate("Role"),
 		value,

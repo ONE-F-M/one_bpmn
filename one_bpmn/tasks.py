@@ -5,7 +5,7 @@
 
 import frappe
 
-from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
+from one_bpmn.processa_engine.agent_runtime.job_limits import AI_AGENT_JOB_TIMEOUT
 from frappe import _
 from frappe.utils import add_to_date, now_datetime
 
@@ -531,7 +531,7 @@ def _resume_waiting_agent(row) -> None:
 	"""
 	import json
 
-	from one_bpmn.agents import checkpoint as _checkpoint
+	from one_bpmn.processa_engine.agent_runtime import checkpoint as _checkpoint
 	from one_bpmn.processa_engine.runtime.ai_jobs import ai_job_queue_of
 
 	run = row.caller_agent_run

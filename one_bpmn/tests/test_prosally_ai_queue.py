@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.job_limits import (
+from one_bpmn.processa_engine.agent_runtime.job_limits import (
 	AI_AGENT_QUEUE,
 	AI_AGENT_QUEUES,
 	PROSALLY_AGENT_ID,
@@ -180,7 +180,7 @@ class TestTheOtherEnqueueSitesUseIt(QueueCase):
 			patch("one_bpmn.tasks.frappe.db.get_value", side_effect=get_value),
 			patch("one_bpmn.tasks.frappe.get_doc"),
 			patch("one_bpmn.tasks._delegation_answer", return_value="done"),
-			patch("one_bpmn.agents.checkpoint.store_human_result"),
+			patch("one_bpmn.processa_engine.agent_runtime.checkpoint.store_human_result"),
 			patch("one_bpmn.tasks.frappe.enqueue") as enqueue,
 		):
 			tasks._resume_waiting_agent(row)
@@ -201,7 +201,7 @@ class TestTheOtherEnqueueSitesUseIt(QueueCase):
 		with (
 			patch("one_bpmn.api.agent_callback.frappe.db.get_value", side_effect=get_value),
 			patch("one_bpmn.api.agent_callback._sandbox_run_answer", return_value="done"),
-			patch("one_bpmn.agents.checkpoint.store_human_result"),
+			patch("one_bpmn.processa_engine.agent_runtime.checkpoint.store_human_result"),
 			patch("one_bpmn.api.agent_callback.frappe.enqueue") as enqueue,
 		):
 			agent_callback._resume_waiting_agent(run)
@@ -210,7 +210,7 @@ class TestTheOtherEnqueueSitesUseIt(QueueCase):
 
 class TestJobStatusChecksBothQueues(FrappeTestCase):
 	def test_a_job_on_prosallys_queue_counts_as_running(self):
-		from one_bpmn.agents import turn_signal
+		from one_bpmn.processa_engine.agent_runtime import turn_signal
 
 		def get_queue(name):
 			jobs = [SimpleNamespace(id="bpmn-ai-INST-1-task_1")] if name == PROSALLY_AI_QUEUE else []

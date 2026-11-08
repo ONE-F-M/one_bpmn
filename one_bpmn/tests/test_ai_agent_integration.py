@@ -22,7 +22,7 @@ Coverage:
 
 Notes on this bench:
   - get_executor is imported *inside* dispatch_ai_agent from
-    one_bpmn.agents.executor, so that module is the correct patch target
+    one_bpmn.processa_engine.agent_runtime.executor, so that module is the correct patch target
     (patching the dispatchers namespace would not take effect).
   - frappe.log_error is patched in setUp: on this bench an Error Log insert
     triggers an onefm_mcp doc-event hook that imports a broken google.adk
@@ -42,9 +42,9 @@ from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.util.task import TaskState
 
 import one_bpmn.processa_engine.engine as bpmn_engine
-from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 
-EXECUTOR_TARGET = "one_bpmn.agents.executor.get_executor"
+EXECUTOR_TARGET = "one_bpmn.processa_engine.agent_runtime.executor.get_executor"
 
 
 # ---------------------------------------------------------------------------

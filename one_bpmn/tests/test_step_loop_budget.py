@@ -7,8 +7,8 @@ import asyncio
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor.step_loop import _budget_note, run_agent_loop
-from one_bpmn.agents.llm_provider.base import StepResult, StepToolCall, ToolSpec, TurnRecord
+from one_bpmn.processa_engine.agent_runtime.step_loop import _budget_note, run_agent_loop
+from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall, ToolSpec, TurnRecord
 
 
 def _tool(name):

@@ -6,7 +6,7 @@ SCRIPT = "Orchestrator Agent: Read the Work Item"
 ANCHOR = 'result["work_item_brief"] = header + brief'
 MARKER = "# Branch left by an earlier attempt"
 BRANCH = """# Branch left by an earlier attempt, so a retry continues from its last commit.
-from one_bpmn.one_bpmn.connectors.agent_criteria import branch_summary
+from one_bpmn.agents_sandbox.criteria import branch_summary
 
 branch_note = branch_summary(wi.name, wi.target_app, wi.git_branch)
 if branch_note:

@@ -308,7 +308,7 @@ class TestInboundNotification(FrappeTestCase):
 
 	def test_caller_config_is_stored_and_ssrf_checked(self):
 		task = self.make_inbound()
-		with patch("one_bpmn.one_bpmn.connectors.http_ops._assert_host_allowed") as guard:
+		with patch("one_bpmn.processa_connectors.operations.http.assert_host_allowed") as guard:
 			push.store_caller_config(
 				task, {"url": "https://caller.example.com/hook", "token": "caller-token"}
 			)
@@ -336,7 +336,7 @@ class TestInboundNotification(FrappeTestCase):
 		)
 		session = MagicMock()
 		session.post.return_value = MagicMock(raise_for_status=MagicMock())
-		with patch("one_bpmn.one_bpmn.connectors.http_ops._assert_host_allowed"), patch.object(
+		with patch("one_bpmn.processa_connectors.operations.http.assert_host_allowed"), patch.object(
 			a2a_client, "_session", return_value=session
 		):
 			push.notify_caller(task)
@@ -356,7 +356,7 @@ class TestInboundNotification(FrappeTestCase):
 		)
 		session = MagicMock()
 		session.post.side_effect = RuntimeError("caller is down")
-		with patch("one_bpmn.one_bpmn.connectors.http_ops._assert_host_allowed"), patch.object(
+		with patch("one_bpmn.processa_connectors.operations.http.assert_host_allowed"), patch.object(
 			a2a_client, "_session", return_value=session
 		):
 			push.notify_caller(task)  # must not raise

@@ -253,7 +253,7 @@ def pending_for_document(reference_doctype: str, reference_name: str) -> dict:
 def answer(name: str, text: str) -> dict:
 	"""Answer the agent's question, and let it carry on.
 
-	Routed through instance_api.complete_task rather than writing the answer
+	Routed through instances.complete_task rather than writing the answer
 	anywhere directly: that is what validates the person, resumes the suspended
 	run exactly once, and hands the answer over as the pending tool's result. A
 	shortcut here would be a second way to complete a task, and the two would
@@ -283,7 +283,7 @@ def answer(name: str, text: str) -> dict:
 			frappe.PermissionError,
 		)
 
-	from one_bpmn.api.instance_api import complete_task
+	from one_bpmn.api.instances import complete_task
 
 	complete_task(row.instance, row.human_task_id, frappe.as_json({"answer": text}))
 	return {

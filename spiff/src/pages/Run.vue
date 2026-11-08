@@ -216,8 +216,8 @@ import { Icon } from "@iconify/vue"
 import { computed, onMounted, reactive, ref, watch } from "vue"
 import { RouterLink, useRoute, useRouter } from "vue-router"
 import { dayjs } from "@/dayjs"
-import RunTree from "@/components/insights/RunTree.vue"
-import TurnDetail from "@/components/insights/TurnDetail.vue"
+import RunTree from "@/components/Insights/RunTree.vue"
+import TurnDetail from "@/components/Insights/TurnDetail.vue"
 import { fmtCost, fmtMs, fmtNum } from "@/utils/runFormat"
 
 const STATUS_THEMES = { Success: "green", Error: "red", Running: "blue", Suspended: "orange" }

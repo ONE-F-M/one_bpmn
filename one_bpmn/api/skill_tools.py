@@ -1,5 +1,5 @@
 import frappe
-from one_bpmn.agents.llm_provider.base import ToolSpec
+from one_bpmn.processa_engine.agent_runtime.llm_types import ToolSpec
 from frappe.utils import now_datetime
 import hashlib
 

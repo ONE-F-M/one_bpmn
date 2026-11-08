@@ -128,7 +128,7 @@ def store_caller_config(task, config: dict) -> None:
 	"""Inbound: remember where this caller wants to be told. The URL gets
 	the same SSRF treatment as any outbound address, because we will be the
 	ones calling it."""
-	from one_bpmn.one_bpmn.connectors.http_ops import _assert_host_allowed
+	from one_bpmn.processa_connectors.operations.http import assert_host_allowed
 
 	if not config:
 		return  # no config offered — polling stays the caller's only route
@@ -141,7 +141,7 @@ def store_caller_config(task, config: dict) -> None:
 
 	# A caller must not be able to point us at the internal network.
 	url = config["url"]
-	_assert_host_allowed(url, allow_internal=bool(frappe.conf.get("a2a_allow_internal_callbacks")))
+	assert_host_allowed(url, allow_internal=bool(frappe.conf.get("a2a_allow_internal_callbacks")))
 
 	values = {"push_callback_url": url}
 	if config.get("token"):
@@ -161,11 +161,11 @@ def notify_caller(task) -> None:
 		return
 
 	from one_bpmn.agents.a2a.protocol import task_to_wire
-	from one_bpmn.one_bpmn.connectors.http_ops import _assert_host_allowed
+	from one_bpmn.processa_connectors.operations.http import assert_host_allowed
 	from one_bpmn.one_bpmn.integrations.a2a_client import _session
 
 	try:
-		_assert_host_allowed(
+		assert_host_allowed(
 			task.push_callback_url,
 			allow_internal=bool(frappe.conf.get("a2a_allow_internal_callbacks")),
 		)

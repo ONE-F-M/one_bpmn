@@ -552,7 +552,7 @@ def guard_bpmn_document(doc, method: str):
 
 def _block_native_action_on_processa_doctype(doc, action_verb: str) -> None:
 	"""Refuse a native submit or cancel on a DocType Processa runs, whether or not an instance is live."""
-	from one_bpmn.api.instance_api import get_processa_controlled_doctypes
+	from one_bpmn.processa_engine.instances.listing import get_processa_controlled_doctypes
 
 	if frappe.flags.in_patch or doc.doctype not in get_processa_controlled_doctypes():
 		return
@@ -719,11 +719,11 @@ def _start_by_message(doc, message_name: str, payload: dict) -> list:
 		},
 	):
 		return []
-	from one_bpmn.api.instance_api import _start_and_deliver_message
+	from one_bpmn.processa_engine.instances.starting import start_and_deliver_message
 
 	try:
 		return [
-			_start_and_deliver_message(
+			start_and_deliver_message(
 				model_name=model_name,
 				message_name=message_name,
 				payload=frappe.as_json(payload),
@@ -749,7 +749,7 @@ def message_start_models(message_name: str) -> list:
 	"""Active maps started by message_name, from an index rebuilt at most once a minute."""
 	index = frappe.cache.get_value(MESSAGE_START_INDEX_KEY)
 	if index is None:
-		from one_bpmn.api.instance_api import message_start_index
+		from one_bpmn.processa_engine.instances.starting import message_start_index
 
 		index = message_start_index()
 		frappe.cache.set_value(MESSAGE_START_INDEX_KEY, index, expires_in_sec=MESSAGE_START_INDEX_TTL)

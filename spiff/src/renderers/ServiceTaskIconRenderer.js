@@ -31,44 +31,38 @@ const ICON_SIZE = 20;
 const ICON_OFFSET = 5;
 
 // ---------------------------------------------------------------------------
-// Icon definitions — inline SVG paths extracted from @iconify-json/mdi.
+// Icon definitions - inline SVG paths from Material Design Icons.
 // All MDI icons use a 24×24 viewBox.
 // ---------------------------------------------------------------------------
 const SERVICE_ICONS = {
 	apply_workflow: {
 		label: "Apply Workflow",
 		color: "#6366f1", // indigo-500
-		// mdi:state-machine
 		path: "M6.27 17.05A2.991 2.991 0 0 1 4 22c-1.66 0-3-1.34-3-3s1.34-3 3-3c.18 0 .36 0 .53.05l3.07-5.36-1.74-.99 4.09-1.12 1.12 4.09-1.74-.99zM20 16c-1.3 0-2.4.84-2.82 2H11v-2l-3 3 3 3v-2h6.18c.42 1.16 1.52 2 2.82 2 1.66 0 3-1.34 3-3s-1.34-3-3-3m-8-8c.18 0 .36 0 .53-.05l3.07 5.36-1.74.99 4.09 1.12 1.12-4.09-1.74.99-3.06-5.37A2.991 2.991 0 0 0 12 2c-1.66 0-3 1.34-3 3s1.34 3 3 3",
 	},
 	send_email: {
 		label: "Email Notification",
 		color: "#0ea5e9", // sky-500
-		// mdi:email-outline
 		path: "M22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2zm-2 0-8 5-8-5zm0 12H4V8l8 5 8-5z",
 	},
 	update_field: {
 		label: "Update Field",
 		color: "#f59e0b", // amber-500
-		// mdi:form-textbox
 		path: "M17 7h5v10h-5v2a1 1 0 0 0 1 1h2v2h-2.5c-.55 0-1.5-.45-1.5-1 0 .55-.95 1-1.5 1H12v-2h2a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1h-2V2h2.5c.55 0 1.5.45 1.5 1 0-.55.95-1 1.5-1H20v2h-2a1 1 0 0 0-1 1zM2 7h11v2H4v6h9v2H2zm18 8V9h-3v6z",
 	},
 	google_chat: {
 		label: "Google Chat",
 		color: "#22c55e", // green-500
-		// mdi:chat-outline
 		path: "M12 3C6.5 3 2 6.58 2 11a7.22 7.22 0 0 0 2.75 5.5c0 .6-.42 2.17-2.75 4.5 2.37-.11 4.64-1 6.47-2.5 1.14.33 2.34.5 3.53.5 5.5 0 10-3.58 10-8s-4.5-8-10-8m0 14c-4.42 0-8-2.69-8-6s3.58-6 8-6 8 2.69 8 6-3.58 6-8 6",
 	},
 	push_notification: {
 		label: "Push Notification",
 		color: "#ef4444", // red-500
-		// mdi:bell-ring-outline
 		path: "M10 21h4a2 2 0 0 1-2 2 2 2 0 0 1-2-2m11-2v1H3v-1l2-2v-6c0-3.1 2.03-5.83 5-6.71V4a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.29c2.97.88 5 3.61 5 6.71v6zm-4-8a5 5 0 0 0-5-5 5 5 0 0 0-5 5v7h10zm2.75-7.81-1.42 1.42A8.98 8.98 0 0 1 21 11h2c0-2.93-1.16-5.75-3.25-7.81M1 11h2c0-2.4.96-4.7 2.67-6.39L4.25 3.19A10.96 10.96 0 0 0 1 11",
 	},
 	connector: {
 		label: "Connector",
 		color: "#14b8a6", // teal-500
-		// mdi:power-plug-outline
 		path: "M16 7V3h-2v4h-4V3H8v4C7 7 6 8 6 9v5.5L9.5 18v3h5v-3l3.5-3.5V9c0-1-1-2-2-2m0 6.67l-2.91 2.92l-.42.41h-1.34l-.41-.41L8 13.67V9.09c0-.03.06-.09.09-.09h7.83c.03 0 .08.06.08.09z",
 	},
 };

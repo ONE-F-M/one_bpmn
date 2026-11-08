@@ -118,7 +118,7 @@ def _ensure_spike_connector():
 		for name in ("query", "top_k"):
 			op.append("fields", {"field_name": name, "field_type": "String", "expression": 1})
 		op.insert(ignore_permissions=True)
-	from one_bpmn.one_bpmn.connectors.manifest import clear_manifest_cache
+	from one_bpmn.processa_connectors.manifest import clear_manifest_cache
 
 	clear_manifest_cache()
 
@@ -202,7 +202,7 @@ class TestConnectorAsAgentTool(FrappeTestCase):
 	def test_the_connector_is_configuration_the_dispatcher_can_resolve(self):
 		"""The operation is reached by the dotted path on its row — the same way
 		every real connector operation is."""
-		from one_bpmn.one_bpmn.connectors.manifest import get_execution_spec
+		from one_bpmn.processa_connectors.manifest import get_execution_spec
 
 		spec = get_execution_spec("spike_vector", "search")
 		self.assertIsNotNone(spec, "the spike connector must be configured, not registered")

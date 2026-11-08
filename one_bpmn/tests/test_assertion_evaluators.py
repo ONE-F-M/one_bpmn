@@ -67,7 +67,7 @@ class TestAssertionEvaluators(FrappeTestCase):
 	# ── Scenarios 3/4: llm_judge scoring, failure = Error, cost counted ──
 
 	def _judge_executor(self, output=None, error=False):
-		from one_bpmn.agents.executor import (
+		from one_bpmn.processa_engine.agent_runtime.executor import (
 			ErrorCode,
 			ExecutorResult,
 			TokenUsage,
@@ -114,7 +114,7 @@ class TestAssertionEvaluators(FrappeTestCase):
 	# ── Case-level: Error status propagation + judge cost in totals ──
 
 	def test_case_with_errored_assertion_is_error_and_counts_judge_tokens(self):
-		from one_bpmn.agents.executor import ExecutorResult, TokenUsage
+		from one_bpmn.processa_engine.agent_runtime.executor import ExecutorResult, TokenUsage
 
 		case = SimpleNamespace(
 			name="case-x",

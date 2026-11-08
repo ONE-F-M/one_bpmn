@@ -43,11 +43,11 @@ class _FakeStream:
 
 class TestTheAdapterForwardsTextAsItArrives(FrappeTestCase):
 	def _run(self, events, sink):
-		from one_bpmn.agents.llm_provider import anthropic_adapter
+		from one_bpmn.processa_engine.agent_runtime import llm_anthropic
 
-		with patch.object(anthropic_adapter, "live_text_sink", create=True):
-			with patch("one_bpmn.agents.turn_signal.live_text_sink", return_value=sink):
-				asyncio.run(anthropic_adapter._forward_text(_FakeStream(events)))
+		with patch.object(llm_anthropic, "live_text_sink", create=True):
+			with patch("one_bpmn.processa_engine.agent_runtime.turn_signal.live_text_sink", return_value=sink):
+				asyncio.run(llm_anthropic._forward_text(_FakeStream(events)))
 
 	def test_each_text_event_reaches_the_sink_in_order(self):
 		got = []
@@ -70,10 +70,10 @@ class TestTheAdapterForwardsTextAsItArrives(FrappeTestCase):
 				consumed.append(True)
 				return super().__aiter__()
 
-		from one_bpmn.agents.llm_provider import anthropic_adapter
+		from one_bpmn.processa_engine.agent_runtime import llm_anthropic
 
-		with patch("one_bpmn.agents.turn_signal.live_text_sink", return_value=None):
-			asyncio.run(anthropic_adapter._forward_text(Watching([SimpleNamespace(type="text", text="x")])))
+		with patch("one_bpmn.processa_engine.agent_runtime.turn_signal.live_text_sink", return_value=None):
+			asyncio.run(llm_anthropic._forward_text(Watching([SimpleNamespace(type="text", text="x")])))
 		self.assertEqual(consumed, [], "with nobody waiting the adapter must not read ahead")
 
 	def test_a_failing_sink_never_fails_the_call(self):
@@ -95,7 +95,7 @@ class TestTheSinkExistsForARequestOrANamedInstance(FrappeTestCase):
 		self._reset()
 
 	def _reset(self):
-		from one_bpmn.agents import turn_signal
+		from one_bpmn.processa_engine.agent_runtime import turn_signal
 
 		for flag in (
 			"bpmn_ai_current_run",
@@ -106,13 +106,13 @@ class TestTheSinkExistsForARequestOrANamedInstance(FrappeTestCase):
 			frappe.flags[flag] = None
 
 	def test_no_queue_and_no_instance_means_no_sink(self):
-		from one_bpmn.agents.turn_signal import live_text_sink
+		from one_bpmn.processa_engine.agent_runtime.turn_signal import live_text_sink
 
 		frappe.flags["bpmn_ai_current_run"] = "RUN-2"
 		self.assertIsNone(live_text_sink())
 
 	def test_a_named_instance_publishes_each_delta_as_a_text_event(self):
-		from one_bpmn.agents import turn_signal
+		from one_bpmn.processa_engine.agent_runtime import turn_signal
 
 		frappe.flags[turn_signal.LIVE_TEXT_INSTANCE_FLAG] = "INST-1"
 		with patch.object(turn_signal, "publish_event") as published:
@@ -125,7 +125,7 @@ class TestTheSinkExistsForARequestOrANamedInstance(FrappeTestCase):
 		)
 
 	def test_a_masked_instance_gets_no_sink_and_the_mask_lifts_afterwards(self):
-		from one_bpmn.agents import turn_signal
+		from one_bpmn.processa_engine.agent_runtime import turn_signal
 
 		frappe.flags[turn_signal.LIVE_TEXT_INSTANCE_FLAG] = "INST-1"
 		with turn_signal.mask_live_text():
@@ -136,7 +136,7 @@ class TestTheSinkExistsForARequestOrANamedInstance(FrappeTestCase):
 		self.assertIsNotNone(turn_signal.live_text_sink())
 
 	def test_the_scope_names_only_a_conversation_instance(self):
-		from one_bpmn.agents import turn_signal
+		from one_bpmn.processa_engine.agent_runtime import turn_signal
 
 		chat = SimpleNamespace(name="INST-CHAT", context_doctype="Chat Conversation")
 		background = SimpleNamespace(name="INST-BG", context_doctype="Work Item")
@@ -147,7 +147,8 @@ class TestTheSinkExistsForARequestOrANamedInstance(FrappeTestCase):
 		self.assertIsNone(frappe.flags.get(turn_signal.LIVE_TEXT_INSTANCE_FLAG))
 
 	def test_a_shape_tool_runs_masked_and_still_reports_its_end(self):
-		from one_bpmn.agents import shape_tools, turn_signal
+		from one_bpmn.agents import shape_tools
+		from one_bpmn.processa_engine.agent_runtime import turn_signal
 
 		frappe.flags[turn_signal.LIVE_TEXT_INSTANCE_FLAG] = "INST-1"
 		seen = {}
@@ -304,14 +305,14 @@ class TestADirectTurnStreamsFromTheRequest(FrappeTestCase):
 	handed a queue instead of a list to publish on."""
 
 	def tearDown(self):
-		from one_bpmn.agents.turn_signal import LIVE_TEXT_QUEUE_FLAG
+		from one_bpmn.processa_engine.agent_runtime.turn_signal import LIVE_TEXT_QUEUE_FLAG
 
 		frappe.flags[LIVE_TEXT_QUEUE_FLAG] = None
 
 	def test_the_sink_prefers_the_request_queue_over_the_run(self):
 		import queue
 
-		from one_bpmn.agents import turn_signal
+		from one_bpmn.processa_engine.agent_runtime import turn_signal
 
 		q = queue.Queue()
 		frappe.flags[turn_signal.LIVE_TEXT_QUEUE_FLAG] = q
@@ -324,7 +325,7 @@ class TestADirectTurnStreamsFromTheRequest(FrappeTestCase):
 	def test_the_stream_yields_deltas_then_the_handover(self):
 		from one_bpmn.agents.agui_stream import HANDOVER_EVENT
 		from one_bpmn.api import agent_invocation
-		from one_bpmn.agents.turn_signal import LIVE_TEXT_QUEUE_FLAG
+		from one_bpmn.processa_engine.agent_runtime.turn_signal import LIVE_TEXT_QUEUE_FLAG
 
 		def fake_turn(config, conversation, message):
 			sink_q = frappe.flags.get(LIVE_TEXT_QUEUE_FLAG)

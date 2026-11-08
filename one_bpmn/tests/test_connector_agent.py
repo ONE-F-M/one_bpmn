@@ -3,7 +3,7 @@
 Tests for the Connector Agent — run against the code that actually ships.
 
 The agent's rules live in its Server Scripts, not in the codebase: only
-``connectors/agent_primitives.fetch_url`` stayed in Python, because the script
+``processa_connectors/operations/http.fetch_url`` stayed in Python, because the script
 gate forbids ``requests`` and there is no adequate alternative for a capped,
 timed, SSRF-guarded fetch of an attacker-influenced URL.
 
@@ -27,8 +27,8 @@ from types import SimpleNamespace
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.one_bpmn.connectors.manifest import clear_manifest_cache
-from one_bpmn.one_bpmn.connectors.seed import export_manifest, import_manifest
+from one_bpmn.processa_connectors.manifest import clear_manifest_cache
+from one_bpmn.processa_connectors.seed import export_manifest, import_manifest
 
 
 def _relocated(tool: str) -> SimpleNamespace:
@@ -388,8 +388,8 @@ class TestWriteDisabled(FrappeTestCase):
         self.assertFalse(out["enabled"])
         self.assertEqual(frappe.db.get_value("BPMN Connector", "helpdesk_write", "enabled"), 0)
 
-        from one_bpmn.one_bpmn.connectors.api import get_connector_manifests
-        from one_bpmn.one_bpmn.connectors.manifest import get_execution_spec
+        from one_bpmn.api.connectors import get_connector_manifests
+        from one_bpmn.processa_connectors.manifest import get_execution_spec
 
         offered = [m["connectorId"] for m in get_connector_manifests()]
         self.assertNotIn("helpdesk_write", offered, "a disabled draft must not reach the modeler")
@@ -782,7 +782,7 @@ class TestBaseBranchResolution(FrappeTestCase):
 	"""
 
 	def _with_probe(self, probe):
-		from one_bpmn.api import github_sync
+		from one_bpmn.agents_sandbox.customization import github_sync
 
 		original = github_sync.branch_exists
 		github_sync.branch_exists = probe
@@ -851,7 +851,7 @@ class TestToolBodiesRun(FrappeTestCase):
     TURN = "_test_connector_tool_bodies"
 
     def _run(self, tool, task_data=None):
-        from one_bpmn.agents.turn_state import get_turn
+        from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn
 
         body = frappe.db.get_value("Server Script", f"Connector Agent: Tool {tool}", "script")
         self.assertTrue(body, f"'Connector Agent: Tool {tool}' is not installed")
@@ -868,19 +868,19 @@ class TestToolBodiesRun(FrappeTestCase):
         return result
 
     def setUp(self):
-        from one_bpmn.agents.turn_state import set_turn
+        from one_bpmn.processa_engine.agent_runtime.turn_state import set_turn
 
         set_turn(self.TURN, {"work_order": "test", "a2a_task": self.TURN})
         _cleanup("tool_body_probe")
 
     def tearDown(self):
-        from one_bpmn.agents.turn_state import clear_turn
+        from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn
 
         clear_turn(self.TURN)
         _cleanup("tool_body_probe")
 
     def test_review_runs_and_approves_a_generated_draft(self):
-        from one_bpmn.agents.turn_state import set_turn
+        from one_bpmn.processa_engine.agent_runtime.turn_state import set_turn
 
         set_turn(self.TURN, {"draft": draft_from(SPEC, "tool_body_probe", operations=["getTicket"])})
         out = self._run("Review Connector")
@@ -888,7 +888,7 @@ class TestToolBodiesRun(FrappeTestCase):
         self.assertEqual(out["issue_count"], 0)
 
     def test_review_reports_issues_rather_than_raising(self):
-        from one_bpmn.agents.turn_state import set_turn
+        from one_bpmn.processa_engine.agent_runtime.turn_state import set_turn
 
         bad = draft_from(SPEC, "tool_body_probe", operations=["getTicket"])
         bad["operations"][0]["http"]["url"] = ""
@@ -898,7 +898,7 @@ class TestToolBodiesRun(FrappeTestCase):
         self.assertTrue(out["issues"])
 
     def test_write_refuses_a_draft_whose_review_found_issues(self):
-        from one_bpmn.agents.turn_state import set_turn
+        from one_bpmn.processa_engine.agent_runtime.turn_state import set_turn
 
         bad = draft_from(SPEC, "tool_body_probe", operations=["getTicket"])
         bad["operations"][0]["http"]["url"] = ""
@@ -910,7 +910,7 @@ class TestToolBodiesRun(FrappeTestCase):
 
     def test_write_refuses_a_draft_changed_after_a_clean_review(self):
         """The hole this fingerprint closes: review clean, redraft, then write."""
-        from one_bpmn.agents.turn_state import get_turn, set_turn, update_turn
+        from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, set_turn, update_turn
 
         good = draft_from(SPEC, "tool_body_probe", operations=["getTicket"])
         set_turn(self.TURN, {"draft": good})
@@ -924,7 +924,7 @@ class TestToolBodiesRun(FrappeTestCase):
         _ = get_turn
 
     def test_write_writes_a_reviewed_draft_disabled(self):
-        from one_bpmn.agents.turn_state import set_turn
+        from one_bpmn.processa_engine.agent_runtime.turn_state import set_turn
 
         set_turn(self.TURN, {"draft": draft_from(SPEC, "tool_body_probe", operations=["getTicket"])})
         self.assertTrue(self._run("Review Connector")["approved"])
@@ -936,7 +936,7 @@ class TestToolBodiesRun(FrappeTestCase):
         self.assertIn("connector_id is required", self._run("Draft Connector")["error"])
 
     def test_draft_builds_from_a_stored_spec_summary(self):
-        from one_bpmn.agents.turn_state import set_turn
+        from one_bpmn.processa_engine.agent_runtime.turn_state import set_turn
 
         set_turn(self.TURN, {"spec_summary": A.summarize_openapi(SPEC, max_operations=1000),
                              "reference_url": SOURCE})

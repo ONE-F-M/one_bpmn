@@ -18,7 +18,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import goal_completion as gc
-from one_bpmn.agents.executor import ErrorCode, ExecutorResult
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult
 from one_bpmn.agents.observability import finalize_ai_run
 
 

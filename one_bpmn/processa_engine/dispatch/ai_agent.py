@@ -60,7 +60,7 @@ def resume_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, human_result=N
 
 	The claim flips the run out of "Suspended" atomically, so a second call does nothing.
 	"""
-	from one_bpmn.agents import checkpoint as _checkpoint
+	from one_bpmn.processa_engine.agent_runtime import checkpoint as _checkpoint
 
 	run_name = run_name or _checkpoint.get_suspended_run(instance.name, bpmn_id)
 	if not run_name:
@@ -79,8 +79,8 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 
 	A failure sets error variables and the task still completes. A human tool suspends the run; resume_run continues it.
 	"""
-	from one_bpmn.agents import checkpoint as _checkpoint
-	from one_bpmn.agents.executor import (
+	from one_bpmn.processa_engine.agent_runtime import checkpoint as _checkpoint
+	from one_bpmn.processa_engine.agent_runtime.executor import (
 		DEFAULT_MAX_OUTPUT_TOKENS,
 		DEFAULT_MAX_RETRIES,
 		DEFAULT_TEMPERATURE,
@@ -89,10 +89,9 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		ErrorCode,
 		ExecutorConfig,
 		ExecutorContext,
-		antigravity,  # noqa: F401 importing registers the backend
-		direct_api,  # noqa: F401 importing registers the backend
 		get_executor,
 	)
+	from one_bpmn.processa_engine.agent_runtime import antigravity, direct_api  # noqa: F401 importing registers the backends
 
 	resume_payload = None
 	if resume_run:
@@ -267,7 +266,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				frappe.cache().get_value(_skill_names_cache_key(conversation, agent_name)) or []
 			)
 		if active_skill_names:
-			from one_bpmn.agents.llm_provider.base import ToolSpec
+			from one_bpmn.processa_engine.agent_runtime.llm_types import ToolSpec
 
 			def make_dynamic_tool_fn(script_name, tool_name):
 				def fn(**kwargs):
@@ -468,7 +467,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 				message=frappe.get_traceback(),
 			)
 	try:
-		from one_bpmn.agents import turn_signal
+		from one_bpmn.processa_engine.agent_runtime import turn_signal
 
 		executor_cls = get_executor(config.backend)
 		with turn_signal.live_text_scope(instance):
@@ -502,7 +501,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		and not isinstance(result.output, dict)
 		and getattr(instance, "context_doctype", "") == "Chat Conversation"
 	):
-		from one_bpmn.agents.turn_state import get_turn
+		from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn
 
 		_turn_output = get_turn(instance.context_docname).get("output")
 		if isinstance(_turn_output, dict) and _turn_output.get("response"):
@@ -937,7 +936,7 @@ def _turn_user_message(instance, task) -> str:
 		if text:
 			return strip_html(text)
 	try:
-		from one_bpmn.agents.turn_state import get_turn
+		from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn
 
 		return strip_html(str((get_turn(instance.context_docname) or {}).get("user_text") or ""))
 	except Exception:
@@ -948,7 +947,7 @@ def _turn_user_message(instance, task) -> str:
 def _platform_history(instance, task_cfg: dict, raw_user_message: str) -> tuple[list, str]:
 	"""(prior messages, facts block) for a chat turn, also written to the turn store for tool scripts."""
 	from one_bpmn.agents.memory.turn_context import conversation_of, established_block, load_history
-	from one_bpmn.agents.turn_state import update_turn
+	from one_bpmn.processa_engine.agent_runtime.turn_state import update_turn
 
 	conversation = conversation_of(instance)
 	if not conversation:
@@ -1015,7 +1014,7 @@ def _memory_model(task_cfg: dict, key: str, fallback: str | None) -> str | None:
 
 def _checkpointed_tool_results(resume_payload: dict) -> list:
 	"""Tool results before the final resume, in call order: completed turns, deferred results, then the human's answer."""
-	from one_bpmn.agents.checkpoint import _human_result_str
+	from one_bpmn.processa_engine.agent_runtime.checkpoint import human_result_str
 
 	suspension = resume_payload.get("suspension") or {}
 	out = []
@@ -1031,7 +1030,7 @@ def _checkpointed_tool_results(resume_payload: dict) -> list:
 	for r in suspension.get("deferred_results") or []:
 		_add(r.get("name"), r.get("content"))
 	pending = suspension.get("pending_call") or {}
-	_add(pending.get("name"), _human_result_str(resume_payload.get("pending_result")))
+	_add(pending.get("name"), human_result_str(resume_payload.get("pending_result")))
 	return out
 
 
@@ -1043,7 +1042,7 @@ def _publish_chat_turn_output(instance, output) -> None:
 	if not name:
 		return
 	try:
-		from one_bpmn.agents import turn_signal
+		from one_bpmn.processa_engine.agent_runtime import turn_signal
 
 		turn_signal.publish_event(name, {"type": TURN_OUTPUT_EVENT, "output": output})
 	except Exception:

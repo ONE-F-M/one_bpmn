@@ -120,7 +120,7 @@ def run_chat_turn(task, config, text: str) -> None:
 
 	suspended = None
 	if instance:
-		from one_bpmn.agents.checkpoint import get_suspended_run
+		from one_bpmn.processa_engine.agent_runtime.checkpoint import get_suspended_run
 
 		suspended = get_suspended_run(instance)
 	if suspended:

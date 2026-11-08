@@ -127,11 +127,11 @@ import { Button, frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
 
 
-import InstanceHeader from "@/components/process_instance/InstanceHeader.vue"
-import BpmnDiagramViewer from "@/components/process_instance/BpmnDiagramViewer.vue"
-import InstanceHistory from "@/components/process_instance/InstanceHistory.vue"
-import ElementInspector from "@/components/process_instance/ElementInspector.vue"
-import PendingActions from "@/components/process_instance/PendingActions.vue"
+import InstanceHeader from "@/components/Instances/InstanceHeader.vue"
+import BpmnDiagramViewer from "@/components/Instances/BpmnDiagramViewer.vue"
+import InstanceHistory from "@/components/Instances/InstanceHistory.vue"
+import ElementInspector from "@/components/Instances/ElementInspector.vue"
+import PendingActions from "@/components/Instances/PendingActions.vue"
 
 const route = useRoute()
 const instanceId = computed(() => route.params.instance)
@@ -591,7 +591,7 @@ async function loadSuspendedAiTasks() {
 	}
 	try {
 		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.instance_api.get_suspended_ai_tasks",
+			url: "/api/method/one_bpmn.api.instances.get_suspended_ai_tasks",
 			params: { instance_name: instanceId.value },
 		})
 		suspendedAiTasks.value = Array.isArray(res) ? res : []
@@ -608,7 +608,7 @@ async function loadParkedAiTasks() {
 	}
 	try {
 		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.instance_api.get_parked_ai_tasks",
+			url: "/api/method/one_bpmn.api.instances.get_parked_ai_tasks",
 			params: { instance_name: instanceId.value },
 		})
 		parkedAiTasks.value = Array.isArray(res) ? res : []
@@ -624,7 +624,7 @@ async function retryAiTasks() {
 	try {
 		for (const u of parkedAiTasks.value) {
 			await frappeRequest({
-				url: "/api/method/one_bpmn.api.instance_api.retry_ai_task",
+				url: "/api/method/one_bpmn.api.instances.retry_ai_task",
 				method: "POST",
 				params: { instance_name: instanceId.value, task_id: u.task_id, kind: u.kind },
 			})
@@ -688,7 +688,7 @@ async function loadDetails() {
 async function loadProcessModelXml(modelName) {
 	try {
 		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.get_process_model",
+			url: "/api/method/one_bpmn.api.process_maps.get_process_model",
 			params: { name: modelName },
 		})
 		const data = res
@@ -750,7 +750,7 @@ async function completeTask(task, detail) {
 		completingAction.value = actionName
 		try {
 			await frappeRequest({
-				url: "/api/method/one_bpmn.api.instance_api.complete_task",
+				url: "/api/method/one_bpmn.api.instances.complete_task",
 				method: "POST",
 				params: {
 					instance_name: instanceId.value,

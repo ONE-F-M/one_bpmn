@@ -43,7 +43,7 @@ from frappe.utils import add_to_date, cint, now_datetime
 QUESTION_KEYS = ("question", "ambiguity", "text", "prompt")
 INTERPRETATION_KEYS = ("interpretations", "options", "choices", "alternatives")
 
-# What the person's answer arrives as. instance_api hands the task's data
+# What the person's answer arrives as. instances.complete_task hands the task's data
 # straight through, so anything the form collected is here.
 ANSWER_KEYS = ("answer", "response", "clarification", "value", "comment")
 

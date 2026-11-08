@@ -112,7 +112,7 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 
 		agent = self._make_agent()
 		with patch("frappe.utils.password.get_decrypted_password", return_value=""), patch(
-			"one_bpmn.agents.llm_provider.get_llm_adapter_from_settings",
+			"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings",
 			side_effect=AssertionError("the provider must not be called"),
 		):
 			ok, detail = agent_provisioning._provider_test_call(agent)
@@ -258,7 +258,7 @@ class TestProviderTestCall(FrappeTestCase):
 
 		adapter = Adapter()
 		cfg = SimpleNamespace(agent_id="probe")
-		with patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter), \
+		with patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=adapter), \
 			patch(
 				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
 				return_value={},
@@ -266,7 +266,7 @@ class TestProviderTestCall(FrappeTestCase):
 			return agent_provisioning._provider_test_call(cfg), adapter
 
 	def test_a_truncated_reply_still_passes(self):
-		from one_bpmn.agents.llm_provider.base import LLMTruncatedError
+		from one_bpmn.processa_engine.agent_runtime.llm_types import LLMTruncatedError
 
 		def truncated(kwargs):
 			raise LLMTruncatedError("The model hit its 64-token output limit before finishing.")
@@ -334,7 +334,7 @@ class TestTheFactorySendsTheApiName(FrappeTestCase):
 		}).insert()
 
 	def _sent_model(self, cfg):
-		from one_bpmn.agents.llm_provider import factory
+		from one_bpmn.processa_engine.agent_runtime import llm_factory as factory
 
 		with patch.object(factory, "get_llm_adapter") as build:
 			factory.get_llm_adapter_from_settings(cfg)
@@ -348,14 +348,14 @@ class TestTheFactorySendsTheApiName(FrappeTestCase):
 
 	def test_the_site_default_path_sends_the_api_name(self):
 		with patch(
-			"one_bpmn.agents.llm_provider.factory._get_provider_credentials",
+			"one_bpmn.processa_engine.agent_runtime.llm_factory._get_provider_credentials",
 			return_value=("test-key-not-real", self.model.name),
 		):
 			self.assertEqual(self._sent_model({}), "claude-test-api-id")
 
 	def test_a_model_that_is_not_a_record_is_sent_as_it_is(self):
 		with patch(
-			"one_bpmn.agents.llm_provider.factory._get_provider_credentials",
+			"one_bpmn.processa_engine.agent_runtime.llm_factory._get_provider_credentials",
 			return_value=("", ""),
 		), patch("frappe.db.get_single_value", return_value="anthropic"):
 			self.assertEqual(self._sent_model({}), "claude-sonnet-4-5")

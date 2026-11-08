@@ -10,8 +10,8 @@ import { dirname, join } from "node:path"
 // for Vue's ref/computed, which checks what a turn would actually carry.
 const here = fileURLToPath(new URL("../../src/components/", import.meta.url))
 const source = (path) => readFileSync(join(here, path), "utf8")
-const panel = source("ProsAllyPanel.vue")
-const chat = source("chat/AgentChatPanel.vue")
+const panel = source("ProsAlly/ProsAllyPanel.vue")
+const chat = source("Chat/AgentChatPanel.vue")
 
 // The panel's choice/turn handlers, lifted from the real <script setup>.
 function mountLogic() {
@@ -94,9 +94,9 @@ test("choice buttons wrap inside the panel on a 390px phone and never cover the 
 test("each turn carries the lint findings the editor shows", () => {
 	assert.match(panel, /getLintIssues: \{ type: Function, default: null \}/)
 	assert.match(panel, /lint_issues: props\.getLintIssues \? await props\.getLintIssues\(\) : \[\]/)
-	const editor = source("BpmnEditor.vue")
+	const editor = source("Editor/BpmnProsAlly.vue")
 	assert.equal(editor.match(/:get-lint-issues="getLintIssues"/g).length, 2)
-	assert.match(editor, /flattenLintIssues\(linting\._formatIssues\(await linting\.lint\(\)\)\)/)
+	assert.match(source("Editor/useEditorLint.js"), /flattenLintIssues\(linting\._formatIssues\(await linting\.lint\(\)\)\)/)
 })
 
 test("ProsAllyPanel exposes ask, which sends through the chat panel", () => {

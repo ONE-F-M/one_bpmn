@@ -12,7 +12,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 
 SKILL_TOOL_NAMES = {"load_skill", "unload_skill", "load_skill_resource"}
 
@@ -82,7 +82,7 @@ class TestSkillToolDispatchGating(FrappeTestCase):
 
 		with (
 			patch("one_bpmn.agents.model_health.refuse_new_run", return_value=None),
-			patch("one_bpmn.agents.executor.direct_api.DirectApiExecutor.run", new=fake_run),
+			patch("one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run", new=fake_run),
 		):
 			ai_agent.dispatch_ai_agent(self.instance, self.task, task_cfg, self.bpmn_id)
 		return captured

@@ -11,8 +11,8 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor.step_loop import run_agent_loop
-from one_bpmn.agents.llm_provider.base import StepResult, StepToolCall
+from one_bpmn.processa_engine.agent_runtime.step_loop import run_agent_loop
+from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall
 from one_bpmn.agents.shape_tools import compile_shape_tools
 from one_bpmn.processa_engine.compiler.agent_tools import resolve_ai_agent_tool_shapes
 from one_bpmn.processa_engine.compiler.ai_checks import validate_ai_agent_tools

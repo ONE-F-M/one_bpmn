@@ -22,8 +22,8 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor.step_loop import run_agent_loop
-from one_bpmn.agents.llm_provider.base import ToolSpec
+from one_bpmn.processa_engine.agent_runtime.step_loop import run_agent_loop
+from one_bpmn.processa_engine.agent_runtime.llm_types import ToolSpec
 from one_bpmn.agents.shape_tools import ToolDeferred, execute_shape
 from one_bpmn.one_bpmn.connectors.a2a_client_ops import A2A_WAITING_KEY
 

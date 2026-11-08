@@ -12,7 +12,7 @@ import os
 
 import frappe
 
-from one_bpmn.api.instance_api import get_processa_controlled_doctypes
+from one_bpmn.processa_engine.instances.listing import get_processa_controlled_doctypes
 
 BUNDLE = ("public", "one_ai", "one-ai.iife.js")
 

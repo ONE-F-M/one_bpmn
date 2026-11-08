@@ -8,9 +8,10 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import logix_debug
-from one_bpmn.agents.llm_provider.base import StepResult
-from one_bpmn.agents.turn_state import clear_turn, get_turn, set_turn
+from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult
+from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import logix_debugs_an_existing_script as p
+from one_bpmn.tests.site_scripts import as_deployed
 
 CONV = "zz-logix-debug"
 PASTED = 'rate = doc.grand_total / doc.total_qty\nresult["rate"] = rate'
@@ -126,7 +127,7 @@ class TestLogixDebugPatch(FrappeTestCase):
 		)
 
 		exec(
-			frappe.db.get_value("Server Script", p.BUILD_CONTEXT, "script"),
+			as_deployed(frappe.db.get_value("Server Script", p.BUILD_CONTEXT, "script")),
 			{"conversation_id": CONV, "task_data": {"user_text": USER_TEXT}},
 		)
 		turn = get_turn(CONV)

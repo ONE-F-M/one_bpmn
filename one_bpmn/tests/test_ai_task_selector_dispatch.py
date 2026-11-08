@@ -29,7 +29,7 @@ SELECTOR_CFG = {
 
 def _bridge_available() -> bool:
 	"""ExecutorConfig.tools ships on WI-001356; resolve_tool_pool on WI-001353."""
-	from one_bpmn.agents.executor import ExecutorConfig
+	from one_bpmn.processa_engine.agent_runtime.executor import ExecutorConfig
 
 	try:
 		import one_bpmn.agents.tool_pool
@@ -75,8 +75,8 @@ class _FakeExecutor:
 	def run(self, config, context):
 		from dataclasses import asdict
 
-		from one_bpmn.agents.executor import ExecutorResult, TokenUsage
-		from one_bpmn.agents.llm_provider.base import ToolCallRecord, TurnRecord
+		from one_bpmn.processa_engine.agent_runtime.executor import ExecutorResult, TokenUsage
+		from one_bpmn.processa_engine.agent_runtime.llm_types import ToolCallRecord, TurnRecord
 
 		if _FakeExecutor.result_factory is not None:
 			return _FakeExecutor.result_factory(config, context)
@@ -139,7 +139,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 		_FakeExecutor.scripted_calls = []
 		_FakeExecutor.result_factory = None
 		self._patch = patch(
-			"one_bpmn.agents.executor.get_executor", return_value=_FakeExecutor
+			"one_bpmn.processa_engine.agent_runtime.executor.get_executor", return_value=_FakeExecutor
 		)
 		self._patch.start()
 
@@ -154,7 +154,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 		captured = {}
 
 		def factory(config, context):
-			from one_bpmn.agents.executor import ExecutorResult, TokenUsage
+			from one_bpmn.processa_engine.agent_runtime.executor import ExecutorResult, TokenUsage
 
 			captured["user_prompt"] = config.user_prompt
 			return ExecutorResult(output="", token_usage=TokenUsage(), trace=[])
@@ -172,7 +172,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 		captured = {}
 
 		def factory(config, context):
-			from one_bpmn.agents.executor import ExecutorResult, TokenUsage
+			from one_bpmn.processa_engine.agent_runtime.executor import ExecutorResult, TokenUsage
 
 			captured["sampling"] = (config.temperature, config.top_p)
 			return ExecutorResult(output="", token_usage=TokenUsage(), trace=[])
@@ -188,7 +188,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 		captured = {}
 
 		def factory(config, context):
-			from one_bpmn.agents.executor import ExecutorResult, TokenUsage
+			from one_bpmn.processa_engine.agent_runtime.executor import ExecutorResult, TokenUsage
 
 			captured["controls"] = (
 				config.tool_choice,
@@ -249,7 +249,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 		sp, _ = _adhoc_subworkflow()
 
 		def factory(config, context):
-			from one_bpmn.agents.executor import ErrorCode, ExecutorResult
+			from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult
 
 			return ExecutorResult(
 				error_code=ErrorCode.FAILED_MODEL_CALL, error_message="boom"
@@ -306,7 +306,7 @@ class TestCompletedTasksNotOffered(FrappeTestCase):
 		_FakeExecutor.scripted_calls = []
 		_FakeExecutor.result_factory = None
 		self._patch = patch(
-			"one_bpmn.agents.executor.get_executor", return_value=_FakeExecutor
+			"one_bpmn.processa_engine.agent_runtime.executor.get_executor", return_value=_FakeExecutor
 		)
 		self._patch.start()
 
@@ -327,7 +327,7 @@ class TestCompletedTasksNotOffered(FrappeTestCase):
 		captured = {}
 
 		def factory(config, context):
-			from one_bpmn.agents.executor import ExecutorResult, TokenUsage
+			from one_bpmn.processa_engine.agent_runtime.executor import ExecutorResult, TokenUsage
 
 			captured["tools"] = [t.name for t in (config.tools or [])]
 			captured["user_prompt"] = config.user_prompt
@@ -457,7 +457,7 @@ class TestIdleDoesNotFinalizeRun(FrappeTestCase):
 		_FakeExecutor.scripted_calls = []
 		_FakeExecutor.result_factory = None
 		self._patch = patch(
-			"one_bpmn.agents.executor.get_executor", return_value=_FakeExecutor
+			"one_bpmn.processa_engine.agent_runtime.executor.get_executor", return_value=_FakeExecutor
 		)
 		self._patch.start()
 
@@ -513,7 +513,7 @@ class TestIdleGuardInPrompt(FrappeTestCase):
 		_FakeExecutor.scripted_calls = []
 		_FakeExecutor.result_factory = None
 		self._patch = patch(
-			"one_bpmn.agents.executor.get_executor", return_value=_FakeExecutor
+			"one_bpmn.processa_engine.agent_runtime.executor.get_executor", return_value=_FakeExecutor
 		)
 		self._patch.start()
 
@@ -526,7 +526,7 @@ class TestIdleGuardInPrompt(FrappeTestCase):
 		captured = {}
 
 		def factory(config, context):
-			from one_bpmn.agents.executor import ExecutorResult, TokenUsage
+			from one_bpmn.processa_engine.agent_runtime.executor import ExecutorResult, TokenUsage
 
 			captured["user_prompt"] = config.user_prompt
 			return ExecutorResult(output="", token_usage=TokenUsage(), trace=[])

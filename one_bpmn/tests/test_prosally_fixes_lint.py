@@ -18,7 +18,7 @@ from one_bpmn.agents.prosally_helpers import (
 	lint_prompt,
 	no_lint_fix_reply,
 )
-from one_bpmn.agents.turn_state import clear_turn, get_turn, set_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_counts_rebuilt_flow_references as references_patch
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_fixes_lint_findings as lint_patch
 from one_bpmn.security.script_validator import deep_inspect_script

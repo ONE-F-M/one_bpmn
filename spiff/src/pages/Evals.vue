@@ -99,10 +99,9 @@
 					<FormControl label="Title" v-model="newSuite.title" />
 					<div>
 						<label class="block text-xs text-gray-600 mb-1.5">Agent</label>
-						<Autocomplete
-							v-model="newAgentOption"
+						<RecordPicker
+							v-model="newSuite.agent_configuration"
 							:options="agentOptions"
-							:compare-fn="compareOption"
 							placeholder="Search Live agents…"
 						/>
 					</div>
@@ -127,10 +126,9 @@
 					<p class="text-sm text-gray-600">{{ reassignSuite?.title }}</p>
 					<div>
 						<label class="block text-xs text-gray-600 mb-1.5">Agent</label>
-						<Autocomplete
-							v-model="reassignAgentOption"
+						<RecordPicker
+							v-model="reassignAgent"
 							:options="reassignAgentOptions"
-							:compare-fn="compareOption"
 							placeholder="Search Live agents…"
 						/>
 					</div>
@@ -145,7 +143,8 @@
 
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onUnmounted } from "vue"
-import { frappeRequest, Button, Dialog, FormControl, Autocomplete } from "frappe-ui"
+import { frappeRequest, Button, Dialog, FormControl } from "frappe-ui"
+import RecordPicker from "@/components/Controls/RecordPicker.vue"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 
@@ -198,27 +197,6 @@ const savingReassign = ref(false)
 const reassignSuite = ref(null)
 const reassignAgent = ref("")
 
-// Autocomplete works with {label, value} objects; the payloads stay plain
-// strings, so map between the two here.
-function agentOptionFor(name) {
-	if (!name) return null
-	return agentOptions.value.find((o) => o.value === name) || { label: name, value: name }
-}
-// frappe-ui's default comparator is `(a, b) => a.value === b.value`, which
-// throws the moment the dropdown registers an option while nothing is selected
-// (agentOptionFor returns null for "no agent yet"). Compare defensively — the
-// rest of Autocomplete already treats a null model as "nothing selected".
-function compareOption(a, b) {
-	return a?.value === b?.value
-}
-const newAgentOption = computed({
-	get: () => agentOptionFor(newSuite.agent_configuration),
-	set: (opt) => { newSuite.agent_configuration = opt?.value || "" },
-})
-const reassignAgentOption = computed({
-	get: () => agentOptionFor(reassignAgent.value),
-	set: (opt) => { reassignAgent.value = opt?.value || "" },
-})
 // A suite may currently point at an agent that is no longer Live; keep it in
 // the list so reassigning doesn't silently blank the existing link.
 const reassignAgentOptions = computed(() => {

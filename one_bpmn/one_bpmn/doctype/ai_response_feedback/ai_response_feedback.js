@@ -140,7 +140,7 @@ function complete_pending_task(frm, pending_task, action) {
 
 function run_pending_task(frm, pending_task, action) {
 	frappe.call({
-		method: "one_bpmn.api.instance_api.complete_task",
+		method: "one_bpmn.api.instances.complete_task",
 		args: {
 			instance_name: pending_task.instance,
 			task_id: pending_task.task_id,

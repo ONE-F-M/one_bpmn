@@ -15,9 +15,9 @@ from frappe import _
 from one_bpmn.agents.bpmn_ir_pipeline import compile_ir, element_names, has_lanes
 from one_bpmn.agents.bpmn_task_config import resolve_ir_lane_roles
 from one_bpmn.agents.dms_search import DOCUMENT_TYPES, search_dms_documents
-from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
+from one_bpmn.processa_engine.agent_runtime.llm_factory import get_llm_adapter_from_settings
 from one_bpmn.agents.memory.text_clean import strip_html, unescape_entities
-from one_bpmn.agents.turn_state import get_turn, run_sync, update_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, run_sync, update_turn
 from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 
 AGENT_ID = "prosally_agent"
