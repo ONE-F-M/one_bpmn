@@ -30,3 +30,12 @@ class TestProcessaSettings(FrappeTestCase):
 				meta.get_field(fieldname).mandatory_depends_on,
 				"eval:doc.enable_staging_sync==1",
 			)
+
+	def test_ba_site_field_descriptions(self):
+		meta = frappe.get_meta("Processa Settings")
+
+		section = meta.get_field("section_break_ba")
+		self.assertIn("Create Process Record on BA Site", section.description or "")
+
+		self.assertIn("Check if BA site is linked", meta.get_field("enable_ba_sync").description or "")
+		self.assertIn("BPMN Process Model", meta.get_field("ba_api_key").description or "")

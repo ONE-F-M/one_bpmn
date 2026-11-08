@@ -107,4 +107,4 @@ bench --site <site> run-tests --app one_bpmn --failfast
 - One branch per work item, named after it (for example `WI-000768`). The PR targets the branch the work item names.
 - Conventional commit subjects with the work item id: `feat(WI-000768): ...`, `fix(WI-000771): ...`. The Semantic Commits check requires this form.
 - Keep a branch to its work item. A documentation change touches no CI or runtime file.
-- Open PRs only through `scripts/claude-pr.sh`; see `CLAUDE.md`.
+- Open PRs only through `.claude/open-pr-via-github-app.sh`; see `CLAUDE.md`.
