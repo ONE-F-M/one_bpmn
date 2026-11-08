@@ -164,7 +164,7 @@ export function useAgentConfigAssistant(ac) {
 		m.updateState = "applying";
 		try {
 			const res = await frappeRequest({
-				url: "/api/method/one_bpmn.agents.agent_config_resolver.update_agent_config_from_shape",
+				url: "/api/method/one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.update_agent_config_from_shape",
 				method: "POST",
 				params: {
 					config_name: m.update.config_name,
