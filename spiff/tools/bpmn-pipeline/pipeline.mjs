@@ -1537,4 +1537,180 @@ function normaliseSubProcesses(ir) {
     nodes: scope.nodes.map(n => {
       if (n.type !== 'subProcess' || !n.children) return n;
       const norm = normalizeGateways({ name: n.name, nodes: n.children.nodes || [], flows: n.children.flows || [] });
-//@@CONTINUE@@
+      problems.push(...assertNoImplicitSplitOrJoin(norm), ...assertGatewayPairing(norm));
+      const inner = walk({ nodes: norm.nodes, flows: norm.flows });
+      return { ...n, children: { nodes: inner.nodes, flows: inner.flows } };
+    }),
+  });
+  return { ir: walk(ir), problems };
+}
+
+// One extra BPMNDiagram per sub-process, laid out with the same builder as the main plane.
+function buildSubProcessPlanes(ir) {
+  const sections = [];
+  const problems = [];
+  for (const sub of subProcessesOf(ir)) {
+    if (!sub.expanded) {
+      const gridIR = {
+        name: sub.name,
+        lanes: [{ id: '__lane', name: sub.name || 'Sub-process' }],
+        nodes: (sub.children.nodes || []).map(n => ({ ...n, lane: '__lane' })),
+        flows: sub.children.flows || [],
+      };
+      const { diSection, problems: diProblems } = buildManualLaneDI(gridIR, { pool: false });
+      problems.push(...diProblems);
+      if (diSection) {
+        sections.push(diSection
+          .replace('BPMNDiagram id="BPMNDiagram_1"', `BPMNDiagram id="BPMNDiagram_${sub.id}"`)
+          .replace('BPMNPlane id="BPMNPlane_1" bpmnElement="Process_1"', `BPMNPlane id="BPMNPlane_${sub.id}" bpmnElement="${sub.id}"`));
+      }
+    }
+    const nested = buildSubProcessPlanes(sub.children);
+    sections.push(...nested.sections);
+    problems.push(...nested.problems);
+  }
+  return { sections, problems };
+}
+
+// ── Main ───────────────────────────────────────────────────────────────────
+
+async function main() {
+  let ir;
+  try {
+    ir = JSON.parse(await readStdin());
+  } catch (err) {
+    process.stdout.write(JSON.stringify({
+      ok: false, xml: '',
+      problems: [{ kind: 'parse', message: `IR JSON parse error: ${err.message}` }],
+    }));
+    return;
+  }
+
+  // Guard: the IR must carry node/flow arrays before any pass touches them.
+  // A malformed IR (e.g. LLM returned partial JSON, or omitted a key) would
+  // otherwise crash normalizeGateways with "Cannot read properties of
+  // undefined (reading 'map')". Report it as a structured problem so the
+  // repair loop can ask the LLM to regenerate rather than dying fatally.
+  const shapeProblems = [];
+  if (!ir || typeof ir !== 'object') {
+    shapeProblems.push({ kind: 'parse', message: 'IR is not an object' });
+  } else {
+    if (!Array.isArray(ir.nodes)) {
+      shapeProblems.push({ kind: 'parse', message: 'IR is missing a "nodes" array' });
+    }
+    if (!Array.isArray(ir.flows)) {
+      shapeProblems.push({ kind: 'parse', message: 'IR is missing a "flows" array' });
+    }
+  }
+  if (shapeProblems.length) {
+    process.stdout.write(JSON.stringify({ ok: false, xml: '', problems: shapeProblems }));
+    return;
+  }
+
+  // Pass 1 — normalise (deterministic; no LLM involvement)
+  const scopeProblems = assertSubProcessScopes(ir);
+  if (scopeProblems.length) {
+    process.stdout.write(JSON.stringify({ ok: false, xml: '', problems: scopeProblems }));
+    return;
+  }
+  const normTop = normalizeGateways(ir);
+  const { ir: normIR, problems: subProblems } = normaliseSubProcesses(normTop);
+  if (subProblems.length) {
+    process.stdout.write(JSON.stringify({ ok: false, xml: '', problems: subProblems, normalizedIR: normIR }));
+    return;
+  }
+
+  // Guard: normalisation must eliminate all non-gateway fan-in / fan-out.
+  // If any remain it is a pipeline bug — surface it so the repair loop handles it.
+  const structProblems = assertNoImplicitSplitOrJoin(normIR);
+  if (structProblems.length) {
+    process.stdout.write(JSON.stringify({ ok: false, xml: '', problems: structProblems, normalizedIR: normIR }));
+    return;
+  }
+
+  // Pass 2 — pairing failures are structural; stop before compiling bad IR
+  const pairingProblems = assertGatewayPairing(normIR);
+  if (pairingProblems.length) {
+    process.stdout.write(JSON.stringify({ ok: false, xml: '', problems: pairingProblems, normalizedIR: normIR }));
+    return;
+  }
+
+  // Lane structural checks — must pass before compilation so the repair loop
+  // can ask the LLM to fix missing or invalid lane assignments.
+  if (normIR.lanes && normIR.lanes.length) {
+    const laneProblems = assertLaneAssignment(normIR);
+    if (laneProblems.length) {
+      process.stdout.write(JSON.stringify({ ok: false, xml: '', problems: laneProblems, normalizedIR: normIR }));
+      return;
+    }
+  }
+
+  // Pass 3 — compile to BPMN XML + add layout DI.
+  // Every diagram goes through the same builder. A lane-less IR is laid out on
+  // one hidden lane with no pool drawn; bpmn-auto-layout, which used to take
+  // that case, produced 59 crossings on a 47-node map.
+  let xml;
+  try {
+    xml = await compileIRtoBpmn(normIR);
+    const hasLanes = !!(normIR.lanes && normIR.lanes.length);
+    const sizeProblems = [];
+    const sizedIR = sizeExpandedSubProcesses(normIR, sizeProblems);
+    if (sizeProblems.length) {
+      process.stdout.write(JSON.stringify({ ok: false, xml: '', problems: sizeProblems, normalizedIR: normIR }));
+      return;
+    }
+    const gridIR = hasLanes ? sizedIR : {
+      ...sizedIR,
+      lanes: [{ id: '__lane', name: normIR.name || 'Process' }],
+      nodes: sizedIR.nodes.map(n => ({ ...n, lane: '__lane' })),
+    };
+    // buildManualLaneDI also validates Y-bounds and returns problems on failure.
+    const { diSection, problems: diProblems } = buildManualLaneDI(gridIR, { pool: hasLanes });
+    if (diProblems.length) {
+      process.stdout.write(JSON.stringify({ ok: false, xml: '', problems: diProblems, normalizedIR: normIR }));
+      return;
+    }
+    const subPlanes = buildSubProcessPlanes(normIR);
+    if (subPlanes.problems.length) {
+      process.stdout.write(JSON.stringify({ ok: false, xml: '', problems: subPlanes.problems, normalizedIR: normIR }));
+      return;
+    }
+    xml = injectLaneDI(xml, [diSection, ...subPlanes.sections].join('\n'));
+  } catch (err) {
+    process.stdout.write(JSON.stringify({
+      ok: false, xml: '',
+      problems: [{ kind: 'compile', message: `Compile error: ${err.message}` }],
+    }));
+    return;
+  }
+
+  // Measure the drawing. These are reported, not fatal: the XML is valid and
+  // executable either way. Crossings are judged on the Python side against the
+  // graph's planarity, which decides whether zero or one is the floor.
+  const layout = auditLayout(xml);
+  const problems = [];
+  if (layout.throughShape) problems.push({ kind: 'layout', rule: 'edge-through-shape', elementId: '',
+    message: layout.throughShape + ' line(s) pass through a shape they do not connect: ' + JSON.stringify(layout.throughPairs.slice(0, 5)) });
+  if (layout.overlaps) problems.push({ kind: 'layout', rule: 'collinear-overlap', elementId: '',
+    message: layout.overlaps + ' pair(s) of lines run on top of each other.' });
+  if (layout.labelCollisions) problems.push({ kind: 'layout', rule: 'label-collision', elementId: '',
+    message: layout.labelCollisions + ' label(s) sit on a shape or a line.' });
+
+  // Semantic validation is handled by the Python bpmn_validator layer after this step.
+  // normalizedIR is returned so the repair loop can show the LLM the complete structure
+  // (including compiler-inferred gateways) when asking for corrections.
+  process.stdout.write(JSON.stringify({ ok: true, xml, problems, normalizedIR: normIR, layout }));
+}
+
+// Run as a program when invoked directly; importable (for tests) otherwise.
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  main().catch(err => {
+    process.stdout.write(JSON.stringify({
+      ok: false, xml: '',
+      problems: [{ kind: 'fatal', message: err.message }],
+    }));
+    process.exit(1);
+  });
+}
+
+export { auditLayout, buildManualLaneDI, compileIRtoBpmn, normalizeGateways };
