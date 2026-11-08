@@ -13,14 +13,14 @@
 		</header>
 
 		<div class="bg-white px-6 py-3 border-b flex flex-wrap gap-3 items-center">
-			<!-- Autocomplete's popover is hardcoded w-full, so the width comes
+			<!-- The picker fills its container, so the width comes
 			     from the wrapper, the same way UserFilter does it. -->
 			<div class="w-52">
-				<Autocomplete
-					v-model="agentOption"
+				<RecordPicker
+					:model-value="filters.agent_configuration"
 					:options="agentOptions"
-					:compare-fn="compareOption"
 					placeholder="All agents"
+					@update:model-value="setAgent"
 				/>
 			</div>
 			<FormControl type="select" v-model="filters.status" :options="statusOptions" class="w-36" @change="load()" />
@@ -132,7 +132,8 @@
 </template>
 
 <script setup>
-import { Autocomplete, Badge, Button, ErrorMessage, FormControl, frappeRequest } from "frappe-ui"
+import RecordPicker from "@/components/Controls/RecordPicker.vue"
+import { Badge, Button, ErrorMessage, FormControl, frappeRequest } from "frappe-ui"
 import { computed, onMounted, reactive, ref } from "vue"
 import { useRoute } from "vue-router"
 import { dayjs } from "@/dayjs"
@@ -185,18 +186,10 @@ function choices(label, values) {
 }
 const agentOptions = computed(() => options.value.agents.map((v) => ({ label: v, value: v })))
 
-// Autocomplete carries {label, value} while the filter holds a plain name, and
-// its default comparator throws on a null model, so compare defensively.
-function compareOption(a, b) {
-	return a?.value === b?.value
+function setAgent(name) {
+	filters.agent_configuration = name
+	load()
 }
-const agentOption = computed({
-	get: () => (filters.agent_configuration ? { label: filters.agent_configuration, value: filters.agent_configuration } : null),
-	set: (opt) => {
-		filters.agent_configuration = opt?.value || ""
-		load()
-	},
-})
 const userOptions = computed(() => choices("All users", options.value.users))
 const modelOptions = computed(() => choices("All models", options.value.models))
 const statusOptions = computed(() => choices("Any status", options.value.statuses))

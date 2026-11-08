@@ -57,95 +57,12 @@
       "count": 1
     }
   },
-  "src/components/AIAgentConfigModal.vue": {
-    "no-unused-vars": {
-      "count": 9
-    }
-  },
-  "src/components/BpmnEditor.vue": {
-    "no-unused-vars": {
-      "count": 8
-    }
-  },
-  "src/components/CallActivitySearchDialog.vue": {
-    "no-unused-vars": {
-      "count": 1
-    }
-  },
   "src/components/DiffViewer.vue": {
     "no-empty": {
       "count": 4
     },
     "no-unused-vars": {
       "count": 4
-    }
-  },
-  "src/components/DocuCanvas.vue": {
-    "no-unused-vars": {
-      "count": 9
-    }
-  },
-  "src/components/EditorSidebar.vue": {
-    "vue/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/components/LogixCanvas.vue": {
-    "no-unused-vars": {
-      "count": 2
-    }
-  },
-  "src/components/LogixChat.vue": {
-    "no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/components/ProsAllyPanel.vue": {
-    "no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/components/UserFilter.vue": {
-    "no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/components/chat/AgentChatPanel.vue": {
-    "no-unused-vars": {
-      "count": 6
-    }
-  },
-  "src/components/chat/OneAiApp.vue": {
-    "no-unused-vars": {
-      "count": 2
-    }
-  },
-  "src/components/chat/aguiClient.js": {
-    "no-unused-vars": {
-      "count": 6
-    }
-  },
-  "src/components/chat/primitives/DiagramThumb.vue": {
-    "no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/components/process_instance/BpmnDiagramViewer.vue": {
-    "no-empty": {
-      "count": 8
-    },
-    "no-unused-vars": {
-      "count": 14
-    }
-  },
-  "src/components/process_instance/ElementInspector.vue": {
-    "no-unused-vars": {
-      "count": 2
-    }
-  },
-  "src/components/process_instance/PendingActions.vue": {
-    "no-unused-vars": {
-      "count": 1
     }
   },
   "src/composables/useBpmnContextMenu.js": {
@@ -179,32 +96,9 @@
       "count": 3
     }
   },
-  "src/utils/arabicTranslation.js": {
-    "no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/utils/canvasTouchHandler.js": {
-    "no-empty": {
-      "count": 2
-    }
-  },
-  "src/utils/nativeCopyPaste.js": {
-    "no-unused-vars": {
-      "count": 1
-    }
-  },
   "src/pages/A2A.vue": {
     "no-unused-vars": {
       "count": 5
-    }
-  },
-  "src/pages/Process.vue": {
-    "no-undef": {
-      "count": 1
-    },
-    "no-unused-vars": {
-      "count": 13
     }
   },
   "src/pages/EvalComparison.vue": {
@@ -232,11 +126,6 @@
       "count": 2
     }
   },
-  "src/pages/Processes.vue": {
-    "no-unused-vars": {
-      "count": 2
-    }
-  },
   "src/pages/Instance.vue": {
     "no-unused-vars": {
       "count": 1
@@ -245,6 +134,19 @@
   "src/pages/Memory.vue": {
     "no-unused-vars": {
       "count": 1
+    }
+  },
+  "src/pages/Process.vue": {
+    "no-undef": {
+      "count": 1
+    },
+    "no-unused-vars": {
+      "count": 13
+    }
+  },
+  "src/pages/Processes.vue": {
+    "no-unused-vars": {
+      "count": 2
     }
   },
   "src/pages/Runs.vue": {
@@ -263,6 +165,21 @@
     }
   },
   "src/pages/VersionHistory.vue": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/utils/arabicTranslation.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/utils/canvasTouchHandler.js": {
+    "no-empty": {
+      "count": 2
+    }
+  },
+  "src/utils/nativeCopyPaste.js": {
     "no-unused-vars": {
       "count": 1
     }

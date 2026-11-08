@@ -2,7 +2,7 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 
-import { adoptPersistedName } from "@/components/chat/persistedMessage.js";
+import { adoptPersistedName } from "@/utils/adoptPersistedName.js";
 
 test("a streamed reply takes the name of the Chat Message it was saved as", () => {
 	const items = [

@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 // called lazily at fetch time — a bare object is enough for a Node test.
 vi.mock("frappe-ui", () => ({ frappeRequest: vi.fn() }));
 
-const { streamAgentTurn } = await import("@/components/chat/aguiClient.js");
+const { streamAgentTurn } = await import("@/utils/aguiClient.js");
 
 globalThis.window = globalThis.window || {};
 globalThis.document = globalThis.document || { cookie: "" };

@@ -349,7 +349,7 @@ CASES = [
 				"components\n"
 				"   - Use whatever translation helper the surrounding components use (do not add a "
 				"local one)\n\n"
-				"2. Register the new tab in spiff/src/views/Insights.vue:\n"
+				"2. Register the new tab in spiff/src/pages/Insights.vue:\n"
 				"   - Add a sixth tab to the existing five (Cost & Tokens, Errors, Performance, Cost "
 				"Allocation, Work Item Cost)\n\n"
 				"Constraints:\n"
