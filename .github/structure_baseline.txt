@@ -177,7 +177,6 @@ size one_bpmn/tests/test_ai_security_event.py 856
 size one_bpmn/tests/test_connector_agent.py 959
 size one_bpmn/tests/test_memory_tools.py 867
 size one_bpmn/tests/test_rate_limit_and_lock.py 1369
-size spiff/src/components/Modals/AIAgentConfigModal.vue 2308
 size spiff/src/components/Docu/DocuCanvas.vue 1787
 size spiff/src/components/Editor/FormattingToolbar.vue 763
 size spiff/src/components/Logix/LogixCanvas.vue 1433

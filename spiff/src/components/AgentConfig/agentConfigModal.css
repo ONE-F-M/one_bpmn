@@ -1,0 +1,397 @@
+.agent-allow-list {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	max-height: 180px;
+	overflow-y: auto;
+}
+.agent-allow-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-weight: 400;
+}
+
+.ai-agent-modal-overlay {
+	position: fixed;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.45);
+	z-index: 1000;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+/* Read-only withholds the chat pane, so the dialog is just the form's width. */
+.ai-agent-modal--readonly {
+	width: 560px;
+}
+
+.ai-agent-modal {
+	background: white;
+	border-radius: 8px;
+	/* 560px form + the shared chat pane */
+	width: calc(560px + var(--agui-chat-pane, 420px));
+	max-width: 95vw;
+	max-height: 90vh;
+	display: flex;
+	flex-direction: row;
+	overflow: hidden;
+	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+/* Left column */
+.modal-main {
+	flex: 1 1 560px;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	max-height: 90vh;
+}
+
+.modal-header {
+	padding: 16px 20px;
+	border-bottom: 1px solid #e2e2e2;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+
+.modal-header h3 {
+	margin: 0;
+	font-size: 1rem;
+	font-weight: 600;
+}
+.close-btn {
+	background: none;
+	border: none;
+	font-size: 1.1rem;
+	cursor: pointer;
+	color: #7c7c7c;
+}
+.close-btn:hover {
+	color: #171717;
+}
+
+.modal-body {
+	padding: 20px;
+	overflow-y: auto;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+/* The gate sits INSIDE the scroll container, never around it: a disabled
+   <fieldset> is inert, so the scrolling element must not be the fieldset, or the
+   body would not scroll and most of the config would be unreachable. */
+.field-gate {
+	border: none;
+	margin: 0;
+	padding: 0;
+	min-width: 0;
+}
+
+.field-gate:disabled,
+.field-gate[disabled] {
+	opacity: 1; /* keep values legible — only pointer/keyboard input is blocked */
+}
+
+.readonly-badge {
+	margin-left: 8px;
+	padding: 1px 8px;
+	font-size: 11px;
+	font-weight: 600;
+	color: #92400e;
+	background: #fef3c7;
+	border-radius: 10px;
+	vertical-align: middle;
+}
+
+.field-row {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+.field-row.two-col {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 12px 16px;
+	align-items: start;
+}
+/* Each cell inside a two-column row stacks its label + input just like a
+   single-column .field-row, so the advanced settings line up consistently. */
+.field-row.two-col > div {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+}
+.field-row label {
+	font-size: 0.8rem;
+	font-weight: 500;
+	color: #374151;
+}
+.field-row .hint {
+	font-weight: 400;
+	color: #9ca3af;
+}
+.field-row input:not([type="checkbox"]),
+.field-row select,
+.field-row textarea {
+	width: 100%;
+	box-sizing: border-box;
+	padding: 6px 8px;
+	border: 1px solid #d1d5db;
+	border-radius: 4px;
+	font-size: 0.85rem;
+	font-family: inherit;
+}
+.field-row input.field-off {
+	background: #f3f4f6;
+	color: #9ca3af;
+	border-color: #e5e7eb;
+	cursor: not-allowed;
+}
+/* A value the agent owns, shown rather than offered. Deliberately not styled as
+   an input: a disabled <select> still reads as a control someone should fill. */
+.derived-value {
+	padding: 6px 8px;
+	font-size: 0.85rem;
+	color: #111827;
+	background: #f9fafb;
+	border: 1px solid #e5e7eb;
+	border-radius: 4px;
+}
+.checkbox-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	cursor: pointer;
+	font-size: 0.8rem;
+	font-weight: 500;
+	color: #374151;
+}
+.checkbox-input {
+	width: 16px;
+	height: 16px;
+	accent-color: #171717;
+	cursor: pointer;
+	flex-shrink: 0;
+}
+.field-hint {
+	font-size: 0.75rem;
+	color: #9ca3af;
+	font-weight: 400;
+}
+.field-row textarea {
+	resize: vertical;
+	min-height: 80px;
+}
+.field-row input:focus,
+.field-row select:focus,
+.field-row textarea:focus {
+	outline: none;
+	border-color: #171717;
+	box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+.field-group-title {
+	font-size: 0.75rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: #6b7280;
+	padding-top: 4px;
+	border-top: 1px solid #f3f4f6;
+}
+
+.modal-footer {
+	padding: 12px 20px;
+	border-top: 1px solid #e2e2e2;
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+.btn-cancel,
+.btn-save {
+	padding: 7px 16px;
+	border-radius: 5px;
+	font-size: 0.85rem;
+	cursor: pointer;
+	border: none;
+}
+.btn-cancel {
+	background: #f3f3f3;
+	color: #525252;
+}
+.btn-cancel:hover {
+	background: #e2e2e2;
+}
+.btn-save {
+	background: #171717;
+	color: white;
+}
+.btn-save:hover {
+	background: #171717;
+}
+
+/* Right column — assistant */
+.assistant-panel {
+	/* Consistent-side decision (2026-08-08): chat LEFT, work surface RIGHT
+     on every agent surface — Logix and Docu already sat this way. */
+	order: -1;
+	flex: 0 0 var(--agui-chat-pane, 340px);
+	display: flex;
+	flex-direction: column;
+	background: #f8f8f8;
+	border-right: 1px solid #e2e2e2;
+	max-height: 90vh;
+}
+
+.assistant-disabled {
+	padding: 24px 18px;
+	font-size: 0.82rem;
+	color: #7c7c7c;
+	line-height: 1.5;
+}
+
+.assistant-agui-panel {
+	flex: 1;
+	min-height: 0;
+	border-left: none; /* the pane already draws the divider */
+}
+
+.agent-rerun {
+	margin-left: 6px;
+	padding: 1px 8px;
+	font-size: 11px;
+	border: 1px solid var(--border-color, #d1d8dd);
+	border-radius: 10px;
+	background: #fff;
+	cursor: pointer;
+}
+.agent-rerun:hover:not(:disabled) {
+	background: var(--fg-hover-color, #f4f5f6);
+}
+.agent-rerun:disabled {
+	opacity: 0.6;
+	cursor: default;
+}
+
+/* ── Linked agent lifecycle badge ── */
+.agent-status {
+	display: inline-block;
+	font-weight: 600;
+	font-size: 11px;
+	margin-right: 6px;
+	padding: 1px 6px;
+	border-radius: 10px;
+}
+.agent-status-live {
+	color: #15803d;
+	background: #dcfce7;
+}
+.agent-status-bad {
+	color: #b91c1c;
+	background: #fee2e2;
+}
+.agent-status-pending {
+	color: #92400e;
+	background: #fef3c7;
+}
+
+/* ── Create-new-agent panel ── */
+.create-agent-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 12px;
+	margin-bottom: 12px;
+	border: 1px solid #e2e2e2;
+	border-radius: 8px;
+	background: #f8f8f8;
+}
+.sample-prompt-row {
+	display: grid;
+	grid-template-columns: 1fr 1fr auto;
+	gap: 8px;
+	align-items: center;
+	margin-bottom: 6px;
+}
+/* one editable row of the agent's static context. Stacked rather
+   than the grid the sample-prompt rows use — these fields are prose, and a
+   guard rail or a worked example needs the full width to be readable. */
+.static-row {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 8px;
+	margin-bottom: 8px;
+	border: 1px solid var(--border-color, #d1d8dd);
+	border-radius: 6px;
+}
+.static-row-head {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+.static-row-num {
+	margin-left: auto;
+	font-size: 11px;
+	opacity: 0.6;
+}
+.static-row-inline-label {
+	font-size: 11px;
+	font-weight: 600;
+	opacity: 0.75;
+}
+/* Every input inside a row is captioned. The placeholders these replace
+   vanished the moment anything was typed, leaving a filled-in example as three
+   anonymous boxes with no way to tell the input from the expected output. */
+.static-field {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+.static-field-label {
+	font-size: 11px;
+	font-weight: 600;
+	opacity: 0.75;
+}
+.static-field-label em {
+	font-style: normal;
+	font-weight: 400;
+	opacity: 0.75;
+}
+.static-row-cat {
+	max-width: 160px;
+}
+.create-agent-actions {
+	flex-direction: row;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+/* Narrow screens: stack the chat pane below the form so the form gets the full width. */
+@media (max-width: 640px) {
+	.ai-agent-modal {
+		width: 95vw;
+		flex-direction: column;
+	}
+
+	.modal-main {
+		flex: 1 1 auto;
+		min-height: 0;
+		max-height: none;
+	}
+
+	.assistant-panel {
+		order: 0;
+		flex: 0 0 40vh;
+		max-height: none;
+		border-right: none;
+		border-top: 1px solid #e2e2e2;
+	}
+}
