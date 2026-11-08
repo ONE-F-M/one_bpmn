@@ -6,7 +6,8 @@ from __future__ import annotations
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.instance_api import _search_rank, list_process_instances
+from one_bpmn.api.instances import list_process_instances
+from one_bpmn.processa_engine.instances.listing import _search_rank
 
 test_ignore = ["BPMN Process Model"]
 

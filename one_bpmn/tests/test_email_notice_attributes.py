@@ -7,7 +7,8 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents.bpmn_task_config import resolve_node_attrs
 from one_bpmn.processa_engine.compiler.extensions import extract_service_task_config
-from one_bpmn.api.process_map_api import _extract_bpmn_references, validate_bpmn_readiness
+from one_bpmn.api.process_maps import validate_bpmn_readiness
+from one_bpmn.processa_engine.maps.references import extract_bpmn_references
 
 FACTS = "[&quot;description&quot;, [&quot;allocated_to&quot;, &quot;assigned_by.full_name&quot;]]"
 DETAILS = "[&quot;no_such_detail&quot;]"
@@ -32,7 +33,7 @@ def _map(task_attrs=SETTINGS):
 
 class TestEmailNoticeAttributes(FrappeTestCase):
 	def test_facts_and_details_are_referenced_on_the_email_doctype(self):
-		refs = _extract_bpmn_references(_map())
+		refs = extract_bpmn_references(_map())
 
 		fields = {f for dt, f in refs["fields"] if dt == "ToDo"}
 		self.assertTrue({"description", "allocated_to", "no_such_detail"} <= fields)
@@ -40,7 +41,7 @@ class TestEmailNoticeAttributes(FrappeTestCase):
 
 	def test_an_unreadable_setting_names_the_task(self):
 		with self.assertRaises(frappe.ValidationError) as ctx:
-			_extract_bpmn_references(
+			extract_bpmn_references(
 				_map(SETTINGS.replace(f'emailDetails="{DETAILS}"', 'emailDetails="[broken"'))
 			)
 		self.assertIn("Activity_notice", str(ctx.exception))

@@ -206,7 +206,7 @@ export function useProcessConfig(pc) {
 			// Call the backend import endpoint via frappeRequest for consistent
 			// CSRF handling, response parsing, and error surfacing.
 			const result = await frappeRequest({
-				url: "/api/method/one_bpmn.api.process_map_api.import_bpmn",
+				url: "/api/method/one_bpmn.api.process_maps.import_bpmn",
 				method: "POST",
 				params: {
 					xml_content: xmlContent,

@@ -37,7 +37,7 @@ themselves. One action, always enforced, is the honest version.
 
 WHERE THIS RUNS
 ---------------
-Interception happens in ``ToolSpec.__post_init__`` (agents/llm_provider/base.py),
+Interception happens in ``ToolSpec.__post_init__`` (processa_engine/agent_runtime/llm_types.py),
 not in any one execution loop. That is deliberate: tools execute in FOUR places —
 the step loop and the Anthropic/OpenAI/Gemini adapters' own tool loops — and some
 ToolSpecs are constructed inside Server Script bodies (the Logix clarifier builds

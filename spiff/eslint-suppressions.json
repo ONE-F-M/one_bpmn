@@ -136,14 +136,6 @@
       "count": 1
     }
   },
-  "src/pages/Process.vue": {
-    "no-undef": {
-      "count": 1
-    },
-    "no-unused-vars": {
-      "count": 13
-    }
-  },
   "src/pages/Processes.vue": {
     "no-unused-vars": {
       "count": 2

@@ -38,7 +38,7 @@ export function useProcessDeploy(pc) {
 				params.model_name = activeDiagramName.value;
 			}
 			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.process_map_api.validate_bpmn_readiness",
+				url: "/api/method/one_bpmn.api.process_maps.validate_bpmn_readiness",
 				params,
 			});
 			const checklist = response.message || response;
@@ -107,7 +107,7 @@ export function useProcessDeploy(pc) {
 		readinessLoading.value = true;
 		try {
 			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.process_map_api.update_call_activity_references",
+				url: "/api/method/one_bpmn.api.process_maps.update_call_activity_references",
 				method: "POST",
 				params: { references: JSON.stringify(refItems) },
 			});

@@ -53,7 +53,7 @@ class TestReasonSaved(FrappeTestCase):
 
 		with (
 			_mock_secret(),
-			patch("one_bpmn.api.instance_api.complete_task", return_value={"status": "Running"}) as complete,
+			patch("one_bpmn.api.instances.complete_task", return_value={"status": "Running"}) as complete,
 			patch.object(actions, "_get_instance_context", return_value=self.instance),
 			patch.object(actions, "_get_task_config", return_value=cfg or _reason_cfg()),
 			patch.object(actions, "get_workflow_state_and_style", return_value=("", "")),

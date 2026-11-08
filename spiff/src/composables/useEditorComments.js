@@ -139,7 +139,7 @@ export function useEditorComments(ed) {
 		if (users.value.length > 0) return; // Already fetched
 		try {
 			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.utils.get_system_users",
+				url: "/api/method/one_bpmn.api.lookups.get_system_users",
 			});
 			users.value = (response.message || response || []).filter((u) => u.full_name);
 		} catch (err) {

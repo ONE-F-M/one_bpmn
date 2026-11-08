@@ -58,9 +58,9 @@ class AIAgentConfiguration(Document):
 
 	def warn_unsupported_temperature(self):
 		"""Warn, without blocking the save, when a temperature is set on a model that is never sent one."""
-		from one_bpmn.agents.executor.direct_api import _supports_temperature
+		from one_bpmn.processa_engine.agent_runtime.direct_api import supports_temperature
 
-		if self.temperature and self.ai_model and not _supports_temperature(self.ai_model):
+		if self.temperature and self.ai_model and not supports_temperature(self.ai_model):
 			frappe.msgprint(
 				_(
 					"AI Model {0} does not accept a temperature, so the temperature {1} is not sent to it."
@@ -71,7 +71,7 @@ class AIAgentConfiguration(Document):
 
 	def validate_thinking_budget(self):
 		"""Anthropic needs a thinking budget of at least 1,024 tokens and below Max Tokens."""
-		from one_bpmn.agents.executor import DEFAULT_MAX_OUTPUT_TOKENS
+		from one_bpmn.processa_engine.agent_runtime.executor import DEFAULT_MAX_OUTPUT_TOKENS
 
 		budget = self.get("thinking_budget_tokens") or 0
 		limit = self.max_tokens or DEFAULT_MAX_OUTPUT_TOKENS

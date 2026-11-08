@@ -17,8 +17,8 @@ import asyncio
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor.step_loop import run_agent_loop
-from one_bpmn.agents.llm_provider.base import StepResult, StepToolCall, ToolSpec
+from one_bpmn.processa_engine.agent_runtime.step_loop import run_agent_loop
+from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall, ToolSpec
 from one_bpmn.security import tool_policy as tp
 
 RULE = "ZZ Test Policy Rule"
@@ -415,7 +415,7 @@ class TestParameterCeilings(FrappeTestCase):
 		read as already guarded and was silently left unprotected."""
 		import functools
 
-		from one_bpmn.agents.llm_provider.base import ToolSpec
+		from one_bpmn.processa_engine.agent_runtime.llm_types import ToolSpec
 
 		def raw(**kwargs):
 			return "ran"

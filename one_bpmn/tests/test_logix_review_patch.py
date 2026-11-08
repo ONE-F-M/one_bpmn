@@ -9,6 +9,7 @@ from frappe.tests.utils import FrappeTestCase
 from one_bpmn.one_bpmn.patches.v1_0 import logix_review_keeps_the_requested_change as revert_patch
 from one_bpmn.one_bpmn.patches.v1_0 import logix_review_skips_an_answer_in_words as review_patch
 from one_bpmn.one_bpmn.patches.v1_0.inline_logix_tool_scripts import REVIEW
+from one_bpmn.tests.site_scripts import as_deployed
 
 ANSWER = "This script shows a message saying the visa cancellation remark is mandatory."
 CODE_DRAFT = 'Done.\n\n```python\nresult["ok"] = True\n```'
@@ -38,12 +39,12 @@ class TestLogixReviewSkipsAnAnswerInWords(FrappeTestCase):
 		completion = MagicMock(text=json.dumps({"approved": False, "revised_script": revised}))
 		updates = {}
 		with (
-			patch("one_bpmn.agents.turn_state.get_turn", return_value={"draft": draft, **(turn or {})}),
-			patch("one_bpmn.agents.turn_state.update_turn", side_effect=lambda _c, **kw: updates.update(kw)),
-			patch("one_bpmn.agents.turn_state.run_sync", return_value=completion),
-			patch("one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=adapter),
+			patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value={"draft": draft, **(turn or {})}),
+			patch("one_bpmn.processa_engine.agent_runtime.turn_state.update_turn", side_effect=lambda _c, **kw: updates.update(kw)),
+			patch("one_bpmn.processa_engine.agent_runtime.turn_state.run_sync", return_value=completion),
+			patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=adapter),
 		):
-			exec(code, {"frappe": frappe, "context_docname": "zz-conv", "result": {}})
+			exec(as_deployed(code), {"frappe": frappe, "context_docname": "zz-conv", "result": {}})
 		return adapter, updates
 
 	def test_an_answer_in_words_is_passed_through_unreviewed(self):

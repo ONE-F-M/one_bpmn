@@ -10,7 +10,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import prosally_helpers
 from one_bpmn.agents.bpmn_ir_pipeline import auto_fix_ir, compile_ir
-from one_bpmn.agents.turn_state import clear_turn, set_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_stages_read_the_latest_message as message_patch
 from one_bpmn.one_bpmn.patches.v1_0.prosally_auto_fix_ir import with_auto_fix
 

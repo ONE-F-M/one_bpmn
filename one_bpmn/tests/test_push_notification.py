@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.utils import get_push_recipient_fields
+from one_bpmn.api.lookups import get_push_recipient_fields
 from one_bpmn.one_bpmn.push_notification import FcmSender, send_test_push, tokens_for, users_from, users_in
 
 

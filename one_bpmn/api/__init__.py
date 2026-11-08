@@ -1,11 +1,11 @@
 # one_bpmn/api/__init__.py
 # This package contains the one_bpmn API, organized into submodules:
 #
-#   process_map_api    — CRUD for BPMN Process Model and Process records
+#   process_maps       - process map endpoints; the logic is in processa_engine.maps
 #   deploy             - deploy, disable, activate and deactivate process models
 #   workflow_state     — apply workflow states and docstatus transitions
 #   editability        — Process Implementation cross-site editability checks
-#   instance_api       — process instance lifecycle (start, complete, list)
+#   instances          - process instance endpoints; the logic is in processa_engine.instances
 #   server_script_api  — server script CRUD, Logix/ProSally integration
 #   canvas_comments    — canvas comment and element asset management
 #   notification_api   — in-app notification creation
@@ -13,7 +13,7 @@
 #   version_history    — diagram XML version history
 #   a2a_api            — A2A protocol: agent card discovery, JSON-RPC task endpoint
 #   a2a_admin_api      — A2A admin: remote/client registries and the task monitor
-#   utils              — shared helpers (role checks, field lookups)
-from one_bpmn.api.instance_api import complete_task, get_active_bpmn_tasks, send_message
+#   lookups            - field and user lookups for the editor and the instance list
+from one_bpmn.api.instances import complete_task, get_active_bpmn_tasks, send_message
 
 __all__ = ["get_active_bpmn_tasks", "complete_task", "send_message"]

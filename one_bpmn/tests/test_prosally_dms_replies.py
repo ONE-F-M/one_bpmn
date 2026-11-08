@@ -13,14 +13,14 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import prosally_helpers as helpers
 from one_bpmn.agents.dms_search import DOCUMENT_TYPES
-from one_bpmn.agents.turn_state import clear_turn, get_turn, set_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_answers_dms_questions as dms_patch
 
 LEAVE_TEXT = "annual leave requests above five days need director approval"
 QUESTION = "What does our annual leave policy say about director approval?"
 CONVERSATION = "zz-prosally-dms-replies"
 REDIRECT_SCRIPT = """# ProsAlly – Tool Redirect (self-contained, FLAT top-level code).
-from one_bpmn.agents.turn_state import get_turn, update_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, update_turn
 from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 
 turn = get_turn(context_docname)

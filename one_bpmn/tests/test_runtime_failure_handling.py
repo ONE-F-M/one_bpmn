@@ -165,11 +165,11 @@ class TestCompleteTaskPermissionError(FrappeTestCase):
 		return instance
 
 	def _complete(self, instance, error):
-		from one_bpmn.api import instance_api
+		from one_bpmn.processa_engine.instances import task_actions
 		from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import BPMNProcessInstance
 
 		with patch.object(BPMNProcessInstance, "advance", side_effect=error):
-			instance_api._complete_task_job(
+			task_actions._complete_task_job(
 				instance_name=instance.name, task_id="approve", run_as_user=frappe.session.user
 			)
 

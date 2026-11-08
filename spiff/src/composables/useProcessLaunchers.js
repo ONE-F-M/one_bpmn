@@ -103,7 +103,7 @@ export function useProcessLaunchers(pc) {
 			// Use the dedicated resolve endpoint - returns one record without
 			// fetching the entire model list client-side.
 			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.process_map_api.resolve_process_model_by_id",
+				url: "/api/method/one_bpmn.api.process_maps.resolve_process_model_by_id",
 				params: { process_id: event.processId },
 			});
 			const linked = response.message || response;

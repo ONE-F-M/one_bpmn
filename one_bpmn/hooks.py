@@ -15,27 +15,9 @@ website_route_rules = [
 	{"from_route": "/one-ai", "to_route": "one_ai"},
 ]
 
-# Apps
-# ------------------
-
-# required_apps = []
-
-# Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "one_bpmn",
-# 		"logo": "/assets/one_bpmn/logo.png",
-# 		"title": "ONE BPMN",
-# 		"route": "/one_bpmn",
-# 		"has_permission": "one_bpmn.api.permission.has_app_permission"
-# 	}
-# ]
-
 # Includes in <head>
 # ------------------
 
-# include js, css files in header of desk.html
-# app_include_css = "/assets/one_bpmn/css/one_bpmn.css"
 extend_bootinfo = "one_bpmn.boot.boot_session"
 
 app_include_js = [
@@ -55,99 +37,19 @@ app_include_js = [
 	"/assets/one_bpmn/js/ai_clarification_on_document.js?v=1",
 ]
 
-# include js, css files in header of web template
-# web_include_css = "/assets/one_bpmn/css/one_bpmn.css"
-# web_include_js = "/assets/one_bpmn/js/one_bpmn.js"
-
 # Purge action on the AI Memory list view, mirroring the memory browser's
 # Purge button. Calls the same one_bpmn.api.memory_api.purge_memories.
 doctype_list_js = {
 	"AI Memory": "public/js/ai_memory_list.js",
 }
 
-# include custom scss in every website theme (without file extension ".scss")
-# website_theme_scss = "one_bpmn/public/scss/website"
-
-# include js, css files in header of web form
-# webform_include_js = {"doctype": "public/js/doctype.js"}
-# webform_include_css = {"doctype": "public/css/doctype.css"}
-
-# include js in page
-# page_js = {"page" : "public/js/file.js"}
-
-# include js in doctype views
-# doctype_js = {"doctype" : "public/js/doctype.js"}
-# doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
-# doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
-# doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
-
-# Svg Icons
-# ------------------
-# include app icons in desk
-# app_include_icons = "one_bpmn/public/icons.svg"
-
-# Home Pages
-# ----------
-
-# application home page (will override Website Settings)
-# home_page = "login"
-
-# website user home page (by Role)
-# role_home_page = {
-# 	"Role": "home_page"
-# }
-
-# Generators
-# ----------
-
-# automatically create page for each record of this doctype
-# website_generators = ["Web Page"]
-
-# Jinja
-# ----------
-
-# add methods and filters to jinja environment
-# jinja = {
-# 	"methods": "one_bpmn.utils.jinja_methods",
-# 	"filters": "one_bpmn.utils.jinja_filters"
-# }
-
 # Installation
 # ------------
 
-# before_install = "one_bpmn.install.before_install"
 after_install = [
 	"one_bpmn.install.after_install",
-	"one_bpmn.one_bpmn.connectors.seed.import_seed_manifests",
+	"one_bpmn.processa_connectors.seed.import_seed_manifests",
 ]
-
-# Uninstallation
-# ------------
-
-# before_uninstall = "one_bpmn.uninstall.before_uninstall"
-# after_uninstall = "one_bpmn.uninstall.after_uninstall"
-
-# Integration Setup
-# ------------------
-# To set up dependencies/integrations with other apps
-# Name of the app being installed is passed as an argument
-
-# before_app_install = "one_bpmn.utils.before_app_install"
-# after_app_install = "one_bpmn.utils.after_app_install"
-
-# Integration Cleanup
-# -------------------
-# To clean up dependencies/integrations with other apps
-# Name of the app being uninstalled is passed as an argument
-
-# before_app_uninstall = "one_bpmn.utils.before_app_uninstall"
-# after_app_uninstall = "one_bpmn.utils.after_app_uninstall"
-
-# Desk Notifications
-# ------------------
-# See frappe.core.notifications.get_notification_config
-
-# notification_config = "one_bpmn.notifications.get_notification_config"
 
 # Permissions
 # -----------
@@ -216,7 +118,7 @@ after_migrate = ["one_bpmn.agents.agent_config_resolver.sync_all_shapes_to_confi
 # Jinja globals for aiUserPrompt templates.
 jinja = {
 	"methods": [
-		"one_bpmn.agents.turn_state.get_turn",
+		"one_bpmn.processa_engine.agent_runtime.turn_state.get_turn",
 		"one_bpmn.tools.tool_for_server_scripts.compact_ir",
 	]
 }
@@ -271,8 +173,8 @@ doc_events = {
 	# bpmn_form_actions.js to suppress native Submit/Save/banner) is cached in
 	# Redis — drop it whenever a process model is (de)activated or retargeted.
 	"BPMN Process Model": {
-		"on_update": "one_bpmn.api.instance_api.clear_processa_doctype_cache",
-		"after_delete": "one_bpmn.api.instance_api.clear_processa_doctype_cache",
+		"on_update": "one_bpmn.processa_engine.instances.listing.clear_processa_doctype_cache",
+		"after_delete": "one_bpmn.processa_engine.instances.listing.clear_processa_doctype_cache",
 	},
 }
 
@@ -303,8 +205,8 @@ scheduler_events = {
 		],
 		# A sandbox run whose callback never arrives would leave its agent waiting for good.
 		"*/2 * * * *": [
-			"one_bpmn.one_bpmn.connectors.agent_sandbox_reaper.reap",
-			"one_bpmn.one_bpmn.connectors.agent_sandbox_reaper.reap_sessions",
+			"one_bpmn.agents_sandbox.sandbox.reaper.reap",
+			"one_bpmn.agents_sandbox.sandbox.reaper.reap_sessions",
 		],
 		"* * * * *": [
 			"one_bpmn.processa_engine.timers.process_timer_start_events",
@@ -345,96 +247,20 @@ scheduler_events = {
 	}
 }
 
-# Testing
-# -------
-
-# before_tests = "one_bpmn.install.before_tests"
-
-# Overriding Methods
-# ------------------------------
-#
-# override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "one_bpmn.event.get_events"
-# }
-#
-# each overriding function accepts a `data` argument;
-# generated from the base implementation of the doctype dashboard,
-# along with any modifications made in other Frappe apps
-# override_doctype_dashboards = {
-# 	"Task": "one_bpmn.task.get_dashboard_data"
-# }
-
-# exempt linked doctypes from being automatically cancelled
-#
-# auto_cancel_exempted_doctypes = ["Auto Repeat"]
-
-# Ignore links to specified DocTypes when deleting documents
-# -----------------------------------------------------------
-
-# ignore_links_on_delete = ["Communication", "ToDo"]
-
 # Cache keys that survive frappe.clear_cache()
 # --------------------------------------------
-# The stage tools' per-turn store (agents/turn_state.py) is live state for a running turn.
+# The stage tools' per-turn store (processa_engine/agent_runtime/turn_state.py) is live state for a running turn.
 persistent_cache_keys = ["ait_turn:*"]
 
 # Request Events
 # ----------------
-# before_request = ["one_bpmn.utils.before_request"]
 after_request = ["one_bpmn.processa_engine.notifications.actions.apply_amp_headers"]
-
-# Job Events
-# ----------
-# before_job = ["one_bpmn.utils.before_job"]
-# after_job = ["one_bpmn.utils.after_job"]
-
-# User Data Protection
-# --------------------
-
-# user_data_fields = [
-# 	{
-# 		"doctype": "{doctype_1}",
-# 		"filter_by": "{filter_by}",
-# 		"redact_fields": ["{field_1}", "{field_2}"],
-# 		"partial": 1,
-# 	},
-# 	{
-# 		"doctype": "{doctype_2}",
-# 		"filter_by": "{filter_by}",
-# 		"partial": 1,
-# 	},
-# 	{
-# 		"doctype": "{doctype_3}",
-# 		"strict": False,
-# 	},
-# 	{
-# 		"doctype": "{doctype_4}"
-# 	}
-# ]
-
-# Authentication and authorization
-# --------------------------------
-
-# auth_hooks = [
-# 	"one_bpmn.auth.validate"
-# ]
 
 # Automatically update python controller files with type annotations for this app.
 export_python_type_annotations = True
-
-# default_log_clearing_doctypes = {
-# 	"Logging DocType Name": 30  # days to retain logs
-# }
 
 # Reuse Frappe's Log Settings for AI Memory retention instead of a custom scheduler.
 # 0 = retain indefinitely by default; an administrator can lower it in Log Settings.
 default_log_clearing_doctypes = {
 	"AI Memory": 0,
 }
-
-# Custom short-term conversation store for AI agents (backend = "custom").
-# Point this at a dotted path to a
-# one_bpmn.agents.memory.conversation_store.ConversationStore subclass.
-# Consumed by get_conversation_store("custom"); optional.
-# ai_conversation_store = "your_app.path.to.YourConversationStore"
-

@@ -147,7 +147,7 @@ class TestNestedRunsFormATree(RunFixture):
 	def test_a_finished_child_hands_the_current_run_back_to_its_parent(self):
 		"""Clearing to None instead would stop metering everything the parent
 		did after the nested run returned."""
-		from one_bpmn.agents.executor import ExecutorResult
+		from one_bpmn.processa_engine.agent_runtime.executor import ExecutorResult
 
 		parent = self._run()
 		frappe.flags[obs._CURRENT_RUN_FLAG] = parent.name
@@ -157,7 +157,7 @@ class TestNestedRunsFormATree(RunFixture):
 		self.assertEqual(obs.current_run_name(), parent.name)
 
 	def test_a_top_level_run_leaves_nothing_current(self):
-		from one_bpmn.agents.executor import ExecutorResult
+		from one_bpmn.processa_engine.agent_runtime.executor import ExecutorResult
 
 		run = self._run()
 		frappe.flags[obs._CURRENT_RUN_FLAG] = run.name

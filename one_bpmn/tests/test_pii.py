@@ -158,7 +158,7 @@ class TestToolSpecWrapping(unittest.TestCase):
 	shape tools, pooled tools and Server-Script-built tools alike."""
 
 	def test_tool_receives_the_real_value(self):
-		from one_bpmn.agents.llm_provider.base import ToolSpec
+		from one_bpmn.processa_engine.agent_runtime.llm_types import ToolSpec
 
 		seen = {}
 
@@ -176,7 +176,7 @@ class TestToolSpecWrapping(unittest.TestCase):
 		self.assertEqual(seen["civil_id"], CIVIL_ID)
 
 	def test_human_tools_are_not_wrapped(self):
-		from one_bpmn.agents.llm_provider.base import ToolSpec
+		from one_bpmn.processa_engine.agent_runtime.llm_types import ToolSpec
 
 		def noop():
 			return None
@@ -185,7 +185,7 @@ class TestToolSpecWrapping(unittest.TestCase):
 		self.assertIs(spec.fn, noop)
 
 	def test_wrapping_is_not_applied_twice(self):
-		from one_bpmn.agents.llm_provider.base import ToolSpec
+		from one_bpmn.processa_engine.agent_runtime.llm_types import ToolSpec
 
 		def noop(**kwargs):
 			return None
@@ -294,7 +294,7 @@ class TestInvokeAgentEndToEnd(unittest.TestCase):
 
 		message = f"the employee civil id is {CIVIL_ID}, look them up"
 		with patch(
-			"one_bpmn.agents.llm_provider.get_llm_adapter_from_settings",
+			"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings",
 			return_value=FakeAdapter(),
 		):
 			result = agent_invocation.invoke_agent(self.AGENT, message)

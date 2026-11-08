@@ -61,7 +61,7 @@ export function useProcessTabs(pc) {
 		// Server call (no loadProcess round-trip)
 		try {
 			await frappeRequest({
-				url: "/api/method/one_bpmn.api.process_map_api.delete_diagram",
+				url: "/api/method/one_bpmn.api.process_maps.delete_diagram",
 				params: { name: tab.name },
 			});
 		} catch (error) {
@@ -135,7 +135,7 @@ export function useProcessTabs(pc) {
 
 		try {
 			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.process_map_api.rename_process_model",
+				url: "/api/method/one_bpmn.api.process_maps.rename_process_model",
 				params: {
 					name: tabName,
 					new_title: newModelName,

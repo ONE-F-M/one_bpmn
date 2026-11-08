@@ -14,7 +14,7 @@ sets its own allowed_roles on the connector row.
 
 import frappe
 
-from one_bpmn.one_bpmn.connectors.seed import import_manifest
+from one_bpmn.processa_connectors.seed import import_manifest
 
 A2A_CONNECTOR = {
 	"connectorId": "a2a",
@@ -124,7 +124,7 @@ A2A_CONNECTOR = {
 		},
 		{
 			# The importer reads an operation's id from "value" (see
-			# connectors/seed.py::_import_operation) — an "operationId" key is
+			# processa_connectors/seed.py::import_operation) - an "operationId" key is
 			# silently skipped, which leaves a connector with no operations.
 			"value": "delegate_task",
 			"label": "Delegate task to remote agent",

@@ -74,7 +74,7 @@ def turn_status(conversation: str, client_message_id: str) -> dict:
 
 	The turn keeps running on the worker when the browser loses the stream, so the reply is read from the transcript.
 	"""
-	from one_bpmn.agents import turn_signal
+	from one_bpmn.processa_engine.agent_runtime import turn_signal
 	from one_bpmn.utils.chat_persistence import load_history
 
 	if frappe.session.user == "Guest":

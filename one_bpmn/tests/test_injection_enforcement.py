@@ -198,9 +198,9 @@ class TestToolResultProvenanceCoversEveryPath(FrappeTestCase):
 		return inspect.getsource(module)
 
 	def test_every_adapter_marks_its_tool_output(self):
-		from one_bpmn.agents.llm_provider import anthropic_adapter, gemini, openai_adapter
+		from one_bpmn.processa_engine.agent_runtime import llm_anthropic, llm_gemini, llm_openai
 
-		for module in (anthropic_adapter, openai_adapter, gemini):
+		for module in (llm_anthropic, llm_openai, llm_gemini):
 			with self.subTest(adapter=module.__name__):
 				self.assertIn(
 					"wrap_tool_result(",
@@ -212,7 +212,7 @@ class TestToolResultProvenanceCoversEveryPath(FrappeTestCase):
 		"""The resume path carries whatever a reviewer typed into a human task.
 		That is content from outside the platform arriving on the tool channel,
 		and it was the one route that reached the model unmarked."""
-		from one_bpmn.agents.executor import step_loop
+		from one_bpmn.processa_engine.agent_runtime import step_loop
 
 		source = self._source(step_loop)
 		self.assertNotIn(
@@ -450,10 +450,10 @@ class TestToolResultSaysWhatItRead(FrappeTestCase):
 		import ast
 		import inspect
 
-		from one_bpmn.agents.executor import step_loop
-		from one_bpmn.agents.llm_provider import anthropic_adapter, gemini, openai_adapter
+		from one_bpmn.processa_engine.agent_runtime import step_loop
+		from one_bpmn.processa_engine.agent_runtime import llm_anthropic, llm_gemini, llm_openai
 
-		for module in (anthropic_adapter, openai_adapter, gemini, step_loop):
+		for module in (llm_anthropic, llm_openai, llm_gemini, step_loop):
 			with self.subTest(module=module.__name__):
 				tree = ast.parse(inspect.getsource(module))
 				calls = [

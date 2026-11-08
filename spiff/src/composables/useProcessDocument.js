@@ -236,7 +236,7 @@ export function useProcessDocument(pc) {
 	async function loadProcess() {
 		try {
 			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.process_map_api.get_process_diagrams",
+				url: "/api/method/one_bpmn.api.process_maps.get_process_diagrams",
 				params: { process: props.process },
 			});
 			const data = response.message || response;
@@ -320,7 +320,7 @@ export function useProcessDocument(pc) {
 
 		try {
 			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.process_map_api.get_process_model",
+				url: "/api/method/one_bpmn.api.process_maps.get_process_model",
 				params: { name },
 			});
 

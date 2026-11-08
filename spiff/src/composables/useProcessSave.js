@@ -220,7 +220,7 @@ export function useProcessSave(pc) {
 			const description = diagram?.description || "";
 
 			await frappeRequest({
-				url: "/api/method/one_bpmn.api.process_map_api.save_process_model",
+				url: "/api/method/one_bpmn.api.process_maps.save_process_model",
 				params: {
 					process: props.process,
 					model_name: modelName,

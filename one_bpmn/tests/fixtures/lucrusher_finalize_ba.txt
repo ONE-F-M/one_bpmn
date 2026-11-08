@@ -2,7 +2,7 @@
 # Assembles the turn's structured result — the same 9-key dict the old
 # Anthropic loop produced from one JSON blob — and writes it to the turn store
 # for "Save AI Response" to persist. Self-contained (split globals/locals).
-from one_bpmn.agents.turn_state import get_turn, update_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, update_turn
 
 def _lucrusher_finalize(turn, args):
     import json

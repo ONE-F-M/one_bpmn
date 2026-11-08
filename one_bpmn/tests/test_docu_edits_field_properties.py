@@ -11,9 +11,10 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.turn_state import clear_turn, get_turn, set_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.api.docu_api import apply_field_properties
 from one_bpmn.one_bpmn.patches.v1_0 import docu_edits_field_properties as fix
+from one_bpmn.tests.site_scripts import as_deployed
 
 CONVERSATION = "_test_docu_edit_field_property"
 PRODUCTION_MESSAGE = 'I want the Replacement coverage section to hidden unless "replacement_requires_coverage" is checked as true'
@@ -32,10 +33,10 @@ class _Adapter:
 def _run_stage(message, changes, doctype=""):
 	set_turn(CONVERSATION, {"user_text": message, "doctype": doctype})
 	with patch(
-		"one_bpmn.agents.llm_provider.get_llm_adapter_from_settings",
+		"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings",
 		return_value=_Adapter({"changes": changes}),
 	):
-		exec(fix.EDIT_SCRIPT_BODY, {"frappe": frappe, "context_docname": CONVERSATION, "result": {}})
+		exec(as_deployed(fix.EDIT_SCRIPT_BODY), {"frappe": frappe, "context_docname": CONVERSATION, "result": {}})
 	return get_turn(CONVERSATION)["output"]
 
 

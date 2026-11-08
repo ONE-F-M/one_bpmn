@@ -9,7 +9,7 @@ import frappe
 import redis
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import turn_signal
+from one_bpmn.processa_engine.agent_runtime import turn_signal
 from one_bpmn.api import server_script_api
 
 

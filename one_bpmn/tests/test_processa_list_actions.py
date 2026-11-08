@@ -9,7 +9,7 @@ from frappe.tests.utils import FrappeTestCase
 from one_bpmn.boot import boot_session
 from one_bpmn.processa_engine.triggers import guard_bpmn_document
 
-CONTROLLED = "one_bpmn.api.instance_api.get_processa_controlled_doctypes"
+CONTROLLED = "one_bpmn.processa_engine.instances.listing.get_processa_controlled_doctypes"
 
 
 def _doc(doctype="Note"):

@@ -106,7 +106,7 @@ class TestConversationTokenRefusedByActionEndpoint(FrappeTestCase):
 
 		for kind in ("thread", "reply", "note"):
 			_setup_request()
-			with _mock_secret(), patch("one_bpmn.api.instance_api.complete_task") as mock_ct:
+			with _mock_secret(), patch("one_bpmn.api.instances.complete_task") as mock_ct:
 				result = handle_amp_action(token=_token(kind))
 			self.assertEqual(frappe.local.response.http_status_code, 403)
 			self.assertIn("error", result)
@@ -204,7 +204,7 @@ class TestConversationEndpoints(FrappeTestCase):
 			# The sandbox has no outgoing email account; the Communication is still
 			# created, only the actual send is stubbed.
 			stack.enter_context(patch.object(frappe, "sendmail"))
-			mock_ct = stack.enter_context(patch("one_bpmn.api.instance_api.complete_task"))
+			mock_ct = stack.enter_context(patch("one_bpmn.api.instances.complete_task"))
 			result = _raw(fn)(**kwargs)
 		return result, mock_ct
 
@@ -458,7 +458,7 @@ class TestConversationOnOtherDocTypes(FrappeTestCase):
 			stack.enter_context(patch("one_bpmn.processa_engine.notifications.actions._get_instance_context", return_value=instance))
 			stack.enter_context(patch("one_bpmn.processa_engine.notifications.actions._handled_by_message", return_value=None))
 			stack.enter_context(patch.object(frappe, "sendmail"))
-			stack.enter_context(patch("one_bpmn.api.instance_api.complete_task"))
+			stack.enter_context(patch("one_bpmn.api.instances.complete_task"))
 			return _raw(fn)(**kwargs)
 
 	def test_a_note_is_a_comment_on_the_issue_and_shows_in_the_thread(self):

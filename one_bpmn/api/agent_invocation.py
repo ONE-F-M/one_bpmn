@@ -419,7 +419,7 @@ def invoke_agent(
 	# Checked once the conversation is known and before the lock, so a
 	# redelivery neither waits behind the turn it duplicates nor is refused by
 	# it. Costs one indexed read on the common path.
-	from one_bpmn.agents import turn_idempotency as _idem
+	from one_bpmn.processa_engine.agent_runtime import turn_idempotency as _idem
 
 	if client_message_id:
 		_already = _idem.find_existing(conversation, client_message_id)
@@ -593,7 +593,7 @@ def _no_live_instance(config, conversation):
 		order_by="creation desc",
 		limit=1,
 	)
-	from one_bpmn.agents import turn_signal
+	from one_bpmn.processa_engine.agent_runtime import turn_signal
 
 	if last and last[0].status == "Active" and turn_signal.ai_job_running(last[0].name):
 		frappe.throw(
@@ -622,9 +622,9 @@ def _bpmn_turn_stream(config, conversation, message, context):
 	runner; this relays those announcements and finishes with the reply, which
 	the stream shapes the same way it shapes a runner that never streamed.
 	"""
-	from one_bpmn.agents import turn_signal
+	from one_bpmn.processa_engine.agent_runtime import turn_signal
 	from one_bpmn.agents.agui_stream import HANDOVER_EVENT
-	from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
+	from one_bpmn.processa_engine.agent_runtime.job_limits import AI_AGENT_JOB_TIMEOUT
 	from one_bpmn.api.server_script_api import collect_chat_turn_reply, delegate_chat_turn
 	from one_bpmn.processa_engine.dispatch.ai_agent import TURN_OUTPUT_EVENT
 
@@ -751,7 +751,7 @@ def _stream_direct_api(config, conversation, message, context):
 	import threading
 
 	from one_bpmn.agents.agui_stream import HANDOVER_EVENT
-	from one_bpmn.agents.turn_signal import LIVE_TEXT_QUEUE_FLAG
+	from one_bpmn.processa_engine.agent_runtime.turn_signal import LIVE_TEXT_QUEUE_FLAG
 
 	deltas: "queue.Queue" = queue.Queue()
 	done = object()
@@ -787,9 +787,9 @@ def _direct_api_turn(config, conversation, message):
 	"""One direct chat exchange, recorded as a run, persisted as two messages."""
 	from one_bpmn.agents import observability
 	from one_bpmn.agents.context_assembler import build_static_context_from_config
-	from one_bpmn.agents.executor import ExecutorResult, TokenUsage
-	from one_bpmn.agents.executor.direct_api import _run_coro_blocking
-	from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
+	from one_bpmn.processa_engine.agent_runtime.executor import ExecutorResult, TokenUsage
+	from one_bpmn.processa_engine.agent_runtime.direct_api import run_coro_blocking
+	from one_bpmn.processa_engine.agent_runtime.llm_factory import get_llm_adapter_from_settings
 	from one_bpmn.utils.chat_persistence import save_bot_message, save_user_message
 
 	save_user_message(conversation, message)
@@ -798,7 +798,7 @@ def _direct_api_turn(config, conversation, message):
 
 	run = _begin_direct_run(config, system_prompt, message)
 	try:
-		completion = _run_coro_blocking(adapter.complete(system=system_prompt, user=message))
+		completion = run_coro_blocking(adapter.complete(system=system_prompt, user=message))
 	except Exception as exc:
 		try:
 			observability.finalize_ai_run_on_exception(run, exc)
@@ -865,7 +865,7 @@ def _begin_direct_run(config: dict, system_prompt: str, message: str):
 	from types import SimpleNamespace
 
 	from one_bpmn.agents import observability
-	from one_bpmn.agents.executor import ExecutorConfig
+	from one_bpmn.processa_engine.agent_runtime.executor import ExecutorConfig
 
 	try:
 		run = observability.create_ai_run(

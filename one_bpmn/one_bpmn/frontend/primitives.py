@@ -396,7 +396,7 @@ def open_pr(*, repo: str, base_branch: str, head_branch: str, files: dict,
 	``allowed_owners`` is passed straight through to github_sync so the caller's
 	decision is also enforced at the point of the write, not only before it.
 	"""
-	from one_bpmn.api.github_sync import branch_exists, open_customization_pr
+	from one_bpmn.agents_sandbox.customization.github_sync import branch_exists, open_customization_pr
 
 	token = frappe.get_cached_doc("Processa Settings").get_password("github_token")
 	if not token:

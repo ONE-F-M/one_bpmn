@@ -3,7 +3,7 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.turn_state import get_turn, set_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import logix_routes_questions_and_vague_requests as routing
 
 

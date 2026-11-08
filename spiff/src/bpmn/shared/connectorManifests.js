@@ -1,5 +1,5 @@
 // Shared cache of the connector manifests served by the backend
-// (one_bpmn.one_bpmn.connectors.api.get_connector_manifests).
+// (one_bpmn.api.connectors.get_connector_manifests).
 //
 // Connectors are configuration (the BPMN Connector / Operation / Field
 // DocTypes), so everything the editor knows about them — labels, operations,
@@ -15,8 +15,8 @@
 
 import { frappeGet } from "./frappeResource";
 
-const MANIFEST_ENDPOINT = "/api/method/one_bpmn.one_bpmn.connectors.api.get_connector_manifests";
-const CHOICES_ENDPOINT = "/api/method/one_bpmn.one_bpmn.connectors.api.get_connector_field_choices";
+const MANIFEST_ENDPOINT = "/api/method/one_bpmn.api.connectors.get_connector_manifests";
+const CHOICES_ENDPOINT = "/api/method/one_bpmn.api.connectors.get_connector_field_choices";
 
 let MANIFESTS = null; // null = not loaded yet; array once loaded
 let LOADING = null;

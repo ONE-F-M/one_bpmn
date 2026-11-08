@@ -4,7 +4,7 @@ import json
 
 import frappe
 
-from one_bpmn.one_bpmn.connectors import agent_sandbox_session as sessions
+from one_bpmn.agents_sandbox.sandbox import session as sessions
 
 REFUSED = {"accepted": False}
 

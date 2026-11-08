@@ -23,7 +23,7 @@ import frappe
 
 from one_bpmn.agents import a2a_contract
 from one_bpmn.agents.a2a.protocol import A2AError
-from one_bpmn.agents.checkpoint import get_suspended_run
+from one_bpmn.processa_engine.agent_runtime.checkpoint import get_suspended_run
 
 
 def create_inbound_task(config, client_name: str, message: dict, text: str, trace: dict) -> "frappe.model.document.Document":
