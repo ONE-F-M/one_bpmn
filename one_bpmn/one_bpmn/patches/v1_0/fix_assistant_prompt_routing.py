@@ -33,7 +33,7 @@ Fix: say it in the prompt that governs behaviour.
 This does not loosen any guard: aiUserPrompt still cannot be written to a
 configuration. It only stops the assistant proposing the wrong change.
 
-Prompts are data (WI-001623 — no hardcoded assistant prompts in code), so this
+Prompts are data (no hardcoded assistant prompts in code), so this
 edits the site's own record. Idempotent: the stale sentence is matched exactly
 and the new section is keyed on its heading.
 """

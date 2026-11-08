@@ -6,7 +6,7 @@ doctype JSON files now live under one_bpmn, and if the DocType rows still
 said "ONEFM MCP"/"onefm_mcp" when migrate's orphan cleanup ran, the doctypes
 would be treated as removed from their app and deleted. Table names are
 unchanged, so no data moves. Mirrors move_agent_chat_doctypes_to_one_bpmn
-(WI-001613) and move_threat_intel_doctypes_to_one_bpmn (WI-002203) — the
+and move_threat_intel_doctypes_to_one_bpmn — the
 sibling patch moving the Threat Source Discovery doctypes on the same day.
 
 This is the doctype-relocation half only. The SITREP/report generation logic

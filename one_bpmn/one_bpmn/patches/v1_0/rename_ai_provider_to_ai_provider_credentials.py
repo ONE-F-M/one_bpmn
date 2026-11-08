@@ -2,7 +2,7 @@
 Rename the AI Provider doctype to AI Provider Credentials.
 
 AI Provider Credentials is the single store of LLM credentials for all
-agents (see WI-001615 — per-agent overrides are removed). frappe.rename_doc
+agents (per-agent overrides are removed). frappe.rename_doc
 renames the table and updates DB-stored Link/Select references; app-bundled
 JSON references are updated in this same commit.
 """
