@@ -1,5 +1,5 @@
 """
-WI-001967: ship the prompt-injection rule pack, seeded from public taxonomies.
+Ship the prompt-injection rule pack, seeded from public taxonomies.
 
 The pack is data (AI Injection Pattern), so a site can add, tighten or retire a
 rule without a code change. This patch puts the shipped baseline in place —
