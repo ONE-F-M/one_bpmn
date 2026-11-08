@@ -217,7 +217,7 @@ export function useProcessTabs(pc) {
 		if (!activeDiagramName.value) return;
 		try {
 			const res = await frappeRequest({
-				url: "/api/method/one_bpmn.api.version_history.get_edit_history",
+				url: "/api/method/one_bpmn.api.versions.get_edit_history",
 				params: { model_name: activeDiagramName.value },
 			});
 			const groups = res.message || res || [];
@@ -264,7 +264,7 @@ export function useProcessTabs(pc) {
 		activeVersionName.value = versionName;
 		try {
 			const res = await frappeRequest({
-				url: "/api/method/one_bpmn.api.version_history.get_snapshot_xml",
+				url: "/api/method/one_bpmn.api.versions.get_snapshot_xml",
 				params: { version_name: versionName },
 			});
 			const snap = res.message || res;

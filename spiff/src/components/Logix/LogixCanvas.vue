@@ -676,7 +676,7 @@ async function fetchVersionHistory() {
 	loadingVersions.value = true;
 	try {
 		const data = await frappeRequest({
-			url: "/api/method/one_bpmn.api.script_version_history.get_script_version_history",
+			url: "/api/method/one_bpmn.api.versions.get_script_version_history",
 			params: { script_name: canvasScriptName.value },
 		});
 		versions.value = data || [];

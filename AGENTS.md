@@ -26,7 +26,7 @@ House style lives in `frappe-bench/.claude/rules/`: `house-style.md` always, `py
   - `editability.py`: cross-site editability checks and editor lock heartbeats.
   - `server_script_api.py`: Server Script CRUD and the Logix and ProsAlly turn-context builders.
   - `agui.py`: `stream_agent_turn`, the one chat endpoint every agent uses.
-  - `canvas_comments.py`, `notification_api.py`, `version_history.py`, `script_version_history.py`.
+  - `canvas_comments.py`, `notification_api.py`, `versions.py` (diagram and Server Script versions), `dmn.py`.
 - `one_bpmn/one_bpmn/doctype/`: DocType JSON, controllers and tests.
 - `one_bpmn/processa_engine/engine/`: the SpiffWorkflow script engine.
 - `one_bpmn/processa_engine/`: engine services: `triggers.py` (document events), `timers.py` (timer and stranded-step jobs), `assignment.py`, `task_selector.py`, `call_activities.py` and `audit.py` (workflow state changes), and `compiler/` (deploy checks and the compile step).
