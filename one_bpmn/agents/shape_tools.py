@@ -571,13 +571,13 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 	but invoked directly so the agent can call it as a tool. LLM-supplied
 	arguments are visible to the script as locals.
 	"""
-	from one_bpmn.processa_engine.engine import _check_script_permissions
+	from one_bpmn.processa_engine.engine import check_server_script
 
 	script_doc = frappe.get_doc("Server Script", script_name)
 	if not script_doc or script_doc.disabled:
 		frappe.throw(f"Server Script '{script_name}' not found or disabled (shape {bpmn_id}).")
 
-	_check_script_permissions(script_doc.script, script_name)
+	check_server_script(script_doc)
 
 	result_dict = {}
 	local_vars = dict(task.data)
@@ -649,8 +649,10 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 	saved_sid = frappe.session.sid
 	saved_data = frappe.session.data
 	saved_ignore = frappe.flags.ignore_permissions
+	saved_in_script = frappe.flags.in_processa_script
 	need_switch = bool(agent_user) and agent_user != original_user
 	try:
+		frappe.flags.in_processa_script = True
 		if need_switch:
 			frappe.set_user(agent_user)
 		# Only claimed when there IS an identity to claim it for. An agent with no
@@ -674,6 +676,7 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 			frappe.session.sid = saved_sid
 			frappe.session.data = saved_data
 		frappe.flags.ignore_permissions = saved_ignore
+		frappe.flags.in_processa_script = saved_in_script
 
 	if isinstance(result_dict, dict) and result_dict:
 		task.data.update(result_dict)

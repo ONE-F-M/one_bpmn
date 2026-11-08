@@ -282,12 +282,12 @@ def _maybe_start_instance(doc, model_name: str):
 	# Same expression SpiffWorkflow evaluates at start; a condition that cannot be evaluated still spawns.
 	start_condition = _get_conditional_start_condition(model.bpmn_xml)
 	if start_condition and start_condition.strip().lower() not in ("true", "1", ""):
-		from one_bpmn.processa_engine.engine import json_safe_doc_fields
+		from one_bpmn.processa_engine.engine import evaluate_condition, json_safe_doc_fields
 
 		# Same fields the started instance sees, so a start condition and a gateway agree.
 		eval_locals = json_safe_doc_fields(doc)
 		try:
-			if not frappe.safe_eval(start_condition, eval_locals=eval_locals):
+			if not evaluate_condition(start_condition, eval_locals):
 				return
 		except Exception:
 			frappe.log_error(

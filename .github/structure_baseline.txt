@@ -27,7 +27,6 @@ private-import one_bpmn/agents/process_digest.py one_bpmn.agents.memory.tools._q
 private-import one_bpmn/agents/process_links.py one_bpmn.agents.process_digest._local
 private-import one_bpmn/agents/process_links.py one_bpmn.agents.process_digest._parse
 private-import one_bpmn/agents/process_links.py one_bpmn.agents.process_digest._tag
-private-import one_bpmn/agents/shape_tools.py one_bpmn.processa_engine.engine._check_script_permissions
 private-import one_bpmn/api/agent_invocation.py one_bpmn.processa_engine.triggers._maybe_start_instance
 private-import one_bpmn/api/agent_invocation.py one_bpmn.security.pii._config_name
 private-import one_bpmn/api/agui.py one_bpmn.agents.agui_stream._extension_events
@@ -39,7 +38,6 @@ private-import one_bpmn/api/production_review.py one_bpmn.api.editability._call_
 private-import one_bpmn/api/production_review.py one_bpmn.api.editability._is_ba_instance
 private-import one_bpmn/api/property_panel.py one_bpmn.api.editability._is_production_instance
 private-import one_bpmn/api/server_script_api.py one_bpmn.api.ai_assistant._extract_json
-private-import one_bpmn/api/server_script_api.py one_bpmn.processa_engine.engine._check_script_permissions
 private-import one_bpmn/api/sessions_api.py one_bpmn.agents.memory.compaction_triggers._is_inflight
 private-import one_bpmn/api/sessions_api.py one_bpmn.agents.memory.compaction_triggers._resolve_agent_id
 private-import one_bpmn/one_bpmn/a2a_agent_tool_fixtures.py one_bpmn.one_bpmn.a2a_scenario_fixtures._script_step
@@ -165,7 +163,7 @@ size one_bpmn/api/docu_api.py 1496
 size one_bpmn/api/eval_api.py 1939
 size one_bpmn/api/insights_api.py 2613
 size one_bpmn/api/production_review.py 871
-size one_bpmn/api/server_script_api.py 955
+size one_bpmn/api/server_script_api.py 954
 size one_bpmn/one_bpmn/a2a_scenario_fixtures.py 983
 size one_bpmn/one_bpmn/patches/v1_0/inline_logix_tool_scripts.py 835
 size one_bpmn/one_bpmn/patches/v1_0/inline_prosally_tool_scripts.py 1419
