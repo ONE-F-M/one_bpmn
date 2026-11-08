@@ -29,7 +29,7 @@ def _spec(*script_sets):
 
 
 class TestDeployKeepsSharedScriptsEnabled(FrappeTestCase):
-	def _deploy_v3(self, other_active_specs):
+	def _deploy_v3(self, other_active_specs, sibling_has_open_instances=False):
 		"""Deploy SD v3 while sibling v4 is active; both embed the Orchestrator's scripts."""
 		model = frappe._dict(name="Software Development v3", process_name="Software Development",
 		                     serialized_spec=_spec(OWN_V3, SHARED), version=None)
@@ -44,7 +44,12 @@ class TestDeployKeepsSharedScriptsEnabled(FrappeTestCase):
 		def set_value(doctype, name, field, value, *a, **kw):
 			writes.append((doctype, name, field, value))
 
-		with patch.object(frappe, "get_all", side_effect=get_all), patch.object(frappe.db, "exists", return_value=True), \
+		def exists(doctype, filters=None, *a, **kw):
+			if doctype == "BPMN Process Instance":
+				return sibling_has_open_instances
+			return True
+
+		with patch.object(frappe, "get_all", side_effect=get_all), patch.object(frappe.db, "exists", side_effect=exists), \
 		     patch.object(frappe.db, "set_value", side_effect=set_value):
 			# only the map's OWN script tasks come through script_extensions — the bug's blind spot
 			lifecycle.activate_deployed_model(model, {f"o{i}": {"serverScript": n} for i, n in enumerate(sorted(OWN_V3))})
@@ -66,6 +71,20 @@ class TestDeployKeepsSharedScriptsEnabled(FrappeTestCase):
 		writes = self._deploy_v3(other_active_specs=[_spec(ONLY_V4)])
 		disabled = {n for d, n, f, v in writes if d == "Server Script" and f == "disabled" and v == 1}
 		self.assertEqual(disabled, set())
+
+	def test_a_sibling_with_open_instances_keeps_its_scripts_enabled(self):
+		writes = self._deploy_v3(other_active_specs=[], sibling_has_open_instances=True)
+		disabled = {n for d, n, f, v in writes if d == "Server Script" and f == "disabled" and v == 1}
+		self.assertEqual(disabled, set())
+
+	def test_a_sibling_with_open_instances_is_still_deactivated(self):
+		writes = self._deploy_v3(other_active_specs=[], sibling_has_open_instances=True)
+		self.assertIn(("BPMN Process Model", "Software Development v4", "is_active", 0), writes)
+
+	def test_the_deployed_map_scripts_are_enabled_while_a_sibling_has_open_instances(self):
+		writes = self._deploy_v3(other_active_specs=[], sibling_has_open_instances=True)
+		enabled = {n for d, n, f, v in writes if d == "Server Script" and f == "disabled" and v == 0}
+		self.assertEqual(enabled, OWN_V3 | SHARED)
 
 
 class TestScriptsUsedByActiveModels(FrappeTestCase):
