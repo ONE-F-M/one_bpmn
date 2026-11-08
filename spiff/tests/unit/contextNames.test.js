@@ -63,7 +63,9 @@ test("every name an editor component reads from the editor context is provided b
 		.filter((f) => /^useEditor/.test(f))
 		.map((f) => `composables/${f}`);
 	const provided = providedNames(composables, "ed", "composables/useEditorState.js", "return {");
-	const components = list("components/Editor").filter((f) => /^Bpmn.*\.vue$/.test(f));
+	const components = list("components/Editor")
+		.filter((f) => /^Bpmn/.test(f))
+		.map((f) => (f.endsWith(".vue") ? f : `${f}/${f}.vue`));
 	for (const file of components) {
 		const missing = destructured(read(`components/Editor/${file}`), "ed").filter(
 			(n) => !provided.has(n),

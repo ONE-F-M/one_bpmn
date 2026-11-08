@@ -1,10 +1,153 @@
+/* Launch Editor Button Styling */
+
+.properties-panel-container .spiffworkflow-properties-panel-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 6px;
+	margin: 2px 8px;
+	font-size: 12px;
+	font-weight: 500;
+	color: #374151;
+	background: #f3f4f6;
+	border: 1px solid #d1d5db;
+	border-radius: 6px;
+	cursor: pointer;
+	transition: all 0.15s ease;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.properties-panel-container .spiffworkflow-properties-panel-button:hover {
+	background: #e5e7eb;
+	border-color: #9ca3af;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.properties-panel-container .spiffworkflow-properties-panel-button:active {
+	background: #d1d5db;
+	box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.djs-element.hover .djs-outline {
+	stroke: #60a5fa !important;
+	stroke-width: 1.5px !important;
+}
+
+/* Properties Panel Styling (Frappe UI Skin) */
+
+.properties-panel-container {
+	--properties-panel-header-background-color: #f9fafb;
+	--properties-panel-group-header-background-color: #f3f4f6;
+	font-family: "Inter", system-ui, sans-serif;
+	isolation: isolate;
+}
+
+.properties-panel-container .bio-properties-panel {
+	height: 100%;
+}
+
+.properties-panel-container .bio-properties-panel-header {
+	background-color: #f9fafb;
+	border-bottom: 1px solid #e5e7eb;
+	padding: 12px 16px;
+}
+
+.properties-panel-container .bio-properties-panel-header-title {
+	font-size: 14px;
+	font-weight: 700;
+	color: #1f2937;
+}
+
+.properties-panel-container .bio-properties-panel-group-header {
+	background-color: #f3f4f6;
+	border-bottom: 1px solid #e5e7eb;
+	padding: 8px 16px;
+	transition: background-color 0.2s ease;
+}
+
+.properties-panel-container .bio-properties-panel-group-header:hover {
+	background-color: #e5e7eb;
+}
+
+.properties-panel-container .bio-properties-panel-group-header-title {
+	font-size: 11px;
+	font-weight: 700;
+	color: #4b5563;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+/* Form Controls */
+
+.properties-panel-container .bio-properties-panel-label {
+	display: block;
+	font-size: 12px;
+	font-weight: 500;
+	color: #4b5563;
+	margin-bottom: 4px;
+	margin-top: 8px;
+}
+
+.properties-panel-container .bio-properties-panel-input,
+.properties-panel-container .bio-properties-panel-select,
+.properties-panel-container .bio-properties-panel-textarea {
+	width: 100%;
+	background-color: #f9fafb;
+	border: 1px solid #d1d5db;
+	border-radius: 6px;
+	padding: 6px 10px;
+	font-size: 13px;
+	color: #1f2937;
+	transition: all 0.2s ease;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.properties-panel-container .bio-properties-panel-input:focus,
+.properties-panel-container .bio-properties-panel-select:focus,
+.properties-panel-container .bio-properties-panel-textarea:focus {
+	outline: none;
+	background-color: #ffffff;
+	border-color: #3b82f6;
+	box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.properties-panel-container .bio-properties-panel-input::placeholder {
+	color: #9ca3af;
+}
+
+/* Checkbox Styling */
+
+.properties-panel-container .bio-properties-panel-checkbox {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	cursor: pointer;
+}
+
+.properties-panel-container .bio-properties-panel-checkbox input[type="checkbox"] {
+	width: 16px;
+	height: 16px;
+	min-width: 16px;
+	border-radius: 4px;
+	border: 1px solid #d1d5db;
+	cursor: pointer;
+	accent-color: #2490ef;
+}
+
+.properties-panel-container .bio-properties-panel-checkbox input[type="checkbox"]:checked {
+	background-color: #2490ef;
+	border-color: #2490ef;
+}
+
 /* Group Entries */
+
 .properties-panel-container .bio-properties-panel-entry {
 	padding: 4px 4px;
 	margin: 0px 8px;
 }
 
 /* Description text in properties panel entries */
+
 .properties-panel-container .bio-properties-panel-description {
 	word-wrap: break-word;
 	max-width: 350px;
@@ -23,6 +166,7 @@
 }
 
 /* Nested group entries (e.g. Correlation Properties) */
+
 .properties-panel-container
 	.bio-properties-panel-group-entries.open
 	> .bio-properties-panel-group {
@@ -38,6 +182,7 @@
 }
 
 /* Frequency Explanation Card (Timer Start Event) */
+
 .properties-panel-container .frequency-explanation {
 	padding: 6px 10px;
 }
@@ -73,101 +218,8 @@
 	font-style: italic;
 }
 
-/* Overlay Styling */
-.bpmn-overlay {
-	padding: 4px 8px;
-	border-radius: 4px;
-	font-size: 12px;
-	font-weight: 500;
-	white-space: nowrap;
-	pointer-events: auto;
-	cursor: pointer;
-}
-
-.bpmn-overlay-error {
-	background: #ef4444;
-	color: white;
-}
-
-.bpmn-overlay-warning {
-	background: #f59e0b;
-	color: white;
-}
-
-.bpmn-overlay-info {
-	background: #3b82f6;
-	color: white;
-}
-
-.bpmn-overlay-success {
-	background: #10b981;
-	color: white;
-}
-
-.bpmn-overlay-badge {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	min-width: 20px;
-	height: 20px;
-	border-radius: 10px;
-	font-size: 11px;
-	font-weight: 600;
-}
-
-/* Breadcrumb Navigation (collapsed subprocess drilldown) */
-.bpmn-canvas .bjs-breadcrumbs {
-	font-family: "Inter", "Segoe UI", system-ui, sans-serif;
-	font-size: 14px;
-	z-index: 10;
-}
-
-.bpmn-canvas .bjs-breadcrumbs li a {
-	color: #3b82f6;
-	text-decoration: none;
-	transition: color 0.15s ease;
-}
-
-.bpmn-canvas .bjs-breadcrumbs li a:hover {
-	color: #2563eb;
-	text-decoration: underline;
-}
-
-.bpmn-canvas .bjs-breadcrumbs li:last-of-type a {
-	color: #374151;
-	font-weight: 500;
-}
-
-/* Read-Only Mode */
-
-/* Hide palette and context pad in read-only mode */
-.bpmn-canvas--readonly .djs-palette,
-.bpmn-canvas--readonly .djs-context-pad,
-.bpmn-canvas--readonly .djs-popup,
-.bpmn-canvas--readonly .djs-direct-editing-parent {
-	display: none !important;
-}
-
-/* Disable drag/move cursor on elements in read-only mode */
-.bpmn-canvas--readonly .djs-element {
-	cursor: default !important;
-}
-
-/* Semi-transparent overlay to visually indicate read-only */
-.bpmn-canvas--readonly {
-	position: relative;
-}
-
-.bpmn-canvas--readonly::after {
-	content: "";
-	position: absolute;
-	inset: 0;
-	background: rgba(248, 250, 252, 0.15);
-	pointer-events: none;
-	z-index: 1;
-}
-
 /* Make properties panel inputs read-only */
+
 .properties-panel--readonly input,
 .properties-panel--readonly textarea,
 .properties-panel--readonly select,
@@ -177,6 +229,7 @@
 }
 
 /* But keep the panel header and group headers interactive for collapsing */
+
 .properties-panel--readonly .bio-properties-panel-group-header {
 	pointer-events: auto !important;
 	opacity: 1;
@@ -190,6 +243,7 @@
 /* Release Property Panel
    The class is only on the panel of an element whose properties may be edited
    (see panelReleased), so every field in it comes back to life… */
+
 .properties-panel--released input,
 .properties-panel--released textarea,
 .properties-panel--released select,
@@ -203,6 +257,7 @@
    edit that is silently dropped. Entry ids are "id" for the plain BPMN
    attribute, "spiffworkflow-<attr>" for the rest - hence the two spellings of
    script: "spiffworkflow-preScript" and bpmn-js's own "scriptFormat". */
+
 .properties-panel--released [data-entry-id="id"] input,
 .properties-panel--released [data-entry-id$="serviceType"] input,
 .properties-panel--released [data-entry-id$="serviceType"] select,
@@ -223,51 +278,15 @@
    read-only AI Agent Config modal) that the launch handlers put into
    view-only mode when the map is read-only. Exempt them from the
    blanket disable above so they stay clickable. */
+
 .properties-panel--readonly .spiffworkflow-properties-panel-button {
 	pointer-events: auto !important;
 	opacity: 1;
 }
 
-/* Sticky Note Direct Editing Fix:
-   These styles apply to the bpmn-js direct editing text box.
-   We force the background and text color to match the sticky note
-   aesthetics during the active edit phase. */
-.bpmn-canvas .djs-direct-editing-parent {
-	background-color: #fff9c4 !important; /* Pastel yellow */
-	border: 1px solid #eab308 !important; /* yellow-500 border */
-	border-radius: 2px;
-	padding: 4px;
-	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.bpmn-canvas .djs-direct-editing-content {
-	color: #000000 !important; /* Black text */
-	font-family: "Inter", "Segoe UI", system-ui, sans-serif !important;
-	font-size: 13px !important;
-	line-height: 1.2 !important;
-	outline: none !important;
-}
-
-/* Ensure placeholder/empty state is legible */
-.bpmn-canvas .djs-direct-editing-content:empty:before {
-	color: rgba(0, 0, 0, 0.3);
-}
-/* Properties Panel Transitions */
-.slide-right-enter-active,
-.slide-right-leave-active {
-	transition:
-		transform 0.3s ease,
-		opacity 0.3s ease,
-		width 0.3s ease;
-}
-.slide-right-enter-from,
-.slide-right-leave-to {
-	transform: translateX(100%);
-	opacity: 0;
-}
-
 /* Ensure the leaving panel doesn't occupy space in the flex flow during transition,
    preventing jerky layout shifts when switching between panels. */
+
 .slide-right-enter-active,
 .comment-panel-container.slide-right-leave-active,
 .properties-panel-container.slide-right-leave-active {
@@ -278,6 +297,7 @@
 }
 
 /* Ensure the properties panel content doesn't break when width is narrow */
+
 .properties-panel-container .bio-properties-panel {
 	min-width: 320px; /* Standard properties panel width target */
 }
@@ -287,84 +307,4 @@
 		min-width: unset;
 		width: 100%;
 	}
-}
-
-/* Custom scrollbar-hide utility if not already global */
-.scrollbar-hide::-webkit-scrollbar {
-	display: none;
-}
-.scrollbar-hide {
-	-ms-overflow-style: none;
-	scrollbar-width: none;
-}
-
-/* Mobile: touch-friendly BPMN elements */
-@media (max-width: 639px) {
-	/* Make palette slightly transparent so canvas is visible behind it */
-	.bpmn-canvas .djs-palette {
-		background-color: rgba(255, 255, 255, 0.95);
-		box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
-	}
-
-	/* Ensure context pad sits above everything */
-	.djs-context-pad {
-		z-index: 200 !important;
-	}
-
-	/* Touch-friendly context pad entries */
-	.djs-context-pad .entry {
-		width: 36px;
-		height: 36px;
-		touch-action: manipulation;
-	}
-
-	/* The popup menu (element type selection) must be fully visible and scrollable */
-	.djs-popup {
-		z-index: 300 !important;
-		max-height: 50vh;
-		overflow-y: auto !important;
-		-webkit-overflow-scrolling: touch;
-	}
-
-	/* Thicker selection outline for touch targets */
-	.djs-element.selected .djs-outline {
-		stroke-width: 3px !important;
-	}
-}
-
-/* Slide-up transition for mobile bottom sheet */
-.slide-up-enter-active,
-.slide-up-leave-active {
-	transition:
-		transform 0.3s ease,
-		opacity 0.3s ease;
-}
-.slide-up-enter-from,
-.slide-up-leave-to {
-	transform: translateY(100%);
-	opacity: 0;
-}
-
-/* ProsAlly Panel slide transition */
-.prosally-slide-enter-active,
-.prosally-slide-leave-active {
-	transition:
-		width 0.3s ease,
-		opacity 0.2s ease;
-	overflow: hidden;
-}
-.prosally-slide-enter-from,
-.prosally-slide-leave-to {
-	width: 0 !important;
-	opacity: 0;
-}
-.prosally-slide-enter-to,
-.prosally-slide-leave-from {
-	width: 20rem; /* w-80 */
-	opacity: 1;
-}
-
-.prosally-panel-container {
-	min-width: 0;
-	overflow: hidden;
 }

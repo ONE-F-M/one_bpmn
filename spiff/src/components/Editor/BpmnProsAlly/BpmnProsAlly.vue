@@ -61,3 +61,5 @@ const {
 		</div>
 	</transition>
 </template>
+
+<style src="./BpmnProsAlly.css"></style>

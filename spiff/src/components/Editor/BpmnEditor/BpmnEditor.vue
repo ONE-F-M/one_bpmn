@@ -76,16 +76,16 @@
 import { provide } from "vue";
 import { Icon } from "@iconify/vue";
 import AIAgentConfigModal from "@/components/Modals/AIAgentConfigModal.vue";
-import BpmnEditorToolbar from "./BpmnEditorToolbar.vue";
-import BpmnProsAlly from "./BpmnProsAlly.vue";
-import BpmnInlineComment from "./BpmnInlineComment.vue";
-import BpmnMobileToolbar from "./BpmnMobileToolbar.vue";
-import BpmnPropertiesPanel from "./BpmnPropertiesPanel.vue";
-import BpmnCommentPanel from "./BpmnCommentPanel.vue";
-import BpmnCommentDialogs from "./BpmnCommentDialogs.vue";
-import BpmnDocuPanel from "./BpmnDocuPanel.vue";
-import BpmnContextMenu from "./BpmnContextMenu.vue";
-import BpmnMessageDialog from "./BpmnMessageDialog.vue";
+import BpmnEditorToolbar from "../BpmnEditorToolbar/BpmnEditorToolbar.vue";
+import BpmnProsAlly from "../BpmnProsAlly/BpmnProsAlly.vue";
+import BpmnInlineComment from "../BpmnInlineComment/BpmnInlineComment.vue";
+import BpmnMobileToolbar from "../BpmnMobileToolbar/BpmnMobileToolbar.vue";
+import BpmnPropertiesPanel from "../BpmnPropertiesPanel/BpmnPropertiesPanel.vue";
+import BpmnCommentPanel from "../BpmnCommentPanel/BpmnCommentPanel.vue";
+import BpmnCommentDialogs from "../BpmnCommentDialogs/BpmnCommentDialogs.vue";
+import BpmnDocuPanel from "../BpmnDocuPanel.vue";
+import BpmnContextMenu from "../BpmnContextMenu/BpmnContextMenu.vue";
+import BpmnMessageDialog from "../BpmnMessageDialog/BpmnMessageDialog.vue";
 import { createEditorContext, EDITOR_KEY } from "@/composables/useEditorState";
 import { useEditorPanels } from "@/composables/useEditorPanels";
 import { useEditorDialogs } from "@/composables/useEditorDialogs";
@@ -243,5 +243,4 @@ defineExpose({
 });
 </script>
 
-<style src="./bpmnEditorBase.css"></style>
-<style src="./bpmnEditorPanel.css"></style>
+<style src="./BpmnEditor.css"></style>

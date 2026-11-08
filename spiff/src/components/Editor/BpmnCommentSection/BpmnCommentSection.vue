@@ -295,3 +295,5 @@ const {
 		</div>
 	</div>
 </template>
+
+<style src="./BpmnCommentSection.css"></style>

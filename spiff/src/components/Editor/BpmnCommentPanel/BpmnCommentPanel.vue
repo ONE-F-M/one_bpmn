@@ -343,3 +343,5 @@ const {
 		</div>
 	</transition>
 </template>
+
+<style src="./BpmnCommentPanel.css"></style>
