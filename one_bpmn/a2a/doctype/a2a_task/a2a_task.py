@@ -1,16 +1,16 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""A2A Task — one record per protocol task, both directions (WI-001932).
+"""A2A Task — one record per protocol task, both directions.
 
 Inbound: an approved client asked one of our agents for something. The
 row is the ticket: wire task id, who asked (client), which agent, the
 conversation/instance doing the work, and the state the caller polls.
 
-Outbound (WI-001933): one of our processes delegated to a remote agent.
+Outbound: one of our processes delegated to a remote agent.
 The row additionally carries the parked Spiff task, the poll schedule
 and the deadline.
 
-The delegation trace (WI-002008) lives here too — task_execution_id,
+The delegation trace lives here too — task_execution_id,
 delegation_depth and handoff_count — one store, shared by the guardrail
 checks and the eventual dashboard.
 """

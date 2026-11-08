@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Running an agent for an A2A task — the one implementation (WI-001933).
+"""Running an agent for an A2A task — the one implementation.
 
 Both doors use this: a task that arrived over the network (api/a2a)
 and a task handed straight from one local agent to another
@@ -183,7 +183,7 @@ def run_background(task, config, text: str, *, fresh: bool = False) -> None:
 		fail_to_start(task, config, "failed", "no process started for this task")
 		return
 	task.db_set({"instance": instance, "state": "working"}, update_modified=True)
-	# WI-002053: the worker's instance records who started it, so the chain can
+	# The worker's instance records who started it, so the chain can
 	# be walked downwards as well as up. Only the A2A path sets this — a Call
 	# Activity runs the called process INSIDE its caller's instance, so there is
 	# no separate row for it to point back from.

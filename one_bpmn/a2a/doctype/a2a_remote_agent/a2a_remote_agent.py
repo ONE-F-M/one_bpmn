@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""A2A Remote Agent — the outbound address book (WI-001933).
+"""A2A Remote Agent — the outbound address book.
 
 Our processes may only delegate to an entry that is enabled and
 Approved: a positive allow-list, not a blocklist. The cached card is

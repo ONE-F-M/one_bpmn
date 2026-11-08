@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Delegation guardrails (WI-002008).
+"""Delegation guardrails.
 
 One enforcement point for every hand-off, whichever direction it goes:
 
@@ -257,7 +257,7 @@ def enforce(
 
 def trace_metadata(counters: dict) -> dict:
 	"""The trace to put in an outgoing message's metadata so a remote can
-	keep counting the same chain (WI-002008)."""
+	keep counting the same chain."""
 	from one_bpmn.a2a import contract as a2a_contract
 
 	metadata = {
@@ -269,7 +269,7 @@ def trace_metadata(counters: dict) -> dict:
 	return metadata
 
 
-# ── When a limit stops a chain, tell someone (WI-002008) ─────────────────────
+# ── When a limit stops a chain, tell someone ─────────────────────
 
 
 def refusal_recipient(delegating_agent: str | None = None, instance: str | None = None) -> str | None:
