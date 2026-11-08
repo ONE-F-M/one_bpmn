@@ -245,3 +245,19 @@ def _drift_line(drift: dict) -> str:
 			drift["label"], len(drift["live"]), len(drift["shape"])
 		)
 	return _("{0} {1} (the shape says {2})").format(drift["label"], drift["live"], drift["shape"] or _("nothing"))
+
+
+def check_scripts_pending_review(script_names: list) -> list:
+	"""Warn for each Server Script the deploy left disabled because it awaits a System Manager's review."""
+	return [
+		{
+			"label": _("Script awaits review"),
+			"icon": "shield-alert",
+			"type": "warning",
+			"detail": _(
+				"Server Script '{0}' was written or edited by an agent and stays disabled until a "
+				"System Manager reviews and enables it."
+			).format(name),
+		}
+		for name in script_names
+	]

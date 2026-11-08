@@ -194,6 +194,7 @@ has_permission = {
 # actually declares the queue — so this is safe to deploy before the worker.
 override_doctype_class = {
 	"Scheduled Job Type": "one_bpmn.overrides.scheduled_job_type.ProcessaScheduledJobType",
+	"Server Script": "one_bpmn.overrides.server_script.ProcessaServerScript",
 }
 
 # Document Events
@@ -246,7 +247,10 @@ doc_events = {
 	# Server Script that a BPMN script task references (unrelated Server
 	# Scripts pass through untouched).
 	"Server Script": {
-		"validate": "one_bpmn.security.script_gate.validate_server_script_on_save",
+		"validate": [
+			"one_bpmn.security.script_gate.apply_server_script_approval",
+			"one_bpmn.security.script_gate.validate_server_script_on_save",
+		],
 	},
 	# WI-001644: PII input screening. The map-driven agents read the user's
 	# text back off the stored Chat Message, so redacting the in-flight
