@@ -1,5 +1,5 @@
 """
-WI-002201: Move the Threat Assessment Report doctypes from onefm_mcp into one_bpmn.
+Move the Threat Assessment Report doctypes from onefm_mcp into one_bpmn.
 
 Runs pre_model_sync so the module is reassigned BEFORE doctype sync: the
 doctype JSON files now live under one_bpmn, and if the DocType rows still
@@ -13,7 +13,7 @@ This is the doctype-relocation half only. The SITREP/report generation logic
 itself (currently onefm_mcp's threat_assessment_agent LangGraph pipeline)
 stays live and unmodified in onefm_mcp until its replacement BPMN Process
 Model is built and validated in the Processa editor — see
-onefm_mcp/DEPRECATION_PLAN.md and the WI-002201 implementation plan for the
+onefm_mcp/DEPRECATION_PLAN.md and the implementation plan for the
 target design and cutover sequencing.
 """
 

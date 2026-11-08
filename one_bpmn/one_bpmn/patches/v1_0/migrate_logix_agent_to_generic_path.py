@@ -1,5 +1,5 @@
 """
-WI-001539 / per-agent migration: complete the ``logix`` AI Agent Configuration
+Per-agent migration: complete the ``logix`` AI Agent Configuration
 so Logix chat runs through the generic invocation path, and carry it to Live
 through lifecycle validation.
 

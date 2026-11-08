@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-002140: fold all of onefm_mcp's AI Chat Settings into Processa Settings,
+"""Fold all of onefm_mcp's AI Chat Settings into Processa Settings,
 the site-wide config singleton this repo already uses for cross-cutting
 one_bpmn defaults — one settings surface instead of one per app.
 

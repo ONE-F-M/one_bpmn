@@ -1,11 +1,11 @@
 """
-WI-002203: Move the Threat Source Discovery doctypes from onefm_mcp into one_bpmn.
+Move the Threat Source Discovery doctypes from onefm_mcp into one_bpmn.
 
 Runs pre_model_sync so the module is reassigned BEFORE doctype sync: the
 doctype JSON files now live under one_bpmn, and if the DocType rows still
 said "ONEFM MCP" when migrate's orphan cleanup ran, the doctypes would be
 treated as removed from their app and deleted. Table names are unchanged,
-so no data moves. Mirrors move_agent_chat_doctypes_to_one_bpmn (WI-001613).
+so no data moves. Mirrors move_agent_chat_doctypes_to_one_bpmn.
 """
 
 import frappe

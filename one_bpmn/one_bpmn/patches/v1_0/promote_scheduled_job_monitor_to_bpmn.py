@@ -1,5 +1,5 @@
 """
-WI-002206: Promote the "Scheduled Job Monitor" AI Agent Configuration from
+Promote the "Scheduled Job Monitor" AI Agent Configuration from
 onefm_mcp's retired Google ADK scheduled_job_ticket_agent onto the (to be
 imported) "Scheduled Job Failure Monitor" BPMN Process Model.
 

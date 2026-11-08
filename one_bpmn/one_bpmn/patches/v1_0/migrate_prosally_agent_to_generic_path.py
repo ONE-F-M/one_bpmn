@@ -1,5 +1,5 @@
 """
-WI-001539 / per-agent migration: complete the ``prosally`` AI Agent
+Per-agent migration: complete the ``prosally`` AI Agent
 Configuration so ProsAlly chat runs through the generic invocation path
 (create_agent_conversation + invoke_agent), and carry it to Live through
 lifecycle validation.
