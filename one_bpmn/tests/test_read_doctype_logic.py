@@ -11,8 +11,8 @@ from unittest.mock import patch
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.ai_agent_registry.definitions.lucrusher import tools as ci
+from one_bpmn.ai_agent_security.code_checks.script_validator import deep_inspect_script
 from one_bpmn.one_bpmn.patches.v1_0 import lucrusher_reads_doctype_logic as p
-from one_bpmn.security.script_validator import deep_inspect_script
 from one_bpmn.tests.site_scripts import as_deployed
 
 DOCTYPE_DIR = "one_fm/one_fm/one_fm/doctype"

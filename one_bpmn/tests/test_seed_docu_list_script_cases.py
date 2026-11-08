@@ -4,8 +4,8 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from one_bpmn.ai_agent_security.code_checks.client_script_validator import validate_list_view_script
 from one_bpmn.one_bpmn.patches.v1_0 import seed_docu_list_script_cases as seed
-from one_bpmn.security.client_script_validator import validate_list_view_script
 
 
 class TestSeedDocuListScriptCases(FrappeTestCase):

@@ -11,7 +11,7 @@ import time
 
 import frappe
 
-from one_bpmn.security.provenance import wrap_tool_result
+from one_bpmn.ai_agent_security.screening.provenance import wrap_tool_result
 from one_bpmn.processa_engine.agent_runtime.tool_bounds import (
 	bound_tool_result,
 	salvage_leaked_delimiters,

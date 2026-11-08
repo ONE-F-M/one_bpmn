@@ -236,9 +236,9 @@ class TestInvokeAgentStreamSeam(FrappeTestCase):
 			patch.object(ai, "_authorize"),
 			patch.object(ai, "_runner_for", return_value=runner_key),
 			patch.dict(ai._RUNNERS, {runner_key: lambda c, cv, m, ctx, stream=False: runner_result(stream)}),
-			patch("one_bpmn.security.pii.screen_input", return_value=_Screened()),
-			patch("one_bpmn.security.pii.begin_turn", return_value=object()),
-			patch("one_bpmn.security.pii.end_turn"),
+			patch("one_bpmn.ai_agent_security.screening.pii.screen_input", return_value=_Screened()),
+			patch("one_bpmn.ai_agent_security.screening.pii.begin_turn", return_value=object()),
+			patch("one_bpmn.ai_agent_security.screening.pii.end_turn"),
 		]
 		return patches
 
@@ -297,7 +297,7 @@ class TestInvokeAgentStreamSeam(FrappeTestCase):
 			p.start()
 		try:
 			result = ai.invoke_agent("x", "msg", conversation="CONV-1", stream=True)
-			from one_bpmn.security import pii
+			from one_bpmn.ai_agent_security.screening import pii
 
 			pii.end_turn.assert_not_called()
 			list(result["stream"])  # exhaust

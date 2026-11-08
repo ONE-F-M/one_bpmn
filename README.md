@@ -73,7 +73,8 @@ one_bpmn/                      # Frappe app (repo root)
 │   ├── one_bpmn/connectors/   # A2A connector handlers
 │   ├── agents_sandbox/        # Agent sandbox doctypes, sandbox client, customization writers
 │   ├── agents/                # AI agents (shape tools, memory, evals, A2A)
-│   ├── security/              # Validator for generated scripts
+│   ├── security/              # Tool policy and agent refusals
+│   ├── ai_agent_security/     # Screening, rate limits, turn locks, security events, code checks
 │   ├── processa_engine/notifications/  # AMP and HTML task emails
 │   ├── processa_engine/agent_runtime/  # Executors, model adapters, step loop and turn state
 │   ├── commands/              # bench commands

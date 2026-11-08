@@ -5,7 +5,7 @@ The only things the Frontend Agent cannot do from a Server Script.
 
 WHY THIS MODULE IS AS SMALL AS IT IS
 ------------------------------------
-Every BPMN Script Task passes ``one_bpmn.security.script_validator.deep_inspect_script``,
+Every BPMN Script Task passes ``one_bpmn.ai_agent_security.code_checks.script_validator.deep_inspect_script``,
 which permanently forbids ``os``, ``glob``, ``pathlib``, ``subprocess``, ``shutil``,
 ``tempfile``, ``requests`` and the ``open()`` builtin. That is the ONLY reason
 anything here is Python. The test applied to every function below was not "is

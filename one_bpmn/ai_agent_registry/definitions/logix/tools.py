@@ -8,10 +8,10 @@ from frappe import _
 
 from one_bpmn.ai_agent_registry.definitions.shared.helpers import tool_envelope
 from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
+from one_bpmn.ai_agent_security.code_checks.script_validator import validate_script
 from one_bpmn.processa_engine.agent_runtime.llm_factory import get_llm_adapter_from_settings
 from one_bpmn.processa_engine.agent_runtime.structured_output import provider_schema
 from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, run_sync, update_turn
-from one_bpmn.security.script_validator import validate_script
 
 AGENT_ID = "logix_agent"
 

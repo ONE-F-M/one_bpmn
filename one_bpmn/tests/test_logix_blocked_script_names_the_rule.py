@@ -6,8 +6,8 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from one_bpmn.ai_agent_security.code_checks.script_validator import validate_script
 from one_bpmn.one_bpmn.patches.v1_0 import logix_blocked_script_names_the_rule as p
-from one_bpmn.security.script_validator import validate_script
 
 # The stage scripts reduced to the lines the patch anchors on.
 REVIEW_STUB = """_vres = validate_script(code)

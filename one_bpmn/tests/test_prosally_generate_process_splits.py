@@ -24,7 +24,7 @@ from one_bpmn.one_bpmn.patches.v1_0 import (
 	prosally_generate_process_records_cut_offs_without_getattr as repair_patch,
 )
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_generate_process_splits_cut_off_phases as split_patch
-from one_bpmn.security.script_validator import ValidatorOptions, deep_inspect_script
+from one_bpmn.ai_agent_security.code_checks.script_validator import ValidatorOptions, deep_inspect_script
 from one_bpmn.tests.site_scripts import as_deployed
 
 FIXTURES = Path(__file__).parent / "fixtures"

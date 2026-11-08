@@ -22,6 +22,7 @@ RUNTIME_IMPORTS = (
 
 
 DEFINITIONS = "one_bpmn.ai_agent_registry.definitions"
+CODE_CHECKS = "one_bpmn.ai_agent_security.code_checks"
 
 MOVED_MODULES = {
 	"one_bpmn.agents.bpmn_ir_pipeline": f"{DEFINITIONS}.prosally.tools_pipeline",
@@ -33,6 +34,8 @@ MOVED_MODULES = {
 	"one_bpmn.security.doctype_validator": f"{DEFINITIONS}.docu.validators",
 	"one_bpmn.one_bpmn.frontend.primitives": f"{DEFINITIONS}.frontend_agent.tools",
 	"one_bpmn.agents.codebase_index": f"{DEFINITIONS}.lucrusher.tools",
+	"one_bpmn.security.client_script_validator": f"{CODE_CHECKS}.client_script_validator",
+	"one_bpmn.security.script_validator": f"{CODE_CHECKS}.script_validator",
 }
 
 # A split module's names are looked up in its new modules in this order.

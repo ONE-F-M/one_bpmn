@@ -15,7 +15,7 @@ from one_bpmn.one_bpmn.patches.v1_0 import (
 	prosally_build_context_confirmed_action_pending_only as build_context_patch,
 )
 from one_bpmn.one_bpmn.patches.v1_0.prosally_merge_classify_and_confirm import CLASSIFY_INTENT
-from one_bpmn.security.script_validator import deep_inspect_script
+from one_bpmn.ai_agent_security.code_checks.script_validator import deep_inspect_script
 from one_bpmn.tests.site_scripts import as_deployed
 
 OLD_XML = """<?xml version="1.0" encoding="UTF-8"?>

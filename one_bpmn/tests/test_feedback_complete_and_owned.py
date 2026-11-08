@@ -8,9 +8,9 @@ import frappe
 from frappe.utils import add_to_date, now_datetime
 
 from one_bpmn.agents._eval_test_factories import make_agent_configuration
+from one_bpmn.ai_agent_security.code_checks.script_validator import deep_inspect_script
 from one_bpmn.api import feedback
 from one_bpmn.one_bpmn.patches.v1_0 import ai_feedback_requires_resolution_details as resolution_patch
-from one_bpmn.security.script_validator import deep_inspect_script
 from one_bpmn.tests.test_response_feedback import FeedbackFixture
 
 OWNER = "wi_feedback_owner@example.com"

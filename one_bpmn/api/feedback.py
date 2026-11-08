@@ -175,7 +175,7 @@ def _clean_comment(text, agent_config, conversation=None, run=None) -> str:
 		return ""
 	text = text[:2000]
 
-	from one_bpmn.security import injection, pii
+	from one_bpmn.ai_agent_security.screening import injection, pii
 
 	redaction = pii.screen_input(text, agent_config)
 	text = redaction.text or text

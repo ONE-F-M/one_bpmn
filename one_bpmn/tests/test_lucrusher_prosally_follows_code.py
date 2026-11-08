@@ -13,7 +13,7 @@ from frappe.tests.utils import FrappeTestCase
 from one_bpmn.processa_engine.agent_runtime.tool_bounds import validate_tool_arguments
 from one_bpmn.one_bpmn.patches.v1_0 import lucrusher_prosally_follows_code_and_workflow as p
 from one_bpmn.one_bpmn.patches.v1_0.seed_lucrusher_skills import SKILLS
-from one_bpmn.security.script_validator import deep_inspect_script
+from one_bpmn.ai_agent_security.code_checks.script_validator import deep_inspect_script
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

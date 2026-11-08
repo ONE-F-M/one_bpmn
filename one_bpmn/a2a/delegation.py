@@ -604,7 +604,7 @@ def _comment_on_reference(
 		if not frappe.db.exists(ref_doctype, ref_name):
 			return
 		html = f"<b>{heading}</b><br>{message}"
-		from one_bpmn.agents import identity
+		from one_bpmn.ai_agent_security import identity
 
 		# Signed by the delegating agent. add_comment owns a comment as the
 		# session user, and this runs from the reconciler as well as from a

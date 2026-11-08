@@ -190,7 +190,7 @@ def compile_model(model) -> dict:
 			**script_extensions,
 		}
 
-	from one_bpmn.security.script_gate import validate_process_model_scripts
+	from one_bpmn.ai_agent_security.code_checks.script_gate import validate_process_model_scripts
 
 	validate_process_model_scripts(sanitized_xml)
 

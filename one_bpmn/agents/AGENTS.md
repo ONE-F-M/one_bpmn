@@ -49,7 +49,7 @@ The shape a script backs decides how it runs (`shape_kind` in the turn context).
 - `result` must be a flat, JSON-serializable dict.
 - The turn-state bridge (`get_turn(context_docname)`, `update_turn(...)`) is the right way to reach per-turn state; keep those thin wrappers.
 
-### Security validator (`one_bpmn/security/script_validator.py`)
+### Security validator (`one_bpmn/ai_agent_security/code_checks/script_validator.py`)
 
 `validate_script(code)` gates every generated script and returns `{"valid": bool, "violations": [...]}`.
 

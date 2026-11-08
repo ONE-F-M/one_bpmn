@@ -2,7 +2,7 @@
 
 import frappe
 
-from one_bpmn.api.security_events import seed_assertions
+from one_bpmn.api.security import seed_assertions
 
 
 def execute():
