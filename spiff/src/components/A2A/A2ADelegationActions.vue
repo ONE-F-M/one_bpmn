@@ -30,8 +30,7 @@
 	>
 		<div class="font-medium text-gray-900">
 			Handed back — attempt {{ redelegateOutcome.attempt }}, the
-			{{ redelegateOutcome.by_a_person
-			}}<span v-if="redelegateOutcome.by_a_person === 1">st</span><span v-else>th</span>
+			{{ ordinal(redelegateOutcome.by_a_person) }}
 			a person has asked for.
 		</div>
 		<div class="text-gray-600 mt-0.5">
@@ -99,6 +98,7 @@
 import { computed, ref } from "vue";
 import { Button, FormControl, frappeRequest } from "frappe-ui";
 import { A2A_API } from "@/utils/a2aApi";
+import { ordinal } from "@/utils/a2aFormat";
 
 // A delegation that has not finished can be stopped; only one that stopped can be handed back.
 const CANCELLABLE = ["Delegated", "In Progress", "Needs Review"];

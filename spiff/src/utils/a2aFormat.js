@@ -9,6 +9,12 @@ const LIMIT_LABELS = {
 	max_delegation_retries: "retries",
 };
 
+export function ordinal(n) {
+	const lastTwo = n % 100;
+	if (lastTwo >= 11 && lastTwo <= 13) return `${n}th`;
+	return `${n}${{ 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th"}`;
+}
+
 export function describeAgo(seconds) {
 	const s = Number(seconds || 0);
 	if (s < 90) return `${Math.round(s)}s`;
