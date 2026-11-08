@@ -4,7 +4,7 @@ import { decodeHtmlAttr, encodeHtmlAttr } from "@/bpmn/shared/htmlAttrCodec";
 import { NOTIFY_EDITOR_ATTRS, contextDoctype } from "@/bpmn/shared/notifyAssigneeAttrs";
 
 export function useEditorSpiffEvents(ed) {
-	const { props, emit, messageDialog, aiAgentModal, docuPanel } = ed;
+	const { props, emit, messageDialog, aiAgentModal } = ed;
 
 	ed.onReady(async () => {
 		const eventBus = ed.modeler.get("eventBus");
@@ -69,17 +69,6 @@ export function useEditorSpiffEvents(ed) {
 				show: true,
 				element: markRaw(event.element),
 				mode: event.mode || "agent",
-			};
-		});
-
-		// Docu - AI DocType builder (launched from a doctype field's button)
-		eventBus.on("launch-docu-editor", (event) => {
-			docuPanel.value = {
-				show: true,
-				element: markRaw(event.element),
-				doctype: event.doctype || "",
-				attr: event.attr || "",
-				_eventBus: event.eventBus || eventBus,
 			};
 		});
 

@@ -68,18 +68,7 @@
 			@close="aiAgentModal.element = null"
 		/>
 
-		<!-- Docu - AI DocType builder -->
-		<DocuCanvas
-			v-if="docuPanel.element"
-			:key="`${docuPanel.element.id}:${docuPanel.attr}`"
-			:open="docuPanel.show"
-			:element="docuPanel.element"
-			:doctype="docuPanel.doctype"
-			:attr="docuPanel.attr"
-			:process-context="docuProcessContext"
-			@applied="onDocuApplied"
-			@close="docuPanel.show = false"
-		/>
+		<BpmnDocuPanel />
 	</div>
 </template>
 
@@ -87,7 +76,6 @@
 import { provide } from "vue";
 import { Icon } from "@iconify/vue";
 import AIAgentConfigModal from "@/components/Modals/AIAgentConfigModal.vue";
-import DocuCanvas from "@/components/Docu/DocuCanvas.vue";
 import BpmnEditorToolbar from "./BpmnEditorToolbar.vue";
 import BpmnProsAlly from "./BpmnProsAlly.vue";
 import BpmnInlineComment from "./BpmnInlineComment.vue";
@@ -95,6 +83,7 @@ import BpmnMobileToolbar from "./BpmnMobileToolbar.vue";
 import BpmnPropertiesPanel from "./BpmnPropertiesPanel.vue";
 import BpmnCommentPanel from "./BpmnCommentPanel.vue";
 import BpmnCommentDialogs from "./BpmnCommentDialogs.vue";
+import BpmnDocuPanel from "./BpmnDocuPanel.vue";
 import BpmnContextMenu from "./BpmnContextMenu.vue";
 import BpmnMessageDialog from "./BpmnMessageDialog.vue";
 import { createEditorContext, EDITOR_KEY } from "@/composables/useEditorState";
@@ -109,6 +98,7 @@ import { useEditorLint } from "@/composables/useEditorLint";
 import { useEditorCanvas } from "@/composables/useEditorCanvas";
 import { useEditorCopyPaste } from "@/composables/useEditorCopyPaste";
 import { useEditorSpiffEvents } from "@/composables/useEditorSpiffEvents";
+import { useEditorDocu } from "@/composables/useEditorDocu";
 import { useEditorXml } from "@/composables/useEditorXml";
 import { useEditorReadonly } from "@/composables/useEditorReadonly";
 import { useEditorModeler } from "@/composables/useEditorModeler";
@@ -174,6 +164,7 @@ useEditorLint(ed);
 useEditorCanvas(ed);
 useEditorCopyPaste(ed);
 useEditorSpiffEvents(ed);
+useEditorDocu(ed);
 useEditorXml(ed);
 useEditorReadonly(ed);
 useEditorModeler(ed);
@@ -187,8 +178,6 @@ const {
 	comments,
 	container,
 	deleteSelected,
-	docuPanel,
-	docuProcessContext,
 	fitToScreen,
 	getRawLintIssues,
 	getSelectedElements,
@@ -197,7 +186,6 @@ const {
 	isCommentMode,
 	isMobile,
 	loadXML,
-	onDocuApplied,
 	propertiesCollapsed,
 	redo,
 	removeOverlay,
