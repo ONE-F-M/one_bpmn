@@ -68,14 +68,14 @@ class TestInjectionEnforcement(FrappeTestCase):
 
 	def test_block_is_a_refusal_not_a_fault(self):
 		"""The engine must let it reach the user instead of halting the instance."""
-		from one_bpmn.security.refusal import AgentRefusal
+		from one_bpmn.ai_agent_guardrails.refusal import AgentRefusal
 
 		self.assertTrue(issubclass(InjectionBlocked, AgentRefusal))
 
 	def test_rate_limiting_shares_the_same_refusal_category(self):
 		"""Both controls refuse; the engine should need to know only the category."""
+		from one_bpmn.ai_agent_guardrails.refusal import AgentRefusal
 		from one_bpmn.ai_agent_security.rate_limit import RateLimited
-		from one_bpmn.security.refusal import AgentRefusal
 
 		self.assertTrue(issubclass(RateLimited, AgentRefusal))
 
