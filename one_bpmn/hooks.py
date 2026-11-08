@@ -9,7 +9,7 @@ app_license = "mit"
 website_route_rules = [
 	{"from_route": "/processa/<path:app_path>", "to_route": "processa"},
 	{"from_route": "/processa", "to_route": "processa"},
-	# WI-001678: the ONE AI chat page. The template folder must stay
+	# The ONE AI chat page. The template folder must stay
 	# importable (www/one_ai/index.py), so the pretty route is mapped here
 	# rather than named with a hyphen on disk.
 	{"from_route": "/one-ai", "to_route": "one_ai"},
@@ -27,7 +27,7 @@ app_include_js = [
 	"/assets/one_bpmn/js/bpmn_list_indicator.js",
 	"/assets/one_bpmn/js/bpmn_list_actions.js?v=1",
 	"/assets/one_bpmn/js/bpmn_cancel_request.js?v=1",
-	# WI-002050: an agent's question appears on the document it is about, whatever
+	# An agent's question appears on the document it is about, whatever
 	# that document is. Loaded for every form rather than bound to one doctype:
 	# the clarification record names a doctype and a document, so it was never
 	# Work-Item-specific, and the moment an agent is pointed at anything else a
@@ -56,7 +56,7 @@ after_install = [
 # -----------
 # Permissions evaluated in scripted ways
 
-# WI-001744: scope AI Evals doctypes to the process owner (System Manager sees all).
+# Scope AI Evals doctypes to the process owner (System Manager sees all).
 permission_query_conditions = {
 	"AI Eval Suite": "one_bpmn.agents.eval_permissions.eval_suite_query_conditions",
 	"AI Eval Case": "one_bpmn.agents.eval_permissions.eval_case_query_conditions",
@@ -84,7 +84,7 @@ has_permission = {
 # ---------------
 # Override standard doctype classes
 
-# WI-002055: the jobs that WAKE parked agent work get a queue of their own.
+# The jobs that WAKE parked agent work get a queue of their own.
 # Frappe derives a scheduled job's queue from its frequency alone, so a Cron job
 # is always on "default" — shared here with 172 other enabled jobs. A long job
 # ahead of them means a finished delegation still reads as running and a passed
@@ -142,7 +142,7 @@ doc_events = {
 		"on_trash":               _BPMN_DELETE,
 		"onload":                 "one_bpmn.processa_engine.instances.cancellation.set_pending_cancellation_onload",
 	},
-	# WI-001620: creating a chat agent configuration kicks off the
+	# Creating a chat agent configuration kicks off the
 	# "AI Agent Creation Process" BPMN map via its conditional start event
 	# (handled by the universal _BPMN_TRIGGER above) — no dedicated hook.
 	# Pre-deployment security gate: structurally validate the body of any
@@ -154,7 +154,7 @@ doc_events = {
 			"one_bpmn.ai_agent_security.code_checks.script_gate.validate_server_script_on_save",
 		],
 	},
-	# WI-001644: PII input screening. The map-driven agents read the user's
+	# PII input screening. The map-driven agents read the user's
 	# text back off the stored Chat Message, so redacting the in-flight
 	# message is not enough — the stored row has to be redacted too.
 	"Chat Message": {
@@ -175,7 +175,7 @@ doc_events = {
 			"one_bpmn.agents.memory.compaction_triggers.on_chat_message",
 		],
 	},
-	# WI-001813: the list of Processa-controlled doctypes (used by
+	# The list of Processa-controlled doctypes (used by
 	# bpmn_form_actions.js to suppress native Submit/Save/banner) is cached in
 	# Redis — drop it whenever a process model is (de)activated or retargeted.
 	"BPMN Process Model": {
@@ -219,7 +219,7 @@ scheduler_events = {
 			"one_bpmn.processa_engine.timers.process_timer_catch_events",
 			"one_bpmn.a2a.poller.poll_a2a_tasks",
 		],
-		# WI-002191: try every enabled model's credentials against its provider
+		# Try every enabled model's credentials against its provider
 		# (a free list call, not a completion), then tell someone about any model
 		# that is Unhealthy and has not been announced yet — once per kind of
 		# problem. Fifteen minutes is often enough that a fixed key lifts the
@@ -240,7 +240,7 @@ scheduler_events = {
 		],
 		"0 * * * *": [
 			"one_bpmn.tasks.close_stale_chat_instances",
-			# WI-002050: chase a question nobody has answered. Hourly rather than
+			# Chase a question nobody has answered. Hourly rather than
 			# by the minute because the thing being waited on is a person reading
 			# their notifications, and it never resolves the question itself.
 			"one_bpmn.tasks.chase_unanswered_clarifications",

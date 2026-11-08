@@ -1,49 +1,10 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Put the jobs that wake parked agent work on a queue of their own (WI-002055).
+"""Put the jobs that wake parked agent work on a queue of their own.
 
-Frappe decides a scheduled job's queue from its FREQUENCY alone: "long" for a
-Long or Maintenance frequency, "default" for everything else. A Cron job is
-therefore always on ``default`` — which on this site is shared with 172 other
-enabled jobs, plus every enqueue the rest of the application makes.
-
-That is fine for work nobody is waiting on. It is not fine for these three,
-because they are what NOTICES things:
-
-- ``poll_a2a_tasks`` — a delegated worker finished, a deadline passed, a retry
-  is due
-- ``process_timer_catch_events`` — a waiting instance's timer elapsed
-- ``process_timer_start_events`` — a timed process should start now
-
-When they sit behind a long job, a delegation that finished five minutes ago is
-still shown as running, and a deadline that passed is not noticed until whatever
-is ahead of them completes. Measured on this bench: a median gap of 76 seconds
-against a 60-second schedule, but a worst gap of 4,058 — a delegation could go
-sixty-eight minutes without anyone noticing it had finished.
-
-The precedent is already here. Agent TURNS were given their own worker
-(``bpmn_ai_agent``) for exactly this reason: a long LLM call must not queue behind
-somebody's bulk import. This does the same for the jobs that wake those turns up
-— the parts of the system with a clock attached.
-
-WHY OVERRIDE THE DOCTYPE RATHER THAN CHANGE THE SCHEDULE
---------------------------------------------------------
-The queue is not configurable per job: ``get_queue_name`` derives it from the
-frequency and nothing else. Declaring the jobs as "Hourly Long" to reach the
-``long`` queue would move them onto a queue meant for slow work AND change how
-often they run, which is the opposite of what is wanted.
-
-So the method is overridden, for our methods only. Every other scheduled job on
-the site — Frappe's, ERPNext's, one_fm's — falls through to the original
-behaviour untouched.
-
-DEGRADES TO TODAY'S BEHAVIOUR
------------------------------
-If no worker is listening on the dedicated queue, the jobs would enqueue and wait
-forever, which is worse than being slow. So the queue is only claimed when the
-site actually declares it; otherwise these jobs stay on ``default`` exactly as
-they are now. That makes deploying the code safe on its own, in any order with
-the worker configuration.
+Frappe derives a scheduled job's queue from its frequency alone, so a Cron job always lands on
+``default``. This overrides ``get_queue_name`` for our clock methods only, and claims the
+``bpmn_clock`` queue only when the site declares it, so every other job and every undeclared site is unchanged.
 """
 
 from __future__ import annotations
@@ -82,7 +43,7 @@ def clock_queue_is_available() -> bool:
 
 	Deliberately silent on failure. This runs for every scheduled job on every
 	scheduler tick, so logging here would turn one unreachable Redis into
-	hundreds of identical error logs — and the answer it falls back to is the
+	hundreds of identical error logs - and the answer it falls back to is the
 	behaviour the site had anyway. If the reconciler is genuinely not running,
 	``reconciler_health`` says so, once, where somebody is looking.
 	"""
