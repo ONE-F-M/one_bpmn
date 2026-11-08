@@ -240,6 +240,7 @@ const {
 	buildParams: () => ({
 		direction: filters.direction || undefined,
 		state: filters.state || undefined,
+		agent_configuration: filters.agent || undefined,
 	}),
 	onError: (message) => emit("error", message),
 });
