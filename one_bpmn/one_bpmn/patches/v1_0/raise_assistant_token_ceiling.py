@@ -1,5 +1,5 @@
 """
-WI-001751 follow-up: give the AI Assistant an output budget it can finish in.
+Give the AI Assistant an output budget it can finish in.
 
 Symptom: asked to create an eval suite with four cases, the assistant replied
 "I could not generate a response. Please try again." The AI Agent Run recorded

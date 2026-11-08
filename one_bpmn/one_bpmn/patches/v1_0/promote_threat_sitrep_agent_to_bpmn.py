@@ -1,9 +1,9 @@
 """
-WI-002201: Promote the "Threat SITREP Agent" AI Agent Configuration from
+Promote the "Threat SITREP Agent" AI Agent Configuration from
 onefm_mcp's retired sitrep_agent_report_assembler pipeline onto the new
 "Daily Threat SITREP" BPMN Process Model.
 
-Same shape as WI-002203's promote_threat_agents_to_bpmn: the record already
+Same shape as promote_threat_agents_to_bpmn: the record already
 exists (seeded by onefm_mcp's seed_threat_sitrep_agent_config), and it was
 only ever a prompt/temperature config store — no process_model, no
 agent_type, no chosen ai_model. What changes here:
@@ -49,7 +49,7 @@ agent_type, no chosen ai_model. What changes here:
 What this patch deliberately does NOT do: it does not touch onefm_mcp's
 threat_assessment_agent/ code, the one_fm Process Task driving its noon
 cron, or the Threat Assessment Report doctype's data. Those are the cutover
-steps (see the WI-002201 plan) and only happen once the imported map has
+steps (see the implementation plan) and only happen once the imported map has
 been validated end-to-end — deleting the only thing currently producing
 daily reports before its replacement is proven would leave a gap.
 """

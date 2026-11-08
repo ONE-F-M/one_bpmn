@@ -1,5 +1,5 @@
 """
-WI-001624: refresh the AI Assistant configuration's system prompt from the
+Refresh the AI Assistant configuration's system prompt from the
 updated builder so the clarify-when-unsure guidance takes effect on the
 already-seeded agent. Idempotent — safe to re-run.
 """

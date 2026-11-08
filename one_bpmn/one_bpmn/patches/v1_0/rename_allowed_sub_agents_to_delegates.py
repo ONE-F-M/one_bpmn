@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-002010: "sub agent" was the wrong word, so the field is renamed.
+""""sub agent" was the wrong word, so the field is renamed.
 
 Entries in this list are INDEPENDENT agents — own configuration, own map,
 own lifecycle, callable by anyone approved to call them, listable by any

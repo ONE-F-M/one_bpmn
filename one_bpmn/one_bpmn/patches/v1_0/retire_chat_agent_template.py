@@ -1,5 +1,5 @@
 """
-WI-001997: retire the shared chat-map template — every agent owns its own map.
+Retire the shared chat-map template — every agent owns its own map.
 
 The AI Agent Creation Process used to clone the hand-authored "Chat Agent
 Template" BPMN Process Model into a per-agent chat map, and RE-provisioning

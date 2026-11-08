@@ -1,5 +1,5 @@
 """
-WI-001626: Rename the AI Provider doctype to AI Provider Credentials.
+Rename the AI Provider doctype to AI Provider Credentials.
 
 AI Provider Credentials is the single store of LLM credentials for all
 agents (see WI-001615 — per-agent overrides are removed). frappe.rename_doc

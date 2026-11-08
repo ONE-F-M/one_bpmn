@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001423: the AI Agent Tool registry is removed — a BPMN shape is the tool.
+# The AI Agent Tool registry is removed — a BPMN shape is the tool.
 # Drop the now-unused registry doctypes. AI Agent Tool Call (the tool-call
 # child table used by AI Agent Steps) is NOT touched.
 
