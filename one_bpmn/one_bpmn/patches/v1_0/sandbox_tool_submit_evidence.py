@@ -10,7 +10,7 @@ SCRIPT = (
 	"""\
 # Sandbox tool: submit_evidence. Shared verbatim by every sandbox agent, so nothing here may be agent-specific.
 # Records one row per acceptance criterion (id, status, evidence) and checks the evidence against the branch's diff.
-from one_bpmn.one_bpmn.connectors.agent_criteria import record_evidence
+from one_bpmn.agents_sandbox.criteria import record_evidence
 
 """
 	+ HEADER

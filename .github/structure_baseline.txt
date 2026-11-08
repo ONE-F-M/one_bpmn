@@ -31,8 +31,6 @@ private-import one_bpmn/agents/shape_tools.py one_bpmn.processa_engine.engine._c
 private-import one_bpmn/api/agent_invocation.py one_bpmn.processa_engine.triggers._maybe_start_instance
 private-import one_bpmn/api/agent_invocation.py one_bpmn.security.pii._config_name
 private-import one_bpmn/api/agui.py one_bpmn.agents.agui_stream._extension_events
-private-import one_bpmn/api/doctype_source_sync.py one_bpmn.api.production_review._app_for_doctype
-private-import one_bpmn/api/doctype_source_sync.py one_bpmn.api.production_review._same_owner
 private-import one_bpmn/api/docu_api.py one_bpmn.api.ai_assistant._extract_json
 private-import one_bpmn/api/eval_api.py one_bpmn.agents.eval_ci._why
 private-import one_bpmn/api/eval_api.py one_bpmn.agents.eval_permissions._is_system_manager
@@ -55,8 +53,6 @@ private-import one_bpmn/one_bpmn/a2a_scenario_fixtures.py one_bpmn.one_bpmn.a2a_
 private-import one_bpmn/one_bpmn/a2a_scenario_fixtures.py one_bpmn.one_bpmn.a2a_test_fixtures._TAIL
 private-import one_bpmn/one_bpmn/a2a_scenario_fixtures.py one_bpmn.one_bpmn.a2a_test_fixtures._di
 private-import one_bpmn/one_bpmn/a2a_scenario_fixtures.py one_bpmn.one_bpmn.a2a_test_fixtures._upsert_process
-private-import one_bpmn/one_bpmn/connectors/agent_sandbox_ops.py one_bpmn.api.agent_callback._enqueue_resume
-private-import one_bpmn/one_bpmn/connectors/agent_sandbox_reaper.py one_bpmn.api.agent_callback._enqueue_resume
 private-import one_bpmn/one_bpmn/doctype/ai_agent_configuration/ai_agent_configuration.py one_bpmn.agents.agent_config_resolver._start_reprovision
 private-import one_bpmn/one_bpmn/doctype/ai_agent_configuration/ai_agent_configuration.py one_bpmn.processa_engine.triggers._get_conditional_start_condition
 private-import one_bpmn/one_bpmn/doctype/ai_agent_configuration/ai_agent_configuration.py one_bpmn.processa_engine.triggers._get_trigger_field_condition
@@ -162,6 +158,7 @@ size one_bpmn/agents/eval_runner.py 2914
 size one_bpmn/agents/memory/tools.py 1126
 size one_bpmn/agents/observability.py 1301
 size one_bpmn/agents/prosally_helpers.py 1857
+size one_bpmn/agents_sandbox/sandbox/ops.py 1217
 size one_bpmn/api/agent_invocation.py 959
 size one_bpmn/api/ai_assistant.py 1131
 size one_bpmn/api/docu_api.py 1496
@@ -170,7 +167,6 @@ size one_bpmn/api/insights_api.py 2613
 size one_bpmn/api/production_review.py 871
 size one_bpmn/api/server_script_api.py 955
 size one_bpmn/one_bpmn/a2a_scenario_fixtures.py 983
-size one_bpmn/one_bpmn/connectors/agent_sandbox_ops.py 1222
 size one_bpmn/one_bpmn/patches/v1_0/inline_logix_tool_scripts.py 835
 size one_bpmn/one_bpmn/patches/v1_0/inline_prosally_tool_scripts.py 1419
 size one_bpmn/one_bpmn/patches/v1_0/seed_google_connectors.py 844

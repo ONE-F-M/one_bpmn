@@ -532,13 +532,13 @@ def _waiting_marker(task) -> dict | None:
 
 	Checked against every connector's own waiting-key convention — not just
 	A2A's. A connector that parks (returns None and sets its own marker on
-	task.data, e.g. agent_sandbox_ops.AGENT_SANDBOX_WAITING_KEY) but
+	task.data, e.g. sandbox.ops.AGENT_SANDBOX_WAITING_KEY) but
 	whose key is absent from this list is invisible to the tool loop: the
 	loop reads the empty result as a real answer and reports "no result"
 	back to the model instead of suspending. Confirmed the hard way for the
 	agent_sandbox connector before this generalization existed."""
 	from one_bpmn.one_bpmn.connectors.a2a_client_ops import A2A_WAITING_KEY
-	from one_bpmn.one_bpmn.connectors.agent_sandbox_ops import (
+	from one_bpmn.agents_sandbox.sandbox.ops import (
 		AGENT_SANDBOX_WAITING_KEY,
 	)
 

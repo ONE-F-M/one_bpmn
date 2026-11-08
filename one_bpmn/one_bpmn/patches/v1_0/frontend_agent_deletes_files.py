@@ -36,7 +36,7 @@ WRITE_EMPTY_CHECK = (
 
 DELETE_FILE_SCRIPT = """# Sandbox tool: delete_file. Shared verbatim by every sandbox agent, so nothing here may be agent-specific.
 # Removes one file from the target app's checked-out working tree; the sandbox commits and pushes the deletion.
-from one_bpmn.one_bpmn.connectors.agent_sandbox_ops import sandbox_dispatch
+from one_bpmn.agents_sandbox.sandbox.ops import sandbox_dispatch
 
 target_app = (task_data.get("target_app") or "").strip()
 git_branch = (task_data.get("git_branch") or "").strip()
