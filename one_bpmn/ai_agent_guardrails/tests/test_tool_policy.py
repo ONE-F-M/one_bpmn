@@ -19,7 +19,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.processa_engine.agent_runtime.step_loop import run_agent_loop
 from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall, ToolSpec
-from one_bpmn.security import tool_policy as tp
+from one_bpmn.ai_agent_guardrails import tool_policy as tp
 
 RULE = "ZZ Test Policy Rule"
 
@@ -279,7 +279,7 @@ class TestParameterCeilings(FrappeTestCase):
 	"""
 
 	def setUp(self):
-		from one_bpmn.security import tool_policy
+		from one_bpmn.ai_agent_guardrails import tool_policy
 
 		self.tp = tool_policy
 		tool_policy.clear_rule_cache()
@@ -622,3 +622,14 @@ def _plain_user():
 		u.insert(ignore_permissions=True)
 		u.add_roles("Blogger")
 	return email
+
+
+class TestGuardrailsModule(FrappeTestCase):
+	def test_rule_doctype_lives_in_the_guardrails_module(self):
+		self.assertEqual(frappe.get_meta("AI Tool Policy Rule").module, "AI Agent Guardrails")
+
+	def test_tool_policy_imports_from_the_guardrails_package(self):
+		import importlib
+
+		module = importlib.import_module("one_bpmn.ai_agent_guardrails.tool_policy")
+		self.assertIs(module.guard, tp.guard)

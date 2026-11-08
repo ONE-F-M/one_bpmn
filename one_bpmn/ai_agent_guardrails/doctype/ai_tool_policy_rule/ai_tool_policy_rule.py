@@ -7,6 +7,26 @@ from frappe.model.document import Document
 
 
 class AIToolPolicyRule(Document):
+	# begin: auto-generated types
+	# This code is auto-generated. Do not modify anything in this block.
+
+	from typing import TYPE_CHECKING
+
+	if TYPE_CHECKING:
+		from frappe.types import DF
+		from one_bpmn.ai_agent_guardrails.doctype.ai_tool_policy_exempt_agent.ai_tool_policy_exempt_agent import AIToolPolicyExemptAgent
+
+		action: DF.Literal["Deny"]
+		category: DF.Literal["Identity & Permissions", "Code Execution", "Payroll & Financial", "Destructive & Bulk", "Other"]
+		enabled: DF.Check
+		exempt_agents: DF.Table[AIToolPolicyExemptAgent]
+		parameter_limits: DF.SmallText | None
+		respect_user_permissions: DF.Check
+		restricted_doctypes: DF.SmallText | None
+		restricted_tools: DF.SmallText | None
+		rule_name: DF.Data
+		violation_message: DF.SmallText | None
+	# end: auto-generated types
 	def validate(self):
 		self.require_something_to_match()
 		self.check_parameter_limits_parse()
@@ -35,9 +55,9 @@ class AIToolPolicyRule(Document):
 		skipped line is a ceiling that looks enforced and is not, so the moment
 		a person is present to fix it, say so instead of accepting it.
 		"""
-		from one_bpmn.security.tool_policy import _LIMIT_RE, _split_lines
+		from one_bpmn.ai_agent_guardrails.tool_policy import LIMIT_RE, split_lines
 
-		bad = [line for line in _split_lines(self.parameter_limits) if not _LIMIT_RE.match(line)]
+		bad = [line for line in split_lines(self.parameter_limits) if not LIMIT_RE.match(line)]
 		if bad:
 			frappe.throw(
 				_("Could not read these parameter limits: {0}. Write one bound per line as "
@@ -56,6 +76,6 @@ class AIToolPolicyRule(Document):
 	def clear_policy_cache(self):
 		"""Rules are cached because they are read on every tool call; an edit
 		must take effect immediately, not at the next cache expiry."""
-		from one_bpmn.security.tool_policy import clear_rule_cache
+		from one_bpmn.ai_agent_guardrails.tool_policy import clear_rule_cache
 
 		clear_rule_cache()

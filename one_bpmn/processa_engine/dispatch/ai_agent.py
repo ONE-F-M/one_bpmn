@@ -448,7 +448,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	already_recorded_turns = len((config.resume_state or {}).get("trace") or [])
 
 	# The running agent, for the tool-policy interceptor and as the delegating agent of A2A calls from its tools.
-	from one_bpmn.security.tool_policy import reset_current_agent, set_current_agent
+	from one_bpmn.ai_agent_guardrails.tool_policy import reset_current_agent, set_current_agent
 
 	_policy_token = set_current_agent(task_cfg.get("aiAgentConfig"))
 	_prev_delegating_agent = getattr(instance, "_a2a_delegating_agent", None)
