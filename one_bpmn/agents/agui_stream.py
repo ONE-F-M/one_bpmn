@@ -261,7 +261,7 @@ def agent_event_stream(
 
 	yield encoder.encode(RunStartedEvent(run_id=run_id, thread_id=conversation))
 	try:
-		from one_bpmn.api.agent_invocation import invoke_agent
+		from one_bpmn.api.a2a import invoke_agent
 
 		builder = _CONTEXT_BUILDERS.get(agent_id)
 		if builder:

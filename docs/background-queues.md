@@ -11,7 +11,7 @@ visible to a person as "why hasn't this happened yet":
 
 | job | what it notices |
 |---|---|
-| `one_bpmn.tasks.poll_a2a_tasks` | a delegated worker finished; a deadline passed; a retry is due |
+| `one_bpmn.a2a.poller.poll_a2a_tasks` | a delegated worker finished; a deadline passed; a retry is due |
 | `one_bpmn.processa_engine.timers.process_timer_catch_events` | a waiting instance's timer elapsed |
 | `one_bpmn.processa_engine.timers.process_timer_start_events` | a timed process should start now |
 
@@ -87,14 +87,14 @@ config is generated rather than hand-maintained.
 Verify with the A2A screen, or:
 
 ```python
-frappe.get_doc("Scheduled Job Type", "tasks.poll_a2a_tasks").get_queue_name()
+frappe.get_doc("Scheduled Job Type", "poller.poll_a2a_tasks").get_queue_name()
 # -> "bpmn_clock" once the queue is declared, "default" before
 ```
 
 ## Telling the three failures apart
 
 A starved reconciler, a stopped job, and a hung agent all look the same from the
-delegation list: things sitting in Working. `one_bpmn/agents/a2a/reconciler_health.py`
+delegation list: things sitting in Working. `one_bpmn/a2a/reconciler_health.py`
 names the cause instead, and the A2A screen shows it above the lists it explains:
 
 | state | what it means |

@@ -17,7 +17,7 @@
 			<FormControl
 				v-model="dFilters.reference_name"
 				type="text"
-				placeholder="Document, e.g. WI-0028"
+				placeholder="Document, e.g. DOC-0028"
 				class="w-full sm:w-52"
 			/>
 			<FormControl

@@ -1205,7 +1205,7 @@ def mint_identity_token(audience: str) -> str:
 
 def _caller_task_id(task) -> str | None:
 	"""The SpiffWorkflow id of the step to wake, or None when there is no
-	step - mirrors a2a_client_ops._caller_task_id exactly, same reasoning."""
+	step - mirrors a2a.client_ops._caller_task_id exactly, same reasoning."""
 	task_id = getattr(task, "id", None) if task is not None else None
 	return str(task_id) if task_id else None
 

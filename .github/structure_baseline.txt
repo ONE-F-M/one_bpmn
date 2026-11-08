@@ -3,9 +3,7 @@
 # Regenerate with: python .github/scripts/check_structure.py --write-baseline
 # Formats: size <path> <line count>   |   test-location <path>   |   component-js <path>
 #          private-import <importing path> <module>.<name>
-private-import one_bpmn/agents/a2a/delegation.py one_bpmn.tasks._wake_caller_if_any
-private-import one_bpmn/agents/a2a/execute.py one_bpmn.processa_engine.triggers._maybe_start_instance
-private-import one_bpmn/agents/a2a/push.py one_bpmn.one_bpmn.integrations.a2a_client._session
+private-import one_bpmn/a2a/execute.py one_bpmn.processa_engine.triggers._maybe_start_instance
 private-import one_bpmn/agents/adversarial_gate.py one_bpmn.agents.eval_runner._execute_eval_suite
 private-import one_bpmn/agents/agent_config_resolver.py one_bpmn.processa_engine.triggers._get_conditional_start_condition
 private-import one_bpmn/agents/agent_provisioning.py one_bpmn.agents.agent_config_resolver._start_reprovision
@@ -27,8 +25,8 @@ private-import one_bpmn/agents/process_digest.py one_bpmn.agents.memory.tools._q
 private-import one_bpmn/agents/process_links.py one_bpmn.agents.process_digest._local
 private-import one_bpmn/agents/process_links.py one_bpmn.agents.process_digest._parse
 private-import one_bpmn/agents/process_links.py one_bpmn.agents.process_digest._tag
-private-import one_bpmn/api/agent_invocation.py one_bpmn.processa_engine.triggers._maybe_start_instance
-private-import one_bpmn/api/agent_invocation.py one_bpmn.security.pii._config_name
+private-import one_bpmn/api/a2a.py one_bpmn.processa_engine.triggers._maybe_start_instance
+private-import one_bpmn/api/a2a.py one_bpmn.security.pii._config_name
 private-import one_bpmn/api/agui.py one_bpmn.agents.agui_stream._extension_events
 private-import one_bpmn/api/docu_api.py one_bpmn.api.ai_assistant._extract_json
 private-import one_bpmn/api/eval_api.py one_bpmn.agents.eval_ci._why
@@ -40,17 +38,6 @@ private-import one_bpmn/api/property_panel.py one_bpmn.api.editability._is_produ
 private-import one_bpmn/api/server_script_api.py one_bpmn.api.ai_assistant._extract_json
 private-import one_bpmn/api/sessions_api.py one_bpmn.agents.memory.compaction_triggers._is_inflight
 private-import one_bpmn/api/sessions_api.py one_bpmn.agents.memory.compaction_triggers._resolve_agent_id
-private-import one_bpmn/one_bpmn/a2a_agent_tool_fixtures.py one_bpmn.one_bpmn.a2a_scenario_fixtures._script_step
-private-import one_bpmn/one_bpmn/a2a_agent_tool_fixtures.py one_bpmn.one_bpmn.a2a_scenario_fixtures._upsert_agent
-private-import one_bpmn/one_bpmn/a2a_agent_tool_fixtures.py one_bpmn.one_bpmn.a2a_scenario_fixtures._upsert_model
-private-import one_bpmn/one_bpmn/a2a_agent_tool_fixtures.py one_bpmn.one_bpmn.a2a_scenario_fixtures._upsert_script
-private-import one_bpmn/one_bpmn/a2a_agent_tool_fixtures.py one_bpmn.one_bpmn.a2a_test_fixtures._HEAD
-private-import one_bpmn/one_bpmn/a2a_agent_tool_fixtures.py one_bpmn.one_bpmn.a2a_test_fixtures._TAIL
-private-import one_bpmn/one_bpmn/a2a_agent_tool_fixtures.py one_bpmn.one_bpmn.a2a_test_fixtures._di
-private-import one_bpmn/one_bpmn/a2a_scenario_fixtures.py one_bpmn.one_bpmn.a2a_test_fixtures._HEAD
-private-import one_bpmn/one_bpmn/a2a_scenario_fixtures.py one_bpmn.one_bpmn.a2a_test_fixtures._TAIL
-private-import one_bpmn/one_bpmn/a2a_scenario_fixtures.py one_bpmn.one_bpmn.a2a_test_fixtures._di
-private-import one_bpmn/one_bpmn/a2a_scenario_fixtures.py one_bpmn.one_bpmn.a2a_test_fixtures._upsert_process
 private-import one_bpmn/one_bpmn/doctype/ai_agent_configuration/ai_agent_configuration.py one_bpmn.agents.agent_config_resolver._start_reprovision
 private-import one_bpmn/one_bpmn/doctype/ai_agent_configuration/ai_agent_configuration.py one_bpmn.processa_engine.triggers._get_conditional_start_condition
 private-import one_bpmn/one_bpmn/doctype/ai_agent_configuration/ai_agent_configuration.py one_bpmn.processa_engine.triggers._get_trigger_field_condition
@@ -149,7 +136,7 @@ private-import one_bpmn/security/output_screening.py one_bpmn.security.pii._agen
 private-import one_bpmn/security/output_screening.py one_bpmn.security.pii._config_name
 private-import one_bpmn/security/rate_limit.py one_bpmn.security.pii._config_name
 private-import one_bpmn/security/turn_lock.py one_bpmn.security.pii._config_name
-size one_bpmn/agents/a2a/delegation.py 1114
+size one_bpmn/a2a/delegation.py 1114
 size one_bpmn/agents/agent_config_resolver.py 1199
 size one_bpmn/agents/bpmn_xml_input.py 820
 size one_bpmn/agents/eval_runner.py 2914
@@ -157,20 +144,19 @@ size one_bpmn/agents/memory/tools.py 1126
 size one_bpmn/agents/observability.py 1301
 size one_bpmn/agents/prosally_helpers.py 1857
 size one_bpmn/agents_sandbox/sandbox/ops.py 1217
-size one_bpmn/api/agent_invocation.py 959
+size one_bpmn/api/a2a.py 1243
 size one_bpmn/api/ai_assistant.py 1131
 size one_bpmn/api/docu_api.py 1496
 size one_bpmn/api/eval_api.py 1939
 size one_bpmn/api/insights_api.py 2613
 size one_bpmn/api/production_review.py 871
 size one_bpmn/api/server_script_api.py 954
-size one_bpmn/one_bpmn/a2a_scenario_fixtures.py 983
 size one_bpmn/one_bpmn/patches/v1_0/inline_logix_tool_scripts.py 835
 size one_bpmn/one_bpmn/patches/v1_0/inline_prosally_tool_scripts.py 1419
 size one_bpmn/one_bpmn/patches/v1_0/seed_google_connectors.py 844
 size one_bpmn/processa_connectors/tests/test_connector_configuration.py 919
 size one_bpmn/processa_engine/dispatch/ai_agent.py 1058
-size one_bpmn/tests/test_agent_delegation.py 1427
+size one_bpmn/a2a/tests/test_agent_delegation.py 1427
 size one_bpmn/tests/test_ai_agent_memory_dispatch.py 1030
 size one_bpmn/tests/test_ai_clarification.py 855
 size one_bpmn/tests/test_ai_security_event.py 856
@@ -183,7 +169,6 @@ size spiff/src/components/Logix/LogixCanvas.vue 1433
 size spiff/src/components/Chat/AgentChatPanel.vue 1129
 size spiff/src/components/Instances/BpmnDiagramViewer.vue 808
 size spiff/src/components/Instances/ElementInspector.vue 799
-size spiff/src/pages/A2A.vue 1970
 size spiff/src/pages/EvalRun.vue 516
 size spiff/src/pages/EvalSuite.vue 1608
 size spiff/src/pages/Instance.vue 891

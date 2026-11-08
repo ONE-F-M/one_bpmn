@@ -31,7 +31,7 @@ def _run_recorded(agent_id: str, reply, runner_key: str = "bpmn_map") -> list:
 	shapers, the contract translators, the relay rules.
 	"""
 	from one_bpmn.agents import agui_stream
-	from one_bpmn.api import agent_invocation as ai
+	from one_bpmn.api import a2a as ai
 
 	class _Screened:
 		text = "msg"

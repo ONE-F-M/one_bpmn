@@ -13,11 +13,17 @@
 						v-for="t in tabs"
 						:key="t.key"
 						class="px-3 py-1.5 text-sm rounded-md transition-colors whitespace-nowrap"
-						:class="tab === t.key ? 'bg-white shadow-sm font-medium text-gray-900' : 'text-gray-600 hover:text-gray-900'"
+						:class="
+							tab === t.key
+								? 'bg-white shadow-sm font-medium text-gray-900'
+								: 'text-gray-600 hover:text-gray-900'
+						"
 						@click="tab = t.key"
 					>
 						{{ t.label }}
-						<span v-if="t.count !== null" class="ml-1 text-xs text-gray-400">{{ t.count }}</span>
+						<span v-if="t.count !== null" class="ml-1 text-xs text-gray-400">{{
+							t.count
+						}}</span>
 					</button>
 				</nav>
 			</div>
@@ -72,25 +78,32 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue"
-import { ErrorMessage, frappeRequest } from "frappe-ui"
-import A2AClarifications from "@/components/A2A/A2AClarifications.vue"
-import A2AClients from "@/components/A2A/A2AClients.vue"
-import A2ADelegations from "@/components/A2A/A2ADelegations.vue"
-import A2AOurAgents from "@/components/A2A/A2AOurAgents.vue"
-import A2AReconcilerBanner from "@/components/A2A/A2AReconcilerBanner.vue"
-import A2ARemoteAgents from "@/components/A2A/A2ARemoteAgents.vue"
-import A2ATasks from "@/components/A2A/A2ATasks.vue"
-import { A2A_API } from "@/utils/a2aApi"
+import { computed, onMounted, reactive, ref } from "vue";
+import { ErrorMessage, frappeRequest } from "frappe-ui";
+import A2AClarifications from "@/components/A2A/A2AClarifications.vue";
+import A2AClients from "@/components/A2A/A2AClients.vue";
+import A2ADelegations from "@/components/A2A/A2ADelegations.vue";
+import A2AOurAgents from "@/components/A2A/A2AOurAgents.vue";
+import A2AReconcilerBanner from "@/components/A2A/A2AReconcilerBanner.vue";
+import A2ARemoteAgents from "@/components/A2A/A2ARemoteAgents.vue";
+import A2ATasks from "@/components/A2A/A2ATasks.vue";
+import { A2A_API } from "@/utils/a2aApi";
 
-const EMPTY_FILTER_OPTIONS = { statuses: [], doctypes: [], workers: [], task_agents: [] }
+const EMPTY_FILTER_OPTIONS = { statuses: [], doctypes: [], workers: [], task_agents: [] };
 
-const tab = ref("ours")
-const can = ref({ administer: false, read: false })
-const error = ref("")
-const ourAgents = ref([])
-const filterOptions = ref(EMPTY_FILTER_OPTIONS)
-const counts = reactive({ ours: 0, remotes: 0, clients: 0, tasks: 0, delegations: 0, clarifications: 0 })
+const tab = ref("ours");
+const can = ref({ administer: false, read: false });
+const error = ref("");
+const ourAgents = ref([]);
+const filterOptions = ref(EMPTY_FILTER_OPTIONS);
+const counts = reactive({
+	ours: 0,
+	remotes: 0,
+	clients: 0,
+	tasks: 0,
+	delegations: 0,
+	clarifications: 0,
+});
 
 const tabs = computed(() => [
 	{ key: "ours", label: "Our agents", count: counts.ours || null },
@@ -99,21 +112,21 @@ const tabs = computed(() => [
 	{ key: "tasks", label: "Tasks", count: counts.tasks || null },
 	{ key: "delegations", label: "Delegations", count: counts.delegations || null },
 	{ key: "clarifications", label: "Clarifications", count: counts.clarifications || null },
-])
+]);
 
 // Both the Tasks and Delegations filters are built from the rows that exist.
 async function loadFilterOptions() {
 	try {
-		filterOptions.value = await frappeRequest({ url: A2A_API + "delegation_filter_options" })
+		filterOptions.value = await frappeRequest({ url: A2A_API + "delegation_filter_options" });
 	} catch {
 		// Dropdowns that cannot load leave the lists themselves usable.
-		filterOptions.value = EMPTY_FILTER_OPTIONS
+		filterOptions.value = EMPTY_FILTER_OPTIONS;
 	}
 }
 
 onMounted(async () => {
-	can.value = (await frappeRequest({ url: A2A_API + "get_permissions" })) || can.value
-	if (!can.value.administer) return
-	await loadFilterOptions()
-})
+	can.value = (await frappeRequest({ url: A2A_API + "get_permissions" })) || can.value;
+	if (!can.value.administer) return;
+	await loadFilterOptions();
+});
 </script>
