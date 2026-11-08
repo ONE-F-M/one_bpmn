@@ -28,7 +28,7 @@ import uuid
 import frappe
 from frappe import _
 
-from one_bpmn.security.refusal import AgentRefusal
+from one_bpmn.ai_agent_guardrails.refusal import AgentRefusal
 
 # Longer than any turn we have seen, so a healthy turn never has its lock expire
 # underneath it. A worker that dies mid-turn frees the conversation after this.

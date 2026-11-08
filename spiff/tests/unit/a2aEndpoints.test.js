@@ -8,8 +8,9 @@ const sources = [
 	read(new URL("../../src/pages/A2A.vue", import.meta.url)),
 	read(new URL("../../src/composables/useA2AList.js", import.meta.url)),
 	...readdirSync(partsDir)
+		.flatMap((dir) => readdirSync(new URL(`${dir}/`, partsDir)))
 		.filter((f) => f.endsWith(".vue"))
-		.map((f) => read(new URL(f, partsDir))),
+		.map((f) => read(new URL(`${f.replace(/\.vue$/, "")}/${f}`, partsDir))),
 ].join("\n");
 
 const prefixModule = (constant) =>

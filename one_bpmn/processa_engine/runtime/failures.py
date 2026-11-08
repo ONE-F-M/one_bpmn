@@ -13,7 +13,7 @@ def fail_runtime(instance, phase: str):
 	"""Record the failure in flight and raise a sanitized Reference ID error. Call from inside an except block."""
 	in_flight = sys.exc_info()[1]
 	if in_flight is not None:
-		from one_bpmn.security.refusal import AgentRefusal
+		from one_bpmn.ai_agent_guardrails.refusal import AgentRefusal
 
 		# A security control's refusal is a decision with its own message, not a fault to halt on.
 		if isinstance(in_flight, AgentRefusal):

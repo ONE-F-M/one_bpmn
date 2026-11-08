@@ -217,7 +217,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		)
 
 	# Publish the agent so its tool grant applies to the selector's tool calls.
-	from one_bpmn.security.tool_policy import reset_current_agent, set_current_agent
+	from one_bpmn.ai_agent_guardrails.tool_policy import reset_current_agent, set_current_agent
 
 	_policy_token = set_current_agent(task_cfg.get("aiAgentConfig"))
 	try:

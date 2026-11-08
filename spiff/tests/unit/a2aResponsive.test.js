@@ -6,8 +6,9 @@ const read = (url) => readFileSync(url, "utf8");
 const shell = read(new URL("../../src/pages/A2A.vue", import.meta.url));
 const parts = Object.fromEntries(
 	readdirSync(partsDir)
+		.flatMap((dir) => readdirSync(new URL(`${dir}/`, partsDir)))
 		.filter((f) => f.endsWith(".vue"))
-		.map((f) => [f, read(new URL(f, partsDir))]),
+		.map((f) => [f, read(new URL(`${f.replace(/\.vue$/, "")}/${f}`, partsDir))]),
 );
 const listParts = [
 	"A2AOurAgents.vue",

@@ -641,7 +641,7 @@ class TestGates(HealthCase):
 		commit.assert_not_called()
 
 	def test_model_unavailable_is_an_agent_refusal(self):
-		from one_bpmn.security.refusal import AgentRefusal
+		from one_bpmn.ai_agent_guardrails.refusal import AgentRefusal
 
 		self.assertTrue(issubclass(ModelUnavailable, AgentRefusal))
 

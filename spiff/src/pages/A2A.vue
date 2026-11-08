@@ -80,13 +80,13 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
 import { ErrorMessage, frappeRequest } from "frappe-ui";
-import A2AClarifications from "@/components/A2A/A2AClarifications.vue";
-import A2AClients from "@/components/A2A/A2AClients.vue";
-import A2ADelegations from "@/components/A2A/A2ADelegations.vue";
-import A2AOurAgents from "@/components/A2A/A2AOurAgents.vue";
-import A2AReconcilerBanner from "@/components/A2A/A2AReconcilerBanner.vue";
-import A2ARemoteAgents from "@/components/A2A/A2ARemoteAgents.vue";
-import A2ATasks from "@/components/A2A/A2ATasks.vue";
+import A2AClarifications from "@/components/A2A/A2AClarifications/A2AClarifications.vue";
+import A2AClients from "@/components/A2A/A2AClients/A2AClients.vue";
+import A2ADelegations from "@/components/A2A/A2ADelegations/A2ADelegations.vue";
+import A2AOurAgents from "@/components/A2A/A2AOurAgents/A2AOurAgents.vue";
+import A2AReconcilerBanner from "@/components/A2A/A2AReconcilerBanner/A2AReconcilerBanner.vue";
+import A2ARemoteAgents from "@/components/A2A/A2ARemoteAgents/A2ARemoteAgents.vue";
+import A2ATasks from "@/components/A2A/A2ATasks/A2ATasks.vue";
 import { A2A_API } from "@/utils/a2aApi";
 
 const EMPTY_FILTER_OPTIONS = { statuses: [], doctypes: [], workers: [], task_agents: [] };
