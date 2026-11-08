@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-002055: the jobs that wake parked agent work must run on time, and when they
+# The jobs that wake parked agent work must run on time, and when they
 # do not, that must be visible as its own fact.
 #
 # The point of these tests is the DISTINCTION. A starved reconciler, a stopped

@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """
-Tests for PII input screening (WI-001644).
+Tests for PII input screening.
 
 Two things have to hold for this control to be worth having:
 

@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """
-The one door every screening verdict goes through (WI-001967).
+The one door every screening verdict goes through.
 
 Any stage that decides something — PII redaction, injection matching, tool
 policy, memory-write screening — calls :func:`record_event` instead of keeping
@@ -190,7 +190,7 @@ def record_event(
 		doc.bpmn_id = bpmn_id
 		# Input screening runs before the AI Agent Run exists, so the run cannot be
 		# named here. The turn's correlation id is stamped on both records instead
-		# (WI-001967), which is also what lets the duplicate check above scope
+		# which is also what lets the duplicate check above scope
 		# itself to a single turn.
 		doc.correlation_id = resolved_correlation
 		doc.content_hash = resolved_hash

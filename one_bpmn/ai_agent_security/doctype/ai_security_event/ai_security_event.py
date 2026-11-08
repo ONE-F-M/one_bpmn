@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """
-AI Security Event — the one place a screening verdict is recorded (WI-001967).
+AI Security Event — the one place a screening verdict is recorded.
 
 Append-only by construction. The doctype grants create and read but no write and
 no delete, and the controller enforces the same thing a second time, because a

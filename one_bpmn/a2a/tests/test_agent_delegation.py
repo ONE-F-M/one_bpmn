@@ -9,8 +9,7 @@ delegating instance, the task, the worker's instance and the referenced document
 together, and its reference is generic on purpose: a Work Item on the Software
 Development path, an A2A Task in the test harness.
 
-**The escalation.** Depth and hand-off limits were already notified at the door
-(WI-002008). A limit reached while the worker was RUNNING was silent — the
+**The escalation.** Depth and hand-off limits were already notified at the door. A limit reached while the worker was RUNNING was silent — the
 deadline set state="timed-out" and woke the caller, and a worker ending at its
 turn cap returned partial text that looked like an answer. Both now land on
 Needs Review and tell a person once.

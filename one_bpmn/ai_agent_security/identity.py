@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""An identity of an agent's own (WI-002054).
+"""An identity of an agent's own.
 
 Until now an agent had no user. Its tools ran as whatever user the worker session
 happened to be, so every write an agent made was recorded against a person —
@@ -157,7 +157,7 @@ def user_for(agent_configuration: str | None) -> str | None:
 def describe_refusal(agent_configuration: str | None, error: Exception) -> str:
 	"""Turn a permission failure into something the MODEL can act on.
 
-	A bare "PermissionError" tells the agent nothing, and WI-002053 showed twice
+	A bare "PermissionError" tells the agent nothing, and experience showed twice
 	over what happens then: it reports the work as done, or blames something
 	transient and offers to retry. Naming the identity and the fact that this is
 	configuration rather than bad luck is what stops both.

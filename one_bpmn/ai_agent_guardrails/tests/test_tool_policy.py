@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# Deterministic tool-call interception (WI-001645).
+# Deterministic tool-call interception.
 #
 # The control's whole value is that it stops a tool BEFORE it runs, from rules
 # that are data rather than prompt text. These tests pin the three properties
@@ -271,7 +271,7 @@ class TestObservability(FrappeTestCase):
 
 
 class TestParameterCeilings(FrappeTestCase):
-	"""The transaction-ceiling half of WI-001645: bounds on the argument VALUES,
+	"""The transaction-ceiling half: bounds on the argument VALUES,
 	not just on which tool may run or which record types it may touch.
 
 	Everything here goes through the pure evaluator, so no agent, workflow or
