@@ -141,7 +141,7 @@ def current_agent() -> str | None:
 
 
 # ── Rule loading ────────────────────────────────────────────────────────────
-def _split_lines(value) -> list[str]:
+def split_lines(value) -> list[str]:
 	"""Newline- or comma-separated text field -> list of trimmed entries."""
 	if not value:
 		return []
@@ -180,8 +180,8 @@ def load_rules() -> list[dict]:
 					"name": row.name,
 					"action": _ACTION_BY_LABEL.get((row.action or "").strip().lower(), DENY),
 					"category": row.category or "",
-					"doctypes": {d.lower() for d in _split_lines(row.restricted_doctypes)},
-					"tools": {t.lower() for t in _split_lines(row.restricted_tools)},
+					"doctypes": {d.lower() for d in split_lines(row.restricted_doctypes)},
+					"tools": {t.lower() for t in split_lines(row.restricted_tools)},
 					"limits": _parse_limits(row.parameter_limits, row.name),
 					"message": (row.violation_message or "").strip(),
 					"exempt_agents": {a for a in exempt if a},
@@ -232,7 +232,7 @@ def _argument_values(arguments) -> list[str]:
 	return found
 
 
-_LIMIT_RE = re.compile(r"^\s*([A-Za-z_][\w.]*)\s*(<=|>=|<|>)\s*(-?\d+(?:\.\d+)?)\s*$")
+LIMIT_RE = re.compile(r"^\s*([A-Za-z_][\w.]*)\s*(<=|>=|<|>)\s*(-?\d+(?:\.\d+)?)\s*$")
 
 _LIMIT_OPS = {
 	"<=": lambda value, bound: value <= bound,
@@ -254,8 +254,8 @@ def _parse_limits(raw, rule_name: str) -> list[tuple]:
 	outcome available, because the control looks present.
 	"""
 	limits = []
-	for line in _split_lines(raw):
-		match = _LIMIT_RE.match(line)
+	for line in split_lines(raw):
+		match = LIMIT_RE.match(line)
 		if not match:
 			frappe.log_error(
 				title=f"AI Tool Policy: unreadable parameter limit ({rule_name})",

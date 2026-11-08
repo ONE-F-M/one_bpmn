@@ -124,9 +124,9 @@
   }
  ],
  "links": [],
- "modified": "2026-08-18 13:10:00.000000",
+ "modified": "2026-11-08 12:00:00.000000",
  "modified_by": "Administrator",
- "module": "ONE BPMN",
+ "module": "AI Agent Guardrails",
  "name": "AI Tool Policy Rule",
  "owner": "Administrator",
  "permissions": [

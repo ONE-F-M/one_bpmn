@@ -13,6 +13,27 @@ from frappe.query_builder import DocType
 
 
 class DoctypeChangeRequest(Document):
+	# begin: auto-generated types
+	# This code is auto-generated. Do not modify anything in this block.
+
+	from typing import TYPE_CHECKING
+
+	if TYPE_CHECKING:
+		from frappe.types import DF
+		from one_bpmn.ai_agent_guardrails.doctype.doctype_change_approver.doctype_change_approver import DoctypeChangeApprover
+
+		approvers: DF.Table[DoctypeChangeApprover]
+		change_summary: DF.SmallText | None
+		decision_note: DF.SmallText | None
+		destructive: DF.Check
+		processes: DF.SmallText | None
+		requested_by: DF.Link
+		requested_ir: DF.Code
+		reviewed_by: DF.Link | None
+		reviewed_on: DF.Datetime | None
+		status: DF.Literal["Pending", "Approved", "Rejected"]
+		target_doctype: DF.Link
+	# end: auto-generated types
 	pass
 
 

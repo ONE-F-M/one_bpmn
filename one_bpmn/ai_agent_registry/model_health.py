@@ -47,7 +47,7 @@ from frappe.query_builder import DocType
 from frappe.utils import cint, now_datetime
 from frappe.utils.password import get_decrypted_password
 
-from one_bpmn.security.refusal import AgentRefusal
+from one_bpmn.ai_agent_guardrails.refusal import AgentRefusal
 
 # The health fields live on AI Model. Written with update_modified=False so a
 # platform write never overwrites who last EDITED the model — that person is

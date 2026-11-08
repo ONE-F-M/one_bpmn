@@ -34,7 +34,7 @@ class ToolSpec:
 		# The policy guard is the inner wrapper, so it sees the values after PII restoration.
 		if not already("__policy_guarded__"):
 			try:
-				from one_bpmn.security.tool_policy import guard
+				from one_bpmn.ai_agent_guardrails.tool_policy import guard
 
 				object.__setattr__(self, "fn", guard(self.fn, self.name))
 			except Exception:
