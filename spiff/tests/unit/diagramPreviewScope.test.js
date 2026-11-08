@@ -7,8 +7,8 @@ import { dirname, join } from "node:path"
 // spiff has no component harness, so these read the single-file components as text.
 const here = fileURLToPath(new URL("../../src/components/Chat/", import.meta.url))
 const source = (path) => readFileSync(join(here, path), "utf8")
-const card = source("Cards/DiagramPreviewCard.vue")
-const thumb = source("Primitives/DiagramThumb.vue")
+const card = source("Cards/DiagramPreviewCard/DiagramPreviewCard.vue")
+const thumb = source("Primitives/DiagramThumb/DiagramThumb.vue")
 
 test("the preview card opens the sub-process the reply names, in the chat thumbnail and the expanded view", () => {
 	const thumbs = card.match(/<DiagramThumb\b[^>]*>/g)

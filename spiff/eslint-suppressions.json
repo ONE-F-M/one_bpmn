@@ -57,7 +57,7 @@
       "count": 1
     }
   },
-  "src/components/DiffViewer.vue": {
+  "src/components/DiffViewer/DiffViewer.vue": {
     "no-empty": {
       "count": 4
     },

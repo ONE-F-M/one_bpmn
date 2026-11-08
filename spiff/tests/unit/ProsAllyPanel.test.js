@@ -10,8 +10,8 @@ import { dirname, join } from "node:path"
 // for Vue's ref/computed, which checks what a turn would actually carry.
 const here = fileURLToPath(new URL("../../src/components/", import.meta.url))
 const source = (path) => readFileSync(join(here, path), "utf8")
-const panel = source("ProsAlly/ProsAllyPanel.vue")
-const chat = source("Chat/AgentChatPanel.vue")
+const panel = source("ProsAlly/ProsAllyPanel/ProsAllyPanel.vue")
+const chat = source("Chat/AgentChatPanel/AgentChatPanel.vue")
 
 // The panel's choice/turn handlers, lifted from the real <script setup>.
 function mountLogic() {

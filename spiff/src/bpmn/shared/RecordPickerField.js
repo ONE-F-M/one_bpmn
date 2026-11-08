@@ -1,6 +1,6 @@
 import { h, Component, render } from "preact";
 import { createApp, defineComponent, h as vueH, shallowReactive } from "vue";
-import RecordPicker from "@/components/Controls/RecordPicker.vue";
+import RecordPicker from "@/components/Controls/RecordPicker/RecordPicker.vue";
 import { frappeGet } from "./frappeResource";
 import { joinValues, splitValues, toOptions } from "@/utils/recordPicker";
 import "./bpmn-panel.css";

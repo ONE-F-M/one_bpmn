@@ -9,7 +9,7 @@ const here = fileURLToPath(new URL("../../src/components/Chat/Cards/", import.me
 const source = (path) => readFileSync(join(here, path), "utf8")
 
 test("ScriptDiffCard's #expanded renders the same diff or script, with no apply action", () => {
-	const card = source("ScriptDiffCard.vue")
+	const card = source("ScriptDiffCard/ScriptDiffCard.vue")
 	const start = card.indexOf("<template #expanded>")
 	assert.notEqual(start, -1, "ScriptDiffCard must define a #expanded template")
 	const expanded = card.slice(start, card.indexOf("</template>", start))

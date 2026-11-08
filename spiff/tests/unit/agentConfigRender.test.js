@@ -23,7 +23,7 @@ vi.mock("@iconify/vue", async () => {
 		},
 	};
 });
-vi.mock("@/components/Chat/AgentChatPanel.vue", async () => {
+vi.mock("@/components/Chat/AgentChatPanel/AgentChatPanel.vue", async () => {
 	const { h } = await import("vue");
 	return { default: { render: () => h("div", { class: "chat-stub" }) } };
 });

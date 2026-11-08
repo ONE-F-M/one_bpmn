@@ -1,7 +1,7 @@
 <script setup>
 import { inject, toRef } from "vue";
 import { Icon } from "@iconify/vue";
-import FormattingToolbar from "@/components/Editor/FormattingToolbar.vue";
+import FormattingToolbar from "@/components/Editor/FormattingToolbar/FormattingToolbar.vue";
 import { EDITOR_KEY } from "@/composables/useEditorState";
 
 const ed = inject(EDITOR_KEY);

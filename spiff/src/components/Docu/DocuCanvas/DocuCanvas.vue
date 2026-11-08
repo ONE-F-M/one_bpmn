@@ -69,7 +69,7 @@
 <script setup>
 import { getCurrentScope, nextTick, onBeforeUnmount, onMounted, provide, watch } from "vue";
 import { Icon } from "@iconify/vue";
-import AgentChatPanel from "@/components/Chat/AgentChatPanel.vue";
+import AgentChatPanel from "@/components/Chat/AgentChatPanel/AgentChatPanel.vue";
 import DocuApplyBar from "@/components/Docu/DocuApplyBar/DocuApplyBar.vue";
 import DocuChangesPreview from "@/components/Docu/DocuChangesPreview/DocuChangesPreview.vue";
 import DocuFormCanvas from "@/components/Docu/DocuFormCanvas/DocuFormCanvas.vue";

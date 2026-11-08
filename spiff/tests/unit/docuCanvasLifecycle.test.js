@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("frappe-ui", () => ({ frappeRequest: vi.fn() }));
 vi.mock("@iconify/vue", () => ({ Icon: { render: () => null } }));
-vi.mock("@/components/Chat/AgentChatPanel.vue", () => ({ default: { render: () => null } }));
+vi.mock("@/components/Chat/AgentChatPanel/AgentChatPanel.vue", () => ({ default: { render: () => null } }));
 vi.mock("@/utils/cardRegistry", () => ({ cardRegistry: {} }));
 vi.mock("@/components/Docu/DocuFormCanvas/DocuFormCanvas.vue", () => ({
 	default: { render: () => null },

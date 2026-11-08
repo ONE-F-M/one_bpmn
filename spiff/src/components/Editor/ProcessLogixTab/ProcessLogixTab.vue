@@ -1,7 +1,7 @@
 <script setup>
 import { inject } from "vue";
 import { Icon } from "@iconify/vue";
-import LogixCanvas from "@/components/Logix/LogixCanvas.vue";
+import LogixCanvas from "@/components/Logix/LogixCanvas/LogixCanvas.vue";
 import ProcessScriptDialog from "../ProcessScriptDialog/ProcessScriptDialog.vue";
 import { PROCESS_KEY } from "@/composables/useProcessState";
 

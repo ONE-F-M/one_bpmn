@@ -1,7 +1,7 @@
 <script setup>
 import { inject } from "vue";
 import { Icon } from "@iconify/vue";
-import ReadinessChecklistDialog from "@/components/Modals/ReadinessChecklistModal.vue";
+import ReadinessChecklistDialog from "@/components/Modals/ReadinessChecklistModal/ReadinessChecklistModal.vue";
 import { PROCESS_KEY } from "@/composables/useProcessState";
 
 const pc = inject(PROCESS_KEY);
