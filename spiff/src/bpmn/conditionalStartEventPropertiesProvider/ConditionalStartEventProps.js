@@ -121,6 +121,7 @@ function TriggerTypeComponent(props) {
 	const getOptions = () => [
 		{ label: translate("-- Select Trigger Type --"), value: "" },
 		{ label: translate("After Insert"), value: "After Insert" },
+		{ label: translate("On Cancel Request"), value: "On Cancel Request" },
 	];
 
 	return h(SelectEntry, {

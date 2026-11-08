@@ -519,6 +519,11 @@ def guard_bpmn_document(doc, method: str):
 	if getattr(frappe.flags, "bpmn_engine_action", False):
 		return
 
+	if method == "before_cancel":
+		from one_bpmn.processa_engine.instances.cancellation import refuse_direct_cancel
+
+		refuse_direct_cancel(doc)
+
 	active_instance = frappe.db.get_value(
 		"BPMN Process Instance",
 		{

@@ -21,7 +21,7 @@ class BPMNStartEventConfig(Document):
 		parentfield: DF.Data
 		parenttype: DF.Data
 		trigger_doctype: DF.Link | None
-		trigger_event: DF.Literal["After Insert", "Validate", "Before Save", "On Update", "Before Submit", "On Submit", "Before Cancel", "On Cancel", "Before Update After Submit", "On Update After Submit"]
+		trigger_event: DF.Literal["After Insert", "Validate", "Before Save", "On Update", "Before Submit", "On Submit", "Before Cancel", "On Cancel", "Before Update After Submit", "On Update After Submit", "On Cancel Request"]
 		trigger_type: DF.Literal["DocType Event", "Scheduler Event", "API"]
 		workflow_state_condition: DF.Data | None
 	# end: auto-generated types
