@@ -52,7 +52,7 @@ class TestQueryTokenizer(FrappeTestCase):
 	def test_stopwords_and_short_tokens_dropped(self):
 		# "the"/"with" are stopwords; "of"/"a" are below the min length; only the
 		# content words survive so a whole prompt no longer matches everything.
-		toks = [t.lower() for t in T._query_tokens("Please create the invoice with a lot of items")]
+		toks = [t.lower() for t in T.query_tokens("Please create the invoice with a lot of items")]
 		self.assertNotIn("the", toks)
 		self.assertNotIn("with", toks)
 		self.assertNotIn("of", toks)
@@ -61,7 +61,7 @@ class TestQueryTokenizer(FrappeTestCase):
 		self.assertIn("items", toks)
 
 	def test_distinct_tokens_only(self):
-		self.assertEqual(T._query_tokens("invoice invoice invoice"), ["invoice"])
+		self.assertEqual(T.query_tokens("invoice invoice invoice"), ["invoice"])
 
 
 class TestFulltextPath(FrappeTestCase):

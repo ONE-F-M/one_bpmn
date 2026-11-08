@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Direct parsing of BPMN 2.0 XML that a user pastes into a ProsAlly chat (WI-004172).
+"""Direct parsing of BPMN 2.0 XML that a user pastes into a ProsAlly chat.
 
 Without this, a pasted diagram reached the model as conversational text and ProsAlly asked the user to
 re-type the steps as a list. Here the pasted XML is recognised, parsed on the server and handed to the model

@@ -295,7 +295,7 @@ class TestSyncPullRequestBase(FrappeTestCase):
             review, "_call_production_api", return_value={}
         ), patch.object(review, "_diff_doctypes", return_value=[change]), patch.object(
             review, "_customization_app_for_doctype", return_value="one_fm"
-        ), patch.object(review, "_repo_for_app", return_value="ONE-F-M/one_fm"), patch.object(
+        ), patch.object(review, "repo_for_app", return_value="ONE-F-M/one_fm"), patch.object(
             review, "_customization_pr_files", return_value=({"a.py": ""}, None, ["a.py"], {"owned": False})
         ), patch.object(review, "_pr_body", return_value=""), patch.object(
             review, "_allowed_repo_owners", return_value={"ONE-F-M"}

@@ -6,7 +6,7 @@ import frappe
 from frappe import _
 from frappe.utils import strip_html
 
-from one_bpmn.agents.memory.tools import _query_tokens
+from one_bpmn.agents.memory.tools import query_tokens
 
 DOCTYPE = "BPMN Process Model"
 BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
@@ -42,7 +42,7 @@ GATEWAY_TAGS = ("exclusiveGateway", "parallelGateway", "inclusiveGateway", "even
 
 def find_process_models(query: str) -> dict:
 	"""Process models the current user can read that match the query, best match first."""
-	tokens = [token.lower() for token in _query_tokens(query)]
+	tokens = [token.lower() for token in query_tokens(query)]
 	if not tokens:
 		return {"error": _("Give at least one keyword to search for.")}
 
@@ -65,7 +65,7 @@ def find_process_models(query: str) -> dict:
 				"title": row.title,
 				"process": row.process_name,
 				"description": strip_html(row.description or "")[:MAX_DOC_CHARS],
-				"kind": _kind(_parse(frappe.db.get_value(DOCTYPE, row.name, "bpmn_xml"))),
+				"kind": _kind(parse_bpmn_xml(frappe.db.get_value(DOCTYPE, row.name, "bpmn_xml"))),
 			}
 			for row in rows[:MAX_MODELS]
 		]
@@ -79,7 +79,7 @@ def get_process_model_digest(process_model: str) -> dict:
 
 	model = frappe.get_doc(DOCTYPE, process_model)
 	model.check_permission("read")
-	root = _parse(model.bpmn_xml)
+	root = parse_bpmn_xml(model.bpmn_xml)
 
 	lines = [f"Process model: {model.title}", f"Kind: {_kind(root)}"]
 	lines.extend(_process_lines(model.process_name))
@@ -93,7 +93,7 @@ def get_process_model_digest(process_model: str) -> dict:
 	return {"digest": digest}
 
 
-def _parse(bpmn_xml: str | None):
+def parse_bpmn_xml(bpmn_xml: str | None):
 	if not (bpmn_xml or "").strip():
 		return None
 	try:
@@ -106,7 +106,7 @@ def _kind(root) -> str:
 	"""Executable when any process element carries isExecutable="true", as deploy requires."""
 	if root is None:
 		return "documented"
-	flags = [el.get("isExecutable", "false").strip().lower() for el in root.iter(_tag("process"))]
+	flags = [el.get("isExecutable", "false").strip().lower() for el in root.iter(bpmn_tag("process"))]
 	return "executable" if "true" in flags else "documented"
 
 
@@ -131,16 +131,16 @@ def _flow_lines(root) -> list[str]:
 
 	names = {el.get("id"): el.get("name") or el.get("id") for el in root.iter() if el.get("id")}
 	lanes = {}
-	for lane in root.iter(_tag("lane")):
-		for ref in lane.findall(_tag("flowNodeRef")):
+	for lane in root.iter(bpmn_tag("lane")):
+		for ref in lane.findall(bpmn_tag("flowNodeRef")):
 			lanes[(ref.text or "").strip()] = lane.get("name") or ""
 	outgoing = {}
-	for flow in root.iter(_tag("sequenceFlow")):
+	for flow in root.iter(bpmn_tag("sequenceFlow")):
 		outgoing.setdefault(flow.get("sourceRef"), []).append(flow)
 
 	lines = ["Steps in diagram order:"]
 	for el in root.iter():
-		kind = _local(el.tag)
+		kind = local_name(el.tag)
 		if kind in STEP_TAGS:
 			lines.append(_step_line(el, kind, lanes, names))
 		elif kind in GATEWAY_TAGS:
@@ -156,7 +156,7 @@ def _step_line(el, kind: str, lanes: dict, names: dict) -> str:
 		text += f" [{event}]"
 	if lane:
 		text += f" (lane: {lane})"
-	documentation = el.find(_tag("documentation"))
+	documentation = el.find(bpmn_tag("documentation"))
 	if documentation is not None and (documentation.text or "").strip():
 		text += f" - {strip_html(documentation.text).strip()[:MAX_DOC_CHARS]}"
 	return text
@@ -164,7 +164,7 @@ def _step_line(el, kind: str, lanes: dict, names: dict) -> str:
 
 def _event_note(el, names: dict) -> str:
 	for child in el:
-		kind, ref_attr = EVENT_DEFINITIONS.get(_local(child.tag), (None, None))
+		kind, ref_attr = EVENT_DEFINITIONS.get(local_name(child.tag), (None, None))
 		if kind:
 			return f"{kind}: {names.get(child.get(ref_attr), '?')}"
 	if el.get("messageRef"):
@@ -180,9 +180,9 @@ def _gateway_line(el, kind: str, outgoing: dict, names: dict) -> str:
 	return f"- {kind}: {el.get('name') or el.get('id')} [{'; '.join(branches)}]"
 
 
-def _tag(name: str) -> str:
+def bpmn_tag(name: str) -> str:
 	return f"{{{BPMN_NS}}}{name}"
 
 
-def _local(tag) -> str:
+def local_name(tag) -> str:
 	return tag.rsplit("}", 1)[-1] if isinstance(tag, str) else ""

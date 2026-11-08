@@ -6,14 +6,7 @@ exactly the one crossing the graph forces.
 """
 import unittest
 
-from one_bpmn.agents.bpmn_ir_pipeline import (
-	_IR_IGNORABLE_RULES,
-	_RULE_HINTS,
-	check_topology,
-	compile_ir,
-	flow_pairs_from_xml,
-	translate_problems,
-)
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_pipeline import _IR_IGNORABLE_RULES, _RULE_HINTS, check_topology, compile_ir, flow_pairs_from_xml, translate_problems
 
 LANES = [{"id": "a", "name": "A"}, {"id": "b", "name": "B"}]
 

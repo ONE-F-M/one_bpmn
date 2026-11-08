@@ -53,7 +53,7 @@ class TestScopedClassification(FrappeTestCase):
 		)
 		result = {}
 		with patch(
-			"one_bpmn.agents.prosally_helpers.get_llm_adapter_from_settings", return_value=FakeAdapter(DRAW_REPLY)
+			"one_bpmn.ai_agent_registry.definitions.prosally.helpers.get_llm_adapter_from_settings", return_value=FakeAdapter(DRAW_REPLY)
 		):
 			exec(self.script, {"frappe": frappe, "context_docname": CONVERSATION, "result": result})
 		return result

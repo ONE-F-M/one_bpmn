@@ -9,7 +9,7 @@ nodes) is left alone, so the caller still sends it back to the model.
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.bpmn_ir_pipeline import ensure_default_lanes
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_pipeline import ensure_default_lanes
 
 
 class TestEnsureDefaultLanes(FrappeTestCase):

@@ -107,7 +107,7 @@ _CONFIDENCE_HALF_LIFE_DAYS = 90.0
 _SEMANTIC_MIN_SIMILARITY = 0.3
 
 
-def _query_tokens(query: str) -> list[str]:
+def query_tokens(query: str) -> list[str]:
 	"""Split a free-text query into distinct, meaningful keyword tokens. A whole
 	user prompt is a valid query, so we match on its content words — dropping
 	stopwords and sub-index-length tokens — rather than the entire string."""
@@ -444,7 +444,7 @@ def memory_search(scope: str, scope_key, query: str, limit: int = 5, *, ignore_p
 	"""
 	filters = _read_filters(_resolve_scope(scope, scope_key))
 	page_length = limit if isinstance(limit, int) and limit > 0 else _DEFAULT_LIMIT
-	tokens = _query_tokens(query) if query else []
+	tokens = query_tokens(query) if query else []
 
 	# Hybrid semantic + FULLTEXT ranking, then FULLTEXT alone (both trusted
 	# dispatch only: raw SQL cannot apply row permissions). A non-empty result

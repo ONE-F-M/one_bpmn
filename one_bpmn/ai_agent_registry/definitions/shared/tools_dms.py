@@ -3,7 +3,7 @@
 import frappe
 from frappe import _
 
-from one_bpmn.agents.memory.tools import _query_tokens
+from one_bpmn.agents.memory.tools import query_tokens
 
 DOCTYPE = "Document Register"
 DOCUMENT_TYPES = ("Policy", "SOP", "Manual", "Guideline", "Knowledge Base")
@@ -19,7 +19,7 @@ def search_dms_documents(query: str, document_type: str | None = None, instance=
 	if document_type and document_type not in DOCUMENT_TYPES:
 		return {"error": _("document_type must be one of: {0}").format(", ".join(DOCUMENT_TYPES))}
 
-	tokens = [_stem(token) for token in _query_tokens(query)]
+	tokens = [_stem(token) for token in query_tokens(query)]
 	if not tokens:
 		return {"results": []}
 

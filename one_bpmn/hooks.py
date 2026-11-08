@@ -119,7 +119,7 @@ after_migrate = ["one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.
 jinja = {
 	"methods": [
 		"one_bpmn.processa_engine.agent_runtime.turn_state.get_turn",
-		"one_bpmn.tools.tool_for_server_scripts.compact_ir",
+		"one_bpmn.ai_agent_registry.definitions.docu.tools.compact_ir",
 	]
 }
 

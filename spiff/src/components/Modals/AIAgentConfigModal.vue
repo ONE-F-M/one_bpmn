@@ -1321,7 +1321,7 @@ const assistantConversation = ref(""); // Chat Conversation driving the dialog (
 const chatPanel = ref(null);
 
 // WI-001674: the modal sends RAW grounding refs; the server-side context
-// builder (ai_assistant.build_assistant_turn_context) assembles the map's
+// builder (definitions/assistant/helpers.build_assistant_turn_context) assembles the map's
 // dialog_context from them — schema/sample reads stay permission-checked
 // server-side, exactly as the legacy path did. WI-001679 added `mode`: the
 // builder branches on it to ground a selector turn with the selector's runtime

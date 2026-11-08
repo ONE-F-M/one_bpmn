@@ -20,9 +20,9 @@ def execute():
 		return
 
 	try:
-		from one_bpmn.api.ai_assistant import _build_system_prompt
+		from one_bpmn.ai_agent_registry.definitions.assistant.helpers_prompts import build_system_prompt
 
-		system_prompt = _build_system_prompt()
+		system_prompt = build_system_prompt()
 	except Exception:
 		system_prompt = (
 			"You are a configuration assistant embedded in the Processa BPMN editor. "

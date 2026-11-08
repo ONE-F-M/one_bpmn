@@ -7,7 +7,7 @@ from unittest.mock import patch as mock_patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import prosally_helpers as helpers
+from one_bpmn.ai_agent_registry.definitions.prosally import tools_review
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_diagnoses_errors as patch
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_draws_none_tasks as none_tasks
 from one_bpmn.one_bpmn.patches.v1_0.prosally_relayouts_and_compares import AGENT_ID
@@ -45,13 +45,12 @@ def _diagnosis(origin):
 
 class TestProsAllyDiagnoseError(FrappeTestCase):
 	def _output(self, reply):
-		with mock_patch.object(helpers, "complete_sub_prompt", return_value=reply), mock_patch.object(
-			helpers, "prosally_config", return_value={}
+		with mock_patch.object(tools_review, "complete_sub_prompt", return_value=reply), mock_patch.object(tools_review, "prosally_config", return_value={}
 		):
-			return helpers.diagnose_output(XML, [ERROR], LINT)
+			return tools_review.diagnose_output(XML, [ERROR], LINT)
 
 	def test_inputs_carry_only_the_elements_the_error_names(self):
-		inputs = helpers.diagnose_inputs(XML, ERROR, LINT)
+		inputs = tools_review.diagnose_inputs(XML, ERROR, LINT)
 		self.assertEqual(len(inputs["elements"]), 1)
 		self.assertIn("Gateway_1", inputs["elements"][0])
 		self.assertEqual([f["id"] for f in inputs["lint_findings"]], ["Gateway_1"])
@@ -70,24 +69,23 @@ class TestProsAllyDiagnoseError(FrappeTestCase):
 
 	def test_unparseable_reply_gives_the_fallback(self):
 		out = self._output("not json at all")
-		self.assertEqual(out["response"], helpers.diagnose_fallback_reply())
+		self.assertEqual(out["response"], tools_review.diagnose_fallback_reply())
 
 	def test_unlisted_origin_gives_the_fallback(self):
 		out = self._output(_diagnosis("somewhere"))
-		self.assertEqual(out["response"], helpers.diagnose_fallback_reply())
+		self.assertEqual(out["response"], tools_review.diagnose_fallback_reply())
 
 	def test_a_failed_model_call_gives_the_fallback(self):
-		with mock_patch.object(helpers, "complete_sub_prompt", side_effect=RuntimeError("down")), mock_patch.object(
-			helpers, "prosally_config", return_value={}
+		with mock_patch.object(tools_review, "complete_sub_prompt", side_effect=RuntimeError("down")), mock_patch.object(tools_review, "prosally_config", return_value={}
 		):
-			out = helpers.diagnose_output(XML, [ERROR], LINT)
-		self.assertEqual(out["response"], helpers.diagnose_fallback_reply())
+			out = tools_review.diagnose_output(XML, [ERROR], LINT)
+		self.assertEqual(out["response"], tools_review.diagnose_fallback_reply())
 
 	def test_script_error_finds_the_task_and_script_source(self):
 		with mock_patch.object(frappe.db, "exists", return_value=True), mock_patch.object(
 			frappe, "has_permission", return_value=True
 		), mock_patch.object(frappe.db, "get_value", return_value="doc = frappe.get_doc(employee_id)"):
-			task = helpers.script_task_for_error(SCRIPT_TASK_XML, ENGINE_ERROR)
+			task = tools_review.script_task_for_error(SCRIPT_TASK_XML, ENGINE_ERROR)
 		self.assertEqual((task["id"], task["name"]), ("Activity_9", "Fetch employee"))
 		self.assertIn("get_doc", task["script"])
 
@@ -95,20 +93,19 @@ class TestProsAllyDiagnoseError(FrappeTestCase):
 		with mock_patch.object(frappe.db, "exists", return_value=True), mock_patch.object(
 			frappe, "has_permission", return_value=False
 		):
-			task = helpers.script_task_for_error(SCRIPT_TASK_XML, ENGINE_ERROR)
+			task = tools_review.script_task_for_error(SCRIPT_TASK_XML, ENGINE_ERROR)
 		self.assertEqual(task["script"], "")
 
 	def test_script_origin_reply_names_the_task_on_the_map(self):
 		with mock_patch.object(frappe.db, "exists", return_value=False):
-			with mock_patch.object(helpers, "complete_sub_prompt", return_value=_diagnosis("server_script")), mock_patch.object(
-				helpers, "prosally_config", return_value={}
+			with mock_patch.object(tools_review, "complete_sub_prompt", return_value=_diagnosis("server_script")), mock_patch.object(tools_review, "prosally_config", return_value={}
 			):
-				out = helpers.diagnose_output(SCRIPT_TASK_XML, [ENGINE_ERROR], [])
+				out = tools_review.diagnose_output(SCRIPT_TASK_XML, [ENGINE_ERROR], [])
 		self.assertIn("Fetch employee", out["response"])
 		self.assertIn("Logix", out["response"])
 
 	def test_an_error_that_names_a_step_by_name_finds_it(self):
-		inputs = helpers.diagnose_inputs(XML, "The step Review failed to start", [])
+		inputs = tools_review.diagnose_inputs(XML, "The step Review failed to start", [])
 		self.assertEqual(len(inputs["elements"]), 1)
 		self.assertIn("Task_1", inputs["elements"][0])
 

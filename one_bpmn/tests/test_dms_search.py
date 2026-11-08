@@ -1,7 +1,7 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import dms_search
+from one_bpmn.ai_agent_registry.definitions.shared import tools_dms as dms_search
 from one_bpmn.one_bpmn.patches.v1_0 import general_chat_answers_from_dms as patch_module
 
 LEAVE_TEXT = "annual leave entitlement is thirty days per year"

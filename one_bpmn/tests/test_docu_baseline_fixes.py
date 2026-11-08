@@ -11,7 +11,7 @@ from one_bpmn.one_bpmn.patches.v1_0 import docu_naming_skill_braces_the_counter 
 from one_bpmn.one_bpmn.patches.v1_0.seed_docu_skills import SKILLS
 from one_bpmn.one_bpmn.patches.v1_0 import docu_vague_request_disambiguates as vague
 from one_bpmn.one_bpmn.patches.v1_0.seed_docu_agent_config import _INLINE_SUB_PROMPTS
-from one_bpmn.security.doctype_validator import validate_doctype_ir
+from one_bpmn.ai_agent_registry.definitions.docu.validators import validate_doctype_ir
 
 
 def _ir(autoname):

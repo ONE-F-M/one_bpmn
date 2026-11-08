@@ -7,8 +7,9 @@ from xml.etree import ElementTree as ET
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.bpmn_ir_pipeline import compile_ir
-from one_bpmn.agents.prosally_helpers import resolve_scope, splice_subprocess, transfer_properties
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_pipeline import compile_ir
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_subprocess import resolve_scope, splice_subprocess
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_properties import transfer_properties
 
 BPMN = "{http://www.omg.org/spec/BPMN/20100524/MODEL}"
 BPMNDI = "{http://www.omg.org/spec/BPMN/20100524/DI}"

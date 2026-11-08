@@ -3,7 +3,7 @@
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.security.bpmn_validator import validate_bpmn_xml
+from one_bpmn.ai_agent_registry.definitions.prosally.validators import validate_bpmn_xml
 
 HEAD = (
 	'<?xml version="1.0" encoding="UTF-8"?>'

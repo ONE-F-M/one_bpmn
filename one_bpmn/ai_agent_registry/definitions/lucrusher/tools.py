@@ -3,8 +3,8 @@
 """
 Filesystem primitives for agent tools that read the bench's own code.
 
-WHY THIS IS A MODULE AND NOT A SERVER SCRIPT (WI-001634)
---------------------------------------------------------
+WHY THIS IS A MODULE AND NOT A SERVER SCRIPT
+--------------------------------------------
 Agent tools are Server Scripts on an ad-hoc "Tools" sub-process, and every BPMN
 Script Task passes ``one_bpmn.security.script_validator.deep_inspect_script``
 before it can be saved or deployed. That gate permanently forbids ``os``,

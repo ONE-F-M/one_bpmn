@@ -12,7 +12,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.api.docu_api import apply_doctype, get_doctype_schema
-from one_bpmn.security.doctype_validator import validate_doctype_ir
+from one_bpmn.ai_agent_registry.definitions.docu.validators import validate_doctype_ir
 
 DT = "Docu Permission Rules Probe"
 
@@ -75,7 +75,7 @@ class TestDocuPermissionRules(FrappeTestCase):
 	def test_a_real_doctype_can_be_read_and_written_back(self):
 		"""The failure the builder actually hit: load an existing DocType's
 		rules into the grid, change nothing, and the save is refused."""
-		from one_bpmn.tools.tool_for_server_scripts import read_doctype_permissions
+		from one_bpmn.ai_agent_registry.definitions.docu.tools import read_doctype_permissions
 
 		live = read_doctype_permissions("Note")
 		self.assertTrue(live, "Note should ship permission rules")
@@ -124,7 +124,7 @@ class TestDocuPermissionRules(FrappeTestCase):
 		enforcing, so a change made through Docu looked like it had vanished —
 		and saving that view back would have undone the override.
 		"""
-		from one_bpmn.tools.tool_for_server_scripts import read_doctype_permissions
+		from one_bpmn.ai_agent_registry.definitions.docu.tools import read_doctype_permissions
 		from one_bpmn.api.docu_api import _apply_standard_doctype_permissions
 
 		self._apply(_ir())

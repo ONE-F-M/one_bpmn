@@ -109,10 +109,8 @@ class TestRunSyncContext(FrappeTestCase):
 
         # Two tools that every affected map has in common, so this test is
         # independent of where the Docu-specific tools live.
-        from one_bpmn.tools.tool_for_server_scripts import (
-            get_doctype_fields,
-            list_api_server_scripts,
-        )
+        from one_bpmn.ai_agent_registry.definitions.shared.tools import get_doctype_fields
+        from one_bpmn.ai_agent_registry.definitions.logix.tools import list_api_server_scripts
 
         async def outer():
             async def inner():

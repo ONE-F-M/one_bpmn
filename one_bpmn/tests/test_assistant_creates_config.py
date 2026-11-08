@@ -5,17 +5,15 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api import ai_assistant
-from one_bpmn.api.ai_assistant import (
-	_creation_prerequisites_block,
-	_extract_json,
-	_sanitize_proposed_config,
-)
+from one_bpmn.ai_agent_registry.definitions.assistant import helpers as assistant_helpers
+from one_bpmn.ai_agent_registry.definitions.assistant.helpers import _sanitize_proposed_config
+from one_bpmn.ai_agent_registry.definitions.assistant.helpers_prompts import creation_prerequisites_block
+from one_bpmn.ai_agent_registry.definitions.shared.helpers import extract_json
 
 
 class TestAssistantCreatesConfig(FrappeTestCase):
 	def test_prerequisites_are_live_data(self):
-		block = _creation_prerequisites_block()
+		block = creation_prerequisites_block()
 		# Required fields come from the doctype meta at call time — adding a
 		# reqd field to the doctype changes this block with zero code edits.
 		for f in frappe.get_meta("AI Agent Configuration").fields:
@@ -71,7 +69,7 @@ class TestAssistantCreatesConfig(FrappeTestCase):
 	def test_sanitize_created_config_requires_a_real_record(self):
 		# The event is proof of a row, not of the model's claim: a name that
 		# resolves nothing (or junk input) yields None — no event, no linking.
-		from one_bpmn.api.ai_assistant import _sanitize_created_config
+		from one_bpmn.ai_agent_registry.definitions.assistant.helpers import _sanitize_created_config
 
 		self.assertIsNone(_sanitize_created_config(None))
 		self.assertIsNone(_sanitize_created_config("a string"))
@@ -79,7 +77,7 @@ class TestAssistantCreatesConfig(FrappeTestCase):
 		self.assertIsNone(_sanitize_created_config({"name": "ZZ Does Not Exist"}))
 
 	def test_sanitize_created_config_reads_agent_id_from_the_record(self):
-		from one_bpmn.api.ai_assistant import _sanitize_created_config
+		from one_bpmn.ai_agent_registry.definitions.assistant.helpers import _sanitize_created_config
 
 		doc = frappe.get_doc({
 			"doctype": "AI Agent Configuration",
@@ -105,16 +103,16 @@ class TestAssistantCreatesConfig(FrappeTestCase):
 			'"proposed_config": {"agent_name": "Rambo",'
 			' "chat_mode_label": "Rambo_bot"}}'
 		)
-		parsed = _extract_json(raw)
+		parsed = extract_json(raw)
 		self.assertIsInstance(parsed, dict)
 		self.assertEqual(parsed["proposed_config"]["agent_name"], "Rambo")
 		self.assertIn("Rambo_bot", parsed["message"])
 
 	def test_extract_json_still_handles_fences_and_prose(self):
-		self.assertEqual(_extract_json('```json\n{"a": 1}\n```'), {"a": 1})
-		self.assertEqual(_extract_json('Sure!\n{"a": "x\ny"}\nHope that helps.'), {"a": "x\ny"})
-		self.assertIsNone(_extract_json("no json here"))
-		self.assertIsNone(_extract_json(""))
+		self.assertEqual(extract_json('```json\n{"a": 1}\n```'), {"a": 1})
+		self.assertEqual(extract_json('Sure!\n{"a": "x\ny"}\nHope that helps.'), {"a": "x\ny"})
+		self.assertIsNone(extract_json("no json here"))
+		self.assertIsNone(extract_json(""))
 
 	def test_the_dialogs_private_chat_endpoint_stays_retired(self):
 		"""WI-001679: recommend_ai_task_config was this dialog's own chat door.
@@ -127,4 +125,4 @@ class TestAssistantCreatesConfig(FrappeTestCase):
 		worth pinning is that the private door does not come back, because a
 		re-added endpoint quietly rebuilds the fragmentation this epic removed.
 		"""
-		self.assertFalse(hasattr(ai_assistant, "recommend_ai_task_config"))
+		self.assertFalse(hasattr(assistant_helpers, "recommend_ai_task_config"))

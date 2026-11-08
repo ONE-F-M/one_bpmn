@@ -5,14 +5,14 @@ import re
 import frappe
 from frappe import _
 
-from one_bpmn.agents.process_digest import (
+from one_bpmn.ai_agent_registry.definitions.shared.tools_process_digest import (
 	DOCTYPE,
 	EVENT_DEFINITIONS,
-	_local,
-	_parse,
-	_tag,
+	bpmn_tag,
 	find_process_models,
 	get_process_model_digest,
+	local_name,
+	parse_bpmn_xml,
 )
 from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, update_turn
 from one_bpmn.processa_engine.compiler.called_processes import CALL_SPIFF_NS, called_model
@@ -161,18 +161,18 @@ def links_of(model_name: str) -> dict:
 def extract_links(bpmn_xml: str | None) -> dict:
 	"""Message and signal catches and throws, and call activities, of one diagram."""
 	links = {"catches": [], "throws": [], "calls": []}
-	root = _parse(bpmn_xml)
+	root = parse_bpmn_xml(bpmn_xml)
 	if root is None:
 		return links
 
 	names = {
 		el.get("id"): (el.get("name") or "").strip()
 		for kind in ("message", "signal")
-		for el in root.iter(_tag(kind))
+		for el in root.iter(bpmn_tag(kind))
 	}
 	parents = {child: parent for parent in root.iter() for child in parent}
 	for el in root.iter():
-		tag = _local(el.tag)
+		tag = local_name(el.tag)
 		if tag in CATCHING_TAGS:
 			links["catches"].extend(_link_events(el, tag, names, parents))
 		elif tag in THROWING_TAGS:
@@ -188,7 +188,7 @@ def _link_events(el, tag: str, names: dict, parents: dict) -> list[dict]:
 	else:
 		refs = []
 		for child in el:
-			kind, ref_attr = EVENT_DEFINITIONS.get(_local(child.tag), (None, None))
+			kind, ref_attr = EVENT_DEFINITIONS.get(local_name(child.tag), (None, None))
 			if kind:
 				refs.append((kind, child.get(ref_attr)))
 	return [
@@ -217,7 +217,7 @@ def _call(el, parents: dict) -> dict:
 
 def _multi_instance(el, parents: dict) -> bool:
 	while el is not None:
-		if el.find(_tag("multiInstanceLoopCharacteristics")) is not None:
+		if el.find(bpmn_tag("multiInstanceLoopCharacteristics")) is not None:
 			return True
 		el = parents.get(el)
 	return False

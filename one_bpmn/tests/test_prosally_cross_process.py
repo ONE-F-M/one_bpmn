@@ -10,8 +10,8 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import prosally_helpers as helpers
-from one_bpmn.agents.process_links import process_links_for_turn
+from one_bpmn.ai_agent_registry.definitions.prosally import tools_prompts
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_links import process_links_for_turn
 from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_reads_related_processes as links_patch
 from one_bpmn.tests.test_process_links import CATCH_SIGNAL, THROW_SIGNAL, _model
@@ -48,7 +48,7 @@ class TestProsallyProcessLinksTool(FrappeTestCase):
 		frappe.db.rollback()
 
 	def prompt(self, sub_id):
-		return helpers.stage_system_prompt(CFG, sub_id, "", get_turn(CONVERSATION))
+		return tools_prompts.stage_system_prompt(CFG, sub_id, "", get_turn(CONVERSATION))
 
 	def test_tool_reads_the_open_map_and_keeps_the_findings_for_the_turn(self):
 		found = process_links_for_turn(CONVERSATION)
@@ -69,7 +69,7 @@ class TestProsallyProcessLinksTool(FrappeTestCase):
 
 		for sub_id, label in (("process_generator", "GENERATOR"), ("modifier", "MODIFIER")):
 			prompt = self.prompt(sub_id)
-			self.assertTrue(prompt.startswith(f"{label}\n\n{helpers.LINKS_HEADER}"))
+			self.assertTrue(prompt.startswith(f"{label}\n\n{tools_prompts.LINKS_HEADER}"))
 			self.assertIn("Never change another map", prompt)
 			self.assertIn(f"Related map {self.thrower}", prompt)
 			self.assertIn("Gap (signal_other_process) at Wait (c1)", prompt)
@@ -85,12 +85,12 @@ class TestProsallyProcessLinksTool(FrappeTestCase):
 	def test_block_is_empty_when_there_is_nothing_related(self):
 		empty = {"process_model": "m", "related": [], "gaps": [], "truncated": False}
 
-		self.assertEqual(helpers.process_links_block({"process_links": empty}), "")
+		self.assertEqual(tools_prompts.process_links_block({"process_links": empty}), "")
 
 	def test_block_says_when_related_maps_were_cut(self):
 		cut = {"process_model": "m", "related": [{"process_model": "x", "reason": "r"}], "gaps": [], "truncated": True}
 
-		self.assertIn("More related maps exist than are listed.", helpers.process_links_block({"process_links": cut}))
+		self.assertIn("More related maps exist than are listed.", tools_prompts.process_links_block({"process_links": cut}))
 
 	def test_the_tool_never_changes_a_related_map(self):
 		before = frappe.db.get_value("BPMN Process Model", self.thrower, ["modified", "bpmn_xml"])

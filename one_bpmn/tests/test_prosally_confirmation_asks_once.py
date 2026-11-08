@@ -7,7 +7,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import prosally_helpers as helpers
+from one_bpmn.ai_agent_registry.definitions.prosally import helpers, tools_prompts
 from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0.prosally_confirmation_asks_once import (
 	IMPORT_NEW,
@@ -25,25 +25,25 @@ SUMMARY = (
 
 class TestJoinConfirmation(FrappeTestCase):
 	def test_a_summary_ending_in_the_question_asks_it_once(self):
-		reply = helpers.join_confirmation(SUMMARY, QUESTION)
+		reply = tools_prompts.join_confirmation(SUMMARY, QUESTION)
 		self.assertEqual(reply.count(QUESTION), 1)
 		self.assertTrue(reply.endswith("\n\n" + QUESTION))
 
 	def test_case_and_punctuation_do_not_matter(self):
-		reply = helpers.join_confirmation("I'll draw it. shall i go ahead", QUESTION)
+		reply = tools_prompts.join_confirmation("I'll draw it. shall i go ahead", QUESTION)
 		self.assertEqual(reply, "I'll draw it.\n\n" + QUESTION)
 
 	def test_a_different_closing_sentence_is_kept(self):
 		self.assertEqual(
-			helpers.join_confirmation("I'll draw it. Is that right?", QUESTION),
+			tools_prompts.join_confirmation("I'll draw it. Is that right?", QUESTION),
 			"I'll draw it. Is that right?\n\n" + QUESTION,
 		)
-		self.assertEqual(helpers.join_confirmation("", QUESTION), QUESTION)
+		self.assertEqual(tools_prompts.join_confirmation("", QUESTION), QUESTION)
 
 
 class TestStructuredSummary(FrappeTestCase):
 	def test_steps_and_settings_are_one_per_line_and_the_question_stands_alone(self):
-		reply = helpers.join_confirmation(
+		reply = tools_prompts.join_confirmation(
 			{
 				"intro": "I'll redraw the Visa Request process completely.",
 				"steps": ["The recruiter raises the Visa Request", "The GRD manager approves or rejects it"],
@@ -60,7 +60,7 @@ class TestStructuredSummary(FrappeTestCase):
 		)
 
 	def test_no_settings_means_no_draw_only_offer(self):
-		reply = helpers.join_confirmation({"intro": "I'll draw it.", "steps": ["Submit"], "settings": []}, QUESTION)
+		reply = tools_prompts.join_confirmation({"intro": "I'll draw it.", "steps": ["Submit"], "settings": []}, QUESTION)
 		self.assertNotIn("draw only", reply)
 		self.assertEqual(reply, "I'll draw it.\n\nHere's what I understood:\n- Submit\n\n" + QUESTION)
 

@@ -1,27 +1,19 @@
-"""Logix's debug path: explain why an existing script fails and propose the smallest fix as a diff.
-
-Build Context calls debug_inputs to put the script and its last error on the turn; the
-"Logix - Tool Debug Script" stage calls run_debug_stage, which writes the turn's reply itself.
-"""
+"""Logix's tool functions: the debug stage and read-only Server Script lookups."""
 
 import difflib
 import json
-import re
 
 import frappe
 from frappe import _
 
+from one_bpmn.ai_agent_registry.definitions.shared.helpers import tool_envelope
+from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 from one_bpmn.processa_engine.agent_runtime.llm_factory import get_llm_adapter_from_settings
 from one_bpmn.processa_engine.agent_runtime.structured_output import provider_schema
 from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, run_sync, update_turn
-from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 from one_bpmn.security.script_validator import validate_script
 
 AGENT_ID = "logix_agent"
-CODE_FENCE = re.compile(r"```[a-zA-Z]*\s*\n(.*?)```", re.DOTALL)
-TRACEBACK = "Traceback (most recent call last)"
-ERROR_CHARS = 3000
-ENGINE_ERROR_TITLE = 'BPMN ScriptTask: "{}" execution failed'
 
 DEBUG_SCHEMA = {
 	"type": "object",
@@ -37,33 +29,6 @@ REVIEW_SCHEMA = {
 	},
 	"required": ["approved", "issues", "suggestions"],
 }
-
-
-def debug_inputs(user_text: str, original_script_content: str, current_script: str) -> dict:
-	"""The script under debug and its last error; what the person pasted wins over the linked script."""
-	user_text = user_text or ""
-	script_text = original_script_content or ""
-	for block in CODE_FENCE.findall(user_text):
-		if TRACEBACK not in block:
-			script_text = block.strip()
-			break
-
-	at = user_text.find(TRACEBACK)
-	last_error = user_text[at:] if at != -1 else _logged_error(current_script)
-	return {"script_text": script_text, "last_error": last_error[-ERROR_CHARS:]}
-
-
-def _logged_error(script_name: str) -> str:
-	if not script_name:
-		return ""
-	rows = frappe.get_all(
-		"Error Log",
-		filters={"method": ENGINE_ERROR_TITLE.format(script_name)},
-		fields=["error"],
-		order_by="creation desc",
-		limit=1,
-	)
-	return rows[0].error if rows else ""
 
 
 def run_debug_stage(conversation: str) -> dict:
@@ -161,3 +126,53 @@ def _reply(conversation: str, response: str, original: str = "", fixed: str = ""
 	}
 	update_turn(conversation, output=output, done=True, script_safe=bool(diff))
 	return {"has_fix": bool(diff)}
+
+
+@tool_envelope(
+	"Logix Tool - get_server_script_content",
+	lambda script_name: f"# Error: Failed to fetch Server Script '{script_name}'.",
+)
+def get_server_script_content(script_name: str) -> str:
+	"""The Python source of a Server Script, or a message starting "# Error:" when it cannot be read."""
+	try:
+		doc = frappe.get_doc("Server Script", script_name)
+		if not doc.script:
+			return f"# Script '{script_name}' exists but has no content yet."
+		return doc.script
+	except frappe.DoesNotExistError:
+		return f"# Error: Server Script '{script_name}' not found."
+	except frappe.PermissionError:
+		return f"# Error: No permission to read Server Script '{script_name}'."
+
+
+@tool_envelope(
+	"Logix Tool - get_server_script_meta",
+	lambda script_name: json.dumps({"error": f"Failed to fetch metadata for '{script_name}'."}),
+)
+def get_server_script_meta(script_name: str) -> str:
+	"""A Server Script's type, DocType, event, API method and disabled flag, as JSON."""
+	try:
+		doc = frappe.get_doc("Server Script", script_name)
+		return json.dumps({
+			"name": doc.name,
+			"script_type": doc.script_type,
+			"reference_doctype": doc.reference_doctype or "",
+			"doctype_event": doc.doctype_event or "",
+			"api_method": doc.api_method or "",
+			"disabled": bool(doc.disabled),
+		})
+	except frappe.DoesNotExistError:
+		return json.dumps({"error": f"Server Script '{script_name}' not found."})
+
+
+@tool_envelope("Logix Tool - list_api_server_scripts", lambda: json.dumps([]))
+def list_api_server_scripts() -> str:
+	"""The names of the enabled API Server Scripts, as a JSON array."""
+	scripts = frappe.get_all(
+		"Server Script",
+		filters={"script_type": "API", "disabled": 0},
+		fields=["name"],
+		limit_page_length=100,
+		order_by="name asc",
+	)
+	return json.dumps([s.name for s in scripts])
