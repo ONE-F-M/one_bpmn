@@ -76,6 +76,7 @@
 import { provide } from "vue";
 import { Icon } from "@iconify/vue";
 import AIAgentConfigModal from "@/components/Modals/AIAgentConfigModal.vue";
+import { useEditorModeler } from "@/composables/useEditorModeler";
 import BpmnEditorToolbar from "../BpmnEditorToolbar/BpmnEditorToolbar.vue";
 import BpmnProsAlly from "../BpmnProsAlly/BpmnProsAlly.vue";
 import BpmnInlineComment from "../BpmnInlineComment/BpmnInlineComment.vue";
@@ -101,7 +102,6 @@ import { useEditorSpiffEvents } from "@/composables/useEditorSpiffEvents";
 import { useEditorDocu } from "@/composables/useEditorDocu";
 import { useEditorXml } from "@/composables/useEditorXml";
 import { useEditorReadonly } from "@/composables/useEditorReadonly";
-import { useEditorModeler } from "@/composables/useEditorModeler";
 
 const props = defineProps({
 	saveStatusText: {
