@@ -837,7 +837,7 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 
 	# Re-provisioning is a chat-map concern: it re-runs the creation process
 	# so a Live CHAT agent picks up the change. Background agents (Live via
-	# auto-go-live, WI-001652) have no map to rebuild — never re-provision them.
+	# auto-go-live) have no map to rebuild — never re-provision them.
 	was_live = doc.lifecycle_status == "Live" and doc.agent_type == "Chat"
 	doc.save()
 
@@ -848,7 +848,7 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 	return {"ok": True, "updated": changed, "reprovisioned": reprovisioned}
 
 
-# The create endpoint's payload contract as DATA (WI-001649): the AI Assistant
+# The create endpoint's payload contract as DATA: the AI Assistant
 # is told about these fields at call time instead of having them written into
 # its prompt as prose. Keys match create_agent_configuration's payload exactly.
 CREATE_PAYLOAD_CONTRACT = {
@@ -934,7 +934,7 @@ CREATE_PAYLOAD_CONTRACT = {
 
 @frappe.whitelist()
 def create_agent_configuration(payload: str | dict) -> dict:
-	"""Create a new AI Agent Configuration from the Processa editor (WI-001648).
+	"""Create a new AI Agent Configuration from the Processa editor.
 
 	Inserted as **Chat + Draft with the caller's permissions**, so the
 	AI Agent Creation Process start trigger fires on insert exactly as it

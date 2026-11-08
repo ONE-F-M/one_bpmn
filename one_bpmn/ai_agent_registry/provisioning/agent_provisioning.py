@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """
-Agent provisioning helpers (WI-001621, WI-001620).
+Agent provisioning helpers.
 
 The agent-creation process calls these to carry an AI Agent Configuration
 from Draft to Live. Each is a plain callable so the BPMN service tasks stay
@@ -17,7 +17,7 @@ class AgentValidationError(frappe.ValidationError):
 	pass
 
 
-# The checks validate_agent_config enforces, as DATA (WI-001649) — kept
+# The checks validate_agent_config enforces, as DATA - kept
 # directly above the function so the two evolve together. The AI Assistant
 # injects these as structured context at call time; nothing about the rules
 # is written into its prompt as prose.
@@ -31,7 +31,7 @@ VALIDATION_RULES = (
 
 
 def is_chat_startable_map(model_name: str) -> bool | None:
-	"""Whether a BPMN Process Model can serve a chat surface (WI-001997).
+	"""Whether a BPMN Process Model can serve a chat surface.
 
 	A chat-startable map begins with the chat pattern: a start event whose
 	conditionalEventDefinition triggers on Chat Conversation insert
@@ -67,7 +67,7 @@ def is_a2a_startable_map(model_name: str) -> bool | None:
 
 
 def validate_agent_config(config_name: str, test_provider: bool = True, require_prompt: bool = True) -> dict:
-	"""Validate the six essentials of a chat agent configuration (WI-001621).
+	"""Validate the six essentials of a chat agent configuration.
 
 	Checks, in order: identity, system prompt, LLM credentials link, and —
 	for chat agents — a chat mode label; lints the prompt for unresolved
@@ -75,7 +75,7 @@ def validate_agent_config(config_name: str, test_provider: bool = True, require_
 	bad key or model is caught before provisioning rather than at first use.
 
 	``require_prompt=False`` waives the empty-prompt error for provider-grant
-	Background agents (WI-001650: e.g. "Platform Prompt Engineer" is a
+	Background agents (e.g. "Platform Prompt Engineer" is a
 	deliberate empty-prompt credentials grant) so the on-save revalidation
 	can still run their live provider test.
 
@@ -96,7 +96,7 @@ def validate_agent_config(config_name: str, test_provider: bool = True, require_
 	elif "{{" in cfg.system_prompt and "}}" in cfg.system_prompt:
 		warnings.append(_("System prompt contains unresolved '{{ }}' markers."))
 
-	# 3. Model + derived credentials (WI-001655: the model is the pick)
+	# 3. Model + derived credentials (the model is the pick)
 	if not cfg.get("ai_model"):
 		errors.append(_("No AI Model is linked — pick one from the catalog."))
 	if not cfg.ai_provider:
@@ -125,7 +125,7 @@ def validate_agent_config(config_name: str, test_provider: bool = True, require_
 			)
 
 	# 4. Chat-type essentials — a label, unless the agent is mapped to a
-	# non-chat process map (WI-001997: a process-embedded agent never appears
+	# non-chat process map (a process-embedded agent never appears
 	# in the chat picker, so it needs no label).
 	if cfg.agent_type == "Chat" and not cfg.chat_mode_label:
 		if is_chat_startable_map(cfg.process_model) is not False:
@@ -134,7 +134,7 @@ def validate_agent_config(config_name: str, test_provider: bool = True, require_
 	# 5. Live provider test call
 	#
 	# Skipped when the platform already knows this model's credentials are
-	# broken (WI-002191 marks it, alerts once, and refuses runs on it). Calling
+	# broken (it is marked, alerts once, and refuses runs on it). Calling
 	# anyway proved nothing and made every save of an affected agent park it:
 	# on prod-backup on 2026-09-13, saving ProsAlly onto a model whose OpenAI
 	# key is rejected parked it twice, the second time while the agent was being
@@ -176,11 +176,11 @@ def _set_status(config_name: str, status: str, reason: str = None):
 
 
 def provision_agent(config_name: str):
-	"""AI Agent creation flow (WI-001620, reshaped by WI-001652).
+	"""AI Agent creation flow.
 
 	Carries a chat agent from Draft to Live: Validating -> Evaluating ->
 	Live. Live means "details valid and tested" — NO diagram is created or
-	required (WI-001652): diagrams are authored by people in the editor, and
+	required: diagrams are authored by people in the editor, and
 	the config's process_model is a manual, informational link. Any failure
 	lands the agent in Needs Attention with the reason logged; editing the
 	configuration re-triggers this. Idempotent and safe to enqueue.
@@ -205,7 +205,7 @@ def provision_agent(config_name: str):
 			)
 			return
 
-		# Evaluating (WI-001609): generate + run a baseline suite from the
+		# Evaluating: generate + run a baseline suite from the
 		# agent's sample prompts. A suite marked gate_deployment blocks Live
 		# on failure; otherwise eval results are advisory and Live proceeds.
 		suite_name = generate_eval_suite_for_agent(config_name)
@@ -280,8 +280,8 @@ def _run_baseline_eval(suite_name: str) -> bool | None:
 
 def generate_eval_suite_for_agent(config_name: str) -> str | None:
 	"""Create (or refresh) a baseline AI Eval Suite from the agent's sample
-	prompts, linking the suite back to the configuration (WI-001609; the
-	link now lives on the suite per WI-001743).
+	prompts, linking the suite back to the configuration (the
+	link now lives on the suite).
 
 	One eval case per sample prompt: the agent's system prompt + credentials,
 	the sample's text as the user prompt, and — when the sample declares an
@@ -290,7 +290,7 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 	"""
 	cfg = frappe.get_doc("AI Agent Configuration", config_name)
 	samples = cfg.get("sample_prompts") or []
-	# WI-001648: process_model is optional — the eval cases run direct_api
+	# process_model is optional — the eval cases run direct_api
 	# against the agent's prompt + credentials, so a suite can be generated
 	# before the chat map is provisioned (e.g. a config created from Processa
 	# with sample prompts declared up front).
@@ -300,7 +300,7 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 	suite_title = f"{cfg.agent_name} — Baseline"
 	# AI Eval Suite is autoname:hash, so the docname is never the title — the
 	# suite has to be looked up by field. Scope on agent_configuration as well
-	# as title: since WI-001743 that link is the authoritative (and mandatory)
+	# as title: that link is the authoritative (and mandatory)
 	# Suite -> Agent relationship, and a suite the migration handed to another
 	# agent under its "last one wins" collision rule must not be hijacked here.
 	# Order by creation so that where an earlier bug left duplicate baselines
@@ -330,14 +330,14 @@ def generate_eval_suite_for_agent(config_name: str) -> str | None:
 			"process_model": cfg.process_model or None,
 			"agent_configuration": cfg.name,
 			# Baseline suites are Direct (simple LLM) — the AI Assistant creates
-			# them at agent-config time, before any process map exists (WI-001751).
+			# them at agent-config time, before any process map exists.
 			"eval_type": "Direct",
 			"description": _("Baseline suite generated from {0}'s sample prompts.").format(cfg.agent_name),
 		}).insert(ignore_permissions=True)
 
-	# WI-001751: cases test the agent itself, so they carry only the prompt +
+	# Cases test the agent itself, so they carry only the prompt +
 	# assertions — provider/model/system prompt come from the suite's agent.
-	# llm_judge still needs a judge model, and since WI-001655 that is the
+	# llm_judge still needs a judge model, and that is the
 	# agent's own catalog pick: an AI Model record name, which is exactly what
 	# the judge_model Link wants. (The provider-level default_model this used to
 	# read no longer exists.)
