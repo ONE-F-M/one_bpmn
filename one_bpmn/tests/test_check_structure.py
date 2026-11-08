@@ -38,8 +38,8 @@ def lines(count):
 	return "x = 1\n" * count
 
 
-def run(changes, baseline=None, base_baseline=None, approvers=(), codeowners=CODEOWNERS):
-	return cs.run_checks(changes, baseline or {}, base_baseline, approvers, codeowners)
+def run(changes, baseline=None, base_baseline=None, approvers=(), codeowners=CODEOWNERS, tree=None):
+	return cs.run_checks(changes, baseline or {}, base_baseline, approvers, codeowners, tree)
 
 
 def rules(result):
@@ -55,9 +55,9 @@ class TestSizeRule(unittest.TestCase):
 		self.assertIn("801 lines", message)
 
 	def test_new_vue_file_over_500_lines_fails_and_names_file_and_size(self):
-		result = run([cs.Change.new_file("spiff/src/components/Big.vue", lines(501))])
+		result = run([cs.Change.new_file("spiff/src/components/Big/Big.vue", lines(501))])
 		self.assertEqual(rules(result), ["size"])
-		self.assertIn("spiff/src/components/Big.vue", str(result.failures[0]))
+		self.assertIn("spiff/src/components/Big/Big.vue", str(result.failures[0]))
 		self.assertIn("501 lines", str(result.failures[0]))
 
 	def test_files_at_the_limit_pass(self):
@@ -103,6 +103,11 @@ class TestWorkItemIdRule(unittest.TestCase):
 	def test_an_id_that_was_already_there_is_not_flagged(self):
 		change = cs.Change.modified("one_bpmn/mod.py", f"# {WORK_ITEM}\ny = 2\n", [(2, "y = 2")])
 		self.assertTrue(run([change]).ok)
+
+	def test_hooks_py_carries_no_work_item_id(self):
+		with open(os.path.join(ROOT, "one_bpmn", "hooks.py"), encoding="utf-8") as handle:
+			for number, line in enumerate(handle, 1):
+				self.assertIsNone(cs.WORK_ITEM_ID.search(line), f"hooks.py:{number} carries a work-item id")
 
 
 class TestUnsafeCallRule(unittest.TestCase):
@@ -198,12 +203,13 @@ class TestImportRule(unittest.TestCase):
 	def test_model_libraries_outside_the_adapters_fail(self):
 		for text in (ANTHROPIC_IMPORT, OPENAI_IMPORT, GENAI_IMPORT, "from google import genai"):
 			with self.subTest(text=text):
-				self.assertEqual(rules(self.added("one_bpmn/agents/executor/direct_api.py", text)), ["import"])
+				self.assertEqual(rules(self.added("one_bpmn/processa_engine/agent_runtime/direct_api.py", text)), ["import"])
+				self.assertEqual(rules(self.added("one_bpmn/agents/llm_provider/new_adapter.py", text)), ["import"])
 
 	def test_model_libraries_inside_the_adapters_pass(self):
 		for text in (ANTHROPIC_IMPORT, OPENAI_IMPORT, GENAI_IMPORT):
 			with self.subTest(text=text):
-				self.assertTrue(self.added("one_bpmn/agents/llm_provider/new_adapter.py", "\t\t" + text).ok)
+				self.assertTrue(self.added("one_bpmn/processa_engine/agent_runtime/llm_new.py", "\t\t" + text).ok)
 
 	def test_tests_may_import_restricted_libraries(self):
 		self.assertTrue(self.added("one_bpmn/tests/test_x.py", SPIFF_IMPORT).ok)
@@ -327,7 +333,7 @@ class TestComponentJsRule(unittest.TestCase):
 				self.assertIn(path, str(result.failures[0]))
 
 	def test_vue_files_and_js_outside_components_pass(self):
-		for path in ("spiff/src/components/chat/NewThing.vue", "spiff/src/utils/newThing.js"):
+		for path in ("spiff/src/components/chat/NewThing/NewThing.vue", "spiff/src/utils/newThing.js"):
 			with self.subTest(path=path):
 				self.assertTrue(run([cs.Change.new_file(path, "x\n")]).ok)
 
@@ -344,13 +350,115 @@ class TestComponentJsRule(unittest.TestCase):
 		self.assertTrue(any("delete" in notice and path in notice for notice in result.notices))
 
 
+class TestComponentFolderRule(unittest.TestCase):
+	BASE = "spiff/src/components"
+
+	def failing(self, path, tree=None, baseline=None):
+		return run([cs.Change.new_file(path, "x\n")], baseline, baseline, tree=tree)
+
+	def test_a_loose_file_that_is_already_in_the_tree_fails_unless_baselined(self):
+		path = f"{self.BASE}/Modals/CompareModal.vue"
+		self.assertEqual(rules(run([], tree={path})), ["component-folder"])
+		self.assertTrue(run([], {("component-folder", path): 0}, {("component-folder", path): 0}, tree={path}).ok)
+
+	def test_a_component_in_its_own_folder_passes(self):
+		for path in (
+			f"{self.BASE}/Docu/DocuApplyBar/DocuApplyBar.vue",
+			f"{self.BASE}/Chat/Cards/DataTableCard/DataTableCard.vue",
+			f"{self.BASE}/DiffViewer/DiffViewer.vue",
+			"frontend/src/components/A/A.vue",
+		):
+			with self.subTest(path=path):
+				self.assertTrue(self.failing(path).ok)
+
+	def test_a_loose_or_misnamed_file_fails_with_the_target_path(self):
+		cases = {
+			f"{self.BASE}/Modals/CompareModal.vue": f"{self.BASE}/Modals/CompareModal/CompareModal.vue",
+			f"{self.BASE}/DiffViewer.vue": f"{self.BASE}/DiffViewer/DiffViewer.vue",
+			f"{self.BASE}/Chat/agui-sizing.css": f"{self.BASE}/Chat/agui-sizing/agui-sizing.css",
+			f"{self.BASE}/Docu/Other/DocuApplyBar.vue": f"{self.BASE}/Docu/Other/DocuApplyBar/DocuApplyBar.vue",
+		}
+		for path, target in cases.items():
+			with self.subTest(path=path):
+				result = self.failing(path)
+				self.assertEqual(rules(result), ["component-folder"])
+				self.assertIn(f"components/ holds one folder per component: put {path} in {target}", str(result.failures[0]))
+
+	def test_a_css_needs_its_vue_beside_it(self):
+		css = f"{self.BASE}/Docu/Bar/Bar.css"
+		self.assertEqual(rules(self.failing(css, tree={css})), ["component-folder"])
+		self.assertTrue(self.failing(css, tree={css, f"{self.BASE}/Docu/Bar/Bar.vue"}).ok)
+
+	def test_a_css_added_with_its_vue_passes(self):
+		changes = [
+			cs.Change.new_file(f"{self.BASE}/Docu/Bar/Bar.vue", "x\n"),
+			cs.Change.new_file(f"{self.BASE}/Docu/Bar/Bar.css", "x\n"),
+		]
+		self.assertTrue(run(changes).ok)
+
+	def test_files_outside_components_are_ignored(self):
+		self.assertTrue(self.failing("spiff/src/views/Loose.vue").ok)
+
+	def test_a_baselined_file_passes_and_deleting_it_asks_for_the_entry_to_go(self):
+		path = f"{self.BASE}/Modals/CompareModal.vue"
+		baseline = {("component-folder", path): 0}
+		self.assertTrue(self.failing(path, baseline=baseline).ok)
+		result = run([cs.Change.deleted(path)], baseline, baseline)
+		self.assertTrue(result.ok)
+		self.assertTrue(any("delete" in notice and path in notice for notice in result.notices))
+
+	def test_a_move_into_a_compliant_path_passes(self):
+		old = f"{self.BASE}/Modals/CompareModal.vue"
+		new = f"{self.BASE}/Modals/CompareModal/CompareModal.vue"
+		baseline = {("component-folder", old): 0}
+		result = run([cs.Change.deleted(old), cs.Change.new_file(new, "x\n")], baseline, baseline)
+		self.assertTrue(result.ok)
+
+	def test_a_new_baseline_entry_needs_approval(self):
+		path = f"{self.BASE}/Modals/CompareModal.vue"
+		result = run([], {("component-folder", path): 0}, {})
+		self.assertEqual(rules(result), ["baseline"])
+
+
+class TestComposableLayoutRule(unittest.TestCase):
+	BASE = "spiff/src/composables"
+	TREE = {f"{BASE}/Docu/useDocu.js", f"{BASE}/Docu/useDocuTree.js", f"{BASE}/useWindowSize.js"}
+
+	def failing(self, *paths):
+		return run([], tree=self.TREE | set(paths))
+
+	def test_the_current_layout_passes(self):
+		self.assertTrue(run([], tree=self.TREE).ok)
+
+	def test_a_root_composable_and_a_family_composable_pass(self):
+		self.assertTrue(self.failing(f"{self.BASE}/useCurrentUser.js", f"{self.BASE}/Docu/useDocuExport.js").ok)
+
+	def test_each_bad_layout_fails_with_its_own_message(self):
+		cases = {
+			f"{self.BASE}/useThing.ts": "rename",
+			f"{self.BASE}/thing.js": "rename",
+			f"{self.BASE}/Docu/useOther.js": "start with useDocu",
+			f"{self.BASE}/useDocuExport.js": "belongs in composables/Docu/",
+			f"{self.BASE}/Docu/Deep/useDocuDeep.js": "one area folder",
+		}
+		for path, text in cases.items():
+			with self.subTest(path=path):
+				result = self.failing(path)
+				self.assertEqual(rules(result), ["composable-layout"])
+				self.assertIn(path, str(result.failures[0]))
+				self.assertIn(text, str(result.failures[0]))
+
+	def test_files_outside_composables_are_ignored(self):
+		self.assertTrue(self.failing("spiff/src/utils/thing.ts").ok)
+
+
 class TestFetchRule(unittest.TestCase):
 	def added(self, path, text):
 		return run([cs.Change.modified(path, text, [(5, text)])])
 
 	def test_fetch_in_frontend_code_fails_and_names_the_line(self):
 		for path, text in (
-			("spiff/src/components/chat/AgentChatPanel.vue", f'\tconst res = await {FETCH}"/api/x")'),
+			("spiff/src/components/chat/AgentChatPanel/AgentChatPanel.vue", f'\tconst res = await {FETCH}"/api/x")'),
 			("frontend/src/bpmn/shared/frappeResource.js", f"\treturn window.{FETCH}path)"),
 		):
 			with self.subTest(path=path):
@@ -455,7 +563,7 @@ class TestBaseline(unittest.TestCase):
 			entries = cs.parse_baseline(handle.read())
 		self.assertTrue(entries)
 		self.assertLessEqual(
-			{rule for rule, _ in entries}, {"size", "test-location", "private-import", "component-js"}
+			{rule for rule, _ in entries}, {"size", "test-location", "private-import", "component-js", "component-folder"}
 		)
 
 	def test_generate_baseline_lists_oversize_files_and_misplaced_tests(self):
@@ -468,6 +576,8 @@ class TestBaseline(unittest.TestCase):
 			"one_bpmn/f.py": "from one_bpmn.g import _h, public\n",
 			"one_bpmn/tests/test_f.py": "from one_bpmn.g import _h\n",
 			"spiff/src/components/chat/i.js": "x\n",
+			"spiff/src/components/Docu/Bar/Bar.vue": "x\n",
+			"spiff/src/components/Docu/Loose.vue": "x\n",
 		}
 		self.assertEqual(
 			cs.generate_baseline(files),
@@ -477,6 +587,7 @@ class TestBaseline(unittest.TestCase):
 				("test-location", "one_bpmn/agents/test_d.py"): 0,
 				("private-import", "one_bpmn/f.py one_bpmn.g._h"): 0,
 				("component-js", "spiff/src/components/chat/i.js"): 0,
+				("component-folder", "spiff/src/components/Docu/Loose.vue"): 0,
 			},
 		)
 
@@ -500,6 +611,13 @@ class TestDiffParsing(unittest.TestCase):
 			"+++ b/one_bpmn/new.py",
 			"@@ -0,0 +1 @@",
 			"+only",
+			"diff --git a/one_bpmn/old.py b/one_bpmn/moved.py",
+			"similarity index 90%",
+			"rename from one_bpmn/old.py",
+			"rename to one_bpmn/moved.py",
+			"@@ -2 +2 @@",
+			"-before",
+			"+after",
 			"diff --git a/one_bpmn/gone.py b/one_bpmn/gone.py",
 			"deleted file mode 100644",
 			"--- a/one_bpmn/gone.py",
@@ -514,3 +632,4 @@ class TestDiffParsing(unittest.TestCase):
 		self.assertEqual(parsed["one_bpmn/a.py"], ("M", [(4, "first"), (5, "second"), (12, "third")]))
 		self.assertEqual(parsed["one_bpmn/new.py"], ("A", [(1, "only")]))
 		self.assertEqual(parsed["one_bpmn/gone.py"], ("D", []))
+		self.assertEqual(parsed["one_bpmn/moved.py"], ("R:one_bpmn/old.py", [(2, "after")]))

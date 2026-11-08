@@ -39,7 +39,7 @@ GENERATE_FLOW_RE = re.compile(
 
 
 def execute():
-	from one_bpmn.agents.agent_config_resolver import get_creation_process_model
+	from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import get_creation_process_model
 
 	model = get_creation_process_model()
 	if not model:

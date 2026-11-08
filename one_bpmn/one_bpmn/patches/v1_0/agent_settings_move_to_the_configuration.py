@@ -21,9 +21,9 @@ def execute():
 	Nothing is removed from the XML. The diagrams keep their copies and stay
 	loadable; they simply stop being the only place a setting exists.
 	"""
-	from one_bpmn.agents.agent_config_resolver import _CONFIG_TO_SHAPE
+	from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import CONFIG_TO_SHAPE
 
-	shape_to_config = {shape: field for field, shape in _CONFIG_TO_SHAPE.items()}
+	shape_to_config = {shape: field for field, shape in CONFIG_TO_SHAPE.items()}
 	moved: dict[str, dict[str, str]] = {}
 
 	for model in frappe.get_all("BPMN Process Model", fields=["name", "serialized_spec"]):

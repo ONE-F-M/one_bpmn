@@ -18,7 +18,7 @@ import frappe
 from frappe import _
 
 from one_bpmn.agents.memory.tools import REVISIT_SCOPE_ROWS, REVISIT_TOTAL_ROWS
-from one_bpmn.agents.model_health import _dedupe, _is_real_user, _send_email, configured_recipients
+from one_bpmn.ai_agent_registry.model_health import dedupe, is_real_user, send_email, configured_recipients
 
 # The scope key is polymorphic: which columns identify one key depends on the
 # scope, so the count groups on all of them at once.
@@ -85,11 +85,11 @@ def check_volume() -> list[str]:
 
 
 def _recipients() -> list[str]:
-	users = _dedupe(configured_recipients())
+	users = dedupe(configured_recipients())
 	if users:
 		return users
 	managers = frappe.get_all("Has Role", filters={"role": "System Manager", "parenttype": "User"}, pluck="parent")
-	return _dedupe(u for u in managers if _is_real_user(u))
+	return dedupe(u for u in managers if is_real_user(u))
 
 
 def _notify(lines: list[str]) -> None:
@@ -118,6 +118,6 @@ def _notify(lines: list[str]) -> None:
 			frappe.log_error(title="AI Memory volume: in-app alert failed", message=frappe.get_traceback())
 	if told:
 		try:
-			_send_email(told, subject, body)
+			send_email(told, subject, body)
 		except Exception:
 			frappe.log_error(title="AI Memory volume: alert email failed", message=frappe.get_traceback())

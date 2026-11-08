@@ -270,7 +270,7 @@ def execute():
 	if created:
 		frappe.db.commit()
 
-	from one_bpmn.one_bpmn.doctype.ai_injection_pattern.ai_injection_pattern import (
+	from one_bpmn.ai_agent_security.doctype.ai_injection_pattern.ai_injection_pattern import (
 		clear_pattern_cache,
 	)
 

@@ -9,8 +9,7 @@ from unittest.mock import patch
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import bpmn_xml_input as bx
-
+from one_bpmn.ai_agent_registry.definitions.prosally import helpers_xml_input as bx
 NS = (
 	'xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" '
 	'xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" '
@@ -316,7 +315,7 @@ class TestProsAllyWiring(FrappeTestCase):
 
 		message = "add a step\n" + _document(shapes=400)
 		with patch(
-			"one_bpmn.api.agent_invocation.invoke_agent",
+			"one_bpmn.api.a2a.invoke_agent",
 			return_value={"response": "ok", "conversation": "CONV-1"},
 		) as invoke:
 			list(agui_stream.agent_event_stream("prosally_agent", message, "CONV-1", {"process_name": "P"}))
@@ -334,7 +333,7 @@ class TestProsAllyWiring(FrappeTestCase):
 		from one_bpmn.api import server_script_api  # noqa: F401
 
 		with (
-			patch("one_bpmn.api.agent_invocation.invoke_agent") as invoke,
+			patch("one_bpmn.api.a2a.invoke_agent") as invoke,
 			patch("one_bpmn.utils.chat_persistence.save_user_message"),
 			patch("one_bpmn.utils.chat_persistence.save_bot_message") as save_bot,
 		):
@@ -366,7 +365,7 @@ class TestProsAllyWiring(FrappeTestCase):
 
 		message = "review this\n" + _document(BROKEN_STRUCTURE)
 		with (
-			patch("one_bpmn.api.agent_invocation.invoke_agent") as invoke,
+			patch("one_bpmn.api.a2a.invoke_agent") as invoke,
 			patch("one_bpmn.utils.chat_persistence.save_user_message") as save_user,
 			patch("one_bpmn.utils.chat_persistence.save_bot_message") as save_bot,
 		):
@@ -381,7 +380,7 @@ class TestProsAllyWiring(FrappeTestCase):
 		from one_bpmn.api import server_script_api  # noqa: F401
 
 		with patch(
-			"one_bpmn.api.agent_invocation.invoke_agent",
+			"one_bpmn.api.a2a.invoke_agent",
 			return_value={"response": "ok", "conversation": "CONV-1"},
 		) as invoke:
 			list(agui_stream.agent_event_stream("prosally_agent", "add a review step", "CONV-1", {}))

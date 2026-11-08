@@ -8,7 +8,9 @@
  "field_order": [
   "document_doctype",
   "document_name",
+  "old_instance",
   "column_break_1",
+  "reason",
   "error_message",
   "column_break_2",
   "timestamp"
@@ -31,8 +33,23 @@
    "read_only": 1
   },
   {
+   "fieldname": "old_instance",
+   "fieldtype": "Link",
+   "label": "Old Instance",
+   "options": "BPMN Process Instance",
+   "read_only": 1
+  },
+  {
    "fieldname": "column_break_1",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Reason",
+   "options": "\nSub-process running\nPast a new step\nWaiting at removed step\nAlready on new map\nNo state mapping\nReplay stuck\nState not reached\nTimed out\nError",
+   "read_only": 1
   },
   {
    "fieldname": "error_message",
@@ -56,7 +73,7 @@
  "index_web_pages_for_search": 0,
  "istable": 1,
  "links": [],
- "modified": "2026-06-14 09:55:00.000000",
+ "modified": "2026-11-08 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Processa Engine",
  "name": "Legacy Migration Error Log",

@@ -9,7 +9,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from unittest.mock import patch
 
-from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 
 
 class TestDispatchObservability(FrappeTestCase):
@@ -44,7 +44,7 @@ class TestDispatchObservability(FrappeTestCase):
 		from one_bpmn.processa_engine.dispatch.ai_agent import dispatch_ai_agent
 
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=mock_result,
 		):
 			dispatch_ai_agent(self.instance, self.mock_task, self.task_cfg, self.bpmn_id)
@@ -136,7 +136,7 @@ class TestDispatchObservability(FrappeTestCase):
 			error_message="Model unavailable",
 		)
 		with patch("frappe.log_error") as mock_log, patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=result,
 		):
 			dispatch_ai_agent(self.instance, self.mock_task, self.task_cfg, self.bpmn_id)

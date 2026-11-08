@@ -8,10 +8,10 @@ import time
 
 import frappe
 from frappe import _
-from frappe.utils import escape_html, now_datetime
+from frappe.utils import cint, escape_html, now_datetime
 
-from one_bpmn.agents import turn_signal
-from one_bpmn.security.rate_limit import RateLimited
+from one_bpmn.processa_engine.agent_runtime import turn_signal
+from one_bpmn.ai_agent_security.rate_limit import RateLimited
 from one_bpmn.utils.session import as_user
 
 
@@ -505,7 +505,7 @@ def create_server_script(
 	doc.__newname = script_name
 	doc.script_type = script_type
 	doc.script = script
-	doc.disabled = 0  # enabled by default
+	doc.disabled = doc.processa_pending_review = 1  # a System Manager reviews and enables it
 	if reference_doctype:
 		doc.reference_doctype = reference_doctype
 	if doctype_event:
@@ -531,7 +531,7 @@ def create_server_script(
 			doc = frappe.get_doc("Server Script", script_name)
 			doc.script_type = script_type
 			doc.script = script
-			doc.disabled = 0
+			doc.disabled = doc.processa_pending_review = 1
 			if reference_doctype is not None:
 				doc.reference_doctype = reference_doctype
 			if doctype_event is not None:
@@ -588,6 +588,7 @@ def update_server_script(
 	try:
 		doc = frappe.get_doc("Server Script", script_name)
 		doc.script = script
+		doc.disabled = doc.processa_pending_review = 1
 		if script_type:
 			doc.script_type = script_type
 		if reference_doctype is not None:
@@ -667,9 +668,8 @@ def run_logix_test_case(script_name: str, inputs: str = "{}") -> dict:
 		if script_doc.script_type != "API":
 			return {"passed": False, "result": None, "summary": "This script is not an API-type script and cannot be run as a test."}
 
-		from one_bpmn.processa_engine.engine import _check_script_permissions
-
-		_check_script_permissions(script_doc.script, script_name)
+		from one_bpmn.processa_engine.engine import check_server_script
+		check_server_script(script_doc)
 
 		context_doctype = str(test_inputs.get("context_doctype") or "")
 		context_docname = str(test_inputs.get("context_docname") or "")
@@ -767,10 +767,10 @@ def toggle_server_script(script_name: str, disabled: int) -> dict:
 	if not script_name:
 		frappe.throw(_("Script name is required"))
 
-	# Permission check: Script Manager or System Manager
-	if not frappe.has_permission("Server Script", "write") and "System Manager" not in frappe.get_roles():
+	can_disable = cint(disabled) and frappe.has_permission("Server Script", "write")
+	if not can_disable and "System Manager" not in frappe.get_roles():
 		frappe.throw(
-			_("You need the Script Manager or System Manager role to toggle Server Scripts."),
+			_("You need the System Manager role to enable a Server Script, or Script Manager to disable one."),
 			frappe.PermissionError,
 		)
 
@@ -780,8 +780,7 @@ def toggle_server_script(script_name: str, disabled: int) -> dict:
 	frappe.db.set_value(
 		"Server Script",
 		script_name,
-		"disabled",
-		int(disabled),
+		{"disabled": 1} if cint(disabled) else {"disabled": 0, "processa_pending_review": 0},
 		update_modified=True
 	)
 
@@ -855,10 +854,10 @@ def shape_logix_reply(result: dict) -> dict:
 	the translator can emit onefm.script_diff and no JSON reaches a bubble."""
 	if result.get("modified_script") or result.get("intent"):
 		return result
-	from one_bpmn.api.ai_assistant import _extract_json
+	from one_bpmn.ai_agent_registry.definitions.shared.helpers import extract_json
 
 	raw = result.get("response") or ""
-	parsed = _extract_json(raw if isinstance(raw, str) else "")
+	parsed = extract_json(raw if isinstance(raw, str) else "")
 	if not isinstance(parsed, dict) or not (parsed.get("intent") or parsed.get("modified_script")):
 		return result
 	shaped = dict(result)
@@ -887,14 +886,14 @@ def build_prosally_turn_context(context: dict) -> dict:
 	xml_input = None
 	if pasted:
 		try:
-			from one_bpmn.agents.bpmn_xml_input import prepare_turn
+			from one_bpmn.ai_agent_registry.definitions.prosally.helpers_xml_input import prepare_turn
 
 			xml_input = prepare_turn(pasted)
 		except Exception:
 			frappe.log_error(title="ProsAlly: pasted BPMN XML analysis failed", message=frappe.get_traceback())
 	xml_section = ""
 	if xml_input:
-		from one_bpmn.agents.bpmn_xml_input import XML_INPUT_RULES
+		from one_bpmn.ai_agent_registry.definitions.prosally.helpers_xml_input import XML_INPUT_RULES
 
 		xml_section = xml_input["block"] + "\n\n" + XML_INPUT_RULES + "\n\n"
 		if xml_input["message_override"]:
@@ -924,10 +923,10 @@ def shape_prosally_reply(result: dict) -> dict:
 	no-op when the purpose-built map already returned structured keys."""
 	if result.get("bpmn_xml") or result.get("pending_xml") or result.get("intent"):
 		return result
-	from one_bpmn.api.ai_assistant import _extract_json
+	from one_bpmn.ai_agent_registry.definitions.shared.helpers import extract_json
 
 	raw = result.get("response") or ""
-	parsed = _extract_json(raw if isinstance(raw, str) else "")
+	parsed = extract_json(raw if isinstance(raw, str) else "")
 	if not isinstance(parsed, dict) or not (
 		parsed.get("intent") or parsed.get("bpmn_xml") or parsed.get("pending_xml")
 	):

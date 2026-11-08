@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 from one_bpmn.agents.eval_runner import (
     JUDGE_PROMPT_TEMPLATE,
     _evaluate_assertion,

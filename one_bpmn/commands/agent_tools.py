@@ -13,8 +13,8 @@ import frappe
 from frappe.commands import get_site, pass_context
 
 from one_bpmn.agents import shape_tools
-from one_bpmn.agents.llm_provider import factory
-from one_bpmn.one_bpmn.connectors import manifest
+from one_bpmn.processa_engine.agent_runtime import llm_factory
+from one_bpmn.processa_connectors import manifest
 
 _IMPORT_FAILURE_TYPES = (ImportError, SyntaxError, NameError, AttributeError)
 
@@ -124,14 +124,14 @@ def run_check() -> tuple[list[str], int, int]:
 	original_enqueue = frappe.enqueue
 	original_publish_realtime = frappe.publish_realtime
 	original_log_error = frappe.log_error
-	original_complete = factory.MeteredAdapter.complete
+	original_complete = llm_factory.MeteredAdapter.complete
 
 	try:
 		frappe.db.commit = _noop
 		frappe.enqueue = _noop
 		frappe.publish_realtime = _noop
 		frappe.log_error = _noop
-		factory.MeteredAdapter.complete = _blocked_complete
+		llm_factory.MeteredAdapter.complete = _blocked_complete
 
 		models = frappe.get_all(
 			"BPMN Process Model",
@@ -194,7 +194,7 @@ def run_check() -> tuple[list[str], int, int]:
 		frappe.enqueue = original_enqueue
 		frappe.publish_realtime = original_publish_realtime
 		frappe.log_error = original_log_error
-		factory.MeteredAdapter.complete = original_complete
+		llm_factory.MeteredAdapter.complete = original_complete
 
 	return failures, checked, skipped
 

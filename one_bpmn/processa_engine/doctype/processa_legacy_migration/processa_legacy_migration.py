@@ -6,13 +6,15 @@
 # the workflow_state, waits at the "Review" user task, and — when the owner takes
 # the "Run Migration" action — runs the migration via the "Action Processa Legacy
 # Migration" Server Script, then marks the record Completed.
-#
-# All actioning therefore lives in that Server Script / the BPMN diagram, not
-# here: this controller only validates the configuration while it is editable.
+
+import json
+from collections import Counter
 
 import frappe
 from frappe import _
 from frappe.model.document import Document
+
+OPEN_INSTANCE_STATUSES = ("Active", "Errored")
 
 
 class ProcessaLegacyMigration(Document):
@@ -23,40 +25,125 @@ class ProcessaLegacyMigration(Document):
 
 	if TYPE_CHECKING:
 		from frappe.types import DF
-		from one_bpmn.processa_engine.doctype.legacy_migration_error_log.legacy_migration_error_log import LegacyMigrationErrorLog
 
+		from one_bpmn.processa_engine.doctype.legacy_migration_error_log.legacy_migration_error_log import (
+			LegacyMigrationErrorLog,
+		)
+		from one_bpmn.processa_engine.doctype.legacy_migration_state_map.legacy_migration_state_map import (
+			LegacyMigrationStateMap,
+		)
+
+		batches_done: DF.Int
 		completed_at: DF.Datetime | None
-		create_process_instance: DF.Check
 		error_logs: DF.Table[LegacyMigrationErrorLog]
 		failed_count: DF.Int
+		from_model: DF.Link
 		migrated_count: DF.Int
-		old_status: DF.Data
-		process_model: DF.Link
 		run_by: DF.Link | None
 		started_at: DF.Datetime | None
+		state_map: DF.Table[LegacyMigrationStateMap]
 		status: DF.Literal["Draft", "Queued", "Running", "Completed", "Failed"]
 		target_doctype: DF.Link
-		target_status: DF.Data
-		target_task_id: DF.Data | None
-		target_task_name: DF.Data | None
+		to_model: DF.Link
+		total_batches: DF.Int
 		total_records: DF.Int
 		workflow_state: DF.Link | None
 	# end: auto-generated types
-	"""Configuration + progress record for a legacy-document migration.
-
-	The migration itself is performed by the BPMN process; this controller only
-	validates the configuration while the record is still in Draft.
-	"""
+	"""Configuration and progress record for moving open records from an old process map to a new one."""
 
 	def validate(self):
-		if self.status not in ("Draft", ""):
+		if self.status not in ("Draft", "Failed"):
 			return
+		# A blank map is left to Frappe's mandatory check, which runs after validate.
+		if not (self.from_model and self.to_model):
+			return
+		from_model = frappe.get_doc("BPMN Process Model", self.from_model)
+		to_model = frappe.get_doc("BPMN Process Model", self.to_model)
+		self._check_process_ownership(from_model, to_model)
+		self._check_maps(from_model, to_model)
+		state_field = self._state_field()
+		self._check_state_map(to_model)
+		self._check_open_states_mapped(state_field)
 
-		if not self.process_model:
-			frappe.throw(_("Process Model is required."))
-		if not self.target_doctype:
-			frappe.throw(_("Target DocType is required."))
-		if not self.old_status:
-			frappe.throw(_("Old Status is required."))
-		if not self.target_status:
-			frappe.throw(_("Target Status is required."))
+	def _check_process_ownership(self, from_model, to_model):
+		if "System Manager" in frappe.get_roles():
+			return
+		for model in (from_model, to_model):
+			if frappe.db.get_value("Process", model.process_name, "process_owner") != frappe.session.user:
+				frappe.throw(
+					_("You are not the Process Owner of {0}, the process of {1}.").format(
+						model.process_name, model.name
+					),
+					frappe.PermissionError,
+				)
+
+	def _check_maps(self, from_model, to_model):
+		if from_model.name == to_model.name:
+			frappe.throw(_("Old Process Map and New Process Map must be different."))
+		if not to_model.serialized_spec:
+			frappe.throw(_("New Process Map {0} has never been deployed.").format(to_model.name))
+		from_doctypes, to_doctypes = _model_doctypes(from_model), _model_doctypes(to_model)
+		if not from_doctypes & to_doctypes:
+			frappe.throw(
+				_("Old Process Map runs on {0} but New Process Map runs on {1}.").format(
+					", ".join(sorted(from_doctypes)) or _("no DocType"),
+					", ".join(sorted(to_doctypes)) or _("no DocType"),
+				)
+			)
+
+	def _state_field(self) -> str:
+		meta = frappe.get_meta(self.target_doctype)
+		for fieldname in ("workflow_state", "status"):
+			if meta.has_field(fieldname):
+				return fieldname
+		frappe.throw(_("{0} has neither a workflow_state nor a status field.").format(self.target_doctype))
+
+	def _check_state_map(self, to_model):
+		old_states = [d.old_state for d in self.state_map]
+		for state, count in Counter(old_states).items():
+			if count > 1:
+				frappe.throw(_("Old State {0} is mapped more than once.").format(state))
+
+		spec = json.loads(to_model.serialized_spec)
+		set_states = {cfg.get("workflowState") for cfg in spec.get("service_task_extensions", {}).values()}
+		for d in self.state_map:
+			if d.new_state not in set_states:
+				frappe.throw(
+					_("No Set Workflow State step in {0} sets {1}.").format(to_model.name, d.new_state)
+				)
+
+	def _check_open_states_mapped(self, state_field: str):
+		docnames = frappe.get_all(
+			"BPMN Process Instance",
+			filters={
+				"process_model": self.from_model,
+				"context_doctype": self.target_doctype,
+				"status": ["in", OPEN_INSTANCE_STATUSES],
+			},
+			pluck="context_docname",
+		)
+		states = (
+			frappe.get_all(self.target_doctype, filters={"name": ["in", docnames]}, pluck=state_field)
+			if docnames
+			else []
+		)
+		counts = Counter(states)
+		for d in self.state_map:
+			d.record_count = counts.get(d.old_state, 0)
+
+		mapped = {d.old_state for d in self.state_map}
+		missing = [
+			f"{state or _('(empty)')} ({count})" for state, count in counts.items() if state not in mapped
+		]
+		if missing:
+			frappe.throw(
+				_("Open records on {0} are in states with no State Mapping row: {1}").format(
+					self.from_model, ", ".join(missing)
+				)
+			)
+
+
+def _model_doctypes(model) -> set:
+	"""DocTypes a process model runs on: its target DocTypes, else its start events' trigger DocTypes."""
+	doctypes = {d.doctype_name for d in model.target_doctypes}
+	return doctypes or {e.trigger_doctype for e in model.start_events if e.trigger_doctype}

@@ -24,7 +24,7 @@ import threading
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.turn_state import run_sync
+from one_bpmn.processa_engine.agent_runtime.turn_state import run_sync
 
 
 def _read_the_database():
@@ -109,10 +109,8 @@ class TestRunSyncContext(FrappeTestCase):
 
         # Two tools that every affected map has in common, so this test is
         # independent of where the Docu-specific tools live.
-        from one_bpmn.tools.tool_for_server_scripts import (
-            get_doctype_fields,
-            list_api_server_scripts,
-        )
+        from one_bpmn.ai_agent_registry.definitions.shared.tools import get_doctype_fields
+        from one_bpmn.ai_agent_registry.definitions.logix.tools import list_api_server_scripts
 
         async def outer():
             async def inner():
@@ -134,12 +132,12 @@ class TestDirectApiExecutorContext(FrappeTestCase):
     """The executor's own fallback carries the same contract."""
 
     def test_run_coro_blocking_propagates_context(self):
-        from one_bpmn.agents.executor.direct_api import _run_coro_blocking
+        from one_bpmn.processa_engine.agent_runtime.direct_api import run_coro_blocking
 
         async def outer():
             async def inner():
                 return _read_the_database()
 
-            return _run_coro_blocking(inner())
+            return run_coro_blocking(inner())
 
         self.assertTrue(asyncio.run(outer()))

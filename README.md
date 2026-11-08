@@ -70,10 +70,13 @@ one_bpmn/                      # Frappe app (repo root)
 ├── one_bpmn/                  # Python package
 │   ├── api/                   # Whitelisted backend endpoints (domain submodules)
 │   ├── one_bpmn/doctype/      # DocTypes + controllers (models, instances, tasks, logs)
-│   ├── one_bpmn/connectors/   # Outbound connectors and the agent sandbox client
-│   ├── agents/                # AI agent runtime (executor, llm_provider, shape tools, memory)
-│   ├── security/              # Validator for generated scripts
+│   ├── one_bpmn/connectors/   # A2A connector handlers
+│   ├── agents_sandbox/        # Agent sandbox doctypes, sandbox client, customization writers
+│   ├── agents/                # AI agents (shape tools, memory, evals, A2A)
+│   ├── ai_agent_security/     # Screening, rate limits, turn locks, security events, code checks
+│   ├── ai_agent_guardrails/   # Tool policy, agent refusals, doctype change approval
 │   ├── processa_engine/notifications/  # AMP and HTML task emails
+│   ├── processa_engine/agent_runtime/  # Executors, model adapters, step loop and turn state
 │   ├── commands/              # bench commands
 │   ├── overrides/             # Overridden Frappe classes
 │   ├── templates/             # Email and deployment templates
@@ -99,16 +102,14 @@ one_bpmn/                      # Frappe app (repo root)
 
 All endpoints are `@frappe.whitelist()` methods organized into domain submodules under `one_bpmn/api/`. Below is the endpoint surface by module.
 
-### Process Model CRUD (`process_map_api`)
+### Process Model CRUD (`process_maps`)
 
 | Method | Endpoint | Description |
 | ------ | -------- | ----------- |
 | POST | `save_process_model` | Save or update a BPMN diagram |
 | POST | `import_bpmn` | Import a .bpmn file (upsert by process_id) |
 | POST | `rename_process_model` | Rename a diagram (fast path) |
-| POST | `update_diagram_order` | Reorder diagrams within a process |
 | GET | `get_process_model` | Get a diagram by name |
-| GET | `list_process_models` | List all diagrams |
 | GET | `list_processes` | List Process records with diagram counts |
 | GET | `get_process_diagrams` | Get all diagrams for a process |
 | GET | `resolve_process_model_by_id` | Resolve process_id to model |
@@ -122,7 +123,7 @@ All endpoints are `@frappe.whitelist()` methods organized into domain submodules
 | `compile_process_model` | Compile and deploy a process model |
 | `disable_process_model` | Disable a deployed model |
 
-### Process Instance Lifecycle (`instance_api`)
+### Process Instances (`instances`)
 
 | Endpoint | Description |
 | -------- | ----------- |
@@ -131,8 +132,8 @@ All endpoints are `@frappe.whitelist()` methods organized into domain submodules
 | `send_message` | Deliver a message to a running instance |
 | `list_process_instances` | List instances |
 | `get_instance_tasks` | Active tasks for an instance |
-| `get_instances_for_document` | Instances bound to a context document |
 | `get_active_bpmn_tasks` | Active tasks across instances |
+| `cancel_instance`, `suspend_instance`, `resume_instance`, `retry_failed_step` | Operator controls on an instance |
 
 ### Other modules
 
@@ -141,10 +142,10 @@ All endpoints are `@frappe.whitelist()` methods organized into domain submodules
 | `server_script_api` | Server-script CRUD + Logix tooling (chat itself goes through `agui.stream_agent_turn`) | `create_server_script`, `update_server_script`, `toggle_server_script`, `run_logix_test_case`, `end_chat_conversation` |
 | `canvas_comments` | Canvas comments & element assets | `get_canvas_comments`, `post_canvas_comment`, `update_comment_status`, `delete_canvas_element_assets` |
 | `editability` | Cross-site editor lock / edit checks | `check_and_update_editor_lock`, `check_process_editable`, `bulk_check_processes_editable` |
-| `version_history` | Diagram XML version history | `get_diagram_versions`, `get_diagram_version_xml` |
-| `script_version_history` | Server-script version history | `get_script_version_history`, `get_script_at_version`, `restore_script_version` |
+| `versions` | Diagram and server-script version history | `get_edit_history`, `restore_version`, `get_diagram_versions`, `get_script_version_history` |
+| `dmn` | DMN decision tables for business rule tasks | `get_dmn_xml`, `save_dmn_xml`, `get_decision_list` |
 | `notification_api` | In-app notification creation | `create_notification` |
-| `utils` | Shared lookups (roles, fields, context docs) | `get_users_by_role`, `get_doctype_fields`, `get_context_doctypes`, `get_context_documents`, … |
+| `lookups` | Field and user lookups (fields, users, context docs) | `get_doctype_fields`, `get_system_users`, `get_context_doctypes`, `get_context_documents` |
 | `workflow_state` | Apply Frappe workflow-state transitions for BPMN service tasks (internal helper, not a public endpoint) | — |
 
 ---
@@ -291,10 +292,10 @@ bench --site your-site.local clear-cache
 
 ### Adding New Features
 
-- **API endpoint**: add to the appropriate submodule in `one_bpmn/api/` with `@frappe.whitelist()` (e.g. process CRUD in `process_map_api.py`, instance logic in `instance_api.py`).
+- **API endpoint**: add to the appropriate submodule in `one_bpmn/api/` with `@frappe.whitelist()` (e.g. process CRUD in `process_maps.py`, instance endpoints in `instances.py`).
 - **Vue component / view**: add under `spiff/src/components/` or `spiff/src/pages/` and register routes in `spiff/src/router.js`.
 - **bpmn-js module**: add under `spiff/src/bpmn/`, `renderers/`, `rules/`, or `resize/` and register in `BpmnEditor.vue`'s `additionalModules`.
-- **Moddle extension**: add under `spiff/src/moddle/` and register in `BpmnEditor.vue`'s `moddleExtensions`.
+- **Moddle extension**: add under `spiff/src/bpmn/moddle/` and register in `BpmnEditor.vue`'s `moddleExtensions`.
 
 ### Runtime Hooks
 
@@ -385,15 +386,15 @@ Intent Classifier
 
 | File | Purpose |
 |---|---|
-| `spiff/src/components/ProsAlly/ProsAllyPanel.vue` | Chat UI — messages, option buttons, rich-text input |
+| `spiff/src/components/ProsAlly/ProsAllyPanel/ProsAllyPanel.vue` | Chat UI — messages, option buttons, rich-text input |
 | `spiff/src/utils/bpmnLayout.js` | Auto-layout — positions generated BPMN elements left-to-right |
-| `spiff/src/linting/bpmnlintrc.js` | bpmnlint rule configuration (errors vs. warnings) |
-| `one_bpmn/agents/bpmn_ir_pipeline.py` | IR → BPMN XML compilation (`compile_ir`); the pipeline stages themselves are DB Server Scripts driven by the ProsAlly process model |
+| `spiff/src/bpmn/lint/bpmnlintrc.js` | bpmnlint rule configuration (errors vs. warnings) |
+| `one_bpmn/ai_agent_registry/definitions/prosally/tools_pipeline.py` | IR → BPMN XML compilation (`compile_ir`); the pipeline stages themselves are DB Server Scripts driven by the ProsAlly process model |
 | `one_bpmn/utils/chat_persistence.py` | Persists conversation history (`Chat Conversation` DocType) |
 
 ### Agent Pipeline
 
-The stages (intent classifier, clarifier, confirmer, generator, modifier) are DB Server Scripts called as Agent Tools by the ProsAlly process map, and their prompts are seeded by patches. Chat turns go through `one_bpmn.api.agui.stream_agent_turn`. The one Python stage is `compile_ir` in `one_bpmn/agents/bpmn_ir_pipeline.py`.
+The stages (intent classifier, clarifier, confirmer, generator, modifier) are DB Server Scripts called as Agent Tools by the ProsAlly process map, and their prompts are seeded by patches. Chat turns go through `one_bpmn.api.agui.stream_agent_turn`. The one Python stage is `compile_ir` in `one_bpmn/ai_agent_registry/definitions/prosally/tools_pipeline.py`.
 
 ### Auto-Layout (`bpmnLayout.js`)
 
@@ -489,7 +490,7 @@ See `AGENTS.md` for the full working rules.
 
 ## Architecture Overview
 
-- `one_bpmn/api/` — backend endpoints organized into domain-specific submodules (process CRUD, compilation, instance lifecycle, server scripts, comments, editability, version history, notifications, shared utils)
+- `one_bpmn/api/` - backend endpoints organized into domain-specific submodules (process CRUD, compilation, instance lifecycle, server scripts, comments, editability, version history, notifications, lookups)
 - `one_bpmn/one_bpmn/doctype/` — BPMN DocTypes and server logic (process models, instances, active tasks, activity logs, configuration)
 - `one_bpmn/tasks.py` — scheduled A2A, conversation, memory and model jobs
 - `one_bpmn/hooks.py` — universal document-event trigger and scheduler events

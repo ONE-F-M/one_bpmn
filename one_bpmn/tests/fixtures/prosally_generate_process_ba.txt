@@ -1,11 +1,11 @@
 # ProsAlly - Tool Generate Process.
 # Generate a brand-new (or overwriting) BPMN model. GENERATE_NEW / OVERWRITE_EXISTING.
 import json
-from one_bpmn.agents.turn_state import get_turn, update_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, update_turn
 from one_bpmn.agents.prosally_helpers import complete_sub_prompt, describe_lanes, describe_task_config, extract_json, format_history, prosally_config, stage_max_tokens, stage_system_prompt
 from one_bpmn.agents.bpmn_ir_pipeline import auto_fix_ir, compile_ir, extract_process_name, translate_problems, translate_violations, ensure_default_lanes, merge_chunked_ir, chunk_exit_node_id
 from one_bpmn.security.bpmn_validator import validate_bpmn_xml
-from one_bpmn.agents.llm_provider.base import LLMTruncatedError
+from one_bpmn.processa_engine.agent_runtime.llm_types import LLMTruncatedError
 
 _GENERATE_INTENTS = frozenset({"GENERATE_NEW", "OVERWRITE_EXISTING"})
 _MAX_FIX_PASSES = 3

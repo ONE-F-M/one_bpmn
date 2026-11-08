@@ -52,7 +52,7 @@ class TestQueryTokenizer(FrappeTestCase):
 	def test_stopwords_and_short_tokens_dropped(self):
 		# "the"/"with" are stopwords; "of"/"a" are below the min length; only the
 		# content words survive so a whole prompt no longer matches everything.
-		toks = [t.lower() for t in T._query_tokens("Please create the invoice with a lot of items")]
+		toks = [t.lower() for t in T.query_tokens("Please create the invoice with a lot of items")]
 		self.assertNotIn("the", toks)
 		self.assertNotIn("with", toks)
 		self.assertNotIn("of", toks)
@@ -61,7 +61,7 @@ class TestQueryTokenizer(FrappeTestCase):
 		self.assertIn("items", toks)
 
 	def test_distinct_tokens_only(self):
-		self.assertEqual(T._query_tokens("invoice invoice invoice"), ["invoice"])
+		self.assertEqual(T.query_tokens("invoice invoice invoice"), ["invoice"])
 
 
 class TestFulltextPath(FrappeTestCase):
@@ -485,7 +485,7 @@ class TestReconciler(FrappeTestCase):
 	the executor so no live model is called."""
 
 	def _run_with_executor_output(self, output, candidates):
-		from one_bpmn.agents import executor as E
+		from one_bpmn.processa_engine.agent_runtime import executor as E
 		from one_bpmn.agents.memory import reconcile as R
 
 		class _Res:
@@ -497,7 +497,7 @@ class TestReconciler(FrappeTestCase):
 			def run(self, cfg, ctx):
 				return _Res()
 
-		with patch("one_bpmn.agents.executor.get_executor", lambda backend: _Exec):
+		with patch("one_bpmn.processa_engine.agent_runtime.executor.get_executor", lambda backend: _Exec):
 			return R.reconcile("new fact", candidates, provider_name="p", backend="direct_api", model="m")
 
 	def test_safe_add_without_model(self):

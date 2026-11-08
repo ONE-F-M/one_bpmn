@@ -7,16 +7,10 @@ from xml.etree import ElementTree as ET
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.bpmn_ir_pipeline import compile_ir
-from one_bpmn.agents.prosally_helpers import (
-	asks_to_make_call_activity,
-	convert_step_to_subprocess,
-	find_missing_target,
-	resolve_step,
-	restore_call_activities,
-	transfer_properties,
-)
-from one_bpmn.security.bpmn_validator import validate_bpmn_xml
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_pipeline import compile_ir
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_subprocess import asks_to_make_call_activity, convert_step_to_subprocess, find_missing_target, resolve_step, restore_call_activities
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_properties import transfer_properties
+from one_bpmn.ai_agent_registry.definitions.prosally.validators import validate_bpmn_xml
 from one_bpmn.tests.test_prosally_subprocess_scope import STEPS
 
 BPMN = "{http://www.omg.org/spec/BPMN/20100524/MODEL}"

@@ -8,8 +8,8 @@ Run with:
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.process_links import asks_for_links_review, links_review_output
-from one_bpmn.agents.turn_state import clear_turn, get_turn, set_turn
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_links import asks_for_links_review, links_review_output
+from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_reviews_process_links as review_patch
 from one_bpmn.one_bpmn.patches.v1_0.prosally_relayouts_and_compares import apply_edits
 from one_bpmn.tests.test_process_links import CATCH_SIGNAL, THROW_SIGNAL, _model

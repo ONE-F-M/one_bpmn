@@ -11,7 +11,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import (
+from one_bpmn.processa_engine.agent_runtime.executor import (
 	ErrorCode,
 	Executor,
 	ExecutorConfig,
@@ -19,7 +19,7 @@ from one_bpmn.agents.executor import (
 	TokenUsage,
 	register_executor,
 )
-from one_bpmn.agents.executor.direct_api import DirectApiExecutor
+from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
 from one_bpmn.processa_engine.dispatch import ai_agent as D
 
 _CAPTURED = {}
@@ -608,7 +608,7 @@ class TestTheUserMessageReachesTheModel(FrappeTestCase):
 	def test_the_turn_store_is_read_when_the_task_does_not_carry_it(self):
 		"""ProsAlly and Logix seed the store and pass nothing down the task."""
 		with patch(
-			"one_bpmn.agents.turn_state.get_turn", return_value={"user_text": "draw an onboarding process"}
+			"one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value={"user_text": "draw an onboarding process"}
 		):
 			prompt = self._dispatch(_chat_instance())
 
@@ -617,7 +617,7 @@ class TestTheUserMessageReachesTheModel(FrappeTestCase):
 	def test_a_background_agent_is_untouched(self):
 		"""Only a chat turn has a person's message; a record-triggered agent's
 		prompt must be exactly what its map rendered."""
-		with patch("one_bpmn.agents.turn_state.get_turn", return_value={"user_text": "not mine"}):
+		with patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value={"user_text": "not mine"}):
 			prompt = self._dispatch(_instance())
 
 		self.assertEqual(prompt, "Process the latest message.")
@@ -724,7 +724,7 @@ class TestRecallSkipsWhenTheTurnMessageIsUnresolved(TestTheUserMessageReachesThe
 		"""task.data carries no user_text and the turn store has nothing either
 		— exactly the turn-1 timing gap. aiUserPrompt is a Logix-style constant
 		driving prompt, not anything the person said."""
-		with patch("one_bpmn.agents.turn_state.get_turn", return_value={}), patch(
+		with patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value={}), patch(
 			"one_bpmn.agents.memory.tools.memory_search"
 		) as ms:
 			self._dispatch(
@@ -737,7 +737,7 @@ class TestRecallSkipsWhenTheTurnMessageIsUnresolved(TestTheUserMessageReachesThe
 		ms.assert_not_called()
 
 	def test_recall_query_is_blank_when_unresolved(self):
-		with patch("one_bpmn.agents.turn_state.get_turn", return_value={}), patch(
+		with patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value={}), patch(
 			"one_bpmn.agents.memory.tools.memory_search"
 		):
 			self._dispatch(

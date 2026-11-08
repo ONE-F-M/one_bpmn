@@ -17,7 +17,7 @@ because they are DB records rather than diagram content:
    match/no_match instructions the old code split across a top-level prompt
    and a Google-ADK sub-agent prompt (sub_prompts are not read by this
    engine's AI Agent Task dispatch at all — only the top-level system_prompt
-   is, per agent_config_resolver._CONFIG_TO_SHAPE). The new prompt also fixes
+   is, per agent_config_resolver.CONFIG_TO_SHAPE). The new prompt also fixes
    the old code's worst bug: it must now return WHICH ticket matched
    (ticket_name), not just match/no_match — the old code always linked
    existing_tickets[0] regardless of what the model actually meant.
@@ -25,7 +25,7 @@ because they are DB records rather than diagram content:
 The map's two Script Tasks (Triage, Apply AI Result) are NOT created here —
 they travel with the diagram itself, through the platform's own
 export_bpmn_config/import_bpmn_config (a companion _config.json alongside the
-.bpmn export, same as document_request_config.json). Duplicating them as
+.bpmn export). Duplicating them as
 string literals in this patch would drift the moment either is edited through
 that path instead.
 
@@ -140,7 +140,7 @@ def _repoint_agent_config() -> None:
 		doc.save(ignore_permissions=True)
 		frappe.cache.delete_value(f"agent_config:{AGENT_ID}")
 
-	from one_bpmn.agents.agent_provisioning import validate_agent_config
+	from one_bpmn.ai_agent_registry.provisioning.agent_provisioning import validate_agent_config
 
 	try:
 		result = validate_agent_config(AGENT_CONFIG_NAME, test_provider=True)

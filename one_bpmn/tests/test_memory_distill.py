@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import (
+from one_bpmn.processa_engine.agent_runtime.executor import (
 	ErrorCode,
 	Executor,
 	ExecutorResult,
@@ -102,7 +102,7 @@ class TestDistillSalienceGate(FrappeTestCase):
 
 # WI-002165: the curator can still hand back a fact that just paraphrases the
 # agent's own instructions (the prompt guardrail alone left confirmed echo
-# rows in the store — see cleanup_ai_memory_store.py); exclude_context is the
+# rows in the store); exclude_context is the
 # deterministic backstop that rejects those regardless of what the curator
 # returned.
 _LOGIX_DRIVING_PROMPT = (

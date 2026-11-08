@@ -10,10 +10,10 @@ from unittest.mock import patch
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor.tool_bounds import validate_tool_arguments
+from one_bpmn.processa_engine.agent_runtime.tool_bounds import validate_tool_arguments
 from one_bpmn.one_bpmn.patches.v1_0 import lucrusher_prosally_follows_code_and_workflow as p
 from one_bpmn.one_bpmn.patches.v1_0.seed_lucrusher_skills import SKILLS
-from one_bpmn.security.script_validator import deep_inspect_script
+from one_bpmn.ai_agent_security.code_checks.script_validator import deep_inspect_script
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -131,8 +131,8 @@ def _run_finalize(prosally_prompts):
 	scope = {"task_data": {"prosally_prompts": prosally_prompts}, "context_docname": "x", "result": {}}
 	stored = {}
 	with (
-		patch("one_bpmn.agents.turn_state.get_turn", return_value={}),
-		patch("one_bpmn.agents.turn_state.update_turn", side_effect=lambda _n, **kw: stored.update(kw)),
+		patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value={}),
+		patch("one_bpmn.processa_engine.agent_runtime.turn_state.update_turn", side_effect=lambda _n, **kw: stored.update(kw)),
 	):
 		exec(_finalize_script(), scope, {})  # noqa: S102 - the patched script text under test
 	return stored["output"]["prosally_prompts"]
@@ -174,8 +174,8 @@ def _run_save_response(previous, new):
 		"result": {},
 	}
 	with (
-		patch("one_bpmn.agents.turn_state.get_turn", return_value={"output": output, "context_state": previous}),
-		patch("one_bpmn.agents.turn_state.clear_turn"),
+		patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value={"output": output, "context_state": previous}),
+		patch("one_bpmn.processa_engine.agent_runtime.turn_state.clear_turn"),
 		patch("one_bpmn.agents.memory.session_state.record", side_effect=lambda _c, snap: recorded.update(snap)),
 	):
 		exec(script, scope)  # noqa: S102 - the patched script text under test, whose helpers read its module names

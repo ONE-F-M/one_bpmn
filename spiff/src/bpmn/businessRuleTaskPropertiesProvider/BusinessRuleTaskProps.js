@@ -80,7 +80,7 @@ function DecisionTablePicker(props) {
 		}
 
 		return frappeGet(
-			"/api/method/one_bpmn.api.dmn_api.get_decision_list",
+			"/api/method/one_bpmn.api.dmn.get_decision_list",
 			params
 		).then((data) => {
 			const list = Array.isArray(data) ? data : [];

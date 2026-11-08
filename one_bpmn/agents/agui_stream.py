@@ -49,8 +49,8 @@ from ag_ui.core import (
 from ag_ui.encoder import EventEncoder
 from frappe import _
 
-from one_bpmn.security.rate_limit import RateLimited
-from one_bpmn.security.refusal import AgentRefusal
+from one_bpmn.ai_agent_security.rate_limit import RateLimited
+from one_bpmn.ai_agent_guardrails.refusal import AgentRefusal
 
 # ── Extension translators (payload dict → list of CustomEvent) ──────────────
 # Registered callables receive the runner's reply dict and return an iterable
@@ -135,7 +135,7 @@ def _tool_calls_from_result(result: dict) -> list:
 	from whatever record of the turn's tool calls the reply carries.
 	Prefers an explicit ``tool_calls`` list on the reply; falls back to
 	flattening the AI Agent Run's own per-turn ``trace`` (the
-	TurnRecord/ToolCallRecord shape from agents/llm_provider/base.py) when
+	TurnRecord/ToolCallRecord shape from processa_engine/agent_runtime/llm_types.py) when
 	a runner exposes that instead. Neither present is not an error \u2014 most
 	turns call no tools at all.
 	"""
@@ -261,7 +261,7 @@ def agent_event_stream(
 
 	yield encoder.encode(RunStartedEvent(run_id=run_id, thread_id=conversation))
 	try:
-		from one_bpmn.api.agent_invocation import invoke_agent
+		from one_bpmn.api.a2a import invoke_agent
 
 		builder = _CONTEXT_BUILDERS.get(agent_id)
 		if builder:
@@ -622,7 +622,7 @@ except Exception:
 # The assistant registers its context builder + reply shaper on import
 # (WI-001674). Same degrade-to-text guarantee as the translators.
 try:
-	import one_bpmn.api.ai_assistant  # noqa: F401,E402
+	import one_bpmn.ai_agent_registry.definitions.assistant.helpers  # noqa: F401,E402
 except Exception:
 	frappe.log_error(title="agui assistant hooks failed to load", message=frappe.get_traceback())
 

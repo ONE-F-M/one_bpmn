@@ -66,7 +66,7 @@ URL_LIVENESS_CONNECTOR = {
 
 
 def execute():
-	from one_bpmn.one_bpmn.connectors.seed import import_manifest
+	from one_bpmn.processa_connectors.seed import import_manifest
 
 	import_manifest(URL_LIVENESS_CONNECTOR, overwrite=False)
 	frappe.db.commit()

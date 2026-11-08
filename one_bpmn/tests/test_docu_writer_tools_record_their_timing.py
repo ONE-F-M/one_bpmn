@@ -7,7 +7,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.one_bpmn.patches.v1_0 import docu_writer_tools_record_their_timing as p
-from one_bpmn.tools.tool_for_server_scripts import timed
+from one_bpmn.ai_agent_registry.definitions.docu.tools import timed
+from one_bpmn.tests.site_scripts import as_deployed
 
 # The six scripts as the live site holds them.
 SCRIPTS = {
@@ -95,7 +96,7 @@ class TestDocuWriterToolsRecordTheirTiming(FrappeTestCase):
 	def _run(self, api_method: str) -> dict:
 		result = {}
 		scope = {"frappe": frappe, "result": result, "doctype": "Note", "ir": IR, "search": "Note"}
-		exec(_script(api_method), scope)
+		exec(as_deployed(_script(api_method)), scope)
 		return result
 
 	def test_each_tool_result_carries_the_timing_of_its_call(self):

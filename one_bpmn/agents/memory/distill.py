@@ -46,7 +46,7 @@ _MAX_EXCLUDE_LEN = 3000
 # of the exclusion context at or above this ratio (SequenceMatcher, 0-1).
 # Deliberately conservative — a backstop for the clear cases, not a substitute
 # for the curator prompt's own judgment. Tuned against the confirmed echo rows
-# in cleanup_ai_memory_store.py: jrrd68247k (a loose paraphrase of
+# in the AI Memory store: jrrd68247k (a loose paraphrase of
 # harden_logix_pipeline_driver.NEW_USER_PROMPT) scores ~0.91; a genuine
 # domain-relevant fact that merely shares vocabulary with an unrelated prompt
 # section (e.g. "Use exclusive gateways for yes/no decisions." against
@@ -263,8 +263,8 @@ def distill_memories(
 	injected memory block for this run. The curator is told not to extract
 	anything already present there, and every returned fact is additionally
 	checked against it with ``_is_echo`` — a deterministic backstop, since the
-	prompt instruction alone left confirmed echo rows in the store (see
-	cleanup_ai_memory_store.py). Passing nothing here (the previous behaviour)
+	prompt instruction alone left confirmed echo rows in the store. Passing
+	nothing here (the previous behaviour)
 	just skips both checks.
 
 	``raise_on_failure`` exists because "nothing was worth remembering" and "the
@@ -298,13 +298,13 @@ def distill_memories(
 		user_prompt += _EXCLUDE_SUFFIX.format(exclude_context=exclude_text)
 
 	try:
-		from one_bpmn.agents.executor import (
+		from one_bpmn.processa_engine.agent_runtime.executor import (
 			ErrorCode,
 			ExecutorConfig,
 			ExecutorContext,
 			get_executor,
 		)
-		from one_bpmn.agents.executor.direct_api import DirectApiExecutor  # noqa: F401
+		from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor  # noqa: F401
 
 		config = ExecutorConfig(
 			backend=backend or "direct_api",

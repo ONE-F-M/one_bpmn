@@ -20,7 +20,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from SpiffWorkflow.util.task import TaskState
 
-from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 from one_bpmn.processa_engine import engine as bpmn_engine
 from one_bpmn.processa_engine.runtime.engine_loop import run_engine
 
@@ -208,7 +208,7 @@ class TestAiTaskParking(ParkHarness):
 			{"Agent_1": {"serviceType": "ai_agent", "aiProvider": "", "aiUserPrompt": "hi"}},
 		)
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_ok(),
 		):
 			enqueue = self._run(wf)
@@ -250,7 +250,7 @@ class TestParkedAiResume(ParkHarness):
 		_, task_id = self._park_linear()
 
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_ok("all done"),
 		):
 			with patch.object(frappe, "enqueue"):
@@ -263,7 +263,7 @@ class TestParkedAiResume(ParkHarness):
 	def test_resume_is_idempotent_on_redelivery(self):
 		_, task_id = self._park_linear()
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run",
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run",
 			return_value=_executor_ok(),
 		) as run:
 			with patch.object(frappe, "enqueue"):
@@ -277,7 +277,7 @@ class TestParkedAiResume(ParkHarness):
 	def test_resume_unknown_task_is_noop(self):
 		self._park_linear()
 		with patch(
-			"one_bpmn.agents.executor.direct_api.DirectApiExecutor.run"
+			"one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run"
 		) as run:
 			self.instance.resume_parked_ai(
 				kind="service_task", task_id="00000000-0000-0000-0000-000000000000"

@@ -10,9 +10,9 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import identity
+from one_bpmn.ai_agent_security import identity
+from one_bpmn.ai_agent_security.tests.test_agent_identity import make_agent_configuration, make_work_item
 from one_bpmn.one_bpmn.patches.v1_0 import grant_specialists_work_item_read as roles_patch
-from one_bpmn.tests.test_agent_identity import _work_item, make_agent_configuration
 
 
 def _run(script_name, *, context_doctype, context_docname, args=None, instance=None):
@@ -59,7 +59,7 @@ class TestReadWorkItem(FrappeTestCase):
 		if not frappe.db.exists("AI Agent Configuration", "Frontend Agent"):
 			self.skipTest("Frontend Agent is not on this site")
 		roles_patch.execute()
-		self.item = _work_item()
+		self.item = make_work_item()
 
 	def test_a_specialist_with_the_role_reads_its_own_work_item_from_the_payload(self):
 		task = _a2a_task("Frontend Agent", work_item=self.item)
@@ -96,7 +96,7 @@ class TestReadWorkItem(FrappeTestCase):
 
 class TestReadPullRequest(FrappeTestCase):
 	def setUp(self):
-		self.item = _work_item()
+		self.item = make_work_item()
 
 	def test_a_non_github_url_is_refused_before_any_request(self):
 		with patch("frappe.integrations.utils.make_get_request") as get:

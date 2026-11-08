@@ -6,9 +6,9 @@ import json
 import frappe
 from frappe.utils.background_jobs import get_queues_timeout
 
-from one_bpmn.agents import turn_signal
-from one_bpmn.agents.executor import DEFAULT_MAX_RETRIES
-from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT, AI_AGENT_QUEUE, ai_agent_queue
+from one_bpmn.processa_engine.agent_runtime import turn_signal
+from one_bpmn.processa_engine.agent_runtime.executor import DEFAULT_MAX_RETRIES
+from one_bpmn.processa_engine.agent_runtime.job_limits import AI_AGENT_JOB_TIMEOUT, AI_AGENT_QUEUE, ai_agent_queue
 from one_bpmn.processa_engine.engine import SubWorkflowTask, TaskState
 from one_bpmn.processa_engine.runtime.common import (
 	AI_SERVICE_TYPES,

@@ -80,7 +80,7 @@ class TestServerScriptExecScope(FrappeTestCase):
 # the two literal substrings ("frappe.set_user", "frappe.flags.ignore_permissions")
 # the old blocklist looked for. Each test below is a distinct evasion
 # technique that a plain substring check would miss but the AST-based
-# structural gate (one_bpmn.security.script_validator.deep_inspect_script)
+# structural gate (one_bpmn.ai_agent_security.code_checks.script_validator.deep_inspect_script)
 # catches by the *shape* of the code.
 # ─────────────────────────────────────────────────────────────────────────
 

@@ -16,9 +16,9 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import ExecutorConfig
-from one_bpmn.agents.executor.step_loop import run_agent_loop
-from one_bpmn.agents.executor.tool_bounds import (
+from one_bpmn.processa_engine.agent_runtime.executor import ExecutorConfig
+from one_bpmn.processa_engine.agent_runtime.step_loop import run_agent_loop
+from one_bpmn.processa_engine.agent_runtime.tool_bounds import (
 	DEFAULT_TOOL_RESULT_MAX_CHARS,
 	MIN_TOOL_RESULT_MAX_CHARS,
 	bound_tool_result,
@@ -26,7 +26,7 @@ from one_bpmn.agents.executor.tool_bounds import (
 	truncation_trailer,
 	validate_tool_arguments,
 )
-from one_bpmn.agents.llm_provider.base import CompletionResult, StepResult, StepToolCall, ToolSpec
+from one_bpmn.processa_engine.agent_runtime.llm_types import CompletionResult, StepResult, StepToolCall, ToolSpec
 from one_bpmn.tests.test_ai_step_loop import FakeStepAdapter
 
 
@@ -255,7 +255,7 @@ class TestCapPlumbing(FrappeTestCase):
 		self.assertEqual(ExecutorConfig(tool_result_max_chars=1234).tool_result_max_chars, 1234)
 
 	def test_direct_api_hands_the_cap_to_the_loop(self):
-		from one_bpmn.agents.executor.direct_api import DirectApiExecutor
+		from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
 
 		seen = {}
 
@@ -264,13 +264,13 @@ class TestCapPlumbing(FrappeTestCase):
 			return CompletionResult(text="ok", trace=[]), None
 
 		config = ExecutorConfig(tools=[_tool()], tool_result_max_chars=777, max_tool_calls=3)
-		with patch("one_bpmn.agents.executor.step_loop.run_agent_loop", fake_loop), \
-			patch("one_bpmn.agents.llm_provider.factory.get_llm_adapter", return_value=object()):
+		with patch("one_bpmn.processa_engine.agent_runtime.step_loop.run_agent_loop", fake_loop), \
+			patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter", return_value=object()):
 			DirectApiExecutor()._run_with_tools(config, "Anthropic", "sk-test", "claude-x")
 		self.assertEqual(seen.get("tool_result_max_chars"), 777)
 
 	def test_configuration_field_reaches_the_shape_overlay(self):
-		from one_bpmn.agents.agent_config_resolver import config_field_map
+		from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import config_field_map
 
 		cfg = frappe._dict(
 			ai_provider="Anthropic", ai_model="", context_max_messages=0, tool_result_max_chars=9000
@@ -280,7 +280,7 @@ class TestCapPlumbing(FrappeTestCase):
 		self.assertEqual(out.get("aiToolResultMaxChars"), 9000)
 
 	def test_zero_in_the_configuration_means_platform_default_not_zero(self):
-		from one_bpmn.agents.agent_config_resolver import config_field_map
+		from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import config_field_map
 
 		cfg = frappe._dict(ai_provider="Anthropic", ai_model="", context_max_messages=0, tool_result_max_chars=0)
 		with patch("frappe.db.exists", return_value=True), patch("frappe.get_doc", return_value=cfg):
@@ -288,7 +288,7 @@ class TestCapPlumbing(FrappeTestCase):
 		self.assertNotIn("aiToolResultMaxChars", out)
 
 	def test_the_field_exists_on_the_configuration_and_is_a_processa_control(self):
-		from one_bpmn.api.security_api import AGENT_CONTROL_GROUPS
+		from one_bpmn.api.security import AGENT_CONTROL_GROUPS
 
 		self.assertTrue(frappe.get_meta("AI Agent Configuration").get_field("tool_result_max_chars"))
 		fields = [f for _g, fs in AGENT_CONTROL_GROUPS for f in fs]

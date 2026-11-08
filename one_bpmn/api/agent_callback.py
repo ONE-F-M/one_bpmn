@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Dev Agent Sandbox's push callback (mirrors api/a2a_api.push_callback's
+"""Dev Agent Sandbox's push callback (mirrors api/a2a.push_callback's
 security shape, WI-001933's push endpoint).
 
 Reachable without a Frappe session — the sandbox has no user here — so an
@@ -35,10 +35,10 @@ from datetime import datetime
 
 import frappe
 
-from one_bpmn.agents import identity
+from one_bpmn.ai_agent_security import identity
 from one_bpmn.agents.observability import record_ai_step
-from one_bpmn.agents.job_limits import AI_AGENT_JOB_TIMEOUT
-from one_bpmn.one_bpmn.doctype.agent_sandbox_run.agent_sandbox_run import bounded_error
+from one_bpmn.processa_engine.agent_runtime.job_limits import AI_AGENT_JOB_TIMEOUT
+from one_bpmn.agents_sandbox.doctype.agent_sandbox_run.agent_sandbox_run import bounded_error
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
@@ -104,7 +104,7 @@ def settle_as_agent(run, payload: dict) -> dict:
 
 def _settle(run, payload: dict) -> dict:
 	"""Record the sandbox's outcome on the run, then retry or resume the caller."""
-	from one_bpmn.one_bpmn.connectors import agent_sandbox_ops as ops
+	from one_bpmn.agents_sandbox.sandbox import ops
 
 	status = payload.get("status")
 	run.db_set("result", frappe.as_json(payload), update_modified=False)
@@ -123,7 +123,7 @@ def _settle(run, payload: dict) -> dict:
 	if files:
 		run.db_set("files", frappe.as_json(files), update_modified=False)
 
-	run.db_set(ops._finished(_settled_fields(_run_action(run), status, pr_url, payload)), update_modified=False)
+	run.db_set(ops.finished(_settled_fields(_run_action(run), status, pr_url, payload)), update_modified=False)
 
 	timings = ops.timing_fields(payload.get("timings_ms") or {})
 	if timings:
@@ -144,7 +144,7 @@ def _settle(run, payload: dict) -> dict:
 		if ops.retry_eligible(run) and ops.retry_dispatch(run, delay=step["delay"]):
 			return {"accepted": True}
 
-	_enqueue_resume(run)
+	enqueue_resume(run)
 	return {"accepted": True}
 
 
@@ -353,7 +353,7 @@ def _record_sandbox_trace(agent_run, trace: list) -> None:
 		)
 
 
-def _enqueue_resume(run) -> None:
+def enqueue_resume(run) -> None:
 	"""Two shapes of caller, one entry point — mirrors tasks.py's
 	_wake_a2a_caller exactly, for the same reason:
 
@@ -388,7 +388,7 @@ def _resume_waiting_agent(run) -> None:
 	"""
 	import json as _json
 
-	from one_bpmn.agents import checkpoint as _checkpoint
+	from one_bpmn.processa_engine.agent_runtime import checkpoint as _checkpoint
 	from one_bpmn.processa_engine.runtime.ai_jobs import ai_job_queue_of
 
 	agent_run = run.caller_agent_run

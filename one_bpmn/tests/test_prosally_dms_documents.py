@@ -10,9 +10,9 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import prosally_helpers as helpers
-from one_bpmn.agents.dms_search import DOCUMENT_TYPES
-from one_bpmn.agents.turn_state import clear_turn, get_turn, set_turn
+from one_bpmn.ai_agent_registry.definitions.prosally import tools_prompts
+from one_bpmn.ai_agent_registry.definitions.shared.tools_dms import DOCUMENT_TYPES
+from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_reads_dms_documents as dms_patch
 
 LEAVE_TEXT = "annual leave requests above five days need director approval"
@@ -63,10 +63,10 @@ class TestProsallyDmsTool(FrappeTestCase):
 		).insert(ignore_permissions=True)
 
 	def search(self, query, document_type=None):
-		return helpers.search_dms_for_turn(CONVERSATION, query, document_type)
+		return tools_prompts.search_dms_for_turn(CONVERSATION, query, document_type)
 
 	def prompt(self, sub_id):
-		return helpers.stage_system_prompt(CFG, sub_id, "", get_turn(CONVERSATION))
+		return tools_prompts.stage_system_prompt(CFG, sub_id, "", get_turn(CONVERSATION))
 
 	def test_search_returns_the_matching_document_and_keeps_it_for_the_turn(self):
 		found = self.search("annual leave approval")

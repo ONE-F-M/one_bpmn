@@ -7,8 +7,8 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import prosally_helpers as helpers
-from one_bpmn.agents.turn_state import clear_turn, get_turn, set_turn
+from one_bpmn.ai_agent_registry.definitions.prosally import helpers
+from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_classifier_skip_confirmation as classifier_patch
 
 CLASSIFY_API_METHOD = "prosally_tool_classify_intent"

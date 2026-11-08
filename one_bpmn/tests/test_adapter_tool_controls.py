@@ -10,13 +10,13 @@ from types import SimpleNamespace
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.agent_config_resolver import _CONFIG_TO_SHAPE
-from one_bpmn.agents.executor.step_loop import run_agent_loop
-from one_bpmn.agents.executor.tool_bounds import salvage_leaked_delimiters
-from one_bpmn.agents.llm_provider.anthropic_adapter import AnthropicAdapter
-from one_bpmn.agents.llm_provider.base import LLMTruncatedError, StepResult, StepToolCall, ToolSpec
-from one_bpmn.agents.llm_provider.gemini import GeminiAdapter
-from one_bpmn.agents.llm_provider.openai_adapter import OpenAIAdapter
+from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import CONFIG_TO_SHAPE
+from one_bpmn.processa_engine.agent_runtime.step_loop import run_agent_loop
+from one_bpmn.processa_engine.agent_runtime.tool_bounds import salvage_leaked_delimiters
+from one_bpmn.processa_engine.agent_runtime.llm_anthropic import AnthropicAdapter
+from one_bpmn.processa_engine.agent_runtime.llm_types import LLMTruncatedError, StepResult, StepToolCall, ToolSpec
+from one_bpmn.processa_engine.agent_runtime.llm_gemini import GeminiAdapter
+from one_bpmn.processa_engine.agent_runtime.llm_openai import OpenAIAdapter
 from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG
 from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG
 
@@ -335,7 +335,7 @@ class TestTheAgentConfiguration(FrappeTestCase):
 			("thinking_budget_tokens", "aiThinkingBudgetTokens"),
 			("terminal_tools", "aiTerminalTools"),
 		):
-			self.assertEqual(_CONFIG_TO_SHAPE[field], attribute)
+			self.assertEqual(CONFIG_TO_SHAPE[field], attribute)
 
 	def test_a_thinking_budget_below_1024_or_at_max_tokens_is_refused(self):
 		doc = frappe.new_doc("AI Agent Configuration")

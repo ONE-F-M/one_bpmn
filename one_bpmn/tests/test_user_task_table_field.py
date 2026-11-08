@@ -163,7 +163,7 @@ class TestUserTaskAssignedToATable(FrappeTestCase):
 		self.assertEqual(recipients, {USER_A, USER_B})
 
 	def test_the_task_is_pending_for_each_member_and_nobody_else(self):
-		from one_bpmn.api.instance_api import _instances_pending_on
+		from one_bpmn.processa_engine.instances.listing import _instances_pending_on
 
 		instance = self._start()
 
@@ -174,7 +174,7 @@ class TestUserTaskAssignedToATable(FrappeTestCase):
 	def test_any_member_can_complete_it(self):
 		"""The second member, not the first: completion is a membership test,
 		not a match against the head of the list."""
-		from one_bpmn.api.instance_api import complete_task
+		from one_bpmn.api.instances import complete_task
 
 		instance = self._start()
 		task_id = next(r.task_id for r in instance.active_tasks if r.status == "Waiting")
@@ -190,7 +190,7 @@ class TestUserTaskAssignedToATable(FrappeTestCase):
 		self.assertFalse(self._todos(status="Open"))
 
 	def test_a_non_member_is_refused(self):
-		from one_bpmn.api.instance_api import complete_task
+		from one_bpmn.api.instances import complete_task
 
 		instance = self._start()
 		task_id = next(r.task_id for r in instance.active_tasks if r.status == "Waiting")

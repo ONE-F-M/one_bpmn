@@ -14,7 +14,7 @@ sets its own allowed_roles on the connector row.
 
 import frappe
 
-from one_bpmn.one_bpmn.connectors.seed import import_manifest
+from one_bpmn.processa_connectors.seed import import_manifest
 
 A2A_CONNECTOR = {
 	"connectorId": "a2a",
@@ -50,14 +50,14 @@ A2A_CONNECTOR = {
 				"a slower one parks this step until it finishes or asks a question."
 			),
 			"executionType": "Python Handler",
-			"handlerPath": "one_bpmn.one_bpmn.connectors.a2a_client_ops.delegate_to_local_agent",
+			"handlerPath": "one_bpmn.a2a.client_ops.delegate_to_local_agent",
 			"fields": [
 				{
 					"name": "agent",
 					"label": "Agent",
 					"type": "Dropdown",
 					"required": True,
-					"choicesSourcePath": "one_bpmn.one_bpmn.connectors.a2a_client_ops.local_agent_choices",
+					"choicesSourcePath": "one_bpmn.a2a.client_ops.local_agent_choices",
 					"help": "Any live agent on this site. It does not need to be exposed over A2A.",
 				},
 				{
@@ -124,7 +124,7 @@ A2A_CONNECTOR = {
 		},
 		{
 			# The importer reads an operation's id from "value" (see
-			# connectors/seed.py::_import_operation) — an "operationId" key is
+			# processa_connectors/seed.py::import_operation) - an "operationId" key is
 			# silently skipped, which leaves a connector with no operations.
 			"value": "delegate_task",
 			"label": "Delegate task to remote agent",
@@ -133,14 +133,14 @@ A2A_CONNECTOR = {
 				"inline; anything slower parks this step until the answer arrives."
 			),
 			"executionType": "Python Handler",
-			"handlerPath": "one_bpmn.one_bpmn.connectors.a2a_client_ops.delegate_task",
+			"handlerPath": "one_bpmn.a2a.client_ops.delegate_task",
 			"fields": [
 				{
 					"name": "remote_agent",
 					"label": "Remote agent",
 					"type": "Dropdown",
 					"required": True,
-					"choicesSourcePath": "one_bpmn.one_bpmn.connectors.a2a_client_ops.remote_agent_choices",
+					"choicesSourcePath": "one_bpmn.a2a.client_ops.remote_agent_choices",
 					"help": "Only enabled, approved registry entries appear here.",
 				},
 				{

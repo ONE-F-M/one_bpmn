@@ -9,7 +9,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.turn_state import clear_turn, set_turn
+from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_scope_modify_to_subprocess as scope_patch
 from one_bpmn.tests.test_prosally_subprocess_scope import DIAGRAM
 
@@ -53,7 +53,7 @@ class TestScopedClassification(FrappeTestCase):
 		)
 		result = {}
 		with patch(
-			"one_bpmn.agents.prosally_helpers.get_llm_adapter_from_settings", return_value=FakeAdapter(DRAW_REPLY)
+			"one_bpmn.ai_agent_registry.definitions.prosally.helpers.get_llm_adapter_from_settings", return_value=FakeAdapter(DRAW_REPLY)
 		):
 			exec(self.script, {"frappe": frappe, "context_docname": CONVERSATION, "result": result})
 		return result

@@ -8,9 +8,9 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import prosally_helpers
-from one_bpmn.agents.bpmn_ir_pipeline import auto_fix_ir, compile_ir
-from one_bpmn.agents.turn_state import clear_turn, set_turn
+from one_bpmn.ai_agent_registry.definitions.prosally import helpers
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_pipeline import auto_fix_ir, compile_ir
+from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_stages_read_the_latest_message as message_patch
 from one_bpmn.one_bpmn.patches.v1_0.prosally_auto_fix_ir import with_auto_fix
 
@@ -80,8 +80,7 @@ class TestGenerateSpendsNoRepairPass(FrappeTestCase):
 		set_turn(CONVERSATION, {"intent": "GENERATE_NEW", "process_name": "Leave", "chat_history": []})
 		result = {}
 		with (
-			patch.object(
-				prosally_helpers, "complete_sub_prompt", return_value=json.dumps(BROKEN_IR)
+			patch.object(helpers, "complete_sub_prompt", return_value=json.dumps(BROKEN_IR)
 			) as model,
 			patch("one_bpmn.agents.observability.record_tool_artifact"),
 		):

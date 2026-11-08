@@ -1,7 +1,7 @@
 """Stop a stale configuration from overriding the prompt a map was just imported with.
 
 An AI Agent Configuration's ``system_prompt`` wins over the ``aiSystemPrompt`` on
-the shape (agent_config_resolver._CONFIG_TO_SHAPE, applied whenever the field is
+the shape (agent_config_resolver.CONFIG_TO_SHAPE, applied whenever the field is
 not blank). A Processa export carries the map and its Server Scripts but never
 the configuration, so importing a map ships a new prompt that the site then
 ignores in favour of whatever its configuration already held. Seen on the BA

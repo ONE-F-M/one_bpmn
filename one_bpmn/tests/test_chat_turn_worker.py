@@ -9,7 +9,7 @@ import frappe
 import redis
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import turn_signal
+from one_bpmn.processa_engine.agent_runtime import turn_signal
 from one_bpmn.api import server_script_api
 
 
@@ -334,22 +334,22 @@ class TestLongTurnKeepsWaiting(FrappeTestCase):
 
 class TestMessageDuringARunningTurn(FrappeTestCase):
 	def test_it_is_told_to_wait_and_logs_nothing(self):
-		from one_bpmn.api import agent_invocation
+		from one_bpmn.api import a2a as a2a_api
 
 		busy = [frappe._dict(name="_test_busy_instance", status="Active", waiting_for_ai=1, waiting_for_human="", modified=None)]
 		with patch.object(frappe, "get_all", return_value=busy), patch.object(
 			turn_signal, "ai_job_running", return_value=True
 		), patch.object(frappe, "log_error") as log_error:
 			with self.assertRaisesRegex(frappe.ValidationError, "still working on your previous message"):
-				agent_invocation._no_live_instance({"agent_id": "prosally_agent"}, "_test_conversation")
+				a2a_api._no_live_instance({"agent_id": "prosally_agent"}, "_test_conversation")
 		log_error.assert_not_called()
 
 	def test_a_conversation_with_no_running_job_keeps_the_old_message(self):
-		from one_bpmn.api import agent_invocation
+		from one_bpmn.api import a2a as a2a_api
 
 		idle = [frappe._dict(name="_test_idle_instance", status="Active", waiting_for_ai=1, waiting_for_human="", modified=None)]
 		with patch.object(frappe, "get_all", return_value=idle), patch.object(
 			turn_signal, "ai_job_running", return_value=False
 		), patch.object(frappe, "log_error"):
 			with self.assertRaisesRegex(frappe.ValidationError, "is not running for this conversation"):
-				agent_invocation._no_live_instance({"agent_id": "prosally_agent"}, "_test_conversation")
+				a2a_api._no_live_instance({"agent_id": "prosally_agent"}, "_test_conversation")

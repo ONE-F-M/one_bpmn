@@ -67,7 +67,7 @@ function AgentConfigComponent(props) {
 		setAttr(modeling, element, bo, "aiAgentConfig", value);
 		if (!value) return;
 		frappePost(
-			"/api/method/one_bpmn.agents.agent_config_resolver.get_agent_config_for_shape",
+			"/api/method/one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.get_agent_config_for_shape",
 			{ config_name: value },
 		)
 			.then((res) => {

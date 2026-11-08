@@ -81,8 +81,8 @@ class TestWhichMapsAMessageStarts(MessageStartFixtures):
 
 class TestAnEditStartsTheListeningMap(MessageStartFixtures):
 	def test_an_edit_with_no_running_instance_starts_the_listening_map(self):
-		with patch("one_bpmn.api.instance_api._start_and_deliver_message") as start:
-			triggers._maybe_send_message(self.doc, "Edit_Action")
+		with patch("one_bpmn.processa_engine.instances.starting.start_and_deliver_message") as start:
+			triggers.maybe_send_message(self.doc, "Edit_Action")
 		start.assert_called_once()
 		kwargs = start.call_args.kwargs
 		self.assertEqual(kwargs["model_name"], MODEL)
@@ -91,33 +91,33 @@ class TestAnEditStartsTheListeningMap(MessageStartFixtures):
 
 	def test_a_running_instance_of_the_listening_map_is_not_doubled(self):
 		_instance(MODEL, "Active", self.doc)
-		with patch("one_bpmn.api.instance_api._start_and_deliver_message") as start:
-			triggers._maybe_send_message(self.doc, "Edit_Action")
+		with patch("one_bpmn.processa_engine.instances.starting.start_and_deliver_message") as start:
+			triggers.maybe_send_message(self.doc, "Edit_Action")
 		start.assert_not_called()
 
 	def test_two_maps_on_one_message_start_neither(self):
 		_model(MODEL + " 2", _diagram(EDIT))
 		with (
-			patch("one_bpmn.api.instance_api._start_and_deliver_message") as start,
+			patch("one_bpmn.processa_engine.instances.starting.start_and_deliver_message") as start,
 			patch.object(frappe, "log_error") as log_error,
 		):
-			triggers._maybe_send_message(self.doc, "Edit_Action")
+			triggers.maybe_send_message(self.doc, "Edit_Action")
 		start.assert_not_called()
 		log_error.assert_called_once()
 
 	def test_a_failing_map_does_not_block_the_save(self):
 		with (
-			patch("one_bpmn.api.instance_api._start_and_deliver_message", side_effect=Exception("boom")),
+			patch("one_bpmn.processa_engine.instances.starting.start_and_deliver_message", side_effect=Exception("boom")),
 			patch.object(frappe, "log_error") as log_error,
 		):
-			triggers._maybe_send_message(self.doc, "Edit_Action")
+			triggers.maybe_send_message(self.doc, "Edit_Action")
 		log_error.assert_called_once()
 
 
 class TestADeleteStartsTheListeningMapWhileTheDocumentExists(MessageStartFixtures):
 	def test_a_delete_with_no_instance_runs_the_listening_map_in_the_request(self):
 		_model(MODEL, _diagram(DELETE))
-		with patch("one_bpmn.api.instance_api._start_and_deliver_message") as start:
+		with patch("one_bpmn.processa_engine.instances.starting.start_and_deliver_message") as start:
 			triggers.delete_linked_bpmn_instances(self.doc, "on_trash")
 		start.assert_called_once()
 		self.assertEqual(start.call_args.kwargs["message_name"], DELETE)
@@ -125,11 +125,11 @@ class TestADeleteStartsTheListeningMapWhileTheDocumentExists(MessageStartFixture
 	def test_a_delete_after_another_map_finished_still_runs_the_listening_map(self):
 		_model(MODEL, _diagram(DELETE))
 		_instance(MODEL + " other", "Completed", self.doc)
-		with patch("one_bpmn.api.instance_api._start_and_deliver_message") as start:
+		with patch("one_bpmn.processa_engine.instances.starting.start_and_deliver_message") as start:
 			triggers.delete_linked_bpmn_instances(self.doc, "on_trash")
 		start.assert_called_once()
 
 	def test_a_delete_nothing_listens_for_does_nothing(self):
-		with patch("one_bpmn.api.instance_api._start_and_deliver_message") as start:
+		with patch("one_bpmn.processa_engine.instances.starting.start_and_deliver_message") as start:
 			triggers.delete_linked_bpmn_instances(self.doc, "on_trash")
 		start.assert_not_called()

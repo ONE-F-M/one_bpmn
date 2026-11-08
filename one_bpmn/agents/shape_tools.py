@@ -15,7 +15,7 @@ import json
 import frappe
 
 from one_bpmn.agents import observability
-from one_bpmn.agents.llm_provider.base import ToolSpec
+from one_bpmn.processa_engine.agent_runtime.llm_types import ToolSpec
 
 
 def compile_shape_tools(tool_shapes, instance) -> list:
@@ -104,8 +104,8 @@ def compile_shape_tools(tool_shapes, instance) -> list:
 # park can refuse to start rather than being abandoned. It lives here beside
 # ToolDeferred because the two are halves of one rule: the loop tracks one pause
 # per turn, so a second one must never begin work. Written by
-# agents/executor/step_loop.py, read by
-# connectors/a2a_client_ops.delegate_to_local_agent — kept in this module so
+# processa_engine/agent_runtime/step_loop.py, read by
+# a2a/client_ops.delegate_to_local_agent - kept in this module so
 # neither of those has to import the other.
 PAUSE_HELD_FLAG = "a2a_pause_held_this_turn"
 
@@ -255,7 +255,7 @@ def _announce(instance, event_type: str, bpmn_id: str) -> None:
 	if not name:
 		return
 	try:
-		from one_bpmn.agents import turn_signal
+		from one_bpmn.processa_engine.agent_runtime import turn_signal
 
 		turn_signal.publish_event(name, {"type": event_type, "toolCallName": bpmn_id})
 	except Exception:
@@ -286,7 +286,7 @@ def execute_shape(instance, bpmn_id: str, task_cfg: dict | None, kwargs: dict) -
 	"""
 	_announce(instance, "TOOL_CALL_START", bpmn_id)
 	still_running = False
-	from one_bpmn.agents import turn_signal
+	from one_bpmn.processa_engine.agent_runtime import turn_signal
 
 	try:
 		with turn_signal.mask_live_text():
@@ -376,7 +376,7 @@ def _execute_shape_body(instance, bpmn_id: str, task_cfg: dict | None, kwargs: d
 		# get_turn Jinja global (hooks.py).
 		if service_type == "ai_agent" and getattr(instance, "context_docname", None):
 			try:
-				from one_bpmn.agents.turn_state import update_turn
+				from one_bpmn.processa_engine.agent_runtime.turn_state import update_turn
 
 				update_turn(instance.context_docname, **{f"{bpmn_id}_result": produced})
 			except Exception:
@@ -430,7 +430,7 @@ def _record_tool_error(instance, bpmn_id: str, exc: Exception | str, error_code:
 	"""Put the failed tool in the chat turn store, so the turn's closing script can report the failure."""
 	if getattr(instance, "context_doctype", None) != "Chat Conversation":
 		return
-	from one_bpmn.agents.turn_state import update_turn
+	from one_bpmn.processa_engine.agent_runtime.turn_state import update_turn
 
 	tool_error = {"tool": bpmn_id, "error": str(exc), "error_class": error_code or type(exc).__name__}
 	if error_code:
@@ -447,7 +447,7 @@ def _connector_not_permitted(task_cfg: dict) -> dict | None:
 	same question here changes no behaviour; it only lets the tool result say
 	which of the two happened (WI-002007). Returns None when permitted.
 	"""
-	from one_bpmn.one_bpmn.connectors import manifest as _manifest
+	from one_bpmn.processa_connectors import manifest as _manifest
 
 	connector_id = (task_cfg.get("connectorId") or "").strip()
 	if not connector_id or _manifest.user_may_use_connector(connector_id):
@@ -532,13 +532,13 @@ def _waiting_marker(task) -> dict | None:
 
 	Checked against every connector's own waiting-key convention — not just
 	A2A's. A connector that parks (returns None and sets its own marker on
-	task.data, e.g. agent_sandbox_ops.AGENT_SANDBOX_WAITING_KEY) but
+	task.data, e.g. sandbox.ops.AGENT_SANDBOX_WAITING_KEY) but
 	whose key is absent from this list is invisible to the tool loop: the
 	loop reads the empty result as a real answer and reports "no result"
 	back to the model instead of suspending. Confirmed the hard way for the
 	agent_sandbox connector before this generalization existed."""
-	from one_bpmn.one_bpmn.connectors.a2a_client_ops import A2A_WAITING_KEY
-	from one_bpmn.one_bpmn.connectors.agent_sandbox_ops import (
+	from one_bpmn.a2a.client_ops import A2A_WAITING_KEY
+	from one_bpmn.agents_sandbox.sandbox.ops import (
 		AGENT_SANDBOX_WAITING_KEY,
 	)
 
@@ -571,13 +571,13 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 	but invoked directly so the agent can call it as a tool. LLM-supplied
 	arguments are visible to the script as locals.
 	"""
-	from one_bpmn.processa_engine.engine import _check_script_permissions
+	from one_bpmn.processa_engine.engine import check_server_script
 
 	script_doc = frappe.get_doc("Server Script", script_name)
 	if not script_doc or script_doc.disabled:
 		frappe.throw(f"Server Script '{script_name}' not found or disabled (shape {bpmn_id}).")
 
-	_check_script_permissions(script_doc.script, script_name)
+	check_server_script(script_doc)
 
 	result_dict = {}
 	local_vars = dict(task.data)
@@ -641,7 +641,7 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 	# when a tool runs inline inside a web request. So the sid and data are put
 	# back in the finally, and the switch is skipped entirely when we are already
 	# the right user.
-	from one_bpmn.agents import identity
+	from one_bpmn.ai_agent_security import identity
 
 	agent = getattr(instance, "_a2a_delegating_agent", None)
 	agent_user = identity.user_for(agent)
@@ -649,8 +649,10 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 	saved_sid = frappe.session.sid
 	saved_data = frappe.session.data
 	saved_ignore = frappe.flags.ignore_permissions
+	saved_in_script = frappe.flags.in_processa_script
 	need_switch = bool(agent_user) and agent_user != original_user
 	try:
+		frappe.flags.in_processa_script = True
 		if need_switch:
 			frappe.set_user(agent_user)
 		# Only claimed when there IS an identity to claim it for. An agent with no
@@ -674,6 +676,7 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 			frappe.session.sid = saved_sid
 			frappe.session.data = saved_data
 		frappe.flags.ignore_permissions = saved_ignore
+		frappe.flags.in_processa_script = saved_in_script
 
 	if isinstance(result_dict, dict) and result_dict:
 		task.data.update(result_dict)

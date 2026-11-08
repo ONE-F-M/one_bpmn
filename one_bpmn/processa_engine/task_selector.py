@@ -68,7 +68,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 	"""
 	from frappe.utils import cint
 
-	from one_bpmn.agents.executor import (
+	from one_bpmn.processa_engine.agent_runtime.executor import (
 		DEFAULT_MAX_OUTPUT_TOKENS,
 		DEFAULT_TEMPERATURE,
 		DEFAULT_TIMEOUT_SECONDS,
@@ -78,13 +78,13 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		ExecutorContext,
 		get_executor,
 	)
-	from one_bpmn.agents.executor.direct_api import DirectApiExecutor
-	from one_bpmn.agents.llm_provider.base import ToolSpec
+	from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
+	from one_bpmn.processa_engine.agent_runtime.llm_types import ToolSpec
 	from one_bpmn.agents.tool_pool import DIAGRAM_TASK, resolve_tool_pool
 
 	# A linked AI Agent Configuration overrides the shape's agent fields; tools stay the subprocess's own.
 	if task_cfg.get("aiAgentConfig"):
-		from one_bpmn.agents.agent_config_resolver import resolve_dispatch_overrides
+		from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import resolve_dispatch_overrides
 		task_cfg = {**task_cfg, **resolve_dispatch_overrides(task_cfg["aiAgentConfig"])}
 
 	render, jinja_ctx = template_renderer(
@@ -157,7 +157,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 	)
 
 	# A linked agent's examples and guard rails go into the system prompt; selector text stays in the user prompt.
-	from one_bpmn.agents.context_assembler import build_static_context, load_agent_behaviour
+	from one_bpmn.ai_agent_registry.provisioning.context_assembler import build_static_context, load_agent_behaviour
 
 	behaviour = {}
 	if task_cfg.get("aiAgentConfig"):
@@ -217,7 +217,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 		)
 
 	# Publish the agent so its tool grant applies to the selector's tool calls.
-	from one_bpmn.security.tool_policy import reset_current_agent, set_current_agent
+	from one_bpmn.ai_agent_guardrails.tool_policy import reset_current_agent, set_current_agent
 
 	_policy_token = set_current_agent(task_cfg.get("aiAgentConfig"))
 	try:

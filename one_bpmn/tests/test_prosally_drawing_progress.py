@@ -8,14 +8,16 @@ from unittest import mock
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import agui_contract, turn_signal
-from one_bpmn.agents.turn_state import clear_turn, set_turn
+from one_bpmn.agents import agui_contract
+from one_bpmn.processa_engine.agent_runtime import turn_signal
+from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_generate_process_splits_cut_off_phases as split_patch
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_reports_drawing_progress as progress_patch
 from one_bpmn.one_bpmn.patches.v1_0.prosally_scope_modify_to_subprocess import with_edits
 from one_bpmn.tests.test_prosally_generate_process_splits import SHAPES, _is_full_attempt, _script, run_generate
+from one_bpmn.tests.site_scripts import as_deployed
 
-PUBLISH = "one_bpmn.agents.turn_signal.publish_progress"
+PUBLISH = "one_bpmn.processa_engine.agent_runtime.turn_signal.publish_progress"
 CONVERSATION = "_test_prosally_drawing_progress"
 GENERATE_EDITS = progress_patch.SCRIPTS["ProsAlly%Tool Generate Process"][0]
 
@@ -187,10 +189,10 @@ class TestTheModifyScriptReportsIt(FrappeTestCase):
 			with (
 				mock.patch(PUBLISH, lambda *args: calls.append(args)),
 				mock.patch(
-					"one_bpmn.agents.prosally_helpers.complete_sub_prompt", return_value='{"nodes": [], "flows": []}'
+					"one_bpmn.ai_agent_registry.definitions.prosally.helpers.complete_sub_prompt", return_value='{"nodes": [], "flows": []}'
 				),
 			):
-				exec(script, {"frappe": frappe, "context_docname": CONVERSATION, "result": {}, "bpmn_id": "x"})
+				exec(as_deployed(script), {"frappe": frappe, "context_docname": CONVERSATION, "result": {}, "bpmn_id": "x"})
 		finally:
 			clear_turn(CONVERSATION)
 		self.assertEqual(calls[0], ("Updating the diagram",))

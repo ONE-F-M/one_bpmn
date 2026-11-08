@@ -17,16 +17,16 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api import agent_invocation
+from one_bpmn.api import a2a as a2a_api
 
 PERSIST = "one_bpmn.utils.chat_persistence"
-ADAPTER = "one_bpmn.agents.llm_provider.get_llm_adapter_from_settings"
+ADAPTER = "one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings"
 
 
 def _completion(text="the answer", trace=None):
 	"""A completion shaped the way an adapter really returns one: its trace
 	carries TurnRecord dataclasses, not dicts."""
-	from one_bpmn.agents.llm_provider.base import TurnRecord
+	from one_bpmn.processa_engine.agent_runtime.llm_types import TurnRecord
 
 	if trace is None:
 		trace = [TurnRecord(role="assistant", content=text, prompt_tokens=1200, completion_tokens=48)]
@@ -57,10 +57,10 @@ class TestDirectChatIsRecorded(FrappeTestCase):
 		with patch(ADAPTER, return_value=_FakeAdapter(completion)), patch(
 			f"{PERSIST}.save_user_message"
 		), patch(f"{PERSIST}.save_bot_message"), patch(
-			"one_bpmn.agents.context_assembler.build_static_context_from_config",
+			"one_bpmn.ai_agent_registry.provisioning.context_assembler.build_static_context_from_config",
 			return_value="composed system prompt",
 		):
-			return agent_invocation._run_direct_api(self.config, "CONV-1", "what is a delivery note?", {})
+			return a2a_api._run_direct_api(self.config, "CONV-1", "what is a delivery note?", {})
 
 	def test_the_turn_opens_a_run_and_writes_its_prompt_steps(self):
 		with patch("one_bpmn.agents.observability.create_ai_run") as create, patch(
@@ -109,13 +109,13 @@ class TestDirectChatIsRecorded(FrappeTestCase):
 		with patch(ADAPTER, return_value=_Boom(None)), patch(f"{PERSIST}.save_user_message"), patch(
 			f"{PERSIST}.save_bot_message"
 		), patch(
-			"one_bpmn.agents.context_assembler.build_static_context_from_config", return_value="sp"
+			"one_bpmn.ai_agent_registry.provisioning.context_assembler.build_static_context_from_config", return_value="sp"
 		), patch("one_bpmn.agents.observability.create_ai_run") as create, patch(
 			"one_bpmn.agents.observability.record_ai_step"
 		), patch("one_bpmn.agents.observability.finalize_ai_run_on_exception") as failed:
 			create.return_value = SimpleNamespace(name="RUN-FAKE", stub=False)
 			with self.assertRaises(RuntimeError):
-				agent_invocation._run_direct_api(self.config, "CONV-2", "hello", {})
+				a2a_api._run_direct_api(self.config, "CONV-2", "hello", {})
 
 		failed.assert_called_once()
 

@@ -144,7 +144,7 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onUnmounted } from "vue"
 import { frappeRequest, Button, Dialog, FormControl } from "frappe-ui"
-import RecordPicker from "@/components/Controls/RecordPicker.vue"
+import RecordPicker from "@/components/Controls/RecordPicker/RecordPicker.vue"
 import { Icon } from "@iconify/vue"
 import { dayjs } from "@/dayjs"
 

@@ -112,7 +112,7 @@ _USER_PROMPT = """{previous}Conversation to compact:
 Write the combined summary now."""
 
 
-# Shared with api.agent_invocation.invoke_agent, which strips the same class
+# Shared with api.a2a.invoke_agent, which strips the same class
 # of markup contamination at message ingestion (WI: AI Memory cleanup).
 _strip_html = strip_html
 
@@ -393,13 +393,13 @@ def summary_call(transcript: str, previous: str, *, model: str, provider_name: s
                  max_tokens: int = _MAX_SUMMARY_TOKENS, system_prompt: str = _SYSTEM_PROMPT,
                  max_input_chars: int = _MAX_INPUT_CHARS):
 	"""The summariser's ExecutorResult, or None (with an Error Log entry) when the call failed."""
-	from one_bpmn.agents.executor import (
+	from one_bpmn.processa_engine.agent_runtime.executor import (
 		ErrorCode,
 		ExecutorConfig,
 		ExecutorContext,
 		get_executor,
 	)
-	from one_bpmn.agents.executor.direct_api import DirectApiExecutor  # noqa: F401
+	from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor  # noqa: F401
 
 	previous_block = ""
 	if previous:

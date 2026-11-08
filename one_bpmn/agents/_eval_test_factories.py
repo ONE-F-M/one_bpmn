@@ -21,7 +21,7 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import now_datetime
 
-from one_bpmn.agents.executor import ErrorCode, ExecutorResult, TokenUsage
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
 
 
 # ---------------------------------------------------------------------------

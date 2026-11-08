@@ -5,8 +5,6 @@ import frappe
 from frappe import _
 from frappe.utils import cint
 
-from one_bpmn.api.utils import _is_bpmn_super_user
-
 
 def _audit_and_notify(doc, actor: str, original_modified=None) -> None:
 	"""Stamp *actor* as modified_by and publish doc_update so open desk forms reload.
@@ -88,7 +86,7 @@ def apply_bpmn_workflow_state(
 
 	actor = triggered_by or frappe.session.user
 
-	if only_allow_role and not _is_bpmn_super_user(actor):
+	if only_allow_role and not is_bpmn_super_user(actor):
 		user_roles = frappe.get_roles(actor)
 		if only_allow_role not in user_roles:
 			frappe.throw(
@@ -172,3 +170,17 @@ def apply_bpmn_workflow_state(
 	_audit_and_notify(doc, actor, original_modified)
 
 	doc.add_comment("Workflow", _(target_state))
+
+
+def is_bpmn_super_user(user: str = None) -> bool:
+	"""Return True if *user* holds the Super User Role defined in OneFM General Setting."""
+	user = user or frappe.session.user
+	if user == "Administrator":
+		return True
+	try:
+		super_user_role = frappe.db.get_single_value("OneFM General Setting", "super_user_role")
+	except Exception:
+		return False
+	if not super_user_role:
+		return False
+	return super_user_role in frappe.get_roles(user)

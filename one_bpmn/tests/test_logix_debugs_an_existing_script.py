@@ -7,10 +7,11 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import logix_debug
-from one_bpmn.agents.llm_provider.base import StepResult
-from one_bpmn.agents.turn_state import clear_turn, get_turn, set_turn
+from one_bpmn.ai_agent_registry.definitions.logix import helpers, tools
+from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult
+from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import logix_debugs_an_existing_script as p
+from one_bpmn.tests.site_scripts import as_deployed
 
 CONV = "zz-logix-debug"
 PASTED = 'rate = doc.grand_total / doc.total_qty\nresult["rate"] = rate'
@@ -41,14 +42,14 @@ class FakeAdapter:
 class TestLogixDebugsAnExistingScript(FrappeTestCase):
 	def setUp(self):
 		self.addCleanup(clear_turn, CONV)
-		set_turn(CONV, {"user_text": USER_TEXT, **logix_debug.debug_inputs(USER_TEXT, "", "")})
+		set_turn(CONV, {"user_text": USER_TEXT, **helpers.debug_inputs(USER_TEXT, "", "")})
 
 	def _run(self, adapter):
 		with (
-			patch.object(logix_debug, "get_agent_config", return_value={}),
-			patch.object(logix_debug, "get_llm_adapter_from_settings", return_value=adapter),
+			patch.object(tools, "get_agent_config", return_value={}),
+			patch.object(tools, "get_llm_adapter_from_settings", return_value=adapter),
 		):
-			logix_debug.run_debug_stage(CONV)
+			tools.run_debug_stage(CONV)
 		return get_turn(CONV)["output"]
 
 	def test_the_reply_is_a_diff_against_the_pasted_script(self):
@@ -106,11 +107,11 @@ class TestLogixDebugsAnExistingScript(FrappeTestCase):
 		frappe.get_doc(
 			{
 				"doctype": "Error Log",
-				"method": logix_debug.ENGINE_ERROR_TITLE.format("ZZ Rate"),
+				"method": helpers.ENGINE_ERROR_TITLE.format("ZZ Rate"),
 				"error": TRACE,
 			}
 		).insert(ignore_permissions=True)
-		inputs = logix_debug.debug_inputs("it shows a white screen then fails", PASTED, "ZZ Rate")
+		inputs = helpers.debug_inputs("it shows a white screen then fails", PASTED, "ZZ Rate")
 
 		self.assertEqual(inputs, {"script_text": PASTED, "last_error": TRACE})
 
@@ -126,7 +127,7 @@ class TestLogixDebugPatch(FrappeTestCase):
 		)
 
 		exec(
-			frappe.db.get_value("Server Script", p.BUILD_CONTEXT, "script"),
+			as_deployed(frappe.db.get_value("Server Script", p.BUILD_CONTEXT, "script")),
 			{"conversation_id": CONV, "task_data": {"user_text": USER_TEXT}},
 		)
 		turn = get_turn(CONV)

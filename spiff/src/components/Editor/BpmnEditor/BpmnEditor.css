@@ -1,0 +1,327 @@
+/* Rules for DOM that bpmn-js and the properties panel generate, which no part template uses. */
+
+.bjsl-explain {
+	margin-left: 8px;
+	padding: 0 6px;
+	border: 1px solid #c9c9c9;
+	border-radius: 4px;
+	background: #fff;
+	font-size: 11px;
+	cursor: pointer;
+}
+
+/* Injected Process Name field (no inline styles) */
+
+.bpmn-process-name-value {
+	display: flex;
+	align-items: center;
+	min-height: 28px;
+	padding: 2px 8px;
+	font-size: 12px;
+	color: var(--gray-900, #111827);
+	background: var(--gray-50, #f9fafb);
+	border: 1px solid var(--gray-200, #e5e7eb);
+	border-radius: 4px;
+	word-break: break-word;
+}
+
+.bpmn-process-name-resolving {
+	color: var(--gray-400, #9ca3af);
+	font-style: italic;
+}
+
+.bpmn-process-name-empty {
+	color: var(--gray-400, #9ca3af);
+	font-style: italic;
+}
+
+.bio-properties-panel-entry[data-entry-id="process_id"] {
+	display: none;
+}
+
+/* Context Pad Styling */
+
+.djs-context-pad .entry:hover {
+	background: #3b82f6 !important;
+}
+
+.djs-context-pad .entry:hover svg {
+	fill: white;
+}
+
+/* Overlay Styling */
+
+.bpmn-overlay {
+	padding: 4px 8px;
+	border-radius: 4px;
+	font-size: 12px;
+	font-weight: 500;
+	white-space: nowrap;
+	pointer-events: auto;
+	cursor: pointer;
+}
+
+.bpmn-overlay-error {
+	background: #ef4444;
+	color: white;
+}
+
+.bpmn-overlay-warning {
+	background: #f59e0b;
+	color: white;
+}
+
+.bpmn-overlay-info {
+	background: #3b82f6;
+	color: white;
+}
+
+.bpmn-overlay-success {
+	background: #10b981;
+	color: white;
+}
+
+.bpmn-overlay-badge {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 20px;
+	height: 20px;
+	border-radius: 10px;
+	font-size: 11px;
+	font-weight: 600;
+}
+
+/* Properties Panel Transitions */
+
+.slide-right-enter-active,
+.slide-right-leave-active {
+	transition:
+		transform 0.3s ease,
+		opacity 0.3s ease,
+		width 0.3s ease;
+}
+
+.slide-right-enter-from,
+.slide-right-leave-to {
+	transform: translateX(100%);
+	opacity: 0;
+}
+
+/* Custom scrollbar-hide utility if not already global */
+
+.scrollbar-hide::-webkit-scrollbar {
+	display: none;
+}
+
+.scrollbar-hide {
+	-ms-overflow-style: none;
+	scrollbar-width: none;
+}
+
+/* Mobile: touch-friendly BPMN elements */
+
+@media (max-width: 639px) {
+	/* Ensure context pad sits above everything */
+	.djs-context-pad {
+		z-index: 200 !important;
+	}
+	/* Touch-friendly context pad entries */
+	.djs-context-pad .entry {
+		width: 36px;
+		height: 36px;
+		touch-action: manipulation;
+	}
+	/* The popup menu (element type selection) must be fully visible and scrollable */
+	.djs-popup {
+		z-index: 300 !important;
+		max-height: 50vh;
+		overflow-y: auto !important;
+		-webkit-overflow-scrolling: touch;
+	}
+}
+
+/* Slide-up transition for mobile bottom sheet */
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+	transition:
+		transform 0.3s ease,
+		opacity 0.3s ease;
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+	transform: translateY(100%);
+	opacity: 0;
+}
+
+/* ProsAlly Panel slide transition */
+
+.prosally-slide-enter-active,
+.prosally-slide-leave-active {
+	transition:
+		width 0.3s ease,
+		opacity 0.2s ease;
+	overflow: hidden;
+}
+
+.prosally-slide-enter-from,
+.prosally-slide-leave-to {
+	width: 0 !important;
+	opacity: 0;
+}
+
+.prosally-slide-enter-to,
+.prosally-slide-leave-from {
+	width: 20rem; /* w-80 */
+	opacity: 1;
+}
+
+.bpmn-editor-wrapper {
+	background: #fff;
+}
+
+.bpmn-canvas {
+	background: #fafafa;
+}
+
+.bpmn-canvas.comment-mode-active .djs-container {
+	cursor: crosshair !important;
+}
+
+/* Palette Styling */
+
+.bpmn-canvas .djs-palette {
+	background: #f8f9fa;
+	border-right: 1px solid #e5e7eb;
+	border-radius: 0;
+}
+
+.bpmn-canvas .djs-palette .entry:hover {
+	background: #e5e7eb;
+}
+
+.bpmn-canvas .djs-palette .separator {
+	border-top-color: #e5e7eb;
+}
+
+.djs-element.hover .djs-outline {
+	stroke: #60a5fa !important;
+	stroke-width: 1.5px !important;
+}
+
+/* Contain BPMN z-index values within the canvas stacking context.
+   Without this, context pad (z-index:100) and popup menu (z-index:200)
+   bleed through frappe-ui Dialog overlays. */
+
+.bpmn-canvas {
+	isolation: isolate;
+}
+
+/* Canvas Focus - suppress browser default outline on all focusable children.
+   bpmn-js adds tabindex="0" on its root SVG, which triggers a visible
+   outline (color/style/width/offset) on focus in Chromium.
+   Reset all four sub-properties individually to override the UA stylesheet. */
+
+.bpmn-canvas:focus,
+.bpmn-canvas *:focus,
+.bpmn-canvas svg[tabindex]:focus,
+.bpmn-canvas svg[tabindex="0"]:focus {
+	outline: none !important;
+	outline-color: transparent !important;
+	outline-style: none !important;
+	outline-width: 0 !important;
+	outline-offset: 0 !important;
+}
+
+/* Breadcrumb Navigation (collapsed subprocess drilldown) */
+
+.bpmn-canvas .bjs-breadcrumbs {
+	font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+	font-size: 14px;
+	z-index: 10;
+}
+
+.bpmn-canvas .bjs-breadcrumbs li a {
+	color: #3b82f6;
+	text-decoration: none;
+	transition: color 0.15s ease;
+}
+
+.bpmn-canvas .bjs-breadcrumbs li a:hover {
+	color: #2563eb;
+	text-decoration: underline;
+}
+
+.bpmn-canvas .bjs-breadcrumbs li:last-of-type a {
+	color: #374151;
+	font-weight: 500;
+}
+
+/* Read-Only Mode */
+
+/* Hide palette and context pad in read-only mode */
+
+.bpmn-canvas--readonly .djs-palette,
+.bpmn-canvas--readonly .djs-context-pad,
+.bpmn-canvas--readonly .djs-popup,
+.bpmn-canvas--readonly .djs-direct-editing-parent {
+	display: none !important;
+}
+
+/* Disable drag/move cursor on elements in read-only mode */
+
+.bpmn-canvas--readonly .djs-element {
+	cursor: default !important;
+}
+
+/* Semi-transparent overlay to visually indicate read-only */
+
+.bpmn-canvas--readonly {
+	position: relative;
+}
+
+.bpmn-canvas--readonly::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background: rgba(248, 250, 252, 0.15);
+	pointer-events: none;
+	z-index: 1;
+}
+
+/* Sticky Note Direct Editing Fix:
+   These styles apply to the bpmn-js direct editing text box.
+   We force the background and text color to match the sticky note
+   aesthetics during the active edit phase. */
+
+.bpmn-canvas .djs-direct-editing-parent {
+	background-color: #fff9c4 !important; /* Pastel yellow */
+	border: 1px solid #eab308 !important; /* yellow-500 border */
+	border-radius: 2px;
+	padding: 4px;
+	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.bpmn-canvas .djs-direct-editing-content {
+	color: #000000 !important; /* Black text */
+	font-family: "Inter", "Segoe UI", system-ui, sans-serif !important;
+	font-size: 13px !important;
+	line-height: 1.2 !important;
+	outline: none !important;
+}
+
+/* Ensure placeholder/empty state is legible */
+
+.bpmn-canvas .djs-direct-editing-content:empty:before {
+	color: rgba(0, 0, 0, 0.3);
+}
+
+@media (max-width: 639px) {
+	/* Make palette slightly transparent so canvas is visible behind it */
+	.bpmn-canvas .djs-palette {
+		background-color: rgba(255, 255, 255, 0.95);
+		box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
+	}
+}

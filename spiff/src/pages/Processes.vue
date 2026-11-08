@@ -251,7 +251,7 @@ import { ref, onMounted, computed, watch } from "vue"
 import { useRouter } from "vue-router"
 import { frappeRequest, TextInput, ListFooter } from "frappe-ui"
 import { Icon } from "@iconify/vue"
-import ProcessFilter from "@/components/Controls/ProcessFilter.vue"
+import ProcessFilter from "@/components/Controls/ProcessFilter/ProcessFilter.vue"
 import { dayjs } from "@/dayjs"
 import { downloadBpmn } from "@/utils/downloadBpmn"
 import { searchRank } from "@/utils/searchRank"
@@ -396,7 +396,7 @@ async function loadProcesses() {
 	loading.value = true
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.list_processes",
+			url: "/api/method/one_bpmn.api.process_maps.list_processes",
 		})
 		
 		// Handle different response formats
@@ -458,7 +458,7 @@ async function exportSingleDiagram(diagram) {
 	showExportDialog.value = false
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.get_process_model",
+			url: "/api/method/one_bpmn.api.process_maps.get_process_model",
 			params: { name: diagram.name },
 		})
 		const data = response.message || response
@@ -475,7 +475,7 @@ async function exportProcess(process) {
 	exportingProcesses.value = new Set([...exportingProcesses.value, process.name])
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.get_process_diagrams",
+			url: "/api/method/one_bpmn.api.process_maps.get_process_diagrams",
 			params: { process: process.name },
 		})
 		const data = response.message || response

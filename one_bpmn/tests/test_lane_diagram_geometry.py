@@ -24,7 +24,7 @@ import xml.etree.ElementTree as ET
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.bpmn_ir_pipeline import compile_ir
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_pipeline import compile_ir
 
 DI = "http://www.omg.org/spec/BPMN/20100524/DI"
 DC = "http://www.omg.org/spec/DD/20100524/DC"

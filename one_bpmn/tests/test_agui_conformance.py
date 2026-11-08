@@ -31,7 +31,7 @@ def _run_recorded(agent_id: str, reply, runner_key: str = "bpmn_map") -> list:
 	shapers, the contract translators, the relay rules.
 	"""
 	from one_bpmn.agents import agui_stream
-	from one_bpmn.api import agent_invocation as ai
+	from one_bpmn.api import a2a as ai
 
 	class _Screened:
 		text = "msg"
@@ -47,9 +47,9 @@ def _run_recorded(agent_id: str, reply, runner_key: str = "bpmn_map") -> list:
 		patch.object(ai, "_authorize"),
 		patch.object(ai, "_runner_for", return_value=runner_key),
 		patch.dict(ai._RUNNERS, {runner_key: runner}),
-		patch("one_bpmn.security.pii.screen_input", return_value=_Screened()),
-		patch("one_bpmn.security.pii.begin_turn", return_value=object()),
-		patch("one_bpmn.security.pii.end_turn"),
+		patch("one_bpmn.ai_agent_security.screening.pii.screen_input", return_value=_Screened()),
+		patch("one_bpmn.ai_agent_security.screening.pii.begin_turn", return_value=object()),
+		patch("one_bpmn.ai_agent_security.screening.pii.end_turn"),
 	]
 	for p in patches:
 		p.start()
@@ -183,7 +183,7 @@ class TestPureConfigurationAgent(FrappeTestCase):
 				return _Completion()
 
 		with patch(
-			"one_bpmn.agents.llm_provider.get_llm_adapter_from_settings", return_value=_Adapter()
+			"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=_Adapter()
 		):
 			chunks = list(
 				agui_stream.agent_event_stream(self.AGENT_ID, "hello there", conversation)

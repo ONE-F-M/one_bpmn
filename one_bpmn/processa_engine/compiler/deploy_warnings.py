@@ -50,7 +50,7 @@ def check_eval_suite_gating(model_name: str) -> list:
 
 def check_connector_tools_can_answer(bpmn_xml: str) -> list:
 	"""Warn for each connector tool with no Result Variable, which runs but returns nothing to the agent."""
-	from one_bpmn.api.process_map_api import _connector_tools_without_result_variable
+	from one_bpmn.processa_engine.maps.readiness import connector_tools_without_result_variable
 
 	return [
 		{
@@ -62,7 +62,7 @@ def check_connector_tools_can_answer(bpmn_xml: str) -> list:
 				"'{2}' agent but return no data to it. Set a Result Variable on that shape."
 			).format(g["shape"] or g["bpmn_id"], g["connector"] or _("connector"), g["agent"]),
 		}
-		for g in _connector_tools_without_result_variable(bpmn_xml)
+		for g in connector_tools_without_result_variable(bpmn_xml)
 	]
 
 
@@ -215,7 +215,7 @@ def empty_script_tasks(root) -> list:
 
 def check_shape_config_drift(service_extensions: dict) -> list:
 	"""One warning per AI shape whose prompt, model, temperature or max tokens differ from its linked configuration."""
-	from one_bpmn.agents.agent_config_resolver import config_field_map, shape_config_drift
+	from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import config_field_map, shape_config_drift
 
 	warnings = []
 	live_by_config = {}
@@ -245,3 +245,19 @@ def _drift_line(drift: dict) -> str:
 			drift["label"], len(drift["live"]), len(drift["shape"])
 		)
 	return _("{0} {1} (the shape says {2})").format(drift["label"], drift["live"], drift["shape"] or _("nothing"))
+
+
+def check_scripts_pending_review(script_names: list) -> list:
+	"""Warn for each Server Script the deploy left disabled because it awaits a System Manager's review."""
+	return [
+		{
+			"label": _("Script awaits review"),
+			"icon": "shield-alert",
+			"type": "warning",
+			"detail": _(
+				"Server Script '{0}' was written or edited by an agent and stays disabled until a "
+				"System Manager reviews and enables it."
+			).format(name),
+		}
+		for name in script_names
+	]

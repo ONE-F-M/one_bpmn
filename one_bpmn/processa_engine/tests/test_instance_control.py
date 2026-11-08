@@ -7,7 +7,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api import instance_control
+from one_bpmn.api import instances
 from one_bpmn.api.deploy import compile_process_model
 from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import BPMNProcessInstance
 from one_bpmn.processa_engine.timers import _refresh_timer_tasks, process_timer_catch_events
@@ -134,7 +134,7 @@ class TestRetryFailedStep(InstanceControlTestCase):
 		instance.db_set("initiated_by", "Guest")
 		_set_script('result["quotient"] = 1 / 1')
 
-		instance_control.retry_failed_step(instance.name, reason="script fixed")
+		instances.retry_failed_step(instance.name, reason="script fixed")
 
 		instance.reload()
 		self.assertEqual(instance.status, "Active")
@@ -149,7 +149,7 @@ class TestRetryFailedStep(InstanceControlTestCase):
 		before = _actions(instance.name, "Errored")
 
 		with self.assertRaises(frappe.ValidationError):
-			instance_control.retry_failed_step(instance.name)
+			instances.retry_failed_step(instance.name)
 
 		instance.reload()
 		self.assertEqual(instance.status, "Errored")
@@ -168,7 +168,7 @@ class TestRetryFailedStep(InstanceControlTestCase):
 		self.assertTrue(instance.workflow_state)
 		_set_script('result["quotient"] = 1 / 1')
 
-		instance_control.retry_failed_step(instance.name, reason="script fixed")
+		instances.retry_failed_step(instance.name, reason="script fixed")
 
 		instance.reload()
 		self.assertEqual(instance.status, "Active")
@@ -185,7 +185,7 @@ class TestRetryFailedStep(InstanceControlTestCase):
 		instance = _instance(SCRIPT_XML)
 		instance.start()
 		with self.assertRaises(frappe.ValidationError):
-			instance_control.retry_failed_step(instance.name)
+			instances.retry_failed_step(instance.name)
 
 
 class TestCancel(InstanceControlTestCase):
@@ -194,7 +194,7 @@ class TestCancel(InstanceControlTestCase):
 		instance = _instance(SCRIPT_XML)
 		instance.start()
 
-		instance_control.cancel_instance(instance.name, reason="duplicate request")
+		instances.cancel_instance(instance.name, reason="duplicate request")
 
 		instance.reload()
 		self.assertEqual(instance.status, "Cancelled")
@@ -212,21 +212,21 @@ class TestCancel(InstanceControlTestCase):
 		instance = _instance(TIMER_XML)
 		instance.db_set("status", "Completed")
 		with self.assertRaises(frappe.ValidationError):
-			instance_control.cancel_instance(instance.name, reason="too late")
+			instances.cancel_instance(instance.name, reason="too late")
 		self.assertEqual(frappe.db.get_value("BPMN Process Instance", instance.name, "status"), "Completed")
 
 	def test_a_reason_is_required(self):
 		instance = _instance(TIMER_XML)
 		instance.start()
 		with self.assertRaises(frappe.ValidationError):
-			instance_control.cancel_instance(instance.name, reason="  ")
+			instances.cancel_instance(instance.name, reason="  ")
 
 
 class TestSuspendAndResume(InstanceControlTestCase):
 	def test_a_suspended_instance_is_left_alone_until_resumed(self):
 		instance = _instance(TIMER_XML)
 		instance.start()
-		instance_control.suspend_instance(instance.name, reason="investigating")
+		instances.suspend_instance(instance.name, reason="investigating")
 		instance.reload()
 		self.assertEqual(instance.status, "Suspended")
 
@@ -240,7 +240,7 @@ class TestSuspendAndResume(InstanceControlTestCase):
 			process_timer_catch_events()
 		self.assertNotIn(instance.name, [call.args[0] for call in sweep.call_args_list])
 
-		instance_control.resume_instance(instance.name, reason="done")
+		instances.resume_instance(instance.name, reason="done")
 		_refresh_timer_tasks(instance.name)
 		instance.reload()
 		self.assertEqual(instance.status, "Completed")
@@ -249,31 +249,31 @@ class TestSuspendAndResume(InstanceControlTestCase):
 		instance = _instance(TIMER_XML)
 		instance.start()
 		for _ in range(2):
-			instance_control.suspend_instance(instance.name, reason="pause")
-			instance_control.resume_instance(instance.name)
+			instances.suspend_instance(instance.name, reason="pause")
+			instances.resume_instance(instance.name)
 		self.assertEqual(_actions(instance.name, "Suspended"), 2)
 		self.assertEqual(_actions(instance.name, "Resumed"), 2)
 
 	def test_resume_queues_parked_ai_steps_again(self):
 		instance = _instance(TIMER_XML)
 		instance.start()
-		instance_control.suspend_instance(instance.name, reason="pause")
+		instances.suspend_instance(instance.name, reason="pause")
 		parked = [{"kind": "service_task", "task_id": "parked-task"}]
 		with (
 			patch.object(BPMNProcessInstance, "get_parked_ai_units", return_value=parked),
-			patch("one_bpmn.api.instance_api.retry_ai_task") as retry,
+			patch("one_bpmn.processa_engine.instances.task_actions.retry_ai_task") as retry,
 		):
-			instance_control.resume_instance(instance.name)
+			instances.resume_instance(instance.name)
 		retry.assert_called_once_with(instance.name, "parked-task", kind="service_task")
 
 	def test_only_an_active_instance_is_suspended_and_only_a_suspended_one_resumed(self):
 		instance = _instance(TIMER_XML)
 		instance.start()
 		with self.assertRaises(frappe.ValidationError):
-			instance_control.resume_instance(instance.name)
+			instances.resume_instance(instance.name)
 		instance.db_set("status", "Errored")
 		with self.assertRaises(frappe.ValidationError):
-			instance_control.suspend_instance(instance.name, reason="pause")
+			instances.suspend_instance(instance.name, reason="pause")
 
 
 class TestWhoMayRecover(InstanceControlTestCase):
@@ -307,10 +307,10 @@ class TestWhoMayRecover(InstanceControlTestCase):
 		self.assertTrue(frappe.has_permission("BPMN Process Instance", "write", user=self.employee))
 		frappe.set_user(self.employee)
 		for call in (
-			lambda: instance_control.cancel_instance(instance.name, reason="x"),
-			lambda: instance_control.suspend_instance(instance.name, reason="x"),
-			lambda: instance_control.resume_instance(instance.name),
-			lambda: instance_control.retry_failed_step(instance.name),
+			lambda: instances.cancel_instance(instance.name, reason="x"),
+			lambda: instances.suspend_instance(instance.name, reason="x"),
+			lambda: instances.resume_instance(instance.name),
+			lambda: instances.retry_failed_step(instance.name),
 		):
 			with self.assertRaises(frappe.PermissionError):
 				call()

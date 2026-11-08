@@ -12,8 +12,9 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import prosally_helpers as helpers
+from one_bpmn.ai_agent_registry.definitions.prosally import helpers, tools_prompts
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_stage_tools_read_process_memory as memory_patch
+from one_bpmn.tests.site_scripts import as_deployed
 
 PROMOTION = "Zz Test Employee Promotion"
 OFFBOARDING = "Zz Test Employee Offboarding"
@@ -107,19 +108,19 @@ class TestPrompt(FrappeTestCase):
 	TURN = {"memory_notes": ["promotion needs the board lane"]}
 
 	def test_notes_sit_under_their_heading_after_the_sub_prompt(self):
-		prompt = helpers.stage_system_prompt(self.CFG, "modifier", "modify_skills", self.TURN)
+		prompt = tools_prompts.stage_system_prompt(self.CFG, "modifier", "modify_skills", self.TURN)
 		self.assertTrue(prompt.startswith("MODIFIER\n\nNotes from earlier work on this process:"))
 		self.assertIn("- promotion needs the board lane", prompt)
 		self.assertNotIn("Offboarding", prompt)
 
 	def test_without_notes_the_prompt_is_unchanged(self):
-		self.assertEqual(helpers.stage_system_prompt(self.CFG, "modifier", "modify_skills"), "MODIFIER")
+		self.assertEqual(tools_prompts.stage_system_prompt(self.CFG, "modifier", "modify_skills"), "MODIFIER")
 		turn = {"memory_notes": []}
-		self.assertEqual(helpers.stage_system_prompt(self.CFG, "modifier", "modify_skills", turn), "MODIFIER")
+		self.assertEqual(tools_prompts.stage_system_prompt(self.CFG, "modifier", "modify_skills", turn), "MODIFIER")
 
 	def test_blank_skills_constant_loads_no_skills(self):
 		with patch.object(frappe, "get_all") as get_all:
-			helpers.stage_system_prompt(self.CFG, "modifier", "", self.TURN)
+			tools_prompts.stage_system_prompt(self.CFG, "modifier", "", self.TURN)
 		get_all.assert_not_called()
 
 
@@ -128,8 +129,7 @@ class TestQueueProcessMemory(FrappeTestCase):
 
 	def _queue(self, turn, intent, fields=MEMORY_ON):
 		cfg = {"name": "CFG", "ai_model": "m", "ai_provider": "p"}
-		with patch.object(helpers, "prosally_config", return_value=cfg), patch.object(
-			helpers, "_memory_fields", return_value=fields
+		with patch.object(helpers, "prosally_config", return_value=cfg), patch.object(helpers, "_memory_fields", return_value=fields
 		), patch.object(frappe, "enqueue") as enqueue:
 			helpers.queue_process_memory(turn, {"intent": intent, "response": "Drew it."})
 		return enqueue
@@ -222,8 +222,8 @@ class TestStageToolsPatch(FrappeTestCase):
 		recalled = {"memory_process": PROMOTION, "memory_notes": ["a note"]}
 		scope = {"conversation_id": "CONV-1", "task_data": {"diagram_name": PROMOTION + " - v1"}}
 		with patch.object(helpers, "recall_process_memory", return_value=recalled) as recall, patch(
-			"one_bpmn.agents.turn_state.update_turn"
+			"one_bpmn.processa_engine.agent_runtime.turn_state.update_turn"
 		) as update:
-			exec(lines, scope)  # nosemgrep
+			exec(as_deployed(lines), scope)  # nosemgrep
 		recall.assert_called_once_with(PROMOTION + " - v1")
 		update.assert_called_once_with("CONV-1", **recalled)

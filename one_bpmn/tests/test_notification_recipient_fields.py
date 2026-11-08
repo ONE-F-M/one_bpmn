@@ -18,7 +18,7 @@ because the run reports success and no email arrives.
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.utils import get_recipient_docfields
+from one_bpmn.api.lookups import get_recipient_docfields
 from one_bpmn.processa_engine.dispatch.email import _emails_from_doc_field
 
 

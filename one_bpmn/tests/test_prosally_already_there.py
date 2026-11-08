@@ -9,8 +9,8 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.prosally_helpers import describe_changes, no_change_reply, similar_steps
-from one_bpmn.agents.turn_state import clear_turn, get_turn, set_turn
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_replies import describe_changes, no_change_reply, similar_steps
+from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_says_what_is_already_there as already_patch
 
 CONVERSATION = "_test_prosally_already_there"
@@ -88,8 +88,8 @@ class TestClassifierSaysItIsThere(FrappeTestCase):
 		)
 		adapter = RecordingAdapter(DRAW_REPLY)
 		with (
-			patch("one_bpmn.agents.prosally_helpers.get_llm_adapter_from_settings", return_value=adapter),
-			patch("one_bpmn.agents.prosally_helpers.unapplied_proposal", return_value=None),
+			patch("one_bpmn.ai_agent_registry.definitions.prosally.helpers.get_llm_adapter_from_settings", return_value=adapter),
+			patch("one_bpmn.ai_agent_registry.definitions.prosally.tools_subprocess.unapplied_proposal", return_value=None),
 		):
 			exec(self.script, {"frappe": frappe, "context_docname": CONVERSATION, "result": {}})
 		return adapter
@@ -132,8 +132,8 @@ class TestModifyScriptShowsNoCardWhenNothingChanged(FrappeTestCase):
 		)
 		result = {}
 		with (
-			patch("one_bpmn.agents.prosally_helpers.complete_sub_prompt", return_value='{"nodes": [], "flows": []}'),
-			patch("one_bpmn.agents.prosally_helpers.splice_subprocess", lambda xml, child, scope_id: xml),
+			patch("one_bpmn.ai_agent_registry.definitions.prosally.helpers.complete_sub_prompt", return_value='{"nodes": [], "flows": []}'),
+			patch("one_bpmn.ai_agent_registry.definitions.prosally.tools_subprocess.splice_subprocess", lambda xml, child, scope_id: xml),
 		):
 			exec(script, {"frappe": frappe, "context_docname": CONVERSATION, "result": result, "bpmn_id": "x"})
 		output = get_turn(CONVERSATION)["output"]

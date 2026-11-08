@@ -127,7 +127,7 @@ class BPMNProcessModel(Document):
 		except ET.ParseError:
 			return  # an unparseable diagram is reported by the other validators
 
-		from one_bpmn.agents.executor.direct_api import _supports_temperature
+		from one_bpmn.processa_engine.agent_runtime.direct_api import supports_temperature
 
 		unused = []
 		for element in root.iter():
@@ -138,7 +138,7 @@ class BPMNProcessModel(Document):
 			model = (config and frappe.db.get_value("AI Agent Configuration", config, "ai_model")) or element.get(
 				f"{_SPIFF_NS}aiModel"
 			)
-			if model and not _supports_temperature(model):
+			if model and not supports_temperature(model):
 				unused.append(
 					_("{0}: AI Model {1} does not accept a temperature, so it is not sent.").format(
 						element.get("name") or element.get("id"), model
@@ -160,7 +160,7 @@ class BPMNProcessModel(Document):
 		except ET.ParseError:
 			return  # an unparseable diagram is reported by the other validators
 
-		from one_bpmn.agents.llm_provider.structured_output import (
+		from one_bpmn.processa_engine.agent_runtime.structured_output import (
 			UnsupportedSchemaRule,
 			normalize_response_schema,
 			validate_schema_rules,
@@ -203,7 +203,7 @@ class BPMNProcessModel(Document):
 		if not self.is_new() and not self.has_value_changed("bpmn_xml"):
 			return
 
-		from one_bpmn.security.script_gate import validate_process_model_scripts
+		from one_bpmn.ai_agent_security.code_checks.script_gate import validate_process_model_scripts
 
 		validate_process_model_scripts(self.bpmn_xml)
 

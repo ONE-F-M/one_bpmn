@@ -22,10 +22,10 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor.step_loop import run_agent_loop
-from one_bpmn.agents.llm_provider.base import ToolSpec
+from one_bpmn.processa_engine.agent_runtime.step_loop import run_agent_loop
+from one_bpmn.processa_engine.agent_runtime.llm_types import ToolSpec
 from one_bpmn.agents.shape_tools import ToolDeferred, execute_shape
-from one_bpmn.one_bpmn.connectors.a2a_client_ops import A2A_WAITING_KEY
+from one_bpmn.a2a.client_ops import A2A_WAITING_KEY
 
 MARKER = {"a2a_task": "A2A-TEST-1", "label": "Delegated to Slow Agent", "remote_task_id": None}
 
@@ -159,7 +159,7 @@ class TestCallerTaskIdIsNotTheStringNone(FrappeTestCase):
 		"""A tool call has no SpiffWorkflow task, so there is no step id to
 		record. Stringifying it wrote the literal "None", which the reconciler
 		would later try to resume."""
-		from one_bpmn.one_bpmn.connectors.a2a_client_ops import _caller_task_id
+		from one_bpmn.a2a.client_ops import _caller_task_id
 
 		synthetic = frappe._dict(data={}, task_spec=frappe._dict(bpmn_id="delegate"))
 		self.assertIsNone(_caller_task_id(synthetic))

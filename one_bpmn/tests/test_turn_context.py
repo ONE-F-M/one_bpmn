@@ -14,7 +14,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.context_assembler import build_dynamic_preamble
+from one_bpmn.ai_agent_registry.provisioning.context_assembler import build_dynamic_preamble
 from one_bpmn.agents.memory.session_state import LAST_TURN_KEY, get_state, record, record_turn_result
 from one_bpmn.agents.memory.turn_context import (
 	ESTABLISHED_HEADER,
@@ -219,7 +219,7 @@ class TestRecordTurnResult(TurnContextCase):
 
 class TestPlatformHistoryStep(TurnContextCase):
 	def test_a_chat_turn_gets_its_window_and_the_turn_store_gets_the_same(self):
-		from one_bpmn.agents.turn_state import clear_turn, get_turn
+		from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn
 		from one_bpmn.processa_engine.dispatch.ai_agent import _platform_history
 
 		name = self._conversation(turns=3)
@@ -334,9 +334,9 @@ class TestToolCallingTurnSendsHistory(FrappeTestCase):
 	"""Every chat agent calls tools, so the tool loop is where history has to reach the model."""
 
 	def test_prior_turns_precede_the_message_in_the_first_model_call(self):
-		from one_bpmn.agents.executor import ExecutorConfig
-		from one_bpmn.agents.executor.direct_api import DirectApiExecutor
-		from one_bpmn.agents.llm_provider.base import StepResult, ToolSpec
+		from one_bpmn.processa_engine.agent_runtime.executor import ExecutorConfig
+		from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
+		from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult, ToolSpec
 
 		seen = []
 
@@ -357,7 +357,7 @@ class TestToolCallingTurnSendsHistory(FrappeTestCase):
 			tools=[ToolSpec(fn=lambda **kw: "ok", name="lookup", description="a read")],
 		)
 		with patch(
-			"one_bpmn.agents.llm_provider.factory.get_llm_adapter", return_value=RecordingAdapter()
+			"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter", return_value=RecordingAdapter()
 		):
 			DirectApiExecutor()._run_with_tools(config, "Anthropic", "key", "m")
 

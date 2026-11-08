@@ -21,7 +21,7 @@ from __future__ import annotations
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor import ExecutorConfig
+from one_bpmn.processa_engine.agent_runtime.executor import ExecutorConfig
 from one_bpmn.agents.observability import (
 	_MAX_INLINE_CHARS,
 	clear_tool_artifacts,

@@ -14,11 +14,11 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.executor.tool_bounds import DEFAULT_TOOL_RESULT_MAX_CHARS
+from one_bpmn.processa_engine.agent_runtime.tool_bounds import DEFAULT_TOOL_RESULT_MAX_CHARS
 from one_bpmn.one_bpmn.patches.v1_0 import frontend_agent_reads_in_windows as fix
 
 REPO = frappe.get_app_source_path("one_bpmn")
-BPMN_EDITOR = "spiff/src/components/Editor/BpmnEditor.vue"
+BPMN_EDITOR = "spiff/src/components/Editor/BpmnEditor/BpmnEditor.vue"
 EDITOR = "spiff/src/pages/Process.vue"
 ARGS = {"target_app": "one_bpmn", "git_branch": "staging", "work_item_description": "Fix the panel."}
 
@@ -41,7 +41,7 @@ def _exec(script_name: str, task_data: dict, **stubs) -> dict:
 		"instance": frappe._dict(name=f"window-{frappe.generate_hash(length=6)}"),
 	}
 	with patch(
-		"one_bpmn.one_bpmn.connectors.agent_sandbox_ops.sandbox_dispatch",
+		"one_bpmn.agents_sandbox.sandbox.ops.sandbox_dispatch",
 		return_value=stubs.get("dispatch"),
 	):
 		exec(body, namespace)

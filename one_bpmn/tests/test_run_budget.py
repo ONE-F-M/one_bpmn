@@ -11,10 +11,10 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import goal_completion, shape_tools
-from one_bpmn.agents.agent_config_resolver import config_field_map
-from one_bpmn.agents.executor import ErrorCode, ExecutorConfig, ExecutorContext
-from one_bpmn.agents.executor.direct_api import DirectApiExecutor
-from one_bpmn.agents.llm_provider.base import StepResult, StepToolCall, ToolSpec
+from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import config_field_map
+from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorConfig, ExecutorContext
+from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
+from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall, ToolSpec
 from one_bpmn.agents.shape_tools import BudgetExceeded
 
 RATES = {
@@ -84,7 +84,7 @@ class TestTheLoopStopsAtTheBudget(FrappeTestCase):
 		)
 		adapter = _ToolLoopAdapter()
 		with (
-			patch("one_bpmn.agents.llm_provider.factory.get_llm_adapter", return_value=adapter),
+			patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter", return_value=adapter),
 			patch("one_bpmn.agents.pricing.get_model_pricing", return_value=RATES),
 		):
 			result = DirectApiExecutor().run(config, ExecutorContext())

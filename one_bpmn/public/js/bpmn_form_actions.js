@@ -56,7 +56,7 @@ frappe.provide('one_bpmn');
 
 		_processa_doctypes_promise = frappe
 			.call({
-				method: 'one_bpmn.api.instance_api.get_processa_controlled_doctypes',
+				method: 'one_bpmn.api.instances.get_processa_controlled_doctypes',
 				freeze: false,
 			})
 			.then(function (r) {
@@ -261,7 +261,7 @@ frappe.provide('one_bpmn');
 
 		try {
 			const response = await frappe.call({
-				method: 'one_bpmn.api.instance_api.get_active_bpmn_tasks',
+				method: 'one_bpmn.api.instances.get_active_bpmn_tasks',
 				args: {
 					doctype: frm.doctype,
 					docname: frm.docname,
@@ -506,7 +506,7 @@ frappe.provide('one_bpmn');
 		frappe.dom.freeze(__('Applying action…'));
 
 		frappe.call({
-			method: 'one_bpmn.api.instance_api.complete_task',
+			method: 'one_bpmn.api.instances.complete_task',
 			args: {
 				instance_name: task.instance_name,
 				task_id:       task.task_id,

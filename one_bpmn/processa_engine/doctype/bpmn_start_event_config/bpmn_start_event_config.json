@@ -52,7 +52,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Trigger Event",
-   "options": "After Insert\nValidate\nBefore Save\nOn Update\nBefore Submit\nOn Submit\nBefore Cancel\nOn Cancel\nBefore Update After Submit\nOn Update After Submit",
+   "options": "After Insert\nValidate\nBefore Save\nOn Update\nBefore Submit\nOn Submit\nBefore Cancel\nOn Cancel\nBefore Update After Submit\nOn Update After Submit\nOn Cancel Request",
    "columns": 2
   },
   {
@@ -90,7 +90,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-05-10 20:15:24.993018",
+ "modified": "2026-11-08 12:00:00.000000",
  "modified_by": "c.akeru@one-fm.com",
  "module": "Processa Engine",
  "name": "BPMN Start Event Config",

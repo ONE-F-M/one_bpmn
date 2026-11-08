@@ -13,7 +13,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.agent_config_resolver import config_field_map
+from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import config_field_map
 from one_bpmn.processa_engine.dispatch import ai_agent as D
 from one_bpmn.processa_engine.dispatch.common import cfg_truthy
 
@@ -232,7 +232,7 @@ class TestMemoryModelConfig(FrappeTestCase):
 		"""
 		from types import SimpleNamespace
 
-		from one_bpmn.agents.executor import (
+		from one_bpmn.processa_engine.agent_runtime.executor import (
 			ErrorCode,
 			Executor,
 			ExecutorResult,
@@ -459,7 +459,7 @@ class TestMemoryConfigValidation(FrappeTestCase):
 		self.assertTrue(frappe.db.exists("AI Agent Configuration", doc.name))
 
 	def test_effective_models_endpoint_matches_validation(self):
-		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import (
+		from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import (
 			get_effective_memory_models,
 		)
 
@@ -470,7 +470,7 @@ class TestMemoryConfigValidation(FrappeTestCase):
 		self.assertEqual(result, {"distill_model": MODEL_CHAT, "reconcile_model": MODEL_CHAT})
 
 	def test_effective_models_endpoint_reports_unresolvable_as_none(self):
-		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import (
+		from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import (
 			get_effective_memory_models,
 		)
 
@@ -526,13 +526,11 @@ class TestTheMemoryModelBringsItsOwnProvider(FrappeTestCase):
 
 	def resolve(self, model, fallback):
 		"""The provider ProsAlly's memory write hands the distiller for *model*."""
-		from one_bpmn.agents import prosally_helpers as helpers
-
+		from one_bpmn.ai_agent_registry.definitions.prosally import helpers
 		cfg = {"name": "CFG", "ai_model": model, "ai_provider": fallback}
 		fields = {"memory_write_mode": "distilled", "memory_distill_model": model, "memory_reconcile_model": model}
 		turn = {"memory_process": "Zz Process", "user_text": "yes", "memory_notes": [], "chat_history": []}
-		with patch.object(helpers, "prosally_config", return_value=cfg), patch.object(
-			helpers, "_memory_fields", return_value=fields
+		with patch.object(helpers, "prosally_config", return_value=cfg), patch.object(helpers, "_memory_fields", return_value=fields
 		), patch.object(frappe.db, "get_single_value", return_value=None), patch.object(frappe, "enqueue") as enqueue:
 			helpers.queue_process_memory(turn, {"intent": "BPMN_GENERATED", "response": "Drew it."})
 		kwargs = enqueue.call_args.kwargs

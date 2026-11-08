@@ -54,8 +54,8 @@ class AISkill(Document):
 		if frappe.flags.in_patch or frappe.flags.in_migrate or frappe.flags.in_install or frappe.flags.in_test:
 			return
 		try:
-			from one_bpmn.agents.executor.direct_api import _run_coro_blocking
-			from one_bpmn.agents.llm_provider.factory import get_llm_adapter_from_settings
+			from one_bpmn.processa_engine.agent_runtime.direct_api import run_coro_blocking
+			from one_bpmn.processa_engine.agent_runtime.llm_factory import get_llm_adapter_from_settings
 
 			adapter = get_llm_adapter_from_settings()
 
@@ -73,7 +73,7 @@ class AISkill(Document):
 			)
 			user_prompt = f"Description:\n{self.description}"
 
-			# _run_coro_blocking (agents/executor/direct_api.py, WI-001356)
+			# run_coro_blocking (processa_engine/agent_runtime/direct_api.py)
 			# already solves "call async LLM code from this synchronous
 			# validate() hook" -- including falling back to a dedicated
 			# thread (with the caller's contextvars, so frappe.local
@@ -81,7 +81,7 @@ class AISkill(Document):
 			# instead of hand-rolling asyncio.get_event_loop() keeps this
 			# codebase's one pattern for the problem instead of a second,
 			# less battle-tested one.
-			step_result = _run_coro_blocking(
+			step_result = run_coro_blocking(
 				adapter.step(
 					system=system_prompt,
 					transcript=[{"role": "user", "content": user_prompt}],

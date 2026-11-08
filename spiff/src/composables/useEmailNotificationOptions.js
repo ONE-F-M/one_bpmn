@@ -4,7 +4,7 @@
 import { ref } from "vue"
 import { frappeGet } from "@/bpmn/shared/frappeResource"
 
-const FIELDS_URL = "/api/method/one_bpmn.api.utils.get_doctype_fields"
+const FIELDS_URL = "/api/method/one_bpmn.api.lookups.get_doctype_fields"
 
 async function names(doctype) {
 	const rows = await frappeGet(`/api/resource/${doctype}`, { fields: '["name"]', limit_page_length: 0, order_by: "name asc" })
@@ -35,7 +35,7 @@ export function useEmailNotificationOptions() {
 		tableFields.value = []
 		if (!doctype) return
 		const [fields, tables] = await Promise.all([
-			frappeGet("/api/method/one_bpmn.api.utils.get_recipient_docfields", { doctype }),
+			frappeGet("/api/method/one_bpmn.api.lookups.get_recipient_docfields", { doctype }),
 			frappeGet(FIELDS_URL, { doctype, fieldtype_in: '["Table MultiSelect","Table"]', include_options: true }),
 		])
 		docFields.value = Array.isArray(fields) ? fields : []

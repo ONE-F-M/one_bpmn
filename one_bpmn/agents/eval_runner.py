@@ -31,7 +31,7 @@ from frappe.query_builder import DocType, Order
 from frappe.query_builder.functions import Sum
 from frappe.utils import add_to_date, cint, flt, now_datetime
 
-from one_bpmn.agents.executor import (
+from one_bpmn.processa_engine.agent_runtime.executor import (
     DEFAULT_MAX_RETRIES,
     DEFAULT_TIMEOUT_SECONDS,
     ErrorCode,
@@ -40,11 +40,11 @@ from one_bpmn.agents.executor import (
     get_executor,
 )
 # Importing the backend modules registers them in the executor registry.
-from one_bpmn.agents.executor.direct_api import (  # noqa: F401
+from one_bpmn.processa_engine.agent_runtime.direct_api import (  # noqa: F401
     DirectApiExecutor,
-    _strip_code_fences,
+    strip_code_fences,
 )
-from one_bpmn.agents.executor.antigravity import AntigravityExecutor  # noqa: F401
+from one_bpmn.processa_engine.agent_runtime.antigravity import AntigravityExecutor  # noqa: F401
 from one_bpmn.agents.pricing import get_model_pricing
 
 
@@ -2148,7 +2148,7 @@ def _run_chat_agent_eval(cfg, case, eval_run: str | None = None) -> tuple:
     ``input_context`` may seed earlier turns through ``conversation_messages`` and
     ``session_state``; usage comes from the runs tagged with this case and eval run."""
     from one_bpmn.agents.memory import session_state
-    from one_bpmn.api.agent_invocation import invoke_agent
+    from one_bpmn.api.a2a import invoke_agent
     from one_bpmn.utils.chat_persistence import close_conversation, create_agent_conversation
 
     if not cfg.agent_id:
@@ -2399,7 +2399,7 @@ def _evaluate_schema_valid(schema_str: str, output: Any) -> dict:
     # JSON string (text response_format).
     if isinstance(output, str):
         try:
-            instance = json.loads(_strip_code_fences(output))
+            instance = json.loads(strip_code_fences(output))
         except json.JSONDecodeError as exc:
             return {"passed": False, "message": f"Output is not valid JSON: {exc}"}
     else:
@@ -2841,7 +2841,7 @@ def _evaluate_llm_judge(assertion, output: Any) -> dict:
     judge_output = judge_result.output
     if isinstance(judge_output, str):
         try:
-            judge_output = json.loads(_strip_code_fences(judge_output))
+            judge_output = json.loads(strip_code_fences(judge_output))
         except (json.JSONDecodeError, TypeError):
             return {
                 **base,

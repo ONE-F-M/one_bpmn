@@ -6,7 +6,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.processa_engine.compiler.checks import validate_user_task_config
-from one_bpmn.api.process_map_api import validate_bpmn_readiness
+from one_bpmn.api.process_maps import validate_bpmn_readiness
 
 MAP = """<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
