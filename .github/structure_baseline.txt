@@ -169,7 +169,6 @@ size spiff/src/components/Logix/LogixCanvas.vue 1433
 size spiff/src/components/Chat/AgentChatPanel.vue 1129
 size spiff/src/components/Instances/BpmnDiagramViewer.vue 808
 size spiff/src/components/Instances/ElementInspector.vue 799
-size spiff/src/pages/A2A.vue 1970
 size spiff/src/pages/EvalRun.vue 516
 size spiff/src/pages/EvalSuite.vue 1608
 size spiff/src/pages/Instance.vue 891

@@ -24,9 +24,7 @@
 </template>
 
 <script setup>
-// WI-001934: granting a caller access is a list of agents, and the only agents
-// that can be granted are the exposed ones — so the picker is fed from the same
-// catalogue the Our-agents tab shows rather than every agent on the site.
+// Only exposed agents can be granted, so the list comes from the Our agents catalogue.
 const props = defineProps({
 	modelValue: { type: Array, default: () => [] },
 	agents: { type: Array, default: () => [] },
