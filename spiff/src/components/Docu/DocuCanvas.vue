@@ -67,7 +67,7 @@
 </template>
 
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, provide, watch } from "vue";
+import { getCurrentScope, nextTick, onBeforeUnmount, onMounted, provide, watch } from "vue";
 import { Icon } from "@iconify/vue";
 import AgentChatPanel from "@/components/Chat/AgentChatPanel.vue";
 import DocuApplyBar from "@/components/Docu/DocuApplyBar.vue";
@@ -92,6 +92,7 @@ const props = defineProps({
 	open: { type: Boolean, default: true },
 });
 const emit = defineEmits(["close", "applied"]);
+const scope = getCurrentScope();
 
 const settings = useDocuSettings({ doctype: props.doctype, onChange });
 const tree = useDocuTree();
@@ -165,13 +166,16 @@ onMounted(async () => {
 	// Undo/redo: seed the baseline snapshot, then record on every edit.
 	nextTick(() => {
 		history.recordSnapshot();
-		watch(
-			[tabs, dtName, dtModule, dtAutoname, isChild, dtSettings],
-			() => {
-				history.scheduleSnapshot();
-				autosave.scheduleAutosave();
-			},
-			{ deep: true },
+		// Registered after an await, so it joins the component's scope to stop on unmount.
+		scope.run(() =>
+			watch(
+				[tabs, dtName, dtModule, dtAutoname, isChild, dtSettings],
+				() => {
+					history.scheduleSnapshot();
+					autosave.scheduleAutosave();
+				},
+				{ deep: true },
+			),
 		);
 	});
 	window.addEventListener("keydown", history.onGlobalKeydown, true);
