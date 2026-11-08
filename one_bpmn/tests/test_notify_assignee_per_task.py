@@ -21,8 +21,6 @@ have helped: the guard is on ``prev_assigned``, not on the ToDo.
 
 from __future__ import annotations
 
-import sys
-import types
 from unittest.mock import Mock, patch
 
 import frappe
@@ -51,18 +49,9 @@ def _instance(name="TEST-NOTIFY-PI"):
 
 class TestNotifyAssigneePerTask(FrappeTestCase):
 	def _patched_sendemail(self):
-		"""Stand in for ``one_fm.processor.sendemail``.
-
-		Imported locally by the sender and only falling back to
-		``frappe.sendmail`` on ImportError, so the module is swapped rather
-		than the attribute — the test then holds regardless of whether one_fm
-		is installed.
-		"""
-		fake_proc = types.ModuleType("one_fm.processor")
-		fake_proc.sendemail = Mock()
-		fake_root = sys.modules.get("one_fm") or types.ModuleType("one_fm")
-		patcher = patch.dict(sys.modules, {"one_fm": fake_root, "one_fm.processor": fake_proc})
-		return patcher, fake_proc.sendemail
+		"""Patch frappe.sendmail as the composer calls it."""
+		sendmail = Mock()
+		return patch("one_bpmn.email_builder.composer.frappe.sendmail", sendmail), sendmail
 
 	def test_notifies_even_when_the_user_already_holds_an_open_todo(self):
 		"""The regression. An open ToDo must not suppress the next task's email."""
@@ -78,7 +67,7 @@ class TestNotifyAssigneePerTask(FrappeTestCase):
 			sendemail.called,
 			"an already-assigned user stopped being notified — the original defect",
 		)
-		self.assertIn("Task TEST-NOTIFY-PI is yours", sendemail.call_args.kwargs["message"])
+		self.assertIn("Task TEST-NOTIFY-PI is yours", sendemail.call_args.kwargs["args"]["message"])
 		self.assertIn(
 			"Task TEST-NOTIFY-PI is yours", amp_at_send[0] or "",
 			"the authored body must be inside the AMP document, not only the plain fallback",

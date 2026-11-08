@@ -80,10 +80,11 @@ def _element_type_hint(el: ET.Element) -> str:
 
 # ── Main validator ────────────────────────────────────────────────────────────
 
-def _sub_process_document(root: ET.Element, sub: ET.Element) -> str:
+def _sub_process_document(root: ET.Element, sub: ET.Element, executable: str) -> str:
     """The sub-process as a document of its own, drawn on its own plane or else on the main one."""
     definitions = ET.Element(_t("definitions"))
-    process = ET.SubElement(definitions, _t("process"), {"id": sub.get("id", ""), "name": sub.get("name", "")})
+    attrs = {"id": sub.get("id", ""), "name": sub.get("name", ""), "isExecutable": executable}
+    process = ET.SubElement(definitions, _t("process"), attrs)
     for child in sub:
         process.append(copy.deepcopy(child))
     diagrams = root.findall(f"{{{BPMNDI}}}BPMNDiagram")
@@ -100,7 +101,8 @@ def _nested_violations(root: ET.Element, process_el: ET.Element) -> list[str]:
         if not any(child.tag in _FLOW_NODES for child in sub):
             continue
         scope = f"In sub-process '{sub.get('name') or sub.get('id')}': "
-        for violation in _validate_process(_sub_process_document(root, sub), nested=True)["violations"]:
+        document = _sub_process_document(root, sub, process_el.get("isExecutable", "false"))
+        for violation in _validate_process(document, nested=True)["violations"]:
             found.append(violation.replace("] ", "] " + scope, 1))
     return found
 
@@ -186,8 +188,9 @@ def _validate_process(xml_string: str, nested: bool = False) -> dict:
                 incoming[tgt] = incoming.get(tgt, 0) + 1
 
     # ── R00 — task-type ───────────────────────────────────────────────────────
+    executable = process_el.get("isExecutable", "false").strip().lower() == "true"
     for eid, el in elements.items():
-        if el.tag == _t("task"):
+        if executable and el.tag == _t("task"):
             hint = _element_type_hint(el)
             violations.append(
                 f"[task-type] Task {_label(el)} uses plain <bpmn:task> which is forbidden. "

@@ -59,6 +59,7 @@ import userTaskMissingAssignee from "@/linting/rules/user-task-missing-assignee.
 import aiTaskConfigUnavailable from "@/linting/rules/ai-task-config-unavailable.js";
 import aiTaskConfigIncomplete from "@/linting/rules/ai-task-config-incomplete.js";
 import aiTaskConfigNotLive from "@/linting/rules/ai-task-config-not-live.js";
+import workflowStateMissingEditRole from "@/linting/rules/workflow-state-missing-edit-role.js";
 
 /**
  * Map rule names → rule factory functions.
@@ -110,6 +111,7 @@ const ruleMapping = {
 	"custom/ai-task-config-unavailable": aiTaskConfigUnavailable,
 	"custom/ai-task-config-incomplete": aiTaskConfigIncomplete,
 	"custom/ai-task-config-not-live": aiTaskConfigNotLive,
+	"custom/workflow-state-missing-edit-role": workflowStateMissingEditRole,
 };
 
 const config = {
@@ -182,6 +184,9 @@ const config = {
 		"custom/ai-task-config-unavailable": "error",
 		"custom/ai-task-config-incomplete": "error",
 		"custom/ai-task-config-not-live": "warn",
+
+		// OneFM custom rules: a workflow state update must name the role allowed to edit in that state
+		"custom/workflow-state-missing-edit-role": "error",
 	},
 };
 

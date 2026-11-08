@@ -354,6 +354,59 @@ def get_doctype_fields(
 
 
 @frappe.whitelist()
+def get_email_fields(doctype: str) -> dict:
+	"""Fields an email can show: the doctype's own, and per Link field the linked doctype's, with Arabic candidates."""
+	from frappe.model import no_value_fields
+
+	from one_bpmn.email_builder.fields import FORMATTED_FIELDTYPES
+
+	frappe.has_permission(doctype, "read", throw=True)
+	own = [
+		(df.fieldname, df) for df in frappe.get_meta(doctype).fields if df.fieldtype not in no_value_fields
+	]
+
+	linked = []
+	for link_fieldname, link_df in own:
+		if link_df.fieldtype != "Link" or not frappe.has_permission(link_df.options, "read"):
+			continue
+		fields = [
+			(f"{link_fieldname}.{df.fieldname}", df)
+			for df in frappe.get_meta(link_df.options).fields
+			if df.fieldtype not in no_value_fields
+		]
+		linked.append(
+			{
+				"link_field": link_fieldname,
+				"label": link_df.label,
+				"doctype": link_df.options,
+				"fields": fields,
+			}
+		)
+
+	candidates = [
+		fieldname
+		for fieldname, df in own + [pair for group in linked for pair in group["fields"]]
+		if df.fieldtype in ("Data", "Small Text")
+		and ("arabic" in df.fieldname or df.fieldname.endswith("_ar"))
+	]
+
+	def describe(fieldname, df):
+		needs_arabic = df.fieldtype not in FORMATTED_FIELDTYPES
+		return {
+			"fieldname": fieldname,
+			"label": df.label or df.fieldname,
+			"fieldtype": df.fieldtype,
+			"needs_arabic": needs_arabic,
+			"arabic_candidates": candidates if needs_arabic else [],
+		}
+
+	return {
+		"fields": [describe(*pair) for pair in own],
+		"linked": [{**group, "fields": [describe(*pair) for pair in group["fields"]]} for group in linked],
+	}
+
+
+@frappe.whitelist()
 def get_doctype_email_thread(doctype: str) -> dict:
 	"""Whether a DocType keeps an email thread, and the field that holds the sender's address."""
 	frappe.has_permission("BPMN Process Model", "write", throw=True)

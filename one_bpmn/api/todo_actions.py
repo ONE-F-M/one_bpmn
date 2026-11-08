@@ -88,12 +88,21 @@ def apply_amp_headers(response, **kwargs):
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST", "OPTIONS"])
-def handle_amp_action(token: str | None = None, comment: str | None = None) -> dict:
+def handle_amp_action(
+	token: str | None = None,
+	comment: str | None = None,
+	reason_chip: str | None = None,
+	reason_text: str | None = None,
+	reason_lang: str | None = None,
+) -> dict:
 	"""Process an action submitted from an AMP email button.
 
 	Args:
 		token: HMAC-signed token from :func:`~one_bpmn.utils.token.generate_action_token`.
 		comment: Optional comment text submitted with the action.
+		reason_chip: Index of the reason chip picked in the email's reason panel.
+		reason_text: Reason typed in the reason panel.
+		reason_lang: Language the reader had the email in; the reason panel always posts it.
 
 	Returns:
 		dict with ``message`` (success) or ``error`` (failure) key,
@@ -150,6 +159,12 @@ def handle_amp_action(token: str | None = None, comment: str | None = None) -> d
 	try:
 		from one_bpmn.api.instance_api import complete_task
 
+		saved_reason = None
+		if reason_lang is not None:
+			saved_reason = _save_reason(instance_name, task_id, action, reason_chip, reason_text, reason_lang)
+		if saved_reason:
+			task_data["comment"] = saved_reason["reason"]
+
 		result = complete_task(
 			instance_name=instance_name,
 			task_id=task_id,
@@ -164,7 +179,9 @@ def handle_amp_action(token: str | None = None, comment: str | None = None) -> d
 		ctx_dt = instance_doc.context_doctype
 		ctx_dn = instance_doc.context_docname
 
-		if ctx_dt and ctx_dn:
+		from frappe.model.workflow import get_workflow_name
+
+		if ctx_dt and ctx_dn and get_workflow_name(ctx_dt):
 			try:
 				from frappe.model.workflow import apply_workflow
 				doc = frappe.get_doc(ctx_dt, ctx_dn)
@@ -179,9 +196,11 @@ def handle_amp_action(token: str | None = None, comment: str | None = None) -> d
 				)
 
 		return {
-			"message": _("{0} completed successfully.").format(action),
+			"message": _("You chose {0}.").format(action),
 			"action": action,
 			"status": result.get("status", ""),
+			**_receipt(instance_name, ctx_dt, ctx_dn, action),
+			"reason_saved": saved_reason["saved"] if saved_reason else {"en": "", "ar": ""},
 		}
 
 	except frappe.ValidationError as e:
@@ -189,7 +208,7 @@ def handle_amp_action(token: str | None = None, comment: str | None = None) -> d
 		error_msg = str(e)
 		if "not found in the active tasks" in error_msg or "not in Waiting status" in error_msg:
 			return {
-				"message": _("This task has already been actioned."),
+				"message": _("Someone has already acted on this task."),
 				"action": "Completed",
 			}
 		# Other validation errors (bad action name, etc.)
@@ -207,6 +226,44 @@ def handle_amp_action(token: str | None = None, comment: str | None = None) -> d
 		)
 		frappe.local.response.http_status_code = 500
 		return {"error": _("An error occurred. Please try in ERPNext.")}
+
+
+def _save_reason(
+	instance_name: str, task_id: str, action: str, reason_chip: str | None, reason_text: str | None, lang: str
+) -> dict | None:
+	"""Write the reason the action asks for to its field, as the token user; None when it asks for none."""
+	instance = _get_instance_context(instance_name)
+	task_cfg = _get_task_config(instance, task_id)
+	settings = json.loads(task_cfg.get("notifyActions") or "{}").get(action) or {}
+	if not settings.get("reason"):
+		return None
+
+	lang = lang if lang in ("en", "ar") else "en"
+	chips = settings.get("chips") or []
+	chip = chips[int(reason_chip)] if (reason_chip or "").isdigit() and int(reason_chip) < len(chips) else None
+	chip_text = ((chip[1] if lang == "ar" else "") or chip[0]) if chip else ""
+	reason = "\n".join(text for text in (chip_text, (reason_text or "").strip()) if text)
+	if not reason:
+		frappe.throw(_("A reason is required for {0}.").format(action))
+
+	doctype = instance.context_doctype
+	fieldname = settings.get("reasonField") or ""
+	df = frappe.get_meta(doctype).get_field(fieldname) if doctype and fieldname else None
+	if not df:
+		message = _("The reason field {0} is not on {1}.").format(fieldname, doctype)
+		frappe.log_error(title="AMP: reason field missing", message=message)
+		frappe.throw(message)
+
+	doc = frappe.get_doc(doctype, instance.context_docname)
+	doc.check_permission("write")
+	doc.db_set(fieldname, reason)
+	return {
+		"reason": reason,
+		"saved": {
+			"en": _("Reason saved to {0}", lang="en").format(df.label),
+			"ar": _("Reason saved to {0}", lang="ar").format(_(df.label, lang="ar")),
+		},
+	}
 
 
 # ---------------------------------------------------------------------------
@@ -279,20 +336,23 @@ def _get_instance_context(instance_name: str):
 	)
 
 
+def _get_task_config(instance, task_id: str) -> dict:
+	"""The user task extensions of the task's BPMN element, as compiled (empty when absent)."""
+	try:
+		state = json.loads(instance.workflow_state or "{}")
+		bpmn_id = state["tasks"][task_id]["task_spec"]
+		spec = json.loads(instance.serialized_spec or "{}")
+		return spec["user_task_extensions"][bpmn_id] or {}
+	except (KeyError, TypeError, ValueError):
+		return {}
+
+
 def _get_conversation_config(instance, task_id: str) -> dict:
 	"""``notifyConversation`` of the task, as a dict (empty when absent).
 
 	Saved as ``{actions: [{key, label}], internalNotes, canned}``, as a dict or a JSON string.
 	"""
-	try:
-		state = json.loads(instance.workflow_state or "{}")
-		bpmn_id = state["tasks"][task_id]["task_spec"]
-		spec = json.loads(instance.serialized_spec or "{}")
-		cfg = spec["user_task_extensions"][bpmn_id]
-	except (KeyError, TypeError, ValueError):
-		return {}
-
-	conv = (cfg or {}).get("notifyConversation")
+	conv = _get_task_config(instance, task_id).get("notifyConversation")
 	if isinstance(conv, str):
 		try:
 			conv = json.loads(conv)
@@ -522,22 +582,27 @@ def get_amp_thread(token: str = "") -> dict:
 	if error:
 		return error
 
+	return {"items": thread_items(ctx.doctype, ctx.docname, ctx.conv, payload["user"])}
+
+
+def thread_items(doctype: str, docname: str, conv: dict, user: str) -> list[dict]:
+	"""The latest Communications and, with internal notes on, Comments, oldest first; is_mine marks user's own."""
 	entries = []
 	comms = frappe.get_all(
 		"Communication",
 		filters={
-			"reference_doctype": ctx.doctype,
-			"reference_name": ctx.docname,
+			"reference_doctype": doctype,
+			"reference_name": docname,
 			"communication_type": "Communication",
 		},
-		fields=["name", "sender", "sender_full_name", "content", "creation"],
+		fields=["name", "sender", "sender_full_name", "owner", "content", "creation"],
 		order_by="creation desc",
 		limit=_THREAD_LIMIT,
 	)
-	entries += [(row.creation, _communication_item(row)) for row in comms]
+	entries += [(row, _communication_item(row)) for row in comms]
 
-	if _truthy(ctx.conv.get("internalNotes")):
-		comment_dt, filters, author_field = _comment_source(ctx.doctype, ctx.docname)
+	if _truthy(conv.get("internalNotes")):
+		comment_dt, filters, author_field = _comment_source(doctype, docname)
 		notes = frappe.get_all(
 			comment_dt,
 			filters=filters,
@@ -545,10 +610,10 @@ def get_amp_thread(token: str = "") -> dict:
 			order_by="creation desc",
 			limit=_THREAD_LIMIT,
 		)
-		entries += [(row.creation, _note_item(row, author_field)) for row in notes]
+		entries += [(row, _note_item(row, author_field)) for row in notes]
 
-	entries.sort(key=lambda entry: str(entry[0]))
-	return {"items": [item for _created, item in entries]}
+	entries.sort(key=lambda entry: str(entry[0].creation))
+	return [{**item, "is_mine": row.owner == user} for row, item in entries]
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST", "OPTIONS"])
@@ -593,57 +658,147 @@ def get_amp_task_status(status_token: str = "") -> dict:
 
 	Returns:
 		AMP-list compatible dict with ``items`` array containing one item
-		with keys: ``is_waiting``, ``is_completed``, ``action_taken``,
-		``completed_by``, ``completed_at``.
+		with keys: ``is_waiting``, ``is_completed``, ``is_expired``,
+		``is_reassigned``, ``assigned_to``, ``action_taken``, ``completed_by``,
+		``completed_at``, ``workflow_state``, ``workflow_state_style``.
 	"""
 	_set_amp_cors_headers()
 
+	item = {
+		"is_waiting": False,
+		"is_completed": False,
+		"is_expired": False,
+		"is_reassigned": False,
+	}
+	no_access = {"items": [{**item, "is_expired": True}]}
+
 	if not status_token:
-		return {"items": [{"is_waiting": True}]}
+		return no_access
 
 	try:
 		from one_bpmn.utils.token import verify_action_token
 
-		payload = verify_action_token(status_token)
+		payload = verify_action_token(status_token, allow_expired=True)
 	except Exception:
-		# Token expired or invalid — assume waiting (safe default)
-		return {"items": [{"is_waiting": True}]}
+		return no_access
 
 	if payload.get("type") != "status":
-		return {"items": [{"is_waiting": True}]}
+		return no_access
 
-	instance_name = payload["instance_name"]
-	task_id = payload["task_id"]
+	instance_name = payload.get("instance_name")
+	task_id = payload.get("task_id")
 
 	try:
-		# Look up the task row
+		if not task_id:
+			# Notice emails have no task: only the document state is shown
+			state, style = _get_workflow_state_and_style(instance_name)
+			return {"items": [{**item, "workflow_state": state, "workflow_state_style": style}]}
+
 		task_row = frappe.db.get_value(
 			"BPMN Active Task",
 			{"parent": instance_name, "task_id": task_id},
 			["status", "task_name", "assigned_user", "end_time", "modified"],
 			as_dict=True,
 		)
+		if not task_row:
+			return no_access
 
-		if not task_row or task_row.status == "Waiting":
-			return {"items": [{"is_waiting": True}]}
+		if task_row.status == "Waiting":
+			expired = bool(payload.get("expired"))
+			recipient = payload.get("user")
+			reassigned = bool(recipient and task_row.assigned_user and task_row.assigned_user != recipient)
+			item.update(
+				is_waiting=not expired and not reassigned,
+				is_expired=expired,
+				is_reassigned=reassigned,
+			)
+			if reassigned:
+				item["assigned_to"] = frappe.utils.get_fullname(task_row.assigned_user)
+			return {"items": [item]}
 
-		# Task is completed
+		# Task is completed: an expired token still shows who decided
 		doc_name, doc_state = _get_context_doc_state(instance_name)
-		return {
-			"items": [{
-				"is_completed": True,
-				"is_waiting": False,
-				"doc_name": doc_name,
-				"doc_state": doc_state,
-				"action_taken": task_row.task_name or "Action",
-				"completed_by": frappe.utils.get_fullname(task_row.assigned_user) if task_row.assigned_user else "",
-				"completed_at": frappe.utils.format_datetime(
-					task_row.end_time or task_row.modified, "d MMM, h:mm a"
-				) if (task_row.end_time or task_row.modified) else "",
-			}]
-		}
+		state, style = _get_workflow_state_and_style(instance_name)
+		time_value = task_row.end_time or task_row.modified
+		log_data = frappe.db.get_value(
+			"BPMN Activity Log",
+			{"instance": instance_name, "task_id": task_id, "action": "Completed"},
+			"data",
+		)
+		chosen_action = frappe.parse_json(log_data).get("action") if log_data else None
+		item.update(
+			is_completed=True,
+			doc_name=doc_name,
+			doc_state=doc_state,
+			action_taken=chosen_action or task_row.task_name or _("Action"),
+			completed_by=frappe.utils.get_fullname(task_row.assigned_user) if task_row.assigned_user else "",
+			completed_at=frappe.utils.format_datetime(time_value, "d MMM, h:mm a") if time_value else "",
+			workflow_state=state,
+			workflow_state_style=style,
+		)
+		return {"items": [item]}
 	except Exception:
-		return {"items": [{"is_waiting": True}]}
+		frappe.log_error(title="AMP task status failed", message=frappe.get_traceback())
+		return no_access
+
+
+def _get_workflow_state_and_style(instance_name: str) -> tuple[str, str]:
+	"""Return (workflow state, Workflow State style) of the instance's context document.
+
+	Both are empty when the instance has no context document or its DocType has no workflow.
+	"""
+	from frappe.model.workflow import get_workflow_name, get_workflow_state_field
+
+	ctx = frappe.db.get_value(
+		"BPMN Process Instance",
+		instance_name,
+		["context_doctype", "context_docname"],
+		as_dict=True,
+	)
+	if not ctx or not ctx.context_doctype or not ctx.context_docname:
+		return "", ""
+
+	workflow_name = get_workflow_name(ctx.context_doctype)
+	if not workflow_name:
+		return "", ""
+
+	state_field = get_workflow_state_field(workflow_name)
+	state = frappe.db.get_value(ctx.context_doctype, ctx.context_docname, state_field) or ""
+	if not state:
+		return "", ""
+
+	style = frappe.db.get_value("Workflow State", state, "style") or ""
+	return str(state), str(style)
+
+
+def _receipt(instance_name: str, doctype: str, docname: str, action: str) -> dict:
+	"""The state the document reached and "<DocType> <name> is now <state>.", else "You chose <action>.", in both languages."""
+	from one_bpmn.email_builder.composer import _arabic
+
+	state, style = _get_workflow_state_and_style(instance_name)
+	completed_at = frappe.utils.format_datetime(frappe.utils.now_datetime(), "d MMM, h:mm a")
+	if not state:
+		action_ar = _arabic(action)
+		return {
+			"state": "",
+			"state_label": {"en": action, "ar": action_ar},
+			"state_style": "",
+			"receipt": {
+				"en": _("You chose {0}.", lang="en").format(action),
+				"ar": _("You chose {0}.", lang="ar").format(action_ar),
+			},
+			"completed_at": completed_at,
+		}
+	return {
+		"state": state,
+		"state_label": {"en": state, "ar": _(state, lang="ar")},
+		"state_style": style,
+		"receipt": {
+			"en": _("{0} {1} is now {2}.", lang="en").format(doctype, docname, state),
+			"ar": _("{0} {1} is now {2}.", lang="ar").format(_arabic(doctype), docname, _(state, lang="ar")),
+		},
+		"completed_at": completed_at,
+	}
 
 
 def _get_context_doc_state(instance_name: str) -> tuple[str, str]:
@@ -668,4 +823,73 @@ def _get_context_doc_state(instance_name: str) -> tuple[str, str]:
 
 	state = frappe.db.get_value(ctx.context_doctype, ctx.context_docname, field) or ""
 	return ctx.context_docname, str(state)
+
+
+# ---------------------------------------------------------------------------
+# Signed attachment download
+# ---------------------------------------------------------------------------
+
+
+def _attachment_denied():
+	raise frappe.PermissionError(_("This attachment link is not valid."))
+
+
+@frappe.whitelist(allow_guest=True, methods=["GET"])
+@rate_limit(limit=60, seconds=60)
+def download_attachment(token: str = "") -> None:
+	"""Download a file attached to a document, from a signed email link.
+
+	The signed token is the only trust anchor: the File is looked up by the
+	signed name and served through the File DocType, never from a request path.
+
+	Args:
+		token: HMAC-signed token from :func:`~one_bpmn.utils.token.generate_file_token`.
+
+	Raises:
+		frappe.PermissionError: Tampered or malformed token, a token of another
+			type, or a File no longer attached to the signed document.
+	"""
+	if not token:
+		_attachment_denied()
+
+	try:
+		from one_bpmn.utils.token import verify_action_token
+
+		payload = verify_action_token(token, allow_expired=True)
+	except Exception:
+		_attachment_denied()
+
+	if payload.get("type") != "file":
+		_attachment_denied()
+
+	doctype = payload.get("doctype")
+	docname = payload.get("docname")
+	file_name = payload.get("file_name")
+	if not (doctype and docname and file_name):
+		_attachment_denied()
+
+	if payload.get("expired"):
+		url = frappe.utils.get_url_to_form(doctype, docname)
+		link = f'<a href="{_html.escape(url)}">{_html.escape(_("Open in ERPNext"))}</a>'
+		frappe.respond_as_web_page(
+			_("Link expired"),
+			"<p>{0}</p><p>{1}</p>".format(_html.escape(_("This attachment link has expired.")), link),
+			http_status_code=410,
+			indicator_color="orange",
+		)
+		return
+
+	attached = frappe.db.get_value(
+		"File",
+		file_name,
+		["attached_to_doctype", "attached_to_name"],
+		as_dict=True,
+	)
+	if not attached or attached.attached_to_doctype != doctype or attached.attached_to_name != docname:
+		_attachment_denied()
+
+	file_doc = frappe.get_doc("File", file_name)
+	frappe.local.response.filename = file_doc.file_name or file_doc.name
+	frappe.local.response.filecontent = file_doc.get_content()
+	frappe.local.response.type = "download"
 

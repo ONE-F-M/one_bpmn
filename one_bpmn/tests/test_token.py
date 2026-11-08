@@ -110,3 +110,70 @@ class TestVerifyActionToken(FrappeTestCase):
 
 		with self.assertRaisesRegex(frappe.ValidationError, "expired"):
 			verify_action_token(new_token)
+
+	def test_allow_expired_returns_flag(self):
+		"""allow_expired returns the payload with expired true instead of raising."""
+		from one_bpmn.utils.token import _sign, generate_status_token, verify_action_token
+
+		payload = _decode_payload(generate_status_token("INST-001", "task-uuid"))
+		payload["expires"] = int(time.time()) - 3600
+		payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+		encoded = base64.urlsafe_b64encode(payload_json.encode("utf-8")).decode("ascii")
+		token = f"{encoded}.{_sign(payload_json)}"
+
+		result = verify_action_token(token, allow_expired=True)
+		self.assertTrue(result["expired"])
+		self.assertEqual(result["instance_name"], "INST-001")
+
+	def test_allow_expired_flag_false_when_valid(self):
+		from one_bpmn.utils.token import generate_status_token, verify_action_token
+
+		result = verify_action_token(generate_status_token("INST-001", "task-uuid"), allow_expired=True)
+		self.assertFalse(result["expired"])
+
+	def test_allow_expired_still_rejects_tampered(self):
+		from one_bpmn.utils.token import generate_status_token, verify_action_token
+
+		token = generate_status_token("INST-001", "task-uuid")[:-4] + "XXXX"
+		with self.assertRaises(frappe.AuthenticationError):
+			verify_action_token(token, allow_expired=True)
+
+
+class TestGenerateStatusToken(FrappeTestCase):
+	"""Tests for :func:`generate_status_token`."""
+
+	def setUp(self):
+		self._secret_patch = patch("one_bpmn.utils.token._get_secret", return_value=_TEST_SECRET)
+		self._secret_patch.start()
+		self.addCleanup(self._secret_patch.stop)
+
+	def test_expiry_hours(self):
+		"""expiry_hours=24 expires 24 hours after creation."""
+		from one_bpmn.utils.token import generate_status_token, verify_action_token
+
+		before = int(time.time())
+		payload = verify_action_token(generate_status_token("INST-001", "task-uuid", expiry_hours=24))
+		after = int(time.time())
+
+		self.assertGreaterEqual(payload["expires"], before + 24 * 3600)
+		self.assertLessEqual(payload["expires"], after + 24 * 3600)
+
+	def test_default_is_thirty_days(self):
+		"""Without expiry_hours the lifetime stays at 30 days."""
+		from one_bpmn.utils.token import generate_status_token
+
+		before = int(time.time())
+		payload = _decode_payload(generate_status_token("INST-001", "task-uuid"))
+		after = int(time.time())
+
+		self.assertGreaterEqual(payload["expires"], before + 30 * 86400)
+		self.assertLessEqual(payload["expires"], after + 30 * 86400)
+		self.assertNotIn("user", payload)
+
+	def test_user_and_empty_task_id(self):
+		from one_bpmn.utils.token import generate_status_token
+
+		payload = _decode_payload(generate_status_token("INST-001", user="user@test.com"))
+		self.assertEqual(payload["user"], "user@test.com")
+		self.assertEqual(payload["task_id"], "")
+		self.assertEqual(payload["type"], "status")

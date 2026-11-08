@@ -41,6 +41,8 @@
   "section_break_google_chat",
   "google_chat_service_account_json",
   "google_directory_account",
+  "section_break_google_translation",
+  "google_translate_api_key",
   "section_break_script_security",
   "script_security_intro",
   "script_binop_multiply_threshold",
@@ -307,6 +309,17 @@
    "fieldtype": "Data",
    "label": "Directory Lookup Account",
    "options": "Email"
+  },
+  {
+   "fieldname": "section_break_google_translation",
+   "fieldtype": "Section Break",
+   "label": "Google Translation"
+  },
+  {
+   "description": "Cloud Translation API key used to fill in the Arabic in the email editors. Empty falls back to MyMemory.",
+   "fieldname": "google_translate_api_key",
+   "fieldtype": "Password",
+   "label": "Google Translate API Key"
   },
   {
    "collapsible": 1,
@@ -806,7 +819,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-10-20 12:00:00.000000",
+ "modified": "2026-11-02 12:00:00.000000",
  "modified_by": "s.shariff@one-fm.com",
  "module": "ONE BPMN",
  "name": "Processa Settings",

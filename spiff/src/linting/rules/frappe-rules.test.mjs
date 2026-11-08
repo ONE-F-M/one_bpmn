@@ -94,8 +94,9 @@ test("a send task with no notification is reported", async () => {
 })
 
 test("a user task needs the value its assignee mode reads", async () => {
-	const task = (attrs) => diagram(`<bpmn:userTask id="ut" name="Review" ${attrs} />`)
-	assert.deepEqual(await problems(userTaskMissingAssignee, task("")), [])
+	const actions = "spiffworkflow:taskActions=\"" + escaped('[{"action":"Approve"}]') + "\""
+	const task = (attrs) => diagram(`<bpmn:userTask id="ut" name="Review" ${actions} ${attrs} />`)
+	assert.deepEqual(await problems(userTaskMissingAssignee, task('spiffworkflow:assigneeMode="Role"')), [])
 	assert.deepEqual(await problems(userTaskMissingAssignee, task('spiffworkflow:assigneeMode="User"')), [
 		'User Task "Review" assigns by User but its user is empty, so it is left unassigned.',
 	])
@@ -104,4 +105,21 @@ test("a user task needs the value its assignee mode reads", async () => {
 	assert.equal((await problems(userTaskMissingAssignee, task('spiffworkflow:assigneeMode="Table Field"'))).length, 1)
 	assert.deepEqual(await problems(userTaskMissingAssignee, task('spiffworkflow:assigneeMode="User" spiffworkflow:assigneeUser="a@b.com"')), [])
 	assert.deepEqual(await problems(userTaskMissingAssignee, task('spiffworkflow:assigneeMode="Load Balancing" spiffworkflow:assigneeUsers="a@b.com,c@d.com"')), [])
+})
+
+test("a user task needs an assignment mode and a task action", async () => {
+	const body = (attrs) => diagram(`<bpmn:userTask id="ut" name="Review" ${attrs} />`)
+	const mode = 'spiffworkflow:assigneeMode="Role"'
+	const action = (json) => `spiffworkflow:taskActions="${escaped(json)}"`
+	assert.deepEqual(await problems(userTaskMissingAssignee, body(action('[{"action":"Approve"}]'))), [
+		'User Task "Review" requires an Assignment Mode.',
+	])
+	assert.deepEqual(await problems(userTaskMissingAssignee, body(mode)), [
+		'User Task "Review" requires at least one Task Action.',
+	])
+	assert.equal((await problems(userTaskMissingAssignee, body(`${mode} ${action('[{"action":""}]')}`))).length, 1)
+	assert.equal((await problems(userTaskMissingAssignee, body(`${mode} ${action("not json")}`))).length, 1)
+	assert.equal((await problems(userTaskMissingAssignee, body(""))).length, 2)
+	assert.deepEqual(await problems(userTaskMissingAssignee, body(`${mode} ${action('[{"action":"Approve"}]')}`)), [])
+	assert.deepEqual(await problems(userTaskMissingAssignee, diagram('<bpmn:userTask id="ut" name="Review" />', "false")), [])
 })

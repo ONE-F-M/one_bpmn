@@ -1,0 +1,17 @@
+{# Layouts import hideable and action_block with context. Macros sit outside autoescape so they export. #}
+{% macro hideable() -%}
+{% if has_status %}{% raw %}{{^is_completed}}{{^is_reassigned}}{% endraw %}{{ caller() }}{% raw %}{{/is_reassigned}}{{/is_completed}}{% endraw %}{% else %}{{ caller() }}{% endif %}
+{%- endmacro %}
+
+{% macro expired_note() -%}
+<div class="exp"><b>{{ _("These buttons have expired", lang=lang) | e }}</b>{{ _("The time to act from this email has passed. Decide in ERPNext, it takes one tap.", lang=lang) | e }}</div>
+<a class="btn" href="{{ open_link | e }}" target="_blank">{{ _("Open in ERPNext", lang=lang) | e }}</a>
+{%- endmacro %}
+
+{# The list placeholder holds both the buttons and the expired note: AMP shrinks a list in view but never grows it. #}
+{% macro action_block(expired=none) -%}
+{% if has_status %}{% raw %}{{#is_waiting}}{% endraw %}{{ caller() }}{% raw %}{{/is_waiting}}{{#is_expired}}{% endraw %}{{ expired or expired_note() }}{% raw %}{{/is_expired}}{% endraw %}
+{%- elif in_placeholder %}{{ caller() }}{{ expired or expired_note() }}{% else %}{{ caller() }}{% endif %}
+{%- endmacro %}
+
+{% if has_status %}{% include "one_bpmn/templates/emails/partials/receipt.html" %}{% endif %}

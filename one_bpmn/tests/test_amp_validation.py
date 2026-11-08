@@ -148,9 +148,9 @@ class TestRenderedAmpValidation(FrappeTestCase):
 		)
 
 		frappe_patch = patch("one_bpmn.email_builder.renderer.frappe")
-		mock_frappe = frappe_patch.start()
+		self.mock_frappe = frappe_patch.start()
 		self.addCleanup(frappe_patch.stop)
-		mock_frappe.utils.get_url.return_value = "https://erp.one-fm.com"
+		self.mock_frappe.utils.get_url.return_value = "https://erp.one-fm.com"
 
 		template_patch = patch("one_bpmn.email_builder.renderer._get_template")
 		mock_tmpl = template_patch.start()
@@ -190,6 +190,29 @@ class TestRenderedAmpValidation(FrappeTestCase):
 		assert html.index("<amp-list") < html.index('name="token"') < html.index("</amp-list>")
 		_validate_amp4email(html, label="token_actions")
 
+	def test_a_confirm_action_asks_for_a_second_tap_and_validates(self) -> None:
+		from one_bpmn.email_builder.email_actions import build_email_actions
+		from one_bpmn.email_builder.renderer import _get_template, render_amp
+
+		_get_template("one_bpmn/templates/emails/amp_shell.html").environment.globals["_"] = lambda text: text
+		actions = build_email_actions(
+			"INST-VALID", "task-valid",
+			[{"label": "Approve", "key": "approve", "confirm": True, "primary": True}, {"label": "Reject"}],
+			"admin@test.com",
+		)
+		html = render_amp({**ACTION_CONTENT, "actions": actions})
+
+		assert 'custom-element="amp-bind"' in html
+		assert "on=\"tap:AMP.setState({armed: 'approve'})\"" in html
+		assert "[hidden]=\"armed != 'approve'\"" in html
+		assert "Tap again to approve" in html
+		assert html.count('name="token"') == 2
+		# Both button rows sit inside a wrapper, so the hide-after-success rule must target the wrapper
+		assert html.count('class="tap-row"') == 2
+		assert "form.amp-form-submit-success > .tap-row" in html
+		assert '<div submitting><p class="saving">Saving...</p></div>' in html
+		_validate_amp4email(html, label="confirm_actions")
+
 	def test_comment_renders_valid_amp(self) -> None:
 		from one_bpmn.email_builder.renderer import render_amp
 
@@ -211,3 +234,37 @@ class TestRenderedAmpValidation(FrappeTestCase):
 		}
 		html = render_amp(dirty_content)
 		_validate_amp4email(html, label="sanitised_body")
+
+	def test_styled_body_keeps_its_css_and_validates(self) -> None:
+		"""Inline styles and style block rules reach the AMP part and it still validates."""
+		from one_bpmn.email_builder.renderer import render_amp
+
+		styled_content = {
+			**INFO_CONTENT,
+			"body": (
+				"<style>.banner { background-color: #0b5394; color: #ffffff; padding: 12px }"
+				"@media (max-width: 600px) { .banner { padding: 6px } }</style>"
+				'<div class="banner">Leave approved</div>'
+				'<p style="color: #cc0000; font-weight: bold">Starts Sunday</p>'
+				'<img src="https://example.com/logo.png" width="120" height="40" alt="logo">'
+			),
+		}
+		html = render_amp(styled_content)
+
+		assert ".banner { background-color: #0b5394; color: #ffffff; padding: 12px }" in html
+		assert "@media (max-width: 600px)" in html
+		assert 'style="color: #cc0000; font-weight: bold;"' in html
+		assert 'width="120"' in html and 'height="40"' in html
+		_validate_amp4email(html, label="styled_body")
+
+	def test_css_over_limit_leaves_out_the_amp_part(self) -> None:
+		"""Over 75,000 bytes of CSS gives no AMP part and logs why."""
+		from one_bpmn.email_builder.renderer import render_amp
+
+		rules = "".join(f".c{i} {{ color: #000000; padding: 1px }}" for i in range(3000))
+		html = render_amp({**INFO_CONTENT, "body": f"<style>{rules}</style><p>Big</p>"})
+
+		self.assertEqual(html, "")
+		self.mock_frappe.log_error.assert_called_once()
+		message = self.mock_frappe.log_error.call_args.kwargs["message"]
+		self.assertIn("Purchase Order PO-2024-001", message)

@@ -10,6 +10,10 @@
 			class="max-w-full !rounded !border-outline-gray-2 !bg-surface-white !text-ink-gray-8 shadow-sm"
 		>
 			<span class="max-w-[150px] truncate">{{ tag.label }}</span>
+			<slot
+				name="tag"
+				:tag="tag"
+			/>
 			<span
 				v-if="tag.sub"
 				dir="rtl"
@@ -26,21 +30,26 @@
 				/>
 			</template>
 		</Badge>
-		<Combobox
+		<div
 			v-if="options"
-			:key="picks"
-			class="min-w-[10rem] flex-1"
-			:options="options"
-			:model-value="null"
-			:placeholder="placeholder"
-			@update:selected-option="pick"
-		/>
+			class="w-full"
+		>
+			<Autocomplete
+				:key="picks"
+				:compare-fn="compareOption"
+				:options="options"
+				:model-value="null"
+				:placeholder="placeholder"
+				@update:model-value="pick"
+			/>
+		</div>
 	</div>
 </template>
 
 <script setup>
 import { ref } from "vue";
-import { Badge, Button, Combobox } from "frappe-ui";
+import { Autocomplete, Badge, Button } from "frappe-ui";
+import { compareOption } from "@/utils/compareOption";
 
 defineProps({
 	// [{ key, label, sub }]; sub is shown after the label, right to left

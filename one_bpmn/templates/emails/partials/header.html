@@ -1,0 +1,7 @@
+{% autoescape true %}<div class="top">
+  <amp-img src="{{ logo }}" alt="ONE Facilities Management" width="120" height="47" layout="fixed"></amp-img>
+  <div class="lang" role="group" aria-label="Email language">
+    <button type="button" class="on" [class]="ui.lang == 'en' ? 'on' : ''" on="tap:AMP.setState({ui: {lang: 'en'}})">EN</button>
+    <button type="button" [class]="ui.lang == 'ar' ? 'on' : ''" on="tap:AMP.setState({ui: {lang: 'ar'}})">عربي</button>
+  </div>
+</div>{% endautoescape %}

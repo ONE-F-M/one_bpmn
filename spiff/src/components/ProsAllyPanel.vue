@@ -1,6 +1,7 @@
 <template>
 	<div class="pa-wrap">
 		<AgentChatPanel
+			ref="chat"
 			agent-id="prosally_agent"
 			variant="docked"
 			layout="conversation"
@@ -84,6 +85,14 @@ async function withCanvasXml() {
 		return {};
 	}
 }
+
+const chat = ref(null);
+
+function ask(text) {
+	return chat.value?.send(text);
+}
+
+defineExpose({ ask });
 
 function onChoice({ option, actionIntent }) {
 	confirmedAction.value = option.toLowerCase().startsWith("yes") ? actionIntent : "";

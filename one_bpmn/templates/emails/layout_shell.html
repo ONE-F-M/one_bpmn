@@ -1,0 +1,36 @@
+{% autoescape true %}{% set body %}
+<amp-state id="ui"><script type="application/json">{"lang": "en"}</script></amp-state>
+<div class="em">
+{% include "one_bpmn/templates/emails/partials/header.html" %}
+{% if head_template %}{% for lang in langs %}<div class="pane" lang="{{ lang }}" dir="{{ 'rtl' if lang == 'ar' else 'ltr' }}"{% if lang != 'en' %} hidden{% endif %} [hidden]="ui.lang != '{{ lang }}'">
+{% include head_template %}
+</div>
+{% endfor %}{% endif %}
+{% if has_status %}<amp-list src="{{ status_url }}" items="message.items" layout="container"><template type="amp-mustache">{% endif %}
+{% for lang in langs %}<div class="pane" lang="{{ lang }}" dir="{{ 'rtl' if lang == 'ar' else 'ltr' }}"{% if lang != 'en' %} hidden{% endif %} [hidden]="ui.lang != '{{ lang }}'">
+{% include "one_bpmn/templates/emails/partials/status.html" %}
+{% include layout_template %}
+</div>
+{% endfor %}
+{% if has_status %}</template><div placeholder class="ph"><div class="pane" lang="en" dir="ltr">{% with lang = "en", has_status = false, in_placeholder = true %}{% include layout_template %}{% endwith %}</div></div><div fallback><a class="btn" href="{{ open_link }}" target="_blank">{{ _("Open in ERPNext") }}</a></div></amp-list>{% endif %}
+{% for lang in langs %}<div lang="{{ lang }}" dir="{{ 'rtl' if lang == 'ar' else 'ltr' }}"{% if lang != 'en' %} hidden{% endif %} [hidden]="ui.lang != '{{ lang }}'">
+{% include "one_bpmn/templates/emails/partials/footer.html" %}
+</div>
+{% endfor %}
+</div>
+{% endset %}<!doctype html>
+<html amp4email data-css-strict lang="en">
+<head>
+  <meta charset="utf-8">
+  <script async src="https://cdn.ampproject.org/v0.js"></script>
+  <script async custom-element="amp-bind" src="https://cdn.ampproject.org/v0/amp-bind-0.1.js"></script>
+  {% if "<amp-list" in body %}<script async custom-element="amp-list" src="https://cdn.ampproject.org/v0/amp-list-0.1.js"></script>{% endif %}
+  {% if "<form" in body %}<script async custom-element="amp-form" src="https://cdn.ampproject.org/v0/amp-form-0.1.js"></script>{% endif %}
+  {% if "<amp-selector" in body %}<script async custom-element="amp-selector" src="https://cdn.ampproject.org/v0/amp-selector-0.1.js"></script>{% endif %}
+  {% if "<amp-accordion" in body %}<script async custom-element="amp-accordion" src="https://cdn.ampproject.org/v0/amp-accordion-0.1.js"></script>{% endif %}
+  {% if 'type="amp-mustache"' in body %}<script async custom-template="amp-mustache" src="https://cdn.ampproject.org/v0/amp-mustache-0.2.js"></script>{% endif %}
+  <style amp-custom>{% include "one_bpmn/templates/emails/shell.css" %}</style>
+  <style amp4email-boilerplate>body{visibility:hidden}</style>
+</head>
+<body>{{ body }}</body>
+</html>{% endautoescape %}

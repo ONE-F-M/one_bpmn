@@ -119,6 +119,47 @@ class TestConversationTokenRefusedByActionEndpoint(FrappeTestCase):
 			self.assertTrue(hasattr(fn, "__wrapped__"), f"{fn.__name__} has no rate limiter")
 
 
+def make_hd_ticket(test):
+	"""A real HD Ticket with the site's mandatory fields filled; skips or fails test when it cannot be made."""
+	values = {
+		"doctype": "HD Ticket",
+		"subject": "Conversation endpoint test",
+		"raised_by": "customer@example.com",
+		"description": "My printer is on fire.",
+	}
+	# Sites add mandatory custom fields to HD Ticket (e.g. a category):
+	# fill whatever is required with an existing value.
+	for df in frappe.get_meta("HD Ticket").fields:
+		if df.fieldname == "status":
+			continue  # HD Ticket sets its own status
+		if not df.reqd or values.get(df.fieldname) or df.default or df.hidden or df.read_only:
+			continue
+		choices = [o for o in (df.options or "").split("\n") if o.strip()]
+		if df.fieldtype in ("Link", "Select") and len(choices) > 1:
+			values[df.fieldname] = "Open" if "Open" in choices else choices[0]
+		elif df.fieldtype == "Link":
+			values[df.fieldname] = frappe.db.get_value(df.options, {}, "name")
+			if not values[df.fieldname]:
+				test.skipTest(f"No {df.options} record to fill mandatory {df.fieldname}")
+		elif df.fieldtype == "Select":
+			values[df.fieldname] = choices[0] if choices else None
+		elif df.fieldtype in ("Int", "Float", "Currency", "Check"):
+			values[df.fieldname] = 1
+		elif df.fieldtype in ("Data", "Small Text", "Text", "Long Text", "Text Editor"):
+			values[df.fieldname] = "Test"
+	try:
+		# after_insert runs the site's ticket automation (assignment, SLA,
+		# notifications), which is not what these tests exercise.
+		ticket = frappe.get_doc(values)
+		with patch.object(type(ticket), "after_insert", create=True):
+			return ticket.insert(ignore_permissions=True)
+	except Exception as e:
+		import traceback
+
+		frames = [f"{f.filename.split('apps/')[-1]}:{f.lineno}:{f.name}" for f in traceback.extract_tb(e.__traceback__)]
+		test.fail(f"HD Ticket fixture failed with {values}: " + " | ".join(frames[:8]))
+
+
 class TestConversationEndpoints(FrappeTestCase):
 	"""HD Ticket as the context document."""
 
@@ -126,43 +167,7 @@ class TestConversationEndpoints(FrappeTestCase):
 		super().setUp()
 		if not frappe.db.exists("DocType", "HD Ticket"):
 			self.skipTest("Helpdesk (HD Ticket) is not installed on this site")
-		values = {
-			"doctype": "HD Ticket",
-			"subject": "Conversation endpoint test",
-			"raised_by": "customer@example.com",
-			"description": "My printer is on fire.",
-		}
-		# Sites add mandatory custom fields to HD Ticket (e.g. a category):
-		# fill whatever is required with an existing value.
-		for df in frappe.get_meta("HD Ticket").fields:
-			if df.fieldname == "status":
-				continue  # HD Ticket sets its own status
-			if not df.reqd or values.get(df.fieldname) or df.default or df.hidden or df.read_only:
-				continue
-			choices = [o for o in (df.options or "").split("\n") if o.strip()]
-			if df.fieldtype in ("Link", "Select") and len(choices) > 1:
-				values[df.fieldname] = "Open" if "Open" in choices else choices[0]
-			elif df.fieldtype == "Link":
-				values[df.fieldname] = frappe.db.get_value(df.options, {}, "name")
-				if not values[df.fieldname]:
-					self.skipTest(f"No {df.options} record to fill mandatory {df.fieldname}")
-			elif df.fieldtype == "Select":
-				values[df.fieldname] = choices[0] if choices else None
-			elif df.fieldtype in ("Int", "Float", "Currency", "Check"):
-				values[df.fieldname] = 1
-			elif df.fieldtype in ("Data", "Small Text", "Text", "Long Text", "Text Editor"):
-				values[df.fieldname] = "Test"
-		try:
-			# after_insert runs the site's ticket automation (assignment, SLA,
-			# notifications), which is not what these tests exercise.
-			ticket = frappe.get_doc(values)
-			with patch.object(type(ticket), "after_insert", create=True):
-				self.ticket = ticket.insert(ignore_permissions=True)
-		except Exception as e:
-			import traceback
-
-			frames = [f"{f.filename.split('apps/')[-1]}:{f.lineno}:{f.name}" for f in traceback.extract_tb(e.__traceback__)]
-			self.fail(f"HD Ticket fixture failed with {values}: " + " | ".join(frames[:8]))
+		self.ticket = make_hd_ticket(self)
 		self.addCleanup(self._remove_ticket)
 
 	def _remove_ticket(self):
@@ -248,7 +253,7 @@ class TestConversationEndpoints(FrappeTestCase):
 		self.assertTrue(items)
 		self.assertTrue(all(i["is_note"] is False for i in items))
 		self.assertIn("Hello there", [i["message"] for i in items])
-		self.assertEqual(set(items[0]), {"who", "message", "time", "is_note"})
+		self.assertEqual(set(items[0]), {"who", "message", "time", "is_note", "is_mine"})
 		# AMP CORS headers were set.
 		self.assertIn("Access-Control-Expose-Headers", frappe.flags._amp_extra_headers)
 
@@ -422,3 +427,54 @@ class TestConversationEndpoints(FrappeTestCase):
 
 			gv.return_value = None
 			self.assertIn("already handled", _handled_by_message(_INSTANCE, _TASK_ID))
+
+
+class TestConversationOnOtherDocTypes(FrappeTestCase):
+	"""Issue as the context document: notes go to the standard Comment, never to HD Ticket Comment."""
+
+	def setUp(self):
+		super().setUp()
+		if not frappe.db.exists("DocType", "Issue"):
+			self.skipTest("Issue is not installed on this site")
+		values = {"doctype": "Issue", "subject": "Conversation on an Issue", "raised_by": "customer@example.com"}
+		if frappe.get_meta("Issue").get_field("issue_type").reqd:
+			values["issue_type"] = frappe.db.get_value("Issue Type", {}, "name") or self.skipTest("No Issue Type")
+		self.issue = frappe.get_doc(values).insert(ignore_permissions=True)
+		self.addCleanup(frappe.db.rollback)
+
+	def _call(self, fn, token, text=None, conv=None):
+		_setup_request("GET" if fn.__name__ == "get_amp_thread" else "POST")
+		spec = {"user_task_extensions": {_BPMN_ID: {"notifyConversation": conv or {}}}}
+		instance = frappe._dict(
+			context_doctype="Issue",
+			context_docname=self.issue.name,
+			serialized_spec=json.dumps(spec),
+			workflow_state=json.dumps({"tasks": {_TASK_ID: {"task_spec": _BPMN_ID}}}),
+		)
+		kwargs = {"token": token, **({"text": text} if text is not None else {})}
+		with ExitStack() as stack:
+			stack.enter_context(_mock_secret())
+			stack.enter_context(patch.object(frappe, "set_user"))
+			stack.enter_context(patch("one_bpmn.api.todo_actions._get_instance_context", return_value=instance))
+			stack.enter_context(patch("one_bpmn.api.todo_actions._handled_by_message", return_value=None))
+			stack.enter_context(patch.object(frappe, "sendmail"))
+			stack.enter_context(patch("one_bpmn.api.instance_api.complete_task"))
+			return _raw(fn)(**kwargs)
+
+	def test_a_note_is_a_comment_on_the_issue_and_shows_in_the_thread(self):
+		from one_bpmn.api.todo_actions import get_amp_thread, post_amp_note
+
+		result = self._call(post_amp_note, _token("note"), "Checked the site.")
+
+		self.assertNotIn("error", result, str(result)[:600])
+		comments = frappe.get_all(
+			"Comment",
+			filters={"reference_doctype": "Issue", "reference_name": self.issue.name, "comment_type": "Comment"},
+			pluck="content",
+		)
+		self.assertEqual(comments, ["Checked the site."])
+		if frappe.db.exists("DocType", "HD Ticket Comment"):
+			self.assertFalse(frappe.db.exists("HD Ticket Comment", {"content": "Checked the site."}))
+
+		thread = self._call(get_amp_thread, _token("thread"), conv={"internalNotes": True})
+		self.assertIn(("Checked the site.", True), [(i["message"], i["is_note"]) for i in thread["items"]])

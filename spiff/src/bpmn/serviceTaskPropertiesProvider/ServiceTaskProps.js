@@ -5,10 +5,11 @@ import { h } from "preact";
 import { frappeGet } from "../shared/frappeResource";
 import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
 import { FrappeMultiSelect } from "../shared/FrappeMultiSelect";
-import { encodeHtmlAttr, decodeHtmlAttr } from "../shared/htmlAttrCodec";
+import { EMAIL_EDITOR_ATTRS } from "../shared/emailNotification";
 import { makeLaunchDocuButton } from "../shared/launchDocuButton";
 import { connectorEntries } from "./connectorEntries";
 import { WorkflowStateField } from "./WorkflowStateField";
+import { EmailSummaryBox } from "./emailSummaryBox";
 
 // ---------------------------------------------------------------------------
 // Document Status options — mirrors Frappe's docstatus values exactly
@@ -54,11 +55,6 @@ function fetchIsSubmittable(doctype) {
 // ---------------------------------------------------------------------------
 function getAttr(bo, attr) {
 	return bo.get(`spiffworkflow:${attr}`) ?? "";
-}
-
-function getBoolAttr(bo, attr) {
-	const raw = bo.get(`spiffworkflow:${attr}`);
-	return raw === true || raw === "true";
 }
 
 // ---------------------------------------------------------------------------
@@ -113,34 +109,9 @@ export function ServiceTaskProps(props) {
 		);
 	}
 
-	// ── Email Notification entries ─────────────────────────────────────────
+	// ── Email Notification: Launch Editor and a read-only summary ──────────
 	if (serviceType === "send_email") {
-		entries.push(
-			{ id: "spiffworkflow-emailAccount",       element, component: EmailAccountComponent },
-			{ id: "spiffworkflow-emailUseDoctype",    element, component: EmailUseDoctypeComponent },
-		);
-		// Only show Doctype picker when "Based on Specific Doctype" is checked
-		if (getBoolAttr(bo, "emailUseDoctype")) {
-			entries.push(
-				{ id: "spiffworkflow-emailDoctype", element, component: EmailDoctypeComponent },
-				{ id: "spiffworkflow-emailDoctype-launchDocu", element, component: makeLaunchDocuButton("emailDoctype") },
-			);
-		}
-		entries.push(
-			{ id: "spiffworkflow-emailSubject",       element, component: EmailSubjectComponent },
-			// ── Recipients section ─────────────────────────────────────────
-			{ id: "spiffworkflow-email-recipients-header", element, component: RecipientsHeaderComponent },
-			{ id: "spiffworkflow-emailTo",            element, component: EmailToComponent },
-			{ id: "spiffworkflow-emailToDocFields",   element, component: EmailToDocFieldsComponent },
-			{ id: "spiffworkflow-emailToTableField",  element, component: EmailToTableFieldComponent },
-			{ id: "spiffworkflow-emailToTableUserField", element, component: EmailToTableUserFieldComponent },
-			{ id: "spiffworkflow-emailToRoles",       element, component: EmailToRolesComponent },
-			// ── CC / BCC ────────────────────────────────────────────────────
-			{ id: "spiffworkflow-emailCc",            element, component: EmailCcComponent },
-			{ id: "spiffworkflow-emailBcc",           element, component: EmailBccComponent },
-			// ── Body ────────────────────────────────────────────────────────
-			{ id: "spiffworkflow-emailBody",          element, component: EmailBodyComponent },
-		);
+		entries.push({ id: "spiffworkflow-emailNotificationEditor", element, component: EmailNotificationEditorComponent });
 	}
 
 	// ── Update Field entries ───────────────────────────────────────────────
@@ -499,295 +470,26 @@ function TextEntry({ id, label, value, onInput, placeholder, multiline, hint }) 
 	);
 }
 
-// ── E1: Email Account ─────────────────────────────────────────────────────
-function EmailAccountComponent(props) {
+// ── Email Notification: Launch Editor and the saved values ────────────────
+function EmailNotificationEditorComponent(props) {
 	const { element, id } = props;
-	const modeling  = useService("modeling");
 	const translate = useService("translate");
+	const eventBus  = useService("eventBus");
 	const bo        = getBusinessObject(element);
-	const value     = getAttr(bo, "emailAccount");
 
-	const fetchAccounts = (txt) => {
-		const params = { fields: '["name"]', limit_page_length: 50, order_by: "name asc" };
-		if (txt) params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
-		return frappeGet("/api/resource/Email Account", params);
-	};
-
-	return h(FrappeAutocomplete, {
-		id,
-		label: translate("Email Account"),
-		value,
-		onChange: (val) => modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:emailAccount": val || undefined,
-		}),
-		fetchApi: fetchAccounts,
-		valueField: "name",
-		renderOption: (opt) => opt.name,
-	});
-}
-
-// ── E2: Based on Specific Doctype record (checkbox) ───────────────────────
-function EmailUseDoctypeComponent(props) {
-	const { element, id } = props;
-	const modeling  = useService("modeling");
-	const translate = useService("translate");
-	const bo        = getBusinessObject(element);
-	const checked   = getBoolAttr(bo, "emailUseDoctype");
+	const values = Object.fromEntries(EMAIL_EDITOR_ATTRS.map((name) => [name, getAttr(bo, name)]));
+	const doctype = values.emailDoctype || getAttr(bo, "serviceTargetDoctype");
 
 	return h(
 		"div",
 		{ class: "bio-properties-panel-entry", "data-entry-id": id },
-		h("div", { class: "bpmn-checkbox-row" }, [
-			h("input", {
-				type: "checkbox",
-				id,
-				checked,
-				onChange: (e) => modeling.updateModdleProperties(element, bo, {
-					"spiffworkflow:emailUseDoctype": e.target.checked ? "true" : undefined,
-					"spiffworkflow:emailDoctype":    undefined,
-				}),
-				class: "bpmn-checkbox",
-			}),
-			h("label", {
-				for: id,
-				class: "bio-properties-panel-label",
-				class: "bpmn-checkbox-label-sm",
-			}, translate("Based on a Specific Doctype Record")),
-		])
+		h(EmailSummaryBox, {
+			values,
+			doctype,
+			translate,
+			onLaunch: () => eventBus.fire("spiff.serviceTask.emailNotification.edit", { element, eventBus, values }),
+		})
 	);
-}
-
-// ── E3: Doctype (shown when emailUseDoctype=true) ─────────────────────────
-function EmailDoctypeComponent(props) {
-	const { element, id } = props;
-	const modeling  = useService("modeling");
-	const translate = useService("translate");
-	const bo        = getBusinessObject(element);
-	const value     = getAttr(bo, "emailDoctype");
-
-	const fetchDoctypes = (txt) => {
-		const params = { fields: '["name"]', limit_page_length: 50, order_by: "name asc" };
-		if (txt) params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
-		return frappeGet("/api/resource/DocType", params);
-	};
-
-	return h(FrappeAutocomplete, {
-		id,
-		label: translate("DocType"),
-		value,
-		onChange: (val) => modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:emailDoctype": val || undefined,
-		}),
-		fetchApi: fetchDoctypes,
-		valueField: "name",
-		renderOption: (opt) => opt.name,
-	});
-}
-
-// ── E4: Subject ───────────────────────────────────────────────────────────
-function EmailSubjectComponent(props) {
-	const { element, id } = props;
-	const modeling  = useService("modeling");
-	const translate = useService("translate");
-	const bo        = getBusinessObject(element);
-	const value     = getAttr(bo, "emailSubject");
-
-	return h(TextEntry, {
-		id,
-		label: translate("Subject"),
-		value,
-		onInput: (e) => modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:emailSubject": e.target.value || undefined,
-		}),
-		placeholder: translate("e.g. Action Required: {{ doc.name }}"),
-		hint: translate("Supports Jinja2 — use {{ doc.field_name }} for document values."),
-	});
-}
-
-// ── Recipients divider ────────────────────────────────────────────────────
-function RecipientsHeaderComponent(props) {
-	const { id } = props;
-	const translate = useService("translate");
-	return h(
-		"div",
-		{ class: "bio-properties-panel-entry", "data-entry-id": id },
-		h(SectionDivider, { label: translate("Recipients") })
-	);
-}
-
-// ── E5: Email Address (direct comma-separated) ────────────────────────────
-function EmailToComponent(props) {
-	const { element, id } = props;
-	const modeling  = useService("modeling");
-	const translate = useService("translate");
-	const bo        = getBusinessObject(element);
-	const value     = getAttr(bo, "emailTo");
-
-	return h(TextEntry, {
-		id,
-		label: translate("Email Address"),
-		value,
-		onInput: (e) => modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:emailTo": e.target.value || undefined,
-		}),
-		placeholder: translate("e.g. john@example.com, jane@example.com"),
-		hint: translate("Direct email addresses, comma-separated."),
-	});
-}
-
-// ── E6: Document Fields (multi-select from DocType fields) ────────────────
-function EmailToDocFieldsComponent(props) {
-	const { element, id } = props;
-	const modeling  = useService("modeling");
-	const translate = useService("translate");
-	const bo        = getBusinessObject(element);
-	const value     = getAttr(bo, "emailToDocFields");
-
-	// Determine which DocType to fetch fields from:
-	// 1. emailDoctype (if "Based on Doctype" is checked)
-	// 2. serviceTargetDoctype (if set on this task)
-	// 3. Otherwise — we can't dynamically fetch fields
-	const sourceDoctype =
-		getAttr(bo, "emailDoctype") ||
-		getAttr(bo, "serviceTargetDoctype") ||
-		"";
-
-	// If no source DocType is known, fall back to plain text input
-	if (!sourceDoctype) {
-		return h(TextEntry, {
-			id,
-			label: translate("Document Field"),
-			value,
-			onInput: (e) => modeling.updateModdleProperties(element, bo, {
-				"spiffworkflow:emailToDocFields": e.target.value || undefined,
-			}),
-			placeholder: translate("e.g. owner, employee_email"),
-			hint: translate("Set a DocType above to get a field picker. Otherwise, enter comma-separated field names — 'owner' sends to whoever created the document."),
-		});
-	}
-
-	// Any field that can NAME a recipient: owner/modified_by, any Link to User,
-	// and text fields holding an address. Filtering happens on the server, from
-	// meta rather than the raw schema — get_doctype_fields could offer neither
-	// the standard user columns nor Custom Fields, so it both buried the picker
-	// in unusable fields and hid the ones that work.
-	const fetchDocFields = (txt) => {
-		return frappeGet("/api/method/one_bpmn.api.utils.get_recipient_docfields", {
-			doctype: sourceDoctype,
-			search_text: txt || "",
-		});
-	};
-
-	return h(FrappeMultiSelect, {
-		id,
-		label: translate("Document Field"),
-		value,
-		onChange: (val) => modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:emailToDocFields": val || undefined,
-		}),
-		fetchApi: fetchDocFields,
-		valueField: "fieldname",
-		// Say WHICH kind of field this is: a user field is resolved to that
-		// user's email at send time, so "owner" reads as a valid choice rather
-		// than a mistake.
-		renderOption: (opt) => {
-			const name = `${opt.label || opt.fieldname} (${opt.fieldname})`;
-			return opt.kind === "user" ? `${name} — user` : name;
-		},
-		placeholder: translate("Select user or email fields"),
-		itemLabel: "field",
-	});
-}
-
-// ── E7: Role (comma-separated roles — all users in those roles get email) ─
-function EmailToRolesComponent(props) {
-	const { element, id } = props;
-	const modeling  = useService("modeling");
-	const translate = useService("translate");
-	const bo        = getBusinessObject(element);
-	const value     = getAttr(bo, "emailToRoles");
-
-	const fetchRoles = (txt) => {
-		const params = { fields: '["name"]', limit_page_length: 50, order_by: "name asc" };
-		if (txt) params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
-		return frappeGet("/api/resource/Role", params);
-	};
-
-	return h(FrappeMultiSelect, {
-		id,
-		label: translate("Role"),
-		value,
-		onChange: (val) => modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:emailToRoles": val || undefined,
-		}),
-		fetchApi: fetchRoles,
-		valueField: "name",
-		renderOption: (opt) => opt.name,
-		placeholder: translate("Select roles — all users in these roles will receive the email"),
-		itemLabel: "role",
-	});
-}
-
-// ── E8: CC ────────────────────────────────────────────────────────────────
-function EmailCcComponent(props) {
-	const { element, id } = props;
-	const modeling  = useService("modeling");
-	const translate = useService("translate");
-	const bo        = getBusinessObject(element);
-	const value     = getAttr(bo, "emailCc");
-
-	return h(TextEntry, {
-		id,
-		label: translate("CC"),
-		value,
-		onInput: (e) => modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:emailCc": e.target.value || undefined,
-		}),
-		placeholder: translate("Comma-separated email addresses"),
-	});
-}
-
-// ── E9: BCC ───────────────────────────────────────────────────────────────
-function EmailBccComponent(props) {
-	const { element, id } = props;
-	const modeling  = useService("modeling");
-	const translate = useService("translate");
-	const bo        = getBusinessObject(element);
-	const value     = getAttr(bo, "emailBcc");
-
-	return h(TextEntry, {
-		id,
-		label: translate("BCC"),
-		value,
-		onInput: (e) => modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:emailBcc": e.target.value || undefined,
-		}),
-		placeholder: translate("Comma-separated email addresses"),
-	});
-}
-
-// ── E10: Email Body (multiline, Jinja-aware) ──────────────────────────────
-function EmailBodyComponent(props) {
-	const { element, id } = props;
-	const modeling  = useService("modeling");
-	const translate = useService("translate");
-	const bo        = getBusinessObject(element);
-	const value     = decodeHtmlAttr(getAttr(bo, "emailBody"));
-
-	return h(TextEntry, {
-		id,
-		label: translate("Email Body"),
-		value,
-		multiline: true,
-		onInput: (e) => modeling.updateModdleProperties(element, bo, {
-			"spiffworkflow:emailBody": encodeHtmlAttr(e.target.value),
-		}),
-		placeholder: translate("Supports Jinja2 — use {{ doc.field_name }}, {{ instance.name }}, etc."),
-		hint: translate(
-			"HTML or plain text. Available variables: doc (context document), " +
-			"instance (BPMN instance), frappe session."
-		),
-	});
 }
 
 // ===========================================================================
@@ -1229,13 +931,6 @@ function makeTableRecipientComponents(doctypeOf, tableAttr, userAttr) {
 
 const [GchatTableFieldComponent, GchatTableUserFieldComponent] = makeTableRecipientComponents(
 	(bo) => getAttr(bo, "gchatDoctype"), "gchatTableField", "gchatTableUserField"
-);
-
-// Same source doctype as the Document Field picker above it.
-const [EmailToTableFieldComponent, EmailToTableUserFieldComponent] = makeTableRecipientComponents(
-	(bo) => getAttr(bo, "emailDoctype") || getAttr(bo, "serviceTargetDoctype"),
-	"emailToTableField",
-	"emailToTableUserField"
 );
 
 function GchatSpaceIdComponent(props) {
