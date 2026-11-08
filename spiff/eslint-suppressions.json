@@ -96,11 +96,6 @@
       "count": 3
     }
   },
-  "src/pages/A2A.vue": {
-    "no-unused-vars": {
-      "count": 5
-    }
-  },
   "src/pages/EvalComparison.vue": {
     "no-unused-vars": {
       "count": 1
