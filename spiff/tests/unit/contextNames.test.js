@@ -71,3 +71,30 @@ test("every name an editor component reads from the editor context is provided b
 		assert.deepEqual(missing, [], `${file} reads names the context does not provide`);
 	}
 });
+
+test("every name an agent config component reads from the dialog context is provided by it", () => {
+	const composables = list("composables")
+		.filter((f) => /^useAgentConfig(?!LintState)/.test(f))
+		.map((f) => `composables/${f}`);
+	const provided = providedNames(
+		composables,
+		"ac",
+		"composables/useAgentConfigState.js",
+		"return {",
+	);
+	const components = list("components/AgentConfig").filter((f) =>
+		/^AgentConfig.*\.vue$/.test(f),
+	);
+	assert.equal(components.length, 7);
+	for (const file of components) {
+		const missing = destructured(read(`components/AgentConfig/${file}`), "ac").filter(
+			(n) => !provided.has(n),
+		);
+		assert.deepEqual(missing, [], `${file} reads names the context does not provide`);
+	}
+	const shell = destructured(read("components/Modals/AIAgentConfigModal.vue"), "ac");
+	assert.deepEqual(
+		shell.filter((n) => !provided.has(n)),
+		[],
+	);
+});
