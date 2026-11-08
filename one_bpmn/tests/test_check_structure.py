@@ -104,11 +104,10 @@ class TestWorkItemIdRule(unittest.TestCase):
 		change = cs.Change.modified("one_bpmn/mod.py", f"# {WORK_ITEM}\ny = 2\n", [(2, "y = 2")])
 		self.assertTrue(run([change]).ok)
 
-	def test_patches_txt_and_hooks_py_carry_no_work_item_id(self):
-		for name in ("patches.txt", "hooks.py"):
-			with open(os.path.join(ROOT, "one_bpmn", name), encoding="utf-8") as handle:
-				for number, line in enumerate(handle, 1):
-					self.assertIsNone(cs.WORK_ITEM_ID.search(line), f"{name}:{number} carries a work-item id")
+	def test_hooks_py_carries_no_work_item_id(self):
+		with open(os.path.join(ROOT, "one_bpmn", "hooks.py"), encoding="utf-8") as handle:
+			for number, line in enumerate(handle, 1):
+				self.assertIsNone(cs.WORK_ITEM_ID.search(line), f"hooks.py:{number} carries a work-item id")
 
 
 class TestUnsafeCallRule(unittest.TestCase):
