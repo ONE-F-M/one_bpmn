@@ -4,10 +4,10 @@ import assert from "node:assert/strict"
 import { BpmnModdle } from "bpmn-moddle"
 import traverse from "bpmnlint/lib/traverse.js"
 
-import { storeAgentConfigStates } from "@/linting/agentConfigState.js"
-import aiTaskConfigIncomplete from "@/linting/rules/ai-task-config-incomplete.js"
-import aiTaskConfigNotLive from "@/linting/rules/ai-task-config-not-live.js"
-import aiTaskConfigUnavailable from "@/linting/rules/ai-task-config-unavailable.js"
+import { storeAgentConfigStates } from "@/bpmn/lint/agentConfigState.js"
+import aiTaskConfigIncomplete from "@/bpmn/lint/rules/ai-task-config-incomplete.js"
+import aiTaskConfigNotLive from "@/bpmn/lint/rules/ai-task-config-not-live.js"
+import aiTaskConfigUnavailable from "@/bpmn/lint/rules/ai-task-config-unavailable.js"
 
 storeAgentConfigStates({
 	"Live Bot": { exists: true, enabled: true, lifecycle_status: "Live", problems: [] },

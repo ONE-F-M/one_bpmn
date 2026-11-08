@@ -4,7 +4,7 @@ import assert from "node:assert/strict"
 import { BpmnModdle } from "bpmn-moddle"
 import traverse from "bpmnlint/lib/traverse.js"
 
-import workflowStateMissingEditRole from "@/linting/rules/workflow-state-missing-edit-role.js"
+import workflowStateMissingEditRole from "@/bpmn/lint/rules/workflow-state-missing-edit-role.js"
 
 const diagram = (body, executable = "true") => `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
