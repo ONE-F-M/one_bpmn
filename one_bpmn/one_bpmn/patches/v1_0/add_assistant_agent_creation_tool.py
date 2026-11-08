@@ -57,9 +57,9 @@ CREATE_AGENT_CONFIGURATION_SCRIPT = '''# Tool: create an AI Agent Configuration 
 # "Create agent" button uses. Chat + Draft; the After-Insert trigger starts the
 # AI Agent Creation Process, which takes the agent to Live.
 #
-# The agent picks an ai_model from the AI Model catalog and its
+# WI-001655: the agent picks an ai_model from the AI Model catalog and its
 # provider is DERIVED from that model's credentials link. Passing a provider
-# directly is the older shape and leaves ai_model empty, which the
+# directly is the pre-WI-001655 shape and leaves ai_model empty, which the
 # creation process's Validate step rejects — so the checks below mirror
 # agent_provisioning.VALIDATION_RULES rather than let a new agent land straight
 # in Needs Attention.
@@ -111,7 +111,7 @@ else:
         "agent_name": _name,
         "chat_mode_label": _label,
         "ai_model": _model,
-        # The designer-chosen map the agent belongs to — usually
+        # WI-001997: the designer-chosen map the agent belongs to — usually
         # the process open in the editor. Nothing clones or overwrites it.
         "process_model": _process_map,
         "system_prompt": _system_prompt,

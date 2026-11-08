@@ -49,7 +49,7 @@ CREATE_CASE_SCRIPT_NAME = "Assistant Tool – Create Eval Case"
 # driving it could touch by hand.
 
 LIST_EVAL_SUITES_SCRIPT = '''# Tool: the eval suites already attached to an AI Agent Configuration.
-# The link lives on AI Eval Suite.agent_configuration, so this is a
+# The link lives on AI Eval Suite.agent_configuration (WI-001743), so this is a
 # reverse query — the configuration carries no suite field to read.
 _agent = (task_data.get("agent") or "").strip()
 if not _agent:
