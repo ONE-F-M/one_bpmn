@@ -67,7 +67,7 @@ def allow_test_host():
 	"""The SSRF guard resolves hostnames for real, and the test endpoint is
 	fictional. Tests that are ABOUT the guard use 127.0.0.1 (no DNS needed)
 	and never patch it."""
-	return patch.object(a2a_client, "_assert_host_allowed", lambda *a, **k: None)
+	return patch.object(a2a_client, "assert_host_allowed", lambda *a, **k: None)
 
 
 def rpc_reply(result: dict):

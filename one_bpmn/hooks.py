@@ -118,7 +118,7 @@ doctype_list_js = {
 # before_install = "one_bpmn.install.before_install"
 after_install = [
 	"one_bpmn.install.after_install",
-	"one_bpmn.one_bpmn.connectors.seed.import_seed_manifests",
+	"one_bpmn.processa_connectors.seed.import_seed_manifests",
 ]
 
 # Uninstallation
