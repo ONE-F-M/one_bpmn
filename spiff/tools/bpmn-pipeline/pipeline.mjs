@@ -1337,4 +1337,204 @@ function buildManualLaneDI(ir, opts = {}) {
         const len = Math.abs(pts[k][0] - pts[k - 1][0]);
         if (!best || len > best.len) best = { len, cx: (pts[k][0] + pts[k - 1][0]) / 2, cy: pts[k][1] };
       }
+      if (!best) best = { cx: pts[0][0], cy: (pts[0][1] + pts[pts.length - 1][1]) / 2 };
+
+      const lw = Math.min(150, Math.max(28, f.name.length * 6 + 8));
+      const box = { x: Math.round(best.cx - lw / 2), y: Math.round(best.cy - 19), w: lw, h: 14 };
+      const clashes = () =>
+        labelBoxes.some(b => boxHit(box, b)) ||
+        [...nodePos.values()].some(q => boxHit(box, q)) ||
+        allSegs.some(seg => seg[2] !== i && boxHit(box, segBox(seg)));
+      // Step off the channel until the slot is free; give up rather than drift
+      // far from the edge it names.
+      for (let guard = 0; guard < 10 && clashes(); guard++) box.y -= 16;
+      labelBoxes.push(box);
+      edgeLines.push('        <bpmndi:BPMNLabel>');
+      edgeLines.push('          <dc:Bounds x="' + box.x + '" y="' + box.y +
+                 '" width="' + box.w + '" height="' + box.h + '" />');
+      edgeLines.push('        </bpmndi:BPMNLabel>');
+    }
+    edgeLines.push('      </bpmndi:BPMNEdge>');
+  }
+
+  // ── Node shapes, with labels on a side no line runs through ──────────────
+  // Events and gateways carry their name outside the shape. Try the four sides
+  // in reading order, skipping any face an edge attaches to, and take the first
+  // box that touches no other shape, label or line. Falling back to "below" is
+  // what bpmn-js would have done anyway.
+  const faceOf = (pt, pos) => {
+    if (Math.abs(pt[1] - pos.y) < 1) return 'top';
+    if (Math.abs(pt[1] - (pos.y + pos.h)) < 1) return 'bottom';
+    if (Math.abs(pt[0] - pos.x) < 1) return 'left';
+    if (Math.abs(pt[0] - (pos.x + pos.w)) < 1) return 'right';
+    return null;
+  };
+  const otherNodes = [...nodePos.entries()];
+  for (const n of ir.nodes) {
+    const pos = nodePos.get(n.id);
+    if (!pos) continue;
+    const isCompact = (n.type === 'startEvent' || n.type === 'endEvent' || GATEWAY_TYPES.has(n.type));
+    lines.push('      <bpmndi:BPMNShape id="' + n.id + '_di" bpmnElement="' + n.id + '"' +
+               (n.type === 'subProcess' ? ' isExpanded="' + (n._inner ? 'true' : 'false') + '"' : '') + '>');
+    lines.push('        <dc:Bounds x="' + pos.x + '" y="' + pos.y +
+               '" width="' + pos.w + '" height="' + pos.h + '" />');
+    if (isCompact && n.name) {
+      const attached = new Set();
+      for (const seg of allSegs) for (const pt of [seg[0], seg[1]]) { const f = faceOf(pt, pos); if (f) attached.add(f); }
+      const textW = n.name.length * 6 + 8;
+      const lw = Math.min(90, Math.max(40, textW));
+      const lh = 14 * Math.max(1, Math.ceil(textW / 90));
+      const cx = pos.x + pos.w / 2, cy = pos.y + pos.h / 2;
+      const candidates = {
+        bottom: { x: cx - lw / 2, y: pos.y + pos.h + 4, w: lw, h: lh },
+        top:    { x: cx - lw / 2, y: pos.y - lh - 4,   w: lw, h: lh },
+        right:  { x: pos.x + pos.w + 6, y: cy - lh / 2, w: lw, h: lh },
+        left:   { x: pos.x - lw - 6,    y: cy - lh / 2, w: lw, h: lh },
+      };
+      const order = ['bottom', 'top', 'right', 'left'];
+      const free = order.filter(s => !attached.has(s)).concat(order.filter(s => attached.has(s)));
+      const clear = (box) =>
+        !otherNodes.some(([id, q]) => id !== n.id && boxesHit(box, q)) &&
+        !labelBoxes.some(b => boxesHit(box, b)) &&
+        !allSegs.some(seg => segHitsBox([seg[0], seg[1]], box));
+      const side = free.find(s => clear(candidates[s])) || 'bottom';
+      const box = candidates[side];
+      box.x = Math.round(box.x); box.y = Math.round(box.y);
+      labelBoxes.push(box);
+      lines.push('        <bpmndi:BPMNLabel>');
+      lines.push('          <dc:Bounds x="' + box.x + '" y="' + box.y + '" width="' + box.w + '" height="' + box.h + '" />');
+      lines.push('        </bpmndi:BPMNLabel>');
+    }
+    lines.push('      </bpmndi:BPMNShape>');
+    if (n._inner) lines.push(innerDiagram(n._inner, pos));
+  }
+  for (const l of edgeLines) lines.push(l);
+
+  lines.push('    </bpmndi:BPMNPlane>');
+  lines.push('  </bpmndi:BPMNDiagram>');
+  return { diSection: lines.join('\n'), problems: [] };
+}
+
+// Inject BPMNDI section + required namespace declarations into moddle-generated XML.
+// moddle omits bpmndi/dc/di namespaces when no DI elements exist in the model tree.
+function injectLaneDI(xml, diSection) {
+  let result = xml;
+  if (result.indexOf('xmlns:bpmndi=') === -1) {
+    result = result.replace(
+      /(<bpmn:definitions)(\s)/,
+      '$1' +
+      ' xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"' +
+      ' xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"' +
+      ' xmlns:di="http://www.omg.org/spec/DD/20100524/DI"' +
+      '$2'
+    );
+  }
+  return result.replace('</bpmn:definitions>', diSection + '\n</bpmn:definitions>');
+}
+
+// ── Layout audit ───────────────────────────────────────────────────────────
+// Reads the DI back out of the finished XML and measures what a reader would
+// see: crossings, lines running over each other, lines through shapes, labels
+// on top of things. Whether the crossing count is acceptable is decided by the
+// Python side, which knows if the flow graph is planar.
+function auditLayout(xml) {
+  const attr = (attrs, name) => { const m = new RegExp(name + '="([^"]*)"').exec(attrs); return m ? m[1] : null; };
+  const bounds = (block) => {
+    const m = /<dc:Bounds\s+([^>]*)\/>/.exec(block);
+    return m ? { x: +attr(m[1], 'x'), y: +attr(m[1], 'y'), w: +attr(m[1], 'width'), h: +attr(m[1], 'height') } : null;
+  };
+  const labelBounds = (block) => {
+    const m = /<bpmndi:BPMNLabel>([\s\S]*?)<\/bpmndi:BPMNLabel>/.exec(block);
+    return m ? bounds(m[1]) : null;
+  };
+  const ends = new Map(), names = new Map();
+  for (const m of xml.matchAll(/<bpmn2?:sequenceFlow\b([^>]*)>/g)) {
+    ends.set(attr(m[1], 'id'), [attr(m[1], 'sourceRef'), attr(m[1], 'targetRef')]);
+  }
+  for (const m of xml.matchAll(/<bpmn2?:\w+\b([^>]*\bid="[^"]+"[^>]*)>/g)) {
+    const id = attr(m[1], 'id'), name = attr(m[1], 'name');
+    if (id && name) names.set(id, name);
+  }
+  // Which subprocesses each flow is declared inside, read from the element nesting.
+  const within = new Map(), open = [];
+  for (const m of xml.matchAll(/<(\/?)bpmn2?:(subProcess|adHocSubProcess|transaction|sequenceFlow|association)\b([^>]*?)(\/?)>/g)) {
+    const [, closing, tag, attrs, selfClosing] = m;
+    if (tag === 'sequenceFlow' || tag === 'association') {
+      if (!closing) within.set(attr(attrs, 'id'), [...open].reverse());
+    } else if (closing) open.pop();
+    else if (!selfClosing) open.push(attr(attrs, 'id'));
+  }
+  // Each BPMNDiagram is its own drawing: a sub-process plane shares coordinates with the main one.
+  const total = { crossings: 0, overlaps: 0, throughShape: 0, labelCollisions: 0, crossingPairs: [], throughPairs: [] };
+  for (const di of xml.split('<bpmndi:BPMNDiagram').slice(1)) {
+    const shapes = [], edges = [];
+    for (const m of di.matchAll(/<bpmndi:BPMNShape\b([^>]*)>([\s\S]*?)<\/bpmndi:BPMNShape>/g)) {
+      const id = attr(m[1], 'bpmnElement');
+      const b = bounds(m[2].replace(/<bpmndi:BPMNLabel>[\s\S]*?<\/bpmndi:BPMNLabel>/, ''));
+      if (!b) continue;
+      shapes.push({ id, name: names.get(id) || id, ...b, container: /isHorizontal="true"/.test(m[1]), label: labelBounds(m[2]) });
+    }
+    for (const m of di.matchAll(/<bpmndi:BPMNEdge\b([^>]*)>([\s\S]*?)<\/bpmndi:BPMNEdge>/g)) {
+      const id = attr(m[1], 'bpmnElement');
+      const pts = [...m[2].matchAll(/<di:waypoint\s+x="([\d.-]+)"\s+y="([\d.-]+)"/g)].map(w => [+w[1], +w[2]]);
+      const [src, tgt] = ends.get(id) || [null, null];
+      edges.push({ id, name: names.get(id) || id, pts, src, tgt, within: within.get(id) || [], label: labelBounds(m[2]) });
+    }
+    const one = auditGeometry({ shapes, edges });
+    total.crossings += one.crossings;
+    total.overlaps += one.overlaps;
+    total.throughShape += one.throughShape;
+    total.labelCollisions += one.labelCollisions;
+    total.crossingPairs.push(...one.crossingPairs);
+    total.throughPairs.push(...one.throughPairs);
+  }
+  const r = total;
+  const nm = (id) => names.get(id) || id;
+  return {
+    crossings: r.crossings, overlaps: r.overlaps, throughShape: r.throughShape, labelCollisions: r.labelCollisions,
+    crossingPairs: r.crossingPairs.map(p => [nm(p.a), nm(p.b)]),
+    throughPairs: r.throughPairs.map(p => [nm(p.edge), nm(p.shape)]),
+  };
+}
+
+// ── Sub-process scopes ─────────────────────────────────────────────────────
+//
+// A sub-process node may carry `children: { nodes, flows }`. Each scope is
+// normalised and checked on its own, and drawn on its own plane.
+
+const subProcessesOf = (ir) => (ir.nodes || []).filter(n => n.type === 'subProcess' && n.children);
+
+// Flows may only join nodes of the scope that declares them.
+function assertSubProcessScopes(ir) {
+  const problems = [];
+  const descendantIds = (node) => (node.children.nodes || []).flatMap(c => [c.id, ...(c.children ? descendantIds(c) : [])]);
+  const check = (scope, owner) => {
+    const here = new Set((scope.nodes || []).map(n => n.id));
+    const inner = new Set(subProcessesOf(scope).flatMap(descendantIds));
+    for (const f of scope.flows || []) {
+      for (const end of [f.from, f.to]) {
+        if (here.has(end)) continue;
+        if (owner || inner.has(end)) {
+          problems.push({
+            kind: 'structure', rule: 'subprocess-scope', elementId: owner || end,
+            message: `Flow ${f.from} -> ${f.to} joins "${end}", which is not in the same ` +
+                     (owner ? `sub-process "${owner}"` : 'scope') + '. Keep the flows of a sub-process between its own steps.',
+          });
+        }
+      }
+    }
+    for (const sub of subProcessesOf(scope)) check(sub.children, sub.id);
+  };
+  check(ir, null);
+  return problems;
+}
+
+// Normalise every sub-process scope; returns the IR and any structural problems.
+function normaliseSubProcesses(ir) {
+  const problems = [];
+  const walk = (scope) => ({
+    ...scope,
+    nodes: scope.nodes.map(n => {
+      if (n.type !== 'subProcess' || !n.children) return n;
+      const norm = normalizeGateways({ name: n.name, nodes: n.children.nodes || [], flows: n.children.flows || [] });
 //@@CONTINUE@@
