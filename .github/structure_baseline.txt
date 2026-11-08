@@ -2,7 +2,97 @@
 # Delete an entry when the breach is fixed. Adding or raising an entry needs a code owner's approval.
 # Regenerate with: python .github/scripts/check_structure.py --write-baseline
 # Formats: size <path> <line count>   |   test-location <path>   |   component-js <path>
+#          component-folder <path>
 #          private-import <importing path> <module>.<name>
+component-folder spiff/src/components/Chat/AgentChatPanel.vue
+component-folder spiff/src/components/Chat/Cards/DataTableCard.vue
+component-folder spiff/src/components/Chat/Cards/DiagramPreviewCard.vue
+component-folder spiff/src/components/Chat/Cards/DocTypeSchemaCard.vue
+component-folder spiff/src/components/Chat/Cards/LuCrusherResultBody.vue
+component-folder spiff/src/components/Chat/Cards/LuCrusherResultCard.vue
+component-folder spiff/src/components/Chat/Cards/ProposalCard.vue
+component-folder spiff/src/components/Chat/Cards/ScriptDiffCard.vue
+component-folder spiff/src/components/Chat/Cards/TestCaseCard.vue
+component-folder spiff/src/components/Chat/OneAiApp.vue
+component-folder spiff/src/components/Chat/Primitives/ActionButton.vue
+component-folder spiff/src/components/Chat/Primitives/CardShell.vue
+component-folder spiff/src/components/Chat/Primitives/CodeBlock.vue
+component-folder spiff/src/components/Chat/Primitives/DataTable.vue
+component-folder spiff/src/components/Chat/Primitives/DiagramThumb.vue
+component-folder spiff/src/components/Chat/Primitives/DiffView.vue
+component-folder spiff/src/components/Chat/Primitives/FieldList.vue
+component-folder spiff/src/components/Chat/Primitives/Heading.vue
+component-folder spiff/src/components/Chat/Primitives/KeyValueTable.vue
+component-folder spiff/src/components/Chat/Primitives/Row.vue
+component-folder spiff/src/components/Chat/Primitives/Stack.vue
+component-folder spiff/src/components/Chat/Primitives/TextBlock.vue
+component-folder spiff/src/components/Chat/ProposedFieldsTray.vue
+component-folder spiff/src/components/Chat/ResponseFeedback.vue
+component-folder spiff/src/components/Chat/agui-sizing.css
+component-folder spiff/src/components/Controls/ProcessFilter.vue
+component-folder spiff/src/components/Controls/RecordPicker.vue
+component-folder spiff/src/components/Controls/UserFilter.vue
+component-folder spiff/src/components/DiffViewer.vue
+component-folder spiff/src/components/Editor/CodeMirrorEditor.vue
+component-folder spiff/src/components/Editor/DmnEditor.vue
+component-folder spiff/src/components/Editor/EditorTabs.vue
+component-folder spiff/src/components/Editor/FormattingToolbar.vue
+component-folder spiff/src/components/Editor/ScriptNamesHint.vue
+component-folder spiff/src/components/Editor/VersionHistoryPanel.vue
+component-folder spiff/src/components/Insights/CostAllocationCards.vue
+component-folder spiff/src/components/Insights/CostAllocationChart.vue
+component-folder spiff/src/components/Insights/CostAllocationDonut.vue
+component-folder spiff/src/components/Insights/CostAllocationPricingAlert.vue
+component-folder spiff/src/components/Insights/CostAllocationReport.vue
+component-folder spiff/src/components/Insights/CostAllocationTiles.vue
+component-folder spiff/src/components/Insights/CostAllocationTree.vue
+component-folder spiff/src/components/Insights/DeltaPill.vue
+component-folder spiff/src/components/Insights/ErrorReport.vue
+component-folder spiff/src/components/Insights/ErrorReportCards.vue
+component-folder spiff/src/components/Insights/ErrorReportChart.vue
+component-folder spiff/src/components/Insights/ErrorReportTable.vue
+component-folder spiff/src/components/Insights/InsightsLinkFilter.vue
+component-folder spiff/src/components/Insights/MetricTile.vue
+component-folder spiff/src/components/Insights/OverviewCards.vue
+component-folder spiff/src/components/Insights/PerformanceReport.vue
+component-folder spiff/src/components/Insights/RunTree.vue
+component-folder spiff/src/components/Insights/ShareBar.vue
+component-folder spiff/src/components/Insights/StepBody.vue
+component-folder spiff/src/components/Insights/TurnDetail.vue
+component-folder spiff/src/components/Insights/UsageReport.vue
+component-folder spiff/src/components/Insights/UsageReportCards.vue
+component-folder spiff/src/components/Insights/UsageReportDonut.vue
+component-folder spiff/src/components/Insights/UsageReportTable.vue
+component-folder spiff/src/components/Insights/WorkItemCostReport.vue
+component-folder spiff/src/components/Instances/BpmnDiagramViewer.vue
+component-folder spiff/src/components/Instances/ElementInspector.vue
+component-folder spiff/src/components/Instances/InstanceControls.vue
+component-folder spiff/src/components/Instances/InstanceHeader.vue
+component-folder spiff/src/components/Instances/InstanceHistory.vue
+component-folder spiff/src/components/Instances/PendingActions.vue
+component-folder spiff/src/components/Logix/LogixCanvas.vue
+component-folder spiff/src/components/Logix/LogixChat.vue
+component-folder spiff/src/components/Modals/CallActivitySearchModal.vue
+component-folder spiff/src/components/Modals/CompareModal.vue
+component-folder spiff/src/components/Modals/ConfigImportResultsModal.vue
+component-folder spiff/src/components/Modals/EmailNotificationEditorModal.vue
+component-folder spiff/src/components/Modals/ExportConfigModal.vue
+component-folder spiff/src/components/Modals/NotificationLinkModal.vue
+component-folder spiff/src/components/Modals/NotifyAssigneeEditorModal.vue
+component-folder spiff/src/components/Modals/ReadinessChecklistModal.vue
+component-folder spiff/src/components/Modals/VersionDiffModal.vue
+component-folder spiff/src/components/Notifications/ArabicFieldPicker.vue
+component-folder spiff/src/components/Notifications/EmailNoticeContentTab.vue
+component-folder spiff/src/components/Notifications/EmailPreviewPanel.vue
+component-folder spiff/src/components/Notifications/EmailRecipientsTab.vue
+component-folder spiff/src/components/Notifications/NotifyActionsTab.vue
+component-folder spiff/src/components/Notifications/NotifyArabicInput.vue
+component-folder spiff/src/components/Notifications/NotifyContentTab.vue
+component-folder spiff/src/components/Notifications/NotifyConversationTab.vue
+component-folder spiff/src/components/Notifications/NotifyFieldsTab.vue
+component-folder spiff/src/components/Notifications/NotifyTagBox.vue
+component-folder spiff/src/components/Notifications/NotifyTemplateTab.vue
+component-folder spiff/src/components/ProsAlly/ProsAllyPanel.vue
 private-import one_bpmn/a2a/execute.py one_bpmn.processa_engine.triggers._maybe_start_instance
 private-import one_bpmn/agents/adversarial_gate.py one_bpmn.agents.eval_runner._execute_eval_suite
 private-import one_bpmn/agents/eval_case_factory.py one_bpmn.agents.eval_permissions._is_system_manager

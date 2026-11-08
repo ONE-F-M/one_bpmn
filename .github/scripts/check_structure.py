@@ -2,7 +2,8 @@
 """Structure check for pull requests: checks only changed files and added lines.
 
 Rules: size, work-item-id, permissions, raw-sql, test-location, import, private-import,
-definitions-file, definitions-name, definitions-import, component-js, fetch, baseline.
+definitions-file, definitions-name, definitions-import, component-js, component-folder, fetch,
+baseline.
 Existing breaches live in .github/structure_baseline.txt and may stay but never grow.
 Usage: check_structure.py --base origin/processa-refactor [--approvers a,b]
        check_structure.py --write-baseline
@@ -17,7 +18,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Collection, Dict, List, Optional, Sequence, Tuple
 
 PY_MAX_LINES = 800
 VUE_MAX_LINES = 500
@@ -138,6 +139,7 @@ def format_baseline(entries: Baseline) -> str:
 		"# Delete an entry when the breach is fixed. Adding or raising an entry needs a code owner's approval.",
 		"# Regenerate with: python .github/scripts/check_structure.py --write-baseline",
 		"# Formats: size <path> <line count>   |   test-location <path>   |   component-js <path>",
+		"#          component-folder <path>",
 		"#          private-import <importing path> <module>.<name>",
 	]
 	lines = []
@@ -192,6 +194,17 @@ def carries_work_item_ids(path: str) -> bool:
 
 def is_component_js(path: str) -> bool:
 	return path.endswith(".js") and allowed_prefix(path, COMPONENT_PREFIXES)
+
+
+def is_component_asset(path: str) -> bool:
+	return path.endswith((".vue", ".css")) and allowed_prefix(path, COMPONENT_PREFIXES)
+
+
+def in_component_folder(path: str) -> bool:
+	"""A component file sits in a folder named after it, below components/; group folders may sit above."""
+	prefix = next(prefix for prefix in COMPONENT_PREFIXES if path.startswith(prefix))
+	folders = path[len(prefix) :].split("/")[:-1]
+	return bool(folders) and folders[-1] == path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
 
 
 def checks_private_imports(path: str) -> bool:
@@ -419,6 +432,22 @@ def check_component_js(change: Change, baseline: Baseline, result: Result) -> No
 	)
 
 
+def check_component_folder(baseline: Baseline, tree: Collection[str], result: Result) -> None:
+	"""Every .vue and .css in the tree is in its component folder or in the baseline."""
+	for path in sorted(tree):
+		if not is_component_asset(path) or ("component-folder", path) in baseline:
+			continue
+		folder, _, name = path.rpartition("/")
+		stem, _, ext = name.rpartition(".")
+		if not in_component_folder(path):
+			message = f"components/ holds one folder per component: put {path} in {folder}/{stem}/{name}"
+		elif ext == "css" and f"{folder}/{stem}.vue" not in tree:
+			message = f"a .css needs its {stem}.vue beside it in {folder}"
+		else:
+			continue
+		result.failures.append(Finding(path, None, "component-folder", message))
+
+
 def check_fetch(change: Change, result: Result) -> None:
 	if change.status == "D" or not allowed_prefix(change.path, FRONTEND_PREFIXES):
 		return
@@ -515,8 +544,11 @@ def run_checks(
 	base_baseline: Optional[Baseline] = None,
 	approvers: Sequence[str] = (),
 	codeowners: str = "",
+	tree: Optional[Collection[str]] = None,
 ) -> Result:
 	result = Result()
+	if tree is None:
+		tree = {change.path for change in changes if change.status != "D"}
 	for change in changes:
 		check_size(change, baseline, result)
 		check_work_item_ids(change, result)
@@ -528,12 +560,13 @@ def run_checks(
 		check_component_js(change, baseline, result)
 		check_fetch(change, result)
 		check_deleted(change, baseline, result)
+	check_component_folder(baseline, tree, result)
 	check_baseline_approval(baseline, base_baseline or {}, approvers, codeowners, result)
 	return result
 
 
 def generate_baseline(files: Dict[str, str]) -> Baseline:
-	"""The baseline for a whole tree: oversize files, misplaced tests, private imports, plain .js components."""
+	"""The baseline for a whole tree: oversize files, misplaced tests, private imports, plain .js components, loose components."""
 	entries: Baseline = {}
 	for path, text in files.items():
 		limit = size_limit(path)
@@ -543,6 +576,8 @@ def generate_baseline(files: Dict[str, str]) -> Baseline:
 			entries[("test-location", path)] = 0
 		if is_component_js(path):
 			entries[("component-js", path)] = 0
+		if is_component_asset(path) and not in_component_folder(path):
+			entries[("component-folder", path)] = 0
 		if checks_private_imports(path):
 			for _, target in private_imports(path, text):
 				entries[("private-import", f"{path} {target}")] = 0
@@ -609,7 +644,7 @@ def collect_changes(base: str, root: str) -> List[Change]:
 def write_baseline(root: str) -> None:
 	files: Dict[str, str] = {}
 	for path in _git(["ls-files"], root).splitlines():
-		if size_limit(path) is None and not is_test_file(path) and not is_component_js(path):
+		if size_limit(path) is None and not is_test_file(path) and not is_component_js(path) and not is_component_asset(path):
 			continue
 		try:
 			with open(os.path.join(root, path), encoding="utf-8", errors="replace") as handle:
@@ -656,6 +691,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 		parse_baseline(_git_show(args.base, BASELINE_PATH, root)),
 		[name for name in args.approvers.split(",") if name.strip()],
 		codeowners,
+		set(_git(["ls-files"], root).splitlines()),
 	)
 
 	for notice in result.notices:
