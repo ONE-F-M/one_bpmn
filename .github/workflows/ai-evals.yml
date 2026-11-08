@@ -21,10 +21,11 @@ on:
       - 'one_bpmn/agents/**'
       # Its records: agents, skills, evals, runs, steps, tool calls
       - 'one_bpmn/one_bpmn/doctype/ai_*/**'
-      - 'one_bpmn/one_bpmn/doctype/bpmn_process_model/**'
+      - 'one_bpmn/processa_engine/doctype/bpmn_process_model/**'
       # The endpoints and gates evals run through
       - 'one_bpmn/api/eval_api.py'
-      - 'one_bpmn/api/compilation.py'
+      - 'one_bpmn/processa_engine/compiler/**'
+      - 'one_bpmn/api/deploy.py'
       - 'one_bpmn/commands/**'
       # Suites and cases arrive as patches
       - 'one_bpmn/patches.txt'
