@@ -221,7 +221,7 @@ def _turn_correlation_id():
 	security package is unavailable or misbehaving.
 	"""
 	try:
-		from one_bpmn.security.turn import current_correlation_id
+		from one_bpmn.ai_agent_security.turn import current_correlation_id
 
 		return current_correlation_id()
 	except Exception:

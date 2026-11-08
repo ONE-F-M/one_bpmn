@@ -235,10 +235,10 @@ def _continue_task(message: dict, text: str) -> dict:
 def _screen_continuation(task, text: str) -> str:
 	"""Mirror of invoke_agent's input screening chain for the one path
 	that bypasses it: rate limit, turn correlation, PII, injection."""
-	from one_bpmn.security import pii as _pii
-	from one_bpmn.security import rate_limit as _rate_limit
-	from one_bpmn.security import turn as _turn
-	from one_bpmn.security.injection import screen_for_injection
+	from one_bpmn.ai_agent_security import rate_limit as _rate_limit
+	from one_bpmn.ai_agent_security import turn as _turn
+	from one_bpmn.ai_agent_security.screening import pii as _pii
+	from one_bpmn.ai_agent_security.screening.injection import screen_for_injection
 
 	_rate_limit.enforce(
 		user=frappe.session.user,
@@ -626,8 +626,8 @@ def invoke_agent(
 	# and a frozen conversation must not reach the provider at all. Raises
 	# RateLimited (a ValidationError) which surfaces to the caller as the
 	# refusal message; everything else in here fails open.
-	from one_bpmn.security import rate_limit as _rate_limit
 	from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import agent_config_name
+	from one_bpmn.ai_agent_security import rate_limit as _rate_limit
 
 	# A Chat agent's turn is counted when its Chat Message is written, which is
 	# the boundary that fires on EVERY message; counting here as well would make
@@ -657,8 +657,8 @@ def invoke_agent(
 	# that can guarantee no user-supplied PII reaches a third-party model.
 	# Detected values become stable tokens; the mapping lives for this turn
 	# only and is swapped back at the tool boundary so lookups still resolve.
-	from one_bpmn.security import pii as _pii
-	from one_bpmn.security import turn as _turn
+	from one_bpmn.ai_agent_security import turn as _turn
+	from one_bpmn.ai_agent_security.screening import pii as _pii
 
 	# WI-001967: one id for everything this turn records. The security event is
 	# written before the AI Agent Run exists and can never be edited afterwards,
@@ -682,7 +682,7 @@ def invoke_agent(
 	#
 	# Only a Block raises, and it raises an AgentRefusal so the caller reports
 	# it as a decision. Every other failure path leaves the turn untouched.
-	from one_bpmn.security.injection import screen_input as _screen_injection
+	from one_bpmn.ai_agent_security.screening.injection import screen_input as _screen_injection
 
 	_injection = _screen_injection(
 		message,
@@ -717,7 +717,7 @@ def invoke_agent(
 	# Two overlapping deliveries each restore the same workflow_state and the
 	# last write wins, losing a turn's work and interleaving the transcript.
 	# Whether a second message waits or is turned away is the agent's setting.
-	from one_bpmn.security import turn_lock as _turn_lock
+	from one_bpmn.ai_agent_security import turn_lock as _turn_lock
 
 	_lock_token = None
 	try:
@@ -786,7 +786,7 @@ def invoke_agent(
 	# and a blocked response must not reach the caller even when the transcript
 	# already holds the redacted version.
 	try:
-		from one_bpmn.security.output_screening import screen_output
+		from one_bpmn.ai_agent_security.screening.output_screening import screen_output
 
 		screened = screen_output(result.get("response") or "", config, conversation=conversation)
 		if screened.changed:
@@ -825,8 +825,8 @@ def _stream_with_pii_teardown(gen, pii_turn, conversation=None, lock_token=None)
 	"""Relay a runner's event stream, ending the PII turn and releasing the
 	conversation's turn lock only once the stream is exhausted (or abandoned) —
 	mirrors the try/finally the buffered path gets inline."""
-	from one_bpmn.security import pii as _pii
-	from one_bpmn.security import turn_lock as _turn_lock
+	from one_bpmn.ai_agent_security import turn_lock as _turn_lock
+	from one_bpmn.ai_agent_security.screening import pii as _pii
 
 	try:
 		yield from gen

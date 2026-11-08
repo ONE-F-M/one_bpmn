@@ -641,7 +641,7 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 	# when a tool runs inline inside a web request. So the sid and data are put
 	# back in the finally, and the switch is skipped entirely when we are already
 	# the right user.
-	from one_bpmn.agents import identity
+	from one_bpmn.ai_agent_security import identity
 
 	agent = getattr(instance, "_a2a_delegating_agent", None)
 	agent_user = identity.user_for(agent)

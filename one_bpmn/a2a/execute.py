@@ -92,8 +92,8 @@ def _errored_instance(task, process_model: str, message: str) -> str:
 def run_chat_turn(task, config, text: str) -> None:
 	"""Chat path: the whole existing turn machinery, screening included,
 	via the standard invocation entry point."""
+	from one_bpmn.ai_agent_security.rate_limit import RateLimited
 	from one_bpmn.api.a2a import invoke_agent
-	from one_bpmn.security.rate_limit import RateLimited
 
 	agent_id = config["agent_id"] if isinstance(config, dict) else config.agent_id
 	try:

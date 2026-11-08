@@ -150,8 +150,8 @@ doc_events = {
 	# Scripts pass through untouched).
 	"Server Script": {
 		"validate": [
-			"one_bpmn.security.script_gate.apply_server_script_approval",
-			"one_bpmn.security.script_gate.validate_server_script_on_save",
+			"one_bpmn.ai_agent_security.code_checks.script_gate.apply_server_script_approval",
+			"one_bpmn.ai_agent_security.code_checks.script_gate.validate_server_script_on_save",
 		],
 	},
 	# WI-001644: PII input screening. The map-driven agents read the user's
@@ -159,12 +159,12 @@ doc_events = {
 	# message is not enough — the stored row has to be redacted too.
 	"Chat Message": {
 		"before_insert": [
-			"one_bpmn.security.pii.screen_chat_message",
+			"one_bpmn.ai_agent_security.screening.pii.screen_chat_message",
 			# The output half: the same argument as above, in the other direction.
 			# A map-driven agent writes its reply as a Chat Message and the surface
 			# reads it back from there, so screening only the in-flight string would
 			# be undone by the stored row.
-			"one_bpmn.security.output_screening.screen_chat_response",
+			"one_bpmn.ai_agent_security.screening.output_screening.screen_chat_response",
 		],
 		"after_insert": [
 			# The count and turn-boundary compaction triggers. after_insert, not

@@ -733,7 +733,7 @@ import { computed, onMounted, reactive, ref } from "vue"
 import { useRoute } from "vue-router"
 import { Button, Dialog, ErrorMessage, FeatherIcon, FormControl, frappeRequest } from "frappe-ui"
 
-const API = "/api/method/one_bpmn.api.security_api."
+const API = "/api/method/one_bpmn.api.security."
 const route = useRoute()
 
 const tab = ref("events")

@@ -13,7 +13,7 @@ from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_tu
 from one_bpmn.api.docu_api import apply_client_script, preview_client_script
 from one_bpmn.one_bpmn.patches.v1_0 import docu_edits_field_properties as previous
 from one_bpmn.one_bpmn.patches.v1_0 import docu_writes_form_client_scripts as patch
-from one_bpmn.security.client_script_validator import validate_form_script
+from one_bpmn.ai_agent_security.code_checks.client_script_validator import validate_form_script
 from one_bpmn.tests.site_scripts import as_deployed
 
 DT = "Note"

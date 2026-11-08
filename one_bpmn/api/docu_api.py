@@ -39,11 +39,14 @@ from one_bpmn.ai_agent_registry.definitions.docu.tools import (
 	DOCTYPE_SETTING_STRS,
 	read_doctype_definition as _read_doctype_ir,
 )
-from one_bpmn.security.client_script_validator import validate_form_script, validate_list_view_script
 from one_bpmn.ai_agent_registry.definitions.docu.validators import (
 	RESERVED_FIELDNAMES,
 	child_table_is_editable,
 	validate_doctype_ir,
+)
+from one_bpmn.ai_agent_security.code_checks.client_script_validator import (
+	validate_form_script,
+	validate_list_view_script,
 )
 from one_bpmn.utils.session import as_user
 
@@ -62,7 +65,7 @@ def _may_change_forms() -> bool:
 
 def _docu_user() -> str:
 	"""The Docu Agent's own user, so form changes are made and recorded as the agent."""
-	from one_bpmn.agents.identity import user_for
+	from one_bpmn.ai_agent_security.identity import user_for
 
 	return user_for(DOCU_AGENT) or "Administrator"
 

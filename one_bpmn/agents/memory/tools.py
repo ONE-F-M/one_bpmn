@@ -772,7 +772,7 @@ def _screen_memory_content(content: str, scope: str, keys_source=None) -> str | 
 	have been written.
 	"""
 	try:
-		from one_bpmn.security.injection import screen_input
+		from one_bpmn.ai_agent_security.screening.injection import screen_input
 
 		result = screen_input(
 			content,

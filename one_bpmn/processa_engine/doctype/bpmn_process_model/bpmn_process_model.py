@@ -203,7 +203,7 @@ class BPMNProcessModel(Document):
 		if not self.is_new() and not self.has_value_changed("bpmn_xml"):
 			return
 
-		from one_bpmn.security.script_gate import validate_process_model_scripts
+		from one_bpmn.ai_agent_security.code_checks.script_gate import validate_process_model_scripts
 
 		validate_process_model_scripts(self.bpmn_xml)
 

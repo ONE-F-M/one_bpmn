@@ -107,7 +107,7 @@ def check_readiness(xml_content: str, model_name: str = None) -> dict:
 			"items": script_items,
 		})
 
-	from one_bpmn.security.script_gate import collect_script_security_violations
+	from one_bpmn.ai_agent_security.code_checks.script_gate import collect_script_security_violations
 
 	security_items = []
 	for finding in collect_script_security_violations(xml_content):

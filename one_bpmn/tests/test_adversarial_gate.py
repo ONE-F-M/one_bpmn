@@ -274,8 +274,8 @@ class TestAdversarialGate(FrappeTestCase):
 	# Promotion marks a suite adversarial
 	# ------------------------------------------------------------------
 	def test_promoting_a_security_event_marks_the_suite_adversarial(self):
-		from one_bpmn.api.security_events import promote_to_eval_case
-		from one_bpmn.security.events import record_event
+		from one_bpmn.ai_agent_security.events import record_event
+		from one_bpmn.api.security import promote_to_eval_case
 
 		suite = self._suite("Baseline")
 		event = record_event(boundary="input", stage=f"{PREFIX}-stage", action="Flag",

@@ -14,7 +14,7 @@ from one_bpmn.ai_agent_registry.definitions.prosally.tools_lint import lint_find
 from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_counts_rebuilt_flow_references as references_patch
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_fixes_lint_findings as lint_patch
-from one_bpmn.security.script_validator import deep_inspect_script
+from one_bpmn.ai_agent_security.code_checks.script_validator import deep_inspect_script
 
 CONVERSATION = "_test_prosally_fixes_lint"
 HEAD = '<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="D">'

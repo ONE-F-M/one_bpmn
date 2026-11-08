@@ -43,7 +43,7 @@ class ToolSpec:
 
 		if not already("__pii_wrapped__"):
 			try:
-				from one_bpmn.security.pii import wrap_tool
+				from one_bpmn.ai_agent_security.screening.pii import wrap_tool
 
 				object.__setattr__(self, "fn", wrap_tool(self.fn))
 			except Exception:

@@ -156,7 +156,7 @@ def log_validation_failure(boundary: str, problems: list[str], content: str | No
 	"""WI-002009: every schema rejection becomes a security event carrying
 	which fields failed and what was expected — through the one door all
 	screening verdicts use. Never raises."""
-	from one_bpmn.security.events import record_event
+	from one_bpmn.ai_agent_security.events import record_event
 
 	record_event(
 		boundary=boundary,

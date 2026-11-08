@@ -49,7 +49,7 @@ from ag_ui.core import (
 from ag_ui.encoder import EventEncoder
 from frappe import _
 
-from one_bpmn.security.rate_limit import RateLimited
+from one_bpmn.ai_agent_security.rate_limit import RateLimited
 from one_bpmn.security.refusal import AgentRefusal
 
 # ── Extension translators (payload dict → list of CustomEvent) ──────────────

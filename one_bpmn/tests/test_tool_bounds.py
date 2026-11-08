@@ -288,7 +288,7 @@ class TestCapPlumbing(FrappeTestCase):
 		self.assertNotIn("aiToolResultMaxChars", out)
 
 	def test_the_field_exists_on_the_configuration_and_is_a_processa_control(self):
-		from one_bpmn.api.security_api import AGENT_CONTROL_GROUPS
+		from one_bpmn.api.security import AGENT_CONTROL_GROUPS
 
 		self.assertTrue(frappe.get_meta("AI Agent Configuration").get_field("tool_result_max_chars"))
 		fields = [f for _g, fs in AGENT_CONTROL_GROUPS for f in fs]

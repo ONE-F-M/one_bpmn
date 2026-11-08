@@ -191,7 +191,7 @@ class TestDocuMapScripts(FrappeTestCase):
 			self.assertNotIn("lambda", code, msg=f"{name} uses a lambda")
 
 	def test_scripts_pass_the_bpmn_script_gate(self):
-		from one_bpmn.security.script_validator import deep_inspect_script
+		from one_bpmn.ai_agent_security.code_checks.script_validator import deep_inspect_script
 
 		for name, body in self._bodies().items():
 			self.assertEqual(deep_inspect_script(body), [], msg=f"{name} fails the script gate")
