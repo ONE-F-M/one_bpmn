@@ -195,18 +195,9 @@ class TestDispatchUpdateField(BaseBPMNHelperTest):
 # ──────────────────────────────────────────────────────────────────────────────
 class TestDispatchEmail(BaseBPMNHelperTest):
 	def _patched_sendemail(self):
-		"""
-		Inject a fake one_fm.processor.sendemail so the test is deterministic
-		regardless of whether one_fm is installed (the dispatcher imports it
-		locally and falls back to frappe.sendmail only on ImportError).
-		"""
-		fake_proc = types.ModuleType("one_fm.processor")
-		fake_proc.sendemail = Mock()
-		fake_root = sys.modules.get("one_fm") or types.ModuleType("one_fm")
-		patcher = patch.dict(
-			sys.modules, {"one_fm": fake_root, "one_fm.processor": fake_proc}
-		)
-		return patcher, fake_proc.sendemail
+		"""Patch frappe.sendmail as the composer calls it."""
+		sendmail = Mock()
+		return patch("one_bpmn.email_builder.composer.frappe.sendmail", sendmail), sendmail
 
 	def test_email_direct_recipient_and_jinja_subject(self):
 		inst = make_instance(name="TEST-PI-EMAIL", context_doctype="ToDo")
@@ -599,17 +590,9 @@ class TestFrappeAssignment(BaseBPMNHelperTest):
 # ──────────────────────────────────────────────────────────────────────────────
 class TestAssigneeNotification(BaseBPMNHelperTest):
 	def _patched_sendemail(self):
-		"""
-		Inject a fake one_fm.processor.sendemail so the test is deterministic
-		regardless of whether one_fm is installed.
-		"""
-		fake_proc = types.ModuleType("one_fm.processor")
-		fake_proc.sendemail = Mock()
-		fake_root = sys.modules.get("one_fm") or types.ModuleType("one_fm")
-		patcher = patch.dict(
-			sys.modules, {"one_fm": fake_root, "one_fm.processor": fake_proc}
-		)
-		return patcher, fake_proc.sendemail
+		"""Patch frappe.sendmail as the composer calls it."""
+		sendmail = Mock()
+		return patch("one_bpmn.email_builder.composer.frappe.sendmail", sendmail), sendmail
 
 	def test_notification_sends_rendered_html_email(self):
 		"""When notifyAssignee=true and notifyAssigneeBody has Jinja, send rendered email."""
@@ -626,8 +609,8 @@ class TestAssigneeNotification(BaseBPMNHelperTest):
 		self.assertTrue(sendemail.called)
 		kwargs = sendemail.call_args.kwargs
 		self.assertEqual(kwargs["recipients"], ["alice@x.com"])
-		self.assertIn("TEST-PI-NOTIFY", kwargs["message"])
-		self.assertIn("<p>Hello from", kwargs["message"])
+		self.assertIn("TEST-PI-NOTIFY", kwargs["args"]["message"])
+		self.assertIn("<p>Hello from", kwargs["args"]["message"])
 
 	def test_notification_with_empty_body_sends_the_default_text(self):
 		"""Notify Assignee ticked with no body still announces the task."""
@@ -642,7 +625,7 @@ class TestAssigneeNotification(BaseBPMNHelperTest):
 			call_notify_task_assignee(inst, "alice@x.com", "Review Task", cfg)
 
 		self.assertTrue(sendemail.called)
-		self.assertIn("Review Task", sendemail.call_args.kwargs["message"])
+		self.assertIn("Review Task", sendemail.call_args.kwargs["args"]["message"])
 
 	def test_notification_not_sent_when_flag_unchecked(self):
 		"""When notifyAssignee is not 'true', the notification helper should be a no-op."""
@@ -715,7 +698,7 @@ class TestAssigneeNotification(BaseBPMNHelperTest):
 		self.assertTrue(sendemail.called)
 		kwargs = sendemail.call_args.kwargs
 		self.assertEqual(kwargs["recipients"], ["bob@x.com"])
-		self.assertIn("TEST-PI-FULL", kwargs["message"])
+		self.assertIn("TEST-PI-FULL", kwargs["args"]["message"])
 
 
 

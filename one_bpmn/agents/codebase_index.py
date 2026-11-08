@@ -341,6 +341,24 @@ _STRUCTURAL_RE = re.compile(
 )
 
 
+_LINK_CALLS = {"enqueue": "enqueue", "publish_realtime": "realtime", "send_message": "message", "new_doc": "creates"}
+
+
+def _cross_process_calls(node) -> list:
+	"""Calls in a function that start work elsewhere: enqueue, realtime publish, BPMN message, or a new document."""
+	found = []
+	for call in ast.walk(node):
+		if not isinstance(call, ast.Call):
+			continue
+		name = call.func.attr if isinstance(call.func, ast.Attribute) else getattr(call.func, "id", "")
+		if name not in _LINK_CALLS:
+			continue
+		keyword = next((k.value for k in call.keywords if k.arg in ("method", "message_name", "doctype")), None)
+		target = call.args[0] if call.args else keyword
+		found.append({"kind": _LINK_CALLS[name], "target": ast.unparse(target) if target else "", "line": call.lineno})
+	return found
+
+
 def _function_info(node, src_lines: list, limit: int) -> dict:
 	"""Name, lines and a body without docstring, comments or blanks, cut to ``limit`` lines.
 
@@ -366,6 +384,7 @@ def _function_info(node, src_lines: list, limit: int) -> dict:
 		"end_line": node.end_lineno,
 		"whitelisted": any("frappe.whitelist" in ast.unparse(d) for d in node.decorator_list),
 		"body": "\n".join(kept),
+		"links": _cross_process_calls(node),
 		"trimmed": full_lines > limit,
 		"full_lines": full_lines,
 	}

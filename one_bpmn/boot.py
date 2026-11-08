@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 """What the desk needs to know at boot.
 
-Only the ONE AI bundle's version so far. The desk loads that bundle by a bare
+The ONE AI bundle's version and the Processa-controlled DocTypes. The desk loads that bundle by a bare
 path through ``frappe.require``, so without a version the 12h Cache-Control on
 /assets keeps a browser on whatever build it first saw — the standalone page
 already solved this by stamping the bundle's mtime, and the desk has to do the
@@ -12,11 +12,14 @@ import os
 
 import frappe
 
+from one_bpmn.api.instance_api import get_processa_controlled_doctypes
+
 BUNDLE = ("public", "one_ai", "one-ai.iife.js")
 
 
 def boot_session(bootinfo):
 	bootinfo.one_ai_asset_version = asset_version()
+	bootinfo.processa_doctypes = get_processa_controlled_doctypes()
 
 
 def asset_version() -> str:

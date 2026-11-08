@@ -1,8 +1,8 @@
 import { h, Component } from "preact";
 import { ListGroup } from "@bpmn-io/properties-panel";
-import { frappeDelete, frappePost } from "../shared/frappeResource";
+import { frappePost } from "../shared/frappeResource";
 import { serverMessage } from "@/utils/serverMessage";
-import { createBpmnSignalMaster, deleteBpmnSignalMaster } from "./signalPick";
+import { createBpmnSignalMaster } from "./signalPick";
 import { SIGNALS } from "./signalRecords";
 
 // The name box of a new signal row: Enter or leaving the box creates the record. Plain elements only, like the pickers.
@@ -54,7 +54,7 @@ function SignalNameText({ name }) {
 	return h("div", { class: "bio-properties-panel-entry" }, h("input", { class: "bio-properties-panel-input", type: "text", readOnly: true, value: name }));
 }
 
-// The process-level Signals list, backed by BPMN Signal Master: it lists the records, + creates one, delete removes one.
+// The process-level Signals list, backed by BPMN Signal Master: it lists the records, + creates one. Deleting is left to the BPMN Signal Master list, so rows carry no remove control.
 export function signalListGroup({ element, translate, drafts, loadError, refresh }) {
 	const records = SIGNALS.get() || [];
 
@@ -64,18 +64,6 @@ export function signalListGroup({ element, translate, drafts, loadError, refresh
 			id,
 			label: record.name,
 			entries: [{ id: `${id}-name`, component: SignalNameText, name: record.name }],
-			remove: async (event) => {
-				event.stopPropagation();
-				if (!window.confirm(translate("Delete the signal {0}? Every map that uses it will lose it from the picker.").replace("{0}", record.name))) return;
-				try {
-					await deleteBpmnSignalMaster(frappeDelete, record.name);
-				} catch (err) {
-					window.alert(serverMessage(err));
-					return;
-				}
-				SIGNALS.remove(record.name);
-				refresh();
-			},
 		};
 	});
 
@@ -99,11 +87,6 @@ export function signalListGroup({ element, translate, drafts, loadError, refresh
 					},
 				},
 			],
-			remove: (event) => {
-				event.stopPropagation();
-				drafts.delete(draft);
-				refresh();
-			},
 		});
 	});
 

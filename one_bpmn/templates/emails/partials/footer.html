@@ -1,0 +1,6 @@
+{% autoescape true %}<div class="foot">
+  <p><a class="open" href="{{ open_link }}" target="_blank">{{ _("Open in ERPNext", lang=lang) }}</a></p>
+  {% if is_amp %}<p>{{ _("ONE Facilities Management", lang=lang) }} · <a href="mailto:support@one-fm.com">support@one-fm.com</a></p>
+  <p>{{ _("9th Floor, Humoud Tower, Qibla, Kuwait City, Kuwait", lang=lang) }}</p>{% endif %}
+  {% if is_amp or lang != "en" %}<p class="conf">{{ _(CONFIDENTIALITY_NOTICE, lang=lang) }}</p>{% endif %}
+</div>{% endautoescape %}

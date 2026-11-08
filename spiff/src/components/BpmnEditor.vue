@@ -149,6 +149,7 @@
 					class="prosally-panel-container order-first w-[var(--agui-chat-pane,420px)] shrink-0 border-r border-gray-200 flex flex-col z-[50]"
 				>
 					<ProsAllyPanel
+						ref="prosAllyPanel"
 						:process-name="processNameForPanel"
 						:get-canvas-xml="getCanvasXml"
 						:get-scope-id="getOpenSubProcessId"
@@ -171,6 +172,7 @@
 						<div class="w-10 h-1 bg-gray-300 rounded-full"></div>
 					</div>
 					<ProsAllyPanel
+						ref="prosAllyPanel"
 						:process-name="processNameForPanel"
 						:get-canvas-xml="getCanvasXml"
 						:get-scope-id="getOpenSubProcessId"
@@ -180,7 +182,7 @@
 					/>
 				</div>
 			</transition>
-			
+
 			<!-- Inline Comment Popover (Teleported to bpmn-js overlay) -->
 			<Teleport v-if="showInlineCommentPopover && inlineCommentOverlayTarget" :to="inlineCommentOverlayTarget">
 				<div 
@@ -1157,6 +1159,7 @@ const emit = defineEmits([
 	"launch-notification-editor",
 	"launch-dmn-editor",
 	"launch-notify-assignee-editor",
+	"launch-email-notification-editor",
 	"reassign-changed",
 ]);
 
@@ -1528,6 +1531,7 @@ const { isMobile } = useWindowSize();
 const showMobileFormatPopover = ref(false);
 const showMoreTools = ref(false);
 const showProsAllyPanel = ref(false);
+const prosAllyPanel = ref(null);
 // Closing ProsAlly only hides it, so its conversation survives until the editor goes away.
 const prosAllyMounted = ref(false);
 watch(showProsAllyPanel, (show) => {
@@ -1714,6 +1718,17 @@ onMounted(async () => {
 						{ name: "emailCc",              isAttr: true, type: "String" },
 						{ name: "emailBcc",             isAttr: true, type: "String" },
 						{ name: "emailBody",            isAttr: true, type: "String" },
+						{ name: "emailLayout",          isAttr: true, type: "String" },
+						{ name: "emailSubjectAr",       isAttr: true, type: "String" },
+						{ name: "emailHeadingEn",       isAttr: true, type: "String" },
+						{ name: "emailHeadingAr",       isAttr: true, type: "String" },
+						{ name: "emailMessageEn",       isAttr: true, type: "String" },
+						{ name: "emailMessageAr",       isAttr: true, type: "String" },
+						{ name: "emailShowStatus",      isAttr: true, type: "String" },
+						{ name: "emailFacts",           isAttr: true, type: "String" },
+						{ name: "emailDetails",         isAttr: true, type: "String" },
+						{ name: "emailAttachments",     isAttr: true, type: "String" },
+						{ name: "emailArabicEdited",    isAttr: true, type: "String" },
 						{ name: "updateFieldDoctype",   isAttr: true, type: "String" },
 						{ name: "updateFieldName",      isAttr: true, type: "String" },
 						{ name: "updateFieldValue",     isAttr: true, type: "String" },
@@ -1992,6 +2007,20 @@ onMounted(async () => {
 					}
 
 					return formattedIssues;
+				};
+
+				const originalAddEntry = linting._addEntry;
+				linting._addEntry = function ($ul, state, entry) {
+					originalAddEntry.call(this, $ul, state, entry);
+					const button = document.createElement("button");
+					button.type = "button";
+					button.className = "bjsl-explain btn btn-xs btn-default";
+					button.textContent = window.__ ? window.__("Explain this error") : "Explain this error";
+					button.addEventListener("click", (event) => {
+						event.stopPropagation();
+						explainLintFinding(entry);
+					});
+					$ul.lastElementChild?.appendChild(button);
 				};
 
 				// Rerun linting when drilling down/up so the panel stays relevant to current plane
@@ -2322,6 +2351,25 @@ onMounted(async () => {
 					}
 					modeling.updateModdleProperties(event.element, bo, updates);
 				}
+			});
+
+			// Email Notification editor (Service Tasks): the dialog edits a copy, Save sends the changed attributes
+			eventBus.on("spiff.serviceTask.emailNotification.edit", (event) => {
+				emit("launch-email-notification-editor", {
+					element: event.element,
+					values: { ...event.values, emailBody: decodeHtmlAttr(event.values.emailBody) || "" },
+					eventBus: event.eventBus,
+				});
+			});
+
+			eventBus.on("spiff.serviceTask.emailNotification.update", (event) => {
+				const bo = event.element.businessObject || event.element;
+				const updates = {};
+				for (const name of event.changed) {
+					const value = event.values[name];
+					updates[`spiffworkflow:${name}`] = name === "emailBody" ? encodeHtmlAttr(value) : value || undefined;
+				}
+				if (Object.keys(updates).length) modeler.get("modeling").updateModdleProperties(event.element, bo, updates);
 			});
 
 			eventBus.on("spiff.service_tasks.requested", (event) => {
@@ -3228,6 +3276,11 @@ async function getLintIssues() {
 	return flattenLintIssues(linting._formatIssues(await linting.lint()));
 }
 
+async function getRawLintIssues() {
+	const linting = modeler?.get("linting");
+	return linting ? await linting.lint() : {};
+}
+
 async function getCanvasXml() {
 	if (!modeler) return "";
 	try {
@@ -3236,6 +3289,17 @@ async function getCanvasXml() {
 	} catch {
 		return "";
 	}
+}
+
+async function explainLintFinding(entry) {
+	if (props.readonly) return;
+	showProsAllyPanel.value = true;
+	await nextTick();
+	await nextTick();
+	const id = entry.actualElementId || entry.id;
+	await prosAllyPanel.value?.ask(
+		`Diagnose this lint finding on ${id} and suggest a remedy: ${entry.message} (${entry.rule})`,
+	);
 }
 
 async function onProsAllyBpmnGenerated(xml) {
@@ -3406,6 +3470,7 @@ function updateCalledElement(element, processId, process) {
 
 defineExpose({
 	getXML,
+	getRawLintIssues,
 	loadXML,
 	setProcessName,
 	undo,
@@ -3529,6 +3594,16 @@ function getAvatarColor(userName) {
 <style>
 .bpmn-editor-wrapper {
 	background: #fff;
+}
+
+.bjsl-explain {
+	margin-left: 8px;
+	padding: 0 6px;
+	border: 1px solid #c9c9c9;
+	border-radius: 4px;
+	background: #fff;
+	font-size: 11px;
+	cursor: pointer;
 }
 
 .bpmn-canvas {

@@ -84,30 +84,37 @@
 				</FormControl>
 
 				<div class="space-y-1.5">
-					<FormLabel label="Reason chips" />
+					<FormLabel label="Reason chips · Arabic is translated automatically" />
 					<NotifyTagBox
 						:tags="chipTags(row)"
 						@remove="(i) => removeChip(row, i)"
 					/>
 					<div class="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
 						<TextInput
-							v-model="drafts[row.name].en"
+							:model-value="drafts[row.name].en"
 							placeholder="Add a chip in English"
 							aria-label="Chip in English"
+							@update:model-value="(value) => setChipEnglish(row.name, value)"
 						/>
 						<TextInput
-							v-model="drafts[row.name].ar"
+							:model-value="drafts[row.name].ar"
 							dir="rtl"
 							placeholder="Arabic"
 							aria-label="Chip in Arabic"
+							@update:model-value="(value) => setChipArabic(row.name, value)"
 						/>
 						<Button
 							variant="outline"
 							label="Add"
+							:loading="adding === row.name"
 							:disabled="!drafts[row.name].en.trim()"
 							@click="addChip(row)"
 						/>
 					</div>
+					<ErrorMessage
+						v-if="chipErrors[chipKey(row.name)]"
+						:message="chipErrors[chipKey(row.name)]"
+					/>
 				</div>
 			</template>
 		</div>
@@ -115,15 +122,17 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, useId, watch } from "vue";
+import { computed, reactive, ref, toRef, useId, watch } from "vue";
 import { Badge, Button, ErrorMessage, FormControl, FormLabel, TextInput } from "frappe-ui";
 import { clampTokenHours, serializeTokenHours } from "@/bpmn/shared/notifyActions";
+import { useArabicTranslation } from "@/composables/useArabicTranslation";
 import { useDoctypeFields } from "@/composables/useDoctypeFields";
 import NotifyTagBox from "@/components/NotifyTagBox.vue";
 
 const props = defineProps({
 	taskActions: { type: Array, required: true },
 	doctype: { type: String, default: "" },
+	processModel: { type: String, default: "" },
 });
 
 // settings keyed by action name, already merged with the current Task Actions
@@ -163,10 +172,51 @@ watch(rows, (list) => {
 	for (const row of list) drafts[row.name] ??= { en: "", ar: "" };
 }, { immediate: true });
 
-function addChip(row) {
+// chip drafts the author typed Arabic into, so translation leaves them alone
+const chipEdited = ref([]);
+const { queue, translateAgain, markEdited, isEdited, errors: chipErrors } = useArabicTranslation({
+	edited: chipEdited,
+	processModel: toRef(props, "processModel"),
+});
+const adding = ref("");
+
+// each draft gets its own key, so a late translation never fills the next draft
+const draftCount = reactive({});
+const chipKey = (name) => `chip:${name}:${draftCount[name] || 0}`;
+
+function fillChipArabic(name, key) {
+	return (text) => {
+		if (chipKey(name) === key) drafts[name].ar = text;
+	};
+}
+
+function setChipEnglish(name, value) {
+	drafts[name].en = value;
+	const key = chipKey(name);
+	queue(key, value, fillChipArabic(name, key));
+}
+
+function setChipArabic(name, value) {
+	drafts[name].ar = value;
+	markEdited(chipKey(name));
+}
+
+// A chip whose Arabic is still empty is translated before it is added; on failure the draft stays to fill by hand
+async function addChip(row) {
+	const key = chipKey(row.name);
 	const draft = drafts[row.name];
+	if (!draft.ar.trim() && !isEdited(key)) {
+		adding.value = row.name;
+		try {
+			await translateAgain(key, draft.en.trim(), fillChipArabic(row.name, key));
+		} finally {
+			adding.value = "";
+		}
+		if (chipErrors.value[key]) return;
+	}
 	update(row.name, { chips: [...row.chips, [draft.en.trim(), draft.ar.trim()]] });
 	drafts[row.name] = { en: "", ar: "" };
+	draftCount[row.name] = (draftCount[row.name] || 0) + 1;
 }
 
 function chipTags(row) {

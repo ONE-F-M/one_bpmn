@@ -1461,24 +1461,31 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 		)
 		return
 
-	# ── Render subject + body ─────────────────────────────────────────
-	subject = render(task_cfg.get("emailSubject", "") or f"Notification from {instance.name}")
-	_raw_body = task_cfg.get("emailBody", "") or subject
-	# emailBody may be base64-encoded (HTML stored in XML attribute)
-	from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import _decode_html_attr
-	body = render(_decode_html_attr(_raw_body))
 	cc = task_cfg.get("emailCc", "") or None
+	bcc = [e.strip() for e in str(task_cfg.get("emailBcc") or "").split(",") if e.strip()] or None
 
-	# Render AMP info card via the composer (Story 5)
-	if not amp_html:
-		try:
-			from one_bpmn.email_builder.composer import compose_and_send_info_email
+	from one_bpmn.email_builder.composer import compose_notice, sends_notice
 
-			amp_html = compose_and_send_info_email(
-				instance, task_cfg, subject, body
-			)
-		except Exception:
-			amp_html = None  # Graceful fallback — send plain HTML
+	if sends_notice(task_cfg):
+		subject, body, amp_html = compose_notice(instance, task_cfg, doc, render)
+	else:
+		# ── Render subject + body ─────────────────────────────────────
+		subject = render(task_cfg.get("emailSubject", "") or f"Notification from {instance.name}")
+		_raw_body = task_cfg.get("emailBody", "") or subject
+		# emailBody may be base64-encoded (HTML stored in XML attribute)
+		from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import _decode_html_attr
+		body = render(_decode_html_attr(_raw_body))
+
+		# Render AMP info card via the composer (Story 5)
+		if not amp_html:
+			try:
+				from one_bpmn.email_builder.composer import compose_and_send_info_email
+
+				amp_html = compose_and_send_info_email(
+					instance, task_cfg, subject, body
+				)
+			except Exception:
+				amp_html = None  # Graceful fallback — send plain HTML
 
 	from one_bpmn.email_builder.composer import _send_email
 
@@ -1491,6 +1498,7 @@ def dispatch_email(instance, task, task_cfg: dict, amp_html: str = None) -> None
 		reference_doctype=instance.context_doctype or instance.doctype,
 		reference_name=instance.context_docname or instance.name,
 		cc=cc,
+		bcc=bcc,
 	)
 
 

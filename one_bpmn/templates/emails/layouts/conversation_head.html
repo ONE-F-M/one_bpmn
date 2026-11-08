@@ -1,0 +1,11 @@
+{% autoescape true %}<p class="kick">{{ kick[lang] }}</p>
+<h3 class="hero">{{ question[lang] }}</h3>
+<div class="thread">
+  {% if facts %}<div class="msg sys cardmsg">{% for f in facts[:6] %}<span><b>{{ f.label[lang] }}</b> {{ f.value[lang] }}</span>{% endfor %}</div>{% endif %}
+  {% if is_amp %}<amp-list class="thread-list" src="{{ thread_url }}" items="message.items" layout="container"><template type="amp-mustache">{% raw %}<div class="msg {{#is_note}}note{{/is_note}} {{#is_mine}}me{{/is_mine}}{{^is_mine}}them{{/is_mine}}"><span class="mname">{{who}}</span>{{#is_note}}{% endraw %}<span class="ntag">{{ _("Internal note", lang=lang) }}</span>{% raw %}{{/is_note}}<span class="mtext">{{message}}</span><span class="mtime">{{time}}</span></div>{% endraw %}</template>
+  <div placeholder>{% for m in thread %}{% include "one_bpmn/templates/emails/partials/thread_message.html" %}{% endfor %}</div>
+  <div overflow><button type="button" class="btn subtle">{{ _("Show newer messages", lang=lang) }}</button></div></amp-list>
+  {% else %}{% for m in thread %}{% include "one_bpmn/templates/emails/partials/thread_message.html" %}{% endfor %}{% endif %}
+  {% if is_amp %}<div class="msg me" hidden [hidden]="!ui.posted"><span class="mtext" [text]="ui.posted"></span></div>
+  <p class="sumline" hidden [hidden]="!ui.posted_line" [text]="ui.posted_line"></p>{% endif %}
+</div>{% endautoescape %}

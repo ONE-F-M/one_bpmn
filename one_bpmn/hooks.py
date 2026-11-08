@@ -43,6 +43,7 @@ app_include_js = [
 	"/assets/one_bpmn/js/one_ai_loader.js",
 	"/assets/one_bpmn/js/bpmn_form_actions.js?v=6",
 	"/assets/one_bpmn/js/bpmn_list_indicator.js",
+	"/assets/one_bpmn/js/bpmn_list_actions.js?v=1",
 	# WI-002050: an agent's question appears on the document it is about, whatever
 	# that document is. Loaded for every form rather than bound to one doctype:
 	# the clarification record names a doctype and a document, so it was never

@@ -7,6 +7,9 @@
   <script async custom-element="amp-form" src="https://cdn.ampproject.org/v0/amp-form-0.1.js"></script>
   <script async custom-template="amp-mustache" src="https://cdn.ampproject.org/v0/amp-mustache-0.2.js"></script>
   {% endif %}
+  {% if simple_actions | selectattr("confirm") | list %}
+  <script async custom-element="amp-bind" src="https://cdn.ampproject.org/v0/amp-bind-0.1.js"></script>
+  {% endif %}
   {% if status_url %}
   <script async custom-element="amp-list" src="https://cdn.ampproject.org/v0/amp-list-0.1.js"></script>
   {% endif %}
@@ -143,7 +146,8 @@
     }
     /* Hide buttons after successful submission (Calendar-invite behavior) */
     form.amp-form-submit-success > button,
-    form.amp-form-submit-success > a {
+    form.amp-form-submit-success > a,
+    form.amp-form-submit-success > .tap-row {
       display: none;
     }
     .completed-badge {
@@ -219,6 +223,14 @@
       font-size: 14px;
       margin-top: 8px;
     }
+    .saving {
+      margin: 12px 0 0;
+      color: #525252;
+      font-size: 14px;
+    }
+    form.amp-form-submitting button {
+      opacity: 0.5;
+    }
     .submit-error {
       color: #cb2431;
       font-size: 14px;
@@ -268,6 +280,7 @@
       line-height: 1.4;
       margin-top: 12px;
     }
+{{ custom_css }}
   </style>
   <style amp4email-boilerplate>body{visibility:hidden}</style>
 </head>
@@ -307,8 +320,15 @@
       <form method="post"
             action-xhr="{{ action_endpoint or (site_url + '/api/method/one_bpmn.api.todo_actions.handle_amp_action') }}"
             class="actions">
+        <div class="tap-row" [hidden]="!!armed">
         {% for action in simple_actions %}
-        {% if action.token %}
+        {% if action.token and action.confirm %}
+        <button type="button"
+                on="tap:AMP.setState({armed: '{{ action.key }}'})"
+                class="btn {{ 'btn-primary' if action.primary else 'btn-secondary' }}">
+          {{ action.label }}
+        </button>
+        {% elif action.token %}
         <button type="submit"
                 name="token"
                 value="{{ action.token | e }}"
@@ -322,6 +342,18 @@
           {{ action.label }}
         </a>
         {% endif %}
+        {% endfor %}
+        </div>
+        {% for action in simple_actions if action.token and action.confirm %}
+        <div class="tap-row" hidden [hidden]="armed != '{{ action.key }}'">
+          <button type="submit"
+                  name="token"
+                  value="{{ action.token | e }}"
+                  class="btn btn-primary">
+            {{ _("Tap again to {0}").format(action.label[:1].lower() ~ action.label[1:]) }}
+          </button>
+          <button type="button" class="btn btn-secondary" on="tap:AMP.setState({armed: ''})">{{ _("Cancel") }}</button>
+        </div>
         {% endfor %}
         <div submit-success>
           {% if templated %}
@@ -340,6 +372,7 @@
           </div>
           {% endif %}
         </div>
+        <div submitting><p class="saving">Saving...</p></div>
         <div submit-error>
           {% if templated %}
           <template type="amp-mustache">
@@ -367,7 +400,7 @@
           {{'{{'}}#is_completed{{'}}'}}
           <div class="completed-badge">
             <div class="check-circle">✓</div>
-            <div class="action-name">Already actioned: {{'{{'}} action_taken {{'}}'}}</div>
+            <div class="action-name">Already chosen: {{'{{'}} action_taken {{'}}'}}</div>
             <div class="meta">by {{'{{'}} completed_by {{'}}'}} on {{'{{'}} completed_at {{'}}'}}{{'{{'}}#doc_state{{'}}'}} · {{'{{'}} doc_name {{'}}'}} is now <b>{{'{{'}} doc_state {{'}}'}}</b>{{'{{'}}/doc_state{{'}}'}}</div>
           </div>
           {{'{{'}}/is_completed{{'}}'}}
@@ -401,11 +434,12 @@
           <template type="amp-mustache">
             <div class="completed-badge">
               <div class="check-circle">✓</div>
-              <div class="action-name">{{'{{'}} message.action {{'}}'}}d</div>
+              <div class="action-name">{{'{{'}} message.action {{'}}'}}</div>
               <div class="meta">{{'{{'}} message.message {{'}}'}}</div>
             </div>
           </template>
         </div>
+        <div submitting><p class="saving">Saving...</p></div>
         <div submit-error>
           <template type="amp-mustache">
             <p class="submit-error">{{'{{'}} message.error {{'}}'}}</p>
@@ -436,7 +470,8 @@
               <p class="submit-success">✓ Comment submitted.</p>
             </template>
           </div>
-          <div submit-error>
+          <div submitting><p class="saving">Saving...</p></div>
+        <div submit-error>
             <template type="amp-mustache">
               <p class="submit-error">⚠ Could not submit comment. Please try in ERPNext.</p>
             </template>

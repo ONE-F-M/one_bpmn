@@ -55,3 +55,18 @@ class TestChatPersistence(FrappeTestCase):
         
         # 5. Verify no database records were inserted in tabChat Conversation or tabChat Message
         self.assertFalse(frappe.db.exists("Chat Conversation", conv_name))
+
+    def test_conversation_title_from_pasted_xml_fits_the_column(self):
+        xml = (
+            '<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="Defs_1" '
+            'targetNamespace="http://example.com"><bpmn:process id="P1" isExecutable="true">'
+            '<bpmn:startEvent id="S1" name="Request received"/></bpmn:process></bpmn:definitions>'
+        )
+        name = create_conversation(agent_mode="ProsAlly", title=xml, user="Administrator", commit=False)
+        self.assertEqual(frappe.db.get_value("Chat Conversation", name, "title"), "New chat")
+
+    def test_conversation_title_keeps_the_text_of_a_mixed_message(self):
+        name = create_conversation(
+            agent_mode="ProsAlly", title="check this <bpmn:task id=\"T1\"/>", user="Administrator", commit=False
+        )
+        self.assertEqual(frappe.db.get_value("Chat Conversation", name, "title"), "check this")

@@ -96,15 +96,18 @@ def generate_action_token(
 	return f"{encoded_payload}.{signature}"
 
 
-def verify_action_token(token: str) -> dict:
+def verify_action_token(token: str, allow_expired: bool = False) -> dict:
 	"""Verify and decode an action token.
 
 	Args:
 		token: The sealed token string from :func:`generate_action_token`.
+		allow_expired: When true, an expired token with a valid signature is
+			returned with an ``expired`` flag instead of raising.
 
 	Returns:
 		The decoded payload dict with keys:
-		``instance_name``, ``task_id``, ``action``, ``user``, ``expires``.
+		``instance_name``, ``task_id``, ``action``, ``user``, ``expires``
+		(plus ``expired`` when ``allow_expired`` is true).
 
 	Raises:
 		frappe.AuthenticationError: If the token signature is invalid
@@ -134,8 +137,13 @@ def verify_action_token(token: str) -> dict:
 
 	payload = json.loads(payload_json)
 
-	# Check expiry
-	if payload.get("expires", 0) < time.time():
+	# Check expiry only after the signature has been verified
+	expired = payload.get("expires", 0) < time.time()
+	if allow_expired:
+		payload["expired"] = expired
+		return payload
+
+	if expired:
 		raise frappe.ValidationError(
 			"This action link has expired. Please open the document in ERPNext."
 		)
@@ -228,8 +236,10 @@ def generate_doc_action_token(
 
 def generate_status_token(
 	instance_name: str,
-	task_id: str,
+	task_id: str = "",
 	expiry_days: int = 30,
+	expiry_hours: int | None = None,
+	user: str = "",
 ) -> str:
 	"""Generate a read-only HMAC token for checking task status.
 
@@ -238,17 +248,57 @@ def generate_status_token(
 
 	Args:
 		instance_name: BPMN Process Instance document name.
-		task_id: SpiffWorkflow task UUID.
+		task_id: SpiffWorkflow task UUID (empty for a document-only status token).
 		expiry_days: Days until the token expires (default 30).
+		expiry_hours: Hours until the token expires; overrides ``expiry_days``.
+		user: Frappe user (email) the email was sent to; omitted from the token when empty.
+
+	Returns:
+		A sealed string in the form ``<base64_payload>.<hmac_hex>``.
+	"""
+	lifetime = expiry_hours * 3600 if expiry_hours is not None else expiry_days * 86400
+	payload = {
+		"instance_name": instance_name,
+		"task_id": task_id,
+		"type": "status",
+		"expires": int(time.time()) + lifetime,
+	}
+	if user:
+		payload["user"] = user
+	payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+	signature = _sign(payload_json)
+	import base64
+	encoded = base64.urlsafe_b64encode(payload_json.encode("utf-8")).decode("ascii")
+	return f"{encoded}.{signature}"
+
+
+def generate_file_token(
+	file_name: str,
+	doctype: str,
+	docname: str,
+	expiry_hours: int = 72,
+) -> str:
+	"""Generate an HMAC-signed token that downloads one attached file.
+
+	Same sealing scheme as :func:`generate_action_token`, with ``type``
+	``"file"``. The token grants read access to a single File only while
+	that File stays attached to the signed ``doctype``/``docname``.
+
+	Args:
+		file_name: Name of the File document (not its display file name).
+		doctype: DocType the file must be attached to.
+		docname: Name of the document the file must be attached to.
+		expiry_hours: Hours until the token expires (default 72 = 3 days).
 
 	Returns:
 		A sealed string in the form ``<base64_payload>.<hmac_hex>``.
 	"""
 	payload = {
-		"instance_name": instance_name,
-		"task_id": task_id,
-		"type": "status",
-		"expires": int(time.time()) + (expiry_days * 86400),
+		"file_name": file_name,
+		"doctype": doctype,
+		"docname": docname,
+		"type": "file",
+		"expires": int(time.time()) + (expiry_hours * 3600),
 	}
 	payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
 	signature = _sign(payload_json)

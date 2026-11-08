@@ -30,6 +30,7 @@ dependencies = [
     # Local ONNX sentence embeddings for AI Memory semantic search. No PyTorch;
     # the model files are fetched once per bench into sites/.fastembed.
     "fastembed>=0.8",
+    "deep-translator>=1.11",
 ]
 
 

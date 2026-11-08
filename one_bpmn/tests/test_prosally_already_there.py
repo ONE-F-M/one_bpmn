@@ -9,7 +9,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.prosally_helpers import no_change_reply, similar_steps
+from one_bpmn.agents.prosally_helpers import describe_changes, no_change_reply, similar_steps
 from one_bpmn.agents.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_says_what_is_already_there as already_patch
 
@@ -147,3 +147,45 @@ class TestModifyScriptShowsNoCardWhenNothingChanged(FrappeTestCase):
 		before = frappe.db.get_value("Server Script", self.name, "script")
 		already_patch.execute()
 		self.assertEqual(frappe.db.get_value("Server Script", self.name, "script"), before)
+
+
+LANES = """<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:spiffworkflow="http://spiffworkflow.org/bpmn/schema/1.0/core" id="D" targetNamespace="x">
+  <bpmn:process id="P" name="Offboarding">
+    <bpmn:laneSet id="LS">{lanes}</bpmn:laneSet>
+    <bpmn:userTask id="a" name="Enter Details" {attrs}/>
+    <bpmn:userTask id="b" name="Approve"/>
+  </bpmn:process>
+</bpmn:definitions>"""
+
+
+def _lanes_xml(*lanes, attrs=""):
+	body = "".join(f'<bpmn:lane id="L{i}" name="{name}">' + "".join(f"<bpmn:flowNodeRef>{r}</bpmn:flowNodeRef>" for r in refs) + "</bpmn:lane>" for i, (name, refs) in enumerate(lanes))
+	return LANES.format(lanes=body, attrs=attrs)
+
+
+class TestLaneAndConfigChanges(FrappeTestCase):
+	def setUp(self):
+		self.base = _lanes_xml(("Finance Manager", ["a", "b"]))
+
+	def test_a_new_lane_is_a_change(self):
+		new = _lanes_xml(("Accounts User", []), ("Finance Manager", ["a", "b"]))
+		self.assertIn('Added the lane "Accounts User"', describe_changes(self.base, new))
+
+	def test_reordered_lanes_are_a_change(self):
+		old = _lanes_xml(("X", ["a"]), ("Y", ["b"]))
+		new = _lanes_xml(("Y", ["b"]), ("X", ["a"]))
+		self.assertIn("Reordered the lanes: Y, X", describe_changes(old, new))
+
+	def test_a_step_moved_between_lanes_is_a_change(self):
+		old = _lanes_xml(("X", ["a"]), ("Y", ["b"]))
+		new = _lanes_xml(("X", []), ("Y", ["a", "b"]))
+		self.assertIn('Moved "Enter Details" from the lane "X" to "Y"', describe_changes(old, new))
+
+	def test_a_changed_setting_is_a_change(self):
+		old = _lanes_xml(("X", ["a", "b"]), attrs='spiffworkflow:workflowState="Draft"')
+		new = _lanes_xml(("X", ["a", "b"]), attrs='spiffworkflow:workflowState="Pending"')
+		self.assertIn('Changed the settings of "Enter Details"', describe_changes(old, new))
+
+	def test_an_identical_diagram_is_still_no_change(self):
+		self.assertIn("could not find any change", describe_changes(self.base, self.base))

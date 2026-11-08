@@ -783,16 +783,16 @@ def guard_bpmn_document(doc, method: str):
 		"name",
 	)
 
-	if not active_instance:
-		return  # No active BPMN — Frappe can do whatever it likes
-
-	# Active BPMN found — block the native action
 	_action_labels = {
 		"before_submit": "submit",
 		"before_cancel": "cancel",
 		"before_workflow_action": "change the workflow state of",
 	}
 	action_verb = _action_labels.get(method, "modify")
+
+	if not active_instance:
+		_block_native_action_on_processa_doctype(doc, action_verb)
+		return  # No active BPMN — Frappe can do whatever it likes
 
 	frappe.throw(
 		frappe._(
@@ -801,6 +801,21 @@ def guard_bpmn_document(doc, method: str):
 			"Use the <b>Actions</b> menu to proceed."
 		).format(action_verb, doc.doctype, doc.name, active_instance),
 		title=frappe._("Action Blocked — BPMN Process Active"),
+	)
+
+
+def _block_native_action_on_processa_doctype(doc, action_verb: str) -> None:
+	"""Refuse a native submit or cancel on a DocType Processa runs, whether or not an instance is live."""
+	from one_bpmn.api.instance_api import get_processa_controlled_doctypes
+
+	if frappe.flags.in_patch or doc.doctype not in get_processa_controlled_doctypes():
+		return
+
+	frappe.throw(
+		frappe._(
+			"Cannot {0} <b>{1} {2}</b> directly. {1} is run by Processa. Use the Processa action buttons."
+		).format(action_verb, doc.doctype, doc.name),
+		title=frappe._("Action Blocked - Processa DocType"),
 	)
 
 

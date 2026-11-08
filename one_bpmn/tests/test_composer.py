@@ -199,15 +199,25 @@ class TestBuildActionsForEmail(_ComposerTestCase):
 		self.assertEqual(actions[1]["label"], "Reject")
 
 	@patch("one_bpmn.email_builder.composer.frappe")
-	def test_confirm_actions_get_links(self, mock_frappe):
-		"""Actions with confirmTransition=true get plain URLs, no tokens."""
+	def test_confirm_actions_get_tokens_and_ask_for_a_second_tap(self, mock_frappe):
+		mock_frappe.utils.get_url.return_value = "https://erp.test.com"
+		mock_frappe.scrub.side_effect = lambda text: text.lower().replace(" ", "_")
+		from one_bpmn.email_builder.composer import _build_actions_for_email
+		task_cfg = {"taskActions": json.dumps([{"action": "Approve", "confirmTransition": "true"}, {"action": "Reject"}])}
+		actions = _build_actions_for_email(task_cfg, _make_instance(), "task-uuid", "user@test.com", "https://erp.test.com/app/leave")
+		self.assertEqual([(a["label"], a["key"], a["confirm"]) for a in actions], [("Approve", "approve", True), ("Reject", "reject", False)])
+		self.assertTrue(all(a["token"] for a in actions))
+		self.assertNotIn("url", actions[0])
+
+	@patch("one_bpmn.email_builder.composer.frappe")
+	def test_signature_actions_get_links(self, mock_frappe):
+		"""Actions that need a digital signature get plain URLs, no tokens."""
 		mock_frappe.utils.get_url.return_value = "https://erp.test.com"
 		from one_bpmn.email_builder.composer import _build_actions_for_email
-		task_cfg = {"taskActions": json.dumps([{"action": "Approve", "confirmTransition": "true"}])}
+		task_cfg = {"taskActions": json.dumps([{"action": "Approve", "confirmTransition": "true", "requireDigitalSignature": "true"}])}
 		actions = _build_actions_for_email(task_cfg, _make_instance(), "task-uuid", "user@test.com", "https://erp.test.com/app/leave")
 		self.assertEqual(len(actions), 1)
 		self.assertNotIn("token", actions[0])
-		self.assertIn("url", actions[0])
 		self.assertEqual(actions[0]["url"], "https://erp.test.com/app/leave")
 
 	@patch("one_bpmn.email_builder.composer.frappe")
@@ -224,46 +234,60 @@ class TestSendEmail(_ComposerTestCase):
 	def test_sets_amp_flag_for_the_send_and_clears_it_after(self, mock_frappe):
 		"""The flag is set while sendmail runs and gone once _send_email returns."""
 		seen = []
-		with patch.dict("sys.modules", {"one_fm": None, "one_fm.processor": None}):
-			mock_frappe.sendmail = MagicMock(side_effect=lambda **kw: seen.append(mock_frappe.flags.amp_html))
-			from one_bpmn.email_builder.composer import _send_email
-			_send_email(["user@test.com"], "Subject", "<p>Body</p>", "<html amp>AMP</html>")
+		mock_frappe.sendmail = MagicMock(side_effect=lambda **kw: seen.append(mock_frappe.flags.amp_html))
+		from one_bpmn.email_builder.composer import _send_email
+		_send_email(["user@test.com"], "Subject", "<p>Body</p>", "<html amp>AMP</html>")
 		self.assertEqual(seen, ["<html amp>AMP</html>"])
 		self.assertIsNone(mock_frappe.flags.amp_html)
 
 	@patch("one_bpmn.email_builder.composer.frappe")
+	def test_asks_to_keep_the_subject_only_while_sending(self, mock_frappe):
+		seen = []
+		mock_frappe.sendmail = MagicMock(side_effect=lambda **kw: seen.append(mock_frappe.flags.keep_email_subject))
+		from one_bpmn.email_builder.composer import _send_email
+		_send_email(["user@test.com"], "Subject", "<p>Body</p>", "")
+		self.assertEqual(seen, [True])
+		self.assertIsNone(mock_frappe.flags.keep_email_subject)
+
+	@patch("one_bpmn.email_builder.composer.frappe")
 	def test_clears_amp_flag_even_when_the_send_raises(self, mock_frappe):
-		with patch.dict("sys.modules", {"one_fm": None, "one_fm.processor": None}):
-			mock_frappe.sendmail = MagicMock(side_effect=RuntimeError("smtp down"))
-			from one_bpmn.email_builder.composer import _send_email
-			with self.assertRaises(RuntimeError):
-				_send_email(["user@test.com"], "Subject", "<p>Body</p>", "<html amp>AMP</html>")
+		mock_frappe.sendmail = MagicMock(side_effect=RuntimeError("smtp down"))
+		from one_bpmn.email_builder.composer import _send_email
+		with self.assertRaises(RuntimeError):
+			_send_email(["user@test.com"], "Subject", "<p>Body</p>", "<html amp>AMP</html>")
 		self.assertIsNone(mock_frappe.flags.amp_html)
 
 	@patch("one_bpmn.email_builder.composer.frappe")
-	def test_one_fm_send_is_external_mail_with_cc(self, mock_frappe):
-		"""Notify Assignee is an explicit opt-in, so the recipient preference filter is bypassed."""
-		import sys
-		import types
-		fake_proc = types.ModuleType("one_fm.processor")
-		fake_proc.sendemail = MagicMock()
-		fake_root = sys.modules.get("one_fm") or types.ModuleType("one_fm")
-		with patch.dict(sys.modules, {"one_fm": fake_root, "one_fm.processor": fake_proc}):
-			from one_bpmn.email_builder.composer import _send_email
-			_send_email(["user@test.com"], "Subject", "<p>Body</p>", "", cc="cc@test.com")
-		kwargs = fake_proc.sendemail.call_args.kwargs
-		self.assertTrue(kwargs["is_external_mail"])
+	def test_sends_through_frappe_wrapped_in_bpmn_email(self, mock_frappe):
+		mock_frappe.sendmail = MagicMock()
+		from one_bpmn.email_builder.composer import EMAIL_LOGO, _send_email
+		_send_email(["user@test.com"], "Subject", "<p>Body</p>", "", cc="cc@test.com")
+		kwargs = mock_frappe.sendmail.call_args.kwargs
+		self.assertEqual(kwargs["template"], "bpmn_email")
+		self.assertEqual(kwargs["args"], {"header": "Subject", "message": "<p>Body</p>", "logo": EMAIL_LOGO})
+		self.assertEqual(kwargs["recipients"], ["user@test.com"])
 		self.assertEqual(kwargs["cc"], "cc@test.com")
+		self.assertIs(kwargs["delayed"], False)
 
 	@patch("one_bpmn.email_builder.composer.frappe")
-	def test_fallback_to_frappe_sendmail(self, mock_frappe):
-		"""Falls back to frappe.sendmail when one_fm is not available."""
-		with patch.dict("sys.modules", {"one_fm": None, "one_fm.processor": None}):
-			mock_frappe.sendmail = MagicMock()
-			mock_frappe.db.get_value = MagicMock(return_value=None)
-			from one_bpmn.email_builder.composer import _send_email
-			_send_email(["user@test.com"], "Test", "<p>Body</p>", "")
-			mock_frappe.sendmail.assert_called_once()
+	def test_administrator_is_not_a_recipient(self, mock_frappe):
+		mock_frappe.sendmail = MagicMock()
+		from one_bpmn.email_builder.composer import _send_email
+		_send_email(["Administrator", "user@test.com"], "Subject", "<p>Body</p>", "")
+		self.assertEqual(mock_frappe.sendmail.call_args.kwargs["recipients"], ["user@test.com"])
+		mock_frappe.sendmail.reset_mock()
+		_send_email(["Administrator"], "Subject", "<p>Body</p>", "<html amp>AMP</html>")
+		mock_frappe.sendmail.assert_not_called()
+
+	def test_bpmn_email_wraps_the_body_once(self):
+		html = frappe.render_template(
+			"one_bpmn/templates/emails/bpmn_email.html",
+			{"header": "Leave request", "message": "<p>Please review</p>", "logo": "https://x.test/logo.png"},
+		)
+		self.assertEqual(html.count("Leave request"), 1)
+		self.assertEqual(html.count("Please review"), 1)
+		self.assertEqual(html.count("Yours, One Facility Management"), 1)
+		self.assertIn("https://x.test/logo.png", html)
 
 
 class TestComposeAndSendTaskEmail(_ComposerTestCase):

@@ -1,0 +1,9 @@
+{% autoescape true %}{% raw %}{{#is_completed}}<div class="receipt st-{{workflow_state_style}}">
+  <span class="rico"></span>
+  <p class="rt">{{#workflow_state}}{{workflow_state}}{{/workflow_state}}{{^workflow_state}}{{action_taken}}{{/workflow_state}}</p>{% endraw %}
+  <p class="rd">{{ _("By {0}", lang=lang).format("{{completed_by}}") }}</p>
+  {% raw %}<p class="rtime">{{completed_at}}</p>
+</div>{{/is_completed}}{{#is_reassigned}}<div class="receipt">
+  <span class="rico"></span>{% endraw %}
+  <p class="rt">{{ _("Now with {0}", lang=lang).format("{{assigned_to}}") }}</p>
+</div>{% raw %}{{/is_reassigned}}{% endraw %}{% endautoescape %}
