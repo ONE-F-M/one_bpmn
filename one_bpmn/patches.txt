@@ -72,41 +72,41 @@ one_bpmn.one_bpmn.patches.v1_0.migrate_lucrusher_agent_to_generic_path #29-07-20
 one_bpmn.one_bpmn.patches.v1_0.merge_lumina_general_chat_config #30-07-2026
 one_bpmn.one_bpmn.patches.v1_0.repair_agent_memory_threads #30-07-2026
 one_bpmn.one_bpmn.patches.v1_0.seed_logix_code_guardrails #02-08-2026
-one_bpmn.one_bpmn.patches.v1_0.deprecate_document_generation_processes #03-08-2026 WI-001844
+one_bpmn.one_bpmn.patches.v1_0.deprecate_document_generation_processes #03-08-2026
 one_bpmn.one_bpmn.patches.v1_0.inline_docu_tool_scripts #03-08-2026 rerun for self-contained bodies
-one_bpmn.one_bpmn.patches.v1_0.fix_assistant_tool_gateway #02-08-2026 WI-001751 follow-up
-one_bpmn.one_bpmn.patches.v1_0.add_eval_suite_inline_cases #02-08-2026 WI-001751 follow-up
-one_bpmn.one_bpmn.patches.v1_0.fix_assistant_prompt_routing #02-08-2026 WI-001751 follow-up
-one_bpmn.one_bpmn.patches.v1_0.raise_assistant_token_ceiling #02-08-2026 WI-001751 follow-up
+one_bpmn.one_bpmn.patches.v1_0.fix_assistant_tool_gateway #02-08-2026 follow-up
+one_bpmn.one_bpmn.patches.v1_0.add_eval_suite_inline_cases #02-08-2026 follow-up
+one_bpmn.one_bpmn.patches.v1_0.fix_assistant_prompt_routing #02-08-2026 follow-up
+one_bpmn.one_bpmn.patches.v1_0.raise_assistant_token_ceiling #02-08-2026 follow-up
 
 one_bpmn.one_bpmn.patches.v1_0.set_connector_credential_source #29-07-2026 connector holds its own credential
-one_bpmn.one_bpmn.patches.v1_0.move_google_credential_to_connectors #04-08-2026 WI-001811 per-connector Google credentials
-one_bpmn.one_bpmn.patches.v1_0.seed_google_connectors #04-08-2026 WI-001811 connector definitions live in the patch, not JSON files
+one_bpmn.one_bpmn.patches.v1_0.move_google_credential_to_connectors #04-08-2026 per-connector Google credentials
+one_bpmn.one_bpmn.patches.v1_0.seed_google_connectors #04-08-2026 connector definitions live in the patch, not JSON files
 one_bpmn.one_bpmn.patches.v1_0.drop_legacy_google_credential_field #04-08-2026 the connector's own Secret is the only credential
-one_bpmn.one_bpmn.patches.v1_0.seed_ai_injection_patterns #05-08-2026 WI-001967 prompt-injection rule pack ships as data
-one_bpmn.one_bpmn.patches.v1_0.move_memory_config_to_agent #05-08-2026 WI-001793 memory settings move from the diagram to the agent
-one_bpmn.one_bpmn.patches.v1_0.retire_chat_agent_template #09-08-2026 WI-001997 agents own their maps, the clone template is gone
-one_bpmn.one_bpmn.patches.v1_0.add_assistant_agent_creation_tool #09-08-2026 WI-001997 creation asks which process the agent is mapped to
-one_bpmn.one_bpmn.patches.v1_0.backfill_chat_surface_ui_fields #07-08-2026 WI-001996 chat-surface UI comes from configuration
+one_bpmn.one_bpmn.patches.v1_0.seed_ai_injection_patterns #05-08-2026 prompt-injection rule pack ships as data
+one_bpmn.one_bpmn.patches.v1_0.move_memory_config_to_agent #05-08-2026 memory settings move from the diagram to the agent
+one_bpmn.one_bpmn.patches.v1_0.retire_chat_agent_template #09-08-2026 agents own their maps, the clone template is gone
+one_bpmn.one_bpmn.patches.v1_0.add_assistant_agent_creation_tool #09-08-2026 creation asks which process the agent is mapped to
+one_bpmn.one_bpmn.patches.v1_0.backfill_chat_surface_ui_fields #07-08-2026 chat-surface UI comes from configuration
 one_bpmn.one_bpmn.patches.v1_0.harden_logix_pipeline_driver #09-08-2026 the pipeline map's agent must end every turn with finalize
 one_bpmn.one_bpmn.patches.v1_0.remove_one_ai_page #10-08-2026 the one-ai desk page is removed — openAgentChat keeps serving the Chat button
-one_bpmn.one_bpmn.patches.v1_0.set_output_screening_default #10-08-2026 WI-001644 existing agents get an explicit output screening mode
+one_bpmn.one_bpmn.patches.v1_0.set_output_screening_default #10-08-2026 existing agents get an explicit output screening mode
 one_bpmn.one_bpmn.patches.v1_0.seed_tool_result_guard_rail #10-08-2026 every agent is told tool output is data, not instruction
-one_bpmn.one_bpmn.patches.v1_0.drop_user_task_assignment_log #10-08-2026 WI-001998 the map's version history is the only record of a reassignment
+one_bpmn.one_bpmn.patches.v1_0.drop_user_task_assignment_log #10-08-2026 the map's version history is the only record of a reassignment
 one_bpmn.one_bpmn.patches.v1_0.move_rate_limit_to_agents #11-08-2026 the message throttle is the agent's, not the site's
 one_bpmn.one_bpmn.patches.v1_0.move_freeze_thresholds_to_agents #11-08-2026 the freeze thresholds are the agent's too; only who may release stays site-wide
-one_bpmn.one_bpmn.patches.v1_0.stop_prosally_reconfirm_loop #12-08-2026 WI-002001 the orchestrator must go straight to finalize after its stage tool
-one_bpmn.one_bpmn.patches.v1_0.prosally_lane_fidelity #13-08-2026 WI-002042 designer-named lanes are authoritative; rework converges on one re-entry
-one_bpmn.one_bpmn.patches.v1_0.add_a2a_client_role #13-08-2026 WI-001931 approved callers get a minimal badge role
-one_bpmn.one_bpmn.patches.v1_0.seed_a2a_connector #13-08-2026 WI-001933 one generic a2a connector; which remote is a parameter
+one_bpmn.one_bpmn.patches.v1_0.stop_prosally_reconfirm_loop #12-08-2026 the orchestrator must go straight to finalize after its stage tool
+one_bpmn.one_bpmn.patches.v1_0.prosally_lane_fidelity #13-08-2026 designer-named lanes are authoritative; rework converges on one re-entry
+one_bpmn.one_bpmn.patches.v1_0.add_a2a_client_role #13-08-2026 approved callers get a minimal badge role
+one_bpmn.one_bpmn.patches.v1_0.seed_a2a_connector #13-08-2026 one generic a2a connector; which remote is a parameter
 one_bpmn.one_bpmn.patches.v1_0.label_adversarial_case_kinds #17-08-2026 both rate denominators need labels; attack cases predating case_kind get them
 one_bpmn.one_bpmn.patches.v1_0.widen_instruction_override_pattern #17-08-2026 "ignore YOUR previous instructions" walked through the flagship rule
 one_bpmn.one_bpmn.patches.v1_0.set_customization_owner_app #17-08-2026 route customization PRs at one_fm, not the upstream repo owning the doctype
 one_bpmn.one_bpmn.patches.v1_0.seed_connector_agent_config #19-08-2026 the connector-building agent is configuration; its map and scripts arrive by export/import
 one_bpmn.one_bpmn.patches.v1_0.migrate_ba_agent_to_generic_path #19-08-2026 the BA Agent runs on its map; the label it never had IS the start trigger
 one_bpmn.one_bpmn.patches.v1_0.set_connector_handler_app #20-08-2026 handler pull requests need a nominated repository; a Single gets no field default
-one_bpmn.one_bpmn.patches.v1_0.add_required_capability_to_a2a_connector #23-08-2026 WI-002056 a delegate shape may declare the capability it needs; the deadline help was stale
-one_bpmn.one_bpmn.patches.v1_0.provision_agent_users #23-08-2026 WI-002054 every agent gets the identity its tools now run as; no roles granted, that is a decision
+one_bpmn.one_bpmn.patches.v1_0.add_required_capability_to_a2a_connector #23-08-2026 a delegate shape may declare the capability it needs; the deadline help was stale
+one_bpmn.one_bpmn.patches.v1_0.provision_agent_users #23-08-2026 every agent gets the identity its tools now run as; no roles granted, that is a decision
 one_bpmn.one_bpmn.patches.v1_0.migrate_to_ai_provider_and_model #24-08-2026 WI-002134 credentials + rate card fold into AI Provider and AI Model; old doctypes dropped last so a failure is re-runnable
 one_bpmn.one_bpmn.patches.v1_0.seed_missing_model_rates #30-08-2026 WI-002134 re-run: the dated Haiku row was missed and is what Logix and ProsAlly run on; fills only what is empty
 one_bpmn.one_bpmn.patches.v1_0.drop_legacy_ai_credential_tables #30-08-2026a WI-002134 the consolidation deleted the doctypes; their tables, their stored API keys and two stale columns stayed behind
