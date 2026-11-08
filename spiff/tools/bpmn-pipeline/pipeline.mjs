@@ -1147,4 +1147,194 @@ function buildManualLaneDI(ir, opts = {}) {
   // Those stubs were collinear BY CONSTRUCTION. Every edge left at (x+w, y+h/2)
   // and arrived at (x, y+h/2), so seven flows converging on one join gateway
   // began as seven lines on the same pixel row, differing only in where they
+  // turned. No corridor allocation can separate them, because the collision is
+  // at the endpoint. And spreading them along the edge does not rescue it
+  // either: a gateway is 50px tall, so seven arrivals cannot be 12px apart.
+  //
+  // So an edge that approaches VERTICALLY docks on the target's top or bottom
+  // edge instead, running its last leg down the target's own column. That
+  // removes the stub rather than shortening it, and costs a corner rather than
+  // adding one: the route becomes exit-row -> vertical -> dock, one bend where
+  // the gutter route needed two (or four via a strip).
+  //
+  // It is only allowed when provably safe. The column is normally reserved for
+  // shapes, so the vertical may only run there when no other node sits in that
+  // column between the two rows, and the horizontal that reaches it must cross
+  // a clear row. Where either fails, the edge keeps the old gutter/strip route
+  // and instead gets a distributed attachment on the left edge.
+  const DOCK_INSET = 9;   // keep a dock this far inside the node's corner
+
+
+  // ── Spread the attachment points that remain ──────────────────────────────
+  // Docked edges share the target's top or bottom edge, so they are spread along
+  // its WIDTH; the rest share its left edge and are spread along its HEIGHT.
+  // Either way each edge gets its own line, and the fan is ordered by where the
+  // edge comes from so it cannot cross itself.
+  const exitY = new Map(), entryY = new Map();
+
+  const farEndY = (p) => rowCenterY(p.tl, p.tr);   // where an outgoing edge is headed
+  const nearEndY = (p) => rowCenterY(p.sl, p.sr);  // where an incoming edge came from
+
+  // Slots are laid on a fixed pitch and any slot too near a pinned one is
+  // discarded, rather than dividing the edge evenly among the movers. Dividing
+  // evenly looks right and is wrong: with one pinned straight edge and one other
+  // arrival, the mover's single slot lands at the midpoint — which IS the
+  // centreline the straight edge is pinned to — so the two arrive on the same
+  // pixel and read as one line. That was 2 of the 7 overlaps on a 14-edge
+  // fixture, and it is the commonest shape there is: a task with one normal
+  // predecessor and one rework loop.
+  const SLOT_PITCH = 13;
+
+  const fan = (idxs, lo, hi, keyOf, store, pinned, pinAt) => {
+    for (const i of pinned) store.set(i, pinAt);
+    const items = idxs.filter(i => !pinned.has(i));
+    if (!items.length) return;
+    items.sort((a, b) => keyOf(plans[a]) - keyOf(plans[b]));
+
+    const slots = [];
+    for (let y = lo; y <= hi; y += SLOT_PITCH) {
+      if (pinned.size && Math.abs(y - pinAt) < SLOT_PITCH) continue;
+      slots.push(y);
+    }
+    if (!slots.length) slots.push(Math.round((lo + hi) / 2));
+
+    // Spread the movers across whatever slots survived, keeping their order.
+    items.forEach((i, k) => {
+      const at = items.length === 1
+        ? slots[Math.floor(slots.length / 2)]
+        : slots[Math.round((k * (slots.length - 1)) / (items.length - 1))];
+      store.set(i, Math.round(at));
+    });
+  };
+
+  const outOf = new Map(), into = new Map();
+  for (let i = 0; i < plans.length; i++) {
+    const p = plans[i];
+    if (!p) continue;
+    if (!outOf.has(p.f.from)) outOf.set(p.f.from, []);
+    if (!into.has(p.f.to)) into.set(p.f.to, []);
+    outOf.get(p.f.from).push(i);
+    into.get(p.f.to).push(i);
+  }
+
+  // Exits: every outgoing edge leaves the right edge, so they fan over its height.
+  // A straight edge is pinned to the centreline — moving it would turn a
+  // two-point line into a four-point one.
+  for (const [nid, idxs] of outOf) {
+    const pos = nodePos.get(nid);
+    if (!pos) continue;
+    // Edges leaving through a horizontal face have their x fixed by the column
+    // allocation above, which sees the whole column rather than this one node;
+    // only the ones still leaving the right edge need fanning over its height.
+    const onRight = idxs.filter(i => plans[i] && !plans[i].exitFace);
+    const pinned = new Set(onRight.filter(i => plans[i] && plans[i].kind === 'straight'));
+    fan(onRight, pos.y + DOCK_INSET, pos.y + pos.h - DOCK_INSET, farEndY, exitY,
+        pinned, Math.round(pos.y + pos.h / 2));
+  }
+
+  // Arrivals: split by the side each one docks on.
+  for (const [nid, idxs] of into) {
+    const pos = nodePos.get(nid);
+    if (!pos) continue;
+    const straight = new Set(idxs.filter(i => plans[i] && plans[i].kind === 'straight'));
+    const onLeft = idxs.filter(i => plans[i] && !plans[i].dock);
+    fan(onLeft, pos.y + DOCK_INSET, pos.y + pos.h - DOCK_INSET, nearEndY, entryY,
+        straight, Math.round(pos.y + pos.h / 2));
+  }
+
+  // ── Sequence-flow edges ─────────────────────────────────────────────────
+  // Every segment rides a channel allocated above, so no segment can enter a
+  // shape it does not connect to and no two segments can share a line.
+  for (let i = 0; i < ir.flows.length; i++) {
+    const p = plans[i];
+    if (!p) continue;
+    const f   = p.f;
+    const src = nodePos.get(f.from);
+    const tgt = nodePos.get(f.to);
+    if (!src || !tgt) continue;
+
+    // Always leave the right edge and arrive at the left edge: the direction of
+    // travel then reads consistently everywhere on the canvas.
+    const sx = src.x + src.w;
+    const sy = exitY.has(i) ? exitY.get(i) : Math.round(src.y + src.h / 2);
+    const tx = tgt.x;
+    const ty = entryY.has(i) ? entryY.get(i) : Math.round(tgt.y + tgt.h / 2);
+
+    // Where a column vertical sits: its allocated channel, spread about the
+    // column centre and clamped so the leg still lands on the node's own face.
+    const colVX = (run, box) => {
+      const n = colVCount.get(run.key) || 1;
+      const half = Math.max(0, box.w / 2 - DOCK_INSET);
+      const off = (run.ch - (n - 1) / 2) * CH_SP;
+      return Math.round(box.x + box.w / 2 + Math.max(-half, Math.min(half, off)));
+    };
+    const dockPt = () => {
+      const run = p.dockRun || p.cv;
+      const dx = run ? colVX(run, tgt) : Math.round(tgt.x + tgt.w / 2);
+      return [dx, p.dock === 'top' ? tgt.y : tgt.y + tgt.h];
+    };
+
+    let pts;
+    if (p.kind === 'dock') {
+      // Out along the source's row, then into the target's column. One bend.
+      const [dx, dy] = dockPt();
+      pts = [[sx, sy], [dx, sy], [dx, dy]];
+    } else if (p.kind === 'vexit') {
+      // Down (or up) the source's own column, then in along the target's row.
+      const ex = p.cv ? colVX(p.cv, src) : Math.round(src.x + src.w / 2);
+      const ey = p.exitFace === 'bottom' ? src.y + src.h : src.y;
+      pts = [[ex, ey], [ex, ty], [tx, ty]];
+    } else if (p.kind === 'strip' && (p.dock || p.exitFace)) {
+      // Ride the strip, entering it from under the source and/or leaving it up
+      // into the target's own column. Each end that docks removes both a gutter
+      // vertical and the stub that used to reach it.
+      const hy = stripY(p.rl, p.side, p.h1.ch);
+      const ex = p.exitFace
+        ? (p.cv ? colVX(p.cv, src) : Math.round(src.x + src.w / 2))
+        : gutterX(p.g1, p.v1.ch);
+      const head = p.exitFace
+        ? [[ex, p.exitFace === 'bottom' ? src.y + src.h : src.y]]
+        : [[sx, sy], [ex, sy]];
+      const gx2 = p.dock ? dockPt()[0] : gutterX(p.g2, p.v2.ch);
+      const tail = p.dock ? [[gx2, dockPt()[1]]] : [[gx2, ty], [tx, ty]];
+      pts = [...head, [ex, hy], [gx2, hy], ...tail];
+    } else if (p.kind === 'straight' || (p.kind === 'elbow' && sy === ty)) {
+      pts = [[sx, sy], [tx, ty]];
+    } else if (p.kind === 'elbow') {
+      const gx = gutterX(p.g1, p.v1.ch);
+      pts = [[sx, sy], [gx, sy], [gx, ty], [tx, ty]];
+    } else {
+      const g1x = gutterX(p.g1, p.v1.ch);
+      const g2x = gutterX(p.g2, p.v2.ch);
+      const hy  = stripY(p.rl, p.side, p.h1.ch);
+      pts = [[sx, sy], [g1x, sy], [g1x, hy], [g2x, hy], [g2x, ty], [tx, ty]];
+    }
+
+    for (let k = 1; k < pts.length; k++) allSegs.push([pts[k - 1], pts[k], i]);
+    edgePts[i] = pts;
+  }
+
+  // Name each flow on its longest horizontal run — a routing channel, so the
+  // label sits in reserved space. Labels are placed only now, once every line
+  // exists, so a label can step off another flow's line as well as off shapes
+  // and other labels. Without an explicit BPMNLabel bpmn-js drops every label at
+  // the edge midpoint, and flows converging on one gateway land on each other.
+  const segBox = (seg) => ({ x: Math.min(seg[0][0], seg[1][0]), y: Math.min(seg[0][1], seg[1][1]),
+    w: Math.max(Math.abs(seg[1][0] - seg[0][0]), 1), h: Math.max(Math.abs(seg[1][1] - seg[0][1]), 1) });
+  for (let i = 0; i < ir.flows.length; i++) {
+    const pts = edgePts[i];
+    if (!pts) continue;
+    const f = plans[i].f;
+    const flowId = 'flow_' + f.from + '_' + f.to + '_' + i;
+    edgeLines.push('      <bpmndi:BPMNEdge id="' + flowId + '_di" bpmnElement="' + flowId + '">');
+    for (const pt of pts) {
+      edgeLines.push('        <di:waypoint x="' + pt[0] + '" y="' + pt[1] + '" />');
+    }
+    if (f.name) {
+      let best = null;
+      for (let k = 1; k < pts.length; k++) {
+        if (pts[k][1] !== pts[k - 1][1]) continue;
+        const len = Math.abs(pts[k][0] - pts[k - 1][0]);
+        if (!best || len > best.len) best = { len, cx: (pts[k][0] + pts[k - 1][0]) / 2, cy: pts[k][1] };
+      }
 //@@CONTINUE@@
