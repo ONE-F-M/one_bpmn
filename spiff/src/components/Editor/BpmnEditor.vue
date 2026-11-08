@@ -97,21 +97,21 @@ import BpmnCommentPanel from "./BpmnCommentPanel.vue";
 import BpmnCommentDialogs from "./BpmnCommentDialogs.vue";
 import BpmnContextMenu from "./BpmnContextMenu.vue";
 import BpmnMessageDialog from "./BpmnMessageDialog.vue";
-import { createEditorContext, EDITOR_KEY } from "./useEditorState";
-import { useEditorPanels } from "./useEditorPanels";
-import { useEditorDialogs } from "./useEditorDialogs";
-import { useEditorComments } from "./useEditorComments";
-import { useEditorTimeline } from "./useEditorTimeline";
-import { useEditorInlineComment } from "./useEditorInlineComment";
-import { useEditorTouch } from "./useEditorTouch";
-import { useEditorElements } from "./useEditorElements";
-import { useEditorLint } from "./useEditorLint";
-import { useEditorCanvas } from "./useEditorCanvas";
-import { useEditorCopyPaste } from "./useEditorCopyPaste";
-import { useEditorSpiffEvents } from "./useEditorSpiffEvents";
-import { useEditorXml } from "./useEditorXml";
-import { useEditorReadonly } from "./useEditorReadonly";
-import { useEditorModeler } from "./useEditorModeler";
+import { createEditorContext, EDITOR_KEY } from "@/composables/useEditorState";
+import { useEditorPanels } from "@/composables/useEditorPanels";
+import { useEditorDialogs } from "@/composables/useEditorDialogs";
+import { useEditorComments } from "@/composables/useEditorComments";
+import { useEditorTimeline } from "@/composables/useEditorTimeline";
+import { useEditorInlineComment } from "@/composables/useEditorInlineComment";
+import { useEditorTouch } from "@/composables/useEditorTouch";
+import { useEditorElements } from "@/composables/useEditorElements";
+import { useEditorLint } from "@/composables/useEditorLint";
+import { useEditorCanvas } from "@/composables/useEditorCanvas";
+import { useEditorCopyPaste } from "@/composables/useEditorCopyPaste";
+import { useEditorSpiffEvents } from "@/composables/useEditorSpiffEvents";
+import { useEditorXml } from "@/composables/useEditorXml";
+import { useEditorReadonly } from "@/composables/useEditorReadonly";
+import { useEditorModeler } from "@/composables/useEditorModeler";
 
 const props = defineProps({
 	saveStatusText: {

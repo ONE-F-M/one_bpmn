@@ -2,7 +2,7 @@
 import { inject, toRef } from "vue";
 import { Icon } from "@iconify/vue";
 import BpmnCommentSection from "./BpmnCommentSection.vue";
-import { EDITOR_KEY } from "./useEditorState";
+import { EDITOR_KEY } from "@/composables/useEditorState";
 
 const ed = inject(EDITOR_KEY);
 const readonly = toRef(ed.props, "readonly");
