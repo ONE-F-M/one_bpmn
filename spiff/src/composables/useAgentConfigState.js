@@ -25,9 +25,8 @@ export function createAgentConfigContext(props, emit) {
 	const agentConfigs = ref([]);
 	const catalogModels = ref([]); // AI Model catalog
 	// Site-wide model defaults from Processa Settings. A blank model picker means
-	// "inherit", and until now the option said "-- Use the default --" without
-	// saying what the default IS — so an unset field was indistinguishable from a
-	// broken one. Best-effort: a designer who cannot read Processa Settings still
+	// "inherit"; the option names the site default so an unset field is not mistaken for
+	// a broken one. Best-effort: a designer who cannot read Processa Settings still
 	// gets the plain label.
 	const siteDefaults = ref({ compaction: "", distill: "", reconcile: "" });
 
@@ -153,9 +152,8 @@ export function createAgentConfigContext(props, emit) {
 	const chatPanel = ref(null);
 
 	// Grounding the designer never types: the DocType the process is triggered on.
-	// The manual Context DocType / Sample Record inputs retired with the legacy
-	// transcript — the assistant looks schemas up with its own tools —
-	// but a selector turn still ships this one automatically, because its evidence
+	// The assistant looks schemas up with its own tools,
+	// but a selector turn ships this one automatically, because its evidence
 	// template is written in {{ doc.<field> }} terms and guessing them is exactly
 	// what the digest cannot do for it.
 	const triggerDoctype = ref("");

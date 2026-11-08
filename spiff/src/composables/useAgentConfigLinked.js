@@ -92,13 +92,8 @@ export function useAgentConfigLinked(ac) {
 	// Everything the modal shows about a linked agent comes from here, whether the
 	// panel just opened or the designer picked a different agent from the dropdown.
 	//
-	// These were two separate paths and they drifted: opening the panel applied only
-	// the MEMORY keys, while picking an agent applied all of them. So a task whose
-	// agent was already linked opened showing the DIAGRAM's stale prompt, model,
-	// temperature and token cap — none of which is what dispatch actually uses — and
-	// the designer had to re-pick the agent it was already linked to before the real
-	// values appeared. One loader for both paths is the fix, and it is also what
-	// stops the two drifting apart again.
+	// One loader serves both paths, so a task whose agent is already linked opens with the
+	// agent's real prompt, model, temperature and token cap rather than the diagram's copy.
 	//
 	// Applying every field is safe: config_field_map omits blank values, so an unset
 	// field on the agent falls through to the shape's own copy — the same fallback
@@ -115,9 +110,7 @@ export function useAgentConfigLinked(ac) {
 		staticContextLoaded.value = true;
 	}
 
-	// One round trip. This used to be three identical POSTs on open (memory, static
-	// context, and the picker's own), which is most of why the panel took a moment
-	// to fill in.
+	// One round trip loads the agent's memory, static context and the roles the picker offers.
 	async function loadLinkedAgent() {
 		staticContextLoaded.value = false;
 		if (!form.value.aiAgentConfig) return;

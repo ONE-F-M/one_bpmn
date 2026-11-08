@@ -16,8 +16,8 @@ export function useAgentConfigAssistant(ac) {
 	// the modal sends RAW grounding refs; the server-side context
 	// builder (ai_assistant.build_assistant_turn_context) assembles the map's
 	// dialog_context from them — schema/sample reads stay permission-checked
-	// server-side, exactly as the legacy path did. `mode` was added: the
-	// builder branches on it to ground a selector turn with the selector's runtime
+	// server-side. The builder branches on `mode` to ground a selector turn with the
+	// selector's runtime
 	// rules and the sub-process digest instead of the agent-creation capability.
 	const assistantTurnContext = computed(() => ({
 		assistant_dialog: {
@@ -60,16 +60,15 @@ export function useAgentConfigAssistant(ac) {
 			const { xml } = await toRaw(props.modeler).saveXML({ format: false });
 			dialog.bpmn_xml = xml;
 		} catch (e) {
-			// No digest this turn — the assistant works blind rather than not at all,
-			// exactly as it did when the legacy path failed to serialize.
+			// No digest this turn: the assistant works without it rather than not at all.
 			console.warn("[AI assistant] could not serialize diagram:", e);
 		}
 		return { assistant_dialog: dialog };
 	}
 
 	// cards render and request — the HOST applies. The panel re-emits
-	// card actions here; each maps onto the SAME handlers/endpoints the legacy
-	// cards used, so permission checks and the creation process are identical.
+	// card actions here; each maps onto the dialog's own handlers and endpoints, so permission checks
+	// and the creation process apply as usual.
 	async function onAssistantCardAction({ name, action, value, payload, fail }) {
 		if (action === "dismiss") return;
 		if (action === "confirm-create" && name === "onefm.proposed_config") {
@@ -113,14 +112,9 @@ export function useAgentConfigAssistant(ac) {
 
 	const NUMERIC_FIELDS = ["aiTemperature", "aiTopP", "aiMaxTokens", "aiTimeout", "aiMaxRetries"];
 
-	// An earlier onProviderChange lived here and copied the provider's
-	// Default Model into the Model field; it went when provider-level default_model
-	// did. The one above shares only the name: a provider narrows the list and
-	// clears a model that no longer belongs, and never picks a model for you.
-
 	// Apply one recommended value onto the open form. The card (or the tray's
-	// per-field Apply) is the only caller now — the legacy transcript tracked
-	// which suggestions had been applied itself; the shared cards own that state.
+	// per-field Apply) is the only caller; the shared cards track which suggestions
+	// were applied.
 	function applyRecommendation(key, value) {
 		if (NUMERIC_FIELDS.includes(key)) {
 			const n = Number(value);
@@ -130,7 +124,7 @@ export function useAgentConfigAssistant(ac) {
 		}
 	}
 
-	// The designer's confirm no longer creates anything itself: it relays the
+	// The designer's confirm does not create anything itself: it relays the
 	// approval into the conversation, and the AGENT calls its
 	// create_agent_configuration tool — so every creation is audited as a tool
 	// call on its AI Agent Run, and a chat approval typed in plain words works

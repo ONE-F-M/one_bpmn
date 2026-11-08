@@ -83,8 +83,8 @@
 }
 
 /* The gate sits INSIDE the scroll container, never around it: a disabled
-   <fieldset> is inert, so making the scrolling element the fieldset stopped
-   the body scrolling and left most of the config unreachable. */
+   <fieldset> is inert, so the scrolling element must not be the fieldset, or the
+   body would not scroll and most of the config would be unreachable. */
 .field-gate {
 	border: none;
 	margin: 0;

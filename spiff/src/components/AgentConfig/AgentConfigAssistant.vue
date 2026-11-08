@@ -5,17 +5,12 @@
            disabled state (that only blocks native form controls). A
            locked map must not be editable through this side door either. -->
 	<div class="assistant-panel">
-		<!-- ONE chat for both ways into this dialog. An AI Agent
-             Task and an AI Task Selector now open the same panel, on the same
-             agent, over the same endpoint — the mode only changes what the
-             turn is grounded with (server-side) and which fields the reply may
-             recommend. The panel's own titlebar (avatar + name + config-driven
-             badge) is the header in both; the legacy purple header, the manual
-             Context DocType / Sample Record controls and the selector-only
-             transcript are gone. The assistant is always available: with no
-             linked configuration yet it runs on its own credentials,
-             so you can ask it to create the agent this task will
-             link. -->
+		<!-- One chat for both ways into this dialog. An AI Agent Task and an AI Task Selector
+             open the same panel, on the same agent, over the same endpoint; the mode only
+             changes what the turn is grounded with (server-side) and which fields the reply
+             may recommend. The panel's own titlebar is the header in both. The assistant is
+             always available: with no linked configuration yet it runs on its own
+             credentials, so you can ask it to create the agent this task will link. -->
 		<!-- The shared AgentChatPanel — one transport (the AG-UI endpoint),
                typed events, cards from the registry. Replies can never render
                as raw JSON: the assistant's reply shaper parses the contract

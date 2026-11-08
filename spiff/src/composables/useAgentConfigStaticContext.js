@@ -27,10 +27,8 @@ export function useAgentConfigStaticContext(ac) {
 	});
 
 	// The picker's options arrive on the same response as the rest of the agent, via
-	// applyGrantableRoles below. They used to come from a call of their own, which
-	// kept returning nothing in the browser while answering curl perfectly — and an
-	// empty picker looks exactly like "you may grant nothing", which is a real
-	// answer the escalation guard also gives. One response, one failure mode.
+	// applyGrantableRoles below. An empty picker looks exactly like "you may grant
+	// nothing", which is also a real answer the escalation guard gives.
 	function applyGrantableRoles(fields) {
 		grantableRoles.value = Array.isArray(fields?.aiGrantableRoles)
 			? fields.aiGrantableRoles

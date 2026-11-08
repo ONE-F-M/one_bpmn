@@ -4,9 +4,8 @@
                of the agent, not of the task that happens to call it.
 
                Rendered from the agent's OWN fields rather than a hard-coded list.
-               15.1 has since added the output mode and it now appears here by
-               itself, which is what this was built for; the injection mode
-               will do the same. Labels, options and the explanatory
+               A control added to the doctype later, such as the output mode or the injection
+               mode, appears here by itself. Labels, options and the explanatory
                text all come from the doctype, so there is nothing here to drift
                out of step with what the field actually accepts. -->
 	<template v-if="!isSelector && form.aiAgentConfig && screeningControls.length">

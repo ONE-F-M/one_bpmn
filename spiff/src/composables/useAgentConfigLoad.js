@@ -28,15 +28,8 @@ export function useAgentConfigLoad(ac) {
 			console.error("Failed to load skills", e);
 		}
 
-		// The catalogue answers for itself. This used to be two requests that had to
-		// agree — the AI Model list, plus a list of AI Providers filtered on
-		// `enabled` — and a model was labelled "credentials disabled" when its
-		// provider was missing from the second. That comparison stopped meaning
-		// anything when the connection moved onto AI Model: AI Provider has one field
-		// now, so the filter referenced a column that no longer exists, the request
-		// failed into its catch, and EVERY model was labelled disabled. The key is a
-		// Password and cannot be read here, so the server answers the only question
-		// the editor actually has.
+		// The server answers which models are usable, because the API key is a Password and
+		// cannot be read here. The provider list is derived from the catalogue.
 		try {
 			const rows = await frappeRequest({
 				url: "/api/method/one_bpmn.agents.agent_config_resolver.model_catalogue",

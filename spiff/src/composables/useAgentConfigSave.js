@@ -23,7 +23,7 @@ export function useAgentConfigSave(ac) {
 	async function writeBackToConfig() {
 		if (!form.value.aiAgentConfig) return;
 		// the MODEL is the agent's editable pick and writes back;
-		// aiProvider is no longer sent — the provider is derived from the model.
+		// aiProvider is not sent: the provider is derived from the model.
 		const fields = {
 			aiModel: form.value.aiModel,
 			aiSystemPrompt: form.value.aiSystemPrompt,
@@ -120,7 +120,7 @@ export function useAgentConfigSave(ac) {
 
 	async function save() {
 		// every AI shape must be backed by an AI Agent Configuration —
-		// raw provider setup is retired (the compile gate enforces the same rule).
+		// raw provider setup is not supported (the compile gate enforces the same rule).
 		if (!form.value.aiAgentConfig) {
 			showNotice(
 				"Link an AI Agent Configuration",
@@ -199,7 +199,7 @@ export function useAgentConfigSave(ac) {
 			"spiffworkflow:aiTimeout": String(form.value.aiTimeout),
 			"spiffworkflow:aiMaxRetries": String(form.value.aiMaxRetries),
 			"spiffworkflow:aiStopOnError": form.value.aiStopOnError ? "true" : undefined,
-			// memory settings are NOT written here any more — they live on
+			// memory settings are NOT written here: they live on
 			// the linked AI Agent Configuration (see writeBackToConfig). Existing
 			// diagrams keep their aiMemory* / aiConversationStore attributes untouched;
 			// dispatch reads the agent first and only falls through to them when the
