@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# Static Context Orchestration in Execution Loops (WI-001639).
+# Static Context Orchestration in Execution Loops.
 #
 # The static layer's contract is that it is a pure function of the agent's
 # configuration: Instructions -> Examples -> Guard Rails, byte-identical every

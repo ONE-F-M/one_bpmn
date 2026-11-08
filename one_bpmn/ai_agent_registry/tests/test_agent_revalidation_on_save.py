@@ -219,7 +219,7 @@ class TestAgentRevalidationOnSave(FrappeTestCase):
 		mocked.assert_not_called()
 
 	def test_empty_prompt_background_agent_is_only_credential_tested(self):
-		# WI-001650 provider-grant pattern: Background agent with a
+		# Provider-grant pattern: Background agent with a
 		# deliberately empty prompt must stay Live while its credentials work.
 		agent = self._make_agent(system_prompt="")
 		self.assertEqual(agent.lifecycle_status, "Live")
