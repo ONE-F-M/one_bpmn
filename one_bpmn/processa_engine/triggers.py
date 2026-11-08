@@ -273,7 +273,7 @@ def _maybe_start_instance(doc, model_name: str):
 	if not model.serialized_spec:
 		return
 
-	triggers = _parse_start_triggers(model.bpmn_xml)
+	triggers = parse_start_triggers(model.bpmn_xml)
 
 	# triggerWorkflowState matches either workflow_state or a custom status field.
 	required_state = triggers["workflow_state"]
@@ -453,14 +453,11 @@ def _advance_instance_on_doc_event(instance_name: str, task_action: str):
 	instance.advance(task_id=matching_row.task_id, data={"action": task_action})
 
 
-def _parse_start_triggers(bpmn_xml: str) -> dict:
-	"""Parse the BPMN XML once and return every start condition a model declares.
+def parse_start_triggers(bpmn_xml: str) -> dict:
+	"""Parse the BPMN XML once and return workflow_state, field_condition and conditional_start.
 
-	workflow_state is the first start event's triggerWorkflowState. field_condition is the
-	(triggerFieldName, triggerFieldValue) of the first element that declares a name; it scopes a
-	DocType-event trigger so several models on the same DocType and event do not all fire.
-	conditional_start is the <bpmn:condition> text of the first conditional start event.
-	Each is None when absent, and all are None for empty or malformed XML."""
+	field_condition scopes a DocType-event trigger so several models on one event do not all fire.
+	Each key is None when absent, and all are None for empty or malformed XML."""
 	result = {"workflow_state": None, "field_condition": None, "conditional_start": None}
 	if not bpmn_xml or not bpmn_xml.strip():
 		return result

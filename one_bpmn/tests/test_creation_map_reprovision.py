@@ -110,7 +110,7 @@ class TestTheReprovisionGuard(FrappeTestCase):
 				return_value="_creation-map",
 			),
 			patch(
-				"one_bpmn.processa_engine.triggers._parse_start_triggers",
+				"one_bpmn.processa_engine.triggers.parse_start_triggers",
 				return_value={"workflow_state": None, "field_condition": None, "conditional_start": condition},
 			),
 			patch("one_bpmn.api.instances.start_process") as start,

@@ -285,10 +285,10 @@ class AIAgentConfiguration(Document):
 	def _validate_map_condition_matches_label(self):
 		import re
 
-		from one_bpmn.processa_engine.triggers import _parse_start_triggers
+		from one_bpmn.processa_engine.triggers import parse_start_triggers
 
 		xml = frappe.db.get_value("BPMN Process Model", self.process_model, "bpmn_xml") or ""
-		triggers = _parse_start_triggers(xml)
+		triggers = parse_start_triggers(xml)
 		condition = triggers["conditional_start"] or ""
 		match = re.fullmatch(
 			r"""\s*agent_mode\s*==\s*["']([^"']+)["']\s*""", condition

@@ -1,13 +1,13 @@
 # Copyright (c) 2026, one-fm and contributors
-"""_parse_start_triggers reads every start condition from one parse of the BPMN XML."""
+"""parse_start_triggers reads every start condition from one parse of the BPMN XML."""
 
-import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from frappe.tests.utils import FrappeTestCase
 from lxml import etree
 
-from one_bpmn.processa_engine.triggers import _maybe_start_instance, _parse_start_triggers
+from one_bpmn.processa_engine.triggers import _maybe_start_instance, parse_start_triggers
 
 _ALL_NONE = {"workflow_state": None, "field_condition": None, "conditional_start": None}
 
@@ -30,10 +30,10 @@ _PLAIN_XML = """<?xml version="1.0" encoding="UTF-8"?>
 </bpmn:definitions>"""
 
 
-class TestParseStartTriggers(unittest.TestCase):
+class TestParseStartTriggers(FrappeTestCase):
 	def test_a_start_event_with_all_three_gives_all_three_keys(self):
 		self.assertEqual(
-			_parse_start_triggers(_FULL_XML),
+			parse_start_triggers(_FULL_XML),
 			{
 				"workflow_state": "Open",
 				"field_condition": ("agent_mode", "ProsAlly"),
@@ -42,14 +42,14 @@ class TestParseStartTriggers(unittest.TestCase):
 		)
 
 	def test_xml_with_none_of_them_gives_all_none(self):
-		self.assertEqual(_parse_start_triggers(_PLAIN_XML), _ALL_NONE)
+		self.assertEqual(parse_start_triggers(_PLAIN_XML), _ALL_NONE)
 
 	def test_empty_xml_gives_all_none(self):
-		self.assertEqual(_parse_start_triggers(""), _ALL_NONE)
-		self.assertEqual(_parse_start_triggers(None), _ALL_NONE)
+		self.assertEqual(parse_start_triggers(""), _ALL_NONE)
+		self.assertEqual(parse_start_triggers(None), _ALL_NONE)
 
 	def test_malformed_xml_gives_all_none(self):
-		self.assertEqual(_parse_start_triggers("<bpmn:definitions><unclosed>"), _ALL_NONE)
+		self.assertEqual(parse_start_triggers("<bpmn:definitions><unclosed>"), _ALL_NONE)
 
 	def test_maybe_start_instance_parses_once_per_model(self):
 		real_fromstring = etree.fromstring
