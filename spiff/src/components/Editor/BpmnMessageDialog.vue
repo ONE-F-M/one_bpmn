@@ -1,6 +1,6 @@
 <script setup>
 import { inject } from "vue";
-import { EDITOR_KEY } from "./useEditorState";
+import { EDITOR_KEY } from "@/composables/useEditorState";
 
 const ed = inject(EDITOR_KEY);
 const { messageDialog, onMessageDialogSave } = ed;

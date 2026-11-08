@@ -180,7 +180,6 @@ size one_bpmn/tests/test_connector_agent.py 959
 size one_bpmn/tests/test_memory_tools.py 867
 size one_bpmn/tests/test_rate_limit_and_lock.py 1369
 size spiff/src/components/Modals/AIAgentConfigModal.vue 2308
-size spiff/src/components/Editor/BpmnEditor.vue 4229
 size spiff/src/components/Docu/DocuCanvas.vue 1787
 size spiff/src/components/Editor/FormattingToolbar.vue 763
 size spiff/src/components/Logix/LogixCanvas.vue 1433
@@ -192,7 +191,6 @@ size spiff/src/pages/EvalRun.vue 516
 size spiff/src/pages/EvalSuite.vue 1608
 size spiff/src/pages/Instance.vue 891
 size spiff/src/pages/Instances.vue 559
-size spiff/src/pages/Process.vue 3684
 size spiff/src/pages/Processes.vue 525
 size spiff/src/pages/Security.vue 1216
 size spiff/src/pages/Skills.vue 796

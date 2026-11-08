@@ -1,0 +1,19 @@
+/* Fix dark background on form inputs in dialog */
+:deep(.dialog-form input),
+:deep(.dialog-form textarea),
+:deep(.dialog-body input[type="text"]),
+:deep(.dialog-body textarea) {
+	background-color: white !important;
+	color: #1f2937 !important;
+}
+
+/* Force TextEditor to fill full dialog width */
+:deep(.ProseMirror) {
+	max-width: 100% !important;
+	width: 100% !important;
+}
+
+:deep(.tiptap) {
+	max-width: 100% !important;
+	width: 100% !important;
+}
