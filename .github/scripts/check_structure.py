@@ -588,7 +588,7 @@ _HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 
 
 def parse_diff(diff: str) -> Dict[str, Tuple[str, List[Tuple[int, str]]]]:
-	"""Read `git diff --no-renames -U0` output into {path: (status, added lines)}."""
+	"""Read `git diff -M -U0` output into {path: (status, added lines)}; a moved file has status "R:<old path>"."""
 	files: Dict[str, Tuple[str, List[Tuple[int, str]]]] = {}
 	path: Optional[str] = None
 	line_no = 0
@@ -600,7 +600,9 @@ def parse_diff(diff: str) -> Dict[str, Tuple[str, List[Tuple[int, str]]]]:
 		if path is None:
 			continue
 		status, added = files[path]
-		if raw.startswith("new file mode"):
+		if raw.startswith("rename from "):
+			files[path] = ("R:" + raw[len("rename from ") :], added)
+		elif raw.startswith("new file mode"):
 			files[path] = ("A", added)
 		elif raw.startswith("deleted file mode"):
 			files[path] = ("D", added)
@@ -625,7 +627,7 @@ def _git_show(ref: str, path: str, root: str) -> str:
 
 
 def collect_changes(base: str, root: str) -> List[Change]:
-	diff = _git(["diff", "--no-renames", "-U0", "--no-color", f"{base}...HEAD"], root)
+	diff = _git(["diff", "-M", "-U0", "--no-color", f"{base}...HEAD"], root)
 	changes = []
 	for path, (status, added) in parse_diff(diff).items():
 		if status == "D":
@@ -637,6 +639,9 @@ def collect_changes(base: str, root: str) -> List[Change]:
 				text = handle.read()
 		except OSError:
 			continue
+		if status.startswith("R:"):
+			changes.append(Change.deleted(status[2:]))
+			status = "M"
 		changes.append(Change(path, status, text, added))
 	return changes
 

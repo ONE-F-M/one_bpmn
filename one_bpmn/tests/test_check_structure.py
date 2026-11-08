@@ -574,6 +574,13 @@ class TestDiffParsing(unittest.TestCase):
 			"+++ b/one_bpmn/new.py",
 			"@@ -0,0 +1 @@",
 			"+only",
+			"diff --git a/one_bpmn/old.py b/one_bpmn/moved.py",
+			"similarity index 90%",
+			"rename from one_bpmn/old.py",
+			"rename to one_bpmn/moved.py",
+			"@@ -2 +2 @@",
+			"-before",
+			"+after",
 			"diff --git a/one_bpmn/gone.py b/one_bpmn/gone.py",
 			"deleted file mode 100644",
 			"--- a/one_bpmn/gone.py",
@@ -588,3 +595,4 @@ class TestDiffParsing(unittest.TestCase):
 		self.assertEqual(parsed["one_bpmn/a.py"], ("M", [(4, "first"), (5, "second"), (12, "third")]))
 		self.assertEqual(parsed["one_bpmn/new.py"], ("A", [(1, "only")]))
 		self.assertEqual(parsed["one_bpmn/gone.py"], ("D", []))
+		self.assertEqual(parsed["one_bpmn/moved.py"], ("R:one_bpmn/old.py", [(2, "after")]))
