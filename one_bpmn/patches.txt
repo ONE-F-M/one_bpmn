@@ -341,6 +341,7 @@ one_bpmn.one_bpmn.patches.v1_0.set_ticket_doctype_on_change_requests #05-11-2026
 one_bpmn.one_bpmn.patches.v1_0.frontend_agent_follows_the_pages_folder #05-11-2026 Locate UI reads the router from spiff/src/router.js and the six retired Frontend Agent tool scripts are removed
 one_bpmn.one_bpmn.patches.v1_0.seed_processa_instance_type #05-11-2026 Give Processa Settings an Instance Type on sites that have none
 one_bpmn.one_bpmn.patches.v1_0.delete_processa_comment_doctype #06-11-2026 canvas comments live in Comment, so the Processa Comment doctype and its table go
+one_bpmn.one_bpmn.patches.v1_0.release_stale_engine_gates #05-11-2026 Clear engine_in_progress on instances untouched for 20 minutes
 one_bpmn.one_bpmn.patches.v1_0.repath_connector_handlers #07-11-2026 stored connector handler, Value Transform and Choices From paths follow the modules that moved into processa_connectors
 one_bpmn.one_bpmn.patches.v1_0.frontend_agent_eval_cases_follow_the_pages_folder #07-11-2026 Frontend Agent eval cases and their A2A Task fixtures name the Processa pages by their spiff/src/pages paths
 one_bpmn.one_bpmn.patches.v1_0.repath_sandbox_handlers #08-11-2026 stored sandbox handler and Choices From paths follow the modules that moved into agents_sandbox
