@@ -17,6 +17,7 @@ from one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment import (
 	_swap_user,
 	get_reliever_if_on_leave,
 	restore_tasks_on_return,
+	task_actors,
 )
 
 
@@ -135,3 +136,74 @@ class TestRestoreTasksOnReturn(FrappeTestCase):
 		with patch.object(frappe.db, "sql") as sql:
 			self.assertEqual(restore_tasks_on_return(""), 0)
 		sql.assert_not_called()
+
+
+LEAVE_RELIEVER = "one_bpmn.one_bpmn.doctype.bpmn_process_instance.assignment._current_reliever"
+
+
+class TestTaskActors(FrappeTestCase):
+	def test_the_recorded_pair_can_both_act(self):
+		with patch(LEAVE_RELIEVER, return_value=None):
+			self.assertEqual(task_actors(_row()), {"alice@x.com", "bob@x.com"})
+
+	def test_after_return_the_reliever_still_acts(self):
+		with patch(LEAVE_RELIEVER, return_value=None):
+			actors = task_actors(_row(assigned_user="alice@x.com"))
+		self.assertEqual(actors, {"alice@x.com", "bob@x.com"})
+
+	def test_a_leave_that_starts_later_adds_the_live_reliever(self):
+		row = _row(assigned_user="alice@x.com", relieved_user="", reliever_user="")
+		with patch(LEAVE_RELIEVER, side_effect=lambda u: "bob@x.com" if u == "alice@x.com" else None):
+			self.assertEqual(task_actors(row), {"alice@x.com", "bob@x.com"})
+
+	def test_no_leave_and_no_pair_leaves_only_the_assignee(self):
+		row = _row(assigned_user="alice@x.com", relieved_user="", reliever_user="")
+		with patch(LEAVE_RELIEVER, return_value=None):
+			self.assertEqual(task_actors(row), {"alice@x.com"})
+
+	def test_the_live_reliever_of_another_user_is_not_added(self):
+		row = _row(assigned_user="carl@x.com", relieved_user="", reliever_user="")
+		with patch(LEAVE_RELIEVER, side_effect=lambda u: "bob@x.com" if u == "alice@x.com" else None):
+			self.assertEqual(task_actors(row), {"carl@x.com"})
+
+
+class TestRelieverCanActionTheTask(FrappeTestCase):
+	def _refusal(self, user, row):
+		from one_bpmn.api.instance_api import _task_authorization
+
+		instance = frappe._dict(context_doctype="", context_docname="")
+		row.assigned_role = ""
+		with patch("one_bpmn.api.instance_api._is_bpmn_super_user", return_value=False):
+			return _task_authorization(instance, row, user)[0]
+
+	def test_both_users_of_the_pair_are_let_through(self):
+		with patch(LEAVE_RELIEVER, return_value=None):
+			self.assertIsNone(self._refusal("alice@x.com", _row(assigned_user="bob@x.com")))
+			self.assertIsNone(self._refusal("bob@x.com", _row(assigned_user="alice@x.com")))
+
+	def test_an_unrelated_user_is_refused(self):
+		with patch(LEAVE_RELIEVER, return_value=None):
+			self.assertIsNotNone(self._refusal("mallory@x.com", _row()))
+
+	def test_a_reliever_of_a_leave_that_started_after_the_task_is_let_through(self):
+		row = _row(assigned_user="alice@x.com", relieved_user="", reliever_user="")
+		with patch(LEAVE_RELIEVER, side_effect=lambda u: "bob@x.com" if u == "alice@x.com" else None):
+			self.assertIsNone(self._refusal("bob@x.com", row))
+
+
+class TestPendingListIncludesTheReliever(FrappeTestCase):
+	def _pending(self, user, rows, covered):
+		from one_bpmn.api.instance_api import _instances_pending_on
+
+		with patch("one_bpmn.api.instance_api._users_covered_by", return_value=covered), patch.object(
+			frappe, "get_roles", return_value=[]
+		), patch.object(frappe, "get_all", return_value=rows), patch(LEAVE_RELIEVER, side_effect=lambda u: "bob@x.com" if u == "alice@x.com" else None):
+			return _instances_pending_on(user)
+
+	def test_a_reliever_sees_the_task_of_the_user_they_cover(self):
+		row = _row(assigned_user="alice@x.com", relieved_user="", reliever_user="")
+		self.assertEqual(self._pending("bob@x.com", [row], ["alice@x.com"]), ["PI-1"])
+
+	def test_a_user_covering_nobody_does_not(self):
+		row = _row(assigned_user="alice@x.com", relieved_user="", reliever_user="")
+		self.assertEqual(self._pending("mallory@x.com", [row], []), [])
