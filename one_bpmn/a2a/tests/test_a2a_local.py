@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Same-site delegation — the primary A2A case (WI-001933).
+"""Same-site delegation — the primary A2A case.
 
 Two agents in one bench. Nothing crosses a trust boundary, so the whole
 point of these tests is what is NOT required: no registry entry, no

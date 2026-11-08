@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-002008: delegation limits — nesting depth, total handoffs, retries.
+"""Delegation limits — nesting depth, total handoffs, retries.
 
 They live on the delegating agent's own configuration, and are enforced at
 the one hand-off gate — whichever direction the work goes.
@@ -116,7 +116,7 @@ class TestDelegationLimits(FrappeTestCase):
 
 
 class TestRefusalIsSurfaced(FrappeTestCase):
-	"""WI-002008: a limit breach must not fail silently — it leaves a failed
+	"""A limit breach must not fail silently — it leaves a failed
 	task behind and tells a person, choosing the most accountable one it can
 	find."""
 

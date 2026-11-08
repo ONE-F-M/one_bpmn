@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-001933: the poller — backoff, deadlines, waking what waits.
+"""The poller — backoff, deadlines, waking what waits.
 
 The poller is what makes a long delegation cheap: the process is parked,
 and this job checks in on a widening interval until the remote finishes,

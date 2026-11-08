@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-001931: the A2A Client guest list.
+"""The A2A Client guest list.
 
 The user represents the CALLER. Approval issues the badge (service user
 + API key), revocation disables it without touching anyone else, and the
