@@ -1,5 +1,5 @@
 """
-WI-001644: give every existing agent an explicit output screening mode.
+Give every existing agent an explicit output screening mode.
 
 A new field defaults only for rows created after it exists, so every agent that
 predates it holds NULL. Screening still applies to them — ``_mode`` falls back to

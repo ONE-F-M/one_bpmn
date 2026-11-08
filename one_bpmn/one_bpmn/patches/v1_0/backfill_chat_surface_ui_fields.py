@@ -1,13 +1,12 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Backfill the chat-surface UI fields on the Live chat agents (WI-001996).
+"""Backfill the chat-surface UI fields on the Live chat agents.
 
 The shared AgentChatPanel reads an agent's greeting, composer placeholder and
 surface classification from its AI Agent Configuration instead of hardcoded
 component strings. This patch seeds the six Live agents with the strings
 their Vue components carry today, so behaviour is unchanged on day one; the
-hardcoded copies are deleted by each surface's own migration story
-(WI-001674…678).
+hardcoded copies are deleted by each surface's own migration story.
 
 Host-context flourishes (ProsAlly greeting the current process, Docu greeting
 the open doctype) stay host-supplied — the panel appends the host's context

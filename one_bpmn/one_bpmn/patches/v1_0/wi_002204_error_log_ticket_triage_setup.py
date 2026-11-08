@@ -1,5 +1,5 @@
 """
-WI-002204: setup for the Error Log Ticket Triage process map, migrated off
+Setup for the Error Log Ticket Triage process map, migrated off
 onefm_mcp's ErrorLogTicketAgent (Google ADK).
 
 Two things this map needs that don't come from importing the diagram alone,
@@ -90,7 +90,7 @@ def _working_ai_model() -> str | None:
 
 
 def _repoint_agent_config() -> None:
-	"""Same shape as promote_threat_agents_to_bpmn.py (WI-002203): this config
+	"""Same shape as promote_threat_agents_to_bpmn.py: this config
 	was seeded directly by onefm_mcp's old patch and never walked the platform's
 	Agent Creation Process (that map isn't tracked in this repo at all — moved
 	between environments by hand — and no site here holds the creation grant).

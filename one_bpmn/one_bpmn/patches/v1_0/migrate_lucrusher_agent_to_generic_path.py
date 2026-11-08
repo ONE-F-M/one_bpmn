@@ -1,5 +1,5 @@
 """
-WI-001634 (folds in the parked WI-001616): finish the LuCrusher AI Agent
+Finish the LuCrusher AI Agent
 Configuration so the agent runs through the generic invocation path, and carry
 it to Live through lifecycle validation.
 

@@ -1,5 +1,5 @@
 """
-WI-001998: deprecate User Task Assignment Log.
+Deprecate User Task Assignment Log.
 
 Reassigning a User Task on a deployed map used to write a row here as well as
 saving the map. The map's own version history already carries the change —

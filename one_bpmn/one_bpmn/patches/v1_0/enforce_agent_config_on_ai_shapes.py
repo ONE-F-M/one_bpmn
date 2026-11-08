@@ -1,5 +1,5 @@
 """
-WI-001650: retire raw-provider AI shapes.
+Retire raw-provider AI shapes.
 
 Every LLM-calling shape (AI Agent Task / AI Task Selector) must be backed by
 an AI Agent Configuration; the compile gate now blocks config-less shapes.
@@ -14,7 +14,7 @@ This patch brings existing site data under the rule:
    deactivated instead.
 3. Links chat-clone maps to their existing agent configuration, and creates
    minimal provider-grant configurations for process-embedded agents
-   (AI ToDo Triage, ProsAlly) — full endpoint migration stays WI-001630-35.
+   (AI ToDo Triage, ProsAlly) — full endpoint migration stays a separate piece of work.
 
 Idempotent: models already carrying aiAgentConfig are skipped.
 """

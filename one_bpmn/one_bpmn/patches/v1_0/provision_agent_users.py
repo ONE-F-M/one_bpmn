@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-002054: give every existing agent the identity it now acts as.
+"""Give every existing agent the identity it now acts as.
 
 New agents get one on save. The ones already on a site would not, until somebody
 happened to re-save them — and an agent with no user falls back to running its

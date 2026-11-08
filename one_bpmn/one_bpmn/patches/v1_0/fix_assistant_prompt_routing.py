@@ -1,5 +1,5 @@
 """
-WI-001751 follow-up: stop the assistant answering "add a user prompt" with a
+Stop the assistant answering "add a user prompt" with a
 system-prompt change.
 
 Symptom: asked to write the task's User Prompt, the assistant replied "I'm
@@ -25,7 +25,7 @@ the small model the assistant runs follows the persona.
 Fix: say it in the prompt that governs behaviour.
 
   * the update bullet is narrowed to the SYSTEM prompt, and names the model
-    rather than the provider (WI-001655 made the model the pick — the provider
+    rather than the provider (the model is the pick — the provider
     is derived from it, so "change the provider" has been wrong since);
   * a WHERE EACH PROMPT LIVES section states the split once, plainly, with the
     reply shape for each.
@@ -33,7 +33,7 @@ Fix: say it in the prompt that governs behaviour.
 This does not loosen any guard: aiUserPrompt still cannot be written to a
 configuration. It only stops the assistant proposing the wrong change.
 
-Prompts are data (WI-001623 — no hardcoded assistant prompts in code), so this
+Prompts are data (no hardcoded assistant prompts in code), so this
 edits the site's own record. Idempotent: the stale sentence is matched exactly
 and the new section is keyed on its heading.
 """

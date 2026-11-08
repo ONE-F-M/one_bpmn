@@ -1,5 +1,5 @@
 """
-WI-001751 follow-up: stop the AI Assistant's tool gateway from crashing every turn.
+Stop the AI Assistant's tool gateway from crashing every turn.
 
 Symptom: every message to the assistant from the AI Agent Task dialog died with
 "The process for agent 'ai_agent_assistant' is not running for this
@@ -38,7 +38,7 @@ restrict __builtins__ (see engine.get_script_engine).
 Only the assistant's own map is touched — Docu, Logix and ProsAlly use a bare
 `needs_tools == True` condition and are unaffected.
 
-Diagrams are data, never code (WI-001540), so the repair is applied to the
+Diagrams are data, never code, so the repair is applied to the
 site's own copy of the map. Idempotent: matching is on the broken shape of the
 expression, so a second run finds nothing to do.
 """

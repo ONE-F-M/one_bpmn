@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-"""Seed Logix's code-writing guard rails (WI-001639).
+"""Seed Logix's code-writing guard rails.
 
 Logix is the agent that writes Server Scripts, so it is the first agent to get
 real guard rails: keep files small, watch execution cost, watch token cost.

@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-001933: the generic ``a2a`` connector.
+"""The generic ``a2a`` connector.
 
 ONE connector serves every remote agent — which one is a parameter,
 resolved through the A2A Remote Agent registry, so adding a partner is a
