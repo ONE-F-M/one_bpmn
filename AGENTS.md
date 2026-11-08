@@ -34,7 +34,8 @@ House style lives in `frappe-bench/.claude/rules/`: `house-style.md` always, `py
 - `one_bpmn/agents_sandbox/`: the sandbox doctypes, the coding-agent sandbox client (`sandbox/`), acceptance criteria and reproduction gates, and the DocType source, customization and GitHub pull request writers (`customization/`).
 - `one_bpmn/one_bpmn/connectors/`: the A2A connector handlers.
 - `one_bpmn/agents/`: the AI agent runtime. See its `AGENTS.md`.
-- `one_bpmn/security/`: tool policy and agent refusals.
+- `one_bpmn/ai_agent_guardrails/`: tool policy, agent refusals and the Doctype Change Request doctypes.
+- `one_bpmn/security/`: script validation and other security gates.
 - `one_bpmn/ai_agent_security/`: the conversation lock, injection pattern and security event doctypes, input and output screening (`screening/`), the generated-script validator and Server Script gate (`code_checks/`), rate limits, turn locks and agent identities; `one_bpmn/api/security.py` holds their endpoints.
 - `one_bpmn/processa_engine/notifications/`: AMP and HTML task emails and their tokens; `one_bpmn/api/email_actions.py` holds the endpoints the emails call. See its `README.md`.
 - `one_bpmn/commands/`: bench commands.
