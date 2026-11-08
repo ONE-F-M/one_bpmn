@@ -83,7 +83,13 @@ test("the expanded diagram height is read on each open, not once", () => {
 })
 
 test("the agent task dialog shows the sandbox settings and saves them on the linked agent", () => {
-	const modal = source("components/Modals/AIAgentConfigModal.vue")
+	const modal = [
+		"components/AgentConfig/AgentConfigRunSettings.vue",
+		"composables/useAgentConfigLinked.js",
+		"composables/useAgentConfigSave.js",
+	]
+		.map(source)
+		.join("\n")
 	for (const key of ["aiSandboxUseJob", "aiSandboxRetryOnTestFailure", "aiRequireReproduction"]) {
 		assert.match(modal, new RegExp(`v-model="form\\.${key}"`))
 		assert.match(modal, new RegExp(`fields\\.${key} = form\\.value\\.${key} \\? 1 : 0`))
