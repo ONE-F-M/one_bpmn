@@ -734,7 +734,7 @@
   },
   {
    "depends_on": "eval:doc.long_term_memory=='Enabled' && doc.memory_write_mode=='distilled'",
-   "description": "What dispatch will actually resolve for this agent, after the fallback above — computed live from the fields on this form (WI-002168).",
+   "description": "What dispatch will actually resolve for this agent, after the fallback above — computed live from the fields on this form.",
    "fieldname": "memory_resolution_preview_html",
    "fieldtype": "HTML",
    "label": "Effective Models"
@@ -932,7 +932,7 @@
    "link_fieldname": "agent_configuration"
   }
  ],
- "modified": "2026-10-03 14:00:00.000000",
+ "modified": "2026-11-02 09:00:00.000000",
  "modified_by": "c.akeru@one-fm.com",
  "module": "AI Agent Registry",
  "name": "AI Agent Configuration",
