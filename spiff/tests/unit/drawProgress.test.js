@@ -7,7 +7,7 @@ import { progressLineFor } from "@/utils/progressLineFor.js"
 
 // No component harness in spiff, so the panel is read as text (as cardExpand.test.mjs does).
 const here = fileURLToPath(new URL("../../src/components/Chat/", import.meta.url))
-const panel = readFileSync(join(here, "AgentChatPanel.vue"), "utf8")
+const panel = readFileSync(join(here, "AgentChatPanel/AgentChatPanel.vue"), "utf8")
 
 test("the message of a onefm.progress value is the line shown", () => {
 	assert.equal(progressLineFor({ phase: 2, total: 6, message: "Drawing part 2 of 6" }), "Drawing part 2 of 6")

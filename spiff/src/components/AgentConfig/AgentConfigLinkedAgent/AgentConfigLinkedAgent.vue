@@ -55,7 +55,7 @@
 
 <script setup>
 import { inject } from "vue";
-import { AGENT_CONFIG_KEY } from "@/composables/useAgentConfigState";
+import { AGENT_CONFIG_KEY } from "@/composables/AgentConfig/useAgentConfigState";
 
 const ac = inject(AGENT_CONFIG_KEY);
 const {

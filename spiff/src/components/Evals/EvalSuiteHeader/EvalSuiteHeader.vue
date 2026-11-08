@@ -129,7 +129,7 @@
 <script setup>
 import { inject } from "vue";
 import { Button } from "frappe-ui";
-import { EVAL_SUITE_KEY } from "@/composables/useEvalSuiteState";
+import { EVAL_SUITE_KEY } from "@/composables/Eval/useEvalSuiteState";
 
 const {
 	suiteName,

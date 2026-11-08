@@ -76,7 +76,7 @@
 import { provide } from "vue";
 import { Icon } from "@iconify/vue";
 import AIAgentConfigModal from "@/components/Modals/AIAgentConfigModal/AIAgentConfigModal.vue";
-import { useEditorModeler } from "@/composables/useEditorModeler";
+import { useEditorModeler } from "@/composables/Editor/useEditorModeler";
 import BpmnEditorToolbar from "../BpmnEditorToolbar/BpmnEditorToolbar.vue";
 import BpmnProsAlly from "../BpmnProsAlly/BpmnProsAlly.vue";
 import BpmnInlineComment from "../BpmnInlineComment/BpmnInlineComment.vue";
@@ -87,21 +87,21 @@ import BpmnCommentDialogs from "../BpmnCommentDialogs/BpmnCommentDialogs.vue";
 import BpmnDocuPanel from "../BpmnDocuPanel/BpmnDocuPanel.vue";
 import BpmnContextMenu from "../BpmnContextMenu/BpmnContextMenu.vue";
 import BpmnMessageDialog from "../BpmnMessageDialog/BpmnMessageDialog.vue";
-import { createEditorContext, EDITOR_KEY } from "@/composables/useEditorState";
-import { useEditorPanels } from "@/composables/useEditorPanels";
-import { useEditorDialogs } from "@/composables/useEditorDialogs";
-import { useEditorComments } from "@/composables/useEditorComments";
-import { useEditorTimeline } from "@/composables/useEditorTimeline";
-import { useEditorInlineComment } from "@/composables/useEditorInlineComment";
-import { useEditorTouch } from "@/composables/useEditorTouch";
-import { useEditorElements } from "@/composables/useEditorElements";
-import { useEditorLint } from "@/composables/useEditorLint";
-import { useEditorCanvas } from "@/composables/useEditorCanvas";
-import { useEditorCopyPaste } from "@/composables/useEditorCopyPaste";
-import { useEditorSpiffEvents } from "@/composables/useEditorSpiffEvents";
-import { useEditorDocu } from "@/composables/useEditorDocu";
-import { useEditorXml } from "@/composables/useEditorXml";
-import { useEditorReadonly } from "@/composables/useEditorReadonly";
+import { createEditorContext, EDITOR_KEY } from "@/composables/Editor/useEditorState";
+import { useEditorPanels } from "@/composables/Editor/useEditorPanels";
+import { useEditorDialogs } from "@/composables/Editor/useEditorDialogs";
+import { useEditorComments } from "@/composables/Editor/useEditorComments";
+import { useEditorTimeline } from "@/composables/Editor/useEditorTimeline";
+import { useEditorInlineComment } from "@/composables/Editor/useEditorInlineComment";
+import { useEditorTouch } from "@/composables/Editor/useEditorTouch";
+import { useEditorElements } from "@/composables/Editor/useEditorElements";
+import { useEditorLint } from "@/composables/Editor/useEditorLint";
+import { useEditorCanvas } from "@/composables/Editor/useEditorCanvas";
+import { useEditorCopyPaste } from "@/composables/Editor/useEditorCopyPaste";
+import { useEditorSpiffEvents } from "@/composables/Editor/useEditorSpiffEvents";
+import { useEditorDocu } from "@/composables/Editor/useEditorDocu";
+import { useEditorXml } from "@/composables/Editor/useEditorXml";
+import { useEditorReadonly } from "@/composables/Editor/useEditorReadonly";
 
 const props = defineProps({
 	saveStatusText: {

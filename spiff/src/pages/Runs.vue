@@ -132,7 +132,7 @@
 </template>
 
 <script setup>
-import RecordPicker from "@/components/Controls/RecordPicker.vue"
+import RecordPicker from "@/components/Controls/RecordPicker/RecordPicker.vue"
 import { Badge, Button, ErrorMessage, FormControl, frappeRequest } from "frappe-ui"
 import { computed, onMounted, reactive, ref } from "vue"
 import { useRoute } from "vue-router"

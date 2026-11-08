@@ -73,7 +73,7 @@
 import { inject } from "vue";
 import { Button } from "frappe-ui";
 import { round1 } from "@/utils/evalFormat";
-import { EVAL_SUITE_KEY } from "@/composables/useEvalSuiteState";
+import { EVAL_SUITE_KEY } from "@/composables/Eval/useEvalSuiteState";
 
 const { consistency, flakyCases, loadingConsistency, loadConsistency } = inject(EVAL_SUITE_KEY);
 </script>

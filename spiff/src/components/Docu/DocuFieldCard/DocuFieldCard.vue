@@ -97,7 +97,7 @@
 
 <script setup>
 import { previewKind, previewPlaceholder } from "@/utils/docuFieldDefs";
-import { useDocu } from "@/composables/useDocu";
+import { useDocu } from "@/composables/Docu/useDocu";
 
 const {
 	selectField,

@@ -6,7 +6,7 @@ import { dirname, join } from "node:path"
 
 // No component harness in spiff, so this reads the single-file component as text.
 const here = fileURLToPath(new URL("../../src/components/", import.meta.url))
-const editor = readFileSync(join(here, "../composables/useEditorCanvas.js"), "utf8")
+const editor = readFileSync(join(here, "../composables/Editor/useEditorCanvas.js"), "utf8")
 const editorCss = readFileSync(join(here, "Editor/BpmnEditor/BpmnEditor.css"), "utf8")
 
 test("the drilldown arrow launches a Process-name link instead of the library alert", () => {

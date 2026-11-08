@@ -1,11 +1,11 @@
 <script setup>
 import { inject, toRef } from "vue";
 import BpmnEditor from "@/components/Editor/BpmnEditor/BpmnEditor.vue";
-import CompareDialog from "@/components/Modals/CompareModal.vue";
-import EditorTabs from "@/components/Editor/EditorTabs.vue";
+import CompareDialog from "@/components/Modals/CompareModal/CompareModal.vue";
+import EditorTabs from "@/components/Editor/EditorTabs/EditorTabs.vue";
 import { Icon } from "@iconify/vue";
-import VersionDiffDialog from "@/components/Modals/VersionDiffModal.vue";
-import { PROCESS_KEY } from "@/composables/useProcessState";
+import VersionDiffDialog from "@/components/Modals/VersionDiffModal/VersionDiffModal.vue";
+import { PROCESS_KEY } from "@/composables/Process/useProcessState";
 
 const pc = inject(PROCESS_KEY);
 const compact = toRef(pc.props, "compact");

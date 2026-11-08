@@ -5,7 +5,7 @@ import { ref } from "vue";
 vi.mock("frappe-ui", () => ({ frappeRequest: vi.fn().mockResolvedValue({}) }));
 
 const { frappeRequest } = await import("frappe-ui");
-const { useProcessDmn } = await import("../../src/composables/useProcessDmn.js");
+const { useProcessDmn } = await import("../../src/composables/Process/useProcessDmn.js");
 
 function makePage(overrides = {}) {
 	const fire = vi.fn();

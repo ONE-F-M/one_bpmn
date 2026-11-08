@@ -37,7 +37,7 @@
 import { inject } from "vue";
 import { Button, FormControl } from "frappe-ui";
 import { MATCHERS } from "@/utils/evalLabels";
-import { EVAL_SUITE_KEY } from "@/composables/useEvalSuiteState";
+import { EVAL_SUITE_KEY } from "@/composables/Eval/useEvalSuiteState";
 
 const { caseForm, addExpectedCall, removeExpectedCall } = inject(EVAL_SUITE_KEY);
 </script>

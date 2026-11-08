@@ -122,7 +122,7 @@ import { useRouter } from "vue-router";
 import { frappeRequest } from "frappe-ui";
 import { Icon } from "@iconify/vue";
 import { dayjs } from "@/dayjs";
-import VersionHistoryPanel from "@/components/Editor/VersionHistoryPanel.vue";
+import VersionHistoryPanel from "@/components/Editor/VersionHistoryPanel/VersionHistoryPanel.vue";
 import "bpmn-js/dist/assets/diagram-js.css";
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css";
 

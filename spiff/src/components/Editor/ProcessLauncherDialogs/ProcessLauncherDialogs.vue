@@ -1,11 +1,11 @@
 <script setup>
 import { inject } from "vue";
-import CallActivitySearchDialog from "@/components/Modals/CallActivitySearchModal.vue";
-import EmailNotificationEditorDialog from "@/components/Modals/EmailNotificationEditorModal.vue";
-import NotificationLinkDialog from "@/components/Modals/NotificationLinkModal.vue";
-import NotifyAssigneeEditorDialog from "@/components/Modals/NotifyAssigneeEditorModal.vue";
+import CallActivitySearchDialog from "@/components/Modals/CallActivitySearchModal/CallActivitySearchModal.vue";
+import EmailNotificationEditorDialog from "@/components/Modals/EmailNotificationEditorModal/EmailNotificationEditorModal.vue";
+import NotificationLinkDialog from "@/components/Modals/NotificationLinkModal/NotificationLinkModal.vue";
+import NotifyAssigneeEditorDialog from "@/components/Modals/NotifyAssigneeEditorModal/NotifyAssigneeEditorModal.vue";
 import { TextEditor } from "frappe-ui";
-import { PROCESS_KEY } from "@/composables/useProcessState";
+import { PROCESS_KEY } from "@/composables/Process/useProcessState";
 
 const pc = inject(PROCESS_KEY);
 const {

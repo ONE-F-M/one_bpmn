@@ -30,7 +30,7 @@
 
 <script setup>
 import { Button } from "frappe-ui";
-import { useDocu } from "@/composables/useDocu";
+import { useDocu } from "@/composables/Docu/useDocu";
 
 const {
 	contentCount,

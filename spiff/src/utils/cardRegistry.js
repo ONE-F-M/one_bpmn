@@ -6,13 +6,13 @@
 // the panel's safe fallback (and fails the WI-001680 conformance build).
 // onefm.choice / onefm.conversation_title / onefm.mode_transition are panel
 // chrome, deliberately NOT cards.
-import DataTableCard from "@/components/Chat/Cards/DataTableCard.vue";
-import DiagramPreviewCard from "@/components/Chat/Cards/DiagramPreviewCard.vue";
-import DocTypeSchemaCard from "@/components/Chat/Cards/DocTypeSchemaCard.vue";
-import LuCrusherResultCard from "@/components/Chat/Cards/LuCrusherResultCard.vue";
-import ProposalCard from "@/components/Chat/Cards/ProposalCard.vue";
-import ScriptDiffCard from "@/components/Chat/Cards/ScriptDiffCard.vue";
-import TestCaseCard from "@/components/Chat/Cards/TestCaseCard.vue";
+import DataTableCard from "@/components/Chat/Cards/DataTableCard/DataTableCard.vue";
+import DiagramPreviewCard from "@/components/Chat/Cards/DiagramPreviewCard/DiagramPreviewCard.vue";
+import DocTypeSchemaCard from "@/components/Chat/Cards/DocTypeSchemaCard/DocTypeSchemaCard.vue";
+import LuCrusherResultCard from "@/components/Chat/Cards/LuCrusherResultCard/LuCrusherResultCard.vue";
+import ProposalCard from "@/components/Chat/Cards/ProposalCard/ProposalCard.vue";
+import ScriptDiffCard from "@/components/Chat/Cards/ScriptDiffCard/ScriptDiffCard.vue";
+import TestCaseCard from "@/components/Chat/Cards/TestCaseCard/TestCaseCard.vue";
 
 export const cardRegistry = {
 	"onefm.proposed_config": ProposalCard,

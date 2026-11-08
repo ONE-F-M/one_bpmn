@@ -21,6 +21,7 @@ Register a bpmn-js module in `additionalModules` and a moddle extension in `modd
 - `:key` on every `v-for`; never `v-if` and `v-for` on one element.
 - Remove bpmn-js event listeners in `onBeforeUnmount`.
 - Each component sits in a folder named after it (`components/Docu/DocuApplyBar/DocuApplyBar.vue`) with its own `.css` beside it (rule component-folder).
+- Composables are `use<Name>.js`: the five large families live in `composables/<Area>/` (`Docu`, `Eval`, `AgentConfig`, `Process`, `Editor`, each file starting with `use<Area>`), the rest stay at the root (rule composable-layout).
 - Flag a component with more than 300 lines of `<script setup>`, a function over 30 lines, or a template nested more than three `div` levels; split or extract.
 
 ## frappe-ui and Tailwind

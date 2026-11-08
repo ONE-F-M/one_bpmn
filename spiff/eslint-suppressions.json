@@ -57,7 +57,7 @@
       "count": 1
     }
   },
-  "src/components/DiffViewer.vue": {
+  "src/components/DiffViewer/DiffViewer.vue": {
     "no-empty": {
       "count": 4
     },
@@ -109,11 +109,6 @@
   "src/pages/EvalResults.vue": {
     "no-unused-vars": {
       "count": 1
-    }
-  },
-  "src/pages/EvalSuite.vue": {
-    "no-unused-vars": {
-      "count": 6
     }
   },
   "src/pages/Evals.vue": {

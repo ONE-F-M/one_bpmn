@@ -69,19 +69,19 @@
 <script setup>
 import { getCurrentScope, nextTick, onBeforeUnmount, onMounted, provide, watch } from "vue";
 import { Icon } from "@iconify/vue";
-import AgentChatPanel from "@/components/Chat/AgentChatPanel.vue";
+import AgentChatPanel from "@/components/Chat/AgentChatPanel/AgentChatPanel.vue";
 import DocuApplyBar from "@/components/Docu/DocuApplyBar/DocuApplyBar.vue";
 import DocuChangesPreview from "@/components/Docu/DocuChangesPreview/DocuChangesPreview.vue";
 import DocuFormCanvas from "@/components/Docu/DocuFormCanvas/DocuFormCanvas.vue";
 import DocuPropertiesPanel from "@/components/Docu/DocuPropertiesPanel/DocuPropertiesPanel.vue";
 import DocuSettingsView from "@/components/Docu/DocuSettingsView/DocuSettingsView.vue";
-import { DOCU_KEY } from "@/composables/useDocu";
-import { useDocuAutosave } from "@/composables/useDocuAutosave";
-import { useDocuChat } from "@/composables/useDocuChat";
-import { useDocuHistory } from "@/composables/useDocuHistory";
-import { useDocuIr } from "@/composables/useDocuIr";
-import { useDocuSettings } from "@/composables/useDocuSettings";
-import { useDocuTree } from "@/composables/useDocuTree";
+import { DOCU_KEY } from "@/composables/Docu/useDocu";
+import { useDocuAutosave } from "@/composables/Docu/useDocuAutosave";
+import { useDocuChat } from "@/composables/Docu/useDocuChat";
+import { useDocuHistory } from "@/composables/Docu/useDocuHistory";
+import { useDocuIr } from "@/composables/Docu/useDocuIr";
+import { useDocuSettings } from "@/composables/Docu/useDocuSettings";
+import { useDocuTree } from "@/composables/Docu/useDocuTree";
 import { cardRegistry } from "@/utils/cardRegistry";
 
 const props = defineProps({

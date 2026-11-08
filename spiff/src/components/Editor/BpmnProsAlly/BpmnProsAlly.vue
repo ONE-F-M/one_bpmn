@@ -1,7 +1,7 @@
 <script setup>
 import { inject, toRef } from "vue";
-import ProsAllyPanel from "@/components/ProsAlly/ProsAllyPanel.vue";
-import { EDITOR_KEY } from "@/composables/useEditorState";
+import ProsAllyPanel from "@/components/ProsAlly/ProsAllyPanel/ProsAllyPanel.vue";
+import { EDITOR_KEY } from "@/composables/Editor/useEditorState";
 
 const ed = inject(EDITOR_KEY);
 const readonly = toRef(ed.props, "readonly");

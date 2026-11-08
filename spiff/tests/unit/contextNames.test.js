@@ -7,6 +7,8 @@ import { join } from "node:path";
 const src = fileURLToPath(new URL("../../src/", import.meta.url));
 const read = (path) => readFileSync(join(src, path), "utf8");
 const list = (dir) => readdirSync(join(src, dir));
+const listComposables = () =>
+	readdirSync(join(src, "composables"), { recursive: true }).filter((f) => f.endsWith(".js"));
 
 // Names a composable puts on the shared context: Object.assign lists plus the state return object.
 function providedNames(files, variable, stateFile, stateMarker) {
@@ -22,6 +24,7 @@ function providedNames(files, variable, stateFile, stateMarker) {
 				.forEach((n) => names.add(n));
 		}
 	}
+	assert.ok(files.length > 0, "no composable files found");
 	const state = read(stateFile);
 	const block = state.slice(state.lastIndexOf(stateMarker));
 	for (const match of block.matchAll(/^\t\t(\w+)[,:]/gm)) names.add(match[1]);
@@ -39,13 +42,13 @@ function destructured(source, variable) {
 }
 
 test("every name a process component reads from the page context is provided by it", () => {
-	const composables = list("composables")
-		.filter((f) => /^(useProcess|useProductionReview)/.test(f))
+	const composables = listComposables()
+		.filter((f) => /(?:^|\/)(useProcess|useProductionReview)/.test(f))
 		.map((f) => `composables/${f}`);
 	const provided = providedNames(
 		composables,
 		"pc",
-		"composables/useProcessState.js",
+		"composables/Process/useProcessState.js",
 		"const pc = {",
 	);
 	for (const name of ["notifDialog", "props", "router", "route", "isMobile"]) provided.add(name);
@@ -61,10 +64,15 @@ test("every name a process component reads from the page context is provided by 
 });
 
 test("every name an editor component reads from the editor context is provided by it", () => {
-	const composables = list("composables")
-		.filter((f) => /^useEditor/.test(f))
+	const composables = listComposables()
+		.filter((f) => /(?:^|\/)useEditor/.test(f))
 		.map((f) => `composables/${f}`);
-	const provided = providedNames(composables, "ed", "composables/useEditorState.js", "return {");
+	const provided = providedNames(
+		composables,
+		"ed",
+		"composables/Editor/useEditorState.js",
+		"return {",
+	);
 	const components = list("components/Editor")
 		.filter((f) => /^Bpmn/.test(f))
 		.map((f) => (f.endsWith(".vue") ? f : `${f}/${f}.vue`));
@@ -77,13 +85,13 @@ test("every name an editor component reads from the editor context is provided b
 });
 
 test("every name an agent config component reads from the dialog context is provided by it", () => {
-	const composables = list("composables")
-		.filter((f) => /^useAgentConfig(?!LintState)/.test(f))
+	const composables = listComposables()
+		.filter((f) => /(?:^|\/)useAgentConfig(?!LintState)/.test(f))
 		.map((f) => `composables/${f}`);
 	const provided = providedNames(
 		composables,
 		"ac",
-		"composables/useAgentConfigState.js",
+		"composables/AgentConfig/useAgentConfigState.js",
 		"return {",
 	);
 	const parts = list("components/AgentConfig").filter((d) => /^AgentConfig/.test(d));

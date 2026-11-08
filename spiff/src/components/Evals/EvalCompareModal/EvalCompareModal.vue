@@ -40,7 +40,7 @@
 <script setup>
 import { inject } from "vue";
 import { Button, Dialog, FormControl } from "frappe-ui";
-import { EVAL_SUITE_KEY } from "@/composables/useEvalSuiteState";
+import { EVAL_SUITE_KEY } from "@/composables/Eval/useEvalSuiteState";
 
 const {
 	suite,

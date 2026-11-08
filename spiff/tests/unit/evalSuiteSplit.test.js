@@ -12,8 +12,8 @@ const parts = [
 	...readdirSync(join(src, "components/Evals"), { recursive: true })
 		.filter((f) => f.endsWith(".vue"))
 		.map((f) => `components/Evals/${f}`),
-	...readdirSync(join(src, "composables"))
-		.filter((f) => /^useEval(?!uat)/.test(f) || f === "useAssignableAgents.js")
+	...readdirSync(join(src, "composables"), { recursive: true })
+		.filter((f) => /(?:^|\/)useEval(?!uat)/.test(f) || f === "useAssignableAgents.js")
 		.map((f) => `composables/${f}`),
 	"utils/evalFormat.js",
 	"utils/evalCaseForm.js",

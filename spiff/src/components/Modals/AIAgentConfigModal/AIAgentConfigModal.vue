@@ -55,15 +55,18 @@ import AgentConfigStaticContext from "@/components/AgentConfig/AgentConfigStatic
 import AgentConfigScreening from "@/components/AgentConfig/AgentConfigScreening/AgentConfigScreening.vue";
 import AgentConfigMemory from "@/components/AgentConfig/AgentConfigMemory/AgentConfigMemory.vue";
 import AgentConfigAssistant from "@/components/AgentConfig/AgentConfigAssistant/AgentConfigAssistant.vue";
-import { createAgentConfigContext, AGENT_CONFIG_KEY } from "@/composables/useAgentConfigState";
-import { useAgentConfigStaticContext } from "@/composables/useAgentConfigStaticContext";
-import { useAgentConfigModels } from "@/composables/useAgentConfigModels";
-import { useAgentConfigScreening } from "@/composables/useAgentConfigScreening";
-import { useAgentConfigLinked } from "@/composables/useAgentConfigLinked";
-import { useAgentConfigCreate } from "@/composables/useAgentConfigCreate";
-import { useAgentConfigAssistant } from "@/composables/useAgentConfigAssistant";
-import { useAgentConfigLoad } from "@/composables/useAgentConfigLoad";
-import { useAgentConfigSave } from "@/composables/useAgentConfigSave";
+import {
+	createAgentConfigContext,
+	AGENT_CONFIG_KEY,
+} from "@/composables/AgentConfig/useAgentConfigState";
+import { useAgentConfigStaticContext } from "@/composables/AgentConfig/useAgentConfigStaticContext";
+import { useAgentConfigModels } from "@/composables/AgentConfig/useAgentConfigModels";
+import { useAgentConfigScreening } from "@/composables/AgentConfig/useAgentConfigScreening";
+import { useAgentConfigLinked } from "@/composables/AgentConfig/useAgentConfigLinked";
+import { useAgentConfigCreate } from "@/composables/AgentConfig/useAgentConfigCreate";
+import { useAgentConfigAssistant } from "@/composables/AgentConfig/useAgentConfigAssistant";
+import { useAgentConfigLoad } from "@/composables/AgentConfig/useAgentConfigLoad";
+import { useAgentConfigSave } from "@/composables/AgentConfig/useAgentConfigSave";
 
 const props = defineProps({
 	element: { type: Object, required: true },

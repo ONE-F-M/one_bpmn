@@ -42,7 +42,7 @@ import EvalRunList from "@/components/Evals/EvalRunList/EvalRunList.vue";
 import EvalSuiteHeader from "@/components/Evals/EvalSuiteHeader/EvalSuiteHeader.vue";
 import EvalSuiteMetrics from "@/components/Evals/EvalSuiteMetrics/EvalSuiteMetrics.vue";
 import EvalThresholdsModal from "@/components/Evals/EvalThresholdsModal/EvalThresholdsModal.vue";
-import { EVAL_SUITE_KEY, createEvalSuiteContext } from "@/composables/useEvalSuiteState";
+import { EVAL_SUITE_KEY, createEvalSuiteContext } from "@/composables/Eval/useEvalSuiteState";
 
 const route = useRoute();
 const ctx = createEvalSuiteContext(route, useRouter());

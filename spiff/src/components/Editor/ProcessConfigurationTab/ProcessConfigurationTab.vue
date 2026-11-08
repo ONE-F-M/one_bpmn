@@ -1,8 +1,8 @@
 <script setup>
 import { inject } from "vue";
-import ConfigImportResultsDialog from "@/components/Modals/ConfigImportResultsModal.vue";
-import ExportConfigDialog from "@/components/Modals/ExportConfigModal.vue";
-import { PROCESS_KEY } from "@/composables/useProcessState";
+import ConfigImportResultsDialog from "@/components/Modals/ConfigImportResultsModal/ConfigImportResultsModal.vue";
+import ExportConfigDialog from "@/components/Modals/ExportConfigModal/ExportConfigModal.vue";
+import { PROCESS_KEY } from "@/composables/Process/useProcessState";
 
 const pc = inject(PROCESS_KEY);
 const {

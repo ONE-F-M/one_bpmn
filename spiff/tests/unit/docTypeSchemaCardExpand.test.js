@@ -10,7 +10,7 @@ const here = fileURLToPath(new URL("../../src/components/Chat/Cards/", import.me
 const source = (path) => readFileSync(join(here, path), "utf8")
 
 test("DocTypeSchemaCard offers an #expanded view with the fields and the raw JSON", () => {
-	const card = source("DocTypeSchemaCard.vue")
+	const card = source("DocTypeSchemaCard/DocTypeSchemaCard.vue")
 	assert.match(card, /<template #expanded>/)
 	const expanded = card.slice(card.indexOf("<template #expanded>"), card.indexOf("</template>", card.indexOf("<template #expanded>")))
 	assert.match(expanded, /<FieldList\b/)

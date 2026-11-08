@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("frappe-ui", () => ({ frappeRequest: vi.fn() }));
 vi.mock("@iconify/vue", () => ({ Icon: { render: () => null } }));
-vi.mock("@/components/Chat/AgentChatPanel.vue", () => ({ default: { render: () => null } }));
+vi.mock("@/components/Chat/AgentChatPanel/AgentChatPanel.vue", () => ({
+	default: { render: () => null },
+}));
 vi.mock("@/utils/cardRegistry", () => ({ cardRegistry: {} }));
 vi.mock("@/components/Docu/DocuFormCanvas/DocuFormCanvas.vue", () => ({
 	default: { render: () => null },
@@ -17,7 +19,7 @@ vi.mock("@/components/Docu/DocuChangesPreview/DocuChangesPreview.vue", () => ({
 	default: { render: () => null },
 }));
 vi.mock("@/components/Docu/DocuApplyBar/DocuApplyBar.vue", async () => {
-	const { useDocu } = await import("@/composables/useDocu");
+	const { useDocu } = await import("@/composables/Docu/useDocu");
 	return {
 		default: {
 			setup() {

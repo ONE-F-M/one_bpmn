@@ -14,7 +14,7 @@ const COMPOSABLES = [
 	"useDocuIr",
 	"useDocuSettings",
 	"useDocuTree",
-].map((name) => `composables/${name}.js`);
+].map((name) => `composables/Docu/${name}.js`);
 const UTILS = ["docuApi", "docuFieldDefs", "docuSettingsDefs"].map((name) => `utils/${name}.js`);
 const PART_DIRS = readdirSync(new URL(DOCU_DIR, src));
 const docuFiles = PART_DIRS.flatMap((dir) =>
