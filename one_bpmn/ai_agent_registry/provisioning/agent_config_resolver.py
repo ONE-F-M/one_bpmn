@@ -1152,7 +1152,7 @@ def start_reprovision(config_name: str) -> bool:
 
 def _start_condition_rejects(creation_model: str, config_name: str) -> str:
 	"""The map's conditional start expression when it is False for this agent, else ""."""
-	from one_bpmn.processa_engine.engine import json_safe_doc_fields
+	from one_bpmn.processa_engine.engine import evaluate_condition, json_safe_doc_fields
 	from one_bpmn.processa_engine.triggers import get_conditional_start_condition
 
 	condition = get_conditional_start_condition(
@@ -1161,7 +1161,7 @@ def _start_condition_rejects(creation_model: str, config_name: str) -> str:
 	if not condition:
 		return ""
 	fields = json_safe_doc_fields(frappe.get_doc("AI Agent Configuration", config_name))
-	return "" if frappe.safe_eval(condition, eval_locals=fields) else condition
+	return "" if evaluate_condition(condition, fields) else condition
 
 
 @frappe.whitelist()

@@ -26,6 +26,7 @@ app_include_js = [
 	"/assets/one_bpmn/js/bpmn_form_actions.js?v=6",
 	"/assets/one_bpmn/js/bpmn_list_indicator.js",
 	"/assets/one_bpmn/js/bpmn_list_actions.js?v=1",
+	"/assets/one_bpmn/js/bpmn_cancel_request.js?v=1",
 	# WI-002050: an agent's question appears on the document it is about, whatever
 	# that document is. Loaded for every form rather than bound to one doctype:
 	# the clarification record names a doctype and a document, so it was never
@@ -95,6 +96,7 @@ has_permission = {
 # actually declares the queue — so this is safe to deploy before the worker.
 override_doctype_class = {
 	"Scheduled Job Type": "one_bpmn.overrides.scheduled_job_type.ProcessaScheduledJobType",
+	"Server Script": "one_bpmn.overrides.server_script.ProcessaServerScript",
 }
 
 # Document Events
@@ -138,6 +140,7 @@ doc_events = {
 		"before_cancel":          _BPMN_GUARD,
 		"before_workflow_action": _BPMN_GUARD,
 		"on_trash":               _BPMN_DELETE,
+		"onload":                 "one_bpmn.processa_engine.instances.cancellation.set_pending_cancellation_onload",
 	},
 	# WI-001620: creating a chat agent configuration kicks off the
 	# "AI Agent Creation Process" BPMN map via its conditional start event
@@ -146,7 +149,10 @@ doc_events = {
 	# Server Script that a BPMN script task references (unrelated Server
 	# Scripts pass through untouched).
 	"Server Script": {
-		"validate": "one_bpmn.security.script_gate.validate_server_script_on_save",
+		"validate": [
+			"one_bpmn.security.script_gate.apply_server_script_approval",
+			"one_bpmn.security.script_gate.validate_server_script_on_save",
+		],
 	},
 	# WI-001644: PII input screening. The map-driven agents read the user's
 	# text back off the stored Chat Message, so redacting the in-flight
