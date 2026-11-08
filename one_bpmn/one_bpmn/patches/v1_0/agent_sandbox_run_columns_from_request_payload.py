@@ -2,7 +2,7 @@
 
 import frappe
 
-from one_bpmn.one_bpmn.doctype.agent_sandbox_run.agent_sandbox_run import identity_from_payload
+from one_bpmn.agents_sandbox.doctype.agent_sandbox_run.agent_sandbox_run import identity_from_payload
 
 
 def execute():

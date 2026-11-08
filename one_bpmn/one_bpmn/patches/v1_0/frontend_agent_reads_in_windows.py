@@ -17,7 +17,7 @@ SKILL = "frontend-house-style"
 TAILWIND_RESOURCE = "tailwind-config"
 
 READ_IMPORT = (
-	"from one_bpmn.one_bpmn.connectors.agent_sandbox_ops import sandbox_dispatch, read_budget_exceeded\n"
+	"from one_bpmn.agents_sandbox.sandbox.ops import sandbox_dispatch, read_budget_exceeded\n"
 )
 READ_SETTINGS = (
 	"import json\n"

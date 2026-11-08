@@ -17,7 +17,7 @@ READ_FILES = (
 	"""\
 # Sandbox tool: read_files. Shared verbatim by every sandbox agent, so nothing here may be agent-specific.
 # Reads up to 10 files in one call. Counts as one read against the run's read budget.
-from one_bpmn.one_bpmn.connectors.agent_sandbox_ops import sandbox_dispatch, read_budget_exceeded
+from one_bpmn.agents_sandbox.sandbox.ops import sandbox_dispatch, read_budget_exceeded
 
 """
 	+ HEADER
@@ -47,7 +47,7 @@ GREP_FILES = (
 	"""\
 # Sandbox tool: grep_files. Shared verbatim by every sandbox agent, so nothing here may be agent-specific.
 # Finds lines matching a pattern, optionally under a path prefix. Counts as one read against the run's read budget.
-from one_bpmn.one_bpmn.connectors.agent_sandbox_ops import sandbox_dispatch, read_budget_exceeded
+from one_bpmn.agents_sandbox.sandbox.ops import sandbox_dispatch, read_budget_exceeded
 
 """
 	+ HEADER
@@ -80,7 +80,7 @@ APPLY_EDITS = (
 	"""\
 # Sandbox tool: apply_edits. Shared verbatim by every sandbox agent, so nothing here may be agent-specific.
 # Applies up to 20 edit_file replacements in order, committed together. Stops at the first one that fails.
-from one_bpmn.one_bpmn.connectors.agent_sandbox_ops import sandbox_dispatch
+from one_bpmn.agents_sandbox.sandbox.ops import sandbox_dispatch
 
 """
 	+ HEADER

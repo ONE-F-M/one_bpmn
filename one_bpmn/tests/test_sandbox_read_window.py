@@ -41,7 +41,7 @@ def _exec(script_name: str, task_data: dict, **stubs) -> dict:
 		"instance": frappe._dict(name=f"window-{frappe.generate_hash(length=6)}"),
 	}
 	with patch(
-		"one_bpmn.one_bpmn.connectors.agent_sandbox_ops.sandbox_dispatch",
+		"one_bpmn.agents_sandbox.sandbox.ops.sandbox_dispatch",
 		return_value=stubs.get("dispatch"),
 	):
 		exec(body, namespace)
