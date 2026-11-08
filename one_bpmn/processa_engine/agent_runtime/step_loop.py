@@ -27,7 +27,7 @@ from one_bpmn.agents.memory.loop_compaction import compact_transcript, has_turns
 from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG, _tool_call_status, clear_tool_artifacts
 from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG, BudgetExceeded, ToolDeferred
 from one_bpmn.processa_engine.agent_runtime.turn_state import TURN_ANSWERED_FLAG
-from one_bpmn.security.tool_policy import PolicyViolation
+from one_bpmn.ai_agent_guardrails.tool_policy import PolicyViolation
 
 
 def _now_iso() -> str:

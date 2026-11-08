@@ -23,8 +23,8 @@ private-import one_bpmn/api/production_review.py one_bpmn.api.editability._is_ba
 private-import one_bpmn/api/property_panel.py one_bpmn.api.editability._is_production_instance
 private-import one_bpmn/api/sessions_api.py one_bpmn.agents.memory.compaction_triggers._is_inflight
 private-import one_bpmn/api/sessions_api.py one_bpmn.agents.memory.compaction_triggers._resolve_agent_id
-private-import one_bpmn/one_bpmn/doctype/ai_tool_policy_rule/ai_tool_policy_rule.py one_bpmn.security.tool_policy._LIMIT_RE
-private-import one_bpmn/one_bpmn/doctype/ai_tool_policy_rule/ai_tool_policy_rule.py one_bpmn.security.tool_policy._split_lines
+private-import one_bpmn/ai_agent_guardrails/doctype/ai_tool_policy_rule/ai_tool_policy_rule.py one_bpmn.ai_agent_guardrails.tool_policy._LIMIT_RE
+private-import one_bpmn/ai_agent_guardrails/doctype/ai_tool_policy_rule/ai_tool_policy_rule.py one_bpmn.ai_agent_guardrails.tool_policy._split_lines
 private-import one_bpmn/one_bpmn/patches/v1_0/agent_limits_move_to_the_configuration.py one_bpmn.one_bpmn.patches.v1_0.agent_settings_move_to_the_configuration._agent_shapes
 private-import one_bpmn/one_bpmn/patches/v1_0/agent_limits_move_to_the_configuration.py one_bpmn.one_bpmn.patches.v1_0.agent_settings_move_to_the_configuration._is_blank
 private-import one_bpmn/one_bpmn/patches/v1_0/agent_prompts_for_awkward_orders.py one_bpmn.one_bpmn.patches.v1_0.seed_connector_agent_config._AWKWARD_ORDERS
