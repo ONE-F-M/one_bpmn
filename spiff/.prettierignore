@@ -232,7 +232,6 @@ src/pages/EvalFeedback.vue
 src/pages/EvalResults.vue
 src/pages/EvalRun.vue
 src/pages/Evals.vue
-src/pages/EvalSuite.vue
 src/pages/Processes.vue
 src/pages/Insights.vue
 src/pages/Instance.vue
