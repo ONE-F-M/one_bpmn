@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Agent-to-agent delegation on the SAME site (WI-001933).
+"""Agent-to-agent delegation on the SAME site.
 
 This is the primary case: an orchestrator handing a task to a specialist
 that lives in the same bench. Nothing crosses a trust boundary, so none
@@ -153,7 +153,7 @@ def delegate(
 			delegating_agent, config.name, counters, required_capability=required_capability
 		)
 	except guardrails.DelegationRefused as refusal:
-		# A limit breach leaves a failed task and tells a person (WI-002008);
+		# A limit breach leaves a failed task and tells a person;
 		# an off-the-list target is a configuration mistake that never became
 		# work, so it just refuses.
 		breach = guardrails.record_limit_breach(
@@ -172,7 +172,7 @@ def delegate(
 				instance=caller_instance,
 				a2a_task=breach,
 			)
-		# WI-002053: and say which limit, and what it reached. The notify above
+		# And say which limit, and what it reached. The notify above
 		# tells a person; this is what is still there afterwards.
 		delegation.record_refusal(
 			refusal,

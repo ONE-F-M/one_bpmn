@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """
-One id shared by everything a single agent turn produces (WI-001967).
+One id shared by everything a single agent turn produces.
 
 A turn writes records at moments that cannot see each other. The input screen
 runs before the BPMN map dispatches, so no AI Agent Run exists yet; the run is

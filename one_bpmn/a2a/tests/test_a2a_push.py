@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-001933 follow-up: push notifications, both directions.
+"""Push notifications, both directions.
 
 Push exists so a partner whose work runs for hours does not have to be
 chased. It sits on top of polling and never replaces it, so the tests

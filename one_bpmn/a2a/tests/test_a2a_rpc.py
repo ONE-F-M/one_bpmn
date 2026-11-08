@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-001932: the A2A server door — envelope, gate, lifecycle.
+"""The A2A server door — envelope, gate, lifecycle.
 
 The endpoint is exercised the way a real caller reaches it: a JSON-RPC
 body on the request, authenticated as a client's service user. The
@@ -88,7 +88,7 @@ class TestA2AEnvelope(RPCHarness):
 		with self.set_user(client.user):
 			reply = self.call_rpc({"jsonrpc": "2.0", "id": 1}, agent_id=agent.agent_id)
 		self.assertEqual(reply["error"]["code"], a2a_contract.error_code("INVALID_REQUEST"))
-		# WI-002009: the rejection is logged with which field failed, through
+		# The rejection is logged with which field failed, through
 		# the same door every screening verdict uses.
 		event = frappe.get_all(
 			"AI Security Event",

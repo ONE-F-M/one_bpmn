@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """
-PII detection and reversible redaction for agent input (WI-001644).
+PII detection and reversible redaction for agent input.
 
 Every agent invocation carries whatever the user typed straight to a third-party
 model. A Civil ID pasted into a chat box is, today, sent verbatim to Anthropic
@@ -370,7 +370,7 @@ def screen_input(text: str, agent_config=None) -> RedactionResult:
 		if result.redacted:
 			label = agent_config.get("agent_id") if isinstance(agent_config, dict) else agent_config
 			frappe.logger("pii").info(f"PII screened for agent={label or '-'}: {result.summary()}")
-			# WI-001967: the verdict belongs in AI Security Event, not only in a
+			# The verdict belongs in AI Security Event, not only in a
 			# log file. record_pii_events fails open, so this cannot stop the turn.
 			from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import (
 				agent_config_name,
@@ -418,7 +418,7 @@ def screen_chat_message(doc, method=None):
 	if getattr(doc, "message_type", None) != "User":
 		return
 
-	# WI-001968: the real per-turn gate for map-driven chat agents. Those
+	# The real per-turn gate for map-driven chat agents. Those
 	# conversations run one long-lived BPMN instance — invoke_agent opens it and
 	# every later message RESUMES it, so a gate at the API entry point only ever
 	# sees the first message of a conversation. A Chat Message row is written for
@@ -445,7 +445,7 @@ def screen_chat_message(doc, method=None):
 		frappe.logger("pii").info(
 			f"PII screened in Chat Message for {doc.get('conversation') or '-'}: {result.summary()}"
 		)
-		# WI-001967: same verdict, same place. Recorded against the conversation
+		# Same verdict, same place. Recorded against the conversation
 		# because this path has no agent config to hand.
 		from one_bpmn.ai_agent_security.events import record_pii_events
 

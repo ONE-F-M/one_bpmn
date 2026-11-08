@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 """Agent Delegation: tracking a hand-over, and escalating one that stops.
 
-WI-002053. Three things are pinned here.
+Three things are pinned here.
 
 **The record.** A delegation used to exist only as an A2A Task, which knows who
 was asked and not what the work was about. The Agent Delegation row ties the
@@ -9,8 +9,7 @@ delegating instance, the task, the worker's instance and the referenced document
 together, and its reference is generic on purpose: a Work Item on the Software
 Development path, an A2A Task in the test harness.
 
-**The escalation.** Depth and hand-off limits were already notified at the door
-(WI-002008). A limit reached while the worker was RUNNING was silent — the
+**The escalation.** Depth and hand-off limits were already notified at the door. A limit reached while the worker was RUNNING was silent — the
 deadline set state="timed-out" and woke the caller, and a worker ending at its
 turn cap returned partial text that looked like an answer. Both now land on
 Needs Review and tell a person once.
@@ -337,7 +336,7 @@ class TestEscalationWithoutARowYet(FrappeTestCase):
 
 
 class TestARetryActuallyRuns(FrappeTestCase):
-	"""WI-002146. The limit was respected without anything being retried.
+	"""The limit was respected without anything being retried.
 
 	A delegated specialist is a Background agent: the A2A Task row IS its
 	trigger document, so "the process for this task" is the same lookup on every
@@ -664,7 +663,7 @@ class TestFinishedWorkIsNotTimedOut(FrappeTestCase):
 
 
 class TestHandingWorkBack(FrappeTestCase):
-	"""WI-002148. Raising a limit changed nothing on its own.
+	"""Raising a limit changed nothing on its own.
 
 	A delegation stops four ways — a limit, retries running out, a person
 	cancelling it, or plain failure — and every one was a dead end. The alert
@@ -941,7 +940,7 @@ class TestHandingWorkBack(FrappeTestCase):
 
 
 class TestCapabilityGate(FrappeTestCase):
-	"""WI-002056, the hybrid. WHICH specialist gets the work is decided by the
+	"""The hybrid case. WHICH specialist gets the work is decided by the
 	orchestrator reading the brief against the tool descriptions — a tag match
 	cannot do that, because the signal is in the text (a work item asking to be
 	sized carries no field saying so; its type is "Task" and it has no labels).
@@ -1378,7 +1377,7 @@ class TestDelegationRetry(FrappeTestCase):
 
 	def test_each_attempt_is_counted_on_the_delegation(self):
 		"""Not on the A2A Task: one delegation stays one row, and the count is
-		what WI-002060's dashboard needs."""
+		what the dashboard needs."""
 		task, ad = self._recorded()
 		self.assertEqual(delegation.note_attempt(task.name), 2)
 		self.assertEqual(frappe.db.get_value("Agent Delegation", ad, "attempt_count"), 2)

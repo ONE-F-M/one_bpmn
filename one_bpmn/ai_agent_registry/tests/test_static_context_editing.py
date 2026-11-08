@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001639: examples and guard rails — the agent's frozen static context —
+# Examples and guard rails — the agent's frozen static context —
 # are editable from the Processa AI Agent Config modal, not only from the desk
 # form or the assistant's create payload.
 #

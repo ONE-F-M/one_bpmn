@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""A2A Client — the inbound guest list (WI-001931).
+"""A2A Client — the inbound guest list.
 
 Every external caller is one row here. Approval provisions a dedicated
 service user (the caller's badge: its API key), and ``allowed_agents`` is
@@ -8,7 +8,7 @@ the positive list of agents that badge may invoke. The A2A door resolves
 ``frappe.session.user`` back to this row — a caller that is not Approved
 and enabled simply does not exist to the endpoint.
 
-The user represents the CALLER, never the agent (WI-001931 revision):
+The user represents the CALLER, never the agent:
 per-agent traceability comes from A2A Task / AI Agent Run links.
 """
 

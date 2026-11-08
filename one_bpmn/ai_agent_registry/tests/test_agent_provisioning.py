@@ -36,7 +36,7 @@ class TestGenerateEvalSuiteForAgent(FrappeTestCase):
 		"""Insert a Draft chat agent with *prompts* as its sample prompts."""
 		name = name or self.agent_name
 		# in_migrate suppresses the BPMN insert trigger — a real creation-process
-		# run makes live AI calls; the trigger is covered by WI-001620.
+		# run makes live AI calls; the trigger is covered by its own tests.
 		frappe.flags.in_migrate = True
 		try:
 			cfg = frappe.get_doc({
@@ -112,7 +112,7 @@ class TestGenerateEvalSuiteForAgent(FrappeTestCase):
 		self.assertEqual(prompts, ["only"])
 
 	def test_links_the_suite_back_to_the_agent(self):
-		"""WI-001743: the suite owns the link to its agent configuration."""
+		"""The suite owns the link to its agent configuration."""
 		self._make_agent(["one"])
 		suite = generate_eval_suite_for_agent(self.agent_name)
 

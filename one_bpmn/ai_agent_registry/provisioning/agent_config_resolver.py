@@ -1,15 +1,13 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """
-Resolve an AI Agent Configuration reference on an AI task/selector shape
-(WI-001637, live-link amendment 2026-07-17).
+Resolve an AI Agent Configuration reference on an AI task/selector shape.
 
 A shape may set ``aiAgentConfig`` (a link to an AI Agent Configuration) as
 an alternative to entering a raw provider. The link is LIVE:
 
 * **At dispatch, the configuration is authoritative** for agent-level
-  fields (system prompt, provider, model, temperature, max tokens, and —
-  since WI-001793 — every memory setting) — ``resolve_dispatch_overrides``
+  fields (system prompt, provider, model, temperature, max tokens, and every memory setting) — ``resolve_dispatch_overrides``
   supplies them and the dispatchers overlay them onto the shape's
   attributes. The shape's copies are an editing view and the fallback when
   the configuration has been deleted. Remaining shape-only fields (output
@@ -45,7 +43,7 @@ CONFIG_TO_SHAPE = {
 	"system_prompt": "aiSystemPrompt",
 	"temperature": "aiTemperature",
 	"max_tokens": "aiMaxTokens",
-	# WI-001793: memory settings live on the agent, not the diagram. Every value
+	# Memory settings live on the agent, not the diagram. Every value
 	# here is blank-by-default so an unset field falls through to the shape's
 	# older XML copy rather than silently overriding it with a default.
 	# ``long_term_memory`` needs no translation: the dispatcher's cfg_truthy
@@ -85,7 +83,7 @@ ZERO_MEANS_UNSET = {
 }
 
 # Shape attributes the modal may write back, and the config fields they land
-# in. WI-001655 inverted the old rule: the MODEL is now the agent's editable
+# in. The old rule is inverted: the MODEL is now the agent's editable
 # pick (a Link into the AI Model catalog), while aiProvider is deliberately
 # absent — the provider is derived from the model's credentials link, so "to
 # change the provider, change the model".
@@ -101,7 +99,7 @@ _SHAPE_TO_CONFIG = {
 	"aiThinkingBudgetTokens": "thinking_budget_tokens",
 	"aiTerminalTools": "terminal_tools",
 	**ZERO_MEANS_UNSET,
-	# WI-001793: the modal's Memory section now persists here instead of onto
+	# The modal's Memory section now persists here instead of onto
 	# the BPMN XML, so the agent is the single place memory is configured.
 	"aiConversationStore": "conversation_store",
 	"aiContextMaxMessages": "context_max_messages",
@@ -110,7 +108,7 @@ _SHAPE_TO_CONFIG = {
 	"aiMemoryWriteMode": "memory_write_mode",
 	"aiMemoryDistillModel": "memory_distill_model",
 	"aiMemoryReconcileModel": "memory_reconcile_model",
-	# WI-002163: caps the injected recall block's estimated size. Handled the
+	# Caps the injected recall block's estimated size. Handled the
 	# same way context_max_messages is below (NOT in CONFIG_TO_SHAPE's generic
 	# read loop) rather than like context_token_budget — 0 must mean "not
 	# configured here", never a real "no cap" setting, or an agent could
@@ -128,7 +126,7 @@ _SHAPE_TO_CONFIG = {
 	"aiLoopCompactionKeepTurns": "loop_compaction_keep_turns",
 	"aiGoldenDatasetMinimum": "golden_dataset_minimum",
 	"aiGoldenDatasetTarget": "golden_dataset_target",
-	# WI-001644: screening is agent-level too — what an agent may say is a
+	# Screening is agent-level too — what an agent may say is a
 	# property of the agent, not of the task that happens to call it.
 	"aiPiiScreening": "pii_screening",
 	"aiInjectionScreening": "injection_screening",
@@ -164,7 +162,7 @@ _SCREENING_TO_SHAPE = {
 }
 
 # Guard rail categories, mirroring the AI Agent Guard Rail Select options
-# (WI-001639). Kept here so the create endpoint can reject a bogus category
+# Kept here so the create endpoint can reject a bogus category
 # before doc validation turns it into a hard failure.
 _GUARDRAIL_CATEGORIES = (
 	"Code Quality",
@@ -175,8 +173,7 @@ _GUARDRAIL_CATEGORIES = (
 	"Other",
 )
 
-# The two child tables that make up the agent's frozen static context
-# (WI-001639), and the shape attributes the modal carries them under. Unlike
+# The two child tables that make up the agent's frozen static context, and the shape attributes the modal carries them under. Unlike
 # the scalar maps above these are LISTS, so they are read and written whole:
 # the modal always sends the full table, and a missing key means "leave it
 # alone" rather than "empty it".
@@ -197,7 +194,7 @@ def _clean_skill_rows(rows: list[dict]) -> list[dict]:
 	return out
 
 
-# What the agent is PERMITTED to do, as roles held by its own user (WI-002054).
+# What the agent is PERMITTED to do, as roles held by its own user.
 # Editable here rather than only on the desk form because that is where the rest
 # of the agent is configured, and "may this agent move a work item to Done" is a
 # question the person designing the agent is the one asking.
@@ -424,16 +421,16 @@ def config_field_map(config_name: str) -> dict:
 			out[sattr] = val
 
 	# Int fields have no blank state — 0 means "not configured here", so it must
-	# not override the shape's value the way a real setting would (WI-001793).
+	# not override the shape's value the way a real setting would.
 	if cint(cfg.get("context_max_messages")):
 		out["aiContextMaxMessages"] = cfg.context_max_messages
-	# WI-002163: same reasoning, and deliberately so — unlike context_token_budget
+	# Same reasoning, and deliberately so — unlike context_token_budget
 	# (where 0 is a real "no size limit" setting the modal offers), 0/blank here
 	# must stay "not configured" with no way to opt out of the cap, or an agent
 	# could silently defeat the ceiling this field exists to guarantee.
 	if cint(cfg.get("memory_token_budget")):
 		out["aiMemoryTokenBudget"] = cfg.memory_token_budget
-	# WI-002195: the cap on a tool result the model sees. Same rule — 0 means
+	# The cap on a tool result the model sees. Same rule — 0 means
 	# "platform default", not "no cap", so it must not be written as a value.
 	if cint(cfg.get("tool_result_max_chars")):
 		out["aiToolResultMaxChars"] = cfg.tool_result_max_chars
@@ -449,7 +446,7 @@ def config_field_map(config_name: str) -> dict:
 			out[sattr] = cfg.get(cfield)
 	if cfg.ai_provider:
 		out["aiProvider"] = cfg.ai_provider
-	# WI-001655: the model is the agent's own pick from the AI Model catalog
+	# The model is the agent's own pick from the AI Model catalog
 	# (the record name IS the model id); the provider above is derived from
 	# that model's credentials link at save time.
 	if cfg.get("ai_model"):
@@ -625,11 +622,11 @@ def get_agent_config_for_shape(config_name: str) -> dict:
 	"""Whitelisted: the editor calls this on selecting a config to copy its
 	current values into the shape's fields (the designer's editing view)."""
 	frappe.has_permission("AI Agent Configuration", "read", throw=True)
-	# WI-001639: the static-context tables ride along so the modal can edit
+	# The static-context tables ride along so the modal can edit
 	# them, but they stay out of config_field_map so dispatch's overlay is
 	# unchanged.
 	#
-	# WI-002054: the role picker's options ride along too, rather than the modal
+	# The role picker's options ride along too, rather than the modal
 	# fetching them separately. The separate call kept coming back empty in the
 	# browser while returning 142 roles to curl, and an empty picker is
 	# indistinguishable from "you may grant nothing" — which is a real answer the
@@ -735,7 +732,7 @@ def _refuse_roles_the_editor_does_not_hold(wanted: list[dict], current: list[dic
 @frappe.whitelist()
 def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict:
 	"""Whitelisted: write agent-level edits from the editor modal back to the
-	linked AI Agent Configuration (WI-001637 live-link).
+	linked AI Agent Configuration.
 
 	``fields`` maps shape attributes (aiSystemPrompt, aiTemperature,
 	aiMaxTokens, aiProvider) to their new values; anything outside
@@ -768,7 +765,7 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 			value = frappe.utils.cint(value)
 		if cfield == "top_p":
 			value = frappe.utils.flt(value)
-		# WI-001793: the modal's number input hands back a string; 0/blank means
+		# The modal's number input hands back a string; 0/blank means
 		# "not set here" and must stay 0 so dispatch falls through to the shape.
 		if cfield == "run_cost_budget":
 			value = frappe.utils.flt(value)
@@ -787,7 +784,7 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 		):
 			value = frappe.utils.cint(value)
 		# Old diagrams carry model ids baked into the shape before the AI Model
-		# catalog existed (WI-001655). Letting doc.save() hit the Link
+		# catalog existed. Letting doc.save() hit the Link
 		# validation surfaces a raw LinkValidationError — say what is actually
 		# wrong instead.
 		if (
@@ -805,7 +802,7 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 			doc.set(cfield, value)
 			changed.append(cfield)
 
-	# WI-001639: the static-context tables are replaced whole. The modal sends
+	# The static-context tables are replaced whole. The modal sends
 	# the complete table or omits the key entirely, so "present" means the user
 	# was editing it and "absent" means leave it be — there is no per-row diff
 	# to apply, and row ORDER is meaningful (it is the order they reach the
@@ -840,7 +837,7 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 
 	# Re-provisioning is a chat-map concern: it re-runs the creation process
 	# so a Live CHAT agent picks up the change. Background agents (Live via
-	# auto-go-live, WI-001652) have no map to rebuild — never re-provision them.
+	# auto-go-live) have no map to rebuild — never re-provision them.
 	was_live = doc.lifecycle_status == "Live" and doc.agent_type == "Chat"
 	doc.save()
 
@@ -851,7 +848,7 @@ def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict
 	return {"ok": True, "updated": changed, "reprovisioned": reprovisioned}
 
 
-# The create endpoint's payload contract as DATA (WI-001649): the AI Assistant
+# The create endpoint's payload contract as DATA: the AI Assistant
 # is told about these fields at call time instead of having them written into
 # its prompt as prose. Keys match create_agent_configuration's payload exactly.
 CREATE_PAYLOAD_CONTRACT = {
@@ -937,7 +934,7 @@ CREATE_PAYLOAD_CONTRACT = {
 
 @frappe.whitelist()
 def create_agent_configuration(payload: str | dict) -> dict:
-	"""Create a new AI Agent Configuration from the Processa editor (WI-001648).
+	"""Create a new AI Agent Configuration from the Processa editor.
 
 	Inserted as **Chat + Draft with the caller's permissions**, so the
 	AI Agent Creation Process start trigger fires on insert exactly as it
@@ -997,7 +994,7 @@ def create_agent_configuration(payload: str | dict) -> dict:
 		and not chat_mode_label
 		and is_chat_startable_map(process_model) is not False
 	):
-		# WI-001997: only a CHAT agent needs a label, and even then an agent
+		# Only a CHAT agent needs a label, and even then an agent
 		# mapped to a NON-chat process map may skip it — it never appears in
 		# the chat picker. Everything else (chat map, or no map at all →
 		# Direct-API chat) fails fast here, because the creation process's
@@ -1026,18 +1023,18 @@ def create_agent_configuration(payload: str | dict) -> dict:
 	doc.lifecycle_status = "Draft"
 	doc.enabled = 1
 	doc.chat_mode_label = chat_mode_label
-	# WI-001997: the map is a designer-chosen link at creation — usually the
+	# The map is a designer-chosen link at creation — usually the
 	# process the agent is being created inside. Nothing clones or overwrites
 	# it; the map stays the designer's own.
 	doc.process_model = process_model or None
-	# WI-001655: the model is the pick; the provider derives from its
+	# The model is the pick; the provider derives from its
 	# credentials link on save. A directly-passed credentials value is kept
 	# only as legacy fallback for model-less payloads.
 	doc.ai_model = payload.get("ai_model") or None
 	doc.ai_provider = payload.get("ai_provider") or None
 	doc.system_prompt = payload.get("system_prompt") or ""
 	doc.description = payload.get("description") or ""
-	# WI-001644: screening and the throttle chosen at creation rather than left
+	# Screening and the throttle chosen at creation rather than left
 	# to a later visit to the desk form. Set only when the field exists on this
 	# site and the value is one the doctype accepts — an unknown value would fail
 	# the whole insert over a setting the agent could perfectly well start with
@@ -1062,7 +1059,7 @@ def create_agent_configuration(payload: str | dict) -> dict:
 				"prompt": row["prompt"],
 				"expected_behaviour": row.get("expected_behaviour") or "",
 			})
-	# WI-001639: the agent's frozen static context. Row order is the order the
+	# The agent's frozen static context. Row order is the order the
 	# proposer gave them — it is the order they reach the model.
 	for row in _clean_example_rows(payload.get("examples")):
 		doc.append("examples", row)

@@ -3,9 +3,9 @@
 """
 AI Model — a catalogue entry that also carries the connection.
 
-Since WI-002134 the key, endpoint and on/off switch live on the model. That
+The key, endpoint and on/off switch live on the model. That
 makes this record the one place a broken credential can be caught before an
-agent finds it (WI-002191):
+agent finds it:
 
 * an enabled model must name a provider and hold a key — the form already asks
   for both, but only the server can refuse a save that lacks them;

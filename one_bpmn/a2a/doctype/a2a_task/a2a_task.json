@@ -235,7 +235,7 @@
    "label": "Delegation Trace"
   },
   {
-   "description": "One id per top-level request; every delegation in its chain carries it (WI-002008).",
+   "description": "One id per top-level request; every delegation in its chain carries it.",
    "fieldname": "task_execution_id",
    "fieldtype": "Data",
    "label": "Task Execution ID"
@@ -397,7 +397,7 @@
   }
  ],
  "links": [],
- "modified": "2026-08-13 21:00:00.000000",
+ "modified": "2026-11-02 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "A2A",
  "name": "A2A Task",

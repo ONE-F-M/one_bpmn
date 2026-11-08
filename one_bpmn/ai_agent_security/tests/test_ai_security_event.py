@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001967: the security event log and the rule pack.
+# The security event log and the rule pack.
 #
 # One test per acceptance criterion, named so a reviewer can read the AC off the
 # failure. The interesting ones are AC2 (immutability has to hold against

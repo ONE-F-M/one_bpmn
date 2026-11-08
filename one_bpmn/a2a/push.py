@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Push notifications for A2A tasks — both directions (WI-001933).
+"""Push notifications for A2A tasks — both directions.
 
 Polling is the floor: it needs nothing open to the internet and works
 against a partner with no callback support. But its interval widens to a

@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-001648: create an AI Agent Configuration from the Processa editor."""
+"""Create an AI Agent Configuration from the Processa editor."""
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -16,7 +16,7 @@ class TestCreateAgentFromProcessa(FrappeTestCase):
 		super().tearDown()
 
 	def _model(self):
-		# WI-001655: agents pick a model; the provider follows its link.
+		# Agents pick a model; the provider follows its link.
 		return frappe.db.get_value("AI Model", {"provider": ("is", "set")}, "name")
 
 	def _payload(self, **overrides):
@@ -49,7 +49,7 @@ class TestCreateAgentFromProcessa(FrappeTestCase):
 
 	def test_creates_chat_draft_with_scrubbed_id(self):
 		# Suppress the BPMN insert trigger — a real creation-process run makes
-		# live AI calls; the trigger's own behavior is covered by WI-001620.
+		# live AI calls; the trigger's own behavior is covered by its own tests.
 		frappe.flags.in_migrate = True
 		result = create_agent_configuration(self._payload())
 		self.assertEqual(result["name"], NAME)
@@ -64,7 +64,7 @@ class TestCreateAgentFromProcessa(FrappeTestCase):
 		self.assertEqual(doc.sample_prompts[0].prompt, "hello")
 
 	def test_eval_suite_generation_without_process_model(self):
-		# WI-001648 relaxation: a suite can be generated before the chat map
+		# Relaxation: a suite can be generated before the chat map
 		# is provisioned (process_model empty).
 		if not self._model():
 			self.skipTest("no linked AI Model in the catalog on this site")
@@ -80,7 +80,7 @@ class TestCreateAgentFromProcessa(FrappeTestCase):
 		cases = frappe.get_all("AI Eval Case", filters={"suite": suite}, fields=["name", "model"])
 		self.assertEqual(len(cases), 1)
 
-		# WI-001743: the link lives on the suite, pointing back to the agent.
+		# The link lives on the suite, pointing back to the agent.
 		self.assertEqual(
 			frappe.db.get_value("AI Eval Suite", suite, "agent_configuration"), NAME
 		)

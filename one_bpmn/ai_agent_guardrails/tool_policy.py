@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
 """
-Deterministic tool-call interception (WI-001645).
+Deterministic tool-call interception.
 
 Frappe permissions answer "may this USER do it". This layer answers a different
 question — "should the AGENT do it" — and answers it *before* the tool runs,

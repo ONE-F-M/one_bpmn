@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-"""An agent acting as itself, and the Work Item tools that need it (WI-002054).
+"""An agent acting as itself, and the Work Item tools that need it.
 
 Two things were true before this and both were quiet. Every write an agent's
 tools made was recorded against a person who had not made it — usually
@@ -499,7 +499,7 @@ class TestTheWorkItemTools(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value("Work Item", item, "status"), "In Progress")
 
 	def test_a_state_the_shape_does_not_permit_is_refused(self):
-		"""WI-002053 established that a work item must not advance on the strength
+		"""A work item must not advance on the strength
 		of an incomplete result. A tool that could set Done would reopen that."""
 		item = make_work_item()
 		with self.assertRaises(frappe.ValidationError) as caught:
