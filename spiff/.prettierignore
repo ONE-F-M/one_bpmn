@@ -216,7 +216,6 @@ src/rules/CustomRules.js
 src/rules/index.js
 src/utils/arabicTranslation.js
 src/utils/bpmnLayout.js
-src/utils/canvasTouchHandler.js
 src/utils/costAllocation.js
 src/utils/evalContext.js
 src/utils/evalLabels.js
