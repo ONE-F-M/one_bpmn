@@ -16,23 +16,30 @@ const COMPOSABLES = [
 	"useDocuTree",
 ].map((name) => `composables/${name}.js`);
 const UTILS = ["docuApi", "docuFieldDefs", "docuSettingsDefs"].map((name) => `utils/${name}.js`);
-const docuFiles = readdirSync(new URL(DOCU_DIR, src)).map((f) => `${DOCU_DIR}${f}`);
-const SHELL = `${DOCU_DIR}DocuCanvas.vue`;
+const PART_DIRS = readdirSync(new URL(DOCU_DIR, src));
+const docuFiles = PART_DIRS.flatMap((dir) =>
+	readdirSync(new URL(`${DOCU_DIR}${dir}/`, src)).map((f) => `${DOCU_DIR}${dir}/${f}`),
+);
+const partFile = (part) => `${DOCU_DIR}${part}/${part}.vue`;
+const SHELL = partFile("DocuCanvas");
 
 describe("DocuCanvas split", () => {
-	it("holds the four parts the story names, plus the settings and properties parts", () => {
-		const names = docuFiles.map((f) => f.slice(DOCU_DIR.length));
+	it("gives the four parts the story names, and the rest, a folder each with its component and stylesheet", () => {
 		for (const part of [
-			"DocuFormCanvas.vue",
-			"DocuFieldCard.vue",
-			"DocuChangesPreview.vue",
-			"DocuApplyBar.vue",
-			"DocuSettingsView.vue",
-			"DocuPermissionRules.vue",
-			"DocuPropertiesPanel.vue",
+			"DocuCanvas",
+			"DocuFormCanvas",
+			"DocuFieldCard",
+			"DocuChangesPreview",
+			"DocuApplyBar",
+			"DocuSettingsView",
+			"DocuPermissionRules",
+			"DocuPropertiesPanel",
 		]) {
-			expect(names, part).toContain(part);
+			expect(PART_DIRS, part).toContain(part);
+			const files = readdirSync(new URL(`${DOCU_DIR}${part}/`, src)).sort();
+			expect(files, part).toEqual([`${part}.css`, `${part}.vue`]);
 		}
+		expect(PART_DIRS).toHaveLength(8);
 	});
 
 	it("keeps every file under 500 lines and the shell under 300", () => {
@@ -54,15 +61,17 @@ describe("DocuCanvas split", () => {
 			expect(shell, part).toMatch(new RegExp(`import ${part} from`));
 			expect(shell, part).toMatch(new RegExp(`<${part}[\\s/>]`));
 		}
-		expect(read(`${DOCU_DIR}DocuFormCanvas.vue`)).toMatch(/<DocuFieldCard/);
-		expect(read(`${DOCU_DIR}DocuSettingsView.vue`)).toMatch(/<DocuPermissionRules/);
+		expect(read(partFile("DocuFormCanvas"))).toMatch(/<DocuFieldCard/);
+		expect(read(partFile("DocuSettingsView"))).toMatch(/<DocuPermissionRules/);
 	});
 
-	it("gives each part its own scoped stylesheet", () => {
+	it("loads the stylesheet that sits next to each part", () => {
 		for (const file of docuFiles.filter((f) => f.endsWith(".vue"))) {
-			const css = read(file).match(/<style scoped src="@\/components\/Docu\/(\w+\.css)"/);
-			expect(css, file).not.toBeNull();
-			expect(docuFiles, file).toContain(`${DOCU_DIR}${css[1]}`);
+			const name = file
+				.split("/")
+				.pop()
+				.replace(/\.vue$/, "");
+			expect(read(file), file).toContain(`<style scoped src="./${name}.css"></style>`);
 		}
 	});
 

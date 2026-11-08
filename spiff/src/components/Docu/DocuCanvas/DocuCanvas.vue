@@ -70,11 +70,11 @@
 import { getCurrentScope, nextTick, onBeforeUnmount, onMounted, provide, watch } from "vue";
 import { Icon } from "@iconify/vue";
 import AgentChatPanel from "@/components/Chat/AgentChatPanel.vue";
-import DocuApplyBar from "@/components/Docu/DocuApplyBar.vue";
-import DocuChangesPreview from "@/components/Docu/DocuChangesPreview.vue";
-import DocuFormCanvas from "@/components/Docu/DocuFormCanvas.vue";
-import DocuPropertiesPanel from "@/components/Docu/DocuPropertiesPanel.vue";
-import DocuSettingsView from "@/components/Docu/DocuSettingsView.vue";
+import DocuApplyBar from "@/components/Docu/DocuApplyBar/DocuApplyBar.vue";
+import DocuChangesPreview from "@/components/Docu/DocuChangesPreview/DocuChangesPreview.vue";
+import DocuFormCanvas from "@/components/Docu/DocuFormCanvas/DocuFormCanvas.vue";
+import DocuPropertiesPanel from "@/components/Docu/DocuPropertiesPanel/DocuPropertiesPanel.vue";
+import DocuSettingsView from "@/components/Docu/DocuSettingsView/DocuSettingsView.vue";
 import { DOCU_KEY } from "@/composables/useDocu";
 import { useDocuAutosave } from "@/composables/useDocuAutosave";
 import { useDocuChat } from "@/composables/useDocuChat";
@@ -182,7 +182,7 @@ onMounted(async () => {
 });
 </script>
 
-<style scoped src="@/components/Docu/docuCanvas.css"></style>
+<style scoped src="./DocuCanvas.css"></style>
 
 <style>
 body.docu-open #headlessui-portal-root {

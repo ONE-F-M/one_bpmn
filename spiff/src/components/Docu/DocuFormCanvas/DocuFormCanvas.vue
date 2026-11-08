@@ -132,7 +132,7 @@
 
 <script setup>
 import draggable from "vuedraggable";
-import DocuFieldCard from "@/components/Docu/DocuFieldCard.vue";
+import DocuFieldCard from "@/components/Docu/DocuFieldCard/DocuFieldCard.vue";
 import { useDocu } from "@/composables/useDocu";
 
 const {
@@ -151,4 +151,4 @@ const {
 } = useDocu();
 </script>
 
-<style scoped src="@/components/Docu/docuFormCanvas.css"></style>
+<style scoped src="./DocuFormCanvas.css"></style>

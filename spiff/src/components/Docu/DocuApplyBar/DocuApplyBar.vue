@@ -50,4 +50,4 @@ const {
 } = useDocu();
 </script>
 
-<style scoped src="@/components/Docu/docuApplyBar.css"></style>
+<style scoped src="./DocuApplyBar.css"></style>

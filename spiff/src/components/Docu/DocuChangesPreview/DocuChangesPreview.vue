@@ -21,4 +21,4 @@ const { saveState, pendingNotice, pendingRequest, pendingParts, pendingUrl, chil
 	useDocu();
 </script>
 
-<style scoped src="@/components/Docu/docuChangesPreview.css"></style>
+<style scoped src="./DocuChangesPreview.css"></style>

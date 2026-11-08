@@ -114,4 +114,4 @@ defineProps({
 });
 </script>
 
-<style scoped src="@/components/Docu/docuFieldCard.css"></style>
+<style scoped src="./DocuFieldCard.css"></style>

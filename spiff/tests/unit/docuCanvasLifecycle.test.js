@@ -4,11 +4,19 @@ vi.mock("frappe-ui", () => ({ frappeRequest: vi.fn() }));
 vi.mock("@iconify/vue", () => ({ Icon: { render: () => null } }));
 vi.mock("@/components/Chat/AgentChatPanel.vue", () => ({ default: { render: () => null } }));
 vi.mock("@/utils/cardRegistry", () => ({ cardRegistry: {} }));
-vi.mock("@/components/Docu/DocuFormCanvas.vue", () => ({ default: { render: () => null } }));
-vi.mock("@/components/Docu/DocuSettingsView.vue", () => ({ default: { render: () => null } }));
-vi.mock("@/components/Docu/DocuPropertiesPanel.vue", () => ({ default: { render: () => null } }));
-vi.mock("@/components/Docu/DocuChangesPreview.vue", () => ({ default: { render: () => null } }));
-vi.mock("@/components/Docu/DocuApplyBar.vue", async () => {
+vi.mock("@/components/Docu/DocuFormCanvas/DocuFormCanvas.vue", () => ({
+	default: { render: () => null },
+}));
+vi.mock("@/components/Docu/DocuSettingsView/DocuSettingsView.vue", () => ({
+	default: { render: () => null },
+}));
+vi.mock("@/components/Docu/DocuPropertiesPanel/DocuPropertiesPanel.vue", () => ({
+	default: { render: () => null },
+}));
+vi.mock("@/components/Docu/DocuChangesPreview/DocuChangesPreview.vue", () => ({
+	default: { render: () => null },
+}));
+vi.mock("@/components/Docu/DocuApplyBar/DocuApplyBar.vue", async () => {
 	const { useDocu } = await import("@/composables/useDocu");
 	return {
 		default: {
@@ -22,7 +30,7 @@ vi.mock("@/components/Docu/DocuApplyBar.vue", async () => {
 
 const { createRenderer } = await import("vue");
 const { frappeRequest } = await import("frappe-ui");
-const DocuCanvas = (await import("../../src/components/Docu/DocuCanvas.vue")).default;
+const DocuCanvas = (await import("../../src/components/Docu/DocuCanvas/DocuCanvas.vue")).default;
 
 // A renderer that builds plain objects, so the real shell can mount without a DOM.
 const { createApp } = createRenderer({

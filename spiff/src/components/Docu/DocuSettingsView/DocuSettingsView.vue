@@ -88,11 +88,11 @@
 </template>
 
 <script setup>
-import DocuPermissionRules from "@/components/Docu/DocuPermissionRules.vue";
+import DocuPermissionRules from "@/components/Docu/DocuPermissionRules/DocuPermissionRules.vue";
 import { useDocu } from "@/composables/useDocu";
 
 const { dtName, dtModule, dtAutoname, isChild, dtSettings, moduleOptions, settingsSections } =
 	useDocu();
 </script>
 
-<style scoped src="@/components/Docu/docuSettingsView.css"></style>
+<style scoped src="./DocuSettingsView.css"></style>

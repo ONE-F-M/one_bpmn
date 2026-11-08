@@ -79,4 +79,4 @@ import { useDocu } from "@/composables/useDocu";
 const { permissions, roleOptions, addPermission, removePermission, scheduleAutosave } = useDocu();
 </script>
 
-<style scoped src="@/components/Docu/docuPermissionRules.css"></style>
+<style scoped src="./DocuPermissionRules.css"></style>

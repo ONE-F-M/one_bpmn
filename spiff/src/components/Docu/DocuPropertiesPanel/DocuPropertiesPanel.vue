@@ -129,4 +129,4 @@ const visibleFieldProps = computed(() => {
 });
 </script>
 
-<style scoped src="@/components/Docu/docuPropertiesPanel.css"></style>
+<style scoped src="./DocuPropertiesPanel.css"></style>
