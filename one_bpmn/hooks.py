@@ -305,8 +305,8 @@ scheduler_events = {
 		],
 		# A sandbox run whose callback never arrives would leave its agent waiting for good.
 		"*/2 * * * *": [
-			"one_bpmn.one_bpmn.connectors.agent_sandbox_reaper.reap",
-			"one_bpmn.one_bpmn.connectors.agent_sandbox_reaper.reap_sessions",
+			"one_bpmn.agents_sandbox.sandbox.reaper.reap",
+			"one_bpmn.agents_sandbox.sandbox.reaper.reap_sessions",
 		],
 		"* * * * *": [
 			"one_bpmn.processa_engine.timers.process_timer_start_events",

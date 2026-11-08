@@ -31,7 +31,8 @@ House style lives in `frappe-bench/.claude/rules/`: `house-style.md` always, `py
 - `one_bpmn/processa_engine/engine/`: the SpiffWorkflow script engine.
 - `one_bpmn/processa_engine/`: engine services: `triggers.py` (document events), `timers.py` (timer and stranded-step jobs), `assignment.py`, `task_selector.py`, `call_activities.py` and `audit.py` (workflow state changes), and `compiler/` (deploy checks and the compile step).
 - `one_bpmn/processa_connectors/`: the connector doctypes, the HTTP executor and Google operations (`operations/`), the Google clients (`google/`), manifests, seed and validator; `one_bpmn/api/connectors.py` holds the modeler endpoints.
-- `one_bpmn/one_bpmn/connectors/`: the agent sandbox client and the A2A connector handlers.
+- `one_bpmn/agents_sandbox/`: the sandbox doctypes, the coding-agent sandbox client (`sandbox/`), acceptance criteria and reproduction gates, and the DocType source, customization and GitHub pull request writers (`customization/`).
+- `one_bpmn/one_bpmn/connectors/`: the A2A connector handlers.
 - `one_bpmn/agents/`: the AI agent runtime. See its `AGENTS.md`.
 - `one_bpmn/security/`: the generated-script validator.
 - `one_bpmn/processa_engine/notifications/`: AMP and HTML task emails and their tokens; `one_bpmn/api/email_actions.py` holds the endpoints the emails call. See its `README.md`.

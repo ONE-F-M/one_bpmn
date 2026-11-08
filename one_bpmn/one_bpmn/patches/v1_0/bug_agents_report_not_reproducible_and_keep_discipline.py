@@ -16,7 +16,7 @@ SCRIPT = (
 	"""\
 # Sandbox tool: report_not_reproducible. Shared verbatim by every sandbox agent, so nothing here may be agent-specific.
 # Records that the bug could not be reproduced, with what was tried and what is needed, so a person gets the item.
-from one_bpmn.one_bpmn.connectors.agent_reproduction import record_not_reproducible
+from one_bpmn.agents_sandbox.reproduction import record_not_reproducible
 
 """
 	+ HEADER

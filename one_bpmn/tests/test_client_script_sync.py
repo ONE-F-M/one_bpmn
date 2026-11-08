@@ -15,7 +15,7 @@ import ast
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api import onefm_customization_codegen as gen
+from one_bpmn.agents_sandbox.customization import customization_codegen as gen
 from one_bpmn.api.production_review import _build_doctype_snapshot, _diff_doctypes
 
 SCRIPT_A = "frappe.ui.form.on('Demo DT', { refresh(frm) {} });"
