@@ -17,7 +17,7 @@ def evaluate_condition(expression: str, names: dict):
 
 def check_server_script(script_doc) -> None:
 	"""Validate a Server Script before it runs, opening only what its approval lists."""
-	from one_bpmn.security.script_gate import approved_names
+	from one_bpmn.ai_agent_security.code_checks.script_gate import approved_names
 
 	_check_script_permissions(script_doc.script, script_doc.name, approved_names(script_doc))
 
@@ -32,7 +32,7 @@ def _check_script_permissions(script_text: str, label: str, allowed: frozenset =
 	except ImportError:
 		return
 
-	from one_bpmn.security.script_validator import deep_inspect_script
+	from one_bpmn.ai_agent_security.code_checks.script_validator import deep_inspect_script
 
 	violations = deep_inspect_script(script_text or "", allowed=allowed)
 	if violations:

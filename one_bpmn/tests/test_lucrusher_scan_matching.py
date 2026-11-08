@@ -9,6 +9,7 @@ from unittest.mock import patch
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.one_bpmn.patches.v1_0 import lucrusher_scan_counts_and_matching as p
+from one_bpmn.tests.site_scripts import as_deployed
 
 FIXTURES = Path(__file__).parent / "fixtures"
 ELEMENTS = [
@@ -55,11 +56,11 @@ def _run_scan(doctypes, hooks):
 	}
 	stored = {}
 	with (
-		patch("one_bpmn.agents.codebase_index.get_codebase_index", return_value=index),
-		patch("one_bpmn.agents.codebase_index.find_whitelisted_methods", return_value=[]),
+		patch("one_bpmn.ai_agent_registry.definitions.lucrusher.tools.get_codebase_index", return_value=index),
+		patch("one_bpmn.ai_agent_registry.definitions.lucrusher.tools.find_whitelisted_methods", return_value=[]),
 		patch("one_bpmn.processa_engine.agent_runtime.turn_state.update_turn", side_effect=lambda _name, **kw: stored.update(kw)),
 	):
-		exec(script, scope, {})  # noqa: S102 - the patched script text under test
+		exec(as_deployed(script), scope, {})  # noqa: S102 - the patched script text under test
 	return scope["result"]["codebase_scan"], stored["full_scan"]
 
 

@@ -28,7 +28,7 @@ import frappe
 
 from frappe import _
 
-from one_bpmn.tools.tool_for_server_scripts import (
+from one_bpmn.ai_agent_registry.definitions.docu.tools import (
 	diff_ir,
 	DOCFIELD_ATTRS,
 	DOCFIELD_FLAGS,
@@ -39,11 +39,14 @@ from one_bpmn.tools.tool_for_server_scripts import (
 	DOCTYPE_SETTING_STRS,
 	read_doctype_definition as _read_doctype_ir,
 )
-from one_bpmn.security.client_script_validator import validate_form_script, validate_list_view_script
-from one_bpmn.security.doctype_validator import (
+from one_bpmn.ai_agent_registry.definitions.docu.validators import (
 	RESERVED_FIELDNAMES,
 	child_table_is_editable,
 	validate_doctype_ir,
+)
+from one_bpmn.ai_agent_security.code_checks.client_script_validator import (
+	validate_form_script,
+	validate_list_view_script,
 )
 from one_bpmn.utils.session import as_user
 
@@ -62,7 +65,7 @@ def _may_change_forms() -> bool:
 
 def _docu_user() -> str:
 	"""The Docu Agent's own user, so form changes are made and recorded as the agent."""
-	from one_bpmn.agents.identity import user_for
+	from one_bpmn.ai_agent_security.identity import user_for
 
 	return user_for(DOCU_AGENT) or "Administrator"
 
@@ -1261,10 +1264,10 @@ def shape_docu_reply(result: dict) -> dict:
 	no-op when the purpose-built map already returned structured keys."""
 	if result.get("doctype_ir") or result.get("intent"):
 		return result
-	from one_bpmn.api.ai_assistant import _extract_json
+	from one_bpmn.ai_agent_registry.definitions.shared.helpers import extract_json
 
 	raw = result.get("response") or ""
-	parsed = _extract_json(raw if isinstance(raw, str) else "")
+	parsed = extract_json(raw if isinstance(raw, str) else "")
 	if not isinstance(parsed, dict) or not (parsed.get("intent") or parsed.get("doctype_ir")):
 		return result
 	shaped = dict(result)

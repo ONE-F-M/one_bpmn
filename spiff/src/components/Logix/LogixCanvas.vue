@@ -361,7 +361,7 @@ async function runSecurityLint() {
 	}
 	try {
 		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.script_security.lint_server_script",
+			url: "/api/method/one_bpmn.api.security.lint_server_script",
 			method: "POST",
 			params: { code },
 		});

@@ -15,7 +15,7 @@ it off — re-running must never quietly undo somebody's decision.
 
 import frappe
 
-from one_bpmn.security.provenance import GUARD_RAIL_TEXT
+from one_bpmn.ai_agent_security.screening.provenance import GUARD_RAIL_TEXT
 
 # Enough of the text to recognise the rail again after someone has reworded it.
 # Matching on the full string would re-add the rail every time an admin edited a

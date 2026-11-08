@@ -47,9 +47,9 @@ def _run_recorded(agent_id: str, reply, runner_key: str = "bpmn_map") -> list:
 		patch.object(ai, "_authorize"),
 		patch.object(ai, "_runner_for", return_value=runner_key),
 		patch.dict(ai._RUNNERS, {runner_key: runner}),
-		patch("one_bpmn.security.pii.screen_input", return_value=_Screened()),
-		patch("one_bpmn.security.pii.begin_turn", return_value=object()),
-		patch("one_bpmn.security.pii.end_turn"),
+		patch("one_bpmn.ai_agent_security.screening.pii.screen_input", return_value=_Screened()),
+		patch("one_bpmn.ai_agent_security.screening.pii.begin_turn", return_value=object()),
+		patch("one_bpmn.ai_agent_security.screening.pii.end_turn"),
 	]
 	for p in patches:
 		p.start()

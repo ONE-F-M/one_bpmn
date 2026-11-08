@@ -10,7 +10,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import identity
+from one_bpmn.ai_agent_security import identity
 from one_bpmn.a2a import local
 from one_bpmn.a2a import client_ops as ops
 from one_bpmn.one_bpmn.patches.v1_0 import add_work_item_refs_to_a2a_connector as fields_patch

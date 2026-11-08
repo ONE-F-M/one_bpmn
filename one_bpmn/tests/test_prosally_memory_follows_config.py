@@ -13,7 +13,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import prosally_helpers as helpers
+from one_bpmn.ai_agent_registry.definitions.prosally import helpers
 from one_bpmn.processa_engine.dispatch import ai_agent as D
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_memory_follows_agent_configuration as config_patch
 
@@ -24,8 +24,7 @@ DRAWN = {"intent": "BPMN_GENERATED", "response": "Drew it."}
 
 class TestRecallFollowsTheConfiguration(FrappeTestCase):
 	def _recall(self, fields):
-		with patch.object(helpers, "prosally_config", return_value={"name": "CFG"}), patch.object(
-			helpers, "_memory_fields", return_value=fields
+		with patch.object(helpers, "prosally_config", return_value={"name": "CFG"}), patch.object(helpers, "_memory_fields", return_value=fields
 		), patch.object(helpers, "process_for_diagram", return_value="Zz Process"), patch(
 			"one_bpmn.agents.memory.tools.memory_search", return_value=[{"content": "a note"}]
 		) as search:
@@ -55,8 +54,7 @@ class TestRecallFollowsTheConfiguration(FrappeTestCase):
 class TestWriteFollowsTheConfiguration(FrappeTestCase):
 	def _queue(self, fields):
 		cfg = {"name": "CFG", "ai_model": "agent-model", "ai_provider": "p"}
-		with patch.object(helpers, "prosally_config", return_value=cfg), patch.object(
-			helpers, "_memory_fields", return_value=fields
+		with patch.object(helpers, "prosally_config", return_value=cfg), patch.object(helpers, "_memory_fields", return_value=fields
 		), patch.object(frappe, "enqueue") as enqueue:
 			helpers.queue_process_memory(TURN, DRAWN)
 		return enqueue

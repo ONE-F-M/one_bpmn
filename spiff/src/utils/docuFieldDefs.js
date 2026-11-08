@@ -1,4 +1,4 @@
-// Field types - mirrors ALLOWED_FIELDTYPES in security/doctype_validator.py.
+// Field types - mirrors ALLOWED_FIELDTYPES in ai_agent_registry/definitions/docu/validators.py.
 export const FIELD_TYPES = [
 	"Data",
 	"Small Text",

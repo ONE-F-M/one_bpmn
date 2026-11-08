@@ -73,7 +73,8 @@ one_bpmn/                      # Frappe app (repo root)
 │   ├── one_bpmn/connectors/   # A2A connector handlers
 │   ├── agents_sandbox/        # Agent sandbox doctypes, sandbox client, customization writers
 │   ├── agents/                # AI agents (shape tools, memory, evals, A2A)
-│   ├── security/              # Validator for generated scripts
+│   ├── security/              # Tool policy and agent refusals
+│   ├── ai_agent_security/     # Screening, rate limits, turn locks, security events, code checks
 │   ├── processa_engine/notifications/  # AMP and HTML task emails
 │   ├── processa_engine/agent_runtime/  # Executors, model adapters, step loop and turn state
 │   ├── commands/              # bench commands
@@ -388,12 +389,12 @@ Intent Classifier
 | `spiff/src/components/ProsAlly/ProsAllyPanel.vue` | Chat UI — messages, option buttons, rich-text input |
 | `spiff/src/utils/bpmnLayout.js` | Auto-layout — positions generated BPMN elements left-to-right |
 | `spiff/src/linting/bpmnlintrc.js` | bpmnlint rule configuration (errors vs. warnings) |
-| `one_bpmn/agents/bpmn_ir_pipeline.py` | IR → BPMN XML compilation (`compile_ir`); the pipeline stages themselves are DB Server Scripts driven by the ProsAlly process model |
+| `one_bpmn/ai_agent_registry/definitions/prosally/tools_pipeline.py` | IR → BPMN XML compilation (`compile_ir`); the pipeline stages themselves are DB Server Scripts driven by the ProsAlly process model |
 | `one_bpmn/utils/chat_persistence.py` | Persists conversation history (`Chat Conversation` DocType) |
 
 ### Agent Pipeline
 
-The stages (intent classifier, clarifier, confirmer, generator, modifier) are DB Server Scripts called as Agent Tools by the ProsAlly process map, and their prompts are seeded by patches. Chat turns go through `one_bpmn.api.agui.stream_agent_turn`. The one Python stage is `compile_ir` in `one_bpmn/agents/bpmn_ir_pipeline.py`.
+The stages (intent classifier, clarifier, confirmer, generator, modifier) are DB Server Scripts called as Agent Tools by the ProsAlly process map, and their prompts are seeded by patches. Chat turns go through `one_bpmn.api.agui.stream_agent_turn`. The one Python stage is `compile_ir` in `one_bpmn/ai_agent_registry/definitions/prosally/tools_pipeline.py`.
 
 ### Auto-Layout (`bpmnLayout.js`)
 

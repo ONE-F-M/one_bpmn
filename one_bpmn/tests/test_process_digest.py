@@ -7,7 +7,7 @@ import frappe
 from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import process_digest
+from one_bpmn.ai_agent_registry.definitions.shared import tools_process_digest as process_digest
 from one_bpmn.one_bpmn.patches.v1_0 import general_chat_answers_from_processes as patch_module
 
 PREFIX = "zz_process_digest_"

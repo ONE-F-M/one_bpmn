@@ -16,7 +16,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import now_datetime
 
-from one_bpmn.api import security_api as S
+from one_bpmn.api import security as S
 
 PREFIX = "ZZ SecAPI"
 
@@ -199,7 +199,7 @@ class TestSecurityApi(FrappeTestCase):
 	def test_release_delegates_to_the_owning_action(self):
 		"""15.3 owns the reviewer rule, the note requirement and the refusal to
 		self-release. A second copy here would be one more thing to keep in step."""
-		with patch("one_bpmn.api.conversation_locks.release_lock", return_value={"ok": True}) as owner:
+		with patch("one_bpmn.api.security.release_lock", return_value={"ok": True}) as owner:
 			S.release("ZZ-LOCK", notes="reviewed")
 
 		owner.assert_called_once()
@@ -207,7 +207,7 @@ class TestSecurityApi(FrappeTestCase):
 
 	def test_promote_delegates_and_reports_which_outcome(self):
 		with patch(
-			"one_bpmn.api.security_events.promote_to_eval_case",
+			"one_bpmn.api.security.promote_to_eval_case",
 			return_value={"eval_case": "CASE-1", "created": True, "suite": "SUITE-1"},
 		) as owner:
 			created = S.promote_event("EV-1")
@@ -221,7 +221,7 @@ class TestSecurityApi(FrappeTestCase):
 		self.assertFalse(created["suite_created"], "no suite was created in this call")
 
 		with patch(
-			"one_bpmn.api.security_events.promote_to_eval_case",
+			"one_bpmn.api.security.promote_to_eval_case",
 			return_value={"eval_case": "CASE-1", "created": False, "suite": "SUITE-1"},
 		):
 			again = S.promote_event("EV-1")
@@ -232,7 +232,7 @@ class TestSecurityApi(FrappeTestCase):
 
 	def test_promote_passes_the_new_suite_choice_through(self):
 		with patch(
-			"one_bpmn.api.security_events.promote_to_eval_case",
+			"one_bpmn.api.security.promote_to_eval_case",
 			return_value={"eval_case": "CASE-1", "created": True, "suite": "SUITE-2", "suite_created": True},
 		) as owner:
 			out = S.promote_event("EV-1", new_suite="1")

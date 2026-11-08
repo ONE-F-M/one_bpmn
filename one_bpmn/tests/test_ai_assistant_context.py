@@ -9,17 +9,8 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.ai_assistant import (
-	FIELD_CATALOG,
-	SELECTOR_FIELD_CATALOG,
-	_build_diagram_digest,
-	_build_current_config_block,
-	_catalog_for_mode,
-	_lint_recommended_prompts,
-	_server_script_result_keys,
-	build_assistant_turn_context,
-	shape_assistant_reply,
-)
+from one_bpmn.ai_agent_registry.definitions.assistant.helpers_prompts import FIELD_CATALOG, SELECTOR_FIELD_CATALOG, build_current_config_block, catalog_for_mode
+from one_bpmn.ai_agent_registry.definitions.assistant.helpers import _build_diagram_digest, _lint_recommended_prompts, server_script_result_keys, build_assistant_turn_context, shape_assistant_reply
 
 # Mirror of the real support-triage shape: 7 selectable heads, two of which
 # chain through an XOR join into an automatic update_field task.
@@ -113,13 +104,13 @@ class TestServerScriptSniffing(FrappeTestCase):
 			"script": 'result["is_sales"] = 0\nresult["sales_order"] = ""\nresult["is_sales"] = 1',
 		})
 		script.insert(ignore_permissions=True)
-		self.assertEqual(_server_script_result_keys("Digest Test Lookup"), ["is_sales", "sales_order"])
+		self.assertEqual(server_script_result_keys("Digest Test Lookup"), ["is_sales", "sales_order"])
 		# and the digest embeds them as evidence variables
 		digest = _build_diagram_digest(TRIAGE_XML, "Triage")
 		self.assertIn("is_sales", digest["block"])
 
 	def test_missing_script_is_safe(self):
-		self.assertEqual(_server_script_result_keys("No Such Script"), [])
+		self.assertEqual(server_script_result_keys("No Such Script"), [])
 
 
 class TestPromptLint(FrappeTestCase):
@@ -155,12 +146,12 @@ class TestModeCatalog(FrappeTestCase):
 		self.assertIn("aiSystemPrompt", SELECTOR_FIELD_CATALOG)
 		self.assertNotIn("aiOutputVariable", SELECTOR_FIELD_CATALOG)
 		self.assertNotIn("aiResponseSchema", SELECTOR_FIELD_CATALOG)
-		self.assertIs(_catalog_for_mode("selector"), SELECTOR_FIELD_CATALOG)
-		self.assertIs(_catalog_for_mode("agent"), FIELD_CATALOG)
-		self.assertIs(_catalog_for_mode("bogus"), FIELD_CATALOG)
+		self.assertIs(catalog_for_mode("selector"), SELECTOR_FIELD_CATALOG)
+		self.assertIs(catalog_for_mode("agent"), FIELD_CATALOG)
+		self.assertIs(catalog_for_mode("bogus"), FIELD_CATALOG)
 
 	def test_current_config_block_filters_by_catalog(self):
-		block = _build_current_config_block(
+		block = build_current_config_block(
 			'{"aiSystemPrompt": "draft", "aiOutputVariable": "x", "aiUserPrompt": ""}',
 			SELECTOR_FIELD_CATALOG,
 		)

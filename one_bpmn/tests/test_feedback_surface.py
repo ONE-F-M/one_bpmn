@@ -201,7 +201,7 @@ class TestFeedbackIsEditableFromProcessa(FrappeTestCase):
 		)
 
 	def test_the_modal_is_offered_the_control(self):
-		from one_bpmn.api.security_api import agent_screening
+		from one_bpmn.api.security import agent_screening
 
 		control = next(
 			(c for c in agent_screening(self.AGENT)["controls"]
@@ -215,7 +215,7 @@ class TestFeedbackIsEditableFromProcessa(FrappeTestCase):
 	def test_it_is_its_own_group_not_filed_under_screening(self):
 		"""Grouping is what the modal renders headings from. Feedback is neither
 		a screen nor a throttle, and saying it is would misdescribe it."""
-		from one_bpmn.api.security_api import agent_screening
+		from one_bpmn.api.security import agent_screening
 
 		groups = {
 			c["fieldname"]: c["group"] for c in agent_screening(self.AGENT)["controls"]
@@ -227,7 +227,7 @@ class TestFeedbackIsEditableFromProcessa(FrappeTestCase):
 		import json
 
 		from one_bpmn.api.a2a import get_agent_surface
-		from one_bpmn.api.security_api import save_agent_screening
+		from one_bpmn.api.security import save_agent_screening
 
 		for value, expected in ((0, False), (1, True)):
 			with self.subTest(value=value):

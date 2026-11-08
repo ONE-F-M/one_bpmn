@@ -49,7 +49,7 @@ from ag_ui.core import (
 from ag_ui.encoder import EventEncoder
 from frappe import _
 
-from one_bpmn.security.rate_limit import RateLimited
+from one_bpmn.ai_agent_security.rate_limit import RateLimited
 from one_bpmn.security.refusal import AgentRefusal
 
 # ── Extension translators (payload dict → list of CustomEvent) ──────────────
@@ -622,7 +622,7 @@ except Exception:
 # The assistant registers its context builder + reply shaper on import
 # (WI-001674). Same degrade-to-text guarantee as the translators.
 try:
-	import one_bpmn.api.ai_assistant  # noqa: F401,E402
+	import one_bpmn.ai_agent_registry.definitions.assistant.helpers  # noqa: F401,E402
 except Exception:
 	frappe.log_error(title="agui assistant hooks failed to load", message=frappe.get_traceback())
 

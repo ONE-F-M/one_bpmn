@@ -7,7 +7,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import prosally_helpers
+from one_bpmn.ai_agent_registry.definitions.prosally import tools_prompts
 from one_bpmn.ai_agent_registry.provisioning.bpmn_task_config import match_lane_role, resolve_ir_lane_roles
 from one_bpmn.api.process_maps import validate_bpmn_readiness
 
@@ -98,8 +98,8 @@ class TestLaneRoleReadiness(FrappeTestCase):
 class TestDescribeLanesSuggestsRoles(FrappeTestCase):
 	def _reply(self, *lane_names):
 		ir = {"lanes": [{"id": f"l{i}", "name": n} for i, n in enumerate(lane_names)]}
-		with patch.object(prosally_helpers.frappe, "get_all", return_value=ROLES):
-			return prosally_helpers.describe_lanes([], "", ir)
+		with patch.object(tools_prompts.frappe, "get_all", return_value=ROLES):
+			return tools_prompts.describe_lanes([], "", ir)
 
 	def test_a_near_miss_lane_gets_a_did_you_mean(self):
 		text = self._reply("HR Manager", "HR Managr")

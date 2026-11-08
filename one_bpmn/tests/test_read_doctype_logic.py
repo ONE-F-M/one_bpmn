@@ -10,9 +10,10 @@ from unittest.mock import patch
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import codebase_index as ci
+from one_bpmn.ai_agent_registry.definitions.lucrusher import tools as ci
+from one_bpmn.ai_agent_security.code_checks.script_validator import deep_inspect_script
 from one_bpmn.one_bpmn.patches.v1_0 import lucrusher_reads_doctype_logic as p
-from one_bpmn.security.script_validator import deep_inspect_script
+from one_bpmn.tests.site_scripts import as_deployed
 
 DOCTYPE_DIR = "one_fm/one_fm/one_fm/doctype"
 SCHEDULE_ENTRY_HOOK = "one_fm.one_fm.doctype.maintenance_schedule_entry.maintenance_schedule_entry.generate_due_work_orders"
@@ -145,7 +146,7 @@ def _doc(name, body_lines=2):
 def _run_script(names, sources, **fake):
 	scope = {"frappe": _fake_frappe(**fake), "task_data": {"doctypes": names}, "result": {}}
 	with patch.object(ci, "read_doctype_sources", side_effect=lambda read, limit: sources(read)):
-		exec(p.READ_DOCTYPE_LOGIC_SCRIPT, scope, {})  # noqa: S102 - the script text under test
+		exec(as_deployed(p.READ_DOCTYPE_LOGIC_SCRIPT), scope, {})  # noqa: S102 - the script text under test
 	return scope["result"]["doctype_logic"]
 
 

@@ -360,7 +360,7 @@ def _comment(reference_doctype, reference_name, html, agent_configuration=None) 
 	try:
 		if not frappe.db.exists(reference_doctype, reference_name):
 			return
-		from one_bpmn.agents import identity
+		from one_bpmn.ai_agent_security import identity
 
 		if identity.comment_as(agent_configuration, reference_doctype, reference_name, html):
 			return

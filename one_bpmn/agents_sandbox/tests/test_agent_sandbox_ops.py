@@ -297,7 +297,7 @@ class TestSlowActionDispatch(AgentSandboxCase):
 
 class TestSandboxDispatch(AgentSandboxCase):
 	"""sandbox_dispatch - the bare HTTP primitive the 4 Sandbox Tool Server
-	Scripts call directly (see one_bpmn/one_bpmn/frontend/primitives.py's
+	Scripts call directly (see one_bpmn/ai_agent_registry/definitions/frontend_agent/tools.py's
 	own docstring for why it's this thin: a Server Script cannot import
 	requests itself - security/script_validator.py's FORBIDDEN_MODULES -
 	so this exists only to place the one call; all tool policy (which

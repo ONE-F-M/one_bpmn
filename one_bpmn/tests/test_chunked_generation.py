@@ -8,7 +8,7 @@ set, and that the hand-off id between phases is each chunk's last node.
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.bpmn_ir_pipeline import chunk_exit_node_id, merge_chunked_ir
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_pipeline import chunk_exit_node_id, merge_chunked_ir
 
 
 class TestMergeChunkedIR(FrappeTestCase):

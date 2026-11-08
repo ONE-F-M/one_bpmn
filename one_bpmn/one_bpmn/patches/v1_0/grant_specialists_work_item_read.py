@@ -8,7 +8,7 @@ Developer already holds Work Item read, so that is the role each gets.
 
 import frappe
 
-from one_bpmn.agents import identity
+from one_bpmn.ai_agent_security import identity
 
 AGENTS = ("Dev Agent", "Frontend Agent", "Mobile App Agent", "Connector Agent")
 ROLE = "Developer"

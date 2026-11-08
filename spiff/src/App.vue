@@ -325,7 +325,7 @@ const canSeeSecurity = ref(false)
 async function checkSecurityAccess() {
 	try {
 		const r = await frappeRequest({
-			url: "/api/method/one_bpmn.api.security_api.can_manage",
+			url: "/api/method/one_bpmn.api.security.can_manage",
 			method: "POST",
 		})
 		canSeeSecurity.value = Boolean(r && r.read_events)

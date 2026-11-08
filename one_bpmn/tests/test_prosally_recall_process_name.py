@@ -12,7 +12,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import prosally_helpers as helpers
+from one_bpmn.ai_agent_registry.definitions.prosally import helpers
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_recall_falls_back_to_process_name as name_patch
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_stage_tools_read_process_memory as memory_patch
 from one_bpmn.tests.site_scripts import as_deployed
@@ -61,8 +61,7 @@ class TestRecallUsesTheProcessName(FrappeTestCase):
 
 	def test_an_empty_diagram_name_still_keys_the_turn_to_the_process(self):
 		key = {"reference_doctype": "Process", "reference_name": PROCESS}
-		with patch.object(helpers, "prosally_config", return_value={"name": "CFG"}), patch.object(
-			helpers, "_memory_fields", return_value=ON
+		with patch.object(helpers, "prosally_config", return_value={"name": "CFG"}), patch.object(helpers, "_memory_fields", return_value=ON
 		), patch("one_bpmn.agents.memory.tools.memory_search", return_value=[{"content": "a rule"}]) as search:
 			recalled = helpers.recall_process_memory("", PROCESS)
 		self.assertEqual(recalled["memory_process"], PROCESS)

@@ -610,7 +610,7 @@ class TestCallbackRunsAsAgentUser(CallbackCase):
 	def _post_as_guest(self, body: dict, user_for: str | None, **kwargs):
 		resumed_as = []
 		frappe.set_user("Guest")
-		with patch("one_bpmn.agents.identity.user_for", return_value=user_for), \
+		with patch("one_bpmn.ai_agent_security.identity.user_for", return_value=user_for), \
 		     patch(
 				"one_bpmn.processa_engine.runtime.ai_jobs.enqueue_wait_resume",
 				side_effect=lambda *a: resumed_as.append(frappe.session.user),

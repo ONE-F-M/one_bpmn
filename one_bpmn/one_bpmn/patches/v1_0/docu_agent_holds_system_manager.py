@@ -2,7 +2,7 @@
 
 import frappe
 
-from one_bpmn.agents import identity
+from one_bpmn.ai_agent_security import identity
 
 AGENT = "Docu Agent"
 ROLE = "System Manager"

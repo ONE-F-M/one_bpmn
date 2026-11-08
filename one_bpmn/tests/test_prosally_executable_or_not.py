@@ -31,7 +31,8 @@ class TestExecutableOrNot(FrappeTestCase):
 		self.assertIn(f"The {patch.SKILL} skill below", prompt)
 
 	def test_generator_system_prompt_carries_the_skill(self):
-		from one_bpmn.agents.prosally_helpers import prosally_config, stage_system_prompt
+		from one_bpmn.ai_agent_registry.definitions.prosally.helpers import prosally_config
+		from one_bpmn.ai_agent_registry.definitions.prosally.tools_prompts import stage_system_prompt
 
 		system = stage_system_prompt(prosally_config(), "process_generator", patch.SKILLS_CONSTANT)
 		self.assertIn("## Skill: " + patch.SKILL, system)

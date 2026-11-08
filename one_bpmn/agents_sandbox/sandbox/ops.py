@@ -675,7 +675,7 @@ def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_de
 	synchronous HTTP round trip to the sandbox's own /tool_call endpoint,
 	executed there against the target app's working tree.
 
-	Deliberately as thin as frontend/primitives.py's own functions: this
+	Deliberately as thin as definitions/frontend_agent/tools.py's own functions: this
 	holds no tool policy (that lives in the calling Server Script, visible
 	and editable without a deploy - see that module's own docstring for the
 	same reasoning) - it exists only because Server Scripts cannot import
@@ -685,7 +685,7 @@ def sandbox_dispatch(action: str, target_app: str, git_branch: str, work_item_de
 
 	NEVER RAISES - every path returns {"ok": True, "response": <the
 	sandbox's own JSON>} or {"ok": False, "error": "..."}, matching
-	frontend/primitives.py's own discipline (an exception here would end
+	definitions/frontend_agent/tools.py's own discipline (an exception here would end
 	the calling tool's turn rather than informing it).
 
 	No parking: unlike dispatch_action's run_tests/open_pull_request, these are

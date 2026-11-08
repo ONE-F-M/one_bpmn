@@ -471,7 +471,7 @@ class TestDelegationThatCannotStart(LocalDelegationCase):
 		self.assertErroredWorker(result, "the agent's turn failed")
 
 	def test_a_rate_limited_chat_turn_leaves_an_errored_instance(self):
-		from one_bpmn.security.rate_limit import RateLimited
+		from one_bpmn.ai_agent_security.rate_limit import RateLimited
 
 		self.worker.db_set("process_model", self.model.name)
 		with patch("one_bpmn.api.a2a.invoke_agent", side_effect=RateLimited("slow down")):

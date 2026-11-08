@@ -6,7 +6,7 @@ import ast
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import codebase_index as ci
+from one_bpmn.ai_agent_registry.definitions.lucrusher import tools as ci
 from one_bpmn.one_bpmn.patches.v1_0 import lucrusher_drafts_cross_process_links as p
 from one_bpmn.one_bpmn.patches.v1_0.lucrusher_prosally_follows_code_and_workflow import apply_edits
 from one_bpmn.one_bpmn.patches.v1_0.seed_lucrusher_skills import SKILLS

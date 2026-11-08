@@ -35,7 +35,7 @@ from datetime import datetime
 
 import frappe
 
-from one_bpmn.agents import identity
+from one_bpmn.ai_agent_security import identity
 from one_bpmn.agents.observability import record_ai_step
 from one_bpmn.processa_engine.agent_runtime.job_limits import AI_AGENT_JOB_TIMEOUT
 from one_bpmn.agents_sandbox.doctype.agent_sandbox_run.agent_sandbox_run import bounded_error

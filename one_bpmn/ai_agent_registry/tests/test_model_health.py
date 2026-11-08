@@ -608,7 +608,7 @@ class TestGates(HealthCase):
 		config = {"agent_id": "probe-agent", "ai_model": name, "agent_type": "Chat", "name": "Probe Agent"}
 		with patch.object(a2a_api, "_resolve_config", return_value=config), \
 			patch.object(a2a_api, "_authorize"), \
-			patch("one_bpmn.security.rate_limit.enforce"):
+			patch("one_bpmn.ai_agent_security.rate_limit.enforce"):
 			with self.assertRaises(ModelUnavailable) as ctx:
 				a2a_api.invoke_agent("probe-agent", "hello")
 		self.assertIn(name, str(ctx.exception))
@@ -627,7 +627,7 @@ class TestGates(HealthCase):
 		config = {"agent_id": "probe-agent", "ai_model": name, "agent_type": "Chat", "name": "Probe Agent"}
 		with patch.object(a2a_api, "_resolve_config", return_value=config), \
 			patch.object(a2a_api, "_authorize"), \
-			patch("one_bpmn.security.rate_limit.enforce"), \
+			patch("one_bpmn.ai_agent_security.rate_limit.enforce"), \
 			patch("frappe.db.commit") as commit:
 			with self.assertRaises(ModelUnavailable):
 				a2a_api.invoke_agent("probe-agent", "hello")

@@ -7,7 +7,7 @@ from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.api.docu_api import _docu_user, apply_doctype
-from one_bpmn.security.doctype_validator import validate_doctype_ir
+from one_bpmn.ai_agent_registry.definitions.docu.validators import validate_doctype_ir
 
 DOCTYPE = "ToDo"
 FIELDNAME = "docu_refused_change_date"

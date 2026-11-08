@@ -22,7 +22,7 @@ def execute():
 	if not frappe.db.has_column("AI Agent Configuration", "agent_user"):
 		return
 
-	from one_bpmn.agents import identity
+	from one_bpmn.ai_agent_security import identity
 
 	provisioned, already, failed = 0, 0, 0
 	for name in frappe.get_all("AI Agent Configuration", pluck="name"):
