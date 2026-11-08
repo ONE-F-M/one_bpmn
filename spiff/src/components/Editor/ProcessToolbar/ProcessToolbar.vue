@@ -1,7 +1,7 @@
 <script setup>
 import { inject, toRef } from "vue";
 import { Icon } from "@iconify/vue";
-import ProcessActions from "./ProcessActions.vue";
+import ProcessActions from "../ProcessActions/ProcessActions.vue";
 import { getAvatarColor, getInitials } from "@/utils/avatar";
 import { PROCESS_KEY } from "@/composables/useProcessState";
 

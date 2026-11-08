@@ -49,7 +49,9 @@ test("every name a process component reads from the page context is provided by 
 		"const pc = {",
 	);
 	for (const name of ["notifDialog", "props", "router", "route", "isMobile"]) provided.add(name);
-	const components = list("components/Editor").filter((f) => /^Process.*\.vue$/.test(f));
+	const components = list("components/Editor")
+		.filter((f) => /^Process/.test(f))
+		.map((f) => (f.endsWith(".vue") ? f : `${f}/${f}.vue`));
 	for (const file of components) {
 		const missing = destructured(read(`components/Editor/${file}`), "pc").filter(
 			(n) => !provided.has(n),

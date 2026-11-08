@@ -194,5 +194,3 @@ const {
 		@compare-deployed="openVersionPicker"
 	/>
 </template>
-
-<style scoped src="./processPageDialogs.css"></style>

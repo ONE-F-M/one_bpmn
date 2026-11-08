@@ -77,13 +77,13 @@
 <script setup>
 import { provide } from "vue";
 import { Icon } from "@iconify/vue";
-import ProcessToolbar from "@/components/Editor/ProcessToolbar.vue";
-import ProcessDiagramTab from "@/components/Editor/ProcessDiagramTab.vue";
-import ProcessLogixTab from "@/components/Editor/ProcessLogixTab.vue";
-import ProcessDmnTab from "@/components/Editor/ProcessDmnTab.vue";
-import ProcessLauncherDialogs from "@/components/Editor/ProcessLauncherDialogs.vue";
-import ProcessDeployTab from "@/components/Editor/ProcessDeployTab.vue";
-import ProcessConfigurationTab from "@/components/Editor/ProcessConfigurationTab.vue";
+import ProcessToolbar from "@/components/Editor/ProcessToolbar/ProcessToolbar.vue";
+import ProcessDiagramTab from "@/components/Editor/ProcessDiagramTab/ProcessDiagramTab.vue";
+import ProcessLogixTab from "@/components/Editor/ProcessLogixTab/ProcessLogixTab.vue";
+import ProcessDmnTab from "@/components/Editor/ProcessDmnTab/ProcessDmnTab.vue";
+import ProcessLauncherDialogs from "@/components/Editor/ProcessLauncherDialogs/ProcessLauncherDialogs.vue";
+import ProcessDeployTab from "@/components/Editor/ProcessDeployTab/ProcessDeployTab.vue";
+import ProcessConfigurationTab from "@/components/Editor/ProcessConfigurationTab/ProcessConfigurationTab.vue";
 import { createProcessContext, PROCESS_KEY } from "@/composables/useProcessState";
 import { useProcessReassign } from "@/composables/useProcessReassign";
 import { useProcessDmn } from "@/composables/useProcessDmn";
@@ -135,9 +135,16 @@ const {
 } = pc;
 </script>
 
-<style scoped src="@/components/Editor/processPageDialogs.css"></style>
-
 <style scoped>
+/* Fix dark background on form inputs in dialog */
+:deep(.dialog-form input),
+:deep(.dialog-form textarea),
+:deep(.dialog-body input[type="text"]),
+:deep(.dialog-body textarea) {
+	background-color: white !important;
+	color: #1f2937 !important;
+}
+
 .scrollbar-hide::-webkit-scrollbar {
 	display: none;
 }

@@ -2,7 +2,7 @@
 import { inject } from "vue";
 import { Icon } from "@iconify/vue";
 import LogixCanvas from "@/components/Logix/LogixCanvas.vue";
-import ProcessScriptDialog from "./ProcessScriptDialog.vue";
+import ProcessScriptDialog from "../ProcessScriptDialog/ProcessScriptDialog.vue";
 import { PROCESS_KEY } from "@/composables/useProcessState";
 
 const pc = inject(PROCESS_KEY);
@@ -108,11 +108,4 @@ const {
 	</Teleport>
 </template>
 
-<style scoped src="./processPageDialogs.css"></style>
-
-<style scoped>
-/* Logix AI Assistant: wider than the standard 7xl cap */
-.logix-window {
-	width: min(92vw, 1520px);
-}
-</style>
+<style scoped src="./ProcessLogixTab.css"></style>

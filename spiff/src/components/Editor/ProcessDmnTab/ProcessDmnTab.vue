@@ -33,21 +33,4 @@ const {
 	</Dialog>
 </template>
 
-<style scoped src="./processPageDialogs.css"></style>
-
-<style scoped>
-/* DMN Editor Dialog - near-full-screen experience */
-:deep(.dialog-content:has(.dmn-dialog-body)) {
-	max-width: min(92vw, 1520px) !important;
-	width: min(92vw, 1520px) !important;
-}
-
-.dmn-dialog-body {
-	height: 70vh;
-	min-height: 500px;
-	display: flex;
-	flex-direction: column;
-	padding: 0 !important;
-	overflow: hidden;
-}
-</style>
+<style scoped src="./ProcessDmnTab.css"></style>
