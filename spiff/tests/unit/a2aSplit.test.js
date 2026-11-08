@@ -5,7 +5,9 @@ const partsDir = new URL("../../src/components/A2A/", import.meta.url);
 const shell = new URL("../../src/pages/A2A.vue", import.meta.url);
 
 const lineCount = (url) => readFileSync(url, "utf8").split("\n").length;
-const parts = readdirSync(partsDir).filter((f) => f.endsWith(".vue"));
+const dirs = readdirSync(partsDir);
+const parts = dirs.map((dir) => `${dir}.vue`);
+const partUrl = (part) => new URL(`${part.replace(/\.vue$/, "")}/${part}`, partsDir);
 
 describe("A2A page split", () => {
 	it("keeps the page a shell under 300 lines", () => {
@@ -14,7 +16,14 @@ describe("A2A page split", () => {
 
 	it("keeps every part under 500 lines", () => {
 		for (const part of parts) {
-			expect(lineCount(new URL(part, partsDir)), part).toBeLessThan(500);
+			expect(lineCount(partUrl(part)), part).toBeLessThan(500);
+		}
+	});
+
+	it("keeps each part in a folder of its own holding just its component", () => {
+		expect(dirs).toHaveLength(13);
+		for (const dir of dirs) {
+			expect(readdirSync(new URL(`${dir}/`, partsDir)), dir).toEqual([`${dir}.vue`]);
 		}
 	});
 

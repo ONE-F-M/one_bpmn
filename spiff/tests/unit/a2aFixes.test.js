@@ -28,7 +28,9 @@ describe("ordinal", () => {
 
 describe("hand-back outcome wording", () => {
 	it("builds the count with ordinal, not a hand-written st/th", () => {
-		const source = read("../../src/components/A2A/A2ADelegationActions.vue");
+		const source = read(
+			"../../src/components/A2A/A2ADelegationActions/A2ADelegationActions.vue",
+		);
 		expect(source).toContain("ordinal(redelegateOutcome.by_a_person)");
 		expect(source).not.toMatch(/>st<\/span>/);
 	});
@@ -36,7 +38,7 @@ describe("hand-back outcome wording", () => {
 
 describe("tasks agent filter", () => {
 	it("sends the chosen agent to list_tasks as agent_configuration", () => {
-		const source = read("../../src/components/A2A/A2ATasks.vue");
+		const source = read("../../src/components/A2A/A2ATasks/A2ATasks.vue");
 		expect(source).toMatch(/agent_configuration:\s*filters\.agent\s*\|\|\s*undefined/);
 	});
 });
