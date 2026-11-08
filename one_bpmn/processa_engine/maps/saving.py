@@ -30,7 +30,7 @@ def save_model(
 			doc.description = description
 		doc.save()
 
-		from one_bpmn.api.version_history import create_diagram_snapshot
+		from one_bpmn.api.versions import create_diagram_snapshot
 
 		create_diagram_snapshot(doc.name, xml_content)
 	else:
@@ -49,7 +49,7 @@ def save_model(
 		doc.flags.skip_process_id_regeneration = True
 		doc.insert()
 
-		from one_bpmn.api.version_history import create_diagram_snapshot
+		from one_bpmn.api.versions import create_diagram_snapshot
 
 		create_diagram_snapshot(doc.name, xml_content)
 

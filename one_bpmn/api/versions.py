@@ -1,29 +1,18 @@
 # Copyright (c) 2026, kartiksharma9319@gmail.com and contributors
 # For license information, please see license.txt
+"""Version history endpoints for process map diagrams and Server Scripts."""
 
 import frappe
 from frappe import _
 
-# Saves by the same author within this many minutes collapse under one
-# history group header (Google-Docs-style grouping to reduce flooding).
+# Saves by the same author within this many minutes share one history group
 GROUP_WINDOW_MINUTES = 5
 
 
 def create_diagram_snapshot(model_name: str, xml_content: str, snapshot_type: str = "auto") -> str | None:
-	"""Record a full-XML snapshot of a diagram save into BPMN Diagram Version.
+	"""Record the full XML of a diagram save as a BPMN Diagram Version and return its name.
 
-	Called on every save of a BPMN Process Model. Consecutive saves by the same
-	author within ``GROUP_WINDOW_MINUTES`` reuse the previous snapshot's
-	``group_key`` so the history panel can collapse them under one header.
-	Named snapshots always start (and end) their own group.
-
-	Args:
-		model_name: Document name of the BPMN Process Model being saved.
-		xml_content: The full BPMN XML at save time.
-		snapshot_type: "auto" (autosave), "named" (explicit), or "restored".
-
-	Returns:
-		The name of the created snapshot, or None if skipped (no change).
+	Auto saves by the same author within GROUP_WINDOW_MINUTES share a group_key. Returns None when nothing changed.
 	"""
 	if not model_name or not xml_content:
 		return None
@@ -31,19 +20,16 @@ def create_diagram_snapshot(model_name: str, xml_content: str, snapshot_type: st
 	process_name = frappe.db.get_value("BPMN Process Model", model_name, "process_name")
 	user = frappe.session.user
 
-	# Find the most recent snapshot for this model to decide grouping and to
-	# skip pure no-op saves (identical XML).
 	last = frappe.get_all(
 		"BPMN Diagram Version",
 		filters={"model": model_name},
 		fields=["name", "owner", "creation", "group_key", "is_named", "bpmn_xml"],
 		order_by="creation desc",
 		limit=1,
-		ignore_permissions=True,
+		ignore_permissions=True,  # snapshots are internal; the caller checked the process model
 	)
 
 	if last and last[0].bpmn_xml == xml_content:
-		# Nothing actually changed since the last snapshot — don't add noise.
 		return None
 
 	group_key = None
@@ -65,25 +51,16 @@ def create_diagram_snapshot(model_name: str, xml_content: str, snapshot_type: st
 	snap.bpmn_xml = xml_content
 	snap.group_key = group_key
 	snap.snapshot_type = snapshot_type
-	snap.insert(ignore_permissions=True)
+	snap.insert(ignore_permissions=True)  # snapshots are internal; the caller checked the process model
 
 	return snap.name
 
 
 @frappe.whitelist()
 def get_diagram_versions(name: str) -> list:
-	"""
-	Get deployed version history for a BPMN Process Model.
+	"""Return the deployed sibling models (same process_name, version > 0) of a model, newest first.
 
-	Returns all sibling models (same process_name) that have been deployed
-	(version > 0), ordered by version descending. Excludes the current model
-	so the user can pick a different version to compare against.
-
-	Args:
-		name: Document name of the BPMN Process Model
-
-	Returns:
-		list of version entries with model_name, version, title, deployed info
+	The model itself is left out so the user can pick another version to compare against.
 	"""
 	if not name:
 		frappe.throw(_("Process Map name is required"))
@@ -122,18 +99,7 @@ def get_diagram_versions(name: str) -> list:
 
 @frappe.whitelist()
 def get_diagram_version_xml(name: str, model_name: str) -> dict:
-	"""
-	Get the bpmn_xml content from a specific BPMN Process Model version.
-
-	Reads the bpmn_xml directly from the sibling model document.
-
-	Args:
-		name: Document name of the current BPMN Process Model (for permission check)
-		model_name: Document name of the version to retrieve XML from
-
-	Returns:
-		dict with xml_content, model_name, version, title
-	"""
+	"""Return the bpmn_xml and deploy details of the sibling model model_name."""
 	if not name or not model_name:
 		frappe.throw(_("Process Map name and model name are required"))
 
@@ -156,26 +122,11 @@ def get_diagram_version_xml(name: str, model_name: str) -> dict:
 	}
 
 
-# ──────────────────────────────────────────────────────────────────────────
-# Google-Docs-style edit history (per-save snapshots, grouped)
-# ──────────────────────────────────────────────────────────────────────────
-
-
 @frappe.whitelist()
 def get_edit_history(model_name: str) -> list:
-	"""Return grouped save-history for a diagram, newest first.
+	"""Return a diagram's save snapshots grouped by group_key, newest first.
 
-	Snapshots sharing a ``group_key`` collapse under one group header (the most
-	recent snapshot in the group). Named snapshots are their own single-entry
-	group and carry the version name. The very first item is flagged as the
-	current version.
-
-	Args:
-		model_name: Document name of the BPMN Process Model.
-
-	Returns:
-		list of group dicts: {key, head, author, author_id, timestamp, is_named, is_current, version_name,
-		entries:[{name, author, author_id, timestamp, is_named, version_name, snapshot_type}]}
+	A named snapshot is its own group. The first group is flagged is_current.
 	"""
 	if not model_name:
 		frappe.throw(_("Model name is required"))
@@ -188,7 +139,7 @@ def get_edit_history(model_name: str) -> list:
 		filters={"model": model_name},
 		fields=["name", "owner", "creation", "group_key", "is_named", "version_name", "snapshot_type"],
 		order_by="creation desc",
-		ignore_permissions=True,
+		ignore_permissions=True,  # read permission was checked on the process model above
 	)
 
 	groups = []
@@ -204,7 +155,6 @@ def get_edit_history(model_name: str) -> list:
 			"snapshot_type": s.snapshot_type,
 		}
 
-		# Named snapshots never merge — each is its own group.
 		if s.is_named:
 			groups.append({
 				"key": s.name,
@@ -234,7 +184,6 @@ def get_edit_history(model_name: str) -> list:
 			groups.append(grp)
 		grp["entries"].append(entry)
 
-	# Keep groups ordered by their newest entry (snaps are already desc).
 	groups.sort(key=lambda g: g["timestamp"], reverse=True)
 
 	if groups:
@@ -247,16 +196,12 @@ def get_edit_history(model_name: str) -> list:
 
 @frappe.whitelist()
 def get_snapshot_xml(version_name: str) -> dict:
-	"""Return the full BPMN XML for a single snapshot.
-
-	Args:
-		version_name: Document name of the BPMN Diagram Version snapshot.
-	"""
+	"""Return the full BPMN XML of one BPMN Diagram Version snapshot."""
 	if not version_name:
 		frappe.throw(_("Snapshot name is required"))
 
 	snap = frappe.get_doc("BPMN Diagram Version", version_name)
-	# Permission is gated on the parent process model.
+	# Permission is gated on the parent process model
 	frappe.get_doc("BPMN Process Model", snap.model).check_permission("read")
 
 	return {
@@ -270,13 +215,7 @@ def get_snapshot_xml(version_name: str) -> dict:
 
 @frappe.whitelist()
 def name_version(version_name: str, name: str) -> dict:
-	"""Name (or rename) a snapshot so it shows as a pinned version.
-
-	Args:
-		version_name: Document name of the BPMN Diagram Version snapshot.
-		name: Human-readable version name. Empty string clears the name and
-			demotes it back to an ordinary auto snapshot.
-	"""
+	"""Name a snapshot so it shows as a pinned version; an empty name demotes it to an auto snapshot."""
 	if not version_name:
 		frappe.throw(_("Snapshot name is required"))
 
@@ -290,21 +229,14 @@ def name_version(version_name: str, name: str) -> dict:
 		snap.snapshot_type = "named"
 	elif not label and snap.snapshot_type == "named":
 		snap.snapshot_type = "auto"
-	snap.save(ignore_permissions=True)
+	snap.save(ignore_permissions=True)  # write permission was checked on the process model above
 
 	return {"name": snap.name, "version_name": snap.version_name, "is_named": bool(snap.is_named)}
 
 
 @frappe.whitelist()
 def restore_version(version_name: str) -> dict:
-	"""Restore a snapshot's XML back onto its process model as the current diagram.
-
-	Writes the snapshot XML to the BPMN Process Model and records a new
-	"restored" snapshot so the restore itself is part of history.
-
-	Args:
-		version_name: Document name of the BPMN Diagram Version to restore.
-	"""
+	"""Write a snapshot's XML back onto its process model and record a "restored" snapshot."""
 	if not version_name:
 		frappe.throw(_("Snapshot name is required"))
 
@@ -323,3 +255,80 @@ def restore_version(version_name: str) -> dict:
 		"xml_content": snap.bpmn_xml,
 		"snapshot": new_snap,
 	}
+
+
+@frappe.whitelist()
+def get_script_version_history(script_name: str) -> list:
+	"""Return a Server Script's versions from Frappe's Version records, newest first, current state first."""
+	if not script_name:
+		return []
+
+	if not frappe.db.exists("Server Script", script_name):
+		return []
+
+	frappe.get_doc("Server Script", script_name).check_permission("read")
+
+	current = frappe.db.get_value(
+		"Server Script", script_name,
+		["modified", "modified_by", "script"],
+		as_dict=True
+	)
+
+	version_records = frappe.get_all(
+		"Version",
+		filters={"ref_doctype": "Server Script", "docname": script_name},
+		fields=["name", "creation", "owner", "data"],
+		order_by="creation desc",
+		limit=100,
+	)
+
+	result = []
+
+	result.append({
+		"version_name": "current",
+		"is_current": True,
+		"creation": str(current.modified),
+		"author": frappe.utils.get_fullname(current.modified_by),
+		"description": "Current version",
+		"script": current.script or "",
+	})
+
+	for record in version_records:
+		try:
+			data = frappe.parse_json(record.data or "{}")
+			changed = data.get("changed", [])
+			script_change = next((c for c in changed if c[0] == "script"), None)
+			if not script_change:
+				continue
+			result.append({
+				"version_name": record.name,
+				"is_current": False,
+				"creation": str(record.creation),
+				"author": frappe.utils.get_fullname(record.owner),
+				"description": "Script updated",
+				"script": script_change[1],  # old value before this change
+			})
+		except Exception:
+			pass
+
+	return result
+
+
+@frappe.whitelist()
+def get_script_at_version(version_name: str) -> dict:
+	"""Return the script content stored in one Version record."""
+	if version_name == "current":
+		return {}
+
+	if not frappe.db.exists("Version", version_name):
+		frappe.throw(_("Version record not found."))
+
+	version_doc = frappe.get_doc("Version", version_name)
+	data = frappe.parse_json(version_doc.data or "{}")
+	changed = data.get("changed", [])
+	script_change = next((c for c in changed if c[0] == "script"), None)
+
+	if not script_change:
+		return {"script": "# No script changes tracked in this version"}
+
+	return {"script": script_change[1]}

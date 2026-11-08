@@ -125,7 +125,7 @@ async function loadNamedVersions() {
 	loadingVersions.value = true;
 	try {
 		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.version_history.get_edit_history",
+			url: "/api/method/one_bpmn.api.versions.get_edit_history",
 			params: { model_name: props.modelName },
 		});
 		const groups = res.message || res || [];
@@ -146,7 +146,7 @@ async function runCompare() {
 	loadingDiff.value = true;
 	try {
 		const snapRes = await frappeRequest({
-			url: "/api/method/one_bpmn.api.version_history.get_snapshot_xml",
+			url: "/api/method/one_bpmn.api.versions.get_snapshot_xml",
 			params: { version_name: selectedVersion.value },
 		});
 		const snap = snapRes.message || snapRes;
