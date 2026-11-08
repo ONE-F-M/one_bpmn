@@ -161,7 +161,7 @@ class TestWhoIsAPerson(FrappeTestCase):
 	def test_an_address_that_is_not_a_user_is_emailed(self):
 		frappe.db.set_single_value("Processa Settings", "eval_alert_recipients", "outsider@example.com")
 		try:
-			with patch("one_bpmn.agents.eval_alerts._send_email") as send:
+			with patch("one_bpmn.agents.eval_alerts.send_email") as send:
 				told = notify("subject", "body", [self.agent])
 		finally:
 			frappe.db.set_single_value("Processa Settings", "eval_alert_recipients", "")

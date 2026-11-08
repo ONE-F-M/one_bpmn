@@ -190,7 +190,7 @@ def _retire_old_configs():
 
 def _go_live(name):
 	try:
-		from one_bpmn.agents.agent_provisioning import validate_agent_config
+		from one_bpmn.ai_agent_registry.provisioning.agent_provisioning import validate_agent_config
 
 		result = validate_agent_config(name, test_provider=True)
 	except Exception:

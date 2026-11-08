@@ -7,7 +7,7 @@ agrees; a disagreement is logged and the record stays blank. A second run finds 
 import frappe
 from frappe.utils import cint, flt
 
-from one_bpmn.agents.agent_config_resolver import _ZERO_MEANS_UNSET
+from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import ZERO_MEANS_UNSET
 from one_bpmn.one_bpmn.patches.v1_0.agent_settings_move_to_the_configuration import (
 	_agent_shapes,
 	_is_blank,
@@ -21,7 +21,7 @@ def execute():
 			config_name = frappe.db.get_value("AI Agent Configuration", shape["aiAgentConfig"], "name")
 			if not config_name:
 				continue
-			for attribute, field in _ZERO_MEANS_UNSET.items():
+			for attribute, field in ZERO_MEANS_UNSET.items():
 				if flt(shape.get(attribute)):
 					found.setdefault((config_name, field), set()).add(flt(shape[attribute]))
 

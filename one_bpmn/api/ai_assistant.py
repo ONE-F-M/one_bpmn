@@ -176,8 +176,8 @@ def _creation_prerequisites_block() -> str:
 	doctype (or a rule to the validator) updates what the assistant knows
 	with zero edits here.
 	"""
-	from one_bpmn.agents.agent_config_resolver import CREATE_PAYLOAD_CONTRACT
-	from one_bpmn.agents.agent_provisioning import VALIDATION_RULES
+	from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import CREATE_PAYLOAD_CONTRACT
+	from one_bpmn.ai_agent_registry.provisioning.agent_provisioning import VALIDATION_RULES
 
 	lines = ["PREREQUISITES FOR CREATING AN AI AGENT CONFIGURATION (live platform data):"]
 
@@ -268,7 +268,7 @@ def _creation_unavailable_block() -> str:
 	starts interviewing the designer, or it gathers a full specification and
 	then fails at the last step.
 	"""
-	from one_bpmn.agents.agent_config_resolver import get_creation_grant_holder
+	from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import get_creation_grant_holder
 
 	holder = get_creation_grant_holder()
 	detail = (
@@ -300,7 +300,7 @@ def _creation_capability_block() -> str:
 	plain statement that creation is unavailable; the update half still
 	applies, since changing an existing agent needs no creation process.
 	"""
-	from one_bpmn.agents.agent_config_resolver import get_creation_process_model
+	from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import get_creation_process_model
 
 	if not get_creation_process_model():
 		return _creation_unavailable_block() + "\n\n" + _update_contract_block()
@@ -439,7 +439,7 @@ def _sanitize_proposed_config(proposed) -> dict | None:
 	if not isinstance(proposed, dict):
 		return None
 
-	from one_bpmn.agents.agent_config_resolver import get_creation_process_model
+	from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import get_creation_process_model
 
 	# Only CHAT agents need the creation process (Background agents auto-live
 	# on insert), so only their proposals are suppressed when no process is

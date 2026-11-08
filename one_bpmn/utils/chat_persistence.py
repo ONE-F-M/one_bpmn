@@ -47,7 +47,7 @@ def create_agent_conversation(agent_id: str, title: str = None, user: str = None
 	(ProsAlly / Logix / Docu / Lumina) are repointed to it in their own
 	migration stories.
 	"""
-	from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
+	from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 
 	config = get_agent_config(agent_id)
 	if not config:

@@ -51,7 +51,7 @@ export function useAgentConfigLinked(ac) {
 		rerunning.value = true;
 		try {
 			await frappeRequest({
-				url: "/api/method/one_bpmn.agents.agent_provisioning.rerun_creation_process",
+				url: "/api/method/one_bpmn.ai_agent_registry.provisioning.agent_provisioning.rerun_creation_process",
 				method: "POST",
 				params: { agent: name },
 			});
@@ -116,7 +116,7 @@ export function useAgentConfigLinked(ac) {
 		if (!form.value.aiAgentConfig) return;
 		try {
 			const fields = await frappeRequest({
-				url: "/api/method/one_bpmn.agents.agent_config_resolver.get_agent_config_for_shape",
+				url: "/api/method/one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.get_agent_config_for_shape",
 				method: "POST",
 				params: { config_name: form.value.aiAgentConfig },
 			});

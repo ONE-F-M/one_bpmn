@@ -106,9 +106,9 @@ def limits_for(agent) -> dict:
 	"""
 	out = dict(_AGENT_DEFAULTS)
 	try:
-		from one_bpmn.security.pii import _config_name
+		from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import agent_config_name
 
-		name = _config_name(agent)
+		name = agent_config_name(agent)
 		if not name:
 			return out
 		row = frappe.db.get_value(

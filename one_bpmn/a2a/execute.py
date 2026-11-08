@@ -153,7 +153,7 @@ def run_background(task, config, text: str, *, fresh: bool = False) -> None:
 	respected without anything being retried. So a retry retires the last
 	attempt and starts a new process instead of inheriting a finished one.
 	"""
-	from one_bpmn.agents.agent_provisioning import is_a2a_startable_map
+	from one_bpmn.ai_agent_registry.provisioning.agent_provisioning import is_a2a_startable_map
 
 	process_model = config.get("process_model") if isinstance(config, dict) else config.process_model
 	if not is_a2a_startable_map(process_model):

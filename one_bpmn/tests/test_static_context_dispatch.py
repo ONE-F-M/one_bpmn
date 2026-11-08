@@ -12,7 +12,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.context_assembler import EXAMPLES_HEADER, GUARDRAILS_HEADER
+from one_bpmn.ai_agent_registry.provisioning.context_assembler import EXAMPLES_HEADER, GUARDRAILS_HEADER
 from one_bpmn.processa_engine.agent_runtime.executor import (
 	ErrorCode,
 	Executor,
@@ -81,9 +81,9 @@ class TestDispatcherStaticContext(FrappeTestCase):
 		# prompt. Neutralise it: these tests are about what the static-context
 		# assembly ADDS, not about which prompt wins.
 		with patch(
-			"one_bpmn.agents.agent_config_resolver.resolve_dispatch_overrides", return_value={}
+			"one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.resolve_dispatch_overrides", return_value={}
 		), patch(
-			"one_bpmn.agents.context_assembler.load_agent_behaviour",
+			"one_bpmn.ai_agent_registry.provisioning.context_assembler.load_agent_behaviour",
 			return_value=behaviour or {},
 		):
 			D.dispatch_ai_agent(_instance(), _task(), task_cfg, "Act_1")
@@ -119,9 +119,9 @@ class TestDispatcherStaticContext(FrappeTestCase):
 	def test_behaviour_lookup_failure_degrades_to_the_plain_prompt(self):
 		"""A broken or deleted configuration must not take the agent down."""
 		with patch(
-			"one_bpmn.agents.agent_config_resolver.resolve_dispatch_overrides", return_value={}
+			"one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.resolve_dispatch_overrides", return_value={}
 		), patch(
-			"one_bpmn.agents.context_assembler.load_agent_behaviour",
+			"one_bpmn.ai_agent_registry.provisioning.context_assembler.load_agent_behaviour",
 			side_effect=Exception("boom"),
 		), patch(
 			"frappe.log_error"
@@ -208,7 +208,7 @@ class TestConfiguratorKnowsTheNewFields(FrappeTestCase):
 	so the new fields must be IN that data and must survive its sanitiser."""
 
 	def test_create_payload_contract_advertises_both_fields(self):
-		from one_bpmn.agents.agent_config_resolver import CREATE_PAYLOAD_CONTRACT
+		from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import CREATE_PAYLOAD_CONTRACT
 
 		self.assertIn("examples", CREATE_PAYLOAD_CONTRACT)
 		self.assertIn("guardrails", CREATE_PAYLOAD_CONTRACT)
@@ -251,7 +251,7 @@ class TestConfiguratorKnowsTheNewFields(FrappeTestCase):
 	def test_unknown_guardrail_category_falls_back_to_other(self):
 		"""An invented category must not fail Select validation and lose the
 		whole agent — the rule is worth more than its label."""
-		from one_bpmn.agents.agent_config_resolver import _GUARDRAIL_CATEGORIES
+		from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import _GUARDRAIL_CATEGORIES
 
 		self.assertIn("Other", _GUARDRAIL_CATEGORIES)
 		self.assertNotIn("Made Up", _GUARDRAIL_CATEGORIES)

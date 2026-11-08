@@ -84,7 +84,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 
 	# A linked AI Agent Configuration overrides the shape's agent fields; tools stay the subprocess's own.
 	if task_cfg.get("aiAgentConfig"):
-		from one_bpmn.agents.agent_config_resolver import resolve_dispatch_overrides
+		from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import resolve_dispatch_overrides
 		task_cfg = {**task_cfg, **resolve_dispatch_overrides(task_cfg["aiAgentConfig"])}
 
 	render, jinja_ctx = template_renderer(
@@ -157,7 +157,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 	)
 
 	# A linked agent's examples and guard rails go into the system prompt; selector text stays in the user prompt.
-	from one_bpmn.agents.context_assembler import build_static_context, load_agent_behaviour
+	from one_bpmn.ai_agent_registry.provisioning.context_assembler import build_static_context, load_agent_behaviour
 
 	behaviour = {}
 	if task_cfg.get("aiAgentConfig"):

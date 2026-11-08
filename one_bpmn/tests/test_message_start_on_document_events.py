@@ -82,7 +82,7 @@ class TestWhichMapsAMessageStarts(MessageStartFixtures):
 class TestAnEditStartsTheListeningMap(MessageStartFixtures):
 	def test_an_edit_with_no_running_instance_starts_the_listening_map(self):
 		with patch("one_bpmn.processa_engine.instances.starting.start_and_deliver_message") as start:
-			triggers._maybe_send_message(self.doc, "Edit_Action")
+			triggers.maybe_send_message(self.doc, "Edit_Action")
 		start.assert_called_once()
 		kwargs = start.call_args.kwargs
 		self.assertEqual(kwargs["model_name"], MODEL)
@@ -92,7 +92,7 @@ class TestAnEditStartsTheListeningMap(MessageStartFixtures):
 	def test_a_running_instance_of_the_listening_map_is_not_doubled(self):
 		_instance(MODEL, "Active", self.doc)
 		with patch("one_bpmn.processa_engine.instances.starting.start_and_deliver_message") as start:
-			triggers._maybe_send_message(self.doc, "Edit_Action")
+			triggers.maybe_send_message(self.doc, "Edit_Action")
 		start.assert_not_called()
 
 	def test_two_maps_on_one_message_start_neither(self):
@@ -101,7 +101,7 @@ class TestAnEditStartsTheListeningMap(MessageStartFixtures):
 			patch("one_bpmn.processa_engine.instances.starting.start_and_deliver_message") as start,
 			patch.object(frappe, "log_error") as log_error,
 		):
-			triggers._maybe_send_message(self.doc, "Edit_Action")
+			triggers.maybe_send_message(self.doc, "Edit_Action")
 		start.assert_not_called()
 		log_error.assert_called_once()
 
@@ -110,7 +110,7 @@ class TestAnEditStartsTheListeningMap(MessageStartFixtures):
 			patch("one_bpmn.processa_engine.instances.starting.start_and_deliver_message", side_effect=Exception("boom")),
 			patch.object(frappe, "log_error") as log_error,
 		):
-			triggers._maybe_send_message(self.doc, "Edit_Action")
+			triggers.maybe_send_message(self.doc, "Edit_Action")
 		log_error.assert_called_once()
 
 

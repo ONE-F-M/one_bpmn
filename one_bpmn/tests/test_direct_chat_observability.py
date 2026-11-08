@@ -57,7 +57,7 @@ class TestDirectChatIsRecorded(FrappeTestCase):
 		with patch(ADAPTER, return_value=_FakeAdapter(completion)), patch(
 			f"{PERSIST}.save_user_message"
 		), patch(f"{PERSIST}.save_bot_message"), patch(
-			"one_bpmn.agents.context_assembler.build_static_context_from_config",
+			"one_bpmn.ai_agent_registry.provisioning.context_assembler.build_static_context_from_config",
 			return_value="composed system prompt",
 		):
 			return a2a_api._run_direct_api(self.config, "CONV-1", "what is a delivery note?", {})
@@ -109,7 +109,7 @@ class TestDirectChatIsRecorded(FrappeTestCase):
 		with patch(ADAPTER, return_value=_Boom(None)), patch(f"{PERSIST}.save_user_message"), patch(
 			f"{PERSIST}.save_bot_message"
 		), patch(
-			"one_bpmn.agents.context_assembler.build_static_context_from_config", return_value="sp"
+			"one_bpmn.ai_agent_registry.provisioning.context_assembler.build_static_context_from_config", return_value="sp"
 		), patch("one_bpmn.agents.observability.create_ai_run") as create, patch(
 			"one_bpmn.agents.observability.record_ai_step"
 		), patch("one_bpmn.agents.observability.finalize_ai_run_on_exception") as failed:

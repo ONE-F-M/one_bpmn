@@ -3,3 +3,4 @@ Processa Engine
 Processa Connectors
 Agents Sandbox
 A2A
+AI Agent Registry

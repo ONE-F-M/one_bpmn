@@ -16,7 +16,7 @@ from one_bpmn.a2a import execute, protocol, push, task_store
 from one_bpmn.a2a.card import build_agent_card
 from one_bpmn.a2a.principal import client_may_invoke, get_client_for_user
 from one_bpmn.a2a.protocol import A2AError
-from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
+from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
@@ -627,7 +627,7 @@ def invoke_agent(
 	# RateLimited (a ValidationError) which surfaces to the caller as the
 	# refusal message; everything else in here fails open.
 	from one_bpmn.security import rate_limit as _rate_limit
-	from one_bpmn.security.pii import _config_name
+	from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import agent_config_name
 
 	# A Chat agent's turn is counted when its Chat Message is written, which is
 	# the boundary that fires on EVERY message; counting here as well would make
@@ -635,7 +635,7 @@ def invoke_agent(
 	# here instead, or they would never be throttled at all.
 	_rate_limit.enforce(
 		user=frappe.session.user,
-		agent=_config_name(config),
+		agent=agent_config_name(config),
 		agent_label=config.get("agent_id") or agent_id,
 		conversation=conversation,
 		count=(config.get("agent_type") != "Chat"),
@@ -646,7 +646,7 @@ def invoke_agent(
 	# turn starts: no Chat Message, no process instance, no failed run. The
 	# reason is an AgentRefusal, so the chat surface shows it as a message
 	# rather than "something went wrong".
-	from one_bpmn.agents import model_health as _model_health
+	from one_bpmn.ai_agent_registry import model_health as _model_health
 
 	_unavailable = _model_health.refuse_new_run(config.get("ai_model"), commit=True)
 	if _unavailable:
@@ -1070,7 +1070,7 @@ def _stream_direct_api(config, conversation, message, context):
 def _direct_api_turn(config, conversation, message):
 	"""One direct chat exchange, recorded as a run, persisted as two messages."""
 	from one_bpmn.agents import observability
-	from one_bpmn.agents.context_assembler import build_static_context_from_config
+	from one_bpmn.ai_agent_registry.provisioning.context_assembler import build_static_context_from_config
 	from one_bpmn.processa_engine.agent_runtime.executor import ExecutorResult, TokenUsage
 	from one_bpmn.processa_engine.agent_runtime.direct_api import run_coro_blocking
 	from one_bpmn.processa_engine.agent_runtime.llm_factory import get_llm_adapter_from_settings

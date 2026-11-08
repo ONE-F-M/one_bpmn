@@ -32,7 +32,7 @@ export function useAgentConfigLoad(ac) {
 		// cannot be read here. The provider list is derived from the catalogue.
 		try {
 			const rows = await frappeRequest({
-				url: "/api/method/one_bpmn.agents.agent_config_resolver.model_catalogue",
+				url: "/api/method/one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.model_catalogue",
 				method: "POST",
 			});
 			catalogModels.value = Array.isArray(rows) ? rows : [];

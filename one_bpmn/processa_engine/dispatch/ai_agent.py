@@ -101,7 +101,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 
 	# A linked AI Agent Configuration wins over the shape's copies; on resume the checkpoint keeps its own prompt.
 	if task_cfg.get("aiAgentConfig"):
-		from one_bpmn.agents.agent_config_resolver import resolve_dispatch_overrides
+		from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import resolve_dispatch_overrides
 
 		_overrides = resolve_dispatch_overrides(task_cfg["aiAgentConfig"])
 		if resume_payload:
@@ -119,7 +119,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		system_prompt = resume_payload.get("system_prompt") or ""
 		user_prompt = ""
 	else:
-		from one_bpmn.agents.context_assembler import build_static_context, load_agent_behaviour
+		from one_bpmn.ai_agent_registry.provisioning.context_assembler import build_static_context, load_agent_behaviour
 
 		instructions = render(task_cfg.get("aiSystemPrompt", ""))
 		agent_config = {}
@@ -222,7 +222,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			advance_turn(conversation)
 
 	if memory_block or user_message or turn_established or active_skill_bodies:
-		from one_bpmn.agents.context_assembler import build_dynamic_preamble
+		from one_bpmn.ai_agent_registry.provisioning.context_assembler import build_dynamic_preamble
 
 		user_prompt = build_dynamic_preamble(
 			memory_block=memory_block,
@@ -331,7 +331,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 
 	# An instruction block the system prompt already carries is dropped from the user prompt.
 	if user_prompt and system_prompt:
-		from one_bpmn.agents.context_assembler import drop_duplicated_instructions
+		from one_bpmn.ai_agent_registry.provisioning.context_assembler import drop_duplicated_instructions
 
 		user_prompt = drop_duplicated_instructions(system_prompt, user_prompt)
 
@@ -379,7 +379,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 
 	# A model whose credentials are known broken gets no new run; a resume continues an existing one.
 	if not resume_payload:
-		from one_bpmn.agents import model_health
+		from one_bpmn.ai_agent_registry import model_health
 
 		_refusal = model_health.refuse_new_run(config.model)
 		if _refusal:

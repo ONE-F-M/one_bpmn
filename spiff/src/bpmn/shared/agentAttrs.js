@@ -44,7 +44,7 @@ function syncToConfig(config, attr, value, onResult) {
 		setTimeout(() => {
 			pending.delete(key);
 			frappePost(
-				"/api/method/one_bpmn.agents.agent_config_resolver.update_agent_config_from_shape",
+				"/api/method/one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.update_agent_config_from_shape",
 				{ config_name: config, fields: JSON.stringify({ [attr]: value || "" }) }
 			)
 				.then(() => onResult && onResult(null))
@@ -67,7 +67,7 @@ const SYNC_ERROR = new WeakMap();
 async function loadLivePrompt(config, bo) {
 	try {
 		const fields = await frappePost(
-			"/api/method/one_bpmn.agents.agent_config_resolver.get_agent_config_for_shape",
+			"/api/method/one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.get_agent_config_for_shape",
 			{ config_name: config }
 		);
 		LIVE_PROMPT.set(config, fields?.aiSystemPrompt || null);
@@ -133,7 +133,7 @@ export class DriftMarkers extends Component {
 		const config = getAttr(bo, "aiAgentConfig");
 		if (!config) return;
 		const shape = Object.fromEntries(DRIFT_ATTRS.map((attr) => [attr, getAttr(bo, attr)]));
-		frappePost("/api/method/one_bpmn.agents.agent_config_resolver.get_shape_drift", {
+		frappePost("/api/method/one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.get_shape_drift", {
 			config_name: config,
 			shape: JSON.stringify(shape),
 		})

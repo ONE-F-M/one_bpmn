@@ -11,7 +11,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import goal_completion, shape_tools
-from one_bpmn.agents.agent_config_resolver import config_field_map
+from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import config_field_map
 from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorConfig, ExecutorContext
 from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
 from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall, ToolSpec

@@ -115,7 +115,7 @@ _BPMN_GUARD   = "one_bpmn.processa_engine.triggers.guard_bpmn_document"
 _BPMN_DELETE  = "one_bpmn.processa_engine.triggers.delete_linked_bpmn_instances"
 
 # Copies each AI Agent Configuration's prompt, model, temperature and max tokens onto the map shapes that link it.
-after_migrate = ["one_bpmn.agents.agent_config_resolver.sync_all_shapes_to_configs"]
+after_migrate = ["one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.sync_all_shapes_to_configs"]
 
 # Jinja globals for aiUserPrompt templates.
 jinja = {
@@ -226,7 +226,7 @@ scheduler_events = {
 		# block before the person who fixed it has moved on, and rare enough to
 		# be invisible in the provider's request log.
 		"*/15 * * * *": [
-			"one_bpmn.tasks.check_ai_model_credentials",
+			"one_bpmn.ai_agent_registry.model_health.check_ai_model_credentials",
 		],
 		# A lane job that is killed (worker restart, RQ timeout) never gets to
 		# enqueue its own successor or notice it was the last lane home, so a

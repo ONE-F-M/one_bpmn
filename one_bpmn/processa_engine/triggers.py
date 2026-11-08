@@ -80,10 +80,10 @@ def on_doc_event(doc, method: str):
 
 	message_suffix = _FRAPPE_EVENT_TO_MESSAGE_SUFFIX.get(method)
 	if message_suffix:
-		_maybe_send_message(doc, message_suffix)
+		maybe_send_message(doc, message_suffix)
 
 
-def _maybe_send_message(doc, message_suffix: str):
+def maybe_send_message(doc, message_suffix: str):
 	"""
 	Deliver a BPMN message to active instances when a document is edited.
 	Builds message name as {DocType}_{suffix} and never blocks the save.
@@ -280,7 +280,7 @@ def _maybe_start_instance(doc, model_name: str):
 			return
 
 	# Same expression SpiffWorkflow evaluates at start; a condition that cannot be evaluated still spawns.
-	start_condition = _get_conditional_start_condition(model.bpmn_xml)
+	start_condition = get_conditional_start_condition(model.bpmn_xml)
 	if start_condition and start_condition.strip().lower() not in ("true", "1", ""):
 		from one_bpmn.processa_engine.engine import evaluate_condition, json_safe_doc_fields
 
@@ -295,7 +295,7 @@ def _maybe_start_instance(doc, model_name: str):
 				message=f"condition={start_condition!r}\n{frappe.get_traceback()}",
 			)
 
-	field_cond = _get_trigger_field_condition(model.bpmn_xml)
+	field_cond = get_trigger_field_condition(model.bpmn_xml)
 	if field_cond:
 		field_name, field_value = field_cond
 		if str(getattr(doc, field_name, None) or "") != str(field_value):
@@ -468,7 +468,7 @@ def _get_trigger_workflow_state(bpmn_xml: str):
 	return None
 
 
-def _get_trigger_field_condition(bpmn_xml: str):
+def get_trigger_field_condition(bpmn_xml: str):
 	"""Return (triggerFieldName, triggerFieldValue) from the first element that declares them, or None.
 
 	Scopes a DocType-event trigger so several models on the same DocType and event do not all fire."""
@@ -489,7 +489,7 @@ def _get_trigger_field_condition(bpmn_xml: str):
 	return None
 
 
-def _get_conditional_start_condition(bpmn_xml: str):
+def get_conditional_start_condition(bpmn_xml: str):
 	"""Return the <bpmn:condition> text of the first conditional start event, or None."""
 	if not bpmn_xml or not bpmn_xml.strip():
 		return None

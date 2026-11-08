@@ -63,7 +63,7 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 			patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value=turn),
 			patch("one_bpmn.processa_engine.agent_runtime.turn_state.update_turn", side_effect=fake_update_turn),
 			patch(
-				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
+				"one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
 				return_value={"sub_prompts": {}, "max_tokens": 1024, "agent_id": "prosally_agent"},
 			),
 			patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=adapter),
@@ -102,7 +102,7 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 			patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value=turn),
 			patch("one_bpmn.processa_engine.agent_runtime.turn_state.update_turn"),
 			patch(
-				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
+				"one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
 				return_value={"sub_prompts": {}, "max_tokens": 32000, "agent_id": "prosally_agent"},
 			),
 			patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=adapter),
@@ -123,7 +123,7 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 			patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value=turn),
 			patch("one_bpmn.processa_engine.agent_runtime.turn_state.update_turn"),
 			patch(
-				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
+				"one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
 				return_value={"sub_prompts": {}, "max_tokens": 1024, "agent_id": "prosally_agent"},
 			),
 			patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=adapter),
@@ -141,7 +141,7 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 			patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value=turn),
 			patch("one_bpmn.processa_engine.agent_runtime.turn_state.update_turn"),
 			patch(
-				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
+				"one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
 				return_value={"sub_prompts": {}, "max_tokens": 20000, "agent_id": "prosally_agent"},
 			),
 			patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=adapter),
@@ -179,7 +179,7 @@ class TestProsAllyTruncationHandling(FrappeTestCase):
 			patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value=turn),
 			patch("one_bpmn.processa_engine.agent_runtime.turn_state.update_turn", side_effect=fake_update_turn),
 			patch(
-				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
+				"one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
 				return_value={"sub_prompts": {}, "max_tokens": 16384, "agent_id": "prosally_agent"},
 			),
 			patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=adapter),

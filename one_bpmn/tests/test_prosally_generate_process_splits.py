@@ -175,7 +175,7 @@ def run_generate(shape, should_cut=lambda user: False, text="Model a leave reque
 				"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=FakeAdapter(model)
 			),
 			mock.patch(
-				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
+				"one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
 				return_value=cfg,
 			),
 			mock.patch.object(frappe, "get_all", return_value=[]),

@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import context_assembler as CA
+from one_bpmn.ai_agent_registry.provisioning import context_assembler as CA
 from one_bpmn.processa_engine.agent_runtime.executor import (
 	DEFAULT_MAX_OUTPUT_TOKENS,
 	DEFAULT_MAX_RETRIES,
@@ -137,7 +137,7 @@ class TestEveryPathStartsFromTheSameDefaults(FrappeTestCase):
 
 		path = os.path.join(
 			os.path.dirname(one_bpmn.__file__),
-			"one_bpmn",
+			"ai_agent_registry",
 			"doctype",
 			"ai_agent_configuration",
 			"ai_agent_configuration.json",
