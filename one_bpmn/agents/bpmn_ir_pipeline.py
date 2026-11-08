@@ -159,16 +159,16 @@ def _find_node() -> str | None:
 
 
 def _pipeline_path() -> str:
-    """Absolute path to spiff/pipeline.mjs, resolved relative to this module.
+    """Absolute path to spiff/tools/bpmn-pipeline/pipeline.mjs, resolved relative to this module.
 
     This module lives at ``one_bpmn/one_bpmn/agents/bpmn_ir_pipeline.py``; the
-    pipeline lives at ``one_bpmn/spiff/pipeline.mjs`` (the app root's spiff dir),
-    two directories up from ``agents/``.
+    pipeline lives at ``one_bpmn/spiff/tools/bpmn-pipeline/pipeline.mjs`` (under
+    the app root's spiff dir), two directories up from ``agents/``.
     """
     return os.path.normpath(os.path.join(
         os.path.dirname(__file__),
         "..", "..",
-        "spiff", "pipeline.mjs",
+        "spiff", "tools", "bpmn-pipeline", "pipeline.mjs",
     ))
 
 
