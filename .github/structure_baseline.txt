@@ -200,7 +200,7 @@ size spiff/src/pages/EvalRun.vue 516
 size spiff/src/pages/EvalSuite.vue 1608
 size spiff/src/pages/Instance.vue 891
 size spiff/src/pages/Instances.vue 559
-size spiff/src/pages/Process.vue 3709
+size spiff/src/pages/Process.vue 3684
 size spiff/src/pages/Processes.vue 525
 size spiff/src/pages/Security.vue 1216
 size spiff/src/pages/Skills.vue 796
