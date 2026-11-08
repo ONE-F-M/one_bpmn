@@ -17,7 +17,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.processa_engine.agent_runtime import turn_idempotency as idem
-from one_bpmn.api import agent_invocation, server_script_api
+from one_bpmn.api import a2a as a2a_api
+from one_bpmn.api import server_script_api
 from one_bpmn.security import turn_lock
 
 
@@ -239,14 +240,14 @@ class TestStreamingTurnHoldsTheLock(FrappeTestCase):
 
 	def test_the_envelope_a_map_runner_returns_counts_as_a_stream(self):
 		gen = self._generator()
-		self.assertTrue(agent_invocation._is_stream({"streaming": True, "stream": gen}))
-		self.assertTrue(agent_invocation._is_stream(gen))
+		self.assertTrue(a2a_api._is_stream({"streaming": True, "stream": gen}))
+		self.assertTrue(a2a_api._is_stream(gen))
 		gen.close()
 
 	def test_a_buffered_reply_is_not_a_stream(self):
-		self.assertFalse(agent_invocation._is_stream({"response": "hello"}))
-		self.assertFalse(agent_invocation._is_stream({"streaming": True, "stream": None}))
-		self.assertFalse(agent_invocation._is_stream(None))
+		self.assertFalse(a2a_api._is_stream({"response": "hello"}))
+		self.assertFalse(a2a_api._is_stream({"streaming": True, "stream": None}))
+		self.assertFalse(a2a_api._is_stream(None))
 
 
 class TestRedeliveryWhileTheMapReArms(FrappeTestCase):

@@ -321,7 +321,7 @@ def _process_owner(row) -> str | None:
 	"""Who hears about a question nobody answered — the process owner of the
 	running process, falling back to the person who was asked's manager-less
 	last resort, the run's initiator."""
-	from one_bpmn.agents.a2a import guardrails
+	from one_bpmn.a2a import guardrails
 
 	return guardrails.refusal_recipient(row.get("agent_configuration"), row.get("instance"))
 

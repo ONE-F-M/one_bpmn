@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Dev Agent Sandbox's push callback (mirrors api/a2a_api.push_callback's
+"""Dev Agent Sandbox's push callback (mirrors api/a2a.push_callback's
 security shape, WI-001933's push endpoint).
 
 Reachable without a Frappe session — the sandbox has no user here — so an

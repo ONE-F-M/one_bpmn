@@ -105,7 +105,7 @@ def compile_shape_tools(tool_shapes, instance) -> list:
 # ToolDeferred because the two are halves of one rule: the loop tracks one pause
 # per turn, so a second one must never begin work. Written by
 # processa_engine/agent_runtime/step_loop.py, read by
-# connectors/a2a_client_ops.delegate_to_local_agent — kept in this module so
+# a2a/client_ops.delegate_to_local_agent - kept in this module so
 # neither of those has to import the other.
 PAUSE_HELD_FLAG = "a2a_pause_held_this_turn"
 
@@ -537,7 +537,7 @@ def _waiting_marker(task) -> dict | None:
 	loop reads the empty result as a real answer and reports "no result"
 	back to the model instead of suspending. Confirmed the hard way for the
 	agent_sandbox connector before this generalization existed."""
-	from one_bpmn.one_bpmn.connectors.a2a_client_ops import A2A_WAITING_KEY
+	from one_bpmn.a2a.client_ops import A2A_WAITING_KEY
 	from one_bpmn.agents_sandbox.sandbox.ops import (
 		AGENT_SANDBOX_WAITING_KEY,
 	)

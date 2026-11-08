@@ -6,7 +6,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, now_datetime
 
-from one_bpmn.api import agent_invocation
+from one_bpmn.api import a2a as a2a_api
 from one_bpmn.api import server_script_api as SSA
 from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import BPMNProcessInstance
 
@@ -97,7 +97,7 @@ class TestTurnFailureMessages(FrappeTestCase):
 	def test_no_live_instance_logs_the_instance_state_then_says_reopen(self):
 		with patch.object(frappe, "log_error") as log_error:
 			with self.assertRaises(frappe.ValidationError) as ctx:
-				agent_invocation._no_live_instance({"agent_id": "zz_agent"}, CONVERSATION)
+				a2a_api._no_live_instance({"agent_id": "zz_agent"}, CONVERSATION)
 		self.assertIn("reopen the chat", str(ctx.exception))
 		kwargs = log_error.call_args.kwargs
 		self.assertTrue(kwargs["defer_insert"])

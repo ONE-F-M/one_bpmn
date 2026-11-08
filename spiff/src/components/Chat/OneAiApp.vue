@@ -84,7 +84,7 @@ onMounted(async () => {
 		// lives on the server (ONE_AI_AGENT_IDS), not here, so the picker and
 		// the sidebar filter can never disagree.
 		const list = await frappeRequest({
-			url: "/api/method/one_bpmn.api.agent_invocation.list_one_ai_agents",
+			url: "/api/method/one_bpmn.api.a2a.list_one_ai_agents",
 		}) || [];
 		agents.value = list;
 		// A conversation stores agent_mode, which is the chat_mode_label for

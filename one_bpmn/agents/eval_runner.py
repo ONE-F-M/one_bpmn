@@ -2148,7 +2148,7 @@ def _run_chat_agent_eval(cfg, case, eval_run: str | None = None) -> tuple:
     ``input_context`` may seed earlier turns through ``conversation_messages`` and
     ``session_state``; usage comes from the runs tagged with this case and eval run."""
     from one_bpmn.agents.memory import session_state
-    from one_bpmn.api.agent_invocation import invoke_agent
+    from one_bpmn.api.a2a import invoke_agent
     from one_bpmn.utils.chat_persistence import close_conversation, create_agent_conversation
 
     if not cfg.agent_id:

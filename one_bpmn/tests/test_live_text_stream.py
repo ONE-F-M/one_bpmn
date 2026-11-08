@@ -246,7 +246,7 @@ class TestTheBufferedPathDoesNotResendStreamedText(FrappeTestCase):
 	def _stream(self, result):
 		from one_bpmn.agents import agui_stream
 
-		with patch("one_bpmn.api.agent_invocation.invoke_agent", return_value=result):
+		with patch("one_bpmn.api.a2a.invoke_agent", return_value=result):
 			return list(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
 
 	def test_streamed_text_gets_only_an_end(self):
@@ -324,7 +324,7 @@ class TestADirectTurnStreamsFromTheRequest(FrappeTestCase):
 
 	def test_the_stream_yields_deltas_then_the_handover(self):
 		from one_bpmn.agents.agui_stream import HANDOVER_EVENT
-		from one_bpmn.api import agent_invocation
+		from one_bpmn.api import a2a as a2a_api
 		from one_bpmn.processa_engine.agent_runtime.turn_signal import LIVE_TEXT_QUEUE_FLAG
 
 		def fake_turn(config, conversation, message):
@@ -332,8 +332,8 @@ class TestADirectTurnStreamsFromTheRequest(FrappeTestCase):
 			sink_q.put("The "); sink_q.put("answer.")
 			return {"response": "The answer."}
 
-		with patch.object(agent_invocation, "_direct_api_turn", side_effect=fake_turn):
-			out = list(agent_invocation._stream_direct_api({}, "CONV-1", "hi", {}))
+		with patch.object(a2a_api, "_direct_api_turn", side_effect=fake_turn):
+			out = list(a2a_api._stream_direct_api({}, "CONV-1", "hi", {}))
 
 		self.assertEqual(out[:2], [
 			{"type": "TEXT_MESSAGE_CONTENT", "delta": "The "},
@@ -344,15 +344,15 @@ class TestADirectTurnStreamsFromTheRequest(FrappeTestCase):
 		self.assertIsNone(frappe.flags.get(LIVE_TEXT_QUEUE_FLAG), "the queue must not leak into the next turn")
 
 	def test_a_failing_turn_raises_on_the_request_thread(self):
-		from one_bpmn.api import agent_invocation
+		from one_bpmn.api import a2a as a2a_api
 
-		with patch.object(agent_invocation, "_direct_api_turn", side_effect=RuntimeError("provider down")):
+		with patch.object(a2a_api, "_direct_api_turn", side_effect=RuntimeError("provider down")):
 			with self.assertRaises(RuntimeError):
-				list(agent_invocation._stream_direct_api({}, "CONV-1", "hi", {}))
+				list(a2a_api._stream_direct_api({}, "CONV-1", "hi", {}))
 
 	def test_without_stream_the_runner_is_unchanged(self):
-		from one_bpmn.api import agent_invocation
+		from one_bpmn.api import a2a as a2a_api
 
-		with patch.object(agent_invocation, "_direct_api_turn", return_value={"response": "plain"}) as turn:
-			self.assertEqual(agent_invocation._run_direct_api({}, "CONV-1", "hi", {}, stream=False), {"response": "plain"})
+		with patch.object(a2a_api, "_direct_api_turn", return_value={"response": "plain"}) as turn:
+			self.assertEqual(a2a_api._run_direct_api({}, "CONV-1", "hi", {}, stream=False), {"response": "plain"})
 		turn.assert_called_once()

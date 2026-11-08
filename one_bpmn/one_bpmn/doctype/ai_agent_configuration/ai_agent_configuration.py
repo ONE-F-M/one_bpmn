@@ -144,7 +144,7 @@ class AIAgentConfiguration(Document):
 
 		Recall and writeback live in the map dispatcher. A chat agent with no
 		Process Model runs on the single-shot path instead (see ``_runner_for``
-		in api/agent_invocation.py), which never reads a memory and never writes
+		in api/a2a.py), which never reads a memory and never writes
 		one. The settings still save and the form still shows them Enabled, so
 		the only visible symptom is an agent that forgets everything, which is
 		what it looks like when memory is simply not working.

@@ -15,7 +15,7 @@ the gate must read one rule, not two.
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.agent_invocation import (
+from one_bpmn.api.a2a import (
 	_authorize,
 	allowed_roles_for,
 	user_may_use_agent,
@@ -139,7 +139,7 @@ class TestAllowedRolesEnforcement(FrappeTestCase):
 		it would be testing the wrong thing. The invariant that matters is that
 		the picker can never offer something the gate then refuses.
 		"""
-		from one_bpmn.api.agent_invocation import list_available_agents
+		from one_bpmn.api.a2a import list_available_agents
 
 		self._agent(roles=[ROLE])
 
@@ -156,7 +156,7 @@ class TestAllowedRolesEnforcement(FrappeTestCase):
 				)
 
 	def test_the_restricted_agent_is_hidden_from_a_user_without_the_role(self):
-		from one_bpmn.api.agent_invocation import list_available_agents
+		from one_bpmn.api.a2a import list_available_agents
 
 		self._agent(roles=[ROLE])
 		frappe.set_user(OUTSIDER)

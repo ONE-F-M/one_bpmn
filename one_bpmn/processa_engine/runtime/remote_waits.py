@@ -97,8 +97,8 @@ def bind_agent_sandbox_wait(instance, task, marker: dict) -> None:
 
 def apply_a2a_result(instance, task, marker: dict) -> bool:
 	"""Apply a finished delegation to its parked Service Task. False while it still runs; raises on failOnError."""
-	from one_bpmn.one_bpmn.connectors.a2a_client_ops import A2A_WAITING_KEY
-	from one_bpmn.one_bpmn.integrations.a2a_client import A2ARemoteError
+	from one_bpmn.a2a.client_ops import A2A_WAITING_KEY
+	from one_bpmn.a2a.client import A2ARemoteError
 
 	a2a_task_name = marker.get("a2a_task")
 	row = (
@@ -215,7 +215,7 @@ def on_a2a_input_required(instance, a2a_task_name: str, prompt: str) -> None:
 
 def complete_a2a_human_task(instance, task_id: str, data: dict | None = None) -> None:
 	"""Send a person's answer back to the remote agent that asked. The caller has checked assignment and permissions."""
-	from one_bpmn.one_bpmn.integrations import a2a_client
+	from one_bpmn.a2a import client as a2a_client
 
 	data = data or {}
 	row = next((r for r in instance.active_tasks if r.task_id == task_id), None)

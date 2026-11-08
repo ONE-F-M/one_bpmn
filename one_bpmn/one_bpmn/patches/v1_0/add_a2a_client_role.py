@@ -11,7 +11,7 @@ own JSON (WI-001932), not here.
 import frappe
 from frappe.permissions import add_permission, update_permission_property
 
-from one_bpmn.agents.a2a.principal import A2A_CLIENT_ROLE, ensure_client_role
+from one_bpmn.a2a.principal import A2A_CLIENT_ROLE, ensure_client_role
 
 GRANTS = (
 	("Chat Conversation", ("read", "write", "create")),

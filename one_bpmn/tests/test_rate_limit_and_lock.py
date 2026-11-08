@@ -869,7 +869,7 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 		refusal = "You are sending messages to this agent too quickly. Wait a moment and try again."
 		kinds, texts = [], []
 		with patch(
-			"one_bpmn.api.agent_invocation.invoke_agent", side_effect=RL.RateLimited(refusal)
+			"one_bpmn.api.a2a.invoke_agent", side_effect=RL.RateLimited(refusal)
 		):
 			for chunk in A.agent_event_stream("prosally_agent", "hi", conversation, None):
 				for line in str(chunk).splitlines():
@@ -921,7 +921,7 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 			raise RL.RateLimited("You are sending messages to this agent too quickly.")
 
 		before = frappe.db.count("AI Security Event", {"stage": "rate-limit", "action": "Block"})
-		with patch("one_bpmn.api.agent_invocation.invoke_agent", side_effect=refuse_and_record):
+		with patch("one_bpmn.api.a2a.invoke_agent", side_effect=refuse_and_record):
 			for chunk in A.agent_event_stream("prosally_agent", "hi", conversation, None):
 				for line in str(chunk).splitlines():
 					if line.startswith("data: "):
@@ -952,7 +952,7 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 
 		kinds = []
 		with patch(
-			"one_bpmn.api.agent_invocation.invoke_agent", side_effect=RuntimeError("provider exploded")
+			"one_bpmn.api.a2a.invoke_agent", side_effect=RuntimeError("provider exploded")
 		):
 			for chunk in A.agent_event_stream("prosally_agent", "hi", conversation, None):
 				for line in str(chunk).splitlines():

@@ -1157,7 +1157,7 @@ import { computed, onMounted, reactive, ref, watch } from "vue"
 import { Badge, Button, Dialog, ErrorMessage, FormControl, frappeRequest } from "frappe-ui"
 import AgentPicker from "@/components/A2A/AgentPicker.vue"
 
-const API = "/api/method/one_bpmn.api.a2a_admin_api."
+const API = "/api/method/one_bpmn.api.a2a_admin."
 
 // Whether the job that wakes parked agent work is actually running.
 const reconciler = ref(null)

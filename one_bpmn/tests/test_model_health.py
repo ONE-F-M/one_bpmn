@@ -601,16 +601,16 @@ class TestScheduledProbe(HealthCase):
 
 class TestGates(HealthCase):
 	def test_invoke_agent_refuses_a_blocked_model_as_a_refusal(self):
-		from one_bpmn.api import agent_invocation
+		from one_bpmn.api import a2a as a2a_api
 
 		name = self._model()
 		record_failure(name, "PROVIDER_DISABLED", f"AI Model '{name}' has no API key set.")
 		config = {"agent_id": "probe-agent", "ai_model": name, "agent_type": "Chat", "name": "Probe Agent"}
-		with patch.object(agent_invocation, "_resolve_config", return_value=config), \
-			patch.object(agent_invocation, "_authorize"), \
+		with patch.object(a2a_api, "_resolve_config", return_value=config), \
+			patch.object(a2a_api, "_authorize"), \
 			patch("one_bpmn.security.rate_limit.enforce"):
 			with self.assertRaises(ModelUnavailable) as ctx:
-				agent_invocation.invoke_agent("probe-agent", "hello")
+				a2a_api.invoke_agent("probe-agent", "hello")
 		self.assertIn(name, str(ctx.exception))
 		self.assertEqual(self._health(name, "health_refused_runs"), 1)
 
@@ -620,17 +620,17 @@ class TestGates(HealthCase):
 		three refusals on prod-backup on 2026-09-12 left the counter at 16. The
 		chat gate asks for the write to be committed; the dispatch gate, which
 		carries on and commits its own work, does not."""
-		from one_bpmn.api import agent_invocation
+		from one_bpmn.api import a2a as a2a_api
 
 		name = self._model()
 		record_failure(name, "PROVIDER_DISABLED", f"AI Model '{name}' has no API key set.")
 		config = {"agent_id": "probe-agent", "ai_model": name, "agent_type": "Chat", "name": "Probe Agent"}
-		with patch.object(agent_invocation, "_resolve_config", return_value=config), \
-			patch.object(agent_invocation, "_authorize"), \
+		with patch.object(a2a_api, "_resolve_config", return_value=config), \
+			patch.object(a2a_api, "_authorize"), \
 			patch("one_bpmn.security.rate_limit.enforce"), \
 			patch("frappe.db.commit") as commit:
 			with self.assertRaises(ModelUnavailable):
-				agent_invocation.invoke_agent("probe-agent", "hello")
+				a2a_api.invoke_agent("probe-agent", "hello")
 		commit.assert_called()
 
 	def test_the_dispatch_gate_does_not_commit(self):

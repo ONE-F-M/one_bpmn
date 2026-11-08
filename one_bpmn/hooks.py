@@ -309,7 +309,7 @@ scheduler_events = {
 		"* * * * *": [
 			"one_bpmn.processa_engine.timers.process_timer_start_events",
 			"one_bpmn.processa_engine.timers.process_timer_catch_events",
-			"one_bpmn.tasks.poll_a2a_tasks",
+			"one_bpmn.a2a.poller.poll_a2a_tasks",
 		],
 		# WI-002191: try every enabled model's credentials against its provider
 		# (a free list call, not a completion), then tell someone about any model

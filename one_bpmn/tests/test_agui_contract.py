@@ -233,7 +233,7 @@ class TestEndToEndTranslation(FrappeTestCase):
 			"modified_script": "def x(): ...",
 			"conversation": "CONV-1",
 		}
-		with patch("one_bpmn.api.agent_invocation.invoke_agent", return_value=reply):
+		with patch("one_bpmn.api.a2a.invoke_agent", return_value=reply):
 			chunks = list(agui_stream.agent_event_stream("logix", "m", "CONV-1"))
 		customs = []
 		for chunk in chunks:
@@ -257,7 +257,7 @@ class TestEndToEndTranslation(FrappeTestCase):
 		# stamp artifact_type from the configuration and emit the typed event.
 		reply = {"response": "wrote it", "artifact": "def y(): ...", "conversation": "CONV-2"}
 		with (
-			patch("one_bpmn.api.agent_invocation.invoke_agent", return_value=reply),
+			patch("one_bpmn.api.a2a.invoke_agent", return_value=reply),
 			patch.object(agui_stream, "_agent_artifact_type", return_value="Script"),
 		):
 			chunks = list(agui_stream.agent_event_stream("generic", "m", "CONV-2"))

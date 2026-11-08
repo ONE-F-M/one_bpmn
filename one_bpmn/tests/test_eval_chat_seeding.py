@@ -64,7 +64,7 @@ class TestChatEvalSeeding(FrappeTestCase):
 		with (
 			patch("one_bpmn.utils.chat_persistence.create_agent_conversation", side_effect=self._new_conversation),
 			patch("one_bpmn.utils.chat_persistence.close_conversation") as close,
-			patch("one_bpmn.api.agent_invocation.invoke_agent", side_effect=invoke or self._record_turn),
+			patch("one_bpmn.api.a2a.invoke_agent", side_effect=invoke or self._record_turn),
 		):
 			try:
 				output, _usage = eval_runner._run_chat_agent_eval(CFG, case)

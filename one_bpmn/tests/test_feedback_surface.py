@@ -160,7 +160,7 @@ class TestPerAgentSwitch(FrappeTestCase):
 		)
 
 	def _surface(self):
-		from one_bpmn.api.agent_invocation import get_agent_surface
+		from one_bpmn.api.a2a import get_agent_surface
 
 		frappe.clear_cache(doctype="AI Agent Configuration")
 		return get_agent_surface(AGENT)
@@ -226,7 +226,7 @@ class TestFeedbackIsEditableFromProcessa(FrappeTestCase):
 		"""The whole point — the two ends have to agree."""
 		import json
 
-		from one_bpmn.api.agent_invocation import get_agent_surface
+		from one_bpmn.api.a2a import get_agent_surface
 		from one_bpmn.api.security_api import save_agent_screening
 
 		for value, expected in ((0, False), (1, True)):

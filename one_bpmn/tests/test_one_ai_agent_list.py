@@ -8,7 +8,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.api import agui
-from one_bpmn.api.agent_invocation import ONE_AI_AGENT_IDS, list_one_ai_agents
+from one_bpmn.api.a2a import ONE_AI_AGENT_IDS, list_one_ai_agents
 
 PREFIX = "zz_one_ai_"
 

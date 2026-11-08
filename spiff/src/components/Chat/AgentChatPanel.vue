@@ -496,7 +496,7 @@ function scrollDown() {
 onMounted(async () => {
 	try {
 		surface.value = await frappeRequest({
-			url: "/api/method/one_bpmn.api.agent_invocation.get_agent_surface",
+			url: "/api/method/one_bpmn.api.a2a.get_agent_surface",
 			params: { agent_id: props.agentId },
 		}) || {};
 	} catch {

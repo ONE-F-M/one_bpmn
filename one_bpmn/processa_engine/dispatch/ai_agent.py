@@ -560,7 +560,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	# A delegated worker that ran out of turns tells its caller the answer is partial.
 	if getattr(result, "hit_turn_cap", False) and instance.context_doctype == "A2A Task":
 		try:
-			from one_bpmn.agents.a2a import delegation
+			from one_bpmn.a2a import delegation
 
 			delegation.stopped_at_limit(
 				a2a_task=instance.context_docname,

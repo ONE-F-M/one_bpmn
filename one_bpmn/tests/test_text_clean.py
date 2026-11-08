@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # Regression coverage for one_bpmn.agents.memory.text_clean, the shared
-# de-escaping used at chat message ingestion (api.agent_invocation.invoke_agent)
+# de-escaping used at chat message ingestion (api.a2a.invoke_agent)
 # and by the conversation summarizer (agents.memory.compaction).
 
 from __future__ import annotations

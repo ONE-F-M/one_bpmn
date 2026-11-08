@@ -10,7 +10,7 @@ whereas stripping anything shaped like ``<...>`` is only safe once you already
 know the text is markup — plain chat text can legitimately contain a literal
 ``<PROJECT>``-style placeholder or a comparison like ``a < b``, and blindly
 tag-stripping those would corrupt them. Message ingestion (see
-``api.agent_invocation.invoke_agent``) only needs entity-decoding: the observed
+``api.a2a.invoke_agent``) only needs entity-decoding: the observed
 defect there is HTML-escaped entities surviving into durable content, not
 markup tags.
 """

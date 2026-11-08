@@ -259,7 +259,7 @@ def list_conversations(limit: int = 30) -> list:
 	"""
 	from frappe.utils import cint
 
-	from one_bpmn.api.agent_invocation import one_ai_conversation_modes
+	from one_bpmn.api.a2a import one_ai_conversation_modes
 
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Authentication required"))
