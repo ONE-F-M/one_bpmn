@@ -52,7 +52,7 @@ DOCU_AGENT = "Docu Agent"
 
 def _may_change_forms() -> bool:
 	"""System Manager, a role on the Docu Agent's allowed roles, or any Process Owner."""
-	from one_bpmn.api.agent_invocation import allowed_roles_for
+	from one_bpmn.api.a2a import allowed_roles_for
 
 	roles = set(frappe.get_roles())
 	if "System Manager" in roles or roles & allowed_roles_for(DOCU_AGENT):
@@ -135,7 +135,7 @@ def get_doctype_schema(doctype: str) -> dict:
 	"""Return an existing DocType as a Docu IR for anyone who may use the Docu Agent; ``{exists: False}`` when absent."""
 	if not doctype or not frappe.db.exists("DocType", doctype):
 		return {"exists": False, "doctype_ir": None}
-	from one_bpmn.api.agent_invocation import user_may_use_agent
+	from one_bpmn.api.a2a import user_may_use_agent
 
 	if not user_may_use_agent(DOCU_AGENT):
 		frappe.throw(_("You are not allowed to use Docu."), frappe.PermissionError)

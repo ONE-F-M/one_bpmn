@@ -261,7 +261,7 @@ class TestAnA2AClientIsOwnerScopedToo(ChatPrivacyCase):
 
 	def setUp(self):
 		super().setUp()
-		from one_bpmn.agents.a2a.principal import A2A_CLIENT_ROLE, ensure_client_role
+		from one_bpmn.a2a.principal import A2A_CLIENT_ROLE, ensure_client_role
 
 		ensure_client_role()
 		_user(self.A2A_USER, roles=(A2A_CLIENT_ROLE,))

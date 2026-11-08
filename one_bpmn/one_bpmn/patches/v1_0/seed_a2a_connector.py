@@ -50,14 +50,14 @@ A2A_CONNECTOR = {
 				"a slower one parks this step until it finishes or asks a question."
 			),
 			"executionType": "Python Handler",
-			"handlerPath": "one_bpmn.one_bpmn.connectors.a2a_client_ops.delegate_to_local_agent",
+			"handlerPath": "one_bpmn.a2a.client_ops.delegate_to_local_agent",
 			"fields": [
 				{
 					"name": "agent",
 					"label": "Agent",
 					"type": "Dropdown",
 					"required": True,
-					"choicesSourcePath": "one_bpmn.one_bpmn.connectors.a2a_client_ops.local_agent_choices",
+					"choicesSourcePath": "one_bpmn.a2a.client_ops.local_agent_choices",
 					"help": "Any live agent on this site. It does not need to be exposed over A2A.",
 				},
 				{
@@ -133,14 +133,14 @@ A2A_CONNECTOR = {
 				"inline; anything slower parks this step until the answer arrives."
 			),
 			"executionType": "Python Handler",
-			"handlerPath": "one_bpmn.one_bpmn.connectors.a2a_client_ops.delegate_task",
+			"handlerPath": "one_bpmn.a2a.client_ops.delegate_task",
 			"fields": [
 				{
 					"name": "remote_agent",
 					"label": "Remote agent",
 					"type": "Dropdown",
 					"required": True,
-					"choicesSourcePath": "one_bpmn.one_bpmn.connectors.a2a_client_ops.remote_agent_choices",
+					"choicesSourcePath": "one_bpmn.a2a.client_ops.remote_agent_choices",
 					"help": "Only enabled, approved registry entries appear here.",
 				},
 				{

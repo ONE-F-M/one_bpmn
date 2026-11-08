@@ -165,7 +165,7 @@ class TestTheOtherEnqueueSitesUseIt(QueueCase):
 		self.assertEqual(enqueue.call_args.kwargs["queue"], AI_AGENT_QUEUE)
 
 	def test_a_delegated_answer_resumes_a_prosally_instance_on_its_queue(self):
-		from one_bpmn import tasks
+		from one_bpmn.a2a import poller
 
 		row = SimpleNamespace(
 			name="A2A-1", caller_agent_run="RUN-1", caller_instance="INST-1", wf_task_id="wf_1"
@@ -177,13 +177,13 @@ class TestTheOtherEnqueueSitesUseIt(QueueCase):
 			return _get_value("ProsAlly Map")(doctype, name, fieldname)
 
 		with (
-			patch("one_bpmn.tasks.frappe.db.get_value", side_effect=get_value),
-			patch("one_bpmn.tasks.frappe.get_doc"),
-			patch("one_bpmn.tasks._delegation_answer", return_value="done"),
+			patch("one_bpmn.a2a.poller.frappe.db.get_value", side_effect=get_value),
+			patch("one_bpmn.a2a.poller.frappe.get_doc"),
+			patch("one_bpmn.a2a.poller._delegation_answer", return_value="done"),
 			patch("one_bpmn.processa_engine.agent_runtime.checkpoint.store_human_result"),
-			patch("one_bpmn.tasks.frappe.enqueue") as enqueue,
+			patch("one_bpmn.a2a.poller.frappe.enqueue") as enqueue,
 		):
-			tasks._resume_waiting_agent(row)
+			poller._resume_waiting_agent(row)
 		self.assertEqual(enqueue.call_args.kwargs["queue"], PROSALLY_AI_QUEUE)
 
 	def test_a_dev_agent_answer_resumes_a_prosally_instance_on_its_queue(self):

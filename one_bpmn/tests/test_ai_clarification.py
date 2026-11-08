@@ -780,7 +780,7 @@ class TestTheClarificationMonitor(FrappeTestCase):
 		"""It lists questions asked about documents across the whole site, which
 		is more than any one person's view."""
 		from one_bpmn.api import clarification_api
-		from one_bpmn.tests.test_a2a_admin_api import make_nobody
+		from one_bpmn.a2a.tests.test_a2a_admin_api import make_nobody
 
 		nobody = make_nobody()
 		frappe.set_user(nobody.name)

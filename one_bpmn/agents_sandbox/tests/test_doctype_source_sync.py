@@ -82,7 +82,7 @@ class TestOwnershipDecidesTheDestination(FrappeTestCase):
             self.skipTest(f"{OURS} is not installed")
         self.assertEqual(
             source.source_json_path(OURS),
-            "one_bpmn/one_bpmn/doctype/agent_delegation/agent_delegation.json",
+            "one_bpmn/a2a/doctype/agent_delegation/agent_delegation.json",
         )
         self.assertIsNotNone(_source_text(OURS), "the file the sync would edit must exist")
 

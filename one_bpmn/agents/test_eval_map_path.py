@@ -509,7 +509,7 @@ class TestChatEvalRunAttribution(FrappeTestCase):
             _insert_agent_run(self.cfg, 15, 0.02, **self._eval_tags())
             return {"response": "hi there"}
 
-        with patch("one_bpmn.api.agent_invocation.invoke_agent", new=fake_invoke_agent):
+        with patch("one_bpmn.api.a2a.invoke_agent", new=fake_invoke_agent):
             output, usage = _run_agent_eval(self.cfg, self.case, self.eval_run.name)
 
         self.assertEqual(output, "hi there")
@@ -525,7 +525,7 @@ class TestChatEvalRunAttribution(FrappeTestCase):
             _insert_agent_run(self.cfg, 15, 0.02, **self._eval_tags())
             return {"response": "hi there"}
 
-        with patch("one_bpmn.api.agent_invocation.invoke_agent", new=fake_invoke_agent):
+        with patch("one_bpmn.api.a2a.invoke_agent", new=fake_invoke_agent):
             _run_agent_eval(self.cfg, self.case, self.eval_run.name)
 
         self.assertEqual(frappe.db.get_value("Chat Conversation", seen["conversation"], "is_eval"), 1)
@@ -535,7 +535,7 @@ class TestChatEvalRunAttribution(FrappeTestCase):
             _insert_agent_run(self.cfg, 1000, 50.0)
             return {"response": "hi there"}
 
-        with patch("one_bpmn.api.agent_invocation.invoke_agent", new=fake_invoke_agent):
+        with patch("one_bpmn.api.a2a.invoke_agent", new=fake_invoke_agent):
             with self.assertRaises(ValueError) as ctx:
                 _run_agent_eval(self.cfg, self.case, self.eval_run.name)
         self.assertIn(self.case.name, str(ctx.exception))
@@ -547,7 +547,7 @@ class TestChatEvalRunAttribution(FrappeTestCase):
             _insert_agent_run(self.cfg, next(attempt_tokens), 0.01, **self._eval_tags())
             return {"response": "hi there"}
 
-        with patch("one_bpmn.api.agent_invocation.invoke_agent", new=fake_invoke_agent):
+        with patch("one_bpmn.api.a2a.invoke_agent", new=fake_invoke_agent):
             _, first = _run_agent_eval(self.cfg, self.case, self.eval_run.name)
             first_run = frappe.get_all(
                 "AI Agent Run", filters=self._eval_tags(), pluck="name"

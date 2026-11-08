@@ -112,7 +112,7 @@ _USER_PROMPT = """{previous}Conversation to compact:
 Write the combined summary now."""
 
 
-# Shared with api.agent_invocation.invoke_agent, which strips the same class
+# Shared with api.a2a.invoke_agent, which strips the same class
 # of markup contamination at message ingestion (WI: AI Memory cleanup).
 _strip_html = strip_html
 

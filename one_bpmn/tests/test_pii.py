@@ -279,7 +279,7 @@ class TestInvokeAgentEndToEnd(unittest.TestCase):
 	def test_civil_id_never_reaches_the_provider(self):
 		from unittest.mock import patch
 
-		from one_bpmn.api import agent_invocation
+		from one_bpmn.api import a2a as a2a_api
 
 		captured = {}
 
@@ -297,7 +297,7 @@ class TestInvokeAgentEndToEnd(unittest.TestCase):
 			"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings",
 			return_value=FakeAdapter(),
 		):
-			result = agent_invocation.invoke_agent(self.AGENT, message)
+			result = a2a_api.invoke_agent(self.AGENT, message)
 
 		# 1. The provider saw the token, not the value.
 		self.assertNotIn(CIVIL_ID, captured["user"])

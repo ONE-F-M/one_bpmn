@@ -11,8 +11,8 @@
 #   notification_api   — in-app notification creation
 #   script_version_history — server script version history and restore
 #   version_history    — diagram XML version history
-#   a2a_api            — A2A protocol: agent card discovery, JSON-RPC task endpoint
-#   a2a_admin_api      — A2A admin: remote/client registries and the task monitor
+#   a2a                - A2A protocol door (card, JSON-RPC, push callback) and invoke_agent
+#   a2a_admin          - A2A admin: remote and client registries and the task monitor
 #   lookups            - field and user lookups for the editor and the instance list
 from one_bpmn.api.instances import complete_task, get_active_bpmn_tasks, send_message
 

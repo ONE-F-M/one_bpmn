@@ -339,7 +339,7 @@ const canSeeA2A = ref(false)
 async function checkA2AAccess() {
 	try {
 		const r = await frappeRequest({
-			url: "/api/method/one_bpmn.api.a2a_admin_api.get_permissions",
+			url: "/api/method/one_bpmn.api.a2a_admin.get_permissions",
 		})
 		canSeeA2A.value = Boolean(r && r.administer)
 	} catch (e) {
