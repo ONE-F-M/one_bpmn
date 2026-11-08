@@ -770,14 +770,14 @@ class TestAISecurityEvent(FrappeTestCase):
 
 	def test_agent_name_resolves_from_a_config_dict_without_a_name_key(self):
 		"""get_agent_config returns agent_id but no name — the Link needs the name."""
-		from one_bpmn.security.pii import _config_name
+		from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import agent_config_name
 
 		agent = self._agent()
 		agent_id = frappe.db.get_value("AI Agent Configuration", agent, "agent_id")
-		self.assertEqual(_config_name({"agent_id": agent_id}), agent)
-		self.assertEqual(_config_name(agent), agent)
-		self.assertIsNone(_config_name({"agent_id": "no-such-agent"}))
-		self.assertIsNone(_config_name(None))
+		self.assertEqual(agent_config_name({"agent_id": agent_id}), agent)
+		self.assertEqual(agent_config_name(agent), agent)
+		self.assertIsNone(agent_config_name({"agent_id": "no-such-agent"}))
+		self.assertIsNone(agent_config_name(None))
 
 	def test_ac7_clean_text_records_nothing(self):
 		from one_bpmn.security.pii import screen_input

@@ -54,7 +54,7 @@ class TestAssistantCreatesConfig(FrappeTestCase):
 		from unittest.mock import patch
 
 		with patch(
-			"one_bpmn.agents.agent_config_resolver.get_creation_process_model",
+			"one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.get_creation_process_model",
 			return_value=None,
 		):
 			chat = _sanitize_proposed_config({"agent_name": "ZZ Chatty", "chat_mode_label": "ZZ Chatty"})

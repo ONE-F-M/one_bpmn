@@ -1131,7 +1131,7 @@ async function rerunChecks() {
   rerunning.value = true;
   try {
     await frappeRequest({
-      url: "/api/method/one_bpmn.agents.agent_provisioning.rerun_creation_process",
+      url: "/api/method/one_bpmn.ai_agent_registry.provisioning.agent_provisioning.rerun_creation_process",
       method: "POST",
       params: { agent: name },
     });
@@ -1287,7 +1287,7 @@ async function loadLinkedAgent() {
   if (!form.value.aiAgentConfig) return;
   try {
     const fields = await frappeRequest({
-      url: "/api/method/one_bpmn.agents.agent_config_resolver.get_agent_config_for_shape",
+      url: "/api/method/one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.get_agent_config_for_shape",
       method: "POST",
       params: { config_name: form.value.aiAgentConfig },
     });
@@ -1469,7 +1469,7 @@ onMounted(async () => {
   // the editor actually has.
   try {
     const rows = await frappeRequest({
-      url: "/api/method/one_bpmn.agents.agent_config_resolver.model_catalogue",
+      url: "/api/method/one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.model_catalogue",
       method: "POST",
     });
     catalogModels.value = Array.isArray(rows) ? rows : [];
@@ -1722,7 +1722,7 @@ async function applyProposedUpdate(m, onFail) {
   m.updateState = "applying";
   try {
     const res = await frappeRequest({
-      url: "/api/method/one_bpmn.agents.agent_config_resolver.update_agent_config_from_shape",
+      url: "/api/method/one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.update_agent_config_from_shape",
       method: "POST",
       params: {
         config_name: m.update.config_name,
@@ -1762,7 +1762,7 @@ async function createAgent() {
       enabled_skills: newAgent.value.ai_skills.filter((sk) => (sk.skill || "").trim()),
     };
     const res = await frappeRequest({
-      url: "/api/method/one_bpmn.agents.agent_config_resolver.create_agent_configuration",
+      url: "/api/method/one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.create_agent_configuration",
       method: "POST",
       params: { payload: JSON.stringify(payload) },
     });
@@ -1872,7 +1872,7 @@ async function writeBackToConfig() {
   await saveScreening();
   try {
     await frappeRequest({
-      url: "/api/method/one_bpmn.agents.agent_config_resolver.update_agent_config_from_shape",
+      url: "/api/method/one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.update_agent_config_from_shape",
       method: "POST",
       params: { config_name: form.value.aiAgentConfig, fields: JSON.stringify(fields) },
     });

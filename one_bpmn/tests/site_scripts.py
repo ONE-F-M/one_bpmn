@@ -11,6 +11,10 @@ RUNTIME_IMPORTS = (
 	),
 	("from one_bpmn.agents.turn_state import", "from one_bpmn.processa_engine.agent_runtime.turn_state import"),
 	("from one_bpmn.agents import turn_signal", "from one_bpmn.processa_engine.agent_runtime import turn_signal"),
+	(
+		"from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import",
+		"from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import",
+	),
 )
 
 

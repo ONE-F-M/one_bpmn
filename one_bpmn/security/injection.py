@@ -91,9 +91,9 @@ def screening_enabled(agent_config) -> bool:
 			# passes a not-yet-saved config this way.
 			return agent_config["injection_screening"] != "Disabled"
 
-		from one_bpmn.security.pii import _config_name
+		from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import agent_config_name
 
-		name = _config_name(agent_config)
+		name = agent_config_name(agent_config)
 		if not name:
 			return True
 		value = frappe.db.get_value("AI Agent Configuration", name, "injection_screening")
@@ -112,9 +112,9 @@ def resolve_action(agent_config) -> str:
 	the way a Block default could — while a Log default would leave a live
 	instruction-override reaching the model with nothing but a log line.
 	"""
-	from one_bpmn.security.pii import _config_name
+	from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import agent_config_name
 
-	name = _config_name(agent_config)
+	name = agent_config_name(agent_config)
 	value = None
 	if name:
 		try:
@@ -299,13 +299,13 @@ def screen_input(
 		if not screening_enabled(agent_config):
 			return InjectionScreeningResult(text, [], "Log", False)
 
-		from one_bpmn.security.pii import _config_name
+		from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import agent_config_name
 
 		action = resolve_action(agent_config)
 		fired = screen_for_injection(
 			text,
 			boundary=boundary,
-			agent_configuration=_config_name(agent_config),
+			agent_configuration=agent_config_name(agent_config),
 			conversation=conversation,
 			run=run,
 			bpmn_id=bpmn_id,

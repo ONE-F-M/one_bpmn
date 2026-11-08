@@ -13,7 +13,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.agent_config_resolver import config_field_map
+from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import config_field_map
 from one_bpmn.processa_engine.dispatch import ai_agent as D
 from one_bpmn.processa_engine.dispatch.common import cfg_truthy
 
@@ -459,7 +459,7 @@ class TestMemoryConfigValidation(FrappeTestCase):
 		self.assertTrue(frappe.db.exists("AI Agent Configuration", doc.name))
 
 	def test_effective_models_endpoint_matches_validation(self):
-		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import (
+		from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import (
 			get_effective_memory_models,
 		)
 
@@ -470,7 +470,7 @@ class TestMemoryConfigValidation(FrappeTestCase):
 		self.assertEqual(result, {"distill_model": MODEL_CHAT, "reconcile_model": MODEL_CHAT})
 
 	def test_effective_models_endpoint_reports_unresolvable_as_none(self):
-		from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import (
+		from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import (
 			get_effective_memory_models,
 		)
 

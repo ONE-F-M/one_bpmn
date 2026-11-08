@@ -8,7 +8,7 @@ import unittest
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.agent_config_resolver import (
+from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import (
 	resolve_dispatch_overrides,
 	shape_config_drift,
 	sync_shapes_to_config,

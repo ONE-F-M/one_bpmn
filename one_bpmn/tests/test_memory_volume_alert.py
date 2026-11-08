@@ -36,7 +36,7 @@ class TestVolumeAlert(FrappeTestCase):
 		T.memory_write("Agent", agent, "two", ignore_permissions=True)
 		frappe.db.set_single_value("Processa Settings", "memory_scope_row_alert", 1)
 		# One recipient, not every System Manager on a production-sized user table.
-		with patch.object(V, "_send_email"), patch.object(V, "_recipients", return_value=["Administrator"]):
+		with patch.object(V, "send_email"), patch.object(V, "_recipients", return_value=["Administrator"]):
 			lines = V.check_volume()
 		self.assertTrue(lines)
 		note = frappe.get_all(
@@ -49,7 +49,7 @@ class TestVolumeAlert(FrappeTestCase):
 		self.assertTrue(note and "outgrown" in note[0]["subject"])
 
 	def test_an_address_that_is_not_a_user_gets_the_email_only(self):
-		with patch.object(V, "_send_email") as send, patch.object(V, "_recipients", return_value=["outsider@example.com"]):
+		with patch.object(V, "send_email") as send, patch.object(V, "_recipients", return_value=["outsider@example.com"]):
 			V._notify(["a line"])
 		send.assert_called_once()
 		self.assertEqual(send.call_args.args[0], ["outsider@example.com"])

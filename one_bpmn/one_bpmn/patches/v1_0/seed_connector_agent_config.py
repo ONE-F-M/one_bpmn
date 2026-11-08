@@ -307,7 +307,7 @@ def _take_live(doc):
 	if not doc.process_model:
 		return  # no map yet: a person imports it, then saves to revalidate
 
-	from one_bpmn.agents.agent_provisioning import validate_agent_config
+	from one_bpmn.ai_agent_registry.provisioning.agent_provisioning import validate_agent_config
 
 	try:
 		outcome = validate_agent_config(doc.name, test_provider=True)

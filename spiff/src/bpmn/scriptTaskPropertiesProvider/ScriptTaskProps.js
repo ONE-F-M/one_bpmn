@@ -165,7 +165,7 @@ class CreateAgentConfigForm extends Component {
 			return;
 		}
 		this.setState({ saving: true, error: "" });
-		frappePost("/api/method/one_bpmn.agents.agent_config_resolver.create_agent_configuration", {
+		frappePost("/api/method/one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.create_agent_configuration", {
 			payload: JSON.stringify({
 				agent_name: name,
 				agent_type: "Background",

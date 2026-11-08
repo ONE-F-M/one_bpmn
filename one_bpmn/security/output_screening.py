@@ -129,13 +129,13 @@ def _mode(agent_config) -> str:
 	"""
 	import frappe
 
-	from one_bpmn.security.pii import _config_name
+	from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import agent_config_name
 
 	# The resolved config dict from get_agent_config is CURATED — it carries
 	# agent_id but neither `name` nor the screening fields — so reading the mode
 	# off it silently yields None and the screen quietly does nothing. Resolve to
 	# the record and read the field, whichever form the caller passed.
-	name = _config_name(agent_config)
+	name = agent_config_name(agent_config)
 	value = None
 	if name:
 		try:
@@ -154,15 +154,15 @@ def _static_context_for(agent_config) -> str:
 	import frappe
 
 	try:
-		from one_bpmn.agents.context_assembler import (
+		from one_bpmn.ai_agent_registry.provisioning.context_assembler import (
 			build_static_context_from_config,
 			load_agent_behaviour,
 		)
-		from one_bpmn.security.pii import _config_name
+		from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import agent_config_name
 
 		# Same reason as _mode: the passed dict may not name the record, and the
 		# instructions have to come from the record to be worth comparing against.
-		name = _config_name(agent_config)
+		name = agent_config_name(agent_config)
 		if not name:
 			return ""
 
@@ -290,7 +290,7 @@ def _record(result: OutputScreeningResult, agent_config, conversation: str = Non
 	"""
 	try:
 		from one_bpmn.security.events import record_event
-		from one_bpmn.security.pii import _config_name
+		from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import agent_config_name
 
 		# Block is the only action that stopped anything; Flag altered the text
 		# but the turn continued, which is what "Flag" means in the event log.
@@ -302,7 +302,7 @@ def _record(result: OutputScreeningResult, agent_config, conversation: str = Non
 				action=action,
 				severity="High" if label == "PROMPT_LEAK" or label.endswith("KEY") else "Medium",
 				classifier=label,
-				agent_configuration=_config_name(agent_config),
+				agent_configuration=agent_config_name(agent_config),
 				conversation=conversation,
 				content=result.original,
 				detail=f"{count}x {label} in the agent's response; mode={result.action}",

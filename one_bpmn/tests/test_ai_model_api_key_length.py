@@ -9,7 +9,7 @@ from frappe.tests.utils import FrappeTestCase
 
 class TestAiModelApiKeyLength(FrappeTestCase):
 	def test_the_api_key_field_takes_an_openai_project_key(self):
-		path = frappe.get_app_path("one_bpmn", "one_bpmn", "doctype", "ai_model", "ai_model.json")
+		path = frappe.get_app_path("one_bpmn", "ai_agent_registry", "doctype", "ai_model", "ai_model.json")
 		with open(path) as f:
 			fields = {df["fieldname"]: df for df in json.load(f)["fields"]}
 		self.assertGreaterEqual(fields["api_key"].get("length", 140), 164)

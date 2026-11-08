@@ -282,7 +282,7 @@ class TestPerAgentInjectionSwitch(FrappeTestCase):
 	def test_it_round_trips_through_the_processa_editor(self):
 		import json
 
-		from one_bpmn.agents.agent_config_resolver import (
+		from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import (
 			config_screening,
 			update_agent_config_from_shape,
 		)
@@ -298,7 +298,7 @@ class TestPerAgentInjectionSwitch(FrappeTestCase):
 		)
 
 	def test_it_can_be_chosen_when_the_agent_is_created(self):
-		from one_bpmn.agents.agent_config_resolver import CREATE_PAYLOAD_CONTRACT
+		from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import CREATE_PAYLOAD_CONTRACT
 
 		self.assertIn(
 			"injection_screening",

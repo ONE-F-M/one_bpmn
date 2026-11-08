@@ -139,7 +139,7 @@ class TestAssistantAgentCreationTool(FrappeTestCase):
 		"""Guard against the contract drifting from what provisioning demands —
 		exactly the drift that made an earlier version of this tool produce
 		agents with no model."""
-		from one_bpmn.agents.agent_provisioning import VALIDATION_RULES
+		from one_bpmn.ai_agent_registry.provisioning.agent_provisioning import VALIDATION_RULES
 
 		rule_fields = {r["field"] for r in VALIDATION_RULES}
 		shape = _extract_tool_shapes(_adhoc(), BPMN_NS, SPIFF_NS)[0]

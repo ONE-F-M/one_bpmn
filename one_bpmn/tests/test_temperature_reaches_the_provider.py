@@ -122,7 +122,7 @@ class TestTheExecutorDecidesByTheModel(FrappeTestCase):
 
 class TestTheEditorKnowsWhichModelsTakeThem(FrappeTestCase):
 	def test_the_model_catalogue_says_whether_each_model_supports_temperature(self):
-		from one_bpmn.agents.agent_config_resolver import model_catalogue
+		from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import model_catalogue
 
 		with_support = _model("_temp-catalogue supports", 1)
 		without = _model("_temp-catalogue refuses", 0)

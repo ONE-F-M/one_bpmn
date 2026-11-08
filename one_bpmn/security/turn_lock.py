@@ -62,9 +62,9 @@ def policy_for(agent) -> str:
 	the record, the same way limits_for does.
 	"""
 	try:
-		from one_bpmn.security.pii import _config_name
+		from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import agent_config_name
 
-		name = _config_name(agent)
+		name = agent_config_name(agent)
 		if not name:
 			return _DEFAULT_POLICY
 		value = frappe.db.get_value("AI Agent Configuration", name, "concurrent_turn_policy")

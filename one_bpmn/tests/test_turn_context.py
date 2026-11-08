@@ -14,7 +14,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.context_assembler import build_dynamic_preamble
+from one_bpmn.ai_agent_registry.provisioning.context_assembler import build_dynamic_preamble
 from one_bpmn.agents.memory.session_state import LAST_TURN_KEY, get_state, record, record_turn_result
 from one_bpmn.agents.memory.turn_context import (
 	ESTABLISHED_HEADER,

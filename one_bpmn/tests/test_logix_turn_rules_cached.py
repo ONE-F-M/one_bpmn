@@ -7,7 +7,7 @@ from __future__ import annotations
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.context_assembler import build_dynamic_preamble, drop_duplicated_instructions
+from one_bpmn.ai_agent_registry.provisioning.context_assembler import build_dynamic_preamble, drop_duplicated_instructions
 from one_bpmn.one_bpmn.patches.v1_0 import logix_turn_rules_in_system_prompt as fix
 
 PROMPT = "You run ONE turn of the Logix script-writing assistant by calling tools, one at a time."

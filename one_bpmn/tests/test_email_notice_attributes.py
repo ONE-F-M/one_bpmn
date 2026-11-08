@@ -5,7 +5,7 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.bpmn_task_config import resolve_node_attrs
+from one_bpmn.ai_agent_registry.provisioning.bpmn_task_config import resolve_node_attrs
 from one_bpmn.processa_engine.compiler.extensions import extract_service_task_config
 from one_bpmn.api.process_maps import validate_bpmn_readiness
 from one_bpmn.processa_engine.maps.references import extract_bpmn_references

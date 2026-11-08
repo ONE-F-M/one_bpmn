@@ -105,12 +105,12 @@ class TestPolicyFor(FrappeTestCase):
 
 	def test_a_junk_value_queues_rather_than_guessing(self):
 		with patch.object(frappe.db, "get_value", return_value="Whatever"):
-			with patch("one_bpmn.security.pii._config_name", return_value="Some Agent"):
+			with patch("one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration.agent_config_name", return_value="Some Agent"):
 				self.assertEqual(turn_lock.policy_for("Some Agent"), turn_lock.QUEUE)
 
 	def test_refuse_is_honoured(self):
 		with patch.object(frappe.db, "get_value", return_value="Refuse"):
-			with patch("one_bpmn.security.pii._config_name", return_value="Some Agent"):
+			with patch("one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration.agent_config_name", return_value="Some Agent"):
 				self.assertEqual(turn_lock.policy_for("Some Agent"), turn_lock.REFUSE)
 
 

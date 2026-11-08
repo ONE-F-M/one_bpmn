@@ -62,7 +62,7 @@ def execute():
 	# Stand it up through the real creation process (patch context suppresses
 	# the after_insert auto-trigger, so provision explicitly here).
 	try:
-		from one_bpmn.agents.agent_provisioning import provision_agent
+		from one_bpmn.ai_agent_registry.provisioning.agent_provisioning import provision_agent
 
 		provision_agent(doc.name)
 	except Exception:

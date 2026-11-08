@@ -15,7 +15,7 @@ SETTINGS = ("sandbox_use_job", "sandbox_retry_on_test_failure", "require_reprodu
 def _doctype() -> dict:
 	path = os.path.join(
 		frappe.get_app_path("one_bpmn"),
-		"one_bpmn",
+		"ai_agent_registry",
 		"doctype",
 		"ai_agent_configuration",
 		"ai_agent_configuration.json",

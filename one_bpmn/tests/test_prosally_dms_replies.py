@@ -21,7 +21,7 @@ QUESTION = "What does our annual leave policy say about director approval?"
 CONVERSATION = "zz-prosally-dms-replies"
 REDIRECT_SCRIPT = """# ProsAlly – Tool Redirect (self-contained, FLAT top-level code).
 from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, update_turn
-from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
+from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 
 turn = get_turn(context_docname)
 _cfg = get_agent_config("prosally_agent") or {}

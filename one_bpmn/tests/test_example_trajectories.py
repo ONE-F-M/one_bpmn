@@ -9,8 +9,8 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.agent_config_resolver import _EXAMPLE_FIELDS, _clean_example_rows, _rows_for_shape
-from one_bpmn.agents.context_assembler import _render_examples
+from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import _EXAMPLE_FIELDS, _clean_example_rows, _rows_for_shape
+from one_bpmn.ai_agent_registry.provisioning.context_assembler import _render_examples
 from one_bpmn.agents.eval_case_factory import EXAMPLE_RESULT_CHARS, create_example_from_run
 from one_bpmn.tests.test_eval_case_factory import _agent_configuration, _run
 

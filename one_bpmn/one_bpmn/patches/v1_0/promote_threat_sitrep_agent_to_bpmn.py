@@ -128,7 +128,7 @@ def execute():
 			frappe.cache.delete_value(f"agent_config:{AGENT_ID}")
 
 		try:
-			from one_bpmn.agents.agent_provisioning import validate_agent_config
+			from one_bpmn.ai_agent_registry.provisioning.agent_provisioning import validate_agent_config
 
 			result = validate_agent_config(AGENT_NAME, test_provider=True)
 		except Exception:

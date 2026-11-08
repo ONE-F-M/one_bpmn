@@ -8,7 +8,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents import prosally_helpers
-from one_bpmn.agents.bpmn_task_config import match_lane_role, resolve_ir_lane_roles
+from one_bpmn.ai_agent_registry.provisioning.bpmn_task_config import match_lane_role, resolve_ir_lane_roles
 from one_bpmn.api.process_maps import validate_bpmn_readiness
 
 ROLES = ["HR Manager", "HR User", "Accounts Manager"]
