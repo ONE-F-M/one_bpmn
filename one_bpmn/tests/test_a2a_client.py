@@ -135,6 +135,20 @@ class TestRemoteRegistry(FrappeTestCase):
 		with self.set_user(nobody.name):
 			self.assertRaises(frappe.PermissionError, remote.fetch_card)
 
+	def test_fetch_card_caches_what_the_remote_serves(self):
+		remote = make_remote(approve=False)
+		response = MagicMock()
+		response.json.return_value = CARD
+		response.raise_for_status.return_value = None
+		session = MagicMock()
+		session.get.return_value = response
+		with allow_test_host(), patch.object(a2a_client, "_session", return_value=session):
+			card = remote.fetch_card()
+		remote.reload()
+		self.assertEqual(card["name"], CARD["name"])
+		self.assertEqual(remote.card_name, CARD["name"])
+		self.assertEqual(frappe.parse_json(remote.agent_card)["name"], CARD["name"])
+
 
 class TestClientTransport(FrappeTestCase):
 	def test_ssrf_guard_blocks_internal_hosts(self):
