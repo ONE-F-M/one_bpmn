@@ -1,15 +1,15 @@
 import { computed, ref } from "vue";
 import { frappeRequest } from "frappe-ui";
 import { errorText, sparklinePoints } from "@/utils/evalFormat";
-import { useEvalCaseEditor } from "@/composables/useEvalCaseEditor";
-import { useEvalCompare } from "@/composables/useEvalCompare";
-import { useEvalConsistency } from "@/composables/useEvalConsistency";
-import { useEvalDataset } from "@/composables/useEvalDataset";
-import { useEvalFromRun } from "@/composables/useEvalFromRun";
-import { useEvalLookups } from "@/composables/useEvalLookups";
-import { useEvalReassign } from "@/composables/useEvalReassign";
-import { useEvalSuiteRuns } from "@/composables/useEvalSuiteRuns";
-import { useEvalThresholds } from "@/composables/useEvalThresholds";
+import { useEvalCaseEditor } from "@/composables/Eval/useEvalCaseEditor";
+import { useEvalCompare } from "@/composables/Eval/useEvalCompare";
+import { useEvalConsistency } from "@/composables/Eval/useEvalConsistency";
+import { useEvalDataset } from "@/composables/Eval/useEvalDataset";
+import { useEvalFromRun } from "@/composables/Eval/useEvalFromRun";
+import { useEvalLookups } from "@/composables/Eval/useEvalLookups";
+import { useEvalReassign } from "@/composables/Eval/useEvalReassign";
+import { useEvalSuiteRuns } from "@/composables/Eval/useEvalSuiteRuns";
+import { useEvalThresholds } from "@/composables/Eval/useEvalThresholds";
 
 export const EVAL_SUITE_KEY = Symbol("evalSuite");
 

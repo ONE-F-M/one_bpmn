@@ -17,7 +17,7 @@ test("the editor's folded formatting tools open from a palette icon, not an elli
 })
 
 test("locking the property panel announces itself once; a finished redeploy adds no second notice", () => {
-	const editor = source("composables/useProcessReassign.js")
+	const editor = source("composables/Process/useProcessReassign.js")
 	const finalize = editor.slice(editor.indexOf("async function finalizeReassignments"))
 	const body = finalize.slice(0, finalize.indexOf("\n}\n"))
 	assert.match(body, /Changes saved, redeploy pending/)
@@ -85,8 +85,8 @@ test("the expanded diagram height is read on each open, not once", () => {
 test("the agent task dialog shows the sandbox settings and saves them on the linked agent", () => {
 	const modal = [
 		"components/AgentConfig/AgentConfigRunSettings/AgentConfigRunSettings.vue",
-		"composables/useAgentConfigLinked.js",
-		"composables/useAgentConfigSave.js",
+		"composables/AgentConfig/useAgentConfigLinked.js",
+		"composables/AgentConfig/useAgentConfigSave.js",
 	]
 		.map(source)
 		.join("\n")

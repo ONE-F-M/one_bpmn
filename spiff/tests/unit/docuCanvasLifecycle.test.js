@@ -19,7 +19,7 @@ vi.mock("@/components/Docu/DocuChangesPreview/DocuChangesPreview.vue", () => ({
 	default: { render: () => null },
 }));
 vi.mock("@/components/Docu/DocuApplyBar/DocuApplyBar.vue", async () => {
-	const { useDocu } = await import("@/composables/useDocu");
+	const { useDocu } = await import("@/composables/Docu/useDocu");
 	return {
 		default: {
 			setup() {

@@ -5,7 +5,7 @@ import bpmnlintConfig from "@/linting/bpmnlintrc.js";
 export { lintModule, bpmnlintConfig };
 
 import { nextTick } from "vue";
-import { watchAgentConfigLint } from "@/composables/useAgentConfigLintState";
+import { watchAgentConfigLint } from "@/composables/AgentConfig/useAgentConfigLintState";
 import { flattenLintIssues } from "@/utils/lintIssues.js";
 
 export function useEditorLint(ed) {

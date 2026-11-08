@@ -128,7 +128,7 @@ import EvalAssertionFields from "@/components/Evals/EvalAssertionFields/EvalAsse
 import EvalCaseContextField from "@/components/Evals/EvalCaseContextField/EvalCaseContextField.vue";
 import EvalExpectedToolCalls from "@/components/Evals/EvalExpectedToolCalls/EvalExpectedToolCalls.vue";
 import { CASE_TYPE_OPTIONS, VALUE_LABELS } from "@/utils/evalLabels";
-import { EVAL_SUITE_KEY } from "@/composables/useEvalSuiteState";
+import { EVAL_SUITE_KEY } from "@/composables/Eval/useEvalSuiteState";
 
 const {
 	suiteName,

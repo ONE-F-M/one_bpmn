@@ -1,7 +1,7 @@
 <script setup>
 import { inject } from "vue";
 import DocuCanvas from "@/components/Docu/DocuCanvas/DocuCanvas.vue";
-import { EDITOR_KEY } from "@/composables/useEditorState";
+import { EDITOR_KEY } from "@/composables/Editor/useEditorState";
 
 const ed = inject(EDITOR_KEY);
 const { docuPanel, docuProcessContext, onDocuApplied } = ed;

@@ -111,7 +111,7 @@
 import { computed, ref } from "vue";
 import { fieldPropDefs } from "@/utils/docuFieldDefs";
 import { capitalize } from "@/utils/docuFieldDefs";
-import { useDocu } from "@/composables/useDocu";
+import { useDocu } from "@/composables/Docu/useDocu";
 
 const { view, sel, selectForm, autoName, deleteSelected, canChange } = useDocu();
 

@@ -13,17 +13,22 @@ vi.mock("vue", async (original) => ({
 }));
 
 const { frappeRequest } = await import("frappe-ui");
-const { createAgentConfigContext } = await import("../../src/composables/useAgentConfigState.js");
+const { createAgentConfigContext } =
+	await import("../../src/composables/AgentConfig/useAgentConfigState.js");
 const { useAgentConfigStaticContext } =
-	await import("../../src/composables/useAgentConfigStaticContext.js");
-const { useAgentConfigModels } = await import("../../src/composables/useAgentConfigModels.js");
+	await import("../../src/composables/AgentConfig/useAgentConfigStaticContext.js");
+const { useAgentConfigModels } =
+	await import("../../src/composables/AgentConfig/useAgentConfigModels.js");
 const { useAgentConfigScreening } =
-	await import("../../src/composables/useAgentConfigScreening.js");
-const { useAgentConfigLinked } = await import("../../src/composables/useAgentConfigLinked.js");
-const { useAgentConfigCreate } = await import("../../src/composables/useAgentConfigCreate.js");
+	await import("../../src/composables/AgentConfig/useAgentConfigScreening.js");
+const { useAgentConfigLinked } =
+	await import("../../src/composables/AgentConfig/useAgentConfigLinked.js");
+const { useAgentConfigCreate } =
+	await import("../../src/composables/AgentConfig/useAgentConfigCreate.js");
 const { useAgentConfigAssistant } =
-	await import("../../src/composables/useAgentConfigAssistant.js");
-const { useAgentConfigSave } = await import("../../src/composables/useAgentConfigSave.js");
+	await import("../../src/composables/AgentConfig/useAgentConfigAssistant.js");
+const { useAgentConfigSave } =
+	await import("../../src/composables/AgentConfig/useAgentConfigSave.js");
 
 function makeDialog(props = {}) {
 	const emit = vi.fn();

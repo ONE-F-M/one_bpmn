@@ -74,7 +74,7 @@
 
 <script setup>
 import { PERMISSION_COLUMNS } from "@/utils/docuSettingsDefs";
-import { useDocu } from "@/composables/useDocu";
+import { useDocu } from "@/composables/Docu/useDocu";
 
 const { permissions, roleOptions, addPermission, removePermission, scheduleAutosave } = useDocu();
 </script>

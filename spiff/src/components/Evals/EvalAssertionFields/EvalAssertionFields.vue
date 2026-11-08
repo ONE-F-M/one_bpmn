@@ -61,7 +61,7 @@
 import { inject } from "vue";
 import { Button, FormControl } from "frappe-ui";
 import { ASSERTION_TYPES, TOOL_CALL_MODES, VALUE_LABELS } from "@/utils/evalLabels";
-import { EVAL_SUITE_KEY } from "@/composables/useEvalSuiteState";
+import { EVAL_SUITE_KEY } from "@/composables/Eval/useEvalSuiteState";
 
 const { caseForm, providerOptions, aiModelOptions, addAssertion, removeAssertion } =
 	inject(EVAL_SUITE_KEY);

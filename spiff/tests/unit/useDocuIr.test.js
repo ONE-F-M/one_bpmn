@@ -3,9 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("frappe-ui", () => ({ frappeRequest: vi.fn() }));
 
 const { frappeRequest } = await import("frappe-ui");
-const { useDocuIr } = await import("../../src/composables/useDocuIr.js");
-const { useDocuSettings } = await import("../../src/composables/useDocuSettings.js");
-const { useDocuTree } = await import("../../src/composables/useDocuTree.js");
+const { useDocuIr } = await import("../../src/composables/Docu/useDocuIr.js");
+const { useDocuSettings } = await import("../../src/composables/Docu/useDocuSettings.js");
+const { useDocuTree } = await import("../../src/composables/Docu/useDocuTree.js");
 
 function make(doctype = "") {
 	const onChange = vi.fn();

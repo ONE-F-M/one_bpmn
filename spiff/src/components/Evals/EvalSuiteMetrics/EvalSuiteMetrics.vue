@@ -91,7 +91,7 @@
 <script setup>
 import { inject } from "vue";
 import { fmt, fmtCost, round1 } from "@/utils/evalFormat";
-import { EVAL_SUITE_KEY } from "@/composables/useEvalSuiteState";
+import { EVAL_SUITE_KEY } from "@/composables/Eval/useEvalSuiteState";
 
 const { metrics, suite, sparkPoints, rateColour } = inject(EVAL_SUITE_KEY);
 </script>

@@ -2,7 +2,7 @@
 import { inject } from "vue";
 import { Icon } from "@iconify/vue";
 import ReadinessChecklistDialog from "@/components/Modals/ReadinessChecklistModal/ReadinessChecklistModal.vue";
-import { PROCESS_KEY } from "@/composables/useProcessState";
+import { PROCESS_KEY } from "@/composables/Process/useProcessState";
 
 const pc = inject(PROCESS_KEY);
 const {

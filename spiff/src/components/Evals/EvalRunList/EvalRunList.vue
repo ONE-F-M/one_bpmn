@@ -92,7 +92,7 @@ import { inject } from "vue";
 import { Button, FormControl } from "frappe-ui";
 import { round1, runPill } from "@/utils/evalFormat";
 import { PAGE_SIZES } from "@/utils/evalLabels";
-import { EVAL_SUITE_KEY } from "@/composables/useEvalSuiteState";
+import { EVAL_SUITE_KEY } from "@/composables/Eval/useEvalSuiteState";
 
 const { runs, totalRuns, runsStart, runsPageLength, runsRangeLabel, loadRunsPage } =
 	inject(EVAL_SUITE_KEY);

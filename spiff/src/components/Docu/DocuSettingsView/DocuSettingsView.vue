@@ -89,7 +89,7 @@
 
 <script setup>
 import DocuPermissionRules from "@/components/Docu/DocuPermissionRules/DocuPermissionRules.vue";
-import { useDocu } from "@/composables/useDocu";
+import { useDocu } from "@/composables/Docu/useDocu";
 
 const { dtName, dtModule, dtAutoname, isChild, dtSettings, moduleOptions, settingsSections } =
 	useDocu();

@@ -3,7 +3,7 @@ import { inject, toRef } from "vue";
 import { Icon } from "@iconify/vue";
 import ProcessActions from "../ProcessActions/ProcessActions.vue";
 import { getAvatarColor, getInitials } from "@/utils/avatar";
-import { PROCESS_KEY } from "@/composables/useProcessState";
+import { PROCESS_KEY } from "@/composables/Process/useProcessState";
 
 const pc = inject(PROCESS_KEY);
 const compact = toRef(pc.props, "compact");

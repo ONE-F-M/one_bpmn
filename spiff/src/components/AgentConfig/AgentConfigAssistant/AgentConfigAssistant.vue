@@ -39,7 +39,7 @@ import { inject } from "vue";
 // agent mode chats through the shared panel + card registry.
 import AgentChatPanel from "@/components/Chat/AgentChatPanel/AgentChatPanel.vue";
 import { cardRegistry } from "@/utils/cardRegistry";
-import { AGENT_CONFIG_KEY } from "@/composables/useAgentConfigState";
+import { AGENT_CONFIG_KEY } from "@/composables/AgentConfig/useAgentConfigState";
 
 const ac = inject(AGENT_CONFIG_KEY);
 const {

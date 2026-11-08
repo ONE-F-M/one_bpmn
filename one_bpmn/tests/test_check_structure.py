@@ -415,6 +415,38 @@ class TestComponentFolderRule(unittest.TestCase):
 		self.assertEqual(rules(result), ["baseline"])
 
 
+class TestComposableLayoutRule(unittest.TestCase):
+	BASE = "spiff/src/composables"
+	TREE = {f"{BASE}/Docu/useDocu.js", f"{BASE}/Docu/useDocuTree.js", f"{BASE}/useWindowSize.js"}
+
+	def failing(self, *paths):
+		return run([], tree=self.TREE | set(paths))
+
+	def test_the_current_layout_passes(self):
+		self.assertTrue(run([], tree=self.TREE).ok)
+
+	def test_a_root_composable_and_a_family_composable_pass(self):
+		self.assertTrue(self.failing(f"{self.BASE}/useCurrentUser.js", f"{self.BASE}/Docu/useDocuExport.js").ok)
+
+	def test_each_bad_layout_fails_with_its_own_message(self):
+		cases = {
+			f"{self.BASE}/useThing.ts": "rename",
+			f"{self.BASE}/thing.js": "rename",
+			f"{self.BASE}/Docu/useOther.js": "start with useDocu",
+			f"{self.BASE}/useDocuExport.js": "belongs in composables/Docu/",
+			f"{self.BASE}/Docu/Deep/useDocuDeep.js": "one area folder",
+		}
+		for path, text in cases.items():
+			with self.subTest(path=path):
+				result = self.failing(path)
+				self.assertEqual(rules(result), ["composable-layout"])
+				self.assertIn(path, str(result.failures[0]))
+				self.assertIn(text, str(result.failures[0]))
+
+	def test_files_outside_composables_are_ignored(self):
+		self.assertTrue(self.failing("spiff/src/utils/thing.ts").ok)
+
+
 class TestFetchRule(unittest.TestCase):
 	def added(self, path, text):
 		return run([cs.Change.modified(path, text, [(5, text)])])

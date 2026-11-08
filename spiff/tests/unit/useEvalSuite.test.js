@@ -13,7 +13,7 @@ vi.mock("frappe-ui", () => ({
 }));
 
 vi.stubGlobal("window", {});
-const { createEvalSuiteContext } = await import("@/composables/useEvalSuiteState.js");
+const { createEvalSuiteContext } = await import("@/composables/Eval/useEvalSuiteState.js");
 
 const detail = {
 	suite: { agent_configuration: "AG-1" },

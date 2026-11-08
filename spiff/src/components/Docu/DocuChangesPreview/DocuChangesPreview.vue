@@ -15,7 +15,7 @@
 </template>
 
 <script setup>
-import { useDocu } from "@/composables/useDocu";
+import { useDocu } from "@/composables/Docu/useDocu";
 
 const { saveState, pendingNotice, pendingRequest, pendingParts, pendingUrl, childChanges } =
 	useDocu();

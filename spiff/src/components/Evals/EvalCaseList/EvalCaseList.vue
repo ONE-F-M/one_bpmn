@@ -90,7 +90,7 @@
 import { inject } from "vue";
 import { Button } from "frappe-ui";
 import { assertionTypeLabel } from "@/utils/evalLabels";
-import { EVAL_SUITE_KEY } from "@/composables/useEvalSuiteState";
+import { EVAL_SUITE_KEY } from "@/composables/Eval/useEvalSuiteState";
 
 const {
 	loading,

@@ -28,7 +28,7 @@ vi.mock("@/components/Chat/AgentChatPanel/AgentChatPanel.vue", async () => {
 	return { default: { render: () => h("div", { class: "chat-stub" }) } };
 });
 vi.mock("@/utils/cardRegistry", () => ({ cardRegistry: {} }));
-vi.mock("@/composables/useAgentConfigLoad", () => ({
+vi.mock("@/composables/AgentConfig/useAgentConfigLoad", () => ({
 	useAgentConfigLoad: (ac) => {
 		for (const [key, value] of Object.entries(globalThis.__agentConfigSeed || {})) {
 			if (key === "form") Object.assign(ac.form.value, value);

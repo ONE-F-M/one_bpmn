@@ -158,7 +158,7 @@ src/components/Editor/ScriptNamesHint/ScriptNamesHint.vue
 src/components/Controls/UserFilter/UserFilter.vue
 src/components/Modals/VersionDiffModal/VersionDiffModal.vue
 src/components/Editor/VersionHistoryPanel/VersionHistoryPanel.vue
-src/composables/useAgentConfigLintState.js
+src/composables/AgentConfig/useAgentConfigLintState.js
 src/composables/useArabicTranslation.js
 src/composables/useBottomSheet.js
 src/composables/useBpmnContextMenu.js

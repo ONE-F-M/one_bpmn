@@ -1,7 +1,7 @@
 import { test, vi } from "vitest";
 import assert from "node:assert/strict";
 import { ref } from "vue";
-import { useEditorDocu } from "../../src/composables/useEditorDocu.js";
+import { useEditorDocu } from "../../src/composables/Editor/useEditorDocu.js";
 
 function makeContext(panel = {}) {
 	const steps = [];

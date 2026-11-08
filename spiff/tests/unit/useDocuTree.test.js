@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { useDocuTree } from "../../src/composables/useDocuTree.js";
+import { useDocuTree } from "../../src/composables/Docu/useDocuTree.js";
 
 const FIELDS = [
 	{ fieldtype: "Tab Break", label: "Main" },

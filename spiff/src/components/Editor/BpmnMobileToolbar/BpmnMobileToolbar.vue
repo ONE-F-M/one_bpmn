@@ -2,7 +2,7 @@
 import { inject, toRef } from "vue";
 import { Icon } from "@iconify/vue";
 import FormattingToolbar from "@/components/Editor/FormattingToolbar/FormattingToolbar.vue";
-import { EDITOR_KEY } from "@/composables/useEditorState";
+import { EDITOR_KEY } from "@/composables/Editor/useEditorState";
 
 const ed = inject(EDITOR_KEY);
 const readonly = toRef(ed.props, "readonly");

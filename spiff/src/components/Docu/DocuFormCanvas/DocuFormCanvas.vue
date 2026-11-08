@@ -133,7 +133,7 @@
 <script setup>
 import draggable from "vuedraggable";
 import DocuFieldCard from "@/components/Docu/DocuFieldCard/DocuFieldCard.vue";
-import { useDocu } from "@/composables/useDocu";
+import { useDocu } from "@/composables/Docu/useDocu";
 
 const {
 	openMenu,

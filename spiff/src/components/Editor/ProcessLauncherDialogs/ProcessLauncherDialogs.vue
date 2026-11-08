@@ -5,7 +5,7 @@ import EmailNotificationEditorDialog from "@/components/Modals/EmailNotification
 import NotificationLinkDialog from "@/components/Modals/NotificationLinkModal/NotificationLinkModal.vue";
 import NotifyAssigneeEditorDialog from "@/components/Modals/NotifyAssigneeEditorModal/NotifyAssigneeEditorModal.vue";
 import { TextEditor } from "frappe-ui";
-import { PROCESS_KEY } from "@/composables/useProcessState";
+import { PROCESS_KEY } from "@/composables/Process/useProcessState";
 
 const pc = inject(PROCESS_KEY);
 const {

@@ -84,17 +84,17 @@ import ProcessDmnTab from "@/components/Editor/ProcessDmnTab/ProcessDmnTab.vue";
 import ProcessLauncherDialogs from "@/components/Editor/ProcessLauncherDialogs/ProcessLauncherDialogs.vue";
 import ProcessDeployTab from "@/components/Editor/ProcessDeployTab/ProcessDeployTab.vue";
 import ProcessConfigurationTab from "@/components/Editor/ProcessConfigurationTab/ProcessConfigurationTab.vue";
-import { createProcessContext, PROCESS_KEY } from "@/composables/useProcessState";
-import { useProcessReassign } from "@/composables/useProcessReassign";
-import { useProcessDmn } from "@/composables/useProcessDmn";
-import { useProcessSave } from "@/composables/useProcessSave";
-import { useProcessDocument } from "@/composables/useProcessDocument";
-import { useProcessScripts } from "@/composables/useProcessScripts";
-import { useProcessLaunchers } from "@/composables/useProcessLaunchers";
-import { useProcessZoom } from "@/composables/useProcessZoom";
-import { useProcessDeploy } from "@/composables/useProcessDeploy";
-import { useProcessConfig } from "@/composables/useProcessConfig";
-import { useProcessTabs } from "@/composables/useProcessTabs";
+import { createProcessContext, PROCESS_KEY } from "@/composables/Process/useProcessState";
+import { useProcessReassign } from "@/composables/Process/useProcessReassign";
+import { useProcessDmn } from "@/composables/Process/useProcessDmn";
+import { useProcessSave } from "@/composables/Process/useProcessSave";
+import { useProcessDocument } from "@/composables/Process/useProcessDocument";
+import { useProcessScripts } from "@/composables/Process/useProcessScripts";
+import { useProcessLaunchers } from "@/composables/Process/useProcessLaunchers";
+import { useProcessZoom } from "@/composables/Process/useProcessZoom";
+import { useProcessDeploy } from "@/composables/Process/useProcessDeploy";
+import { useProcessConfig } from "@/composables/Process/useProcessConfig";
+import { useProcessTabs } from "@/composables/Process/useProcessTabs";
 import { useProductionReview } from "@/composables/useProductionReview";
 
 const props = defineProps({

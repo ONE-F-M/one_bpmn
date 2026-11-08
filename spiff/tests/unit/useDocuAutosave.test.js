@@ -4,7 +4,7 @@ import { ref } from "vue";
 vi.mock("frappe-ui", () => ({ frappeRequest: vi.fn() }));
 
 const { frappeRequest } = await import("frappe-ui");
-const { useDocuAutosave } = await import("../../src/composables/useDocuAutosave.js");
+const { useDocuAutosave } = await import("../../src/composables/Docu/useDocuAutosave.js");
 
 const API = "/api/method/one_bpmn.api.docu_api.";
 const IR = { doctype_name: "Vehicle", fields: [] };

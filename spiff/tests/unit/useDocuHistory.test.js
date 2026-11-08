@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
-import { useDocuHistory } from "../../src/composables/useDocuHistory.js";
+import { useDocuHistory } from "../../src/composables/Docu/useDocuHistory.js";
 
 function make() {
 	const box = { design: { n: 0 } };
