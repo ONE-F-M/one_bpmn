@@ -8,6 +8,7 @@
   "process_model",
   "parent_instance",
   "parent_task_id",
+  "migrated_from",
   "status",
   "engine_in_progress",
   "waiting_for_ai",
@@ -48,6 +49,14 @@
    "fieldname": "parent_task_id",
    "fieldtype": "Data",
    "label": "Parent Task",
+   "read_only": 1
+  },
+  {
+   "description": "The instance on the old process map that this one replaced.",
+   "fieldname": "migrated_from",
+   "fieldtype": "Link",
+   "label": "Migrated From",
+   "options": "BPMN Process Instance",
    "read_only": 1
   },
   {
@@ -151,7 +160,7 @@
  "in_create": 1,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-21 15:46:20.383269",
+ "modified": "2026-11-08 12:00:00.000000",
  "modified_by": "k.sharma@one-fm.com",
  "module": "Processa Engine",
  "name": "BPMN Process Instance",
