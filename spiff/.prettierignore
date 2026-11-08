@@ -229,7 +229,6 @@ src/utils/runFormat.js
 src/utils/searchRank.js
 src/utils/textStyleUtils.js
 src/pages/A2A.vue
-src/pages/Process.vue
 src/pages/EvalComparison.vue
 src/pages/EvalFeedback.vue
 src/pages/EvalResults.vue

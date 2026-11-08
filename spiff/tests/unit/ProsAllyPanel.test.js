@@ -96,7 +96,7 @@ test("each turn carries the lint findings the editor shows", () => {
 	assert.match(panel, /lint_issues: props\.getLintIssues \? await props\.getLintIssues\(\) : \[\]/)
 	const editor = source("Editor/BpmnProsAlly.vue")
 	assert.equal(editor.match(/:get-lint-issues="getLintIssues"/g).length, 2)
-	assert.match(source("Editor/useEditorLint.js"), /flattenLintIssues\(linting\._formatIssues\(await linting\.lint\(\)\)\)/)
+	assert.match(source("../composables/useEditorLint.js"), /flattenLintIssues\(linting\._formatIssues\(await linting\.lint\(\)\)\)/)
 })
 
 test("ProsAllyPanel exposes ask, which sends through the chat panel", () => {

@@ -26,7 +26,7 @@ import lanePropertiesProviderModule from "@/bpmn/lanePropertiesProvider";
 import signalPropertiesProviderModule from "@/bpmn/signalPropertiesProvider";
 import propertiesPanelFilterModule from "@/bpmn/propertiesPanelFilter";
 import commentContextPadModule from "@/bpmn/commentContextPad";
-import { registerSpiffExtensions } from "./editorModdleExtensions";
+import { registerSpiffExtensions } from "@/utils/editorModdleExtensions";
 import { clipboardModule, nativeCopyPasteModule } from "./useEditorCopyPaste";
 import { lintModule, bpmnlintConfig } from "./useEditorLint";
 import { touchInteractionModule } from "./useEditorTouch";

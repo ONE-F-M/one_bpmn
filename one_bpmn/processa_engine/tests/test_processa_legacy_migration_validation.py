@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""A migration may keep the status it filters on, to attach process instances to records already in it."""
+"""A migration names an old map, a new map and at least one state mapping row."""
 
 from unittest.mock import patch
 
@@ -9,28 +9,33 @@ from frappe.tests.utils import FrappeTestCase
 
 
 class TestProcessaLegacyMigrationValidation(FrappeTestCase):
-	def _migration(self, old_status: str, target_status: str):
-		return frappe.get_doc(
+	def _migration(self, to_model: str):
+		migration = frappe.get_doc(
 			{
 				"doctype": "Processa Legacy Migration",
-				"process_model": "Software Development v4",
+				"from_model": "Software Development v3",
+				"to_model": to_model,
 				"target_doctype": "Work Item",
-				"old_status": old_status,
-				"target_status": target_status,
-				"create_process_instance": 1,
+				"state_map": [{"old_state": "Open", "new_state": "Open"}],
 				"status": "Draft",
 			}
 		)
-
-	def test_the_same_old_and_target_status_is_saved(self):
-		migration = self._migration("Draft", "Draft")
 		migration.flags.ignore_links = True
+		return migration
+
+	def test_both_maps_and_a_state_map_row_are_saved(self):
 		with patch("one_bpmn.processa_engine.triggers.on_doc_event"):
-			name = migration.insert().name
+			name = self._migration("Software Development v4").insert().name
 
-		stored = frappe.db.get_value("Processa Legacy Migration", name, ["old_status", "target_status"])
-		self.assertEqual(stored, ("Draft", "Draft"))
+		stored = frappe.get_doc("Processa Legacy Migration", name)
+		self.assertEqual(
+			(stored.from_model, stored.to_model), ("Software Development v3", "Software Development v4")
+		)
+		self.assertEqual([(d.old_state, d.new_state) for d in stored.state_map], [("Open", "Open")])
 
-	def test_a_missing_target_status_is_still_refused(self):
-		with self.assertRaises(frappe.ValidationError):
-			self._migration("Draft", "").run_method("validate")
+	def test_a_missing_new_process_map_is_refused(self):
+		with (
+			patch("one_bpmn.processa_engine.triggers.on_doc_event"),
+			self.assertRaises(frappe.MandatoryError),
+		):
+			self._migration("").insert()
