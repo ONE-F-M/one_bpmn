@@ -29,7 +29,8 @@ import commentContextPadModule from "@/bpmn/commentContextPad";
 import { registerSpiffExtensions } from "@/utils/editorModdleExtensions";
 import { clipboardModule, nativeCopyPasteModule } from "./useEditorCopyPaste";
 import { lintModule, bpmnlintConfig } from "./useEditorLint";
-import { touchInteractionModule } from "./useEditorTouch";
+// Touch gestures for the editor and the instance viewer: tap, drag a shape, pan, pinch, double-tap.
+import touchInteractionModule from "bpmn-js-touch-interaction";
 import "bpmn-js/dist/assets/diagram-js.css";
 import "bpmn-js/dist/assets/bpmn-js.css";
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css";
@@ -130,10 +131,6 @@ export function useEditorModeler(ed) {
 		// Cancel any pending process-name injection to prevent memory-leaks
 		// and stale DOM updates after the component is torn down.
 		cancelPendingInjection();
-		if (ed.editorTouchCleanup) {
-			ed.editorTouchCleanup();
-			ed.editorTouchCleanup = null;
-		}
 		if (ed.modeler) {
 			ed.modeler.destroy();
 		}

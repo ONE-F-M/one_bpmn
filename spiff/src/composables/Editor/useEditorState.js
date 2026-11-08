@@ -83,7 +83,6 @@ export function createEditorContext(props, emit) {
 		emit,
 		modeler: null,
 		commandStack: null,
-		editorTouchCleanup: null,
 		readySteps,
 		onReady,
 		comments,

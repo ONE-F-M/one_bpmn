@@ -135,7 +135,7 @@ size one_bpmn/tests/test_memory_tools.py 867
 size spiff/src/components/Editor/FormattingToolbar/FormattingToolbar.vue 763
 size spiff/src/components/Logix/LogixCanvas/LogixCanvas.vue 1433
 size spiff/src/components/Chat/AgentChatPanel/AgentChatPanel.vue 1130
-size spiff/src/components/Instances/BpmnDiagramViewer/BpmnDiagramViewer.vue 808
+size spiff/src/components/Instances/BpmnDiagramViewer/BpmnDiagramViewer.vue 796
 size spiff/src/components/Instances/ElementInspector/ElementInspector.vue 799
 size spiff/src/pages/EvalRun.vue 516
 size spiff/src/pages/Instance.vue 891
