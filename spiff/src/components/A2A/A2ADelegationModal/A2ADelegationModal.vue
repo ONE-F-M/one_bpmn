@@ -156,7 +156,7 @@
 <script setup>
 import { computed } from "vue";
 import { Badge, Dialog } from "frappe-ui";
-import A2ADelegationActions from "@/components/A2A/A2ADelegationActions.vue";
+import A2ADelegationActions from "@/components/A2A/A2ADelegationActions/A2ADelegationActions.vue";
 import { delegationTheme, limitLabel, stateTheme } from "@/utils/a2aFormat";
 import { deskUrl } from "@/utils/deskUrl";
 

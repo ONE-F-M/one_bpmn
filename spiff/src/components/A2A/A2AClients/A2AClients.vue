@@ -151,7 +151,7 @@
 <script setup>
 import { onMounted, ref, watch } from "vue";
 import { Badge, Button, Dialog, ErrorMessage, FormControl, frappeRequest } from "frappe-ui";
-import AgentPicker from "@/components/A2A/AgentPicker.vue";
+import AgentPicker from "@/components/A2A/AgentPicker/AgentPicker.vue";
 import { A2A_API } from "@/utils/a2aApi";
 import { statusTheme } from "@/utils/a2aFormat";
 
