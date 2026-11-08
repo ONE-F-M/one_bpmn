@@ -3,10 +3,10 @@ import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
-import { progressLineFor } from "@/components/chat/drawProgress.js"
+import { progressLineFor } from "@/utils/progressLineFor.js"
 
 // No component harness in spiff, so the panel is read as text (as cardExpand.test.mjs does).
-const here = fileURLToPath(new URL("../../src/components/chat/", import.meta.url))
+const here = fileURLToPath(new URL("../../src/components/Chat/", import.meta.url))
 const panel = readFileSync(join(here, "AgentChatPanel.vue"), "utf8")
 
 test("the message of a onefm.progress value is the line shown", () => {
@@ -50,7 +50,7 @@ test("the lock lifts when the turn ends, and the progress line goes with it", ()
 	const done = panel.slice(panel.indexOf("onDone: () => {"), panel.indexOf("function handleEvent"))
 	assert.match(done, /progressLine\.value = "";\s*busy\.value = false;/)
 	// A failure ends through the client's finish(), which calls onDone after onError.
-	const client = readFileSync(join(here, "aguiClient.js"), "utf8")
+	const client = readFileSync(join(here, "../../utils/aguiClient.js"), "utf8")
 	assert.match(client, /const fail = \(text\) => \{[\s\S]*?onError && onError\(text\);\s*finish\(\);/)
 })
 

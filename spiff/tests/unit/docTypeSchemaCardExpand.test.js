@@ -6,7 +6,7 @@ import { dirname, join } from "node:path"
 
 // No component harness in spiff, so these read the single-file components
 // as text (see ../../../uiPolish.test.mjs for the established pattern).
-const here = fileURLToPath(new URL("../../src/components/chat/cards/", import.meta.url))
+const here = fileURLToPath(new URL("../../src/components/Chat/Cards/", import.meta.url))
 const source = (path) => readFileSync(join(here, path), "utf8")
 
 test("DocTypeSchemaCard offers an #expanded view with the fields and the raw JSON", () => {

@@ -265,11 +265,8 @@ Compiled process models run as **process instances** via the SpiffWorkflow engin
 | `bpmn-js-spiffworkflow` | forked | SpiffWorkflow extensions (ESM build) |
 | `@bpmn-io/properties-panel` | ^3.36.0 | Base properties-panel framework |
 | `bpmnlint` / `bpmn-js-bpmnlint` | ^11.12.0 / ^0.24.0 | Diagram linting engine + editor integration |
-| `bpmn-auto-layout` | ^0.4.0 | Auto-layout for ProsAlly-generated diagrams |
 | `bpmn-js-differ` | ^3.2.0 | Diagram diffing (version compare) |
-| `bpmn-js-color-picker` | ^0.7.2 | Color-picker integration |
 | `bpmn-js-touch-interaction` | ^0.1.2 | Touch interaction (mobile) |
-| `diagram-js-minimap` | ^5.2.0 | Minimap module (currently disabled) |
 | `frappe-ui` | 0.1.192 | Frappe UI components (Tooltip, TextEditor, Dialog) |
 | `vue` | ^3.5.13 | Vue.js framework |
 | `vue-router` | ^4.5.0 | Client-side routing |
@@ -387,7 +384,7 @@ Intent Classifier
 
 | File | Purpose |
 |---|---|
-| `spiff/src/components/ProsAllyPanel.vue` | Chat UI — messages, option buttons, rich-text input |
+| `spiff/src/components/ProsAlly/ProsAllyPanel.vue` | Chat UI — messages, option buttons, rich-text input |
 | `spiff/src/utils/bpmnLayout.js` | Auto-layout — positions generated BPMN elements left-to-right |
 | `spiff/src/linting/bpmnlintrc.js` | bpmnlint rule configuration (errors vs. warnings) |
 | `one_bpmn/agents/bpmn_ir_pipeline.py` | IR → BPMN XML compilation (`compile_ir`); the pipeline stages themselves are DB Server Scripts driven by the ProsAlly process model |

@@ -2,7 +2,7 @@ import { test } from "vitest";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const tab = readFileSync(new URL("../../src/components/NotifyTemplateTab.vue", import.meta.url), "utf8");
+const tab = readFileSync(new URL("../../src/components/Notifications/NotifyTemplateTab.vue", import.meta.url), "utf8");
 
 test("the email template picker comes before the HTML body", () => {
 	const template = tab.indexOf("Pre-populate from Email Template");

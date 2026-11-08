@@ -6,7 +6,8 @@ import { dirname, join } from "node:path"
 
 // No component harness in spiff, so this reads the single-file component as text.
 const here = fileURLToPath(new URL("../../src/components/", import.meta.url))
-const editor = readFileSync(join(here, "BpmnEditor.vue"), "utf8")
+const editor = readFileSync(join(here, "Editor/useEditorCanvas.js"), "utf8")
+const editorCss = readFileSync(join(here, "Editor/bpmnEditorBase.css"), "utf8")
 
 test("the drilldown arrow launches a Process-name link instead of the library alert", () => {
 	const listener = editor.slice(editor.indexOf("const launchProcessNameLink"))
@@ -19,5 +20,5 @@ test("the drilldown arrow launches a Process-name link instead of the library al
 })
 
 test("the Process ID entry of the Called Element group is hidden", () => {
-	assert.match(editor, /\.bio-properties-panel-entry\[data-entry-id="process_id"\]\s*\{\s*display:\s*none;/)
+	assert.match(editorCss, /\.bio-properties-panel-entry\[data-entry-id="process_id"\]\s*\{\s*display:\s*none;/)
 })

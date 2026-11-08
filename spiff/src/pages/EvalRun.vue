@@ -324,7 +324,7 @@ import { assertionTypeLabel, toolCallModeLabel } from "@/utils/evalLabels"
 import { useRoute } from "vue-router"
 import { Button, frappeRequest } from "frappe-ui"
 import { Icon } from "@iconify/vue"
-import EvalEarlierConversation from "@/components/evals/EvalEarlierConversation.vue"
+import EvalEarlierConversation from "@/components/Evals/EvalEarlierConversation.vue"
 
 const route = useRoute()
 const runName = route.params.run

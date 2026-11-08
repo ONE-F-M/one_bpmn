@@ -1,0 +1,370 @@
+/* Group Entries */
+.properties-panel-container .bio-properties-panel-entry {
+	padding: 4px 4px;
+	margin: 0px 8px;
+}
+
+/* Description text in properties panel entries */
+.properties-panel-container .bio-properties-panel-description {
+	word-wrap: break-word;
+	max-width: 350px;
+	font-size: 11px;
+	color: #6b7280;
+	line-height: 1.4;
+	margin-top: 2px;
+	padding: 0 4px;
+}
+
+.properties-panel-container
+	.bio-properties-panel-group-entries
+	> .bio-properties-panel-description {
+	padding-inline: 15px;
+	padding-block: 5px;
+}
+
+/* Nested group entries (e.g. Correlation Properties) */
+.properties-panel-container
+	.bio-properties-panel-group-entries.open
+	> .bio-properties-panel-group {
+	margin-inline: 15px;
+	border: 1px solid #e5e7eb;
+	border-radius: 8px;
+	margin-bottom: 5px;
+}
+
+.properties-panel-container .bio-properties-panel-group-entries {
+	border-bottom: 1px solid #f3f4f6;
+	padding-bottom: 4px;
+}
+
+/* Frequency Explanation Card (Timer Start Event) */
+.properties-panel-container .frequency-explanation {
+	padding: 6px 10px;
+}
+
+.properties-panel-container .frequency-explanation__card {
+	background: var(--properties-panel-group-header-background-color, #f3f4f6);
+	border-radius: 6px;
+	padding: 12px;
+	font-size: 12.5px;
+	line-height: 1.6;
+	color: #374151;
+}
+
+.properties-panel-container .frequency-explanation__title {
+	font-weight: 600;
+	font-size: 13px;
+	margin-bottom: 8px;
+	color: #111827;
+}
+
+.properties-panel-container .frequency-explanation__desc {
+	margin-bottom: 8px;
+}
+
+.properties-panel-container .frequency-explanation__label {
+	font-weight: 600;
+	color: #111827;
+}
+
+.properties-panel-container .frequency-explanation__note {
+	font-size: 11.5px;
+	color: #6b7280;
+	font-style: italic;
+}
+
+/* Overlay Styling */
+.bpmn-overlay {
+	padding: 4px 8px;
+	border-radius: 4px;
+	font-size: 12px;
+	font-weight: 500;
+	white-space: nowrap;
+	pointer-events: auto;
+	cursor: pointer;
+}
+
+.bpmn-overlay-error {
+	background: #ef4444;
+	color: white;
+}
+
+.bpmn-overlay-warning {
+	background: #f59e0b;
+	color: white;
+}
+
+.bpmn-overlay-info {
+	background: #3b82f6;
+	color: white;
+}
+
+.bpmn-overlay-success {
+	background: #10b981;
+	color: white;
+}
+
+.bpmn-overlay-badge {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 20px;
+	height: 20px;
+	border-radius: 10px;
+	font-size: 11px;
+	font-weight: 600;
+}
+
+/* Breadcrumb Navigation (collapsed subprocess drilldown) */
+.bpmn-canvas .bjs-breadcrumbs {
+	font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+	font-size: 14px;
+	z-index: 10;
+}
+
+.bpmn-canvas .bjs-breadcrumbs li a {
+	color: #3b82f6;
+	text-decoration: none;
+	transition: color 0.15s ease;
+}
+
+.bpmn-canvas .bjs-breadcrumbs li a:hover {
+	color: #2563eb;
+	text-decoration: underline;
+}
+
+.bpmn-canvas .bjs-breadcrumbs li:last-of-type a {
+	color: #374151;
+	font-weight: 500;
+}
+
+/* Read-Only Mode */
+
+/* Hide palette and context pad in read-only mode */
+.bpmn-canvas--readonly .djs-palette,
+.bpmn-canvas--readonly .djs-context-pad,
+.bpmn-canvas--readonly .djs-popup,
+.bpmn-canvas--readonly .djs-direct-editing-parent {
+	display: none !important;
+}
+
+/* Disable drag/move cursor on elements in read-only mode */
+.bpmn-canvas--readonly .djs-element {
+	cursor: default !important;
+}
+
+/* Semi-transparent overlay to visually indicate read-only */
+.bpmn-canvas--readonly {
+	position: relative;
+}
+
+.bpmn-canvas--readonly::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background: rgba(248, 250, 252, 0.15);
+	pointer-events: none;
+	z-index: 1;
+}
+
+/* Make properties panel inputs read-only */
+.properties-panel--readonly input,
+.properties-panel--readonly textarea,
+.properties-panel--readonly select,
+.properties-panel--readonly button {
+	pointer-events: none !important;
+	opacity: 0.7;
+}
+
+/* But keep the panel header and group headers interactive for collapsing */
+.properties-panel--readonly .bio-properties-panel-group-header {
+	pointer-events: auto !important;
+	opacity: 1;
+}
+
+.properties-panel--readonly .bio-properties-panel-header {
+	pointer-events: auto !important;
+	opacity: 1;
+}
+
+/* Release Property Panel
+   The class is only on the panel of an element whose properties may be edited
+   (see panelReleased), so every field in it comes back to life… */
+.properties-panel--released input,
+.properties-panel--released textarea,
+.properties-panel--released select,
+.properties-panel--released button {
+	pointer-events: auto !important;
+	opacity: 1;
+}
+
+/* …except the attributes that stay locked everywhere. The command-stack guard
+   and property_panel.py both refuse these; leaving them lit would invite an
+   edit that is silently dropped. Entry ids are "id" for the plain BPMN
+   attribute, "spiffworkflow-<attr>" for the rest - hence the two spellings of
+   script: "spiffworkflow-preScript" and bpmn-js's own "scriptFormat". */
+.properties-panel--released [data-entry-id="id"] input,
+.properties-panel--released [data-entry-id$="serviceType"] input,
+.properties-panel--released [data-entry-id$="serviceType"] select,
+.properties-panel--released [data-entry-id$="calledElement"] input,
+.properties-panel--released [data-entry-id*="Script"] input,
+.properties-panel--released [data-entry-id*="Script"] textarea,
+.properties-panel--released [data-entry-id*="Script"] select,
+.properties-panel--released [data-entry-id^="script"] input,
+.properties-panel--released [data-entry-id^="script"] textarea,
+.properties-panel--released [data-entry-id^="script"] select {
+	pointer-events: none !important;
+	opacity: 0.7;
+}
+
+/* Read-only "launch a viewer" buttons - the Script Task "Launch Logix"
+   button and the AI Agent Task header button don't mutate the model
+   themselves, they open a viewer (a read-only CodeMirror editor / a
+   read-only AI Agent Config modal) that the launch handlers put into
+   view-only mode when the map is read-only. Exempt them from the
+   blanket disable above so they stay clickable. */
+.properties-panel--readonly .spiffworkflow-properties-panel-button {
+	pointer-events: auto !important;
+	opacity: 1;
+}
+
+/* Sticky Note Direct Editing Fix:
+   These styles apply to the bpmn-js direct editing text box.
+   We force the background and text color to match the sticky note
+   aesthetics during the active edit phase. */
+.bpmn-canvas .djs-direct-editing-parent {
+	background-color: #fff9c4 !important; /* Pastel yellow */
+	border: 1px solid #eab308 !important; /* yellow-500 border */
+	border-radius: 2px;
+	padding: 4px;
+	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.bpmn-canvas .djs-direct-editing-content {
+	color: #000000 !important; /* Black text */
+	font-family: "Inter", "Segoe UI", system-ui, sans-serif !important;
+	font-size: 13px !important;
+	line-height: 1.2 !important;
+	outline: none !important;
+}
+
+/* Ensure placeholder/empty state is legible */
+.bpmn-canvas .djs-direct-editing-content:empty:before {
+	color: rgba(0, 0, 0, 0.3);
+}
+/* Properties Panel Transitions */
+.slide-right-enter-active,
+.slide-right-leave-active {
+	transition:
+		transform 0.3s ease,
+		opacity 0.3s ease,
+		width 0.3s ease;
+}
+.slide-right-enter-from,
+.slide-right-leave-to {
+	transform: translateX(100%);
+	opacity: 0;
+}
+
+/* Ensure the leaving panel doesn't occupy space in the flex flow during transition,
+   preventing jerky layout shifts when switching between panels. */
+.slide-right-enter-active,
+.comment-panel-container.slide-right-leave-active,
+.properties-panel-container.slide-right-leave-active {
+	width: 0 !important;
+	min-width: 0 !important;
+	overflow: hidden !important;
+	z-index: 50;
+}
+
+/* Ensure the properties panel content doesn't break when width is narrow */
+.properties-panel-container .bio-properties-panel {
+	min-width: 320px; /* Standard properties panel width target */
+}
+
+@media (max-width: 767px) {
+	.properties-panel-container .bio-properties-panel {
+		min-width: unset;
+		width: 100%;
+	}
+}
+
+/* Custom scrollbar-hide utility if not already global */
+.scrollbar-hide::-webkit-scrollbar {
+	display: none;
+}
+.scrollbar-hide {
+	-ms-overflow-style: none;
+	scrollbar-width: none;
+}
+
+/* Mobile: touch-friendly BPMN elements */
+@media (max-width: 639px) {
+	/* Make palette slightly transparent so canvas is visible behind it */
+	.bpmn-canvas .djs-palette {
+		background-color: rgba(255, 255, 255, 0.95);
+		box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
+	}
+
+	/* Ensure context pad sits above everything */
+	.djs-context-pad {
+		z-index: 200 !important;
+	}
+
+	/* Touch-friendly context pad entries */
+	.djs-context-pad .entry {
+		width: 36px;
+		height: 36px;
+		touch-action: manipulation;
+	}
+
+	/* The popup menu (element type selection) must be fully visible and scrollable */
+	.djs-popup {
+		z-index: 300 !important;
+		max-height: 50vh;
+		overflow-y: auto !important;
+		-webkit-overflow-scrolling: touch;
+	}
+
+	/* Thicker selection outline for touch targets */
+	.djs-element.selected .djs-outline {
+		stroke-width: 3px !important;
+	}
+}
+
+/* Slide-up transition for mobile bottom sheet */
+.slide-up-enter-active,
+.slide-up-leave-active {
+	transition:
+		transform 0.3s ease,
+		opacity 0.3s ease;
+}
+.slide-up-enter-from,
+.slide-up-leave-to {
+	transform: translateY(100%);
+	opacity: 0;
+}
+
+/* ProsAlly Panel slide transition */
+.prosally-slide-enter-active,
+.prosally-slide-leave-active {
+	transition:
+		width 0.3s ease,
+		opacity 0.2s ease;
+	overflow: hidden;
+}
+.prosally-slide-enter-from,
+.prosally-slide-leave-to {
+	width: 0 !important;
+	opacity: 0;
+}
+.prosally-slide-enter-to,
+.prosally-slide-leave-from {
+	width: 20rem; /* w-80 */
+	opacity: 1;
+}
+
+.prosally-panel-container {
+	min-width: 0;
+	overflow: hidden;
+}

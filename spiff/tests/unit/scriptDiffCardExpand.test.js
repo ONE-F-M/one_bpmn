@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 
 // No component harness in spiff, so this reads the single-file component as text.
-const here = fileURLToPath(new URL("../../src/components/chat/cards/", import.meta.url))
+const here = fileURLToPath(new URL("../../src/components/Chat/Cards/", import.meta.url))
 const source = (path) => readFileSync(join(here, path), "utf8")
 
 test("ScriptDiffCard's #expanded renders the same diff or script, with no apply action", () => {

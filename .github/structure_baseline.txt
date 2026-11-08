@@ -3,13 +3,6 @@
 # Regenerate with: python .github/scripts/check_structure.py --write-baseline
 # Formats: size <path> <line count>   |   test-location <path>   |   component-js <path>
 #          private-import <importing path> <module>.<name>
-component-js spiff/src/components/callActivityLink.js
-component-js spiff/src/components/chat/aguiClient.js
-component-js spiff/src/components/chat/cards/luCrusherView.js
-component-js spiff/src/components/chat/cards/registry.js
-component-js spiff/src/components/chat/drawProgress.js
-component-js spiff/src/components/chat/index.js
-component-js spiff/src/components/chat/persistedMessage.js
 private-import one_bpmn/agents/a2a/delegation.py one_bpmn.tasks._wake_caller_if_any
 private-import one_bpmn/agents/a2a/execute.py one_bpmn.processa_engine.triggers._maybe_start_instance
 private-import one_bpmn/agents/a2a/push.py one_bpmn.one_bpmn.connectors.http_ops._assert_host_allowed
@@ -194,14 +187,14 @@ size one_bpmn/tests/test_connector_agent.py 959
 size one_bpmn/tests/test_connector_configuration.py 919
 size one_bpmn/tests/test_memory_tools.py 867
 size one_bpmn/tests/test_rate_limit_and_lock.py 1369
-size spiff/src/components/AIAgentConfigModal.vue 2308
-size spiff/src/components/BpmnEditor.vue 4229
-size spiff/src/components/DocuCanvas.vue 1787
-size spiff/src/components/FormattingToolbar.vue 763
-size spiff/src/components/LogixCanvas.vue 1433
-size spiff/src/components/chat/AgentChatPanel.vue 1129
-size spiff/src/components/process_instance/BpmnDiagramViewer.vue 808
-size spiff/src/components/process_instance/ElementInspector.vue 799
+size spiff/src/components/Modals/AIAgentConfigModal.vue 2308
+size spiff/src/components/Editor/BpmnEditor.vue 4229
+size spiff/src/components/Docu/DocuCanvas.vue 1787
+size spiff/src/components/Editor/FormattingToolbar.vue 763
+size spiff/src/components/Logix/LogixCanvas.vue 1433
+size spiff/src/components/Chat/AgentChatPanel.vue 1129
+size spiff/src/components/Instances/BpmnDiagramViewer.vue 808
+size spiff/src/components/Instances/ElementInspector.vue 799
 size spiff/src/pages/A2A.vue 1970
 size spiff/src/pages/EvalRun.vue 516
 size spiff/src/pages/EvalSuite.vue 1608

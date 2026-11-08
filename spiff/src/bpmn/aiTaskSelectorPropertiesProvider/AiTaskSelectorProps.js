@@ -8,7 +8,7 @@ import {
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
-import { FrappeAutocomplete } from "../shared/FrappeAutocomplete";
+import { RecordPickerField } from "../shared/RecordPickerField";
 import { frappeGet, frappePost } from "../shared/frappeResource";
 import { getAttr, setAttr, LinkedPromptEntry } from "../shared/agentAttrs";
 
@@ -93,7 +93,7 @@ function AgentConfigComponent(props) {
 				},
 				translate("Linked AI Agent Configuration")
 			),
-			h(FrappeAutocomplete, {
+			h(RecordPickerField, {
 				value: getAttr(bo, "aiAgentConfig"),
 				placeholder: translate("Select a configuration to link…"),
 				fetchApi: (txt) =>
