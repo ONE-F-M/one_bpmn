@@ -86,17 +86,28 @@ test("every name an agent config component reads from the dialog context is prov
 		"composables/useAgentConfigState.js",
 		"return {",
 	);
-	const components = list("components/AgentConfig").filter((f) =>
-		/^AgentConfig.*\.vue$/.test(f),
-	);
-	assert.equal(components.length, 7);
-	for (const file of components) {
+	const parts = list("components/AgentConfig").filter((d) => /^AgentConfig/.test(d));
+	assert.equal(parts.length, 7);
+	for (const part of parts) {
+		const files = list(`components/AgentConfig/${part}`).sort();
+		assert.ok(
+			[[`${part}.vue`], [`${part}.css`, `${part}.vue`]].some(
+				(layout) => JSON.stringify(layout) === JSON.stringify(files),
+			),
+			`${part} holds ${files}`,
+		);
+	}
+	for (const part of parts) {
+		const file = `${part}/${part}.vue`;
 		const missing = destructured(read(`components/AgentConfig/${file}`), "ac").filter(
 			(n) => !provided.has(n),
 		);
 		assert.deepEqual(missing, [], `${file} reads names the context does not provide`);
 	}
-	const shell = destructured(read("components/Modals/AIAgentConfigModal.vue"), "ac");
+	const shell = destructured(
+		read("components/Modals/AIAgentConfigModal/AIAgentConfigModal.vue"),
+		"ac",
+	);
 	assert.deepEqual(
 		shell.filter((n) => !provided.has(n)),
 		[],

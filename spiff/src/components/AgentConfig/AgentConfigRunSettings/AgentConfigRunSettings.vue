@@ -240,4 +240,4 @@ const {
 } = ac;
 </script>
 
-<style scoped src="@/components/AgentConfig/agentConfigModal.css"></style>
+<style scoped src="./AgentConfigRunSettings.css"></style>

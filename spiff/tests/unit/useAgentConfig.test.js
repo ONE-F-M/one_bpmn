@@ -210,9 +210,15 @@ test("no work-item id is left in the agent config files", () => {
 			.filter((f) => /^useAgentConfig(?!LintState)/.test(f))
 			.map((f) => `composables/${f}`),
 		...readdirSync(join(src, "components/AgentConfig"))
-			.filter((f) => f !== "ExampleTrajectory.vue")
-			.map((f) => `components/AgentConfig/${f}`),
-		"components/Modals/AIAgentConfigModal.vue",
+			.filter((d) => d !== "ExampleTrajectory")
+			.flatMap((d) =>
+				readdirSync(join(src, "components/AgentConfig", d)).map(
+					(f) => `components/AgentConfig/${d}/${f}`,
+				),
+			),
+		...readdirSync(join(src, "components/Modals/AIAgentConfigModal")).map(
+			(f) => `components/Modals/AIAgentConfigModal/${f}`,
+		),
 	];
 	for (const file of files) {
 		assert.doesNotMatch(readFileSync(join(src, file), "utf8"), /WI-\d+/, file);

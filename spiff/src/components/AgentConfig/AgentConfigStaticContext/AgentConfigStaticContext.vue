@@ -205,7 +205,7 @@
 
 <script setup>
 import { inject } from "vue";
-import ExampleTrajectory from "@/components/AgentConfig/ExampleTrajectory.vue";
+import ExampleTrajectory from "@/components/AgentConfig/ExampleTrajectory/ExampleTrajectory.vue";
 import { AGENT_CONFIG_KEY } from "@/composables/useAgentConfigState";
 
 const ac = inject(AGENT_CONFIG_KEY);
@@ -234,4 +234,4 @@ const GUARDRAIL_CATEGORIES = [
 ];
 </script>
 
-<style scoped src="@/components/AgentConfig/agentConfigModal.css"></style>
+<style scoped src="./AgentConfigStaticContext.css"></style>

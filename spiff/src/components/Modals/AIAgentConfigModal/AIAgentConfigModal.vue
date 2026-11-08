@@ -48,13 +48,13 @@
 import { provide } from "vue";
 import { Icon } from "@iconify/vue";
 import { Dialog } from "frappe-ui";
-import AgentConfigLinkedAgent from "@/components/AgentConfig/AgentConfigLinkedAgent.vue";
-import AgentConfigCreatePanel from "@/components/AgentConfig/AgentConfigCreatePanel.vue";
-import AgentConfigRunSettings from "@/components/AgentConfig/AgentConfigRunSettings.vue";
-import AgentConfigStaticContext from "@/components/AgentConfig/AgentConfigStaticContext.vue";
-import AgentConfigScreening from "@/components/AgentConfig/AgentConfigScreening.vue";
-import AgentConfigMemory from "@/components/AgentConfig/AgentConfigMemory.vue";
-import AgentConfigAssistant from "@/components/AgentConfig/AgentConfigAssistant.vue";
+import AgentConfigLinkedAgent from "@/components/AgentConfig/AgentConfigLinkedAgent/AgentConfigLinkedAgent.vue";
+import AgentConfigCreatePanel from "@/components/AgentConfig/AgentConfigCreatePanel/AgentConfigCreatePanel.vue";
+import AgentConfigRunSettings from "@/components/AgentConfig/AgentConfigRunSettings/AgentConfigRunSettings.vue";
+import AgentConfigStaticContext from "@/components/AgentConfig/AgentConfigStaticContext/AgentConfigStaticContext.vue";
+import AgentConfigScreening from "@/components/AgentConfig/AgentConfigScreening/AgentConfigScreening.vue";
+import AgentConfigMemory from "@/components/AgentConfig/AgentConfigMemory/AgentConfigMemory.vue";
+import AgentConfigAssistant from "@/components/AgentConfig/AgentConfigAssistant/AgentConfigAssistant.vue";
 import { createAgentConfigContext, AGENT_CONFIG_KEY } from "@/composables/useAgentConfigState";
 import { useAgentConfigStaticContext } from "@/composables/useAgentConfigStaticContext";
 import { useAgentConfigModels } from "@/composables/useAgentConfigModels";
@@ -96,7 +96,7 @@ useAgentConfigSave(ac);
 const { isSelector, notice, save } = ac;
 </script>
 
-<style scoped src="@/components/AgentConfig/agentConfigModal.css"></style>
+<style scoped src="./AIAgentConfigModal.css"></style>
 
 <style>
 /* frappe-ui dialogs portal to <body> with no z-index of their own; this

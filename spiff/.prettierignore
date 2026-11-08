@@ -107,7 +107,7 @@ src/components/Notifications/EmailPreviewPanel.vue
 src/components/Notifications/EmailRecipientsTab.vue
 src/components/Evals/EvalCaseContextField/EvalCaseContextField.vue
 src/components/Evals/EvalEarlierConversation/EvalEarlierConversation.vue
-src/components/AgentConfig/ExampleTrajectory.vue
+src/components/AgentConfig/ExampleTrajectory/ExampleTrajectory.vue
 src/components/Modals/ExportConfigModal.vue
 src/components/Editor/FormattingToolbar.vue
 src/components/Insights/CostAllocationCards.vue

@@ -39,7 +39,9 @@ vi.mock("@/composables/useAgentConfigLoad", () => ({
 
 const { createSSRApp } = await import("vue");
 const { renderToString } = await import("vue/server-renderer");
-const Modal = (await import("../../src/components/Modals/AIAgentConfigModal.vue")).default;
+const Modal = (
+	await import("../../src/components/Modals/AIAgentConfigModal/AIAgentConfigModal.vue")
+).default;
 
 const LINKED = {
 	form: {

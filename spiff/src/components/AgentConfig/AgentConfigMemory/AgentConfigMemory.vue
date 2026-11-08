@@ -272,4 +272,4 @@ const { form, isSelector, filteredCatalogModels, unlistedModelLabel, modelLabel,
 	ac;
 </script>
 
-<style scoped src="@/components/AgentConfig/agentConfigModal.css"></style>
+<style scoped src="./AgentConfigMemory.css"></style>
