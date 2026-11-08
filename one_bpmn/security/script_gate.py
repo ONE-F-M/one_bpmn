@@ -12,16 +12,141 @@ Only scripts that belong to BPMN script tasks are gated. Unrelated Server
 Scripts in the site are never touched (see ``is_bpmn_linked_server_script``).
 """
 
+import hashlib
 import keyword
 import xml.etree.ElementTree as ET
 
 import frappe
 from frappe import _
+from frappe.utils import cint, cstr, now_datetime
 
-from one_bpmn.security.script_validator import deep_inspect_script
+from one_bpmn.security.script_validator import deep_inspect_script, parse_allowed
 
 BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+
+APPROVAL_FIELDS = ("processa_allowed_modules", "processa_approved")
+
+SERVER_SCRIPT_APPROVAL_FIELDS = {
+	"Server Script": [
+		{
+			"fieldname": "processa_approval_section",
+			"fieldtype": "Section Break",
+			"label": "Processa Approval",
+			"insert_after": "cron_format",
+		},
+		{
+			"fieldname": "processa_allowed_modules",
+			"fieldtype": "Small Text",
+			"label": "Allowed Modules",
+			"description": "Blocked modules and frappe calls this script may use, one per line or comma-separated. Only a System Manager can change this.",
+			"insert_after": "processa_approval_section",
+		},
+		{
+			"fieldname": "processa_approved",
+			"fieldtype": "Check",
+			"label": "Approved",
+			"description": "Set by a System Manager. Any change to the script clears it and disables the script.",
+			"insert_after": "processa_allowed_modules",
+		},
+		{
+			"fieldname": "processa_approved_by",
+			"fieldtype": "Link",
+			"options": "User",
+			"label": "Approved By",
+			"read_only": 1,
+			"insert_after": "processa_approved",
+		},
+		{
+			"fieldname": "processa_approved_on",
+			"fieldtype": "Datetime",
+			"label": "Approved On",
+			"read_only": 1,
+			"insert_after": "processa_approved_by",
+		},
+		{
+			"fieldname": "processa_pending_review",
+			"fieldtype": "Check",
+			"label": "Pending Review",
+			"description": "Set when an agent writes or edits the script. A System Manager enabling it clears this.",
+			"read_only": 1,
+			"insert_after": "processa_approved_on",
+		},
+		{
+			"fieldname": "processa_approved_hash",
+			"fieldtype": "Data",
+			"label": "Approved Code Hash",
+			"read_only": 1,
+			"hidden": 1,
+			"insert_after": "processa_pending_review",
+		},
+	]
+}
+
+
+def script_hash(code: str | None) -> str:
+	return hashlib.sha256(cstr(code).encode()).hexdigest()
+
+
+def approved_names(script) -> frozenset:
+	"""The allowed modules of a Server Script approved for its current code, else none."""
+	if not cint(script.get("processa_approved")):
+		return frozenset()
+	if script.get("processa_approved_hash") != script_hash(script.get("script")):
+		return frozenset()
+	return parse_allowed(script.get("processa_allowed_modules"))
+
+
+def apply_server_script_approval(doc, method=None) -> None:
+	"""Server Script validate: only a System Manager approves, and a code change clears the approval."""
+	before = doc.get_doc_before_save()
+	stored = before or frappe._dict()
+	if (
+		cstr(stored.get("processa_allowed_modules")) != cstr(doc.get("processa_allowed_modules"))
+		or cint(stored.get("processa_approved")) != cint(doc.get("processa_approved"))
+	) and "System Manager" not in frappe.get_roles():
+		frappe.throw(
+			_("Only a System Manager can change the allowed modules or the approval of a Server Script."),
+			frappe.PermissionError,
+		)
+
+	_apply_pending_review(doc, stored)
+
+	# The stamps are server-owned: start from the stored values whatever the client sent.
+	doc.processa_approved_by = stored.get("processa_approved_by")
+	doc.processa_approved_on = stored.get("processa_approved_on")
+	doc.processa_approved_hash = stored.get("processa_approved_hash")
+	code_hash = script_hash(doc.script)
+
+	if not cint(doc.processa_approved):
+		_clear_approval(doc)
+	elif not cint(stored.get("processa_approved")) or cstr(stored.get("processa_allowed_modules")) != cstr(
+		doc.processa_allowed_modules
+	):
+		doc.processa_approved_by = frappe.session.user
+		doc.processa_approved_on = now_datetime()
+		doc.processa_approved_hash = code_hash
+	elif doc.processa_approved_hash != code_hash:
+		_clear_approval(doc)
+		doc.disabled = 1
+
+
+def _apply_pending_review(doc, stored) -> None:
+	"""Only a System Manager enables a script awaiting review, and enabling it clears the marker."""
+	if "System Manager" not in frappe.get_roles():
+		doc.processa_pending_review = stored.get("processa_pending_review")
+	if not cint(doc.processa_pending_review) or cint(doc.disabled):
+		return
+	if "System Manager" not in frappe.get_roles():
+		frappe.throw(_("Only a System Manager can enable a Server Script awaiting review."), frappe.PermissionError)
+	doc.processa_pending_review = 0
+
+
+def _clear_approval(doc) -> None:
+	doc.processa_approved = 0
+	doc.processa_approved_by = None
+	doc.processa_approved_on = None
+	doc.processa_approved_hash = None
 
 
 def _looks_like_python(text: str) -> bool:
@@ -45,9 +170,9 @@ def _script_task_sources(bpmn_xml: str) -> list[tuple]:
 	"""
 	Resolve every script task in the diagram to the code that will run.
 
-	Returns a list of ``(label, code, script_name)`` tuples:
-	  * inline ``<bpmn:script>`` tasks  → (label, inline python, None)
-	  * ``spiffworkflow:serverScript`` tasks → (label, Server Script .script, name)
+	Returns a list of ``(label, code, allowed)`` tuples:
+	  * inline ``<bpmn:script>`` tasks -> (label, inline python, no allowed names)
+	  * ``spiffworkflow:serverScript`` tasks -> (label, Server Script .script, its approved names)
 
 	Referenced Server Scripts that do not exist yet (authoring in progress) are
 	skipped — the deploy gate re-checks once they exist. Never raises: an
@@ -75,15 +200,20 @@ def _script_task_sources(bpmn_xml: str) -> list[tuple]:
 			inline = ""
 
 		if server_script:
-			code = frappe.db.get_value("Server Script", server_script, "script")
-			if code:
+			script = frappe.db.get_value(
+				"Server Script",
+				server_script,
+				["script", "processa_approved", "processa_approved_hash", "processa_allowed_modules"],
+				as_dict=True,
+			)
+			if script and script.script:
 				sources.append((
 					_("Script Task '{0}' → Server Script '{1}'").format(bpmn_id, server_script),
-					code,
-					server_script,
+					script.script,
+					approved_names(script),
 				))
 		elif inline and _looks_like_python(inline):
-			sources.append((_("Script Task '{0}' (inline)").format(bpmn_id), inline, None))
+			sources.append((_("Script Task '{0}' (inline)").format(bpmn_id), inline, frozenset()))
 
 	return sources
 
@@ -97,8 +227,8 @@ def collect_script_security_violations(bpmn_xml: str) -> list:
 	``{"label": <task → script>, "message": <violation>}``. Empty when clean.
 	"""
 	findings: list = []
-	for label, code, _script_name in _script_task_sources(bpmn_xml):
-		for message in deep_inspect_script(code):
+	for label, code, allowed in _script_task_sources(bpmn_xml):
+		for message in deep_inspect_script(code, allowed=allowed):
 			findings.append({"label": label, "message": message})
 	return findings
 
@@ -214,7 +344,7 @@ def validate_server_script_on_save(doc, method=None) -> None:
 	if not is_bpmn_linked_server_script(doc.name):
 		return
 
-	violations = deep_inspect_script(code)
+	violations = deep_inspect_script(code, allowed=approved_names(doc))
 	if violations:
 		frappe.throw(
 			_format_violations(violations),

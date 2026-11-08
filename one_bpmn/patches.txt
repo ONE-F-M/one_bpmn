@@ -349,3 +349,4 @@ one_bpmn.one_bpmn.patches.v1_0.repath_connector_handlers #07-11-2026 stored conn
 one_bpmn.one_bpmn.patches.v1_0.frontend_agent_eval_cases_follow_the_pages_folder #07-11-2026 Frontend Agent eval cases and their A2A Task fixtures name the Processa pages by their spiff/src/pages paths
 one_bpmn.one_bpmn.patches.v1_0.repath_sandbox_handlers #08-11-2026 stored sandbox handler and Choices From paths follow the modules that moved into agents_sandbox
 one_bpmn.one_bpmn.patches.v1_0.repath_a2a_handlers #08-11-2026 stored A2A connector handler and Choices From paths follow a2a_client_ops into one_bpmn.a2a.client_ops
+one_bpmn.one_bpmn.patches.v1_0.add_server_script_approval_fields #08-11-2026 Server Scripts get allowed modules and a System Manager approval with who, when and the approved code hash

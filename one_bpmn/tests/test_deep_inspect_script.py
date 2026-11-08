@@ -24,8 +24,10 @@ class TestSafeScriptsPass(unittest.TestCase):
 	def test_orm_read_write(self):
 		self.assertEqual(_flags("doc = frappe.get_doc('Employee', 'E1')\ndoc.save()"), [])
 
-	def test_db_read_sql(self):
-		self.assertEqual(_flags("rows = frappe.db.sql('select name from tabUser')"), [])
+	def test_db_read_sql_needs_approval(self):
+		code = "rows = frappe.db.sql('select name from tabUser')"  # validator input, not a query
+		self.assertTrue(_flags(code))
+		self.assertEqual(deep_inspect_script(code, ValidatorOptions(), frozenset({"frappe.db.sql"})), [])
 
 	def test_get_all_and_msgprint(self):
 		self.assertEqual(
@@ -74,8 +76,11 @@ class TestBannedAttributes(unittest.TestCase):
 		self.assertTrue(_flags("role.add_roles('System Manager')"))
 
 	def test_soft_frappe_attrs_only_blocked_in_strict(self):
-		self.assertEqual(_flags("frappe.db.sql('select 1')"), [])
-		self.assertTrue(_flags("frappe.db.sql('select 1')", strict_frappe_attrs=True))
+		approved = frozenset({"frappe.db.sql"})
+		self.assertEqual(deep_inspect_script("frappe.db.sql('select 1')", ValidatorOptions(), approved), [])  # validator input
+		self.assertTrue(
+			deep_inspect_script("frappe.db.sql('select 1')", ValidatorOptions(strict_frappe_attrs=True), approved)  # validator input
+		)
 		self.assertTrue(_flags("c = frappe.conf", strict_frappe_attrs=True))
 
 
@@ -204,8 +209,9 @@ class TestDestructiveSql(unittest.TestCase):
 			with self.subTest(sql=kw):
 				self.assertTrue(_flags(f"frappe.db.sql('{kw}')"))
 
-	def test_select_allowed(self):
-		self.assertEqual(_flags("frappe.db.sql('select name from tabUser')"), [])
+	def test_select_allowed_when_approved(self):
+		code = "frappe.db.sql('select name from tabUser')"  # validator input, not a query
+		self.assertEqual(deep_inspect_script(code, ValidatorOptions(), frozenset({"frappe.db.sql"})), [])
 
 
 class TestSyntaxAndWrapper(unittest.TestCase):
@@ -232,6 +238,11 @@ class TestSyntaxAndWrapper(unittest.TestCase):
 					"rule": "Permission-bypass keyword 'ignore_permissions=...' is not allowed",
 					"line": 3,
 					"code": "d.save(ignore_permissions=True)",
+				},
+				{
+					"rule": "frappe.db.sql needs System Manager approval (list it in Allowed Modules)",
+					"line": 4,
+					"code": "frappe.db.sql('DROP TABLE tabX')",  # validator input, not a query
 				},
 				{
 					"rule": "Destructive raw SQL (DROP/TRUNCATE/ALTER/CREATE TABLE) is not allowed",

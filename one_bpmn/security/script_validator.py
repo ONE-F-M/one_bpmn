@@ -128,6 +128,23 @@ SOFT_BANNED_FRAPPE_ATTRIBUTES = frozenset({
 	"sql", "commit", "flags", "conf", "cache",
 })
 
+# Frappe helpers that reach the shell, site config, raw SQL or an arbitrary dotted path.
+# Blocked unless the script is approved and lists the path in its allowed modules.
+GATED_FRAPPE_CALLS = frozenset({
+	"frappe.get_attr", "frappe.get_module", "frappe.call", "frappe.enqueue",
+	"frappe.utils.execute_in_shell",
+	"frappe.conf", "frappe.local.conf",
+	"frappe.get_site_config", "frappe.get_common_site_config", "frappe.get_conf",
+	"frappe.db.sql", "frappe.db.sql_ddl", "frappe.db.multisql",
+})
+
+# Gated names specific enough to match on any object, so db = frappe.db; db.sql() is caught too.
+_GATED_BY_NAME = {
+	path.rsplit(".", 1)[1]: path
+	for path in GATED_FRAPPE_CALLS
+	if path.rsplit(".", 1)[1] not in {"call", "enqueue", "conf"}
+}
+
 # Request state a script may read but never mutate in bulk.
 PROTECTED_STATE_ATTRIBUTES = frozenset({"flags", "session"})
 MUTATING_METHODS = frozenset({"update", "setdefault", "pop", "popitem", "clear", "__setitem__"})
@@ -222,11 +239,18 @@ def _resolve_options() -> ValidatorOptions:
 	return opts
 
 
+def parse_allowed(text: str | None) -> frozenset:
+	"""The entries of an allowed modules field, one per line or comma-separated."""
+	return frozenset(filter(None, re.split(r"[\s,]+", text or "")))
+
+
 class _SecurityVisitor(ast.NodeVisitor):
 	"""Walk the AST once, collecting security violations."""
 
-	def __init__(self, options: ValidatorOptions):
+	def __init__(self, options: ValidatorOptions, allowed: frozenset = frozenset()):
 		self.options = options
+		self.allowed = allowed
+		self.frappe_aliases = {"frappe": "frappe"}
 		self.violations: list[str] = []
 		self.lines: list[int] = []
 		self._node: ast.AST | None = None
@@ -246,8 +270,10 @@ class _SecurityVisitor(ast.NodeVisitor):
 			top = alias.name.split(".")[0]
 			if self.options.block_all_imports:
 				self._flag(f"Import statements are not allowed: 'import {alias.name}'")
-			elif top in FORBIDDEN_MODULES:
+			elif top in FORBIDDEN_MODULES and not self._is_allowed_module(alias.name):
 				self._flag(f"Forbidden import: '{alias.name}'")
+			if top == "frappe":
+				self.frappe_aliases[alias.asname or top] = alias.name if alias.asname else top
 		self.generic_visit(node)
 
 	def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
@@ -255,9 +281,32 @@ class _SecurityVisitor(ast.NodeVisitor):
 		top = module.split(".")[0]
 		if self.options.block_all_imports:
 			self._flag(f"Import statements are not allowed: 'from {module} import ...'")
-		elif top in FORBIDDEN_MODULES:
+		elif top in FORBIDDEN_MODULES and not self._is_allowed_module(module):
 			self._flag(f"Forbidden import: 'from {module} import ...'")
+		if top == "frappe":
+			for alias in node.names:
+				if alias.name == "*":
+					self._flag(f"'from {module} import *' is not allowed")
+				else:
+					self._check_gated(f"{module}.{alias.name}", alias.name)
 		self.generic_visit(node)
+
+	def _is_allowed_module(self, name: str) -> bool:
+		return name in self.allowed or name.split(".")[0] in self.allowed
+
+	def _check_gated(self, path: str | None, name: str) -> None:
+		gated = path if path in GATED_FRAPPE_CALLS else _GATED_BY_NAME.get(name)
+		if gated and gated not in self.allowed:
+			self._flag(f"{gated} needs System Manager approval (list it in Allowed Modules)")
+
+	def _dotted(self, node: ast.expr) -> str | None:
+		"""``frappe.db.sql`` for an attribute chain rooted at frappe or an alias of it, else None."""
+		if isinstance(node, ast.Name):
+			return self.frappe_aliases.get(node.id)
+		if isinstance(node, ast.Attribute):
+			base = self._dotted(node.value)
+			return f"{base}.{node.attr}" if base else None
+		return None
 
 	# ── calls: banned builtins + kwargs permission injection ─────────────
 	def visit_Call(self, node: ast.Call) -> None:
@@ -312,6 +361,7 @@ class _SecurityVisitor(ast.NodeVisitor):
 			self._flag(f"Access to Frappe internal '.{attr}' is not allowed")
 		elif attr in SOFT_BANNED_FRAPPE_ATTRIBUTES and self.options.strict_frappe_attrs:
 			self._flag(f"Access to '.{attr}' is not allowed (strict mode)")
+		self._check_gated(self._dotted(node), attr)
 		self._check_session_write(node)
 		self.generic_visit(node)
 
@@ -400,23 +450,28 @@ def _node_name(node: ast.expr) -> str | None:
 	return None
 
 
-def deep_inspect_script(script_text: str, options: "ValidatorOptions | None" = None) -> list[str]:
+def deep_inspect_script(
+	script_text: str, options: "ValidatorOptions | None" = None, allowed: frozenset = frozenset()
+) -> list[str]:
 	"""
 	Structurally inspect a script for security violations.
 
 	Args:
 		script_text: the Python source of a Server Script / inline script task.
 		options:     tunable posture; when omitted, resolved from site_config.
+		allowed:     blocked modules and gated frappe calls an approved script may use.
 
 	Returns:
 		A list of human-readable violation messages (empty when the script is
 		clean), or a single-element list containing a syntax-error message when
 		the script does not parse.
 	"""
-	return [message for message, _line in _inspect(script_text or "", options)]
+	return [message for message, _line in _inspect(script_text or "", options, allowed)]
 
 
-def _inspect(code: str, options: "ValidatorOptions | None") -> list[tuple[str, int | None]]:
+def _inspect(
+	code: str, options: "ValidatorOptions | None", allowed: frozenset = frozenset()
+) -> list[tuple[str, int | None]]:
 	"""Each violation in ``code`` paired with the line it was found on."""
 	if options is None:
 		options = _resolve_options()
@@ -426,7 +481,7 @@ def _inspect(code: str, options: "ValidatorOptions | None") -> list[tuple[str, i
 	except SyntaxError as exc:
 		return [(f"Syntax error in script: {exc}", exc.lineno)]
 
-	visitor = _SecurityVisitor(options)
+	visitor = _SecurityVisitor(options, allowed)
 	visitor.visit(tree)
 	found = list(zip(visitor.violations, visitor.lines))
 
