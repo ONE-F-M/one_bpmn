@@ -11,12 +11,34 @@ from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configur
 )
 
 
+SKILLS = ("_Test Config Skill Active", "_Test Config Skill Draft")
+CONFIG_KEYS = {
+	"name",
+	"agent_id",
+	"system_prompt",
+	"temperature",
+	"max_tokens",
+	"ai_provider",
+	"ai_model",
+	"langsmith_project",
+	"agent_framework",
+	"process_model",
+	"chat_mode_label",
+	"lifecycle_status",
+	"agent_type",
+	"sub_prompts",
+	"constants",
+	"examples",
+	"guardrails",
+	"enabled_skills",
+}
+
+
 class TestAIAgentConfiguration(FrappeTestCase):
 	"""Tests for AI Agent Configuration DocType and get_agent_config utility."""
 
 	def _cleanup_test_record(self):
 		"""Remove any existing test record by agent_id or name."""
-		frappe.cache.delete_value("agent_config:test_agent_unit")
 		# The document name is derived from agent_name, so look up by both
 		existing = frappe.db.exists("AI Agent Configuration", {"agent_id": "test_agent_unit"})
 		if existing:
@@ -24,6 +46,8 @@ class TestAIAgentConfiguration(FrappeTestCase):
 		# Also check by the expected name ("Test Agent") in case agent_id was changed
 		if frappe.db.exists("AI Agent Configuration", "Test Agent"):
 			frappe.delete_doc("AI Agent Configuration", "Test Agent", force=True)
+		for skill in SKILLS:
+			frappe.delete_doc("AI Skill", skill, force=True, ignore_missing=True)
 		frappe.db.commit()
 
 	def setUp(self):
@@ -129,38 +153,115 @@ class TestAIAgentConfiguration(FrappeTestCase):
 		self.assertEqual(config["sub_prompts"]["analyzer"]["prompt"], "Analyze the input carefully.")
 		self.assertEqual(config["sub_prompts"]["analyzer"]["temperature"], 0.2)
 
-	def test_cache_is_populated(self):
-		"""Test that the first call populates the cache."""
-		# Ensure cache is empty
-		frappe.cache.delete_value("agent_config:test_agent_unit")
-		self.assertIsNone(frappe.cache.get_value("agent_config:test_agent_unit"))
+	def test_the_dict_holds_every_part_of_the_configuration(self):
+		"""Same dict the child-table queries built: rows in idx order, only Active skills."""
+		for skill, status in zip(SKILLS, ("Active", "Draft")):
+			frappe.get_doc(
+				{
+					"doctype": "AI Skill",
+					"skill_name": skill,
+					"status": status,
+					"tier": "Draft-Only",
+					"description": f"{status} skill.",
+					"body": "Do the thing.",
+				}
+			).insert()
+		self.test_doc.extend(
+			"examples",
+			[
+				{
+					"input": "First input",
+					"context_summary": "A form",
+					"trajectory": '["read", "write"]',
+					"expected_output": "Done",
+					"note": "first",
+					"enabled": 1,
+				},
+				{"input": "Second input", "enabled": 0},
+			],
+		)
+		self.test_doc.extend(
+			"guardrails",
+			[
+				{"guardrail": "Never guess.", "category": "Safety", "enabled": 1},
+				{"guardrail": "Be short.", "category": "Output Format", "enabled": 0},
+			],
+		)
+		self.test_doc.extend("enabled_skills", [{"skill": SKILLS[1]}, {"skill": SKILLS[0]}])
+		self.test_doc.save()
+		saved = frappe.db.get_value(
+			"AI Agent Configuration",
+			self.test_doc.name,
+			["ai_provider", "ai_model", "lifecycle_status", "agent_type"],
+			as_dict=True,
+		)
 
-		# Call get_agent_config — should populate cache
+		self.assertEqual(
+			get_agent_config("test_agent_unit"),
+			{
+				"name": self.test_doc.name,
+				"agent_id": "test_agent_unit",
+				"system_prompt": "You are a test agent.",
+				"temperature": 0.5,
+				"max_tokens": 1000,
+				"ai_provider": saved.ai_provider,
+				"ai_model": saved.ai_model,
+				"langsmith_project": "test-project",
+				"agent_framework": "LangGraph",
+				"process_model": None,
+				"chat_mode_label": None,
+				"lifecycle_status": saved.lifecycle_status,
+				"agent_type": saved.agent_type,
+				"sub_prompts": {"analyzer": {"prompt": "Analyze the input carefully.", "temperature": 0.2}},
+				"constants": {"max_retries": 3, "threshold": 0.85, "verbose": True, "label": "hello"},
+				"examples": [
+					{
+						"input": "First input",
+						"context_summary": "A form",
+						"trajectory": '["read", "write"]',
+						"expected_output": "Done",
+						"note": "first",
+						"enabled": 1,
+					},
+					{
+						"input": "Second input",
+						"context_summary": None,
+						"trajectory": None,
+						"expected_output": None,
+						"note": None,
+						"enabled": 0,
+					},
+				],
+				"guardrails": [
+					{"guardrail": "Never guess.", "category": "Safety", "enabled": 1},
+					{"guardrail": "Be short.", "category": "Output Format", "enabled": 0},
+				],
+				"enabled_skills": [{"name": SKILLS[0], "description": "Active skill.", "status": "Active"}],
+			},
+		)
+
+	def test_a_saved_edit_is_used_by_the_next_call(self):
+		self.assertEqual(
+			get_agent_config("test_agent_unit")["sub_prompts"]["analyzer"]["prompt"],
+			"Analyze the input carefully.",
+		)
+
+		self.test_doc.sub_prompts[0].prompt_text = "Analyze it twice."
+		self.test_doc.save()
+
 		config = get_agent_config("test_agent_unit")
-		self.assertIsNotNone(config)
+		self.assertEqual(config["sub_prompts"]["analyzer"]["prompt"], "Analyze it twice.")
+		self.assertEqual(set(config), CONFIG_KEYS)
 
-		# Cache should now have a value
-		cached = frappe.cache.get_value("agent_config:test_agent_unit")
-		self.assertIsNotNone(cached)
-		self.assertEqual(cached["system_prompt"], "You are a test agent.")
-
-	def test_cache_invalidated_on_save(self):
-		"""Test that saving the doc clears the cache via on_update."""
-		# Populate cache
+	def test_a_direct_child_write_is_used_once_the_document_cache_is_cleared(self):
 		get_agent_config("test_agent_unit")
-		self.assertIsNotNone(frappe.cache.get_value("agent_config:test_agent_unit"))
 
-		# Save doc — should invalidate cache
-		self.test_doc.system_prompt = "Updated prompt."
-		self.test_doc.save(ignore_permissions=True)
-		frappe.db.commit()
+		row = self.test_doc.sub_prompts[0].name
+		frappe.db.set_value("AI Agent Sub Prompt", row, "prompt_text", "Written directly.")
+		frappe.clear_document_cache("AI Agent Configuration", self.test_doc.name)
 
-		# Cache should be cleared
-		self.assertIsNone(frappe.cache.get_value("agent_config:test_agent_unit"))
-
-		# Next call should return updated value
 		config = get_agent_config("test_agent_unit")
-		self.assertEqual(config["system_prompt"], "Updated prompt.")
+		self.assertEqual(config["sub_prompts"]["analyzer"]["prompt"], "Written directly.")
 
 
 class TestCastConstant(FrappeTestCase):
