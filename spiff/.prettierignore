@@ -105,8 +105,8 @@ src/components/Notifications/EmailNoticeContentTab.vue
 src/components/Modals/EmailNotificationEditorModal.vue
 src/components/Notifications/EmailPreviewPanel.vue
 src/components/Notifications/EmailRecipientsTab.vue
-src/components/Evals/EvalCaseContextField.vue
-src/components/Evals/EvalEarlierConversation.vue
+src/components/Evals/EvalCaseContextField/EvalCaseContextField.vue
+src/components/Evals/EvalEarlierConversation/EvalEarlierConversation.vue
 src/components/AgentConfig/ExampleTrajectory.vue
 src/components/Modals/ExportConfigModal.vue
 src/components/Editor/FormattingToolbar.vue
@@ -231,7 +231,6 @@ src/pages/EvalFeedback.vue
 src/pages/EvalResults.vue
 src/pages/EvalRun.vue
 src/pages/Evals.vue
-src/pages/EvalSuite.vue
 src/pages/Processes.vue
 src/pages/Insights.vue
 src/pages/Instance.vue

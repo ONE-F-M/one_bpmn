@@ -166,7 +166,7 @@
 import { computed, ref, watch } from "vue"
 import { Button, ErrorMessage, FormControl } from "frappe-ui"
 import { dayjs } from "@/dayjs"
-import EvalEarlierConversation from "@/components/Evals/EvalEarlierConversation.vue"
+import EvalEarlierConversation from "@/components/Evals/EvalEarlierConversation/EvalEarlierConversation.vue"
 import { useCaseConversations } from "@/composables/useCaseConversations"
 import { EXAMPLE_CONTEXT, mergeContexts, midConversationError, parseContext } from "@/utils/evalContext"
 
