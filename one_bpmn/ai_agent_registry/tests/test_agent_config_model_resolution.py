@@ -42,9 +42,8 @@ class TestAgentConfigModelResolution(FrappeTestCase):
 
 		mismatched = []
 		for row in configs:
-			# The cache is keyed by agent_id and only cleared on save, so a stale
-			# entry would mask the very thing under test.
-			frappe.cache.delete_value(f"agent_config:{row.agent_id}")
+			# A stale cached document would mask the very thing under test.
+			frappe.clear_document_cache("AI Agent Configuration", row.name)
 			got = (get_agent_config(row.agent_id) or {}).get("ai_model")
 			if got != row.ai_model:
 				mismatched.append(f"{row.name}: expected {row.ai_model!r}, got {got!r}")
@@ -58,12 +57,12 @@ class TestAgentConfigModelResolution(FrappeTestCase):
 		"""Absent and None are different: a missing key silently takes the
 		factory's default branch, where a present-but-None value does not."""
 		row = frappe.db.get_value(
-			"AI Agent Configuration", {"enabled": 1}, ["agent_id"], as_dict=True
+			"AI Agent Configuration", {"enabled": 1}, ["name", "agent_id"], as_dict=True
 		)
 		if not row or not row.agent_id:
 			self.skipTest("no enabled agent configuration on this site")
 
-		frappe.cache.delete_value(f"agent_config:{row.agent_id}")
+		frappe.clear_document_cache("AI Agent Configuration", row.name)
 		config = get_agent_config(row.agent_id)
 		self.assertIn("ai_model", config)
 
@@ -82,7 +81,7 @@ class TestAgentConfigModelResolution(FrappeTestCase):
 
 		wrong = []
 		for row in rows:
-			frappe.cache.delete_value(f"agent_config:{row.agent_id}")
+			frappe.clear_document_cache("AI Agent Configuration", row.name)
 			got = (get_agent_config(row.agent_id) or {}).get("name")
 			if got != row.name:
 				wrong.append(f"{row.agent_id}: expected {row.name!r}, got {got!r}")

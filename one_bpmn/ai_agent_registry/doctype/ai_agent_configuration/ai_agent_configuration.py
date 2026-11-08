@@ -465,8 +465,6 @@ class AIAgentConfiguration(Document):
 			)
 
 	def on_update(self):
-		"""Clear cached config when this record is saved."""
-		frappe.cache.delete_value(f"agent_config:{self.agent_id}")
 		# WI-001652: leave a timeline trail when a save parks the agent.
 		# (The creation process's park path writes its own comment — this
 		# covers the controller-driven Background auto-lifecycle.)
@@ -607,137 +605,73 @@ def get_effective_memory_models(memory_distill_model=None, memory_reconcile_mode
 
 
 def get_agent_config(agent_id: str) -> dict | None:
-	"""
-	Load agent configuration from AI Agent Configuration DocType.
+	"""The enabled AI Agent Configuration for agent_id as a flat dict, or None.
 
-	Returns a dict with: system_prompt, temperature, max_tokens,
-	ai_provider, langsmith_project, sub_prompts,
-	constants, and — for the frozen static context layer (WI-001639) —
-	examples and guardrails. There is no per-agent override mechanism (WI-001615):
-	provider, key and model come from the linked AI Provider
-	Credentials record.
-
-	Returns None if the record is not found or disabled,
-	allowing callers to fall back to hardcoded defaults.
-
-	Cache is indefinite — only invalidated when the record is saved
-	(via on_update hook in the controller above).
-	"""
-	cache_key = f"agent_config:{agent_id}"
-	cached = frappe.cache.get_value(cache_key)
-	if cached:
-		return cached
-
-	config = frappe.db.get_value(
-		"AI Agent Configuration",
-		{"agent_id": agent_id, "enabled": 1},
-		[
-			"name", "agent_id", "system_prompt", "temperature", "max_tokens",
-			"ai_model", "ai_provider", "langsmith_project",
-			"agent_framework", "process_model", "chat_mode_label",
-			"lifecycle_status", "agent_type", "pii_screening",
-		],
-		as_dict=True,
-	)
-
-
-	if not config:
+	Built from the cached document, which Frappe clears when the record is saved."""
+	name = frappe.db.get_value("AI Agent Configuration", {"agent_id": agent_id, "enabled": 1}, "name")
+	if not name:
 		return None
+	doc = frappe.get_cached_doc("AI Agent Configuration", name)
 
-	# Load sub-prompts keyed by sub_agent_id
-	sub_prompts = {}
-	for sp in frappe.get_all(
-		"AI Agent Sub Prompt",
-		filters={"parent": config.name},
-		fields=["sub_agent_id", "prompt_text", "temperature"],
-	):
-		sub_prompts[sp.sub_agent_id] = {
-			"prompt": sp.prompt_text,
-			"temperature": sp.temperature,
+	skill_names = [d.skill for d in doc.enabled_skills]
+	active_skills = (
+		{
+			s.name: s
+			for s in frappe.get_all(
+				"AI Skill",
+				filters={"name": ["in", skill_names], "status": "Active"},
+				fields=["name", "skill_name", "description"],
+			)
 		}
-
-	# WI-001639: examples + guard rails are the non-Instructions half of the
-	# agent's FROZEN static context. Ordered by idx so the assembled prompt is
-	# byte-stable across calls; disabled rows are carried through and filtered
-	# by the assembler, keeping the "what is configured" and "what is sent"
-	# decisions in one place.
-	examples = frappe.get_all(
-		"AI Agent Example",
-		filters={"parent": config.name, "parenttype": "AI Agent Configuration"},
-		fields=["input", "context_summary", "trajectory", "expected_output", "note", "enabled"],
-		order_by="idx asc",
-	)
-	guardrails = frappe.get_all(
-		"AI Agent Guard Rail",
-		filters={"parent": config.name, "parenttype": "AI Agent Configuration"},
-		fields=["guardrail", "category", "enabled"],
-		order_by="idx asc",
+		if skill_names
+		else {}
 	)
 
-	
-	# Load enabled skills
-	enabled_skills = []
-	for skill in frappe.get_all(
-		"AI Agent Enabled Skill",
-		filters={"parent": config.name, "parenttype": "AI Agent Configuration"},
-		fields=["skill"],
-		order_by="idx asc",
-	):
-		skill_doc = frappe.db.get_value("AI Skill", skill.skill, ["skill_name", "description", "status"], as_dict=True)
-		# WI-000401: the index must match what load_skill will actually serve.
-		# load_skill refuses anything whose status isn't "Active" (Draft AND
-		# Deprecated both refused) \u2014 filtering here to != "Draft" advertised
-		# Deprecated skills the tool would then refuse to load.
-		if skill_doc and skill_doc.status == "Active":
-			enabled_skills.append({
-				"name": skill_doc.skill_name,
-				"description": skill_doc.description,
-				"status": skill_doc.status,
-			})
-
-	# Load constants keyed by constant_name, cast to proper types
-	constants = {}
-	for c in frappe.get_all(
-		"AI Agent Constant",
-		filters={"parent": config.name},
-		fields=["constant_name", "constant_value", "constant_type"],
-	):
-		constants[c.constant_name] = _cast_constant(c.constant_value, c.constant_type)
-
-	result = {
-		# The record's own name. Queried above and used for every child-table
-		# lookup in this function, then dropped from what callers got back, the
-		# same way ai_model was. The direct chat path pays for it: it builds its
-		# AI Agent Run from this dict, so every run on that path was left with
-		# no agent_configuration and could not be attributed to an agent in
-		# Insights or anywhere else. It has no BPMN instance and no process
-		# model either, so neither of create_ai_run's fallbacks could rescue it.
-		"name": config.name,
-		"agent_id": config.agent_id,
-		"system_prompt": config.system_prompt,
-		"temperature": config.temperature,
-		"max_tokens": config.max_tokens,
-		"ai_provider": config.ai_provider,
-		# The agent's own catalog pick, and the record that carries the API key.
-		# Queried above but previously dropped here, so every caller that resolved
-		# an adapter through this dict fell back to a default model name that is
-		# not an AI Model record — leaving the adapter with no key at all.
-		"ai_model": config.ai_model,
-		"langsmith_project": config.langsmith_project,
-		"agent_framework": config.agent_framework,
-		"process_model": config.process_model,
-		"chat_mode_label": config.chat_mode_label,
-		"lifecycle_status": config.lifecycle_status,
-		"agent_type": config.agent_type,
-		"sub_prompts": sub_prompts,
-		"constants": constants,
-		"examples": examples,
-		"guardrails": guardrails,
-		"enabled_skills": enabled_skills,
+	return {
+		"name": doc.name,
+		"agent_id": doc.agent_id,
+		"system_prompt": doc.system_prompt,
+		"temperature": doc.temperature,
+		"max_tokens": doc.max_tokens,
+		"ai_provider": doc.ai_provider,
+		"ai_model": doc.ai_model,
+		"langsmith_project": doc.langsmith_project,
+		"agent_framework": doc.agent_framework,
+		"process_model": doc.process_model,
+		"chat_mode_label": doc.chat_mode_label,
+		"lifecycle_status": doc.lifecycle_status,
+		"agent_type": doc.agent_type,
+		"sub_prompts": {
+			d.sub_agent_id: {"prompt": d.prompt_text, "temperature": d.temperature} for d in doc.sub_prompts
+		},
+		"constants": {
+			d.constant_name: _cast_constant(d.constant_value, d.constant_type) for d in doc.constants
+		},
+		"examples": [
+			frappe._dict(
+				input=d.input,
+				context_summary=d.context_summary,
+				trajectory=d.trajectory,
+				expected_output=d.expected_output,
+				note=d.note,
+				enabled=d.enabled,
+			)
+			for d in doc.examples
+		],
+		"guardrails": [
+			frappe._dict(guardrail=d.guardrail, category=d.category, enabled=d.enabled)
+			for d in doc.guardrails
+		],
+		"enabled_skills": [
+			{
+				"name": active_skills[d.skill].skill_name,
+				"description": active_skills[d.skill].description,
+				"status": "Active",
+			}
+			for d in doc.enabled_skills
+			if d.skill in active_skills
+		],
 	}
-
-	frappe.cache.set_value(cache_key, result)
-	return result
 
 
 def agent_config_name(agent_config) -> str | None:
