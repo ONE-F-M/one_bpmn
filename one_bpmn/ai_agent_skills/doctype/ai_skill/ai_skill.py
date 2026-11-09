@@ -6,6 +6,26 @@ from frappe import _
 
 
 class AISkill(Document):
+	# begin: auto-generated types
+	# This code is auto-generated. Do not modify anything in this block.
+
+	from typing import TYPE_CHECKING
+
+	if TYPE_CHECKING:
+		from frappe.types import DF
+		from one_bpmn.ai_agent_skills.doctype.ai_skill_allowed_tool.ai_skill_allowed_tool import AISkillAllowedTool
+		from one_bpmn.ai_agent_skills.doctype.ai_skill_resource.ai_skill_resource import AISkillResource
+
+		allowed_tools: DF.Table[AISkillAllowedTool]
+		body: DF.MarkdownEditor
+		description: DF.SmallText
+		owner_team: DF.Data | None
+		resources: DF.Table[AISkillResource]
+		skill_name: DF.Data
+		status: DF.Literal["Draft", "Active", "Deprecated"]
+		tier: DF.Literal["Draft-Only", "Read-Only", "Action-Allowed"]
+		token_estimate: DF.Int
+	# end: auto-generated types
 	def validate(self):
 		self._compute_token_estimate()
 		self._validate_description()
