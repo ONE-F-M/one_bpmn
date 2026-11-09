@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001751: what run_agent_loop returns when it runs out of turns.
+# What run_agent_loop returns when it runs out of turns.
 #
 # The loop used to return text="" on the turn cap. For an agent declaring
 # response_format="json" that arrives at validation as "invalid JSON: Expecting

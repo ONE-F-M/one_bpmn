@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001365 (6-01): dedicated bpmn_ai_agent background job queue.
+# Dedicated bpmn_ai_agent background job queue.
 
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ class TestAiAgentQueueRouting(FrappeTestCase):
 				"starting.py",
 				"task_actions.py",
 				"eval_runner.py",
-				# WI-001495/WI-001496: parked AI units run as AI-only jobs —
+				# Parked AI units run as AI-only jobs —
 				# the ONLY engine-driven producer after the inline flip
 				"bpmn_process_instance.py",
 			):
@@ -69,7 +69,7 @@ class TestAiAgentQueueRouting(FrappeTestCase):
 		if "bpmn_ai_agent" not in workers:
 			self.skipTest(
 				"bpmn_ai_agent not in common_site_config workers — register it "
-				"on this bench (documented in the WI-001365 PR)"
+				"on this bench (documented in the original PR)"
 			)
 		self.assertNotIn("bpmn_ai_agent", ("default", "short", "long"))
 		self.assertIsInstance(workers["bpmn_ai_agent"], dict)

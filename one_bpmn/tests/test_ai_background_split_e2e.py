@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001500: AI background split — end-to-end verification.
+# AI background split — end-to-end verification.
 #
 # One UAT-shaped model (mirroring the "AI Agent Task UAT" diagram): an
 # exclusive gateway routes to a plain branch OR an AI Agent branch.

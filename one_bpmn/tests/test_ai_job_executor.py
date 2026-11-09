@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001496: AI background job executor and engine resume.
+# AI background job executor and engine resume.
 #
 # The queued AI job (run_parked_ai_task) executes the parked AI unit and
 # updates the engine with the results:
@@ -191,7 +191,7 @@ class TestJobOutputParity(JobHarness):
 		)
 
 	def test_job_failure_marks_instance_errored(self):
-		# WI-001497: crashes below the retry cap re-enqueue (instance stays
+		# Crashes below the retry cap re-enqueue (instance stays
 		# Active — covered in test_ai_job_retries); an EXHAUSTED job errors
 		# the instance.
 		frappe.flags.bpmn_force_ai_parking = True

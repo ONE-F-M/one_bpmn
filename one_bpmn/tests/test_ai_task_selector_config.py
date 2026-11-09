@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001351 (2-01): ai_task_selector service task type and task_cfg schema.
+# ai_task_selector service task type and task_cfg schema.
 
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ class TestAiTaskSelectorConfig(FrappeTestCase):
 		self.assertEqual(cfg["aiSystemPrompt"], "You choose the next task.")
 		self.assertEqual(cfg["aiUserPrompt"], "Pick one.")
 
-	# ── Scenario 3 (WI-001423): no aiToolSources default — the registry is
+	# ── Scenario 3: no aiToolSources default — the registry is
 	# gone, so the selector's tools are always its own inner shapes. Old
 	# diagrams may still carry the attribute; it passes through harmlessly.
 

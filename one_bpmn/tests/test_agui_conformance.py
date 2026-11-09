@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001680: cross-agent AG-UI conformance.
+# Cross-agent AG-UI conformance.
 #
 # One turn through every agent — the five system agents plus one
 # pure-configuration agent (no dedicated code anywhere) — validated as a
@@ -126,7 +126,7 @@ class TestCrossAgentConformance(FrappeTestCase):
 				# The producers' REAL shape: `event` rather than `name`, with
 				# the payload flat on the event (lumina.py). The double used
 				# to speak the contract already, which hid the missing fold
-				# for three weeks (WI-001678).
+				# for three weeks.
 				yield {"type": "RUN_STARTED", "run_id": "child"}
 				yield {"type": "TEXT_MESSAGE_CONTENT", "delta": "token "}
 				yield {"type": "CUSTOM", "event": "MODE_TRANSITION", "new_mode": "Planning"}

@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-004172: ProsAlly parses BPMN 2.0 XML pasted into the chat instead of asking for a step list.
+# ProsAlly parses BPMN 2.0 XML pasted into the chat instead of asking for a step list.
 #
 # Everything here runs against mocks - no live LLM is called.
 

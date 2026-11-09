@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001359 (4-02): bpmn_activity_log entries for ad-hoc subprocess and
+# bpmn_activity_log entries for ad-hoc subprocess and
 # selector decisions.
 
 from __future__ import annotations

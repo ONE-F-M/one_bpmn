@@ -1,4 +1,4 @@
-"""The per-turn store's terminal keys are write-once (WI-002001).
+"""The per-turn store's terminal keys are write-once.
 
 ``output`` is the reply ``Save Response`` persists and ``done`` marks it final.
 The store used to be last-writer-wins, so the orchestrating LLM only had to call

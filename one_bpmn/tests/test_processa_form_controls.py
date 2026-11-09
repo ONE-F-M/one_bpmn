@@ -1,4 +1,4 @@
-"""Tests for the Processa-controlled DocType list (WI-001813).
+"""Tests for the Processa-controlled DocType list.
 
 bpmn_form_actions.js uses this list to suppress the native Frappe controls
 Processa owns — the Submit button, the "Submit this document to confirm"
@@ -53,7 +53,7 @@ class TestProcessaControlledDoctypes(FrappeTestCase):
 		doc = frappe.get_doc(
 			{
 				"doctype": "BPMN Process Model",
-				"title": f"WI-001813 Probe {frappe.generate_hash(length=6)}",
+				"title": f"Probe {frappe.generate_hash(length=6)}",
 				"process_id": f"wi1813_{frappe.generate_hash(length=8)}",
 				"version": 1,
 				"is_active": 1 if is_active else 0,

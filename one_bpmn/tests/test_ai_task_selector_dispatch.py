@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001352 (2-02): dispatch_ai_task_selector handler.
+# dispatch_ai_task_selector handler.
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ SELECTOR_CFG = {
 
 
 def _bridge_available() -> bool:
-	"""ExecutorConfig.tools ships on WI-001356; resolve_tool_pool on WI-001353."""
+	"""ExecutorConfig.tools and resolve_tool_pool ship in separate modules."""
 	from one_bpmn.processa_engine.agent_runtime.executor import ExecutorConfig
 
 	try:
@@ -135,7 +135,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 	def setUp(self):
 		super().setUp()
 		if not _bridge_available():
-			self.skipTest("WI-001353/WI-001356 modules not on this branch")
+			self.skipTest("tool-pool and executor-config modules not on this branch")
 		_FakeExecutor.scripted_calls = []
 		_FakeExecutor.result_factory = None
 		self._patch = patch(
@@ -302,7 +302,7 @@ class TestCompletedTasksNotOffered(FrappeTestCase):
 	def setUp(self):
 		super().setUp()
 		if not _bridge_available():
-			self.skipTest("WI-001353/WI-001356 modules not on this branch")
+			self.skipTest("tool-pool and executor-config modules not on this branch")
 		_FakeExecutor.scripted_calls = []
 		_FakeExecutor.result_factory = None
 		self._patch = patch(

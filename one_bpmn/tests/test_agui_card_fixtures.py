@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001673: every card renders from a recorded fixture; fixtures stay in
+# Every card renders from a recorded fixture; fixtures stay in
 # lock-step with the contract examples and the frontend registry.
 
 from __future__ import annotations

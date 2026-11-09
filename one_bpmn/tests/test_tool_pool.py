@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001353 (2-03) + WI-001423: tool-pool resolution — the ad-hoc sub-process's
+# Tool-pool resolution — the ad-hoc sub-process's
 # own shapes are the tools (the AI Agent Tool registry was removed).
 
 from __future__ import annotations

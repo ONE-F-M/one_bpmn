@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""A run reads as what happened (WI-002190 follow-ups).
+"""A run reads as what happened.
 
 Four things the first pass left open, each seen on staging on 2026-09-08:
 
@@ -183,7 +183,7 @@ class TestToolFailuresReachTheStep(RunTreeFixture):
 		self.assertFalse(step.error_message)
 
 	def test_argument_validation_refusals_count_as_errors(self):
-		"""WI-002195 refuses a call before the script runs; that refusal is a
+		"""The tool-bounds guard refuses a call before the script runs; that refusal is a
 		failure of the step like any other."""
 		self.assertEqual(
 			obs._tool_call_status("Missing required argument 'state' for tool wi_set_state"), "Error"
