@@ -82,9 +82,9 @@ def translate_cached(text: str) -> str:
 	return translate_text(text)
 
 
-@frappe.whitelist(methods=["POST"])
-def translate(text: str, process_model: str = "") -> str:
-	"""Arabic for the modeler's English field; needs write on the model, or create when unsaved."""
+def translate_for_editor(text: str, process_model: str = "") -> str:
+	"""Arabic for the modeler's English field; needs write on the model, or create when unsaved.
+	Service behind the whitelisted one_bpmn.api.translation.translate."""
 	if process_model:
 		frappe.get_doc("BPMN Process Model", process_model).check_permission("write")
 	else:

@@ -1,3 +1,4 @@
+import { createResource } from "frappe-ui";
 // Shared cache of the connector manifests served by the backend
 // (one_bpmn.api.connectors.get_connector_manifests).
 //
@@ -13,10 +14,9 @@
 // re-render when it resolves (fire "elements.changed", or the canvas's own
 // redraw).
 
-import { frappeGet } from "./frappeResource";
 
-const MANIFEST_ENDPOINT = "/api/method/one_bpmn.api.connectors.get_connector_manifests";
-const CHOICES_ENDPOINT = "/api/method/one_bpmn.api.connectors.get_connector_field_choices";
+const MANIFEST_ENDPOINT = "one_bpmn.api.connectors.get_connector_manifests";
+const CHOICES_ENDPOINT = "one_bpmn.api.connectors.get_connector_field_choices";
 
 let MANIFESTS = null; // null = not loaded yet; array once loaded
 let LOADING = null;
@@ -42,7 +42,7 @@ export function findManifest(connectorId) {
 export function ensureManifests(onLoaded) {
 	if (MANIFESTS !== null) return;
 	if (!LOADING) {
-		LOADING = frappeGet(MANIFEST_ENDPOINT)
+		LOADING = createResource({ url: MANIFEST_ENDPOINT, method: "GET" }).fetch()
 			.then((res) => {
 				MANIFESTS = Array.isArray(res) ? res : (res && res.message) || [];
 			})
@@ -88,12 +88,16 @@ export function ensureChoices(connectorId, operation, fieldName, context, eventB
 	const key = choicesKey(connectorId, operation, fieldName, context);
 	if (CHOICES[key]) return key;
 	if (!CHOICES_LOADING[key]) {
-		CHOICES_LOADING[key] = frappeGet(CHOICES_ENDPOINT, {
-			connector_id: connectorId,
-			operation,
-			field_name: fieldName,
-			context: JSON.stringify(context || {}),
-		})
+		CHOICES_LOADING[key] = createResource({
+			url: CHOICES_ENDPOINT,
+			method: "GET",
+			params: {
+				connector_id: connectorId,
+				operation,
+				field_name: fieldName,
+				context: JSON.stringify(context || {}),
+			},
+		}).fetch()
 			.then((res) => {
 				CHOICES[key] = Array.isArray(res) ? res : (res && res.message) || [];
 			})

@@ -9,7 +9,13 @@ import assert from "node:assert/strict";
 
 // aguiClient.js reaches into `window`/`document` only inside getCsrfToken(),
 // called lazily at fetch time — a bare object is enough for a Node test.
-vi.mock("frappe-ui", () => ({ frappeRequest: vi.fn() }));
+// turn_status goes through createResource; route it to the stubbed fetch so each test still scripts the answers.
+vi.mock("frappe-ui", () => ({
+	frappeRequest: vi.fn(),
+	createResource: ({ url }) => ({
+		fetch: () => globalThis.fetch(url).then((r) => r.json()).then((d) => d.message),
+	}),
+}));
 
 const { streamAgentTurn } = await import("@/utils/aguiClient.js");
 

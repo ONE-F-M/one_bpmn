@@ -1,11 +1,11 @@
+import { createResource } from "frappe-ui";
 import { h } from "preact";
-import { frappePost } from "../shared/frappeResource";
 import { RecordPickerField } from "../shared/RecordPickerField";
 import { createBpmnSignalMaster, findOrCreateSignal } from "./signalPick";
 import { SIGNALS } from "./signalRecords";
 
 async function createSignal(name) {
-	const created = await createBpmnSignalMaster(frappePost, name);
+	const created = await createBpmnSignalMaster((url, params) => createResource({ url, params }).fetch(), name);
 	SIGNALS.add({ name: created });
 	return created;
 }

@@ -1,6 +1,6 @@
+import { createResource } from "frappe-ui";
 import { h, Component } from "preact";
 import { ListGroup } from "@bpmn-io/properties-panel";
-import { frappePost } from "../shared/frappeResource";
 import { serverMessage } from "@/utils/serverMessage";
 import { createBpmnSignalMaster } from "./signalPick";
 import { SIGNALS } from "./signalRecords";
@@ -81,7 +81,7 @@ export function signalListGroup({ element, translate, drafts, loadError, refresh
 						refresh();
 					},
 					onCreate: async (name) => {
-						SIGNALS.add({ name: await createBpmnSignalMaster(frappePost, name) });
+						SIGNALS.add({ name: await createBpmnSignalMaster((url, params) => createResource({ url, params }).fetch(), name) });
 						drafts.delete(draft);
 						refresh();
 					},

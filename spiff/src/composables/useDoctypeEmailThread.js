@@ -2,8 +2,8 @@
  * useDoctypeEmailThread: whether a DocType keeps an email thread
  * (email_append_to) and which field holds the sender's address.
  */
+import { createResource } from "frappe-ui";
 import { ref } from "vue"
-import { frappeGet } from "@/bpmn/shared/frappeResource"
 
 export function useDoctypeEmailThread() {
 	const thread = ref({ email_append_to: false, sender_field: "" })
@@ -14,7 +14,7 @@ export function useDoctypeEmailThread() {
 		if (!doctype) return
 		loading.value = true
 		try {
-			thread.value = await frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_email_thread", { doctype })
+			thread.value = await createResource({ url: "one_bpmn.api.lookups.get_doctype_email_thread", method: "GET", params: { doctype } }).fetch()
 		} finally {
 			loading.value = false
 		}

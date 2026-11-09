@@ -1,8 +1,8 @@
+import { createResource } from "frappe-ui";
 import { SelectEntry, isSelectEntryEdited } from "@bpmn-io/properties-panel";
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
-import { frappeGet, frappePost } from "../shared/frappeResource";
 import { RecordPickerField } from "../shared/RecordPickerField";
 import { decodeHtmlAttr } from "../shared/htmlAttrCodec";
 import { NOTIFY_EDITOR_ATTRS, contextDoctype } from "../shared/notifyAssigneeAttrs";
@@ -144,7 +144,7 @@ function NotifyAssigneeAccountComponent(props) {
 	const fetchAccounts = (txt) => {
 		const params = { fields: '["name"]', limit_page_length: 50, order_by: "name asc" };
 		if (txt) params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
-		return frappeGet("/api/resource/Email Account", params);
+		return createResource({ url: "frappe.client.get_list", params: { doctype: "Email Account", ...params } }).fetch();
 	};
 
 	return h(RecordPickerField, {
@@ -192,7 +192,7 @@ function TargetDoctypeComponent(props) {
 		if (txt) {
 			params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
 		}
-		return frappeGet("/api/resource/DocType", params);
+		return createResource({ url: "frappe.client.get_list", params: { doctype: "DocType", ...params } }).fetch();
 	};
 
 	return h(RecordPickerField, {
@@ -293,12 +293,11 @@ function AssigneeUserComponent(props) {
 		if (txt) {
 			filters.push(["full_name", "like", `%${txt}%`]);
 		}
-		return frappeGet("/api/resource/User", {
-			fields: '["name","full_name"]',
+		return createResource({ url: "frappe.client.get_list", params: { doctype: "User", fields: '["name","full_name"]',
 			filters: JSON.stringify(filters),
 			limit_page_length: 50,
 			order_by: "full_name asc",
-		});
+		} }).fetch();
 	};
 
 	return h(RecordPickerField, {
@@ -335,7 +334,7 @@ function AssigneeDocfieldComponent(props) {
 				{ fieldname: "", label: "— Select a DocType first —" },
 			]);
 		}
-		return frappeGet("/api/method/one_bpmn.api.lookups.get_assignee_docfields", { doctype })
+		return createResource({ url: "one_bpmn.api.lookups.get_assignee_docfields", method: "GET", params: { doctype } }).fetch()
 			.then((fields) => {
 				const list = Array.isArray(fields) ? fields : [];
 				if (!txt) return list;
@@ -391,11 +390,11 @@ function AssigneeTableFieldComponent(props) {
 				{ fieldname: "", label: "— Select a DocType first —" },
 			]);
 		}
-		return frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
+		return createResource({ url: "one_bpmn.api.lookups.get_doctype_fields", method: "GET", params: {
 			doctype,
 			fieldtype_in: '["Table MultiSelect","Table"]',
 			include_options: true,
-		}).then((fields) => {
+		} }).fetch().then((fields) => {
 			const list = Array.isArray(fields) ? fields : [];
 			if (!txt) return list;
 			const lower = txt.toLowerCase();
@@ -450,21 +449,21 @@ function AssigneeTableUserFieldComponent(props) {
 				{ fieldname: "", label: "— Select a Table Field first —" },
 			]);
 		}
-		return frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
+		return createResource({ url: "one_bpmn.api.lookups.get_doctype_fields", method: "GET", params: {
 			doctype,
 			fieldtype_in: '["Table MultiSelect","Table"]',
 			include_options: true,
-		}).then((tableFields) => {
+		} }).fetch().then((tableFields) => {
 			const match = (Array.isArray(tableFields) ? tableFields : []).find(
 				(f) => f.fieldname === tableField
 			);
 			const childDoctype = match && match.options;
 			if (!childDoctype) return [];
-			return frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
+			return createResource({ url: "one_bpmn.api.lookups.get_doctype_fields", method: "GET", params: {
 				doctype: childDoctype,
 				fieldtype_in: '["Link"]',
 				include_options: true,
-			}).then((childFields) =>
+			} }).fetch().then((childFields) =>
 				(Array.isArray(childFields) ? childFields : []).filter(
 					(f) => f.options === "User"
 				)
@@ -498,12 +497,11 @@ function fetchSystemUsers(txt) {
 	if (txt) {
 		filters.push(["full_name", "like", `%${txt}%`]);
 	}
-	return frappeGet("/api/resource/User", {
-		fields: '["name","full_name"]',
+	return createResource({ url: "frappe.client.get_list", params: { doctype: "User", fields: '["name","full_name"]',
 		filters: JSON.stringify(filters),
 		limit_page_length: 50,
 		order_by: "full_name asc",
-	});
+	} }).fetch();
 }
 
 // Component 5 — Round Robin Users (multi-select + read-only Last Assigned)
@@ -781,7 +779,7 @@ function TaskActionsTableComponent(props) {
 const ACTIONS = cachedRecordList("Workflow Action Master", ["name"]);
 
 async function createAction(name) {
-	const created = await createWorkflowActionMaster(frappePost, name);
+	const created = await createWorkflowActionMaster((url, params) => createResource({ url, params }).fetch(), name);
 	ACTIONS.add({ name: created });
 	return created;
 }

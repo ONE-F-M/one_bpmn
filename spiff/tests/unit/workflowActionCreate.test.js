@@ -18,7 +18,7 @@ test("a name is posted and resolves to that name", async () => {
 	const created = await createWorkflowActionMaster(post, "Escalate to GRD");
 	assert.equal(created, "Escalate to GRD");
 	assert.deepEqual(calls, [
-		{ path: "/api/resource/Workflow Action Master", body: { workflow_action_name: "Escalate to GRD" } },
+		{ path: "frappe.client.insert", body: { doc: { doctype: "Workflow Action Master", workflow_action_name: "Escalate to GRD" } } },
 	]);
 });
 

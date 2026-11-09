@@ -22,11 +22,11 @@
 // JSON event; RUN_FINISHED / RUN_ERROR terminate the turn; comment lines
 // (keep-alives) are transport and never reach the callbacks.
 
-import { frappeGet, getCsrfToken } from "@/bpmn/shared/frappeResource.js";
+import { createResource } from "frappe-ui";
 
 const ENDPOINT = "/api/method/one_bpmn.api.agui.stream_agent_turn";
 
-const STATUS_ENDPOINT = "/api/method/one_bpmn.api.agui.turn_status";
+const STATUS_ENDPOINT = "one_bpmn.api.agui.turn_status";
 
 const GENERIC_FAILURE = "Connection lost. Please try again.";
 
@@ -164,10 +164,11 @@ export function streamAgentTurn({
 			if (finished) return true;
 			let status;
 			try {
-				status = await frappeGet(STATUS_ENDPOINT, {
-					conversation: threadId,
-					client_message_id: clientMessageId,
-				});
+				status = await createResource({
+					url: STATUS_ENDPOINT,
+					method: "GET",
+					params: { conversation: threadId, client_message_id: clientMessageId },
+				}).fetch();
 			} catch {
 				status = null;
 			}
@@ -204,7 +205,7 @@ export function streamAgentTurn({
 				headers: {
 					"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
 					Accept: "text/event-stream",
-					"X-Frappe-CSRF-Token": getCsrfToken(),
+					"X-Frappe-CSRF-Token": window.csrf_token || "",
 				},
 				body: body.toString(),
 				signal: controller.signal,

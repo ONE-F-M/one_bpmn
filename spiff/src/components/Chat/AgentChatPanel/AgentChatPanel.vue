@@ -218,7 +218,7 @@
 // (the id arrives on RUN_STARTED as thread_id). Unmount ends the
 // conversation — the fix for this week's orphaned Active instances.
 import MarkdownIt from "markdown-it";
-import { Dialog, frappeRequest } from "frappe-ui";
+import { Dialog, FileUploadHandler, frappeRequest } from "frappe-ui";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { dayjs } from "@/dayjs";
 import { streamAgentTurn } from "@/utils/aguiClient";
@@ -578,17 +578,8 @@ async function onFilePicked(event) {
 	if (!file) return;
 	uploading.value = true;
 	try {
-		const body = new FormData();
-		body.append("file", file);
-		body.append("is_private", "0");
-		const res = await fetch("/api/method/upload_file", {
-			method: "POST",
-			headers: { "X-Frappe-CSRF-Token": window.csrf_token || "" },
-			body,
-			credentials: "include",
-		});
-		const data = await res.json();
-		const url = data.message && data.message.file_url;
+		const uploaded = await new FileUploadHandler().upload(file, { private: false });
+		const url = uploaded && uploaded.file_url;
 		if (url) pendingFile.value = { file_url: url, file_name: file.name };
 	} catch {
 		errorMessage.value = __("The file could not be uploaded.");

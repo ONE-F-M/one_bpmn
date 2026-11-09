@@ -1,5 +1,5 @@
+import { createResource } from "frappe-ui";
 import { h, Component } from "preact";
-import { frappePost } from "../shared/frappeResource";
 import { WORKFLOW_STATE_STYLES, createWorkflowState } from "./workflowStateCreate";
 import { CHECK, dot, icon } from "../shared/recordIcons";
 import { serverMessage } from "@/utils/serverMessage";
@@ -17,7 +17,7 @@ export class WorkflowStateCreatePanel extends Component {
 
 	async submit() {
 		const { translate, onCreated } = this.props;
-		const request = createWorkflowState(frappePost, this.state.name, this.state.style);
+		const request = createWorkflowState((url, params) => createResource({ url, params }).fetch(), this.state.name, this.state.style);
 		if (!request) {
 			this.setState({ error: translate("Name is required.") });
 			return;

@@ -1,3 +1,4 @@
+import { createResource } from "frappe-ui";
 import {
 	SelectEntry,
 	isSelectEntryEdited,
@@ -11,7 +12,6 @@ import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
 import { RecordPickerField } from "../shared/RecordPickerField";
-import { frappeGet, frappePost } from "../shared/frappeResource";
 import { getAttr, setAttr, LinkedPromptEntry, DriftMarkers } from "../shared/agentAttrs";
 
 // Human-readable labels for the executor backend stored in spiffworkflow:aiBackend.
@@ -167,25 +167,21 @@ function AgentConfigComponent(props) {
 	const currentValue = getAttr(bo, "aiAgentConfig");
 
 	const fetchConfigs = (txt) =>
-		frappeGet("/api/resource/AI Agent Configuration", {
-			fields: '["name","agent_id"]',
+		createResource({ url: "frappe.client.get_list", params: { doctype: "AI Agent Configuration", fields: '["name","agent_id"]',
 			filters: JSON.stringify([
 				["enabled", "=", 1],
 				...(txt ? [["name", "like", `%${txt}%`]] : []),
 			]),
 			limit_page_length: 50,
 			order_by: "name asc",
-		});
+		} }).fetch();
 
 	// On select: record the reference, then seed each mapped field into the
 	// shape's own attributes (one-time copy — see module note).
 	const onConfigSelect = (value) => {
 		setAttr(modeling, element, bo, "aiAgentConfig", value);
 		if (!value) return;
-		frappePost(
-			"/api/method/one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.get_agent_config_for_shape",
-			{ config_name: value },
-		)
+		createResource({ url: "one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.get_agent_config_for_shape", params: { config_name: value } }).fetch()
 			.then((res) => {
 				const fields = (res && res.message) || {};
 				Object.entries(fields).forEach(([attr, val]) => {

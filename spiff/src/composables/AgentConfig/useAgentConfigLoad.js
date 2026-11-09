@@ -1,6 +1,7 @@
 import { onMounted, toRaw } from "vue";
-import { frappeRequest } from "frappe-ui";
-import { frappeGet } from "@/bpmn/shared/frappeResource";
+import { createResource, frappeRequest } from "frappe-ui";
+import { loadAgentConfigs } from "@/stores/agents";
+import { loadProcessaSettings } from "@/stores/settings";
 
 export function useAgentConfigLoad(ac) {
 	const {
@@ -18,11 +19,15 @@ export function useAgentConfigLoad(ac) {
 	// ── Load providers + existing element config ────────────────────────────────
 	onMounted(async () => {
 		try {
-			const skills = await frappeGet("/api/resource/AI Skill", {
-				fields: JSON.stringify(["name"]),
-				filters: JSON.stringify([["status", "in", ["Active", "Published"]]]),
-				limit_page_length: 100,
-			});
+			const skills = await createResource({
+				url: "frappe.client.get_list",
+				params: {
+					doctype: "AI Skill",
+					fields: JSON.stringify(["name"]),
+					filters: JSON.stringify([["status", "in", ["Active", "Published"]]]),
+					limit_page_length: 100,
+				},
+			}).fetch();
 			availableSkills.value = skills || [];
 		} catch (e) {
 			console.error("Failed to load skills", e);
@@ -45,13 +50,7 @@ export function useAgentConfigLoad(ac) {
 		}
 
 		try {
-			const settings = await frappeGet("/api/resource/Processa Settings/Processa Settings", {
-				fields: JSON.stringify([
-					"default_compaction_model",
-					"default_memory_distill_model",
-					"default_memory_reconcile_model",
-				]),
-			});
+			const settings = await loadProcessaSettings();
 			siteDefaults.value = {
 				compaction: settings?.default_compaction_model || "",
 				distill: settings?.default_memory_distill_model || "",
@@ -63,12 +62,7 @@ export function useAgentConfigLoad(ac) {
 
 		// Load selectable AI Agent Configurations for the seed dropdown.
 		try {
-			const cfgs = await frappeGet("/api/resource/AI Agent Configuration", {
-				fields: JSON.stringify(["name", "agent_id"]),
-				filters: JSON.stringify([["enabled", "=", 1]]),
-				limit_page_length: 100,
-				order_by: "name asc",
-			});
+			const cfgs = await loadAgentConfigs();
 			agentConfigs.value = Array.isArray(cfgs) ? cfgs : [];
 		} catch {
 			agentConfigs.value = [];

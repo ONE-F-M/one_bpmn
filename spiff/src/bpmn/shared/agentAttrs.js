@@ -6,12 +6,12 @@
  * only reached the diagram would look saved and change nothing. Writes go back
  * to the configuration too, the same way the task dialog's Save does.
  */
+import { createResource } from "frappe-ui";
 import { TextAreaEntry } from "@bpmn-io/properties-panel";
 import { useService } from "bpmn-js-properties-panel";
 import { Component, h } from "preact";
 
 import { serverMessage } from "@/utils/serverMessage";
-import { frappePost } from "./frappeResource";
 import "./bpmn-panel.css";
 
 // The only panel field the linked configuration also stores. Everything else
@@ -43,10 +43,7 @@ function syncToConfig(config, attr, value, onResult) {
 		key,
 		setTimeout(() => {
 			pending.delete(key);
-			frappePost(
-				"/api/method/one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.update_agent_config_from_shape",
-				{ config_name: config, fields: JSON.stringify({ [attr]: value || "" }) }
-			)
+			createResource({ url: "one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.update_agent_config_from_shape", params: { config_name: config, fields: JSON.stringify({ [attr]: value || "" }) } }).fetch()
 				.then(() => onResult && onResult(null))
 				.catch((e) => onResult && onResult(serverMessage(e)));
 		}, SYNC_DELAY_MS)
@@ -66,10 +63,7 @@ const SYNC_ERROR = new WeakMap();
 
 async function loadLivePrompt(config, bo) {
 	try {
-		const fields = await frappePost(
-			"/api/method/one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.get_agent_config_for_shape",
-			{ config_name: config }
-		);
+		const fields = await createResource({ url: "one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.get_agent_config_for_shape", params: { config_name: config } }).fetch();
 		LIVE_PROMPT.set(config, fields?.aiSystemPrompt || null);
 	} catch (err) {
 		LIVE_PROMPT.set(config, null);
@@ -133,10 +127,10 @@ export class DriftMarkers extends Component {
 		const config = getAttr(bo, "aiAgentConfig");
 		if (!config) return;
 		const shape = Object.fromEntries(DRIFT_ATTRS.map((attr) => [attr, getAttr(bo, attr)]));
-		frappePost("/api/method/one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.get_shape_drift", {
+		createResource({ url: "one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.get_shape_drift", params: {
 			config_name: config,
 			shape: JSON.stringify(shape),
-		})
+		} }).fetch()
 			.then((drift) => this.setState({ drift: drift || [] }))
 			.catch((e) => this.setState({ drift: [{ field: "error", label: serverMessage(e), live: "" }] }));
 	}
