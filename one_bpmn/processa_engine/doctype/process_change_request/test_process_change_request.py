@@ -6,8 +6,8 @@ from frappe.tests.utils import FrappeTestCase
 
 
 class TestProcessChangeRequest(FrappeTestCase):
-	def test_owned_by_one_bpmn(self):
-		self.assertEqual(frappe.get_meta("Process Change Request").module, "ONE BPMN")
+	def test_owned_by_processa_engine(self):
+		self.assertEqual(frappe.get_meta("Process Change Request").module, "Processa Engine")
 
 	def test_ticket_link_does_not_need_helpdesk(self):
 		meta = frappe.get_meta("Process Change Request")
