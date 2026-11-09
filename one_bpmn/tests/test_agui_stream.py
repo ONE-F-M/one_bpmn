@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001670: the shared AG-UI event stream and the invoke_agent streaming seam.
+# The shared AG-UI event stream and the invoke_agent streaming seam.
 #
 # Everything here runs against mocks — no live LLM, no agent configuration
 # rows are required on the site.
@@ -148,7 +148,7 @@ class TestAgentEventStream(FrappeTestCase):
 		self.assertIn("CUSTOM", types)
 
 	def test_flat_legacy_payload_is_folded_into_value(self):
-		"""WI-001678: lumina.py yields LUCRUSHER_RESULT's payload FLAT on the
+		"""lumina.py yields LUCRUSHER_RESULT's payload FLAT on the
 		event, not under `value` — and `value` is all the panel reads. The
 		relay must fold it, or the renamed event arrives empty."""
 		from one_bpmn.agents import agui_stream
@@ -308,7 +308,7 @@ class TestInvokeAgentStreamSeam(FrappeTestCase):
 
 
 class TestBpmnMapResumeRearm(FrappeTestCase):
-	"""WI-001672 resume, map-driven half: a conversation whose instance has
+	"""Resume, map-driven half: a conversation whose instance has
 	completed re-arms through the conditional-start gate and retries — the
 	'reopen the chat' dead end fires only when re-arming genuinely fails."""
 

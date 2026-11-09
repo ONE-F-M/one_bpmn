@@ -99,7 +99,7 @@ class TestDispatcherMemory(FrappeTestCase):
 		args, _ = ms.call_args
 		self.assertEqual(args[0], "Agent")   # scope
 		self.assertEqual(args[1], "Act_9")   # scope key defaults to bpmn_id
-		# WI-001639: retrieved memory is DYNAMIC (it is searched per turn with
+		# Retrieved memory is DYNAMIC (it is searched per turn with
 		# the current user prompt), so it goes into the user message, ahead of
 		# the user's text — never onto the frozen system prompt.
 		self.assertEqual(_CAPTURED["config"].system_prompt, "SYS")
@@ -176,7 +176,7 @@ class TestDispatcherMemory(FrappeTestCase):
 		self.assertEqual(kwargs["backend"], "faketest")
 
 	def test_distilled_write_mode_passes_exclude_context(self):
-		# WI-002165: the dispatch-thread system prompt (the agent's own
+		# The dispatch-thread system prompt (the agent's own
 		# instructions for this run) is handed to the distiller so it can
 		# reject a fact that just restates them.
 		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
