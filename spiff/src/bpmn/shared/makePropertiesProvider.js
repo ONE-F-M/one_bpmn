@@ -8,7 +8,7 @@ export function makeProvider(
 	groupId,
 	label,
 	propsFn,
-	{ prepend = false, when = () => true } = {},
+	{ prepend = false, when = () => true, tooltip } = {},
 ) {
 	class PropertiesProvider {
 		constructor(propertiesPanel, translate) {
@@ -27,6 +27,9 @@ export function makeProvider(
 					label: this.translate(label),
 					entries: propsFn({ element }),
 				};
+				if (tooltip) {
+					group.tooltip = this.translate(tooltip);
+				}
 				if (prepend) {
 					groups.unshift(group);
 				} else {

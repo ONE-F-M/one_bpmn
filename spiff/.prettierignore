@@ -16,14 +16,11 @@ src/bpmn/aiAgentPropertiesProvider/AiAgentProps.js
 src/bpmn/aiAgentReplaceMenuProvider/AiAgentReplaceMenuProvider.js
 src/bpmn/aiTaskSelectorMenuProvider/AiTaskSelectorMenuProvider.js
 src/bpmn/aiTaskSelectorPropertiesProvider/AiTaskSelectorProps.js
-src/bpmn/businessRuleTaskPropertiesProvider/BusinessRuleTaskPropertiesProvider.js
 src/bpmn/businessRuleTaskPropertiesProvider/BusinessRuleTaskProps.js
 src/bpmn/commentContextPad/CommentContextPadProvider.js
-src/bpmn/conditionalStartEventPropertiesProvider/ConditionalStartEventPropertiesProvider.js
 src/bpmn/conditionalStartEventPropertiesProvider/ConditionalStartEventProps.js
 src/bpmn/lanePropertiesProvider/LaneProps.js
 src/bpmn/propertiesPanelFilter/PropertiesPanelFilter.js
-src/bpmn/scriptTaskPropertiesProvider/ScriptTaskPropertiesProvider.js
 src/bpmn/scriptTaskPropertiesProvider/ScriptTaskProps.js
 src/bpmn/sendTaskPropertiesProvider/SendTaskProps.js
 src/bpmn/serviceTaskPropertiesProvider/connectorEntries.js
