@@ -100,18 +100,6 @@ def get_value(conversation: str, key: str, default=None):
 	return get_state(conversation).get(key, default)
 
 
-def conversations_with(key: str, value=None) -> list[str]:
-	"""Conversations whose scratchpad has ``key`` (optionally equal to ``value``).
-
-	The reason entries are rows rather than one blob. This is an indexed filter;
-	against a JSON blob it would be a full scan of every state on the site.
-	"""
-	filters = {"parenttype": STATE_DOCTYPE, "key": key}
-	if value is not None:
-		filters["value"] = _dumps(value)
-	return frappe.get_all(ENTRY_DOCTYPE, filters=filters, pluck="parent", distinct=True)
-
-
 # ── writing ─────────────────────────────────────────────────────────────────
 def set_state(conversation: str, values: dict, expected_version: int | None = None,
               merge: bool = True, commit: bool = True) -> int:
@@ -161,11 +149,6 @@ def set_state(conversation: str, values: dict, expected_version: int | None = No
 			  "Re-read it and apply the change again.").format(conversation)
 		) from e
 	return doc.version
-
-
-def update_state(conversation: str, expected_version: int | None = None, **values) -> int:
-	"""Keyword form of :func:`set_state`, for readability at the call site."""
-	return set_state(conversation, values, expected_version=expected_version)
 
 
 def clear_state(conversation: str) -> None:

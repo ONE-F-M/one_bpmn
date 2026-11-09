@@ -40,52 +40,12 @@ That the screen an agent's messages pass through is actually armed:
 
 Both fail CLOSED. A map, when one is linked, must still be a chat map — an agent
 with a chat mode label pointed at a business process can never receive a turn.
-
-The marker is kept and still honoured: an author who does put screening in a map
-gets credit for it, and the constants stay the published contract.
 """
 
 from __future__ import annotations
 
-import re
-
 import frappe
 from frappe import _
-
-# The attribute that marks an element as the screening stage. Structural, so the
-# check survives renaming and repositioning.
-SCREENING_MARKER = "aiScreeningStage"
-
-# Fallback recognition for maps authored before the marker existed. Matched
-# case-insensitively against an element's id and name.
-SCREENING_ID_HINTS = ("screen_input", "screening", "screen_message", "input_screen")
-
-
-def _elements(xml: str):
-	"""Yield (tag, attributes-string) for every BPMN element in the XML."""
-	for match in re.finditer(r"<bpmn:(\w+)\b([^>]*)>", xml or ""):
-		yield match.group(1), match.group(2)
-
-
-def has_screening_stage(xml: str) -> bool:
-	"""True when the map contains something the runtime will screen with."""
-	if not xml:
-		return False
-
-	for _tag, attrs in _elements(xml):
-		if f"spiffworkflow:{SCREENING_MARKER}" in attrs:
-			value = re.search(rf'spiffworkflow:{SCREENING_MARKER}="([^"]*)"', attrs)
-			if value and value.group(1).strip().lower() in ("1", "true", "yes", "on", "enabled"):
-				return True
-
-		identifiers = " ".join(
-			m.group(1).lower()
-			for m in re.finditer(r'\b(?:id|name)="([^"]*)"', attrs)
-		)
-		if any(hint in identifiers for hint in SCREENING_ID_HINTS):
-			return True
-
-	return False
 
 
 def screening_status() -> dict:

@@ -11,7 +11,6 @@ from one_bpmn.tests.conversation_fixtures import drop_conversations
 from one_bpmn.ai_agent_conversations.compaction import build_history, resolve_token_budget
 from one_bpmn.ai_agent_conversations.conversation_store import (
 	ContextWindowPolicy,
-	SummarizingWindowPolicy,
 	estimate_tokens,
 )
 from one_bpmn.ai_agent_conversations.chat_persistence import (
@@ -144,38 +143,6 @@ class TestToolPairsStayIntact(FrappeTestCase):
 		"""The pair costs ~100; a budget of 60 takes the trailing answer only."""
 		out = ContextWindowPolicy(max_messages=0, max_tokens=60).apply(self._thread())
 		self.assertEqual([m["content"] for m in out], ["answer"])
-
-
-class TestBudgetWithASummary(FrappeTestCase):
-	def test_the_summary_is_never_dropped_to_fit(self):
-		"""It stands in for every message it replaced, so dropping it discards
-		more history than dropping any single turn could."""
-		thread = [msg("user") for _ in range(10)]
-		out = SummarizingWindowPolicy(
-			max_messages=0, max_tokens=5, summary="the earlier conversation"
-		).apply(thread)
-		self.assertIn("the earlier conversation", out[0]["content"])
-
-	def test_the_summary_is_counted_against_the_budget(self):
-		"""Counted, not free. Tested by comparison rather than by arithmetic: at
-		the same budget, a thread carrying a summary must fit FEWER verbatim
-		messages than one without, because the summary spends part of it."""
-		thread = [msg("user") for _ in range(10)]
-		budget = 100
-
-		without = ContextWindowPolicy(max_messages=0, max_tokens=budget).apply(thread)
-		with_summary = SummarizingWindowPolicy(
-			max_messages=0, max_tokens=budget, summary="S" * 200
-		).apply(thread)
-
-		verbatim = [m for m in with_summary if "Summary of the earlier" not in m["content"]]
-		self.assertLess(len(verbatim), len(without))
-		self.assertLessEqual(sum(estimate_tokens(m) for m in with_summary), budget)
-
-	def test_without_a_budget_it_behaves_as_before(self):
-		thread = [msg("user") for _ in range(10)]
-		out = SummarizingWindowPolicy(max_messages=4, summary="s").apply(thread)
-		self.assertEqual(len(out), 4)
 
 
 class TestBudgetOnTheLivePath(FrappeTestCase):

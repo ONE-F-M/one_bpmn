@@ -13,12 +13,10 @@ from one_bpmn.ai_agent_conversations.session_state import (
 	STATE_DOCTYPE,
 	StaleSessionState,
 	clear_state,
-	conversations_with,
 	get_state,
 	get_value,
 	read_state,
 	set_state,
-	update_state,
 )
 
 
@@ -80,10 +78,6 @@ class TestReadingAndWriting(SessionStateCase):
 		set_state(self.conversation, {"a": 1, "b": 2})
 		set_state(self.conversation, {"a": None})
 		self.assertEqual(get_state(self.conversation), {"b": 2})
-
-	def test_the_keyword_form_behaves_the_same(self):
-		update_state(self.conversation, stage="review", attempts=2)
-		self.assertEqual(get_value(self.conversation, "stage"), "review")
 
 	def test_clearing_removes_it_entirely(self):
 		set_state(self.conversation, {"a": 1})
@@ -177,26 +171,6 @@ class TestOptimisticLocking(SessionStateCase):
 		doc.append("entries", {"key": "c", "value": "3"})
 		with self.assertRaises(frappe.ValidationError):
 			doc.save(ignore_permissions=True)
-
-
-class TestQueryability(SessionStateCase):
-	"""Rows rather than a blob: this query is the reason for the shape."""
-
-	def test_conversations_can_be_found_by_a_key_they_hold(self):
-		other = self._conversation()
-		set_state(self.conversation, {"awaiting_approval": True})
-		set_state(other, {"something_else": 1})
-
-		found = conversations_with("awaiting_approval")
-		self.assertIn(self.conversation, found)
-		self.assertNotIn(other, found)
-
-	def test_they_can_be_found_by_key_and_value(self):
-		other = self._conversation()
-		set_state(self.conversation, {"stage": "review"})
-		set_state(other, {"stage": "draft"})
-
-		self.assertEqual(conversations_with("stage", "review"), [self.conversation])
 
 
 class TestDurability(SessionStateCase):
