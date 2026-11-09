@@ -13,7 +13,7 @@ frappe.ui.form.on("Processa Settings", {
 		if (frm.is_dirty()) {
 			frappe.throw(__("Save Processa Settings before sending a test push."));
 		}
-		const result = await frappe.xcall("one_bpmn.one_bpmn.push_notification.send_test_push");
+		const result = await frappe.xcall("one_bpmn.processa_engine.notifications.push_notification.send_test_push");
 		frappe.show_alert({ message: __("Test push sent to {0} device(s).", [result.sent]), indicator: "green" });
 	},
 });
