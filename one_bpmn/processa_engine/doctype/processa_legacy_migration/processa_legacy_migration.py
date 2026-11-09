@@ -54,6 +54,9 @@ class ProcessaLegacyMigration(Document):
 	def validate(self):
 		if self.status not in ("Draft", "Failed"):
 			return
+		# The setup checks are for people; the PLM's own map saves it to move its workflow state.
+		if frappe.flags.bpmn_engine_action:
+			return
 		# A blank map is left to Frappe's mandatory check, which runs after validate.
 		if not (self.from_model and self.to_model):
 			return
