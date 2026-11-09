@@ -4,9 +4,10 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from one_bpmn.api.translation import translate
 from one_bpmn.processa_engine.doctype.processa_settings.processa_settings import ProcessaSettings
 from one_bpmn.utils import translation
-from one_bpmn.utils.translation import TranslationError, translate, translate_cached, translate_text
+from one_bpmn.utils.translation import TranslationError, translate_cached, translate_text
 
 GOOGLE = "one_bpmn.utils.translation._google_translate"
 FALLBACK = "one_bpmn.utils.translation.MyMemoryTranslator"
@@ -195,7 +196,13 @@ class TestTranslateEndpoint(FrappeTestCase):
 		translator.assert_not_called()
 
 	def test_post_only(self):
-		self.assertEqual(frappe.allowed_http_methods_for_whitelisted_func[translation.translate], ["POST"])
+		self.assertEqual(frappe.allowed_http_methods_for_whitelisted_func[translate], ["POST"])
+		self.assertIn(translate, frappe.whitelisted)
+		self.assertEqual(translate.__module__, "one_bpmn.api.translation")
+
+	def test_service_in_utils_is_not_whitelisted(self):
+		self.assertFalse(hasattr(translation, "translate"))
+		self.assertNotIn(translation.translate_for_editor, frappe.whitelisted)
 
 	def test_long_text_refused_before_the_service(self):
 		with _fake(lambda masked: "x") as translator:
