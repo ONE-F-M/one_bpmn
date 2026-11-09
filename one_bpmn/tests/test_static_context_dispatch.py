@@ -191,7 +191,7 @@ class TestLiveLogixShape(FrappeTestCase):
 		# with the distiller's prompt. Silence it: this test is about the agent
 		# call.
 		with patch(
-			"one_bpmn.agents.memory.tools.memory_search",
+			"one_bpmn.ai_agent_memory.tools.memory_search",
 			return_value=[{"content": "prefers frappe.sendmail"}],
 		), patch.object(frappe, "enqueue"):
 			D.dispatch_ai_agent(_instance(), _task(self.SHAPE), task_cfg, self.SHAPE)

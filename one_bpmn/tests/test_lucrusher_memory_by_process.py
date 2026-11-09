@@ -14,7 +14,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, Executor, ExecutorResult, TokenUsage, register_executor
-from one_bpmn.agents.memory import tools, writeback
+from one_bpmn.ai_agent_memory import tools, writeback
 from one_bpmn.processa_engine.dispatch import ai_agent as D
 from one_bpmn.one_bpmn.patches.v1_0 import lucrusher_memory_keyed_by_process as memory_patch
 
@@ -136,7 +136,7 @@ class TestDispatchRecall(FrappeTestCase):
 		_user_row("Administrator", "administrator prefers short answers")
 		_user_row(OTHER_USER, "guest prefers long answers")
 		data = {"memory_reference_doctype": KEY_DOCTYPE, "memory_reference_name": ABSENCE}
-		with patch("one_bpmn.agents.memory.writeback.distill_and_write"):
+		with patch("one_bpmn.ai_agent_memory.writeback.distill_and_write"):
 			D.dispatch_ai_agent(_instance("", ""), _task(data), CFG, "Act_1")
 		prompt = _CAPTURED["config"].user_prompt
 		self.assertIn("absence rule one", prompt)
@@ -152,7 +152,7 @@ class TestDispatchRecall(FrappeTestCase):
 		_entity_row(ABSENCE, "expired quokka note", expires_on="2020-01-01 00:00:00")
 		data = {"memory_reference_doctype": KEY_DOCTYPE, "memory_reference_name": ABSENCE}
 		cfg = dict(CFG, aiUserPrompt="what happens next in the workflow")
-		with patch("one_bpmn.agents.memory.writeback.distill_and_write"):
+		with patch("one_bpmn.ai_agent_memory.writeback.distill_and_write"):
 			D.dispatch_ai_agent(_instance("", ""), _task(data), cfg, "Act_1")
 		prompt = _CAPTURED["config"].user_prompt
 		self.assertIn("zebra giraffe habitat note", prompt)
@@ -170,8 +170,8 @@ class TestDispatchRecall(FrappeTestCase):
 
 	def test_unconfirmed_process_reads_and_writes_nothing(self):
 		data = {"memory_reference_doctype": "", "memory_reference_name": ""}
-		with patch("one_bpmn.agents.memory.tools.memory_search") as search, patch(
-			"one_bpmn.agents.memory.writeback.distill_and_write"
+		with patch("one_bpmn.ai_agent_memory.tools.memory_search") as search, patch(
+			"one_bpmn.ai_agent_memory.writeback.distill_and_write"
 		) as distill:
 			D.dispatch_ai_agent(_instance(), _task(data), CFG, "Act_1")
 		search.assert_not_called()
@@ -179,7 +179,7 @@ class TestDispatchRecall(FrappeTestCase):
 
 	def test_distillation_gets_the_requester_and_the_process_key(self):
 		data = {"memory_reference_doctype": KEY_DOCTYPE, "memory_reference_name": ABSENCE}
-		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as distill:
+		with patch("one_bpmn.ai_agent_memory.writeback.distill_and_write") as distill:
 			D.dispatch_ai_agent(_instance(), _task(data), CFG, "Act_1")
 		kwargs = distill.call_args.kwargs
 		self.assertEqual(kwargs["scope"], "Entity")
@@ -197,7 +197,7 @@ class TestWritebackRouting(FrappeTestCase):
 		scope_key = {"reference_doctype": "Process", "reference_name": "Absence"}
 		with patch.object(writeback, "_distill_with_retries", return_value=[dict(f) for f in self.FACTS]), patch.object(
 			writeback, "_reconcile_batch", side_effect=lambda facts, ctx: facts
-		), patch("one_bpmn.agents.memory.tools.memory_write", return_value={"name": "M"}) as write:
+		), patch("one_bpmn.ai_agent_memory.tools.memory_write", return_value={"name": "M"}) as write:
 			writeback.distill_and_write(
 				agent_output="x",
 				agent="a",

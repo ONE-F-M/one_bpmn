@@ -62,7 +62,7 @@ class TestRecallUsesTheProcessName(FrappeTestCase):
 	def test_an_empty_diagram_name_still_keys_the_turn_to_the_process(self):
 		key = {"reference_doctype": "Process", "reference_name": PROCESS}
 		with patch.object(helpers, "prosally_config", return_value={"name": "CFG"}), patch.object(helpers, "_memory_fields", return_value=ON
-		), patch("one_bpmn.agents.memory.tools.memory_search", return_value=[{"content": "a rule"}]) as search:
+		), patch("one_bpmn.ai_agent_memory.tools.memory_search", return_value=[{"content": "a rule"}]) as search:
 			recalled = helpers.recall_process_memory("", PROCESS)
 		self.assertEqual(recalled["memory_process"], PROCESS)
 		self.assertEqual(recalled["memory_notes"], ["a rule"])

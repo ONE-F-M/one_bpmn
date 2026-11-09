@@ -14,7 +14,7 @@ def execute():
 	blank value already meant the standard model, so it is written out
 	explicitly instead of relying on that.
 	"""
-	from one_bpmn.agents.llm_provider.embedding import DEFAULT_MODEL, SEMANTIC_DISABLED
+	from one_bpmn.ai_agent_memory.embedding import DEFAULT_MODEL, SEMANTIC_DISABLED
 
 	meta = frappe.get_meta("Processa Settings")
 	field = meta.get_field("memory_embedding_model")

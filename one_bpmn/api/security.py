@@ -716,7 +716,7 @@ def seed_assertions(case, evt) -> None:
 
 def _judge(suite: str) -> tuple[str | None, str | None]:
 	"""The grading model named in Processa Settings, else the suite agent's own model."""
-	from one_bpmn.agents.memory.model_resolution import resolve_memory_model
+	from one_bpmn.ai_agent_memory.model_resolution import resolve_memory_model
 	from one_bpmn.one_bpmn.patches.v1_0.seed_lucrusher_eval_suite import judge_for
 
 	graded = resolve_memory_model(None, "nightly_eval_grading_model", None)

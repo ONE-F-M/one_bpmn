@@ -21,7 +21,7 @@ import difflib
 import re
 from xml.etree import ElementTree as ET
 
-from one_bpmn.agents.memory.text_clean import unescape_entities
+from one_bpmn.ai_agent_memory.text_clean import unescape_entities
 
 # A paste longer than this is sent to the model without its diagram-layout section.
 MAX_RAW_XML_CHARS = 20000

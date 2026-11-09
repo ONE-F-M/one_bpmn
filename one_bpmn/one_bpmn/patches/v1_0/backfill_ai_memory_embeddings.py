@@ -6,7 +6,7 @@ def execute():
 	retrieval existed. Runs in the background so migrate does not wait on the
 	embedding model; on a database without the VECTOR column the job exits at
 	once and the next migrate after the upgrade queues it again."""
-	from one_bpmn.agents.memory.embedding_backfill import enqueue_backfill
+	from one_bpmn.ai_agent_memory.embedding_backfill import enqueue_backfill
 
 	if frappe.flags.in_test:
 		return

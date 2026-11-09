@@ -6,7 +6,7 @@ import frappe
 from frappe import _
 from frappe.utils import strip_html
 
-from one_bpmn.agents.memory.tools import query_tokens
+from one_bpmn.ai_agent_memory.tools import query_tokens
 
 DOCTYPE = "BPMN Process Model"
 BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"

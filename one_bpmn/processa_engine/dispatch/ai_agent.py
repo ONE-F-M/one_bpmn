@@ -164,7 +164,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			query = "" if recall_query_unresolved else (raw_user_message or user_prompt)
 			if memory_target and query and not _is_small_talk(query):
 				recall_query = query
-				from one_bpmn.agents.memory.tools import memory_list_top, memory_list_user_directed, memory_search
+				from one_bpmn.ai_agent_memory.tools import memory_list_top, memory_list_user_directed, memory_search
 
 				scope, scope_key = memory_target
 				limit = int(task_cfg.get("aiMemoryLimit", 5) or 5)
@@ -691,7 +691,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 					)
 					if raw_user_message and _is_remember_directive(raw_user_message):
 						# "remember that..." is a standing convention, stored verbatim and never distilled.
-						from one_bpmn.agents.memory.tools import memory_write
+						from one_bpmn.ai_agent_memory.tools import memory_write
 
 						memory_write(
 							scope,
@@ -711,7 +711,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 					elif write_mode == "raw":
 						content = _extract_memory_content(result.output, task_cfg.get("aiMemoryContentField", ""))
 						if content:
-							from one_bpmn.agents.memory.tools import memory_write
+							from one_bpmn.ai_agent_memory.tools import memory_write
 
 							memory_write(
 								scope,
@@ -737,7 +737,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 						_distill_model = _memory_model(task_cfg, "aiMemoryDistillModel", config.model)
 						_reconcile_model = _memory_model(task_cfg, "aiMemoryReconcileModel", config.model)
 						frappe.enqueue(
-							"one_bpmn.agents.memory.writeback.distill_and_write",
+							"one_bpmn.ai_agent_memory.writeback.distill_and_write",
 							queue="short",
 							now=frappe.flags.in_test,
 							agent_output=memory_src,
@@ -928,7 +928,7 @@ def _turn_user_message(instance, task) -> str:
 	if not getattr(instance, "context_docname", ""):
 		return ""
 
-	from one_bpmn.agents.memory.text_clean import strip_html
+	from one_bpmn.ai_agent_memory.text_clean import strip_html
 
 	data = getattr(task, "data", None)
 	if isinstance(data, dict):
@@ -1007,7 +1007,7 @@ def _memory_write_mode(task_cfg: dict) -> str:
 
 def _memory_model(task_cfg: dict, key: str, fallback: str | None) -> str | None:
 	"""The memory model: the task's (agent config already overlaid), then Processa Settings, then fallback."""
-	from one_bpmn.agents.memory.model_resolution import resolve_memory_model
+	from one_bpmn.ai_agent_memory.model_resolution import resolve_memory_model
 
 	return resolve_memory_model(task_cfg.get(key), _MEMORY_MODEL_SETTINGS.get(key), fallback)
 

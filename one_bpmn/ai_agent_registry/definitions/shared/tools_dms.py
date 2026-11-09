@@ -3,7 +3,7 @@
 import frappe
 from frappe import _
 
-from one_bpmn.agents.memory.tools import query_tokens
+from one_bpmn.ai_agent_memory.tools import query_tokens
 
 DOCTYPE = "Document Register"
 DOCUMENT_TYPES = ("Policy", "SOP", "Manual", "Guideline", "Knowledge Base")

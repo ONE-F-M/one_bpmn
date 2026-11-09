@@ -190,7 +190,7 @@ class AIAgentConfiguration(Document):
 		if self.memory_write_mode != "distilled":
 			return
 
-		from one_bpmn.agents.memory.model_resolution import resolve_memory_model
+		from one_bpmn.ai_agent_memory.model_resolution import resolve_memory_model
 
 		distill = resolve_memory_model(
 			self.memory_distill_model, "default_memory_distill_model", self.ai_model
@@ -595,7 +595,7 @@ def get_effective_memory_models(memory_distill_model=None, memory_reconcile_mode
 	``_memory_model`` — same shared chain, so this can never show one answer
 	while the agent runs another.
 	"""
-	from one_bpmn.agents.memory.model_resolution import resolve_memory_model
+	from one_bpmn.ai_agent_memory.model_resolution import resolve_memory_model
 
 	distill = resolve_memory_model(memory_distill_model, "default_memory_distill_model", ai_model)
 	reconcile = resolve_memory_model(memory_reconcile_model, "default_memory_reconcile_model", distill)

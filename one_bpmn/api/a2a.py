@@ -614,7 +614,7 @@ def invoke_agent(
 	# ``strip_html``): unlike markup tags, a plain chat message can
 	# legitimately contain a literal ``<...>``-shaped placeholder, and this
 	# must not corrupt that.
-	from one_bpmn.agents.memory.text_clean import unescape_entities
+	from one_bpmn.ai_agent_memory.text_clean import unescape_entities
 
 	message = unescape_entities(message)
 

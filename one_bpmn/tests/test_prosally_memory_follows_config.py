@@ -26,7 +26,7 @@ class TestRecallFollowsTheConfiguration(FrappeTestCase):
 	def _recall(self, fields):
 		with patch.object(helpers, "prosally_config", return_value={"name": "CFG"}), patch.object(helpers, "_memory_fields", return_value=fields
 		), patch.object(helpers, "process_for_diagram", return_value="Zz Process"), patch(
-			"one_bpmn.agents.memory.tools.memory_search", return_value=[{"content": "a note"}]
+			"one_bpmn.ai_agent_memory.tools.memory_search", return_value=[{"content": "a note"}]
 		) as search:
 			return helpers.recall_process_memory("Zz Process - v1"), search
 

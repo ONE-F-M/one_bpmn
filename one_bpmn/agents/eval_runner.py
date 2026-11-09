@@ -1584,7 +1584,7 @@ def _distil_for_eval(case, spec, scope, scope_key) -> list:
     a model, so a generation case costs one distillation and a retrieval case
     still costs nothing.
     """
-    from one_bpmn.agents.memory.distill import distill_memories
+    from one_bpmn.ai_agent_memory.distill import distill_memories
 
     agent_cfg = frappe.db.get_value("AI Eval Suite", case.suite, "agent_configuration")
     cfg = frappe.get_cached_doc("AI Agent Configuration", agent_cfg) if agent_cfg else None
@@ -1642,7 +1642,7 @@ def _execute_memory_case(case, eval_run: str = None) -> dict:
     stayed inside its budget. Costs nothing: no agent is called, so tokens and
     cost stay at zero and a memory suite can run as often as anyone likes.
     """
-    from one_bpmn.agents.memory.evals import evaluate_memory_case
+    from one_bpmn.ai_agent_memory.evals import evaluate_memory_case
 
     spec = _memory_case_spec(case)
     scope = spec.get("scope") or "Agent"
@@ -2740,7 +2740,7 @@ def _judge_model_for(assertion) -> tuple[str, str]:
     grading model for scheduled runs. ``resolve_memory_model`` already
     implements that precedence, so it is reused rather than copied.
     """
-    from one_bpmn.agents.memory.model_resolution import resolve_memory_model
+    from one_bpmn.ai_agent_memory.model_resolution import resolve_memory_model
 
     model = resolve_memory_model(assertion.judge_model, "nightly_eval_grading_model", None) or ""
     provider = (assertion.judge_provider or "").strip()

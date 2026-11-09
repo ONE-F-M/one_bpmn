@@ -13,8 +13,8 @@ from pathlib import Path
 import frappe
 from frappe.utils import add_days, get_datetime, now_datetime
 
-from one_bpmn.agents.memory.prune import _invalidate
-from one_bpmn.agents.memory.tools import _json_loads
+from one_bpmn.ai_agent_memory.prune import _invalidate
+from one_bpmn.ai_agent_memory.tools import _json_loads
 from one_bpmn.one_bpmn.patches.v1_0.prompt_block import with_block
 
 ACTIONS_CSV = Path(__file__).parent / "data" / "memory_actions.csv"

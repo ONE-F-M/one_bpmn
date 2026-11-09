@@ -135,8 +135,8 @@ class ProcessaSettings(Document):
 		Skipped during install and migrate, where a save of this Single would
 		otherwise pull a model download into the middle of a deployment.
 		"""
-		from one_bpmn.agents.llm_provider.embedding import SEMANTIC_DISABLED
-		from one_bpmn.one_bpmn.doctype.ai_memory.ai_memory import EMBEDDING_DIMENSIONS
+		from one_bpmn.ai_agent_memory.doctype.ai_memory.ai_memory import EMBEDDING_DIMENSIONS
+		from one_bpmn.ai_agent_memory.embedding import SEMANTIC_DISABLED
 
 		model = (self.memory_embedding_model or "").strip()
 		if not model or model == SEMANTIC_DISABLED:
@@ -149,7 +149,7 @@ class ProcessaSettings(Document):
 			return
 
 		try:
-			from one_bpmn.agents.llm_provider.embedding import probe_model
+			from one_bpmn.ai_agent_memory.embedding import probe_model
 
 			dimensions = probe_model(model)
 		except Exception as e:

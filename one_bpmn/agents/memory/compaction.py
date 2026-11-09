@@ -34,7 +34,7 @@ from __future__ import annotations
 import frappe
 from frappe.utils import cint, now_datetime
 
-from one_bpmn.agents.memory.text_clean import strip_html
+from one_bpmn.ai_agent_memory.text_clean import strip_html
 
 SUMMARY_DOCTYPE = "Chat Conversation Summary"
 MESSAGE_DOCTYPE = "Chat Message"

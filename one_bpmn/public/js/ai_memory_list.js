@@ -21,7 +21,7 @@ frappe.listview_settings["AI Memory"] = {
 				),
 				() => {
 					frappe.call({
-						method: "one_bpmn.api.memory_api.purge_memories",
+						method: "one_bpmn.api.memory.purge_memories",
 						args: target && target !== "Shared" ? { user: target } : {},
 						freeze: true,
 						freeze_message: __("Purging\u2026"),
