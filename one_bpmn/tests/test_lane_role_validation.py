@@ -142,6 +142,47 @@ class TestLaneRolePermissionWarnings(FrappeTestCase):
 
 		self.assertIn("submit", warnings[0]["detail"])
 
+	def test_a_script_task_needs_the_doctypes_its_code_names(self):
+		self._make_role()
+		task = (
+			'<bpmn:scriptTask id="Task_1" name="Log">'
+			"<bpmn:script>doc = frappe.get_doc(\"ToDo\", name)\nnew = frappe.new_doc(\"Note\")</bpmn:script>"
+			"</bpmn:scriptTask>"
+		)
+
+		warnings = self._warnings("Zz No Perm Lane Role", task)
+
+		details = {w["name"]: w["detail"] for w in warnings}
+		self.assertIn("read", details["Zz No Perm Lane Role on ToDo"])
+		self.assertIn("create", details["Zz No Perm Lane Role on Note"])
+
+	def test_a_script_that_names_no_doctype_is_not_warned(self):
+		self._make_role()
+		task = '<bpmn:scriptTask id="Task_1" name="Calc"><bpmn:script>total = 1 + 2</bpmn:script></bpmn:scriptTask>'
+
+		self.assertEqual(self._warnings("Zz No Perm Lane Role", task), [])
+
+	def test_a_field_level_permission_does_not_count(self):
+		self._make_role()
+		perm = frappe.get_doc({
+			"doctype": "Custom DocPerm",
+			"parent": "ToDo",
+			"parenttype": "DocType",
+			"parentfield": "permissions",
+			"role": "Zz No Perm Lane Role",
+			"permlevel": 1,
+			"read": 1,
+			"write": 1,
+		}).insert()
+		self.addCleanup(frappe.clear_cache, doctype="ToDo")
+		self.addCleanup(frappe.delete_doc, "Custom DocPerm", perm.name, force=True)
+		frappe.clear_cache(doctype="ToDo")
+
+		warnings = self._warnings("Zz No Perm Lane Role", self.USER_TASK)
+
+		self.assertEqual(len(warnings), 1)
+		self.assertIn("read, write", warnings[0]["detail"])
+
 
 class TestDescribeLanesSuggestsRoles(FrappeTestCase):
 	def _reply(self, *lane_names):
