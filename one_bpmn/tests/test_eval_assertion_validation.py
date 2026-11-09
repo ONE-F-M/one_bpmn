@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001751: an assertion with no value must be refused, and refused legibly.
+# An assertion with no value must be refused, and refused legibly.
 #
 # The case editor let an llm_judge row be saved with a blank Rubric.
 # _set_assertions dropped the empty value, so doc.save() raised a bare

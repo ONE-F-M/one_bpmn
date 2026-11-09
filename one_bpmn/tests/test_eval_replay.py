@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001364 (5-04): backend=replay — re-evaluate assertions against stored
+# backend=replay — re-evaluate assertions against stored
 # outputs without new LLM calls.
 
 from __future__ import annotations

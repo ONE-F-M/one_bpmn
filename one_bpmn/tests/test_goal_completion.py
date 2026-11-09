@@ -1,5 +1,5 @@
 """
-Did the run achieve what it was asked to do? (WI-001823)
+Did the run achieve what it was asked to do?
 
 Satisfaction is sparse and self-selected; completion is recorded on every run
 with no user effort, which is what makes it usable for comparing agents. That
@@ -84,7 +84,7 @@ class TestWhatTheExecutorKnows(FrappeTestCase):
 			self.assertTrue(basis and basis.endswith("."), f"unhelpful basis: {basis!r}")
 
 	def test_the_basis_quotes_the_actual_request_and_output(self):
-		"""WI-002188: the whole point — a basis somebody can judge, not a
+		"""The whole point — a basis somebody can judge, not a
 		template every run shares."""
 		state, basis = gc.determine(
 			ExecutorResult(output="the sky is blue"), request_text="why is the sky blue?"
@@ -94,14 +94,14 @@ class TestWhatTheExecutorKnows(FrappeTestCase):
 		self.assertIn("the sky is blue", basis)
 
 	def test_different_runs_get_different_bases(self):
-		"""WI-002188: no single template should ever cover most runs — the basis
+		"""No single template should ever cover most runs — the basis
 		has to move when the request/output do."""
 		_, basis_a = gc.determine(ExecutorResult(output="answer A"), request_text="question A")
 		_, basis_b = gc.determine(ExecutorResult(output="answer B"), request_text="question B")
 		self.assertNotEqual(basis_a, basis_b)
 
 	def test_a_structured_reply_without_a_known_key_is_still_quoted(self):
-		"""WI-002188: _output_text used to collapse this shape to the literal
+		"""_output_text used to collapse this shape to the literal
 		placeholder "structured" — losing the one thing that could make the
 		basis specific."""
 		state, basis = gc.determine(ExecutorResult(output={"bpmn_xml": "<bpmn/>"}))
