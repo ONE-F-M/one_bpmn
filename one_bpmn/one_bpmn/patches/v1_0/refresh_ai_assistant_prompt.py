@@ -1,5 +1,5 @@
 """
-WI-001624: refresh the AI Assistant configuration's system prompt from the
+Refresh the AI Assistant configuration's system prompt from the
 updated builder so the clarify-when-unsure guidance takes effect on the
 already-seeded agent. Idempotent — safe to re-run.
 """
@@ -11,9 +11,9 @@ def execute():
 	if not frappe.db.exists("AI Agent Configuration", {"agent_id": "ai_agent_assistant"}):
 		return
 	try:
-		from one_bpmn.api.ai_assistant import _build_system_prompt
+		from one_bpmn.ai_agent_registry.definitions.assistant.helpers_prompts import build_system_prompt
 
-		prompt = _build_system_prompt()
+		prompt = build_system_prompt()
 	except Exception:
 		return
 

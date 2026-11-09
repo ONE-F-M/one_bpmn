@@ -7,8 +7,8 @@ Rules for `spiff/`: Vue 3, Vite, Composition API, frappe-ui, TailwindCSS and bpm
 - `src/pages/`: routed pages (`Processes.vue`, `Process.vue`, `Instances.vue`, `Instance.vue`, and the agent pages such as `Runs.vue`, `Evals.vue`, `A2A.vue`). Routes are in `src/router.js`.
 - `src/components/`: the editor (`BpmnEditor.vue`, `FormattingToolbar.vue`), dialogs, Logix (`LogixCanvas.vue`, `LogixChat.vue`), ProsAlly (`ProsAllyPanel.vue`) and the shared chat panel under `components/Chat/`.
 - `src/composables/`: shared logic, named `use<Name>`.
-- `src/bpmn/`, `src/moddle/`, `src/renderers/`, `src/rules/`, `src/resize/`: bpmn-js extensions. The properties panel is Preact and keeps its shared components in `src/bpmn/shared/`.
-- `src/utils/bpmnLayout.js`: the auto-layout for generated diagrams. `src/linting/bpmnlintrc.js`: the bpmnlint rules.
+- `src/bpmn/`: bpmn-js extensions, with the properties panel providers at its top level and `renderers/`, `rules/`, `resize/`, `moddle/` and `lint/` beside them. The properties panel is Preact and keeps its shared components in `src/bpmn/shared/`.
+- `src/utils/bpmnLayout.js`: the auto-layout for generated diagrams. `src/bpmn/lint/bpmnlintrc.js`: the bpmnlint rules. `tools/bpmn-pipeline/`: the IR-to-BPMN compiler ProsAlly runs. `pipeline.mjs` only reads the IR and chains the steps, one file each: `normalise.mjs`, `lanes.mjs`, `subprocesses.mjs`, `layout.mjs` and `compile.mjs`, with `shared.mjs` for what more than one step uses.
 
 Register a bpmn-js module in `additionalModules` and a moddle extension in `moddleExtensions` in `BpmnEditor.vue`.
 
@@ -20,6 +20,8 @@ Register a bpmn-js module in `additionalModules` and a moddle extension in `modd
 - `shallowRef` for large objects such as the bpmn-js modeler.
 - `:key` on every `v-for`; never `v-if` and `v-for` on one element.
 - Remove bpmn-js event listeners in `onBeforeUnmount`.
+- Each component sits in a folder named after it (`components/Docu/DocuApplyBar/DocuApplyBar.vue`) with its own `.css` beside it (rule component-folder).
+- Composables are `use<Name>.js`: the five large families live in `composables/<Area>/` (`Docu`, `Eval`, `AgentConfig`, `Process`, `Editor`, each file starting with `use<Area>`), the rest stay at the root (rule composable-layout).
 - Flag a component with more than 300 lines of `<script setup>`, a function over 30 lines, or a template nested more than three `div` levels; split or extract.
 
 ## frappe-ui and Tailwind
@@ -31,7 +33,7 @@ Register a bpmn-js module in `additionalModules` and a moddle extension in `modd
 
 ## bpmn-js and SpiffWorkflow extensions
 
-For `src/bpmn/`, `src/moddle/`, `src/renderers/` and `src/rules/`:
+For `src/bpmn/` (including `renderers/`, `rules/`, `resize/`, `moddle/` and `lint/`):
 
 - A moddle extension change must still read every existing BPMN XML.
 - A custom renderer handles missing or null element properties.

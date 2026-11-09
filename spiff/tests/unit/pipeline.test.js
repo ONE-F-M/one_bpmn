@@ -7,10 +7,10 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-import { properCross, collinearOverlap, segHitsBox, auditGeometry } from '@/linting/geometry.js';
-import { auditLayout } from '../../pipeline.mjs';
+import { properCross, collinearOverlap, segHitsBox, auditGeometry } from '@/bpmn/lint/geometry.js';
+import { auditLayout } from '../../tools/bpmn-pipeline/pipeline.mjs';
 
-const here = fileURLToPath(new URL("../../", import.meta.url));
+const here = fileURLToPath(new URL("../../tools/bpmn-pipeline/", import.meta.url));
 const run = (ir) => JSON.parse(spawnSync(process.execPath, [path.join(here, 'pipeline.mjs')],
   { input: JSON.stringify(ir), encoding: 'utf8' }).stdout);
 

@@ -411,9 +411,9 @@ class TestTheCapIsSetFromProcessa(FrappeTestCase):
 
 	@staticmethod
 	def _control(agent):
-		from one_bpmn.api import security_api
+		from one_bpmn.api import security
 
-		for c in security_api.agent_screening(agent)["controls"]:
+		for c in security.agent_screening(agent)["controls"]:
 			if c["fieldname"] == "max_clarification_rounds":
 				return c
 		return None
@@ -435,11 +435,11 @@ class TestTheCapIsSetFromProcessa(FrappeTestCase):
 	def test_saving_it_from_processa_changes_what_the_cap_reads(self):
 		"""The point of editing it: the number the tool is withdrawn at moves."""
 		from one_bpmn.agents._eval_test_factories import make_agent_configuration
-		from one_bpmn.api import security_api
+		from one_bpmn.api import security
 
 		agent = make_agent_configuration().name
 		item = _work_item()
-		security_api.save_agent_screening(agent, {"max_clarification_rounds": 1})
+		security.save_agent_screening(agent, {"max_clarification_rounds": 1})
 		self.assertEqual(clarification.rounds_allowed(agent), 1)
 		clarification.record_question(
 			instance=_instance(item), human_task_id="AIH-PZ1",
@@ -448,17 +448,17 @@ class TestTheCapIsSetFromProcessa(FrappeTestCase):
 		self.assertTrue(clarification.cap_reached(agent, "Work Item", item))
 
 		# Raised from Processa, the agent may ask again.
-		security_api.save_agent_screening(agent, {"max_clarification_rounds": 4})
+		security.save_agent_screening(agent, {"max_clarification_rounds": 4})
 		self.assertFalse(clarification.cap_reached(agent, "Work Item", item))
 
 	def test_it_can_be_turned_off_entirely(self):
 		"""0 means no limit, and it has to be reachable — an agent whose stories
 		are genuinely underspecified should not be silenced by a cap."""
 		from one_bpmn.agents._eval_test_factories import make_agent_configuration
-		from one_bpmn.api import security_api
+		from one_bpmn.api import security
 
 		agent = make_agent_configuration().name
-		security_api.save_agent_screening(agent, {"max_clarification_rounds": 0})
+		security.save_agent_screening(agent, {"max_clarification_rounds": 0})
 		self.assertEqual(clarification.rounds_allowed(agent), 0)
 		self.assertFalse(clarification.cap_reached(agent, "Work Item", _work_item()))
 
@@ -780,7 +780,7 @@ class TestTheClarificationMonitor(FrappeTestCase):
 		"""It lists questions asked about documents across the whole site, which
 		is more than any one person's view."""
 		from one_bpmn.api import clarification_api
-		from one_bpmn.tests.test_a2a_admin_api import make_nobody
+		from one_bpmn.a2a.tests.test_a2a_admin_api import make_nobody
 
 		nobody = make_nobody()
 		frappe.set_user(nobody.name)
@@ -829,7 +829,8 @@ class TestTheQuestionIsSignedByTheAgent(FrappeTestCase):
 		return rows[0].owner if rows else None
 
 	def test_the_comment_is_owned_by_the_agent_not_the_session_user(self):
-		from one_bpmn.agents import clarification, identity
+		from one_bpmn.agents import clarification
+		from one_bpmn.ai_agent_security import identity
 
 		agent = frappe.db.get_value(
 			"AI Agent Configuration", {"agent_user": ["is", "set"]}, "name")

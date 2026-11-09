@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-002054: give every existing agent the identity it now acts as.
+"""Give every existing agent the identity it now acts as.
 
 New agents get one on save. The ones already on a site would not, until somebody
 happened to re-save them — and an agent with no user falls back to running its
@@ -22,7 +22,7 @@ def execute():
 	if not frappe.db.has_column("AI Agent Configuration", "agent_user"):
 		return
 
-	from one_bpmn.agents import identity
+	from one_bpmn.ai_agent_security import identity
 
 	provisioned, already, failed = 0, 0, 0
 	for name in frappe.get_all("AI Agent Configuration", pluck="name"):

@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import context_assembler as CA
+from one_bpmn.ai_agent_registry.provisioning import context_assembler as CA
 from one_bpmn.processa_engine.agent_runtime.executor import (
 	DEFAULT_MAX_OUTPUT_TOKENS,
 	DEFAULT_MAX_RETRIES,
@@ -49,7 +49,7 @@ class TestEveryPathComposesTheSameWay(FrappeTestCase):
 		"""The failure this story exists to close: an agent that refused
 		something inside a process map would do it in a chat, because the chat
 		path sent config["system_prompt"] on its own."""
-		from one_bpmn.api import agent_invocation
+		from one_bpmn.api import a2a as a2a_api
 
 		sent = {}
 
@@ -58,7 +58,7 @@ class TestEveryPathComposesTheSameWay(FrappeTestCase):
 				sent["system"] = system
 				return type("C", (), {"text": "ok"})()
 
-		with patch.object(agent_invocation, "run_coro_blocking", create=True), patch(
+		with patch.object(a2a_api, "run_coro_blocking", create=True), patch(
 			"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=FakeAdapter()
 		), patch("one_bpmn.utils.chat_persistence.save_user_message"), patch(
 			"one_bpmn.utils.chat_persistence.save_bot_message"
@@ -70,18 +70,18 @@ class TestEveryPathComposesTheSameWay(FrappeTestCase):
 			expected = CA.build_static_context_from_config(CONFIG)
 
 		self.assertIn("Never quote a price.", expected)
-		source = inspect.getsource(agent_invocation._direct_api_turn)
+		source = inspect.getsource(a2a_api._direct_api_turn)
 		self.assertIn("build_static_context_from_config", source)
 		self.assertNotIn('config.get("system_prompt") or ""', source)
 
 	def test_no_path_builds_a_system_prompt_of_its_own(self):
 		"""A composer test that fails if somebody adds a fourth path that sends
 		a raw prompt. The three known senders are named here on purpose."""
-		from one_bpmn.api import agent_invocation
+		from one_bpmn.api import a2a as a2a_api
 		from one_bpmn.processa_engine import task_selector
 		from one_bpmn.processa_engine.dispatch import ai_agent
 
-		for module in (ai_agent, task_selector, agent_invocation):
+		for module in (ai_agent, task_selector, a2a_api):
 			source = inspect.getsource(module)
 			self.assertIn("build_static_context", source, f"{module.__name__} sends a prompt it did not compose")
 
@@ -108,9 +108,9 @@ class TestEveryPathStartsFromTheSameDefaults(FrappeTestCase):
 
 	def test_the_evals_and_the_direct_run_keep_temperature_0_7(self):
 		from one_bpmn.agents import eval_runner
-		from one_bpmn.api import agent_invocation
+		from one_bpmn.api import a2a as a2a_api
 
-		for fn in (eval_runner._run_direct_eval, eval_runner._evaluate_llm_judge, agent_invocation._begin_direct_run):
+		for fn in (eval_runner._run_direct_eval, eval_runner._evaluate_llm_judge, a2a_api._begin_direct_run):
 			self.assertIn("temperature=0.7", inspect.getsource(fn), f"{fn.__name__} lost its pinned temperature")
 
 	def test_no_path_repeats_a_number_the_shared_module_owns(self):
@@ -137,7 +137,7 @@ class TestEveryPathStartsFromTheSameDefaults(FrappeTestCase):
 
 		path = os.path.join(
 			os.path.dirname(one_bpmn.__file__),
-			"one_bpmn",
+			"ai_agent_registry",
 			"doctype",
 			"ai_agent_configuration",
 			"ai_agent_configuration.json",

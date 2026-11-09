@@ -13,7 +13,7 @@ from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_tu
 from one_bpmn.api.docu_api import apply_client_script, preview_client_script
 from one_bpmn.one_bpmn.patches.v1_0 import docu_edits_field_properties as previous
 from one_bpmn.one_bpmn.patches.v1_0 import docu_writes_form_client_scripts as patch
-from one_bpmn.security.client_script_validator import validate_form_script
+from one_bpmn.ai_agent_security.code_checks.client_script_validator import validate_form_script
 from one_bpmn.tests.site_scripts import as_deployed
 
 DT = "Note"
@@ -106,7 +106,7 @@ class TestRoutingPatchChain(FrappeTestCase):
 		self.assertIn(patch.ENUM_OLD, previous.ENUM_NEW)
 
 	def test_a_fenced_model_reply_still_gives_the_intent(self):
-		from one_bpmn.agents.prosally_helpers import extract_json
+		from one_bpmn.ai_agent_registry.definitions.shared.helpers import extract_json
 
 		fenced = '```json\n{"intent": "EDIT_CLIENT_SCRIPT", "parts": []}\n```'
 		scope = {"raw": fenced, "intent": "MODIFY", "extract_json": extract_json}
@@ -116,7 +116,7 @@ class TestRoutingPatchChain(FrappeTestCase):
 		self.assertEqual(scope["intent"], "EDIT_CLIENT_SCRIPT")
 
 	def test_an_unparsable_model_reply_keeps_the_default_intent(self):
-		from one_bpmn.agents.prosally_helpers import extract_json
+		from one_bpmn.ai_agent_registry.definitions.shared.helpers import extract_json
 
 		scope = {"raw": "no json here", "intent": "MODIFY", "extract_json": extract_json}
 

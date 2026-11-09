@@ -1,5 +1,5 @@
 """
-WI-001539 / per-agent migration: complete the ``prosally`` AI Agent
+Per-agent migration: complete the ``prosally`` AI Agent
 Configuration so ProsAlly chat runs through the generic invocation path
 (create_agent_conversation + invoke_agent), and carry it to Live through
 lifecycle validation.
@@ -66,7 +66,7 @@ def execute():
 	# failure lands the agent in Needs Attention with the reason logged, matching
 	# the provisioning flow.
 	try:
-		from one_bpmn.agents.agent_provisioning import validate_agent_config
+		from one_bpmn.ai_agent_registry.provisioning.agent_provisioning import validate_agent_config
 
 		result = validate_agent_config(name, test_provider=True)
 	except Exception:

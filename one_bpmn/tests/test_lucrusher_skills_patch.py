@@ -12,7 +12,7 @@ from unittest.mock import patch as mock_patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.context_assembler import drop_duplicated_instructions
+from one_bpmn.ai_agent_registry.provisioning.context_assembler import drop_duplicated_instructions
 from one_bpmn.one_bpmn.patches.v1_0 import seed_lucrusher_skills as seed
 
 LUCRUSHER = frappe.db.get_value("AI Agent Configuration", {"agent_id": seed.AGENT_ID}, "name")

@@ -1,5 +1,5 @@
 """
-WI-002001: stop ProsAlly re-asking "Shall I go ahead?" after the designer has
+Stop ProsAlly re-asking "Shall I go ahead?" after the designer has
 already said yes.
 
 Reported from the editor: three consecutive turns on the Document Request map
@@ -82,7 +82,7 @@ NEW_SYSTEM_PROMPT = (
 
 
 def execute():
-	"""Tighten the ProsAlly orchestrator's tool-call rules (WI-002001)."""
+	"""Tighten the ProsAlly orchestrator's tool-call rules."""
 	if not frappe.db.exists("AI Agent Configuration", CONFIG_NAME):
 		return
 

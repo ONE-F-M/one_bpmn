@@ -4,10 +4,10 @@
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.bpmn_ir_pipeline import compile_ir
-from one_bpmn.agents.bpmn_task_config import use_none_tasks
-from one_bpmn.agents.prosally_helpers import keep_process_kind, none_tasks_output, xml_to_ir
-from one_bpmn.security.bpmn_validator import validate_bpmn_xml
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_pipeline import compile_ir
+from one_bpmn.ai_agent_registry.provisioning.bpmn_task_config import use_none_tasks
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_review import keep_process_kind, none_tasks_output, xml_to_ir
+from one_bpmn.ai_agent_registry.definitions.prosally.validators import validate_bpmn_xml
 
 
 def _document(executable: bool, task_tag: str = "task") -> str:

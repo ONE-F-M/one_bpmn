@@ -49,8 +49,8 @@ from ag_ui.core import (
 from ag_ui.encoder import EventEncoder
 from frappe import _
 
-from one_bpmn.security.rate_limit import RateLimited
-from one_bpmn.security.refusal import AgentRefusal
+from one_bpmn.ai_agent_security.rate_limit import RateLimited
+from one_bpmn.ai_agent_guardrails.refusal import AgentRefusal
 
 # ── Extension translators (payload dict → list of CustomEvent) ──────────────
 # Registered callables receive the runner's reply dict and return an iterable
@@ -261,7 +261,7 @@ def agent_event_stream(
 
 	yield encoder.encode(RunStartedEvent(run_id=run_id, thread_id=conversation))
 	try:
-		from one_bpmn.api.agent_invocation import invoke_agent
+		from one_bpmn.api.a2a import invoke_agent
 
 		builder = _CONTEXT_BUILDERS.get(agent_id)
 		if builder:
@@ -622,7 +622,7 @@ except Exception:
 # The assistant registers its context builder + reply shaper on import
 # (WI-001674). Same degrade-to-text guarantee as the translators.
 try:
-	import one_bpmn.api.ai_assistant  # noqa: F401,E402
+	import one_bpmn.ai_agent_registry.definitions.assistant.helpers  # noqa: F401,E402
 except Exception:
 	frappe.log_error(title="agui assistant hooks failed to load", message=frappe.get_traceback())
 

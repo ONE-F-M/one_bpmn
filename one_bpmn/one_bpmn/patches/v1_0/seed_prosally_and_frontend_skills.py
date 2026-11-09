@@ -1,4 +1,4 @@
-"""WI-000462: the last two domain-rule blocks leave their prompts for skills.
+"""The last two domain-rule blocks leave their prompts for skills.
 
 Two earlier patches (move_domain_rules_into_skills, seed_logix_skills,
 seed_docu_skills) already did this for Logix's Frappe Server Script safety

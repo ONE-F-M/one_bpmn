@@ -1,9 +1,9 @@
 """
-WI-002206: Promote the "Scheduled Job Monitor" AI Agent Configuration from
+Promote the "Scheduled Job Monitor" AI Agent Configuration from
 onefm_mcp's retired Google ADK scheduled_job_ticket_agent onto the (to be
 imported) "Scheduled Job Failure Monitor" BPMN Process Model.
 
-Same shape as WI-002201/WI-002203's promote_threat_sitrep_agent_to_bpmn /
+Same shape as promote_threat_sitrep_agent_to_bpmn /
 promote_threat_agents_to_bpmn: the record already exists (seeded by
 onefm_mcp's seed_scheduled_job_monitor_config), and was only ever a
 prompt/temperature config store for the old Python agent — agent_type sat
@@ -123,7 +123,7 @@ def execute():
 			frappe.cache.delete_value(f"agent_config:{AGENT_ID}")
 
 		try:
-			from one_bpmn.agents.agent_provisioning import validate_agent_config
+			from one_bpmn.ai_agent_registry.provisioning.agent_provisioning import validate_agent_config
 
 			result = validate_agent_config(AGENT_NAME, test_provider=True)
 		except Exception:

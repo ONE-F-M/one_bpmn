@@ -221,7 +221,7 @@ def _turn_correlation_id():
 	security package is unavailable or misbehaving.
 	"""
 	try:
-		from one_bpmn.security.turn import current_correlation_id
+		from one_bpmn.ai_agent_security.turn import current_correlation_id
 
 		return current_correlation_id()
 	except Exception:
@@ -891,7 +891,7 @@ def finalize_ai_run(
 	# WI-002191: a run that died for a credential reason marks its model
 	# Unhealthy, which is what stops the next message from producing another
 	# identical failure; a success on a model that was Unhealthy clears it.
-	from one_bpmn.agents import model_health
+	from one_bpmn.ai_agent_registry import model_health
 
 	model_health.note_run_outcome(
 		getattr(run, "model", None), update.get("error_code") or "SUCCESS", update.get("error_message")

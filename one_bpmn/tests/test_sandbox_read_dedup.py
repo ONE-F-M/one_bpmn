@@ -35,7 +35,7 @@ def _run(args, dispatch_result, instance_name="i-test"):
 		"instance": frappe._dict(name=instance_name),
 	}
 	with patch(
-		"one_bpmn.one_bpmn.connectors.agent_sandbox_ops.sandbox_dispatch",
+		"one_bpmn.agents_sandbox.sandbox.ops.sandbox_dispatch",
 		return_value=dispatch_result,
 	):
 		exec(body, {"frappe": frappe, "__builtins__": __builtins__}, local_vars)
@@ -134,7 +134,7 @@ class TestRepeatReadIsElided(FrappeTestCase):
 		body = frappe.db.get_value("Server Script", SCRIPT, "script")
 		result = {}
 		with patch(
-			"one_bpmn.one_bpmn.connectors.agent_sandbox_ops.sandbox_dispatch",
+			"one_bpmn.agents_sandbox.sandbox.ops.sandbox_dispatch",
 			side_effect=dispatch_writing_its_own_row,
 		):
 			exec(body, {"frappe": frappe, "__builtins__": __builtins__}, {

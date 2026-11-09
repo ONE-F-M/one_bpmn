@@ -122,7 +122,7 @@ import { useRouter } from "vue-router";
 import { frappeRequest } from "frappe-ui";
 import { Icon } from "@iconify/vue";
 import { dayjs } from "@/dayjs";
-import VersionHistoryPanel from "@/components/Editor/VersionHistoryPanel.vue";
+import VersionHistoryPanel from "@/components/Editor/VersionHistoryPanel/VersionHistoryPanel.vue";
 import "bpmn-js/dist/assets/diagram-js.css";
 import "bpmn-js/dist/assets/bpmn-font/css/bpmn.css";
 
@@ -195,14 +195,14 @@ async function fetchLatest() {
 async function fetchCurrentSnapshotXml() {
 	try {
 		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.version_history.get_edit_history",
+			url: "/api/method/one_bpmn.api.versions.get_edit_history",
 			params: { model_name: props.diagram },
 		});
 		const groups = res.message || res || [];
 		const head = groups[0]?.head;
 		if (!head) return "";
 		const snapRes = await frappeRequest({
-			url: "/api/method/one_bpmn.api.version_history.get_snapshot_xml",
+			url: "/api/method/one_bpmn.api.versions.get_snapshot_xml",
 			params: { version_name: head },
 		});
 		return (snapRes.message || snapRes)?.xml_content || "";
@@ -232,7 +232,7 @@ async function onSelectVersion(item) {
 	selectedIsCurrent.value = !!item.is_current;
 	try {
 		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.version_history.get_snapshot_xml",
+			url: "/api/method/one_bpmn.api.versions.get_snapshot_xml",
 			params: { version_name: item.name },
 		});
 		const snap = res.message || res;
@@ -310,7 +310,7 @@ async function restore() {
 	restoring.value = true;
 	try {
 		await frappeRequest({
-			url: "/api/method/one_bpmn.api.version_history.restore_version",
+			url: "/api/method/one_bpmn.api.versions.restore_version",
 			params: { version_name: selectedVersion.value },
 		});
 		goBack();

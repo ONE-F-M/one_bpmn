@@ -1,9 +1,9 @@
+import { createResource } from "frappe-ui";
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h, Component } from "preact";
 import { HeaderButton } from "@bpmn-io/properties-panel";
 import { RecordPickerField } from "../shared/RecordPickerField";
-import { frappeGet, frappePost } from "../shared/frappeResource";
 import { listenForScriptLink } from "./listenForScriptLink";
 
 function getAttr(bo, attr) {
@@ -87,7 +87,7 @@ function ServerScriptComponent(props) {
 			limit_page_length: 50,
 			order_by: "name asc",
 		};
-		return frappeGet("/api/resource/Server Script", params);
+		return createResource({ url: "frappe.client.get_list", params: { doctype: "Server Script", ...params } }).fetch();
 	};
 
 	return h(
@@ -109,36 +109,33 @@ function ServerScriptComponent(props) {
 
 // Optional: lets a script's own internal LLM call pick its AI Agent Configuration.
 function fetchAgentConfigs(txt) {
-	return frappeGet("/api/resource/AI Agent Configuration", {
-		fields: '["name","agent_id"]',
+	return createResource({ url: "frappe.client.get_list", params: { doctype: "AI Agent Configuration", fields: '["name","agent_id"]',
 		filters: JSON.stringify([
 			["enabled", "=", 1],
 			...(txt ? [["name", "like", `%${txt}%`]] : []),
 		]),
 		limit_page_length: 50,
 		order_by: "name asc",
-	});
+	} }).fetch();
 }
 
 function fetchProviders(txt) {
-	return frappeGet("/api/resource/AI Provider", {
-		fields: '["name"]',
+	return createResource({ url: "frappe.client.get_list", params: { doctype: "AI Provider", fields: '["name"]',
 		filters: JSON.stringify([
 			["enabled", "=", 1],
 			...(txt ? [["name", "like", `%${txt}%`]] : []),
 		]),
 		limit_page_length: 50,
 		order_by: "name asc",
-	});
+	} }).fetch();
 }
 
 function fetchAiModels(txt) {
-	return frappeGet("/api/resource/AI Model", {
-		fields: '["name"]',
+	return createResource({ url: "frappe.client.get_list", params: { doctype: "AI Model", fields: '["name"]',
 		filters: JSON.stringify(txt ? [["name", "like", `%${txt}%`]] : []),
 		limit_page_length: 50,
 		order_by: "name asc",
-	});
+	} }).fetch();
 }
 
 // Class component, not hooks — a separate bundled Preact instance here
@@ -165,7 +162,7 @@ class CreateAgentConfigForm extends Component {
 			return;
 		}
 		this.setState({ saving: true, error: "" });
-		frappePost("/api/method/one_bpmn.agents.agent_config_resolver.create_agent_configuration", {
+		createResource({ url: "one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.create_agent_configuration", params: {
 			payload: JSON.stringify({
 				agent_name: name,
 				agent_type: "Background",
@@ -174,7 +171,7 @@ class CreateAgentConfigForm extends Component {
 				ai_provider: this.state.ai_provider || undefined,
 				ai_model: this.state.ai_model || undefined,
 			}),
-		})
+		} }).fetch()
 			.then((res) => {
 				const createdName = (res && res.name) || (res && res.message && res.message.name);
 				if (!createdName) throw new Error("No name returned");

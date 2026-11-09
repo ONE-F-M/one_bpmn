@@ -189,7 +189,7 @@ class TestTheModifyScriptReportsIt(FrappeTestCase):
 			with (
 				mock.patch(PUBLISH, lambda *args: calls.append(args)),
 				mock.patch(
-					"one_bpmn.agents.prosally_helpers.complete_sub_prompt", return_value='{"nodes": [], "flows": []}'
+					"one_bpmn.ai_agent_registry.definitions.prosally.helpers.complete_sub_prompt", return_value='{"nodes": [], "flows": []}'
 				),
 			):
 				exec(as_deployed(script), {"frappe": frappe, "context_docname": CONVERSATION, "result": {}, "bpmn_id": "x"})

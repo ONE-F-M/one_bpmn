@@ -1,5 +1,5 @@
 """
-WI-001751 follow-up: let create_eval_suite write its cases in the same call.
+Let create_eval_suite write its cases in the same call.
 
 Symptom: asked to add evals for an agent, the assistant called list_eval_suites,
 called create_eval_suite — which committed a real suite — and then replied "Now
@@ -28,7 +28,7 @@ Cases are written after the suite exists, and a failure on one case is reported
 per-case rather than lost: a suite with 2 of 3 cases plus a named failure is
 recoverable, a silent partial write is not.
 
-Diagrams are data, never code (WI-001540), so the shape and the prompt are
+Diagrams are data, never code, so the shape and the prompt are
 repaired on the site's own copy. Idempotent: the script body and the shape
 element are compared before writing, and the prompt section is replaced in place.
 """

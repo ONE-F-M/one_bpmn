@@ -1,9 +1,9 @@
 """
-WI-001652: Background agents go Live on save (apply_background_lifecycle).
+Background agents go Live on save (apply_background_lifecycle).
 
 Re-save every enabled Background-type AI Agent Configuration so the new
 controller rule runs on the existing provider grants (Platform Prompt
-Engineer, the WI-001650 backfills). The deployment gate now requires linked
+Engineer, the earlier backfills). The deployment gate now requires linked
 agents to be Live — without this, the AI Agent Creation Process itself could
 not be recompiled. Idempotent.
 """

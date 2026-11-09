@@ -1,7 +1,7 @@
+import { createResource } from "frappe-ui";
 import { h, Component, render } from "preact";
 import { createApp, defineComponent, h as vueH, shallowReactive } from "vue";
-import RecordPicker from "@/components/Controls/RecordPicker.vue";
-import { frappeGet } from "./frappeResource";
+import RecordPicker from "@/components/Controls/RecordPicker/RecordPicker.vue";
 import { joinValues, splitValues, toOptions } from "@/utils/recordPicker";
 import "./bpmn-panel.css";
 
@@ -24,7 +24,10 @@ const PREACT_HOST = defineComponent({
 async function fetchDocTypes(txt) {
 	const params = { fields: '["name"]', limit_page_length: 50, order_by: "name asc" };
 	if (txt) params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
-	const rows = await frappeGet("/api/resource/DocType", params);
+	const rows = await createResource({
+		url: "frappe.client.get_list",
+		params: { doctype: "DocType", ...params },
+	}).fetch();
 	return Array.isArray(rows) ? rows : [];
 }
 

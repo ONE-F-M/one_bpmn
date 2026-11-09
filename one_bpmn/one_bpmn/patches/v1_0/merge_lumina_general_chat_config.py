@@ -1,5 +1,5 @@
 """
-WI-001630: collapse the two per-provider Lumina configs into one
+Collapse the two per-provider Lumina configs into one
 ``lumina_general_chat`` AI Agent Configuration.
 
 General Chat shipped as TWO records — ``lumina_chatbot_openai`` and
@@ -161,7 +161,7 @@ def _upsert_config():
 		doc.process_model = PROCESS_MODEL
 
 	# allowed_roles stays EMPTY on purpose: General Chat is offered to every
-	# logged-in user today, and an empty table means exactly that (WI-001618).
+	# logged-in user today, and an empty table means exactly that.
 
 	existing = {row.constant_name for row in (doc.get("constants") or [])}
 	for cname, cvalue, ctype in CONSTANTS:
@@ -190,7 +190,7 @@ def _retire_old_configs():
 
 def _go_live(name):
 	try:
-		from one_bpmn.agents.agent_provisioning import validate_agent_config
+		from one_bpmn.ai_agent_registry.provisioning.agent_provisioning import validate_agent_config
 
 		result = validate_agent_config(name, test_provider=True)
 	except Exception:

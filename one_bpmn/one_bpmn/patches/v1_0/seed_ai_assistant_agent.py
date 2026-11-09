@@ -1,5 +1,5 @@
 """
-WI-001622: create the AI Assistant as the first chat agent stood up through
+Create the AI Assistant as the first chat agent stood up through
 the agent-creation process.
 
 Seeds an AI Agent Configuration for the assistant (its system prompt taken
@@ -20,9 +20,9 @@ def execute():
 		return
 
 	try:
-		from one_bpmn.api.ai_assistant import _build_system_prompt
+		from one_bpmn.ai_agent_registry.definitions.assistant.helpers_prompts import build_system_prompt
 
-		system_prompt = _build_system_prompt()
+		system_prompt = build_system_prompt()
 	except Exception:
 		system_prompt = (
 			"You are a configuration assistant embedded in the Processa BPMN editor. "
@@ -62,7 +62,7 @@ def execute():
 	# Stand it up through the real creation process (patch context suppresses
 	# the after_insert auto-trigger, so provision explicitly here).
 	try:
-		from one_bpmn.agents.agent_provisioning import provision_agent
+		from one_bpmn.ai_agent_registry.provisioning.agent_provisioning import provision_agent
 
 		provision_agent(doc.name)
 	except Exception:

@@ -30,6 +30,7 @@ from one_bpmn.processa_engine.compiler.deploy_warnings import (
 	check_eval_suite_gating,
 	check_notification_senders,
 	check_script_tasks_have_a_script,
+	check_scripts_pending_review,
 	check_shape_config_drift,
 )
 from one_bpmn.processa_engine.compiler.extensions import (
@@ -189,7 +190,7 @@ def compile_model(model) -> dict:
 			**script_extensions,
 		}
 
-	from one_bpmn.security.script_gate import validate_process_model_scripts
+	from one_bpmn.ai_agent_security.code_checks.script_gate import validate_process_model_scripts
 
 	validate_process_model_scripts(sanitized_xml)
 
@@ -216,7 +217,7 @@ def compile_model(model) -> dict:
 
 	enforce_eval_pass_rate(model_name)
 
-	activate_deployed_model(model, script_extensions)
+	deploy_warnings.extend(check_scripts_pending_review(activate_deployed_model(model, script_extensions)))
 
 	model.flags.skip_editability_check = True
 	model.flags.skip_script_security_check = True

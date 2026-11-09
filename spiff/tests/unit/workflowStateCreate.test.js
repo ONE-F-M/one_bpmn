@@ -18,7 +18,7 @@ test("a named state is posted with its style and resolves to the typed name", as
 	const created = await createWorkflowState(post, "  Pending GRD Review ", "Warning");
 	assert.equal(created, "Pending GRD Review");
 	assert.deepEqual(calls, [
-		{ path: "/api/resource/Workflow State", body: { workflow_state_name: "Pending GRD Review", style: "Warning" } },
+		{ path: "frappe.client.insert", body: { doc: { doctype: "Workflow State", workflow_state_name: "Pending GRD Review", style: "Warning" } } },
 	]);
 });
 

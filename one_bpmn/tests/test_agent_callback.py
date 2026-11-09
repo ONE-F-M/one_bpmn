@@ -469,8 +469,8 @@ class TestRetryOnTestFailure(CallbackCase):
 	def test_an_eligible_failure_dispatches_a_retry_instead_of_resuming(self):
 		self._config("Dev Agent", retry=1)
 		run = self._run(request_payload={"action": "run_tests", "args": {}, "agent_name": "Dev Agent"})
-		with patch("one_bpmn.one_bpmn.connectors.agent_sandbox_ops.retry_dispatch", return_value=True) as mock_retry, \
-		     patch.object(cb, "_enqueue_resume") as mock_resume:
+		with patch("one_bpmn.agents_sandbox.sandbox.ops.retry_dispatch", return_value=True) as mock_retry, \
+		     patch.object(cb, "enqueue_resume") as mock_resume:
 			result = self._post({"correlation_id": run.name, "status": "tests_failed", "error": "3 failed"})
 		self.assertEqual(result, {"accepted": True})
 		mock_retry.assert_called_once()
@@ -479,8 +479,8 @@ class TestRetryOnTestFailure(CallbackCase):
 	def test_a_code_failure_goes_back_to_the_agent_not_to_a_blind_retry(self):
 		self._config("Dev Agent", retry=1)
 		run = self._run(request_payload={"action": "run_tests", "args": {}, "agent_name": "Dev Agent"})
-		with patch("one_bpmn.one_bpmn.connectors.agent_sandbox_ops.retry_dispatch") as mock_retry, \
-		     patch.object(cb, "_enqueue_resume") as mock_resume:
+		with patch("one_bpmn.agents_sandbox.sandbox.ops.retry_dispatch") as mock_retry, \
+		     patch.object(cb, "enqueue_resume") as mock_resume:
 			self._post({"correlation_id": run.name, "status": "tests_failed", "failing_tests": ["test_x (m.T)"]})
 		mock_retry.assert_not_called()
 		mock_resume.assert_called_once()
@@ -489,8 +489,8 @@ class TestRetryOnTestFailure(CallbackCase):
 	def test_a_refused_branch_is_not_retried_and_is_recorded_as_policy(self):
 		self._config("Dev Agent", retry=1)
 		run = self._run(request_payload={"action": "run_tests", "args": {}, "agent_name": "Dev Agent"})
-		with patch("one_bpmn.one_bpmn.connectors.agent_sandbox_ops.retry_dispatch") as mock_retry, \
-		     patch.object(cb, "_enqueue_resume"):
+		with patch("one_bpmn.agents_sandbox.sandbox.ops.retry_dispatch") as mock_retry, \
+		     patch.object(cb, "enqueue_resume"):
 			self._post({"correlation_id": run.name, "status": "failed", "error": "git fetch failed: couldn't find remote ref x"})
 		mock_retry.assert_not_called()
 		self.assertEqual(frappe.db.get_value("Agent Sandbox Run", run.name, "failure_class"), "policy")
@@ -501,7 +501,7 @@ class TestRetryOnTestFailure(CallbackCase):
 		waiting caller on the failure) is unchanged. Mirrors every existing
 		TestOutcomes tests_failed test, which never sets request_payload."""
 		run = self._run()
-		with patch.object(cb, "_enqueue_resume") as mock_resume:
+		with patch.object(cb, "enqueue_resume") as mock_resume:
 			result = self._post({"correlation_id": run.name, "status": "tests_failed", "error": "3 failed"})
 		self.assertEqual(result, {"accepted": True})
 		mock_resume.assert_called_once()
@@ -513,8 +513,8 @@ class TestRetryOnTestFailure(CallbackCase):
 		wait forever for a callback that can now never arrive."""
 		self._config("Dev Agent", retry=1)
 		run = self._run(request_payload={"action": "run_tests", "args": {}, "agent_name": "Dev Agent"})
-		with patch("one_bpmn.one_bpmn.connectors.agent_sandbox_ops.retry_dispatch", return_value=False), \
-		     patch.object(cb, "_enqueue_resume") as mock_resume:
+		with patch("one_bpmn.agents_sandbox.sandbox.ops.retry_dispatch", return_value=False), \
+		     patch.object(cb, "enqueue_resume") as mock_resume:
 			result = self._post({"correlation_id": run.name, "status": "tests_failed", "error": "3 failed"})
 		self.assertEqual(result, {"accepted": True})
 		mock_resume.assert_called_once()
@@ -522,7 +522,7 @@ class TestRetryOnTestFailure(CallbackCase):
 	def test_a_pass_never_triggers_a_retry_check(self):
 		self._config("Dev Agent", retry=1)
 		run = self._run(request_payload={"action": "run_tests", "args": {}, "agent_name": "Dev Agent"})
-		with patch("one_bpmn.one_bpmn.connectors.agent_sandbox_ops.retry_dispatch") as mock_retry:
+		with patch("one_bpmn.agents_sandbox.sandbox.ops.retry_dispatch") as mock_retry:
 			self._post({"correlation_id": run.name, "status": "tests_passed"})
 		mock_retry.assert_not_called()
 
@@ -610,7 +610,7 @@ class TestCallbackRunsAsAgentUser(CallbackCase):
 	def _post_as_guest(self, body: dict, user_for: str | None, **kwargs):
 		resumed_as = []
 		frappe.set_user("Guest")
-		with patch("one_bpmn.agents.identity.user_for", return_value=user_for), \
+		with patch("one_bpmn.ai_agent_security.identity.user_for", return_value=user_for), \
 		     patch(
 				"one_bpmn.processa_engine.runtime.ai_jobs.enqueue_wait_resume",
 				side_effect=lambda *a: resumed_as.append(frappe.session.user),

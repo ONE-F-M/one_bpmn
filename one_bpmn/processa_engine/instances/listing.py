@@ -11,6 +11,10 @@ SEARCH_FIELDS = ("process_model", "name", "context_doctype", "context_docname", 
 
 # Cache key for the doctype-level "is this run via Processa?" lookup.
 PROCESSA_DOCTYPES_CACHE_KEY = "one_bpmn_processa_controlled_doctypes"
+CANCELLATION_MAPS_CACHE_KEY = "one_bpmn_cancellation_maps"
+
+# Start trigger event of a map that runs when a user asks to cancel a submitted document.
+CANCEL_REQUEST_EVENT = "On Cancel Request"
 
 
 def list_process_instances(
@@ -306,7 +310,11 @@ def get_processa_controlled_doctypes() -> list:
 
 	rows = frappe.get_all(
 		"BPMN Start Event Config",
-		filters={"trigger_type": "DocType Event", "parenttype": "BPMN Process Model"},
+		filters={
+			"trigger_type": "DocType Event",
+			"trigger_event": ["!=", CANCEL_REQUEST_EVENT],
+			"parenttype": "BPMN Process Model",
+		},
 		fields=["parent", "trigger_doctype as doctype_name"],
 	)
 	rows += frappe.get_all(
@@ -331,6 +339,33 @@ def get_processa_controlled_doctypes() -> list:
 	return doctypes
 
 
+def get_cancellation_maps() -> dict:
+	"""DocType to the active map that starts On Cancel Request for it; cached until clear_processa_doctype_cache."""
+	cached = frappe.cache().get_value(CANCELLATION_MAPS_CACHE_KEY)
+	if cached is not None:
+		return cached
+
+	rows = frappe.get_all(
+		"BPMN Start Event Config",
+		filters={"trigger_event": CANCEL_REQUEST_EVENT, "parenttype": "BPMN Process Model"},
+		fields=["parent", "trigger_doctype"],
+		order_by="parent desc",
+	)
+	active_models = set(
+		frappe.get_all(
+			"BPMN Process Model",
+			filters={"name": ["in", [r.parent for r in rows] or [""]], "is_active": 1},
+			pluck="name",
+		)
+	)
+	# One map per DocType: rows run highest name first, so the lowest active model name wins.
+	maps = {r.trigger_doctype: r.parent for r in rows if r.trigger_doctype and r.parent in active_models}
+
+	frappe.cache().set_value(CANCELLATION_MAPS_CACHE_KEY, maps)
+	return maps
+
+
 def clear_processa_doctype_cache(doc=None, method=None):
-	"""Drop the cached Processa-controlled DocType list (doc_events hook)."""
+	"""Drop the cached Processa-controlled DocType list and cancellation maps (doc_events hook)."""
 	frappe.cache().delete_value(PROCESSA_DOCTYPES_CACHE_KEY)
+	frappe.cache().delete_value(CANCELLATION_MAPS_CACHE_KEY)

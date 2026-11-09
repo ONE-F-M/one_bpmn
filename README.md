@@ -70,9 +70,11 @@ one_bpmn/                      # Frappe app (repo root)
 ├── one_bpmn/                  # Python package
 │   ├── api/                   # Whitelisted backend endpoints (domain submodules)
 │   ├── one_bpmn/doctype/      # DocTypes + controllers (models, instances, tasks, logs)
-│   ├── one_bpmn/connectors/   # Outbound connectors and the agent sandbox client
+│   ├── one_bpmn/connectors/   # A2A connector handlers
+│   ├── agents_sandbox/        # Agent sandbox doctypes, sandbox client, customization writers
 │   ├── agents/                # AI agents (shape tools, memory, evals, A2A)
-│   ├── security/              # Validator for generated scripts
+│   ├── ai_agent_security/     # Screening, rate limits, turn locks, security events, code checks
+│   ├── ai_agent_guardrails/   # Tool policy, agent refusals, doctype change approval
 │   ├── processa_engine/notifications/  # AMP and HTML task emails
 │   ├── processa_engine/agent_runtime/  # Executors, model adapters, step loop and turn state
 │   ├── commands/              # bench commands
@@ -140,8 +142,8 @@ All endpoints are `@frappe.whitelist()` methods organized into domain submodules
 | `server_script_api` | Server-script CRUD + Logix tooling (chat itself goes through `agui.stream_agent_turn`) | `create_server_script`, `update_server_script`, `toggle_server_script`, `run_logix_test_case`, `end_chat_conversation` |
 | `canvas_comments` | Canvas comments & element assets | `get_canvas_comments`, `post_canvas_comment`, `update_comment_status`, `delete_canvas_element_assets` |
 | `editability` | Cross-site editor lock / edit checks | `check_and_update_editor_lock`, `check_process_editable`, `bulk_check_processes_editable` |
-| `version_history` | Diagram XML version history | `get_diagram_versions`, `get_diagram_version_xml` |
-| `script_version_history` | Server-script version history | `get_script_version_history`, `get_script_at_version`, `restore_script_version` |
+| `versions` | Diagram and server-script version history | `get_edit_history`, `restore_version`, `get_diagram_versions`, `get_script_version_history` |
+| `dmn` | DMN decision tables for business rule tasks | `get_dmn_xml`, `save_dmn_xml`, `get_decision_list` |
 | `notification_api` | In-app notification creation | `create_notification` |
 | `lookups` | Field and user lookups (fields, users, context docs) | `get_doctype_fields`, `get_system_users`, `get_context_doctypes`, `get_context_documents` |
 | `workflow_state` | Apply Frappe workflow-state transitions for BPMN service tasks (internal helper, not a public endpoint) | — |
@@ -293,7 +295,7 @@ bench --site your-site.local clear-cache
 - **API endpoint**: add to the appropriate submodule in `one_bpmn/api/` with `@frappe.whitelist()` (e.g. process CRUD in `process_maps.py`, instance endpoints in `instances.py`).
 - **Vue component / view**: add under `spiff/src/components/` or `spiff/src/pages/` and register routes in `spiff/src/router.js`.
 - **bpmn-js module**: add under `spiff/src/bpmn/`, `renderers/`, `rules/`, or `resize/` and register in `BpmnEditor.vue`'s `additionalModules`.
-- **Moddle extension**: add under `spiff/src/moddle/` and register in `BpmnEditor.vue`'s `moddleExtensions`.
+- **Moddle extension**: add under `spiff/src/bpmn/moddle/` and register in `BpmnEditor.vue`'s `moddleExtensions`.
 
 ### Runtime Hooks
 
@@ -384,15 +386,15 @@ Intent Classifier
 
 | File | Purpose |
 |---|---|
-| `spiff/src/components/ProsAlly/ProsAllyPanel.vue` | Chat UI — messages, option buttons, rich-text input |
+| `spiff/src/components/ProsAlly/ProsAllyPanel/ProsAllyPanel.vue` | Chat UI — messages, option buttons, rich-text input |
 | `spiff/src/utils/bpmnLayout.js` | Auto-layout — positions generated BPMN elements left-to-right |
-| `spiff/src/linting/bpmnlintrc.js` | bpmnlint rule configuration (errors vs. warnings) |
-| `one_bpmn/agents/bpmn_ir_pipeline.py` | IR → BPMN XML compilation (`compile_ir`); the pipeline stages themselves are DB Server Scripts driven by the ProsAlly process model |
+| `spiff/src/bpmn/lint/bpmnlintrc.js` | bpmnlint rule configuration (errors vs. warnings) |
+| `one_bpmn/ai_agent_registry/definitions/prosally/tools_pipeline.py` | IR → BPMN XML compilation (`compile_ir`); the pipeline stages themselves are DB Server Scripts driven by the ProsAlly process model |
 | `one_bpmn/utils/chat_persistence.py` | Persists conversation history (`Chat Conversation` DocType) |
 
 ### Agent Pipeline
 
-The stages (intent classifier, clarifier, confirmer, generator, modifier) are DB Server Scripts called as Agent Tools by the ProsAlly process map, and their prompts are seeded by patches. Chat turns go through `one_bpmn.api.agui.stream_agent_turn`. The one Python stage is `compile_ir` in `one_bpmn/agents/bpmn_ir_pipeline.py`.
+The stages (intent classifier, clarifier, confirmer, generator, modifier) are DB Server Scripts called as Agent Tools by the ProsAlly process map, and their prompts are seeded by patches. Chat turns go through `one_bpmn.api.agui.stream_agent_turn`. The one Python stage is `compile_ir` in `one_bpmn/ai_agent_registry/definitions/prosally/tools_pipeline.py`.
 
 ### Auto-Layout (`bpmnLayout.js`)
 

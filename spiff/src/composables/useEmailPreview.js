@@ -1,5 +1,5 @@
+import { createResource } from "frappe-ui";
 import { ref, watch } from "vue"
-import { frappePost } from "@/bpmn/shared/frappeResource"
 
 const PREVIEW_DELAY_MS = 1000
 
@@ -15,10 +15,10 @@ export function useEmailPreview({ values, open, processModel, request = () => em
 		const call = ++latest
 		loading.value = true
 		try {
-			const result = await frappePost("/api/method/one_bpmn.api.notification_api.preview_notification", {
+			const result = await createResource({ url: "one_bpmn.api.notification_api.preview_notification", params: {
 				process_model: processModel.value,
 				...request(),
-			})
+			} }).fetch()
 			if (call === latest) preview.value = { html: "", html_ar: "", sender: "", message: "", error: "", docname: "", ...result }
 		} catch (e) {
 			if (call === latest) preview.value = { html: "", html_ar: "", sender: "", message: "", error: e.message || String(e), docname: "" }

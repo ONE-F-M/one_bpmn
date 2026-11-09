@@ -4,10 +4,10 @@ import assert from "node:assert/strict"
 import { BpmnModdle } from "bpmn-moddle"
 import traverse from "bpmnlint/lib/traverse.js"
 
-import sendEmailMissingContent from "@/linting/rules/send-email-missing-content.js"
-import sendTaskMissingNotification from "@/linting/rules/send-task-missing-notification.js"
-import serviceTaskMissingConfig from "@/linting/rules/service-task-missing-config.js"
-import userTaskMissingAssignee from "@/linting/rules/user-task-missing-assignee.js"
+import sendEmailMissingContent from "@/bpmn/lint/rules/send-email-missing-content.js"
+import sendTaskMissingNotification from "@/bpmn/lint/rules/send-task-missing-notification.js"
+import serviceTaskMissingConfig from "@/bpmn/lint/rules/service-task-missing-config.js"
+import userTaskMissingAssignee from "@/bpmn/lint/rules/user-task-missing-assignee.js"
 
 const diagram = (body, executable = "true") => `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"

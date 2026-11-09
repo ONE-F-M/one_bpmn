@@ -343,7 +343,7 @@ class TestTheReplyCarriesItsOwnId(FrappeTestCase):
 		from one_bpmn.agents import agui_stream
 
 		with patch(
-			"one_bpmn.api.agent_invocation.invoke_agent",
+			"one_bpmn.api.a2a.invoke_agent",
 			return_value={"response": "hi", "message_name": "CM-PERSISTED-1"},
 		):
 			events = _sse_events(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
@@ -361,7 +361,7 @@ class TestTheReplyCarriesItsOwnId(FrappeTestCase):
 		from one_bpmn.agents import agui_stream
 
 		with patch(
-			"one_bpmn.api.agent_invocation.invoke_agent",
+			"one_bpmn.api.a2a.invoke_agent",
 			return_value={"response": "hi"},
 		):
 			events = _sse_events(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))

@@ -1,8 +1,8 @@
+import { createResource } from "frappe-ui";
 import { h } from "preact";
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { RecordPickerField } from "../shared/RecordPickerField";
-import { frappeGet } from "../shared/frappeResource";
 
 export function LaneProps(props) {
 	const { element } = props;
@@ -33,12 +33,11 @@ function LaneRoleComponent(props) {
 		if (txt) {
 			filters.push(["name", "like", `%${txt}%`]);
 		}
-		return frappeGet("/api/resource/Role", {
-			fields: '["name"]',
+		return createResource({ url: "frappe.client.get_list", params: { doctype: "Role", fields: '["name"]',
 			filters: JSON.stringify(filters),
 			limit_page_length: 50,
 			order_by: "name asc",
-		});
+		} }).fetch();
 	};
 
 	return h(RecordPickerField, {

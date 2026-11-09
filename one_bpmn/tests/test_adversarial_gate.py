@@ -21,7 +21,7 @@ from one_bpmn.agents.adversarial_gate import (
 	is_conversational,
 	ungated_live_agents,
 )
-from one_bpmn.agents.conformance import (
+from one_bpmn.ai_agent_registry.provisioning.conformance import (
 	SCREENING_MARKER,
 	has_screening_stage,
 	validate_chat_map,
@@ -213,7 +213,7 @@ class TestAdversarialGate(FrappeTestCase):
 
 	def test_conformance_fails_closed_when_the_pack_is_empty(self):
 		"""Screening that matches nothing is not screening."""
-		from one_bpmn.agents.conformance import screening_status
+		from one_bpmn.ai_agent_registry.provisioning.conformance import screening_status
 
 		with patch.object(frappe.db, "count", return_value=0):
 			result = screening_status()
@@ -221,7 +221,7 @@ class TestAdversarialGate(FrappeTestCase):
 		self.assertIn("no enabled rules", result["errors"][0])
 
 	def test_conformance_fails_closed_when_the_hook_is_unwired(self):
-		from one_bpmn.agents.conformance import screening_status
+		from one_bpmn.ai_agent_registry.provisioning.conformance import screening_status
 		from one_bpmn import hooks
 
 		with patch.object(hooks, "doc_events", {"Chat Message": {"before_insert": "something.else"}}):
@@ -274,8 +274,8 @@ class TestAdversarialGate(FrappeTestCase):
 	# Promotion marks a suite adversarial
 	# ------------------------------------------------------------------
 	def test_promoting_a_security_event_marks_the_suite_adversarial(self):
-		from one_bpmn.api.security_events import promote_to_eval_case
-		from one_bpmn.security.events import record_event
+		from one_bpmn.ai_agent_security.events import record_event
+		from one_bpmn.api.security import promote_to_eval_case
 
 		suite = self._suite("Baseline")
 		event = record_event(boundary="input", stage=f"{PREFIX}-stage", action="Flag",
@@ -407,10 +407,10 @@ class TestReReviewGoesThroughTheGate(FrappeTestCase):
 		frappe.flags.test_agent_revalidation = True
 		try:
 			with patch(
-				"one_bpmn.agents.agent_provisioning.validate_agent_config",
+				"one_bpmn.ai_agent_registry.provisioning.agent_provisioning.validate_agent_config",
 				return_value={"ok": True, "errors": []},
 			), patch(
-				"one_bpmn.agents.agent_config_resolver._start_reprovision", return_value=True
+				"one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.start_reprovision", return_value=True
 			) as handoff:
 				doc.revalidate_credentials_on_save()
 		finally:
@@ -471,7 +471,7 @@ class TestReReviewGoesThroughTheGate(FrappeTestCase):
 	def test_rerun_refuses_an_agent_the_process_is_past(self):
 		"""Live is already through, and Retired is a deliberate state the
 		creation process must not resurrect."""
-		from one_bpmn.agents.agent_provisioning import rerun_creation_process
+		from one_bpmn.ai_agent_registry.provisioning.agent_provisioning import rerun_creation_process
 
 		for status in ("Live", "Retired"):
 			doc = self._agent(status=status)
@@ -482,14 +482,14 @@ class TestReReviewGoesThroughTheGate(FrappeTestCase):
 	def test_rerun_hands_a_parked_agent_back_to_the_map(self):
 		"""It decides nothing — whether the agent may go Live stays the map's
 		call. This only asks the map to look again."""
-		from one_bpmn.agents import agent_provisioning as AP
+		from one_bpmn.ai_agent_registry.provisioning import agent_provisioning as AP
 
 		doc = self._agent()
-		with patch("one_bpmn.processa_engine.triggers._maybe_send_message"), patch(
-			"one_bpmn.agents.agent_config_resolver.get_creation_process_model",
+		with patch("one_bpmn.processa_engine.triggers.maybe_send_message"), patch(
+			"one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.get_creation_process_model",
 			return_value="Some Creation Map",
 		), patch(
-			"one_bpmn.agents.agent_config_resolver._start_reprovision", return_value=True
+			"one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.start_reprovision", return_value=True
 		) as start:
 			res = AP.rerun_creation_process(doc.name)
 
@@ -503,11 +503,11 @@ class TestReReviewGoesThroughTheGate(FrappeTestCase):
 		)
 
 	def test_rerun_refuses_when_no_creation_process_is_deployed(self):
-		from one_bpmn.agents import agent_provisioning as AP
+		from one_bpmn.ai_agent_registry.provisioning import agent_provisioning as AP
 
 		doc = self._agent()
 		with patch(
-			"one_bpmn.agents.agent_config_resolver.get_creation_process_model",
+			"one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.get_creation_process_model",
 			return_value=None,
 		):
 			with self.assertRaises(frappe.ValidationError):

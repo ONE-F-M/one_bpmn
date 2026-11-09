@@ -11,8 +11,8 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import prosally_helpers as helpers
-from one_bpmn.agents.dms_search import DOCUMENT_TYPES
+from one_bpmn.ai_agent_registry.definitions.prosally import helpers, tools_prompts
+from one_bpmn.ai_agent_registry.definitions.shared.tools_dms import DOCUMENT_TYPES
 from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_answers_dms_questions as dms_patch
 
@@ -21,7 +21,7 @@ QUESTION = "What does our annual leave policy say about director approval?"
 CONVERSATION = "zz-prosally-dms-replies"
 REDIRECT_SCRIPT = """# ProsAlly – Tool Redirect (self-contained, FLAT top-level code).
 from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, update_turn
-from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
+from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 
 turn = get_turn(context_docname)
 _cfg = get_agent_config("prosally_agent") or {}
@@ -77,13 +77,11 @@ class TestProsallyDmsAnswer(FrappeTestCase):
 
 	def answer(self, model_reply, question=QUESTION):
 		failing = isinstance(model_reply, Exception)
-		with patch.object(
-			helpers,
-			"complete_sub_prompt",
+		with patch.object(tools_prompts, "complete_sub_prompt",
 			side_effect=model_reply if failing else None,
 			return_value=None if failing else model_reply,
 		) as model:
-			return helpers.dms_answer_output(CONVERSATION, question), model
+			return tools_prompts.dms_answer_output(CONVERSATION, question), model
 
 	def test_a_matching_question_gets_the_answer_and_the_documents_it_used(self):
 		reply, _model = self.answer(answered(sources=["POL-T1"]))

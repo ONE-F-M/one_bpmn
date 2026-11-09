@@ -1,8 +1,8 @@
 /**
  * useEmailFields: fields an email can show (own and linked) with their Arabic candidates.
  */
+import { createResource } from "frappe-ui";
 import { ref } from "vue"
-import { frappeGet } from "@/bpmn/shared/frappeResource"
 import { flattenEmailFields } from "@/bpmn/shared/notifyFields"
 
 export function useEmailFields(fieldtypes) {
@@ -14,7 +14,7 @@ export function useEmailFields(fieldtypes) {
 		if (!doctype) return
 		loading.value = true
 		try {
-			const data = await frappeGet("/api/method/one_bpmn.api.lookups.get_email_fields", { doctype })
+			const data = await createResource({ url: "one_bpmn.api.lookups.get_email_fields", method: "GET", params: { doctype } }).fetch()
 			fields.value = flattenEmailFields(data, fieldtypes)
 		} finally {
 			loading.value = false

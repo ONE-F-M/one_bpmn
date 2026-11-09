@@ -33,7 +33,7 @@ share/python-wheels/
 # Frontend build output (frappe-ui / Frappe CRM default location)
 one_bpmn/public/frontend
 one_bpmn/www/processa.html
-# Legacy build output locations (before WI-004390) - stale local builds only
+# Old build output locations, kept so stale local builds stay untracked
 one_bpmn/public/processa
 # one-ai desk bundle (WI-001678) — built by `npm run build:oneai` in spiff/
 one_bpmn/public/one_ai

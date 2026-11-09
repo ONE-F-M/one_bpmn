@@ -8,8 +8,11 @@ import frappe
 from frappe import _
 
 
-def activate_deployed_model(model, script_extensions: dict) -> None:
-	"""Activate the model, deactivate its siblings and enable or disable the Server Scripts each runs; the caller saves."""
+def activate_deployed_model(model, script_extensions: dict) -> list:
+	"""Activate the model, deactivate its siblings and enable or disable the Server Scripts each runs; the caller saves.
+
+	Returns the scripts left disabled because they await a System Manager's review.
+	"""
 
 	model.is_active = 1
 	model.deployed_at = frappe.utils.now()
@@ -39,17 +42,27 @@ def activate_deployed_model(model, script_extensions: dict) -> None:
 	if siblings:
 		sibling_scripts = set()
 		for s in siblings:
-			sibling_scripts |= _get_linked_server_scripts(s.serialized_spec)
 			frappe.db.set_value("BPMN Process Model", s.name, "is_active", 0)
+			# Open instances still run the old map's scripts, so those are not disabled.
+			if not frappe.db.exists(
+				"BPMN Process Instance", {"process_model": s.name, "status": ["in", ["Active", "Errored"]]}
+			):
+				sibling_scripts |= _get_linked_server_scripts(s.serialized_spec)
 
 		still_used = _scripts_used_by_active_models({model.name, *(s.name for s in siblings)})
 		for script_name in (sibling_scripts - active_scripts - still_used):
 			if frappe.db.exists("Server Script", script_name):
 				frappe.db.set_value("Server Script", script_name, "disabled", 1)
 
+	pending_review = []
 	for script_name in active_scripts:
-		if frappe.db.exists("Server Script", script_name):
+		if not frappe.db.exists("Server Script", script_name):
+			continue
+		if frappe.db.get_value("Server Script", script_name, "processa_pending_review"):
+			pending_review.append(script_name)
+		else:
 			frappe.db.set_value("Server Script", script_name, "disabled", 0)
+	return sorted(pending_review)
 
 
 def disable_model(model) -> dict:

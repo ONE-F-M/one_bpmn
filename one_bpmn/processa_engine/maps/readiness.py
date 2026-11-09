@@ -107,7 +107,7 @@ def check_readiness(xml_content: str, model_name: str = None) -> dict:
 			"items": script_items,
 		})
 
-	from one_bpmn.security.script_gate import collect_script_security_violations
+	from one_bpmn.ai_agent_security.code_checks.script_gate import collect_script_security_violations
 
 	security_items = []
 	for finding in collect_script_security_violations(xml_content):
@@ -152,7 +152,7 @@ def check_readiness(xml_content: str, model_name: str = None) -> dict:
 			"items": agent_items,
 		})
 
-	from one_bpmn.agents.bpmn_task_config import LANE_ROLE_EXCLUDED, match_lane_role
+	from one_bpmn.ai_agent_registry.provisioning.bpmn_task_config import LANE_ROLE_EXCLUDED, match_lane_role
 
 	role_items = []
 	enabled_roles = frappe.get_list("Role", filters={"disabled": 0}, pluck="name") if referenced_lane_roles else []

@@ -17,20 +17,23 @@ from unittest import mock
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.bpmn_ir_pipeline import compile_ir
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_pipeline import compile_ir
 from one_bpmn.processa_engine.agent_runtime.llm_types import LLMTruncatedError
 from one_bpmn.agents.observability import record_truncated_calls
 from one_bpmn.one_bpmn.patches.v1_0 import (
 	prosally_generate_process_records_cut_offs_without_getattr as repair_patch,
 )
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_generate_process_splits_cut_off_phases as split_patch
-from one_bpmn.security.script_validator import ValidatorOptions, deep_inspect_script
+from one_bpmn.ai_agent_security.code_checks.script_validator import ValidatorOptions, deep_inspect_script
 from one_bpmn.tests.site_scripts import as_deployed
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SHAPES = ("ba", "staging")
-HELPERS = "one_bpmn.agents.prosally_helpers"
-PIPELINE = "one_bpmn.agents.bpmn_ir_pipeline"
+PROSALLY = "one_bpmn.ai_agent_registry.definitions.prosally"
+HELPERS = f"{PROSALLY}.helpers"
+PROMPTS = f"{PROSALLY}.tools_prompts"
+PROPERTIES = f"{PROSALLY}.tools_properties"
+PIPELINE = f"{PROSALLY}.tools_pipeline"
 OBSERVABILITY = "one_bpmn.agents.observability"
 TOOL = "ProsAlly - Tool Generate Process"
 
@@ -153,7 +156,7 @@ def run_generate(shape, should_cut=lambda user: False, text="Model a leave reque
 		mock.patch(f"{PIPELINE}.auto_fix_ir", ran.auto_fix_ir),
 		mock.patch(f"{PIPELINE}.ensure_default_lanes", return_value=True),
 		mock.patch(f"{PIPELINE}.extract_process_name", return_value="Leave"),
-		mock.patch("one_bpmn.security.bpmn_validator.validate_bpmn_xml", return_value={"valid": True}),
+		mock.patch(f"{PROSALLY}.validators.validate_bpmn_xml", return_value={"valid": True}),
 		mock.patch(f"{OBSERVABILITY}.current_sub_call", return_value={"run": "RUN-1", "tool": TOOL}),
 		mock.patch(f"{OBSERVABILITY}.record_ai_step", ran.record_step),
 		mock.patch(f"{OBSERVABILITY}.record_tool_artifact", ran.record_artifact),
@@ -164,10 +167,10 @@ def run_generate(shape, should_cut=lambda user: False, text="Model a leave reque
 		patches += [
 			mock.patch(f"{HELPERS}.complete_sub_prompt", fake_complete),
 			mock.patch(f"{HELPERS}.prosally_config", return_value=cfg),
-			mock.patch(f"{HELPERS}.stage_max_tokens", return_value=16384),
-			mock.patch(f"{HELPERS}.stage_system_prompt", return_value="SYSTEM"),
-			mock.patch(f"{HELPERS}.describe_lanes", return_value=" LANES"),
-			mock.patch(f"{HELPERS}.describe_task_config", return_value=" TASKS"),
+			mock.patch(f"{PROMPTS}.stage_max_tokens", return_value=16384),
+			mock.patch(f"{PROMPTS}.stage_system_prompt", return_value="SYSTEM"),
+			mock.patch(f"{PROMPTS}.describe_lanes", return_value=" LANES"),
+			mock.patch(f"{PROPERTIES}.describe_task_config", return_value=" TASKS"),
 		]
 	else:
 		patches += [
@@ -175,7 +178,7 @@ def run_generate(shape, should_cut=lambda user: False, text="Model a leave reque
 				"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=FakeAdapter(model)
 			),
 			mock.patch(
-				"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
+				"one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
 				return_value=cfg,
 			),
 			mock.patch.object(frappe, "get_all", return_value=[]),

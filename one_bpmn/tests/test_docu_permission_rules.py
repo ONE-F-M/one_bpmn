@@ -12,7 +12,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.api.docu_api import apply_doctype, get_doctype_schema
-from one_bpmn.security.doctype_validator import validate_doctype_ir
+from one_bpmn.ai_agent_registry.definitions.docu.validators import validate_doctype_ir
 
 DT = "Docu Permission Rules Probe"
 
@@ -75,7 +75,7 @@ class TestDocuPermissionRules(FrappeTestCase):
 	def test_a_real_doctype_can_be_read_and_written_back(self):
 		"""The failure the builder actually hit: load an existing DocType's
 		rules into the grid, change nothing, and the save is refused."""
-		from one_bpmn.tools.tool_for_server_scripts import read_doctype_permissions
+		from one_bpmn.ai_agent_registry.definitions.docu.tools import read_doctype_permissions
 
 		live = read_doctype_permissions("Note")
 		self.assertTrue(live, "Note should ship permission rules")
@@ -124,7 +124,7 @@ class TestDocuPermissionRules(FrappeTestCase):
 		enforcing, so a change made through Docu looked like it had vanished —
 		and saving that view back would have undone the override.
 		"""
-		from one_bpmn.tools.tool_for_server_scripts import read_doctype_permissions
+		from one_bpmn.ai_agent_registry.definitions.docu.tools import read_doctype_permissions
 		from one_bpmn.api.docu_api import _apply_standard_doctype_permissions
 
 		self._apply(_ir())
@@ -150,7 +150,7 @@ class TestDocuPermissionRules(FrappeTestCase):
 		A2A Task is standard but it is ours, so its rules belong in one_bpmn's
 		own JSON. ToDo is standard and frappe's, so they cannot go there.
 		"""
-		from one_bpmn.api.doctype_source_sync import owned_in_source
+		from one_bpmn.agents_sandbox.customization.doctype_source_sync import owned_in_source
 
 		self.assertTrue(owned_in_source("A2A Task"))
 		self.assertFalse(owned_in_source("ToDo"))
@@ -159,7 +159,7 @@ class TestDocuPermissionRules(FrappeTestCase):
 		"""Ours goes on the DocType itself, which is what writes the app's JSON,
 		and never into Custom DocPerm — an override would beat the file."""
 		from one_bpmn.api.docu_api import _reconcile_owned_doctype
-		from one_bpmn.api.doctype_source_sync import owned_in_source
+		from one_bpmn.agents_sandbox.customization.doctype_source_sync import owned_in_source
 
 		self._apply(_ir())
 		frappe.db.set_value("DocType", DT, "custom", 0)
@@ -194,7 +194,7 @@ class TestDocuPermissionRules(FrappeTestCase):
 		frappe.db.set_value("DocType", DT, {"custom": 0, "module": "Desk"})
 		frappe.clear_cache(doctype=DT)
 		try:
-			from one_bpmn.api.doctype_source_sync import owned_in_source
+			from one_bpmn.agents_sandbox.customization.doctype_source_sync import owned_in_source
 			self.assertFalse(owned_in_source(DT), "the probe should count as external")
 			_apply_standard_doctype_permissions(DT, [
 				{"role": "System Manager", "read": 1, "write": 1},

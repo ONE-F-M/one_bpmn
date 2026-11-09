@@ -5,12 +5,15 @@ This package is the only place in Processa Engine that imports SpiffWorkflow;
 everything else gets its classes and functions from here.
 """
 
+from SpiffWorkflow.bpmn.script_engine import TaskDataEnvironment
 from SpiffWorkflow.bpmn.specs.bpmn_process_spec import AdHocSubprocessSpec
 from SpiffWorkflow.bpmn.specs.defaults import SendTask
 from SpiffWorkflow.bpmn.specs.event_definitions.timer import TimerEventDefinition
 from SpiffWorkflow.bpmn.specs.mixins import CallActivityMixin
+from SpiffWorkflow.bpmn.specs.mixins.events.event_types import CatchingEvent
 from SpiffWorkflow.bpmn.specs.mixins.multiinstance_task import MultiInstanceTask
 from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
+from SpiffWorkflow.exceptions import TaskNotFoundException, WorkflowException
 from SpiffWorkflow.util.task import TaskState
 
 from one_bpmn.processa_engine.engine import spiff_patches
@@ -42,6 +45,8 @@ from one_bpmn.processa_engine.engine.script_engine import (
 	FrappeScriptEngine,
 	_check_script_permissions,
 	_make_script_engine,
+	check_server_script,
+	evaluate_condition,
 )
 from one_bpmn.processa_engine.engine.serializer import (
 	create_workflow,
@@ -58,6 +63,10 @@ __all__ = [
 	"MultiInstanceTask",
 	"SubWorkflowTask",
 	"TaskState",
+	"TaskDataEnvironment",
+	"CatchingEvent",
+	"TaskNotFoundException",
+	"WorkflowException",
 	"spiff_patches",
 	"NO_ACTIVATION",
 	"_adhoc_completion_met",
@@ -82,6 +91,8 @@ __all__ = [
 	"FrappeScriptEngine",
 	"_check_script_permissions",
 	"_make_script_engine",
+	"check_server_script",
+	"evaluate_condition",
 	"create_workflow",
 	"get_serializer",
 	"restore_workflow",

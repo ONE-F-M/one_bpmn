@@ -36,7 +36,7 @@ Two further cases (5 and 6) are mined from the BA (staging) site's real
 ``AI Agent Run`` history for this agent — read via ``ba_site_url``/``ba_api_key``/
 ``ba_api_secret`` in site_config, not invented:
 
-* Case 5 (``case_type="Trajectory"``) reproduces WI-000342 (A2A-157523), a
+* Case 5 (``case_type="Trajectory"``) reproduces A2A-157523, a
   precisely-specified multi-file work order that hit the adapter's 60-turn cap
   without a final answer THREE separate times on BA (runs 8q0i7ll8ss,
   1l2csspiip, livkksq6i3; 2026-09-08), each burning roughly $6 and 5.4M tokens
@@ -461,7 +461,7 @@ def _fixture_task(case: str | None, fields: dict) -> str:
 	The case is the only durable record of which task belongs to it: a run rewrites
 	the task's state and result, so nothing on the task itself stays recognisable.
 
-	The Frontend Agent's map triggers on A2A Task insert (WI-001932's universal
+	The Frontend Agent's map triggers on A2A Task insert (the universal
 	BPMN trigger, ``one_bpmn.trigger.on_doc_event``, wired to every doctype's
 	after_insert). Without ``frappe.flags.in_patch`` — which that trigger checks
 	and skips on — inserting this fixture starts the REAL agent for real money,

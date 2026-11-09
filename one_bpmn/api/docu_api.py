@@ -28,7 +28,7 @@ import frappe
 
 from frappe import _
 
-from one_bpmn.tools.tool_for_server_scripts import (
+from one_bpmn.ai_agent_registry.definitions.docu.tools import (
 	diff_ir,
 	DOCFIELD_ATTRS,
 	DOCFIELD_FLAGS,
@@ -39,11 +39,14 @@ from one_bpmn.tools.tool_for_server_scripts import (
 	DOCTYPE_SETTING_STRS,
 	read_doctype_definition as _read_doctype_ir,
 )
-from one_bpmn.security.client_script_validator import validate_form_script, validate_list_view_script
-from one_bpmn.security.doctype_validator import (
+from one_bpmn.ai_agent_registry.definitions.docu.validators import (
 	RESERVED_FIELDNAMES,
 	child_table_is_editable,
 	validate_doctype_ir,
+)
+from one_bpmn.ai_agent_security.code_checks.client_script_validator import (
+	validate_form_script,
+	validate_list_view_script,
 )
 from one_bpmn.utils.session import as_user
 
@@ -52,7 +55,7 @@ DOCU_AGENT = "Docu Agent"
 
 def _may_change_forms() -> bool:
 	"""System Manager, a role on the Docu Agent's allowed roles, or any Process Owner."""
-	from one_bpmn.api.agent_invocation import allowed_roles_for
+	from one_bpmn.api.a2a import allowed_roles_for
 
 	roles = set(frappe.get_roles())
 	if "System Manager" in roles or roles & allowed_roles_for(DOCU_AGENT):
@@ -62,7 +65,7 @@ def _may_change_forms() -> bool:
 
 def _docu_user() -> str:
 	"""The Docu Agent's own user, so form changes are made and recorded as the agent."""
-	from one_bpmn.agents.identity import user_for
+	from one_bpmn.ai_agent_security.identity import user_for
 
 	return user_for(DOCU_AGENT) or "Administrator"
 
@@ -135,7 +138,7 @@ def get_doctype_schema(doctype: str) -> dict:
 	"""Return an existing DocType as a Docu IR for anyone who may use the Docu Agent; ``{exists: False}`` when absent."""
 	if not doctype or not frappe.db.exists("DocType", doctype):
 		return {"exists": False, "doctype_ir": None}
-	from one_bpmn.api.agent_invocation import user_may_use_agent
+	from one_bpmn.api.a2a import user_may_use_agent
 
 	if not user_may_use_agent(DOCU_AGENT):
 		frappe.throw(_("You are not allowed to use Docu."), frappe.PermissionError)
@@ -458,7 +461,7 @@ def _reconciles_in_place(name: str) -> bool:
 	if not frappe.conf.get("developer_mode"):
 		return False
 
-	from one_bpmn.api.doctype_source_sync import owned_in_source
+	from one_bpmn.agents_sandbox.customization.doctype_source_sync import owned_in_source
 
 	return owned_in_source(name)
 
@@ -1261,10 +1264,10 @@ def shape_docu_reply(result: dict) -> dict:
 	no-op when the purpose-built map already returned structured keys."""
 	if result.get("doctype_ir") or result.get("intent"):
 		return result
-	from one_bpmn.api.ai_assistant import _extract_json
+	from one_bpmn.ai_agent_registry.definitions.shared.helpers import extract_json
 
 	raw = result.get("response") or ""
-	parsed = _extract_json(raw if isinstance(raw, str) else "")
+	parsed = extract_json(raw if isinstance(raw, str) else "")
 	if not isinstance(parsed, dict) or not (parsed.get("intent") or parsed.get("doctype_ir")):
 		return result
 	shaped = dict(result)

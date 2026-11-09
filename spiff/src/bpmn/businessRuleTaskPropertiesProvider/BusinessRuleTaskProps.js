@@ -1,9 +1,9 @@
+import { createResource } from "frappe-ui";
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
 import { HeaderButton } from "@bpmn-io/properties-panel";
 import { RecordPickerField } from "../shared/RecordPickerField";
-import { frappeGet } from "../shared/frappeResource";
 
 /**
  * Read a spiffworkflow-namespaced attribute from a business object.
@@ -79,10 +79,7 @@ function DecisionTablePicker(props) {
 			params.search_term = txt;
 		}
 
-		return frappeGet(
-			"/api/method/one_bpmn.api.dmn_api.get_decision_list",
-			params
-		).then((data) => {
+		return createResource({ url: "one_bpmn.api.dmn.get_decision_list", method: "GET", params: params }).fetch().then((data) => {
 			const list = Array.isArray(data) ? data : [];
 			return list;
 		});

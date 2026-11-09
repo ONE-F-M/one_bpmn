@@ -12,7 +12,7 @@ from one_bpmn.one_bpmn.patches.v1_0 import docu_writer_reads_its_own_prompt as f
 WRITER_PROMPT = "You are Docu, an expert assistant that designs Frappe DocTypes."
 
 # The lines of Tool Write Schema around the writer call, as they run on the BA site before the patch.
-WRITE_SCHEMA = """from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
+WRITE_SCHEMA = """from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 _cfg = get_agent_config("docu_agent") or {}
 _subs = _cfg.get("sub_prompts") or {}
 if not turn.get("content_free"):
@@ -30,7 +30,7 @@ class TestDocuWriterPrompt(FrappeTestCase):
 	def _run(self, script: str) -> str:
 		result = {}
 		with patch(
-			"one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
+			"one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration.get_agent_config",
 			side_effect=CONFIGS.get,
 		):
 			exec(script, {"frappe": frappe, "turn": {}, "result": result})

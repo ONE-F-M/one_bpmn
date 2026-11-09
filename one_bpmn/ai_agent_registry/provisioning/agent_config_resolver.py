@@ -1,0 +1,1196 @@
+# Copyright (c) 2026, one-fm and contributors
+# For license information, please see license.txt
+"""
+Resolve an AI Agent Configuration reference on an AI task/selector shape.
+
+A shape may set ``aiAgentConfig`` (a link to an AI Agent Configuration) as
+an alternative to entering a raw provider. The link is LIVE:
+
+* **At dispatch, the configuration is authoritative** for agent-level
+  fields (system prompt, provider, model, temperature, max tokens, and every memory setting) — ``resolve_dispatch_overrides``
+  supplies them and the dispatchers overlay them onto the shape's
+  attributes. The shape's copies are an editing view and the fallback when
+  the configuration has been deleted. Remaining shape-only fields (output
+  variable, response format/schema, retries, tool wiring) describe the
+  task, not the agent, and stay shape-owned.
+* **Selecting a configuration in the editor** copies its current values
+  into the shape's fields (``get_agent_config_for_shape``) so the designer
+  sees and can edit what will run.
+* **Saving the editor modal writes agent-level edits back** to the
+  configuration (``update_agent_config_from_shape``). Writing back to a
+  Live agent re-runs the AI Agent Creation Process so its provisioned chat
+  map picks up the change; agents waiting in Needs Attention are resumed
+  by the ordinary Edit_Action message their save emits.
+
+Tools are NOT sourced from the config — the diagram's ad-hoc shapes remain
+the toolkit.
+"""
+
+import json
+from xml.sax.saxutils import escape as xml_escape
+
+import frappe
+from frappe import _
+from frappe.utils import cint, cstr, flt
+
+from one_bpmn.ai_agent_registry.provisioning.agent_provisioning import is_chat_startable_map
+
+# Which config field feeds which shape attribute. Only executable fields
+# with a task-shape equivalent are mapped; chat-only metadata (chat mode
+# label, icon, roles, lifecycle, eval suite, sample prompts) has no shape
+# meaning and is intentionally omitted.
+CONFIG_TO_SHAPE = {
+	"system_prompt": "aiSystemPrompt",
+	"temperature": "aiTemperature",
+	"max_tokens": "aiMaxTokens",
+	# Memory settings live on the agent, not the diagram. Every value
+	# here is blank-by-default so an unset field falls through to the shape's
+	# older XML copy rather than silently overriding it with a default.
+	# ``long_term_memory`` needs no translation: the dispatcher's cfg_truthy
+	# already reads "Enabled" as true and "Disabled" as false.
+	"conversation_store": "aiConversationStore",
+	"long_term_memory": "aiLongTermMemory",
+	"memory_scope": "aiMemoryScope",
+	"memory_write_mode": "aiMemoryWriteMode",
+	"memory_distill_model": "aiMemoryDistillModel",
+	"memory_reconcile_model": "aiMemoryReconcileModel",
+	# Conversation compaction: when to replace old turns with a summary. Like
+	# the memory settings above, these belong to the agent rather than to any
+	# one task that calls it — a conversation is the agent's, not the shape's.
+	"context_token_budget": "aiContextTokenBudget",
+	"compaction_enabled": "aiCompactionEnabled",
+	"compaction_keep_tail": "aiCompactionKeepTail",
+	"compaction_model": "aiCompactionModel",
+	"compaction_token_threshold": "aiCompactionTokenThreshold",
+	"compaction_idle_minutes": "aiCompactionIdleMinutes",
+	"compaction_on_task_boundary": "aiCompactionOnTaskBoundary",
+	# The golden dataset bar is the agent's own judgement about its cases. Int,
+	# so 0 reaches the modal and reads there as "no bar".
+	"golden_dataset_minimum": "aiGoldenDatasetMinimum",
+	"golden_dataset_target": "aiGoldenDatasetTarget",
+	"tool_choice": "aiToolChoice",
+	"parallel_tool_calls": "aiParallelToolCalls",
+	"thinking_budget_tokens": "aiThinkingBudgetTokens",
+	"terminal_tools": "aiTerminalTools",
+}
+
+# Limits where 0 on the record means "not set here", so the task's own value or the platform default applies.
+ZERO_MEANS_UNSET = {
+	"aiTimeout": "timeout_seconds",
+	"aiMaxRetries": "max_retries",
+	"aiMaxToolCalls": "max_tool_calls",
+	"aiTopP": "top_p",
+}
+
+# Shape attributes the modal may write back, and the config fields they land
+# in. The old rule is inverted: the MODEL is now the agent's editable
+# pick (a Link into the AI Model catalog), while aiProvider is deliberately
+# absent — the provider is derived from the model's credentials link, so "to
+# change the provider, change the model".
+_SHAPE_TO_CONFIG = {
+	"aiSystemPrompt": "system_prompt",
+	"aiTemperature": "temperature",
+	"aiMaxTokens": "max_tokens",
+	"aiRunTokenBudget": "run_token_budget",
+	"aiRunCostBudget": "run_cost_budget",
+	"aiModel": "ai_model",
+	"aiToolChoice": "tool_choice",
+	"aiParallelToolCalls": "parallel_tool_calls",
+	"aiThinkingBudgetTokens": "thinking_budget_tokens",
+	"aiTerminalTools": "terminal_tools",
+	**ZERO_MEANS_UNSET,
+	# The modal's Memory section now persists here instead of onto
+	# the BPMN XML, so the agent is the single place memory is configured.
+	"aiConversationStore": "conversation_store",
+	"aiContextMaxMessages": "context_max_messages",
+	"aiLongTermMemory": "long_term_memory",
+	"aiMemoryScope": "memory_scope",
+	"aiMemoryWriteMode": "memory_write_mode",
+	"aiMemoryDistillModel": "memory_distill_model",
+	"aiMemoryReconcileModel": "memory_reconcile_model",
+	# Caps the injected recall block's estimated size. Handled the
+	# same way context_max_messages is below (NOT in CONFIG_TO_SHAPE's generic
+	# read loop) rather than like context_token_budget — 0 must mean "not
+	# configured here", never a real "no cap" setting, or an agent could
+	# silently defeat the ceiling this field exists to guarantee.
+	"aiMemoryTokenBudget": "memory_token_budget",
+	# Compaction is configured in the same modal and persists the same way.
+	"aiContextTokenBudget": "context_token_budget",
+	"aiCompactionEnabled": "compaction_enabled",
+	"aiCompactionKeepTail": "compaction_keep_tail",
+	"aiCompactionModel": "compaction_model",
+	"aiCompactionTokenThreshold": "compaction_token_threshold",
+	"aiCompactionIdleMinutes": "compaction_idle_minutes",
+	"aiCompactionOnTaskBoundary": "compaction_on_task_boundary",
+	"aiLoopCompactionThreshold": "loop_compaction_threshold",
+	"aiLoopCompactionKeepTurns": "loop_compaction_keep_turns",
+	"aiGoldenDatasetMinimum": "golden_dataset_minimum",
+	"aiGoldenDatasetTarget": "golden_dataset_target",
+	# Screening is agent-level too — what an agent may say is a
+	# property of the agent, not of the task that happens to call it.
+	"aiPiiScreening": "pii_screening",
+	"aiInjectionScreening": "injection_screening",
+	"aiOutputScreeningMode": "output_screening_mode",
+	# The message throttle is the agent's too, and for the same reason: how fast
+	# one user may talk to it is a property of the agent, not of the task that
+	# happens to call it.
+	"aiRateLimitEnabled": "rate_limit_enabled",
+	"aiRateLimitMessages": "rate_limit_messages",
+	"aiRateLimitWindowSeconds": "rate_limit_window_seconds",
+	"aiLockAfterBlocks": "lock_after_blocks",
+	"aiLockBlockWindowSeconds": "lock_block_window_seconds",
+	"aiConcurrentTurnPolicy": "concurrent_turn_policy",
+	# The agent's sandbox settings, written back from the modal.
+	"aiSandboxUseJob": "sandbox_use_job",
+	"aiSandboxRetryOnTestFailure": "sandbox_retry_on_test_failure",
+	"aiRequireReproduction": "require_reproduction",
+}
+
+# The inverse, for the editor read. Not folded into CONFIG_TO_SHAPE because
+# that map is overlaid onto the SHAPE at dispatch and screening has no shape
+# meaning; putting it there would write agent policy onto every diagram.
+_SCREENING_TO_SHAPE = {
+	"pii_screening": "aiPiiScreening",
+	"injection_screening": "aiInjectionScreening",
+	"output_screening_mode": "aiOutputScreeningMode",
+	"rate_limit_enabled": "aiRateLimitEnabled",
+	"rate_limit_messages": "aiRateLimitMessages",
+	"rate_limit_window_seconds": "aiRateLimitWindowSeconds",
+	"lock_after_blocks": "aiLockAfterBlocks",
+	"lock_block_window_seconds": "aiLockBlockWindowSeconds",
+	"concurrent_turn_policy": "aiConcurrentTurnPolicy",
+}
+
+# Guard rail categories, mirroring the AI Agent Guard Rail Select options
+# Kept here so the create endpoint can reject a bogus category
+# before doc validation turns it into a hard failure.
+_GUARDRAIL_CATEGORIES = (
+	"Code Quality",
+	"Performance",
+	"Cost & Tokens",
+	"Safety",
+	"Output Format",
+	"Other",
+)
+
+# The two child tables that make up the agent's frozen static context, and the shape attributes the modal carries them under. Unlike
+# the scalar maps above these are LISTS, so they are read and written whole:
+# the modal always sends the full table, and a missing key means "leave it
+# alone" rather than "empty it".
+_EXAMPLE_SHAPE_ATTR = "aiExamples"
+_GUARDRAIL_SHAPE_ATTR = "aiGuardrails"
+_EXAMPLE_FIELDS = ("input", "context_summary", "trajectory", "expected_output", "note", "enabled")
+_GUARDRAIL_FIELDS = ("guardrail", "category", "enabled")
+
+_SKILL_SHAPE_ATTR = "aiSkills"
+_SKILL_FIELDS = ("skill", "version_pin")
+
+def _clean_skill_rows(rows: list[dict]) -> list[dict]:
+	out = []
+	for r in rows or []:
+		skill = (r.get("skill") or "").strip()
+		if skill:
+			out.append({"skill": skill, "version_pin": (r.get("version_pin") or "").strip()})
+	return out
+
+
+# What the agent is PERMITTED to do, as roles held by its own user.
+# Editable here rather than only on the desk form because that is where the rest
+# of the agent is configured, and "may this agent move a work item to Done" is a
+# question the person designing the agent is the one asking.
+_ROLE_SHAPE_ATTR = "aiAgentRoles"
+_ROLE_FIELDS = ("role",)
+
+
+def _clean_role_rows(rows: list[dict]) -> list[dict]:
+	"""Named roles that exist, de-duplicated, in the order given.
+
+	De-duplicated because the child table has no unique constraint and the same
+	role twice is the same grant — it would just make the list harder to read.
+	"""
+	out, seen = [], set()
+	for r in rows or []:
+		role = (r.get("role") or "").strip() if isinstance(r, dict) else str(r or "").strip()
+		if role and role not in seen and frappe.db.exists("Role", role):
+			seen.add(role)
+			out.append({"role": role})
+	return out
+
+
+
+def _clean_example_rows(rows) -> list[dict]:
+	"""Normalise few-shot example rows from any caller (the assistant's create
+	payload or the editor modal) into what doc.append expects.
+
+	Rows with a blank input are dropped — ``input`` is the mandatory field, and
+	letting one through turns a whole save into a validation failure over a row
+	the user probably just started typing.
+	"""
+	out = []
+	for row in rows or []:
+		if not (row.get("input") or "").strip():
+			continue
+		out.append(
+			{
+				"input": row["input"],
+				"context_summary": row.get("context_summary") or "",
+				"trajectory": canonical_trajectory(row.get("trajectory")),
+				"expected_output": row.get("expected_output") or "",
+				"note": row.get("note") or "",
+				# Absent means on: the assistant's proposals carry no flag, and a
+				# new row is meant to take effect.
+				"enabled": 0 if row.get("enabled") in (0, False, "0", "false") else 1,
+			}
+		)
+	return out
+
+
+def _clean_guardrail_rows(rows) -> list[dict]:
+	"""Normalise guard rail rows. Blank rules are dropped for the same reason
+	blank example inputs are."""
+	out = []
+	for row in rows or []:
+		if not (row.get("guardrail") or "").strip():
+			continue
+		category = row.get("category")
+		out.append(
+			{
+				"guardrail": row["guardrail"],
+				# An unrecognised category would fail Select validation and lose
+				# the whole save; fall back rather than reject the rule.
+				"category": category if category in _GUARDRAIL_CATEGORIES else "Other",
+				"enabled": 0 if row.get("enabled") in (0, False, "0", "false") else 1,
+			}
+		)
+	return out
+
+
+def _rows_for_shape(doc, table: str, fields: tuple[str, ...]) -> list[dict]:
+	"""The table's rows as plain dicts, in document order — the order they
+	reach the model."""
+	return [{f: _shape_value(r, f) for f in fields} for r in doc.get(table) or []]
+
+
+def _shape_value(row, field: str):
+	if field == "enabled":
+		return int(row.get("enabled") or 0)
+	if field == "trajectory":
+		return canonical_trajectory(row.get("trajectory"))
+	return row.get(field) or ""
+
+
+def canonical_trajectory(value) -> str | None:
+	"""An example's tool calls as one JSON text with sorted keys; None when it has none, since the column is JSON."""
+	if isinstance(value, str):
+		value = frappe.parse_json(value) if value.strip() else None
+	if not value:
+		return None
+	return json.dumps(value, sort_keys=True, ensure_ascii=False)
+
+
+# The agent's screening settings. Agent-owned with no shape equivalent, so —
+# exactly like the static-context tables below — they are readable by the editor
+# but kept OUT of config_field_map, whose job is overlaying shape attributes at
+# dispatch. Screening is not a property of a task.
+_SCREENING_FIELDS = (
+	"pii_screening",
+	"injection_screening",
+	"output_screening_mode",
+	"rate_limit_enabled",
+	"rate_limit_messages",
+	"rate_limit_window_seconds",
+	"lock_after_blocks",
+	"lock_block_window_seconds",
+	"concurrent_turn_policy",
+)
+
+
+def config_screening(config_name: str) -> dict:
+	"""Screening settings for a configuration, keyed by shape attribute.
+
+	Only fields the doctype really has are returned, so this keeps working on a
+	site where a screening story has not landed yet — and the modal renders one
+	control per key it gets back rather than assuming both exist.
+	"""
+	if not config_name or not frappe.db.exists("AI Agent Configuration", config_name):
+		return {}
+	cfg = frappe.get_doc("AI Agent Configuration", config_name)
+	meta = frappe.get_meta("AI Agent Configuration")
+	out = {}
+	for fieldname in _SCREENING_FIELDS:
+		if meta.get_field(fieldname):
+			out[_SCREENING_TO_SHAPE[fieldname]] = cfg.get(fieldname)
+	return out
+
+
+# The agent's sandbox settings. Agent-owned with no shape equivalent, so like screening they are readable by
+# the editor and kept out of config_field_map, which is overlaid onto every task at dispatch.
+_SANDBOX_TO_SHAPE = {
+	"sandbox_use_job": "aiSandboxUseJob",
+	"sandbox_retry_on_test_failure": "aiSandboxRetryOnTestFailure",
+	"require_reproduction": "aiRequireReproduction",
+}
+
+
+def config_sandbox(config_name: str) -> dict:
+	"""The agent's sandbox settings, keyed by shape attribute."""
+	if not config_name or not frappe.db.exists("AI Agent Configuration", config_name):
+		return {}
+	cfg = frappe.get_doc("AI Agent Configuration", config_name)
+	return {attr: cint(cfg.get(field)) for field, attr in _SANDBOX_TO_SHAPE.items()}
+
+
+def config_static_context(config_name: str) -> dict:
+	"""Examples + guard rails for a configuration, keyed by shape attribute.
+
+	Deliberately NOT part of ``config_field_map``: that map is overlaid onto
+	shape attributes at dispatch, and these two tables are agent-owned with no
+	shape equivalent to override. The editor reads them through
+	``get_agent_config_for_shape``; dispatch reads them through
+	``load_agent_behaviour``.
+	"""
+	if not config_name or not frappe.db.exists("AI Agent Configuration", config_name):
+		# Empty rather than absent: the modal replaces each table WHOLE, so a key
+		# it never receives is a table it cannot show — and one it receives empty
+		# is a table it can populate. This branch used to name a `doc` that does
+		# not exist here and raised NameError instead of answering.
+		return {
+			_EXAMPLE_SHAPE_ATTR: [],
+			_GUARDRAIL_SHAPE_ATTR: [],
+			_SKILL_SHAPE_ATTR: [],
+			_ROLE_SHAPE_ATTR: [],
+		}
+	cfg = frappe.get_doc("AI Agent Configuration", config_name)
+	# Every table the modal may edit has to come back, or the modal opens with an
+	# empty list and saves that emptiness over what was configured. Skills were
+	# missing here and only survived because nothing sent them back.
+	return {
+		_EXAMPLE_SHAPE_ATTR: _rows_for_shape(cfg, "examples", _EXAMPLE_FIELDS),
+		_GUARDRAIL_SHAPE_ATTR: _rows_for_shape(cfg, "guardrails", _GUARDRAIL_FIELDS),
+		_SKILL_SHAPE_ATTR: _rows_for_shape(cfg, "enabled_skills", _SKILL_FIELDS),
+		_ROLE_SHAPE_ATTR: _rows_for_shape(cfg, "agent_roles", _ROLE_FIELDS),
+	}
+
+
+# The platform process that carries an agent Draft -> Live is no longer assumed
+# by name. It is whatever the single grant-holding AI Agent Configuration
+# (can_create_agents = 1) links in agent_creation_process, so a site is free to
+# name and rebuild that map without touching code. The doctype's
+# validate_agent_creation_grant keeps the grant unique, so this lookup returns
+# one answer or none.
+
+
+def get_creation_process_model() -> str | None:
+	"""Return the active agent-creation process map, or None when no agent
+	holds the creation grant (or its linked map is missing/inactive).
+
+	None is a first-class answer, not an error: a site with no grant simply
+	cannot create agents yet, and every caller degrades rather than blocks.
+	"""
+	model = frappe.db.get_value(
+		"AI Agent Configuration",
+		{"can_create_agents": 1, "enabled": 1},
+		"agent_creation_process",
+	)
+	if not model:
+		return None
+	return model if frappe.db.get_value("BPMN Process Model", model, "is_active") else None
+
+
+def get_creation_grant_holder() -> str | None:
+	"""Name of the configuration holding the agent-creation grant, or None.
+
+	Distinct from get_creation_process_model: a grant can be held while its
+	map is inactive, and the two failures need different messages.
+	"""
+	return frappe.db.get_value(
+		"AI Agent Configuration", {"can_create_agents": 1, "enabled": 1}, "name"
+	)
+
+
+def config_field_map(config_name: str) -> dict:
+	"""Return the shape-attribute values for a configuration (provider, model,
+	prompt, params). Empty dict if the config is missing."""
+	if not config_name or not frappe.db.exists("AI Agent Configuration", config_name):
+		return {}
+	cfg = frappe.get_doc("AI Agent Configuration", config_name)
+	out = {}
+	for cfield, sattr in CONFIG_TO_SHAPE.items():
+		val = cfg.get(cfield)
+		if val not in (None, ""):
+			out[sattr] = val
+
+	# Int fields have no blank state — 0 means "not configured here", so it must
+	# not override the shape's value the way a real setting would.
+	if cint(cfg.get("context_max_messages")):
+		out["aiContextMaxMessages"] = cfg.context_max_messages
+	# Same reasoning, and deliberately so — unlike context_token_budget
+	# (where 0 is a real "no size limit" setting the modal offers), 0/blank here
+	# must stay "not configured" with no way to opt out of the cap, or an agent
+	# could silently defeat the ceiling this field exists to guarantee.
+	if cint(cfg.get("memory_token_budget")):
+		out["aiMemoryTokenBudget"] = cfg.memory_token_budget
+	# The cap on a tool result the model sees. Same rule — 0 means
+	# "platform default", not "no cap", so it must not be written as a value.
+	if cint(cfg.get("tool_result_max_chars")):
+		out["aiToolResultMaxChars"] = cfg.tool_result_max_chars
+	if cint(cfg.get("loop_compaction_threshold")):
+		out["aiLoopCompactionThreshold"] = cfg.loop_compaction_threshold
+		out["aiLoopCompactionKeepTurns"] = cint(cfg.get("loop_compaction_keep_turns")) or 8
+	if cint(cfg.get("run_token_budget")):
+		out["aiRunTokenBudget"] = cfg.run_token_budget
+	if flt(cfg.get("run_cost_budget")):
+		out["aiRunCostBudget"] = cfg.run_cost_budget
+	for sattr, cfield in ZERO_MEANS_UNSET.items():
+		if flt(cfg.get(cfield)):
+			out[sattr] = cfg.get(cfield)
+	if cfg.ai_provider:
+		out["aiProvider"] = cfg.ai_provider
+	# The model is the agent's own pick from the AI Model catalog
+	# (the record name IS the model id); the provider above is derived from
+	# that model's credentials link at save time.
+	if cfg.get("ai_model"):
+		out["aiModel"] = cfg.ai_model
+	# Derivation at save time only helps configurations that were saved since
+	# the rule existed. One written any other way — a patch, an import, an
+	# agent created by another agent — keeps a blank provider beside a perfectly
+	# good model, and every dispatch then died on "AI Provider '' not found".
+	# The model's own link is the same answer the save would have written.
+	if not out.get("aiProvider") and out.get("aiModel"):
+		derived = frappe.db.get_value("AI Model", out["aiModel"], "provider")
+		if derived:
+			out["aiProvider"] = derived
+	return out
+
+
+def resolve_dispatch_overrides(config_name: str) -> dict:
+	"""Live values a linked configuration contributes at dispatch time.
+
+	Called by the AI Agent Task and AI Task Selector dispatchers when the
+	shape carries ``aiAgentConfig``. Never raises — a deleted/broken config
+	logs once and returns {} so the shape's own copies act as the fallback
+	and the task still runs.
+	"""
+	if not config_name:
+		return {}
+	try:
+		overrides = config_field_map(config_name)
+		if not overrides:
+			frappe.log_error(
+				title=f"AI task links missing AI Agent Configuration: {config_name}",
+				message="Falling back to the shape's own field copies.",
+			)
+		return overrides
+	except Exception:
+		frappe.log_error(
+			title=f"AI Agent Configuration resolution failed: {config_name}",
+			message=frappe.get_traceback(),
+		)
+		return {}
+
+
+DRIFT_FIELDS = {
+	"aiSystemPrompt": "System Prompt",
+	"aiModel": "Model",
+	"aiTemperature": "Temperature",
+	"aiMaxTokens": "Max Tokens",
+	"aiTimeout": "Timeout",
+	"aiMaxRetries": "Max Retries",
+	"aiMaxToolCalls": "Max Tool Calls",
+	"aiTopP": "Top P",
+}
+DRIFT_CONFIG_FIELDS = tuple(_SHAPE_TO_CONFIG[attr] for attr in DRIFT_FIELDS)
+_AI_SHAPE_TYPES = ("ai_agent", "ai_task_selector")
+
+
+def shape_config_drift(shape: dict, live: dict) -> list[dict]:
+	"""The DRIFT_FIELDS where the shape's copy differs from the configuration value dispatch runs."""
+	drift = []
+	for attr, label in DRIFT_FIELDS.items():
+		if attr not in live or _same_value(attr, shape.get(attr), live[attr]):
+			continue
+		drift.append({"field": attr, "label": label, "shape": shape.get(attr) or "", "live": live[attr]})
+	return drift
+
+
+def _same_value(attr: str, shape_value, live_value) -> bool:
+	if attr in ("aiTemperature", "aiTopP"):
+		return flt(shape_value) == flt(live_value)
+	if attr in ("aiMaxTokens", "aiTimeout", "aiMaxRetries", "aiMaxToolCalls"):
+		return cint(shape_value) == cint(live_value)
+	return cstr(shape_value).strip() == cstr(live_value).strip()
+
+
+@frappe.whitelist()
+def get_shape_drift(config_name: str, shape: str) -> list[dict]:
+	"""Whitelisted: the properties panel's per-field "differs from configuration" markers."""
+	frappe.has_permission("AI Agent Configuration", "read", throw=True)
+	return shape_config_drift(frappe.parse_json(shape) or {}, config_field_map(config_name))
+
+
+def sync_all_shapes_to_configs() -> None:
+	"""after_migrate: bring every linked map shape up to its configuration, whatever a patch wrote."""
+	for config_name in frappe.get_all("AI Agent Configuration", pluck="name"):
+		sync_shapes_to_config(config_name)
+
+
+def sync_shapes_to_config(config_name: str) -> list[str]:
+	"""Write the configuration's DRIFT_FIELDS onto every AI shape linking it, in the XML and the deployed spec."""
+	live = {attr: value for attr, value in config_field_map(config_name).items() if attr in DRIFT_FIELDS}
+	if not live:
+		return []
+	in_xml = xml_escape(config_name, {'"': "&quot;"})
+	changed = []
+	for model in frappe.get_all(
+		"BPMN Process Model",
+		or_filters={
+			"bpmn_xml": ["like", f'%aiAgentConfig="{in_xml}"%'],
+			"serialized_spec": ["like", f'%"aiAgentConfig": "{config_name}"%'],
+		},
+		fields=["name", "bpmn_xml", "serialized_spec"],
+	):
+		updates = {}
+		xml = _synced_xml(model.name, model.bpmn_xml, config_name, live)
+		if xml is not None:
+			updates["bpmn_xml"] = xml
+		spec = _synced_spec(model.serialized_spec, config_name, live)
+		if spec is not None:
+			updates["serialized_spec"] = spec
+		if updates:
+			frappe.db.set_value("BPMN Process Model", model.name, updates, update_modified=False)
+			changed.append(model.name)
+	return changed
+
+
+def _synced_xml(model_name: str, xml: str | None, config_name: str, live: dict) -> str | None:
+	"""The map XML with the linked shapes' drifted attributes rewritten, or None when nothing drifted."""
+	from lxml import etree
+
+	if not xml:
+		return None
+	try:
+		root = etree.fromstring(xml.strip().encode("utf-8"))
+	except etree.XMLSyntaxError:
+		frappe.log_error(
+			title=f"Shape sync skipped {model_name}: its BPMN XML does not parse",
+			message=frappe.get_traceback(),
+		)
+		return None
+	touched = False
+	for el in root.iter():
+		if not _links_to(el.get(_spiff("aiAgentConfig")), config_name) or el.get(_spiff("serviceType")) not in _AI_SHAPE_TYPES:
+			continue
+		shape = {attr: el.get(_spiff(attr)) for attr in DRIFT_FIELDS}
+		for d in shape_config_drift(shape, live):
+			el.set(_spiff(d["field"]), cstr(d["live"]))
+			touched = True
+	if not touched:
+		return None
+	body = etree.tostring(root, encoding="unicode")
+	stripped = xml.strip()
+	if stripped.startswith("<?xml"):
+		return stripped[: stripped.index("?>") + 2] + "\n" + body
+	return body
+
+
+def _synced_spec(serialized_spec: str | None, config_name: str, live: dict) -> str | None:
+	"""The deployed spec with the linked extensions' drifted values rewritten, or None when nothing drifted."""
+	if not serialized_spec:
+		return None
+	spec = json.loads(serialized_spec)
+	touched = False
+	for cfg in (spec.get("service_task_extensions") or {}).values():
+		if not _links_to(cfg.get("aiAgentConfig"), config_name) or cfg.get("serviceType") not in _AI_SHAPE_TYPES:
+			continue
+		for d in shape_config_drift(cfg, live):
+			cfg[d["field"]] = cstr(d["live"])
+			touched = True
+	return json.dumps(spec) if touched else None
+
+
+def _spiff(attr: str) -> str:
+	return f"{{http://spiffworkflow.org/bpmn/schema/1.0/core}}{attr}"
+
+
+def _links_to(linked: str | None, config_name: str) -> bool:
+	"""Whether a shape's aiAgentConfig names this configuration; a map may spell it in another case."""
+	return cstr(linked).strip().casefold() == config_name.casefold()
+
+
+@frappe.whitelist()
+def get_agent_config_for_shape(config_name: str) -> dict:
+	"""Whitelisted: the editor calls this on selecting a config to copy its
+	current values into the shape's fields (the designer's editing view)."""
+	frappe.has_permission("AI Agent Configuration", "read", throw=True)
+	# The static-context tables ride along so the modal can edit
+	# them, but they stay out of config_field_map so dispatch's overlay is
+	# unchanged.
+	#
+	# The role picker's options ride along too, rather than the modal
+	# fetching them separately. The separate call kept coming back empty in the
+	# browser while returning 142 roles to curl, and an empty picker is
+	# indistinguishable from "you may grant nothing" — which is a real answer the
+	# guard also gives. This response already reaches the modal (the roles an
+	# agent holds render from it), so putting the options on it removes a way for
+	# half the section to fail on its own.
+	return {
+		**config_field_map(config_name),
+		**config_static_context(config_name),
+		**config_screening(config_name),
+		**config_sandbox(config_name),
+		**roles_available_to_grant(),
+	}
+
+
+LINT_STATE_MAX_NAMES = 50
+
+
+@frappe.whitelist()
+def get_agent_config_lint_state(config_names: str) -> dict:
+	"""Whitelisted: lifecycle stage and mandatory-setting gaps the editor lints AI shapes against."""
+	frappe.has_permission("AI Agent Configuration", "read", throw=True)
+	from one_bpmn.ai_agent_registry.provisioning.agent_provisioning import validate_agent_config
+
+	states = {}
+	for name in list(dict.fromkeys(frappe.parse_json(config_names)))[:LINT_STATE_MAX_NAMES]:
+		row = frappe.db.get_value(
+			"AI Agent Configuration", name, ["enabled", "lifecycle_status", "agent_type"], as_dict=True
+		)
+		if not row:
+			states[name] = {"exists": False}
+			continue
+		result = validate_agent_config(name, test_provider=False, require_prompt=row.agent_type != "Background")
+		states[name] = {
+			"exists": True,
+			"enabled": bool(row.enabled),
+			"lifecycle_status": row.lifecycle_status or "Draft",
+			"problems": result["errors"],
+		}
+	return states
+
+
+def grantable_roles() -> list[str]:
+	"""The roles the CURRENT user is allowed to hand to an agent.
+
+	Only the ones they hold themselves, because an agent acts with the roles it
+	is given and anyone who can edit an agent can make it act. Without this,
+	editing an agent is a way to obtain any permission on the site: grant the
+	agent System Manager, then ask the agent to do the thing you could not.
+
+	A System Manager may grant anything, which is not a loophole — they already
+	hold every permission the grant could confer, and they are who Frappe
+	entrusts with role administration.
+	"""
+	mine = set(frappe.get_roles())
+	if "System Manager" in mine or frappe.session.user == "Administrator":
+		return sorted(
+			r for r in frappe.get_all("Role", filters={"disabled": 0}, pluck="name")
+			if r not in ("All", "Guest")
+		)
+	return sorted(mine - {"All", "Guest", "Desk User"})
+
+
+@frappe.whitelist()
+def roles_available_to_grant() -> dict:
+	"""Whitelisted: what the modal may offer in its role picker.
+
+	The picker and the guard read the same list on purpose — an option that
+	cannot be saved should never be offered.
+
+	Keys are prefixed the way every other shape attribute is, because this rides
+	back on ``get_agent_config_for_shape`` alongside them.
+	"""
+	frappe.has_permission("AI Agent Configuration", "read", throw=True)
+	return {
+		"aiGrantableRoles": grantable_roles(),
+		"aiRolesUnrestricted": "System Manager" in set(frappe.get_roles()),
+	}
+
+
+def _refuse_roles_the_editor_does_not_hold(wanted: list[dict], current: list[dict]) -> None:
+	"""Let a role through only if this user could hold it themselves.
+
+	Judged on what CHANGED, not on the whole list: an agent may legitimately
+	already hold a role its editor does not, and re-saving an unrelated field
+	should not fail because of it. Only newly added roles are checked.
+	"""
+	allowed = set(grantable_roles())
+	added = {r["role"] for r in wanted} - {r["role"] for r in current}
+	refused = sorted(added - allowed)
+	if refused:
+		frappe.throw(
+			_(
+				"You cannot grant {0} to an agent, because you do not hold it yourself. "
+				"An agent acts with the roles it is given, so granting one you do not "
+				"have would be a way around your own permissions. Ask somebody who "
+				"holds it, or a System Manager, to grant it."
+			).format(", ".join(refused)),
+			frappe.PermissionError,
+		)
+
+
+@frappe.whitelist()
+def update_agent_config_from_shape(config_name: str, fields: str | dict) -> dict:
+	"""Whitelisted: write agent-level edits from the editor modal back to the
+	linked AI Agent Configuration.
+
+	``fields`` maps shape attributes (aiSystemPrompt, aiTemperature,
+	aiMaxTokens, aiProvider) to their new values; anything outside
+	``_SHAPE_TO_CONFIG`` is ignored. Saving goes through doc.save() so
+	validation runs, the config cache clears, and the Edit_Action message
+	fires (resuming any Needs-Attention creation instance).
+
+	If the agent was Live and something changed, a fresh AI Agent Creation
+	Process instance is started so the provisioned chat map is rebuilt with
+	the new values — unless one is already running for this agent.
+	"""
+	if not config_name:
+		frappe.throw(_("config_name is required"))
+	if isinstance(fields, str):
+		fields = frappe.parse_json(fields) or {}
+
+	doc = frappe.get_doc("AI Agent Configuration", config_name)
+	doc.check_permission("write")
+
+	changed = []
+	for sattr, cfield in _SHAPE_TO_CONFIG.items():
+		if sattr not in fields:
+			continue
+		value = fields[sattr]
+		if cfield == "temperature" and value not in (None, ""):
+			value = frappe.utils.flt(value)
+		if cfield == "max_tokens" and value not in (None, ""):
+			value = frappe.utils.cint(value)
+		if cfield in ("timeout_seconds", "max_retries", "max_tool_calls"):
+			value = frappe.utils.cint(value)
+		if cfield == "top_p":
+			value = frappe.utils.flt(value)
+		# The modal's number input hands back a string; 0/blank means
+		# "not set here" and must stay 0 so dispatch falls through to the shape.
+		if cfield == "run_cost_budget":
+			value = frappe.utils.flt(value)
+		if cfield in (
+			"context_max_messages",
+			"context_token_budget",
+			"memory_token_budget",
+			"run_token_budget",
+			"parallel_tool_calls",
+			"sandbox_use_job",
+			"sandbox_retry_on_test_failure",
+			"require_reproduction",
+			"thinking_budget_tokens",
+			"loop_compaction_threshold",
+			"loop_compaction_keep_turns",
+		):
+			value = frappe.utils.cint(value)
+		# Old diagrams carry model ids baked into the shape before the AI Model
+		# catalog existed. Letting doc.save() hit the Link
+		# validation surfaces a raw LinkValidationError — say what is actually
+		# wrong instead.
+		if (
+			cfield in ("ai_model", "memory_distill_model", "memory_reconcile_model")
+			and value
+			and not frappe.db.exists("AI Model", value)
+		):
+			frappe.throw(
+				_(
+					"'{0}' is not in the AI Model catalog — the task shape carries an "
+					"outdated model id. Pick a model from the dropdown and save again."
+				).format(value)
+			)
+		if doc.get(cfield) != value:
+			doc.set(cfield, value)
+			changed.append(cfield)
+
+	# The static-context tables are replaced whole. The modal sends
+	# the complete table or omits the key entirely, so "present" means the user
+	# was editing it and "absent" means leave it be — there is no per-row diff
+	# to apply, and row ORDER is meaningful (it is the order they reach the
+	# model), which a merge would not preserve.
+	for sattr, table, cleaner, row_fields in (
+		(_SKILL_SHAPE_ATTR, "enabled_skills", _clean_skill_rows, _SKILL_FIELDS),
+		(_EXAMPLE_SHAPE_ATTR, "examples", _clean_example_rows, _EXAMPLE_FIELDS),
+		(_GUARDRAIL_SHAPE_ATTR, "guardrails", _clean_guardrail_rows, _GUARDRAIL_FIELDS),
+		(_ROLE_SHAPE_ATTR, "agent_roles", _clean_role_rows, _ROLE_FIELDS),
+	):
+		if sattr not in fields:
+			continue
+		rows = fields[sattr]
+		if isinstance(rows, str):
+			rows = frappe.parse_json(rows) or []
+		wanted = cleaner(rows)
+		if sattr == _ROLE_SHAPE_ATTR:
+			_refuse_roles_the_editor_does_not_hold(
+				wanted, _rows_for_shape(doc, "agent_roles", _ROLE_FIELDS)
+			)
+		# Compare against the same shape we hand out, so a modal round-trip with
+		# no edits is a no-op and cannot needlessly re-provision a Live agent.
+		if wanted == _rows_for_shape(doc, table, row_fields):
+			continue
+		doc.set(table, [])
+		for row in wanted:
+			doc.append(table, row)
+		changed.append(table)
+
+	if not changed:
+		return {"ok": True, "updated": [], "reprovisioned": False}
+
+	# Re-provisioning is a chat-map concern: it re-runs the creation process
+	# so a Live CHAT agent picks up the change. Background agents (Live via
+	# auto-go-live) have no map to rebuild — never re-provision them.
+	was_live = doc.lifecycle_status == "Live" and doc.agent_type == "Chat"
+	doc.save()
+
+	reprovisioned = False
+	if was_live:
+		reprovisioned = start_reprovision(doc.name)
+
+	return {"ok": True, "updated": changed, "reprovisioned": reprovisioned}
+
+
+# The create endpoint's payload contract as DATA: the AI Assistant
+# is told about these fields at call time instead of having them written into
+# its prompt as prose. Keys match create_agent_configuration's payload exactly.
+CREATE_PAYLOAD_CONTRACT = {
+	"agent_name": "Human-readable agent name (required).",
+	"agent_id": "Machine id; auto-derived from the name when omitted.",
+	"agent_type": (
+		"'Chat' (default) or 'Background'. Use 'Background' for a process-embedded agent "
+		"that only runs inside AI Agent Task shapes and never talks to users in chat — it "
+		"needs no chat_mode_label and no creation process, and goes Live automatically once "
+		"its model/credentials check out."
+	),
+	"chat_mode_label": (
+		"CHAT AGENTS ONLY: label shown in chat mode pickers (must be unique). Required for "
+		"a Chat agent, EXCEPT when the payload's process_model carries a valid non-chat map "
+		"— the exception only applies when process_model is actually INCLUDED in "
+		"proposed_config and names a real BPMN Process Model record. Never needed for "
+		"agent_type 'Background'."
+	),
+	"process_model": (
+		"EXACT BPMN Process Model record name this agent is mapped to (WI-001997) — take it "
+		"verbatim from the platform context line 'PROCESS MODEL OPEN IN THE EDITOR'; the "
+		"human-facing process or diagram title is a DIFFERENT string and will be rejected. "
+		"Never invent or abbreviate it; if the context does not provide it, ask the designer. "
+		"Omit for a mapless Direct-API chat agent (then chat_mode_label is required)."
+	),
+	"ai_model": "Name of an AI Model catalog record — the agent's provider follows from this model's credentials link (WI-001655).",
+	"system_prompt": "The agent's system prompt; leave empty to have the creation process generate one from the description.",
+	"description": "What the agent does — feeds prompt auto-generation.",
+	"sample_prompts": 'Optional list of {"prompt", "expected_behaviour"} rows; becomes the baseline eval suite.',
+	"examples": (
+		'Optional list of {"input", "expected_output", "note"} rows — worked few-shot '
+		"examples that DEMONSTRATE the behaviour. Rendered into the agent's frozen static "
+		"context after the system prompt. Use these to show a format or a judgement call "
+		"that is hard to state as a rule."
+	),
+	"guardrails": (
+		'Optional list of {"guardrail", "category"} rows — rules the agent must obey on '
+		"every turn, each stated imperatively. category is one of: Code Quality, "
+		"Performance, Cost & Tokens, Safety, Output Format, Other. Rendered LAST in the "
+		"frozen static context. Use these for constraints (limits, checks, prohibitions); "
+		"use examples for demonstrations."
+	),
+	"pii_screening": (
+		"Optional. Enabled or Disabled — screens the USER's message for personal data "
+		"before it reaches the model. Defaults to Enabled; disable only for an agent "
+		"whose work genuinely needs the raw values."
+	),
+	"injection_screening": (
+		"Optional. Enabled or Disabled — screens the USER's message for prompt-injection "
+		"and jailbreak patterns before it reaches the model. Defaults to Enabled; disable "
+		"only for an agent whose legitimate traffic trips the pack often enough to be "
+		"noisy, and record why. Disabling it here exempts one agent, not the site."
+	),
+	"rate_limit_enabled": (
+		"Optional. 1 or 0 — throttle how fast one user may message THIS agent. "
+		"Defaults to on. Turning it off exempts this agent only, not the site."
+	),
+	"rate_limit_messages": (
+		"Optional. Messages one user may send this agent inside the window before "
+		"being asked to slow down. Defaults to 20; 0 disables the throttle."
+	),
+	"rate_limit_window_seconds": (
+		"Optional. Length of the sliding window in seconds. Defaults to 60."
+	),
+	"lock_after_blocks": (
+		"Optional. Blocked attempts by one user against THIS agent before the "
+		"conversation is frozen and a reviewer has to release it. Defaults to 3; "
+		"0 disables the freeze for this agent."
+	),
+	"lock_block_window_seconds": (
+		"Optional. How far back blocked attempts are counted, in seconds. Defaults "
+		"to 3600."
+	),
+	"output_screening_mode": (
+		"Optional. Log, Flag or Block — what to do when the AGENT's own response "
+		"contains a credential, personal data, or a stretch of its own instructions. "
+		"Defaults to Flag, which records it and redacts the offending text so the reply "
+		"still reads. Log records and sends untouched — use it to watch a new agent "
+		"before tightening. Block withholds the whole reply."
+	),
+}
+
+
+@frappe.whitelist()
+def create_agent_configuration(payload: str | dict) -> dict:
+	"""Create a new AI Agent Configuration from the Processa editor.
+
+	Inserted as **Chat + Draft with the caller's permissions**, so the
+	AI Agent Creation Process start trigger fires on insert exactly as it
+	does for a config created from the doctype form — the agent walks
+	validate → provision → evaluate → Live on its own. Sample prompts (with
+	optional expected behaviour) become the baseline eval suite during the
+	process's Evaluate step.
+
+	Returns the new record's name plus the creation-process instance the
+	insert started (None when the creation model is inactive on this site).
+	"""
+	if isinstance(payload, str):
+		payload = frappe.parse_json(payload) or {}
+	frappe.has_permission("AI Agent Configuration", "create", throw=True)
+
+	agent_type = (payload.get("agent_type") or "Chat").strip().capitalize()
+	if agent_type not in ("Chat", "Background"):
+		frappe.throw(_("agent_type must be 'Chat' or 'Background'."))
+
+	# Without a creation process there is no path from Draft to Live for a Chat
+	# agent (apply_background_lifecycle only auto-lives Background agents), so
+	# creating one would strand it as a permanent Draft. Refuse up front and say
+	# why, rather than leave a record nobody can finish. Background agents skip
+	# the process entirely, so they are never blocked by its absence.
+	creation_model = get_creation_process_model()
+	if agent_type == "Chat" and not creation_model:
+		holder = get_creation_grant_holder()
+		frappe.throw(
+			_(
+				"The agent-creation process has not been linked, so new agents cannot be "
+				"created yet. '{0}' holds the creation grant but its Agent Creation Process "
+				"is missing or not deployed."
+			).format(holder)
+			if holder
+			else _(
+				"The agent-creation process has not been linked, so new agents cannot be "
+				"created yet. Tick 'Can Create Agents' on one AI Agent Configuration and "
+				"link the process map that takes an agent from Draft to Live."
+			),
+			title=_("Agent creation unavailable"),
+		)
+
+	agent_name = (payload.get("agent_name") or "").strip()
+	if not agent_name:
+		frappe.throw(_("Agent name is required."))
+	chat_mode_label = (payload.get("chat_mode_label") or "").strip()
+	process_model = (payload.get("process_model") or "").strip()
+	if process_model and not frappe.db.exists("BPMN Process Model", process_model):
+		frappe.throw(
+			_(
+				"BPMN Process Model '{0}' does not exist — pass the exact name of the "
+				"process this agent is mapped to, or omit it."
+			).format(process_model)
+		)
+	if (
+		agent_type == "Chat"
+		and not chat_mode_label
+		and is_chat_startable_map(process_model) is not False
+	):
+		# Only a CHAT agent needs a label, and even then an agent
+		# mapped to a NON-chat process map may skip it — it never appears in
+		# the chat picker. Everything else (chat map, or no map at all →
+		# Direct-API chat) fails fast here, because the creation process's
+		# Validate step rejects label-less chat agents and failing later
+		# guarantees a Needs Attention. Background agents never need one.
+		frappe.throw(_("A chat mode label is required for a chat agent."))
+
+	# Friendly duplicate guard — a raw DuplicateEntryError helps nobody.
+	agent_id = (payload.get("agent_id") or "").strip() or frappe.scrub(agent_name)
+	clash = frappe.db.exists("AI Agent Configuration", {"agent_name": agent_name}) or frappe.db.exists(
+		"AI Agent Configuration", {"agent_id": agent_id}
+	)
+	if clash:
+		frappe.throw(
+			_(
+				"An AI Agent Configuration named '{0}' already exists. "
+				"Link it instead of creating it again, or ask for a change to it."
+			).format(clash)
+		)
+
+	doc = frappe.new_doc("AI Agent Configuration")
+	doc.agent_name = agent_name
+	doc.agent_id = agent_id
+	doc.agent_framework = payload.get("agent_framework") or "Direct API"
+	doc.agent_type = agent_type
+	doc.lifecycle_status = "Draft"
+	doc.enabled = 1
+	doc.chat_mode_label = chat_mode_label
+	# The map is a designer-chosen link at creation — usually the
+	# process the agent is being created inside. Nothing clones or overwrites
+	# it; the map stays the designer's own.
+	doc.process_model = process_model or None
+	# The model is the pick; the provider derives from its
+	# credentials link on save. A directly-passed credentials value is kept
+	# only as legacy fallback for model-less payloads.
+	doc.ai_model = payload.get("ai_model") or None
+	doc.ai_provider = payload.get("ai_provider") or None
+	doc.system_prompt = payload.get("system_prompt") or ""
+	doc.description = payload.get("description") or ""
+	# Screening and the throttle chosen at creation rather than left
+	# to a later visit to the desk form. Set only when the field exists on this
+	# site and the value is one the doctype accepts — an unknown value would fail
+	# the whole insert over a setting the agent could perfectly well start with
+	# its default. Absent means "leave the doctype default" — Enabled for the
+	# on/off screens, Flag for the output mode.
+	_meta = frappe.get_meta("AI Agent Configuration")
+	for fieldname in _SCREENING_FIELDS:
+		value = payload.get(fieldname)
+		df = _meta.get_field(fieldname)
+		# Absent, not falsy. The throttle fields are Check and Int, where 0 is a
+		# real answer — "off", "no allowance" — and skipping it would make an
+		# agent impossible to create with the throttle turned off.
+		if value in (None, "") or not df:
+			continue
+		allowed = [o for o in (df.options or "").split("\n") if o]
+		if allowed and value not in allowed:
+			continue
+		doc.set(fieldname, value)
+	for row in payload.get("sample_prompts") or []:
+		if (row.get("prompt") or "").strip():
+			doc.append("sample_prompts", {
+				"prompt": row["prompt"],
+				"expected_behaviour": row.get("expected_behaviour") or "",
+			})
+	# The agent's frozen static context. Row order is the order the
+	# proposer gave them — it is the order they reach the model.
+	for row in _clean_example_rows(payload.get("examples")):
+		doc.append("examples", row)
+	for row in _clean_guardrail_rows(payload.get("guardrails")):
+		doc.append("guardrails", row)
+	for row in _clean_skill_rows(payload.get("enabled_skills")):
+		doc.append("enabled_skills", row)
+	doc.insert()  # caller's permissions; the After-Insert trigger starts the process
+
+	creation_instance = None
+	if creation_model:
+		creation_instance = frappe.db.get_value(
+			"BPMN Process Instance",
+			{
+				"process_model": creation_model,
+				"context_doctype": "AI Agent Configuration",
+				"context_docname": doc.name,
+			},
+			"name",
+		)
+	return {"name": doc.name, "agent_id": doc.agent_id, "creation_instance": creation_instance}
+
+
+def start_reprovision(config_name: str) -> bool:
+	"""Send a Live agent back through the creation process after a write-back.
+
+	The process's start event is After-Insert only, so an existing record
+	needs an explicit instance start. Skipped (with a log) when no agent holds
+	the creation grant, its linked map is missing/inactive, or an instance is
+	already running for this agent — the running one will pick up the saved
+	values itself.
+	"""
+	creation_model = get_creation_process_model()
+	if not creation_model:
+		holder = get_creation_grant_holder()
+		frappe.log_error(
+			title=f"Re-provision skipped for {config_name}",
+			message=(
+				f"'{holder}' holds the agent-creation grant but its linked "
+				"Agent Creation Process is missing or inactive."
+				if holder
+				else "No AI Agent Configuration holds the agent-creation grant "
+				"(can_create_agents), so there is no creation process to run."
+			),
+		)
+		return False
+
+	already_running = frappe.db.exists(
+		"BPMN Process Instance",
+		{
+			"process_model": creation_model,
+			"context_doctype": "AI Agent Configuration",
+			"context_docname": config_name,
+			"status": ("in", ["Active", "Errored"]),
+		},
+	)
+	if already_running:
+		return False
+
+	rejected_by = _start_condition_rejects(creation_model, config_name)
+	if rejected_by:
+		frappe.log_error(
+			title=f"Re-provision skipped for {config_name}",
+			message=(
+				f"The start condition of {creation_model} does not accept this agent, so an "
+				f"instance would wait at its start event for ever: {rejected_by}"
+			),
+		)
+		return False
+
+	try:
+		from one_bpmn.api.instances import start_process
+
+		start_process(
+			creation_model,
+			context_doctype="AI Agent Configuration",
+			context_docname=config_name,
+		)
+		return True
+	except Exception:
+		frappe.log_error(
+			title=f"Re-provision failed for {config_name}",
+			message=frappe.get_traceback(),
+		)
+		return False
+
+
+def _start_condition_rejects(creation_model: str, config_name: str) -> str:
+	"""The map's conditional start expression when it is False for this agent, else ""."""
+	from one_bpmn.processa_engine.engine import evaluate_condition, json_safe_doc_fields
+	from one_bpmn.processa_engine.triggers import parse_start_triggers
+
+	condition = parse_start_triggers(
+		frappe.db.get_value("BPMN Process Model", creation_model, "bpmn_xml")
+	)["conditional_start"]
+	if not condition:
+		return ""
+	fields = json_safe_doc_fields(frappe.get_doc("AI Agent Configuration", config_name))
+	return "" if evaluate_condition(condition, fields) else condition
+
+
+@frappe.whitelist()
+def model_catalogue() -> list:
+	"""Every enabled AI Model, with whether it can actually authenticate.
+
+	The editor used to build this from two requests — the AI Model list plus a
+	SEPARATE list of AI Providers — and label a model "credentials disabled"
+	when its provider was missing from the second. That comparison stopped
+	meaning anything when the connection moved onto AI Model: AI Provider is now
+	a name and nothing else, with no ``enabled`` field and no ``provider_name``,
+	so the provider request errored, the list came back empty, and EVERY model
+	was labelled as having disabled credentials.
+
+	Credentials live on the model, so the model is the only thing that can be
+	asked. ``api_key`` is a Password and never leaves the server, so the answer
+	comes back as a boolean rather than the key.
+	"""
+	# The submodule import is required: a bare ``import frappe`` leaves
+	# ``frappe.utils.password`` unresolved and the attribute access raises.
+	import frappe.utils.password
+
+	rows = frappe.get_all(
+		"AI Model",
+		filters={"enable_model": 1},
+		fields=["name", "provider", "model_api_name", "model_name", "support_temperature"],
+		order_by="name asc",
+	)
+	for row in rows:
+		row["has_credentials"] = bool(
+			frappe.utils.password.get_decrypted_password(
+				"AI Model", row["name"], "api_key", raise_exception=False
+			)
+		)
+	return rows

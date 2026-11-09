@@ -81,7 +81,7 @@ class TestSkillToolDispatchGating(FrappeTestCase):
 			return result
 
 		with (
-			patch("one_bpmn.agents.model_health.refuse_new_run", return_value=None),
+			patch("one_bpmn.ai_agent_registry.model_health.refuse_new_run", return_value=None),
 			patch("one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run", new=fake_run),
 		):
 			ai_agent.dispatch_ai_agent(self.instance, self.task, task_cfg, self.bpmn_id)

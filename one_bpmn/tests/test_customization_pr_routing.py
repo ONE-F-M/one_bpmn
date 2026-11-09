@@ -23,7 +23,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.api.production_review import (
     _allowed_repo_owners,
-    _app_for_doctype,
+    app_for_doctype,
     _customization_app_for_doctype,
     _customization_pr_files,
 )
@@ -48,7 +48,7 @@ class TestCustomizationRouting(FrappeTestCase):
         """The bug: Employee is erpnext's, but its Custom Fields are one_fm's."""
         if not frappe.db.exists("DocType", "Employee"):
             self.skipTest("Employee is not installed")
-        self.assertNotEqual(_app_for_doctype("Employee"), "one_fm")
+        self.assertNotEqual(app_for_doctype("Employee"), "one_fm")
         self.assertEqual(_customization_app_for_doctype("Employee"), "one_fm")
 
     def test_every_app_one_fm_customises_routes_to_one_fm(self):
@@ -64,7 +64,7 @@ class TestCustomizationRouting(FrappeTestCase):
         one_fm — both repos are ours, so the owning app wins."""
         if not frappe.db.exists("DocType", "BPMN Process Instance"):
             self.skipTest("one_bpmn doctypes not installed")
-        self.assertEqual(_app_for_doctype("BPMN Process Instance"), "one_bpmn")
+        self.assertEqual(app_for_doctype("BPMN Process Instance"), "one_bpmn")
         self.assertEqual(_customization_app_for_doctype("BPMN Process Instance"), "one_bpmn")
 
     def test_configured_app_owns_its_own_doctypes_too(self):
@@ -78,7 +78,7 @@ class TestCustomizationRouting(FrappeTestCase):
         _set_app("")
         if not frappe.db.exists("DocType", "Employee"):
             self.skipTest("Employee is not installed")
-        self.assertEqual(_customization_app_for_doctype("Employee"), _app_for_doctype("Employee"))
+        self.assertEqual(_customization_app_for_doctype("Employee"), app_for_doctype("Employee"))
 
 
 class TestRepoOwnerGuard(FrappeTestCase):
@@ -97,7 +97,7 @@ class TestRepoOwnerGuard(FrappeTestCase):
     def test_guard_refuses_a_repository_outside_the_allowed_owner(self):
         """Belt and braces: even if routing regressed, nothing reaches an
         upstream project's pull request queue."""
-        from one_bpmn.api.github_sync import open_customization_pr
+        from one_bpmn.agents_sandbox.customization.github_sync import open_customization_pr
 
         with self.assertRaises(frappe.ValidationError):
             open_customization_pr(
@@ -118,7 +118,7 @@ class TestRepoOwnerGuard(FrappeTestCase):
         The token is fake, so the first real API call fails; what matters is that
         the refusal is not the "Unexpected Repository" one.
         """
-        from one_bpmn.api.github_sync import open_customization_pr
+        from one_bpmn.agents_sandbox.customization.github_sync import open_customization_pr
 
         try:
             open_customization_pr(
@@ -137,7 +137,7 @@ class TestRepoOwnerGuard(FrappeTestCase):
 
     def test_no_allowed_owners_leaves_the_guard_inactive(self):
         """Passing none must not silently block every PR."""
-        from one_bpmn.api.github_sync import open_customization_pr
+        from one_bpmn.agents_sandbox.customization.github_sync import open_customization_pr
 
         try:
             open_customization_pr(
@@ -295,13 +295,13 @@ class TestSyncPullRequestBase(FrappeTestCase):
             review, "_call_production_api", return_value={}
         ), patch.object(review, "_diff_doctypes", return_value=[change]), patch.object(
             review, "_customization_app_for_doctype", return_value="one_fm"
-        ), patch.object(review, "_repo_for_app", return_value="ONE-F-M/one_fm"), patch.object(
+        ), patch.object(review, "repo_for_app", return_value="ONE-F-M/one_fm"), patch.object(
             review, "_customization_pr_files", return_value=({"a.py": ""}, None, ["a.py"], {"owned": False})
         ), patch.object(review, "_pr_body", return_value=""), patch.object(
             review, "_allowed_repo_owners", return_value={"ONE-F-M"}
         ), patch.object(
             frappe, "get_cached_doc", return_value=MagicMock(get_password=MagicMock(return_value="token"))
-        ), patch("one_bpmn.api.github_sync.open_customization_pr", opener):
+        ), patch("one_bpmn.agents_sandbox.customization.github_sync.open_customization_pr", opener):
             out = review.sync_doctypes("Some Map")
 
         self.assertTrue(out["synced"])

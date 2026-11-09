@@ -1,17 +1,17 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-001931: the A2A Client badge role.
+"""The A2A Client badge role.
 
 Approved callers authenticate as service users carrying exactly this
 role. It grants only what an inbound agent turn touches: the chat
 records the turn produces. A2A Task permissions ride on that doctype's
-own JSON (WI-001932), not here.
+own JSON, not here.
 """
 
 import frappe
 from frappe.permissions import add_permission, update_permission_property
 
-from one_bpmn.agents.a2a.principal import A2A_CLIENT_ROLE, ensure_client_role
+from one_bpmn.a2a.principal import A2A_CLIENT_ROLE, ensure_client_role
 
 GRANTS = (
 	("Chat Conversation", ("read", "write", "create")),

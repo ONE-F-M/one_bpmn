@@ -6,14 +6,7 @@ exactly the one crossing the graph forces.
 """
 import unittest
 
-from one_bpmn.agents.bpmn_ir_pipeline import (
-	_IR_IGNORABLE_RULES,
-	_RULE_HINTS,
-	check_topology,
-	compile_ir,
-	flow_pairs_from_xml,
-	translate_problems,
-)
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_pipeline import _IR_IGNORABLE_RULES, _RULE_HINTS, check_topology, compile_ir, flow_pairs_from_xml, translate_problems
 
 LANES = [{"id": "a", "name": "A"}, {"id": "b", "name": "B"}]
 
@@ -98,7 +91,7 @@ class TestHints(unittest.TestCase):
 
 
 class TestCompileIrEndToEnd(unittest.TestCase):
-	"""Runs the real spiff/pipeline.mjs — needs node on PATH."""
+	"""Runs the real spiff/tools/bpmn-pipeline/pipeline.mjs — needs node on PATH."""
 
 	def test_planar_ir_draws_with_no_crossings(self):
 		res = compile_ir(planar_ir())

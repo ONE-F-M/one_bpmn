@@ -3,7 +3,7 @@
 
 import frappe
 
-from one_bpmn.processa_engine.instances import control, listing, starting, task_actions
+from one_bpmn.processa_engine.instances import cancellation, control, listing, starting, task_actions
 
 
 @frappe.whitelist()
@@ -134,3 +134,10 @@ def resume_instance(instance_name: str, reason: str = "") -> dict:
 def retry_failed_step(instance_name: str, reason: str = "") -> dict:
 	"""Run an Errored instance again from its last saved state."""
 	return control.retry_failed_step(instance_name, reason)
+
+
+@frappe.whitelist(methods=["POST"])
+def request_cancellation(doctype: str, docname: str) -> dict:
+	"""Start the DocType's cancellation process on a submitted document; the document stays submitted."""
+	frappe.has_permission(doctype, "cancel", docname, throw=True)
+	return cancellation.request_cancellation(doctype, docname)

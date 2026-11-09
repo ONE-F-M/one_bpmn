@@ -1,10 +1,10 @@
+import { createResource } from "frappe-ui";
 import { isSelectEntryEdited } from "@bpmn-io/properties-panel";
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h, Component } from "preact";
 import { fixedDropdownStyle } from "../shared/dropdownPosition";
 
-import { frappeGet } from "@/bpmn/shared/frappeResource";
 
 // Channel emoji badges
 const CHANNEL_ICONS = {
@@ -77,12 +77,11 @@ class NotificationAutocomplete extends Component {
 		if (txt) {
 			filters.push(["name", "like", `%${txt}%`]);
 		}
-		frappeGet("/api/resource/Notification", {
-			fields: '["name","subject","channel","document_type","enabled"]',
+		createResource({ url: "frappe.client.get_list", params: { doctype: "Notification", fields: '["name","subject","channel","document_type","enabled"]',
 			filters: filters.length ? JSON.stringify(filters) : undefined,
 			limit_page_length: 50,
 			order_by: "modified desc",
-		})
+		} }).fetch()
 			.then((list) => {
 				this.setState({ options: list || [], loading: false, isOpen: true });
 			})

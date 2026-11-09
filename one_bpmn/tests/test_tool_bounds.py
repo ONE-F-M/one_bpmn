@@ -270,7 +270,7 @@ class TestCapPlumbing(FrappeTestCase):
 		self.assertEqual(seen.get("tool_result_max_chars"), 777)
 
 	def test_configuration_field_reaches_the_shape_overlay(self):
-		from one_bpmn.agents.agent_config_resolver import config_field_map
+		from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import config_field_map
 
 		cfg = frappe._dict(
 			ai_provider="Anthropic", ai_model="", context_max_messages=0, tool_result_max_chars=9000
@@ -280,7 +280,7 @@ class TestCapPlumbing(FrappeTestCase):
 		self.assertEqual(out.get("aiToolResultMaxChars"), 9000)
 
 	def test_zero_in_the_configuration_means_platform_default_not_zero(self):
-		from one_bpmn.agents.agent_config_resolver import config_field_map
+		from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import config_field_map
 
 		cfg = frappe._dict(ai_provider="Anthropic", ai_model="", context_max_messages=0, tool_result_max_chars=0)
 		with patch("frappe.db.exists", return_value=True), patch("frappe.get_doc", return_value=cfg):
@@ -288,7 +288,7 @@ class TestCapPlumbing(FrappeTestCase):
 		self.assertNotIn("aiToolResultMaxChars", out)
 
 	def test_the_field_exists_on_the_configuration_and_is_a_processa_control(self):
-		from one_bpmn.api.security_api import AGENT_CONTROL_GROUPS
+		from one_bpmn.api.security import AGENT_CONTROL_GROUPS
 
 		self.assertTrue(frappe.get_meta("AI Agent Configuration").get_field("tool_result_max_chars"))
 		fields = [f for _g, fs in AGENT_CONTROL_GROUPS for f in fs]

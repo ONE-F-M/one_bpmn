@@ -5,6 +5,12 @@ one_bpmn.one_bpmn.patches.v1_0.drop_process_id_unique_index
 one_bpmn.one_bpmn.patches.v1_0.create_process_designer_role
 one_bpmn.one_bpmn.patches.v1_0.create_processa_engine_module #06-11-2026 the 18 engine doctypes sync into the Processa Engine module, which must exist first
 one_bpmn.one_bpmn.patches.v1_0.create_processa_connectors_module #07-11-2026 the four connector doctypes sync into the Processa Connectors module, which must exist first
+one_bpmn.one_bpmn.patches.v1_0.plm_version_upgrade_fields
+one_bpmn.one_bpmn.patches.v1_0.create_agents_sandbox_module #08-11-2026 the six sandbox doctypes sync into the Agents Sandbox module, which must exist first
+one_bpmn.one_bpmn.patches.v1_0.create_a2a_module #08-11-2026 the five A2A doctypes sync into the A2A module, which must exist first
+one_bpmn.one_bpmn.patches.v1_0.create_ai_agent_registry_module #08-11-2026 the ten agent configuration, model and provider doctypes sync into the AI Agent Registry module, which must exist first
+one_bpmn.one_bpmn.patches.v1_0.create_ai_agent_security_module #08-11-2026 the conversation lock, injection pattern and security event doctypes sync into the AI Agent Security module, which must exist first
+one_bpmn.one_bpmn.patches.v1_0.create_ai_agent_guardrails_module #08-11-2026 the tool policy and doctype change approval doctypes sync into the AI Agent Guardrails module, which must exist first
 
 one_bpmn.one_bpmn.patches.v1_0.rename_ai_provider_to_ai_provider_credentials #16-07-2026
 one_bpmn.one_bpmn.patches.v1_0.move_agent_chat_doctypes_to_one_bpmn #16-07-2026
@@ -120,11 +126,8 @@ one_bpmn.one_bpmn.patches.v1_0.prosally_topology_prompts #05-09-2026 ProsAlly re
 one_bpmn.one_bpmn.patches.v1_0.lucrusher_scan_digest_and_short_confirmations #06-09-2026 WI-002195 LuCrusher put a 77k-character codebase scan into context and re-sent a 57k-character draft to confirm it: the scan tool now returns a ranked digest (the full scan already reaches finalize from the turn store), and the system prompt tells the agent a confirmation carries only intent and response
 one_bpmn.one_bpmn.patches.v1_0.sync_sandbox_agent_prompts #06-09-2026 the Frontend, Dev and Mobile maps now deliver through the sandbox, but an export never carries the AI Agent Configuration: their prompts still ordered retired tools and the Mobile App Agent still based on staging, which its sandbox clone does not have
 one_bpmn.one_bpmn.patches.v1_0.drop_cannot_see_conversation #06-09-2026 the dispatcher now puts the user's message at the end of the prompt, so ProsAlly's and Logix's driving prompts stop claiming the model cannot see the conversation — both maps rewritten and recompiled
-one_bpmn.one_bpmn.patches.v1_0.cleanup_ai_memory_store #06-09-2026 AI Memory data lifecycle: 272 rows read individually and classified by hand (not at migrate time) — 175 were instruction echoes, exact or reworded duplicates, expired, or false; one escaped-content row was also a dead duplicate of a live one; one kept row had a named individual generalized out of it — 97 rows survive
 one_bpmn.one_bpmn.patches.v1_0.record_tool_artifacts #06-09-2026 the generating tools (Docu write schema, Logix write script and write agent tool, ProsAlly generate and modify) hand their full work product to the run record and take their preview back from the same call
 one_bpmn.one_bpmn.patches.v1_0.lucrusher_fetches_a_document_once #06-09-2026 a Lucidchart document is fetched once per conversation: the parse lives in session state, a repeat request gets a page-list marker, '#page=<n>' one page in detail, '#refresh' a new fetch
-one_bpmn.one_bpmn.patches.v1_0.cleanup_ai_memory_store_followup #07-09-2026 WI-002165 one more confirmed instruction echo (v1jsod3l03, ProsAlly) found by a live read-only audit outside the original 272-row review
-one_bpmn.one_bpmn.patches.v1_0.add_work_item_refs_to_a2a_connector #06-09-2026 a delegation now carries the Work Item and pull request it is about, so the specialist can read the record instead of relying on the summary
 one_bpmn.one_bpmn.patches.v1_0.grant_specialists_work_item_read #06-09-2026 the Dev, Frontend, Mobile and Connector agents read the Work Item as their own identity; three had a user with no roles and the Dev Agent had no user
 one_bpmn.one_bpmn.patches.v1_0.sync_sandbox_agent_prompts #07-09-2026 re-run: the three sandbox prompts now permit changing files the work order does not name (and ask for them to be named in the report), and tell the agent to open the pull request before polishing — a Frontend run spent its last calls on nearby improvements and delivered no pull request
 one_bpmn.one_bpmn.patches.v1_0.add_work_item_refs_to_a2a_connector #07-09-2026 re-run: the delegate operation also carries target_app and git_branch, read from the Work Item's own fields
@@ -340,5 +343,9 @@ one_bpmn.one_bpmn.patches.v1_0.set_ticket_doctype_on_change_requests #05-11-2026
 one_bpmn.one_bpmn.patches.v1_0.frontend_agent_follows_the_pages_folder #05-11-2026 Locate UI reads the router from spiff/src/router.js and the six retired Frontend Agent tool scripts are removed
 one_bpmn.one_bpmn.patches.v1_0.seed_processa_instance_type #05-11-2026 Give Processa Settings an Instance Type on sites that have none
 one_bpmn.one_bpmn.patches.v1_0.delete_processa_comment_doctype #06-11-2026 canvas comments live in Comment, so the Processa Comment doctype and its table go
+one_bpmn.one_bpmn.patches.v1_0.release_stale_engine_gates #05-11-2026 Clear engine_in_progress on instances untouched for 20 minutes
 one_bpmn.one_bpmn.patches.v1_0.repath_connector_handlers #07-11-2026 stored connector handler, Value Transform and Choices From paths follow the modules that moved into processa_connectors
 one_bpmn.one_bpmn.patches.v1_0.frontend_agent_eval_cases_follow_the_pages_folder #07-11-2026 Frontend Agent eval cases and their A2A Task fixtures name the Processa pages by their spiff/src/pages paths
+one_bpmn.one_bpmn.patches.v1_0.repath_sandbox_handlers #08-11-2026 stored sandbox handler and Choices From paths follow the modules that moved into agents_sandbox
+one_bpmn.one_bpmn.patches.v1_0.repath_a2a_handlers #08-11-2026 stored A2A connector handler and Choices From paths follow a2a_client_ops into one_bpmn.a2a.client_ops
+one_bpmn.one_bpmn.patches.v1_0.add_server_script_approval_fields #08-11-2026 Server Scripts get allowed modules and a System Manager approval with who, when and the approved code hash

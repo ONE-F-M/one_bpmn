@@ -105,7 +105,7 @@ def compile_shape_tools(tool_shapes, instance) -> list:
 # ToolDeferred because the two are halves of one rule: the loop tracks one pause
 # per turn, so a second one must never begin work. Written by
 # processa_engine/agent_runtime/step_loop.py, read by
-# connectors/a2a_client_ops.delegate_to_local_agent — kept in this module so
+# a2a/client_ops.delegate_to_local_agent - kept in this module so
 # neither of those has to import the other.
 PAUSE_HELD_FLAG = "a2a_pause_held_this_turn"
 
@@ -532,13 +532,13 @@ def _waiting_marker(task) -> dict | None:
 
 	Checked against every connector's own waiting-key convention — not just
 	A2A's. A connector that parks (returns None and sets its own marker on
-	task.data, e.g. agent_sandbox_ops.AGENT_SANDBOX_WAITING_KEY) but
+	task.data, e.g. sandbox.ops.AGENT_SANDBOX_WAITING_KEY) but
 	whose key is absent from this list is invisible to the tool loop: the
 	loop reads the empty result as a real answer and reports "no result"
 	back to the model instead of suspending. Confirmed the hard way for the
 	agent_sandbox connector before this generalization existed."""
-	from one_bpmn.one_bpmn.connectors.a2a_client_ops import A2A_WAITING_KEY
-	from one_bpmn.one_bpmn.connectors.agent_sandbox_ops import (
+	from one_bpmn.a2a.client_ops import A2A_WAITING_KEY
+	from one_bpmn.agents_sandbox.sandbox.ops import (
 		AGENT_SANDBOX_WAITING_KEY,
 	)
 
@@ -571,13 +571,13 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 	but invoked directly so the agent can call it as a tool. LLM-supplied
 	arguments are visible to the script as locals.
 	"""
-	from one_bpmn.processa_engine.engine import _check_script_permissions
+	from one_bpmn.processa_engine.engine import check_server_script
 
 	script_doc = frappe.get_doc("Server Script", script_name)
 	if not script_doc or script_doc.disabled:
 		frappe.throw(f"Server Script '{script_name}' not found or disabled (shape {bpmn_id}).")
 
-	_check_script_permissions(script_doc.script, script_name)
+	check_server_script(script_doc)
 
 	result_dict = {}
 	local_vars = dict(task.data)
@@ -641,7 +641,7 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 	# when a tool runs inline inside a web request. So the sid and data are put
 	# back in the finally, and the switch is skipped entirely when we are already
 	# the right user.
-	from one_bpmn.agents import identity
+	from one_bpmn.ai_agent_security import identity
 
 	agent = getattr(instance, "_a2a_delegating_agent", None)
 	agent_user = identity.user_for(agent)
@@ -649,8 +649,10 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 	saved_sid = frappe.session.sid
 	saved_data = frappe.session.data
 	saved_ignore = frappe.flags.ignore_permissions
+	saved_in_script = frappe.flags.in_processa_script
 	need_switch = bool(agent_user) and agent_user != original_user
 	try:
+		frappe.flags.in_processa_script = True
 		if need_switch:
 			frappe.set_user(agent_user)
 		# Only claimed when there IS an identity to claim it for. An agent with no
@@ -674,6 +676,7 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 			frappe.session.sid = saved_sid
 			frappe.session.data = saved_data
 		frappe.flags.ignore_permissions = saved_ignore
+		frappe.flags.in_processa_script = saved_in_script
 
 	if isinstance(result_dict, dict) and result_dict:
 		task.data.update(result_dict)

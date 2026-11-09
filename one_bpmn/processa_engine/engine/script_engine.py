@@ -9,19 +9,32 @@ from SpiffWorkflow.bpmn.script_engine import PythonScriptEngine, TaskDataEnviron
 # Permission guard - patterns scripts must never contain
 # ─────────────────────────────────────────────────────────────
 
-def _check_script_permissions(script_text: str, label: str) -> None:
+def evaluate_condition(expression: str, names: dict):
+	"""Evaluate a map condition with the script validator applied and the ordinary builtins."""
+	_check_script_permissions(expression, "condition")
+	return eval(expression, {"__builtins__": __builtins__, **names})
+
+
+def check_server_script(script_doc) -> None:
+	"""Validate a Server Script before it runs, opening only what its approval lists."""
+	from one_bpmn.ai_agent_security.code_checks.script_gate import approved_names
+
+	_check_script_permissions(script_doc.script, script_doc.name, approved_names(script_doc))
+
+
+def _check_script_permissions(script_text: str, label: str, allowed: frozenset = frozenset()) -> None:
 	"""Run the save-time AST validator again right before exec() and throw on any violation.
 
-	Shared by Server Script tasks, inline <bpmn:script> tasks and run_logix_test_case.
+	Shared by Server Script tasks, inline <bpmn:script> tasks, conditions and run_logix_test_case.
 	"""
 	try:
 		import frappe as _f
 	except ImportError:
 		return
 
-	from one_bpmn.security.script_validator import deep_inspect_script
+	from one_bpmn.ai_agent_security.code_checks.script_validator import deep_inspect_script
 
-	violations = deep_inspect_script(script_text or "")
+	violations = deep_inspect_script(script_text or "", allowed=allowed)
 	if violations:
 		_f.log_error(
 			title=f'BPMN Script "{label}": execution blocked',
@@ -32,6 +45,14 @@ def _check_script_permissions(script_text: str, label: str) -> None:
 				label, violations[0], len(violations)
 			)
 		)
+
+
+class _ValidatedEnvironment(TaskDataEnvironment):
+	"""Task data environment that runs the script validator on every expression it evaluates."""
+
+	def evaluate(self, expression, context, external_context=None):
+		_check_script_permissions(expression, "condition")
+		return super().evaluate(expression, context, external_context)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -121,10 +142,12 @@ class FrappeScriptEngine(PythonScriptEngine):
 		need_switch = bool(self._initiated_by) and self._initiated_by != original_user
 		saved_sid = _frappe.session.sid
 		saved_data = _frappe.session.data
+		saved_in_script = _frappe.flags.in_processa_script
 		try:
 			if need_switch:
 				_frappe.set_user(self._initiated_by)
 			_frappe.flags.ignore_permissions = False
+			_frappe.flags.in_processa_script = True
 
 			if server_script_name:
 				self._run_frappe_server_script(server_script_name, task)
@@ -138,6 +161,7 @@ class FrappeScriptEngine(PythonScriptEngine):
 				_frappe.session.sid = saved_sid
 				_frappe.session.data = saved_data
 			_frappe.flags.ignore_permissions = False
+			_frappe.flags.in_processa_script = saved_in_script
 
 	def _agent_for_script(self, script_name: str) -> str:
 		"""The agent whose map runs this Server Script, or "" for an ordinary process.
@@ -229,8 +253,7 @@ class FrappeScriptEngine(PythonScriptEngine):
 			)
 			return
 
-		# Reject scripts that attempt to bypass permission controls
-		_check_script_permissions(script_doc.script, script_name)
+		check_server_script(script_doc)
 
 		# Build locals: workflow variables + framework context
 		#
@@ -344,7 +367,7 @@ def _make_script_engine(
 	elif _frappe:
 		extra["doc"] = _frappe._dict()
 
-	env = TaskDataEnvironment(extra)
+	env = _ValidatedEnvironment(extra)
 	return FrappeScriptEngine(
 		env,
 		script_task_extensions=script_task_extensions,

@@ -1,5 +1,5 @@
 """
-WI-002042: ProsAlly must draw the lanes the designer asked for, and no others.
+ProsAlly must draw the lanes the designer asked for, and no others.
 
 Asked for "3 lanes only: Recruiter, GRD Operator, GRD Manager", it produced four
 — the extra one being "System (Automatic)". That lane was not a stray guess; it
@@ -178,7 +178,7 @@ MOD_NEW = (
 
 
 def execute():
-	"""Make designer-named lanes authoritative for ProsAlly (WI-002042)."""
+	"""Make designer-named lanes authoritative for ProsAlly."""
 	if not frappe.db.exists("AI Agent Configuration", CONFIG_NAME):
 		return
 

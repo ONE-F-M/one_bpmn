@@ -4,7 +4,7 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.prosally_helpers import MAX_CONFIRMATION_SETTINGS, MAX_CONFIRMATION_STEPS, join_confirmation
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_prompts import MAX_CONFIRMATION_SETTINGS, MAX_CONFIRMATION_STEPS, join_confirmation
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_caps_the_confirmation_summary as cap_patch
 from one_bpmn.one_bpmn.patches.v1_0.prosally_turns_a_step_into_a_subprocess import AGENT_ID, SUITE_TITLE
 

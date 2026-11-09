@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import frappe
 
-from one_bpmn.agents.model_health import _send_email
+from one_bpmn.ai_agent_registry.model_health import send_email
 
 ALERT_TYPE = "Alert"
 
@@ -116,7 +116,7 @@ def notify(subject: str, body: str, agents=None, reference_doctype: str = None,
 			)
 	if outside:
 		try:
-			_send_email(outside, subject, body)
+			send_email(outside, subject, body)
 			told += outside
 		except Exception:
 			frappe.log_error(title="Eval alert email could not be sent", message=frappe.get_traceback())

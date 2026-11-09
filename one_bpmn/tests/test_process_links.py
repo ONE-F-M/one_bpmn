@@ -7,8 +7,8 @@ import frappe
 from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import process_digest, process_links
-
+from one_bpmn.ai_agent_registry.definitions.shared import tools_process_digest as process_digest
+from one_bpmn.ai_agent_registry.definitions.prosally import tools_links as process_links
 PREFIX = "zz_process_links_"
 DOCTYPE = "BPMN Process Model"
 

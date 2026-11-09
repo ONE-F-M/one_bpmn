@@ -1,5 +1,5 @@
 """
-WI-001793: memory settings move from the BPMN diagram onto the agent.
+Memory settings move from the BPMN diagram onto the agent.
 
 Conversation store, context window, the long-term-memory toggle, memory scope,
 write mode and the distillation model were all stored as ``spiffworkflow:ai*``

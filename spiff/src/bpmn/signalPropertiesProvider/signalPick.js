@@ -3,12 +3,12 @@
 // Resolves to the created record's name; the caller passes trimmed, non-blank text.
 export function createBpmnSignalMaster(post, name) {
 	// BPMN Signal Master is named by bpmn_signal_name, so the record is always called what was typed.
-	return post("/api/resource/BPMN Signal Master", { bpmn_signal_name: name }).then(() => name);
+	return post("frappe.client.insert", { doc: { doctype: "BPMN Signal Master", bpmn_signal_name: name } }).then(() => name);
 }
 
 // Resolves once the record is deleted; maps that still use the name keep it but it leaves the picker.
 export function deleteBpmnSignalMaster(del, name) {
-	return del(`/api/resource/BPMN Signal Master/${encodeURIComponent(name)}`);
+	return del("frappe.client.delete", { doctype: "BPMN Signal Master", name });
 }
 
 function getDefinitions(businessObject) {

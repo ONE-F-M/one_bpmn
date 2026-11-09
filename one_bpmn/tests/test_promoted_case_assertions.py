@@ -12,9 +12,9 @@ from frappe.utils import add_to_date, now_datetime
 
 from one_bpmn.agents._eval_test_factories import make_eval_case, make_eval_suite
 from one_bpmn.agents.eval_runner import _execute_eval_suite
-from one_bpmn.api.security_events import REFUSAL_RUBRIC, promote_to_eval_case
+from one_bpmn.ai_agent_security.events import record_event
+from one_bpmn.api.security import REFUSAL_RUBRIC, promote_to_eval_case
 from one_bpmn.one_bpmn.patches.v1_0 import promoted_security_cases_get_assertions
-from one_bpmn.security.events import record_event
 
 
 def _event(**kw):

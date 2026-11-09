@@ -9,7 +9,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.agent_config_resolver import _start_reprovision
+from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import start_reprovision
 from one_bpmn.one_bpmn.patches.v1_0 import creation_map_takes_back_existing_agents as fix
 
 MAP = """<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:spiffworkflow="http://spiffworkflow.org/bpmn/schema/1.0/core" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -76,7 +76,7 @@ class TestTheMapIsUpdated(FrappeTestCase):
 
 	def test_a_site_without_a_creation_map_is_left_alone(self):
 		with (
-			patch("one_bpmn.agents.agent_config_resolver.get_creation_process_model", return_value=None),
+			patch("one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.get_creation_process_model", return_value=None),
 			patch("frappe.db.set_value") as write,
 		):
 			fix.execute()
@@ -106,13 +106,16 @@ class TestTheReprovisionGuard(FrappeTestCase):
 	def _reprovision(self, condition: str):
 		with (
 			patch(
-				"one_bpmn.agents.agent_config_resolver.get_creation_process_model",
+				"one_bpmn.ai_agent_registry.provisioning.agent_config_resolver.get_creation_process_model",
 				return_value="_creation-map",
 			),
-			patch("one_bpmn.processa_engine.triggers._get_conditional_start_condition", return_value=condition),
+			patch(
+				"one_bpmn.processa_engine.triggers.parse_start_triggers",
+				return_value={"workflow_state": None, "field_condition": None, "conditional_start": condition},
+			),
 			patch("one_bpmn.api.instances.start_process") as start,
 		):
-			started = _start_reprovision(self.agent)
+			started = start_reprovision(self.agent)
 		return started, start
 
 	def test_a_condition_that_rejects_the_agent_starts_nothing(self):

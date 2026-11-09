@@ -26,14 +26,16 @@ House style lives in `frappe-bench/.claude/rules/`: `house-style.md` always, `py
   - `editability.py`: cross-site editability checks and editor lock heartbeats.
   - `server_script_api.py`: Server Script CRUD and the Logix and ProsAlly turn-context builders.
   - `agui.py`: `stream_agent_turn`, the one chat endpoint every agent uses.
-  - `canvas_comments.py`, `notification_api.py`, `version_history.py`, `script_version_history.py`.
+  - `canvas_comments.py`, `notification_api.py`, `versions.py` (diagram and Server Script versions), `dmn.py`.
 - `one_bpmn/one_bpmn/doctype/`: DocType JSON, controllers and tests.
 - `one_bpmn/processa_engine/engine/`: the SpiffWorkflow script engine.
 - `one_bpmn/processa_engine/`: engine services: `triggers.py` (document events), `timers.py` (timer and stranded-step jobs), `assignment.py`, `task_selector.py`, `call_activities.py` and `audit.py` (workflow state changes), and `compiler/` (deploy checks and the compile step).
 - `one_bpmn/processa_connectors/`: the connector doctypes, the HTTP executor and Google operations (`operations/`), the Google clients (`google/`), manifests, seed and validator; `one_bpmn/api/connectors.py` holds the modeler endpoints.
-- `one_bpmn/one_bpmn/connectors/`: the agent sandbox client and the A2A connector handlers.
+- `one_bpmn/agents_sandbox/`: the sandbox doctypes, the coding-agent sandbox client (`sandbox/`), acceptance criteria and reproduction gates, and the DocType source, customization and GitHub pull request writers (`customization/`).
+- `one_bpmn/one_bpmn/connectors/`: the A2A connector handlers.
 - `one_bpmn/agents/`: the AI agent runtime. See its `AGENTS.md`.
-- `one_bpmn/security/`: the generated-script validator.
+- `one_bpmn/ai_agent_security/`: the conversation lock, injection pattern and security event doctypes, input and output screening (`screening/`), the generated-script validator and Server Script gate (`code_checks/`), rate limits, turn locks and agent identities; `one_bpmn/api/security.py` holds their endpoints.
+- `one_bpmn/ai_agent_guardrails/`: the tool policy rule and doctype change request doctypes, tool call interception (`tool_policy.py`) and the `AgentRefusal` exception (`refusal.py`).
 - `one_bpmn/processa_engine/notifications/`: AMP and HTML task emails and their tokens; `one_bpmn/api/email_actions.py` holds the endpoints the emails call. See its `README.md`.
 - `one_bpmn/commands/`: bench commands.
 - `one_bpmn/overrides/`: overridden Frappe classes, such as the scheduler queue for timer jobs.
@@ -105,4 +107,4 @@ bench --site <site> run-tests --app one_bpmn --failfast
 - One branch per work item, named after it (for example `WI-000768`). The PR targets the branch the work item names.
 - Conventional commit subjects with the work item id: `feat(WI-000768): ...`, `fix(WI-000771): ...`. The Semantic Commits check requires this form.
 - Keep a branch to its work item. A documentation change touches no CI or runtime file.
-- Open PRs only through `scripts/claude-pr.sh`; see `CLAUDE.md`.
+- Open PRs only through `.claude/open-pr-via-github-app.sh`; see `CLAUDE.md`.

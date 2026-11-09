@@ -31,7 +31,7 @@ def _exec(script_name: str, task_data: dict):
 		"instance": frappe._dict(name="delete-file-test"),
 	}
 	with patch(
-		"one_bpmn.one_bpmn.connectors.agent_sandbox_ops.sandbox_dispatch", return_value=SENT
+		"one_bpmn.agents_sandbox.sandbox.ops.sandbox_dispatch", return_value=SENT
 	) as dispatch:
 		exec(body, namespace)
 	return result, dispatch

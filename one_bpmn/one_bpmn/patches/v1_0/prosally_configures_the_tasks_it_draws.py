@@ -23,7 +23,7 @@ panel reads, so there is no translation layer to drift.
 
 The compiler half lives in the branch: agents/bpmn_task_config.py resolves a
 node's "config" into spiffworkflow attributes and derives docStatus and
-onlyAllowEdit from the Workflow record, and spiff/pipeline.mjs writes them.
+onlyAllowEdit from the Workflow record, and spiff/tools/bpmn-pipeline/pipeline.mjs writes them.
 
 Idempotent and marker-guarded: each edit fires only while its old anchor is
 present and the new text is not, so a re-run or a later hand-edit is a no-op.

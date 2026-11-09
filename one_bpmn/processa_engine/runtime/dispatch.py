@@ -180,9 +180,9 @@ def compose_task_outcome(instance, task, bpmn_id: str) -> str:
 	if script_name:
 		written = {}
 		try:
-			from one_bpmn.api.ai_assistant import _server_script_result_keys
+			from one_bpmn.ai_agent_registry.definitions.assistant.helpers import server_script_result_keys
 
-			for key in _server_script_result_keys(script_name):
+			for key in server_script_result_keys(script_name):
 				if key in (task.data or {}):
 					written[key] = task.data[key]
 		except Exception:

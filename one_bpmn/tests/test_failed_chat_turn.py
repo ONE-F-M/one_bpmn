@@ -88,7 +88,7 @@ class TurnFixture(FrappeTestCase):
 		from one_bpmn.processa_engine.dispatch import ai_agent
 
 		with (
-			patch("one_bpmn.agents.model_health.refuse_new_run", return_value=refusal),
+			patch("one_bpmn.ai_agent_registry.model_health.refuse_new_run", return_value=refusal),
 			patch("one_bpmn.processa_engine.agent_runtime.direct_api.DirectApiExecutor.run", return_value=result),
 		):
 			ai_agent.dispatch_ai_agent(self.instance, self.task, self.task_cfg, BPMN_ID)

@@ -51,8 +51,8 @@ class TestStepClassification(FrappeTestCase):
 		)
 		adapter, result = RecordingAdapter(DRAW_REPLY), {}
 		with (
-			patch("one_bpmn.agents.prosally_helpers.get_llm_adapter_from_settings", return_value=adapter),
-			patch("one_bpmn.agents.prosally_helpers.unapplied_proposal", return_value=ghost),
+			patch("one_bpmn.ai_agent_registry.definitions.prosally.helpers.get_llm_adapter_from_settings", return_value=adapter),
+			patch("one_bpmn.ai_agent_registry.definitions.prosally.tools_subprocess.unapplied_proposal", return_value=ghost),
 		):
 			exec(self.script, {"frappe": frappe, "context_docname": CONVERSATION, "result": result})
 		return result, adapter

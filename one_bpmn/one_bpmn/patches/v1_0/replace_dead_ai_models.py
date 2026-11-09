@@ -87,7 +87,7 @@ def add_platform_owners():
 
 
 def clear_stale_reasons():
-	from one_bpmn.agents.agent_provisioning import validate_agent_config
+	from one_bpmn.ai_agent_registry.provisioning.agent_provisioning import validate_agent_config
 
 	for agent in frappe.get_all(
 		"AI Agent Configuration",

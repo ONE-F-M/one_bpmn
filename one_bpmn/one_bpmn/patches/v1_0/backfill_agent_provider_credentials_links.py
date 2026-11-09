@@ -1,5 +1,5 @@
 """
-WI-001615: link every enabled AI Agent Configuration to the AI Provider
+Link every enabled AI Agent Configuration to the AI Provider
 Credentials record that reproduces its CURRENT effective provider/model,
 so removing the per-agent override mechanism changes no agent's live
 behavior.

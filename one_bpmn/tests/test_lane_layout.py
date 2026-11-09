@@ -38,7 +38,7 @@ import subprocess
 import pytest
 
 PIPELINE_PATH = os.path.normpath(os.path.join(
-    os.path.dirname(__file__), "..", "..", "spiff", "pipeline.mjs",
+    os.path.dirname(__file__), "..", "..", "spiff", "tools", "bpmn-pipeline", "pipeline.mjs",
 ))
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 

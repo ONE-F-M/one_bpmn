@@ -1,5 +1,5 @@
 """
-WI-001634 (folds in the parked WI-001616): finish the LuCrusher AI Agent
+Finish the LuCrusher AI Agent
 Configuration so the agent runs through the generic invocation path, and carry
 it to Live through lifecycle validation.
 
@@ -257,7 +257,7 @@ def execute():
 		# on a clean pass; a failure lands the agent in Needs Attention with the
 		# reason recorded, matching the provisioning flow.
 		try:
-			from one_bpmn.agents.agent_provisioning import validate_agent_config
+			from one_bpmn.ai_agent_registry.provisioning.agent_provisioning import validate_agent_config
 
 			result = validate_agent_config(name, test_provider=True)
 		except Exception:

@@ -37,7 +37,7 @@ class TestAgentEventStream(FrappeTestCase):
 		from one_bpmn.agents import agui_stream
 
 		with patch(
-			"one_bpmn.api.agent_invocation.invoke_agent",
+			"one_bpmn.api.a2a.invoke_agent",
 			return_value={"response": "hello there", "conversation": "CONV-1"},
 		):
 			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
@@ -58,7 +58,7 @@ class TestAgentEventStream(FrappeTestCase):
 		from one_bpmn.agents import agui_stream
 
 		with patch(
-			"one_bpmn.api.agent_invocation.invoke_agent",
+			"one_bpmn.api.a2a.invoke_agent",
 			return_value={"response": "x", "conversation": "CONV-42"},
 		):
 			chunks = _collect(agui_stream.agent_event_stream("a", "m", "CONV-42"))
@@ -69,7 +69,7 @@ class TestAgentEventStream(FrappeTestCase):
 		from one_bpmn.agents import agui_stream
 
 		with patch(
-			"one_bpmn.api.agent_invocation.invoke_agent",
+			"one_bpmn.api.a2a.invoke_agent",
 			side_effect=Exception("model exploded"),
 		):
 			chunks = _collect(agui_stream.agent_event_stream("a", "m", "CONV-1"))
@@ -87,7 +87,7 @@ class TestAgentEventStream(FrappeTestCase):
 			"options": ["Onboarding Validate", "Dept Rollup"],
 			"conversation": "CONV-1",
 		}
-		with patch("one_bpmn.api.agent_invocation.invoke_agent", return_value=reply):
+		with patch("one_bpmn.api.a2a.invoke_agent", return_value=reply):
 			chunks = _collect(agui_stream.agent_event_stream("logix", "m", "CONV-1"))
 		customs = [e for e in _events(chunks) if e.get("type") == "CUSTOM"]
 		self.assertTrue(customs, "expected a CUSTOM event for a DISAMBIGUATE reply")
@@ -98,7 +98,7 @@ class TestAgentEventStream(FrappeTestCase):
 		from one_bpmn.agents import agui_stream
 
 		with patch(
-			"one_bpmn.api.agent_invocation.invoke_agent",
+			"one_bpmn.api.a2a.invoke_agent",
 			return_value={"response": "plain answer", "conversation": "CONV-1"},
 		):
 			chunks = _collect(agui_stream.agent_event_stream("a", "m", "CONV-1"))
@@ -113,7 +113,7 @@ class TestAgentEventStream(FrappeTestCase):
 		agui_stream.register_extension_translator(bad_translator)
 		try:
 			with patch(
-				"one_bpmn.api.agent_invocation.invoke_agent",
+				"one_bpmn.api.a2a.invoke_agent",
 				return_value={"response": "ok", "conversation": "CONV-1"},
 			):
 				chunks = _collect(agui_stream.agent_event_stream("a", "m", "CONV-1"))
@@ -136,7 +136,7 @@ class TestAgentEventStream(FrappeTestCase):
 			yield {"type": "RUN_FINISHED", "run_id": "child"}         # dropped
 
 		streaming_reply = {"streaming": True, "stream": child(), "conversation": "CONV-1"}
-		with patch("one_bpmn.api.agent_invocation.invoke_agent", return_value=streaming_reply):
+		with patch("one_bpmn.api.a2a.invoke_agent", return_value=streaming_reply):
 			chunks = _collect(agui_stream.agent_event_stream("ba", "m", "CONV-1"))
 
 		types = _types(chunks)
@@ -164,7 +164,7 @@ class TestAgentEventStream(FrappeTestCase):
 			yield {"type": "CUSTOM", "event": "MODE_TRANSITION", "new_mode": "Planning"}
 
 		streaming_reply = {"streaming": True, "stream": child(), "conversation": "CONV-1"}
-		with patch("one_bpmn.api.agent_invocation.invoke_agent", return_value=streaming_reply):
+		with patch("one_bpmn.api.a2a.invoke_agent", return_value=streaming_reply):
 			chunks = _collect(agui_stream.agent_event_stream("lucrusher_agent", "m", "CONV-1"))
 
 		customs = {e["name"]: e for e in _events(chunks) if e.get("type") == "CUSTOM"}
@@ -184,7 +184,7 @@ class TestAgentEventStream(FrappeTestCase):
 			yield {"type": "CUSTOM", "name": "MODE_TRANSITION", "value": {"new_mode": "plan"}}
 
 		streaming_reply = {"streaming": True, "stream": child(), "conversation": "CONV-1"}
-		with patch("one_bpmn.api.agent_invocation.invoke_agent", return_value=streaming_reply):
+		with patch("one_bpmn.api.a2a.invoke_agent", return_value=streaming_reply):
 			chunks = _collect(agui_stream.agent_event_stream("ba", "m", "CONV-1"))
 
 		custom = [e for e in _events(chunks) if e.get("type") == "CUSTOM"][0]
@@ -199,7 +199,7 @@ class TestAgentEventStream(FrappeTestCase):
 			yield {"type": "RUN_ERROR", "message": "graph failed"}
 
 		streaming_reply = {"streaming": True, "stream": child(), "conversation": "CONV-1"}
-		with patch("one_bpmn.api.agent_invocation.invoke_agent", return_value=streaming_reply):
+		with patch("one_bpmn.api.a2a.invoke_agent", return_value=streaming_reply):
 			chunks = _collect(agui_stream.agent_event_stream("ba", "m", "CONV-1"))
 		types = _types(chunks)
 		self.assertEqual(types.count("RUN_ERROR"), 1)
@@ -214,7 +214,7 @@ class TestAgentEventStream(FrappeTestCase):
 			yield raw
 
 		streaming_reply = {"streaming": True, "stream": child(), "conversation": "CONV-1"}
-		with patch("one_bpmn.api.agent_invocation.invoke_agent", return_value=streaming_reply):
+		with patch("one_bpmn.api.a2a.invoke_agent", return_value=streaming_reply):
 			chunks = _collect(agui_stream.agent_event_stream("ba", "m", "CONV-1"))
 		self.assertIn(raw, chunks)
 
@@ -225,7 +225,7 @@ class TestInvokeAgentStreamSeam(FrappeTestCase):
 
 	def _patched(self, runner_result, runner_key="langgraph"):
 		"""Patch everything invoke_agent touches except the seam under test."""
-		from one_bpmn.api import agent_invocation as ai
+		from one_bpmn.api import a2a as ai
 
 		class _Screened:
 			text = "msg"
@@ -236,14 +236,14 @@ class TestInvokeAgentStreamSeam(FrappeTestCase):
 			patch.object(ai, "_authorize"),
 			patch.object(ai, "_runner_for", return_value=runner_key),
 			patch.dict(ai._RUNNERS, {runner_key: lambda c, cv, m, ctx, stream=False: runner_result(stream)}),
-			patch("one_bpmn.security.pii.screen_input", return_value=_Screened()),
-			patch("one_bpmn.security.pii.begin_turn", return_value=object()),
-			patch("one_bpmn.security.pii.end_turn"),
+			patch("one_bpmn.ai_agent_security.screening.pii.screen_input", return_value=_Screened()),
+			patch("one_bpmn.ai_agent_security.screening.pii.begin_turn", return_value=object()),
+			patch("one_bpmn.ai_agent_security.screening.pii.end_turn"),
 		]
 		return patches
 
 	def test_stream_true_returns_generator_envelope(self):
-		from one_bpmn.api import agent_invocation as ai
+		from one_bpmn.api import a2a as ai
 
 		def runner(stream):
 			def gen():
@@ -264,7 +264,7 @@ class TestInvokeAgentStreamSeam(FrappeTestCase):
 				p.stop()
 
 	def test_stream_false_contract_is_unchanged(self):
-		from one_bpmn.api import agent_invocation as ai
+		from one_bpmn.api import a2a as ai
 
 		def runner(stream):
 			self.assertFalse(stream)
@@ -284,7 +284,7 @@ class TestInvokeAgentStreamSeam(FrappeTestCase):
 				p.stop()
 
 	def test_pii_teardown_waits_for_stream_exhaustion(self):
-		from one_bpmn.api import agent_invocation as ai
+		from one_bpmn.api import a2a as ai
 
 		def runner(stream):
 			def gen():
@@ -297,7 +297,7 @@ class TestInvokeAgentStreamSeam(FrappeTestCase):
 			p.start()
 		try:
 			result = ai.invoke_agent("x", "msg", conversation="CONV-1", stream=True)
-			from one_bpmn.security import pii
+			from one_bpmn.ai_agent_security.screening import pii
 
 			pii.end_turn.assert_not_called()
 			list(result["stream"])  # exhaust
@@ -313,7 +313,7 @@ class TestBpmnMapResumeRearm(FrappeTestCase):
 	'reopen the chat' dead end fires only when re-arming genuinely fails."""
 
 	def _invoke(self, delegate_results, rearm):
-		from one_bpmn.api import agent_invocation as ai
+		from one_bpmn.api import a2a as ai
 
 		calls = {"delegate": 0}
 
@@ -328,7 +328,7 @@ class TestBpmnMapResumeRearm(FrappeTestCase):
 			patch("frappe.get_doc", return_value=object()),
 			patch("frappe.log_error"),
 		):
-			from one_bpmn.api.agent_invocation import _run_bpmn_map
+			from one_bpmn.api.a2a import _run_bpmn_map
 
 			try:
 				result = _run_bpmn_map(config, "CONV-1", "msg", {})
@@ -522,7 +522,7 @@ class TestBufferedStreamProgressiveText(FrappeTestCase):
 
 		long_text = " ".join(f"word{i}" for i in range(60))  # well past one chunk
 		with patch(
-			"one_bpmn.api.agent_invocation.invoke_agent",
+			"one_bpmn.api.a2a.invoke_agent",
 			return_value={"response": long_text, "conversation": "CONV-1"},
 		):
 			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
@@ -536,7 +536,7 @@ class TestBufferedStreamProgressiveText(FrappeTestCase):
 		from one_bpmn.agents import agui_stream
 
 		with patch(
-			"one_bpmn.api.agent_invocation.invoke_agent",
+			"one_bpmn.api.a2a.invoke_agent",
 			return_value={"response": "hello there", "conversation": "CONV-1"},
 		):
 			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
@@ -552,7 +552,7 @@ class TestBufferedStreamProgressiveText(FrappeTestCase):
 			"tool_calls": [{"id": "call-1", "name": "lookup_record"}],
 			"conversation": "CONV-1",
 		}
-		with patch("one_bpmn.api.agent_invocation.invoke_agent", return_value=reply):
+		with patch("one_bpmn.api.a2a.invoke_agent", return_value=reply):
 			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
 
 		types = _types(chunks)
@@ -579,7 +579,7 @@ class TestBufferedStreamProgressiveText(FrappeTestCase):
 			"trace": [{"role": "tool", "tool_calls": [{"name": "run_query"}]}],
 			"conversation": "CONV-1",
 		}
-		with patch("one_bpmn.api.agent_invocation.invoke_agent", return_value=reply):
+		with patch("one_bpmn.api.a2a.invoke_agent", return_value=reply):
 			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
 
 		types = _types(chunks)
@@ -592,7 +592,7 @@ class TestBufferedStreamProgressiveText(FrappeTestCase):
 		from one_bpmn.agents import agui_stream
 
 		with patch(
-			"one_bpmn.api.agent_invocation.invoke_agent",
+			"one_bpmn.api.a2a.invoke_agent",
 			return_value={"response": "plain", "conversation": "CONV-1"},
 		):
 			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
@@ -611,7 +611,7 @@ class TestStreamedMessageIdentity(FrappeTestCase):
 		from one_bpmn.agents import agui_stream
 
 		with patch(
-			"one_bpmn.api.agent_invocation.invoke_agent",
+			"one_bpmn.api.a2a.invoke_agent",
 			return_value={"response": "hi there", "conversation": "CONV-1"},
 		):
 			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
@@ -635,7 +635,7 @@ class TestStreamedMessageIdentity(FrappeTestCase):
 			"message_name": "Chat Message-00042",
 			"conversation": "CONV-1",
 		}
-		with patch("one_bpmn.api.agent_invocation.invoke_agent", return_value=reply):
+		with patch("one_bpmn.api.a2a.invoke_agent", return_value=reply):
 			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))
 
 		events = _events(chunks)
@@ -659,7 +659,7 @@ class TestStreamedMessageIdentity(FrappeTestCase):
 		from one_bpmn.agents import agui_stream
 
 		with patch(
-			"one_bpmn.api.agent_invocation.invoke_agent",
+			"one_bpmn.api.a2a.invoke_agent",
 			return_value={"response": "hi", "conversation": "CONV-1"},
 		):
 			chunks = _collect(agui_stream.agent_event_stream("any_agent", "hi", "CONV-1"))

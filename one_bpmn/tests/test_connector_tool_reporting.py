@@ -160,7 +160,7 @@ class TestAParkedConnectorStillSuspends(FrappeTestCase):
 		empty result as "did not complete" would end the turn the model was
 		supposed to wait out — the loop must still see the pause."""
 		from one_bpmn.agents.shape_tools import ToolDeferred
-		from one_bpmn.one_bpmn.connectors.a2a_client_ops import A2A_WAITING_KEY
+		from one_bpmn.a2a.client_ops import A2A_WAITING_KEY
 
 		with self.assertRaises(ToolDeferred):
 			_run(CONNECTOR_CFG, lambda task: task.data.update({A2A_WAITING_KEY: {"task": "A2A-1"}}))

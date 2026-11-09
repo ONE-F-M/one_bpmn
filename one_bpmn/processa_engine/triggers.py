@@ -5,6 +5,7 @@ Also guards native submit and cancel on Processa-controlled documents, deletes l
 
 import frappe
 from frappe.utils import now_datetime
+from lxml import etree
 
 # one_bpmn's own doctypes; Processa Legacy Migration is left out because its After Insert event starts a process.
 _INTERNAL_DOCTYPES = frozenset(
@@ -80,10 +81,10 @@ def on_doc_event(doc, method: str):
 
 	message_suffix = _FRAPPE_EVENT_TO_MESSAGE_SUFFIX.get(method)
 	if message_suffix:
-		_maybe_send_message(doc, message_suffix)
+		maybe_send_message(doc, message_suffix)
 
 
-def _maybe_send_message(doc, message_suffix: str):
+def maybe_send_message(doc, message_suffix: str):
 	"""
 	Deliver a BPMN message to active instances when a document is edited.
 	Builds message name as {DocType}_{suffix} and never blocks the save.
@@ -272,22 +273,24 @@ def _maybe_start_instance(doc, model_name: str):
 	if not model.serialized_spec:
 		return
 
+	triggers = parse_start_triggers(model.bpmn_xml)
+
 	# triggerWorkflowState matches either workflow_state or a custom status field.
-	required_state = _get_trigger_workflow_state(model.bpmn_xml)
+	required_state = triggers["workflow_state"]
 	if required_state:
 		doc_state = getattr(doc, "workflow_state", None) or getattr(doc, "status", None)
 		if doc_state != required_state:
 			return
 
 	# Same expression SpiffWorkflow evaluates at start; a condition that cannot be evaluated still spawns.
-	start_condition = _get_conditional_start_condition(model.bpmn_xml)
+	start_condition = triggers["conditional_start"]
 	if start_condition and start_condition.strip().lower() not in ("true", "1", ""):
-		from one_bpmn.processa_engine.engine import json_safe_doc_fields
+		from one_bpmn.processa_engine.engine import evaluate_condition, json_safe_doc_fields
 
 		# Same fields the started instance sees, so a start condition and a gateway agree.
 		eval_locals = json_safe_doc_fields(doc)
 		try:
-			if not frappe.safe_eval(start_condition, eval_locals=eval_locals):
+			if not evaluate_condition(start_condition, eval_locals):
 				return
 		except Exception:
 			frappe.log_error(
@@ -295,7 +298,7 @@ def _maybe_start_instance(doc, model_name: str):
 				message=f"condition={start_condition!r}\n{frappe.get_traceback()}",
 			)
 
-	field_cond = _get_trigger_field_condition(model.bpmn_xml)
+	field_cond = triggers["field_condition"]
 	if field_cond:
 		field_name, field_value = field_cond
 		if str(getattr(doc, field_name, None) or "") != str(field_value):
@@ -450,63 +453,44 @@ def _advance_instance_on_doc_event(instance_name: str, task_action: str):
 	instance.advance(task_id=matching_row.task_id, data={"action": task_action})
 
 
-def _get_trigger_workflow_state(bpmn_xml: str):
-	"""Return spiffworkflow:triggerWorkflowState from the first start event that sets it, or None."""
+def parse_start_triggers(bpmn_xml: str) -> dict:
+	"""Parse the BPMN XML once and return workflow_state, field_condition and conditional_start.
+
+	field_condition scopes a DocType-event trigger so several models on one event do not all fire.
+	Each key is None when absent, and all are None for empty or malformed XML."""
+	result = {"workflow_state": None, "field_condition": None, "conditional_start": None}
 	if not bpmn_xml or not bpmn_xml.strip():
-		return None
+		return result
 	try:
-		from lxml import etree
-
 		root = etree.fromstring(bpmn_xml.strip().encode("utf-8"))
-		attr_key = f"{{{_SPIFF_NS}}}triggerWorkflowState"
-		for start in root.iter(f"{{{_BPMN_NS}}}startEvent"):
-			state = start.get(attr_key)
-			if state:
-				return state
-	except Exception:
-		pass
-	return None
+	except etree.XMLSyntaxError:
+		return result
 
+	state_key = f"{{{_SPIFF_NS}}}triggerWorkflowState"
+	for start in root.iter(f"{{{_BPMN_NS}}}startEvent"):
+		state = start.get(state_key)
+		if state:
+			result["workflow_state"] = state
+			break
 
-def _get_trigger_field_condition(bpmn_xml: str):
-	"""Return (triggerFieldName, triggerFieldValue) from the first element that declares them, or None.
+	fn_key = f"{{{_SPIFF_NS}}}triggerFieldName"
+	fv_key = f"{{{_SPIFF_NS}}}triggerFieldValue"
+	for el in root.iter():
+		field_name = el.get(fn_key)
+		if field_name:
+			result["field_condition"] = (field_name, el.get(fv_key) or "")
+			break
 
-	Scopes a DocType-event trigger so several models on the same DocType and event do not all fire."""
-	if not bpmn_xml or not bpmn_xml.strip():
-		return None
-	try:
-		from lxml import etree
+	for start in root.iter(f"{{{_BPMN_NS}}}startEvent"):
+		ced = start.find(f"{{{_BPMN_NS}}}conditionalEventDefinition")
+		if ced is None:
+			continue
+		cond = ced.find(f"{{{_BPMN_NS}}}condition")
+		if cond is not None and cond.text and cond.text.strip():
+			result["conditional_start"] = cond.text.strip()
+			break
 
-		root = etree.fromstring(bpmn_xml.strip().encode("utf-8"))
-		fn_key = f"{{{_SPIFF_NS}}}triggerFieldName"
-		fv_key = f"{{{_SPIFF_NS}}}triggerFieldValue"
-		for el in root.iter():
-			field_name = el.get(fn_key)
-			if field_name:
-				return (field_name, el.get(fv_key) or "")
-	except Exception:
-		pass
-	return None
-
-
-def _get_conditional_start_condition(bpmn_xml: str):
-	"""Return the <bpmn:condition> text of the first conditional start event, or None."""
-	if not bpmn_xml or not bpmn_xml.strip():
-		return None
-	try:
-		from lxml import etree
-
-		root = etree.fromstring(bpmn_xml.strip().encode("utf-8"))
-		for start in root.iter(f"{{{_BPMN_NS}}}startEvent"):
-			ced = start.find(f"{{{_BPMN_NS}}}conditionalEventDefinition")
-			if ced is None:
-				continue
-			cond = ced.find(f"{{{_BPMN_NS}}}condition")
-			if cond is not None and cond.text and cond.text.strip():
-				return cond.text.strip()
-	except Exception:
-		pass
-	return None
+	return result
 
 
 def guard_bpmn_document(doc, method: str):
@@ -518,6 +502,11 @@ def guard_bpmn_document(doc, method: str):
 
 	if getattr(frappe.flags, "bpmn_engine_action", False):
 		return
+
+	if method == "before_cancel":
+		from one_bpmn.processa_engine.instances.cancellation import refuse_direct_cancel
+
+		refuse_direct_cancel(doc)
 
 	active_instance = frappe.db.get_value(
 		"BPMN Process Instance",

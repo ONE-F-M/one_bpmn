@@ -10,7 +10,7 @@ from xml.etree import ElementTree as ET
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import prosally_helpers as helpers
+from one_bpmn.ai_agent_registry.definitions.prosally import helpers, tools_pipeline, tools_prompts, tools_replies, tools_review, tools_subprocess
 from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0.prosally_replies_say_what_was_drawn import STAGES, with_reply_call
 
@@ -36,9 +36,9 @@ TWO_LANE_IR = {
 
 class TestRequestedLanes(FrappeTestCase):
 	def test_named_lane_lists_are_read(self):
-		self.assertEqual(helpers.requested_lanes([THREE_LANES]), ["Recruiter", "GRD Operator", "GRD Manager"])
+		self.assertEqual(tools_prompts.requested_lanes([THREE_LANES]), ["Recruiter", "GRD Operator", "GRD Manager"])
 		self.assertEqual(
-			helpers.requested_lanes(
+			tools_prompts.requested_lanes(
 				["Draw it with lanes Requester, Finance and Stores: the requester asks."]
 			),
 			["Requester", "Finance", "Stores"],
@@ -46,21 +46,21 @@ class TestRequestedLanes(FrappeTestCase):
 
 	def test_the_latest_list_wins_and_vague_mentions_name_nothing(self):
 		self.assertEqual(
-			helpers.requested_lanes(["lanes A, B", "now use lanes Employee and Manager"]),
+			tools_prompts.requested_lanes(["lanes A, B", "now use lanes Employee and Manager"]),
 			["Employee", "Manager"],
 		)
-		self.assertEqual(helpers.requested_lanes(["add swimlanes for each role", "use lanes for HR"]), [])
+		self.assertEqual(tools_prompts.requested_lanes(["add swimlanes for each role", "use lanes for HR"]), [])
 
 
 class TestDescribeLanes(FrappeTestCase):
 	def test_a_missing_named_lane_is_named(self):
-		text = helpers.describe_lanes([{"role": "user", "content": THREE_LANES}], "Yes, proceed", TWO_LANE_IR)
+		text = tools_prompts.describe_lanes([{"role": "user", "content": THREE_LANES}], "Yes, proceed", TWO_LANE_IR)
 		self.assertIn("Lanes drawn:\n- Recruiter\n- GRD Manager\n\nYou also asked for GRD Operator", text)
 
 	def test_all_lanes_drawn_names_nothing_missing(self):
-		text = helpers.describe_lanes([], "Draw it with lanes Recruiter and GRD Manager.", TWO_LANE_IR)
+		text = tools_prompts.describe_lanes([], "Draw it with lanes Recruiter and GRD Manager.", TWO_LANE_IR)
 		self.assertNotIn("You also asked", text)
-		self.assertEqual(helpers.describe_lanes([], THREE_LANES, {"lanes": []}), "")
+		self.assertEqual(tools_prompts.describe_lanes([], THREE_LANES, {"lanes": []}), "")
 
 
 class TestDescribeChanges(FrappeTestCase):
@@ -74,7 +74,7 @@ class TestDescribeChanges(FrappeTestCase):
 	)
 
 	def test_added_removed_and_renamed_are_listed(self):
-		text = helpers.describe_changes(self.OLD, self.NEW)
+		text = tools_replies.describe_changes(self.OLD, self.NEW)
 		self.assertIn('Added the decision "DSOT possible?".', text)
 		self.assertIn('Added the path "No".', text)
 		self.assertIn('Removed the step "Site Visit".', text)
@@ -83,10 +83,10 @@ class TestDescribeChanges(FrappeTestCase):
 	def test_a_path_given_a_new_id_is_not_a_change(self):
 		old = '<bpmn:userTask id="a" name="Raise" /><bpmn:sequenceFlow id="f1" name="Done" sourceRef="a" targetRef="a" />'
 		new = old.replace('id="f1"', 'id="flow_7"')
-		self.assertIn("could not find any change", helpers.describe_changes(old, new))
+		self.assertIn("could not find any change", tools_replies.describe_changes(old, new))
 
 	def test_no_change_is_said_out_loud(self):
-		self.assertIn("could not find any change", helpers.describe_changes(self.OLD, self.OLD))
+		self.assertIn("could not find any change", tools_replies.describe_changes(self.OLD, self.OLD))
 
 	STEPS = (
 		'<bpmn:userTask id="a" name="Raise" /><bpmn:userTask id="b" name="Review" />'
@@ -96,19 +96,19 @@ class TestDescribeChanges(FrappeTestCase):
 	def test_a_rerouted_arrow_without_a_label_is_a_move(self):
 		old = self.STEPS + '<bpmn:sequenceFlow id="f1" sourceRef="a" targetRef="b" />'
 		new = self.STEPS + '<bpmn:sequenceFlow id="f1" sourceRef="a" targetRef="c" />'
-		text = helpers.describe_changes(old, new)
+		text = tools_replies.describe_changes(old, new)
 		self.assertIn('Moved the arrow from "Raise" to "Approve".', text)
 		self.assertNotIn("could not find any change", text)
 
 	def test_a_rerouted_labeled_arrow_is_a_move(self):
 		old = self.STEPS + '<bpmn:sequenceFlow id="f1" name="Yes" sourceRef="a" targetRef="b" />'
 		new = self.STEPS + '<bpmn:sequenceFlow id="f9" name="Yes" sourceRef="a" targetRef="c" />'
-		self.assertIn('Moved the arrow from "Raise" to "Approve".', helpers.describe_changes(old, new))
+		self.assertIn('Moved the arrow from "Raise" to "Approve".', tools_replies.describe_changes(old, new))
 
 	def test_an_unlabeled_arrow_given_a_new_id_is_not_a_change(self):
 		old = self.STEPS + '<bpmn:sequenceFlow id="f1" sourceRef="a" targetRef="b" />'
 		new = old.replace('id="f1"', 'id="flow_7"')
-		self.assertIn("could not find any change", helpers.describe_changes(old, new))
+		self.assertIn("could not find any change", tools_replies.describe_changes(old, new))
 
 
 class TestGenerateNamesTheMissingLane(FrappeTestCase):
@@ -177,32 +177,32 @@ class TestRelayout(FrappeTestCase):
 		path = frappe.get_app_path("one_bpmn", "tests", "fixtures", "lane_layout_fuel_requisition_ir.json")
 		with open(path) as f:
 			cls.ir = json.load(f)
-		compiled = helpers.compile_ir(cls.ir)
+		compiled = tools_pipeline.compile_ir(cls.ir)
 		if not compiled.get("ok"):
 			raise unittest.SkipTest("node or pipeline.mjs unavailable")
 		cls.xml = compiled["xml"]
 
 	def test_the_ir_read_back_keeps_every_step_and_arrow(self):
-		ir = helpers.xml_to_ir(self.xml)
+		ir = tools_review.xml_to_ir(self.xml)
 		self.assertEqual({n["id"] for n in ir["nodes"]}, {n["id"] for n in self.ir["nodes"]})
 		self.assertEqual(len(ir["flows"]), len(self.ir["flows"]))
 		self.assertEqual(len(ir["lanes"]), len(self.ir["lanes"]))
 
 	def test_a_diagram_already_laid_out_says_so(self):
-		self.assertEqual(helpers.relayout(self.xml), (None, "same"))
+		self.assertEqual(tools_review.relayout(self.xml), (None, "same"))
 
 	def test_a_moved_shape_is_put_back_and_ids_and_settings_are_kept(self):
 		step = self.ir["nodes"][1]["id"]
 		messy = re.sub(
 			rf'(<bpmndi:BPMNShape id="[^"]*" bpmnElement="{step}">\s*<dc:Bounds x=")[\d.]+', r"\g<1>9999", self.xml
 		).replace(f'<bpmn:userTask id="{step}"', f'<bpmn:userTask id="{step}" spiffworkflow:assignee="kept"')
-		new_xml, reason = helpers.relayout(messy)
+		new_xml, reason = tools_review.relayout(messy)
 		self.assertEqual(reason, "")
-		self.assertEqual(helpers.element_names(new_xml).keys(), helpers.element_names(messy).keys())
+		self.assertEqual(tools_pipeline.element_names(new_xml).keys(), tools_pipeline.element_names(messy).keys())
 		self.assertNotIn('x="9999"', new_xml)
 
 	def test_a_diagram_without_lanes_is_left_to_the_editor(self):
-		self.assertEqual(helpers.relayout('<bpmn:process id="p"><bpmn:startEvent id="s" /></bpmn:process>')[1], "lane-less")
+		self.assertEqual(tools_review.relayout('<bpmn:process id="p"><bpmn:startEvent id="s" /></bpmn:process>')[1], "lane-less")
 
 	def _classify(self, turn, llm_reply="{}"):
 		script = frappe.db.get_value("Server Script", {"api_method": "prosally_tool_classify_intent"}, "script")
@@ -210,7 +210,7 @@ class TestRelayout(FrappeTestCase):
 			self.skipTest("the patched ProsAlly Classify Intent script is not on this site")
 		set_turn("RELAYOUT-TEST", {"process_name": "P", "scope_id": "", "chat_history": [], **turn})
 		result = {}
-		with patch("one_bpmn.agents.prosally_helpers.complete_sub_prompt", return_value=llm_reply):
+		with patch("one_bpmn.ai_agent_registry.definitions.prosally.helpers.complete_sub_prompt", return_value=llm_reply):
 			exec(script, {"frappe": frappe, "context_docname": "RELAYOUT-TEST", "result": result})
 		output = get_turn("RELAYOUT-TEST").get("output")
 		clear_turn("RELAYOUT-TEST")
@@ -262,14 +262,14 @@ class TestCompareReadsInlineLists(FrappeTestCase):
 
 	def test_dash_items_run_together_on_one_line_are_each_an_item(self):
 		self.assertEqual(
-			helpers.spec_items(self.SPEC), ["Set to Draft", "Manager approves the request", "Send reminder to HR"]
+			tools_review.spec_items(self.SPEC), ["Set to Draft", "Manager approves the request", "Send reminder to HR"]
 		)
 
 	def test_a_hyphen_inside_an_item_does_not_split_it(self):
-		self.assertEqual(helpers.spec_items("- Review - then approve\n- Close"), ["Review - then approve", "Close"])
+		self.assertEqual(tools_review.spec_items("- Review - then approve\n- Close"), ["Review - then approve", "Close"])
 
 	def test_the_missing_items_of_an_inline_list_are_asked_about(self):
-		output = helpers.compare_output(self.XML, [self.SPEC])
+		output = tools_review.compare_output(self.XML, [self.SPEC])
 		self.assertEqual(output["intent"], "CONFIRM")
 		self.assertIn("- Manager approves the request", output["response"])
 		self.assertIn("- Send reminder to HR", output["response"])
@@ -283,11 +283,11 @@ class TestCompareReadsInlineLists(FrappeTestCase):
 
 	def test_an_item_that_shares_only_some_of_its_words_with_a_step_is_missing(self):
 		spec = "- Set to Draft\n- Manager approves the monthly action\n- Update linked Goal progress"
-		self.assertEqual(helpers.missing_spec_items(self.MONTHLY, spec), ["Manager approves the monthly action"])
+		self.assertEqual(tools_review.missing_spec_items(self.MONTHLY, spec), ["Manager approves the monthly action"])
 
 	def test_an_item_whose_words_are_mostly_in_one_step_is_found(self):
 		spec = "- Update the linked goal progress\n- Submit the monthly action"
-		self.assertEqual(helpers.missing_spec_items(self.MONTHLY, spec), [])
+		self.assertEqual(tools_review.missing_spec_items(self.MONTHLY, spec), [])
 
 
 class TestNoChangeIsNotAnUpdate(FrappeTestCase):
@@ -312,13 +312,13 @@ class TestNoChangeIsNotAnUpdate(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()
-		compiled = helpers.compile_ir(cls.IR)
+		compiled = tools_pipeline.compile_ir(cls.IR)
 		if not compiled.get("ok"):
 			raise unittest.SkipTest("node or pipeline.mjs unavailable")
-		helpers._register_namespaces()
+		helpers.register_namespaces()
 		root = ET.fromstring(compiled["xml"])
 		for process in root.iter("{" + helpers.NS["bpmn"] + "}process"):
-			helpers.add_flow_references(process)
+			tools_subprocess.add_flow_references(process)
 		cls.with_references = ET.tostring(root, encoding="unicode")
 
 	def _modify(self, user_text):
@@ -331,7 +331,7 @@ class TestNoChangeIsNotAnUpdate(FrappeTestCase):
 			{"user_text": user_text, "process_name": "P", "current_xml": self.with_references, "scope_id": "", "chat_history": []},
 		)
 		result = {}
-		with patch("one_bpmn.agents.prosally_helpers.complete_sub_prompt", return_value=json.dumps(self.IR)):
+		with patch("one_bpmn.ai_agent_registry.definitions.prosally.helpers.complete_sub_prompt", return_value=json.dumps(self.IR)):
 			exec(script, {"frappe": frappe, "context_docname": "NO-CHANGE-TEST", "result": result, "bpmn_id": "x"})
 		output = get_turn("NO-CHANGE-TEST")["output"]
 		clear_turn("NO-CHANGE-TEST")

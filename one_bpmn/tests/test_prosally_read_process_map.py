@@ -10,8 +10,8 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import prosally_helpers as helpers
-from one_bpmn.agents.process_links import MAX_TURN_MAPS, read_process_map_for_turn
+from one_bpmn.ai_agent_registry.definitions.prosally import tools_prompts
+from one_bpmn.ai_agent_registry.definitions.prosally.tools_links import MAX_TURN_MAPS, read_process_map_for_turn
 from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_reads_process_maps as maps_patch
 from one_bpmn.tests.test_process_links import CATCH_SIGNAL, THROW_SIGNAL, _model
@@ -47,7 +47,7 @@ class TestReadProcessMapTool(FrappeTestCase):
 		self.assertEqual(kept, [names[1], names[2], names[0]])
 
 	def test_a_name_that_matches_no_map_returns_the_search_and_keeps_nothing(self):
-		with patch("one_bpmn.agents.process_links.find_process_models", return_value={"results": []}) as find:
+		with patch("one_bpmn.ai_agent_registry.definitions.prosally.tools_links.find_process_models", return_value={"results": []}) as find:
 			found = read_process_map_for_turn(CONVERSATION, "leave approval")
 
 		find.assert_called_once_with("leave approval")
@@ -75,11 +75,11 @@ class TestReadProcessMapTool(FrappeTestCase):
 
 class TestProcessMapsBlock(FrappeTestCase):
 	def prompt(self, sub_id, turn):
-		return helpers.stage_system_prompt(CFG, sub_id, "", turn)
+		return tools_prompts.stage_system_prompt(CFG, sub_id, "", turn)
 
 	def test_the_block_is_empty_when_no_map_was_read(self):
-		self.assertEqual(helpers.process_maps_block({}), "")
-		self.assertEqual(helpers.process_maps_block(None), "")
+		self.assertEqual(tools_prompts.process_maps_block({}), "")
+		self.assertEqual(tools_prompts.process_maps_block(None), "")
 
 	def test_generate_and_modify_prompts_carry_the_digests_and_the_edit_rule(self):
 		turn = {"process_maps": [{"process_model": "Onboarding", "digest": "Steps in diagram order:\n- startEvent: Begin"}]}
@@ -87,7 +87,7 @@ class TestProcessMapsBlock(FrappeTestCase):
 		for sub_id, label in (("process_generator", "GENERATOR"), ("modifier", "MODIFIER")):
 			prompt = self.prompt(sub_id, turn)
 			self.assertTrue(prompt.startswith(label))
-			self.assertIn(helpers.MAPS_HEADER, prompt)
+			self.assertIn(tools_prompts.MAPS_HEADER, prompt)
 			self.assertIn("Never change another map", prompt)
 			self.assertIn("Map Onboarding:\nSteps in diagram order:\n- startEvent: Begin", prompt)
 
