@@ -135,7 +135,7 @@ class TestDispatchAiTaskSelector(FrappeTestCase):
 	def setUp(self):
 		super().setUp()
 		if not _bridge_available():
-			self.skipTest("WI-001353/WI-001356 modules not on this branch")
+			self.skipTest("tool-pool and executor-config modules not on this branch")
 		_FakeExecutor.scripted_calls = []
 		_FakeExecutor.result_factory = None
 		self._patch = patch(
@@ -302,7 +302,7 @@ class TestCompletedTasksNotOffered(FrappeTestCase):
 	def setUp(self):
 		super().setUp()
 		if not _bridge_available():
-			self.skipTest("WI-001353/WI-001356 modules not on this branch")
+			self.skipTest("tool-pool and executor-config modules not on this branch")
 		_FakeExecutor.scripted_calls = []
 		_FakeExecutor.result_factory = None
 		self._patch = patch(
