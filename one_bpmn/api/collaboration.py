@@ -123,9 +123,8 @@ def _read_editors(model_name: str) -> dict:
 
 
 def _write_editors(model_name: str, editors: dict) -> None:
-	frappe.cache.set_value(
-		PRESENCE_CACHE_KEY.format(model_name), editors, expires_in_sec=PRESENCE_CACHE_EXPIRY_SECONDS
-	)
+	# Staleness is enforced on read (PRESENCE_TTL_SECONDS), so no cache expiry is needed.
+	frappe.cache.set_value(PRESENCE_CACHE_KEY.format(model_name), editors)
 
 
 def _editor_details(users) -> list[dict]:
