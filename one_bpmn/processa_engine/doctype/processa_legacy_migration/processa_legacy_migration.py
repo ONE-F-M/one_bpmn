@@ -14,6 +14,8 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from one_bpmn.processa_engine.legacy_migration import state_field
+
 OPEN_INSTANCE_STATUSES = ("Active", "Errored")
 
 
@@ -92,10 +94,9 @@ class ProcessaLegacyMigration(Document):
 			)
 
 	def _state_field(self) -> str:
-		meta = frappe.get_meta(self.target_doctype)
-		for fieldname in ("workflow_state", "status"):
-			if meta.has_field(fieldname):
-				return fieldname
+		fieldname = state_field(self.target_doctype)
+		if fieldname:
+			return fieldname
 		frappe.throw(_("{0} has neither a workflow_state nor a status field.").format(self.target_doctype))
 
 	def _check_state_map(self, to_model):
