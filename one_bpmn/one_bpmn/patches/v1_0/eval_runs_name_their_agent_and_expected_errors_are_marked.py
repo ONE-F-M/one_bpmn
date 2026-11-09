@@ -8,7 +8,7 @@ its past step errors flagged. Running it again changes nothing.
 
 import frappe
 
-from one_bpmn.agents.eval_runner import _mark_expected_errors, _resolve_agent_configuration_fallback
+from one_bpmn.ai_agent_evals.eval_runner import _mark_expected_errors, _resolve_agent_configuration_fallback
 from one_bpmn.one_bpmn.patches.v1_0.orchestrator_agent_baseline_covers_every_tool import CASES, SUITE_TITLE
 
 

@@ -633,7 +633,7 @@ def _agent_transcripts_for_eval_run(eval_run: str) -> dict:
 	"""
 	# Imported here rather than at module level: eval_api is loaded on every
 	# Processa request, and eval_runner pulls in the executor backends.
-	from one_bpmn.agents.eval_runner import EVAL_RUN_JUDGE
+	from one_bpmn.ai_agent_evals.eval_runner import EVAL_RUN_JUDGE
 
 	runs = frappe.get_all(
 		"AI Agent Run",
@@ -862,7 +862,7 @@ def get_run_review(run: str, baseline: str = None) -> dict:
 def _assert_process_owned(process_model: str) -> None:
 	"""Guard: the current user must own the process behind ``process_model``
 	(or be System Manager). Mirrors the WI-001744 scoping chain."""
-	from one_bpmn.agents.eval_permissions import _is_system_manager, _process_model_owned_by
+	from one_bpmn.ai_agent_evals.eval_permissions import _is_system_manager, _process_model_owned_by
 
 	user = frappe.session.user
 	if _is_system_manager(user):
@@ -1916,7 +1916,7 @@ def _first_failure_per_run(run_names: list) -> dict:
 	# summary note on the row and the actual reason inside the assertions, so a
 	# page built on error_message alone showed "3/4" with a blank reason —
 	# exactly the click this page exists to avoid.
-	from one_bpmn.agents.eval_ci import _why
+	from one_bpmn.ai_agent_evals.eval_ci import _why
 
 	rows = frappe.get_all(
 		"AI Eval Result",

@@ -8,7 +8,7 @@ import json
 
 import frappe
 
-from one_bpmn.agents.eval_runner import SEED_MESSAGES_KEY, SEED_STATE_KEY
+from one_bpmn.ai_agent_evals.eval_runner import SEED_MESSAGES_KEY, SEED_STATE_KEY
 from one_bpmn.one_bpmn.patches.v1_0.move_lucrusher_state_to_session_state import STATE_SENTINEL
 from one_bpmn.one_bpmn.patches.v1_0.seed_lucrusher_eval_suite import SUITE_TITLE
 

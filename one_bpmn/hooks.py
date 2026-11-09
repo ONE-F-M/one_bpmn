@@ -58,9 +58,9 @@ after_install = [
 
 # Scope AI Evals doctypes to the process owner (System Manager sees all).
 permission_query_conditions = {
-	"AI Eval Suite": "one_bpmn.agents.eval_permissions.eval_suite_query_conditions",
-	"AI Eval Case": "one_bpmn.agents.eval_permissions.eval_case_query_conditions",
-	"AI Eval Run": "one_bpmn.agents.eval_permissions.eval_run_query_conditions",
+	"AI Eval Suite": "one_bpmn.ai_agent_evals.eval_permissions.eval_suite_query_conditions",
+	"AI Eval Case": "one_bpmn.ai_agent_evals.eval_permissions.eval_case_query_conditions",
+	"AI Eval Run": "one_bpmn.ai_agent_evals.eval_permissions.eval_run_query_conditions",
 	# Your own memories plus the shared ones; a System Manager sees everybody's.
 	# Enforced here so it holds for the browser, the Desk list and any report,
 	# instead of being re-stated at each call site.
@@ -72,9 +72,9 @@ permission_query_conditions = {
 }
 
 has_permission = {
-	"AI Eval Suite": "one_bpmn.agents.eval_permissions.eval_suite_has_permission",
-	"AI Eval Case": "one_bpmn.agents.eval_permissions.eval_case_has_permission",
-	"AI Eval Run": "one_bpmn.agents.eval_permissions.eval_run_has_permission",
+	"AI Eval Suite": "one_bpmn.ai_agent_evals.eval_permissions.eval_suite_has_permission",
+	"AI Eval Case": "one_bpmn.ai_agent_evals.eval_permissions.eval_case_has_permission",
+	"AI Eval Run": "one_bpmn.ai_agent_evals.eval_permissions.eval_run_has_permission",
 	"AI Memory": "one_bpmn.ai_agent_memory.permissions.ai_memory_has_permission",
 	"Chat Message": "one_bpmn.ai_agent_conversations.permissions.chat_message_has_permission",
 	"Doctype Change Request": "one_bpmn.ai_agent_guardrails.doctype.doctype_change_request.doctype_change_request.has_permission",
@@ -234,7 +234,7 @@ scheduler_events = {
 		# this. Five minutes is the same cadence as the credential check above
 		# and well inside the margin a run's own deadline already carries.
 		"*/5 * * * *": [
-			"one_bpmn.agents.eval_runner.sweep_stale_eval_runs",
+			"one_bpmn.ai_agent_evals.eval_runner.sweep_stale_eval_runs",
 			# A parked AI step whose job was lost from the queue would otherwise wait for the delegation deadline.
 			"one_bpmn.processa_engine.timers.requeue_stranded_ai_steps",
 		],

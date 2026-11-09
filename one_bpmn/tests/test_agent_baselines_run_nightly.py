@@ -2,7 +2,7 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.eval_ci import select_suites
+from one_bpmn.ai_agent_evals.eval_ci import select_suites
 from one_bpmn.one_bpmn.patches.v1_0 import agent_baselines_run_nightly as patch
 
 

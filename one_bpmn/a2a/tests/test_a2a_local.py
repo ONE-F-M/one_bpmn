@@ -19,9 +19,9 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, get_datetime, now_datetime
 
 from one_bpmn.a2a import poller as scheduled_tasks
-from one_bpmn.agents._eval_test_factories import make_agent_configuration
+from one_bpmn.ai_agent_evals.tests.factories import make_agent_configuration
 from one_bpmn.a2a import guardrails, local
-from one_bpmn.agents.test_eval_map_path import CHAT_START_XML, make_process_model
+from one_bpmn.ai_agent_evals.tests.test_eval_map_path import CHAT_START_XML, make_process_model
 from one_bpmn.a2a import client_ops as a2a_client_ops
 
 

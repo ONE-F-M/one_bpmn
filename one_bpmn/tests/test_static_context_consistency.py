@@ -107,7 +107,7 @@ class TestEveryPathStartsFromTheSameDefaults(FrappeTestCase):
 		self.assertEqual(config.max_retries, DEFAULT_MAX_RETRIES)
 
 	def test_the_evals_and_the_direct_run_keep_temperature_0_7(self):
-		from one_bpmn.agents import eval_runner
+		from one_bpmn.ai_agent_evals import eval_runner
 		from one_bpmn.api import a2a as a2a_api
 
 		for fn in (eval_runner._run_direct_eval, eval_runner._evaluate_llm_judge, a2a_api._begin_direct_run):

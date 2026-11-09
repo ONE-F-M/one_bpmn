@@ -379,7 +379,7 @@ class TestScreeningEffectivenessRates(FrappeTestCase):
 	def test_the_pack_seeds_both_kinds(self):
 		"""The rates are only computable if the corpus has both, so the pack has
 		to supply the controls — nobody writes them by hand."""
-		from one_bpmn.agents.adversarial_pack import BENIGN_CASES, CASES
+		from one_bpmn.ai_agent_evals.adversarial_pack import BENIGN_CASES, CASES
 
 		self.assertTrue(CASES)
 		self.assertTrue(BENIGN_CASES, "a false-positive rate needs benign traffic to measure against")

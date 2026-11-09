@@ -185,7 +185,7 @@ class TestTheRunnerRunsMemoryCases(FrappeTestCase):
 	def _case(self, **context):
 		import json
 
-		from one_bpmn.agents import eval_runner
+		from one_bpmn.ai_agent_evals import eval_runner
 
 		context.setdefault("scope", "Agent")
 		context.setdefault("scope_key", self.agent)
@@ -263,7 +263,7 @@ class TestTheRunnerRunsMemoryCases(FrappeTestCase):
 	def test_the_run_says_whose_memories_these_are(self):
 		"""A suite queued to a background worker runs as the worker. The owner of
 		the run is the person who asked for it."""
-		from one_bpmn.agents import eval_runner
+		from one_bpmn.ai_agent_evals import eval_runner
 
 		with patch.object(frappe.db, "get_value", return_value="someone@example.test"):
 			self.assertEqual(eval_runner._memory_case_user("RUN-1"), "someone@example.test")

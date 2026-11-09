@@ -487,7 +487,7 @@ class TestFetchRule(unittest.TestCase):
 
 
 class TestBaseline(unittest.TestCase):
-	PATH = "one_bpmn/agents/eval_runner.py"
+	PATH = "one_bpmn/ai_agent_evals/eval_runner.py"
 
 	def test_a_baselined_file_may_change_without_getting_worse(self):
 		baseline = {("size", self.PATH): 2915}
