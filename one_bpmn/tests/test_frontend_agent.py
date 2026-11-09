@@ -83,7 +83,7 @@ class TestPathContainment(unittest.TestCase):
 
 	def test_refuses_generated_and_vendored(self):
 		for path in ("one_bpmn/spiff/node_modules/vue/index.js",
-		             "one_bpmn/one_bpmn/public/processa/assets/index.js"):
+		             "one_bpmn/one_bpmn/public/frontend/assets/index.js"):
 			self.assertNotEqual(fs.resolve(path)[1], "", path)
 
 	def test_a_symlink_out_of_the_tree_is_refused(self):

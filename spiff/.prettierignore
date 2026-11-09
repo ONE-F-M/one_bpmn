@@ -204,7 +204,7 @@ src/bpmn/lint/rules/user-task-missing-assignee.js
 src/bpmn/lint/rules/workflow-state-missing-edit-role.js
 src/main.js
 src/bpmn/moddle/customTextStyleModdle.js
-src/oneai-entry.js
+src/one-ai.js
 src/bpmn/renderers/CustomTextStyleRenderer.js
 src/bpmn/renderers/ServiceTaskIconRenderer.js
 src/bpmn/renderers/StickyNoteRenderer.js
