@@ -159,7 +159,7 @@ class TestModeCatalog(FrappeTestCase):
 		self.assertNotIn("aiOutputVariable", block)
 
 class TestOneDialogTwoModes(FrappeTestCase):
-	"""WI-001679: one chat, one agent, one interface — mode is grounding only.
+	"""One chat, one agent, one interface — mode is grounding only.
 
 	The selector dialog used to be a second transport (its own endpoint, its own
 	system prompt, its own direct LLM call). Now both ways into the config
@@ -256,5 +256,5 @@ class TestOneDialogTwoModes(FrappeTestCase):
 
 
 # TestRegistryToolsInDigest was removed with the AI Agent Tool registry
-# (WI-001423): a selector's tools are its ad-hoc sub-process shapes, which the
+# A selector's tools are its ad-hoc sub-process shapes, which the
 # TestDiagramDigest cases above already cover.

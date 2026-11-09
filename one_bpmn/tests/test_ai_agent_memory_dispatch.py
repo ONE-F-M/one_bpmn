@@ -198,7 +198,7 @@ class TestDispatcherMemory(FrappeTestCase):
 		self.assertIn("HARD PIPELINE RULES", kwargs["exclude_context"])
 
 	def test_distilled_tool_protocol_fallback_uses_plain_user_text_not_driving_prompt(self):
-		# WI-002165 regression: a tool-protocol agent (empty result.output,
+		# Regression: a tool-protocol agent (empty result.output,
 		# answer lives in the trace) used to splice the FULLY ASSEMBLED
 		# user_prompt — the operator-authored driving template, e.g. Logix's
 		# "HARD PIPELINE RULES" — into distillation labelled "[User message]".
@@ -653,9 +653,9 @@ class TestTheUserMessageReachesTheModel(FrappeTestCase):
 		self.assertLess(prompt.index("Process the latest message."), prompt.index("add a status field"))
 
 
-# ── WI-002163: bounded, on-topic recall ─────────────────────────────────────
+# ── Bounded, on-topic recall ─────────────────────────────────────
 # A constant driving prompt used to recall the same memories on every run
-# (fixed above, WI-002169); this covers what that fix alone doesn't: a greeting
+# (fixed above); this covers what that fix alone doesn't: a greeting
 # still has no signal worth searching memory with, and nothing bounded the
 # injected block's SIZE — aiMemoryLimit only bounds its count.
 

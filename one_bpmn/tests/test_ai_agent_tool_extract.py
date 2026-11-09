@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001421: compile-time extraction + validation of an AI Agent Task's tool
+# Compile-time extraction + validation of an AI Agent Task's tool
 # reference (the shapes of its referenced ad-hoc sub-process).
 
 from __future__ import annotations

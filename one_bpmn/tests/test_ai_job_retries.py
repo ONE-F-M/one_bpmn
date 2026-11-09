@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001497: bounded retries and failure policy for AI jobs.
+# Bounded retries and failure policy for AI jobs.
 #
 # Three failure layers, three policies:
 # - LLM/provider failures: retried IN-PROCESS by the executor up to the
