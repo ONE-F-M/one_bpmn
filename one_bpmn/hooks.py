@@ -208,7 +208,10 @@ _BPMN_GUARD   = "one_bpmn.one_bpmn.trigger.guard_bpmn_document"
 _BPMN_DELETE  = "one_bpmn.one_bpmn.trigger.delete_linked_bpmn_instances"
 
 # Copies each AI Agent Configuration's prompt, model, temperature and max tokens onto the map shapes that link it.
-after_migrate = ["one_bpmn.agents.agent_config_resolver.sync_all_shapes_to_configs"]
+after_migrate = [
+	"one_bpmn.agents.agent_config_resolver.sync_all_shapes_to_configs",
+	"one_bpmn.install.grant_process_owner_doctype_access",
+]
 
 # Jinja globals for aiUserPrompt templates.
 jinja = {
