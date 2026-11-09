@@ -309,7 +309,7 @@ Work from the current code. Never write a replacement from scratch.
 Sometimes a script needs an answer from a model as part of its own logic: classify something, then branch on the result. Call the shared dispatcher with `execute_shape(instance, bpmn_id, task_cfg, kwargs)`. `instance` and `bpmn_id` are already injected in both contracts. The call is tracked as a real, observable AI Agent Run, exactly like an AI Agent Task on the diagram.
 
 ```python
-from one_bpmn.agents.shape_tools import execute_shape
+from one_bpmn.ai_agent_skills.tools.shape_tools import execute_shape
 import json
 
 _task_cfg = {

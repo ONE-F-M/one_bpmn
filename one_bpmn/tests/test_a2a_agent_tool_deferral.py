@@ -24,7 +24,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.processa_engine.agent_runtime.step_loop import run_agent_loop
 from one_bpmn.processa_engine.agent_runtime.llm_types import ToolSpec
-from one_bpmn.agents.shape_tools import ToolDeferred, execute_shape
+from one_bpmn.ai_agent_skills.tools.shape_tools import ToolDeferred, execute_shape
 from one_bpmn.a2a.client_ops import A2A_WAITING_KEY
 
 MARKER = {"a2a_task": "A2A-TEST-1", "label": "Delegated to Slow Agent", "remote_task_id": None}

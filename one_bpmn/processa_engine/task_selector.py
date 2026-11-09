@@ -80,7 +80,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 	)
 	from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
 	from one_bpmn.processa_engine.agent_runtime.llm_types import ToolSpec
-	from one_bpmn.agents.tool_pool import DIAGRAM_TASK, resolve_tool_pool
+	from one_bpmn.ai_agent_skills.tools.tool_pool import DIAGRAM_TASK, resolve_tool_pool
 
 	# A linked AI Agent Configuration overrides the shape's agent fields; tools stay the subprocess's own.
 	if task_cfg.get("aiAgentConfig"):

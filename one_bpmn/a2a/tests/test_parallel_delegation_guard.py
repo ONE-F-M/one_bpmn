@@ -27,7 +27,7 @@ from one_bpmn.processa_engine.agent_runtime.step_loop import (
 	run_agent_loop,
 )
 from one_bpmn.processa_engine.agent_runtime.llm_types import ToolSpec
-from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG, ToolDeferred
+from one_bpmn.ai_agent_skills.tools.shape_tools import PAUSE_HELD_FLAG, ToolDeferred
 from one_bpmn.a2a import client_ops as a2a_client_ops
 
 

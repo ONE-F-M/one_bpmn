@@ -14,7 +14,7 @@ from unittest.mock import patch as mock_patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.skill_tools import _skill_names_cache_key, _skills_cache_key
+from one_bpmn.ai_agent_skills.skill_tools import _skill_names_cache_key, _skills_cache_key
 from one_bpmn.one_bpmn.patches.v1_0 import seed_logix_skills as seed
 
 WRITERS_PRESENT = all(

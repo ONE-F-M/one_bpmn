@@ -241,7 +241,7 @@ class TestSlowActionDispatch(AgentSandboxCase):
 		self.assertIn("tests were not run", ctx["task"].data[ops.EVAL_DRY_RUN_KEY])
 
 	def test_the_dry_run_answer_reaches_the_model_without_a_result_variable(self):
-		from one_bpmn.agents.shape_tools import _connector_tool_result
+		from one_bpmn.ai_agent_skills.tools.shape_tools import _connector_tool_result
 		from one_bpmn.processa_engine.dispatch.connector import CONNECTOR_OUTCOME_KEY
 
 		_result, ctx, _post = self._dispatch_in_eval("open_pull_request")

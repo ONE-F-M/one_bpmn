@@ -95,10 +95,10 @@ private-import one_bpmn/one_bpmn/patches/v1_0/seed_lucrusher_skills.py one_bpmn.
 private-import one_bpmn/one_bpmn/patches/v1_0/seed_lucrusher_skills.py one_bpmn.one_bpmn.patches.v1_0.seed_prosally_and_frontend_skills._upsert_skill
 private-import one_bpmn/one_bpmn/patches/v1_0/seed_prosally_baseline_suite.py one_bpmn.one_bpmn.patches.v1_0.seed_lucrusher_eval_suite._call
 private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.agents.observability._CURRENT_RUN_FLAG
-private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.agents.shape_tools._run_server_script
-private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.agents.shape_tools._synthetic_task
-private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.api.skill_tools._skill_names_cache_key
-private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.api.skill_tools._skills_cache_key
+private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.ai_agent_skills.tools.shape_tools._run_server_script
+private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.ai_agent_skills.tools.shape_tools._synthetic_task
+private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.ai_agent_skills.skill_tools._skill_names_cache_key
+private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.ai_agent_skills.skill_tools._skills_cache_key
 private-import one_bpmn/processa_engine/doctype/bpmn_process_model/bpmn_process_model.py one_bpmn.api.editability._site_lock_override
 private-import one_bpmn/processa_engine/engine/__init__.py one_bpmn.processa_engine.engine.adhoc._adhoc_completion_met
 private-import one_bpmn/processa_engine/engine/__init__.py one_bpmn.processa_engine.engine.adhoc._adhoc_subworkflows

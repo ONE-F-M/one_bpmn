@@ -47,7 +47,7 @@ from urllib.parse import quote
 import frappe
 from frappe.utils import cint
 
-from one_bpmn.agents.shape_tools import BudgetExceeded
+from one_bpmn.ai_agent_skills.tools.shape_tools import BudgetExceeded
 from one_bpmn.agents_sandbox.sandbox import session as sessions
 from one_bpmn.agents_sandbox.sandbox import supervisor
 from one_bpmn.agents_sandbox.doctype.agent_sandbox_run.agent_sandbox_run import bounded_error

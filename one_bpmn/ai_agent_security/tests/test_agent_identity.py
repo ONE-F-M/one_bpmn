@@ -317,7 +317,7 @@ class TestToolsRunAsTheAgent(FrappeTestCase):
 	def test_the_exec_path_switches_user_and_turns_permissions_on(self):
 		import inspect
 
-		from one_bpmn.agents import shape_tools
+		from one_bpmn.ai_agent_skills.tools import shape_tools
 
 		source = inspect.getsource(shape_tools._run_server_script)
 		self.assertIn("frappe.set_user(agent_user)", source)
@@ -328,7 +328,7 @@ class TestToolsRunAsTheAgent(FrappeTestCase):
 		browser session when a tool runs inline inside a web request."""
 		import inspect
 
-		from one_bpmn.agents import shape_tools
+		from one_bpmn.ai_agent_skills.tools import shape_tools
 
 		source = inspect.getsource(shape_tools._run_server_script)
 		self.assertIn("frappe.session.sid = saved_sid", source)
@@ -339,7 +339,7 @@ class TestToolsRunAsTheAgent(FrappeTestCase):
 		its own."""
 		import inspect
 
-		from one_bpmn.agents import shape_tools
+		from one_bpmn.ai_agent_skills.tools import shape_tools
 
 		source = inspect.getsource(shape_tools._run_server_script)
 		self.assertIn("if agent_user:", source)
@@ -349,7 +349,7 @@ class TestToolsRunAsTheAgent(FrappeTestCase):
 		makes it invent an explanation — usually that the work is done."""
 		import inspect
 
-		from one_bpmn.agents import shape_tools
+		from one_bpmn.ai_agent_skills.tools import shape_tools
 
 		source = inspect.getsource(shape_tools.execute_shape)
 		self.assertIn("frappe.PermissionError", source)
@@ -360,7 +360,7 @@ class TestToolsRunAsTheAgent(FrappeTestCase):
 		no sprint, a completed sprint, an Epic."""
 		import inspect
 
-		from one_bpmn.agents import shape_tools
+		from one_bpmn.ai_agent_skills.tools import shape_tools
 
 		self.assertIn("frappe.ValidationError", inspect.getsource(shape_tools.execute_shape))
 

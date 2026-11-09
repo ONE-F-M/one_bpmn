@@ -32,7 +32,7 @@ def _bridge_available() -> bool:
 	from one_bpmn.processa_engine.agent_runtime.executor import ExecutorConfig
 
 	try:
-		import one_bpmn.agents.tool_pool
+		import one_bpmn.ai_agent_skills.tools.tool_pool
 	except ImportError:
 		return False
 	try:
