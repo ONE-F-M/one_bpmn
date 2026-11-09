@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001999: Review Doctypes must see a standard DocType edited directly.
+# Review Doctypes must see a standard DocType edited directly.
 #
 # The reported symptom: a Link filter was added to Process Creation Request's
 # parent_process field on the BA site, and Review Doctypes answered "No changes

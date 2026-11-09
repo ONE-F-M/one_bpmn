@@ -338,10 +338,10 @@ class TestMemoryModelConfig(FrappeTestCase):
 
 
 class TestMemoryConfigValidation(FrappeTestCase):
-	"""WI-002168: an Enabled config must be able to actually run.
+	"""An Enabled config must be able to actually run.
 
 	Reuses TestMemoryModelConfig's fixtures (models, Processa Settings globals)
-	since this is the config-time half of the same precedence chain WI-001793
+	since this is the config-time half of the same precedence chain
 	built at dispatch time — the two must agree, so the tests are siblings.
 	"""
 
@@ -513,7 +513,7 @@ class TestTheMemoryModelBringsItsOwnProvider(FrappeTestCase):
 				"enable_model": 1,
 				"model_name": self.MODEL,
 				"provider": self.provider,
-				# WI-002191: an enabled model must carry a key.
+				# An enabled model must carry a key.
 				"api_key": "test-key-not-real",
 			}).insert(ignore_permissions=True)
 			frappe.db.commit()

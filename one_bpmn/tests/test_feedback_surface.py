@@ -1,5 +1,5 @@
 """
-What the chat panel needs in order to show a rating control (WI-001822).
+What the chat panel needs in order to show a rating control.
 
 The control itself is a Vue component and this repo has no JS test harness, so
 what is pinned here is everything the panel depends on and could silently lose:
@@ -39,7 +39,7 @@ class PanelFixture(FrappeTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.conversation = frappe.get_doc(
-			{"doctype": "Chat Conversation", "title": "WI-001822 probe", "agent_mode": "ProsAlly"}
+			{"doctype": "Chat Conversation", "title": "feedback probe", "agent_mode": "ProsAlly"}
 		).insert(ignore_permissions=True)
 		self.question = self._message("User", "What is the leave policy?")
 		self.reply = self._message("Bot", "Twenty-six days.")

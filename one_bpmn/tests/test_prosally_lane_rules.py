@@ -1,5 +1,5 @@
 """
-ProsAlly draws the lanes the designer asked for, and no others (WI-002042).
+ProsAlly draws the lanes the designer asked for, and no others.
 
 Asked for "3 lanes only: Recruiter, GRD Operator, GRD Manager", it produced four
 — the extra being "System (Automatic)". The model was not guessing: that lane was
