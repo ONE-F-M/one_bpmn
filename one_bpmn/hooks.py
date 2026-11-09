@@ -250,7 +250,11 @@ scheduler_events = {
 			# meant in tens of minutes.
 			"one_bpmn.tasks.compact_idle_conversations",
 		],
-	}
+	},
+	"hourly": [
+		# Ends a Processa Legacy Migration whose background jobs died without finishing it.
+		"one_bpmn.processa_engine.legacy_migration.fail_stalled_migrations",
+	],
 }
 
 # Cache keys that survive frappe.clear_cache()

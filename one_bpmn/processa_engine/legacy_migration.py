@@ -8,6 +8,7 @@ from uuid import UUID
 import frappe
 from frappe import _
 from frappe.utils import create_batch, now_datetime
+from frappe.utils.background_jobs import is_job_enqueued
 from rq.timeouts import JobTimeoutException
 
 from one_bpmn.processa_engine import engine as bpmn_engine
@@ -135,6 +136,37 @@ def run_batch(migration_name: str, instance_names: list) -> None:
 		frappe.db.commit()
 		raise
 	_count_batch(migration_name, moved, failed)
+
+
+def fail_stalled_migrations() -> None:
+	"""Hourly: end Queued or Running migrations whose jobs are all gone, logging the records they never reached."""
+	for name in frappe.get_all(
+		"Processa Legacy Migration", filters={"status": ["in", ["Queued", "Running"]]}, pluck="name"
+	):
+		plm = frappe.get_doc("Processa Legacy Migration", name)
+		job_ids = [f"plm::{name}::start", *(f"plm::{name}::{n}" for n in range(1, plm.total_batches + 1))]
+		if any(is_job_enqueued(job_id) for job_id in job_ids):
+			continue
+
+		logged = {row.old_instance for row in plm.error_logs}
+		unhandled = [
+			instance
+			for instance in frappe.get_all(
+				"BPMN Process Instance",
+				filters={
+					"process_model": plm.from_model,
+					"context_doctype": plm.target_doctype,
+					"status": ["in", OPEN_INSTANCE_STATUSES],
+				},
+				pluck="name",
+			)
+			if instance not in logged
+		]
+		detail = _("The run's background job stopped before this record moved.")
+		failed = _log_unmoved(name, unhandled, "Timed out", detail)
+		frappe.db.set_value("Processa Legacy Migration", name, "failed_count", plm.failed_count + failed)
+		finish(name)
+		frappe.db.commit()
 
 
 def _log_unmoved(migration_name: str, instance_names: list, reason: str, detail: str) -> int:

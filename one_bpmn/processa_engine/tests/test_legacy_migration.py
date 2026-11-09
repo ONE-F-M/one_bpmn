@@ -689,3 +689,58 @@ class TestLegacyMigrationReplay(FrappeTestCase):
 			self.assertRaises(JobTimeoutException),
 		):
 			self._migrate(OLD, self.waiting_review, [(DRAFT, DRAFT)])
+
+	def _stalled_plm(self, status="Running", new_map=None):
+		"""A PLM part way through: 2 batches queued, 1 done, the waiting_review record already logged."""
+		new_map = new_map or _deploy("PLM Rep Batch", OLD)
+		name = self._batch_plm(new_map, [(DRAFT, DRAFT), (APPROVED, APPROVED)])
+		frappe.db.set_value(
+			"Processa Legacy Migration",
+			name,
+			{"status": status, "total_records": 4, "total_batches": 2, "batches_done": 1, "failed_count": 1},
+		)
+		legacy_migration.log_error_row(
+			name, frappe.get_doc("BPMN Process Instance", self.waiting_review), "Replay stuck", "stuck"
+		)
+		return name
+
+	def _check_stalled(self, jobs_alive):
+		with (
+			patch.object(legacy_migration, "is_job_enqueued", return_value=jobs_alive) as enqueued,
+			patch.object(frappe.db, "commit"),
+		):
+			legacy_migration.fail_stalled_migrations()
+		return enqueued
+
+	def test_a_run_with_no_live_jobs_logs_what_it_never_reached_and_finishes(self):
+		name = self._stalled_plm()
+		frappe.db.set_value("BPMN Process Instance", self.waiting_pr, "status", "Completed")
+		enqueued = self._check_stalled(jobs_alive=False)
+		plm = self._plm_row(name)
+		timed_out = sorted(r.old_instance for r in plm.error_logs if r.reason == "Timed out")
+		self.assertEqual(timed_out, sorted([self.waiting_merge, self.errored]))
+		self.assertEqual((plm.failed_count, plm.status), (3, "Failed"))
+		self.assertTrue(plm.completed_at)
+		checked = {c.args[0] for c in enqueued.call_args_list if f"::{name}::" in c.args[0]}
+		self.assertEqual(checked, {f"plm::{name}::start", f"plm::{name}::1", f"plm::{name}::2"})
+
+	def test_a_run_with_a_live_job_is_left_alone(self):
+		name = self._stalled_plm()
+		self._check_stalled(jobs_alive=True)
+		plm = self._plm_row(name)
+		self.assertEqual((plm.status, plm.failed_count, len(plm.error_logs)), ("Running", 1, 1))
+
+	def test_a_completed_or_failed_run_is_not_checked(self):
+		new_map = _deploy("PLM Rep Batch", OLD)
+		for status in ("Completed", "Failed"):
+			name = self._stalled_plm(status=status, new_map=new_map)
+			enqueued = self._check_stalled(jobs_alive=False)
+			plm = self._plm_row(name)
+			self.assertEqual((plm.status, len(plm.error_logs)), (status, 1))
+			self.assertFalse([c for c in enqueued.call_args_list if f"::{name}::" in c.args[0]])
+
+	def test_the_check_is_scheduled_hourly(self):
+		self.assertIn(
+			"one_bpmn.processa_engine.legacy_migration.fail_stalled_migrations",
+			frappe.get_hooks("scheduler_events")["hourly"],
+		)
