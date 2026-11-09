@@ -11,7 +11,7 @@
 	</div>
 </template>
 <script setup>
-// Display primitive (WI-001673): read-only BPMN thumbnail from XML.
+// Display primitive: read-only BPMN thumbnail from XML.
 // bpmn-js is already a spiff dependency; the viewer is lazy-imported so
 // non-diagram conversations never pay for it.
 // `height` and `large` let the expanded window reuse it; the defaults keep

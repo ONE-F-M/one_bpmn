@@ -100,7 +100,7 @@ class TestDistillSalienceGate(FrappeTestCase):
 		self.assertEqual(facts[0]["dedup_key"], "prosally:t")
 
 
-# WI-002165: the curator can still hand back a fact that just paraphrases the
+# The curator can still hand back a fact that just paraphrases the
 # agent's own instructions (the prompt guardrail alone left confirmed echo
 # rows in the store); exclude_context is the
 # deterministic backstop that rejects those regardless of what the curator

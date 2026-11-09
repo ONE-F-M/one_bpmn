@@ -10,7 +10,7 @@
 	</div>
 </template>
 <script setup>
-// Display primitive (WI-001673): split before/after view. Accepts the
+// Display primitive: split before/after view. Accepts the
 // structured rows Logix's split-diff renderer produces, or a raw unified
 // diff string as the graceful fallback.
 import { computed } from "vue";

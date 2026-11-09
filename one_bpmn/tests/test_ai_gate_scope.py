@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001498: concurrency gate scoped to ACTIVE AI execution.
+# Concurrency gate scoped to ACTIVE AI execution.
 #
 # engine_in_progress is held only while an AI job (or a concurrent
 # complete_task pass) is actually running:

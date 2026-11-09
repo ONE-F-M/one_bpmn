@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001362 (5-02): assertion evaluators for all five assertion types.
+# Assertion evaluators for all five assertion types.
 # Gap closure against the evaluators already merged on staging: judge/
 # assertion failures must surface as ERROR (never silently Passed/Failed),
 # and llm_judge's own token spend must reach the Result's totals.

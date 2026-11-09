@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-"""Asking the story owner instead of guessing (WI-002050).
+"""Asking the story owner instead of guessing.
 
 The pause was already there — a User shape inside an agent's toolbox is a human
 tool, and selecting it suspends the run until a person completes the task. What

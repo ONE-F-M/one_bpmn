@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001422: enforce a "Maximum model calls" limit (aiMaxToolCalls) on the AI
+# Enforce a "Maximum model calls" limit (aiMaxToolCalls) on the AI
 # Agent Task's tool-calling loop.
 
 from __future__ import annotations

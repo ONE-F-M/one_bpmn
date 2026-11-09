@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 
-// WI-003579. spiff has no component harness (see chat/cardExpand.test.mjs), so
+// spiff has no component harness (see chat/cardExpand.test.mjs), so
 // these read the single-file components as text. The staging logic is small,
 // so the script block of ProsAllyPanel is also executed against a stand-in
 // for Vue's ref/computed, which checks what a turn would actually carry.

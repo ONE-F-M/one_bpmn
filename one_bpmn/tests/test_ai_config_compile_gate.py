@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-001650: every AI shape must be backed by an AI Agent Configuration."""
+"""Every AI shape must be backed by an AI Agent Configuration."""
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -96,7 +96,7 @@ class TestAiConfigCompileGate(FrappeTestCase):
 			frappe.db.delete("AI Agent Configuration", {"name": agent.name})
 
 	def test_non_live_config_blocks_deployment(self):
-		# WI-001652: deployment requires Live — the error names the state.
+		# Deployment requires Live — the error names the state.
 		parked = "ZZ Gate Test Parked"
 		if not frappe.db.exists("AI Agent Configuration", parked):
 			# No provider link, and nothing stamps it Live — either way not Live.

@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001933: a delegation made from inside an agent's TOOL call, to an agent
+# A delegation made from inside an agent's TOOL call, to an agent
 # that cannot answer immediately.
 #
 # The failure this covers was silent and total: the tool ran on a synthetic
@@ -34,7 +34,7 @@ MARKER = {"a2a_task": "A2A-TEST-1", "label": "Delegated to Slow Agent", "remote_
 # deferral rather than wiring, but the descriptor still has to be real: a
 # connector with no connectorId resolves no handler, and execute_shape now
 # refuses it up front instead of letting it answer with a silent success
-# (WI-002960 — an exported map arrived with the wiring missing from its tool
+# (an exported map arrived with the wiring missing from its tool
 # descriptors, and the agent reported a connector that was never built).
 _WIRED = {
 	"serviceType": "connector",

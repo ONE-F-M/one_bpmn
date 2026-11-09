@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001348 (1-01): Register Ad-hoc Subprocess parsing in the compile pipeline.
+# Register Ad-hoc Subprocess parsing in the compile pipeline.
 #
 # SpiffWorkflow 3.1.x registers <bpmn:adHocSubProcess> in BpmnParser.PARSER_CLASSES
 # and ships AdHocSubprocessSpec/AdHocSubprocess converters in the serializer's
@@ -136,7 +136,7 @@ class TestAdhocSubprocessParsing(FrappeTestCase):
 
 	def test_sequential_ordering_attribute_rejected(self):
 		# SpiffWorkflow's AdHocParser rejects ordering="sequential" outright.
-		# one_bpmn's sequential enforcement (WI-001350) lives in its own dispatch
+		# one_bpmn's sequential enforcement lives in its own dispatch
 		# loop instead — diagrams must NOT carry this attribute.
 		xml = self.adhoc_xml.replace(
 			'cancelRemainingInstances="false"',

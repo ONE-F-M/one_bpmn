@@ -1,11 +1,11 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001497: bounded retries and failure policy for AI jobs.
+# Bounded retries and failure policy for AI jobs.
 #
 # Three failure layers, three policies:
 # - LLM/provider failures: retried IN-PROCESS by the executor up to the
 #   panel's aiMaxRetries (recorded on AI Agent Run.retry_count) — when
 #   exhausted, the dispatch writes error variables and the flow continues,
-#   IDENTICAL to inline dispatch (WI-001496 parity).
+#   IDENTICAL to inline dispatch (parity).
 # - Job-level failures (engine restore, DB, crash): re-enqueued with
 #   attempt+1 while attempt < aiMaxRetries; instance stays Active.
 # - Exhaustion: instance Errored, error logged on the task's activity log,

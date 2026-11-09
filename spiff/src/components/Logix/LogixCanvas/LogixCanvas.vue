@@ -1,7 +1,7 @@
 <template>
 	<div class="lc-root">
 
-		<!-- ── LEFT: Chat (WI-001677: the shared AgentChatPanel) ──────────
+		<!-- ── LEFT: Chat (the shared AgentChatPanel) ──────────
 		     Both Logix surfaces (this split view and the LogixChat modal) now
 		     embed one implementation. Script changes arrive as
 		     onefm.script_diff cards — CREATE and MODIFY both round-trip; the
@@ -317,7 +317,7 @@ import { ref, computed, nextTick, onMounted, watch } from "vue";
 import CodeMirrorEditor from "@/components/Editor/CodeMirrorEditor/CodeMirrorEditor.vue";
 import ScriptNamesHint from "@/components/Editor/ScriptNamesHint/ScriptNamesHint.vue";
 import { frappeRequest } from "frappe-ui";
-// WI-001677: the chat half is the shared AgentChatPanel; script changes
+// The chat half is the shared AgentChatPanel; script changes
 // arrive as onefm.script_diff cards and apply into the editor below,
 // test cases as onefm.test_cases cards that run against the linked script.
 import AgentChatPanel from "@/components/Chat/AgentChatPanel/AgentChatPanel.vue";
@@ -525,7 +525,7 @@ async function linkExistingScript(name) {
 	}
 }
 
-// ── Chat wiring (WI-001677) ───────────────────────────────────────────
+// ── Chat wiring ───────────────────────────────────────────
 // The shared AgentChatPanel owns transcript/composer/lifecycle; this host
 // owns what card actions mean.
 

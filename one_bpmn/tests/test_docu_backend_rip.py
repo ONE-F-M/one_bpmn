@@ -1,4 +1,4 @@
-"""Docu has no Python backend left — the map owns the agent (WI-001813 follow-up).
+"""Docu has no Python backend left — the map owns the agent.
 
 Docu's stage tools live in the process map's Server Scripts. The only Python
 left is shared infrastructure: the DocType schema tools in

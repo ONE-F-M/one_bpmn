@@ -1,5 +1,5 @@
 """
-The triage queue behind the Evals feedback page (WI-002068).
+The triage queue behind the Evals feedback page.
 
 The page is Vue and this repo has no JS test harness, so what is pinned here is
 the endpoint it lives on — the filters, the joined context that makes a row
@@ -29,7 +29,7 @@ class QueueFixture(FrappeTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.conversation = frappe.get_doc(
-			{"doctype": "Chat Conversation", "title": "WI-002068 probe", "agent_mode": "ProsAlly"}
+			{"doctype": "Chat Conversation", "title": "feedback probe", "agent_mode": "ProsAlly"}
 		).insert(ignore_permissions=True)
 
 		self.q1 = self._message("User", "How many leave days do I have?")
@@ -311,7 +311,7 @@ class TestStayingInsideProcessa(QueueFixture):
 		suite = frappe.get_doc(
 			{
 				"doctype": "AI Eval Suite",
-				"title": "WI-002068 nav suite",
+				"title": "feedback nav suite",
 				"eval_type": "Direct",
 				"agent_configuration": agent,
 			}

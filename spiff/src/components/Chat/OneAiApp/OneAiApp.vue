@@ -50,7 +50,7 @@
 </template>
 
 <script setup>
-// one-ai (WI-001678) — the Lumina successor, hosted in one_bpmn. The page is
+// one-ai — the Lumina successor, hosted in one_bpmn. The page is
 // deliberately thin: the history sidebar and the agent picker are the only
 // things it owns; everything conversational is the same shared panel every
 // other surface embeds. It offers the Lumina page's own fixed set of modes
@@ -152,7 +152,7 @@ function onConversation(name) {
 
 <style scoped>
 /* The host owns the box: the standalone /one-ai page gives it the whole
-   viewport, an embedding host gives it whatever it has (WI-001678).
+   viewport, an embedding host gives it whatever it has.
    grid-template-rows is load-bearing: an implicit row is auto-sized, so it
    grew to the transcript's full height, the panel's `height: 100%` followed
    the ROW rather than this box, and the log never became scrollable — a long

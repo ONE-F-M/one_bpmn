@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001350 (1-03): Ad-hoc subprocess decide/execute dispatch loop with
+# Ad-hoc subprocess decide/execute dispatch loop with
 # sequential enforcement.
 #
 # SpiffWorkflow readies EVERY unconditional no-input inner task at ad-hoc
@@ -168,7 +168,7 @@ class TestAdhocSequentialDispatch(FrappeTestCase):
 		wf = _build("adhoc_sequential.bpmn", "Process_AdhocSequential", {"done": False})
 		_drive(wf)
 		sp = _adhoc(wf)
-		# The unqualified-attribute parsing fix ships on WI-001348; set the
+		# The unqualified-attribute parsing fix ships separately; set the
 		# spec flag directly so this branch tests the loop semantics alone.
 		sp.spec.cancel_remaining = False
 

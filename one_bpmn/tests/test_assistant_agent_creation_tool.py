@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001751: the AI Assistant's agent-creation tool shape.
+# The AI Assistant's agent-creation tool shape.
 #
 # Agent creation used to exist only on the modal path (a proposed_config the
 # designer confirmed with a button), which is a single LLM call with no tool loop
@@ -72,7 +72,7 @@ class TestAssistantAgentCreationTool(FrappeTestCase):
 		# here, or the model calls the tool and gets an error back instead of
 		# asking the designer. system_prompt is NOT required: the process
 		# generates it from description when empty. chat_mode_label is NOT
-		# required either (WI-001997): a process-embedded agent (non-chat
+		# required either: a process-embedded agent (non-chat
 		# process_model) needs no label, so the tool script and the endpoint
 		# enforce the label conditionally instead of the schema.
 		self.assertEqual(
@@ -81,7 +81,7 @@ class TestAssistantAgentCreationTool(FrappeTestCase):
 		)
 
 	def test_contract_asks_for_a_model_not_a_provider(self):
-		"""WI-001655 made the model the agent's pick, with the provider derived
+		"""An earlier change made the model the agent's pick, with the provider derived
 		from that model's credentials link. Offering a provider field would leave
 		ai_model empty and fail validation, landing the agent in Needs Attention."""
 		shape = _extract_tool_shapes(_adhoc(), BPMN_NS, SPIFF_NS)[0]
@@ -146,7 +146,7 @@ class TestAssistantAgentCreationTool(FrappeTestCase):
 		# ai_model is validated unconditionally and must be collected up front.
 		self.assertIn("ai_model", rule_fields)
 		self.assertIn("ai_model", shape["required"])
-		# chat_mode_label is validated CONDITIONALLY (WI-001997: waived for
+		# chat_mode_label is validated CONDITIONALLY (waived for
 		# agents mapped to a non-chat process), so it stays in the schema but
 		# out of required — the tool script enforces it when no map is given.
 		self.assertIn("chat_mode_label", rule_fields)

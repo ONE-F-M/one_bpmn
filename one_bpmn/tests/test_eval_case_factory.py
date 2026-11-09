@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001363 (5-03): Create Eval Case from Run action.
+# Create Eval Case from Run action.
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def _process_owner():
 
 
 def _agent_configuration():
-	"""AI Eval Suite.agent_configuration is mandatory (WI-001751)."""
+	"""AI Eval Suite.agent_configuration is mandatory."""
 	suffix = frappe.generate_hash(length=6)
 	doc = frappe.get_doc({
 		"doctype": "AI Agent Configuration",
@@ -174,7 +174,7 @@ class TestEvalCaseFactory(FrappeTestCase):
 		self.assertEqual(case.source_run, run.name)
 		self.assertEqual(case.input_user_prompt, "usr prompt")
 		self.assertEqual(case.expected_output, "the answer")
-		# WI-001751 moved provider / model / system prompt off the case and onto
+		# Provider / model / system prompt off the case and onto
 		# the suite's agent. Assert against the doctype's fields, not the loaded
 		# document: Frappe drops the DocField but never the table column, so a
 		# removed field still surfaces on the instance carrying its old value.

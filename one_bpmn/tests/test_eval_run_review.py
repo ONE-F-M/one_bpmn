@@ -1,7 +1,7 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001747: the run-review comparison baseline.
+# The run-review comparison baseline.
 #
-# Once WI-001746 allowed running a SUBSET of a suite's cases, "the immediately
+# Once it was possible to run a SUBSET of a suite's cases, "the immediately
 # previous run" stopped being a usable baseline: consecutive runs routinely share
 # no cases at all, so every case reported no delta even when it had plenty of
 # history. The baseline is therefore resolved per case — the most recent earlier

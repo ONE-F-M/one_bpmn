@@ -85,7 +85,7 @@ class TestReadWorkItem(FrappeTestCase):
 		self.assertEqual(out.get("work_item"), self.item)
 		out = _run("Work Item Tool: Read Work Item", context_doctype="A2A Task", context_docname=task)
 		self.assertIn("No work item to read", out["error"])
-		out = _run("Work Item Tool: Read Work Item", context_doctype="A2A Task", context_docname=task, args={"work_item": "WI-000000"})
+		out = _run("Work Item Tool: Read Work Item", context_doctype="A2A Task", context_docname=task, args={"work_item": "NO-SUCH-ITEM"})
 		self.assertIn("No Work Item named", out["error"])
 
 	def test_on_a_work_item_context_it_reads_that_work_item(self):
@@ -111,8 +111,8 @@ class TestReadPullRequest(FrappeTestCase):
 	def test_the_five_calls_are_folded_into_one_answer_with_changes_requested_first(self):
 		def fake_get(url, headers=None, **kw):
 			if url.endswith("/pulls/9"):
-				return {"title": "Fix titles", "body": "Work Item: WI-1", "state": "open", "merged": False,
-				        "head": {"ref": "WI-1"}, "base": {"ref": "staging"}, "user": {"login": "bot"}}
+				return {"title": "Fix titles", "body": "Work Item: ITEM-1", "state": "open", "merged": False,
+				        "head": {"ref": "ITEM-1"}, "base": {"ref": "staging"}, "user": {"login": "bot"}}
 			if url.endswith("/files?per_page=100"):
 				return [{"filename": "a.py", "status": "modified", "additions": 2, "deletions": 2, "patch": "@@ -1 +1 @@\n-x\n+y"}]
 			if "/pulls/9/reviews" in url:

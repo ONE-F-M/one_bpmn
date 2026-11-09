@@ -31,17 +31,17 @@ class TestChatPersistence(FrappeTestCase):
         history = load_history(conv_name, limit=5)
         self.assertEqual(len(history), 2)
         # Compared field by field rather than as whole dicts: load_history now
-        # returns the Chat Message name (WI-001822) and its creation timestamp
-        # (WI-002047) alongside role and content. A strict equality would fail on
+        # returns the Chat Message name and its creation timestamp
+        # alongside role and content. A strict equality would fail on
         # those and invite someone to "fix" it by deleting them.
         self.assertEqual(history[0]["role"], "user")
         self.assertEqual(history[0]["content"], "Hello assistant")
         self.assertEqual(history[1]["role"], "assistant")
         self.assertEqual(history[1]["content"], "Hello human")
-        # WI-001822: the row id, so a redrawn reply can still be rated
+        # The row id, so a redrawn reply can still be rated
         self.assertEqual(history[0]["message"], msg1)
         self.assertEqual(history[1]["message"], msg2)
-        # WI-002047: every history row carries the message's creation timestamp
+        # Every history row carries the message's creation timestamp
         for row in history:
             self.assertTrue(row["timestamp"])
         

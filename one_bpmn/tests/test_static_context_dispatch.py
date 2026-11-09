@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001639: the dispatcher must assemble the frozen static context from the
+# The dispatcher must assemble the frozen static context from the
 # LINKED AI Agent Configuration — instructions from the shape, examples and
 # guard rails from the agent — and must leave a shape with no linked config
 # byte-for-byte unchanged.
@@ -75,7 +75,7 @@ class TestDispatcherStaticContext(FrappeTestCase):
 			self.addCleanup(p.stop)
 
 	def _dispatch(self, task_cfg, behaviour=None):
-		# resolve_dispatch_overrides (WI-001637) makes a linked configuration
+		# resolve_dispatch_overrides makes a linked configuration
 		# authoritative for the system prompt, so on a site where the linked
 		# agent really exists it would replace "SYS" with that agent's stored
 		# prompt. Neutralise it: these tests are about what the static-context
@@ -204,7 +204,7 @@ class TestLiveLogixShape(FrappeTestCase):
 
 
 class TestConfiguratorKnowsTheNewFields(FrappeTestCase):
-	"""WI-001639: the AI Assistant learns the config contract from live data,
+	"""The AI Assistant learns the config contract from live data,
 	so the new fields must be IN that data and must survive its sanitiser."""
 
 	def test_create_payload_contract_advertises_both_fields(self):

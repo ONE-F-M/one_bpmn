@@ -1,12 +1,12 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001494 follow-up: inline engine passes must never poison the session.
+# Follow-up: inline engine passes must never poison the session.
 #
 # frappe.set_user() rewrites local.session.sid and WIPES session.data. In a
 # background worker that is fine; inside a web request the end-of-request
 # session persistence writes the gutted data back under the browser's cookie
 # sid, and every following request fails with "User None is disabled".
 #
-# Since WI-001494/WI-001496 run start_queued_instance and _complete_task_job
+# Since the inline engine landed, requests run start_queued_instance and _complete_task_job
 # INLINE in the request, both must call set_user ONLY when the identity
 # actually differs (the background-job case).
 

@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # License: MIT. See license.txt
-"""WI-002195: the phase tables and the confirmation section agree.
+"""The phase tables and the confirmation section agree.
 
 The patch rewrites three lines of LuCrusher's seeded system prompt so a
 confirmation no longer asks for the draft to be sent again. The edit is checked

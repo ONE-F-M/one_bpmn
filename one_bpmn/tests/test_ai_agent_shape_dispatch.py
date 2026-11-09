@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001419: the AI Agent Task executes its referenced sub-process shapes as
+# The AI Agent Task executes its referenced sub-process shapes as
 # function-tools — dispatch attaches the shape-tools and writes tool-call
 # results.
 

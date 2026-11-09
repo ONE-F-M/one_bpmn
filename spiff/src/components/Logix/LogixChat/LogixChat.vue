@@ -32,7 +32,7 @@
 					</div>
 				</div>
 
-				<!-- ── Chat (WI-001677: the shared AgentChatPanel) ──────────
+				<!-- ── Chat (the shared AgentChatPanel) ──────────
 				     Same implementation as the LogixCanvas split view — the two
 				     surfaces now share one panel. Script changes arrive as
 				     onefm.script_diff cards; the create-and-link naming dialog
@@ -90,7 +90,7 @@
 <script setup>
 import { ref, computed, watch } from "vue";
 import { frappeRequest } from "frappe-ui";
-// WI-001677: both Logix surfaces share the panel + card registry.
+// Both Logix surfaces share the panel + card registry.
 import AgentChatPanel from "@/components/Chat/AgentChatPanel/AgentChatPanel.vue";
 import { cardRegistry } from "@/utils/cardRegistry";
 
@@ -104,7 +104,7 @@ const props = defineProps({
 
 const emit = defineEmits(["update:modelValue"]);
 
-// ── WI-001677 wiring ──────────────────────────────────────────────────
+// ── Panel wiring ──────────────────────────────────────────────────
 // The shared panel owns transcript/composer/lifecycle; this surface owns
 // what card actions mean: CREATE opens the create-and-link naming dialog
 // (prefilled from the card's suggested name), MODIFY updates the linked

@@ -189,7 +189,7 @@ export function buildManualLaneDI(ir, opts = {}) {
     groups.get(k).nodeIds.push(n.id);
   }
 
-  // ── Channel routing model (WI-002042) ────────────────────────────────────
+  // ── Channel routing model ────────────────────────────────────
   //
   // Nodes sit on a (lane, column, row) grid. The space BETWEEN those cells is
   // reserved and never occupied by a shape: a vertical GUTTER between adjacent

@@ -1,9 +1,9 @@
 """
-What a user thought of an agent reply, end to end (WI-001641).
+What a user thought of an agent reply, end to end.
 
 Everything here runs without a browser and without an LLM, which is the point:
 the record, the endpoint and the eval-case path are the half of response
-feedback that can be proven headlessly, so WI-001822 can add the thumbs control
+feedback that can be proven headlessly, so a later change can add the thumbs control
 on top of something already known to work.
 
 Run with:
@@ -38,7 +38,7 @@ class FeedbackFixture(FrappeTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.conversation = frappe.get_doc(
-			{"doctype": "Chat Conversation", "title": "WI-001641 probe", "agent_mode": "ProsAlly"}
+			{"doctype": "Chat Conversation", "title": "feedback probe", "agent_mode": "ProsAlly"}
 		).insert(ignore_permissions=True)
 
 		self.reply = self._message("Bot", "Here is your process.")

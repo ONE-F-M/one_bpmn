@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001361 (5-01): AI Eval Suite runner — gap closure against the runner
+# AI Eval Suite runner — gap closure against the runner
 # already merged on staging: an unexpected exception partway through the
 # suite must finalise the Run as Error (with partial data) and still fire
 # the realtime completion event.

@@ -10,7 +10,7 @@
 	</CardShell>
 </template>
 <script setup>
-// LuCrusherResultCard (WI-001678) = CardShell[LuCrusherResultBody] over the
+// LuCrusherResultCard = CardShell[LuCrusherResultBody] over the
 // six panels lumina.js rendered by hand for onefm.lucrusher_result: process
 // matches, a parsed Lucidchart document, a codebase scan, the topology
 // proposal, the migration task list and the ProsAlly prompts. Which panel

@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001420: each AI Agent tool call is recorded in the AI Agent Step's
+# Each AI Agent tool call is recorded in the AI Agent Step's
 # ai_agent_tool_call child table (tool_source = diagram_task).
 
 from __future__ import annotations

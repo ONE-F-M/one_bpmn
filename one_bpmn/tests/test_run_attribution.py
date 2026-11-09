@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""What a run was made of, and what text made it (WI-002190).
+"""What a run was made of, and what text made it.
 
 Three gaps, one theme: a run's record did not describe the run.
 

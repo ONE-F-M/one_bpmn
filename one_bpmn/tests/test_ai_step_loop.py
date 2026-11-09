@@ -276,7 +276,7 @@ class TestStepLoopSuspension(FrappeTestCase):
 
 
 class TestStaticContextIsFrozen(FrappeTestCase):
-	"""WI-001639 acceptance: the system prompt handed to the model must be
+	"""Acceptance: the system prompt handed to the model must be
 	identical on every iteration of the loop, and state must advance only by
 	appending to the transcript."""
 

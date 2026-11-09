@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001418: compile ad-hoc sub-process shape descriptors into callable AI Agent
+# Compile ad-hoc sub-process shape descriptors into callable AI Agent
 # tools, and execute a shape as a function tool.
 
 from __future__ import annotations

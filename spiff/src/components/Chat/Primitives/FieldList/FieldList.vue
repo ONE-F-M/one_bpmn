@@ -9,7 +9,7 @@
 	</table>
 </template>
 <script setup>
-// Display primitive (WI-001673): the human summary of a doctype IR's fields.
+// Display primitive: the human summary of a doctype IR's fields.
 defineProps({ fields: { type: Array, default: () => [] } });
 function describe(f) {
 	const bits = [f.fieldtype || ""];

@@ -7,7 +7,7 @@ const HIGH_PRIORITY = 1500;
 
 /**
  * Badge renderer for Ad-hoc Subprocesses tagged with an AI Task Selector
- * (WI-001360). Draws the shared AI sparkle in the top-left of the
+ * Draws the shared AI sparkle in the top-left of the
  * subprocess shape — the plain ad-hoc tilde marker is kept (stock
  * rendering), the sparkle signals "an LLM decides what runs next here"
  * and matches the AI Agent Task icon.

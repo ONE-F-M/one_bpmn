@@ -27,7 +27,7 @@
 						icon="lucide:corner-down-right"
 						class="w-3.5 h-3.5 shrink-0 text-gray-300"
 					/>
-					<!-- AI tool call (WI-001426): called by the agent's LLM loop,
+					<!-- AI tool call: called by the agent's LLM loop,
 					     not executed as a flow step — same colours as executed
 					     steps; the AI chip marks the provenance. -->
 					<template v-if="node.isAiToolCall">

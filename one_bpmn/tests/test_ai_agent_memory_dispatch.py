@@ -99,7 +99,7 @@ class TestDispatcherMemory(FrappeTestCase):
 		args, _ = ms.call_args
 		self.assertEqual(args[0], "Agent")   # scope
 		self.assertEqual(args[1], "Act_9")   # scope key defaults to bpmn_id
-		# WI-001639: retrieved memory is DYNAMIC (it is searched per turn with
+		# Retrieved memory is DYNAMIC (it is searched per turn with
 		# the current user prompt), so it goes into the user message, ahead of
 		# the user's text — never onto the frozen system prompt.
 		self.assertEqual(_CAPTURED["config"].system_prompt, "SYS")
@@ -176,7 +176,7 @@ class TestDispatcherMemory(FrappeTestCase):
 		self.assertEqual(kwargs["backend"], "faketest")
 
 	def test_distilled_write_mode_passes_exclude_context(self):
-		# WI-002165: the dispatch-thread system prompt (the agent's own
+		# The dispatch-thread system prompt (the agent's own
 		# instructions for this run) is handed to the distiller so it can
 		# reject a fact that just restates them.
 		with patch("one_bpmn.ai_agent_memory.writeback.distill_and_write") as dw, patch(
@@ -198,7 +198,7 @@ class TestDispatcherMemory(FrappeTestCase):
 		self.assertIn("HARD PIPELINE RULES", kwargs["exclude_context"])
 
 	def test_distilled_tool_protocol_fallback_uses_plain_user_text_not_driving_prompt(self):
-		# WI-002165 regression: a tool-protocol agent (empty result.output,
+		# Regression: a tool-protocol agent (empty result.output,
 		# answer lives in the trace) used to splice the FULLY ASSEMBLED
 		# user_prompt — the operator-authored driving template, e.g. Logix's
 		# "HARD PIPELINE RULES" — into distillation labelled "[User message]".
@@ -653,9 +653,9 @@ class TestTheUserMessageReachesTheModel(FrappeTestCase):
 		self.assertLess(prompt.index("Process the latest message."), prompt.index("add a status field"))
 
 
-# ── WI-002163: bounded, on-topic recall ─────────────────────────────────────
+# ── Bounded, on-topic recall ─────────────────────────────────────
 # A constant driving prompt used to recall the same memories on every run
-# (fixed above, WI-002169); this covers what that fix alone doesn't: a greeting
+# (fixed above); this covers what that fix alone doesn't: a greeting
 # still has no signal worth searching memory with, and nothing bounded the
 # injected block's SIZE — aiMemoryLimit only bounds its count.
 
@@ -715,7 +715,7 @@ class TestRecallSkipsWhenTheTurnMessageIsUnresolved(TestTheUserMessageReachesThe
 	close, just narrowed to this one turn.
 
 	The fix must not touch _turn_user_message/turn_state at all (that's
-	WI-002169's territory, and the live map itself is out of reach here) — it
+	another change's territory, and the live map itself is out of reach here) — it
 	only has to stop the recall query from falling back to a driving-prompt
 	template when the real message couldn't be found for a chat turn.
 	"""
