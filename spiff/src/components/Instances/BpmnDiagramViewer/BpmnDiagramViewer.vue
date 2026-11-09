@@ -175,7 +175,7 @@ const viewerModdleExtension = {
 			],
 		},
 		{
-			// WI-001360: lets the viewer read the AI Task Selector tag so the
+			// Lets the viewer read the AI Task Selector tag so the
 			// wrench badge renders on selector-configured ad-hoc subprocesses.
 			name: "AdhocAiTaskSelectorExtension",
 			extends: ["bpmn:AdHocSubProcess"],
@@ -197,11 +197,11 @@ const props = defineProps({
 	logs: { type: Array, default: () => [] },
 	activeTasks: { type: Array, default: () => [] },
 	selectedBpmnId: { type: String, default: null },
-	// WI-001426: toolbox shapes the AI agent called as function-tools —
+	// Toolbox shapes the AI agent called as function-tools —
 	// bpmnId → "Success" | "Error". These shapes never executed as flow,
 	// so they get the same green treatment as engine-executed shapes.
 	aiCalledTools: { type: Object, default: () => ({}) },
-	// WI-001499: AI units parked "Waiting for AI execution" (or Errored
+	// AI units parked "Waiting for AI execution" (or Errored
 	// after retries) — bpmnId → "Waiting" | "Error". Pulsing blue outline.
 	waitingAiTasks: { type: Object, default: () => ({}) },
 })
@@ -472,7 +472,7 @@ function applyHighlights() {
 			try { canvas.addMarker(bpmnId, "highlight-active") } catch { /* ignore */ }
 		})
 
-		// AI-called toolbox shapes (WI-001426): the agent invoked these as
+		// AI-called toolbox shapes: the agent invoked these as
 		// function-tools inside its LLM loop — styled with the same green as
 		// engine-executed shapes (errors get the error treatment) so AI and
 		// engine runs read identically on the diagram.
@@ -524,7 +524,7 @@ function applyHighlights() {
 				})
 		}
 
-		// Parked AI units (WI-001499): waiting for their background AI job —
+		// Parked AI units: waiting for their background AI job —
 		// pulsing blue; an exhausted-retries failure gets the error look.
 		// A suspended agent (Durable HITL, status "Human") is waiting for a
 		// PERSON — distinct amber treatment.
@@ -652,7 +652,7 @@ function applyHighlights() {
 .highlight-active:not(.djs-connection) .djs-visual > :nth-child(1) {
 	stroke: #2563eb !important; fill: #dbeafe !important; stroke-width: 2px !important;
 }
-/* WI-001426: toolbox shapes called by the AI agent — same green as engine-
+/* Toolbox shapes called by the AI agent — same green as engine-
    executed shapes so AI and engine runs read identically on the diagram. */
 .highlight-ai-called:not(.djs-connection) .djs-visual > :nth-child(1) {
 	stroke: #16a34a !important; fill: #dcfce7 !important; stroke-width: 2px !important;
