@@ -1,9 +1,9 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001494 + WI-001496: inline engine execution.
+# Inline engine execution.
 #
 # Engine passes triggered by a doc event or a user action run inline in the
-# request — the whole-pass enqueue of WI-001365 is gone. The ONLY background
-# work is the AI-only job produced by the WI-001495 park-and-enqueue seam
+# request — the whole-pass enqueue is gone. The ONLY background
+# work is the AI-only job produced by the park-and-enqueue seam
 # (see test_ai_park_enqueue).
 
 from __future__ import annotations
@@ -69,7 +69,7 @@ class TestInlineEngineWiring(FrappeTestCase):
 		self.assertIn("instance.advance(", body)
 
 	def test_trigger_has_no_queue_call_sites_left(self):
-		# After WI-001496 the seam (bpmn_process_instance.py) and the explicit
+		# Now the seam (bpmn_process_instance.py) and the explicit
 		# start_process_async API are the only bpmn_ai_agent producers.
 		from one_bpmn.processa_engine import triggers
 

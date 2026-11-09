@@ -239,7 +239,7 @@ class TestPlatformHistoryStep(TurnContextCase):
 	def test_anything_but_a_chat_turn_gets_nothing(self):
 		from one_bpmn.processa_engine.dispatch.ai_agent import _platform_history
 
-		instance = SimpleNamespace(context_doctype="Work Item", context_docname="WI-1")
+		instance = SimpleNamespace(context_doctype="Work Item", context_docname="ITEM-1")
 		self.assertEqual(_platform_history(instance, {}, ""), ([], ""))
 
 

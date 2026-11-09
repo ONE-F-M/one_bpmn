@@ -1,5 +1,5 @@
-// WI-001678: builds the one-ai desk bundle — a self-contained IIFE (Vue
-// bundled) mounted by the one-ai Desk page and the WI-001996 Chat button
+// Builds the one-ai desk bundle — a self-contained IIFE (Vue
+// bundled) mounted by the one-ai Desk page and the Chat button
 // loader. Separate from the SPA build on purpose: Desk must not pay for the
 // modeler, and the SPA must not pay for a second Vue copy.
 import { defineConfig } from "vite";

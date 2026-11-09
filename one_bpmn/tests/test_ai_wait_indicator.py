@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001499: "Waiting for AI execution" indicator — backend surface.
+# "Waiting for AI execution" indicator — backend surface.
 #
 # The frontend banner/chip/diagram highlight read:
 # - BPMN Process Instance.waiting_for_ai (set/cleared by the engine seam)

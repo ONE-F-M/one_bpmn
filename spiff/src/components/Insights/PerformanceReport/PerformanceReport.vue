@@ -127,7 +127,7 @@
 														<Badge :theme="run.status === 'Success' ? 'green' : 'red'" size="sm">{{ run.status }}</Badge>
 													</td>
 													<td class="py-2 px-2 text-xs text-gray-600 text-right">{{ fmtDuration(run.duration_ms) }}</td>
-													<!-- WI-002190: the turn's total, sub-runs included; the run's own figure on hover -->
+													<!-- The turn's total, sub-runs included; the run's own figure on hover -->
 													<td
 														class="py-2 px-2 text-xs text-gray-600 text-right"
 														:title="runTokensTitle(run)"
@@ -144,7 +144,7 @@
 													<td class="py-2 px-2 text-xs text-gray-500">{{ formatDate(run.started_at) }}</td>
 												</tr>
 
-												<!-- Steps detail: the run as a tree (WI-002190) -->
+												<!-- Steps detail: the run as a tree -->
 												<tr v-if="expandedStepRun === ri && tree">
 													<td colspan="8" class="bg-white p-3">
 														<RunTree :node="tree" />
@@ -252,7 +252,7 @@ async function toggleExpand(idx) {
 
 	recentRunsLoading.value = true
 	try {
-		// WI-002190: top-level runs only, each with its sub-runs rolled up.
+		// Top-level runs only, each with its sub-runs rolled up.
 		// The "model" column holds the agent name when grouped by agent.
 		const params = { status: "Success", limit: 10 }
 		if (row.model) {

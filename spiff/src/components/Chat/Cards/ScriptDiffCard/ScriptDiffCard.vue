@@ -14,7 +14,7 @@
 	</CardShell>
 </template>
 <script setup>
-// ScriptDiffCard (WI-001673) = CardShell[Heading, DiffView|CodeBlock, Actions].
+// ScriptDiffCard = CardShell[Heading, DiffView|CodeBlock, Actions].
 // Renders onefm.script_diff. Apply reaches the editor through the host.
 import { computed } from "vue";
 import ActionButton from "../../Primitives/ActionButton/ActionButton.vue";

@@ -2,7 +2,7 @@
 	<div class="prim-heading"><slot>{{ text }}</slot></div>
 </template>
 <script setup>
-// Display primitive (WI-001673).
+// Display primitive.
 defineProps({ text: { type: String, default: "" } });
 </script>
 <style scoped>

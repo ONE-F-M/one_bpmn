@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""A failed attempt becomes a Step that says what went wrong (WI-002190).
+"""A failed attempt becomes a Step that says what went wrong.
 
 The executor has always built an AttemptRecord for every try that failed,
 carrying the error, its tokens and its latency. finalize_ai_run used the

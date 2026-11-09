@@ -272,7 +272,7 @@ class TestSandboxAiAgentRun(CallbackCase):
 			"model_name": name,
 			"provider": "OpenAI",
 			"enable_model": 1,
-			# WI-002191: an enabled model must carry a provider and a key.
+			# An enabled model must carry a provider and a key.
 			"api_key": "test-key-not-real",
 			"input_cost": input_cost,
 			"output_cost": output_cost,

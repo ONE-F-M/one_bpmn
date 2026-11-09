@@ -1,12 +1,12 @@
 // Copyright (c) 2026, one-fm and contributors
-// one-ai bundle entry (WI-001678). Built as a self-contained IIFE (Vue
+// one-ai bundle entry. Built as a self-contained IIFE (Vue
 // included) so a page outside the SPA can mount the shared chat surface.
 // Two hosts share it, which is why it stays one artifact: the standalone
 // /one-ai website page (www/one_ai) and, inside Desk, the Chat button's
 // dialog. Exposes:
 //   window.oneAI.mount(el)              — the full one-ai page app
 //   window.oneAI.openAgentChat(opts)    — the panel in a dialog for one agent
-//                                          (the WI-001996 Chat button target)
+//                                          (the Chat button target)
 import { createApp, h } from "vue";
 import AgentChatPanel from "./components/Chat/AgentChatPanel/AgentChatPanel.vue";
 import OneAiApp from "./components/Chat/OneAiApp/OneAiApp.vue";

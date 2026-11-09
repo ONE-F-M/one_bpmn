@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-003702: Review Doctypes / Sync must carry Client Scripts alongside Custom
+# Review Doctypes / Sync must carry Client Scripts alongside Custom
 # Fields and Property Setters.
 #
 # AC2 - the review diff reports Client Script differences.

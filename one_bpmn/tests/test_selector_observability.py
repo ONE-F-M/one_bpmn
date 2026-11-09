@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001358 (4-01): AI Agent Tool Call child table and Run/Step
+# AI Agent Tool Call child table and Run/Step
 # instrumentation for ai_task_selector.
 
 from __future__ import annotations

@@ -26,7 +26,7 @@
 	</div>
 </template>
 <script setup>
-// Display primitive (WI-001673): the onefm.table renderer — structured or
+// Display primitive: the onefm.table renderer — structured or
 // actionable tables. Display-only tables stay markdown in the text stream.
 defineProps({
 	title: { type: String, default: "" },

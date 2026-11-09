@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001678: the ONE AI page offers the Lumina page's own fixed set of modes
+# The ONE AI page offers the Lumina page's own fixed set of modes
 # — General Chat, BA Agent, LuCrusher — and lists only their conversations.
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ class TestOneAiAgentList(FrappeTestCase):
 		self.assertEqual(labels, {"General Chat"})
 
 	def test_label_and_icon_come_from_the_record(self):
-		# WI-001634: LuCrusher's label IS its map's start trigger, so a
+		# LuCrusher's label IS its map's start trigger, so a
 		# hardcoded copy that drifts from the record breaks every chat.
 		_config("lucrusher_agent", "lucrusher", icon="🛠️")
 

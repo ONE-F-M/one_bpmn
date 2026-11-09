@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-002111: a Call Activity must be able to run another BPMN Process Model.
+# A Call Activity must be able to run another BPMN Process Model.
 #
 # Before this, `calledElement` could only ever name a process inside the SAME
 # document, because parse_bpmn registered exactly one file with the parser and

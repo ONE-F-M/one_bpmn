@@ -12,7 +12,7 @@ export const GATEWAY_TYPES = new Set([
 
 // Layout constants for manual lane DI generation. Lane heights and column
 // spacing are no longer fixed: buildManualLaneDI sizes each lane band and each
-// column gutter to the routing channels it actually has to carry (WI-002042).
+// column gutter to the routing channels it actually has to carry.
 export const PARTICIPANT_X = 150;
 export const PARTICIPANT_Y = 80;
 export const POOL_HEADER_W = 30; // vertical pool-name strip (leftmost)

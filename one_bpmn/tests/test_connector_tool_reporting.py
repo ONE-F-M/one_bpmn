@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-002007: a connector modelled as an agent tool must say when it cannot
+# A connector modelled as an agent tool must say when it cannot
 # return its data.
 #
 # The path works; it fails invisibly. dispatch_connector writes its output to

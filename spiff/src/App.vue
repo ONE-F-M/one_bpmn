@@ -197,7 +197,7 @@
 					</span>
 				</router-link>
 
-				<!-- WI-001970: the event stream shows which agents were attacked and
+				<!-- The event stream shows which agents were attacked and
 				     how, so the entry is hidden from anyone who cannot read it rather
 				     than advertising a console they will be refused. -->
 				<router-link
@@ -237,7 +237,7 @@
 						Skills
 					</span>
 				</router-link>
-				<!-- WI-001934: the registries decide who may reach our agents and who
+				<!-- The registries decide who may reach our agents and who
 				     we may reach, so the entry is hidden from anyone who cannot
 				     administer them. -->
 				<router-link

@@ -4,7 +4,7 @@
 	</button>
 </template>
 <script setup>
-// Interactive primitive (WI-001673): emits a named press, never mutates.
+// Interactive primitive: emits a named press, never mutates.
 defineProps({
 	label: { type: String, default: "" },
 	kind: { type: String, default: "subtle" }, // solid | subtle | ghost | outline

@@ -23,20 +23,20 @@
 </template>
 
 <script setup>
-// ProsAllyPanel (WI-001675) — rebuilt on the shared AgentChatPanel +
+// ProsAllyPanel — rebuilt on the shared AgentChatPanel +
 // DiagramPreviewCard. 796 lines of bespoke chat became this wrapper: the
 // panel owns transcript/composer/lifecycle (create on first message,
 // end_chat_conversation on close, resume support); the wrapper owns only
 // what is genuinely ProsAlly's — the editor context each turn carries and
 // what "apply" means on this surface.
 //
-// Deliberate behavior change (WI-001671 decision): proposed diagrams arrive
+// Deliberate behavior change: proposed diagrams arrive
 // as onefm.bpmn_preview and render as a preview card — the canvas updates
 // only when the user applies, never sight-unseen. The removal gate is the
 // same card with mode=pending_removal; its confirm lives on the card.
 //
 // Greeting and composer placeholder come from the prosally_agent
-// configuration (WI-001996); the process-specific line rides as
+// configuration; the process-specific line rides as
 // host-context, exactly as the old hardcoded greeting composed it.
 import { computed, ref } from "vue";
 import AgentChatPanel from "@/components/Chat/AgentChatPanel/AgentChatPanel.vue";

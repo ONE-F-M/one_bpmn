@@ -371,7 +371,7 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 
 
 class TestHumanWaitAccounting(_CheckpointTestBase):
-	"""WI-001643: time parked on a person is measured, not silently absorbed
+	"""Time parked on a person is measured, not silently absorbed
 	into duration_ms."""
 
 	def test_suspend_stamps_suspended_at(self):

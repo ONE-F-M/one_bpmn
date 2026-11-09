@@ -1,5 +1,5 @@
 """
-Readability guarantees for the swim-lane layout (WI-002042).
+Readability guarantees for the swim-lane layout.
 
 A generated lane map has to be reviewable as-is. The old generator chose each
 edge's waypoints from its source and target coordinates alone, offsetting

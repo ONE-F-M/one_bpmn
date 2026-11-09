@@ -1,9 +1,9 @@
 // Copyright (c) 2026, one-fm and contributors
-// Card registry (WI-001673): contract event name → card component.
+// Card registry: contract event name → card component.
 //
 // The registry is the ONLY coupling between events and rendering: the panel
 // looks a CUSTOM event's name up here; an unregistered onefm.* name renders
-// the panel's safe fallback (and fails the WI-001680 conformance build).
+// the panel's safe fallback (and fails the conformance build).
 // onefm.choice / onefm.conversation_title / onefm.mode_transition are panel
 // chrome, deliberately NOT cards.
 import DataTableCard from "@/components/Chat/Cards/DataTableCard/DataTableCard.vue";
@@ -22,7 +22,7 @@ export const cardRegistry = {
 	"onefm.bpmn_preview": DiagramPreviewCard,
 	"onefm.doctype_schema": DocTypeSchemaCard,
 	"onefm.table": DataTableCard,
-	// WI-001678: LuCrusher's own result panels. Registered centrally rather
+	// LuCrusher's own result panels. Registered centrally rather
 	// than owned by the one-ai page, so every host that can run the agent
 	// (the page, the desk Chat dialog) renders its results the same way.
 	"onefm.lucrusher_result": LuCrusherResultCard,

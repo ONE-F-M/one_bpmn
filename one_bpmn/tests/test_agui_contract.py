@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001671: the onefm.* extension event contract and its translators.
+# The onefm.* extension event contract and its translators.
 
 from __future__ import annotations
 
@@ -160,7 +160,7 @@ class TestTranslators(FrappeTestCase):
 
 class TestTypedArtifact(FrappeTestCase):
 	"""The generic `artifact` reply key renders through the typed event the
-	agent's Artifact Type names (WI-001996, wired)."""
+	agent's Artifact Type names (wired)."""
 
 	def test_script_artifact_becomes_script_diff(self):
 		reply = {

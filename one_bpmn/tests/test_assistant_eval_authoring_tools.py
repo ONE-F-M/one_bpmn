@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001751: the AI Assistant's eval-authoring tool shapes.
+# The AI Assistant's eval-authoring tool shapes.
 #
 # The valuable thing to pin down is the round trip: the XML the patch splices
 # into the assistant's ad-hoc sub-process must survive _extract_tool_shapes and
@@ -76,7 +76,7 @@ class TestAssistantEvalToolShapes(FrappeTestCase):
 			sorted(create_suite["parameters"]),
 			["agent", "description", "eval_type", "process_model", "title"],
 		)
-		# Direct vs Agent is the distinction WI-001751 introduced; the model has to
+		# Direct vs Agent is the distinction that was introduced; the model has to
 		# see both options or it cannot choose.
 		self.assertEqual(create_suite["parameters"]["eval_type"]["enum"], ["Direct", "Agent"])
 

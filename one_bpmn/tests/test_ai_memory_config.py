@@ -60,6 +60,6 @@ class TestAIMemoryConfig(FrappeTestCase):
 		self.assertNotIn("aiLongTermMemory", cfg)
 		self.assertNotIn("aiMemoryScope", cfg)
 		self.assertNotIn("aiMemoryWriteMode", cfg)
-		# WI-002163: no aiMemoryTokenBudget attribute on this task — the
+		# No aiMemoryTokenBudget attribute on this task — the
 		# dispatcher falls back to DEFAULT_MEMORY_TOKEN_BUDGET (800).
 		self.assertNotIn("aiMemoryTokenBudget", cfg)
