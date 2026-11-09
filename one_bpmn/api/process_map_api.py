@@ -1071,6 +1071,8 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 			})
 		else:
 			role_items.append({"name": role_name, "exists": True, "type": "check"})
+	valid_roles = {i["name"] for i in role_items if i["exists"]}
+	role_items.extend(_lane_role_permission_warnings(refs["root"], valid_roles))
 	if role_items:
 		categories.append({
 			"label": "Lane Roles",
@@ -1324,6 +1326,64 @@ def validate_bpmn_readiness(xml_content: str, model_name: str = None) -> dict:
 		"is_executable": is_executable,
 		"all_ready": total_missing == 0 and is_executable,
 	}
+
+
+def _lane_role_permission_warnings(root, valid_roles: set) -> list:
+	"""Warnings for lane roles that lack DocType permissions their tasks need."""
+	bpmn_ns = "http://www.omg.org/spec/BPMN/20100524/MODEL"
+	spiff_ns = "http://spiffworkflow.org/bpmn/schema/1.0/core"
+	tasks = {}
+	for tag in ("userTask", "serviceTask", "scriptTask"):
+		for el in root.iter(f"{{{bpmn_ns}}}{tag}"):
+			tasks[el.get("id")] = el
+
+	needs = {}
+	for lane in root.iter(f"{{{bpmn_ns}}}lane"):
+		role = lane.get("name", "").strip()
+		if role not in valid_roles:
+			continue
+		for ref in lane.iter(f"{{{bpmn_ns}}}flowNodeRef"):
+			task = tasks.get((ref.text or "").strip())
+			if task is None:
+				continue
+			attrs = {k.split("}")[-1]: v for k, v in task.attrib.items() if k.startswith(f"{{{spiff_ns}}}")}
+			doctype, ptypes = _task_permission_needs(task.tag.split("}")[-1], attrs)
+			if doctype and frappe.db.exists("DocType", doctype):
+				need = needs.setdefault((role, doctype), {"ptypes": set(), "tasks": []})
+				need["ptypes"].update(ptypes)
+				need["tasks"].append(task.get("name") or task.get("id"))
+
+	items = []
+	for (role, doctype), need in sorted(needs.items()):
+		missing = [
+			p for p in ("read", "write", "submit")
+			if p in need["ptypes"] and role not in frappe.permissions.get_doctype_roles(doctype, p)
+		]
+		if missing:
+			items.append({
+				"name": f"{role} on {doctype}",
+				"exists": True,
+				"type": "warning",
+				"detail": _("Role lacks {0} permission on {1}, needed by: {2}").format(
+					", ".join(missing), doctype, ", ".join(need["tasks"])
+				),
+			})
+	return items
+
+
+def _task_permission_needs(tag: str, attrs: dict) -> tuple:
+	"""The DocType a task acts on and the permission types it needs."""
+	if tag == "userTask":
+		return attrs.get("targetDoctype"), {"read", "write"}
+	if tag == "scriptTask":
+		script = attrs.get("serverScript")
+		doctype = frappe.db.get_value("Server Script", script, "reference_doctype") if script else None
+		return doctype, {"read", "write"}
+	doctype = attrs.get("serviceTargetDoctype") or attrs.get("updateFieldDoctype") or attrs.get("emailDoctype")
+	ptypes = {"read", "write"}
+	if doctype and attrs.get("serviceType") == "apply_workflow" and frappe.db.get_value("DocType", doctype, "is_submittable"):
+		ptypes.add("submit")
+	return doctype, ptypes
 
 
 def _user_task_config_category(xml_content: str) -> dict | None:

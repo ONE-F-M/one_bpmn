@@ -95,6 +95,54 @@ class TestLaneRoleReadiness(FrappeTestCase):
 		self.assertFalse(item["exists"])
 
 
+def _task_map(role, task):
+	return f"""<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:spiffworkflow="http://spiffworkflow.org/bpmn/schema/1.0/core" id="Defs">
+	<bpmn:process id="lane_perms" isExecutable="true">
+		<bpmn:laneSet id="LaneSet_1">
+			<bpmn:lane id="Lane_1" name="{role}"><bpmn:flowNodeRef>Task_1</bpmn:flowNodeRef></bpmn:lane>
+		</bpmn:laneSet>
+		<bpmn:startEvent id="Start" />
+		{task}
+		<bpmn:endEvent id="End" />
+	</bpmn:process>
+</bpmn:definitions>"""
+
+
+class TestLaneRolePermissionWarnings(FrappeTestCase):
+	USER_TASK = '<bpmn:userTask id="Task_1" name="Review" spiffworkflow:targetDoctype="ToDo" />'
+
+	def _make_role(self):
+		frappe.get_doc({"doctype": "Role", "role_name": "Zz No Perm Lane Role"}).insert(ignore_if_duplicate=True)
+		self.addCleanup(frappe.delete_doc, "Role", "Zz No Perm Lane Role", force=True)
+
+	def _warnings(self, role, task):
+		return [i for i in _lane_items(_task_map(role, task)).values() if i["type"] == "warning"]
+
+	def test_a_role_without_doctype_permission_is_warned_not_blocked(self):
+		self._make_role()
+
+		warnings = self._warnings("Zz No Perm Lane Role", self.USER_TASK)
+
+		self.assertEqual(len(warnings), 1)
+		self.assertIn("read, write", warnings[0]["detail"])
+		self.assertTrue(warnings[0]["exists"])
+
+	def test_a_role_with_the_permissions_is_not_warned(self):
+		self.assertEqual(self._warnings("System Manager", self.USER_TASK), [])
+
+	def test_a_service_task_on_a_submittable_doctype_needs_submit(self):
+		self._make_role()
+		task = (
+			'<bpmn:serviceTask id="Task_1" name="Approve" spiffworkflow:serviceType="apply_workflow" '
+			'spiffworkflow:serviceTargetDoctype="Sales Invoice" />'
+		)
+
+		warnings = self._warnings("Zz No Perm Lane Role", task)
+
+		self.assertIn("submit", warnings[0]["detail"])
+
+
 class TestDescribeLanesSuggestsRoles(FrappeTestCase):
 	def _reply(self, *lane_names):
 		ir = {"lanes": [{"id": f"l{i}", "name": n} for i, n in enumerate(lane_names)]}
