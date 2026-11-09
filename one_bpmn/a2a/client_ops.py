@@ -23,7 +23,7 @@ from __future__ import annotations
 import frappe
 from frappe.utils import add_to_date, cint, now_datetime
 
-from one_bpmn.agents.shape_tools import PAUSE_HELD_FLAG as _PAUSE_HELD_FLAG
+from one_bpmn.ai_agent_skills.tools.shape_tools import PAUSE_HELD_FLAG as _PAUSE_HELD_FLAG
 from one_bpmn.a2a import guardrails, local, push
 from one_bpmn.a2a import client as a2a_client
 

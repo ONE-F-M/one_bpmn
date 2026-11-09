@@ -242,7 +242,7 @@ class TestHowOftenItMayAsk(FrappeTestCase):
 	def test_the_tool_is_withdrawn_once_the_cap_is_reached(self):
 		"""Withdrawn rather than refused mid-call: a tool the model can see and
 		cannot use invites it to keep trying."""
-		from one_bpmn.agents.shape_tools import compile_shape_tools
+		from one_bpmn.ai_agent_skills.tools.shape_tools import compile_shape_tools
 
 		agent = self._agent(1)
 		item = _work_item()

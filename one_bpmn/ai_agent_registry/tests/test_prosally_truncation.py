@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import shape_tools
+from one_bpmn.ai_agent_skills.tools import shape_tools
 from one_bpmn.processa_engine.agent_runtime.llm_types import LLMTruncatedError
 from one_bpmn.one_bpmn.patches.v1_0.inline_prosally_tool_scripts import (
 	FINALIZE,

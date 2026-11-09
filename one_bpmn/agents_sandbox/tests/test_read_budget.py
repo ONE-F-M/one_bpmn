@@ -14,7 +14,7 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.shape_tools import BudgetExceeded
+from one_bpmn.ai_agent_skills.tools.shape_tools import BudgetExceeded
 from one_bpmn.agents_sandbox.sandbox.ops import (
 	_READ_BUDGET,
 	read_budget_exceeded,

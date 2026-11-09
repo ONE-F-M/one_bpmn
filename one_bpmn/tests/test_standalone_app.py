@@ -10,11 +10,6 @@ from frappe.tests.utils import FrappeTestCase
 OWN_APPS = {"frappe", "one_bpmn"}
 OTHER_APPS = {"one_fm", "onefm_mcp", "helpdesk", "erpnext", "hrms"}
 
-# Imports that other stories remove; each key is a path under one_bpmn/.
-KNOWN_IMPORTS = {
-	"agents/mcp_tool_shapes.py": {"onefm_mcp"},
-}
-
 
 def _app_of(doctype: str) -> str | None:
 	module = frappe.db.get_value("DocType", doctype, "module")
@@ -49,6 +44,6 @@ class TestStandaloneApp(FrappeTestCase):
 					continue
 				for name in names:
 					app = name.split(".")[0]
-					if app in OTHER_APPS and app not in KNOWN_IMPORTS.get(rel, set()):
+					if app in OTHER_APPS:
 						found.append(f"{rel}: {name}")
 		self.assertEqual(found, [])

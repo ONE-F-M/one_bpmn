@@ -40,7 +40,7 @@ The shape a script backs decides how it runs (`shape_kind` in the turn context).
 - No bare `return`: Server Scripts run as top-level code. Branch with `if`/`else` and abort with `frappe.throw()`.
 - The Server Script record's `script_type` (`API`, `DocType Event`, `Scheduler Event`, `Permission Query`) decides how the record is stored, not what is injected.
 
-**agent_tool**: backs a shape inside an AI Agent Task's ad-hoc Tools sub-process, run by `_run_server_script` in `shape_tools.py` with split exec globals and locals.
+**agent_tool**: backs a shape inside an AI Agent Task's ad-hoc Tools sub-process, run by `_run_server_script` in `ai_agent_skills/tools/shape_tools.py` with split exec globals and locals.
 
 - Injected: the calling model's arguments as top-level names (declared by `spiffworkflow:aiToolParams`), plus `frappe`, `context_doctype`, `context_docname`, `doc`, `result`.
 - No workflow variables: reading `task_data` raises NameError.

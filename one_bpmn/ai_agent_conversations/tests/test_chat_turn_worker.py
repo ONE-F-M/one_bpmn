@@ -162,7 +162,7 @@ class TestProgressReachesTheRequest(FrappeTestCase):
 		self.instance = _instance_name()
 
 	def test_a_tool_announces_its_start_and_its_end(self):
-		from one_bpmn.agents import shape_tools
+		from one_bpmn.ai_agent_skills.tools import shape_tools
 
 		instance = frappe._dict({"name": self.instance, "_service_task_extensions": {}})
 		# Even the early return has to close its status line.
@@ -177,7 +177,7 @@ class TestProgressReachesTheRequest(FrappeTestCase):
 	def test_a_deferred_tool_does_not_close_its_status_line(self):
 		from unittest.mock import patch
 
-		from one_bpmn.agents import shape_tools
+		from one_bpmn.ai_agent_skills.tools import shape_tools
 
 		instance = frappe._dict({"name": self.instance, "_service_task_extensions": {}})
 		with patch.object(

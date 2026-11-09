@@ -147,7 +147,7 @@ class TestTheSinkExistsForARequestOrANamedInstance(FrappeTestCase):
 		self.assertIsNone(frappe.flags.get(turn_signal.LIVE_TEXT_INSTANCE_FLAG))
 
 	def test_a_shape_tool_runs_masked_and_still_reports_its_end(self):
-		from one_bpmn.agents import shape_tools
+		from one_bpmn.ai_agent_skills.tools import shape_tools
 		from one_bpmn.processa_engine.agent_runtime import turn_signal
 
 		frappe.flags[turn_signal.LIVE_TEXT_INSTANCE_FLAG] = "INST-1"

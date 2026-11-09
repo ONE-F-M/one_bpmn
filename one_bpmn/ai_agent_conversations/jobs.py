@@ -53,7 +53,7 @@ def close_stale_chat_instances():
 			instance = frappe.get_doc("BPMN Process Instance", instance_name)
 			instance.receive_message("ChatConversation_Close_Action", payload={})
 			if instance.context_docname:
-				from one_bpmn.api.skill_tools import clear_conversation_skills
+				from one_bpmn.ai_agent_skills.skill_tools import clear_conversation_skills
 				clear_conversation_skills(instance.context_docname)
 		except frappe.ValidationError:
 			pass  # not parked at the close catch event - leave it alone

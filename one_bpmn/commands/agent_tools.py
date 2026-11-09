@@ -12,7 +12,7 @@ import click
 import frappe
 from frappe.commands import get_site, pass_context
 
-from one_bpmn.agents import shape_tools
+from one_bpmn.ai_agent_skills.tools import shape_tools
 from one_bpmn.processa_engine.agent_runtime import llm_factory
 from one_bpmn.processa_connectors import manifest
 

@@ -44,7 +44,7 @@ CLASSIFY = r'''# Logix – Tool Classify Intent (self-contained, FLAT top-level 
 import json
 import re
 from one_bpmn.agents.turn_state import get_turn, update_turn
-from one_bpmn.agents.shape_tools import execute_shape
+from one_bpmn.ai_agent_skills.tools.shape_tools import execute_shape
 
 turn = get_turn(context_docname)
 

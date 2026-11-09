@@ -171,7 +171,7 @@ if len(_lucid_summary) > _LUCID_SUMMARY_CAP:
 state_block = _fmt_state(context_state) if context_state else ""
 
 # Preload the next phase's skill and unload the others; load_skill covers a phase not listed here.
-from one_bpmn.api.skill_tools import activate_skill, deactivate_skill
+from one_bpmn.ai_agent_skills.skill_tools import activate_skill, deactivate_skill
 
 _NEXT_PHASE_SKILL = {
     "LUCIDCHART_PARSED": "lucrusher-topology-analysis",

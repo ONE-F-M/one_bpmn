@@ -15,7 +15,7 @@ from one_bpmn.ai_agent_registry.provisioning.agent_config_resolver import config
 from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorConfig, ExecutorContext
 from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
 from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall, ToolSpec
-from one_bpmn.agents.shape_tools import BudgetExceeded
+from one_bpmn.ai_agent_skills.tools.shape_tools import BudgetExceeded
 
 RATES = {
 	"input_cost_per_1k": 0.003,

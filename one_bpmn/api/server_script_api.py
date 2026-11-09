@@ -626,7 +626,7 @@ def get_script_names() -> list:
 	"""The names a Server Script receives without importing them, and which runner provides each."""
 	if not frappe.has_permission("Server Script", "read"):
 		frappe.throw(_("Not permitted to read Server Scripts"), frappe.PermissionError)
-	from one_bpmn.agents.shape_tools import SCRIPT_NAMES
+	from one_bpmn.ai_agent_skills.tools.shape_tools import SCRIPT_NAMES
 
 	return [
 		{"name": name, "meaning": _(meaning), "script_task": script_task, "tool": tool}

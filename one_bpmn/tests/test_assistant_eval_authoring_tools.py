@@ -15,7 +15,7 @@ from xml.etree import ElementTree
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.shape_tools import compile_shape_tools
+from one_bpmn.ai_agent_skills.tools.shape_tools import compile_shape_tools
 from one_bpmn.processa_engine.compiler.agent_tools import _extract_tool_shapes
 from one_bpmn.one_bpmn.patches.v1_0.add_assistant_eval_authoring_tools import (
 	_ORPHAN_DI,

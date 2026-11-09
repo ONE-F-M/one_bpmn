@@ -272,7 +272,7 @@ def _known_tool_ids() -> set:
 
 def _tool_contract_gaps(prompt: str, tool_ids: set, known_ids: set) -> list:
 	"""Names the prompt tells the model to call that are not in its own Tools box."""
-	from one_bpmn.api.skill_tools import SKILL_TOOL_NAMES
+	from one_bpmn.ai_agent_skills.skill_tools import SKILL_TOOL_NAMES
 
 	# Skill tools are added at dispatch for any linked configuration, so no box holds them.
 	tool_ids = set(tool_ids) | SKILL_TOOL_NAMES

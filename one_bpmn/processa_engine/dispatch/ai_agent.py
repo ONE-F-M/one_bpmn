@@ -212,7 +212,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	if getattr(instance, "context_doctype", "") == "Chat Conversation":
 		conversation = getattr(instance, "context_docname", None)
 	if conversation and task_cfg.get("aiAgentConfig"):
-		from one_bpmn.api.skill_tools import _skills_cache_key, advance_turn
+		from one_bpmn.ai_agent_skills.skill_tools import _skills_cache_key, advance_turn
 
 		active_skill_bodies = frappe.cache().get_value(
 			_skills_cache_key(conversation, task_cfg["aiAgentConfig"])
@@ -244,11 +244,11 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	tool_specs = []
 	tool_shapes = task_cfg.get("aiToolShapes")
 	if tool_shapes:
-		from one_bpmn.agents.shape_tools import compile_shape_tools
+		from one_bpmn.ai_agent_skills.tools.shape_tools import compile_shape_tools
 
 		tool_specs = compile_shape_tools(tool_shapes, instance) or []
 
-	from one_bpmn.api.skill_tools import get_skill_tools
+	from one_bpmn.ai_agent_skills.skill_tools import get_skill_tools
 
 	agent_name = task_cfg.get("aiAgentConfig")
 	if agent_name:
@@ -260,7 +260,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	if instance:
 		active_skill_names = []
 		if conversation and agent_name:
-			from one_bpmn.api.skill_tools import _skill_names_cache_key
+			from one_bpmn.ai_agent_skills.skill_tools import _skill_names_cache_key
 
 			active_skill_names = (
 				frappe.cache().get_value(_skill_names_cache_key(conversation, agent_name)) or []
@@ -270,7 +270,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 
 			def make_dynamic_tool_fn(script_name, tool_name):
 				def fn(**kwargs):
-					from one_bpmn.agents.shape_tools import _run_server_script, _synthetic_task
+					from one_bpmn.ai_agent_skills.tools.shape_tools import _run_server_script, _synthetic_task
 
 					task = _synthetic_task(tool_name, kwargs)
 					try:

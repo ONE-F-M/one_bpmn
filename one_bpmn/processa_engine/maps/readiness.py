@@ -611,7 +611,7 @@ def connector_tools_without_result_variable(xml_content: str) -> list:
 	Only connectors inside a Tools sub-process an AI Agent Task uses count, and not ones that answer out of band."""
 	import xml.etree.ElementTree as _ET
 
-	from one_bpmn.agents.shape_tools import ANSWERS_OUT_OF_BAND
+	from one_bpmn.ai_agent_skills.tools.shape_tools import ANSWERS_OUT_OF_BAND
 
 	BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 	SPIFF_NS = "http://spiffworkflow.org/bpmn/schema/1.0/core"

@@ -87,7 +87,7 @@ def close_conversation(conversation_name: str) -> None:
 		},
 		"name",
 	)
-	from one_bpmn.api.skill_tools import clear_conversation_skills
+	from one_bpmn.ai_agent_skills.skill_tools import clear_conversation_skills
 
 	if not inst_name:
 		# No orchestration is running — close the conversation record itself so
