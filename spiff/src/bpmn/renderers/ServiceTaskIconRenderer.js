@@ -15,7 +15,7 @@
 
 import BaseRenderer from "diagram-js/lib/draw/BaseRenderer";
 
-import { ensureManifests, getConnectorIcon } from "../bpmn/shared/connectorManifests";
+import { ensureManifests, getConnectorIcon } from "../shared/connectorManifests";
 
 // Must beat the default BpmnRenderer (priority 1000)
 const HIGH_PRIORITY = 1500;

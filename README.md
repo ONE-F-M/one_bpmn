@@ -295,7 +295,7 @@ bench --site your-site.local clear-cache
 - **API endpoint**: add to the appropriate submodule in `one_bpmn/api/` with `@frappe.whitelist()` (e.g. process CRUD in `process_maps.py`, instance endpoints in `instances.py`).
 - **Vue component / view**: add under `spiff/src/components/` or `spiff/src/pages/` and register routes in `spiff/src/router.js`.
 - **bpmn-js module**: add under `spiff/src/bpmn/`, `renderers/`, `rules/`, or `resize/` and register in `BpmnEditor.vue`'s `additionalModules`.
-- **Moddle extension**: add under `spiff/src/moddle/` and register in `BpmnEditor.vue`'s `moddleExtensions`.
+- **Moddle extension**: add under `spiff/src/bpmn/moddle/` and register in `BpmnEditor.vue`'s `moddleExtensions`.
 
 ### Runtime Hooks
 
@@ -388,7 +388,7 @@ Intent Classifier
 |---|---|
 | `spiff/src/components/ProsAlly/ProsAllyPanel/ProsAllyPanel.vue` | Chat UI — messages, option buttons, rich-text input |
 | `spiff/src/utils/bpmnLayout.js` | Auto-layout — positions generated BPMN elements left-to-right |
-| `spiff/src/linting/bpmnlintrc.js` | bpmnlint rule configuration (errors vs. warnings) |
+| `spiff/src/bpmn/lint/bpmnlintrc.js` | bpmnlint rule configuration (errors vs. warnings) |
 | `one_bpmn/ai_agent_registry/definitions/prosally/tools_pipeline.py` | IR → BPMN XML compilation (`compile_ir`); the pipeline stages themselves are DB Server Scripts driven by the ProsAlly process model |
 | `one_bpmn/utils/chat_persistence.py` | Persists conversation history (`Chat Conversation` DocType) |
 

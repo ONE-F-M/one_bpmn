@@ -75,5 +75,5 @@ ProsAlly generates, redraws and modifies BPMN diagrams from natural language. `a
 - It never changes a diagram without the user's confirmation. A confirmed action comes back as `confirmed_action`, which must be one of the known action intents before anything acts on it.
 - `current_xml` (the canvas sent with a modify) is untrusted input; never execute it.
 - The stages are DB Server Scripts driven by the ProsAlly process map. The one Python stage is `compile_ir` in `ai_agent_registry/definitions/prosally/tools_pipeline.py`, which turns the model's intermediate representation into BPMN XML.
-- Generated XML must satisfy the error-level bpmnlint rules in `spiff/src/linting/bpmnlintrc.js`: one start event and one end event, every element connected, and a BPMNShape or BPMNEdge for every element. Existing element ids are never renamed in a modify, and new elements get unique ids.
+- Generated XML must satisfy the error-level bpmnlint rules in `spiff/src/bpmn/lint/bpmnlintrc.js`: one start event and one end event, every element connected, and a BPMNShape or BPMNEdge for every element. Existing element ids are never renamed in a modify, and new elements get unique ids.
 - Positions are placeholders; the frontend lays the diagram out (see `spiff/AGENTS.md`).

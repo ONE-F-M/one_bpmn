@@ -3,8 +3,9 @@
  *
  * Reports sequence flows whose lines cross another flow, and lines that pass
  * through a shape they do not connect. Runs once, on bpmn:Definitions, over the
- * diagram's DI; the geometry is shared with the compiler (spiff/pipeline.mjs)
- * so the modeler and the pipeline agree on what a crossing is.
+ * diagram's DI; the geometry is shared with the compiler
+ * (spiff/tools/bpmn-pipeline/pipeline.mjs) so the modeler and the pipeline
+ * agree on what a crossing is.
  *
  * A non-planar process cannot be drawn with zero crossings, which is why this
  * is a warning: the reader should know a line crosses, not be told it is wrong.

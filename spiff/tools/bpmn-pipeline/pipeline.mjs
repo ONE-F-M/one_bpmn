@@ -29,9 +29,9 @@
 import { BpmnModdle } from 'bpmn-moddle';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { auditGeometry, boxesHit, segHitsBox } from './src/linting/geometry.js';
+import { auditGeometry, boxesHit, segHitsBox } from '../../src/bpmn/lint/geometry.js';
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+// ── Constants ──────────────────────────────────────────────────────────────
 
 const SPIFF_NS = 'http://spiffworkflow.org/bpmn/schema/1.0/core';
 
@@ -83,7 +83,7 @@ function nodeDims(node) {
   return NODE_DIMS[node.type] || DEFAULT_NODE_DIMS;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────────────
 
 function readStdin() {
   return new Promise((resolve, reject) => {
@@ -108,7 +108,7 @@ function buildAdjacency(nodes, flows) {
 let _seq = 0;
 function uid(prefix) { return `${prefix}_${++_seq}`; }
 
-// ── Pass 1: normalizeGateways ─────────────────────────────────────────────────
+// ── Pass 1: normalizeGateways ──────────────────────────────────────────────
 //
 // Invariant enforced: no non-gateway node has >1 incoming or >1 outgoing flow.
 //
@@ -270,7 +270,7 @@ function normalizeGateways(ir) {
   return { ...ir, nodes, flows };
 }
 
-// ── Post-normalization structural check ───────────────────────────────────────
+// ── Post-normalization structural check ─────────────────────────────────────
 //
 // After all three normalizeGateways passes, every non-gateway node must have
 // at most 1 outgoing and at most 1 incoming flow.  If any remain it means
@@ -300,7 +300,7 @@ function assertNoImplicitSplitOrJoin(ir) {
   return problems;
 }
 
-// ── Lane-assignment structural check ─────────────────────────────────────────
+// ── Lane-assignment structural check ────────────────────────────────────────
 //
 // When ir.lanes is present, every non-inferred node MUST declare a "lane" field
 // whose value is a valid lane id.  Inferred gateways (inserted by normalizeGateways)
@@ -334,7 +334,7 @@ function assertLaneAssignment(ir) {
   return problems;
 }
 
-// ── Pass 2: assertGatewayPairing ──────────────────────────────────────────────
+// ── Pass 2: assertGatewayPairing ────────────────────────────────────────────
 //
 // A node with `closes: "<splitId>"` declares it is the join counterpart of that
 // split. The types must match: a parallelGateway split must be closed by a
@@ -366,7 +366,7 @@ function assertGatewayPairing(ir) {
   return problems;
 }
 
-// ── Pass 3: compileIRtoBpmn ───────────────────────────────────────────────────
+// ── Pass 3: compileIRtoBpmn ─────────────────────────────────────────────────
 //
 // Deterministic: same IR always produces the same moddle tree.
 // Stable IDs are used as-is from the IR; flow IDs are derived from source+target+index.
@@ -495,7 +495,7 @@ async function compileIRtoBpmn(ir) {
   return xml;
 }
 
-// ── Expanded sub-processes ────────────────────────────────────────────────────
+// ── Expanded sub-processes ─────────────────────────────────────────────────
 //
 // An expanded sub-process draws its steps inside its own box on the main plane.
 // Its steps are laid out first, on their own, to learn how big the box must be;
@@ -549,7 +549,7 @@ function innerDiagram(inner, box) {
   );
 }
 
-// ── Manual DI builder for lane-based processes ────────────────────────────────
+// ── Manual DI builder for lane-based processes ──────────────────────────────
 //
 // Every diagram is laid out here. bpmn-auto-layout used to take lane-less IR and
 // put 59 crossings on a 47-node map; a hidden single lane on this grid does better.
@@ -852,13 +852,13 @@ function buildManualLaneDI(ir, opts = {}) {
     return n;
   };
 
-  // ── Plan every edge on the grid, before any pixel exists ──────────────────
+  // ── Plan every edge on the grid, before any pixel exists ─────────────────
   const vRuns = [];   // vertical runs, keyed by gutter index
   const hRuns = [];   // horizontal runs, keyed by lane index and side (its strips)
   const cRuns = [];   // vertical runs travelling inside a node column, keyed by column
   // A docked or face-exiting edge runs its vertical leg inside a node's own
-  // column rather than in a gutter, so those legs need allocating too — two of
-  // them in one column with overlapping spans are two lines on one pixel, which
+  // column rather than in a gutter, so those legs need allocating too —
+  // two of them in one column with overlapping spans are two lines on one pixel, which
   // is the same defect the gutters were built to remove. Spreading them per node
   // is not enough: the collision is between edges at DIFFERENT nodes of the same
   // column, which no per-node fan can see.
@@ -1076,7 +1076,7 @@ function buildManualLaneDI(ir, opts = {}) {
     });
   }
 
-  // ── Y-bounds validation ───────────────────────────────────────────────────────
+  // ── Y-bounds validation ─────────────────────────────────────────────────
   // Every node's rendered shape must fall inside its assigned lane band.
   // By construction our layout algorithm guarantees this; the check acts as a
   // safety net that catches wrong lane assignments or future layout-algorithm bugs.
@@ -1099,7 +1099,7 @@ function buildManualLaneDI(ir, opts = {}) {
   }
   if (boundProblems.length) return { diSection: '', problems: boundProblems };
 
-  // ── Serialise BPMNDI XML ──────────────────────────────────────────────────────
+  // ── Serialise BPMNDI XML ────────────────────────────────────────────────
   const lines = [];
   lines.push('  <bpmndi:BPMNDiagram id="BPMNDiagram_1">');
   lines.push('    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="' + (pool ? 'Collaboration_1' : 'Process_1') + '">');
@@ -1242,7 +1242,7 @@ function buildManualLaneDI(ir, opts = {}) {
         straight, Math.round(pos.y + pos.h / 2));
   }
 
-  // ── Sequence-flow edges ───────────────────────────────────────────────────
+  // ── Sequence-flow edges ─────────────────────────────────────────────────
   // Every segment rides a channel allocated above, so no segment can enter a
   // shape it does not connect to and no two segments can share a line.
   for (let i = 0; i < ir.flows.length; i++) {
@@ -1432,7 +1432,7 @@ function injectLaneDI(xml, diSection) {
   return result.replace('</bpmn:definitions>', diSection + '\n</bpmn:definitions>');
 }
 
-// ── Layout audit ──────────────────────────────────────────────────────────────
+// ── Layout audit ───────────────────────────────────────────────────────────
 // Reads the DI back out of the finished XML and measures what a reader would
 // see: crossings, lines running over each other, lines through shapes, labels
 // on top of things. Whether the crossing count is acceptable is decided by the
@@ -1497,7 +1497,7 @@ function auditLayout(xml) {
   };
 }
 
-// ── Sub-process scopes ────────────────────────────────────────────────────────
+// ── Sub-process scopes ─────────────────────────────────────────────────────
 //
 // A sub-process node may carry `children: { nodes, flows }`. Each scope is
 // normalised and checked on its own, and drawn on its own plane.
@@ -1572,7 +1572,7 @@ function buildSubProcessPlanes(ir) {
   return { sections, problems };
 }
 
-// ── Main ──────────────────────────────────────────────────────────────────────
+// ── Main ───────────────────────────────────────────────────────────────────
 
 async function main() {
   let ir;

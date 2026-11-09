@@ -40,26 +40,26 @@ import superfluousGateway from "bpmnlint/rules/superfluous-gateway";
 import superfluousTermination from "bpmnlint/rules/superfluous-termination";
 
 // --- Custom OneFM rules ---
-import noProhibitedShapes from "@/linting/rules/no-prohibited-shapes.js";
-import callActivityMissingProcess from "@/linting/rules/call-activity-missing-process.js";
-import noCrossingEdges from "@/linting/rules/no-crossing-edges.js";
-import exemptToolCatalogues from "@/linting/rules/tool-catalogue.js";
-import scriptTaskMissingScript from "@/linting/rules/script-task-missing-script.js";
-import aiTaskMissingConfig from "@/linting/rules/ai-task-missing-config.js";
-import aiTaskMissingUserPrompt from "@/linting/rules/ai-task-missing-user-prompt.js";
-import aiTaskInvalidSettings from "@/linting/rules/ai-task-invalid-settings.js";
-import aiToolsBoxNotFound from "@/linting/rules/ai-tools-box-not-found.js";
-import aiToolsBoxUnreferenced from "@/linting/rules/ai-tools-box-unreferenced.js";
-import aiToolMissingDescription from "@/linting/rules/ai-tool-missing-description.js";
-import aiToolParamsInvalidJson from "@/linting/rules/ai-tool-params-invalid-json.js";
-import serviceTaskMissingConfig from "@/linting/rules/service-task-missing-config.js";
-import sendEmailMissingContent from "@/linting/rules/send-email-missing-content.js";
-import sendTaskMissingNotification from "@/linting/rules/send-task-missing-notification.js";
-import userTaskMissingAssignee from "@/linting/rules/user-task-missing-assignee.js";
-import aiTaskConfigUnavailable from "@/linting/rules/ai-task-config-unavailable.js";
-import aiTaskConfigIncomplete from "@/linting/rules/ai-task-config-incomplete.js";
-import aiTaskConfigNotLive from "@/linting/rules/ai-task-config-not-live.js";
-import workflowStateMissingEditRole from "@/linting/rules/workflow-state-missing-edit-role.js";
+import noProhibitedShapes from "@/bpmn/lint/rules/no-prohibited-shapes.js";
+import callActivityMissingProcess from "@/bpmn/lint/rules/call-activity-missing-process.js";
+import noCrossingEdges from "@/bpmn/lint/rules/no-crossing-edges.js";
+import exemptToolCatalogues from "@/bpmn/lint/rules/tool-catalogue.js";
+import scriptTaskMissingScript from "@/bpmn/lint/rules/script-task-missing-script.js";
+import aiTaskMissingConfig from "@/bpmn/lint/rules/ai-task-missing-config.js";
+import aiTaskMissingUserPrompt from "@/bpmn/lint/rules/ai-task-missing-user-prompt.js";
+import aiTaskInvalidSettings from "@/bpmn/lint/rules/ai-task-invalid-settings.js";
+import aiToolsBoxNotFound from "@/bpmn/lint/rules/ai-tools-box-not-found.js";
+import aiToolsBoxUnreferenced from "@/bpmn/lint/rules/ai-tools-box-unreferenced.js";
+import aiToolMissingDescription from "@/bpmn/lint/rules/ai-tool-missing-description.js";
+import aiToolParamsInvalidJson from "@/bpmn/lint/rules/ai-tool-params-invalid-json.js";
+import serviceTaskMissingConfig from "@/bpmn/lint/rules/service-task-missing-config.js";
+import sendEmailMissingContent from "@/bpmn/lint/rules/send-email-missing-content.js";
+import sendTaskMissingNotification from "@/bpmn/lint/rules/send-task-missing-notification.js";
+import userTaskMissingAssignee from "@/bpmn/lint/rules/user-task-missing-assignee.js";
+import aiTaskConfigUnavailable from "@/bpmn/lint/rules/ai-task-config-unavailable.js";
+import aiTaskConfigIncomplete from "@/bpmn/lint/rules/ai-task-config-incomplete.js";
+import aiTaskConfigNotLive from "@/bpmn/lint/rules/ai-task-config-not-live.js";
+import workflowStateMissingEditRole from "@/bpmn/lint/rules/workflow-state-missing-edit-role.js";
 
 /**
  * Map rule names → rule factory functions.

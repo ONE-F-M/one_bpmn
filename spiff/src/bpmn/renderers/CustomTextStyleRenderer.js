@@ -6,7 +6,7 @@
  * to element labels based on properties stored in the businessObject.
  */
 
-import { getTextStyle, hasCustomTextStyle, DEFAULT_TEXT_STYLE } from "../utils/textStyleUtils";
+import { getTextStyle, hasCustomTextStyle, DEFAULT_TEXT_STYLE } from "../../utils/textStyleUtils";
 
 /**
  * Post-render hook that applies custom text styles to labels

@@ -4,7 +4,7 @@ import assert from "node:assert/strict"
 import { BpmnModdle } from "bpmn-moddle"
 import traverse from "bpmnlint/lib/traverse.js"
 
-import scriptTaskMissingScript from "@/linting/rules/script-task-missing-script.js"
+import scriptTaskMissingScript from "@/bpmn/lint/rules/script-task-missing-script.js"
 
 const diagram = (task, executable = "true") => `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"

@@ -27,7 +27,7 @@ import pytest
 PIPELINE_PATH = os.path.normpath(os.path.join(
     os.path.dirname(__file__),
     "..", "..",
-    "spiff", "pipeline.mjs",
+    "spiff", "tools", "bpmn-pipeline", "pipeline.mjs",
 ))
 
 

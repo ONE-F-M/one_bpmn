@@ -5,7 +5,7 @@ BPMN IR pipeline — shared deterministic infrastructure.
 
 The non-LLM steps of the process-modelling pipeline, kept as importable Python
 because they cannot live inside a BPMN Script Task body: ``compile_ir`` shells
-out to ``spiff/pipeline.mjs`` via ``subprocess`` (and ``os``/``shutil`` for node
+out to ``spiff/tools/bpmn-pipeline/pipeline.mjs`` via ``subprocess`` (and ``os``/``shutil`` for node
 discovery), and the security gate (``deep_inspect_script``) bans those modules
 in gated script bodies. The ProsAlly agent's LLM/prompt/routing logic now lives
 inline in its BPMN tool scripts; these transforms are the shared seam those
@@ -13,7 +13,7 @@ scripts import.
 
     check_topology        is the flow graph planar (zero crossings possible)?
     flow_pairs_from_xml   (source, target) pairs of an existing diagram
-    compile_ir            IR JSON -> BPMN XML via spiff/pipeline.mjs (subprocess)
+    compile_ir            IR JSON -> BPMN XML via spiff/tools/bpmn-pipeline/pipeline.mjs (subprocess)
     extract_process_name  read the pool/process name out of BPMN XML
     extract_element_ids   the preserve-these-ids table for a modify turn
     has_lanes             does the diagram use swimlanes/pools
@@ -159,16 +159,16 @@ def _find_node() -> str | None:
 
 
 def _pipeline_path() -> str:
-    """Absolute path to spiff/pipeline.mjs, resolved relative to this module.
+    """Absolute path to spiff/tools/bpmn-pipeline/pipeline.mjs, resolved relative to this module.
 
     This module lives at ``one_bpmn/one_bpmn/ai_agent_registry/definitions/prosally/tools_pipeline.py``;
-    the pipeline lives at ``one_bpmn/spiff/pipeline.mjs`` (the app root's spiff dir),
-    four directories up from ``prosally/``.
+    the pipeline lives at ``one_bpmn/spiff/tools/bpmn-pipeline/pipeline.mjs`` (under the app root's
+    spiff dir), four directories up from ``prosally/``.
     """
     return os.path.normpath(os.path.join(
         os.path.dirname(__file__),
         "..", "..", "..", "..",
-        "spiff", "pipeline.mjs",
+        "spiff", "tools", "bpmn-pipeline", "pipeline.mjs",
     ))
 
 
@@ -325,7 +325,7 @@ def chunk_exit_node_id(chunk: dict) -> str | None:
 
 
 def compile_ir(ir: dict) -> dict:
-    """Compile an IR dict into BPMN XML via ``spiff/pipeline.mjs``.
+    """Compile an IR dict into BPMN XML via ``spiff/tools/bpmn-pipeline/pipeline.mjs``.
 
     Runs the Node pipeline (normalise → compile → layout → audit) in a
     subprocess and returns its JSON result:

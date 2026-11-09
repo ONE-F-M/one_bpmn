@@ -97,7 +97,7 @@ import aiTaskSelectorRendererModule from "@/bpmn/aiTaskSelectorRenderer"
 // shape reads as a different kind of step depending on which screen you are
 // on. The renderer primes the connector manifest cache itself and redraws
 // once it arrives, so adding the module is all it needs.
-import { serviceTaskIconModule } from "@/renderers"
+import { serviceTaskIconModule } from "@/bpmn/renderers"
 
 // ── Viewer-side moddle extension ──
 // The BPMN XML produced by the editor uses custom spiffworkflow:* attributes

@@ -1,6 +1,6 @@
 import { frappeRequest } from "frappe-ui";
 
-import { agentConfigState, storeAgentConfigStates } from "@/linting/agentConfigState.js";
+import { agentConfigState, storeAgentConfigStates } from "@/bpmn/lint/agentConfigState.js";
 
 const RELINT_DELAY_MS = 800;
 

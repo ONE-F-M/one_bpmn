@@ -1,6 +1,6 @@
 import lintModule from "bpmn-js-bpmnlint";
 import "bpmn-js-bpmnlint/dist/assets/css/bpmn-js-bpmnlint.css";
-import bpmnlintConfig from "@/linting/bpmnlintrc.js";
+import bpmnlintConfig from "@/bpmn/lint/bpmnlintrc.js";
 
 export { lintModule, bpmnlintConfig };
 
