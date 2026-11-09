@@ -1,5 +1,5 @@
 // Copyright (c) 2026, one-fm and contributors
-// AG-UI SSE client for the shared AgentChatPanel (WI-001672).
+// AG-UI SSE client for the shared AgentChatPanel.
 //
 // One turn = one POST against the shared endpoint, read as a stream.
 //
