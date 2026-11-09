@@ -14,7 +14,6 @@
   "tool_calls",
   "tool_call_id",
   "metadata",
-  "is_reply",
   "linked_message",
   "client_message_id"
  ],
@@ -84,13 +83,6 @@
    "no_copy": 1,
    "read_only": 1,
    "search_index": 1
-  },
-  {
-   "default": "0",
-   "fieldname": "is_reply",
-   "fieldtype": "Check",
-   "ignore_user_permissions": 1,
-   "label": "Is Reply"
   },
   {
    "fieldname": "linked_message",
