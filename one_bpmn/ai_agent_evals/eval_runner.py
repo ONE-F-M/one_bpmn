@@ -223,7 +223,7 @@ def _find_reusable_running_run(suite_name: str, agent_cfg: str | None, backend: 
     return None
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def run_eval_suite(suite_name: str, backend: str = "live") -> str:
     """
     Create an AI Eval Run for *suite_name* and enqueue its execution.
@@ -316,8 +316,8 @@ def _assert_agent_evaluatable(agent_cfg: str, eval_type: str, suite_map: str = "
         ).format(agent_cfg))
 
 
-@frappe.whitelist()
-def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> str:
+@frappe.whitelist(methods=["POST"])
+def run_eval_cases(suite_name: str, case_names: list[str] | str | None = None, backend: str = "live") -> str:
     """Run a chosen subset of a suite's cases (WI-001746), or the whole suite
     when no cases are given.
 
@@ -392,12 +392,12 @@ def run_eval_cases(suite_name: str, case_names=None, backend: str = "live") -> s
 # A/B comparison (WI-001821)
 # ---------------------------------------------------------------------------
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def run_eval_comparison(
     suite_name: str,
     agent_b: str,
-    agent_a: str = None,
-    case_names=None,
+    agent_a: str | None = None,
+    case_names: list[str] | str | None = None,
     backend: str = "live",
 ) -> dict:
     """Run one suite against two agents and return both AI Eval Runs.

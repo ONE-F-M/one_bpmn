@@ -125,7 +125,7 @@ size one_bpmn/one_bpmn/patches/v1_0/inline_prosally_tool_scripts.py 1419
 size one_bpmn/one_bpmn/patches/v1_0/seed_google_connectors.py 844
 size one_bpmn/processa_connectors/tests/test_connector_configuration.py 919
 size one_bpmn/processa_engine/dispatch/ai_agent.py 1058
-size one_bpmn/a2a/tests/test_agent_delegation.py 1427
+size one_bpmn/a2a/tests/test_agent_delegation.py 1426
 size one_bpmn/ai_agent_security/tests/test_ai_security_event.py 856
 size one_bpmn/ai_agent_security/tests/test_rate_limit_and_lock.py 1359
 size one_bpmn/tests/test_ai_agent_memory_dispatch.py 1030
