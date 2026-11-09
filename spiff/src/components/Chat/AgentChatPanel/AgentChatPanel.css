@@ -1,5 +1,5 @@
 /* Copyright (c) 2026, one-fm and contributors
-   Shared sizing tokens for agent chat surfaces (WI-001672).
+   Shared sizing tokens for agent chat surfaces.
 
    Every surface that pairs the AgentChatPanel with a work surface (config
    form, code editor, form builder, BPMN canvas) sizes its chat pane with the

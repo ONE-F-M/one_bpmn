@@ -62,7 +62,7 @@
 						</button>
 					</div>
 				</div>
-				<!-- registered card (registry arrives with WI-001673) -->
+				<!-- registered card -->
 				<component
 					:is="cards[item.name]"
 					v-else-if="item.kind === 'custom' && cards[item.name]"
@@ -86,7 +86,7 @@
 						<pre>{{ JSON.stringify(item.value, null, 2) }}</pre>
 					</details>
 				</div>
-				<!-- WI-002047: every stamped entry shows when it happened -->
+				<!-- Every stamped entry shows when it happened -->
 				<div v-if="item.ts" class="acp-time" :class="{ 'acp-time--user': item.kind === 'user' }">{{ formatTime(item.ts) }}</div>
 			</template>
 
@@ -196,13 +196,13 @@
 </template>
 
 <script setup>
-// Shared AgentChatPanel (WI-001672) — one chat window for every agent.
+// Shared AgentChatPanel — one chat window for every agent.
 //
 // The panel is agent-agnostic: label, icon, greeting, placeholder and
 // starter prompts come from AI Agent Configuration via get_agent_surface
-// (WI-001996); events arrive from the shared endpoint via aguiClient
-// (WI-001670); anything card-shaped renders through the `cards` registry
-// prop (WI-001673) or the safe fallback. Cards render and request — the
+// events arrive from the shared endpoint via aguiClient
+// anything card-shaped renders through the `cards` registry
+// prop or the safe fallback. Cards render and request — the
 // HOST applies: card actions re-emit upward as `card-action`.
 //
 // Layout is configuration too (chat-surface-layout scope, 2026-08-10):
@@ -235,12 +235,12 @@ const props = defineProps({
 	variant: { type: String, default: "docked" }, // docked | modal | page
 	// host context line appended under the configured greeting
 	hostContextLine: { type: String, default: "" },
-	// event name → card component (WI-001673 registry)
+	// event name → card component (registry)
 	cards: { type: Object, default: () => ({}) },
 	// async host hook called at send time; its result merges over `context`
-	// (WI-001675: live canvas XML must be read per turn, not at mount)
+	// (live canvas XML must be read per turn, not at mount)
 	contextProvider: { type: Function, default: null },
-	// WI-001678: file uploads (one-ai parity). The file uploads through
+	// File uploads (one-ai parity). The file uploads through
 	// frappe's standard upload_file and its file_url rides the next turn's
 	// context — the transport itself stays a plain SSE GET.
 	allowUploads: { type: Boolean, default: false },
@@ -268,7 +268,7 @@ const busy = ref(false);
 const status = ref("idle");
 const streamingText = ref("");
 // The id of the reply currently streaming, and this user's ratings keyed by
-// message id (WI-001822). Ratings are the user's own — the control shows what
+// message id. Ratings are the user's own — the control shows what
 // you said, not a tally.
 const streamingMessageId = ref("");
 // The role the currently-streaming reply carries: "assistant" normally,
@@ -302,7 +302,7 @@ const thinkingLabel = computed(
 
 function agentItem(text) {
 	// Both things a finished agent bubble needs: the row id it can be rated by
-	// (WI-001822) and when it arrived (WI-002047). Built in one place so a new
+	// and when it arrived. Built in one place so a new
 	// flush site cannot forget either.
 	//
 	// a role of "system" (a rate-limit refusal) flushes as a
@@ -452,7 +452,7 @@ const avatarInitials = computed(() => {
 });
 // The header badge is configuration, not code: chat_description verbatim
 // when the agent has one, else a human descriptor of its surface_type —
-// how this agent hands work over (WI-001996).
+// how this agent hands work over.
 const surfaceBadge = computed(() => {
 	if (surface.value.description) return surface.value.description;
 	return {
@@ -473,7 +473,7 @@ function renderMarkdown(text) {
 	return md.render(text || "");
 }
 
-// WI-002047: transcript timestamps. Live entries are stamped with the client
+// Transcript timestamps. Live entries are stamped with the client
 // clock as they land; resumed entries carry the row's `creation` from
 // conversation_history, displayed as-is (site timezone, no conversion).
 function stampNow() {
@@ -567,7 +567,7 @@ onBeforeUnmount(() => {
 	}
 });
 
-// ── uploads (WI-001678) ─────────────────────────────────────────────────────
+// ── uploads ─────────────────────────────────────────────────────
 
 const pendingFile = ref(null); // { file_url, file_name }
 const uploading = ref(false);
@@ -914,14 +914,14 @@ async function retrySend(item) {
 function onCardAction(item, action, payload) {
 	// "quick-send" is the card asking to say something on the user's behalf —
 	// LuCrusher's Select / Approve / next-step buttons are all shorthand for a
-	// sentence the user would otherwise type (WI-001678). The panel answers it
+	// sentence the user would otherwise type. The panel answers it
 	// itself: no host can apply a sentence, and the card must NOT retire —
 	// lumina.js left its panels intact and clickable after every send.
 	if (action === "quick-send") {
 		send((payload && payload.message) || "");
 		return;
 	}
-	// A decision made retires the card's buttons (WI-001673 done-state):
+	// A decision made retires the card's buttons (done-state):
 	// the host applies exactly once, and a stale card cannot re-fire. The
 	// done state is optimistic — an async host that FAILS to apply must call
 	// fail(message) so the card un-retires and the transcript says what went
@@ -1037,7 +1037,7 @@ defineExpose({ send, conversationName });
    this scope to child component roots, so cards are covered. */
 .acp-log > * { flex-shrink: 0; }
 .acp-msg { max-width: 90%; border-radius: 10px; padding: 8px 12px; }
-/* WI-002047: timestamp caption; negative margin closes the log's 10px gap
+/* Timestamp caption; negative margin closes the log's 10px gap
    so the time hugs the entry it belongs to */
 .acp-time { align-self: flex-start; margin: -7px 2px 0; color: var(--ig5); font-size: 10.5px; }
 .acp-time--user { align-self: flex-end; }
