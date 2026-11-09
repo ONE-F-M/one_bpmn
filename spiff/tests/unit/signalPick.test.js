@@ -15,7 +15,7 @@ test("a typed name is posted to BPMN Signal Master and resolves to the typed nam
 	const calls = [];
 	const post = (path, body) => (calls.push({ path, body }), Promise.resolve());
 	assert.equal(await createBpmnSignalMaster(post, "Client Event Decision"), "Client Event Decision");
-	assert.deepEqual(calls, [{ path: "/api/resource/BPMN Signal Master", body: { bpmn_signal_name: "Client Event Decision" } }]);
+	assert.deepEqual(calls, [{ path: "frappe.client.insert", body: { doc: { doctype: "BPMN Signal Master", bpmn_signal_name: "Client Event Decision" } } }]);
 });
 
 test("a server rejection reaches the caller", async () => {
@@ -40,10 +40,10 @@ test("an existing signal with the same name is reused, other types are ignored",
 	assert.equal(definitions.rootElements.length, 2);
 });
 
-test("deleting a signal sends the encoded record name to the delete call", async () => {
-	const paths = [];
-	await deleteBpmnSignalMaster((path) => (paths.push(path), Promise.resolve()), "Client Event/Decision");
-	assert.deepEqual(paths, ["/api/resource/BPMN Signal Master/Client%20Event%2FDecision"]);
+test("deleting a signal sends the record name to the delete call", async () => {
+	const calls = [];
+	await deleteBpmnSignalMaster((path, params) => (calls.push({ path, params }), Promise.resolve()), "Client Event/Decision");
+	assert.deepEqual(calls, [{ path: "frappe.client.delete", params: { doctype: "BPMN Signal Master", name: "Client Event/Decision" } }]);
 });
 
 test("a delete the server refuses reaches the caller", async () => {

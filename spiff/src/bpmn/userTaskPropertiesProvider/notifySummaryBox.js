@@ -1,12 +1,12 @@
+import { createResource } from "frappe-ui";
 import { h, Component } from "preact";
-import { frappeGet } from "../shared/frappeResource";
 import { notifySummary } from "../shared/notifySummary";
 
 // fieldname to label per DocType, fetched once per page
 const labelsByDoctype = {};
 
 export function loadLabels(doctype) {
-	labelsByDoctype[doctype] ||= frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", { doctype })
+	labelsByDoctype[doctype] ||= createResource({ url: "one_bpmn.api.lookups.get_doctype_fields", method: "GET", params: { doctype } }).fetch()
 		.then((fields) => Object.fromEntries((Array.isArray(fields) ? fields : []).map((f) => [f.fieldname, f.label])));
 	return labelsByDoctype[doctype];
 }

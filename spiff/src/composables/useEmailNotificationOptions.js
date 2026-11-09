@@ -1,13 +1,13 @@
 /**
  * useEmailNotificationOptions: the lists the Email Notification editor picks from.
  */
+import { createResource } from "frappe-ui";
 import { ref } from "vue"
-import { frappeGet } from "@/bpmn/shared/frappeResource"
 
-const FIELDS_URL = "/api/method/one_bpmn.api.lookups.get_doctype_fields"
+const FIELDS_URL = "one_bpmn.api.lookups.get_doctype_fields"
 
 async function names(doctype) {
-	const rows = await frappeGet(`/api/resource/${doctype}`, { fields: '["name"]', limit_page_length: 0, order_by: "name asc" })
+	const rows = await createResource({ url: "frappe.client.get_list", params: { doctype: doctype, fields: '["name"]', limit_page_length: 0, order_by: "name asc" } }).fetch()
 	return (Array.isArray(rows) ? rows : []).map((r) => r.name)
 }
 
@@ -35,8 +35,8 @@ export function useEmailNotificationOptions() {
 		tableFields.value = []
 		if (!doctype) return
 		const [fields, tables] = await Promise.all([
-			frappeGet("/api/method/one_bpmn.api.lookups.get_recipient_docfields", { doctype }),
-			frappeGet(FIELDS_URL, { doctype, fieldtype_in: '["Table MultiSelect","Table"]', include_options: true }),
+			createResource({ url: "one_bpmn.api.lookups.get_recipient_docfields", method: "GET", params: { doctype } }).fetch(),
+			createResource({ url: FIELDS_URL, method: "GET", params: { doctype, fieldtype_in: '["Table MultiSelect","Table"]', include_options: true } }).fetch(),
 		])
 		docFields.value = Array.isArray(fields) ? fields : []
 		tableFields.value = Array.isArray(tables) ? tables : []
@@ -46,7 +46,7 @@ export function useEmailNotificationOptions() {
 	async function loadRowUserFields(childDoctype) {
 		rowUserFields.value = []
 		if (!childDoctype) return
-		const fields = await frappeGet(FIELDS_URL, { doctype: childDoctype, fieldtype_in: '["Link"]', include_options: true })
+		const fields = await createResource({ url: FIELDS_URL, method: "GET", params: { doctype: childDoctype, fieldtype_in: '["Link"]', include_options: true } }).fetch()
 		rowUserFields.value = (Array.isArray(fields) ? fields : []).filter((f) => f.options === "User")
 	}
 

@@ -1,8 +1,8 @@
+import { createResource } from "frappe-ui";
 import { CheckboxEntry, SelectEntry, isSelectEntryEdited } from "@bpmn-io/properties-panel";
 import { useService } from "bpmn-js-properties-panel";
 import { getBusinessObject } from "bpmn-js/lib/util/ModelUtil";
 import { h } from "preact";
-import { frappeGet } from "../shared/frappeResource";
 import { RecordPickerField } from "../shared/RecordPickerField";
 import { EMAIL_EDITOR_ATTRS } from "../shared/emailNotification";
 import { makeLaunchDocuButton } from "../shared/launchDocuButton";
@@ -32,11 +32,10 @@ function fetchIsSubmittable(doctype) {
 	if (!doctype) return Promise.resolve(false);
 	if (SUBMITTABLE_CACHE.has(doctype)) return Promise.resolve(SUBMITTABLE_CACHE.get(doctype));
 
-	return frappeGet("/api/resource/DocType", {
-		filters: JSON.stringify([["name", "=", doctype]]),
+	return createResource({ url: "frappe.client.get_list", params: { doctype: "DocType", filters: JSON.stringify([["name", "=", doctype]]),
 		fields: '["is_submittable"]',
 		limit_page_length: 1,
-	})
+	} }).fetch()
 		.then((rows) => {
 			const submittable = !!(rows && rows[0] && rows[0].is_submittable);
 			SUBMITTABLE_CACHE.set(doctype, submittable);
@@ -321,7 +320,7 @@ function ServiceTargetDoctypeComponent(props) {
 		if (txt) {
 			params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
 		}
-		return frappeGet("/api/resource/DocType", params);
+		return createResource({ url: "frappe.client.get_list", params: { doctype: "DocType", ...params } }).fetch();
 	};
 
 	return h(RecordPickerField, {
@@ -413,7 +412,7 @@ function OnlyAllowEditComponent(props) {
 		if (txt) {
 			params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
 		}
-		return frappeGet("/api/resource/Role", params);
+		return createResource({ url: "frappe.client.get_list", params: { doctype: "Role", ...params } }).fetch();
 	};
 
 	return h(RecordPickerField, {
@@ -514,7 +513,7 @@ function UpdateFieldDoctypeComponent(props) {
 	const fetchDoctypes = (txt) => {
 		const params = { fields: '["name"]', limit_page_length: 50, order_by: "name asc" };
 		if (txt) params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
-		return frappeGet("/api/resource/DocType", params);
+		return createResource({ url: "frappe.client.get_list", params: { doctype: "DocType", ...params } }).fetch();
 	};
 
 	return h(RecordPickerField, {
@@ -554,10 +553,10 @@ function UpdateFieldNameComponent(props) {
 	}
 
 	const fetchFields = (txt) => {
-		return frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
+		return createResource({ url: "one_bpmn.api.lookups.get_doctype_fields", method: "GET", params: {
 			doctype,
 			search_text: txt || "",
-		});
+		} }).fetch();
 	};
 
 	return h(RecordPickerField, {
@@ -645,10 +644,10 @@ function UpdateFieldRowsComponent(props) {
 
 	const fetchFields = (txt) => {
 		if (!doctype) return Promise.resolve([]);
-		return frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
+		return createResource({ url: "one_bpmn.api.lookups.get_doctype_fields", method: "GET", params: {
 			doctype,
 			search_text: txt || "",
-		});
+		} }).fetch();
 	};
 
 	return h(
@@ -783,7 +782,7 @@ function GchatDoctypeComponent(props) {
 	const fetchDoctypes = (txt) => {
 		const params = { fields: '["name"]', limit_page_length: 50, order_by: "name asc" };
 		if (txt) params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
-		return frappeGet("/api/resource/DocType", params);
+		return createResource({ url: "frappe.client.get_list", params: { doctype: "DocType", ...params } }).fetch();
 	};
 
 	return h(RecordPickerField, {
@@ -816,9 +815,9 @@ function GchatDocFieldComponent(props) {
 		if (!doctype) {
 			return Promise.resolve([{ fieldname: "", label: "— Select a DocType first —" }]);
 		}
-		return frappeGet("/api/method/one_bpmn.api.lookups.get_recipient_docfields", {
+		return createResource({ url: "one_bpmn.api.lookups.get_recipient_docfields", method: "GET", params: {
 			doctype, search_text: txt || "",
-		});
+		} }).fetch();
 	};
 
 	return h(RecordPickerField, {
@@ -852,9 +851,9 @@ function makeTableRecipientComponents(doctypeOf, tableAttr, userAttr, rowFieldsA
 			if (!doctype) {
 				return Promise.resolve([{ fieldname: "", label: "Select a DocType first" }]);
 			}
-			return frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
+			return createResource({ url: "one_bpmn.api.lookups.get_doctype_fields", method: "GET", params: {
 				doctype, fieldtype_in: '["Table MultiSelect","Table"]', include_options: true,
-			}).then((fields) => {
+			} }).fetch().then((fields) => {
 				const list = Array.isArray(fields) ? fields : [];
 				if (!txt) return list;
 				const lower = txt.toLowerCase();
@@ -900,18 +899,18 @@ function makeTableRecipientComponents(doctypeOf, tableAttr, userAttr, rowFieldsA
 			if (!doctype || !tableField) {
 				return Promise.resolve([{ fieldname: "", label: "Select a Table Field first" }]);
 			}
-			return frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
+			return createResource({ url: "one_bpmn.api.lookups.get_doctype_fields", method: "GET", params: {
 				doctype, fieldtype_in: '["Table MultiSelect","Table"]', include_options: true,
-			}).then((tableFields) => {
+			} }).fetch().then((tableFields) => {
 				const match = (Array.isArray(tableFields) ? tableFields : []).find(
 					(f) => f.fieldname === tableField
 				);
 				const childDoctype = match && match.options;
 				if (!childDoctype) return [];
-				if (rowFieldsApi) return frappeGet(rowFieldsApi, { doctype: childDoctype });
-				return frappeGet("/api/method/one_bpmn.api.lookups.get_doctype_fields", {
+				if (rowFieldsApi) return createResource({ url: rowFieldsApi, method: "GET", params: { doctype: childDoctype } }).fetch();
+				return createResource({ url: "one_bpmn.api.lookups.get_doctype_fields", method: "GET", params: {
 					doctype: childDoctype, fieldtype_in: '["Link"]', include_options: true,
-				}).then((childFields) =>
+				} }).fetch().then((childFields) =>
 					(Array.isArray(childFields) ? childFields : []).filter((f) => f.options === "User")
 				);
 			});
@@ -1013,7 +1012,7 @@ function PushDoctypeComponent(props) {
 	const fetchDoctypes = (txt) => {
 		const params = { fields: '["name"]', limit_page_length: 50, order_by: "name asc" };
 		if (txt) params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
-		return frappeGet("/api/resource/DocType", params);
+		return createResource({ url: "frappe.client.get_list", params: { doctype: "DocType", ...params } }).fetch();
 	};
 
 	return h(RecordPickerField, {
@@ -1068,7 +1067,7 @@ function PushToUsersComponent(props) {
 				["name", "like", `%${txt}%`],
 			]);
 		}
-		return frappeGet("/api/resource/User", params);
+		return createResource({ url: "frappe.client.get_list", params: { doctype: "User", ...params } }).fetch();
 	};
 
 	return h(RecordPickerField, {
@@ -1114,10 +1113,10 @@ function PushToDocFieldsComponent(props) {
 
 	// User fields, email fields, and "link.user_field" paths through linked records
 	const fetchDocFields = (txt) =>
-		frappeGet("/api/method/one_bpmn.api.lookups.get_push_recipient_fields", {
+		createResource({ url: "one_bpmn.api.lookups.get_push_recipient_fields", method: "GET", params: {
 			doctype: sourceDoctype,
 			search_text: txt || "",
-		});
+		} }).fetch();
 
 	return h(RecordPickerField, {
 				multiple: true,
@@ -1137,7 +1136,7 @@ function PushToDocFieldsComponent(props) {
 
 const [PushTableFieldComponent, PushTableUserFieldComponent] = makeTableRecipientComponents(
 	(bo) => getAttr(bo, "pushDoctype"), "pushToTableField", "pushToTableUserField",
-	"/api/method/one_bpmn.api.lookups.get_push_recipient_fields"
+	"one_bpmn.api.lookups.get_push_recipient_fields"
 );
 
 function makePushCheckbox(attr, label, description) {
@@ -1178,7 +1177,7 @@ function PushToRolesComponent(props) {
 	const fetchRoles = (txt) => {
 		const params = { fields: '["name"]', limit_page_length: 50, order_by: "name asc" };
 		if (txt) params.filters = JSON.stringify([["name", "like", `%${txt}%`]]);
-		return frappeGet("/api/resource/Role", params);
+		return createResource({ url: "frappe.client.get_list", params: { doctype: "Role", ...params } }).fetch();
 	};
 
 	return h(RecordPickerField, {

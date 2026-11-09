@@ -7,7 +7,7 @@
  *   const { currentUser, currentRoles, isReady } = useCurrentUser()
  */
 import { ref } from "vue"
-import { frappeRequest } from "frappe-ui"
+import { loadSessionRoles, sessionUser } from "@/stores/session"
 
 const currentUser = ref("")
 const currentRoles = ref([])
@@ -17,23 +17,18 @@ let fetchPromise = null
 function init() {
 	if (fetchPromise) return fetchPromise
 
-	// User is available synchronously from boot
-	currentUser.value = window.frappe?.boot?.session_user || ""
+	currentUser.value = sessionUser()
 
-	// Roles need a one-time API call
-	fetchPromise = (async () => {
-		try {
-			const res = await frappeRequest({
-				url: "/api/method/frappe.core.doctype.user.user.get_roles",
-				params: { uid: currentUser.value },
-			})
-			currentRoles.value = res.message || res || []
-		} catch (e) {
+	fetchPromise = loadSessionRoles()
+		.then((roles) => {
+			currentRoles.value = roles || []
+		})
+		.catch((e) => {
 			console.warn("useCurrentUser: could not fetch roles:", e)
-		} finally {
+		})
+		.finally(() => {
 			isReady.value = true
-		}
-	})()
+		})
 	return fetchPromise
 }
 

@@ -81,9 +81,8 @@
 
 <script setup>
 import { ref, computed, onMounted } from "vue";
-import { Badge, Button, FeatherIcon, FormControl } from "frappe-ui";
+import { Badge, Button, FeatherIcon, FormControl, createResource } from "frappe-ui";
 import RecordPicker from "@/components/Controls/RecordPicker/RecordPicker.vue";
-import { frappeGet } from "@/bpmn/shared/frappeResource";
 
 const useHtml = defineModel("useHtml", { type: Boolean });
 const template = defineModel("template", { type: String });
@@ -102,11 +101,10 @@ onMounted(fetchTemplates);
 async function fetchTemplates() {
 	loadingTemplates.value = true;
 	try {
-		const data = await frappeGet("/api/resource/Email Template", {
-			fields: JSON.stringify(["name", "subject"]),
+		const data = await createResource({ url: "frappe.client.get_list", params: { doctype: "Email Template", fields: JSON.stringify(["name", "subject"]),
 			limit_page_length: 200,
 			order_by: "name asc",
-		});
+		} }).fetch();
 		templates.value = Array.isArray(data) ? data : [];
 	} catch (err) {
 		console.error("[NotifyAssigneeEditor] Failed to fetch email templates:", err);
@@ -121,9 +119,7 @@ async function selectTemplate(name) {
 
 	// Fetch the full template to get the HTML body + subject
 	try {
-		const doc = await frappeGet(`/api/resource/Email Template/${encodeURIComponent(name)}`, {
-			fields: JSON.stringify(["subject", "response_html", "response"]),
-		});
+		const doc = await createResource({ url: "frappe.client.get", params: { doctype: "Email Template", name: name } }).fetch();
 		// Prefer response_html; fall back to response (plain text / markdown)
 		const html = doc?.response_html || doc?.response || "";
 		if (html) {
