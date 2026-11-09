@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # License: MIT. See license.txt
-"""WI-002195: every tool result the model sees is size-bounded, and every tool
+"""Every tool result the model sees is size-bounded, and every tool
 call is checked against its declared schema before the script runs.
 
 The audit copy (the ToolCallRecord, which becomes the AI Agent Tool Call row)

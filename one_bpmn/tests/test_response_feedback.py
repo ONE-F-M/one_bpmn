@@ -38,7 +38,7 @@ class FeedbackFixture(FrappeTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
 		self.conversation = frappe.get_doc(
-			{"doctype": "Chat Conversation", "title": "WI-001641 probe", "agent_mode": "ProsAlly"}
+			{"doctype": "Chat Conversation", "title": "feedback probe", "agent_mode": "ProsAlly"}
 		).insert(ignore_permissions=True)
 
 		self.reply = self._message("Bot", "Here is your process.")

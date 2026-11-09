@@ -715,7 +715,7 @@ class TestRecallSkipsWhenTheTurnMessageIsUnresolved(TestTheUserMessageReachesThe
 	close, just narrowed to this one turn.
 
 	The fix must not touch _turn_user_message/turn_state at all (that's
-	WI-002169's territory, and the live map itself is out of reach here) — it
+	another change's territory, and the live map itself is out of reach here) — it
 	only has to stop the recall query from falling back to a driving-prompt
 	template when the real message couldn't be found for a chat turn.
 	"""

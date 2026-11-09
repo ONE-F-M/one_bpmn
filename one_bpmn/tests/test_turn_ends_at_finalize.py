@@ -6,7 +6,7 @@ finalize-style turn there was nothing left to say: measured on Logix run
 om8mj9cenv, that closing call returned 0 characters for $0.00287 out of a
 $0.01425 turn. These tests pin the call count, because the saving IS the call.
 
-WI-002187 adds a second, independent way a turn can end early: any tool named
+A newer rule adds a second, independent way a turn can end early: any tool named
 in ``terminal_tools`` (default ``{"finalize"}``) ends the turn the instant it
 runs, and the REPLY comes from that call's own ``response`` argument — not
 from whatever the model narrated alongside it. That distinction is the whole

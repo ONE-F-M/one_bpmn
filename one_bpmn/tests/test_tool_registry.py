@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001355 (3-02): ToolSpec compiler — AI Agent Tool to ToolSpec.
+# ToolSpec compiler — AI Agent Tool to ToolSpec.
 
 from __future__ import annotations
 
