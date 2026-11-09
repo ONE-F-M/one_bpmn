@@ -34,6 +34,11 @@ def _diagram(process_id: str, label: str = "v1") -> str:
 	)
 
 
+def _calls(publish, event: str) -> list:
+	"""The (args, kwargs) of every publish_realtime call for one event name."""
+	return [(c.args, c.kwargs) for c in publish.call_args_list if c.args and c.args[0] == event]
+
+
 class CollaborationCase(FrappeTestCase):
 	def setUp(self):
 		frappe.set_user("Administrator")
@@ -105,8 +110,10 @@ class TestSavingADiagram(CollaborationCase):
 		self.assertEqual(out["revision"], 1)
 		self.assertEqual(frappe.db.get_value("BPMN Process Model", self.model, "bpmn_xml"), new_xml)
 
-		publish.assert_called_once()
-		args, kwargs = publish.call_args
+		# Saving also emits Frappe's own doc_update / list_update events; look at ours only.
+		calls = _calls(publish, EVENT_DIAGRAM_SAVED)
+		self.assertEqual(len(calls), 1)
+		args, kwargs = calls[0]
 		self.assertEqual(args[0], EVENT_DIAGRAM_SAVED)
 		self.assertEqual(kwargs["doctype"], "BPMN Process Model")
 		self.assertEqual(kwargs["docname"], self.model)
@@ -254,8 +261,9 @@ class TestPresence(CollaborationCase):
 			collaboration.join_model(self.model, client_id="tab-1")
 			collaboration.join_model(self.model, client_id="tab-1")
 
-		publish.assert_called_once()
-		args, kwargs = publish.call_args
+		calls = _calls(publish, EVENT_PRESENCE)
+		self.assertEqual(len(calls), 1)
+		args, kwargs = calls[0]
 		self.assertEqual(args[0], EVENT_PRESENCE)
 		self.assertEqual(kwargs["docname"], self.model)
 		self.assertEqual(args[1]["action"], "joined")
