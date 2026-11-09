@@ -1487,7 +1487,7 @@ def reject_doctype_change(request: str, reason: str = None) -> dict:
 
 
 def _register_agui_hooks():
-	from one_bpmn.agents.agui_stream import (
+	from one_bpmn.ai_agent_conversations.agui.stream import (
 		register_context_builder,
 		register_reply_shaper,
 	)

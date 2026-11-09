@@ -19,7 +19,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.api import a2a as a2a_api
 
-PERSIST = "one_bpmn.utils.chat_persistence"
+PERSIST = "one_bpmn.ai_agent_conversations.chat_persistence"
 ADAPTER = "one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings"
 
 

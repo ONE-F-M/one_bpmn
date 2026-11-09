@@ -753,7 +753,7 @@ def end_chat_conversation(conversation_name: str) -> dict:
 		return {"ok": False}
 
 	try:
-		from one_bpmn.utils.chat_persistence import close_conversation
+		from one_bpmn.ai_agent_conversations.chat_persistence import close_conversation
 		close_conversation(conversation_name)
 		return {"ok": True, "conversation_name": conversation_name}
 	except Exception:
@@ -880,7 +880,7 @@ def build_prosally_turn_context(context: dict) -> dict:
 	# server, and handed to the model as an analysis plus rules for reading it,
 	# so it is never mistaken for conversational text and never answered with a
 	# request to re-type the steps. The raw message arrives as _turn_message
-	# (agui_stream); a very large paste leaves as _message_override, without its
+	# (agui/stream.py); a very large paste leaves as _message_override, without its
 	# bpmndi layout section.
 	pasted = out.pop("_turn_message", "") or ""
 	xml_input = None
@@ -940,7 +940,7 @@ def shape_prosally_reply(result: dict) -> dict:
 
 
 def _register_agui_hooks():
-	from one_bpmn.agents.agui_stream import (
+	from one_bpmn.ai_agent_conversations.agui.stream import (
 		register_context_builder,
 		register_reply_shaper,
 	)

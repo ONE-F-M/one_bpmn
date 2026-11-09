@@ -35,6 +35,7 @@ House style lives in `frappe-bench/.claude/rules/`: `house-style.md` always, `py
 - `one_bpmn/agents/`: the AI agent runtime. See its `AGENTS.md`.
 - `one_bpmn/ai_agent_security/`: the conversation lock, injection pattern and security event doctypes, input and output screening (`screening/`), the generated-script validator and Server Script gate (`code_checks/`), rate limits, turn locks, agent identities and the Server Script Approvals report; `one_bpmn/api/security.py` holds their endpoints.
 - `one_bpmn/ai_agent_guardrails/`: the tool policy rule and doctype change request doctypes, tool call interception (`tool_policy.py`) and the `AgentRefusal` exception (`refusal.py`).
+- `one_bpmn/ai_agent_conversations/`: the seven chat and clarification doctypes, AG-UI streaming and its event contract (`agui/`), chat persistence and permissions, compaction, retention, session state and turn context, clarifications and the four scheduled conversation jobs (`jobs.py`); `one_bpmn/api/sessions.py` and `one_bpmn/api/clarifications.py` hold their endpoints.
 - `one_bpmn/processa_engine/notifications/`: AMP and HTML task emails and their tokens, and mobile push (`push_notification.py`); `one_bpmn/api/email_actions.py` holds the endpoints the emails call. See its `README.md`.
 - `one_bpmn/commands/`: bench commands.
 - `one_bpmn/overrides/`: overridden Frappe classes, such as the scheduler queue for timer jobs.

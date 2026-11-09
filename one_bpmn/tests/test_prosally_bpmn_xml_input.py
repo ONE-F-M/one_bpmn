@@ -310,7 +310,7 @@ class TestProsAllyWiring(FrappeTestCase):
 		self.assertNotIn("BPMNShape", out["_message_override"])
 
 	def test_stream_sends_the_agent_the_shortened_message_and_clean_context(self):
-		from one_bpmn.agents import agui_stream
+		from one_bpmn.ai_agent_conversations.agui import stream as agui_stream
 		from one_bpmn.api import server_script_api  # registers the ProsAlly context builder  # noqa: F401
 
 		message = "add a step\n" + _document(shapes=400)
@@ -329,13 +329,13 @@ class TestProsAllyWiring(FrappeTestCase):
 		self.assertNotIn("_message_override", sent_context)
 
 	def test_stream_answers_malformed_xml_with_the_parse_failure_and_no_model_turn(self):
-		from one_bpmn.agents import agui_stream
+		from one_bpmn.ai_agent_conversations.agui import stream as agui_stream
 		from one_bpmn.api import server_script_api  # noqa: F401
 
 		with (
 			patch("one_bpmn.api.a2a.invoke_agent") as invoke,
-			patch("one_bpmn.utils.chat_persistence.save_user_message"),
-			patch("one_bpmn.utils.chat_persistence.save_bot_message") as save_bot,
+			patch("one_bpmn.ai_agent_conversations.chat_persistence.save_user_message"),
+			patch("one_bpmn.ai_agent_conversations.chat_persistence.save_bot_message") as save_bot,
 		):
 			chunks = "".join(agui_stream.agent_event_stream("prosally_agent", MALFORMED, "CONV-1", {}))
 		invoke.assert_not_called()
@@ -360,14 +360,14 @@ class TestProsAllyWiring(FrappeTestCase):
 		self.assertIn("no problems found", reply.lower())
 
 	def test_stream_answers_a_review_paste_without_the_agent_and_saves_the_turn(self):
-		from one_bpmn.agents import agui_stream
+		from one_bpmn.ai_agent_conversations.agui import stream as agui_stream
 		from one_bpmn.api import server_script_api  # noqa: F401
 
 		message = "review this\n" + _document(BROKEN_STRUCTURE)
 		with (
 			patch("one_bpmn.api.a2a.invoke_agent") as invoke,
-			patch("one_bpmn.utils.chat_persistence.save_user_message") as save_user,
-			patch("one_bpmn.utils.chat_persistence.save_bot_message") as save_bot,
+			patch("one_bpmn.ai_agent_conversations.chat_persistence.save_user_message") as save_user,
+			patch("one_bpmn.ai_agent_conversations.chat_persistence.save_bot_message") as save_bot,
 		):
 			chunks = "".join(agui_stream.agent_event_stream("prosally_agent", message, "CONV-1", {}))
 		invoke.assert_not_called()
@@ -376,7 +376,7 @@ class TestProsAllyWiring(FrappeTestCase):
 		self.assertIn("End_9", chunks)
 
 	def test_stream_leaves_ordinary_messages_and_other_agents_alone(self):
-		from one_bpmn.agents import agui_stream
+		from one_bpmn.ai_agent_conversations.agui import stream as agui_stream
 		from one_bpmn.api import server_script_api  # noqa: F401
 
 		with patch(

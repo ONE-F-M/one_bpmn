@@ -294,7 +294,7 @@ def _tasks_cancel(params: dict) -> dict:
 	)
 	if locked.conversation:
 		try:
-			from one_bpmn.utils.chat_persistence import close_conversation
+			from one_bpmn.ai_agent_conversations.chat_persistence import close_conversation
 
 			close_conversation(locked.conversation)
 		except Exception:
@@ -693,7 +693,7 @@ def invoke_agent(
 	message = _injection.text
 
 	if not conversation:
-		from one_bpmn.utils.chat_persistence import create_agent_conversation
+		from one_bpmn.ai_agent_conversations.chat_persistence import create_agent_conversation
 
 		conversation = create_agent_conversation(
 			agent_id, title=(message or "New chat")[:140], user=frappe.session.user
@@ -907,7 +907,7 @@ def _bpmn_turn_stream(config, conversation, message, context):
 	the stream shapes the same way it shapes a runner that never streamed.
 	"""
 	from one_bpmn.processa_engine.agent_runtime import turn_signal
-	from one_bpmn.agents.agui_stream import HANDOVER_EVENT
+	from one_bpmn.ai_agent_conversations.agui.stream import HANDOVER_EVENT
 	from one_bpmn.processa_engine.agent_runtime.job_limits import AI_AGENT_JOB_TIMEOUT
 	from one_bpmn.api.server_script_api import collect_chat_turn_reply, delegate_chat_turn
 	from one_bpmn.processa_engine.dispatch.ai_agent import TURN_OUTPUT_EVENT
@@ -1034,7 +1034,7 @@ def _stream_direct_api(config, conversation, message, context):
 	import queue
 	import threading
 
-	from one_bpmn.agents.agui_stream import HANDOVER_EVENT
+	from one_bpmn.ai_agent_conversations.agui.stream import HANDOVER_EVENT
 	from one_bpmn.processa_engine.agent_runtime.turn_signal import LIVE_TEXT_QUEUE_FLAG
 
 	deltas: "queue.Queue" = queue.Queue()
@@ -1074,7 +1074,7 @@ def _direct_api_turn(config, conversation, message):
 	from one_bpmn.processa_engine.agent_runtime.executor import ExecutorResult, TokenUsage
 	from one_bpmn.processa_engine.agent_runtime.direct_api import run_coro_blocking
 	from one_bpmn.processa_engine.agent_runtime.llm_factory import get_llm_adapter_from_settings
-	from one_bpmn.utils.chat_persistence import save_bot_message, save_user_message
+	from one_bpmn.ai_agent_conversations.chat_persistence import save_bot_message, save_user_message
 
 	save_user_message(conversation, message)
 	adapter = get_llm_adapter_from_settings(config)

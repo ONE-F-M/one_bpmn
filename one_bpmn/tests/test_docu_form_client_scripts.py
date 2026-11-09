@@ -8,7 +8,7 @@ from unittest.mock import patch as mock_patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.agui_contract.translators import _script_diff
+from one_bpmn.ai_agent_conversations.agui.contract.translators import _script_diff
 from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
 from one_bpmn.api.docu_api import apply_client_script, preview_client_script
 from one_bpmn.one_bpmn.patches.v1_0 import docu_edits_field_properties as previous

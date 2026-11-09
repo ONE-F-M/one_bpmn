@@ -60,8 +60,8 @@ class TestEveryPathComposesTheSameWay(FrappeTestCase):
 
 		with patch.object(a2a_api, "run_coro_blocking", create=True), patch(
 			"one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=FakeAdapter()
-		), patch("one_bpmn.utils.chat_persistence.save_user_message"), patch(
-			"one_bpmn.utils.chat_persistence.save_bot_message"
+		), patch("one_bpmn.ai_agent_conversations.chat_persistence.save_user_message"), patch(
+			"one_bpmn.ai_agent_conversations.chat_persistence.save_bot_message"
 		), patch(
 			"one_bpmn.processa_engine.agent_runtime.direct_api.run_coro_blocking",
 			side_effect=lambda coro: (coro.close(), type("C", (), {"text": "ok"})())[1],

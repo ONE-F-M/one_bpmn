@@ -103,7 +103,7 @@ def on_ai_agent_suspended(instance, task):
 		_bind_checkpoint(run_name, row_id)
 	instance.waiting_for_human = label
 
-	from one_bpmn.agents import clarification
+	from one_bpmn.ai_agent_conversations import clarification
 
 	# The agent named on the record is the one whose limits apply: read off the AI task that suspended.
 	ai_cfg = (getattr(instance, "_service_task_extensions", {}) or {}).get(task_bpmn_id(task)) or {}
@@ -187,7 +187,7 @@ def complete_ai_human_task(instance, task_id: str, data: dict | None = None) -> 
 
 	close_human_row(instance, row, task_id, data)
 
-	from one_bpmn.agents import clarification
+	from one_bpmn.ai_agent_conversations import clarification
 
 	# The answer is recorded before the agent sees it, whatever the agent then does with it.
 	clarification.record_answer(instance=instance, human_task_id=task_id, data=data)

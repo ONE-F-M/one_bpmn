@@ -14,7 +14,7 @@ def _conversation_id(instance):
 
     Skill activation is scoped to the CONVERSATION, not the process
     instance: a resumed conversation gets a brand new instance (see
-    agents/memory/session_state.py), so state keyed by instance.name cannot
+    ai_agent_conversations/session_state.py), so state keyed by instance.name cannot
     survive the conversation it was loaded for. A skill loaded on turn one
     would vanish the moment the map re-armed through its conditional start.
     """

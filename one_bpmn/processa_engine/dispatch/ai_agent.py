@@ -193,7 +193,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 					token_budget = int(task_cfg.get("aiMemoryTokenBudget") or DEFAULT_MEMORY_TOKEN_BUDGET)
 					memories = bound_memories_to_budget(memories, token_budget)
 					memory_block = _format_memory_block(memories)
-					from one_bpmn.agents.memory.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
+					from one_bpmn.ai_agent_conversations.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
 
 					memory_injected_tokens = estimate_tokens({"content": memory_block}, DEFAULT_CHARS_PER_TOKEN)
 		except Exception:
@@ -233,7 +233,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		)
 
 		if active_skill_bodies:
-			from one_bpmn.agents.memory.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
+			from one_bpmn.ai_agent_conversations.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
 
 			memory_injected_tokens += estimate_tokens(
 				{"content": "\n\n".join(active_skill_bodies)}, DEFAULT_CHARS_PER_TOKEN
@@ -768,7 +768,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		# A chat turn is already a Chat Message that the history step reads.
 		if cs_backend and getattr(instance, "context_doctype", "") != "Chat Conversation":
 			try:
-				from one_bpmn.agents.memory.conversation_store import get_conversation_store
+				from one_bpmn.ai_agent_conversations.conversation_store import get_conversation_store
 
 				store = get_conversation_store(cs_backend, task=task)
 				store.append(instance.name, bpmn_id, {"role": "user", "content": user_prompt})
@@ -813,7 +813,7 @@ def bound_memories_to_budget(memories: list, token_budget: int) -> list:
 
 	A hard ceiling: when even the first memory does not fit, its content is cut to fit.
 	"""
-	from one_bpmn.agents.memory.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
+	from one_bpmn.ai_agent_conversations.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
 
 	if not memories or not token_budget or token_budget <= 0:
 		return memories
@@ -946,7 +946,7 @@ def _turn_user_message(instance, task) -> str:
 
 def _platform_history(instance, task_cfg: dict, raw_user_message: str) -> tuple[list, str]:
 	"""(prior messages, facts block) for a chat turn, also written to the turn store for tool scripts."""
-	from one_bpmn.agents.memory.turn_context import conversation_of, established_block, load_history
+	from one_bpmn.ai_agent_conversations.turn_context import conversation_of, established_block, load_history
 	from one_bpmn.processa_engine.agent_runtime.turn_state import update_turn
 
 	conversation = conversation_of(instance)

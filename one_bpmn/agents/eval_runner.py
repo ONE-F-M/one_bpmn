@@ -2147,9 +2147,9 @@ def _run_chat_agent_eval(cfg, case, eval_run: str | None = None) -> tuple:
     """The chat-shaped Agent eval: hand the turn to ``invoke_agent`` on a fresh conversation.
     ``input_context`` may seed earlier turns through ``conversation_messages`` and
     ``session_state``; usage comes from the runs tagged with this case and eval run."""
-    from one_bpmn.agents.memory import session_state
+    from one_bpmn.ai_agent_conversations import session_state
+    from one_bpmn.ai_agent_conversations.chat_persistence import close_conversation, create_agent_conversation
     from one_bpmn.api.a2a import invoke_agent
-    from one_bpmn.utils.chat_persistence import close_conversation, create_agent_conversation
 
     if not cfg.agent_id:
         raise ValueError(f"Agent configuration '{cfg.name}' has no agent_id.")
@@ -2231,7 +2231,7 @@ def _saved_doctype_ir(conversation: str):
 
 def _seed_conversation(conversation: str, messages: list, state: dict) -> None:
     """Write earlier turns and session state into an eval conversation, oldest first."""
-    from one_bpmn.agents.memory import session_state
+    from one_bpmn.ai_agent_conversations import session_state
 
     start = add_to_date(now_datetime(), seconds=-len(messages) - 1)
     for index, message in enumerate(messages):

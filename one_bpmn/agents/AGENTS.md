@@ -20,7 +20,7 @@ Adapters: `llm_gemini.py` (`GeminiAdapter`), `llm_anthropic.py` (`AnthropicAdapt
 
 To add a provider, add an adapter class and its branch in `get_llm_adapter()`.
 
-## Conversations (`utils/chat_persistence.py`)
+## Conversations (`ai_agent_conversations/chat_persistence.py`)
 
 - `Chat Conversation`, `Chat Message` and `Chat Participant` are one_bpmn DocTypes.
 - Helpers: `create_conversation`, `create_agent_conversation`, `save_user_message`, `save_bot_message`, `load_history` (owner-only), `close_conversation`.

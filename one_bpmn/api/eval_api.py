@@ -561,7 +561,7 @@ def conversation_context_for_case(suite: str, conversation: str, message: str, i
 			"metadata": frappe.parse_json(snapshot[0].metadata) if snapshot[0].metadata else None,
 		})
 
-	from one_bpmn.agents.memory import session_state
+	from one_bpmn.ai_agent_conversations import session_state
 
 	return {
 		"conversation_messages": messages,

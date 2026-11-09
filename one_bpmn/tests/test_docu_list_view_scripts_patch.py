@@ -53,7 +53,7 @@ def _run_stage(message, reply=None, pending=None, doctype="Note"):
 	recorded = []
 	with (
 		patch("one_bpmn.processa_engine.agent_runtime.llm_factory.get_llm_adapter_from_settings", return_value=_Adapter(reply or {})),
-		patch("one_bpmn.agents.memory.session_state.record", side_effect=lambda _c, values: recorded.append(values)),
+		patch("one_bpmn.ai_agent_conversations.session_state.record", side_effect=lambda _c, values: recorded.append(values)),
 	):
 		exec(as_deployed(fix.WRITE_SCRIPT_BODY), {"frappe": frappe, "context_docname": CONVERSATION, "result": {}})
 	return get_turn(CONVERSATION)["output"], recorded

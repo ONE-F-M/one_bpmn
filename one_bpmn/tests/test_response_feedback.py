@@ -340,7 +340,7 @@ class TestTheReplyCarriesItsOwnId(FrappeTestCase):
 	"""Part 1. The client cannot rate a reply it cannot name."""
 
 	def test_the_stream_uses_the_persisted_message_name_as_the_message_id(self):
-		from one_bpmn.agents import agui_stream
+		from one_bpmn.ai_agent_conversations.agui import stream as agui_stream
 
 		with patch(
 			"one_bpmn.api.a2a.invoke_agent",
@@ -358,7 +358,7 @@ class TestTheReplyCarriesItsOwnId(FrappeTestCase):
 			)
 
 	def test_a_runner_that_persists_nothing_still_gets_a_usable_id(self):
-		from one_bpmn.agents import agui_stream
+		from one_bpmn.ai_agent_conversations.agui import stream as agui_stream
 
 		with patch(
 			"one_bpmn.api.a2a.invoke_agent",

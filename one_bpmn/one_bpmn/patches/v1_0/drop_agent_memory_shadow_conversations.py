@@ -7,7 +7,7 @@ copies the store kept are noise.
 import frappe
 from frappe.utils import create_batch
 
-from one_bpmn.agents.memory.conversation_store import AGENT_MEMORY_MODE
+from one_bpmn.ai_agent_conversations.conversation_store import AGENT_MEMORY_MODE
 
 
 def execute():

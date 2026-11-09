@@ -9,8 +9,8 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import now_datetime
 
 from one_bpmn.agents import eval_runner
-from one_bpmn.agents.memory import session_state
-from one_bpmn.utils.chat_persistence import create_conversation
+from one_bpmn.ai_agent_conversations import session_state
+from one_bpmn.ai_agent_conversations.chat_persistence import create_conversation
 
 CFG = frappe._dict(agent_id="zz_eval_chat_agent", name="ZZ Eval Chat Agent")
 CASE_NAME = "zz-eval-chat-seeding-case"
@@ -62,8 +62,8 @@ class TestChatEvalSeeding(FrappeTestCase):
 		case = frappe._dict(name=CASE_NAME, title="Seeded case", input_user_prompt="yes, the topology looks good",
 			input_context=json.dumps(input_context))
 		with (
-			patch("one_bpmn.utils.chat_persistence.create_agent_conversation", side_effect=self._new_conversation),
-			patch("one_bpmn.utils.chat_persistence.close_conversation") as close,
+			patch("one_bpmn.ai_agent_conversations.chat_persistence.create_agent_conversation", side_effect=self._new_conversation),
+			patch("one_bpmn.ai_agent_conversations.chat_persistence.close_conversation") as close,
 			patch("one_bpmn.api.a2a.invoke_agent", side_effect=invoke or self._record_turn),
 		):
 			try:

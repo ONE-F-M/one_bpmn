@@ -20,8 +20,8 @@ from types import SimpleNamespace
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.memory import session_state
 from one_bpmn.agents.shape_tools import execute_shape
+from one_bpmn.ai_agent_conversations import session_state
 from one_bpmn.one_bpmn.patches.v1_0.lucrusher_fetches_a_document_once import (
 	MARK,
 	SCRIPT,

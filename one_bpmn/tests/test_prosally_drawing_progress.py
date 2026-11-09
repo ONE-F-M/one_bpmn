@@ -8,7 +8,7 @@ from unittest import mock
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents import agui_contract
+from one_bpmn.ai_agent_conversations.agui import contract as agui_contract
 from one_bpmn.processa_engine.agent_runtime import turn_signal
 from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, set_turn
 from one_bpmn.one_bpmn.patches.v1_0 import prosally_generate_process_splits_cut_off_phases as split_patch

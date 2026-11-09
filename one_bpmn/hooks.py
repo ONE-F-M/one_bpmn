@@ -35,7 +35,7 @@ app_include_js = [
 	# doctypes have ever had a question asked about them and does nothing on the
 	# rest, so a form nobody has ever asked about costs no round trip.
 	# ?v= as above — a plain path gets no automatic cache-busting.
-	"/assets/one_bpmn/js/ai_clarification_on_document.js?v=1",
+	"/assets/one_bpmn/js/ai_clarification_on_document.js?v=2",
 ]
 
 # Purge action on the AI Memory list view, mirroring the memory browser's
@@ -67,7 +67,7 @@ permission_query_conditions = {
 	"AI Memory": "one_bpmn.ai_agent_memory.permissions.ai_memory_query_conditions",
 	# A conversation with an agent is private to the person who had it. Enforced
 	# here so it holds for the list, the Desk, any report and /api/resource alike.
-	"Chat Message": "one_bpmn.agents.chat_permissions.chat_message_query_conditions",
+	"Chat Message": "one_bpmn.ai_agent_conversations.permissions.chat_message_query_conditions",
 	"Doctype Change Request": "one_bpmn.ai_agent_guardrails.doctype.doctype_change_request.doctype_change_request.get_permission_query_conditions",
 }
 
@@ -76,7 +76,7 @@ has_permission = {
 	"AI Eval Case": "one_bpmn.agents.eval_permissions.eval_case_has_permission",
 	"AI Eval Run": "one_bpmn.agents.eval_permissions.eval_run_has_permission",
 	"AI Memory": "one_bpmn.ai_agent_memory.permissions.ai_memory_has_permission",
-	"Chat Message": "one_bpmn.agents.chat_permissions.chat_message_has_permission",
+	"Chat Message": "one_bpmn.ai_agent_conversations.permissions.chat_message_has_permission",
 	"Doctype Change Request": "one_bpmn.ai_agent_guardrails.doctype.doctype_change_request.doctype_change_request.has_permission",
 }
 
@@ -172,7 +172,7 @@ doc_events = {
 			# and a failed insert must not leave work queued about it. The handler
 			# only ever ENQUEUES — summarising on this thread would put its
 			# latency in front of the person waiting for a reply.
-			"one_bpmn.agents.memory.compaction_triggers.on_chat_message",
+			"one_bpmn.ai_agent_conversations.compaction_triggers.on_chat_message",
 		],
 	},
 	# The list of Processa-controlled doctypes (used by
@@ -196,7 +196,7 @@ scheduler_events = {
 		# that DELETES anything, and a bounded nightly pass is easier to reason
 		# about (and to notice going wrong) than a trickle through the day.
 		"30 2 * * *": [
-			"one_bpmn.tasks.sweep_conversation_retention",
+			"one_bpmn.ai_agent_conversations.jobs.sweep_conversation_retention",
 			# A published rate change has a date but the catalogue has no date
 			# field, so something has to notice the day arriving.
 			"one_bpmn.tasks.apply_due_model_rates",
@@ -239,16 +239,16 @@ scheduler_events = {
 			"one_bpmn.processa_engine.timers.requeue_stranded_ai_steps",
 		],
 		"0 * * * *": [
-			"one_bpmn.tasks.close_stale_chat_instances",
+			"one_bpmn.ai_agent_conversations.jobs.close_stale_chat_instances",
 			# Chase a question nobody has answered. Hourly rather than
 			# by the minute because the thing being waited on is a person reading
 			# their notifications, and it never resolves the question itself.
-			"one_bpmn.tasks.chase_unanswered_clarifications",
+			"one_bpmn.ai_agent_conversations.jobs.chase_unanswered_clarifications",
 			# The TIME compaction trigger. Hourly rather than by the minute
 			# because the thing being waited on is a conversation going quiet,
 			# and the thresholds that drive it are configured in minutes but
 			# meant in tens of minutes.
-			"one_bpmn.tasks.compact_idle_conversations",
+			"one_bpmn.ai_agent_conversations.jobs.compact_idle_conversations",
 		],
 	},
 	"hourly": [

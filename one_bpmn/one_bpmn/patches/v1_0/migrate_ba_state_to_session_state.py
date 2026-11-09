@@ -42,7 +42,7 @@ def execute():
 	if not rows:
 		return
 
-	from one_bpmn.agents.memory.session_state import set_state
+	from one_bpmn.ai_agent_conversations.session_state import set_state
 
 	migrated = skipped = failed = 0
 	for row in rows:

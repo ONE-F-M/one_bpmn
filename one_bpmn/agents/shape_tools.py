@@ -139,7 +139,7 @@ def _clarification_cap_reached(instance, shape) -> bool:
 	story, and a cap that reset would not be a cap.
 	"""
 	try:
-		from one_bpmn.agents import clarification
+		from one_bpmn.ai_agent_conversations import clarification
 
 		agent = getattr(instance, "_a2a_delegating_agent", None) or (
 			shape.get("aiAgentConfig") if isinstance(shape, dict) else None

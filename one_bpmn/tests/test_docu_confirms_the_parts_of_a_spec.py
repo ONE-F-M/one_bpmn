@@ -11,6 +11,7 @@ from frappe.tests.utils import FrappeTestCase
 from one_bpmn.one_bpmn.patches.v1_0 import docu_confirms_the_parts_of_a_spec as fix
 from one_bpmn.one_bpmn.patches.v1_0.chat_agents_post_failed_turn_error import apply_edit
 from one_bpmn.one_bpmn.patches.v1_0.seed_docu_agent_config import _INLINE_SUB_PROMPTS
+from one_bpmn.tests.site_scripts import as_deployed
 
 SPEC = "Payroll enters pending salary, GR enters residency deduction, Finance checks loans."
 
@@ -83,8 +84,8 @@ class _Run:
 			"exists": False,
 			"result": result,
 		}
-		with patch("one_bpmn.agents.memory.session_state.record", self.record):
-			exec(_patched_classify(), namespace)
+		with patch("one_bpmn.ai_agent_conversations.session_state.record", self.record):
+			exec(as_deployed(_patched_classify()), namespace)
 		return result
 
 

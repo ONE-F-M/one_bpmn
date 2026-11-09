@@ -7,7 +7,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.memory import session_state
+from one_bpmn.ai_agent_conversations import session_state
 from one_bpmn.api import skill_tools
 
 AGENT = "lucrusher"

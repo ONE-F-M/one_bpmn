@@ -8,7 +8,7 @@ import json
 
 import frappe
 
-from one_bpmn.agents.memory.session_state import set_state
+from one_bpmn.ai_agent_conversations.session_state import set_state
 
 STATE_SENTINEL = "__lucrusher_state__"
 
