@@ -9,7 +9,7 @@ reconsidered (the next step is a VECTOR INDEX inside the same MariaDB query).
 Nothing else watches those bounds. This module does, once a day.
 
 The thresholds live on Processa Settings; the constants in
-``agents.memory.tools`` are only the defaults when the settings are blank.
+``ai_agent_memory.tools`` are only the defaults when the settings are blank.
 """
 
 from __future__ import annotations

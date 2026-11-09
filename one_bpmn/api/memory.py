@@ -2,7 +2,7 @@
 Endpoints behind the Processa memory browser at ``/processa/memory``.
 
 Reading is scoped by the ``AI Memory`` permission hooks
-(``agents.memory.permissions``), so every query here goes through
+(``ai_agent_memory.permissions``), so every query here goes through
 ``frappe.get_list`` and inherits the rule instead of restating it. Nothing in
 this module passes ``ignore_permissions``.
 
