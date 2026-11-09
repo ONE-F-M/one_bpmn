@@ -4,7 +4,7 @@ import { is } from "bpmn-js/lib/util/ModelUtil";
 const LOW_PRIORITY = 500;
 
 /**
- * Properties panel provider for Ad-hoc Subprocesses (WI-001349).
+ * Properties panel provider for Ad-hoc Subprocesses.
  *
  * bpmn-js 18's stock Change element menu already offers "Ad-hoc sub-process"
  * for expanded subprocesses (and the reverse conversion back to a plain

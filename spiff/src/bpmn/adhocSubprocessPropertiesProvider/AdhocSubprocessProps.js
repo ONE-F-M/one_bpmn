@@ -15,7 +15,7 @@ import { h } from "preact";
  *   - completionCondition — a contained bpmn:FormalExpression child element
  *   - cancelRemainingInstances — a Boolean attribute, spec default true
  *
- * The engine-side parser (_AdHocProcessParser, WI-001348) reads exactly this
+ * The engine-side parser (_AdHocProcessParser) reads exactly this
  * shape: an unqualified cancelRemainingInstances attribute and the
  * <bpmn:completionCondition> child's text.
  */

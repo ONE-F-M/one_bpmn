@@ -156,7 +156,7 @@ function LaunchEditorButton(props) {
 // (provider, model, system prompt, params) as a one-time copy the designer can
 // then edit here. Edits stay on the shape; the configuration is never changed
 // from the diagram, and its tools are NOT imported — the toolkit is always the
-// diagram's own ad-hoc shapes (WI-001637).
+// diagram's own ad-hoc shapes.
 // ---------------------------------------------------------------------------
 function AgentConfigComponent(props) {
 	const { element, id } = props;
@@ -230,7 +230,7 @@ function AgentConfigComponent(props) {
 // ---------------------------------------------------------------------------
 // AI Provider — autocomplete backed by the AI Provider doctype.
 // ---------------------------------------------------------------------------
-// WI-001650: read-only. The provider is an agent property, resolved from the
+// Read-only. The provider is an agent property, resolved from the
 // linked AI Agent Configuration at run time — raw provider setup is retired.
 function ProviderComponent(props) {
 	const { element, id } = props;
@@ -246,7 +246,7 @@ function ProviderComponent(props) {
 				{
 					class: "bio-properties-panel-label",
 					title: translate(
-						"Resolved from the linked AI Agent Configuration at run time. Raw provider setup is retired (WI-001650) — link an agent configuration above to set the provider."
+						"Resolved from the linked AI Agent Configuration at run time. Raw provider setup is retired — link an agent configuration above to set the provider."
 					),
 				},
 				translate("AI Provider (from linked configuration)")
@@ -295,7 +295,7 @@ function ConfigDriftComponent(props) {
 // ---------------------------------------------------------------------------
 // Model override
 // ---------------------------------------------------------------------------
-// WI-001650: read-only — resolved from the linked configuration's credentials.
+// Read-only — resolved from the linked configuration's credentials.
 function ModelComponent(props) {
 	const { element, id } = props;
 	const translate = useService("translate");

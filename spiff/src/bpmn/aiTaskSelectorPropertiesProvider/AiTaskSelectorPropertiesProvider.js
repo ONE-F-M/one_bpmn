@@ -5,11 +5,11 @@ const LOW_PRIORITY = 500;
 
 /**
  * Properties panel group for an Ad-hoc Subprocess tagged with
- * spiffworkflow:serviceType="ai_task_selector" (WI-001351).
+ * spiffworkflow:serviceType="ai_task_selector".
  *
  * Shows the selector configuration: AI Provider, Model, Tool Sources and
  * the system/user prompts. The dedicated modal editor with the registry
- * tool picker is WI-001357 (3-04); this group is the inline surface.
+ * tool picker is tracked separately (3-04); this group is the inline surface.
  */
 export default class AiTaskSelectorPropertiesProvider {
 	constructor(propertiesPanel, translate) {

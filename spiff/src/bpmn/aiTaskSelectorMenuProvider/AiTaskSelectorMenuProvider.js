@@ -3,7 +3,7 @@ import { AI_SPARKLE_DATA_URI } from "../shared/aiSparkleIcon";
 
 /**
  * Adds an "AI Task Selector" entry to the bpmn-js "Change element"
- * (bpmn-replace) popup menu for Ad-hoc Subprocesses (WI-001351).
+ * (bpmn-replace) popup menu for Ad-hoc Subprocesses.
  *
  * Selecting it tags the subprocess ITSELF with
  * spiffworkflow:serviceType="ai_task_selector" and defaults

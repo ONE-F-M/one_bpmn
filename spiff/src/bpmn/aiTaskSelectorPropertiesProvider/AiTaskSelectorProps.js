@@ -120,7 +120,7 @@ function AgentConfigComponent(props) {
 	);
 }
 
-// WI-001650: read-only. The provider is an agent property, resolved from the
+// Read-only. The provider is an agent property, resolved from the
 // linked AI Agent Configuration at run time — raw provider setup is retired.
 function ProviderComponent(props) {
 	const { element, id } = props;
@@ -136,7 +136,7 @@ function ProviderComponent(props) {
 				{
 					class: "bio-properties-panel-label",
 					title: translate(
-						"Resolved from the linked AI Agent Configuration at run time. Raw provider setup is retired (WI-001650) — link an agent configuration above to set the provider."
+						"Resolved from the linked AI Agent Configuration at run time. Raw provider setup is retired — link an agent configuration above to set the provider."
 					),
 				},
 				translate("AI Provider (from linked configuration)")
@@ -151,7 +151,7 @@ function ProviderComponent(props) {
 	);
 }
 
-// WI-001650: read-only — resolved from the linked configuration's credentials.
+// Read-only — resolved from the linked configuration's credentials.
 function ModelComponent(props) {
 	const { element, id } = props;
 	const translate = useService("translate");
