@@ -14,7 +14,7 @@ class BPMNActivityLog(Document):
 	if TYPE_CHECKING:
 		from frappe.types import DF
 
-		action: DF.Literal["Started", "Completed", "Errored", "Skipped", "Timer Expired", "Error Boundary Activated", "Sub-Process Started", "Sub-Process Completed", "Message Received", "Ad-Hoc Task Activated", "AI Task Selected", "Cancelled", "Suspended", "Resumed", "Retried"]
+		action: DF.Literal["Started", "Completed", "Errored", "Skipped", "Timer Expired", "Error Boundary Activated", "Sub-Process Started", "Sub-Process Completed", "Message Received", "Ad-Hoc Task Activated", "AI Task Selected", "Cancelled", "Suspended", "Resumed", "Retried", "Migrated", "Retired"]
 		data: DF.JSON | None
 		instance: DF.Link | None
 		task_id: DF.Data | None

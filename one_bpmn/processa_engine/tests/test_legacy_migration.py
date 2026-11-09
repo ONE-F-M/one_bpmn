@@ -1,17 +1,24 @@
 # Copyright (c) 2026, one-fm and contributors
-"""Replaying an old instance's history on a new map: where it ends, and every reason it stops."""
+"""Moving a record to a new map: where the replay ends, every reason it stops, and the instance swap."""
 
 import json
 from unittest.mock import patch
 
 import frappe
+from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.processa_engine.compiler.compile_step import compile_model
 from one_bpmn.processa_engine.engine import TaskState
 from one_bpmn.processa_engine.instances.starting import start_process
 from one_bpmn.processa_engine.instances.task_actions import complete_task
-from one_bpmn.processa_engine.legacy_migration import MigrationSkip, build_context, replay, wait_ids
+from one_bpmn.processa_engine.legacy_migration import (
+	MigrationSkip,
+	build_context,
+	migrate_record,
+	replay,
+	wait_ids,
+)
 from one_bpmn.processa_engine.runtime.messages import receive_message
 
 DT = "GP Letter Request"
@@ -333,4 +340,154 @@ class TestLegacyMigrationReplay(FrappeTestCase):
 
 		self._assert_skip(
 			"Replay stuck", unknown_variable, self.waiting_review, [(DRAFT, DRAFT)], contains="never_set"
+		)
+
+	def _migrate(self, nodes, old, mapping):
+		"""Run migrate_record for one old instance under a Running PLM; returns moved, the PLM and the new instance."""
+		new_map = _deploy("PLM Rep Move", nodes)
+		with patch("one_bpmn.processa_engine.triggers.on_doc_event"):
+			plm = frappe.get_doc(
+				{
+					"doctype": "Processa Legacy Migration",
+					"from_model": frappe.db.get_value("BPMN Process Instance", old, "process_model"),
+					"to_model": new_map,
+					"target_doctype": DT,
+					"status": "Running",
+					"state_map": [{"old_state": o, "new_state": n} for o, n in mapping],
+				}
+			).insert()
+		moved = migrate_record(build_context(plm), frappe.get_doc("BPMN Process Instance", old))
+		return moved, plm.name, frappe.db.get_value("BPMN Process Instance", {"migrated_from": old}, "name")
+
+	def test_a_clean_replay_creates_the_new_instance_from_the_old_one(self):
+		moved, _plm, new = self._migrate(OLD, self.waiting_review, [(DRAFT, DRAFT)])
+		self.assertTrue(moved)
+		old_doc, new_doc = (frappe.get_doc("BPMN Process Instance", n) for n in (self.waiting_review, new))
+		self.assertEqual(new_doc.status, "Active")
+		self.assertEqual(new_doc.process_model, "PLM Rep Move")
+		self.assertEqual(
+			(new_doc.initiated_by, new_doc.started_at), (old_doc.initiated_by, old_doc.started_at)
+		)
+
+	def test_waiting_tasks_keep_their_assignment_and_no_email_is_sent(self):
+		before = next(
+			r
+			for r in frappe.get_doc("BPMN Process Instance", self.waiting_review).active_tasks
+			if r.status == "Waiting"
+		)
+		with (
+			patch("frappe.sendmail") as sendmail,
+			patch("one_bpmn.processa_engine.assignment.notify_task_assignee") as notify,
+		):
+			_moved, _plm, new = self._migrate(OLD, self.waiting_review, [(DRAFT, DRAFT)])
+		after = next(
+			r for r in frappe.get_doc("BPMN Process Instance", new).active_tasks if r.status == "Waiting"
+		)
+		fields = ("assigned_user", "assigned_role", "reliever_user", "relieved_user")
+		self.assertEqual([after.get(f) for f in fields], [before.get(f) for f in fields])
+		self.assertEqual(after.task_name, "Review")
+		sendmail.assert_not_called()
+		notify.assert_not_called()
+
+	def test_history_is_copied_with_original_users_and_times_and_both_instances_log_the_move(self):
+		fields = ["task_id", "action", "user", "timestamp"]
+		old_rows = frappe.get_all(
+			"BPMN Activity Log", filters={"instance": self.waiting_review}, fields=fields
+		)
+		_moved, plm, new = self._migrate(OLD, self.waiting_review, [(DRAFT, DRAFT)])
+		new_rows = frappe.get_all("BPMN Activity Log", filters={"instance": new}, fields=[*fields, "data"])
+		self.assertEqual(len(new_rows), len(old_rows) + 1)
+		copied = {tuple(r[f] for f in fields) for r in new_rows}
+		self.assertTrue({tuple(r[f] for f in fields) for r in old_rows} <= copied)
+		migrated = next(r for r in new_rows if r.action == "Migrated")
+		self.assertEqual(json.loads(migrated.data), {"migrated_from": self.waiting_review, "migration": plm})
+		retired = frappe.get_all(
+			"BPMN Activity Log", filters={"instance": self.waiting_review, "action": "Retired"}, pluck="data"
+		)
+		self.assertEqual(json.loads(retired[0]), {"replaced_by": new})
+
+	def test_the_record_moves_to_the_mapped_state_through_the_workflow(self):
+		record = frappe.db.get_value("BPMN Process Instance", self.errored, "context_docname")
+		modified = frappe.db.get_value(DT, record, "modified")
+		with patch.object(
+			Document, "run_method", autospec=True, side_effect=Document.run_method
+		) as run_method:
+			moved, _plm, _new = self._migrate(OLD, self.errored, [(APPROVED, DRAFT)])
+		self.assertTrue(moved)
+		self.assertEqual(frappe.db.get_value(DT, record, ["workflow_state", "modified"]), (DRAFT, modified))
+		self.assertIn("validate", [c.args[1] for c in run_method.call_args_list if c.args[0].doctype == DT])
+		self.assertTrue(
+			frappe.db.exists(
+				"Comment",
+				{
+					"reference_doctype": DT,
+					"reference_name": record,
+					"comment_type": "Workflow",
+					"content": DRAFT,
+				},
+			)
+		)
+
+	def test_the_open_process_todo_now_names_the_new_instance(self):
+		record = frappe.db.get_value("BPMN Process Instance", self.waiting_review, "context_docname")
+		todo = frappe.get_all(
+			"ToDo", filters={"reference_name": record, "status": "Open", "type": "Process"}, pluck="name"
+		)
+		_moved, _plm, new = self._migrate(OLD, self.waiting_review, [(DRAFT, DRAFT)])
+		status, description = frappe.db.get_value("ToDo", todo[0], ["status", "description"])
+		self.assertEqual(status, "Open")
+		self.assertIn(new, description)
+		self.assertNotIn(self.waiting_review, description)
+
+	def test_the_old_instance_and_its_waiting_tasks_are_cancelled(self):
+		self._migrate(OLD, self.waiting_review, [(DRAFT, DRAFT)])
+		old = frappe.get_doc("BPMN Process Instance", self.waiting_review)
+		self.assertEqual(old.status, "Cancelled")
+		self.assertTrue(old.completed_at)
+		self.assertNotIn("Waiting", [r.status for r in old.active_tasks])
+		self.assertIn("Cancelled", [r.status for r in old.active_tasks])
+
+	def test_an_errored_instance_is_assigned_by_the_map_rules_with_a_new_todo(self):
+		moved, _plm, new = self._migrate(_with(OLD, drop="Catch_pr"), self.errored, [(APPROVED, APPROVED)])
+		self.assertTrue(moved)
+		new_doc = frappe.get_doc("BPMN Process Instance", new)
+		row = next(r for r in new_doc.active_tasks if r.status == "Waiting")
+		self.assertEqual(
+			(new_doc.status, row.task_name, row.assigned_user), ("Active", "Merge", "Administrator")
+		)
+		self.assertTrue(
+			frappe.db.exists(
+				"ToDo", {"status": "Open", "type": "Process", "description": ["like", f"%{new}%"]}
+			)
+		)
+
+	def test_an_error_after_the_insert_rolls_the_record_back_and_logs_reason_error(self):
+		with patch(
+			"one_bpmn.processa_engine.legacy_migration._repoint_todos",
+			side_effect=RuntimeError("todo update failed"),
+		):
+			moved, plm, new = self._migrate(OLD, self.waiting_review, [(DRAFT, DRAFT)])
+		self.assertFalse(moved)
+		self.assertIsNone(new)
+		self.assertEqual(
+			frappe.db.get_value("BPMN Process Instance", self.waiting_review, "status"), "Active"
+		)
+		row = frappe.get_doc("Processa Legacy Migration", plm).error_logs[0]
+		self.assertEqual((row.reason, row.old_instance), ("Error", self.waiting_review))
+		self.assertIn("todo update failed", row.error_message)
+
+	def test_a_refused_replay_logs_its_reason_and_leaves_the_old_instance(self):
+		moved, plm, new = self._migrate(OLD, self.waiting_review, [(APPROVED, APPROVED)])
+		self.assertFalse(moved)
+		self.assertIsNone(new)
+		self.assertEqual(
+			frappe.db.get_value("BPMN Process Instance", self.waiting_review, "status"), "Active"
+		)
+		row = frappe.get_doc("Processa Legacy Migration", plm).error_logs[0]
+		self.assertEqual(
+			(row.reason, row.document_name),
+			(
+				"No state mapping",
+				frappe.db.get_value("BPMN Process Instance", self.waiting_review, "context_docname"),
+			),
 		)
