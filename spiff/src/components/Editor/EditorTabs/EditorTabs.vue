@@ -1,6 +1,6 @@
 <template>
 	<div class="h-10 sm:h-12 flex items-center px-3 gap-1 relative">
-		<!-- WI-002041: no add button. Process maps are created only by the Process
+		<!-- No add button. Process maps are created only by the Process
 		     Implementation process, so the editor offers no creation path — which
 		     also removes the old ability to create a version while viewing one. -->
 

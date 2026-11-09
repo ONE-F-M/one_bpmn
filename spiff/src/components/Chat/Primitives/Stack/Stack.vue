@@ -4,7 +4,7 @@
 	</div>
 </template>
 <script setup>
-// Layout primitive (WI-001673): vertical by default, horizontal on demand.
+// Layout primitive: vertical by default, horizontal on demand.
 defineProps({ gap: { type: Number, default: 8 }, horizontal: { type: Boolean, default: false } });
 </script>
 <style scoped>

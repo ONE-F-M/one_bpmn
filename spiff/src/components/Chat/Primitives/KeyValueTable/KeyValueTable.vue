@@ -9,7 +9,7 @@
 	</table>
 </template>
 <script setup>
-// Display primitive (WI-001673): two-column key/value listing.
+// Display primitive: two-column key/value listing.
 defineProps({ rows: { type: Object, default: () => ({}) } });
 function format(value) {
 	if (Array.isArray(value)) return value.map((v) => (typeof v === "object" ? JSON.stringify(v) : v)).join(" • ");

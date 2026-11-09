@@ -689,8 +689,8 @@ function handleEvent(event) {
 			}
 		}
 	} else if (type === "TEXT_MESSAGE_START") {
-		// The reply's identity, straight off the protocol (WI-001641 made this
-		// the persisted Chat Message name). Held until the buffer is flushed so
+		// The reply's identity, straight off the protocol (the persisted Chat Message
+		// name). Held until the buffer is flushed so
 		// the finished bubble carries it and can be rated.
 		streamingMessageId.value = event.messageId || event.message_id || "";
 		// a rate-limit refusal streams with role "system" — a

@@ -94,9 +94,9 @@
 </template>
 
 <script setup>
-// Rating one agent reply (WI-001822).
+// Rating one agent reply.
 //
-// The record, the endpoint and the identifiers are WI-001641's; this component
+// The record, the endpoint and the identifiers are owned elsewhere; this component
 // only asks and shows. It owns no opinion about storage, and it never invents an
 // id — a reply with no `message` gets no control, because there would be nothing
 // to attach the answer to.
