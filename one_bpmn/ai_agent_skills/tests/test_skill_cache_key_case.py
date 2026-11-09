@@ -4,7 +4,7 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents._eval_test_factories import make_agent_configuration
+from one_bpmn.ai_agent_evals.tests.factories import make_agent_configuration
 from one_bpmn.ai_agent_skills.skill_tools import _skill_names_cache_key, _skills_cache_key
 
 AGENT = "_Test Skill Key Agent"

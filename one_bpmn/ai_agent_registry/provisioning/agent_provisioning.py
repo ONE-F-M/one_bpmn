@@ -229,7 +229,7 @@ def provision_agent(config_name: str):
 		# ship on a map with the screening stage removed. Both fail CLOSED:
 		# unlike the runtime screens, this authorises a release, and "cannot
 		# prove it is safe" must mean no.
-		from one_bpmn.agents.adversarial_gate import check as adversarial_check
+		from one_bpmn.ai_agent_evals.adversarial_gate import check as adversarial_check
 		from one_bpmn.ai_agent_registry.provisioning.conformance import validate_chat_map
 
 		gate = adversarial_check(config_name)
@@ -268,7 +268,7 @@ def _run_baseline_eval(suite_name: str) -> bool | None:
 	"""Run a suite and return True/False for pass/fail, or None if it could
 	not be run. Never raises — eval is advisory unless the suite gates."""
 	try:
-		from one_bpmn.agents.eval_runner import run_eval_suite
+		from one_bpmn.ai_agent_evals.eval_runner import run_eval_suite
 
 		run_name = run_eval_suite(suite_name, backend="live")
 		status = frappe.db.get_value("AI Eval Run", run_name, "status")

@@ -7,7 +7,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.eval_runner import _evaluate_skill_in_prompt
+from one_bpmn.ai_agent_evals.eval_runner import _evaluate_skill_in_prompt
 from one_bpmn.ai_agent_skills import skill_tools
 from one_bpmn.one_bpmn.patches.v1_0 import lucrusher_phase_skill_preloaded as prompt_patch
 from one_bpmn.one_bpmn.patches.v1_0 import lucrusher_skill_cases_check_the_prompt as cases_patch

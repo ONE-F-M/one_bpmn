@@ -297,7 +297,7 @@ async function runSuite(s) {
 	inProgressMessage.value = ""
 	try {
 		const runName = await frappeRequest({
-			url: "/api/method/one_bpmn.agents.eval_runner.run_eval_cases",
+			url: "/api/method/one_bpmn.ai_agent_evals.eval_runner.run_eval_cases",
 			method: "POST",
 			params: { suite_name: s.name },
 		})

@@ -14,6 +14,7 @@ one_bpmn.one_bpmn.patches.v1_0.create_ai_agent_guardrails_module #08-11-2026 the
 one_bpmn.one_bpmn.patches.v1_0.create_ai_agent_memory_module #09-11-2026 the AI Memory and AI Memory Dead Letter doctypes sync into the AI Agent Memory module, which must exist first
 one_bpmn.one_bpmn.patches.v1_0.create_ai_agent_conversations_module #09-11-2026 the seven chat and clarification doctypes sync into the AI Agent Conversations module, which must exist first
 one_bpmn.one_bpmn.patches.v1_0.create_ai_agent_skills_module #09-11-2026 the five skill and tool doctypes sync into the AI Agent Skills module, which must exist first
+one_bpmn.one_bpmn.patches.v1_0.create_ai_agent_evals_module #09-11-2026 the AI Agent Evals module must exist as a Module Def before eval doctypes sync into it
 
 one_bpmn.one_bpmn.patches.v1_0.rename_ai_provider_to_ai_provider_credentials #16-07-2026
 one_bpmn.one_bpmn.patches.v1_0.move_agent_chat_doctypes_to_one_bpmn #16-07-2026
@@ -354,3 +355,4 @@ one_bpmn.one_bpmn.patches.v1_0.repath_a2a_handlers #08-11-2026 stored A2A connec
 one_bpmn.one_bpmn.patches.v1_0.add_server_script_approval_fields #08-11-2026 Server Scripts get allowed modules and a System Manager approval with who, when and the approved code hash
 one_bpmn.one_bpmn.patches.v1_0.drop_chat_message_is_reply #09-11-2026 Chat Message is_reply was never read or written
 one_bpmn.one_bpmn.patches.v1_0.repath_skill_tool_imports #09-11-2026 stored Server Script imports follow the skill and tool modules that moved into ai_agent_skills
+one_bpmn.one_bpmn.patches.v1_0.repath_eval_module_imports #09-11-2026 stored Server Script imports follow the eval modules that moved into ai_agent_evals

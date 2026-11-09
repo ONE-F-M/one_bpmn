@@ -30,7 +30,7 @@ export function useEvalDataset(ctx) {
 		}
 		try {
 			readiness.value = await frappeRequest({
-				url: "/api/method/one_bpmn.api.golden_dataset.dataset_readiness",
+				url: "/api/method/one_bpmn.ai_agent_evals.golden_dataset.dataset_readiness",
 				method: "GET",
 				params: datasetSubject.value,
 			});
@@ -61,7 +61,7 @@ export function useEvalDataset(ctx) {
 		datasetError.value = "";
 		try {
 			const res = await frappeRequest({
-				url: "/api/method/one_bpmn.api.golden_dataset.snapshot_dataset",
+				url: "/api/method/one_bpmn.ai_agent_evals.golden_dataset.snapshot_dataset",
 				method: "POST",
 				params: { ...datasetSubject.value, notes: datasetNote.value },
 			});
@@ -90,7 +90,7 @@ export function useEvalDataset(ctx) {
 		try {
 			const text = await file.text();
 			const res = await frappeRequest({
-				url: "/api/method/one_bpmn.api.golden_dataset.import_dataset",
+				url: "/api/method/one_bpmn.ai_agent_evals.golden_dataset.import_dataset",
 				method: "POST",
 				params: { payload: text, suite: suiteName, dry_run: 1 },
 			});
@@ -112,7 +112,7 @@ export function useEvalDataset(ctx) {
 		datasetError.value = "";
 		try {
 			const res = await frappeRequest({
-				url: "/api/method/one_bpmn.api.golden_dataset.import_dataset",
+				url: "/api/method/one_bpmn.ai_agent_evals.golden_dataset.import_dataset",
 				method: "POST",
 				params: { payload: importPayload.value, suite: suiteName, dry_run: 0 },
 			});
@@ -134,7 +134,7 @@ export function useEvalDataset(ctx) {
 		datasetError.value = "";
 		try {
 			const payload = await frappeRequest({
-				url: "/api/method/one_bpmn.api.golden_dataset.export_dataset",
+				url: "/api/method/one_bpmn.ai_agent_evals.golden_dataset.export_dataset",
 				method: "GET",
 				params: datasetSubject.value,
 			});
