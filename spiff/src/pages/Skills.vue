@@ -612,7 +612,7 @@ const refreshSkills = async () => {
 	loading.value = true
 	try {
 		const res = await call(
-			'one_bpmn.api.skills_api.get_skills_library'
+			'one_bpmn.api.skills.get_skills_library'
 		)
 		if (res) {
 			skills.value = res
@@ -707,7 +707,7 @@ const saveSkillBody = async () => {
 	saving.value = true
 	try {
 		await call(
-			'one_bpmn.api.skills_api.update_skill_body',
+			'one_bpmn.api.skills.update_skill_body',
 			{
 				skill_name: selectedSkill.value.name,
 				new_body: editedBody.value
@@ -727,7 +727,7 @@ const loadTelemetry = async () => {
 	loadingTelemetry.value = true
 	try {
 		const res = await call(
-			'one_bpmn.api.skills_api.get_skill_telemetry',
+			'one_bpmn.api.skills.get_skill_telemetry',
 			{
 				skill_name: selectedSkill.value.name
 			}
@@ -747,7 +747,7 @@ const harvestSkill = async () => {
 	harvesting.value = true
 	try {
 		const res = await call(
-			'one_bpmn.api.skill_creator.harvest_skill_from_run',
+			'one_bpmn.api.skills.harvest_skill_from_run',
 			{
 				run_name: harvestRunName.value
 			}

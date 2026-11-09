@@ -208,7 +208,7 @@ def update_skill_body(skill_name: str, new_body: str):
     
     skill = frappe.get_doc("AI Skill", skill_name)
     skill.body = new_body
-    skill.save(ignore_permissions=True)
+    skill.save(ignore_permissions=True)  # perms: only_for System Manager and Process Owner above
     return "Success"
 
 @frappe.whitelist()
