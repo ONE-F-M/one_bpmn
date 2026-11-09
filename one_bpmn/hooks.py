@@ -69,6 +69,8 @@ permission_query_conditions = {
 	# here so it holds for the list, the Desk, any report and /api/resource alike.
 	"Chat Message": "one_bpmn.ai_agent_conversations.permissions.chat_message_query_conditions",
 	"Doctype Change Request": "one_bpmn.ai_agent_guardrails.doctype.doctype_change_request.doctype_change_request.get_permission_query_conditions",
+	"AI Skill": "one_bpmn.ai_agent_skills.permissions.ai_skill_query_conditions",
+	"AI Skill Activation": "one_bpmn.ai_agent_skills.permissions.ai_skill_activation_query_conditions",
 }
 
 has_permission = {
@@ -78,6 +80,8 @@ has_permission = {
 	"AI Memory": "one_bpmn.ai_agent_memory.permissions.ai_memory_has_permission",
 	"Chat Message": "one_bpmn.ai_agent_conversations.permissions.chat_message_has_permission",
 	"Doctype Change Request": "one_bpmn.ai_agent_guardrails.doctype.doctype_change_request.doctype_change_request.has_permission",
+	"AI Skill": "one_bpmn.ai_agent_skills.permissions.ai_skill_has_permission",
+	"AI Skill Activation": "one_bpmn.ai_agent_skills.permissions.ai_skill_activation_has_permission",
 }
 
 # DocType Class

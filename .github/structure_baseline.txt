@@ -142,7 +142,7 @@ size spiff/src/pages/Instance.vue 891
 size spiff/src/pages/Instances.vue 559
 size spiff/src/pages/Processes.vue 525
 size spiff/src/pages/Security.vue 1216
-size spiff/src/pages/Skills.vue 796
+size spiff/src/pages/Skills.vue 791
 test-location one_bpmn/agents/test_observability.py
 test-location one_bpmn/agents/test_pricing.py
 test-location one_bpmn/agents/test_token_usage_parsing.py
