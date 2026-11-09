@@ -7,7 +7,8 @@ from uuid import UUID
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime
+from frappe.utils import create_batch, now_datetime
+from rq.timeouts import JobTimeoutException
 
 from one_bpmn.processa_engine import engine as bpmn_engine
 from one_bpmn.processa_engine.assignment import add_frappe_assignment, resolve_assignment, split_users
@@ -24,9 +25,13 @@ from one_bpmn.processa_engine.engine import (
 	WorkflowException,
 )
 from one_bpmn.processa_engine.runtime.common import log_task, task_bpmn_id
+from one_bpmn.processa_engine.runtime.messages import receive_message
 
 # Engine steps one replay may run; a loop the history cannot leave hits it.
 TASK_RUN_LIMIT = 500
+BATCH_SIZE = 25
+OPEN_INSTANCE_STATUSES = ("Active", "Errored")
+FINISHED_MESSAGE = "processa:legacy_migration:finished"
 
 
 class MigrationSkip(Exception):
@@ -41,6 +46,163 @@ class MigrationSkip(Exception):
 class ReplayScriptEngine(FrappeScriptEngine):
 	def execute(self, task, script, **kwargs):
 		"""Script tasks do not run during a replay; gateway conditions still evaluate."""
+
+
+def start(migration_name: str) -> None:
+	"""Queue a migration's open old-map instances as run_batch jobs of BATCH_SIZE on the long queue."""
+	plm = frappe.get_doc("Processa Legacy Migration", migration_name)
+	user = plm.run_by or frappe.session.user
+	try:
+		plm.check_process_ownership(
+			frappe.get_doc("BPMN Process Model", plm.from_model),
+			frappe.get_doc("BPMN Process Model", plm.to_model),
+			user,
+		)
+	except frappe.PermissionError as e:
+		frappe.clear_messages()
+		log_error_row(migration_name, frappe._dict(), "Error", str(e))
+		plm.db_set({"status": "Running", "run_by": user, "started_at": now_datetime()})
+		finish(migration_name)
+		return
+
+	names = frappe.get_all(
+		"BPMN Process Instance",
+		filters={
+			"process_model": plm.from_model,
+			"context_doctype": plm.target_doctype,
+			"status": ["in", OPEN_INSTANCE_STATUSES],
+		},
+		pluck="name",
+		order_by="started_at asc",
+	)
+	batches = list(create_batch(names, BATCH_SIZE))
+	plm.db_set(
+		{
+			"status": "Running",
+			"run_by": user,
+			"started_at": now_datetime(),
+			"completed_at": None,
+			"total_records": len(names),
+			"total_batches": len(batches),
+			"batches_done": 0,
+			"migrated_count": 0,
+			"failed_count": 0,
+		}
+	)
+	if not batches:
+		finish(migration_name)
+		return
+	for n, batch in enumerate(batches, start=1):
+		frappe.enqueue(
+			"one_bpmn.processa_engine.legacy_migration.run_batch",
+			queue="long",
+			timeout=600,
+			job_id=f"plm::{migration_name}::{n}",
+			deduplicate=True,
+			enqueue_after_commit=True,
+			migration_name=migration_name,
+			instance_names=list(batch),
+		)
+
+
+def run_batch(migration_name: str, instance_names: list) -> None:
+	"""Move one batch, committing after each record; a timeout or batch failure logs every record it did not move."""
+	moved = failed = 0
+	reached = 0
+	try:
+		ctx = build_context(frappe.get_doc("Processa Legacy Migration", migration_name))
+		frappe.only_for(["System Manager", "Process Owner"])
+		for name in instance_names:
+			if migrate_record(ctx, frappe.get_doc("BPMN Process Instance", name)):
+				moved += 1
+			else:
+				failed += 1
+			reached += 1
+			frappe.db.commit()
+	except JobTimeoutException:
+		frappe.db.rollback()
+		failed += _log_unmoved(
+			migration_name, instance_names[reached:], "Timed out", _("The batch ran out of time.")
+		)
+		_count_batch(migration_name, moved, failed)
+		frappe.db.commit()
+		raise
+	except Exception:
+		frappe.db.rollback()
+		detail = frappe.get_traceback(with_context=False)
+		failed += _log_unmoved(migration_name, instance_names[reached:], "Error", detail)
+		_count_batch(migration_name, moved, failed)
+		frappe.db.commit()
+		raise
+	_count_batch(migration_name, moved, failed)
+
+
+def _log_unmoved(migration_name: str, instance_names: list, reason: str, detail: str) -> int:
+	"""An Error Log row for each instance a batch did not move; returns how many."""
+	for name in instance_names:
+		log_error_row(migration_name, frappe.get_doc("BPMN Process Instance", name), reason, detail)
+	return len(instance_names)
+
+
+def _count_batch(migration_name: str, moved: int, failed: int) -> None:
+	"""Add one batch's counts in a single update; the batch that completes the run calls finish."""
+	plm_table = frappe.qb.DocType("Processa Legacy Migration")
+	(
+		frappe.qb.update(plm_table)
+		.set(plm_table.migrated_count, plm_table.migrated_count + moved)
+		.set(plm_table.failed_count, plm_table.failed_count + failed)
+		.set(plm_table.batches_done, plm_table.batches_done + 1)
+		.where(plm_table.name == migration_name)
+	).run()
+	plm = frappe.db.get_value(
+		"Processa Legacy Migration",
+		migration_name,
+		["migrated_count", "failed_count", "total_records", "batches_done", "total_batches", "run_by"],
+		as_dict=True,
+	)
+	frappe.publish_realtime(
+		"legacy_migration_progress",
+		{
+			"migration_name": migration_name,
+			"migrated": plm.migrated_count,
+			"failed": plm.failed_count,
+			"total": plm.total_records,
+			"batches_done": plm.batches_done,
+			"total_batches": plm.total_batches,
+		},
+		user=plm.run_by,
+		after_commit=True,
+	)
+	if plm.batches_done == plm.total_batches:
+		finish(migration_name)
+
+
+def finish(migration_name: str) -> None:
+	"""Close a run: Completed when a record moved or there was nothing to move, else Failed; tell the PLM's own process."""
+	plm = frappe.get_doc("Processa Legacy Migration", migration_name)
+	nothing_to_move = not plm.total_records and not plm.error_logs
+	status = "Completed" if plm.migrated_count or nothing_to_move else "Failed"
+	plm.db_set({"status": status, "completed_at": now_datetime()})
+	frappe.publish_realtime(
+		"legacy_migration_progress",
+		{"migration_name": migration_name, "completed": True},
+		user=plm.run_by,
+		after_commit=True,
+	)
+	own_instance = frappe.db.get_value(
+		"BPMN Process Instance",
+		{
+			"context_doctype": "Processa Legacy Migration",
+			"context_docname": migration_name,
+			"status": "Active",
+		},
+	)
+	if own_instance:
+		receive_message(
+			frappe.get_doc("BPMN Process Instance", own_instance),
+			FINISHED_MESSAGE,
+			{"migration_status": status},
+		)
 
 
 def build_context(plm) -> frappe._dict:
@@ -91,6 +253,9 @@ def migrate_record(ctx, old) -> bool:
 		frappe.db.rollback(save_point="plm_record")
 		log_error_row(ctx.plm.name, old, skip.reason, skip.detail)
 		return False
+	except JobTimeoutException:
+		# run_batch logs the timed-out record together with the ones its batch did not reach.
+		raise
 	except Exception:
 		frappe.db.rollback(save_point="plm_record")
 		log_error_row(ctx.plm.name, old, "Error", frappe.get_traceback(with_context=False))
