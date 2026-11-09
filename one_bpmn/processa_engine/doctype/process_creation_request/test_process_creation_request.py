@@ -6,5 +6,5 @@ from frappe.tests.utils import FrappeTestCase
 
 
 class TestProcessCreationRequest(FrappeTestCase):
-	def test_owned_by_one_bpmn(self):
-		self.assertEqual(frappe.get_meta("Process Creation Request").module, "ONE BPMN")
+	def test_owned_by_processa_engine(self):
+		self.assertEqual(frappe.get_meta("Process Creation Request").module, "Processa Engine")

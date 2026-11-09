@@ -14,7 +14,7 @@ def dispatch_push_notification(instance, task, task_cfg: dict, bpmn_id: str) -> 
 
 	Counts land in task.data["<bpmn_id>_push"].
 	"""
-	from one_bpmn.one_bpmn.push_notification import FcmSender, tokens_for
+	from one_bpmn.processa_engine.notifications.push_notification import FcmSender, tokens_for
 
 	render, jinja_ctx = template_renderer(
 		instance, f"BPMN push_notification: template render failed ({bpmn_id})", strict=True
@@ -68,7 +68,7 @@ def dispatch_push_notification(instance, task, task_cfg: dict, bpmn_id: str) -> 
 
 def push_recipients(doc, task_cfg: dict) -> list:
 	"""Users a push task names, in order and without duplicates."""
-	from one_bpmn.one_bpmn.push_notification import users_from, users_in
+	from one_bpmn.processa_engine.notifications.push_notification import users_from, users_in
 
 	users = users_from(task_cfg.get("pushToUsers"))
 	for role in split_config(task_cfg.get("pushToRoles")):

@@ -280,7 +280,7 @@ class TestDispatchGoogleChat(BaseBPMNHelperTest):
 # push_notification dispatcher
 # ──────────────────────────────────────────────────────────────────────────────
 class TestDispatchPush(BaseBPMNHelperTest):
-	PUSH = "one_bpmn.one_bpmn.push_notification"
+	PUSH = "one_bpmn.processa_engine.notifications.push_notification"
 
 	def _run(self, cfg, tokens, send=None, inst=None):
 		task = FakeTask()

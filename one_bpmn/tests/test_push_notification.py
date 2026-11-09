@@ -7,7 +7,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.api.lookups import get_push_recipient_fields
-from one_bpmn.one_bpmn.push_notification import FcmSender, send_test_push, tokens_for, users_from, users_in
+from one_bpmn.processa_engine.notifications.push_notification import FcmSender, send_test_push, tokens_for, users_from, users_in
 
 
 def _token_source(doctype="Contact", user_field="user", token_field="company_name"):
@@ -61,7 +61,7 @@ class TestFcmSender(FrappeTestCase):
 		sender.url, sender.headers = "https://fcm.test", {}
 		response = Mock(ok=False, status_code=404)
 		response.json.return_value = {"error": {"message": "Requested entity was not found."}}
-		with patch("one_bpmn.one_bpmn.push_notification.requests.post", return_value=response) as post:
+		with patch("one_bpmn.processa_engine.notifications.push_notification.requests.post", return_value=response) as post:
 			reason = sender.send("tok", "T", "B", {"n": 1})
 		self.assertEqual(reason, "Requested entity was not found.")
 		self.assertEqual(post.call_args.kwargs["json"]["message"]["data"], {"n": "1"})

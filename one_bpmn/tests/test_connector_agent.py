@@ -513,11 +513,11 @@ class TestHandlerNaming(FrappeTestCase):
 		"""
 		self.assertEqual(
 			H.handler_path("Acme CRM", "fetch_rate"),
-			"one_bpmn.one_bpmn.connectors.generated.acme_crm_ops.fetch_rate",
+			"one_bpmn.processa_connectors.generated.acme_crm_ops.fetch_rate",
 		)
 		self.assertEqual(
 			H.repo_path("Acme CRM"),
-			"one_bpmn/one_bpmn/connectors/generated/acme_crm_ops.py",
+			"one_bpmn/processa_connectors/generated/acme_crm_ops.py",
 		)
 
 	def test_the_generated_package_is_importable(self):
