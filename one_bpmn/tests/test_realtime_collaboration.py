@@ -147,7 +147,8 @@ class TestSavingADiagram(CollaborationCase):
 		self.assertEqual(out["revision"], 2)
 
 	def test_a_save_without_a_base_revision_is_refused(self):
-		with self.assertRaises(frappe.ValidationError):
+		# Frappe's type validation rejects None before the function body even runs.
+		with self.assertRaises((TypeError, frappe.ValidationError)):
 			collaboration.save_diagram(self.model, _diagram(self.process_id, "x"), base_revision=None)
 
 		self.assertEqual(self.revision(), 0)
@@ -290,7 +291,8 @@ class TestPresence(CollaborationCase):
 		with patch.object(frappe, "publish_realtime"):
 			collaboration.join_model(self.model)
 
-		self.assertIn("Administrator", frappe.cache.get_value(f"bpmn_editor_lock:{self.model}"))
+		stored = frappe.cache.get_value(f"bpmn_editor_lock:{self.model}")
+		self.assertIn("Administrator", stored or {}, f"stored={stored!r}")
 
 
 class TestModelState(CollaborationCase):
