@@ -584,7 +584,7 @@ def shape_assistant_reply(result: dict) -> dict:
 
 
 def _register_agui_hooks():
-	from one_bpmn.agents.agui_stream import register_context_builder, register_reply_shaper
+	from one_bpmn.ai_agent_conversations.agui.stream import register_context_builder, register_reply_shaper
 
 	register_context_builder("ai_agent_assistant", build_assistant_turn_context)
 	register_reply_shaper("ai_agent_assistant", shape_assistant_reply)

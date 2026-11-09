@@ -16,7 +16,7 @@ import frappe
 from frappe import _
 from werkzeug.wrappers import Response
 
-from one_bpmn.agents.agui_stream import agent_event_stream
+from one_bpmn.ai_agent_conversations.agui.stream import agent_event_stream
 
 
 @frappe.whitelist()
@@ -50,7 +50,7 @@ def stream_agent_turn(
 	parsed_context = frappe.parse_json(context) if context else {}
 
 	if not conversation:
-		from one_bpmn.utils.chat_persistence import create_agent_conversation
+		from one_bpmn.ai_agent_conversations.chat_persistence import create_agent_conversation
 
 		conversation = create_agent_conversation(
 			agent_id, title=(message or _("New chat"))[:140], user=frappe.session.user
@@ -74,8 +74,8 @@ def turn_status(conversation: str, client_message_id: str) -> dict:
 
 	The turn keeps running on the worker when the browser loses the stream, so the reply is read from the transcript.
 	"""
+	from one_bpmn.ai_agent_conversations.chat_persistence import load_history
 	from one_bpmn.processa_engine.agent_runtime import turn_signal
-	from one_bpmn.utils.chat_persistence import load_history
 
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Authentication required"))
@@ -145,7 +145,7 @@ def conversation_history(conversation: str, limit: int = 30, before: str = None)
 	"""
 	from frappe.utils import cint
 
-	from one_bpmn.utils.chat_persistence import load_history
+	from one_bpmn.ai_agent_conversations.chat_persistence import load_history
 
 	if frappe.session.user == "Guest":
 		frappe.throw(_("Authentication required"))
@@ -235,7 +235,7 @@ def _replayed_events(metadata: dict) -> list:
 	if not isinstance(result, dict):
 		return []
 
-	from one_bpmn.agents.agui_stream import _extension_events
+	from one_bpmn.ai_agent_conversations.agui.stream import _extension_events
 
 	events = []
 	for event in _extension_events(result):

@@ -12,12 +12,12 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.memory.conversation_store import AGENT_MEMORY_MODE
-from one_bpmn.agents.memory.session_state import get_state
+from one_bpmn.ai_agent_conversations.chat_persistence import create_conversation, save_user_message
+from one_bpmn.ai_agent_conversations.conversation_store import AGENT_MEMORY_MODE
+from one_bpmn.ai_agent_conversations.session_state import get_state
 from one_bpmn.one_bpmn.patches.v1_0 import drop_agent_memory_shadow_conversations as drop_shadows
 from one_bpmn.one_bpmn.patches.v1_0 import move_lucrusher_state_to_session_state as move_state
 from one_bpmn.tests.conversation_fixtures import drop_conversations
-from one_bpmn.utils.chat_persistence import create_conversation, save_user_message
 
 
 def _tool_message(conversation: str, metadata: dict, text: str = move_state.STATE_SENTINEL) -> str:

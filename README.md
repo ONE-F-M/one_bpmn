@@ -75,6 +75,7 @@ one_bpmn/                      # Frappe app (repo root)
 │   ├── agents/                # AI agents (shape tools, memory, evals, A2A)
 │   ├── ai_agent_security/     # Screening, rate limits, turn locks, security events, code checks
 │   ├── ai_agent_guardrails/   # Tool policy, agent refusals, doctype change approval
+│   ├── ai_agent_conversations/ # Chat doctypes, AG-UI streaming, compaction, retention, clarifications
 │   ├── processa_engine/notifications/  # AMP and HTML task emails
 │   ├── processa_engine/agent_runtime/  # Executors, model adapters, step loop and turn state
 │   ├── commands/              # bench commands
@@ -390,7 +391,7 @@ Intent Classifier
 | `spiff/src/utils/bpmnLayout.js` | Auto-layout — positions generated BPMN elements left-to-right |
 | `spiff/src/bpmn/lint/bpmnlintrc.js` | bpmnlint rule configuration (errors vs. warnings) |
 | `one_bpmn/ai_agent_registry/definitions/prosally/tools_pipeline.py` | IR → BPMN XML compilation (`compile_ir`); the pipeline stages themselves are DB Server Scripts driven by the ProsAlly process model |
-| `one_bpmn/utils/chat_persistence.py` | Persists conversation history (`Chat Conversation` DocType) |
+| `one_bpmn/ai_agent_conversations/chat_persistence.py` | Persists conversation history (`Chat Conversation` DocType) |
 
 ### Agent Pipeline
 

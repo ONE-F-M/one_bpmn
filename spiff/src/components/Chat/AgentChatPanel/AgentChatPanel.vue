@@ -352,7 +352,7 @@ const layoutMode = computed(() => {
 });
 
 // The artifact events a Document workspace hosts — exactly the four kinds
-// artifact_type names (see agui_contract "Generic artifacts").
+// artifact_type names (see agui/contract "Generic artifacts").
 const WORKSPACE_EVENTS = new Set([
 	"onefm.script_diff",
 	"onefm.bpmn_preview",

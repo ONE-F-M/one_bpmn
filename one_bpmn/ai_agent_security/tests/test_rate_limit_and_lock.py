@@ -846,7 +846,7 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 		import json
 		from unittest.mock import patch
 
-		import one_bpmn.agents.agui_stream as A
+		import one_bpmn.ai_agent_conversations.agui.stream as A
 
 		conversation = frappe.get_doc({
 			"doctype": "Chat Conversation",
@@ -887,7 +887,7 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 		import json
 		from unittest.mock import patch
 
-		import one_bpmn.agents.agui_stream as A
+		import one_bpmn.ai_agent_conversations.agui.stream as A
 
 		conversation = frappe.get_doc({
 			"doctype": "Chat Conversation",
@@ -930,7 +930,7 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 		import json
 		from unittest.mock import patch
 
-		import one_bpmn.agents.agui_stream as A
+		import one_bpmn.ai_agent_conversations.agui.stream as A
 
 		conversation = frappe.get_doc({
 			"doctype": "Chat Conversation",
@@ -1108,7 +1108,7 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 		"""Run one turn through the shared stream; return (event kinds, text)."""
 		import json
 
-		import one_bpmn.agents.agui_stream as A
+		import one_bpmn.ai_agent_conversations.agui.stream as A
 
 		kinds, texts = [], []
 		for chunk in A.agent_event_stream(agent_id, "hi", conversation, None):

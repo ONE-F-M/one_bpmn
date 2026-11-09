@@ -279,7 +279,7 @@
 import { Button, Dialog, ErrorMessage, FormControl, frappeRequest } from "frappe-ui";
 import { computed, onMounted, ref } from "vue";
 
-const API = "/api/method/one_bpmn.api.sessions_api.";
+const API = "/api/method/one_bpmn.api.sessions.";
 
 const tab = ref("conversations");
 const loading = ref(false);

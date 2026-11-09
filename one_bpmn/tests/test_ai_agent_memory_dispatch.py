@@ -835,7 +835,7 @@ class TestBoundMemoriesToBudget(FrappeTestCase):
 		# The budget is derived from the rendered header, not hardcoded, so
 		# rewording the provenance line cannot silently invalidate the
 		# arithmetic this asserts on.
-		from one_bpmn.agents.memory.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
+		from one_bpmn.ai_agent_conversations.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
 
 		memories = [{"content": "a" * 100}, {"content": "b" * 100}, {"content": "c" * 100}]
 		one = estimate_tokens({"content": D._format_memory_block(memories[:1])}, DEFAULT_CHARS_PER_TOKEN)
@@ -855,7 +855,7 @@ class TestBoundMemoriesToBudget(FrappeTestCase):
 		self.assertGreater(len(kept[0]["content"]), 0)
 
 	def test_result_never_exceeds_the_budget(self):
-		from one_bpmn.agents.memory.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
+		from one_bpmn.ai_agent_conversations.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
 
 		memories = [{"content": "word " * 200} for _ in range(5)]
 		budget = 100
@@ -869,7 +869,7 @@ class TestMemoryTokenBudgetInDispatch(TestTheUserMessageReachesTheModel):
 	per-agent override) on whatever memory_search returns."""
 
 	def test_default_budget_bounds_an_oversized_raw_mode_memory(self):
-		from one_bpmn.agents.memory.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
+		from one_bpmn.ai_agent_conversations.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
 
 		with patch(
 			"one_bpmn.ai_agent_memory.tools.memory_search",
@@ -893,7 +893,7 @@ class TestMemoryTokenBudgetInDispatch(TestTheUserMessageReachesTheModel):
 		)
 
 	def test_per_agent_budget_override(self):
-		from one_bpmn.agents.memory.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
+		from one_bpmn.ai_agent_conversations.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
 
 		with patch(
 			"one_bpmn.ai_agent_memory.tools.memory_search",

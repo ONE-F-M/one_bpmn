@@ -28,7 +28,7 @@ only the memory store writes it. Idempotent.
 
 import frappe
 
-from one_bpmn.agents.memory.conversation_store import AGENT_MEMORY_MODE
+from one_bpmn.ai_agent_conversations.conversation_store import AGENT_MEMORY_MODE
 
 TITLE_PREFIX = "one_bpmn:"
 

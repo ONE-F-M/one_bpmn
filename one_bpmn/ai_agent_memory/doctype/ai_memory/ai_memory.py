@@ -185,7 +185,7 @@ def add_embedding_column():
 	VECTOR fieldtype and would rewrite the column type on every migrate. Frappe
 	ignores table columns it does not know about (``Meta.get_valid_columns``),
 	so the column is invisible to ``get_doc``/``as_dict`` and only the raw SQL in
-	``agents.memory.tools`` touches it.
+	``ai_agent_memory.tools`` touches it.
 
 	On an older MariaDB the ALTER fails, the warning is logged and semantic
 	search stays off; keyword retrieval is unaffected. Idempotent, so the

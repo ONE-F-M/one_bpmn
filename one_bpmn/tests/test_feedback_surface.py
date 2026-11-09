@@ -21,8 +21,8 @@ from __future__ import annotations
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from one_bpmn.ai_agent_conversations.chat_persistence import load_history
 from one_bpmn.api import feedback
-from one_bpmn.utils.chat_persistence import load_history
 
 AGENT = "prosally_agent"
 OTHER_USER = "wi1822_outsider@example.com"

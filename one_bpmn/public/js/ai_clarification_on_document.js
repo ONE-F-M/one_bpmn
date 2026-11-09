@@ -31,7 +31,7 @@ function doctypes_with_questions() {
 	if (_doctypes_with_questions) return Promise.resolve(_doctypes_with_questions);
 	if (_fetching) return _fetching;
 	_fetching = frappe
-		.call({ method: "one_bpmn.api.clarification_api.doctypes_with_questions" })
+		.call({ method: "one_bpmn.api.clarifications.doctypes_with_questions" })
 		.then((r) => {
 			_doctypes_with_questions = ((r && r.message) || {}).doctypes || [];
 			return _doctypes_with_questions;
@@ -59,7 +59,7 @@ $(document).on("form-refresh", (event, frm) => {
 
 function load_clarifications(frm) {
 	frappe.call({
-		method: "one_bpmn.api.clarification_api.pending_for_document",
+		method: "one_bpmn.api.clarifications.pending_for_document",
 		args: { reference_doctype: frm.doc.doctype, reference_name: frm.doc.name },
 		callback: (r) => {
 			const data = (r && r.message) || {};
@@ -186,7 +186,7 @@ function answer(frm, pending) {
 		primary_action: (values) => {
 			dialog.hide();
 			frappe.call({
-				method: "one_bpmn.api.clarification_api.answer",
+				method: "one_bpmn.api.clarifications.answer",
 				args: { name: pending.name, text: values.text },
 				freeze: true,
 				freeze_message: __("Sending your answer…"),

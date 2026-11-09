@@ -18,6 +18,14 @@ RUNTIME_IMPORTS = (
 		"from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import",
 		"from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import",
 	),
+	(
+		"from one_bpmn.agents.memory.session_state import",
+		"from one_bpmn.ai_agent_conversations.session_state import",
+	),
+	(
+		"from one_bpmn.agents.memory import session_state",
+		"from one_bpmn.ai_agent_conversations import session_state",
+	),
 )
 
 
