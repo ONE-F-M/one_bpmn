@@ -17,11 +17,11 @@
 	</CardShell>
 </template>
 <script setup>
-// ProposalCard (WI-001673) = CardShell[Heading, KeyValueTable, Row[Actions]].
+// ProposalCard = CardShell[Heading, KeyValueTable, Row[Actions]].
 // Renders onefm.proposed_config AND onefm.proposed_update — one card, two
 // payload shapes. It proposes; confirm-create relays the designer's approval
 // into the conversation (the AGENT then calls its create tool), apply-fields
-// is applied by the HOST (WI-001649 rule as amended).
+// is applied by the HOST.
 import { computed } from "vue";
 import ActionButton from "../../Primitives/ActionButton/ActionButton.vue";
 import CardShell from "../../Primitives/CardShell/CardShell.vue";

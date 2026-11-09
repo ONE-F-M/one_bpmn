@@ -29,7 +29,7 @@
 	</CardShell>
 </template>
 <script setup>
-// TestCaseCard (WI-001673 primitives) = CardShell[Stack[Heading, TextBlock,
+// TestCaseCard (primitives) = CardShell[Stack[Heading, TextBlock,
 // Row[ActionButton, result]]]. Renders onefm.test_cases — the plain-English
 // checks that rode the legacy Logix tests_checklist payload. Run reaches
 // run_logix_test_case through the HOST (action "run-test"): the host owns

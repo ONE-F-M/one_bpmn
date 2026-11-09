@@ -2,7 +2,7 @@
 	<pre class="prim-code"><code>{{ code }}</code></pre>
 </template>
 <script setup>
-// Display primitive (WI-001673).
+// Display primitive.
 defineProps({ code: { type: String, default: "" } });
 </script>
 <style scoped>
