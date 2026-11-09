@@ -1,39 +1,21 @@
+import { makeProvider } from "../shared/makePropertiesProvider";
 import { ConditionalStartEventProps } from "./ConditionalStartEventProps";
-import { is } from "bpmn-js/lib/util/ModelUtil";
 
-const LOW_PRIORITY = 500;
+const hasConditionalDefinition = (element) =>
+	(element.businessObject.eventDefinitions || []).some(
+		(e) => e.$type === "bpmn:ConditionalEventDefinition",
+	);
 
-export default class ConditionalStartEventPropertiesProvider {
-	constructor(propertiesPanel, translate) {
-		propertiesPanel.registerProvider(LOW_PRIORITY, this);
-		this.translate = translate;
-	}
-
-	getGroups(element) {
-		return (groups) => {
-			if (!is(element, "bpmn:StartEvent")) {
-				return groups;
-			}
-
-			const bo = element.businessObject;
-			const eventDefinitions = bo.eventDefinitions || [];
-			const conditionalDef = eventDefinitions.find(
-				(e) => e.$type === "bpmn:ConditionalEventDefinition"
-			);
-
-			if (!conditionalDef) {
-				return groups;
-			}
-
-			groups.push({
-				id: "spiffworkflow-conditional-trigger-configuration",
-				label: this.translate("Trigger Configuration"),
-				entries: ConditionalStartEventProps({ element }),
-			});
-
-			return groups;
-		};
-	}
-}
-
-ConditionalStartEventPropertiesProvider.$inject = ["propertiesPanel", "translate"];
+export default {
+	__init__: ["conditionalStartEventPropertiesProvider"],
+	conditionalStartEventPropertiesProvider: [
+		"type",
+		makeProvider(
+			"bpmn:StartEvent",
+			"spiffworkflow-conditional-trigger-configuration",
+			"Trigger Configuration",
+			ConditionalStartEventProps,
+			{ when: hasConditionalDefinition },
+		),
+	],
+};

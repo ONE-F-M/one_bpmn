@@ -75,6 +75,18 @@ test("the group goes last by default and first with prepend", () => {
 	);
 });
 
+test("a tooltip option puts the translated tooltip on the group, and no tooltip key without it", () => {
+	const element = elementOf("bpmn:ScriptTask");
+	const withTip = register(
+		makeProvider("bpmn:ScriptTask", "Group", "Label", propsFn, { tooltip: "Hint" }),
+	).provider.getGroups(element)([]);
+	const without = register(
+		makeProvider("bpmn:ScriptTask", "Group", "Label", propsFn),
+	).provider.getGroups(element)([]);
+	assert.equal(withTip[0].tooltip, "t(Hint)");
+	assert.equal("tooltip" in without[0], false);
+});
+
 test("a when check that rejects the element leaves the groups untouched even when the type matches", () => {
 	const element = elementOf("bpmn:ServiceTask");
 	const seen = [];
