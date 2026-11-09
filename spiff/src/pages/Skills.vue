@@ -612,10 +612,8 @@ const refreshSkills = async () => {
 	loading.value = true
 	try {
 		const res = await call('frappe.client.get_list', {
-			doctype: 'AI Skill',
-			fields: ['name', 'skill_name', 'status', 'tier', 'description', 'owner_team', 'token_estimate'],
-			order_by: 'modified desc',
-			limit_page_length: 0
+			doctype: 'AI Skill', order_by: 'modified desc', limit_page_length: 0,
+			fields: ['name', 'skill_name', 'status', 'tier', 'description', 'owner_team', 'token_estimate']
 		})
 		if (res) {
 			skills.value = res
@@ -710,10 +708,7 @@ const saveSkillBody = async () => {
 	saving.value = true
 	try {
 		await call('frappe.client.set_value', {
-			doctype: 'AI Skill',
-			name: selectedSkill.value.name,
-			fieldname: 'body',
-			value: editedBody.value
+			doctype: 'AI Skill', name: selectedSkill.value.name, fieldname: 'body', value: editedBody.value
 		})
 		showNotice("Saved", "Skill body saved successfully.")
 	} catch (err) {
@@ -729,11 +724,8 @@ const loadTelemetry = async () => {
 	loadingTelemetry.value = true
 	try {
 		const res = await call('frappe.client.get_list', {
-			doctype: 'AI Skill Activation',
-			filters: { skill: selectedSkill.value.name },
-			fields: ['name', 'agent_run', 'conversation', 'loaded_at'],
-			order_by: 'loaded_at desc',
-			limit_page_length: 50
+			doctype: 'AI Skill Activation', filters: { skill: selectedSkill.value.name },
+			fields: ['name', 'agent_run', 'conversation', 'loaded_at'], order_by: 'loaded_at desc', limit_page_length: 50
 		})
 		if (res) {
 			telemetry.value = res
