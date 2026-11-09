@@ -235,7 +235,7 @@ class TestTheProcessHasTheFinalWord(RunFixture):
 		self.assertIn("the answer", row.completion_basis)
 
 	def test_a_completed_map_does_not_promote_a_run_with_no_output(self):
-		"""WI-002188: the map finishing is not, by itself, evidence this run
+		"""The map finishing is not, by itself, evidence this run
 		achieved anything. The exact shape 6 of 15 audited "Achieved" runs
 		were wrongly recorded as."""
 		inst = self._instance()

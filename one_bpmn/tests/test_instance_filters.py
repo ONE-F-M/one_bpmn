@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001818 — "Initiated By" and "Pending Action By" filters on the Process
+# "Initiated By" and "Pending Action By" filters on the Process
 # Instance list.
 #
 # initiated_by is an ordinary field and rides the existing filters dict.

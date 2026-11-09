@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # License: MIT. See license.txt
-"""WI-002195: the LuCrusher patch, exercised as it will run.
+"""The LuCrusher patch, exercised as it will run.
 
 The scan digest is executed straight out of the text the patch installs — with
 the same split globals/locals the shape-tool exec uses — against a scan the size

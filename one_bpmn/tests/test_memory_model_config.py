@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001793: memory settings live on the AI Agent Configuration, and the model
+# Memory settings live on the AI Agent Configuration, and the model
 # that distills is chosen independently of the one that reconciles.
 #
 # Covers the resolver's config->shape overlay (including the two values that

@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001360 (4-03): Insights dashboard support for ad-hoc/selector runs.
+# Insights dashboard support for ad-hoc/selector runs.
 
 from __future__ import annotations
 
