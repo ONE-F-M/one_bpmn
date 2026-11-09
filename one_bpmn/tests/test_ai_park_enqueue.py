@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001495: park-and-enqueue seam for AI tasks.
+# Park-and-enqueue seam for AI tasks.
 #
 # When an engine pass reaches an AI task it is NOT dispatched inline: the
 # task stays parked in STARTED state, exactly one AI-only job is enqueued on

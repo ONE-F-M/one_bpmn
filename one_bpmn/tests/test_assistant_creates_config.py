@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""WI-001649: the AI Assistant proposes new agent configurations through chat."""
+"""The AI Assistant proposes new agent configurations through chat."""
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -22,7 +22,7 @@ class TestAssistantCreatesConfig(FrappeTestCase):
 		# The endpoint contract and validation rules are injected as data.
 		self.assertIn("chat_mode_label", block)
 		self.assertIn("Validation rules", block)
-		# WI-001655: the catalog models (with their credentials) are named.
+		# The catalog models (with their credentials) are named.
 		for m in frappe.get_all("AI Model", filters={"provider": ("is", "set")}, pluck="name", limit=3):
 			self.assertIn(m, block)
 
@@ -115,10 +115,10 @@ class TestAssistantCreatesConfig(FrappeTestCase):
 		self.assertIsNone(extract_json(""))
 
 	def test_the_dialogs_private_chat_endpoint_stays_retired(self):
-		"""WI-001679: recommend_ai_task_config was this dialog's own chat door.
+		"""recommend_ai_task_config was this dialog's own chat door.
 
 		It also carried the ASSISTANT_NOT_CONFIGURED guard that this case used
-		to pin — the guard against a hardcoded persona fallback (WI-001623).
+		to pin — the guard against a hardcoded persona fallback.
 		That property is structural now rather than checked: both dialog modes
 		run on the assistant's own configuration through the shared stream, so
 		there is no code path left that could substitute a persona. What is
