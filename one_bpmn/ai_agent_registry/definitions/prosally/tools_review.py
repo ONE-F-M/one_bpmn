@@ -7,7 +7,7 @@ from xml.etree import ElementTree as ET
 import frappe
 from frappe import _
 
-from one_bpmn.agents.memory.text_clean import strip_html, unescape_entities
+from one_bpmn.ai_agent_memory.text_clean import strip_html, unescape_entities
 from one_bpmn.ai_agent_registry.definitions.prosally.helpers import (
 	NS,
 	REQUEST_STOPWORDS,

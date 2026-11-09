@@ -6,7 +6,7 @@ from xml.etree import ElementTree as ET
 import frappe
 from frappe import _
 
-from one_bpmn.agents.memory.text_clean import strip_html
+from one_bpmn.ai_agent_memory.text_clean import strip_html
 from one_bpmn.ai_agent_registry.definitions.shared.helpers import format_history
 from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 from one_bpmn.processa_engine.agent_runtime.llm_factory import get_llm_adapter_from_settings
@@ -133,7 +133,7 @@ def _memory_fields(cfg: dict) -> dict:
 
 def recall_process_memory(diagram_name: str, process_name: str = "") -> dict:
 	"""The diagram's Process and the notes recalled for it and the requester, for the turn store."""
-	from one_bpmn.agents.memory.tools import memory_search
+	from one_bpmn.ai_agent_memory.tools import memory_search
 	from one_bpmn.processa_engine.dispatch.ai_agent import (
 		DEFAULT_MEMORY_TOKEN_BUDGET,
 		bound_memories_to_budget,
@@ -193,7 +193,7 @@ def queue_process_memory(turn: dict, agent_result: dict | None) -> None:
 	if not process:
 		frappe.log_error(title="ProsAlly memory: write skipped", message="The diagram matched no Process.")
 		return
-	from one_bpmn.agents.memory.model_resolution import resolve_memory_model
+	from one_bpmn.ai_agent_memory.model_resolution import resolve_memory_model
 
 	cfg = prosally_config()
 	own = _memory_fields(cfg)
@@ -221,7 +221,7 @@ def queue_process_memory(turn: dict, agent_result: dict | None) -> None:
 		message=f"process={process} model={distill_model} reconcile_model={reconcile_model}",
 	)
 	frappe.enqueue(
-		"one_bpmn.agents.memory.writeback.distill_and_write",
+		"one_bpmn.ai_agent_memory.writeback.distill_and_write",
 		queue="short",
 		now=frappe.flags.in_test,
 		agent_output=source,

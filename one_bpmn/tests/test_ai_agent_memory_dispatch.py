@@ -68,8 +68,8 @@ class TestDispatcherMemory(FrappeTestCase):
 			self.addCleanup(p.stop)
 
 	def test_disabled_no_injection_no_write(self):
-		with patch("one_bpmn.agents.memory.tools.memory_search") as ms, patch(
-			"one_bpmn.agents.memory.tools.memory_write"
+		with patch("one_bpmn.ai_agent_memory.tools.memory_search") as ms, patch(
+			"one_bpmn.ai_agent_memory.tools.memory_write"
 		) as mw:
 			D.dispatch_ai_agent(
 				_instance(), _task(), {"aiBackend": "faketest", "aiSystemPrompt": "SYS", "aiUserPrompt": "U"}, "Act_1"
@@ -81,8 +81,8 @@ class TestDispatcherMemory(FrappeTestCase):
 
 	def test_long_term_memory_search_and_injection(self):
 		with patch(
-			"one_bpmn.agents.memory.tools.memory_search", return_value=[{"content": "net-30 rule"}]
-		) as ms, patch("one_bpmn.agents.memory.tools.memory_write"):
+			"one_bpmn.ai_agent_memory.tools.memory_search", return_value=[{"content": "net-30 rule"}]
+		) as ms, patch("one_bpmn.ai_agent_memory.tools.memory_write"):
 			D.dispatch_ai_agent(
 				_instance(),
 				_task("Act_9"),
@@ -109,8 +109,8 @@ class TestDispatcherMemory(FrappeTestCase):
 		self.assertLess(up.index("Relevant memory:"), up.index("handle order"))
 
 	def test_empty_search_no_injection(self):
-		with patch("one_bpmn.agents.memory.tools.memory_search", return_value=[]), patch(
-			"one_bpmn.agents.memory.tools.memory_write"
+		with patch("one_bpmn.ai_agent_memory.tools.memory_search", return_value=[]), patch(
+			"one_bpmn.ai_agent_memory.tools.memory_write"
 		):
 			D.dispatch_ai_agent(
 				_instance(),
@@ -130,7 +130,7 @@ class TestDispatcherMemory(FrappeTestCase):
 		self.assertEqual(_CAPTURED["config"].user_prompt, "q")
 
 	def test_raw_write_mode_stores_output_verbatim(self):
-		with patch("one_bpmn.agents.memory.tools.memory_write") as mw:
+		with patch("one_bpmn.ai_agent_memory.tools.memory_write") as mw:
 			D.dispatch_ai_agent(
 				_instance(),
 				_task("Act_W"),
@@ -152,8 +152,8 @@ class TestDispatcherMemory(FrappeTestCase):
 	def test_distilled_write_mode_enqueues_distillation(self):
 		# distilled is the new default path: the raw output is NOT stored; a
 		# distill job is dispatched instead (run inline under tests).
-		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
-			"one_bpmn.agents.memory.tools.memory_write"
+		with patch("one_bpmn.ai_agent_memory.writeback.distill_and_write") as dw, patch(
+			"one_bpmn.ai_agent_memory.tools.memory_write"
 		) as mw:
 			D.dispatch_ai_agent(
 				_instance(),
@@ -179,8 +179,8 @@ class TestDispatcherMemory(FrappeTestCase):
 		# WI-002165: the dispatch-thread system prompt (the agent's own
 		# instructions for this run) is handed to the distiller so it can
 		# reject a fact that just restates them.
-		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
-			"one_bpmn.agents.memory.tools.memory_write"
+		with patch("one_bpmn.ai_agent_memory.writeback.distill_and_write") as dw, patch(
+			"one_bpmn.ai_agent_memory.tools.memory_write"
 		):
 			D.dispatch_ai_agent(
 				_instance(),
@@ -229,8 +229,8 @@ class TestDispatcherMemory(FrappeTestCase):
 
 		register_executor("toolprotocoltest", _ToolProtocolExecutor)
 
-		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
-			"one_bpmn.agents.memory.tools.memory_write"
+		with patch("one_bpmn.ai_agent_memory.writeback.distill_and_write") as dw, patch(
+			"one_bpmn.ai_agent_memory.tools.memory_write"
 		):
 			D.dispatch_ai_agent(
 				instance,
@@ -266,7 +266,7 @@ class TestDispatcherMemory(FrappeTestCase):
 
 		register_executor("endedturntest", _Executor)
 		cfg = {"aiBackend": "endedturntest", "aiMemoryWriteMode": "distilled", "aiMemoryScope": "Agent", "aiUserPrompt": "q"}
-		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw:
+		with patch("one_bpmn.ai_agent_memory.writeback.distill_and_write") as dw:
 			D.dispatch_ai_agent(_instance(), _task(), cfg, "Act_T")
 		return dw
 
@@ -285,9 +285,9 @@ class TestDispatcherMemory(FrappeTestCase):
 		frappe.flags.eval_origin = {"eval_case": "case-1", "eval_run": "run-1"}
 		self.addCleanup(setattr, frappe.flags, "eval_origin", prev)
 		for mode in ("distilled", "raw"):
-			with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
-				"one_bpmn.agents.memory.tools.memory_write"
-			) as mw, patch("one_bpmn.agents.memory.writeback._dead_letter") as dl:
+			with patch("one_bpmn.ai_agent_memory.writeback.distill_and_write") as dw, patch(
+				"one_bpmn.ai_agent_memory.tools.memory_write"
+			) as mw, patch("one_bpmn.ai_agent_memory.writeback._dead_letter") as dl:
 				D.dispatch_ai_agent(_instance(), _task("Act_V"), {**cfg, "aiMemoryWriteMode": mode}, "Act_V")
 			dw.assert_not_called()
 			mw.assert_not_called()
@@ -296,7 +296,7 @@ class TestDispatcherMemory(FrappeTestCase):
 	def test_legacy_autowrite_defaults_to_distilled(self):
 		# Back-compat: an existing element with aiMemoryAutoWrite on and no mode
 		# now distils rather than dumping the reply verbatim.
-		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw:
+		with patch("one_bpmn.ai_agent_memory.writeback.distill_and_write") as dw:
 			D.dispatch_ai_agent(
 				_instance(),
 				_task("Act_L"),
@@ -311,8 +311,8 @@ class TestDispatcherMemory(FrappeTestCase):
 		dw.assert_called_once()
 
 	def test_write_mode_off_writes_nothing(self):
-		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
-			"one_bpmn.agents.memory.tools.memory_write"
+		with patch("one_bpmn.ai_agent_memory.writeback.distill_and_write") as dw, patch(
+			"one_bpmn.ai_agent_memory.tools.memory_write"
 		) as mw:
 			D.dispatch_ai_agent(
 				_instance(),
@@ -359,8 +359,8 @@ class TestRememberDirectiveWrite(FrappeTestCase):
 			self.addCleanup(p.stop)
 
 	def test_remember_directive_writes_verbatim_and_skips_distill(self):
-		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
-			"one_bpmn.agents.memory.tools.memory_write"
+		with patch("one_bpmn.ai_agent_memory.writeback.distill_and_write") as dw, patch(
+			"one_bpmn.ai_agent_memory.tools.memory_write"
 		) as mw:
 			D.dispatch_ai_agent(
 				_chat_instance("CONV-R1"),
@@ -386,7 +386,7 @@ class TestRememberDirectiveWrite(FrappeTestCase):
 		prev = frappe.flags.eval_origin
 		frappe.flags.eval_origin = {"eval_case": "case-1", "eval_run": "run-1"}
 		self.addCleanup(setattr, frappe.flags, "eval_origin", prev)
-		with patch("one_bpmn.agents.memory.tools.memory_write") as mw:
+		with patch("one_bpmn.ai_agent_memory.tools.memory_write") as mw:
 			D.dispatch_ai_agent(
 				_chat_instance("CONV-R2"),
 				_chat_task("Act_R", "Remember that every form we build needs a Site link field."),
@@ -402,7 +402,7 @@ class TestRememberDirectiveWrite(FrappeTestCase):
 
 	def test_remember_directive_still_bypasses_raw_mode(self):
 		# The directive text is stored, not the agent's raw output.
-		with patch("one_bpmn.agents.memory.tools.memory_write") as mw:
+		with patch("one_bpmn.ai_agent_memory.tools.memory_write") as mw:
 			D.dispatch_ai_agent(
 				_chat_instance("CONV-R2"),
 				_chat_task("Act_R2", "From now on, always cc compliance on GRD emails."),
@@ -421,8 +421,8 @@ class TestRememberDirectiveWrite(FrappeTestCase):
 	def test_remember_directive_writes_nothing_when_memory_disabled(self):
 		# Memory disabled means disabled — no separate bypass for an explicit
 		# directive when aiMemoryWriteMode is "off".
-		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
-			"one_bpmn.agents.memory.tools.memory_write"
+		with patch("one_bpmn.ai_agent_memory.writeback.distill_and_write") as dw, patch(
+			"one_bpmn.ai_agent_memory.tools.memory_write"
 		) as mw:
 			D.dispatch_ai_agent(
 				_chat_instance("CONV-R3"),
@@ -445,8 +445,8 @@ class TestRememberDirectiveWrite(FrappeTestCase):
 		# exactly the agents it was written for: on prod-backup every memory
 		# General Chat had written was distilled, none user_directed.
 		said = "Remember that we always courier parcels with DHL."
-		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
-			"one_bpmn.agents.memory.tools.memory_write"
+		with patch("one_bpmn.ai_agent_memory.writeback.distill_and_write") as dw, patch(
+			"one_bpmn.ai_agent_memory.tools.memory_write"
 		) as mw:
 			D.dispatch_ai_agent(
 				_chat_instance("CONV-R5"),
@@ -468,8 +468,8 @@ class TestRememberDirectiveWrite(FrappeTestCase):
 	def test_non_directive_message_still_uses_distilled_path(self):
 		# Regression: a present, non-remember user_message must not accidentally
 		# trip the new branch.
-		with patch("one_bpmn.agents.memory.writeback.distill_and_write") as dw, patch(
-			"one_bpmn.agents.memory.tools.memory_write"
+		with patch("one_bpmn.ai_agent_memory.writeback.distill_and_write") as dw, patch(
+			"one_bpmn.ai_agent_memory.tools.memory_write"
 		) as mw:
 			D.dispatch_ai_agent(
 				_chat_instance("CONV-R4"),
@@ -626,8 +626,8 @@ class TestTheUserMessageReachesTheModel(FrappeTestCase):
 		"""Recall used the constant driving prompt as its query, so every turn
 		of an agent recalled the same memories however different the request."""
 		with patch(
-			"one_bpmn.agents.memory.tools.memory_search", return_value=[]
-		) as ms, patch("one_bpmn.agents.memory.tools.memory_write"):
+			"one_bpmn.ai_agent_memory.tools.memory_search", return_value=[]
+		) as ms, patch("one_bpmn.ai_agent_memory.tools.memory_write"):
 			self._dispatch(
 				_chat_instance(),
 				{"user_text": "add a status field"},
@@ -640,8 +640,8 @@ class TestTheUserMessageReachesTheModel(FrappeTestCase):
 
 	def test_memory_still_precedes_everything(self):
 		with patch(
-			"one_bpmn.agents.memory.tools.memory_search", return_value=[{"content": "net-30 rule"}]
-		), patch("one_bpmn.agents.memory.tools.memory_write"):
+			"one_bpmn.ai_agent_memory.tools.memory_search", return_value=[{"content": "net-30 rule"}]
+		), patch("one_bpmn.ai_agent_memory.tools.memory_write"):
 			prompt = self._dispatch(
 				_chat_instance(),
 				{"user_text": "add a status field"},
@@ -665,7 +665,7 @@ class TestSmallTalkGate(TestTheUserMessageReachesTheModel):
 	mocked observability, same chat-instance fixture."""
 
 	def test_greeting_skips_recall_entirely(self):
-		with patch("one_bpmn.agents.memory.tools.memory_search") as ms:
+		with patch("one_bpmn.ai_agent_memory.tools.memory_search") as ms:
 			self._dispatch(
 				_chat_instance(),
 				{"user_text": "hi"},
@@ -675,7 +675,7 @@ class TestSmallTalkGate(TestTheUserMessageReachesTheModel):
 		ms.assert_not_called()
 
 	def test_acknowledgement_skips_recall(self):
-		with patch("one_bpmn.agents.memory.tools.memory_search") as ms:
+		with patch("one_bpmn.ai_agent_memory.tools.memory_search") as ms:
 			self._dispatch(
 				_chat_instance(),
 				{"user_text": "ok thanks"},
@@ -686,7 +686,7 @@ class TestSmallTalkGate(TestTheUserMessageReachesTheModel):
 
 	def test_a_real_request_still_recalls(self):
 		"""The expensive mistake: refusing recall a real request needed."""
-		with patch("one_bpmn.agents.memory.tools.memory_search", return_value=[]) as ms:
+		with patch("one_bpmn.ai_agent_memory.tools.memory_search", return_value=[]) as ms:
 			self._dispatch(
 				_chat_instance(),
 				{"user_text": "add a status field"},
@@ -696,7 +696,7 @@ class TestSmallTalkGate(TestTheUserMessageReachesTheModel):
 		ms.assert_called_once()
 
 	def test_a_greeting_with_a_real_request_still_recalls(self):
-		with patch("one_bpmn.agents.memory.tools.memory_search", return_value=[]) as ms:
+		with patch("one_bpmn.ai_agent_memory.tools.memory_search", return_value=[]) as ms:
 			self._dispatch(
 				_chat_instance(),
 				{"user_text": "hi, can you create a form for blockers"},
@@ -725,7 +725,7 @@ class TestRecallSkipsWhenTheTurnMessageIsUnresolved(TestTheUserMessageReachesThe
 		— exactly the turn-1 timing gap. aiUserPrompt is a Logix-style constant
 		driving prompt, not anything the person said."""
 		with patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value={}), patch(
-			"one_bpmn.agents.memory.tools.memory_search"
+			"one_bpmn.ai_agent_memory.tools.memory_search"
 		) as ms:
 			self._dispatch(
 				_chat_instance(),
@@ -738,7 +738,7 @@ class TestRecallSkipsWhenTheTurnMessageIsUnresolved(TestTheUserMessageReachesThe
 
 	def test_recall_query_is_blank_when_unresolved(self):
 		with patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value={}), patch(
-			"one_bpmn.agents.memory.tools.memory_search"
+			"one_bpmn.ai_agent_memory.tools.memory_search"
 		):
 			self._dispatch(
 				_chat_instance(),
@@ -756,7 +756,7 @@ class TestRecallSkipsWhenTheTurnMessageIsUnresolved(TestTheUserMessageReachesThe
 	def test_background_agent_still_recalls_with_its_own_prompt(self):
 		"""Regression guard: a non-chat instance is never a chat turn, so the
 		new guard must never fire for it — its user_prompt IS real content."""
-		with patch("one_bpmn.agents.memory.tools.memory_search", return_value=[]) as ms:
+		with patch("one_bpmn.ai_agent_memory.tools.memory_search", return_value=[]) as ms:
 			self._dispatch(
 				_instance(),
 				{},
@@ -778,7 +778,7 @@ class TestRecallSkipsWhenTheTurnMessageIsUnresolved(TestTheUserMessageReachesThe
 
 		The unresolved guard must still not fire here: this is a real message,
 		not a template, so recall happens — with the question alone."""
-		with patch("one_bpmn.agents.memory.tools.memory_search", return_value=[]) as ms:
+		with patch("one_bpmn.ai_agent_memory.tools.memory_search", return_value=[]) as ms:
 			self._dispatch(
 				_chat_instance(),
 				{"user_text": "add a status field"},
@@ -872,9 +872,9 @@ class TestMemoryTokenBudgetInDispatch(TestTheUserMessageReachesTheModel):
 		from one_bpmn.agents.memory.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
 
 		with patch(
-			"one_bpmn.agents.memory.tools.memory_search",
+			"one_bpmn.ai_agent_memory.tools.memory_search",
 			return_value=[{"content": "z" * 50_000}],  # unbounded raw-write content
-		), patch("one_bpmn.agents.memory.tools.memory_write"):
+		), patch("one_bpmn.ai_agent_memory.tools.memory_write"):
 			prompt = self._dispatch(
 				_chat_instance(),
 				{"user_text": "add a status field"},
@@ -896,9 +896,9 @@ class TestMemoryTokenBudgetInDispatch(TestTheUserMessageReachesTheModel):
 		from one_bpmn.agents.memory.conversation_store import DEFAULT_CHARS_PER_TOKEN, estimate_tokens
 
 		with patch(
-			"one_bpmn.agents.memory.tools.memory_search",
+			"one_bpmn.ai_agent_memory.tools.memory_search",
 			return_value=[{"content": "z" * 50_000}],
-		), patch("one_bpmn.agents.memory.tools.memory_write"):
+		), patch("one_bpmn.ai_agent_memory.tools.memory_write"):
 			prompt = self._dispatch(
 				_chat_instance(),
 				{"user_text": "add a status field"},
@@ -940,7 +940,7 @@ class TestRecallObservability(FrappeTestCase):
 		D.dispatch_ai_agent(_chat_instance(), task, config, "Act_1")
 
 	def test_recall_query_is_the_user_message_not_the_template(self):
-		with patch("one_bpmn.agents.memory.tools.memory_search", return_value=[]):
+		with patch("one_bpmn.ai_agent_memory.tools.memory_search", return_value=[]):
 			self._dispatch(
 				{"user_text": "add a status field"},
 				aiLongTermMemory="enabled",
@@ -950,7 +950,7 @@ class TestRecallObservability(FrappeTestCase):
 		self.assertEqual(kwargs["recall_query"], "add a status field")
 
 	def test_recall_query_is_blank_when_small_talk(self):
-		with patch("one_bpmn.agents.memory.tools.memory_search") as ms:
+		with patch("one_bpmn.ai_agent_memory.tools.memory_search") as ms:
 			self._dispatch(
 				{"user_text": "hi"},
 				aiLongTermMemory="enabled",
@@ -962,7 +962,7 @@ class TestRecallObservability(FrappeTestCase):
 
 	def test_memory_injected_tokens_reflects_the_bounded_block(self):
 		with patch(
-			"one_bpmn.agents.memory.tools.memory_search", return_value=[{"content": "net-30 rule"}]
+			"one_bpmn.ai_agent_memory.tools.memory_search", return_value=[{"content": "net-30 rule"}]
 		):
 			self._dispatch(
 				{"user_text": "add a status field"},
@@ -974,7 +974,7 @@ class TestRecallObservability(FrappeTestCase):
 		self.assertLessEqual(kwargs["memory_injected_tokens"], D.DEFAULT_MEMORY_TOKEN_BUDGET)
 
 	def test_memory_injected_tokens_is_zero_when_nothing_found(self):
-		with patch("one_bpmn.agents.memory.tools.memory_search", return_value=[]):
+		with patch("one_bpmn.ai_agent_memory.tools.memory_search", return_value=[]):
 			self._dispatch(
 				{"user_text": "add a status field"},
 				aiLongTermMemory="enabled",

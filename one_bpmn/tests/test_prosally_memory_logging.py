@@ -13,7 +13,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.ai_agent_registry.definitions.prosally import helpers
-from one_bpmn.agents.memory import writeback
+from one_bpmn.ai_agent_memory import writeback
 
 TURN = {"memory_process": "Zz Process", "user_text": "yes", "memory_notes": [], "chat_history": []}
 DRAWN = {"intent": "BPMN_MODIFIED", "response": "Drew it."}
@@ -57,7 +57,7 @@ class TestWritebackLogsAnEmptyDistillation(FrappeTestCase):
 	def _write(self, facts):
 		with patch.object(writeback, "_distill_with_retries", return_value=facts), patch.object(
 			writeback, "_reconcile_batch", side_effect=lambda f, ctx: f
-		), patch("one_bpmn.agents.memory.tools.memory_write", return_value={"name": "M"}), patch.object(
+		), patch("one_bpmn.ai_agent_memory.tools.memory_write", return_value={"name": "M"}), patch.object(
 			frappe, "log_error"
 		) as log_error:
 			written = writeback.distill_and_write(

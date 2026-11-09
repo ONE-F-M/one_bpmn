@@ -197,7 +197,7 @@
 import { Button, Dialog, ErrorMessage, FormControl, frappeRequest } from "frappe-ui";
 import { computed, onMounted, reactive, ref } from "vue";
 
-const API = "/api/method/one_bpmn.api.memory_api.";
+const API = "/api/method/one_bpmn.api.memory.";
 const PAGE_SIZES = [
 	{ label: "20", value: 20 },
 	{ label: "50", value: 50 },
