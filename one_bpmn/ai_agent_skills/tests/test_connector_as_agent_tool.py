@@ -76,7 +76,7 @@ class _FakeInstance:
 		self.initiated_by = "Administrator"
 		self._service_task_extensions = extensions
 
-	def _dispatch_service_task(self, task):
+	def _dispatch_service_task(self, task, task_cfg_override=None):
 		# Same routing the real controller performs, reduced to the branch under
 		# test. Reads config by bpmn_id from _service_task_extensions — which is
 		# precisely the behaviour this spike needs to confirm for a NESTED shape.
