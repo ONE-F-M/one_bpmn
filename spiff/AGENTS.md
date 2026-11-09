@@ -8,7 +8,7 @@ Rules for `spiff/`: Vue 3, Vite, Composition API, frappe-ui, TailwindCSS and bpm
 - `src/components/`: the editor (`BpmnEditor.vue`, `FormattingToolbar.vue`), dialogs, Logix (`LogixCanvas.vue`, `LogixChat.vue`), ProsAlly (`ProsAllyPanel.vue`) and the shared chat panel under `components/Chat/`.
 - `src/composables/`: shared logic, named `use<Name>`.
 - `src/bpmn/`: bpmn-js extensions, with the properties panel providers at its top level and `renderers/`, `rules/`, `resize/`, `moddle/` and `lint/` beside them. The properties panel is Preact and keeps its shared components in `src/bpmn/shared/`.
-- `src/utils/bpmnLayout.js`: the auto-layout for generated diagrams. `src/bpmn/lint/bpmnlintrc.js`: the bpmnlint rules. `tools/bpmn-pipeline/pipeline.mjs`: the IR-to-BPMN compiler ProsAlly runs.
+- `src/utils/bpmnLayout.js`: the auto-layout for generated diagrams. `src/bpmn/lint/bpmnlintrc.js`: the bpmnlint rules. `tools/bpmn-pipeline/`: the IR-to-BPMN compiler ProsAlly runs. `pipeline.mjs` only reads the IR and chains the steps, one file each: `normalise.mjs`, `lanes.mjs`, `subprocesses.mjs`, `layout.mjs` and `compile.mjs`, with `shared.mjs` for what more than one step uses.
 
 Register a bpmn-js module in `additionalModules` and a moddle extension in `moddleExtensions` in `BpmnEditor.vue`.
 
