@@ -12,7 +12,7 @@ from __future__ import annotations
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents._eval_test_factories import make_agent_configuration
+from one_bpmn.ai_agent_evals.tests.factories import make_agent_configuration
 from one_bpmn.api import a2a_admin
 from one_bpmn.a2a.tests.test_a2a_client import make_remote_for
 from one_bpmn.a2a.tests.test_a2a_client_registry import approve, make_client

@@ -197,7 +197,7 @@ class TestHowOftenItMayAsk(FrappeTestCase):
 		super().tearDown()
 
 	def _agent(self, rounds):
-		from one_bpmn.agents._eval_test_factories import make_agent_configuration
+		from one_bpmn.ai_agent_evals.tests.factories import make_agent_configuration
 
 		agent = make_agent_configuration()
 		agent.db_set("max_clarification_rounds", rounds, update_modified=False)
@@ -419,7 +419,7 @@ class TestTheCapIsSetFromProcessa(FrappeTestCase):
 		return None
 
 	def test_it_is_offered_as_a_control(self):
-		from one_bpmn.agents._eval_test_factories import make_agent_configuration
+		from one_bpmn.ai_agent_evals.tests.factories import make_agent_configuration
 
 		control = self._control(make_agent_configuration().name)
 		self.assertIsNotNone(control)
@@ -428,13 +428,13 @@ class TestTheCapIsSetFromProcessa(FrappeTestCase):
 	def test_it_has_its_own_group_rather_than_hiding_under_delegation(self):
 		"""Asking a person a question is not delegating work to an agent, and
 		filing it under Delegation would misdescribe it."""
-		from one_bpmn.agents._eval_test_factories import make_agent_configuration
+		from one_bpmn.ai_agent_evals.tests.factories import make_agent_configuration
 
 		self.assertEqual(self._control(make_agent_configuration().name)["group"], "Clarification")
 
 	def test_saving_it_from_processa_changes_what_the_cap_reads(self):
 		"""The point of editing it: the number the tool is withdrawn at moves."""
-		from one_bpmn.agents._eval_test_factories import make_agent_configuration
+		from one_bpmn.ai_agent_evals.tests.factories import make_agent_configuration
 		from one_bpmn.api import security
 
 		agent = make_agent_configuration().name
@@ -454,7 +454,7 @@ class TestTheCapIsSetFromProcessa(FrappeTestCase):
 	def test_it_can_be_turned_off_entirely(self):
 		"""0 means no limit, and it has to be reachable — an agent whose stories
 		are genuinely underspecified should not be silenced by a cap."""
-		from one_bpmn.agents._eval_test_factories import make_agent_configuration
+		from one_bpmn.ai_agent_evals.tests.factories import make_agent_configuration
 		from one_bpmn.api import security
 
 		agent = make_agent_configuration().name
@@ -603,7 +603,7 @@ class TestTheClarificationMonitor(FrappeTestCase):
 		super().tearDown()
 
 	def _asked(self, **updates):
-		from one_bpmn.agents._eval_test_factories import make_agent_configuration
+		from one_bpmn.ai_agent_evals.tests.factories import make_agent_configuration
 
 		item = _work_item()
 		agent = updates.pop("agent", None) or make_agent_configuration().name

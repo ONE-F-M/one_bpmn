@@ -14,7 +14,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.agents.adversarial_pack import SUITE_SUFFIX
+from one_bpmn.ai_agent_evals.adversarial_pack import SUITE_SUFFIX
 from one_bpmn.ai_agent_security.doctype.ai_injection_pattern.ai_injection_pattern import (
 	active_patterns,
 	clear_pattern_cache,

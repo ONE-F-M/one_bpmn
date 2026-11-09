@@ -369,7 +369,7 @@ async function createExample() {
 	creatingExample.value = true
 	try {
 		const { configuration } = await frappeRequest({
-			url: "/api/method/one_bpmn.agents.eval_case_factory.create_example_from_run",
+			url: "/api/method/one_bpmn.ai_agent_evals.eval_case_factory.create_example_from_run",
 			method: "POST",
 			params: { run_name: run.value.name },
 		})
@@ -385,7 +385,7 @@ async function createEvalCase() {
 	creatingCase.value = true
 	try {
 		const name = await frappeRequest({
-			url: "/api/method/one_bpmn.agents.eval_case_factory.create_eval_case_from_run",
+			url: "/api/method/one_bpmn.ai_agent_evals.eval_case_factory.create_eval_case_from_run",
 			method: "POST",
 			params: { run_name: run.value.name },
 		})

@@ -24,7 +24,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.a2a import poller
-from one_bpmn.agents._eval_test_factories import make_agent_configuration
+from one_bpmn.ai_agent_evals.tests.factories import make_agent_configuration
 from one_bpmn.api import a2a as a2a_api
 from one_bpmn.a2a import client_ops as a2a_client_ops
 from one_bpmn.a2a import client as a2a_client

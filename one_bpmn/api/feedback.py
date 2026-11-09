@@ -579,7 +579,7 @@ def create_eval_case_from_feedback(feedback: str, suite: str = None) -> dict:
 			)
 		suite = _resolve_regression_suite(doc.agent_configuration)
 
-	from one_bpmn.agents.eval_case_factory import create_eval_case_from_run
+	from one_bpmn.ai_agent_evals.eval_case_factory import create_eval_case_from_run
 
 	# No starter assertion: the reply was wrong, so pinning "match what it did"
 	# would certify the failure as the expected answer. What should have

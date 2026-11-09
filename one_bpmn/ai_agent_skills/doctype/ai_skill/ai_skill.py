@@ -203,7 +203,7 @@ class AISkill(Document):
 			# clear and the count shown beside it can never disagree. The bar is
 			# set per agent; when none of the agents holding this skill's cases
 			# has set one, there is no case-count bar to clear.
-			from one_bpmn.api.golden_dataset import subject_sizes
+			from one_bpmn.ai_agent_evals.golden_dataset import subject_sizes
 
 			minimum = subject_sizes("Skill", self.name)[0]
 			case_count = len({c.name for c in cases})

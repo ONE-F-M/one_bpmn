@@ -28,11 +28,11 @@ class TestAiAgentQueueRouting(FrappeTestCase):
 	def test_run_eval_suite_uses_dedicated_queue(self):
 		import re
 
-		from one_bpmn.agents import eval_runner
+		from one_bpmn.ai_agent_evals import eval_runner
 
 		source = open(eval_runner.__file__.replace(".pyc", ".py")).read()
 		enqueue_block = re.search(
-			r"frappe\.enqueue\(\s*\"one_bpmn\.agents\.eval_runner\._execute_eval_suite\".*?\)",
+			r"frappe\.enqueue\(\s*\"one_bpmn\.ai_agent_evals\.eval_runner\._execute_eval_suite\".*?\)",
 			source,
 			re.DOTALL,
 		)

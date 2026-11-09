@@ -852,7 +852,7 @@ class TestHandingWorkBack(FrappeTestCase):
 	# ── the unchanged-limit warning ──────────────────────────────────────
 
 	def test_an_unchanged_limit_warns_before_anything_runs(self):
-		from one_bpmn.agents._eval_test_factories import make_agent_configuration
+		from one_bpmn.ai_agent_evals.tests.factories import make_agent_configuration
 
 		agent = make_agent_configuration()
 		agent.db_set("max_recursion_depth", 3, update_modified=False)
@@ -869,7 +869,7 @@ class TestHandingWorkBack(FrappeTestCase):
 		)
 
 	def test_the_warning_can_be_overridden_because_a_person_judged_it(self):
-		from one_bpmn.agents._eval_test_factories import make_agent_configuration
+		from one_bpmn.ai_agent_evals.tests.factories import make_agent_configuration
 
 		agent = make_agent_configuration()
 		agent.db_set("max_recursion_depth", 3, update_modified=False)
@@ -880,7 +880,7 @@ class TestHandingWorkBack(FrappeTestCase):
 		self.assertEqual(frappe.db.get_value("Agent Delegation", name, "status"), "In Progress")
 
 	def test_a_raised_limit_produces_no_warning(self):
-		from one_bpmn.agents._eval_test_factories import make_agent_configuration
+		from one_bpmn.ai_agent_evals.tests.factories import make_agent_configuration
 
 		agent = make_agent_configuration()
 		agent.db_set("max_recursion_depth", 9, update_modified=False)
@@ -952,7 +952,7 @@ class TestCapabilityGate(FrappeTestCase):
 		super().tearDown()
 
 	def _agent(self, tags):
-		from one_bpmn.agents._eval_test_factories import make_agent_configuration
+		from one_bpmn.ai_agent_evals.tests.factories import make_agent_configuration
 
 		agent = make_agent_configuration(a2a_exposed=1)
 		agent.db_set("a2a_skill_tags", tags, update_modified=False)
@@ -1003,7 +1003,7 @@ class TestCapabilityGate(FrappeTestCase):
 	def test_only_agents_in_a2a_can_answer_a_capability_search(self):
 		"""The registry narrows to agents that take part in agent-to-agent work;
 		an unexposed agent with the right tag is still not a candidate."""
-		from one_bpmn.agents._eval_test_factories import make_agent_configuration
+		from one_bpmn.ai_agent_evals.tests.factories import make_agent_configuration
 
 		hidden = make_agent_configuration()
 		hidden.db_set("a2a_skill_tags", "telepathy", update_modified=False)

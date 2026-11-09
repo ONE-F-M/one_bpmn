@@ -35,7 +35,7 @@ async function _create_eval_case(frm) {
 	frappe.dom.freeze(__("Creating eval case…"));
 	try {
 		const res = await frappe.call({
-			method: "one_bpmn.agents.eval_case_factory.create_eval_case_from_run",
+			method: "one_bpmn.ai_agent_evals.eval_case_factory.create_eval_case_from_run",
 			args: { run_name: frm.doc.name },
 		});
 		frappe.dom.unfreeze();
@@ -57,7 +57,7 @@ async function _create_from_subprocess_run(frm) {
 	let steps = [];
 	try {
 		const res = await frappe.call({
-			method: "one_bpmn.agents.eval_case_factory.get_run_steps_for_case_picker",
+			method: "one_bpmn.ai_agent_evals.eval_case_factory.get_run_steps_for_case_picker",
 			args: { run_name: frm.doc.name },
 		});
 		steps = (res && res.message) || [];
@@ -129,7 +129,7 @@ async function _submit_subprocess_case(frm, step_name, tool_call_name) {
 	frappe.dom.freeze(__("Creating eval case…"));
 	try {
 		const res = await frappe.call({
-			method: "one_bpmn.agents.eval_case_factory.create_eval_case_from_run",
+			method: "one_bpmn.ai_agent_evals.eval_case_factory.create_eval_case_from_run",
 			args: { run_name: frm.doc.name, step_name, tool_call_name },
 		});
 		frappe.dom.unfreeze();

@@ -34,7 +34,7 @@ def execute():
 		# runs the patch again with the field in place.
 		return
 
-	from one_bpmn.agents.adversarial_pack import BENIGN_CASES, CASES
+	from one_bpmn.ai_agent_evals.adversarial_pack import BENIGN_CASES, CASES
 
 	kinds = {t: "Attack" for t, _a, _r in CASES}
 	kinds.update({t: "Benign Control" for t, _p, _r in BENIGN_CASES})

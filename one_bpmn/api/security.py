@@ -666,7 +666,7 @@ def _adversarial_suites(agent: str | None) -> list[str]:
 
 def next_adversarial_suite_title(agent: str) -> str:
 	"""The title the agent's next adversarial suite gets, numbered after the first."""
-	from one_bpmn.agents.adversarial_pack import SUITE_SUFFIX
+	from one_bpmn.ai_agent_evals.adversarial_pack import SUITE_SUFFIX
 
 	title = f"{agent} {SUITE_SUFFIX}"
 	taken = len(_adversarial_suites(agent))

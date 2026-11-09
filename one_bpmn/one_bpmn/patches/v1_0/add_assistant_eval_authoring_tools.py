@@ -43,7 +43,7 @@ CREATE_CASE_SCRIPT_NAME = "Assistant Tool – Create Eval Case"
 # 1. Server Scripts — the tool bodies
 # ═══════════════════════════════════════════════════════════════════════════════
 # Each runs with the CALLING USER's permissions: get_list applies the AI Eval
-# Suite permission query (process owner / suite owner, per agents/eval_permissions
+# Suite permission query (process owner / suite owner, per ai_agent_evals/eval_permissions
 # .py) and the eval_api creators call check_permission themselves. No
 # ignore_permissions anywhere — the assistant can only touch what the designer
 # driving it could touch by hand.

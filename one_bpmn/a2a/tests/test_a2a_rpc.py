@@ -18,7 +18,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.a2a import contract as a2a_contract
-from one_bpmn.agents._eval_test_factories import make_agent_configuration
+from one_bpmn.ai_agent_evals.tests.factories import make_agent_configuration
 from one_bpmn.api import a2a as a2a_api
 from one_bpmn.a2a.tests.test_a2a_client_registry import approve, make_client
 
