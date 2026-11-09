@@ -7,7 +7,9 @@ from unittest.mock import patch
 import frappe
 from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
+from rq.timeouts import JobTimeoutException
 
+from one_bpmn.processa_engine import legacy_migration
 from one_bpmn.processa_engine.compiler.compile_step import compile_model
 from one_bpmn.processa_engine.engine import TaskState
 from one_bpmn.processa_engine.instances.starting import start_process
@@ -491,3 +493,199 @@ class TestLegacyMigrationReplay(FrappeTestCase):
 				frappe.db.get_value("BPMN Process Instance", self.waiting_review, "context_docname"),
 			),
 		)
+
+	def _batch_plm(self, to_model, mapping, run_by=None):
+		"""A Queued PLM from the old map."""
+		with patch("one_bpmn.processa_engine.triggers.on_doc_event"):
+			plm = frappe.get_doc(
+				{
+					"doctype": "Processa Legacy Migration",
+					"from_model": self.old_map,
+					"to_model": to_model,
+					"target_doctype": DT,
+					"status": "Queued",
+					"run_by": run_by,
+					"state_map": [{"old_state": o, "new_state": n} for o, n in mapping],
+				}
+			).insert()
+		return plm.name
+
+	def _start(self, migration_name, run_jobs=True):
+		"""Run start, then its queued jobs like a worker after start commits; a worker logs and drops a job's exception."""
+		jobs, job_errors = [], []
+		with patch("frappe.enqueue", side_effect=lambda method, **kw: jobs.append((method, kw))):
+			legacy_migration.start(migration_name)
+		if not run_jobs:
+			return jobs, job_errors
+
+		# Stands in for start's commit: a batch's bare rollback stops here, as it would at the last commit.
+		frappe.db.savepoint("plm_batch_test")
+		rollback = frappe.db.rollback
+		with (
+			patch.object(frappe.db, "commit"),
+			patch.object(
+				frappe.db,
+				"rollback",
+				side_effect=lambda save_point=None, **kw: rollback(save_point=save_point or "plm_batch_test"),
+			),
+		):
+			for _method, kwargs in jobs:
+				try:
+					legacy_migration.run_batch(kwargs["migration_name"], kwargs["instance_names"])
+				except Exception as e:
+					job_errors.append(e)
+		return jobs, job_errors
+
+	def _plm_row(self, name):
+		return frappe.get_doc("Processa Legacy Migration", name)
+
+	def test_start_splits_open_instances_into_batches_on_the_long_queue(self):
+		name = self._batch_plm(_deploy("PLM Rep Batch", OLD), [(DRAFT, DRAFT), (APPROVED, APPROVED)])
+		with patch.object(legacy_migration, "BATCH_SIZE", 2):
+			jobs, _errors = self._start(name, run_jobs=False)
+		plm = self._plm_row(name)
+		self.assertEqual((plm.total_records, plm.total_batches, plm.status), (4, 2, "Running"))
+		self.assertEqual([k["job_id"] for _m, k in jobs], [f"plm::{name}::1", f"plm::{name}::2"])
+		self.assertEqual(
+			{(m, k["queue"]) for m, k in jobs},
+			{("one_bpmn.processa_engine.legacy_migration.run_batch", "long")},
+		)
+
+	def test_batch_size_or_fewer_open_instances_queue_one_job(self):
+		name = self._batch_plm(_deploy("PLM Rep Batch", OLD), [(DRAFT, DRAFT), (APPROVED, APPROVED)])
+		jobs, _errors = self._start(name, run_jobs=False)
+		self.assertEqual(len(jobs), 1)
+		self.assertEqual(len(jobs[0][1]["instance_names"]), 4)
+
+	def test_no_open_instances_completes_without_a_batch(self):
+		empty = _deploy("PLM Rep Empty", OLD)
+		with patch("one_bpmn.processa_engine.triggers.on_doc_event"):
+			plm = frappe.get_doc(
+				{
+					"doctype": "Processa Legacy Migration",
+					"from_model": empty,
+					"to_model": self.old_map,
+					"target_doctype": DT,
+					"status": "Queued",
+					"state_map": [{"old_state": DRAFT, "new_state": DRAFT}],
+				}
+			).insert()
+		jobs, _errors = self._start(plm.name)
+		self.assertEqual(jobs, [])
+		self.assertEqual(
+			(self._plm_row(plm.name).status, self._plm_row(plm.name).total_batches), ("Completed", 0)
+		)
+
+	def test_all_batches_add_up_and_finish_runs_once(self):
+		name = self._batch_plm(_deploy("PLM Rep Batch", OLD), [(DRAFT, DRAFT), (APPROVED, APPROVED)])
+		with (
+			patch.object(legacy_migration, "BATCH_SIZE", 2),
+			patch.object(legacy_migration, "finish", wraps=legacy_migration.finish) as finish,
+		):
+			_jobs, errors = self._start(name)
+		plm = self._plm_row(name)
+		self.assertEqual(errors, [])
+		self.assertEqual((plm.migrated_count, plm.failed_count, plm.batches_done), (4, 0, 2))
+		self.assertEqual(plm.status, "Completed")
+		finish.assert_called_once_with(name)
+
+	def test_a_timeout_logs_the_record_in_progress_and_the_rest_of_its_batch_only(self):
+		name = self._batch_plm(_deploy("PLM Rep Batch", OLD), [(DRAFT, DRAFT), (APPROVED, APPROVED)])
+		real, calls = legacy_migration.migrate_record, []
+
+		def migrate(ctx, old):
+			calls.append(old.name)
+			if len(calls) == 1:
+				raise JobTimeoutException("Task exceeded maximum timeout value (600 seconds)")
+			return real(ctx, old)
+
+		with (
+			patch.object(legacy_migration, "BATCH_SIZE", 2),
+			patch.object(legacy_migration, "migrate_record", side_effect=migrate),
+		):
+			jobs, errors = self._start(name)
+		plm = self._plm_row(name)
+		first_batch = jobs[0][1]["instance_names"]
+		self.assertIsInstance(errors[0], JobTimeoutException)
+		self.assertEqual(
+			sorted(r.old_instance for r in plm.error_logs if r.reason == "Timed out"), sorted(first_batch)
+		)
+		self.assertEqual((plm.migrated_count, plm.failed_count, plm.batches_done), (2, 2, 2))
+
+	def test_a_batch_that_fails_before_its_records_logs_each_with_reason_error(self):
+		name = self._batch_plm(_deploy("PLM Rep Batch", OLD), [(DRAFT, DRAFT), (APPROVED, APPROVED)])
+		with patch.object(legacy_migration, "build_context", side_effect=RuntimeError("maps failed to load")):
+			_jobs, errors = self._start(name)
+		plm = self._plm_row(name)
+		self.assertIsInstance(errors[0], RuntimeError)
+		self.assertEqual([r.reason for r in plm.error_logs], ["Error"] * 4)
+		self.assertIn("maps failed to load", plm.error_logs[0].error_message)
+		self.assertEqual((plm.batches_done, plm.failed_count, plm.status), (1, 4, "Failed"))
+
+	def test_finish_sets_the_outcome_publishes_the_last_event_and_tells_the_own_process(self):
+		name = self._batch_plm(_deploy("PLM Rep Batch", OLD), [(DRAFT, DRAFT), (APPROVED, APPROVED)])
+		own = (
+			frappe.get_doc(
+				{
+					"doctype": "BPMN Process Instance",
+					"process_model": self.old_map,
+					"status": "Active",
+					"context_doctype": "Processa Legacy Migration",
+					"context_docname": name,
+				}
+			)
+			.insert()
+			.name
+		)
+		with (
+			patch("frappe.publish_realtime") as publish,
+			patch.object(legacy_migration, "receive_message") as message,
+		):
+			self._start(name)
+		plm = self._plm_row(name)
+		self.assertEqual(plm.status, "Completed")
+		self.assertTrue(plm.completed_at)
+		self.assertTrue(publish.call_args_list[-1].args[1]["completed"])
+		self.assertEqual(message.call_args.args[0].name, own)
+		self.assertEqual(
+			message.call_args.args[1:], (legacy_migration.FINISHED_MESSAGE, {"migration_status": "Completed"})
+		)
+
+	def test_a_run_by_who_no_longer_owns_the_process_fails_without_moving_anything(self):
+		user = "_plm_rep_owner@example.com"
+		frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": user,
+				"first_name": "plm",
+				"send_welcome_email": 0,
+				"roles": [{"role": "Process Owner"}],
+			}
+		).insert()
+		name = self._batch_plm(
+			_deploy("PLM Rep Batch", OLD), [(DRAFT, DRAFT), (APPROVED, APPROVED)], run_by=user
+		)
+		jobs, _errors = self._start(name)
+		plm = self._plm_row(name)
+		self.assertEqual(jobs, [])
+		self.assertEqual(plm.status, "Failed")
+		self.assertIn("not the Process Owner", plm.error_logs[0].error_message)
+		self.assertEqual(
+			frappe.db.get_value("BPMN Process Instance", self.waiting_review, "status"), "Active"
+		)
+
+	def test_a_second_run_after_a_full_run_finds_nothing_to_move(self):
+		new_map = _deploy("PLM Rep Batch", OLD)
+		self._start(self._batch_plm(new_map, [(DRAFT, DRAFT), (APPROVED, APPROVED)]))
+		second = self._batch_plm(new_map, [(DRAFT, DRAFT), (APPROVED, APPROVED)])
+		jobs, _errors = self._start(second)
+		plm = self._plm_row(second)
+		self.assertEqual(jobs, [])
+		self.assertEqual((plm.total_records, plm.migrated_count, plm.status), (0, 0, "Completed"))
+
+	def test_migrate_record_lets_a_timeout_reach_the_batch(self):
+		with (
+			patch.object(legacy_migration, "replay", side_effect=JobTimeoutException("timeout")),
+			self.assertRaises(JobTimeoutException),
+		):
+			self._migrate(OLD, self.waiting_review, [(DRAFT, DRAFT)])

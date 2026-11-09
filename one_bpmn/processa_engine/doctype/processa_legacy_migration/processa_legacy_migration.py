@@ -14,9 +14,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
-from one_bpmn.processa_engine.legacy_migration import state_field
-
-OPEN_INSTANCE_STATUSES = ("Active", "Errored")
+from one_bpmn.processa_engine.legacy_migration import OPEN_INSTANCE_STATUSES, state_field
 
 
 class ProcessaLegacyMigration(Document):
@@ -61,17 +59,19 @@ class ProcessaLegacyMigration(Document):
 			return
 		from_model = frappe.get_doc("BPMN Process Model", self.from_model)
 		to_model = frappe.get_doc("BPMN Process Model", self.to_model)
-		self._check_process_ownership(from_model, to_model)
+		self.check_process_ownership(from_model, to_model)
 		self._check_maps(from_model, to_model)
 		state_field = self._state_field()
 		self._check_state_map(to_model)
 		self._check_open_states_mapped(state_field)
 
-	def _check_process_ownership(self, from_model, to_model):
-		if "System Manager" in frappe.get_roles():
+	def check_process_ownership(self, from_model, to_model, user: str | None = None):
+		"""Throw PermissionError unless *user* (default the session user) is a System Manager or owns both maps' processes."""
+		user = user or frappe.session.user
+		if "System Manager" in frappe.get_roles(user):
 			return
 		for model in (from_model, to_model):
-			if frappe.db.get_value("Process", model.process_name, "process_owner") != frappe.session.user:
+			if frappe.db.get_value("Process", model.process_name, "process_owner") != user:
 				frappe.throw(
 					_("You are not the Process Owner of {0}, the process of {1}.").format(
 						model.process_name, model.name
