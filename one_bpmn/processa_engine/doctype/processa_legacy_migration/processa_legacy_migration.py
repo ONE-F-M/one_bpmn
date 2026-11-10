@@ -8,7 +8,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
-from one_bpmn.processa_engine.legacy_migration import OPEN_INSTANCE_STATUSES, state_field
+from one_bpmn.processa_engine.legacy_migration_replay import OPEN_INSTANCE_STATUSES, state_field
 
 
 class ProcessaLegacyMigration(Document):

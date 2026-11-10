@@ -11,13 +11,8 @@ from rq.timeouts import JobTimeoutException
 
 from one_bpmn.processa_engine import legacy_migration
 from one_bpmn.processa_engine.engine import TaskState
-from one_bpmn.processa_engine.legacy_migration import (
-	MigrationSkip,
-	build_context,
-	migrate_record,
-	replay,
-	wait_ids,
-)
+from one_bpmn.processa_engine.legacy_migration import migrate_record
+from one_bpmn.processa_engine.legacy_migration_replay import MigrationSkip, build_context, replay, wait_ids
 from one_bpmn.tests.factories.legacy_migration_maps import (
 	APPROVED,
 	DONE,

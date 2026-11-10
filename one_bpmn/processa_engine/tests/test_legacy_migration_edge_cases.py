@@ -9,7 +9,8 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.processa_engine import legacy_migration
 from one_bpmn.processa_engine.engine import restore_workflow
-from one_bpmn.processa_engine.legacy_migration import build_context, migrate_record, wait_ids
+from one_bpmn.processa_engine.legacy_migration import migrate_record
+from one_bpmn.processa_engine.legacy_migration_replay import build_context, wait_ids
 from one_bpmn.tests.factories.legacy_migration_maps import (
 	APPROVED,
 	DONE,
