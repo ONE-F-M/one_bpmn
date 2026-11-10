@@ -494,7 +494,7 @@ async function fetchReview({ keepContent = false } = {}) {
 		const params = { run: runName }
 		if (baseline.value) params.baseline = baseline.value
 		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.eval_api.get_run_review",
+			url: "/api/method/one_bpmn.api.evals.get_run_review",
 			method: "GET",
 			params,
 		})

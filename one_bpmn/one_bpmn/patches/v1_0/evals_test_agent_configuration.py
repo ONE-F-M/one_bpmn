@@ -15,7 +15,7 @@ import frappe
 
 
 def execute():
-	from one_bpmn.api.eval_api import _ensure_ai_model
+	from one_bpmn.ai_agent_evals.case_authoring import ensure_ai_model
 
 	seen = set()
 	for row in frappe.get_all(
@@ -27,7 +27,7 @@ def execute():
 		if not model or model in seen:
 			continue
 		seen.add(model)
-		_ensure_ai_model(model, row.get("judge_provider"))
+		ensure_ai_model(model, row.get("judge_provider"))
 
 	# Backfill the new eval_type (required, default Direct) on existing suites.
 	if frappe.db.has_column("AI Eval Suite", "eval_type"):

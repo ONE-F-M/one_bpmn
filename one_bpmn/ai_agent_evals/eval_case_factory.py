@@ -44,13 +44,13 @@ def _assert_may_read_run(run_name: str):
 	narrower grant that lets a process owner work with their own runs without
 	opening every run on the platform to the role.
 	"""
-	from one_bpmn.ai_agent_evals.eval_permissions import _is_system_manager, _process_model_owned_by
+	from one_bpmn.ai_agent_evals.eval_permissions import is_system_manager, process_model_owned_by
 
 	user = frappe.session.user
-	if _is_system_manager(user):
+	if is_system_manager(user):
 		return
 	process_model = frappe.db.get_value("AI Agent Run", run_name, "process_model")
-	if not (process_model and _process_model_owned_by(process_model, user)):
+	if not (process_model and process_model_owned_by(process_model, user)):
 		frappe.throw(
 			_("You can only work with runs of a process you own."),
 			frappe.PermissionError,
@@ -69,7 +69,7 @@ def _assert_may_author_case(run_name: str, suite: str | None):
 	1. The DESTINATION. Permission on an eval case comes from its suite
 	   (eval_permissions: suite -> process_model -> Process.process_owner,
 	   falling back to the suite's owner), so writing the suite is the right
-	   test — the same one eval_api.create_eval_case applies. A case with NO
+	   test — the same one api.evals.create_eval_case applies. A case with NO
 	   suite has no anchor at all: nothing scopes it and the suite views cannot
 	   see it, so that stays System-Manager-only.
 
@@ -82,9 +82,9 @@ def _assert_may_author_case(run_name: str, suite: str | None):
 	   eval, or a run predating attribution) have nothing to scope on and stay
 	   System-Manager-only.
 	"""
-	from one_bpmn.ai_agent_evals.eval_permissions import _is_system_manager
+	from one_bpmn.ai_agent_evals.eval_permissions import is_system_manager
 
-	if _is_system_manager(frappe.session.user):
+	if is_system_manager(frappe.session.user):
 		return
 
 	if not suite:
@@ -426,7 +426,7 @@ def list_runs_for_case_picker(suite: str, limit: int = 40) -> list:
 	process owner sees only runs of a process they own. Ownership is resolved
 	once per process model rather than once per run.
 	"""
-	from one_bpmn.ai_agent_evals.eval_permissions import _is_system_manager, _process_model_owned_by
+	from one_bpmn.ai_agent_evals.eval_permissions import is_system_manager, process_model_owned_by
 
 	suite_doc = frappe.get_doc("AI Eval Suite", suite)  # 404s if missing
 	suite_doc.check_permission("read")
@@ -446,11 +446,11 @@ def list_runs_for_case_picker(suite: str, limit: int = 40) -> list:
 		limit_page_length=frappe.utils.cint(limit) or 40,
 	)
 
-	if not _is_system_manager(frappe.session.user):
+	if not is_system_manager(frappe.session.user):
 		owned = {
 			pm
 			for pm in {r.process_model for r in runs if r.process_model}
-			if _process_model_owned_by(pm, frappe.session.user)
+			if process_model_owned_by(pm, frappe.session.user)
 		}
 		runs = [r for r in runs if r.process_model in owned]
 

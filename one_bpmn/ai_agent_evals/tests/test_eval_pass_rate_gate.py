@@ -17,7 +17,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.api.deploy import compile_process_model
-from one_bpmn.api.eval_api import case_consistency
+from one_bpmn.api.evals import case_consistency
 
 PREFIX = "ZZ PassRate"
 

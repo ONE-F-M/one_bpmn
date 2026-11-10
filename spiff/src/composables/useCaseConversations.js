@@ -1,7 +1,7 @@
 import { ref } from "vue"
 import { frappeRequest } from "frappe-ui"
 
-const API = "/api/method/one_bpmn.api.eval_api."
+const API = "/api/method/one_bpmn.api.evals."
 
 // Real conversations with a suite's agent, for building a case's earlier conversation.
 export function useCaseConversations(suite) {

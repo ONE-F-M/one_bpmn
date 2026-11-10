@@ -299,7 +299,7 @@ async function loadRows() {
 	try {
 		rows.value =
 			(await frappeRequest({
-				url: "/api/method/one_bpmn.api.eval_api.list_response_feedback",
+				url: "/api/method/one_bpmn.api.evals.list_response_feedback",
 				params: {
 					rating: rating.value,
 					status: status.value,
@@ -325,7 +325,7 @@ async function loadOverview() {
 	try {
 		overview.value =
 			(await frappeRequest({
-				url: "/api/method/one_bpmn.api.eval_api.get_feedback_overview",
+				url: "/api/method/one_bpmn.api.evals.get_feedback_overview",
 				params: { from_date: fromDate.value, to_date: toDate.value, agent: agent.value || undefined },
 			})) || {};
 	} catch (e) {
@@ -336,7 +336,7 @@ async function loadOverview() {
 async function loadAgents() {
 	try {
 		const list = (await frappeRequest({
-			url: "/api/method/one_bpmn.api.eval_api.list_assignable_agents",
+			url: "/api/method/one_bpmn.api.evals.list_assignable_agents",
 			// The endpoint defaults to Live-only so other callers are untouched;
 			// this screen asks for everything.
 			params: { include_all: 1 },

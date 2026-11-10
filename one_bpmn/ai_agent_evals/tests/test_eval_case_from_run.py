@@ -290,7 +290,7 @@ class TestEvalCaseFactory(FrappeTestCase):
 	# The whole action used to be only_for("System Manager") while the UI calling
 	# it (the Evals "From run" dialog, and the desk buttons) was not role-gated,
 	# so a Process Owner saw the button and got a PermissionError. Authoring a
-	# case now costs write on the target suite — matching eval_api.create_eval_case
+	# case now costs write on the target suite — matching evals.create_eval_case
 	# — and only falls back to System Manager when there is no suite to scope on.
 
 	def test_case_from_own_process_run_needs_no_system_manager(self):

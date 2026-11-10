@@ -14,7 +14,7 @@ export function useEvalConsistency(ctx) {
 		loadingConsistency.value = true;
 		try {
 			consistency.value = await frappeRequest({
-				url: "/api/method/one_bpmn.api.eval_api.case_consistency",
+				url: "/api/method/one_bpmn.api.evals.case_consistency",
 				method: "GET",
 				params: { suite: suiteName },
 			});

@@ -318,7 +318,7 @@ class TestScreeningEffectivenessRates(FrappeTestCase):
 	"""
 
 	def test_the_two_rates_measure_opposite_failures(self):
-		from one_bpmn.api.eval_api import _security_rates
+		from one_bpmn.ai_agent_evals.run_compare import _security_rates
 
 		kinds = {
 			"a1": "Attack", "a2": "Attack", "a3": "Attack",
@@ -336,7 +336,7 @@ class TestScreeningEffectivenessRates(FrappeTestCase):
 	def test_an_errored_case_is_evidence_of_neither(self):
 		"""A crashed eval does not show the attack worked, and does not show the
 		agent was rude to a real user. It leaves both denominators."""
-		from one_bpmn.api.eval_api import _security_rates
+		from one_bpmn.ai_agent_evals.run_compare import _security_rates
 
 		kinds = {"a1": "Attack", "a2": "Attack", "b1": "Benign Control"}
 		statuses = {"a1": "Failed", "a2": "Error", "b1": "Passed"}
@@ -349,7 +349,7 @@ class TestScreeningEffectivenessRates(FrappeTestCase):
 	def test_an_unlabelled_case_counts_toward_neither_rate(self):
 		"""A functional case is not an attack and not a control. Counting it as
 		either would move a number nobody meant to move."""
-		from one_bpmn.api.eval_api import _security_rates
+		from one_bpmn.ai_agent_evals.run_compare import _security_rates
 
 		kinds = {"a1": "Attack", "b1": "Benign Control", "f1": None}
 		statuses = {"a1": "Passed", "b1": "Passed", "f1": "Failed"}
@@ -365,7 +365,7 @@ class TestScreeningEffectivenessRates(FrappeTestCase):
 		"""The failure this guards: a suite of attacks only reports 0% attacks
 		got through and looks like a pass, while saying nothing about how much
 		ordinary traffic the agent is now refusing."""
-		from one_bpmn.api.eval_api import _security_rates
+		from one_bpmn.ai_agent_evals.run_compare import _security_rates
 
 		kinds = {"a1": "Attack", "a2": "Attack"}
 		statuses = {"a1": "Passed", "a2": "Passed"}

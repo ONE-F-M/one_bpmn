@@ -18,7 +18,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api import eval_api, feedback
+from one_bpmn.api import evals, feedback
 
 OTHER_USER = "wi2068_outsider@example.com"
 
@@ -69,7 +69,7 @@ class QueueFixture(FrappeTestCase):
 	def _rows(self, **kw):
 		"""Only this conversation's rows — the site carries other people's."""
 		mine = {self.r1.name, self.r2.name}
-		return [r for r in eval_api.list_response_feedback(**kw) if r["message"] in mine]
+		return [r for r in evals.list_response_feedback(**kw) if r["message"] in mine]
 
 	def _cleanup(self):
 		frappe.set_user("Administrator")
@@ -161,7 +161,7 @@ class TestARowCanBeJudged(QueueFixture):
 			]
 		)
 		feedback.rate_response(reply.name, "Negative")
-		row = next(r for r in eval_api.list_response_feedback() if r["message"] == reply.name)
+		row = next(r for r in evals.list_response_feedback() if r["message"] == reply.name)
 		self.assertEqual(row["prompt_text"], "")
 		self.assertEqual(row["reply_text"], "Hello, I am ProsAlly.")
 
@@ -177,14 +177,14 @@ class TestWhyARowCannotBecomeATest(QueueFixture):
 		run = self._run()
 		reply = self._message("Bot", "Wrong answer", metadata={"agent_run": run})
 		feedback.rate_response(reply.name, "Negative")
-		row = next(r for r in eval_api.list_response_feedback() if r["message"] == reply.name)
+		row = next(r for r in evals.list_response_feedback() if r["message"] == reply.name)
 		self.assertTrue(row["can_convert"], row["blocked_reason"])
 		self.assertIsNone(row["blocked_reason"])
 
 	def test_a_positive_rating_is_never_convertible(self):
 		feedback.rate_response(self.r2.name, "Positive")
 		row = next(
-			r for r in eval_api.list_response_feedback(rating="Positive", status="All")
+			r for r in evals.list_response_feedback(rating="Positive", status="All")
 			if r["message"] == self.r2.name
 		)
 		self.assertFalse(row["can_convert"])
@@ -198,7 +198,7 @@ class TestTheCounts(QueueFixture):
 		feedback.rate_response(self.r1.name, "Negative")
 		feedback.rate_response(self.r2.name, "Positive")
 
-		o = eval_api.get_feedback_overview()
+		o = evals.get_feedback_overview()
 		for key in ("total_replies", "total_rated", "negative", "awaiting_review", "reviewed", "converted"):
 			self.assertIn(key, o)
 		self.assertGreaterEqual(o["total_replies"], 2)
@@ -208,9 +208,9 @@ class TestTheCounts(QueueFixture):
 
 	def test_the_queue_count_follows_the_triage(self):
 		feedback.rate_response(self.r1.name, "Negative")
-		before = eval_api.get_feedback_overview()["awaiting_review"]
+		before = evals.get_feedback_overview()["awaiting_review"]
 		feedback.set_feedback_status(self._rows()[0]["name"], "Reviewed")
-		after = eval_api.get_feedback_overview()
+		after = evals.get_feedback_overview()
 		self.assertEqual(after["awaiting_review"], before - 1)
 		self.assertGreaterEqual(after["reviewed"], 1)
 
@@ -261,7 +261,7 @@ class TestPermissionsComeFromTheDoctype(QueueFixture):
 		frappe.set_user(OTHER_USER)
 		try:
 			with self.assertRaises(frappe.PermissionError):
-				eval_api.list_response_feedback()
+				evals.list_response_feedback()
 		finally:
 			frappe.set_user("Administrator")
 
@@ -336,7 +336,7 @@ class TestStayingInsideProcessa(QueueFixture):
 		frappe.db.set_value("AI Response Feedback", name, "eval_case", case.name)
 
 		row = next(
-			r for r in eval_api.list_response_feedback(rating="All", status="All")
+			r for r in evals.list_response_feedback(rating="All", status="All")
 			if r["name"] == name
 		)
 		self.assertEqual(row["eval_suite"], suite.name)
