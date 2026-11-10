@@ -5,7 +5,7 @@ one_bpmn.one_bpmn.patches.v1_0.drop_process_id_unique_index
 one_bpmn.one_bpmn.patches.v1_0.create_process_designer_role
 one_bpmn.one_bpmn.patches.v1_0.create_processa_engine_module #06-11-2026 the 18 engine doctypes sync into the Processa Engine module, which must exist first
 one_bpmn.one_bpmn.patches.v1_0.create_processa_connectors_module #07-11-2026 the four connector doctypes sync into the Processa Connectors module, which must exist first
-one_bpmn.one_bpmn.patches.v1_0.plm_version_upgrade_fields
+one_bpmn.one_bpmn.patches.v1_0.rename_plm_process_model_to_to_model
 one_bpmn.one_bpmn.patches.v1_0.create_agents_sandbox_module #08-11-2026 the six sandbox doctypes sync into the Agents Sandbox module, which must exist first
 one_bpmn.one_bpmn.patches.v1_0.create_a2a_module #08-11-2026 the five A2A doctypes sync into the A2A module, which must exist first
 one_bpmn.one_bpmn.patches.v1_0.create_ai_agent_registry_module #08-11-2026 the ten agent configuration, model and provider doctypes sync into the AI Agent Registry module, which must exist first
