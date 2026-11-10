@@ -849,7 +849,7 @@ def _rearm_and_deliver(config, conversation, message, context, wait: bool = True
 	through the same conditional-start gate the insert hook uses, which
 	evaluates the map's own start condition and dedups.
 	"""
-	from one_bpmn.api.server_script_api import delegate_chat_turn
+	from one_bpmn.api.server_scripts import delegate_chat_turn
 
 	if not config.get("process_model"):
 		return None
@@ -907,7 +907,7 @@ def _bpmn_turn_stream(config, conversation, message, context):
 	from one_bpmn.processa_engine.agent_runtime import turn_signal
 	from one_bpmn.ai_agent_conversations.agui.stream import HANDOVER_EVENT
 	from one_bpmn.processa_engine.agent_runtime.job_limits import AI_AGENT_JOB_TIMEOUT
-	from one_bpmn.api.server_script_api import collect_chat_turn_reply, delegate_chat_turn
+	from one_bpmn.api.server_scripts import collect_chat_turn_reply, delegate_chat_turn
 	from one_bpmn.processa_engine.dispatch.ai_agent import TURN_OUTPUT_EVENT
 
 	handle = delegate_chat_turn(conversation, message, context=context, wait=False)
@@ -960,7 +960,7 @@ def _run_bpmn_map(config, conversation, message, context, stream=False):
 	gate the insert hook uses (_maybe_start_instance evaluates the map's own
 	start condition and dedups), then retry the turn once.
 	"""
-	from one_bpmn.api.server_script_api import delegate_chat_turn
+	from one_bpmn.api.server_scripts import delegate_chat_turn
 
 	if stream:
 		return {
@@ -984,7 +984,7 @@ def _run_adk_stage_agent(config, conversation, message, context, stream=False):
 	"""ProsAlly / Logix / Docu today. Until their maps drive them (their own
 	migration stories), prefer an already-running instance if one exists,
 	else surface a clear message rather than silently forking execution."""
-	from one_bpmn.api.server_script_api import delegate_chat_turn
+	from one_bpmn.api.server_scripts import delegate_chat_turn
 
 	result = delegate_chat_turn(conversation, message, context=context)
 	if result is not None:

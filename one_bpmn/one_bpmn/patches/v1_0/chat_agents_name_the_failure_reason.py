@@ -1,7 +1,7 @@
 """ProsAlly and LuCrusher Save Response word a failed turn by its error code instead of always blaming the AI provider.
 
 The reply line that chat_agents_post_failed_turn_error added is swapped for a call to
-server_script_api.turn_failure_text, so a budget stop or a turn cap reads as what it is.
+server_scripts.turn_failure_text, so a budget stop or a turn cap reads as what it is.
 Scripts are found by api_method. Idempotent: the edit applies only once.
 """
 
@@ -11,7 +11,7 @@ from one_bpmn.one_bpmn.patches.v1_0.chat_agents_post_failed_turn_error import SA
 
 OLD_LINE = '    _agent_text = "The AI provider rejected the request: " + _reason + ". Please try again in a few minutes."\n'
 NEW_LINES = (
-	"    from one_bpmn.api.server_script_api import turn_failure_text\n"
+	"    from one_bpmn.api.server_scripts import turn_failure_text\n"
 	"    _agent_text = turn_failure_text(_failed, _reason)\n"
 )
 

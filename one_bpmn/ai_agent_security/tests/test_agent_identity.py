@@ -323,6 +323,15 @@ class TestToolsRunAsTheAgent(FrappeTestCase):
 		self.assertIn("frappe.set_user(agent_user)", source)
 		self.assertIn("frappe.flags.ignore_permissions = False", source)
 
+	def test_the_requesting_user_is_published_and_restored(self):
+		import inspect
+
+		from one_bpmn.ai_agent_skills.tools import shape_tools
+
+		source = inspect.getsource(shape_tools._run_server_script)
+		self.assertIn('getattr(instance, "initiated_by", None) or original_user', source)
+		self.assertIn("frappe.flags.requesting_user = saved_requester", source)
+
 	def test_the_session_is_put_back(self):
 		"""set_user rewrites session.sid and WIPES session.data, which guts a
 		browser session when a tool runs inline inside a web request."""

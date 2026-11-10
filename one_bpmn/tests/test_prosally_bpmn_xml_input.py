@@ -278,9 +278,9 @@ class TestProsAllyWiring(FrappeTestCase):
 	"""The chat turn context and the AG-UI stream hand pasted XML to the parser."""
 
 	def test_context_for_a_valid_paste_carries_analysis_and_rules(self):
-		from one_bpmn.api import server_script_api
+		from one_bpmn.api import server_scripts
 
-		out = server_script_api.build_prosally_turn_context({"_turn_message": _document(BROKEN_STRUCTURE)})
+		out = server_scripts.build_prosally_turn_context({"_turn_message": _document(BROKEN_STRUCTURE)})
 		text = out["dialog_context"]
 		self.assertIn("PASTED BPMN XML ANALYSIS", text)
 		self.assertIn("BPMN XML INPUT RULES", text)
@@ -290,29 +290,29 @@ class TestProsAllyWiring(FrappeTestCase):
 		self.assertNotIn("_message_override", out)
 
 	def test_context_for_a_malformed_paste_reports_the_failure(self):
-		from one_bpmn.api import server_script_api
+		from one_bpmn.api import server_scripts
 
-		text = server_script_api.build_prosally_turn_context({"_turn_message": MALFORMED})["dialog_context"]
+		text = server_scripts.build_prosally_turn_context({"_turn_message": MALFORMED})["dialog_context"]
 		self.assertIn("PARSE FAILURE", text)
 		self.assertIn("line 5", text)
 
 	def test_context_for_ordinary_text_is_unchanged(self):
-		from one_bpmn.api import server_script_api
+		from one_bpmn.api import server_scripts
 
-		out = server_script_api.build_prosally_turn_context({"_turn_message": "add a review step"})
+		out = server_scripts.build_prosally_turn_context({"_turn_message": "add a review step"})
 		self.assertNotIn("PASTED BPMN XML", out["dialog_context"])
 		self.assertNotIn("BPMN XML INPUT RULES", out["dialog_context"])
 		self.assertIn("PROSALLY REPLY CONTRACT", out["dialog_context"])
 
 	def test_context_for_a_large_paste_asks_for_a_shorter_message(self):
-		from one_bpmn.api import server_script_api
+		from one_bpmn.api import server_scripts
 
-		out = server_script_api.build_prosally_turn_context({"_turn_message": _document(shapes=400)})
+		out = server_scripts.build_prosally_turn_context({"_turn_message": _document(shapes=400)})
 		self.assertNotIn("BPMNShape", out["_message_override"])
 
 	def test_stream_sends_the_agent_the_shortened_message_and_clean_context(self):
 		from one_bpmn.ai_agent_conversations.agui import stream as agui_stream
-		from one_bpmn.api import server_script_api  # registers the ProsAlly context builder  # noqa: F401
+		from one_bpmn.api import server_scripts  # registers the ProsAlly context builder  # noqa: F401
 
 		message = "add a step\n" + _document(shapes=400)
 		with patch(
@@ -331,7 +331,7 @@ class TestProsAllyWiring(FrappeTestCase):
 
 	def test_stream_answers_malformed_xml_with_the_parse_failure_and_no_model_turn(self):
 		from one_bpmn.ai_agent_conversations.agui import stream as agui_stream
-		from one_bpmn.api import server_script_api  # noqa: F401
+		from one_bpmn.api import server_scripts  # noqa: F401
 
 		with (
 			patch("one_bpmn.api.a2a.invoke_agent") as invoke,
@@ -362,7 +362,7 @@ class TestProsAllyWiring(FrappeTestCase):
 
 	def test_stream_answers_a_review_paste_without_the_agent_and_saves_the_turn(self):
 		from one_bpmn.ai_agent_conversations.agui import stream as agui_stream
-		from one_bpmn.api import server_script_api  # noqa: F401
+		from one_bpmn.api import server_scripts  # noqa: F401
 
 		message = "review this\n" + _document(BROKEN_STRUCTURE)
 		with (
@@ -378,7 +378,7 @@ class TestProsAllyWiring(FrappeTestCase):
 
 	def test_stream_leaves_ordinary_messages_and_other_agents_alone(self):
 		from one_bpmn.ai_agent_conversations.agui import stream as agui_stream
-		from one_bpmn.api import server_script_api  # noqa: F401
+		from one_bpmn.api import server_scripts  # noqa: F401
 
 		with patch(
 			"one_bpmn.api.a2a.invoke_agent",

@@ -7,7 +7,7 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.docu_api import apply_doctype
+from one_bpmn.api.docu import apply_doctype
 
 
 class TestModuleMove(FrappeTestCase):

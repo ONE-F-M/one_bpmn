@@ -359,3 +359,4 @@ one_bpmn.one_bpmn.patches.v1_0.drop_chat_message_is_reply #09-11-2026 Chat Messa
 one_bpmn.one_bpmn.patches.v1_0.repath_skill_tool_imports #09-11-2026 stored Server Script imports follow the skill and tool modules that moved into ai_agent_skills
 one_bpmn.one_bpmn.patches.v1_0.repath_eval_module_imports #09-11-2026 stored Server Script imports follow the eval modules that moved into ai_agent_evals
 one_bpmn.one_bpmn.patches.v1_0.repath_observability_module_imports #10-11-2026 stored Server Script imports follow the observability modules and the Insights API that moved
+one_bpmn.one_bpmn.patches.v1_0.repath_docu_notification_server_script_imports #10-11-2026 stored Server Script imports follow the renamed Docu, notification and Server Script endpoint modules

@@ -224,7 +224,7 @@ describe("loadSchema", () => {
 		const { ir } = make();
 		await ir.loadSchema("Vehicle");
 		expect(frappeRequest.mock.calls[0][0]).toEqual({
-			url: "/api/method/one_bpmn.api.docu_api.get_doctype_schema",
+			url: "/api/method/one_bpmn.api.docu.get_doctype_schema",
 			params: { doctype: "Vehicle" },
 		});
 		expect(ir.currentIr().fields).toHaveLength(1);

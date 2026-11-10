@@ -132,7 +132,7 @@ class TestCaptureAndReRating(FeedbackFixture):
 		self.assertEqual(frappe.db.get_value("AI Response Feedback", name, "rating"), "Negative")
 
 	def test_unrated_and_negative_are_different_things(self):
-		self.assertIsNone(feedback.get_response_rating(self.reply.name)["rating"])
+		self.assertIsNone(feedback.get_conversation_ratings(self.conversation.name).get(self.reply.name))
 		self.assertEqual(
 			frappe.db.count("AI Response Feedback", {"message": self.reply.name}),
 			0,
@@ -140,7 +140,7 @@ class TestCaptureAndReRating(FeedbackFixture):
 		)
 
 		feedback.rate_response(self.reply.name, "Negative")
-		self.assertEqual(feedback.get_response_rating(self.reply.name)["rating"], "Negative")
+		self.assertEqual(feedback.get_conversation_ratings(self.conversation.name).get(self.reply.name), "Negative")
 
 	def test_clearing_removes_the_row_rather_than_storing_a_third_state(self):
 		feedback.rate_response(self.reply.name, "Negative")

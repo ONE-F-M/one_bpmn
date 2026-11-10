@@ -17,11 +17,10 @@ panel does with the agent's answer.
 
 SECURITY: ``apply_doctype`` re-runs the schema validator server-side and gates on
 the System Manager / DocType-create permission before elevating — the client IR
-is never trusted. Elevation uses the ``server_script_api.create_server_script``
+is never trusted. Elevation uses the ``server_scripts.create_server_script``
 template (narrow ``set_user('Administrator')`` inside try/finally).
 """
 
-import difflib
 import json
 
 import frappe
@@ -68,6 +67,11 @@ def _docu_user() -> str:
 	from one_bpmn.ai_agent_security.identity import user_for
 
 	return user_for(DOCU_AGENT) or "Administrator"
+
+
+def _requesting_user() -> str:
+	"""The person asking, which inside a tool run is the chat's owner and not the agent account."""
+	return frappe.flags.get("requesting_user") or frappe.session.user
 
 
 @frappe.whitelist()
@@ -1031,6 +1035,7 @@ def apply_field_properties(doctype: str, changes: list) -> list:
 	"""
 	if not _may_change_forms():
 		frappe.throw(_("You are not allowed to change forms through Docu."), frappe.PermissionError)
+	frappe.has_permission(doctype, "write", user=_requesting_user(), throw=True)
 	if not changes:
 		frappe.throw(_("I could not tell which field on {0} to change.").format(doctype))
 	meta = frappe.get_meta(doctype)
@@ -1096,16 +1101,6 @@ def _force_property_setter(doctype: str, fieldname: str, prop: str, value, prope
 			},
 			is_system_generated=False,
 		)
-
-
-@frappe.whitelist()
-def preview_client_script(doctype: str, script: str) -> dict:
-	"""Check a proposed Form View script and return its diff against the one saved today."""
-	script = _checked_form_script(doctype, script)
-	name = _form_script_name(doctype)
-	current = (frappe.db.get_value("Client Script", name, "script") if name else "") or ""
-	diff = difflib.unified_diff(current.splitlines(True), script.splitlines(True), "current", "proposed")
-	return {"exists": bool(name), "name": name, "diff": "".join(diff)}
 
 
 @frappe.whitelist(methods=["POST"])

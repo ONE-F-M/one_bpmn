@@ -10,7 +10,7 @@ import redis
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.processa_engine.agent_runtime import turn_signal
-from one_bpmn.api import server_script_api
+from one_bpmn.api import server_scripts
 
 
 def _instance_name() -> str:
@@ -77,7 +77,7 @@ class TestWaitForWorkerReply(FrappeTestCase):
 		full turn deadline."""
 		started = time.monotonic()
 
-		result = server_script_api._wait_for_worker_reply(_instance_name(), "_test_conversation", None)
+		result = server_scripts._wait_for_worker_reply(_instance_name(), "_test_conversation", None)
 
 		self.assertIsNone(result)
 		self.assertLess(time.monotonic() - started, 1)
@@ -86,7 +86,7 @@ class TestWaitForWorkerReply(FrappeTestCase):
 		"""The flag that kept the model call inside the web worker is gone."""
 		import inspect
 
-		source = inspect.getsource(server_script_api._delegate_to_bpmn_instance)
+		source = inspect.getsource(server_scripts._delegate_to_bpmn_instance)
 		self.assertNotIn("bpmn_disable_ai_parking", source)
 
 
@@ -125,7 +125,7 @@ class TestTheRequestPicksUpTheWorkerReply(FrappeTestCase):
 
 		# A real commit here would defeat the suite's rollback.
 		with patch.object(frappe.db, "commit"):
-			rows = server_script_api._wait_for_worker_reply(self.instance, self.conversation, None)
+			rows = server_scripts._wait_for_worker_reply(self.instance, self.conversation, None)
 
 		self.assertIsNotNone(rows)
 		self.assertEqual(rows[0]["name"], reply.name)
@@ -138,7 +138,7 @@ class TestTheRequestPicksUpTheWorkerReply(FrappeTestCase):
 		turn_signal.publish(self.instance)
 
 		with patch.object(frappe.db, "commit"):
-			rows = server_script_api._wait_for_worker_reply(self.instance, self.conversation, earlier.name)
+			rows = server_scripts._wait_for_worker_reply(self.instance, self.conversation, earlier.name)
 
 		self.assertIsNone(rows)
 
@@ -147,9 +147,9 @@ class TestTheRequestPicksUpTheWorkerReply(FrappeTestCase):
 
 		with (
 			patch.object(frappe.db, "commit"),
-			patch.object(server_script_api, "CHAT_TURN_WAIT_SECONDS", 0.5),
+			patch.object(server_scripts, "CHAT_TURN_WAIT_SECONDS", 0.5),
 		):
-			rows = server_script_api._wait_for_worker_reply(self.instance, self.conversation, None)
+			rows = server_scripts._wait_for_worker_reply(self.instance, self.conversation, None)
 
 		self.assertIsNone(rows)
 
@@ -225,7 +225,7 @@ class TestTheReplyComesFromTheTaskOutput(FrappeTestCase):
 		self.instance = _instance_name()
 		frappe.flags.bpmn_force_ai_parking = True
 		# No worker here, so an unbounded wait would hang the suite.
-		self._wait_patch = patch.object(server_script_api, "CHAT_TURN_WAIT_SECONDS", 0.3)
+		self._wait_patch = patch.object(server_scripts, "CHAT_TURN_WAIT_SECONDS", 0.3)
 		self._wait_patch.start()
 
 	def tearDown(self):
@@ -260,7 +260,7 @@ class TestTheReplyComesFromTheTaskOutput(FrappeTestCase):
 		row = self._bot_message("row text", _json.dumps({"agent_result": {"response": "from the row"}}))
 
 		with patch.object(frappe.db, "commit"):
-			result = server_script_api.collect_chat_turn_reply(
+			result = server_scripts.collect_chat_turn_reply(
 				self._handle(), {"response": "from the task", "intent": "ANSWER"}
 			)
 
@@ -274,13 +274,13 @@ class TestTheReplyComesFromTheTaskOutput(FrappeTestCase):
 		self._bot_message("row text", _json.dumps({"agent_result": {"response": "from the row"}}))
 
 		with patch.object(frappe.db, "commit"):
-			result = server_script_api.collect_chat_turn_reply(self._handle())
+			result = server_scripts.collect_chat_turn_reply(self._handle())
 
 		self.assertEqual(result["response"], "from the row")
 
 	def test_a_turn_that_saved_no_message_still_answers_from_its_output(self):
 		with patch.object(frappe.db, "commit"):
-			result = server_script_api.collect_chat_turn_reply(
+			result = server_scripts.collect_chat_turn_reply(
 				self._handle(), {"response": "no row, still an answer"}
 			)
 
@@ -289,7 +289,7 @@ class TestTheReplyComesFromTheTaskOutput(FrappeTestCase):
 
 	def test_an_empty_output_and_no_message_is_still_nothing(self):
 		with patch.object(frappe.db, "commit"):
-			result = server_script_api.collect_chat_turn_reply(self._handle(), {"response": "   "})
+			result = server_scripts.collect_chat_turn_reply(self._handle(), {"response": "   "})
 
 		self.assertIsNone(result)
 

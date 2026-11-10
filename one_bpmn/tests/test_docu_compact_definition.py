@@ -6,7 +6,7 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.docu_api import _docfield_dict
+from one_bpmn.api.docu import _docfield_dict
 from one_bpmn.one_bpmn.patches.v1_0 import docu_edit_prompt_sends_a_compact_definition as p
 from one_bpmn.ai_agent_registry.definitions.docu import tools
 # The write_schema prompt text the patch edits, as it sits in the live map.

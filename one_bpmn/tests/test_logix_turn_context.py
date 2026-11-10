@@ -10,7 +10,7 @@ from __future__ import annotations
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.server_script_api import build_logix_turn_context
+from one_bpmn.api.server_scripts import build_logix_turn_context
 
 CONTRACT_MARKER = "LOGIX REPLY CONTRACT"
 

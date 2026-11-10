@@ -9,8 +9,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.translate import clear_cache
 
-from one_bpmn.api import notification_api
-from one_bpmn.api.notification_api import preview_notification
+from one_bpmn.api import notifications
+from one_bpmn.api.notifications import preview_notification
 
 NOTICE = {
 	"emailLayout": "notice",
@@ -42,7 +42,7 @@ class TestEmailPreview(FrappeTestCase):
 				return ["plan.pdf"]
 			return real_get_list(doctype, *args, **kwargs)
 
-		with patch.object(notification_api.frappe, "get_list", side_effect=get_list):
+		with patch.object(notifications.frappe, "get_list", side_effect=get_list):
 			return preview_notification("", element_type, doctype, json.dumps(cfg))
 
 	def test_the_notice_is_rendered_for_the_latest_record(self):
@@ -111,12 +111,12 @@ class TestEmailPreview(FrappeTestCase):
 		self.assertEqual(frappe.db.count("Email Queue"), queued)
 
 	def test_no_record_says_so(self):
-		with patch.object(notification_api.frappe, "get_list", return_value=[]):
+		with patch.object(notifications.frappe, "get_list", return_value=[]):
 			result = preview_notification("", "send_email", "ToDo", json.dumps(NOTICE))
 		self.assertEqual(result, {"message": "No ToDo record to preview yet"})
 
 	def test_broken_jinja_returns_the_error_and_logs_it(self):
-		with patch.object(notification_api.frappe, "log_error") as log_error:
+		with patch.object(notifications.frappe, "log_error") as log_error:
 			result = self._preview({**NOTICE, "emailHeadingEn": "{{ doc.name | no_such_filter }}"})
 
 		self.assertIn("no_such_filter", result["error"])
@@ -137,7 +137,7 @@ class TestEmailPreview(FrappeTestCase):
 				raise frappe.PermissionError
 			return real(doctype, ptype, *args, **kwargs)
 
-		with patch.object(notification_api.frappe, "has_permission", side_effect=has_permission):
+		with patch.object(notifications.frappe, "has_permission", side_effect=has_permission):
 			with self.assertRaises(frappe.PermissionError):
 				preview_notification("", "send_email", "ToDo", json.dumps(NOTICE))
 

@@ -4,7 +4,7 @@
 
 import frappe
 
-from one_bpmn.api.docu_api import _approvers_for
+from one_bpmn.api.docu import _approvers_for
 
 
 def execute():

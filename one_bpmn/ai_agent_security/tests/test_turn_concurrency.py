@@ -18,7 +18,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.processa_engine.agent_runtime import turn_idempotency as idem
 from one_bpmn.api import a2a as a2a_api
-from one_bpmn.api import server_script_api
+from one_bpmn.api import server_scripts
 from one_bpmn.ai_agent_security import turn_lock
 
 
@@ -276,12 +276,12 @@ class TestRedeliveryWhileTheMapReArms(FrappeTestCase):
 			instances.append(self._Instance(catches_on - len(instances)))
 			return instances[-1]
 
-		with patch.object(server_script_api, "REARM_WAIT_SECONDS", seconds), patch.object(
-			server_script_api, "_REARM_POLL_SECONDS", 0.05
+		with patch.object(server_scripts, "REARM_WAIT_SECONDS", seconds), patch.object(
+			server_scripts, "_REARM_POLL_SECONDS", 0.05
 		), patch.object(frappe.db, "commit"), patch.object(
 			frappe.db, "get_value", return_value=status
 		), patch.object(frappe, "get_doc", new=_get_doc):
-			return server_script_api._redeliver_until_armed("inst", {})
+			return server_scripts._redeliver_until_armed("inst", {})
 
 	def test_it_keeps_trying_until_a_task_catches_the_message(self):
 		self.assertTrue(self._run(catches_on=2))

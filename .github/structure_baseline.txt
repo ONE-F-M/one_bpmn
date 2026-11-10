@@ -26,7 +26,7 @@ private-import one_bpmn/one_bpmn/patches/v1_0/docu_reserved_fields_are_not_new_f
 private-import one_bpmn/one_bpmn/patches/v1_0/docu_tool_scripts_use_shared_helpers.py one_bpmn.one_bpmn.patches.v1_0.chat_agents_post_failed_turn_error._edit_script
 private-import one_bpmn/one_bpmn/patches/v1_0/docu_writer_tools_record_their_timing.py one_bpmn.one_bpmn.patches.v1_0.chat_agents_post_failed_turn_error._edit_script
 private-import one_bpmn/one_bpmn/patches/v1_0/docu_writes_list_view_scripts.py one_bpmn.one_bpmn.patches.v1_0.chat_agents_post_failed_turn_error._edit_script
-private-import one_bpmn/one_bpmn/patches/v1_0/fill_doctype_change_approvers.py one_bpmn.api.docu_api._approvers_for
+private-import one_bpmn/one_bpmn/patches/v1_0/fill_doctype_change_approvers.py one_bpmn.api.docu._approvers_for
 private-import one_bpmn/one_bpmn/patches/v1_0/frontend_agent_deletes_files.py one_bpmn.one_bpmn.patches.v1_0.frontend_agent_reads_in_windows._edit_named
 private-import one_bpmn/one_bpmn/patches/v1_0/frontend_agent_deletes_files.py one_bpmn.one_bpmn.patches.v1_0.seed_frontend_agent_eval_suite._fixture_task
 private-import one_bpmn/one_bpmn/patches/v1_0/frontend_agent_deletes_files.py one_bpmn.one_bpmn.patches.v1_0.seed_frontend_agent_eval_suite._suite
@@ -96,10 +96,10 @@ size one_bpmn/ai_agent_memory/tools.py 1126
 size one_bpmn/ai_agent_observability/observability.py 1301
 size one_bpmn/agents_sandbox/sandbox/ops.py 1217
 size one_bpmn/api/a2a.py 1241
-size one_bpmn/api/docu_api.py 1499
+size one_bpmn/api/docu.py 1494
 size one_bpmn/api/production_review.py 871
 size one_bpmn/api/security.py 895
-size one_bpmn/api/server_script_api.py 954
+size one_bpmn/api/server_scripts.py 954
 size one_bpmn/one_bpmn/patches/v1_0/inline_logix_tool_scripts.py 835
 size one_bpmn/one_bpmn/patches/v1_0/inline_prosally_tool_scripts.py 1419
 size one_bpmn/one_bpmn/patches/v1_0/seed_google_connectors.py 844
@@ -114,7 +114,7 @@ size one_bpmn/tests/test_connector_agent.py 957
 size one_bpmn/ai_agent_memory/tests/test_memory_tools.py 867
 size spiff/src/components/Editor/FormattingToolbar/FormattingToolbar.vue 763
 size spiff/src/components/Logix/LogixCanvas/LogixCanvas.vue 1433
-size spiff/src/components/Chat/AgentChatPanel/AgentChatPanel.vue 1130
+size spiff/src/components/Chat/AgentChatPanel/AgentChatPanel.vue 1121
 size spiff/src/components/Instances/BpmnDiagramViewer/BpmnDiagramViewer.vue 796
 size spiff/src/components/Instances/ElementInspector/ElementInspector.vue 799
 size spiff/src/pages/EvalRun.vue 516

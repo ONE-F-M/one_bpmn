@@ -11,7 +11,7 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.docu_api import apply_doctype, get_doctype_schema
+from one_bpmn.api.docu import apply_doctype, get_doctype_schema
 from one_bpmn.ai_agent_registry.definitions.docu.validators import validate_doctype_ir
 
 DT = "Docu Permission Rules Probe"
@@ -125,7 +125,7 @@ class TestDocuPermissionRules(FrappeTestCase):
 		and saving that view back would have undone the override.
 		"""
 		from one_bpmn.ai_agent_registry.definitions.docu.tools import read_doctype_permissions
-		from one_bpmn.api.docu_api import _apply_standard_doctype_permissions
+		from one_bpmn.api.docu import _apply_standard_doctype_permissions
 
 		self._apply(_ir())
 		frappe.db.set_value("DocType", DT, {"custom": 0, "module": "Desk"})
@@ -158,7 +158,7 @@ class TestDocuPermissionRules(FrappeTestCase):
 	def test_a_doctype_of_ours_keeps_its_rules_in_the_doctype(self):
 		"""Ours goes on the DocType itself, which is what writes the app's JSON,
 		and never into Custom DocPerm — an override would beat the file."""
-		from one_bpmn.api.docu_api import _reconcile_owned_doctype
+		from one_bpmn.api.docu import _reconcile_owned_doctype
 		from one_bpmn.agents_sandbox.customization.doctype_source_sync import owned_in_source
 
 		self._apply(_ir())
@@ -186,7 +186,7 @@ class TestDocuPermissionRules(FrappeTestCase):
 		DocPerm rows belong to the app that ships it, so the change has to land
 		in Custom DocPerm instead.
 		"""
-		from one_bpmn.api.docu_api import _apply_standard_doctype_permissions
+		from one_bpmn.api.docu import _apply_standard_doctype_permissions
 
 		self._apply(_ir())
 		# Standard AND owned by an app we do not control: module decides the app,

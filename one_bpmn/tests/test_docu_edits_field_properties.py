@@ -12,7 +12,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
-from one_bpmn.api.docu_api import apply_field_properties
+from one_bpmn.api.docu import apply_field_properties
 from one_bpmn.one_bpmn.patches.v1_0 import docu_edits_field_properties as fix
 from one_bpmn.tests.site_scripts import as_deployed
 
@@ -117,6 +117,77 @@ class TestCustomDocTypeIsEditedInPlace(FrappeTestCase):
 		)
 		self.assertFalse(frappe.db.exists("Property Setter", {"doc_type": CUSTOM_DT}))
 		self.assertEqual(lines, ["Cover shows only when Needs Cover is ticked."])
+
+
+class TestWritePermissionOnTheTarget(FrappeTestCase):
+	"""The requester needs write on the DocType, and a refusal leaves it untouched."""
+
+	WRITER = "docu-writer-probe@example.com"
+	READER = "docu-reader-probe@example.com"
+	CHANGE = [{"fieldname": "cover_section", "property": "depends_on", "value": "eval:doc.needs_cover"}]
+
+	def setUp(self):
+		frappe.get_doc(
+			{
+				"doctype": "DocType",
+				"name": CUSTOM_DT,
+				"module": "ONE BPMN",
+				"custom": 1,
+				"fields": [
+					{"fieldname": "needs_cover", "fieldtype": "Check", "label": "Needs Cover"},
+					{"fieldname": "cover_section", "fieldtype": "Section Break", "label": "Cover"},
+				],
+				"permissions": [
+					{"role": "System Manager", "read": 1, "write": 1},
+				],
+			}
+		).insert(ignore_permissions=True)  # perms: test fixture
+		for email, roles in ((self.WRITER, ["System Manager"]), (self.READER, [])):
+			if not frappe.db.exists("User", email):
+				frappe.get_doc(
+					{
+						"doctype": "User",
+						"email": email,
+						"first_name": "Probe",
+						"send_welcome_email": 0,
+						"roles": [{"role": role} for role in roles],
+					}
+				).insert(ignore_permissions=True)  # perms: test fixture
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+		frappe.flags.requesting_user = None
+		frappe.delete_doc("DocType", CUSTOM_DT, force=True, ignore_permissions=True)  # perms: test fixture
+		for email in (self.WRITER, self.READER):
+			frappe.delete_doc("User", email, force=True, ignore_permissions=True)  # perms: test fixture
+		frappe.db.commit()
+
+	@staticmethod
+	def _snapshot():
+		fields = frappe.get_all("DocField", filters={"parent": CUSTOM_DT}, fields=["*"], order_by="idx")
+		setters = frappe.get_all("Property Setter", filters={"doc_type": CUSTOM_DT}, pluck="name")
+		return fields, setters
+
+	def test_a_user_with_write_on_the_doctype_is_allowed(self):
+		frappe.set_user(self.WRITER)
+		apply_field_properties(CUSTOM_DT, self.CHANGE)
+		self.assertEqual(frappe.get_meta(CUSTOM_DT).get_field("cover_section").depends_on, "eval:doc.needs_cover")
+
+	@patch("one_bpmn.api.docu._may_change_forms", return_value=True)
+	def test_a_user_without_write_gets_a_permission_error_and_nothing_changes(self, _gate):
+		before = self._snapshot()
+		frappe.set_user(self.READER)
+		with self.assertRaises(frappe.PermissionError):
+			apply_field_properties(CUSTOM_DT, self.CHANGE)
+		frappe.set_user("Administrator")
+		self.assertEqual(self._snapshot(), before)
+
+	def test_the_requester_is_checked_when_the_session_is_the_agent(self):
+		before = self._snapshot()
+		frappe.flags.requesting_user = self.READER
+		with self.assertRaises(frappe.PermissionError):
+			apply_field_properties(CUSTOM_DT, self.CHANGE)
+		self.assertEqual(self._snapshot(), before)
 
 
 class TestClassifierRoutes(FrappeTestCase):

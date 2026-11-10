@@ -10,7 +10,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.ai_agent_conversations.agui.contract.translators import _script_diff
 from one_bpmn.processa_engine.agent_runtime.turn_state import clear_turn, get_turn, set_turn
-from one_bpmn.api.docu_api import apply_client_script, preview_client_script
+from one_bpmn.api.docu import apply_client_script
 from one_bpmn.one_bpmn.patches.v1_0 import docu_edits_field_properties as previous
 from one_bpmn.one_bpmn.patches.v1_0 import docu_writes_form_client_scripts as patch
 from one_bpmn.ai_agent_security.code_checks.client_script_validator import validate_form_script
@@ -87,15 +87,6 @@ class TestApplyClientScript(FrappeTestCase):
 
 		frappe.set_user("Administrator")
 		self.assertEqual(_script_names(), [])
-
-	def test_preview_diffs_against_the_saved_script_and_writes_nothing(self):
-		self.assertFalse(preview_client_script(DT, SCRIPT)["exists"])
-		apply_client_script(DT, SCRIPT)
-
-		preview = preview_client_script(DT, SCRIPT.replace("frm.doc.public", "!frm.doc.public"))
-
-		self.assertTrue(preview["exists"])
-		self.assertIn('+\t\tfrm.toggle_reqd("content", !frm.doc.public);', preview["diff"])
 
 
 class TestRoutingPatchChain(FrappeTestCase):

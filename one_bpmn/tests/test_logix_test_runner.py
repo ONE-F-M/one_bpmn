@@ -11,7 +11,7 @@ script, observed live 2026-08-10."""
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.server_script_api import run_logix_test_case
+from one_bpmn.api.server_scripts import run_logix_test_case
 
 SCRIPT_NAME = "ZZ Logix Runner Probe"
 

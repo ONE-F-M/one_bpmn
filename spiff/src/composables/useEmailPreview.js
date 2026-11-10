@@ -15,7 +15,7 @@ export function useEmailPreview({ values, open, processModel, request = () => em
 		const call = ++latest
 		loading.value = true
 		try {
-			const result = await createResource({ url: "one_bpmn.api.notification_api.preview_notification", params: {
+			const result = await createResource({ url: "one_bpmn.api.notifications.preview_notification", params: {
 				process_model: processModel.value,
 				...request(),
 			} }).fetch()

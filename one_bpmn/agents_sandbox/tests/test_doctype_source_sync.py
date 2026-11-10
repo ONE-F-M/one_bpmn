@@ -495,12 +495,12 @@ class TestDocuWritesWhereOwnershipSays(FrappeTestCase):
         _set_app(self.previous)
 
     def test_a_doctype_we_own_is_edited_in_place(self):
-        from one_bpmn.api.docu_api import _reconciles_in_place
+        from one_bpmn.api.docu import _reconciles_in_place
 
         self.assertTrue(_reconciles_in_place(OURS))
 
     def test_a_doctype_another_app_owns_still_gets_an_override(self):
-        from one_bpmn.api.docu_api import _reconciles_in_place
+        from one_bpmn.api.docu import _reconciles_in_place
 
         if not frappe.db.exists("DocType", THEIRS):
             self.skipTest(f"{THEIRS} is not installed")
@@ -508,12 +508,12 @@ class TestDocuWritesWhereOwnershipSays(FrappeTestCase):
 
     def test_without_developer_mode_ours_falls_back_to_the_override(self):
         """Frappe refuses to save a standard DocType outside developer mode."""
-        from one_bpmn.api import docu_api
+        from one_bpmn.api import docu
 
         previous = frappe.conf.get("developer_mode")
         try:
             frappe.conf["developer_mode"] = 0
-            self.assertFalse(docu_api._reconciles_in_place(OURS))
+            self.assertFalse(docu._reconciles_in_place(OURS))
         finally:
             frappe.conf["developer_mode"] = previous
 

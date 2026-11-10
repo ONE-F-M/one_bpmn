@@ -140,12 +140,12 @@ All endpoints are `@frappe.whitelist()` methods organized into domain submodules
 
 | Module | Responsibility | Representative endpoints |
 | ------ | -------------- | ------------------------ |
-| `server_script_api` | Server-script CRUD + Logix tooling (chat itself goes through `agui.stream_agent_turn`) | `create_server_script`, `update_server_script`, `toggle_server_script`, `run_logix_test_case`, `end_chat_conversation` |
+| `server_scripts` | Server-script CRUD + Logix tooling (chat itself goes through `agui.stream_agent_turn`) | `create_server_script`, `update_server_script`, `toggle_server_script`, `run_logix_test_case`, `end_chat_conversation` |
 | `canvas_comments` | Canvas comments & element assets | `get_canvas_comments`, `post_canvas_comment`, `update_comment_status`, `delete_canvas_element_assets` |
 | `editability` | Cross-site editor lock / edit checks | `check_and_update_editor_lock`, `check_process_editable`, `bulk_check_processes_editable` |
 | `versions` | Diagram and server-script version history | `get_edit_history`, `restore_version`, `get_diagram_versions`, `get_script_version_history` |
 | `dmn` | DMN decision tables for business rule tasks | `get_dmn_xml`, `save_dmn_xml`, `get_decision_list` |
-| `notification_api` | In-app notification creation | `create_notification` |
+| `notifications` | In-app notification creation | `create_notification` |
 | `lookups` | Field and user lookups (fields, users, context docs) | `get_doctype_fields`, `get_system_users`, `get_context_doctypes`, `get_context_documents` |
 | `workflow_state` | Apply Frappe workflow-state transitions for BPMN service tasks (internal helper, not a public endpoint) | — |
 

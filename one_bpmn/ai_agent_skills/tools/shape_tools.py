@@ -650,9 +650,12 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 	saved_data = frappe.session.data
 	saved_ignore = frappe.flags.ignore_permissions
 	saved_in_script = frappe.flags.in_processa_script
+	saved_requester = frappe.flags.get("requesting_user")
 	need_switch = bool(agent_user) and agent_user != original_user
 	try:
 		frappe.flags.in_processa_script = True
+		# the person who started the chat, so a script can check their rights rather than the agent's
+		frappe.flags.requesting_user = getattr(instance, "initiated_by", None) or original_user
 		if need_switch:
 			frappe.set_user(agent_user)
 		# Only claimed when there IS an identity to claim it for. An agent with no
@@ -677,6 +680,7 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 			frappe.session.data = saved_data
 		frappe.flags.ignore_permissions = saved_ignore
 		frappe.flags.in_processa_script = saved_in_script
+		frappe.flags.requesting_user = saved_requester
 
 	if isinstance(result_dict, dict) and result_dict:
 		task.data.update(result_dict)
