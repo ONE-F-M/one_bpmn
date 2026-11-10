@@ -10,6 +10,7 @@ from unittest.mock import patch
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.ai_agent_registry.definitions.prosally import helpers_xml_input as bx
+from one_bpmn.ai_agent_registry.definitions.prosally import helpers_xml_replies as replies
 NS = (
 	'xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" '
 	'xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" '
@@ -140,7 +141,7 @@ class TestStructuralParsing(FrappeTestCase):
 	def test_layout_is_counted_but_never_listed(self):
 		analysis = bx.analyze_bpmn_xml(_document(shapes=3))
 		self.assertGreater(analysis["layout_elements"], 0)
-		block = bx.build_analysis_block(analysis)
+		block = replies.build_analysis_block(analysis)
 		self.assertIn("Diagram layout (bpmndi)", block)
 		self.assertNotIn("BPMNShape", block)
 		self.assertIn("bpmn:intermediateCatchEvent Catch_1", block)
@@ -179,7 +180,7 @@ class TestActionableFindings(FrappeTestCase):
 		self.assertTrue(all(i["tag"].startswith("bpmn:") for i in self.analysis["issues"] if i["element_id"]))
 
 	def test_findings_reach_the_model_block_errors_first(self):
-		block = bx.build_analysis_block(self.analysis)
+		block = replies.build_analysis_block(self.analysis)
 		self.assertIn("[ERROR] bpmn:sequenceFlow id=F4", block)
 		self.assertLess(block.index("[ERROR]"), block.index("Flow elements"))
 
@@ -218,7 +219,7 @@ class TestMalformedXml(FrappeTestCase):
 		self.assertIn("</bpmn:process>", error["source_line"])
 
 	def test_error_text_names_the_location(self):
-		text = bx.format_parse_error(bx.analyze_bpmn_xml(MALFORMED)["error"])
+		text = replies.format_parse_error(bx.analyze_bpmn_xml(MALFORMED)["error"])
 		self.assertIn("line 5", text)
 		self.assertIn("<bpmn:process>", text)
 
@@ -260,7 +261,7 @@ class TestLargePaste(FrappeTestCase):
 	def test_huge_semantic_model_is_summarised_and_capped(self):
 		tasks = "".join(f'<bpmn:userTask id="T{n}" name="Step {n}"/>' for n in range(700))
 		turn = bx.prepare_turn(_document(f'<bpmn:process id="P1">{tasks}</bpmn:process>'))
-		self.assertLessEqual(len(turn["block"]), bx.MAX_ANALYSIS_CHARS)
+		self.assertLessEqual(len(turn["block"]), replies.MAX_ANALYSIS_CHARS)
 		self.assertIn("summarised in the parsed analysis", turn["message_override"])
 		self.assertNotIn("<bpmn:userTask", turn["message_override"])
 
