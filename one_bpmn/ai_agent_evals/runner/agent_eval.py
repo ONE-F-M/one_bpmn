@@ -197,7 +197,7 @@ def _parked_answer(run: dict) -> str:
     if not pending.get("name"):
         return said
     asked = f"Stopped to ask a person through {pending['name']}: {json.dumps(pending.get('arguments') or {})}"
-    return "\n\n".join(filter(None, [said, asked]))
+    return "\n\n".join(part for part in (said, asked) if part)
 
 
 def _suspension_of(checkpoint) -> dict:

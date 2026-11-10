@@ -45,7 +45,7 @@ def _force_finalize_if_running(run_name: str, case_names: list) -> None:
         .for_update()
     ).run(as_dict=True)
     if not locked or locked[0].status != "Running":
-        frappe.db.commit()  # release the lock even when there is nothing to do
+        frappe.db.commit()  # nosemgrep - release the lock even when there is nothing to do
         return
     finalize_eval_run(run_name, case_names)
 
@@ -124,7 +124,7 @@ def finalize_eval_run(run_name: str, case_names: list) -> None:
 
     run.ended_at = now_datetime()
     run.save(ignore_permissions=True)  # perms: the sweep finalises stale runs as a system job
-    frappe.db.commit()
+    frappe.db.commit()  # nosemgrep
 
     # Realtime goes to whoever started the run, never "all".
     frappe.publish_realtime(

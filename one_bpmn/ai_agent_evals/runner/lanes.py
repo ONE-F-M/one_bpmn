@@ -76,7 +76,7 @@ def fan_out_eval_suite(run, case_names: list) -> None:
     # concerned. Skipped under test, where FrappeTestCase's rollback is what
     # cleans up the fixtures afterwards.
     if not frappe.flags.in_test:
-        frappe.db.commit()
+        frappe.db.commit()  # nosemgrep
 
     for lane_index in range(concurrency):
         frappe.enqueue(
@@ -150,7 +150,7 @@ def run_eval_lane_job(run_name: str, case_names: list, backend: str, agent_cfg: 
         # Unconditional: this write has to survive even when the very next
         # line never runs because the job is killed. Unlike the inline path,
         # a lane job's whole reason to exist is that its results outlive it.
-        frappe.db.commit()
+        frappe.db.commit()  # nosemgrep
         frappe.publish_realtime(
             "eval_case_completed",
             {
@@ -270,7 +270,7 @@ def _lane_worker(site: str, lanes: "queue.Queue", results: dict, lock: "threadin
                 # to commit. Without this the case's AI Agent Runs — and every
                 # judge call recorded against them — roll back when the thread
                 # ends, while the row it returns still says it all happened.
-                frappe.db.commit()
+                frappe.db.commit()  # nosemgrep
                 with lock:
                     results.update(rows)
             finally:
@@ -303,7 +303,7 @@ def execute_lanes(case_names: List[str], run_name: str, backend: str,
     # and the runner commits at the end anyway; skipped under test so the
     # framework's rollback still cleans up fixtures.
     if not frappe.flags.in_test:
-        frappe.db.commit()
+        frappe.db.commit()  # nosemgrep
 
     pending: "queue.Queue" = queue.Queue()
     for lane in lanes:

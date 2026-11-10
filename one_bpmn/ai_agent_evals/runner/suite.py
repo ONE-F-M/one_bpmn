@@ -227,7 +227,7 @@ def execute_eval_suite(run_name: str, case_names: list | None = None, fan_out: b
     # Background-job commit; skipped in tests so FrappeTestCase rollback
     # still cleans up fixture docs instead of leaking them into the DB.
     if not frappe.flags.in_test:
-        frappe.db.commit()
+        frappe.db.commit()  # nosemgrep
 
     frappe.publish_realtime(
         "eval_run_completed",
