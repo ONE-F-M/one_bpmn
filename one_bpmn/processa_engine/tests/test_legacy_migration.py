@@ -9,9 +9,9 @@ from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 from rq.timeouts import JobTimeoutException
 
-from one_bpmn.processa_engine import legacy_migration
+from one_bpmn.processa_engine import legacy_migration, legacy_migration_move
 from one_bpmn.processa_engine.engine import TaskState
-from one_bpmn.processa_engine.legacy_migration import migrate_record
+from one_bpmn.processa_engine.legacy_migration_move import migrate_record
 from one_bpmn.processa_engine.legacy_migration_replay import MigrationSkip, build_context, replay, wait_ids
 from one_bpmn.tests.factories.legacy_migration_maps import (
 	APPROVED,
@@ -337,7 +337,7 @@ class TestLegacyMigrationReplay(FrappeTestCase):
 
 	def test_an_error_after_the_insert_rolls_the_record_back_and_logs_reason_error(self):
 		with patch(
-			"one_bpmn.processa_engine.legacy_migration._repoint_todos",
+			"one_bpmn.processa_engine.legacy_migration_move._repoint_todos",
 			side_effect=RuntimeError("todo update failed"),
 		):
 			moved, plm, new = self._migrate(OLD, self.waiting_review, [(DRAFT, DRAFT)])
@@ -510,7 +510,7 @@ class TestLegacyMigrationReplay(FrappeTestCase):
 
 	def test_migrate_record_lets_a_timeout_reach_the_batch(self):
 		with (
-			patch.object(legacy_migration, "replay", side_effect=JobTimeoutException("timeout")),
+			patch.object(legacy_migration_move, "replay", side_effect=JobTimeoutException("timeout")),
 			self.assertRaises(JobTimeoutException),
 		):
 			self._migrate(OLD, self.waiting_review, [(DRAFT, DRAFT)])
@@ -524,7 +524,7 @@ class TestLegacyMigrationReplay(FrappeTestCase):
 			name,
 			{"status": status, "total_records": 4, "total_batches": 2, "batches_done": 1, "failed_count": 1},
 		)
-		legacy_migration.log_error_row(
+		legacy_migration_move.log_error_row(
 			name, frappe.get_doc("BPMN Process Instance", self.waiting_review), "Replay stuck", "stuck", 1
 		)
 		return name
