@@ -11,6 +11,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.agents_sandbox.customization import github_sync as logic
@@ -70,3 +71,6 @@ class TestListOrgRepos(FrappeTestCase):
 			with self.assertRaises(Exception):
 				github_sync.list_org_repos()
 		mock_request.assert_not_called()
+
+	def test_list_org_repos_is_not_a_public_endpoint(self):
+		self.assertNotIn(github_sync.list_org_repos, frappe.whitelisted)
