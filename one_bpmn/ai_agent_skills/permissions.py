@@ -1,8 +1,7 @@
-"""Permission scoping for AI Skill and AI Skill Activation.
+"""Permission scoping for AI Skill.
 
 System Manager sees everything. Anyone else sees a skill only when they created it, or when an AI Agent
 Configuration that enables it is owned by them, directly or through the agent's process.
-An activation is visible when its skill is.
 """
 
 import frappe
@@ -59,15 +58,3 @@ def ai_skill_has_permission(doc, ptype: str | None = None, user: str | None = No
 	if doc.is_new():
 		return True
 	return skill_is_visible(doc.name, user)
-
-
-def ai_skill_activation_query_conditions(user: str | None = None) -> str:
-	user = user or frappe.session.user
-	if _is_system_manager(user):
-		return ""
-	return f"`tabAI Skill Activation`.`skill` in ({_visible_skills(user).get_sql()})"
-
-
-def ai_skill_activation_has_permission(doc, ptype: str | None = None, user: str | None = None) -> bool:
-	user = user or frappe.session.user
-	return skill_is_visible(doc.skill, user)
