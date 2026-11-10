@@ -8,7 +8,7 @@ from one_bpmn.ai_agent_security.code_checks.client_script_validator import (
 	MAX_SCRIPT_LENGTH,
 	validate_list_view_script,
 )
-from one_bpmn.api.docu_api import apply_list_view_script, get_list_view_script
+from one_bpmn.api.docu import apply_list_view_script, get_list_view_script
 
 DOCTYPE = "Note"
 SCRIPT = 'frappe.listview_settings["Note"] = { add_fields: ["public"], hide_name_column: true };'

@@ -6,7 +6,7 @@ vi.mock("frappe-ui", () => ({ frappeRequest: vi.fn() }));
 const { frappeRequest } = await import("frappe-ui");
 const { useDocuChat } = await import("../../src/composables/Docu/useDocuChat.js");
 
-const API = "/api/method/one_bpmn.api.docu_api.";
+const API = "/api/method/one_bpmn.api.docu.";
 const IR = { doctype_name: "Vehicle", fields: [] };
 
 function make(props = {}, names = {}) {

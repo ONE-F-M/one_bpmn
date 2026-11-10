@@ -561,7 +561,7 @@ onBeforeUnmount(() => {
 	if (conversationName.value) {
 		// fire-and-forget: safe to call repeatedly, never raises (staging contract)
 		frappeRequest({
-			url: "/api/method/one_bpmn.api.server_script_api.end_chat_conversation",
+			url: "/api/method/one_bpmn.api.server_scripts.end_chat_conversation",
 			params: { conversation_name: conversationName.value },
 		}).catch(() => {});
 	}

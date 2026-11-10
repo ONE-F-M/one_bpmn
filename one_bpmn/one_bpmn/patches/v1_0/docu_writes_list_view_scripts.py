@@ -69,7 +69,7 @@ from one_bpmn.agents.turn_state import get_turn, run_sync, update_turn
 from one_bpmn.agents.llm_provider import get_llm_adapter_from_settings
 from one_bpmn.agents.memory.session_state import record
 from one_bpmn.agents.prosally_helpers import extract_json
-from one_bpmn.api.docu_api import apply_list_view_script, get_list_view_script
+from one_bpmn.api.docu import apply_list_view_script, get_list_view_script
 from one_bpmn.security.client_script_validator import validate_list_view_script
 from one_bpmn.one_bpmn.doctype.ai_agent_configuration.ai_agent_configuration import get_agent_config
 

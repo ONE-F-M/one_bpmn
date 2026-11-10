@@ -101,7 +101,7 @@ export function useAgentConfigAssistant(ac) {
 		if (!convName) return;
 		assistantConversation.value = "";
 		frappeRequest({
-			url: "/api/method/one_bpmn.api.server_script_api.end_chat_conversation",
+			url: "/api/method/one_bpmn.api.server_scripts.end_chat_conversation",
 			params: { conversation_name: convName },
 		}).catch(() => {});
 	}

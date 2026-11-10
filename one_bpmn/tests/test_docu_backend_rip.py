@@ -4,7 +4,7 @@ Docu's stage tools live in the process map's Server Scripts. The only Python
 left is shared infrastructure: the DocType schema tools in
 ``one_bpmn.ai_agent_registry.definitions.docu.tools`` (which exist because a ToolSpec ``fn``
 must be an importable callable) and the
-``api/docu_api.py`` endpoints the DocuCanvas panel calls.
+``api/docu.py`` endpoints the DocuCanvas panel calls.
 
 Run with:
     bench --site SITE run-tests --app one_bpmn --module one_bpmn.tests.test_docu_backend_rip
@@ -79,7 +79,7 @@ class TestDocuBackendRemoved(FrappeTestCase):
 		self.assertEqual(offenders, [], msg="stale imports of the deleted Docu package")
 
 	def test_docu_api_uses_the_shared_module(self):
-		src = (Path(frappe.get_app_path("one_bpmn")) / "api" / "docu_api.py").read_text()
+		src = (Path(frappe.get_app_path("one_bpmn")) / "api" / "docu.py").read_text()
 		self.assertIn("from one_bpmn.ai_agent_registry.definitions.docu.tools import", src)
 		self.assertNotIn("google_adk", src)
 

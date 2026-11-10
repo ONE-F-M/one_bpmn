@@ -1,6 +1,6 @@
 """Docu's tool functions: read, diff and validate DocType definitions in the Docu IR shape.
 
-docu_api's form builder reads and diffs through the same functions.
+docu's form builder reads and diffs through the same functions.
 """
 
 import json
@@ -99,7 +99,7 @@ DOCTYPE_PERMISSION_FLAGS = (
 def read_doctype_definition(doctype: str) -> dict | None:
 	"""An existing DocType in the full Docu IR shape, or None when it does not exist.
 
-	The Docu map, the get_doctype_definition tool and docu_api's form builder all read through it.
+	The Docu map, the get_doctype_definition tool and docu's form builder all read through it.
 	"""
 	if not frappe.db.exists("DocType", doctype):
 		return None

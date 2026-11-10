@@ -7,7 +7,7 @@ from frappe.tests.utils import FrappeTestCase
 from one_bpmn.ai_agent_security.code_checks import script_gate
 from one_bpmn.ai_agent_security.code_checks.script_validator import ValidatorOptions, deep_inspect_script
 from one_bpmn.api.deploy import compile_process_model
-from one_bpmn.api.server_script_api import create_server_script, toggle_server_script, update_server_script
+from one_bpmn.api.server_scripts import create_server_script, toggle_server_script, update_server_script
 from one_bpmn.processa_engine.engine import _make_script_engine, evaluate_condition
 
 test_ignore = ["BPMN Process Model"]

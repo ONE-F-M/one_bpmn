@@ -2,9 +2,9 @@
 # For license information, please see license.txt
 """A proposed DocType change logged for Process Owner approval.
 
-Created by ``one_bpmn.api.docu_api.apply_doctype`` when the requesting user is
+Created by ``one_bpmn.api.docu.apply_doctype`` when the requesting user is
 not a Process Owner of any process whose Process Doctypes table lists the
-DocType. Applied by ``docu_api.approve_doctype_change``.
+DocType. Applied by ``docu.approve_doctype_change``.
 """
 
 import frappe

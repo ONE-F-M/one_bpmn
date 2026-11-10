@@ -1012,7 +1012,7 @@ class TestRefusalReachesTheUser(FrappeTestCase):
 		from unittest.mock import patch
 
 		from one_bpmn.ai_agent_security.rate_limit import RateLimited
-		from one_bpmn.api import server_script_api as SSA
+		from one_bpmn.api import server_scripts as SSA
 
 		class Instance:
 			def receive_message(self, *args, **kwargs):

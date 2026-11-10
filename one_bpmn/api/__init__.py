@@ -6,9 +6,9 @@
 #   workflow_state     — apply workflow states and docstatus transitions
 #   editability        — Process Implementation cross-site editability checks
 #   instances          - process instance endpoints; the logic is in processa_engine.instances
-#   server_script_api  — server script CRUD, Logix/ProSally integration
+#   server_scripts  — server script CRUD, Logix/ProSally integration
 #   canvas_comments    — canvas comment and element asset management
-#   notification_api   — in-app notification creation
+#   notifications   — in-app notification creation
 #   versions           - diagram and server script version history
 #   dmn                - DMN decision tables for business rule tasks
 #   a2a                - A2A protocol door (card, JSON-RPC, push callback) and invoke_agent

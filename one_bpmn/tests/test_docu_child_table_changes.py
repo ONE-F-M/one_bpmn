@@ -6,7 +6,7 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.docu_api import apply_doctype, preview_doctype
+from one_bpmn.api.docu import apply_doctype, preview_doctype
 from one_bpmn.one_bpmn.patches.v1_0 import docu_warns_on_standard_child_tables as fix
 
 PARENT = "Docu Child Change Probe"

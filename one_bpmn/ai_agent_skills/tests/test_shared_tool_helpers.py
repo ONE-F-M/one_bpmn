@@ -13,7 +13,7 @@ from frappe.tests.utils import FrappeTestCase
 from one_bpmn.ai_agent_registry.definitions.shared import helpers
 from one_bpmn.ai_agent_skills.tools.shape_tools import SCRIPT_NAMES, execute_shape
 from one_bpmn.tests.site_scripts import as_deployed
-from one_bpmn.api.server_script_api import get_script_names
+from one_bpmn.api.server_scripts import get_script_names
 from one_bpmn.processa_engine.engine import _make_script_engine
 from one_bpmn.one_bpmn.patches.v1_0 import chat_agents_post_failed_turn_error as edits
 from one_bpmn.one_bpmn.patches.v1_0 import docu_tool_scripts_use_shared_helpers as fix
