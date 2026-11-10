@@ -7,7 +7,7 @@ import xml.etree.ElementTree as _ET
 import frappe
 from frappe import _
 
-from one_bpmn.processa_engine.legacy_migration import OPEN_INSTANCE_STATUSES
+from one_bpmn.processa_engine.legacy_migration_replay import OPEN_INSTANCE_STATUSES
 
 
 def activate_deployed_model(model, script_extensions: dict) -> list:
