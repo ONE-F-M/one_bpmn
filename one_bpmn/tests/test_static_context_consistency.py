@@ -107,10 +107,11 @@ class TestEveryPathStartsFromTheSameDefaults(FrappeTestCase):
 		self.assertEqual(config.max_retries, DEFAULT_MAX_RETRIES)
 
 	def test_the_evals_and_the_direct_run_keep_temperature_0_7(self):
-		from one_bpmn.ai_agent_evals import eval_runner
+		import one_bpmn.ai_agent_evals.runner.agent_eval as runner_agent_eval
+		import one_bpmn.ai_agent_evals.runner.assertions as runner_assertions
 		from one_bpmn.api import a2a as a2a_api
 
-		for fn in (eval_runner._run_direct_eval, eval_runner._evaluate_llm_judge, a2a_api._begin_direct_run):
+		for fn in (runner_agent_eval.run_direct_eval, runner_assertions._evaluate_llm_judge, a2a_api._begin_direct_run):
 			self.assertIn("temperature=0.7", inspect.getsource(fn), f"{fn.__name__} lost its pinned temperature")
 
 	def test_no_path_repeats_a_number_the_shared_module_owns(self):

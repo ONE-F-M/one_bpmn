@@ -11,7 +11,8 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.ai_agent_evals import eval_runner
+import one_bpmn.ai_agent_evals.runner.cases as runner_cases
+import one_bpmn.ai_agent_evals.runner.suite as runner_suite
 
 test_ignore = ["AI Eval Suite", "AI Eval Case"]
 
@@ -63,13 +64,12 @@ class TestEvalSuiteLifecycle(FrappeTestCase):
 		run = _make_run(suite)
 		with (
 			patch.object(
-				eval_runner,
-				"_execute_case",
+				runner_cases, "_execute_case",
 				return_value={"eval_case": case.name, "status": "Passed", "cost": 0.5, "tokens_used": 10},
 			),
 			patch.object(frappe, "publish_realtime") as publish,
 		):
-			eval_runner._execute_eval_suite(run.name)
+			runner_suite.execute_eval_suite(run.name)
 
 		saved = frappe.get_doc("AI Eval Run", run.name)
 		self.assertEqual(saved.status, "Passed")
@@ -86,10 +86,10 @@ class TestEvalSuiteLifecycle(FrappeTestCase):
 		suite, _ = _suite_with_case()
 		run = _make_run(suite)
 		with (
-			patch.object(eval_runner, "_execute_case", side_effect=RuntimeError("boom")),
+			patch.object(runner_cases, "_execute_case", side_effect=RuntimeError("boom")),
 			patch.object(frappe, "publish_realtime") as publish,
 		):
-			eval_runner._execute_eval_suite(run.name)  # must not raise
+			runner_suite.execute_eval_suite(run.name)  # must not raise
 
 		saved = frappe.get_doc("AI Eval Run", run.name)
 		self.assertEqual(saved.status, "Error")
@@ -103,7 +103,7 @@ class TestEvalSuiteLifecycle(FrappeTestCase):
 	def test_run_eval_suite_creates_running_run_and_enqueues(self):
 		suite, _ = _suite_with_case()
 		with patch.object(frappe, "enqueue") as enqueue:
-			run_name = eval_runner.run_eval_suite(suite.name)
+			run_name = runner_suite.run_eval_suite(suite.name)
 		run = frappe.get_doc("AI Eval Run", run_name)
 		self.assertEqual(run.status, "Running")
 		self.assertIsNotNone(run.started_at)

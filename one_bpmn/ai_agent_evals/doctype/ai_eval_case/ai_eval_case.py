@@ -45,7 +45,7 @@ class AIEvalCase(Document):
         writing is not the same as reviewing before it, and only the order shows
         which happened.
         """
-        from one_bpmn.ai_agent_evals.eval_runner import TOOL_CALL_MODES
+        from one_bpmn.ai_agent_evals.runner.assertions import TOOL_CALL_MODES
 
         rows = [r for r in self.assertions if r.assertion_type == "tool_calls"]
         if not rows:

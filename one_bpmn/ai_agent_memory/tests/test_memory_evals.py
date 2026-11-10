@@ -185,11 +185,11 @@ class TestTheRunnerRunsMemoryCases(FrappeTestCase):
 	def _case(self, **context):
 		import json
 
-		from one_bpmn.ai_agent_evals import eval_runner
+		import one_bpmn.ai_agent_evals.runner.cases as runner_cases
 
 		context.setdefault("scope", "Agent")
 		context.setdefault("scope_key", self.agent)
-		return eval_runner, frappe._dict(
+		return runner_cases, frappe._dict(
 			name="CASE-1",
 			case_type="Memory",
 			suite="SUITE-1",
@@ -201,8 +201,8 @@ class TestTheRunnerRunsMemoryCases(FrappeTestCase):
 
 	def test_a_memory_case_never_reaches_the_agent(self):
 		runner, case = self._case(query="who approves invoices", golden_lines=[GOLDEN[0]])
-		with patch.object(runner, "_run_agent_eval", side_effect=AssertionError("should not run the agent")), patch.object(
-			runner, "_run_direct_eval", side_effect=AssertionError("should not call a model")
+		with patch.object(runner, "run_agent_eval", side_effect=AssertionError("should not run the agent")), patch.object(
+			runner, "run_direct_eval", side_effect=AssertionError("should not call a model")
 		):
 			row = runner._execute_case_inner(case)
 		self.assertIn(row["status"], ("Passed", "Failed"))
@@ -263,11 +263,11 @@ class TestTheRunnerRunsMemoryCases(FrappeTestCase):
 	def test_the_run_says_whose_memories_these_are(self):
 		"""A suite queued to a background worker runs as the worker. The owner of
 		the run is the person who asked for it."""
-		from one_bpmn.ai_agent_evals import eval_runner
+		import one_bpmn.ai_agent_evals.runner.cases_memory as runner_cases_memory
 
 		with patch.object(frappe.db, "get_value", return_value="someone@example.test"):
-			self.assertEqual(eval_runner._memory_case_user("RUN-1"), "someone@example.test")
-		self.assertEqual(eval_runner._memory_case_user(None), frappe.session.user)
+			self.assertEqual(runner_cases_memory._memory_case_user("RUN-1"), "someone@example.test")
+		self.assertEqual(runner_cases_memory._memory_case_user(None), frappe.session.user)
 
 	def test_the_golden_memories_come_from_the_field_people_already_edit(self):
 		runner, case = self._case(golden_lines=GOLDEN, produced_memories=list(GOLDEN))

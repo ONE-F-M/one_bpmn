@@ -268,7 +268,7 @@ def _run_baseline_eval(suite_name: str) -> bool | None:
 	"""Run a suite and return True/False for pass/fail, or None if it could
 	not be run. Never raises — eval is advisory unless the suite gates."""
 	try:
-		from one_bpmn.ai_agent_evals.eval_runner import run_eval_suite
+		from one_bpmn.ai_agent_evals.runner.suite import run_eval_suite
 
 		run_name = run_eval_suite(suite_name, backend="live")
 		status = frappe.db.get_value("AI Eval Run", run_name, "status")

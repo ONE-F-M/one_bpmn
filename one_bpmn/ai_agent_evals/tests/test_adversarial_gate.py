@@ -283,7 +283,7 @@ class TestAdversarialGate(FrappeTestCase):
 		process could perfectly well have executed itself — the designer had to go
 		and press Run, then come back."""
 		suite = self._suite()
-		with patch("one_bpmn.ai_agent_evals.eval_runner._execute_eval_suite") as execute:
+		with patch("one_bpmn.ai_agent_evals.runner.suite.execute_eval_suite") as execute:
 			ran = ensure_fresh_runs(self.agent)
 
 		self.assertEqual(ran, [suite])
@@ -299,7 +299,7 @@ class TestAdversarialGate(FrappeTestCase):
 		suite = self._suite()
 		self._run(suite)
 
-		with patch("one_bpmn.ai_agent_evals.eval_runner._execute_eval_suite") as execute:
+		with patch("one_bpmn.ai_agent_evals.runner.suite.execute_eval_suite") as execute:
 			ran = ensure_fresh_runs(self.agent)
 
 		self.assertEqual(ran, [])
@@ -310,7 +310,7 @@ class TestAdversarialGate(FrappeTestCase):
 		rather than an exception taking the whole creation process down."""
 		suite = self._suite()
 		with patch(
-			"one_bpmn.ai_agent_evals.eval_runner._execute_eval_suite", side_effect=RuntimeError("boom")
+			"one_bpmn.ai_agent_evals.runner.suite.execute_eval_suite", side_effect=RuntimeError("boom")
 		), patch("frappe.log_error"):
 			ran = ensure_fresh_runs(self.agent)
 

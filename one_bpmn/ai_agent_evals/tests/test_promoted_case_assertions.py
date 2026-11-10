@@ -11,7 +11,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from one_bpmn.ai_agent_evals.tests.factories import make_eval_case, make_eval_suite
-from one_bpmn.ai_agent_evals.eval_runner import _execute_eval_suite
+from one_bpmn.ai_agent_evals.runner.suite import execute_eval_suite
 from one_bpmn.ai_agent_security.events import record_event
 from one_bpmn.api.security import REFUSAL_RUBRIC, promote_to_eval_case
 from one_bpmn.one_bpmn.patches.v1_0 import promoted_security_cases_get_assertions
@@ -105,8 +105,12 @@ class TestACaseWithNoAssertionsIsInvalid(FrappeTestCase):
 		run.flags.ignore_mandatory = True
 		run.flags.ignore_links = True
 		run.insert(ignore_permissions=True)
-		with patch("one_bpmn.ai_agent_evals.eval_runner._eval_concurrency", return_value=1):
-			_execute_eval_suite(run.name)
+		with (
+			patch("one_bpmn.ai_agent_evals.runner.policy.eval_concurrency", return_value=1),
+			patch("one_bpmn.ai_agent_evals.runner.suite.eval_concurrency", return_value=1),
+			patch("one_bpmn.ai_agent_evals.runner.lanes.eval_concurrency", return_value=1),
+		):
+			execute_eval_suite(run.name)
 		return run.reload()
 
 	def test_the_case_is_invalid_and_fails_the_run(self):

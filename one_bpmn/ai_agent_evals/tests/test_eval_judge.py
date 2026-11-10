@@ -12,7 +12,7 @@ from __future__ import annotations
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.ai_agent_evals.eval_runner import _evaluate_assertion
+from one_bpmn.ai_agent_evals.runner.assertions import evaluate_assertion
 from one_bpmn.ai_agent_evals.tests.factories import patch_executor, success_result
 
 
@@ -35,7 +35,7 @@ class TestEvalJudge(FrappeTestCase):
         judge_output = '{"score": 5, "explanation": "Very polite."}'
 
         with patch_executor(success_result(judge_output)):
-            result = _evaluate_assertion(assertion, "Thank you, please proceed.")
+            result = evaluate_assertion(assertion, "Thank you, please proceed.")
 
         self.assertTrue(result["passed"])
         self.assertEqual(result["score"], 5)
@@ -47,7 +47,7 @@ class TestEvalJudge(FrappeTestCase):
         judge_output = '{"score": 2, "explanation": "Rude."}'
 
         with patch_executor(success_result(judge_output)):
-            result = _evaluate_assertion(assertion, "Go away.")
+            result = evaluate_assertion(assertion, "Go away.")
 
         self.assertFalse(result["passed"])
         self.assertEqual(result["score"], 2)
@@ -58,7 +58,7 @@ class TestEvalJudge(FrappeTestCase):
         judge_output = {"score": 4, "explanation": "Acceptable."}
 
         with patch_executor(success_result(judge_output)):
-            result = _evaluate_assertion(assertion, "Sure thing.")
+            result = evaluate_assertion(assertion, "Sure thing.")
 
         self.assertTrue(result["passed"])
         self.assertEqual(result["score"], 4)
@@ -68,7 +68,7 @@ class TestEvalJudge(FrappeTestCase):
         assertion = _judge_assertion(pass_threshold=4)
 
         with patch_executor(success_result("not json at all {")):
-            result = _evaluate_assertion(assertion, "whatever")
+            result = evaluate_assertion(assertion, "whatever")
 
         self.assertFalse(result["passed"])
         self.assertEqual(result["score"], 0)

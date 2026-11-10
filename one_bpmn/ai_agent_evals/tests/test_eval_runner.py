@@ -23,13 +23,8 @@ from one_bpmn.ai_agent_evals.tests.factories import (
     patch_executor,
     success_result,
 )
-from one_bpmn.ai_agent_evals.eval_runner import (
-    _execute_case,
-    _execute_eval_suite,
-    _mark_expected_errors,
-    run_eval_cases,
-    run_eval_suite,
-)
+from one_bpmn.ai_agent_evals.runner.cases import _execute_case, mark_expected_errors, run_eval_cases
+from one_bpmn.ai_agent_evals.runner.suite import execute_eval_suite, run_eval_suite
 
 
 class TestEvalRunner(FrappeTestCase):
@@ -108,7 +103,7 @@ class TestEvalRunner(FrappeTestCase):
         run = make_eval_run(suite.name)
 
         with patch_executor(success_result(output)):
-            _execute_eval_suite(run.name)
+            execute_eval_suite(run.name)
 
         run.reload()
         self.assertEqual(len(run.results), 1)
@@ -184,7 +179,7 @@ class TestEvalRunner(FrappeTestCase):
             return success_result("approved")
 
         with patch_executor(handler):
-            _execute_eval_suite(run.name)
+            execute_eval_suite(run.name)
 
         run.reload()
         by_case = {r.eval_case: r for r in run.results}
@@ -209,7 +204,7 @@ class TestEvalRunner(FrappeTestCase):
         run = make_eval_run(suite.name)
 
         with patch_executor(success_result("approved")):
-            _execute_eval_suite(run.name)
+            execute_eval_suite(run.name)
 
         run.reload()
         self.assertEqual(run.status, "Passed")
@@ -231,7 +226,7 @@ class TestEvalRunner(FrappeTestCase):
         run = make_eval_run(suite.name)
 
         with patch_executor(success_result("approved")):
-            _execute_eval_suite(run.name)
+            execute_eval_suite(run.name)
 
         run.reload()
         self.assertEqual(run.status, "Failed")
@@ -351,11 +346,11 @@ class TestEvalAttributionAndExpectedErrors(FrappeTestCase):
             (None, None),
         ])
 
-        flagged = _mark_expected_errors(case.name, case.expected_error, eval_run)
+        flagged = mark_expected_errors(case.name, case.expected_error, eval_run)
 
         self.assertEqual(flagged, 1)
         self.assertEqual(_flags(agent_run), [1, 0, 0])
-        self.assertEqual(_mark_expected_errors(case.name, case.expected_error, eval_run), 0)
+        self.assertEqual(mark_expected_errors(case.name, case.expected_error, eval_run), 0)
 
     def test_a_case_without_expected_error_marks_nothing(self):
         suite = make_eval_suite()
@@ -363,7 +358,7 @@ class TestEvalAttributionAndExpectedErrors(FrappeTestCase):
         eval_run = make_eval_run(suite.name).name
         agent_run = _make_agent_run(case.name, eval_run, [("TOOL_ERROR", "get_pull_request: 404 Not Found")])
 
-        self.assertEqual(_mark_expected_errors(case.name, case.expected_error, eval_run), 0)
+        self.assertEqual(mark_expected_errors(case.name, case.expected_error, eval_run), 0)
         self.assertEqual(_flags(agent_run), [0])
 
     def test_another_eval_run_of_the_same_case_is_left_alone(self):
@@ -373,7 +368,7 @@ class TestEvalAttributionAndExpectedErrors(FrappeTestCase):
         other_run = make_eval_run(suite.name).name
         other_agent_run = _make_agent_run(case.name, other_run, [("TOOL_ERROR", "get_pull_request: 404")])
 
-        _mark_expected_errors(case.name, case.expected_error, this_run)
+        mark_expected_errors(case.name, case.expected_error, this_run)
 
         self.assertEqual(_flags(other_agent_run), [0])
 
@@ -387,7 +382,7 @@ class TestEvalAttributionAndExpectedErrors(FrappeTestCase):
             made["run"] = _make_agent_run(case_doc.name, run_name, [("TOOL_ERROR", "get_pull_request: 404")])
             return {"eval_case": case_doc.name, "status": "Passed"}
 
-        with patch("one_bpmn.ai_agent_evals.eval_runner._execute_case_inner", side_effect=run_the_agent):
+        with patch("one_bpmn.ai_agent_evals.runner.cases._execute_case_inner", side_effect=run_the_agent):
             _execute_case(frappe.get_doc("AI Eval Case", case.name), eval_run)
 
         self.assertEqual(_flags(made["run"]), [1])

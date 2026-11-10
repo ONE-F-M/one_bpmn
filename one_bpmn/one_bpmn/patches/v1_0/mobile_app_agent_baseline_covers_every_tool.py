@@ -21,7 +21,7 @@ real pull request against mobile_app_ionic.
 No fourth case here scores a tool-call trace against a captured historical
 run: ``tool_calls``/``expected_tool_calls``/``no_tool_call`` assertions read
 ``AI Agent Tool Call`` rows off a real ``AI Agent Run`` tied to THIS case and
-THIS eval run (see ``_tool_calls_for`` in eval_runner.py) — a deterministic or
+THIS eval run (see ``_tool_calls_for`` in runner/cases.py) — a deterministic or
 replay pass has no such run and nothing to read, so a trace assertion on a
 fixture-less captured case would fail every time, not skip. Only text-scored
 assertions (``contains``, ``regex``, ``equals``) work captured, which is

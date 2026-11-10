@@ -5,15 +5,12 @@
 #          component-folder <path>
 #          private-import <importing path> <module>.<name>
 private-import one_bpmn/a2a/execute.py one_bpmn.processa_engine.triggers._maybe_start_instance
-private-import one_bpmn/ai_agent_evals/adversarial_gate.py one_bpmn.ai_agent_evals.eval_runner._execute_eval_suite
 private-import one_bpmn/ai_agent_evals/eval_case_factory.py one_bpmn.ai_agent_evals.eval_permissions._is_system_manager
 private-import one_bpmn/ai_agent_evals/eval_case_factory.py one_bpmn.ai_agent_evals.eval_permissions._process_model_owned_by
-private-import one_bpmn/ai_agent_evals/eval_ci.py one_bpmn.ai_agent_evals.eval_runner._execute_eval_suite
 private-import one_bpmn/processa_engine/agent_runtime/step_loop.py one_bpmn.agents.observability._tool_call_status
 private-import one_bpmn/agents/goal_completion.py one_bpmn.agents.observability._tool_call_status
 private-import one_bpmn/ai_agent_conversations/compaction_triggers.py one_bpmn.ai_agent_conversations.compaction._resolve_agent_id
 private-import one_bpmn/ai_agent_memory/prune.py one_bpmn.ai_agent_memory.tools._json_loads
-private-import one_bpmn/ai_agent_evals/online_eval.py one_bpmn.ai_agent_evals.eval_runner._evaluate_assertion
 private-import one_bpmn/api/a2a.py one_bpmn.processa_engine.triggers._maybe_start_instance
 private-import one_bpmn/api/agui.py one_bpmn.ai_agent_conversations.agui.stream._extension_events
 private-import one_bpmn/api/eval_api.py one_bpmn.ai_agent_evals.eval_ci._why
@@ -37,8 +34,6 @@ private-import one_bpmn/one_bpmn/patches/v1_0/docu_reserved_fields_are_not_new_f
 private-import one_bpmn/one_bpmn/patches/v1_0/docu_tool_scripts_use_shared_helpers.py one_bpmn.one_bpmn.patches.v1_0.chat_agents_post_failed_turn_error._edit_script
 private-import one_bpmn/one_bpmn/patches/v1_0/docu_writer_tools_record_their_timing.py one_bpmn.one_bpmn.patches.v1_0.chat_agents_post_failed_turn_error._edit_script
 private-import one_bpmn/one_bpmn/patches/v1_0/docu_writes_list_view_scripts.py one_bpmn.one_bpmn.patches.v1_0.chat_agents_post_failed_turn_error._edit_script
-private-import one_bpmn/one_bpmn/patches/v1_0/eval_runs_name_their_agent_and_expected_errors_are_marked.py one_bpmn.ai_agent_evals.eval_runner._mark_expected_errors
-private-import one_bpmn/one_bpmn/patches/v1_0/eval_runs_name_their_agent_and_expected_errors_are_marked.py one_bpmn.ai_agent_evals.eval_runner._resolve_agent_configuration_fallback
 private-import one_bpmn/one_bpmn/patches/v1_0/evals_test_agent_configuration.py one_bpmn.api.eval_api._ensure_ai_model
 private-import one_bpmn/one_bpmn/patches/v1_0/fill_doctype_change_approvers.py one_bpmn.api.docu_api._approvers_for
 private-import one_bpmn/one_bpmn/patches/v1_0/frontend_agent_deletes_files.py one_bpmn.one_bpmn.patches.v1_0.frontend_agent_reads_in_windows._edit_named
@@ -109,7 +104,6 @@ private-import one_bpmn/processa_engine/engine/serializer.py one_bpmn.processa_e
 size one_bpmn/a2a/delegation.py 1114
 size one_bpmn/ai_agent_registry/definitions/prosally/helpers_xml_input.py 820
 size one_bpmn/ai_agent_registry/provisioning/agent_config_resolver.py 1199
-size one_bpmn/ai_agent_evals/eval_runner.py 2914
 size one_bpmn/ai_agent_memory/tools.py 1126
 size one_bpmn/agents/observability.py 1301
 size one_bpmn/agents_sandbox/sandbox/ops.py 1217

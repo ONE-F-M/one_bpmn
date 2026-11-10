@@ -24,7 +24,7 @@ import frappe
 from frappe.commands import get_site, pass_context
 
 from one_bpmn.ai_agent_evals.eval_ci import run_suite, select_suites
-from one_bpmn.ai_agent_evals.eval_runner import EVAL_BACKENDS
+from one_bpmn.ai_agent_evals.runner.policy import EVAL_BACKENDS
 
 
 @click.command("run-ai-evals")

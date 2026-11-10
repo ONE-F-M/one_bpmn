@@ -173,10 +173,10 @@ def draw(runs: list[dict], size: int, weights: dict | None = None, seed=None) ->
 
 def score(run: dict, assertions: list) -> dict:
 	"""Score one sampled answer against the rubric, and report what it cost."""
-	from one_bpmn.ai_agent_evals.eval_runner import _evaluate_assertion
+	from one_bpmn.ai_agent_evals.runner.assertions import evaluate_assertion
 
 	answer = run.get("final_output") or ""
-	results = [_evaluate_assertion(frappe._dict(a), answer) for a in assertions]
+	results = [evaluate_assertion(frappe._dict(a), answer) for a in assertions]
 	failed = [r for r in results if not r.get("passed")]
 	errored = any(r.get("error") for r in results)
 	cost = sum(flt(r.get("judge_cost")) for r in results)

@@ -28,11 +28,11 @@ class TestAiAgentQueueRouting(FrappeTestCase):
 	def test_run_eval_suite_uses_dedicated_queue(self):
 		import re
 
-		from one_bpmn.ai_agent_evals import eval_runner
+		import one_bpmn.ai_agent_evals.runner.suite as runner_suite
 
-		source = open(eval_runner.__file__.replace(".pyc", ".py")).read()
+		source = open(runner_suite.__file__.replace(".pyc", ".py")).read()
 		enqueue_block = re.search(
-			r"frappe\.enqueue\(\s*\"one_bpmn\.ai_agent_evals\.eval_runner\._execute_eval_suite\".*?\)",
+			r"frappe\.enqueue\(\s*\"one_bpmn\.ai_agent_evals\.runner\.suite\.execute_eval_suite\".*?\)",
 			source,
 			re.DOTALL,
 		)
@@ -54,7 +54,11 @@ class TestAiAgentQueueRouting(FrappeTestCase):
 				# start_process_async — explicit async API
 				"starting.py",
 				"task_actions.py",
-				"eval_runner.py",
+				# The eval runner: the suite, case and comparison entry points and the lane jobs
+				"suite.py",
+				"cases.py",
+				"comparison.py",
+				"lanes.py",
 				# Parked AI units run as AI-only jobs —
 				# the ONLY engine-driven producer after the inline flip
 				"bpmn_process_instance.py",

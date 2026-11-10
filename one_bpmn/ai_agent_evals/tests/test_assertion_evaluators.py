@@ -13,8 +13,10 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.ai_agent_evals import eval_runner
-from one_bpmn.ai_agent_evals.eval_runner import _evaluate_assertion
+import one_bpmn.ai_agent_evals.runner.agent_eval as runner_agent_eval
+import one_bpmn.ai_agent_evals.runner.assertions as runner_assertions
+import one_bpmn.ai_agent_evals.runner.cases as runner_cases
+from one_bpmn.ai_agent_evals.runner.assertions import evaluate_assertion
 
 test_ignore = ["AI Eval Suite", "AI Eval Case"]
 
@@ -33,35 +35,35 @@ class TestAssertionEvaluators(FrappeTestCase):
 	# ── Scenario 2: contains / regex / equals ──
 
 	def test_contains(self):
-		self.assertTrue(_evaluate_assertion(_assertion("contains", "world"), "Hello World")["passed"])
-		self.assertFalse(_evaluate_assertion(_assertion("contains", "mars"), "Hello World")["passed"])
+		self.assertTrue(evaluate_assertion(_assertion("contains", "world"), "Hello World")["passed"])
+		self.assertFalse(evaluate_assertion(_assertion("contains", "mars"), "Hello World")["passed"])
 
 	def test_regex(self):
-		self.assertTrue(_evaluate_assertion(_assertion("regex", r"\d{3}"), "code 123")["passed"])
-		self.assertFalse(_evaluate_assertion(_assertion("regex", r"^\d+$"), "abc")["passed"])
+		self.assertTrue(evaluate_assertion(_assertion("regex", r"\d{3}"), "code 123")["passed"])
+		self.assertFalse(evaluate_assertion(_assertion("regex", r"^\d+$"), "abc")["passed"])
 
 	def test_equals(self):
-		self.assertTrue(_evaluate_assertion(_assertion("equals", "yes"), " yes ")["passed"])
-		self.assertFalse(_evaluate_assertion(_assertion("equals", "yes"), "no")["passed"])
+		self.assertTrue(evaluate_assertion(_assertion("equals", "yes"), " yes ")["passed"])
+		self.assertFalse(evaluate_assertion(_assertion("equals", "yes"), "no")["passed"])
 
 	# ── Scenario 1: schema_valid ──
 
 	def test_schema_valid(self):
 		schema = '{"type": "object", "properties": {"a": {"type": "integer"}}, "required": ["a"]}'
-		self.assertTrue(_evaluate_assertion(_assertion("schema_valid", schema), '{"a": 1}')["passed"])
-		bad = _evaluate_assertion(_assertion("schema_valid", schema), '{"a": "not int"}')
+		self.assertTrue(evaluate_assertion(_assertion("schema_valid", schema), '{"a": 1}')["passed"])
+		bad = evaluate_assertion(_assertion("schema_valid", schema), '{"a": "not int"}')
 		self.assertFalse(bad["passed"])
 		self.assertTrue(bad.get("message"))
 
 	# ── Scenario 5: bad assertion → Error result, suite keeps going ──
 
 	def test_invalid_regex_is_error_not_failed(self):
-		result = _evaluate_assertion(_assertion("regex", "([unclosed"), "text")
+		result = evaluate_assertion(_assertion("regex", "([unclosed"), "text")
 		self.assertFalse(result["passed"])
 		self.assertTrue(result.get("error"))
 
 	def test_unsupported_type_is_error(self):
-		result = _evaluate_assertion(_assertion("telepathy", "x"), "text")
+		result = evaluate_assertion(_assertion("telepathy", "x"), "text")
 		self.assertTrue(result.get("error"))
 
 	# ── Scenarios 3/4: llm_judge scoring, failure = Error, cost counted ──
@@ -84,11 +86,11 @@ class TestAssertionEvaluators(FrappeTestCase):
 					token_usage=TokenUsage(prompt_tokens=40, completion_tokens=8, total_tokens=48),
 				)
 
-		return patch.object(eval_runner, "get_executor", return_value=FakeJudge)
+		return patch.object(runner_assertions, "get_executor", return_value=FakeJudge)
 
 	def test_llm_judge_passes_at_threshold(self):
 		with self._judge_executor(output='{"score": 5, "explanation": "great"}'):
-			result = _evaluate_assertion(_assertion("llm_judge", "Is it polite?"), "output")
+			result = evaluate_assertion(_assertion("llm_judge", "Is it polite?"), "output")
 		self.assertTrue(result["passed"])
 		self.assertEqual(result["score"], 5)
 		self.assertEqual(result["judge_prompt_tokens"], 40)
@@ -96,19 +98,19 @@ class TestAssertionEvaluators(FrappeTestCase):
 
 	def test_llm_judge_fails_below_threshold(self):
 		with self._judge_executor(output='{"score": 2, "explanation": "rude"}'):
-			result = _evaluate_assertion(_assertion("llm_judge", "Is it polite?"), "output")
+			result = evaluate_assertion(_assertion("llm_judge", "Is it polite?"), "output")
 		self.assertFalse(result["passed"])
 		self.assertFalse(result.get("error", False))
 
 	def test_llm_judge_call_failure_is_error(self):
 		with self._judge_executor(error=True):
-			result = _evaluate_assertion(_assertion("llm_judge", "rubric"), "output")
+			result = evaluate_assertion(_assertion("llm_judge", "rubric"), "output")
 		self.assertTrue(result.get("error"))
 		self.assertFalse(result["passed"])
 
 	def test_llm_judge_unparseable_score_is_error(self):
 		with self._judge_executor(output="not json at all {{{"):
-			result = _evaluate_assertion(_assertion("llm_judge", "rubric"), "output")
+			result = evaluate_assertion(_assertion("llm_judge", "rubric"), "output")
 		self.assertTrue(result.get("error"))
 
 	# ── Case-level: Error status propagation + judge cost in totals ──
@@ -148,10 +150,10 @@ class TestAssertionEvaluators(FrappeTestCase):
 			"explanation": "Judge call failed: down",
 		}
 		with (
-			patch.object(eval_runner, "get_executor", side_effect=fake_get_executor),
-			patch.object(eval_runner, "_evaluate_assertion", return_value=judge_result),
+			patch.object(runner_assertions, "get_executor", side_effect=fake_get_executor),
+			patch.object(runner_cases, "evaluate_assertion", return_value=judge_result),
 		):
-			row = eval_runner._execute_case(case)
+			row = runner_cases._execute_case(case)
 
 		self.assertEqual(row["status"], "Error")
 		self.assertEqual(row["prompt_tokens"], 140)
@@ -170,18 +172,18 @@ class TestExecutionAssertions(FrappeTestCase):
 
 	def test_token_ceiling(self):
 		facts = {"tokens": 480, "tool_calls": []}
-		self.assertTrue(_evaluate_assertion(_assertion("max_tokens", "500"), "hi", facts)["passed"])
-		over = _evaluate_assertion(_assertion("max_tokens", "300"), "hi", facts)
+		self.assertTrue(evaluate_assertion(_assertion("max_tokens", "500"), "hi", facts)["passed"])
+		over = evaluate_assertion(_assertion("max_tokens", "300"), "hi", facts)
 		self.assertFalse(over["passed"])
 		self.assertIn("480", over["message"])
 
 	def test_token_ceiling_needs_a_number(self):
-		result = _evaluate_assertion(_assertion("max_tokens", "cheap"), "hi", {"tokens": 10})
+		result = evaluate_assertion(_assertion("max_tokens", "cheap"), "hi", {"tokens": 10})
 		self.assertTrue(result.get("error"))
 
 	def test_forbidden_tool_that_ran_fails_the_case(self):
 		facts = {"tokens": 10, "tool_calls": ["classify_intent", "write_schema"]}
-		result = _evaluate_assertion(_assertion("no_tool_call", "write_schema,review_schema"), "hi", facts)
+		result = evaluate_assertion(_assertion("no_tool_call", "write_schema,review_schema"), "hi", facts)
 		self.assertFalse(result["passed"])
 		self.assertIn("write_schema", result["message"])
 
@@ -190,18 +192,18 @@ class TestExecutionAssertions(FrappeTestCase):
 		greeting has to run for the greeting to be recognised."""
 		facts = {"tokens": 10, "tool_calls": ["classify_intent"]}
 		self.assertTrue(
-			_evaluate_assertion(_assertion("no_tool_call", "write_schema"), "hi", facts)["passed"]
+			evaluate_assertion(_assertion("no_tool_call", "write_schema"), "hi", facts)["passed"]
 		)
 
 	def test_forbidden_list_cannot_be_empty(self):
-		result = _evaluate_assertion(_assertion("no_tool_call", "  "), "hi", {"tool_calls": []})
+		result = evaluate_assertion(_assertion("no_tool_call", "  "), "hi", {"tool_calls": []})
 		self.assertTrue(result.get("error"))
 
 	def test_a_replay_says_it_cannot_measure_instead_of_passing(self):
 		"""Replay re-reads a stored answer, so there is no execution to measure.
 		Silently passing would make a re-check look like proof."""
 		for a_type, value in (("max_tokens", "500"), ("no_tool_call", "write_schema")):
-			result = _evaluate_assertion(_assertion(a_type, value), "hi")
+			result = evaluate_assertion(_assertion(a_type, value), "hi")
 			self.assertFalse(result["passed"], a_type)
 			self.assertTrue(result.get("error"), a_type)
 
@@ -232,11 +234,11 @@ class TestExecutionAssertions(FrappeTestCase):
 		self.addCleanup(frappe.delete_doc, "AI Agent Run", run.name, force=True)
 
 		case = SimpleNamespace(name="greeting-case")
-		self.assertEqual(eval_runner._tool_calls_for(case, "greeting-run"), ["write_schema"])
-		facts = eval_runner._execution_facts(case, "greeting-run", {"tokens": 1484})
+		self.assertEqual(runner_cases._tool_calls_for(case, "greeting-run"), ["write_schema"])
+		facts = runner_cases._execution_facts(case, "greeting-run", {"tokens": 1484})
 		self.assertEqual(facts["tokens"], 1484)
 		self.assertFalse(
-			_evaluate_assertion(_assertion("no_tool_call", "write_schema"), "hi", facts)["passed"]
+			evaluate_assertion(_assertion("no_tool_call", "write_schema"), "hi", facts)["passed"]
 		)
 
 	def test_a_parked_call_counts_as_made(self):
@@ -258,13 +260,13 @@ class TestExecutionAssertions(FrappeTestCase):
 		self.addCleanup(frappe.delete_doc, "AI Agent Run", run.name, force=True)
 
 		case = SimpleNamespace(name="parked-case")
-		self.assertEqual(eval_runner._tool_calls_for(case, "parked-run"), ["ask_story_owner"])
-		trace = eval_runner._tool_trace_for(case, "parked-run")
+		self.assertEqual(runner_cases._tool_calls_for(case, "parked-run"), ["ask_story_owner"])
+		trace = runner_cases._tool_trace_for(case, "parked-run")
 		self.assertEqual(trace, [{"tool": "ask_story_owner", "args": {"question": "Which screen?"}, "status": "Parked"}])
-		answer = eval_runner._parked_answer({"status": "Suspended", "checkpoint": run.checkpoint})
+		answer = runner_agent_eval._parked_answer({"status": "Suspended", "checkpoint": run.checkpoint})
 		self.assertIn("The brief is empty.", answer)
 		self.assertIn("ask_story_owner", answer)
-		self.assertEqual(eval_runner._parked_answer({"status": "Success", "checkpoint": run.checkpoint}), "")
+		self.assertEqual(runner_agent_eval._parked_answer({"status": "Success", "checkpoint": run.checkpoint}), "")
 
 	def test_a_repeat_is_scored_on_its_own_calls_only(self):
 		since = frappe.utils.now_datetime()
@@ -291,12 +293,12 @@ class TestExecutionAssertions(FrappeTestCase):
 			step.insert(ignore_permissions=True)
 
 		case = frappe._dict(name="repeat-case")
-		facts = eval_runner._execution_facts(case, "repeat-run", {"tokens": 0}, since=since)
+		facts = runner_cases._execution_facts(case, "repeat-run", {"tokens": 0}, since=since)
 		self.assertEqual(facts["tool_calls"], ["clarify"])
 		self.assertTrue(
-			_evaluate_assertion(_assertion("no_tool_call", "write_script"), "hi", facts)["passed"]
+			evaluate_assertion(_assertion("no_tool_call", "write_script"), "hi", facts)["passed"]
 		)
 
 	def test_another_cases_tools_are_not_counted(self):
 		case = SimpleNamespace(name="a-case-that-never-ran")
-		self.assertEqual(eval_runner._tool_calls_for(case, "some-run"), [])
+		self.assertEqual(runner_cases._tool_calls_for(case, "some-run"), [])

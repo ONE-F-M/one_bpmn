@@ -18,7 +18,7 @@ frappe.ui.form.on("AI Eval Suite", {
 
 				frm.add_custom_button(__("Run Suite"), function () {
 					frappe.call({
-						method: "one_bpmn.ai_agent_evals.eval_runner.run_eval_suite",
+						method: "one_bpmn.ai_agent_evals.runner.suite.run_eval_suite",
 						args: { suite_name: frm.doc.name },
 						freeze: true,
 						freeze_message: __("Starting eval run…"),
