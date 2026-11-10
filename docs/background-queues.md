@@ -1,6 +1,6 @@
 # Which queue runs what, and why it matters
 
-WI-002055. Written down because it was not: until this was measured, nobody could
+Written down because it was not: until this was measured, nobody could
 say whether `poll_a2a_tasks` competed with unrelated long-running jobs, and the
 answer turned out to be yes.
 

@@ -6,13 +6,21 @@ Only comments and module, class and function docstrings are checked. Other strin
 alone on purpose.
 """
 
+import json
 import os
 
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.tests.test_patch_file_ids import ROOT, comment_hits, docstring_hits, read, relative
+from one_bpmn.tests.test_patch_file_ids import ROOT, comment_hits, cs, docstring_hits, read, relative
 
 MODULES = ("a2a", "ai_agent_registry", "ai_agent_guardrails", "ai_agent_security")
+APP_FILES = (
+	"pyproject.toml",
+	".gitignore",
+	"docs/background-queues.md",
+	"one_bpmn/api/a2a.py",
+	"one_bpmn/api/a2a_admin.py",
+)
 
 
 def module_files():
@@ -41,3 +49,19 @@ class TestModuleIds(FrappeTestCase):
 		for path in module_files():
 			for line, name in docstring_hits(read(path)):
 				self.fail(f"{relative(path)}:{line} has a work-item id in the docstring of {name}")
+
+	def test_no_app_level_file_carries_a_work_item_id(self):
+		for name in APP_FILES:
+			for number, line in enumerate(read(os.path.join(ROOT, name)).splitlines(), 1):
+				self.assertIsNone(cs.WORK_ITEM_ID.search(line), f"{name}:{number} carries a work-item id")
+
+	def test_no_processa_engine_field_description_carries_a_work_item_id(self):
+		doctypes = os.path.join(ROOT, "one_bpmn", "processa_engine", "doctype")
+		for folder, _dirs, names in os.walk(doctypes):
+			for name in names:
+				if name != os.path.basename(folder) + ".json":
+					continue
+				path = os.path.join(folder, name)
+				for field in json.loads(read(path)).get("fields", []):
+					text = field.get("description") or ""
+					self.assertIsNone(cs.WORK_ITEM_ID.search(text), f"{relative(path)} field {field.get('fieldname')}")
