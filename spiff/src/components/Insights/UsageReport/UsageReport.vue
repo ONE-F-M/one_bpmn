@@ -261,7 +261,7 @@ function queryParams() {
 // The export endpoint replies with a file, so the browser navigates to it instead of fetching.
 function download(fmt) {
 	const params = new URLSearchParams({ ...queryParams(), fmt })
-	window.open(`/api/method/one_bpmn.api.insights_api.export_cost_token_report?${params.toString()}`, "_blank")
+	window.open(`/api/method/one_bpmn.api.insights.export_cost_token_report?${params.toString()}`, "_blank")
 }
 
 async function fetchReport() {
@@ -269,7 +269,7 @@ async function fetchReport() {
 	error.value = null
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.insights_api.get_cost_token_report",
+			url: "/api/method/one_bpmn.api.insights.get_cost_token_report",
 			method: "POST",
 			params: queryParams(),
 		})

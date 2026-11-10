@@ -1069,7 +1069,7 @@ def _stream_direct_api(config, conversation, message, context):
 
 def _direct_api_turn(config, conversation, message):
 	"""One direct chat exchange, recorded as a run, persisted as two messages."""
-	from one_bpmn.agents import observability
+	from one_bpmn.ai_agent_observability import observability
 	from one_bpmn.ai_agent_registry.provisioning.context_assembler import build_static_context_from_config
 	from one_bpmn.processa_engine.agent_runtime.executor import ExecutorResult, TokenUsage
 	from one_bpmn.processa_engine.agent_runtime.direct_api import run_coro_blocking
@@ -1148,7 +1148,7 @@ def _begin_direct_run(config: dict, system_prompt: str, message: str):
 	"""
 	from types import SimpleNamespace
 
-	from one_bpmn.agents import observability
+	from one_bpmn.ai_agent_observability import observability
 	from one_bpmn.processa_engine.agent_runtime.executor import ExecutorConfig
 
 	try:

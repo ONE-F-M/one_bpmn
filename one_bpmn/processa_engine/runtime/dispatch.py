@@ -130,7 +130,7 @@ def on_engine_task_complete(instance, task):
 	# A completed subprocess parent ends its AI Task Selector run.
 	if isinstance(task_spec, SubWorkflowTask):
 		try:
-			from one_bpmn.agents.observability import finalize_open_selector_runs
+			from one_bpmn.ai_agent_observability.observability import finalize_open_selector_runs
 
 			finalize_open_selector_runs(instance.name, bpmn_id or spec_name)
 		except Exception:
@@ -154,7 +154,7 @@ def on_adhoc_task_complete(instance, task):
 
 	# No-op when no outcome-less AI Agent Tool Call matches, as for a plain ad-hoc task.
 	try:
-		from one_bpmn.agents.observability import record_activation_outcome
+		from one_bpmn.ai_agent_observability.observability import record_activation_outcome
 
 		bpmn_id = task_bpmn_id(task)
 		record_activation_outcome(instance.name, bpmn_id, compose_task_outcome(instance, task, bpmn_id))

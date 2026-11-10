@@ -205,7 +205,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 	# One observability Run per subprocess, reused across decisions; its failures never block dispatch.
 	run = None
 	try:
-		from one_bpmn.agents.observability import get_or_create_selector_run
+		from one_bpmn.ai_agent_observability.observability import get_or_create_selector_run
 
 		run = get_or_create_selector_run(
 			instance, bpmn_id, config, process_model=instance.process_model or ""
@@ -236,7 +236,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 
 	# One Step per LLM turn, one Tool Call row per call within a turn.
 	try:
-		from one_bpmn.agents.observability import record_selector_turns
+		from one_bpmn.ai_agent_observability.observability import record_selector_turns
 
 		if run is not None:
 			source_map = {c.spec.name: c.source for c in pool}
@@ -261,7 +261,7 @@ def dispatch_ai_task_selector(instance, sp, task_cfg: dict, bpmn_id: str) -> tup
 	# An idle decision finalizes the run only when the completion condition is already met.
 	if not selection:
 		try:
-			from one_bpmn.agents.observability import finalize_selector_run
+			from one_bpmn.ai_agent_observability.observability import finalize_selector_run
 
 			if run is not None and bpmn_engine._adhoc_completion_met(sp):
 				finalize_selector_run(run)

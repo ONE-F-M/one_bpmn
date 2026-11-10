@@ -27,7 +27,7 @@ export function useIssueRuns(queryParams) {
 		const { from_date, to_date, origin, group_by } = queryParams()
 		try {
 			const response = await frappeRequest({
-				url: "/api/method/one_bpmn.api.insights_api.get_issue_runs",
+				url: "/api/method/one_bpmn.api.insights.get_issue_runs",
 				method: "POST",
 				params: {
 					key: issueKey,

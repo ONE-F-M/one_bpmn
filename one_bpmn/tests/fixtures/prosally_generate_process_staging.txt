@@ -359,6 +359,6 @@ if not _truncated_error:
     result["generated"] = True
     result["process_name"] = xml_name
     result["issues"] = len(problems)
-from one_bpmn.agents.observability import record_tool_artifact
+from one_bpmn.ai_agent_observability.observability import record_tool_artifact
 result["auto_fixes"] = auto_fixes
 record_tool_artifact(bpmn_id, json.dumps({"ir": ir_dict, "bpmn_xml": best_xml, "auto_fixes": auto_fixes}, indent=1))

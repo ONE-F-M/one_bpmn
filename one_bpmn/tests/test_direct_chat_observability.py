@@ -63,10 +63,10 @@ class TestDirectChatIsRecorded(FrappeTestCase):
 			return a2a_api._run_direct_api(self.config, "CONV-1", "what is a delivery note?", {})
 
 	def test_the_turn_opens_a_run_and_writes_its_prompt_steps(self):
-		with patch("one_bpmn.agents.observability.create_ai_run") as create, patch(
-			"one_bpmn.agents.observability.record_ai_step"
-		) as step, patch("one_bpmn.agents.observability.record_selector_turns"), patch(
-			"one_bpmn.agents.observability.finalize_ai_run"
+		with patch("one_bpmn.ai_agent_observability.observability.create_ai_run") as create, patch(
+			"one_bpmn.ai_agent_observability.observability.record_ai_step"
+		) as step, patch("one_bpmn.ai_agent_observability.observability.record_selector_turns"), patch(
+			"one_bpmn.ai_agent_observability.observability.finalize_ai_run"
 		):
 			create.return_value = SimpleNamespace(name="RUN-FAKE", stub=False)
 			self._run()
@@ -86,10 +86,10 @@ class TestDirectChatIsRecorded(FrappeTestCase):
 		self.assertEqual(step.call_args_list[1].args[3], "what is a delivery note?")
 
 	def test_the_run_is_finalized_with_the_tokens_the_turn_cost(self):
-		with patch("one_bpmn.agents.observability.create_ai_run") as create, patch(
-			"one_bpmn.agents.observability.record_ai_step"
-		), patch("one_bpmn.agents.observability.record_selector_turns"), patch(
-			"one_bpmn.agents.observability.finalize_ai_run"
+		with patch("one_bpmn.ai_agent_observability.observability.create_ai_run") as create, patch(
+			"one_bpmn.ai_agent_observability.observability.record_ai_step"
+		), patch("one_bpmn.ai_agent_observability.observability.record_selector_turns"), patch(
+			"one_bpmn.ai_agent_observability.observability.finalize_ai_run"
 		) as finalize:
 			create.return_value = SimpleNamespace(name="RUN-FAKE", stub=False)
 			out = self._run()
@@ -110,9 +110,9 @@ class TestDirectChatIsRecorded(FrappeTestCase):
 			f"{PERSIST}.save_bot_message"
 		), patch(
 			"one_bpmn.ai_agent_registry.provisioning.context_assembler.build_static_context_from_config", return_value="sp"
-		), patch("one_bpmn.agents.observability.create_ai_run") as create, patch(
-			"one_bpmn.agents.observability.record_ai_step"
-		), patch("one_bpmn.agents.observability.finalize_ai_run_on_exception") as failed:
+		), patch("one_bpmn.ai_agent_observability.observability.create_ai_run") as create, patch(
+			"one_bpmn.ai_agent_observability.observability.record_ai_step"
+		), patch("one_bpmn.ai_agent_observability.observability.finalize_ai_run_on_exception") as failed:
 			create.return_value = SimpleNamespace(name="RUN-FAKE", stub=False)
 			with self.assertRaises(RuntimeError):
 				a2a_api._run_direct_api(self.config, "CONV-2", "hello", {})
@@ -124,10 +124,10 @@ class TestDirectChatIsRecorded(FrappeTestCase):
 		dicts, which is why the executor converts before recording. Passing the
 		objects straight through cost a run on staging on 2026-09-13: the
 		recorder raised AttributeError on turn.get and the run stayed Running."""
-		with patch("one_bpmn.agents.observability.create_ai_run") as create, patch(
-			"one_bpmn.agents.observability.record_ai_step"
-		), patch("one_bpmn.agents.observability.record_selector_turns") as turns, patch(
-			"one_bpmn.agents.observability.finalize_ai_run"
+		with patch("one_bpmn.ai_agent_observability.observability.create_ai_run") as create, patch(
+			"one_bpmn.ai_agent_observability.observability.record_ai_step"
+		), patch("one_bpmn.ai_agent_observability.observability.record_selector_turns") as turns, patch(
+			"one_bpmn.ai_agent_observability.observability.finalize_ai_run"
 		):
 			create.return_value = SimpleNamespace(name="RUN-FAKE", stub=False)
 			self._run()
@@ -141,11 +141,11 @@ class TestDirectChatIsRecorded(FrappeTestCase):
 	def test_a_failure_recording_turns_still_finalizes_the_run(self):
 		"""Recording the turns is the nice-to-have. Finalizing is what stops a
 		finished run being reported as still running."""
-		with patch("one_bpmn.agents.observability.create_ai_run") as create, patch(
-			"one_bpmn.agents.observability.record_ai_step"
+		with patch("one_bpmn.ai_agent_observability.observability.create_ai_run") as create, patch(
+			"one_bpmn.ai_agent_observability.observability.record_ai_step"
 		), patch(
-			"one_bpmn.agents.observability.record_selector_turns", side_effect=RuntimeError("boom")
-		), patch("one_bpmn.agents.observability.finalize_ai_run") as finalize, patch("frappe.log_error"):
+			"one_bpmn.ai_agent_observability.observability.record_selector_turns", side_effect=RuntimeError("boom")
+		), patch("one_bpmn.ai_agent_observability.observability.finalize_ai_run") as finalize, patch("frappe.log_error"):
 			create.return_value = SimpleNamespace(name="RUN-FAKE", stub=False)
 			out = self._run()
 
@@ -155,7 +155,7 @@ class TestDirectChatIsRecorded(FrappeTestCase):
 	def test_recording_that_fails_does_not_cost_the_answer(self):
 		"""The person asked a question. Bookkeeping is not worth their turn."""
 		with patch(
-			"one_bpmn.agents.observability.create_ai_run", side_effect=RuntimeError("no run")
+			"one_bpmn.ai_agent_observability.observability.create_ai_run", side_effect=RuntimeError("no run")
 		), patch("frappe.log_error"):
 			out = self._run()
 

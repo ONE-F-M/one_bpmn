@@ -7,7 +7,7 @@ from itertools import groupby
 
 import frappe
 
-from one_bpmn.agents.goal_completion import ACHIEVED, NOT_ACHIEVED, stage_failure
+from one_bpmn.ai_agent_observability.goal_completion import ACHIEVED, NOT_ACHIEVED, stage_failure
 
 
 def execute():

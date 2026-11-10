@@ -382,7 +382,7 @@ class TestSandboxAiAgentRun(CallbackCase):
 	def test_a_tool_error_is_recorded_as_error_not_reclassified(self):
 		"""Confirms _record_sandbox_trace trusts the trace's own status
 		rather than re-deriving it the way record_selector_turns does — that
-		function's _tool_call_status() only recognizes Processa's own error
+		function's tool_call_status() only recognizes Processa's own error
 		string conventions, not the sandbox's {"error": ...} dict shape, and
 		would silently call this "Success" if it were reused here instead."""
 		model = self._make_model(f"_sbx-model-{frappe.generate_hash(length=6)}")

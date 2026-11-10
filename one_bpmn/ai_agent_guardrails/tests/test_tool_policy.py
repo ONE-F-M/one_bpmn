@@ -262,12 +262,12 @@ class TestLoopIntegration(FrappeTestCase):
 
 class TestObservability(FrappeTestCase):
 	def test_denied_result_is_classified_as_denied_not_error(self):
-		from one_bpmn.agents.observability import _tool_call_status
+		from one_bpmn.ai_agent_observability.observability import tool_call_status
 
-		self.assertEqual(_tool_call_status("Blocked by policy: nope"), "Denied")
-		self.assertEqual(_tool_call_status("Error calling x: boom"), "Error")
-		self.assertEqual(_tool_call_status("Unknown tool: x"), "Error")
-		self.assertEqual(_tool_call_status("42"), "Success")
+		self.assertEqual(tool_call_status("Blocked by policy: nope"), "Denied")
+		self.assertEqual(tool_call_status("Error calling x: boom"), "Error")
+		self.assertEqual(tool_call_status("Unknown tool: x"), "Error")
+		self.assertEqual(tool_call_status("42"), "Success")
 
 
 class TestParameterCeilings(FrappeTestCase):

@@ -494,7 +494,7 @@ class TestIdleDoesNotFinalizeRun(FrappeTestCase):
 		self.assertEqual(runs[0].status, "Running", "idle must not finalize the run")
 
 		# Subprocess completion closes it
-		from one_bpmn.agents.observability import finalize_open_selector_runs
+		from one_bpmn.ai_agent_observability.observability import finalize_open_selector_runs
 
 		self.assertEqual(finalize_open_selector_runs(instance.name, "AdhocSub_1"), 1)
 		self.assertEqual(

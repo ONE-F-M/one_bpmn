@@ -11,7 +11,7 @@ from frappe.query_builder import DocType
 from frappe.query_builder import functions as fn
 from frappe.utils import flt
 
-from one_bpmn.agents.observability import _sum_step_metrics
+from one_bpmn.ai_agent_observability.observability import sum_step_metrics
 
 TURN_CAP_MESSAGE = "turn cap exhausted"
 TURN_KINDS = ("model_call", "tool_turn")
@@ -125,7 +125,7 @@ def _zero_turn_cap_steps(run: str) -> int:
 
 
 def _recalculate(run: str) -> None:
-	totals = _sum_step_metrics(run)
+	totals = sum_step_metrics(run)
 	frappe.db.set_value(
 		"AI Agent Run",
 		run,

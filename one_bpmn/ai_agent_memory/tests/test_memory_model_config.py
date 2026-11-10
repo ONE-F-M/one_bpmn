@@ -262,10 +262,10 @@ class TestMemoryModelConfig(FrappeTestCase):
 
 		enqueued = []
 		for target, kwargs in (
-			("one_bpmn.agents.observability.create_ai_run", {"return_value": SimpleNamespace(name="RUN-X", stub=False)}),
-			("one_bpmn.agents.observability.record_ai_step", {}),
-			("one_bpmn.agents.observability.finalize_ai_run", {}),
-			("one_bpmn.agents.observability.finalize_ai_run_on_exception", {}),
+			("one_bpmn.ai_agent_observability.observability.create_ai_run", {"return_value": SimpleNamespace(name="RUN-X", stub=False)}),
+			("one_bpmn.ai_agent_observability.observability.record_ai_step", {}),
+			("one_bpmn.ai_agent_observability.observability.finalize_ai_run", {}),
+			("one_bpmn.ai_agent_observability.observability.finalize_ai_run_on_exception", {}),
 			("one_bpmn.processa_engine.engine.get_task_display_name", {"return_value": "AI Task"}),
 			("frappe.db.commit", {}),
 		):

@@ -141,7 +141,7 @@ const report = ref({ total_cost: 0, total_tokens: 0, breakdown: [], chain_trunca
 
 async function searchWorkItems(query = "") {
 	const result = await frappeRequest({
-		url: "/api/method/one_bpmn.api.insights_api.search_orchestrator_work_items",
+		url: "/api/method/one_bpmn.api.insights.search_orchestrator_work_items",
 		method: "POST",
 		params: { query },
 	})
@@ -159,7 +159,7 @@ async function fetchReport(workItemName) {
 	loading.value = true
 	try {
 		const res = await frappeRequest({
-			url: "/api/method/one_bpmn.api.insights_api.get_work_item_delegation_cost",
+			url: "/api/method/one_bpmn.api.insights.get_work_item_delegation_cost",
 			method: "POST",
 			params: { work_item_name: workItemName },
 		})

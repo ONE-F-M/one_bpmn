@@ -7,7 +7,7 @@ from itertools import groupby
 
 import frappe
 
-from one_bpmn.agents.goal_completion import ACHIEVED, NOT_ACHIEVED, _excerpt, unsuperseded_tool_failure
+from one_bpmn.ai_agent_observability.goal_completion import ACHIEVED, NOT_ACHIEVED, excerpt, unsuperseded_tool_failure
 
 
 def execute():
@@ -38,7 +38,7 @@ def execute():
 			run_name,
 			{
 				"goal_completion": NOT_ACHIEVED,
-				"completion_basis": f"Tool '{name}' failed and was not retried successfully: {_excerpt(result)}",
+				"completion_basis": f"Tool '{name}' failed and was not retried successfully: {excerpt(result)}",
 			},
 			update_modified=False,
 		)

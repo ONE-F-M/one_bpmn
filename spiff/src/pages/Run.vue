@@ -258,7 +258,7 @@ async function toggleTurn(name) {
 	turnLoading.value = busy
 	try {
 		turns[name] = await frappeRequest({
-			url: "/api/method/one_bpmn.api.insights_api.get_turn_steps",
+			url: "/api/method/one_bpmn.api.insights.get_turn_steps",
 			params: { run_name: name },
 		})
 		delete turnErrors[name]
@@ -354,7 +354,7 @@ async function load() {
 	error.value = ""
 	try {
 		detail.value = await frappeRequest({
-			url: "/api/method/one_bpmn.api.insights_api.get_run_detail",
+			url: "/api/method/one_bpmn.api.insights.get_run_detail",
 			method: "POST",
 			params: { run_name: route.params.run },
 		})

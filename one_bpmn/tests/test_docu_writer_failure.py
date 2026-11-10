@@ -9,7 +9,7 @@ import json
 import frappe
 from frappe.utils import now_datetime
 
-from one_bpmn.agents.observability import _tool_call_status
+from one_bpmn.ai_agent_observability.observability import tool_call_status
 from one_bpmn.ai_agent_skills.tools.shape_tools import execute_shape
 from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, set_turn
 from one_bpmn.api.server_script_api import turn_failure_text
@@ -47,7 +47,7 @@ class TestAWriterThatCouldNotReachItsModelIsAFailedToolCall(DocuTurnFixture):
 	def test_the_tool_result_is_an_error_carrying_the_writer_code(self):
 		out = self._writer_fails("PROVIDER_DISABLED", PROVIDER_MESSAGE)
 
-		self.assertEqual(_tool_call_status(out), "Error")
+		self.assertEqual(tool_call_status(out), "Error")
 		self.assertEqual(json.loads(out)["error_code"], "PROVIDER_DISABLED")
 		tool_error = get_turn(self.conversation.name)["tool_error"]
 		self.assertEqual(tool_error["tool"], "write_schema")

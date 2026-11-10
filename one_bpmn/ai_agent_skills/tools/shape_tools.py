@@ -14,7 +14,7 @@ import json
 
 import frappe
 
-from one_bpmn.agents import observability
+from one_bpmn.ai_agent_observability import observability
 from one_bpmn.processa_engine.agent_runtime.llm_types import ToolSpec
 
 
@@ -366,7 +366,7 @@ def _execute_shape_body(instance, bpmn_id: str, task_cfg: dict | None, kwargs: d
 		# draft. The Server Script shapes hand theirs over themselves; this is the
 		# same record for the shapes that are a model call rather than a script.
 		if service_type == "ai_agent":
-			from one_bpmn.agents.observability import record_tool_artifact
+			from one_bpmn.ai_agent_observability.observability import record_tool_artifact
 
 			answer = produced.get(f"{bpmn_id}_output")
 			if isinstance(answer, str):

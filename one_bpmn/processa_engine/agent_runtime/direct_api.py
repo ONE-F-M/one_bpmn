@@ -681,7 +681,7 @@ class DirectApiExecutor(Executor):
 		"""For the tool loop: why the run has spent its token or cost budget, or "" while it has not."""
 		if not (config.run_token_budget or config.run_cost_budget):
 			return None
-		from one_bpmn.agents.pricing import compute_token_cost
+		from one_bpmn.ai_agent_observability.pricing import compute_token_cost
 
 		def check(trace: list) -> str:
 			prompt = sum(t.prompt_tokens for t in trace)

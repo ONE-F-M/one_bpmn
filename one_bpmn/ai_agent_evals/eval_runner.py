@@ -45,7 +45,7 @@ from one_bpmn.processa_engine.agent_runtime.direct_api import (  # noqa: F401
     strip_code_fences,
 )
 from one_bpmn.processa_engine.agent_runtime.antigravity import AntigravityExecutor  # noqa: F401
-from one_bpmn.agents.pricing import get_model_pricing
+from one_bpmn.ai_agent_observability.pricing import get_model_pricing
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,235 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-06-24 22:20:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "run",
+  "step_index",
+  "role",
+  "content",
+  "step_kind",
+  "column_break_tool",
+  "tool_calls",
+  "section_break_metrics",
+  "prompt_tokens",
+  "completion_tokens",
+  "cache_read_tokens",
+  "cache_write_tokens",
+  "column_break_cost",
+  "cost",
+  "input_cost",
+  "output_cost",
+  "cache_read_cost",
+  "cache_write_cost",
+  "latency_ms",
+  "model_latency_ms",
+  "started_at",
+  "ended_at",
+  "section_break_error",
+  "error_code",
+  "error_message",
+  "is_expected_error"
+ ],
+ "fields": [
+  {
+   "fieldname": "run",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "AI Agent Run",
+   "options": "AI Agent Run",
+   "reqd": 1
+  },
+  {
+   "fieldname": "step_index",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Step Index",
+   "reqd": 1,
+   "description": "0-based order within the run"
+  },
+  {
+   "fieldname": "role",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Role",
+   "options": "system\nuser\nassistant\ntool",
+   "reqd": 1
+  },
+  {
+   "fieldname": "content",
+   "fieldtype": "Long Text",
+   "label": "Content",
+   "description": "The rendered prompt text or response text"
+  },
+  {
+   "fieldname": "step_kind",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Step Kind",
+   "options": "\nprompt\nmodel_call\ntool_turn\nsub_call",
+   "description": "prompt: system or user text; model_call: the agent's own turn; tool_turn: a turn that called tools; sub_call: a model call made from inside a tool"
+  },
+  {
+   "fieldname": "column_break_tool",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "tool_calls",
+   "fieldtype": "Table",
+   "label": "Tool Calls",
+   "options": "AI Agent Tool Call",
+   "description": "One row per tool actually called in this turn. A single LLM turn can contain several calls; they share the turn's token/cost figures."
+  },
+  {
+   "fieldname": "section_break_metrics",
+   "fieldtype": "Section Break",
+   "label": "Metrics"
+  },
+  {
+   "fieldname": "prompt_tokens",
+   "fieldtype": "Int",
+   "label": "Prompt Tokens"
+  },
+  {
+   "fieldname": "completion_tokens",
+   "fieldtype": "Int",
+   "label": "Completion Tokens"
+  },
+  {
+   "fieldname": "cache_read_tokens",
+   "fieldtype": "Int",
+   "label": "Cache Read Tokens",
+   "description": "Part of Prompt Tokens served from the prompt cache — billed at the cache-read rate, not the input rate."
+  },
+  {
+   "fieldname": "cache_write_tokens",
+   "fieldtype": "Int",
+   "label": "Cache Write Tokens",
+   "description": "Part of Prompt Tokens written into the prompt cache — billed at the cache-write rate. 0 for providers with no write premium."
+  },
+  {
+   "fieldname": "column_break_cost",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "cost",
+   "fieldtype": "Currency",
+   "label": "Cost",
+   "precision": "6"
+  },
+  {
+   "fieldname": "input_cost",
+   "fieldtype": "Currency",
+   "label": "Input Cost",
+   "precision": "6",
+   "description": "Cost of the UNCACHED prompt tokens only (prompt - cache_read - cache_write), billed at the input rate. Cache portions are costed separately."
+  },
+  {
+   "fieldname": "output_cost",
+   "fieldtype": "Currency",
+   "label": "Output Cost",
+   "precision": "6",
+   "description": "Cost of completion/output tokens for this step"
+  },
+  {
+   "fieldname": "cache_read_cost",
+   "fieldtype": "Currency",
+   "label": "Cache Read Cost",
+   "precision": "6",
+   "description": "Cost of the cache-read portion of this step's prompt."
+  },
+  {
+   "fieldname": "cache_write_cost",
+   "fieldtype": "Currency",
+   "label": "Cache Write Cost",
+   "precision": "6",
+   "description": "Cost of the cache-write portion of this step's prompt."
+  },
+  {
+   "fieldname": "latency_ms",
+   "fieldtype": "Int",
+   "label": "Latency (ms)"
+  },
+  {
+   "description": "Time spent waiting on the model provider in this step, retries included. Latency minus this is the time the turn's tools took.",
+   "fieldname": "model_latency_ms",
+   "fieldtype": "Int",
+   "label": "Model Latency (ms)"
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At"
+  },
+  {
+   "fieldname": "ended_at",
+   "fieldtype": "Datetime",
+   "label": "Ended At"
+  },
+  {
+   "fieldname": "section_break_error",
+   "fieldtype": "Section Break",
+   "label": "Error",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "error_code",
+   "fieldtype": "Data",
+   "label": "Error Code",
+   "description": "Error code if this step is a failed retry attempt"
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Long Text",
+   "label": "Error Message",
+   "description": "Error details for failed retry attempts"
+  },
+  {
+   "fieldname": "is_expected_error",
+   "fieldtype": "Check",
+   "label": "Is Expected Error",
+   "default": "0",
+   "description": "Set when this step's error contains the eval case's Expected Error. The case causes this error on purpose, so tool-error alerts leave it out.",
+   "read_only": 1
+  }
+ ],
+ "indexes": [
+  [
+   "run"
+  ],
+  [
+   "run",
+   "step_index"
+  ],
+  [
+   "run",
+   "started_at"
+  ]
+ ],
+ "links": [],
+ "modified": "2026-10-04 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AI Agent Observability",
+ "name": "AI Agent Step",
+ "naming_rule": "Hash",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "step_index",
+ "sort_order": "ASC",
+ "states": []
+}
