@@ -2,10 +2,8 @@ import frappe
 from frappe.client import get_list, set_value
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.ai_agent_skills.permissions import (
-	ai_skill_activation_query_conditions,
-	ai_skill_query_conditions,
-)
+from one_bpmn import hooks
+from one_bpmn.ai_agent_skills.permissions import ai_skill_query_conditions
 
 PREFIX = "zzperm"
 OWNER_A = f"{PREFIX}_owner_a@example.com"
@@ -17,7 +15,6 @@ def remove_fixtures() -> None:
 	"""Delete every record these tests create; they run again from a clean state."""
 	skills = frappe.get_all("AI Skill", filters={"name": ["like", f"{PREFIX}-%"]}, pluck="name")
 	groups = (
-		("AI Skill Activation", frappe.get_all("AI Skill Activation", filters={"skill": ["in", skills or [""]]}, pluck="name")),
 		("AI Agent Configuration", frappe.get_all("AI Agent Configuration", filters={"name": ["like", f"{PREFIX}-%"]}, pluck="name")),
 		("BPMN Process Model", frappe.get_all("BPMN Process Model", filters={"title": ["like", f"{PREFIX}-%"]}, pluck="name")),
 		("Process", frappe.get_all("Process", filters={"name": ["like", f"{PREFIX}-%"]}, pluck="name")),
@@ -69,9 +66,6 @@ def make_skill(name: str, as_user: str = "Administrator") -> None:
 		}
 	).insert(ignore_permissions=True)  # perms: test fixture
 	frappe.set_user("Administrator")
-	frappe.get_doc({"doctype": "AI Skill Activation", "skill": name}).insert(
-		ignore_permissions=True  # perms: test fixture
-	)
 
 
 class TestSkillPermissions(FrappeTestCase):
@@ -118,11 +112,10 @@ class TestSkillPermissions(FrappeTestCase):
 		frappe.set_user("Administrator")
 		super().tearDown()
 
-	def names_seen_by(self, user: str, doctype: str = "AI Skill") -> set[str]:
+	def names_seen_by(self, user: str) -> set[str]:
 		frappe.set_user(user)
-		key = "skill" if doctype == "AI Skill Activation" else "name"
-		rows = get_list(doctype, fields=[key], limit_page_length=0)
-		return {row[key] for row in rows if row[key].startswith(PREFIX)}
+		rows = get_list("AI Skill", fields=["name"], limit_page_length=0)
+		return {row["name"] for row in rows if row["name"].startswith(PREFIX)}
 
 	def test_system_manager_sees_every_skill_and_edits_a_body(self):
 		seen = self.names_seen_by("Administrator")
@@ -166,22 +159,11 @@ class TestSkillPermissions(FrappeTestCase):
 		with self.assertRaises(frappe.PermissionError):
 			set_value("AI Skill", self.direct, "body", "must not be saved")
 
-	def test_process_owner_reads_activations_of_their_own_skills_only(self):
-		self.assertEqual(
-			self.names_seen_by(OWNER_A, "AI Skill Activation"), {self.direct, self.shared, self.made_by_owner}
-		)
-		self.assertEqual(self.names_seen_by(OWNER_B, "AI Skill Activation"), {self.via_process, self.shared})
-		self.assertEqual(
-			self.names_seen_by("Administrator", "AI Skill Activation"),
-			{self.direct, self.via_process, self.shared, self.unlinked, self.made_by_owner},
-		)
-
-	def test_activation_log_is_read_only_for_a_process_owner(self):
-		self.assertTrue(frappe.has_permission("AI Skill Activation", "read", user=OWNER_A))
-		for ptype in ("create", "write", "delete"):
-			self.assertFalse(frappe.has_permission("AI Skill Activation", ptype, user=OWNER_A), ptype)
+	def test_the_activation_log_is_not_scoped_by_code(self):
+		"""Who reads the activation log is set in Role Permission Manager, so no hook narrows it."""
+		self.assertNotIn("AI Skill Activation", hooks.permission_query_conditions)
+		self.assertNotIn("AI Skill Activation", hooks.has_permission)
 
 	def test_system_manager_gets_no_restriction(self):
 		self.assertEqual(ai_skill_query_conditions("Administrator"), "")
-		self.assertEqual(ai_skill_activation_query_conditions("Administrator"), "")
 		self.assertIn("`tabAI Skill`.`name` in (", ai_skill_query_conditions(OWNER_A))
