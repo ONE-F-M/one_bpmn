@@ -1,7 +1,7 @@
 {
   "doctype": "DocType",
   "name": "Threat Assessment Report",
-  "module": "ONE BPMN",
+  "module": "Threat Intel",
   "naming_rule": "Expression",
   "autoname": "format:TAR-{YYYY}-{MM}-{DD}",
   "title_field": "report_date",
