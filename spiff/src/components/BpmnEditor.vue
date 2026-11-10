@@ -3170,9 +3170,16 @@ async function getXML() {
 	return xml;
 }
 
+// Serializes the canvas for live sync without blurring the field the user is typing in.
+async function getLiveXML() {
+	if (!modeler) return "";
+	const { xml } = await modeler.saveXML({ format: true });
+	return xml;
+}
 
-async function loadXML(xml) {
+async function loadXML(xml, { keepViewbox = false } = {}) {
 	if (!modeler) return;
+	const viewbox = keepViewbox ? modeler.get("canvas").viewbox() : null;
 	isImporting.value = true;
 	try {
 		await modeler.importXML(xml);
@@ -3212,15 +3219,19 @@ async function loadXML(xml) {
 		updateUndoRedoState();
 		renderComments();
 		// Fit diagram to screen by default after loading, safely catching zero-dimension errors
-		setTimeout(() => {
-			try {
-				const canvas = modeler.get("canvas");
-				canvas.zoom("fit-viewport");
-				zoomLevel.value = Math.round(canvas.zoom() * 100);
-			} catch (e) {
-				console.warn("Could not fit viewport automatically - container may be hidden:", e);
-			}
-		}, 100);
+		if (viewbox) {
+			modeler.get("canvas").viewbox(viewbox);
+		} else {
+			setTimeout(() => {
+				try {
+					const canvas = modeler.get("canvas");
+					canvas.zoom("fit-viewport");
+					zoomLevel.value = Math.round(canvas.zoom() * 100);
+				} catch (e) {
+					console.warn("Could not fit viewport automatically - container may be hidden:", e);
+				}
+			}, 100);
+		}
 
 		// Extract process name from the loaded XML so ProsAlly and other
 		// consumers use the actual BPMN process name, not the model record name.
@@ -3470,6 +3481,7 @@ function updateCalledElement(element, processId, process) {
 
 defineExpose({
 	getXML,
+	getLiveXML,
 	getRawLintIssues,
 	loadXML,
 	setProcessName,

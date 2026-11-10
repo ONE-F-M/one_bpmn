@@ -473,6 +473,14 @@
 				<!-- Canvas -->
 
 				<div class="flex-1 relative">
+					<DiagramConflictBanner
+						:conflict="collab.conflict.value"
+						:status="collab.status.value"
+						:status-message="collab.statusMessage.value"
+						@load-latest="onLoadLatest"
+						@keep-mine="onKeepMine"
+					/>
+
 					<!-- Loading state -->
 					<div v-if="loading" class="flex items-center justify-center h-full bg-gray-100">
 						<div class="text-center">
@@ -1159,6 +1167,8 @@ import ExportConfigDialog from "@/components/ExportConfigDialog.vue";
 import ConfigImportResultsDialog from "@/components/ConfigImportResultsDialog.vue";
 import { sanitiseFilename } from "@/utils/downloadBpmn";
 import { serverMessage } from "@/utils/serverMessage";
+import DiagramConflictBanner from "@/components/DiagramConflictBanner.vue";
+import { useDiagramCollaboration } from "@/composables/useDiagramCollaboration";
 import { useNotificationDialog } from "@/composables/useNotificationDialog";
 import { useWindowSize } from "@/composables/useWindowSize";
 import { dayjs } from "@/dayjs";
@@ -1193,7 +1203,6 @@ const activeDiagramIsActive = computed(() => isActiveModel.value);
 const router = useRouter();
 const route = useRoute();
 
-let heartbeatInterval = null;
 const otherEditors = ref([]);
 
 const editorRef = ref(null);
@@ -1679,6 +1688,46 @@ let pendingNavigationNext = null;
 
 // Track loaded diagram data
 const diagramDataCache = ref({});
+
+// Shares the open diagram with the other editors of the same model.
+const collab = useDiagramCollaboration({
+	hasLocalChanges: () => isUnsavedOrInFlight() || isEditingShapeProperties(),
+	applyXml: applyRemoteDiagram,
+	getLiveXml: () => editorRef.value?.getLiveXML(),
+	onEditors: (editors) => {
+		otherEditors.value = editors;
+	},
+});
+
+async function applyRemoteDiagram(xml) {
+	if (!editorRef.value) return;
+	await editorRef.value.loadXML(xml, { keepViewbox: true });
+	diagramDataCache.value[activeDiagramName.value] = xml;
+	isExecutable.value = extractIsExecutable(xml);
+	hasUnsavedChanges.value = false;
+	saveState.value = "saved";
+}
+
+function markSynced(xml) {
+	collab.synced(xml).catch((err) => console.error("Diagram sync failed:", err));
+}
+
+async function onLoadLatest() {
+	try {
+		await collab.loadLatest();
+	} catch (error) {
+		showNotification("Couldn't Load Latest", serverMessage(error), "red", true);
+	}
+}
+
+async function onKeepMine() {
+	try {
+		await collab.keepMine();
+		await saveCurrentDiagram();
+	} catch (error) {
+		showNotification("Couldn't Save Process", serverMessage(error), "red", true);
+	}
+}
 
 // Script Editor state
 const showScriptEditorDialog = ref(false);
@@ -2356,48 +2405,16 @@ onUnmounted(() => {
 	window.removeEventListener("keydown", handleKeyDown);
 	window.removeEventListener("beforeunload", handleBeforeUnload);
 	clearTimeout(saveTimeout);
-	stopHeartbeat();
+	leaveCollaboration();
 });
 
-function startHeartbeat(modelName) {
-	stopHeartbeat();
+function joinCollaboration(modelName) {
 	if (!modelName) return;
-
-	// Initial check
-	performHeartbeat(modelName);
-
-	// Periodic check every 30 seconds
-	heartbeatInterval = setInterval(() => {
-		performHeartbeat(modelName);
-	}, 30000);
+	collab.join(modelName).catch((err) => console.error("Collaboration join failed:", err));
 }
 
-function stopHeartbeat() {
-	if (heartbeatInterval) {
-		clearInterval(heartbeatInterval);
-		heartbeatInterval = null;
-	}
-	otherEditors.value = [];
-}
-
-async function performHeartbeat(modelName) {
-	try {
-		const response = await frappeRequest({
-			url: "one_bpmn.api.editability.check_and_update_editor_lock",
-			params: { model_name: modelName },
-		});
-
-		const otherUsers = response.message || response;
-		
-		if (otherUsers && otherUsers.length > 0) {
-			otherEditors.value = otherUsers;
-			// Multi-user editing is reflected by avatars in the header.
-		} else {
-			otherEditors.value = [];
-		}
-	} catch (err) {
-		console.error("Heartbeat error:", err);
-	}
+function leaveCollaboration() {
+	collab.leave();
 }
 
 async function loadProcess() {
@@ -2459,12 +2476,12 @@ async function onEditorReady() {
 // Watch for diagram tab switches and load new XML without remounting the editor.
 watch(activeDiagramName, async (newName) => {
 	if (!newName) {
-		stopHeartbeat();
+		leaveCollaboration();
 		isExecutable.value = false;
 		return;
 	}
 
-	startHeartbeat(newName);
+	joinCollaboration(newName);
 
 	if (!editorReady.value) return;
 	hasUnsavedChanges.value = false;
@@ -2481,6 +2498,7 @@ async function loadDiagramContent(name) {
 			await editorRef.value.loadXML(diagramDataCache.value[name]);
 			if (processName.value) editorRef.value.setProcessName(processName.value);
 			isExecutable.value = extractIsExecutable(diagramDataCache.value[name]);
+			markSynced(diagramDataCache.value[name]);
 		}
 		return;
 	}
@@ -2497,6 +2515,7 @@ async function loadDiagramContent(name) {
 			await editorRef.value.loadXML(data.xml_content);
 			if (processName.value) editorRef.value.setProcessName(processName.value);
 			isExecutable.value = extractIsExecutable(data.xml_content);
+			markSynced(data.xml_content);
 		}
 	} catch (error) {
 		console.error("Failed to load diagram:", error);
@@ -2523,6 +2542,7 @@ function onDiagramChanged() {
 	clearTimeout(saveTimeout);
 	hasPendingSave = true;
 	saveTimeout = setTimeout(runDebouncedSave, 1500);
+	collab.publishLive();
 }
 
 // Runs when the auto-save debounce elapses. If the analyst is still entering
@@ -2545,6 +2565,7 @@ async function saveCurrentDiagram() {
 	if (!activeDiagramName.value || !editorRef.value) return;
 	if (!canEditActiveDiagram.value) return; // Guard: this map is locked
 	if (activeVersionName.value) return; // Guard: previewing a read-only version
+	if (collab.conflict.value) return; // Guard: resolve the conflict banner first
 
 	saving.value = true;
 	saveState.value = 'saving';
@@ -2552,18 +2573,13 @@ async function saveCurrentDiagram() {
 		const xml = await editorRef.value.getXML();
 		isExecutable.value = extractIsExecutable(xml);
 		const diagram = diagrams.value.find((d) => d.name === activeDiagramName.value);
-		const modelName = diagram?.model_name || activeDiagramName.value;
 		const description = diagram?.description || "";
 
-		const data = await frappeRequest({
-			url: "/api/method/one_bpmn.api.process_map_api.save_process_model",
-			params: {
-				process: props.process,
-				model_name: modelName,
-				xml_content: xml,
-				description: description,
-			},
-		});
+		const result = await collab.save(xml, description);
+		if (!result.saved) {
+			saveState.value = 'unsaved';
+			return;
+		}
 
 		hasUnsavedChanges.value = false;
 		diagramDataCache.value[activeDiagramName.value] = xml;
