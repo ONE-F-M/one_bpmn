@@ -73,7 +73,8 @@ class TestLegacyMigrationReplay(FrappeTestCase):
 			target_doctype=DT,
 			state_map=[frappe._dict(old_state=o, new_state=n) for o, n in mapping],
 		)
-		return replay(build_context(plm), frappe.get_doc("BPMN Process Instance", old))
+		result = replay(build_context(plm), frappe.get_doc("BPMN Process Instance", old))
+		return result.wf, result.last_state
 
 	def _assert_skip(self, reason, *args, contains=""):
 		with self.assertRaises(MigrationSkip) as caught:
@@ -232,7 +233,7 @@ class TestLegacyMigrationReplay(FrappeTestCase):
 		from_model = frappe.db.get_value("BPMN Process Instance", old, "process_model")
 		name = migration(from_model, deploy("PLM Rep Move", nodes), mapping, status="Running")
 		plm = frappe.get_doc("Processa Legacy Migration", name)
-		moved = migrate_record(build_context(plm), frappe.get_doc("BPMN Process Instance", old))
+		moved = migrate_record(build_context(plm), frappe.get_doc("BPMN Process Instance", old), 1)
 		return moved, name, frappe.db.get_value("BPMN Process Instance", {"migrated_from": old}, "name")
 
 	def test_a_clean_replay_creates_the_new_instance_from_the_old_one(self):
@@ -422,11 +423,11 @@ class TestLegacyMigrationReplay(FrappeTestCase):
 		name = self._batch_plm(deploy("PLM Rep Batch", OLD), [(DRAFT, DRAFT), (APPROVED, APPROVED)])
 		real, calls = legacy_migration.migrate_record, []
 
-		def migrate(ctx, old):
+		def migrate(ctx, old, idx):
 			calls.append(old.name)
 			if len(calls) == 1:
 				raise JobTimeoutException("Task exceeded maximum timeout value (600 seconds)")
-			return real(ctx, old)
+			return real(ctx, old, idx)
 
 		with (
 			patch.object(legacy_migration, "BATCH_SIZE", 2),
@@ -529,7 +530,7 @@ class TestLegacyMigrationReplay(FrappeTestCase):
 			{"status": status, "total_records": 4, "total_batches": 2, "batches_done": 1, "failed_count": 1},
 		)
 		legacy_migration.log_error_row(
-			name, frappe.get_doc("BPMN Process Instance", self.waiting_review), "Replay stuck", "stuck"
+			name, frappe.get_doc("BPMN Process Instance", self.waiting_review), "Replay stuck", "stuck", 1
 		)
 		return name
 

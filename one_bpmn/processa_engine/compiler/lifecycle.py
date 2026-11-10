@@ -7,6 +7,8 @@ import xml.etree.ElementTree as _ET
 import frappe
 from frappe import _
 
+from one_bpmn.processa_engine.legacy_migration import OPEN_INSTANCE_STATUSES
+
 
 def activate_deployed_model(model, script_extensions: dict) -> list:
 	"""Activate the model, deactivate its siblings and enable or disable the Server Scripts each runs; the caller saves.
@@ -45,7 +47,7 @@ def activate_deployed_model(model, script_extensions: dict) -> list:
 			frappe.db.set_value("BPMN Process Model", s.name, "is_active", 0)
 			# Open instances still run the old map's scripts, so those are not disabled.
 			if not frappe.db.exists(
-				"BPMN Process Instance", {"process_model": s.name, "status": ["in", ["Active", "Errored"]]}
+				"BPMN Process Instance", {"process_model": s.name, "status": ["in", OPEN_INSTANCE_STATUSES]}
 			):
 				sibling_scripts |= _get_linked_server_scripts(s.serialized_spec)
 

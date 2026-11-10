@@ -13,6 +13,7 @@ from SpiffWorkflow.bpmn.specs.mixins import CallActivityMixin
 from SpiffWorkflow.bpmn.specs.mixins.events.event_types import CatchingEvent
 from SpiffWorkflow.bpmn.specs.mixins.multiinstance_task import MultiInstanceTask
 from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
+from SpiffWorkflow.bpmn.workflow import BpmnWorkflow
 from SpiffWorkflow.exceptions import TaskNotFoundException, WorkflowException
 from SpiffWorkflow.util.task import TaskState
 
@@ -57,6 +58,7 @@ from one_bpmn.processa_engine.engine.serializer import (
 
 __all__ = [
 	"AdHocSubprocessSpec",
+	"BpmnWorkflow",
 	"SendTask",
 	"TimerEventDefinition",
 	"CallActivityMixin",

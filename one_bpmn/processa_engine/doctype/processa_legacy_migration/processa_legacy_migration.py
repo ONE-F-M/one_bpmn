@@ -1,11 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-#
-# Processa Legacy Migration is driven by the "Processa Legacy Migration - v2"
-# BPMN process: creating a record triggers the process (After Insert), which sets
-# the workflow_state, waits at the "Review" user task, and — when the owner takes
-# the "Run Migration" action — runs the migration via the "Action Processa Legacy
-# Migration" Server Script, then marks the record Completed.
 
 import json
 from collections import Counter
@@ -18,6 +12,8 @@ from one_bpmn.processa_engine.legacy_migration import OPEN_INSTANCE_STATUSES, st
 
 
 class ProcessaLegacyMigration(Document):
+	"""Configuration and progress record for moving open records from an old process map to a new one."""
+
 	# begin: auto-generated types
 	# This code is auto-generated. Do not modify anything in this block.
 
@@ -49,16 +45,16 @@ class ProcessaLegacyMigration(Document):
 		total_records: DF.Int
 		workflow_state: DF.Link | None
 	# end: auto-generated types
-	"""Configuration and progress record for moving open records from an old process map to a new one."""
 
 	def validate(self):
 		if self.status not in ("Draft", "Failed"):
 			return
-		# The setup checks are for people; the PLM's own map saves it to move its workflow state.
+		# The PLM's own map saves it to move its workflow state; a setup change is still checked.
 		if frappe.flags.bpmn_engine_action:
-			return
-		# A blank map is left to Frappe's mandatory check, which runs after validate.
-		if not (self.from_model and self.to_model):
+			if self._setup_unchanged():
+				return
+		# A blank map or DocType is left to Frappe's mandatory check, which runs after validate.
+		if not all((self.from_model, self.to_model, self.target_doctype)):
 			return
 		from_model = frappe.get_doc("BPMN Process Model", self.from_model)
 		to_model = frappe.get_doc("BPMN Process Model", self.to_model)
@@ -68,8 +64,23 @@ class ProcessaLegacyMigration(Document):
 		self._check_state_map(to_model)
 		self._check_open_states_mapped(state_field)
 
+	def _setup_unchanged(self) -> bool:
+		before = self.get_doc_before_save()
+		if not before:
+			return False
+
+		def pairs(doc):
+			return [(d.old_state, d.new_state) for d in doc.state_map]
+
+		fields = ("from_model", "to_model", "target_doctype")
+		if any(before.get(f) != self.get(f) for f in fields):
+			return False
+		return pairs(before) == pairs(self)
+
 	def check_process_ownership(self, from_model, to_model, user: str | None = None):
-		"""Throw PermissionError unless *user* (default the session user) is a System Manager or owns both maps' processes."""
+		"""Throw PermissionError unless *user* (default the session user) owns both maps' processes.
+
+		A System Manager passes."""
 		user = user or frappe.session.user
 		if "System Manager" in frappe.get_roles(user):
 			return
@@ -86,15 +97,15 @@ class ProcessaLegacyMigration(Document):
 		if from_model.name == to_model.name:
 			frappe.throw(_("Old Process Map and New Process Map must be different."))
 		if not to_model.serialized_spec:
-			frappe.throw(_("New Process Map {0} has never been deployed.").format(to_model.name))
-		from_doctypes, to_doctypes = _model_doctypes(from_model), _model_doctypes(to_model)
-		if not from_doctypes & to_doctypes:
-			frappe.throw(
-				_("Old Process Map runs on {0} but New Process Map runs on {1}.").format(
-					", ".join(sorted(from_doctypes)) or _("no DocType"),
-					", ".join(sorted(to_doctypes)) or _("no DocType"),
+			frappe.throw(_("New Process Map {0} is not currently deployed.").format(to_model.name))
+		for model in (from_model, to_model):
+			doctypes = _model_doctypes(model)
+			if self.target_doctype not in doctypes:
+				frappe.throw(
+					_("{0} runs on {1}, not on {2}.").format(
+						model.name, ", ".join(sorted(doctypes)) or _("no DocType"), self.target_doctype
+					)
 				)
-			)
 
 	def _state_field(self) -> str:
 		fieldname = state_field(self.target_doctype)
@@ -133,7 +144,7 @@ class ProcessaLegacyMigration(Document):
 		)
 		counts = Counter(states)
 		for d in self.state_map:
-			d.record_count = counts.get(d.old_state, 0)
+			d.record_count = counts[d.old_state]
 
 		mapped = {d.old_state for d in self.state_map}
 		missing = [

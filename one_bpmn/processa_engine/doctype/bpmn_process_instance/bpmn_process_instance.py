@@ -25,6 +25,7 @@ class BPMNProcessInstance(Document):
 		context_doctype: DF.Link | None
 		engine_in_progress: DF.Check
 		initiated_by: DF.Link | None
+		migrated_from: DF.Link | None
 		parent_instance: DF.Link | None
 		parent_task_id: DF.Data | None
 		process_model: DF.Link
