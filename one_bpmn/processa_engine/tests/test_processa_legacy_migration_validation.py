@@ -141,7 +141,7 @@ class TestProcessaLegacyMigrationValidation(FrappeTestCase):
 
 	def test_a_new_map_never_deployed_is_refused(self):
 		undeployed = _model("PLM Val Undeployed", OWNED_PROCESS, deployed=False)
-		self._assert_refused(self._migration(to_model=undeployed), undeployed, "never been deployed")
+		self._assert_refused(self._migration(to_model=undeployed), undeployed, "is not currently deployed")
 
 	def test_maps_for_different_doctypes_are_refused(self):
 		note_map = _model("PLM Val Note Map", OWNED_PROCESS, doctype="Note")
@@ -159,7 +159,32 @@ class TestProcessaLegacyMigrationValidation(FrappeTestCase):
 		self._assert_refused(self._migration(), f"{HOLD} (1)")
 
 	def test_a_target_doctype_without_a_state_field_is_refused(self):
-		self._assert_refused(self._migration(target_doctype="Note"), "Note", "workflow_state")
+		old_note, new_note = (
+			_model(f"PLM Val Note {v}", OWNED_PROCESS, doctype="Note") for v in ("Old", "New")
+		)
+		migration = self._migration(from_model=old_note, to_model=new_note, target_doctype="Note")
+		self._assert_refused(migration, "Note", "workflow_state")
+
+	def test_a_target_doctype_neither_map_runs_on_is_refused(self):
+		self._assert_refused(self._migration(target_doctype="ToDo"), self.old_map, DT, "ToDo")
+
+	def test_an_engine_save_that_changes_the_setup_is_still_checked(self):
+		name = self._migration().insert().name
+		migration = frappe.get_doc("Processa Legacy Migration", name)
+		migration.to_model = self.old_map
+		with patch.dict(frappe.local.flags, {"bpmn_engine_action": True}):
+			with self.assertRaises(frappe.ValidationError) as caught:
+				migration.save()
+		self.assertIn("must be different", str(caught.exception))
+
+	def test_an_engine_save_that_leaves_the_setup_alone_skips_the_checks(self):
+		name = self._migration().insert().name
+		self._open_record(HOLD)
+		migration = frappe.get_doc("Processa Legacy Migration", name)
+		migration.workflow_state = DONE
+		with patch.dict(frappe.local.flags, {"bpmn_engine_action": True}):
+			migration.save()
+		self.assertEqual(frappe.db.get_value("Processa Legacy Migration", name, "workflow_state"), DONE)
 
 	def test_a_process_owner_of_both_maps_saves_and_sees_only_their_migrations(self):
 		other = self._migration().insert().name

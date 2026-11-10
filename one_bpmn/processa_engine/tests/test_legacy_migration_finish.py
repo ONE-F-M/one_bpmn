@@ -8,7 +8,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.processa_engine import legacy_migration
 from one_bpmn.processa_engine.instances.starting import start_process
-from one_bpmn.processa_engine.tests.test_legacy_migration import DRAFT, DT, OLD, _definitions, _deploy
+from one_bpmn.tests.factories.legacy_migration_maps import DRAFT, DT, OLD, definitions, deploy
 
 
 class TestLegacyMigrationFinishFlow(FrappeTestCase):
@@ -20,9 +20,9 @@ class TestLegacyMigrationFinishFlow(FrappeTestCase):
 				frappe.get_doc(
 					{"doctype": "Workflow State", "workflow_state_name": state, "style": "Primary"}
 				).insert()
-		cls.old_map = _deploy("PLM Fin Old", OLD)
-		cls.new_map = _deploy("PLM Fin New", OLD)
-		cls.flow_map = _deploy("PLM Fin Flow", cls._finish_flow_xml)
+		cls.old_map = deploy("PLM Fin Old", OLD)
+		cls.new_map = deploy("PLM Fin New", OLD)
+		cls.flow_map = deploy("PLM Fin Flow", cls._finish_flow_xml)
 
 	def setUp(self):
 		super().setUp()
@@ -65,7 +65,7 @@ class TestLegacyMigrationFinishFlow(FrappeTestCase):
 			'<bpmn:sequenceFlow id="F6" sourceRef="Task_failed" targetRef="End_2" />'
 		)
 		message = f'<bpmn:message id="Message_finished" name="{legacy_migration.FINISHED_MESSAGE}" />'
-		return _definitions(pid, body, message)
+		return definitions(pid, body, message)
 
 	def test_finish_moves_the_waiting_map_to_completed(self):
 		self.assertEqual(self._run_to_finish(migrated=1), ("Completed", "Completed", 0))

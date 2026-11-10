@@ -1,8 +1,7 @@
 {
  "actions": [],
- "allow_rename": 0,
  "autoname": "PLM-.####",
- "creation": "2026-06-13 20:00:00.000000",
+ "creation": "2026-06-13 20:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -179,9 +178,8 @@
    "read_only": 1
   }
  ],
- "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-11-08 14:00:00.000000",
+ "modified": "2026-11-10 16:27:15.591507",
  "modified_by": "Administrator",
  "module": "Processa Engine",
  "name": "Processa Legacy Migration",
@@ -208,6 +206,7 @@
    "write": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "creation",
  "sort_order": "DESC",
  "states": [],
