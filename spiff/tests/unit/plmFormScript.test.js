@@ -6,20 +6,23 @@ import { describe, expect, it, vi } from "vitest";
 const SCRIPT = readFileSync(
 	resolve(
 		__dirname,
-		"../../../one_bpmn/processa_engine/doctype/processa_legacy_migration/processa_legacy_migration.js"
+		"../../../one_bpmn/processa_engine/doctype/processa_legacy_migration/processa_legacy_migration.js",
 	),
-	"utf8"
+	"utf8",
 );
 const PROGRESS = "legacy_migration_progress";
 
-function loadForm(roles) {
+function loadForm(roles, model = {}) {
 	const handlers = {};
 	const listeners = new Map();
 	const frappe = {
 		ui: { form: { on: (_doctype, events) => Object.assign(handlers, events) } },
 		user: { has_role: (role) => roles.includes(role) },
 		session: { user: "owner@example.com" },
-		db: { get_list: vi.fn(async () => [{ name: "PLM Test" }]) },
+		db: {
+			get_list: vi.fn(async () => [{ name: "PLM Test" }]),
+			get_doc: vi.fn(async () => model),
+		},
 		realtime: {
 			on: (event, fn) => listeners.set(event, [...(listeners.get(event) || []), fn]),
 			off: (event) => listeners.delete(event),
@@ -36,6 +39,7 @@ function makeFrm(doc = {}) {
 		doc: { name: "PLM-0001", status: "Running", ...doc },
 		headlines,
 		set_query: vi.fn(),
+		set_value: vi.fn(),
 		clear_table: vi.fn(),
 		refresh_field: vi.fn(),
 		disable_save: vi.fn(),
@@ -54,7 +58,9 @@ describe("Processa Legacy Migration form", () => {
 		const frm = makeFrm();
 		handlers.setup(frm);
 		await vi.waitFor(() => expect(frm.set_query).toHaveBeenCalledTimes(2));
-		expect(frappe.db.get_list.mock.calls[0][1].filters).toEqual({ process_owner: "owner@example.com" });
+		expect(frappe.db.get_list.mock.calls[0][1].filters).toEqual({
+			process_owner: "owner@example.com",
+		});
 		for (const [fieldname, query] of frm.set_query.mock.calls) {
 			expect(["from_model", "to_model"]).toContain(fieldname);
 			expect(query().filters).toEqual({ process_name: ["in", ["PLM Test"]] });
@@ -67,6 +73,31 @@ describe("Processa Legacy Migration form", () => {
 		handlers.setup(frm);
 		expect(frappe.db.get_list).not.toHaveBeenCalled();
 		expect(frm.set_query).not.toHaveBeenCalled();
+	});
+
+	it("fills Target DocType from a new map that runs on one DocType", async () => {
+		const { handlers } = loadForm(["System Manager"], {
+			target_doctypes: [{ doctype_name: "GP Letter Request" }],
+		});
+		const frm = makeFrm({ to_model: "PLM Demo - v2" });
+		handlers.to_model(frm);
+		await vi.waitFor(() =>
+			expect(frm.set_value).toHaveBeenCalledWith("target_doctype", "GP Letter Request"),
+		);
+	});
+
+	it("clears Target DocType and offers only the map's DocTypes when it runs on several", async () => {
+		const model = {
+			target_doctypes: [{ doctype_name: "GP Letter Request" }, { doctype_name: "Note" }],
+		};
+		const { handlers } = loadForm(["System Manager"], model);
+		const frm = makeFrm({ to_model: "PLM Demo - v2" });
+		handlers.to_model(frm);
+		await vi.waitFor(() => expect(frm.set_query).toHaveBeenCalled());
+		expect(frm.set_value).toHaveBeenCalledWith("target_doctype", "");
+		const [fieldname, query] = frm.set_query.mock.calls[0];
+		expect(fieldname).toBe("target_doctype");
+		expect(query().filters).toEqual({ name: ["in", ["GP Letter Request", "Note"]] });
 	});
 
 	it("clears the state mapping when the old map changes", () => {
@@ -89,7 +120,13 @@ describe("Processa Legacy Migration form", () => {
 		const frm = makeFrm();
 		handlers.onload(frm);
 		const [onProgress] = listeners.get(PROGRESS);
-		const event = { migration_name: "PLM-0001", migrated: 3, failed: 1, total: 30, total_batches: 2 };
+		const event = {
+			migration_name: "PLM-0001",
+			migrated: 3,
+			failed: 1,
+			total: 30,
+			total_batches: 2,
+		};
 		onProgress({ ...event, batches_done: 1 });
 		onProgress({ ...event, batches_done: 2 });
 		expect(frm.headlines).toEqual([
