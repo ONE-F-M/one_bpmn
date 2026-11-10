@@ -11,8 +11,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, now_datetime
 
-from one_bpmn.ai_agent_security.code_checks.script_gate import approved_names
-from one_bpmn.ai_agent_security.code_checks.script_validator import deep_inspect_script
+from one_bpmn.ai_agent_security.code_checks.script_gate import lint_code
 
 # Process Owner holds write on the pattern doctype for seeding, but only these roles edit it here.
 PATTERN_EDIT_ROLES = ("System Manager",)
@@ -892,10 +891,5 @@ def _is_reviewer(user: str) -> bool:
 @frappe.whitelist()
 def lint_server_script(code: str = "", script_name: str = "") -> dict:
 	"""The security violations the Server Script gate would find in this code, honouring the script's approval."""
-	allowed = frozenset()
-	if script_name and frappe.db.exists("Server Script", script_name):
-		script = frappe.get_doc("Server Script", script_name)
-		script.check_permission("read")
-		allowed = approved_names(frappe._dict(script.as_dict(), script=code))
-	violations = deep_inspect_script(code or "", allowed=allowed)
+	violations = lint_code(code, script_name)
 	return {"valid": len(violations) == 0, "violations": violations}

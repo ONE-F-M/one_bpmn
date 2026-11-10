@@ -97,6 +97,16 @@ def approved_names(script) -> frozenset:
 	return parse_allowed(script.get("processa_allowed_modules"))
 
 
+def lint_code(code: str, script_name: str = "") -> list[str]:
+	"""The violations in ``code``, allowing what the saved script's approval covers while it still matches."""
+	allowed = frozenset()
+	if script_name and frappe.db.exists("Server Script", script_name):
+		script = frappe.get_doc("Server Script", script_name)
+		script.check_permission("read")
+		allowed = approved_names(frappe._dict(script.as_dict(), script=code))
+	return deep_inspect_script(code or "", allowed=allowed)
+
+
 def apply_server_script_approval(doc, method=None) -> None:
 	"""Server Script validate: only a System Manager approves, and a code change clears the approval."""
 	before = doc.get_doc_before_save()
