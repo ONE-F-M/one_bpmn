@@ -102,7 +102,7 @@ size one_bpmn/ai_agent_registry/provisioning/agent_config_resolver.py 1199
 size one_bpmn/ai_agent_memory/tools.py 1126
 size one_bpmn/ai_agent_observability/observability.py 1301
 size one_bpmn/agents_sandbox/sandbox/ops.py 1217
-size one_bpmn/api/a2a.py 1243
+size one_bpmn/api/a2a.py 1241
 size one_bpmn/api/docu_api.py 1499
 size one_bpmn/api/eval_api.py 1939
 size one_bpmn/api/production_review.py 871

@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Admin surface for the A2A operation (WI-001934).
+"""Admin surface for the A2A operation.
 
 Two registries and one monitor, so external collaboration is governed
 without the Desk:
@@ -233,7 +233,7 @@ def list_delegations(
 	Filtered the way the question is actually asked: by the task it belongs to,
 	by what the work was about (doctype and document), and by where it got to.
 	The two name filters match on a fragment — nobody types AD-01234 from
-	memory, and "WI-0028" is how you find the run you were just looking at.
+	memory, and a name fragment is how you find the run you were just looking at.
 	"""
 	_require_admin()
 	filters: dict = {}
@@ -496,7 +496,7 @@ def get_client_credentials(name: str) -> dict:
 
 # ── Registering and editing, so the whole lifecycle lives on this screen ──────
 #
-# WI-001934 asks for "register an endpoint" here. Everything below exists so
+# Everything below exists so
 # nobody has to open Desk to add a partner or a caller: the fields a person
 # fills in are the fields these accept, and the doctype controllers still own
 # every rule (approval needs a card, an endpoint change resets approval, an

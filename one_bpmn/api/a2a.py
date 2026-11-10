@@ -21,7 +21,7 @@ from one_bpmn.ai_agent_registry.doctype.ai_agent_configuration.ai_agent_configur
 
 @frappe.whitelist(allow_guest=True, methods=["GET"])
 def agent_card(agent_id: str) -> dict:
-	"""The public Agent Card for one exposed agent (WI-001931)."""
+	"""The public Agent Card for one exposed agent."""
 	card = build_agent_card(agent_id)
 	if card is None:
 		raise frappe.DoesNotExistError
@@ -119,7 +119,7 @@ def push_callback() -> dict:
 	return {"accepted": True}
 
 
-# ── The JSON-RPC door (WI-001932) ─────────────────────────────────────────────
+# The JSON-RPC door
 
 
 @frappe.whitelist(methods=["POST"])
@@ -212,7 +212,7 @@ def _message_send(client: str, agent_id: str, params: dict) -> dict:
 def _continue_task(message: dict, text: str) -> dict:
 	"""The caller answers an input-required pause. This path bypasses
 	invoke_agent, so screening is mirrored explicitly before the answer
-	reaches the suspended run (WI-001932)."""
+	reaches the suspended run."""
 	task = task_store.get_task_for_principal(message["taskId"])
 	task_store.refresh_state(task)
 	if task.state != "input-required":
@@ -425,7 +425,7 @@ def _authorize(config: dict, conversation_name: str = None):
 
 @frappe.whitelist()
 def list_available_agents(include_legacy: int = 1) -> list:
-	"""Return the chat agents the current user may use (WI-001618).
+	"""Return the chat agents the current user may use.
 
 	The list is a query over enabled, Live, Chat-type AI Agent
 	Configurations, filtered by each agent's allowed_roles (empty = all
@@ -447,7 +447,7 @@ def list_available_agents(include_legacy: int = 1) -> list:
 	for cfg in configs:
 		if not cfg.chat_mode_label:
 			continue
-		# WI-001652: Live makes an agent referenceable in the editor; a
+		# Live makes an agent referenceable in the editor; a
 		# deployed linked diagram is what makes it CHATTABLE. Task-only agents
 		# (no diagram, or diagram not deployed) stay out of the chat picker.
 		if not cfg.process_model or not frappe.db.get_value(
@@ -490,14 +490,12 @@ _STILL_WORKING_AFTER_SECONDS = 60
 
 @frappe.whitelist()
 def list_one_ai_agents() -> list:
-	"""The fixed agent list for the ONE AI page (WI-001678).
+	"""The fixed agent list for the ONE AI page.
 
 	Every field the picker shows comes from the agent's own AI Agent
-	Configuration — never from a copy kept here. That is WI-001634's lesson
-	the hard way: LuCrusher's label IS its map's start trigger, the record
-	said "lucrusher" while a hardcoded list said "LuCrusher", and no
-	conversation ever spawned a process instance. An agent that is missing,
-	disabled or not Live on this site is simply not offered.
+	Configuration, never from a copy kept here: LuCrusher's label is its map's
+	start trigger, so a copy that spells it differently starts no instance.
+	An agent that is missing, disabled or not Live on this site is not offered.
 
 	Returns:
 	    list of {value (chat mode label), label, icon, agent_id}, in
@@ -574,7 +572,7 @@ def invoke_agent(
 	    conversation: existing Chat Conversation to continue; a new one is
 	        created (stamped with the agent's chat mode label) when omitted.
 	    context: optional dict merged into the turn payload (editor state, etc.).
-	    stream: internal callers only (the AG-UI endpoint, WI-001670). When
+	    stream: internal callers only (the AG-UI endpoint). When
 	        true, a runner that can stream returns its event generator instead
 	        of a buffered reply; runners that cannot stream ignore the flag.
 	    client_message_id: id minted by the chat client for this message. Sending
@@ -621,7 +619,7 @@ def invoke_agent(
 	config = _resolve_config(agent_id)
 	_authorize(config, conversation)
 
-	# ── Rate limit + conversation freeze (WI-001968) ─────────────────────
+	# Rate limit and conversation freeze
 	# Before any screening or model work: a refused turn should cost nothing,
 	# and a frozen conversation must not reach the provider at all. Raises
 	# RateLimited (a ValidationError) which surfaces to the caller as the
@@ -641,7 +639,7 @@ def invoke_agent(
 		count=(config.get("agent_type") != "Chat"),
 	)
 
-	# ── Broken credentials (WI-002191) ───────────────────────────────────
+	# Broken credentials
 	# A model the platform already knows cannot answer is refused before the
 	# turn starts: no Chat Message, no process instance, no failed run. The
 	# reason is an AgentRefusal, so the chat surface shows it as a message
@@ -652,7 +650,7 @@ def invoke_agent(
 	if _unavailable:
 		raise _model_health.ModelUnavailable(_unavailable)
 
-	# ── PII input screening (WI-001644) ──────────────────────────────────
+	# PII input screening
 	# Every agent invocation passes through here, so this is the one place
 	# that can guarantee no user-supplied PII reaches a third-party model.
 	# Detected values become stable tokens; the mapping lives for this turn
@@ -660,7 +658,7 @@ def invoke_agent(
 	from one_bpmn.ai_agent_security import turn as _turn
 	from one_bpmn.ai_agent_security.screening import pii as _pii
 
-	# WI-001967: one id for everything this turn records. The security event is
+	# One id for everything this turn records. The security event is
 	# written before the AI Agent Run exists and can never be edited afterwards,
 	# so both are stamped with this instead of linked to each other.
 	_turn.begin_turn()
@@ -839,7 +837,7 @@ def _stream_with_pii_teardown(gen, pii_turn, conversation=None, lock_token=None)
 # Each takes (config, conversation_name, message, context, stream=False) and
 # returns a dict with a "response" key. A runner that can stream may instead
 # return an event generator when stream=True; runners that cannot simply
-# ignore the flag (WI-001670). They wrap today's execution styles behind one
+# ignore the flag. They wrap today's execution styles behind one
 # contract.
 
 
@@ -954,7 +952,7 @@ def _bpmn_turn_stream(config, conversation, message, context):
 def _run_bpmn_map(config, conversation, message, context, stream=False):
 	"""Converted agents: the linked process map owns the whole turn.
 
-	Resume re-arm (WI-001672 "confirm during build", confirmed broken): the
+	Resume re-arm: the
 	insert hook spawns an instance for a NEW conversation, but a resumed
 	conversation's instance has Completed with the map's close branch — so
 	the first turn after a resume used to dead-end on "reopen the chat".
@@ -1186,7 +1184,7 @@ _RUNNERS = {
 @frappe.whitelist()
 def get_agent_surface(agent_id: str) -> dict:
 	"""Everything the shared AgentChatPanel needs to draw an agent's chat
-	surface, read from AI Agent Configuration (WI-001996) — greeting,
+	surface, read from AI Agent Configuration: greeting,
 	composer placeholder, surface classification, starter prompts, label and
 	icon. No agent-specific strings live in components.
 
@@ -1233,7 +1231,7 @@ def get_agent_surface(agent_id: str) -> dict:
 		"composer_placeholder": row.get("composer_placeholder") or "",
 		"surface_type": row.get("surface_type") or "Conversation",
 		"artifact_type": row.get("artifact_type") or "None",
-		# Whether this agent's replies carry a rating control (WI-001822). The
+		# Whether this agent's replies carry a rating control. The
 		# panel reads it from here for the same reason it reads the greeting and
 		# the icon from here: no agent-specific behaviour is hardcoded in a
 		# component. Defaults on, so an agent configured before the field existed
