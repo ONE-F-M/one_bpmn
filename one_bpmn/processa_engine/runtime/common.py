@@ -128,7 +128,14 @@ def refresh_user_task_extensions_from_model(instance):
 		)
 
 
-def restore_instance_workflow(instance):
+def acting_user(instance) -> str:
+	"""The user whose action drives this engine pass; scripts run with that user's permissions, not the creator's."""
+	if frappe.session.user != "Guest":
+		return frappe.session.user
+	return instance.initiated_by or "Administrator"
+
+
+def restore_instance_workflow(instance, run_as: str | None = None):
 	"""Load the extension configs onto the instance and rebuild its workflow from workflow_state."""
 	spec_snap = load_json(instance.serialized_spec or "{}") or {}
 	script_exts = spec_snap.get("script_task_extensions", {})
@@ -142,7 +149,7 @@ def restore_instance_workflow(instance):
 		context_doctype=instance.context_doctype,
 		context_docname=instance.context_docname,
 		script_task_extensions=script_exts,
-		initiated_by=instance.initiated_by or "Administrator",
+		initiated_by=run_as or instance.initiated_by or "Administrator",
 		instance=instance,
 	)
 	if instance.context_doctype and instance.context_docname:

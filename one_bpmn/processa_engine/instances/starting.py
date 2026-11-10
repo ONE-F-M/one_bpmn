@@ -328,4 +328,5 @@ def send_message(
 		"instance": instance_name,
 		"status": instance.status,
 		"active_tasks": active_tasks,
+		"caught": bool(instance.flags.get("bpmn_message_caught")),
 	}

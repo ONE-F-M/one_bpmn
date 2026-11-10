@@ -12,6 +12,7 @@ from one_bpmn.processa_engine.assignment import split_users
 from one_bpmn.processa_engine.engine import TaskState
 from one_bpmn.processa_engine.runtime.active_tasks import get_active_tasks_summary, persist_workflow
 from one_bpmn.processa_engine.runtime.common import (
+	acting_user,
 	log_task,
 	refresh_task_data_from_context,
 	restore_instance_workflow,
@@ -31,7 +32,7 @@ def advance(instance, task_id: str, data: dict | None = None) -> list:
 	if not instance.workflow_state:
 		frappe.throw(_("Workflow state is missing. The instance may be corrupted."))
 
-	wf = restore_instance_workflow(instance)
+	wf = restore_instance_workflow(instance, run_as=acting_user(instance))
 
 	try:
 		task = wf.get_task_from_id(uuid.UUID(task_id))
@@ -100,7 +101,7 @@ def retry_failed_step(instance):
 			instance.db_set("initiated_by", initiated_by, update_modified=False)
 		return
 
-	wf = restore_instance_workflow(instance)
+	wf = restore_instance_workflow(instance, run_as=acting_user(instance))
 	prev_assigned = {
 		row.assigned_user for row in instance.active_tasks if row.status == "Waiting" and row.assigned_user
 	}
