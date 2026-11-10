@@ -93,9 +93,7 @@ def ensure_ai_model(model_name: str, judge_provider: str = None) -> str:
 			"model_name": model_name,
 			"provider": provider or None,
 		}
-	).insert(
-		ignore_permissions=True
-	)  # perms: an author may lack create on AI Model, and the record only names the judge model
+	).insert(ignore_permissions=True)  # perms: authors may lack create on AI Model
 	return model_name
 
 
