@@ -17,7 +17,7 @@ from one_bpmn.processa_engine.agent_runtime.executor import (
 	ExecutorContext,
 	get_executor,
 )
-from one_bpmn.agents.pricing import get_model_pricing
+from one_bpmn.ai_agent_observability.pricing import get_model_pricing
 # Importing the backend modules registers them in the executor registry.
 from one_bpmn.processa_engine.agent_runtime.direct_api import (  # noqa: F401
 	DirectApiExecutor,

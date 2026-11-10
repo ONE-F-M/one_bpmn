@@ -617,7 +617,7 @@ class TestAISecurityEvent(FrappeTestCase):
 			self.assertEqual(evt.correlation_id, cid)
 
 			# What create_ai_run will pick up when the dispatcher gets there.
-			from one_bpmn.agents.observability import _turn_correlation_id
+			from one_bpmn.ai_agent_observability.observability import _turn_correlation_id
 
 			self.assertEqual(_turn_correlation_id(), cid)
 		finally:

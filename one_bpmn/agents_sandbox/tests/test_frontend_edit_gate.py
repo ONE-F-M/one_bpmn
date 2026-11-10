@@ -39,7 +39,7 @@ class TestFrontendEditError(FrappeTestCase):
 		self.assertIsNone(self._gate(action="write_file", read=False))
 
 	def test_python_file_needs_no_skill(self):
-		self.assertIsNone(self._gate(path="one_bpmn/api/insights_api.py", skill=False))
+		self.assertIsNone(self._gate(path="one_bpmn/api/insights.py", skill=False))
 
 	def test_past_the_read_budget_an_unread_edit_is_allowed(self):
 		self.assertIsNone(self._gate(read=False, over_budget=True))

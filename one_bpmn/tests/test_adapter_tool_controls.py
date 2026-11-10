@@ -17,7 +17,7 @@ from one_bpmn.processa_engine.agent_runtime.llm_anthropic import AnthropicAdapte
 from one_bpmn.processa_engine.agent_runtime.llm_types import LLMTruncatedError, StepResult, StepToolCall, ToolSpec
 from one_bpmn.processa_engine.agent_runtime.llm_gemini import GeminiAdapter
 from one_bpmn.processa_engine.agent_runtime.llm_openai import OpenAIAdapter
-from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG
+from one_bpmn.ai_agent_observability.observability import SUB_CALL_TURN_FLAG
 from one_bpmn.ai_agent_skills.tools.shape_tools import PAUSE_HELD_FLAG
 
 RAN = []

@@ -16,7 +16,7 @@ import frappe
 from frappe.query_builder import DocType
 from frappe.utils import cint, get_datetime
 
-from one_bpmn.agents.observability import classify_step
+from one_bpmn.ai_agent_observability.observability import classify_step
 
 
 def execute():

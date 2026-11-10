@@ -22,7 +22,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.processa_engine.agent_runtime.executor import ExecutorConfig
-from one_bpmn.agents.observability import (
+from one_bpmn.ai_agent_observability.observability import (
 	_MAX_INLINE_CHARS,
 	clear_tool_artifacts,
 	create_ai_run,

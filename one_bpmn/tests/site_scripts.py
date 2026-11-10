@@ -33,6 +33,7 @@ DEFINITIONS = "one_bpmn.ai_agent_registry.definitions"
 CODE_CHECKS = "one_bpmn.ai_agent_security.code_checks"
 
 MOVED_MODULES = {
+	"one_bpmn.agents.observability": "one_bpmn.ai_agent_observability.observability",
 	"one_bpmn.agents.bpmn_ir_pipeline": f"{DEFINITIONS}.prosally.tools_pipeline",
 	"one_bpmn.agents.bpmn_xml_input": f"{DEFINITIONS}.prosally.helpers_xml_input",
 	"one_bpmn.agents.process_links": f"{DEFINITIONS}.prosally.tools_links",

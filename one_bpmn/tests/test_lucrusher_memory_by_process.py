@@ -112,16 +112,16 @@ class TestDispatchRecall(FrappeTestCase):
 	def setUp(self):
 		_CAPTURED.clear()
 		for target in (
-			"one_bpmn.agents.observability.record_ai_step",
-			"one_bpmn.agents.observability.finalize_ai_run",
-			"one_bpmn.agents.observability.finalize_ai_run_on_exception",
+			"one_bpmn.ai_agent_observability.observability.record_ai_step",
+			"one_bpmn.ai_agent_observability.observability.finalize_ai_run",
+			"one_bpmn.ai_agent_observability.observability.finalize_ai_run_on_exception",
 			"frappe.db.commit",
 		):
 			p = patch(target)
 			p.start()
 			self.addCleanup(p.stop)
 		p = patch(
-			"one_bpmn.agents.observability.create_ai_run",
+			"one_bpmn.ai_agent_observability.observability.create_ai_run",
 			return_value=SimpleNamespace(name="RUN-FAKE", stub=False),
 		)
 		p.start()

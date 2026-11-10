@@ -36,7 +36,7 @@ from datetime import datetime
 import frappe
 
 from one_bpmn.ai_agent_security import identity
-from one_bpmn.agents.observability import record_ai_step
+from one_bpmn.ai_agent_observability.observability import record_ai_step
 from one_bpmn.processa_engine.agent_runtime.job_limits import AI_AGENT_JOB_TIMEOUT
 from one_bpmn.agents_sandbox.doctype.agent_sandbox_run.agent_sandbox_run import bounded_error
 
@@ -214,7 +214,7 @@ def _create_sandbox_ai_agent_run(run, payload: dict) -> str | None:
 
 	from frappe.utils import flt
 
-	from one_bpmn.agents.pricing import get_model_pricing
+	from one_bpmn.ai_agent_observability.pricing import get_model_pricing
 
 	model = payload.get("agent_model") or ""
 	input_tokens = usage.get("input_tokens", 0) or 0
@@ -314,10 +314,10 @@ def _record_sandbox_trace(agent_run, trace: list) -> None:
 	via record_ai_step(), now extended to a loop that runs entirely outside
 	Frappe (on Cloud Run) and can only ever be recorded from here.
 
-	Deliberately NOT agents/observability.py's own record_selector_turns,
+	Deliberately NOT ai_agent_observability/observability.py's own record_selector_turns,
 	despite the trace shape (dev_agent_server.py's _run_coding_loop was built
 	to match it exactly): that helper re-derives each call's status via
-	_tool_call_status(), which classifies Processa's OWN tool-loop error
+	tool_call_status(), which classifies Processa's OWN tool-loop error
 	string conventions ("Blocked by policy:", "Error calling ...") — the
 	sandbox's tool results are {"error": ...} dicts, not those strings, so
 	every sandbox failure would silently re-classify as "Success" if run

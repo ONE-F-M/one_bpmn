@@ -27,7 +27,7 @@ def _agent_transcripts_for_eval_run(eval_run: str) -> dict:
 	again on AI Agent Run (which is System-Manager-only at the doctype level and
 	would hide it from the process owners this screen is built for).
 	"""
-	# Imported here rather than at module level: eval_api is loaded on every
+	# Imported here rather than at module level: api.evals is loaded on every
 	# Processa request, and the eval runner pulls in the executor backends.
 	from one_bpmn.ai_agent_evals.runner.assertions import EVAL_RUN_JUDGE
 

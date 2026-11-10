@@ -193,7 +193,7 @@ async function toggleRun() {
 	loadError.value = ""
 	try {
 		fetched.value = await frappeRequest({
-			url: "/api/method/one_bpmn.api.insights_api.get_turn_steps",
+			url: "/api/method/one_bpmn.api.insights.get_turn_steps",
 			params: { run_name: props.node.run.name },
 		})
 	} catch (e) {

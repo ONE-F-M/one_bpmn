@@ -271,7 +271,7 @@ function resetFilters() {
 async function loadFilterOptions() {
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.insights_api.get_cost_token_report",
+			url: "/api/method/one_bpmn.api.insights.get_cost_token_report",
 			method: "POST",
 			params: { from_date: fromDate.value, to_date: toDate.value, origin: origin.value },
 		})

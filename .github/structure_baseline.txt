@@ -5,8 +5,6 @@
 #          component-folder <path>
 #          private-import <importing path> <module>.<name>
 private-import one_bpmn/a2a/execute.py one_bpmn.processa_engine.triggers._maybe_start_instance
-private-import one_bpmn/processa_engine/agent_runtime/step_loop.py one_bpmn.agents.observability._tool_call_status
-private-import one_bpmn/agents/goal_completion.py one_bpmn.agents.observability._tool_call_status
 private-import one_bpmn/ai_agent_conversations/compaction_triggers.py one_bpmn.ai_agent_conversations.compaction._resolve_agent_id
 private-import one_bpmn/ai_agent_memory/prune.py one_bpmn.ai_agent_memory.tools._json_loads
 private-import one_bpmn/api/a2a.py one_bpmn.processa_engine.triggers._maybe_start_instance
@@ -22,7 +20,6 @@ private-import one_bpmn/one_bpmn/patches/v1_0/agent_prompts_for_awkward_orders.p
 private-import one_bpmn/one_bpmn/patches/v1_0/apply_reviewed_memory_cleanup.py one_bpmn.ai_agent_memory.prune._invalidate
 private-import one_bpmn/one_bpmn/patches/v1_0/apply_reviewed_memory_cleanup.py one_bpmn.ai_agent_memory.tools._json_loads
 private-import one_bpmn/one_bpmn/patches/v1_0/chat_agents_report_failed_tool.py one_bpmn.one_bpmn.patches.v1_0.chat_agents_post_failed_turn_error._edit_script
-private-import one_bpmn/one_bpmn/patches/v1_0/dedupe_resumed_run_steps.py one_bpmn.agents.observability._sum_step_metrics
 private-import one_bpmn/one_bpmn/patches/v1_0/dms_tool_reads_as_the_chatting_user.py one_bpmn.one_bpmn.patches.v1_0.general_chat_answers_from_dms._upsert_tool_script
 private-import one_bpmn/one_bpmn/patches/v1_0/docu_confirms_the_parts_of_a_spec.py one_bpmn.one_bpmn.patches.v1_0.chat_agents_post_failed_turn_error._edit_script
 private-import one_bpmn/one_bpmn/patches/v1_0/docu_reserved_fields_are_not_new_fields.py one_bpmn.one_bpmn.patches.v1_0.seed_docu_agent_config._INLINE_SUB_PROMPTS
@@ -33,7 +30,6 @@ private-import one_bpmn/one_bpmn/patches/v1_0/fill_doctype_change_approvers.py o
 private-import one_bpmn/one_bpmn/patches/v1_0/frontend_agent_deletes_files.py one_bpmn.one_bpmn.patches.v1_0.frontend_agent_reads_in_windows._edit_named
 private-import one_bpmn/one_bpmn/patches/v1_0/frontend_agent_deletes_files.py one_bpmn.one_bpmn.patches.v1_0.seed_frontend_agent_eval_suite._fixture_task
 private-import one_bpmn/one_bpmn/patches/v1_0/frontend_agent_deletes_files.py one_bpmn.one_bpmn.patches.v1_0.seed_frontend_agent_eval_suite._suite
-private-import one_bpmn/one_bpmn/patches/v1_0/goal_completion_unsuperseded_tool_error.py one_bpmn.agents.goal_completion._excerpt
 private-import one_bpmn/one_bpmn/patches/v1_0/lucrusher_phase_skill_preloaded.py one_bpmn.one_bpmn.patches.v1_0.move_lucrusher_turn_instructions_to_system._AGENT_ID
 private-import one_bpmn/one_bpmn/patches/v1_0/lucrusher_reads_dms_documents.py one_bpmn.one_bpmn.patches.v1_0.add_assistant_agent_creation_tool._di_xml
 private-import one_bpmn/one_bpmn/patches/v1_0/lucrusher_reads_dms_documents.py one_bpmn.one_bpmn.patches.v1_0.add_assistant_eval_authoring_tools._ensure_script
@@ -83,7 +79,6 @@ private-import one_bpmn/one_bpmn/patches/v1_0/seed_lucrusher_skills.py one_bpmn.
 private-import one_bpmn/one_bpmn/patches/v1_0/seed_lucrusher_skills.py one_bpmn.one_bpmn.patches.v1_0.seed_prosally_and_frontend_skills._enable_skill
 private-import one_bpmn/one_bpmn/patches/v1_0/seed_lucrusher_skills.py one_bpmn.one_bpmn.patches.v1_0.seed_prosally_and_frontend_skills._upsert_skill
 private-import one_bpmn/one_bpmn/patches/v1_0/seed_prosally_baseline_suite.py one_bpmn.one_bpmn.patches.v1_0.seed_lucrusher_eval_suite._call
-private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.agents.observability._CURRENT_RUN_FLAG
 private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.ai_agent_skills.tools.shape_tools._run_server_script
 private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.ai_agent_skills.tools.shape_tools._synthetic_task
 private-import one_bpmn/processa_engine/dispatch/ai_agent.py one_bpmn.ai_agent_skills.skill_tools._skill_names_cache_key
@@ -99,11 +94,10 @@ size one_bpmn/a2a/delegation.py 1114
 size one_bpmn/ai_agent_registry/definitions/prosally/helpers_xml_input.py 820
 size one_bpmn/ai_agent_registry/provisioning/agent_config_resolver.py 1199
 size one_bpmn/ai_agent_memory/tools.py 1126
-size one_bpmn/agents/observability.py 1301
+size one_bpmn/ai_agent_observability/observability.py 1301
 size one_bpmn/agents_sandbox/sandbox/ops.py 1217
 size one_bpmn/api/a2a.py 1243
 size one_bpmn/api/docu_api.py 1499
-size one_bpmn/api/insights_api.py 2613
 size one_bpmn/api/production_review.py 871
 size one_bpmn/api/security.py 895
 size one_bpmn/api/server_script_api.py 954
@@ -130,6 +124,3 @@ size spiff/src/pages/Instances.vue 559
 size spiff/src/pages/Processes.vue 525
 size spiff/src/pages/Security.vue 1216
 size spiff/src/pages/Skills.vue 791
-test-location one_bpmn/agents/test_observability.py
-test-location one_bpmn/agents/test_pricing.py
-test-location one_bpmn/agents/test_token_usage_parsing.py

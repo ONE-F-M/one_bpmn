@@ -305,12 +305,12 @@ class TestDispatcherSuspendResume(_CheckpointTestBase):
 		self.assertEqual(json.loads(calls[0].tool_result), {"action": "Approve"})
 
 	def test_a_resumed_run_is_the_current_run_for_its_sub_calls(self):
-		from one_bpmn.agents import observability
+		from one_bpmn.ai_agent_observability import observability
 
 		self._dispatch(ExecutorResult(error_code=ErrorCode.SUSPENDED, suspension=_suspension()))
 		run_name = self.task.data["_bpmn_ai_waiting_human"]["run"]
 		checkpoint.store_human_result(run_name, "yes")
-		frappe.flags[observability._CURRENT_RUN_FLAG] = None
+		frappe.flags[observability.CURRENT_RUN_FLAG] = None
 
 		seen = {}
 

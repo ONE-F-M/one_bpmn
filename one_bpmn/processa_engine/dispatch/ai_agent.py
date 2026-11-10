@@ -391,10 +391,10 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	if resume_payload:
 		try:
 			run = frappe.get_doc("AI Agent Run", resume_run)
-			from one_bpmn.agents.observability import _CURRENT_RUN_FLAG, attach_resolved_call, record_ai_step
+			from one_bpmn.ai_agent_observability.observability import CURRENT_RUN_FLAG, attach_resolved_call, record_ai_step
 
 			# The resume runs in a new job, so sub-calls such as compaction need the run named again.
-			frappe.flags[_CURRENT_RUN_FLAG] = run.name
+			frappe.flags[CURRENT_RUN_FLAG] = run.name
 			# The answer goes on the Step that made the call; a checkpoint without pending_step gets its own step.
 			pending = (resume_payload.get("suspension") or {}).get("pending_call") or {}
 			human_result = _checkpoint.build_resume_state(resume_payload)["human_result"]
@@ -426,7 +426,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			)
 	else:
 		try:
-			from one_bpmn.agents.observability import create_ai_run
+			from one_bpmn.ai_agent_observability.observability import create_ai_run
 			from one_bpmn.processa_engine.engine import get_task_display_name as _get_label
 
 			run = create_ai_run(
@@ -457,7 +457,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 	# Prompt steps first on a tool-calling run, so steps made inside tool scripts number after them.
 	if run and not getattr(run, "stub", False) and tool_specs and not resume_payload:
 		try:
-			from one_bpmn.agents.observability import record_ai_step as _record_prompt_step
+			from one_bpmn.ai_agent_observability.observability import record_ai_step as _record_prompt_step
 
 			_record_prompt_step(run, 1, "system", system_prompt)
 			_record_prompt_step(run, 2, "user", user_prompt)
@@ -479,7 +479,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 		)
 		_record_ai_failure(task, task_cfg, bpmn_id, "UNEXPECTED_ERROR", "See Frappe Error Log for details.")
 		try:
-			from one_bpmn.agents.observability import finalize_ai_run_on_exception
+			from one_bpmn.ai_agent_observability.observability import finalize_ai_run_on_exception
 
 			finalize_ai_run_on_exception(run, exc)
 		except Exception:
@@ -508,12 +508,12 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 			result.output = _turn_output["response"]
 
 	try:
-		from one_bpmn.agents.observability import finalize_ai_run, record_ai_step
+		from one_bpmn.ai_agent_observability.observability import finalize_ai_run, record_ai_step
 
 		if run and not getattr(run, "stub", False):
 			if tool_specs:
 				# One Step per turn; the system and user steps were written before the loop.
-				from one_bpmn.agents.observability import record_selector_turns
+				from one_bpmn.ai_agent_observability.observability import record_selector_turns
 
 				source_map = {t.name: "diagram_task" for t in tool_specs}
 				record_selector_turns(
@@ -582,7 +582,7 @@ def dispatch_ai_agent(instance, task, task_cfg: dict, bpmn_id: str, resume_run: 
 
 	if result.error_code == ErrorCode.SUSPENDED:
 		# A human or delegated tool call: checkpoint the run and leave the waiting marker the engine parks on.
-		from one_bpmn.agents.observability import latest_ordinary_step
+		from one_bpmn.ai_agent_observability.observability import latest_ordinary_step
 
 		run = _checkpoint.save_checkpoint(
 			run,

@@ -134,7 +134,7 @@ class TestGenerateNamesTheMissingLane(FrappeTestCase):
 		)
 		with (
 			patch.object(helpers, "complete_sub_prompt", return_value=json.dumps(TWO_LANE_IR)),
-			patch("one_bpmn.agents.observability.record_tool_artifact"),
+			patch("one_bpmn.ai_agent_observability.observability.record_tool_artifact"),
 		):
 			exec(
 				self.script,

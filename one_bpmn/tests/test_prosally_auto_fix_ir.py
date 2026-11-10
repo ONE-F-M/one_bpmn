@@ -82,7 +82,7 @@ class TestGenerateSpendsNoRepairPass(FrappeTestCase):
 		with (
 			patch.object(helpers, "complete_sub_prompt", return_value=json.dumps(BROKEN_IR)
 			) as model,
-			patch("one_bpmn.agents.observability.record_tool_artifact"),
+			patch("one_bpmn.ai_agent_observability.observability.record_tool_artifact"),
 		):
 			exec(
 				self.script,
