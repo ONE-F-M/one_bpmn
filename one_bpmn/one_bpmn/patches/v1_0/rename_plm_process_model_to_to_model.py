@@ -1,4 +1,4 @@
-"""Move Processa Legacy Migration to old map, new map and state mapping fields; process_model becomes to_model."""
+"""Processa Legacy Migration: process_model becomes to_model and the dropped fields' columns go."""
 
 import frappe
 from frappe.model.meta import trim_table

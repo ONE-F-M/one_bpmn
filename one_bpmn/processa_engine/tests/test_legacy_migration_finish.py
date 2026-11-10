@@ -32,13 +32,15 @@ class TestLegacyMigrationFinishFlow(FrappeTestCase):
 
 	@staticmethod
 	def _finish_flow_xml(pid):
-		"""The end of the Processa Legacy Migration map: Running, wait for the finish message, then Completed or Failed."""
+		"""The end of the PLM map: Running, wait for the finish message, then Completed or Failed."""
 		plm_dt = "Processa Legacy Migration"
 
 		def state(node_id, workflow_state, incoming, outgoing):
 			return (
-				f'<bpmn:serviceTask id="{node_id}" name="Set {workflow_state}" spiffworkflow:serviceType="apply_workflow" '
-				f'spiffworkflow:serviceTargetDoctype="{plm_dt}" spiffworkflow:workflowState="{workflow_state}" '
+				f'<bpmn:serviceTask id="{node_id}" name="Set {workflow_state}" '
+				'spiffworkflow:serviceType="apply_workflow" '
+				f'spiffworkflow:serviceTargetDoctype="{plm_dt}" '
+				f'spiffworkflow:workflowState="{workflow_state}" '
 				f'spiffworkflow:docStatus="0"><bpmn:incoming>{incoming}</bpmn:incoming>'
 				f"<bpmn:outgoing>{outgoing}</bpmn:outgoing></bpmn:serviceTask>"
 			)
@@ -46,7 +48,8 @@ class TestLegacyMigrationFinishFlow(FrappeTestCase):
 		body = (
 			'<bpmn:startEvent id="Start_1" name="Start"><bpmn:outgoing>F0</bpmn:outgoing></bpmn:startEvent>'
 			+ state("Task_running", "Running", "F0", "F1")
-			+ '<bpmn:intermediateCatchEvent id="Catch_finished" name="Finished"><bpmn:incoming>F1</bpmn:incoming>'
+			+ '<bpmn:intermediateCatchEvent id="Catch_finished" name="Finished">'
+			"<bpmn:incoming>F1</bpmn:incoming>"
 			'<bpmn:outgoing>F2</bpmn:outgoing><bpmn:messageEventDefinition messageRef="Message_finished" />'
 			"</bpmn:intermediateCatchEvent>"
 			'<bpmn:exclusiveGateway id="Gw" name="Completed?" default="F4"><bpmn:incoming>F2</bpmn:incoming>'
@@ -59,7 +62,8 @@ class TestLegacyMigrationFinishFlow(FrappeTestCase):
 			'<bpmn:sequenceFlow id="F1" sourceRef="Task_running" targetRef="Catch_finished" />'
 			'<bpmn:sequenceFlow id="F2" sourceRef="Catch_finished" targetRef="Gw" />'
 			'<bpmn:sequenceFlow id="F3" sourceRef="Gw" targetRef="Task_completed">'
-			'<bpmn:conditionExpression>migration_status == "Completed"</bpmn:conditionExpression></bpmn:sequenceFlow>'
+			'<bpmn:conditionExpression>migration_status == "Completed"</bpmn:conditionExpression>'
+			"</bpmn:sequenceFlow>"
 			'<bpmn:sequenceFlow id="F4" sourceRef="Gw" targetRef="Task_failed" />'
 			'<bpmn:sequenceFlow id="F5" sourceRef="Task_completed" targetRef="End_1" />'
 			'<bpmn:sequenceFlow id="F6" sourceRef="Task_failed" targetRef="End_2" />'

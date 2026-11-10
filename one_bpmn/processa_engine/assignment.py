@@ -2,12 +2,19 @@
 """Resolve task assignees and manage Frappe ToDos for BPMN user tasks."""
 
 import json
+from typing import TYPE_CHECKING
 
 import frappe
 from frappe import _
 
 from one_bpmn.processa_engine import engine as bpmn_engine
 from one_bpmn.processa_engine.dispatch.common import split_config
+from one_bpmn.processa_engine.engine import Task
+
+if TYPE_CHECKING:
+	from one_bpmn.processa_engine.doctype.bpmn_process_instance.bpmn_process_instance import (
+		BPMNProcessInstance,
+	)
 
 
 def split_users(value: str) -> list:
@@ -85,7 +92,9 @@ def task_actors(row) -> set:
 	return actors
 
 
-def resolve_assignee(instance, task, extensions: dict) -> tuple[str, list[tuple[str, str]]]:
+def resolve_assignee(
+	instance: "BPMNProcessInstance", task: Task, extensions: dict
+) -> tuple[str, list[tuple[str, str]]]:
 	"""resolve_assignment with the user task config in *extensions*, for an instance not yet started.
 	Returns the assignee and the (relieved, reliever) pairs."""
 	instance._user_task_extensions = extensions

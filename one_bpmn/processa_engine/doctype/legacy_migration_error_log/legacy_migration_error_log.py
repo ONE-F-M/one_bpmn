@@ -20,7 +20,19 @@ class LegacyMigrationErrorLog(Document):
 		parent: DF.Data
 		parentfield: DF.Data
 		parenttype: DF.Data
-		reason: DF.Literal["", "Sub-process running", "Past a new step", "Waiting at removed step", "Already on new map", "No state mapping", "Replay stuck", "State not reached", "Timed out", "Error", "No longer open"]
+		reason: DF.Literal[
+			"",
+			"Sub-process running",
+			"Past a new step",
+			"Waiting at removed step",
+			"Already on new map",
+			"No state mapping",
+			"Replay stuck",
+			"State not reached",
+			"Timed out",
+			"Error",
+			"No longer open",
+		]
 		timestamp: DF.Datetime | None
 	# end: auto-generated types
 	pass

@@ -16,7 +16,8 @@ NOBODY = "_plm_val_nobody@example.com"
 OWNED_PROCESS, OTHER_PROCESS = "PLM Val Owned", "PLM Val Other"
 
 XML = """<?xml version="1.0" encoding="UTF-8"?>
-<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="Defs_{pid}" targetNamespace="http://bpmn.io/schema/bpmn">
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="Defs_{pid}"
+  targetNamespace="http://bpmn.io/schema/bpmn">
   <bpmn:process id="{pid}" isExecutable="true">
     <bpmn:startEvent id="Start_1"><bpmn:outgoing>Flow_1</bpmn:outgoing></bpmn:startEvent>
     <bpmn:sequenceFlow id="Flow_1" sourceRef="Start_1" targetRef="End_1" />
