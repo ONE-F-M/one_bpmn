@@ -198,7 +198,9 @@ def run_batch_jobs(jobs: list) -> list:
 	):
 		for _method, kwargs in jobs:
 			try:
-				legacy_migration.run_batch(kwargs["migration_name"], kwargs["instance_names"])
+				legacy_migration.run_batch(
+					kwargs["migration_name"], kwargs["instance_names"], kwargs["first_idx"]
+				)
 			except Exception as e:
 				rollback(save_point="plm_batch_test")
 				errors.append(e)
