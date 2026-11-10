@@ -363,7 +363,7 @@ async function runSecurityLint() {
 		const res = await frappeRequest({
 			url: "/api/method/one_bpmn.api.security.lint_server_script",
 			method: "POST",
-			params: { code },
+			params: { code, script_name: savedScriptName.value },
 		});
 		lintViolations.value = res && res.violations ? res.violations : [];
 	} catch {

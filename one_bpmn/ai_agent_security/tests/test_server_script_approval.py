@@ -7,6 +7,7 @@ from frappe.tests.utils import FrappeTestCase
 from one_bpmn.ai_agent_security.code_checks import script_gate
 from one_bpmn.ai_agent_security.code_checks.script_validator import ValidatorOptions, deep_inspect_script
 from one_bpmn.api.deploy import compile_process_model
+from one_bpmn.api.security import lint_server_script
 from one_bpmn.api.server_scripts import create_server_script, toggle_server_script, update_server_script
 from one_bpmn.processa_engine.engine import _make_script_engine, evaluate_condition
 
@@ -202,6 +203,37 @@ class TestServerScriptApproval(FrappeTestCase):
 		):
 			self.assertTrue(deep_inspect_script(code, options), code)
 			self.assertEqual(deep_inspect_script(code, options, frozenset({entry})), [], code)
+
+	def test_live_lint_honours_the_approval_of_the_saved_script(self):
+		code = "frappe.enqueue('one_bpmn.some.job')"
+		doc = self._script(
+			"ZZ A26 Lint Approved", code, processa_allowed_modules="frappe.enqueue", processa_approved=1
+		)
+		self.assertEqual(lint_server_script(code, doc.name), {"valid": True, "violations": []})
+
+	def test_live_lint_flags_the_call_when_there_is_no_approval_or_no_script(self):
+		code = "frappe.enqueue('one_bpmn.some.job')"
+		doc = self._script("ZZ A26 Lint Unapproved", "pass")
+		for result in (lint_server_script(code), lint_server_script(code, doc.name)):
+			self.assertFalse(result["valid"])
+			self.assertIn("frappe.enqueue needs System Manager approval", result["violations"][0])
+
+	def test_live_lint_flags_edited_code_that_the_approval_no_longer_covers(self):
+		doc = self._script(
+			"ZZ A26 Lint Edited",
+			"frappe.enqueue('one_bpmn.some.job')",
+			processa_allowed_modules="frappe.enqueue",
+			processa_approved=1,
+		)
+		result = lint_server_script("frappe.enqueue('one_bpmn.other.job')", doc.name)
+		self.assertFalse(result["valid"])
+
+	def test_live_lint_refuses_a_user_who_cannot_read_the_script(self):
+		doc = self._script("ZZ A26 Lint Private", "pass")
+		frappe.set_user("Guest")
+		self.addCleanup(frappe.set_user, "Administrator")
+		with self.assertRaises(frappe.PermissionError):
+			lint_server_script("pass", doc.name)
 
 	def test_deploy_leaves_an_agent_written_script_disabled_until_a_system_manager_enables_it(self):
 		name = "ZZ A26 Deploy Tool"
