@@ -23,7 +23,7 @@ import timerPropertiesProviderModule from "@/bpmn/timerPropertiesProvider";
 import startEventPropertiesProviderModule from "@/bpmn/startEventPropertiesProvider/StartEventPropertiesProvider";
 import conditionalStartEventPropertiesProviderModule from "@/bpmn/conditionalStartEventPropertiesProvider/ConditionalStartEventPropertiesProvider";
 import lanePropertiesProviderModule from "@/bpmn/lanePropertiesProvider/LanePropertiesProvider";
-import signalPropertiesProviderModule from "@/bpmn/signalPropertiesProvider";
+import signalPropertiesProviderModule from "@/bpmn/signalPropertiesProvider/SignalPropertiesProvider";
 import propertiesPanelFilterModule from "@/bpmn/propertiesPanelFilter";
 import commentContextPadModule from "@/bpmn/commentContextPad";
 import { registerSpiffExtensions } from "@/utils/editorModdleExtensions";
