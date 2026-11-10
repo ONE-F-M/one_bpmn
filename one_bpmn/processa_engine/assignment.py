@@ -85,6 +85,13 @@ def task_actors(row) -> set:
 	return actors
 
 
+def resolve_assignee(instance, task, extensions: dict) -> tuple[str, list[tuple[str, str]]]:
+	"""resolve_assignment with the user task config in *extensions*, for an instance not yet started.
+	Returns the assignee and the (relieved, reliever) pairs."""
+	instance._user_task_extensions = extensions
+	return resolve_assignment(instance, task), instance._relief_pairs
+
+
 def resolve_assignment(instance, task) -> str:
 	"""Resolve a UserTask's assignee by ``assigneeMode``: User, DocField, Round Robin, Load Balancing or Table Field.
 	Table Field returns a comma-joined list; an assignee on leave today is swapped for their reliever.

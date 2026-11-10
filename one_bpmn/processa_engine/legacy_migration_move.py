@@ -12,7 +12,7 @@ from frappe.utils import now_datetime
 from rq.timeouts import JobTimeoutException
 
 from one_bpmn.processa_engine import engine as bpmn_engine
-from one_bpmn.processa_engine.assignment import add_frappe_assignment, resolve_assignment, split_users
+from one_bpmn.processa_engine.assignment import add_frappe_assignment, resolve_assignee, split_users
 from one_bpmn.processa_engine.audit import apply_bpmn_workflow_state
 from one_bpmn.processa_engine.legacy_migration_replay import MigrationSkip, replay
 from one_bpmn.processa_engine.runtime.common import log_task, task_bpmn_id
@@ -103,7 +103,7 @@ def _insert_new_instance(
 			"serialized_spec": json.dumps(ctx.to_spec),
 		}
 	)
-	new._user_task_extensions = ctx.to_spec.get("user_task_extensions", {})
+	extensions = ctx.to_spec.get("user_task_extensions", {})
 	to_assign = []
 	for task in bpmn_engine.get_ready_user_tasks(wf):
 		bpmn_id = task_bpmn_id(task)
@@ -114,7 +114,7 @@ def _insert_new_instance(
 			"task_type": bpmn_engine.get_task_type_label(task),
 			"status": "Waiting",
 			"started_at": now_datetime(),
-			"task_actions": new._user_task_extensions.get(bpmn_id, {}).get("taskActions", ""),
+			"task_actions": extensions.get(bpmn_id, {}).get("taskActions", ""),
 			"target_doctype": old.context_doctype,
 			"target_docname": old.context_docname,
 		}
@@ -122,9 +122,9 @@ def _insert_new_instance(
 			for field in ("assigned_user", "assigned_role", "reliever_user", "relieved_user"):
 				row[field] = old_row.get(field)
 		else:
-			row["assigned_user"] = resolve_assignment(new, task)
-			row["relieved_user"] = ",".join(p[0] for p in new._relief_pairs)
-			row["reliever_user"] = ",".join(p[1] for p in new._relief_pairs)
+			row["assigned_user"], relief_pairs = resolve_assignee(new, task, extensions)
+			row["relieved_user"] = ",".join(p[0] for p in relief_pairs)
+			row["reliever_user"] = ",".join(p[1] for p in relief_pairs)
 			to_assign.append((row["assigned_user"], row["task_name"]))
 		new.append("active_tasks", row)
 
