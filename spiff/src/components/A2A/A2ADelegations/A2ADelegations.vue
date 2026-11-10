@@ -134,7 +134,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { Badge, Button, FormControl, frappeRequest } from "frappe-ui";
-import A2ADelegationModal from "@/components/A2A/A2ADelegationModal/A2ADelegationModal.vue";
+import A2ADelegationModal from "@/components/Modals/A2ADelegationModal/A2ADelegationModal.vue";
 import A2APageSize from "@/components/A2A/A2APageSize/A2APageSize.vue";
 import A2APager from "@/components/A2A/A2APager/A2APager.vue";
 import { useA2AList } from "@/composables/useA2AList";

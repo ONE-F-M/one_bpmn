@@ -12,9 +12,7 @@ const PARTS = {
 	BpmnCommentSection: true,
 	BpmnCommentPanel: true,
 	BpmnInlineComment: true,
-	BpmnCommentDialogs: true,
 	BpmnContextMenu: true,
-	BpmnMessageDialog: false,
 };
 const read = (path) => readFileSync(new URL(path, src), "utf8");
 const files = (part) => readdirSync(new URL(`${EDITOR_DIR}${part}/`, src)).sort();

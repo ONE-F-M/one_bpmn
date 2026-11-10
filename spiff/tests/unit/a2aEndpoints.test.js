@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 const read = (url) => readFileSync(url, "utf8");
 const apiSource = read(new URL("../../src/utils/a2aApi.js", import.meta.url));
 const partsDir = new URL("../../src/components/A2A/", import.meta.url);
+const modalsDir = new URL("../../src/components/Modals/", import.meta.url);
+const a2aModals = ["A2AClarificationModal", "A2ADelegationModal"];
 const sources = [
 	read(new URL("../../src/pages/A2A.vue", import.meta.url)),
 	read(new URL("../../src/composables/useA2AList.js", import.meta.url)),
@@ -11,6 +13,7 @@ const sources = [
 		.flatMap((dir) => readdirSync(new URL(`${dir}/`, partsDir)))
 		.filter((f) => f.endsWith(".vue"))
 		.map((f) => read(new URL(`${f.replace(/\.vue$/, "")}/${f}`, partsDir))),
+	...a2aModals.map((m) => read(new URL(`${m}/${m}.vue`, modalsDir))),
 ].join("\n");
 
 const prefixModule = (constant) =>

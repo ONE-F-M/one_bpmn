@@ -8,10 +8,19 @@ const src = fileURLToPath(new URL("../../src/", import.meta.url));
 const read = (file) => readFileSync(join(src, file), "utf8");
 
 const SHELL = "pages/EvalSuite.vue";
+const EVAL_MODALS = [
+	"EvalCompareModal",
+	"EvalFromRunModal",
+	"EvalThresholdsModal",
+	"EvalDatasetModal",
+	"EvalReassignModal",
+	"EvalCaseEditorModal",
+];
 const parts = [
 	...readdirSync(join(src, "components/Evals"), { recursive: true })
 		.filter((f) => f.endsWith(".vue"))
 		.map((f) => `components/Evals/${f}`),
+	...EVAL_MODALS.map((name) => `components/Modals/${name}/${name}.vue`),
 	...readdirSync(join(src, "composables"), { recursive: true })
 		.filter((f) => /(?:^|\/)useEval(?!uat)/.test(f) || f === "useAssignableAgents.js")
 		.map((f) => `composables/${f}`),

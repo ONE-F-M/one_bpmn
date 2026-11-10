@@ -2,7 +2,7 @@
 import { inject } from "vue";
 import { Icon } from "@iconify/vue";
 import LogixCanvas from "@/components/Logix/LogixCanvas/LogixCanvas.vue";
-import ProcessScriptDialog from "../ProcessScriptDialog/ProcessScriptDialog.vue";
+import ProcessScriptModal from "@/components/Modals/ProcessScriptModal/ProcessScriptModal.vue";
 import { PROCESS_KEY } from "@/composables/Process/useProcessState";
 
 const pc = inject(PROCESS_KEY);
@@ -23,7 +23,7 @@ const {
 </script>
 
 <template>
-	<ProcessScriptDialog />
+	<ProcessScriptModal />
 
 	<!-- Delete Script Confirmation Dialog -->
 	<Dialog v-model="showDeleteScriptConfirm" :options="{ title: 'Delete Element', size: 'lg' }">

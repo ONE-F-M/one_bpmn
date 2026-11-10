@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 const partsDir = new URL("../../src/components/A2A/", import.meta.url);
 const shell = new URL("../../src/pages/A2A.vue", import.meta.url);
+const modalsDir = new URL("../../src/components/Modals/", import.meta.url);
+const a2aModals = ["A2AClarificationModal", "A2ADelegationModal"];
 
 const lineCount = (url) => readFileSync(url, "utf8").split("\n").length;
 const dirs = readdirSync(partsDir);
@@ -18,10 +20,13 @@ describe("A2A page split", () => {
 		for (const part of parts) {
 			expect(lineCount(partUrl(part)), part).toBeLessThan(500);
 		}
+		for (const modal of a2aModals) {
+			expect(lineCount(new URL(`${modal}/${modal}.vue`, modalsDir)), modal).toBeLessThan(500);
+		}
 	});
 
 	it("keeps each part in a folder of its own holding just its component", () => {
-		expect(dirs).toHaveLength(13);
+		expect(dirs).toHaveLength(11);
 		for (const dir of dirs) {
 			expect(readdirSync(new URL(`${dir}/`, partsDir)), dir).toEqual([`${dir}.vue`]);
 		}
