@@ -31,40 +31,38 @@ from one_bpmn.processa_connectors.manifest import clear_manifest_cache
 from one_bpmn.processa_connectors.seed import export_manifest, import_manifest
 
 
-def _relocated(tool: str) -> SimpleNamespace:
-    """Reconstruct one tool script's inlined helpers into a callable namespace.
+class _Relocated(SimpleNamespace):
+    """One tool script's inlined helpers: the imports, constants and nested defs of its outer
+    ``_main``, rebuilt from the installed script the first time a test uses them."""
 
-    The helpers sit inside a single outer ``def _main(...)`` because shape tools
-    exec with split globals and locals. Re-executing that function's imports,
-    constants and nested defs in a fresh namespace gives the tests the same
-    functions the tool runs, from the same source.
-    """
-    body = frappe.db.get_value("Server Script", f"Connector Agent: Tool {tool}", "script")
-    if not body:
-        raise AssertionError(f"'Connector Agent: Tool {tool}' is not installed")
-    tree = ast.parse(body)
-    main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_main")
+    def __getattr__(self, name):
+        body = frappe.db.get_value("Server Script", f"Connector Agent: Tool {self.tool}", "script")
+        if not body:
+            raise AssertionError(f"'Connector Agent: Tool {self.tool}' is not installed")
+        tree = ast.parse(body)
+        main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_main")
 
-    def is_const(node):
-        return isinstance(node, ast.Assign) and all(
-            isinstance(t, ast.Name) and t.id.lstrip("_").isupper() for t in node.targets
-        )
+        def is_const(node):
+            return isinstance(node, ast.Assign) and all(
+                isinstance(t, ast.Name) and t.id.lstrip("_").isupper() for t in node.targets
+            )
 
-    keep = [n for n in main.body
-            if isinstance(n, (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.ClassDef))
-            or is_const(n)]
-    mod = ast.Module(body=keep, type_ignores=[])
-    ns = {"frappe": frappe, "__name__": "connector_agent_relocated"}
-    exec(compile(ast.fix_missing_locations(mod), "<relocated>", "exec"), ns)  # noqa: S102
-    ns.pop("__builtins__", None)
-    return SimpleNamespace(**ns)
+        keep = [n for n in main.body
+                if isinstance(n, (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.ClassDef))
+                or is_const(n)]
+        mod = ast.Module(body=keep, type_ignores=[])
+        ns = {"frappe": frappe, "__name__": "connector_agent_relocated"}
+        exec(compile(ast.fix_missing_locations(mod), "<relocated>", "exec"), ns)  # noqa: S102
+        ns.pop("__builtins__", None)
+        self.__dict__.update(ns)
+        return self.__dict__[name]
 
 
-A = _relocated("Read API Reference")      # _parse_spec, _strip_markup, summarize_openapi
-D = _relocated("Draft Connector")         # openapi_to_manifest and its helpers
-R = _relocated("Review Connector")        # validate_manifest and its validators
-W = _relocated("Write Connector")         # write_draft_connector
-T = _relocated("Test Operation")          # try_operation
+A = _Relocated(tool="Read API Reference")      # _parse_spec, _strip_markup, summarize_openapi
+D = _Relocated(tool="Draft Connector")         # openapi_to_manifest and its helpers
+R = _Relocated(tool="Review Connector")        # validate_manifest and its validators
+W = _Relocated(tool="Write Connector")         # write_draft_connector
+T = _Relocated(tool="Test Operation")          # try_operation
 
 
 def draft_from(spec, connector_id, **kw):
@@ -485,7 +483,7 @@ def _minimal_draft():
 # wording all moved into the propose_python_handler tool script, so they are
 # loaded back out of it and exercised directly.
 
-H = _relocated("Propose Python Handler")
+H = _Relocated(tool="Propose Python Handler")
 
 GOOD = '''def fetch_rate(params, ctx):
     """A signed request the declarative executor cannot express."""
