@@ -262,7 +262,7 @@ async function toggleExpand(idx) {
 		if (row.bpmn_id) params.bpmn_id = row.bpmn_id
 
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.insights_api.get_recent_runs",
+			url: "/api/method/one_bpmn.api.insights.get_recent_runs",
 			method: "POST",
 			params,
 		})
@@ -286,7 +286,7 @@ async function toggleSteps(ri, runName) {
 	tree.value = null
 	try {
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.insights_api.get_run_tree",
+			url: "/api/method/one_bpmn.api.insights.get_run_tree",
 			method: "POST",
 			params: { run_name: runName },
 		})
@@ -311,7 +311,7 @@ async function fetchReport() {
 		params.group_by = groupBy.value
 
 		const response = await frappeRequest({
-			url: "/api/method/one_bpmn.api.insights_api.get_performance_report",
+			url: "/api/method/one_bpmn.api.insights.get_performance_report",
 			method: "POST",
 			params,
 		})

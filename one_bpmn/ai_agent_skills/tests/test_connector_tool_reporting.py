@@ -357,20 +357,20 @@ class TestTheToolCallRowAgreesWithItsBody(FrappeTestCase):
 	a body that says connector_failed is the same lie one level up."""
 
 	def test_a_failed_connector_is_an_error_row(self):
-		from one_bpmn.agents.observability import _tool_call_status
+		from one_bpmn.ai_agent_observability.observability import tool_call_status
 
-		self.assertEqual(_tool_call_status(json.dumps({"error": "connector_failed", "connector": "x/y"})), "Error")
-		self.assertEqual(_tool_call_status(json.dumps({"error": "call_did_not_complete"})), "Error")
+		self.assertEqual(tool_call_status(json.dumps({"error": "connector_failed", "connector": "x/y"})), "Error")
+		self.assertEqual(tool_call_status(json.dumps({"error": "call_did_not_complete"})), "Error")
 
 	def test_a_refused_connector_is_a_denied_row_like_a_policy_refusal(self):
-		from one_bpmn.agents.observability import _tool_call_status
+		from one_bpmn.ai_agent_observability.observability import tool_call_status
 
-		self.assertEqual(_tool_call_status(json.dumps({"error": "not_permitted"})), "Denied")
+		self.assertEqual(tool_call_status(json.dumps({"error": "not_permitted"})), "Denied")
 
 	def test_data_and_plain_ok_stay_success(self):
-		from one_bpmn.agents.observability import _tool_call_status
+		from one_bpmn.ai_agent_observability.observability import tool_call_status
 
-		self.assertEqual(_tool_call_status(json.dumps({"connector_result": {"id": 1}})), "Success")
-		self.assertEqual(_tool_call_status(json.dumps({"ok": True, "warning": "no_result_variable"})), "Success")
-		self.assertEqual(_tool_call_status("plain text answer"), "Success")
-		self.assertEqual(_tool_call_status("{not json"), "Success")
+		self.assertEqual(tool_call_status(json.dumps({"connector_result": {"id": 1}})), "Success")
+		self.assertEqual(tool_call_status(json.dumps({"ok": True, "warning": "no_result_variable"})), "Success")
+		self.assertEqual(tool_call_status("plain text answer"), "Success")
+		self.assertEqual(tool_call_status("{not json"), "Success")

@@ -665,7 +665,7 @@ class TestGates(HealthCase):
 		task_cfg = {"aiModel": name, "aiProvider": "Anthropic", "aiSystemPrompt": "s", "aiUserPrompt": "u"}
 
 		runs_before = frappe.db.count("AI Agent Run")
-		with patch("one_bpmn.agents.observability.create_ai_run") as create_run, \
+		with patch("one_bpmn.ai_agent_observability.observability.create_ai_run") as create_run, \
 			patch("one_bpmn.processa_engine.agent_runtime.executor.get_executor") as get_executor:
 			try:
 				ai_agent.dispatch_ai_agent(instance, task, task_cfg, "probe_task")

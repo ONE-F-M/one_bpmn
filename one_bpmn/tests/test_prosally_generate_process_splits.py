@@ -19,7 +19,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.ai_agent_registry.definitions.prosally.tools_pipeline import compile_ir
 from one_bpmn.processa_engine.agent_runtime.llm_types import LLMTruncatedError
-from one_bpmn.agents.observability import record_truncated_calls
+from one_bpmn.ai_agent_observability.observability import record_truncated_calls
 from one_bpmn.one_bpmn.patches.v1_0 import (
 	prosally_generate_process_records_cut_offs_without_getattr as repair_patch,
 )
@@ -34,7 +34,7 @@ HELPERS = f"{PROSALLY}.helpers"
 PROMPTS = f"{PROSALLY}.tools_prompts"
 PROPERTIES = f"{PROSALLY}.tools_properties"
 PIPELINE = f"{PROSALLY}.tools_pipeline"
-OBSERVABILITY = "one_bpmn.agents.observability"
+OBSERVABILITY = "one_bpmn.ai_agent_observability.observability"
 TOOL = "ProsAlly - Tool Generate Process"
 
 OUTLINE = {

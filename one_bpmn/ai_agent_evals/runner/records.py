@@ -7,7 +7,7 @@ from __future__ import annotations
 import frappe
 from frappe.utils import flt, now_datetime
 
-from one_bpmn.agents.pricing import get_model_pricing
+from one_bpmn.ai_agent_observability.pricing import get_model_pricing
 
 
 def cost_split(prompt_tokens: int, completion_tokens: int, model: str) -> tuple:

@@ -141,7 +141,7 @@ def _files(entries: list, previous: dict) -> tuple[list, list]:
 
 
 def _record(model: str, result, summary: str, latency_ms: int) -> None:
-	from one_bpmn.agents import observability
+	from one_bpmn.ai_agent_observability import observability
 
 	usage = result.token_usage
 	with observability.sub_call_scope(observability.current_run_name(), "compaction"):

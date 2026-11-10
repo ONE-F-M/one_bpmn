@@ -7,6 +7,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.one_bpmn.patches.v1_0 import seed_logix_baseline_suite as seed
+from one_bpmn.tests.site_scripts import as_deployed
 
 FINALIZE_BODY = 'import json\nfrom one_bpmn.processa_engine.agent_runtime.turn_state import get_turn\nresult["finalized"] = True\n'
 
@@ -102,9 +103,9 @@ class TestLogixBaselineSuitePatch(FrappeTestCase):
 		output = {"intent": "MODIFY", "diff": "@@ -1 +1 @@", "modified_script": "x = 1"}
 		with (
 			patch("one_bpmn.processa_engine.agent_runtime.turn_state.get_turn", return_value={"output": output}),
-			patch("one_bpmn.agents.observability.record_tool_artifact") as record,
+			patch("one_bpmn.ai_agent_observability.observability.record_tool_artifact") as record,
 		):
-			exec(code, {"bpmn_id": "finalize", "context_docname": "zz-conv", "result": {}})
+			exec(as_deployed(code), {"bpmn_id": "finalize", "context_docname": "zz-conv", "result": {}})
 		record.assert_called_once_with("finalize", json.dumps(output, default=str))
 
 	def test_a_site_without_logix_is_left_alone(self):

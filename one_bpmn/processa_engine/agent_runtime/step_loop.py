@@ -24,7 +24,7 @@ from one_bpmn.processa_engine.agent_runtime.llm_types import (
 	TurnRecord,
 )
 from one_bpmn.ai_agent_conversations.loop_compaction import compact_transcript, has_turns_to_compact
-from one_bpmn.agents.observability import SUB_CALL_TURN_FLAG, _tool_call_status, clear_tool_artifacts
+from one_bpmn.ai_agent_observability.observability import SUB_CALL_TURN_FLAG, tool_call_status, clear_tool_artifacts
 from one_bpmn.ai_agent_skills.tools.shape_tools import PAUSE_HELD_FLAG, BudgetExceeded, ToolDeferred
 from one_bpmn.processa_engine.agent_runtime.turn_state import TURN_ANSWERED_FLAG
 from one_bpmn.ai_agent_guardrails.tool_policy import PolicyViolation
@@ -582,7 +582,7 @@ def _stopped_at_budget(trace: list, reason: str) -> CompletionResult:
 
 def _repeated_error(last_error, name: str, result) -> tuple[str, tuple | None]:
 	"""(why the run stops or "", the error to compare the next call against)."""
-	error = (name, str(result)) if _tool_call_status(result) == "Error" else None
+	error = (name, str(result)) if tool_call_status(result) == "Error" else None
 	if error and error == last_error:
 		return f"{name} failed twice in a row with the same error: {str(result)[:300]}", error
 	return "", error

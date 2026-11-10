@@ -14,7 +14,7 @@ from one_bpmn.processa_engine.agent_runtime.executor import ExecutorResult, Toke
 from one_bpmn.processa_engine.agent_runtime.step_loop import run_agent_loop
 from one_bpmn.processa_engine.agent_runtime.llm_types import StepResult, StepToolCall, ToolSpec
 from one_bpmn.ai_agent_conversations import loop_compaction
-from one_bpmn.agents.observability import _CURRENT_RUN_FLAG
+from one_bpmn.ai_agent_observability.observability import CURRENT_RUN_FLAG
 from one_bpmn.one_bpmn.patches.v1_0 import coding_agents_compact_their_tool_loop
 
 SUMMARY_CALL = "one_bpmn.ai_agent_conversations.loop_compaction.summary_call"
@@ -97,12 +97,12 @@ class TestCompactTranscript(FrappeTestCase):
 				"started_at": frappe.utils.now_datetime(),
 			}
 		).insert(ignore_permissions=True, ignore_links=True)
-		frappe.flags[_CURRENT_RUN_FLAG] = run.name
+		frappe.flags[CURRENT_RUN_FLAG] = run.name
 		try:
 			with patch(SUMMARY_CALL, return_value=_summary()):
 				_compact(_transcript(6))
 		finally:
-			frappe.flags[_CURRENT_RUN_FLAG] = None
+			frappe.flags[CURRENT_RUN_FLAG] = None
 		step = frappe.get_all(
 			"AI Agent Step",
 			filters={"run": run.name},

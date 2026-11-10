@@ -177,7 +177,7 @@ class MeteredAdapter:
 	async def complete(self, *args, **kwargs):
 		import time
 
-		from one_bpmn.agents.observability import record_sub_call
+		from one_bpmn.ai_agent_observability.observability import record_sub_call
 
 		started = time.perf_counter()
 		result = await self._inner.complete(*args, **kwargs)

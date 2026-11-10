@@ -201,7 +201,7 @@ scheduler_events = {
 			"one_bpmn.ai_agent_conversations.jobs.sweep_conversation_retention",
 			# A published rate change has a date but the catalogue has no date
 			# field, so something has to notice the day arriving.
-			"one_bpmn.tasks.apply_due_model_rates",
+			"one_bpmn.ai_agent_observability.model_rates.apply_due_model_rates",
 			# Soft-retires memories that decayed, were never corroborated, or
 			# are minor and old. Sets expires_on with the reason in metadata;
 			# deletes nothing.

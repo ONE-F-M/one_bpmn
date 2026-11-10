@@ -54,12 +54,12 @@ class TestDispatcherMemory(FrappeTestCase):
 		# the observability block performs (keeps FrappeTestCase rollback intact).
 		patches = [
 			patch(
-				"one_bpmn.agents.observability.create_ai_run",
+				"one_bpmn.ai_agent_observability.observability.create_ai_run",
 				return_value=SimpleNamespace(name="RUN-FAKE", stub=False),
 			),
-			patch("one_bpmn.agents.observability.record_ai_step"),
-			patch("one_bpmn.agents.observability.finalize_ai_run"),
-			patch("one_bpmn.agents.observability.finalize_ai_run_on_exception"),
+			patch("one_bpmn.ai_agent_observability.observability.record_ai_step"),
+			patch("one_bpmn.ai_agent_observability.observability.finalize_ai_run"),
+			patch("one_bpmn.ai_agent_observability.observability.finalize_ai_run_on_exception"),
 			patch("one_bpmn.processa_engine.engine.get_task_display_name", return_value="AI Task"),
 			patch("frappe.db.commit"),
 		]
@@ -345,12 +345,12 @@ class TestRememberDirectiveWrite(FrappeTestCase):
 		_CAPTURED.clear()
 		patches = [
 			patch(
-				"one_bpmn.agents.observability.create_ai_run",
+				"one_bpmn.ai_agent_observability.observability.create_ai_run",
 				return_value=SimpleNamespace(name="RUN-FAKE", stub=False),
 			),
-			patch("one_bpmn.agents.observability.record_ai_step"),
-			patch("one_bpmn.agents.observability.finalize_ai_run"),
-			patch("one_bpmn.agents.observability.finalize_ai_run_on_exception"),
+			patch("one_bpmn.ai_agent_observability.observability.record_ai_step"),
+			patch("one_bpmn.ai_agent_observability.observability.finalize_ai_run"),
+			patch("one_bpmn.ai_agent_observability.observability.finalize_ai_run_on_exception"),
 			patch("one_bpmn.processa_engine.engine.get_task_display_name", return_value="AI Task"),
 			patch("frappe.db.commit"),
 		]
@@ -544,12 +544,12 @@ class TestTheUserMessageReachesTheModel(FrappeTestCase):
 		_CAPTURED.clear()
 		patches = [
 			patch(
-				"one_bpmn.agents.observability.create_ai_run",
+				"one_bpmn.ai_agent_observability.observability.create_ai_run",
 				return_value=SimpleNamespace(name="RUN-FAKE", stub=False),
 			),
-			patch("one_bpmn.agents.observability.record_ai_step"),
-			patch("one_bpmn.agents.observability.finalize_ai_run"),
-			patch("one_bpmn.agents.observability.finalize_ai_run_on_exception"),
+			patch("one_bpmn.ai_agent_observability.observability.record_ai_step"),
+			patch("one_bpmn.ai_agent_observability.observability.finalize_ai_run"),
+			patch("one_bpmn.ai_agent_observability.observability.finalize_ai_run_on_exception"),
 			patch("one_bpmn.processa_engine.engine.get_task_display_name", return_value="AI Task"),
 			patch("frappe.db.commit"),
 		]
@@ -918,14 +918,14 @@ class TestRecallObservability(FrappeTestCase):
 	def setUp(self):
 		_CAPTURED.clear()
 		self.create_ai_run_mock = patch(
-			"one_bpmn.agents.observability.create_ai_run",
+			"one_bpmn.ai_agent_observability.observability.create_ai_run",
 			return_value=SimpleNamespace(name="RUN-FAKE", stub=False),
 		).start()
 		self.addCleanup(patch.stopall)
 		for target in (
-			"one_bpmn.agents.observability.record_ai_step",
-			"one_bpmn.agents.observability.finalize_ai_run",
-			"one_bpmn.agents.observability.finalize_ai_run_on_exception",
+			"one_bpmn.ai_agent_observability.observability.record_ai_step",
+			"one_bpmn.ai_agent_observability.observability.finalize_ai_run",
+			"one_bpmn.ai_agent_observability.observability.finalize_ai_run_on_exception",
 			"frappe.db.commit",
 		):
 			patch(target).start()

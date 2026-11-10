@@ -83,7 +83,7 @@ def log_task(instance, task_id: str, task_name: str, action: str, data: dict | N
 def settle_goal_completion(instance, instance_status: str):
 	"""Fill in the goal outcome of the instance's agent runs that could not decide it themselves. Never raises."""
 	try:
-		from one_bpmn.agents.goal_completion import settle_for_instance
+		from one_bpmn.ai_agent_observability.goal_completion import settle_for_instance
 
 		settle_for_instance(instance.name, instance_status)
 	except Exception:
