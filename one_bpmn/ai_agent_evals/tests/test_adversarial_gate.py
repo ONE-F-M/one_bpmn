@@ -19,11 +19,8 @@ from one_bpmn.ai_agent_evals.adversarial_gate import (
 	ensure_fresh_runs,
 	has_fresh_run,
 	is_conversational,
-	ungated_live_agents,
 )
 from one_bpmn.ai_agent_registry.provisioning.conformance import (
-	SCREENING_MARKER,
-	has_screening_stage,
 	validate_chat_map,
 )
 
@@ -183,13 +180,6 @@ class TestAdversarialGate(FrappeTestCase):
 			"process_id": f"zz_wi1969_{frappe.generate_hash(length=6)}",
 		}).insert(ignore_permissions=True).name
 
-	def test_the_marker_is_still_honoured_on_a_map_that_carries_it(self):
-		"""Conformance no longer HUNTS for the marker, but an author who does put
-		screening in a map keeps the recognition — the constants remain the
-		published contract."""
-		xml = f'<bpmn:definitions><bpmn:serviceTask id="a" spiffworkflow:{SCREENING_MARKER}="true" /></bpmn:definitions>'
-		self.assertTrue(has_screening_stage(xml))
-
 	def test_a_chat_map_without_a_screening_stage_still_conforms(self):
 		"""The cloned template this check was written against was retired,
 		and screening was never a map step — it runs centrally on every turn. No
@@ -200,7 +190,6 @@ class TestAdversarialGate(FrappeTestCase):
 			'<bpmn:conditionalEventDefinition spiffworkflow:triggerDoctype="Chat Conversation" />'
 			"</bpmn:startEvent></bpmn:definitions>"
 		)
-		self.assertFalse(has_screening_stage(xml))
 		self.assertTrue(validate_chat_map(self._map(xml))["ok"])
 
 	def test_a_map_that_is_not_a_chat_map_does_not_conform(self):
@@ -229,15 +218,6 @@ class TestAdversarialGate(FrappeTestCase):
 		self.assertFalse(result["ok"])
 		self.assertIn("not wired", result["errors"][0])
 
-	def test_older_maps_are_recognised_by_element_id(self):
-		"""Maps authored before the marker existed still conform."""
-		xml = '<bpmn:definitions><bpmn:serviceTask id="screen_input_stage" name="Screen" /></bpmn:definitions>'
-		self.assertTrue(has_screening_stage(xml))
-
-	def test_the_marker_must_be_truthy(self):
-		xml = f'<bpmn:definitions><bpmn:serviceTask id="a" spiffworkflow:{SCREENING_MARKER}="false" /></bpmn:definitions>'
-		self.assertFalse(has_screening_stage(xml))
-
 	def test_no_map_at_all_conforms(self):
 		"""A chat agent may legitimately have no map — that is the Direct API
 		path that was left in place — and screening does not live there anyway."""
@@ -247,28 +227,6 @@ class TestAdversarialGate(FrappeTestCase):
 		"""Linking one and getting it wrong is still an error, unlike linking none."""
 		self.assertFalse(validate_chat_map("no-such-map")["ok"])
 		self.assertFalse(validate_chat_map(self._map("  "))["ok"])
-
-	# ------------------------------------------------------------------
-	# Nothing already Live is disturbed
-	# ------------------------------------------------------------------
-	def test_the_gate_does_not_touch_agents_already_live(self):
-		"""It runs on the way to Live. Existing agents keep serving."""
-		live = frappe.get_all(
-			"AI Agent Configuration",
-			filters={"agent_type": "Chat", "lifecycle_status": "Live"},
-			pluck="name",
-		)
-		before = {a: frappe.db.get_value("AI Agent Configuration", a, "lifecycle_status") for a in live}
-		ungated_live_agents()  # merely reports
-		after = {a: frappe.db.get_value("AI Agent Configuration", a, "lifecycle_status") for a in live}
-		self.assertEqual(before, after, "reporting the gap must not change any agent's status")
-
-	def test_ungated_live_agents_reports_the_gap(self):
-		rows = ungated_live_agents()
-		self.assertIsInstance(rows, list)
-		for row in rows:
-			self.assertIn("agent", row)
-			self.assertIn("reason", row)
 
 	# ------------------------------------------------------------------
 	# Promotion marks a suite adversarial

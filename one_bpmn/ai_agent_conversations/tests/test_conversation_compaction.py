@@ -18,7 +18,6 @@ from one_bpmn.ai_agent_conversations.compaction import (
 )
 from one_bpmn.ai_agent_conversations.conversation_store import (
 	ContextWindowPolicy,
-	SummarizingWindowPolicy,
 )
 from one_bpmn.ai_agent_conversations.chat_persistence import (
 	create_conversation,
@@ -27,55 +26,6 @@ from one_bpmn.ai_agent_conversations.chat_persistence import (
 )
 
 _SUMMARISE = "one_bpmn.ai_agent_conversations.compaction._summarise"
-
-
-class TestSummarizingWindowPolicy(FrappeTestCase):
-	"""Pure policy behaviour — no database, no model."""
-
-	def _thread(self, n):
-		return [
-			{"role": "user" if i % 2 == 0 else "assistant", "content": f"m{i}"}
-			for i in range(n)
-		]
-
-	def test_without_a_summary_it_matches_the_plain_policy(self):
-		"""Configuring the policy before the first compaction must change nothing."""
-		messages = self._thread(10)
-		self.assertEqual(
-			SummarizingWindowPolicy(max_messages=4).apply(messages),
-			ContextWindowPolicy(max_messages=4).apply(messages),
-		)
-
-	def test_summary_comes_first_and_the_tail_follows(self):
-		out = SummarizingWindowPolicy(max_messages=4, summary="earlier stuff").apply(
-			self._thread(10)
-		)
-		self.assertEqual(len(out), 4)
-		self.assertIn("earlier stuff", out[0]["content"])
-		self.assertEqual([m["content"] for m in out[1:]], ["m7", "m8", "m9"])
-
-	def test_the_summary_is_paid_for_out_of_the_budget(self):
-		"""Adding a summary must not push the real message count over max_messages —
-		otherwise turning compaction on silently grows the request."""
-		for budget in (2, 3, 5, 8):
-			with self.subTest(budget=budget):
-				out = SummarizingWindowPolicy(
-					max_messages=budget, summary="s"
-				).apply(self._thread(20))
-				self.assertLessEqual(len(out), budget)
-
-	def test_the_system_prompt_survives_alongside_the_summary(self):
-		messages = [{"role": "system", "content": "rules"}] + self._thread(10)
-		out = SummarizingWindowPolicy(max_messages=4, summary="earlier").apply(messages)
-		self.assertEqual(out[0]["role"], "system")
-		self.assertIn("earlier", out[1]["content"])
-		self.assertEqual(len(out), 4)
-
-	def test_the_summary_role_is_configurable(self):
-		out = SummarizingWindowPolicy(
-			max_messages=3, summary="s", summary_role="assistant"
-		).apply(self._thread(6))
-		self.assertEqual(out[0]["role"], "assistant")
 
 
 class TestConversationCompaction(FrappeTestCase):

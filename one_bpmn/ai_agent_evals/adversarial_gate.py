@@ -26,9 +26,8 @@ with the screen removed. See ``conformance.py``.
 WHAT THIS DOES NOT DO
 ---------------------
 It never touches an agent that is already Live. The gate runs when an agent is
-provisioned from Draft; agents that went Live before this existed keep running,
-and ``ungated_live_agents`` reports them so the gap is visible rather than
-resolved by taking production offline.
+provisioned from Draft; agents that went Live before this existed keep running
+rather than being taken offline.
 """
 
 from __future__ import annotations
@@ -247,32 +246,3 @@ def check(agent: str) -> dict:
 			),
 			"suites": [],
 		}
-
-
-@frappe.whitelist()
-def ungated_live_agents() -> list[dict]:
-	"""Live chat agents with no currently-passing adversarial suite.
-
-	The gate only runs on the way to Live, so agents that went Live before this
-	existed are untouched — which is right, but the gap must not be invisible.
-	This lists them so someone can decide, rather than discovering it after an
-	incident.
-	"""
-	frappe.has_permission("AI Agent Configuration", "read", throw=True)
-
-	out = []
-	for agent in frappe.get_all(
-		"AI Agent Configuration",
-		filters={"agent_type": "Chat", "lifecycle_status": "Live"},
-		fields=["name", "agent_id", "chat_mode_label"],
-		limit_page_length=0,
-	):
-		result = check(agent.name)
-		if not result["ok"]:
-			out.append({
-				"agent": agent.name,
-				"agent_id": agent.agent_id,
-				"chat_mode_label": agent.chat_mode_label,
-				"reason": result["reason"],
-			})
-	return out
