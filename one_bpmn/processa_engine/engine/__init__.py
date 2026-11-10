@@ -15,6 +15,7 @@ from SpiffWorkflow.bpmn.specs.mixins.multiinstance_task import MultiInstanceTask
 from SpiffWorkflow.bpmn.specs.mixins.subworkflow_task import SubWorkflowTask
 from SpiffWorkflow.bpmn.workflow import BpmnWorkflow
 from SpiffWorkflow.exceptions import TaskNotFoundException, WorkflowException
+from SpiffWorkflow.task import Task
 from SpiffWorkflow.util.task import TaskState
 
 from one_bpmn.processa_engine.engine import spiff_patches
@@ -64,6 +65,7 @@ __all__ = [
 	"CallActivityMixin",
 	"MultiInstanceTask",
 	"SubWorkflowTask",
+	"Task",
 	"TaskState",
 	"TaskDataEnvironment",
 	"CatchingEvent",
