@@ -7,7 +7,6 @@ from frappe import _
 from one_bpmn.agents_sandbox.customization.github_sync import org_repos
 
 
-@frappe.whitelist()
 def list_org_repos(org: str = "ONE-F-M") -> list[dict]:
 	"""Cross-app entry point: frappe_agile's own repo-picker sync (Work Item's
 	target_app Link field) has no GitHub credential of its own — this reuses
