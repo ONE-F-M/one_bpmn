@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Shared AG-UI event stream (WI-001670).
+"""Shared AG-UI event stream.
 
 One generator turns any agent's turn — for any runner — into a valid AG-UI
 event sequence: RunStarted → text content (and extension events) →
@@ -20,10 +20,10 @@ Two reply shapes come back from ``invoke_agent(stream=True)``:
   parent stream owns the run lifecycle, the child stream owns its messages.
 
 Extension translation (payload dict → ``onefm.*`` CustomEvents) is a plug
-point: WI-001670 ships the mechanism plus the one cross-agent mapping
-(``onefm.choice``); the full contract mapping registers itself in WI-001671.
+point: the mechanism ships here plus the one cross-agent mapping
+(``onefm.choice``); the full contract mapping registers itself in the contract module.
 
-Transport rules (deliberate, from the WI-001671 contract decisions): SSE
+Transport rules (deliberate, from the contract decisions): SSE
 keep-alives/heartbeats are comments, never events; errors surface only as
 RunError; nothing is ever emitted as a bare named SSE line.
 """
@@ -55,7 +55,7 @@ from one_bpmn.ai_agent_guardrails.refusal import AgentRefusal
 # ── Extension translators (payload dict → list of CustomEvent) ──────────────
 # Registered callables receive the runner's reply dict and return an iterable
 # of ag_ui.core events (typically CustomEvent). The contract story
-# (WI-001671) registers the full onefm.* mapping here.
+# registers the full onefm.* mapping here.
 
 _EXTENSION_TRANSLATORS = []
 
@@ -69,13 +69,13 @@ def register_extension_translator(fn):
 
 @register_extension_translator
 def _choice_translator(result: dict):
-	"""The one cross-agent mapping owned by WI-001670: an intent that asks
+	"""The one cross-agent mapping owned by the stream: an intent that asks
 	the user to pick becomes ``onefm.choice`` — today's Logix DISAMBIGUATE
 	and ProsAlly CONFIRM / CONFIRM_REMOVAL payloads."""
 	intent = (result.get("intent") or "").upper()
 	options = result.get("options") or []
 	# A removal gate that carries the diagram is NOT loose buttons: the
-	# confirm belongs inside the DiagramPreviewCard (WI-001671), so the
+	# confirm belongs inside the DiagramPreviewCard, so the
 	# bpmn_preview translator owns that payload.
 	if intent == "CONFIRM_REMOVAL" and result.get("pending_xml"):
 		return
@@ -149,7 +149,7 @@ def _tool_calls_from_result(result: dict) -> list:
 
 
 def _agent_artifact_type(agent_id: str) -> str:
-	"""The agent's configured Artifact Type (WI-001996), for the generic
+	"""The agent's configured Artifact Type, for the generic
 	artifact translator. Empty string when unset/unreadable — the translator
 	then stands down, same as artifact_type 'None'."""
 	try:
@@ -164,7 +164,7 @@ def _agent_artifact_type(agent_id: str) -> str:
 
 
 
-# ── Per-agent hooks (WI-001674) ──────────────────────────────────────────────
+# ── Per-agent hooks ──────────────────────────────────────────────
 # Context builders enrich the raw grounding a surface sends into the turn
 # context an agent's map expects (e.g. the assistant's dialog_context).
 # Reply shapers post-process a buffered reply BEFORE its text is emitted —
@@ -173,7 +173,7 @@ def _agent_artifact_type(agent_id: str) -> str:
 
 _CONTEXT_BUILDERS = {}
 _REPLY_SHAPERS = {}
-# Agents whose context builder also needs the user's message (WI-004172: ProsAlly
+# Agents whose context builder also needs the user's message (ProsAlly
 # recognises pasted BPMN XML). It rides in the context as ``_turn_message`` and
 # is removed again before the turn runs.
 _MESSAGE_AWARE_AGENTS = frozenset({"prosally_agent"})
@@ -340,7 +340,7 @@ def agent_event_stream(
 					result = shaper(result) or result
 				except Exception:
 					frappe.log_error(title="agui reply shaper error", message=frappe.get_traceback())
-			# WI-001996 wiring: a generic `artifact` reply renders through the
+			# a generic `artifact` reply renders through the
 			# typed event named by the agent's configured Artifact Type. The
 			# type is resolved here — the only layer that knows agent_id — so
 			# the translator itself stays agent-blind. A reply's own
@@ -415,7 +415,7 @@ def agent_event_stream(
 			_commit_turn()
 	except AgentRefusal as refusal:
 		# RateLimited, an injection Block, a model with broken credentials
-		# (WI-002191): every refusal derives from AgentRefusal for exactly this
+		# Every refusal derives from AgentRefusal for exactly this
 		# handler, so a new control is shown verbatim without teaching the
 		# stream its name.
 		# A throttle or a conversation freeze is a DECISION, not a fault. Every
@@ -541,7 +541,7 @@ def _relay_child_stream(
 
 		event_type = (event.get("type") or "").upper()
 		if event_type == "CUSTOM":
-			# WI-001680: legacy child event names adopt their contract names
+			# legacy child event names adopt their contract names
 			# at the relay boundary, so every CUSTOM event on the wire is
 			# namespaced (MODE_TRANSITION had no consumer before this;
 			# LUCRUSHER_RESULT keeps its payload, envelope renamed).
@@ -560,7 +560,7 @@ def _relay_child_stream(
 				# "type", and the BA Agent's bridge yields new_mode the same way
 				# — while an AG-UI CustomEvent carries it under `value`, which
 				# is all the panel reads. Renaming alone therefore delivered
-				# an EMPTY event to every consumer (WI-001678): fold the
+				# an EMPTY event to every consumer: fold the
 				# producer's own keys into value, preferring an explicit
 				# `value` when the producer already speaks the contract.
 				value = dict(event.get("value") or {})
@@ -613,7 +613,7 @@ def _relay_child_stream(
 		yield f"data: {json.dumps(event, default=str)}\n\n"
 
 
-# ── Contract translators (WI-001671) ─────────────────────────────────────────
+# ── Contract translators ─────────────────────────────────────────
 # Importing the contract package registers the full onefm.* payload mapping.
 # Guarded so a broken contract module degrades to text-only streams instead of
 # killing every chat endpoint at import time.
@@ -624,22 +624,22 @@ try:
 except Exception:
 	frappe.log_error(title="agui contract translators failed to load", message=frappe.get_traceback())
 
-# The assistant registers its context builder + reply shaper on import
-# (WI-001674). Same degrade-to-text guarantee as the translators.
+# The assistant registers its context builder + reply shaper on import.
+# Same degrade-to-text guarantee as the translators.
 try:
 	import one_bpmn.ai_agent_registry.definitions.assistant.helpers  # noqa: F401,E402
 except Exception:
 	frappe.log_error(title="agui assistant hooks failed to load", message=frappe.get_traceback())
 
 # Logix and ProsAlly register their context builders + reply shapers on import
-# (WI-001677 / WI-001675 follow-ups from live testing).
+# (follow-ups from live testing).
 try:
 	import one_bpmn.api.server_script_api  # noqa: F401,E402
 except Exception:
 	frappe.log_error(title="agui logix hooks failed to load", message=frappe.get_traceback())
 
 # Docu registers its context builder (current-IR loading) + reply shaper on
-# import (WI-001676 follow-up). Same degrade-to-text guarantee.
+# import. Same degrade-to-text guarantee.
 try:
 	import one_bpmn.api.docu_api  # noqa: F401,E402
 except Exception:

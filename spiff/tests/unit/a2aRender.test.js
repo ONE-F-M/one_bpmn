@@ -44,8 +44,11 @@ vi.mock("frappe-ui", async () => {
 const { createSSRApp, h } = await import("vue");
 const { renderToString } = await import("vue/server-renderer");
 
-const parts = import.meta.glob("../../src/components/A2A/*/*.vue", { eager: true });
-const part = (name) => parts[`../../src/components/A2A/${name}/${name}.vue`].default;
+const parts = import.meta.glob(
+	["../../src/components/A2A/*/*.vue", "../../src/components/Modals/A2A*/*.vue"],
+	{ eager: true },
+);
+const part = (name) => parts[Object.keys(parts).find((key) => key.endsWith(`/${name}/${name}.vue`))].default;
 
 async function render(component, props = {}) {
 	const app = createSSRApp({ render: () => h(component, props) });

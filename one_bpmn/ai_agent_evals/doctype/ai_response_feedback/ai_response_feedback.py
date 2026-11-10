@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""One user's verdict on one agent reply (WI-001641)."""
+"""One user's verdict on one agent reply."""
 
 import frappe
 from frappe import _

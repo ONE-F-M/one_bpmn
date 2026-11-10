@@ -47,7 +47,7 @@
 		<ProcessDiagramTab />
 		<ProcessLogixTab />
 		<ProcessDmnTab />
-		<ProcessLauncherDialogs />
+		<ProcessLauncherModal />
 
 		<Dialog
 			v-model="showUnsavedNavigationWarning"
@@ -81,7 +81,7 @@ import ProcessToolbar from "@/components/Editor/ProcessToolbar/ProcessToolbar.vu
 import ProcessDiagramTab from "@/components/Editor/ProcessDiagramTab/ProcessDiagramTab.vue";
 import ProcessLogixTab from "@/components/Editor/ProcessLogixTab/ProcessLogixTab.vue";
 import ProcessDmnTab from "@/components/Editor/ProcessDmnTab/ProcessDmnTab.vue";
-import ProcessLauncherDialogs from "@/components/Editor/ProcessLauncherDialogs/ProcessLauncherDialogs.vue";
+import ProcessLauncherModal from "@/components/Modals/ProcessLauncherModal/ProcessLauncherModal.vue";
 import ProcessDeployTab from "@/components/Editor/ProcessDeployTab/ProcessDeployTab.vue";
 import ProcessConfigurationTab from "@/components/Editor/ProcessConfigurationTab/ProcessConfigurationTab.vue";
 import { createProcessContext, PROCESS_KEY } from "@/composables/Process/useProcessState";

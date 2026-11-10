@@ -3,12 +3,11 @@ import { describe, expect, it } from "vitest";
 
 const src = new URL("../../src/", import.meta.url);
 const EDITOR_DIR = "components/Editor/";
-const WITH_CSS = ["ProcessDmnTab", "ProcessLauncherDialogs", "ProcessLogixTab"];
+const WITH_CSS = ["ProcessDmnTab", "ProcessLogixTab"];
 const WITHOUT_CSS = [
 	"ProcessToolbar",
 	"ProcessActions",
 	"ProcessDiagramTab",
-	"ProcessScriptDialog",
 	"ProcessDeployTab",
 	"ProcessConfigurationTab",
 	"BpmnDocuPanel",

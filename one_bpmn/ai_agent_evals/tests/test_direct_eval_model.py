@@ -1,10 +1,10 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Which model a Direct eval actually calls (WI-001751 follow-up).
+"""Which model a Direct eval actually calls.
 
 A Direct eval is supposed to exercise the agent under test — its prompt, its
 credentials, and its model. The runner used to read the model from
-``AI Provider.default_model``, a field WI-001655 removed, so it
+``AI Provider.default_model``, a field that was removed, so it
 tested whatever stale value survived on that site (or errored where the column
 had been dropped) and never the agent's own catalog pick.
 
@@ -87,7 +87,7 @@ class TestDirectEvalModel(FrappeTestCase):
         self.assertEqual(self._model_used_by_direct_eval(agent), model_id)
 
     def test_falls_back_to_a_catalog_model_for_a_legacy_agent(self):
-        """An agent with no ai_model (pre-WI-001655) still resolves to a real
+        """An agent with no ai_model (before ai_model existed) still resolves to a real
         model linked to its credentials, rather than an empty string."""
         model_id = self._make_model(f"_test-legacy-{frappe.generate_hash(length=6)}")
         agent = make_agent_configuration(ai_provider=self.credentials)
@@ -117,7 +117,7 @@ class TestDirectEvalModel(FrappeTestCase):
             if doctype == "AI Provider" and fieldname == "default_model":
                 raise AssertionError(
                     "the eval runner read AI Provider.default_model, "
-                    "which WI-001655 removed."
+                    "which was removed."
                 )
             return real_get_value(doctype, *args, **kwargs)
 

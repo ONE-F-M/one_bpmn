@@ -187,7 +187,7 @@ def _is_echo(content: str, exclude_context: str) -> bool:
 
 	Verbatim containment first (cheap, catches an exact or near-exact copy);
 	otherwise the best sentence-vs-sentence similarity ratio, since the curator
-	LLM paraphrases rather than quotes (WI-002165 — jrrd68247k's "Always call
+	LLM paraphrases rather than quotes (jrrd68247k's "Always call
 	classify_intent first..." is a loose rewrite of the driving prompt, not a
 	substring of it).
 	"""
@@ -259,7 +259,7 @@ def distill_memories(
 	compatibility with semantic consolidation; v1 uses only ``agent`` to
 	namespace the dedup key.
 
-	``exclude_context`` (WI-002165) is the agent's own system prompt plus its
+	``exclude_context`` is the agent's own system prompt plus its
 	injected memory block for this run. The curator is told not to extract
 	anything already present there, and every returned fact is additionally
 	checked against it with ``_is_echo`` — a deterministic backstop, since the

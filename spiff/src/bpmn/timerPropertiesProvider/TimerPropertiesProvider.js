@@ -1,43 +1,29 @@
-import { is } from 'bpmn-js/lib/util/ModelUtil';
 import { getBusinessObject } from 'bpmn-js/lib/util/ModelUtil';
 import { h } from 'preact';
+import { makeProvider } from '../shared/makePropertiesProvider';
 
-const LOW_PRIORITY = 500;
+const hasTimerDefinition = (element) =>
+  (getBusinessObject(element).eventDefinitions || []).some((e) => e.$type === 'bpmn:TimerEventDefinition');
 
-/**
- * Injects visible description + validation into the default "Timer" group.
- * Enforces minute-level minimum granularity (no seconds).
- */
-export default class TimerPropertiesProvider {
-  constructor(propertiesPanel, translate) {
-    propertiesPanel.registerProvider(LOW_PRIORITY, this);
-    this.translate = translate;
-  }
-
-  getGroups(element) {
-    return (groups) => {
-      if (!is(element, 'bpmn:Event')) return groups;
-
-      const bo = getBusinessObject(element);
-      const defs = bo.eventDefinitions || [];
-      const timerDef = defs.find(e => e.$type === 'bpmn:TimerEventDefinition');
-      if (!timerDef) return groups;
-
-      const timerGroup = groups.find(g => g.id === 'timer');
-      if (timerGroup && timerGroup.entries) {
-        timerGroup.entries.push({
-          id: 'timer-type-description',
-          element,
-          component: TimerTypeDescription
-        });
-      }
-
-      return groups;
-    };
+/** Adds a visible description and validation to the default "Timer" group (minute-level granularity, no seconds). */
+function addTimerDescription({ groups, element }) {
+  const timerGroup = groups.find((g) => g.id === 'timer');
+  if (timerGroup && timerGroup.entries) {
+    timerGroup.entries.push({
+      id: 'timer-type-description',
+      element,
+      component: TimerTypeDescription
+    });
   }
 }
 
-TimerPropertiesProvider.$inject = ['propertiesPanel', 'translate'];
+export default {
+  __init__: [ 'timerPropertiesProvider' ],
+  timerPropertiesProvider: [
+    'type',
+    makeProvider('bpmn:Event', null, null, null, { when: hasTimerDefinition, edit: addTimerDescription })
+  ]
+};
 
 
 const DESCRIPTIONS = {

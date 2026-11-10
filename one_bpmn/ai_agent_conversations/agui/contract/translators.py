@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Legacy payload → contract event translators (WI-001671).
+"""Legacy payload → contract event translators.
 
 The per-agent endpoints' buffered reply dicts carry their information in
 private keys (verified on staging: Logix ``intent/diff/modified_script``,
@@ -114,7 +114,7 @@ def _assistant_proposals(result: dict):
 	"""AI Assistant: a whole new agent, or values for the open form.
 
 	Accepts both the legacy key (proposal) and the shaped-reply keys the
-	WI-001674 shaper produces (proposed_config / proposed_update /
+	shaper produces (proposed_config / proposed_update /
 	recommendations)."""
 	summary = result.get("message") or result.get("summary") or ""
 	proposal = result.get("proposed_config") or result.get("proposal")
@@ -178,7 +178,7 @@ _BESPOKE_ARTIFACT_KEYS = (
 @register_extension_translator
 def _typed_artifact(result: dict):
 	"""Any agent: a generic ``artifact`` reply becomes the typed event its
-	configuration's Artifact Type names (the WI-001996 field, wired).
+	configuration's Artifact Type names (the Artifact Type field, wired).
 
 	This is what lets an agent WITHOUT a bespoke translator still get the
 	right preview renderer and apply target: the stream stamps
@@ -257,7 +257,7 @@ _LUCRUSHER_PAYLOAD_KEYS = (
 
 @register_extension_translator
 def _lucrusher_result(result: dict):
-	"""LuCrusher: the migration phase result behind its panels (WI-001678).
+	"""LuCrusher: the migration phase result behind its panels.
 
 	Map-driven turns never emit the legacy LUCRUSHER_RESULT event — the
 	finalize tool persists its structured payload as Chat Message metadata,

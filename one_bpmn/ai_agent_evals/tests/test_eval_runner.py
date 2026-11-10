@@ -51,7 +51,7 @@ class TestEvalRunner(FrappeTestCase):
             frappe.ValidationError, run_eval_suite, "does-not-exist"
         )
 
-    # -- run_eval_cases (WI-001746) -------------------------------------
+    # -- run_eval_cases -------------------------------------
 
     def test_run_eval_cases_subset_passes_case_names(self):
         """run_eval_cases() enqueues only the chosen cases."""
@@ -80,7 +80,7 @@ class TestEvalRunner(FrappeTestCase):
         self.assertIn(other.name, str(ctx.exception))
 
     def test_run_eval_cases_rejects_suite_without_agent(self):
-        """A live run needs an agent to evaluate (WI-001751)."""
+        """A live run needs an agent to evaluate."""
         suite = make_eval_suite(agent_configuration=None)
         make_eval_case(suite=suite.name)
         with self.assertRaises(frappe.ValidationError) as ctx:

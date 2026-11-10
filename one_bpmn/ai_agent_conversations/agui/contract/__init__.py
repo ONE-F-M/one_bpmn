@@ -1,12 +1,12 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""ONE-FM AG-UI extension event contract (WI-001671).
+"""ONE-FM AG-UI extension event contract.
 
-The contract is DATA — ``schemas/events.json`` — mirroring the WI-001649
+The contract is DATA — ``schemas/events.json`` — mirroring the existing
 payload-contract style: schemas and examples live in the repo, never prose
 baked into prompts or components. This module is the thin accessor: load,
-list, validate. The conformance suite (WI-001680) and the frontend card
-registry (WI-001673) both key off the same file.
+list, validate. The conformance suite and the frontend card
+registry both key off the same file.
 """
 
 from __future__ import annotations
@@ -77,8 +77,8 @@ def validate_examples() -> list[str]:
 
 
 def validate_stream(chunks: list, agent_id: str = "") -> list[str]:
-	"""Validate one turn's encoded SSE chunks as a conformant AG-UI stream
-	(WI-001680). Returns human-readable problems, each naming the agent and
+	"""Validate one turn's encoded SSE chunks as a conformant AG-UI stream.
+	Returns human-readable problems, each naming the agent and
 	the offending event — empty when conformant.
 
 	Rules enforced:

@@ -4,12 +4,15 @@ import { describe, expect, it } from "vitest";
 const partsDir = new URL("../../src/components/A2A/", import.meta.url);
 const read = (url) => readFileSync(url, "utf8");
 const shell = read(new URL("../../src/pages/A2A.vue", import.meta.url));
-const parts = Object.fromEntries(
-	readdirSync(partsDir)
+const modalsDir = new URL("../../src/components/Modals/", import.meta.url);
+const a2aModals = ["A2AClarificationModal", "A2ADelegationModal"];
+const parts = Object.fromEntries([
+	...readdirSync(partsDir)
 		.flatMap((dir) => readdirSync(new URL(`${dir}/`, partsDir)))
 		.filter((f) => f.endsWith(".vue"))
 		.map((f) => [f, read(new URL(`${f.replace(/\.vue$/, "")}/${f}`, partsDir))]),
-);
+	...a2aModals.map((m) => [`${m}.vue`, read(new URL(`${m}/${m}.vue`, modalsDir))]),
+]);
 const listParts = [
 	"A2AOurAgents.vue",
 	"A2ARemoteAgents.vue",

@@ -51,9 +51,9 @@
 			</transition>
 		</div>
 
-		<BpmnCommentDialogs />
+		<BpmnCommentModal />
 		<BpmnContextMenu />
-		<BpmnMessageDialog />
+		<BpmnMessageModal />
 
 		<!-- AI Agent Task / AI Task Selector config modal -->
 		<AIAgentConfigModal
@@ -83,10 +83,10 @@ import BpmnInlineComment from "../BpmnInlineComment/BpmnInlineComment.vue";
 import BpmnMobileToolbar from "../BpmnMobileToolbar/BpmnMobileToolbar.vue";
 import BpmnPropertiesPanel from "../BpmnPropertiesPanel/BpmnPropertiesPanel.vue";
 import BpmnCommentPanel from "../BpmnCommentPanel/BpmnCommentPanel.vue";
-import BpmnCommentDialogs from "../BpmnCommentDialogs/BpmnCommentDialogs.vue";
+import BpmnCommentModal from "@/components/Modals/BpmnCommentModal/BpmnCommentModal.vue";
 import BpmnDocuPanel from "../BpmnDocuPanel/BpmnDocuPanel.vue";
 import BpmnContextMenu from "../BpmnContextMenu/BpmnContextMenu.vue";
-import BpmnMessageDialog from "../BpmnMessageDialog/BpmnMessageDialog.vue";
+import BpmnMessageModal from "@/components/Modals/BpmnMessageModal/BpmnMessageModal.vue";
 import { createEditorContext, EDITOR_KEY } from "@/composables/Editor/useEditorState";
 import { useEditorPanels } from "@/composables/Editor/useEditorPanels";
 import { useEditorDialogs } from "@/composables/Editor/useEditorDialogs";

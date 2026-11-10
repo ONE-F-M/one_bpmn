@@ -226,4 +226,4 @@ const {
 	</Dialog>
 </template>
 
-<style src="./BpmnCommentDialogs.css"></style>
+<style src="./BpmnCommentModal.css"></style>

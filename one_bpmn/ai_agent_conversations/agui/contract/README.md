@@ -1,4 +1,4 @@
-# ONE-FM AG-UI extension event contract (WI-001671)
+# ONE-FM AG-UI extension event contract
 
 Every non-text thing a chat agent may send to a screen, defined once, as data.
 
@@ -19,7 +19,7 @@ Rules that keep uniformity from drifting:
    a recorded fixture.
 3. **Errors surface only as the standard `RunError`.** Keep-alives are SSE
    comments — transport, not events.
-4. **An unknown `onefm.*` name fails the conformance build** (WI-001680)
+4. **An unknown `onefm.*` name fails the conformance build**
    and renders as a safe fallback in the panel — never a broken transcript.
 
 ## The events
@@ -48,7 +48,7 @@ Explicitly **not** contract events: heartbeats (transport comments) and
 An agent **without** a bespoke translator still gets the right preview
 renderer: return the produced thing under the reply key `artifact`, and the
 stream maps it to a typed event using the agent's configured **Artifact
-Type** (AI Agent Configuration → Chat Surface, WI-001996):
+Type** (AI Agent Configuration → Chat Surface):
 
 | Artifact Type | `artifact` content | Emitted as | Rendered as |
 |---|---|---|---|

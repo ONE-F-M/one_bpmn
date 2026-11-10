@@ -31,7 +31,7 @@ from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorR
 def make_agent_configuration(**kwargs) -> "frappe.model.document.Document":
     """Create and insert a minimal AI Agent Configuration for a suite to test.
 
-    WI-001751 made the agent the subject of an eval: AI Eval Suite.agent_configuration
+    The agent became the subject of an eval: AI Eval Suite.agent_configuration
     is mandatory, and the runner reads the agent for the provider, model and system
     prompt a case runs against. A suite without one cannot execute at all — every
     case comes back Error("The suite has no agent configuration to test.").
@@ -90,7 +90,7 @@ def make_eval_case(assertions=None, **kwargs) -> "frappe.model.document.Document
     ``assertions`` child table, e.g. ``[{"assertion_type": "contains",
     "value": "approved"}]``.
     """
-    # WI-001751 removed provider / model / backend from AI Eval Case — those now
+    # Provider / model / backend from AI Eval Case — those now
     # come from the suite's agent — so a case carries only the test itself.
     defaults = {
         "doctype": "AI Eval Case",
