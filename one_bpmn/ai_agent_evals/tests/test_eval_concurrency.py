@@ -30,20 +30,15 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date
 
 from one_bpmn.ai_agent_evals.tests.factories import make_eval_case, make_eval_suite
-from one_bpmn.ai_agent_evals.eval_runner import (
-	MAX_EVAL_CONCURRENCY,
-	SPEND_CEILING_MESSAGE,
-	_eval_concurrency,
-	_execute_eval_suite,
-	_force_finalize_if_running,
-	_lanes_for,
-	_run_eval_lane_job,
-	_write_eval_result_row,
-	sweep_stale_eval_runs,
-)
+from one_bpmn.ai_agent_evals.runner.lanes import run_eval_lane_job, _write_eval_result_row
+from one_bpmn.ai_agent_evals.runner.policy import MAX_EVAL_CONCURRENCY, SPEND_CEILING_MESSAGE, eval_concurrency, lanes_for
+from one_bpmn.ai_agent_evals.runner.suite import execute_eval_suite
+from one_bpmn.ai_agent_evals.runner.sweep import _force_finalize_if_running, sweep_stale_eval_runs
 
-RUNNER_CASE = "one_bpmn.ai_agent_evals.eval_runner._execute_case"
-CONCURRENCY = "one_bpmn.ai_agent_evals.eval_runner._eval_concurrency"
+RUNNER_CASE = "one_bpmn.ai_agent_evals.runner.cases._execute_case"
+CONCURRENCY = tuple(
+	f"one_bpmn.ai_agent_evals.runner.{module}.eval_concurrency" for module in ("policy", "suite", "lanes")
+)
 
 
 class _Recorder:
@@ -159,8 +154,13 @@ class _ConcurrencyCase(FrappeTestCase):
 		# The workers are real threads on real connections: what they read has
 		# to be committed first.
 		frappe.db.commit()
-		with patch(RUNNER_CASE, new=recorder), patch(CONCURRENCY, return_value=concurrency):
-			_execute_eval_suite(run.name)
+		with (
+			patch(RUNNER_CASE, new=recorder),
+			patch(CONCURRENCY[0], return_value=concurrency),
+			patch(CONCURRENCY[1], return_value=concurrency),
+			patch(CONCURRENCY[2], return_value=concurrency),
+		):
+			execute_eval_suite(run.name)
 		run.reload()
 		return run
 
@@ -177,14 +177,14 @@ class TestLaneGrouping(FrappeTestCase):
 
 	def test_cases_with_no_document_each_get_their_own_lane(self):
 		names = [self._case(f"c{n}").name for n in range(4)]
-		self.assertEqual(_lanes_for(names), [[n] for n in names])
+		self.assertEqual(lanes_for(names), [[n] for n in names])
 
 	def test_cases_sharing_a_document_share_a_lane(self):
 		shared = '{"context_doctype": "A2A Task", "context_docname": "A2A-1"}'
 		a = self._case("a", shared).name
 		b = self._case("b", shared).name
 		c = self._case("c", '{"context_doctype": "A2A Task", "context_docname": "A2A-2"}').name
-		lanes = _lanes_for([a, b, c])
+		lanes = lanes_for([a, b, c])
 		self.assertEqual(lanes, [[a, b], [c]])
 
 	def test_lane_order_follows_the_order_the_cases_were_given(self):
@@ -193,7 +193,7 @@ class TestLaneGrouping(FrappeTestCase):
 		a = self._case("a", '{"context_docname": "X"}').name
 		b = self._case("b").name
 		c = self._case("c", '{"context_docname": "X"}').name
-		self.assertEqual(_lanes_for([a, b, c]), [[a, c], [b]])
+		self.assertEqual(lanes_for([a, b, c]), [[a, c], [b]])
 
 	def test_context_without_a_document_is_treated_as_no_document(self):
 		"""A case can carry context that names no document — an empty object, or
@@ -206,30 +206,30 @@ class TestLaneGrouping(FrappeTestCase):
 		"""
 		a = self._case("a", "{}").name
 		b = self._case("b", '{"note": "no document here"}').name
-		self.assertEqual(_lanes_for([a, b]), [[a], [b]])
+		self.assertEqual(lanes_for([a, b]), [[a], [b]])
 
 	def test_no_cases_is_no_lanes(self):
-		self.assertEqual(_lanes_for([]), [])
+		self.assertEqual(lanes_for([]), [])
 
 
 class TestConcurrencySetting(FrappeTestCase):
 	def test_unset_means_one(self):
 		with patch.object(frappe.db, "get_single_value", return_value=None):
-			self.assertEqual(_eval_concurrency(), 1)
+			self.assertEqual(eval_concurrency(), 1)
 
 	def test_zero_and_negative_mean_one(self):
 		for value in (0, -4):
 			with patch.object(frappe.db, "get_single_value", return_value=value):
-				self.assertEqual(_eval_concurrency(), 1)
+				self.assertEqual(eval_concurrency(), 1)
 
 	def test_it_is_capped(self):
 		with patch.object(frappe.db, "get_single_value", return_value=999):
-			self.assertEqual(_eval_concurrency(), MAX_EVAL_CONCURRENCY)
+			self.assertEqual(eval_concurrency(), MAX_EVAL_CONCURRENCY)
 
 	def test_an_unreadable_setting_falls_back_to_one(self):
 		"""Fails safe: the slow path, never an uncapped fan-out."""
 		with patch.object(frappe.db, "get_single_value", side_effect=Exception("no table")):
-			self.assertEqual(_eval_concurrency(), 1)
+			self.assertEqual(eval_concurrency(), 1)
 
 
 class TestSerialIsUnchanged(_ConcurrencyCase):
@@ -364,8 +364,8 @@ class TestWorkerContext(_ConcurrencyCase):
 		def record_origin(case, eval_run=None, agent_cfg=None):
 			# _execute_case is what sets the flag, so call the real wrapper's
 			# behaviour: set it, look at it, restore it.
-			from one_bpmn.ai_agent_evals.eval_runner import _eval_origin_flag
-			frappe.flags.eval_origin = _eval_origin_flag(case, eval_run)
+			from one_bpmn.ai_agent_evals.runner.agent_eval import eval_origin_flag
+			frappe.flags.eval_origin = eval_origin_flag(case, eval_run)
 			seen[case.name] = dict(frappe.flags.eval_origin or {})
 			return {"eval_case": case.name, "status": "Passed", "assertion_results": "[]"}
 
@@ -479,7 +479,7 @@ class TestFanOutExecution(_ConcurrencyCase):
 
 		enqueue = _ThreadedEnqueue(frappe.local.site)
 		with patch(RUNNER_CASE, new=recorder), patch.object(frappe, "enqueue", enqueue):
-			_execute_eval_suite(run.name, case_names=names, fan_out=True)
+			execute_eval_suite(run.name, case_names=names, fan_out=True)
 			enqueue.join_all()
 		frappe.db.commit()
 		run.reload()
@@ -550,7 +550,7 @@ class TestFanOutTimeouts(_ConcurrencyCase):
 
 		with patch(RUNNER_CASE, new=flaky):
 			with self.assertRaises(JobTimeoutException):
-				_run_eval_lane_job(
+				run_eval_lane_job(
 					run.name, case_names, "live", None, 1, lane_index=0, concurrency=1,
 				)
 
@@ -680,8 +680,8 @@ class TestFanOutSpendAndEvents(_ConcurrencyCase):
 		recorder = _Recorder(delay=0)
 
 		with patch(RUNNER_CASE, new=recorder), patch.object(frappe, "enqueue"):
-			_run_eval_lane_job(run.name, case_names, "live", None, 1, lane_index=0, concurrency=2)
-			_run_eval_lane_job(run.name, case_names, "live", None, 1, lane_index=1, concurrency=2)
+			run_eval_lane_job(run.name, case_names, "live", None, 1, lane_index=0, concurrency=2)
+			run_eval_lane_job(run.name, case_names, "live", None, 1, lane_index=1, concurrency=2)
 
 		run.reload()
 		self.assertEqual(recorder.order, [first], "the lane after the ceiling must not run its cases")
@@ -698,7 +698,7 @@ class TestFanOutSpendAndEvents(_ConcurrencyCase):
 		recorder = _Recorder(delay=0)
 
 		with patch(RUNNER_CASE, new=recorder), patch.object(frappe, "enqueue"):
-			_run_eval_lane_job(run.name, case_names, "live", None, 1, lane_index=0, concurrency=1)
+			run_eval_lane_job(run.name, case_names, "live", None, 1, lane_index=0, concurrency=1)
 
 		run.reload()
 		self.assertEqual(sorted(recorder.order), sorted(case_names))
@@ -711,7 +711,7 @@ class TestFanOutSpendAndEvents(_ConcurrencyCase):
 
 		with patch(RUNNER_CASE, new=_Recorder(delay=0)), patch.object(frappe, "enqueue"), \
 				patch.object(frappe, "publish_realtime") as publish:
-			_run_eval_lane_job(run.name, case_names, "live", None, 1, lane_index=0, concurrency=1)
+			run_eval_lane_job(run.name, case_names, "live", None, 1, lane_index=0, concurrency=1)
 
 		events = [
 			(c.args[0], c.args[1], c.kwargs.get("user"))

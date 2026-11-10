@@ -174,7 +174,8 @@ def patch_executor(handler: Handler):
         {"run": lambda self, config, context: handler(config, context)},
     )
 
-    with patch("one_bpmn.ai_agent_evals.eval_runner.get_executor", return_value=fake_cls), \
+    with patch("one_bpmn.ai_agent_evals.runner.assertions.get_executor", return_value=fake_cls), \
+            patch("one_bpmn.ai_agent_evals.runner.agent_eval.get_executor", return_value=fake_cls), \
             patch("frappe.publish_realtime"), \
             patch("frappe.log_error"), \
             patch.object(frappe.db, "commit"):

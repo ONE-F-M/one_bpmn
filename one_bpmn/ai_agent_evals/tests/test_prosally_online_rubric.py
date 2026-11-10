@@ -2,7 +2,7 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.ai_agent_evals.eval_runner import _evaluate_assertion
+from one_bpmn.ai_agent_evals.runner.assertions import evaluate_assertion
 from one_bpmn.ai_agent_evals.online_eval import rubric_assertions, rubric_suite
 from one_bpmn.one_bpmn.patches.v1_0 import seed_prosally_online_rubric as patch
 
@@ -22,7 +22,7 @@ BAD = {
 
 
 def _fails(answer, rules):
-	return [r for r in rules if not _evaluate_assertion(frappe._dict(r), answer).get("passed")]
+	return [r for r in rules if not evaluate_assertion(frappe._dict(r), answer).get("passed")]
 
 
 class TestProsallyOnlineRubric(FrappeTestCase):

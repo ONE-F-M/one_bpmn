@@ -2,7 +2,7 @@
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.ai_agent_evals.eval_runner import _evaluate_assertion
+from one_bpmn.ai_agent_evals.runner.assertions import evaluate_assertion
 from one_bpmn.one_bpmn.patches.v1_0 import seed_connector_trajectory_modes as seed
 
 READ_AND_STOPPED = ["read_work_item", "finalize"]
@@ -23,7 +23,7 @@ def _facts(case, tools):
 
 def _score(case, tools):
 	mode = next(a.value for a in case.assertions if a.assertion_type == "tool_calls")
-	return _evaluate_assertion(
+	return evaluate_assertion(
 		frappe._dict({"assertion_type": "tool_calls", "value": mode}), "an answer", _facts(case, tools)
 	)
 

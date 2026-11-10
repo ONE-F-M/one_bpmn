@@ -19,9 +19,9 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.ai_agent_evals.tests.factories import make_eval_case, make_eval_suite
-from one_bpmn.ai_agent_evals.eval_runner import _execute_eval_suite
+from one_bpmn.ai_agent_evals.runner.suite import execute_eval_suite
 
-RUNNER_CASE = "one_bpmn.ai_agent_evals.eval_runner._execute_case"
+RUNNER_CASE = "one_bpmn.ai_agent_evals.runner.cases._execute_case"
 
 
 def _run_doc(suite: str, backend: str = "live"):
@@ -70,7 +70,7 @@ class TestPassK(FrappeTestCase):
 		self.suite.db_set("min_pass_rate", min_pass_rate, update_modified=False)
 		run = _run_doc(self.suite.name, backend)
 		with patch(RUNNER_CASE, new=_results(statuses)):
-			_execute_eval_suite(run.name)
+			execute_eval_suite(run.name)
 		run.reload()
 		return run
 

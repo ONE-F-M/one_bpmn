@@ -6,9 +6,11 @@ import inspect
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.ai_agent_evals import eval_runner
+import one_bpmn.ai_agent_evals.runner.cases as runner_cases
+import one_bpmn.ai_agent_evals.runner.comparison as runner_comparison
+import one_bpmn.ai_agent_evals.runner.suite as runner_suite
 
-ENDPOINTS = (eval_runner.run_eval_suite, eval_runner.run_eval_cases, eval_runner.run_eval_comparison)
+ENDPOINTS = (runner_suite.run_eval_suite, runner_cases.run_eval_cases, runner_comparison.run_eval_comparison)
 
 
 class TestEvalRunEndpoints(FrappeTestCase):

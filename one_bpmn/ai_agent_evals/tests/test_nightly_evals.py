@@ -20,13 +20,11 @@ from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.ai_agent_evals.tests.factories import make_eval_case, make_eval_suite
 from one_bpmn.ai_agent_evals.eval_ci import run_suite
-from one_bpmn.ai_agent_evals.eval_runner import (
-	_execute_eval_suite,
-	_judge_model_for,
-	_run_lane,
-)
+from one_bpmn.ai_agent_evals.runner.assertions import _judge_model_for
+from one_bpmn.ai_agent_evals.runner.lanes import _run_lane
+from one_bpmn.ai_agent_evals.runner.suite import execute_eval_suite
 
-CASE_EXEC = "one_bpmn.ai_agent_evals.eval_runner._execute_case"
+CASE_EXEC = "one_bpmn.ai_agent_evals.runner.cases._execute_case"
 
 
 def _priced(cost):
@@ -52,7 +50,7 @@ class TestSpendCeiling(FrappeTestCase):
 		run.flags.ignore_links = True
 		run.insert(ignore_permissions=True)
 		with patch(CASE_EXEC, side_effect=_priced(1.0)):
-			_execute_eval_suite(run.name)
+			execute_eval_suite(run.name)
 		run.reload()
 		return run
 
@@ -181,7 +179,7 @@ class TestCeilingAndTheGateTogether(FrappeTestCase):
 		run.flags.ignore_mandatory = True
 		run.flags.ignore_links = True
 		run.insert(ignore_permissions=True)
-		_execute_eval_suite(run.name)
+		execute_eval_suite(run.name)
 		run.reload()
 
 		self.assertEqual(run.total_executions, 1, "the skipped case never executed")
@@ -199,7 +197,7 @@ class TestCeilingAndTheGateTogether(FrappeTestCase):
 		run.flags.ignore_mandatory = True
 		run.flags.ignore_links = True
 		run.insert(ignore_permissions=True)
-		_execute_eval_suite(run.name)
+		execute_eval_suite(run.name)
 		run.reload()
 		self.assertEqual(run.total_executions, 1)
 

@@ -29,15 +29,8 @@ from one_bpmn.ai_agent_evals.tests.factories import (
     make_eval_run,
     make_eval_suite,
 )
-from one_bpmn.ai_agent_evals.eval_runner import (
-    _assert_agent_evaluatable,
-    _eval_context_document,
-    _eval_map_for_case,
-    _map_is_chat_startable,
-    _needs_map_eval,
-    _run_agent_eval,
-    _run_map_eval,
-)
+from one_bpmn.ai_agent_evals.runner.agent_eval import _eval_context_document, _eval_map_for_case, _map_is_chat_startable, _needs_map_eval, run_agent_eval, _run_map_eval
+from one_bpmn.ai_agent_evals.runner.policy import assert_agent_evaluatable
 
 INSTANCE_START = (
     "one_bpmn.processa_engine.doctype.bpmn_process_instance"
@@ -417,10 +410,10 @@ class TestAgentEvalRouting(FrappeTestCase):
         suite = make_eval_suite(agent_configuration=cfg.name, process_model=None)
         case = make_eval_case(suite=suite.name)
         with patch(
-            "one_bpmn.ai_agent_evals.eval_runner._run_map_eval", return_value=("out", {})
+            "one_bpmn.ai_agent_evals.runner.agent_eval._run_map_eval", return_value=("out", {})
         ) as map_path:
-            with patch("one_bpmn.ai_agent_evals.eval_runner._run_chat_agent_eval") as chat_path:
-                _run_agent_eval(cfg, case)
+            with patch("one_bpmn.ai_agent_evals.runner.agent_eval._run_chat_agent_eval") as chat_path:
+                run_agent_eval(cfg, case)
         map_path.assert_called_once()
         chat_path.assert_not_called()
 
@@ -430,10 +423,10 @@ class TestAgentEvalRouting(FrappeTestCase):
         suite = make_eval_suite(agent_configuration=cfg.name, process_model=model.name)
         case = make_eval_case(suite=suite.name)
         with patch(
-            "one_bpmn.ai_agent_evals.eval_runner._run_chat_agent_eval", return_value=("out", {})
+            "one_bpmn.ai_agent_evals.runner.agent_eval._run_chat_agent_eval", return_value=("out", {})
         ) as chat_path:
-            with patch("one_bpmn.ai_agent_evals.eval_runner._run_map_eval") as map_path:
-                _run_agent_eval(cfg, case)
+            with patch("one_bpmn.ai_agent_evals.runner.agent_eval._run_map_eval") as map_path:
+                run_agent_eval(cfg, case)
         chat_path.assert_called_once()
         map_path.assert_not_called()
 
@@ -443,8 +436,8 @@ class TestAgentEvalRouting(FrappeTestCase):
         cfg = make_agent_configuration(agent_type="Background", chat_mode_label=None)
         suite = make_eval_suite(agent_configuration=cfg.name, process_model=None)
         case = make_eval_case(suite=suite.name)
-        with patch("one_bpmn.ai_agent_evals.eval_runner._run_map_eval", return_value=("o", {})):
-            _run_agent_eval(cfg, case)
+        with patch("one_bpmn.ai_agent_evals.runner.agent_eval._run_map_eval", return_value=("o", {})):
+            run_agent_eval(cfg, case)
         self.assertFalse(getattr(frappe.flags, "bpmn_disable_ai_parking", False))
         self.assertIsNone(getattr(frappe.flags, "eval_origin", None))
 
@@ -459,14 +452,14 @@ class TestEvaluatableGate(FrappeTestCase):
         model = make_process_model(RECORD_START_XML)
         # Without a named map the guard still fires.
         self.assertRaises(
-            frappe.ValidationError, _assert_agent_evaluatable, cfg.name, "Agent"
+            frappe.ValidationError, assert_agent_evaluatable, cfg.name, "Agent"
         )
         # With one it does not.
-        _assert_agent_evaluatable(cfg.name, "Agent", model.name)
+        assert_agent_evaluatable(cfg.name, "Agent", model.name)
 
     def test_direct_eval_type_is_never_gated(self):
         cfg = make_agent_configuration(agent_framework="Google ADK")
-        _assert_agent_evaluatable(cfg.name, "Direct")
+        assert_agent_evaluatable(cfg.name, "Direct")
 
 
 def _insert_agent_run(cfg, tokens: int, cost: float, **tags):
@@ -510,7 +503,7 @@ class TestChatEvalRunAttribution(FrappeTestCase):
             return {"response": "hi there"}
 
         with patch("one_bpmn.api.a2a.invoke_agent", new=fake_invoke_agent):
-            output, usage = _run_agent_eval(self.cfg, self.case, self.eval_run.name)
+            output, usage = run_agent_eval(self.cfg, self.case, self.eval_run.name)
 
         self.assertEqual(output, "hi there")
         self.assertEqual(usage["tokens"], 15)
@@ -526,7 +519,7 @@ class TestChatEvalRunAttribution(FrappeTestCase):
             return {"response": "hi there"}
 
         with patch("one_bpmn.api.a2a.invoke_agent", new=fake_invoke_agent):
-            _run_agent_eval(self.cfg, self.case, self.eval_run.name)
+            run_agent_eval(self.cfg, self.case, self.eval_run.name)
 
         self.assertEqual(frappe.db.get_value("Chat Conversation", seen["conversation"], "is_eval"), 1)
 
@@ -537,7 +530,7 @@ class TestChatEvalRunAttribution(FrappeTestCase):
 
         with patch("one_bpmn.api.a2a.invoke_agent", new=fake_invoke_agent):
             with self.assertRaises(ValueError) as ctx:
-                _run_agent_eval(self.cfg, self.case, self.eval_run.name)
+                run_agent_eval(self.cfg, self.case, self.eval_run.name)
         self.assertIn(self.case.name, str(ctx.exception))
 
     def test_second_attempt_counts_only_its_own_run(self):
@@ -548,7 +541,7 @@ class TestChatEvalRunAttribution(FrappeTestCase):
             return {"response": "hi there"}
 
         with patch("one_bpmn.api.a2a.invoke_agent", new=fake_invoke_agent):
-            _, first = _run_agent_eval(self.cfg, self.case, self.eval_run.name)
+            _, first = run_agent_eval(self.cfg, self.case, self.eval_run.name)
             first_run = frappe.get_all(
                 "AI Agent Run", filters=self._eval_tags(), pluck="name"
             )[0]
@@ -556,7 +549,7 @@ class TestChatEvalRunAttribution(FrappeTestCase):
                 "AI Agent Run", first_run, "creation",
                 add_to_date(now_datetime(), hours=-1), update_modified=False,
             )
-            _, second = _run_agent_eval(self.cfg, self.case, self.eval_run.name)
+            _, second = run_agent_eval(self.cfg, self.case, self.eval_run.name)
 
         self.assertEqual(first["tokens"], 100)
         self.assertEqual(second["tokens"], 7)

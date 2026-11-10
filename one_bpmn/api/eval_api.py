@@ -632,8 +632,8 @@ def _agent_transcripts_for_eval_run(eval_run: str) -> dict:
 	would hide it from the process owners this screen is built for).
 	"""
 	# Imported here rather than at module level: eval_api is loaded on every
-	# Processa request, and eval_runner pulls in the executor backends.
-	from one_bpmn.ai_agent_evals.eval_runner import EVAL_RUN_JUDGE
+	# Processa request, and the eval runner pulls in the executor backends.
+	from one_bpmn.ai_agent_evals.runner.assertions import EVAL_RUN_JUDGE
 
 	runs = frappe.get_all(
 		"AI Agent Run",

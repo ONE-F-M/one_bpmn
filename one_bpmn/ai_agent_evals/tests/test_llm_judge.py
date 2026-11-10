@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Unit tests for the llm_judge assertion type in eval_runner."""
+"""Unit tests for the llm_judge assertion type in the eval runner."""
 import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -8,11 +8,7 @@ from unittest.mock import MagicMock, patch
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.processa_engine.agent_runtime.executor import ErrorCode, ExecutorResult, TokenUsage
-from one_bpmn.ai_agent_evals.eval_runner import (
-    JUDGE_PROMPT_TEMPLATE,
-    _evaluate_assertion,
-    _evaluate_llm_judge,
-)
+from one_bpmn.ai_agent_evals.runner.assertions import JUDGE_PROMPT_TEMPLATE, evaluate_assertion, _evaluate_llm_judge
 
 
 def _make_assertion(**kwargs):
@@ -29,7 +25,7 @@ def _make_assertion(**kwargs):
 
 
 class TestLlmJudgeAssertion(FrappeTestCase):
-    """Tests for _evaluate_llm_judge and its integration with _evaluate_assertion."""
+    """Tests for _evaluate_llm_judge and its integration with evaluate_assertion."""
 
     # ------------------------------------------------------------------
     # Happy path: score meets threshold → pass
@@ -45,7 +41,7 @@ class TestLlmJudgeAssertion(FrappeTestCase):
         assertion = _make_assertion(pass_threshold=4)
 
         with patch(
-            "one_bpmn.ai_agent_evals.eval_runner.get_executor"
+            "one_bpmn.ai_agent_evals.runner.assertions.get_executor"
         ) as mock_get:
             mock_executor = MagicMock()
             mock_executor.return_value.run.return_value = mock_result
@@ -71,7 +67,7 @@ class TestLlmJudgeAssertion(FrappeTestCase):
         assertion = _make_assertion(pass_threshold=4)
 
         with patch(
-            "one_bpmn.ai_agent_evals.eval_runner.get_executor"
+            "one_bpmn.ai_agent_evals.runner.assertions.get_executor"
         ) as mock_get:
             mock_executor = MagicMock()
             mock_executor.return_value.run.return_value = mock_result
@@ -95,7 +91,7 @@ class TestLlmJudgeAssertion(FrappeTestCase):
         assertion = _make_assertion(pass_threshold=4)
 
         with patch(
-            "one_bpmn.ai_agent_evals.eval_runner.get_executor"
+            "one_bpmn.ai_agent_evals.runner.assertions.get_executor"
         ) as mock_get:
             mock_executor = MagicMock()
             mock_executor.return_value.run.return_value = mock_result
@@ -118,7 +114,7 @@ class TestLlmJudgeAssertion(FrappeTestCase):
         assertion = _make_assertion(pass_threshold=0)
 
         with patch(
-            "one_bpmn.ai_agent_evals.eval_runner.get_executor"
+            "one_bpmn.ai_agent_evals.runner.assertions.get_executor"
         ) as mock_get:
             mock_executor = MagicMock()
             mock_executor.return_value.run.return_value = mock_result
@@ -140,7 +136,7 @@ class TestLlmJudgeAssertion(FrappeTestCase):
         assertion = _make_assertion()
 
         with patch(
-            "one_bpmn.ai_agent_evals.eval_runner.get_executor"
+            "one_bpmn.ai_agent_evals.runner.assertions.get_executor"
         ) as mock_get:
             mock_executor = MagicMock()
             mock_executor.return_value.run.return_value = mock_result
@@ -162,7 +158,7 @@ class TestLlmJudgeAssertion(FrappeTestCase):
         assertion = _make_assertion()
 
         with patch(
-            "one_bpmn.ai_agent_evals.eval_runner.get_executor"
+            "one_bpmn.ai_agent_evals.runner.assertions.get_executor"
         ) as mock_get:
             mock_executor = MagicMock()
             mock_executor.return_value.run.return_value = mock_result
@@ -182,7 +178,7 @@ class TestLlmJudgeAssertion(FrappeTestCase):
         assertion = _make_assertion()
 
         with patch(
-            "one_bpmn.ai_agent_evals.eval_runner.get_executor"
+            "one_bpmn.ai_agent_evals.runner.assertions.get_executor"
         ) as mock_get:
             mock_executor = MagicMock()
             mock_executor.return_value.run.return_value = mock_result
@@ -201,7 +197,7 @@ class TestLlmJudgeAssertion(FrappeTestCase):
         assertion = _make_assertion()
 
         with patch(
-            "one_bpmn.ai_agent_evals.eval_runner.get_executor"
+            "one_bpmn.ai_agent_evals.runner.assertions.get_executor"
         ) as mock_get:
             mock_executor = MagicMock()
             mock_executor.return_value.run.return_value = mock_result
@@ -223,7 +219,7 @@ class TestLlmJudgeAssertion(FrappeTestCase):
         assertion = _make_assertion()
 
         with patch(
-            "one_bpmn.ai_agent_evals.eval_runner.get_executor"
+            "one_bpmn.ai_agent_evals.runner.assertions.get_executor"
         ) as mock_get:
             mock_executor = MagicMock()
             mock_executor.return_value.run.return_value = mock_result
@@ -241,7 +237,7 @@ class TestLlmJudgeAssertion(FrappeTestCase):
         assertion = _make_assertion()
 
         with patch(
-            "one_bpmn.ai_agent_evals.eval_runner.get_executor"
+            "one_bpmn.ai_agent_evals.runner.assertions.get_executor"
         ) as mock_get:
             mock_executor = MagicMock()
             mock_executor.return_value.run.side_effect = RuntimeError("Boom")
@@ -276,7 +272,7 @@ class TestLlmJudgeAssertion(FrappeTestCase):
             return mock_result
 
         with patch(
-            "one_bpmn.ai_agent_evals.eval_runner.get_executor"
+            "one_bpmn.ai_agent_evals.runner.assertions.get_executor"
         ) as mock_get:
             mock_executor_cls = MagicMock()
             mock_executor_instance = MagicMock()
@@ -313,7 +309,7 @@ class TestLlmJudgeAssertion(FrappeTestCase):
         assertion = _make_assertion(pass_threshold=4)
 
         with patch(
-            "one_bpmn.ai_agent_evals.eval_runner.get_executor"
+            "one_bpmn.ai_agent_evals.runner.assertions.get_executor"
         ) as mock_get:
             mock_executor = MagicMock()
             mock_executor.return_value.run.return_value = mock_result
@@ -331,10 +327,10 @@ class TestLlmJudgeAssertion(FrappeTestCase):
         self.assertEqual(result["explanation"], "Somewhat helpful.")
 
     # ------------------------------------------------------------------
-    # Integration: _evaluate_assertion dispatches to llm_judge
+    # Integration: evaluate_assertion dispatches to llm_judge
     # ------------------------------------------------------------------
     def test_evaluate_assertion_dispatches_llm_judge(self):
-        """The top-level _evaluate_assertion correctly dispatches to llm_judge."""
+        """The top-level evaluate_assertion correctly dispatches to llm_judge."""
         judge_output = {"score": 5, "explanation": "Perfect."}
         mock_result = ExecutorResult(
             output=judge_output,
@@ -343,12 +339,12 @@ class TestLlmJudgeAssertion(FrappeTestCase):
         assertion = _make_assertion()
 
         with patch(
-            "one_bpmn.ai_agent_evals.eval_runner.get_executor"
+            "one_bpmn.ai_agent_evals.runner.assertions.get_executor"
         ) as mock_get:
             mock_executor = MagicMock()
             mock_executor.return_value.run.return_value = mock_result
             mock_get.return_value = mock_executor
-            result = _evaluate_assertion(assertion, "Answer")
+            result = evaluate_assertion(assertion, "Answer")
 
         self.assertTrue(result["passed"])
         self.assertEqual(result["score"], 5)

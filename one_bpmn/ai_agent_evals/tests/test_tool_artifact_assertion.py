@@ -9,8 +9,8 @@ from types import SimpleNamespace
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.ai_agent_evals import eval_runner
-from one_bpmn.ai_agent_evals.eval_runner import _evaluate_assertion
+import one_bpmn.ai_agent_evals.runner.cases as runner_cases
+from one_bpmn.ai_agent_evals.runner.assertions import evaluate_assertion
 from one_bpmn.one_bpmn.patches.v1_0 import seed_prosally_baseline_suite
 
 IR = {"ir": {"lanes": [{"id": "r", "name": "Recruiter"}, {"id": "m", "name": "GRD Manager"}]}}
@@ -19,7 +19,7 @@ LANES = ["Recruiter", "GRD Manager"]
 
 def _check(spec, trace):
 	assertion = SimpleNamespace(assertion_type="tool_artifact", value=json.dumps(spec))
-	return _evaluate_assertion(assertion, "reply", {"tool_trace": trace})
+	return evaluate_assertion(assertion, "reply", {"tool_trace": trace})
 
 
 def _call(tool="generate_process", artifact="", artifact_file=None):
@@ -56,7 +56,7 @@ class TestToolArtifactAssertion(FrappeTestCase):
 
 	def test_a_replay_cannot_check_an_artifact(self):
 		assertion = SimpleNamespace(assertion_type="tool_artifact", value=json.dumps(_lanes_spec()))
-		result = _evaluate_assertion(assertion, "reply")
+		result = evaluate_assertion(assertion, "reply")
 		self.assertTrue(result["error"])
 
 	def test_an_artifact_offloaded_to_a_file_is_read_from_it(self):
@@ -85,7 +85,7 @@ class TestToolArtifactAssertion(FrappeTestCase):
 		self.addCleanup(frappe.delete_doc, "AI Agent Step", step.name, force=True)
 		self.addCleanup(frappe.delete_doc, "AI Agent Run", run.name, force=True)
 
-		trace = eval_runner._tool_trace_for(SimpleNamespace(name="artifact-case"), "artifact-run")
+		trace = runner_cases._tool_trace_for(SimpleNamespace(name="artifact-case"), "artifact-run")
 		self.assertEqual(trace[0]["artifact"], json.dumps(IR))
 		self.assertTrue(_check(_lanes_spec(), trace)["passed"])
 

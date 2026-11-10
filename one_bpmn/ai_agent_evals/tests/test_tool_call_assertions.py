@@ -19,7 +19,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.ai_agent_evals.tests.factories import make_eval_suite
-from one_bpmn.ai_agent_evals.eval_runner import _evaluate_tool_calls, _expected_tool_calls
+from one_bpmn.ai_agent_evals.runner.assertions import _evaluate_tool_calls, expected_tool_calls
 
 PREFIX = "ZZ ToolCalls"
 
@@ -177,7 +177,7 @@ class TestArgumentMatchers(FrappeTestCase):
 			frappe._dict(call_order=1, tool_name="read_api_docs", argument="url", matcher="contains", expected_value="frankfurter"),
 			frappe._dict(call_order=1, tool_name="read_api_docs", argument="", matcher="equals", expected_value=""),
 		])
-		grouped = _expected_tool_calls(case)
+		grouped = expected_tool_calls(case)
 		self.assertEqual([g["tool"] for g in grouped], ["read_api_docs", "draft_connector"])
 		self.assertEqual(len(grouped[0]["matchers"]), 1)
 

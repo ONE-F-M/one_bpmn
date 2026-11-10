@@ -14,7 +14,7 @@ from frappe.utils import get_datetime
 def _run_context_json(run) -> str | None:
 	"""The document *run* executed against, shaped as a case's ``input_context``.
 
-	A map-path eval (``eval_runner._run_map_eval``) starts the map against the
+	A map-path eval (``runner.agent_eval._run_map_eval``) starts the map against the
 	document the case names, so carrying the source run's context onto the case
 	makes a captured case re-runnable without hand-editing.
 

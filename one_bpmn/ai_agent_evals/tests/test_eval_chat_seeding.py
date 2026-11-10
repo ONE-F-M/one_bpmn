@@ -8,7 +8,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import now_datetime
 
-from one_bpmn.ai_agent_evals import eval_runner
+import one_bpmn.ai_agent_evals.runner.agent_eval as runner_agent_eval
+import one_bpmn.ai_agent_evals.runner.assertions as runner_assertions
 from one_bpmn.ai_agent_conversations import session_state
 from one_bpmn.ai_agent_conversations.chat_persistence import create_conversation
 
@@ -67,7 +68,7 @@ class TestChatEvalSeeding(FrappeTestCase):
 			patch("one_bpmn.api.a2a.invoke_agent", side_effect=invoke or self._record_turn),
 		):
 			try:
-				output, _usage = eval_runner._run_chat_agent_eval(CFG, case)
+				output, _usage = runner_agent_eval._run_chat_agent_eval(CFG, case)
 			except Exception as error:
 				return error, close
 			return output, close
@@ -139,7 +140,7 @@ class TestChatEvalSeeding(FrappeTestCase):
 		output, _close = self._run({})
 		self.assertEqual(output, "I've generated the Visa Request process model.\n\n" + xml)
 		lane_check = frappe._dict(assertion_type="regex", value=r'<bpmn:lane [^>]*name="Recruiter"')
-		self.assertTrue(eval_runner._evaluate_assertion(lane_check, output, None)["passed"])
+		self.assertTrue(runner_assertions.evaluate_assertion(lane_check, output, None)["passed"])
 
 	def test_xml_on_a_reply_that_is_not_a_diagram_stays_out_of_the_output(self):
 		self.reply = {"response": "Shall I build it?", "intent": "CONFIRM", "bpmn_xml": "<bpmn:definitions />"}
@@ -152,7 +153,7 @@ class TestChatEvalSeeding(FrappeTestCase):
 		output, _close = self._run({})
 		self.assertEqual(output, "I've set up a Safety Incident DocType.\n\n" + json.dumps(ir, indent=1))
 		naming = frappe._dict(assertion_type="regex", value=r'"autoname": "format:INC-\{#####\}"')
-		self.assertTrue(eval_runner._evaluate_assertion(naming, output, None)["passed"])
+		self.assertTrue(runner_assertions.evaluate_assertion(naming, output, None)["passed"])
 
 	def test_a_doctype_missing_from_the_reply_is_read_from_the_saved_message(self):
 		ir = {"doctype_name": "Safety Incident", "autoname": "format:INC-.#####", "fields": []}

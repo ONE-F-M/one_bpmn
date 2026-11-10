@@ -20,15 +20,13 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.ai_agent_evals.tests.factories import make_eval_case, make_eval_suite
-from one_bpmn.ai_agent_evals.eval_runner import (
-	MODEL_BACKED_ASSERTIONS,
-	_execute_case_deterministic,
-	_execute_eval_suite,
-)
+from one_bpmn.ai_agent_evals.runner.assertions import MODEL_BACKED_ASSERTIONS
+from one_bpmn.ai_agent_evals.runner.cases import _execute_case_deterministic
+from one_bpmn.ai_agent_evals.runner.suite import execute_eval_suite
 from one_bpmn.ai_agent_evals.eval_ci import _why
 from one_bpmn.commands.evals import _verdict
 
-JUDGE = "one_bpmn.ai_agent_evals.eval_runner._evaluate_llm_judge"
+JUDGE = "one_bpmn.ai_agent_evals.runner.assertions._evaluate_llm_judge"
 
 
 def _case(**kwargs):
@@ -164,7 +162,7 @@ class TestSuiteRunDeterministic(FrappeTestCase):
 		run.flags.ignore_mandatory = True
 		run.flags.ignore_links = True
 		run.insert(ignore_permissions=True)
-		_execute_eval_suite(run.name)
+		execute_eval_suite(run.name)
 		run.reload()
 		return run
 
