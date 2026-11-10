@@ -3,14 +3,14 @@ Readability guarantees for the swim-lane layout.
 
 A generated lane map has to be reviewable as-is. The old generator chose each
 edge's waypoints from its source and target coordinates alone, offsetting
-overlapping edges by ``(i % 3) * 10`` — the flow's position in the array — with
+overlapping edges by ``(i % 3) * 10`` - the flow's position in the array - with
 no knowledge of any other edge or shape on the canvas. On the real
-"TRN – Fuel Requisition" map that produced 544 edge segments running through
+"TRN - Fuel Requisition" map that produced 544 edge segments running through
 shapes they do not connect to and 916 pairs of segments drawn on top of each
 other.
 
-buildManualLaneDI now reserves the space between cells — a gutter between
-columns, a strip along the bottom of each lane — and every edge travels only
+buildManualLaneDI now reserves the space between cells - a gutter between
+columns, a strip along the bottom of each lane - and every edge travels only
 inside them, on a channel allocated by occupancy. These tests measure the DI the
 pipeline actually emits and pin the properties that make a map readable:
 
@@ -25,7 +25,7 @@ The fixture is the recovered IR of a real generated map, so a regression shows u
 against the diagram that prompted the story rather than a synthetic one.
 
 Run with:
-    pytest one_bpmn/tests/test_lane_layout.py
+    bench run-tests --module one_bpmn.tests.test_lane_layout
 """
 from __future__ import annotations
 
@@ -34,18 +34,18 @@ import os
 import re
 import shutil
 import subprocess
+import unittest
 
-import pytest
+from frappe.tests.utils import FrappeTestCase
 
 PIPELINE_PATH = os.path.normpath(os.path.join(
     os.path.dirname(__file__), "..", "..", "spiff", "tools", "bpmn-pipeline", "pipeline.mjs",
 ))
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("node") is None or not os.path.exists(PIPELINE_PATH),
-    reason="node or pipeline.mjs unavailable",
-)
+BPMN_MODDLE = os.path.join(os.path.dirname(PIPELINE_PATH), "..", "..", "node_modules", "bpmn-moddle")
+PIPELINE_READY = bool(shutil.which("node")) and os.path.exists(PIPELINE_PATH) and os.path.isdir(BPMN_MODDLE)
+PIPELINE_SKIP_REASON = "node, pipeline.mjs or spiff/node_modules (yarn install) unavailable"
 
 # Crossings are the one metric a lane layout cannot drive to zero: a re-check
 # loop back to an early step has to cross every lane-changing flow it spans, and
@@ -57,7 +57,7 @@ MAX_CROSSINGS = 180
 # Collinear pairs were short shared approach segments where two arrows reached
 # the same node row. There are none left: an edge that arrives vertically now
 # docks on the face it is heading for instead of stubbing along the target's row,
-# so there is no shared approach to collide on. Held at zero deliberately — a
+# so there is no shared approach to collide on. Held at zero deliberately - a
 # pair reappearing means an arrival stub came back.
 MAX_COLLINEAR = 0
 
@@ -213,7 +213,7 @@ def metrics(diagram: Diagram) -> dict:
             if ea["id"] == eb["id"]:
                 continue
             # Flows that meet at a shared node converge there legitimately, but
-            # may still cross elsewhere — so only the meeting point is excused.
+            # may still cross elsewhere - so only the meeting point is excused.
             shared = [n for n in (ea["source"], ea["target"])
                       if n and n in (eb["source"], eb["target"])]
             if _crosses(a1, a2, b1, b2):
@@ -253,114 +253,96 @@ def metrics(diagram: Diagram) -> dict:
     }
 
 
-# ── Fixtures ──────────────────────────────────────────────────────────────────
+@unittest.skipUnless(PIPELINE_READY, PIPELINE_SKIP_REASON)
+class TestLaneLayout(FrappeTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(os.path.join(FIXTURES, "lane_layout_fuel_requisition_ir.json")) as fh:
+            cls.real_map_ir = json.load(fh)
+        cls.real_map = Diagram(run_pipeline(cls.real_map_ir))
+        cls.real_metrics = metrics(cls.real_map)
 
-@pytest.fixture(scope="module")
-def real_map_ir() -> dict:
-    with open(os.path.join(FIXTURES, "lane_layout_fuel_requisition_ir.json")) as fh:
-        return json.load(fh)
+    # ── The guarantees ────────────────────────────────────────────────────────────
 
+    def test_no_edge_enters_a_shape_it_does_not_connect_to(self):
+        """Was 544 on this map: every long run was drawn straight from source to
+        target coordinates, ploughing through whatever stood between them."""
+        assert self.real_metrics["through"] == [], (
+            f"{len(self.real_metrics['through'])} segments enter unrelated shapes, e.g. "
+            f"{self.real_metrics['through'][:5]}"
+        )
 
-@pytest.fixture(scope="module")
-def real_map(real_map_ir) -> Diagram:
-    return Diagram(run_pipeline(real_map_ir))
+    def test_no_two_shapes_overlap(self):
+        """One node per (lane, column) cell makes this structural, not incidental."""
+        assert self.real_metrics["shape_overlaps"] == [], self.real_metrics["shape_overlaps"][:5]
 
+    def test_no_label_lands_on_another_label_or_an_unrelated_shape(self):
+        assert self.real_metrics["label_clashes"] == [], self.real_metrics["label_clashes"][:5]
 
-@pytest.fixture(scope="module")
-def real_metrics(real_map) -> dict:
-    return metrics(real_map)
+    def test_segments_are_not_drawn_along_one_another(self):
+        """Was 916 pairs. What remains are short shared approaches into a node."""
+        found = self.real_metrics["collinear"]
+        assert len(found) <= MAX_COLLINEAR, f"{len(found)} collinear pairs: {found[:6]}"
 
+    def test_flow_crossings_stay_within_budget(self):
+        found = self.real_metrics["crossings"]
+        assert len(found) <= MAX_CROSSINGS, (
+            f"{len(found)} avoidable crossings (ceiling {MAX_CROSSINGS}): {found[:6]}"
+        )
 
-# ── The guarantees ────────────────────────────────────────────────────────────
+    def test_lane_bands_tile_the_pool_exactly(self):
+        bands = sorted(self.real_map.lanes.values(), key=lambda b: b["y"])
+        assert bands, "no lane shapes emitted"
+        assert bands[0]["y"] == self.real_map.pool["y"]
+        assert sum(b["h"] for b in bands) == self.real_map.pool["h"]
+        for upper, lower in zip(bands, bands[1:]):
+            assert upper["y"] + upper["h"] == lower["y"], "gap or overlap between lane bands"
 
-def test_no_edge_enters_a_shape_it_does_not_connect_to(real_metrics):
-    """Was 544 on this map: every long run was drawn straight from source to
-    target coordinates, ploughing through whatever stood between them."""
-    assert real_metrics["through"] == [], (
-        f"{len(real_metrics['through'])} segments enter unrelated shapes, e.g. "
-        f"{real_metrics['through'][:5]}"
-    )
+    def test_every_node_sits_inside_the_pool_and_one_lane_band(self):
+        pool, bands = self.real_map.pool, self.real_map.lanes
+        for nid, n in self.real_map.nodes.items():
+            assert n["x"] >= pool["x"] and n["y"] >= pool["y"], f"{nid} starts outside the pool"
+            assert n["x"] + n["w"] <= pool["x"] + pool["w"], f"{nid} overflows the pool"
+            assert n["y"] + n["h"] <= pool["y"] + pool["h"], f"{nid} overflows the pool"
+            owners = [b for b in bands.values()
+                      if n["y"] >= b["y"] and n["y"] + n["h"] <= b["y"] + b["h"]]
+            assert len(owners) == 1, f"{nid} is not cleanly inside exactly one lane band"
 
+    def test_every_flow_gets_waypoints(self):
+        missing = [e["id"] for e in self.real_map.edges if len(e["pts"]) < 2]
+        assert missing == [], missing
+        assert len(self.real_map.edges) == len(self.real_map.flows), "an edge is missing its DI"
 
-def test_no_two_shapes_overlap(real_metrics):
-    """One node per (lane, column) cell makes this structural, not incidental."""
-    assert real_metrics["shape_overlaps"] == [], real_metrics["shape_overlaps"][:5]
+    def test_diagram_reads_left_to_right(self):
+        """A lane diagram that grows taller than it is wide has stopped being a flow.
+        The old cell-sharing layout stretched this map to 5022px tall."""
+        xs = [n["x"] for n in self.real_map.nodes.values()]
+        ys = [n["y"] for n in self.real_map.nodes.values()]
+        assert max(xs) - min(xs) > max(ys) - min(ys)
 
+    def test_lane_free_process_is_untouched_by_the_lane_layout(self):
+        """AC: the flat path must not regress. buildManualLaneDI is only reachable
+        when ir.lanes is present, so a lane-free IR never enters this code."""
+        flat = json.loads(json.dumps(self.real_map_ir))
+        flat.pop("lanes")
+        for node in flat["nodes"]:
+            node.pop("lane", None)
+        xml = run_pipeline(flat)
+        assert "<bpmn:laneSet" not in xml
+        assert "bpmnElement=\"Collaboration_1\"" not in xml
 
-def test_no_label_lands_on_another_label_or_an_unrelated_shape(real_metrics):
-    assert real_metrics["label_clashes"] == [], real_metrics["label_clashes"][:5]
-
-
-def test_segments_are_not_drawn_along_one_another(real_metrics):
-    """Was 916 pairs. What remains are short shared approaches into a node."""
-    found = real_metrics["collinear"]
-    assert len(found) <= MAX_COLLINEAR, f"{len(found)} collinear pairs: {found[:6]}"
-
-
-def test_flow_crossings_stay_within_budget(real_metrics):
-    found = real_metrics["crossings"]
-    assert len(found) <= MAX_CROSSINGS, (
-        f"{len(found)} avoidable crossings (ceiling {MAX_CROSSINGS}): {found[:6]}"
-    )
-
-
-def test_lane_bands_tile_the_pool_exactly(real_map):
-    bands = sorted(real_map.lanes.values(), key=lambda b: b["y"])
-    assert bands, "no lane shapes emitted"
-    assert bands[0]["y"] == real_map.pool["y"]
-    assert sum(b["h"] for b in bands) == real_map.pool["h"]
-    for upper, lower in zip(bands, bands[1:]):
-        assert upper["y"] + upper["h"] == lower["y"], "gap or overlap between lane bands"
-
-
-def test_every_node_sits_inside_the_pool_and_one_lane_band(real_map):
-    pool, bands = real_map.pool, real_map.lanes
-    for nid, n in real_map.nodes.items():
-        assert n["x"] >= pool["x"] and n["y"] >= pool["y"], f"{nid} starts outside the pool"
-        assert n["x"] + n["w"] <= pool["x"] + pool["w"], f"{nid} overflows the pool"
-        assert n["y"] + n["h"] <= pool["y"] + pool["h"], f"{nid} overflows the pool"
-        owners = [b for b in bands.values()
-                  if n["y"] >= b["y"] and n["y"] + n["h"] <= b["y"] + b["h"]]
-        assert len(owners) == 1, f"{nid} is not cleanly inside exactly one lane band"
-
-
-def test_every_flow_gets_waypoints(real_map):
-    missing = [e["id"] for e in real_map.edges if len(e["pts"]) < 2]
-    assert missing == [], missing
-    assert len(real_map.edges) == len(real_map.flows), "an edge is missing its DI"
-
-
-def test_diagram_reads_left_to_right(real_map):
-    """A lane diagram that grows taller than it is wide has stopped being a flow.
-    The old cell-sharing layout stretched this map to 5022px tall."""
-    xs = [n["x"] for n in real_map.nodes.values()]
-    ys = [n["y"] for n in real_map.nodes.values()]
-    assert max(xs) - min(xs) > max(ys) - min(ys)
-
-
-def test_lane_free_process_is_untouched_by_the_lane_layout(real_map_ir):
-    """AC: the flat path must not regress. buildManualLaneDI is only reachable
-    when ir.lanes is present, so a lane-free IR never enters this code."""
-    flat = json.loads(json.dumps(real_map_ir))
-    flat.pop("lanes")
-    for node in flat["nodes"]:
-        node.pop("lane", None)
-    xml = run_pipeline(flat)
-    assert "<bpmn:laneSet" not in xml
-    assert "bpmnElement=\"Collaboration_1\"" not in xml
-
-
-def test_channels_are_allocated_by_occupancy_not_by_array_index(real_map):
-    """The specific defect this work removed: the old generator offset
-    overlapping edges by (i % 3) * 10, so return edges landed in one of three
-    channels 10px apart chosen by their position in the flow array. Genuine
-    channel allocation shows up as vertical runs sharing an x only when they do
-    not overlap in y."""
-    verticals = [(a[0], min(a[1], b[1]), max(a[1], b[1]), e["id"])
-                 for e, a, b in real_map.segments() if abs(a[0] - b[0]) < 1]
-    clashes = [
-        (p[3], q[3]) for i, p in enumerate(verticals) for q in verticals[i + 1:]
-        if p[3] != q[3] and abs(p[0] - q[0]) < 1
-        and min(p[2], q[2]) - max(p[1], q[1]) > 20
-    ]
-    assert clashes == [], f"{len(clashes)} vertical runs share a channel: {clashes[:5]}"
+    def test_channels_are_allocated_by_occupancy_not_by_array_index(self):
+        """The specific defect this work removed: the old generator offset
+        overlapping edges by (i % 3) * 10, so return edges landed in one of three
+        channels 10px apart chosen by their position in the flow array. Genuine
+        channel allocation shows up as vertical runs sharing an x only when they do
+        not overlap in y."""
+        verticals = [(a[0], min(a[1], b[1]), max(a[1], b[1]), e["id"])
+                     for e, a, b in self.real_map.segments() if abs(a[0] - b[0]) < 1]
+        clashes = [
+            (p[3], q[3]) for i, p in enumerate(verticals) for q in verticals[i + 1:]
+            if p[3] != q[3] and abs(p[0] - q[0]) < 1
+            and min(p[2], q[2]) - max(p[1], q[1]) > 20
+        ]
+        assert clashes == [], f"{len(clashes)} vertical runs share a channel: {clashes[:5]}"
