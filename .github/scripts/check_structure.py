@@ -729,6 +729,135 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 	for notice in result.notices:
 		print(f"NOTICE: {notice}")
+
+
+
+
+
+def run_checks(
+	changes: Sequence[Change],
+	baseline: Baseline,
+	base_baseline: Optional[Baseline] = None,
+	approvers: Sequence[str] = (),
+	codeowners: str = "",
+	tree: Optional[Collection[str]] = None,
+) -> Result:
+	result = Result()
+	if tree is None:
+		tree = {change.path for change in changes if change.status != "D"}
+	for change in changes:
+		check_size(change, baseline, result)
+		check_work_item_ids(change, result)
+		check_unsafe_calls(change, result)
+		check_test_location(change, baseline, result)
+		check_imports(change, result)
+		check_private_imports(change, baseline, result)
+		check_definitions(change, result)
+		check_component_js(change, baseline, result)
+		check_fetch(change, result)
+		check_deleted(change, baseline, result)
+	check_component_folder(baseline, tree, result)
+	check_composable_layout(tree, result)
+	check_baseline_approval(baseline, base_baseline or {}, approvers, codeowners, result)
+	return result
+
+
+def generate_baseline(files: Dict[str, str]) -> Baseline:
+	"""The baseline for a whole tree: oversize files, misplaced tests, private imports, plain .js components, loose components."""
+	entries: Baseline = {}
+	for path, text in files.items():
+		limit = size_limit(path)
+		if limit is not None and line_count(text) > limit:
+			entries[("size", path)] = line_count(text)
+		if is_test_file(path) and not in_allowed_test_location(path):
+			entries[("test-location", path)] = 0
+		if is_component_js(path):
+			entries[("component-js", path)] = 0
+		if is_component_asset(path) and not in_component_folder(path):
+			entries[("component-folder", path)] = 0
+		if checks_private_imports(path):
+			for _, target in private_imports(path, text):
+				entries[("private-import", f"{path} {target}")] = 0
+	return entries
+
+
+_HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+
+
+def parse_diff(diff: str) -> Dict[str, Tuple[str, List[Tuple[int, str]]]]:
+	"""Read `git diff -M -U0` output into {path: (status, added lines)}; a moved file has status "R:<old path>"."""
+	files: Dict[str, Tuple[str, List[Tuple[int, str]]]] = {}
+	path: Optional[str] = None
+	line_no = 0
+	for raw in diff.splitlines():
+		if raw.startswith("diff --git "):
+			path = raw.rsplit(" b/", 1)[-1]
+			files[path] = ("M", [])
+			continue
+		if path is None:
+			continue
+		status, added = files[path]
+		if raw.startswith("rename from "):
+			files[path] = ("R:" + raw[len("rename from ") :], added)
+		elif raw.startswith("new file mode"):
+			files[path] = ("A", added)
+		elif raw.startswith("deleted file mode"):
+			files[path] = ("D", added)
+		elif raw.startswith("@@"):
+			match = _HUNK.match(raw)
+			line_no = int(match.group(1)) if match else 0
+		elif raw.startswith("+") and not raw.startswith("+++"):
+			added.append((line_no, raw[1:]))
+			line_no += 1
+	return files
+
+
+def _git(args: List[str], root: str) -> str:
+	return subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True).stdout
+
+
+def _git_show(ref: str, path: str, root: str) -> str:
+	try:
+		return _git(["show", f"{ref}:{path}"], root)
+	except subprocess.CalledProcessError:
+		return ""
+
+
+def collect_changes(base: str, root: str) -> List[Change]:
+	diff = _git(["diff", "-M", "-U0", "--no-color", f"{base}...HEAD"], root)
+	changes = []
+	for path, (status, added) in parse_diff(diff).items():
+		if status == "D":
+			changes.append(Change.deleted(path))
+			continue
+		full = os.path.join(root, path)
+		try:
+			with open(full, encoding="utf-8", errors="replace") as handle:
+				text = handle.read()
+		except OSError:
+			continue
+		if status.startswith("R:"):
+			changes.append(Change.deleted(status[2:]))
+			status = "M"
+		changes.append(Change(path, status, text, added))
+	return changes
+
+
+def write_baseline(root: str) -> None:
+	files: Dict[str, str] = {}
+	for path in _git(["ls-files"], root).splitlines():
+		if size_limit(path) is None and not is_test_file(path) and not is_component_js(path) and not is_component_asset(path):
+			continue
+		try:
+			with open(os.path.join(root, path), encoding="utf-8", errors="replace") as handle:
+				files[path] = handle.read()
+		except OSError:
+			continue
+	entries = generate_baseline(files)
+	with open(os.path.join(root, BASELINE_PATH), "w", encoding="utf-8") as handle:
+		handle.write(format_baseline(entries))
+	print(f"Wrote {len(entries)} entries to {BASELINE_PATH}")
+
 	for finding in result.failures:
 		print(f"FAIL: {finding}")
 	print(f"Checked {len(changes)} changed file(s): {len(result.failures)} failure(s), {len(result.notices)} notice(s).")
