@@ -97,7 +97,6 @@ private-import one_bpmn/processa_engine/engine/__init__.py one_bpmn.processa_eng
 private-import one_bpmn/processa_engine/engine/__init__.py one_bpmn.processa_engine.engine.script_engine._make_script_engine
 private-import one_bpmn/processa_engine/engine/serializer.py one_bpmn.processa_engine.engine.script_engine._make_script_engine
 size one_bpmn/a2a/delegation.py 1114
-size one_bpmn/ai_agent_registry/definitions/prosally/helpers_xml_input.py 820
 size one_bpmn/ai_agent_registry/provisioning/agent_config_resolver.py 1199
 size one_bpmn/ai_agent_memory/tools.py 1126
 size one_bpmn/ai_agent_observability/observability.py 1301
