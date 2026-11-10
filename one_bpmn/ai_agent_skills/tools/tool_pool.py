@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001353 (2-03) + WI-001423: tool-pool resolution — the ad-hoc sub-process's
-# own shapes are the tools. The AI Agent Tool registry was removed in WI-001423
+# Tool-pool resolution — the ad-hoc sub-process's
+# own shapes are the tools. The AI Agent Tool registry was removed
 # (both the AI Agent Task and the AI Task Selector are shapes-only now).
 
 import json
@@ -37,7 +37,7 @@ def resolve_tool_pool(subworkflow, task_cfg: dict = None, process_model: str | N
 	sub-process's own inner head shapes, in diagram order. Each shape's
 	documentation doubles as its tool description (Camunda's model).
 
-	The AI Agent Tool registry was removed (WI-001423) — tools are the shapes.
+	The AI Agent Tool registry was removed — tools are the shapes.
 	``task_cfg`` carries the compiled ``aiToolShapes`` descriptors, which is
 	where a shape's argument schema comes from. ``process_model`` is retained
 	for signature compatibility.
@@ -93,8 +93,8 @@ def _diagram_candidates(subworkflow, task_cfg: dict | None = None) -> list:
 		candidates.append(
 			ToolCandidate(
 				spec=ToolSpec(
-					# Diagram tasks are ACTIVATED by the dispatch loop
-					# (WI-001352), not called as functions.
+					# Diagram tasks are ACTIVATED by the dispatch loop, not called
+					# as functions.
 					fn=None,
 					name=bpmn_id,
 					description=description,

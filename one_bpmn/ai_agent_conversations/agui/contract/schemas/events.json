@@ -1,5 +1,5 @@
 {
-	"$comment": "ONE-FM AG-UI extension event contract (WI-001671). Every non-text thing an agent may send. Each entry: producer(s), JSON Schema for the CustomEvent value, and one recorded example. The AG-UI protocol itself ships 26 standard event types and no UI components; everything here rides CustomEvent with a namespaced name. Cards render and request; the host surface applies.",
+	"$comment": "ONE-FM AG-UI extension event contract. Every non-text thing an agent may send. Each entry: producer(s), JSON Schema for the CustomEvent value, and one recorded example. The AG-UI protocol itself ships 26 standard event types and no UI components; everything here rides CustomEvent with a namespaced name. Cards render and request; the host surface applies.",
 	"version": 1,
 	"events": {
 		"onefm.choice": {
@@ -111,7 +111,7 @@
 		"onefm.test_cases": {
 			"producers": ["logix_agent"],
 			"rendered_as": "TestCaseCard",
-			"notes": "Supersedes the Logix tests_checklist private payload (the transcript-embedded runner LogixCanvas carried before WI-001677). Run calls run_logix_test_case via the host, which owns the linked-script name; the card only renders cases and reports pass/fail. inputs is the exact form_dict the runner replays.",
+			"notes": "Supersedes the Logix tests_checklist private payload (the transcript-embedded runner LogixCanvas carried before it moved here). Run calls run_logix_test_case via the host, which owns the linked-script name; the card only renders cases and reports pass/fail. inputs is the exact form_dict the runner replays.",
 			"schema": {
 				"type": "object",
 				"required": ["cases"],
@@ -272,7 +272,7 @@
 		"onefm.mode_transition": {
 			"producers": ["lumina modes (BA Agent)"],
 			"rendered_as": "Panel chrome: the mode chip",
-			"notes": "Adopts the existing MODE_TRANSITION CustomEvent, which was emitted with no UI consumer; renamed at the Lumina migration (WI-001678). This gives it a consumer for the first time.",
+			"notes": "Adopts the existing MODE_TRANSITION CustomEvent, which was emitted with no UI consumer; renamed at the Lumina migration. This gives it a consumer for the first time.",
 			"schema": {
 				"type": "object",
 				"required": ["new_mode"],
@@ -284,7 +284,7 @@
 		"onefm.lucrusher_result": {
 			"producers": ["lucrusher_agent"],
 			"rendered_as": "LuCrusherResultCard — one panel per intent (matches, document, scan, topology, tasks, prompts)",
-			"notes": "The existing LUCRUSHER_RESULT event, documented and renamed at the Lumina migration (WI-001678). The worker still owns the payload's inner shape; the contract pins the envelope and the `intent` that selects the panel. The worker emits its keys FLAT on the event — the relay folds them into `value` (WI-001678), so consumers only ever see the contract shape.",
+			"notes": "The existing LUCRUSHER_RESULT event, documented and renamed at the Lumina migration. The worker still owns the payload's inner shape; the contract pins the envelope and the `intent` that selects the panel. The worker emits its keys FLAT on the event — the relay folds them into `value`, so consumers only ever see the contract shape.",
 			"schema": {
 				"type": "object",
 				"required": ["intent"],
@@ -317,6 +317,6 @@
 	"not_contract_events": {
 		"$comment": "Explicitly excluded, with reasons — so nobody re-adds them as customs.",
 		"heartbeat / keep-alive": "Transport plumbing. Stays an SSE comment line inside the shared generator, never an event.",
-		"get_page_snapshot": "A server→client tool request. Belongs on the standard AG-UI tool-call mechanism (ToolCallStart/Args/End with a client-side tool), never a custom event. NOT part of WI-001678: it was never a Lumina PAGE feature — lumina.js has no handler, the only client implementation is onefm_mcp's floating chat_widget.js, and the server side is an MCP placeholder. It ports with the embedded widget, which has a host page worth snapshotting."
+		"get_page_snapshot": "A server→client tool request. Belongs on the standard AG-UI tool-call mechanism (ToolCallStart/Args/End with a client-side tool), never a custom event. NOT part of the Lumina migration: it was never a Lumina PAGE feature — lumina.js has no handler, the only client implementation is onefm_mcp's floating chat_widget.js, and the server side is an MCP placeholder. It ports with the embedded widget, which has a host page worth snapshotting."
 	}
 }

@@ -1,4 +1,4 @@
-"""WI-001744: tests for AI Evals permission scoping."""
+"""tests for AI Evals permission scoping."""
 
 import frappe
 from frappe.tests.utils import FrappeTestCase

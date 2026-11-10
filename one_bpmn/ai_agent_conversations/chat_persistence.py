@@ -38,8 +38,7 @@ def create_conversation(agent_mode: str, title: str, user: str, commit: bool = T
 
 
 def create_agent_conversation(agent_id: str, title: str = None, user: str = None, commit: bool = True) -> str:
-	"""Create a Chat Conversation for an agent purely from its configuration
-	(WI-001619).
+	"""Create a Chat Conversation for an agent purely from its configuration.
 
 	Reads the chat mode label off the agent's AI Agent Configuration and
 	stamps it on the conversation, so callers never hardcode a mode string.
@@ -189,13 +188,12 @@ def load_history(conversation_name: str, limit: int = 30, before: str = None) ->
 	that became cards and option buttons while the reply was streaming. Returned
 	so a reopened conversation can show those again rather than the words alone.
 
-	``message`` is the Chat Message name (WI-001822). A resumed conversation
+	``message`` is the Chat Message name. A resumed conversation
 	otherwise redraws its replies with no identity, so a rating the user left
 	before reloading could not be shown back to them — and they would rate the
 	same reply twice, seeing an empty control each time.
 
-	``timestamp`` is the row's ``creation`` datetime as a string (site timezone,
-	WI-002047).
+	``timestamp`` is the row's ``creation`` datetime as a string (site timezone).
 
 	Reads from the Chat Message table (same DocType Lumina uses).
 	"""

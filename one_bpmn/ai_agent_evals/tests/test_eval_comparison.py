@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001821: run one eval suite against two agents and compare the results.
+# run one eval suite against two agents and compare the results.
 #
 # Two halves are tested. The OVERRIDE path: a run may nominate an agent other
 # than the suite's, and the suite must come out the other side still bound to
@@ -305,7 +305,7 @@ class TestEvalComparison(FrappeTestCase):
 		)
 
 	def test_a_run_with_no_recorded_agent_is_flagged(self):
-		"""Runs predating WI-001821 don't say what they tested."""
+		"""Runs that predate the agent override don't say what they tested."""
 		c0 = self.cases[0]
 		a = self._finished(None, {c0: "Passed"})
 		b = self._finished(self.agent_b, {c0: "Passed"})

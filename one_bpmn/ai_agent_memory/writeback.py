@@ -170,13 +170,13 @@ def distill_and_write(
 
 	``model`` distills; ``reconcile_model`` decides add/update/replace, each
 	against the provider that serves it. They are
-	independent (WI-001793) so reconciliation can be tuned — usually upward —
+	independent so reconciliation can be tuned — usually upward —
 	without paying for the stronger model on every extraction. Both are resolved
 	on the dispatch thread and passed in as arguments; this runs in a background
 	worker and must not look configuration up itself. ``reconcile_model`` defaults
 	to ``model``, which is the behaviour that predates the split.
 
-	``exclude_context`` (WI-002165) is the dispatch-thread system prompt plus
+	``exclude_context`` is the dispatch-thread system prompt plus
 	injected memory block, passed straight through to ``distill_memories`` so
 	it can reject facts that just restate what the agent was told rather than
 	something it learned.

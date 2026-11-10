@@ -1,11 +1,11 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001418 (AI Agent Task, Camunda-aligned): compile the shapes of an AI Agent
+# AI Agent Task (Camunda-aligned): compile the shapes of an AI Agent
 # Task's referenced ad-hoc sub-process into callable tools the agent invokes as
 # functions.
 #
 # This is the "tools are the shapes" model (Camunda AI Agent Task connector):
 # there is NO registry. The eligible leaf shapes of the agent's ad-hoc
-# sub-process are resolved at COMPILE time (WI-001421) into tool descriptors and
+# sub-process are resolved at COMPILE time into tool descriptors and
 # embedded in the agent's config; at runtime each descriptor becomes a tool
 # whose function EXECUTES the shape inline and returns its result to the LLM.
 # Contrast with the AI Task Selector, which ACTIVATES a shape as a process step.
@@ -22,7 +22,7 @@ def compile_shape_tools(tool_shapes, instance) -> list:
 	"""
 	Compile an AI Agent Task's tool-shape descriptors into callable ``ToolSpec``s.
 
-	``tool_shapes`` is the list WI-001421 extracts from the referenced ad-hoc
+	``tool_shapes`` is the list the compiler extracts from the referenced ad-hoc
 	sub-process and embeds in the agent's config. Each descriptor carries::
 
 	    {"bpmn_id": str, "description": str,
@@ -57,7 +57,7 @@ def compile_shape_tools(tool_shapes, instance) -> list:
 		if not bpmn_id:
 			continue
 		if shape.get("human"):
-			# WI-002050: an agent that has already asked its allowed number of
+			# an agent that has already asked its allowed number of
 			# questions about this piece of work stops being offered the tool.
 			# Withdrawn rather than refused mid-call: a tool the model can see and
 			# cannot use invites it to keep trying, and the documented failure of
@@ -445,7 +445,7 @@ def _connector_not_permitted(task_cfg: dict) -> dict | None:
 	correct as a control but reaches the model as an ordinary empty result,
 	indistinguishable from a connector that simply returned nothing. Asking the
 	same question here changes no behaviour; it only lets the tool result say
-	which of the two happened (WI-002007). Returns None when permitted.
+	which of the two happened. Returns None when permitted.
 	"""
 	from one_bpmn.processa_connectors import manifest as _manifest
 
@@ -627,13 +627,13 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 	exec_ns = {"frappe": frappe, "__builtins__": __builtins__}  # noqa: S102
 	exec_ns.update(local_vars)
 
-	# ── WI-002054: run as the AGENT, with permissions on ──────────────────
+	# ── Run as the AGENT, with permissions on ──────────────────
 	#
 	# This used to exec as whatever user the worker session happened to be, with
 	# whatever ignore_permissions was already set to. So every write a tool made
 	# was recorded against a person who had not made it, and was allowed or
 	# refused by that person's roles rather than by anything decided about the
-	# agent. The engine's own script path has switched user since WI-001495; this
+	# agent. The engine's own script path has switched user for a long time; this
 	# path never did.
 	#
 	# The session dance is the same hazard engine.py guards against: set_user
@@ -660,13 +660,13 @@ def _run_server_script(instance, script_name: str, task, bpmn_id: str, shape_con
 		# somebody else's permissions and told they are its own.
 		if agent_user:
 			frappe.flags.ignore_permissions = False
-		# WI-002190: model calls this script makes are metered against the run
+		# model calls this script makes are metered against the run
 		# and tagged with this shape. ProsAlly, Docu and Logix all reach the
 		# model from here, and none of those calls was recorded anywhere.
 		with observability.sub_call_scope(observability.current_run_name(), bpmn_id):
 			exec(script_doc.script, exec_ns)  # noqa: S102
 	except frappe.PermissionError as refused:
-		# The reason has to reach the MODEL. WI-002053 showed twice what happens
+		# The reason has to reach the MODEL. It has been shown twice what happens
 		# when it does not: the agent reports the work as done, or blames
 		# something transient and offers to retry a permission it will never have.
 		raise frappe.PermissionError(identity.describe_refusal(agent, refused)) from refused

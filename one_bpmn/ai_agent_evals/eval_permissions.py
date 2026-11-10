@@ -1,5 +1,5 @@
 """
-WI-001744: permission scoping for the AI Evals doctypes.
+Permission scoping for the AI Evals doctypes.
 
 A user may see an AI Eval Suite only when they are the process owner of the
 suite's process — i.e. Suite.process_model -> BPMN Process Model.process_name
@@ -24,7 +24,7 @@ def is_system_manager(user: str) -> bool:
 def _owned_suites_subquery(user: str) -> str:
 	"""SQL selecting the names of AI Eval Suites visible to ``user``: suites
 	whose process they own, plus process-less suites they created themselves
-	(WI-001751: Direct-eval suites may have no process_model)."""
+	(Direct-eval suites may have no process_model)."""
 	suite = DocType("AI Eval Suite")
 	model = DocType("BPMN Process Model")
 	process = DocType("Process")
@@ -55,7 +55,7 @@ def _suite_owned_by(suite: str, user: str) -> bool:
 		"AI Eval Suite", suite, ["process_model", "owner"]
 	) or (None, None)
 	if not process_model:
-		# Process-less (Direct) suite: visible to its creator (WI-001751).
+		# Process-less (Direct) suite: visible to its creator.
 		return creator == user
 	return process_model_owned_by(process_model, user)
 
@@ -74,7 +74,7 @@ def eval_suite_has_permission(doc, ptype=None, user: str = None) -> bool:
 		return True
 	process_model = getattr(doc, "process_model", None)
 	if not process_model:
-		# Process-less (Direct) suite: its creator may work with it (WI-001751).
+		# Process-less (Direct) suite: its creator may work with it.
 		return getattr(doc, "owner", None) == user
 	return process_model_owned_by(process_model, user)
 

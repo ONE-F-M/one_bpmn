@@ -1,5 +1,5 @@
 # Copyright (c) 2026, one-fm and contributors
-# WI-001363 (5-03): convert a production AI Agent Run into a regression
+# convert a production AI Agent Run into a regression
 # test case — the concrete link between observability (4-01) and the eval
 # system. AI Eval Case.source_run was designed for exactly this; until now
 # nothing populated it.
@@ -183,13 +183,13 @@ def _starter_judge_assertion(
 	agent = frappe.db.get_value("AI Eval Suite", suite, "agent_configuration")
 	if not agent:
 		return None
-	# WI-001655: judge_model is a Link into the AI Model catalog, and the agent's
+	# judge_model is a Link into the AI Model catalog, and the agent's
 	# own pick is a catalog record name — exactly what the field wants.
 	judge_provider, judge_model = frappe.db.get_value(
 		"AI Agent Configuration", agent, ["ai_provider", "ai_model"]
 	) or (None, None)
 	if not judge_model and judge_provider:
-		# A legacy agent predating WI-001655 has no ai_model, and those are
+		# A legacy agent predating the ai_model field has no ai_model, and those are
 		# exactly the agents whose cases most need an assertion. The judge does
 		# not have to be the agent's own model — any usable one will score a
 		# reply — so fall back the same way DirectApiExecutor does.
@@ -275,7 +275,7 @@ def create_eval_case_from_run(
 		order_by="step_index asc",
 	)
 	# Only the user turn is carried onto the case: the system prompt comes from
-	# the suite's agent configuration at run time (WI-001751).
+	# the suite's agent configuration at run time.
 	user_prompt = next((s.content for s in steps if s.role == "user"), "")
 
 	expected_output = ""
@@ -326,7 +326,7 @@ def create_eval_case_from_run(
 			"source_run": run_name,
 			"process_model": run.process_model or "",
 			"bpmn_id": run.bpmn_id or "",
-			# WI-001751: the case tests the suite's agent; it carries only the
+			# the case tests the suite's agent; it carries only the
 			# prompt + expected output (provider/model/system prompt come from
 			# the agent). ``system_prompt`` above is no longer stored on the case.
 			"input_user_prompt": user_prompt,
@@ -411,7 +411,7 @@ def list_runs_for_case_picker(suite: str, limit: int = 40) -> list:
 	The dialog used to ask for an AI Agent Run name as free text, which meant
 	knowing a hash id before you could use the feature at all. The candidates
 	are knowable: a suite tests one agent (AI Eval Suite.agent_configuration,
-	mandatory since WI-001743), so the runs worth turning into a case are that
+	mandatory), so the runs worth turning into a case are that
 	agent's runs and no others.
 
 	Returns ``[]`` — not an error — for a suite with no agent, so the dialog can
@@ -419,7 +419,7 @@ def list_runs_for_case_picker(suite: str, limit: int = 40) -> list:
 
 	Eval-origin runs are excluded: they were produced BY the eval system, so
 	turning one into a case would be a test of a test. Failed runs are kept —
-	capturing an Error as a regression case is the point of WI-001363.
+	capturing an Error as a regression case is the point of this module.
 
 	Visibility follows _assert_may_read_run rather than the doctype: AI Agent
 	Run is System-Manager-only and holds every prompt on the platform, so a

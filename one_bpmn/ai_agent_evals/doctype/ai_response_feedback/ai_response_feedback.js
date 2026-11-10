@@ -2,7 +2,7 @@
 // For license information, please see license.txt
 //
 // The triage path for one complaint, on the form the reviewer is already
-// reading (WI-001641 / WI-001822). Without these buttons the conversion is an
+// reading. Without these buttons the conversion is an
 // API call, which means it never happens: the person who can judge whether a
 // thumbs-down is a real regression is not the person who opens a console.
 //

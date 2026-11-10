@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""The starter assertion on a case built from a run (WI-001751 follow-up).
+"""The starter assertion on a case built from a run.
 
 "Create case from run" copied a prompt and a reference answer and stopped there,
 so the new case had no assertions — and a case with no assertions passes
@@ -108,7 +108,7 @@ class TestStarterAssertion(FrappeTestCase):
         self.assertIn("Total leave days: 5", assertion["value"])
 
     def test_falls_back_to_a_catalog_model_for_a_legacy_agent(self):
-        """An agent predating WI-001655 has no ai_model — and those are exactly
+        """An agent predating the ai_model field has no ai_model — and those are exactly
         the cases that most need an assertion, so a judge is still resolved."""
         model = self._make_model()
         suite = self._suite_for()  # no ai_model

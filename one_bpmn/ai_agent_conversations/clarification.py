@@ -1,6 +1,6 @@
 # Copyright (c) 2026, one-fm and contributors
 # For license information, please see license.txt
-"""Asking the story owner instead of guessing (WI-002050).
+"""Asking the story owner instead of guessing.
 
 The pause itself is not new. A User shape drawn inside an agent's tool
 sub-process is already a human tool: the model selecting it suspends the run

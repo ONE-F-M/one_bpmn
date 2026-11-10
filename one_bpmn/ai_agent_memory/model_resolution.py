@@ -1,5 +1,5 @@
 """
-Shared precedence chain for picking a memory model (WI-002168).
+Shared precedence chain for picking a memory model.
 
 Both the dispatch path (``dispatchers._memory_model``, resolving what to run)
 and the config-time path (``AI Agent Configuration.validate()``/its "effective
@@ -14,7 +14,7 @@ import frappe
 
 
 def resolve_memory_model(own_value: str | None, settings_field: str, fallback_value: str | None) -> str | None:
-	"""Resolve a memory model in precedence order (WI-001793, WI-002168).
+	"""Resolve a memory model in precedence order.
 
 	1. ``own_value`` — the agent's own field (distill/reconcile model).
 	2. The site-wide ``Processa Settings.<settings_field>`` default.
