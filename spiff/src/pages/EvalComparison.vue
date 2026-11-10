@@ -304,7 +304,7 @@ async function fetchComparison({ quiet = false } = {}) {
 	error.value = ""
 	try {
 		data.value = await frappeRequest({
-			url: "/api/method/one_bpmn.api.eval_api.get_run_comparison",
+			url: "/api/method/one_bpmn.api.evals.get_run_comparison",
 			method: "POST",
 			params: { run_a: props.runA, run_b: runB.value || undefined },
 		})
@@ -320,7 +320,7 @@ async function fetchComparison({ quiet = false } = {}) {
 async function fetchCandidates() {
 	try {
 		candidates.value = await frappeRequest({
-			url: "/api/method/one_bpmn.api.eval_api.list_comparable_runs",
+			url: "/api/method/one_bpmn.api.evals.list_comparable_runs",
 			method: "POST",
 			params: { run: props.runA },
 		})

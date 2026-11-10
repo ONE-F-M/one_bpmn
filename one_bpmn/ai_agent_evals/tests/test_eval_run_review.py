@@ -14,7 +14,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from one_bpmn.ai_agent_evals.tests.factories import make_eval_case, make_eval_suite
-from one_bpmn.api.eval_api import get_run_review
+from one_bpmn.api.evals import get_run_review
 
 test_ignore = ["BPMN Process Instance", "AI Eval Suite"]
 

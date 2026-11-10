@@ -23,7 +23,7 @@ from one_bpmn.ai_agent_evals.tests.factories import (
 )
 from one_bpmn.ai_agent_evals.runner.comparison import run_eval_comparison
 from one_bpmn.ai_agent_evals.runner.suite import execute_eval_suite
-from one_bpmn.api.eval_api import get_run_comparison, list_comparable_runs
+from one_bpmn.api.evals import get_run_comparison, list_comparable_runs
 
 
 class TestEvalComparison(FrappeTestCase):

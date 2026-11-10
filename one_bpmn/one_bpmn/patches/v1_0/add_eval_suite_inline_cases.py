@@ -71,7 +71,7 @@ elif _eval_type not in ("Direct", "Agent"):
 elif not isinstance(_cases, list):
     result["error"] = "cases must be a list of case objects."
 else:
-    from one_bpmn.api.eval_api import create_eval_case, create_suite
+    from one_bpmn.api.evals import create_eval_case, create_suite
 
     try:
         _name = create_suite(

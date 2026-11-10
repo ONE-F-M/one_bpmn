@@ -1,0 +1,43 @@
+{
+ "export_metadata": {
+  "source_site": "onefm.localhost (import path changed to one_bpmn.api.evals)",
+  "export_date": "2026-11-10 11:31:41.201652",
+  "exported_by": "Administrator",
+  "version": "1.0"
+ },
+ "server_scripts": [
+  {
+   "name": "Assistant Tool – Create Eval Case",
+   "script_type": "API",
+   "reference_doctype": null,
+   "doctype_event": "Before Insert",
+   "script": "# Tool: create an eval case (optionally with assertions) inside a suite.\n_suite = (task_data.get(\"suite\") or \"\").strip()\n_title = (task_data.get(\"title\") or \"\").strip()\n_prompt = (task_data.get(\"input_user_prompt\") or \"\").strip()\n_expected = (task_data.get(\"expected_output\") or \"\").strip()\n_assertions = task_data.get(\"assertions\") or []\n\nif not _suite:\n    result[\"error\"] = \"No suite given - create or pick a suite first.\"\nelif not frappe.db.exists(\"AI Eval Suite\", _suite):\n    result[\"error\"] = \"Unknown AI Eval Suite: \" + _suite\nelif not _title:\n    result[\"error\"] = \"No title given - a case needs a title.\"\nelif not _prompt:\n    result[\"error\"] = \"No input_user_prompt given - a case needs the prompt to send the agent.\"\nelse:\n    _clean = []\n    for _a in _assertions:\n        if not isinstance(_a, dict):\n            continue\n        _type = (_a.get(\"assertion_type\") or \"\").strip()\n        if _type not in (\"contains\", \"regex\", \"equals\", \"schema_valid\", \"llm_judge\"):\n            continue\n        _row = {\"assertion_type\": _type, \"value\": _a.get(\"value\") or \"\"}\n        for _k in (\"judge_provider\", \"judge_model\", \"pass_threshold\"):\n            if _a.get(_k) not in (None, \"\"):\n                _row[_k] = _a[_k]\n        _clean.append(_row)\n\n    from one_bpmn.api.evals import create_eval_case\n\n    try:\n        _name = create_eval_case(\n            suite=_suite,\n            title=_title,\n            input_user_prompt=_prompt,\n            expected_output=_expected,\n            assertions=_clean,\n        )\n        result[\"eval_case\"] = _name\n        result[\"assertions_added\"] = len(_clean)\n        if not _clean:\n            result[\"warning\"] = \"Case has no assertions - it will pass trivially until one is added.\"\n    except Exception as _exc:\n        result[\"error\"] = \"Could not create the case: \" + str(_exc)\n",
+   "api_method": "assistant_tool_create_eval_case",
+   "allow_guest": 0,
+   "event_frequency": "All",
+   "cron_format": null,
+   "module": null,
+   "disabled": 0
+  },
+  {
+   "name": "Assistant Tool – Create Eval Suite",
+   "script_type": "API",
+   "reference_doctype": null,
+   "doctype_event": "Before Insert",
+   "script": "# Tool: create an eval suite bound to an AI Agent Configuration, optionally\n# writing its cases in the same call.\n# agent_configuration is mandatory on AI Eval Suite and the link exists only on\n# the suite, so the agent must be supplied explicitly - it cannot be inferred.\n_agent = (task_data.get(\"agent\") or \"\").strip()\n_title = (task_data.get(\"title\") or \"\").strip()\n_description = (task_data.get(\"description\") or \"\").strip()\n_eval_type = (task_data.get(\"eval_type\") or \"Direct\").strip()\n_process_model = (task_data.get(\"process_model\") or \"\").strip()\n_cases = task_data.get(\"cases\") or []\n\n_VALID_ASSERTIONS = (\"contains\", \"regex\", \"equals\", \"schema_valid\", \"llm_judge\")\n\nif not _agent:\n    result[\"error\"] = \"No agent given - pass the exact AI Agent Configuration record name.\"\nelif not frappe.db.exists(\"AI Agent Configuration\", _agent):\n    result[\"error\"] = \"Unknown AI Agent Configuration: \" + _agent\nelif not _title:\n    result[\"error\"] = \"No title given - a suite needs a title.\"\nelif _eval_type not in (\"Direct\", \"Agent\"):\n    result[\"error\"] = \"eval_type must be 'Direct' or 'Agent', got: \" + _eval_type\nelif not isinstance(_cases, list):\n    result[\"error\"] = \"cases must be a list of case objects.\"\nelse:\n    from one_bpmn.api.evals import create_eval_case, create_suite\n\n    try:\n        _name = create_suite(\n            title=_title,\n            process_model=_process_model or None,\n            agent_configuration=_agent,\n            eval_type=_eval_type,\n            description=_description,\n        )\n        # Only keys that are NOT argument names survive execute_shape, which\n        # strips the arguments it injected — so echoing title/eval_type here\n        # would be dropped. The suite name is what any follow-up call needs.\n        result[\"suite\"] = _name\n    except Exception as _exc:\n        result[\"error\"] = \"Could not create the suite: \" + str(_exc)\n        _cases = []\n        _name = None\n\n    # Cases are written only once the suite exists. Each is reported\n    # individually: a partial write the model can see and repair beats a\n    # silent one it cannot.\n    _made = []\n    _failed = []\n    _no_assertions = []\n    for _c in _cases if _name else []:\n        if not isinstance(_c, dict):\n            _failed.append(\"(case was not an object)\")\n            continue\n        _ctitle = (_c.get(\"title\") or \"\").strip()\n        _cprompt = (_c.get(\"input_user_prompt\") or \"\").strip()\n        if not _ctitle or not _cprompt:\n            _failed.append((_ctitle or \"(untitled)\") + \": needs a title and an input_user_prompt\")\n            continue\n\n        _clean = []\n        for _a in _c.get(\"assertions\") or []:\n            if not isinstance(_a, dict):\n                continue\n            _type = (_a.get(\"assertion_type\") or \"\").strip()\n            if _type not in _VALID_ASSERTIONS:\n                continue\n            _row = {\"assertion_type\": _type, \"value\": _a.get(\"value\") or \"\"}\n            for _k in (\"judge_provider\", \"judge_model\", \"pass_threshold\"):\n                if _a.get(_k) not in (None, \"\"):\n                    _row[_k] = _a[_k]\n            _clean.append(_row)\n        if not _clean:\n            _no_assertions.append(_ctitle)\n\n        try:\n            create_eval_case(\n                suite=_name,\n                title=_ctitle,\n                input_user_prompt=_cprompt,\n                expected_output=(_c.get(\"expected_output\") or \"\").strip(),\n                assertions=_clean,\n            )\n            _made.append(_ctitle)\n        except Exception as _exc:\n            _failed.append(_ctitle + \": \" + str(_exc))\n\n    if _name:\n        result[\"cases_created\"] = len(_made)\n        if _made:\n            result[\"case_titles\"] = _made\n        if _failed:\n            result[\"cases_failed\"] = _failed\n        if _no_assertions:\n            result[\"cases_without_assertions\"] = _no_assertions\n            result[\"warning\"] = (\n                \"These cases have no assertions and will pass trivially: \"\n                + \", \".join(_no_assertions)\n            )\n",
+   "api_method": "assistant_tool_create_eval_suite",
+   "allow_guest": 0,
+   "event_frequency": "All",
+   "cron_format": null,
+   "module": null,
+   "disabled": 0
+  }
+ ],
+ "workflow_states": [],
+ "workflow_action_masters": [],
+ "counts": {
+  "server_scripts": 2,
+  "workflow_states": 0,
+  "workflow_action_masters": 0
+ }
+}

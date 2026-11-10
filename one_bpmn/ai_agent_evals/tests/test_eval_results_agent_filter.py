@@ -16,7 +16,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import now_datetime
 
 from one_bpmn.ai_agent_evals.tests.factories import make_eval_suite
-from one_bpmn.api.eval_api import scheduled_results
+from one_bpmn.api.evals import scheduled_results
 
 
 def _run_without_its_own_agent(suite: str) -> str:

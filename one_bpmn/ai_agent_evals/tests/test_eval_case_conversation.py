@@ -6,7 +6,7 @@ from frappe.utils import add_to_date, now_datetime
 
 from one_bpmn.ai_agent_evals.tests.factories import make_eval_suite
 from one_bpmn.ai_agent_conversations import session_state
-from one_bpmn.api.eval_api import (
+from one_bpmn.api.evals import (
 	conversation_context_for_case,
 	get_conversation_for_case,
 	list_conversations_for_case,

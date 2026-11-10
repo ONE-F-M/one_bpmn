@@ -91,14 +91,14 @@ def run_suite(suite: dict, backend: str, spend_cap: float = 0, triggered_by: str
 				# The assertion that actually failed, not the row's summary note:
 				# a CI log is read once, in a hurry, by someone who did not write
 				# the case.
-				"why": _why(r),
+				"why": why(r),
 			}
 			for r in run.results if r.status in ("Failed", "Error")
 		],
 	}
 
 
-def _why(result) -> str:
+def why(result) -> str:
 	"""What to print for a failed case: the assertions that did not hold."""
 	try:
 		assertions = json.loads(result.assertion_results or "[]")

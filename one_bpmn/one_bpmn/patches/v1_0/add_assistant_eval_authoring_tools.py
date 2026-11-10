@@ -44,7 +44,7 @@ CREATE_CASE_SCRIPT_NAME = "Assistant Tool – Create Eval Case"
 # ═══════════════════════════════════════════════════════════════════════════════
 # Each runs with the CALLING USER's permissions: get_list applies the AI Eval
 # Suite permission query (process owner / suite owner, per ai_agent_evals/eval_permissions
-# .py) and the eval_api creators call check_permission themselves. No
+# .py) and the api.evals creators call check_permission themselves. No
 # ignore_permissions anywhere — the assistant can only touch what the designer
 # driving it could touch by hand.
 
@@ -100,7 +100,7 @@ elif not _title:
 elif _eval_type not in ("Direct", "Agent"):
     result["error"] = "eval_type must be 'Direct' or 'Agent', got: " + _eval_type
 else:
-    from one_bpmn.api.eval_api import create_suite
+    from one_bpmn.api.evals import create_suite
 
     try:
         _name = create_suite(
@@ -147,7 +147,7 @@ else:
                 _row[_k] = _a[_k]
         _clean.append(_row)
 
-    from one_bpmn.api.eval_api import create_eval_case
+    from one_bpmn.api.evals import create_eval_case
 
     try:
         _name = create_eval_case(

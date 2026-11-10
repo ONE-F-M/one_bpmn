@@ -15,7 +15,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from one_bpmn.ai_agent_evals.tests.factories import make_eval_case, make_eval_suite
-from one_bpmn.api.eval_api import create_eval_case, create_suite, get_eval_case, update_eval_case
+from one_bpmn.api.evals import create_eval_case, create_suite, get_eval_case, update_eval_case
 from one_bpmn.ai_agent_evals.golden_dataset import (
 	CASE_TYPES,
 	dataset_sizes,

@@ -17,7 +17,7 @@ import frappe
 from frappe.query_builder import DocType
 
 
-def _is_system_manager(user: str) -> bool:
+def is_system_manager(user: str) -> bool:
 	return "System Manager" in frappe.get_roles(user)
 
 
@@ -39,7 +39,7 @@ def _owned_suites_subquery(user: str) -> str:
 	return q.get_sql()
 
 
-def _process_model_owned_by(process_model: str, user: str) -> bool:
+def process_model_owned_by(process_model: str, user: str) -> bool:
 	if not process_model:
 		return False
 	process = frappe.db.get_value("BPMN Process Model", process_model, "process_name")
@@ -57,39 +57,39 @@ def _suite_owned_by(suite: str, user: str) -> bool:
 	if not process_model:
 		# Process-less (Direct) suite: visible to its creator (WI-001751).
 		return creator == user
-	return _process_model_owned_by(process_model, user)
+	return process_model_owned_by(process_model, user)
 
 
 # ── AI Eval Suite ────────────────────────────────────────────────────────────
 def eval_suite_query_conditions(user: str = None) -> str:
 	user = user or frappe.session.user
-	if _is_system_manager(user):
+	if is_system_manager(user):
 		return ""
 	return f"`tabAI Eval Suite`.`name` in ({_owned_suites_subquery(user)})"
 
 
 def eval_suite_has_permission(doc, ptype=None, user: str = None) -> bool:
 	user = user or frappe.session.user
-	if _is_system_manager(user):
+	if is_system_manager(user):
 		return True
 	process_model = getattr(doc, "process_model", None)
 	if not process_model:
 		# Process-less (Direct) suite: its creator may work with it (WI-001751).
 		return getattr(doc, "owner", None) == user
-	return _process_model_owned_by(process_model, user)
+	return process_model_owned_by(process_model, user)
 
 
 # ── AI Eval Case ─────────────────────────────────────────────────────────────
 def eval_case_query_conditions(user: str = None) -> str:
 	user = user or frappe.session.user
-	if _is_system_manager(user):
+	if is_system_manager(user):
 		return ""
 	return f"`tabAI Eval Case`.`suite` in ({_owned_suites_subquery(user)})"
 
 
 def eval_case_has_permission(doc, ptype=None, user: str = None) -> bool:
 	user = user or frappe.session.user
-	if _is_system_manager(user):
+	if is_system_manager(user):
 		return True
 	return _suite_owned_by(getattr(doc, "suite", None), user)
 
@@ -97,13 +97,13 @@ def eval_case_has_permission(doc, ptype=None, user: str = None) -> bool:
 # ── AI Eval Run ──────────────────────────────────────────────────────────────
 def eval_run_query_conditions(user: str = None) -> str:
 	user = user or frappe.session.user
-	if _is_system_manager(user):
+	if is_system_manager(user):
 		return ""
 	return f"`tabAI Eval Run`.`suite` in ({_owned_suites_subquery(user)})"
 
 
 def eval_run_has_permission(doc, ptype=None, user: str = None) -> bool:
 	user = user or frappe.session.user
-	if _is_system_manager(user):
+	if is_system_manager(user):
 		return True
 	return _suite_owned_by(getattr(doc, "suite", None), user)

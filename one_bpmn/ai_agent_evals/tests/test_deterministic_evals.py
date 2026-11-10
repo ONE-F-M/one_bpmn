@@ -23,7 +23,7 @@ from one_bpmn.ai_agent_evals.tests.factories import make_eval_case, make_eval_su
 from one_bpmn.ai_agent_evals.runner.assertions import MODEL_BACKED_ASSERTIONS
 from one_bpmn.ai_agent_evals.runner.cases import _execute_case_deterministic
 from one_bpmn.ai_agent_evals.runner.suite import execute_eval_suite
-from one_bpmn.ai_agent_evals.eval_ci import _why
+from one_bpmn.ai_agent_evals.eval_ci import why
 from one_bpmn.commands.evals import _verdict
 
 JUDGE = "one_bpmn.ai_agent_evals.runner.assertions._evaluate_llm_judge"
@@ -227,7 +227,7 @@ class TestFailureLine(FrappeTestCase):
 			]),
 			error_message="Scored against the case's recorded answer, no model call.",
 		)
-		why = _why(result)
+		why = why(result)
 		self.assertIn("contains", why)
 		self.assertIn("disabled", why)
 		self.assertIn("Substring not found", why)
@@ -235,12 +235,12 @@ class TestFailureLine(FrappeTestCase):
 
 	def test_it_falls_back_to_the_row_note(self):
 		result = frappe._dict(assertion_results="[]", error_message="Nothing to replay.")
-		self.assertEqual(_why(result), "Nothing to replay.")
+		self.assertEqual(why(result), "Nothing to replay.")
 
 	def test_malformed_assertion_results_do_not_crash_the_report(self):
 		result = frappe._dict(assertion_results="not json", error_message="something went wrong")
-		self.assertEqual(_why(result), "something went wrong")
+		self.assertEqual(why(result), "something went wrong")
 
 	def test_a_row_with_nothing_recorded_still_says_something(self):
 		result = frappe._dict(assertion_results="[]", error_message="")
-		self.assertEqual(_why(result), "no detail recorded")
+		self.assertEqual(why(result), "no detail recorded")

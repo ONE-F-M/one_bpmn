@@ -22,14 +22,14 @@ const splitFiles = [SHELL, ...parts];
 const NEW_PARTS = parts.filter((f) => !/EvalCaseContextField|EvalEarlierConversation/.test(f));
 
 const ENDPOINTS = [
-	"one_bpmn.api.eval_api.get_suite_detail",
-	"one_bpmn.api.eval_api.list_assignable_agents",
-	"one_bpmn.api.eval_api.reassign_suite",
-	"one_bpmn.api.eval_api.update_suite_thresholds",
-	"one_bpmn.api.eval_api.case_consistency",
-	"one_bpmn.api.eval_api.get_eval_case",
-	"one_bpmn.api.eval_api.update_eval_case",
-	"one_bpmn.api.eval_api.create_eval_case",
+	"one_bpmn.api.evals.get_suite_detail",
+	"one_bpmn.api.evals.list_assignable_agents",
+	"one_bpmn.api.evals.reassign_suite",
+	"one_bpmn.api.evals.update_suite_thresholds",
+	"one_bpmn.api.evals.case_consistency",
+	"one_bpmn.api.evals.get_eval_case",
+	"one_bpmn.api.evals.update_eval_case",
+	"one_bpmn.api.evals.create_eval_case",
 	"one_bpmn.ai_agent_evals.runner.cases.run_eval_cases",
 	"one_bpmn.ai_agent_evals.runner.comparison.run_eval_comparison",
 	"one_bpmn.ai_agent_evals.eval_case_factory.list_runs_for_case_picker",
