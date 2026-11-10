@@ -52,6 +52,18 @@ class TestProcessOwnerDoctypeAccess(FrappeTestCase):
 		frappe.set_user(self.email)
 		self.assertFalse(frappe.has_permission("DocType", "delete"))
 
+	def test_desk_lists_doctype_when_custom_docperm_rows_exist(self):
+		frappe.db.delete("Custom DocPerm", {"parent": "DocType", "role": "Process Owner"})
+		if not frappe.db.exists("Custom DocPerm", {"parent": "DocType"}):
+			self.addCleanup(frappe.db.delete, "Custom DocPerm", {"parent": "DocType", "role": "System Manager"})
+			frappe.get_doc({
+				"doctype": "Custom DocPerm", "parent": "DocType", "parenttype": "DocType",
+				"parentfield": "permissions", "role": "System Manager", "read": 1,
+			}).insert(ignore_permissions=True)
+		grant()
+		rows = frappe.permissions.get_valid_perms("DocType", user=self.email)
+		self.assertIn("Process Owner", {row.role for row in rows if row.read and row.create})
+
 	def test_grant_is_idempotent_and_repairs_a_row(self):
 		grant()
 		frappe.db.set_value("DocPerm", {"parent": "DocType", "role": "Process Owner"}, "create", 0)
