@@ -133,7 +133,7 @@ async function onLogixCardAction({ name, action, value, payload }) {
 	if (value.mode === "MODIFY" && linked) {
 		try {
 			await frappeRequest({
-				url: "/api/method/one_bpmn.api.server_script_api.update_server_script",
+				url: "/api/method/one_bpmn.api.server_scripts.update_server_script",
 				params: { script_name: linked, script: code },
 			});
 			if (props.eventBus) {
@@ -164,7 +164,7 @@ async function runTestCase(payload) {
 	}
 	try {
 		const result = await frappeRequest({
-			url: "/api/method/one_bpmn.api.server_script_api.run_logix_test_case",
+			url: "/api/method/one_bpmn.api.server_scripts.run_logix_test_case",
 			method: "POST",
 			params: {
 				script_name: linked,
@@ -218,7 +218,7 @@ async function applyScript() {
 
 	try {
 		const data = await frappeRequest({
-			url: "/api/method/one_bpmn.api.server_script_api.create_server_script",
+			url: "/api/method/one_bpmn.api.server_scripts.create_server_script",
 			params: { script_name: name, script_type: "API", script: applyScriptCode.value },
 		});
 		const scriptName = data?.name || name;

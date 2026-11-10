@@ -11,7 +11,7 @@ applied to the database it passes through ``validate_doctype_ir`` here, which is
   - required ``options`` on relational/select field types,
   - no attempt to redefine Frappe's standard/meta fields.
 
-SECURITY NOTE: the apply endpoint (api/docu_api.apply_doctype) MUST re-run this
+SECURITY NOTE: the apply endpoint (api/docu.apply_doctype) MUST re-run this
 server-side and refuse on any violation — never trust that the agent validated
 before applying, and never trust an IR posted by the client.
 """

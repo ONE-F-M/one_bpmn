@@ -7,7 +7,7 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.api.docu_api import (
+from one_bpmn.api.docu import (
 	DOCU_AGENT,
 	_docu_user,
 	apply_doctype,

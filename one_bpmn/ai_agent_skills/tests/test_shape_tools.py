@@ -103,6 +103,13 @@ class TestExecuteShape(FrappeTestCase):
 		out = execute_shape(_fake_instance(), "task_z", {"serverScript": name}, {})
 		self.assertIn("error", json.loads(out))
 
+	def test_disabled_script_returns_structured_error_and_does_not_run(self):
+		name = self._script("Shape Disabled Script", 'result["ran"] = 1')
+		frappe.db.set_value("Server Script", name, "disabled", 1)
+		payload = json.loads(execute_shape(_fake_instance(), "task_d", {"serverScript": name}, {}))
+		self.assertIn("disabled", payload["error"])
+		self.assertNotIn("ran", payload)
+
 	def test_top_level_def_can_call_another_top_level_def_and_use_a_top_level_import(self):
 		"""_run_server_script used to exec() with separate globals/locals dicts —
 		a top-level `def`'s own __globals__ was the (near-empty) globals dict, so

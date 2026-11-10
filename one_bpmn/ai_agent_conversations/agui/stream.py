@@ -634,13 +634,13 @@ except Exception:
 # Logix and ProsAlly register their context builders + reply shapers on import
 # (follow-ups from live testing).
 try:
-	import one_bpmn.api.server_script_api  # noqa: F401,E402
+	import one_bpmn.api.server_scripts  # noqa: F401,E402
 except Exception:
 	frappe.log_error(title="agui logix hooks failed to load", message=frappe.get_traceback())
 
 # Docu registers its context builder (current-IR loading) + reply shaper on
 # import. Same degrade-to-text guarantee.
 try:
-	import one_bpmn.api.docu_api  # noqa: F401,E402
+	import one_bpmn.api.docu  # noqa: F401,E402
 except Exception:
 	frappe.log_error(title="agui docu hooks failed to load", message=frappe.get_traceback())

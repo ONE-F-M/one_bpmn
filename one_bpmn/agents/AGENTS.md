@@ -5,7 +5,7 @@ Rules for `one_bpmn/agents/`, the engine pieces that run agents, and the two edi
 ## How an agent runs
 
 - An agent is an AI Agent Configuration plus a process map. Its stages are DB Server Scripts called as Agent Tools by an AI Agent Task in that map. Prompts and stage scripts are seeded and changed by patches in `one_bpmn/one_bpmn/patches/`, not edited in Python files.
-- Every chat turn goes through one endpoint, `one_bpmn.api.agui.stream_agent_turn`, with the agent's `agent_id` and its fields in the turn `context`. Per-agent context builders (for example `build_prosally_turn_context` in `api/server_script_api.py`) add what a map needs.
+- Every chat turn goes through one endpoint, `one_bpmn.api.agui.stream_agent_turn`, with the agent's `agent_id` and its fields in the turn `context`. Per-agent context builders (for example `build_prosally_turn_context` in `api/server_scripts.py`) add what a map needs.
 - Each stage gets a fresh prompt built from the conversation history; stages share no session state.
 - `get_agent_config(agent_id)` in the AI Agent Configuration controller returns an agent's settings and sub-prompt overrides.
 
@@ -66,7 +66,7 @@ Logix writes and fixes Server Scripts for Script Tasks and Agent Tools in the ed
 - Debug path: "Logix – Build Context" puts `script_text` (a pasted script, else the linked script's code) and `last_error` (a pasted traceback, else the newest `BPMN ScriptTask: "<script>" execution failed` Error Log) on the turn through `ai_agent_registry/definitions/logix/helpers.py:debug_inputs`. The `debug_script` tool returns an explanation and a fixed script; the reviewer judges only the unified diff, and `validate_script` gates the fix. A passing fix replies as a MODIFY with the diff; a failing one explains the issues and offers no code.
 - Sub-prompt keys on the AI Agent Configuration: `intent_classifier`, `clarifier`, `script_writer`, `script_reviewer`, `test_writer`, `tool_writer`, `script_debugger`.
 - Read tools in `ai_agent_registry/definitions/logix/tools.py` and `definitions/shared/tools.py` (for example `get_server_script_content`, `get_server_script_meta`, `list_api_server_scripts`, `get_doctype_fields`) return strings and never raise: the `tool_envelope` decorator in `definitions/shared/helpers.py` logs the error and returns the error value.
-- Script endpoints in `api/server_script_api.py`: `create_server_script` (upsert), `update_server_script`, `check_server_script_exists`. They check Server Script permission or the System Manager role before writing.
+- Script endpoints in `api/server_scripts.py`: `create_server_script` (upsert), `update_server_script`, `check_server_script_exists`. They check Server Script permission or the System Manager role before writing.
 
 ## ProsAlly
 

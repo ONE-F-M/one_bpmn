@@ -22,7 +22,7 @@ _agent_text = _agent_text.strip()
 _failed = task_data.get("run_lucrusher_agent_error_code")
 if _failed:
     _reason = str(task_data.get("run_lucrusher_agent_error_message") or _failed).strip().rstrip(".")
-    from one_bpmn.api.server_script_api import turn_failure_text
+    from one_bpmn.api.server_scripts import turn_failure_text
     _agent_text = turn_failure_text(_failed, _reason)
     _out = {"intent": "ERROR", "response": _agent_text}
 if isinstance(_out, dict) and _out:

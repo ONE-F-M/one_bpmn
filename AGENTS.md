@@ -24,9 +24,9 @@ House style lives in `frappe-bench/.claude/rules/`: `house-style.md` always, `py
   - `instances.py`: instance endpoints (start, complete, send message, list, cancel, suspend, resume, retry); the work is in `processa_engine/instances/`.
   - `lookups.py`: field and user lookups for the editor pickers and the instance list filters.
   - `editability.py`: cross-site editability checks and editor lock heartbeats.
-  - `server_script_api.py`: Server Script CRUD and the Logix and ProsAlly turn-context builders.
+  - `server_scripts.py`: Server Script CRUD and the Logix and ProsAlly turn-context builders.
   - `agui.py`: `stream_agent_turn`, the one chat endpoint every agent uses.
-  - `canvas_comments.py`, `notification_api.py`, `versions.py` (diagram and Server Script versions), `dmn.py`.
+  - `canvas_comments.py`, `notifications.py`, `versions.py` (diagram and Server Script versions), `dmn.py`.
 - `one_bpmn/one_bpmn/doctype/`: DocType JSON, controllers and tests.
 - `one_bpmn/processa_engine/engine/`: the SpiffWorkflow script engine.
 - `one_bpmn/processa_engine/`: engine services: `triggers.py` (document events), `timers.py` (timer and stranded-step jobs), `assignment.py`, `task_selector.py`, `call_activities.py` and `audit.py` (workflow state changes), and `compiler/` (deploy checks and the compile step).

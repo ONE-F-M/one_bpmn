@@ -9,7 +9,7 @@ it created got one hardcoded System Manager rule, so a process owner asking for
 administrator could reach, and the permission table had to be edited afterwards
 in the desk.
 
-The IR now carries a ``permissions`` array, and docu_api applies it on create
+The IR now carries a ``permissions`` array, and docu applies it on create
 AND on update. This patch is the other half: the schema writer has to know the
 key exists, or it will never emit one. Three marker-guarded edits on the
 ``schema_writer`` sub-prompt — the shape, the rule, and the tool that lists real

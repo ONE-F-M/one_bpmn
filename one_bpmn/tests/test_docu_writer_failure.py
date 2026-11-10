@@ -12,7 +12,7 @@ from frappe.utils import now_datetime
 from one_bpmn.ai_agent_observability.observability import tool_call_status
 from one_bpmn.ai_agent_skills.tools.shape_tools import execute_shape
 from one_bpmn.processa_engine.agent_runtime.turn_state import get_turn, set_turn
-from one_bpmn.api.server_script_api import turn_failure_text
+from one_bpmn.api.server_scripts import turn_failure_text
 from one_bpmn.ai_agent_skills.tests.test_failed_tool_turn import ChatTurnFixture
 
 PROVIDER_MESSAGE = "AI Model 'claude-sonnet-5' is unavailable: Anthropic rejected the API key (HTTP 401): invalid x-api-key."

@@ -595,25 +595,3 @@ def create_eval_case_from_feedback(feedback: str, suite: str = None) -> dict:
 	# — the eval case editor lives on the suite page, and sending a reviewer to
 	# the desk to finish a Processa job is a jarring hand-off.
 	return {"feedback": doc.name, "eval_case": case, "suite": suite, "created": True}
-
-
-@frappe.whitelist()
-def get_response_rating(message: str) -> dict:
-	"""This user's current rating of a reply, so a reopened conversation shows
-	the thumbs they already pressed instead of a blank slate."""
-	msg = _load_rateable_message(message)
-	name = frappe.db.get_value(
-		"AI Response Feedback",
-		{"dedup_key": f"{msg.name}|{frappe.session.user}"},
-		"name",
-	)
-	if not name:
-		return {"message": msg.name, "rating": None, "reasons": [], "comment": ""}
-
-	doc = frappe.get_doc("AI Response Feedback", name)
-	return {
-		"message": doc.message,
-		"rating": doc.rating,
-		"reasons": [r.reason for r in doc.reasons or []],
-		"comment": doc.comment or "",
-	}
