@@ -21,7 +21,8 @@ from one_bpmn.ai_agent_evals.tests.factories import (
 	patch_executor,
 	success_result,
 )
-from one_bpmn.ai_agent_evals.eval_runner import _execute_eval_suite, run_eval_comparison
+from one_bpmn.ai_agent_evals.runner.comparison import run_eval_comparison
+from one_bpmn.ai_agent_evals.runner.suite import execute_eval_suite
 from one_bpmn.api.eval_api import get_run_comparison, list_comparable_runs
 
 
@@ -51,7 +52,7 @@ class TestEvalComparison(FrappeTestCase):
 		seen = []
 
 		with patch_executor(lambda config, context: seen.append(config) or success_result("yes")):
-			_execute_eval_suite(run.name)
+			execute_eval_suite(run.name)
 
 		self.assertEqual(len(seen), 3, "every case should have executed")
 		prompts = {c.system_prompt for c in seen}
@@ -62,7 +63,7 @@ class TestEvalComparison(FrappeTestCase):
 		seen = []
 
 		with patch_executor(lambda config, context: seen.append(config) or success_result("yes")):
-			_execute_eval_suite(run.name)
+			execute_eval_suite(run.name)
 
 		self.assertEqual({c.system_prompt for c in seen}, {"I AM AGENT A"})
 		run.reload()

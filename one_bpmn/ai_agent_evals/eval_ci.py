@@ -13,7 +13,7 @@ import json
 import frappe
 from frappe.utils import flt
 
-from one_bpmn.ai_agent_evals.eval_runner import _execute_eval_suite
+from one_bpmn.ai_agent_evals.runner.suite import execute_eval_suite
 
 
 def select_suites(role: str = "", suite: str = "") -> list[dict]:
@@ -59,7 +59,7 @@ def run_suite(suite: dict, backend: str, spend_cap: float = 0, triggered_by: str
 	if not frappe.flags.in_test:
 		frappe.db.commit()
 
-	_execute_eval_suite(run.name)
+	execute_eval_suite(run.name)
 	if not frappe.flags.in_test:
 		frappe.db.commit()
 	run.reload()

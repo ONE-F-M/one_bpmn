@@ -9,7 +9,9 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.ai_agent_evals import eval_runner
+import one_bpmn.ai_agent_evals.runner.agent_eval as runner_agent_eval
+import one_bpmn.ai_agent_evals.runner.assertions as runner_assertions
+import one_bpmn.ai_agent_evals.runner.suite as runner_suite
 
 test_ignore = ["AI Eval Suite", "AI Eval Case"]
 
@@ -64,7 +66,7 @@ def _replay(suite):
 	run.flags.ignore_mandatory = True
 	run.insert(ignore_permissions=True, ignore_mandatory=True)
 	with patch.object(frappe, "publish_realtime") as publish:
-		eval_runner._execute_eval_suite(run.name)
+		runner_suite.execute_eval_suite(run.name)
 	return frappe.get_doc("AI Eval Run", run.name), publish
 
 
@@ -76,7 +78,9 @@ class TestEvalReplay(FrappeTestCase):
 			with_prior_output="hello world",
 			assertion={"assertion_type": "contains", "value": "hello"},
 		)
-		with patch.object(eval_runner, "get_executor") as executor:
+		with patch.object(runner_assertions, "get_executor") as executor, patch.object(
+			runner_agent_eval, "get_executor", executor
+		):
 			run, _ = _replay(suite)
 		executor.assert_not_called()
 		self.assertEqual(run.status, "Passed")
@@ -132,10 +136,10 @@ class TestEvalReplay(FrappeTestCase):
 	def test_run_eval_suite_validates_backend(self):
 		suite, _ = _fixture(with_prior_output=None)
 		with self.assertRaises(frappe.ValidationError):
-			eval_runner.run_eval_suite(suite.name, backend="time_travel")
+			runner_suite.run_eval_suite(suite.name, backend="time_travel")
 
 	def test_run_eval_suite_accepts_replay(self):
 		suite, _ = _fixture(with_prior_output=None)
 		with patch.object(frappe, "enqueue"):
-			run_name = eval_runner.run_eval_suite(suite.name, backend="replay")
+			run_name = runner_suite.run_eval_suite(suite.name, backend="replay")
 		self.assertEqual(frappe.db.get_value("AI Eval Run", run_name, "backend"), "replay")

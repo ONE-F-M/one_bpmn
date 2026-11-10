@@ -10,7 +10,9 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, now_datetime
 
 from one_bpmn.ai_agent_evals.tests.factories import make_agent_configuration, make_eval_case, make_eval_suite
-from one_bpmn.ai_agent_evals.eval_runner import run_eval_cases, run_eval_comparison, run_eval_suite
+from one_bpmn.ai_agent_evals.runner.cases import run_eval_cases
+from one_bpmn.ai_agent_evals.runner.comparison import run_eval_comparison
+from one_bpmn.ai_agent_evals.runner.suite import run_eval_suite
 
 
 class TestOneRunPerSuite(FrappeTestCase):

@@ -27,7 +27,7 @@ from one_bpmn.ai_agent_evals.tests.factories import (
     patch_executor,
     success_result,
 )
-from one_bpmn.ai_agent_evals.eval_runner import _execute_eval_suite
+from one_bpmn.ai_agent_evals.runner.suite import execute_eval_suite
 
 
 class TestDirectEvalModel(FrappeTestCase):
@@ -72,7 +72,7 @@ class TestDirectEvalModel(FrappeTestCase):
             return success_result("ok")
 
         with patch_executor(handler):
-            _execute_eval_suite(run.name)
+            execute_eval_suite(run.name)
 
         return seen.get("model", "<executor never called>")
 
@@ -116,7 +116,7 @@ class TestDirectEvalModel(FrappeTestCase):
             fieldname = args[1] if len(args) > 1 else kwargs.get("fieldname")
             if doctype == "AI Provider" and fieldname == "default_model":
                 raise AssertionError(
-                    "eval_runner read AI Provider.default_model, "
+                    "the eval runner read AI Provider.default_model, "
                     "which WI-001655 removed."
                 )
             return real_get_value(doctype, *args, **kwargs)

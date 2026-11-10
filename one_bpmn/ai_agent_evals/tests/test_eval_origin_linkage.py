@@ -8,7 +8,7 @@ observability read the flag only to decide origin="eval". Reviewing an eval
 therefore meant filtering AI Agent Run by origin and matching the eval run's time
 window by hand. The flag now names both the case and the run, and BOTH creators of
 eval-origin runs stamp them — observability.create_ai_run for the agent's own runs
-and eval_runner._record_eval_run for the direct call and each judge call.
+and runner_records.record_eval_run for the direct call and each judge call.
 
 No LLM calls: runs are created directly through the recording helpers.
 """
@@ -24,13 +24,10 @@ from one_bpmn.ai_agent_evals.tests.factories import (
 	make_eval_case,
 	make_eval_suite,
 )
-from one_bpmn.ai_agent_evals.eval_runner import (
-	EVAL_RUN_DIRECT,
-	EVAL_RUN_JUDGE,
-	_eval_origin_flag,
-	_execute_case,
-	_record_eval_run,
-)
+from one_bpmn.ai_agent_evals.runner.agent_eval import EVAL_RUN_DIRECT, eval_origin_flag
+from one_bpmn.ai_agent_evals.runner.assertions import EVAL_RUN_JUDGE
+from one_bpmn.ai_agent_evals.runner.cases import _execute_case
+from one_bpmn.ai_agent_evals.runner.records import record_eval_run
 
 test_ignore = ["BPMN Process Instance", "AI Eval Suite"]
 
@@ -54,27 +51,27 @@ class TestEvalOriginFlag(FrappeTestCase):
 	def test_flag_carries_case_and_run(self):
 		case = make_eval_case()
 		self.assertEqual(
-			_eval_origin_flag(case, "RUN-1"),
+			eval_origin_flag(case, "RUN-1"),
 			{"eval_case": case.name, "eval_run": "RUN-1"},
 		)
 
 	def test_missing_run_is_empty_not_none(self):
 		"""'' keeps the Link field NULL without tripping a link check."""
 		case = make_eval_case()
-		self.assertEqual(_eval_origin_flag(case)["eval_run"], "")
+		self.assertEqual(eval_origin_flag(case)["eval_run"], "")
 
 
 class TestRecordEvalRunStamps(FrappeTestCase):
-	"""_record_eval_run covers the Direct call and every llm_judge call — the
+	"""record_eval_run covers the Direct call and every llm_judge call — the
 	spend an eval incurs outside the agent's own runs."""
 
 	def _record(self, bpmn_id):
 		before = set(frappe.get_all("AI Agent Run", pluck="name"))
 		# provider / model are Link fields on AI Agent Run, so they are left empty
 		# rather than given placeholder names that would fail link validation —
-		# _record_eval_run swallows that failure, which would make a broken test
+		# record_eval_run swallows that failure, which would make a broken test
 		# look like a missing stamp.
-		_record_eval_run(bpmn_id, "", "", frappe.utils.now_datetime(), 10, 5, 0.1, 0.2)
+		record_eval_run(bpmn_id, "", "", frappe.utils.now_datetime(), 10, 5, 0.1, 0.2)
 		after = set(frappe.get_all("AI Agent Run", pluck="name"))
 		created = after - before
 		self.assertEqual(len(created), 1, "expected exactly one AI Agent Run")
@@ -182,7 +179,7 @@ class TestExecuteCaseFlagLifecycle(FrappeTestCase):
 			seen["flag"] = getattr(frappe.flags, "eval_origin", None)
 			return "out", {"prompt_tokens": 0, "completion_tokens": 0, "tokens": 0, "cost": 0}
 
-		with patch("one_bpmn.ai_agent_evals.eval_runner._run_direct_eval", new=fake_direct):
+		with patch("one_bpmn.ai_agent_evals.runner.cases.run_direct_eval", new=fake_direct):
 			_execute_case(case, "RUN-77")
 
 		self.assertEqual(seen["flag"], {"eval_case": case.name, "eval_run": "RUN-77"})
@@ -196,7 +193,7 @@ class TestExecuteCaseFlagLifecycle(FrappeTestCase):
 		def boom(_cfg, _case):
 			raise RuntimeError("kaboom")
 
-		with patch("one_bpmn.ai_agent_evals.eval_runner._run_direct_eval", new=boom):
+		with patch("one_bpmn.ai_agent_evals.runner.cases.run_direct_eval", new=boom):
 			# _execute_case swallows the failure into an Error result row.
 			row = _execute_case(case, "RUN-88")
 

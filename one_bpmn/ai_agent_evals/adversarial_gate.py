@@ -140,7 +140,7 @@ def ensure_fresh_runs(agent: str) -> list[str]:
 
 	Returns the suites it actually ran.
 	"""
-	from one_bpmn.ai_agent_evals.eval_runner import _execute_eval_suite
+	from one_bpmn.ai_agent_evals.runner.suite import execute_eval_suite
 
 	ran = []
 	for suite in adversarial_suites(agent):
@@ -156,7 +156,7 @@ def ensure_fresh_runs(agent: str) -> list[str]:
 			# System-written record of an action the process is already
 			# authorised for, exactly as the other eval entry points do.
 			run.insert(ignore_permissions=True)
-			_execute_eval_suite(run.name)
+			execute_eval_suite(run.name)
 			ran.append(suite)
 		except Exception:
 			frappe.log_error(

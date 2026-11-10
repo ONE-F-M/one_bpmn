@@ -236,7 +236,7 @@ scheduler_events = {
 		# this. Five minutes is the same cadence as the credential check above
 		# and well inside the margin a run's own deadline already carries.
 		"*/5 * * * *": [
-			"one_bpmn.ai_agent_evals.eval_runner.sweep_stale_eval_runs",
+			"one_bpmn.ai_agent_evals.runner.sweep.sweep_stale_eval_runs",
 			# A parked AI step whose job was lost from the queue would otherwise wait for the delegation deadline.
 			"one_bpmn.processa_engine.timers.requeue_stranded_ai_steps",
 		],

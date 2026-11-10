@@ -8,7 +8,8 @@ its past step errors flagged. Running it again changes nothing.
 
 import frappe
 
-from one_bpmn.ai_agent_evals.eval_runner import _mark_expected_errors, _resolve_agent_configuration_fallback
+from one_bpmn.ai_agent_evals.runner.cases import mark_expected_errors
+from one_bpmn.ai_agent_evals.runner.policy import resolve_agent_configuration_fallback
 from one_bpmn.one_bpmn.patches.v1_0.orchestrator_agent_baseline_covers_every_tool import CASES, SUITE_TITLE
 
 
@@ -16,7 +17,7 @@ def execute():
 	suites, runs, unresolved = _attribute_suites_and_runs()
 	cases = _seed_expected_errors()
 	steps = sum(
-		_mark_expected_errors(case.name, case.expected_error)
+		mark_expected_errors(case.name, case.expected_error)
 		for case in frappe.get_all(
 			"AI Eval Case", filters={"expected_error": ["is", "set"]}, fields=["name", "expected_error"]
 		)
@@ -30,7 +31,7 @@ def execute():
 
 def _attribute_suites_and_runs() -> tuple[int, int, int]:
 	agent_by_suite = {
-		suite.name: _resolve_agent_configuration_fallback(None, suite.process_model)
+		suite.name: resolve_agent_configuration_fallback(None, suite.process_model)
 		for suite in frappe.get_all("AI Eval Suite", fields=["name", "process_model"])
 	}
 

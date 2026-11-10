@@ -4,7 +4,7 @@ import json
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from one_bpmn.ai_agent_evals.eval_runner import _execute_memory_case
+from one_bpmn.ai_agent_evals.runner.cases_memory import execute_memory_case
 from one_bpmn.one_bpmn.patches.v1_0 import (
 	case_type_example_gets_its_fixtures as heal,
 	seed_connector_case_type_suite as seed,
@@ -43,7 +43,7 @@ class TestCaseTypeExampleFixtures(FrappeTestCase):
 		self.assertEqual(ctx["scope"], "Agent")
 		self.assertEqual(ctx["query"], "", "a generation case must not also search the store")
 
-		report = _execute_memory_case(frappe.get_doc("AI Eval Case", memory["name"]))
+		report = execute_memory_case(frappe.get_doc("AI Eval Case", memory["name"]))
 		self.assertEqual(report["status"], "Passed", report.get("actual_output"))
 		self.assertEqual(json.loads(report["actual_output"])["measured"], ["generation"])
 
