@@ -63,18 +63,7 @@
 				<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
 
 				<!-- Comment Tool button -->
-				<button
-					@click="toggleCommentMode"
-					title="Comment Tool"
-					:class="[
-						'p-1.5 flex items-center justify-center rounded transition-colors',
-						isCommentMode
-							? 'bg-blue-100 text-blue-700 shadow-sm'
-							: 'hover:bg-gray-100 text-gray-700'
-					]"
-				>
-					<Icon icon="lucide:message-square" class="w-4 h-4" />
-				</button>
+				<CommentToolButton :active="isCommentMode" @click="toggleCommentMode" />
 
 				<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
 
@@ -99,11 +88,18 @@
 				</button>
 			</template>
 
-			<!-- Read-only indicator -->
-			<div v-if="readonly" class="flex items-center gap-1.5 text-gray-400 text-sm">
-				<Icon icon="lucide:lock" class="w-4 h-4" />
-				<span>View Only</span>
-			</div>
+			<!-- Read-only indicator. Commenting is the single tool that outlives the
+			     lock (WI-004178), so the Comment Tool sits beside it. -->
+			<template v-if="readonly">
+				<template v-if="commentsAllowed">
+					<CommentToolButton :active="isCommentMode" @click="toggleCommentMode" />
+					<div class="w-px h-5 bg-gray-200 mx-1 shrink-0"></div>
+				</template>
+				<div class="flex items-center gap-1.5 text-gray-400 text-sm">
+					<Icon icon="lucide:lock" class="w-4 h-4" />
+					<span>View Only</span>
+				</div>
+			</template>
 
 
 			<div class="flex-1 flex items-center justify-end gap-2 px-3">
@@ -137,7 +133,7 @@
 			<!-- BPMN Canvas -->
 			<div
 				ref="container"
-				:class="['bpmn-canvas flex-1 min-w-0', { 'bpmn-canvas--readonly': readonly, 'comment-mode-active': isCommentMode }]"
+				:class="['bpmn-canvas flex-1 min-w-0', { 'bpmn-canvas--readonly': readonly, 'bpmn-canvas--comments': commentsAllowed, 'comment-mode-active': isCommentMode }]"
 				@contextmenu.prevent
 			></div>
 
@@ -1024,6 +1020,7 @@ import { useWindowSize } from "@/composables/useWindowSize";
 import { useBottomSheet } from "@/composables/useBottomSheet";
 
 import FormattingToolbar from "@/components/FormattingToolbar.vue";
+import CommentToolButton from "@/components/CommentToolButton.vue";
 import ProsAllyPanel from "@/components/ProsAllyPanel.vue";
 import AIAgentConfigModal from "@/components/AIAgentConfigModal.vue";
 import DocuCanvas from "@/components/DocuCanvas.vue";
@@ -1127,6 +1124,16 @@ const props = defineProps({
 	readonly: {
 		type: Boolean,
 		default: false
+	},
+	// Commenting is exempt from the read-only lock (WI-004178): a comment never
+	// mutates the diagram, so a process that is live in Production can still be
+	// annotated. It is withheld only where a comment could not be filed
+	// correctly — browsing a historical version, where the shape IDs on screen
+	// belong to the snapshot but the comment would be filed against the live
+	// map. Everything else the lock blocks stays blocked.
+	commentsAllowed: {
+		type: Boolean,
+		default: true
 	},
 	// "Release Property Panel" mode — while readonly, re-enables the properties
 	// panel for flow objects, minus script tasks, AI Agent tasks and the
@@ -2797,7 +2804,7 @@ function handleCommentInput(e) {
 // --- Inline Comment Handlers ---
 
 function openInlineComment(element) {
-	if (props.readonly) return;
+	if (!props.commentsAllowed) return;
 	
 	activeCommentElement.value = element;
 	inlineCommentElement.value = element;
@@ -4000,17 +4007,39 @@ function getAvatarColor(userName) {
 
 /* ── Read-Only Mode ─────────────────────────────── */
 
-/* Hide palette and context pad in read-only mode */
+/* Hide palette, popups and direct editing in read-only mode */
 .bpmn-canvas--readonly .djs-palette,
-.bpmn-canvas--readonly .djs-context-pad,
 .bpmn-canvas--readonly .djs-popup,
 .bpmn-canvas--readonly .djs-direct-editing-parent {
 	display: none !important;
 }
 
+/* The context pad goes with them unless commenting is allowed (WI-004178). */
+.bpmn-canvas--readonly:not(.bpmn-canvas--comments) .djs-context-pad {
+	display: none !important;
+}
+
+/* Commenting allowed on a locked map: the pad is kept for the "Add Comment"
+   entry alone. Every entry is hidden first and only that one is restored, so
+   an entry from any other provider stays hidden without having to be named.
+   diagram-js stamps each entry with data-action (ContextPad._updateAndOpen),
+   and an emptied [data-group] collapses to nothing of its own. */
+.bpmn-canvas--readonly.bpmn-canvas--comments .djs-context-pad [data-action] {
+	display: none !important;
+}
+
+.bpmn-canvas--readonly.bpmn-canvas--comments .djs-context-pad [data-action="add-comment"] {
+	display: inline-block !important;
+}
+
 /* Disable drag/move cursor on elements in read-only mode */
 .bpmn-canvas--readonly .djs-element {
 	cursor: default !important;
+}
+
+/* ...except while the Comment Tool is armed, where a shape is a target. */
+.bpmn-canvas--readonly.comment-mode-active .djs-element {
+	cursor: crosshair !important;
 }
 
 /* Semi-transparent overlay to visually indicate read-only */
