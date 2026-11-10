@@ -14,7 +14,7 @@ import { AI_SPARKLE_DATA_URI } from "../shared/aiSparkleIcon";
  * The ai* attributes are declared on the AdhocAiTaskSelectorExtension
  * moddle extension (see BpmnEditor.vue) so they round-trip through
  * save/reload. Compile-time validation (provider required, raw-key lint)
- * lives in api/compilation.py.
+ * lives in processa_engine/compiler/ai_checks.py.
  */
 
 // Run after the built-in ReplaceMenuProvider (priority 1000) so the standard
