@@ -288,7 +288,7 @@ _RUN_ORDERS = {
 }
 
 
-def _percentile(values: list, share: float) -> int:
+def percentile(values: list, share: float) -> int:
 	if not values:
 		return 0
 	values = sorted(values)
@@ -420,8 +420,8 @@ def list_runs(
 		"conversations": cint(totals.get("instances")),
 		"steps": step_total,
 		"steps_per_run": round(step_total / run_count, 1) if run_count else 0,
-		"median_latency_ms": _percentile(latencies, 0.5),
-		"p95_latency_ms": _percentile(latencies, 0.95),
+		"median_latency_ms": percentile(latencies, 0.5),
+		"p95_latency_ms": percentile(latencies, 0.95),
 		"error_runs": cint(totals.get("error_runs")),
 		"error_rate": round(cint(totals.get("error_runs")) * 100 / run_count, 1) if run_count else 0,
 		"cost": flt(totals.get("cost")),

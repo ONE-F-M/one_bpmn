@@ -99,7 +99,7 @@ def get_issue_runs(
 	offset = max(cint(offset), 0)
 
 	Run = DocType("AI Agent Run")
-	fields = (Run.error_code, Run.bpmn_id, Run.process_model, _series_field(Run, group_by))
+	fields = (Run.error_code, Run.bpmn_id, Run.process_model, series_field(Run, group_by))
 	query = _in_range(frappe.qb.from_(Run), Run, from_d, to_d, origin).where(Run.status == "Error")
 	query = query.where(Run.parent_run.isnull() | (Run.parent_run == ""))
 	for field, value in zip(fields, parts, strict=True):
@@ -196,7 +196,7 @@ def export_error_report(
 	frappe.response["filecontent"] = content
 
 
-def _series_field(Run, group_by: str):
+def series_field(Run, group_by: str):
 	return Run.agent_configuration if group_by == "agent" else Run.model
 
 
@@ -208,7 +208,7 @@ def _in_range(query, Run, from_d, to_d, origin: str):
 	)
 
 
-def _scoped(query, Run, from_d, to_d, origin: str, filters: dict):
+def scoped(query, Run, from_d, to_d, origin: str, filters: dict):
 	return apply_common_filters(_in_range(query, Run, from_d, to_d, origin), Run, **filters)
 
 
@@ -223,8 +223,8 @@ def _issue_key(error_code, bpmn_id, process_model, series) -> str:
 def _error_period(from_d, to_d, origin: str, filters: dict, group_by: str) -> dict:
 	"""Counted-run and error aggregates for one period, keyed by element and by issue."""
 	Run = DocType("AI Agent Run")
-	series = _series_field(Run, group_by)
-	elements = _scoped(frappe.qb.from_(Run), Run, from_d, to_d, origin, filters)
+	series = series_field(Run, group_by)
+	elements = scoped(frappe.qb.from_(Run), Run, from_d, to_d, origin, filters)
 	elements = (
 		elements.select(
 			Run.bpmn_id,
@@ -242,7 +242,7 @@ def _error_period(from_d, to_d, origin: str, filters: dict, group_by: str) -> di
 		.run(as_dict=True)
 	)
 	errors = (
-		_scoped(frappe.qb.from_(Run), Run, from_d, to_d, origin, filters)
+		scoped(frappe.qb.from_(Run), Run, from_d, to_d, origin, filters)
 		.select(
 			Run.error_code, Run.bpmn_id, Run.process_model, series.as_("series"), fn.Count("*").as_("errors")
 		)
@@ -251,7 +251,7 @@ def _error_period(from_d, to_d, origin: str, filters: dict, group_by: str) -> di
 		.run(as_dict=True)
 	)
 	suspended = (
-		_scoped(frappe.qb.from_(Run), Run, from_d, to_d, origin, filters)
+		scoped(frappe.qb.from_(Run), Run, from_d, to_d, origin, filters)
 		.select(fn.Count("*").as_("n"))
 		.where(Run.status == "Suspended")
 		.run(as_dict=True)[0]["n"]
@@ -363,7 +363,7 @@ def _error_issues(current, previous, from_d, to_d, origin, filters, group_by, er
 				"is_new": _seen_since(seen.first_seen, from_d),
 				"retried": cint(element.retried),
 				"retry_recovered": cint(element.recovered),
-				"p95_duration_ms": _p95(history["durations"].get(element_key, [])),
+				"p95_duration_ms": p95(history["durations"].get(element_key, [])),
 				"previous_error_rate": previous_error_rate,
 				"delta_pt": flt(error_rate - previous_error_rate, 1) if previous_runs else None,
 			}
@@ -374,7 +374,7 @@ def _error_issues(current, previous, from_d, to_d, origin, filters, group_by, er
 def _issue_history(keys, from_d, to_d, origin, filters, group_by) -> dict:
 	"""All-time first and last seen, the latest message in range, and counted-run durations per element."""
 	Run = DocType("AI Agent Run")
-	series = _series_field(Run, group_by)
+	series = series_field(Run, group_by)
 	bpmn_ids = list({k[1] for k in keys if k[1]})
 	element_filter = Run.bpmn_id.isin(bpmn_ids) if bpmn_ids else Run.bpmn_id.isnull()
 	seen_rows = (
@@ -394,7 +394,7 @@ def _issue_history(keys, from_d, to_d, origin, filters, group_by) -> dict:
 		.run(as_dict=True)
 	)
 	message_rows = (
-		_scoped(frappe.qb.from_(Run), Run, from_d, to_d, origin, filters)
+		scoped(frappe.qb.from_(Run), Run, from_d, to_d, origin, filters)
 		.select(Run.error_code, Run.bpmn_id, Run.process_model, series.as_("series"), Run.error_message)
 		.where(Run.status == "Error")
 		.where(element_filter)
@@ -402,7 +402,7 @@ def _issue_history(keys, from_d, to_d, origin, filters, group_by) -> dict:
 		.run(as_dict=True)
 	)
 	duration_rows = (
-		_scoped(frappe.qb.from_(Run), Run, from_d, to_d, origin, filters)
+		scoped(frappe.qb.from_(Run), Run, from_d, to_d, origin, filters)
 		.select(Run.bpmn_id, Run.process_model, series.as_("series"), Run.duration_ms)
 		.where(Run.status.notin(COUNTED_EXCLUDED_STATUSES))
 		.where(element_filter)
@@ -423,7 +423,7 @@ def _issue_history(keys, from_d, to_d, origin, filters, group_by) -> dict:
 	}
 
 
-def _p95(values: list) -> int:
+def p95(values: list) -> int:
 	"""Nearest-rank 95th percentile; MariaDB has no percentile function."""
 	if not values:
 		return 0
@@ -436,7 +436,7 @@ def _error_timeseries(from_d, to_d, origin: str, filters: dict, grain: str) -> d
 	Run = DocType("AI Agent Run")
 	day = fn.Date(Run.started_at)
 	rows = (
-		_scoped(frappe.qb.from_(Run), Run, from_d, to_d, origin, filters)
+		scoped(frappe.qb.from_(Run), Run, from_d, to_d, origin, filters)
 		.select(day.as_("day"), Run.status, Run.error_code, fn.Count("*").as_("n"))
 		.where(Run.status.notin(COUNTED_EXCLUDED_STATUSES))
 		.groupby(day, Run.status, Run.error_code)

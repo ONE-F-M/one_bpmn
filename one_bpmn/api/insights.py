@@ -197,6 +197,33 @@ def get_performance_report(
 
 
 @frappe.whitelist()
+def export_latency_report(
+	from_date: str | None = None,
+	to_date: str | None = None,
+	model: str | None = None,
+	process_model: str | None = None,
+	agent_configuration: str | None = None,
+	origin: str = "production",
+	group_by: str = "model",
+	provider: str | None = None,
+	fmt: str = "csv",
+):
+	"""Download the latency report's elements, one row per element with every field, as CSV or XLSX."""
+	frappe.only_for("System Manager")
+	return performance.export_latency_report(
+		from_date=from_date,
+		to_date=to_date,
+		model=model,
+		process_model=process_model,
+		agent_configuration=agent_configuration,
+		origin=origin,
+		group_by=group_by,
+		provider=provider,
+		fmt=fmt,
+	)
+
+
+@frappe.whitelist()
 def get_run_tree(run_name: str) -> dict:
 	"""Get run tree."""
 	frappe.only_for("System Manager")
