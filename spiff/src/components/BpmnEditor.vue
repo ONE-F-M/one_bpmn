@@ -88,8 +88,7 @@
 				</button>
 			</template>
 
-			<!-- Read-only indicator. Commenting is the single tool that outlives the
-			     lock (WI-004178), so the Comment Tool sits beside it. -->
+			<!-- Read-only indicator, with the Comment Tool beside it when commenting is allowed -->
 			<template v-if="readonly">
 				<template v-if="commentsAllowed">
 					<CommentToolButton :active="isCommentMode" @click="toggleCommentMode" />
@@ -1125,12 +1124,7 @@ const props = defineProps({
 		type: Boolean,
 		default: false
 	},
-	// Commenting is exempt from the read-only lock (WI-004178): a comment never
-	// mutates the diagram, so a process that is live in Production can still be
-	// annotated. It is withheld only where a comment could not be filed
-	// correctly — browsing a historical version, where the shape IDs on screen
-	// belong to the snapshot but the comment would be filed against the live
-	// map. Everything else the lock blocks stays blocked.
+	// Commenting is exempt from the read-only lock; off while browsing a historical version
 	commentsAllowed: {
 		type: Boolean,
 		default: true
@@ -4014,16 +4008,12 @@ function getAvatarColor(userName) {
 	display: none !important;
 }
 
-/* The context pad goes with them unless commenting is allowed (WI-004178). */
+/* The context pad goes with them unless commenting is allowed. */
 .bpmn-canvas--readonly:not(.bpmn-canvas--comments) .djs-context-pad {
 	display: none !important;
 }
 
-/* Commenting allowed on a locked map: the pad is kept for the "Add Comment"
-   entry alone. Every entry is hidden first and only that one is restored, so
-   an entry from any other provider stays hidden without having to be named.
-   diagram-js stamps each entry with data-action (ContextPad._updateAndOpen),
-   and an emptied [data-group] collapses to nothing of its own. */
+/* Commenting allowed on a locked map: hide every pad entry, restore only "Add Comment" */
 .bpmn-canvas--readonly.bpmn-canvas--comments .djs-context-pad [data-action] {
 	display: none !important;
 }
