@@ -1,5 +1,6 @@
 import { toRaw } from "vue";
 import { frappeRequest } from "frappe-ui";
+import { missingAiTaskSetting } from "@/utils/aiTaskConfig";
 
 export function useAgentConfigSave(ac) {
 	const {
@@ -121,7 +122,8 @@ export function useAgentConfigSave(ac) {
 	async function save() {
 		// every AI shape must be backed by an AI Agent Configuration —
 		// raw provider setup is not supported (the compile gate enforces the same rule).
-		if (!form.value.aiAgentConfig) {
+		const missing = missingAiTaskSetting(form.value);
+		if (missing === "agent_config") {
 			showNotice(
 				"Link an AI Agent Configuration",
 				"Link an AI Agent Configuration before saving.\n" +
@@ -133,7 +135,7 @@ export function useAgentConfigSave(ac) {
 
 		// the model comes from the linked agent's catalog pick. An
 		// empty model here means the agent has none yet — fix it on the agent.
-		if (!form.value.aiModel || !form.value.aiModel.trim()) {
+		if (missing === "model") {
 			showNotice(
 				"No model set",
 				"No model is set. Pick an AI Model on the linked AI Agent Configuration " +
