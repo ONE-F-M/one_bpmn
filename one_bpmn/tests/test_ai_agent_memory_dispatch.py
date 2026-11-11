@@ -11,6 +11,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from one_bpmn.ai_agent_memory import budget as B
 from one_bpmn.processa_engine.agent_runtime.executor import (
 	ErrorCode,
 	Executor,
@@ -20,7 +21,6 @@ from one_bpmn.processa_engine.agent_runtime.executor import (
 	register_executor,
 )
 from one_bpmn.processa_engine.agent_runtime.direct_api import DirectApiExecutor
-from one_bpmn.ai_agent_memory import budget as B
 from one_bpmn.processa_engine.dispatch import ai_agent as D
 
 _CAPTURED = {}
@@ -818,8 +818,7 @@ class TestIsSmallTalk(FrappeTestCase):
 
 
 class TestBoundMemoriesToBudget(FrappeTestCase):
-	"""bound_memories_to_budget directly - the truncation dispatch applies to
-	whatever memory_search returns, before format_memory_block renders it."""
+	"""bound_memories_to_budget on whatever memory_search returns, before format_memory_block renders it."""
 
 	def test_under_budget_is_unchanged(self):
 		memories = [{"content": "short fact"}]
