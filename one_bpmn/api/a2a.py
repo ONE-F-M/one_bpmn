@@ -423,58 +423,6 @@ def _authorize(config: dict, conversation_name: str = None):
 		)
 
 
-@frappe.whitelist()
-def list_available_agents(include_legacy: int = 1) -> list:
-	"""Return the chat agents the current user may use.
-
-	The list is a query over enabled, Live, Chat-type AI Agent
-	Configurations, filtered by each agent's allowed_roles (empty = all
-	logged-in users). During the transition — until the last legacy Lumina-page
-	agent (General Chat) is migrated to a Live config — the
-	hardcoded set is unioned in so the chat dropdown never empties. LuCrusher
-	and the BA Agent have both left that set: they are Live, map-driven configs
-	and are listed from the query like every other migrated agent, leaving
-	General Chat as the last legacy entry.
-	Each entry: {value (chat mode label), label, icon, agent_id}.
-	"""
-	agents, seen = [], set()
-
-	configs = frappe.get_all(
-		"AI Agent Configuration",
-		filters={"enabled": 1, "agent_type": "Chat", "lifecycle_status": "Live"},
-		fields=["name", "agent_id", "chat_mode_label", "icon", "process_model"],
-	)
-	for cfg in configs:
-		if not cfg.chat_mode_label:
-			continue
-		# Live makes an agent referenceable in the editor; a
-		# deployed linked diagram is what makes it CHATTABLE. Task-only agents
-		# (no diagram, or diagram not deployed) stay out of the chat picker.
-		if not cfg.process_model or not frappe.db.get_value(
-			"BPMN Process Model", cfg.process_model, "is_active"
-		):
-			continue
-		# Same rule the invocation gate applies, read from the same function —
-		# a picker that shows what cannot be called, or hides what can, is worse
-		# than no filter at all.
-		if not user_may_use_agent(cfg.name):
-			continue
-		agents.append({
-			"value": cfg.chat_mode_label,
-			"label": cfg.chat_mode_label,
-			"icon": cfg.icon or "🤖",
-			"agent_id": cfg.agent_id,
-		})
-		seen.add(cfg.chat_mode_label)
-
-	if int(include_legacy or 0):
-		for label, icon in (("General Chat", "💬"),):
-			if label not in seen:
-				agents.append({"value": label, "label": label, "icon": icon, "agent_id": None, "legacy": True})
-
-	return agents
-
-
 # The ONE AI page is the Lumina page's successor, so it offers the Lumina
 # page's own modes and nothing else — LUMINA_NATIVE_MODES in onefm_mcp's
 # lumina.py, expressed here as agent ids. Order is the picker's order.
