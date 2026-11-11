@@ -13,6 +13,7 @@ ENDPOINTS = {
 	"export_cost_allocation",
 	"export_cost_token_report",
 	"export_error_report",
+	"export_latency_report",
 	"get_agent_overview",
 	"get_cost_allocation",
 	"get_cost_token_report",
