@@ -224,6 +224,68 @@ def export_latency_report(
 
 
 @frappe.whitelist()
+def get_step_latency_report(
+	from_date: str | None = None,
+	to_date: str | None = None,
+	origin: str = "production",
+	model: str | None = None,
+	provider: str | None = None,
+	process_model: str | None = None,
+	agent_configuration: str | None = None,
+	key: str | None = None,
+	group_by: str = "model",
+	limit: int = 3,
+) -> dict:
+	"""Time split and costliest step labels, for all counted runs or one element."""
+	frappe.only_for("System Manager")
+	return performance.get_step_latency_report(
+		from_date=from_date,
+		to_date=to_date,
+		origin=origin,
+		model=model,
+		provider=provider,
+		process_model=process_model,
+		agent_configuration=agent_configuration,
+		key=key,
+		group_by=group_by,
+		limit=limit,
+	)
+
+
+@frappe.whitelist()
+def get_element_runs(
+	key: str,
+	from_date: str | None = None,
+	to_date: str | None = None,
+	origin: str = "production",
+	model: str | None = None,
+	provider: str | None = None,
+	process_model: str | None = None,
+	agent_configuration: str | None = None,
+	group_by: str = "model",
+	min_agent_latency_ms: int = 0,
+	limit: int = 3,
+	offset: int = 0,
+) -> dict:
+	"""Slowest measured runs of one element, paged by limit and offset."""
+	frappe.only_for("System Manager")
+	return performance.get_element_runs(
+		key=key,
+		from_date=from_date,
+		to_date=to_date,
+		origin=origin,
+		model=model,
+		provider=provider,
+		process_model=process_model,
+		agent_configuration=agent_configuration,
+		group_by=group_by,
+		min_agent_latency_ms=min_agent_latency_ms,
+		limit=limit,
+		offset=offset,
+	)
+
+
+@frappe.whitelist()
 def get_run_tree(run_name: str) -> dict:
 	"""Get run tree."""
 	frappe.only_for("System Manager")
