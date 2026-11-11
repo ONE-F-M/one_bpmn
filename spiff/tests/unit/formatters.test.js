@@ -110,6 +110,12 @@ test("fmtDuration: minutes and seconds", () => {
 	assert.equal(fmtDuration(125000), "2:05")
 })
 
+test("fmtDuration: an hour or more reads in hours and minutes", () => {
+	assert.equal(fmtDuration(6300000), "1h 45m")
+	assert.equal(fmtDuration(3600000), "1h 0m")
+	assert.equal(fmtDuration(3599000), "59:59")
+})
+
 test("fmtDuration: null is 0ms", () => {
 	assert.equal(fmtDuration(null), "0ms")
 })

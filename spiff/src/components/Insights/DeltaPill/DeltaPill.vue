@@ -17,10 +17,11 @@ const __ = (window.__ && typeof window.__ === "function") ? window.__ : (s) => s
 const props = defineProps({
 	delta: { type: Number, default: null },
 	kind: { type: String, default: "pct" }, // "pct" | "pt"
-	goodDirection: { type: String, default: "up" }, // "up" | "down"
+	goodDirection: { type: String, default: "up" }, // "up" | "down" | "none"
 })
 
 const toneClasses = computed(() => {
+	if (props.goodDirection === "none") return "text-gray-500"
 	const signed = props.delta === null ? 0 : props.goodDirection === "down" ? -props.delta : props.delta
 	if (props.kind === "pt") {
 		if (signed <= -0.5) return "bg-red-50 text-red-700"

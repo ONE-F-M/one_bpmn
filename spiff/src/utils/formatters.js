@@ -98,6 +98,10 @@ export function fmtDateRange(from, to) {
 
 export function fmtDuration(ms) {
 	ms = toNum(ms)
+	if (ms >= 3600000) {
+		const totalMinutes = Math.round(ms / 60000)
+		return `${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m`
+	}
 	if (Math.round(ms) < 1000) return `${Math.round(ms)}ms`
 	if (Math.round(ms / 100) < 600) return `${(Math.round(ms / 100) / 10).toFixed(1)}s`
 	const totalSeconds = Math.round(ms / 1000)
