@@ -134,10 +134,7 @@ def _memory_fields(cfg: dict) -> dict:
 def recall_process_memory(diagram_name: str, process_name: str = "") -> dict:
 	"""The diagram's Process and the notes recalled for it and the requester, for the turn store."""
 	from one_bpmn.ai_agent_memory.tools import memory_search
-	from one_bpmn.processa_engine.dispatch.ai_agent import (
-		DEFAULT_MEMORY_TOKEN_BUDGET,
-		bound_memories_to_budget,
-	)
+	from one_bpmn.ai_agent_memory.budget import DEFAULT_MEMORY_TOKEN_BUDGET, bound_memories_to_budget
 	from one_bpmn.processa_engine.dispatch.common import cfg_truthy
 
 	fields = _memory_fields(prosally_config())
